@@ -7,9 +7,9 @@ import {
 import { isPropHidden, validatePropValues } from "@senify/section-sdk";
 
 describe("section catalog", () => {
-  it("registers all 25 sections in build order", () => {
+  it("registers all 28 sections in build order", () => {
     const registry = createRegistry();
-    expect(EXPECTED_SECTION_TYPES).toHaveLength(25);
+    expect(EXPECTED_SECTION_TYPES).toHaveLength(28);
     expect(registry.list().map((section) => section.type)).toEqual([
       ...EXPECTED_SECTION_TYPES,
     ]);

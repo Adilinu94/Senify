@@ -25,6 +25,9 @@ import { Comparison } from "./Comparison.tsx";
 import { CookieNote } from "./CookieNote.tsx";
 import { Marquee } from "./Marquee.tsx";
 import { Gallery } from "./Gallery.tsx";
+import { Outlet } from "./Outlet.tsx";
+import { CollectionList } from "./CollectionList.tsx";
+import { Card } from "./Card.tsx";
 import type { SectionContext, SectionProps } from "./shared.tsx";
 
 export const SECTION_COMPONENTS: Record<string, ComponentType<SectionProps>> = {
@@ -53,6 +56,9 @@ export const SECTION_COMPONENTS: Record<string, ComponentType<SectionProps>> = {
   "cookie-note": CookieNote,
   marquee: Marquee,
   gallery: Gallery,
+  outlet: Outlet,
+  "collection-list": CollectionList,
+  card: Card,
 };
 
 export function getSectionComponent(type: string): ComponentType<SectionProps> | undefined {

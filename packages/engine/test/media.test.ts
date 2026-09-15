@@ -682,6 +682,8 @@ describe("asset reference checks", () => {
       meta: { description: "Beschreibung" },
       draft: tree,
       draftVersion: 1,
+      template: null,
+      layoutId: null,
       createdAt: "2026-09-15T00:00:00.000Z",
       updatedAt: "2026-09-15T00:00:00.000Z",
     };
@@ -852,6 +854,8 @@ describe("bake delivers referenced assets", () => {
       title: "Start",
       meta: { description: "Beschreibung" },
       draftVersion: 1,
+      template: null,
+      layoutId: null,
       createdAt: "2026-09-15T00:00:00.000Z",
       updatedAt: "2026-09-15T00:00:00.000Z",
       draft: {

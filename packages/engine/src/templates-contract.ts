@@ -1,0 +1,40 @@
+import { Type, type Static } from "@sinclair/typebox";
+import { AuthorSchema } from "./mutations/contract.ts";
+
+const CLOSED = { additionalProperties: false } as const;
+
+const LayoutTemplateSchema = Type.Object(
+  {
+    kind: Type.Literal("layout"),
+    label: Type.Optional(Type.String({ maxLength: 120 })),
+  },
+  CLOSED,
+);
+
+const CollectionTemplateSchema = Type.Object(
+  {
+    kind: Type.Literal("collection"),
+    collectionIds: Type.Array(Type.String({ minLength: 1 }), {
+      minItems: 1,
+      maxItems: 20,
+      uniqueItems: true,
+    }),
+    priority: Type.Optional(Type.Integer({ minimum: 0, maximum: 1000 })),
+  },
+  CLOSED,
+);
+
+export const PutPageTemplateBodySchema = Type.Object(
+  {
+    // null removes the mark; the page then only keeps its layout choice.
+    template: Type.Optional(
+      Type.Union([LayoutTemplateSchema, CollectionTemplateSchema, Type.Null()]),
+    ),
+    layoutId: Type.Optional(
+      Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    ),
+    author: AuthorSchema,
+  },
+  CLOSED,
+);
+export type PutPageTemplateBody = Static<typeof PutPageTemplateBodySchema>;

@@ -2,6 +2,12 @@ import { SenifyError } from "@senify/core";
 
 export const PAGE_PATH_PATTERN = /^\/[^\s?#]*$/;
 
+// The detail path of an entry: the collection's urlPattern with the slug
+// spliced in (default `/<slug>`).
+export function entryPathFor(urlPattern: string | null, slug: string): string {
+  return (urlPattern ?? "/{slug}").replace("{slug}", slug);
+}
+
 export function assertPagePathFormat(path: string, field = "path"): void {
   if (!PAGE_PATH_PATTERN.test(path)) {
     throw new SenifyError("validation", `Invalid page path "${path}"`, {

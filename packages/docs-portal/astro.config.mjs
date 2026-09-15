@@ -15,8 +15,13 @@ export default defineConfig({
       alias: {
         "@senify/core": source("../../packages/core/src/index.ts"),
         "@senify/section-sdk": source("../../packages/section-sdk/src/index.ts"),
+        // Exact entry before the bare one: "@senify/registry" also matches the
+        // "/components" subpath and would resolve it as index.ts/components.
+        "@senify/registry/components": source("../../packages/registry/src/components/index.ts"),
         "@senify/registry": source("../../packages/registry/src/index.ts"),
-        "@senify/mcp": source("../../packages/mcp/src/index.ts"),
+        // The portal only needs the tool catalog; the package root would pull
+        // the CLI and with it the whole app shell into this build.
+        "@senify/mcp": source("../../packages/mcp/src/tools.ts"),
         "@senify/tokens": source("../../packages/tokens/src/index.ts"),
         "@senify/docs-portal": source("./src/index.ts"),
       },

@@ -33,6 +33,14 @@ import { draftConflictError } from "./paths.ts";
 import { RateLimiter, RateLimitError } from "./rate-limit.ts";
 import { hardGuardrailsForTree } from "./guardrails.ts";
 import {
+  DuplicateSiteBodySchema,
+  RenameSiteBodySchema,
+  SiteEventBodySchema,
+  type DuplicateSiteBody,
+  type RenameSiteBody,
+  type SiteEventBody,
+} from "./site-contract.ts";
+import {
   approveReview,
   createPreview,
   discardReview,
@@ -94,6 +102,11 @@ import {
   type UpdateCollectionBody,
   type UpdateEntryBody,
 } from "./content-contract.ts";
+import {
+  PutPageTemplateBodySchema,
+  type PutPageTemplateBody,
+} from "./templates-contract.ts";
+import { putPageTemplate } from "./templates.ts";
 import {
   applyAssetPatch,
   bulkAssets,
@@ -573,10 +586,105 @@ const ROUTES: Route[] = [
     method: "GET",
     segments: ["api", "sites"],
     scope: "read",
-    handler: async (context) => ({
-      status: 200,
-      body: { sites: await context.store.listSites() },
-    }),
+    handler: async (context, _params, _req, url) => {
+      const trash = url.searchParams.get("trash");
+      if (trash === "1" || trash === "true") {
+        return {
+          status: 200,
+          body: { sites: await context.store.listTrashedSites() },
+        };
+      }
+      return {
+        status: 200,
+        body: { sites: await context.store.listSites() },
+      };
+    },
+  },
+  {
+    method: "PATCH",
+    segments: ["api", "sites", ":siteId"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const siteId = requireParam(params, "siteId");
+      const body = (await readJsonBody(req)) ?? {};
+      const parsed = parseBody<RenameSiteBody>(
+        RenameSiteBodySchema,
+        body,
+        "site rename",
+      );
+      const site = await context.store.renameSite(siteId, parsed.name);
+      await context.store.recordSiteEvent({
+        siteId,
+        mutation: "rename_site",
+        params: { name: parsed.name },
+        author: parsed.author,
+      });
+      return { status: 200, body: site };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "trash"],
+    scope: "publish",
+    destructive: true,
+    handler: async (context, params, req) => {
+      const siteId = requireParam(params, "siteId");
+      const body = (await readJsonBody(req)) ?? {};
+      const parsed = parseBody<SiteEventBody>(
+        SiteEventBodySchema,
+        body,
+        "site trash",
+      );
+      const site = await context.store.trashSite(siteId);
+      await context.store.recordSiteEvent({
+        siteId,
+        mutation: "trash_site",
+        params: {},
+        author: parsed.author,
+      });
+      return { status: 200, body: site };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "restore"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const siteId = requireParam(params, "siteId");
+      const body = (await readJsonBody(req)) ?? {};
+      const parsed = parseBody<SiteEventBody>(
+        SiteEventBodySchema,
+        body,
+        "site restore",
+      );
+      const site = await context.store.restoreSite(siteId);
+      await context.store.recordSiteEvent({
+        siteId,
+        mutation: "restore_site",
+        params: {},
+        author: parsed.author,
+      });
+      return { status: 200, body: site };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "duplicate"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const siteId = requireParam(params, "siteId");
+      const body = (await readJsonBody(req)) ?? {};
+      const parsed = parseBody<DuplicateSiteBody>(
+        DuplicateSiteBodySchema,
+        body,
+        "site duplicate",
+      );
+      const site = await context.store.duplicateSite(siteId, {
+        withContent: parsed.withContent ?? false,
+        author: parsed.author,
+      });
+      return { status: 201, body: site };
+    },
   },
   {
     method: "GET",
@@ -687,6 +795,26 @@ const ROUTES: Route[] = [
       if (!pageId) throw new SenifyError("validation", "Missing page id", { field: "pageId" });
       await context.store.deletePage(pageId);
       return { status: 204 };
+    },
+  },
+  {
+    // Marks a page as layout/collection template or picks its layout
+    // (artifacts/23 §1); template pages never get an own route.
+    method: "PUT",
+    segments: ["api", "pages", ":pageId", "template"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const pageId = requireParam(params, "pageId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<PutPageTemplateBody>(
+        PutPageTemplateBodySchema,
+        body,
+        "page template",
+      );
+      return {
+        status: 200,
+        body: await putPageTemplate(context.store, { pageId, body: input }),
+      };
     },
   },
   {

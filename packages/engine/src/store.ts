@@ -51,6 +51,7 @@ import {
   type PageMeta,
   type PageRevision,
   type PageSummary,
+  type PageTemplate,
   type Preview,
   type PreviewStatus,
   type Release,
@@ -133,9 +134,20 @@ type PageRow = {
   draft_version: unknown;
   created_at: unknown;
   updated_at: unknown;
+  template_kind?: unknown;
+  collection_ids?: unknown;
+  priority?: unknown;
+  layout_id?: unknown;
 };
 
 type PageSummaryRow = Omit<PageRow, "draft">;
+
+// The template columns come from the additive page_templates table via LEFT
+// JOIN; a page without a row is a normal page.
+const PAGE_COLUMNS =
+  "p.id, p.site_id, p.path, p.title, p.meta, p.draft, p.draft_version, p.created_at, p.updated_at, pt.kind AS template_kind, pt.collection_ids, pt.priority, pt.layout_id";
+const PAGE_SUMMARY_COLUMNS =
+  "p.id, p.site_id, p.path, p.title, p.meta, p.draft_version, p.created_at, p.updated_at, pt.kind AS template_kind, pt.collection_ids, pt.priority, pt.layout_id";
 
 type AuditRow = {
   id: string;
@@ -203,6 +215,25 @@ function assertDraftShape(draft: unknown): asserts draft is NodeTree {
   }
 }
 
+function mapPageTemplate(row: {
+  title?: string;
+  template_kind?: unknown;
+  collection_ids?: unknown;
+  priority?: unknown;
+}): PageTemplate | null {
+  if (row.template_kind === "layout") {
+    return { kind: "layout", label: row.title ?? "" };
+  }
+  if (row.template_kind === "collection") {
+    return {
+      kind: "collection",
+      collectionIds: toJson<string[]>(row.collection_ids),
+      priority: toFiniteNumber(row.priority ?? 0, "priority"),
+    };
+  }
+  return null;
+}
+
 function mapPage(row: PageRow): Page {
   const draft = toJson<unknown>(row.draft);
   assertDraftShape(draft);
@@ -214,6 +245,8 @@ function mapPage(row: PageRow): Page {
     meta: toJson<PageMeta>(row.meta),
     draft,
     draftVersion: toFiniteNumber(row.draft_version, "draft_version"),
+    template: mapPageTemplate(row),
+    layoutId: typeof row.layout_id === "string" ? row.layout_id : null,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   };
@@ -227,6 +260,8 @@ function toSummary(row: PageSummaryRow): PageSummary {
     title: row.title,
     meta: toJson<PageMeta>(row.meta),
     draftVersion: toFiniteNumber(row.draft_version, "draft_version"),
+    template: mapPageTemplate(row),
+    layoutId: typeof row.layout_id === "string" ? row.layout_id : null,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   };
@@ -859,8 +894,11 @@ export class Store {
 
   async listSites(): Promise<Site[]> {
     const result = await this.#db.query<SiteRow>(
-      `SELECT id, name, slug, profile, theme_id, created_at, updated_at
-       FROM sites ORDER BY created_at ASC, id ASC`,
+      `SELECT s.id, s.name, s.slug, s.profile, s.theme_id, s.created_at, s.updated_at
+       FROM sites s
+       LEFT JOIN site_trash t ON t.site_id = s.id
+       WHERE t.site_id IS NULL
+       ORDER BY s.created_at ASC, s.id ASC`,
     );
     return result.rows.map(mapSite);
   }
@@ -891,6 +929,281 @@ export class Store {
         field: "siteId",
       });
     }
+  }
+
+  async renameSite(id: string, name: string): Promise<Site> {
+    const trimmed = name.trim();
+    if (trimmed === "") {
+      throw new SenifyError("validation", "Site name is required", {
+        field: "name",
+        suggestion: "Provide a non-empty site name.",
+      });
+    }
+    const now = new Date().toISOString();
+    const result = await this.#db.query<SiteRow>(
+      `UPDATE sites SET name = $2, updated_at = $3 WHERE id = $1
+       RETURNING id, name, slug, profile, theme_id, created_at, updated_at`,
+      [id, trimmed, now],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Site "${id}" does not exist`, {
+        field: "siteId",
+      });
+    }
+    return mapSite(row);
+  }
+
+  // The trash lives in its own table: the schema stays additive (no ALTERs)
+  // and listSites simply excludes trashed sites.
+  async trashSite(id: string): Promise<Site> {
+    const site = await this.getSite(id);
+    const existing = await this.#db.query<{ site_id: string }>(
+      `SELECT site_id FROM site_trash WHERE site_id = $1`,
+      [id],
+    );
+    if (existing.rows.length > 0) {
+      throw new SenifyError("conflict", `Site "${id}" is already in the trash`, {
+        field: "siteId",
+        suggestion: "Restore the site first.",
+      });
+    }
+    await this.#db.query(
+      `INSERT INTO site_trash (site_id, trashed_at) VALUES ($1, $2)`,
+      [id, new Date().toISOString()],
+    );
+    return site;
+  }
+
+  async restoreSite(id: string): Promise<Site> {
+    const result = await this.#db.query<{ site_id: string }>(
+      `DELETE FROM site_trash WHERE site_id = $1 RETURNING site_id`,
+      [id],
+    );
+    if (result.rows.length === 0) {
+      throw new SenifyError("not_found", `Site "${id}" is not in the trash`, {
+        field: "siteId",
+      });
+    }
+    return this.getSite(id);
+  }
+
+  async listTrashedSites(): Promise<(Site & { trashedAt: string })[]> {
+    const result = await this.#db.query<SiteRow & { trashed_at: unknown }>(
+      `SELECT s.id, s.name, s.slug, s.profile, s.theme_id, s.created_at, s.updated_at, t.trashed_at
+       FROM site_trash t JOIN sites s ON s.id = t.site_id
+       ORDER BY t.trashed_at DESC, s.id ASC`,
+    );
+    return result.rows.map((row) => ({
+      ...mapSite(row),
+      trashedAt: toIso(row.trashed_at),
+    }));
+  }
+
+  // A copy is a fresh project: pages, theme and collection schemas come
+  // along; entries are copied as drafts (no publish state carries over) and
+  // assets are only referenced, never duplicated.
+  async duplicateSite(
+    sourceId: string,
+    options: { withContent: boolean; author: Author },
+  ): Promise<Site> {
+    const source = await this.getSite(sourceId);
+    const now = new Date().toISOString();
+    const name = `${source.name} (Kopie)`;
+    const taken = new Set(
+      (
+        await this.#db.query<{ slug: string }>(`SELECT slug FROM sites`)
+      ).rows.map((row) => row.slug),
+    );
+    const base = slugify(name);
+    let slug = base;
+    for (let attempt = 2; taken.has(slug) && attempt < 100; attempt += 1) {
+      slug = `${base}-${attempt}`;
+    }
+    if (taken.has(slug)) {
+      throw new SenifyError("conflict", `Site slug "${base}" is already in use`, {
+        field: "slug",
+        suggestion: "Rename the source site or free the slug.",
+      });
+    }
+
+    const themeRow = (
+      await this.#db.query<{
+        name: string;
+        definition: unknown;
+        version: unknown;
+      }>(`SELECT name, definition, version FROM themes WHERE site_id = $1`, [
+        sourceId,
+      ])
+    ).rows[0];
+    const pageRows = (
+      await this.#db.query<{
+        path: string;
+        title: string;
+        meta: unknown;
+        draft: unknown;
+        draft_version: unknown;
+      }>(
+        `SELECT path, title, meta, draft, draft_version FROM pages WHERE site_id = $1 ORDER BY created_at ASC, id ASC`,
+        [sourceId],
+      )
+    ).rows;
+    const collectionRows = (
+      await this.#db.query<{
+        id: string;
+        name: string;
+        slug: string;
+        fields: unknown;
+        title_field: string;
+        date_field: string | null;
+        url_pattern: string | null;
+        supports: unknown;
+        list_columns: unknown;
+        description: string | null;
+        deprecated_at: unknown;
+      }>(
+        `SELECT id, name, slug, fields, title_field, date_field, url_pattern, supports, list_columns, description, deprecated_at
+         FROM collections WHERE site_id = $1 ORDER BY created_at ASC, id ASC`,
+        [sourceId],
+      )
+    ).rows;
+    const entryRows = options.withContent
+      ? (
+          await this.#db.query<{
+            collection_id: string;
+            slug: string;
+            cells: unknown;
+            search_text: string;
+          }>(
+            `SELECT collection_id, slug, cells, search_text FROM entries
+             WHERE site_id = $1 AND deleted_at IS NULL
+             ORDER BY created_at ASC, id ASC`,
+            [sourceId],
+          )
+        ).rows
+      : [];
+
+    const siteId = newEntityId();
+    await this.#db.withTransaction(async (tx) => {
+      await tx.query(
+        `INSERT INTO sites (id, name, slug, profile, theme_id, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, NULL, $5, $5)`,
+        [siteId, name, slug, source.profile, now],
+      );
+      if (themeRow) {
+        const themeId = newEntityId();
+        await tx.query(
+          `INSERT INTO themes (id, site_id, name, definition, version, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $6)`,
+          [
+            themeId,
+            siteId,
+            themeRow.name,
+            toJsonParam(themeRow.definition),
+            themeRow.version,
+            now,
+          ],
+        );
+        await tx.query(`UPDATE sites SET theme_id = $2 WHERE id = $1`, [
+          siteId,
+          themeId,
+        ]);
+      }
+      for (const page of pageRows) {
+        await tx.query(
+          `INSERT INTO pages (id, site_id, path, title, meta, draft, draft_version, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,
+          [
+            newEntityId(),
+            siteId,
+            page.path,
+            page.title,
+            toJsonParam(page.meta),
+            toJsonParam(page.draft),
+            page.draft_version,
+            now,
+          ],
+        );
+      }
+      const collectionIds = new Map<string, string>();
+      for (const collection of collectionRows) {
+        const newId = newEntityId();
+        collectionIds.set(collection.id, newId);
+        await tx.query(
+          `INSERT INTO collections (id, site_id, name, slug, fields, title_field, date_field, url_pattern, supports, list_columns, description, deprecated_at, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)`,
+          [
+            newId,
+            siteId,
+            collection.name,
+            collection.slug,
+            toJsonParam(collection.fields),
+            collection.title_field,
+            collection.date_field,
+            collection.url_pattern,
+            toJsonParam(collection.supports),
+            toJsonParam(collection.list_columns),
+            collection.description,
+            collection.deprecated_at,
+            now,
+          ],
+        );
+      }
+      for (const entry of entryRows) {
+        const collectionId = collectionIds.get(entry.collection_id);
+        if (!collectionId) continue;
+        await tx.query(
+          `INSERT INTO entries (id, site_id, collection_id, slug, status, cells, active_version_id, version, author, search_text, published_at, scheduled_at, deleted_at, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, 'draft', $5, NULL, 1, $6, $7, NULL, NULL, NULL, $8, $8)`,
+          [
+            newEntityId(),
+            siteId,
+            collectionId,
+            entry.slug,
+            toJsonParam(entry.cells),
+            toJsonParam(options.author),
+            entry.search_text,
+            now,
+          ],
+        );
+      }
+    });
+    await this.recordSiteEvent({
+      siteId,
+      mutation: "duplicate_site",
+      params: {
+        sourceSiteId: sourceId,
+        withContent: options.withContent,
+        pages: pageRows.length,
+        entries: entryRows.length,
+      },
+      author: options.author,
+    });
+    return this.getSite(siteId);
+  }
+
+  // Site-level activity (rename, trash, duplicate, theme) lands in the same
+  // append-only audit log the page mutations use.
+  async recordSiteEvent(input: {
+    siteId: string;
+    mutation: string;
+    params: Record<string, unknown>;
+    author: Author;
+  }): Promise<void> {
+    const { text, params } = buildAuditInsert([
+      {
+        siteId: input.siteId,
+        pageId: null,
+        batchId: newEntityId(),
+        opIndex: 0,
+        mutation: input.mutation,
+        params: input.params,
+        author: input.author,
+        undoPatch: [],
+        draftVersionAfter: 0,
+      },
+    ]);
+    await this.#db.query(text, params);
   }
 
   async ensureSiteTheme(siteId: string): Promise<ThemeRow> {
@@ -1014,8 +1327,9 @@ export class Store {
   async listPageDrafts(siteId: string): Promise<Page[]> {
     await this.getSite(siteId);
     const result = await this.#db.query<PageRow>(
-      `SELECT id, site_id, path, title, meta, draft, draft_version, created_at, updated_at
-       FROM pages WHERE site_id = $1 ORDER BY created_at ASC, id ASC`,
+      `SELECT ${PAGE_COLUMNS}
+       FROM pages p LEFT JOIN page_templates pt ON pt.page_id = p.id
+       WHERE p.site_id = $1 ORDER BY p.created_at ASC, p.id ASC`,
       [siteId],
     );
     return result.rows.map((row) => mapPage(row));
@@ -1112,8 +1426,9 @@ export class Store {
   async listPages(siteId: string): Promise<PageSummary[]> {
     await this.getSite(siteId);
     const result = await this.#db.query<PageSummaryRow>(
-      `SELECT id, site_id, path, title, meta, draft_version, created_at, updated_at
-       FROM pages WHERE site_id = $1 ORDER BY created_at ASC, id ASC`,
+      `SELECT ${PAGE_SUMMARY_COLUMNS}
+       FROM pages p LEFT JOIN page_templates pt ON pt.page_id = p.id
+       WHERE p.site_id = $1 ORDER BY p.created_at ASC, p.id ASC`,
       [siteId],
     );
     return result.rows.map((row) => toSummary(row));
@@ -1121,8 +1436,9 @@ export class Store {
 
   async getPage(id: string): Promise<Page> {
     const result = await this.#db.query<PageRow>(
-      `SELECT id, site_id, path, title, meta, draft, draft_version, created_at, updated_at
-       FROM pages WHERE id = $1`,
+      `SELECT ${PAGE_COLUMNS}
+       FROM pages p LEFT JOIN page_templates pt ON pt.page_id = p.id
+       WHERE p.id = $1`,
       [id],
     );
     const row = result.rows[0];
@@ -1133,6 +1449,39 @@ export class Store {
       });
     }
     return mapPage(row);
+  }
+
+  // Upsert of the template/layout row (the page itself is never touched).
+  async setPageTemplate(input: {
+    pageId: string;
+    template: PageTemplate | null;
+    layoutId: string | null;
+  }): Promise<Page> {
+    const now = new Date().toISOString();
+    const kind = input.template?.kind ?? null;
+    const collectionIds =
+      input.template?.kind === "collection" ? input.template.collectionIds : [];
+    const priority = input.template?.kind === "collection" ? input.template.priority : 0;
+    await this.#db.query(
+      `INSERT INTO page_templates
+        (page_id, kind, collection_ids, priority, layout_id, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (page_id) DO UPDATE SET
+         kind = EXCLUDED.kind,
+         collection_ids = EXCLUDED.collection_ids,
+         priority = EXCLUDED.priority,
+         layout_id = EXCLUDED.layout_id,
+         updated_at = EXCLUDED.updated_at`,
+      [
+        input.pageId,
+        kind,
+        toJsonParam(collectionIds),
+        priority,
+        input.layoutId,
+        now,
+      ],
+    );
+    return this.getPage(input.pageId);
   }
 
   async deletePage(id: string): Promise<void> {

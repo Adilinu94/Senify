@@ -1043,13 +1043,14 @@ export async function createEntry(
   }
   const cells = normalizeCellInput(input.body.cells ?? {});
   await validateCells(store, collection, cells, { requireAll: false });
+  const entryId = newEntityId();
   const slug =
     input.body.slug === undefined || input.body.slug.trim() === ""
-      ? deriveSlug(collection, cells)
+      ? deriveSlug(collection, cells, entryId)
       : entrySlugValue(input.body.slug);
   await assertSlugFree(store, collection, slug);
   const entry = await store.createEntry({
-    id: newEntityId(),
+    id: entryId,
     siteId: input.siteId,
     collectionId: collection.id,
     slug,
@@ -1075,14 +1076,12 @@ export async function createEntry(
 function deriveSlug(
   collection: Collection,
   cells: Record<string, CellValue>,
+  entryId: string,
 ): string {
   const title = cellText(cells[collection.titleField]).trim();
-  if (title === "") {
-    throw new SenifyError("validation", "Entry needs a slug or a title", {
-      field: "slug",
-      suggestion: `Set the title field "${collection.titleField}" or pass an explicit slug.`,
-    });
-  }
+  // Drafts may start without a title (quick capture): the slug falls back to
+  // the entry id, and publishing enforces the title (required field).
+  if (title === "") return entrySlugValue(entryId);
   return entrySlugValue(title);
 }
 

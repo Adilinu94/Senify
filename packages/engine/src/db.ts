@@ -26,6 +26,12 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     created_at timestamptz NOT NULL,
     updated_at timestamptz NOT NULL
   )`,
+  // Project trash: a separate table keeps the schema additive and lets
+  // listSites simply exclude trashed sites.
+  `CREATE TABLE IF NOT EXISTS site_trash (
+    site_id text PRIMARY KEY,
+    trashed_at timestamptz NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS pages (
     id text PRIMARY KEY,
     site_id text NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
@@ -292,6 +298,18 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS entry_redirects_site_idx
     ON entry_redirects (site_id, from_path, created_at DESC, id DESC)`,
+  // Templates & Layouts (T10): a page is a template when a row exists. Additive
+  // to `pages` (no ALTER); kind NULL holds a page that only picks a layout.
+  `CREATE TABLE IF NOT EXISTS page_templates (
+    page_id text PRIMARY KEY REFERENCES pages(id) ON DELETE CASCADE,
+    kind text,
+    collection_ids jsonb NOT NULL,
+    priority integer NOT NULL,
+    layout_id text,
+    updated_at timestamptz NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS page_templates_layout_idx
+    ON page_templates (layout_id)`,
 ];
 
 export async function ensureSchema(db: Db): Promise<void> {

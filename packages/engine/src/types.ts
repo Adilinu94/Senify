@@ -26,6 +26,15 @@ export type PageMeta = {
   ogImage?: string;
 };
 
+// A page marked as a template: `layout` wraps other pages, `collection` is the
+// entry template for the detail routes of its collections (artifacts/23 §1).
+export type PageTemplate =
+  | { kind: "layout"; label: string }
+  | { kind: "collection"; collectionIds: string[]; priority: number };
+
+export const PAGE_TEMPLATE_KINDS = ["layout", "collection"] as const;
+export type PageTemplateKind = (typeof PAGE_TEMPLATE_KINDS)[number];
+
 export type Page = {
   id: string;
   siteId: string;
@@ -34,6 +43,8 @@ export type Page = {
   meta: PageMeta;
   draft: NodeTree;
   draftVersion: number;
+  template: PageTemplate | null;
+  layoutId: string | null;
   createdAt: string;
   updatedAt: string;
 };

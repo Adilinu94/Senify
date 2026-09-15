@@ -22,6 +22,8 @@ function page(id: string, nodes: NodeTree["nodes"], path = "/"): Page {
     meta: { description: "Beschreibung" },
     draft: { rootNodeId: "root", nodes: { root: { id: "root", type: "page", props: {} }, ...nodes } },
     draftVersion: 1,
+    template: null,
+    layoutId: null,
     createdAt: "2026-09-15T00:00:00.000Z",
     updatedAt: "2026-09-15T00:00:00.000Z",
   };

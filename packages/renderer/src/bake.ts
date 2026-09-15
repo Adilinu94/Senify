@@ -25,6 +25,13 @@ import {
 } from "./aeo.ts";
 import { islandsForTree } from "./islands.ts";
 import {
+  bindingError,
+  expandPageTree,
+  type BindingSource,
+  type ListPrefetch,
+  type PageContext,
+} from "./bindings.ts";
+import {
   GSAP_CDN,
   LENIS_CDN,
   motionConfigsForTree,
@@ -55,6 +62,9 @@ export type BakeInput = {
   assets?: Record<string, AssetDelivery>;
   fontPreloads?: { href: string }[];
   aeo?: boolean;
+  // Binding source + prefetched collection lists per page id, resolved by the
+  // engine (artifacts/23 §2–3); preview and build share this path.
+  contexts?: Record<string, PageContext>;
 };
 
 export type BakeWarning = {
@@ -89,6 +99,24 @@ export function jsonForHtml(value: unknown): string {
 }
 
 const rendererDir = dirname(fileURLToPath(import.meta.url));
+
+// Binding + list resolution is shared by build and preview and fails loudly:
+// an unresolvable binding is a validation error with the prop path.
+function expandOrThrow(input: {
+  tree: NodeTree;
+  definitions: Map<string, SectionDefinition>;
+  source: BindingSource;
+  lists?: Record<string, ListPrefetch>;
+}): NodeTree {
+  const { tree, issues } = expandPageTree({
+    tree: input.tree,
+    definitions: input.definitions,
+    source: input.source,
+    ...(input.lists === undefined ? {} : { lists: input.lists }),
+  });
+  if (issues.length > 0) throw bindingError(issues);
+  return tree;
+}
 
 function astroBin(): string {
   const require = createRequire(import.meta.url);
@@ -218,7 +246,19 @@ export async function bakeSite(
   const manifestPages = [];
   let anyMotion = false;
   const islandKinds = new Set<string>();
-  for (const page of input.pages) {
+  const expandedPages: BakePageInput[] = input.pages.map((page) => {
+    const context = input.contexts?.[page.id];
+    return {
+      ...page,
+      tree: expandOrThrow({
+        tree: page.tree,
+        definitions,
+        source: context?.source ?? {},
+        ...(context?.lists === undefined ? {} : { lists: context.lists }),
+      }),
+    };
+  });
+  for (const page of expandedPages) {
     const { configs, warnings: motionWarnings } = motionConfigsForTree(
       page.tree,
       input.motionTokens,
@@ -315,11 +355,11 @@ export async function bakeSite(
       writeFileSync(join(outDir, "assets", "islands.js"), renderIslandsScript(islandKinds));
     }
     if (input.aeo !== false) {
-      writeAeoFiles(outDir, input, definitions);
+      writeAeoFiles(outDir, input, expandedPages, definitions);
     }
     return {
       outDir,
-      pages: input.pages.map((page) => ({ path: page.path, file: htmlFileName(page.path) })),
+      pages: expandedPages.map((page) => ({ path: page.path, file: htmlFileName(page.path) })),
       warnings,
       jsBytes: jsBytesIn(outDir),
     };
@@ -374,10 +414,11 @@ function runAstroBuild(stageDir: string, outDir: string): void {
 function writeAeoFiles(
   outDir: string,
   input: BakeInput,
+  pages: BakePageInput[],
   definitions: Map<string, SectionDefinition>,
 ): void {
   const baseUrl = input.baseUrl.replace(/\/+$/, "");
-  for (const page of input.pages) {
+  for (const page of pages) {
     const file = join(outDir, mdFileName(page.path));
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(
@@ -398,7 +439,7 @@ function writeAeoFiles(
     buildLlmsTxt(
       input.siteName,
       baseUrl,
-      input.pages.map((page) => ({
+      pages.map((page) => ({
         path: page.path,
         title: page.title,
         description: page.description,
@@ -409,7 +450,7 @@ function writeAeoFiles(
     join(outDir, "sitemap.xml"),
     buildSitemap(
       baseUrl,
-      input.pages.map((page) => page.path),
+      pages.map((page) => page.path),
     ),
   );
   writeFileSync(join(outDir, "robots.txt"), buildRobots(baseUrl));

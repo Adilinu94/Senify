@@ -24,6 +24,9 @@ import { timelineSection } from "./sections/timeline.ts";
 import { comparisonSection } from "./sections/comparison.ts";
 import { cookieNoteSection } from "./sections/cookie-note.ts";
 import { marqueeSection } from "./sections/marquee.ts";
+import { outletSection } from "./sections/outlet.ts";
+import { collectionListSection } from "./sections/collection-list.ts";
+import { cardSection } from "./sections/card.ts";
 
 export { heroSection } from "./sections/hero.ts";
 export { renderMarkdown } from "./md.ts";export { navbarSection } from "./sections/navbar.ts";
@@ -50,6 +53,9 @@ export { timelineSection } from "./sections/timeline.ts";
 export { comparisonSection } from "./sections/comparison.ts";
 export { cookieNoteSection } from "./sections/cookie-note.ts";
 export { marqueeSection } from "./sections/marquee.ts";
+export { outletSection } from "./sections/outlet.ts";
+export { collectionListSection } from "./sections/collection-list.ts";
+export { cardSection } from "./sections/card.ts";
 
 export const bundledSections = [
   // Gerüst: jede Site braucht sie.
@@ -81,6 +87,10 @@ export const bundledSections = [
   comparisonSection,
   cookieNoteSection,
   marqueeSection,
+  // Templates & Loops (T10).
+  outletSection,
+  collectionListSection,
+  cardSection,
 ];
 
 export const EXPECTED_SECTION_TYPES = bundledSections.map(

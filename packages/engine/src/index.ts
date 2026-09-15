@@ -17,7 +17,7 @@ import {
 } from "./rate-limit.ts";
 import { Store } from "./store.ts";
 
-export { bakePages, type BakeOutcome } from "./bake.ts";
+export { bakePages, buildBakeInput, type BakeBuild, type BakeOutcome } from "./bake.ts";
 export {
   hardGuardrailsForTree,
   MAX_PARALLAX_PER_PAGE,
@@ -126,6 +126,14 @@ export {
   RateLimitError,
   type RateLimitConfig,
 } from "./rate-limit.ts";
+export {
+  DuplicateSiteBodySchema,
+  RenameSiteBodySchema,
+  SiteEventBodySchema,
+  type DuplicateSiteBody,
+  type RenameSiteBody,
+  type SiteEventBody,
+} from "./site-contract.ts";
 export { assertPagePathFormat, draftConflictError, PAGE_PATH_PATTERN } from "./paths.ts";
 export { Store, slugify, type CreatePageInput, type CreateSiteInput, type NewAuditEntry } from "./store.ts";
 export {
@@ -133,6 +141,7 @@ export {
   ENTRY_VERSION_RETENTION,
   FIELD_TYPES,
   MEDIA_KINDS,
+  PAGE_TEMPLATE_KINDS,
   REVIEW_STATUSES,
   SUPPORTS_FLAGS,
   type ApiToken,
@@ -158,6 +167,8 @@ export {
   type PageMeta,
   type PageRevision,
   type PageSummary,
+  type PageTemplate,
+  type PageTemplateKind,
   type Preview,
   type PreviewStatus,
   type Release,
@@ -210,6 +221,28 @@ export {
   type ThemeReportLiteral,
 } from "./theme-report.ts";
 export { goldenTreeToMutations, type GoldenPlacement } from "./golden.ts";
+export {
+  PutPageTemplateBodySchema,
+  type PutPageTemplateBody,
+} from "./templates-contract.ts";
+export {
+  composePageTree,
+  entryPathFor,
+  findEntryTemplate,
+  findFirstOutlet,
+  findLayout,
+  putPageTemplate,
+  reindexNodeParents,
+  spliceOutlet,
+  type ComposeInput,
+} from "./templates.ts";
+export {
+  findListNodes,
+  prefetchLists,
+  toBindingEntry,
+  type ListFilterOp,
+  type ListPrefetchResult,
+} from "./lists.ts";
 
 export type EngineOptions = {
   db: Db;
