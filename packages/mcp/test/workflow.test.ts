@@ -106,6 +106,17 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "replace_asset",
       "delete_asset",
       "restore_asset",
+      "list_collections",
+      "get_collection",
+      "list_entries",
+      "get_entry",
+      "create_entry",
+      "update_entry",
+      "publish_entry",
+      "delete_entry",
+      "restore_entry",
+      "restore_entry_version",
+      "search_entries",
     ]);
     for (const tool of listed.tools) {
       expect(tool.description?.length ?? 0).toBeGreaterThan(30);
@@ -418,6 +429,158 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   }, 30000);
+
+  it("runs the content workflow: collection → entry → publish → search", async () => {
+    const siteId = await createSite(env, "Content Workflow");
+    // The schema is the operator's side: create_collection is not an agent
+    // tool in v1 (review-pflichtig), so the test creates it via the API.
+    const collection = await env.api.request<{
+      id: string;
+      fields: { id: string; description: string }[];
+      supports: string[];
+    }>({
+      method: "POST",
+      path: `/api/sites/${siteId}/collections`,
+      body: {
+        name: "Beiträge",
+        slug: "beitraege",
+        fields: [
+          {
+            id: "body",
+            key: "body",
+            label: "Inhalt",
+            type: "richtext",
+            description: "Markdown-Body des Beitrags (Suchgewicht C).",
+          },
+        ],
+      },
+    });
+    expect(collection.status).toBe(201);
+    const collectionId = collection.body.id;
+    expect(collection.body.supports).toContain("scheduling");
+
+    const listedCollections = await call(session, "list_collections", { siteId });
+    expect(listedCollections.ok).toBe(true);
+    const collections = listedCollections.data.collections as { id: string }[];
+    expect(collections.map((item) => item.id)).toEqual([collectionId]);
+
+    const schema = await call(session, "get_collection", { collectionId });
+    expect(schema.ok).toBe(true);
+    // The built-in title field is always there and agent-readable.
+    const fields = schema.data.fields as { id: string; description: string }[];
+    expect(fields.map((field) => field.id)).toEqual(["title", "body"]);
+    expect(fields.every((field) => field.description.length > 10)).toBe(true);
+
+    const created = await call(session, "create_entry", {
+      siteId,
+      collectionId,
+      cells: { title: "Erster Beitrag", body: "Ein Text über Senify." },
+    });
+    expect(created.ok).toBe(true);
+    const entryId = created.data.id as string;
+    expect(created.data.status).toBe("draft");
+    expect(created.data.slug).toBe("erster-beitrag");
+    expect(created.data.version).toBe(1);
+
+    const updated = await call(session, "update_entry", {
+      entryId,
+      baseVersion: 1,
+      cells: { body: "Ein längerer Text über Senify." },
+    });
+    expect(updated.ok).toBe(true);
+    expect(updated.data.version).toBe(2);
+    expect((updated.data.cells as Json).title).toBe("Erster Beitrag");
+
+    const stale = await call(session, "update_entry", {
+      entryId,
+      baseVersion: 1,
+      cells: { title: "Zurückgesetzt" },
+    });
+    expect(stale.ok).toBe(false);
+    const staleError = stale.data.error as Json;
+    expect(staleError.category).toBe("conflict");
+    expect(String(staleError.suggestion).toLowerCase()).toContain("reload");
+
+    // Autosave-style writes never create versions; the publish does.
+    const versionsBefore = await env.api.request<{ versions: unknown[] }>({
+      method: "GET",
+      path: `/api/entries/${entryId}/versions`,
+    });
+    expect(versionsBefore.body.versions).toEqual([]);
+
+    const published = await call(session, "publish_entry", {
+      entryId,
+      baseVersion: 2,
+    });
+    expect(published.ok).toBe(true);
+    expect(published.data.entry).toMatchObject({
+      id: entryId,
+      status: "published",
+    });
+    expect(
+      (published.data.version as { versionNumber: number }).versionNumber,
+    ).toBe(1);
+    expect((published.data.rebake as Json).queued).toBe(true);
+
+    const search = await call(session, "search_entries", {
+      siteId,
+      q: "Erster",
+    });
+    expect(search.ok).toBe(true);
+    const hits = search.data.results as {
+      entry: { id: string };
+      score: number;
+    }[];
+    expect(hits[0]?.entry.id).toBe(entryId);
+    expect(hits[0]?.score).toBeGreaterThan(0);
+
+    const publishedList = await call(session, "list_entries", {
+      siteId,
+      status: "published",
+    });
+    expect(
+      (publishedList.data.entries as { id: string }[]).map((entry) => entry.id),
+    ).toEqual([entryId]);
+
+    const trashed = await call(session, "delete_entry", { entryId });
+    expect(trashed.ok).toBe(true);
+    const trashList = await call(session, "list_entries", {
+      siteId,
+      trashed: true,
+    });
+    expect(
+      (trashList.data.entries as { id: string }[]).map((entry) => entry.id),
+    ).toEqual([entryId]);
+
+    const restored = await call(session, "restore_entry", { entryId });
+    expect(restored.ok).toBe(true);
+    expect(restored.data.deletedAt).toBeNull();
+
+    const versions = await env.api.request<{ versions: { id: string }[] }>({
+      method: "GET",
+      path: `/api/entries/${entryId}/versions`,
+    });
+    // Autosave-style edits never create versions: the publish made exactly one.
+    expect(versions.body.versions).toHaveLength(1);
+
+    const current = await call(session, "get_entry", { entryId });
+    const draftEdit = await call(session, "update_entry", {
+      entryId,
+      baseVersion: current.data.version as number,
+      cells: { body: "Nur im Draft." },
+    });
+    expect(draftEdit.ok).toBe(true);
+
+    // Restoring the published version brings its cells back into the draft.
+    const restoredVersion = await call(session, "restore_entry_version", {
+      entryId,
+      versionId: versions.body.versions[0]?.id,
+    });
+    expect(restoredVersion.ok).toBe(true);
+    expect((restoredVersion.data.cells as Json).body).toBe(
+      "Ein längerer Text über Senify.",
+    );
+  }, 60000);
 
   it("records every tool call in the server-side audit log", async () => {
     const audited = await env.api.request<{

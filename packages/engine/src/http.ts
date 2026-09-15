@@ -58,6 +58,43 @@ import {
 } from "./lifecycle-contract.ts";
 import { Store } from "./store.ts";
 import {
+  createCollection,
+  createCollectionFromFields,
+  createEntry,
+  listEntries,
+  publishEntry,
+  purgeEntry,
+  resolveEntryPath,
+  restoreEntryFromTrash,
+  restoreEntryVersionAsDraft,
+  searchEntries,
+  tickScheduledEntries,
+  trashEntry,
+  unpublishEntry,
+  updateCollection,
+  updateEntry,
+} from "./content.ts";
+import {
+  CreateCollectionBodySchema,
+  CreateEntryBodySchema,
+  EntryActionBodySchema,
+  EntryTickBodySchema,
+  FromFieldsBodySchema,
+  PublishEntryBodySchema,
+  SearchEntriesBodySchema,
+  UpdateCollectionBodySchema,
+  UpdateEntryBodySchema,
+  parseEntryListFilters,
+  type CreateCollectionBody,
+  type CreateEntryBody,
+  type EntryActionBody,
+  type EntryTickBody,
+  type PublishEntryBody,
+  type SearchEntriesBody,
+  type UpdateCollectionBody,
+  type UpdateEntryBody,
+} from "./content-contract.ts";
+import {
   applyAssetPatch,
   bulkAssets,
   commitUpload,
@@ -685,6 +722,27 @@ const ROUTES: Route[] = [
       return {
         status: 200,
         body: { entries: await context.store.listAudit(pageId, limit) },
+      };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "audit"],
+    scope: "read",
+    handler: async (context, params, _req, url) => {
+      const siteId = requireParam(params, "siteId");
+      await context.store.getSite(siteId);
+      const rawLimit = url.searchParams.get("limit");
+      const limit = rawLimit === null ? 50 : Number.parseInt(rawLimit, 10);
+      if (!Number.isInteger(limit)) {
+        throw new SenifyError("validation", "Audit limit must be an integer", {
+          field: "limit",
+        });
+      }
+      // Site-wide activity log: pages, themes, assets and content writes.
+      return {
+        status: 200,
+        body: { entries: await context.store.listSiteAudit(siteId, limit) },
       };
     },
   },
@@ -1371,6 +1429,367 @@ const ROUTES: Route[] = [
           contentType: variant.format === "avif" ? "image/avif" : "image/webp",
           headers: { "cache-control": "public, max-age=0, must-revalidate" },
         },
+      };
+    },
+  },
+  // ------------------------------------------------------- content core (T09)
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "collections"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const siteId = requireParam(params, "siteId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<CreateCollectionBody>(
+        CreateCollectionBodySchema,
+        body,
+        "collection",
+      );
+      return {
+        status: 201,
+        body: await createCollection(context.store, { siteId, body: input }),
+      };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "collections", "from-fields"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const siteId = requireParam(params, "siteId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<CreateCollectionBody>(
+        FromFieldsBodySchema,
+        body,
+        "collection from fields",
+      );
+      return {
+        status: 201,
+        body: await createCollectionFromFields(context.store, {
+          siteId,
+          body: input,
+        }),
+      };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "collections"],
+    scope: "read",
+    handler: async (context, params, _req, url) => {
+      const siteId = requireParam(params, "siteId");
+      return {
+        status: 200,
+        body: {
+          collections: await context.store.listCollections(siteId, {
+            includeDeprecated: url.searchParams.get("includeDeprecated") === "true",
+          }),
+        },
+      };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "collections", ":collectionId"],
+    scope: "read",
+    handler: async (context, params) => ({
+      status: 200,
+      body: await context.store.getCollection(
+        requireParam(params, "collectionId"),
+      ),
+    }),
+  },
+  {
+    method: "PUT",
+    segments: ["api", "collections", ":collectionId"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const collectionId = requireParam(params, "collectionId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<UpdateCollectionBody>(
+        UpdateCollectionBodySchema,
+        body,
+        "collection update",
+      );
+      return {
+        status: 200,
+        body: await updateCollection(context.store, {
+          collectionId,
+          body: input,
+        }),
+      };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "entries"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const siteId = requireParam(params, "siteId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<CreateEntryBody>(
+        CreateEntryBodySchema,
+        body,
+        "entry",
+      );
+      return {
+        status: 201,
+        body: await createEntry(context.store, { siteId, body: input }),
+      };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "entries"],
+    scope: "read",
+    handler: async (context, params, _req, url) => {
+      const siteId = requireParam(params, "siteId");
+      return {
+        status: 200,
+        body: {
+          entries: await listEntries(context.store, {
+            siteId,
+            filters: parseEntryListFilters(url.searchParams),
+          }),
+        },
+      };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "entries", "search"],
+    scope: "read",
+    handler: async (context, params, req) => {
+      const siteId = requireParam(params, "siteId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<SearchEntriesBody>(
+        SearchEntriesBodySchema,
+        body,
+        "entry search",
+      );
+      return {
+        status: 200,
+        body: await searchEntries(context.store, {
+          siteId,
+          q: input.q,
+          ...(input.collectionId === undefined
+            ? {}
+            : { collectionId: input.collectionId }),
+          ...(input.status === undefined ? {} : { status: input.status }),
+          ...(input.limit === undefined ? {} : { limit: input.limit }),
+        }),
+      };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "entries", "resolve"],
+    scope: "read",
+    handler: async (context, params, _req, url) => {
+      const siteId = requireParam(params, "siteId");
+      const path = url.searchParams.get("path");
+      if (path === null || path.trim() === "") {
+        throw new SenifyError("validation", "Query parameter \"path\" is missing", {
+          field: "path",
+          suggestion: "Resolve a path, e.g. ?path=/blog/mein-beitrag.",
+        });
+      }
+      return {
+        status: 200,
+        body: await resolveEntryPath(context.store, { siteId, path }),
+      };
+    },
+  },
+  {
+    // Job tick for scheduled entries; a scheduler may scope it to one site.
+    method: "POST",
+    segments: ["api", "entries", "tick"],
+    scope: "write",
+    handler: async (context, _params, req) => {
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<EntryTickBody>(
+        EntryTickBodySchema,
+        body,
+        "entry tick",
+      );
+      return {
+        status: 200,
+        body: await tickScheduledEntries(context.store, {
+          ...(input.siteId === undefined ? {} : { siteId: input.siteId }),
+          ...(input.limit === undefined ? {} : { limit: input.limit }),
+        }),
+      };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "entries", ":entryId"],
+    scope: "read",
+    handler: async (context, params) => ({
+      status: 200,
+      body: await context.store.getEntry(requireParam(params, "entryId")),
+    }),
+  },
+  {
+    method: "PUT",
+    segments: ["api", "entries", ":entryId"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const entryId = requireParam(params, "entryId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<UpdateEntryBody>(
+        UpdateEntryBodySchema,
+        body,
+        "entry update",
+      );
+      return {
+        status: 200,
+        body: await updateEntry(context.store, { entryId, body: input }),
+      };
+    },
+  },
+  {
+    method: "DELETE",
+    segments: ["api", "entries", ":entryId"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const entryId = requireParam(params, "entryId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<EntryActionBody>(
+        EntryActionBodySchema,
+        body,
+        "entry action",
+      );
+      return {
+        status: 200,
+        body: await trashEntry(context.store, {
+          entryId,
+          author: input.author,
+        }),
+      };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "entries", ":entryId", "restore"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const entryId = requireParam(params, "entryId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<EntryActionBody>(
+        EntryActionBodySchema,
+        body,
+        "entry restore",
+      );
+      return {
+        status: 200,
+        body: await restoreEntryFromTrash(context.store, {
+          entryId,
+          author: input.author,
+        }),
+      };
+    },
+  },
+  {
+    // Permanent: only into the trash first, and only with the publish scope.
+    method: "POST",
+    segments: ["api", "entries", ":entryId", "purge"],
+    scope: "publish",
+    destructive: true,
+    handler: async (context, params, req) => {
+      const entryId = requireParam(params, "entryId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<EntryActionBody>(
+        EntryActionBodySchema,
+        body,
+        "entry purge",
+      );
+      return {
+        status: 200,
+        body: await purgeEntry(context.store, { entryId, author: input.author }),
+      };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "entries", ":entryId", "publish"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const entryId = requireParam(params, "entryId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<PublishEntryBody>(
+        PublishEntryBodySchema,
+        body,
+        "entry publish",
+      );
+      return {
+        status: 200,
+        body: await publishEntry(context.store, {
+          entryId,
+          author: input.author,
+          ...(input.baseVersion === undefined
+            ? {}
+            : { baseVersion: input.baseVersion }),
+        }),
+      };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "entries", ":entryId", "unpublish"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const entryId = requireParam(params, "entryId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<PublishEntryBody>(
+        PublishEntryBodySchema,
+        body,
+        "entry unpublish",
+      );
+      return {
+        status: 200,
+        body: await unpublishEntry(context.store, {
+          entryId,
+          author: input.author,
+          ...(input.baseVersion === undefined
+            ? {}
+            : { baseVersion: input.baseVersion }),
+        }),
+      };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "entries", ":entryId", "versions"],
+    scope: "read",
+    handler: async (context, params) => ({
+      status: 200,
+      body: {
+        versions: await context.store.listEntryVersions(
+          requireParam(params, "entryId"),
+        ),
+      },
+    }),
+  },
+  {
+    method: "POST",
+    segments: ["api", "entries", ":entryId", "restore-version", ":versionId"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const entryId = requireParam(params, "entryId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<EntryActionBody>(
+        EntryActionBodySchema,
+        body,
+        "entry version restore",
+      );
+      return {
+        status: 200,
+        body: await restoreEntryVersionAsDraft(context.store, {
+          entryId,
+          versionId: requireParam(params, "versionId"),
+          author: input.author,
+        }),
       };
     },
   },

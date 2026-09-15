@@ -833,6 +833,288 @@ export const TOOLS: ToolDefinition[] = [
         `/api/assets/${requireString(args, "assetId")}/restore`,
       ),
   },
+  {
+    name: "list_collections",
+    title: "List collections",
+    description:
+      "Lists the content collections of a site with slug, fields and supports flags. Start here to find the collectionId that get_collection and list_entries need.",
+    scope: "read",
+    inputSchema: objectSchema(
+      {
+        siteId: { type: "string" },
+        includeDeprecated: { type: "boolean" },
+      },
+      ["siteId"],
+    ),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
+      const includeDeprecated = optionalBoolean(args, "includeDeprecated");
+      const query = includeDeprecated === true ? "?includeDeprecated=true" : "";
+      return context.client.request(
+        "GET",
+        `/api/sites/${siteId}/collections${query}`,
+      );
+    },
+  },
+  {
+    name: "get_collection",
+    title: "Get collection",
+    description:
+      "Loads one collection with its field definitions (id, key, type, required, description). Read it before writing entries: cells are keyed by field id.",
+    scope: "read",
+    inputSchema: objectSchema({ collectionId: { type: "string" } }, [
+      "collectionId",
+    ]),
+    entity: (args) => `collection:${String(args.collectionId ?? "")}`,
+    handler: async (context, args) =>
+      context.client.request(
+        "GET",
+        `/api/collections/${requireString(args, "collectionId")}`,
+      ),
+  },
+  {
+    name: "list_entries",
+    title: "List entries",
+    description:
+      "Lists the entries of a site with filters (collectionId, status, q, trashed) and sorting (sort, dir). With q the hits come back ranked by weight (title, then slug, then body), not by the sort field.",
+    scope: "read",
+    inputSchema: objectSchema(
+      {
+        siteId: { type: "string" },
+        collectionId: { type: "string" },
+        status: {
+          type: "string",
+          enum: ["draft", "published", "unpublished", "scheduled"],
+        },
+        trashed: { type: "boolean" },
+        q: { type: "string" },
+        sort: {
+          type: "string",
+          enum: ["updatedAt", "createdAt", "publishedAt", "title", "dateField"],
+        },
+        dir: { type: "string", enum: ["asc", "desc"] },
+        limit: { type: "number" },
+      },
+      ["siteId"],
+    ),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
+      const params = new URLSearchParams();
+      for (const key of ["collectionId", "status", "q", "sort", "dir"]) {
+        const value = optionalString(args, key);
+        if (value !== undefined) params.set(key, value);
+      }
+      const trashed = optionalBoolean(args, "trashed");
+      if (trashed !== undefined) params.set("trashed", String(trashed));
+      const limit = optionalNumber(args, "limit");
+      if (limit !== undefined) params.set("limit", String(limit));
+      const query = params.toString();
+      return context.client.request(
+        "GET",
+        `/api/sites/${siteId}/entries${query === "" ? "" : `?${query}`}`,
+      );
+    },
+  },
+  {
+    name: "get_entry",
+    title: "Get entry",
+    description:
+      "Loads one entry with its cells, slug, status and the baseVersion that update_entry expects. The version number also tells you how often the entry changed.",
+    scope: "read",
+    inputSchema: objectSchema({ entryId: { type: "string" } }, ["entryId"]),
+    entity: (args) => `entry:${String(args.entryId ?? "")}`,
+    handler: async (context, args) =>
+      context.client.request(
+        "GET",
+        `/api/entries/${requireString(args, "entryId")}`,
+      ),
+  },
+  {
+    name: "create_entry",
+    title: "Create entry",
+    description:
+      "Creates a draft entry in a collection. Cells are keyed by field id (see get_collection) and may stay incomplete; required fields are checked at publish. Without a slug it is derived from the title field.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        siteId: { type: "string" },
+        collectionId: { type: "string" },
+        cells: { type: "object" },
+        slug: { type: "string" },
+      },
+      ["siteId", "collectionId"],
+    ),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
+      const cells =
+        args.cells === undefined ? undefined : requireRecord(args, "cells");
+      const slug = optionalString(args, "slug");
+      const name = await context.client.tokenName();
+      return context.client.request("POST", `/api/sites/${siteId}/entries`, {
+        collectionId: requireString(args, "collectionId"),
+        ...(cells === undefined ? {} : { cells }),
+        ...(slug === undefined ? {} : { slug }),
+        author: { kind: "agent", id: name, label: name },
+      });
+    },
+  },
+  {
+    name: "update_entry",
+    title: "Update entry",
+    description:
+      "Writes cells, slug or status of an entry. baseVersion from get_entry is mandatory; a conflict error means: reload the entry and retry. Cells are merged per field, null clears a field.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        entryId: { type: "string" },
+        baseVersion: { type: "number" },
+        cells: { type: "object" },
+        slug: { type: "string" },
+        status: { type: "string", enum: ["draft", "unpublished", "scheduled"] },
+        scheduledAt: { type: "string" },
+      },
+      ["entryId", "baseVersion"],
+    ),
+    entity: (args) => `entry:${String(args.entryId ?? "")}`,
+    handler: async (context, args) => {
+      const entryId = requireString(args, "entryId");
+      const cells =
+        args.cells === undefined ? undefined : requireRecord(args, "cells");
+      const slug = optionalString(args, "slug");
+      const status = optionalString(args, "status");
+      const scheduledAt = optionalString(args, "scheduledAt");
+      const name = await context.client.tokenName();
+      return context.client.request("PUT", `/api/entries/${entryId}`, {
+        baseVersion: requireNumber(args, "baseVersion"),
+        ...(cells === undefined ? {} : { cells }),
+        ...(slug === undefined ? {} : { slug }),
+        ...(status === undefined ? {} : { status }),
+        ...(scheduledAt === undefined ? {} : { scheduledAt }),
+        author: { kind: "agent", id: name, label: name },
+      });
+    },
+  },
+  {
+    name: "publish_entry",
+    title: "Publish entry",
+    description:
+      "Publishes an entry: validates required and unique fields, writes an immutable version, records the 301 redirect when the slug changed and triggers the re-bake of the affected routes.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        entryId: { type: "string" },
+        baseVersion: { type: "number" },
+      },
+      ["entryId"],
+    ),
+    entity: (args) => `entry:${String(args.entryId ?? "")}`,
+    handler: async (context, args) => {
+      const entryId = requireString(args, "entryId");
+      const baseVersion = optionalNumber(args, "baseVersion");
+      const name = await context.client.tokenName();
+      return context.client.request("POST", `/api/entries/${entryId}/publish`, {
+        ...(baseVersion === undefined ? {} : { baseVersion }),
+        author: { kind: "agent", id: name, label: name },
+      });
+    },
+  },
+  {
+    name: "delete_entry",
+    title: "Delete entry",
+    description:
+      "Moves an entry to the trash (reversible) and drops its route from the bake. Nothing is deleted for good — restore it with restore_entry.",
+    scope: "write",
+    inputSchema: objectSchema({ entryId: { type: "string" } }, ["entryId"]),
+    entity: (args) => `entry:${String(args.entryId ?? "")}`,
+    handler: async (context, args) => {
+      const entryId = requireString(args, "entryId");
+      const name = await context.client.tokenName();
+      await context.client.request("DELETE", `/api/entries/${entryId}`, {
+        author: { kind: "agent", id: name, label: name },
+      });
+      return { trashed: entryId };
+    },
+  },
+  {
+    name: "restore_entry",
+    title: "Restore entry",
+    description:
+      "Takes an entry out of the trash. Fails with a conflict if another live entry took over its slug in the meantime.",
+    scope: "write",
+    inputSchema: objectSchema({ entryId: { type: "string" } }, ["entryId"]),
+    entity: (args) => `entry:${String(args.entryId ?? "")}`,
+    handler: async (context, args) => {
+      const name = await context.client.tokenName();
+      return context.client.request(
+        "POST",
+        `/api/entries/${requireString(args, "entryId")}/restore`,
+        { author: { kind: "agent", id: name, label: name } },
+      );
+    },
+  },
+  {
+    name: "restore_entry_version",
+    title: "Restore entry version",
+    description:
+      "Copies a published version into the draft (append-only, publishes nothing). Version ids come from the entry timeline; the next publish writes a new version.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        entryId: { type: "string" },
+        versionId: { type: "string" },
+      },
+      ["entryId", "versionId"],
+    ),
+    entity: (args) => `entry:${String(args.entryId ?? "")}`,
+    handler: async (context, args) => {
+      const name = await context.client.tokenName();
+      return context.client.request(
+        "POST",
+        `/api/entries/${requireString(args, "entryId")}/restore-version/${requireString(args, "versionId")}`,
+        { author: { kind: "agent", id: name, label: name } },
+      );
+    },
+  },
+  {
+    name: "search_entries",
+    title: "Search entries",
+    description:
+      "Full-text search across the entries of a site, ranked by weight (title A, slug B, body C) and date. Returns the hits with their score; narrow with collectionId or status.",
+    scope: "read",
+    inputSchema: objectSchema(
+      {
+        siteId: { type: "string" },
+        q: { type: "string" },
+        collectionId: { type: "string" },
+        status: {
+          type: "string",
+          enum: ["draft", "published", "unpublished", "scheduled"],
+        },
+        limit: { type: "number" },
+      },
+      ["siteId", "q"],
+    ),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
+      const collectionId = optionalString(args, "collectionId");
+      const status = optionalString(args, "status");
+      const limit = optionalNumber(args, "limit");
+      return context.client.request(
+        "POST",
+        `/api/sites/${siteId}/entries/search`,
+        {
+          q: requireString(args, "q"),
+          ...(collectionId === undefined ? {} : { collectionId }),
+          ...(status === undefined ? {} : { status }),
+          ...(limit === undefined ? {} : { limit }),
+        },
+      );
+    },
+  },
 ];
 
 export function toolByName(name: string): ToolDefinition | undefined {

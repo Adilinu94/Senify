@@ -221,6 +221,77 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     value text NOT NULL,
     created_at timestamptz NOT NULL
   )`,
+  // Content core: collections embed their field definitions (Payload/Instatic
+  // pattern) so reading a schema is a single row. Removal is expressed by
+  // deprecation, never by DELETE.
+  `CREATE TABLE IF NOT EXISTS collections (
+    id text PRIMARY KEY,
+    site_id text NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+    name text NOT NULL,
+    slug text NOT NULL,
+    fields jsonb NOT NULL,
+    title_field text NOT NULL,
+    date_field text,
+    url_pattern text,
+    supports jsonb NOT NULL,
+    list_columns jsonb NOT NULL,
+    description text,
+    deprecated_at timestamptz,
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL,
+    UNIQUE (site_id, slug)
+  )`,
+  `CREATE INDEX IF NOT EXISTS collections_site_idx
+    ON collections (site_id, created_at ASC, id ASC)`,
+  // Entries denormalise slug + status next to the JSONB cells; search_text is
+  // the lowercased haystack the weighted search narrows on (tsvector comes
+  // later, once a real Postgres migration path exists).
+  `CREATE TABLE IF NOT EXISTS entries (
+    id text PRIMARY KEY,
+    site_id text NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+    collection_id text NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+    slug text NOT NULL,
+    status text NOT NULL,
+    cells jsonb NOT NULL,
+    active_version_id text,
+    version integer NOT NULL,
+    author jsonb NOT NULL,
+    search_text text NOT NULL,
+    published_at timestamptz,
+    scheduled_at timestamptz,
+    deleted_at timestamptz,
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS entries_site_idx
+    ON entries (site_id, updated_at DESC, id DESC)`,
+  `CREATE INDEX IF NOT EXISTS entries_collection_idx
+    ON entries (collection_id, status, updated_at DESC, id DESC)`,
+  // Publish snapshots are immutable and capped per entry (retention).
+  `CREATE TABLE IF NOT EXISTS entry_versions (
+    id text PRIMARY KEY,
+    entry_id text NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+    site_id text NOT NULL,
+    version_number integer NOT NULL,
+    cells jsonb NOT NULL,
+    slug text NOT NULL,
+    status text NOT NULL,
+    author jsonb NOT NULL,
+    created_at timestamptz NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS entry_versions_entry_idx
+    ON entry_versions (entry_id, version_number DESC, id DESC)`,
+  // Slug history of a collection; the newest row per from_path wins.
+  `CREATE TABLE IF NOT EXISTS entry_redirects (
+    id text PRIMARY KEY,
+    site_id text NOT NULL,
+    collection_id text NOT NULL,
+    from_path text NOT NULL,
+    to_path text NOT NULL,
+    created_at timestamptz NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS entry_redirects_site_idx
+    ON entry_redirects (site_id, from_path, created_at DESC, id DESC)`,
 ];
 
 export async function ensureSchema(db: Db): Promise<void> {
