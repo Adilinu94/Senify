@@ -1,0 +1,30 @@
+{
+  "name": "senify",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Senify — agent-native website platform (local program)",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint packages",
+    "verify": "pnpm build && pnpm lint && pnpm test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.30.0",
+    "@sinclair/typebox": "^0.34.0",
+    "@types/node": "^24.0.0",
+    "commander": "^14.0.0",
+    "eslint": "^9.30.0",
+    "pg-mem": "^3.0.5",
+    "typescript": "^5.9.0",
+    "typescript-eslint": "^8.40.0",
+    "vitest": "^3.2.0"
+  },
+  "packageManager": "pnpm@10.33.2"
+}

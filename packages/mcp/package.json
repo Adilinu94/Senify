@@ -1,0 +1,17 @@
+{
+  "name": "@senify/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "senify": "./src/cli.ts"
+  },
+  "dependencies": {
+    "@senify/core": "workspace:*",
+    "@senify/registry": "workspace:*",
+    "commander": "^14.0.0"
+  }
+}

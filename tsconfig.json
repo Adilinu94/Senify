@@ -1,0 +1,36 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "exactOptionalPropertyTypes": false,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "declaration": true,
+    "baseUrl": ".",
+    "paths": {
+      "@senify/core": ["packages/core/src/index.ts"],
+      "@senify/registry": ["packages/registry/src/index.ts"],
+      "@senify/mcp": ["packages/mcp/src/index.ts"],
+      "@senify/engine": ["packages/engine/src/index.ts"],
+      "@senify/renderer": ["packages/renderer/src/index.ts"],
+      "@senify/editor": ["packages/editor/src/index.ts"],
+      "@senify/app": ["packages/app/src/index.ts"],
+      "@senify/analysis-worker": ["packages/analysis-worker/src/index.ts"],
+      "@senify/docs-portal": ["packages/docs-portal/src/index.ts"],
+      "@senify/skills": ["packages/skills/src/index.ts"]
+    }
+  },
+  "include": ["packages/*/src", "packages/*/test", "packages/*/*.ts"],
+  "exclude": ["node_modules", "dist", "Repos"]
+}

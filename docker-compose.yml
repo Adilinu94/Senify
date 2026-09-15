@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: senify-postgres
+    environment:
+      POSTGRES_USER: senify
+      POSTGRES_PASSWORD: senify
+      POSTGRES_DB: senify
+    ports:
+      - "5433:5432"
+    volumes:
+      - senify-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U senify"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  senify-pgdata:
