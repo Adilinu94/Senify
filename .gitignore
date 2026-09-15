@@ -10,3 +10,4 @@ Repos/
 .astro/
 packages/renderer/astro-template/src/generated/
 packages/renderer/astro-template/dist/
+packages/docs-portal/public/portal-config.json

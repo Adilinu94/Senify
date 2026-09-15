@@ -1,0 +1,302 @@
+---
+import { defaultTheme, emitCss, resolveTheme } from "@senify/tokens";
+import type { DocsPage } from "../model.ts";
+import type { RenderedPage } from "../render.ts";
+
+type Props = {
+  page: DocsPage;
+  pages: DocsPage[];
+  rendered: RenderedPage;
+};
+
+const { page, pages, rendered } = Astro.props;
+const themeCss = emitCss(resolveTheme(defaultTheme()));
+
+const groups = pages.reduce<{ name: string; items: DocsPage[] }[]>(
+  (acc, entry) => {
+    const group = acc.find((item) => item.name === entry.group);
+    if (group) group.items.push(entry);
+    else acc.push({ name: entry.group, items: [entry] });
+    return acc;
+  },
+  [],
+);
+
+const index = pages.findIndex((entry) => entry.path === page.path);
+const previous = index > 0 ? pages[index - 1] : undefined;
+const next = index >= 0 && index < pages.length - 1 ? pages[index + 1] : undefined;
+---
+
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{page.title} · Senify Docs</title>
+    <meta name="description" content={page.description} />
+    <link rel="stylesheet" href="/portal.css" />
+    <style is:global set:html={themeCss}></style>
+  </head>
+  <body>
+    <header class="masthead">
+      <a class="brand" href="/getting-started">Senify <span>Docs</span></a>
+      <div class="masthead-spacer"></div>
+      <button class="search-button" id="find-open" type="button">
+        Suchen <kbd>Ctrl K</kbd>
+      </button>
+      <a href="/llms.txt">llms.txt</a>
+    </header>
+
+    <div class="shell">
+      <nav class="sidebar" aria-label="Dokumentation">
+        {
+          groups.map((group) => (
+            <div>
+              <h2>{group.name}</h2>
+              {group.items.map((entry) => (
+                <a
+                  href={entry.path}
+                  aria-current={entry.path === page.path ? "page" : undefined}
+                >
+                  {entry.title}
+                </a>
+              ))}
+            </div>
+          ))
+        }
+      </nav>
+
+      <main>
+        <div class="breadcrumb">{page.group}</div>
+        <article>
+          <h1>{page.title}</h1>
+          <p class="lede">{page.description}</p>
+          <aside class="agent-note">
+            <span>Für Agenten:</span>
+            <a href={`${page.path}.md`}>diese Seite als Markdown</a>
+            <a href="/llms.txt">llms.txt</a>
+            <a href="/llms-full.txt">llms-full.txt</a>
+          </aside>
+          <div set:html={rendered.html} />
+        </article>
+        <div class="page-foot">
+          <span>{previous ? <a href={previous.path}>← {previous.title}</a> : <span></span>}</span>
+          <span>{next ? <a href={next.path}>{next.title} →</a> : <span></span>}</span>
+        </div>
+      </main>
+
+      <aside class="toc" aria-label="Auf dieser Seite">
+        {rendered.toc.length > 0 && <p>Auf dieser Seite</p>}
+        {
+          rendered.toc.map((entry) => (
+            <a class={`depth-${entry.depth}`} href={`#${entry.id}`}>
+              {entry.text}
+            </a>
+          ))
+        }
+      </aside>
+    </div>
+
+    <dialog id="find" aria-label="Suche und Ask AI">
+      <div class="find-head">
+        <input
+          id="ask-input"
+          type="text"
+          placeholder="Frage an die Doku …"
+          autocomplete="off"
+          hidden
+        />
+        <div class="find-tabs" id="find-tabs" hidden>
+          <button id="tab-search" type="button" aria-selected="true">Suche</button>
+          <button id="tab-ask" type="button" aria-selected="false">Ask AI</button>
+        </div>
+        <button id="find-close" type="button" aria-label="Schließen">Esc</button>
+      </div>
+      <div class="find-body">
+        <div id="find-search"></div>
+        <div id="find-ask" hidden>
+          <p class="ask-hint" id="ask-hint">
+            Stelle eine Frage — die Antwort stützt sich auf die besten Suchtreffer und nennt die Quellen.
+          </p>
+          <div class="ask-answer" id="ask-answer"></div>
+          <div class="ask-sources" id="ask-sources"></div>
+        </div>
+      </div>
+    </dialog>
+
+    <script>
+      import { askAiRequest, type AskAiConfig } from "../ask.ts";
+
+      type PagefindResult = {
+        data(): Promise<{
+          url: string;
+          excerpt: string;
+          meta: { title?: string };
+        }>;
+      };
+      type PagefindApi = {
+        search(query: string): Promise<{ results: PagefindResult[] }>;
+      };
+
+      const dialog = document.getElementById("find") as HTMLDialogElement | null;
+      const openButton = document.getElementById("find-open");
+      const closeButton = document.getElementById("find-close");
+      const tabs = document.getElementById("find-tabs");
+      const searchTab = document.getElementById("tab-search");
+      const askTab = document.getElementById("tab-ask");
+      const searchPane = document.getElementById("find-search");
+      const askPane = document.getElementById("find-ask");
+      const askInput = document.getElementById("ask-input") as HTMLInputElement | null;
+      const answer = document.getElementById("ask-answer");
+      const sources = document.getElementById("ask-sources");
+      const hint = document.getElementById("ask-hint");
+
+      let pagefindApi: PagefindApi | undefined;
+      let pagefindFailed = false;
+      let askConfig: AskAiConfig | undefined;
+      let busy = false;
+
+      function showTab(tab: "search" | "ask"): void {
+        if (!searchTab || !askTab || !searchPane || !askPane) return;
+        const isSearch = tab === "search";
+        searchTab.setAttribute("aria-selected", String(isSearch));
+        askTab.setAttribute("aria-selected", String(!isSearch));
+        searchPane.hidden = !isSearch;
+        askPane.hidden = isSearch;
+        if (askInput) askInput.hidden = isSearch;
+        if (!isSearch && askInput) askInput.focus();
+        if (isSearch) void ensurePagefind();
+      }
+
+      async function loadScript(src: string): Promise<void> {
+        await new Promise<void>((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = src;
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error(`failed to load ${src}`));
+          document.head.appendChild(script);
+        });
+      }
+
+      // Pagefind ships after the build; in dev the dialog stays searchless
+      // and Ask AI answers without context.
+      async function ensurePagefind(): Promise<void> {
+        if (pagefindApi || pagefindFailed) return;
+        try {
+          const link = document.createElement("link");
+          link.rel = "stylesheet";
+          link.href = "/pagefind/pagefind-ui.css";
+          document.head.appendChild(link);
+          await loadScript("/pagefind/pagefind-ui.js");
+          const ui = (window as unknown as {
+            PagefindUI?: new (options: Record<string, unknown>) => unknown;
+          }).PagefindUI;
+          if (ui && document.querySelector("#find-search .pagefind-ui") === null) {
+            new ui({
+              element: "#find-search",
+              showSubResults: true,
+              showImages: false,
+              translations: {
+                placeholder: "Doku durchsuchen …",
+                zero_results: "Keine Treffer für [SEARCH_TERM]",
+              },
+            });
+          }
+          pagefindApi = (await import(
+            /* @vite-ignore */ "/pagefind/pagefind.js"
+          )) as PagefindApi;
+        } catch {
+          pagefindFailed = true;
+          if (hint) hint.textContent = "Suche ist in diesem Build nicht verfügbar.";
+        }
+      }
+
+      async function loadAskConfig(): Promise<void> {
+        try {
+          const response = await fetch("/portal-config.json");
+          if (!response.ok) return;
+          const config = (await response.json()) as { askAi?: AskAiConfig };
+          if (config.askAi?.endpoint && config.askAi.model) {
+            askConfig = config.askAi;
+            if (tabs) tabs.hidden = false;
+          }
+        } catch {
+          // No portal config: search only.
+        }
+      }
+
+      function stripTags(html: string): string {
+        const div = document.createElement("div");
+        div.innerHTML = html;
+        return (div.textContent ?? "").replace(/\s+/g, " ").trim();
+      }
+
+      async function runAsk(question: string): Promise<void> {
+        if (!askConfig || busy || question.trim() === "") return;
+        busy = true;
+        if (answer) answer.textContent = "…";
+        if (sources) sources.textContent = "";
+        const context: { path: string; title: string; excerpt: string }[] = [];
+        try {
+          if (pagefindApi) {
+            const found = await pagefindApi.search(question);
+            for (const result of found.results.slice(0, 4)) {
+              const data = await result.data();
+              context.push({
+                path: data.url,
+                title: data.meta.title ?? data.url,
+                excerpt: stripTags(data.excerpt),
+              });
+            }
+          }
+          const request = askAiRequest(askConfig, question, context);
+          const response = await fetch(request.url, {
+            method: "POST",
+            headers: request.headers,
+            body: JSON.stringify(request.body),
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const payload = (await response.json()) as {
+            choices?: { message?: { content?: string } }[];
+          };
+          const text = payload.choices?.[0]?.message?.content;
+          if (answer) answer.textContent = text ?? "Leere Antwort erhalten.";
+          if (sources) {
+            sources.textContent = context.length
+              ? `Quellen: ${context.map((entry) => entry.path).join(", ")}`
+              : "";
+          }
+        } catch (error) {
+          if (answer) {
+            answer.textContent = `Ask AI fehlgeschlagen: ${
+              error instanceof Error ? error.message : "unbekannter Fehler"
+            }`;
+          }
+        } finally {
+          busy = false;
+        }
+      }
+
+      openButton?.addEventListener("click", () => {
+        dialog?.showModal();
+        void ensurePagefind();
+        if (askConfig && askInput) askInput.focus();
+      });
+      closeButton?.addEventListener("click", () => dialog?.close());
+      searchTab?.addEventListener("click", () => showTab("search"));
+      askTab?.addEventListener("click", () => showTab("ask"));
+      askInput?.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") void runAsk(askInput.value);
+      });
+      document.addEventListener("keydown", (event) => {
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+          event.preventDefault();
+          dialog?.showModal();
+          void ensurePagefind();
+        }
+      });
+
+      void loadAskConfig();
+    </script>
+  </body>
+</html>

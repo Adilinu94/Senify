@@ -88,6 +88,8 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "list_sections",
       "get_section",
       "get_theme",
+      "search_docs",
+      "read_docs",
       "apply_mutations",
       "create_page",
       "update_theme",
@@ -113,6 +115,25 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     expect(applyTool?.annotations?.readOnlyHint).toBe(false);
     const readTool = listed.tools.find((tool) => tool.name === "get_page");
     expect(readTool?.annotations?.readOnlyHint).toBe(true);
+  });
+
+  it("serves the documentation tools", async () => {
+    const search = await call(session, "search_docs", {
+      query: "apply_mutations baseDraftVersion",
+    });
+    expect(search.ok).toBe(true);
+    const hits = search.data.results as { path: string; title: string }[];
+    expect(hits.some((hit) => hit.path === "/reference/tools")).toBe(true);
+
+    const page = await call(session, "read_docs", { path: "/reference/tools" });
+    expect(page.ok).toBe(true);
+    expect(page.data.markdown as string).toContain("# Tools");
+
+    const missing = await call(session, "read_docs", { path: "/nope" });
+    expect(missing.ok).toBe(false);
+    expect((missing.data.error as { category: string }).category).toBe(
+      "not_found",
+    );
   });
 
   it("runs create page → insert section → inspect over the MCP client", async () => {

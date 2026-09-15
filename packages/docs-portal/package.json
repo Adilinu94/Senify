@@ -5,5 +5,21 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "astro build && pagefind --site dist",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@senify/core": "workspace:*",
+    "@senify/mcp": "workspace:*",
+    "@senify/registry": "workspace:*",
+    "@senify/section-sdk": "workspace:*",
+    "@senify/tokens": "workspace:*",
+    "marked": "^18.0.13"
+  },
+  "devDependencies": {
+    "astro": "^7.3.2",
+    "pagefind": "^1.5.2"
   }
 }

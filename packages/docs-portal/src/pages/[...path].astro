@@ -1,0 +1,20 @@
+---
+import Portal from "../layouts/Portal.astro";
+import { sortPages, type DocsPage } from "../model.ts";
+import { portalPages } from "../portal.ts";
+import { renderPage } from "../render.ts";
+
+export function getStaticPaths() {
+  const pages = sortPages(portalPages());
+  return pages.map((page) => ({
+    params: { path: page.path.replace(/^\//, "") },
+    props: { page, pages },
+  }));
+}
+
+type Props = { page: DocsPage; pages: DocsPage[] };
+const { page, pages } = Astro.props;
+const rendered = renderPage(page);
+---
+
+<Portal page={page} pages={pages} rendered={rendered} />

@@ -12,6 +12,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@senify/core": "workspace:*",
+    "@senify/docs-portal": "workspace:*",
     "@senify/registry": "workspace:*",
     "@senify/section-sdk": "workspace:*",
     "@senify/skills": "workspace:*",
