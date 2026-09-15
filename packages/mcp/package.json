@@ -10,8 +10,14 @@
     "senify": "./src/cli.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@senify/core": "workspace:*",
     "@senify/registry": "workspace:*",
+    "@senify/section-sdk": "workspace:*",
+    "@senify/skills": "workspace:*",
     "commander": "^14.0.0"
+  },
+  "devDependencies": {
+    "@senify/engine": "workspace:*"
   }
 }

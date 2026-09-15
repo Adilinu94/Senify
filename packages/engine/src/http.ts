@@ -4,6 +4,17 @@ import {
 } from "node:http";
 import { SenifyError } from "@senify/core";
 import type { Registry } from "@senify/section-sdk";
+import {
+  AuthError,
+  CreateTokenBodySchema,
+  hashToken,
+  McpAuditBodySchema,
+  parseBearer,
+  parseExpires,
+  redactArgs,
+  type CreateTokenBody,
+  type McpAuditBody,
+} from "./auth.ts";
 import { newEntityId } from "./ids.ts";
 import { PageLocks } from "./locks.ts";
 import { applyMutations } from "./mutations/apply.ts";
@@ -19,8 +30,10 @@ import {
   type UpdateThemeBody,
 } from "./mutations/contract.ts";
 import { draftConflictError } from "./paths.ts";
+import { RateLimiter, RateLimitError } from "./rate-limit.ts";
 import { Store } from "./store.ts";
 import { buildThemeReport } from "./theme-report.ts";
+import type { TokenScope } from "./types.ts";
 
 const BODY_LIMIT_BYTES = 1024 * 1024;
 
@@ -28,11 +41,19 @@ export type EngineContext = {
   store: Store;
   registry: Registry;
   locks: PageLocks;
+  rateLimiter: RateLimiter;
+};
+
+type AuthInfo = {
+  tokenId: string;
+  tokenName: string;
+  scopes: TokenScope[];
 };
 
 type RouteResult = {
   status: number;
   body?: unknown;
+  headers?: Record<string, string>;
 };
 
 function statusFor(error: SenifyError): number {
@@ -50,9 +71,14 @@ function statusFor(error: SenifyError): number {
   }
 }
 
-function sendJson(res: ServerResponse, status: number, body?: unknown): void {
+function sendJson(
+  res: ServerResponse,
+  status: number,
+  body?: unknown,
+  headers: Record<string, string> = {},
+): void {
   if (body === undefined) {
-    res.writeHead(status);
+    res.writeHead(status, headers);
     res.end();
     return;
   }
@@ -60,11 +86,42 @@ function sendJson(res: ServerResponse, status: number, body?: unknown): void {
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "content-length": Buffer.byteLength(payload),
+    ...headers,
   });
   res.end(payload);
 }
 
 function sendError(res: ServerResponse, error: unknown): void {
+  if (error instanceof RateLimitError) {
+    sendJson(
+      res,
+      429,
+      {
+        error: {
+          category: error.category,
+          message: error.message,
+          ...(error.suggestion !== undefined
+            ? { suggestion: error.suggestion }
+            : {}),
+        },
+      },
+      { "retry-after": String(error.retryAfterSeconds) },
+    );
+    return;
+  }
+  if (error instanceof AuthError) {
+    sendJson(res, error.status, {
+      error: {
+        category: error.category,
+        message: error.message,
+        ...(error.field !== undefined ? { field: error.field } : {}),
+        ...(error.suggestion !== undefined
+          ? { suggestion: error.suggestion }
+          : {}),
+      },
+    });
+    return;
+  }
   if (error instanceof SenifyError) {
     sendJson(res, statusFor(error), {
       error: {
@@ -231,13 +288,56 @@ type RouteParams = Record<string, string>;
 type Route = {
   method: string;
   segments: string[];
+  // Local operator routes (token management) work without a bearer token:
+  // the CLI runs on the same machine and bootstraps the first token here.
+  public?: boolean;
+  scope?: TokenScope;
+  destructive?: boolean;
   handler: (
     context: EngineContext,
     params: RouteParams,
     req: IncomingMessage,
     url: URL,
+    auth: AuthInfo | undefined,
   ) => Promise<RouteResult>;
 };
+
+async function authenticate(
+  context: EngineContext,
+  req: IncomingMessage,
+  route: Route,
+): Promise<AuthInfo | undefined> {
+  if (route.public === true) return undefined;
+  const secret = parseBearer(req.headers.authorization);
+  if (!secret) {
+    throw new AuthError(401, "Missing bearer token", {
+      suggestion:
+        'Create a token with `senify tokens create --name "<client>" --scopes read,write` and send it as `Authorization: Bearer <token>`.',
+    });
+  }
+  const record = await context.store.findTokenByHash(hashToken(secret));
+  if (!record || record.revokedAt !== null) {
+    throw new AuthError(401, "Token is unknown or revoked", {
+      suggestion:
+        "Create a new token (`senify tokens create`) or check `senify tokens list`.",
+    });
+  }
+  if (record.expiresAt !== null && Date.parse(record.expiresAt) <= Date.now()) {
+    throw new AuthError(401, `Token "${record.name}" expired on ${record.expiresAt}`, {
+      suggestion: "Create a new token with `senify tokens create`.",
+    });
+  }
+  const required: TokenScope = route.scope ?? "read";
+  if (!record.scopes.includes(required)) {
+    const suggested = [...new Set([...record.scopes, required])].join(",");
+    throw new AuthError(403, `Missing scope "${required}"`, {
+      suggestion: `Create a token with the "${required}" scope: senify tokens create --name "<client>" --scopes ${suggested}`,
+    });
+  }
+  context.rateLimiter.check(record.id, route.destructive === true);
+  await context.store.touchToken(record.id);
+  return { tokenId: record.id, tokenName: record.name, scopes: record.scopes };
+}
 
 function matchRoute(route: Route, method: string, segments: string[]): RouteParams | undefined {
   if (route.method !== method) return undefined;
@@ -268,11 +368,13 @@ const ROUTES: Route[] = [
   {
     method: "GET",
     segments: ["api", "health"],
+    public: true,
     handler: async () => ({ status: 200, body: { ok: true, version: "0.1.0" } }),
   },
   {
     method: "POST",
     segments: ["api", "sites"],
+    scope: "write",
     handler: async (context, _params, req) => {
       const body = (await readJsonBody(req)) ?? {};
       const siteBody = parseBody<CreateSiteBody>(CreateSiteBodySchema, body, "site");
@@ -283,6 +385,7 @@ const ROUTES: Route[] = [
   {
     method: "GET",
     segments: ["api", "sites"],
+    scope: "read",
     handler: async (context) => ({
       status: 200,
       body: { sites: await context.store.listSites() },
@@ -291,6 +394,7 @@ const ROUTES: Route[] = [
   {
     method: "GET",
     segments: ["api", "sites", ":siteId"],
+    scope: "read",
     handler: async (context, params) => {
       const siteId = params.siteId;
       if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
@@ -300,6 +404,8 @@ const ROUTES: Route[] = [
   {
     method: "DELETE",
     segments: ["api", "sites", ":siteId"],
+    scope: "publish",
+    destructive: true,
     handler: async (context, params) => {
       const siteId = params.siteId;
       if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
@@ -310,6 +416,7 @@ const ROUTES: Route[] = [
   {
     method: "POST",
     segments: ["api", "sites", ":siteId", "pages"],
+    scope: "write",
     handler: async (context, params, req) => {
       const siteId = params.siteId;
       if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
@@ -322,6 +429,7 @@ const ROUTES: Route[] = [
   {
     method: "GET",
     segments: ["api", "sites", ":siteId", "pages"],
+    scope: "read",
     handler: async (context, params) => {
       const siteId = params.siteId;
       if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
@@ -331,6 +439,7 @@ const ROUTES: Route[] = [
   {
     method: "GET",
     segments: ["api", "sites", ":siteId", "theme"],
+    scope: "read",
     handler: async (context, params) => {
       const siteId = params.siteId;
       if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
@@ -340,6 +449,7 @@ const ROUTES: Route[] = [
   {
     method: "PUT",
     segments: ["api", "sites", ":siteId", "theme"],
+    scope: "write",
     handler: async (context, params, req) => {
       const siteId = params.siteId;
       if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
@@ -356,6 +466,7 @@ const ROUTES: Route[] = [
   {
     method: "GET",
     segments: ["api", "sites", ":siteId", "theme", "report"],
+    scope: "read",
     handler: async (context, params) => {
       const siteId = params.siteId;
       if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
@@ -372,6 +483,7 @@ const ROUTES: Route[] = [
   {
     method: "GET",
     segments: ["api", "pages", ":pageId"],
+    scope: "read",
     handler: async (context, params) => {
       const pageId = params.pageId;
       if (!pageId) throw new SenifyError("validation", "Missing page id", { field: "pageId" });
@@ -381,6 +493,8 @@ const ROUTES: Route[] = [
   {
     method: "DELETE",
     segments: ["api", "pages", ":pageId"],
+    scope: "publish",
+    destructive: true,
     handler: async (context, params) => {
       const pageId = params.pageId;
       if (!pageId) throw new SenifyError("validation", "Missing page id", { field: "pageId" });
@@ -391,6 +505,7 @@ const ROUTES: Route[] = [
   {
     method: "POST",
     segments: ["api", "pages", ":pageId", "mutations"],
+    scope: "write",
     handler: async (context, params, req) => {
       const pageId = params.pageId;
       if (!pageId) throw new SenifyError("validation", "Missing page id", { field: "pageId" });
@@ -403,6 +518,7 @@ const ROUTES: Route[] = [
   {
     method: "GET",
     segments: ["api", "pages", ":pageId", "audit"],
+    scope: "read",
     handler: async (context, params, _req, url) => {
       const pageId = params.pageId;
       if (!pageId) throw new SenifyError("validation", "Missing page id", { field: "pageId" });
@@ -419,6 +535,117 @@ const ROUTES: Route[] = [
       return {
         status: 200,
         body: { entries: await context.store.listAudit(pageId, limit) },
+      };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "tokens"],
+    public: true,
+    handler: async (context, _params, req) => {
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<CreateTokenBody>(
+        CreateTokenBodySchema,
+        body,
+        "token",
+      );
+      const created = await context.store.createToken({
+        name: input.name,
+        scopes: input.scopes ?? ["read", "write"],
+        expiresAt: parseExpires(input.expires),
+      });
+      return {
+        status: 201,
+        body: {
+          token: created.token,
+          secret: created.secret,
+          hint: "Store the secret now — it is shown only once.",
+        },
+      };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "tokens"],
+    public: true,
+    handler: async (context) => ({
+      status: 200,
+      body: { tokens: await context.store.listTokens() },
+    }),
+  },
+  {
+    method: "DELETE",
+    segments: ["api", "tokens", ":tokenId"],
+    public: true,
+    handler: async (context, params) => {
+      const tokenId = params.tokenId;
+      if (!tokenId) {
+        throw new SenifyError("validation", "Missing token id", {
+          field: "tokenId",
+        });
+      }
+      await context.store.revokeToken(tokenId);
+      return { status: 204 };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "whoami"],
+    scope: "read",
+    handler: async (context, _params, _req, _url, auth) => {
+      if (!auth) throw new SenifyError("auth", "Missing bearer token");
+      const token = await context.store.getToken(auth.tokenId);
+      return {
+        status: 200,
+        body: {
+          name: token.name,
+          scopes: token.scopes,
+          prefix: token.prefix,
+          createdAt: token.createdAt,
+          expiresAt: token.expiresAt,
+          lastUsedAt: token.lastUsedAt,
+        },
+      };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "mcp", "audit"],
+    scope: "read",
+    handler: async (context, _params, req, _url, auth) => {
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<McpAuditBody>(
+        McpAuditBodySchema,
+        body,
+        "mcp audit entry",
+      );
+      const entry = await context.store.appendMcpAudit({
+        tokenId: auth?.tokenId ?? null,
+        client: input.client ?? auth?.tokenName ?? "unknown",
+        tool: input.tool,
+        args: redactArgs(input.args),
+        result: input.result,
+        entity: input.entity ?? null,
+        durationMs: Math.round(input.durationMs ?? 0),
+      });
+      return { status: 201, body: entry };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "mcp", "audit"],
+    scope: "read",
+    handler: async (context, _params, _req, url) => {
+      const rawLimit = url.searchParams.get("limit");
+      const limit = rawLimit === null ? 50 : Number.parseInt(rawLimit, 10);
+      if (!Number.isInteger(limit)) {
+        throw new SenifyError("validation", "Audit limit must be an integer", {
+          field: "limit",
+        });
+      }
+      return {
+        status: 200,
+        body: { entries: await context.store.listMcpAudit(limit) },
       };
     },
   },
@@ -446,8 +673,9 @@ async function handleRequest(
   for (const route of ROUTES) {
     const params = matchRoute(route, method, segments);
     if (params) {
-      const result = await route.handler(context, params, req, url);
-      sendJson(res, result.status, result.body);
+      const auth = await authenticate(context, req, route);
+      const result = await route.handler(context, params, req, url, auth);
+      sendJson(res, result.status, result.body, result.headers);
       return;
     }
   }

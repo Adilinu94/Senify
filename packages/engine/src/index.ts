@@ -3,22 +3,49 @@ import type { Registry } from "@senify/section-sdk";
 import { ensureSchema, type Db } from "./db.ts";
 import { createRequestHandler } from "./http.ts";
 import { PageLocks } from "./locks.ts";
+import {
+  DEFAULT_RATE_LIMITS,
+  RateLimiter,
+  type RateLimitConfig,
+} from "./rate-limit.ts";
 import { Store } from "./store.ts";
 
 export { ensureSchema, SCHEMA_STATEMENTS, type Db, type DbClient, type DbResult, type Row } from "./db.ts";
 export { createPgDb, type PgDb } from "./pg-db.ts";
 export { createId, newEntityId, newNodeId } from "./ids.ts";
 export { PageLocks } from "./locks.ts";
+export {
+  CreateTokenBodySchema,
+  generateToken,
+  hashToken,
+  McpAuditBodySchema,
+  parseBearer,
+  parseExpires,
+  redactArgs,
+  SCOPES,
+  type CreateTokenBody,
+  type McpAuditBody,
+} from "./auth.ts";
+export {
+  DEFAULT_RATE_LIMITS,
+  RateLimiter,
+  RateLimitError,
+  type RateLimitConfig,
+} from "./rate-limit.ts";
 export { assertPagePathFormat, draftConflictError, PAGE_PATH_PATTERN } from "./paths.ts";
 export { Store, slugify, type CreatePageInput, type CreateSiteInput, type NewAuditEntry } from "./store.ts";
 export {
+  type ApiToken,
   type AuditEntry,
+  type McpAuditEntry,
   type Page,
   type PageMeta,
   type PageSummary,
   type Site,
   type SiteProfile,
   type SiteTheme,
+  type TokenRecord,
+  type TokenScope,
   SITE_PROFILES,
 } from "./types.ts";
 export {
@@ -59,6 +86,7 @@ export { goldenTreeToMutations, type GoldenPlacement } from "./golden.ts";
 export type EngineOptions = {
   db: Db;
   registry: Registry;
+  rateLimits?: RateLimitConfig;
 };
 
 export type EngineServer = {
@@ -82,6 +110,7 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
     store,
     registry: options.registry,
     locks,
+    rateLimiter: new RateLimiter(options.rateLimits ?? DEFAULT_RATE_LIMITS),
   });
   return {
     registry: options.registry,

@@ -14,10 +14,11 @@ import {
   type Theme,
 } from "@senify/tokens";
 import type { Db } from "./db.ts";
+import { generateToken } from "./auth.ts";
 import { newEntityId, newNodeId } from "./ids.ts";
 import { validateShape } from "./mutations/contract.ts";
 import { assertPagePathFormat, draftConflictError } from "./paths.ts";
-import { SITE_PROFILES, type AuditEntry, type Page, type PageMeta, type PageSummary, type Site, type SiteTheme } from "./types.ts";
+import { SITE_PROFILES, type ApiToken, type AuditEntry, type McpAuditEntry, type Page, type PageMeta, type PageSummary, type Site, type SiteTheme, type TokenRecord, type TokenScope } from "./types.ts";
 
 export function slugify(value: string): string {
   const slug = value
@@ -196,6 +197,72 @@ function mapAudit(row: AuditRow): AuditEntry {
     author: toJson<Author>(row.author),
     undoPatch: toJson<AuditEntry["undoPatch"]>(row.undo_patch),
     draftVersionAfter: toFiniteNumber(row.draft_version_after, "draft_version_after"),
+    createdAt: toIso(row.created_at),
+  };
+}
+
+type TokenRow = {
+  id: string;
+  name: string;
+  scopes: unknown;
+  token_prefix: string;
+  created_at: unknown;
+  expires_at: unknown;
+  last_used_at: unknown;
+  revoked_at: unknown;
+};
+
+type TokenRecordRow = TokenRow & { token_hash: string };
+
+type McpAuditRow = {
+  id: string;
+  token_id: unknown;
+  client: string;
+  tool: string;
+  args: unknown;
+  result: string;
+  entity: unknown;
+  duration_ms: unknown;
+  created_at: unknown;
+};
+
+function toNullableIso(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  return toIso(value);
+}
+
+function mapToken(row: TokenRow): ApiToken {
+  const scopes = toJson<unknown>(row.scopes);
+  if (
+    !Array.isArray(scopes) ||
+    scopes.some(
+      (scope) => scope !== "read" && scope !== "write" && scope !== "publish",
+    )
+  ) {
+    throw new Error(`Stored token scopes are invalid: ${String(row.scopes)}`);
+  }
+  return {
+    id: row.id,
+    name: row.name,
+    scopes: scopes as TokenScope[],
+    prefix: row.token_prefix,
+    createdAt: toIso(row.created_at),
+    expiresAt: toNullableIso(row.expires_at),
+    lastUsedAt: toNullableIso(row.last_used_at),
+    revokedAt: toNullableIso(row.revoked_at),
+  };
+}
+
+function mapMcpAudit(row: McpAuditRow): McpAuditEntry {
+  return {
+    id: row.id,
+    tokenId: typeof row.token_id === "string" ? row.token_id : null,
+    client: row.client,
+    tool: row.tool,
+    args: toJson<Record<string, unknown>>(row.args),
+    result: row.result === "error" ? "error" : "ok",
+    entity: typeof row.entity === "string" ? row.entity : null,
+    durationMs: toFiniteNumber(row.duration_ms, "duration_ms"),
     createdAt: toIso(row.created_at),
   };
 }
@@ -768,6 +835,137 @@ export class Store {
       [siteId, Math.max(1, Math.min(500, limit))],
     );
     return result.rows.map(mapAudit);
+  }
+
+  async createToken(input: {
+    name: string;
+    scopes: TokenScope[];
+    expiresAt: string | null;
+  }): Promise<{ token: ApiToken; secret: string }> {
+    const name = input.name.trim();
+    if (!name) {
+      throw new SenifyError("validation", "Token name is required", {
+        field: "name",
+        suggestion: "Give the client a name, e.g. \"Claude Code\".",
+      });
+    }
+    const scopes = [...new Set(input.scopes)];
+    if (scopes.length === 0) {
+      throw new SenifyError("validation", "A token needs at least one scope", {
+        field: "scopes",
+        suggestion: 'Use one or more of "read", "write", "publish".',
+      });
+    }
+    const generated = generateToken();
+    const id = newEntityId();
+    await this.#db.query(
+      `INSERT INTO api_tokens
+        (id, name, scopes, token_hash, token_prefix, created_at, expires_at, last_used_at, revoked_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, NULL)`,
+      [
+        id,
+        name,
+        toJsonParam(scopes),
+        generated.hash,
+        generated.prefix,
+        new Date().toISOString(),
+        input.expiresAt,
+      ],
+    );
+    return { token: await this.getToken(id), secret: generated.secret };
+  }
+
+  async getToken(id: string): Promise<ApiToken> {
+    const result = await this.#db.query<TokenRow>(
+      `SELECT id, name, scopes, token_prefix, created_at, expires_at, last_used_at, revoked_at
+       FROM api_tokens WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Token "${id}" does not exist`, {
+        field: "tokenId",
+        suggestion: "List tokens with `senify tokens list`.",
+      });
+    }
+    return mapToken(row);
+  }
+
+  async listTokens(): Promise<ApiToken[]> {
+    const result = await this.#db.query<TokenRow>(
+      `SELECT id, name, scopes, token_prefix, created_at, expires_at, last_used_at, revoked_at
+       FROM api_tokens ORDER BY created_at DESC, id DESC`,
+    );
+    return result.rows.map(mapToken);
+  }
+
+  async findTokenByHash(tokenHash: string): Promise<TokenRecord | undefined> {
+    const result = await this.#db.query<TokenRecordRow>(
+      `SELECT id, name, scopes, token_hash, token_prefix, created_at, expires_at, last_used_at, revoked_at
+       FROM api_tokens WHERE token_hash = $1`,
+      [tokenHash],
+    );
+    const row = result.rows[0];
+    if (!row) return undefined;
+    return { ...mapToken(row), tokenHash: row.token_hash };
+  }
+
+  async revokeToken(id: string): Promise<void> {
+    const revoked = await this.#db.query<{ id: string }>(
+      `UPDATE api_tokens SET revoked_at = $2
+       WHERE id = $1 AND revoked_at IS NULL RETURNING id`,
+      [id, new Date().toISOString()],
+    );
+    if (revoked.rows.length > 0) return;
+    // Unknown ids surface as not_found; revoking twice stays idempotent.
+    await this.getToken(id);
+  }
+
+  async touchToken(id: string): Promise<void> {
+    await this.#db.query(
+      `UPDATE api_tokens SET last_used_at = $2 WHERE id = $1`,
+      [id, new Date().toISOString()],
+    );
+  }
+
+  async appendMcpAudit(input: {
+    tokenId: string | null;
+    client: string;
+    tool: string;
+    args: Record<string, unknown>;
+    result: "ok" | "error";
+    entity: string | null;
+    durationMs: number;
+  }): Promise<McpAuditEntry> {
+    const id = newEntityId();
+    const createdAt = new Date().toISOString();
+    await this.#db.query(
+      `INSERT INTO mcp_audit_entries
+        (id, token_id, client, tool, args, result, entity, duration_ms, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        id,
+        input.tokenId,
+        input.client,
+        input.tool,
+        toJsonParam(input.args),
+        input.result,
+        input.entity,
+        input.durationMs,
+        createdAt,
+      ],
+    );
+    return { id, ...input, createdAt };
+  }
+
+  async listMcpAudit(limit = 50): Promise<McpAuditEntry[]> {
+    const result = await this.#db.query<McpAuditRow>(
+      `SELECT id, token_id, client, tool, args, result, entity, duration_ms, created_at
+       FROM mcp_audit_entries
+       ORDER BY created_at DESC, id DESC LIMIT $1`,
+      [Math.max(1, Math.min(500, limit))],
+    );
+    return result.rows.map(mapMcpAudit);
   }
 }
 

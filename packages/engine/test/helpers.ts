@@ -10,6 +10,7 @@ import {
   type Engine,
   type EngineServer,
   type Mutation,
+  type RateLimitConfig,
   type Row,
 } from "@senify/engine";
 
@@ -180,20 +181,45 @@ export type BootEnv = {
   server: EngineServer;
   api: ApiHarness;
   registry: Registry;
+  token: string;
   close(): Promise<void>;
 };
 
-export async function bootEngine(): Promise<BootEnv> {
+export async function bootEngine(
+  options: { rateLimits?: RateLimitConfig } = {},
+): Promise<BootEnv> {
   const database = await createTestDatabase();
   const registry = createTestRegistry();
-  const engine = await createEngine({ db: database.db, registry });
+  const engine = await createEngine({
+    db: database.db,
+    registry,
+    // Suites fire hundreds of calls per token; rate-limit behaviour is
+    // covered by auth.test.ts with explicit tight limits.
+    rateLimits:
+      options.rateLimits ?? {
+        perMinute: 10_000,
+        burst: 10_000,
+        destructivePerMinute: 10_000,
+      },
+  });
   const server = await engine.listen({ port: 0 });
-  const api = createApiHarness(server.origin);
+  // Tokens are the only way in: the suite bootstraps one for itself.
+  const bootstrap = createApiHarness(server.origin);
+  const created = await bootstrap.request<{ secret: string }>({
+    method: "POST",
+    path: "/api/tokens",
+    body: { name: "engine-tests", scopes: ["read", "write", "publish"] },
+  });
+  if (created.status !== 201) {
+    throw new Error(`Token bootstrap failed: ${JSON.stringify(created.body)}`);
+  }
+  const api = createApiHarness(server.origin, { token: created.body.secret });
   return {
     engine,
     server,
     api,
     registry,
+    token: created.body.secret,
     async close() {
       await server.close();
       await database.close();

@@ -65,6 +65,33 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS audit_entries_page_idx
     ON audit_entries (page_id, created_at DESC, op_index DESC)`,
+  // API tokens: the secret is shown once and stored as a SHA-256 hash only.
+  `CREATE TABLE IF NOT EXISTS api_tokens (
+    id text PRIMARY KEY,
+    name text NOT NULL,
+    scopes jsonb NOT NULL,
+    token_hash text NOT NULL UNIQUE,
+    token_prefix text NOT NULL,
+    created_at timestamptz NOT NULL,
+    expires_at timestamptz,
+    last_used_at timestamptz,
+    revoked_at timestamptz
+  )`,
+  // MCP call audit is append-only and keeps no foreign keys, so the log
+  // survives token revocation.
+  `CREATE TABLE IF NOT EXISTS mcp_audit_entries (
+    id text PRIMARY KEY,
+    token_id text,
+    client text NOT NULL,
+    tool text NOT NULL,
+    args jsonb NOT NULL,
+    result text NOT NULL,
+    entity text,
+    duration_ms integer NOT NULL,
+    created_at timestamptz NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS mcp_audit_entries_created_idx
+    ON mcp_audit_entries (created_at DESC, id DESC)`,
 ];
 
 export async function ensureSchema(db: Db): Promise<void> {

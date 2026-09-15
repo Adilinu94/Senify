@@ -64,3 +64,32 @@ export type AuditEntry = {
   draftVersionAfter: number;
   createdAt: string;
 };
+
+export type TokenScope = "read" | "write" | "publish";
+
+export type ApiToken = {
+  id: string;
+  name: string;
+  scopes: TokenScope[];
+  prefix: string;
+  createdAt: string;
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+};
+
+export type TokenRecord = ApiToken & {
+  tokenHash: string;
+};
+
+export type McpAuditEntry = {
+  id: string;
+  tokenId: string | null;
+  client: string;
+  tool: string;
+  args: Record<string, unknown>;
+  result: "ok" | "error";
+  entity: string | null;
+  durationMs: number;
+  createdAt: string;
+};

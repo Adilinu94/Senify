@@ -1,0 +1,94 @@
+import { createApiHarness, createTestDb, type ApiHarness } from "@senify/core/testing";
+import {
+  createEngine,
+  type Db,
+  type DbResult,
+  type Row,
+} from "@senify/engine";
+import { createRegistry } from "@senify/registry";
+
+export type McpTestEnv = {
+  origin: string;
+  token: string;
+  api: ApiHarness;
+  close(): Promise<void>;
+};
+
+// pg-mem double for the engine: the same shape engine/test/helpers.ts uses.
+function memoryDb(): { db: Db; close(): Promise<void> } {
+  const memory = createTestDb();
+  const { Pool } = memory.adapters.createPg();
+  const pool = new Pool();
+  const db: Db = {
+    query: async <R extends Row>(
+      text: string,
+      params?: readonly unknown[],
+    ): Promise<DbResult<R>> => {
+      const result = await pool.query(text, params as unknown[] | undefined);
+      return { rows: result.rows as R[] };
+    },
+    async withTransaction(task) {
+      return task(db);
+    },
+  };
+  return { db, close: () => pool.end() };
+}
+
+export async function bootMcpEnv(): Promise<McpTestEnv> {
+  const database = memoryDb();
+  const engine = await createEngine({
+    db: database.db,
+    registry: createRegistry(),
+    // Suites fire many calls per token; rate limits are covered by
+    // engine/test/auth.test.ts with explicit tight limits.
+    rateLimits: { perMinute: 10_000, burst: 10_000, destructivePerMinute: 10_000 },
+  });
+  const server = await engine.listen({ port: 0 });
+  const anon = createApiHarness(server.origin);
+  const created = await anon.request<{ secret: string }>({
+    method: "POST",
+    path: "/api/tokens",
+    body: { name: "mcp-tests", scopes: ["read", "write", "publish"] },
+  });
+  if (created.status !== 201) {
+    throw new Error(`Token bootstrap failed: ${JSON.stringify(created.body)}`);
+  }
+  const token = created.body.secret;
+  return {
+    origin: server.origin,
+    token,
+    api: createApiHarness(server.origin, { token }),
+    async close() {
+      await server.close();
+      await database.close();
+    },
+  };
+}
+
+export async function createToken(
+  env: McpTestEnv,
+  name: string,
+  scopes: string[],
+): Promise<string> {
+  const created = await env.api.request<{ secret: string }>({
+    method: "POST",
+    path: "/api/tokens",
+    body: { name, scopes },
+  });
+  if (created.status !== 201) {
+    throw new Error(`Token creation failed: ${JSON.stringify(created.body)}`);
+  }
+  return created.body.secret;
+}
+
+export async function createSite(env: McpTestEnv, name: string): Promise<string> {
+  const created = await env.api.request<{ id: string }>({
+    method: "POST",
+    path: "/api/sites",
+    body: { name },
+  });
+  if (created.status !== 201) {
+    throw new Error(`Site creation failed: ${JSON.stringify(created.body)}`);
+  }
+  return created.body.id;
+}

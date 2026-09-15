@@ -4,17 +4,26 @@
 
 **Blocked by:** 01 (Projekt-Fundament), 02 (Site & Pages + Mutations).
 
-**Status:** ready-for-agent
+**Status:** implemented (`pnpm verify` grün, 187 Tests + 2 skipped; zusätzlich E2E-Smoke über `senify mcp serve` als Subprozess)
 
-- [ ] MCP-Client (stdio) verbindet; Tool-Katalog ist korrekt deklariert; Scope-Verstöße liefern agentenlesbare Fehler mit Token-Anlage-Hinweis
-- [ ] `apply_mutations`: Batch atomar all-or-nothing; `dry_run` validiert ohne Schreiben; Konflikt → 409-ähnlicher Fehler mit Neu-Laden-Anweisung; Warnings kommen als `warnings[]`
-- [ ] Tokens: anlegen (Secret einmal sichtbar, serverseitig nur Hash), widerrufen (wirkt sofort), Liste mit letzter Nutzung; Rate-Limits (60/min, Burst 20; destruktiv 10/min) mit `retry-after`
-- [ ] Audit-Log: Zeit, Token/Client, Tool, Args-Kurzfassung (Secrets redigiert), Ergebnis, Entität, Dauer — append-only
-- [ ] `senify setup` richtet MCP + Token + Skillpaket ein und endet mit Check (`whoami` + `list_sites` → „arbeitsfähig ✓"); `mcp configure` erkennt die Agenten-Clients
-- [ ] Skill-Referenz `assets.md`: Beschaffungs-Workflow (Bilder generieren z. B. mit `image-use` oder lizenzfreie Stock-Quellen → `upload_asset`; Icons aus Open-Source-Sets), Lizenz-/Marken-Guardrails, Alt-Text-Pflicht (Grundlage: `research/32`)
-- [ ] MCP-Workflow-Test (Prüfstelle 3): „Seite anlegen → Sektionen einfügen → prüfen" läuft komplett über den MCP-Client
+- [x] MCP-Client (stdio) verbindet; Tool-Katalog ist korrekt deklariert; Scope-Verstöße liefern agentenlesbare Fehler mit Token-Anlage-Hinweis
+- [x] `apply_mutations`: Batch atomar all-or-nothing; `dry_run` validiert ohne Schreiben; Konflikt → 409 mit Neu-Laden-Anweisung; Warnings kommen als `warnings[]`
+- [x] Tokens: anlegen (Secret einmal sichtbar, serverseitig nur Hash), widerrufen (wirkt sofort), Liste mit letzter Nutzung; Rate-Limits (60/min, Burst 20; destruktiv 10/min) mit `retry-after`
+- [x] Audit-Log: Zeit, Token/Client, Tool, Args-Kurzfassung (Secrets redigiert), Ergebnis, Entität, Dauer — append-only
+- [x] `senify setup` richtet MCP + Token + Skillpaket ein und endet mit Check (`whoami` + `list_sites` → „arbeitsfähig ✓"); `mcp configure` erkennt die Agenten-Clients
+- [x] Skill-Referenz `assets.md`: Beschaffungs-Workflow (Bilder generieren z. B. mit `image-use` oder lizenzfreie Stock-Quellen → `upload_asset`; Icons aus Open-Source-Sets), Lizenz-/Marken-Guardrails, Alt-Text-Pflicht (Grundlage: `research/32`)
+- [x] MCP-Workflow-Test (Prüfstelle 3): „Seite anlegen → Sektionen einfügen → prüfen" läuft komplett über den MCP-Client
 
 Quellen: `artifacts/04`, `artifacts/10`, `artifacts/11` (Skillpaket-Basis), Spec „MCP-Vertrag (Kern)".
+
+## Comments
+
+**15.09.2026 — Umsetzung.**
+- **Engine:** `api_tokens` (SHA-256-Hash, Prefix, Ablauf, letzte Nutzung, Revoke) und `mcp_audit_entries` (append-only, keine Foreign Keys); Bearer-Middleware mit Scopes `read`/`write`/`publish`, 401 (fehlend/unbekannt/widerrufen/abgelaufen) vs. 403 (Scope fehlt) mit Handlungsanweisung; Rate-Limiter als Token-Bucket (60/min, Burst 20; destruktive Ops 10/min) → 429 + `retry-after`; neue Routen `POST/GET /api/tokens`, `DELETE /api/tokens/:id`, `GET /api/whoami`, `POST/GET /api/mcp/audit`. Token-Verwaltung ist eine lokale Operator-Fläche ohne Bearer-Token (Engine bindet standardmäßig an 127.0.0.1).
+- **`mcp`:** stdio-Server über das offizielle SDK, Tool-Kern transport-agnostisch (JSON-Schema-Definitionen + Handler getrennt); dünner HTTP-Client (Token aus `SENIFY_API_URL`/`SENIFY_TOKEN` oder `~/.senify/config.json`); 12 Tools wie geplant. CLI: `tokens create|list|revoke`, `mcp serve`, `mcp configure [--print]` (Claude Code/Cursor/opencode), `setup` (Token + Skills nach `~/.senify/skills` + Client-Configs + Abschluss-Check „arbeitsfähig ✓").
+- **`skills`:** Knowledge-Router, Master-Flow „Site aus Brief", `assets.md` (Beschaffung, Lizenzen/Marken, Alt-Text-Pflicht) als Markdown-Skillpaket.
+- **Tests:** Engine-Auth/Scopes/Revoke/Expiry/Rate-Limit/Audit (7), MCP-Workflow inkl. `dry_run`, Outline/Nodes, Konflikt und Read-only-Token über den echten MCP-Client (4), CLI (5), Client-Konfiguration (3), Outline (2), Skills (4). Zusätzlich manueller E2E-Smoke: Engine + `senify mcp serve` als Subprozess, `listTools` → 12, `whoami`/`list_sites`/`create_page`/`apply_mutations`/`get_page` erfolgreich, alle Calls im Audit.
+- **Bewusst offen:** `restore_revision` kommt mit T07 (Revisionen existieren noch nicht); `senify start` (Engine-Bootstrap + Browser) bleibt bei T12.
 
 ## Handoff für die ausführende Session (Stand 15.09.2026)
 
