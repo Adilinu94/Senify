@@ -12,6 +12,11 @@ Read this file first: it routes a job to the right tool or reference.
 | Change brand tokens | `update_theme` (scales and semantic roles) |
 | Create a new page | `create_page` |
 | Inspect a node in detail | `get_nodes` (full props, overrides, motion for given ids) |
+| See the draft as a real website | `create_preview` (signed URL, 30 days) |
+| Hand work over for review | `submit_for_review` (hard checks must pass, build + diff included) |
+| Read the operator's feedback | `get_review_feedback` (status + thread + diff) |
+| Go live / step back | `publish_release` · `rollback_release` (publish scope) |
+| Bring back an old page state | `restore_revision` (append-only: becomes a new draft) |
 
 ## Ground rules
 

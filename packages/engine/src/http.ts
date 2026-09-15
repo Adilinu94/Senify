@@ -31,9 +31,37 @@ import {
 } from "./mutations/contract.ts";
 import { draftConflictError } from "./paths.ts";
 import { RateLimiter, RateLimitError } from "./rate-limit.ts";
+import { hardGuardrailsForTree } from "./guardrails.ts";
+import {
+  approveReview,
+  createPreview,
+  discardReview,
+  expirePreviews,
+  publishRelease,
+  requestChanges,
+  resolvePreviewFile,
+  restoreRevisionAsDraft,
+  submitReview,
+  type LifecycleContext,
+} from "./lifecycle.ts";
+import {
+  CreatePreviewBodySchema,
+  PublishReleaseBodySchema,
+  RestoreRevisionBodySchema,
+  ReviewActionBodySchema,
+  SubmitReviewBodySchema,
+  type CreatePreviewBody,
+  type PublishReleaseBody,
+  type RestoreRevisionBody,
+  type ReviewActionBody,
+  type SubmitReviewBody,
+} from "./lifecycle-contract.ts";
 import { Store } from "./store.ts";
 import { buildThemeReport } from "./theme-report.ts";
-import type { TokenScope } from "./types.ts";
+import type { ReviewStatus, TokenScope } from "./types.ts";
+import { REVIEW_STATUSES } from "./types.ts";
+import { createReadStream, existsSync, statSync } from "node:fs";
+import { extname } from "node:path";
 
 const BODY_LIMIT_BYTES = 1024 * 1024;
 
@@ -42,7 +70,12 @@ export type EngineContext = {
   registry: Registry;
   locks: PageLocks;
   rateLimiter: RateLimiter;
+  dataDir: string;
 };
+
+function lifecycleContext(context: EngineContext): LifecycleContext {
+  return { store: context.store, dataDir: context.dataDir };
+}
 
 type AuthInfo = {
   tokenId: string;
@@ -54,7 +87,45 @@ type RouteResult = {
   status: number;
   body?: unknown;
   headers?: Record<string, string>;
+  file?: { path: string };
 };
+
+const CONTENT_TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".txt": "text/plain; charset=utf-8",
+  ".xml": "application/xml; charset=utf-8",
+  ".md": "text/markdown; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".avif": "image/avif",
+  ".woff2": "font/woff2",
+  ".ico": "image/x-icon",
+};
+
+function sendFile(
+  res: ServerResponse,
+  file: { path: string },
+): void {
+  if (!existsSync(file.path) || !statSync(file.path).isFile()) {
+    res.writeHead(404);
+    res.end();
+    return;
+  }
+  const contentType =
+    CONTENT_TYPES[extname(file.path).toLowerCase()] ??
+    "application/octet-stream";
+  res.writeHead(200, {
+    "content-type": contentType,
+    "content-length": statSync(file.path).size,
+  });
+  createReadStream(file.path).pipe(res);
+}
 
 function statusFor(error: SenifyError): number {
   switch (error.category) {
@@ -186,6 +257,17 @@ async function applyMutationsToPage(
       previousTitle: page.title,
       previousPath: page.path,
     });
+    // Hard guardrails block the whole batch: nothing is written on a violation.
+    const guardrails = hardGuardrailsForTree(outcome.tree);
+    if (guardrails.length > 0) {
+      const first = guardrails[0];
+      if (first) {
+        throw new SenifyError("guardrail", first.message, {
+          field: first.field,
+          suggestion: first.suggestion,
+        });
+      }
+    }
     // No-op batches (every undo patch empty) change nothing: no version
     // bump, no audit — same response contract as dry_run (undoBatchId null).
     const touched = outcome.results.some(
@@ -649,7 +731,324 @@ const ROUTES: Route[] = [
       };
     },
   },
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "releases"],
+    scope: "publish",
+    handler: async (context, params, req) => {
+      const siteId = requireParam(params, "siteId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<PublishReleaseBody>(
+        PublishReleaseBodySchema,
+        body,
+        "release",
+      );
+      const result = await publishRelease(lifecycleContext(context), {
+        siteId,
+        author: input.author,
+        note: input.note ?? null,
+        basisReleaseId: input.basisReleaseId ?? null,
+      });
+      return { status: 201, body: result };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "releases"],
+    scope: "read",
+    handler: async (context, params) => {
+      const siteId = requireParam(params, "siteId");
+      return {
+        status: 200,
+        body: {
+          releases: await context.store.listReleases(siteId),
+          activeReleaseId: await context.store.getActiveReleaseId(siteId),
+        },
+      };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "releases", ":releaseId"],
+    scope: "read",
+    handler: async (context, params) => ({
+      status: 200,
+      body: await context.store.getRelease(requireParam(params, "releaseId")),
+    }),
+  },
+  {
+    method: "GET",
+    segments: ["api", "pages", ":pageId", "revisions"],
+    scope: "read",
+    handler: async (context, params) => ({
+      status: 200,
+      body: {
+        revisions: await context.store.listRevisions(
+          requireParam(params, "pageId"),
+        ),
+      },
+    }),
+  },
+  {
+    method: "GET",
+    segments: ["api", "revisions", ":revisionId"],
+    scope: "read",
+    handler: async (context, params) => ({
+      status: 200,
+      body: await context.store.getRevision(requireParam(params, "revisionId")),
+    }),
+  },
+  {
+    method: "POST",
+    segments: ["api", "pages", ":pageId", "restore"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const pageId = requireParam(params, "pageId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<RestoreRevisionBody>(
+        RestoreRevisionBodySchema,
+        body,
+        "restore",
+      );
+      return {
+        status: 200,
+        body: await restoreRevisionAsDraft(lifecycleContext(context), {
+          pageId,
+          revisionId: input.revisionId,
+          author: input.author,
+        }),
+      };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "previews"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const siteId = requireParam(params, "siteId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<CreatePreviewBody>(
+        CreatePreviewBodySchema,
+        body,
+        "preview",
+      );
+      const preview = await createPreview(lifecycleContext(context), {
+        siteId,
+        author: input.author,
+        ttlDays: input.ttlDays,
+      });
+      return {
+        status: 201,
+        body: {
+          preview,
+          url: `/api/previews/${preview.id}/files/index.html?token=${preview.token}`,
+        },
+      };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "previews"],
+    scope: "read",
+    handler: async (context, params) => {
+      const siteId = requireParam(params, "siteId");
+      const expired = await expirePreviews(lifecycleContext(context), siteId);
+      return {
+        status: 200,
+        body: {
+          previews: await context.store.listPreviews(siteId),
+          expired,
+        },
+      };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "reviews"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const siteId = requireParam(params, "siteId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<SubmitReviewBody>(
+        SubmitReviewBodySchema,
+        body,
+        "review",
+      );
+      const result = await submitReview(lifecycleContext(context), {
+        siteId,
+        author: input.author,
+        note: input.note ?? null,
+        pageIds: input.pageIds,
+      });
+      return {
+        status: 201,
+        body: {
+          review: result.review,
+          preview: result.preview,
+          checks: result.checks,
+        },
+      };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "reviews"],
+    scope: "read",
+    handler: async (context, params, _req, url) => {
+      const siteId = requireParam(params, "siteId");
+      const statusParam = url.searchParams.get("status");
+      if (statusParam !== null && !REVIEW_STATUSES.includes(statusParam as ReviewStatus)) {
+        throw new SenifyError("validation", `Unknown review status "${statusParam}"`, {
+          field: "status",
+          suggestion: `Use one of: ${REVIEW_STATUSES.join(", ")}.`,
+        });
+      }
+      return {
+        status: 200,
+        body: {
+          reviews: await context.store.listReviewItems(siteId, {
+            ...(statusParam === null
+              ? {}
+              : { status: statusParam as ReviewStatus }),
+          }),
+        },
+      };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "reviews", ":reviewId"],
+    scope: "read",
+    handler: async (context, params) => ({
+      status: 200,
+      body: await context.store.getReviewItem(requireParam(params, "reviewId")),
+    }),
+  },
+  {
+    method: "POST",
+    segments: ["api", "reviews", ":reviewId", "approve"],
+    scope: "publish",
+    handler: async (context, params, req) => {
+      const reviewId = requireParam(params, "reviewId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<ReviewActionBody>(
+        ReviewActionBodySchema,
+        body,
+        "review action",
+      );
+      return {
+        status: 200,
+        body: await approveReview(lifecycleContext(context), {
+          reviewId,
+          author: input.author,
+          note: input.note,
+        }),
+      };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "reviews", ":reviewId", "request-changes"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const reviewId = requireParam(params, "reviewId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<ReviewActionBody>(
+        ReviewActionBodySchema,
+        body,
+        "review action",
+      );
+      return {
+        status: 200,
+        body: await requestChanges(lifecycleContext(context), {
+          reviewId,
+          author: input.author,
+          note: input.note ?? "",
+        }),
+      };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "reviews", ":reviewId", "discard"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const reviewId = requireParam(params, "reviewId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<ReviewActionBody>(
+        ReviewActionBodySchema,
+        body,
+        "review action",
+      );
+      return {
+        status: 200,
+        body: await discardReview(lifecycleContext(context), {
+          reviewId,
+          author: input.author,
+          note: input.note,
+        }),
+      };
+    },
+  },
 ];
+
+function requireParam(params: RouteParams, key: string): string {
+  const value = params[key];
+  if (!value) {
+    throw new SenifyError("validation", `Missing ${key}`, { field: key });
+  }
+  return value;
+}
+
+// Preview files are public-by-token: browsers open the signed URL directly,
+// so no bearer token is required — the token travels as a query parameter.
+async function servePreviewFile(
+  context: EngineContext,
+  res: ServerResponse,
+  previewId: string,
+  relativePath: string,
+  url: URL,
+): Promise<void> {
+  let preview;
+  try {
+    preview = await context.store.getPreview(previewId);
+  } catch (error) {
+    sendError(res, error);
+    return;
+  }
+  if (url.searchParams.get("token") !== preview.token) {
+    sendError(
+      res,
+      new AuthError(401, "Preview token is missing or invalid", {
+        suggestion: "Use the signed preview URL from the review item.",
+      }),
+    );
+    return;
+  }
+  if (preview.status !== "ready" || Date.parse(preview.expiresAt) <= Date.now()) {
+    if (preview.status === "ready") {
+      await context.store.markPreviewExpired(preview.id);
+    }
+    sendError(
+      res,
+      new SenifyError("not_found", "Preview is expired", {
+        suggestion: "Create a new preview.",
+      }),
+    );
+    return;
+  }
+  const file = resolvePreviewFile(preview, relativePath);
+  if (!file) {
+    sendError(
+      res,
+      new SenifyError("validation", "Invalid preview file path", {
+        field: "path",
+      }),
+    );
+    return;
+  }
+  sendFile(res, { path: file });
+}
 
 async function handleRequest(
   context: EngineContext,
@@ -670,11 +1069,28 @@ async function handleRequest(
     return;
   }
   const segments = url.pathname.split("/").filter((part) => part.length > 0);
+  const previewFile = url.pathname.match(
+    /^\/api\/previews\/([^/]+)\/files\/(.+)$/,
+  );
+  if (method === "GET" && previewFile) {
+    await servePreviewFile(
+      context,
+      res,
+      decodeURIComponent(previewFile[1] ?? ""),
+      decodeURIComponent(previewFile[2] ?? ""),
+      url,
+    );
+    return;
+  }
   for (const route of ROUTES) {
     const params = matchRoute(route, method, segments);
     if (params) {
       const auth = await authenticate(context, req, route);
       const result = await route.handler(context, params, req, url, auth);
+      if (result.file) {
+        sendFile(res, result.file);
+        return;
+      }
       sendJson(res, result.status, result.body, result.headers);
       return;
     }

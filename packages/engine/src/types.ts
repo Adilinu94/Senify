@@ -93,3 +93,123 @@ export type McpAuditEntry = {
   durationMs: number;
   createdAt: string;
 };
+
+export type PageRevision = {
+  id: string;
+  pageId: string;
+  siteId: string;
+  title: string;
+  path: string;
+  tree: NodeTree;
+  author: Author;
+  note: string | null;
+  createdAt: string;
+};
+
+export type RevisionSummary = Omit<PageRevision, "tree"> & {
+  nodeCount: number;
+};
+
+export type ReleasePageRevision = {
+  pageId: string;
+  path: string;
+  revisionId: string;
+};
+
+export type Release = {
+  id: string;
+  siteId: string;
+  pageRevisions: ReleasePageRevision[];
+  themeSnapshot: unknown;
+  buildRef: string | null;
+  author: Author;
+  note: string | null;
+  basisReleaseId: string | null;
+  createdAt: string;
+};
+
+export type PreviewStatus = "ready" | "failed" | "expired";
+
+export type Preview = {
+  id: string;
+  siteId: string;
+  buildRef: string;
+  token: string;
+  status: PreviewStatus;
+  createdBy: Author;
+  createdAt: string;
+  expiresAt: string;
+};
+
+export type ReviewStatus =
+  | "submitted"
+  | "in_review"
+  | "approved"
+  | "changes_requested"
+  | "discarded";
+
+export const REVIEW_STATUSES: readonly ReviewStatus[] = [
+  "submitted",
+  "in_review",
+  "approved",
+  "changes_requested",
+  "discarded",
+];
+
+export type ReviewComment = {
+  at: string;
+  author: Author;
+  note: string;
+};
+
+export type GuardrailViolation = {
+  code: string;
+  message: string;
+  nodeId?: string;
+  field?: string;
+  suggestion?: string;
+};
+
+export type StructureChange = {
+  pageId: string;
+  path: string;
+  status: "added" | "removed" | "changed" | "unchanged";
+  sections: {
+    nodeId: string;
+    type: string;
+    change: "added" | "removed" | "changed";
+    fields: string[];
+  }[];
+};
+
+export type ReviewItem = {
+  id: string;
+  siteId: string;
+  previewId: string | null;
+  baseState: { pageId: string; tree: NodeTree; title: string; path: string }[];
+  pages: string[];
+  author: Author;
+  status: ReviewStatus;
+  structureDiff: StructureChange[];
+  guardrails: { hard: GuardrailViolation[]; soft: GuardrailViolation[] };
+  thread: ReviewComment[];
+  releaseId: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
+};
+
+export type CheckIssue = {
+  code: string;
+  severity: "hard" | "soft";
+  message: string;
+  pageId?: string;
+  nodeId?: string;
+  field?: string;
+  suggestion?: string;
+};
+
+export type CheckReport = {
+  stage: "write" | "submit" | "publish";
+  hard: CheckIssue[];
+  soft: CheckIssue[];
+};

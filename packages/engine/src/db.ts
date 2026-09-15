@@ -92,6 +92,70 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS mcp_audit_entries_created_idx
     ON mcp_audit_entries (created_at DESC, id DESC)`,
+  // Revisions are immutable page snapshots; releases bundle all page
+  // revisions plus a theme snapshot (append-only, rollback creates new ones).
+  `CREATE TABLE IF NOT EXISTS page_revisions (
+    id text PRIMARY KEY,
+    page_id text NOT NULL,
+    site_id text NOT NULL,
+    tree jsonb NOT NULL,
+    title text NOT NULL,
+    path text NOT NULL,
+    author jsonb NOT NULL,
+    note text,
+    created_at timestamptz NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS page_revisions_page_idx
+    ON page_revisions (page_id, created_at DESC, id DESC)`,
+  `CREATE TABLE IF NOT EXISTS releases (
+    id text PRIMARY KEY,
+    site_id text NOT NULL,
+    page_revisions jsonb NOT NULL,
+    theme_snapshot jsonb NOT NULL,
+    build_ref text,
+    author jsonb NOT NULL,
+    note text,
+    basis_release_id text,
+    created_at timestamptz NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS releases_site_idx
+    ON releases (site_id, created_at DESC, id DESC)`,
+  // The active release lives in its own table so the schema stays additive
+  // without ALTER statements (there is no migration tooling in v1).
+  `CREATE TABLE IF NOT EXISTS active_releases (
+    site_id text PRIMARY KEY,
+    release_id text NOT NULL,
+    updated_at timestamptz NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS previews (
+    id text PRIMARY KEY,
+    site_id text NOT NULL,
+    build_ref text NOT NULL,
+    token text NOT NULL,
+    status text NOT NULL,
+    created_by jsonb NOT NULL,
+    created_at timestamptz NOT NULL,
+    expires_at timestamptz NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS previews_site_idx
+    ON previews (site_id, created_at DESC, id DESC)`,
+  `CREATE TABLE IF NOT EXISTS review_items (
+    id text PRIMARY KEY,
+    site_id text NOT NULL,
+    preview_id text,
+    base_state jsonb NOT NULL,
+    pages jsonb NOT NULL,
+    author jsonb NOT NULL,
+    status text NOT NULL,
+    structure_diff jsonb NOT NULL,
+    guardrails jsonb NOT NULL,
+    thread jsonb NOT NULL,
+    release_id text,
+    created_at timestamptz NOT NULL,
+    resolved_at timestamptz
+  )`,
+  `CREATE INDEX IF NOT EXISTS review_items_site_idx
+    ON review_items (site_id, created_at DESC, id DESC)`,
 ];
 
 export async function ensureSchema(db: Db): Promise<void> {

@@ -37,7 +37,14 @@ Follow the stages in order. Stop after each stage and check the result with a re
 - Motion sparsam: Presets statt Effektfeuerwerk, Intensität passend zum Site-Profil.
 - Struktur prüfen: Heading-Hierarchie, Link-Ziele, keine leeren Listen.
 
-## 7. Übergabe
+## 7. Prüfen, Review, Veröffentlichen
+
+- Zwischenstand ansehen: `create_preview` liefert eine signierte URL (30 Tage) — echte Draft-Builds, keine Simulation.
+- Einreichen: `submit_for_review` prüft hart (Guardrails, Links, Alt-Texte, Kontrast). Ein Verstoß kommt als Guardrail-Fehler zurück, kein Review-Item.
+- Feedback lesen: `get_review_feedback` zeigt Status und den Notiz-Thread. „Request changes" heißt: nachbessern und erneut einreichen.
+- Live schalten und zurückrollen: `publish_release` / `rollback_release` (publish-Scope, beim Betreiber). Alte Seitenstände holt `restore_revision` als neuen Draft zurück.
+
+## 8. Übergabe
 
 - Zusammenfassung: was gebaut, welche Entscheidungen, was offen.
-- Änderungen sind im Audit sichtbar; Review/Publish folgen mit den Lifecycle-Tickets (`submit_for_review`, `publish_release`).
+- Änderungen sind im Audit sichtbar; nach jeder Freigabe entsteht ein Release mit Revisionen aller Seiten und Theme-Snapshot.

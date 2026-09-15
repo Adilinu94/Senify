@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Type } from "@sinclair/typebox";
 import { createApiHarness, createTestDb, type ApiHarness } from "@senify/core/testing";
 import { createRegistry } from "@senify/registry";
@@ -114,10 +117,26 @@ export const blockSection: SectionDefinition = {
   },
 };
 
+export const pinnedSection: SectionDefinition = {
+  type: "pinned",
+  version: 1,
+  title: "Pinned",
+  description: "Test-only section that allows pin motion presets.",
+  category: "content",
+  props: [{ key: "headline", control: "text", label: "Headline" }],
+  allowedChildren: "none",
+  motionPresets: ["scrub-pin", "fade-up"],
+  golden: {
+    tree: { type: "pinned", props: { headline: "Pinned" } },
+    thumbnails: {},
+  },
+};
+
 export function createTestRegistry(): Registry {
   const registry = createRegistry();
   registry.register(blockSection);
   registry.register(containerSection);
+  registry.register(pinnedSection);
   return registry;
 }
 
@@ -190,9 +209,11 @@ export async function bootEngine(
 ): Promise<BootEnv> {
   const database = await createTestDatabase();
   const registry = createTestRegistry();
+  const dataDir = mkdtempSync(join(tmpdir(), "senify-engine-"));
   const engine = await createEngine({
     db: database.db,
     registry,
+    dataDir,
     // Suites fire hundreds of calls per token; rate-limit behaviour is
     // covered by auth.test.ts with explicit tight limits.
     rateLimits:
@@ -223,6 +244,7 @@ export async function bootEngine(
     async close() {
       await server.close();
       await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
     },
   };
 }

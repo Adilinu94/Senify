@@ -1,4 +1,6 @@
 import { createServer } from "node:http";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { Registry } from "@senify/section-sdk";
 import { ensureSchema, type Db } from "./db.ts";
 import { createRequestHandler } from "./http.ts";
@@ -9,6 +11,43 @@ import {
   type RateLimitConfig,
 } from "./rate-limit.ts";
 import { Store } from "./store.ts";
+
+export { bakePages, type BakeOutcome } from "./bake.ts";
+export {
+  hardGuardrailsForTree,
+  MAX_PARALLAX_PER_PAGE,
+  MAX_PINS_PER_PAGE,
+  PARALLAX_PRESETS,
+  PIN_PRESETS,
+} from "./guardrails.ts";
+export { runChecks, type CheckStage } from "./checks.ts";
+export {
+  approveReview,
+  createPreview,
+  discardReview,
+  expirePreviews,
+  publishRelease,
+  requestChanges,
+  resolvePreviewFile,
+  restoreRevisionAsDraft,
+  structureDiff,
+  submitReview,
+  type CheckSummary,
+  type LifecycleContext,
+  type SubmitResult,
+} from "./lifecycle.ts";
+export {
+  CreatePreviewBodySchema,
+  PublishReleaseBodySchema,
+  RestoreRevisionBodySchema,
+  ReviewActionBodySchema,
+  SubmitReviewBodySchema,
+  type CreatePreviewBody,
+  type PublishReleaseBody,
+  type RestoreRevisionBody,
+  type ReviewActionBody,
+  type SubmitReviewBody,
+} from "./lifecycle-contract.ts";
 
 export { ensureSchema, SCHEMA_STATEMENTS, type Db, type DbClient, type DbResult, type Row } from "./db.ts";
 export { createPgDb, type PgDb } from "./pg-db.ts";
@@ -35,15 +74,29 @@ export {
 export { assertPagePathFormat, draftConflictError, PAGE_PATH_PATTERN } from "./paths.ts";
 export { Store, slugify, type CreatePageInput, type CreateSiteInput, type NewAuditEntry } from "./store.ts";
 export {
+  REVIEW_STATUSES,
   type ApiToken,
   type AuditEntry,
+  type CheckIssue,
+  type CheckReport,
+  type GuardrailViolation,
   type McpAuditEntry,
   type Page,
   type PageMeta,
+  type PageRevision,
   type PageSummary,
+  type Preview,
+  type PreviewStatus,
+  type Release,
+  type ReleasePageRevision,
+  type ReviewComment,
+  type ReviewItem,
+  type ReviewStatus,
+  type RevisionSummary,
   type Site,
   type SiteProfile,
   type SiteTheme,
+  type StructureChange,
   type TokenRecord,
   type TokenScope,
   SITE_PROFILES,
@@ -87,6 +140,8 @@ export type EngineOptions = {
   db: Db;
   registry: Registry;
   rateLimits?: RateLimitConfig;
+  // Previews and release builds live here (default: SENIFY_DATA_DIR or ~/.senify).
+  dataDir?: string;
 };
 
 export type EngineServer = {
@@ -99,23 +154,31 @@ export type Engine = {
   registry: Registry;
   store: Store;
   locks: PageLocks;
+  dataDir: string;
   listen(options?: { port?: number; host?: string }): Promise<EngineServer>;
 };
+
+export function defaultDataDir(): string {
+  return process.env.SENIFY_DATA_DIR ?? join(homedir(), ".senify");
+}
 
 export async function createEngine(options: EngineOptions): Promise<Engine> {
   await ensureSchema(options.db);
   const store = new Store(options.db);
   const locks = new PageLocks();
+  const dataDir = options.dataDir ?? defaultDataDir();
   const handler = createRequestHandler({
     store,
     registry: options.registry,
     locks,
     rateLimiter: new RateLimiter(options.rateLimits ?? DEFAULT_RATE_LIMITS),
+    dataDir,
   });
   return {
     registry: options.registry,
     store,
     locks,
+    dataDir,
     async listen(listenOptions?: { port?: number; host?: string }): Promise<EngineServer> {
       const server = createServer(handler);
       const host = listenOptions?.host ?? "127.0.0.1";

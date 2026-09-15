@@ -362,6 +362,151 @@ export const TOOLS: ToolDefinition[] = [
       });
     },
   },
+  {
+    name: "create_preview",
+    title: "Create preview",
+    description:
+      "Builds a real draft build of the site and returns a signed preview URL (30 days). Use it to check your work visually before submitting for review.",
+    scope: "write",
+    inputSchema: objectSchema({ siteId: { type: "string" } }, ["siteId"]),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
+      const name = await context.client.tokenName();
+      return context.client.request("POST", `/api/sites/${siteId}/previews`, {
+        author: { kind: "agent", id: name, label: name },
+      });
+    },
+  },
+  {
+    name: "submit_for_review",
+    title: "Submit for review",
+    description:
+      "Submits the current drafts for human review: builds a preview, computes the structure diff against the active release and creates a review item. Hard checks must pass — violations come back as a guardrail error instead of a review item.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        siteId: { type: "string" },
+        note: { type: "string" },
+        pageIds: { type: "array", items: { type: "string" }, minItems: 1 },
+      },
+      ["siteId"],
+    ),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
+      const note = optionalString(args, "note");
+      const pageIds = args.pageIds;
+      const name = await context.client.tokenName();
+      return context.client.request("POST", `/api/sites/${siteId}/reviews`, {
+        author: { kind: "agent", id: name, label: name },
+        ...(note === undefined ? {} : { note }),
+        ...(Array.isArray(pageIds) ? { pageIds } : {}),
+      });
+    },
+  },
+  {
+    name: "get_review_feedback",
+    title: "Get review feedback",
+    description:
+      "Reads a review item: status, thread (the operator's notes) and the structure diff. Call it after a submit to see whether changes were requested; newer feedback means new work.",
+    scope: "read",
+    inputSchema: objectSchema({ reviewId: { type: "string" } }, ["reviewId"]),
+    entity: (args) => `review:${String(args.reviewId ?? "")}`,
+    handler: async (context, args) =>
+      context.client.request(
+        "GET",
+        `/api/reviews/${requireString(args, "reviewId")}`,
+      ),
+  },
+  {
+    name: "publish_release",
+    title: "Publish release",
+    description:
+      "Publishes the drafts as a release: runs the publish checks (hard gate), snapshots every page as a revision, bakes the release and makes it active. Needs the publish scope; unapproved releases stay theory.",
+    scope: "publish",
+    inputSchema: objectSchema(
+      {
+        siteId: { type: "string" },
+        note: { type: "string" },
+      },
+      ["siteId"],
+    ),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
+      const note = optionalString(args, "note");
+      const name = await context.client.tokenName();
+      return context.client.request("POST", `/api/sites/${siteId}/releases`, {
+        author: { kind: "agent", id: name, label: name },
+        ...(note === undefined ? {} : { note }),
+      });
+    },
+  },
+  {
+    name: "rollback_release",
+    title: "Roll back release",
+    description:
+      "Creates a new release from an older release's state (basisReleaseId) and snaps theme plus drafts back to it. Nothing is overwritten — the history stays append-only.",
+    scope: "publish",
+    inputSchema: objectSchema(
+      {
+        siteId: { type: "string" },
+        releaseId: { type: "string" },
+        note: { type: "string" },
+      },
+      ["siteId", "releaseId"],
+    ),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
+      const releaseId = requireString(args, "releaseId");
+      const note = optionalString(args, "note");
+      const name = await context.client.tokenName();
+      return context.client.request("POST", `/api/sites/${siteId}/releases`, {
+        author: { kind: "agent", id: name, label: name },
+        basisReleaseId: releaseId,
+        ...(note === undefined ? {} : { note }),
+      });
+    },
+  },
+  {
+    name: "restore_revision",
+    title: "Restore revision",
+    description:
+      "Uses an old page revision as the new draft (append-only: nothing is rewritten, the restore lands in the audit log).",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        pageId: { type: "string" },
+        revisionId: { type: "string" },
+      },
+      ["pageId", "revisionId"],
+    ),
+    entity: (args) => `page:${String(args.pageId ?? "")}`,
+    handler: async (context, args) => {
+      const pageId = requireString(args, "pageId");
+      const name = await context.client.tokenName();
+      return context.client.request("POST", `/api/pages/${pageId}/restore`, {
+        author: { kind: "agent", id: name, label: name },
+        revisionId: requireString(args, "revisionId"),
+      });
+    },
+  },
+  {
+    name: "delete_page",
+    title: "Delete page",
+    description:
+      "Deletes a page and its draft (destructive, audited). Needs the publish scope.",
+    scope: "publish",
+    inputSchema: objectSchema({ pageId: { type: "string" } }, ["pageId"]),
+    entity: (args) => `page:${String(args.pageId ?? "")}`,
+    handler: async (context, args) => {
+      const pageId = requireString(args, "pageId");
+      await context.client.request("DELETE", `/api/pages/${pageId}`);
+      return { deleted: pageId };
+    },
+  },
 ];
 
 export function toolByName(name: string): ToolDefinition | undefined {

@@ -29,6 +29,7 @@ describe("senify skill pack", () => {
     const workflow = skillFiles().find((file) => file.name === "workflow.md");
     expect(workflow?.content).toContain("## 1. Brief verstehen");
     expect(workflow?.content).toContain("## 4. Seiten bauen");
-    expect(workflow?.content).toContain("## 7. Übergabe");
+    expect(workflow?.content).toContain("submit_for_review");
+    expect(workflow?.content).toContain("## 8. Übergabe");
   });
 });

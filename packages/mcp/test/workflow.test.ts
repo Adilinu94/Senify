@@ -11,6 +11,8 @@ import {
 
 type Json = Record<string, unknown>;
 
+const OPERATOR = { kind: "human", id: "operator", label: "Operator" } as const;
+
 type McpSession = {
   client: Client;
   close(): Promise<void>;
@@ -77,6 +79,13 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "apply_mutations",
       "create_page",
       "update_theme",
+      "create_preview",
+      "submit_for_review",
+      "get_review_feedback",
+      "publish_release",
+      "rollback_release",
+      "restore_revision",
+      "delete_page",
     ]);
     for (const tool of listed.tools) {
       expect(tool.description?.length ?? 0).toBeGreaterThan(30);
@@ -209,6 +218,104 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       await reader.close();
     }
   });
+
+  it("runs the review loop: publish → submit → request changes → fix → approve", async () => {
+    const siteId = await createSite(env, "Review Loop");
+    const created = await call(session, "create_page", { siteId, title: "Start" });
+    expect(created.ok).toBe(true);
+    const pageId = created.data.id as string;
+    const rootNodeId = (created.data.draft as { rootNodeId: string }).rootNodeId;
+
+    const inserted = await call(session, "apply_mutations", {
+      pageId,
+      baseDraftVersion: 1,
+      mutations: [
+        {
+          op: "insertNode",
+          parent: { nodeId: rootNodeId },
+          node: { id: "hero-0001", type: "hero", props: { headline: "V1" } },
+        },
+      ],
+    });
+    expect(inserted.ok).toBe(true);
+
+    const published = await call(session, "publish_release", { siteId, note: "Basis" });
+    expect(published.ok).toBe(true);
+    const release = published.data.release as {
+      id: string;
+      pageRevisions: { pageId: string; revisionId: string }[];
+    };
+    expect(release.pageRevisions).toHaveLength(1);
+
+    const version = (await call(session, "get_page", { pageId })).data
+      .draftVersion as number;
+    await call(session, "apply_mutations", {
+      pageId,
+      baseDraftVersion: version,
+      mutations: [
+        { op: "updateNodeProps", id: "hero-0001", patch: { headline: "V2" } },
+      ],
+    });
+    const submitted = await call(session, "submit_for_review", {
+      siteId,
+      note: "Bitte prüfen",
+    });
+    expect(submitted.ok).toBe(true);
+    const reviewId = (submitted.data.review as { id: string }).id;
+    const preview = submitted.data.preview as { id: string; token: string };
+    expect(preview.token.length).toBeGreaterThan(10);
+
+    const requested = await env.api.request({
+      method: "POST",
+      path: `/api/reviews/${reviewId}/request-changes`,
+      body: { author: OPERATOR, note: "Kürzer bitte" },
+    });
+    expect(requested.status).toBe(200);
+
+    const feedback = await call(session, "get_review_feedback", { reviewId });
+    expect(feedback.ok).toBe(true);
+    expect(feedback.data.status).toBe("changes_requested");
+    const thread = feedback.data.thread as { note: string }[];
+    expect(thread.at(-1)?.note).toBe("Kürzer bitte");
+
+    const version2 = (await call(session, "get_page", { pageId })).data
+      .draftVersion as number;
+    await call(session, "apply_mutations", {
+      pageId,
+      baseDraftVersion: version2,
+      mutations: [
+        { op: "updateNodeProps", id: "hero-0001", patch: { headline: "Kurz" } },
+      ],
+    });
+    const approved = await env.api.request<{
+      review: { status: string };
+      release: { id: string };
+    }>({
+      method: "POST",
+      path: `/api/reviews/${reviewId}/approve`,
+      body: { author: OPERATOR, note: "Passt" },
+    });
+    expect(approved.status).toBe(200);
+    expect(approved.body.review.status).toBe("approved");
+
+    const rollback = await call(session, "rollback_release", {
+      siteId,
+      releaseId: release.id,
+      note: "zurück",
+    });
+    expect(rollback.ok).toBe(true);
+    expect(
+      (rollback.data.release as { basisReleaseId: string }).basisReleaseId,
+    ).toBe(release.id);
+
+    const restored = await call(session, "restore_revision", {
+      pageId: release.pageRevisions[0]?.pageId,
+      revisionId: release.pageRevisions[0]?.revisionId,
+    });
+    expect(restored.ok).toBe(true);
+    const outline = await call(session, "get_page", { pageId });
+    expect(JSON.stringify(outline.data)).toContain("V1");
+  }, 90000);
 
   it("records every tool call in the server-side audit log", async () => {
     const audited = await env.api.request<{

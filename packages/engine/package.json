@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@senify/core": "workspace:*",
+    "@senify/renderer": "workspace:*",
     "@senify/section-sdk": "workspace:*",
     "@senify/tokens": "workspace:*",
     "@sinclair/typebox": "^0.34.0",

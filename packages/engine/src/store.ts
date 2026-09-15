@@ -18,7 +18,30 @@ import { generateToken } from "./auth.ts";
 import { newEntityId, newNodeId } from "./ids.ts";
 import { validateShape } from "./mutations/contract.ts";
 import { assertPagePathFormat, draftConflictError } from "./paths.ts";
-import { SITE_PROFILES, type ApiToken, type AuditEntry, type McpAuditEntry, type Page, type PageMeta, type PageSummary, type Site, type SiteTheme, type TokenRecord, type TokenScope } from "./types.ts";
+import {
+  REVIEW_STATUSES,
+  SITE_PROFILES,
+  type ApiToken,
+  type AuditEntry,
+  type McpAuditEntry,
+  type Page,
+  type PageMeta,
+  type PageRevision,
+  type PageSummary,
+  type Preview,
+  type PreviewStatus,
+  type Release,
+  type ReleasePageRevision,
+  type ReviewComment,
+  type ReviewItem,
+  type ReviewStatus,
+  type RevisionSummary,
+  type Site,
+  type SiteTheme,
+  type StructureChange,
+  type TokenRecord,
+  type TokenScope,
+} from "./types.ts";
 
 export function slugify(value: string): string {
   const slug = value
@@ -225,6 +248,139 @@ type McpAuditRow = {
   duration_ms: unknown;
   created_at: unknown;
 };
+
+type RevisionRow = {
+  id: string;
+  page_id: string;
+  site_id: string;
+  tree: unknown;
+  title: string;
+  path: string;
+  author: unknown;
+  note: unknown;
+  created_at: unknown;
+};
+
+type ReleaseRow = {
+  id: string;
+  site_id: string;
+  page_revisions: unknown;
+  theme_snapshot: unknown;
+  build_ref: unknown;
+  author: unknown;
+  note: unknown;
+  basis_release_id: unknown;
+  created_at: unknown;
+};
+
+type PreviewRow = {
+  id: string;
+  site_id: string;
+  build_ref: string;
+  token: string;
+  status: string;
+  created_by: unknown;
+  created_at: unknown;
+  expires_at: unknown;
+};
+
+type ReviewRow = {
+  id: string;
+  site_id: string;
+  preview_id: unknown;
+  base_state: unknown;
+  pages: unknown;
+  author: unknown;
+  status: string;
+  structure_diff: unknown;
+  guardrails: unknown;
+  thread: unknown;
+  release_id: unknown;
+  created_at: unknown;
+  resolved_at: unknown;
+};
+
+const REVIEW_STATUS_VALUES: readonly ReviewStatus[] = REVIEW_STATUSES;
+
+function mapRevision(row: RevisionRow): PageRevision {
+  const tree = toJson<unknown>(row.tree);
+  assertDraftShape(tree);
+  return {
+    id: row.id,
+    pageId: row.page_id,
+    siteId: row.site_id,
+    title: row.title,
+    path: row.path,
+    tree,
+    author: toJson<Author>(row.author),
+    note: typeof row.note === "string" ? row.note : null,
+    createdAt: toIso(row.created_at),
+  };
+}
+
+function toRevisionSummary(revision: PageRevision): RevisionSummary {
+  const { tree, ...rest } = revision;
+  return { ...rest, nodeCount: Object.keys(tree.nodes).length };
+}
+
+function mapRelease(row: ReleaseRow): Release {
+  return {
+    id: row.id,
+    siteId: row.site_id,
+    pageRevisions: toJson<ReleasePageRevision[]>(row.page_revisions),
+    themeSnapshot: toJson<unknown>(row.theme_snapshot),
+    buildRef: typeof row.build_ref === "string" ? row.build_ref : null,
+    author: toJson<Author>(row.author),
+    note: typeof row.note === "string" ? row.note : null,
+    basisReleaseId:
+      typeof row.basis_release_id === "string" ? row.basis_release_id : null,
+    createdAt: toIso(row.created_at),
+  };
+}
+
+function mapPreview(row: PreviewRow): Preview {
+  const status: PreviewStatus =
+    row.status === "failed"
+      ? "failed"
+      : row.status === "expired"
+        ? "expired"
+        : "ready";
+  return {
+    id: row.id,
+    siteId: row.site_id,
+    buildRef: row.build_ref,
+    token: row.token,
+    status,
+    createdBy: toJson<Author>(row.created_by),
+    createdAt: toIso(row.created_at),
+    expiresAt: toIso(row.expires_at),
+  };
+}
+
+function mapReviewItem(row: ReviewRow): ReviewItem {
+  const status = row.status as ReviewStatus;
+  if (!REVIEW_STATUS_VALUES.includes(status)) {
+    throw new Error(`Stored review status is invalid: ${row.status}`);
+  }
+  return {
+    id: row.id,
+    siteId: row.site_id,
+    previewId: typeof row.preview_id === "string" ? row.preview_id : null,
+    baseState: toJson<ReviewItem["baseState"]>(row.base_state),
+    pages: toJson<string[]>(row.pages),
+    author: toJson<Author>(row.author),
+    status,
+    structureDiff: toJson<StructureChange[]>(row.structure_diff),
+    guardrails: toJson<ReviewItem["guardrails"]>(row.guardrails),
+    thread: toJson<ReviewComment[]>(row.thread),
+    releaseId: typeof row.release_id === "string" ? row.release_id : null,
+    createdAt: toIso(row.created_at),
+    resolvedAt:
+      row.resolved_at === null || row.resolved_at === undefined
+        ? null
+        : toIso(row.resolved_at),
+  };
+}
 
 function toNullableIso(value: unknown): string | null {
   if (value === null || value === undefined) return null;
@@ -966,6 +1122,353 @@ export class Store {
       [Math.max(1, Math.min(500, limit))],
     );
     return result.rows.map(mapMcpAudit);
+  }
+
+  async createRevision(input: {
+    pageId: string;
+    siteId: string;
+    title: string;
+    path: string;
+    tree: NodeTree;
+    author: Author;
+    note: string | null;
+  }): Promise<PageRevision> {
+    const id = newEntityId();
+    const createdAt = new Date().toISOString();
+    await this.#db.query(
+      `INSERT INTO page_revisions
+        (id, page_id, site_id, tree, title, path, author, note, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        id,
+        input.pageId,
+        input.siteId,
+        toJsonParam(input.tree),
+        input.title,
+        input.path,
+        toJsonParam(input.author),
+        input.note,
+        createdAt,
+      ],
+    );
+    return {
+      id,
+      pageId: input.pageId,
+      siteId: input.siteId,
+      title: input.title,
+      path: input.path,
+      tree: input.tree,
+      author: input.author,
+      note: input.note,
+      createdAt,
+    };
+  }
+
+  async getRevision(id: string): Promise<PageRevision> {
+    const result = await this.#db.query<RevisionRow>(
+      `SELECT id, page_id, site_id, tree, title, path, author, note, created_at
+       FROM page_revisions WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Revision "${id}" does not exist`, {
+        field: "revisionId",
+      });
+    }
+    return mapRevision(row);
+  }
+
+  async listRevisions(pageId: string, limit = 50): Promise<RevisionSummary[]> {
+    const result = await this.#db.query<RevisionRow>(
+      `SELECT id, page_id, site_id, tree, title, path, author, note, created_at
+       FROM page_revisions WHERE page_id = $1
+       ORDER BY created_at DESC, id DESC LIMIT $2`,
+      [pageId, Math.max(1, Math.min(200, limit))],
+    );
+    return result.rows.map(mapRevision).map(toRevisionSummary);
+  }
+
+  async createRelease(input: {
+    siteId: string;
+    pageRevisions: ReleasePageRevision[];
+    themeSnapshot: unknown;
+    buildRef: string | null;
+    author: Author;
+    note: string | null;
+    basisReleaseId: string | null;
+  }): Promise<Release> {
+    const id = newEntityId();
+    const createdAt = new Date().toISOString();
+    await this.#db.query(
+      `INSERT INTO releases
+        (id, site_id, page_revisions, theme_snapshot, build_ref, author, note, basis_release_id, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        id,
+        input.siteId,
+        toJsonParam(input.pageRevisions),
+        toJsonParam(input.themeSnapshot),
+        input.buildRef,
+        toJsonParam(input.author),
+        input.note,
+        input.basisReleaseId,
+        createdAt,
+      ],
+    );
+    return {
+      id,
+      siteId: input.siteId,
+      pageRevisions: input.pageRevisions,
+      themeSnapshot: input.themeSnapshot,
+      buildRef: input.buildRef,
+      author: input.author,
+      note: input.note,
+      basisReleaseId: input.basisReleaseId,
+      createdAt,
+    };
+  }
+
+  async getRelease(id: string): Promise<Release> {
+    const result = await this.#db.query<ReleaseRow>(
+      `SELECT id, site_id, page_revisions, theme_snapshot, build_ref, author, note, basis_release_id, created_at
+       FROM releases WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Release "${id}" does not exist`, {
+        field: "releaseId",
+      });
+    }
+    return mapRelease(row);
+  }
+
+  async listReleases(siteId: string, limit = 50): Promise<Release[]> {
+    const result = await this.#db.query<ReleaseRow>(
+      `SELECT id, site_id, page_revisions, theme_snapshot, build_ref, author, note, basis_release_id, created_at
+       FROM releases WHERE site_id = $1
+       ORDER BY created_at DESC, id DESC LIMIT $2`,
+      [siteId, Math.max(1, Math.min(200, limit))],
+    );
+    return result.rows.map(mapRelease);
+  }
+
+  async getActiveReleaseId(siteId: string): Promise<string | null> {
+    const result = await this.#db.query<{ release_id: string }>(
+      `SELECT release_id FROM active_releases WHERE site_id = $1`,
+      [siteId],
+    );
+    return result.rows[0]?.release_id ?? null;
+  }
+
+  async attachReleaseBuild(id: string, buildRef: string): Promise<void> {
+    await this.#db.query(`UPDATE releases SET build_ref = $2 WHERE id = $1`, [
+      id,
+      buildRef,
+    ]);
+  }
+
+  async setActiveRelease(siteId: string, releaseId: string): Promise<void> {
+    const now = new Date().toISOString();
+    const updated = await this.#db.query<{ site_id: string }>(
+      `UPDATE active_releases SET release_id = $2, updated_at = $3
+       WHERE site_id = $1 RETURNING site_id`,
+      [siteId, releaseId, now],
+    );
+    if (updated.rows.length > 0) return;
+    await this.#db.query(
+      `INSERT INTO active_releases (site_id, release_id, updated_at)
+       VALUES ($1, $2, $3)`,
+      [siteId, releaseId, now],
+    );
+  }
+
+  async createPreview(input: {
+    siteId: string;
+    buildRef: string;
+    token: string;
+    createdBy: Author;
+    expiresAt: string;
+  }): Promise<Preview> {
+    const id = newEntityId();
+    const createdAt = new Date().toISOString();
+    await this.#db.query(
+      `INSERT INTO previews
+        (id, site_id, build_ref, token, status, created_by, created_at, expires_at)
+       VALUES ($1, $2, $3, $4, 'ready', $5, $6, $7)`,
+      [
+        id,
+        input.siteId,
+        input.buildRef,
+        input.token,
+        toJsonParam(input.createdBy),
+        createdAt,
+        input.expiresAt,
+      ],
+    );
+    return {
+      id,
+      siteId: input.siteId,
+      buildRef: input.buildRef,
+      token: input.token,
+      status: "ready",
+      createdBy: input.createdBy,
+      createdAt,
+      expiresAt: input.expiresAt,
+    };
+  }
+
+  async getPreview(id: string): Promise<Preview> {
+    const result = await this.#db.query<PreviewRow>(
+      `SELECT id, site_id, build_ref, token, status, created_by, created_at, expires_at
+       FROM previews WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Preview "${id}" does not exist`, {
+        field: "previewId",
+      });
+    }
+    return mapPreview(row);
+  }
+
+  async listPreviews(siteId: string, limit = 50): Promise<Preview[]> {
+    const result = await this.#db.query<PreviewRow>(
+      `SELECT id, site_id, build_ref, token, status, created_by, created_at, expires_at
+       FROM previews WHERE site_id = $1
+       ORDER BY created_at DESC, id DESC LIMIT $2`,
+      [siteId, Math.max(1, Math.min(200, limit))],
+    );
+    return result.rows.map(mapPreview);
+  }
+
+  async markPreviewExpired(id: string): Promise<void> {
+    await this.#db.query(
+      `UPDATE previews SET status = 'expired' WHERE id = $1 AND status <> 'expired'`,
+      [id],
+    );
+  }
+
+  async createReviewItem(input: {
+    siteId: string;
+    previewId: string | null;
+    baseState: ReviewItem["baseState"];
+    pages: string[];
+    author: Author;
+    structureDiff: StructureChange[];
+    guardrails: ReviewItem["guardrails"];
+    note: string | null;
+  }): Promise<ReviewItem> {
+    const id = newEntityId();
+    const createdAt = new Date().toISOString();
+    const thread: ReviewComment[] = input.note
+      ? [{ at: createdAt, author: input.author, note: input.note }]
+      : [];
+    const status: ReviewStatus = "submitted";
+    await this.#db.query(
+      `INSERT INTO review_items
+        (id, site_id, preview_id, base_state, pages, author, status, structure_diff, guardrails, thread, release_id, created_at, resolved_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, $11, NULL)`,
+      [
+        id,
+        input.siteId,
+        input.previewId,
+        toJsonParam(input.baseState),
+        toJsonParam(input.pages),
+        toJsonParam(input.author),
+        status,
+        toJsonParam(input.structureDiff),
+        toJsonParam(input.guardrails),
+        toJsonParam(thread),
+        createdAt,
+      ],
+    );
+    return {
+      id,
+      siteId: input.siteId,
+      previewId: input.previewId,
+      baseState: input.baseState,
+      pages: input.pages,
+      author: input.author,
+      status,
+      structureDiff: input.structureDiff,
+      guardrails: input.guardrails,
+      thread,
+      releaseId: null,
+      createdAt,
+      resolvedAt: null,
+    };
+  }
+
+  async getReviewItem(id: string): Promise<ReviewItem> {
+    const result = await this.#db.query<ReviewRow>(
+      `SELECT id, site_id, preview_id, base_state, pages, author, status, structure_diff, guardrails, thread, release_id, created_at, resolved_at
+       FROM review_items WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Review item "${id}" does not exist`, {
+        field: "reviewId",
+      });
+    }
+    return mapReviewItem(row);
+  }
+
+  async listReviewItems(
+    siteId: string,
+    options: { status?: ReviewStatus; limit?: number } = {},
+  ): Promise<ReviewItem[]> {
+    const limit = Math.max(1, Math.min(200, options.limit ?? 50));
+    const result = options.status
+      ? await this.#db.query<ReviewRow>(
+          `SELECT id, site_id, preview_id, base_state, pages, author, status, structure_diff, guardrails, thread, release_id, created_at, resolved_at
+           FROM review_items WHERE site_id = $1 AND status = $2
+           ORDER BY created_at DESC, id DESC LIMIT $3`,
+          [siteId, options.status, limit],
+        )
+      : await this.#db.query<ReviewRow>(
+          `SELECT id, site_id, preview_id, base_state, pages, author, status, structure_diff, guardrails, thread, release_id, created_at, resolved_at
+           FROM review_items WHERE site_id = $1
+           ORDER BY created_at DESC, id DESC LIMIT $2`,
+          [siteId, limit],
+        );
+    return result.rows.map(mapReviewItem);
+  }
+
+  async updateReviewItem(
+    id: string,
+    patch: {
+      status?: ReviewStatus;
+      comment?: ReviewComment;
+      releaseId?: string | null;
+      resolvedAt?: string | null;
+    },
+  ): Promise<ReviewItem> {
+    const current = await this.getReviewItem(id);
+    const thread = patch.comment
+      ? [...current.thread, patch.comment]
+      : current.thread;
+    const status = patch.status ?? current.status;
+    const releaseId =
+      patch.releaseId === undefined ? current.releaseId : patch.releaseId;
+    const resolvedAt =
+      patch.resolvedAt === undefined ? current.resolvedAt : patch.resolvedAt;
+    await this.#db.query(
+      `UPDATE review_items
+       SET status = $2, thread = $3, release_id = $4, resolved_at = $5
+       WHERE id = $1`,
+      [id, status, toJsonParam(thread), releaseId, resolvedAt],
+    );
+    return {
+      ...current,
+      status,
+      thread,
+      releaseId,
+      resolvedAt,
+    };
   }
 }
 
