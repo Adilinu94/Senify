@@ -1,0 +1,149 @@
+---
+import SiteCanvas from '../components/SiteCanvas'
+---
+
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PROTOTYPE — Scroll-gekoppelte 3D-Choreografie (Senify)</title>
+  </head>
+  <body>
+    <SiteCanvas client:only="react" />
+
+    <main>
+      <section data-section class="sec hero">
+        <p class="eyebrow">Prototype · Senify · Ticket 20</p>
+        <h1 data-reveal>Scroll<br />→ 3D</h1>
+        <p class="sub" data-reveal>Ein Canvas. Ein Page-Script. Ein Store.</p>
+        <span class="scroll-hint">↓ scrollen</span>
+      </section>
+
+      <section data-section class="sec">
+        <h2 data-reveal>1 · Page-Script-Layer</h2>
+        <p data-reveal>
+          Lenis Smooth Scroll und GSAP ScrollTrigger laufen in <em>einem</em> rAF-Loop. Motion braucht
+          keine React-Hydration — nur dieser eine Layer kennt den Scroll.
+        </p>
+      </section>
+
+      <section data-section id="pin" class="sec pin">
+        <h2 data-reveal>2 · Pinned Showcase</h2>
+        <p data-reveal>
+          Diese Sektion ist gepinnt. Ihr Fortschritt fließt live in den Store → Kamera und Objekt
+          reagieren scrub-gekoppelt, ohne einzufrieren.
+        </p>
+      </section>
+
+      <section data-section class="sec">
+        <h2 data-reveal>3 · Shared Store</h2>
+        <p data-reveal>
+          Der window-gebundene Store überbrückt Page-Script und React-Island zuverlässig — auch wenn
+          Astro beide getrennt bündelt. Das ist das Muster für die Section↔Scene-Bridge.
+        </p>
+      </section>
+
+      <section data-section class="sec outro">
+        <h2 data-reveal>Ende.</h2>
+        <p data-reveal>Erkenntnisse wandern in Ticket 03 (Motion &amp; 3D) und Ticket 08 (Section-Library).</p>
+      </section>
+    </main>
+
+    <script>
+      import { initPageMotion } from '../scripts/page-motion'
+      initPageMotion()
+    </script>
+
+    <style is:global>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        margin: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        background: #07080c;
+        color: #e8e6f0;
+        font-family: ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
+      }
+      body {
+        overflow-x: hidden;
+      }
+
+      .canvas-wrap {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+      }
+      .canvas-wrap canvas {
+        display: block;
+      }
+
+      main {
+        position: relative;
+        z-index: 1;
+      }
+
+      .sec {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 1.4rem;
+        padding: 12vh 8vw;
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+      .eyebrow {
+        letter-spacing: 0.25em;
+        text-transform: uppercase;
+        font-size: 0.75rem;
+        color: #9aa0b4;
+      }
+      h1 {
+        font-size: clamp(3rem, 9vw, 7rem);
+        line-height: 1.02;
+        letter-spacing: -0.02em;
+      }
+      h2 {
+        font-size: clamp(1.6rem, 4vw, 2.8rem);
+        letter-spacing: -0.01em;
+      }
+      p {
+        max-width: 46ch;
+        color: #b9bed0;
+        line-height: 1.65;
+      }
+      .scroll-hint {
+        color: #7e8499;
+        font-size: 0.85rem;
+      }
+
+      .hud {
+        position: fixed;
+        top: 1rem;
+        right: 1rem;
+        z-index: 10;
+        font: 12px/1.5 ui-monospace, 'Cascadia Code', monospace;
+        background: rgba(10, 12, 18, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 8px;
+        padding: 0.6rem 0.8rem;
+        color: #cfd3e2;
+        backdrop-filter: blur(6px);
+        pointer-events: none;
+        white-space: pre;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .scroll-hint {
+          display: none;
+        }
+      }
+    </style>
+  </body>
+</html>
