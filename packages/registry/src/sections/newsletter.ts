@@ -1,19 +1,26 @@
 import type { SectionDefinition } from "@senify/section-sdk";
-import { buttonPart, headingPart, sectionStyleProps, textProp, thumbs } from "../shared.ts";
+import { buttonPart, headingPart, linkProp, sectionStyleProps, textProp, thumbs } from "../shared.ts";
 
 export const newsletterSection: SectionDefinition = {
   type: "newsletter",
   version: 1,
   title: "Newsletter",
   description:
-    "Email signup with button and privacy note. Submissions post to an external endpoint in v1 — configure the endpoint prop with your provider URL.",
+    "Email signup with a native double-opt-in flow: submitting creates a pending entry, the confirmation mail carries a signed token, the confirm link flips it to confirmed and the unsubscribe link to unsubscribed. The 'endpoint' prop is the legacy external fallback.",
   category: "commerce",
   props: [
     textProp("headline", "Headline", "Content", 1),
     textProp("sub", "Subline"),
     textProp("buttonLabel", "Button label", "Actions", 1),
     textProp("note", "Privacy note", "Content"),
-    textProp("endpoint", "Endpoint URL", "Settings", 1),
+    textProp("targetCollectionId", "Subscription collection", "Form"),
+    textProp("consentText", "Consent text", "Form"),
+    linkProp("consentPage", "Privacy page", "Form"),
+    textProp("successMessage", "Inline success message", "Form"),
+    linkProp("successPage", "Thank-you page", "Form"),
+    textProp("honeypotKey", "Honeypot field", "Settings"),
+    textProp("notifyEmail", "Notification recipient", "Settings"),
+    textProp("endpoint", "External endpoint URL", "Settings", 1),
   ],
   variants: {
     boxed: { label: "Boxed", preset: {} },
@@ -35,6 +42,8 @@ export const newsletterSection: SectionDefinition = {
         headline: "Einmal im Monat: Neues aus dem Studio",
         sub: "Referenzen, Tipps und Termine — kein Spam, jederzeit kündbar.",
         buttonLabel: "Anmelden",
+        consentText:
+          "Mit der Anmeldung stimmen Sie unserer Datenschutzerklärung zu.",
         note: "Mit der Anmeldung stimmen Sie unserer Datenschutzerklärung zu.",
       },
     },

@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Registry } from "@senify/section-sdk";
 import { ensureSchema, type Db } from "./db.ts";
+import { createFormSigner } from "./forms.ts";
 import { createRequestHandler } from "./http.ts";
 import { PageLocks } from "./locks.ts";
 import {
@@ -141,6 +142,8 @@ export {
   ENTRY_VERSION_RETENTION,
   FIELD_TYPES,
   MEDIA_KINDS,
+  NEWSLETTER_TOKEN_KINDS,
+  NOTIFICATION_STATUSES,
   PAGE_TEMPLATE_KINDS,
   REVIEW_STATUSES,
   SUPPORTS_FLAGS,
@@ -159,10 +162,15 @@ export {
   type FieldDef,
   type FieldOption,
   type FieldType,
+  type FormSnapshotRecord,
   type GuardrailViolation,
   type McpAuditEntry,
   type MediaKind,
   type MediaRef,
+  type NewsletterToken,
+  type NewsletterTokenKind,
+  type NotificationMessage,
+  type NotificationStatus,
   type Page,
   type PageMeta,
   type PageRevision,
@@ -182,6 +190,7 @@ export {
   type SiteProfile,
   type SiteTheme,
   type StructureChange,
+  type SubmissionRow,
   type SupportsFlag,
   type TokenRecord,
   type TokenScope,
@@ -248,6 +257,48 @@ export {
   rebakePathsForEntry,
   rebakePathsForPage,
 } from "./rebake.ts";
+export {
+  backoffMs,
+  buildSubmissionsCsv,
+  checkForms,
+  collectionFieldsForForm,
+  confirmNewsletter,
+  createCollectionFromForm,
+  createFormSigner,
+  DEFAULT_CONFIRM_TTL_HOURS,
+  devTransport,
+  fieldTypeFor,
+  FORM_AUTO_KEYS,
+  FORM_AUTHOR,
+  FormRejection,
+  listSubmissions,
+  MAX_NOTIFICATION_ATTEMPTS,
+  MIN_FILL_MS,
+  planCollectionFromForm,
+  stampFormsForBuild,
+  submitForm,
+  tickNotifications,
+  unsubscribeNewsletter,
+  type FormRejectionReason,
+  type FormSigner,
+  type FormSubmitInput,
+  type FormSubmitResult,
+  type FormTokenPayload,
+  type NewsletterTransition,
+  type NotificationTickResult,
+  type NotificationTransport,
+  type OutboundMessage,
+  type SubmissionColumn,
+  type SubmissionView,
+} from "./forms.ts";
+export {
+  FormCollectionCreateBodySchema,
+  FormCollectionPlanBodySchema,
+  FormTickBodySchema,
+  type FormCollectionCreateBody,
+  type FormCollectionPlanBody,
+  type FormTickBody,
+} from "./forms-contract.ts";
 
 export type EngineOptions = {
   db: Db;
@@ -257,6 +308,8 @@ export type EngineOptions = {
   dataDir?: string;
   // Upload cap in bytes; upload URLs are signed against it (default 25 MB).
   maxUploadBytes?: number;
+  // Public base URL the stamped form action points at (default: same origin).
+  formsBaseUrl?: string;
 };
 
 export type EngineServer = {
@@ -282,6 +335,9 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
   const store = new Store(options.db);
   const locks = new PageLocks();
   const dataDir = options.dataDir ?? defaultDataDir();
+  // The signer secret is persisted, so tokens stamped into static HTML keep
+  // verifying after a restart.
+  const formSigner = createFormSigner(await store.getOrCreateFormSecret());
   const handler = createRequestHandler({
     store,
     registry: options.registry,
@@ -292,6 +348,16 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
     // Per-process secret: pending upload URLs survive only this engine run,
     // which matches their short TTL.
     uploadSigner: createUploadSigner(randomBytes(32).toString("base64url")),
+    formSigner,
+    // Forms are public: a separate, tight bucket per IP (and IP+form).
+    formRateLimiter: new RateLimiter({
+      perMinute: 20,
+      burst: 5,
+      destructivePerMinute: 5,
+    }),
+    ...(options.formsBaseUrl === undefined
+      ? {}
+      : { formBaseUrl: options.formsBaseUrl }),
   });
   return {
     registry: options.registry,

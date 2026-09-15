@@ -1,9 +1,11 @@
+import { randomBytes } from "node:crypto";
 import { SenifyError } from "@senify/core";
 import {
   PAGE_ROOT_TYPE,
   type Author,
   type NodeTree,
 } from "@senify/section-sdk";
+import type { FormSnapshot } from "@senify/renderer";
 import {
   defaultTheme,
   emitCss,
@@ -46,7 +48,12 @@ import {
   type EntryStatus,
   type EntryVersion,
   type FieldDef,
+  type FormSnapshotRecord,
   type McpAuditEntry,
+  type NewsletterToken,
+  type NewsletterTokenKind,
+  type NotificationMessage,
+  type NotificationStatus,
   type Page,
   type PageMeta,
   type PageRevision,
@@ -3017,6 +3024,268 @@ export class Store {
     );
     return result.rows.map(mapEntryRedirect);
   }
+
+  // ------------------------------------------------------------ forms (T11)
+
+  // The HMAC secret is generated once and lives in its own table so tokens
+  // baked into static HTML keep verifying across engine restarts.
+  async getOrCreateFormSecret(): Promise<string> {
+    const existing = await this.#db.query<{ secret: string }>(
+      `SELECT secret FROM form_settings ORDER BY created_at ASC LIMIT 1`,
+    );
+    const row = existing.rows[0];
+    if (row) return row.secret;
+    const secret = randomBytes(32).toString("base64url");
+    await this.#db.query(
+      `INSERT INTO form_settings (id, secret, created_at) VALUES ($1, $2, $3)`,
+      [newEntityId(), secret, new Date().toISOString()],
+    );
+    return secret;
+  }
+
+  // A form id is stable per site + page + node; a re-bake keeps it and only
+  // writes a new snapshot.
+  async resolveFormId(input: {
+    siteId: string;
+    pageId: string;
+    nodeId: string;
+  }): Promise<string> {
+    const existing = await this.#db.query<{ form_id: string }>(
+      `SELECT form_id FROM form_snapshots
+       WHERE site_id = $1 AND page_id = $2 AND node_id = $3
+       ORDER BY created_at DESC, id DESC LIMIT 1`,
+      [input.siteId, input.pageId, input.nodeId],
+    );
+    return existing.rows[0]?.form_id ?? newEntityId();
+  }
+
+  async saveFormSnapshot(input: {
+    id: string;
+    formId: string;
+    siteId: string;
+    pageId: string;
+    nodeId: string;
+    pagePath: string;
+    sectionType: string;
+    snapshot: FormSnapshot;
+  }): Promise<FormSnapshotRecord> {
+    const result = await this.#db.query<FormSnapshotRow>(
+      `INSERT INTO form_snapshots
+        (id, form_id, site_id, page_id, node_id, page_path, section_type, snapshot, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id, form_id, site_id, page_id, node_id, page_path, section_type, snapshot, created_at`,
+      [
+        input.id,
+        input.formId,
+        input.siteId,
+        input.pageId,
+        input.nodeId,
+        input.pagePath,
+        input.sectionType,
+        toJsonParam(input.snapshot),
+        new Date().toISOString(),
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error("Form snapshot insert returned no row");
+    return mapFormSnapshot(row);
+  }
+
+  async getFormSnapshot(id: string): Promise<FormSnapshotRecord> {
+    const result = await this.#db.query<FormSnapshotRow>(
+      `SELECT id, form_id, site_id, page_id, node_id, page_path, section_type, snapshot, created_at
+       FROM form_snapshots WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Form snapshot "${id}" does not exist`, {
+        field: "formId",
+        suggestion: "Re-bake the site so a fresh token is stamped into the page.",
+      });
+    }
+    return mapFormSnapshot(row);
+  }
+
+  async getFormSnapshotForForm(
+    formId: string,
+  ): Promise<FormSnapshotRecord | undefined> {
+    const result = await this.#db.query<FormSnapshotRow>(
+      `SELECT id, form_id, site_id, page_id, node_id, page_path, section_type, snapshot, created_at
+       FROM form_snapshots WHERE form_id = $1
+       ORDER BY created_at DESC, id DESC LIMIT 1`,
+      [formId],
+    );
+    const row = result.rows[0];
+    return row ? mapFormSnapshot(row) : undefined;
+  }
+
+  async enqueueNotification(input: {
+    siteId: string;
+    formId: string | null;
+    entryId: string | null;
+    kind: string;
+    recipient: string;
+    subject: string;
+    body: string;
+    nextAttemptAt?: string;
+  }): Promise<NotificationMessage> {
+    const now = new Date().toISOString();
+    const result = await this.#db.query<NotificationRow>(
+      `INSERT INTO notification_outbox
+        (id, site_id, form_id, entry_id, kind, recipient, subject, body, status,
+         attempts, next_attempt_at, last_error, created_at, updated_at, sent_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'queued', 0, $9, NULL, $10, $10, NULL)
+       RETURNING ${NOTIFICATION_COLUMNS}`,
+      [
+        newEntityId(),
+        input.siteId,
+        input.formId,
+        input.entryId,
+        input.kind,
+        input.recipient,
+        input.subject,
+        input.body,
+        input.nextAttemptAt ?? now,
+        now,
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error("Notification insert returned no row");
+    return mapNotification(row);
+  }
+
+  async getNotification(id: string): Promise<NotificationMessage> {
+    const result = await this.#db.query<NotificationRow>(
+      `SELECT ${NOTIFICATION_COLUMNS} FROM notification_outbox WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Notification "${id}" does not exist`, {
+        field: "notificationId",
+      });
+    }
+    return mapNotification(row);
+  }
+
+  async listNotifications(
+    siteId: string,
+    limit = 50,
+  ): Promise<NotificationMessage[]> {
+    const result = await this.#db.query<NotificationRow>(
+      `SELECT ${NOTIFICATION_COLUMNS} FROM notification_outbox
+       WHERE site_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2`,
+      [siteId, Math.max(1, Math.min(200, limit))],
+    );
+    return result.rows.map(mapNotification);
+  }
+
+  // Jobs that are due: queued and past their next attempt time.
+  async listDueNotifications(
+    now: string,
+    limit = 50,
+  ): Promise<NotificationMessage[]> {
+    const result = await this.#db.query<NotificationRow>(
+      `SELECT ${NOTIFICATION_COLUMNS} FROM notification_outbox
+       WHERE status = 'queued' AND next_attempt_at <= $1
+       ORDER BY next_attempt_at ASC, created_at ASC, id ASC LIMIT $2`,
+      [now, Math.max(1, Math.min(200, limit))],
+    );
+    return result.rows.map(mapNotification);
+  }
+
+  async markNotificationResult(input: {
+    id: string;
+    status: NotificationStatus;
+    attempts: number;
+    nextAttemptAt: string;
+    lastError: string | null;
+    sentAt: string | null;
+  }): Promise<NotificationMessage> {
+    const result = await this.#db.query<NotificationRow>(
+      `UPDATE notification_outbox SET
+         status = $2, attempts = $3, next_attempt_at = $4, last_error = $5,
+         sent_at = $6, updated_at = $7
+       WHERE id = $1 RETURNING ${NOTIFICATION_COLUMNS}`,
+      [
+        input.id,
+        input.status,
+        input.attempts,
+        input.nextAttemptAt,
+        input.lastError,
+        input.sentAt,
+        new Date().toISOString(),
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Notification "${input.id}" does not exist`, {
+        field: "notificationId",
+      });
+    }
+    return mapNotification(row);
+  }
+
+  async createNewsletterToken(input: {
+    siteId: string;
+    formId: string;
+    entryId: string;
+    email: string;
+    kind: NewsletterTokenKind;
+    expiresAt: string | null;
+  }): Promise<NewsletterToken> {
+    const token = randomBytes(24).toString("base64url");
+    const result = await this.#db.query<NewsletterTokenRow>(
+      `INSERT INTO newsletter_tokens
+        (token, site_id, form_id, entry_id, email, kind, status, expires_at, created_at, used_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, NULL)
+       RETURNING token, site_id, form_id, entry_id, email, kind, status, expires_at, created_at, used_at`,
+      [
+        token,
+        input.siteId,
+        input.formId,
+        input.entryId,
+        input.email,
+        input.kind,
+        input.expiresAt,
+        new Date().toISOString(),
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error("Newsletter token insert returned no row");
+    return mapNewsletterToken(row);
+  }
+
+  async getNewsletterToken(token: string): Promise<NewsletterToken | undefined> {
+    const result = await this.#db.query<NewsletterTokenRow>(
+      `SELECT token, site_id, form_id, entry_id, email, kind, status, expires_at, created_at, used_at
+       FROM newsletter_tokens WHERE token = $1`,
+      [token],
+    );
+    const row = result.rows[0];
+    return row ? mapNewsletterToken(row) : undefined;
+  }
+
+  // Single use: the flip to used is idempotent (already-used tokens stay used).
+  async markNewsletterTokenUsed(
+    token: string,
+    status: string,
+  ): Promise<NewsletterToken> {
+    const result = await this.#db.query<NewsletterTokenRow>(
+      `UPDATE newsletter_tokens SET status = $2, used_at = COALESCE(used_at, $3)
+       WHERE token = $1
+       RETURNING token, site_id, form_id, entry_id, email, kind, status, expires_at, created_at, used_at`,
+      [token, status, new Date().toISOString()],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Newsletter token is unknown`, {
+        field: "token",
+      });
+    }
+    return mapNewsletterToken(row);
+  }
 }
 
 function buildAuditInsert(entries: NewAuditEntry[]): {
@@ -3048,5 +3317,102 @@ function buildAuditInsert(entries: NewAuditEntry[]): {
       (id, site_id, page_id, batch_id, op_index, mutation, params, author, undo_patch, draft_version_after, created_at)
       VALUES ${values.join(", ")}`,
     params,
+  };
+}
+
+// -------------------------------------------------------------- forms (T11)
+
+const NOTIFICATION_COLUMNS =
+  "id, site_id, form_id, entry_id, kind, recipient, subject, body, status, attempts, next_attempt_at, last_error, created_at, updated_at, sent_at";
+
+type FormSnapshotRow = {
+  id: string;
+  form_id: string;
+  site_id: string;
+  page_id: string;
+  node_id: string;
+  page_path: string;
+  section_type: string;
+  snapshot: unknown;
+  created_at: unknown;
+};
+
+function mapFormSnapshot(row: FormSnapshotRow): FormSnapshotRecord {
+  return {
+    id: row.id,
+    formId: row.form_id,
+    siteId: row.site_id,
+    pageId: row.page_id,
+    nodeId: row.node_id,
+    pagePath: row.page_path,
+    sectionType: row.section_type,
+    snapshot: toJson<FormSnapshot>(row.snapshot),
+    createdAt: toIso(row.created_at),
+  };
+}
+
+type NotificationRow = {
+  id: string;
+  site_id: string;
+  form_id: unknown;
+  entry_id: unknown;
+  kind: string;
+  recipient: string;
+  subject: string;
+  body: string;
+  status: string;
+  attempts: unknown;
+  next_attempt_at: unknown;
+  last_error: unknown;
+  created_at: unknown;
+  updated_at: unknown;
+  sent_at: unknown;
+};
+
+function mapNotification(row: NotificationRow): NotificationMessage {
+  return {
+    id: row.id,
+    siteId: row.site_id,
+    formId: typeof row.form_id === "string" ? row.form_id : null,
+    entryId: typeof row.entry_id === "string" ? row.entry_id : null,
+    kind: row.kind,
+    recipient: row.recipient,
+    subject: row.subject,
+    body: row.body,
+    status: row.status as NotificationStatus,
+    attempts: toFiniteNumber(row.attempts, "attempts"),
+    nextAttemptAt: toIso(row.next_attempt_at),
+    lastError: typeof row.last_error === "string" ? row.last_error : null,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+    sentAt: row.sent_at === null || row.sent_at === undefined ? null : toIso(row.sent_at),
+  };
+}
+
+type NewsletterTokenRow = {
+  token: string;
+  site_id: string;
+  form_id: string;
+  entry_id: string;
+  email: string;
+  kind: string;
+  status: string;
+  expires_at: unknown;
+  created_at: unknown;
+  used_at: unknown;
+};
+
+function mapNewsletterToken(row: NewsletterTokenRow): NewsletterToken {
+  return {
+    token: row.token,
+    siteId: row.site_id,
+    formId: row.form_id,
+    entryId: row.entry_id,
+    email: row.email,
+    kind: row.kind as NewsletterTokenKind,
+    status: row.status,
+    expiresAt: row.expires_at === null || row.expires_at === undefined ? null : toIso(row.expires_at),
+    createdAt: toIso(row.created_at),
+    usedAt: row.used_at === null || row.used_at === undefined ? null : toIso(row.used_at),
   };
 }

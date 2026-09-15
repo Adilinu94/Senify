@@ -67,6 +67,26 @@ import {
 } from "./lifecycle-contract.ts";
 import { Store } from "./store.ts";
 import {
+  buildSubmissionsCsv,
+  confirmNewsletter,
+  createCollectionFromForm,
+  FormRejection,
+  listSubmissions,
+  planCollectionFromForm,
+  submitForm,
+  tickNotifications,
+  unsubscribeNewsletter,
+  type FormSigner,
+} from "./forms.ts";
+import {
+  FormCollectionCreateBodySchema,
+  FormCollectionPlanBodySchema,
+  FormTickBodySchema,
+  type FormCollectionCreateBody,
+  type FormCollectionPlanBody,
+  type FormTickBody,
+} from "./forms-contract.ts";
+import {
   createCollection,
   createCollectionFromFields,
   createEntry,
@@ -146,10 +166,19 @@ export type EngineContext = {
   dataDir: string;
   maxUploadBytes: number;
   uploadSigner: UploadSigner;
+  // Forms (T11): the token signer and a per-IP limiter for the public endpoint.
+  formSigner: FormSigner;
+  formRateLimiter: RateLimiter;
+  formBaseUrl?: string;
 };
 
 function lifecycleContext(context: EngineContext): LifecycleContext {
-  return { store: context.store, dataDir: context.dataDir };
+  return {
+    store: context.store,
+    dataDir: context.dataDir,
+    formSigner: context.formSigner,
+    formBaseUrl: context.formBaseUrl,
+  };
 }
 
 function mediaContext(context: EngineContext): MediaContext {
@@ -170,6 +199,14 @@ type RouteResult = {
   status: number;
   body?: unknown;
   headers?: Record<string, string>;
+  // Plain-text response (CSV export).
+  text?: {
+    contentType: string;
+    body: string;
+  };
+  // 303 to a page: the no-JavaScript path after a form submit or newsletter
+  // confirmation.
+  redirect?: string;
   file?: {
     path: string;
     contentType?: string;
@@ -255,6 +292,26 @@ function sendJson(
   res.end(payload);
 }
 
+function sendRedirect(res: ServerResponse, location: string): void {
+  res.writeHead(303, { location });
+  res.end();
+}
+
+function sendText(
+  res: ServerResponse,
+  status: number,
+  text: string,
+  contentType: string,
+  headers: Record<string, string> = {},
+): void {
+  res.writeHead(status, {
+    "content-type": contentType,
+    "content-length": Buffer.byteLength(text),
+    ...headers,
+  });
+  res.end(text);
+}
+
 function sendError(res: ServerResponse, error: unknown): void {
   if (error instanceof RateLimitError) {
     sendJson(
@@ -270,6 +327,24 @@ function sendError(res: ServerResponse, error: unknown): void {
         },
       },
       { "retry-after": String(error.retryAfterSeconds) },
+    );
+    return;
+  }
+  if (error instanceof FormRejection) {
+    sendJson(
+      res,
+      error.status,
+      {
+        error: {
+          category: error.category,
+          reason: error.reason,
+          message: error.message,
+          ...(error.field !== undefined ? { field: error.field } : {}),
+          ...(error.suggestion !== undefined
+            ? { suggestion: error.suggestion }
+            : {}),
+        },
+      },
     );
     return;
   }
@@ -357,6 +432,129 @@ async function readRawBody(
     chunks.push(buffer);
   }
   return Buffer.concat(chunks);
+}
+
+const FORM_BODY_LIMIT_BYTES = 64 * 1024;
+
+function clientIpOf(req: IncomingMessage): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  const first = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+  if (typeof first === "string" && first.trim() !== "") {
+    return first.split(",")[0]?.trim() ?? "unknown";
+  }
+  return req.socket.remoteAddress ?? "unknown";
+}
+
+function originOf(req: IncomingMessage): string | undefined {
+  const origin = req.headers.origin;
+  if (typeof origin === "string" && origin !== "") return origin;
+  const referer = req.headers.referer;
+  if (typeof referer === "string" && referer !== "") {
+    try {
+      return new URL(referer).origin;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+function refererPath(req: IncomingMessage): string | undefined {
+  const referer = req.headers.referer;
+  if (typeof referer !== "string") return undefined;
+  try {
+    return new URL(referer).pathname;
+  } catch {
+    return undefined;
+  }
+}
+
+function requestHostOf(req: IncomingMessage): string | undefined {
+  const host = req.headers.host;
+  return typeof host === "string" && host !== "" ? host : undefined;
+}
+
+// The JS path asks for JSON; the plain browser POST does not.
+function wantsJson(req: IncomingMessage): boolean {
+  return String(req.headers.accept ?? "").includes("application/json");
+}
+
+async function readTextBody(
+  req: IncomingMessage,
+  limitBytes: number,
+): Promise<string> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+    size += buffer.length;
+    if (size > limitBytes) {
+      throw new FormRejection("body_cap", "Einsendung überschreitet das Größenlimit", {
+        suggestion: `Höchstens ${Math.floor(limitBytes / 1024)} KB senden.`,
+      });
+    }
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+function parseFormEncoded(text: string): Record<string, string | string[]> {
+  const params = new URLSearchParams(text);
+  const values: Record<string, string | string[]> = {};
+  for (const [key, value] of params.entries()) {
+    const existing = values[key];
+    if (existing === undefined) values[key] = value;
+    else if (Array.isArray(existing)) existing.push(value);
+    else values[key] = [existing, value];
+  }
+  return values;
+}
+
+type ParsedSubmit = {
+  token: string;
+  values: Record<string, string | string[]>;
+  consent: boolean;
+  honeypot: string;
+};
+
+// One endpoint, two encodings: the browser posts urlencoded, the JS island
+// posts the same FormData (also urlencoded) and agents may post JSON.
+async function readSubmitBody(req: IncomingMessage): Promise<ParsedSubmit> {
+  const text = await readTextBody(req, FORM_BODY_LIMIT_BYTES);
+  const contentType = String(req.headers["content-type"] ?? "");
+  if (contentType.includes("application/x-www-form-urlencoded")) {
+    const raw = parseFormEncoded(text);
+    const token = typeof raw.form_token === "string" ? raw.form_token : "";
+    const consentValue = raw.consent;
+    const consent =
+      consentValue === "true" || consentValue === "on" || consentValue === "1";
+    const honeypot =
+      typeof raw.company === "string" ? raw.company : "";
+    const values = { ...raw };
+    delete values.form_token;
+    delete values.consent;
+    return { token, values, consent, honeypot };
+  }
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = (text === "" ? {} : JSON.parse(text)) as Record<string, unknown>;
+  } catch {
+    throw new SenifyError("validation", "Request body must be valid JSON", {
+      suggestion: "Send a JSON object with token and values.",
+    });
+  }
+  const token =
+    typeof parsed.token === "string"
+      ? parsed.token
+      : typeof parsed.form_token === "string"
+        ? parsed.form_token
+        : "";
+  const values =
+    parsed.values && typeof parsed.values === "object" && !Array.isArray(parsed.values)
+      ? (parsed.values as Record<string, string | string[]>)
+      : {};
+  const honeypot = typeof parsed.honeypot === "string" ? parsed.honeypot : "";
+  return { token, values, consent: parsed.consent === true, honeypot };
 }
 
 async function applyMutationsToPage(
@@ -1771,6 +1969,7 @@ const ROUTES: Route[] = [
         store: context.store,
         dataDir: context.dataDir,
         entryId: requireParam(params, "entryId"),
+        formSigner: context.formSigner,
       }),
     }),
   },
@@ -1937,12 +2136,235 @@ const ROUTES: Route[] = [
       };
     },
   },
+  // ------------------------------------------------------- forms (T11)
+  {
+    // Public, no bearer: the signed token in the page is the authorization.
+    method: "POST",
+    segments: ["api", "forms", ":formId", "submit"],
+    public: true,
+    handler: async (context, params, req) => {
+      const formId = requireParam(params, "formId");
+      const parsed = await readSubmitBody(req);
+      if (parsed.token === "") {
+        throw new FormRejection("token", "Formular-Token fehlt", {
+          field: "form_token",
+        });
+      }
+      const json = wantsJson(req);
+      try {
+        const result = await submitForm({
+          store: context.store,
+          signer: context.formSigner,
+          rateLimiter: context.formRateLimiter,
+          formId,
+          token: parsed.token,
+          values: parsed.values,
+          consent: parsed.consent,
+          honeypot: parsed.honeypot,
+          origin: originOf(req),
+          requestHost: requestHostOf(req),
+          clientIp: clientIpOf(req),
+        });
+        if (json) return { status: 200, body: { ...result } };
+        return {
+          status: 303,
+          redirect: result.redirectUrl ?? `${result.pagePath}?gesendet=1`,
+        };
+      } catch (error) {
+        // No-JS: back to the form with a visible error reason instead of JSON.
+        if (!json && error instanceof FormRejection) {
+          const back = refererPath(req);
+          if (back !== undefined) {
+            return {
+              status: 303,
+              redirect: `${back}?form_fehler=${encodeURIComponent(error.reason)}`,
+            };
+          }
+        }
+        throw error;
+      }
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "forms", ":formId", "submissions"],
+    scope: "read",
+    handler: async (context, params, _req, url) => {
+      const formId = requireParam(params, "formId");
+      const view = await listSubmissions(context.store, {
+        formId,
+        limit: limitParam(url, 200),
+      });
+      return {
+        status: 200,
+        body: { source: view.source, columns: view.columns, rows: view.rows },
+      };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "forms", ":formId", "submissions.csv"],
+    scope: "read",
+    handler: async (context, params, _req, url) => {
+      const formId = requireParam(params, "formId");
+      const view = await listSubmissions(context.store, {
+        formId,
+        limit: limitParam(url, 500),
+      });
+      return {
+        status: 200,
+        text: {
+          contentType: "text/csv; charset=utf-8",
+          body: buildSubmissionsCsv({ columns: view.columns, rows: view.rows }),
+        },
+        headers: {
+          "content-disposition": `attachment; filename="submissions-${formId}.csv"`,
+        },
+      };
+    },
+  },
+  {
+    // Entry-based view for the program; the same rows the entry tools expose.
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "submissions"],
+    scope: "read",
+    handler: async (context, params, _req, url) => {
+      const siteId = requireParam(params, "siteId");
+      const collectionId = url.searchParams.get("collectionId") ?? undefined;
+      const view = await listSubmissions(context.store, {
+        siteId,
+        ...(collectionId === undefined ? {} : { collectionId }),
+        limit: limitParam(url, 200),
+      });
+      return {
+        status: 200,
+        body: { source: view.source, columns: view.columns, rows: view.rows },
+      };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "forms", "collection-plan"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const siteId = requireParam(params, "siteId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<FormCollectionPlanBody>(
+        FormCollectionPlanBodySchema,
+        body,
+        "form collection plan",
+      );
+      return {
+        status: 200,
+        body: await planCollectionFromForm(context.store, {
+          siteId,
+          formId: input.formId,
+        }),
+      };
+    },
+  },
+  {
+    // One click: creates the target collection with fields + status template.
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "forms", "collection"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const siteId = requireParam(params, "siteId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<FormCollectionCreateBody>(
+        FormCollectionCreateBodySchema,
+        body,
+        "form collection",
+      );
+      return {
+        status: 201,
+        body: await createCollectionFromForm(context.store, {
+          siteId,
+          formId: input.formId,
+          ...(input.name === undefined ? {} : { name: input.name }),
+        }),
+      };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "newsletter", "confirm"],
+    public: true,
+    handler: async (context, _params, req, url) => {
+      const token = url.searchParams.get("token") ?? "";
+      const result = await confirmNewsletter(context.store, { token });
+      if (!wantsJson(req) && result.redirectUrl !== null) {
+        return { status: 303, redirect: result.redirectUrl };
+      }
+      return { status: 200, body: result };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "newsletter", "unsubscribe"],
+    public: true,
+    handler: async (context, _params, req, url) => {
+      const token = url.searchParams.get("token") ?? "";
+      const result = await unsubscribeNewsletter(context.store, { token });
+      if (!wantsJson(req) && result.redirectUrl !== null) {
+        return { status: 303, redirect: result.redirectUrl };
+      }
+      return { status: 200, body: result };
+    },
+  },
+  {
+    // Job tick for the notification outbox (retry/backoff, §5.4).
+    method: "POST",
+    segments: ["api", "notifications", "tick"],
+    scope: "write",
+    handler: async (context, _params, req) => {
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<FormTickBody>(
+        FormTickBodySchema,
+        body,
+        "notification tick",
+      );
+      return {
+        status: 200,
+        body: await tickNotifications({
+          store: context.store,
+          ...(input.limit === undefined ? {} : { limit: input.limit }),
+        }),
+      };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "notifications"],
+    scope: "read",
+    handler: async (context, params, _req, url) => ({
+      status: 200,
+      body: {
+        notifications: await context.store.listNotifications(
+          requireParam(params, "siteId"),
+          limitParam(url, 50),
+        ),
+      },
+    }),
+  },
 ];
 
 function requireParam(params: RouteParams, key: string): string {
   const value = params[key];
   if (!value) {
     throw new SenifyError("validation", `Missing ${key}`, { field: key });
+  }
+  return value;
+}
+
+function limitParam(url: URL, fallback = 50): number {
+  const raw = url.searchParams.get("limit");
+  if (raw === null) return fallback;
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isInteger(value) || value < 1 || value > 500) {
+    throw new SenifyError("validation", "limit must be an integer between 1 and 500", {
+      field: "limit",
+    });
   }
   return value;
 }
@@ -2034,6 +2456,20 @@ async function handleRequest(
     if (params) {
       const auth = await authenticate(context, req, route);
       const result = await route.handler(context, params, req, url, auth);
+      if (result.redirect !== undefined) {
+        sendRedirect(res, result.redirect);
+        return;
+      }
+      if (result.text !== undefined) {
+        sendText(
+          res,
+          result.status,
+          result.text.body,
+          result.text.contentType,
+          result.headers ?? {},
+        );
+        return;
+      }
       if (result.file) {
         sendFile(res, result.file);
         return;

@@ -117,6 +117,7 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "restore_entry",
       "restore_entry_version",
       "search_entries",
+      "list_submissions",
     ]);
     for (const tool of listed.tools) {
       expect(tool.description?.length ?? 0).toBeGreaterThan(30);
@@ -581,6 +582,62 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "Ein längerer Text über Senify.",
     );
   }, 60000);
+
+  it("lists submissions over the entry-based inbox view", async () => {
+    const siteId = await createSite(env, "Submissions");
+    const collection = await env.api.request<{
+      id: string;
+      fields: { id: string; key: string }[];
+    }>({
+      method: "POST",
+      path: `/api/sites/${siteId}/collections/from-fields`,
+      body: {
+        name: "Kontaktanfragen",
+        supports: ["search"],
+        fields: [
+          { key: "name", label: "Name", type: "text", description: "Name." },
+          { key: "email", label: "E-Mail", type: "email", description: "Adresse." },
+        ],
+      },
+    });
+    expect(collection.status).toBe(201);
+    const collectionId = collection.body.id;
+    // Cells are keyed by field id; the collection route derives ids and keys.
+    const fieldId = (key: string): string =>
+      collection.body.fields.find((field) => field.key === key)?.id ?? "";
+
+    const created = await call(session, "create_entry", {
+      siteId,
+      collectionId,
+      cells: {
+        title: "Anfrage",
+        [fieldId("name")]: "Anna Beispiel",
+        [fieldId("email")]: "anna@beispiel.de",
+      },
+    });
+    expect(created.ok).toBe(true);
+
+    const submissions = await call(session, "list_submissions", {
+      siteId,
+      collectionId,
+    });
+    expect(submissions.ok).toBe(true);
+    const columns = submissions.data.columns as { key: string; label: string }[];
+    expect(columns.map((column) => column.key)).toContain("email");
+    const rows = submissions.data.rows as {
+      entryId: string;
+      values: { key: string; value: string }[];
+    }[];
+    expect(rows).toHaveLength(1);
+    expect(
+      rows[0]?.values.find((value) => value.key === "email")?.value,
+    ).toBe("anna@beispiel.de");
+    // The same data stays reachable through the entry tools.
+    const entries = await call(session, "list_entries", { siteId, collectionId });
+    expect((entries.data.entries as { id: string }[]).map((entry) => entry.id)).toContain(
+      rows[0]?.entryId,
+    );
+  }, 30000);
 
   it("records every tool call in the server-side audit log", async () => {
     const audited = await env.api.request<{

@@ -5,6 +5,7 @@ import { SenifyError } from "@senify/core";
 import type { Author, NodeTree } from "@senify/section-sdk";
 import { bakePages } from "./bake.ts";
 import { runChecks } from "./checks.ts";
+import type { FormSigner } from "./forms.ts";
 import { newEntityId } from "./ids.ts";
 import type { Store } from "./store.ts";
 import type {
@@ -21,6 +22,10 @@ import type {
 export type LifecycleContext = {
   store: Store;
   dataDir: string;
+  // Forms (T11): release and preview bakes stamp signed form tokens when a
+  // signer is present.
+  formSigner?: FormSigner;
+  formBaseUrl?: string;
 };
 
 export type CheckSummary = { hard: CheckIssue[]; soft: CheckIssue[] };
@@ -121,6 +126,11 @@ export async function publishRelease(
     site,
     theme: siteTheme.theme,
     assets: await context.store.assetUsageMap(input.siteId),
+    collectionIds: new Set(
+      (await context.store.listCollections(input.siteId)).map(
+        (collection) => collection.id,
+      ),
+    ),
   });
   if (report.hard.length > 0) {
     throw hardFailure(report.hard, "publish");
@@ -193,6 +203,10 @@ export async function publishRelease(
     pages: await context.store.listPageDrafts(input.siteId),
     outDir: releaseDir(context, release.id),
     dataDir: context.dataDir,
+    formBaseUrl: context.formBaseUrl,
+    ...(context.formSigner === undefined
+      ? {}
+      : { formSigner: context.formSigner }),
   });
   await context.store.attachReleaseBuild(release.id, baked.outDir);
   await context.store.setActiveRelease(input.siteId, release.id);
@@ -224,6 +238,10 @@ export async function createPreview(
     pages,
     outDir: previewDir(context, previewId),
     dataDir: context.dataDir,
+    formBaseUrl: context.formBaseUrl,
+    ...(context.formSigner === undefined
+      ? {}
+      : { formSigner: context.formSigner }),
   });
   return context.store.createPreview({
     siteId: input.siteId,

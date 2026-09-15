@@ -1,6 +1,7 @@
 import { gradeContrast, resolveTokenRef, type Theme } from "@senify/tokens";
 import type { PropValue } from "@senify/section-sdk";
 import type { AssetUsage, CheckIssue, CheckReport, Page, Site } from "./types.ts";
+import { checkForms } from "./forms.ts";
 import { hardGuardrailsForTree } from "./guardrails.ts";
 import { walkAssetIds } from "./media.ts";
 
@@ -305,6 +306,9 @@ export function runChecks(input: {
   // Assets of the site; absent ids count as missing. Without the map the
   // asset-related checks stay off (callers that do not load assets).
   assets?: ReadonlyMap<string, AssetUsage>;
+  // Existing collection ids of the site: form targets are checked against
+  // them (artifacts/26 §7). Without the set the form checks stay off.
+  collectionIds?: ReadonlySet<string>;
 }): CheckReport {
   const hard: CheckIssue[] = [];
   const soft: CheckIssue[] = [];
@@ -339,6 +343,17 @@ export function runChecks(input: {
     hard.push(
       ...checkThemeContrast(input.theme, PRIMARY_CONTRAST_PAIRS, "hard"),
     );
+    if (input.collectionIds !== undefined) {
+      const formIssues = checkForms({
+        pages: input.pages,
+        pageIds,
+        collectionIds: input.collectionIds,
+      });
+      for (const issue of formIssues) {
+        if (issue.severity === "hard") hard.push(issue);
+        else soft.push(issue);
+      }
+    }
   }
   soft.push(...softNotices(input.pages));
   void input.site;

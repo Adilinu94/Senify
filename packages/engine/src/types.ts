@@ -1,4 +1,5 @@
 import type { Author, NodeTree } from "@senify/section-sdk";
+import type { FormSnapshot } from "@senify/renderer";
 import type { Theme } from "@senify/tokens";
 import type { PatchOp } from "./mutations/contract.ts";
 
@@ -466,3 +467,66 @@ export type EntryRedirect = {
 };
 
 export type EntrySearchHit = { entry: Entry; score: number };
+
+// ------------------------------------------------------------- forms (T11)
+
+export const NOTIFICATION_STATUSES = ["queued", "sent", "failed"] as const;
+export type NotificationStatus = (typeof NOTIFICATION_STATUSES)[number];
+
+// One frozen form definition per bake; the signed token points at a snapshot.
+export type FormSnapshotRecord = {
+  id: string;
+  formId: string;
+  siteId: string;
+  pageId: string;
+  nodeId: string;
+  pagePath: string;
+  sectionType: string;
+  snapshot: FormSnapshot;
+  createdAt: string;
+};
+
+export type NotificationMessage = {
+  id: string;
+  siteId: string;
+  formId: string | null;
+  entryId: string | null;
+  kind: string;
+  recipient: string;
+  subject: string;
+  body: string;
+  status: NotificationStatus;
+  attempts: number;
+  nextAttemptAt: string;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+  sentAt: string | null;
+};
+
+export const NEWSLETTER_TOKEN_KINDS = ["confirm", "unsubscribe"] as const;
+export type NewsletterTokenKind = (typeof NEWSLETTER_TOKEN_KINDS)[number];
+
+export type NewsletterToken = {
+  token: string;
+  siteId: string;
+  formId: string;
+  entryId: string;
+  email: string;
+  kind: NewsletterTokenKind;
+  status: string;
+  expiresAt: string | null;
+  createdAt: string;
+  usedAt: string | null;
+};
+
+// A submission row for the view/CSV: the entry plus its mapped human values.
+export type SubmissionRow = {
+  entryId: string;
+  slug: string;
+  status: EntryStatus;
+  createdAt: string;
+  submittedAt: string | null;
+  sourcePath: string | null;
+  values: { key: string; label: string; value: string }[];
+};

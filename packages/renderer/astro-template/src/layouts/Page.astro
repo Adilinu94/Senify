@@ -12,7 +12,7 @@ type Props = {
     tree: { rootNodeId: string; nodes: Record<string, unknown> };
     motion: string;
     jsonLd: string | null;
-    flags: { hasMotion: boolean; needsSplitText: boolean; islands: string[] };
+    flags: { hasMotion: boolean; needsSplitText: boolean; islands: string[]; hasForm: boolean };
   };
   site: { name: string; baseUrl: string; lang?: string };
   ctx: SectionContext;
@@ -57,6 +57,7 @@ const lang = site.lang ?? "de";
       </>
     )}
     {page.flags.islands.length > 0 && <script src="/assets/islands.js" defer />}
+    {page.flags.hasForm && <script src="/assets/forms.js" defer />}
   </head>
   <body>
     <Section tree={page.tree} ctx={ctx} />

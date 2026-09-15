@@ -1115,6 +1115,34 @@ export const TOOLS: ToolDefinition[] = [
       );
     },
   },
+  {
+    name: "list_submissions",
+    title: "List submissions",
+    description:
+      "Lists the submissions of a collection as a flat inbox view (columns + rows mapped to their field labels). Submissions are ordinary entries, so list_entries, get_entry and search_entries work on them too; this view is the labelled inbox for form data.",
+    scope: "read",
+    inputSchema: objectSchema(
+      {
+        siteId: { type: "string" },
+        collectionId: { type: "string" },
+        limit: { type: "number" },
+      },
+      ["siteId", "collectionId"],
+    ),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
+      const params = new URLSearchParams({
+        collectionId: requireString(args, "collectionId"),
+      });
+      const limit = optionalNumber(args, "limit");
+      if (limit !== undefined) params.set("limit", String(limit));
+      return context.client.request(
+        "GET",
+        `/api/sites/${siteId}/submissions?${params.toString()}`,
+      );
+    },
+  },
 ];
 
 export function toolByName(name: string): ToolDefinition | undefined {

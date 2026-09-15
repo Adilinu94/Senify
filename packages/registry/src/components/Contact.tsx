@@ -1,6 +1,5 @@
 import {
   alignStyle,
-  buttonStyle,
   contentWidthClass,
   cx,
   headingStyle,
@@ -8,22 +7,13 @@ import {
   str,
   type SectionProps,
 } from "./shared.tsx";
+import { FormFields, readFormData } from "./FormFields.tsx";
 
-const FIELD_LABELS: Record<string, string> = {
-  text: "text",
-  email: "email",
-  phone: "tel",
-  textarea: "textarea",
-  select: "select",
-  checkbox: "checkbox",
-};
-
-export function Contact({ node }: SectionProps): React.JSX.Element {
-  const fields = (Array.isArray(node.props.fields) ? node.props.fields : []) as {
-    kind?: unknown;
-    label?: unknown;
-    required?: unknown;
-  }[];
+export function Contact({ node, ctx }: SectionProps): React.JSX.Element {
+  const form = readFormData(node);
+  const fallbackFields = (
+    Array.isArray(node.props.fields) ? node.props.fields : []
+  ) as { kind?: unknown; label?: unknown; required?: unknown }[];
   return (
     <SectionShell node={node} section="contact">
       <div
@@ -56,72 +46,56 @@ export function Contact({ node }: SectionProps): React.JSX.Element {
             {str(node.props.address) !== "" && <p>{str(node.props.address)}</p>}
           </address>
         </div>
-        <form method="post" action="#" data-form="contact" className="flex flex-col gap-4">
-          {fields.map((field, index) => {
-            const label = typeof field.label === "string" ? field.label : "";
-            const kind = typeof field.kind === "string" ? field.kind : "text";
-            const name = `field-${index}`;
-            const required = field.required === true;
-            if (kind === "textarea") {
-              return (
-                <label key={index} className="flex flex-col gap-1">
-                  <span>
-                    {label}
-                    {required ? " *" : ""}
-                  </span>
-                  <textarea name={name} required={required} rows={4} className="rounded-[var(--radius-md)] border border-[var(--line)] px-3 py-2" />
-                </label>
-              );
-            }
-            if (kind === "checkbox") {
-              return (
-                <label key={index} className="flex items-center gap-2">
-                  <input type="checkbox" name={name} required={required} />
-                  <span>
-                    {label}
-                    {required ? " *" : ""}
-                  </span>
-                </label>
-              );
-            }
-            if (kind === "select") {
-              return (
-                <label key={index} className="flex flex-col gap-1">
-                  <span>
-                    {label}
-                    {required ? " *" : ""}
-                  </span>
-                  <select name={name} required={required} className="rounded-[var(--radius-md)] border border-[var(--line)] px-3 py-2" />
-                </label>
-              );
-            }
-            return (
-              <label key={index} className="flex flex-col gap-1">
-                <span>
-                  {label}
-                  {required ? " *" : ""}
-                </span>
-                <input
-                  type={FIELD_LABELS[kind] ?? "text"}
-                  name={name}
-                  required={required}
-                  className="rounded-[var(--radius-md)] border border-[var(--line)] px-3 py-2"
-                />
-              </label>
-            );
-          })}
-          <button
-            type="submit"
-            className="px-6 py-3 font-semibold"
-            style={buttonStyle(node)}
-          >
-            Absenden
-          </button>
-          {str(node.props.note) !== "" && (
-            <p className="text-sm text-[var(--fg-muted)]">{str(node.props.note)}</p>
-          )}
-        </form>
+        {form !== undefined ? (
+          <FormFields form={form} ctx={ctx} />
+        ) : (
+          <StaticFormFields fields={fallbackFields} />
+        )}
       </div>
     </SectionShell>
+  );
+}
+
+// Rendering without a stamped descriptor (editor preview of an unconfigured
+// section): the fields are shown, but there is nothing to submit to yet.
+function StaticFormFields({
+  fields,
+}: {
+  fields: { kind?: unknown; label?: unknown; required?: unknown }[];
+}): React.JSX.Element {
+  return (
+    <form method="post" action="#" data-form-unscheduled="" className="flex flex-col gap-4">
+      {fields.map((field, index) => {
+        const label = typeof field.label === "string" ? field.label : "";
+        const required = field.required === true;
+        return (
+          <label key={index} className="flex flex-col gap-1">
+            <span>
+              {label}
+              {required ? " *" : ""}
+            </span>
+            <input
+              type="text"
+              name={`field-${index}`}
+              required={required}
+              disabled
+              className="rounded-[var(--radius-md)] border border-[var(--line)] px-3 py-2"
+            />
+          </label>
+        );
+      })}
+      <button
+        type="submit"
+        disabled
+        className="self-start px-6 py-3 font-semibold"
+        style={{
+          backgroundColor: "var(--button-bg, var(--accent))",
+          color: "var(--button-fg, var(--accent-ink))",
+          borderRadius: "var(--button-radius, 9999px)",
+        }}
+      >
+        Absenden
+      </button>
+    </form>
   );
 }

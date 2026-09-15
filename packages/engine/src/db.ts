@@ -310,6 +310,64 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS page_templates_layout_idx
     ON page_templates (layout_id)`,
+  // Forms & submissions (T11). The signing secret lives in its own single-row
+  // table so baked tokens survive an engine restart; form_snapshots freezes a
+  // form definition per bake and the token points at one snapshot.
+  `CREATE TABLE IF NOT EXISTS form_settings (
+    id text PRIMARY KEY,
+    secret text NOT NULL,
+    created_at timestamptz NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS form_snapshots (
+    id text PRIMARY KEY,
+    form_id text NOT NULL,
+    site_id text NOT NULL,
+    page_id text NOT NULL,
+    node_id text NOT NULL,
+    page_path text NOT NULL,
+    section_type text NOT NULL,
+    snapshot jsonb NOT NULL,
+    created_at timestamptz NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS form_snapshots_form_idx
+    ON form_snapshots (form_id, created_at DESC, id DESC)`,
+  // Notification outbox: the job row is also the dev transport (SMTP only
+  // when configured). Retry/backoff keeps failures visible.
+  `CREATE TABLE IF NOT EXISTS notification_outbox (
+    id text PRIMARY KEY,
+    site_id text NOT NULL,
+    form_id text,
+    entry_id text,
+    kind text NOT NULL,
+    recipient text NOT NULL,
+    subject text NOT NULL,
+    body text NOT NULL,
+    status text NOT NULL,
+    attempts integer NOT NULL,
+    next_attempt_at timestamptz NOT NULL,
+    last_error text,
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL,
+    sent_at timestamptz
+  )`,
+  `CREATE INDEX IF NOT EXISTS notification_outbox_due_idx
+    ON notification_outbox (status, next_attempt_at ASC, created_at ASC, id ASC)`,
+  // Double-opt-in tokens: random, single-use, expiring. kind separates the
+  // confirmation link from the unsubscribe link.
+  `CREATE TABLE IF NOT EXISTS newsletter_tokens (
+    token text PRIMARY KEY,
+    site_id text NOT NULL,
+    form_id text NOT NULL,
+    entry_id text NOT NULL,
+    email text NOT NULL,
+    kind text NOT NULL,
+    status text NOT NULL,
+    expires_at timestamptz,
+    created_at timestamptz NOT NULL,
+    used_at timestamptz
+  )`,
+  `CREATE INDEX IF NOT EXISTS newsletter_tokens_entry_idx
+    ON newsletter_tokens (entry_id, kind, created_at DESC, token DESC)`,
 ];
 
 export async function ensureSchema(db: Db): Promise<void> {

@@ -25,6 +25,7 @@ import type { NodeTree } from "@senify/section-sdk";
 import { prefetchLists } from "./lists.ts";
 import { toBindingEntry } from "./lists.ts";
 import { collectAssetIds } from "./media.ts";
+import { stampFormsForBuild, type FormSigner } from "./forms.ts";
 import { resolveStoredFile } from "./storage.ts";
 import {
   composePageTree,
@@ -309,6 +310,10 @@ export async function bakePages(
     outDir: string;
     dataDir: string;
     aeo?: boolean;
+    // Forms (T11): with a signer the bake freezes each form and stamps a
+    // signed token into the page; without one the forms stay static.
+    formSigner?: FormSigner;
+    formBaseUrl?: string;
   },
 ): Promise<BakeOutcome> {
   const siteTheme = await store.getTheme(input.site.id);
@@ -320,6 +325,15 @@ export async function bakePages(
     pages: input.pages,
     ...(input.aeo === undefined ? {} : { aeo: input.aeo }),
   });
+  if (input.formSigner !== undefined) {
+    await stampFormsForBuild({
+      store,
+      signer: input.formSigner,
+      siteId: input.site.id,
+      pages: build.pages,
+      ...(input.formBaseUrl === undefined ? {} : { baseUrl: input.formBaseUrl }),
+    });
+  }
   const delivered = await collectDeliverableAssets({
     store,
     site: input.site,
@@ -401,6 +415,7 @@ export async function renderEntryPreview(input: {
   store: Store;
   dataDir: string;
   entryId: string;
+  formSigner?: FormSigner;
 }): Promise<{ path: string; html: string; status: number }> {
   const entry = await input.store.getEntry(input.entryId);
   if (entry.deletedAt !== null) {
@@ -421,6 +436,7 @@ export async function renderEntryPreview(input: {
       pages,
       outDir,
       dataDir: input.dataDir,
+      ...(input.formSigner === undefined ? {} : { formSigner: input.formSigner }),
     });
     const file = join(baked.outDir, htmlFileFor(path));
     if (!existsSync(file)) {

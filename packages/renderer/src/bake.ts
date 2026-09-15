@@ -23,6 +23,7 @@ import {
   collectJsonLd,
   pageToMarkdown,
 } from "./aeo.ts";
+import { renderFormsScript, treeHasForms } from "./forms.ts";
 import { islandsForTree } from "./islands.ts";
 import {
   bindingError,
@@ -245,6 +246,7 @@ export async function bakeSite(
 
   const manifestPages = [];
   let anyMotion = false;
+  let anyForm = false;
   const islandKinds = new Set<string>();
   const expandedPages: BakePageInput[] = input.pages.map((page) => {
     const context = input.contexts?.[page.id];
@@ -275,6 +277,8 @@ export async function bakeSite(
     const islands = islandsForTree(page.tree);
     for (const kind of islands) islandKinds.add(kind);
     if (configs.length > 0) anyMotion = true;
+    const hasForm = treeHasForms(page.tree);
+    if (hasForm) anyForm = true;
     const { entities, warnings: jsonLdWarnings } = collectJsonLd(page.tree);
     for (const message of jsonLdWarnings) {
       warnings.push({ code: "invalid-jsonld", page: page.path, message });
@@ -297,6 +301,7 @@ export async function bakeSite(
         hasMotion: configs.length > 0,
         needsSplitText,
         islands: [...islands],
+        hasForm,
       },
     });
   }
@@ -353,6 +358,10 @@ export async function bakeSite(
     }
     if (islandKinds.size > 0) {
       writeFileSync(join(outDir, "assets", "islands.js"), renderIslandsScript(islandKinds));
+    }
+    // Progressive form submit (no logic drift): only pages with a form load it.
+    if (anyForm) {
+      writeFileSync(join(outDir, "assets", "forms.js"), renderFormsScript());
     }
     if (input.aeo !== false) {
       writeAeoFiles(outDir, input, expandedPages, definitions);
