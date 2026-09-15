@@ -8,8 +8,16 @@
    - oder lizenzfreie Stock-Quellen (CC0/Public Domain oder gekauft).
 3. **Prüfen:** Format (JPEG/WebP/AVIF, SVG für Icons), Größe (keine Riesen-Uploads), Ausschnitt/Fokus.
 4. **Alt-Text formulieren**, bevor der Upload passiert (siehe unten).
-5. **Hochladen:** `upload_asset` (Media-Pipeline wächst mit Ticket 08/15); bis dahin `assetRef` mit der vorgesehenen Asset-ID.
+5. **Hochladen:** `upload_asset` (lokaler `filePath`; die Engine signiert die Upload-URL, Dedupe per SHA-256-Hash).
 6. **Referenzieren:** `assetRef { assetId, focal? }` in der Sektion; Fokuspunkt setzen, wenn das Motiv sonst beschnitten wird.
+
+## Bibliothek
+
+- **Ordner + Tags** zum Sortieren; `list_assets` filtert (`folder`, `tag`, `q`, `sort`) und liefert die vier Arbeitsflächen: `alt=missing` (Ohne Alt-Text), `tag=none` (Ohne Tags), `minBytes` (Große Dateien), `sort=replacedAt` (Zuletzt ersetzt).
+- **`update_asset`** ändert Alt-Text, Dekorativ-Flag, Ordner und Tags; `tags` ersetzt die ganze Liste.
+- **`replace_asset`** tauscht die Datei unter gleicher ID/URL (Verwendungen bleiben gültig, alte Datei wandert in die Replace-Historie, Metadaten bleiben).
+- **`delete_asset`** legt ins Papierkorb (reversibel), **`restore_asset`** holt zurück. Endgültiges Löschen (Purge) läuft über das Programm, nicht über den Agenten.
+- Ein getrashtes oder fehlendes Asset markiert jede `assetRef` als **broken** — Submit/Publish blocken dann (Hard-Check).
 
 ## Lizenzen und Marken
 

@@ -205,7 +205,7 @@ export type BootEnv = {
 };
 
 export async function bootEngine(
-  options: { rateLimits?: RateLimitConfig } = {},
+  options: { rateLimits?: RateLimitConfig; maxUploadBytes?: number } = {},
 ): Promise<BootEnv> {
   const database = await createTestDatabase();
   const registry = createTestRegistry();
@@ -214,6 +214,9 @@ export async function bootEngine(
     db: database.db,
     registry,
     dataDir,
+    ...(options.maxUploadBytes === undefined
+      ? {}
+      : { maxUploadBytes: options.maxUploadBytes }),
     // Suites fire hundreds of calls per token; rate-limit behaviour is
     // covered by auth.test.ts with explicit tight limits.
     rateLimits:

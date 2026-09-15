@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer, EngineClient, type ToolContext } from "@senify/mcp";
@@ -10,6 +13,15 @@ import {
 } from "./helpers.ts";
 
 type Json = Record<string, unknown>;
+
+// Header-only PNG: the engine reads width/height from the IHDR chunk.
+function pngBytes(width: number, height: number): Buffer {
+  const buffer = Buffer.alloc(24);
+  buffer.writeUInt32BE(0x89504e47, 0);
+  buffer.writeUInt32BE(width, 16);
+  buffer.writeUInt32BE(height, 20);
+  return buffer;
+}
 
 const OPERATOR = { kind: "human", id: "operator", label: "Operator" } as const;
 
@@ -86,6 +98,12 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "rollback_release",
       "restore_revision",
       "delete_page",
+      "list_assets",
+      "upload_asset",
+      "update_asset",
+      "replace_asset",
+      "delete_asset",
+      "restore_asset",
     ]);
     for (const tool of listed.tools) {
       expect(tool.description?.length ?? 0).toBeGreaterThan(30);
@@ -316,6 +334,69 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     const outline = await call(session, "get_page", { pageId });
     expect(JSON.stringify(outline.data)).toContain("V1");
   }, 90000);
+
+  it("runs the media library: upload → update → replace → trash → restore", async () => {
+    const siteId = await createSite(env, "Media Library");
+    const dir = mkdtempSync(join(tmpdir(), "senify-mcp-media-"));
+    const filePath = join(dir, "motiv.png");
+    const replacementPath = join(dir, "motiv-neu.png");
+    writeFileSync(filePath, pngBytes(320, 200));
+    writeFileSync(replacementPath, pngBytes(640, 400));
+    try {
+      const uploaded = await call(session, "upload_asset", {
+        siteId,
+        filePath,
+        altText: "Werkstatt am Morgen",
+      });
+      expect(uploaded.ok).toBe(true);
+      const upload = uploaded.data as {
+        asset: { id: string; width: number | null; height: number | null };
+        deduped: boolean;
+      };
+      expect(upload.deduped).toBe(false);
+      expect(upload.asset.width).toBe(320);
+      const assetId = upload.asset.id;
+
+      const updated = await call(session, "update_asset", {
+        assetId,
+        altText: "Werkstatt innen",
+        tags: ["hero"],
+      });
+      expect(updated.ok).toBe(true);
+      expect(updated.data.altText).toBe("Werkstatt innen");
+      expect(updated.data.tags).toEqual(["hero"]);
+
+      const listed = await call(session, "list_assets", { siteId, tag: "hero" });
+      expect(
+        (listed.data.assets as { id: string }[]).map((asset) => asset.id),
+      ).toEqual([assetId]);
+
+      const replaced = await call(session, "replace_asset", {
+        assetId,
+        filePath: replacementPath,
+      });
+      expect(replaced.ok).toBe(true);
+      const replacement = replaced.data.asset as { id: string; height: number | null };
+      expect(replacement.id).toBe(assetId);
+      expect(replacement.height).toBe(400);
+
+      const trashed = await call(session, "delete_asset", { assetId });
+      expect(trashed.ok).toBe(true);
+      const trashList = await call(session, "list_assets", {
+        siteId,
+        status: "trashed",
+      });
+      expect(
+        (trashList.data.assets as { id: string }[]).map((asset) => asset.id),
+      ).toEqual([assetId]);
+
+      const restored = await call(session, "restore_asset", { assetId });
+      expect(restored.ok).toBe(true);
+      expect(restored.data.status).toBe("ready");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 30000);
 
   it("records every tool call in the server-side audit log", async () => {
     const audited = await env.api.request<{

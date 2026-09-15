@@ -1,10 +1,15 @@
 import { createServer } from "node:http";
+import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Registry } from "@senify/section-sdk";
 import { ensureSchema, type Db } from "./db.ts";
 import { createRequestHandler } from "./http.ts";
 import { PageLocks } from "./locks.ts";
+import {
+  DEFAULT_MAX_UPLOAD_BYTES,
+  createUploadSigner,
+} from "./media.ts";
 import {
   DEFAULT_RATE_LIMITS,
   RateLimiter,
@@ -21,6 +26,7 @@ export {
   PIN_PRESETS,
 } from "./guardrails.ts";
 export { runChecks, type CheckStage } from "./checks.ts";
+export { imageDimensions } from "./media.ts";
 export {
   approveReview,
   createPreview,
@@ -76,6 +82,7 @@ export { Store, slugify, type CreatePageInput, type CreateSiteInput, type NewAud
 export {
   REVIEW_STATUSES,
   type ApiToken,
+  type AssetUsage,
   type AuditEntry,
   type CheckIssue,
   type CheckReport,
@@ -140,8 +147,10 @@ export type EngineOptions = {
   db: Db;
   registry: Registry;
   rateLimits?: RateLimitConfig;
-  // Previews and release builds live here (default: SENIFY_DATA_DIR or ~/.senify).
+  // Previews, release builds and asset files live here (default: SENIFY_DATA_DIR or ~/.senify).
   dataDir?: string;
+  // Upload cap in bytes; upload URLs are signed against it (default 25 MB).
+  maxUploadBytes?: number;
 };
 
 export type EngineServer = {
@@ -173,6 +182,10 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
     locks,
     rateLimiter: new RateLimiter(options.rateLimits ?? DEFAULT_RATE_LIMITS),
     dataDir,
+    maxUploadBytes: options.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES,
+    // Per-process secret: pending upload URLs survive only this engine run,
+    // which matches their short TTL.
+    uploadSigner: createUploadSigner(randomBytes(32).toString("base64url")),
   });
   return {
     registry: options.registry,

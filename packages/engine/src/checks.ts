@@ -1,7 +1,8 @@
 import { gradeContrast, resolveTokenRef, type Theme } from "@senify/tokens";
 import type { PropValue } from "@senify/section-sdk";
-import type { CheckIssue, CheckReport, Page, Site } from "./types.ts";
+import type { AssetUsage, CheckIssue, CheckReport, Page, Site } from "./types.ts";
 import { hardGuardrailsForTree } from "./guardrails.ts";
+import { walkAssetIds } from "./media.ts";
 
 export type CheckStage = "write" | "submit" | "publish";
 
@@ -105,7 +106,10 @@ function checkPageLinks(page: Page, paths: Set<string>, pageIds: Set<string>): C
   return issues;
 }
 
-function checkPageAltTexts(page: Page): CheckIssue[] {
+function checkPageAltTexts(
+  page: Page,
+  assets: ReadonlyMap<string, AssetUsage> | undefined,
+): CheckIssue[] {
   const issues: CheckIssue[] = [];
   for (const node of Object.values(page.draft.nodes)) {
     const sources = ALT_SOURCES[node.type];
@@ -120,13 +124,19 @@ function checkPageAltTexts(page: Page): CheckIssue[] {
       items.forEach((item, index) => {
         if (!item || typeof item !== "object") return;
         const record = item as Record<string, unknown>;
-        const hasAsset =
-          isAsset(record.asset) ||
-          isAsset(record.cover) ||
-          isAsset(record.photo) ||
-          isAsset(record.avatar) ||
-          (source.listKey === "" && isAsset(record.asset));
-        if (!hasAsset) return;
+        const assetIds = ["asset", "cover", "photo", "avatar"]
+          .map((key) => record[key])
+          .filter((value) => isAsset(value))
+          .map((value) => (value as { assetId: string }).assetId);
+        if (assetIds.length === 0) return;
+        // Dekorativ-Ausnahme: assets explicitly marked as decorative do not
+        // need alt text (the library flag is the single source for this).
+        if (
+          assets !== undefined &&
+          assetIds.every((assetId) => assets.get(assetId)?.decorative === true)
+        ) {
+          return;
+        }
         const alt = source.altKeys
           .map((key) => record[key])
           .find((value) => typeof value === "string" && value.trim() !== "");
@@ -141,11 +151,42 @@ function checkPageAltTexts(page: Page): CheckIssue[] {
               source.listKey === ""
                 ? `${source.altKeys[0]}`
                 : `${source.listKey}[${index}].${source.altKeys[0]}`,
-            suggestion: `Fill "${source.altKeys[0]}" with a short description of the image (or mark it decorative when it truly is).`,
+            suggestion: `Fill "${source.altKeys[0]}" with a short description of the image (or mark the asset decorative in the library when it truly is).`,
           });
         }
       });
     }
+  }
+  return issues;
+}
+
+// A reference to a deleted asset is marked "broken", never removed: submit and
+// publish stop, the author fixes or restores the asset.
+function checkPageAssetRefs(
+  page: Page,
+  assets: ReadonlyMap<string, AssetUsage> | undefined,
+): CheckIssue[] {
+  if (assets === undefined) return [];
+  const issues: CheckIssue[] = [];
+  for (const node of Object.values(page.draft.nodes)) {
+    walkAssetIds(node.props, "", (assetId, path) => {
+      const usage = assets.get(assetId);
+      if (usage?.status === "ready") return;
+      const trashed = usage?.status === "trashed";
+      issues.push({
+        code: "broken-asset",
+        severity: "hard",
+        message: trashed
+          ? `Reference to asset "${assetId}" which sits in the trash`
+          : `Reference to asset "${assetId}" which does not exist`,
+        pageId: page.id,
+        nodeId: node.id,
+        field: path === "" ? "asset" : path,
+        suggestion: trashed
+          ? "Restore the asset from the trash or point the reference at another asset."
+          : "Upload the asset in the library (upload_asset) or pick an existing one.",
+      });
+    });
   }
   return issues;
 }
@@ -261,6 +302,9 @@ export function runChecks(input: {
   pages: Page[];
   site: Site;
   theme: Theme;
+  // Assets of the site; absent ids count as missing. Without the map the
+  // asset-related checks stay off (callers that do not load assets).
+  assets?: ReadonlyMap<string, AssetUsage>;
 }): CheckReport {
   const hard: CheckIssue[] = [];
   const soft: CheckIssue[] = [];
@@ -280,8 +324,9 @@ export function runChecks(input: {
       });
     }
     hard.push(...checkPageLinks(page, paths, pageIds));
-    hard.push(...checkPageAltTexts(page));
+    hard.push(...checkPageAltTexts(page, input.assets));
     if (input.stage !== "write") {
+      hard.push(...checkPageAssetRefs(page, input.assets));
       hard.push(...checkPageContrast(page, input.theme));
     }
   }

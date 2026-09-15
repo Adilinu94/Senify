@@ -213,3 +213,81 @@ export type CheckReport = {
   hard: CheckIssue[];
   soft: CheckIssue[];
 };
+
+export const ASSET_KINDS: readonly AssetKind[] = ["image", "video", "document"];
+export type AssetKind = "image" | "video" | "document";
+
+export type AssetStatus = "ready" | "trashed";
+
+// "missing" is never stored: it marks an assetId that has no record at all.
+export type AssetReferenceStatus = "ready" | "trashed" | "missing";
+
+export type Asset = {
+  id: string;
+  siteId: string;
+  filename: string;
+  mime: string;
+  kind: AssetKind;
+  byteSize: number;
+  width: number | null;
+  height: number | null;
+  hash: string;
+  altText: string | null;
+  decorative: boolean;
+  folderId: string | null;
+  tags: string[];
+  storageRef: string;
+  status: AssetStatus;
+  createdAt: string;
+  updatedAt: string;
+  replacedAt: string | null;
+  trashedAt: string | null;
+};
+
+export type AssetFolder = {
+  id: string;
+  siteId: string;
+  name: string;
+  parentId: string | null;
+  createdAt: string;
+};
+
+export type AssetHistoryEntry = {
+  id: string;
+  assetId: string;
+  storageRef: string;
+  mime: string;
+  byteSize: number;
+  createdAt: string;
+};
+
+// Full update shape for the store; every unset branch keeps the stored value.
+export type AssetUpdate = {
+  filename?: string;
+  mime?: string;
+  kind?: AssetKind;
+  byteSize?: number;
+  width?: number | null;
+  height?: number | null;
+  hash?: string;
+  altText?: string | null;
+  decorative?: boolean;
+  folderId?: string | null;
+  tags?: string[];
+  storageRef?: string;
+  status?: AssetStatus;
+  replacedAt?: string | null;
+  trashedAt?: string | null;
+  updatedAt?: string;
+};
+
+// What the check pipeline needs to know about an asset.
+export type AssetUsage = {
+  status: AssetReferenceStatus;
+  decorative: boolean;
+};
+
+export type AssetBulkResult = {
+  updated: number;
+  failed: { id: string; reason: string }[];
+};

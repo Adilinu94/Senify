@@ -19,9 +19,17 @@ import { newEntityId, newNodeId } from "./ids.ts";
 import { validateShape } from "./mutations/contract.ts";
 import { assertPagePathFormat, draftConflictError } from "./paths.ts";
 import {
+  ASSET_KINDS,
   REVIEW_STATUSES,
   SITE_PROFILES,
   type ApiToken,
+  type Asset,
+  type AssetFolder,
+  type AssetHistoryEntry,
+  type AssetKind,
+  type AssetStatus,
+  type AssetUpdate,
+  type AssetUsage,
   type AuditEntry,
   type McpAuditEntry,
   type Page,
@@ -422,6 +430,107 @@ function mapMcpAudit(row: McpAuditRow): McpAuditEntry {
     createdAt: toIso(row.created_at),
   };
 }
+
+type AssetRow = {
+  id: string;
+  site_id: string;
+  filename: string;
+  mime: string;
+  kind: string;
+  byte_size: unknown;
+  width: unknown;
+  height: unknown;
+  hash: string;
+  alt_text: unknown;
+  decorative: unknown;
+  folder_id: unknown;
+  tags: unknown;
+  storage_ref: string;
+  status: string;
+  replaced_at: unknown;
+  trashed_at: unknown;
+  created_at: unknown;
+  updated_at: unknown;
+};
+
+type AssetFolderRow = {
+  id: string;
+  site_id: string;
+  name: string;
+  parent_id: unknown;
+  created_at: unknown;
+};
+
+type AssetHistoryRow = {
+  id: string;
+  asset_id: string;
+  storage_ref: string;
+  mime: string;
+  byte_size: unknown;
+  created_at: unknown;
+};
+
+function toNullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  return toFiniteNumber(value, "value");
+}
+
+function toNullableText(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function mapAsset(row: AssetRow): Asset {
+  const kind = row.kind;
+  if (!ASSET_KINDS.includes(kind as AssetKind)) {
+    throw new Error(`Stored asset kind is invalid: ${String(kind)}`);
+  }
+  const status: AssetStatus = row.status === "trashed" ? "trashed" : "ready";
+  return {
+    id: row.id,
+    siteId: row.site_id,
+    filename: row.filename,
+    mime: row.mime,
+    kind: kind as AssetKind,
+    byteSize: toFiniteNumber(row.byte_size, "byte_size"),
+    width: toNullableNumber(row.width),
+    height: toNullableNumber(row.height),
+    hash: row.hash,
+    altText: toNullableText(row.alt_text),
+    decorative: row.decorative === true || row.decorative === "true",
+    folderId: toNullableText(row.folder_id),
+    tags: toJson<string[]>(row.tags),
+    storageRef: row.storage_ref,
+    status,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+    replacedAt: toNullableIso(row.replaced_at),
+    trashedAt: toNullableIso(row.trashed_at),
+  };
+}
+
+function mapAssetFolder(row: AssetFolderRow): AssetFolder {
+  return {
+    id: row.id,
+    siteId: row.site_id,
+    name: row.name,
+    parentId: toNullableText(row.parent_id),
+    createdAt: toIso(row.created_at),
+  };
+}
+
+function mapAssetHistory(row: AssetHistoryRow): AssetHistoryEntry {
+  return {
+    id: row.id,
+    assetId: row.asset_id,
+    storageRef: row.storage_ref,
+    mime: row.mime,
+    byteSize: toFiniteNumber(row.byte_size, "byte_size"),
+    createdAt: toIso(row.created_at),
+  };
+}
+
+const ASSET_COLUMNS =
+  "id, site_id, filename, mime, kind, byte_size, width, height, hash, alt_text, decorative, folder_id, tags, storage_ref, status, replaced_at, trashed_at, created_at, updated_at";
 
 export type CreateSiteInput = {
   name: string;
@@ -1469,6 +1578,302 @@ export class Store {
       releaseId,
       resolvedAt,
     };
+  }
+
+  async createAsset(input: {
+    id: string;
+    siteId: string;
+    filename: string;
+    mime: string;
+    kind: AssetKind;
+    byteSize: number;
+    width: number | null;
+    height: number | null;
+    hash: string;
+    altText: string | null;
+    decorative: boolean;
+    folderId: string | null;
+    tags: string[];
+    storageRef: string;
+  }): Promise<Asset> {
+    const now = new Date().toISOString();
+    const result = await this.#db.query<AssetRow>(
+      `INSERT INTO assets
+        (id, site_id, filename, mime, kind, byte_size, width, height, hash, alt_text, decorative, folder_id, tags, storage_ref, status, replaced_at, trashed_at, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'ready', NULL, NULL, $15, $15)
+       RETURNING ${ASSET_COLUMNS}`,
+      [
+        input.id,
+        input.siteId,
+        input.filename,
+        input.mime,
+        input.kind,
+        input.byteSize,
+        input.width,
+        input.height,
+        input.hash,
+        input.altText,
+        input.decorative,
+        input.folderId,
+        toJsonParam(input.tags),
+        input.storageRef,
+        now,
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error("Asset insert returned no row");
+    return mapAsset(row);
+  }
+
+  async getAsset(id: string): Promise<Asset> {
+    const result = await this.#db.query<AssetRow>(
+      `SELECT ${ASSET_COLUMNS} FROM assets WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Asset "${id}" does not exist`, {
+        field: "assetId",
+        suggestion: "List the library with `list_assets` or check the id.",
+      });
+    }
+    return mapAsset(row);
+  }
+
+  // Dedupe only looks at live assets: re-uploading the same bytes after a trash
+  // must create a fresh, usable record.
+  async findAssetByHash(siteId: string, hash: string): Promise<Asset | undefined> {
+    const result = await this.#db.query<AssetRow>(
+      `SELECT ${ASSET_COLUMNS} FROM assets
+       WHERE site_id = $1 AND hash = $2 AND status = 'ready'
+       ORDER BY created_at ASC, id ASC LIMIT 1`,
+      [siteId, hash],
+    );
+    const row = result.rows[0];
+    return row ? mapAsset(row) : undefined;
+  }
+
+  async listAssets(
+    siteId: string,
+    options: { status?: AssetStatus | "all" } = {},
+  ): Promise<Asset[]> {
+    const status = options.status ?? "ready";
+    await this.getSite(siteId);
+    const result =
+      status === "all"
+        ? await this.#db.query<AssetRow>(
+            `SELECT ${ASSET_COLUMNS} FROM assets WHERE site_id = $1
+             ORDER BY created_at DESC, id DESC`,
+            [siteId],
+          )
+        : await this.#db.query<AssetRow>(
+            `SELECT ${ASSET_COLUMNS} FROM assets WHERE site_id = $1 AND status = $2
+             ORDER BY created_at DESC, id DESC`,
+            [siteId, status],
+          );
+    return result.rows.map(mapAsset);
+  }
+
+  async updateAsset(id: string, patch: AssetUpdate): Promise<Asset> {
+    const current = await this.getAsset(id);
+    const next = {
+      filename: patch.filename ?? current.filename,
+      mime: patch.mime ?? current.mime,
+      kind: patch.kind ?? current.kind,
+      byteSize: patch.byteSize ?? current.byteSize,
+      width: patch.width === undefined ? current.width : patch.width,
+      height: patch.height === undefined ? current.height : patch.height,
+      hash: patch.hash ?? current.hash,
+      altText: patch.altText === undefined ? current.altText : patch.altText,
+      decorative:
+        patch.decorative === undefined ? current.decorative : patch.decorative,
+      folderId: patch.folderId === undefined ? current.folderId : patch.folderId,
+      tags: patch.tags ?? current.tags,
+      storageRef: patch.storageRef ?? current.storageRef,
+      status: patch.status ?? current.status,
+      replacedAt:
+        patch.replacedAt === undefined ? current.replacedAt : patch.replacedAt,
+      trashedAt:
+        patch.trashedAt === undefined ? current.trashedAt : patch.trashedAt,
+      updatedAt: patch.updatedAt ?? new Date().toISOString(),
+    };
+    await this.#db.query(
+      `UPDATE assets SET
+         filename = $2, mime = $3, kind = $4, byte_size = $5, width = $6, height = $7,
+         hash = $8, alt_text = $9, decorative = $10, folder_id = $11, tags = $12,
+         storage_ref = $13, status = $14, replaced_at = $15, trashed_at = $16, updated_at = $17
+       WHERE id = $1`,
+      [
+        id,
+        next.filename,
+        next.mime,
+        next.kind,
+        next.byteSize,
+        next.width,
+        next.height,
+        next.hash,
+        next.altText,
+        next.decorative,
+        next.folderId,
+        toJsonParam(next.tags),
+        next.storageRef,
+        next.status,
+        next.replacedAt,
+        next.trashedAt,
+        next.updatedAt,
+      ],
+    );
+    return { ...current, ...next };
+  }
+
+  async deleteAssetRecord(id: string): Promise<void> {
+    const result = await this.#db.query<{ id: string }>(
+      `DELETE FROM assets WHERE id = $1 RETURNING id`,
+      [id],
+    );
+    if (result.rows.length === 0) {
+      throw new SenifyError("not_found", `Asset "${id}" does not exist`, {
+        field: "assetId",
+      });
+    }
+  }
+
+  // The check pipeline needs status + decorative for every asset of a site;
+  // ids that are absent are "missing" for the caller.
+  async assetUsageMap(siteId: string): Promise<Map<string, AssetUsage>> {
+    const result = await this.#db.query<{
+      id: string;
+      status: string;
+      decorative: unknown;
+    }>(`SELECT id, status, decorative FROM assets WHERE site_id = $1`, [siteId]);
+    const map = new Map<string, AssetUsage>();
+    for (const row of result.rows) {
+      map.set(row.id, {
+        status: row.status === "trashed" ? "trashed" : "ready",
+        decorative: row.decorative === true || row.decorative === "true",
+      });
+    }
+    return map;
+  }
+
+  async createAssetFolder(input: {
+    id: string;
+    siteId: string;
+    name: string;
+    parentId: string | null;
+  }): Promise<AssetFolder> {
+    const createdAt = new Date().toISOString();
+    const result = await this.#db.query<AssetFolderRow>(
+      `INSERT INTO asset_folders (id, site_id, name, parent_id, created_at)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, site_id, name, parent_id, created_at`,
+      [input.id, input.siteId, input.name, input.parentId, createdAt],
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error("Asset folder insert returned no row");
+    return mapAssetFolder(row);
+  }
+
+  async getAssetFolder(id: string): Promise<AssetFolder> {
+    const result = await this.#db.query<AssetFolderRow>(
+      `SELECT id, site_id, name, parent_id, created_at
+       FROM asset_folders WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Asset folder "${id}" does not exist`, {
+        field: "folderId",
+      });
+    }
+    return mapAssetFolder(row);
+  }
+
+  async listAssetFolders(siteId: string): Promise<AssetFolder[]> {
+    await this.getSite(siteId);
+    const result = await this.#db.query<AssetFolderRow>(
+      `SELECT id, site_id, name, parent_id, created_at
+       FROM asset_folders WHERE site_id = $1 ORDER BY created_at ASC, id ASC`,
+      [siteId],
+    );
+    return result.rows.map(mapAssetFolder);
+  }
+
+  // Deleting a folder never deletes content: assets and subfolders fall back
+  // to "Ohne Ordner" (root), matching the library contract.
+  async deleteAssetFolder(id: string): Promise<void> {
+    await this.getAssetFolder(id);
+    await this.#db.withTransaction(async (tx) => {
+      await tx.query(`UPDATE assets SET folder_id = NULL WHERE folder_id = $1`, [id]);
+      await tx.query(
+        `UPDATE asset_folders SET parent_id = NULL WHERE parent_id = $1`,
+        [id],
+      );
+      await tx.query(`DELETE FROM asset_folders WHERE id = $1`, [id]);
+    });
+  }
+
+  async createAssetHistory(input: {
+    id: string;
+    assetId: string;
+    storageRef: string;
+    mime: string;
+    byteSize: number;
+  }): Promise<AssetHistoryEntry> {
+    const createdAt = new Date().toISOString();
+    const result = await this.#db.query<AssetHistoryRow>(
+      `INSERT INTO asset_history (id, asset_id, storage_ref, mime, byte_size, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, asset_id, storage_ref, mime, byte_size, created_at`,
+      [
+        input.id,
+        input.assetId,
+        input.storageRef,
+        input.mime,
+        input.byteSize,
+        createdAt,
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error("Asset history insert returned no row");
+    return mapAssetHistory(row);
+  }
+
+  async getAssetHistory(id: string): Promise<AssetHistoryEntry> {
+    const result = await this.#db.query<AssetHistoryRow>(
+      `SELECT id, asset_id, storage_ref, mime, byte_size, created_at
+       FROM asset_history WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError(
+        "not_found",
+        `History entry "${id}" does not exist`,
+        {
+          field: "historyId",
+          suggestion: "Read the file history with `GET /api/assets/:assetId/history`.",
+        },
+      );
+    }
+    return mapAssetHistory(row);
+  }
+
+  async listAssetHistory(assetId: string): Promise<AssetHistoryEntry[]> {
+    await this.getAsset(assetId);
+    const result = await this.#db.query<AssetHistoryRow>(
+      `SELECT id, asset_id, storage_ref, mime, byte_size, created_at
+       FROM asset_history WHERE asset_id = $1
+       ORDER BY created_at DESC, id DESC`,
+      [assetId],
+    );
+    return result.rows.map(mapAssetHistory);
+  }
+
+  async deleteAssetHistory(assetId: string): Promise<void> {
+    await this.#db.query(`DELETE FROM asset_history WHERE asset_id = $1`, [
+      assetId,
+    ]);
   }
 }
 

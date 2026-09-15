@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { basename, extname } from "node:path";
 import { SenifyError } from "@senify/core";
 import { createRegistry } from "@senify/registry";
 import type { PropSpec, Registry, SectionDefinition } from "@senify/section-sdk";
@@ -115,6 +117,109 @@ function optionalBoolean(
     });
   }
   return value;
+}
+
+function optionalNumber(
+  args: Record<string, unknown>,
+  key: string,
+): number | undefined {
+  const value = args[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new SenifyError("validation", `"${key}" must be a number`, {
+      field: key,
+    });
+  }
+  return value;
+}
+
+function optionalNullableString(
+  args: Record<string, unknown>,
+  key: string,
+): string | null | undefined {
+  const value = args[key];
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== "string") {
+    throw new SenifyError("validation", `"${key}" must be a string or null`, {
+      field: key,
+    });
+  }
+  return value;
+}
+
+function optionalStringArray(
+  args: Record<string, unknown>,
+  key: string,
+): string[] | undefined {
+  const value = args[key];
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
+    throw new SenifyError("validation", `"${key}" must be an array of strings`, {
+      field: key,
+    });
+  }
+  return value as string[];
+}
+
+const MIME_BY_EXTENSION: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".avif": "image/avif",
+  ".gif": "image/gif",
+  ".svg": "image/svg+xml",
+  ".mp4": "video/mp4",
+  ".pdf": "application/pdf",
+};
+
+function readLocalFile(filePath: string): Buffer {
+  try {
+    return readFileSync(filePath);
+  } catch {
+    throw new SenifyError("not_found", `File "${filePath}" is not readable`, {
+      field: "filePath",
+      suggestion: "Pass an absolute path to an existing local file.",
+    });
+  }
+}
+
+function mimeForPath(filePath: string): string {
+  const extension = extname(filePath).toLowerCase();
+  const mime = MIME_BY_EXTENSION[extension];
+  if (mime === undefined) {
+    throw new SenifyError(
+      "validation",
+      `Unsupported file extension "${extension}"`,
+      {
+        field: "filePath",
+        suggestion: `Use one of: ${Object.keys(MIME_BY_EXTENSION).join(", ")}.`,
+      },
+    );
+  }
+  return mime;
+}
+
+// Signed upload, shared by upload_asset and replace_asset: ask the engine for a
+// URL, then PUT the raw bytes to it.
+async function uploadLocalFile(
+  context: ToolContext,
+  input: { siteId: string; filePath: string; extra: Record<string, unknown> },
+): Promise<unknown> {
+  const bytes = readLocalFile(input.filePath);
+  const mime = mimeForPath(input.filePath);
+  const ticket = await context.client.request<{ uploadId: string; url: string }>(
+    "POST",
+    `/api/sites/${input.siteId}/assets/upload-url`,
+    {
+      filename: basename(input.filePath),
+      mime,
+      byteSize: bytes.length,
+      ...input.extra,
+    },
+  );
+  return context.client.uploadBytes("PUT", ticket.url, bytes, mime);
 }
 
 function propInfo(spec: PropSpec): Record<string, unknown> {
@@ -506,6 +611,177 @@ export const TOOLS: ToolDefinition[] = [
       await context.client.request("DELETE", `/api/pages/${pageId}`);
       return { deleted: pageId };
     },
+  },
+  {
+    name: "list_assets",
+    title: "List assets",
+    description:
+      "Lists the media library of a site with filters (folder, tag, alt=missing, minBytes, q) and sorting. Use alt=missing for the no-alt-text smart list and sort=replacedAt for recently replaced files.",
+    scope: "read",
+    inputSchema: objectSchema(
+      {
+        siteId: { type: "string" },
+        folder: { type: "string" },
+        tag: { type: "string" },
+        alt: { type: "string", enum: ["missing"] },
+        minBytes: { type: "number" },
+        q: { type: "string" },
+        sort: {
+          type: "string",
+          enum: ["createdAt", "name", "size", "replacedAt"],
+        },
+        status: { type: "string", enum: ["ready", "trashed", "all"] },
+      },
+      ["siteId"],
+    ),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
+      const params = new URLSearchParams();
+      for (const key of ["folder", "tag", "alt", "q", "sort", "status"]) {
+        const value = optionalString(args, key);
+        if (value !== undefined) params.set(key, value);
+      }
+      const minBytes = optionalNumber(args, "minBytes");
+      if (minBytes !== undefined) params.set("minBytes", String(minBytes));
+      const query = params.toString();
+      return context.client.request(
+        "GET",
+        `/api/sites/${siteId}/assets${query === "" ? "" : `?${query}`}`,
+      );
+    },
+  },
+  {
+    name: "upload_asset",
+    title: "Upload asset",
+    description:
+      "Uploads a local file to the media library: asks for a signed upload URL, sends the bytes and returns the asset record. Identical bytes dedupe onto the existing asset instead of creating a second record.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        siteId: { type: "string" },
+        filePath: { type: "string" },
+        altText: { type: "string" },
+        decorative: { type: "boolean" },
+        folderId: { type: "string" },
+        tags: { type: "array", items: { type: "string" } },
+      },
+      ["siteId", "filePath"],
+    ),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
+      const filePath = requireString(args, "filePath");
+      const extra: Record<string, unknown> = {};
+      const altText = optionalString(args, "altText");
+      if (altText !== undefined) extra.altText = altText;
+      const decorative = optionalBoolean(args, "decorative");
+      if (decorative !== undefined) extra.decorative = decorative;
+      const folderId = optionalString(args, "folderId");
+      if (folderId !== undefined) extra.folderId = folderId;
+      const tags = optionalStringArray(args, "tags");
+      if (tags !== undefined) extra.tags = tags;
+      return uploadLocalFile(context, { siteId, filePath, extra });
+    },
+  },
+  {
+    name: "update_asset",
+    title: "Update asset",
+    description:
+      "Updates asset metadata (alt text, decorative flag, folder, tags). Mark purely decorative images as decorative so the alt-text check exempts them; pass null for altText or folderId to clear it.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        assetId: { type: "string" },
+        altText: { type: ["string", "null"] },
+        decorative: { type: "boolean" },
+        folderId: { type: ["string", "null"] },
+        tags: { type: "array", items: { type: "string" } },
+      },
+      ["assetId"],
+    ),
+    entity: (args) => `asset:${String(args.assetId ?? "")}`,
+    handler: async (context, args) => {
+      const assetId = requireString(args, "assetId");
+      const patch: Record<string, unknown> = {};
+      const altText = optionalNullableString(args, "altText");
+      if (altText !== undefined) patch.altText = altText;
+      const decorative = optionalBoolean(args, "decorative");
+      if (decorative !== undefined) patch.decorative = decorative;
+      const folderId = optionalNullableString(args, "folderId");
+      if (folderId !== undefined) patch.folderId = folderId;
+      const tags = optionalStringArray(args, "tags");
+      if (tags !== undefined) patch.tags = tags;
+      if (Object.keys(patch).length === 0) {
+        throw new SenifyError("validation", "No asset metadata to update", {
+          field: "assetId",
+          suggestion: "Pass altText, decorative, folderId or tags.",
+        });
+      }
+      return context.client.request("PATCH", `/api/assets/${assetId}`, patch);
+    },
+  },
+  {
+    name: "replace_asset",
+    title: "Replace asset file",
+    description:
+      "Replaces the file of an asset under the same id and URL: every usage stays valid, the previous file lands in the history (restorable) and metadata like alt text and tags is kept.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        assetId: { type: "string" },
+        filePath: { type: "string" },
+        altText: { type: "string" },
+      },
+      ["assetId", "filePath"],
+    ),
+    entity: (args) => `asset:${String(args.assetId ?? "")}`,
+    handler: async (context, args) => {
+      const assetId = requireString(args, "assetId");
+      const filePath = requireString(args, "filePath");
+      const asset = await context.client.request<{ siteId: string }>(
+        "GET",
+        `/api/assets/${assetId}`,
+      );
+      const result = await uploadLocalFile(context, {
+        siteId: asset.siteId,
+        filePath,
+        extra: { replaceAssetId: assetId },
+      });
+      const altText = optionalString(args, "altText");
+      if (altText === undefined) return result;
+      return context.client.request("PATCH", `/api/assets/${assetId}`, {
+        altText,
+      });
+    },
+  },
+  {
+    name: "delete_asset",
+    title: "Delete asset",
+    description:
+      "Moves an asset to the trash (reversible). References to it are marked broken at submit and publish; restore it with restore_asset or delete it for good from the program.",
+    scope: "write",
+    inputSchema: objectSchema({ assetId: { type: "string" } }, ["assetId"]),
+    entity: (args) => `asset:${String(args.assetId ?? "")}`,
+    handler: async (context, args) => {
+      const assetId = requireString(args, "assetId");
+      await context.client.request("DELETE", `/api/assets/${assetId}`);
+      return { trashed: assetId };
+    },
+  },
+  {
+    name: "restore_asset",
+    title: "Restore asset",
+    description:
+      "Takes an asset out of the trash so references become valid again. The file was never deleted; only the record status changes.",
+    scope: "write",
+    inputSchema: objectSchema({ assetId: { type: "string" } }, ["assetId"]),
+    entity: (args) => `asset:${String(args.assetId ?? "")}`,
+    handler: async (context, args) =>
+      context.client.request(
+        "POST",
+        `/api/assets/${requireString(args, "assetId")}/restore`,
+      ),
   },
 ];
 

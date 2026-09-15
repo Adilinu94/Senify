@@ -57,6 +57,28 @@ import {
   type SubmitReviewBody,
 } from "./lifecycle-contract.ts";
 import { Store } from "./store.ts";
+import {
+  applyAssetPatch,
+  bulkAssets,
+  commitUpload,
+  createAssetFolder,
+  createUploadTicket,
+  parseAssetListFilters,
+  purgeAsset,
+  queryAssets,
+  restoreAssetHistory,
+  AssetPatchBodySchema,
+  BulkAssetsBodySchema,
+  CreateAssetFolderBodySchema,
+  UploadUrlBodySchema,
+  type AssetPatchBody,
+  type BulkAssetsBody,
+  type CreateAssetFolderBody,
+  type MediaContext,
+  type UploadSigner,
+  type UploadUrlBody,
+} from "./media.ts";
+import { resolveStoredFile, storedFileName } from "./storage.ts";
 import { buildThemeReport } from "./theme-report.ts";
 import type { ReviewStatus, TokenScope } from "./types.ts";
 import { REVIEW_STATUSES } from "./types.ts";
@@ -71,10 +93,20 @@ export type EngineContext = {
   locks: PageLocks;
   rateLimiter: RateLimiter;
   dataDir: string;
+  maxUploadBytes: number;
+  uploadSigner: UploadSigner;
 };
 
 function lifecycleContext(context: EngineContext): LifecycleContext {
   return { store: context.store, dataDir: context.dataDir };
+}
+
+function mediaContext(context: EngineContext): MediaContext {
+  return {
+    store: context.store,
+    dataDir: context.dataDir,
+    maxUploadBytes: context.maxUploadBytes,
+  };
 }
 
 type AuthInfo = {
@@ -87,7 +119,11 @@ type RouteResult = {
   status: number;
   body?: unknown;
   headers?: Record<string, string>;
-  file?: { path: string };
+  file?: {
+    path: string;
+    contentType?: string;
+    headers?: Record<string, string>;
+  };
 };
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -110,7 +146,11 @@ const CONTENT_TYPES: Record<string, string> = {
 
 function sendFile(
   res: ServerResponse,
-  file: { path: string },
+  file: {
+    path: string;
+    contentType?: string;
+    headers?: Record<string, string>;
+  },
 ): void {
   if (!existsSync(file.path) || !statSync(file.path).isFile()) {
     res.writeHead(404);
@@ -118,11 +158,13 @@ function sendFile(
     return;
   }
   const contentType =
+    file.contentType ??
     CONTENT_TYPES[extname(file.path).toLowerCase()] ??
     "application/octet-stream";
   res.writeHead(200, {
     "content-type": contentType,
     "content-length": statSync(file.path).size,
+    ...(file.headers ?? {}),
   });
   createReadStream(file.path).pipe(res);
 }
@@ -238,6 +280,32 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
       suggestion: "Send a JSON object with the documented fields.",
     });
   }
+}
+
+// Upload bodies are raw bytes, not JSON: they get their own cap instead of the
+// 1 MB JSON limit.
+async function readRawBody(
+  req: IncomingMessage,
+  limitBytes: number,
+): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+    size += buffer.length;
+    if (size > limitBytes) {
+      throw new SenifyError(
+        "validation",
+        `File exceeds the upload limit of ${limitBytes} bytes`,
+        {
+          field: "file",
+          suggestion: "Shrink the file or raise the engine limit (maxUploadBytes).",
+        },
+      );
+    }
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks);
 }
 
 async function applyMutationsToPage(
@@ -987,6 +1055,283 @@ const ROUTES: Route[] = [
           author: input.author,
           note: input.note,
         }),
+      };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "assets", "upload-url"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const siteId = requireParam(params, "siteId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<UploadUrlBody>(
+        UploadUrlBodySchema,
+        body,
+        "upload request",
+      );
+      const { uploadId, ticket } = await createUploadTicket(mediaContext(context), {
+        siteId,
+        body: input,
+      });
+      const token = context.uploadSigner.sign(ticket);
+      return {
+        status: 201,
+        body: {
+          uploadId,
+          url: `/api/assets/upload/${uploadId}?token=${encodeURIComponent(token)}`,
+          expiresAt: ticket.expiresAt,
+        },
+      };
+    },
+  },
+  {
+    method: "PUT",
+    segments: ["api", "assets", "upload", ":uploadId"],
+    public: true,
+    handler: async (context, params, req, url) => {
+      const uploadId = requireParam(params, "uploadId");
+      const token = url.searchParams.get("token");
+      if (token === null) {
+        throw new AuthError(401, "Upload token is missing", {
+          suggestion: "Use the signed URL returned by the upload-url endpoint.",
+        });
+      }
+      const ticket = context.uploadSigner.verify(token);
+      if (!ticket || ticket.uploadId !== uploadId) {
+        throw new AuthError(401, "Upload token is invalid", {
+          suggestion: "Request a fresh upload URL and retry.",
+        });
+      }
+      if (Date.parse(ticket.expiresAt) <= Date.now()) {
+        throw new SenifyError("validation", "Upload URL is expired", {
+          field: "uploadId",
+          suggestion: "Request a fresh upload URL.",
+        });
+      }
+      const data = await readRawBody(req, context.maxUploadBytes);
+      return {
+        status: 201,
+        body: await commitUpload(mediaContext(context), { ticket, data }),
+      };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "assets"],
+    scope: "read",
+    handler: async (context, params, _req, url) => {
+      const siteId = requireParam(params, "siteId");
+      return {
+        status: 200,
+        body: {
+          assets: await queryAssets(
+            context.store,
+            siteId,
+            parseAssetListFilters(url.searchParams),
+          ),
+        },
+      };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "assets", ":assetId"],
+    scope: "read",
+    handler: async (context, params) => ({
+      status: 200,
+      body: await context.store.getAsset(requireParam(params, "assetId")),
+    }),
+  },
+  {
+    method: "PATCH",
+    segments: ["api", "assets", ":assetId"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const assetId = requireParam(params, "assetId");
+      const body = (await readJsonBody(req)) ?? {};
+      const patch = parseBody<AssetPatchBody>(
+        AssetPatchBodySchema,
+        body,
+        "asset update",
+      );
+      return {
+        status: 200,
+        body: await applyAssetPatch(context.store, assetId, patch),
+      };
+    },
+  },
+  {
+    method: "DELETE",
+    segments: ["api", "assets", ":assetId"],
+    scope: "write",
+    handler: async (context, params) => {
+      const assetId = requireParam(params, "assetId");
+      // Soft delete: files stay on disk, the record flips to "trashed".
+      return {
+        status: 200,
+        body: await context.store.updateAsset(assetId, {
+          status: "trashed",
+          trashedAt: new Date().toISOString(),
+        }),
+      };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "assets", ":assetId", "restore"],
+    scope: "write",
+    handler: async (context, params) => {
+      const assetId = requireParam(params, "assetId");
+      return {
+        status: 200,
+        body: await context.store.updateAsset(assetId, {
+          status: "ready",
+          trashedAt: null,
+        }),
+      };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "assets", ":assetId", "purge"],
+    scope: "publish",
+    destructive: true,
+    handler: async (context, params) => {
+      const assetId = requireParam(params, "assetId");
+      const asset = await purgeAsset(mediaContext(context), assetId);
+      return { status: 200, body: { purged: asset.id } };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "assets", ":assetId", "history"],
+    scope: "read",
+    handler: async (context, params) => ({
+      status: 200,
+      body: {
+        history: await context.store.listAssetHistory(
+          requireParam(params, "assetId"),
+        ),
+      },
+    }),
+  },
+  {
+    method: "POST",
+    segments: ["api", "assets", ":assetId", "restore-history", ":historyId"],
+    scope: "write",
+    handler: async (context, params) => ({
+      status: 200,
+      body: await restoreAssetHistory(mediaContext(context), {
+        assetId: requireParam(params, "assetId"),
+        historyId: requireParam(params, "historyId"),
+      }),
+    }),
+  },
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "assets", "bulk"],
+    scope: "write",
+    handler: async (context, params, req, _url, auth) => {
+      const siteId = requireParam(params, "siteId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<BulkAssetsBody>(
+        BulkAssetsBodySchema,
+        body,
+        "asset bulk request",
+      );
+      // Bulk is a write route; permanent deletes still need the publish scope.
+      const allowPurge = auth?.scopes.includes("publish") === true;
+      return {
+        status: 200,
+        body: await bulkAssets(mediaContext(context), {
+          siteId,
+          body: input,
+          allowPurge,
+        }),
+      };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "asset-folders"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const siteId = requireParam(params, "siteId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<CreateAssetFolderBody>(
+        CreateAssetFolderBodySchema,
+        body,
+        "asset folder",
+      );
+      return {
+        status: 201,
+        body: await createAssetFolder(mediaContext(context), {
+          siteId,
+          name: input.name,
+          parentId: input.parentId ?? null,
+        }),
+      };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "asset-folders"],
+    scope: "read",
+    handler: async (context, params) => ({
+      status: 200,
+      body: {
+        folders: await context.store.listAssetFolders(
+          requireParam(params, "siteId"),
+        ),
+      },
+    }),
+  },
+  {
+    method: "DELETE",
+    segments: ["api", "asset-folders", ":folderId"],
+    scope: "write",
+    handler: async (context, params) => {
+      await context.store.deleteAssetFolder(requireParam(params, "folderId"));
+      return { status: 204 };
+    },
+  },
+  {
+    // Public asset delivery under the path the bake writes into the build.
+    method: "GET",
+    segments: ["assets", ":assetId", ":filename"],
+    public: true,
+    handler: async (context, params) => {
+      const asset = await context.store.getAsset(requireParam(params, "assetId"));
+      if (asset.status !== "ready") {
+        throw new SenifyError("not_found", `Asset "${asset.id}" is in the trash`, {
+          field: "assetId",
+        });
+      }
+      const filename = requireParam(params, "filename");
+      if (storedFileName(asset.storageRef) !== filename) {
+        throw new SenifyError("not_found", `File "${filename}" does not exist`, {
+          field: "filename",
+        });
+      }
+      const file = resolveStoredFile(context.dataDir, asset.storageRef);
+      if (file === undefined) {
+        throw new SenifyError(
+          "not_found",
+          `File of asset "${asset.id}" is not resolvable`,
+          { field: "assetId" },
+        );
+      }
+      // Revalidate: a replace keeps the URL stable, the content must not be
+      // served from a stale cache. The type follows the stored MIME, because a
+      // replace may swap the file type under the old name.
+      return {
+        status: 200,
+        file: {
+          path: file,
+          contentType: asset.mime,
+          headers: { "cache-control": "public, max-age=0, must-revalidate" },
+        },
       };
     },
   },

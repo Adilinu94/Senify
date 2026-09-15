@@ -156,6 +156,53 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS review_items_site_idx
     ON review_items (site_id, created_at DESC, id DESC)`,
+  // Media library. Files live under <dataDir>/assets/<siteId>/<assetId>/, the
+  // row keeps the relative storage_ref; replaced files stay in a history/
+  // subfolder so restore never needs a second copy of the library.
+  `CREATE TABLE IF NOT EXISTS assets (
+    id text PRIMARY KEY,
+    site_id text NOT NULL,
+    filename text NOT NULL,
+    mime text NOT NULL,
+    kind text NOT NULL,
+    byte_size integer NOT NULL,
+    width integer,
+    height integer,
+    hash text NOT NULL,
+    alt_text text,
+    decorative boolean NOT NULL,
+    folder_id text,
+    tags jsonb NOT NULL,
+    storage_ref text NOT NULL,
+    status text NOT NULL,
+    replaced_at timestamptz,
+    trashed_at timestamptz,
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS assets_site_idx
+    ON assets (site_id, created_at DESC, id DESC)`,
+  `CREATE INDEX IF NOT EXISTS assets_site_hash_idx
+    ON assets (site_id, hash)`,
+  `CREATE TABLE IF NOT EXISTS asset_folders (
+    id text PRIMARY KEY,
+    site_id text NOT NULL,
+    name text NOT NULL,
+    parent_id text,
+    created_at timestamptz NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS asset_folders_site_idx
+    ON asset_folders (site_id, created_at ASC, id ASC)`,
+  `CREATE TABLE IF NOT EXISTS asset_history (
+    id text PRIMARY KEY,
+    asset_id text NOT NULL,
+    storage_ref text NOT NULL,
+    mime text NOT NULL,
+    byte_size integer NOT NULL,
+    created_at timestamptz NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS asset_history_asset_idx
+    ON asset_history (asset_id, created_at DESC, id DESC)`,
 ];
 
 export async function ensureSchema(db: Db): Promise<void> {

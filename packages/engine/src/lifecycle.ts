@@ -120,6 +120,7 @@ export async function publishRelease(
     pages,
     site,
     theme: siteTheme.theme,
+    assets: await context.store.assetUsageMap(input.siteId),
   });
   if (report.hard.length > 0) {
     throw hardFailure(report.hard, "publish");
@@ -191,6 +192,7 @@ export async function publishRelease(
     site,
     pages: await context.store.listPageDrafts(input.siteId),
     outDir: releaseDir(context, release.id),
+    dataDir: context.dataDir,
   });
   await context.store.attachReleaseBuild(release.id, baked.outDir);
   await context.store.setActiveRelease(input.siteId, release.id);
@@ -221,6 +223,7 @@ export async function createPreview(
     site,
     pages,
     outDir: previewDir(context, previewId),
+    dataDir: context.dataDir,
   });
   return context.store.createPreview({
     siteId: input.siteId,
@@ -376,6 +379,7 @@ export async function submitReview(
     pages: allPages,
     site,
     theme: siteTheme.theme,
+    assets: await context.store.assetUsageMap(input.siteId),
   });
   if (report.hard.length > 0) {
     throw hardFailure(report.hard, "submit");

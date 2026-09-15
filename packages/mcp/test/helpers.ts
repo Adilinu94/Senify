@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createApiHarness, createTestDb, type ApiHarness } from "@senify/core/testing";
 import {
   createEngine,
@@ -36,9 +39,13 @@ function memoryDb(): { db: Db; close(): Promise<void> } {
 
 export async function bootMcpEnv(): Promise<McpTestEnv> {
   const database = memoryDb();
+  // Temp data dir: releases, previews and uploaded assets stay out of the
+  // user's home directory.
+  const dataDir = mkdtempSync(join(tmpdir(), "senify-mcp-"));
   const engine = await createEngine({
     db: database.db,
     registry: createRegistry(),
+    dataDir,
     // Suites fire many calls per token; rate limits are covered by
     // engine/test/auth.test.ts with explicit tight limits.
     rateLimits: { perMinute: 10_000, burst: 10_000, destructivePerMinute: 10_000 },
@@ -61,6 +68,7 @@ export async function bootMcpEnv(): Promise<McpTestEnv> {
     async close() {
       await server.close();
       await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
     },
   };
 }
