@@ -303,6 +303,15 @@ export const CreatePageBodySchema = Type.Object(
 );
 export type CreatePageBody = Static<typeof CreatePageBodySchema>;
 
+export const UpdateThemeBodySchema = Type.Object(
+  {
+    theme: Type.Unsafe<Record<string, unknown>>(Type.Any()),
+    author: AuthorSchema,
+  },
+  CLOSED,
+);
+export type UpdateThemeBody = Static<typeof UpdateThemeBodySchema>;
+
 function formatField(path: string): string {
   const parts = path
     .replace(/^\//, "")

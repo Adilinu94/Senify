@@ -23,7 +23,7 @@ describe("sites", () => {
     expect(site.name).toBe("Agentur Müller");
     expect(site.slug).toBe("agentur-mueller");
     expect(site.profile).toBe("standard");
-    expect(site.themeId).toBeNull();
+    expect(typeof site.themeId).toBe("string");
     expect(typeof site.id).toBe("string");
   });
 

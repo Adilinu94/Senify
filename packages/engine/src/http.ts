@@ -12,12 +12,15 @@ import {
   CreateSiteBodySchema,
   parseApplyMutationsBody,
   parseBody,
+  UpdateThemeBodySchema,
   type ApplyMutationsBody,
   type CreatePageBody,
   type CreateSiteBody,
+  type UpdateThemeBody,
 } from "./mutations/contract.ts";
 import { draftConflictError } from "./paths.ts";
 import { Store } from "./store.ts";
+import { buildThemeReport } from "./theme-report.ts";
 
 const BODY_LIMIT_BYTES = 1024 * 1024;
 
@@ -323,6 +326,47 @@ const ROUTES: Route[] = [
       const siteId = params.siteId;
       if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
       return { status: 200, body: { pages: await context.store.listPages(siteId) } };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "theme"],
+    handler: async (context, params) => {
+      const siteId = params.siteId;
+      if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
+      return { status: 200, body: await context.store.getTheme(siteId) };
+    },
+  },
+  {
+    method: "PUT",
+    segments: ["api", "sites", ":siteId", "theme"],
+    handler: async (context, params, req) => {
+      const siteId = params.siteId;
+      if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
+      const body = (await readJsonBody(req)) ?? {};
+      const themeBody = parseBody<UpdateThemeBody>(UpdateThemeBodySchema, body, "theme update");
+      const updated = await context.store.updateTheme(
+        siteId,
+        themeBody.theme,
+        themeBody.author,
+      );
+      return { status: 200, body: updated };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "theme", "report"],
+    handler: async (context, params) => {
+      const siteId = params.siteId;
+      if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
+      return {
+        status: 200,
+        body: await buildThemeReport({
+          store: context.store,
+          registry: context.registry,
+          siteId,
+        }),
+      };
     },
   },
   {

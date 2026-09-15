@@ -40,10 +40,11 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   // Audit is append-only history and intentionally has no foreign keys:
   // entries survive page/site deletes so the activity log stays complete.
+  // page_id is nullable: site-level operations (e.g. update_theme) have no page.
   `CREATE TABLE IF NOT EXISTS audit_entries (
     id text PRIMARY KEY,
     site_id text NOT NULL,
-    page_id text NOT NULL,
+    page_id text,
     batch_id text NOT NULL,
     op_index integer NOT NULL,
     mutation text NOT NULL,
@@ -52,6 +53,15 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     undo_patch jsonb NOT NULL,
     draft_version_after integer NOT NULL,
     created_at timestamptz NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS themes (
+    id text PRIMARY KEY,
+    site_id text NOT NULL UNIQUE REFERENCES sites(id) ON DELETE CASCADE,
+    name text NOT NULL,
+    definition jsonb NOT NULL,
+    version integer NOT NULL,
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS audit_entries_page_idx
     ON audit_entries (page_id, created_at DESC, op_index DESC)`,

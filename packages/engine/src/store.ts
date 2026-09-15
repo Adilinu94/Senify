@@ -4,10 +4,20 @@ import {
   type Author,
   type NodeTree,
 } from "@senify/section-sdk";
+import {
+  defaultTheme,
+  emitCss,
+  mergeThemePatch,
+  resolveTheme,
+  ThemeSchema,
+  validateTheme,
+  type Theme,
+} from "@senify/tokens";
 import type { Db } from "./db.ts";
 import { newEntityId, newNodeId } from "./ids.ts";
+import { validateShape } from "./mutations/contract.ts";
 import { assertPagePathFormat, draftConflictError } from "./paths.ts";
-import { SITE_PROFILES, type AuditEntry, type Page, type PageMeta, type PageSummary, type Site } from "./types.ts";
+import { SITE_PROFILES, type AuditEntry, type Page, type PageMeta, type PageSummary, type Site, type SiteTheme } from "./types.ts";
 
 export function slugify(value: string): string {
   const slug = value
@@ -82,7 +92,7 @@ type PageSummaryRow = Omit<PageRow, "draft">;
 type AuditRow = {
   id: string;
   site_id: string;
-  page_id: string;
+  page_id: unknown;
   batch_id: string;
   op_index: unknown;
   mutation: string;
@@ -92,6 +102,30 @@ type AuditRow = {
   draft_version_after: unknown;
   created_at: unknown;
 };
+
+type ThemeRow = {
+  id: string;
+  site_id: string;
+  name: string;
+  definition: unknown;
+  version: unknown;
+  created_at: unknown;
+  updated_at: unknown;
+};
+
+function mapThemeRow(row: ThemeRow): SiteTheme {
+  const theme = toJson<Theme>(row.definition);
+  return {
+    id: row.id,
+    siteId: row.site_id,
+    name: row.name,
+    version: toFiniteNumber(row.version, "version"),
+    theme,
+    css: emitCss(resolveTheme(theme)),
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  };
+}
 
 function mapSite(row: SiteRow): Site {
   const profile = row.profile;
@@ -154,7 +188,7 @@ function mapAudit(row: AuditRow): AuditEntry {
   return {
     id: row.id,
     siteId: row.site_id,
-    pageId: row.page_id,
+    pageId: typeof row.page_id === "string" ? row.page_id : null,
     batchId: row.batch_id,
     opIndex: toFiniteNumber(row.op_index, "op_index"),
     mutation: row.mutation,
@@ -179,7 +213,7 @@ export type CreatePageInput = {
 
 export type NewAuditEntry = {
   siteId: string;
-  pageId: string;
+  pageId: string | null;
   batchId: string;
   opIndex: number;
   mutation: string;
@@ -218,26 +252,36 @@ export class Store {
     const now = new Date().toISOString();
     if (input.slug !== undefined) {
       const slug = slugify(input.slug);
-      return this.#insertSite(newEntityId(), name, slug, profile, now);
+      const site = await this.#insertSite(newEntityId(), name, slug, profile, now);
+      await this.ensureSiteTheme(site.id);
+      return this.getSite(site.id);
     }
     const base = slugify(name);
-    for (let attempt = 0; attempt < 50; attempt += 1) {
+    let site: Site | undefined;
+    let lastConflict: SenifyError | undefined;
+    for (let attempt = 0; attempt < 50 && !site; attempt += 1) {
       const slug = attempt === 0 ? base : `${base}-${attempt + 1}`;
       try {
-        return await this.#insertSite(newEntityId(), name, slug, profile, now);
+        site = await this.#insertSite(newEntityId(), name, slug, profile, now);
       } catch (error) {
-        if (isUniqueViolation(error)) continue;
+        if (error instanceof SenifyError && error.category === "conflict") {
+          lastConflict = error;
+          continue;
+        }
         throw error;
       }
     }
-    throw new SenifyError(
-      "conflict",
-      `Site slug "${base}" is already in use`,
-      {
-        field: "slug",
-        suggestion: "Choose a different site slug.",
-      },
-    );
+    if (!site) {
+      throw (
+        lastConflict ??
+        new SenifyError("conflict", `Site slug "${base}" is already in use`, {
+          field: "slug",
+          suggestion: "Choose a different site slug.",
+        })
+      );
+    }
+    await this.ensureSiteTheme(site.id);
+    return this.getSite(site.id);
   }
 
   async #insertSite(
@@ -306,6 +350,134 @@ export class Store {
         field: "siteId",
       });
     }
+  }
+
+  async ensureSiteTheme(siteId: string): Promise<ThemeRow> {
+    const existing = await this.#db.query<ThemeRow>(
+      `SELECT id, site_id, name, definition, version, created_at, updated_at
+       FROM themes WHERE site_id = $1`,
+      [siteId],
+    );
+    const found = existing.rows[0];
+    if (found) return found;
+    const id = newEntityId();
+    const definition: Theme = { ...defaultTheme(), id };
+    const issues = validateTheme(definition);
+    if (issues.length > 0) {
+      throw new Error(
+        `Default theme is invalid: ${issues[0]?.message ?? "unknown error"}`,
+      );
+    }
+    const now = new Date().toISOString();
+    try {
+      const inserted = await this.#db.query<ThemeRow>(
+        `INSERT INTO themes (id, site_id, name, definition, version, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, 1, $5, $5)
+         RETURNING id, site_id, name, definition, version, created_at, updated_at`,
+        [id, siteId, definition.name, toJsonParam(definition), now],
+      );
+      const row = inserted.rows[0];
+      if (!row) throw new Error("Theme insert returned no row");
+      await this.#db.query(
+        `UPDATE sites SET theme_id = $2, updated_at = $3 WHERE id = $1`,
+        [siteId, id, now],
+      );
+      return row;
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        // Lost the race: another writer created the theme first.
+        const retry = await this.#db.query<ThemeRow>(
+          `SELECT id, site_id, name, definition, version, created_at, updated_at
+           FROM themes WHERE site_id = $1`,
+          [siteId],
+        );
+        const row = retry.rows[0];
+        if (!row) throw error;
+        return row;
+      }
+      throw error;
+    }
+  }
+
+  async getTheme(siteId: string): Promise<SiteTheme> {
+    await this.getSite(siteId);
+    // Lazy ensure is intentional: themes created before T04 (none in
+    // practice — greenfield) or restored backups still resolve.
+    return mapThemeRow(await this.ensureSiteTheme(siteId));
+  }
+
+  async updateTheme(
+    siteId: string,
+    patch: Record<string, unknown>,
+    author: Author,
+  ): Promise<SiteTheme> {
+    if (Object.keys(patch).length === 0) {
+      throw new SenifyError("validation", "Theme patch is empty", {
+        field: "theme",
+        suggestion: "Provide at least one change.",
+      });
+    }
+    await this.getSite(siteId);
+    const current = await this.ensureSiteTheme(siteId);
+    const currentDefinition = toJson<Theme>(current.definition);
+    const merged = mergeThemePatch(currentDefinition, patch);
+    merged.id = current.id;
+    validateShape(ThemeSchema, merged, "theme");
+    const issues = validateTheme(merged);
+    if (issues.length > 0) {
+      const first = issues[0];
+      const extra =
+        issues.length > 1 ? ` Plus ${issues.length - 1} more theme problems.` : "";
+      throw new SenifyError(
+        "validation",
+        `Invalid theme: ${first?.message ?? "value does not resolve"}`,
+        {
+          field: first?.path ?? "theme",
+          suggestion: `${first?.suggestion ?? "Fix the flagged value."}${extra}`,
+        },
+      );
+    }
+    const now = new Date().toISOString();
+    await this.#db.withTransaction(async (tx) => {
+      const updated = await tx.query<{ version: unknown }>(
+        `UPDATE themes SET definition = $2, name = $3, version = version + 1, updated_at = $4
+         WHERE id = $1 RETURNING version`,
+        [current.id, toJsonParam(merged), merged.name, now],
+      );
+      const versionRow = updated.rows[0];
+      if (!versionRow) {
+        throw new SenifyError("not_found", `Theme for site "${siteId}" does not exist`, {
+          field: "siteId",
+        });
+      }
+      const newVersion = toFiniteNumber(versionRow.version, "version");
+      const { text, params } = buildAuditInsert([
+        {
+          siteId,
+          pageId: null,
+          batchId: newEntityId(),
+          opIndex: 0,
+          mutation: "update_theme",
+          params: { patch, previous: currentDefinition },
+          author,
+          undoPatch: [],
+          draftVersionAfter: newVersion,
+        },
+      ]);
+      await tx.query(text, params);
+      return newVersion;
+    });
+    return this.getTheme(siteId);
+  }
+
+  async listPageDrafts(siteId: string): Promise<Page[]> {
+    await this.getSite(siteId);
+    const result = await this.#db.query<PageRow>(
+      `SELECT id, site_id, path, title, meta, draft, draft_version, created_at, updated_at
+       FROM pages WHERE site_id = $1 ORDER BY created_at ASC, id ASC`,
+      [siteId],
+    );
+    return result.rows.map((row) => mapPage(row));
   }
 
   async createPage(siteId: string, input: CreatePageInput): Promise<Page> {
@@ -584,6 +756,16 @@ export class Store {
        FROM audit_entries WHERE page_id = $1
        ORDER BY created_at DESC, op_index DESC, id DESC LIMIT $2`,
       [pageId, Math.max(1, Math.min(500, limit))],
+    );
+    return result.rows.map(mapAudit);
+  }
+
+  async listSiteAudit(siteId: string, limit = 50): Promise<AuditEntry[]> {
+    const result = await this.#db.query<AuditRow>(
+      `SELECT id, site_id, page_id, batch_id, op_index, mutation, params, author, undo_patch, draft_version_after, created_at
+       FROM audit_entries WHERE site_id = $1
+       ORDER BY created_at DESC, op_index DESC, id DESC LIMIT $2`,
+      [siteId, Math.max(1, Math.min(500, limit))],
     );
     return result.rows.map(mapAudit);
   }

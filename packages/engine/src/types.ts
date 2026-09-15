@@ -1,4 +1,5 @@
 import type { Author, NodeTree } from "@senify/section-sdk";
+import type { Theme } from "@senify/tokens";
 import type { PatchOp } from "./mutations/contract.ts";
 
 export type SiteProfile = "clean" | "standard" | "showcase";
@@ -39,10 +40,21 @@ export type Page = {
 
 export type PageSummary = Omit<Page, "draft">;
 
+export type SiteTheme = {
+  id: string;
+  siteId: string;
+  name: string;
+  version: number;
+  theme: Theme;
+  css: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type AuditEntry = {
   id: string;
   siteId: string;
-  pageId: string;
+  pageId: string | null;
   batchId: string;
   opIndex: number;
   mutation: string;

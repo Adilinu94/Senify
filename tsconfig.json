@@ -30,7 +30,8 @@
       "@senify/app": ["packages/app/src/index.ts"],
       "@senify/analysis-worker": ["packages/analysis-worker/src/index.ts"],
       "@senify/docs-portal": ["packages/docs-portal/src/index.ts"],
-      "@senify/skills": ["packages/skills/src/index.ts"]
+      "@senify/skills": ["packages/skills/src/index.ts"],
+      "@senify/tokens": ["packages/tokens/src/index.ts"]
     }
   },
   "include": ["packages/*/src", "packages/*/test", "packages/*/*.ts"],

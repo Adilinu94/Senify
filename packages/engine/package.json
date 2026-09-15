@@ -10,6 +10,7 @@
   "dependencies": {
     "@senify/core": "workspace:*",
     "@senify/section-sdk": "workspace:*",
+    "@senify/tokens": "workspace:*",
     "@sinclair/typebox": "^0.34.0",
     "pg": "^8.16.3"
   },

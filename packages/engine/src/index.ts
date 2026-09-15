@@ -18,6 +18,7 @@ export {
   type PageSummary,
   type Site,
   type SiteProfile,
+  type SiteTheme,
   SITE_PROFILES,
 } from "./types.ts";
 export {
@@ -33,6 +34,7 @@ export {
   type OverrideBreakpoint,
   type ParentRef,
   type PatchOp,
+  type UpdateThemeBody,
 } from "./mutations/contract.ts";
 export {
   applyMutations,
@@ -45,6 +47,13 @@ export {
 } from "./mutations/apply.ts";
 export { applyPatchOp, applyTreePatches } from "./mutations/patches.ts";
 export { validateTreeIntegrity, type TreeIntegrityIssue } from "./mutations/integrity.ts";
+export {
+  buildThemeReport,
+  type ThemeReport,
+  type ThemeReportBrokenRef,
+  type ThemeReportContrast,
+  type ThemeReportLiteral,
+} from "./theme-report.ts";
 export { goldenTreeToMutations, type GoldenPlacement } from "./golden.ts";
 
 export type EngineOptions = {
