@@ -1,4 +1,21 @@
-import { resolveAsset, resolveLink, SectionShell, str, type SectionProps } from "./shared.tsx";
+import {
+  alignBlockStyle,
+  alignStyle,
+  aspectStyle,
+  cardPaddingStyle,
+  cardStyle,
+  columnsClass,
+  contentWidthClass,
+  cx,
+  gapStyle,
+  headingStyle,
+  mediaStyle,
+  resolveAsset,
+  resolveLink,
+  SectionShell,
+  str,
+  type SectionProps,
+} from "./shared.tsx";
 
 export function Projects({ node, ctx }: SectionProps): React.JSX.Element {
   const items = (Array.isArray(node.props.items) ? node.props.items : []) as {
@@ -10,20 +27,36 @@ export function Projects({ node, ctx }: SectionProps): React.JSX.Element {
   }[];
   return (
     <SectionShell node={node} section="projects">
-      <div className="mx-auto max-w-6xl px-4 py-16">
+      <div className={cx("mx-auto px-4 py-16", contentWidthClass(node))}>
         {str(node.props.title) !== "" && (
-          <h2 className="font-[var(--font-display)] text-3xl font-bold">{str(node.props.title)}</h2>
+          <h2
+            className="font-[var(--font-display)] text-3xl font-bold"
+            style={{ ...headingStyle(node), ...alignStyle(node) }}
+          >
+            {str(node.props.title)}
+          </h2>
         )}
         {str(node.props.intro) !== "" && (
-          <p className="mt-3 max-w-2xl text-lg text-[var(--fg-muted)]">{str(node.props.intro)}</p>
+          <p
+            className="mt-3 max-w-2xl text-lg text-[var(--fg-muted)]"
+            style={alignBlockStyle(node)}
+          >
+            {str(node.props.intro)}
+          </p>
         )}
-        <ul className="mt-10 grid gap-6 md:grid-cols-2">
+        <ul
+          className={cx("mt-10 grid gap-6", columnsClass(node, "md:grid-cols-2"))}
+          style={gapStyle(node)}
+        >
           {items.map((item, index) => {
             const asset = resolveAsset(item.cover, ctx);
             const target = resolveLink(item.link, ctx);
             return (
               <li key={index}>
-                <article className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--line)]">
+                <article
+                  className="overflow-hidden border"
+                  style={cardStyle(node, { padding: null })}
+                >
                   {asset && (
                     <img
                       src={asset.src}
@@ -31,9 +64,10 @@ export function Projects({ node, ctx }: SectionProps): React.JSX.Element {
                       loading="lazy"
                       data-missing-asset={asset.missing ? "" : undefined}
                       className="aspect-[16/9] w-full object-cover"
+                      style={{ ...mediaStyle(node, "0px"), ...aspectStyle(node) }}
                     />
                   )}
-                  <div className="p-6">
+                  <div style={cardPaddingStyle(node)}>
                     {typeof item.tag === "string" && item.tag !== "" && (
                       <p className="text-sm font-semibold uppercase tracking-widest text-[var(--accent)]">
                         {item.tag}

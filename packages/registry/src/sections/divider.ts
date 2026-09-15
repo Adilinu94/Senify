@@ -1,5 +1,5 @@
 import type { SectionDefinition } from "@senify/section-sdk";
-import { thumbs } from "../shared.ts";
+import { sectionStyleProps, thumbs } from "../shared.ts";
 
 export const dividerSection: SectionDefinition = {
   type: "divider",
@@ -29,7 +29,8 @@ export const dividerSection: SectionDefinition = {
     dots: { label: "Dots", preset: { spacing: "l" } },
   },
   styleProps: [
-    { key: "color", control: "color", label: "Color", group: "Styling" },
+    ...sectionStyleProps(),
+    { key: "color", control: "color", label: "Color", group: "Styling", tokenGroup: "color" },
   ],
   allowedChildren: "none",
   motionPresets: ["fade-up"],

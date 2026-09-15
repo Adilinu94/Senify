@@ -1,4 +1,17 @@
-import { resolveAsset, SectionShell, str, type SectionProps } from "./shared.tsx";
+import {
+  alignStyle,
+  aspectStyle,
+  columnsClass,
+  contentWidthClass,
+  cx,
+  gapStyle,
+  headingStyle,
+  mediaStyle,
+  resolveAsset,
+  SectionShell,
+  str,
+  type SectionProps,
+} from "./shared.tsx";
 
 export function Gallery({ node, ctx }: SectionProps): React.JSX.Element {
   const items = (Array.isArray(node.props.items) ? node.props.items : []) as {
@@ -8,9 +21,14 @@ export function Gallery({ node, ctx }: SectionProps): React.JSX.Element {
   const carousel = node.variant === "carousel";
   return (
     <SectionShell node={node} section="gallery">
-      <div className="mx-auto max-w-6xl px-4 py-16">
+      <div className={cx("mx-auto px-4 py-16", contentWidthClass(node))}>
         {str(node.props.title) !== "" && (
-          <h2 className="font-[var(--font-display)] text-3xl font-bold">{str(node.props.title)}</h2>
+          <h2
+            className="font-[var(--font-display)] text-3xl font-bold"
+            style={{ ...headingStyle(node), ...alignStyle(node) }}
+          >
+            {str(node.props.title)}
+          </h2>
         )}
         <div data-island={carousel ? "slider" : undefined} className={carousel ? "slider" : undefined}>
           {carousel && (
@@ -23,7 +41,13 @@ export function Gallery({ node, ctx }: SectionProps): React.JSX.Element {
               </button>
             </div>
           )}
-          <ul className="mt-8 grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+          <ul
+            className={cx(
+              "mt-8 grid gap-4 sm:grid-cols-2",
+              columnsClass(node, "md:grid-cols-3"),
+            )}
+            style={gapStyle(node)}
+          >
             {items.map((item, index) => {
               const asset = resolveAsset(item.asset, ctx);
               return (
@@ -35,7 +59,8 @@ export function Gallery({ node, ctx }: SectionProps): React.JSX.Element {
                         alt={typeof item.caption === "string" && item.caption !== "" ? item.caption : `Bild ${index + 1}`}
                         loading="lazy"
                         data-missing-asset={asset.missing ? "" : undefined}
-                        className="aspect-[4/3] w-full rounded-[var(--radius-lg)] object-cover"
+                        className="aspect-[4/3] w-full object-cover"
+                        style={{ ...mediaStyle(node), ...aspectStyle(node) }}
                       />
                     )}
                     {typeof item.caption === "string" && item.caption !== "" && (

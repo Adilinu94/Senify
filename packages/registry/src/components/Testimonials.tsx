@@ -1,4 +1,17 @@
-import { cx, resolveAsset, SectionShell, str, type SectionProps } from "./shared.tsx";
+import {
+  alignStyle,
+  cardStyle,
+  columnsClass,
+  contentWidthClass,
+  cx,
+  gapStyle,
+  headingStyle,
+  mediaStyle,
+  resolveAsset,
+  SectionShell,
+  str,
+  type SectionProps,
+} from "./shared.tsx";
 
 export function Testimonials({ node, ctx }: SectionProps): React.JSX.Element {
   const items = (Array.isArray(node.props.items) ? node.props.items : []) as {
@@ -10,9 +23,14 @@ export function Testimonials({ node, ctx }: SectionProps): React.JSX.Element {
   const slider = node.variant === "slider";
   return (
     <SectionShell node={node} section="testimonials">
-      <div className="mx-auto max-w-6xl px-4 py-16">
+      <div className={cx("mx-auto px-4 py-16", contentWidthClass(node))}>
         {str(node.props.title) !== "" && (
-          <h2 className="font-[var(--font-display)] text-3xl font-bold">{str(node.props.title)}</h2>
+          <h2
+            className="font-[var(--font-display)] text-3xl font-bold"
+            style={{ ...headingStyle(node), ...alignStyle(node) }}
+          >
+            {str(node.props.title)}
+          </h2>
         )}
         <div data-island={slider ? "slider" : undefined} className={cx(slider && "slider")}>
           {slider && (
@@ -25,12 +43,18 @@ export function Testimonials({ node, ctx }: SectionProps): React.JSX.Element {
               </button>
             </div>
           )}
-          <ul className={cx("mt-8 grid gap-6", !slider && "md:grid-cols-2")}>
+          <ul
+            className={cx(
+              "mt-8 grid gap-6",
+              !slider && columnsClass(node, "md:grid-cols-2"),
+            )}
+            style={gapStyle(node)}
+          >
             {items.map((item, index) => {
               const avatar = resolveAsset(item.avatar, ctx);
               return (
                 <li key={index}>
-                  <blockquote className="h-full rounded-[var(--radius-lg)] border border-[var(--line)] p-6">
+                  <blockquote className="h-full border" style={cardStyle(node)}>
                     <p className="text-lg leading-relaxed">
                       „{typeof item.quote === "string" ? item.quote : ""}"
                     </p>
@@ -41,7 +65,8 @@ export function Testimonials({ node, ctx }: SectionProps): React.JSX.Element {
                           alt={typeof item.author === "string" ? item.author : ""}
                           loading="lazy"
                           data-missing-asset={avatar.missing ? "" : undefined}
-                          className="h-10 w-10 rounded-full object-cover"
+                          className="h-10 w-10 object-cover"
+                          style={mediaStyle(node, "9999px")}
                         />
                       )}
                       <div>

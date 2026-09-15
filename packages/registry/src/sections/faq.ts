@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import type { SectionDefinition } from "@senify/section-sdk";
-import { sectionTitleProp, thumbs } from "../shared.ts";
+import { cardPart, gapProp, headingPart, sectionStyleProps, sectionTitleProp, thumbs } from "../shared.ts";
 
 export const faqSection: SectionDefinition = {
   type: "faq",
@@ -29,8 +29,14 @@ export const faqSection: SectionDefinition = {
     "two-col": { label: "Two columns", preset: {} },
     "sticky-heading": { label: "Sticky heading", preset: {} },
   },
+  styleProps: [
+    ...sectionStyleProps(),
+    gapProp(),
+    ...headingPart(),
+    ...cardPart(),
+  ],
   allowedChildren: "none",
-  motionPresets: ["accordion", "fade-up"],
+  motionPresets: ["fade-up"],
   golden: {
     tree: {
       type: "faq",

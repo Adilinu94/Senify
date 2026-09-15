@@ -182,6 +182,15 @@ Qualitätshaltung: **Schlicht-modern ist ein vollwertiger Default** — Profile 
 113. Als Agent möchte ich `search_docs`/`read_docs` gegen dieselben Inhalte, damit ich über MCP an die Doku komme.
 114. Als Agentur-Betreiber möchte ich, dass Portal und Skillpaket aus derselben Generierungs-Pipeline stammen, damit sie nie auseinanderlaufen.
 
+### Baustein-Styling & Layout (Voll-Individualisierung)
+
+115. Als Agentur-Betreiber möchte ich, dass jede Sektion vollständig stylbar ist (Hintergrund, Textfarbe, Abstände, Inhaltsbreite, Ausrichtung), damit kein Baustein wie ein unveränderlicher Standard aussieht.
+116. Als Agentur-Betreiber möchte ich Innenteile (Karten, Buttons, Überschriften, Medien, Navigations-Links) pro Sektion einheitlich stylen, damit auch die Elemente im Baustein zur Marke passen.
+117. Als Agentur-Betreiber möchte ich Layout-Regler je Sektion (Spaltenanzahl, Abstände, Ausrichtung, Reihenfolge, Seitenverhältnis), damit derselbe Baustein unterschiedlich angeordnet werden kann.
+118. Als Agentur-Betreiber möchte ich bei jedem Stilwert Theme-Tokens als Vorschlag und freie Werte als Override, damit ich konsistent bleibe, aber nicht eingeschränkt bin.
+119. Als Agentur-Betreiber möchte ich Stil- und Layout-Werte pro Breakpoint überschreiben (Desktop/Tablet/Mobile), damit die Feinabstimmung wirklich responsive ist.
+120. Als Agent möchte ich Stil-Props maschinell setzbar haben (typisiert, mit Token-Referenzen und Warnung bei Rohwerten), damit ich individuell gestalten kann, ohne das Designsystem zu brechen.
+
 ## Implementation Decisions
 
 > Detailtiefe je Entscheidung: siehe verlinkte Artefakte. Dieser Abschnitt ist die kondensierte Bau-Anweisung.
@@ -201,7 +210,7 @@ Qualitätshaltung: **Schlicht-modern ist ein vollwertiger Default** — Profile 
 ### Kanonischer NodeTree & Mutations-Vertrag
 
 - Flacher `NodeTree { rootNodeId; nodes: Record<NodeId, Node> }`; `Node { id, type, variant?, props, children?, slots?, overrides? (tablet/mobile), motion?, locked?, hidden? }`. Verschachtelung registry-reguliert; gebrochene Referenzen werden markiert, nie gelöscht; Reihenfolge = Array-Ordnung. (`artifacts/01`)
-- Prop-Typen: `text`, `richtext` (Inline-Runs; Markdown an der MCP-Grenze), `number`/`boolean`/`enum`, `color` (Token-Ref `{ "$token": … }` bevorzugt), `assetRef { assetId, focal? }`, `link { pageId? , url? }`, `list`, `slot`.
+- Prop-Typen: `text`, `richtext` (Inline-Runs; Markdown an der MCP-Grenze), `number`/`boolean`/`enum`, `color` (Token-Ref `{ "$token": … }` bevorzugt), `scale` (Stilwert: Token-Ref oder freier CSS-Wert; für Abstände, Radien, Schatten, Schriftgrößen), `assetRef { assetId, focal? }`, `link { pageId? , url? }`, `list`, `slot`.
 - Schreib-API ausschließlich kanonische, benannte Mutations: `insertNode`, `deleteNode`, `duplicateNode`, `moveNode`, `wrapNode`, `updateNodeProps`, `updateNodeMeta`, `setBreakpointOverride`, `clearBreakpointOverride`, `setMotion`, `clearMotion`, `updatePageMeta` (+ Theme-/Asset-/Site-Kataloge). Jede Mutation: validiert (TypeBox + Registry) → erzeugt Undo-Patch → deterministisch; `baseDraftVersion` pro Write (optimistisches Locking; Konflikt = klarer Fehler, kein stilles Überschreiben). (`artifacts/01`, `09`)
 - Alle Mutations mit `author { kind: "human"|"agent", id, label }`; Audit append-only. (`artifacts/01`, `04`)
 
@@ -247,6 +256,7 @@ Qualitätshaltung: **Schlicht-modern ist ein vollwertiger Default** — Profile 
 ### Token- & Theme-System
 
 - Zwei Ebenen (Primitive → Semantik) über 6 Skalen (Farbe, Typo, Spacing, Radius, Shadow, Motion); Skalen-Engine generiert + überschreibbar; Light/Dark strukturell; DTCG-nahes JSON → CSS-Variablen + Tailwind-v4-Theme; semantische Rollen zuerst; Fonts kuratiert + self-hosted (woff2, preload, `font-display: swap`); Springs als `linear()` + JS-Spring. (`artifacts/07`)
+- Voll-Individualisierung: jede Sektion deklariert ein Standard-Style-Set (`background`, `textColor`, `paddingY`, `contentWidth`, `align`), Innenteile als Part-Props (Präfix + `part`-Metadaten) und Layout-Regler (`columns`, `gap`, `reverse`, `aspect`); Werte als Token-Ref oder freier Wert (Rohwert = Warnung, kein Block); Basiswerte inline als CSS-Variablen (`--section-*`, `--card-*` …), Breakpoint-Overrides als gebackenes CSS (`[data-node-id]` + Media-Queries, Tablet < 1024px, Mobil < 640px). (`artifacts/29`, `artifacts/08`)
 
 ### Forms (Verträge)
 

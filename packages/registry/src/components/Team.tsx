@@ -1,4 +1,17 @@
-import { resolveAsset, SectionShell, str, type SectionProps } from "./shared.tsx";
+import {
+  alignStyle,
+  cardStyle,
+  columnsClass,
+  contentWidthClass,
+  cx,
+  gapStyle,
+  headingStyle,
+  mediaStyle,
+  resolveAsset,
+  SectionShell,
+  str,
+  type SectionProps,
+} from "./shared.tsx";
 
 export function Team({ node, ctx }: SectionProps): React.JSX.Element {
   const members = (Array.isArray(node.props.members) ? node.props.members : []) as {
@@ -8,17 +21,26 @@ export function Team({ node, ctx }: SectionProps): React.JSX.Element {
   }[];
   return (
     <SectionShell node={node} section="team">
-      <div className="mx-auto max-w-6xl px-4 py-16">
+      <div className={cx("mx-auto px-4 py-16", contentWidthClass(node))}>
         {str(node.props.title) !== "" && (
-          <h2 className="font-[var(--font-display)] text-3xl font-bold">{str(node.props.title)}</h2>
+          <h2
+            className="font-[var(--font-display)] text-3xl font-bold"
+            style={{ ...headingStyle(node), ...alignStyle(node) }}
+          >
+            {str(node.props.title)}
+          </h2>
         )}
-        <ul className="mt-10 grid gap-6 sm:grid-cols-3">
+        <ul
+          className={cx("mt-10 grid gap-6", columnsClass(node, "sm:grid-cols-3"))}
+          style={gapStyle(node)}
+        >
           {members.map((member, index) => {
             const photo = resolveAsset(member.photo, ctx);
             return (
               <li
                 key={index}
-                className="rounded-[var(--radius-lg)] border border-[var(--line)] p-6 text-center"
+                className="border text-center"
+                style={cardStyle(node)}
               >
                 {photo ? (
                   <img
@@ -26,7 +48,8 @@ export function Team({ node, ctx }: SectionProps): React.JSX.Element {
                     alt={typeof member.name === "string" ? member.name : ""}
                     loading="lazy"
                     data-missing-asset={photo.missing ? "" : undefined}
-                    className="mx-auto h-20 w-20 rounded-full object-cover"
+                    className="mx-auto h-20 w-20 object-cover"
+                    style={mediaStyle(node, "9999px")}
                   />
                 ) : (
                   <span

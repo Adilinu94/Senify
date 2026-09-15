@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import { LinkValueSchema, type SectionDefinition } from "@senify/section-sdk";
-import { backgroundStyleProp, textProp, thumbs } from "../shared.ts";
+import { linkPart, sectionStyleProps, textProp, thumbs } from "../shared.ts";
 
 export const footerSection: SectionDefinition = {
   type: "footer",
@@ -46,7 +46,7 @@ export const footerSection: SectionDefinition = {
     minimal: { label: "Minimal", preset: {} },
     "cta-bar": { label: "CTA bar", preset: {} },
   },
-  styleProps: [backgroundStyleProp()],
+  styleProps: [...sectionStyleProps(), ...linkPart()],
   allowedChildren: "none",
   motionPresets: ["fade-up"],
   golden: {

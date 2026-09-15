@@ -1,5 +1,5 @@
 import type { SectionDefinition } from "@senify/section-sdk";
-import { textProp, thumbs } from "../shared.ts";
+import { buttonPart, headingPart, sectionStyleProps, textProp, thumbs } from "../shared.ts";
 
 export const newsletterSection: SectionDefinition = {
   type: "newsletter",
@@ -20,6 +20,11 @@ export const newsletterSection: SectionDefinition = {
     inline: { label: "Inline", preset: {} },
     split: { label: "Split", preset: {} },
   },
+  styleProps: [
+    ...sectionStyleProps(),
+    ...headingPart(),
+    ...buttonPart(),
+  ],
   allowedChildren: "none",
   motionPresets: ["fade-up"],
   golden: {

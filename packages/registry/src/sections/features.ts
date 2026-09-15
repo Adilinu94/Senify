@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import { LinkValueSchema, type SectionDefinition } from "@senify/section-sdk";
-import { introProp, sectionTitleProp, thumbs } from "../shared.ts";
+import { cardPart, columnsProp, gapProp, headingPart, introProp, sectionStyleProps, sectionTitleProp, thumbs } from "../shared.ts";
 
 export const featuresSection: SectionDefinition = {
   type: "features",
@@ -32,6 +32,13 @@ export const featuresSection: SectionDefinition = {
     alternating: { label: "Alternating", preset: {} },
     list: { label: "List", preset: {} },
   },
+  styleProps: [
+    ...sectionStyleProps(),
+    columnsProp(),
+    gapProp(),
+    ...headingPart(),
+    ...cardPart(),
+  ],
   allowedChildren: "none",
   motionPresets: ["scroll-reveal", "stagger-cascade"],
   golden: {

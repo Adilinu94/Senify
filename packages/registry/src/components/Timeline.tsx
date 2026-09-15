@@ -1,4 +1,13 @@
-import { SectionShell, str, type SectionProps } from "./shared.tsx";
+import {
+  alignStyle,
+  contentWidthClass,
+  cx,
+  gapStyle,
+  headingStyle,
+  SectionShell,
+  str,
+  type SectionProps,
+} from "./shared.tsx";
 
 export function Timeline({ node }: SectionProps): React.JSX.Element {
   const items = (Array.isArray(node.props.items) ? node.props.items : []) as {
@@ -8,11 +17,19 @@ export function Timeline({ node }: SectionProps): React.JSX.Element {
   }[];
   return (
     <SectionShell node={node} section="timeline">
-      <div className="mx-auto max-w-3xl px-4 py-16">
+      <div className={cx("mx-auto px-4 py-16", contentWidthClass(node, "max-w-3xl"))}>
         {str(node.props.title) !== "" && (
-          <h2 className="font-[var(--font-display)] text-3xl font-bold">{str(node.props.title)}</h2>
+          <h2
+            className="font-[var(--font-display)] text-3xl font-bold"
+            style={{ ...headingStyle(node), ...alignStyle(node) }}
+          >
+            {str(node.props.title)}
+          </h2>
         )}
-        <ol className="mt-10 flex flex-col gap-8 border-l-2 border-[var(--line)] pl-6">
+        <ol
+          className="mt-10 flex flex-col gap-8 border-l-2 border-[var(--line)] pl-6"
+          style={gapStyle(node)}
+        >
           {items.map((item, index) => (
             <li key={index}>
               <time className="text-sm font-semibold uppercase tracking-widest text-[var(--accent)]">

@@ -578,6 +578,58 @@ describe("props, meta, overrides, motion", () => {
     expect(body.warnings[0]?.message).toContain("theme tokens");
     expect(propsOf(page, "color-block").accent).toBe("#ffffff");
   });
+
+  it("warns on literal scale and part values but accepts token refs", async () => {
+    await apply([
+      {
+        op: "insertNode",
+        parent: { nodeId: page.draft.rootNodeId },
+        node: { id: "style-block", type: "block", props: { headline: "X" } },
+      },
+    ]);
+    const literal = await apply([
+      {
+        op: "updateNodeProps",
+        id: "style-block",
+        patch: { paddingY: "96px", cardBackground: "#f5f5f4" },
+      },
+    ]);
+    expect(literal.status).toBe(200);
+    expect(literal.body.warnings).toHaveLength(2);
+    expect(literal.body.warnings[0]?.field).toBe(
+      "mutations[0].props.paddingY",
+    );
+    expect(literal.body.warnings[1]?.field).toBe(
+      "mutations[0].props.cardBackground",
+    );
+
+    const tokens = await apply([
+      {
+        op: "updateNodeProps",
+        id: "style-block",
+        patch: {
+          paddingY: { $token: "space.16" },
+          cardBackground: { $token: "bg.muted" },
+        },
+      },
+    ]);
+    expect(tokens.status).toBe(200);
+    expect(tokens.body.warnings).toEqual([]);
+
+    const viaOverride = await apply([
+      {
+        op: "setBreakpointOverride",
+        id: "style-block",
+        breakpoint: "mobile",
+        override: { props: { paddingY: "48px" } },
+      },
+    ]);
+    expect(viaOverride.status).toBe(200);
+    expect(viaOverride.body.warnings).toHaveLength(1);
+    expect(viaOverride.body.warnings[0]?.field).toBe(
+      "mutations[0].override.props.paddingY",
+    );
+  });
 });
 
 describe("tree operations", () => {

@@ -1,4 +1,13 @@
-import { cx, resolveLink, SectionShell, str, type SectionProps } from "./shared.tsx";
+import {
+  buttonStyle,
+  contentWidthClass,
+  cx,
+  linkStyle,
+  resolveLink,
+  SectionShell,
+  str,
+  type SectionProps,
+} from "./shared.tsx";
 
 export function Navbar({ node, ctx }: SectionProps): React.JSX.Element {
   const links = (Array.isArray(node.props.links) ? node.props.links : []) as {
@@ -14,9 +23,12 @@ export function Navbar({ node, ctx }: SectionProps): React.JSX.Element {
     >
       <nav
         aria-label="Hauptnavigation"
-        className="mx-auto flex max-w-6xl items-center justify-between gap-6 px-4 py-4"
+        className={cx(
+          "mx-auto flex items-center justify-between gap-6 px-4 py-4",
+          contentWidthClass(node),
+        )}
       >
-        <a href="/" className="font-[var(--font-display)] text-lg font-bold">
+        <a href="/" className="font-[var(--font-display)] text-lg font-bold" style={linkStyle(node)}>
           {str(node.props.logo, "Logo")}
         </a>
         <ul className="hidden items-center gap-6 md:flex">
@@ -29,6 +41,7 @@ export function Navbar({ node, ctx }: SectionProps): React.JSX.Element {
                   target={target?.target}
                   rel={target?.rel}
                   data-broken-link={target?.broken ? "" : undefined}
+                  style={linkStyle(node)}
                 >
                   {typeof item.label === "string" ? item.label : ""}
                 </a>
@@ -42,7 +55,8 @@ export function Navbar({ node, ctx }: SectionProps): React.JSX.Element {
               href={cta.href}
               target={cta.target}
               rel={cta.rel}
-              className="hidden rounded-full bg-[var(--accent)] px-5 py-2 text-sm font-semibold text-[var(--accent-ink)] md:inline-block"
+              className="hidden px-5 py-2 text-sm font-semibold md:inline-block"
+              style={buttonStyle(node)}
             >
               {str(node.props.ctaLabel)}
             </a>
@@ -58,7 +72,14 @@ export function Navbar({ node, ctx }: SectionProps): React.JSX.Element {
             const target = resolveLink(item.link, ctx);
             return (
               <li key={index}>
-                <a href={target?.href ?? "#"}>{typeof item.label === "string" ? item.label : ""}</a>
+                <a
+                  href={target?.href ?? "#"}
+                  target={target?.target}
+                  rel={target?.rel}
+                  style={linkStyle(node)}
+                >
+                  {typeof item.label === "string" ? item.label : ""}
+                </a>
               </li>
             );
           })}

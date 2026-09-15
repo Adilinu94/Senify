@@ -1,4 +1,14 @@
-import { SectionShell, str, type SectionProps } from "./shared.tsx";
+import {
+  alignStyle,
+  cardStyle,
+  contentWidthClass,
+  cx,
+  gapStyle,
+  headingStyle,
+  SectionShell,
+  str,
+  type SectionProps,
+} from "./shared.tsx";
 
 export function Faq({ node }: SectionProps): React.JSX.Element {
   const items = (Array.isArray(node.props.items) ? node.props.items : []) as {
@@ -7,15 +17,25 @@ export function Faq({ node }: SectionProps): React.JSX.Element {
   }[];
   return (
     <SectionShell node={node} section="faq">
-      <div className="mx-auto max-w-3xl px-4 py-16">
+      <div className={cx("mx-auto px-4 py-16", contentWidthClass(node, "max-w-3xl"))}>
         {str(node.props.title) !== "" && (
-          <h2 className="font-[var(--font-display)] text-3xl font-bold">{str(node.props.title)}</h2>
+          <h2
+            className="font-[var(--font-display)] text-3xl font-bold"
+            style={{ ...headingStyle(node), ...alignStyle(node) }}
+          >
+            {str(node.props.title)}
+          </h2>
         )}
-        <div data-island="accordion" className="mt-8 flex flex-col gap-3">
+        <div
+          data-island="accordion"
+          className="mt-8 flex flex-col gap-3"
+          style={gapStyle(node)}
+        >
           {items.map((item, index) => (
             <details
               key={index}
-              className="rounded-[var(--radius-lg)] border border-[var(--line)] px-5 py-4"
+              className="border"
+              style={cardStyle(node, { padding: "1rem 1.25rem" })}
             >
               <summary className="cursor-pointer font-semibold">
                 {typeof item.q === "string" ? item.q : ""}

@@ -1,4 +1,17 @@
-import { resolveLink, SectionShell, str, type SectionProps } from "./shared.tsx";
+import {
+  alignBlockStyle,
+  alignStyle,
+  cardStyle,
+  columnsClass,
+  contentWidthClass,
+  cx,
+  gapStyle,
+  headingStyle,
+  resolveLink,
+  SectionShell,
+  str,
+  type SectionProps,
+} from "./shared.tsx";
 
 export function Features({ node, ctx }: SectionProps): React.JSX.Element {
   const items = (Array.isArray(node.props.items) ? node.props.items : []) as {
@@ -9,20 +22,34 @@ export function Features({ node, ctx }: SectionProps): React.JSX.Element {
   }[];
   return (
     <SectionShell node={node} section="features">
-      <div className="mx-auto max-w-6xl px-4 py-16">
+      <div className={cx("mx-auto px-4 py-16", contentWidthClass(node))}>
         {str(node.props.title) !== "" && (
-          <h2 className="font-[var(--font-display)] text-3xl font-bold">{str(node.props.title)}</h2>
+          <h2
+            className="font-[var(--font-display)] text-3xl font-bold"
+            style={{ ...headingStyle(node), ...alignStyle(node) }}
+          >
+            {str(node.props.title)}
+          </h2>
         )}
         {str(node.props.intro) !== "" && (
-          <p className="mt-3 max-w-2xl text-lg text-[var(--fg-muted)]">{str(node.props.intro)}</p>
+          <p
+            className="mt-3 max-w-2xl text-lg text-[var(--fg-muted)]"
+            style={alignBlockStyle(node)}
+          >
+            {str(node.props.intro)}
+          </p>
         )}
-        <ul className="mt-10 grid gap-6 md:grid-cols-3">
+        <ul
+          className={cx("mt-10 grid gap-6", columnsClass(node, "md:grid-cols-3"))}
+          style={gapStyle(node)}
+        >
           {items.map((item, index) => {
             const target = resolveLink(item.link, ctx);
             return (
               <li
                 key={index}
-                className="rounded-[var(--radius-lg)] border border-[var(--line)] p-6"
+                className="border"
+                style={cardStyle(node)}
               >
                 {typeof item.icon === "string" && item.icon !== "" && (
                   <span aria-hidden className="mb-4 inline-block text-2xl">

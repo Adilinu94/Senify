@@ -1,4 +1,13 @@
-import { SectionShell, str, type SectionProps } from "./shared.tsx";
+import {
+  alignStyle,
+  buttonStyle,
+  contentWidthClass,
+  cx,
+  headingStyle,
+  SectionShell,
+  str,
+  type SectionProps,
+} from "./shared.tsx";
 
 const FIELD_LABELS: Record<string, string> = {
   text: "text",
@@ -17,10 +26,18 @@ export function Contact({ node }: SectionProps): React.JSX.Element {
   }[];
   return (
     <SectionShell node={node} section="contact">
-      <div className="mx-auto grid max-w-6xl gap-10 px-4 py-16 md:grid-cols-2">
+      <div
+        className={cx(
+          "mx-auto grid gap-10 px-4 py-16 md:grid-cols-2",
+          contentWidthClass(node),
+        )}
+      >
         <div>
           {str(node.props.title) !== "" && (
-            <h2 className="font-[var(--font-display)] text-3xl font-bold">
+            <h2
+              className="font-[var(--font-display)] text-3xl font-bold"
+              style={{ ...headingStyle(node), ...alignStyle(node) }}
+            >
               {str(node.props.title)}
             </h2>
           )}
@@ -95,7 +112,8 @@ export function Contact({ node }: SectionProps): React.JSX.Element {
           })}
           <button
             type="submit"
-            className="rounded-full bg-[var(--accent)] px-6 py-3 font-semibold text-[var(--accent-ink)]"
+            className="px-6 py-3 font-semibold"
+            style={buttonStyle(node)}
           >
             Absenden
           </button>

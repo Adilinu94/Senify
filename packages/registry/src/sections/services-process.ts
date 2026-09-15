@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import type { SectionDefinition } from "@senify/section-sdk";
-import { introProp, sectionTitleProp, thumbs } from "../shared.ts";
+import { cardPart, columnsProp, gapProp, headingPart, introProp, sectionStyleProps, sectionTitleProp, thumbs } from "../shared.ts";
 
 export const servicesProcessSection: SectionDefinition = {
   type: "services-process",
@@ -31,6 +31,13 @@ export const servicesProcessSection: SectionDefinition = {
     cards: { label: "Cards", preset: {} },
     timeline: { label: "Timeline", preset: {} },
   },
+  styleProps: [
+    ...sectionStyleProps(),
+    columnsProp(),
+    gapProp(),
+    ...headingPart(),
+    ...cardPart(),
+  ],
   allowedChildren: "none",
   motionPresets: ["scroll-reveal", "stagger-cascade"],
   golden: {

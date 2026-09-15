@@ -1,4 +1,14 @@
-import { SectionShell, str, type SectionProps } from "./shared.tsx";
+import {
+  alignStyle,
+  columnsClass,
+  contentWidthClass,
+  cx,
+  gapStyle,
+  headingStyle,
+  SectionShell,
+  str,
+  type SectionProps,
+} from "./shared.tsx";
 
 export function Stats({ node }: SectionProps): React.JSX.Element {
   const items = (Array.isArray(node.props.items) ? node.props.items : []) as {
@@ -9,11 +19,22 @@ export function Stats({ node }: SectionProps): React.JSX.Element {
   }[];
   return (
     <SectionShell node={node} section="stats">
-      <div className="mx-auto max-w-6xl px-4 py-12">
+      <div className={cx("mx-auto px-4 py-12", contentWidthClass(node))}>
         {str(node.props.title) !== "" && (
-          <h2 className="font-[var(--font-display)] text-3xl font-bold">{str(node.props.title)}</h2>
+          <h2
+            className="font-[var(--font-display)] text-3xl font-bold"
+            style={{ ...headingStyle(node), ...alignStyle(node) }}
+          >
+            {str(node.props.title)}
+          </h2>
         )}
-        <dl className="mt-8 grid gap-8 text-center sm:grid-cols-3">
+        <dl
+          className={cx(
+            "mt-8 grid gap-8 text-center",
+            columnsClass(node, "sm:grid-cols-3"),
+          )}
+          style={gapStyle(node)}
+        >
           {items.map((item, index) => (
             <div key={index}>
               <dd

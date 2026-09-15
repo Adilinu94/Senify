@@ -95,4 +95,43 @@ describe("section components", () => {
     expect(html).not.toContain("--section-pad-y");
     expect(html).not.toContain("background:");
   });
+
+  it("renders part and layout props in cards and buttons", () => {
+    const html = render({
+      root: { id: "root", type: "page", props: {}, children: ["f", "c"] },
+      f: {
+        id: "f",
+        type: "features",
+        props: {
+          title: "Features",
+          items: [{ title: "Schnell", text: "Sehr schnell." }],
+          columns: "4",
+          gap: { $token: "space.8" },
+          contentWidth: "wide",
+          cardBackground: { $token: "bg.muted" },
+          cardRadius: "12px",
+          cardPadding: "2rem",
+        },
+      },
+      c: {
+        id: "c",
+        type: "cta",
+        props: {
+          headline: "Los",
+          buttons: [{ label: "Start", link: { url: "/start" } }],
+          buttonBackground: "#123456",
+        },
+      },
+    });
+    expect(html).toContain("md:grid-cols-4");
+    expect(html).toContain("gap:var(--space-8)");
+    expect(html).toContain("max-w-7xl");
+    expect(html).toContain("--card-bg:var(--bg-muted)");
+    expect(html).toContain("background-color:var(--card-bg, transparent)");
+    expect(html).toContain("--card-radius:12px");
+    expect(html).toContain("--card-pad:2rem");
+    expect(html).toContain("padding:var(--card-pad, 1.5rem)");
+    expect(html).toContain("--button-bg:#123456");
+    expect(html).toContain("background-color:var(--button-bg, var(--accent))");
+  });
 });

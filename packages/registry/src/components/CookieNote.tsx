@@ -1,4 +1,4 @@
-import { resolveLink, SectionShell, str, type SectionProps } from "./shared.tsx";
+import { buttonStyle, resolveLink, SectionShell, str, type SectionProps } from "./shared.tsx";
 
 export function CookieNote({ node, ctx }: SectionProps): React.JSX.Element {
   const policy = resolveLink(node.props.policyLink, ctx);
@@ -30,7 +30,8 @@ export function CookieNote({ node, ctx }: SectionProps): React.JSX.Element {
             <button
               type="button"
               data-consent="decline"
-              className="rounded-full border border-[var(--line)] px-4 py-2 text-sm font-semibold"
+              className="border px-4 py-2 text-sm font-semibold"
+              style={buttonStyle(node, "outline")}
             >
               {str(node.props.declineLabel)}
             </button>
@@ -38,7 +39,8 @@ export function CookieNote({ node, ctx }: SectionProps): React.JSX.Element {
           <button
             type="button"
             data-consent="accept"
-            className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--accent-ink)]"
+            className="px-4 py-2 text-sm font-semibold"
+            style={buttonStyle(node)}
           >
             {str(node.props.acceptLabel, "OK")}
           </button>

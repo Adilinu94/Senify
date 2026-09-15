@@ -1,4 +1,4 @@
-import { resolveAsset, SectionShell, type SectionProps } from "./shared.tsx";
+import { mediaStyle, resolveAsset, SectionShell, type SectionProps } from "./shared.tsx";
 
 export function Marquee({ node, ctx }: SectionProps): React.JSX.Element {
   const items = (Array.isArray(node.props.items) ? node.props.items : []) as {
@@ -25,6 +25,7 @@ export function Marquee({ node, ctx }: SectionProps): React.JSX.Element {
                 loading="lazy"
                 data-missing-asset={asset.missing ? "" : undefined}
                 className="h-8 w-auto"
+                style={mediaStyle(node, "0px")}
               />
             ) : (
               <span>{typeof item.text === "string" ? item.text : ""}</span>

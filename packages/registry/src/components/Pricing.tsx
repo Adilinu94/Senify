@@ -1,4 +1,16 @@
-import { resolveLink, SectionShell, str, type SectionProps } from "./shared.tsx";
+import {
+  alignBlockStyle,
+  buttonStyle,
+  cardStyle,
+  contentWidthClass,
+  cx,
+  gapStyle,
+  headingStyle,
+  resolveLink,
+  SectionShell,
+  str,
+  type SectionProps,
+} from "./shared.tsx";
 
 export function Pricing({ node, ctx }: SectionProps): React.JSX.Element {
   const plans = (Array.isArray(node.props.plans) ? node.props.plans : []) as {
@@ -15,14 +27,17 @@ export function Pricing({ node, ctx }: SectionProps): React.JSX.Element {
   const anyYearly = plans.some((plan) => typeof plan.priceYearly === "string");
   return (
     <SectionShell node={node} section="pricing">
-      <div className="mx-auto max-w-6xl px-4 py-16">
+      <div className={cx("mx-auto px-4 py-16", contentWidthClass(node))}>
         {str(node.props.title) !== "" && (
-          <h2 className="text-center font-[var(--font-display)] text-3xl font-bold">
+          <h2 className="text-center font-[var(--font-display)] text-3xl font-bold" style={headingStyle(node)}>
             {str(node.props.title)}
           </h2>
         )}
         {str(node.props.intro) !== "" && (
-          <p className="mx-auto mt-3 max-w-2xl text-center text-lg text-[var(--fg-muted)]">
+          <p
+            className="mx-auto mt-3 max-w-2xl text-center text-lg text-[var(--fg-muted)]"
+            style={alignBlockStyle(node)}
+          >
             {str(node.props.intro)}
           </p>
         )}
@@ -41,17 +56,17 @@ export function Pricing({ node, ctx }: SectionProps): React.JSX.Element {
             {str(node.props.billingNote)}
           </p>
         )}
-        <ul className="mt-10 grid gap-6 md:grid-cols-3">
+        <ul className="mt-10 grid gap-6 md:grid-cols-3" style={gapStyle(node)}>
           {plans.map((plan, index) => {
             const target = resolveLink(plan.ctaLink, ctx);
             return (
               <li
                 key={index}
-                className={
-                  plan.highlighted === true
-                    ? "rounded-[var(--radius-lg)] border-2 border-[var(--accent)] p-6"
-                    : "rounded-[var(--radius-lg)] border border-[var(--line)] p-6"
-                }
+                className={plan.highlighted === true ? "border-2" : "border"}
+                style={cardStyle(node, {
+                  border:
+                    plan.highlighted === true ? "var(--accent)" : "var(--line)",
+                })}
               >
                 <h3 className="text-lg font-semibold">
                   {typeof plan.name === "string" ? plan.name : ""}
@@ -79,7 +94,8 @@ export function Pricing({ node, ctx }: SectionProps): React.JSX.Element {
                     target={target.target}
                     rel={target.rel}
                     data-broken-link={target.broken ? "" : undefined}
-                    className="mt-6 block rounded-full bg-[var(--accent)] px-6 py-3 text-center font-semibold text-[var(--accent-ink)]"
+                    className="mt-6 block px-6 py-3 text-center font-semibold"
+                    style={buttonStyle(node)}
                   >
                     {typeof plan.ctaLabel === "string" ? plan.ctaLabel : ""}
                   </a>

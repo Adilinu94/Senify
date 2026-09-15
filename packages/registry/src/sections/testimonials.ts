@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import { AssetRefValueSchema, type SectionDefinition } from "@senify/section-sdk";
-import { sectionTitleProp, thumbs } from "../shared.ts";
+import { cardPart, columnsProp, gapProp, headingPart, mediaPart, sectionStyleProps, sectionTitleProp, thumbs } from "../shared.ts";
 
 export const testimonialsSection: SectionDefinition = {
   type: "testimonials",
@@ -31,6 +31,14 @@ export const testimonialsSection: SectionDefinition = {
     slider: { label: "Slider", preset: {} },
     spotlight: { label: "Spotlight", preset: {} },
   },
+  styleProps: [
+    ...sectionStyleProps(),
+    columnsProp(),
+    gapProp(),
+    ...headingPart(),
+    ...cardPart(),
+    ...mediaPart(),
+  ],
   allowedChildren: "none",
   motionPresets: ["scroll-reveal", "fade-up"],
   golden: {

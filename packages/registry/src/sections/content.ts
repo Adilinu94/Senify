@@ -1,5 +1,5 @@
 import type { SectionDefinition } from "@senify/section-sdk";
-import { introProp, sectionTitleProp, thumbs } from "../shared.ts";
+import { headingPart, introProp, sectionStyleProps, sectionTitleProp, thumbs } from "../shared.ts";
 
 export const contentSection: SectionDefinition = {
   type: "content",
@@ -18,6 +18,7 @@ export const contentSection: SectionDefinition = {
     columns: { label: "Columns", preset: {} },
     highlight: { label: "Highlight", preset: {} },
   },
+  styleProps: [...sectionStyleProps(), ...headingPart()],
   allowedChildren: "none",
   motionPresets: ["fade-up", "scroll-reveal"],
   golden: {

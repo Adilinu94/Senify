@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import { AssetRefValueSchema, type SectionDefinition } from "@senify/section-sdk";
-import { textProp, thumbs } from "../shared.ts";
+import { gapProp, mediaPart, sectionStyleProps, textProp, thumbs } from "../shared.ts";
 
 export const logoCloudSection: SectionDefinition = {
   type: "logo-cloud",
@@ -29,6 +29,11 @@ export const logoCloudSection: SectionDefinition = {
     wrap: { label: "Wrap", preset: {} },
     marquee: { label: "Marquee", preset: {} },
   },
+  styleProps: [
+    ...sectionStyleProps(),
+    gapProp(),
+    ...mediaPart(),
+  ],
   allowedChildren: "none",
   motionPresets: ["fade-up", "marquee"],
   golden: {

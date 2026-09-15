@@ -1,11 +1,26 @@
-import { SectionShell, str, type SectionProps } from "./shared.tsx";
+import {
+  alignStyle,
+  buttonStyle,
+  contentWidthClass,
+  cx,
+  headingStyle,
+  SectionShell,
+  str,
+  type SectionProps,
+} from "./shared.tsx";
 
 export function Newsletter({ node }: SectionProps): React.JSX.Element {
   const endpoint = str(node.props.endpoint);
   return (
     <SectionShell node={node} section="newsletter">
-      <div className="mx-auto max-w-3xl px-4 py-16 text-center">
-        <h2 className="font-[var(--font-display)] text-3xl font-bold">
+      <div
+        className={cx(
+          "mx-auto px-4 py-16 text-center",
+          contentWidthClass(node, "max-w-3xl"),
+        )}
+        style={alignStyle(node)}
+      >
+        <h2 className="font-[var(--font-display)] text-3xl font-bold" style={headingStyle(node)}>
           {str(node.props.headline)}
         </h2>
         {str(node.props.sub) !== "" && (
@@ -30,7 +45,8 @@ export function Newsletter({ node }: SectionProps): React.JSX.Element {
           />
           <button
             type="submit"
-            className="rounded-full bg-[var(--accent)] px-6 py-3 font-semibold text-[var(--accent-ink)]"
+            className="px-6 py-3 font-semibold"
+            style={buttonStyle(node)}
           >
             {str(node.props.buttonLabel, "Anmelden")}
           </button>

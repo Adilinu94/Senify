@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import type { SectionDefinition } from "@senify/section-sdk";
-import { sectionTitleProp, thumbs } from "../shared.ts";
+import { headingPart, sectionStyleProps, sectionTitleProp, thumbs } from "../shared.ts";
 
 export const comparisonSection: SectionDefinition = {
   type: "comparison",
@@ -37,6 +37,7 @@ export const comparisonSection: SectionDefinition = {
     table: { label: "Table", preset: {} },
     cards: { label: "Cards", preset: {} },
   },
+  styleProps: [...sectionStyleProps(), ...headingPart()],
   allowedChildren: "none",
   motionPresets: ["fade-up"],
   golden: {

@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import { AssetRefValueSchema, type SectionDefinition } from "@senify/section-sdk";
-import { thumbs } from "../shared.ts";
+import { mediaPart, sectionStyleProps, thumbs } from "../shared.ts";
 
 export const marqueeSection: SectionDefinition = {
   type: "marquee",
@@ -54,6 +54,7 @@ export const marqueeSection: SectionDefinition = {
     logos: { label: "Logos", preset: { speed: 5, direction: "left" } },
     images: { label: "Images", preset: { speed: 5, direction: "right" } },
   },
+  styleProps: [...sectionStyleProps(), ...mediaPart()],
   allowedChildren: "none",
   motionPresets: ["marquee"],
   golden: {

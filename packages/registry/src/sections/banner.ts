@@ -1,5 +1,5 @@
 import type { SectionDefinition } from "@senify/section-sdk";
-import { linkProp, textProp, thumbs } from "../shared.ts";
+import { linkProp, sectionStyleProps, textProp, thumbs } from "../shared.ts";
 
 export const bannerSection: SectionDefinition = {
   type: "banner",
@@ -23,6 +23,7 @@ export const bannerSection: SectionDefinition = {
     ribbon: { label: "Ribbon", preset: { dismissible: false } },
     announcement: { label: "Announcement", preset: { dismissible: true } },
   },
+  styleProps: [...sectionStyleProps()],
   allowedChildren: "none",
   motionPresets: ["fade-up"],
   golden: {

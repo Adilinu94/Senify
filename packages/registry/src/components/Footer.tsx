@@ -1,4 +1,12 @@
-import { resolveLink, SectionShell, str, type SectionProps } from "./shared.tsx";
+import {
+  contentWidthClass,
+  cx,
+  linkStyle,
+  resolveLink,
+  SectionShell,
+  str,
+  type SectionProps,
+} from "./shared.tsx";
 
 export function Footer({ node, ctx }: SectionProps): React.JSX.Element {
   const columns = (Array.isArray(node.props.columns) ? node.props.columns : []) as {
@@ -15,7 +23,7 @@ export function Footer({ node, ctx }: SectionProps): React.JSX.Element {
       section="footer"
       className="border-t border-[var(--line)]"
     >
-      <div className="mx-auto max-w-6xl px-4 py-12">
+      <div className={cx("mx-auto px-4 py-12", contentWidthClass(node))}>
         {columns.length > 0 && (
           <nav aria-label="Footer" className="grid gap-8 sm:grid-cols-2 md:grid-cols-4">
             {columns.map((column, index) => (
@@ -35,6 +43,7 @@ export function Footer({ node, ctx }: SectionProps): React.JSX.Element {
                             target={target?.target}
                             rel={target?.rel}
                             data-broken-link={target?.broken ? "" : undefined}
+                            style={linkStyle(node)}
                           >
                             {typeof item.label === "string" ? item.label : ""}
                           </a>
@@ -60,6 +69,7 @@ export function Footer({ node, ctx }: SectionProps): React.JSX.Element {
                       target={target?.target}
                       rel={target?.rel}
                       data-broken-link={target?.broken ? "" : undefined}
+                      style={linkStyle(node)}
                     >
                       {typeof entry.label === "string" ? entry.label : ""}
                     </a>

@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import { LinkValueSchema, type SectionDefinition } from "@senify/section-sdk";
-import { introProp, sectionTitleProp, thumbs } from "../shared.ts";
+import { buttonPart, cardPart, gapProp, headingPart, introProp, sectionStyleProps, sectionTitleProp, thumbs } from "../shared.ts";
 
 export const pricingSection: SectionDefinition = {
   type: "pricing",
@@ -35,6 +35,7 @@ export const pricingSection: SectionDefinition = {
           name: Type.String({ minLength: 1 }),
           price: Type.String({ minLength: 1 }),
           period: Type.Optional(Type.String()),
+          priceYearly: Type.Optional(Type.String({ minLength: 1 })),
           features: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
           ctaLabel: Type.String({ minLength: 1 }),
           ctaLink: LinkValueSchema,
@@ -48,8 +49,15 @@ export const pricingSection: SectionDefinition = {
     comparison: { label: "Comparison", preset: { billingToggle: true } },
     simple: { label: "Simple", preset: { billingToggle: false } },
   },
+  styleProps: [
+    ...sectionStyleProps(),
+    gapProp(),
+    ...headingPart(),
+    ...cardPart(),
+    ...buttonPart(),
+  ],
   allowedChildren: "none",
-  motionPresets: ["fade-up", "hover-lift"],
+  motionPresets: ["fade-up"],
   golden: {
     tree: {
       type: "pricing",
@@ -81,6 +89,7 @@ export const pricingSection: SectionDefinition = {
             name: "Plus",
             price: "290 €",
             period: "pro Monat",
+            priceYearly: "2.900 €",
             features: ["Betreuung", "Updates", "Prioritäts-Support"],
             ctaLabel: "Gespräch buchen",
             ctaLink: { url: "/kontakt" },

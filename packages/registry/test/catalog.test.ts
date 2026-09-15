@@ -138,6 +138,82 @@ describe("section catalog", () => {
     ]);
     expect(heroSection.motionPresets).toContain("masked-headline");
   });
+
+  it("gives every section the standard style set", () => {
+    const registry = createRegistry();
+    const standardKeys = [
+      "background",
+      "textColor",
+      "paddingY",
+      "contentWidth",
+      "align",
+    ];
+    for (const definition of registry.list()) {
+      const byKey = new Map(
+        (definition.styleProps ?? []).map((spec) => [spec.key, spec]),
+      );
+      for (const key of standardKeys) {
+        expect(
+          byKey.get(key),
+          `${definition.type} style prop "${key}"`,
+        ).toBeDefined();
+      }
+      expect(byKey.get("background")?.control, definition.type).toBe("color");
+      expect(byKey.get("textColor")?.control, definition.type).toBe("color");
+      expect(byKey.get("paddingY")?.control, definition.type).toBe("scale");
+      expect(byKey.get("paddingY")?.tokenGroup, definition.type).toBe("space");
+      expect(byKey.get("contentWidth")?.group, definition.type).toBe("Layout");
+      expect(byKey.get("align")?.group, definition.type).toBe("Layout");
+      for (const spec of definition.styleProps ?? []) {
+        if (spec.control === "color" || spec.control === "scale") {
+          expect(
+            spec.tokenGroup,
+            `${definition.type}.${spec.key} tokenGroup`,
+          ).toBeDefined();
+        }
+      }
+    }
+  });
+
+  it("declares named parts with matching keys and token groups", () => {
+    const registry = createRegistry();
+    const partOwners = new Set<string>();
+    for (const definition of registry.list()) {
+      for (const spec of definition.styleProps ?? []) {
+        if (spec.part === undefined) continue;
+        partOwners.add(spec.part);
+        expect(
+          spec.tokenGroup,
+          `${definition.type}.${spec.key} tokenGroup`,
+        ).toBeDefined();
+        expect(
+          spec.key.startsWith(spec.part),
+          `${definition.type}.${spec.key} part prefix`,
+        ).toBe(true);
+      }
+    }
+    expect([...partOwners].sort()).toEqual([
+      "button",
+      "card",
+      "heading",
+      "link",
+      "media",
+    ]);
+  });
+
+  it("validates token refs and free values for the standard style set", () => {
+    const registry = createRegistry();
+    for (const definition of registry.list()) {
+      const issues = validatePropValues(definition, {
+        background: { $token: "bg.muted" },
+        textColor: "#111827",
+        paddingY: "96px",
+        contentWidth: "wide",
+        align: "center",
+      });
+      expect(issues, `${definition.type} style values`).toEqual([]);
+    }
+  });
 });
 
 describe("hidden conditions", () => {

@@ -1,8 +1,10 @@
 import { Type } from "@sinclair/typebox";
 import type { SectionDefinition } from "@senify/section-sdk";
 import {
-  backgroundStyleProp,
+  buttonPart,
   buttonsProp,
+  headingPart,
+  sectionStyleProps,
   textProp,
   thumbs,
 } from "../shared.ts";
@@ -30,9 +32,13 @@ export const ctaSection: SectionDefinition = {
     split: { label: "Split", preset: {} },
     "banner-cta": { label: "Banner", preset: {} },
   },
-  styleProps: [backgroundStyleProp()],
+  styleProps: [
+    ...sectionStyleProps(),
+    ...headingPart(),
+    ...buttonPart(),
+  ],
   allowedChildren: "none",
-  motionPresets: ["fade-up", "magnetic-button"],
+  motionPresets: ["fade-up"],
   golden: {
     tree: {
       type: "cta",

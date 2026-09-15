@@ -1,4 +1,15 @@
-import { cx, resolveAsset, SectionShell, str, type SectionProps } from "./shared.tsx";
+import {
+  alignStyle,
+  contentWidthClass,
+  cx,
+  gapStyle,
+  headingStyle,
+  mediaStyle,
+  resolveAsset,
+  SectionShell,
+  str,
+  type SectionProps,
+} from "./shared.tsx";
 
 export function LogoCloud({ node, ctx }: SectionProps): React.JSX.Element {
   const logos = (Array.isArray(node.props.logos) ? node.props.logos : []) as {
@@ -10,6 +21,7 @@ export function LogoCloud({ node, ctx }: SectionProps): React.JSX.Element {
     <ul
       aria-hidden={hidden || undefined}
       className={marquee && !hidden ? "marquee-track" : cx(!marquee && "flex flex-wrap items-center justify-center gap-8")}
+      style={marquee ? undefined : gapStyle(node)}
     >
       {logos.map((logo, index) => {
         const asset = resolveAsset(logo.asset, ctx);
@@ -22,6 +34,7 @@ export function LogoCloud({ node, ctx }: SectionProps): React.JSX.Element {
                 loading="lazy"
                 data-missing-asset={asset.missing ? "" : undefined}
                 className="h-8 w-auto opacity-70 grayscale"
+                style={mediaStyle(node, "0px")}
               />
             ) : (
               <span>{typeof logo.alt === "string" ? logo.alt : ""}</span>
@@ -33,9 +46,12 @@ export function LogoCloud({ node, ctx }: SectionProps): React.JSX.Element {
   );
   return (
     <SectionShell node={node} section="logo-cloud">
-      <div className="mx-auto max-w-6xl px-4 py-10 text-center">
+      <div className={cx("mx-auto px-4 py-10 text-center", contentWidthClass(node))}>
         {str(node.props.title) !== "" && (
-          <h2 className="mb-8 text-sm font-semibold uppercase tracking-widest text-[var(--fg-muted)]">
+          <h2
+            className="mb-8 text-sm font-semibold uppercase tracking-widest text-[var(--fg-muted)]"
+            style={{ ...headingStyle(node), ...alignStyle(node) }}
+          >
             {str(node.props.title)}
           </h2>
         )}

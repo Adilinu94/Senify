@@ -1,20 +1,39 @@
-import { resolveLink, SectionShell, str, type SectionProps } from "./shared.tsx";
+import {
+  alignStyle,
+  buttonStyle,
+  contentWidthClass,
+  cx,
+  headingStyle,
+  resolveLink,
+  SectionShell,
+  str,
+  type SectionProps,
+} from "./shared.tsx";
 
 export function Hero({ node, slots, ctx }: SectionProps): React.JSX.Element {
   const ctas = (Array.isArray(node.props.ctas) ? node.props.ctas : []) as {
     label?: unknown;
     link?: unknown;
   }[];
+  const reversed = node.props.reverse === true;
   return (
     <SectionShell node={node} section="hero" className="overflow-hidden">
-      <div className="mx-auto grid max-w-6xl items-center gap-10 px-4 py-16 md:py-24">
-        <div>
+      <div
+        className={cx(
+          "mx-auto grid items-center gap-10 px-4 py-16 md:py-24",
+          contentWidthClass(node),
+        )}
+      >
+        <div style={{ ...alignStyle(node), order: reversed ? 2 : undefined }}>
           {str(node.props.eyebrow) !== "" && (
             <p className="mb-4 text-sm font-semibold uppercase tracking-widest text-[var(--fg-muted)]">
               {str(node.props.eyebrow)}
             </p>
           )}
-          <h1 className="font-[var(--font-display)] text-5xl font-bold leading-tight">
+          <h1
+            className="font-[var(--font-display)] text-5xl font-bold leading-tight"
+            style={headingStyle(node)}
+          >
             {str(node.props.headline)}
           </h1>
           {str(node.props.sub) !== "" && (
@@ -31,11 +50,8 @@ export function Hero({ node, slots, ctx }: SectionProps): React.JSX.Element {
                     target={target?.target}
                     rel={target?.rel}
                     data-broken-link={target?.broken ? "" : undefined}
-                    className={
-                      index === 0
-                        ? "rounded-full bg-[var(--accent)] px-6 py-3 font-semibold text-[var(--accent-ink)]"
-                        : "rounded-full border border-[var(--line)] px-6 py-3 font-semibold"
-                    }
+                    className="px-6 py-3 font-semibold"
+                    style={buttonStyle(node, index === 0 ? "solid" : "outline")}
                   >
                     {typeof cta.label === "string" ? cta.label : ""}
                   </a>
@@ -44,7 +60,11 @@ export function Hero({ node, slots, ctx }: SectionProps): React.JSX.Element {
             </div>
           )}
         </div>
-        {slots?.visual && <div className="visual">{slots.visual}</div>}
+        {slots?.visual && (
+          <div className="visual" style={reversed ? { order: 1 } : undefined}>
+            {slots.visual}
+          </div>
+        )}
       </div>
     </SectionShell>
   );

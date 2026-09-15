@@ -55,6 +55,15 @@ _Avoid_: Animations-Config, Keyframes
 **Breakpoint-Override**: Eine responsive Anpassung eines Nodes für Tablet oder Mobile.
 _Avoid_: Responsive-Variante, Media-Query
 
+**Style-Prop**: Ein Stil-Regler einer Section (z. B. Hintergrund, Abstand, Radius), dessen Wert eine Token-Referenz oder ein freier Wert ist.
+_Avoid_: Stilfeld, CSS-Property, Style-Attribut
+
+**Innenteil (Part)**: Ein benannter Bereich innerhalb einer Section (z. B. Karte, Button, Überschrift), dessen Style-Props einheitlich für alle Vorkommen gelten.
+_Avoid_: Sub-Element, Kindknoten, Slot
+
+**Token-Referenz**: Der Verweis auf einen Token in einem Prop-Wert (`{ "$token": "accent" }`), den der Renderer zur CSS-Variable auflöst.
+_Avoid_: Variablenname, Alias, Platzhalter
+
 ### Lifecycle & Schreiben
 
 **Draft**: Der lebende, editierbare Baum einer Page.

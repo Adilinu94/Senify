@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import { LinkValueSchema, type SectionDefinition } from "@senify/section-sdk";
-import { backgroundStyleProp, thumbs } from "../shared.ts";
+import { buttonPart, headingPart, reverseProp, sectionStyleProps, thumbs } from "../shared.ts";
 
 export const heroSection: SectionDefinition = {
   type: "hero",
@@ -37,7 +37,12 @@ export const heroSection: SectionDefinition = {
     split: { label: "Split", preset: {} },
     "showcase-3d": { label: "Showcase 3D", preset: {} },
   },
-  styleProps: [backgroundStyleProp()],
+  styleProps: [
+    ...sectionStyleProps(),
+    reverseProp(),
+    ...headingPart(),
+    ...buttonPart(),
+  ],
   slots: {
     visual: { allowedTypes: ["media"], max: 1 },
   },

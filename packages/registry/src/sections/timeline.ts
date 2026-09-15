@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import type { SectionDefinition } from "@senify/section-sdk";
-import { sectionTitleProp, thumbs } from "../shared.ts";
+import { gapProp, headingPart, sectionStyleProps, sectionTitleProp, thumbs } from "../shared.ts";
 
 export const timelineSection: SectionDefinition = {
   type: "timeline",
@@ -30,6 +30,11 @@ export const timelineSection: SectionDefinition = {
     horizontal: { label: "Horizontal", preset: {} },
     cards: { label: "Cards", preset: {} },
   },
+  styleProps: [
+    ...sectionStyleProps(),
+    gapProp(),
+    ...headingPart(),
+  ],
   allowedChildren: "none",
   motionPresets: ["scroll-reveal", "stagger-cascade"],
   golden: {

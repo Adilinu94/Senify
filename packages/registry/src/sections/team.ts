@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import { AssetRefValueSchema, type SectionDefinition } from "@senify/section-sdk";
-import { sectionTitleProp, thumbs } from "../shared.ts";
+import { cardPart, columnsProp, gapProp, headingPart, mediaPart, sectionStyleProps, sectionTitleProp, thumbs } from "../shared.ts";
 
 export const teamSection: SectionDefinition = {
   type: "team",
@@ -30,6 +30,14 @@ export const teamSection: SectionDefinition = {
     cards: { label: "Cards", preset: {} },
     compact: { label: "Compact", preset: {} },
   },
+  styleProps: [
+    ...sectionStyleProps(),
+    columnsProp(),
+    gapProp(),
+    ...headingPart(),
+    ...cardPart(),
+    ...mediaPart(),
+  ],
   allowedChildren: "none",
   motionPresets: ["scroll-reveal", "fade-up"],
   golden: {

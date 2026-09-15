@@ -64,14 +64,6 @@ function varsFor(
   }
 }
 
-export function sectionVarsFor(
-  props: Record<string, PropValue>,
-): Record<string, string> | undefined {
-  const vars: Record<string, string> = {};
-  varsFor(props, SECTION_STYLE_VARS, vars);
-  return Object.keys(vars).length > 0 ? vars : undefined;
-}
-
 export function partVarsFor(
   props: Record<string, PropValue>,
   part: string,

@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import { LinkValueSchema, type SectionDefinition } from "@senify/section-sdk";
-import { backgroundStyleProp, linkProp, textProp, thumbs } from "../shared.ts";
+import { buttonPart, linkPart, linkProp, sectionStyleProps, textProp, thumbs } from "../shared.ts";
 
 export const navbarSection: SectionDefinition = {
   type: "navbar",
@@ -37,7 +37,7 @@ export const navbarSection: SectionDefinition = {
     transparent: { label: "Transparent", preset: { sticky: true } },
     centered: { label: "Centered", preset: { sticky: false } },
   },
-  styleProps: [backgroundStyleProp()],
+  styleProps: [...sectionStyleProps(), ...buttonPart(), ...linkPart()],
   allowedChildren: "none",
   motionPresets: ["fade-up"],
   golden: {

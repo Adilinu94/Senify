@@ -1,4 +1,12 @@
-import { SectionShell, str, type SectionProps } from "./shared.tsx";
+import {
+  alignStyle,
+  contentWidthClass,
+  cx,
+  headingStyle,
+  SectionShell,
+  str,
+  type SectionProps,
+} from "./shared.tsx";
 
 export function Comparison({ node }: SectionProps): React.JSX.Element {
   const columns = (Array.isArray(node.props.columns) ? node.props.columns : []) as {
@@ -10,9 +18,14 @@ export function Comparison({ node }: SectionProps): React.JSX.Element {
   }[];
   return (
     <SectionShell node={node} section="comparison">
-      <div className="mx-auto max-w-6xl px-4 py-16">
+      <div className={cx("mx-auto px-4 py-16", contentWidthClass(node))}>
         {str(node.props.title) !== "" && (
-          <h2 className="font-[var(--font-display)] text-3xl font-bold">{str(node.props.title)}</h2>
+          <h2
+            className="font-[var(--font-display)] text-3xl font-bold"
+            style={{ ...headingStyle(node), ...alignStyle(node) }}
+          >
+            {str(node.props.title)}
+          </h2>
         )}
         <div className="mt-8 overflow-x-auto">
           <table className="w-full border-collapse text-left">

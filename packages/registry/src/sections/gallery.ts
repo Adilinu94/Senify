@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import { AssetRefValueSchema, type SectionDefinition } from "@senify/section-sdk";
-import { sectionTitleProp, thumbs } from "../shared.ts";
+import { aspectProp, columnsProp, gapProp, headingPart, mediaPart, sectionStyleProps, sectionTitleProp, thumbs } from "../shared.ts";
 
 export const gallerySection: SectionDefinition = {
   type: "gallery",
@@ -29,8 +29,16 @@ export const gallerySection: SectionDefinition = {
     masonry: { label: "Masonry", preset: {} },
     carousel: { label: "Carousel", preset: {} },
   },
+  styleProps: [
+    ...sectionStyleProps(),
+    columnsProp(),
+    gapProp(),
+    aspectProp(),
+    ...headingPart(),
+    ...mediaPart(),
+  ],
   allowedChildren: "none",
-  motionPresets: ["scroll-reveal", "hover-lift"],
+  motionPresets: ["scroll-reveal"],
   golden: {
     tree: {
       type: "gallery",

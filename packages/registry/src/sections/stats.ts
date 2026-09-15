@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import type { SectionDefinition } from "@senify/section-sdk";
-import { sectionTitleProp, thumbs } from "../shared.ts";
+import { columnsProp, gapProp, sectionStyleProps, sectionTitleProp, thumbs } from "../shared.ts";
 
 export const statsSection: SectionDefinition = {
   type: "stats",
@@ -31,6 +31,11 @@ export const statsSection: SectionDefinition = {
     grid: { label: "Grid", preset: {} },
     counter: { label: "Counter", preset: {} },
   },
+  styleProps: [
+    ...sectionStyleProps(),
+    columnsProp(),
+    gapProp(),
+  ],
   allowedChildren: "none",
   motionPresets: ["counter", "fade-up"],
   golden: {

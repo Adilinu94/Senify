@@ -4,7 +4,7 @@ import {
   LinkValueSchema,
   type SectionDefinition,
 } from "@senify/section-sdk";
-import { introProp, sectionTitleProp, thumbs } from "../shared.ts";
+import { cardPart, columnsProp, gapProp, headingPart, introProp, mediaPart, sectionStyleProps, sectionTitleProp, thumbs } from "../shared.ts";
 
 export const projectsSection: SectionDefinition = {
   type: "projects",
@@ -37,8 +37,16 @@ export const projectsSection: SectionDefinition = {
     list: { label: "List", preset: {} },
     showcase: { label: "Showcase", preset: {} },
   },
+  styleProps: [
+    ...sectionStyleProps(),
+    columnsProp(),
+    gapProp(),
+    ...headingPart(),
+    ...cardPart(),
+    ...mediaPart(),
+  ],
   allowedChildren: "none",
-  motionPresets: ["scroll-reveal", "hover-lift"],
+  motionPresets: ["scroll-reveal"],
   golden: {
     tree: {
       type: "projects",

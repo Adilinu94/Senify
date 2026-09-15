@@ -1,5 +1,5 @@
 import type { SectionDefinition } from "@senify/section-sdk";
-import { textProp, thumbs } from "../shared.ts";
+import { mediaPart, sectionStyleProps, textProp, thumbs } from "../shared.ts";
 
 export const embedSection: SectionDefinition = {
   type: "embed",
@@ -28,6 +28,7 @@ export const embedSection: SectionDefinition = {
     iframe: { label: "Iframe", preset: { aspect: "16/9" } },
     social: { label: "Social", preset: { aspect: "1/1" } },
   },
+  styleProps: [...sectionStyleProps(), ...mediaPart()],
   allowedChildren: "none",
   motionPresets: ["fade-up"],
   golden: {

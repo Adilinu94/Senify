@@ -149,7 +149,7 @@ function assertVariant(
   }
 }
 
-function warnLiteralColors(
+function warnLiteralValues(
   definition: SectionDefinition,
   props: Record<string, PropValue>,
   fieldPrefix: string,
@@ -164,12 +164,13 @@ function warnLiteralColors(
   );
   for (const [key, value] of Object.entries(props)) {
     if (typeof value !== "string") continue;
-    if (specs.get(key) !== "color") continue;
+    const control = specs.get(key);
+    if (control !== "color" && control !== "scale") continue;
     state.warnings.push({
       opIndex,
       field: `mutations[${opIndex}].${fieldPrefix}.${key}`,
-      message: `Literal color "${value}" bypasses theme tokens`,
-      suggestion: `Use { "$token": "color.<role>" } so theme changes stay consistent.`,
+      message: `Literal value "${value}" bypasses theme tokens`,
+      suggestion: `Use { "$token": "<role>" } so theme changes stay consistent.`,
     });
   }
 }
@@ -327,7 +328,7 @@ function applyInsert(
 ): PatchOp[] {
   const parentNode = requireNode(state.tree, mutation.parent.nodeId, "parent.nodeId");
   const node = buildNode(state, mutation.node, "node");
-  warnLiteralColors(
+  warnLiteralValues(
     state.registry.get(node.type),
     node.props,
     "node.props",
@@ -540,7 +541,7 @@ function applyUpdateProps(
   for (const [key, value] of Object.entries(mutation.patch)) {
     if (value !== null) changedProps[key] = value;
   }
-  warnLiteralColors(definition, changedProps, "props", state, state.currentOpIndex);
+  warnLiteralValues(definition, changedProps, "props", state, state.currentOpIndex);
   node.props = next;
   return [{ patch: "setProps", id: mutation.id, props: undo }];
 }
@@ -601,7 +602,7 @@ function applySetOverride(
     ...(override.props ?? {}),
   };
   throwOnIssues(validatePropValues(definition, mergedProps, "override.props"));
-  warnLiteralColors(definition, override.props ?? {}, "override.props", state, state.currentOpIndex);
+  warnLiteralValues(definition, override.props ?? {}, "override.props", state, state.currentOpIndex);
   const next: NodeOverride = {};
   if (Object.keys(mergedProps).length > 0) next.props = mergedProps;
   if (override.hidden !== undefined) next.hidden = override.hidden;

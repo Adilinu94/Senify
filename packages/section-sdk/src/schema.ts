@@ -8,6 +8,7 @@ export const PropControlSchema = Type.Union([
   Type.Literal("boolean"),
   Type.Literal("enum"),
   Type.Literal("color"),
+  Type.Literal("scale"),
   Type.Literal("asset"),
   Type.Literal("link"),
   Type.Literal("list"),
@@ -41,12 +42,26 @@ export function isPropHidden(
   return false;
 }
 
+export const TokenGroupSchema = Type.Union([
+  Type.Literal("color"),
+  Type.Literal("space"),
+  Type.Literal("radius"),
+  Type.Literal("shadow"),
+  Type.Literal("type"),
+  Type.Literal("font"),
+  Type.Literal("ease"),
+  Type.Literal("duration"),
+]);
+export type TokenGroup = Static<typeof TokenGroupSchema>;
+
 export const PropSpecSchema = Type.Object({
   key: Type.String({ minLength: 1 }),
   schema: Type.Optional(Type.Unsafe<TSchema>(Type.Any())),
   control: PropControlSchema,
   label: Type.String({ minLength: 1 }),
   group: Type.Optional(Type.String()),
+  tokenGroup: Type.Optional(TokenGroupSchema),
+  part: Type.Optional(Type.String({ minLength: 1 })),
   min: Type.Optional(Type.Number()),
   max: Type.Optional(Type.Number()),
   step: Type.Optional(Type.Number()),
@@ -62,10 +77,15 @@ export const TokenRefSchema = Type.Object({
 });
 export type TokenRef = Static<typeof TokenRefSchema>;
 
-export const ColorValueSchema = Type.Union([
+// Style values (color, spacing, radius, shadow, type sizes …) accept a theme
+// token reference or a free CSS value by design (artifacts/29).
+export const TokenOrLiteralSchema = Type.Union([
   TokenRefSchema,
   Type.String({ minLength: 1 }),
 ]);
+export type TokenOrLiteral = Static<typeof TokenOrLiteralSchema>;
+
+export const ColorValueSchema = TokenOrLiteralSchema;
 export type ColorValue = Static<typeof ColorValueSchema>;
 
 export const LinkValueSchema = Type.Union([
@@ -126,6 +146,7 @@ const CONTROL_FALLBACKS: Record<PropControl, TSchema | undefined> = {
   boolean: Type.Boolean(),
   enum: Type.String(),
   color: ColorValueSchema,
+  scale: TokenOrLiteralSchema,
   asset: AssetRefValueSchema,
   link: LinkValueSchema,
   list: Type.Array(Type.Any()),

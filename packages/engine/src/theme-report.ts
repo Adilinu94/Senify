@@ -73,14 +73,14 @@ export async function buildThemeReport(args: {
       } catch {
         continue;
       }
-      const colorKeys = new Set(
+      const tokenKeys = new Set(
         [...definition.props, ...(definition.styleProps ?? [])]
-          .filter((spec) => spec.control === "color")
+          .filter((spec) => spec.control === "color" || spec.control === "scale")
           .map((spec) => spec.key),
       );
-      // The report covers color controls only: $token refs on other
-      // controls (spacing, text) are renderer concerns, not theme gates.
-      if (colorKeys.size === 0) continue;
+      // The report covers token-capable controls (color, scale): literal
+      // values are drift, unresolved $token refs are broken references.
+      if (tokenKeys.size === 0) continue;
       const sources: [prefix: string, props: Record<string, PropValue> | undefined][] = [
         ["", node.props],
         ["overrides.tablet", node.overrides?.tablet?.props],
@@ -88,7 +88,7 @@ export async function buildThemeReport(args: {
       ];
       for (const [prefix, props] of sources) {
         if (!props) continue;
-        for (const key of colorKeys) {
+        for (const key of tokenKeys) {
           const value = props[key];
           if (value === undefined) continue;
           const prop = prefix === "" ? key : `${prefix}.${key}`;

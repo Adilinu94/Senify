@@ -1,5 +1,5 @@
 import type { SectionDefinition } from "@senify/section-sdk";
-import { assetProp, textProp, thumbs } from "../shared.ts";
+import { assetProp, mediaPart, sectionStyleProps, textProp, thumbs } from "../shared.ts";
 
 export const mediaSection: SectionDefinition = {
   type: "media",
@@ -31,6 +31,7 @@ export const mediaSection: SectionDefinition = {
     video: { label: "Video", preset: { aspect: "16/9" } },
     "3d-scene": { label: "3D scene", preset: { aspect: "21/9" } },
   },
+  styleProps: [...sectionStyleProps(), ...mediaPart()],
   allowedChildren: "none",
   motionPresets: ["fade-up", "parallax-subtle"],
   golden: {

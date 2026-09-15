@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import type { SectionDefinition } from "@senify/section-sdk";
-import { introProp, sectionTitleProp, textProp, thumbs } from "../shared.ts";
+import { buttonPart, headingPart, introProp, sectionStyleProps, sectionTitleProp, textProp, thumbs } from "../shared.ts";
 
 export const contactSection: SectionDefinition = {
   type: "contact",
@@ -42,6 +42,11 @@ export const contactSection: SectionDefinition = {
     form: { label: "Form", preset: {} },
     info: { label: "Info", preset: {} },
   },
+  styleProps: [
+    ...sectionStyleProps(),
+    ...headingPart(),
+    ...buttonPart(),
+  ],
   allowedChildren: "none",
   motionPresets: ["fade-up"],
   golden: {
