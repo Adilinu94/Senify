@@ -17,7 +17,7 @@ import {
 } from "./rate-limit.ts";
 import { Store } from "./store.ts";
 
-export { bakePages, buildBakeInput, type BakeBuild, type BakeOutcome } from "./bake.ts";
+export { bakePages, buildBakeInput, renderEntryPreview, type BakeBuild, type BakeOutcome } from "./bake.ts";
 export {
   hardGuardrailsForTree,
   MAX_PARALLAX_PER_PAGE,
@@ -243,6 +243,11 @@ export {
   type ListFilterOp,
   type ListPrefetchResult,
 } from "./lists.ts";
+export {
+  rebakePathsForCollection,
+  rebakePathsForEntry,
+  rebakePathsForPage,
+} from "./rebake.ts";
 
 export type EngineOptions = {
   db: Db;

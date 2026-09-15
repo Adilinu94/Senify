@@ -3005,6 +3005,18 @@ export class Store {
       [siteId, fromPath],
     );
   }
+
+  // Every slug history row of a site: the bake turns them into static redirect
+  // files so an old detail path keeps pointing at the new one.
+  async listEntryRedirects(siteId: string): Promise<EntryRedirect[]> {
+    const result = await this.#db.query<EntryRedirectRow>(
+      `SELECT id, site_id, collection_id, from_path, to_path, created_at
+       FROM entry_redirects WHERE site_id = $1
+       ORDER BY created_at ASC, id ASC`,
+      [siteId],
+    );
+    return result.rows.map(mapEntryRedirect);
+  }
 }
 
 function buildAuditInsert(entries: NewAuditEntry[]): {

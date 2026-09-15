@@ -1,5 +1,15 @@
-import { cpSync, existsSync, mkdirSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { SenifyError } from "@senify/core";
 import {
   bakeSite,
   parseDurationMs,
@@ -257,6 +267,38 @@ export async function buildBakeInput(
   return out;
 }
 
+// Static route file of a site path (`/blog/beitrag` → `blog/beitrag/index.html`).
+function htmlFileFor(path: string): string {
+  return path === "/" ? "index.html" : `${path.slice(1)}/index.html`;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+// Slug history lands as a static redirect page: a host without server rules
+// still sends the old path to the new one (canonical + refresh + visible link).
+function redirectHtml(toPath: string): string {
+  const target = escapeHtml(toPath);
+  return `<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="refresh" content="0; url=${target}" />
+<link rel="canonical" href="${target}" />
+<title>Weiterleitung</title>
+</head>
+<body>
+<p>Diese Seite ist umgezogen: <a href="${target}">${target}</a></p>
+</body>
+</html>
+`;
+}
+
 // Draft and release builds share one path: the renderer bakes whatever
 // pages it gets, the engine owns directories and bookkeeping.
 export async function bakePages(
@@ -337,9 +379,63 @@ export async function bakePages(
       cpSync(from, variantTarget);
     }
   }
+  // Slug history: an old detail path gets a static redirect page, unless a live
+  // route already occupies it (a published entry always wins over its history).
+  for (const redirect of await store.listEntryRedirects(input.site.id)) {
+    const target = join(result.outDir, htmlFileFor(redirect.fromPath));
+    if (existsSync(target)) continue;
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, redirectHtml(redirect.toPath));
+  }
   return {
     outDir: result.outDir,
     pageCount: result.pages.length,
     warnings: result.warnings,
   };
+}
+
+// Live preview of one entry (artifacts/23 §5): it renders through the same
+// bake path as the build, into a throw-away directory that is removed again.
+// An entry without a baked route (draft, no entry template) is not resolvable.
+export async function renderEntryPreview(input: {
+  store: Store;
+  dataDir: string;
+  entryId: string;
+}): Promise<{ path: string; html: string; status: number }> {
+  const entry = await input.store.getEntry(input.entryId);
+  if (entry.deletedAt !== null) {
+    throw new SenifyError(
+      "not_found",
+      `Entry "${entry.id}" is in the trash`,
+      { field: "entryId", suggestion: "Restore the entry before previewing it." },
+    );
+  }
+  const site = await input.store.getSite(entry.siteId);
+  const collection = await input.store.getCollection(entry.collectionId);
+  const path = entryPathFor(collection.urlPattern, entry.slug);
+  const pages = await input.store.listPageDrafts(site.id);
+  const outDir = mkdtempSync(join(tmpdir(), "senify-entry-preview-"));
+  try {
+    const baked = await bakePages(input.store, {
+      site,
+      pages,
+      outDir,
+      dataDir: input.dataDir,
+    });
+    const file = join(baked.outDir, htmlFileFor(path));
+    if (!existsSync(file)) {
+      throw new SenifyError(
+        "not_found",
+        `Entry "${entry.id}" has no baked route at "${path}"`,
+        {
+          field: "entryId",
+          suggestion:
+            "Publish the entry and give its collection an entry template with an outlet.",
+        },
+      );
+    }
+    return { path, html: readFileSync(file, "utf8"), status: 200 };
+  } finally {
+    rmSync(outDir, { recursive: true, force: true });
+  }
 }

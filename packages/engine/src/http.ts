@@ -18,6 +18,7 @@ import {
 import { newEntityId } from "./ids.ts";
 import { PageLocks } from "./locks.ts";
 import { applyMutations } from "./mutations/apply.ts";
+import { renderEntryPreview } from "./bake.ts";
 import {
   CreatePageBodySchema,
   CreateSiteBodySchema,
@@ -1756,6 +1757,21 @@ const ROUTES: Route[] = [
     handler: async (context, params) => ({
       status: 200,
       body: await context.store.getEntry(requireParam(params, "entryId")),
+    }),
+  },
+  {
+    // Live preview of the Entry-Editor (artifacts/23 §5): the same bake path as
+    // the build, rendered into a throw-away directory and returned as HTML.
+    method: "GET",
+    segments: ["api", "entries", ":entryId", "preview"],
+    scope: "read",
+    handler: async (context, params) => ({
+      status: 200,
+      body: await renderEntryPreview({
+        store: context.store,
+        dataDir: context.dataDir,
+        entryId: requireParam(params, "entryId"),
+      }),
     }),
   },
   {

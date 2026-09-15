@@ -371,7 +371,18 @@ export function expandPageTree(input: {
 }): { tree: NodeTree; issues: BindingIssue[] } {
   const issues: BindingIssue[] = [];
   const nodes: Record<string, Node> = {};
+  // A node that only lives in an item slot is a list template: it is resolved
+  // once per prefetched entry, never standalone (a list page has no entry).
+  const itemTemplates = new Set<string>();
+  for (const node of Object.values(input.tree.nodes)) {
+    if (node.type !== "collection-list") continue;
+    for (const id of node.slots?.item ?? []) itemTemplates.add(id);
+  }
   for (const [id, node] of Object.entries(input.tree.nodes)) {
+    if (itemTemplates.has(id)) {
+      nodes[id] = node;
+      continue;
+    }
     const definition = input.definitions.get(node.type);
     const list = input.lists?.[id];
     const resolved =
