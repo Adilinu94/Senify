@@ -53,6 +53,8 @@ type MotionSpec = {
 }
 ```
 
+> **Nachtrag (15.09.2026, T02):** Intensity-Skala ist **1–10** (Spec + `artifacts/03` gelten; `0..1` oben ist überholt). Der Code validiert 1–10.
+
 Regeln:
 - Verschachtelung ist **registry-reguliert**: erlaubte Kinder/Slots kommen aus der `SectionDefinition`; der Validator lehnt Verstöße ab.
 - Referenzen zeigen auf IDs; **gebrochene Referenzen werden markiert, nie automatisch gelöscht**.

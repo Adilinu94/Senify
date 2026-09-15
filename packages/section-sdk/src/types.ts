@@ -1,3 +1,7 @@
+import type { MotionSpec } from "./schema.ts";
+
+export const PAGE_ROOT_TYPE = "page";
+
 export type NodeId = string;
 
 export type PropValue =
@@ -15,22 +19,6 @@ export type Author = {
 };
 
 export type Breakpoint = "desktop" | "tablet" | "mobile";
-
-export type MotionTrigger = "load" | "scroll" | "viewport" | "hover";
-
-export type MotionTokens = {
-  ease?: string;
-  durationScale?: number;
-  stagger?: number;
-};
-
-export type MotionSpec = {
-  preset: string;
-  intensity?: number;
-  tokens?: MotionTokens;
-  trigger?: MotionTrigger;
-  delay?: number;
-};
 
 export type NodeOverride = {
   props?: Record<string, PropValue>;

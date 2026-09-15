@@ -4,12 +4,19 @@
 
 **Blocked by:** 01 (Projekt-Fundament).
 
-**Status:** ready-for-agent
+**Status:** implemented (verify grün, Review/Fixes ausstehend)
 
-- [ ] Site + Page anlegen/laden/löschen; NodeTree flach (rootNodeId + nodes-Map) in Postgres/JSONB persistiert
-- [ ] Alle kanonischen Mutations funktionieren einzeln und validiert; ungültige Verstöße (Registry-Nesting, falsche Prop-Typen) liefern strukturierte Fehler mit Feld + Vorschlag
-- [ ] `baseDraftVersion`-Konflikt → 409 „Draft hat sich geändert" (kein stilles Überschreiben); Undo-Patch pro Mutation (O(Change))
-- [ ] Jede Mutation trägt Author und erzeugt einen Audit-Eintrag
-- [ ] Tests an Prüfstelle 1 decken: gültige Mutationen, Fehlerobjekte, Konflikte, Undo-Patch-Erzeugung
+- [x] Site + Page anlegen/laden/löschen; NodeTree flach (rootNodeId + nodes-Map) in Postgres/JSONB persistiert
+- [x] Alle kanonischen Mutations funktionieren einzeln und validiert; ungültige Verstöße (Registry-Nesting, falsche Prop-Typen) liefern strukturierte Fehler mit Feld + Vorschlag
+- [x] `baseDraftVersion`-Konflikt → 409 „Draft hat sich geändert" (kein stilles Überschreiben); Undo-Patch pro Mutation (O(Change))
+- [x] Jede Mutation trägt Author und erzeugt einen Audit-Eintrag
+- [x] Tests an Prüfstelle 1 decken: gültige Mutationen, Fehlerobjekte, Konflikte, Undo-Patch-Erzeugung
 
 Quellen: `artifacts/01` (§2–§5), Spec „Kanonischer NodeTree & Mutations-Vertrag".
+
+## Comments
+
+- **15.09.2026 · implementiert**: Engine (`packages/engine`) mit HTTP-API (`node:http`, kein Framework), `Store` (Postgres-Schema sites/pages/audit_entries, optimistisches Locking via `UPDATE … WHERE draft_version … RETURNING`), kanonische Mutations als TypeBox-Vertrag (`mutations/contract.ts` = Single Source), Applier mit Undo-Patches (`mutations/apply.ts`), Patch-Anwendung (`mutations/patches.ts`), Golden→Mutations-Brücke (`golden.ts`). 33 neue Prüfstelle-1-Tests (Black-Box HTTP). `section-sdk`: kanonische Wert-Schemas (link/color/assetRef/richtext/Motion) + Control-Fallback-Validierung; `MotionSpec` jetzt Schema-abgeleitet, Intensity 1–10 (Spec/artefacts/03 — `artifacts/01` sagt noch 0..1, Spec gilt). `page`-Root ist reservierter Typ (`PAGE_ROOT_TYPE`), akzeptiert beliebige registrierte Sektionen als Kinder.
+- **pg-mem-Befunde (Tests laufen ohne TEST_DATABASE_URL gegen pg-mem)**: `rowCount` ist in pg-mem immer 0 (trotz applizierter Writes) → Locking nutzt `RETURNING` + `rows.length`; Top-Level-Array-Parameter an jsonb-Spalten werden von pg-mem nicht als JSON erkannt (Single-Element wird „entpackt") → Store serialisiert JSONB-Parameter selbst (`toJsonParam`), Reads parsen tolerant. `CREATE INDEX IF NOT EXISTS` und Constraints laufen in pg-mem. Real-Postgres-Pfad existiert (`engine/pg`, `createPgDb`) + `TEST_DATABASE_URL`-Gatter in den Tests (Wegwerf-Schema, `options=-c search_path=…`); lokal läuft PostgreSQL 18 (scram, kein Zugang ohne Passwort), daher hier noch nicht gegen echt verifiziert.
+- **15.09.2026 · Code-Review (Standards + Spec) + Fixes**: Atomarität hergestellt (`Store.persistBatch`: Page-Update + Audit als Multi-Row-INSERT in `Db.withTransaction`; pg-mem-Double ist sequentiell — dokumentiert; echte Transaktions-Fidelity-Tests sind auf `TEST_DATABASE_URL` gegatet und hier skipped). `PageLocks`-Leak behoben (geteilter Bucket, Cleanup bei 0; nicht reentrant — dokumentiert). `deleteRaw`-Undo löscht jetzt den Subtree (keine Waisen nach Duplicate-Undo). `duplicateNode` hat Zyklus-Guard. Page-Level-Undo via `applyUndoBatch` (Tree-Patches rückwärts + `setPageMeta`) + Roundtrip-Tests je Op-Typ gegen Server-State. Gebrochene Referenzen werden markiert (`validateTreeIntegrity` → `warnings[]` mit `field: "tree"`, nie gelöscht; Schreiben in defekte Bereiche scheitert sicher). `dry_run` prüft Pfad-Eindeutigkeit; Pfad-Konflikte tragen `opIndex`. No-Op-Batches (alle Undo-Patches leer) bumpen weder Version noch Audit (`undoBatchId: null`, wie `dry_run`). Contracts geschlossen (`additionalProperties: false`, Tippfehler → 400). Fehlermeldungen Englisch (Agenten-Sprache; Spec-Beispiel deutsch bleibt ilustrativ).
+- **Bewusste Review-Entscheidungen (kein Fix)**: `list`-Item-Schemas brauchen explizites `schema` (Array-Form wird erzwungen); `PropSpec`-Item-Schema-Erweiterung gehört zum Registry-Format → **T03-Input**. Author gilt pro Batch (== `apply_mutations`-Vertrag). `wrapNode`-Superset (`wrapper: NodeSpec`) und `visual`-Doppelmodellierung (Prop + Slot) → **T03-Input**. `guardrail`/`auth`-Fehlerzweige existieren nur als Mapping für später. Audit überlebt Page-/Site-Delete (append-only Activity-Verlauf). `insertAt`-Alias und 500er für „unmögliche" interne Pfade akzeptiert.

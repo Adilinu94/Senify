@@ -1,6 +1,8 @@
 import { TypeCompiler } from "@sinclair/typebox/compiler";
+import type { TSchema } from "@sinclair/typebox";
 import { SenifyError } from "@senify/core";
 import {
+  resolvePropSchema,
   SectionDefinitionSchema,
   type PropSpec,
   type SectionDefinition,
@@ -14,16 +16,58 @@ export type ValidationIssue = {
 };
 
 const sectionCompiler = TypeCompiler.Compile(SectionDefinitionSchema);
-const propCompilerCache = new WeakMap<object, ReturnType<typeof TypeCompiler.Compile>>();
 
-function checkPropValue(spec: PropSpec, value: PropValue): boolean {
-  if (!spec.schema) return true;
-  let compiler = propCompilerCache.get(spec.schema);
+const schemaCache = new WeakMap<PropSpec, TSchema | undefined>();
+const compilerCache = new WeakMap<TSchema, ReturnType<typeof TypeCompiler.Compile>>();
+
+function schemaForSpec(spec: PropSpec): TSchema | undefined {
+  if (schemaCache.has(spec)) return schemaCache.get(spec);
+  const resolved = resolvePropSchema(spec);
+  schemaCache.set(spec, resolved);
+  return resolved;
+}
+
+function checkWithSchema(schema: TSchema, value: unknown): boolean {
+  let compiler = compilerCache.get(schema);
   if (!compiler) {
-    compiler = TypeCompiler.Compile(spec.schema);
-    propCompilerCache.set(spec.schema, compiler);
+    compiler = TypeCompiler.Compile(schema);
+    compilerCache.set(schema, compiler);
   }
   return compiler.Check(value);
+}
+
+export function validatePropValues(
+  definition: SectionDefinition,
+  props: Record<string, PropValue>,
+  basePath = "props",
+): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  const specs = new Map<string, PropSpec>();
+  for (const spec of [...definition.props, ...(definition.styleProps ?? [])]) {
+    specs.set(spec.key, spec);
+  }
+  const allowed = [...specs.keys()];
+  for (const [key, value] of Object.entries(props)) {
+    const spec = specs.get(key);
+    if (!spec) {
+      issues.push({
+        path: `${basePath}.${key}`,
+        message: `Unknown prop "${key}" for section "${definition.type}"`,
+        suggestion: `Allowed props: ${allowed.join(", ") || "none"}`,
+      });
+      continue;
+    }
+    const schema = schemaForSpec(spec);
+    if (!schema) continue;
+    if (!checkWithSchema(schema, value)) {
+      issues.push({
+        path: `${basePath}.${key}`,
+        message: `Value for prop "${key}" does not match its schema`,
+        suggestion: `Expected a "${spec.control}" value.`,
+      });
+    }
+  }
+  return issues;
 }
 
 export function validateDefinition(
@@ -121,27 +165,9 @@ export class Registry {
       });
     }
 
-    const props = new Map(definition.props.map((p) => [p.key, p]));
-    const styleProps = new Map(
-      (definition.styleProps ?? []).map((p) => [p.key, p]),
+    issues.push(
+      ...validatePropValues(definition, tree.props, `${basePath}.props`),
     );
-    for (const [key, value] of Object.entries(tree.props)) {
-      const spec = props.get(key) ?? styleProps.get(key);
-      if (!spec) {
-        issues.push({
-          path: `${basePath}.props.${key}`,
-          message: `Unknown prop "${key}" for section "${definition.type}"`,
-          suggestion: `Allowed props: ${[...props.keys()].join(", ") || "none"}`,
-        });
-        continue;
-      }
-      if (!checkPropValue(spec, value)) {
-        issues.push({
-          path: `${basePath}.props.${key}`,
-          message: `Value for prop "${key}" does not match its schema`,
-        });
-      }
-    }
 
     const children = tree.children ?? [];
     const allowed = definition.allowedChildren;

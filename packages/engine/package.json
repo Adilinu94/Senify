@@ -4,6 +4,16 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./pg": "./src/pg-db.ts"
+  },
+  "dependencies": {
+    "@senify/core": "workspace:*",
+    "@senify/section-sdk": "workspace:*",
+    "@sinclair/typebox": "^0.34.0",
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "@senify/registry": "workspace:*"
   }
 }

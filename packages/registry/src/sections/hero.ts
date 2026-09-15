@@ -1,5 +1,9 @@
 import { Type } from "@sinclair/typebox";
-import type { SectionDefinition } from "@senify/section-sdk";
+import {
+  ColorValueSchema,
+  LinkValueSchema,
+  type SectionDefinition,
+} from "@senify/section-sdk";
 
 export const heroSection: SectionDefinition = {
   type: "hero",
@@ -26,13 +30,7 @@ export const heroSection: SectionDefinition = {
       schema: Type.Array(
         Type.Object({
           label: Type.String(),
-          link: Type.Union([
-            Type.Object({ pageId: Type.String() }),
-            Type.Object({
-              url: Type.String(),
-              newTab: Type.Optional(Type.Boolean()),
-            }),
-          ]),
+          link: LinkValueSchema,
         }),
       ),
     },
@@ -49,12 +47,7 @@ export const heroSection: SectionDefinition = {
       control: "color",
       label: "Background",
       group: "Styling",
-      schema: Type.Optional(
-        Type.Union([
-          Type.Object({ $token: Type.String() }),
-          Type.String(),
-        ]),
-      ),
+      schema: Type.Optional(ColorValueSchema),
     },
   ],
   slots: {
