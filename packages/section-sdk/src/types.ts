@@ -18,9 +18,16 @@ export type Breakpoint = "desktop" | "tablet" | "mobile";
 
 export type MotionTrigger = "load" | "scroll" | "viewport" | "hover";
 
+export type MotionTokens = {
+  ease?: string;
+  durationScale?: number;
+  stagger?: number;
+};
+
 export type MotionSpec = {
   preset: string;
   intensity?: number;
+  tokens?: MotionTokens;
   trigger?: MotionTrigger;
   delay?: number;
 };

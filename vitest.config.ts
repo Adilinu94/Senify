@@ -1,25 +1,22 @@
 import { defineConfig } from "vitest/config";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { readFileSync } from "node:fs";
 
 const root = dirname(fileURLToPath(import.meta.url));
 
-const alias = Object.fromEntries(
-  [
-    "core",
-    "registry",
-    "mcp",
-    "engine",
-    "renderer",
-    "editor",
-    "app",
-    "analysis-worker",
-    "docs-portal",
-    "skills",
-  ].map((name) => [
-    `@senify/${name}`,
-    resolve(root, `packages/${name}/src/index.ts`),
-  ]),
+const tsconfig = JSON.parse(
+  readFileSync(resolve(root, "tsconfig.json"), "utf8"),
+) as { compilerOptions: { paths: Record<string, string[]> } };
+
+const escapeRegExp = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const alias = Object.entries(tsconfig.compilerOptions.paths).map(
+  ([key, targets]) => ({
+    find: new RegExp(`^${escapeRegExp(key)}$`),
+    replacement: resolve(root, targets[0] ?? ""),
+  }),
 );
 
 export default defineConfig({

@@ -3,7 +3,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { createApiHarness, loadBakedSite, runWorkflow } from "@senify/core";
+import { createApiHarness, loadBakedSite, runWorkflow } from "@senify/core/testing";
 
 describe("seam 1 — engine api harness", () => {
   let server: Server | undefined;

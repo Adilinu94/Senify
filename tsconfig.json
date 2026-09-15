@@ -20,6 +20,8 @@
     "baseUrl": ".",
     "paths": {
       "@senify/core": ["packages/core/src/index.ts"],
+      "@senify/core/testing": ["packages/core/src/testing/index.ts"],
+      "@senify/section-sdk": ["packages/section-sdk/src/index.ts"],
       "@senify/registry": ["packages/registry/src/index.ts"],
       "@senify/mcp": ["packages/mcp/src/index.ts"],
       "@senify/engine": ["packages/engine/src/index.ts"],

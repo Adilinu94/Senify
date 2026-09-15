@@ -1,5 +1,5 @@
 import { Type } from "@sinclair/typebox";
-import type { SectionDefinition } from "@senify/core";
+import type { SectionDefinition } from "@senify/section-sdk";
 
 export const heroSection: SectionDefinition = {
   type: "hero",
@@ -24,7 +24,16 @@ export const heroSection: SectionDefinition = {
       label: "Calls to action",
       group: "Actions",
       schema: Type.Array(
-        Type.Object({ label: Type.String(), href: Type.String() }),
+        Type.Object({
+          label: Type.String(),
+          link: Type.Union([
+            Type.Object({ pageId: Type.String() }),
+            Type.Object({
+              url: Type.String(),
+              newTab: Type.Optional(Type.Boolean()),
+            }),
+          ]),
+        }),
       ),
     },
     { key: "visual", control: "slot", label: "Visual", group: "Content" },
@@ -62,8 +71,8 @@ export const heroSection: SectionDefinition = {
         headline: "Websites, gebaut von Agenten",
         sub: "Ein lokales Programm für Agentur-Arbeit mit KI-Agenten.",
         ctas: [
-          { label: "Projekt starten", href: "#start" },
-          { label: "Mehr erfahren", href: "#mehr" },
+          { label: "Projekt starten", link: { url: "#start" } },
+          { label: "Mehr erfahren", link: { url: "#mehr" } },
         ],
       },
     },

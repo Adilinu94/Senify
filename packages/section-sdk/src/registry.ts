@@ -1,5 +1,5 @@
 import { TypeCompiler } from "@sinclair/typebox/compiler";
-import { SenifyError } from "./errors.ts";
+import { SenifyError } from "@senify/core";
 import {
   SectionDefinitionSchema,
   type PropSpec,

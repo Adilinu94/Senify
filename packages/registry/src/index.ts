@@ -1,4 +1,4 @@
-import { Registry } from "@senify/core";
+import { Registry } from "@senify/section-sdk";
 import { heroSection } from "./sections/hero.ts";
 
 export { heroSection } from "./sections/hero.ts";

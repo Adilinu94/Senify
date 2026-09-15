@@ -42,9 +42,9 @@ importers:
 
   packages/core:
     dependencies:
-      '@sinclair/typebox':
-        specifier: ^0.34.0
-        version: 0.34.52
+      pg-mem:
+        specifier: ^3.0.5
+        version: 3.0.14
 
   packages/docs-portal: {}
 
@@ -66,11 +66,23 @@ importers:
 
   packages/registry:
     dependencies:
+      '@senify/section-sdk':
+        specifier: workspace:*
+        version: link:../section-sdk
+      '@sinclair/typebox':
+        specifier: ^0.34.0
+        version: 0.34.52
+
+  packages/renderer: {}
+
+  packages/section-sdk:
+    dependencies:
       '@senify/core':
         specifier: workspace:*
         version: link:../core
-
-  packages/renderer: {}
+      '@sinclair/typebox':
+        specifier: ^0.34.0
+        version: 0.34.52
 
   packages/skills: {}
 

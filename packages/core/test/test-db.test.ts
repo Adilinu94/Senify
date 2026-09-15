@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createTestDb } from "@senify/core";
+import { createTestDb } from "@senify/core/testing";
 
 describe("createTestDb", () => {
   it("provides a working in-memory postgres", () => {

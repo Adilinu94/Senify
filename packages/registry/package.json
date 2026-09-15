@@ -7,6 +7,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@senify/core": "workspace:*"
+    "@senify/section-sdk": "workspace:*",
+    "@sinclair/typebox": "^0.34.0"
   }
 }

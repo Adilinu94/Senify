@@ -14,3 +14,10 @@
 - [ ] Lokale Postgres-Anbindung startet reproduzierbar (Compose/embedded) und ist im Test-Harness nutzbar
 
 Quellen: `artifacts/01`, `artifacts/08`, Spec „Modul-Landkarte" + „Testing Decisions".
+
+## Comments
+
+- **15.09.2026 · implementiert** (Commit `a0f2645` + Review-Fixes): Monorepo steht, `pnpm verify` grün (24 Tests). Pakete: `core` (Fehler, Test-Infrastruktur), `section-sdk` (Datenmodell, TypeBox-Schema, Registry/Validator), `registry` (Beispiel-Sektion hero), `mcp` (CLI), 7 Stubs.
+- **Code-Review (Standards + Spec)** durchgeführt; Fixes: `section-sdk` als eigenes Paket (Landkarten-Konformität), `@senify/core/testing` als separater Export (pg-mem/node:* nicht im Runtime-Graph), `pg-mem`-Dependency korrekt deklariert, `ctas` auf kanonischen `link`-Typ, `MotionSpec` mit `tokens`, Fixture-Sharing, Vitest-Alias aus tsconfig generiert (keine Doppelpflege).
+- **Postgres-Praxis (Klärung zum Spec-Punkt „echte Postgres")**: `pg-mem` bleibt der schnelle, Docker-freie Pfad für Unit-/Schema-Tests; die **Prüfstelle-1-Tests der Engine (ab T02)** laufen gegen die echte Compose-Postgres via `TEST_DATABASE_URL` (Wegwerf-Schema). Compose liegt bereit (Port 5433).
+- **MCP-Harness** ist bewusst in-process (ToolInvoker); der echte stdio-/Engine-E2E-Pfad entsteht in T06.

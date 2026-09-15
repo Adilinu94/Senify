@@ -1,46 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { Type } from "@sinclair/typebox";
-import {
-  Registry,
-  SenifyError,
-  validateDefinition,
-  type SectionDefinition,
-} from "@senify/core";
-
-function heroDefinition(): SectionDefinition {
-  return {
-    type: "hero",
-    version: 1,
-    title: "Hero",
-    description: "Top-of-page hero.",
-    category: "structure",
-    props: [
-      { key: "headline", control: "text", label: "Headline", schema: Type.String() },
-      { key: "columns", control: "number", label: "Columns", schema: Type.Number() },
-    ],
-    variants: {
-      centered: { label: "Centered", preset: { align: "center" } },
-    },
-    allowedChildren: "none",
-    motionPresets: ["masked-headline", "fade-up"],
-    golden: {
-      tree: { type: "hero", props: { headline: "Welcome", columns: 2 } },
-      thumbnails: { desktop: "tbd" },
-    },
-  };
-}
-
-function cardDefinition(): SectionDefinition {
-  return {
-    type: "card",
-    version: 1,
-    title: "Card",
-    description: "Simple card.",
-    category: "content",
-    props: [{ key: "title", control: "text", label: "Title", schema: Type.String() }],
-    golden: { tree: { type: "card", props: { title: "Card" } }, thumbnails: {} },
-  };
-}
+import { SenifyError } from "@senify/core";
+import { Registry, validateDefinition } from "@senify/section-sdk";
+import { cardDefinition, heroDefinition } from "./fixtures.ts";
 
 describe("validateDefinition", () => {
   it("returns no issues for a valid definition", () => {
