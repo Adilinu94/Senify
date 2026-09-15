@@ -1,0 +1,63 @@
+---
+import Section from "../components/Section.astro";
+import "../styles/global.css";
+
+type Props = {
+  page: {
+    path: string;
+    title: string;
+    description?: string;
+    ogImage?: string;
+    tree: { rootNodeId: string; nodes: Record<string, unknown> };
+    motion: string;
+    jsonLd: string | null;
+    flags: { hasMotion: boolean; needsSplitText: boolean; islands: string[] };
+  };
+  site: { name: string; baseUrl: string; lang?: string };
+  ctx: { pagePaths: Record<string, string>; assets: Record<string, string> };
+  fontPreloads: { href: string }[];
+  cdn: { gsap: string; scrollTrigger: string; splitText: string; lenis: string };
+};
+
+const { page, site, ctx, fontPreloads, cdn } = Astro.props;
+const lang = site.lang ?? "de";
+---
+<html lang={lang}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{page.title} | {site.name}</title>
+    {page.description && <meta name="description" content={page.description} />}
+    <meta property="og:title" content={page.title} />
+    {page.description && <meta property="og:description" content={page.description} />}
+    <meta property="og:url" content={`${site.baseUrl}${page.path}`} />
+    {page.ogImage && <meta property="og:image" content={page.ogImage} />}
+    <link rel="canonical" href={`${site.baseUrl}${page.path}`} />
+    <link rel="stylesheet" href="/assets/theme.css" />
+    <link rel="stylesheet" href="/assets/sections.css" />
+    {fontPreloads.map((font) => (
+      <link
+        rel="preload"
+        as="font"
+        type="font/woff2"
+        crossorigin="anonymous"
+        href={font.href}
+      />
+    ))}
+    {page.jsonLd && <script type="application/ld+json" set:html={page.jsonLd} />}
+    {page.flags.hasMotion && (
+      <>
+        <script type="application/json" id="motion-data" set:html={page.motion} />
+        <script src={cdn.gsap} defer />
+        <script src={cdn.scrollTrigger} defer />
+        {page.flags.needsSplitText && <script src={cdn.splitText} defer />}
+        <script src={cdn.lenis} defer />
+        <script src="/assets/page.js" defer />
+      </>
+    )}
+    {page.flags.islands.length > 0 && <script src="/assets/islands.js" defer />}
+  </head>
+  <body>
+    <Section tree={page.tree} ctx={ctx} />
+  </body>
+</html>

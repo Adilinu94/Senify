@@ -2,7 +2,7 @@ import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["**/node_modules/**", "**/dist/**", "Repos/**", "docs/**", ".scratch/**"] },
+  { ignores: ["**/node_modules/**", "**/dist/**", "Repos/**", "docs/**", ".scratch/**", "**/.astro/**", "**/.bake/**", "**/spike-dist/**", "packages/renderer/astro-template/src/generated/**"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

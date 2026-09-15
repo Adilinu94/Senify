@@ -1,0 +1,26 @@
+/* Senify component runtime styles: marquee, slider guards, reveal defaults. */
+
+.marquee-track {
+  display: flex;
+  width: max-content;
+  animation-name: senify-marquee;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  animation-duration: var(--marquee-duration, 24s);
+}
+
+@keyframes senify-marquee {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+[data-island="slider"] li[hidden] {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track {
+    animation: none;
+  }
+}

@@ -1,0 +1,20 @@
+---
+import Page from "../layouts/Page.astro";
+import manifest from "../generated/manifest.json";
+
+export async function getStaticPaths() {
+  return manifest.pages.map((page) => ({
+    params: { path: page.path === "/" ? undefined : page.path.slice(1) },
+    props: { page },
+  }));
+}
+
+const { page } = Astro.props;
+---
+<Page
+  page={page}
+  site={manifest.site}
+  ctx={manifest.ctx}
+  fontPreloads={manifest.fontPreloads}
+  cdn={manifest.cdn}
+/>

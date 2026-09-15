@@ -4,12 +4,19 @@
 
 **Blocked by:** 02 (Site & Pages + Mutations), 03 (Section-Library), 04 (Theme & Tokens).
 
-**Status:** ready-for-agent
+**Status:** implemented (verify grün, Review/Fixes ausstehend)
 
-- [ ] Fixture-Release (Golden-Sektionen + Theme) baut als statische Site; Produktions-Bake enthält keine Draft-Daten
-- [ ] Semantisches HTML (Section-Tags, Heading-Hierarchie) + `node.motion`-Konfiguration wird deterministisch in Page-Script-/CSS-Output übersetzt (A–C-Presets)
-- [ ] AEO-Minimum pro Site: `.md` je Seite, `llms.txt`, Sitemap, Robots (abschaltbar)
-- [ ] Hydration-Dispatcher entscheidet pro Node über Islands; Basis-Site bleibt bei 0 KB JS ohne Interaktion
-- [ ] Bake-Harness (Prüfstelle 2) prüft Artefakte: HTML-Struktur, Routen, AEO-Dateien, Motion-Config
+- [x] Fixture-Release (Golden-Sektionen + Theme) baut als statische Site; Produktions-Bake enthält keine Draft-Daten
+- [x] Semantisches HTML (Section-Tags, Heading-Hierarchie) + `node.motion`-Konfiguration wird deterministisch in Page-Script-/CSS-Output übersetzt (A–C-Presets)
+- [x] AEO-Minimum pro Site: `.md` je Seite, `llms.txt`, Sitemap, Robots (abschaltbar)
+- [x] Hydration-Dispatcher entscheidet pro Node über Islands; Basis-Site bleibt bei 0 KB JS ohne Interaktion
+- [x] Bake-Harness (Prüfstelle 2) prüft Artefakte: HTML-Struktur, Routen, AEO-Dateien, Motion-Config
 
 Quellen: `artifacts/02`, `artifacts/03` (Presets A–C), `artifacts/13` (AEO-Set), Spec „Modul-Landkarte: renderer".
+
+## Comments
+
+- **15.09.2026 · implementiert**: Echter Astro-7.3.2-SSG-Bake (`@senify/renderer`, React 19, Tailwind v4): `bakeSite()` validiert → stagt Template nach `packages/renderer/.bake/` (Workspace-intern wegen Modulauflösung, `cwd: stageDir`) → `astro build` als Subprozess (Telemetry aus) → schreibt `assets/{theme,components,page,islands}.js/css` + AEO direkt nach `dist/`. 25 React-Sektionen in `@senify/registry/components` (eigener Export-Pfad, `SectionTree`-Rekursion, `SectionContext` für Link-/Asset-Auflösung mit Markierung statt Löschen). Motion: `motionConfigsForTree` (A–C, D–G → Warning; Pin-/Char-Split-Zähler als T07-Vorprüfung) + Vanilla-`page.js` (GSAP/ScrollTrigger/Lenis-CDN, Reduced-Motion-Ausstieg) + bedingte `islands.js` (menu/accordion/slider/billing/dismiss/consent; `webgl-scene` = Platzhalter bis 3D-Follow-up). AEO: `.md` je Seite (extraktive Baseline), `llms.txt`, Sitemap, Robots (abschaltbar); FAQ → validiertes FAQPage-JSON-LD. Markdown via `marked` + `sanitize-html` (`registry/md.ts`). Prüfstelle 2 backt alle 25 Goldens über 6 Routen (2 Builds, ~15 s) und prüft Struktur/Routen/Leak-Freiheit/Motion/Islands/AEO/JSON-LD.
+- **Entscheidungen**: Keine React-Hydration in v1 (alles Interaktive läuft über Vanilla-Islands — 0-KB-Framework-Baseline); `getHydration()` bleibt der zentrale Dispatcher (aktuell static außer menu/accordion/slider/billing/dismiss/consent/webgl-Markierung). Kontakt-Formular ohne Endpoint rendert `data-form`-Hook (T11 verdrahtet); Newsletter postet nativ an `endpoint`. Pricing-`priceYearly` additiv ergänzt (Billing-Toggle braucht zwei Preise). Komponenten lesen nur deklarierte Props; `divider.spacing` mappt xs–xl auf feste rem-Werte; Marquee/CSS-Animation ohne JS. Tailwind-Klassen in Bracket-`var()`-Syntax; Utilities resolvieren im Template-Build, Theme-Werte kommen aus `assets/theme.css`.
+- **Koexistenz mit T16**: T16-Modell (`scale`-Control, `tokenGroup`/`part`, `sectionStyleProps`) liegt parallel im Tree und bleibt unberührt; `backgroundStyleProp()` als Compat-Shim wiederhergestellt (T16-Nachfolger: `sectionStyleProps()`); Part-Variablen rendern Komponenten nach T05-Commit (T16-Ticket). `pnpm verify` grün über dem gemischten Tree (152+2).
+- **15.09.2026 · Kombi-Review (Standards + Spec) + Fixes**: XSS-Escape im Page-Script (`escapeHtml` bei Split-Presets); seitenlokale Motion-Configs (Runner liest `#motion-data`, kein seitenfremder Payload); `llms.txt`-Root-Link → `/index.md`; Strict-Gates (`pin-excess`, `invalid-jsonld` → `guardrail`-Fehler, sonst Warnings); `</script>`-Escape via `jsonForHtml`; `parallax-subtle` im Page-Script (Faktor 0,1–0,3); Kat-D/E-Presets aus Sektions-`motionPresets` entfernt (Hover/Accordion = Component-/Island-Sache; `backgroundStyleProp`-Angleichung obsolet durch T16-`sectionStyleProps`-Superset); Lenis-Mobile-Guard (`pointer: coarse`); Intensity-Clamp 1–10 mit Warning; SplitText-CDN nur bei Bedarf; Scroll-Progress-Singleton; Billing-Silent-Warning; Astro-Fehler mit Ursache; Embed-Sandbox + `https://`-Gates; `node --check`-Tests für beide emittierten Skripte.

@@ -26,7 +26,7 @@ import { cookieNoteSection } from "./sections/cookie-note.ts";
 import { marqueeSection } from "./sections/marquee.ts";
 
 export { heroSection } from "./sections/hero.ts";
-export { navbarSection } from "./sections/navbar.ts";
+export { renderMarkdown } from "./md.ts";export { navbarSection } from "./sections/navbar.ts";
 export { footerSection } from "./sections/footer.ts";
 export { contentSection } from "./sections/content.ts";
 export { mediaSection } from "./sections/media.ts";
@@ -94,3 +94,5 @@ export function createRegistry(): Registry {
   }
   return registry;
 }
+
+export * from "./style.ts";
