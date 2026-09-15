@@ -11,6 +11,7 @@ import {
   DEFAULT_MAX_UPLOAD_BYTES,
   createUploadSigner,
 } from "./media.ts";
+import { referenceDepsFromEnv, type ReferenceDeps } from "./references-lifecycle.ts";
 import {
   DEFAULT_RATE_LIMITS,
   RateLimiter,
@@ -299,6 +300,71 @@ export {
   type FormCollectionPlanBody,
   type FormTickBody,
 } from "./forms-contract.ts";
+export {
+  capEvidenceLevel,
+  evidenceClaim,
+  evidenceRank,
+  isEvidenceLevel,
+  markConflicts,
+  mergeEvidence,
+  tokenClaim,
+  weakestEvidenceLevel,
+} from "./references-evidence.ts";
+export {
+  detectGpu,
+  extractReference,
+  motionToRecipes,
+  type CaptureInput,
+  type MarkupSignals,
+  type ReferenceExtraction,
+} from "./references-extract.ts";
+export {
+  buildStyleBrief,
+  clampAnalyzerOutput,
+  classifyFamilies,
+  createLlmReferenceAnalyzer,
+  heuristicAnalyzer,
+  parseAnalyzerJson,
+  REFERENCE_FAMILIES,
+  referenceAdherenceIssues,
+  rulesForFamilies,
+  type AnalyzerOutput,
+  type ReferenceAnalyzer,
+  type ReferenceLlmConfig,
+} from "./references-analyze.ts";
+export { buildReferenceProfile, normalizeVocabulary } from "./references.ts";
+export {
+  deriveThemeDraft,
+  materializeThemeDraft,
+  verifyThemeRoundTrip,
+  type ReferenceAssignmentInput,
+  type ReferenceThemeDraft,
+  type ThemeDraftVerification,
+} from "./references-theme.ts";
+export {
+  analyzeReference,
+  applyReference,
+  createPlaywrightCaptureDriver,
+  deleteReference,
+  editReferenceProfile,
+  REFERENCE_BREAKPOINTS,
+  ReferenceCaptureError,
+  referenceAdherenceForSite,
+  referenceBackoffMs,
+  referenceDepsFromEnv,
+  referenceThemeDraft,
+  removeReferenceAssignment,
+  runDueReferenceJobs,
+  runReferenceJob,
+  verifyReferenceApply,
+  type CaptureResult,
+  type CapturedScreenshot,
+  type ReferenceCaptureDriver,
+  type ReferenceCaptureFailure,
+  type ReferenceContext,
+  type ReferenceDeps,
+  type ReferenceTickResult,
+} from "./references-lifecycle.ts";
 
 export type EngineOptions = {
   db: Db;
@@ -306,10 +372,14 @@ export type EngineOptions = {
   rateLimits?: RateLimitConfig;
   // Previews, release builds and asset files live here (default: SENIFY_DATA_DIR or ~/.senify).
   dataDir?: string;
-  // Upload cap in bytes; upload URLs are signed against it (default 25 MB).
+  // Upload cap in bytes; upload URLs are signed against it (default: 25 MB).
   maxUploadBytes?: number;
   // Public base URL the stamped form action points at (default: same origin).
   formsBaseUrl?: string;
+  // References (T14): capture driver, analyzer and LLM config. Default: live
+  // Playwright capture plus the heuristic analyzer (or the LLM when
+  // SENIFY_LLM_ENDPOINT/-MODEL are configured).
+  referenceDeps?: ReferenceDeps;
 };
 
 export type EngineServer = {
@@ -355,6 +425,7 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
       burst: 5,
       destructivePerMinute: 5,
     }),
+    referenceDeps: options.referenceDeps ?? referenceDepsFromEnv(process.env),
     ...(options.formsBaseUrl === undefined
       ? {}
       : { formBaseUrl: options.formsBaseUrl }),

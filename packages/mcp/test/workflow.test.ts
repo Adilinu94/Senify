@@ -118,6 +118,10 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "restore_entry_version",
       "search_entries",
       "list_submissions",
+      "analyze_reference",
+      "list_references",
+      "get_reference",
+      "apply_reference",
     ]);
     for (const tool of listed.tools) {
       expect(tool.description?.length ?? 0).toBeGreaterThan(30);
@@ -639,10 +643,123 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     );
   }, 30000);
 
+  it("runs the reference → profile → theme draft workflow", async () => {
+    const siteId = await createSite(env, "Referenz-Workflow");
+    // Deterministic snapshot fallback (research/29 §2): no browser, no network.
+    const snapshot = {
+      html: `<style>
+        body { background: #0b0b0f; color: #f5f5f7; font-family: 'Inter', sans-serif; font-size: 17px; line-height: 1.6; font-weight: 400 }
+        h1 { font-family: 'Sora', sans-serif; font-size: 64px; line-height: 1.05; font-weight: 700 }
+        h2 { font-family: 'Sora', sans-serif; font-size: 40px; line-height: 1.15; font-weight: 600 }
+        .btn { background: #7c5cff; border-radius: 999px }
+        a { color: #7c5cff }
+        @media (min-width: 1024px) { body { font-size: 18px } }
+      </style>
+      <nav><a href="/" class="btn">Kontakt</a></nav>
+      <section class="hero"><h1>Studio Nord</h1></section>`,
+      breakpoints: [1440, 810, 390],
+      computedSamples: [
+        {
+          breakpoint: "desktop",
+          kind: "color",
+          role: "icon",
+          value: "#7c5cff",
+          where: ".btn",
+          source: "runtime",
+        },
+        {
+          breakpoint: "desktop",
+          kind: "color",
+          role: "bg",
+          value: "#0b0b0f",
+          where: "body",
+          source: "runtime",
+        },
+      ],
+    };
+
+    const analyzed = await call(session, "analyze_reference", {
+      url: "https://studio-nord.test",
+      name: "Studio Nord",
+      snapshot,
+    });
+    expect(analyzed.ok).toBe(true);
+    const reference = analyzed.data.reference as {
+      id: string;
+      status: string;
+      revision: number;
+      profile: { reduced: boolean; motion: { preset: string | null }[] };
+    };
+    expect(reference.status).toBe("ready");
+    expect(reference.revision).toBe(1);
+    expect(reference.profile.reduced).toBe(true);
+    const referenceId = reference.id;
+
+    const listed = await call(session, "list_references", {
+      q: "studio",
+      status: "ready",
+    });
+    expect(listed.ok).toBe(true);
+    expect(
+      (listed.data.references as { id: string }[]).map((entry) => entry.id),
+    ).toContain(referenceId);
+
+    const fetched = await call(session, "get_reference", { referenceId });
+    expect(fetched.ok).toBe(true);
+    expect(fetched.data.styleBrief as string).toContain(
+      "https://studio-nord.test",
+    );
+    expect(
+      reference.profile.motion.every(
+        (recipe) => typeof recipe.preset === "string" || recipe.preset === null,
+      ),
+    ).toBe(true);
+
+    const applied = await call(session, "apply_reference", {
+      siteId,
+      referenceId,
+    });
+    expect(applied.ok).toBe(true);
+    const draft = applied.data.draft as {
+      scales: { brand?: string; typeBase?: number };
+      fonts: { body?: { family: string } };
+    };
+    expect(draft.scales.brand).toBe("#7c5cff");
+    expect(draft.scales.typeBase).toBe(17);
+    expect(draft.fonts.body?.family).toBe("Inter");
+    expect((applied.data.verification as { ok: boolean }).ok).toBe(true);
+    // Assigning a reference derives a draft, it never touches the bake.
+    expect((applied.data.unchanged as { unchanged: boolean }).unchanged).toBe(
+      true,
+    );
+  }, 30000);
+
+  it("requires the write scope for analyze/apply and allows read-only listing", async () => {
+    const readOnly = await createToken(env, "ref-reader", ["read"]);
+    const reader = await connect(env.origin, readOnly);
+    try {
+      const denied = await call(reader, "analyze_reference", {
+        url: "https://blocked.test",
+      });
+      expect(denied.ok).toBe(false);
+      const error = denied.data.error as Json;
+      expect(error.category).toBe("auth");
+      expect(String(error.suggestion)).toContain("write");
+
+      const listed = await call(reader, "list_references", {});
+      expect(listed.ok).toBe(true);
+      expect(Array.isArray(listed.data.references)).toBe(true);
+    } finally {
+      await reader.close();
+    }
+  }, 30000);
+
   it("records every tool call in the server-side audit log", async () => {
     const audited = await env.api.request<{
       entries: { tool: string; client: string; result: string; tokenId: string | null }[];
-    }>({ method: "GET", path: "/api/mcp/audit?limit=50" });
+    // The suite records more than 50 calls now (reference workflow included):
+    // widen the window instead of asserting against a truncated page.
+    }>({ method: "GET", path: "/api/mcp/audit?limit=200" });
     const tools = audited.body.entries.map((entry) => entry.tool);
     expect(tools).toContain("whoami");
     expect(tools).toContain("apply_mutations");

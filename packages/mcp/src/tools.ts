@@ -1143,6 +1143,106 @@ export const TOOLS: ToolDefinition[] = [
       );
     },
   },
+  {
+    name: "analyze_reference",
+    title: "Analyze reference",
+    description:
+      "Starts the full design analysis of a reference URL: capture → deterministic extraction (frequency-ranked tokens with Belegstellen) → AI classification → design profile. Blocked sites fail with a clear cause; pass snapshot.html (saved page source, optional computed samples/motion) for the fallback with a reduced profile. Returns the reference with status, progress, families and the profile.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        url: { type: "string" },
+        name: { type: "string" },
+        wait: { type: "boolean" },
+        snapshot: { type: "object" },
+      },
+      ["url"],
+    ),
+    entity: (args) => `reference:${String(args.url ?? "")}`,
+    handler: async (context, args) => {
+      const url = requireString(args, "url");
+      const name = optionalString(args, "name");
+      const wait = optionalBoolean(args, "wait");
+      const snapshot = args.snapshot === undefined ? undefined : requireRecord(args, "snapshot");
+      const tokenName = await context.client.tokenName();
+      return context.client.request("POST", "/api/references", {
+        url,
+        author: { kind: "agent", id: tokenName, label: tokenName },
+        ...(name === undefined ? {} : { name }),
+        ...(wait === undefined ? {} : { wait }),
+        ...(snapshot === undefined ? {} : { snapshot }),
+      });
+    },
+  },
+  {
+    name: "list_references",
+    title: "List references",
+    description:
+      "Lists the analysed design references as cards: name, source URL, status, families and the projects they are assigned to. Filter with q (text), family (taxonomy) or status (analyzing|ready|failed). Use get_reference for the full profile.",
+    scope: "read",
+    inputSchema: objectSchema({
+      q: { type: "string" },
+      family: { type: "string" },
+      status: { type: "string", enum: ["analyzing", "ready", "failed"] },
+    }),
+    handler: async (context, args) => {
+      const params = new URLSearchParams();
+      for (const key of ["q", "family", "status"]) {
+        const value = optionalString(args, key);
+        if (value !== undefined) params.set(key, value);
+      }
+      const query = params.toString();
+      return context.client.request(
+        "GET",
+        `/api/references${query === "" ? "" : `?${query}`}`,
+      );
+    },
+  },
+  {
+    name: "get_reference",
+    title: "Get reference",
+    description:
+      "Loads one reference with its design profile: tokens (with frequency and Belegstellen), type scale, families, vocabulary, components, composition rules (constants/never), motion recipes mapped to the presets, evidence with confidence levels and the machine-readable style brief. Read it before building in the reference's style.",
+    scope: "read",
+    inputSchema: objectSchema({ referenceId: { type: "string" } }, ["referenceId"]),
+    entity: (args) => `reference:${String(args.referenceId ?? "")}`,
+    handler: async (context, args) =>
+      context.client.request(
+        "GET",
+        `/api/references/${requireString(args, "referenceId")}`,
+      ),
+  },
+  {
+    name: "apply_reference",
+    title: "Apply reference",
+    description:
+      "Assigns a reference to a project per scale (color/type/motion/rest; default: the reference for everything) and returns the derived theme draft (scale inputs, fonts, motion) plus its round-trip verification. Applying never changes the current bake — write the draft with update_theme when it should take effect.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        siteId: { type: "string" },
+        referenceId: { type: "string" },
+        scales: {
+          type: "array",
+          items: { type: "string", enum: ["color", "type", "motion", "rest"] },
+          minItems: 1,
+        },
+      },
+      ["siteId", "referenceId"],
+    ),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
+      const referenceId = requireString(args, "referenceId");
+      const scales = optionalStringArray(args, "scales");
+      const tokenName = await context.client.tokenName();
+      return context.client.request("POST", `/api/sites/${siteId}/references`, {
+        referenceId,
+        author: { kind: "agent", id: tokenName, label: tokenName },
+        ...(scales === undefined ? {} : { scales }),
+      });
+    },
+  },
 ];
 
 export function toolByName(name: string): ToolDefinition | undefined {

@@ -129,6 +129,28 @@ import {
 } from "./templates-contract.ts";
 import { putPageTemplate } from "./templates.ts";
 import {
+  analyzeReference,
+  applyReference,
+  deleteReference,
+  editReferenceProfile,
+  referenceThemeDraft,
+  removeReferenceAssignment,
+  runDueReferenceJobs,
+  verifyReferenceApply,
+  type ReferenceContext,
+  type ReferenceDeps,
+} from "./references-lifecycle.ts";
+import {
+  AnalyzeReferenceBodySchema,
+  ApplyReferenceBodySchema,
+  EditReferenceProfileBodySchema,
+  ReferenceTickBodySchema,
+  type AnalyzeReferenceBody,
+  type ApplyReferenceBody,
+  type EditReferenceProfileBody,
+  type ReferenceTickBody,
+} from "./references-contract.ts";
+import {
   applyAssetPatch,
   bulkAssets,
   commitUpload,
@@ -170,7 +192,18 @@ export type EngineContext = {
   formSigner: FormSigner;
   formRateLimiter: RateLimiter;
   formBaseUrl?: string;
+  // References (T14): the injected capture/analyzer dependencies. Without them
+  // the live Playwright path and the heuristic analyzer are used.
+  referenceDeps?: ReferenceDeps;
 };
+
+function referenceContext(context: EngineContext): ReferenceContext {
+  return {
+    store: context.store,
+    dataDir: context.dataDir,
+    ...(context.referenceDeps === undefined ? {} : { deps: context.referenceDeps }),
+  };
+}
 
 function lifecycleContext(context: EngineContext): LifecycleContext {
   return {
@@ -2345,6 +2378,188 @@ const ROUTES: Route[] = [
           limitParam(url, 50),
         ),
       },
+    }),
+  },
+  {
+    // analyze_reference: URL → analysis job → profile (artifacts/28 §1).
+    method: "POST",
+    segments: ["api", "references"],
+    scope: "write",
+    handler: async (context, _params, req) => {
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<AnalyzeReferenceBody>(
+        AnalyzeReferenceBodySchema,
+        body,
+        "reference analysis",
+      );
+      const result = await analyzeReference(referenceContext(context), {
+        url: input.url,
+        author: input.author,
+        ...(input.name === undefined ? {} : { name: input.name }),
+        ...(input.snapshot === undefined ? {} : { snapshot: input.snapshot }),
+        ...(input.wait === undefined ? {} : { wait: input.wait }),
+      });
+      return { status: 201, body: result };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "references"],
+    scope: "read",
+    handler: async (context, _params, _req, url) => {
+      const query = url.searchParams.get("q")?.toLowerCase() ?? "";
+      const family = url.searchParams.get("family");
+      const status = url.searchParams.get("status");
+      let references = await context.store.listReferences();
+      if (query !== "") {
+        references = references.filter((reference) =>
+          `${reference.name} ${reference.sourceUrl} ${reference.families.join(" ")} ${reference.vocabulary.join(" ")}`
+            .toLowerCase()
+            .includes(query),
+        );
+      }
+      if (family !== null) {
+        references = references.filter((reference) => reference.families.includes(family));
+      }
+      if (status !== null) {
+        references = references.filter((reference) => reference.status === status);
+      }
+      return { status: 200, body: { references } };
+    },
+  },
+  {
+    // Job tick: due jobs retry with backoff and progress (long captures).
+    method: "POST",
+    segments: ["api", "references", "tick"],
+    scope: "write",
+    handler: async (context, _params, req) => {
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<ReferenceTickBody>(
+        ReferenceTickBodySchema,
+        body,
+        "reference tick",
+      );
+      const result = await runDueReferenceJobs(
+        referenceContext(context),
+        input.limit === undefined ? {} : { limit: input.limit },
+      );
+      return { status: 200, body: result };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "references", ":referenceId"],
+    scope: "read",
+    handler: async (context, params) => ({
+      status: 200,
+      body: await context.store.getReference(requireParam(params, "referenceId")),
+    }),
+  },
+  {
+    // Löschen mit Nutzungs-Hinweis: ohne force nur ohne Projekt-Zuordnung.
+    method: "DELETE",
+    segments: ["api", "references", ":referenceId"],
+    scope: "write",
+    destructive: true,
+    handler: async (context, params, _req, url) => {
+      const force = url.searchParams.get("force");
+      return {
+        status: 200,
+        body: await deleteReference(referenceContext(context), {
+          referenceId: requireParam(params, "referenceId"),
+          force: force === "1" || force === "true",
+        }),
+      };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "references", ":referenceId", "revisions"],
+    scope: "read",
+    handler: async (context, params) => ({
+      status: 200,
+      body: {
+        revisions: await context.store.listReferenceProfileRevisions(
+          requireParam(params, "referenceId"),
+        ),
+      },
+    }),
+  },
+  {
+    // Nachbearbeitung: jede Aenderung erzeugt eine neue Profil-Revision.
+    method: "POST",
+    segments: ["api", "references", ":referenceId", "revisions"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const referenceId = requireParam(params, "referenceId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<EditReferenceProfileBody>(
+        EditReferenceProfileBodySchema,
+        body,
+        "reference profile edit",
+      );
+      const revision = await editReferenceProfile(referenceContext(context), {
+        referenceId,
+        author: input.author,
+        ...(input.vocabulary === undefined ? {} : { vocabulary: input.vocabulary }),
+        ...(input.families === undefined ? {} : { families: input.families }),
+        ...(input.rules === undefined ? {} : { rules: input.rules }),
+        ...(input.note === undefined ? {} : { note: input.note }),
+      });
+      return { status: 201, body: revision };
+    },
+  },
+  {
+    // Project assignment of references + the derived theme draft (T14 reuse).
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "references"],
+    scope: "read",
+    handler: async (context, params) => {
+      const siteId = requireParam(params, "siteId");
+      const references = referenceContext(context);
+      const { draft, verification } = await referenceThemeDraft(references, siteId);
+      return {
+        status: 200,
+        body: {
+          assignments: await context.store.listReferenceAssignments(siteId),
+          draft,
+          verification,
+          unchanged: await verifyReferenceApply(references, siteId),
+        },
+      };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "references"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<ApplyReferenceBody>(
+        ApplyReferenceBodySchema,
+        body,
+        "reference assignment",
+      );
+      const result = await applyReference(referenceContext(context), {
+        siteId: requireParam(params, "siteId"),
+        referenceId: input.referenceId,
+        author: input.author,
+        ...(input.scales === undefined ? {} : { scales: input.scales }),
+      });
+      return { status: 201, body: result };
+    },
+  },
+  {
+    method: "DELETE",
+    segments: ["api", "sites", ":siteId", "references", ":referenceId"],
+    scope: "write",
+    destructive: true,
+    handler: async (context, params) => ({
+      status: 200,
+      body: await removeReferenceAssignment(referenceContext(context), {
+        siteId: requireParam(params, "siteId"),
+        referenceId: requireParam(params, "referenceId"),
+      }),
     }),
   },
 ];

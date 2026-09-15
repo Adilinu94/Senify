@@ -368,6 +368,73 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS newsletter_tokens_entry_idx
     ON newsletter_tokens (entry_id, kind, created_at DESC, token DESC)`,
+  // References (T14): the row carries governance/status/progress, the profile
+  // lives in append-only revisions (JSONB) so editing never rewrites history.
+  `CREATE TABLE IF NOT EXISTS design_references (
+    id text PRIMARY KEY,
+    name text NOT NULL,
+    source_url text NOT NULL,
+    method text NOT NULL,
+    status text NOT NULL,
+    stage text NOT NULL,
+    progress integer NOT NULL,
+    failure_reason text,
+    families jsonb NOT NULL,
+    vocabulary jsonb NOT NULL,
+    style_brief text NOT NULL,
+    snapshots jsonb NOT NULL,
+    provenance jsonb NOT NULL,
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS design_references_created_idx
+    ON design_references (created_at DESC, id DESC)`,
+  `CREATE TABLE IF NOT EXISTS reference_profiles (
+    id text PRIMARY KEY,
+    reference_id text NOT NULL,
+    revision integer NOT NULL,
+    profile jsonb NOT NULL,
+    evidence jsonb NOT NULL,
+    provenance jsonb NOT NULL,
+    author jsonb NOT NULL,
+    note text,
+    created_at timestamptz NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS reference_profiles_reference_idx
+    ON reference_profiles (reference_id, revision DESC, id DESC)`,
+  // Analysis job with progress + retry, modelled after the notification
+  // outbox: due jobs are queued and past their next attempt time.
+  `CREATE TABLE IF NOT EXISTS reference_jobs (
+    id text PRIMARY KEY,
+    reference_id text NOT NULL,
+    status text NOT NULL,
+    stage text NOT NULL,
+    progress integer NOT NULL,
+    attempts integer NOT NULL,
+    max_attempts integer NOT NULL,
+    next_attempt_at timestamptz NOT NULL,
+    last_error text,
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL,
+    finished_at timestamptz,
+    payload jsonb
+  )`,
+  `CREATE INDEX IF NOT EXISTS reference_jobs_due_idx
+    ON reference_jobs (status, next_attempt_at ASC, created_at ASC, id ASC)`,
+  // Project assignment per scale: one row per (site, reference), scales names
+  // the scales the reference contributes (default: all of them).
+  `CREATE TABLE IF NOT EXISTS reference_assignments (
+    id text PRIMARY KEY,
+    site_id text NOT NULL,
+    reference_id text NOT NULL,
+    scales jsonb NOT NULL,
+    priority integer NOT NULL,
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL,
+    UNIQUE (site_id, reference_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS reference_assignments_reference_idx
+    ON reference_assignments (reference_id, site_id ASC)`,
 ];
 
 export async function ensureSchema(db: Db): Promise<void> {

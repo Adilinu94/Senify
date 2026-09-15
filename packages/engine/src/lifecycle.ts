@@ -7,6 +7,7 @@ import { bakePages } from "./bake.ts";
 import { runChecks } from "./checks.ts";
 import type { FormSigner } from "./forms.ts";
 import { newEntityId } from "./ids.ts";
+import { referenceAdherenceForSite } from "./references-lifecycle.ts";
 import type { Store } from "./store.ts";
 import type {
   CheckIssue,
@@ -16,6 +17,7 @@ import type {
   ReleasePageRevision,
   ReviewItem,
   Site,
+  SiteTheme,
   StructureChange,
 } from "./types.ts";
 
@@ -45,6 +47,20 @@ function hardFailure(issues: CheckIssue[], stage: string): SenifyError {
     "guardrail",
     `Hard checks failed during ${stage}: ${first?.message ?? "unknown issue"}${extra}`,
     { field: first?.field, suggestion: first?.suggestion },
+  );
+}
+
+// Soft adherence hint of the assigned references (T14): it never blocks, it
+// tells the operator how far the draft drifted from the profile.
+async function referenceAdherence(
+  context: LifecycleContext,
+  siteId: string,
+  theme: SiteTheme["theme"],
+): Promise<CheckIssue[]> {
+  return referenceAdherenceForSite(
+    { store: context.store, dataDir: context.dataDir },
+    siteId,
+    theme,
   );
 }
 
@@ -131,6 +147,7 @@ export async function publishRelease(
         (collection) => collection.id,
       ),
     ),
+    referenceAdherence: await referenceAdherence(context, input.siteId, siteTheme.theme),
   });
   if (report.hard.length > 0) {
     throw hardFailure(report.hard, "publish");
@@ -398,6 +415,7 @@ export async function submitReview(
     site,
     theme: siteTheme.theme,
     assets: await context.store.assetUsageMap(input.siteId),
+    referenceAdherence: await referenceAdherence(context, input.siteId, siteTheme.theme),
   });
   if (report.hard.length > 0) {
     throw hardFailure(report.hard, "submit");

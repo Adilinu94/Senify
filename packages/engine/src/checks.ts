@@ -309,9 +309,12 @@ export function runChecks(input: {
   // Existing collection ids of the site: form targets are checked against
   // them (artifacts/26 §7). Without the set the form checks stay off.
   collectionIds?: ReadonlySet<string>;
+  // Soft style-adherence hints of the assigned references (T14, artifacts/28
+  // §3: "weich" — they never block, they only inform the review).
+  referenceAdherence?: CheckIssue[];
 }): CheckReport {
   const hard: CheckIssue[] = [];
-  const soft: CheckIssue[] = [];
+  const soft: CheckIssue[] = [...(input.referenceAdherence ?? [])];
   const paths = new Set(input.pages.map((page) => page.path));
   const pageIds = new Set(input.pages.map((page) => page.id));
 

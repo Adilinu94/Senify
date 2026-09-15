@@ -61,6 +61,19 @@ import {
   type PageTemplate,
   type Preview,
   type PreviewStatus,
+  type Reference,
+  type ReferenceAssignment,
+  type ReferenceEvidence,
+  type ReferenceJob,
+  type ReferenceJobStatus,
+  type ReferenceMethod,
+  type ReferenceProfile,
+  type ReferenceProfileRevision,
+  type ReferenceProvenance,
+  type ReferenceScale,
+  type ReferenceSnapshot,
+  type ReferenceStatus,
+  type ReferenceSummary,
   type Release,
   type ReleasePageRevision,
   type ReviewComment,
@@ -3286,6 +3299,352 @@ export class Store {
     }
     return mapNewsletterToken(row);
   }
+
+  // ------------------------------------------------------- references (T14)
+
+  async createReference(input: {
+    name: string;
+    sourceUrl: string;
+    method: ReferenceMethod;
+    provenance: ReferenceProvenance;
+  }): Promise<Reference> {
+    const now = new Date().toISOString();
+    const id = newEntityId();
+    await this.#db.query(
+      `INSERT INTO design_references
+        (id, name, source_url, method, status, stage, progress, failure_reason,
+         families, vocabulary, style_brief, snapshots, provenance, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, 'analyzing', 'governance', 0, NULL,
+         '[]', '[]', '', '[]', $5, $6, $6)`,
+      [id, input.name, input.sourceUrl, input.method, toJsonParam(input.provenance), now],
+    );
+    return this.getReference(id);
+  }
+
+  async getReference(id: string): Promise<Reference> {
+    const result = await this.#db.query<ReferenceRow>(
+      `SELECT ${REFERENCE_COLUMNS} FROM design_references WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Reference "${id}" does not exist`, {
+        field: "referenceId",
+        suggestion: "Use list_references to find an existing reference id.",
+      });
+    }
+    const usage = await this.#referenceUsage();
+    return mapReference(row, await this.getLatestReferenceProfile(id), usage.get(id) ?? []);
+  }
+
+  async listReferences(): Promise<ReferenceSummary[]> {
+    const result = await this.#db.query<ReferenceRow>(
+      `SELECT ${REFERENCE_COLUMNS} FROM design_references
+       ORDER BY created_at DESC, id DESC`,
+    );
+    const usage = await this.#referenceUsage();
+    const revisions = await this.#db.query<{ reference_id: string; revision: unknown }>(
+      `SELECT reference_id, MAX(revision) AS revision FROM reference_profiles
+       GROUP BY reference_id`,
+    );
+    const revisionByReference = new Map(
+      revisions.rows.map((row) => [row.reference_id, toFiniteNumber(row.revision, "revision")]),
+    );
+    return result.rows.map((row) => {
+      const revision = revisionByReference.get(row.id) ?? 0;
+      return mapReferenceSummary(row, revision, usage.get(row.id) ?? []);
+    });
+  }
+
+  async updateReference(
+    id: string,
+    patch: {
+      status?: ReferenceStatus;
+      stage?: string;
+      progress?: number;
+      failureReason?: string | null;
+      families?: string[];
+      vocabulary?: string[];
+      styleBrief?: string;
+      snapshots?: ReferenceSnapshot[];
+      provenance?: ReferenceProvenance;
+    },
+  ): Promise<Reference> {
+    const current = await this.getReference(id);
+    await this.#db.query(
+      `UPDATE design_references SET
+         status = $2, stage = $3, progress = $4, failure_reason = $5,
+         families = $6, vocabulary = $7, style_brief = $8, snapshots = $9, updated_at = $10,
+         provenance = $11
+       WHERE id = $1`,
+      [
+        id,
+        patch.status ?? current.status,
+        patch.stage ?? current.stage,
+        patch.progress ?? current.progress,
+        patch.failureReason === undefined ? current.failureReason : patch.failureReason,
+        toJsonParam(patch.families ?? current.families),
+        toJsonParam(patch.vocabulary ?? current.vocabulary),
+        patch.styleBrief ?? current.styleBrief,
+        toJsonParam(patch.snapshots ?? current.snapshots),
+        new Date().toISOString(),
+        toJsonParam(patch.provenance ?? current.provenance),
+      ],
+    );
+    return this.getReference(id);
+  }
+
+  async deleteReference(id: string): Promise<void> {
+    await this.getReference(id);
+    await this.#db.withTransaction(async (tx) => {
+      await tx.query(`DELETE FROM reference_profiles WHERE reference_id = $1`, [id]);
+      await tx.query(`DELETE FROM reference_jobs WHERE reference_id = $1`, [id]);
+      await tx.query(`DELETE FROM reference_assignments WHERE reference_id = $1`, [id]);
+      await tx.query(`DELETE FROM design_references WHERE id = $1`, [id]);
+    });
+  }
+
+  async createReferenceProfileRevision(input: {
+    referenceId: string;
+    profile: ReferenceProfile;
+    evidence: ReferenceEvidence[];
+    provenance: ReferenceProvenance;
+    author: Author;
+    note: string | null;
+  }): Promise<ReferenceProfileRevision> {
+    await this.getReference(input.referenceId);
+    const next = await this.#db.query<{ revision: unknown }>(
+      `SELECT COALESCE(MAX(revision), 0) + 1 AS revision FROM reference_profiles
+       WHERE reference_id = $1`,
+      [input.referenceId],
+    );
+    const revision = toFiniteNumber(next.rows[0]?.revision ?? 1, "revision");
+    const result = await this.#db.query<ReferenceProfileRow>(
+      `INSERT INTO reference_profiles
+        (id, reference_id, revision, profile, evidence, provenance, author, note, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING ${REFERENCE_PROFILE_COLUMNS}`,
+      [
+        newEntityId(),
+        input.referenceId,
+        revision,
+        toJsonParam(input.profile),
+        toJsonParam(input.evidence),
+        toJsonParam(input.provenance),
+        toJsonParam(input.author),
+        input.note,
+        new Date().toISOString(),
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error("Reference profile insert returned no row");
+    return mapReferenceProfile(row);
+  }
+
+  async getLatestReferenceProfile(
+    referenceId: string,
+  ): Promise<ReferenceProfileRevision | null> {
+    const result = await this.#db.query<ReferenceProfileRow>(
+      `SELECT ${REFERENCE_PROFILE_COLUMNS} FROM reference_profiles
+       WHERE reference_id = $1 ORDER BY revision DESC, id DESC LIMIT 1`,
+      [referenceId],
+    );
+    const row = result.rows[0];
+    return row ? mapReferenceProfile(row) : null;
+  }
+
+  async listReferenceProfileRevisions(
+    referenceId: string,
+  ): Promise<ReferenceProfileRevision[]> {
+    const result = await this.#db.query<ReferenceProfileRow>(
+      `SELECT ${REFERENCE_PROFILE_COLUMNS} FROM reference_profiles
+       WHERE reference_id = $1 ORDER BY revision DESC, id DESC`,
+      [referenceId],
+    );
+    return result.rows.map(mapReferenceProfile);
+  }
+
+  async createReferenceJob(input: {
+    referenceId: string;
+    maxAttempts: number;
+    // Analysis input that must survive a retry (e.g. the snapshot fallback).
+    payload?: Record<string, unknown> | null;
+  }): Promise<ReferenceJob> {
+    const now = new Date().toISOString();
+    const result = await this.#db.query<ReferenceJobRow>(
+      `INSERT INTO reference_jobs
+        (id, reference_id, status, stage, progress, attempts, max_attempts,
+         next_attempt_at, last_error, created_at, updated_at, finished_at, payload)
+       VALUES ($1, $2, 'queued', 'queued', 0, 0, $3, $4, NULL, $4, $4, NULL, $5)
+       RETURNING ${REFERENCE_JOB_COLUMNS}`,
+      [
+        newEntityId(),
+        input.referenceId,
+        input.maxAttempts,
+        now,
+        input.payload === undefined || input.payload === null
+          ? null
+          : toJsonParam(input.payload),
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error("Reference job insert returned no row");
+    return mapReferenceJob(row);
+  }
+
+  // The stored analysis input (snapshot fallback) for a queued job.
+  async getReferenceJobPayload(id: string): Promise<Record<string, unknown> | null> {
+    const result = await this.#db.query<{ payload: unknown }>(
+      `SELECT payload FROM reference_jobs WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row || row.payload === null || row.payload === undefined) return null;
+    return toJson<Record<string, unknown>>(row.payload);
+  }
+
+  async getReferenceJob(id: string): Promise<ReferenceJob> {
+    const result = await this.#db.query<ReferenceJobRow>(
+      `SELECT ${REFERENCE_JOB_COLUMNS} FROM reference_jobs WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Reference job "${id}" does not exist`, {
+        field: "jobId",
+      });
+    }
+    return mapReferenceJob(row);
+  }
+
+  // Jobs that are due: queued and past their next attempt time.
+  async listDueReferenceJobs(now: string, limit = 20): Promise<ReferenceJob[]> {
+    const result = await this.#db.query<ReferenceJobRow>(
+      `SELECT ${REFERENCE_JOB_COLUMNS} FROM reference_jobs
+       WHERE status = 'queued' AND next_attempt_at <= $1
+       ORDER BY next_attempt_at ASC, created_at ASC, id ASC LIMIT $2`,
+      [now, Math.max(1, Math.min(100, limit))],
+    );
+    return result.rows.map(mapReferenceJob);
+  }
+
+  async updateReferenceJob(input: {
+    id: string;
+    status: ReferenceJobStatus;
+    stage: string;
+    progress: number;
+    attempts: number;
+    nextAttemptAt: string;
+    lastError: string | null;
+    finishedAt: string | null;
+  }): Promise<ReferenceJob> {
+    const result = await this.#db.query<ReferenceJobRow>(
+      `UPDATE reference_jobs SET
+         status = $2, stage = $3, progress = $4, attempts = $5,
+         next_attempt_at = $6, last_error = $7, finished_at = $8, updated_at = $9
+       WHERE id = $1 RETURNING ${REFERENCE_JOB_COLUMNS}`,
+      [
+        input.id,
+        input.status,
+        input.stage,
+        input.progress,
+        input.attempts,
+        input.nextAttemptAt,
+        input.lastError,
+        input.finishedAt,
+        new Date().toISOString(),
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Reference job "${input.id}" does not exist`, {
+        field: "jobId",
+      });
+    }
+    return mapReferenceJob(row);
+  }
+
+  async upsertReferenceAssignment(input: {
+    siteId: string;
+    referenceId: string;
+    scales: ReferenceScale[];
+    priority: number;
+  }): Promise<ReferenceAssignment> {
+    await this.getReference(input.referenceId);
+    const now = new Date().toISOString();
+    try {
+      const result = await this.#db.query<ReferenceAssignmentRow>(
+        `INSERT INTO reference_assignments
+          (id, site_id, reference_id, scales, priority, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $6)
+         RETURNING ${REFERENCE_ASSIGNMENT_COLUMNS}`,
+        [
+          newEntityId(),
+          input.siteId,
+          input.referenceId,
+          toJsonParam(input.scales),
+          input.priority,
+          now,
+        ],
+      );
+      const row = result.rows[0];
+      if (!row) throw new Error("Reference assignment insert returned no row");
+      return mapReferenceAssignment(row);
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+      const result = await this.#db.query<ReferenceAssignmentRow>(
+        `UPDATE reference_assignments SET scales = $3, priority = $4, updated_at = $5
+         WHERE site_id = $1 AND reference_id = $2
+         RETURNING ${REFERENCE_ASSIGNMENT_COLUMNS}`,
+        [input.siteId, input.referenceId, toJsonParam(input.scales), input.priority, now],
+      );
+      const row = result.rows[0];
+      if (!row) throw error;
+      return mapReferenceAssignment(row);
+    }
+  }
+
+  async listReferenceAssignments(siteId: string): Promise<ReferenceAssignment[]> {
+    const result = await this.#db.query<ReferenceAssignmentRow>(
+      `SELECT ${REFERENCE_ASSIGNMENT_COLUMNS} FROM reference_assignments
+       WHERE site_id = $1 ORDER BY priority ASC, created_at ASC, id ASC`,
+      [siteId],
+    );
+    return result.rows.map(mapReferenceAssignment);
+  }
+
+  async deleteReferenceAssignment(input: {
+    siteId: string;
+    referenceId: string;
+  }): Promise<boolean> {
+    const result = await this.#db.query<{ id: string }>(
+      `DELETE FROM reference_assignments WHERE site_id = $1 AND reference_id = $2 RETURNING id`,
+      [input.siteId, input.referenceId],
+    );
+    return result.rows.length > 0;
+  }
+
+  async countReferenceAssignments(referenceId: string): Promise<number> {
+    const result = await this.#db.query<{ total: unknown }>(
+      `SELECT COUNT(*) AS total FROM reference_assignments WHERE reference_id = $1`,
+      [referenceId],
+    );
+    return toFiniteNumber(result.rows[0]?.total ?? 0, "total");
+  }
+
+  async #referenceUsage(): Promise<Map<string, string[]>> {
+    const result = await this.#db.query<{ reference_id: string; site_id: string }>(
+      `SELECT reference_id, site_id FROM reference_assignments
+       ORDER BY site_id ASC`,
+    );
+    const usage = new Map<string, string[]>();
+    for (const row of result.rows) {
+      const sites = usage.get(row.reference_id) ?? [];
+      sites.push(row.site_id);
+      usage.set(row.reference_id, sites);
+    }
+    return usage;
+  }
 }
 
 function buildAuditInsert(entries: NewAuditEntry[]): {
@@ -3414,5 +3773,156 @@ function mapNewsletterToken(row: NewsletterTokenRow): NewsletterToken {
     expiresAt: row.expires_at === null || row.expires_at === undefined ? null : toIso(row.expires_at),
     createdAt: toIso(row.created_at),
     usedAt: row.used_at === null || row.used_at === undefined ? null : toIso(row.used_at),
+  };
+}
+
+// ------------------------------------------------------------ references (T14)
+
+const REFERENCE_COLUMNS =
+  "id, name, source_url, method, status, stage, progress, failure_reason, families, vocabulary, style_brief, snapshots, provenance, created_at, updated_at";
+
+const REFERENCE_PROFILE_COLUMNS =
+  "id, reference_id, revision, profile, evidence, provenance, author, note, created_at";
+
+const REFERENCE_JOB_COLUMNS =
+  "id, reference_id, status, stage, progress, attempts, max_attempts, next_attempt_at, last_error, created_at, updated_at, finished_at";
+
+const REFERENCE_ASSIGNMENT_COLUMNS =
+  "id, site_id, reference_id, scales, priority, created_at, updated_at";
+
+type ReferenceRow = {
+  id: string;
+  name: string;
+  source_url: string;
+  method: string;
+  status: string;
+  stage: string;
+  progress: unknown;
+  failure_reason: unknown;
+  families: unknown;
+  vocabulary: unknown;
+  style_brief: string;
+  snapshots: unknown;
+  provenance: unknown;
+  created_at: unknown;
+  updated_at: unknown;
+};
+
+function mapReference(
+  row: ReferenceRow,
+  profileRevision: ReferenceProfileRevision | null,
+  usedInProjects: string[],
+): Reference {
+  return {
+    ...mapReferenceSummary(row, profileRevision?.revision ?? 0, usedInProjects),
+    profile: profileRevision?.profile ?? null,
+    evidence: profileRevision?.evidence ?? [],
+  };
+}
+
+function mapReferenceSummary(
+  row: ReferenceRow,
+  revision: number,
+  usedInProjects: string[],
+): ReferenceSummary {
+  return {
+    id: row.id,
+    name: row.name,
+    sourceUrl: row.source_url,
+    method: row.method as ReferenceMethod,
+    status: row.status as ReferenceStatus,
+    stage: row.stage,
+    progress: toFiniteNumber(row.progress, "progress"),
+    failureReason: typeof row.failure_reason === "string" ? row.failure_reason : null,
+    families: toJson<string[]>(row.families),
+    vocabulary: toJson<string[]>(row.vocabulary),
+    styleBrief: row.style_brief,
+    snapshots: toJson<ReferenceSnapshot[]>(row.snapshots),
+    provenance: toJson<ReferenceProvenance>(row.provenance),
+    revision,
+    usedInProjects,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  };
+}
+
+type ReferenceProfileRow = {
+  id: string;
+  reference_id: string;
+  revision: unknown;
+  profile: unknown;
+  evidence: unknown;
+  provenance: unknown;
+  author: unknown;
+  note: unknown;
+  created_at: unknown;
+};
+
+function mapReferenceProfile(row: ReferenceProfileRow): ReferenceProfileRevision {
+  return {
+    id: row.id,
+    referenceId: row.reference_id,
+    revision: toFiniteNumber(row.revision, "revision"),
+    profile: toJson<ReferenceProfile>(row.profile),
+    evidence: toJson<ReferenceEvidence[]>(row.evidence),
+    provenance: toJson<ReferenceProvenance>(row.provenance),
+    author: toJson<ReferenceProfileRevision["author"]>(row.author),
+    note: typeof row.note === "string" ? row.note : null,
+    createdAt: toIso(row.created_at),
+  };
+}
+
+type ReferenceJobRow = {
+  id: string;
+  reference_id: string;
+  status: string;
+  stage: string;
+  progress: unknown;
+  attempts: unknown;
+  max_attempts: unknown;
+  next_attempt_at: unknown;
+  last_error: unknown;
+  created_at: unknown;
+  updated_at: unknown;
+  finished_at: unknown;
+};
+
+function mapReferenceJob(row: ReferenceJobRow): ReferenceJob {
+  return {
+    id: row.id,
+    referenceId: row.reference_id,
+    status: row.status as ReferenceJobStatus,
+    stage: row.stage,
+    progress: toFiniteNumber(row.progress, "progress"),
+    attempts: toFiniteNumber(row.attempts, "attempts"),
+    maxAttempts: toFiniteNumber(row.max_attempts, "max_attempts"),
+    nextAttemptAt: toIso(row.next_attempt_at),
+    lastError: typeof row.last_error === "string" ? row.last_error : null,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+    finishedAt:
+      row.finished_at === null || row.finished_at === undefined ? null : toIso(row.finished_at),
+  };
+}
+
+type ReferenceAssignmentRow = {
+  id: string;
+  site_id: string;
+  reference_id: string;
+  scales: unknown;
+  priority: unknown;
+  created_at: unknown;
+  updated_at: unknown;
+};
+
+function mapReferenceAssignment(row: ReferenceAssignmentRow): ReferenceAssignment {
+  return {
+    id: row.id,
+    siteId: row.site_id,
+    referenceId: row.reference_id,
+    scales: toJson<ReferenceScale[]>(row.scales),
+    priority: toFiniteNumber(row.priority, "priority"),
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
   };
 }

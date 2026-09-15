@@ -530,3 +530,204 @@ export type SubmissionRow = {
   sourcePath: string | null;
   values: { key: string; label: string; value: string }[];
 };
+
+// -------------------------------------------------------- references (T14)
+
+export const REFERENCE_STATUSES = ["analyzing", "ready", "failed"] as const;
+export type ReferenceStatus = (typeof REFERENCE_STATUSES)[number];
+
+export const REFERENCE_JOB_STATUSES = [
+  "queued",
+  "running",
+  "done",
+  "failed",
+] as const;
+export type ReferenceJobStatus = (typeof REFERENCE_JOB_STATUSES)[number];
+
+// Evidence levels of the pipeline (research/29 §3): measured at runtime,
+// observed in a sweep, or guessed from markup. Never upgraded.
+export const EVIDENCE_LEVELS = ["confirmed", "observed", "inferred"] as const;
+export type EvidenceLevel = (typeof EVIDENCE_LEVELS)[number];
+
+// The scales a reference can be assigned to a project (artifacts/28 §3).
+export const REFERENCE_SCALES = ["color", "type", "motion", "rest"] as const;
+export type ReferenceScale = (typeof REFERENCE_SCALES)[number];
+
+export type ReferenceEvidence = {
+  claim: string;
+  level: EvidenceLevel;
+  source: string;
+  conflictWith?: string;
+};
+
+// One frequency-ranked value with its Belegstellen (research/29 §2.3).
+export type ReferenceToken = {
+  value: string;
+  uses: number;
+  where: string[];
+  role: string | null;
+  level: EvidenceLevel;
+};
+
+export type ReferenceTypeStep = {
+  role: string;
+  size: string;
+  lineHeight: string | null;
+  weight: number | null;
+  uses: number;
+  where: string[];
+  level: EvidenceLevel;
+};
+
+// Reveal/effect inventory with the exact runtime params, mapped to the
+// preset catalog of artifacts/03 (`preset: null` = not in the v1 catalog).
+export type ReferenceMotionRecipe = {
+  name: string;
+  preset: string | null;
+  trigger: string;
+  params: Record<string, string>;
+  mechanism: string;
+  uses: number;
+  where: string[];
+  level: EvidenceLevel;
+};
+
+export type ReferenceSurface = {
+  kind: "canvas" | "video" | "svg" | "iframe" | "webgl" | "webgpu" | "css";
+  detail: string;
+  level: EvidenceLevel;
+  note: string | null;
+};
+
+export type ReferenceAsset = {
+  kind: "image" | "logo" | "font" | "video" | "icon";
+  ref: string;
+  where: string[];
+  identityRisk: boolean;
+};
+
+export type ReferenceComponent = {
+  name: string;
+  variants: string[];
+  evidence: EvidenceLevel;
+};
+
+export type ReferenceGuardrailFinding = {
+  code: string;
+  severity: "hard" | "soft";
+  message: string;
+  suggestion: string;
+  field?: string;
+};
+
+export type ReferenceCustomProperty = {
+  name: string;
+  value: string;
+  role: string | null;
+};
+
+export type ReferenceProfile = {
+  tokens: {
+    color: ReferenceToken[];
+    type: ReferenceTypeStep[];
+    families: ReferenceToken[];
+    space: ReferenceToken[];
+    radius: ReferenceToken[];
+    shadow: ReferenceToken[];
+  };
+  breakpoints: number[];
+  customProperties: ReferenceCustomProperty[];
+  motion: ReferenceMotionRecipe[];
+  surfaces: ReferenceSurface[];
+  libraries: string[];
+  assets: ReferenceAsset[];
+  components: ReferenceComponent[];
+  families: string[];
+  vocabulary: string[];
+  rules: { constants: string[]; never: string[] };
+  styleBrief: string;
+  guardrails: ReferenceGuardrailFinding[];
+  // Reduced profile: the snapshot fallback cannot measure runtime styles.
+  reduced: boolean;
+};
+
+export type ReferenceSnapshot = {
+  breakpoint: string;
+  width: number;
+  height: number;
+  kind: "fullpage" | "section";
+  storageRef: string;
+  hash: string;
+};
+
+export type ReferenceMethod = "playwright" | "snapshot";
+
+export type ReferenceProvenance = {
+  url: string;
+  capturedAt: string;
+  hash: string;
+  method: ReferenceMethod;
+  note: string | null;
+};
+
+export type ReferenceProfileRevision = {
+  id: string;
+  referenceId: string;
+  revision: number;
+  profile: ReferenceProfile;
+  evidence: ReferenceEvidence[];
+  provenance: ReferenceProvenance;
+  author: Author;
+  note: string | null;
+  createdAt: string;
+};
+
+export type Reference = {
+  id: string;
+  name: string;
+  sourceUrl: string;
+  status: ReferenceStatus;
+  progress: number;
+  stage: string;
+  method: ReferenceMethod;
+  failureReason: string | null;
+  families: string[];
+  vocabulary: string[];
+  styleBrief: string;
+  snapshots: ReferenceSnapshot[];
+  provenance: ReferenceProvenance;
+  revision: number;
+  profile: ReferenceProfile | null;
+  evidence: ReferenceEvidence[];
+  usedInProjects: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+// Card view of the Referenzen tab: no profile payload.
+export type ReferenceSummary = Omit<Reference, "profile" | "evidence">;
+
+export type ReferenceJob = {
+  id: string;
+  referenceId: string;
+  status: ReferenceJobStatus;
+  stage: string;
+  progress: number;
+  attempts: number;
+  maxAttempts: number;
+  nextAttemptAt: string;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
+};
+
+export type ReferenceAssignment = {
+  id: string;
+  siteId: string;
+  referenceId: string;
+  scales: ReferenceScale[];
+  priority: number;
+  createdAt: string;
+  updatedAt: string;
+};
