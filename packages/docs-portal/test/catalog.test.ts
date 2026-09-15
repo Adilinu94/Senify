@@ -1,0 +1,71 @@
+import { describe, expect, it } from "vitest";
+import { TOOLS } from "@senify/mcp";
+import { EXPECTED_SECTION_TYPES } from "@senify/registry";
+import {
+  ERROR_GUIDES,
+  errorCatalog,
+  sectionCatalog,
+  toolCatalog,
+} from "@senify/docs-portal";
+
+describe("docs catalog (single sources)", () => {
+  it("mirrors the registry, the tool catalog and the error categories", () => {
+    const sections = sectionCatalog();
+    expect(sections.map((section) => section.type)).toEqual([
+      ...EXPECTED_SECTION_TYPES,
+    ]);
+    expect(toolCatalog()).toHaveLength(TOOLS.length);
+    expect(errorCatalog().map((error) => error.category)).toEqual([
+      "validation",
+      "guardrail",
+      "conflict",
+      "auth",
+      "not_found",
+    ]);
+  });
+
+  it("carries props, variants and the golden example per section", () => {
+    const hero = sectionCatalog().find((section) => section.type === "hero");
+    expect(hero?.title).toBe("Hero");
+    expect(hero?.props.some((prop) => prop.key === "headline")).toBe(true);
+    expect(hero?.variants.map((variant) => variant.name)).toContain("centered");
+    expect(hero?.golden).toContain('"type": "hero"');
+    expect(hero?.motionPresets.length).toBeGreaterThan(0);
+  });
+
+  it("derives tool parameters from the JSON schemas", () => {
+    const apply = toolCatalog().find((tool) => tool.name === "apply_mutations");
+    expect(apply?.scope).toBe("write");
+    expect(
+      apply?.parameters
+        .filter((parameter) => parameter.required)
+        .map((parameter) => parameter.name),
+    ).toEqual(["pageId", "baseDraftVersion", "mutations"]);
+    expect(
+      apply?.parameters.find((parameter) => parameter.name === "mutations")
+        ?.type,
+    ).toBe("array<object>");
+  });
+
+  it("assigns every tool one of the three scopes", () => {
+    const scopes = new Set(toolCatalog().map((tool) => tool.scope));
+    expect([...scopes].sort()).toEqual(["publish", "read", "write"]);
+    expect(
+      toolCatalog().find((tool) => tool.name === "publish_release")?.scope,
+    ).toBe("publish");
+  });
+
+  it("documents every error category with an example and a suggestion", () => {
+    for (const error of errorCatalog()) {
+      expect(ERROR_GUIDES[error.category].title.length).toBeGreaterThan(0);
+      expect(error.summary.length).toBeGreaterThan(0);
+      expect(error.example.message.length).toBeGreaterThan(0);
+      expect(error.example.suggestion.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("is deterministic", () => {
+    expect(JSON.stringify(sectionCatalog())).toBe(JSON.stringify(sectionCatalog()));
+    expect(JSON.stringify(toolCatalog())).toBe(JSON.stringify(toolCatalog()));
+  });
+});
