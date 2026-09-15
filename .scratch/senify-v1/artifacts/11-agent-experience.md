@@ -62,3 +62,9 @@ senify setup
 |---|---|
 | Portal generiert dieselben Referenzen als Doku (+ `llms.txt`) | 12 |
 | Profile setzen Defaults, die der Master-Flow beachtet („schlicht ist Normalfall") | 21 |
+
+## Nachtrag 15.09.2026 (Asset-Beschaffung → `research/32`)
+
+- **Bild-Assets:** Agenten generieren lokal mit dem Agenten-Skill **`image-use`** (MIT; ChatGPT-/Gemini-Anmeldung inkl. Free-Tier, kein API-Key; `--composition-ref` passt zur „Inspiration, kein Klon"-Regel) oder nutzen lizenzfreie Stock-Quellen; Upload in die Mediathek via `upload_asset`. Icons: Open-Source-Sets (Lucide/Phosphor/Heroicons). Fonts: kuratiert (07).
+- **Skillpaket erhält `references/assets.md`** (Beschaffungs-Workflow + Guardrails: keine Marken/Personen/Produkte 1:1, Lizenzen, Alt-Pflicht).
+- **v2-Kandidat:** generischer „Generieren"-Hook in der Medien-Bibliothek (ruft lokal konfigurierte Generatoren auf; austauschbar, nicht vendor-fixiert).

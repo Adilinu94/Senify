@@ -11,6 +11,7 @@
 - [ ] Tokens: anlegen (Secret einmal sichtbar, serverseitig nur Hash), widerrufen (wirkt sofort), Liste mit letzter Nutzung; Rate-Limits (60/min, Burst 20; destruktiv 10/min) mit `retry-after`
 - [ ] Audit-Log: Zeit, Token/Client, Tool, Args-Kurzfassung (Secrets redigiert), Ergebnis, Entität, Dauer — append-only
 - [ ] `senify setup` richtet MCP + Token + Skillpaket ein und endet mit Check (`whoami` + `list_sites` → „arbeitsfähig ✓"); `mcp configure` erkennt die Agenten-Clients
+- [ ] Skill-Referenz `assets.md`: Beschaffungs-Workflow (Bilder generieren z. B. mit `image-use` oder lizenzfreie Stock-Quellen → `upload_asset`; Icons aus Open-Source-Sets), Lizenz-/Marken-Guardrails, Alt-Text-Pflicht (Grundlage: `research/32`)
 - [ ] MCP-Workflow-Test (Prüfstelle 3): „Seite anlegen → Sektionen einfügen → prüfen" läuft komplett über den MCP-Client
 
 Quellen: `artifacts/04`, `artifacts/10`, `artifacts/11` (Skillpaket-Basis), Spec „MCP-Vertrag (Kern)".
