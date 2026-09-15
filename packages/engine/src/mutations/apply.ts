@@ -285,9 +285,17 @@ function buildNode(
 ): Node {
   assertRegistered(state.registry, spec.type, `${fieldPrefix}.type`);
   const definition = state.registry.get(spec.type);
-  const props = spec.props ?? {};
-  throwOnIssues(validatePropValues(definition, props, `${fieldPrefix}.props`));
   assertVariant(definition, spec.variant, `${fieldPrefix}.variant`);
+  // Variant presets supply curated defaults; explicit props always win.
+  const preset =
+    (spec.variant !== undefined
+      ? definition.variants?.[spec.variant]?.preset
+      : undefined) ?? {};
+  const props: Record<string, PropValue> = {
+    ...(preset as Record<string, PropValue>),
+    ...(spec.props ?? {}),
+  };
+  throwOnIssues(validatePropValues(definition, props, `${fieldPrefix}.props`));
   const id = spec.id ?? newNodeId();
   if (state.tree.nodes.has(id)) {
     throw new SenifyError(

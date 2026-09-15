@@ -356,6 +356,33 @@ describe("props, meta, overrides, motion", () => {
     expect(good.status).toBe(200);
   });
 
+  it("merges variant presets with explicit props winning", async () => {
+    const merged = await apply([
+      {
+        op: "insertNode",
+        parent: { nodeId: page.draft.rootNodeId },
+        node: { id: "preset-box", type: "container", variant: "boxed" },
+      },
+    ]);
+    expect(merged.status).toBe(200);
+    expect(propsOf(page, "preset-box").eyebrow).toBe("Boxed default");
+
+    const explicit = await apply([
+      {
+        op: "insertNode",
+        parent: { nodeId: page.draft.rootNodeId },
+        node: {
+          id: "preset-box-2",
+          type: "container",
+          variant: "boxed",
+          props: { eyebrow: "Eigen" },
+        },
+      },
+    ]);
+    expect(explicit.status).toBe(200);
+    expect(propsOf(page, "preset-box-2").eyebrow).toBe("Eigen");
+  });
+
   it("updates node meta with variant validation", async () => {
     await apply([
       {

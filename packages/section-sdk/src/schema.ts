@@ -21,6 +21,26 @@ export const PropOptionSchema = Type.Object({
 });
 export type PropOption = Static<typeof PropOptionSchema>;
 
+export const HiddenConditionSchema = Type.Object({
+  prop: Type.String({ minLength: 1 }),
+  equals: Type.Optional(Type.Unsafe<PropValue>(Type.Any())),
+  notEquals: Type.Optional(Type.Unsafe<PropValue>(Type.Any())),
+});
+export type HiddenCondition = Static<typeof HiddenConditionSchema>;
+
+export function isPropHidden(
+  hidden: boolean | HiddenCondition | undefined,
+  props: Record<string, PropValue>,
+): boolean {
+  if (hidden === undefined) return false;
+  if (typeof hidden === "boolean") return hidden;
+  if (hidden.equals !== undefined) return props[hidden.prop] === hidden.equals;
+  if (hidden.notEquals !== undefined) {
+    return props[hidden.prop] !== hidden.notEquals;
+  }
+  return false;
+}
+
 export const PropSpecSchema = Type.Object({
   key: Type.String({ minLength: 1 }),
   schema: Type.Optional(Type.Unsafe<TSchema>(Type.Any())),
@@ -31,7 +51,9 @@ export const PropSpecSchema = Type.Object({
   max: Type.Optional(Type.Number()),
   step: Type.Optional(Type.Number()),
   options: Type.Optional(Type.Array(PropOptionSchema)),
-  hidden: Type.Optional(Type.Boolean()),
+  hidden: Type.Optional(
+    Type.Union([Type.Boolean(), HiddenConditionSchema]),
+  ),
 });
 export type PropSpec = Static<typeof PropSpecSchema>;
 
@@ -157,6 +179,16 @@ export const GoldenSchema = Type.Object({
     tablet: Type.Optional(Type.String()),
     mobile: Type.Optional(Type.String()),
   }),
+  variantThumbnails: Type.Optional(
+    Type.Record(
+      Type.String(),
+      Type.Object({
+        desktop: Type.Optional(Type.String()),
+        tablet: Type.Optional(Type.String()),
+        mobile: Type.Optional(Type.String()),
+      }),
+    ),
+  ),
 });
 export type Golden = Static<typeof GoldenSchema>;
 

@@ -21,7 +21,7 @@ export const containerSection: SectionDefinition = {
   category: "content",
   props: [{ key: "eyebrow", control: "text", label: "Eyebrow" }],
   variants: {
-    boxed: { label: "Boxed", preset: {} },
+    boxed: { label: "Boxed", preset: { eyebrow: "Boxed default" } },
     full: { label: "Full width", preset: {} },
   },
   slots: {

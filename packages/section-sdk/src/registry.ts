@@ -93,6 +93,17 @@ export function validateDefinition(
       });
     }
     seen.add(spec.key);
+    if (
+      typeof spec.hidden === "object" &&
+      spec.hidden.equals !== undefined &&
+      spec.hidden.notEquals !== undefined
+    ) {
+      issues.push({
+        path: `section(${definition.type}).props.${spec.key}.hidden`,
+        message: `Hidden condition for "${spec.key}" sets both "equals" and "notEquals"`,
+        suggestion: 'Use exactly one of "equals" or "notEquals" (primitive values only).',
+      });
+    }
   }
   return issues;
 }
@@ -127,6 +138,44 @@ export class Registry {
         `Golden example for "${definition.type}" is invalid: ${goldenIssues[0]?.message ?? "unknown error"}`,
         { field: goldenIssues[0]?.path },
       );
+    }
+
+    if (definition.variants) {
+      const variantNames = Object.keys(definition.variants);
+      const goldenVariant = definition.golden.tree.variant;
+      if (goldenVariant !== undefined && !variantNames.includes(goldenVariant)) {
+        throw new SenifyError(
+          "validation",
+          `Golden variant "${goldenVariant}" of "${definition.type}" is not a declared variant`,
+          {
+            field: "golden.tree.variant",
+            suggestion: `Declared variants: ${variantNames.join(", ")}.`,
+          },
+        );
+      }
+      for (const name of Object.keys(definition.golden.variantThumbnails ?? {})) {
+        if (!variantNames.includes(name)) {
+          throw new SenifyError(
+            "validation",
+            `Thumbnail set "${name}" of "${definition.type}" is not a declared variant`,
+            { field: `golden.variantThumbnails.${name}` },
+          );
+        }
+      }
+      for (const [name, variant] of Object.entries(definition.variants)) {
+        const presetIssues = validatePropValues(
+          definition,
+          variant.preset as Record<string, PropValue>,
+          `variants.${name}.preset`,
+        );
+        if (presetIssues.length > 0) {
+          throw new SenifyError(
+            "validation",
+            `Invalid preset for variant "${name}" of "${definition.type}": ${presetIssues[0]?.message ?? "unknown error"}`,
+            { field: presetIssues[0]?.path },
+          );
+        }
+      }
     }
 
     this.#sections.set(definition.type, definition);

@@ -13,7 +13,7 @@ export function heroDefinition(): SectionDefinition {
       { key: "columns", control: "number", label: "Columns", schema: Type.Number() },
     ],
     variants: {
-      centered: { label: "Centered", preset: { align: "center" } },
+      centered: { label: "Centered", preset: { headline: "Centered welcome" } },
     },
     allowedChildren: "none",
     motionPresets: ["masked-headline", "fade-up"],

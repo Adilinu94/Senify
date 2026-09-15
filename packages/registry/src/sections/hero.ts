@@ -1,9 +1,6 @@
 import { Type } from "@sinclair/typebox";
-import {
-  ColorValueSchema,
-  LinkValueSchema,
-  type SectionDefinition,
-} from "@senify/section-sdk";
+import { LinkValueSchema, type SectionDefinition } from "@senify/section-sdk";
+import { backgroundStyleProp, thumbs } from "../shared.ts";
 
 export const heroSection: SectionDefinition = {
   type: "hero",
@@ -29,29 +26,20 @@ export const heroSection: SectionDefinition = {
       group: "Actions",
       schema: Type.Array(
         Type.Object({
-          label: Type.String(),
+          label: Type.String({ minLength: 1 }),
           link: LinkValueSchema,
         }),
       ),
     },
-    { key: "visual", control: "slot", label: "Visual", group: "Content" },
   ],
   variants: {
     centered: { label: "Centered", preset: {} },
     split: { label: "Split", preset: {} },
     "showcase-3d": { label: "Showcase 3D", preset: {} },
   },
-  styleProps: [
-    {
-      key: "background",
-      control: "color",
-      label: "Background",
-      group: "Styling",
-      schema: Type.Optional(ColorValueSchema),
-    },
-  ],
+  styleProps: [backgroundStyleProp()],
   slots: {
-    visual: { max: 1 },
+    visual: { allowedTypes: ["media"], max: 1 },
   },
   allowedChildren: "none",
   motionPresets: ["masked-headline", "fade-up", "fade-up-deblur"],
@@ -69,10 +57,10 @@ export const heroSection: SectionDefinition = {
         ],
       },
     },
-    thumbnails: {
-      desktop: "thumbnails/hero-centered-1440.png",
-      tablet: "thumbnails/hero-centered-810.png",
-      mobile: "thumbnails/hero-centered-390.png",
+    thumbnails: thumbs("hero", "centered"),
+    variantThumbnails: {
+      split: thumbs("hero", "split"),
+      "showcase-3d": thumbs("hero", "showcase-3d"),
     },
   },
 };
