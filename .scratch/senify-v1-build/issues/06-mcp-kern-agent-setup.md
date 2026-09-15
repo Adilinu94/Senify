@@ -15,3 +15,34 @@
 - [ ] MCP-Workflow-Test (Prüfstelle 3): „Seite anlegen → Sektionen einfügen → prüfen" läuft komplett über den MCP-Client
 
 Quellen: `artifacts/04`, `artifacts/10`, `artifacts/11` (Skillpaket-Basis), Spec „MCP-Vertrag (Kern)".
+
+## Handoff für die ausführende Session (Stand 15.09.2026)
+
+**Auftrag:** Dieses Ticket vollständig umsetzen (Kriterien oben), autonom, mit Tests und einem Commit.
+
+**Anlaufpunkte:** `AGENTS.md`, `CONTEXT.md`, `spec.md` (Abschnitte „MCP-Vertrag (Kern)" und „Testing Decisions → Prüfstelle 3"), `artifacts/04` (Topologie, Scopes, Rate-Limits, Audit), `artifacts/10` (Tool-Katalog + `apply_mutations`-Vertrag), `artifacts/11` (Skillpaket-Basis), `research/30` (MCP-Spec-Stand).
+
+**Ist-Stand:** T01–T05 und T16 sind committet, `pnpm verify` grün (164 Tests + 2 skipped). Vorhanden sind `engine` (HTTP-API, kanonische Mutations, Theme-API + Report, Audit-Tabelle), `section-sdk`, `registry` (25 Sektionen + React-Komponenten + Style-System), `tokens`, `renderer` (Astro-Bake). `mcp` ist ein CLI-Skelett ohne Funktion. **Es gibt noch keine Auth** — Tokens, Scopes, Rate-Limits und der MCP-Call-Audit entstehen in diesem Ticket.
+
+**Vorgehen (Vorschlag):**
+1. Engine: Token-Tabelle (`api_tokens`: id, name, scopes, token_hash, created_at, expires_at, last_used_at, revoked_at), Secret über `node:crypto` (hoch-entropisch, einmalig sichtbar, serverseitig nur Hash), Endpunkte anlegen/listen/revoke; Bearer-Middleware für `read`/`write`/`publish`; 401/403 im bestehenden Fehlerformat mit Handlungsanweisung („create a token with publish scope").
+2. Rate-Limits pro Token (60/min, Burst 20; destruktive Ops 10/min) → 429 mit `retry-after`.
+3. MCP-Call-Audit append-only (Zeit, Token/Client, Tool, Args-Kurzfassung mit redigierten Secrets, Ergebnis, Entität, Dauer).
+4. `mcp`-Paket: offizielles MCP-SDK, **stdio**-Transport, Tool-Kern transport-agnostisch (Definition und Handler getrennt). Tools: `whoami`, `list_sites`, `get_site`, `list_pages`, `get_page` (Outline), `get_nodes`, `list_sections`, `get_section`, `get_theme`, `apply_mutations`, `create_page`, `update_theme`. `restore_revision` erst mit T07 (Revisionen existieren noch nicht) — weglassen und im Ticket-Kommentar vermerken.
+5. CLI: `tokens create|list|revoke`, `mcp configure [--print]` (Claude Code/Cursor/opencode erkennen), `setup` (Token + MCP-Config + Skills; Abschluss-Check `whoami` + `list_sites` → „arbeitsfähig ✓").
+6. `skills`-Paket: Knowledge-Router, Master-Flow „Site aus Brief", `assets.md` (Beschaffung: generieren mit `image-use` oder lizenzfreie Quellen → `upload_asset`; Icons aus Open-Source-Sets; Lizenz- und Marken-Guardrails; Alt-Text-Pflicht; Grundlage `research/32`).
+7. Tests (Prüfstelle 3): Workflow „Seite anlegen → Sektionen einfügen → prüfen" komplett über den MCP-Client; dazu Token-/Scope-/Revoke-/Rate-Limit-Tests und Audit-Tests.
+
+**Verträge, die schon existieren (nicht neu erfinden):**
+- `apply_mutations`: Body/Response in `packages/engine/src/mutations/contract.ts` (`baseDraftVersion`, `author`, `dry_run`, `mutations[]` → `newDraftVersion`, `undoBatchId`, `warnings[]`, `results[]`).
+- Fehlerformat `{ error: { category: "validation"|"guardrail"|"conflict"|"auth"|"not_found", message, opIndex?, field?, suggestion? } }`.
+- `author { kind: "human"|"agent", id, label }` — MCP-Calls setzen `kind: "agent"`, `id` = Token-Name.
+- Mutationen: `insertNode`, `deleteNode`, `duplicateNode`, `moveNode`, `wrapNode`, `updateNodeProps`, `updateNodeMeta`, `setBreakpointOverride`, `clearBreakpointOverride`, `setMotion`, `clearMotion`, `updatePageMeta`.
+- Style-Werte sind Token-Ref (`{ "$token": "accent" }`) oder freier Wert; Rohwert-Warnungen kommen als `warnings[]`.
+- Engine-Routen und Testmuster: `packages/engine/src/http.ts`, `packages/engine/test/`.
+
+**Randbedingungen:**
+- Keine Rückwärtskompatibilitäts-Hacks, keine ungenutzten Exporte, Kommentare sparsam.
+- Postgres: Docker fehlt; Tests laufen standardmäßig gegen pg-mem (Warnung), `TEST_DATABASE_URL` für echten Postgres (Wegwerf-Schema, `options=-c search_path=…`). pg-mem-Eigenheiten: `rowCount` immer 0 (RETURNING nutzen), Top-Level-Arrays an jsonb werden entpackt (`toJsonParam`), `ROLLBACK` wird ignoriert.
+- `pnpm verify` muss vor dem Commit grün sein; danach ein Commit `T06: MCP-Kern & Agent-Setup - …`; Ticket-Status und `## Comments` aktualisieren.
+- Sprache: Deutsch mit englischen Fachbegriffen.
