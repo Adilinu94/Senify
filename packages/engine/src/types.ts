@@ -217,6 +217,23 @@ export type CheckReport = {
 export const ASSET_KINDS: readonly AssetKind[] = ["image", "video", "document"];
 export type AssetKind = "image" | "video" | "document";
 
+export const ASSET_VARIANT_FORMATS: readonly AssetVariantFormat[] = [
+  "avif",
+  "webp",
+];
+export type AssetVariantFormat = "avif" | "webp";
+
+// One encoded ladder rung of an image asset (AVIF or WebP at a fixed width).
+export type AssetVariant = {
+  id: string;
+  assetId: string;
+  width: number;
+  format: AssetVariantFormat;
+  storageRef: string;
+  byteSize: number;
+  createdAt: string;
+};
+
 export type AssetStatus = "ready" | "trashed";
 
 // "missing" is never stored: it marks an assetId that has no record at all.
@@ -238,6 +255,10 @@ export type Asset = {
   tags: string[];
   storageRef: string;
   status: AssetStatus;
+  // Derived image data: the encoded ladder and the placeholder hash. Empty for
+  // non-image assets and for images the encoder could not process.
+  variants: AssetVariant[];
+  blurhash: string | null;
   createdAt: string;
   updatedAt: string;
   replacedAt: string | null;

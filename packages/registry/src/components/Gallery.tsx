@@ -6,8 +6,10 @@ import {
   cx,
   gapStyle,
   headingStyle,
+  imageSizes,
   mediaStyle,
   resolveAsset,
+  ResponsiveImage,
   SectionShell,
   str,
   type SectionProps,
@@ -54,11 +56,10 @@ export function Gallery({ node, ctx }: SectionProps): React.JSX.Element {
                 <li key={index}>
                   <figure>
                     {asset && (
-                      <img
-                        src={asset.src}
+                      <ResponsiveImage
+                        asset={asset}
                         alt={typeof item.caption === "string" && item.caption !== "" ? item.caption : `Bild ${index + 1}`}
-                        loading="lazy"
-                        data-missing-asset={asset.missing ? "" : undefined}
+                        sizes={imageSizes(node)}
                         className="aspect-[4/3] w-full object-cover"
                         style={{ ...mediaStyle(node), ...aspectStyle(node) }}
                       />

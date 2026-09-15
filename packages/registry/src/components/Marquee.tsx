@@ -1,4 +1,11 @@
-import { mediaStyle, resolveAsset, SectionShell, type SectionProps } from "./shared.tsx";
+import {
+  imageSizes,
+  mediaStyle,
+  resolveAsset,
+  ResponsiveImage,
+  SectionShell,
+  type SectionProps,
+} from "./shared.tsx";
 
 export function Marquee({ node, ctx }: SectionProps): React.JSX.Element {
   const items = (Array.isArray(node.props.items) ? node.props.items : []) as {
@@ -19,11 +26,10 @@ export function Marquee({ node, ctx }: SectionProps): React.JSX.Element {
         return (
           <li key={index} className="mx-6 whitespace-nowrap font-[var(--font-display)] text-xl font-bold">
             {asset ? (
-              <img
-                src={asset.src}
+              <ResponsiveImage
+                asset={asset}
                 alt={typeof item.text === "string" ? item.text : ""}
-                loading="lazy"
-                data-missing-asset={asset.missing ? "" : undefined}
+                sizes={imageSizes(node)}
                 className="h-8 w-auto"
                 style={mediaStyle(node, "0px")}
               />

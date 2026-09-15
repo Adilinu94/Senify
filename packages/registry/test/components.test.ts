@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { SectionTree } from "@senify/registry/components";
+import {
+  SectionTree,
+  type SectionContext,
+} from "@senify/registry/components";
 import type { Node } from "@senify/section-sdk";
 
 const ctx = { pagePaths: {}, assets: {} };
@@ -9,6 +12,26 @@ function render(nodes: Record<string, Node>, rootNodeId = "root"): string {
   return renderToStaticMarkup(
     SectionTree({ rootNodeId, nodes, ctx }),
   );
+}
+
+function renderWithContext(
+  nodes: Record<string, Node>,
+  context: SectionContext,
+  rootNodeId = "root",
+): string {
+  return renderToStaticMarkup(SectionTree({ rootNodeId, nodes, ctx: context }));
+}
+
+function mediaNode(): Record<string, Node> {
+  return {
+    root: { id: "root", type: "page", props: {}, children: ["m"] },
+    m: {
+      id: "m",
+      type: "media",
+      variant: "image",
+      props: { asset: { assetId: "a1" }, caption: "Motiv" },
+    },
+  };
 }
 
 describe("section components", () => {
@@ -133,5 +156,42 @@ describe("section components", () => {
     expect(html).toContain("padding:var(--card-pad, 1.5rem)");
     expect(html).toContain("--button-bg:#123456");
     expect(html).toContain("background-color:var(--button-bg, var(--accent))");
+  });
+
+  it("builds a <picture> when the bake delivered variants", () => {
+    const html = renderWithContext(mediaNode(), {
+      pagePaths: {},
+      assets: {
+        a1: {
+          src: "/assets/a1/motiv.png?v=1",
+          width: 1024,
+          height: 768,
+          blurhash: "L6PZfSi_.AyE_3t7t7R",
+          variants: [
+            { format: "avif", width: 320, url: "/assets/a1/variants/320.avif?v=1" },
+            { format: "webp", width: 320, url: "/assets/a1/variants/320.webp?v=1" },
+          ],
+        },
+      },
+    });
+    expect(html).toContain("<picture>");
+    expect(html).toContain('type="image/avif"');
+    expect(html).toContain('type="image/webp"');
+    expect(html).toMatch(/srcSet="\/assets\/a1\/variants\/320\.webp\?v=1 320w"/i);
+    expect(html).toContain('sizes="100vw"');
+    expect(html).toContain('width="1024"');
+    expect(html).toContain('height="768"');
+    expect(html).toContain("data-blurhash=");
+  });
+
+  it("falls back to a plain <img> without variants", () => {
+    const html = renderWithContext(mediaNode(), {
+      pagePaths: {},
+      assets: { a1: "/assets/a1/motiv.png?v=1" },
+    });
+    expect(html).toContain("<img");
+    expect(html).not.toContain("<picture");
+    expect(html).not.toMatch(/srcset/i);
+    expect(html).not.toContain("data-blurhash");
   });
 });

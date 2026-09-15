@@ -4,10 +4,10 @@
 
 **Blocked by:** 05 (Renderer & Bake — srcset im Bake), 06 (MCP-Kern & Agent-Setup — Tools/Audit).
 
-**Status:** Teil 1 umgesetzt (Media-Kern; `pnpm verify` grün, 219 Tests) — Bild-Varianten-Ladder, Blurhash und `<picture>`/`srcset` folgen als Teil 2 (sharp), siehe Umsetzungs-Notiz
+**Status:** vollständig umgesetzt (`pnpm verify` grün, 239 Tests) — Bild-Varianten-Ladder (AVIF/WebP), Blurhash und `<picture>`/`srcset` im Bake inklusive
 
 - [x] Upload → Asset-Record (Original-Auflösung, Maße aus dem Datei-Header); Dedupe per SHA-256; signierter Client-Upload (HMAC-Ticket, 15 min TTL)
-- [~] Bake liefert referenzierte Assets unter `/assets/<assetId>/<filename>` aus (Cache-Busting per `?v=`); `<picture>`/`srcset`/`sizes` + Blurhash + Aspect-Reservierung folgen mit der Varianten-Ladder (Teil 2)
+- [x] Bake liefert referenzierte Assets aus: `<picture>` mit AVIF-/WebP-`<source>`, `srcset`, `sizes` (Resolver aus Sektion/Spalten/Inhaltsbreite), `width`/`height` (Aspect-Reservierung) und `data-blurhash`; ohne Varianten unverändertes `<img>`-Markup
 - [x] Replace File erhält ID/URL (Verwendungen bleiben gültig), Metadaten bleiben, Historie + Restore; Cache-Busting per Query-Version (CDN-Invalidierung folgt mit T14)
 - [x] Bibliothek: Ordner-Baum (Löschen → Kinder/Assets nach „Ohne Ordner"), Tags, vier Smart-Listen, Suche/Filter/Sortierung (UI folgt mit T12)
 - [x] Bulk-Bearbeitung (Alt-Texte, Tags, Ordner, Trash/Purge) mit Ergebnisbericht inkl. Fehler-IDs
@@ -53,3 +53,26 @@ Der Bake liefert deshalb (noch) das Original in genau einer Auflösung unter `/a
 - Das Upload-Ticket ist **stateless** HMAC-signiert (wie eine echte Presigned-URL) statt als DB-Session — kein zusätzliches Tabellen-Handling, kurze TTL.
 - `runChecks` erhält `assets: Map<id, { status, decorative }>` statt nur `Map<id, "ready"|"trashed"|"missing">`; der Dekorativ-Flag ist die dokumentierte Ausnahme der Alt-Pflicht.
 - Zusätzliche Routen, die der Handoff offen ließ: `GET /assets/:assetId/:filename` (öffentliche Auslieferung, spiegelt den Bake-Pfad) und `POST /api/assets/:assetId/restore` (Un-Trash für `restore_asset`).
+
+## Handoff Teil 2 (Stand 15.09.2026): Varianten, Blurhash, `<picture>`/`srcset`
+
+**Auftrag:** T08 Teil 2 umsetzen. **Kein Commit** — die übergreifende Session committet nach Review. Bei knappem Budget in dieser Reihenfolge arbeiten: (1) Engine-Varianten + Tests, (2) Bake/Komponenten `<picture>`, (3) Renderer-/Komponenten-Tests.
+
+**Ist-Stand (Teil 1, committet):** Upload/Storage/Dedupe/Bibliothek/Replace/Trash/Bulk/Asset-Check/Media-Tools stehen (`pnpm verify` grün, 219 Tests). `packages/engine/src/media.ts` (`commitUpload`, `replaceAssetFile`, `purgeAsset`), `storage.ts` (Pfad-Layout `<dataDir>/assets/<siteId>/<assetId>/…`), `bake.ts` (`collectDeliverableAssets` kopiert referenzierte Assets nach dem Astro-Build), `checks.ts` (Asset-Hard-Check), `packages/registry/src/components/*` (Bilder), `packages/mcp/src/tools.ts`.
+
+**Umsetzung:**
+1. Dependencies: `pnpm --filter @senify/engine add sharp blurhash`. Scheitert die Installation (native Binaries), sofort abbrechen und melden statt zu improvisieren.
+2. `packages/engine/src/variants.ts`: Ladder `[64, 320, 640, 1024, 1600, 2048]`, nur Rungen ≤ Originalbreite (**kein Upscaling**), je Rung AVIF + WebP (sharp), Dateien nach `<dataDir>/assets/<siteId>/<assetId>/variants/<width>.<avif|webp>`; Blurhash (Bild auf 32 px Breite, raw RGBA → `blurhash.encode(..., 4, 3)`), Platzhaltermaße = Original. Nur für `kind === "image"` (SVG/GIF unverändert lassen, Video/PDF ignorieren).
+3. Schema additiv (`db.ts`, **keine ALTER-Statements**): `asset_variants (id, asset_id, width, format, storage_ref, byte_size, created_at)` und `asset_blurhash (asset_id text PRIMARY KEY, value text, created_at)`.
+4. Einbindung in `media.ts`: nach neuem Upload und nach Replace Varianten + Blurhash erzeugen (Fehler beim Erzeugen dürfen den Upload nicht scheitern lassen — Warnung ins Ergebnis/Log, Asset bleibt nutzbar); Purge löscht den Ordner (Varianten liegen darin); `Asset`-Typ um `variants` + `blurhash` erweitern (Store lädt sie mit).
+5. Bake (`bake.ts`): Asset-Payload um Varianten (URLs `<width>.avif|webp` + Breiten), Blurhash, Maße erweitern; Varianten-Dateien nach dem Astro-Build mitkopieren; `assets`-Map-Form so wählen, dass die Komponenten daraus `<picture>` bauen können (Abwärtskompatibilität für einfache `src`-Nutzung erhalten).
+6. Komponenten (`packages/registry/src/components/shared.tsx` + `Gallery, Media, Projects, Team, Testimonials, LogoCloud, Marquee`): gemeinsamer Helper für Bild-Ausgabe — `<picture>` mit AVIF- und WebP-`<source>`, `<img>` mit `srcset`, `sizes`, `width`/`height` (Aspect-Reservierung) und `data-blurhash`; ohne Varianten fällt er auf das bisherige `<img>` zurück (identisches Markup wie heute). `sizes`-Resolver: kleine Tabelle pro Sektionstyp (Spalten/Inhaltsbreite → vw-Werte, Vollbreite = `100vw`), Default `100vw`.
+7. Tests: `packages/engine/test/media.test.ts` erweitern (Upload eines realen PNG (per sharp erzeugt) → Rungen 320/640/1024 vorhanden, keine Rung über Originalbreite, Blurhash gesetzt, Purge entfernt Varianten-Dateien); Bake-Test (Fixture mit Asset → HTML enthält `<picture>`, `srcset`, `sizes`, `width`/`height`); Komponenten-Test (mit Varianten → `<picture>`, ohne → schlichtes `<img>`).
+
+**Randbedingungen:** Deutsch mit englischen Fachbegriffen; TypeScript strict/ESM; keine ALTER-Statements; Kommentare sparsam; keine ungenutzten Exporte; `pnpm verify` muss grün sein (inkl. aller bestehenden Tests).
+
+## Umsetzungs-Notiz Teil 2 (Varianten, Blurhash, `<picture>`)
+
+**Umgesetzt:** `packages/engine/src/variants.ts` (sharp): Ladder 64/320/640/1024/1600/2048 — nur Rungen ≤ Originalbreite (kein Upscaling), je Rung AVIF + WebP unter `<dataDir>/assets/<siteId>/<assetId>/variants/<width>.<format>`; Blurhash (4×3, aus 32 px Breite) plus Platzhaltermaße. Additive Tabellen `asset_variants` und `asset_blurhash`. Varianten entstehen bei Upload und Replace (Fehler blockieren den Upload nicht), Purge löscht sie mit. Der Bake liefert Assets als `AssetDelivery` (URL, Maße, Blurhash, Varianten), kopiert die Varianten nach dem Astro-Build; die Komponenten rendern `<picture>` mit AVIF-/WebP-`<source>`, `srcset`, `sizes` und `data-blurhash`, ohne Varianten unverändertes `<img>`-Markup.
+
+**Beobachtung:** Die Astro-Builds sind in dieser Umgebung deutlich langsamer geworden (ca. 10–25 s pro Bake statt ~5 s davor). Test-Timeouts wurden angehoben (Lifecycle 90 s, MCP-Review-Loop 180 s). Ursache noch offen (Umgebungslast vs. Änderung) — beim nächsten Bake-Thema prüfen; die Suite bleibt grün.

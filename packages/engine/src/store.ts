@@ -18,8 +18,10 @@ import { generateToken } from "./auth.ts";
 import { newEntityId, newNodeId } from "./ids.ts";
 import { validateShape } from "./mutations/contract.ts";
 import { assertPagePathFormat, draftConflictError } from "./paths.ts";
+import type { GeneratedVariant } from "./variants.ts";
 import {
   ASSET_KINDS,
+  ASSET_VARIANT_FORMATS,
   REVIEW_STATUSES,
   SITE_PROFILES,
   type ApiToken,
@@ -30,6 +32,8 @@ import {
   type AssetStatus,
   type AssetUpdate,
   type AssetUsage,
+  type AssetVariant,
+  type AssetVariantFormat,
   type AuditEntry,
   type McpAuditEntry,
   type Page,
@@ -470,6 +474,16 @@ type AssetHistoryRow = {
   created_at: unknown;
 };
 
+type AssetVariantRow = {
+  id: string;
+  asset_id: string;
+  width: unknown;
+  format: string;
+  storage_ref: string;
+  byte_size: unknown;
+  created_at: unknown;
+};
+
 function toNullableNumber(value: unknown): number | null {
   if (value === null || value === undefined) return null;
   return toFiniteNumber(value, "value");
@@ -501,6 +515,10 @@ function mapAsset(row: AssetRow): Asset {
     tags: toJson<string[]>(row.tags),
     storageRef: row.storage_ref,
     status,
+    // Derivatives come from separate tables; single-row mappers leave them
+    // empty and callers attach the loaded rows.
+    variants: [],
+    blurhash: null,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
     replacedAt: toNullableIso(row.replaced_at),
@@ -524,6 +542,22 @@ function mapAssetHistory(row: AssetHistoryRow): AssetHistoryEntry {
     assetId: row.asset_id,
     storageRef: row.storage_ref,
     mime: row.mime,
+    byteSize: toFiniteNumber(row.byte_size, "byte_size"),
+    createdAt: toIso(row.created_at),
+  };
+}
+
+function mapAssetVariant(row: AssetVariantRow): AssetVariant {
+  const format = row.format;
+  if (!ASSET_VARIANT_FORMATS.includes(format as AssetVariantFormat)) {
+    throw new Error(`Stored asset variant format is invalid: ${String(format)}`);
+  }
+  return {
+    id: row.id,
+    assetId: row.asset_id,
+    width: toFiniteNumber(row.width, "width"),
+    format: format as AssetVariantFormat,
+    storageRef: row.storage_ref,
     byteSize: toFiniteNumber(row.byte_size, "byte_size"),
     createdAt: toIso(row.created_at),
   };
@@ -1580,6 +1614,41 @@ export class Store {
     };
   }
 
+  // Loads encoded variants and blur hashes for a set of assets in two queries
+  // and merges them onto the mapped rows (single fetch per read path).
+  async #attachDerivatives(assets: Asset[]): Promise<Asset[]> {
+    if (assets.length === 0) return assets;
+    const ids = assets.map((asset) => asset.id);
+    const placeholders = ids.map((_, index) => `$${index + 1}`).join(", ");
+    const [variantRows, blurhashRows] = await Promise.all([
+      this.#db.query<AssetVariantRow>(
+        `SELECT id, asset_id, width, format, storage_ref, byte_size, created_at
+         FROM asset_variants WHERE asset_id IN (${placeholders})
+         ORDER BY asset_id ASC, width ASC, format ASC, id ASC`,
+        ids,
+      ),
+      this.#db.query<{ asset_id: string; value: string }>(
+        `SELECT asset_id, value FROM asset_blurhash
+         WHERE asset_id IN (${placeholders})`,
+        ids,
+      ),
+    ]);
+    const variants = new Map<string, AssetVariant[]>();
+    for (const row of variantRows.rows) {
+      const list = variants.get(row.asset_id) ?? [];
+      list.push(mapAssetVariant(row));
+      variants.set(row.asset_id, list);
+    }
+    const blurhashes = new Map(
+      blurhashRows.rows.map((row) => [row.asset_id, row.value]),
+    );
+    return assets.map((asset) => ({
+      ...asset,
+      variants: variants.get(asset.id) ?? [],
+      blurhash: blurhashes.get(asset.id) ?? null,
+    }));
+  }
+
   async createAsset(input: {
     id: string;
     siteId: string;
@@ -1637,7 +1706,9 @@ export class Store {
         suggestion: "List the library with `list_assets` or check the id.",
       });
     }
-    return mapAsset(row);
+    const asset = mapAsset(row);
+    const [withDerivatives = asset] = await this.#attachDerivatives([asset]);
+    return withDerivatives;
   }
 
   // Dedupe only looks at live assets: re-uploading the same bytes after a trash
@@ -1650,7 +1721,7 @@ export class Store {
       [siteId, hash],
     );
     const row = result.rows[0];
-    return row ? mapAsset(row) : undefined;
+    return row ? (await this.#attachDerivatives([mapAsset(row)]))[0] : undefined;
   }
 
   async listAssets(
@@ -1671,7 +1742,7 @@ export class Store {
              ORDER BY created_at DESC, id DESC`,
             [siteId, status],
           );
-    return result.rows.map(mapAsset);
+    return this.#attachDerivatives(result.rows.map(mapAsset));
   }
 
   async updateAsset(id: string, patch: AssetUpdate): Promise<Asset> {
@@ -1736,6 +1807,49 @@ export class Store {
         field: "assetId",
       });
     }
+  }
+
+  // Replaces ladder and blur hash atomically: callers regenerate both after an
+  // upload or replace, so stale rows never survive a dimension change.
+  async replaceAssetDerivatives(
+    assetId: string,
+    variants: readonly GeneratedVariant[],
+    blurhash: string | null,
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    await this.#db.withTransaction(async (tx) => {
+      await tx.query(`DELETE FROM asset_variants WHERE asset_id = $1`, [assetId]);
+      await tx.query(`DELETE FROM asset_blurhash WHERE asset_id = $1`, [assetId]);
+      for (const variant of variants) {
+        await tx.query(
+          `INSERT INTO asset_variants
+            (id, asset_id, width, format, storage_ref, byte_size, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [
+            newEntityId(),
+            assetId,
+            variant.width,
+            variant.format,
+            variant.storageRef,
+            variant.byteSize,
+            now,
+          ],
+        );
+      }
+      if (blurhash !== null) {
+        await tx.query(
+          `INSERT INTO asset_blurhash (asset_id, value, created_at) VALUES ($1, $2, $3)`,
+          [assetId, blurhash, now],
+        );
+      }
+    });
+  }
+
+  async deleteAssetDerivatives(assetId: string): Promise<void> {
+    await this.#db.withTransaction(async (tx) => {
+      await tx.query(`DELETE FROM asset_variants WHERE asset_id = $1`, [assetId]);
+      await tx.query(`DELETE FROM asset_blurhash WHERE asset_id = $1`, [assetId]);
+    });
   }
 
   // The check pipeline needs status + decorative for every asset of a site;

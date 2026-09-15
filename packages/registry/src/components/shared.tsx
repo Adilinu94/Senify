@@ -6,8 +6,28 @@ export { styleValue } from "../style.ts";
 
 export type SectionContext = {
   pagePaths: Record<string, string>;
-  assets: Record<string, string>;
+  assets: Record<string, AssetDelivery>;
 };
+
+export type AssetVariantFormat = "avif" | "webp";
+
+export type AssetVariant = {
+  format: AssetVariantFormat;
+  width: number;
+  url: string;
+};
+
+// A delivered asset: plain URL string (simple callers, legacy builds) or the
+// full bake payload with dimensions, blur hash and the encoded ladder.
+export type AssetDelivery =
+  | string
+  | {
+      src: string;
+      width?: number | null;
+      height?: number | null;
+      blurhash?: string | null;
+      variants?: AssetVariant[];
+    };
 
 export type SectionProps = {
   node: Node;
@@ -208,16 +228,134 @@ export function resolveLink(
   return undefined;
 }
 
+export type ResolvedAsset = {
+  src: string;
+  missing: boolean;
+  width: number | null;
+  height: number | null;
+  blurhash: string | null;
+  variants: AssetVariant[];
+};
+
 export function resolveAsset(
   asset: unknown,
   ctx: SectionContext,
-): { src: string; missing: boolean } | undefined {
+): ResolvedAsset | undefined {
   if (!asset || typeof asset !== "object" || Array.isArray(asset)) return undefined;
   const record = asset as Record<string, unknown>;
   if (typeof record.assetId !== "string") return undefined;
-  const url = ctx.assets[record.assetId];
-  if (url) return { src: url, missing: false };
-  return { src: `/assets/${record.assetId}`, missing: true };
+  const delivery = ctx.assets[record.assetId];
+  if (delivery === undefined) {
+    return {
+      src: `/assets/${record.assetId}`,
+      missing: true,
+      width: null,
+      height: null,
+      blurhash: null,
+      variants: [],
+    };
+  }
+  if (typeof delivery === "string") {
+    return {
+      src: delivery,
+      missing: false,
+      width: null,
+      height: null,
+      blurhash: null,
+      variants: [],
+    };
+  }
+  return {
+    src: delivery.src,
+    missing: false,
+    width: delivery.width ?? null,
+    height: delivery.height ?? null,
+    blurhash: delivery.blurhash ?? null,
+    variants: delivery.variants ?? [],
+  };
+}
+
+// Grid sections mirror their column count after the Tailwind breakpoint the
+// component sets; the rest (media, logos, marquee) span their slot. Unknown
+// sections fall back to 100vw, the safe upper bound.
+const GRID_IMAGE_SECTIONS: Record<
+  string,
+  { breakpoint: number; columns: number }
+> = {
+  gallery: { breakpoint: 768, columns: 3 },
+  projects: { breakpoint: 768, columns: 2 },
+  team: { breakpoint: 640, columns: 3 },
+  testimonials: { breakpoint: 768, columns: 2 },
+};
+
+export function imageSizes(node: Node): string {
+  if (str(node.props.contentWidth) === "full") return "100vw";
+  const grid = GRID_IMAGE_SECTIONS[node.type];
+  if (grid === undefined) return "100vw";
+  const raw = str(node.props.columns);
+  const columns =
+    raw === "2" || raw === "3" || raw === "4" ? Number(raw) : grid.columns;
+  return `(min-width: ${grid.breakpoint}px) ${Math.round(100 / columns)}vw, 100vw`;
+}
+
+function srcsetForFormat(asset: ResolvedAsset, format: AssetVariantFormat): string {
+  return asset.variants
+    .filter((variant) => variant.format === format)
+    .sort((a, b) => a.width - b.width)
+    .map((variant) => `${variant.url} ${variant.width}w`)
+    .join(", ");
+}
+
+// Shared image output: `<picture>` with AVIF and WebP sources when the bake
+// delivered a ladder, a plain `<img>` otherwise (the pre-ladder markup).
+export function ResponsiveImage({
+  asset,
+  alt,
+  sizes,
+  className,
+  style,
+  loading = "lazy",
+}: {
+  asset: ResolvedAsset;
+  alt: string;
+  sizes: string;
+  className?: string;
+  style?: React.CSSProperties;
+  loading?: "lazy" | "eager";
+}): React.JSX.Element {
+  if (asset.variants.length === 0) {
+    return (
+      <img
+        src={asset.src}
+        alt={alt}
+        loading={loading}
+        data-missing-asset={asset.missing ? "" : undefined}
+        className={className}
+        style={style}
+      />
+    );
+  }
+  const avif = srcsetForFormat(asset, "avif");
+  const webp = srcsetForFormat(asset, "webp");
+  return (
+    <picture>
+      {avif !== "" && <source type="image/avif" srcSet={avif} sizes={sizes} />}
+      {webp !== "" && <source type="image/webp" srcSet={webp} sizes={sizes} />}
+      <img
+        src={asset.src}
+        srcSet={webp !== "" ? webp : undefined}
+        sizes={sizes}
+        width={asset.width ?? undefined}
+        height={asset.height ?? undefined}
+        alt={alt}
+        loading={loading}
+        data-missing-asset={asset.missing ? "" : undefined}
+        data-blurhash={asset.blurhash ?? undefined}
+        className={className}
+        style={style}
+      />
+    </picture>
+  );
 }
 
 export function focalStyle(asset: unknown): React.CSSProperties | undefined {

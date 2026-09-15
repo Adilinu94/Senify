@@ -1335,6 +1335,45 @@ const ROUTES: Route[] = [
       };
     },
   },
+  {
+    // Encoded ladder rungs, served under the same path the bake writes them to.
+    method: "GET",
+    segments: ["assets", ":assetId", "variants", ":filename"],
+    public: true,
+    handler: async (context, params) => {
+      const asset = await context.store.getAsset(requireParam(params, "assetId"));
+      if (asset.status !== "ready") {
+        throw new SenifyError("not_found", `Asset "${asset.id}" is in the trash`, {
+          field: "assetId",
+        });
+      }
+      const filename = requireParam(params, "filename");
+      const variant = asset.variants.find(
+        (entry) => `${entry.width}.${entry.format}` === filename,
+      );
+      if (variant === undefined) {
+        throw new SenifyError("not_found", `Variant "${filename}" does not exist`, {
+          field: "filename",
+        });
+      }
+      const file = resolveStoredFile(context.dataDir, variant.storageRef);
+      if (file === undefined) {
+        throw new SenifyError(
+          "not_found",
+          `Variant file of asset "${asset.id}" is not resolvable`,
+          { field: "assetId" },
+        );
+      }
+      return {
+        status: 200,
+        file: {
+          path: file,
+          contentType: variant.format === "avif" ? "image/avif" : "image/webp",
+          headers: { "cache-control": "public, max-age=0, must-revalidate" },
+        },
+      };
+    },
+  },
 ];
 
 function requireParam(params: RouteParams, key: string): string {

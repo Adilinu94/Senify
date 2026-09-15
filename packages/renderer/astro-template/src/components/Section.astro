@@ -1,10 +1,10 @@
 ---
-import { SectionTree } from "@senify/registry/components";
+import { SectionTree, type SectionContext } from "@senify/registry/components";
 import type { Node } from "@senify/section-sdk";
 
 type Props = {
   tree: { rootNodeId: string; nodes: Record<string, unknown> };
-  ctx: { pagePaths: Record<string, string>; assets: Record<string, string> };
+  ctx: SectionContext;
 };
 
 const { tree, ctx } = Astro.props;

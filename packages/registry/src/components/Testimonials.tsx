@@ -6,8 +6,10 @@ import {
   cx,
   gapStyle,
   headingStyle,
+  imageSizes,
   mediaStyle,
   resolveAsset,
+  ResponsiveImage,
   SectionShell,
   str,
   type SectionProps,
@@ -60,11 +62,10 @@ export function Testimonials({ node, ctx }: SectionProps): React.JSX.Element {
                     </p>
                     <footer className="mt-4 flex items-center gap-3">
                       {avatar && (
-                        <img
-                          src={avatar.src}
+                        <ResponsiveImage
+                          asset={avatar}
                           alt={typeof item.author === "string" ? item.author : ""}
-                          loading="lazy"
-                          data-missing-asset={avatar.missing ? "" : undefined}
+                          sizes={imageSizes(node)}
                           className="h-10 w-10 object-cover"
                           style={mediaStyle(node, "9999px")}
                         />

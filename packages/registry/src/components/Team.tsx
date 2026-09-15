@@ -6,8 +6,10 @@ import {
   cx,
   gapStyle,
   headingStyle,
+  imageSizes,
   mediaStyle,
   resolveAsset,
+  ResponsiveImage,
   SectionShell,
   str,
   type SectionProps,
@@ -43,11 +45,10 @@ export function Team({ node, ctx }: SectionProps): React.JSX.Element {
                 style={cardStyle(node)}
               >
                 {photo ? (
-                  <img
-                    src={photo.src}
+                  <ResponsiveImage
+                    asset={photo}
                     alt={typeof member.name === "string" ? member.name : ""}
-                    loading="lazy"
-                    data-missing-asset={photo.missing ? "" : undefined}
+                    sizes={imageSizes(node)}
                     className="mx-auto h-20 w-20 object-cover"
                     style={mediaStyle(node, "9999px")}
                   />

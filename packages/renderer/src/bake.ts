@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { SenifyError } from "@senify/core";
 import { bundledSections } from "@senify/registry";
-import { getSectionComponent } from "@senify/registry/components";
+import { getSectionComponent, type AssetDelivery } from "@senify/registry/components";
 import type { NodeTree, SectionDefinition } from "@senify/section-sdk";
 import {
   buildLlmsTxt,
@@ -52,7 +52,7 @@ export type BakeInput = {
   themeCss: string;
   motionTokens: MotionTokens;
   profile?: "clean" | "standard" | "showcase";
-  assets?: Record<string, string>;
+  assets?: Record<string, AssetDelivery>;
   fontPreloads?: { href: string }[];
   aeo?: boolean;
 };

@@ -27,6 +27,7 @@ export {
 } from "./guardrails.ts";
 export { runChecks, type CheckStage } from "./checks.ts";
 export { imageDimensions } from "./media.ts";
+export { VARIANT_WIDTHS } from "./variants.ts";
 export {
   approveReview,
   createPreview,

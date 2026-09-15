@@ -50,6 +50,46 @@ export function historyStorageRef(
   return ["assets", siteId, assetId, "history", historyId, filename].join("/");
 }
 
+// Encoded ladder rungs live in a variants/ subfolder next to the original, so
+// a purge (which removes the whole asset dir) takes them with it.
+export function variantsDir(
+  dataDir: string,
+  siteId: string,
+  assetId: string,
+): string {
+  return join(assetDir(dataDir, siteId, assetId), "variants");
+}
+
+export function variantFilePath(
+  dataDir: string,
+  siteId: string,
+  assetId: string,
+  width: number,
+  format: string,
+): string {
+  return join(variantsDir(dataDir, siteId, assetId), `${width}.${format}`);
+}
+
+export function variantStorageRef(
+  siteId: string,
+  assetId: string,
+  width: number,
+  format: string,
+): string {
+  return ["assets", siteId, assetId, "variants", `${width}.${format}`].join("/");
+}
+
+export function removeVariantFiles(
+  dataDir: string,
+  siteId: string,
+  assetId: string,
+): void {
+  rmSync(variantsDir(dataDir, siteId, assetId), {
+    recursive: true,
+    force: true,
+  });
+}
+
 export function storedFileName(storageRef: string): string {
   const parts = storageRef.split("/");
   return parts[parts.length - 1] ?? storageRef;

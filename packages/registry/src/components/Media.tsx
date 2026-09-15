@@ -2,8 +2,10 @@ import {
   contentWidthClass,
   cx,
   focalStyle,
+  imageSizes,
   mediaStyle,
   resolveAsset,
+  ResponsiveImage,
   SectionShell,
   str,
   type SectionProps,
@@ -37,11 +39,10 @@ export function Media({ node, ctx }: SectionProps): React.JSX.Element {
             <canvas aria-label="3D-Szene" />
           </div>
         ) : asset ? (
-          <img
-            src={asset.src}
+          <ResponsiveImage
+            asset={asset}
             alt={caption !== "" ? caption : "Bild"}
-            loading="lazy"
-            data-missing-asset={asset.missing ? "" : undefined}
+            sizes={imageSizes(node)}
             style={{
               aspectRatio: aspect.replace("/", " / "),
               ...focalStyle(node.props.asset),

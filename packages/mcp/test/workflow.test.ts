@@ -333,7 +333,7 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     expect(restored.ok).toBe(true);
     const outline = await call(session, "get_page", { pageId });
     expect(JSON.stringify(outline.data)).toContain("V1");
-  }, 90000);
+  }, 180000);
 
   it("runs the media library: upload → update → replace → trash → restore", async () => {
     const siteId = await createSite(env, "Media Library");

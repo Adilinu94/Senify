@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import sharp from "sharp";
 import { createApiHarness } from "@senify/core/testing";
 import { PAGE_ROOT_TYPE, type NodeTree } from "@senify/section-sdk";
 import { defaultTheme } from "@senify/tokens";
@@ -8,6 +9,7 @@ import {
   bakePages,
   imageDimensions,
   runChecks,
+  VARIANT_WIDTHS,
   type AssetUsage,
   type Page,
   type Site,
@@ -65,6 +67,16 @@ function webpBytes(width: number, height: number): Buffer {
   return buffer;
 }
 
+// Real (decodable) pixels for the variant pipeline; the palette keeps even
+// wide images well under the test upload cap of 4 KB.
+function realPng(width: number, height: number): Promise<Buffer> {
+  return sharp({
+    create: { width, height, channels: 3, background: { r: 120, g: 140, b: 90 } },
+  })
+    .png({ palette: true, compressionLevel: 9 })
+    .toBuffer();
+}
+
 type AssetResponse = {
   id: string;
   siteId: string;
@@ -83,6 +95,16 @@ type AssetResponse = {
   status: string;
   replacedAt: string | null;
   trashedAt: string | null;
+  variants: {
+    id: string;
+    assetId: string;
+    width: number;
+    format: string;
+    storageRef: string;
+    byteSize: number;
+    createdAt: string;
+  }[];
+  blurhash: string | null;
 };
 
 type UploadResponse = { asset: AssetResponse; deduped: boolean };
@@ -556,6 +578,79 @@ describe("trash, purge and bulk", () => {
   });
 });
 
+describe("image variant ladder and blurhash", () => {
+  it("builds AVIF/WebP rungs up to the original width plus a blurhash", async () => {
+    const siteId = (await createTestSite(env.api, "Varianten")).id;
+    const uploaded = await uploadAsset(
+      siteId,
+      "werkstatt.png",
+      await realPng(1200, 800),
+      "image/png",
+      { altText: "Werkstatt" },
+    );
+
+    const widths = [
+      ...new Set(uploaded.asset.variants.map((variant) => variant.width)),
+    ].sort((a, b) => a - b);
+    expect(widths).toEqual([64, 320, 640, 1024]);
+    expect(widths.every((width) => VARIANT_WIDTHS.includes(width))).toBe(true);
+    expect(widths.every((width) => width <= 1200)).toBe(true);
+    expect(
+      [...new Set(uploaded.asset.variants.map((variant) => variant.format))].sort(),
+    ).toEqual(["avif", "webp"]);
+    expect(uploaded.asset.variants).toHaveLength(8);
+
+    expect(typeof uploaded.asset.blurhash).toBe("string");
+    expect(uploaded.asset.blurhash).not.toBe("");
+
+    const webp = uploaded.asset.variants.find(
+      (variant) => variant.format === "webp" && variant.width === 640,
+    );
+    expect(webp).toBeDefined();
+    expect(existsSync(join(env.engine.dataDir, webp?.storageRef ?? ""))).toBe(true);
+
+    const served = await fetch(
+      `${env.server.origin}/assets/${uploaded.asset.id}/variants/${webp?.width}.${webp?.format}`,
+    );
+    expect(served.status).toBe(200);
+    expect(served.headers.get("content-type")).toBe("image/webp");
+
+    const purged = await env.api.request<{ purged: string }>({
+      method: "POST",
+      path: `/api/assets/${uploaded.asset.id}/purge`,
+    });
+    expect(purged.status).toBe(200);
+    expect(
+      existsSync(
+        join(env.engine.dataDir, "assets", siteId, uploaded.asset.id, "variants"),
+      ),
+    ).toBe(false);
+  }, 30000);
+
+  it("never upscales and leaves GIF untouched", async () => {
+    const siteId = (await createTestSite(env.api, "Varianten Grenzen")).id;
+    const small = await uploadAsset(
+      siteId,
+      "winzig.png",
+      await realPng(100, 60),
+      "image/png",
+    );
+    expect([...new Set(small.asset.variants.map((variant) => variant.width))]).toEqual([
+      64,
+    ]);
+    expect(small.asset.variants).toHaveLength(2);
+
+    const gif = await uploadAsset(
+      siteId,
+      "animiert.gif",
+      gifBytes(200, 120),
+      "image/gif",
+    );
+    expect(gif.asset.variants).toEqual([]);
+    expect(gif.asset.blurhash).toBeNull();
+  }, 30000);
+});
+
 describe("asset reference checks", () => {
   const site: Site = {
     id: "site-media-checks",
@@ -740,13 +835,14 @@ async function setBlockAsset(
 }
 
 describe("bake delivers referenced assets", () => {
-  it("copies the referenced file into the build and resolves the URL", async () => {
+  it("builds <picture>/srcset for a real image and copies the ladder", async () => {
     const siteId = (await createTestSite(env.api, "Bake Media")).id;
     const uploaded = await uploadAsset(
       siteId,
       "werkstatt.png",
-      pngBytes(640, 400),
+      await realPng(1024, 768),
       "image/png",
+      { altText: "Werkstatt" },
     );
     const site = await env.engine.store.getSite(siteId);
     const page: Page = {
@@ -791,5 +887,27 @@ describe("bake delivers referenced assets", () => {
     expect(existsSync(copied)).toBe(true);
     const html = readFileSync(join(baked.outDir, "index.html"), "utf8");
     expect(html).toContain(`/assets/${uploaded.asset.id}/`);
+    expect(html).toContain("<picture>");
+    expect(html).toContain('type="image/avif"');
+    expect(html).toContain('type="image/webp"');
+    // React emits the camelCase `srcSet`; HTML parsers lowercase it to `srcset`.
+    expect(html).toMatch(/srcset=/i);
+    expect(html).toContain('sizes="100vw"');
+    expect(html).toContain('width="1024"');
+    expect(html).toContain('height="768"');
+    expect(html).toContain("data-blurhash=");
+    expect(html).toContain(`/assets/${uploaded.asset.id}/variants/`);
+
+    // The ladder is copied next to the original into the build output.
+    expect(
+      existsSync(
+        join(baked.outDir, "assets", uploaded.asset.id, "variants", "640.webp"),
+      ),
+    ).toBe(true);
+    expect(
+      existsSync(
+        join(baked.outDir, "assets", uploaded.asset.id, "variants", "640.avif"),
+      ),
+    ).toBe(true);
   }, 90000);
 });

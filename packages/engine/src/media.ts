@@ -12,10 +12,12 @@ import {
   historyStorageRef,
   moveAssetFile,
   removeAssetDir,
+  removeVariantFiles,
   resolveStoredFile,
   storedFileName,
   writeAssetFile,
 } from "./storage.ts";
+import { buildImageDerivatives, supportsVariants } from "./variants.ts";
 import type {
   Asset,
   AssetBulkResult,
@@ -364,6 +366,9 @@ export type UploadUrl = {
 export type UploadCommit = {
   asset: Asset;
   deduped: boolean;
+  // Encoder problems (e.g. a broken image) never fail the upload; they surface
+  // here and the asset stays usable with its original file.
+  warnings: string[];
 };
 
 async function assertFolderInSite(
@@ -540,6 +545,40 @@ async function replaceAssetFile(
   });
 }
 
+// Rebuilds the image ladder and blur hash for an asset. The variant files are
+// rewritten from scratch (widths change with the dimensions), and any encoder
+// failure only yields a warning — the original file stays deliverable.
+async function refreshImageDerivatives(
+  context: MediaContext,
+  asset: Asset,
+  data: Buffer,
+): Promise<string[]> {
+  removeVariantFiles(context.dataDir, asset.siteId, asset.id);
+  if (asset.kind !== "image" || !supportsVariants(asset.mime)) {
+    await context.store.deleteAssetDerivatives(asset.id);
+    return [];
+  }
+  try {
+    const { variants, blurhash } = await buildImageDerivatives({
+      dataDir: context.dataDir,
+      siteId: asset.siteId,
+      assetId: asset.id,
+      data,
+      width: asset.width,
+    });
+    await context.store.replaceAssetDerivatives(asset.id, variants, blurhash);
+    return [];
+  } catch (error) {
+    removeVariantFiles(context.dataDir, asset.siteId, asset.id);
+    await context.store.deleteAssetDerivatives(asset.id);
+    return [
+      `Image variants for asset "${asset.id}" could not be generated: ${
+        error instanceof Error ? error.message : "unknown error"
+      }`,
+    ];
+  }
+}
+
 export async function commitUpload(
   context: MediaContext,
   input: { ticket: UploadTicket; data: Buffer },
@@ -560,13 +599,16 @@ export async function commitUpload(
   }
   const hash = sha256(data);
   if (ticket.replaceAssetId !== null) {
+    const replaced = await replaceAssetFile(context, ticket, data, hash);
+    const warnings = await refreshImageDerivatives(context, replaced, data);
     return {
-      asset: await replaceAssetFile(context, ticket, data, hash),
+      asset: await context.store.getAsset(replaced.id),
       deduped: false,
+      warnings,
     };
   }
   const existing = await context.store.findAssetByHash(ticket.siteId, hash);
-  if (existing) return { asset: existing, deduped: true };
+  if (existing) return { asset: existing, deduped: true, warnings: [] };
   const assetId = newEntityId();
   const filename = ticket.filename;
   const dimensions = imageDimensions(data, ticket.mime);
@@ -590,7 +632,12 @@ export async function commitUpload(
     tags: ticket.tags,
     storageRef: assetStorageRef(ticket.siteId, assetId, filename),
   });
-  return { asset, deduped: false };
+  const warnings = await refreshImageDerivatives(context, asset, data);
+  return {
+    asset: await context.store.getAsset(asset.id),
+    deduped: false,
+    warnings,
+  };
 }
 
 // ------------------------------------------------------- history and library
@@ -643,7 +690,7 @@ export async function restoreAssetHistory(
   const bytes = readFileSync(restoredPath);
   const dimensions = imageDimensions(bytes, entry.mime);
   const now = new Date().toISOString();
-  return context.store.updateAsset(asset.id, {
+  const restored = await context.store.updateAsset(asset.id, {
     filename: restoredName,
     mime: entry.mime,
     kind: assetKindForMime(entry.mime),
@@ -655,6 +702,9 @@ export async function restoreAssetHistory(
     replacedAt: now,
     updatedAt: now,
   });
+  // The restored bytes have their own dimensions, so the ladder is rebuilt.
+  await refreshImageDerivatives(context, restored, bytes);
+  return context.store.getAsset(restored.id);
 }
 
 export async function applyAssetPatch(
@@ -684,6 +734,7 @@ export async function purgeAsset(
 ): Promise<Asset> {
   const asset = await context.store.getAsset(assetId);
   await context.store.deleteAssetHistory(asset.id);
+  await context.store.deleteAssetDerivatives(asset.id);
   await context.store.deleteAssetRecord(asset.id);
   removeAssetDir(context.dataDir, asset.siteId, asset.id);
   return asset;

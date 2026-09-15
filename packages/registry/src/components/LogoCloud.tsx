@@ -4,8 +4,10 @@ import {
   cx,
   gapStyle,
   headingStyle,
+  imageSizes,
   mediaStyle,
   resolveAsset,
+  ResponsiveImage,
   SectionShell,
   str,
   type SectionProps,
@@ -28,11 +30,10 @@ export function LogoCloud({ node, ctx }: SectionProps): React.JSX.Element {
         return (
           <li key={index}>
             {asset ? (
-              <img
-                src={asset.src}
+              <ResponsiveImage
+                asset={asset}
                 alt={typeof logo.alt === "string" ? logo.alt : ""}
-                loading="lazy"
-                data-missing-asset={asset.missing ? "" : undefined}
+                sizes={imageSizes(node)}
                 className="h-8 w-auto opacity-70 grayscale"
                 style={mediaStyle(node, "0px")}
               />

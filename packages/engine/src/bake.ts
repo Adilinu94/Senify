@@ -1,6 +1,11 @@
 import { cpSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { bakeSite, parseDurationMs, type BakeWarning } from "@senify/renderer";
+import {
+  bakeSite,
+  parseDurationMs,
+  type AssetDelivery,
+  type BakeWarning,
+} from "@senify/renderer";
 import { resolveTheme } from "@senify/tokens";
 import { collectAssetIds } from "./media.ts";
 import { resolveStoredFile } from "./storage.ts";
@@ -13,11 +18,22 @@ export type BakeOutcome = {
   warnings: BakeWarning[];
 };
 
+type DeliveredVariant = {
+  format: "avif" | "webp";
+  width: number;
+  storageRef: string;
+  url: string;
+};
+
 type DeliveredAsset = {
   assetId: string;
   filename: string;
   source: string;
   url: string;
+  width: number | null;
+  height: number | null;
+  blurhash: string | null;
+  variants: DeliveredVariant[];
 };
 
 // Only the assets a page actually references are delivered; the URL map
@@ -36,12 +52,22 @@ async function collectDeliverableAssets(input: {
     if (!referenced.has(asset.id)) continue;
     const source = resolveStoredFile(input.dataDir, asset.storageRef);
     if (source === undefined || !existsSync(source)) continue;
+    // Version query busts caches after a replace (the URL path stays stable).
+    const version = Date.parse(asset.updatedAt);
     delivered.push({
       assetId: asset.id,
       filename: asset.filename,
       source,
-      // Version query busts caches after a replace (the URL path stays stable).
-      url: `/assets/${asset.id}/${encodeURIComponent(asset.filename)}?v=${Date.parse(asset.updatedAt)}`,
+      url: `/assets/${asset.id}/${encodeURIComponent(asset.filename)}?v=${version}`,
+      width: asset.width,
+      height: asset.height,
+      blurhash: asset.blurhash,
+      variants: asset.variants.map((variant) => ({
+        format: variant.format,
+        width: variant.width,
+        storageRef: variant.storageRef,
+        url: `/assets/${asset.id}/variants/${variant.width}.${variant.format}?v=${version}`,
+      })),
     });
   }
   return delivered;
@@ -69,8 +95,20 @@ export async function bakePages(
     pages: input.pages,
     dataDir: input.dataDir,
   });
-  const assets: Record<string, string> = {};
-  for (const entry of delivered) assets[entry.assetId] = entry.url;
+  const assets: Record<string, AssetDelivery> = {};
+  for (const entry of delivered) {
+    assets[entry.assetId] = {
+      src: entry.url,
+      width: entry.width,
+      height: entry.height,
+      blurhash: entry.blurhash,
+      variants: entry.variants.map((variant) => ({
+        format: variant.format,
+        width: variant.width,
+        url: variant.url,
+      })),
+    };
+  }
   const result = await bakeSite(
     {
       siteName: input.site.name,
@@ -97,11 +135,24 @@ export async function bakePages(
     { outDir: input.outDir },
   );
   // Astro empties the output directory during the build, so the files are
-  // copied only afterwards.
+  // copied only afterwards (original and, when present, the encoded ladder).
   for (const entry of delivered) {
     const target = join(result.outDir, "assets", entry.assetId, entry.filename);
     mkdirSync(dirname(target), { recursive: true });
     cpSync(entry.source, target);
+    for (const variant of entry.variants) {
+      const from = resolveStoredFile(input.dataDir, variant.storageRef);
+      if (from === undefined || !existsSync(from)) continue;
+      const variantTarget = join(
+        result.outDir,
+        "assets",
+        entry.assetId,
+        "variants",
+        `${variant.width}.${variant.format}`,
+      );
+      mkdirSync(dirname(variantTarget), { recursive: true });
+      cpSync(from, variantTarget);
+    }
   }
   return {
     outDir: result.outDir,

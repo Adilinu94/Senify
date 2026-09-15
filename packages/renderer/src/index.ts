@@ -7,6 +7,8 @@ export {
   type BakeResult,
   type BakeWarning,
 } from "./bake.ts";
+// The delivered-asset shape the bake hands to the image components.
+export type { AssetDelivery } from "@senify/registry/components";
 export {
   buildLlmsTxt,
   buildRobots,

@@ -203,6 +203,24 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS asset_history_asset_idx
     ON asset_history (asset_id, created_at DESC, id DESC)`,
+  // Encoded image ladder (AVIF/WebP per width) and the blur hash placeholder,
+  // kept additive next to the asset so the original row stays untouched.
+  `CREATE TABLE IF NOT EXISTS asset_variants (
+    id text PRIMARY KEY,
+    asset_id text NOT NULL,
+    width integer NOT NULL,
+    format text NOT NULL,
+    storage_ref text NOT NULL,
+    byte_size integer NOT NULL,
+    created_at timestamptz NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS asset_variants_asset_idx
+    ON asset_variants (asset_id, width ASC, format ASC)`,
+  `CREATE TABLE IF NOT EXISTS asset_blurhash (
+    asset_id text PRIMARY KEY,
+    value text NOT NULL,
+    created_at timestamptz NOT NULL
+  )`,
 ];
 
 export async function ensureSchema(db: Db): Promise<void> {

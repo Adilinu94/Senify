@@ -1,5 +1,6 @@
 ---
 import Section from "../components/Section.astro";
+import type { SectionContext } from "@senify/registry/components";
 import "../styles/global.css";
 
 type Props = {
@@ -14,7 +15,7 @@ type Props = {
     flags: { hasMotion: boolean; needsSplitText: boolean; islands: string[] };
   };
   site: { name: string; baseUrl: string; lang?: string };
-  ctx: { pagePaths: Record<string, string>; assets: Record<string, string> };
+  ctx: SectionContext;
   fontPreloads: { href: string }[];
   cdn: { gsap: string; scrollTrigger: string; splitText: string; lenis: string };
 };

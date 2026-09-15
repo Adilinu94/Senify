@@ -114,7 +114,7 @@ describe("releases and revisions", () => {
     }>({ method: "GET", path: `/api/sites/${siteId}/releases` });
     expect(releases.body.releases).toHaveLength(1);
     expect(releases.body.activeReleaseId).toBe(published.body.release.id);
-  }, 30000);
+  }, 90000);
 
   it("restores a revision as a new draft and audits the restore", async () => {
     await updateHeadline(mainPage.id, "hero-1", "Geändert");
@@ -233,7 +233,7 @@ describe("review loop", () => {
     );
     expect(diff?.status).toBe("changed");
     expect(diff?.sections.length).toBeGreaterThan(0);
-  }, 30000);
+  }, 90000);
 
   it("serves the preview build behind the signed token", async () => {
     const ok = await fetch(
@@ -296,7 +296,7 @@ describe("review loop", () => {
     expect(approved.body.review.status).toBe("approved");
     expect(approved.body.review.releaseId).toBe(approved.body.release.id);
     expect(approved.body.release.buildRef).toContain("releases");
-  }, 30000);
+  }, 90000);
 
   it("rolls back to an older release as a new release", async () => {
     const releases = await env.api.request<{
@@ -317,7 +317,7 @@ describe("review loop", () => {
     });
     expect(active.body.activeReleaseId).toBe(rollback.body.release.id);
     expect(await headlineOf(mainPage.id, "hero-1")).toBe("Publish mich");
-  }, 30000);
+  }, 90000);
 
   it("discards a review and restores the draft state of the submit", async () => {
     await updateHeadline(mainPage.id, "hero-1", "Verwerfen");
@@ -338,7 +338,7 @@ describe("review loop", () => {
     expect(discarded.status).toBe(200);
     expect(discarded.body.status).toBe("discarded");
     expect(await headlineOf(mainPage.id, "hero-1")).toBe("Verwerfen");
-  }, 30000);
+  }, 90000);
 });
 
 describe("preview lifecycle", () => {

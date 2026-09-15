@@ -9,9 +9,11 @@ import {
   cx,
   gapStyle,
   headingStyle,
+  imageSizes,
   mediaStyle,
   resolveAsset,
   resolveLink,
+  ResponsiveImage,
   SectionShell,
   str,
   type SectionProps,
@@ -58,11 +60,10 @@ export function Projects({ node, ctx }: SectionProps): React.JSX.Element {
                   style={cardStyle(node, { padding: null })}
                 >
                   {asset && (
-                    <img
-                      src={asset.src}
+                    <ResponsiveImage
+                      asset={asset}
                       alt={typeof item.title === "string" ? item.title : ""}
-                      loading="lazy"
-                      data-missing-asset={asset.missing ? "" : undefined}
+                      sizes={imageSizes(node)}
                       className="aspect-[16/9] w-full object-cover"
                       style={{ ...mediaStyle(node, "0px"), ...aspectStyle(node) }}
                     />
