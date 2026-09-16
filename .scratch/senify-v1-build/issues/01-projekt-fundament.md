@@ -21,3 +21,14 @@ Quellen: `artifacts/01`, `artifacts/08`, Spec „Modul-Landkarte" + „Testing D
 - **Code-Review (Standards + Spec)** durchgeführt; Fixes: `section-sdk` als eigenes Paket (Landkarten-Konformität), `@senify/core/testing` als separater Export (pg-mem/node:* nicht im Runtime-Graph), `pg-mem`-Dependency korrekt deklariert, `ctas` auf kanonischen `link`-Typ, `MotionSpec` mit `tokens`, Fixture-Sharing, Vitest-Alias aus tsconfig generiert (keine Doppelpflege).
 - **Postgres-Praxis (Klärung zum Spec-Punkt „echte Postgres")**: `pg-mem` bleibt der schnelle, Docker-freie Pfad für Unit-/Schema-Tests; die **Prüfstelle-1-Tests der Engine (ab T02)** laufen gegen die echte Compose-Postgres via `TEST_DATABASE_URL` (Wegwerf-Schema). Compose liegt bereit (Port 5433).
 - **MCP-Harness** ist bewusst in-process (ToolInvoker); der echte stdio-/Engine-E2E-Pfad entsteht in T06.
+
+## Postgres-Fidelity-Tests starten
+
+Die beiden Transaktions-Tests in `packages/engine/test/transactions.test.ts` (echtes `ROLLBACK` bei Audit-Fehler, atomare Persistenz bei Erfolg) hängen per `describe.skipIf` an `TEST_DATABASE_URL`; ohne die Variable laufen sie gegen `pg-mem` und werden übersprungen. Gegen die echte Postgres (Compose, Port 5433) mit Wegwerf-Schema:
+
+```powershell
+$env:TEST_DATABASE_URL = "postgres://senify@127.0.0.1:5433/senify"
+pnpm vitest run packages/engine/test/transactions.test.ts
+```
+
+`createTestDatabase()` legt dafür ein eigenes Schema an, migriert es vollständig (`ensureSchema`) und entfernt es nach dem Lauf per `DROP SCHEMA ... CASCADE`; `public` bleibt unberührt.

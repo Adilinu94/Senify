@@ -8,6 +8,7 @@ import { type NodeTree, type Registry, type SectionDefinition } from "@senify/se
 import {
   createEngine,
   createPgDb,
+  ensureSchema,
   type Db,
   type DbResult,
   type Engine,
@@ -154,6 +155,19 @@ export async function createTestDatabase(): Promise<TestDatabase> {
     const testUrl = new URL(connectionString);
     testUrl.searchParams.set("options", `-c search_path=${schemaName}`);
     const scoped = createPgDb(testUrl.toString());
+    // The disposable schema starts empty: run the same migration the engine
+    // runs at boot (`createEngine`) so every table/index lives inside the
+    // scoped `search_path`. Without this the schema is missing `sites` et al.
+    // and a bare `new Store(db)` fails with "relation ... does not exist".
+    try {
+      await ensureSchema(scoped);
+    } catch (error) {
+      // Never leave a half-migrated schema (or its tables) behind.
+      await scoped.close().catch(() => undefined);
+      await admin.query(`DROP SCHEMA "${schemaName}" CASCADE`).catch(() => undefined);
+      await admin.close().catch(() => undefined);
+      throw error;
+    }
     let closed = false;
     return {
       db: scoped,
