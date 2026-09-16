@@ -1,11 +1,23 @@
-import { createServer, type Socket } from "node:net";
+import { createServer, type Server, type Socket } from "node:net";
+import {
+  createSecureContext,
+  createServer as createTlsServer,
+  TLSSocket,
+} from "node:tls";
 
 // A throwaway SMTP server for `mailer.test.ts`: it speaks just enough of the
-// dialog (greeting, EHLO, AUTH PLAIN/LOGIN, MAIL, RCPT, DATA, QUIT) to drive
-// the real client, records every line and answer and listens on localhost only,
-// so no test ever reaches a real mail server.
+// dialog (greeting, EHLO, STARTTLS, AUTH PLAIN/LOGIN, MAIL, RCPT, DATA, QUIT)
+// to drive the real client, records every line and answer and listens on
+// localhost only, so no test ever reaches a real mail server. With
+// `starttls`/`implicitTls` it terminates TLS with the self-signed fixture
+// certificate under test/fixtures/smtp (valid for localhost and 127.0.0.1).
 
 export type FakeSmtpAuth = "PLAIN" | "LOGIN";
+
+export type FakeSmtpTlsMaterial = {
+  key: string;
+  cert: string;
+};
 
 export type FakeSmtpOptions = {
   // Credentials the server accepts; anything else is answered with 535.
@@ -15,6 +27,10 @@ export type FakeSmtpOptions = {
   auth?: FakeSmtpAuth[];
   // Point of the dialog at which the server hangs up, to test the abort paths.
   closeAfter?: "greeting" | "ehlo" | "data";
+  // Announce STARTTLS in EHLO and accept the upgrade.
+  starttls?: FakeSmtpTlsMaterial;
+  // Speak TLS from the first byte instead (implicit TLS, port 465 style).
+  implicitTls?: FakeSmtpTlsMaterial;
 };
 
 export type FakeSmtpServer = {
@@ -28,6 +44,11 @@ export type FakeSmtpServer = {
   readonly message: string;
   // Number of refused AUTH attempts.
   readonly rejectedAuth: number;
+  // Number of successful STARTTLS upgrades.
+  readonly tlsUpgrades: number;
+  // `lines.length` at the moment of the last upgrade; lines after this index
+  // arrived on the encrypted socket.
+  readonly starttlsAt: number;
   close(): Promise<void>;
 };
 
@@ -44,18 +65,20 @@ export async function startFakeSmtp(
   const expectedUser = options.user ?? DEFAULT_USER;
   const expectedPassword = options.password ?? DEFAULT_PASSWORD;
   let rejectedAuth = 0;
+  let tlsUpgrades = 0;
+  let starttlsAt = -1;
 
-  const server = createServer((socket) => {
-    sockets.add(socket);
-    socket.on("close", () => sockets.delete(socket));
-    socket.on("error", () => undefined);
+  const dialog = (initial: Socket, allowStarttls: boolean): void => {
+    let current: Socket = initial;
+    let detachData: (() => void) | null = null;
     let buffer = "";
     let inData = false;
     let authStep: "none" | "user" | "password" = "none";
     let authUser = "";
+
     const answer = (line: string): void => {
       replies.push(line);
-      socket.write(`${line}\r\n`);
+      current.write(`${line}\r\n`);
     };
     const verdict = (user: string, password: string): void => {
       if (user === expectedUser && password === expectedPassword) {
@@ -66,13 +89,28 @@ export async function startFakeSmtp(
       answer("535 5.7.8 Authentication credentials invalid");
     };
 
-    if (options.closeAfter === "greeting") {
-      socket.destroy();
-      return;
-    }
-    answer("220 fake.smtp.test ESMTP senify-test");
+    const upgrade = (): void => {
+      const material = options.starttls;
+      if (material === undefined) return;
+      detachData?.();
+      const tlsSocket = new TLSSocket(initial, {
+        isServer: true,
+        secureContext: createSecureContext({
+          key: material.key,
+          cert: material.cert,
+        }),
+      });
+      tlsUpgrades += 1;
+      starttlsAt = lines.length;
+      current = tlsSocket;
+      buffer = "";
+      sockets.add(tlsSocket);
+      tlsSocket.on("close", () => sockets.delete(tlsSocket));
+      tlsSocket.on("error", () => undefined);
+      attach(tlsSocket);
+    };
 
-    socket.on("data", (chunk) => {
+    const onData = (chunk: Buffer): void => {
       buffer += chunk.toString("utf8");
       for (;;) {
         const end = buffer.indexOf("\r\n");
@@ -107,11 +145,27 @@ export async function startFakeSmtp(
         const command = verb.toUpperCase();
         if (command === "EHLO" || command === "HELO") {
           if (options.closeAfter === "ehlo") {
-            socket.destroy();
+            current.destroy();
             return;
           }
-          answer("250-fake.smtp.test greets you");
+          if (allowStarttls && options.starttls !== undefined && tlsUpgrades === 0) {
+            // STARTTLS travels in a continuation line (like real servers); the
+            // client must read the whole multi-line reply to see it.
+            answer("250-fake.smtp.test greets you");
+            answer("250-STARTTLS");
+          } else {
+            answer("250-fake.smtp.test greets you");
+          }
           answer(`250 AUTH ${(options.auth ?? ["PLAIN", "LOGIN"]).join(" ")}`);
+          continue;
+        }
+        if (command === "STARTTLS" && allowStarttls && options.starttls !== undefined) {
+          if (tlsUpgrades > 0) {
+            answer("503 5.5.1 TLS already active");
+            continue;
+          }
+          answer("220 2.0.0 Ready to start TLS");
+          upgrade();
           continue;
         }
         if (command === "AUTH") {
@@ -137,7 +191,7 @@ export async function startFakeSmtp(
         }
         if (command === "DATA") {
           if (options.closeAfter === "data") {
-            socket.destroy();
+            current.destroy();
             return;
           }
           inData = true;
@@ -150,13 +204,42 @@ export async function startFakeSmtp(
         }
         if (command === "QUIT") {
           answer("221 2.0.0 Bye");
-          socket.end();
+          current.end();
           continue;
         }
         answer("502 5.5.2 Command not implemented");
       }
-    });
-  });
+    };
+
+    const attach = (socket: Socket): void => {
+      socket.on("data", onData);
+      detachData = () => socket.off("data", onData);
+    };
+
+    if (options.closeAfter === "greeting") {
+      initial.destroy();
+      return;
+    }
+    answer("220 fake.smtp.test ESMTP senify-test");
+    attach(initial);
+  };
+
+  const server: Server = options.implicitTls
+    ? createTlsServer(
+        { key: options.implicitTls.key, cert: options.implicitTls.cert },
+        (socket) => {
+          sockets.add(socket);
+          socket.on("close", () => sockets.delete(socket));
+          socket.on("error", () => undefined);
+          dialog(socket, false);
+        },
+      )
+    : createServer((socket) => {
+        sockets.add(socket);
+        socket.on("close", () => sockets.delete(socket));
+        socket.on("error", () => undefined);
+        dialog(socket, options.starttls !== undefined);
+      });
 
   await new Promise<void>((resolve, reject) => {
     const onError = (error: unknown): void => reject(error);
@@ -180,6 +263,12 @@ export async function startFakeSmtp(
     },
     get rejectedAuth(): number {
       return rejectedAuth;
+    },
+    get tlsUpgrades(): number {
+      return tlsUpgrades;
+    },
+    get starttlsAt(): number {
+      return starttlsAt;
     },
     async close(): Promise<void> {
       for (const socket of sockets) socket.destroy();

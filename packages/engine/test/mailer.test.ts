@@ -1,6 +1,13 @@
+import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { SmtpError, smtpMailSender, type SmtpConfig } from "@senify/engine";
 import { bootEngine, type BootEnv } from "./helpers.ts";
 import { startFakeSmtp } from "./smtp-test-server.ts";
+
+// Self-signed fixture certificate for the TLS paths (valid for localhost and
+// 127.0.0.1 until 2126); no real mail server is ever contacted.
+const TLS_KEY = readFileSync(new URL("./fixtures/smtp/key.pem", import.meta.url), "utf8");
+const TLS_CERT = readFileSync(new URL("./fixtures/smtp/cert.pem", import.meta.url), "utf8");
 
 // Prüfstelle 1: the real SMTP client (`smtpMailSender`) against a local server
 // that runs inside this test process. No MailSender is injected here, so the
@@ -169,4 +176,105 @@ describe("SMTP client against a local server", () => {
       await server.close();
     }
   }, 20_000);
+});
+
+// The TLS paths run the real client against a real TLS socket with the test
+// fixture certificate; `ca` is the client's trust anchor, so the test never
+// weakens certificate validation.
+describe("TLS paths of the SMTP client", () => {
+  function config(input: { port: number; tls: "starttls" | "tls"; ca?: string }): SmtpConfig {
+    return {
+      host: "127.0.0.1",
+      port: input.port,
+      tls: input.tls,
+      user: "mailer",
+      password: "geheim-123",
+      from: "formular@kunde.de",
+      ...(input.ca === undefined ? {} : { ca: input.ca }),
+    };
+  }
+
+  async function send(configInput: SmtpConfig): Promise<unknown> {
+    try {
+      await smtpMailSender(configInput, {
+        recipient: "ops@kunde.de",
+        subject: "Senify Testmail",
+        body: "TLS-Pfad",
+      });
+      return null;
+    } catch (error) {
+      return error;
+    }
+  }
+
+  it("upgrades via STARTTLS and finishes the dialog on the encrypted socket", async () => {
+    const server = await startFakeSmtp({
+      starttls: { key: TLS_KEY, cert: TLS_CERT },
+    });
+
+    const failure = await send(config({ port: server.port, tls: "starttls", ca: TLS_CERT }));
+
+    expect(failure).toBeNull();
+    expect(server.tlsUpgrades).toBe(1);
+    // STARTTLS arrived in a continuation line of the EHLO answer; the client
+    // only offers the upgrade when it reads the whole multi-line reply.
+    expect(server.replies).toContain("250-STARTTLS");
+    // Everything after the upgrade ran over TLS: the second EHLO, AUTH, the
+    // envelope and the message.
+    const after = server.lines.slice(server.starttlsAt);
+    expect(after.filter((line) => line.startsWith("EHLO "))).toHaveLength(1);
+    expect(after.some((line) => line.startsWith("AUTH PLAIN "))).toBe(true);
+    expect(after).toContain("MAIL FROM:<formular@kunde.de>");
+    expect(after).toContain("RCPT TO:<ops@kunde.de>");
+    expect(after).toContain("DATA");
+    expect(server.rejectedAuth).toBe(0);
+    const [, body = ""] = server.message.split("\r\n\r\n");
+    expect(Buffer.from(body.replace(/\s+/g, ""), "base64").toString("utf8")).toContain(
+      "TLS-Pfad",
+    );
+
+    await server.close();
+  });
+
+  it("rejects a certificate that is not trusted (no CA configured)", async () => {
+    const server = await startFakeSmtp({
+      starttls: { key: TLS_KEY, cert: TLS_CERT },
+    });
+
+    const failure = await send(config({ port: server.port, tls: "starttls" }));
+
+    expect(failure).toBeInstanceOf(SmtpError);
+    expect((failure as SmtpError).reason).toBe("tls");
+    expect(server.lines.some((line) => line.startsWith("AUTH"))).toBe(false);
+
+    await server.close();
+  });
+
+  it("connects with implicit TLS (port-465 style) when its CA is configured", async () => {
+    const server = await startFakeSmtp({
+      implicitTls: { key: TLS_KEY, cert: TLS_CERT },
+    });
+
+    const failure = await send(config({ port: server.port, tls: "tls", ca: TLS_CERT }));
+
+    expect(failure).toBeNull();
+    expect(server.lines.some((line) => line.startsWith("AUTH PLAIN "))).toBe(true);
+    expect(server.lines).toContain("DATA");
+
+    await server.close();
+  });
+
+  it("reports a server without STARTTLS as reason tls and sends no STARTTLS", async () => {
+    const server = await startFakeSmtp();
+
+    const failure = await send(config({ port: server.port, tls: "starttls", ca: TLS_CERT }));
+
+    expect(failure).toBeInstanceOf(SmtpError);
+    expect((failure as SmtpError).reason).toBe("tls");
+    expect((failure as SmtpError).message).toContain("STARTTLS");
+    // The client refuses before sending the command.
+    expect(server.lines).not.toContain("STARTTLS");
+
+    await server.close();
+  });
 });

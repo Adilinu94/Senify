@@ -16,6 +16,9 @@ export type SmtpConfig = {
   user: string;
   password: string;
   from: string;
+  // PEM bundle of a private CA (self-hosted servers); without it the platform
+  // trust store decides. Tests use it to exercise TLS without weakening it.
+  ca?: string;
 };
 
 // The subset of an outbox message the transport needs.
@@ -74,8 +77,11 @@ function networkError(error: unknown, tls: boolean): SmtpError {
   });
 }
 
-// Per-socket leftover of a half-read reply; commands run strictly in sequence.
-const replyBuffers = new WeakMap<Socket, string>();
+// Per-socket read state: the leftover of a half-read reply plus the complete
+// lines of a multi-line reply ("250-…" continues, "250 …" ends). Commands run
+// strictly in sequence, so one state per socket is enough.
+type ReplyState = { buffer: string; pending: string[] };
+const replyStates = new WeakMap<Socket, ReplyState>();
 
 function readReply(socket: Socket, timeoutMs = CONNECT_TIMEOUT_MS): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -104,20 +110,29 @@ function readReply(socket: Socket, timeoutMs = CONNECT_TIMEOUT_MS): Promise<stri
       );
     };
     const onData = (chunk: Buffer): void => {
-      const previous = replyBuffers.get(socket) ?? "";
-      const combined = previous + chunk.toString("utf8");
-      const lines = combined.split(/\r?\n/);
-      const rest = lines.pop() ?? "";
-      for (const line of lines) {
-        const match = /^(\d{3}) (.*)$/.exec(line);
-        if (match) {
-          cleanup();
-          replyBuffers.set(socket, rest);
-          resolve(`${match[1]} ${match[2] ?? ""}`);
-          return;
+      const state = replyStates.get(socket) ?? { buffer: "", pending: [] };
+      state.buffer += chunk.toString("utf8");
+      for (;;) {
+        const end = state.buffer.indexOf("\n");
+        if (end < 0) break;
+        const line = state.buffer.slice(0, end).replace(/\r$/, "");
+        state.buffer = state.buffer.slice(end + 1);
+        if (/^\d{3}-/.test(line)) {
+          state.pending.push(line);
+          continue;
         }
+        const match = /^(\d{3}) (.*)$/.exec(line);
+        if (!match) continue;
+        // The resolved value keeps every line, so capability scans (STARTTLS,
+        // AUTH) see the whole answer, not just the last line.
+        const reply = [...state.pending, `${match[1]} ${match[2] ?? ""}`];
+        state.pending = [];
+        replyStates.set(socket, state);
+        cleanup();
+        resolve(reply.join("\n"));
+        return;
       }
-      replyBuffers.set(socket, combined);
+      replyStates.set(socket, state);
     };
     socket.on("data", onData);
     socket.on("error", onError);
@@ -131,7 +146,7 @@ function statusOf(reply: string): number {
 
 function replyError(command: string, reply: string): SmtpError {
   const status = statusOf(reply);
-  const detail = `${status} ${reply.slice(4)}`;
+  const detail = `${status} ${reply.slice(4).replace(/\n\d{3}[- ]/g, " ")}`;
   if (status === 535 || status === 534 || status === 530) {
     return new SmtpError("auth", `Authentifizierung fehlgeschlagen: ${detail}`, {
       suggestion: "Benutzer und Passwort prüfen.",
@@ -166,6 +181,21 @@ async function command(
   return expectAccept(socket, line.split(" ")[0] ?? line, accepted, timeoutMs);
 }
 
+function tlsTrust(config: SmtpConfig): { ca?: string } {
+  return config.ca === undefined ? {} : { ca: config.ca };
+}
+
+// RFC 6066 forbids an IP literal as SNI; without a server name the identity
+// check falls back to the address (certificates then need an IP SAN).
+function tlsConnectOptions(
+  config: SmtpConfig,
+): { host: string; servername?: string } {
+  const isIp = /^[0-9.]+$/.test(config.host) || config.host.includes(":");
+  return isIp
+    ? { host: config.host }
+    : { host: config.host, servername: config.host };
+}
+
 function openSocket(
   config: SmtpConfig,
   timeoutMs: number,
@@ -197,7 +227,11 @@ function openSocket(
     const socket: Socket =
       config.tls === "tls"
         ? connectTls(
-            { host: config.host, port: config.port, servername: config.host },
+            {
+              port: config.port,
+              ...tlsConnectOptions(config),
+              ...tlsTrust(config),
+            },
             onReady,
           )
         : createConnection({ host: config.host, port: config.port }, onReady);
@@ -207,7 +241,7 @@ function openSocket(
 
 function upgradeToTls(
   socket: Socket,
-  host: string,
+  config: SmtpConfig,
   timeoutMs: number,
 ): Promise<Socket> {
   return new Promise((resolve, reject) => {
@@ -215,10 +249,13 @@ function upgradeToTls(
       clearTimeout(timer);
       reject(new SmtpError("tls", "TLS-Handshake nach STARTTLS fehlgeschlagen"));
     }, timeoutMs);
-    const upgraded = connectTls({ socket, servername: host }, () => {
-      clearTimeout(timer);
-      resolve(upgraded);
-    });
+    const upgraded = connectTls(
+      { socket, ...tlsConnectOptions(config), ...tlsTrust(config) },
+      () => {
+        clearTimeout(timer);
+        resolve(upgraded);
+      },
+    );
     upgraded.once("error", (error: Error) => {
       clearTimeout(timer);
       reject(networkError(error, true));
@@ -289,7 +326,7 @@ async function smtpSend(config: SmtpConfig, message: MailMessage): Promise<void>
         });
       }
       await command(socket, "STARTTLS", [220], CONNECT_TIMEOUT_MS);
-      socket = await upgradeToTls(socket, config.host, CONNECT_TIMEOUT_MS);
+      socket = await upgradeToTls(socket, config, CONNECT_TIMEOUT_MS);
       ehlo = await command(socket, `EHLO ${CLIENT_NAME}`, [250], CONNECT_TIMEOUT_MS);
     }
     if (config.user !== "") {
