@@ -385,4 +385,235 @@ describe("program shell (Prüfstelle Programm)", () => {
       rmSync(dataDir, { recursive: true, force: true });
     }
   }, 30000);
+
+  // Die Oberflächen-Stufe (T14) braucht keinen neuen Proxy: sie fährt die
+  // Sammlungs-, Bibliotheks- und Brief-Routen der Engine über dieselbe
+  // Dashboard-Weiterleitung. Der Test prüft Nutzlast und Antwortformen.
+  it("runs the reference library through the dashboard proxy", async () => {
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-app-library-"));
+    const running = await startProgram({
+      db: database.db,
+      dataDir,
+      programTokenFile: join(dataDir, "program-token.json"),
+      enginePort: 0,
+      appPort: 0,
+      openBrowser: false,
+    });
+    const author = { kind: "human", id: "programm", label: "Programm" };
+    const jsonHeaders = { "content-type": "application/json" };
+    const post = (path: string, body: unknown): Promise<Response> =>
+      fetch(`${running.dashboardUrl}${path}`, {
+        method: "POST",
+        headers: jsonHeaders,
+        body: JSON.stringify(body),
+      });
+    const patch = (path: string, body: unknown): Promise<Response> =>
+      fetch(`${running.dashboardUrl}${path}`, {
+        method: "PATCH",
+        headers: jsonHeaders,
+        body: JSON.stringify(body),
+      });
+    try {
+      // Sammlung anlegen, lesen und bearbeiten.
+      const created = await post("/api/reference-collections", {
+        name: "Editorial",
+        description: "Ruhige Flaechen, viel Weissraum.",
+        deployFor: "B2B-SaaS",
+        vocabulary: ["grain", "quiet space"],
+        risk: "Eine Richtung zum Erkunden",
+        accent: "#6346d7",
+      });
+      expect(created.status).toBe(201);
+      const collection = (await created.json()) as {
+        collection: { id: string; name: string; accent: string; referenceCount: number };
+      };
+      expect(collection.collection.name).toBe("Editorial");
+      expect(collection.collection.accent).toBe("#6346d7");
+
+      const listed = (await (
+        await fetch(`${running.dashboardUrl}/api/reference-collections`)
+      ).json()) as { collections: { id: string }[]; styleCatalog: { total: number } };
+      expect(listed.collections.some((entry) => entry.id === collection.collection.id)).toBe(true);
+      expect(listed.styleCatalog.total).toBe(18);
+
+      const renamed = await patch(`/api/reference-collections/${collection.collection.id}`, {
+        name: "Editorial Journal",
+        vocabulary: ["grain", "quiet space", "editorial"],
+      });
+      expect(renamed.status).toBe(200);
+      const renamedBody = (await renamed.json()) as {
+        collection: { name: string; vocabulary: string[] };
+      };
+      expect(renamedBody.collection.name).toBe("Editorial Journal");
+      expect(renamedBody.collection.vocabulary).toContain("editorial");
+
+      // Manuelle Referenz per Upload (PNG-Bytes als Base64): sofort bereit.
+      const png = Buffer.from(
+        "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489",
+        "hex",
+      );
+      const manual = await post("/api/references/manual", {
+        name: "ATELO - Interior Gallery",
+        collectionId: collection.collection.id,
+        note: "Bildstreifen, dann grosse Headline",
+        vocabulary: ["staggered gallery", "oversized headline"],
+        imageRecipe: "cream ground, bronze accent",
+        image: png.toString("base64"),
+        author,
+      });
+      expect(manual.status).toBe(201);
+      const reference = (await manual.json()) as {
+        reference: {
+          id: string;
+          origin: string;
+          status: string;
+          collection: { id: string } | null;
+          snapshots: { previewPath?: string }[];
+        };
+      };
+      expect(reference.reference.origin).toBe("manual");
+      expect(reference.reference.status).toBe("ready");
+      expect(reference.reference.collection?.id).toBe(collection.collection.id);
+      expect(reference.reference.snapshots[0]?.previewPath).toContain(
+        `/api/references/${reference.reference.id}/snapshots/`,
+      );
+
+      // Die Liste traegt Karten, Sammlungen mit Zaehlern und die Fusszeile.
+      const list = (await (
+        await fetch(
+          `${running.dashboardUrl}/api/references?collection=${collection.collection.id}&sort=name&q=atelo`,
+        )
+      ).json()) as {
+        references: { id: string }[];
+        counts: { references: number; inView: number; collections: number };
+        footer: { text: string; query: string | null };
+      };
+      expect(list.references.some((entry) => entry.id === reference.reference.id)).toBe(true);
+      expect(list.counts.inView).toBe(1);
+      expect(list.footer.query).toBe("atelo");
+      expect(list.footer.text).toContain("matching");
+
+      // Die Bibliotheksfelder lassen sich ueber PATCH pflegen.
+      const patchedReference = await patch(`/api/references/${reference.reference.id}`, {
+        note: "Neue Notiz",
+        vocabulary: ["staggered gallery"],
+        heroUsage: "Fuenf Bilder ueber die Breite",
+      });
+      expect(patchedReference.status).toBe(200);
+
+      // Briefe kommen aus der Engine: Einzelbrief, Sammelbrief, Sammlungsbrief.
+      const brief = (await (
+        await fetch(`${running.dashboardUrl}/api/references/${reference.reference.id}/brief`)
+      ).json()) as {
+        brief: { text: string; status: string };
+        imagePrompt: string | null;
+      };
+      expect(brief.brief.text).toContain("Reference: ATELO - Interior Gallery");
+      expect(brief.brief.text).toContain("What to borrow: Neue Notiz");
+      expect(brief.imagePrompt).toContain("cream ground, bronze accent");
+
+      const combined = await post("/api/references/brief", {
+        referenceIds: [reference.reference.id],
+      });
+      expect(combined.status).toBe(200);
+      expect(((await combined.json()) as { brief: { text: string } }).brief.text).toContain(
+        "Primary action",
+      );
+
+      const collectionBrief = (await (
+        await fetch(
+          `${running.dashboardUrl}/api/reference-collections/${collection.collection.id}/brief`,
+        )
+      ).json()) as { brief: { text: string }; vocabulary: string | null };
+      expect(collectionBrief.brief.text).toContain("Aesthetic: Editorial Journal");
+      expect(collectionBrief.vocabulary).toContain("grain");
+
+      // Vorlieben und Haus-DNA liegen in den Einstellungen (T12/T14).
+      const saved = await fetch(`${running.dashboardUrl}/api/settings`, {
+        method: "PUT",
+        headers: jsonHeaders,
+        body: JSON.stringify({
+          referenceDna: { constants: ["Klar vor laut"], never: ["Keine Stockfotos"] },
+          referencePreferences: { includeDna: true, overrides: "Pastell in diesem Projekt." },
+        }),
+      });
+      expect(saved.status).toBe(200);
+      const savedBody = (await saved.json()) as {
+        referenceDna: { constants: string[]; never: string[] };
+        referencePreferences: { includeDna: boolean; overrides: string };
+      };
+      expect(savedBody.referenceDna.constants).toContain("Klar vor laut");
+      expect(savedBody.referenceDna.never).toContain("Keine Stockfotos");
+      expect(savedBody.referencePreferences.includeDna).toBe(true);
+
+      // Loeschen einer Sammlung verliert keine Referenz: sie meldet die Zahl.
+      const deleted = (await (
+        await fetch(
+          `${running.dashboardUrl}/api/reference-collections/${collection.collection.id}`,
+          { method: "DELETE" },
+        )
+      ).json()) as { deleted: string; affectedReferences: number };
+      expect(deleted.affectedReferences).toBe(1);
+      const afterDelete = (await (
+        await fetch(`${running.dashboardUrl}/api/references/${reference.reference.id}`)
+      ).json()) as { collectionId: string | null };
+      expect(afterDelete.collectionId).toBeNull();
+    } finally {
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  // Sichtbarkeit der Bausteine im Markup (Leiste, Vergleichsleiste, Dialoge)
+  // und der Zustand in der Adresse.
+  it("ships the reference library markup and the address state", async () => {
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-app-markup-"));
+    const running = await startProgram({
+      db: database.db,
+      dataDir,
+      programTokenFile: join(dataDir, "program-token.json"),
+      enginePort: 0,
+      appPort: 0,
+      openBrowser: false,
+    });
+    try {
+      const script = await (await fetch(`${running.dashboardUrl}/app.js`)).text();
+      for (const marker of [
+        "refs-shell",
+        "refs-sidebar",
+        "refs-gallery",
+        "refs-compare-tray",
+        "refs-select",
+        "refs-add-dialog",
+        "refs-collection-dialog",
+        "refs-compare-dialog",
+        "refs-style-card",
+        "Referenz öffnen",
+        "Brief zusammen kopieren",
+        "Filter zurücksetzen",
+        "Über diese Sammlung",
+        "Wähle bis zu 3 Referenzen zum Vergleichen",
+        "Stil-Guide",
+      ]) {
+        expect(script).toContain(marker);
+      }
+      // Zustand in der Adresse: `?q=&collection=&sort=`.
+      expect(script).toContain("refsSyncAddress");
+      expect(script).toContain('search.get("q")');
+      expect(script).toContain('params.set("collection"');
+      expect(script).toContain("history.replaceState");
+
+      const css = await (await fetch(`${running.dashboardUrl}/app.css`)).text();
+      expect(css).toContain(".view.refs-view");
+      expect(css).toContain(".refs-compare-tray");
+      expect(css).toContain(".refs-gallery");
+    } finally {
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 30000);
 });

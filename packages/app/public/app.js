@@ -127,32 +127,27 @@ function breakpointLabel(breakpoint) {
   return "Mobile";
 }
 
-// Real thumbnail when the capture wrote a file, initials otherwise.
-function referenceThumb(reference) {
-  const fallback = el("div", { class: "card-thumb", text: initials(reference.name || "R") });
-  const snapshot = (reference.snapshots || []).find((entry) => entry.previewPath);
-  if (!snapshot) return fallback;
-  const image = el("img", {
-    class: "card-thumb image",
-    src: snapshotImageURL(reference.id, snapshot),
-    alt: `Vorschau ${reference.name}`,
-  });
-  image.addEventListener("error", () => image.replaceWith(fallback));
-  return image;
-}
-
-// Detail view: compare the captured breakpoints as a small slider. Keyboard
-// (arrow left/right) and mouse (buttons, breakpoint tabs) drive the same index.
-function referenceSnapshotsPanel(reference, snapshots) {
+// Detail stage: the captured breakpoints as a small slider. Keyboard (arrow
+// left/right) and mouse (buttons, breakpoint tabs) drive the same index.
+function refsSnapshotStage(reference, snapshots) {
   const shots = [...snapshots].sort((a, b) => b.width - a.width);
   let index = 0;
   const image = el("img", { class: "snapshot-image", alt: "Snapshot" });
-  const meta = el("div", { class: "snapshot-meta muted" });
+  const meta = el("div", { class: "snapshot-meta" });
   const tabs = el("div", { class: "snapshot-tabs" });
+  let loadToken = 0;
   const show = (next) => {
     index = (next + shots.length) % shots.length;
     const shot = shots[index];
-    image.src = snapshotImageURL(reference.id, shot);
+    const token = (loadToken += 1);
+    refsImageSource(snapshotImageURL(reference.id, shot)).then(
+      (src) => {
+        if (token === loadToken) image.src = src;
+      },
+      () => {
+        if (token === loadToken) image.removeAttribute("src");
+      },
+    );
     image.alt = `Snapshot ${breakpointLabel(shot.breakpoint)}`;
     meta.textContent = `${breakpointLabel(shot.breakpoint)} · ${shot.width}×${shot.height} px · ${shot.kind === "section" ? "Section" : "Fullpage"}`;
     [...tabs.children].forEach((tab, position) =>
@@ -163,7 +158,7 @@ function referenceSnapshotsPanel(reference, snapshots) {
     tabs.append(
       el("button", {
         type: "button",
-        class: "ghost",
+        class: "refs-button quiet",
         text: breakpointLabel(shot.breakpoint),
         onclick: () => show(position),
       }),
@@ -177,9 +172,19 @@ function referenceSnapshotsPanel(reference, snapshots) {
     el(
       "div",
       { class: "snapshot-controls" },
-      el("button", { type: "button", class: "ghost", text: "Zurück", onclick: () => show(index - 1) }),
+      el("button", {
+        type: "button",
+        class: "refs-button quiet",
+        text: "Zurück",
+        onclick: () => show(index - 1),
+      }),
       tabs,
-      el("button", { type: "button", class: "ghost", text: "Weiter", onclick: () => show(index + 1) }),
+      el("button", {
+        type: "button",
+        class: "refs-button quiet",
+        text: "Weiter",
+        onclick: () => show(index + 1),
+      }),
     ),
     meta,
   );
@@ -192,16 +197,7 @@ function referenceSnapshotsPanel(reference, snapshots) {
       event.preventDefault();
     }
   });
-  return el(
-    "div",
-    { class: "panel" },
-    el("h2", { text: "Snapshots" }),
-    el("p", {
-      class: "muted",
-      text: "Breakpoint-Vergleich. Pfeiltasten oder Klick wechseln das Bild.",
-    }),
-    slider,
-  );
+  return slider;
 }
 
 function activeTab(tab) {
@@ -436,43 +432,6 @@ async function trashView() {
   ]);
 }
 
-function hostOf(url) {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return url;
-  }
-}
-
-function statusDotFor(status) {
-  if (status === "ready") return "live";
-  if (status === "failed") return "review";
-  return "";
-}
-
-async function createReference() {
-  const url = prompt("URL der Referenz");
-  if (!url) return;
-  try {
-    const result = await api("/api/references", {
-      method: "POST",
-      body: { url, author: AUTHOR, wait: true },
-    });
-    const reference = result.reference;
-    if (reference.status === "failed") {
-      toast(
-        `Analyse fehlgeschlagen: ${reference.failureReason ?? "unbekannt"} — nutze „Aus Quelltext“ als Fallback.`,
-        "error",
-      );
-    } else {
-      toast("Referenz analysiert");
-    }
-    location.hash = `#/references/${reference.id}`;
-  } catch (error) {
-    failed(error);
-  }
-}
-
 const snapshotDialog = document.getElementById("snapshot-dialog");
 const snapshotForm = document.getElementById("snapshot-form");
 
@@ -517,7 +476,9 @@ async function deleteReference(reference) {
       method: "DELETE",
     });
     toast("Referenz gelöscht");
-    await renderRoute();
+    // The deleted detail is gone: fall back to the library list.
+    if (location.hash.startsWith("#/references/")) location.hash = "#/references";
+    else await renderRoute();
   } catch (error) {
     failed(error);
   }
@@ -534,94 +495,1531 @@ function referenceTokenChip(token, withSwatch) {
   );
 }
 
-async function referencesView() {
-  const { references } = await api("/api/references");
-  activeTab("references");
-  const cards = references.map((reference) =>
+/* Referenzen-Bibliothek (T14): die Liste mit linker Leiste, Sammlungen,
+   Vergleich, Anlegen und Stil-Guide im Zuschnitt des Vorbilds. Der Zustand lebt
+   in der Adresse (`?q=&collection=&sort=&view=`), die Texte sind Deutsch mit
+   englischen Fachbegriffen. */
+
+const REFS_ACCENT_FALLBACK = "#8b91a0";
+const REFS_MAX_COMPARE = 3;
+const REFS_SEARCH_ICON =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>';
+
+let refsCollections = [];
+let refsStyleCatalog = null;
+let refsRouteActive = false;
+let refsDetailIds = [];
+let refsDom = null;
+let refsTray = null;
+let refsQueryTimer = null;
+let refsEmptyMode = "reset";
+let refsTrayIds = [];
+
+// Eine Snapshot-Vorschau laedt das Programm genau einmal und teilt sie sich:
+// Karte, Miniatur, Vergleich und Detailseite zeigen dieselbe Blob-Adresse.
+// Sonst fragt jeder Neuaufbau dieselben Bilder erneut an und laeuft ins
+// Kontingent der API.
+const refsImageSources = new Map();
+
+function refsImageSource(url) {
+  let pending = refsImageSources.get(url);
+  if (!pending) {
+    pending = fetch(url)
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Snapshot HTTP ${response.status}`);
+        return URL.createObjectURL(await response.blob());
+      })
+      .catch((error) => {
+        refsImageSources.delete(url);
+        throw error;
+      });
+    refsImageSources.set(url, pending);
+  }
+  return pending;
+}
+
+function refsPreviewImage(url, alt, fallback) {
+  const image = el("img", { alt });
+  refsImageSource(url).then(
+    (src) => {
+      image.src = src;
+    },
+    () => {
+      if (fallback) image.replaceWith(fallback());
+    },
+  );
+  return image;
+}
+
+const refsState = {
+  query: "",
+  collection: "",
+  sort: "newest",
+  view: "",
+  selected: [],
+};
+
+function refsHex(value) {
+  return /^#[0-9a-f]{6}$/i.test(value ?? "") ? value : REFS_ACCENT_FALLBACK;
+}
+
+function refsSplit(value) {
+  return String(value ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+// Zustand aus dem Hash lesen und zurueckschreiben (replaceState, kein Reload).
+function refsApplyAddress(hash) {
+  const current = hash ?? location.hash ?? "#/references";
+  const question = current.indexOf("?");
+  const search = new window.URLSearchParams(
+    question === -1 ? "" : current.slice(question + 1),
+  );
+  refsState.query = search.get("q") ?? "";
+  refsState.collection = search.get("collection") ?? "";
+  refsState.sort = search.get("sort") === "name" ? "name" : "newest";
+  refsState.view = search.get("view") === "styles" ? "styles" : "";
+}
+
+function refsSyncAddress() {
+  if (!/^#\/references(\?|$)/.test(location.hash)) return;
+  const params = new window.URLSearchParams();
+  if (refsState.query !== "") params.set("q", refsState.query);
+  if (refsState.collection !== "") params.set("collection", refsState.collection);
+  if (refsState.sort === "name") params.set("sort", "name");
+  if (refsState.view === "styles") params.set("view", "styles");
+  const query = params.toString();
+  history.replaceState(
+    null,
+    "",
+    query === "" ? "#/references" : `#/references?${query}`,
+  );
+}
+
+function refsActiveCollection() {
+  if (refsState.view === "styles") return null;
+  if (refsState.collection === "" || refsState.collection === "none") return null;
+  return refsCollections.find((entry) => entry.id === refsState.collection) ?? null;
+}
+
+// Brief kopieren: Clipboard wenn verfuegbar, sonst Dialog zum Markieren.
+function refsCopy(text, message) {
+  const clipboard = window.navigator ? window.navigator.clipboard : undefined;
+  if (clipboard && typeof clipboard.writeText === "function") {
+    clipboard.writeText(text).then(
+      () => toast(message ?? "Brief kopiert"),
+      () => refsCopyFallback(text),
+    );
+    return;
+  }
+  refsCopyFallback(text);
+}
+
+function refsCopyFallback(text) {
+  const area = el("textarea", { class: "refs-input", rows: "15" });
+  area.readOnly = true;
+  area.value = text;
+  const dialog = el(
+    "dialog",
+    { class: "refs-dialog refs-copy-dialog" },
     el(
-      "article",
-      { class: "card" },
-      referenceThumb(reference),
+      "div",
+      { class: "refs-dialog-head" },
+      el("h2", { text: "Dein Brief" }),
       el(
         "div",
-        { class: "card-body" },
+        { class: "refs-dialog-tools" },
+        el("button", {
+          type: "button",
+          class: "refs-icon-button",
+          "aria-label": "Schliessen",
+          text: "✕",
+          onclick: () => dialog.close(),
+        }),
+      ),
+    ),
+    el(
+      "div",
+      { class: "refs-dialog-body" },
+      el("p", {
+        text: "Automatisches Kopieren ist nicht verfügbar. Wähle den Text unten aus und kopiere ihn.",
+      }),
+      area,
+    ),
+  );
+  document.body.append(dialog);
+  dialog.addEventListener("close", () => dialog.remove());
+  refsBindBackdropClose(dialog);
+  dialog.showModal();
+  area.focus();
+  area.select();
+}
+
+// Hintergrund-Klick schliesst jeden `refs-`-Dialog (wie im Vorbild).
+function refsBindBackdropClose(dialog) {
+  dialog.addEventListener("click", (event) => {
+    if (event.target !== dialog) return;
+    const rect = dialog.getBoundingClientRect();
+    if (
+      event.clientX < rect.left ||
+      event.clientX > rect.right ||
+      event.clientY < rect.top ||
+      event.clientY > rect.bottom
+    ) {
+      dialog.close();
+    }
+  });
+}
+
+function refsIsSelected(id) {
+  return refsState.selected.some((entry) => entry.id === id);
+}
+
+function refsToggleSelection(entry) {
+  const index = refsState.selected.findIndex((item) => item.id === entry.id);
+  if (index >= 0) {
+    refsState.selected.splice(index, 1);
+  } else if (refsState.selected.length < REFS_MAX_COMPARE) {
+    refsState.selected.push(entry);
+  } else {
+    toast("Drei ausgewählt. Entferne eine, um eine andere hinzuzufügen.", "error");
+    return;
+  }
+  // Die Auswahl ist reine Ansichtssache: nur die Knöpfe und die Leiste
+  // nachziehen, kein neuer Listenabruf (sonst laeuft der Rate-Limiter voll).
+  refsRenderTray();
+  refsUpdateSelectionUI();
+}
+
+function refsClearSelection() {
+  refsState.selected = [];
+  refsRenderTray();
+  refsUpdateSelectionUI();
+}
+
+// Nur die Auswahl-Knoepfe der vorhandenen Karten umschalten, damit die
+// Vorschaubilder nicht erneut geladen werden.
+function refsUpdateSelectionUI() {
+  if (!refsDom || !refsDom.root.isConnected) return;
+  for (const card of refsDom.gallery.querySelectorAll(".refs-card")) {
+    const id = card.dataset.reference;
+    const on = refsIsSelected(id);
+    const button = card.querySelector(".refs-select");
+    if (!button) continue;
+    button.classList.toggle("selected", on);
+    button.textContent = on ? "✓" : "+";
+    button.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+}
+
+function refsEntryFor(reference) {
+  const snapshot = (reference.snapshots ?? []).find((shot) => shot.previewPath);
+  return {
+    id: reference.id,
+    name: reference.name,
+    previewPath: snapshot ? snapshotImageURL(reference.id, snapshot) : null,
+    family: reference.family ?? (reference.families ?? [])[0] ?? null,
+    collectionName: reference.collection ? reference.collection.name : null,
+    vocabulary: reference.vocabulary ?? [],
+    note: reference.note ?? null,
+  };
+}
+
+function refsChip(word, onClick) {
+  return el("button", {
+    type: "button",
+    class: "refs-chip",
+    text: word,
+    onclick: onClick ?? (() => refsFilterByVocabulary(word)),
+  });
+}
+
+// Vokabular-Chips filtern die Liste (Adresse traegt den Suchbegriff).
+function refsFilterByVocabulary(word) {
+  refsState.query = word;
+  refsState.view = "";
+  if (refsDom && refsDom.searchInput) refsDom.searchInput.value = word;
+  if (location.hash.startsWith("#/references/")) {
+    location.hash = `#/references?q=${encodeURIComponent(word)}`;
+    return;
+  }
+  refsSyncAddress();
+  void refsRefresh();
+}
+
+function refsNavItem(input) {
+  const button = el(
+    "button",
+    {
+      type: "button",
+      class: `refs-nav-item${input.active ? " active" : ""}`,
+      onclick: input.onClick,
+      ...(input.active ? { "aria-current": "page" } : {}),
+    },
+    input.dot
+      ? el("span", { class: "refs-dot", style: `--refs-dot:${input.dot}` })
+      : el("span", { class: "refs-nav-icon", "aria-hidden": "true", text: input.icon }),
+    el("span", { text: input.label }),
+    el("span", { class: "refs-nav-count", text: String(input.count) }),
+  );
+  return button;
+}
+
+/* ------------------------------------------------------------- comparison */
+
+function refsTrayEnsure() {
+  if (refsTray) return refsTray;
+  refsTray = el(
+    "div",
+    { class: "refs-compare-tray", hidden: "hidden" },
+    el("div", { class: "refs-tray-thumbs" }),
+    el("span", { class: "refs-tray-count", text: `0 / ${REFS_MAX_COMPARE} ausgewählt` }),
+    el("button", {
+      type: "button",
+      class: "refs-button quiet",
+      text: "Leeren",
+      onclick: () => refsClearSelection(),
+    }),
+    el("button", {
+      type: "button",
+      class: "refs-button primary",
+      text: "Referenzen vergleichen ↗",
+      onclick: () => refsOpenComparison(),
+    }),
+  );
+  document.body.append(refsTray);
+  return refsTray;
+}
+
+function refsThumbNode(entry) {
+  if (entry.previewPath) {
+    return refsPreviewImage(entry.previewPath, `Vorschau ${entry.name}`);
+  }
+  return el("div", { class: "refs-tray-more", text: initials(entry.name) });
+}
+
+function refsRenderTray() {
+  const tray = refsTrayEnsure();
+  const selected = refsState.selected;
+  tray.hidden = selected.length === 0 || !refsRouteActive;
+  const ids = selected.map((entry) => entry.id);
+  // Die Miniaturen nur neu aufbauen, wenn sich die Auswahl geaendert hat
+  // (jede Neuanlage laedt die Vorschauen erneut und kostet Rate-Limit).
+  if (ids.join(",") !== refsTrayIds.join(",")) {
+    refsTrayIds = ids;
+    tray
+      .querySelector(".refs-tray-thumbs")
+      .replaceChildren(...selected.map((entry) => refsThumbNode(entry)));
+  }
+  tray.querySelector(".refs-tray-count").textContent =
+    `${selected.length} / ${REFS_MAX_COMPARE} ausgewählt`;
+  const compareButton = tray.querySelector(".refs-button.primary");
+  compareButton.disabled = selected.length < 2;
+}
+
+async function refsOpenComparison() {
+  if (refsState.selected.length < 2) return;
+  const entries = [...refsState.selected];
+  const grid = el("div", { class: "refs-compare-grid" });
+  grid.style.setProperty("--refs-cols", String(entries.length));
+  for (const entry of entries) {
+    grid.append(
+      el(
+        "article",
+        { class: "refs-compare-item" },
         el(
           "div",
-          { class: "card-title" },
-          el("span", { class: `status-dot ${statusDotFor(reference.status)}` }),
-          reference.name,
+          { class: "refs-compare-image" },
+          entry.previewPath
+            ? refsPreviewImage(entry.previewPath, `Vorschau ${entry.name}`)
+            : el("div", { class: "refs-card-placeholder", text: initials(entry.name) }),
         ),
-        el("div", {
-          class: "muted",
-          text: `${hostOf(reference.sourceUrl)} · ${reference.method === "snapshot" ? "Snapshot" : "Live"}`,
-        }),
-        el("div", {
-          class: "muted",
-          text:
-            reference.families.length > 0
-              ? reference.families.slice(0, 3).join(", ")
-              : "keine Familien erkannt",
-        }),
-        el("div", {
-          class: "muted",
-          text:
-            reference.usedInProjects.length > 0
-              ? `In ${reference.usedInProjects.length} Projekt(en)`
-              : "Nicht zugeordnet",
-        }),
+        el("h3", { text: entry.name }),
+        el("p", { class: "refs-brief-family", text: entry.family ?? "Ohne Familie" }),
         el(
           "div",
-          { class: "card-actions" },
-          el("a", { href: `#/references/${reference.id}`, text: "Details" }),
-          el("button", {
-            class: "danger",
-            text: "Löschen",
-            onclick: () => deleteReference(reference),
-          }),
+          { class: "refs-tags" },
+          (entry.vocabulary ?? []).slice(0, 3).map((word) => el("span", { text: word })),
         ),
+        el("p", { text: entry.note ?? "Keine Notiz." }),
+        el("button", {
+          type: "button",
+          class: "refs-button",
+          text: "Referenz öffnen ↗",
+          onclick: () => {
+            dialog.close();
+            location.hash = `#/references/${entry.id}`;
+          },
+        }),
+      ),
+    );
+  }
+  const dialog = el(
+    "dialog",
+    { class: "refs-dialog wide refs-compare-dialog" },
+    el(
+      "div",
+      { class: "refs-dialog-head" },
+      el(
+        "div",
+        {},
+        el("div", { class: "refs-eyebrow", text: "Zusammen erkunden" }),
+        el("h2", { text: "Wähle deine Richtung." }),
+      ),
+      el(
+        "div",
+        { class: "refs-dialog-tools" },
+        el("button", {
+          type: "button",
+          class: "refs-icon-button",
+          "aria-label": "Schliessen",
+          text: "✕",
+          onclick: () => dialog.close(),
+        }),
+      ),
+    ),
+    grid,
+    el(
+      "div",
+      { class: "refs-compare-footer" },
+      el("p", {
+        text: "Ein Brief mit allen gewählten Referenzen, ihrem Vokabular und Bildrezept.",
+      }),
+      el("button", {
+        type: "button",
+        class: "refs-button primary",
+        text: "Brief zusammen kopieren",
+        onclick: () => refsCopyCombined(entries.map((entry) => entry.id)),
+      }),
+    ),
+  );
+  document.body.append(dialog);
+  dialog.addEventListener("close", () => dialog.remove());
+  refsBindBackdropClose(dialog);
+  dialog.showModal();
+}
+
+async function refsCopyCombined(ids) {
+  try {
+    const result = await api("/api/references/brief", {
+      method: "POST",
+      body: { referenceIds: ids },
+    });
+    refsCopy(result.brief.text, "Brief kopiert");
+  } catch (error) {
+    failed(error);
+  }
+}
+
+/* ------------------------------------------------------------ collections */
+
+function refsOpenCollectionDialog(collection) {
+  if (!collection) return;
+  const dialog = el(
+    "dialog",
+    { class: "refs-dialog refs-collection-dialog" },
+    el(
+      "div",
+      { class: "refs-dialog-head" },
+      el("h2", { text: collection.name }),
+      el(
+        "div",
+        { class: "refs-dialog-tools" },
+        el("button", {
+          type: "button",
+          class: "refs-icon-button",
+          "aria-label": "Schliessen",
+          text: "✕",
+          onclick: () => dialog.close(),
+        }),
+      ),
+    ),
+    el(
+      "div",
+      { class: "refs-dialog-body" },
+      el("p", { text: collection.description || "Keine Beschreibung." }),
+      el(
+        "div",
+        { class: "refs-detail-section" },
+        el("h3", { text: "Passt gut für" }),
+        el("p", { text: collection.deployFor || "Nicht angegeben." }),
+      ),
+      el(
+        "div",
+        { class: "refs-detail-section" },
+        el("h3", { text: "Design-Vokabular" }),
+        el("div", { class: "refs-tags" }, collection.vocabulary.map((word) => el("span", { text: word }))),
+      ),
+      el(
+        "div",
+        { class: "refs-detail-section" },
+        el("h3", { text: "Eine Richtung zum Erkunden" }),
+        el("p", { text: collection.risk || "Nicht angegeben." }),
+      ),
+      el(
+        "div",
+        { class: "refs-row-actions" },
+        el("button", {
+          type: "button",
+          class: "refs-button primary",
+          text: "Sammlungs-Brief kopieren",
+          onclick: () => refsCopyCollectionBrief(collection.id),
+        }),
+        el("button", {
+          type: "button",
+          class: "refs-button",
+          text: "Vokabular kopieren",
+          onclick: () => refsCopy(collection.vocabulary.join(", "), "Vokabular kopiert"),
+        }),
+        el("button", {
+          type: "button",
+          class: "refs-button quiet",
+          text: "Bearbeiten",
+          onclick: () => {
+            dialog.close();
+            refsOpenCollectionForm(collection);
+          },
+        }),
+        el("button", {
+          type: "button",
+          class: "refs-button danger",
+          text: "Löschen",
+          onclick: () => refsDeleteCollection(collection),
+        }),
       ),
     ),
   );
-  render([
-    el(
-      "div",
-      { class: "toolbar" },
-      el("h1", { text: "Referenzen", style: "margin: 0" }),
-      el("div", { class: "spacer" }),
-      el("button", { class: "ghost", text: "Aus Quelltext", onclick: openSnapshotDialog }),
-      el("button", { class: "primary", text: "Neue Referenz", onclick: createReference }),
-    ),
-    references.length === 0
-      ? el("div", {
-          class: "empty",
-          text: "Noch keine Referenzen — analysiere eine URL oder füge Seiten-Quelltext ein.",
-        })
-      : el("div", { class: "card-grid" }, cards),
-  ]);
+  document.body.append(dialog);
+  dialog.addEventListener("close", () => dialog.remove());
+  refsBindBackdropClose(dialog);
+  dialog.showModal();
 }
 
-async function referenceDetailView(referenceId) {
-  const reference = await api(`/api/references/${referenceId}`);
-  const { sites } = await api("/api/sites");
-  activeTab("references");
-  const profile = reference.profile;
-  const nodes = [
+async function refsCopyCollectionBrief(collectionId) {
+  try {
+    const result = await api(`/api/reference-collections/${collectionId}/brief`);
+    refsCopy(result.brief.text, "Sammlungs-Brief kopiert");
+  } catch (error) {
+    failed(error);
+  }
+}
+
+function refsOpenCollectionForm(collection) {
+  const editing = collection ?? null;
+  const nameInput = el("input", {
+    class: "refs-input",
+    type: "text",
+    maxlength: "120",
+    placeholder: "Name der Sammlung",
+  });
+  nameInput.value = editing ? editing.name : "";
+  const descriptionInput = el("textarea", { class: "refs-input", rows: "3", maxlength: "2000" });
+  descriptionInput.value = editing ? editing.description : "";
+  const deployInput = el("input", { class: "refs-input", type: "text", maxlength: "400" });
+  deployInput.value = editing ? editing.deployFor : "";
+  const vocabularyInput = el("input", {
+    class: "refs-input",
+    type: "text",
+    maxlength: "2000",
+    placeholder: "oversized typography, grain, quiet space",
+  });
+  vocabularyInput.value = editing ? editing.vocabulary.join(", ") : "";
+  const riskInput = el("input", { class: "refs-input", type: "text", maxlength: "500" });
+  riskInput.value = editing ? editing.risk : "";
+  const accentInput = el("input", { class: "refs-input", type: "color" });
+  accentInput.value = editing ? refsHex(editing.accent) : "#6346d7";
+  const imageInput = el("textarea", { class: "refs-input", rows: "3", maxlength: "2000" });
+  imageInput.value = editing ? editing.imageStyle : "";
+  const errorEl = el("p", { class: "refs-form-error", role: "alert" });
+  const submit = el("button", {
+    type: "submit",
+    class: "refs-button primary",
+    text: editing ? "Sammlung speichern" : "Sammlung anlegen",
+  });
+
+  const dialog = el(
+    "dialog",
+    { class: "refs-dialog refs-collection-form" },
     el(
       "div",
-      { class: "toolbar" },
-      el("a", { href: "#/references", text: "← Referenzen" }),
-      el("h1", { text: reference.name, style: "margin: 0" }),
-      el("span", { class: "tag", text: reference.status }),
-      el("div", { class: "spacer" }),
+      { class: "refs-dialog-head" },
+      el("h2", { text: editing ? "Sammlung bearbeiten" : "Sammlung anlegen" }),
+      el(
+        "div",
+        { class: "refs-dialog-tools" },
+        el("button", {
+          type: "button",
+          class: "refs-icon-button",
+          "aria-label": "Schliessen",
+          text: "✕",
+          onclick: () => dialog.close(),
+        }),
+      ),
+    ),
+    el(
+      "form",
+      {
+        class: "refs-dialog-body",
+        onsubmit: async (event) => {
+          event.preventDefault();
+          const name = nameInput.value.trim();
+          if (name === "") {
+            errorEl.textContent = "Bitte einen Namen angeben.";
+            return;
+          }
+          const body = {
+            name,
+            description: descriptionInput.value.trim(),
+            deployFor: deployInput.value.trim(),
+            vocabulary: refsSplit(vocabularyInput.value),
+            risk: riskInput.value.trim(),
+            accent: accentInput.value,
+            imageStyle: imageInput.value.trim(),
+          };
+          submit.disabled = true;
+          try {
+            const result = editing
+              ? await api(`/api/reference-collections/${editing.id}`, {
+                  method: "PATCH",
+                  body,
+                })
+              : await api("/api/reference-collections", { method: "POST", body });
+            toast(editing ? "Sammlung gespeichert" : "Sammlung angelegt");
+            dialog.close();
+            refsState.collection = result.collection.id;
+            refsState.view = "";
+            refsSyncAddress();
+            await refsRefresh();
+          } catch (error) {
+            errorEl.textContent = error.message;
+          } finally {
+            submit.disabled = false;
+          }
+        },
+      },
+      el("label", { class: "refs-field-label", text: "Name" }),
+      nameInput,
+      el("label", { class: "refs-field-label", text: "Beschreibung" }),
+      descriptionInput,
+      el("label", { class: "refs-field-label", text: "Passt gut für" }),
+      deployInput,
+      el("label", { class: "refs-field-label", text: "Vokabular (Komma-getrennt)" }),
+      vocabularyInput,
+      el("label", { class: "refs-field-label", text: "Eine Richtung zum Erkunden" }),
+      riskInput,
+      el("label", { class: "refs-field-label", text: "Farbe" }),
+      accentInput,
+      el("label", { class: "refs-field-label", text: "Bildrezept" }),
+      imageInput,
+      errorEl,
+      el("div", { class: "refs-row-actions" }, submit),
+    ),
+  );
+  document.body.append(dialog);
+  dialog.addEventListener("close", () => dialog.remove());
+  refsBindBackdropClose(dialog);
+  dialog.showModal();
+}
+
+async function refsDeleteCollection(collection) {
+  const count = collection.referenceCount ?? 0;
+  const message =
+    count > 0
+      ? `„${collection.name}“ löschen? ${count} Referenz(en) bleiben erhalten und werden keiner Sammlung mehr zugeordnet.`
+      : `„${collection.name}“ löschen?`;
+  if (!confirm(message)) return;
+  try {
+    const result = await api(`/api/reference-collections/${collection.id}`, {
+      method: "DELETE",
+    });
+    toast(
+      result.affectedReferences > 0
+        ? `Sammlung gelöscht, ${result.affectedReferences} Referenz(en) ohne Sammlung`
+        : "Sammlung gelöscht",
+    );
+    if (refsState.collection === collection.id) refsState.collection = "";
+    refsSyncAddress();
+    await refsRefresh();
+  } catch (error) {
+    failed(error);
+  }
+}
+
+/* ------------------------------------------------------------ add dialog */
+
+function refsReadBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new window.FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1]);
+    reader.onerror = () => reject(new Error("Die Datei konnte nicht gelesen werden."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function refsOpenAddDialog() {
+  const fileInput = el("input", {
+    type: "file",
+    accept: "image/png,image/jpeg,image/webp",
+    "aria-label": "Screenshot wählen",
+  });
+  const uploadLabel = el("strong", { text: "Screenshot wählen" });
+  const preview = el("img", { class: "refs-upload-preview", alt: "Vorschau der neuen Referenz" });
+  preview.hidden = true;
+  const nameInput = el("input", {
+    class: "refs-input",
+    type: "text",
+    maxlength: "120",
+    placeholder: "Ein Name, den du wiedererkennst",
+  });
+  const collectionSelect = el("select", {});
+  collectionSelect.append(el("option", { value: "", text: "Ohne Sammlung" }));
+  for (const item of refsCollections.filter((entry) => entry.kind === "collection")) {
+    collectionSelect.append(el("option", { value: item.id, text: item.name }));
+  }
+  if (refsActiveCollection()) collectionSelect.value = refsState.collection;
+  const noteInput = el("textarea", {
+    class: "refs-input",
+    rows: "3",
+    maxlength: "1000",
+    placeholder: "Die Komposition, die Typografie, dieser bestimmte Blauton…",
+  });
+  const vocabularyInput = el("input", {
+    class: "refs-input",
+    type: "text",
+    placeholder: "oversized typography, grain, quiet space",
+  });
+  const recipeInput = el("textarea", {
+    class: "refs-input",
+    rows: "3",
+    placeholder: "Optional. Ohne Angabe greift das Rezept der Sammlung.",
+  });
+  const errorEl = el("p", { class: "refs-form-error", role: "alert" });
+  const uploadSubmit = el("button", {
+    type: "submit",
+    class: "refs-button primary",
+    text: "Referenz speichern",
+  });
+
+  const urlInput = el("input", {
+    class: "refs-input",
+    type: "text",
+    placeholder: "https://…",
+  });
+  const urlNameInput = el("input", {
+    class: "refs-input",
+    type: "text",
+    maxlength: "120",
+    placeholder: "Optionaler Name",
+  });
+  const urlSubmit = el("button", {
+    type: "submit",
+    class: "refs-button primary",
+    text: "URL analysieren",
+  });
+
+  const uploadForm = el(
+    "form",
+    {
+      class: "refs-add-upload",
+      onsubmit: async (event) => {
+        event.preventDefault();
+        const file = fileInput.files[0];
+        const name = nameInput.value.trim();
+        if (!file) {
+          errorEl.textContent = "Bitte ein Bild wählen.";
+          return;
+        }
+        if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+          errorEl.textContent = "Bitte ein PNG, JPEG oder WebP wählen.";
+          return;
+        }
+        if (file.size > 20 * 1024 * 1024) {
+          errorEl.textContent = "Bitte ein Bild kleiner als 20 MB wählen.";
+          return;
+        }
+        if (name === "") {
+          errorEl.textContent = "Bitte einen Namen angeben.";
+          return;
+        }
+        uploadSubmit.disabled = true;
+        uploadSubmit.textContent = "Speichere…";
+        try {
+          const image = await refsReadBase64(file);
+          const result = await api("/api/references/manual", {
+            method: "POST",
+            body: {
+              name,
+              collectionId: collectionSelect.value === "" ? null : collectionSelect.value,
+              note: noteInput.value.trim(),
+              vocabulary: refsSplit(vocabularyInput.value),
+              imageRecipe: recipeInput.value.trim(),
+              image,
+              author: AUTHOR,
+            },
+          });
+          toast("Referenz gespeichert");
+          dialog.close();
+          refsState.collection = result.reference.collectionId ?? "";
+          refsState.view = "";
+          refsSyncAddress();
+          await refsRefresh();
+        } catch (error) {
+          errorEl.textContent = error.message;
+        } finally {
+          uploadSubmit.disabled = false;
+          uploadSubmit.textContent = "Referenz speichern";
+        }
+      },
+    },
+    el(
+      "label",
+      { class: "refs-upload-zone" },
+      el("span", { class: "refs-upload-icon", "aria-hidden": "true", text: "＋" }),
+      uploadLabel,
+      el("span", { text: "PNG, JPEG oder WebP · bis 20 MB" }),
+      fileInput,
+    ),
+    preview,
+    el("label", { class: "refs-field-label", text: "Name" }),
+    nameInput,
+    el("label", { class: "refs-field-label", text: "Sammlung" }),
+    collectionSelect,
+    el("label", { class: "refs-field-label", text: "Was ist dir aufgefallen?" }),
+    noteInput,
+    el(
+      "details",
+      { class: "refs-additional" },
+      el("summary", { text: "Vokabular und Bildrezept hinzufügen" }),
+      el("label", { class: "refs-field-label", text: "Vokabular (Komma-getrennt)" }),
+      vocabularyInput,
+      el("label", { class: "refs-field-label", text: "Bildrezept" }),
+      recipeInput,
+    ),
+    el("p", {
+      class: "refs-field-help",
+      text: "Gespeichert in deiner Referenz-Bibliothek und nach dem Neuladen verfügbar.",
+    }),
+    errorEl,
+    el("div", { class: "refs-row-actions" }, uploadSubmit),
+  );
+  fileInput.addEventListener("change", () => {
+    const file = fileInput.files[0];
+    errorEl.textContent = "";
+    preview.hidden = true;
+    if (!file) return;
+    uploadLabel.textContent = file.name;
+    if (file.size <= 20 * 1024 * 1024 && file.type.startsWith("image/")) {
+      preview.src = URL.createObjectURL(file);
+      preview.hidden = false;
+    }
+    if (nameInput.value === "") {
+      nameInput.value = file.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ");
+    }
+  });
+
+  const urlForm = el(
+    "form",
+    {
+      class: "refs-add-url",
+      onsubmit: async (event) => {
+        event.preventDefault();
+        const url = urlInput.value.trim();
+        if (url === "") {
+          errorEl.textContent = "Bitte eine URL angeben.";
+          return;
+        }
+        urlSubmit.disabled = true;
+        urlSubmit.textContent = "Analysiere…";
+        try {
+          const body = { url, author: AUTHOR, wait: true };
+          const name = urlNameInput.value.trim();
+          if (name !== "") body.name = name;
+          const result = await api("/api/references", { method: "POST", body });
+          const reference = result.reference;
+          if (reference.status === "failed") {
+            toast(
+              `Analyse fehlgeschlagen: ${reference.failureReason ?? "unbekannt"} — nutze „Aus Quelltext“ als Fallback.`,
+              "error",
+            );
+          } else {
+            toast("Referenz analysiert");
+          }
+          dialog.close();
+          location.hash = `#/references/${reference.id}`;
+        } catch (error) {
+          errorEl.textContent = error.message;
+        } finally {
+          urlSubmit.disabled = false;
+          urlSubmit.textContent = "URL analysieren";
+        }
+      },
+    },
+    el("label", { class: "refs-field-label", text: "URL" }),
+    urlInput,
+    el("label", { class: "refs-field-label", text: "Name (optional)" }),
+    urlNameInput,
+    el("p", {
+      class: "refs-field-help",
+      text: "Die Analyse startet direkt; bei blockierten Seiten hilft der Weg über den Seiten-Quelltext.",
+    }),
+    errorEl,
+    el(
+      "div",
+      { class: "refs-row-actions" },
+      urlSubmit,
       el("button", {
-        class: "danger",
-        text: "Löschen",
-        onclick: () => deleteReference(reference),
+        type: "button",
+        class: "refs-button quiet",
+        text: "Aus Quelltext",
+        onclick: () => {
+          dialog.close();
+          openSnapshotDialog();
+        },
       }),
+    ),
+  );
+
+  urlForm.hidden = true;
+  const uploadTab = el("button", { type: "button", class: "active", text: "Screenshot hochladen" });
+  const urlTab = el("button", { type: "button", text: "URL analysieren" });
+  const showMode = (mode) => {
+    const upload = mode === "upload";
+    uploadForm.hidden = !upload;
+    urlForm.hidden = upload;
+    uploadTab.classList.toggle("active", upload);
+    urlTab.classList.toggle("active", !upload);
+    errorEl.textContent = "";
+  };
+  uploadTab.addEventListener("click", () => showMode("upload"));
+  urlTab.addEventListener("click", () => showMode("url"));
+
+  const dialog = el(
+    "dialog",
+    { class: "refs-dialog refs-add-dialog" },
+    el(
+      "div",
+      { class: "refs-dialog-head" },
+      el("h2", { text: "Referenz hinzufügen" }),
+      el(
+        "div",
+        { class: "refs-dialog-tools" },
+        el("button", {
+          type: "button",
+          class: "refs-icon-button",
+          "aria-label": "Schliessen",
+          text: "✕",
+          onclick: () => dialog.close(),
+        }),
+      ),
     ),
     el(
       "div",
-      { class: "panel" },
+      { class: "refs-dialog-body" },
+      el("div", { class: "refs-modal-tabs" }, uploadTab, urlTab),
+      uploadForm,
+      urlForm,
+    ),
+  );
+  document.body.append(dialog);
+  dialog.addEventListener("close", () => dialog.remove());
+  refsBindBackdropClose(dialog);
+  dialog.showModal();
+}
+
+/* ------------------------------------------------------------ style guide */
+
+function refsStyleCard(collection) {
+  const accent = refsHex(collection.accent);
+  const preview = el(
+    "div",
+    { class: "refs-style-preview" },
+    el("strong", { text: collection.name }),
+    el("small", { text: collection.deployFor || "Stilfamilie" }),
+  );
+  if (/^#[0-9a-f]{6}$/i.test(collection.accent ?? "")) {
+    preview.style.setProperty("--refs-preview", `${accent}22`);
+    preview.style.setProperty("--refs-preview-ink", accent);
+  }
+  return el(
+    "article",
+    { class: "refs-style-card" },
+    preview,
+    el(
+      "div",
+      { class: "refs-style-copy" },
+      el("h2", { text: collection.name }),
+      el("p", { text: collection.recognize.join(" · ") || collection.description || "" }),
+      el(
+        "div",
+        { class: "refs-tags" },
+        collection.vocabulary.map((word) => el("span", { text: word })),
+      ),
+      collection.warning
+        ? el("p", { class: "refs-style-warning", text: collection.warning })
+        : undefined,
+      el(
+        "div",
+        { class: "refs-style-links" },
+        collection.examples
+          .filter((example) => /^https?:\/\//.test(example.url))
+          .map((example) =>
+            el("a", {
+              href: example.url,
+              target: "_blank",
+              rel: "noopener noreferrer",
+              text: `${example.name} ↗`,
+            }),
+          ),
+      ),
+      el(
+        "div",
+        { class: "refs-style-actions" },
+        el("button", {
+          type: "button",
+          class: "refs-button",
+          text: "Brief kopieren",
+          onclick: () => refsCopyCollectionBrief(collection.id),
+        }),
+        el("button", {
+          type: "button",
+          class: "refs-button quiet",
+          text: "Vokabular kopieren",
+          onclick: () => refsCopy(collection.vocabulary.join(", "), "Vokabular kopiert"),
+        }),
+      ),
+    ),
+  );
+}
+
+/* ---------------------------------------------------------------- shell */
+
+function refsBuildShell() {
+  const libraryNav = el("nav", { "aria-label": "Bibliothek" });
+  const collectionNav = el("nav", { "aria-label": "Sammlungen" });
+  const collectionCount = el("span", { class: "refs-nav-count" });
+  const sidebarCount = el("span", {});
+  const sidebar = el(
+    "aside",
+    { class: "refs-sidebar", "aria-label": "Bibliothek-Navigation" },
+    el("div", { class: "refs-sidebar-heading", style: "margin-top: 0" }, el("span", { text: "Bibliothek" })),
+    libraryNav,
+    el(
+      "div",
+      { class: "refs-sidebar-heading refs-collection-label" },
+      el("span", {}, "Sammlungen ", collectionCount),
+      el("button", {
+        type: "button",
+        class: "refs-sidebar-add",
+        title: "Sammlung anlegen",
+        text: "＋",
+        onclick: () => refsOpenCollectionForm(null),
+      }),
+    ),
+    collectionNav,
+    el(
+      "div",
+      { class: "refs-sidebar-footer" },
+      el("span", {}, el("span", { class: "refs-status-dot" }), "Deine Sammlung, auf deinem Rechner."),
+      sidebarCount,
+    ),
+  );
+
+  const titleText = el("span", { text: "Alle Referenzen" });
+  const countEl = el("span", { class: "refs-count", text: "0" });
+  const description = el("p", {});
+  const aboutButton = el(
+    "button",
+    {
+      type: "button",
+      class: "refs-button quiet",
+      onclick: () => refsOpenCollectionDialog(refsActiveCollection()),
+    },
+    "Über diese Sammlung ",
+    el("span", { "aria-hidden": "true", text: "↗" }),
+  );
+  aboutButton.hidden = true;
+  const heading = el(
+    "section",
+    { class: "refs-heading" },
+    el("div", {}, el("h1", {}, titleText, countEl), description),
+    aboutButton,
+  );
+
+  const searchInput = el("input", {
+    type: "search",
+    "aria-label": "Referenzen, Stile und Details suchen",
+    placeholder: "Referenzen, Stile, Details suchen…",
+  });
+  searchInput.value = refsState.query;
+  searchInput.addEventListener("input", () => {
+    refsState.query = searchInput.value.trim();
+    refsSyncAddress();
+    if (refsQueryTimer) clearTimeout(refsQueryTimer);
+    refsQueryTimer = setTimeout(() => void refsRefresh(), 220);
+  });
+  const search = el("label", { class: "refs-search" });
+  search.innerHTML = REFS_SEARCH_ICON;
+  search.append(searchInput, el("kbd", { "aria-hidden": "true", text: "/" }));
+  const sortSelect = el("select", { "aria-label": "Sortierung" });
+  sortSelect.append(
+    el("option", { value: "newest", text: "Neueste zuerst" }),
+    el("option", { value: "name", text: "Name A–Z" }),
+  );
+  sortSelect.value = refsState.sort;
+  sortSelect.addEventListener("change", () => {
+    refsState.sort = sortSelect.value === "name" ? "name" : "newest";
+    refsSyncAddress();
+    void refsRefresh();
+  });
+  const toolbar = el(
+    "div",
+    { class: "refs-toolbar" },
+    search,
+    el("label", { class: "refs-sort" }, el("span", { text: "Sortieren" }), sortSelect),
+  );
+
+  const hint = el(
+    "div",
+    { class: "refs-hint" },
+    el("span", { text: "Wähle bis zu 3 Referenzen zum Vergleichen" }),
+  );
+  const gallery = el("div", { class: "refs-gallery" });
+  const empty = el(
+    "section",
+    { class: "refs-empty", hidden: "hidden" },
+    el("span", { class: "refs-empty-icon", "aria-hidden": "true", text: "⌕" }),
+    el("h2", { text: "Keine Referenzen gefunden" }),
+    el("p", { text: "Versuche ein anderes Wort oder durchsuche die ganze Bibliothek." }),
+    el("button", {
+      type: "button",
+      class: "refs-button",
+      text: "Filter zurücksetzen",
+      onclick: () => refsEmptyAction(),
+    }),
+  );
+  const footer = el(
+    "div",
+    { class: "refs-page-footer" },
+    el("span", { class: "refs-footer-count" }),
+    el("span", { text: "Gute Arbeit beginnt mit einer guten Referenz." }),
+  );
+
+  const main = el(
+    "div",
+    { class: "refs-main" },
+    el(
+      "div",
+      { class: "refs-topbar" },
+      el("span", { class: "refs-topbar-label", text: "Referenz-Bibliothek" }),
+      el(
+        "div",
+        { class: "refs-actions" },
+        el("button", {
+          type: "button",
+          class: "refs-button quiet",
+          text: "Einstellungen",
+          onclick: () => (location.hash = "#/settings"),
+        }),
+        el("button", {
+          type: "button",
+          class: "refs-button primary",
+          onclick: () => refsOpenAddDialog(),
+        }, el("span", { "aria-hidden": "true", text: "＋" }), " Referenz hinzufügen"),
+      ),
+    ),
+    heading,
+    toolbar,
+    hint,
+    gallery,
+    empty,
+    footer,
+  );
+
+  const root = el("div", { class: "refs-shell" }, sidebar, main);
+  refsDom = {
+    root,
+    libraryNav,
+    collectionNav,
+    collectionCount,
+    sidebarCount,
+    titleText,
+    countEl,
+    description,
+    aboutButton,
+    hint,
+    searchInput,
+    sortSelect,
+    gallery,
+    empty,
+    footer,
+  };
+  return refsDom;
+}
+
+function refsResetFilters() {
+  refsState.query = "";
+  refsState.collection = "";
+  refsState.view = "";
+  refsState.sort = "newest";
+  if (refsDom) {
+    refsDom.searchInput.value = "";
+    refsDom.sortSelect.value = "newest";
+  }
+  refsSyncAddress();
+  void refsRefresh();
+}
+
+async function referencesView() {
+  activeTab("references");
+  refsApplyAddress();
+  const dom = refsBuildShell();
+  render([dom.root]);
+  await refsRefresh();
+  refsRenderTray();
+}
+
+async function refsRefresh() {
+  if (!refsDom) return;
+  // Adresszustand zuerst in die Bedienelemente spiegeln: Suche und Sortierung
+  // stimmen so auch dann, wenn der Listenabruf scheitert.
+  refsDom.searchInput.value = refsState.query;
+  refsDom.sortSelect.value = refsState.sort;
+  let data;
+  try {
+    data = await api(`/api/references?${refsSearchParams().toString()}`);
+  } catch (error) {
+    // Ein kurzer Fehler (etwa ein erschoepftes Kontingent) darf die Ansicht
+    // nicht leeren: die vorhandenen Karten bleiben stehen, nur eine Meldung.
+    failed(error);
+    return;
+  }
+  refsCollections = data.collections ?? [];
+  refsStyleCatalog = data.styleCatalog ?? null;
+  const counts = data.counts ?? {};
+  const styleMode = refsState.view === "styles";
+  const activeCollection = refsActiveCollection();
+  const styleFamilies = refsCollections.filter((entry) => entry.kind === "style");
+  const personalCollections = refsCollections.filter((entry) => entry.kind !== "style");
+
+  // Linke Leiste
+  refsDom.libraryNav.replaceChildren(
+    refsNavItem({
+      label: "Alle Referenzen",
+      count: counts.references ?? 0,
+      icon: "▦",
+      active: !styleMode && refsState.collection === "",
+      onClick: () => refsSetView(""),
+    }),
+    refsNavItem({
+      label: "Stil-Guide",
+      count: counts.styles ?? 0,
+      icon: "◈",
+      active: styleMode,
+      onClick: () => refsSetView("styles"),
+    }),
+  );
+  refsDom.collectionCount.textContent = String(personalCollections.length);
+  if (personalCollections.length === 0) {
+    refsDom.collectionNav.replaceChildren(
+      el("div", { class: "muted", style: "font-size: 11px; padding: 0 12px", text: "Noch keine Sammlungen." }),
+    );
+  } else {
+    refsDom.collectionNav.replaceChildren(
+      ...personalCollections.map((collection) =>
+        refsNavItem({
+          label: collection.name,
+          count: collection.referenceCount ?? 0,
+          dot: refsHex(collection.accent),
+          active: !styleMode && refsState.collection === collection.id,
+          onClick: () => refsSetCollection(collection.id),
+        }),
+      ),
+    );
+  }
+  refsDom.sidebarCount.textContent =
+    `${counts.references ?? 0} Referenzen · ${personalCollections.length} Sammlungen`;
+
+  // Kopfbereich
+  if (styleMode) {
+    refsDom.titleText.textContent = "Stil-Guide";
+    refsDom.description.textContent = "Erkunde die visuellen Sprachen hinter der Arbeit.";
+  } else if (activeCollection) {
+    refsDom.titleText.textContent = activeCollection.name;
+    refsDom.description.textContent = "Ein anderer Blickwinkel. Für das richtige Projekt aufgehoben.";
+  } else if (refsState.collection === "none") {
+    refsDom.titleText.textContent = "Ohne Sammlung";
+    refsDom.description.textContent = "Referenzen, die noch keiner Sammlung zugeordnet sind.";
+  } else {
+    refsDom.titleText.textContent = "Alle Referenzen";
+    refsDom.description.textContent = "Sammle, was dein Auge fängt. Mach es zu deinem.";
+  }
+  refsDom.aboutButton.hidden = !activeCollection;
+  refsDom.hint.hidden = styleMode;
+
+  // Hauptbereich
+  if (styleMode) {
+    const filtered = styleFamilies.filter((collection) => refsStyleMatches(collection, refsState.query));
+    if (filtered.length === 0 && styleFamilies.length === 0 && (refsStyleCatalog?.total ?? 0) > 0) {
+      refsEmptyMode = "seed";
+      refsDom.gallery.replaceChildren();
+      refsDom.empty.querySelector("h2").textContent = "Stil-Katalog noch nicht eingespielt";
+      refsDom.empty.querySelector("p").textContent =
+        "Die Stilfamilien des Stil-Guides liegen bereit und lassen sich einmalig laden.";
+      refsDom.empty.querySelector("button").textContent = "Stil-Katalog einspielen";
+      refsDom.empty.hidden = false;
+    } else {
+      refsEmptyMode = "reset";
+      refsDom.empty.querySelector("h2").textContent = "Keine Stile gefunden";
+      refsDom.empty.querySelector("p").textContent = "Versuche ein anderes Wort.";
+      refsDom.empty.querySelector("button").textContent = "Filter zurücksetzen";
+      refsDom.empty.hidden = filtered.length > 0;
+      refsDom.gallery.replaceChildren(...filtered.map((collection) => refsStyleCard(collection)));
+    }
+    refsDom.countEl.textContent = String(filtered.length);
+    refsDom.footer.querySelector(".refs-footer-count").textContent = refsFooterText(
+      filtered.length,
+      "Stile",
+      refsState.query,
+    );
+  } else {
+    const references = data.references ?? [];
+    refsEmptyMode = "reset";
+    refsDom.empty.querySelector("h2").textContent = "Keine Referenzen gefunden";
+    refsDom.empty.querySelector("p").textContent =
+      "Versuche ein anderes Wort oder durchsuche die ganze Bibliothek.";
+    refsDom.empty.querySelector("button").textContent = "Filter zurücksetzen";
+    refsDom.empty.hidden = references.length > 0;
+    refsDom.gallery.replaceChildren(...references.map((reference) => refsCard(reference)));
+    refsDom.countEl.textContent = String(counts.inView ?? references.length);
+    refsDom.footer.querySelector(".refs-footer-count").textContent = refsFooterText(
+      counts.inView ?? references.length,
+      "Referenzen",
+      refsState.query,
+    );
+  }
+  refsTrayResync();
+}
+
+function refsEmptyAction() {
+  if (refsEmptyMode === "seed") void refsSeedStyles();
+  else refsResetFilters();
+}
+
+function refsStyleMatches(collection, query) {
+  if (query === "") return true;
+  return [collection.name, ...(collection.recognize ?? []), ...(collection.vocabulary ?? [])]
+    .join(" ")
+    .toLowerCase()
+    .includes(query.toLowerCase());
+}
+
+function refsFooterText(count, noun, query) {
+  return `${count} ${noun}${query === "" ? " in Ansicht" : ` passend zu “${query}”`}`;
+}
+
+function refsSetView(view) {
+  refsState.view = view;
+  refsState.collection = "";
+  refsSyncAddress();
+  void refsRefresh();
+}
+
+function refsSetCollection(collectionId) {
+  refsState.collection = collectionId;
+  refsState.view = "";
+  refsSyncAddress();
+  void refsRefresh();
+}
+
+async function refsSeedStyles() {
+  try {
+    const result = await api("/api/reference-collections/styles", { method: "POST" });
+    toast(`${result.seed?.created ?? 0} Stilfamilien eingespielt`);
+    await refsRefresh();
+  } catch (error) {
+    failed(error);
+  }
+}
+
+function refsSearchParams() {
+  const params = new window.URLSearchParams();
+  if (refsState.query !== "") params.set("q", refsState.query);
+  if (refsState.collection !== "") params.set("collection", refsState.collection);
+  if (refsState.sort !== "newest") params.set("sort", refsState.sort);
+  return params;
+}
+
+function refsTrayResync() {
+  refsRenderTray();
+}
+
+function refsCard(reference) {
+  const selected = refsIsSelected(reference.id);
+  const entry = refsEntryFor(reference);
+  const art = el(
+    "div",
+    {
+      class: "refs-card-art",
+      role: "button",
+      tabindex: "0",
+      "aria-label": `Referenz öffnen: ${reference.name}`,
+      onclick: () => refsOpenDetail(reference.id),
+      onkeydown: (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          refsOpenDetail(reference.id);
+        }
+      },
+    },
+    refsCardImage(reference),
+    el("span", { class: "refs-open-label", text: "Referenz öffnen ↗" }),
+  );
+  const select = el("button", {
+    type: "button",
+    class: `refs-select${selected ? " selected" : ""}`,
+    "aria-pressed": selected ? "true" : "false",
+    "aria-label": `${selected ? "Aus Vergleich entfernen" : "Zum Vergleich wählen"}: ${reference.name}`,
+    text: selected ? "✓" : "+",
+    onclick: (event) => {
+      event.stopPropagation();
+      refsToggleSelection(entry);
+    },
+  });
+  const meta = el(
+    "div",
+    { class: "refs-card-meta" },
+    el(
+      "div",
+      {},
+      el("h2", { text: reference.name }),
+      el(
+        "p",
+        {},
+        el("span", {
+          class: "refs-dot",
+          style: `--refs-dot:${reference.collection ? refsHex(reference.collection.accent) : REFS_ACCENT_FALLBACK}`,
+        }),
+        reference.collection ? reference.collection.name : "Ohne Sammlung",
+      ),
+    ),
+    el("span", { class: "refs-card-arrow", "aria-hidden": "true", text: "↗" }),
+  );
+  return el("article", { class: "refs-card", "data-reference": reference.id }, select, art, meta);
+}
+
+function refsCardImage(reference) {
+  const snapshot = (reference.snapshots ?? []).find((shot) => shot.previewPath);
+  const placeholder = () =>
+    el("div", {
+      class: "refs-card-placeholder",
+      text: initials(reference.name || "R"),
+    });
+  if (!snapshot) return placeholder();
+  return refsPreviewImage(
+    snapshotImageURL(reference.id, snapshot),
+    `Vorschau ${reference.name}`,
+    placeholder,
+  );
+}
+
+function refsOpenDetail(referenceId) {
+  location.hash = `#/references/${referenceId}`;
+}
+
+// Aufklappbare Bausteine der Detailseite (Rezept, Historie, Evidenz, Profil).
+function refsFold(title, body, open) {
+  const details = el("details", { class: "refs-fold" });
+  if (open) details.open = true;
+  details.append(el("summary", { text: title }), el("div", { class: "refs-fold-body" }, body));
+  return details;
+}
+
+function refsRevisionsFold(referenceId) {
+  const details = el("details", { class: "refs-fold" }, el("summary", { text: "Revisions-Historie" }));
+  const body = el("div", { class: "refs-fold-body" });
+  details.append(body);
+  let loaded = false;
+  details.addEventListener("toggle", async () => {
+    if (!details.open || loaded) return;
+    loaded = true;
+    body.replaceChildren(el("p", { class: "muted", text: "Lädt…" }));
+    try {
+      const data = await api(`/api/references/${referenceId}/revisions`);
+      const revisions = data.revisions ?? [];
+      if (revisions.length === 0) {
+        body.replaceChildren(el("p", { class: "muted", text: "Noch keine Profil-Revision." }));
+        return;
+      }
+      body.replaceChildren(
+        el(
+          "table",
+          {},
+          el(
+            "thead",
+            {},
+            el(
+              "tr",
+              {},
+              el("th", { text: "Revision" }),
+              el("th", { text: "Zeit" }),
+              el("th", { text: "Quelle" }),
+              el("th", { text: "Notiz" }),
+            ),
+          ),
+          el(
+            "tbody",
+            {},
+            revisions.map((revision) =>
+              el(
+                "tr",
+                {},
+                el("td", { text: String(revision.revision) }),
+                el("td", { text: formatDate(revision.createdAt) }),
+                el("td", {
+                  text: `${revision.author?.kind === "agent" ? "Agent" : "Mensch"} · ${revision.author?.label ?? "—"}`,
+                }),
+                el("td", { text: revision.note ?? "—" }),
+              ),
+            ),
+          ),
+        ),
+      );
+    } catch (error) {
+      body.replaceChildren(el("p", { class: "muted", text: error.message }));
+    }
+  });
+  return details;
+}
+
+function refsEvidenceFold(reference) {
+  const evidence = reference.evidence ?? [];
+  return refsFold(
+    `Evidenz (${evidence.length})`,
+    evidence.length === 0
+      ? el("p", { class: "muted", text: "Keine Evidenz erfasst." })
+      : el(
+          "ul",
+          {},
+          evidence.slice(0, 40).map((entry) =>
+            el(
+              "li",
+              {},
+              el("span", { class: "tag", text: entry.level }),
+              ` ${entry.claim}`,
+            ),
+          ),
+        ),
+  );
+}
+
+function refsProvenanceFold(reference) {
+  return refsFold(
+    "Provenienz",
+    el(
+      "div",
+      { class: "refs-fold-body" },
       el(
         "p",
         {},
@@ -635,36 +2033,37 @@ async function referenceDetailView(referenceId) {
       ),
       el("p", {
         class: "muted",
-        text: `Methode: ${reference.method === "snapshot" ? "Snapshot (reduziert)" : "Live-Capture"} · Stand: ${formatDate(reference.provenance?.capturedAt)} · Revision ${reference.revision}`,
+        text: `Methode: ${reference.method === "snapshot" ? "Snapshot (reduziert)" : reference.method === "manual" ? "Manuell" : "Live-Capture"} · Stand: ${formatDate(reference.provenance?.capturedAt)} · Revision ${reference.revision}`,
       }),
       reference.failureReason
         ? el("p", { class: "muted", text: `Fehler: ${reference.failureReason}` })
         : undefined,
-      profile?.styleBrief ? el("p", { text: profile.styleBrief }) : undefined,
-      profile?.reduced
+      reference.usedInProjects.length > 0
         ? el("p", {
             class: "muted",
-            text: "Reduziertes Profil (Snapshot-Fallback) — Runtime-Werte fehlen.",
+            text: `In ${reference.usedInProjects.length} Projekt(en) verwendet.`,
           })
         : undefined,
     ),
-  ];
+  );
+}
+
+function refsProfileFolds(reference) {
+  const profile = reference.profile;
   if (!profile) {
-    nodes.push(
+    return [
       el("div", {
-        class: "empty",
-        text: "Noch kein Profil — die Analyse läuft oder ist fehlgeschlagen. Nutze „Aus Quelltext“ als Fallback.",
+        class: "refs-fold",
+        style: "border-top: 1px solid #e5e1ec; margin-top: 24px; padding-top: 16px; font-size: 12px; color: #737d8c",
+        text: "Noch kein Profil: Die Analyse läuft oder ist fehlgeschlagen. Nutze „Aus Quelltext“ als Fallback.",
       }),
-    );
-    render(nodes);
-    return;
+    ];
   }
+  const folds = [refsProvenanceFold(reference)];
   if (profile.tokens.color.length > 0) {
-    nodes.push(
-      el(
-        "div",
-        { class: "panel" },
-        el("h2", { text: "Farben" }),
+    folds.push(
+      refsFold(
+        "Farben",
         el(
           "div",
           { class: "chip-row" },
@@ -674,11 +2073,9 @@ async function referenceDetailView(referenceId) {
     );
   }
   if (profile.tokens.type.length > 0) {
-    nodes.push(
-      el(
-        "div",
-        { class: "panel" },
-        el("h2", { text: "Typografie" }),
+    folds.push(
+      refsFold(
+        "Typografie",
         el(
           "table",
           {},
@@ -721,12 +2118,10 @@ async function referenceDetailView(referenceId) {
     ["Schatten", profile.tokens.shadow],
   ].filter(([, tokens]) => tokens.length > 0);
   if (scaleGroups.length > 0) {
-    nodes.push(
-      el(
-        "div",
-        { class: "panel" },
-        el("h2", { text: "Skalen" }),
-        ...scaleGroups.map(([label, tokens]) =>
+    folds.push(
+      refsFold(
+        "Skalen",
+        scaleGroups.map(([label, tokens]) =>
           el(
             "div",
             { style: "margin-bottom: 0.75rem" },
@@ -742,11 +2137,9 @@ async function referenceDetailView(referenceId) {
     );
   }
   if (profile.motion.length > 0) {
-    nodes.push(
-      el(
-        "div",
-        { class: "panel" },
-        el("h2", { text: "Motion" }),
+    folds.push(
+      refsFold(
+        "Motion",
         el(
           "table",
           {},
@@ -780,34 +2173,36 @@ async function referenceDetailView(referenceId) {
       ),
     );
   }
-  if (profile.vocabulary.length > 0 || profile.rules.constants.length > 0 || profile.rules.never.length > 0) {
-    nodes.push(
-      el(
-        "div",
-        { class: "panel" },
-        el("h2", { text: "Design-Sprache" }),
-        profile.vocabulary.length > 0
-          ? el(
-              "div",
-              { class: "chip-row", style: "margin-bottom: 0.6rem" },
-              profile.vocabulary.map((word) => el("span", { class: "tag", text: word })),
-            )
-          : undefined,
-        profile.rules.constants.length > 0
-          ? el("p", {}, el("strong", { text: "Konstanten: " }), profile.rules.constants.join(" · "))
-          : undefined,
-        profile.rules.never.length > 0
-          ? el("p", {}, el("strong", { text: "Nie: " }), profile.rules.never.join(" · "))
-          : undefined,
+  if (
+    profile.vocabulary.length > 0 ||
+    profile.rules.constants.length > 0 ||
+    profile.rules.never.length > 0
+  ) {
+    folds.push(
+      refsFold(
+        "Design-Sprache",
+        [
+          profile.vocabulary.length > 0
+            ? el(
+                "div",
+                { class: "chip-row", style: "margin-bottom: 0.6rem" },
+                profile.vocabulary.map((word) => el("span", { class: "tag", text: word })),
+              )
+            : undefined,
+          profile.rules.constants.length > 0
+            ? el("p", {}, el("strong", { text: "Konstanten: " }), profile.rules.constants.join(" · "))
+            : undefined,
+          profile.rules.never.length > 0
+            ? el("p", {}, el("strong", { text: "Nie: " }), profile.rules.never.join(" · "))
+            : undefined,
+        ],
       ),
     );
   }
   if (profile.guardrails.length > 0) {
-    nodes.push(
-      el(
-        "div",
-        { class: "panel" },
-        el("h2", { text: "Schutzregeln" }),
+    folds.push(
+      refsFold(
+        "Schutzregeln",
         el(
           "ul",
           {},
@@ -823,120 +2218,425 @@ async function referenceDetailView(referenceId) {
       ),
     );
   }
-  const snapshotImages = reference.snapshots.filter((snapshot) => snapshot.previewPath);
-  if (snapshotImages.length > 0) {
-    nodes.push(referenceSnapshotsPanel(reference, snapshotImages));
-  } else if (reference.snapshots.length > 0) {
-    nodes.push(
-      el(
-        "div",
-        { class: "panel" },
-        el("h2", { text: "Snapshots" }),
-        el(
-          "div",
-          { class: "chip-row" },
-          reference.snapshots.map((snapshot) =>
-            el("span", {
-              class: "token",
-              text: `${snapshot.kind} · ${snapshot.breakpoint} · ${snapshot.width}×${snapshot.height}`,
-            }),
-          ),
-        ),
-      ),
-    );
-  }
+  return folds;
+}
+
+function refsAssignPanel(reference, sites) {
   const scaleBoxes = ["color", "type", "motion", "rest"].map((scale) => {
-    const box = el("input", { type: "checkbox", "data-scale": scale, id: `assign-${scale}` });
+    const box = el("input", { type: "checkbox", "data-scale": scale });
     box.checked = true;
     return el("label", { class: "inline" }, box, scale);
   });
-  nodes.push(
-    el(
-      "div",
-      { class: "panel" },
-      el("h2", { text: "Projekt zuordnen" }),
-      sites.length === 0
-        ? el("p", { class: "muted", text: "Noch keine Projekte." })
-        : el(
-            "div",
-            { class: "inline" },
-            el(
-              "select",
-              { id: "assign-site" },
-              ...sites.map((site) => el("option", { value: site.id, text: site.name })),
-            ),
-            ...scaleBoxes,
-            el("button", {
-              class: "primary",
-              text: "Zuordnen",
-              onclick: async () => {
-                const siteId = document.getElementById("assign-site").value;
-                const scales = [...document.querySelectorAll("[data-scale]")]
-                  .filter((box) => box.checked)
-                  .map((box) => box.dataset.scale);
-                if (scales.length === 0) {
-                  toast("Mindestens eine Skala auswählen.", "error");
-                  return;
-                }
-                try {
-                  await api(`/api/sites/${siteId}/references`, {
-                    method: "POST",
-                    body: { author: AUTHOR, referenceId: reference.id, scales },
-                  });
-                  toast("Referenz zugeordnet");
-                  await renderRoute();
-                } catch (error) {
-                  failed(error);
-                }
-              },
-            }),
+  const host =
+    sites.length === 0
+      ? el("p", { class: "muted", text: "Noch keine Projekte." })
+      : el(
+          "div",
+          { class: "inline" },
+          el(
+            "select",
+            { "aria-label": "Projekt" },
+            ...sites.map((site) => el("option", { value: site.id, text: site.name })),
           ),
-    ),
+          ...scaleBoxes,
+          el("button", {
+            type: "button",
+            class: "refs-button primary",
+            text: "Zuordnen",
+            onclick: async (event) => {
+              const select = event.target.closest(".inline")?.querySelector("select");
+              const siteId = select ? select.value : "";
+              const scales = [...event.target.closest(".inline").querySelectorAll("[data-scale]")]
+                .filter((box) => box.checked)
+                .map((box) => box.dataset.scale);
+              if (scales.length === 0) {
+                toast("Mindestens eine Skala auswählen.", "error");
+                return;
+              }
+              try {
+                await api(`/api/sites/${siteId}/references`, {
+                  method: "POST",
+                  body: { author: AUTHOR, referenceId: reference.id, scales },
+                });
+                toast("Referenz zugeordnet");
+              } catch (error) {
+                failed(error);
+              }
+            },
+          }),
+        );
+  return refsFold("Projekt zuordnen", host);
+}
+
+async function referenceDetailView(referenceId) {
+  activeTab("references");
+  refsApplyAddress();
+  let reference;
+  try {
+    reference = await api(`/api/references/${referenceId}`);
+  } catch (error) {
+    failed(error);
+    render([el("div", { class: "empty", text: "Referenz nicht gefunden." })]);
+    return;
+  }
+  const [listData, briefData, sitesData] = await Promise.all([
+    api(`/api/references?sort=${refsState.sort}`).catch(() => ({ references: [] })),
+    api(`/api/references/${referenceId}/brief`).catch(() => null),
+    api("/api/sites").catch(() => ({ sites: [] })),
+  ]);
+  const sites = sitesData.sites ?? [];
+  refsDetailIds = (listData.references ?? []).map((entry) => entry.id);
+  const position = refsDetailIds.indexOf(referenceId);
+
+  const profile = reference.profile;
+  const collection = reference.collection;
+  const family = reference.family ?? (reference.families ?? [])[0] ?? null;
+  const note =
+    reference.note ??
+    (profile?.styleBrief
+      ? profile.styleBrief
+      : "Eine visuelle Referenz für dein nächstes Projekt.");
+  const heroUsage = reference.heroUsage ?? "Nutze die Referenz für Komposition und Hierarchie.";
+  const recipe = reference.imageRecipe ?? collection?.imageStyle ?? null;
+  const vocabulary =
+    reference.vocabulary.length > 0 ? reference.vocabulary : (collection?.vocabulary ?? []);
+  const selected = refsIsSelected(reference.id);
+
+  const stage = el("div", { class: "refs-stage" });
+  const snapshotImages = reference.snapshots.filter((shot) => shot.previewPath);
+  if (snapshotImages.length > 0) {
+    stage.append(refsSnapshotStage(reference, snapshotImages));
+    stage.append(
+      el("p", {
+        class: "snapshot-meta",
+        text: "Breakpoint-Vergleich. Pfeiltasten oder Klick wechseln das Bild.",
+      }),
+    );
+  } else {
+    stage.append(
+      el("div", { class: "refs-card-placeholder", text: initials(reference.name || "R") }),
+    );
+  }
+
+  const zoomButton = el("button", { type: "button", class: "refs-button quiet", text: "Zoom" });
+  zoomButton.addEventListener("click", () => {
+    const zoomed = stage.classList.toggle("zoomed");
+    zoomButton.textContent = zoomed ? "Bild einpassen" : "Zoom";
+  });
+
+  const imagePromptButton = () => {
+    const button = el("button", {
+      type: "button",
+      class: "refs-button",
+      text: "Bild-Prompt kopieren",
+      onclick: () => {
+        if (briefData?.imagePrompt) refsCopy(briefData.imagePrompt, "Bild-Prompt kopiert");
+        else toast("Kein Bildrezept gespeichert.", "error");
+      },
+    });
+    button.disabled = !briefData?.imagePrompt;
+    return button;
+  };
+
+  const recipeDetails = el(
+    "details",
+    { class: "refs-recipe" },
+    el("summary", {}, "Bildrezept", el("span", { "aria-hidden": "true", text: "＋" })),
+    el("p", { text: recipe ?? "Kein Bildrezept gespeichert." }),
+    imagePromptButton(),
   );
-  nodes.push(
+
+  const selectButton = el("button", {
+    type: "button",
+    class: selected ? "refs-button quiet" : "refs-button",
+    text: selected ? "Aus Vergleich entfernen" : "Zum Vergleich",
+  });
+  selectButton.addEventListener("click", () => {
+    refsToggleSelection(refsEntryFor(reference));
+    selectButton.textContent = refsIsSelected(reference.id)
+      ? "Aus Vergleich entfernen"
+      : "Zum Vergleich";
+  });
+
+  const brief = el(
+    "section",
+    { class: "refs-brief" },
+    el("div", { class: "refs-eyebrow", text: collection ? collection.name : "Ohne Sammlung" }),
+    el("h2", { text: reference.name }),
+    el("p", { class: "refs-brief-family", text: family ?? "Ohne Familie" }),
     el(
       "div",
-      { class: "panel" },
-      el("h2", { text: "Nachbearbeitung" }),
-      el("p", {
-        class: "muted",
-        text: "Jede Änderung erzeugt eine neue Profil-Revision (append-only).",
-      }),
-      el("label", { class: "muted", for: "edit-vocabulary" }, "Vokabular (Komma-getrennt)"),
-      el("input", { id: "edit-vocabulary", type: "text", value: profile.vocabulary.join(", ") }),
-      el("label", { class: "muted", for: "edit-families" }, "Familien (Komma-getrennt)"),
-      el("input", { id: "edit-families", type: "text", value: profile.families.join(", ") }),
-      el("label", { class: "muted", for: "edit-note" }, "Notiz"),
-      el("input", { id: "edit-note", type: "text" }),
+      { class: "refs-detail-section" },
+      el("h3", { text: "Die Idee zum Mitnehmen" }),
+      el("p", { text: note }),
+    ),
+    el(
+      "div",
+      { class: "refs-detail-section" },
+      el("h3", { text: "Design-Vokabular" }),
+      el("div", { class: "refs-tags" }, vocabulary.map((word) => refsChip(word))),
+    ),
+    el(
+      "div",
+      { class: "refs-detail-section" },
+      el("h3", { text: "Aufbau & Platzierung" }),
+      el("p", { text: heroUsage }),
+    ),
+    recipeDetails,
+    el(
+      "div",
+      { class: "refs-detail-actions" },
       el("button", {
-        class: "ghost",
-        text: "Neue Revision",
-        onclick: async () => {
-          const split = (value) =>
-            value
-              .split(",")
-              .map((entry) => entry.trim())
-              .filter(Boolean);
-          try {
-            await api(`/api/references/${reference.id}/revisions`, {
-              method: "POST",
-              body: {
-                author: AUTHOR,
-                vocabulary: split(document.getElementById("edit-vocabulary").value),
-                families: split(document.getElementById("edit-families").value),
-                note: document.getElementById("edit-note").value || undefined,
-              },
-            });
-            toast("Profil-Revision erstellt");
-            await renderRoute();
-          } catch (error) {
-            failed(error);
-          }
-        },
+        type: "button",
+        class: "refs-button primary",
+        text: "Design-Brief kopieren",
+        onclick: () => refsCopy(briefData?.brief?.text ?? "", "Brief kopiert"),
       }),
+      imagePromptButton(),
+      selectButton,
+    ),
+    el("p", {
+      class: "refs-preference-status",
+      text: briefData?.brief?.status ?? "Referenz-Brief.",
+    }),
+  );
+
+  // Bearbeiten: Name, Sammlung, Notiz, Vokabular, Rezept (PATCH /api/references/:id).
+  const nameEdit = el("input", { class: "refs-input", type: "text", maxlength: "120" });
+  nameEdit.value = reference.name;
+  const collectionEdit = el("select", {});
+  collectionEdit.append(el("option", { value: "", text: "Ohne Sammlung" }));
+  for (const item of refsCollections.filter((entry) => entry.kind === "collection")) {
+    collectionEdit.append(el("option", { value: item.id, text: item.name }));
+  }
+  collectionEdit.value = reference.collectionId ?? "";
+  const noteEdit = el("textarea", { class: "refs-input", rows: "3", maxlength: "1000" });
+  noteEdit.value = reference.note ?? "";
+  const vocabularyEdit = el("input", { class: "refs-input", type: "text" });
+  vocabularyEdit.value = vocabulary.join(", ");
+  const recipeEdit = el("textarea", { class: "refs-input", rows: "3", maxlength: "2000" });
+  recipeEdit.value = reference.imageRecipe ?? "";
+  const editFold = refsFold(
+    "Bearbeiten",
+    el(
+      "div",
+      {},
+      el("label", { class: "refs-field-label", text: "Name" }),
+      nameEdit,
+      el("label", { class: "refs-field-label", text: "Sammlung" }),
+      collectionEdit,
+      el("label", { class: "refs-field-label", text: "Notiz" }),
+      noteEdit,
+      el("label", { class: "refs-field-label", text: "Vokabular (Komma-getrennt)" }),
+      vocabularyEdit,
+      el("label", { class: "refs-field-label", text: "Bildrezept" }),
+      recipeEdit,
+      el(
+        "div",
+        { class: "refs-row-actions" },
+        el("button", {
+          type: "button",
+          class: "refs-button primary",
+          text: "Speichern",
+          onclick: async () => {
+            const name = nameEdit.value.trim();
+            try {
+              await api(`/api/references/${referenceId}`, {
+                method: "PATCH",
+                body: {
+                  ...(name === "" ? {} : { name }),
+                  collectionId: collectionEdit.value === "" ? null : collectionEdit.value,
+                  note: noteEdit.value.trim(),
+                  vocabulary: refsSplit(vocabularyEdit.value),
+                  imageRecipe: recipeEdit.value.trim(),
+                },
+              });
+              toast("Referenz gespeichert");
+              await referenceDetailView(referenceId);
+            } catch (error) {
+              failed(error);
+            }
+          },
+        }),
+      ),
     ),
   );
-  render(nodes);
+
+  const prevButton = el("button", {
+    type: "button",
+    class: "refs-icon-button",
+    "aria-label": "Vorherige Referenz",
+    text: "←",
+    onclick: () => refsNavigate(-1),
+  });
+  const nextButton = el("button", {
+    type: "button",
+    class: "refs-icon-button",
+    "aria-label": "Nächste Referenz",
+    text: "→",
+    onclick: () => refsNavigate(1),
+  });
+  prevButton.disabled = position <= 0;
+  nextButton.disabled = position < 0 || position >= refsDetailIds.length - 1;
+
+  render([
+    el(
+      "div",
+      { class: "refs-detail-head" },
+      el("button", {
+        type: "button",
+        class: "refs-button quiet",
+        text: "← Referenzen",
+        onclick: () => (location.hash = "#/references"),
+      }),
+      el("span", {
+        class: "refs-dialog-label",
+        text: position >= 0 ? `Referenz ${position + 1} von ${refsDetailIds.length}` : "Referenz",
+      }),
+      el(
+        "div",
+        { class: "refs-actions" },
+        prevButton,
+        nextButton,
+        zoomButton,
+        el("span", { class: "tag", text: reference.status }),
+        el("button", {
+          type: "button",
+          class: "refs-button danger",
+          text: "Löschen",
+          onclick: () => deleteReference(reference),
+        }),
+      ),
+    ),
+    el("div", { class: "refs-detail" }, stage, brief),
+    editFold,
+    refsRevisionsFold(referenceId),
+    refsEvidenceFold(reference),
+    ...refsProfileFolds(reference),
+    refsAssignPanel(reference, sites),
+  ]);
+}
+
+function refsNavigate(delta) {
+  const match = location.hash.match(/^#\/references\/([^/?]+)/);
+  if (!match) return;
+  const position = refsDetailIds.indexOf(match[1]);
+  if (position < 0) return;
+  const target = refsDetailIds[position + delta];
+  if (target) location.hash = `#/references/${target}`;
+}
+
+// Tastatur: `/` fokussiert die Suche, Pfeiltasten blättern in der Detailseite.
+document.addEventListener("keydown", (event) => {
+  const editing = /INPUT|TEXTAREA|SELECT/.test(event.target.tagName ?? "");
+  const dialogOpen = document.querySelector("dialog[open]") !== null;
+  if (
+    event.key === "/" &&
+    !editing &&
+    !dialogOpen &&
+    refsDom &&
+    refsDom.searchInput &&
+    refsDom.root.isConnected
+  ) {
+    event.preventDefault();
+    refsDom.searchInput.focus();
+    return;
+  }
+  if (editing || dialogOpen || !refsRouteActive) return;
+  if (!/^#\/references\/[^/?]+/.test(location.hash)) return;
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    refsNavigate(-1);
+  } else if (event.key === "ArrowRight") {
+    event.preventDefault();
+    refsNavigate(1);
+  }
+});
+
+/* Vorlieben und Haus-DNA im Einstellungen-Tab (T12/T14). */
+function refsSettingsSection(settings) {
+  const dna = settings.referenceDna ?? { name: "", description: "", constants: [], never: [] };
+  const preferences = settings.referencePreferences ?? { includeDna: false, overrides: "" };
+  const toggle = el("input", { type: "checkbox" });
+  toggle.checked = preferences.includeDna;
+  const constants = el("textarea", { class: "refs-input", rows: "5", "aria-label": "Grundsätze" });
+  constants.value = dna.constants.join("\n");
+  const never = el("textarea", { class: "refs-input", rows: "5", "aria-label": "No-Gos" });
+  never.value = dna.never.join("\n");
+  const overrides = el("textarea", { class: "refs-input", rows: "4", "aria-label": "Für dieses Projekt" });
+  overrides.value = preferences.overrides;
+  return el(
+    "section",
+    { class: "panel refs-settings" },
+    el("h2", { text: "Referenzen" }),
+    el("p", {
+      class: "muted",
+      text: "Haus-DNA und Projekt-Notizen gelten für alle kopierten Briefe — auch für Agenten über MCP.",
+    }),
+    el(
+      "label",
+      { class: "refs-toggle-row" },
+      el(
+        "span",
+        {},
+        "Haus-DNA in kopierte Briefe aufnehmen",
+        el("small", { text: "Aus hält den Brief auf die gewählten Referenzen fokussiert." }),
+      ),
+      toggle,
+    ),
+    el(
+      "details",
+      { class: "refs-preference-list" },
+      el("summary", { text: "Woran ich mich üblicherweise halte" }),
+      constants,
+      el("p", { class: "refs-field-help", text: "Eine Zeile pro Grundsatz." }),
+    ),
+    el(
+      "details",
+      { class: "refs-preference-list" },
+      el("summary", { text: "Was ich üblicherweise vermeide" }),
+      never,
+      el("p", { class: "refs-field-help", text: "Eine Zeile pro No-Go." }),
+    ),
+    el("label", { class: "refs-field-label", text: "Für dieses Projekt" }),
+    overrides,
+    el("p", {
+      class: "refs-field-help",
+      text: "Diese Notizen haben Vorrang vor den allgemeinen Grundsätzen.",
+    }),
+    el("button", {
+      type: "button",
+      class: "refs-button primary",
+      text: "Referenz-Einstellungen speichern",
+      onclick: async () => {
+        try {
+          await api("/api/settings", {
+            method: "PUT",
+            body: {
+              referenceDna: {
+                name: dna.name,
+                description: dna.description,
+                constants: linesToList(constants.value),
+                never: linesToList(never.value),
+              },
+              referencePreferences: { includeDna: toggle.checked, overrides: overrides.value },
+            },
+          });
+          toast("Referenz-Einstellungen gespeichert");
+          await renderRoute();
+        } catch (error) {
+          failed(error);
+        }
+      },
+    }),
+  );
+}
+
+function linesToList(value) {
+  return String(value ?? "")
+    .split("\n")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 }
 
 async function settingsView() {
@@ -1200,6 +2900,7 @@ async function settingsView() {
         ),
       ),
     ),
+    refsSettingsSection(settings),
     el(
       "section",
       { class: "panel" },
@@ -2363,11 +4064,14 @@ async function renderRoute() {
   const question = hash.indexOf("?");
   const route = question === -1 ? hash : hash.slice(0, question);
   const deepLink = question === -1 ? "" : hash.slice(question + 1);
+  const referenceMatch = route.match(/^#\/references\/([^/]+)$/);
+  const isReferences = route === "#/references" || referenceMatch !== null;
+  view.classList.toggle("refs-view", isReferences);
+  refsRouteActive = isReferences;
   try {
     const project = route.match(/^#\/projects\/([^/]+)\/(pages|articles|templates|submissions|review|activity|settings)$/);
     const pageMatch = route.match(/^#\/projects\/([^/]+)\/pages\/([^/]+)$/);
     const articleMatch = route.match(/^#\/projects\/([^/]+)\/articles\/([^/]+)$/);
-    const referenceMatch = route.match(/^#\/references\/([^/]+)$/);
     if (articleMatch) {
       activeTab("projects");
       await articleEditorView(articleMatch[1], articleMatch[2]);
@@ -2378,16 +4082,14 @@ async function renderRoute() {
       await articlesView(project[1]);
     } else if (project) {
       await projectView(project[1], project[2]);
-    } else if (hash === "#/settings") {
+    } else if (route === "#/settings") {
       activeTab("settings");
       await settingsView();
-    } else if (hash === "#/references") {
-      activeTab("references");
+    } else if (route === "#/references") {
       await referencesView();
     } else if (referenceMatch) {
-      activeTab("references");
       await referenceDetailView(referenceMatch[1]);
-    } else if (hash === "#/trash") {
+    } else if (route === "#/trash") {
       activeTab("projects");
       await trashView();
     } else {
@@ -2398,6 +4100,7 @@ async function renderRoute() {
     failed(error);
     render([el("div", { class: "empty", text: "Ansicht konnte nicht geladen werden." })]);
   }
+  if (refsTray) refsRenderTray();
 }
 
 window.addEventListener("hashchange", () => void renderRoute());
