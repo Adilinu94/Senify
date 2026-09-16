@@ -89,6 +89,28 @@ describe.skipIf(!browserAvailable)("reference library in the program (T14)", () 
       expect(await tab.locator(".refs-card").count()).toBe(2);
       expect(await tab.locator('.refs-card-art:has-text("Referenz öffnen")').count()).toBe(2);
 
+      // Leiste, Karten und Vergleichsauswahl tragen eingebettete SVG-Symbole
+      // statt typografischer Zeichen (▦ ◈ ↗ + ✓).
+      expect(await tab.locator(".refs-nav-icon svg").count()).toBe(2);
+      expect(await tab.locator(".refs-card-arrow svg").count()).toBe(2);
+      expect(await tab.locator(".refs-select svg").count()).toBe(2);
+      expect(await tab.locator(".refs-sidebar-add svg").count()).toBe(1);
+
+      // Beim Ansichtswechsel bleibt die Liste stehen (Karten mit reduzierter
+      // Deckkraft) und der Ladezustand am Fortschrittsbalken ist kurz sichtbar.
+      const slowList = (url: URL) => url.pathname === "/api/references";
+      await tab.route(slowList, async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        await route.continue();
+      });
+      await tab.locator('.refs-nav-item:has-text("Alle Referenzen")').click();
+      await expect.poll(async () => tab.locator(".refs-shell.refs-loading").count()).toBe(1);
+      expect(await tab.locator(".refs-card").count()).toBe(2);
+      await expect
+        .poll(async () => tab.locator(".refs-shell.refs-loading").count(), { timeout: 10000 })
+        .toBe(0);
+      await tab.unroute(slowList);
+
       // Suche schreibt den Zustand in die Adresse.
       await tab.locator(".refs-search input").fill("sakura");
       await expect.poll(async () => tab.url()).toContain("q=sakura");

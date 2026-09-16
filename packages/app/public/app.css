@@ -962,6 +962,53 @@ dialog.modal select,
   margin: 0 0 16px;
 }
 
+/* Ladezustand beim Wechsel von Ansicht, Sammlung, Suche oder Sortierung: die
+   bisherigen Karten bleiben mit reduzierter Deckkraft stehen, darueber laeuft
+   ein schmaler Balken. Seine Hoehe ist immer reserviert, damit nichts springt. */
+.refs-progress {
+  position: relative;
+  height: 3px;
+  margin: 0 0 13px;
+  border-radius: 2px;
+  background: transparent;
+  overflow: hidden;
+}
+
+.refs-progress-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 34%;
+  border-radius: 2px;
+  background: var(--refs-accent);
+  opacity: 0;
+}
+
+.refs-shell.refs-loading .refs-progress {
+  background: #e9e5f2;
+}
+
+.refs-shell.refs-loading .refs-progress-bar {
+  opacity: 1;
+  animation: refs-progress-run 1.1s ease-in-out infinite;
+}
+
+.refs-shell.refs-loading .refs-gallery {
+  opacity: 0.45;
+  transition: opacity 0.15s;
+}
+
+@keyframes refs-progress-run {
+  from {
+    transform: translateX(-40%);
+  }
+
+  to {
+    transform: translateX(320%);
+  }
+}
+
 /* ---------------------------------------------------------------- cards */
 
 .refs-gallery {
@@ -1968,6 +2015,47 @@ dialog.modal select,
   }
 }
 
+/* Symbol-SVGs: Groesse und Ausrichtung wie die bisherigen typografischen
+   Zeichen (15px Leiste und Karten, 17px Icon-Knoepfe, 25px Vergleichsauswahl). */
+.refs-nav-icon > svg,
+.refs-card-arrow > svg,
+.refs-empty-icon > svg,
+.refs-upload-icon > svg,
+.refs-icon-button > svg,
+.refs-style-arrow > svg,
+.refs-open-label > span > svg,
+.refs-button > span > svg,
+.refs-recipe summary > span > svg {
+  display: block;
+}
+
+.refs-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.refs-card-arrow {
+  display: inline-flex;
+}
+
+.refs-empty-icon,
+.refs-upload-icon {
+  display: inline-flex;
+}
+
+.refs-open-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.refs-style-arrow {
+  display: inline-flex;
+  margin-left: 4px;
+  vertical-align: -1px;
+}
+
 /* Sichtbarer Fokus fuer Tastaturbedienung. */
 .refs-nav-item:focus-visible,
 .refs-button:focus-visible,
@@ -2026,6 +2114,16 @@ dialog.modal select,
     animation: none !important;
     transition: none !important;
     scroll-behavior: auto !important;
+  }
+
+  /* Der Ladezustand bleibt sichtbar, aber ohne laufende Animation. */
+  .refs-shell.refs-loading .refs-progress-bar {
+    width: 100%;
+    opacity: 0.5;
+  }
+
+  .refs-shell.refs-loading .refs-gallery {
+    opacity: 0.45;
   }
 }
 

@@ -505,6 +505,38 @@ const REFS_MAX_COMPARE = 3;
 const REFS_SEARCH_ICON =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>';
 
+// Symbole als eingebettete SVG statt typografischer Zeichen (▦ ◈ ＋ ↗ ✕ ← →).
+// Alle 24x24 mit `currentColor`, feste Groesse je Einbauort: 15px in der Leiste
+// und an den Karten, 17px in den Icon-Knoepfen, 25px in der Vergleichsauswahl.
+function refsIcon(path, size) {
+  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
+}
+
+const REFS_ICON_LIBRARY = refsIcon(
+  '<rect x="3.6" y="3.6" width="7" height="7" rx="1.6"/><rect x="13.4" y="3.6" width="7" height="7" rx="1.6"/><rect x="3.6" y="13.4" width="7" height="7" rx="1.6"/><rect x="13.4" y="13.4" width="7" height="7" rx="1.6"/>',
+  15,
+);
+const REFS_ICON_STYLES = refsIcon(
+  '<path d="M12 3.6 20.4 12 12 20.4 3.6 12Z"/><path d="M12 8.6 15.4 12 12 15.4 8.6 12Z"/>',
+  15,
+);
+const REFS_ICON_LINK = refsIcon('<path d="M8.2 15.8 15.8 8.2M9.6 8.2h6.2v6.2"/>', 15);
+const REFS_ICON_LINK_BUTTON = refsIcon('<path d="M8.2 15.8 15.8 8.2M9.6 8.2h6.2v6.2"/>', 13);
+const REFS_ICON_LINK_LABEL = refsIcon('<path d="M8.2 15.8 15.8 8.2M9.6 8.2h6.2v6.2"/>', 12);
+const REFS_ICON_PLUS = refsIcon('<path d="M12 5.4v13.2M5.4 12h13.2"/>', 15);
+const REFS_ICON_PLUS_BUTTON = refsIcon('<path d="M12 5.4v13.2M5.4 12h13.2"/>', 13);
+const REFS_ICON_PLUS_UPLOAD = refsIcon('<path d="M12 5.4v13.2M5.4 12h13.2"/>', 25);
+const REFS_ICON_CLOSE = refsIcon('<path d="M6.8 6.8 17.2 17.2M17.2 6.8 6.8 17.2"/>', 17);
+const REFS_ICON_PREV = refsIcon('<path d="M14.4 5.6 8 12l6.4 6.4"/>', 17);
+const REFS_ICON_NEXT = refsIcon('<path d="M9.6 5.6 16 12l-6.4 6.4"/>', 17);
+const REFS_ICON_BACK = refsIcon('<path d="M14.4 5.6 8 12l6.4 6.4"/>', 13);
+const REFS_ICON_SEARCH_LARGE = refsIcon(
+  '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
+  35,
+);
+const REFS_ICON_PLUS_BOX = refsIcon('<path d="M12 6.2v11.6M6.2 12h11.6"/>', 25);
+const REFS_ICON_CHECK_BOX = refsIcon('<path d="M5.6 12.4 10 16.8 18.4 7.6"/>', 25);
+
 let refsCollections = [];
 let refsStyleCatalog = null;
 let refsRouteActive = false;
@@ -514,6 +546,7 @@ let refsTray = null;
 let refsQueryTimer = null;
 let refsEmptyMode = "reset";
 let refsTrayIds = [];
+let refsPending = 0;
 
 // Eine Snapshot-Vorschau laedt das Programm genau einmal und teilt sie sich:
 // Karte, Miniatur, Vergleich und Detailseite zeigen dieselbe Blob-Adresse.
@@ -635,7 +668,7 @@ function refsCopyFallback(text) {
           type: "button",
           class: "refs-icon-button",
           "aria-label": "Schliessen",
-          text: "✕",
+          html: REFS_ICON_CLOSE,
           onclick: () => dialog.close(),
         }),
       ),
@@ -709,7 +742,7 @@ function refsUpdateSelectionUI() {
     const button = card.querySelector(".refs-select");
     if (!button) continue;
     button.classList.toggle("selected", on);
-    button.textContent = on ? "✓" : "+";
+    button.innerHTML = on ? REFS_ICON_CHECK_BOX : REFS_ICON_PLUS_BOX;
     button.setAttribute("aria-pressed", on ? "true" : "false");
   }
 }
@@ -760,7 +793,7 @@ function refsNavItem(input) {
     },
     input.dot
       ? el("span", { class: "refs-dot", style: `--refs-dot:${input.dot}` })
-      : el("span", { class: "refs-nav-icon", "aria-hidden": "true", text: input.icon }),
+      : el("span", { class: "refs-nav-icon", "aria-hidden": "true", html: input.icon }),
     el("span", { text: input.label }),
     el("span", { class: "refs-nav-count", text: String(input.count) }),
   );
@@ -785,9 +818,8 @@ function refsTrayEnsure() {
     el("button", {
       type: "button",
       class: "refs-button primary",
-      text: "Referenzen vergleichen ↗",
       onclick: () => refsOpenComparison(),
-    }),
+    }, "Referenzen vergleichen", el("span", { "aria-hidden": "true", html: REFS_ICON_LINK_BUTTON })),
   );
   document.body.append(refsTray);
   return refsTray;
@@ -847,12 +879,11 @@ async function refsOpenComparison() {
         el("button", {
           type: "button",
           class: "refs-button",
-          text: "Referenz öffnen ↗",
           onclick: () => {
             dialog.close();
             location.hash = `#/references/${entry.id}`;
           },
-        }),
+        }, "Referenz öffnen", el("span", { "aria-hidden": "true", html: REFS_ICON_LINK_BUTTON })),
       ),
     );
   }
@@ -875,7 +906,7 @@ async function refsOpenComparison() {
           type: "button",
           class: "refs-icon-button",
           "aria-label": "Schliessen",
-          text: "✕",
+          html: REFS_ICON_CLOSE,
           onclick: () => dialog.close(),
         }),
       ),
@@ -931,7 +962,7 @@ function refsOpenCollectionDialog(collection) {
           type: "button",
           class: "refs-icon-button",
           "aria-label": "Schliessen",
-          text: "✕",
+          html: REFS_ICON_CLOSE,
           onclick: () => dialog.close(),
         }),
       ),
@@ -1053,7 +1084,7 @@ function refsOpenCollectionForm(collection) {
           type: "button",
           class: "refs-icon-button",
           "aria-label": "Schliessen",
-          text: "✕",
+          html: REFS_ICON_CLOSE,
           onclick: () => dialog.close(),
         }),
       ),
@@ -1276,7 +1307,7 @@ function refsOpenAddDialog() {
     el(
       "label",
       { class: "refs-upload-zone" },
-      el("span", { class: "refs-upload-icon", "aria-hidden": "true", text: "＋" }),
+      el("span", { class: "refs-upload-icon", "aria-hidden": "true", html: REFS_ICON_PLUS_UPLOAD }),
       uploadLabel,
       el("span", { text: "PNG, JPEG oder WebP · bis 20 MB" }),
       fileInput,
@@ -1409,7 +1440,7 @@ function refsOpenAddDialog() {
           type: "button",
           class: "refs-icon-button",
           "aria-label": "Schliessen",
-          text: "✕",
+          html: REFS_ICON_CLOSE,
           onclick: () => dialog.close(),
         }),
       ),
@@ -1465,12 +1496,16 @@ function refsStyleCard(collection) {
         collection.examples
           .filter((example) => /^https?:\/\//.test(example.url))
           .map((example) =>
-            el("a", {
-              href: example.url,
-              target: "_blank",
-              rel: "noopener noreferrer",
-              text: `${example.name} ↗`,
-            }),
+            el(
+              "a",
+              {
+                href: example.url,
+                target: "_blank",
+                rel: "noopener noreferrer",
+              },
+              example.name,
+              el("span", { class: "refs-style-arrow", "aria-hidden": "true", html: REFS_ICON_LINK_LABEL }),
+            ),
           ),
       ),
       el(
@@ -1513,7 +1548,7 @@ function refsBuildShell() {
         type: "button",
         class: "refs-sidebar-add",
         title: "Sammlung anlegen",
-        text: "＋",
+        html: REFS_ICON_PLUS,
         onclick: () => refsOpenCollectionForm(null),
       }),
     ),
@@ -1537,7 +1572,7 @@ function refsBuildShell() {
       onclick: () => refsOpenCollectionDialog(refsActiveCollection()),
     },
     "Über diese Sammlung ",
-    el("span", { "aria-hidden": "true", text: "↗" }),
+    el("span", { "aria-hidden": "true", html: REFS_ICON_LINK }),
   );
   aboutButton.hidden = true;
   const heading = el(
@@ -1580,6 +1615,14 @@ function refsBuildShell() {
     el("label", { class: "refs-sort" }, el("span", { text: "Sortieren" }), sortSelect),
   );
 
+  // Fortschrittsbalken unter der Werkzeugleiste. Seine Hoehe ist immer
+  // reserviert, damit die Liste beim Wechsel nicht springt.
+  const progress = el(
+    "div",
+    { class: "refs-progress", "aria-hidden": "true" },
+    el("span", { class: "refs-progress-bar" }),
+  );
+
   const hint = el(
     "div",
     { class: "refs-hint" },
@@ -1589,7 +1632,7 @@ function refsBuildShell() {
   const empty = el(
     "section",
     { class: "refs-empty", hidden: "hidden" },
-    el("span", { class: "refs-empty-icon", "aria-hidden": "true", text: "⌕" }),
+    el("span", { class: "refs-empty-icon", "aria-hidden": "true", html: REFS_ICON_SEARCH_LARGE }),
     el("h2", { text: "Keine Referenzen gefunden" }),
     el("p", { text: "Versuche ein anderes Wort oder durchsuche die ganze Bibliothek." }),
     el("button", {
@@ -1642,11 +1685,12 @@ function refsBuildShell() {
           type: "button",
           class: "refs-button primary",
           onclick: () => refsOpenAddDialog(),
-        }, el("span", { "aria-hidden": "true", text: "＋" }), " Referenz hinzufügen"),
+        }, el("span", { "aria-hidden": "true", html: REFS_ICON_PLUS_BUTTON }), " Referenz hinzufügen"),
       ),
     ),
     heading,
     toolbar,
+    progress,
     hint,
     gallery,
     empty,
@@ -1666,6 +1710,7 @@ function refsBuildShell() {
     description,
     aboutButton,
     hint,
+    progress,
     searchInput,
     sortSelect,
     gallery,
@@ -1703,6 +1748,12 @@ async function refsRefresh() {
   // stimmen so auch dann, wenn der Listenabruf scheitert.
   refsDom.searchInput.value = refsState.query;
   refsDom.sortSelect.value = refsState.sort;
+  // Beim Wechsel bleiben die bisherigen Karten mit reduzierter Deckkraft
+  // stehen, darueber laeuft der Fortschrittsbalken. Der Zaehler haelt den
+  // Zustand, solange noch ein Abruf offen ist (Suche tippt sich schneller).
+  const root = refsDom.root;
+  refsPending += 1;
+  root.classList.add("refs-loading");
   let data;
   try {
     data = await api(`/api/references?${refsSearchParams().toString()}`);
@@ -1711,6 +1762,9 @@ async function refsRefresh() {
     // nicht leeren: die vorhandenen Karten bleiben stehen, nur eine Meldung.
     failed(error);
     return;
+  } finally {
+    refsPending = Math.max(0, refsPending - 1);
+    if (refsPending === 0) root.classList.remove("refs-loading");
   }
   refsCollections = data.collections ?? [];
   refsStyleCatalog = data.styleCatalog ?? null;
@@ -1738,14 +1792,14 @@ async function refsRefresh() {
     refsNavItem({
       label: "Alle Referenzen",
       count: counts.references ?? 0,
-      icon: "▦",
+      icon: REFS_ICON_LIBRARY,
       active: !styleMode && refsState.collection === "",
       onClick: () => refsSetView(""),
     }),
     refsNavItem({
       label: "Stil-Guide",
       count: counts.styles ?? 0,
-      icon: "◈",
+      icon: REFS_ICON_STYLES,
       active: styleMode,
       onClick: () => refsSetView("styles"),
     }),
@@ -1904,14 +1958,19 @@ function refsCard(reference) {
       },
     },
     refsCardImage(reference),
-    el("span", { class: "refs-open-label", text: "Referenz öffnen ↗" }),
+    el(
+      "span",
+      { class: "refs-open-label" },
+      "Referenz öffnen",
+      el("span", { "aria-hidden": "true", html: REFS_ICON_LINK_LABEL }),
+    ),
   );
   const select = el("button", {
     type: "button",
     class: `refs-select${selected ? " selected" : ""}`,
     "aria-pressed": selected ? "true" : "false",
     "aria-label": `${selected ? "Aus Vergleich entfernen" : "Zum Vergleich wählen"}: ${reference.name}`,
-    text: selected ? "✓" : "+",
+    html: selected ? REFS_ICON_CHECK_BOX : REFS_ICON_PLUS_BOX,
     onclick: (event) => {
       event.stopPropagation();
       refsToggleSelection(entry);
@@ -1934,7 +1993,7 @@ function refsCard(reference) {
         reference.collection ? reference.collection.name : "Ohne Sammlung",
       ),
     ),
-    el("span", { class: "refs-card-arrow", "aria-hidden": "true", text: "↗" }),
+    el("span", { class: "refs-card-arrow", "aria-hidden": "true", html: REFS_ICON_LINK }),
   );
   return el("article", { class: "refs-card", "data-reference": reference.id }, select, art, meta);
 }
@@ -2371,7 +2430,7 @@ async function referenceDetailView(referenceId) {
   const recipeDetails = el(
     "details",
     { class: "refs-recipe" },
-    el("summary", {}, "Bildrezept", el("span", { "aria-hidden": "true", text: "＋" })),
+    el("summary", {}, "Bildrezept", el("span", { "aria-hidden": "true", html: REFS_ICON_PLUS_BUTTON })),
     el("p", { text: recipe ?? "Kein Bildrezept gespeichert." }),
     imagePromptButton(),
   );
@@ -2496,14 +2555,14 @@ async function referenceDetailView(referenceId) {
     type: "button",
     class: "refs-icon-button",
     "aria-label": "Vorherige Referenz",
-    text: "←",
+    html: REFS_ICON_PREV,
     onclick: () => refsNavigate(-1),
   });
   const nextButton = el("button", {
     type: "button",
     class: "refs-icon-button",
     "aria-label": "Nächste Referenz",
-    text: "→",
+    html: REFS_ICON_NEXT,
     onclick: () => refsNavigate(1),
   });
   prevButton.disabled = position <= 0;
@@ -2516,9 +2575,8 @@ async function referenceDetailView(referenceId) {
       el("button", {
         type: "button",
         class: "refs-button quiet",
-        text: "← Referenzen",
         onclick: () => (location.hash = "#/references"),
-      }),
+      }, el("span", { "aria-hidden": "true", html: REFS_ICON_BACK }), "Referenzen"),
       el("span", {
         class: "refs-dialog-label",
         text: position >= 0 ? `Referenz ${position + 1} von ${refsDetailIds.length}` : "Referenz",
