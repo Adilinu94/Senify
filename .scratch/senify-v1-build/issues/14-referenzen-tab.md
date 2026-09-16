@@ -120,3 +120,10 @@ Teil 1 liegt im Arbeitsbaum (nicht committet): `references-contract.ts`, `refere
 
 - Die Live-Aufnahme der Referenzen (Standbilder) kann jetzt um ein kurzes Motion-Video ergaenzen: ecordMotion im @senify/analysis-worker zeichnet eine Scrollfahrt als .webm auf, diffScreenshots liefert Vorher/Nachher-Diffs mit Bounding-Box. Details in Ticket 07.
 - **Offen:** Die Referenz-Pipeline (eferences-lifecycle) muesste das Video beim Live-Capture optional mitziehen und im Snapshot ablegen; die UI zeigt es dann im Detail.
+
+## 16.09.2026 (Nachtrag): echter Import aus dem Vorbild
+
+- **Werkzeug:** `pnpm exec tsx packages/engine/scripts/import-taste-vault.ts --from Repos/taste-vault [--dry-run] [--api <url>]`. Es liest `data/gallery.json` (12 Sammlungen, 46 Eintraege) und `images/`, legt Sammlungen ueber ihren Namen und Referenzen ueber ihren Titel an und aktualisiert sie bei einem zweiten Lauf (idempotent belegt: zweiter Lauf 0 neu, 12 und 46 aktualisiert, keine Fehler). Bilder groesser als 18 MB werden vor dem Senden als JPEG uebertragen, sonst geht das Original durch. Die Engine drosselt auf 60 Anfragen je Minute, das Skript taktet den Bildversand daher mit 1,1 Sekunden und wiederholt bei 429 und Verbindungsabbruechen.
+- **Vertrag ergaenzt:** `ManualReferenceBodySchema` kennt jetzt `family` und `capturedAt`, damit importierte Referenzen ihre Familie und ihr Aufnahmedatum aus dem Vorbild mitbringen (genutzt in `createManualReference`).
+- **Datenstand:** 46 Referenzen mit allen Originalwerten (Titel, Familie, Vokabular, Notiz, Bildrezept, Komposition), 12 Sammlungen mit den Originalfeldern, 18 Stil-Sammlungen; die sechs erfundenen Beispiele und die erfundenen Beispielsammlungen wurden entfernt (Sicherung `2026-09-16T13-59-45-602Z` vorher angelegt). Stichproben belegen ausgelieferte Originalbilder (HTTP 200, 2728x1687, 3156x1708).
+- **Bildrechte:** Die Aufnahmen zeigen fremde Websites. Sie liegen ausschliesslich im lokalen Datenverzeichnis der Engine und werden **nicht** ins Repo uebernommen; ein Import setzt eine eigene Referenzkopie voraus.

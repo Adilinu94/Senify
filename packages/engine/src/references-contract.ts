@@ -382,6 +382,10 @@ export const ManualReferenceBodySchema = Type.Object(
     vocabulary: Type.Optional(VocabularySchema),
     imageRecipe: Type.Optional(Type.String({ maxLength: 2000 })),
     heroUsage: Type.Optional(Type.String({ maxLength: 2000 })),
+    family: Type.Optional(Type.Union([Type.String({ maxLength: 60 }), Type.Null()])),
+    // Imported references carry the day they were added in the source library;
+    // a plain upload leaves it out and gets the time of the upload.
+    capturedAt: Type.Optional(Type.String({ minLength: 1, maxLength: 40 })),
     image: Type.String({ minLength: 1, maxLength: MANUAL_REFERENCE_BODY_LIMIT_BYTES }),
     author: AuthorSchema,
   },

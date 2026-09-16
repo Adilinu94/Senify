@@ -162,7 +162,7 @@ export async function createManualReference(
     heroUsage: input.heroUsage === undefined ? null : input.heroUsage.trim(),
     provenance: {
       url: "",
-      capturedAt: new Date().toISOString(),
+      capturedAt: input.capturedAt ?? new Date().toISOString(),
       hash: createHash("sha256").update(image.bytes).digest("hex"),
       method: "manual",
       note: "Manuell abgelegte Referenz (Bild-Upload, kein Analyseprofil)",
@@ -171,6 +171,7 @@ export async function createManualReference(
   });
   await context.store.updateReference(reference.id, {
     vocabulary: terms(input.vocabulary ?? []),
+    ...(input.family === undefined ? {} : { family: input.family }),
     snapshots: persistReferenceSnapshots(context, reference.id, [
       {
         breakpoint: "manual",
