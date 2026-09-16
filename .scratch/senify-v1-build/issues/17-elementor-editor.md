@@ -4,7 +4,7 @@
 
 **Blocked by:** 13 (Editor-Kern, umgesetzt), 12 (Programm-Shell).
 
-**Status:** in Arbeit — M1 (echtes Rendering) und M2 (Elementor-Chrome) umgesetzt; M3–M4 offen
+**Status:** umgesetzt — M1 (echtes Rendering), M2 (Elementor-Chrome), M3 (Interaktionen), M4 (Feinschliff)
 
 ## Recherche (Elementor-Editor, Stand 09/2026)
 
@@ -64,3 +64,10 @@ Quellen: Elementor Help „Explore the Elementor Editor", „Elementor Top Bar",
 - **Inline-Tippen entlastet:** Statt einer Mutation pro Tastendruck schreibt der Editor nach 350 ms Ruhe (Flush bei Enter/Fokusverlust, Verwerfen bricht den Timer ab); die Historie coalesced den Schreibvorgang weiterhin zu einem Undo-Eintrag.
 - **Override-Anzeige:** Panels zeigen pro Control einen Geraetepunkt (Tablet/Mobil), wenn dort ein Override liegt; Klick wechselt die Ansicht.
 - **Resilienz:** Der Transport wartet kurze 429-Fenster ab (Retry-After) statt Aenderungen zu verwerfen; die Shell holt den Baum nach jeder Mutation nach, mit Reihenfolge-Schutz (nur die neueste Antwort schreibt) und Backoff. Der Browser-Test hebt die Rate-Limits des Programms an (ateLimits-Passthrough in startProgram), weil er in Sekunden mehr Requests erzeugt als ein Mensch.
+
+## Umsetzungs-Notiz (M4)
+
+- **Leere Zustaende:** Ebenen-Liste weist auf den Katalog bzw. das Ziehen hin, wenn die Seite leer ist; die Medienliste meldet "Keine Medien gefunden"; "Keine Einstellungen in diesem Tab" und "Keine Elemente gefunden" gab es schon.
+- **Verlauf:** Der Verlauf im Top-Bar-Menue zeigt jetzt Zeit und Zielversion je Eintrag; Klick spielt bis zu diesem Stand zurueck (ueber die Undo-Kette), Undo/Redo bleiben daneben.
+- **Vorschau/Publish:** Vorschau-Modus mit Hinweis im Fuss ("Bearbeitung im Design-Modus"), Veroeffentlichen fuehrt zum Review, das Dropdown bietet Review und Vorschau — der Publish-Flow bleibt beim Lifecycle des Programms.
+- Damit sind M1–M4 des Tickets umgesetzt.

@@ -171,6 +171,13 @@ function groupBase(id: string): string {
   return id.split("/")[0] ?? id;
 }
 
+function formatTime(at: number): string {
+  const date = new Date(at);
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
 // Frame document of one breakpoint: host stylesheets (theme tokens, section
 // styles) load via frameStyles, the editor's own overlay rules stay inline.
 function frameDoc(styles: readonly string[] = []): string {
@@ -555,7 +562,7 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
       for (const entry of [...appliedEntries].reverse().slice(0, 12)) {
         menu.appendChild(
           menuItem(entry.label, () => void restoreTo(entry.id), {
-            trailing: `v${entry.versionAfter}`,
+            trailing: `v${entry.versionAfter} · ${formatTime(entry.at)}`,
           }),
         );
       }
@@ -1947,6 +1954,14 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
       for (const item of buildLayerList(options.tree(), { registry: options.registry })) {
         list.appendChild(layerRow(item));
       }
+      if ((options.tree().nodes[options.tree().rootNodeId]?.children ?? []).length === 0) {
+        list.appendChild(
+          h(doc, "div", {
+            className: "senify-editor__empty",
+            text: "Noch keine Elemente — links im Katalog hinzufügen oder auf die Fläche ziehen.",
+          }),
+        );
+      }
     } else if (activeTab === "pages") {
       for (const page of options.pages?.() ?? []) {
         const row = h(doc, "button", {
@@ -1976,6 +1991,11 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
       search.setAttribute("placeholder", "Medien suchen");
       list.appendChild(search);
       const media = buildMediaTab(options.media?.() ?? [], options.mediaQuery?.());
+      if (media.items.length === 0) {
+        list.appendChild(
+          h(doc, "div", { className: "senify-editor__empty", text: "Keine Medien gefunden" }),
+        );
+      }
       for (const item of media.items) {
         list.appendChild(
           h(doc, "div", {
