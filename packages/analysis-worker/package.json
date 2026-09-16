@@ -5,5 +5,11 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@senify/core": "workspace:*"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
   }
 }

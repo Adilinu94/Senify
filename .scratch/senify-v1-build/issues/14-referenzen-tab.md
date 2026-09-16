@@ -115,3 +115,8 @@ Teil 1 liegt im Arbeitsbaum (nicht committet): `references-contract.ts`, `refere
 - **Tests:** `pnpm build` und `pnpm exec eslint packages/app` grün. Zwei neue Prüfungen in `packages/app/test/references-browser.test.ts` (Leiste, Kartenrand und Vergleichsauswahl tragen SVG-Symbole; während eines Ansichtswechsels erscheint der Ladezustand, während die Karten stehen bleiben). `pnpm vitest run packages/app`: 11 von 12 grün, der rote Bestand liegt allein in `editor-browser.test.ts` (Rail-Drag, fremde Arbeit im Baum: derselbe Fehler tritt ohne die Änderungen dieser Stufe auf).
 - **Aufnahmen:** `.scratch/refs/aufnahmen/unser-final-*.png` (1440/1024/900/375, overview, styleguide, detail, compare, laden, laden-reduziert) mit `messung-unser-final.json`, davor `vorher-*.png` und `messung-vorher.json`.
 - **Nicht angefasst:** `packages/engine`, `packages/mcp`, `packages/editor`, `packages/app/editor`, `packages/app/test/editor-browser.test.ts`, Datei 17, `eslint.config.mjs`, `pnpm-lock.yaml`; der unformatierte Fremd-Hunk in `packages/app/public/app.js` (`pageView`) bleibt uncommittet im Arbeitsbaum.
+
+## 18.09.2026 (Nachtrag): Motion-Video-Harness fuer Referenzen
+
+- Die Live-Aufnahme der Referenzen (Standbilder) kann jetzt um ein kurzes Motion-Video ergaenzen: ecordMotion im @senify/analysis-worker zeichnet eine Scrollfahrt als .webm auf, diffScreenshots liefert Vorher/Nachher-Diffs mit Bounding-Box. Details in Ticket 07.
+- **Offen:** Die Referenz-Pipeline (eferences-lifecycle) muesste das Video beim Live-Capture optional mitziehen und im Snapshot ablegen; die UI zeigt es dann im Detail.
