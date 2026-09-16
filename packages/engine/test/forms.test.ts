@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { request as httpRequest } from "node:http";
+import { SenifyError } from "@senify/core";
 import type { NodeTree } from "@senify/section-sdk";
 import {
   buildSubmissionsCsv,
@@ -95,6 +96,10 @@ function extractForm(html: string): { action: string; token: string } {
     html.match(/value="([^"]+)"\s+name="form_token"/)?.[1] ??
     "";
   return { action, token };
+}
+
+function stripBom(text: string): string {
+  return text.startsWith("\uFEFF") ? text.slice(1) : text;
 }
 
 const GENEROUS = new RateLimiter({
@@ -826,7 +831,7 @@ describe("collection from form, submissions view and CSV", () => {
     );
   });
 
-  it("lists submissions and exports CSV with snapshot columns", async () => {
+  it("lists submissions and exports CSV from the frozen snapshot columns", async () => {
     const view = await listSubmissions(env.engine.store, { formId: contactFormId });
     expect(view.source).toBe("form");
     expect(view.columns.map((column) => column.key)).toEqual([
@@ -845,9 +850,13 @@ describe("collection from form, submissions view and CSV", () => {
     ).toBe(true);
 
     const csv = buildSubmissionsCsv({ columns: view.columns, rows: view.rows });
-    const [header] = csv.split("\r\n");
-    expect(header).toContain('"Name"');
-    expect(header).toContain('"Eingegangen"');
+    // Header = snapshot fields in snapshot order, then the auto columns.
+    const header = stripBom(csv).split("\r\n")[0];
+    expect(header).toBe("Name;E-Mail;Nachricht;Quellseite;Eingegangen am;Status");
+    expect(csv.startsWith("\uFEFF")).toBe(true);
+    expect(csv).toContain("Anna Beispiel");
+    // Umlaute survive: the BOM tells the spreadsheet the file is UTF-8.
+    expect(csv).toContain("Rückruf");
 
     const response = await rawRequest(
       env.server.origin,
@@ -856,7 +865,12 @@ describe("collection from form, submissions view and CSV", () => {
     );
     expect(response.status).toBe(200);
     expect(String(response.headers["content-type"])).toContain("text/csv");
-    expect(response.body).toContain('"Name"');
+    expect(String(response.headers["content-disposition"])).toBe(
+      `attachment; filename="submissions-${contactFormId}.csv"`,
+    );
+    expect(response.body.startsWith("\uFEFF")).toBe(true);
+    expect(stripBom(response.body).split("\r\n")[0]).toBe(header);
+    expect(response.body).toContain("anna@beispiel.de");
 
     const json = await env.api.request<{ columns: unknown[] }>({
       method: "GET",
@@ -864,6 +878,87 @@ describe("collection from form, submissions view and CSV", () => {
     });
     expect(json.status).toBe(200);
     expect(json.body.columns).toHaveLength(6);
+  });
+
+  it("quotes semicolons, quotes and newlines per RFC 4180, plain umlauts stay bare", () => {
+    const columns = [
+      { key: "name", label: "Name" },
+      { key: "notiz", label: "Notiz" },
+    ];
+    const row = {
+      entryId: "e1",
+      slug: "eins",
+      status: "published" as const,
+      createdAt: "2026-09-15T10:00",
+      submittedAt: "2026-09-15T10:00",
+      sourcePath: "/",
+      values: [
+        { key: "name", label: "Name", value: "Anna;Beispiel" },
+        { key: "notiz", label: "Notiz", value: 'Rückruf "bitte"\nzweite Zeile' },
+      ],
+    };
+    const csv = buildSubmissionsCsv({ columns, rows: [row] });
+    expect(csv).toBe(
+      '\uFEFFName;Notiz\r\n"Anna;Beispiel";"Rückruf ""bitte""\nzweite Zeile"\r\n',
+    );
+
+    // Plain values stay unquoted; a leading formula character is neutralized.
+    const plain = buildSubmissionsCsv({
+      columns,
+      rows: [
+        {
+          ...row,
+          values: [
+            { key: "name", label: "Name", value: "Grüße" },
+            { key: "notiz", label: "Notiz", value: "=SUM(A1)" },
+          ],
+        },
+      ],
+    });
+    expect(plain).toBe("\uFEFFName;Notiz\r\nGrüße;'=SUM(A1)\r\n");
+  });
+
+  it("needs a read token and rejects unknown or foreign forms", async () => {
+    const anonymous = await rawRequest(
+      env.server.origin,
+      `/api/forms/${contactFormId}/submissions.csv`,
+    );
+    expect(anonymous.status).toBe(401);
+
+    const unknown = await rawRequest(
+      env.server.origin,
+      "/api/forms/unbekannt/submissions.csv",
+      { headers: { authorization: `Bearer ${env.token}` } },
+    );
+    expect(unknown.status).toBe(404);
+    expect(JSON.parse(unknown.body).error.category).toBe("not_found");
+
+    // A snapshot whose target collection lives on another site is foreign.
+    const record = await env.engine.store.getFormSnapshotForForm(contactFormId);
+    if (record === undefined) throw new Error("Contact snapshot missing");
+    await env.engine.store.saveFormSnapshot({
+      id: "snapshot-fremd",
+      formId: "fremdes-formular",
+      siteId: "site-fremd",
+      pageId: record.pageId,
+      nodeId: record.nodeId,
+      pagePath: record.pagePath,
+      sectionType: record.sectionType,
+      snapshot: record.snapshot,
+    });
+    const foreign = await rawRequest(
+      env.server.origin,
+      "/api/forms/fremdes-formular/submissions.csv",
+      { headers: { authorization: `Bearer ${env.token}` } },
+    );
+    expect(foreign.status).toBe(404);
+    expect(JSON.parse(foreign.body).error.category).toBe("not_found");
+
+    const listed = await listSubmissions(env.engine.store, {
+      formId: "fremdes-formular",
+    }).catch((error: unknown) => error);
+    expect(listed).toBeInstanceOf(SenifyError);
+    expect((listed as SenifyError).category).toBe("not_found");
   });
 });
 

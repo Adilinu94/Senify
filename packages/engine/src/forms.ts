@@ -1000,6 +1000,7 @@ export async function listSubmissions(
   let columns: SubmissionColumn[] = [];
   let collectionId = input.collectionId;
   let source: SubmissionView["source"] = "collection";
+  let formRecord: FormSnapshotRecord | undefined;
   if (input.formId !== undefined) {
     const record = await store.getFormSnapshotForForm(input.formId);
     if (record === undefined) {
@@ -1007,6 +1008,7 @@ export async function listSubmissions(
         field: "formId",
       });
     }
+    formRecord = record;
     source = "form";
     columns = record.snapshot.fields.map((field) => ({
       key: field.key,
@@ -1020,6 +1022,18 @@ export async function listSubmissions(
     });
   }
   const collection = await store.getCollection(collectionId);
+  // Submissions come from the form's own target collection only: a snapshot
+  // whose collection lives elsewhere never leaks another site's entries.
+  if (formRecord !== undefined && collection.siteId !== formRecord.siteId) {
+    throw new SenifyError(
+      "not_found",
+      `Formular "${formRecord.formId}" gehört zu einer anderen Site`,
+      {
+        field: "formId",
+        suggestion: "Nur Formulare der eigenen Site exportieren.",
+      },
+    );
+  }
   const siteId = input.siteId ?? collection.siteId;
   if (collection.siteId !== siteId) {
     throw new SenifyError("validation", "Sammlung gehört zu einer anderen Site", {
@@ -1080,28 +1094,34 @@ export async function listSubmissions(
   return { source, columns, rows };
 }
 
+// CSV of the submissions view: semicolon-separated (the German spreadsheet
+// default), quoted per RFC 4180 and led by a BOM so Excel keeps the Umlaute.
+// Columns are the frozen snapshot fields in snapshot order plus the auto
+// columns (source page, timestamp, status).
+const CSV_DELIMITER = ";";
+
 function csvCell(value: string): string {
+  // A leading =+-@ would be run as a formula: neutralize it.
   const guarded = /^[=+\-@]/.test(value) ? `'${value}` : value;
-  return `"${guarded.replace(/"/g, '""')}"`;
+  if (guarded.includes(CSV_DELIMITER) || /["\r\n]/.test(guarded)) {
+    return `"${guarded.replace(/"/g, '""')}"`;
+  }
+  return guarded;
 }
 
 export function buildSubmissionsCsv(view: {
   columns: SubmissionColumn[];
   rows: SubmissionRow[];
 }): string {
-  const header = [...view.columns.map((column) => column.label), "Eingegangen"];
-  const lines = [header.map(csvCell).join(",")];
+  const lines = [
+    view.columns.map((column) => csvCell(column.label)).join(CSV_DELIMITER),
+  ];
   for (const row of view.rows) {
     lines.push(
-      [
-        ...row.values.map((value) => value.value),
-        row.submittedAt ?? row.createdAt,
-      ]
-        .map(csvCell)
-        .join(","),
+      row.values.map((value) => csvCell(value.value)).join(CSV_DELIMITER),
     );
   }
-  return `${lines.join("\r\n")}\r\n`;
+  return `\uFEFF${lines.join("\r\n")}\r\n`;
 }
 
 // ---------------------------------------------------------- publish checks

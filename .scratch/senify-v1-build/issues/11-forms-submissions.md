@@ -50,6 +50,22 @@ Quellen: `artifacts/26`, Spec „Forms (Verträge)", `research/24` §5.4 (Jobs/R
 - **Tests:** `packages/engine/test/forms.test.ts` (12) plus der MCP-Fall; `pnpm verify` grün (45 Dateien, 327 Tests).
 
 **Offen (Teil 2):**
-- CSV-Export der Einsendungsansicht (Spalten aus dem Snapshot).
+- CSV-Export der Einsendungsansicht (Spalten aus dem Snapshot) — erledigt in Teil 2 (Engine-Route + Tests).
 - Ansicht der Einsendungen und Job-Retry im Programm (gehört zur Programm-Shell T12).
 - Volle E2E-Bake-Prüfung „Absenden ohne JS → Danke-Seite" gegen den gebackenen Zustand (aktuell über den Endpoint geprüft).
+
+### Auftrag Teil 2 (Engine-only, für die ausführende Session)
+
+**Ziel:** CSV-Export der Einsendungen als Engine-Route plus Test; **nichts in `packages/app` anfassen** (dort arbeitet parallel eine andere Session).
+
+1. Neue Route `GET /api/forms/:formId/submissions.csv` (Scope `read`, Token des Programm-Zugriffs): Kopfzeile aus dem eingefrorenen Formular-Snapshot (Feld-Reihenfolge wie im Snapshot), danach eine Zeile je Einsendung (Entry in der Ziel-Collection), plus die Auto-Spalten Quellseite, Zeitpunkt, Status. Semikolon als Trennzeichen und korrektes Quoting nach RFC 4180 (Anführungszeichen verdoppeln, Zeilenumbrüche erlaubt), UTF-8 mit BOM, `Content-Disposition: attachment; filename="…csv"`.
+2. Einsendungen kommen ausschließlich aus der Ziel-Collection des Formulars (kein site-übergreifender Zugriff, unbekanntes Formular → strukturierter 404).
+3. Test in `packages/engine/test/forms.test.ts`: Kopfzeile entspricht dem Snapshot, Zeilen entsprechen den Einsendungen, Sonderfälle (Semikolon, Anführungszeichen, Umbruch, Umlaute) werden korrekt gequotet, fremdes/unbekanntes Formular abgewiesen.
+4. `pnpm verify` grün; commit nur dann, Betreff `T11 (Teil 2): CSV-Export der Einsendungen - <kurz>`, Leerzeile, `Co-authored-by: CommandCodeBot <noreply@commandcode.ai>`; stagen nur `packages/engine .scratch/senify-v1-build/issues/11-forms-submissions.md`.
+
+### Umsetzungs-Notiz (Teil 2: Engine-only)
+
+- **CSV-Export:** `GET /api/forms/:formId/submissions.csv` (Scope `read`) liefert Semikolon-getrennte CSV nach RFC 4180 (Anführungszeichen verdoppelt, Umbruch im Feld erlaubt) mit UTF-8-BOM und `Content-Disposition: attachment; filename="submissions-<formId>.csv"`; die Kopfzeile kommt aus dem eingefrorenen Formular-Snapshot (Feld-Reihenfolge wie im Snapshot) plus den Auto-Spalten Quellseite, Eingegangen am (Zeitpunkt) und Status, je Einsendung eine Zeile.
+- **Ziel-Collection statt Fremdzugriff:** `listSubmissions` liest ausschließlich die Ziel-Collection des Formulars; ein Snapshot, dessen Collection auf einer anderen Site liegt, und ein unbekanntes Formular werden als strukturiertes 404 (`not_found`) abgewiesen.
+- **Tests:** `packages/engine/test/forms.test.ts` (14) prüft Kopfzeile/Zeilen gegen Snapshot und Einsendungen, BOM und Trennzeichen, Quoting der Sonderfälle (Semikolon, Anführungszeichen, Umbruch, Umlaute) sowie fehlenden Token (401) und fremdes/unbekanntes Formular (404).
+- **`pnpm verify` grün** (57 Dateien, 435 Tests + 2 skipped).
