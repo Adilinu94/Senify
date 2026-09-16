@@ -408,13 +408,40 @@ describe("entry preview endpoint", () => {
     expect(response.body.html).toContain("Blog-Kopf");
   }, 180000);
 
-  it("answers not_found for a draft entry without a route", async () => {
-    const response = await env.api.request<{ error: { category: string } }>({
+  it("renders a draft entry through the same chain (draft path)", async () => {
+    const response = await env.api.request<{
+      path: string;
+      html: string;
+      status: number;
+    }>({ method: "GET", path: `/api/entries/${draft.id}/preview` });
+    expect(response.status).toBe(200);
+    expect(response.body.path).toBe("/blog/entwurf");
+    expect(response.body.html).toContain("Artikel: Entwurf Beitrag");
+    expect(response.body.html).toContain("Blog-Kopf");
+    // The draft path is per entry: a published entry's preview stays clean.
+    const publishedPreview = await env.api.request<{ html: string }>({
       method: "GET",
-      path: `/api/entries/${draft.id}/preview`,
+      path: `/api/entries/${published.id}/preview`,
     });
-    expect(response.status).toBe(404);
-    expect(response.body.error.category).toBe("not_found");
+    expect(publishedPreview.body.html).not.toContain("Entwurf Beitrag");
+  }, 180000);
+
+  it("overlays unsaved cells for the live preview", async () => {
+    const response = await env.api.request<{ html: string }>({
+      method: "POST",
+      path: `/api/entries/${draft.id}/preview`,
+      body: {
+        cells: {
+          ...draft.cells,
+          title: "Zwischenstand",
+          "f-body": "**Frisch** getippt",
+        },
+      },
+    });
+    expect(response.status).toBe(200);
+    expect(response.body.html).toContain("Artikel: Zwischenstand");
+    expect(response.body.html).toContain("<strong>Frisch</strong> getippt");
+    expect(response.body.html).not.toContain("Artikel: Entwurf Beitrag");
   }, 180000);
 
   it("answers not_found for an unknown entry (no site leak)", async () => {

@@ -34,7 +34,7 @@ import {
   findFirstOutlet,
   findLayout,
 } from "./templates.ts";
-import type { Page, Site } from "./types.ts";
+import type { CellValue, Collection, Entry, Page, Site } from "./types.ts";
 import type { Store } from "./store.ts";
 
 export type BakeOutcome = {
@@ -107,9 +107,18 @@ export type BakeBuild = {
 // Resolves the template chain and prefetches lists for every route a site
 // exposes: normal pages (layout → page) and entry detail routes (layout →
 // entry template → article), plus the static `?seite=N` variants.
+//
+// `previewEntry` is the one exception of the published-only rule (T10): the
+// live preview renders exactly this entry from its current cells, even when
+// it is still a draft — every other route and list stays published-only.
 export async function buildBakeInput(
   store: Store,
-  input: { site: Site; pages: Page[]; aeo?: boolean },
+  input: {
+    site: Site;
+    pages: Page[];
+    aeo?: boolean;
+    previewEntry?: { entry: Entry; collection: Collection };
+  },
 ): Promise<BakeBuild> {
   const { site, pages } = input;
   const collections = await store.listCollections(site.id);
@@ -133,6 +142,10 @@ export async function buildBakeInput(
     for (const entry of published) {
       entries[entry.id] = toBindingEntry(entry, collection);
     }
+  }
+  const preview = input.previewEntry;
+  if (preview !== undefined && preview.collection.siteId === site.id) {
+    entries[preview.entry.id] = toBindingEntry(preview.entry, preview.collection);
   }
 
   const out: BakeBuild = { pages: [], contexts: {}, trees: [] };
@@ -235,10 +248,18 @@ export async function buildBakeInput(
       status: "published",
       limit: 500,
     });
+    // The preview entry gets its own route even as a draft; every other
+    // route stays published-only. A published entry is not duplicated.
+    const routeEntries =
+      preview !== undefined &&
+      preview.collection.id === collection.id &&
+      !published.some((entry) => entry.id === preview.entry.id)
+        ? [...published, preview.entry]
+        : published;
     const bodyField = collection.fields.find(
       (field) => field.type === "richtext" && field.deprecated !== true,
     );
-    for (const entry of published) {
+    for (const entry of routeEntries) {
       const article =
         bodyField === undefined
           ? ""
@@ -315,6 +336,8 @@ export async function bakePages(
     // signed token into the page; without one the forms stay static.
     formSigner?: FormSigner;
     formBaseUrl?: string;
+    // Live preview (T10): resolve exactly this entry from its current cells.
+    previewEntry?: { entry: Entry; collection: Collection };
   },
 ): Promise<BakeOutcome> {
   const siteTheme = await store.getTheme(input.site.id);
@@ -325,6 +348,7 @@ export async function bakePages(
     site: input.site,
     pages: input.pages,
     ...(input.aeo === undefined ? {} : { aeo: input.aeo }),
+    ...(input.previewEntry === undefined ? {} : { previewEntry: input.previewEntry }),
   });
   if (input.formSigner !== undefined) {
     await stampFormsForBuild({
@@ -409,23 +433,55 @@ export async function bakePages(
   };
 }
 
+// The preview response is a single HTML document (the editor renders it in a
+// sandboxed iframe): the bake's own stylesheets are inlined and script tags
+// with a src are dropped, so the document needs no file server for its own
+// build output. Media keeps its served /assets URLs.
+function selfContainedPreviewHtml(html: string, outDir: string): string {
+  const withoutLinks = html.replace(
+    /<link\b[^>]*rel="stylesheet"[^>]*>/g,
+    (tag) => {
+      const href = tag.match(/href="([^"]+)"/)?.[1] ?? "";
+      if (/^(https?:)?\/\//.test(href)) return tag;
+      const css = readBakedFile(outDir, href);
+      return css === undefined ? "" : `<style>${css}</style>`;
+    },
+  );
+  return withoutLinks.replace(/<script\b[^>]*\bsrc="[^"]*"[^>]*><\/script>/g, "");
+}
+
+function readBakedFile(outDir: string, href: string): string | undefined {
+  if (!href.startsWith("/")) return undefined;
+  const file = join(outDir, href.slice(1));
+  if (!file.startsWith(outDir) || !existsSync(file)) return undefined;
+  return readFileSync(file, "utf8");
+}
+
 // Live preview of one entry (artifacts/23 §5): it renders through the same
 // bake path as the build, into a throw-away directory that is removed again.
-// An entry without a baked route (draft, no entry template) is not resolvable.
+// The entry may be a draft, and `cells`/`slug` overlay its stored row — the
+// entry editor previews unsaved typing without writing anything (T10).
 export async function renderEntryPreview(input: {
   store: Store;
   dataDir: string;
   entryId: string;
   formSigner?: FormSigner;
+  cells?: Record<string, CellValue>;
+  slug?: string;
 }): Promise<{ path: string; html: string; status: number }> {
-  const entry = await input.store.getEntry(input.entryId);
-  if (entry.deletedAt !== null) {
+  const stored = await input.store.getEntry(input.entryId);
+  if (stored.deletedAt !== null) {
     throw new SenifyError(
       "not_found",
-      `Entry "${entry.id}" is in the trash`,
+      `Entry "${stored.id}" is in the trash`,
       { field: "entryId", suggestion: "Restore the entry before previewing it." },
     );
   }
+  const entry: Entry = {
+    ...stored,
+    ...(input.cells === undefined ? {} : { cells: input.cells }),
+    ...(input.slug === undefined ? {} : { slug: input.slug }),
+  };
   const site = await input.store.getSite(entry.siteId);
   const collection = await input.store.getCollection(entry.collectionId);
   const path = entryPathFor(collection.urlPattern, entry.slug);
@@ -438,6 +494,7 @@ export async function renderEntryPreview(input: {
       outDir,
       dataDir: input.dataDir,
       ...(input.formSigner === undefined ? {} : { formSigner: input.formSigner }),
+      previewEntry: { entry, collection },
     });
     const file = join(baked.outDir, htmlFileFor(path));
     if (!existsSync(file)) {
@@ -447,11 +504,15 @@ export async function renderEntryPreview(input: {
         {
           field: "entryId",
           suggestion:
-            "Publish the entry and give its collection an entry template with an outlet.",
+            "Give the collection an entry template with an outlet (the entry may stay a draft).",
         },
       );
     }
-    return { path, html: readFileSync(file, "utf8"), status: 200 };
+    return {
+      path,
+      html: selfContainedPreviewHtml(readFileSync(file, "utf8"), baked.outDir),
+      status: 200,
+    };
   } finally {
     rmSync(outDir, { recursive: true, force: true });
   }

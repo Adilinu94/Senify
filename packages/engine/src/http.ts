@@ -118,6 +118,7 @@ import {
   CreateCollectionBodySchema,
   CreateEntryBodySchema,
   EntryActionBodySchema,
+  EntryPreviewBodySchema,
   EntryTickBodySchema,
   FromFieldsBodySchema,
   PublishEntryBodySchema,
@@ -128,6 +129,7 @@ import {
   type CreateCollectionBody,
   type CreateEntryBody,
   type EntryActionBody,
+  type EntryPreviewBody,
   type EntryTickBody,
   type PublishEntryBody,
   type SearchEntriesBody,
@@ -2044,6 +2046,32 @@ const ROUTES: Route[] = [
         formSigner: context.formSigner,
       }),
     }),
+  },
+  {
+    // Preview with unsaved form values (T10): the editor posts its cells, the
+    // engine overlays them on the stored row without writing anything.
+    method: "POST",
+    segments: ["api", "entries", ":entryId", "preview"],
+    scope: "read",
+    handler: async (context, params, req) => {
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<EntryPreviewBody>(
+        EntryPreviewBodySchema,
+        body,
+        "entry preview",
+      );
+      return {
+        status: 200,
+        body: await renderEntryPreview({
+          store: context.store,
+          dataDir: context.dataDir,
+          entryId: requireParam(params, "entryId"),
+          formSigner: context.formSigner,
+          ...(input.cells === undefined ? {} : { cells: input.cells }),
+          ...(input.slug === undefined ? {} : { slug: input.slug }),
+        }),
+      };
+    },
   },
   {
     method: "PUT",

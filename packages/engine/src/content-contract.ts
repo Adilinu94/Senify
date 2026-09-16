@@ -236,6 +236,17 @@ export const PublishEntryBodySchema = Type.Object(
 );
 export type PublishEntryBody = Static<typeof PublishEntryBodySchema>;
 
+// Live preview (T10): the entry editor overlays its (possibly unsaved) form
+// values on the stored row; everything is optional.
+export const EntryPreviewBodySchema = Type.Object(
+  {
+    cells: Type.Optional(Type.Record(Type.String(), Type.Any())),
+    slug: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+  },
+  CLOSED,
+);
+export type EntryPreviewBody = Static<typeof EntryPreviewBodySchema>;
+
 export const EntryActionBodySchema = Type.Object(
   { author: AuthorSchema },
   CLOSED,

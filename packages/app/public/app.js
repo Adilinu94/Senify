@@ -1275,6 +1275,9 @@ const WORKSPACE_TABS = [
 // Selected form in the submissions tab (per program run, not per project).
 let selectedFormId = null;
 
+// The entry preview stays open across re-renders of the article editor.
+let entryPreviewOpen = false;
+
 function workspaceFrame(siteId, site, tab, live) {
   const head = el(
     "div",
@@ -1898,6 +1901,84 @@ async function articleEditorView(siteId, entryId) {
         : undefined,
     ),
   );
+  const controlsHost = el("div", { class: "panel" }, controls);
+
+  // Live preview (T10): read-only render through the same bake path, with the
+  // current form values overlaid — debounced while typing, no writes.
+  const previewFrame = el("iframe", {
+    class: "entry-preview-frame",
+    sandbox: "allow-same-origin",
+    title: "Vorschau",
+  });
+  const previewPath = el("code", { text: "—" });
+  let previewBusy = false;
+  let previewDirty = false;
+  const runPreview = async () => {
+    if (previewBusy) {
+      previewDirty = true;
+      return;
+    }
+    previewBusy = true;
+    try {
+      const result = await api(`/api/entries/${entryId}/preview`, {
+        method: "POST",
+        body: { cells: readCells(fields), slug: entry.slug },
+      });
+      previewPath.textContent = result.path;
+      previewFrame.setAttribute("srcdoc", result.html);
+    } catch (error) {
+      failed(error);
+    } finally {
+      previewBusy = false;
+      if (previewDirty) {
+        previewDirty = false;
+        void runPreview();
+      }
+    }
+  };
+  let previewStarted = false;
+  let previewTimer = null;
+  const previewPanel = el(
+    "div",
+    { class: "panel", ...(entryPreviewOpen ? {} : { hidden: "hidden" }) },
+    el(
+      "div",
+      { class: "toolbar" },
+      el("strong", { text: "Vorschau" }),
+      previewPath,
+      el("div", { class: "spacer" }),
+      el("button", {
+        class: "ghost",
+        text: "Aktualisieren",
+        onclick: () => void runPreview(),
+      }),
+    ),
+    previewFrame,
+    el("p", {
+      class: "muted",
+      style: "font-size: 0.78rem",
+      text: "Read-only, dieselbe Bake-Kette wie die Veröffentlichung — ungespeicherte Eingaben sind sichtbar.",
+    }),
+  );
+  controlsHost.addEventListener("input", () => {
+    if (previewPanel.hidden) return;
+    if (previewTimer) clearTimeout(previewTimer);
+    previewTimer = setTimeout(() => void runPreview(), 1200);
+  });
+  const previewToggle = el("button", {
+    class: "ghost",
+    text: entryPreviewOpen ? "Vorschau ausblenden" : "Vorschau",
+    onclick: () => {
+      entryPreviewOpen = previewPanel.hidden;
+      previewPanel.hidden = !entryPreviewOpen;
+      previewToggle.textContent = entryPreviewOpen ? "Vorschau ausblenden" : "Vorschau";
+      if (entryPreviewOpen && !previewStarted) {
+        previewStarted = true;
+        void runPreview();
+      }
+    },
+  });
+
   render([
     el(
       "div",
@@ -1907,6 +1988,7 @@ async function articleEditorView(siteId, entryId) {
       el("span", { class: "tag", text: entry.status }),
       el("span", { class: "muted", text: `v${entry.version}` }),
       el("div", { class: "spacer" }),
+      previewToggle,
       el("button", {
         class: "ghost",
         text: "Speichern",
@@ -1958,7 +2040,8 @@ async function articleEditorView(siteId, entryId) {
         },
       }),
     ),
-    el("div", { class: "panel" }, controls),
+    controlsHost,
+    previewPanel,
   ]);
 }
 
