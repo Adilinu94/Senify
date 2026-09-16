@@ -49,6 +49,7 @@ export type DomElement = {
 
 export type DomDocument = {
   readonly body: DomElement;
+  readonly head?: DomElement | null;
   createElement(tag: string): DomElement;
   addEventListener(type: string, handler: (event: DomEvent) => void): void;
   removeEventListener(type: string, handler: (event: DomEvent) => void): void;

@@ -616,5 +616,6 @@ dialog.modal select,
 }
 
 .editor-host {
+  height: clamp(24rem, calc(100vh - 12rem), 64rem);
   min-height: 24rem;
 }

@@ -1844,9 +1844,35 @@ async function reviewAction(siteId, reviewId, action) {
   }
 }
 
-async function pageView(siteId, pageId) {
+async function pageView(siteId, pageId, initialSearch) {
   const page = await api(`/api/pages/${pageId}`);
   let currentTree = page.draft;
+  let editorInstance = null;
+  let pagesCache = [];
+  try {
+    const listed = await api(`/api/sites/${siteId}/pages`);
+    pagesCache = (listed.pages ?? []).map((entry) => ({
+      id: entry.id,
+      title: entry.title || entry.path,
+      path: entry.path,
+    }));
+  } catch {
+    pagesCache = [];
+  }
+  let mediaCache = [];
+  try {
+    const listed = await api(`/api/sites/${siteId}/assets`);
+    mediaCache = (listed.assets ?? []).map((asset) => ({
+      id: asset.id,
+      name: asset.filename,
+      kind: asset.kind,
+      folders: [],
+      tags: asset.tags ?? [],
+      createdAt: Date.parse(asset.createdAt) || undefined,
+    }));
+  } catch {
+    mediaCache = [];
+  }
 
   const toolbar = el(
     "div",
@@ -1885,16 +1911,40 @@ async function pageView(siteId, pageId) {
           void api(`/api/pages/${pageId}`)
             .then((fresh) => {
               currentTree = fresh.draft;
+              editorInstance?.refresh();
             })
             .catch(() => undefined);
         },
       });
-      editor.mountEditor(host, {
+      editorInstance = editor.mountEditor(host, {
         session,
         registry: editor.createRegistry(),
         tree: () => currentTree,
         page: { pageId, title: page.title, path: page.path },
         theme: editor.defaultTheme(),
+        pages: () => pagesCache,
+        media: () => mediaCache,
+        ...(initialSearch ? { initialSearch } : {}),
+        onDeepLink: (search) => {
+          const base = `${location.origin}${location.pathname}${location.search}`;
+          const suffix = search === "" ? "" : `?${search}`;
+          history.replaceState(
+            null,
+            "",
+            `${base}#/projects/${siteId}/pages/${pageId}${suffix}`,
+          );
+        },
+        onCommand: (command) => {
+          if (command.type === "open-page") {
+            location.hash = `#/projects/${siteId}/pages/${command.pageId}`;
+          } else if (command.type === "set-mode") {
+            editorInstance?.setMode(command.mode);
+          } else if (command.type === "open-media") {
+            editorInstance?.openTab("media");
+          } else if (command.type === "publish") {
+            location.hash = `#/projects/${siteId}/review`;
+          }
+        },
       });
       return;
     } catch (error) {
@@ -2037,17 +2087,20 @@ document.addEventListener("keydown", (event) => {
 
 async function renderRoute() {
   const hash = location.hash || "#/";
+  const question = hash.indexOf("?");
+  const route = question === -1 ? hash : hash.slice(0, question);
+  const deepLink = question === -1 ? "" : hash.slice(question + 1);
   try {
-    const project = hash.match(/^#\/projects\/([^/]+)\/(pages|articles|templates|review|activity|settings)$/);
-    const pageMatch = hash.match(/^#\/projects\/([^/]+)\/pages\/([^/]+)$/);
-    const articleMatch = hash.match(/^#\/projects\/([^/]+)\/articles\/([^/]+)$/);
-    const referenceMatch = hash.match(/^#\/references\/([^/]+)$/);
+    const project = route.match(/^#\/projects\/([^/]+)\/(pages|articles|templates|review|activity|settings)$/);
+    const pageMatch = route.match(/^#\/projects\/([^/]+)\/pages\/([^/]+)$/);
+    const articleMatch = route.match(/^#\/projects\/([^/]+)\/articles\/([^/]+)$/);
+    const referenceMatch = route.match(/^#\/references\/([^/]+)$/);
     if (articleMatch) {
       activeTab("projects");
       await articleEditorView(articleMatch[1], articleMatch[2]);
     } else if (pageMatch) {
       activeTab("projects");
-      await pageView(pageMatch[1], pageMatch[2]);
+      await pageView(pageMatch[1], pageMatch[2], deepLink);
     } else if (project && project[2] === "articles") {
       await articlesView(project[1]);
     } else if (project) {

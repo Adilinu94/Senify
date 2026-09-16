@@ -2,6 +2,7 @@
 // `mountEditor(container, options)`; everything else is the editor's contract.
 
 export { mountEditor, createStubRenderer, type EditorInstance, type EditorOptions, type FrameRenderContext, type FrameRenderer } from "./mount.ts";
+export { EDITOR_STYLES, ensureEditorStyles } from "./styles.ts";
 export {
   createHttpTransport,
   DRAFT_CONFLICT_MESSAGE,

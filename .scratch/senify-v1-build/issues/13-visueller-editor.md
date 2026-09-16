@@ -4,7 +4,7 @@
 
 **Blocked by:** 05 (Renderer & Bake — Section-SDK), 08 (Media — Medien-Fenster), 10 (Templates — Vorlagen-Tab), 12 (Programm-Shell — Arbeitsbereich).
 
-**Status:** umgesetzt (`pnpm verify` grün, 88 Editor-Tests; Editor-Kern als eigenes Paket mit Puck-kompatiblem Adapter, Panels, Frames, Inline-Text, Explorer/Spotlight/Deep-Links, Undo/Redo, von der Programm-Shell über `@senify/editor/browser` eingebunden) — offen: Puck-Runtime im Browser und Sichtprüfung
+**Status:** umgesetzt (`pnpm verify` grün; Editor-Kern als eigenes Paket mit Puck-kompatiblem Adapter, Panels, Frames, Inline-Text, Explorer/Spotlight/Deep-Links, Undo/Redo, von der Programm-Shell über `@senify/editor/browser` eingebunden; im echten Browser geprüft: Frame-Layout, Klick-Auswahl in den Frames, Panels, Mutation, Inline-Text, Live-Modus, Deep-Link-Reload) — offen: echte Sektions-Komponenten in den Frames (Puck-/Renderer-Einbindung), Mini-Toolbar, Sektions-Einfügen aus dem Spotlight, Vorlagen-Daten im Explorer
 
 - [ ] Design-Modus: 3 Breakpoint-Frames nebeneinander, alle editierbar; Änderungen in einem Frame wirken in allen (Overrides korrekt); Zoom/Pan funktioniert
 - [ ] Live-Modus: ein Frame in echter Größe, scrollbar, voll editierbar; Umschalter Design ⇄ Live erhält den Zustand
@@ -50,3 +50,19 @@ Quellen: `artifacts/09`, `artifacts/24` (+ Gap-Analyse `research/28-puck-gap.md`
 **Offen (Teil 2):**
 - Einbindung in die Programm-Shell (T12) inklusive echtem Puck-Renderer und Sektions-Renderfunktionen; der Editor liefert nur die Einsteigsfunktion.
 - Sichtprüfung im echten Browser (Frames mit echten Media-Queries, Zoom/Pan-Gefühl) und Puck-Upgrade-Test gegen die reale Bibliothek.
+
+## Umsetzungs-Notiz (Teil 3: Browser-Prüfung)
+
+**Playwright:** als Root-Dev-Dependency (`playwright`, Chromium unter `%LOCALAPPDATA%\ms-playwright`). Der bisher übersprungene Live-Capture-Test (`references-capture.test.ts`) läuft damit und ist grün.
+
+**Befund 1 — kein Editor-CSS:** Die Editor-Oberfläche wurde ohne jeden Stylesheet ausgeliefert; die absolut positionierten Frames hingen dadurch am Dokument und überlagerten Rail und Panels (ein Klick im Ebenen-Baum traf das iframe). Fix: `packages/editor/src/styles.ts` mit `EDITOR_STYLES` + `ensureEditorStyles(doc)`; `mountEditor` injiziert das Stylesheet einmal pro Dokument (Farben über die Plattform-Tokens mit Fallbacks). Die App gibt `.editor-host` zusätzlich eine Höhe (`clamp(24rem, 100vh - 12rem, 64rem)`).
+
+**Befund 2 — Auswahl nur über die Rail:** Klicks in den Frames hatten keine Wirkung, der Selection-Ring war nie gesetzt. Fix in `mount.ts`: Klick auf einen Knoten selektiert ihn (Alt-Klick geht eine Ebene hoch, `parentIdOf`), Hover- und Selection-Ring (`data-selected`) werden ohne Neuaufbau der iframes in alle Frame-Dokumente geschrieben (`frameBodies` + `syncSelectionRing`).
+
+**Befund 3 — Deep-Links zerbrachen die Hash-Route:** Der Editor schrieb per `replaceState` einen Query-Anhang an die Hash-URL; `renderRoute` verstand die Route danach nicht mehr, ein Reload landete nicht wieder im Editor. Fix: Vertrag umgedreht — sobald die Shell `onDeepLink` übergibt, schreibt der Editor die URL nicht mehr selbst; die Shell schreibt `#/projects/:siteId/pages/:pageId?page=…&node=…`, `renderRoute` trennt Route und Deep-Link, `initialSearch` stellt Auswahl/Modus/Breakpoint nach dem Reload wieder her.
+
+**Shell-Verdrahtung:** `pages` (Seiten-Tab + Spotlight), `media` (aus `GET /api/sites/:id/assets`), `onCommand` (Seite öffnen, Modus, Medien-Tab, Publizieren → Review-Ansicht) und `openTab` (neu im `EditorInstance`) ergänzt; nach Mutationen aktualisiert `onVersion` den Baum und ruft `refresh()`.
+
+**Test:** `packages/app/test/editor-browser.test.ts` fährt die Suite mit Chromium: drei Breakpoint-Frames, Geometrie (Stage rechts der Rail), Klick-Auswahl im Frame, Panel-Änderung (Version + alle drei Frames), Deep-Link-Reload, Live-Modus, Seiten-Tab; überspringt sich ohne installierten Browser (gleicher Vertrag wie der Capture-Test). Keine Konsolenfehler.
+
+**Weiterhin offen:** echte Sektions-Komponenten in den Frames (der Stub-Renderer zeichnet Knoten-Kästen; dafür braucht es den Frame-Renderer mit React + kompiliertem Tailwind/`components.css` und eine Lösung für Inline-Text auf echten Komponenten-DOM), Mini-Toolbar, Sektions-Einfügen aus dem Spotlight, Vorlagen-Daten im Explorer, Zoom/Pan-Gefühl als Sichtprüfung von Hand.

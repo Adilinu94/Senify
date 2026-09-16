@@ -38,6 +38,9 @@ importers:
       pg-mem:
         specifier: ^3.0.5
         version: 3.0.14
+      playwright:
+        specifier: ^1.63.0
+        version: 1.63.0
       tsx:
         specifier: ^4.23.13
         version: 4.23.13

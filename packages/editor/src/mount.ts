@@ -39,6 +39,7 @@ import {
   type FrameState,
 } from "./frames.ts";
 import { parseDeepLink, serializeDeepLink, type DeepLinkState } from "./deep-links.ts";
+import { ensureEditorStyles } from "./styles.ts";
 import {
   getDocument,
   requireDocument,
@@ -98,6 +99,7 @@ export type EditorInstance = {
   setMode(mode: FrameState["mode"]): void;
   setBreakpoint(breakpoint: FrameBreakpoint): void;
   select(nodeId: string | null): void;
+  openTab(tab: ExplorerTab): void;
   zoom(delta: number): void;
   resetZoom(): void;
   spotlight(query: string): SpotlightItem[];
@@ -111,8 +113,9 @@ const FRAME_DOC = `<!doctype html><html><head><meta charset="utf-8"><style>
 html, body { margin: 0; padding: 0; }
 body { font: 14px/1.5 system-ui, sans-serif; }
 [data-node-id] { position: relative; outline: 1px dashed transparent; }
+[data-node-id]:hover { outline-color: rgba(79,70,229,.45); }
 [data-node-id][data-hidden="true"] { opacity: .35; }
-[data-node-id][data-selected="true"] { outline-color: #4f46e5; }
+[data-node-id][data-selected="true"] { outline: 2px solid #4f46e5; }
 [data-inline] { cursor: text; }
 [data-inline]:hover { background: rgba(79,70,229,.08); }
 </style></head><body></body></html>`;
@@ -220,6 +223,7 @@ function inlineKeyFor(props: Record<string, unknown>): string | null {
 
 export function mountEditor(container: DomElement, options: EditorOptions): EditorInstance {
   const doc = requireDocument();
+  ensureEditorStyles(doc);
   const win = (globalThis as { window?: DomWindow }).window ?? null;
   const renderer = options.renderer ?? createStubRenderer();
   const history = new HistoryStack();
@@ -238,6 +242,9 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
   let message: string | null = null;
   let spotlightOpen = false;
   let spotlightQuery = "";
+  // Frame documents currently mounted: selection rings are written straight
+  // into them so selecting never re-creates (and reloads) the iframes.
+  const frameBodies: DomElement[] = [];
 
   const root = h(doc, "div", { className: "senify-editor", data: { "senify-editor": "true" } });
   // #1829: our own toolbar and overlays, never Puck's default action bar.
@@ -280,7 +287,12 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
   function syncDeepLink(): void {
     const link = deepLink();
     const search = serializeDeepLink(link);
-    options.onDeepLink?.(search, link);
+    if (options.onDeepLink) {
+      // The shell owns the URL (hash routing): it gets the state and writes
+      // its own history entry, the editor never touches location here.
+      options.onDeepLink(search, link);
+      return;
+    }
     if (win) {
       const base = win.location.href.split("?")[0] ?? "";
       win.history.replaceState(null, "", `${base}${search ? `?${search}` : ""}`);
@@ -461,6 +473,7 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
   function renderFrames(): void {
     stage.textContent = "";
     renderer.destroy();
+    frameBodies.length = 0;
     const placements = framePlacements(state);
     framesForState(state).forEach((frame, index) => {
       const placement = placements[index];
@@ -490,6 +503,9 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
             registry: options.registry,
             breakpoint: frame.breakpoint,
           });
+          frameBodies.push(body);
+          wireFrameSelection(body);
+          syncSelectionRing();
         }
         wireInlineEditing(body);
       };
@@ -499,6 +515,57 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
       stage.appendChild(wrap);
       mount();
     });
+  }
+
+  // Clicking a node stub selects it; Alt-click steps one level up (the same
+  // inspect ladder as in the layer rail).
+  function wireFrameSelection(body: DomElement): void {
+    body.addEventListener("click", (event: DomEvent) => {
+      if (inline.session) return;
+      const target = (event.target as DomElement | null)?.closest?.("[data-node-id]");
+      const nodeId = target?.getAttribute("data-node-id") ?? null;
+      if (!nodeId) return;
+      const next =
+        event.altKey === true ? (parentIdOf(nodeId) ?? nodeId) : nodeId;
+      if (next !== state.selectedNodeId) select(next);
+      event.stopPropagation?.();
+    });
+  }
+
+  function parentIdOf(nodeId: string): string | null {
+    const tree = options.tree();
+    if (nodeId === tree.rootNodeId) return null;
+    const visit = (ownerId: string): string | null => {
+      const owner = tree.nodes[ownerId];
+      if (!owner) return null;
+      for (const childId of owner.children ?? []) {
+        if (childId === nodeId) return ownerId;
+        const found = visit(childId);
+        if (found) return found;
+      }
+      for (const list of Object.values(owner.slots ?? {})) {
+        for (const childId of list) {
+          if (childId === nodeId) return ownerId;
+          const found = visit(childId);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    return visit(tree.rootNodeId);
+  }
+
+  function syncSelectionRing(): void {
+    for (const body of frameBodies) {
+      for (const element of body.querySelectorAll("[data-node-id]")) {
+        const id = element.getAttribute("data-node-id");
+        if (id !== null && id === state.selectedNodeId) {
+          element.setAttribute("data-selected", "true");
+        } else {
+          element.removeAttribute("data-selected");
+        }
+      }
+    }
   }
 
   function renderRail(): void {
@@ -819,6 +886,7 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     syncDeepLink();
     renderRail();
     renderPanels();
+    syncSelectionRing();
   }
 
   function zoomByStep(delta: number): void {
@@ -894,6 +962,10 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     setMode,
     setBreakpoint,
     select,
+    openTab: (tab) => {
+      activeTab = tab;
+      renderRail();
+    },
     zoom: zoomByStep,
     resetZoom,
     spotlight: (query) => searchSpotlight(spotlightIndex(), query),

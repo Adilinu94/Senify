@@ -17,6 +17,7 @@ export default tseslint.config(
         window: "readonly",
         document: "readonly",
         location: "readonly",
+        history: "readonly",
         fetch: "readonly",
         prompt: "readonly",
         confirm: "readonly",
