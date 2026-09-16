@@ -140,7 +140,8 @@ describe.skipIf(!browserAvailable)("review visuals in the dashboard (T07)", () =
       await expect
         .poll(async () =>
           tab.locator(".review-visuals .review-figure img").first().evaluate(
-            (img) => (img as HTMLImageElement).naturalWidth,
+            // The repo compiles without the DOM lib: structural access.
+            (img) => (img as unknown as { naturalWidth: number }).naturalWidth,
           ),
         )
         .toBeGreaterThan(0);
