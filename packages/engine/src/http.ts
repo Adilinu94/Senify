@@ -68,6 +68,7 @@ import {
 import { Store } from "./store.ts";
 import type { EngineSettingsPatch, SmtpSettingsPatch } from "./store.ts";
 import { backupStatus, createBackup, listBackups, restoreBackup } from "./backup.ts";
+import { MaintenanceError, type MaintenanceGate } from "./maintenance.ts";
 import { sendTestMail, smtpMailSender, type MailSender } from "./mailer.ts";
 import {
   encryptSmtpPassword,
@@ -233,6 +234,8 @@ export type EngineContext = {
   registry: Registry;
   locks: PageLocks;
   rateLimiter: RateLimiter;
+  // Maintenance window (T12 restore): blocks requests while it runs.
+  maintenance: MaintenanceGate;
   dataDir: string;
   maxUploadBytes: number;
   uploadSigner: UploadSigner;
@@ -441,6 +444,24 @@ function sendError(res: ServerResponse, error: unknown): void {
         },
       },
       { "retry-after": String(error.retryAfterSeconds) },
+    );
+    return;
+  }
+  if (error instanceof MaintenanceError) {
+    sendJson(
+      res,
+      503,
+      {
+        error: {
+          category: error.category,
+          message: error.message,
+          ...(error.field !== undefined ? { field: error.field } : {}),
+          ...(error.suggestion !== undefined
+            ? { suggestion: error.suggestion }
+            : {}),
+        },
+      },
+      { "retry-after": "5" },
     );
     return;
   }
@@ -818,6 +839,9 @@ type Route = {
   public?: boolean;
   scope?: TokenScope;
   destructive?: boolean;
+  // Health and the restore itself stay reachable during a maintenance window;
+  // the restore acquires the gate from its handler.
+  maintenanceExempt?: boolean;
   handler: (
     context: EngineContext,
     params: RouteParams,
@@ -894,7 +918,15 @@ const ROUTES: Route[] = [
     method: "GET",
     segments: ["api", "health"],
     public: true,
-    handler: async () => ({ status: 200, body: { ok: true, version: "0.1.0" } }),
+    maintenanceExempt: true,
+    handler: async (context) => ({
+      status: 200,
+      body: {
+        ok: true,
+        version: "0.1.0",
+        maintenance: context.maintenance.active,
+      },
+    }),
   },
   {
     method: "POST",
@@ -3160,6 +3192,7 @@ const ROUTES: Route[] = [
     segments: ["api", "backups", ":name", "restore"],
     scope: "write",
     destructive: true,
+    maintenanceExempt: true,
     handler: async (context, params, req) => {
       const body = (await readJsonBody(req)) ?? {};
       if ((body as { confirm?: unknown }).confirm !== true) {
@@ -3173,13 +3206,18 @@ const ROUTES: Route[] = [
           },
         );
       }
+      const name = requireParam(params, "name");
+      // The maintenance gate drains running requests and locks out new ones
+      // for the time the tables and the data directory are swapped.
       return {
         status: 200,
-        body: await restoreBackup({
-          store: context.store,
-          dataDir: context.dataDir,
-          name: requireParam(params, "name"),
-        }),
+        body: await context.maintenance.runExclusive(() =>
+          restoreBackup({
+            store: context.store,
+            dataDir: context.dataDir,
+            name,
+          }),
+        ),
       };
     },
   },
@@ -3323,21 +3361,40 @@ async function handleRequest(
   const previewFile = url.pathname.match(
     /^\/api\/previews\/([^/]+)\/files\/(.+)$/,
   );
-  if (method === "GET" && previewFile) {
-    await servePreviewFile(
-      context,
-      res,
-      decodeURIComponent(previewFile[1] ?? ""),
-      decodeURIComponent(previewFile[2] ?? ""),
-      url,
-    );
-    return;
-  }
+  let matchedRoute: Route | undefined;
+  let matchedParams: RouteParams | undefined;
   for (const route of ROUTES) {
     const params = matchRoute(route, method, segments);
-    if (params) {
-      const auth = await authenticate(context, req, route);
-      const result = await route.handler(context, params, req, url, auth);
+    if (params !== undefined) {
+      matchedRoute = route;
+      matchedParams = params;
+      break;
+    }
+  }
+  // A maintenance window keeps the door shut for everything except its own
+  // routes (health, the restore): those requests get a 503 to retry later.
+  const releaseMaintenance =
+    matchedRoute?.maintenanceExempt === true ? null : context.maintenance.enter();
+  try {
+    if (method === "GET" && previewFile) {
+      await servePreviewFile(
+        context,
+        res,
+        decodeURIComponent(previewFile[1] ?? ""),
+        decodeURIComponent(previewFile[2] ?? ""),
+        url,
+      );
+      return;
+    }
+    if (matchedRoute !== undefined && matchedParams !== undefined) {
+      const auth = await authenticate(context, req, matchedRoute);
+      const result = await matchedRoute.handler(
+        context,
+        matchedParams,
+        req,
+        url,
+        auth,
+      );
       if (result.redirect !== undefined) {
         sendRedirect(res, result.redirect);
         return;
@@ -3359,11 +3416,13 @@ async function handleRequest(
       sendJson(res, result.status, result.body, result.headers);
       return;
     }
+    sendError(
+      res,
+      new SenifyError("not_found", `Route ${method} ${url.pathname} does not exist`),
+    );
+  } finally {
+    releaseMaintenance?.();
   }
-  sendError(
-    res,
-    new SenifyError("not_found", `Route ${method} ${url.pathname} does not exist`),
-  );
 }
 
 export function createRequestHandler(

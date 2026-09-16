@@ -8,6 +8,7 @@ import { createFormSigner } from "./forms.ts";
 import { createRequestHandler } from "./http.ts";
 import type { MailSender } from "./mailer.ts";
 import { PageLocks } from "./locks.ts";
+import { MaintenanceGate } from "./maintenance.ts";
 import {
   DEFAULT_MAX_UPLOAD_BYTES,
   createUploadSigner,
@@ -111,6 +112,7 @@ export {
 } from "./content-contract.ts";
 export { createId, newEntityId, newNodeId } from "./ids.ts";
 export { PageLocks } from "./locks.ts";
+export { MaintenanceError, MaintenanceGate } from "./maintenance.ts";
 export {
   CreateTokenBodySchema,
   generateToken,
@@ -493,6 +495,8 @@ export type Engine = {
   registry: Registry;
   store: Store;
   locks: PageLocks;
+  // Maintenance window of the running engine (T12 restore).
+  maintenance: MaintenanceGate;
   dataDir: string;
   listen(options?: { port?: number; host?: string }): Promise<EngineServer>;
 };
@@ -505,6 +509,7 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
   await ensureSchema(options.db);
   const store = new Store(options.db);
   const locks = new PageLocks();
+  const maintenance = new MaintenanceGate();
   const dataDir = options.dataDir ?? defaultDataDir();
   // The signer secret is persisted, so tokens stamped into static HTML keep
   // verifying after a restart.
@@ -513,6 +518,7 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
     store,
     registry: options.registry,
     locks,
+    maintenance,
     rateLimiter: new RateLimiter(options.rateLimits ?? DEFAULT_RATE_LIMITS),
     dataDir,
     maxUploadBytes: options.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES,
@@ -536,6 +542,7 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
     registry: options.registry,
     store,
     locks,
+    maintenance,
     dataDir,
     async listen(listenOptions?: { port?: number; host?: string }): Promise<EngineServer> {
       const server = createServer(handler);

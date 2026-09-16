@@ -248,3 +248,121 @@ describe("restore a backup", () => {
     expect(escape.body.error.message).toContain("Ungültiger Name");
   });
 });
+
+async function waitFor(condition: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (condition()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error("Bedingung wurde nicht erreicht");
+}
+
+// The maintenance window of a running engine (T12): the restore drains running
+// requests and locks out new ones while it swaps tables and the data
+// directory, so no reader sees a half-written state. Health stays reachable
+// and marks the window.
+describe("maintenance window during restore", () => {
+  it("answers other requests with 503 while an exclusive task runs", async () => {
+    let finish: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const running = env.engine.maintenance.runExclusive(async () => {
+      await held;
+    });
+    await waitFor(() => env.engine.maintenance.active);
+
+    const blocked = await env.api.request<ErrorBody>({
+      method: "GET",
+      path: "/api/sites",
+    });
+    expect(blocked.status).toBe(503);
+    expect(blocked.body.error.category).toBe("conflict");
+    expect(blocked.body.error.message).toContain("Wartung");
+    expect(blocked.headers["retry-after"]).toBe("5");
+
+    const health = await env.api.request<{ ok: boolean; maintenance: boolean }>({
+      method: "GET",
+      path: "/api/health",
+    });
+    expect(health.status).toBe(200);
+    expect(health.body.maintenance).toBe(true);
+
+    finish();
+    await running;
+
+    const after = await env.api.request<{ sites: unknown[] }>({
+      method: "GET",
+      path: "/api/sites",
+    });
+    expect(after.status).toBe(200);
+    const healthAfter = await env.api.request<{ maintenance: boolean }>({
+      method: "GET",
+      path: "/api/health",
+    });
+    expect(healthAfter.body.maintenance).toBe(false);
+  });
+
+  it("waits for running requests and queues exclusive tasks", async () => {
+    const gate = env.engine.maintenance;
+    const order: string[] = [];
+    const release = gate.enter();
+    const exclusive = gate.runExclusive(async () => {
+      order.push("exclusive");
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(order).toEqual([]);
+    release();
+    await exclusive;
+    expect(order).toEqual(["exclusive"]);
+
+    const first = gate.runExclusive(async () => {
+      order.push("first");
+      await new Promise((resolve) => setTimeout(resolve, 15));
+    });
+    const second = gate.runExclusive(async () => {
+      order.push("second");
+    });
+    await Promise.all([first, second]);
+    expect(order).toEqual(["exclusive", "first", "second"]);
+  });
+
+  it("opens the gate again after a failed restore", async () => {
+    const refused = await restore("gibt-es-nicht", { confirm: true });
+    expect(refused.status).toBe(404);
+
+    const after = await env.api.request<{ sites: unknown[] }>({
+      method: "GET",
+      path: "/api/sites",
+    });
+    expect(after.status).toBe(200);
+    expect(env.engine.maintenance.active).toBe(false);
+  });
+
+  it("queues the actual restore behind a running exclusive task", async () => {
+    const backup = await createBackup();
+    let finish: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const running = env.engine.maintenance.runExclusive(async () => {
+      await held;
+    });
+    await waitFor(() => env.engine.maintenance.active);
+
+    const pending = restore(backup.id, { confirm: true });
+    let settled = false;
+    void pending.then(() => {
+      settled = true;
+    });
+    // The route waits for its turn instead of writing during the window.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(settled).toBe(false);
+
+    finish();
+    await running;
+    const result = await pending;
+    expect(result.status).toBe(200);
+    expect(result.body.id).toBe(backup.id);
+  });
+});
