@@ -3,6 +3,7 @@ import { copyFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { startProgram } from "@senify/app";
 import { SenifyError } from "@senify/core";
 import { skillFiles } from "@senify/skills";
 import { EngineClient } from "./client.ts";
@@ -12,7 +13,7 @@ import {
   detectedClients,
   selectTargets,
 } from "./clients.ts";
-import { DEFAULT_API_URL } from "./config.ts";
+import { DEFAULT_API_URL, resolveDatabaseUrl } from "./config.ts";
 import { serveStdio } from "./server.ts";
 
 const SCOPES = ["read", "write", "publish"] as const;
@@ -107,8 +108,28 @@ export function createProgram(): Command {
   program
     .command("start")
     .description("Start the local engine and open the program in the browser")
-    .action(() => {
-      console.log("senify start: engine bootstrap lands in ticket 12 (program shell)");
+    .option("--engine-port <port>", "engine port", "4321")
+    .option("--app-port <port>", "dashboard port", "4322")
+    .option("--no-open", "do not open the browser")
+    .action(async (options) => {
+      const running = await startProgram({
+        databaseUrl: resolveDatabaseUrl(),
+        enginePort: Number.parseInt(String(options.enginePort), 10) || undefined,
+        appPort: Number.parseInt(String(options.appPort), 10) || undefined,
+        openBrowser: options.open !== false,
+      });
+      console.log(`Senify läuft — Dashboard: ${running.dashboardUrl}`);
+      console.log(
+        `Engine: ${running.engineOrigin} · Beenden mit Strg+C`,
+      );
+      const shutdown = (): void => {
+        void running
+          .close()
+          .then(() => process.exit(0))
+          .catch(() => process.exit(1));
+      };
+      process.once("SIGINT", shutdown);
+      process.once("SIGTERM", shutdown);
     });
 
   program

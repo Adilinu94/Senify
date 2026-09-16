@@ -1,0 +1,1146 @@
+// Senify program shell: a dependency-free hash-router SPA over the local
+// engine API (proxied same-origin by the app server).
+
+const view = document.getElementById("view");
+const toasts = document.getElementById("toasts");
+const cmdk = document.getElementById("cmdk");
+const cmdkInput = document.getElementById("cmdk-input");
+const cmdkResults = document.getElementById("cmdk-results");
+const duplicateDialog = document.getElementById("duplicate-dialog");
+const duplicateForm = document.getElementById("duplicate-form");
+const duplicateName = document.getElementById("duplicate-name");
+
+const MUTATION_LABELS = {
+  insertNode: "Sektion eingefügt",
+  deleteNode: "Sektion entfernt",
+  duplicateNode: "Sektion dupliziert",
+  moveNode: "Sektion verschoben",
+  wrapNode: "Sektion umgebaut",
+  updateNodeProps: "Props geändert",
+  updateNodeMeta: "Meta geändert",
+  setBreakpointOverride: "Breakpoint-Override gesetzt",
+  clearBreakpointOverride: "Breakpoint-Override entfernt",
+  setMotion: "Motion gesetzt",
+  clearMotion: "Motion entfernt",
+  updatePageMeta: "Seiten-Meta geändert",
+  update_theme: "Theme geändert",
+  rename_site: "Projekt umbenannt",
+  trash_site: "Projekt in den Papierkorb",
+  restore_site: "Projekt wiederhergestellt",
+  duplicate_site: "Projekt dupliziert",
+};
+
+// The dashboard writes as the human operator; agents use their own tokens.
+const AUTHOR = { kind: "human", id: "programm", label: "Programm" };
+
+function el(tag, props = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(props)) {
+    if (key === "class") node.className = value;
+    else if (key === "text") node.textContent = value;
+    else if (key === "html") node.innerHTML = value;
+    else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
+    else if (value !== undefined && value !== null) node.setAttribute(key, value);
+  }
+  for (const child of children.flat()) {
+    if (child === undefined || child === null) continue;
+    node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+  }
+  return node;
+}
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    method: options.method ?? "GET",
+    headers: options.body === undefined ? undefined : { "content-type": "application/json" },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+  });
+  const text = await response.text();
+  let data = {};
+  try {
+    data = text === "" ? {} : JSON.parse(text);
+  } catch {
+    data = { raw: text };
+  }
+  if (!response.ok) {
+    const error = data.error ?? {};
+    const failure = new Error(error.message ?? `HTTP ${response.status}`);
+    failure.suggestion = error.suggestion;
+    failure.status = response.status;
+    throw failure;
+  }
+  return data;
+}
+
+function toast(message, kind = "info") {
+  const node = el("div", { class: `toast ${kind}`, text: message });
+  toasts.append(node);
+  setTimeout(() => node.remove(), kind === "error" ? 7000 : 4000);
+}
+
+function failed(error) {
+  const hint = error.suggestion ? ` — ${error.suggestion}` : "";
+  toast(`${error.message}${hint}`, "error");
+}
+
+function formatDate(value) {
+  if (!value) return "—";
+  return new Date(value).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" });
+}
+
+function initials(name) {
+  return name.trim().slice(0, 2).toUpperCase();
+}
+
+function activeTab(tab) {
+  for (const link of document.querySelectorAll(".tabs a")) {
+    link.classList.toggle("active", link.dataset.tab === tab);
+  }
+  for (const link of document.querySelectorAll(".workspace-tabs a")) {
+    link.classList.toggle("active", link.dataset.wtab === tab);
+  }
+}
+
+function render(nodes) {
+  view.replaceChildren(...nodes);
+}
+
+/* Views */
+
+async function projectsView() {
+  const { sites } = await api("/api/sites");
+  const releases = await Promise.all(
+    sites.map((site) =>
+      api(`/api/sites/${site.id}/releases`)
+        .then((data) => (data.releases ?? []).length > 0)
+        .catch(() => false),
+    ),
+  );
+  const cards = sites.map((site, index) =>
+    el(
+      "article",
+      { class: "card" },
+      el("div", { class: "card-thumb", text: initials(site.name) }),
+      el(
+        "div",
+        { class: "card-body" },
+        el(
+          "div",
+          { class: "card-title" },
+          el("span", { class: `status-dot ${releases[index] ? "live" : ""}` }),
+          site.name,
+        ),
+        el("div", { class: "muted", text: `Geändert ${formatDate(site.updatedAt)}` }),
+        el(
+          "div",
+          { class: "card-actions" },
+          el("button", {
+            class: "primary",
+            text: "Öffnen",
+            onclick: () => (location.hash = `#/projects/${site.id}/pages`),
+          }),
+          el("button", {
+            class: "ghost",
+            text: "Umbenennen",
+            onclick: () => renameSite(site),
+          }),
+          el("button", {
+            class: "ghost",
+            text: "Duplizieren",
+            onclick: () => openDuplicate(site),
+          }),
+          el("button", {
+            class: "danger",
+            text: "Papierkorb",
+            onclick: () => trashSite(site),
+          }),
+        ),
+      ),
+    ),
+  );
+  render([
+    el(
+      "div",
+      { class: "toolbar" },
+      el("h1", { text: "Projekte" }),
+      el("div", { class: "spacer" }),
+      el("button", { class: "primary", text: "Neues Projekt", onclick: createSite }),
+      el("a", { href: "#/trash", class: "muted", text: "Papierkorb" }),
+    ),
+    sites.length === 0
+      ? el("div", { class: "empty", text: "Noch keine Projekte — lege das erste an." })
+      : el("div", { class: "card-grid" }, cards),
+  ]);
+}
+
+async function createSite() {
+  const name = prompt("Name des Projekts");
+  if (!name) return;
+  try {
+    const site = await api("/api/sites", { method: "POST", body: { name } });
+    toast(`Projekt „${site.name}“ angelegt`);
+    await renderRoute();
+  } catch (error) {
+    failed(error);
+  }
+}
+
+async function renameSite(site) {
+  const name = prompt("Neuer Name", site.name);
+  if (!name || name === site.name) return;
+  try {
+    await api(`/api/sites/${site.id}`, {
+      method: "PATCH",
+      body: { name, author: AUTHOR },
+    });
+    toast("Projekt umbenannt");
+    await renderRoute();
+  } catch (error) {
+    failed(error);
+  }
+}
+
+let duplicateTarget = null;
+function openDuplicate(site) {
+  duplicateTarget = site;
+  duplicateName.textContent = site.name;
+  duplicateDialog.showModal();
+}
+duplicateForm.addEventListener("submit", async (event) => {
+  const submitter = event.submitter;
+  event.preventDefault();
+  const mode = new FormData(duplicateForm).get("mode") ?? "full";
+  duplicateDialog.close();
+  if (submitter?.value !== "ok" || !duplicateTarget) return;
+  try {
+    await api(`/api/sites/${duplicateTarget.id}/duplicate`, {
+      method: "POST",
+      body: { withContent: mode === "full", author: AUTHOR },
+    });
+    toast("Projekt dupliziert");
+    await renderRoute();
+  } catch (error) {
+    failed(error);
+  }
+});
+
+async function trashSite(site) {
+  if (!confirm(`„${site.name}“ in den Papierkorb verschieben?`)) return;
+  try {
+    await api(`/api/sites/${site.id}/trash`, {
+      method: "POST",
+      body: { author: AUTHOR },
+    });
+    toast("Projekt in den Papierkorb verschoben");
+    await renderRoute();
+  } catch (error) {
+    failed(error);
+  }
+}
+
+async function trashView() {
+  const { sites } = await api("/api/sites?trash=1");
+  render([
+    el(
+      "div",
+      { class: "toolbar" },
+      el("h1", { text: "Papierkorb", style: "margin: 0" }),
+      el("div", { class: "spacer" }),
+      el("a", { href: "#/", class: "muted", text: "← Projekte" }),
+    ),
+    sites.length === 0
+      ? el("div", { class: "empty", text: "Der Papierkorb ist leer." })
+      : el(
+          "table",
+          {},
+          el(
+            "thead",
+            {},
+            el(
+              "tr",
+              {},
+              el("th", { text: "Projekt" }),
+              el("th", { text: "Gelöscht" }),
+              el("th", {}),
+            ),
+          ),
+          el(
+            "tbody",
+            {},
+            sites.map((site) =>
+              el(
+                "tr",
+                {},
+                el("td", { text: site.name }),
+                el("td", { text: formatDate(site.trashedAt) }),
+                el(
+                  "td",
+                  {},
+                  el(
+                    "div",
+                    { class: "row-actions" },
+                    el("button", {
+                      class: "ghost",
+                      text: "Wiederherstellen",
+                      onclick: async () => {
+                        try {
+                          await api(`/api/sites/${site.id}/restore`, {
+                            method: "POST",
+                            body: { author: AUTHOR },
+                          });
+                          toast("Projekt wiederhergestellt");
+                          await renderRoute();
+                        } catch (error) {
+                          failed(error);
+                        }
+                      },
+                    }),
+                    el("button", {
+                      class: "danger",
+                      text: "Endgültig löschen",
+                      onclick: async () => {
+                        if (
+                          !confirm(
+                            `„${site.name}“ endgültig löschen? Das kann nicht rückgängig gemacht werden.`,
+                          )
+                        ) {
+                          return;
+                        }
+                        try {
+                          await api(`/api/sites/${site.id}`, { method: "DELETE" });
+                          toast("Projekt endgültig gelöscht");
+                          await renderRoute();
+                        } catch (error) {
+                          failed(error);
+                        }
+                      },
+                    }),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+  ]);
+}
+
+async function referencesView() {
+  render([
+    el("h1", { text: "Referenzen" }),
+    el("div", {
+      class: "empty",
+      text: "Die Referenz-Analyse (Capture, Profil, Theme-Ableitung) kommt mit dem Referenzen-Ticket.",
+    }),
+  ]);
+}
+
+async function settingsView() {
+  const { tokens } = await api("/api/tokens");
+  const rows = tokens.map((token) =>
+    el(
+      "tr",
+      {},
+      el("td", { text: token.name }),
+      el("td", { text: token.scopes.join(", ") }),
+      el("td", {}, el("code", { text: token.prefix })),
+      el("td", { text: token.lastUsedAt ? formatDate(token.lastUsedAt) : "nie" }),
+      el("td", {}, token.revokedAt ? el("span", { class: "tag", text: "widerrufen" }) : el("span", { class: "muted", text: "aktiv" })),
+      el(
+        "td",
+        {},
+        el(
+          "div",
+          { class: "row-actions" },
+          token.revokedAt
+            ? undefined
+            : el("button", {
+                class: "danger",
+                text: "Widerrufen",
+                onclick: async () => {
+                  try {
+                    await api(`/api/tokens/${token.id}`, { method: "DELETE" });
+                    toast("Token widerrufen");
+                    await renderRoute();
+                  } catch (error) {
+                    failed(error);
+                  }
+                },
+              }),
+        ),
+      ),
+    ),
+  );
+  render([
+    el("h1", { text: "Einstellungen" }),
+    el(
+      "section",
+      { class: "panel" },
+      el("h2", { text: "Agenten-Zugänge" }),
+      el("p", {
+        class: "muted",
+        text: "Scoped Tokens für MCP-Clients (Claude Code, Cursor, opencode). Clients verbindest du im Terminal mit `senify mcp configure`.",
+      }),
+      tokens.length === 0
+        ? el("p", { class: "muted", text: "Noch keine Tokens." })
+        : el(
+            "table",
+            {},
+            el(
+              "thead",
+              {},
+              el(
+                "tr",
+                {},
+                el("th", { text: "Name" }),
+                el("th", { text: "Scopes" }),
+                el("th", { text: "Prefix" }),
+                el("th", { text: "Letzte Nutzung" }),
+                el("th", { text: "Status" }),
+                el("th", {}),
+              ),
+            ),
+            el("tbody", {}, rows),
+          ),
+      el(
+        "div",
+        { class: "inline", style: "margin-top: 0.9rem" },
+        el("input", { id: "token-name", type: "text", placeholder: "Name, z. B. Claude Code" }),
+        el("input", { id: "token-scopes", type: "text", value: "read,write" }),
+        el("button", {
+          class: "primary",
+          text: "Token anlegen",
+          onclick: async () => {
+            const name = document.getElementById("token-name").value.trim();
+            const scopes = document
+              .getElementById("token-scopes")
+              .value.split(",")
+              .map((entry) => entry.trim())
+              .filter(Boolean);
+            if (!name) {
+              toast("Bitte einen Namen angeben.", "error");
+              return;
+            }
+            try {
+              const created = await api("/api/tokens", { method: "POST", body: { name, scopes } });
+              toast(`Token angelegt — Secret (einmalig): ${created.secret}`);
+              await renderRoute();
+            } catch (error) {
+              failed(error);
+            }
+          },
+        }),
+      ),
+    ),
+    el(
+      "section",
+      { class: "panel" },
+      el("h2", { text: "E-Mail" }),
+      el("p", { class: "muted", text: "SMTP für Formular-Benachrichtigungen folgt mit dem Formular-Ticket." }),
+    ),
+    el(
+      "section",
+      { class: "panel" },
+      el("h2", { text: "Speicher & Sicherung" }),
+      el("p", { class: "muted", text: "Backup-Status und Restore-Anleitung folgen mit dem Hosting-Ticket." }),
+    ),
+    el(
+      "section",
+      { class: "panel" },
+      el("h2", { text: "Standardwerte" }),
+      el("p", { class: "muted", text: "Standard-Niveau, Layout und Autostart folgen mit dem Profil-/Hosting-Ticket." }),
+    ),
+  ]);
+}
+
+const WORKSPACE_TABS = [
+  ["pages", "Seiten"],
+  ["articles", "Artikel"],
+  ["templates", "Vorlagen"],
+  ["review", "Prüfen"],
+  ["activity", "Aktivität"],
+  ["settings", "Einstellungen"],
+];
+
+function workspaceFrame(siteId, site, tab, live) {
+  const head = el(
+    "div",
+    { class: "workspace-head" },
+    el(
+      "div",
+      {},
+      el("div", { class: "muted", text: "Projekt" }),
+      el("h1", { style: "margin: 0", text: site.name }),
+    ),
+    el("span", { class: `status-dot ${live ? "live" : ""}` }),
+    el("span", { class: "muted", text: live ? "Live" : "Entwurf" }),
+  );
+  const tabs = WORKSPACE_TABS.map(([id, label]) =>
+    el("a", {
+      href: `#/projects/${siteId}/${id}`,
+      "data-wtab": id,
+      class: id === tab ? "active" : "",
+      text: label,
+    }),
+  );
+  return [head, el("div", { class: "workspace-tabs" }, tabs)];
+}
+
+async function projectView(siteId, tab) {
+  const [site, { pages }, { releases }] = await Promise.all([
+    api(`/api/sites/${siteId}`),
+    api(`/api/sites/${siteId}/pages`),
+    api(`/api/sites/${siteId}/releases`),
+  ]);
+  activeTab("projects");
+  const frame = workspaceFrame(siteId, site, tab, releases.length > 0);
+  const body = [];
+  if (tab === "pages") {
+    body.push(
+      el("h2", { text: "Seiten" }),
+      pages.length === 0
+        ? el("div", { class: "empty", text: "Noch keine Seiten." })
+        : el(
+            "table",
+            {},
+            el(
+              "thead",
+              {},
+              el(
+                "tr",
+                {},
+                el("th", { text: "Pfad" }),
+                el("th", { text: "Titel" }),
+                el("th", { text: "Draft" }),
+                el("th", { text: "Geändert" }),
+                el("th", {}),
+              ),
+            ),
+            el(
+              "tbody",
+              {},
+              pages.map((page) =>
+                el(
+                  "tr",
+                  {},
+                  el("td", {}, el("code", { text: page.path })),
+                  el("td", { text: page.title || "—" }),
+                  el("td", { text: `v${page.draftVersion}` }),
+                  el("td", { text: formatDate(page.updatedAt) }),
+                  el(
+                    "td",
+                    {},
+                    el(
+                      "div",
+                      { class: "row-actions" },
+                      el("a", {
+                        href: `#/projects/${siteId}/pages/${page.id}`,
+                        text: "Öffnen",
+                      }),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+    );
+  } else if (tab === "review") {
+    const { reviews } = await api(`/api/sites/${siteId}/reviews`);
+    body.push(
+      el("h2", { text: "Prüfen" }),
+      reviews.length === 0
+        ? el("div", { class: "empty", text: "Keine Review-Items." })
+        : el(
+            "div",
+            { class: "stack" },
+            reviews.map((review) => reviewPanel(siteId, review)),
+          ),
+    );
+  } else if (tab === "activity") {
+    const { entries } = await api(`/api/sites/${siteId}/audit?limit=50`);
+    body.push(
+      el("h2", { text: "Aktivität" }),
+      entries.length === 0
+        ? el("div", { class: "empty", text: "Noch keine Aktivität." })
+        : el(
+            "table",
+            {},
+            el(
+              "thead",
+              {},
+              el(
+                "tr",
+                {},
+                el("th", { text: "Zeit" }),
+                el("th", { text: "Quelle" }),
+                el("th", { text: "Änderung" }),
+                el("th", { text: "Seite" }),
+              ),
+            ),
+            el(
+              "tbody",
+              {},
+              entries.map((entry) =>
+                el(
+                  "tr",
+                  {},
+                  el("td", { text: formatDate(entry.createdAt) }),
+                  el("td", {
+                    text: `${entry.author.kind === "agent" ? "Agent" : "Mensch"} · ${entry.author.label}`,
+                  }),
+                  el("td", { text: MUTATION_LABELS[entry.mutation] ?? entry.mutation }),
+                  el("td", {}, el("code", { text: entry.pageId ?? "—" })),
+                ),
+              ),
+            ),
+          ),
+    );
+  } else if (tab === "settings") {
+    body.push(
+      el("h2", { text: "Projekt-Einstellungen" }),
+      el(
+        "div",
+        { class: "panel" },
+        el("p", {}, el("strong", { text: "Pfad-Präfix: " }), el("code", { text: site.slug })),
+        el("p", {}, el("strong", { text: "Niveau: " }), site.profile),
+        el("p", {
+          class: "muted",
+          text: "Name ändern, Stil-Referenz und Domain/Deploy folgen mit den nächsten Schritten.",
+        }),
+      ),
+    );
+  } else {
+    body.push(
+      el("div", {
+        class: "empty",
+        text: "Die Vorlagen-Verwaltung folgt mit dem Templates-Ticket.",
+      }),
+    );
+  }
+  render([...frame, ...body]);
+}
+
+/* Artikel-Workspace */
+
+let articlesCollectionId = null;
+
+function fieldControl(field, value) {
+  const inputId = `cell-${field.id}`;
+  const common = { id: inputId, "data-field": field.id, "data-type": field.type };
+  if (field.type === "boolean") {
+    const input = el("input", { ...common, type: "checkbox" });
+    if (value === true) input.checked = true;
+    return input;
+  }
+  if (field.type === "select" || field.type === "multiSelect") {
+    const select = el("select", {
+      ...common,
+      ...(field.type === "multiSelect" ? { multiple: "multiple", size: String(Math.min((field.options ?? []).length || 3, 6)) } : {}),
+    });
+    for (const option of field.options ?? []) {
+      const optionEl = el("option", { value: option.value, text: option.label ?? option.value });
+      const selected =
+        field.type === "multiSelect"
+          ? Array.isArray(value) && value.includes(option.value)
+          : value === option.value;
+      if (selected) optionEl.selected = true;
+      select.append(optionEl);
+    }
+    return select;
+  }
+  if (field.type === "longText" || field.type === "richtext") {
+    const area = el("textarea", { ...common, rows: "6" });
+    area.value = typeof value === "string" ? value : "";
+    return area;
+  }
+  if (["media", "mediaMulti", "relation", "relationMulti", "repeater", "dateTime"].includes(field.type)) {
+    const area = el("textarea", { ...common, rows: "3", placeholder: "JSON" });
+    area.value = value === undefined ? "" : JSON.stringify(value);
+    return area;
+  }
+  const input = el("input", {
+    ...common,
+    type: field.type === "number" ? "number" : field.type === "date" ? "date" : "text",
+    value: value === undefined || value === null ? "" : String(value),
+  });
+  return input;
+}
+
+function readCells(fields) {
+  const cells = {};
+  for (const field of fields) {
+    const input = document.getElementById(`cell-${field.id}`);
+    if (!input) continue;
+    if (field.type === "boolean") {
+      cells[field.id] = input.checked;
+    } else if (field.type === "multiSelect") {
+      cells[field.id] = [...input.selectedOptions].map((option) => option.value);
+    } else if (["media", "mediaMulti", "relation", "relationMulti", "repeater", "dateTime"].includes(field.type)) {
+      const raw = input.value.trim();
+      if (raw === "") continue;
+      try {
+        cells[field.id] = JSON.parse(raw);
+      } catch {
+        cells[field.id] = raw;
+      }
+    } else if (field.type === "number") {
+      const raw = input.value.trim();
+      if (raw === "") continue;
+      cells[field.id] = Number(raw);
+    } else if (field.type === "date") {
+      const raw = input.value.trim();
+      if (raw === "") continue;
+      cells[field.id] = raw;
+    } else {
+      cells[field.id] = input.value;
+    }
+  }
+  return cells;
+}
+
+async function articlesView(siteId) {
+  const [site, { releases }, { collections }] = await Promise.all([
+    api(`/api/sites/${siteId}`),
+    api(`/api/sites/${siteId}/releases`),
+    api(`/api/sites/${siteId}/collections`),
+  ]);
+  activeTab("projects");
+  const frame = workspaceFrame(siteId, site, "articles", releases.length > 0);
+  if (collections.length === 0) {
+    render([
+      ...frame,
+      el("div", {
+        class: "empty",
+        text: "Noch keine Sammlungen. Agenten legen sie an (create_collection) — oder ein Formular erzeugt sie per Klick.",
+      }),
+    ]);
+    return;
+  }
+  if (!collections.some((collection) => collection.id === articlesCollectionId)) {
+    articlesCollectionId = collections[0].id;
+  }
+  const { entries } = await api(
+    `/api/sites/${siteId}/entries?collectionId=${articlesCollectionId}`,
+  );
+  const selector = el(
+    "select",
+    {
+      onchange: (event) => {
+        articlesCollectionId = event.target.value;
+        void renderRoute();
+      },
+    },
+    ...collections.map((collection) => {
+      const option = el("option", { value: collection.id, text: collection.name });
+      if (collection.id === articlesCollectionId) option.selected = true;
+      return option;
+    }),
+  );
+  render([
+    ...frame,
+    el(
+      "div",
+      { class: "toolbar" },
+      el("h2", { text: "Artikel", style: "margin: 0" }),
+      selector,
+      el("div", { class: "spacer" }),
+      el("button", {
+        class: "primary",
+        text: "Neuer Artikel",
+        onclick: async () => {
+          const title = prompt("Titel des Artikels");
+          if (!title) return;
+          try {
+            const created = await api(`/api/sites/${siteId}/entries`, {
+              method: "POST",
+              body: {
+                collectionId: articlesCollectionId,
+                cells: { title },
+                author: AUTHOR,
+              },
+            });
+            location.hash = `#/projects/${siteId}/articles/${created.id}`;
+          } catch (error) {
+            failed(error);
+          }
+        },
+      }),
+    ),
+    entries.length === 0
+      ? el("div", { class: "empty", text: "Noch keine Artikel in dieser Sammlung." })
+      : el(
+          "table",
+          {},
+          el(
+            "thead",
+            {},
+            el(
+              "tr",
+              {},
+              el("th", { text: "Titel" }),
+              el("th", { text: "Slug" }),
+              el("th", { text: "Status" }),
+              el("th", { text: "Version" }),
+              el("th", { text: "Geändert" }),
+              el("th", {}),
+            ),
+          ),
+          el(
+            "tbody",
+            {},
+            entries.map((entry) =>
+              el(
+                "tr",
+                {},
+                el("td", { text: String(entry.cells?.title ?? "—") }),
+                el("td", {}, el("code", { text: entry.slug })),
+                el("td", {}, el("span", { class: "tag", text: entry.status })),
+                el("td", { text: `v${entry.version}` }),
+                el("td", { text: formatDate(entry.updatedAt) }),
+                el(
+                  "td",
+                  {},
+                  el(
+                    "div",
+                    { class: "row-actions" },
+                    el("a", {
+                      href: `#/projects/${siteId}/articles/${entry.id}`,
+                      text: "Bearbeiten",
+                    }),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+  ]);
+}
+
+async function articleEditorView(siteId, entryId) {
+  const entry = await api(`/api/entries/${entryId}`);
+  const collection = await api(`/api/collections/${entry.collectionId}`);
+  activeTab("projects");
+  const fields = (collection.fields ?? []).filter((field) => field.deprecated !== true);
+  const controls = fields.map((field) =>
+    el(
+      "div",
+      { class: "stack", style: "margin-bottom: 0.9rem" },
+      el(
+        "label",
+        { for: `cell-${field.id}`, class: "muted" },
+        field.label,
+        field.required ? " *" : "",
+      ),
+      fieldControl(field, entry.cells?.[field.id]),
+      field.description
+        ? el("div", { class: "muted", style: "font-size: 0.78rem", text: field.description })
+        : undefined,
+    ),
+  );
+  render([
+    el(
+      "div",
+      { class: "toolbar" },
+      el("a", { href: `#/projects/${siteId}/articles`, text: "← Artikel" }),
+      el("h1", { text: String(entry.cells?.title ?? entry.slug), style: "margin: 0" }),
+      el("span", { class: "tag", text: entry.status }),
+      el("span", { class: "muted", text: `v${entry.version}` }),
+      el("div", { class: "spacer" }),
+      el("button", {
+        class: "ghost",
+        text: "Speichern",
+        onclick: async () => {
+          try {
+            await api(`/api/entries/${entryId}`, {
+              method: "PUT",
+              body: {
+                baseVersion: entry.version,
+                cells: readCells(fields),
+                author: AUTHOR,
+              },
+            });
+            toast("Artikel gespeichert");
+            await renderRoute();
+          } catch (error) {
+            if (error.status === 409) {
+              toast("Der Artikel wurde zwischenzeitlich geändert — neu geladen.", "error");
+              await renderRoute();
+              return;
+            }
+            failed(error);
+          }
+        },
+      }),
+      el("button", {
+        class: "primary",
+        text: "Veröffentlichen",
+        onclick: async () => {
+          try {
+            await api(`/api/entries/${entryId}`, {
+              method: "PUT",
+              body: {
+                baseVersion: entry.version,
+                cells: readCells(fields),
+                author: AUTHOR,
+              },
+            });
+            const fresh = await api(`/api/entries/${entryId}`);
+            await api(`/api/entries/${entryId}/publish`, {
+              method: "POST",
+              body: { author: AUTHOR, baseVersion: fresh.version },
+            });
+            toast("Artikel veröffentlicht");
+            await renderRoute();
+          } catch (error) {
+            failed(error);
+          }
+        },
+      }),
+    ),
+    el("div", { class: "panel" }, controls),
+  ]);
+}
+
+function reviewPanel(siteId, review) {
+  const details = el("div", { style: "margin-top: 0.6rem" });
+  return el(
+    "div",
+    { class: "panel" },
+    el(
+      "div",
+      { class: "inline" },
+      el("span", { class: "tag", text: review.status }),
+      el("strong", { text: review.title ?? review.pagePath ?? review.id }),
+      el("span", { class: "muted", text: formatDate(review.createdAt) }),
+    ),
+    el(
+      "div",
+      { class: "inline", style: "margin-top: 0.5rem" },
+      el("button", {
+        class: "ghost",
+        text: "Detail ansehen",
+        onclick: async () => {
+          try {
+            const data = await api(`/api/reviews/${review.id}`);
+            details.replaceChildren(
+              el("pre", { text: JSON.stringify(data, null, 2) }),
+            );
+          } catch (error) {
+            failed(error);
+          }
+        },
+      }),
+      el("button", {
+        class: "primary",
+        text: "Approve",
+        onclick: () => reviewAction(siteId, review.id, "approve"),
+      }),
+      el("button", {
+        class: "ghost",
+        text: "Änderungen anfragen",
+        onclick: () => reviewAction(siteId, review.id, "request-changes"),
+      }),
+      el("button", {
+        class: "danger",
+        text: "Verwerfen",
+        onclick: () => reviewAction(siteId, review.id, "discard"),
+      }),
+    ),
+    details,
+  );
+}
+
+async function reviewAction(siteId, reviewId, action) {
+  const comment = prompt("Kommentar (optional)") ?? "";
+  try {
+    await api(`/api/reviews/${reviewId}/${action}`, {
+      method: "POST",
+      body: comment === "" ? {} : { comment },
+    });
+    toast("Review aktualisiert");
+    await renderRoute();
+  } catch (error) {
+    failed(error);
+  }
+}
+
+async function pageView(siteId, pageId) {
+  const page = await api(`/api/pages/${pageId}`);
+  const nodes = page.draft?.nodes ?? {};
+  const root = nodes[page.draft?.rootNodeId] ?? { children: [] };
+  function outline(nodeId, depth) {
+    const node = nodes[nodeId];
+    if (!node) return [];
+    return [
+      el("div", { class: "outline-node" }, [
+        el("span", { class: "tag", text: node.type }),
+        node.variant ? el("span", { class: "tag", text: node.variant }) : "",
+        el("code", { text: ` ${node.id}` }),
+        node.hidden ? el("span", { class: "muted", text: " · versteckt" }) : "",
+      ]),
+      ...(node.children ?? []).flatMap((child) => outline(child, depth + 1)),
+    ];
+  }
+  render([
+    el(
+      "div",
+      { class: "toolbar" },
+      el("a", { href: `#/projects/${siteId}/pages`, text: "← Seiten" }),
+      el("h1", { text: page.title || page.path, style: "margin: 0" }),
+      el("code", { text: page.path }),
+      el("div", { class: "spacer" }),
+      el("span", { class: "muted", text: `Draft v${page.draftVersion}` }),
+    ),
+    el(
+      "div",
+      { class: "panel" },
+      el("h2", { text: "Aufbau (read-only)" }),
+      el("div", { class: "outline-tree" }, (root.children ?? []).flatMap((child) => outline(child, 0))),
+      el("p", {
+        class: "muted",
+        text: "Der visuelle Editor (Frame-Manager, Inline-Text) folgt mit dem Editor-Ticket.",
+      }),
+    ),
+  ]);
+}
+
+/* Command palette */
+
+function cmdkItems() {
+  return (async () => {
+    const items = [
+      { label: "Neues Projekt", hint: "Aktion", run: createSite },
+      { label: "Einstellungen", hint: "Aktion", run: () => (location.hash = "#/settings") },
+      { label: "Referenzen", hint: "Aktion", run: () => (location.hash = "#/references") },
+      { label: "Papierkorb", hint: "Aktion", run: () => (location.hash = "#/trash") },
+    ];
+    try {
+      const { sites } = await api("/api/sites");
+      for (const site of sites) {
+        items.push({
+          label: site.name,
+          hint: "Projekt",
+          run: () => (location.hash = `#/projects/${site.id}/pages`),
+        });
+      }
+      const match = location.hash.match(/^#\/projects\/([^/]+)/);
+      if (match) {
+        const { pages } = await api(`/api/sites/${match[1]}/pages`);
+        for (const page of pages) {
+          items.push({
+            label: page.title || page.path,
+            hint: "Seite",
+            run: () => (location.hash = `#/projects/${match[1]}/pages/${page.id}`),
+          });
+        }
+      }
+    } catch {
+      // Palette still offers the static actions.
+    }
+    return items;
+  })();
+}
+
+let cmdkState = { items: [], filtered: [], selected: 0 };
+
+function renderCmdk() {
+  cmdkResults.replaceChildren(
+    ...cmdkState.filtered.slice(0, 12).map((item, index) =>
+      el(
+        "div",
+        {
+          class: `cmdk-item ${index === cmdkState.selected ? "selected" : ""}`,
+          onclick: () => {
+            cmdk.close();
+            item.run();
+          },
+        },
+        el("span", { text: item.label }),
+        el("span", { class: "hint", text: item.hint }),
+      ),
+    ),
+  );
+}
+
+async function openCmdk() {
+  cmdk.showModal();
+  cmdkInput.value = "";
+  cmdkState = { items: await cmdkItems(), filtered: [], selected: 0 };
+  cmdkState.filtered = cmdkState.items;
+  renderCmdk();
+  cmdkInput.focus();
+}
+
+cmdkInput.addEventListener("input", () => {
+  const query = cmdkInput.value.toLowerCase();
+  cmdkState.filtered = cmdkState.items.filter((item) =>
+    item.label.toLowerCase().includes(query),
+  );
+  cmdkState.selected = 0;
+  renderCmdk();
+});
+
+cmdkInput.addEventListener("keydown", (event) => {
+  if (event.key === "ArrowDown") {
+    cmdkState.selected = Math.min(cmdkState.selected + 1, cmdkState.filtered.length - 1);
+    renderCmdk();
+    event.preventDefault();
+  } else if (event.key === "ArrowUp") {
+    cmdkState.selected = Math.max(cmdkState.selected - 1, 0);
+    renderCmdk();
+    event.preventDefault();
+  } else if (event.key === "Enter") {
+    const item = cmdkState.filtered[cmdkState.selected];
+    if (item) {
+      cmdk.close();
+      item.run();
+    }
+  }
+});
+
+document.getElementById("cmdk-open").addEventListener("click", openCmdk);
+document.addEventListener("keydown", (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    void openCmdk();
+  }
+});
+
+/* Router */
+
+async function renderRoute() {
+  const hash = location.hash || "#/";
+  try {
+    const project = hash.match(/^#\/projects\/([^/]+)\/(pages|articles|templates|review|activity|settings)$/);
+    const pageMatch = hash.match(/^#\/projects\/([^/]+)\/pages\/([^/]+)$/);
+    const articleMatch = hash.match(/^#\/projects\/([^/]+)\/articles\/([^/]+)$/);
+    if (articleMatch) {
+      activeTab("projects");
+      await articleEditorView(articleMatch[1], articleMatch[2]);
+    } else if (pageMatch) {
+      activeTab("projects");
+      await pageView(pageMatch[1], pageMatch[2]);
+    } else if (project && project[2] === "articles") {
+      await articlesView(project[1]);
+    } else if (project) {
+      await projectView(project[1], project[2]);
+    } else if (hash === "#/settings") {
+      activeTab("settings");
+      await settingsView();
+    } else if (hash === "#/references") {
+      activeTab("references");
+      await referencesView();
+    } else if (hash === "#/trash") {
+      activeTab("projects");
+      await trashView();
+    } else {
+      activeTab("projects");
+      await projectsView();
+    }
+  } catch (error) {
+    failed(error);
+    render([el("div", { class: "empty", text: "Ansicht konnte nicht geladen werden." })]);
+  }
+}
+
+window.addEventListener("hashchange", () => void renderRoute());
+void renderRoute();

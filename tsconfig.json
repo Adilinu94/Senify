@@ -26,6 +26,7 @@
       "@senify/registry": ["packages/registry/src/index.ts"],
       "@senify/registry/components": ["packages/registry/src/components/index.ts"],
       "@senify/mcp": ["packages/mcp/src/index.ts"],
+      "@senify/mcp/tools": ["packages/mcp/src/tools.ts"],
       "@senify/engine": ["packages/engine/src/index.ts"],
       "@senify/renderer": ["packages/renderer/src/index.ts"],
       "@senify/editor": ["packages/editor/src/index.ts"],

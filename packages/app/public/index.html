@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Senify</title>
+    <link rel="stylesheet" href="/theme.css" />
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#/">
+        <span class="brand-mark">S</span>
+        Senify
+      </a>
+      <nav class="tabs" aria-label="Bereiche">
+        <a href="#/" data-tab="projects">Projekte</a>
+        <a href="#/references" data-tab="references">Referenzen</a>
+        <a href="#/settings" data-tab="settings">Einstellungen</a>
+      </nav>
+      <div class="topbar-spacer"></div>
+      <button class="cmd-button" id="cmdk-open" type="button">
+        Suchen <kbd>Ctrl K</kbd>
+      </button>
+    </header>
+
+    <main id="view" class="view">
+      <div class="loading">Lädt …</div>
+    </main>
+
+    <div id="toasts" class="toasts"></div>
+
+    <dialog id="cmdk" class="cmdk">
+      <input
+        id="cmdk-input"
+        type="text"
+        placeholder="Projekte, Seiten, Aktionen …"
+        autocomplete="off"
+      />
+      <div id="cmdk-results" class="cmdk-results"></div>
+    </dialog>
+
+    <dialog id="duplicate-dialog" class="modal">
+      <form method="dialog" id="duplicate-form">
+        <h2>Projekt duplizieren</h2>
+        <p class="muted">Wie soll „<span id="duplicate-name"></span>“ kopiert werden?</p>
+        <label class="radio">
+          <input type="radio" name="mode" value="full" checked />
+          Mit Inhalten (Seiten, Artikel, Sammlungen, Theme)
+        </label>
+        <label class="radio">
+          <input type="radio" name="mode" value="structure" />
+          Nur Struktur &amp; Design (Seiten, Layouts, Theme)
+        </label>
+        <div class="modal-actions">
+          <button value="cancel" class="ghost" type="submit">Abbrechen</button>
+          <button value="ok" class="primary" type="submit">Duplizieren</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

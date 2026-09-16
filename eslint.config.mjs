@@ -10,4 +10,20 @@ export default tseslint.config(
       "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
     },
   },
+  {
+    files: ["packages/app/public/**/*.js"],
+    languageOptions: {
+      globals: {
+        window: "readonly",
+        document: "readonly",
+        location: "readonly",
+        fetch: "readonly",
+        prompt: "readonly",
+        confirm: "readonly",
+        setTimeout: "readonly",
+        FormData: "readonly",
+        Node: "readonly",
+      },
+    },
+  },
 );

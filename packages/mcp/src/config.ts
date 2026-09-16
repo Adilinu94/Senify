@@ -6,12 +6,33 @@ import { SenifyError } from "@senify/core";
 export type McpConfig = {
   apiUrl: string;
   token: string;
+  databaseUrl?: string;
 };
 
 export const DEFAULT_API_URL = "http://127.0.0.1:4321";
 
+function readConfigFile(): Partial<McpConfig> {
+  try {
+    return JSON.parse(readFileSync(configPath(), "utf8")) as Partial<McpConfig>;
+  } catch {
+    return {};
+  }
+}
+
 export function configPath(): string {
   return join(homedir(), ".senify", "config.json");
+}
+
+// The local program (`senify start`) connects to the same Postgres the
+// operator configures for the platform.
+export function resolveDatabaseUrl(
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  return (
+    env.SENIFY_DATABASE_URL ??
+    env.DATABASE_URL ??
+    readConfigFile().databaseUrl
+  );
 }
 
 // The MCP process is a thin transport: it reads its engine URL and token
@@ -20,12 +41,7 @@ export function configPath(): string {
 export function resolveConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): McpConfig {
-  let fileConfig: Partial<McpConfig> = {};
-  try {
-    fileConfig = JSON.parse(readFileSync(configPath(), "utf8")) as Partial<McpConfig>;
-  } catch {
-    fileConfig = {};
-  }
+  const fileConfig = readConfigFile();
   const apiUrl = env.SENIFY_API_URL ?? fileConfig.apiUrl ?? DEFAULT_API_URL;
   const token = env.SENIFY_TOKEN ?? fileConfig.token;
   if (!token) {

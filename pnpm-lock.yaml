@@ -50,7 +50,20 @@ importers:
 
   packages/analysis-worker: {}
 
-  packages/app: {}
+  packages/app:
+    dependencies:
+      '@senify/core':
+        specifier: workspace:*
+        version: link:../core
+      '@senify/engine':
+        specifier: workspace:*
+        version: link:../engine
+      '@senify/registry':
+        specifier: workspace:*
+        version: link:../registry
+      '@senify/tokens':
+        specifier: workspace:*
+        version: link:../tokens
 
   packages/core:
     dependencies:
@@ -124,6 +137,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
         version: 1.30.0(zod@4.6.5)
+      '@senify/app':
+        specifier: workspace:*
+        version: link:../app
       '@senify/core':
         specifier: workspace:*
         version: link:../core

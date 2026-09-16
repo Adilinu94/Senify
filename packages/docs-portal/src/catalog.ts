@@ -1,5 +1,5 @@
 import type { ErrorCategory } from "@senify/core";
-import { TOOLS, type ToolScope } from "@senify/mcp";
+import { TOOLS, type ToolScope } from "@senify/mcp/tools";
 import { createRegistry } from "@senify/registry";
 import type {
   PropSpec,
