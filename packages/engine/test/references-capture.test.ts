@@ -30,5 +30,22 @@ describe.skipIf(!browserReady())("reference live capture (T14)", () => {
     for (const shot of result.screenshots ?? []) {
       expect(shot.bytes.subarray(0, 8)).toEqual(Buffer.from("89504e470d0a1a0a", "hex"));
     }
+    // The motion recording (T14) is a real WebM container with a duration.
+    expect(result.video).toBeDefined();
+    expect(result.video?.bytes.subarray(0, 4)).toEqual(
+      Buffer.from("1a45dfa3", "hex"),
+    );
+    expect(result.video?.bytes.byteLength).toBeGreaterThan(1_000);
+    expect(result.video?.durationMs).toBeGreaterThan(0);
+  }, 120_000);
+
+  it("skips the motion recording when it is turned off", async () => {
+    const driver = createPlaywrightCaptureDriver({ recordMotion: false });
+    const result = await driver({
+      url: "data:text/html,<h1>Ohne Video</h1>",
+      breakpoints: [390],
+    });
+    expect(result.screenshots).toHaveLength(1);
+    expect(result.video).toBeUndefined();
   }, 60_000);
 });

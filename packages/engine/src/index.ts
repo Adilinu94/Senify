@@ -9,6 +9,7 @@ import { createRequestHandler } from "./http.ts";
 import type { MailSender } from "./mailer.ts";
 import { PageLocks } from "./locks.ts";
 import { MaintenanceGate } from "./maintenance.ts";
+import type { ReviewVisualDriver } from "./review-visuals.ts";
 import {
   DEFAULT_MAX_UPLOAD_BYTES,
   createUploadSigner,
@@ -113,6 +114,17 @@ export {
 export { createId, newEntityId, newNodeId } from "./ids.ts";
 export { PageLocks } from "./locks.ts";
 export { MaintenanceError, MaintenanceGate } from "./maintenance.ts";
+export {
+  bakedRouteFile,
+  createReviewVisualDriver,
+  persistReviewVisuals,
+  reviewVisualFileNames,
+  type ReviewVisualBreakpoint,
+  type ReviewVisualCapture,
+  type ReviewVisualDriver,
+  type ReviewVisualPage,
+  type ReviewVisualRequest,
+} from "./review-visuals.ts";
 export {
   CreateTokenBodySchema,
   generateToken,
@@ -483,6 +495,9 @@ export type EngineOptions = {
   // Playwright capture plus the heuristic analyzer (or the LLM when
   // SENIFY_LLM_ENDPOINT/-MODEL are configured).
   referenceDeps?: ReferenceDeps;
+  // Review visuals (T07): screenshots, diffs and the motion video of a
+  // submit. Off unless a driver is passed (production and visual tests).
+  reviewVisuals?: ReviewVisualDriver;
 };
 
 export type EngineServer = {
@@ -533,6 +548,9 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
       destructivePerMinute: 5,
     }),
     referenceDeps: options.referenceDeps ?? referenceDepsFromEnv(process.env),
+    ...(options.reviewVisuals === undefined
+      ? {}
+      : { visuals: options.reviewVisuals }),
     ...(options.mailSender === undefined ? {} : { mailSender: options.mailSender }),
     ...(options.formsBaseUrl === undefined
       ? {}

@@ -8,6 +8,7 @@
     "./pg": "./src/pg-db.ts"
   },
   "dependencies": {
+    "@senify/analysis-worker": "workspace:*",
     "@senify/core": "workspace:*",
     "@senify/renderer": "workspace:*",
     "@senify/section-sdk": "workspace:*",

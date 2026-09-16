@@ -2,8 +2,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { SenifyError } from "@senify/core";
-import { createEngine, createPgDb, type Db } from "@senify/engine";
-import type { RateLimitConfig } from "@senify/engine";
+import { createEngine, createPgDb, createReviewVisualDriver, type Db } from "@senify/engine";
+import type { RateLimitConfig, ReviewVisualDriver } from "@senify/engine";
 import { createRegistry } from "@senify/registry";
 import { openBrowser } from "./browser.ts";
 import { createAppServer } from "./server.ts";
@@ -23,6 +23,9 @@ export type StartProgramOptions = {
   // The engine's token buckets. Browser tests that burst edits raise them;
   // production keeps the defaults.
   rateLimits?: RateLimitConfig;
+  // Visual review artifacts (T07): Playwright capture of the review submit.
+  // On by default; `false` switches it off for headless runs.
+  reviewVisuals?: ReviewVisualDriver | false;
 };
 
 export type RunningProgram = {
@@ -115,6 +118,9 @@ export async function startProgram(
       registry: createRegistry(),
       ...(options.dataDir === undefined ? {} : { dataDir: options.dataDir }),
       ...(options.rateLimits === undefined ? {} : { rateLimits: options.rateLimits }),
+      ...(options.reviewVisuals === false
+        ? {}
+        : { reviewVisuals: options.reviewVisuals ?? createReviewVisualDriver() }),
     });
   } catch (error) {
     await closeDb?.();

@@ -387,6 +387,7 @@ type ReviewRow = {
   structure_diff: unknown;
   guardrails: unknown;
   thread: unknown;
+  visuals: unknown;
   release_id: unknown;
   created_at: unknown;
   resolved_at: unknown;
@@ -465,6 +466,10 @@ function mapReviewItem(row: ReviewRow): ReviewItem {
     structureDiff: toJson<StructureChange[]>(row.structure_diff),
     guardrails: toJson<ReviewItem["guardrails"]>(row.guardrails),
     thread: toJson<ReviewComment[]>(row.thread),
+    visuals:
+      row.visuals === null || row.visuals === undefined
+        ? null
+        : toJson<ReviewItem["visuals"]>(row.visuals),
     releaseId: typeof row.release_id === "string" ? row.release_id : null,
     createdAt: toIso(row.created_at),
     resolvedAt:
@@ -2086,8 +2091,8 @@ export class Store {
     const status: ReviewStatus = "submitted";
     await this.#db.query(
       `INSERT INTO review_items
-        (id, site_id, preview_id, base_state, pages, author, status, structure_diff, guardrails, thread, release_id, created_at, resolved_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, $11, NULL)`,
+        (id, site_id, preview_id, base_state, pages, author, status, structure_diff, guardrails, thread, visuals, release_id, created_at, resolved_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, NULL, $11, NULL)`,
       [
         id,
         input.siteId,
@@ -2113,6 +2118,7 @@ export class Store {
       structureDiff: input.structureDiff,
       guardrails: input.guardrails,
       thread,
+      visuals: null,
       releaseId: null,
       createdAt,
       resolvedAt: null,
@@ -2121,7 +2127,7 @@ export class Store {
 
   async getReviewItem(id: string): Promise<ReviewItem> {
     const result = await this.#db.query<ReviewRow>(
-      `SELECT id, site_id, preview_id, base_state, pages, author, status, structure_diff, guardrails, thread, release_id, created_at, resolved_at
+      `SELECT id, site_id, preview_id, base_state, pages, author, status, structure_diff, guardrails, thread, visuals, release_id, created_at, resolved_at
        FROM review_items WHERE id = $1`,
       [id],
     );
@@ -2141,13 +2147,13 @@ export class Store {
     const limit = Math.max(1, Math.min(200, options.limit ?? 50));
     const result = options.status
       ? await this.#db.query<ReviewRow>(
-          `SELECT id, site_id, preview_id, base_state, pages, author, status, structure_diff, guardrails, thread, release_id, created_at, resolved_at
+          `SELECT id, site_id, preview_id, base_state, pages, author, status, structure_diff, guardrails, thread, visuals, release_id, created_at, resolved_at
            FROM review_items WHERE site_id = $1 AND status = $2
            ORDER BY created_at DESC, id DESC LIMIT $3`,
           [siteId, options.status, limit],
         )
       : await this.#db.query<ReviewRow>(
-          `SELECT id, site_id, preview_id, base_state, pages, author, status, structure_diff, guardrails, thread, release_id, created_at, resolved_at
+          `SELECT id, site_id, preview_id, base_state, pages, author, status, structure_diff, guardrails, thread, visuals, release_id, created_at, resolved_at
            FROM review_items WHERE site_id = $1
            ORDER BY created_at DESC, id DESC LIMIT $2`,
           [siteId, limit],
@@ -2162,6 +2168,7 @@ export class Store {
       comment?: ReviewComment;
       releaseId?: string | null;
       resolvedAt?: string | null;
+      visuals?: ReviewItem["visuals"];
     },
   ): Promise<ReviewItem> {
     const current = await this.getReviewItem(id);
@@ -2173,11 +2180,12 @@ export class Store {
       patch.releaseId === undefined ? current.releaseId : patch.releaseId;
     const resolvedAt =
       patch.resolvedAt === undefined ? current.resolvedAt : patch.resolvedAt;
+    const visuals = patch.visuals === undefined ? current.visuals : patch.visuals;
     await this.#db.query(
       `UPDATE review_items
-       SET status = $2, thread = $3, release_id = $4, resolved_at = $5
+       SET status = $2, thread = $3, release_id = $4, resolved_at = $5, visuals = $6
        WHERE id = $1`,
-      [id, status, toJsonParam(thread), releaseId, resolvedAt],
+      [id, status, toJsonParam(thread), releaseId, resolvedAt, toJsonParam(visuals)],
     );
     return {
       ...current,
@@ -2185,6 +2193,7 @@ export class Store {
       thread,
       releaseId,
       resolvedAt,
+      visuals,
     };
   }
 

@@ -16,6 +16,7 @@ import {
   type MailSender,
   type Mutation,
   type RateLimitConfig,
+  type ReviewVisualDriver,
   type Row,
 } from "@senify/engine";
 
@@ -224,6 +225,7 @@ export async function bootEngine(
     rateLimits?: RateLimitConfig;
     maxUploadBytes?: number;
     mailSender?: MailSender;
+    reviewVisuals?: ReviewVisualDriver;
   } = {},
 ): Promise<BootEnv> {
   const database = await createTestDatabase();
@@ -239,6 +241,9 @@ export async function bootEngine(
     ...(options.mailSender === undefined
       ? {}
       : { mailSender: options.mailSender }),
+    ...(options.reviewVisuals === undefined
+      ? {}
+      : { reviewVisuals: options.reviewVisuals }),
     // Suites fire hundreds of calls per token; rate-limit behaviour is
     // covered by auth.test.ts with explicit tight limits.
     rateLimits:

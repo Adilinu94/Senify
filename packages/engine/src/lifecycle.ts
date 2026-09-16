@@ -8,6 +8,11 @@ import { runChecks } from "./checks.ts";
 import type { FormSigner } from "./forms.ts";
 import { newEntityId } from "./ids.ts";
 import { referenceAdherenceForSite } from "./references-lifecycle.ts";
+import {
+  persistReviewVisuals,
+  type ReviewVisualBreakpoint,
+  type ReviewVisualDriver,
+} from "./review-visuals.ts";
 import type { Store } from "./store.ts";
 import type {
   CheckIssue,
@@ -16,6 +21,7 @@ import type {
   Release,
   ReleasePageRevision,
   ReviewItem,
+  ReviewVisuals,
   Site,
   SiteTheme,
   StructureChange,
@@ -28,7 +34,16 @@ export type LifecycleContext = {
   // signer is present.
   formSigner?: FormSigner;
   formBaseUrl?: string;
+  // Visual artifacts of a review submit (T07). Without a driver (tests, CI)
+  // the review simply carries no visuals.
+  visuals?: ReviewVisualDriver;
 };
+
+export const REVIEW_VISUAL_BREAKPOINTS: readonly ReviewVisualBreakpoint[] = [
+  "desktop",
+  "tablet",
+  "mobile",
+];
 
 export type CheckSummary = { hard: CheckIssue[]; soft: CheckIssue[] };
 
@@ -441,7 +456,7 @@ export async function submitReview(
     author: input.author,
     ttlDays: input.ttlDays,
   });
-  const review = await context.store.createReviewItem({
+  let review = await context.store.createReviewItem({
     siteId: input.siteId,
     previewId: preview.id,
     baseState: changedPages.map((page) => ({
@@ -456,7 +471,65 @@ export async function submitReview(
     guardrails: { hard: [], soft: report.soft },
     note: input.note,
   });
+  // Visual artifacts (T07): captured after the item exists so the files can
+  // live under its id. A failed capture never blocks the review.
+  const visuals = await captureReviewVisuals(context, {
+    siteId: input.siteId,
+    reviewId: review.id,
+    preview,
+    pages: changedPages,
+    diff,
+  });
+  if (visuals !== null) {
+    review = await context.store.updateReviewItem(review.id, { visuals });
+  }
   return { review, preview, checks: report };
+}
+
+// Screenshots (three breakpoints per changed page) plus the diff against the
+// active release; the motion video only when the structure diff touched a
+// motion field. Failures land as a note on the item.
+async function captureReviewVisuals(
+  context: LifecycleContext,
+  input: {
+    siteId: string;
+    reviewId: string;
+    preview: Preview;
+    pages: Page[];
+    diff: StructureChange[];
+  },
+): Promise<ReviewVisuals | null> {
+  const driver = context.visuals;
+  if (driver === undefined) return null;
+  const releaseId = await context.store.getActiveReleaseId(input.siteId);
+  const release = releaseId === null ? null : await context.store.getRelease(releaseId);
+  const pages = input.pages
+    .filter((page) => page.template === null)
+    .map((page) => ({ pageId: page.id, path: page.path }));
+  if (pages.length === 0) return null;
+  const recordMotion = input.diff.some((entry) =>
+    entry.sections.some((section) => section.fields.includes("motion")),
+  );
+  try {
+    const capture = await driver({
+      baseDir: release?.buildRef ?? null,
+      afterDir: input.preview.buildRef,
+      pages,
+      recordMotion,
+      breakpoints: REVIEW_VISUAL_BREAKPOINTS,
+    });
+    return persistReviewVisuals(context, input.reviewId, capture);
+  } catch (error) {
+    return {
+      capturedAt: new Date().toISOString(),
+      assets: [],
+      diffs: [],
+      note:
+        error instanceof Error
+          ? `Visuelle Aufnahme fehlgeschlagen: ${error.message}`
+          : "Visuelle Aufnahme fehlgeschlagen",
+    };
+  }
 }
 
 export async function approveReview(

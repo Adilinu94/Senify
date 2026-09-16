@@ -466,6 +466,9 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   // Additive columns on the existing reference table. Only new, nullable
   // columns are added (ADD COLUMN IF NOT EXISTS never rewrites existing data),
   // so installations from earlier tickets keep working.
+  // Visual artifacts of a review (T07): screenshots, pixel diffs and the
+  // motion video; added later, so the column is additive.
+  `ALTER TABLE review_items ADD COLUMN IF NOT EXISTS visuals jsonb`,
   `ALTER TABLE design_references ADD COLUMN IF NOT EXISTS collection_id text`,
   `ALTER TABLE design_references ADD COLUMN IF NOT EXISTS note text`,
   `ALTER TABLE design_references ADD COLUMN IF NOT EXISTS image_recipe text`,

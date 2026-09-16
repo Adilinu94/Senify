@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SenifyError } from "@senify/core";
 import type { Author } from "@senify/section-sdk";
@@ -60,6 +61,8 @@ export type CaptureResult = {
   surfaces?: CaptureInput["surfaces"];
   assets?: CaptureInput["assets"];
   screenshots?: CapturedScreenshot[];
+  // Recorded scroll pass of a live capture (T14/T07): a short silent .webm.
+  video?: { bytes: Buffer; durationMs: number };
 };
 
 export type ReferenceCaptureDriver = (input: {
@@ -101,6 +104,11 @@ export type ReferenceContext = {
 
 // Tablet is 810 (research/29 §7: 810 instead of 768).
 export const REFERENCE_BREAKPOINTS: readonly number[] = [1440, 810, 390];
+
+// The motion recording of a live capture: fixed frame, one scroll pass.
+export const MOTION_VIDEO_SIZE = { width: 1280, height: 720 };
+const MOTION_STEPS = 24;
+const MOTION_STEP_MS = 160;
 
 const STAGE_PROGRESS = {
   governance: 5,
@@ -254,6 +262,7 @@ export async function runReferenceJob(
       context,
       reference.id,
       capture.screenshots,
+      capture.video,
     );
     const { profile, evidence } = buildReferenceProfile({
       url: reference.sourceUrl,
@@ -436,11 +445,12 @@ export function persistReferenceSnapshots(
   context: ReferenceContext,
   referenceId: string,
   screenshots: CapturedScreenshot[] | undefined,
+  video?: CaptureResult["video"],
 ): ReferenceSnapshot[] {
-  if (!screenshots || screenshots.length === 0) return [];
+  if ((!screenshots || screenshots.length === 0) && video === undefined) return [];
   const dir = join(context.dataDir, "references", referenceId, "snapshots");
   mkdirSync(dir, { recursive: true });
-  return screenshots.map((screenshot, index) => {
+  const snapshots: ReferenceSnapshot[] = (screenshots ?? []).map((screenshot, index) => {
     const name = `${screenshot.breakpoint}-${screenshot.kind}-${index + 1}.${
       screenshot.extension ?? "png"
     }`;
@@ -460,6 +470,21 @@ export function persistReferenceSnapshots(
         : {}),
     };
   });
+  if (video !== undefined && video.bytes.length > 0) {
+    const name = `motion-${snapshots.length + 1}.webm`;
+    writeFileSync(join(dir, name), video.bytes);
+    snapshots.push({
+      breakpoint: "desktop",
+      width: MOTION_VIDEO_SIZE.width,
+      height: MOTION_VIDEO_SIZE.height,
+      kind: "motion",
+      durationMs: video.durationMs,
+      storageRef: ["references", referenceId, "snapshots", name].join("/"),
+      hash: sha256(video.bytes),
+      previewPath: `/api/references/${referenceId}/snapshots/${name}`,
+    });
+  }
+  return snapshots;
 }
 
 // Screenshot uploads of the snapshot fallback arrive as an inline PNG data URL.
@@ -473,15 +498,22 @@ function decodePngDataUrl(dataUrl: string | undefined): Buffer {
 // Live capture path (not executed in CI): the probes mirror the site-clone
 // scripts tokens-probe/motion-probe/surface-map (research/29 §2).
 export function createPlaywrightCaptureDriver(
-  options: { module?: PlaywrightLike; breakpoints?: number[] } = {},
+  options: { module?: PlaywrightLike; breakpoints?: number[]; recordMotion?: boolean } = {},
 ): ReferenceCaptureDriver {
   return async (input) => {
     const playwright = options.module ?? (await loadPlaywright());
     const breakpoints = options.breakpoints ?? input.breakpoints;
+    const recordMotion = options.recordMotion ?? true;
+    const videoDir = recordMotion
+      ? mkdtempSync(join(tmpdir(), "senify-motion-"))
+      : undefined;
     const browser = await playwright.chromium.launch({ headless: true });
     try {
       const context = await browser.newContext({
         viewport: { width: breakpoints[0] ?? 1440, height: 900 },
+        ...(videoDir === undefined
+          ? {}
+          : { recordVideo: { dir: videoDir, size: MOTION_VIDEO_SIZE } }),
       });
       const page = await context.newPage();
       const response = await page.goto(input.url, {
@@ -524,7 +556,29 @@ export function createPlaywrightCaptureDriver(
           height: 0,
         });
       }
-      return { ...probe, markup, screenshots: shots };
+      // Motion recording (T14/T07): one scroll pass through the page at the
+      // desktop width; the .webm lands in the snapshot list.
+      let video: CaptureResult["video"];
+      const videoHandle = page.video();
+      if (videoDir !== undefined && videoHandle !== null) {
+        await page.setViewportSize({ width: breakpoints[0] ?? 1440, height: 900 });
+        for (let step = 0; step < MOTION_STEPS; step += 1) {
+          await page.evaluate(
+            `(ratio) => {
+              const max = Math.max(0, document.body.scrollHeight - window.innerHeight);
+              window.scrollTo(0, Math.round(max * ratio));
+            }`,
+            step / (MOTION_STEPS - 1),
+          );
+          await page.waitForTimeout(MOTION_STEP_MS);
+        }
+        await context.close();
+        video = {
+          bytes: readFileSync(await videoHandle.path()),
+          durationMs: MOTION_STEPS * MOTION_STEP_MS,
+        };
+      }
+      return { ...probe, markup, screenshots: shots, ...(video ? { video } : {}) };
     } catch (error) {
       if (error instanceof ReferenceCaptureError) throw error;
       const message = error instanceof Error ? error.message : String(error);
@@ -539,6 +593,9 @@ export function createPlaywrightCaptureDriver(
       });
     } finally {
       await browser.close();
+      if (videoDir !== undefined) {
+        rmSync(videoDir, { recursive: true, force: true });
+      }
     }
   };
 }
@@ -623,10 +680,12 @@ type PlaywrightLike = {
           ): Promise<{ status(): number } | null>;
           waitForTimeout(ms: number): Promise<void>;
           content(): Promise<string>;
-          evaluate(script: string): Promise<unknown>;
+          evaluate(script: string, arg?: unknown): Promise<unknown>;
           setViewportSize(size: { width: number; height: number }): Promise<void>;
           screenshot(options: { fullPage?: boolean; type?: "png" }): Promise<Buffer>;
+          video(): { path(): Promise<string> } | null;
         }>;
+        close(): Promise<void>;
       }>;
       close(): Promise<void>;
     }>;

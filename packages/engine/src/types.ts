@@ -205,9 +205,49 @@ export type ReviewItem = {
   structureDiff: StructureChange[];
   guardrails: { hard: GuardrailViolation[]; soft: GuardrailViolation[] };
   thread: ReviewComment[];
+  // Visual artifacts of the submit (T07): screenshots per breakpoint, pixel
+  // diffs against the active release and a motion video when motion changed.
+  visuals: ReviewVisuals | null;
   releaseId: string | null;
   createdAt: string;
   resolvedAt: string | null;
+};
+
+export type ReviewVisualAsset = {
+  pageId: string;
+  path: string;
+  role: "before" | "after";
+  breakpoint: string;
+  width: number;
+  height: number;
+  bytes: number;
+  storageRef: string;
+  previewPath: string;
+};
+
+export type ReviewVisualDiff = {
+  pageId: string;
+  breakpoint: string;
+  changedPixels: number;
+  ratio: number;
+  bounds: { left: number; top: number; right: number; bottom: number } | null;
+  storageRef: string;
+  previewPath: string;
+};
+
+export type ReviewVisuals = {
+  capturedAt: string;
+  assets: ReviewVisualAsset[];
+  diffs: ReviewVisualDiff[];
+  video?: {
+    durationMs: number;
+    bytes: number;
+    storageRef: string;
+    previewPath: string;
+  };
+  // Why a capture stayed out (browser missing, page unreachable, ...); the
+  // review itself is never blocked by visuals.
+  note?: string;
 };
 
 export type CheckIssue = {
@@ -655,10 +695,13 @@ export type ReferenceSnapshot = {
   breakpoint: string;
   width: number;
   height: number;
-  kind: "fullpage" | "section";
+  // "motion" is the recorded scroll pass of a live capture (.webm).
+  kind: "fullpage" | "section" | "motion";
   storageRef: string;
   hash: string;
-  // Relative URL of the stored PNG, present only when the capture wrote bytes.
+  // Length of a motion recording in milliseconds.
+  durationMs?: number;
+  // Relative URL of the stored file, present only when the capture wrote bytes.
   previewPath?: string;
 };
 

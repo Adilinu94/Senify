@@ -160,6 +160,9 @@ importers:
 
   packages/engine:
     dependencies:
+      '@senify/analysis-worker':
+        specifier: workspace:*
+        version: link:../analysis-worker
       '@senify/core':
         specifier: workspace:*
         version: link:../core

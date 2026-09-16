@@ -614,6 +614,36 @@ describe("reference pipeline over the API (T14)", () => {
     expect(missing.status).toBe(404);
   });
 
+  it("stores the motion recording as a snapshot and serves it as webm", async () => {
+    const webm = Buffer.from("1a45dfa3a3", "hex");
+    const context: ReferenceContext = {
+      store: env.engine.store,
+      dataDir: env.engine.dataDir,
+      deps: {
+        capture: async () => ({
+          markup: REFERENCE_HTML,
+          video: { bytes: webm, durationMs: 3840 },
+        }),
+      },
+    };
+    const { reference } = await analyzeReference(context, {
+      url: "https://motion.test",
+      author: TEST_AUTHOR,
+    });
+    const motion = reference.snapshots.find((shot) => shot.kind === "motion");
+    expect(motion).toBeDefined();
+    expect(motion?.durationMs).toBe(3840);
+    expect(motion?.storageRef).toBe(
+      `references/${reference.id}/snapshots/motion-1.webm`,
+    );
+    const served = await fetch(`${env.server.origin}${motion?.previewPath}`, {
+      headers: { authorization: `Bearer ${env.token}` },
+    });
+    expect(served.status).toBe(200);
+    expect(served.headers.get("content-type")).toBe("video/webm");
+    expect(Buffer.from(await served.arrayBuffer())).toEqual(webm);
+  });
+
   it("applies a reference as theme draft, keeps the bake and bakes its tokens", async () => {
     const referenceId = await analyzeViaApi("https://studio-nord.test", "Studio Nord");
     const site = await createTestSite(env.api, "Referenz-Projekt");

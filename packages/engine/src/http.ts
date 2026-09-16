@@ -69,6 +69,7 @@ import { Store } from "./store.ts";
 import type { EngineSettingsPatch, SmtpSettingsPatch } from "./store.ts";
 import { backupStatus, createBackup, listBackups, restoreBackup } from "./backup.ts";
 import { MaintenanceError, type MaintenanceGate } from "./maintenance.ts";
+import { reviewVisualFileNames, type ReviewVisualDriver } from "./review-visuals.ts";
 import { sendTestMail, smtpMailSender, type MailSender } from "./mailer.ts";
 import {
   encryptSmtpPassword,
@@ -249,6 +250,8 @@ export type EngineContext = {
   // References (T14): the injected capture/analyzer dependencies. Without them
   // the live Playwright path and the heuristic analyzer are used.
   referenceDeps?: ReferenceDeps;
+  // Review visuals (T07): the injected capture driver of a submit.
+  visuals?: ReviewVisualDriver;
 };
 
 function referenceContext(context: EngineContext): ReferenceContext {
@@ -265,6 +268,7 @@ function lifecycleContext(context: EngineContext): LifecycleContext {
     dataDir: context.dataDir,
     formSigner: context.formSigner,
     formBaseUrl: context.formBaseUrl,
+    ...(context.visuals === undefined ? {} : { visuals: context.visuals }),
   };
 }
 
@@ -347,6 +351,7 @@ const CONTENT_TYPES: Record<string, string> = {
   ".avif": "image/avif",
   ".woff2": "font/woff2",
   ".ico": "image/x-icon",
+  ".webm": "video/webm",
 };
 
 function sendFile(
@@ -1534,6 +1539,40 @@ const ROUTES: Route[] = [
       status: 200,
       body: await context.store.getReviewItem(requireParam(params, "reviewId")),
     }),
+  },
+  {
+    // Screenshot, diff or motion file of a review (T07). The filename is
+    // whitelisted against the item's own visuals, so traversal never resolves.
+    method: "GET",
+    segments: ["api", "reviews", ":reviewId", "visuals", ":filename"],
+    scope: "read",
+    handler: async (context, params) => {
+      const review = await context.store.getReviewItem(
+        requireParam(params, "reviewId"),
+      );
+      const filename = requireParam(params, "filename");
+      if (!reviewVisualFileNames(review.visuals).includes(filename)) {
+        throw new SenifyError("not_found", `Visual "${filename}" does not exist`, {
+          field: "filename",
+        });
+      }
+      const file = resolveStoredFile(
+        context.dataDir,
+        ["reviews", review.id, "visuals", filename].join("/"),
+      );
+      if (file === undefined || !existsSync(file) || !statSync(file).isFile()) {
+        throw new SenifyError("not_found", `Visual file "${filename}" is missing`, {
+          field: "filename",
+        });
+      }
+      return {
+        status: 200,
+        file: {
+          path: file,
+          headers: { "cache-control": "public, max-age=0, must-revalidate" },
+        },
+      };
+    },
   },
   {
     method: "POST",
