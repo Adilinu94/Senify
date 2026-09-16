@@ -6,15 +6,20 @@ import type {
   ReferencePreferences,
 } from "./types.ts";
 
-// The briefs of the reference design library (`app.js:81-85`), rebuilt on the
-// engine so the surface and the MCP tools emit the same text. The wording stays
-// English on purpose: the coding assistants expect it. Missing entry values
-// fall back to the collection, exactly like the reference library does.
+// The briefs of the reference design library, ported verbatim from the original
+// templates (Taste Vault by cth9191, MIT licence → `app.js:81-85` and the
+// collection brief of the "About this collection" dialog at `app.js:121`):
+// `entrySection`, `buildBrief`, `preferenceBrief`, `styleBrief` and `imagePrompt`.
+// The wording stays English on purpose: the coding assistants expect it. The only
+// fallbacks are the ones the originals carry, and they kick in merely when a field
+// is really empty; everything else (family, vocabulary, recipe) falls back to the
+// collection, exactly like the reference library does.
 
 const COMPOSITION_FALLBACK = "Use the reference image for composition.";
 const IMAGE_COMPOSITION_FALLBACK = "Use the reference composition.";
-const NOTE_FALLBACK = "A visual reference for your next project.";
 const IMAGE_DIRECTION_FALLBACK = "Use type and layout to lead.";
+
+// Status line of the brief column (app.js:70).
 const DNA_OFF_HINT = "Reference-led brief · House DNA is off.";
 const DNA_ON_HINT = "Includes your general preferences.";
 const PROJECT_NOTES_HINT = " Project notes included.";
@@ -25,21 +30,28 @@ const BUILD_HEADER = [
   "Required content: [sections and copy].",
 ].join("\n");
 
-// Mehrere Referenzen sind ein Satz, keine Mischung: der Hinweis stammt
-// wortgleich aus dem Vorbild.
-const REFERENCE_SET_HINT =
-  "Use these as a reference set. If they represent different aesthetics, create one direction per reference before choosing one; do not automatically blend them.";
-
-const WORK_INSTRUCTION =
-  "Read the reference images before designing. Borrow their visual treatment and hierarchy; write for our product and use our content. Do not reuse sample claims or endorsements. Generate original image assets where useful with the available image-generation tool, using the recipes and composition notes. Build real responsive HTML text, controls, and components around those assets. Verify the result in a browser on desktop and mobile.";
-
-const COLLECTION_HEADER = [
+// styleBrief() opens with its own two lines instead of the build header.
+const STYLE_HEADER = [
   "Build [project] for [audience].",
   "Primary action: [action].",
 ].join("\n");
 
-const COLLECTION_INSTRUCTION =
+// Several references are a set, not a blend: the hint is taken verbatim.
+const REFERENCE_SET_HINT =
+  "Use these as a reference set. If they represent different aesthetics, create one direction per reference before choosing one; do not automatically blend them.";
+
+const PREFERENCE_TRAILER =
+  "Follow the selected references and explicit project directions when they differ from general preferences.";
+
+const WORK_INSTRUCTION =
+  "Read the reference images before designing. Borrow their visual treatment and hierarchy; write for our product and use our content. Do not reuse sample claims or endorsements. Generate original image assets where useful with the available image-generation tool, using the recipes and composition notes. Build real responsive HTML text, controls, and components around those assets. Verify the result in a browser on desktop and mobile.";
+
+const STYLE_INSTRUCTION =
   "Implement as a responsive interface and verify desktop and mobile in a browser.";
+
+function filled(value: string | null | undefined): value is string {
+  return value !== null && value !== undefined && value !== "";
+}
 
 // The screenshot of the brief: the stored snapshot preview, else the analysis
 // URL (the reference library prints its image path the same way).
@@ -71,8 +83,9 @@ export function referenceImageRecipe(reference: Reference): string | null {
   return recipe === null || recipe.trim() === "" ? null : recipe;
 }
 
-// entrySection of the reference library, with the collection as the fallback
-// for family, vocabulary and image recipe.
+// entrySection of the reference library. Family and collection form the
+// aesthetic, the collection stands in for family, vocabulary and recipe. A field
+// that is really empty drops its line instead of printing an empty one.
 export function referenceBriefSection(reference: Reference): string {
   const family = referenceFamily(reference);
   const collection = reference.collection;
@@ -87,35 +100,32 @@ export function referenceBriefSection(reference: Reference): string {
     `Screenshot: ${referenceScreenshotPath(reference)}`,
     ...(aesthetic === null ? [] : [`Aesthetic: ${aesthetic}`]),
     ...(vocabulary.length === 0 ? [] : [`Vocabulary: ${vocabulary.join(", ")}`]),
-    `What to borrow: ${reference.note ?? NOTE_FALLBACK}`,
-    `Composition: ${reference.heroUsage ?? COMPOSITION_FALLBACK}`,
+    ...(filled(reference.note) ? [`What to borrow: ${reference.note}`] : []),
+    `Composition: ${
+      filled(reference.heroUsage) ? reference.heroUsage : COMPOSITION_FALLBACK
+    }`,
     ...(recipe === null ? [] : [`Image recipe: ${recipe}`]),
   ].join("\n");
 }
 
 // preferenceBrief(): House DNA as defaults, project notes with priority. The
-// DNA block only appears when the switch is on and the DNA has an entry at all.
+// block appears whenever the switch is on, exactly like the original.
 export function buildPreferenceBlock(input: {
   dna: ReferenceDna;
   preferences: ReferencePreferences;
 }): string {
-  const constants = input.dna.constants.filter((entry) => entry.trim() !== "");
-  const never = input.dna.never.filter((entry) => entry.trim() !== "");
-  const dna =
-    input.preferences.includeDna && (constants.length > 0 || never.length > 0)
-      ? [
-          "General preferences (defaults, not absolute rules):",
-          ...constants.map((entry) => `- ${entry}`),
-          `Usually avoid: ${never.join("; ")}.`,
-        ].join("\n")
-      : "";
+  const dna = input.preferences.includeDna
+    ? [
+        "General preferences (defaults, not absolute rules):",
+        ...input.dna.constants.map((entry) => `- ${entry}`),
+        `Usually avoid: ${input.dna.never.join("; ")}.`,
+      ].join("\n")
+    : "";
   const overrides = input.preferences.overrides.trim();
   return [
     dna,
-    overrides === ""
-      ? ""
-      : `Project-specific directions (take priority):\n${overrides}`,
-    "Follow the selected references and explicit project directions when they differ from general preferences.",
+    overrides === "" ? "" : `Project-specific directions (take priority):\n${overrides}`,
+    PREFERENCE_TRAILER,
   ]
     .filter((part) => part !== "")
     .join("\n\n");
@@ -137,21 +147,22 @@ export function buildReferenceBrief(input: {
     .map(referenceBriefSection)
     .join("\n\n---\n\n");
   const hint = input.references.length > 1 ? `${REFERENCE_SET_HINT}\n\n` : "";
-  const text = `${BUILD_HEADER}\n\n${sections}\n\n${hint}${buildPreferenceBlock({
-    dna: input.dna,
-    preferences: input.preferences,
-  })}\n\n${WORK_INSTRUCTION}`;
   return {
     kind: "reference",
-    text,
+    text: briefText({
+      sections,
+      hint,
+      dna: input.dna,
+      preferences: input.preferences,
+    }),
     status: preferenceStatus(input.preferences),
     referenceIds: input.references.map((reference) => reference.id),
     collectionId: input.references[0]?.collectionId ?? null,
   };
 }
 
-// styleBrief(id) for collections, including the seeded style families.
-export function buildCollectionBrief(input: {
+// styleBrief(id) for the style families of the style guide.
+export function buildStyleFamilyBrief(input: {
   collection: ReferenceCollection;
   dna: ReferenceDna;
   preferences: ReferencePreferences;
@@ -159,20 +170,22 @@ export function buildCollectionBrief(input: {
   const collection = input.collection;
   const references = collectionReferences(collection);
   const text = [
-    COLLECTION_HEADER,
+    STYLE_HEADER,
     [
       `Aesthetic: ${collection.name}`,
       ...(collection.vocabulary.length === 0
         ? []
         : [`Vocabulary: ${collection.vocabulary.join(", ")}`]),
       ...(references === "" ? [] : [`References: ${references}`]),
-      ...(collection.risk.trim() === ""
-        ? []
-        : [`Direction to explore: ${collection.risk}`]),
-      `Image direction: ${collection.imageStyle.trim() === "" ? IMAGE_DIRECTION_FALLBACK : collection.imageStyle}`,
+      ...(filled(collection.risk)
+        ? [`Direction to explore: ${collection.risk}`]
+        : []),
+      `Image direction: ${
+        filled(collection.imageStyle) ? collection.imageStyle : IMAGE_DIRECTION_FALLBACK
+      }`,
     ].join("\n"),
     buildPreferenceBlock({ dna: input.dna, preferences: input.preferences }),
-    COLLECTION_INSTRUCTION,
+    STYLE_INSTRUCTION,
   ].join("\n\n");
   return {
     kind: "collection",
@@ -183,12 +196,81 @@ export function buildCollectionBrief(input: {
   };
 }
 
+// The collection brief ("About this collection"): the head carries name,
+// description, vocabulary and the direction to explore, then the briefs of all
+// its references follow. A style family is a collection of kind "style" and
+// briefs like one (app.js:121 and app.js:84).
+export function buildCollectionBrief(input: {
+  collection: ReferenceCollection;
+  references: Reference[];
+  dna: ReferenceDna;
+  preferences: ReferencePreferences;
+}): ReferenceBrief {
+  const collection = input.collection;
+  if (collection.kind === "style") {
+    return buildStyleFamilyBrief({
+      collection,
+      dna: input.dna,
+      preferences: input.preferences,
+    });
+  }
+  const head = [
+    `Collection: ${collection.name}`,
+    ...(filled(collection.description) ? [collection.description] : []),
+    ...(collection.vocabulary.length === 0
+      ? []
+      : [`Vocabulary: ${collection.vocabulary.join(", ")}`]),
+    ...(filled(collection.risk) ? [`Direction to explore: ${collection.risk}`] : []),
+  ].join("\n");
+  const sections = input.references
+    .map(referenceBriefSection)
+    .join("\n\n---\n\n");
+  return {
+    kind: "collection",
+    text: [
+      head,
+      briefText({
+        sections,
+        hint: "",
+        dna: input.dna,
+        preferences: input.preferences,
+      }),
+    ].join("\n\n"),
+    status: preferenceStatus(input.preferences),
+    referenceIds: input.references.map((reference) => reference.id),
+    collectionId: collection.id,
+  };
+}
+
+// The shared skeleton of buildBrief: header, entry sections, the optional
+// reference-set hint with the preference block, then the closing instruction.
+function briefText(input: {
+  sections: string;
+  hint: string;
+  dna: ReferenceDna;
+  preferences: ReferencePreferences;
+}): string {
+  return [
+    BUILD_HEADER,
+    input.sections,
+    `${input.hint}${buildPreferenceBlock({
+      dna: input.dna,
+      preferences: input.preferences,
+    })}`,
+    WORK_INSTRUCTION,
+  ]
+    .filter((part) => part !== "")
+    .join("\n\n");
+}
+
 // imagePrompt(entry): null when neither the entry nor the collection has a
 // recipe - the surface keeps the copy button disabled then.
 export function buildImagePrompt(reference: Reference): string | null {
   const recipe = referenceImageRecipe(reference);
   if (recipe === null) return null;
-  const composition = reference.heroUsage ?? IMAGE_COMPOSITION_FALLBACK;
+  const composition = filled(reference.heroUsage)
+    ? reference.heroUsage
+    : IMAGE_COMPOSITION_FALLBACK;
   return `${recipe}\n\nComposition: ${composition}\n\nUse ${referenceScreenshotPath(
     reference,
   )} as a style reference. Match treatment, texture, palette and balance while adapting the subject to our project. Return the artwork asset only; keep interface text and controls in code.`;

@@ -410,6 +410,7 @@ export {
   buildImagePrompt,
   buildPreferenceBlock,
   buildReferenceBrief,
+  buildStyleFamilyBrief,
   preferenceStatus,
   referenceBriefSection,
   referenceScreenshotPath,

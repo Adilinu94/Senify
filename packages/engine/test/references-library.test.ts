@@ -583,6 +583,8 @@ describe("reference library (T14, collections and briefs)", () => {
     });
     expect(emptyBrief.status).toBe(400);
 
+    // The collection brief: head with name, description, vocabulary and the
+    // direction to explore, then the entry briefs of all its references.
     const collectionBrief = await env.api.request<BriefBody>({
       method: "GET",
       path: `/api/reference-collections/${werkschauId}/brief`,
@@ -590,20 +592,31 @@ describe("reference library (T14, collections and briefs)", () => {
     expect(collectionBrief.status).toBe(200);
     expect(collectionBrief.body.brief.kind).toBe("collection");
     expect(collectionBrief.body.brief.collectionId).toBe(werkschauId);
-    expect(collectionBrief.body.brief.text).toContain("Aesthetic: Werkschau");
+    expect(collectionBrief.body.brief.text).toContain("Collection: Werkschau");
+    expect(collectionBrief.body.brief.text).toContain(
+      "A different point of view. Saved for the right project.",
+    );
     expect(collectionBrief.body.brief.text).toContain(
       "Vocabulary: restraint, tight tracking",
     );
     expect(collectionBrief.body.brief.text).toContain(
       "Direction to explore: A direction to explore: never get loud.",
     );
+    // The references of the collection follow with their own sections; a
+    // reference of another collection stays out.
+    expect(collectionBrief.body.brief.text).toContain("Reference: Sort-Test Alpha");
     expect(collectionBrief.body.brief.text).toContain(
-      "Image direction: Editorial portrait of [SUBJECT], muted accent, neutral ground.",
+      "Aesthetic: Editorial Minimalism (Werkschau)",
     );
+    expect(collectionBrief.body.brief.text).toContain("Reference: Sort-Test Zebra");
+    expect(collectionBrief.body.brief.text).not.toContain("Reference: Sort-Test Beta");
+    // The style lines belong to the style brief, not to a plain collection.
+    expect(collectionBrief.body.brief.text).not.toContain("Image direction:");
     expect(collectionBrief.body.vocabulary).toBe("restraint, tight tracking");
     expect(collectionBrief.body.imagePrompt).toBeNull();
 
-    // A bare collection: the recipe falls back, vocabulary and references drop out.
+    // A bare collection: a name only, so description and direction drop out and
+    // the brief stays one clean block without empty lines.
     const bare = await env.api.request<CollectionBody>({
       method: "POST",
       path: "/api/reference-collections",
@@ -613,14 +626,17 @@ describe("reference library (T14, collections and briefs)", () => {
       method: "GET",
       path: `/api/reference-collections/${String(bare.body.collection.id)}/brief`,
     });
+    expect(bareBrief.body.brief.text).toContain(`Collection: ${EMPTY_COLLECTION}`);
     expect(bareBrief.body.brief.text).toContain(
-      "Image direction: Use type and layout to lead.",
+      "Build [describe the website or product] for [audience].",
     );
     expect(bareBrief.body.brief.text).not.toContain("Vocabulary:");
     expect(bareBrief.body.brief.text).not.toContain("References:");
     expect(bareBrief.body.brief.text).not.toContain("Direction to explore:");
+    expect(bareBrief.body.brief.text).not.toContain("\n\n\n");
 
-    // A style family is a collection of kind "style" and briefs like one.
+    // A style family is a collection of kind "style" and briefs from the style
+    // guide instead of listing entry sections.
     const style = await env.api.request<CollectionBody>({
       method: "POST",
       path: "/api/reference-collections",
@@ -637,9 +653,16 @@ describe("reference library (T14, collections and briefs)", () => {
       method: "GET",
       path: `/api/reference-collections/${String(style.body.collection.id)}/brief`,
     });
+    expect(styleBrief.body.brief.text).toContain("Build [project] for [audience].");
     expect(styleBrief.body.brief.text).toContain("Aesthetic: Neo Brutalism");
     expect(styleBrief.body.brief.text).toContain(
       "References: linear.app https://linear.app",
+    );
+    expect(styleBrief.body.brief.text).toContain(
+      "Image direction: Use type and layout to lead.",
+    );
+    expect(styleBrief.body.brief.text).toContain(
+      "Implement as a responsive interface and verify desktop and mobile in a browser.",
     );
 
     const missing = await env.api.request<ErrorResponse>({

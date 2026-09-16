@@ -3182,11 +3182,22 @@ const ROUTES: Route[] = [
         requireParam(params, "collectionId"),
       );
       const settings = await context.store.getReferenceSettings();
+      // The collection brief carries the entry sections of all its references;
+      // a style family has none and briefs from the style guide instead.
+      const references =
+        collection.kind === "style"
+          ? []
+          : await Promise.all(
+              (await context.store.listReferences())
+                .filter((entry) => entry.collectionId === collection.id)
+                .map((entry) => context.store.getReference(entry.id)),
+            );
       return {
         status: 200,
         body: {
           brief: buildCollectionBrief({
             collection,
+            references,
             dna: settings.dna,
             preferences: settings.preferences,
           }),
