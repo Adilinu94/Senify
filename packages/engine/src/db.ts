@@ -529,3 +529,19 @@ export function tableNames(): string[] {
   }
   return names;
 }
+
+// The JSONB columns of a table, derived from the same statements. A restore
+// hands these values back as JSON text: a dump carries them parsed (objects,
+// arrays) or already as text, and both forms are valid JSON input.
+export function jsonColumns(name: string): Set<string> {
+  const columns = new Set<string>();
+  for (const statement of SCHEMA_STATEMENTS) {
+    const table = /CREATE TABLE IF NOT EXISTS\s+([A-Za-z0-9_]+)/.exec(statement)?.[1];
+    if (table !== name) continue;
+    for (const line of statement.split("\n")) {
+      const column = /^\s*([a-z_][a-z0-9_]*)\s+jsonb\b/.exec(line);
+      if (column?.[1] !== undefined) columns.add(column[1]);
+    }
+  }
+  return columns;
+}

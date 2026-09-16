@@ -15,8 +15,8 @@ import {
   validateTheme,
   type Theme,
 } from "@senify/tokens";
-import type { Db, Row } from "./db.ts";
-import { tableNames } from "./db.ts";
+import type { Db, DbClient, Row } from "./db.ts";
+import { jsonColumns, tableNames } from "./db.ts";
 import { generateToken } from "./auth.ts";
 import { entryConflictError } from "./content-contract.ts";
 import { newEntityId, newNodeId } from "./ids.ts";
@@ -4103,6 +4103,80 @@ export class Store {
     }
     const result = await this.#db.query(`SELECT * FROM ${name}`);
     return result.rows;
+  }
+
+  // Writes a dump back (restore): the listed tables are cleared and refilled in
+  // one transaction, so a restored state is either fully there or not at all.
+  // `order` names parents before children: clearing walks it backwards and
+  // refilling forwards, which keeps foreign keys satisfied.
+  async replaceTables(input: {
+    order: readonly string[];
+    rows: Record<string, Row[]>;
+  }): Promise<Record<string, number>> {
+    const known = tableNames();
+    for (const name of input.order) {
+      if (!known.includes(name)) {
+        throw new SenifyError("validation", `Unbekannte Tabelle "${name}"`, {
+          field: "table",
+        });
+      }
+    }
+    return this.#db.withTransaction(async (tx) => {
+      for (const name of [...input.order].reverse()) {
+        await tx.query(`DELETE FROM ${name}`);
+      }
+      const counts: Record<string, number> = {};
+      for (const name of input.order) {
+        const rows = input.rows[name] ?? [];
+        counts[name] = rows.length;
+        await insertDumpRows(tx, name, rows);
+      }
+      return counts;
+    });
+  }
+}
+
+// Rows of a dump still carry parsed JSON and Date objects: JSONB columns need
+// their text form back (accepted twice, as object and as JSON text), every
+// other value goes in as the driver returned it.
+function dumpParam(value: unknown, json: boolean): unknown {
+  if (value === null || value === undefined) return null;
+  if (!json) return value;
+  if (typeof value === "string") {
+    try {
+      JSON.parse(value);
+      return value;
+    } catch {
+      // Not JSON text: the column holds a plain string, quote it below.
+    }
+  }
+  return JSON.stringify(value);
+}
+
+const INSERT_DUMP_BATCH = 100;
+
+async function insertDumpRows(
+  client: DbClient,
+  name: string,
+  rows: Row[],
+): Promise<void> {
+  if (rows.length === 0) return;
+  const json = jsonColumns(name);
+  const columns = [...new Set(rows.flatMap((row) => Object.keys(row)))];
+  for (let start = 0; start < rows.length; start += INSERT_DUMP_BATCH) {
+    const batch = rows.slice(start, start + INSERT_DUMP_BATCH);
+    const params: unknown[] = [];
+    const tuples = batch.map((row) => {
+      const refs = columns.map((column) => {
+        params.push(dumpParam(row[column], json.has(column)));
+        return `$${params.length}`;
+      });
+      return `(${refs.join(", ")})`;
+    });
+    await client.query(
+      `INSERT INTO ${name} (${columns.join(", ")}) VALUES ${tuples.join(", ")}`,
+      params,
+    );
   }
 }
 

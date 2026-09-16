@@ -418,10 +418,12 @@ export {
   createBackup,
   listBackups,
   resolveBackupDir,
+  restoreBackup,
   type BackupManifest,
   type BackupRun,
   type BackupStatus,
   type BackupSummary,
+  type RestoreResult,
 } from "./backup.ts";
 export {
   sendTestMail,

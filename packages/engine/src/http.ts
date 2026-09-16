@@ -67,7 +67,7 @@ import {
 } from "./lifecycle-contract.ts";
 import { Store } from "./store.ts";
 import type { EngineSettingsPatch, SmtpSettingsPatch } from "./store.ts";
-import { backupStatus, createBackup, listBackups } from "./backup.ts";
+import { backupStatus, createBackup, listBackups, restoreBackup } from "./backup.ts";
 import { sendTestMail, smtpMailSender, type MailSender } from "./mailer.ts";
 import {
   encryptSmtpPassword,
@@ -3150,6 +3150,37 @@ const ROUTES: Route[] = [
         dataDir: context.dataDir,
       });
       return { status: 201, body: { backup: run.summary, manifest: run.manifest } };
+    },
+  },
+  {
+    // Playing a backup back overwrites tables and the data directory, so the
+    // body has to confirm explicitly; the state before the write is copied
+    // into a fresh backup and named in the answer.
+    method: "POST",
+    segments: ["api", "backups", ":name", "restore"],
+    scope: "write",
+    destructive: true,
+    handler: async (context, params, req) => {
+      const body = (await readJsonBody(req)) ?? {};
+      if ((body as { confirm?: unknown }).confirm !== true) {
+        throw new SenifyError(
+          "validation",
+          "Wiederherstellung erfordert confirm: true im Körper",
+          {
+            field: "confirm",
+            suggestion:
+              "Erst nach ausdrücklicher Bestätigung senden; die Sicherung ersetzt den aktuellen Stand.",
+          },
+        );
+      }
+      return {
+        status: 200,
+        body: await restoreBackup({
+          store: context.store,
+          dataDir: context.dataDir,
+          name: requireParam(params, "name"),
+        }),
+      };
     },
   },
 ];

@@ -5,8 +5,9 @@ import { SenifyError } from "@senify/core";
 import type { SmtpTlsMode } from "./types.ts";
 
 // Minimal SMTP client (artifacts/27 §5): send a single plain-text message over
-// a fresh connection. Kept dependency-free and injectable — tests never hit a
-// real server, they pass their own MailSender.
+// a fresh connection. Kept dependency-free and injectable: most suites pass
+// their own MailSender, `mailer.test.ts` runs this client against a local SMTP
+// server inside the test process (never a real one).
 
 export type SmtpConfig = {
   host: string;
@@ -86,10 +87,21 @@ function readReply(socket: Socket, timeoutMs = CONNECT_TIMEOUT_MS): Promise<stri
       clearTimeout(timer);
       socket.off("data", onData);
       socket.off("error", onError);
+      socket.off("close", onClose);
     };
     const onError = (error: Error): void => {
       cleanup();
       reject(networkError(error, false));
+    };
+    // A server that hangs up mid-dialog (no error, just a closed connection)
+    // must end the dialog right away instead of waiting for the timeout.
+    const onClose = (): void => {
+      cleanup();
+      reject(
+        new SmtpError("connection", "SMTP-Server hat die Verbindung geschlossen", {
+          suggestion: "Serverprotokoll prüfen; Host, Port und TLS-Einstellung kontrollieren.",
+        }),
+      );
     };
     const onData = (chunk: Buffer): void => {
       const previous = replyBuffers.get(socket) ?? "";
@@ -109,6 +121,7 @@ function readReply(socket: Socket, timeoutMs = CONNECT_TIMEOUT_MS): Promise<stri
     };
     socket.on("data", onData);
     socket.on("error", onError);
+    socket.on("close", onClose);
   });
 }
 
@@ -171,6 +184,9 @@ function openSocket(
     }, timeoutMs);
     const onReady = (): void => {
       clearTimeout(timer);
+      // The connect failure handler is done once the socket is up; later
+      // errors belong to the read/write step that is running then.
+      socket.off("error", onError);
       resolve(socket);
     };
     const onError = (error: Error): void => {
@@ -292,7 +308,8 @@ async function smtpSend(config: SmtpConfig, message: MailMessage): Promise<void>
 }
 
 // The default sender is the real SMTP client; the engine injects another one
-// in tests, so no test run ever talks to a mail server.
+// in most tests, so no run ever mails a real server (mailer.test.ts points the
+// client at a local server in the test process).
 export const smtpMailSender: MailSender = (config, message) =>
   smtpSend(config, message);
 
