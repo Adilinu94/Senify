@@ -4,10 +4,10 @@
 
 **Blocked by:** 02 (Site & Pages + Mutations), 06 (MCP-Kern & Agent-Setup), 07 (Lifecycle, Review & Checks).
 
-**Status:** umgesetzt (Scoped-Verify grün: Lint/Build + 21 neue Tests; der repo-weite `pnpm verify` ist aktuell durch parallelen Editor-WIP blockiert, nicht durch dieses Ticket)
+**Status:** umgesetzt (voller `pnpm verify` grün: 57 Dateien, 433 Tests; Editor im Arbeitsbereich eingebunden)
 
 - [x] `senify start` startet Engine und öffnet das Dashboard; ist die Engine nicht erreichbar, liefert der Proxy einen klaren Hinweis mit „senify start“-Aktion
-- [~] Projekt anlegen (nur Name) → Karte erscheint; Öffnen landet im Arbeitsbereich (Seiten-Liste + Read-only-Aufbau; der visuelle Editor folgt mit T13); Duplizieren (mit/ohne Inhalte) erzeugt vollständiges Projekt (Medien nur referenziert)
+- [x] Projekt anlegen (nur Name) → Karte erscheint; Öffnen landet im Arbeitsbereich, Seiten öffnen den visuellen Editor (Bundle on demand, read-only-Fallback); Duplizieren (mit/ohne Inhalte) erzeugt vollständiges Projekt (Medien nur referenziert)
 - [x] Papierkorb: löschen → wiederherstellen → endgültig löschen (nur mit Bestätigung)
 - [x] Kopf-Leiste navigiert zu Seiten/Artikel/Vorlagen/Prüfen/Aktivität/Einstellungen; Aktivität listet Audit-Ereignisse mit Quelle (Agent/Mensch, Token-Name)
 - [~] Review-Ansicht: Struktur-Diff/Details + Approve/Request changes/Discard aus der UI; Screenshot-Slider folgt mit den Screenshots (offener Punkt aus T07)
@@ -26,3 +26,8 @@ Quellen: `artifacts/27`, `artifacts/06` (Review-Ansicht), `artifacts/04` (Audit)
 - **CLI:** `senify start` verdrahtet Engine/DB/Dashboard inkl. `--engine-port`/`--app-port`/`--no-open`; `resolveDatabaseUrl` liest `SENIFY_DATABASE_URL`/`DATABASE_URL` oder `~/.senify/config.json`.
 - **Fixes:** `@senify/mcp/tools`-Subpath (+ Paket-Export/tsconfig-Pfad) und exakte Vite-Aliase im Docs-Portal — der Portal-Build zog über den mcp-Index die CLI samt App/Engine/Renderer-Kette herein.
 - **Tests:** App-Server-E2E über den Proxy (Dashboard, Theme, API-Durchleitung, Projekt-Lebenszyklus), Engine-Sites (Rename/Trash/Restore/Duplikat), CLI unverändert grün.
+
+**16.09.2026 — Editor im Arbeitsbereich (nach T13).**
+- Der App-Server bündelt `@senify/editor/browser` on demand mit esbuild als `/editor.js` (kein Build-Artefakt, immer frisch; `@senify/renderer` wird auf den browser-sicheren Teilbaum aliasiert, das Node-Bake bleibt draußen — Bundle 427 KB, ohne Puck/sanitize-html).
+- Die Seiten-Ansicht mountet `mountEditor` mit `MutationsSession` über den bestehenden `/api/pages/:id/mutations`-Transport (409 → Toast + Neuladen, Versionsbadge + Draft-Refresh über `onVersion`), Registry aus dem Browser-Entry und Plattform-Theme; schlägt das Bundle fehl, fällt die Ansicht auf die read-only-Aufbauansicht zurück.
+- Verifiziert: App-Test lädt `/editor.js` und prüft die Exporte; voller `pnpm verify` grün.

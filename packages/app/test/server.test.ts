@@ -53,6 +53,13 @@ describe("program shell (Prüfstelle Programm)", () => {
       expect(script.status).toBe(200);
       expect(script.headers.get("content-type")).toContain("javascript");
 
+      // The editor bundle is built on demand from the TypeScript sources.
+      const editor = await fetch(`${running.dashboardUrl}/editor.js`);
+      expect(editor.status).toBe(200);
+      const bundle = await editor.text();
+      expect(bundle).toContain("mountEditor");
+      expect(bundle).toContain("createRegistry");
+
       // The dashboard acts as the local operator: writes go through the
       // proxy with the injected program token.
       const created = await fetch(`${running.dashboardUrl}/api/sites`, {

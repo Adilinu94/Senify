@@ -5,11 +5,46 @@ import {
   type ServerResponse,
 } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
+import { build } from "esbuild";
 import { defaultTheme, emitCss, resolveTheme } from "@senify/tokens";
 
 const PUBLIC_DIR = fileURLToPath(new URL("../public", import.meta.url));
+const require = createRequire(import.meta.url);
+
+let editorBundle: Promise<string> | undefined;
+
+// The editor ships as TypeScript sources: the local program bundles them on
+// first request, so there is no build artifact to keep in sync.
+function loadEditorBundle(): Promise<string> {
+  if (!editorBundle) {
+    const entry = require.resolve("@senify/editor/browser");
+    // The editor only needs the renderer's breakpoint constants; the package
+    // index would pull the Node-side bake into the browser bundle. Resolve
+    // through the editor's own dependencies.
+    const rendererBrowser = createRequire(entry).resolve(
+      "@senify/renderer/browser",
+    );
+    editorBundle = build({
+      entryPoints: [entry],
+      bundle: true,
+      write: false,
+      format: "esm",
+      platform: "browser",
+      target: "es2022",
+      logLevel: "silent",
+      alias: { "@senify/renderer": rendererBrowser },
+    })
+      .then((result) => result.outputFiles[0]?.text ?? "")
+      .catch((error: unknown) => {
+        editorBundle = undefined;
+        throw error;
+      });
+  }
+  return editorBundle;
+}
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -121,6 +156,25 @@ export function createAppServer(options: AppServerOptions): Promise<AppServer> {
         "cache-control": "no-store",
       });
       res.end(themeCss);
+      return;
+    }
+    if (url === "/editor.js") {
+      void loadEditorBundle()
+        .then((code) => {
+          res.writeHead(200, {
+            "content-type": "text/javascript; charset=utf-8",
+            "cache-control": "no-store",
+          });
+          res.end(code);
+        })
+        .catch((error: unknown) => {
+          sendError(
+            res,
+            502,
+            "Der Editor konnte nicht gebündelt werden",
+            error instanceof Error ? error.message : String(error),
+          );
+        });
       return;
     }
     if (url.startsWith("/api/") || url.startsWith("/assets/")) {

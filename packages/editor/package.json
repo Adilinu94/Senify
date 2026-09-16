@@ -4,17 +4,16 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./browser": "./src/browser-entry.ts"
   },
   "dependencies": {
     "@senify/core": "workspace:*",
     "@senify/engine": "workspace:*",
+    "@senify/registry": "workspace:*",
     "@senify/renderer": "workspace:*",
     "@senify/section-sdk": "workspace:*",
     "@senify/tokens": "workspace:*"
-  },
-  "devDependencies": {
-    "@senify/registry": "workspace:*"
   },
   "peerDependencies": {
     "@puckeditor/core": "0.23.0"

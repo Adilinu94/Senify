@@ -557,3 +557,7 @@ dialog.modal select,
   text-align: center;
   color: var(--fg-muted);
 }
+
+.editor-host {
+  min-height: 24rem;
+}

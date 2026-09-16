@@ -8,8 +8,10 @@
   },
   "dependencies": {
     "@senify/core": "workspace:*",
+    "@senify/editor": "workspace:*",
     "@senify/engine": "workspace:*",
     "@senify/registry": "workspace:*",
-    "@senify/tokens": "workspace:*"
+    "@senify/tokens": "workspace:*",
+    "esbuild": "^0.28.2"
   }
 }

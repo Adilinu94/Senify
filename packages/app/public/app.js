@@ -1532,9 +1532,68 @@ async function reviewAction(siteId, reviewId, action) {
 
 async function pageView(siteId, pageId) {
   const page = await api(`/api/pages/${pageId}`);
-  const nodes = page.draft?.nodes ?? {};
-  const root = nodes[page.draft?.rootNodeId] ?? { children: [] };
-  function outline(nodeId, depth) {
+  let currentTree = page.draft;
+
+  const toolbar = el(
+    "div",
+    { class: "toolbar" },
+    el("a", { href: `#/projects/${siteId}/pages`, text: "← Seiten" }),
+    el("h1", { text: page.title || page.path, style: "margin: 0" }),
+    el("code", { text: page.path }),
+    el("div", { class: "spacer" }),
+    el("span", { class: "muted", id: "page-version", text: `Draft v${page.draftVersion}` }),
+  );
+  const host = el("div", { class: "editor-host", id: "editor-host" });
+  render([toolbar, host]);
+
+  let editor = null;
+  try {
+    editor = await import("/editor.js");
+  } catch {
+    editor = null;
+  }
+  if (editor) {
+    try {
+      const session = new editor.MutationsSession({
+        transport: editor.createHttpTransport({
+          pageId,
+          baseUrl: location.origin,
+          onConflict: () => {
+            toast("Draft hat sich geändert — Seite wird neu geladen.", "error");
+            void renderRoute();
+          },
+        }),
+        initialVersion: page.draftVersion,
+        author: AUTHOR,
+        onVersion: (version) => {
+          const badge = document.getElementById("page-version");
+          if (badge) badge.textContent = `Draft v${version}`;
+          void api(`/api/pages/${pageId}`)
+            .then((fresh) => {
+              currentTree = fresh.draft;
+            })
+            .catch(() => undefined);
+        },
+      });
+      editor.mountEditor(host, {
+        session,
+        registry: editor.createRegistry(),
+        tree: () => currentTree,
+        page: { pageId, title: page.title, path: page.path },
+        theme: editor.defaultTheme(),
+      });
+      return;
+    } catch (error) {
+      toast(
+        `Editor konnte nicht starten (${error instanceof Error ? error.message : "unbekannter Fehler"}) — zeige den Aufbau.`,
+        "error",
+      );
+    }
+  }
+  // Fallback without the editor bundle: read-only outline.
+  const nodes = currentTree?.nodes ?? {};
+  const root = nodes[currentTree?.rootNodeId] ?? { children: [] };
+  function outline(nodeId) {
     const node = nodes[nodeId];
     if (!node) return [];
     return [
@@ -1544,30 +1603,18 @@ async function pageView(siteId, pageId) {
         el("code", { text: ` ${node.id}` }),
         node.hidden ? el("span", { class: "muted", text: " · versteckt" }) : "",
       ]),
-      ...(node.children ?? []).flatMap((child) => outline(child, depth + 1)),
+      ...(node.children ?? []).flatMap((child) => outline(child)),
     ];
   }
-  render([
+  host.className = "panel";
+  host.replaceChildren(
+    el("h2", { text: "Aufbau (read-only)" }),
     el(
       "div",
-      { class: "toolbar" },
-      el("a", { href: `#/projects/${siteId}/pages`, text: "← Seiten" }),
-      el("h1", { text: page.title || page.path, style: "margin: 0" }),
-      el("code", { text: page.path }),
-      el("div", { class: "spacer" }),
-      el("span", { class: "muted", text: `Draft v${page.draftVersion}` }),
+      { class: "outline-tree" },
+      (root.children ?? []).flatMap((child) => outline(child)),
     ),
-    el(
-      "div",
-      { class: "panel" },
-      el("h2", { text: "Aufbau (read-only)" }),
-      el("div", { class: "outline-tree" }, (root.children ?? []).flatMap((child) => outline(child, 0))),
-      el("p", {
-        class: "muted",
-        text: "Der visuelle Editor (Frame-Manager, Inline-Text) folgt mit dem Editor-Ticket.",
-      }),
-    ),
-  ]);
+  );
 }
 
 /* Command palette */
