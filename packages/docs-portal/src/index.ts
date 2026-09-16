@@ -22,3 +22,7 @@ export { portalPages } from "./portal.ts";
 export { referencePages } from "./reference.ts";
 export { renderPage, slugifyHeading, type RenderedPage, type TocEntry } from "./render.ts";
 export { readDoc, searchDocs, type DocHit } from "./search.ts";
+export {
+  skillReferenceFiles,
+  type SkillReferenceFile,
+} from "./skills.ts";

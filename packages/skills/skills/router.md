@@ -18,6 +18,14 @@ Read this file first: it routes a job to the right tool or reference.
 | Go live / step back | `publish_release` · `rollback_release` (publish scope) |
 | Bring back an old page state | `restore_revision` (append-only: becomes a new draft) |
 
+## Reference files
+
+- `sections.md` — section catalog with core props, variants and motion presets (generated from the registry).
+- `tools.md` — full tool catalog with parameters and scopes (generated from the MCP tool catalog).
+- `errors.md` — error categories with examples and suggestions (generated).
+- `workflow.md` — the master flow „site from a brief".
+- `assets.md` — asset sourcing, licences and alt-text rules.
+
 ## Ground rules
 
 - **Drafts first.** Every write goes through `apply_mutations` with `baseDraftVersion` from `get_page`. A conflict error means: reload the page, then retry.

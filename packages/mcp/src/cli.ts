@@ -1,10 +1,11 @@
 import { Command } from "commander";
-import { copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { startProgram } from "@senify/app";
 import { SenifyError } from "@senify/core";
+import { skillReferenceFiles } from "@senify/docs-portal";
 import { skillFiles } from "@senify/skills";
 import { EngineClient } from "./client.ts";
 import {
@@ -82,6 +83,11 @@ function copySkills(): string {
   mkdirSync(target, { recursive: true });
   for (const file of skillFiles()) {
     copyFileSync(file.path, join(target, file.name));
+  }
+  // Generated references come from the same pipeline as the docs portal and
+  // are refreshed on every setup — no hand-maintained drift.
+  for (const file of skillReferenceFiles()) {
+    writeFileSync(join(target, file.name), file.content);
   }
   return target;
 }

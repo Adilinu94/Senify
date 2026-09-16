@@ -55,3 +55,7 @@ Quellen: `artifacts/04`, `artifacts/10`, `artifacts/11` (Skillpaket-Basis), Spec
 - Postgres: Docker fehlt; Tests laufen standardmäßig gegen pg-mem (Warnung), `TEST_DATABASE_URL` für echten Postgres (Wegwerf-Schema, `options=-c search_path=…`). pg-mem-Eigenheiten: `rowCount` immer 0 (RETURNING nutzen), Top-Level-Arrays an jsonb werden entpackt (`toJsonParam`), `ROLLBACK` wird ignoriert.
 - `pnpm verify` muss vor dem Commit grün sein; danach ein Commit `T06: MCP-Kern & Agent-Setup - …`; Ticket-Status und `## Comments` aktualisieren.
 - Sprache: Deutsch mit englischen Fachbegriffen.
+
+## Nachtrag 16.09.2026 — Generierte Skill-Referenzen
+
+`senify setup` schreibt zusätzlich `sections.md`, `tools.md` und `errors.md` aus derselben Pipeline wie das Docs-Portal (`skillReferenceFiles()` in `@senify/docs-portal`) nach `~/.senify/skills`; `router.md` verweist auf die Referenzdateien. Damit ist der GENERIERT-Teil des Skillpakets aus `artifacts/11` ohne Drift abgedeckt (3 neue Tests in `docs-portal/test/skills.test.ts`).
