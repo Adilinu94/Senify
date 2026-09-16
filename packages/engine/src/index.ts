@@ -278,6 +278,7 @@ export {
   FORM_AUTO_KEYS,
   FORM_AUTHOR,
   FormRejection,
+  listSiteForms,
   listSubmissions,
   MAX_NOTIFICATION_ATTEMPTS,
   MIN_FILL_MS,
@@ -295,6 +296,7 @@ export {
   type NotificationTickResult,
   type NotificationTransport,
   type OutboundMessage,
+  type SiteFormSummary,
   type SubmissionColumn,
   type SubmissionView,
 } from "./forms.ts";

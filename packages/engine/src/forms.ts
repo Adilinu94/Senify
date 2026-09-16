@@ -997,6 +997,52 @@ export async function tickNotifications(input: {
 
 export type SubmissionColumn = { key: string; label: string };
 
+export type SiteFormSummary = {
+  formId: string;
+  pageId: string;
+  pagePath: string;
+  sectionType: string;
+  mode: FormSnapshot["mode"];
+  targetCollectionId: string | null;
+  fields: SubmissionColumn[];
+  createdAt: string;
+};
+
+// The form overview of the program: the latest snapshot per form — a re-bake
+// replaces the frozen definition, older snapshots stay for their tokens.
+export async function listSiteForms(
+  store: Store,
+  siteId: string,
+): Promise<SiteFormSummary[]> {
+  const records = await store.listFormSnapshots(siteId);
+  const latest = new Map<string, FormSnapshotRecord>();
+  for (const record of records) {
+    const current = latest.get(record.formId);
+    if (!current || record.createdAt > current.createdAt) {
+      latest.set(record.formId, record);
+    }
+  }
+  return [...latest.values()]
+    .sort(
+      (a, b) =>
+        a.pagePath.localeCompare(b.pagePath) ||
+        a.sectionType.localeCompare(b.sectionType),
+    )
+    .map((record) => ({
+      formId: record.formId,
+      pageId: record.pageId,
+      pagePath: record.pagePath,
+      sectionType: record.sectionType,
+      mode: record.snapshot.mode,
+      targetCollectionId: record.snapshot.targetCollectionId ?? null,
+      fields: record.snapshot.fields.map((field) => ({
+        key: field.key,
+        label: field.label,
+      })),
+      createdAt: record.createdAt,
+    }));
+}
+
 export type SubmissionView = {
   source: "form" | "collection";
   columns: SubmissionColumn[];

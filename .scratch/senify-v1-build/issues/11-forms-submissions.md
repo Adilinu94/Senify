@@ -4,7 +4,7 @@
 
 **Blocked by:** 09 (Content-Kern), 10 (Templates, Bindings & Loops — Seitenverweise/Checks).
 
-**Status:** umgesetzt (`pnpm verify` grün; Formular-Snapshot mit HMAC-Token im Bake, öffentlicher Submit-Endpoint mit Honeypot/Mindestzeit/Origin/Rate-Limit/Feld-Whitelist, Einsendung als Entry, Benachrichtigungs-Outbox mit Retry, Newsletter-Double-Opt-In, CSV-Export) — offen: Ansicht der Einsendungen und Job-Retry im Programm
+**Status:** umgesetzt (`pnpm verify` grün; Formular-Snapshot mit HMAC-Token im Bake, öffentlicher Submit-Endpoint mit Honeypot/Mindestzeit/Origin/Rate-Limit/Feld-Whitelist, Einsendung als Entry, Benachrichtigungs-Outbox mit Retry, Newsletter-Double-Opt-In, CSV-Export; im Programm der Tab „Einsendungen" mit Formular-Auswahl, Einsendungs-Tabelle, CSV-Download und Job-Status samt Versand-Trigger) — offen: volle E2E-Bake-Prüfung „Absenden ohne JS → Danke-Seite" gegen den gebackenen Zustand
 
 - [ ] Formular-Sektion konfigurieren → „Sammlung anlegen" erzeugt Collection samt Feldern; Felder validieren (Pflicht, Muster, Options)
 - [ ] Bake stempelt Token; Absenden funktioniert mit und ohne JavaScript über denselben Endpoint (kein Logik-Drift)
@@ -69,3 +69,9 @@ Quellen: `artifacts/26`, Spec „Forms (Verträge)", `research/24` §5.4 (Jobs/R
 - **Ziel-Collection statt Fremdzugriff:** `listSubmissions` liest ausschließlich die Ziel-Collection des Formulars; ein Snapshot, dessen Collection auf einer anderen Site liegt, und ein unbekanntes Formular werden als strukturiertes 404 (`not_found`) abgewiesen.
 - **Tests:** `packages/engine/test/forms.test.ts` (14) prüft Kopfzeile/Zeilen gegen Snapshot und Einsendungen, BOM und Trennzeichen, Quoting der Sonderfälle (Semikolon, Anführungszeichen, Umbruch, Umlaute) sowie fehlenden Token (401) und fremdes/unbekanntes Formular (404).
 - **`pnpm verify` grün** (57 Dateien, 435 Tests + 2 skipped).
+
+### Umsetzungs-Notiz (Teil 3: Ansicht im Programm)
+
+- **Engine-Route:** `GET /api/sites/:siteId/forms` (Scope `read`) liefert die Formular-Übersicht für das Programm: je Formular der neueste Snapshot (`store.listFormSnapshots` + Dedupe in `forms.listSiteForms`) mit Quellseite, Sektionstyp, Modus, Ziel-Collection und Feldliste (Key + Label).
+- **Programm:** neuer Workspace-Tab „Einsendungen" (`#/projects/:siteId/submissions`): Formular-Auswahl (der zuletzt gewählte bleibt aktiv), Einsendungs-Tabelle aus dem bestehenden JSON-View (`GET /api/forms/:formId/submissions`, Spalten aus dem Snapshot plus Auto-Spalten, Zeilen-Link in den Artikel-Editor), CSV-Download über die bestehende Route und die Benachrichtigungs-Jobs (`GET /api/sites/:siteId/notifications`) mit Empfänger, Betreff, Status (Wartet/Gesendet/Fehlgeschlagen), Versuchen, nächstem Versuch und letztem Fehler; „Fällige Jobs jetzt senden" ruft `POST /api/notifications/tick` und lädt die Ansicht neu.
+- **Tests:** `packages/engine/test/forms.test.ts` (15) prüft die neue Route gegen beide Formulare (neuester Snapshot, Felder, Ziel-Collection, Modus); `packages/app/test/submissions-browser.test.ts` fährt mit Chromium den ganzen Weg: Sektion per Mutation einfügen, veröffentlichen (Bake), über den öffentlichen Endpoint einsenden, dann die Ansicht (Zeile, Spalten, CSV-Link, Job auf „Wartet"), Tick klicken und „Gesendet" erwarten. Geteilte Testhilfen (`memoryDb`, Browser-Verfügbarkeit) liegen in `packages/app/test/support.ts`.

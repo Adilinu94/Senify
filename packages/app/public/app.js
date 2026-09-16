@@ -88,6 +88,12 @@ function formatDate(value) {
   return new Date(value).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" });
 }
 
+function notificationStatus(status) {
+  if (status === "sent") return "Gesendet";
+  if (status === "failed") return "Fehlgeschlagen";
+  return "Wartet";
+}
+
 function formatBytes(value) {
   if (!value) return "0 B";
   const units = ["B", "KB", "MB", "GB"];
@@ -1260,10 +1266,14 @@ const WORKSPACE_TABS = [
   ["pages", "Seiten"],
   ["articles", "Artikel"],
   ["templates", "Vorlagen"],
+  ["submissions", "Einsendungen"],
   ["review", "Prüfen"],
   ["activity", "Aktivität"],
   ["settings", "Einstellungen"],
 ];
+
+// Selected form in the submissions tab (per program run, not per project).
+let selectedFormId = null;
 
 function workspaceFrame(siteId, site, tab, live) {
   const head = el(
@@ -1489,6 +1499,177 @@ async function projectView(siteId, tab) {
         }),
       ),
     );
+  } else if (tab === "submissions") {
+    const { forms } = await api(`/api/sites/${siteId}/forms`);
+    body.push(el("h2", { text: "Einsendungen" }));
+    if (forms.length === 0) {
+      body.push(
+        el("div", {
+          class: "empty",
+          text: "Noch keine Formulare. Ein Formular wird beim Veröffentlichen eingefroren — danach erscheinen hier die Einsendungen.",
+        }),
+      );
+    } else {
+      if (
+        selectedFormId === null ||
+        !forms.some((form) => form.formId === selectedFormId)
+      ) {
+        selectedFormId = forms[0].formId;
+      }
+      if (forms.length > 1) {
+        const select = el("select", { id: "submissions-form" });
+        for (const entry of forms) {
+          const option = el("option", {
+            value: entry.formId,
+            text: `${entry.pagePath} · ${entry.sectionType}`,
+          });
+          if (entry.formId === selectedFormId) option.selected = true;
+          select.append(option);
+        }
+        select.addEventListener("change", () => {
+          selectedFormId = select.value;
+          void renderRoute();
+        });
+        body.push(
+          el(
+            "div",
+            { class: "toolbar" },
+            el("span", { class: "muted", text: "Formular" }),
+            select,
+          ),
+        );
+      }
+      const form = forms.find((entry) => entry.formId === selectedFormId) ?? forms[0];
+      const view = await api(`/api/forms/${form.formId}/submissions`);
+      body.push(
+        el(
+          "div",
+          { class: "toolbar" },
+          el("h3", { style: "margin: 0", text: `${form.pagePath} · ${form.sectionType}` }),
+          el("span", { class: "muted", text: `${view.rows.length} Einsendungen` }),
+          el("div", { class: "spacer" }),
+          el("a", {
+            href: `/api/forms/${form.formId}/submissions.csv`,
+            download: `${form.sectionType}-submissions.csv`,
+            text: "CSV herunterladen",
+          }),
+        ),
+      );
+      if (view.rows.length === 0) {
+        body.push(el("div", { class: "empty", text: "Noch keine Einsendungen." }));
+      } else {
+        body.push(
+          el(
+            "table",
+            {},
+            el(
+              "thead",
+              {},
+              el(
+                "tr",
+                {},
+                view.columns.map((column) => el("th", { text: column.label })),
+                el("th", {}),
+              ),
+            ),
+            el(
+              "tbody",
+              {},
+              view.rows.map((row) =>
+                el(
+                  "tr",
+                  {},
+                  row.values.map((value) =>
+                    el("td", { text: value.value === "" ? "—" : value.value }),
+                  ),
+                  el(
+                    "td",
+                    {},
+                    el("a", {
+                      href: `#/projects/${siteId}/articles/${row.entryId}`,
+                      text: "Öffnen",
+                    }),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+      const { notifications } = await api(`/api/sites/${siteId}/notifications`);
+      const jobs = notifications.filter((job) => job.formId === form.formId);
+      body.push(el("h3", { text: "Benachrichtigungen" }));
+      if (jobs.length === 0) {
+        body.push(
+          el("div", {
+            class: "empty",
+            text: "Keine Benachrichtigungs-Jobs zu diesem Formular.",
+          }),
+        );
+      } else {
+        body.push(
+          el(
+            "table",
+            {},
+            el(
+              "thead",
+              {},
+              el(
+                "tr",
+                {},
+                [
+                  "Empfänger",
+                  "Betreff",
+                  "Status",
+                  "Versuche",
+                  "Nächster Versuch",
+                  "Letzter Fehler",
+                ].map((label) => el("th", { text: label })),
+              ),
+            ),
+            el(
+              "tbody",
+              {},
+              jobs.map((job) =>
+                el(
+                  "tr",
+                  {},
+                  el("td", { text: job.recipient }),
+                  el("td", { text: job.subject }),
+                  el("td", { text: notificationStatus(job.status) }),
+                  el("td", { text: String(job.attempts) }),
+                  el("td", {
+                    text: job.status === "queued" ? formatDate(job.nextAttemptAt) : "—",
+                  }),
+                  el("td", { text: job.lastError ?? "—" }),
+                ),
+              ),
+            ),
+          ),
+          el(
+            "div",
+            { class: "row-actions" },
+            el("button", {
+              text: "Fällige Jobs jetzt senden",
+              onclick: async () => {
+                try {
+                  const result = await api("/api/notifications/tick", {
+                    method: "POST",
+                    body: {},
+                  });
+                  toast(
+                    `Versand: ${result.sent.length} gesendet, ${result.retried.length} erneut geplant, ${result.failed.length} fehlgeschlagen`,
+                  );
+                  await renderRoute();
+                } catch (error) {
+                  failed(error);
+                }
+              },
+            }),
+          ),
+        );
+      }
+    }
   } else {
     body.push(
       el("div", {
@@ -2091,7 +2272,7 @@ async function renderRoute() {
   const route = question === -1 ? hash : hash.slice(0, question);
   const deepLink = question === -1 ? "" : hash.slice(question + 1);
   try {
-    const project = route.match(/^#\/projects\/([^/]+)\/(pages|articles|templates|review|activity|settings)$/);
+    const project = route.match(/^#\/projects\/([^/]+)\/(pages|articles|templates|submissions|review|activity|settings)$/);
     const pageMatch = route.match(/^#\/projects\/([^/]+)\/pages\/([^/]+)$/);
     const articleMatch = route.match(/^#\/projects\/([^/]+)\/articles\/([^/]+)$/);
     const referenceMatch = route.match(/^#\/references\/([^/]+)$/);

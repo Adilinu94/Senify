@@ -81,6 +81,7 @@ import {
   confirmNewsletter,
   createCollectionFromForm,
   FormRejection,
+  listSiteForms,
   listSubmissions,
   planCollectionFromForm,
   submitForm,
@@ -2255,6 +2256,17 @@ const ROUTES: Route[] = [
         throw error;
       }
     },
+  },
+  {
+    // The program's form overview: latest snapshot per form, for the
+    // submissions view (fields, target collection, source page).
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "forms"],
+    scope: "read",
+    handler: async (context, params) => ({
+      status: 200,
+      body: { forms: await listSiteForms(context.store, requireParam(params, "siteId")) },
+    }),
   },
   {
     method: "GET",

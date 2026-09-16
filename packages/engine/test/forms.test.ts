@@ -962,6 +962,46 @@ describe("collection from form, submissions view and CSV", () => {
   });
 });
 
+describe("form overview for the program", () => {
+  it("lists the latest snapshot per form with fields and target collection", async () => {
+    const response = await env.api.request<{
+      forms: {
+        formId: string;
+        pagePath: string;
+        sectionType: string;
+        mode: string;
+        targetCollectionId: string | null;
+        fields: { key: string; label: string }[];
+      }[];
+    }>({ method: "GET", path: `/api/sites/${siteId}/forms` });
+    expect(response.status).toBe(200);
+
+    const contact = response.body.forms.filter((entry) => entry.formId === contactFormId);
+    expect(contact).toHaveLength(1);
+    expect(contact[0]?.pagePath).toBe("/");
+    expect(contact[0]?.sectionType).toBe("contact");
+    expect(contact[0]?.mode).toBe("message");
+    expect(contact[0]?.targetCollectionId).toBe(contactCollectionId);
+    expect(contact[0]?.fields.map((field) => field.key)).toEqual([
+      "name",
+      "email",
+      "nachricht",
+    ]);
+    expect(contact[0]?.fields.map((field) => field.label)).toEqual([
+      "Name",
+      "E-Mail",
+      "Nachricht",
+    ]);
+
+    const newsletter = response.body.forms.find(
+      (entry) => entry.formId === newsletterFormId,
+    );
+    expect(newsletter?.sectionType).toBe("newsletter");
+    expect(newsletter?.mode).toBe("newsletter");
+    expect(newsletter?.pagePath).toBe("/newsletter");
+  });
+});
+
 describe("publish hard checks", () => {
   it("blocks a publish when a form is not wired up", async () => {
     const site = await createTestSite(env.api, "Check-Site");

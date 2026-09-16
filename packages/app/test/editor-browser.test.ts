@@ -1,44 +1,15 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createTestDb } from "@senify/core/testing";
-import type { Db, DbResult, Row } from "@senify/engine";
 import { startProgram } from "@senify/app";
+import { browserAvailable, memoryDb } from "./support.ts";
 
 // The workbench in a real browser (T13): the program shell mounts the editor
 // bundle, the frame manager lays out its iframes, a click inside a frame
 // selects, a panel edit emits a canonical mutation and a deep link survives a
 // reload. Skipped when playwright is not installed (same contract as the
 // reference capture test).
-const playwright = await import("playwright").catch(() => undefined);
-const browserAvailable = (() => {
-  if (playwright === undefined) return false;
-  try {
-    return existsSync(playwright.chromium.executablePath());
-  } catch {
-    return false;
-  }
-})();
-
-function memoryDb(): { db: Db; close(): Promise<void> } {
-  const memory = createTestDb();
-  const { Pool } = memory.adapters.createPg();
-  const pool = new Pool();
-  const db: Db = {
-    query: async <R extends Row>(
-      text: string,
-      params?: readonly unknown[],
-    ): Promise<DbResult<R>> => {
-      const result = await pool.query(text, params as unknown[] | undefined);
-      return { rows: result.rows as R[] };
-    },
-    async withTransaction(task) {
-      return task(db);
-    },
-  };
-  return { db, close: () => pool.end() };
-}
 
 const author = { kind: "human", id: "programm", label: "Programm" };
 

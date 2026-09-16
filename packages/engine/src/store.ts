@@ -3155,6 +3155,16 @@ export class Store {
     return row ? mapFormSnapshot(row) : undefined;
   }
 
+  async listFormSnapshots(siteId: string): Promise<FormSnapshotRecord[]> {
+    const result = await this.#db.query<FormSnapshotRow>(
+      `SELECT id, form_id, site_id, page_id, node_id, page_path, section_type, snapshot, created_at
+       FROM form_snapshots WHERE site_id = $1
+       ORDER BY created_at DESC, id DESC`,
+      [siteId],
+    );
+    return result.rows.map(mapFormSnapshot);
+  }
+
   async enqueueNotification(input: {
     siteId: string;
     formId: string | null;
