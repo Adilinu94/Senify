@@ -1,0 +1,10 @@
+{
+  "name": "@senify/widget-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Widget catalog for the editor rebuild: primitive foundation stones with per-device values.",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

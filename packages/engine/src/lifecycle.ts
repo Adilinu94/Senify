@@ -271,6 +271,10 @@ export async function createPreview(
     outDir: previewDir(context, previewId),
     dataDir: context.dataDir,
     formBaseUrl: context.formBaseUrl,
+    // A preview is opened directly in a browser: the document carries the
+    // build's own stylesheets and island scripts inlined, so nothing has to
+    // serve the build root next to it (artifacts: preview without 404s).
+    selfContained: true,
     ...(context.formSigner === undefined
       ? {}
       : { formSigner: context.formSigner }),
@@ -306,16 +310,33 @@ export async function expirePreviews(
   return expired;
 }
 
-// Preview files are served from the build directory; the resolved path must
+// Build files are served from the build directory; the resolved path must
 // stay inside it (no traversal through ..).
+export function resolveBuildFile(
+  root: string,
+  relativePath: string,
+): string | undefined {
+  const base = resolve(root);
+  const target = resolve(base, normalize(relativePath).replace(/^[/\\]+/, ""));
+  if (target !== base && !target.startsWith(base + sep)) return undefined;
+  return target;
+}
+
 export function resolvePreviewFile(
   preview: Preview,
   relativePath: string,
 ): string | undefined {
-  const root = resolve(preview.buildRef);
-  const target = resolve(root, normalize(relativePath).replace(/^[/\\]+/, ""));
-  if (target !== root && !target.startsWith(root + sep)) return undefined;
-  return target;
+  return resolveBuildFile(preview.buildRef, relativePath);
+}
+
+// A release is the published build: the same resolution, but without a token —
+// the site is public (see serveReleaseFile in http.ts).
+export function resolveReleaseFile(
+  release: Release,
+  relativePath: string,
+): string | undefined {
+  if (release.buildRef === null) return undefined;
+  return resolveBuildFile(release.buildRef, relativePath);
 }
 
 export function structureDiff(input: {

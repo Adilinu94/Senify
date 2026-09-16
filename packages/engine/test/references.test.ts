@@ -702,15 +702,10 @@ describe("reference pipeline over the API (T14)", () => {
       body: { author: TEST_AUTHOR },
     });
     const html = readFileSync(join(preview.body.preview.buildRef, "index.html"), "utf8");
-    expect(html).toContain("assets/theme.css");
-    // The bake carries the written theme in its emitted stylesheet (tokens live
-    // in assets/theme.css, the page HTML only links it).
-    const css = readFileSync(
-      join(preview.body.preview.buildRef, "assets", "theme.css"),
-      "utf8",
-    );
-    expect(css).toContain("7c5cff");
-    expect(css).toContain("Inter");
+    // The bake carries the written theme embedded in the emitted document
+    // itself, so the preview never depends on a linked stylesheet.
+    expect(html).toContain("7c5cff");
+    expect(html).toContain("Inter");
 
     // Soft adherence hint in the review: a divergent theme is flagged.
     await env.api.request({

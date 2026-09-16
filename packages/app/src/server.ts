@@ -197,7 +197,14 @@ export function createAppServer(options: AppServerOptions): Promise<AppServer> {
         });
       return;
     }
-    if (url.startsWith("/api/") || url.startsWith("/assets/")) {
+    // `/api/`, `/assets/` and `/_astro/` belong to the engine: the asset store,
+    // the signed previews/releases and the bake's root files (theme.css,
+    // islands.js, Astro's hashed bundles) are all served from there.
+    if (
+      url.startsWith("/api/") ||
+      url.startsWith("/assets/") ||
+      url.startsWith("/_astro/")
+    ) {
       proxyRequest(options.engineOrigin, options.operatorToken, url, req, res);
       return;
     }

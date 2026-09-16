@@ -13,6 +13,7 @@ import { SenifyError } from "@senify/core";
 import {
   bakeSite,
   parseDurationMs,
+  selfContainedHtml,
   type AssetDelivery,
   type BakePageInput,
   type BakeWarning,
@@ -336,6 +337,10 @@ export async function bakePages(
     // signed token into the page; without one the forms stay static.
     formSigner?: FormSigner;
     formBaseUrl?: string;
+    // Preview bakes inline the build's own stylesheets and island scripts into
+    // every page, so the served document needs no file server for the build
+    // root (see servePreviewFile in http.ts).
+    selfContained?: boolean;
     // Live preview (T10): resolve exactly this entry from its current cells.
     previewEntry?: { entry: Entry; collection: Collection };
   },
@@ -396,7 +401,7 @@ export async function bakePages(
       assets,
       ...(input.aeo === undefined ? {} : { aeo: input.aeo }),
     },
-    { outDir: input.outDir },
+    { outDir: input.outDir, selfContained: input.selfContained === true },
   );
   // Astro empties the output directory during the build, so the files are
   // copied only afterwards (original and, when present, the encoded ladder).
@@ -433,28 +438,12 @@ export async function bakePages(
   };
 }
 
-// The preview response is a single HTML document (the editor renders it in a
-// sandboxed iframe): the bake's own stylesheets are inlined and script tags
-// with a src are dropped, so the document needs no file server for its own
-// build output. Media keeps its served /assets URLs.
+// The entry preview is a single HTML document inside the editor's sandboxed
+// iframe: the bake's own stylesheets are inlined and script tags with a src are
+// dropped, so the document needs no file server for its own build output.
+// Media keeps its served /assets URLs.
 function selfContainedPreviewHtml(html: string, outDir: string): string {
-  const withoutLinks = html.replace(
-    /<link\b[^>]*rel="stylesheet"[^>]*>/g,
-    (tag) => {
-      const href = tag.match(/href="([^"]+)"/)?.[1] ?? "";
-      if (/^(https?:)?\/\//.test(href)) return tag;
-      const css = readBakedFile(outDir, href);
-      return css === undefined ? "" : `<style>${css}</style>`;
-    },
-  );
-  return withoutLinks.replace(/<script\b[^>]*\bsrc="[^"]*"[^>]*><\/script>/g, "");
-}
-
-function readBakedFile(outDir: string, href: string): string | undefined {
-  if (!href.startsWith("/")) return undefined;
-  const file = join(outDir, href.slice(1));
-  if (!file.startsWith(outDir) || !existsSync(file)) return undefined;
-  return readFileSync(file, "utf8");
+  return selfContainedHtml(html, outDir, { inlineScripts: false });
 }
 
 // Live preview of one entry (artifacts/23 §5): it renders through the same

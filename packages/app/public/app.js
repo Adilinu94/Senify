@@ -4377,9 +4377,14 @@ async function pageView(siteId, pageId, initialSearch) {
     pagesCache = [];
   }
   let mediaCache = [];
+  // Die Bausteine holen ihre Bilder über den Auslieferungs-Kontext
+  // (`/assets/<id>/<datei>`); ohne ihn fällt der Renderer auf
+  // `/assets/<id>` ohne Dateinamen zurück und jedes Bild läuft ins Leere.
+  let assetContext = {};
   try {
     const listed = await api(`/api/sites/${siteId}/assets`);
-    mediaCache = (listed.assets ?? []).map((asset) => ({
+    const assets = listed.assets ?? [];
+    mediaCache = assets.map((asset) => ({
       id: asset.id,
       name: asset.filename,
       kind: asset.kind,
@@ -4387,8 +4392,29 @@ async function pageView(siteId, pageId, initialSearch) {
       tags: asset.tags ?? [],
       createdAt: Date.parse(asset.createdAt) || undefined,
     }));
+    assetContext = Object.fromEntries(
+      assets.map((asset) => {
+        // Der Versionsparameter bricht den Cache nach einem Austausch.
+        const version = Date.parse(asset.updatedAt) || 0;
+        return [
+          asset.id,
+          {
+            src: `/assets/${asset.id}/${encodeURIComponent(asset.filename)}?v=${version}`,
+            width: asset.width ?? null,
+            height: asset.height ?? null,
+            blurhash: asset.blurhash ?? null,
+            variants: (asset.variants ?? []).map((variant) => ({
+              format: variant.format,
+              width: variant.width,
+              url: `/assets/${asset.id}/variants/${variant.width}.${variant.format}?v=${version}`,
+            })),
+          },
+        ];
+      }),
+    );
   } catch {
     mediaCache = [];
+    assetContext = {};
   }
 
   const toolbar = el(
@@ -4457,7 +4483,7 @@ async function pageView(siteId, pageId, initialSearch) {
             pagePaths: Object.fromEntries(
               pagesCache.map((entry) => [entry.id, entry.path]),
             ),
-            assets: {},
+            assets: assetContext,
           }),
         }),
         frameStyles: ["/theme.css", "/editor-frame.css"],
@@ -4646,6 +4672,10 @@ async function renderRoute() {
   const referenceMatch = route.match(/^#\/references\/([^/]+)$/);
   const isReferences = route === "#/references" || referenceMatch !== null;
   view.classList.toggle("refs-view", isReferences);
+  // Der Seiten-Editor ist eine Arbeitsfläche: die 68rem-Spalte der übrigen
+  // Ansichten würde ihn auf 1088px einengen, obwohl die Bühne 1440px zeigt.
+  const isEditor = /^#\/projects\/[^/]+\/pages\/[^/]+$/.test(route);
+  view.classList.toggle("editor-view", isEditor);
   refsRouteActive = isReferences;
   // Verlaesst die Route die Referenzen, schliesst das offene Fenster mit.
   if (!isReferences && refsInspector && refsInspector.dialog.open) {

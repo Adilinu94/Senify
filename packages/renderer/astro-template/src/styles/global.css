@@ -1,2 +1,13 @@
 @import "tailwindcss";
 @import "./components.css";
+
+/* Die Bausteine liegen außerhalb dieses Templates (packages/registry/src).
+   Tailwind scant von hier aus nur das Template und würde ihre Klassen
+   (overflow-hidden, md:flex, md:hidden, text-5xl …) nie erzeugen. Der Pfad ist
+   relativ zum gerenderten Verzeichnis; der Bake zieht ihn beim Staging auf die
+   dort gültige Tiefe um (siehe stageTemplate in packages/renderer/src/bake.ts). */
+@source "../../../../registry/src";
+
+/* Klassen aus Werten (`columnsClass`), die der Scanner im Quelltext nicht als
+   fertige Kandidaten sieht: Rasterspalten je Umbruchpunkt. */
+@source inline("{,sm:,md:}grid-cols-{2,3,4}");

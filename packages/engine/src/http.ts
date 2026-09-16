@@ -48,7 +48,9 @@ import {
   expirePreviews,
   publishRelease,
   requestChanges,
+  resolveBuildFile,
   resolvePreviewFile,
+  resolveReleaseFile,
   restoreRevisionAsDraft,
   submitReview,
   type LifecycleContext,
@@ -225,7 +227,7 @@ import type {
   TokenScope,
 } from "./types.ts";
 import { REVIEW_STATUSES } from "./types.ts";
-import { createReadStream, existsSync, statSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { extname } from "node:path";
 
 const BODY_LIMIT_BYTES = 1024 * 1024;
@@ -1884,6 +1886,41 @@ const ROUTES: Route[] = [
     },
   },
   {
+    // Root files of a bake: the baked pages link `/assets/theme.css`,
+    // `/assets/sections.css`, `/assets/islands.js` … next to the asset store's
+    // own `/assets/<id>/<file>` (one segment less, so no collision). Served for
+    // the published release and, while nothing is published, for the newest
+    // preview — `?release=`/`?preview=` pick a build explicitly.
+    method: "GET",
+    segments: ["assets", ":filename"],
+    public: true,
+    handler: async (context, params, _req, url) => {
+      const filename = requireParam(params, "filename");
+      if (!BUILD_ROOT_FILES.has(filename)) {
+        throw new SenifyError("not_found", `File "${filename}" does not exist`, {
+          field: "filename",
+        });
+      }
+      return buildRootFile(context, url, `assets/${filename}`);
+    },
+  },
+  {
+    // Astro's hashed bundle output (`/_astro/<name>.css`) lives in the build
+    // root as well; the document links it with an absolute path.
+    method: "GET",
+    segments: ["_astro", ":filename"],
+    public: true,
+    handler: async (context, params, _req, url) => {
+      const filename = requireParam(params, "filename");
+      if (!/^[A-Za-z0-9._-]+$/.test(filename)) {
+        throw new SenifyError("validation", `Invalid file name "${filename}"`, {
+          field: "filename",
+        });
+      }
+      return buildRootFile(context, url, `_astro/${filename}`);
+    },
+  },
+  {
     // Public asset delivery under the path the bake writes into the build.
     method: "GET",
     segments: ["assets", ":assetId", ":filename"],
@@ -3382,7 +3419,9 @@ async function servePreviewFile(
     );
     return;
   }
-  const file = resolvePreviewFile(preview, relativePath);
+  const file = previewFileTarget(preview.buildRef, relativePath, (path) =>
+    resolvePreviewFile(preview, path),
+  );
   if (!file) {
     sendError(
       res,
@@ -3392,7 +3431,199 @@ async function servePreviewFile(
     );
     return;
   }
+  // An HTML document links the build's own files root-absolute
+  // (/assets/theme.css, /_astro/…, page links). Nothing serves the build root
+  // next to the preview, so the document keeps all of them inside its own
+  // build — including for previews baked before the pages became self-contained.
+  if (extname(file).toLowerCase() === ".html") {
+    const html = readFileSync(file, "utf8");
+    sendText(
+      res,
+      200,
+      rewriteToBuildPrefix(html, `/api/previews/${preview.id}/files/`, preview.token),
+      CONTENT_TYPES[".html"] ?? "text/html; charset=utf-8",
+      { "cache-control": "no-store" },
+    );
+    return;
+  }
   sendFile(res, { path: file });
+}
+
+// `/assets/theme.css` → `<prefix>assets/theme.css?token=…`: the leading slash
+// of every local URL is replaced and the preview token is carried into the
+// sub-resource request, because the signed preview serves every file by token.
+// Foreign URLs (http/https, protocol-relative) and fragment links stay as they
+// are.
+function rewriteToBuildPrefix(html: string, prefix: string, token: string): string {
+  const suffix = `token=${encodeURIComponent(token)}`;
+  const local = (value: string): string => {
+    if (!value.startsWith("/") || value.startsWith("//")) return value;
+    const hashIndex = value.indexOf("#");
+    const beforeHash = hashIndex >= 0 ? value.slice(0, hashIndex) : value;
+    const hash = hashIndex >= 0 ? value.slice(hashIndex) : "";
+    const queryIndex = beforeHash.indexOf("?");
+    const path = queryIndex >= 0 ? beforeHash.slice(0, queryIndex) : beforeHash;
+    const query = queryIndex >= 0 ? beforeHash.slice(queryIndex + 1) : "";
+    const merged = query === "" ? suffix : `${query}&${suffix}`;
+    return `${prefix}${path.slice(1)}?${merged}${hash}`;
+  };
+  return html.replace(
+    /\b(href|src|srcset)="([^"]*)"/g,
+    (match, attribute: string, value: string) => {
+      const rewritten =
+        attribute === "srcset"
+          ? value
+              .split(",")
+              .map((entry) => {
+                const [url, ...rest] = entry.trim().split(/\s+/);
+                return [local(url ?? ""), ...rest].join(" ");
+              })
+              .join(", ")
+          : local(value);
+      return rewritten === value ? match : `${attribute}="${rewritten}"`;
+    },
+  );
+}
+
+// The published site: releases have no token, a browser opens them directly
+// (`/api/releases/<id>/files/…`), and their pages link the build root files
+// (theme.css, _astro/*, islands.js) that `/assets/<file>` and `/_astro/<file>`
+// serve from the newest build.
+async function serveReleaseFile(
+  context: EngineContext,
+  res: ServerResponse,
+  releaseId: string,
+  relativePath: string,
+): Promise<void> {
+  let release;
+  try {
+    release = await context.store.getRelease(releaseId);
+  } catch (error) {
+    sendError(res, error);
+    return;
+  }
+  if (release.buildRef === null) {
+    sendError(
+      res,
+      new SenifyError("not_found", `Release "${releaseId}" has no build`, {
+        suggestion: "Publish the site first.",
+      }),
+    );
+    return;
+  }
+  const file = previewFileTarget(release.buildRef, relativePath, (path) =>
+    resolveReleaseFile(release, path),
+  );
+  if (!file) {
+    sendError(
+      res,
+      new SenifyError("validation", "Invalid release file path", {
+        field: "path",
+      }),
+    );
+    return;
+  }
+  sendFile(res, { path: file });
+}
+
+// A build is a directory tree: a request that ends in a folder (or at the build
+// root itself) answers with its index page.
+function previewFileTarget(
+  root: string,
+  relativePath: string,
+  resolveInBuild: (path: string) => string | undefined,
+): string | undefined {
+  const requested =
+    relativePath === "" || relativePath.endsWith("/")
+      ? `${relativePath}index.html`
+      : relativePath;
+  const file = resolveInBuild(requested);
+  if (file === undefined) return undefined;
+  if (existsSync(file) && statSync(file).isDirectory()) {
+    return resolveBuildFile(root, `${requested.replace(/\/+$/, "")}/index.html`);
+  }
+  return file;
+}
+
+// Root files of a bake. The baked pages link them as `/assets/theme.css`,
+// `/assets/islands.js` and `/_astro/<hash>.css`; the asset store keeps its own
+// `/assets/<id>/<file>` route (a different prefix depth, no collision).
+const BUILD_ROOT_FILES = new Set([
+  "theme.css",
+  "components.css",
+  "sections.css",
+  "islands.js",
+  "page.js",
+  "forms.js",
+]);
+
+// Which build serves those root paths? `?release=`/`?preview=` pick one
+// explicitly (the preview needs its token), otherwise the published state wins:
+// the active release of a site, and while nothing is published yet the newest
+// ready preview. The engine is a local, single-operator program.
+async function currentBuildRoot(
+  context: EngineContext,
+  url: URL,
+): Promise<string | undefined> {
+  const releaseId = url.searchParams.get("release");
+  if (releaseId !== null) {
+    const release = await context.store.getRelease(releaseId);
+    return release.buildRef ?? undefined;
+  }
+  const previewId = url.searchParams.get("preview");
+  if (previewId !== null) {
+    const preview = await context.store.getPreview(previewId);
+    if (url.searchParams.get("token") !== preview.token) {
+      throw new AuthError(401, "Preview token is missing or invalid", {
+        suggestion: "Use the signed preview URL from the review item.",
+      });
+    }
+    return preview.buildRef;
+  }
+  const sites = await context.store.listSites();
+  for (const site of sites) {
+    const activeId = await context.store.getActiveReleaseId(site.id);
+    if (activeId === null) continue;
+    const release = await context.store.getRelease(activeId);
+    if (release.buildRef !== null && existsSync(release.buildRef)) {
+      return release.buildRef;
+    }
+  }
+  let newest: { buildRef: string; createdAt: string } | undefined;
+  for (const site of sites) {
+    for (const preview of await context.store.listPreviews(site.id)) {
+      if (preview.status !== "ready") continue;
+      if (Date.parse(preview.expiresAt) <= Date.now()) continue;
+      if (newest === undefined || preview.createdAt > newest.createdAt) {
+        newest = preview;
+      }
+    }
+  }
+  return newest?.buildRef;
+}
+
+async function buildRootFile(
+  context: EngineContext,
+  url: URL,
+  relativePath: string,
+): Promise<{ status: number; file: { path: string; headers: Record<string, string> } }> {
+  const root = await currentBuildRoot(context, url);
+  if (root === undefined) {
+    throw new SenifyError("not_found", `Build file "${relativePath}" does not exist`, {
+      suggestion: "Publish a release or create a preview first.",
+    });
+  }
+  const file = resolveBuildFile(root, relativePath);
+  if (file === undefined || !existsSync(file) || !statSync(file).isFile()) {
+    throw new SenifyError("not_found", `Build file "${relativePath}" does not exist`, {
+      field: "filename",
+    });
+  }
+  // Revalidate: a new release replaces the file under the stable path.
+  return {
+    status: 200,
+    file: { path: file, headers: { "cache-control": "public, max-age=0, must-revalidate" } },
+  };
 }
 
 async function handleRequest(
@@ -3414,8 +3645,13 @@ async function handleRequest(
     return;
   }
   const segments = url.pathname.split("/").filter((part) => part.length > 0);
+  // Build files are served from a bake directory: the signed preview and the
+  // published release share this shape (deeper paths than a route segment).
   const previewFile = url.pathname.match(
-    /^\/api\/previews\/([^/]+)\/files\/(.+)$/,
+    /^\/api\/previews\/([^/]+)\/files(?:\/(.*))?$/,
+  );
+  const releaseFile = url.pathname.match(
+    /^\/api\/releases\/([^/]+)\/files(?:\/(.*))?$/,
   );
   let matchedRoute: Route | undefined;
   let matchedParams: RouteParams | undefined;
@@ -3439,6 +3675,15 @@ async function handleRequest(
         decodeURIComponent(previewFile[1] ?? ""),
         decodeURIComponent(previewFile[2] ?? ""),
         url,
+      );
+      return;
+    }
+    if (method === "GET" && releaseFile) {
+      await serveReleaseFile(
+        context,
+        res,
+        decodeURIComponent(releaseFile[1] ?? ""),
+        decodeURIComponent(releaseFile[2] ?? ""),
       );
       return;
     }

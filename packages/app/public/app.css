@@ -136,6 +136,12 @@ kbd {
   padding: 1.75rem 1.25rem 5rem;
 }
 
+/* Der Seiten-Editor braucht die Fensterbreite: die Bühne zeigt 1440px, die
+   68rem-Spalte würde sie auf 1088px beschneiden. */
+.view.editor-view {
+  max-width: none;
+}
+
 /* Toolbar */
 
 .toolbar {

@@ -16,11 +16,14 @@ type Props = {
   };
   site: { name: string; baseUrl: string; lang?: string };
   ctx: SectionContext;
+  // The bake only writes assets/sections.css when a page carries style
+  // overrides; a missing file must not be linked (it would 404).
+  sectionsCss?: boolean;
   fontPreloads: { href: string }[];
   cdn: { gsap: string; scrollTrigger: string; splitText: string; lenis: string };
 };
 
-const { page, site, ctx, fontPreloads, cdn } = Astro.props;
+const { page, site, ctx, sectionsCss = false, fontPreloads, cdn } = Astro.props;
 const lang = site.lang ?? "de";
 ---
 <html lang={lang}>
@@ -35,7 +38,7 @@ const lang = site.lang ?? "de";
     {page.ogImage && <meta property="og:image" content={page.ogImage} />}
     <link rel="canonical" href={`${site.baseUrl}${page.path}`} />
     <link rel="stylesheet" href="/assets/theme.css" />
-    <link rel="stylesheet" href="/assets/sections.css" />
+    {sectionsCss && <link rel="stylesheet" href="/assets/sections.css" />}
     {fontPreloads.map((font) => (
       <link
         rel="preload"

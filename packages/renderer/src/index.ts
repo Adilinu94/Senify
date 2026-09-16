@@ -1,6 +1,8 @@
 export {
   bakeSite,
+  inlineBakedAssets,
   jsonForHtml,
+  selfContainedHtml,
   type BakeInput,
   type BakeOptions,
   type BakePageInput,

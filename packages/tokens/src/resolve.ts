@@ -64,10 +64,15 @@ function resolveRefValue(
 ): string | undefined {
   if (seen.includes(ref)) return undefined;
   const next = [...seen, ref];
-  const semantic = theme.tokens.semantic[ref];
-  if (semantic) return applySemanticRef(theme, primitives, semantic, next);
+  // The default view is the light mode: emitCss writes `--<role>` from
+  // `tokens.modes.light`, so resolving a role name must prefer that concrete
+  // mode over the abstract `tokens.semantic` base. Otherwise a role the site
+  // overrode for light (e.g. `accent-ink`) would resolve to the neutral
+  // default and disagree with the delivered CSS.
   const light = theme.tokens.modes.light[ref];
   if (light) return applySemanticRef(theme, primitives, light, next);
+  const semantic = theme.tokens.semantic[ref];
+  if (semantic) return applySemanticRef(theme, primitives, semantic, next);
   const dark = theme.tokens.modes.dark?.[ref];
   if (dark) return applySemanticRef(theme, primitives, dark, next);
   const primitive = lookupPath(primitives, ref);

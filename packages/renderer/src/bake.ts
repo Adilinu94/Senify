@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import {
   cpSync,
+  existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -9,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { SenifyError } from "@senify/core";
@@ -93,6 +94,9 @@ export type BakeOptions = {
   outDir?: string;
   keepWorkDir?: boolean;
   strict?: boolean;
+  // Previews are opened without a file server for the build root: the baked
+  // stylesheets and island scripts are inlined into every HTML page.
+  selfContained?: boolean;
 };
 
 export function jsonForHtml(value: unknown): string {
@@ -231,6 +235,69 @@ function htmlFileName(path: string): string {
   return path === "/" ? "index.html" : `${path.slice(1)}/index.html`;
 }
 
+function readBakedFile(outDir: string, href: string): string | undefined {
+  if (!href.startsWith("/")) return undefined;
+  const file = join(outDir, href.slice(1));
+  if (!file.startsWith(outDir) || !existsSync(file)) return undefined;
+  return readFileSync(file, "utf8");
+}
+
+function htmlFilesIn(outDir: string): string[] {
+  const files: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith(".html")) files.push(full);
+    }
+  };
+  walk(outDir);
+  return files;
+}
+
+// The build links its own files as `/assets/theme.css`, `/_astro/…`,
+// `/assets/islands.js`. A served preview has no file server for the build root
+// (the engine serves one document, the media comes from the asset store), so
+// those files are inlined into the document: stylesheets as `<style>`, local
+// scripts as `<script>`. Foreign URLs (CDNs, media) stay as they are, and a
+// link to a missing or empty file is dropped instead of costing a 404.
+export function selfContainedHtml(
+  html: string,
+  outDir: string,
+  options: { inlineScripts: boolean } = { inlineScripts: true },
+): string {
+  const withoutLinks = html.replace(
+    /<link\b[^>]*rel="stylesheet"[^>]*>/g,
+    (tag) => {
+      const href = tag.match(/href="([^"]+)"/)?.[1] ?? "";
+      if (/^(https?:)?\/\//.test(href)) return tag;
+      const css = readBakedFile(outDir, href);
+      return css === undefined || css.trim() === "" ? "" : `<style>${css}</style>`;
+    },
+  );
+  return withoutLinks.replace(
+    /<script\b[^>]*\bsrc="([^"]*)"[^>]*><\/script>/g,
+    (tag, src: string) => {
+      if (/^(https?:)?\/\//.test(src)) return tag;
+      if (!options.inlineScripts) return "";
+      const script = readBakedFile(outDir, src);
+      return script === undefined ? "" : `<script>${script}</script>`;
+    },
+  );
+}
+
+// Inline the build's own files into every emitted page (preview bakes).
+export function inlineBakedAssets(outDir: string): void {
+  for (const file of htmlFilesIn(outDir)) {
+    writeFileSync(
+      file,
+      selfContainedHtml(readFileSync(file, "utf8"), outDir, {
+        inlineScripts: true,
+      }),
+    );
+  }
+}
+
 export async function bakeSite(
   input: BakeInput,
   options: BakeOptions = {},
@@ -322,12 +389,16 @@ export async function bakeSite(
     }
   }
 
+  const sectionsCss = overridesCss(input.pages);
   const stageDir = await stageTemplate(
     {
       site: { name: input.siteName, baseUrl: input.baseUrl, lang: "de" },
       ctx,
       pages: manifestPages,
       fontPreloads: input.fontPreloads ?? [],
+      // Only a non-empty file is written, so the page only links it when it
+      // exists (an empty <link> would just cost a request).
+      sectionsCss: sectionsCss !== "",
       cdn: {
         gsap: GSAP_CDN,
         scrollTrigger: SCROLL_TRIGGER_CDN,
@@ -346,10 +417,7 @@ export async function bakeSite(
       join(outDir, "assets", "components.css"),
       readFileSync(join(stageDir, "src", "styles", "components.css"), "utf8"),
     );
-    writeFileSync(
-      join(outDir, "assets", "sections.css"),
-      overridesCss(input.pages),
-    );
+    if (sectionsCss !== "") writeFileSync(join(outDir, "assets", "sections.css"), sectionsCss);
     if (anyMotion) {
       writeFileSync(
         join(outDir, "assets", "page.js"),
@@ -363,6 +431,9 @@ export async function bakeSite(
     if (anyForm) {
       writeFileSync(join(outDir, "assets", "forms.js"), renderFormsScript());
     }
+    // Previews have no file server for the build root: inline the build's own
+    // stylesheets and scripts after all of them are written.
+    if (options.selfContained === true) inlineBakedAssets(outDir);
     if (input.aeo !== false) {
       writeAeoFiles(outDir, input, expandedPages, definitions);
     }
@@ -387,6 +458,7 @@ async function stageTemplate(manifest: unknown, themeCss: string): Promise<strin
     `stage-${Date.now()}-${Math.floor(Math.random() * 0xffff)}`,
   );
   cpSync(join(rendererDir, "..", "astro-template"), stageDir, { recursive: true });
+  rewriteTailwindSource(stageDir);
   mkdirSync(join(stageDir, "src", "generated"), { recursive: true });
   writeFileSync(
     join(stageDir, "src", "generated", "manifest.json"),
@@ -394,6 +466,23 @@ async function stageTemplate(manifest: unknown, themeCss: string): Promise<strin
   );
   writeFileSync(join(stageDir, "src", "generated", "theme.css"), themeCss);
   return stageDir;
+}
+
+// The template's global.css points `@source` at the section components, which
+// live in packages/registry — outside the copied template. The copy sits one
+// directory deeper, so the relative path is recomputed for the staged file.
+function rewriteTailwindSource(stageDir: string): void {
+  const globalCss = join(stageDir, "src", "styles", "global.css");
+  if (!existsSync(globalCss)) return;
+  const registry = join(rendererDir, "..", "..", "registry", "src");
+  const sourcePath = relative(dirname(globalCss), registry).split(sep).join("/");
+  writeFileSync(
+    globalCss,
+    readFileSync(globalCss, "utf8").replace(
+      /^@source\s+"[^"]*registry[^"]*";/m,
+      `@source "${sourcePath}";`,
+    ),
+  );
 }
 
 function runAstroBuild(stageDir: string, outDir: string): void {

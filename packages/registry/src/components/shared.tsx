@@ -173,11 +173,18 @@ export function buttonStyle(
 }
 
 export function headingStyle(node: Node): React.CSSProperties {
-  return {
-    ...partStyle(node, "heading"),
+  const parts = partVarsFor(node.props, "heading");
+  const style: React.CSSProperties = {
+    ...(parts as React.CSSProperties | undefined),
     color: "var(--heading-fg, inherit)",
-    fontSize: "var(--heading-size, inherit)",
   };
+  // Only when a prop set the variable: a plain `var(--heading-size, inherit)`
+  // would force every heading onto `inherit` and beat the theme's own h1/h2
+  // sizes (40 to 72px) with the body size.
+  if (parts?.["--heading-size"] !== undefined) {
+    style.fontSize = "var(--heading-size)";
+  }
+  return style;
 }
 
 export function mediaStyle(
