@@ -101,6 +101,15 @@ Alle Tickets liegen unter `.scratch/senify-v1-build/issues/`. Der Fortschritt st
 - **Mail und Sicherung.** Der SMTP-Client ist gegen einen echten lokalen SMTP-Server belegt (Erfolg, `AUTH LOGIN`, falsche Zugangsdaten, nicht erreichbarer Port, Abbruch mitten im Dialog). Sicherungen lassen sich zurückspielen: Prüfung gegen Manifest und Prüfsummen, automatisches Schutznetz vorher, Tabellenwechsel in einer Transaktion, Route nur mit ausdrücklicher Bestätigung.
 - **Start lauffähig.** Die CLI braucht `tsx`, weil die Registry `.tsx`-Dateien enthält. Deshalb gibt es `pnpm start` und `pnpm senify`; Anleitung in `README.md`.
 
+## 5b. Runde 2 am 16.09.2026: Referenzen wirklich wie das Vorbild
+
+- **Echte Daten statt Platzhalter.** `pnpm exec tsx packages/engine/scripts/import-taste-vault.ts --from Repos/taste-vault [--dry-run]` liest `data/gallery.json` und `images/` des Vorbilds und legt 12 Sammlungen und 46 Referenzen mit allen Originalwerten an (idempotent, zweiter Lauf aktualisiert nur). Die 46 Originalbilder liegen im Datenverzeichnis (`~/.senify/references/<id>/snapshots/`), **nicht** im Repo: sie zeigen fremde Websites und stehen nicht unter der MIT-Lizenz des Vorbildcodes. Achtung: Die Engine drosselt auf 60 Anfragen je Minute, das Skript taktet den Bildversand mit 1,1 s; die Snapshot-Route selbst ist inzwischen von der Drosselung ausgenommen.
+- **Oberfläche nach Messwerten.** Leiste 219 px (Eintrag 184 × 37), Raster 3 × 367 px mit 32/24 px, Karte 301 px, Suche 480 × 44, Grundschrift Segoe UI Variable, Überschrift Bahnschrift 56 px mit -2,3 px, Umbruch bei 1750/1190/1000/650/380 px. Hover: Rand `#ac96e9`, Ring `#e9e1f8`, Etikett „Referenz öffnen", Titel `#593dc3`; Auswahl mit 2 px `#6346d7`.
+- **Popup statt Detailseite.** Klick auf eine Karte öffnet ein modales Fenster (1408 × 846 bei 1440 px, Radius 13, Backdrop 48 % mit 4 px Weichzeichnung, Bildbühne `#e9ecf1` mit 24 px, Detailspalte 345 px mit 27/24 px), Blättern per Pfeiltasten und Knöpfen, Zoom/Einpassen, Escape und Klick daneben schließen, mobil einspaltig.
+- **Zwei CSS-Fallen, die Zeit gekostet haben:** Dialoge hängen am Body und erben die Variablen der Fläche nicht (Regeln für `.refs-dialog` ergänzt), und die App-Regel `button.primary` überschreibt Größe, Radius und Schrift der Referenz-Knöpfe (Maße im Referenzen-Kontext festgesetzt).
+- **Briefe wörtlich wie das Vorbild:** Einzelbrief (Reference, Screenshot, Aesthetic, Vocabulary, What to borrow, Composition, Image recipe), Sammelbrief mit Trenner, Sammlungs- und Stilbrief, Bildrezept-Prompt und Haus-DNA. Die Vorlagen stammen aus dem Vorbild (MIT), erfundene Fallbackzeilen sind entfernt.
+- **Abnahme:** Chromium-Durchlauf über alle 14 Leisten-Einträge, Suche, Sortierung, Hover-, Fokus- und Auswahlzustände, Vergleichsfenster und Mobilansicht; Messskripte und Screenshots im Scratchpad (`vorbild-ui.*`, `abnahme.json`, `p-*.png`, `m-*.png`), eigene Aufnahmen unter `.scratch/refs/aufnahmen/`.
+
 ## 6. Arbeitsweise im Projekt
 
 - Antworten und Artefakte auf **Deutsch**, Fachbegriffe englisch. Fragen an den Nutzer über den interaktiven Frage-Dialog, nicht als Freitext-Runde.
