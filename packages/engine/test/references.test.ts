@@ -610,5 +610,6 @@ describe("reference pipeline over the API (T14)", () => {
       { siteId: site.id, referenceId, author: TEST_AUTHOR, scales: ["color"] },
     );
     expect(kept.assignment.scales).toEqual(["color"]);
-  }, 30_000);
+    // The bake in here is heavy: under a fully loaded suite 30 s is too tight.
+  }, 120_000);
 });
