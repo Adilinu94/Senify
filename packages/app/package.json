@@ -12,6 +12,9 @@
     "@senify/engine": "workspace:*",
     "@senify/registry": "workspace:*",
     "@senify/tokens": "workspace:*",
-    "esbuild": "^0.28.2"
+    "@tailwindcss/node": "^4.3.3",
+    "@tailwindcss/oxide": "^4.3.3",
+    "esbuild": "^0.28.2",
+    "tailwindcss": "^4.3.3"
   }
 }

@@ -1,0 +1,7 @@
+/* Frame stylesheet of the visual editor: the same recipe as the bake
+   (Tailwind v4 + the renderer's component styles) compiled on demand by the
+   program server and served as /editor-frame.css. The theme tokens come from
+   /theme.css, which the frame loads alongside this file. */
+@import "tailwindcss" source(none);
+@import "../../renderer/astro-template/src/styles/components.css";
+@source "../../registry/src";

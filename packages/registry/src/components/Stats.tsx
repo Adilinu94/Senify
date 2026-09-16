@@ -22,7 +22,7 @@ export function Stats({ node }: SectionProps): React.JSX.Element {
       <div className={cx("mx-auto px-4 py-12", contentWidthClass(node))}>
         {str(node.props.title) !== "" && (
           <h2
-            className="font-[var(--font-display)] text-3xl font-bold"
+            className="font-[family-name:var(--font-display)] text-3xl font-bold"
             style={{ ...headingStyle(node), ...alignStyle(node) }}
           >
             {str(node.props.title)}
@@ -38,7 +38,7 @@ export function Stats({ node }: SectionProps): React.JSX.Element {
           {items.map((item, index) => (
             <div key={index}>
               <dd
-                className="font-[var(--font-display)] text-4xl font-bold md:text-5xl"
+                className="font-[family-name:var(--font-display)] text-4xl font-bold md:text-5xl"
                 data-count={typeof item.value === "string" ? item.value : undefined}
                 data-prefix={typeof item.prefix === "string" ? item.prefix : undefined}
                 data-suffix={typeof item.suffix === "string" ? item.suffix : undefined}

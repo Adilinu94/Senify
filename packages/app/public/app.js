@@ -2186,6 +2186,15 @@ async function pageView(siteId, pageId, initialSearch) {
         tree: () => currentTree,
         page: { pageId, title: page.title, path: page.path },
         theme: editor.defaultTheme(),
+        renderer: editor.createReactRenderer({
+          context: () => ({
+            pagePaths: Object.fromEntries(
+              pagesCache.map((entry) => [entry.id, entry.path]),
+            ),
+            assets: {},
+          }),
+        }),
+        frameStyles: ["/theme.css", "/editor-frame.css"],
         pages: () => pagesCache,
         media: () => mediaCache,
         ...(initialSearch ? { initialSearch } : {}),

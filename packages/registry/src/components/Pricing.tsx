@@ -29,7 +29,7 @@ export function Pricing({ node, ctx }: SectionProps): React.JSX.Element {
     <SectionShell node={node} section="pricing">
       <div className={cx("mx-auto px-4 py-16", contentWidthClass(node))}>
         {str(node.props.title) !== "" && (
-          <h2 className="text-center font-[var(--font-display)] text-3xl font-bold" style={headingStyle(node)}>
+          <h2 className="text-center font-[family-name:var(--font-display)] text-3xl font-bold" style={headingStyle(node)}>
             {str(node.props.title)}
           </h2>
         )}
@@ -72,7 +72,7 @@ export function Pricing({ node, ctx }: SectionProps): React.JSX.Element {
                   {typeof plan.name === "string" ? plan.name : ""}
                 </h3>
                 <p
-                  className="mt-2 font-[var(--font-display)] text-4xl font-bold"
+                  className="mt-2 font-[family-name:var(--font-display)] text-4xl font-bold"
                   data-price-monthly={typeof plan.price === "string" ? plan.price : undefined}
                   data-price-yearly={typeof plan.priceYearly === "string" ? plan.priceYearly : undefined}
                 >

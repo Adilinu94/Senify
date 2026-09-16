@@ -28,7 +28,7 @@ export function Navbar({ node, ctx }: SectionProps): React.JSX.Element {
           contentWidthClass(node),
         )}
       >
-        <a href="/" className="font-[var(--font-display)] text-lg font-bold" style={linkStyle(node)}>
+        <a href="/" className="font-[family-name:var(--font-display)] text-lg font-bold" style={linkStyle(node)}>
           {str(node.props.logo, "Logo")}
         </a>
         <ul className="hidden items-center gap-6 md:flex">

@@ -22,7 +22,7 @@ export function Cta({ node, ctx }: SectionProps): React.JSX.Element {
         style={alignStyle(node)}
       >
         <h2
-          className="font-[var(--font-display)] text-3xl font-bold md:text-4xl"
+          className="font-[family-name:var(--font-display)] text-3xl font-bold md:text-4xl"
           style={headingStyle(node)}
         >
           {str(node.props.headline)}

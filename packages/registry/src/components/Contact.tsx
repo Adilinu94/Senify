@@ -25,7 +25,7 @@ export function Contact({ node, ctx }: SectionProps): React.JSX.Element {
         <div>
           {str(node.props.title) !== "" && (
             <h2
-              className="font-[var(--font-display)] text-3xl font-bold"
+              className="font-[family-name:var(--font-display)] text-3xl font-bold"
               style={{ ...headingStyle(node), ...alignStyle(node) }}
             >
               {str(node.props.title)}

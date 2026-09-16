@@ -24,7 +24,7 @@ export function Marquee({ node, ctx }: SectionProps): React.JSX.Element {
       {items.map((item, index) => {
         const asset = resolveAsset(item.asset, ctx);
         return (
-          <li key={index} className="mx-6 whitespace-nowrap font-[var(--font-display)] text-xl font-bold">
+          <li key={index} className="mx-6 whitespace-nowrap font-[family-name:var(--font-display)] text-xl font-bold">
             {asset ? (
               <ResponsiveImage
                 asset={asset}

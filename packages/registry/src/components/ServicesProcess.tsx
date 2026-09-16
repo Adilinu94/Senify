@@ -23,7 +23,7 @@ export function ServicesProcess({ node }: SectionProps): React.JSX.Element {
       <div className={cx("mx-auto px-4 py-16", contentWidthClass(node))}>
         {str(node.props.title) !== "" && (
           <h2
-            className="font-[var(--font-display)] text-3xl font-bold"
+            className="font-[family-name:var(--font-display)] text-3xl font-bold"
             style={{ ...headingStyle(node), ...alignStyle(node) }}
           >
             {str(node.props.title)}
@@ -43,7 +43,7 @@ export function ServicesProcess({ node }: SectionProps): React.JSX.Element {
         >
           {steps.map((step, index) => (
             <li key={index} className="border" style={cardStyle(node)}>
-              <span className="font-[var(--font-display)] text-4xl font-bold text-[var(--fg-faint)]">
+              <span className="font-[family-name:var(--font-display)] text-4xl font-bold text-[var(--fg-faint)]">
                 {typeof step.nr === "string" && step.nr !== "" ? step.nr : `0${index + 1}`}
               </span>
               <h3 className="mt-3 text-lg font-semibold">

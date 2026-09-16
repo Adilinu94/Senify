@@ -31,7 +31,7 @@ export function Hero({ node, slots, ctx }: SectionProps): React.JSX.Element {
             </p>
           )}
           <h1
-            className="font-[var(--font-display)] text-5xl font-bold leading-tight"
+            className="font-[family-name:var(--font-display)] text-5xl font-bold leading-tight"
             style={headingStyle(node)}
           >
             {str(node.props.headline)}

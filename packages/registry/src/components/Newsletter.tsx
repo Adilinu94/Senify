@@ -21,7 +21,7 @@ export function Newsletter({ node, ctx }: SectionProps): React.JSX.Element {
         )}
         style={alignStyle(node)}
       >
-        <h2 className="font-[var(--font-display)] text-3xl font-bold" style={headingStyle(node)}>
+        <h2 className="font-[family-name:var(--font-display)] text-3xl font-bold" style={headingStyle(node)}>
           {str(node.props.headline)}
         </h2>
         {str(node.props.sub) !== "" && (

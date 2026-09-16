@@ -10,6 +10,7 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { defaultTheme, emitCss, resolveTheme } from "@senify/tokens";
+import { loadFrameCss } from "./frame-css.ts";
 
 const PUBLIC_DIR = fileURLToPath(new URL("../public", import.meta.url));
 const require = createRequire(import.meta.url);
@@ -156,6 +157,25 @@ export function createAppServer(options: AppServerOptions): Promise<AppServer> {
         "cache-control": "no-store",
       });
       res.end(themeCss);
+      return;
+    }
+    if (url === "/editor-frame.css") {
+      void loadFrameCss()
+        .then((css) => {
+          res.writeHead(200, {
+            "content-type": "text/css; charset=utf-8",
+            "cache-control": "no-store",
+          });
+          res.end(css);
+        })
+        .catch((error: unknown) => {
+          sendError(
+            res,
+            502,
+            "Das Editor-Stylesheet konnte nicht gebaut werden",
+            error instanceof Error ? error.message : String(error),
+          );
+        });
       return;
     }
     if (url === "/editor.js") {

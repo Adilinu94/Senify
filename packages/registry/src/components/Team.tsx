@@ -26,7 +26,7 @@ export function Team({ node, ctx }: SectionProps): React.JSX.Element {
       <div className={cx("mx-auto px-4 py-16", contentWidthClass(node))}>
         {str(node.props.title) !== "" && (
           <h2
-            className="font-[var(--font-display)] text-3xl font-bold"
+            className="font-[family-name:var(--font-display)] text-3xl font-bold"
             style={{ ...headingStyle(node), ...alignStyle(node) }}
           >
             {str(node.props.title)}
@@ -55,7 +55,7 @@ export function Team({ node, ctx }: SectionProps): React.JSX.Element {
                 ) : (
                   <span
                     aria-hidden
-                    className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-[var(--bg-muted)] font-[var(--font-display)] text-2xl font-bold"
+                    className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-[var(--bg-muted)] font-[family-name:var(--font-display)] text-2xl font-bold"
                   >
                     {(typeof member.name === "string" ? member.name : "?").slice(0, 1)}
                   </span>

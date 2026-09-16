@@ -13,7 +13,9 @@
     "@senify/registry": "workspace:*",
     "@senify/renderer": "workspace:*",
     "@senify/section-sdk": "workspace:*",
-    "@senify/tokens": "workspace:*"
+    "@senify/tokens": "workspace:*",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
   },
   "peerDependencies": {
     "@puckeditor/core": "0.23.0"

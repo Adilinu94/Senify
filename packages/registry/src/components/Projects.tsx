@@ -32,7 +32,7 @@ export function Projects({ node, ctx }: SectionProps): React.JSX.Element {
       <div className={cx("mx-auto px-4 py-16", contentWidthClass(node))}>
         {str(node.props.title) !== "" && (
           <h2
-            className="font-[var(--font-display)] text-3xl font-bold"
+            className="font-[family-name:var(--font-display)] text-3xl font-bold"
             style={{ ...headingStyle(node), ...alignStyle(node) }}
           >
             {str(node.props.title)}

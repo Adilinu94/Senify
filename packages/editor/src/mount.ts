@@ -78,6 +78,8 @@ export type EditorOptions = {
   mediaQuery?: () => MediaQuery;
   theme?: Theme;
   renderer?: FrameRenderer;
+  // Stylesheets every frame document loads (theme tokens, section styles).
+  frameStyles?: string[];
   initialSearch?: string;
   onDeepLink?: (search: string, state: DeepLinkState) => void;
   onRefresh?: () => void | Promise<void>;
@@ -109,16 +111,24 @@ export type EditorInstance = {
   destroy(): void;
 };
 
-const FRAME_DOC = `<!doctype html><html><head><meta charset="utf-8"><style>
+// Frame document of one breakpoint: host stylesheets (theme tokens, section
+// styles) load via frameStyles, the editor's own overlay rules stay inline.
+function frameDoc(styles: readonly string[] = []): string {
+  const links = styles
+    .map((href) => `<link rel="stylesheet" href="${href}">`)
+    .join("");
+  return `<!doctype html><html><head><meta charset="utf-8">${links}<style>
 html, body { margin: 0; padding: 0; }
-body { font: 14px/1.5 system-ui, sans-serif; }
+body { font: 14px/1.5 system-ui, sans-serif; background: var(--bg-base, #ffffff); }
 [data-node-id] { position: relative; outline: 1px dashed transparent; }
 [data-node-id]:hover { outline-color: rgba(79,70,229,.45); }
 [data-node-id][data-hidden="true"] { opacity: .35; }
 [data-node-id][data-selected="true"] { outline: 2px solid #4f46e5; }
 [data-inline] { cursor: text; }
 [data-inline]:hover { background: rgba(79,70,229,.08); }
+.senify-frame-page { min-height: 100vh; }
 </style></head><body></body></html>`;
+}
 
 type ElementSpec = {
   className?: string;
@@ -410,7 +420,8 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     body.addEventListener("dblclick", (event: DomEvent) => {
       const target = (event.target as DomElement | null)?.closest?.("[data-inline]");
       if (!target) return;
-      const nodeId = target.getAttribute("data-node-id");
+      const nodeId =
+        target.getAttribute("data-inline-node") ?? target.getAttribute("data-node-id");
       const key = target.getAttribute("data-prop-key");
       if (!nodeId || !key) return;
       inline.start({ nodeId, key, value: target.textContent ?? "" });
@@ -510,7 +521,7 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
         wireInlineEditing(body);
       };
       iframe.addEventListener("load", mount);
-      iframe.setAttribute("srcdoc", FRAME_DOC);
+      iframe.setAttribute("srcdoc", frameDoc(options.frameStyles));
       wrap.appendChild(iframe);
       stage.appendChild(wrap);
       mount();

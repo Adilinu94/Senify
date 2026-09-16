@@ -37,6 +37,13 @@ describe.skipIf(!browserAvailable)("editor in a real browser (T13)", () => {
     try {
       // Warm the on-demand bundle build before the browser asks for it.
       expect((await fetch(`${running.dashboardUrl}/editor.js`)).status).toBe(200);
+      // The frame stylesheet compiles on demand: Tailwind utilities for the
+      // registry components plus their runtime styles.
+      const frameCssResponse = await fetch(`${running.dashboardUrl}/editor-frame.css`);
+      expect(frameCssResponse.status).toBe(200);
+      const frameCss = await frameCssResponse.text();
+      expect(frameCss).toContain(".mx-auto");
+      expect(frameCss).toContain(".marquee-track");
 
       const site = (await (await post("/api/sites", { name: "Browser-Prüfung" })).json()) as {
         id: string;
@@ -106,7 +113,35 @@ describe.skipIf(!browserAvailable)("editor in a real browser (T13)", () => {
       // A click inside a frame selects the node: rail highlight, selection
       // ring and the generated property panels.
       const firstFrame = tab.locator(".senify-editor__iframe").first().contentFrame();
-      await firstFrame.locator(`[data-node-id="${heroId}"] .senify-node__label`).click();
+      // The canvas renders the real section components, not stub boxes.
+      await firstFrame.locator('section[data-section="hero"]').waitFor({ timeout: 60000 });
+      expect(await firstFrame.locator(".senify-node").count()).toBe(0);
+      const heroHeadline = firstFrame.locator("h1").first();
+      expect((await heroHeadline.textContent())?.trim()).toBe("Browser-Prüfung");
+      // Tailwind utilities and the theme CSS reached the frame: px-4 is 1rem,
+      // the headline font comes from the theme token.
+      const heroBox = firstFrame.locator('[data-section="hero"] > div').first();
+      const heroPadding = () =>
+        heroBox.evaluate((el) => {
+          const target = el as unknown as {
+            ownerDocument: {
+              defaultView: { getComputedStyle(node: unknown): { paddingLeft: string } };
+            };
+          };
+          return target.ownerDocument.defaultView.getComputedStyle(el).paddingLeft;
+        });
+      await expect.poll(heroPadding, { timeout: 30000 }).toBe("16px");
+      const headlineFamily = () =>
+        heroHeadline.evaluate((el) => {
+          const target = el as unknown as {
+            ownerDocument: {
+              defaultView: { getComputedStyle(node: unknown): { fontFamily: string } };
+            };
+          };
+          return target.ownerDocument.defaultView.getComputedStyle(el).fontFamily;
+        });
+      await expect.poll(headlineFamily, { timeout: 30000 }).toContain("Sora");
+      await firstFrame.locator(`[data-node-id="${heroId}"] h1`).click();
       await expect
         .poll(async () =>
           tab.locator(`.senify-editor__row[data-node="${heroId}"][data-active="true"]`).count(),
@@ -130,13 +165,14 @@ describe.skipIf(!browserAvailable)("editor in a real browser (T13)", () => {
           .locator(".senify-editor__iframe")
           .nth(index)
           .contentFrame()
-          .locator(".senify-node__text")
+          .locator("h1")
           .first()
           .textContent();
-        expect(text).toContain("Neue Headline");
+        expect(text?.trim()).toBe("Neue Headline");
       }
 
-      // The deep link carries the selection and survives a reload.
+      // The deep link carries the selection and survives a reload; the
+      // rendered heading keeps its inline anchor (double-click edits it).
       await expect.poll(async () => tab.url()).toContain(`node=${heroId}`);
       await tab.reload({ waitUntil: "domcontentloaded" });
       await tab.waitForSelector(".senify-editor", { timeout: 30000 });
@@ -145,6 +181,13 @@ describe.skipIf(!browserAvailable)("editor in a real browser (T13)", () => {
           tab.locator(`.senify-editor__row[data-node="${heroId}"][data-active="true"]`).count(),
         )
         .toBe(1);
+      const renderedHeadline = firstFrame.locator("h1").first();
+      await expect.poll(async () => renderedHeadline.getAttribute("data-inline")).toBe("true");
+      await renderedHeadline.dblclick();
+      await expect
+        .poll(async () => renderedHeadline.getAttribute("contenteditable"))
+        .toBe("plaintext-only");
+      await tab.keyboard.press("Escape");
 
       // Live mode: one frame in real size, switching back keeps the state.
       await tab.locator('.senify-editor__button[data-mode="live"]').click();
