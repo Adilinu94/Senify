@@ -166,6 +166,9 @@ export const ReferenceSnapshotInputSchema = Type.Object(
     kind: Type.Union([Type.Literal("fullpage"), Type.Literal("section")]),
     storageRef: Type.String({ minLength: 1, maxLength: 400 }),
     hash: Type.String({ minLength: 1, maxLength: 80 }),
+    // Screenshot-Upload beim Snapshot-Fallback (blockierte Seite): ein
+    // optionaler PNG-Data-URL, der als Datei neben den Metadaten landet.
+    dataUrl: Type.Optional(Type.String({ maxLength: 4_000_000 })),
   },
   CLOSED,
 );

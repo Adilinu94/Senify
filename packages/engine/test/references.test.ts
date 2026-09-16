@@ -512,6 +512,108 @@ describe("reference pipeline over the API (T14)", () => {
     expect(gone.status).toBe(404);
   });
 
+  it("serves stored snapshots and refuses traversal or foreign ids", async () => {
+    const png = Buffer.from(
+      "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489",
+      "hex",
+    );
+    const context: ReferenceContext = {
+      store: env.engine.store,
+      dataDir: env.engine.dataDir,
+      deps: {
+        capture: async () => ({
+          markup: REFERENCE_HTML,
+          screenshots: [
+            { breakpoint: "1440", kind: "fullpage", bytes: png, width: 1440, height: 900 },
+            { breakpoint: "390", kind: "fullpage", bytes: png, width: 390, height: 780 },
+          ],
+        }),
+      },
+    };
+    const { reference } = await analyzeReference(context, {
+      url: "https://shots.test",
+      author: TEST_AUTHOR,
+    });
+    const desktop = reference.snapshots[0];
+    expect(reference.snapshots).toHaveLength(2);
+    expect(desktop?.storageRef).toBe(`references/${reference.id}/snapshots/1440-fullpage-1.png`);
+    expect(desktop?.previewPath).toBe(
+      `/api/references/${reference.id}/snapshots/1440-fullpage-1.png`,
+    );
+
+    const served = await fetch(`${env.server.origin}${desktop?.previewPath}`, {
+      headers: { authorization: `Bearer ${env.token}` },
+    });
+    expect(served.status).toBe(200);
+    expect(served.headers.get("content-type")).toBe("image/png");
+    expect(served.headers.get("cache-control")).toContain("must-revalidate");
+    expect(Buffer.from(await served.arrayBuffer())).toEqual(png);
+
+    // The snapshot stays internal: without a token the route refuses.
+    const anonymous = await fetch(`${env.server.origin}${desktop?.previewPath}`);
+    expect(anonymous.status).toBe(401);
+
+    // Traversal, absolute paths, unknown files and foreign ids stay 404.
+    for (const path of [
+      `/api/references/${reference.id}/snapshots/..%2F..%2Fsecret.png`,
+      `/api/references/${reference.id}/snapshots/%2Fetc%2Fpasswd`,
+      `/api/references/${reference.id}/snapshots/unbekannt.png`,
+      `/api/references/fremd/snapshots/1440-fullpage-1.png`,
+    ]) {
+      const response = await fetch(`${env.server.origin}${path}`, {
+        headers: { authorization: `Bearer ${env.token}` },
+      });
+      expect(response.status).toBe(404);
+      const body = (await response.json()) as { error: { category: string } };
+      expect(body.error.category).toBe("not_found");
+    }
+
+    // Snapshot fallback: an uploaded PNG data URL lands on disk and is served.
+    const uploaded = await analyzeReference(context, {
+      url: "https://shots-upload.test",
+      author: TEST_AUTHOR,
+      snapshot: {
+        html: REFERENCE_HTML,
+        screenshots: [
+          {
+            breakpoint: "810",
+            kind: "fullpage",
+            width: 810,
+            height: 1080,
+            storageRef: "upload",
+            hash: "upload",
+            dataUrl: `data:image/png;base64,${png.toString("base64")}`,
+          },
+        ],
+      },
+    });
+    expect(uploaded.reference.snapshots[0]?.previewPath).toBeDefined();
+    const servedUpload = await fetch(
+      `${env.server.origin}${uploaded.reference.snapshots[0]?.previewPath}`,
+      { headers: { authorization: `Bearer ${env.token}` } },
+    );
+    expect(servedUpload.status).toBe(200);
+    expect(Buffer.from(await servedUpload.arrayBuffer())).toEqual(png);
+
+    // Metadata without bytes has no preview path and answers 404.
+    const metadata = await analyzeReference(context, {
+      url: "https://shots-meta.test",
+      author: TEST_AUTHOR,
+      snapshot: {
+        html: REFERENCE_HTML,
+        screenshots: [
+          { breakpoint: "810", kind: "fullpage", width: 810, height: 1080, storageRef: "meta", hash: "meta" },
+        ],
+      },
+    });
+    expect(metadata.reference.snapshots[0]?.previewPath).toBeUndefined();
+    const missing = await fetch(
+      `${env.server.origin}/api/references/${metadata.reference.id}/snapshots/810-fullpage-1.png`,
+      { headers: { authorization: `Bearer ${env.token}` } },
+    );
+    expect(missing.status).toBe(404);
+  });
+
   it("applies a reference as theme draft, keeps the bake and bakes its tokens", async () => {
     const referenceId = await analyzeViaApi("https://studio-nord.test", "Studio Nord");
     const site = await createTestSite(env.api, "Referenz-Projekt");

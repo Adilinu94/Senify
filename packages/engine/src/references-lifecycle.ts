@@ -412,7 +412,7 @@ async function captureFor(
       screenshots: (snapshot.screenshots ?? []).map((entry) => ({
         breakpoint: entry.breakpoint,
         kind: entry.kind,
-        bytes: Buffer.from(""),
+        bytes: decodePngDataUrl(entry.dataUrl),
         width: entry.width,
         height: entry.height,
       })),
@@ -434,16 +434,30 @@ function persistScreenshots(
   mkdirSync(dir, { recursive: true });
   return screenshots.map((screenshot, index) => {
     const name = `${screenshot.breakpoint}-${screenshot.kind}-${index + 1}.png`;
-    if (screenshot.bytes.length > 0) writeFileSync(join(dir, name), screenshot.bytes);
+    const withBytes = screenshot.bytes.length > 0;
+    if (withBytes) writeFileSync(join(dir, name), screenshot.bytes);
     return {
       breakpoint: screenshot.breakpoint,
       width: screenshot.width,
       height: screenshot.height,
       kind: screenshot.kind,
-      storageRef: join("references", referenceId, "snapshots", name),
-      hash: screenshot.bytes.length === 0 ? sha256(name) : sha256(screenshot.bytes),
+      // Storage refs use posix separators (like the asset library); the file
+      // path itself stays OS-native.
+      storageRef: ["references", referenceId, "snapshots", name].join("/"),
+      hash: withBytes ? sha256(screenshot.bytes) : sha256(name),
+      ...(withBytes
+        ? { previewPath: `/api/references/${referenceId}/snapshots/${name}` }
+        : {}),
     };
   });
+}
+
+// Screenshot uploads of the snapshot fallback arrive as an inline PNG data URL.
+function decodePngDataUrl(dataUrl: string | undefined): Buffer {
+  if (dataUrl === undefined) return Buffer.from("");
+  const match = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl.trim());
+  const encoded = match?.[1];
+  return encoded === undefined ? Buffer.from("") : Buffer.from(encoded, "base64");
 }
 
 // Live capture path (not executed in CI): the probes mirror the site-clone
@@ -485,7 +499,7 @@ export function createPlaywrightCaptureDriver(
           retryable: false,
         });
       }
-      const probe = (await page.evaluate(PROBE_SCRIPT)) as CaptureResult & {
+      const probe = (await page.evaluate(`(${PROBE_SCRIPT})()`)) as CaptureResult & {
         screenshots?: never;
       };
       const shots: CapturedScreenshot[] = [];

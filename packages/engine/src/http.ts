@@ -2510,6 +2510,45 @@ const ROUTES: Route[] = [
     },
   },
   {
+    // Gestored snapshot PNG of a reference. The filename is whitelisted against
+    // the reference's own snapshots, so traversal and foreign ids never resolve
+    // (artifacts/28 §4: snapshots stay internal, they do not enter the media
+    // library).
+    method: "GET",
+    segments: ["api", "references", ":referenceId", "snapshots", ":filename"],
+    scope: "read",
+    handler: async (context, params) => {
+      const reference = await context.store.getReference(
+        requireParam(params, "referenceId"),
+      );
+      const filename = requireParam(params, "filename");
+      const snapshot = reference.snapshots.find(
+        (entry) => storedFileName(entry.storageRef) === filename,
+      );
+      if (snapshot === undefined) {
+        throw new SenifyError("not_found", `Snapshot "${filename}" does not exist`, {
+          field: "filename",
+        });
+      }
+      const file = resolveStoredFile(context.dataDir, snapshot.storageRef);
+      if (file === undefined || !existsSync(file) || !statSync(file).isFile()) {
+        throw new SenifyError("not_found", `Snapshot file "${filename}" is missing`, {
+          field: "filename",
+        });
+      }
+      return {
+        status: 200,
+        file: {
+          path: file,
+          contentType: "image/png",
+          // A re-analysis may overwrite the file under a stable name, so the
+          // response revalidates instead of caching hard.
+          headers: { "cache-control": "public, max-age=0, must-revalidate" },
+        },
+      };
+    },
+  },
+  {
     // Project assignment of references + the derived theme draft (T14 reuse).
     method: "GET",
     segments: ["api", "sites", ":siteId", "references"],

@@ -92,6 +92,100 @@ function initials(name) {
   return name.trim().slice(0, 2).toUpperCase();
 }
 
+// References (T14): a stored snapshot arrives as a served PNG. The preview
+// path comes from the engine, the fallback reconstructs it from the storage
+// ref (both use posix separators).
+function snapshotImageURL(referenceId, snapshot) {
+  if (snapshot.previewPath) return snapshot.previewPath;
+  const name = String(snapshot.storageRef).split("/").pop();
+  return `/api/references/${referenceId}/snapshots/${name}`;
+}
+
+function breakpointLabel(breakpoint) {
+  const width = Number.parseInt(breakpoint, 10);
+  if (!Number.isFinite(width)) return String(breakpoint);
+  if (width >= 1200) return "Desktop";
+  if (width >= 700) return "Tablet";
+  return "Mobile";
+}
+
+// Real thumbnail when the capture wrote a file, initials otherwise.
+function referenceThumb(reference) {
+  const fallback = el("div", { class: "card-thumb", text: initials(reference.name || "R") });
+  const snapshot = (reference.snapshots || []).find((entry) => entry.previewPath);
+  if (!snapshot) return fallback;
+  const image = el("img", {
+    class: "card-thumb image",
+    src: snapshotImageURL(reference.id, snapshot),
+    alt: `Vorschau ${reference.name}`,
+  });
+  image.addEventListener("error", () => image.replaceWith(fallback));
+  return image;
+}
+
+// Detail view: compare the captured breakpoints as a small slider. Keyboard
+// (arrow left/right) and mouse (buttons, breakpoint tabs) drive the same index.
+function referenceSnapshotsPanel(reference, snapshots) {
+  const shots = [...snapshots].sort((a, b) => b.width - a.width);
+  let index = 0;
+  const image = el("img", { class: "snapshot-image", alt: "Snapshot" });
+  const meta = el("div", { class: "snapshot-meta muted" });
+  const tabs = el("div", { class: "snapshot-tabs" });
+  const show = (next) => {
+    index = (next + shots.length) % shots.length;
+    const shot = shots[index];
+    image.src = snapshotImageURL(reference.id, shot);
+    image.alt = `Snapshot ${breakpointLabel(shot.breakpoint)}`;
+    meta.textContent = `${breakpointLabel(shot.breakpoint)} · ${shot.width}×${shot.height} px · ${shot.kind === "section" ? "Section" : "Fullpage"}`;
+    [...tabs.children].forEach((tab, position) =>
+      tab.classList.toggle("active", position === index),
+    );
+  };
+  shots.forEach((shot, position) =>
+    tabs.append(
+      el("button", {
+        type: "button",
+        class: "ghost",
+        text: breakpointLabel(shot.breakpoint),
+        onclick: () => show(position),
+      }),
+    ),
+  );
+  show(0);
+  const slider = el(
+    "div",
+    { class: "snapshot-slider", tabindex: "0" },
+    el("div", { class: "snapshot-frame" }, image),
+    el(
+      "div",
+      { class: "snapshot-controls" },
+      el("button", { type: "button", class: "ghost", text: "Zurück", onclick: () => show(index - 1) }),
+      tabs,
+      el("button", { type: "button", class: "ghost", text: "Weiter", onclick: () => show(index + 1) }),
+    ),
+    meta,
+  );
+  slider.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowLeft") {
+      show(index - 1);
+      event.preventDefault();
+    } else if (event.key === "ArrowRight") {
+      show(index + 1);
+      event.preventDefault();
+    }
+  });
+  return el(
+    "div",
+    { class: "panel" },
+    el("h2", { text: "Snapshots" }),
+    el("p", {
+      class: "muted",
+      text: "Breakpoint-Vergleich. Pfeiltasten oder Klick wechseln das Bild.",
+    }),
+    slider,
+  );
+}
+
 function activeTab(tab) {
   for (const link of document.querySelectorAll(".tabs a")) {
     link.classList.toggle("active", link.dataset.tab === tab);
@@ -429,7 +523,7 @@ async function referencesView() {
     el(
       "article",
       { class: "card" },
-      el("div", { class: "card-thumb", text: initials(reference.name || "R") }),
+      referenceThumb(reference),
       el(
         "div",
         { class: "card-body" },
@@ -711,7 +805,10 @@ async function referenceDetailView(referenceId) {
       ),
     );
   }
-  if (reference.snapshots.length > 0) {
+  const snapshotImages = reference.snapshots.filter((snapshot) => snapshot.previewPath);
+  if (snapshotImages.length > 0) {
+    nodes.push(referenceSnapshotsPanel(reference, snapshotImages));
+  } else if (reference.snapshots.length > 0) {
     nodes.push(
       el(
         "div",

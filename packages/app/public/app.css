@@ -235,6 +235,13 @@ button.linkish {
   font-weight: 700;
 }
 
+.card-thumb.image {
+  display: block;
+  width: 100%;
+  object-fit: cover;
+  object-position: top center;
+}
+
 .card-body {
   padding: 0.85rem 1rem 1rem;
   display: flex;
@@ -550,6 +557,56 @@ dialog.modal select,
   border: 1px solid var(--line);
   display: inline-block;
   flex: none;
+}
+
+/* Reference snapshot slider (T14) */
+
+.snapshot-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  outline: none;
+}
+
+.snapshot-slider:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.snapshot-frame {
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: var(--bg-muted);
+  overflow: hidden;
+}
+
+.snapshot-image {
+  display: block;
+  width: 100%;
+  max-height: 32rem;
+  object-fit: contain;
+  object-position: top center;
+}
+
+.snapshot-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.snapshot-tabs {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.snapshot-tabs .ghost.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.snapshot-meta {
+  font-size: 0.85rem;
 }
 
 .loading {

@@ -229,6 +229,69 @@ describe("program shell (Prüfstelle Programm)", () => {
     }
   }, 30000);
 
+  it("shows reference snapshots through the dashboard proxy", async () => {
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-app-shots-"));
+    const running = await startProgram({
+      db: database.db,
+      dataDir,
+      programTokenFile: join(dataDir, "program-token.json"),
+      enginePort: 0,
+      appPort: 0,
+      openBrowser: false,
+    });
+    const author = { kind: "human", id: "programm", label: "Programm" };
+    try {
+      const png = Buffer.from(
+        "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489",
+        "hex",
+      );
+      const dataUrl = `data:image/png;base64,${png.toString("base64")}`;
+      const created = await fetch(`${running.dashboardUrl}/api/references`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          url: "https://reference.example/",
+          author,
+          wait: true,
+          snapshot: {
+            html: "<html><body><h1>Hallo</h1></body></html>",
+            screenshots: [
+              { breakpoint: "1440", kind: "fullpage", width: 1440, height: 900, storageRef: "ref", hash: "h1", dataUrl },
+              { breakpoint: "390", kind: "fullpage", width: 390, height: 800, storageRef: "ref2", hash: "h2", dataUrl },
+            ],
+          },
+        }),
+      });
+      expect(created.status).toBe(201);
+      const body = (await created.json()) as {
+        reference: { id: string; snapshots: { breakpoint: string; previewPath?: string }[] };
+      };
+      const preview = body.reference.snapshots[0]?.previewPath;
+      expect(preview).toContain(`/api/references/${body.reference.id}/snapshots/`);
+
+      // The image is delivered through the same-origin proxy with the PNG type.
+      const image = await fetch(`${running.dashboardUrl}${preview}`);
+      expect(image.status).toBe(200);
+      expect(image.headers.get("content-type")).toBe("image/png");
+      expect(Buffer.from(await image.arrayBuffer())).toEqual(png);
+
+      const detail = (await (
+        await fetch(`${running.dashboardUrl}/api/references/${body.reference.id}`)
+      ).json()) as { snapshots: { previewPath?: string }[] };
+      expect(detail.snapshots.map((shot) => shot.previewPath)).toContain(preview);
+
+      // The dashboard ships the slider markup that renders the images.
+      const script = await (await fetch(`${running.dashboardUrl}/app.js`)).text();
+      expect(script).toContain("snapshots/");
+      expect(script).toContain("snapshot-slider");
+    } finally {
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 30000);
+
   it("refuses to start without a database", async () => {
     await expect(
       startProgram({ openBrowser: false, databaseUrl: undefined, db: undefined }),

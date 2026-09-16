@@ -658,6 +658,8 @@ export type ReferenceSnapshot = {
   kind: "fullpage" | "section";
   storageRef: string;
   hash: string;
+  // Relative URL of the stored PNG, present only when the capture wrote bytes.
+  previewPath?: string;
 };
 
 export type ReferenceMethod = "playwright" | "snapshot";
