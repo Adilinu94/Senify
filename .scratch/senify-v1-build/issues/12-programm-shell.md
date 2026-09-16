@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 (Site & Pages + Mutations), 06 (MCP-Kern & Agent-Setup), 07 (Lifecycle, Review & Checks).
 
-**Status:** umgesetzt (voller `pnpm verify` grün; Programm-Shell mit Arbeitsbereich, Editor-Einbindung und Einstellungen inklusive SMTP-Testmail, Backup-Status und Standardwerten)
+**Status:** umgesetzt (Programm-Shell mit Arbeitsbereich, Editor-Einbindung und Einstellungen; SMTP-Versand gegen einen echten Server belegt, Wiederherstellung einer Sicherung mit Schutznetz) — bewusst offen: STARTTLS nicht lokal geprüft, Desktop-Verpackung und System-Autostart
 
 - [x] `senify start` startet Engine und öffnet das Dashboard; ist die Engine nicht erreichbar, liefert der Proxy einen klaren Hinweis mit „senify start“-Aktion
 - [x] Projekt anlegen (nur Name) → Karte erscheint; Öffnen landet im Arbeitsbereich, Seiten öffnen den visuellen Editor (Bundle on demand, read-only-Fallback); Duplizieren (mit/ohne Inhalte) erzeugt vollständiges Projekt (Medien nur referenziert)
