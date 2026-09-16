@@ -46,6 +46,9 @@ export type CapturedScreenshot = {
   bytes: Buffer;
   width: number;
   height: number;
+  // Container of the uploaded image; captures are always PNG - a manually
+  // stored reference may be a JPEG or WebP.
+  extension?: "png" | "jpg" | "webp";
 };
 
 export type CaptureResult = {
@@ -247,7 +250,11 @@ export async function runReferenceJob(
         ? "Reduziertes Profil: Runtime-Werte fehlen (Snapshot-Fallback bzw. blockierte Live-Messung)"
         : "Playwright-Capture (Desktop 1440 / Tablet 810 / Mobile 390)",
     };
-    const snapshots = persistScreenshots(context, reference.id, capture.screenshots);
+    const snapshots = persistReferenceSnapshots(
+      context,
+      reference.id,
+      capture.screenshots,
+    );
     const { profile, evidence } = buildReferenceProfile({
       url: reference.sourceUrl,
       capturedAt,
@@ -423,8 +430,9 @@ async function captureFor(
 }
 
 // Snapshots stay internal: they live under <dataDir>/references/<id>/ and never
-// enter the site media library (artifacts/28 §4).
-function persistScreenshots(
+// enter the site media library (artifacts/28 §4). The manually stored reference
+// uses the same path, so its preview URL is the one of the snapshot fallback.
+export function persistReferenceSnapshots(
   context: ReferenceContext,
   referenceId: string,
   screenshots: CapturedScreenshot[] | undefined,
@@ -433,7 +441,9 @@ function persistScreenshots(
   const dir = join(context.dataDir, "references", referenceId, "snapshots");
   mkdirSync(dir, { recursive: true });
   return screenshots.map((screenshot, index) => {
-    const name = `${screenshot.breakpoint}-${screenshot.kind}-${index + 1}.png`;
+    const name = `${screenshot.breakpoint}-${screenshot.kind}-${index + 1}.${
+      screenshot.extension ?? "png"
+    }`;
     const withBytes = screenshot.bytes.length > 0;
     if (withBytes) writeFileSync(join(dir, name), screenshot.bytes);
     return {
@@ -720,13 +730,17 @@ export async function applyReference(
 }> {
   const reference = await context.store.getReference(input.referenceId);
   if (reference.status !== "ready" || reference.profile === null) {
+    const manual = reference.profile === null && reference.origin === "manual";
     throw new SenifyError(
       "conflict",
-      `Reference "${reference.name}" is ${reference.status}`,
+      manual
+        ? `Referenz "${reference.name}" hat kein Analyseprofil (manuell abgelegt)`
+        : `Reference "${reference.name}" is ${reference.status}`,
       {
         field: "referenceId",
-        suggestion:
-          reference.status === "failed"
+        suggestion: manual
+          ? "Die Referenz als URL analysieren, um Stil-Skalen in ein Projekt zu übernehmen."
+          : reference.status === "failed"
             ? "Fix the failure cause (failureReason) and enqueue a new analysis."
             : "Wait for the analysis to finish, or run the reference tick.",
       },

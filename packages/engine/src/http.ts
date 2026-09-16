@@ -69,7 +69,12 @@ import { Store } from "./store.ts";
 import type { EngineSettingsPatch, SmtpSettingsPatch } from "./store.ts";
 import { backupStatus, createBackup, listBackups } from "./backup.ts";
 import { sendTestMail, smtpMailSender, type MailSender } from "./mailer.ts";
-import { encryptSmtpPassword, resolveSmtpConfig, smtpView } from "./settings.ts";
+import {
+  encryptSmtpPassword,
+  referenceSettingsPatch,
+  resolveSmtpConfig,
+  smtpView,
+} from "./settings.ts";
 import {
   TestMailBodySchema,
   UpdateSettingsBodySchema,
@@ -156,13 +161,37 @@ import {
 import {
   AnalyzeReferenceBodySchema,
   ApplyReferenceBodySchema,
+  CreateReferenceCollectionBodySchema,
   EditReferenceProfileBodySchema,
+  MANUAL_REFERENCE_BODY_LIMIT_BYTES,
+  ManualReferenceBodySchema,
+  parseReferenceListFilters,
+  ReferenceBriefBodySchema,
   ReferenceTickBodySchema,
+  referenceFooterText,
+  UpdateReferenceBodySchema,
+  UpdateReferenceCollectionBodySchema,
   type AnalyzeReferenceBody,
   type ApplyReferenceBody,
+  type CreateReferenceCollectionBody,
   type EditReferenceProfileBody,
+  type ManualReferenceBody,
+  type ReferenceBriefBody,
   type ReferenceTickBody,
+  type ReferenceListFilters,
+  type UpdateReferenceBody,
+  type UpdateReferenceCollectionBody,
 } from "./references-contract.ts";
+import {
+  createManualReference,
+  referenceStyleCatalogInfo,
+  seedReferenceStyles,
+} from "./references-library.ts";
+import {
+  buildCollectionBrief,
+  buildImagePrompt,
+  buildReferenceBrief,
+} from "./references-brief.ts";
 import {
   applyAssetPatch,
   bulkAssets,
@@ -186,7 +215,13 @@ import {
 } from "./media.ts";
 import { resolveStoredFile, storedFileName } from "./storage.ts";
 import { buildThemeReport } from "./theme-report.ts";
-import type { ReviewStatus, TokenScope } from "./types.ts";
+import type {
+  ReferenceDna,
+  ReferencePreferences,
+  ReferenceSummary,
+  ReviewStatus,
+  TokenScope,
+} from "./types.ts";
 import { REVIEW_STATUSES } from "./types.ts";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname } from "node:path";
@@ -238,19 +273,22 @@ function mediaContext(context: EngineContext): MediaContext {
   };
 }
 
-// The settings view the app reads: SMTP without the password, the defaults and
-// the backup target (T12).
+// The settings view the app reads: SMTP without the password, the defaults, the
+// backup target (T12) and the reference preferences (T14).
 async function settingsView(
   context: EngineContext,
 ): Promise<{
   email: ReturnType<typeof smtpView>;
   defaults: { defaultProfile: string; defaultLayout: string; autostart: boolean };
   backup: { targetDir: string };
+  referenceDna: ReferenceDna;
+  referencePreferences: ReferencePreferences;
 }> {
-  const [email, settings, status] = await Promise.all([
+  const [email, settings, status, references] = await Promise.all([
     context.store.getSmtpSettings(),
     context.store.getEngineSettings(),
     backupStatus({ store: context.store, dataDir: context.dataDir }),
+    context.store.getReferenceSettings(),
   ]);
   return {
     email: smtpView(email),
@@ -260,6 +298,8 @@ async function settingsView(
       autostart: settings.autostart,
     },
     backup: { targetDir: status.targetDir },
+    referenceDna: references.dna,
+    referencePreferences: references.preferences,
   };
 }
 
@@ -458,16 +498,28 @@ function sendError(res: ServerResponse, error: unknown): void {
   });
 }
 
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+async function readJsonBody(
+  req: IncomingMessage,
+  limitBytes = BODY_LIMIT_BYTES,
+): Promise<unknown> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
     size += buffer.length;
-    if (size > BODY_LIMIT_BYTES) {
-      throw new SenifyError("validation", "Request body exceeds 1 MB", {
-        suggestion: "Split large batches into smaller mutation requests.",
-      });
+    if (size > limitBytes) {
+      throw new SenifyError(
+        "validation",
+        limitBytes === BODY_LIMIT_BYTES
+          ? "Request body exceeds 1 MB"
+          : `Request body exceeds ${Math.floor(limitBytes / (1024 * 1024))} MB`,
+        {
+          suggestion:
+            limitBytes === BODY_LIMIT_BYTES
+              ? "Split large batches into smaller mutation requests."
+              : "Ein kleineres Bild senden (Obergrenze 20 MB).",
+        },
+      );
     }
     chunks.push(buffer);
   }
@@ -2481,28 +2533,99 @@ const ROUTES: Route[] = [
     },
   },
   {
+    // The library list: collection filter, search over title/family/note/
+    // vocabulary/collection name, sort and the numbers of the footer line.
     method: "GET",
     segments: ["api", "references"],
     scope: "read",
     handler: async (context, _params, _req, url) => {
-      const query = url.searchParams.get("q")?.toLowerCase() ?? "";
-      const family = url.searchParams.get("family");
-      const status = url.searchParams.get("status");
-      let references = await context.store.listReferences();
-      if (query !== "") {
-        references = references.filter((reference) =>
-          `${reference.name} ${reference.sourceUrl} ${reference.families.join(" ")} ${reference.vocabulary.join(" ")}`
-            .toLowerCase()
-            .includes(query),
-        );
+      const filters = parseReferenceListFilters(url.searchParams);
+      if (filters.collection !== undefined && filters.collection !== "none") {
+        // A mistyped collection id is an error, not an empty view.
+        await context.store.getReferenceCollection(filters.collection);
       }
-      if (family !== null) {
-        references = references.filter((reference) => reference.families.includes(family));
+      const [all, collections] = await Promise.all([
+        context.store.listReferences({ sort: filters.sort }),
+        context.store.listReferenceCollections(),
+      ]);
+      const references = filterReferences(all, filters);
+      return {
+        status: 200,
+        body: {
+          references,
+          collections,
+          counts: {
+            references: all.length,
+            inView: references.length,
+            collections: collections.length,
+            styles: collections.filter((collection) => collection.kind === "style").length,
+          },
+          footer: {
+            total: all.length,
+            inView: references.length,
+            query: filters.query ?? null,
+            text: referenceFooterText({
+              count: references.length,
+              ...(filters.query === undefined ? {} : { query: filters.query }),
+            }),
+          },
+          styleCatalog: referenceStyleCatalogInfo(),
+        },
+      };
+    },
+  },
+  {
+    // Manually stored reference: an uploaded image plus the library fields. It
+    // is ready on arrival, carries a snapshot and no analysis profile.
+    method: "POST",
+    segments: ["api", "references", "manual"],
+    scope: "write",
+    handler: async (context, _params, req) => {
+      const body = (await readJsonBody(req, MANUAL_REFERENCE_BODY_LIMIT_BYTES)) ?? {};
+      const input = parseBody<ManualReferenceBody>(
+        ManualReferenceBodySchema,
+        body,
+        "manual reference",
+      );
+      return {
+        status: 201,
+        body: {
+          reference: await createManualReference(referenceContext(context), input),
+        },
+      };
+    },
+  },
+  {
+    // Combined brief of several references (the comparison dialog). A read, so
+    // no write scope is needed.
+    method: "POST",
+    segments: ["api", "references", "brief"],
+    scope: "read",
+    handler: async (context, _params, req) => {
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<ReferenceBriefBody>(
+        ReferenceBriefBodySchema,
+        body,
+        "reference brief",
+      );
+      const ids = [...new Set(input.referenceIds)];
+      const references = [];
+      for (const id of ids) {
+        references.push(await context.store.getReference(id));
       }
-      if (status !== null) {
-        references = references.filter((reference) => reference.status === status);
-      }
-      return { status: 200, body: { references } };
+      const settings = await context.store.getReferenceSettings();
+      return {
+        status: 200,
+        body: {
+          brief: buildReferenceBrief({
+            references,
+            dna: settings.dna,
+            preferences: settings.preferences,
+          }),
+          imagePrompt: references.length === 1 ? buildImagePrompt(references[0]!) : null,
+          vocabulary: null,
+        },
+      };
     },
   },
   {
@@ -2532,6 +2655,74 @@ const ROUTES: Route[] = [
       status: 200,
       body: await context.store.getReference(requireParam(params, "referenceId")),
     }),
+  },
+  {
+    // Library fields of one reference: name, collection, note, vocabulary,
+    // recipe, composition and family ("Die Idee zum Mitnehmen" of the detail).
+    method: "PATCH",
+    segments: ["api", "references", ":referenceId"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const referenceId = requireParam(params, "referenceId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<UpdateReferenceBody>(
+        UpdateReferenceBodySchema,
+        body,
+        "reference",
+      );
+      const name = input.name?.trim();
+      if (input.name !== undefined && (name === undefined || name === "")) {
+        throw new SenifyError(
+          "validation",
+          "Der Name der Referenz darf nicht leer sein",
+          {
+            field: "name",
+            suggestion: "Einen Namen mit mindestens einem sichtbaren Zeichen senden.",
+          },
+        );
+      }
+      if (input.collectionId !== undefined && input.collectionId !== null) {
+        await context.store.getReferenceCollection(input.collectionId);
+      }
+      return {
+        status: 200,
+        body: {
+          reference: await context.store.updateReference(referenceId, {
+            ...(name === undefined ? {} : { name }),
+            ...(input.collectionId === undefined ? {} : { collectionId: input.collectionId }),
+            ...(input.note === undefined ? {} : { note: input.note }),
+            ...(input.vocabulary === undefined ? {} : { vocabulary: input.vocabulary }),
+            ...(input.imageRecipe === undefined ? {} : { imageRecipe: input.imageRecipe }),
+            ...(input.heroUsage === undefined ? {} : { heroUsage: input.heroUsage }),
+            ...(input.family === undefined ? {} : { family: input.family }),
+          }),
+        },
+      };
+    },
+  },
+  {
+    // Design brief of one reference plus its image prompt.
+    method: "GET",
+    segments: ["api", "references", ":referenceId", "brief"],
+    scope: "read",
+    handler: async (context, params) => {
+      const reference = await context.store.getReference(
+        requireParam(params, "referenceId"),
+      );
+      const settings = await context.store.getReferenceSettings();
+      return {
+        status: 200,
+        body: {
+          brief: buildReferenceBrief({
+            references: [reference],
+            dna: settings.dna,
+            preferences: settings.preferences,
+          }),
+          imagePrompt: buildImagePrompt(reference),
+          vocabulary: null,
+        },
+      };
+    },
   },
   {
     // Löschen mit Nutzungs-Hinweis: ohne force nur ohne Projekt-Zuordnung.
@@ -2618,7 +2809,9 @@ const ROUTES: Route[] = [
         status: 200,
         file: {
           path: file,
-          contentType: "image/png",
+          // Captures are PNG; a manually stored reference keeps its container.
+          contentType:
+            CONTENT_TYPES[extname(file).toLowerCase()] ?? "image/png",
           // A re-analysis may overwrite the file under a stable name, so the
           // response revalidates instead of caching hard.
           headers: { "cache-control": "public, max-age=0, must-revalidate" },
@@ -2733,6 +2926,29 @@ const ROUTES: Route[] = [
           backupDir: input.backup.targetDir,
         });
       }
+      // House DNA and the brief preferences of the reference library (T14).
+      // Both branches merge into the stored settings: a branch that is left out
+      // keeps its value.
+      if (input.referenceDna !== undefined || input.referencePreferences !== undefined) {
+        const current = await context.store.getReferenceSettings();
+        await context.store.updateReferenceSettings(
+          referenceSettingsPatch({
+            ...(input.referenceDna === undefined
+              ? {}
+              : {
+                  referenceDna: {
+                    name: input.referenceDna.name ?? current.dna.name,
+                    description: input.referenceDna.description ?? current.dna.description,
+                    constants: input.referenceDna.constants ?? current.dna.constants,
+                    never: input.referenceDna.never ?? current.dna.never,
+                  },
+                }),
+            ...(input.referencePreferences === undefined
+              ? {}
+              : { referencePreferences: input.referencePreferences }),
+          }),
+        );
+      }
       return { status: 200, body: await settingsView(context) };
     },
   },
@@ -2772,6 +2988,143 @@ const ROUTES: Route[] = [
       };
     },
   },
+  // ------------------------------------- reference collections (T14)
+  {
+    method: "GET",
+    segments: ["api", "reference-collections"],
+    scope: "read",
+    handler: async (context, _params, _req, url) => {
+      const kind = url.searchParams.get("kind");
+      if (kind !== null && kind !== "collection" && kind !== "style") {
+        throw new SenifyError("validation", `Unknown collection kind "${kind}"`, {
+          field: "kind",
+          suggestion: 'Use kind=collection or kind=style.',
+        });
+      }
+      return {
+        status: 200,
+        body: {
+          collections: await context.store.listReferenceCollections(
+            kind === null ? {} : { kind },
+          ),
+          styleCatalog: referenceStyleCatalogInfo(),
+        },
+      };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "reference-collections"],
+    scope: "write",
+    handler: async (context, _params, req) => {
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<CreateReferenceCollectionBody>(
+        CreateReferenceCollectionBodySchema,
+        body,
+        "reference collection",
+      );
+      return {
+        status: 201,
+        body: { collection: await context.store.createReferenceCollection(input) },
+      };
+    },
+  },
+  {
+    // Seed of the style families ("Style guide"). Idempotent: existing families
+    // are never overwritten.
+    method: "POST",
+    segments: ["api", "reference-collections", "styles"],
+    scope: "write",
+    handler: async (context) => ({
+      status: 201,
+      body: {
+        seed: await seedReferenceStyles(context.store),
+        styleCatalog: referenceStyleCatalogInfo(),
+      },
+    }),
+  },
+  {
+    method: "PATCH",
+    segments: ["api", "reference-collections", ":collectionId"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const collectionId = requireParam(params, "collectionId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<UpdateReferenceCollectionBody>(
+        UpdateReferenceCollectionBodySchema,
+        body,
+        "reference collection",
+      );
+      const name = input.name?.trim();
+      if (input.name !== undefined && (name === undefined || name === "")) {
+        throw new SenifyError("validation", "Der Name der Sammlung darf nicht leer sein", {
+          field: "name",
+          suggestion: "Einen Namen mit mindestens einem sichtbaren Zeichen senden.",
+        });
+      }
+      return {
+        status: 200,
+        body: {
+          collection: await context.store.updateReferenceCollection(collectionId, {
+            ...(name === undefined ? {} : { name }),
+            ...(input.description === undefined ? {} : { description: input.description }),
+            ...(input.deployFor === undefined ? {} : { deployFor: input.deployFor }),
+            ...(input.vocabulary === undefined ? {} : { vocabulary: input.vocabulary }),
+            ...(input.risk === undefined ? {} : { risk: input.risk }),
+            ...(input.accent === undefined ? {} : { accent: input.accent }),
+            ...(input.imageStyle === undefined ? {} : { imageStyle: input.imageStyle }),
+            ...(input.recognize === undefined ? {} : { recognize: input.recognize }),
+            ...(input.examples === undefined ? {} : { examples: input.examples }),
+            ...(input.warning === undefined ? {} : { warning: input.warning }),
+            ...(input.position === undefined ? {} : { position: input.position }),
+          }),
+        },
+      };
+    },
+  },
+  {
+    // Deleting a collection keeps its references: they fall back to "without
+    // collection" and the count of affected references is reported.
+    method: "DELETE",
+    segments: ["api", "reference-collections", ":collectionId"],
+    scope: "write",
+    destructive: true,
+    handler: async (context, params) => {
+      const collectionId = requireParam(params, "collectionId");
+      return {
+        status: 200,
+        body: {
+          deleted: collectionId,
+          affectedReferences: await context.store.deleteReferenceCollection(collectionId),
+        },
+      };
+    },
+  },
+  {
+    // Collection brief (the "About this collection" dialog), with the style
+    // families of the style guide as well.
+    method: "GET",
+    segments: ["api", "reference-collections", ":collectionId", "brief"],
+    scope: "read",
+    handler: async (context, params) => {
+      const collection = await context.store.getReferenceCollection(
+        requireParam(params, "collectionId"),
+      );
+      const settings = await context.store.getReferenceSettings();
+      return {
+        status: 200,
+        body: {
+          brief: buildCollectionBrief({
+            collection,
+            dna: settings.dna,
+            preferences: settings.preferences,
+          }),
+          imagePrompt: null,
+          vocabulary: collection.vocabulary.join(", "),
+        },
+      };
+    },
+  },
   {
     method: "GET",
     segments: ["api", "backups"],
@@ -2800,6 +3153,52 @@ const ROUTES: Route[] = [
     },
   },
 ];
+
+// The list filters of the reference library: collection, family, status and the
+// search over title, family, note, vocabulary and collection name (app.js:17).
+function filterReferences(
+  references: ReferenceSummary[],
+  filters: ReferenceListFilters,
+): ReferenceSummary[] {
+  let result = references;
+  if (filters.collection === "none") {
+    result = result.filter((reference) => reference.collectionId === null);
+  } else if (filters.collection !== undefined) {
+    result = result.filter(
+      (reference) => reference.collectionId === filters.collection,
+    );
+  }
+  const family = filters.family;
+  if (family !== undefined) {
+    // The library family of the card counts as well as the analysed taxonomy.
+    result = result.filter(
+      (reference) =>
+        reference.family === family || reference.families.includes(family),
+    );
+  }
+  const status = filters.status;
+  if (status !== undefined) {
+    result = result.filter((reference) => reference.status === status);
+  }
+  const query = filters.query?.toLowerCase();
+  if (query !== undefined) {
+    result = result.filter((reference) =>
+      [
+        reference.name,
+        reference.sourceUrl,
+        reference.family ?? "",
+        reference.note ?? "",
+        ...reference.families,
+        ...reference.vocabulary,
+        reference.collection?.name ?? "",
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(query),
+    );
+  }
+  return result;
+}
 
 function requireParam(params: RouteParams, key: string): string {
   const value = params[key];

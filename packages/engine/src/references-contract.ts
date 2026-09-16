@@ -1,7 +1,20 @@
 import { Type, type Static } from "@sinclair/typebox";
+import { SenifyError } from "@senify/core";
 import { AuthorSchema } from "./mutations/contract.ts";
+import {
+  REFERENCE_COLLECTION_KINDS,
+  REFERENCE_LIST_SORTS,
+  REFERENCE_STATUSES,
+  type ReferenceListSort,
+  type ReferenceStatus,
+} from "./types.ts";
 
 const CLOSED = { additionalProperties: false } as const;
+
+// Limits of the manual upload: an image up to 20 MB, base64 grows by ~4/3, so
+// the JSON request may carry a body of up to 32 MB.
+export const MANUAL_REFERENCE_MAX_BYTES = 20 * 1024 * 1024;
+export const MANUAL_REFERENCE_BODY_LIMIT_BYTES = 32 * 1024 * 1024;
 
 // Transport contracts of the reference pipeline (T14). The `snapshot` branch is
 // the documented fallback (artifacts/28 §1): a blocked site is analysed from an
@@ -254,3 +267,188 @@ export const ApplyReferenceBodySchema = Type.Object(
   CLOSED,
 );
 export type ApplyReferenceBody = Static<typeof ApplyReferenceBodySchema>;
+
+// ------------------------------------------- reference library (T14, Taste Vault)
+
+export const ReferenceCollectionExampleSchema = Type.Object(
+  {
+    name: Type.String({ minLength: 1, maxLength: 120 }),
+    url: Type.String({ maxLength: 500 }),
+  },
+  CLOSED,
+);
+export type ReferenceCollectionExampleBody = Static<
+  typeof ReferenceCollectionExampleSchema
+>;
+
+const CollectionKindSchema = Type.Union(
+  REFERENCE_COLLECTION_KINDS.map((kind) => Type.Literal(kind)),
+);
+
+const VocabularySchema = Type.Array(
+  Type.String({ minLength: 1, maxLength: 60 }),
+  { maxItems: 24 },
+);
+
+export const CreateReferenceCollectionBodySchema = Type.Object(
+  {
+    name: Type.String({ minLength: 1, maxLength: 120 }),
+    description: Type.Optional(Type.String({ maxLength: 2000 })),
+    deployFor: Type.Optional(Type.String({ maxLength: 400 })),
+    vocabulary: Type.Optional(VocabularySchema),
+    risk: Type.Optional(Type.String({ maxLength: 500 })),
+    accent: Type.Optional(Type.String({ maxLength: 40 })),
+    imageStyle: Type.Optional(Type.String({ maxLength: 2000 })),
+    recognize: Type.Optional(
+      Type.Array(Type.String({ maxLength: 200 }), { maxItems: 20 }),
+    ),
+    examples: Type.Optional(
+      Type.Array(ReferenceCollectionExampleSchema, { maxItems: 20 }),
+    ),
+    warning: Type.Optional(
+      Type.Union([Type.String({ maxLength: 500 }), Type.Null()]),
+    ),
+    kind: Type.Optional(CollectionKindSchema),
+    position: Type.Optional(Type.Integer({ minimum: 0, maximum: 100000 })),
+  },
+  CLOSED,
+);
+export type CreateReferenceCollectionBody = Static<
+  typeof CreateReferenceCollectionBodySchema
+>;
+
+// The edit of a collection: kind and external id are set at creation only.
+export const UpdateReferenceCollectionBodySchema = Type.Object(
+  {
+    name: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
+    description: Type.Optional(Type.String({ maxLength: 2000 })),
+    deployFor: Type.Optional(Type.String({ maxLength: 400 })),
+    vocabulary: Type.Optional(VocabularySchema),
+    risk: Type.Optional(Type.String({ maxLength: 500 })),
+    accent: Type.Optional(Type.String({ maxLength: 40 })),
+    imageStyle: Type.Optional(Type.String({ maxLength: 2000 })),
+    recognize: Type.Optional(
+      Type.Array(Type.String({ maxLength: 200 }), { maxItems: 20 }),
+    ),
+    examples: Type.Optional(
+      Type.Array(ReferenceCollectionExampleSchema, { maxItems: 20 }),
+    ),
+    warning: Type.Optional(
+      Type.Union([Type.String({ maxLength: 500 }), Type.Null()]),
+    ),
+    position: Type.Optional(Type.Integer({ minimum: 0, maximum: 100000 })),
+  },
+  CLOSED,
+);
+export type UpdateReferenceCollectionBody = Static<
+  typeof UpdateReferenceCollectionBodySchema
+>;
+
+// Library fields of a reference: name, collection, note, vocabulary, recipe,
+// composition and family. null clears a field.
+export const UpdateReferenceBodySchema = Type.Object(
+  {
+    name: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
+    collectionId: Type.Optional(
+      Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    ),
+    note: Type.Optional(
+      Type.Union([Type.String({ maxLength: 1000 }), Type.Null()]),
+    ),
+    vocabulary: Type.Optional(VocabularySchema),
+    imageRecipe: Type.Optional(
+      Type.Union([Type.String({ maxLength: 2000 }), Type.Null()]),
+    ),
+    heroUsage: Type.Optional(
+      Type.Union([Type.String({ maxLength: 2000 }), Type.Null()]),
+    ),
+    family: Type.Optional(
+      Type.Union([Type.String({ maxLength: 60 }), Type.Null()]),
+    ),
+  },
+  CLOSED,
+);
+export type UpdateReferenceBody = Static<typeof UpdateReferenceBodySchema>;
+
+// The manual reference: an uploaded image plus the fields of the library form.
+// `image` is base64, with or without the `data:image/...;base64,` prefix.
+export const ManualReferenceBodySchema = Type.Object(
+  {
+    name: Type.String({ minLength: 1, maxLength: 120 }),
+    collectionId: Type.Optional(
+      Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    ),
+    note: Type.Optional(Type.String({ maxLength: 1000 })),
+    vocabulary: Type.Optional(VocabularySchema),
+    imageRecipe: Type.Optional(Type.String({ maxLength: 2000 })),
+    heroUsage: Type.Optional(Type.String({ maxLength: 2000 })),
+    image: Type.String({ minLength: 1, maxLength: MANUAL_REFERENCE_BODY_LIMIT_BYTES }),
+    author: AuthorSchema,
+  },
+  CLOSED,
+);
+export type ManualReferenceBody = Static<typeof ManualReferenceBodySchema>;
+
+export const ReferenceBriefBodySchema = Type.Object(
+  {
+    referenceIds: Type.Array(Type.String({ minLength: 1 }), {
+      minItems: 1,
+      maxItems: 12,
+    }),
+  },
+  CLOSED,
+);
+export type ReferenceBriefBody = Static<typeof ReferenceBriefBodySchema>;
+
+export type ReferenceListFilters = {
+  // A collection id, "none" for references without a collection.
+  collection?: string;
+  family?: string;
+  status?: ReferenceStatus;
+  query?: string;
+  sort: ReferenceListSort;
+};
+
+const REFERENCE_STATUS_VALUES: readonly string[] = REFERENCE_STATUSES;
+
+// Query of the reference list: the collection, the search term and the sort.
+export function parseReferenceListFilters(
+  params: URLSearchParams,
+): ReferenceListFilters {
+  const collection = params.get("collection");
+  const status = params.get("status");
+  if (status !== null && !REFERENCE_STATUS_VALUES.includes(status)) {
+    throw new SenifyError("validation", `Unknown reference status "${status}"`, {
+      field: "status",
+      suggestion: `Use one of: ${REFERENCE_STATUSES.join(", ")}.`,
+    });
+  }
+  const sort = params.get("sort");
+  if (sort !== null && !REFERENCE_LIST_SORTS.includes(sort as ReferenceListSort)) {
+    throw new SenifyError("validation", `Unknown reference sort "${sort}"`, {
+      field: "sort",
+      suggestion: `Use one of: ${REFERENCE_LIST_SORTS.join(", ")}.`,
+    });
+  }
+  const family = params.get("family");
+  const query = params.get("q");
+  return {
+    ...(collection === null || collection === "" ? {} : { collection }),
+    ...(family === null ? {} : { family }),
+    ...(status === null ? {} : { status: status as ReferenceStatus }),
+    ...(query === null || query.trim() === "" ? {} : { query: query.trim() }),
+    sort: (sort as ReferenceListSort | null) ?? "newest",
+  };
+}
+
+// Footer line of the list ("n references in view"), word for word like the
+// reference library.
+export function referenceFooterText(input: {
+  count: number;
+  query?: string;
+}): string {
+  return `${input.count} references${
+    input.query === undefined ? " in view" : ` matching “${input.query}”`
+  }`;
+}
+

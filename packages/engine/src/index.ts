@@ -147,8 +147,25 @@ export {
   NEWSLETTER_TOKEN_KINDS,
   NOTIFICATION_STATUSES,
   PAGE_TEMPLATE_KINDS,
+  REFERENCE_COLLECTION_KINDS,
+  REFERENCE_LIST_SORTS,
+  REFERENCE_ORIGINS,
+  REFERENCE_STATUSES,
   REVIEW_STATUSES,
   SUPPORTS_FLAGS,
+  type ReferenceBrief,
+  type ReferenceBriefView,
+  type ReferenceCollection,
+  type ReferenceCollectionExample,
+  type ReferenceCollectionKind,
+  type ReferenceCollectionListView,
+  type ReferenceDna,
+  type ReferenceListView,
+  type ReferenceListSort,
+  type ReferenceOrigin,
+  type ReferencePreferences,
+  type ReferenceSettings,
+  type ReferenceStyleCatalogInfo,
   type ApiToken,
   type AssetUsage,
   type AuditEntry,
@@ -355,6 +372,7 @@ export {
   createPlaywrightCaptureDriver,
   deleteReference,
   editReferenceProfile,
+  persistReferenceSnapshots,
   REFERENCE_BREAKPOINTS,
   ReferenceCaptureError,
   referenceAdherenceForSite,
@@ -373,6 +391,27 @@ export {
   type ReferenceDeps,
   type ReferenceTickResult,
 } from "./references-lifecycle.ts";
+export {
+  buildCollectionBrief,
+  buildImagePrompt,
+  buildPreferenceBlock,
+  buildReferenceBrief,
+  preferenceStatus,
+  referenceBriefSection,
+  referenceScreenshotPath,
+} from "./references-brief.ts";
+export {
+  createManualReference,
+  decodeReferenceImage,
+  referenceStyleCatalogInfo,
+  seedReferenceStyles,
+  type DecodedReferenceImage,
+  type ReferenceStyleSeedResult,
+} from "./references-library.ts";
+export {
+  REFERENCE_STYLE_CATALOG,
+  type ReferenceStyleFamily,
+} from "./references-styles.ts";
 export {
   BACKUP_VERSION,
   backupStatus,
@@ -396,11 +435,32 @@ export {
   type TestMailResult,
 } from "./mailer.ts";
 export {
+  ReferenceDnaBodySchema,
+  ReferencePreferencesBodySchema,
   TestMailBodySchema,
   UpdateSettingsBodySchema,
+  type ReferenceDnaBody,
+  type ReferencePreferencesBody,
   type TestMailBody,
   type UpdateSettingsBody,
 } from "./settings-contract.ts";
+export {
+  CreateReferenceCollectionBodySchema,
+  MANUAL_REFERENCE_BODY_LIMIT_BYTES,
+  MANUAL_REFERENCE_MAX_BYTES,
+  ManualReferenceBodySchema,
+  parseReferenceListFilters,
+  ReferenceBriefBodySchema,
+  referenceFooterText,
+  UpdateReferenceBodySchema,
+  UpdateReferenceCollectionBodySchema,
+  type CreateReferenceCollectionBody,
+  type ManualReferenceBody,
+  type ReferenceBriefBody,
+  type ReferenceListFilters,
+  type UpdateReferenceBody,
+  type UpdateReferenceCollectionBody,
+} from "./references-contract.ts";
 
 export type EngineOptions = {
   db: Db;

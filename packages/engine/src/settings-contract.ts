@@ -44,11 +44,41 @@ export const BackupSettingsBodySchema = Type.Object(
 );
 export type BackupSettingsBody = Static<typeof BackupSettingsBodySchema>;
 
+// House DNA (T14): the principles under every collection, plus the No-gos.
+export const ReferenceDnaBodySchema = Type.Object(
+  {
+    name: Type.Optional(Type.String({ maxLength: 120 })),
+    description: Type.Optional(Type.String({ maxLength: 2000 })),
+    constants: Type.Optional(
+      Type.Array(Type.String({ maxLength: 200 }), { maxItems: 50 }),
+    ),
+    never: Type.Optional(
+      Type.Array(Type.String({ maxLength: 200 }), { maxItems: 50 }),
+    ),
+  },
+  CLOSED,
+);
+export type ReferenceDnaBody = Static<typeof ReferenceDnaBodySchema>;
+
+// Preferences of the briefs: House DNA on/off and the project notes.
+export const ReferencePreferencesBodySchema = Type.Object(
+  {
+    includeDna: Type.Optional(Type.Boolean()),
+    overrides: Type.Optional(Type.String({ maxLength: 4000 })),
+  },
+  CLOSED,
+);
+export type ReferencePreferencesBody = Static<
+  typeof ReferencePreferencesBodySchema
+>;
+
 export const UpdateSettingsBodySchema = Type.Object(
   {
     email: Type.Optional(SmtpSettingsBodySchema),
     defaults: Type.Optional(EngineDefaultsBodySchema),
     backup: Type.Optional(BackupSettingsBodySchema),
+    referenceDna: Type.Optional(ReferenceDnaBodySchema),
+    referencePreferences: Type.Optional(ReferencePreferencesBodySchema),
   },
   CLOSED,
 );

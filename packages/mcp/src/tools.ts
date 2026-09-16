@@ -1178,16 +1178,18 @@ export const TOOLS: ToolDefinition[] = [
     name: "list_references",
     title: "List references",
     description:
-      "Lists the analysed design references as cards: name, source URL, status, families and the projects they are assigned to. Filter with q (text), family (taxonomy) or status (analyzing|ready|failed). Use get_reference for the full profile.",
+      "Listet die Referenzen der Bibliothek als Karten (Name, Quell-URL, Status, Familien, Sammlung, Vokabular, Projekt-Nutzung) und dazu die Sammlungen mit Zählern sowie die Fußzeilenzahl der Ansicht. Filter: q (Suche über Titel, Familie, Notiz, Vokabular und Sammlungsnamen), family (Taxonomie), status (analyzing|ready|failed), collection (Sammlungs-id oder none für Referenzen ohne Sammlung); sort ist newest (Standard) oder name. Nutze get_reference für das volle Profil und get_reference_brief für den Brief.",
     scope: "read",
     inputSchema: objectSchema({
       q: { type: "string" },
       family: { type: "string" },
       status: { type: "string", enum: ["analyzing", "ready", "failed"] },
+      collection: { type: "string" },
+      sort: { type: "string", enum: ["newest", "name"] },
     }),
     handler: async (context, args) => {
       const params = new URLSearchParams();
-      for (const key of ["q", "family", "status"]) {
+      for (const key of ["q", "family", "status", "collection", "sort"]) {
         const value = optionalString(args, key);
         if (value !== undefined) params.set(key, value);
       }
@@ -1240,6 +1242,154 @@ export const TOOLS: ToolDefinition[] = [
         referenceId,
         author: { kind: "agent", id: tokenName, label: tokenName },
         ...(scales === undefined ? {} : { scales }),
+      });
+    },
+  },
+  {
+    name: "list_reference_collections",
+    title: "List reference collections",
+    description:
+      "Listet die Sammlungen der Referenz-Bibliothek mit Beschreibung, Farbe, deployFor, Vokabular, risk, Bildrezept und Zähler der zugeordneten Referenzen. kind=collection für die eigenen Sammlungen, kind=style für den Stil-Katalog (18 Familien mit Erkennungsmerkmalen, Beispielseiten, Warnung und Lizenzhinweis). Die collectionId passt in list_references, assign_reference_to_collection und get_reference_brief.",
+    scope: "read",
+    inputSchema: objectSchema({
+      kind: { type: "string", enum: ["collection", "style"] },
+    }),
+    handler: async (context, args) => {
+      const kind = optionalString(args, "kind");
+      return context.client.request(
+        "GET",
+        `/api/reference-collections${kind === undefined ? "" : `?kind=${kind}`}`,
+      );
+    },
+  },
+  {
+    name: "create_reference_collection",
+    title: "Create reference collection",
+    description:
+      "Legt eine Sammlung der Referenz-Bibliothek an: name ist Pflicht, description, deployFor, vocabulary, risk, accent, imageStyle, recognize, examples (je name und url), warning, kind und position sind optional. kind=style legt einen Eintrag des Stil-Katalogs an. Nutze list_reference_collections für die bestehenden Sammlungen und assign_reference_to_collection, um Referenzen zuzuordnen.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        name: { type: "string" },
+        description: { type: "string" },
+        deployFor: { type: "string" },
+        vocabulary: { type: "array", items: { type: "string" } },
+        risk: { type: "string" },
+        accent: { type: "string" },
+        imageStyle: { type: "string" },
+        recognize: { type: "array", items: { type: "string" } },
+        examples: { type: "array", items: { type: "object" } },
+        warning: { type: "string" },
+        kind: { type: "string", enum: ["collection", "style"] },
+        position: { type: "number" },
+      },
+      ["name"],
+    ),
+    entity: (args) => `collection:${String(args.name ?? "")}`,
+    handler: async (context, args) => {
+      const name = requireString(args, "name");
+      const description = optionalString(args, "description");
+      const deployFor = optionalString(args, "deployFor");
+      const vocabulary = optionalStringArray(args, "vocabulary");
+      const risk = optionalString(args, "risk");
+      const accent = optionalString(args, "accent");
+      const imageStyle = optionalString(args, "imageStyle");
+      const recognize = optionalStringArray(args, "recognize");
+      const examples =
+        args.examples === undefined ? undefined : requireArray(args, "examples");
+      const warning = optionalNullableString(args, "warning");
+      const kind = optionalString(args, "kind");
+      const position = optionalNumber(args, "position");
+      return context.client.request("POST", "/api/reference-collections", {
+        name,
+        ...(description === undefined ? {} : { description }),
+        ...(deployFor === undefined ? {} : { deployFor }),
+        ...(vocabulary === undefined ? {} : { vocabulary }),
+        ...(risk === undefined ? {} : { risk }),
+        ...(accent === undefined ? {} : { accent }),
+        ...(imageStyle === undefined ? {} : { imageStyle }),
+        ...(recognize === undefined ? {} : { recognize }),
+        ...(examples === undefined ? {} : { examples }),
+        ...(warning === undefined ? {} : { warning }),
+        ...(kind === undefined ? {} : { kind }),
+        ...(position === undefined ? {} : { position }),
+      });
+    },
+  },
+  {
+    name: "assign_reference_to_collection",
+    title: "Assign reference to collection",
+    description:
+      "Ordnet eine Referenz einer Sammlung zu (collectionId) oder löst die Zuordnung wieder, indem collectionId null ist. Eine Referenz trägt genau eine Sammlung; der alte Stand bleibt in der Referenz erhalten, nur die Zuordnung wechselt. Nutze list_reference_collections für die Sammlungs-ids.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        referenceId: { type: "string" },
+        collectionId: { type: ["string", "null"] },
+      },
+      ["referenceId", "collectionId"],
+    ),
+    entity: (args) => `reference:${String(args.referenceId ?? "")}`,
+    handler: async (context, args) => {
+      const referenceId = requireString(args, "referenceId");
+      const collectionId = optionalNullableString(args, "collectionId");
+      if (collectionId === undefined) {
+        throw new SenifyError("validation", 'Missing "collectionId"', {
+          field: "collectionId",
+          suggestion:
+            'Pass a collection id from list_reference_collections, or null to remove the assignment.',
+        });
+      }
+      return context.client.request("PATCH", `/api/references/${referenceId}`, {
+        collectionId,
+      });
+    },
+  },
+  {
+    name: "get_reference_brief",
+    title: "Get reference brief",
+    description:
+      "Baut den Design-Brief im Text des Vorbilds. referenceId liefert den Einzelbrief samt Bild-Prompt, referenceIds (bis 12) den Sammelbrief für den Vergleich, collectionId den Sammlungs- oder Stil-Brief samt Vokabular. Haus-DNA und Projekt-Notizen kommen aus den Einstellungen; status sagt, ob sie enthalten sind. Genau eine der drei Eingaben angeben.",
+    scope: "read",
+    inputSchema: objectSchema({
+      referenceId: { type: "string" },
+      referenceIds: { type: "array", items: { type: "string" }, minItems: 1 },
+      collectionId: { type: "string" },
+    }),
+    entity: (args) =>
+      args.collectionId === undefined
+        ? `reference:${String(args.referenceId ?? "")}`
+        : `collection:${String(args.collectionId)}`,
+    handler: async (context, args) => {
+      const referenceId = optionalString(args, "referenceId");
+      const collectionId = optionalString(args, "collectionId");
+      const referenceIds =
+        args.referenceIds === undefined ? undefined : requireArray(args, "referenceIds");
+      const given = [referenceId, collectionId, referenceIds].filter(
+        (value) => value !== undefined,
+      ).length;
+      if (given !== 1) {
+        throw new SenifyError(
+          "validation",
+          "Pass exactly one of referenceId, referenceIds or collectionId",
+          {
+            field: "referenceId",
+            suggestion:
+              "referenceId for a single brief, referenceIds for a combined brief, collectionId for a collection or style brief.",
+          },
+        );
+      }
+      if (collectionId !== undefined) {
+        return context.client.request(
+          "GET",
+          `/api/reference-collections/${collectionId}/brief`,
+        );
+      }
+      if (referenceId !== undefined) {
+        return context.client.request("GET", `/api/references/${referenceId}/brief`);
+      }
+      return context.client.request("POST", "/api/references/brief", {
+        referenceIds,
       });
     },
   },

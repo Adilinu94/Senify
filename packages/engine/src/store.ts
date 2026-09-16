@@ -66,14 +66,22 @@ import {
   type PreviewStatus,
   type Reference,
   type ReferenceAssignment,
+  type ReferenceCollection,
+  type ReferenceCollectionExample,
+  type ReferenceCollectionKind,
+  type ReferenceDna,
   type ReferenceEvidence,
   type ReferenceJob,
   type ReferenceJobStatus,
+  type ReferenceListSort,
   type ReferenceMethod,
+  type ReferenceOrigin,
+  type ReferencePreferences,
   type ReferenceProfile,
   type ReferenceProfileRevision,
   type ReferenceProvenance,
   type ReferenceScale,
+  type ReferenceSettings,
   type ReferenceSnapshot,
   type ReferenceStatus,
   type ReferenceSummary,
@@ -3339,16 +3347,41 @@ export class Store {
     sourceUrl: string;
     method: ReferenceMethod;
     provenance: ReferenceProvenance;
+    origin?: ReferenceOrigin;
+    collectionId?: string | null;
+    note?: string | null;
+    imageRecipe?: string | null;
+    heroUsage?: string | null;
+    // Manually stored references are ready on arrival: there is no pipeline.
+    status?: ReferenceStatus;
+    stage?: string;
+    progress?: number;
   }): Promise<Reference> {
     const now = new Date().toISOString();
     const id = newEntityId();
     await this.#db.query(
       `INSERT INTO design_references
         (id, name, source_url, method, status, stage, progress, failure_reason,
-         families, vocabulary, style_brief, snapshots, provenance, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, 'analyzing', 'governance', 0, NULL,
-         '[]', '[]', '', '[]', $5, $6, $6)`,
-      [id, input.name, input.sourceUrl, input.method, toJsonParam(input.provenance), now],
+         families, vocabulary, style_brief, snapshots, provenance, created_at, updated_at,
+         collection_id, note, image_recipe, hero_usage, family, origin)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NULL,
+         '[]', '[]', '', '[]', $8, $9, $9, $10, $11, $12, $13, NULL, $14)`,
+      [
+        id,
+        input.name,
+        input.sourceUrl,
+        input.method,
+        input.status ?? "analyzing",
+        input.stage ?? "governance",
+        input.progress ?? 0,
+        toJsonParam(input.provenance),
+        now,
+        input.collectionId ?? null,
+        input.note ?? null,
+        input.imageRecipe ?? null,
+        input.heroUsage ?? null,
+        input.origin ?? "analysis",
+      ],
     );
     return this.getReference(id);
   }
@@ -3366,13 +3399,25 @@ export class Store {
       });
     }
     const usage = await this.#referenceUsage();
-    return mapReference(row, await this.getLatestReferenceProfile(id), usage.get(id) ?? []);
+    const collection =
+      row.collection_id === null || row.collection_id === undefined
+        ? null
+        : await this.#findReferenceCollection(row.collection_id);
+    return mapReference(
+      row,
+      await this.getLatestReferenceProfile(id),
+      usage.get(id) ?? [],
+      collection,
+    );
   }
 
-  async listReferences(): Promise<ReferenceSummary[]> {
+  // The card list of the library: newest first by default, "Name A-Z" optional.
+  async listReferences(
+    options: { sort?: ReferenceListSort } = {},
+  ): Promise<ReferenceSummary[]> {
     const result = await this.#db.query<ReferenceRow>(
       `SELECT ${REFERENCE_COLUMNS} FROM design_references
-       ORDER BY created_at DESC, id DESC`,
+       ORDER BY ${referenceOrderBy(options.sort)}`,
     );
     const usage = await this.#referenceUsage();
     const revisions = await this.#db.query<{ reference_id: string; revision: unknown }>(
@@ -3382,15 +3427,21 @@ export class Store {
     const revisionByReference = new Map(
       revisions.rows.map((row) => [row.reference_id, toFiniteNumber(row.revision, "revision")]),
     );
+    const collections = await this.#referenceCollections();
     return result.rows.map((row) => {
       const revision = revisionByReference.get(row.id) ?? 0;
-      return mapReferenceSummary(row, revision, usage.get(row.id) ?? []);
+      const collection =
+        row.collection_id === null || row.collection_id === undefined
+          ? null
+          : (collections.get(row.collection_id) ?? null);
+      return mapReferenceSummary(row, revision, usage.get(row.id) ?? [], collection);
     });
   }
 
   async updateReference(
     id: string,
     patch: {
+      name?: string;
       status?: ReferenceStatus;
       stage?: string;
       progress?: number;
@@ -3400,6 +3451,12 @@ export class Store {
       styleBrief?: string;
       snapshots?: ReferenceSnapshot[];
       provenance?: ReferenceProvenance;
+      origin?: ReferenceOrigin;
+      collectionId?: string | null;
+      note?: string | null;
+      imageRecipe?: string | null;
+      heroUsage?: string | null;
+      family?: string | null;
     },
   ): Promise<Reference> {
     const current = await this.getReference(id);
@@ -3407,7 +3464,8 @@ export class Store {
       `UPDATE design_references SET
          status = $2, stage = $3, progress = $4, failure_reason = $5,
          families = $6, vocabulary = $7, style_brief = $8, snapshots = $9, updated_at = $10,
-         provenance = $11
+         provenance = $11, name = $12, collection_id = $13, note = $14, image_recipe = $15,
+         hero_usage = $16, family = $17, origin = $18
        WHERE id = $1`,
       [
         id,
@@ -3421,6 +3479,13 @@ export class Store {
         toJsonParam(patch.snapshots ?? current.snapshots),
         new Date().toISOString(),
         toJsonParam(patch.provenance ?? current.provenance),
+        patch.name ?? current.name,
+        patch.collectionId === undefined ? current.collectionId : patch.collectionId,
+        patch.note === undefined ? current.note : patch.note,
+        patch.imageRecipe === undefined ? current.imageRecipe : patch.imageRecipe,
+        patch.heroUsage === undefined ? current.heroUsage : patch.heroUsage,
+        patch.family === undefined ? current.family : patch.family,
+        patch.origin ?? current.origin,
       ],
     );
     return this.getReference(id);
@@ -3678,6 +3743,178 @@ export class Store {
     return usage;
   }
 
+  // ------------------------------------------------ reference library (T14)
+
+  async createReferenceCollection(input: {
+    name: string;
+    description?: string;
+    deployFor?: string;
+    vocabulary?: string[];
+    risk?: string;
+    accent?: string;
+    imageStyle?: string;
+    recognize?: string[];
+    examples?: ReferenceCollectionExample[];
+    warning?: string | null;
+    kind?: ReferenceCollectionKind;
+    externalId?: string | null;
+    position?: number;
+  }): Promise<ReferenceCollection> {
+    const now = new Date().toISOString();
+    const id = newEntityId();
+    const result = await this.#db.query<ReferenceCollectionRow>(
+      `INSERT INTO reference_collections
+        (id, name, description, deploy_for, vocabulary, risk, accent, image_style,
+         recognize, examples, warning, kind, external_id, position, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)
+       RETURNING ${REFERENCE_COLLECTION_COLUMNS}`,
+      [
+        id,
+        input.name,
+        input.description ?? "",
+        input.deployFor ?? "",
+        toJsonParam(input.vocabulary ?? []),
+        input.risk ?? "",
+        input.accent ?? "",
+        input.imageStyle ?? "",
+        toJsonParam(input.recognize ?? []),
+        toJsonParam(input.examples ?? []),
+        input.warning ?? null,
+        input.kind ?? "collection",
+        input.externalId ?? null,
+        input.position ?? 0,
+        now,
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error("Reference collection insert returned no row");
+    return mapReferenceCollection(row, 0);
+  }
+
+  async getReferenceCollection(id: string): Promise<ReferenceCollection> {
+    const result = await this.#db.query<ReferenceCollectionRow>(
+      `SELECT ${REFERENCE_COLLECTION_COLUMNS} FROM reference_collections WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Collection "${id}" does not exist`, {
+        field: "collectionId",
+        suggestion:
+          "Load the collections with GET /api/reference-collections and use one of their ids.",
+      });
+    }
+    return mapReferenceCollection(row, await this.#referenceCollectionCount(id));
+  }
+
+  async listReferenceCollections(
+    options: { kind?: ReferenceCollectionKind } = {},
+  ): Promise<ReferenceCollection[]> {
+    const result = await this.#db.query<ReferenceCollectionRow>(
+      `SELECT ${REFERENCE_COLLECTION_COLUMNS} FROM reference_collections
+       ${options.kind === undefined ? "" : "WHERE kind = $1"}
+       ORDER BY position ASC, name ASC, id ASC`,
+      options.kind === undefined ? [] : [options.kind],
+    );
+    const counts = await this.#referenceCollectionCounts();
+    return result.rows.map((row) =>
+      mapReferenceCollection(row, counts.get(row.id) ?? 0),
+    );
+  }
+
+  async updateReferenceCollection(
+    id: string,
+    patch: {
+      name?: string;
+      description?: string;
+      deployFor?: string;
+      vocabulary?: string[];
+      risk?: string;
+      accent?: string;
+      imageStyle?: string;
+      recognize?: string[];
+      examples?: ReferenceCollectionExample[];
+      warning?: string | null;
+      position?: number;
+    },
+  ): Promise<ReferenceCollection> {
+    const current = await this.getReferenceCollection(id);
+    await this.#db.query(
+      `UPDATE reference_collections SET
+         name = $2, description = $3, deploy_for = $4, vocabulary = $5, risk = $6,
+         accent = $7, image_style = $8, recognize = $9, examples = $10, warning = $11,
+         position = $12, updated_at = $13
+       WHERE id = $1`,
+      [
+        id,
+        patch.name ?? current.name,
+        patch.description ?? current.description,
+        patch.deployFor ?? current.deployFor,
+        toJsonParam(patch.vocabulary ?? current.vocabulary),
+        patch.risk ?? current.risk,
+        patch.accent ?? current.accent,
+        patch.imageStyle ?? current.imageStyle,
+        toJsonParam(patch.recognize ?? current.recognize),
+        toJsonParam(patch.examples ?? current.examples),
+        patch.warning === undefined ? current.warning : patch.warning,
+        patch.position ?? current.position,
+        new Date().toISOString(),
+      ],
+    );
+    return this.getReferenceCollection(id);
+  }
+
+  // Deleting a collection never deletes references: they fall back to "without
+  // collection" and the caller reports how many were affected.
+  async deleteReferenceCollection(id: string): Promise<number> {
+    await this.getReferenceCollection(id);
+    return this.#db.withTransaction(async (tx) => {
+      const cleared = await tx.query<{ id: string }>(
+        `UPDATE design_references SET collection_id = NULL, updated_at = $2
+         WHERE collection_id = $1 RETURNING id`,
+        [id, new Date().toISOString()],
+      );
+      await tx.query(`DELETE FROM reference_collections WHERE id = $1`, [id]);
+      return cleared.rows.length;
+    });
+  }
+
+  async #findReferenceCollection(id: string): Promise<ReferenceCollection | null> {
+    const result = await this.#db.query<ReferenceCollectionRow>(
+      `SELECT ${REFERENCE_COLLECTION_COLUMNS} FROM reference_collections WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return mapReferenceCollection(row, await this.#referenceCollectionCount(id));
+  }
+
+  async #referenceCollections(): Promise<Map<string, ReferenceCollection>> {
+    const collections = await this.listReferenceCollections();
+    return new Map(collections.map((collection) => [collection.id, collection]));
+  }
+
+  async #referenceCollectionCounts(): Promise<Map<string, number>> {
+    const result = await this.#db.query<{ collection_id: string; total: unknown }>(
+      `SELECT collection_id, COUNT(*) AS total FROM design_references
+       WHERE collection_id IS NOT NULL GROUP BY collection_id`,
+    );
+    return new Map(
+      result.rows.map((row) => [
+        row.collection_id,
+        toFiniteNumber(row.total, "total"),
+      ]),
+    );
+  }
+
+  async #referenceCollectionCount(id: string): Promise<number> {
+    const result = await this.#db.query<{ total: unknown }>(
+      `SELECT COUNT(*) AS total FROM design_references WHERE collection_id = $1`,
+      [id],
+    );
+    return toFiniteNumber(result.rows[0]?.total ?? 0, "total");
+  }
+
   // ---------------------------------------------------------- settings (T12)
 
   async getSmtpSettings(): Promise<SmtpSettingsRecord> {
@@ -3781,6 +4018,62 @@ export class Store {
         next.autostart,
         next.backupDir,
         new Date().toISOString(),
+      ],
+    );
+    return next;
+  }
+
+  // House DNA and the preferences of the reference briefs (T14). They live in
+  // the engine so the surface and the MCP tools build the same brief.
+  async getReferenceSettings(): Promise<ReferenceSettings> {
+    const existing = await this.#db.query<ReferenceSettingsRow>(
+      `SELECT ${REFERENCE_SETTINGS_COLUMNS} FROM reference_settings WHERE id = 'references'`,
+    );
+    const row = existing.rows[0];
+    if (row) return mapReferenceSettings(row);
+    try {
+      await this.#db.query(
+        `INSERT INTO reference_settings (id, dna, include_dna, overrides, updated_at)
+         VALUES ('references', $1, false, '', $2)`,
+        [
+          toJsonParam({ name: "", description: "", constants: [], never: [] }),
+          new Date().toISOString(),
+        ],
+      );
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+    }
+    const created = await this.#db.query<ReferenceSettingsRow>(
+      `SELECT ${REFERENCE_SETTINGS_COLUMNS} FROM reference_settings WHERE id = 'references'`,
+    );
+    const stored = created.rows[0];
+    return stored === undefined ? defaultReferenceSettings() : mapReferenceSettings(stored);
+  }
+
+  async updateReferenceSettings(patch: {
+    dna?: ReferenceDna;
+    preferences?: Partial<ReferencePreferences>;
+  }): Promise<ReferenceSettings> {
+    const current = await this.getReferenceSettings();
+    const next: ReferenceSettings = {
+      dna: patch.dna ?? current.dna,
+      preferences: {
+        includeDna:
+          patch.preferences?.includeDna ?? current.preferences.includeDna,
+        overrides:
+          patch.preferences?.overrides ?? current.preferences.overrides,
+      },
+      updatedAt: new Date().toISOString(),
+    };
+    await this.#db.query(
+      `UPDATE reference_settings SET dna = $2, include_dna = $3, overrides = $4,
+         updated_at = $5 WHERE id = $1`,
+      [
+        "references",
+        toJsonParam(next.dna),
+        next.preferences.includeDna,
+        next.preferences.overrides,
+        next.updatedAt,
       ],
     );
     return next;
@@ -3945,7 +4238,18 @@ function mapNewsletterToken(row: NewsletterTokenRow): NewsletterToken {
 // ------------------------------------------------------------ references (T14)
 
 const REFERENCE_COLUMNS =
-  "id, name, source_url, method, status, stage, progress, failure_reason, families, vocabulary, style_brief, snapshots, provenance, created_at, updated_at";
+  "id, name, source_url, method, status, stage, progress, failure_reason, families, vocabulary, style_brief, snapshots, provenance, created_at, updated_at, collection_id, note, image_recipe, hero_usage, family, origin";
+
+const REFERENCE_COLLECTION_COLUMNS =
+  "id, name, description, deploy_for, vocabulary, risk, accent, image_style, recognize, examples, warning, kind, external_id, position, created_at, updated_at";
+
+const REFERENCE_SETTINGS_COLUMNS = "dna, include_dna, overrides, updated_at";
+
+function referenceOrderBy(sort: ReferenceListSort | undefined): string {
+  return sort === "name"
+    ? "lower(name) ASC, id ASC"
+    : "created_at DESC, id DESC";
+}
 
 const REFERENCE_PROFILE_COLUMNS =
   "id, reference_id, revision, profile, evidence, provenance, author, note, created_at";
@@ -3972,30 +4276,32 @@ type ReferenceRow = {
   provenance: unknown;
   created_at: unknown;
   updated_at: unknown;
+  collection_id: string | null;
+  note: unknown;
+  image_recipe: unknown;
+  hero_usage: unknown;
+  family: unknown;
+  origin: unknown;
 };
 
-function mapReference(
-  row: ReferenceRow,
-  profileRevision: ReferenceProfileRevision | null,
-  usedInProjects: string[],
-): Reference {
-  return {
-    ...mapReferenceSummary(row, profileRevision?.revision ?? 0, usedInProjects),
-    profile: profileRevision?.profile ?? null,
-    evidence: profileRevision?.evidence ?? [],
-  };
+function optionalText(value: unknown): string | null {
+  return typeof value === "string" && value !== "" ? value : null;
 }
 
+// Rows written before the library fields existed carry neither a collection nor
+// an origin: they are analysed references.
 function mapReferenceSummary(
   row: ReferenceRow,
   revision: number,
   usedInProjects: string[],
+  collection: ReferenceCollection | null = null,
 ): ReferenceSummary {
   return {
     id: row.id,
     name: row.name,
     sourceUrl: row.source_url,
     method: row.method as ReferenceMethod,
+    origin: row.origin === "manual" ? "manual" : "analysis",
     status: row.status as ReferenceStatus,
     stage: row.stage,
     progress: toFiniteNumber(row.progress, "progress"),
@@ -4005,10 +4311,105 @@ function mapReferenceSummary(
     styleBrief: row.style_brief,
     snapshots: toJson<ReferenceSnapshot[]>(row.snapshots),
     provenance: toJson<ReferenceProvenance>(row.provenance),
+    collectionId: collection?.id ?? optionalText(row.collection_id),
+    collection,
+    note: optionalText(row.note),
+    imageRecipe: optionalText(row.image_recipe),
+    heroUsage: optionalText(row.hero_usage),
+    family: optionalText(row.family),
     revision,
     usedInProjects,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
+  };
+}
+
+function mapReference(
+  row: ReferenceRow,
+  profileRevision: ReferenceProfileRevision | null,
+  usedInProjects: string[],
+  collection: ReferenceCollection | null = null,
+): Reference {
+  return {
+    ...mapReferenceSummary(row, profileRevision?.revision ?? 0, usedInProjects, collection),
+    profile: profileRevision?.profile ?? null,
+    evidence: profileRevision?.evidence ?? [],
+  };
+}
+
+type ReferenceCollectionRow = {
+  id: string;
+  name: string;
+  description: string;
+  deploy_for: string;
+  vocabulary: unknown;
+  risk: string;
+  accent: string;
+  image_style: string;
+  recognize: unknown;
+  examples: unknown;
+  warning: unknown;
+  kind: string;
+  external_id: unknown;
+  position: unknown;
+  created_at: unknown;
+  updated_at: unknown;
+};
+
+function mapReferenceCollection(
+  row: ReferenceCollectionRow,
+  referenceCount: number,
+): ReferenceCollection {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    deployFor: row.deploy_for,
+    vocabulary: toJson<string[]>(row.vocabulary),
+    risk: row.risk,
+    accent: row.accent,
+    imageStyle: row.image_style,
+    recognize: toJson<string[]>(row.recognize),
+    examples: toJson<ReferenceCollectionExample[]>(row.examples),
+    warning: typeof row.warning === "string" && row.warning !== "" ? row.warning : null,
+    kind: row.kind === "style" ? "style" : "collection",
+    externalId: optionalText(row.external_id),
+    position: toFiniteNumber(row.position, "position"),
+    referenceCount,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  };
+}
+
+type ReferenceSettingsRow = {
+  dna: unknown;
+  include_dna: unknown;
+  overrides: string;
+  updated_at: unknown;
+};
+
+function mapReferenceSettings(row: ReferenceSettingsRow): ReferenceSettings {
+  const dna = toJson<Partial<ReferenceDna>>(row.dna);
+  return {
+    dna: {
+      name: typeof dna.name === "string" ? dna.name : "",
+      description: typeof dna.description === "string" ? dna.description : "",
+      constants: Array.isArray(dna.constants) ? dna.constants : [],
+      never: Array.isArray(dna.never) ? dna.never : [],
+    },
+    preferences: {
+      includeDna: toBoolean(row.include_dna),
+      overrides: typeof row.overrides === "string" ? row.overrides : "",
+    },
+    updatedAt: toIso(row.updated_at),
+  };
+}
+
+function defaultReferenceSettings(): ReferenceSettings {
+  return {
+    dna: { name: "", description: "", constants: [], never: [] },
+    preferences: { includeDna: false, overrides: "" },
+    updatedAt: new Date().toISOString(),
   };
 }
 

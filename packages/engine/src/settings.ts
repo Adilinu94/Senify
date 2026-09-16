@@ -1,7 +1,12 @@
 import type { SmtpConfig } from "./mailer.ts";
 import { decryptSecret, encryptSecret, keyFromSecret } from "./secrets.ts";
 import type { Store } from "./store.ts";
-import type { SmtpSettings, SmtpSettingsRecord } from "./types.ts";
+import type {
+  ReferenceDna,
+  ReferencePreferences,
+  SmtpSettings,
+  SmtpSettingsRecord,
+} from "./types.ts";
 
 // Settings helpers (T12): turn the stored SMTP record into a transport config
 // and keep the encrypted password behind the persisted engine secret.
@@ -23,6 +28,55 @@ export async function encryptSmtpPassword(
 ): Promise<string> {
   const key = keyFromSecret(await store.getOrCreateEngineSecret());
   return encryptSecret(plaintext, key);
+}
+
+// ------------------------------------------------- references (T14)
+
+// The DNA lists are edited by hand: entries are trimmed, empty ones dropped and
+// duplicates removed, so the brief block stays readable.
+function dnaEntries(entries: string[]): string[] {
+  const cleaned: string[] = [];
+  for (const entry of entries) {
+    const value = entry.trim();
+    if (value !== "" && !cleaned.includes(value)) cleaned.push(value);
+  }
+  return cleaned;
+}
+
+function normalizeReferenceDna(dna: ReferenceDna): ReferenceDna {
+  return {
+    name: dna.name.trim(),
+    description: dna.description.trim(),
+    constants: dnaEntries(dna.constants),
+    never: dnaEntries(dna.never),
+  };
+}
+
+// A patch may carry the DNA, the preferences or both; the store merges it into
+// the stored settings.
+export function referenceSettingsPatch(body: {
+  referenceDna?: ReferenceDna;
+  referencePreferences?: { includeDna?: boolean; overrides?: string };
+}): {
+  dna?: ReferenceDna;
+  preferences?: Partial<ReferencePreferences>;
+} {
+  const dna =
+    body.referenceDna === undefined
+      ? {}
+      : { dna: normalizeReferenceDna(body.referenceDna) };
+  const overrides = body.referencePreferences?.overrides;
+  const includeDna = body.referencePreferences?.includeDna;
+  const preferences =
+    body.referencePreferences === undefined
+      ? {}
+      : {
+          preferences: {
+            ...(includeDna === undefined ? {} : { includeDna }),
+            ...(overrides === undefined ? {} : { overrides: overrides.trim() }),
+          },
+        };
+  return { ...dna, ...preferences };
 }
 
 // Returns undefined when the settings are not complete enough to send; the

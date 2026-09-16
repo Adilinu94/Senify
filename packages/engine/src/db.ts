@@ -435,6 +435,55 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS reference_assignments_reference_idx
     ON reference_assignments (reference_id, site_id ASC)`,
+  // Collections of the reference library (T14, Taste Vault alignment): freely
+  // created categories plus the seeded style families (`kind = 'style'`).
+  // `external_id` is the id of the adopted style catalog, so the seed finds its
+  // rows again; `recognize`/`examples`/`warning` carry the style guide extras
+  // (recognition cues, canonical sites, warning of the family).
+  `CREATE TABLE IF NOT EXISTS reference_collections (
+    id text PRIMARY KEY,
+    name text NOT NULL,
+    description text NOT NULL DEFAULT '',
+    deploy_for text NOT NULL DEFAULT '',
+    vocabulary jsonb NOT NULL,
+    risk text NOT NULL DEFAULT '',
+    accent text NOT NULL DEFAULT '',
+    image_style text NOT NULL DEFAULT '',
+    recognize jsonb NOT NULL,
+    examples jsonb NOT NULL,
+    warning text,
+    kind text NOT NULL DEFAULT 'collection',
+    external_id text,
+    position integer NOT NULL DEFAULT 0,
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS reference_collections_position_idx
+    ON reference_collections (position ASC, name ASC)`,
+  // The seed never overwrites: a style family exists at most once.
+  `CREATE UNIQUE INDEX IF NOT EXISTS reference_collections_external_idx
+    ON reference_collections (external_id)`,
+  // Additive columns on the existing reference table. Only new, nullable
+  // columns are added (ADD COLUMN IF NOT EXISTS never rewrites existing data),
+  // so installations from earlier tickets keep working.
+  `ALTER TABLE design_references ADD COLUMN IF NOT EXISTS collection_id text`,
+  `ALTER TABLE design_references ADD COLUMN IF NOT EXISTS note text`,
+  `ALTER TABLE design_references ADD COLUMN IF NOT EXISTS image_recipe text`,
+  `ALTER TABLE design_references ADD COLUMN IF NOT EXISTS hero_usage text`,
+  `ALTER TABLE design_references ADD COLUMN IF NOT EXISTS family text`,
+  `ALTER TABLE design_references ADD COLUMN IF NOT EXISTS origin text`,
+  `CREATE INDEX IF NOT EXISTS design_references_collection_idx
+    ON design_references (collection_id)`,
+  // Reference preferences (T14): House DNA and the project notes live in the
+  // engine (not in the browser), so MCP tools build the same briefs. A single
+  // row keeps the schema additive next to engine_settings.
+  `CREATE TABLE IF NOT EXISTS reference_settings (
+    id text PRIMARY KEY,
+    dna jsonb NOT NULL,
+    include_dna boolean NOT NULL DEFAULT false,
+    overrides text NOT NULL DEFAULT '',
+    updated_at timestamptz NOT NULL
+  )`,
   // Global program settings (T12): one row each for the SMTP transport and the
   // defaults. The SMTP password is stored encrypted (settings secret).
   `CREATE TABLE IF NOT EXISTS smtp_settings (

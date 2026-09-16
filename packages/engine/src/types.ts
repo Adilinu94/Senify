@@ -662,7 +662,48 @@ export type ReferenceSnapshot = {
   previewPath?: string;
 };
 
-export type ReferenceMethod = "playwright" | "snapshot";
+// "manual" is the uploaded reference (Taste Vault "Add reference"): it never
+// runs the analysis pipeline and carries no profile.
+export type ReferenceMethod = "playwright" | "snapshot" | "manual";
+
+// How the reference entered the library: through the URL analysis or as a
+// manually stored image. The style brief is a catalogue entry, not a reference.
+export const REFERENCE_ORIGINS = ["analysis", "manual"] as const;
+export type ReferenceOrigin = (typeof REFERENCE_ORIGINS)[number];
+
+export const REFERENCE_COLLECTION_KINDS = ["collection", "style"] as const;
+export type ReferenceCollectionKind = (typeof REFERENCE_COLLECTION_KINDS)[number];
+
+// One canonical example site of a style family (styles.json `canonical`).
+export type ReferenceCollectionExample = {
+  name: string;
+  url: string;
+};
+
+// A collection of the reference library. The fields mirror the reference
+// design library (name, description, deploy for, vocabulary, risk, accent,
+// image style); `recognize`, `examples` and `warning` carry the style guide
+// extras of the seeded style families.
+export type ReferenceCollection = {
+  id: string;
+  name: string;
+  description: string;
+  deployFor: string;
+  vocabulary: string[];
+  risk: string;
+  accent: string;
+  imageStyle: string;
+  recognize: string[];
+  examples: ReferenceCollectionExample[];
+  warning: string | null;
+  kind: ReferenceCollectionKind;
+  externalId: string | null;
+  position: number;
+  // References that point at this collection (the counter of the sidebar).
+  referenceCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
 
 export type ReferenceProvenance = {
   url: string;
@@ -670,6 +711,8 @@ export type ReferenceProvenance = {
   hash: string;
   method: ReferenceMethod;
   note: string | null;
+  // Present for manually stored references: who added the image.
+  author?: Author;
 };
 
 export type ReferenceProfileRevision = {
@@ -692,12 +735,20 @@ export type Reference = {
   progress: number;
   stage: string;
   method: ReferenceMethod;
+  origin: ReferenceOrigin;
   failureReason: string | null;
   families: string[];
   vocabulary: string[];
   styleBrief: string;
   snapshots: ReferenceSnapshot[];
   provenance: ReferenceProvenance;
+  // Library fields of the card/detail view (Taste Vault entry).
+  collectionId: string | null;
+  collection: ReferenceCollection | null;
+  note: string | null;
+  imageRecipe: string | null;
+  heroUsage: string | null;
+  family: string | null;
   revision: number;
   profile: ReferenceProfile | null;
   evidence: ReferenceEvidence[];
@@ -708,6 +759,60 @@ export type Reference = {
 
 // Card view of the Referenzen tab: no profile payload.
 export type ReferenceSummary = Omit<Reference, "profile" | "evidence">;
+
+export const REFERENCE_LIST_SORTS = ["newest", "name"] as const;
+export type ReferenceListSort = (typeof REFERENCE_LIST_SORTS)[number];
+
+// The reference library as one response: the filtered cards, the collections of
+// the sidebar (with their counters) and the numbers of the footer line.
+export type ReferenceListView = {
+  references: ReferenceSummary[];
+  collections: ReferenceCollection[];
+  counts: {
+    references: number;
+    inView: number;
+    collections: number;
+    styles: number;
+  };
+  footer: {
+    total: number;
+    inView: number;
+    query: string | null;
+    text: string;
+  };
+  styleCatalog: ReferenceStyleCatalogInfo;
+};
+
+export type ReferenceStyleCatalogInfo = {
+  description: string;
+  license: string;
+  source: string;
+  total: number;
+};
+
+export type ReferenceCollectionListView = {
+  collections: ReferenceCollection[];
+  styleCatalog: ReferenceStyleCatalogInfo;
+};
+
+// The briefs (`app.js:81-85`) as the engine builds them.
+export type ReferenceBrief = {
+  kind: "reference" | "collection";
+  text: string;
+  // Status line of the preferences block ("Reference-led brief · House DNA is
+  // off." when the House DNA switch is off).
+  status: string;
+  referenceIds: string[];
+  collectionId: string | null;
+};
+
+export type ReferenceBriefView = {
+  brief: ReferenceBrief;
+  // Single reference only: the artwork prompt of its image recipe.
+  imagePrompt: string | null;
+  // Collection only: the vocabulary as one line ("Copy vocabulary").
+  vocabulary: string | null;
+};
 
 export type ReferenceJob = {
   id: string;
@@ -762,4 +867,26 @@ export type EngineSettings = {
   defaultLayout: string;
   autostart: boolean;
   backupDir: string | null;
+};
+
+// House DNA of the reference library: the principles every collection rests on.
+export type ReferenceDna = {
+  name: string;
+  description: string;
+  constants: string[];
+  never: string[];
+};
+
+// Preferences of the briefs: the House DNA is off by default, project notes
+// take priority over the general preferences.
+export type ReferencePreferences = {
+  includeDna: boolean;
+  overrides: string;
+};
+
+// Stored shape of the single reference settings row.
+export type ReferenceSettings = {
+  dna: ReferenceDna;
+  preferences: ReferencePreferences;
+  updatedAt: string;
 };

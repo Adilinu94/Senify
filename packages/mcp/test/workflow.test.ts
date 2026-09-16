@@ -122,6 +122,10 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "list_references",
       "get_reference",
       "apply_reference",
+      "list_reference_collections",
+      "create_reference_collection",
+      "assign_reference_to_collection",
+      "get_reference_brief",
     ]);
     for (const tool of listed.tools) {
       expect(tool.description?.length ?? 0).toBeGreaterThan(30);
@@ -749,10 +753,158 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       const listed = await call(reader, "list_references", {});
       expect(listed.ok).toBe(true);
       expect(Array.isArray(listed.data.references)).toBe(true);
+
+      // The collection tools follow the same rule: read is open, write is not.
+      const collections = await call(reader, "list_reference_collections", {});
+      expect(collections.ok).toBe(true);
+      expect(Array.isArray(collections.data.collections)).toBe(true);
+
+      const deniedCreate = await call(reader, "create_reference_collection", {
+        name: "Kein Schreibrecht",
+      });
+      expect(deniedCreate.ok).toBe(false);
+      expect((deniedCreate.data.error as Json).category).toBe("auth");
     } finally {
       await reader.close();
     }
   }, 30000);
+
+  it("runs the collection, assignment and brief workflow", async () => {
+    const listed = await call(session, "list_reference_collections", {});
+    expect(listed.ok).toBe(true);
+    const catalog = listed.data.styleCatalog as { total: number; license: string };
+    // The style guide ships with the 18 families of the reference library.
+    expect(catalog.total).toBe(18);
+    expect(catalog.license).toContain("MIT");
+
+    const created = await call(session, "create_reference_collection", {
+      name: "Editorial Studio",
+      description: "A different point of view. Saved for the right project.",
+      deployFor: "Portfolios and studio sites",
+      vocabulary: ["restraint", "tight tracking", "muted accent"],
+      risk: "A direction to explore: get too quiet and it reads as unfinished.",
+      accent: "#6346d7",
+      imageStyle: "Editorial portrait of [SUBJECT], soft neutral ground.",
+    });
+    expect(created.ok).toBe(true);
+    const collection = created.data.collection as {
+      id: string;
+      kind: string;
+      referenceCount: number;
+      vocabulary: string[];
+    };
+    expect(collection.kind).toBe("collection");
+    expect(collection.referenceCount).toBe(0);
+    const collectionId = collection.id;
+
+    // A style family is the same record with kind=style (the style guide).
+    const style = await call(session, "create_reference_collection", {
+      name: "Neo Brutalism",
+      kind: "style",
+      recognize: ["raw edges", "loud type"],
+    });
+    expect(style.ok).toBe(true);
+    const styleId = (style.data.collection as { id: string }).id;
+
+    const analyzed = await call(session, "analyze_reference", {
+      url: "https://collection-workflow.test",
+      name: "Collection Workflow",
+      snapshot: {
+        html: `<style>
+          body { background: #f6f5f9; color: #292333; font-family: 'Inter', sans-serif; font-size: 17px }
+          h1 { font-size: 56px; line-height: 1.05; font-weight: 700 }
+        </style>
+        <section class="hero"><h1>Collection Workflow</h1></section>`,
+      },
+    });
+    expect(analyzed.ok).toBe(true);
+    const referenceId = (analyzed.data.reference as { id: string }).id;
+
+    const assigned = await call(session, "assign_reference_to_collection", {
+      referenceId,
+      collectionId,
+    });
+    expect(assigned.ok).toBe(true);
+    const reference = assigned.data.reference as {
+      collectionId: string | null;
+      collection: { name: string } | null;
+    };
+    expect(reference.collectionId).toBe(collectionId);
+    expect(reference.collection?.name).toBe("Editorial Studio");
+
+    // The counter of the sidebar and the collection filter see the assignment.
+    const withCount = await call(session, "list_reference_collections", {
+      kind: "collection",
+    });
+    const counted = (
+      withCount.data.collections as { id: string; referenceCount: number }[]
+    ).find((entry) => entry.id === collectionId);
+    expect(counted?.referenceCount).toBe(1);
+
+    const filtered = await call(session, "list_references", {
+      collection: collectionId,
+      sort: "name",
+    });
+    expect(
+      (filtered.data.references as { id: string }[]).map((entry) => entry.id),
+    ).toEqual([referenceId]);
+    expect((filtered.data.footer as { inView: number }).inView).toBe(1);
+
+    // The single brief carries the collection as the aesthetic fallback.
+    const single = await call(session, "get_reference_brief", { referenceId });
+    expect(single.ok).toBe(true);
+    const singleBrief = single.data.brief as { kind: string; text: string; status: string };
+    expect(singleBrief.kind).toBe("reference");
+    expect(singleBrief.text).toContain("Reference: Collection Workflow");
+    // The collection travels with the brief (the analysed family leads it).
+    expect(singleBrief.text).toMatch(/Aesthetic: .*Editorial Studio/);
+    // Without an own recipe the collection image direction steps in.
+    expect(singleBrief.text).toContain(
+      "Image recipe: Editorial portrait of [SUBJECT], soft neutral ground.",
+    );
+    // Default: the House DNA is off, so the status line says so.
+    expect(singleBrief.status).toBe("Reference-led brief · House DNA is off.");
+
+    // Several references become a reference set, not a blend.
+    const combined = await call(session, "get_reference_brief", {
+      referenceIds: [referenceId],
+    });
+    expect(combined.ok).toBe(true);
+    expect(
+      (combined.data.brief as { referenceIds: string[] }).referenceIds,
+    ).toEqual([referenceId]);
+
+    const collectionBrief = await call(session, "get_reference_brief", {
+      collectionId,
+    });
+    expect(collectionBrief.ok).toBe(true);
+    expect((collectionBrief.data.brief as { kind: string }).kind).toBe("collection");
+    expect(collectionBrief.data.vocabulary).toBe(
+      "restraint, tight tracking, muted accent",
+    );
+
+    const styleBrief = await call(session, "get_reference_brief", { collectionId: styleId });
+    expect(styleBrief.ok).toBe(true);
+    expect((styleBrief.data.brief as { text: string }).text).toContain(
+      "Aesthetic: Neo Brutalism",
+    );
+
+    const ambiguous = await call(session, "get_reference_brief", {
+      referenceId,
+      collectionId,
+    });
+    expect(ambiguous.ok).toBe(false);
+    expect((ambiguous.data.error as Json).category).toBe("validation");
+
+    const detached = await call(session, "assign_reference_to_collection", {
+      referenceId,
+      collectionId: null,
+    });
+    expect(detached.ok).toBe(true);
+    expect((detached.data.reference as { collectionId: string | null }).collectionId).toBe(
+      null,
+    );
+  }, 60000);
 
   it("records every tool call in the server-side audit log", async () => {
     const audited = await env.api.request<{
