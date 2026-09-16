@@ -46,6 +46,7 @@ export class EditorRequestError extends Error {
 export type FetchResponseLike = {
   ok: boolean;
   status: number;
+  headers?: { get(name: string): string | null };
   json(): Promise<unknown>;
 };
 
@@ -117,14 +118,31 @@ export function createHttpTransport(
 ): EditorTransport {
   const fetchImpl = options.fetchImpl ?? defaultFetch();
   const baseUrl = (options.baseUrl ?? "").replace(/\/$/, "");
+  const wait = (ms: number): Promise<void> =>
+    new Promise((resolve) => setTimeout(resolve, ms));
   return {
     async apply(request: ApplyMutationsRequest): Promise<ApplyMutationsResponse> {
       const url = `${baseUrl}/api/pages/${encodeURIComponent(options.pageId)}/mutations`;
-      const response = await fetchImpl(url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(request),
-      });
+      const attempt = (): Promise<FetchResponseLike> =>
+        fetchImpl(url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(request),
+        });
+      let response = await attempt();
+      // The local engine rate-limits bursts of edits (a rejected request never
+      // reaches the store). Wait out a short window instead of dropping the
+      // user's change on the floor.
+      for (let tries = 0; response.status === 429 && tries < 3; tries += 1) {
+        const header = response.headers?.get?.("retry-after") ?? null;
+        const seconds = header === null ? Number.NaN : Number(header);
+        const waitMs =
+          Number.isFinite(seconds) && seconds > 0
+            ? Math.min(seconds * 1000, 3000)
+            : 900 * (tries + 1);
+        await wait(waitMs);
+        response = await attempt();
+      }
       let body: unknown;
       try {
         body = await response.json();

@@ -25,6 +25,9 @@ describe.skipIf(!browserAvailable)("editor in a real browser (T13)", () => {
       enginePort: 0,
       appPort: 0,
       openBrowser: false,
+      // The browser test drives many edits plus its own API calls in a burst;
+      // the default token bucket (60/min, burst 20) is meant for one typist.
+      rateLimits: { perMinute: 1200, burst: 400, destructivePerMinute: 200 },
     });
     const post = (path: string, body: unknown): Promise<Response> =>
       fetch(`${running.dashboardUrl}${path}`, {
@@ -271,6 +274,106 @@ describe.skipIf(!browserAvailable)("editor in a real browser (T13)", () => {
         )
         .toContain("60");
       await tab.locator('.senify-editor__zoom [data-action="zoom-reset"]').click();
+
+      // --- Interactions (T17/M3) ---
+      // Inline editing shows the toolbar; "Fertig" ends the edit.
+      await firstFrame.locator("h1").first().dblclick();
+      await expect.poll(async () => tab.locator(".senify-editor__inline-bar").count()).toBe(1);
+      await tab.locator('.senify-editor__inline-bar [data-action="inline-done"]').click();
+      await expect.poll(async () => renderedHeadline.getAttribute("contenteditable")).toBeNull();
+      await expect.poll(async () => tab.locator(".senify-editor__inline-bar").count()).toBe(0);
+
+      // Widget drag from the catalog into the canvas. Playwright's dragTo does
+      // not carry HTML5 drag data across the frame boundary, so the test
+      // drives the real dragstart/dragover/drop handlers with DragEvents.
+      await tab.locator('.senify-editor__button[data-action="add"]').click();
+      await tab.evaluate(`(() => {
+        const card = document.querySelector('.senify-editor__widget-card[data-widget="banner"]');
+        const frame = document.querySelector(".senify-editor__frame iframe");
+        const target = frame.contentDocument.querySelector('section[data-section="features"]');
+        const transfer = new DataTransfer();
+        const fire = (element, type, extra) => {
+          const DragEventCtor = element.ownerDocument.defaultView.DragEvent;
+          element.dispatchEvent(new DragEventCtor(type, {
+            bubbles: true, cancelable: true, dataTransfer: transfer, ...extra,
+          }));
+        };
+        const rect = target.getBoundingClientRect();
+        const mid = { clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 };
+        fire(card, "dragstart");
+        fire(target, "dragenter", mid);
+        fire(target, "dragover", mid);
+        fire(target, "drop", mid);
+        fire(card, "dragend");
+      })()`);
+      const sectionOrder = (): Promise<string[]> =>
+        firstFrame.locator("section[data-section]").evaluateAll((all) =>
+          all.map(
+            (element) =>
+              (
+                element as unknown as { getAttribute(name: string): string | null }
+              ).getAttribute("data-section") ?? "",
+          ),
+        );
+      await expect
+        .poll(async () => (await sectionOrder()).includes("banner"))
+        .toBe(true);
+      const orderAfterDrop = await sectionOrder();
+      expect(orderAfterDrop[orderAfterDrop.indexOf("banner") + 1]).toBe("features");
+
+      // Structure column: drag a row to reorder, then toggle the eye.
+      const draftNow = ((await (
+        await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)
+      ).json()) as {
+        draft: {
+          rootNodeId: string;
+          nodes: Record<string, { type: string; children?: string[] }>;
+        };
+      }).draft;
+      const rootChildren = draftNow.nodes[draftNow.rootNodeId]?.children ?? [];
+      const bannerId = rootChildren.find((id) => draftNow.nodes[id]?.type === "banner") ?? "";
+      const heroRowId = rootChildren.find((id) => draftNow.nodes[id]?.type === "hero") ?? "";
+      expect(bannerId).not.toBe("");
+      expect(heroRowId).not.toBe("");
+
+      // Reorder in the structure column: drag the banner row onto the hero row
+      // (before it). Playwright cannot carry HTML5 drag data across the frame
+      // boundary, so the test drives the real dragstart/dragover/drop handlers
+      // with synthetic DragEvents.
+      await tab.evaluate(`(() => {
+        const source = document.querySelector('.senify-editor__row[data-node="${bannerId}"]');
+        const target = document.querySelector('.senify-editor__row[data-node="${heroRowId}"]');
+        const transfer = new DataTransfer();
+        const fire = (element, type, extra) =>
+          element.dispatchEvent(new DragEvent(type, {
+            bubbles: true, cancelable: true, dataTransfer: transfer, ...extra,
+          }));
+        const rect = target.getBoundingClientRect();
+        const mid = { clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 };
+        fire(source, "dragstart");
+        fire(target, "dragenter", mid);
+        fire(target, "dragover", mid);
+        fire(target, "drop", mid);
+        fire(source, "dragend");
+      })()`);
+      await expect.poll(async () => (await sectionOrder())[0]).toBe("banner");
+
+      // The structure column's eye hides the node: rail row and frame agree.
+      await tab
+        .locator(`.senify-editor__row[data-node="${heroRowId}"] .senify-editor__eye`)
+        .click();
+      await expect
+        .poll(async () =>
+          tab
+            .locator(`.senify-editor__row[data-node="${heroRowId}"]`)
+            .getAttribute("data-hidden"),
+        )
+        .toBe("true");
+      await expect
+        .poll(async () =>
+          firstFrame.locator('section[data-section="hero"][data-hidden="true"]').count(),
+        )
+        .toBeGreaterThan(0);
 
       // Live mode: one frame in real size, switching back keeps the state.
       await tab.locator('.senify-editor__button[data-mode="live"]').click();

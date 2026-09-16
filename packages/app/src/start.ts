@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { SenifyError } from "@senify/core";
 import { createEngine, createPgDb, type Db } from "@senify/engine";
+import type { RateLimitConfig } from "@senify/engine";
 import { createRegistry } from "@senify/registry";
 import { openBrowser } from "./browser.ts";
 import { createAppServer } from "./server.ts";
@@ -19,6 +20,9 @@ export type StartProgramOptions = {
   dataDir?: string;
   programTokenFile?: string;
   openBrowser?: boolean;
+  // The engine's token buckets. Browser tests that burst edits raise them;
+  // production keeps the defaults.
+  rateLimits?: RateLimitConfig;
 };
 
 export type RunningProgram = {
@@ -110,6 +114,7 @@ export async function startProgram(
       db,
       registry: createRegistry(),
       ...(options.dataDir === undefined ? {} : { dataDir: options.dataDir }),
+      ...(options.rateLimits === undefined ? {} : { rateLimits: options.rateLimits }),
     });
   } catch (error) {
     await closeDb?.();

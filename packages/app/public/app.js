@@ -3945,6 +3945,7 @@ async function pageView(siteId, pageId, initialSearch) {
   } catch {
     editor = null;
   }
+  let refreshSeq = 0;
   if (editor) {
     try {
       const session = new editor.MutationsSession({
@@ -3961,12 +3962,24 @@ async function pageView(siteId, pageId, initialSearch) {
         onVersion: (version) => {
           const badge = document.getElementById("page-version");
           if (badge) badge.textContent = `Draft v${version}`;
-          void api(`/api/pages/${pageId}`)
-            .then((fresh) => {
-              currentTree = fresh.draft;
-              editorInstance?.refresh();
-            })
-            .catch(() => undefined);
+          // Rapid edits fire refetches faster than they resolve; only the
+          // newest request may write the tree, or an older snapshot wins.
+          const seq = ++refreshSeq;
+          const load = (attempt) =>
+            api(`/api/pages/${pageId}`)
+              .then((fresh) => {
+                if (seq !== refreshSeq) return;
+                currentTree = fresh.draft;
+                editorInstance?.refresh();
+              })
+              .catch(() => {
+                // The local engine rate-limits bursts; a few short waits keep
+                // the canvas from freezing on a stale tree.
+                if (attempt < 3 && seq === refreshSeq) {
+                  setTimeout(() => void load(attempt + 1), 400 + attempt * 500);
+                }
+              });
+          void load(0);
         },
       });
       editorInstance = editor.mountEditor(host, {

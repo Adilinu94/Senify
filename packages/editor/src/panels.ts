@@ -10,7 +10,7 @@ import {
   type TokenGroup,
 } from "@senify/section-sdk";
 import { SenifyError } from "@senify/core";
-import { isOverrideBreakpoint, type FrameBreakpoint } from "./types.ts";
+import { isOverrideBreakpoint, type FrameBreakpoint, type OverrideBreakpoint } from "./types.ts";
 import { effectiveProps } from "./frames.ts";
 
 // Panels are generated, never hand-built (artifacts/09 „Registry → UI"):
@@ -39,6 +39,9 @@ export type PanelField = {
   inherited: PropValue | undefined;
   target: FrameBreakpoint;
   overridden: boolean;
+  // Every breakpoint that carries an override of this key — the device dots
+  // next to the control (Elementor's responsive indicators).
+  overrideBreakpoints: OverrideBreakpoint[];
   resettable: boolean;
   hidden: boolean;
   tokenGroup: TokenGroup | undefined;
@@ -185,6 +188,7 @@ function fieldFor(
     base: Record<string, PropValue>;
     breakpoint: FrameBreakpoint;
     overriddenKeys: Set<string>;
+    overrides: Node["overrides"] | undefined;
     theme: Theme | undefined;
   },
 ): PanelField {
@@ -211,6 +215,9 @@ function fieldFor(
     inherited: overridden ? options.base[spec.key] : undefined,
     target: options.breakpoint,
     overridden,
+    overrideBreakpoints: (["tablet", "mobile"] as const).filter((bp) =>
+      Object.hasOwn(options.overrides?.[bp]?.props ?? {}, spec.key),
+    ),
     resettable: overridden,
     hidden: isPropHidden(spec.hidden, options.props),
     tokenGroup,
@@ -253,6 +260,7 @@ export function buildPanels(input: BuildPanelsInput): PanelGroup[] {
     base,
     breakpoint: input.breakpoint,
     overriddenKeys,
+    overrides: node.overrides,
     theme: input.theme,
   };
   const groups = new Map<string, PanelGroup>();

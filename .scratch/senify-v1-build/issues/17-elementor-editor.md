@@ -55,3 +55,12 @@ Quellen: Elementor Help „Explore the Elementor Editor", „Elementor Top Bar",
 - **Architektur-Notiz:** `packages/editor/src/golden.ts` ist ein browser-sicherer Zwilling von `@senify/engine`s `goldenTreeToMutations` (der Engine-Index zieht pg/sharp/node:crypto und darf nicht ins Editor-Bundle); Signatur um einen Ziel-Index erweitert.
 - **Bugfix unterwegs:** Der erste Frame-Mount landet im about:blank-Dokument; der zweite (Load) ersetzt ihn. `mountedFrames` fuehrt jetzt genau einen Lebend-Eintrag je Frame, sonst rechnen Overlay/Handle mit Null-Rects des verworfenen Dokuments.
 - **Tests:** `editor-browser.test.ts` prueft die neue Chrome im echten Browser: Panel|Struktur|Canvas-Reihenfolge, Geraete-Umschalter, Struktur-Toggle, Panel-Tabs, Handle-Duplizieren/-Loeschen, `+`-Einfuegen mit Hinweis, Kontextmenue oeffnen/schliessen, Zoom-Footer.
+
+## Umsetzungs-Notiz (M3)
+
+- **Drag & Drop:** Widget-Karten sind ziehbar; die Drop-Events liegen im Frame-Dokument (ein iframe schluckt sie aus dem Eltern-Dokument). Ueber dem Element unter dem Zeiger entscheidet die vertikale Mitte ueber davor/danach, eine blaue Linie zeigt die Position, der Drop fuegt die Golden-Vorlage an genau dieser Stelle ein. Playwright kann HTML5-Drag-Daten nicht ueber die Frame-Grenze tragen; der Browser-Test treibt die echten Handler mit synthetischen DragEvents.
+- **Navigator:** Zeilen sind ziehbar und ordnen ueber dieselbe Positionslogik um (Zyklus-Schutz: nicht in eigene Nachfahren); das Auge blendet pro Breakpoint aus (sichtbar in Struktur und Frame).
+- **Inline-Toolbar:** Waehrend der Textbearbeitung erscheint am Element eine Leiste mit "Fertig" (Enter) und "Verwerfen" (Esc).
+- **Inline-Tippen entlastet:** Statt einer Mutation pro Tastendruck schreibt der Editor nach 350 ms Ruhe (Flush bei Enter/Fokusverlust, Verwerfen bricht den Timer ab); die Historie coalesced den Schreibvorgang weiterhin zu einem Undo-Eintrag.
+- **Override-Anzeige:** Panels zeigen pro Control einen Geraetepunkt (Tablet/Mobil), wenn dort ein Override liegt; Klick wechselt die Ansicht.
+- **Resilienz:** Der Transport wartet kurze 429-Fenster ab (Retry-After) statt Aenderungen zu verwerfen; die Shell holt den Baum nach jeder Mutation nach, mit Reihenfolge-Schutz (nur die neueste Antwort schreibt) und Backoff. Der Browser-Test hebt die Rate-Limits des Programms an (ateLimits-Passthrough in startProgram), weil er in Sekunden mehr Requests erzeugt als ein Mensch.

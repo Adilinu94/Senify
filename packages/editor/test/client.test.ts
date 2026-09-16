@@ -16,7 +16,7 @@ const author: AuthorInput = { kind: "human", id: "anna", label: "Anna" };
 type Call = { url: string; body: Record<string, unknown> };
 
 function stubFetch(
-  response: (call: Call) => { status: number; body: unknown },
+  response: (call: Call) => { status: number; body: unknown; headers?: Record<string, string> },
   calls: Call[] = [],
 ): FetchLike {
   return (url, init) => {
@@ -26,6 +26,13 @@ function stubFetch(
     const payload: FetchResponseLike = {
       ok: result.status >= 200 && result.status < 300,
       status: result.status,
+      ...(result.headers === undefined
+        ? {}
+        : {
+            headers: {
+              get: (name: string) => result.headers?.[name.toLowerCase()] ?? null,
+            },
+          }),
       json: async () => result.body,
     };
     return Promise.resolve(payload);
@@ -142,6 +149,37 @@ describe("apply_mutations transport", () => {
     expect((error as EditorRequestError).category).toBe("validation");
     expect((error as EditorRequestError).field).toBe("mutations[0].node.type");
     expect((error as EditorRequestError).suggestion).toBe("Allowed children: none.");
+  });
+
+  it("waits out a rate limit instead of dropping the edit", async () => {
+    let attempts = 0;
+    const calls: Call[] = [];
+    const transport = createHttpTransport({
+      pageId: "page-1",
+      fetchImpl: stubFetch(() => {
+        attempts += 1;
+        if (attempts < 3) {
+          return {
+            status: 429,
+            body: {
+              error: {
+                category: "auth",
+                message: "Rate limit exceeded (60 requests/minute)",
+              },
+            },
+            headers: { "retry-after": "0.01" },
+          };
+        }
+        return ok(response());
+      }, calls),
+    });
+    const session = new MutationsSession({ transport, initialVersion: 5, author });
+    const result = await session.applyMutations([{ op: "deleteNode", id: "hero000001" }]);
+    expect(result.newDraftVersion).toBe(4);
+    expect(attempts).toBe(3);
+    // Every retry carries the same batch — a rejected request never applied.
+    expect(calls).toHaveLength(3);
+    expect(calls[0]?.body).toEqual(calls[2]?.body);
   });
 
   it("skips the request for an empty batch", async () => {

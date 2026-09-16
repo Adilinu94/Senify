@@ -142,6 +142,12 @@ type MountedFrame = {
   offsetTop: number;
 };
 
+// The slice of the HTML5 drag data transfer the editor uses.
+type DragTransfer = {
+  setData?: (format: string, value: string) => void;
+  effectAllowed?: string;
+};
+
 // The gray gap between the stage edge and the sheets. Frames live in content
 // coordinates of the stage, so the selection overlay shares the same origin.
 const STAGE_OFFSET = 24;
@@ -180,6 +186,7 @@ body { font: 14px/1.5 system-ui, sans-serif; background: var(--bg-base, #ffffff)
 [data-node-id][data-selected="true"] { outline: 2px solid #d004d4; outline-offset: -2px; }
 [data-inline] { cursor: text; }
 [data-inline]:hover { background: rgba(208, 4, 212, .08); }
+.senify-drop-line { position: fixed; left: 0; right: 0; height: 2px; background: #d004d4; z-index: 9999; pointer-events: none; }
 .senify-frame-page { min-height: 100vh; }
 </style></head><body></body></html>`;
 }
@@ -311,6 +318,15 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
   let contextMenu: { nodeId: string; left: number; top: number } | null = null;
   let railHidden = false;
   let widgetQuery = "";
+  // Drag & drop: a widget dragged out of the catalog, a layer row dragged in
+  // the structure column, and the element currently in inline editing.
+  let dragWidget: string | null = null;
+  let railDragId: string | null = null;
+  let inlineElement: DomElement | null = null;
+  // Inline typing commits on a short idle instead of every keystroke: the
+  // canvas stays smooth and the engine's rate limiter stays happy (the
+  // history already coalesces the burst into one undo entry).
+  let inlineTimer: ReturnType<typeof setTimeout> | null = null;
   let message: string | null = null;
   let messageTone: "info" | "error" = "info";
   let spotlightOpen = false;
@@ -732,21 +748,41 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     renderPanelHost();
   }
 
-  function insertWidget(type: string): void {
+  // Places one golden example at a concrete position; the shared tail of the
+  // catalog click, the "+" insert points and the drag & drop drop.
+  function placeGolden(type: string, parent: ParentRef, index?: number): void {
     if (!options.registry.has(type)) return;
     const definition = options.registry.get(type);
-    const tree = options.tree();
-    const parent: ParentRef = insertTarget?.parent ?? { nodeId: tree.rootNodeId };
-    const index = insertTarget?.index;
     const placement = goldenTreeToMutations(definition.golden.tree, parent, index);
-    insertTarget = null;
-    insertHint = null;
     void applyMutations(placement.mutations, `${definition.title} einfügen`)
       .then(() => {
         panelMode = "settings";
         select(placement.rootId);
       })
       .catch(() => undefined);
+  }
+
+  function insertWidget(type: string): void {
+    const target = insertTarget;
+    insertTarget = null;
+    insertHint = null;
+    const tree = options.tree();
+    placeGolden(type, target?.parent ?? { nodeId: tree.rootNodeId }, target?.index);
+  }
+
+  function dropWidget(type: string, target: DomElement | null, clientY: number): void {
+    const tree = options.tree();
+    let parent: ParentRef = { nodeId: tree.rootNodeId };
+    let index: number | undefined;
+    const targetId = target?.getAttribute("data-node-id") ?? null;
+    const placement = targetId ? siblingPlacement(targetId) : null;
+    if (placement) {
+      const rect = target?.getBoundingClientRect?.();
+      const after = rect ? clientY > rect.top + rect.height / 2 : false;
+      parent = placement.parent;
+      index = placement.index + (after ? 1 : 0);
+    }
+    placeGolden(type, parent, index);
   }
 
   function renderCatalog(): void {
@@ -810,7 +846,7 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
           const card = h(doc, "button", {
             className: "senify-editor__widget-card",
             data: { widget: definition.type },
-            attributes: { title: definition.description },
+            attributes: { title: definition.description, draggable: "true" },
           });
           card.setAttribute("type", "button");
           card.appendChild(h(doc, "span", { className: "senify-editor__widget-icon" }));
@@ -818,6 +854,17 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
             h(doc, "span", { className: "senify-editor__widget-label", text: definition.title }),
           );
           card.addEventListener("click", () => insertWidget(definition.type));
+          card.addEventListener("dragstart", (event: DomEvent) => {
+            dragWidget = definition.type;
+            card.setAttribute("data-dragging", "true");
+            const transfer = (event as { dataTransfer?: DragTransfer }).dataTransfer;
+            transfer?.setData?.("text/plain", definition.type);
+            if (transfer) transfer.effectAllowed = "copy";
+          });
+          card.addEventListener("dragend", () => {
+            dragWidget = null;
+            card.removeAttribute("data-dragging");
+          });
           grid.appendChild(card);
         }
         list.appendChild(grid);
@@ -1191,6 +1238,19 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
       input.addEventListener("change", () => dispatchProp(selected, field, input.value ?? ""));
       row.appendChild(input);
     }
+    if (field.overrideBreakpoints.length > 0) {
+      const dots = h(doc, "span", { className: "senify-editor__device-dots" });
+      for (const breakpoint of field.overrideBreakpoints) {
+        const dot = h(doc, "span", {
+          className: "senify-editor__device-dot",
+          data: { dot: breakpoint },
+          attributes: { role: "button", title: `Override für ${breakpoint} — Ansicht wechseln` },
+        });
+        dot.addEventListener("click", () => setBreakpoint(breakpoint));
+        dots.appendChild(dot);
+      }
+      row.appendChild(dots);
+    }
     if (field.overridden && isOverrideBreakpoint(field.target)) {
       row.appendChild(
         h(doc, "span", {
@@ -1309,7 +1369,43 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     body.addEventListener("input", (event: DomEvent) => {
       const target = (event.target as DomElement | null)?.closest?.("[data-inline]");
       if (!target || !inline.session) return;
-      void commitInline(target.textContent ?? "");
+      // Keep the local session value current (Escape/Enter use it), the
+      // server write follows on the idle tick.
+      inline.type(target.textContent ?? "");
+      scheduleInlineCommit();
+    });
+    body.addEventListener("focusout", () => {
+      if (inlineTimer !== null) flushInlineCommit();
+    });
+    // Widgets dragged out of the catalog: the frame document owns the drop
+    // events (an iframe swallows them from the parent document), so the
+    // listeners live here. The drop position comes from the node under the
+    // pointer and its vertical midpoint.
+    body.addEventListener("dragenter", (event: DomEvent) => {
+      if (dragWidget === null) return;
+      event.preventDefault?.();
+    });
+    body.addEventListener("dragover", (event: DomEvent) => {
+      if (dragWidget === null) return;
+      event.preventDefault?.();
+      const target = (event.target as DomElement | null)?.closest?.("[data-node-id]") ?? null;
+      showDropLine(body, target, event.clientY ?? 0);
+    });
+    body.addEventListener("dragleave", (event: DomEvent) => {
+      if (dragWidget === null) return;
+      const related = (event as { relatedTarget?: unknown }).relatedTarget;
+      if (related && body.contains?.(related) === true) return;
+      clearDropLine(body);
+    });
+    body.addEventListener("drop", (event: DomEvent) => {
+      if (dragWidget === null) return;
+      event.preventDefault?.();
+      const target = (event.target as DomElement | null)?.closest?.("[data-node-id]") ?? null;
+      const clientY = event.clientY ?? 0;
+      clearDropLine(body);
+      const type = dragWidget;
+      dragWidget = null;
+      dropWidget(type, target, clientY);
     });
     body.addEventListener("keydown", (event: DomEvent) => {
       if (!inline.session) return;
@@ -1318,11 +1414,32 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
         return;
       }
       if (event.key === "Enter") {
-        const target = (event.target as DomElement | null)?.closest?.("[data-inline]");
-        target?.removeAttribute("contenteditable");
-        inline.commit();
+        void finishInline();
       }
     });
+  }
+
+  // The blue line Elementor draws between sections while dragging.
+  function showDropLine(body: DomElement, target: DomElement | null, clientY: number): void {
+    const frameDocument = body.ownerDocument;
+    if (!frameDocument) return;
+    let line = body.querySelector(".senify-drop-line");
+    if (!line) {
+      line = h(frameDocument, "div", { className: "senify-drop-line" });
+      body.appendChild(line);
+    }
+    let y = 10;
+    if (target) {
+      const rect = target.getBoundingClientRect?.();
+      if (rect) {
+        y = clientY > rect.top + rect.height / 2 ? rect.top + rect.height : rect.top;
+      }
+    }
+    line.style.top = `${Math.max(0, Math.round(y) - 1)}px`;
+  }
+
+  function clearDropLine(body: DomElement): void {
+    body.querySelector(".senify-drop-line")?.remove();
   }
 
   function parentIdOf(nodeId: string): string | null {
@@ -1426,6 +1543,23 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     inline.start({ nodeId, key, value: target.textContent ?? "" });
     target.setAttribute("contenteditable", "plaintext-only");
     target.focus?.();
+    inlineElement = target;
+    renderOverlay();
+  }
+
+  // Enter or the toolbar's "Fertig": flush the pending write, keep the edit,
+  // drop the editing mode.
+  async function finishInline(): Promise<void> {
+    if (inlineTimer !== null) {
+      clearTimeout(inlineTimer);
+      inlineTimer = null;
+      const target = inlineElement;
+      if (target && inline.session) await commitInline(target.textContent ?? "");
+    }
+    inlineElement?.removeAttribute("contenteditable");
+    if (inline.session) inline.commit();
+    inlineElement = null;
+    renderOverlay();
   }
 
   function editNodeInline(nodeId: string): void {
@@ -1441,6 +1575,8 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
   }
 
   async function commitInline(value: string): Promise<void> {
+    if (!inline.session) return;
+    if (value === inline.session.original && inline.session.entryId === null) return;
     const { mutation } = inline.type(value);
     const versionBefore = session.version;
     try {
@@ -1457,11 +1593,41 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     }
   }
 
+  function scheduleInlineCommit(): void {
+    if (inlineTimer !== null) clearTimeout(inlineTimer);
+    inlineTimer = setTimeout(() => {
+      inlineTimer = null;
+      const target = inlineElement;
+      if (!target || !inline.session) return;
+      void commitInline(target.textContent ?? "");
+    }, 350);
+  }
+
+  function flushInlineCommit(): void {
+    if (inlineTimer === null) return;
+    clearTimeout(inlineTimer);
+    inlineTimer = null;
+    const target = inlineElement;
+    if (!target || !inline.session) return;
+    void commitInline(target.textContent ?? "");
+  }
+
   async function revertInline(): Promise<void> {
+    if (inlineTimer !== null) {
+      clearTimeout(inlineTimer);
+      inlineTimer = null;
+    }
+    inlineElement?.removeAttribute("contenteditable");
+    inlineElement = null;
+    if (!inline.session) {
+      renderOverlay();
+      return;
+    }
     const { mutation } = inline.revert();
     report("Inline-Text zurückgesetzt");
     if (!mutation) {
       renderStatus();
+      renderOverlay();
       return;
     }
     try {
@@ -1495,9 +1661,35 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
   function renderOverlay(): void {
     overlay.textContent = "";
     if (state.mode !== "design") return;
-    const nodeId = state.selectedNodeId;
+    const nodeId = inline.session?.nodeId ?? state.selectedNodeId;
     if (nodeId !== null) renderSelectionOverlay(nodeId);
+    if (inline.session) renderInlineBar(inline.session.nodeId);
     if (contextMenu !== null) renderContextMenu();
+  }
+
+  // While inline editing: a small bar with "Fertig" and "Verwerfen"
+  // (Enter/Escape equivalents) so the mode is discoverable and escapable
+  // without the keyboard.
+  function renderInlineBar(nodeId: string): void {
+    const rect = selectionRect(nodeId);
+    if (!rect) return;
+    const bar = h(doc, "div", {
+      className: "senify-editor__inline-bar",
+      data: { inline: nodeId },
+      style: {
+        left: `${Math.max(0, rect.left + rect.width - 158)}px`,
+        top: `${Math.max(0, rect.top > 34 ? rect.top - 32 : rect.top + 2)}px`,
+      },
+    });
+    const done = h(doc, "button", { text: "✓ Fertig", data: { action: "inline-done" } });
+    done.setAttribute("type", "button");
+    done.addEventListener("click", () => void finishInline());
+    const discard = h(doc, "button", { text: "✕ Verwerfen", data: { action: "inline-discard" } });
+    discard.setAttribute("type", "button");
+    discard.addEventListener("click", () => void revertInline());
+    bar.appendChild(done);
+    bar.appendChild(discard);
+    overlay.appendChild(bar);
   }
 
   function renderSelectionOverlay(nodeId: string): void {
@@ -1806,22 +1998,105 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
   }
 
   function layerRow(item: LayerItem): DomElement {
-    const row = h(doc, "button", {
+    const row = h(doc, "div", {
       className: "senify-editor__row",
-      text: `${"  ".repeat(item.depth)}${item.label}`,
       data: {
         node: item.id,
         active: String(item.id === state.selectedNodeId),
         hidden: String(item.hidden),
         locked: String(item.locked),
       },
+      attributes: { draggable: "true" },
     });
-    row.setAttribute("type", "button");
+    row.appendChild(
+      h(doc, "span", {
+        className: "senify-editor__row-label",
+        text: `${"  ".repeat(item.depth)}${item.label}`,
+      }),
+    );
+    const eye = h(doc, "span", {
+      className: "senify-editor__eye",
+      text: item.hidden ? "◌" : "●",
+      data: { eye: item.id },
+      attributes: { role: "button", title: item.hidden ? "Einblenden" : "Ausblenden" },
+    });
+    eye.addEventListener("click", (event: DomEvent) => {
+      event.stopPropagation?.();
+      toggleHidden(item.id);
+    });
+    row.appendChild(eye);
     row.addEventListener("click", (event: DomEvent) => {
       // Alt-Klick steigt eine Ebene hoch (Inspect-Ladder).
       select(event.altKey ? item.parentId : item.id);
     });
+    // Drag to reorder (Elementor's navigator): the row under the pointer and
+    // its vertical midpoint decide before/after.
+    row.addEventListener("dragstart", (event: DomEvent) => {
+      railDragId = item.id;
+      row.setAttribute("data-dragging", "true");
+      const transfer = (event as { dataTransfer?: DragTransfer }).dataTransfer;
+      transfer?.setData?.("text/plain", item.id);
+      if (transfer) transfer.effectAllowed = "move";
+    });
+    row.addEventListener("dragover", (event: DomEvent) => {
+      if (railDragId === null || railDragId === item.id) return;
+      event.preventDefault?.();
+      const rect = row.getBoundingClientRect?.();
+      const after = rect ? (event.clientY ?? 0) > rect.top + rect.height / 2 : false;
+      row.setAttribute("data-drop", after ? "after" : "before");
+    });
+    row.addEventListener("dragleave", () => row.removeAttribute("data-drop"));
+    row.addEventListener("drop", (event: DomEvent) => {
+      if (railDragId === null) return;
+      event.preventDefault?.();
+      const rect = row.getBoundingClientRect?.();
+      const after = rect ? (event.clientY ?? 0) > rect.top + rect.height / 2 : false;
+      const source = railDragId;
+      railDragId = null;
+      row.removeAttribute("data-drop");
+      if (source !== item.id) moveNodeTo(source, item.id, after);
+    });
+    row.addEventListener("dragend", () => {
+      railDragId = null;
+      row.removeAttribute("data-dragging");
+      row.removeAttribute("data-drop");
+    });
     return row;
+  }
+
+  function isDescendant(tree: NodeTree, ancestorId: string, nodeId: string): boolean {
+    const visit = (ownerId: string): boolean => {
+      const owner = tree.nodes[ownerId];
+      if (!owner) return false;
+      const ids = [
+        ...(owner.children ?? []),
+        ...Object.values(owner.slots ?? {}).flat(),
+      ];
+      for (const childId of ids) {
+        if (childId === nodeId) return true;
+        if (visit(childId)) return true;
+      }
+      return false;
+    };
+    return visit(ancestorId);
+  }
+
+  // Reorder via the structure column: move `sourceId` next to `targetId`.
+  function moveNodeTo(sourceId: string, targetId: string, after: boolean): void {
+    const tree = options.tree();
+    if (sourceId === tree.rootNodeId) return;
+    if (sourceId === targetId || isDescendant(tree, sourceId, targetId)) return;
+    const from = siblingPlacement(sourceId);
+    const to = siblingPlacement(targetId);
+    if (!from || !to) return;
+    const sameList =
+      from.parent.nodeId === to.parent.nodeId && from.parent.slot === to.parent.slot;
+    let index = to.index + (after ? 1 : 0);
+    if (sameList && from.index < index) index -= 1;
+    const maxIndex = sameList ? to.count - 1 : to.count;
+    if (index < 0 || index > maxIndex) return;
+    void runAction({ kind: "move", nodeId: sourceId, target: to.parent, index }, "Knoten verschieben")
+      .catch(() => undefined);
   }
 
   /* ------------------------------------------------------------ spotlight */

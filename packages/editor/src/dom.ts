@@ -46,6 +46,7 @@ export type DomElement = {
   querySelector(selector: string): DomElement | null;
   querySelectorAll(selector: string): DomElement[];
   closest(selector: string): DomElement | null;
+  contains?(node: unknown): boolean;
   focus?(): void;
   remove(): void;
   // Real elements in the browser expose their box; the overlay handle and the

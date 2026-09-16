@@ -4,6 +4,8 @@ import type { ReactNode } from "react";
 import type { NodeTree, Registry } from "@senify/section-sdk";
 import { SectionTree, type SectionContext } from "@senify/registry/components";
 import type { FrameRenderer } from "./mount.ts";
+import { isHiddenAt } from "./frames.ts";
+import type { FrameBreakpoint } from "./types.ts";
 import type { DomElement } from "./dom.ts";
 
 // The real frame renderer: the very components of the bake (SectionTree)
@@ -50,6 +52,7 @@ export function createReactRenderer(options: ReactRendererOptions = {}): FrameRe
         );
       });
       annotateInlineText(host, context.tree, context.registry);
+      annotateHidden(host, context.tree, context.breakpoint);
     },
     destroy(): void {
       for (const root of roots.values()) root.unmount();
@@ -75,6 +78,21 @@ function annotateInlineText(host: DomElement, tree: NodeTree, registry: Registry
       leaf.setAttribute("data-inline", "true");
       leaf.setAttribute("data-inline-node", nodeId);
       leaf.setAttribute("data-prop-key", spec.key);
+    }
+  }
+}
+
+// Hidden nodes (per breakpoint) dim in the frame. The bake skips them or
+// leaves the decision to the runtime; the editor marks the live DOM so the
+// structure column's eye and the frame agree immediately.
+function annotateHidden(host: DomElement, tree: NodeTree, breakpoint: FrameBreakpoint): void {
+  for (const nodeId of Object.keys(tree.nodes)) {
+    const root = host.querySelector(`[data-node-id="${nodeId}"]`);
+    if (!root) continue;
+    if (isHiddenAt(tree, nodeId, breakpoint)) {
+      root.setAttribute("data-hidden", "true");
+    } else {
+      root.removeAttribute("data-hidden");
     }
   }
 }

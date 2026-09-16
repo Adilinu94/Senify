@@ -330,7 +330,9 @@ export const EDITOR_STYLES = `
 }
 .senify-editor__list { padding: 0.3rem; }
 .senify-editor__row {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
   width: 100%;
   padding: 0.32rem 0.45rem;
   border: 0;
@@ -339,11 +341,24 @@ export const EDITOR_STYLES = `
   color: inherit;
   font: inherit;
   text-align: left;
-  white-space: pre;
-  overflow: hidden;
-  text-overflow: ellipsis;
   cursor: pointer;
 }
+.senify-editor__row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+.senify-editor__eye {
+  padding: 0 0.2rem;
+  opacity: 0.4;
+  cursor: pointer;
+}
+.senify-editor__eye:hover { opacity: 1; color: var(--ed-accent); }
+.senify-editor__row[data-drop="before"] { box-shadow: inset 0 2px 0 var(--ed-accent); }
+.senify-editor__row[data-drop="after"] { box-shadow: inset 0 -2px 0 var(--ed-accent); }
+.senify-editor__row[data-dragging="true"] { opacity: 0.45; }
 .senify-editor__row:hover { background: var(--ed-hover); }
 .senify-editor__row[data-active="true"] {
   background: color-mix(in srgb, var(--ed-accent) 14%, transparent);
@@ -417,6 +432,10 @@ export const EDITOR_STYLES = `
 .senify-editor__widget-card:hover {
   border-color: var(--ed-accent);
   box-shadow: 0 6px 18px rgba(208, 4, 212, 0.14);
+}
+.senify-editor__widget-card[data-dragging="true"] {
+  opacity: 0.5;
+  border-style: dashed;
 }
 .senify-editor__widget-icon {
   width: 1.7rem;
@@ -496,6 +515,47 @@ input[type="checkbox"].senify-editor__control { justify-self: start; }
   color: #a21caf;
   font-size: 0.75em;
 }
+.senify-editor__device-dots {
+  grid-column: 2;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.senify-editor__device-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border: 1px solid var(--ed-line);
+  border-radius: 999px;
+  background: var(--ed-surface);
+  cursor: pointer;
+}
+.senify-editor__device-dot[data-dot="tablet"] { border-color: #7c3aed; background: #ede9fe; }
+.senify-editor__device-dot[data-dot="mobile"] { border-color: #0ea5e9; background: #e0f2fe; }
+.senify-editor__inline-bar {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 0.25rem;
+  background: rgba(12, 13, 14, 0.88);
+  color: #ffffff;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.32);
+  pointer-events: auto;
+}
+.senify-editor__inline-bar button {
+  min-height: 1.5rem;
+  padding: 0 0.5rem;
+  border: 0;
+  border-radius: 0.2rem;
+  background: transparent;
+  color: #ffffff;
+  font: inherit;
+  cursor: pointer;
+}
+.senify-editor__inline-bar button:hover { background: rgba(255, 255, 255, 0.22); }
 .senify-editor__reset {
   grid-column: 2;
   justify-self: start;
