@@ -11,7 +11,7 @@
 - [ ] Motion-Sampling liefert Reveal-/Effekt-Inventar mit exakten Runtime-Params und mappt auf die Presets (03); GPU-Flächen (webgl-scene-Hinweise) erkannt; Lazy-GPU-Warnung, wenn Plattform ohne lebende Canvas
 - [ ] Evidenz: jede Aussage `confirmed | observed | inferred` + Quelle; nichts wird hochgestuft; Widersprüche markiert
 - [ ] KI-Analyse: Familien (18er-Taxonomie), Vokabular (5–8 prompt-fähige Begriffe), Komponenten, Regeln (constants/never), Stil-Blatt (maschinenlesbar)
-- [ ] Tab-UI: Karten + Detail (Swatches, Typo, Motion, Snapshots, Provenance) + Nachbearbeitung erzeugt Profil-Revision; Löschen mit Nutzungs-Hinweis
+- [x] Tab-UI: Karten + Detail (Swatches, Typo, Motion, Snapshots, Provenance) + Nachbearbeitung erzeugt Profil-Revision; Löschen mit Nutzungs-Hinweis
 - [ ] Skalen-Zuordnung: Referenz(en) im Projekt wirken als Theme-Draft (Skalen-Engine 04); Anwenden ändert den Bake nachweislich nicht (Round-Trip-Verifikation)
 - [ ] MCP-Tools `analyze_reference`/`list_references`/`get_reference`/`apply_reference` funktionieren (Prüfstelle 3: „Referenz → Theme → Build"-Workflow)
 - [ ] Schutzregeln in UI + Skill-Material; weicher Adhärenz-Hinweis im Review; blockierte Seite → Fallback-Upload mit reduziertem Profil
@@ -63,3 +63,10 @@ Teil 1 liegt im Arbeitsbaum (nicht committet): `references-contract.ts`, `refere
 - **MCP/Workflow:** Tool-Liste im Workflow-Test um `analyze_reference`/`list_references`/`get_reference`/`apply_reference` nachgezogen; neuer Workflow-Fall „Referenz → Profil → Theme-Draft" inkl. Scope-Prüfung (Lesen ohne `write` erlaubt, Analyse/Apply nur mit `write`).
 - **Tests ausgebaut:** Breakpoint-Parsing (px/em + explizit), `:root`-Rollen-Vokabular, Snapshot bleibt `observed` (nie `confirmed`), Canvas-/GPU-Erkennung ohne Lazy-Warnung, Einmal-Transitions werden verworfen. Review-Adhärenz und Schutzregeln waren bereits verdrahtet und werden weiterhin geprüft.
 - Punkt 5 (Tab-UI) **übersprungen**: `packages/app` ist der parallelen Session vorbehalten (steht noch nicht).
+
+## Tab-UI (parallele Session, 16.09.2026)
+
+- **Referenzen-Tab** (`packages/app/public/app.js`): Karten mit Statuspunkt, Host, Methode (Live/Snapshot), Familien und Projekt-Nutzung; „Neue Referenz" (Live-Analyse via `POST /api/references` mit `wait: true`, Fehlerursache im Toast) und **Snapshot-Fallback** „Aus Quelltext" (Dialog mit URL + HTML → reduziertes Profil).
+- **Detailansicht:** Provenienz + Stil-Blatt, Farb-Swatches mit Evidenz/`uses`/Where-Tooltips, Typografie-Tabelle, Skalen (Familien/Abstände/Radien/Schatten), Motion-Tabelle (Preset-Zuordnung), Design-Sprache (Vokabular, Konstanten, Nie-Regeln), Schutzregeln mit Severity, Snapshot-Metadaten; **Nachbearbeitung** (Vokabular/Familien/Notiz) erzeugt eine Profil-Revision; **Löschen** mit Nutzungs-Hinweis (force erst nach Bestätigung).
+- **Projekt-Zuordnung:** Zuordnen mit Skalen-Auswahl (Default alle vier), Entfernen in den Projekt-Einstellungen; dort auch die Round-Trip-Verifikation aus `GET /api/sites/:id/references` („Anwenden ändert den Bake nicht ✓").
+- **Test:** Integrationstest über den Dashboard-Proxy mit Snapshot-Analyse (offline), Liste/Detail, Zuordnung und Entfernen (`packages/app/test/server.test.ts`).

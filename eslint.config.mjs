@@ -23,6 +23,7 @@ export default tseslint.config(
         setTimeout: "readonly",
         FormData: "readonly",
         Node: "readonly",
+        URL: "readonly",
       },
     },
   },

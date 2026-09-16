@@ -143,6 +143,85 @@ describe("program shell (Prüfstelle Programm)", () => {
     }
   }, 30000);
 
+  it("runs the reference flow through the dashboard proxy", async () => {
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-app-refs-"));
+    const running = await startProgram({
+      db: database.db,
+      dataDir,
+      programTokenFile: join(dataDir, "program-token.json"),
+      enginePort: 0,
+      appPort: 0,
+      openBrowser: false,
+    });
+    const author = { kind: "human", id: "programm", label: "Programm" };
+    const post = (path: string, body: unknown): Promise<Response> =>
+      fetch(`${running.dashboardUrl}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    try {
+      const snapshot = await post("/api/references", {
+        url: "https://reference.example/",
+        author,
+        wait: true,
+        snapshot: {
+          html: "<html><head><style>:root{--brand:#ff0044} h1{font-size:48px;color:#112233}</style></head><body><h1>Hallo</h1></body></html>",
+        },
+      });
+      expect(snapshot.status).toBe(201);
+      const analyzed = (await snapshot.json()) as {
+        reference: { id: string; status: string; method: string; profile: { reduced: boolean } | null };
+      };
+      expect(analyzed.reference.method).toBe("snapshot");
+      expect(analyzed.reference.status).toBe("ready");
+      expect(analyzed.reference.profile?.reduced).toBe(true);
+
+      const list = (await (
+        await fetch(`${running.dashboardUrl}/api/references`)
+      ).json()) as { references: { id: string }[] };
+      expect(list.references.some((entry) => entry.id === analyzed.reference.id)).toBe(true);
+
+      const detail = (await (
+        await fetch(`${running.dashboardUrl}/api/references/${analyzed.reference.id}`)
+      ).json()) as { profile: { reduced: boolean } };
+      expect(detail.profile.reduced).toBe(true);
+
+      const site = (await (
+        await post("/api/sites", { name: "Referenz-Projekt" })
+      ).json()) as { id: string };
+      const assigned = await post(`/api/sites/${site.id}/references`, {
+        author,
+        referenceId: analyzed.reference.id,
+        scales: ["color", "type"],
+      });
+      expect(assigned.status).toBe(201);
+      const assignment = (await (
+        await fetch(`${running.dashboardUrl}/api/sites/${site.id}/references`)
+      ).json()) as {
+        assignments: { referenceId: string; scales: string[] }[];
+        unchanged: { unchanged: boolean };
+      };
+      expect(
+        assignment.assignments.some(
+          (entry) => entry.referenceId === analyzed.reference.id,
+        ),
+      ).toBe(true);
+      expect(typeof assignment.unchanged.unchanged).toBe("boolean");
+
+      const removed = await fetch(
+        `${running.dashboardUrl}/api/sites/${site.id}/references/${analyzed.reference.id}`,
+        { method: "DELETE" },
+      );
+      expect(removed.status).toBe(200);
+    } finally {
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 30000);
+
   it("refuses to start without a database", async () => {
     await expect(
       startProgram({ openBrowser: false, databaseUrl: undefined, db: undefined }),

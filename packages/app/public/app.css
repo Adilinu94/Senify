@@ -512,6 +512,46 @@ dialog.modal h2 {
   margin-top: 1rem;
 }
 
+dialog.modal input[type="text"],
+dialog.modal textarea,
+dialog.modal select,
+.panel input[type="text"],
+.panel select {
+  width: 100%;
+  font: inherit;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--bg-base);
+  color: inherit;
+  margin: 0.25rem 0 0.6rem;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.token {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.swatch {
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 0.3rem;
+  border: 1px solid var(--line);
+  display: inline-block;
+  flex: none;
+}
+
 .loading {
   padding: 3rem;
   text-align: center;

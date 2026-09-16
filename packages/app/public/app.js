@@ -324,14 +324,504 @@ async function trashView() {
   ]);
 }
 
+function hostOf(url) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+}
+
+function statusDotFor(status) {
+  if (status === "ready") return "live";
+  if (status === "failed") return "review";
+  return "";
+}
+
+async function createReference() {
+  const url = prompt("URL der Referenz");
+  if (!url) return;
+  try {
+    const result = await api("/api/references", {
+      method: "POST",
+      body: { url, author: AUTHOR, wait: true },
+    });
+    const reference = result.reference;
+    if (reference.status === "failed") {
+      toast(
+        `Analyse fehlgeschlagen: ${reference.failureReason ?? "unbekannt"} — nutze „Aus Quelltext“ als Fallback.`,
+        "error",
+      );
+    } else {
+      toast("Referenz analysiert");
+    }
+    location.hash = `#/references/${reference.id}`;
+  } catch (error) {
+    failed(error);
+  }
+}
+
+const snapshotDialog = document.getElementById("snapshot-dialog");
+const snapshotForm = document.getElementById("snapshot-form");
+
+function openSnapshotDialog() {
+  document.getElementById("snapshot-url").value = "";
+  document.getElementById("snapshot-html").value = "";
+  snapshotDialog.showModal();
+}
+
+snapshotForm.addEventListener("submit", async (event) => {
+  const submitter = event.submitter;
+  event.preventDefault();
+  const url = document.getElementById("snapshot-url").value.trim();
+  const html = document.getElementById("snapshot-html").value;
+  snapshotDialog.close();
+  if (submitter?.value !== "ok") return;
+  if (!url || html.trim() === "") {
+    toast("URL und HTML werden benötigt.", "error");
+    return;
+  }
+  try {
+    const result = await api("/api/references", {
+      method: "POST",
+      body: { url, author: AUTHOR, wait: true, snapshot: { html } },
+    });
+    toast("Referenz aus Quelltext analysiert (reduziertes Profil)");
+    location.hash = `#/references/${result.reference.id}`;
+  } catch (error) {
+    failed(error);
+  }
+});
+
+async function deleteReference(reference) {
+  const used = reference.usedInProjects.length;
+  const message =
+    used > 0
+      ? `„${reference.name}“ ist ${used} Projekt(en) zugeordnet. Trotzdem löschen?`
+      : `„${reference.name}“ löschen?`;
+  if (!confirm(message)) return;
+  try {
+    await api(`/api/references/${reference.id}${used > 0 ? "?force=1" : ""}`, {
+      method: "DELETE",
+    });
+    toast("Referenz gelöscht");
+    await renderRoute();
+  } catch (error) {
+    failed(error);
+  }
+}
+
+function referenceTokenChip(token, withSwatch) {
+  return el(
+    "span",
+    { class: "token", title: token.where.join(" · ") },
+    withSwatch ? el("span", { class: "swatch", style: `background: ${token.value}` }) : undefined,
+    el("code", { text: token.value }),
+    el("span", { class: "tag", text: token.level }),
+    token.uses > 1 ? el("span", { class: "muted", text: `×${token.uses}` }) : undefined,
+  );
+}
+
 async function referencesView() {
+  const { references } = await api("/api/references");
+  activeTab("references");
+  const cards = references.map((reference) =>
+    el(
+      "article",
+      { class: "card" },
+      el("div", { class: "card-thumb", text: initials(reference.name || "R") }),
+      el(
+        "div",
+        { class: "card-body" },
+        el(
+          "div",
+          { class: "card-title" },
+          el("span", { class: `status-dot ${statusDotFor(reference.status)}` }),
+          reference.name,
+        ),
+        el("div", {
+          class: "muted",
+          text: `${hostOf(reference.sourceUrl)} · ${reference.method === "snapshot" ? "Snapshot" : "Live"}`,
+        }),
+        el("div", {
+          class: "muted",
+          text:
+            reference.families.length > 0
+              ? reference.families.slice(0, 3).join(", ")
+              : "keine Familien erkannt",
+        }),
+        el("div", {
+          class: "muted",
+          text:
+            reference.usedInProjects.length > 0
+              ? `In ${reference.usedInProjects.length} Projekt(en)`
+              : "Nicht zugeordnet",
+        }),
+        el(
+          "div",
+          { class: "card-actions" },
+          el("a", { href: `#/references/${reference.id}`, text: "Details" }),
+          el("button", {
+            class: "danger",
+            text: "Löschen",
+            onclick: () => deleteReference(reference),
+          }),
+        ),
+      ),
+    ),
+  );
   render([
-    el("h1", { text: "Referenzen" }),
-    el("div", {
-      class: "empty",
-      text: "Die Referenz-Analyse (Capture, Profil, Theme-Ableitung) kommt mit dem Referenzen-Ticket.",
-    }),
+    el(
+      "div",
+      { class: "toolbar" },
+      el("h1", { text: "Referenzen", style: "margin: 0" }),
+      el("div", { class: "spacer" }),
+      el("button", { class: "ghost", text: "Aus Quelltext", onclick: openSnapshotDialog }),
+      el("button", { class: "primary", text: "Neue Referenz", onclick: createReference }),
+    ),
+    references.length === 0
+      ? el("div", {
+          class: "empty",
+          text: "Noch keine Referenzen — analysiere eine URL oder füge Seiten-Quelltext ein.",
+        })
+      : el("div", { class: "card-grid" }, cards),
   ]);
+}
+
+async function referenceDetailView(referenceId) {
+  const reference = await api(`/api/references/${referenceId}`);
+  const { sites } = await api("/api/sites");
+  activeTab("references");
+  const profile = reference.profile;
+  const nodes = [
+    el(
+      "div",
+      { class: "toolbar" },
+      el("a", { href: "#/references", text: "← Referenzen" }),
+      el("h1", { text: reference.name, style: "margin: 0" }),
+      el("span", { class: "tag", text: reference.status }),
+      el("div", { class: "spacer" }),
+      el("button", {
+        class: "danger",
+        text: "Löschen",
+        onclick: () => deleteReference(reference),
+      }),
+    ),
+    el(
+      "div",
+      { class: "panel" },
+      el(
+        "p",
+        {},
+        el("strong", { text: "Quelle: " }),
+        el("a", {
+          href: reference.sourceUrl,
+          target: "_blank",
+          rel: "noreferrer",
+          text: reference.sourceUrl,
+        }),
+      ),
+      el("p", {
+        class: "muted",
+        text: `Methode: ${reference.method === "snapshot" ? "Snapshot (reduziert)" : "Live-Capture"} · Stand: ${formatDate(reference.provenance?.capturedAt)} · Revision ${reference.revision}`,
+      }),
+      reference.failureReason
+        ? el("p", { class: "muted", text: `Fehler: ${reference.failureReason}` })
+        : undefined,
+      profile?.styleBrief ? el("p", { text: profile.styleBrief }) : undefined,
+      profile?.reduced
+        ? el("p", {
+            class: "muted",
+            text: "Reduziertes Profil (Snapshot-Fallback) — Runtime-Werte fehlen.",
+          })
+        : undefined,
+    ),
+  ];
+  if (!profile) {
+    nodes.push(
+      el("div", {
+        class: "empty",
+        text: "Noch kein Profil — die Analyse läuft oder ist fehlgeschlagen. Nutze „Aus Quelltext“ als Fallback.",
+      }),
+    );
+    render(nodes);
+    return;
+  }
+  if (profile.tokens.color.length > 0) {
+    nodes.push(
+      el(
+        "div",
+        { class: "panel" },
+        el("h2", { text: "Farben" }),
+        el(
+          "div",
+          { class: "chip-row" },
+          profile.tokens.color.slice(0, 24).map((token) => referenceTokenChip(token, true)),
+        ),
+      ),
+    );
+  }
+  if (profile.tokens.type.length > 0) {
+    nodes.push(
+      el(
+        "div",
+        { class: "panel" },
+        el("h2", { text: "Typografie" }),
+        el(
+          "table",
+          {},
+          el(
+            "thead",
+            {},
+            el(
+              "tr",
+              {},
+              el("th", { text: "Rolle" }),
+              el("th", { text: "Größe" }),
+              el("th", { text: "Zeilenhöhe" }),
+              el("th", { text: "Gewicht" }),
+              el("th", { text: "Evidenz" }),
+            ),
+          ),
+          el(
+            "tbody",
+            {},
+            profile.tokens.type.slice(0, 14).map((step) =>
+              el(
+                "tr",
+                {},
+                el("td", { text: step.role }),
+                el("td", {}, el("code", { text: step.size })),
+                el("td", { text: step.lineHeight ?? "—" }),
+                el("td", { text: step.weight === null ? "—" : String(step.weight) }),
+                el("td", {}, el("span", { class: "tag", text: step.level })),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+  const scaleGroups = [
+    ["Schriftfamilien", profile.tokens.families],
+    ["Abstände", profile.tokens.space],
+    ["Radien", profile.tokens.radius],
+    ["Schatten", profile.tokens.shadow],
+  ].filter(([, tokens]) => tokens.length > 0);
+  if (scaleGroups.length > 0) {
+    nodes.push(
+      el(
+        "div",
+        { class: "panel" },
+        el("h2", { text: "Skalen" }),
+        ...scaleGroups.map(([label, tokens]) =>
+          el(
+            "div",
+            { style: "margin-bottom: 0.75rem" },
+            el("div", { class: "muted", text: label }),
+            el(
+              "div",
+              { class: "chip-row" },
+              tokens.slice(0, 12).map((token) => referenceTokenChip(token, false)),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+  if (profile.motion.length > 0) {
+    nodes.push(
+      el(
+        "div",
+        { class: "panel" },
+        el("h2", { text: "Motion" }),
+        el(
+          "table",
+          {},
+          el(
+            "thead",
+            {},
+            el(
+              "tr",
+              {},
+              el("th", { text: "Effekt" }),
+              el("th", { text: "Preset" }),
+              el("th", { text: "Trigger" }),
+              el("th", { text: "Evidenz" }),
+            ),
+          ),
+          el(
+            "tbody",
+            {},
+            profile.motion.slice(0, 12).map((recipe) =>
+              el(
+                "tr",
+                {},
+                el("td", { text: recipe.name }),
+                el("td", {}, el("code", { text: recipe.preset ?? "—" })),
+                el("td", { text: recipe.trigger }),
+                el("td", {}, el("span", { class: "tag", text: recipe.level })),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+  if (profile.vocabulary.length > 0 || profile.rules.constants.length > 0 || profile.rules.never.length > 0) {
+    nodes.push(
+      el(
+        "div",
+        { class: "panel" },
+        el("h2", { text: "Design-Sprache" }),
+        profile.vocabulary.length > 0
+          ? el(
+              "div",
+              { class: "chip-row", style: "margin-bottom: 0.6rem" },
+              profile.vocabulary.map((word) => el("span", { class: "tag", text: word })),
+            )
+          : undefined,
+        profile.rules.constants.length > 0
+          ? el("p", {}, el("strong", { text: "Konstanten: " }), profile.rules.constants.join(" · "))
+          : undefined,
+        profile.rules.never.length > 0
+          ? el("p", {}, el("strong", { text: "Nie: " }), profile.rules.never.join(" · "))
+          : undefined,
+      ),
+    );
+  }
+  if (profile.guardrails.length > 0) {
+    nodes.push(
+      el(
+        "div",
+        { class: "panel" },
+        el("h2", { text: "Schutzregeln" }),
+        el(
+          "ul",
+          {},
+          profile.guardrails.map((finding) =>
+            el(
+              "li",
+              {},
+              el("span", { class: "tag", text: finding.severity }),
+              ` ${finding.message} — ${finding.suggestion}`,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+  if (reference.snapshots.length > 0) {
+    nodes.push(
+      el(
+        "div",
+        { class: "panel" },
+        el("h2", { text: "Snapshots" }),
+        el(
+          "div",
+          { class: "chip-row" },
+          reference.snapshots.map((snapshot) =>
+            el("span", {
+              class: "token",
+              text: `${snapshot.kind} · ${snapshot.breakpoint} · ${snapshot.width}×${snapshot.height}`,
+            }),
+          ),
+        ),
+      ),
+    );
+  }
+  const scaleBoxes = ["color", "type", "motion", "rest"].map((scale) => {
+    const box = el("input", { type: "checkbox", "data-scale": scale, id: `assign-${scale}` });
+    box.checked = true;
+    return el("label", { class: "inline" }, box, scale);
+  });
+  nodes.push(
+    el(
+      "div",
+      { class: "panel" },
+      el("h2", { text: "Projekt zuordnen" }),
+      sites.length === 0
+        ? el("p", { class: "muted", text: "Noch keine Projekte." })
+        : el(
+            "div",
+            { class: "inline" },
+            el(
+              "select",
+              { id: "assign-site" },
+              ...sites.map((site) => el("option", { value: site.id, text: site.name })),
+            ),
+            ...scaleBoxes,
+            el("button", {
+              class: "primary",
+              text: "Zuordnen",
+              onclick: async () => {
+                const siteId = document.getElementById("assign-site").value;
+                const scales = [...document.querySelectorAll("[data-scale]")]
+                  .filter((box) => box.checked)
+                  .map((box) => box.dataset.scale);
+                if (scales.length === 0) {
+                  toast("Mindestens eine Skala auswählen.", "error");
+                  return;
+                }
+                try {
+                  await api(`/api/sites/${siteId}/references`, {
+                    method: "POST",
+                    body: { author: AUTHOR, referenceId: reference.id, scales },
+                  });
+                  toast("Referenz zugeordnet");
+                  await renderRoute();
+                } catch (error) {
+                  failed(error);
+                }
+              },
+            }),
+          ),
+    ),
+  );
+  nodes.push(
+    el(
+      "div",
+      { class: "panel" },
+      el("h2", { text: "Nachbearbeitung" }),
+      el("p", {
+        class: "muted",
+        text: "Jede Änderung erzeugt eine neue Profil-Revision (append-only).",
+      }),
+      el("label", { class: "muted", for: "edit-vocabulary" }, "Vokabular (Komma-getrennt)"),
+      el("input", { id: "edit-vocabulary", type: "text", value: profile.vocabulary.join(", ") }),
+      el("label", { class: "muted", for: "edit-families" }, "Familien (Komma-getrennt)"),
+      el("input", { id: "edit-families", type: "text", value: profile.families.join(", ") }),
+      el("label", { class: "muted", for: "edit-note" }, "Notiz"),
+      el("input", { id: "edit-note", type: "text" }),
+      el("button", {
+        class: "ghost",
+        text: "Neue Revision",
+        onclick: async () => {
+          const split = (value) =>
+            value
+              .split(",")
+              .map((entry) => entry.trim())
+              .filter(Boolean);
+          try {
+            await api(`/api/references/${reference.id}/revisions`, {
+              method: "POST",
+              body: {
+                author: AUTHOR,
+                vocabulary: split(document.getElementById("edit-vocabulary").value),
+                families: split(document.getElementById("edit-families").value),
+                note: document.getElementById("edit-note").value || undefined,
+              },
+            });
+            toast("Profil-Revision erstellt");
+            await renderRoute();
+          } catch (error) {
+            failed(error);
+          }
+        },
+      }),
+    ),
+  );
+  render(nodes);
 }
 
 async function settingsView() {
@@ -605,6 +1095,83 @@ async function projectView(siteId, tab) {
         el("p", {
           class: "muted",
           text: "Name ändern, Stil-Referenz und Domain/Deploy folgen mit den nächsten Schritten.",
+        }),
+      ),
+    );
+    const [referenceData, { references: allReferences }] = await Promise.all([
+      api(`/api/sites/${siteId}/references`),
+      api("/api/references"),
+    ]);
+    const nameById = new Map(allReferences.map((entry) => [entry.id, entry.name]));
+    body.push(
+      el(
+        "div",
+        { class: "panel" },
+        el("h2", { text: "Referenzen" }),
+        referenceData.assignments.length === 0
+          ? el("p", {
+              class: "muted",
+              text: "Keine Referenz zugeordnet — im Referenzen-Tab einem Projekt zuordnen.",
+            })
+          : el(
+              "table",
+              {},
+              el(
+                "thead",
+                {},
+                el(
+                  "tr",
+                  {},
+                  el("th", { text: "Referenz" }),
+                  el("th", { text: "Skalen" }),
+                  el("th", {}),
+                ),
+              ),
+              el(
+                "tbody",
+                {},
+                referenceData.assignments.map((assignment) =>
+                  el(
+                    "tr",
+                    {},
+                    el("td", {
+                      text: nameById.get(assignment.referenceId) ?? assignment.referenceId,
+                    }),
+                    el("td", { text: assignment.scales.join(", ") }),
+                    el(
+                      "td",
+                      {},
+                      el(
+                        "div",
+                        { class: "row-actions" },
+                        el("button", {
+                          class: "danger",
+                          text: "Entfernen",
+                          onclick: async () => {
+                            try {
+                              await api(
+                                `/api/sites/${siteId}/references/${assignment.referenceId}`,
+                                { method: "DELETE" },
+                              );
+                              toast("Zuordnung entfernt");
+                              await renderRoute();
+                            } catch (error) {
+                              failed(error);
+                            }
+                          },
+                        }),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        el("p", {
+          class: "muted",
+          text:
+            referenceData.unchanged?.unchanged === true
+              ? "Round-Trip verifiziert: Anwenden ändert den Bake nicht ✓"
+              : "Hinweis: Die Theme-Ableitung weicht vom Bake ab — Details im Referenzen-Tab.",
         }),
       ),
     );
@@ -1113,6 +1680,7 @@ async function renderRoute() {
     const project = hash.match(/^#\/projects\/([^/]+)\/(pages|articles|templates|review|activity|settings)$/);
     const pageMatch = hash.match(/^#\/projects\/([^/]+)\/pages\/([^/]+)$/);
     const articleMatch = hash.match(/^#\/projects\/([^/]+)\/articles\/([^/]+)$/);
+    const referenceMatch = hash.match(/^#\/references\/([^/]+)$/);
     if (articleMatch) {
       activeTab("projects");
       await articleEditorView(articleMatch[1], articleMatch[2]);
@@ -1129,6 +1697,9 @@ async function renderRoute() {
     } else if (hash === "#/references") {
       activeTab("references");
       await referencesView();
+    } else if (referenceMatch) {
+      activeTab("references");
+      await referenceDetailView(referenceMatch[1]);
     } else if (hash === "#/trash") {
       activeTab("projects");
       await trashView();

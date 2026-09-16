@@ -59,6 +59,24 @@
       </form>
     </dialog>
 
+    <dialog id="snapshot-dialog" class="modal">
+      <form method="dialog" id="snapshot-form">
+        <h2>Aus Quelltext analysieren</h2>
+        <p class="muted">
+          Für blockierte Seiten: URL und den Seiten-Quelltext einfügen — die
+          Analyse läuft ohne Browser-Mitschnitt (reduziertes Profil).
+        </p>
+        <label class="muted" for="snapshot-url">URL</label>
+        <input id="snapshot-url" type="text" placeholder="https://…" />
+        <label class="muted" for="snapshot-html">HTML</label>
+        <textarea id="snapshot-html" rows="10" placeholder="<!doctype html> …"></textarea>
+        <div class="modal-actions">
+          <button value="cancel" class="ghost" type="submit">Abbrechen</button>
+          <button value="ok" class="primary" type="submit">Analysieren</button>
+        </div>
+      </form>
+    </dialog>
+
     <script type="module" src="/app.js"></script>
   </body>
 </html>
