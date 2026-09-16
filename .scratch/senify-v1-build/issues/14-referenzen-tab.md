@@ -146,3 +146,10 @@ Teil 1 liegt im Arbeitsbaum (nicht committet): `references-contract.ts`, `refere
 - **Briefe:** Einzelbrief (Reference, Screenshot, Aesthetic, Vocabulary, What to borrow, Composition, Image recipe), Sammelbrief mit Trenner, Sammlungs- und Stilbrief sowie Bildrezept-Prompt entsprechen jetzt woertlich den Vorlagen des Vorbilds; der Brief fuer "ATELO - Interior Gallery" deckt sich mit dem Originalbeispiel.
 - **Abnahme (Chromium, 1440/375):** alle 14 Leisten-Eintraege mit richtiger Ueberschrift, richtigem Zaehler und richtiger Kartenzahl (46 gesamt, Stil-Guide 18 Stilkarten), Sortierung wechselt, Hover mit Rand #ac96e9, Ring #e9e1f8, Etikett "Referenz oeffnen" und Titel #593dc3, Auswahl "2 / 3 ausgewaehlt", Vergleichsfenster mit Sammelbrief, mobil ohne Ueberlauf.
 - **Drosselung:** Die Referenzbilder liefen in die 60-Anfragen-Grenze je Minute (429 beim Laden einer Uebersicht). Die Snapshot-Route traegt jetzt ein Kennzeichen und ist davon ausgenommen.
+
+## 16.09.2026 (Test): Framer-Seite als Referenz, design-system-Skill
+
+- **Referenz angelegt:** `https://precious-board-067119.framer.app/` ueber `POST /api/references` (Playwright-Aufnahme in 15 Sekunden): Vorschaubilder 1440 x 15317, 810 und 390, dazu ein Motion-Video (1280 x 720, 3840 ms). Profil: Familien glassmorphism und maximalist-collage, acht Vokabeln, Palette, Typografie, Abstaende, Radien, Schatten, Bewegung, sieben Komponenten und die Regeln (nie Logos, Texte, Fotos oder 1:1-Layouts uebernehmen).
+- **Nachtraeglich gefuellt:** Name "Precious Board", Beschreibung, Bildrezept und Komposition aus dem Designsystem, Vokabular auf zehn Begriffe erweitert.
+- **Skill installiert und genutzt:** https://github.com/albertzhangz10/design-system-skill (MIT) liegt unter `%USERPROFILE%\.commandcode\skills\design-system\` und erzeugt design.md, design-guidelines.md und design-components.md. Die drei Dateien fuer diese Referenz liegen unter `.scratch/refs/precious-board/`.
+- **Hinweis:** Eine neu installierte Skill erscheint erst nach dem Neuladen der Sitzung in der Skill-Liste; bis dahin wird sie nach ihrer Anleitung ausgefuehrt.
