@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { SenifyError } from "@senify/core";
 import { createEngine, createPgDb, createReviewVisualDriver, type Db } from "@senify/engine";
-import type { RateLimitConfig, ReviewVisualDriver } from "@senify/engine";
+import type { RateLimitConfig, ReferenceDeps, ReviewVisualDriver } from "@senify/engine";
 import { createRegistry } from "@senify/registry";
 import { openBrowser } from "./browser.ts";
 import { createAppServer } from "./server.ts";
@@ -26,6 +26,9 @@ export type StartProgramOptions = {
   // Visual review artifacts (T07): Playwright capture of the review submit.
   // On by default; `false` switches it off for headless runs.
   reviewVisuals?: ReviewVisualDriver | false;
+  // Reference analysis (T14): capture/analyzer seam for tests; without it the
+  // live Playwright capture and the heuristic analyzer run.
+  referenceDeps?: ReferenceDeps;
 };
 
 export type RunningProgram = {
@@ -121,6 +124,9 @@ export async function startProgram(
       ...(options.reviewVisuals === false
         ? {}
         : { reviewVisuals: options.reviewVisuals ?? createReviewVisualDriver() }),
+      ...(options.referenceDeps === undefined
+        ? {}
+        : { referenceDeps: options.referenceDeps }),
     });
   } catch (error) {
     await closeDb?.();

@@ -770,7 +770,10 @@ function refsUpdateSelectionUI() {
 }
 
 function refsEntryFor(reference) {
-  const snapshot = (reference.snapshots ?? []).find((shot) => shot.previewPath);
+  // Die Motion-Aufnahme ist ein Video und taugt nicht als Standbild.
+  const snapshot = (reference.snapshots ?? []).find(
+    (shot) => shot.previewPath && shot.kind !== "motion",
+  );
   return {
     id: reference.id,
     name: reference.name,
@@ -2021,7 +2024,9 @@ function refsCard(reference) {
 }
 
 function refsCardImage(reference) {
-  const snapshot = (reference.snapshots ?? []).find((shot) => shot.previewPath);
+  const snapshot = (reference.snapshots ?? []).find(
+    (shot) => shot.previewPath && shot.kind !== "motion",
+  );
   const placeholder = () =>
     el("div", {
       class: "refs-card-placeholder",
@@ -2601,7 +2606,9 @@ function refsInspectorExtras(reference) {
     refsRevisionsFold(referenceId),
     refsEvidenceFold(reference),
   ];
-  const shots = (reference.snapshots ?? []).filter((shot) => shot.previewPath);
+  const shots = (reference.snapshots ?? []).filter(
+    (shot) => shot.previewPath && shot.kind !== "motion",
+  );
   if (shots.length > 1) {
     extras.push(
       refsFold(
@@ -2613,6 +2620,33 @@ function refsInspectorExtras(reference) {
           el("p", {
             class: "snapshot-meta",
             text: "Breakpoint-Vergleich. Pfeiltasten oder Klick wechseln das Bild.",
+          }),
+        ),
+      ),
+    );
+  }
+  // Motion-Aufnahme der Live-Analyse (T14): die Scrollfahrt als Video.
+  const motion = (reference.snapshots ?? []).find(
+    (shot) => shot.kind === "motion" && shot.previewPath,
+  );
+  if (motion) {
+    const seconds = ((motion.durationMs ?? 0) / 1000).toFixed(1);
+    extras.push(
+      refsFold(
+        `Motion-Aufnahme (${seconds} s)`,
+        el(
+          "div",
+          { class: "refs-motion" },
+          el("video", {
+            controls: "",
+            muted: "",
+            playsinline: "",
+            preload: "metadata",
+            src: motion.previewPath,
+          }),
+          el("p", {
+            class: "snapshot-meta",
+            text: "Scrollfahrt der Live-Aufnahme; die Bewegung ist eingefroren gemessen.",
           }),
         ),
       ),
@@ -2674,8 +2708,10 @@ async function refsInspectorShow(referenceId) {
   refsInspectorSetZoom(false);
 
   const shot =
+    (reference.snapshots ?? []).find(
+      (entry) => entry.previewPath && entry.kind !== "motion",
+    ) ??
     (reference.snapshots ?? []).find((entry) => entry.previewPath) ??
-    (reference.snapshots ?? [])[0] ??
     null;
   if (shot) {
     dom.placeholder.remove();
@@ -4093,7 +4129,25 @@ async function articleEditorView(siteId, entryId) {
 }
 
 function reviewPanel(siteId, review) {
-  const details = el("div", { style: "margin-top: 0.6rem" });
+  const details = el("div", { class: "review-detail", hidden: "" });
+  const toggle = el("button", {
+    class: "ghost",
+    text: "Details",
+    onclick: async () => {
+      const opening = details.hasAttribute("hidden");
+      if (opening) details.removeAttribute("hidden");
+      else details.setAttribute("hidden", "");
+      toggle.textContent = opening ? "Details schließen" : "Details";
+      if (!opening) return;
+      details.replaceChildren(el("p", { class: "muted", text: "Lädt …" }));
+      try {
+        const data = await api(`/api/reviews/${review.id}`);
+        details.replaceChildren(...reviewDetailBlocks(data));
+      } catch (error) {
+        failed(error);
+      }
+    },
+  });
   return el(
     "div",
     { class: "panel" },
@@ -4107,20 +4161,7 @@ function reviewPanel(siteId, review) {
     el(
       "div",
       { class: "inline", style: "margin-top: 0.5rem" },
-      el("button", {
-        class: "ghost",
-        text: "Detail ansehen",
-        onclick: async () => {
-          try {
-            const data = await api(`/api/reviews/${review.id}`);
-            details.replaceChildren(
-              el("pre", { text: JSON.stringify(data, null, 2) }),
-            );
-          } catch (error) {
-            failed(error);
-          }
-        },
-      }),
+      toggle,
       el("button", {
         class: "primary",
         text: "Approve",
@@ -4138,6 +4179,171 @@ function reviewPanel(siteId, review) {
       }),
     ),
     details,
+  );
+}
+
+// Review-Details (T07): Struktur-Diff in Klartext, dann die Aufnahmen aus
+// review.visuals - Vorher/Nachher je Breakpoint, das Diff-Bild mit Quote und
+// die Motion-Aufnahme, wenn die Aenderung Bewegung beruehrt hat.
+function reviewDetailBlocks(review) {
+  const blocks = [];
+  const diff = review.structureDiff ?? [];
+  if (diff.length > 0) {
+    const pages = diff.map((entry) => {
+      const head = el(
+        "div",
+        { class: "review-diff-head" },
+        el("code", { text: entry.path }),
+        el("span", { class: "review-state", text: reviewStatusLabel(entry.status) }),
+      );
+      const sections = (entry.sections ?? []).map((section) =>
+        el(
+          "div",
+          { class: "review-diff-row" },
+          el("span", { class: "tag", text: section.type }),
+          el("span", { text: reviewChangeLabel(section.change) }),
+          (section.fields ?? []).length > 0
+            ? el("span", {
+                class: "muted",
+                text: (section.fields ?? []).map(reviewFieldLabel).join(", "),
+              })
+            : "",
+        ),
+      );
+      return el("div", { class: "review-diff-page" }, head, ...sections);
+    });
+    blocks.push(el("div", { class: "review-block" }, el("h3", { text: "Struktur-Diff" }), ...pages));
+  }
+  blocks.push(reviewVisualsBlock(review));
+  return blocks;
+}
+
+const REVIEW_BREAKPOINTS = [
+  ["desktop", "Desktop"],
+  ["tablet", "Tablet"],
+  ["mobile", "Mobil"],
+];
+
+function reviewStatusLabel(status) {
+  return (
+    {
+      added: "neu",
+      removed: "entfernt",
+      changed: "geändert",
+      unchanged: "unverändert",
+    }[status] ?? status
+  );
+}
+
+function reviewChangeLabel(change) {
+  return { added: "neu", removed: "entfernt", changed: "geändert" }[change] ?? change;
+}
+
+function reviewFieldLabel(field) {
+  return (
+    {
+      variant: "Variante",
+      props: "Inhalte",
+      overrides: "Überschreibungen",
+      motion: "Bewegung",
+      hidden: "Sichtbarkeit",
+    }[field] ?? field
+  );
+}
+
+function reviewVisualsBlock(review) {
+  const visuals = review.visuals;
+  const node = el("div", { class: "review-block review-visuals" }, el("h3", { text: "Aufnahmen" }));
+  if (!visuals) {
+    node.append(
+      el("p", { class: "muted", text: "Keine visuellen Aufnahmen zu diesem Stand." }),
+    );
+    return node;
+  }
+  if (visuals.note) {
+    node.append(el("p", { class: "muted", text: visuals.note }));
+  }
+  const diffs = visuals.diffs ?? [];
+  const byPage = new Map();
+  for (const asset of visuals.assets ?? []) {
+    if (!byPage.has(asset.pageId)) byPage.set(asset.pageId, []);
+    byPage.get(asset.pageId).push(asset);
+  }
+  const captured = new Date(visuals.capturedAt);
+  if (!Number.isNaN(captured.getTime())) {
+    node.append(el("p", { class: "muted", text: `Aufgenommen ${formatDate(visuals.capturedAt)}` }));
+  }
+  for (const [pageId, assets] of byPage) {
+    const pagePath = assets[0]?.path ?? pageId;
+    const breakpoints = REVIEW_BREAKPOINTS.filter(([key]) =>
+      assets.some((asset) => asset.breakpoint === key),
+    );
+    const stage = el("div", { class: "review-stage" });
+    const tabs = el("div", { class: "review-tabs" });
+    const show = (breakpoint) => {
+      [...tabs.children].forEach((tab) =>
+        tab.classList.toggle("active", tab.dataset.breakpoint === breakpoint),
+      );
+      const figures = [];
+      const before = assets.find((asset) => asset.role === "before" && asset.breakpoint === breakpoint);
+      const after = assets.find((asset) => asset.role === "after" && asset.breakpoint === breakpoint);
+      if (before) figures.push(reviewFigure("Vorher", before.previewPath));
+      if (after) figures.push(reviewFigure("Nachher", after.previewPath));
+      const diff = diffs.find((entry) => entry.pageId === pageId && entry.breakpoint === breakpoint);
+      if (diff) {
+        figures.push(reviewFigure(`Diff · ${(diff.ratio * 100).toFixed(2)} %`, diff.previewPath, "diff"));
+      }
+      stage.replaceChildren(...figures);
+    };
+    for (const [key, label] of breakpoints) {
+      tabs.append(
+        el("button", {
+          type: "button",
+          class: "ghost",
+          "data-breakpoint": key,
+          text: label,
+          onclick: () => show(key),
+        }),
+      );
+    }
+    node.append(
+      el(
+        "div",
+        { class: "review-page" },
+        el("div", { class: "review-page-head" }, el("code", { text: pagePath }), breakpoints.length > 1 ? tabs : ""),
+        stage,
+      ),
+    );
+    show(breakpoints[0]?.[0] ?? "desktop");
+  }
+  if (visuals.video) {
+    node.append(
+      el(
+        "div",
+        { class: "review-video" },
+        el("div", {
+          class: "muted",
+          text: `Motion-Aufnahme · ${(visuals.video.durationMs / 1000).toFixed(1)} s`,
+        }),
+        el("video", {
+          controls: "",
+          muted: "",
+          playsinline: "",
+          preload: "metadata",
+          src: visuals.video.previewPath,
+        }),
+      ),
+    );
+  }
+  return node;
+}
+
+function reviewFigure(label, src, kind = "") {
+  return el(
+    "figure",
+    { class: `review-figure ${kind}`.trim() },
+    el("figcaption", { text: label }),
+    el("img", { src, alt: label, loading: "lazy" }),
   );
 }
 
