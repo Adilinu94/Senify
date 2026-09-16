@@ -65,9 +65,9 @@ $pg = "C:\Program Files\PostgreSQL\18\bin"
 
 ### Testlage
 
-- Zuletzt vollständig gemessen: **67 Testdateien, 471 Tests grün, 2 übersprungen** (`pnpm test`).
+- Zuletzt vollständig gemessen (18.09.2026): **74 Testdateien, 506 Tests grün, 2 übersprungen** (`pnpm verify`).
 - Der Gate-Befehl `pnpm verify` (Build, Lint, Tests) ist nur grün, wenn im Arbeitsbaum keine halbfertige fremde Arbeit liegt. Siehe Abschnitt 6 zur Zusammenarbeit zweier Sessions.
-- Die zwei übersprungenen Tests brauchen eine echte Datenbank: `$env:TEST_DATABASE_URL = "postgres://senify@127.0.0.1:5433/senify"` und dann `pnpm vitest run packages/engine/test/transactions.test.ts`.
+- Die zwei übersprungenen Tests brauchen eine echte Datenbank. Mit `$env:TEST_DATABASE_URL = "postgres://senify@127.0.0.1:5433/senify"` läuft der **volle Engine-Bestand** gegen echtes Postgres: 22 Dateien, 218 Tests, keine übersprungen (zuletzt 18.09.2026 grün). Einzelprobe: `pnpm exec vitest run packages/engine/test/transactions.test.ts`.
 - Laufender Start geprüft: Dashboard liefert HTTP 200, Engine-Health über den Proxy `{"ok":true,"version":"0.1.0"}`, Projekt anlegen über `POST /api/sites` liefert 201 mit Profil `standard`, Editor-Bundle `/editor.js` wird ausgeliefert.
 
 ## 4. Stand der Tickets
@@ -82,17 +82,17 @@ Alle Tickets liegen unter `.scratch/senify-v1-build/issues/`. Der Fortschritt st
 | 04 Theme & Tokens | umgesetzt |
 | 05 Renderer & Bake | umgesetzt |
 | 06 MCP-Kern & Agenten-Setup | umgesetzt |
-| 07 Lifecycle, Review & Checks | umgesetzt, Motion-Video-Diffs offen |
+| 07 Lifecycle, Review & Checks | umgesetzt, visuelle Artefakte am Review-Item und im Prüfen-Tab |
 | 08 Medien-Pipeline | umgesetzt (Varianten, Blurhash, `picture`/`srcset`) |
 | 09 Content-Kern | umgesetzt, Workspace in der Shell |
 | 10 Templates, Bindings & Loops | umgesetzt, Entwurfs-Vorschau nachgeliefert |
 | 11 Forms & Submissions | umgesetzt, Einsendungen-Tab mit CSV und Job-Retry |
-| 12 Programm-Shell | umgesetzt, Mail belegt, Restore eingebaut, Verpackung offen |
+| 12 Programm-Shell | umgesetzt, Mail inklusive STARTTLS belegt, Restore mit Wartungsfenster, Verpackung/System-Start |
 | 13 Visueller Editor | umgesetzt, Browserprüfung nachgeliefert |
-| 14 Referenzen-Bibliothek | umgesetzt, Sammlungen, Briefe, Oberfläche, Designprüfung |
+| 14 Referenzen-Bibliothek | umgesetzt, Sammlungen, Briefe, Oberfläche, Designprüfung, Motion-Video der Live-Aufnahme |
 | 15 Docs-Portal | umgesetzt |
 | 16 Voll-Individualisierung | umgesetzt |
-| 17 Elementor-naher Editor | **in Arbeit** (M1 und M2 umgesetzt, M3 und M4 offen), eigene Session |
+| 17 Elementor-naher Editor | umgesetzt (M1–M4: Chrome, Interaktionen, Feinschliff) |
 
 ## 5. Was zuletzt dazukam
 
@@ -109,6 +109,15 @@ Alle Tickets liegen unter `.scratch/senify-v1-build/issues/`. Der Fortschritt st
 - **Zwei CSS-Fallen, die Zeit gekostet haben:** Dialoge hängen am Body und erben die Variablen der Fläche nicht (Regeln für `.refs-dialog` ergänzt), und die App-Regel `button.primary` überschreibt Größe, Radius und Schrift der Referenz-Knöpfe (Maße im Referenzen-Kontext festgesetzt).
 - **Briefe wörtlich wie das Vorbild:** Einzelbrief (Reference, Screenshot, Aesthetic, Vocabulary, What to borrow, Composition, Image recipe), Sammelbrief mit Trenner, Sammlungs- und Stilbrief, Bildrezept-Prompt und Haus-DNA. Die Vorlagen stammen aus dem Vorbild (MIT), erfundene Fallbackzeilen sind entfernt.
 - **Abnahme:** Chromium-Durchlauf über alle 14 Leisten-Einträge, Suche, Sortierung, Hover-, Fokus- und Auswahlzustände, Vergleichsfenster und Mobilansicht; Messskripte und Screenshots im Scratchpad (`vorbild-ui.*`, `abnahme.json`, `p-*.png`, `m-*.png`), eigene Aufnahmen unter `.scratch/refs/aufnahmen/`.
+
+## 5c. Runde 3 am 18.09.2026: Editor fertig, TLS, Restore-Lock, visuelle Artefakte
+
+- **Elementor-naher Editor fertig (T17 M1–M4).** M1: React-Renderer im Canvas (echte Bake-Komponenten, `/editor-frame.css`, Font-Fix). M2: Top Bar, linkes Panel mit Widget-Katalog und Content/Style/Advanced, Canvas mit Handles, „+"-Punkten, Kontextmenü, Zoom. M3: Drag & Drop vom Katalog (blaue Einfügelinie, exakte Position), Navigator-Umsortierung mit Zyklus-Schutz, Auge je Breakpoint, Inline-Toolbar, Override-Gerätepunkte, Tastenkürzel; Inline-Tippen schreibt erst nach 350 ms Ruhe (ein Undo-Eintrag), der Transport wartet 429-Fenster ab, die Shell refetcht mit Reihenfolge-Schutz und Backoff. M4: leere Zustände, Verlauf mit Zeit. Fallstrick-Fix: der erste Frame-Mount landete im `about:blank`-Dokument und verfälschte Overlay-Rechnungen (nur ein Lebend-Eintrag je Frame).
+- **STARTTLS und implizites TLS geprüft** (T12): Testzertifikat `packages/engine/test/fixtures/smtp`, Testserver mit STARTTLS-Upgrade; dabei einen echten Client-Bug gefunden — mehrzeilige SMTP-Antworten wurden nur bis zur letzten Zeile gelesen, echte Server kündigen STARTTLS aber in `250-`Zeilen an. `SmtpConfig` hat ein optionales `ca`, SNI nur für Namen (RFC 6066).
+- **Restore-Lock** (T12): `MaintenanceGate` — während der Wiederherstellung laufen Anfragen leer, neue bekommen 503 mit `Retry-After`; Health und der Restore selbst sind ausgenommen, Health meldet `maintenance: true`. Der Restore-Knopf im Dashboard existierte schon.
+- **Desktop-Verpackung:** `senify shortcut` hat auf diesem Rechner `Senify.lnk` auf dem Desktop gelegt (Ziel: Launcher `%LOCALAPPDATA%\Senify\senify-start.cmd`). `senify startup` (System-Autostart) ist bewusst **nicht** eingerichtet.
+- **Visuelle Artefakte (T07/T14):** Die Playwright-Harness aus `@senify/analysis-worker` ist angebunden. Reviews bekommen bei `submit_for_review` Screenshots (3 Breakpoints je geänderter Seite), Pixel-Diffs gegen das aktive Release und — nur bei Motion-Änderungen — ein Video (Dateien unter `reviews/<id>/visuals`, Route `GET /api/reviews/:id/visuals/:name`). Referenzen zeichnen die Live-Aufnahme als Motion-Video auf (Snapshot `kind: "motion"`, Auslieferung `video/webm`). Beide Oberflächen zeigen das: der Prüfen-Tab unter „Details" Diff und Aufnahmen, das Referenz-Fenster einen Bereich „Motion-Aufnahme".
+- **Postgres-Fidelity:** Der volle Engine-Bestand (22 Dateien, 218 Tests) läuft gegen echtes Postgres grün.
 
 ## 6. Arbeitsweise im Projekt
 
@@ -130,17 +139,18 @@ Alle Tickets liegen unter `.scratch/senify-v1-build/issues/`. Der Fortschritt st
 - **Puck ist nur ein optionales Peer-Dependency.** Der Editor erzeugt Puck-kompatible Strukturen mit eigenen Typen und bleibt dadurch ohne Browser und ohne Puck-Runtime testbar.
 - **Sub-Agenten haben ein Rundenlimit (100).** Große Aufträge deshalb in Etappen mit Zwischencommits planen; mehrfach hinterließ ein abgebrochener Agent uncommittete, halbfertige Arbeit mit Typecheck-Fehlern und Debug-Dateien (`tmp-*.ts`) im Baum.
 - **Kleine stille Bugs lohnen sich zu suchen.** Zwei Beispiele: Das Auswerte-Skript im Live-Capture lief nie (Funktion als String an `page.evaluate`), und ein Entwurfs-Rename hätte die veröffentlichte URL mitgenommen, weil `resolve` die aktive Version nicht las.
+- **SMTP-Antworten sind mehrzeilig.** `250-`Zeilen gehörten zur Antwort dazu; wer nur die letzte Zeile liest, sieht das STARTTLS-Angebot echter Server nicht. Der Testserver sendet die Fähigkeiten deshalb wie ein echter Server in Fortsetzungszeilen.
+- **Lazy-Bilder laden im Test erst im Sichtfeld.** Für `naturalWidth`-Prüfungen im Browser erst `scrollIntoViewIfNeeded()`, und als Fixture ein **echt dekodierbares** PNG verwenden (ein Header-Fragment genügt Node, aber nicht Chromium).
 - **Datenbank im Home-Verzeichnis.** Bei fehlendem Docker ist der eigene Cluster unter `~/.senify/pg` die pragmatische Lösung. Er läuft dauerhaft, solange man ihn nicht stoppt.
 
 ## 8. Offene Punkte und nächste Schritte
 
-1. **Ticket 17 fertigstellen** (eigene Session): M3 und M4 des Elementor-nahen Editors.
-2. **Motion-Videos** (Tickets 07 und 14): Die Pipeline erzeugt nur Standbilder. Sobald es Artefakte gibt, gehören Video und Diff dazu.
-3. **STARTTLS im Mailversand** ist nicht lokal geprüft (kein Zertifikat im Test); der TLS-Pfad ist unverändert und ungetestet.
-4. **Restore bei laufender Engine** tauscht Dateien ohne globales Lock, und der Knopf im Dashboard fehlt noch (die Route steht).
-5. **Verpackung und System-Start** (Ticket 12): Desktop-Verknüpfung, Start mit dem System. Die Autostart-Deutung weicht bewusst vom Artefakt ab und ist im Ticket notiert.
-6. **Postgres-Fidelity** gehört in eine regelmäßige Prüfung, nicht nur in die Hand (Befehl in Abschnitt 3).
-7. **Aufräumen:** `.scratch/refs/` ist absichtlich nicht committet (Referenzbilder). `packages/app/tmp-drag.ts` und ähnliche `tmp-*`-Dateien stammen aus fremden Sessions und können weg, sobald dort committet ist.
+Alle Punkte der vorherigen Liste sind erledigt: Ticket 17 ist durch (M1–M4), Motion-Videos fließen (T07/T14, inklusive Oberflächen), STARTTLS und implizites TLS sind lokal geprüft, der Restore läuft mit Wartungsfenster und Knopf, Verpackung/System-Start stehen (Desktop-Verknüpfung angelegt), und die Postgres-Fidelity ist als voller Engine-Lauf dokumentiert. Was bleibt:
+
+1. **System-Autostart einrichten, wenn gewünscht:** `senify startup` legt den Autostart-Eintrag an (bewusst nicht ungefragt geschehen); `senify startup --status` zeigt den Zustand.
+2. **Aufräumen:** `.scratch/refs/` (Referenzbilder, Messskripte) und `.commandcode/` bleiben absichtlich uncommittet. `tmp-*`-Dateien gibt es im Paketbaum keine mehr.
+3. **Motion-Video im Review:** bewusst auf die erste geänderte Seite begrenzt (eine Aufnahme je Submit); bei Bedarf je Seite erweitern.
+4. **Regelmäßige Fidelity-Probe:** Der Befehl in Abschnitt 3 (`TEST_DATABASE_URL` + voller Engine-Lauf) lohnt sich vor Releases erneut.
 
 ## 9. Wo was steht
 

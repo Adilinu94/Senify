@@ -4,11 +4,11 @@
 
 **Blocked by:** 05 (Renderer & Bake), 06 (MCP-Kern & Agent-Setup).
 
-**Status:** umgesetzt (voller `pnpm verify` grün; Story-Screenshot-Diffs sind mit dem installierten Playwright/Chromium jetzt möglich, Motion-Video-Diffs bleiben offen)
+**Status:** umgesetzt (voller `pnpm verify` grün; Screenshot-Diffs (3 Breakpoints, Motion eingefroren) und Motion-Video liegen am Review-Item und sind im Prüfen-Tab sichtbar)
 
 - [x] Flow „Mutationen → Preview → Submit → Approve → Release → Bake" funktioniert komplett; Preview-URL signiert + TTL-Cleanup („Swap" = aktives Release; Deploy-Adapter folgt mit T14)
 - [x] Rollback erzeugt ein neues Release aus altem Zustand (`basisReleaseId`); Restore einer Revision erzeugt einen neuen Draft (nichts wird überschrieben)
-- [~] Review-Item enthält Struktur-Diff (eigener agentenlesbarer Diff statt jsondiffpatch, dokumentierte Abweichung); Screenshot-Diffs (3 Breakpoints, Motion eingefroren) und Motion-Video sind **offen** — sie brauchen die Playwright-Infrastruktur (Analysis-Worker/T14); das Item trägt `previewId` + `structureDiff` und ist dafür vorbereitet
+- [x] Review-Item enthält Struktur-Diff (eigener agentenlesbarer Diff statt jsondiffpatch, dokumentierte Abweichung) **und** die visuellen Artefakte: Screenshots (3 Breakpoints, Motion eingefroren, Vorher = aktives Release, Nachher = Preview), Pixel-Diff je Breakpoint mit Quote und Bounding-Box sowie das Motion-Video, wenn die Änderung Motion-Felder berührt
 - [x] Request changes schreibt Pflicht-Notiz in den Thread (`get_review_feedback`); Discard stellt den Draft-Stand vor dem Block wieder her (Historie bleibt)
 - [x] Hard-Guardrails blockieren Schreiben + Submit mit strukturierten Fehlern (Kategorie, Fundstelle, Vorschlag); weiche Metriken erscheinen als Hinweise am Review-Item
 - [x] Check-Pipeline läuft dreistufig (Schreiben/Submit/Publish); Release-Gate hart, weiche Hinweise im Review-Item/in der Publish-Antwort („Report im Release-Audit" als eigener Abschnitt folgt mit T14)
@@ -33,3 +33,11 @@ Quellen: `artifacts/05`, `artifacts/06`, `artifacts/03` (Guardrails), `artifacts
 - **packages/analysis-worker/src/visual.ts:** Playwright-Harness fuer die offenen visuellen Artefakte. captureScreenshots friert Motion ein (CSS + educedMotion), scrollt die Seite zum Settlen durch (Lazy-Medien, Sticky-Kopfzeilen), document.fonts.ready und schiesst Full-Page-PNGs je Breakpoint. diffScreenshots vergleicht zwei Staende im Browser-Canvas (keine Bild-Abhaengigkeit): Meter je Pixel, Schwelle, Aenderungsquote, Bounding-Box aller Aenderungen und ein Magenta-Highlight-Bild. ecordMotion zeichnet eine kurze Scrollfahrt als .webm auf.
 - **Tests:** packages/analysis-worker/test/visual.test.ts (drei Faelle: Aufnahmen je Breakpoint, Identitaets- und Aenderungs-Diff mit Bounding-Box, Video groesser null), uebersprungen ohne Playwright/Chromium.
 - **Offen bleibt die Integration:** Das Review-Item (dieses Ticket) soll die Artefakte bei submit_for_review anfordern und am Item ablegen; das Review-UI zeigt sie dann im Slider (T12/T07). Das Harness ist dafuer die fehlende Infrastruktur.
+
+## 18.09.2026 (Nachtrag): Integration ist durch
+
+- **Submit fordert die Artefakte an.** `submitReview` ruft einen injizierbaren `ReviewVisualDriver` auf (neu: `packages/engine/src/review-visuals.ts`). Der Treiber bekommt das Release-Verzeichnis (Vorher), das Preview-Verzeichnis (Nachher), die geaenderten Seiten ohne Vorlagen und `recordMotion` (wahr, sobald der Struktur-Diff ein Feld `motion` nennt); zurueck kommen Screenshots, Diffs (Quote, Pixelzahl, Bounding-Box) und optional das Video. Fehlschlaege blockieren den Submit nie, sie landen als `note` am Item.
+- **Ablage und Route.** Dateien liegen unter `<dataDir>/reviews/<id>/visuals/`; das Item traegt `visuals` (additive Spalte an `review_items`). `GET /api/reviews/:id/visuals/:name` liefert per Whitelist aus (PNG und video/webm), Traversal und fremde Namen bleiben 404.
+- **Echter Treiber.** `createReviewVisualDriver` nutzt die Harness aus `@senify/analysis-worker` und serviert Release- und Preview-Verzeichnis fuer die Dauer der Aufnahme ueber wegwerfbare lokale Server; `startProgram` schaltet ihn ein, `bootEngine`/Tests injizieren Doppel (kein Browser im Test).
+- **Oberflaeche.** Der Pruefen-Tab zeigt unter "Details" den Struktur-Diff in Klartext, Vorher/Nachher je Breakpoint, das Diff-Bild mit Quote und die Motion-Aufnahme als Video.
+- **Tests.** `packages/engine/test/review-visuals.test.ts` (Aufruf, Persistenz, Auslieferung, Traversal, Motion-Erkennung, Fehlerfall) und `packages/app/test/review-visuals-browser.test.ts` (echte Engine mit Doppel, Browser sieht drei Aufnahmen und das Video).

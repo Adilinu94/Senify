@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 (Theme & Tokens — Theme-Ableitung), 07 (Lifecycle, Review & Checks — QA-Adhärenz weich), 12 (Programm-Shell — Tab).
 
-**Status:** umgesetzt (`pnpm verify` grün; Analyse-Pipeline mit echter Live-Aufnahme (Playwright/Chromium) und Snapshot-Fallback, Theme-Ableitung, MCP-Workflow, Referenzen-Tab mit Karten, Detailansicht, Snapshot-Bildern und Breakpoint-Slider, Projekt-Zuordnung mit Round-Trip) — offen: Motion-Videos, sobald die Pipeline solche Artefakte erzeugt
+**Status:** umgesetzt (`pnpm verify` grün; Analyse-Pipeline mit echter Live-Aufnahme (Playwright/Chromium) und Snapshot-Fallback, Theme-Ableitung, MCP-Workflow, Referenzen-Tab mit Karten, Detailansicht, Snapshot-Bildern und Breakpoint-Slider, Projekt-Zuordnung mit Round-Trip; die Live-Aufnahme zeichnet die Scrollfahrt als Motion-Video auf und das Detailfenster zeigt es)
 
 - [ ] URL → Analyse-Job → Profil mit Status analyzing/ready/failed; Fortschritt sichtbar; Ergebnis ist sofort in Projekten nutzbar
 - [ ] Token-Extraktion frequenz-gerankt mit Belegstellen (uses + where); Typo/Spacing/Radii/Shadows/Breakpoints je Breakpoint; `:root`-Vokabular der Referenz als Mapping-Hinweis erkannt
@@ -115,12 +115,11 @@ Teil 1 liegt im Arbeitsbaum (nicht committet): `references-contract.ts`, `refere
 - **Tests:** `pnpm build` und `pnpm exec eslint packages/app` grün. Zwei neue Prüfungen in `packages/app/test/references-browser.test.ts` (Leiste, Kartenrand und Vergleichsauswahl tragen SVG-Symbole; während eines Ansichtswechsels erscheint der Ladezustand, während die Karten stehen bleiben). `pnpm vitest run packages/app`: 11 von 12 grün, der rote Bestand liegt allein in `editor-browser.test.ts` (Rail-Drag, fremde Arbeit im Baum: derselbe Fehler tritt ohne die Änderungen dieser Stufe auf).
 - **Aufnahmen:** `.scratch/refs/aufnahmen/unser-final-*.png` (1440/1024/900/375, overview, styleguide, detail, compare, laden, laden-reduziert) mit `messung-unser-final.json`, davor `vorher-*.png` und `messung-vorher.json`.
 - **Nicht angefasst:** `packages/engine`, `packages/mcp`, `packages/editor`, `packages/app/editor`, `packages/app/test/editor-browser.test.ts`, Datei 17, `eslint.config.mjs`, `pnpm-lock.yaml`; der unformatierte Fremd-Hunk in `packages/app/public/app.js` (`pageView`) bleibt uncommittet im Arbeitsbaum.
+## 18.09.2026 (Nachtrag): Motion-Video laeuft mit
 
-## 18.09.2026 (Nachtrag): Motion-Video-Harness fuer Referenzen
-
-- Die Live-Aufnahme der Referenzen (Standbilder) kann jetzt um ein kurzes Motion-Video ergaenzen: ecordMotion im @senify/analysis-worker zeichnet eine Scrollfahrt als .webm auf, diffScreenshots liefert Vorher/Nachher-Diffs mit Bounding-Box. Details in Ticket 07.
-- **Offen:** Die Referenz-Pipeline (eferences-lifecycle) muesste das Video beim Live-Capture optional mitziehen und im Snapshot ablegen; die UI zeigt es dann im Detail.
-
+- **Live-Capture zieht das Video mit.** `createPlaywrightCaptureDriver` zeichnet eine Scrollfahrt als `.webm` auf (fester 1280x720-Rahmen, ~3,8 s, `recordMotion: false` schaltet ab). Der Snapshot-Katalog kennt `kind: "motion"` mit `durationMs`; die Auslieferung nutzt `video/webm`.
+- **Oberflaeche.** Das Detailfenster zeigt die Aufnahme als aufklappbaren Bereich "Motion-Aufnahme (… s)" mit `<video controls>`; Karte, Hauptbild und Breakpoint-Slider ueberspringen den Video-Snapshot bewusst.
+- **Tests.** `references.test.ts` (Ablage als motion-Snapshot und Auslieferung als video/webm) und `references-capture.test.ts` (echtes WebM im Live-Capture, Abschalten moeglich); dazu `packages/app/test/references-motion-browser.test.ts` (Fenster zeigt das Video).
 ## 16.09.2026 (Nachtrag): echter Import aus dem Vorbild
 
 - **Werkzeug:** `pnpm exec tsx packages/engine/scripts/import-taste-vault.ts --from Repos/taste-vault [--dry-run] [--api <url>]`. Es liest `data/gallery.json` (12 Sammlungen, 46 Eintraege) und `images/`, legt Sammlungen ueber ihren Namen und Referenzen ueber ihren Titel an und aktualisiert sie bei einem zweiten Lauf (idempotent belegt: zweiter Lauf 0 neu, 12 und 46 aktualisiert, keine Fehler). Bilder groesser als 18 MB werden vor dem Senden als JPEG uebertragen, sonst geht das Original durch. Die Engine drosselt auf 60 Anfragen je Minute, das Skript taktet den Bildversand daher mit 1,1 Sekunden und wiederholt bei 429 und Verbindungsabbruechen.

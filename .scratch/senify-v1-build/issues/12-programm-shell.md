@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 (Site & Pages + Mutations), 06 (MCP-Kern & Agent-Setup), 07 (Lifecycle, Review & Checks).
 
-**Status:** umgesetzt (Programm-Shell mit Arbeitsbereich, Editor-Einbindung und Einstellungen; SMTP-Versand gegen einen echten Server belegt, Wiederherstellung einer Sicherung mit Schutznetz) — Desktop-Verpackung und System-Autostart umgesetzt, Restore-Knopf im Dashboard; bewusst offen: STARTTLS nicht lokal geprüft
+**Status:** umgesetzt (Programm-Shell mit Arbeitsbereich, Editor-Einbindung und Einstellungen; SMTP-Versand gegen einen echten Server belegt inklusive STARTTLS und implizitem TLS, Wiederherstellung einer Sicherung mit Schutznetz und Wartungsfenster) — Desktop-Verpackung und System-Autostart umgesetzt, Restore-Knopf im Dashboard
 
 - [x] `senify start` startet Engine und öffnet das Dashboard; ist die Engine nicht erreichbar, liefert der Proxy einen klaren Hinweis mit „senify start“-Aktion
 - [x] Projekt anlegen (nur Name) → Karte erscheint; Öffnen landet im Arbeitsbereich, Seiten öffnen den visuellen Editor (Bundle on demand, read-only-Fallback); Duplizieren (mit/ohne Inhalte) erzeugt vollständiges Projekt (Medien nur referenziert)
@@ -51,3 +51,10 @@ Quellen: `artifacts/27`, `artifacts/06` (Review-Ansicht), `artifacts/04` (Audit)
 - **CLI:** senify startup [--remove|--status] und senify shortcut [--remove|--status].
 - **Tests:** packages/app/test/startup.test.ts (Plan, Schreiben/Entfernen/Status, Launcher-Erhalt, Plattform-Fehler, echter .lnk auf Windows), CLI-Test um Befehlsliste und Status-Ausgabe erweitert.
 - **Restore-Knopf:** Die Einstellungen zeigen die Sicherungen als Tabelle mit zweistufiger Bestaetigung ("Wiederherstellen" → "Wirklich wiederherstellen?") und rufen POST /api/backups/:id/restore mit confirm: true; die Erfolgsmeldung nennt das Schutznetz, die manuelle Anleitung bleibt als Details. Browser-Test packages/app/test/settings-browser.test.ts.
+
+## 18.09.2026 (Nachtrag): STARTTLS geprueft, Restore mit Wartungsfenster, Desktop-Verknuepfung angelegt
+
+- **STARTTLS und implizites TLS sind lokal geprueft.** Neues Testzertifikat unter `packages/engine/test/fixtures/smtp` (CN=localhost, SAN DNS:localhost und IP:127.0.0.1, gueltig bis 2126); `smtp-test-server.ts` beherrscht den STARTTLS-Upgrade (TLSSocket) und implizites TLS. Dabei ein echter Client-Bug gefunden und behoben: mehrzeilige SMTP-Antworten wurden nur bis zur letzten Zeile gelesen, echte Server kuendigen STARTTLS aber in `250-`Zeilen an. `SmtpConfig` hat ein optionales `ca` (privates CA, Self-Hosted), SNI wird nur fuer Namen gesetzt (RFC 6066). Vier neue Faelle in `mailer.test.ts`: STARTTLS-Erfolg komplett ueber dem verschluesselten Socket, unbekanntes Zertifikat → reason tls, implizites TLS, fehlendes STARTTLS-Angebot.
+- **Wartungsfenster fuer Restore (Restore-Lock).** Neues `MaintenanceGate` (packages/engine/src/maintenance.ts): waehrend der Wiederherstellung laufen laufende Anfragen erst leer, neue antworten 503 mit Retry-After; Health und der Restore selbst sind ausgenommen, Health meldet `maintenance: true`. Der Restore holt sich das Gate in seinem Handler, exklusive Aufgaben reihen sich hintereinander. Tests in `backup-restore.test.ts` (503 waehrend des Fensters, Health erreichbar, Warten auf laufende Anfragen, Reihenfolge, Gate oeffnet nach Fehlschlag, echter Restore reiht sich ein).
+- **Desktop-Verknuepfung liegt auf diesem Rechner:** `senify shortcut` hat `Senify.lnk` auf dem Desktop (OneDrive-Pfad) angelegt, Ziel ist der Launcher `%LOCALAPPDATA%\Senify\senify-start.cmd` (`cd /d <repo>` + `pnpm start`). `senify startup` (System-Start) wurde nicht eingerichtet.
+- **Postgres-Fidelity:** Der volle Engine-Bestand laeuft auch gegen echtes Postgres gruen (22 Dateien, 218 Tests, keine uebersprungen).
