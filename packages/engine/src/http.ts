@@ -66,6 +66,16 @@ import {
   type SubmitReviewBody,
 } from "./lifecycle-contract.ts";
 import { Store } from "./store.ts";
+import type { EngineSettingsPatch, SmtpSettingsPatch } from "./store.ts";
+import { backupStatus, createBackup, listBackups } from "./backup.ts";
+import { sendTestMail, smtpMailSender, type MailSender } from "./mailer.ts";
+import { encryptSmtpPassword, resolveSmtpConfig, smtpView } from "./settings.ts";
+import {
+  TestMailBodySchema,
+  UpdateSettingsBodySchema,
+  type TestMailBody,
+  type UpdateSettingsBody,
+} from "./settings-contract.ts";
 import {
   buildSubmissionsCsv,
   confirmNewsletter,
@@ -192,6 +202,9 @@ export type EngineContext = {
   formSigner: FormSigner;
   formRateLimiter: RateLimiter;
   formBaseUrl?: string;
+  // Settings (T12): the mail sender used for test mails and the outbox. Tests
+  // inject a double so no run ever talks to a real SMTP server.
+  mailSender?: MailSender;
   // References (T14): the injected capture/analyzer dependencies. Without them
   // the live Playwright path and the heuristic analyzer are used.
   referenceDeps?: ReferenceDeps;
@@ -219,6 +232,31 @@ function mediaContext(context: EngineContext): MediaContext {
     store: context.store,
     dataDir: context.dataDir,
     maxUploadBytes: context.maxUploadBytes,
+  };
+}
+
+// The settings view the app reads: SMTP without the password, the defaults and
+// the backup target (T12).
+async function settingsView(
+  context: EngineContext,
+): Promise<{
+  email: ReturnType<typeof smtpView>;
+  defaults: { defaultProfile: string; defaultLayout: string; autostart: boolean };
+  backup: { targetDir: string };
+}> {
+  const [email, settings, status] = await Promise.all([
+    context.store.getSmtpSettings(),
+    context.store.getEngineSettings(),
+    backupStatus({ store: context.store, dataDir: context.dataDir }),
+  ]);
+  return {
+    email: smtpView(email),
+    defaults: {
+      defaultProfile: settings.defaultProfile,
+      defaultLayout: settings.defaultLayout,
+      autostart: settings.autostart,
+    },
+    backup: { targetDir: status.targetDir },
   };
 }
 
@@ -2600,6 +2638,126 @@ const ROUTES: Route[] = [
         referenceId: requireParam(params, "referenceId"),
       }),
     }),
+  },
+  // ------------------------------------------------------- settings (T12)
+  {
+    method: "GET",
+    segments: ["api", "settings"],
+    scope: "read",
+    handler: async (context) => ({ status: 200, body: await settingsView(context) }),
+  },
+  {
+    method: "PUT",
+    segments: ["api", "settings"],
+    scope: "write",
+    handler: async (context, _params, req) => {
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<UpdateSettingsBody>(
+        UpdateSettingsBodySchema,
+        body,
+        "settings",
+      );
+      if (input.email !== undefined) {
+        const patch: SmtpSettingsPatch = {};
+        if (input.email.host !== undefined) patch.host = input.email.host;
+        if (input.email.port !== undefined) patch.port = input.email.port;
+        if (input.email.tls !== undefined) patch.tls = input.email.tls;
+        if (input.email.user !== undefined) patch.user = input.email.user;
+        if (input.email.from !== undefined) patch.from = input.email.from;
+        // A new password is encrypted; null clears it; omitting keeps it.
+        if (typeof input.email.password === "string" && input.email.password !== "") {
+          patch.passwordEncrypted = await encryptSmtpPassword(
+            context.store,
+            input.email.password,
+          );
+        } else if (input.email.password === null) {
+          patch.passwordEncrypted = null;
+        }
+        await context.store.updateSmtpSettings(patch);
+      }
+      if (input.defaults !== undefined) {
+        const patch: EngineSettingsPatch = {};
+        if (input.defaults.defaultProfile !== undefined) {
+          patch.defaultProfile = input.defaults.defaultProfile;
+        }
+        if (input.defaults.defaultLayout !== undefined) {
+          patch.defaultLayout = input.defaults.defaultLayout;
+        }
+        if (input.defaults.autostart !== undefined) {
+          patch.autostart = input.defaults.autostart;
+        }
+        await context.store.updateEngineSettings(patch);
+      }
+      if (input.backup?.targetDir !== undefined) {
+        await context.store.updateEngineSettings({
+          backupDir: input.backup.targetDir,
+        });
+      }
+      return { status: 200, body: await settingsView(context) };
+    },
+  },
+  {
+    // Sends a single test mail with the stored transport; the result is
+    // structured so the UI can name the failure (auth/connection/tls).
+    method: "POST",
+    segments: ["api", "settings", "email", "test"],
+    scope: "write",
+    handler: async (context, _params, req) => {
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<TestMailBody>(
+        TestMailBodySchema,
+        body,
+        "test mail",
+      );
+      const config = await resolveSmtpConfig(context.store);
+      if (config === undefined) {
+        return {
+          status: 200,
+          body: {
+            ok: false,
+            to: input.to,
+            reason: "unconfigured",
+            message:
+              "Keine SMTP-Einstellungen hinterlegt — Host und Absenderadresse zuerst speichern.",
+          },
+        };
+      }
+      return {
+        status: 200,
+        body: await sendTestMail({
+          config,
+          to: input.to,
+          send: context.mailSender ?? smtpMailSender,
+        }),
+      };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "backups"],
+    scope: "read",
+    handler: async (context) => {
+      const status = await backupStatus({
+        store: context.store,
+        dataDir: context.dataDir,
+      });
+      return {
+        status: 200,
+        body: { status, backups: await listBackups(status.targetDir) },
+      };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "backups"],
+    scope: "write",
+    handler: async (context) => {
+      const run = await createBackup({
+        store: context.store,
+        dataDir: context.dataDir,
+      });
+      return { status: 201, body: { backup: run.summary, manifest: run.manifest } };
+    },
   },
 ];
 

@@ -15,7 +15,8 @@ import {
   validateTheme,
   type Theme,
 } from "@senify/tokens";
-import type { Db } from "./db.ts";
+import type { Db, Row } from "./db.ts";
+import { tableNames } from "./db.ts";
 import { generateToken } from "./auth.ts";
 import { entryConflictError } from "./content-contract.ts";
 import { newEntityId, newNodeId } from "./ids.ts";
@@ -29,6 +30,7 @@ import {
   FIELD_TYPES,
   REVIEW_STATUSES,
   SITE_PROFILES,
+  SMTP_TLS_MODES,
   SUPPORTS_FLAGS,
   type ApiToken,
   type Asset,
@@ -43,6 +45,7 @@ import {
   type AuditEntry,
   type CellValue,
   type Collection,
+  type EngineSettings,
   type Entry,
   type EntryRedirect,
   type EntryStatus,
@@ -82,6 +85,8 @@ import {
   type RevisionSummary,
   type Site,
   type SiteTheme,
+  type SmtpSettingsRecord,
+  type SmtpTlsMode,
   type StructureChange,
   type SupportsFlag,
   type TokenRecord,
@@ -819,6 +824,22 @@ export type NewAuditEntry = {
   draftVersionAfter: number;
 };
 
+export type SmtpSettingsPatch = {
+  host?: string;
+  port?: number;
+  tls?: SmtpTlsMode;
+  user?: string;
+  from?: string;
+  passwordEncrypted?: string | null;
+};
+
+export type EngineSettingsPatch = {
+  defaultProfile?: Site["profile"];
+  defaultLayout?: string;
+  autostart?: boolean;
+  backupDir?: string | null;
+};
+
 export class Store {
   readonly #db: Db;
 
@@ -834,7 +855,8 @@ export class Store {
         suggestion: "Provide a non-empty site name.",
       });
     }
-    const profile: Site["profile"] = input.profile ?? "standard";
+    const profile: Site["profile"] =
+      input.profile ?? (await this.getEngineSettings()).defaultProfile;
     if (!SITE_PROFILES.includes(profile)) {
       throw new SenifyError(
         "validation",
@@ -3645,6 +3667,140 @@ export class Store {
     }
     return usage;
   }
+
+  // ---------------------------------------------------------- settings (T12)
+
+  async getSmtpSettings(): Promise<SmtpSettingsRecord> {
+    const existing = await this.#db.query<SmtpRow>(
+      `SELECT ${SMTP_COLUMNS} FROM smtp_settings WHERE id = 'smtp'`,
+    );
+    const row = existing.rows[0];
+    if (row) return mapSmtpSettings(row);
+    try {
+      await this.#db.query(
+        `INSERT INTO smtp_settings (id, host, port, tls, username, password_encrypted, from_address, updated_at)
+         VALUES ('smtp', '', 587, 'starttls', '', NULL, '', $1)`,
+        [new Date().toISOString()],
+      );
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+    }
+    const created = await this.#db.query<SmtpRow>(
+      `SELECT ${SMTP_COLUMNS} FROM smtp_settings WHERE id = 'smtp'`,
+    );
+    const stored = created.rows[0];
+    return stored === undefined ? defaultSmtpSettings() : mapSmtpSettings(stored);
+  }
+
+  async updateSmtpSettings(patch: SmtpSettingsPatch): Promise<SmtpSettingsRecord> {
+    const current = await this.getSmtpSettings();
+    const next: SmtpSettingsRecord = {
+      host: patch.host === undefined ? current.host : patch.host,
+      port: patch.port === undefined ? current.port : patch.port,
+      tls: patch.tls === undefined ? current.tls : patch.tls,
+      user: patch.user === undefined ? current.user : patch.user,
+      from: patch.from === undefined ? current.from : patch.from,
+      passwordEncrypted:
+        patch.passwordEncrypted === undefined
+          ? current.passwordEncrypted
+          : patch.passwordEncrypted,
+    };
+    await this.#db.query(
+      `UPDATE smtp_settings SET host = $2, port = $3, tls = $4, username = $5,
+         password_encrypted = $6, from_address = $7, updated_at = $8 WHERE id = $1`,
+      [
+        "smtp",
+        next.host,
+        next.port,
+        next.tls,
+        next.user,
+        next.passwordEncrypted,
+        next.from,
+        new Date().toISOString(),
+      ],
+    );
+    return next;
+  }
+
+  // Defaults for new projects and the program start (artifacts/27 §5).
+  async getEngineSettings(): Promise<EngineSettings> {
+    const existing = await this.#db.query<EngineSettingsRow>(
+      `SELECT ${ENGINE_SETTINGS_COLUMNS} FROM engine_settings WHERE id = 'engine'`,
+    );
+    const row = existing.rows[0];
+    if (row) return mapEngineSettings(row);
+    try {
+      await this.#db.query(
+        `INSERT INTO engine_settings (id, default_profile, default_layout, autostart, backup_dir, updated_at)
+         VALUES ('engine', 'standard', 'Standard', false, NULL, $1)`,
+        [new Date().toISOString()],
+      );
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+    }
+    const created = await this.#db.query<EngineSettingsRow>(
+      `SELECT ${ENGINE_SETTINGS_COLUMNS} FROM engine_settings WHERE id = 'engine'`,
+    );
+    const stored = created.rows[0];
+    return stored === undefined ? defaultEngineSettings() : mapEngineSettings(stored);
+  }
+
+  async updateEngineSettings(patch: EngineSettingsPatch): Promise<EngineSettings> {
+    const current = await this.getEngineSettings();
+    const next: EngineSettings = {
+      defaultProfile:
+        patch.defaultProfile === undefined
+          ? current.defaultProfile
+          : patch.defaultProfile,
+      defaultLayout:
+        patch.defaultLayout === undefined
+          ? current.defaultLayout
+          : patch.defaultLayout,
+      autostart:
+        patch.autostart === undefined ? current.autostart : patch.autostart,
+      backupDir:
+        patch.backupDir === undefined ? current.backupDir : patch.backupDir,
+    };
+    await this.#db.query(
+      `UPDATE engine_settings SET default_profile = $2, default_layout = $3,
+         autostart = $4, backup_dir = $5, updated_at = $6 WHERE id = $1`,
+      [
+        "engine",
+        next.defaultProfile,
+        next.defaultLayout,
+        next.autostart,
+        next.backupDir,
+        new Date().toISOString(),
+      ],
+    );
+    return next;
+  }
+
+  // Persisted secret for encryption at rest, mirroring getOrCreateFormSecret.
+  async getOrCreateEngineSecret(): Promise<string> {
+    const existing = await this.#db.query<{ secret: string }>(
+      `SELECT secret FROM engine_secrets WHERE name = 'settings' LIMIT 1`,
+    );
+    const row = existing.rows[0];
+    if (row) return row.secret;
+    const secret = randomBytes(32).toString("base64url");
+    await this.#db.query(
+      `INSERT INTO engine_secrets (id, name, secret, created_at) VALUES ($1, 'settings', $2, $3)`,
+      [newEntityId(), secret, new Date().toISOString()],
+    );
+    return secret;
+  }
+
+  // Raw table dump for backups; names come from the schema, never from input.
+  async dumpTable(name: string): Promise<Row[]> {
+    if (!tableNames().includes(name)) {
+      throw new SenifyError("validation", `Unbekannte Tabelle "${name}"`, {
+        field: "table",
+      });
+    }
+    const result = await this.#db.query(`SELECT * FROM ${name}`);
+    return result.rows;
+  }
 }
 
 function buildAuditInsert(entries: NewAuditEntry[]): {
@@ -3924,5 +4080,83 @@ function mapReferenceAssignment(row: ReferenceAssignmentRow): ReferenceAssignmen
     priority: toFiniteNumber(row.priority, "priority"),
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
+  };
+}
+
+// ------------------------------------------------------------ settings (T12)
+
+const SMTP_COLUMNS = "host, port, tls, username, password_encrypted, from_address";
+
+const ENGINE_SETTINGS_COLUMNS =
+  "default_profile, default_layout, autostart, backup_dir";
+
+function toBoolean(value: unknown): boolean {
+  if (value === true || value === 1) return true;
+  if (typeof value === "string") {
+    return value === "true" || value === "t" || value === "1";
+  }
+  return false;
+}
+
+type SmtpRow = {
+  host: string;
+  port: unknown;
+  tls: string;
+  username: string;
+  password_encrypted: unknown;
+  from_address: string;
+};
+
+function defaultSmtpSettings(): SmtpSettingsRecord {
+  return {
+    host: "",
+    port: 587,
+    tls: "starttls",
+    user: "",
+    from: "",
+    passwordEncrypted: null,
+  };
+}
+
+function mapSmtpSettings(row: SmtpRow): SmtpSettingsRecord {
+  const tls = SMTP_TLS_MODES.includes(row.tls as SmtpTlsMode)
+    ? (row.tls as SmtpTlsMode)
+    : "starttls";
+  return {
+    host: row.host,
+    port: toFiniteNumber(row.port, "port"),
+    tls,
+    user: row.username,
+    from: row.from_address,
+    passwordEncrypted:
+      typeof row.password_encrypted === "string" ? row.password_encrypted : null,
+  };
+}
+
+type EngineSettingsRow = {
+  default_profile: string;
+  default_layout: string;
+  autostart: unknown;
+  backup_dir: unknown;
+};
+
+function defaultEngineSettings(): EngineSettings {
+  return {
+    defaultProfile: "standard",
+    defaultLayout: "Standard",
+    autostart: false,
+    backupDir: null,
+  };
+}
+
+function mapEngineSettings(row: EngineSettingsRow): EngineSettings {
+  const profile = SITE_PROFILES.includes(row.default_profile as Site["profile"])
+    ? (row.default_profile as Site["profile"])
+    : "standard";
+  return {
+    defaultProfile: profile,
+    defaultLayout: row.default_layout,
+    autostart: toBoolean(row.autostart),
+    backupDir: typeof row.backup_dir === "string" ? row.backup_dir : null,
   };
 }

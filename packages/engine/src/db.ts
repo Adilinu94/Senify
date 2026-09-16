@@ -435,10 +435,48 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS reference_assignments_reference_idx
     ON reference_assignments (reference_id, site_id ASC)`,
+  // Global program settings (T12): one row each for the SMTP transport and the
+  // defaults. The SMTP password is stored encrypted (settings secret).
+  `CREATE TABLE IF NOT EXISTS smtp_settings (
+    id text PRIMARY KEY,
+    host text NOT NULL DEFAULT '',
+    port integer NOT NULL DEFAULT 587,
+    tls text NOT NULL DEFAULT 'starttls',
+    username text NOT NULL DEFAULT '',
+    password_encrypted text,
+    from_address text NOT NULL DEFAULT '',
+    updated_at timestamptz NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS engine_settings (
+    id text PRIMARY KEY,
+    default_profile text NOT NULL DEFAULT 'standard',
+    default_layout text NOT NULL DEFAULT 'Standard',
+    autostart boolean NOT NULL DEFAULT false,
+    backup_dir text,
+    updated_at timestamptz NOT NULL
+  )`,
+  // Persisted secrets used for encryption at rest, mirroring form_settings.
+  `CREATE TABLE IF NOT EXISTS engine_secrets (
+    id text PRIMARY KEY,
+    name text NOT NULL UNIQUE,
+    secret text NOT NULL,
+    created_at timestamptz NOT NULL
+  )`,
 ];
 
 export async function ensureSchema(db: Db): Promise<void> {
   for (const statement of SCHEMA_STATEMENTS) {
     await db.query(statement);
   }
+}
+
+// The tables the schema owns, derived from the CREATE statements so backups and
+// migration-free reads never drift from the source of truth.
+export function tableNames(): string[] {
+  const names: string[] = [];
+  for (const statement of SCHEMA_STATEMENTS) {
+    const match = /CREATE TABLE IF NOT EXISTS\s+([A-Za-z0-9_]+)/.exec(statement);
+    if (match?.[1] !== undefined) names.push(match[1]);
+  }
+  return names;
 }

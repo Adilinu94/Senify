@@ -12,8 +12,10 @@ import {
 import type { CreateCollectionBody, FieldDefInput } from "./content-contract.ts";
 import { createCollectionFromFields, createEntry, listEntries, publishEntry, updateEntry } from "./content.ts";
 import { newEntityId } from "./ids.ts";
+import { smtpMailSender, type MailSender } from "./mailer.ts";
 import type { RateLimiter } from "./rate-limit.ts";
 import { RateLimitError } from "./rate-limit.ts";
+import { resolveSmtpConfig } from "./settings.ts";
 import { slugify, type Store } from "./store.ts";
 import type {
   CheckIssue,
@@ -920,15 +922,35 @@ export function backoffMs(attempts: number): number {
   return Math.min(BASE_BACKOFF_MS * 2 ** Math.max(0, attempts - 1), MAX_BACKOFF_MS);
 }
 
+// Configured SMTP transport when host and sender are set, otherwise the no-op
+// dev transport stays in place (artifacts/26 §5.4).
+async function configuredTransport(
+  store: Store,
+  send: MailSender | undefined,
+): Promise<NotificationTransport> {
+  const config = await resolveSmtpConfig(store);
+  if (config === undefined) return devTransport;
+  const sender = send ?? smtpMailSender;
+  return async (message) => {
+    await sender(config, {
+      recipient: message.recipient,
+      subject: message.subject,
+      body: message.body,
+    });
+  };
+}
+
 export async function tickNotifications(input: {
   store: Store;
   transport?: NotificationTransport;
+  send?: MailSender;
   now?: number;
   limit?: number;
 }): Promise<NotificationTickResult> {
   const now = input.now ?? Date.now();
   const nowIso = new Date(now).toISOString();
-  const transport = input.transport ?? devTransport;
+  const transport =
+    input.transport ?? (await configuredTransport(input.store, input.send));
   const due = await input.store.listDueNotifications(nowIso, input.limit ?? 50);
   const result: NotificationTickResult = { sent: [], retried: [], failed: [] };
   for (const message of due) {

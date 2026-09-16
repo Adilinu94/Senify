@@ -297,4 +297,92 @@ describe("program shell (Prüfstelle Programm)", () => {
       startProgram({ openBrowser: false, databaseUrl: undefined, db: undefined }),
     ).rejects.toThrow(/Keine Datenbank konfiguriert/);
   });
+
+  it("exposes settings, test mail and backups through the dashboard proxy", async () => {
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-app-settings-"));
+    const running = await startProgram({
+      db: database.db,
+      dataDir,
+      programTokenFile: join(dataDir, "program-token.json"),
+      enginePort: 0,
+      appPort: 0,
+      openBrowser: false,
+    });
+    const json = (path: string): Promise<Response> =>
+      fetch(`${running.dashboardUrl}${path}`);
+    const put = (path: string, body: unknown): Promise<Response> =>
+      fetch(`${running.dashboardUrl}${path}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    try {
+      const settings = (await (await json("/api/settings")).json()) as {
+        email: { hasPassword: boolean };
+        defaults: { defaultProfile: string; autostart: boolean };
+        backup: { targetDir: string };
+      };
+      expect(settings.email.hasPassword).toBe(false);
+      expect(settings.defaults.defaultProfile).toBe("standard");
+      expect(settings.defaults.autostart).toBe(false);
+      expect(typeof settings.backup.targetDir).toBe("string");
+
+      // Test mail before SMTP is configured: a structured failure, no network.
+      const test = await fetch(`${running.dashboardUrl}/api/settings/email/test`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ to: "ops@kunde.de" }),
+      });
+      expect(test.status).toBe(200);
+      const testBody = (await test.json()) as { ok: boolean; reason: string };
+      expect(testBody.ok).toBe(false);
+      expect(testBody.reason).toBe("unconfigured");
+
+      // Saving email settings stores the password but never echoes it.
+      const saved = (await (
+        await put("/api/settings", {
+          email: { host: "smtp.example", from: "formular@kunde.de", password: "secret-pw" },
+        })
+      ).json()) as { email: { host: string; hasPassword: boolean } };
+      expect(saved.email.host).toBe("smtp.example");
+      expect(saved.email.hasPassword).toBe(true);
+      expect(JSON.stringify(saved)).not.toContain("secret-pw");
+
+      const defaults = (await (
+        await put("/api/settings", {
+          defaults: { defaultProfile: "showcase", defaultLayout: "Weit", autostart: true },
+        })
+      ).json()) as {
+        defaults: { defaultProfile: string; defaultLayout: string; autostart: boolean };
+      };
+      expect(defaults.defaults).toEqual({
+        defaultProfile: "showcase",
+        defaultLayout: "Weit",
+        autostart: true,
+      });
+
+      const created = await fetch(`${running.dashboardUrl}/api/backups`, {
+        method: "POST",
+      });
+      expect(created.status).toBe(201);
+      const createdBody = (await created.json()) as {
+        backup: { id: string; fileCount: number };
+        manifest: { version: string };
+      };
+      expect(createdBody.manifest.version).toBe("1");
+
+      const list = (await (await json("/api/backups")).json()) as {
+        status: { count: number; lastBackup: { id: string } | null };
+        backups: { id: string }[];
+      };
+      expect(list.backups.some((entry) => entry.id === createdBody.backup.id)).toBe(true);
+      expect(list.status.count).toBeGreaterThanOrEqual(1);
+      expect(list.status.lastBackup?.id).toBe(createdBody.backup.id);
+    } finally {
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 30000);
 });

@@ -733,3 +733,33 @@ export type ReferenceAssignment = {
   createdAt: string;
   updatedAt: string;
 };
+
+// ------------------------------------------------------------ settings (T12)
+
+// Transport security of the SMTP connection (artifacts/27 §5).
+export const SMTP_TLS_MODES = ["none", "starttls", "tls"] as const;
+export type SmtpTlsMode = (typeof SMTP_TLS_MODES)[number];
+
+// SMTP settings as the API exposes them: the password never leaves the engine,
+// only its presence is reported.
+export type SmtpSettings = {
+  host: string;
+  port: number;
+  tls: SmtpTlsMode;
+  user: string;
+  from: string;
+  hasPassword: boolean;
+};
+
+// Stored shape: the password sits here encrypted at rest.
+export type SmtpSettingsRecord = Omit<SmtpSettings, "hasPassword"> & {
+  passwordEncrypted: string | null;
+};
+
+// Defaults applied when a new project/page is created or the program starts.
+export type EngineSettings = {
+  defaultProfile: SiteProfile;
+  defaultLayout: string;
+  autostart: boolean;
+  backupDir: string | null;
+};

@@ -13,6 +13,7 @@ import {
   type DbResult,
   type Engine,
   type EngineServer,
+  type MailSender,
   type Mutation,
   type RateLimitConfig,
   type Row,
@@ -219,7 +220,11 @@ export type BootEnv = {
 };
 
 export async function bootEngine(
-  options: { rateLimits?: RateLimitConfig; maxUploadBytes?: number } = {},
+  options: {
+    rateLimits?: RateLimitConfig;
+    maxUploadBytes?: number;
+    mailSender?: MailSender;
+  } = {},
 ): Promise<BootEnv> {
   const database = await createTestDatabase();
   const registry = createTestRegistry();
@@ -231,6 +236,9 @@ export async function bootEngine(
     ...(options.maxUploadBytes === undefined
       ? {}
       : { maxUploadBytes: options.maxUploadBytes }),
+    ...(options.mailSender === undefined
+      ? {}
+      : { mailSender: options.mailSender }),
     // Suites fire hundreds of calls per token; rate-limit behaviour is
     // covered by auth.test.ts with explicit tight limits.
     rateLimits:

@@ -294,14 +294,18 @@ export function reindexNodeParents(tree: NodeTree): NodeTree {
 export function findLayout(
   pages: readonly Page[],
   layoutId: string | null,
+  defaultLabel = "standard",
 ): Page | undefined {
   const layouts = pages.filter((page) => page.template?.kind === "layout");
   if (layoutId !== null) {
     return layouts.find((page) => page.id === layoutId);
   }
-  // Default layout: the "Standard" one, else the first declared layout.
+  // Default layout: the configured label (Standardwert), else the first
+  // declared layout.
   return (
-    layouts.find((page) => page.title.toLowerCase() === "standard") ?? layouts[0]
+    layouts.find(
+      (page) => page.title.toLowerCase() === defaultLabel.toLowerCase(),
+    ) ?? layouts[0]
   );
 }
 

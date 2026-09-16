@@ -144,7 +144,10 @@ export async function startProgram(
   }
 
   const dashboardUrl = appServer.origin;
-  if (options.openBrowser ?? true) openBrowser(dashboardUrl);
+  // Autostart (settings, default off): open the browser automatically unless
+  // the caller decided explicitly (openBrowser) — `--no-open` wins.
+  const settings = await engine.store.getEngineSettings();
+  if (options.openBrowser ?? settings.autostart) openBrowser(dashboardUrl);
   return {
     engineOrigin: engineServer.origin,
     dashboardUrl,

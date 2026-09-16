@@ -116,13 +116,14 @@ export function createProgram(): Command {
     .description("Start the local engine and open the program in the browser")
     .option("--engine-port <port>", "engine port", "4321")
     .option("--app-port <port>", "dashboard port", "4322")
-    .option("--no-open", "do not open the browser")
+    .option("--no-open", "override Autostart: do not open the browser")
     .action(async (options) => {
       const running = await startProgram({
         databaseUrl: resolveDatabaseUrl(),
         enginePort: Number.parseInt(String(options.enginePort), 10) || undefined,
         appPort: Number.parseInt(String(options.appPort), 10) || undefined,
-        openBrowser: options.open !== false,
+        // Without --no-open the Autostart setting decides (default off).
+        openBrowser: options.open === false ? false : undefined,
       });
       console.log(`Senify läuft — Dashboard: ${running.dashboardUrl}`);
       console.log(

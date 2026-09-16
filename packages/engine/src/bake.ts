@@ -113,6 +113,7 @@ export async function buildBakeInput(
 ): Promise<BakeBuild> {
   const { site, pages } = input;
   const collections = await store.listCollections(site.id);
+  const defaultLayout = (await store.getEngineSettings()).defaultLayout;
   const collectionsById = new Map(
     collections.map((collection) => [collection.id, collection]),
   );
@@ -201,7 +202,7 @@ export async function buildBakeInput(
   for (const page of pages) {
     // Template pages have no route of their own (no sitemap/navigation entry).
     if (page.template !== null) continue;
-    const layout = findLayout(pages, page.layoutId);
+    const layout = findLayout(pages, page.layoutId, defaultLayout);
     const tree = composePageTree({
       layout: layout?.draft ?? null,
       template: null,
@@ -227,7 +228,7 @@ export async function buildBakeInput(
     if (template === undefined) continue;
     // An entry template without outlet is unfinished and yields no route.
     if (findFirstOutlet(template.draft) === undefined) continue;
-    const layout = findLayout(pages, template.layoutId);
+    const layout = findLayout(pages, template.layoutId, defaultLayout);
     const published = await store.listEntries({
       siteId: site.id,
       collectionId: collection.id,

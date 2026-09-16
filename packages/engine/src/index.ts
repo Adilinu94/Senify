@@ -6,6 +6,7 @@ import type { Registry } from "@senify/section-sdk";
 import { ensureSchema, type Db } from "./db.ts";
 import { createFormSigner } from "./forms.ts";
 import { createRequestHandler } from "./http.ts";
+import type { MailSender } from "./mailer.ts";
 import { PageLocks } from "./locks.ts";
 import {
   DEFAULT_MAX_UPLOAD_BYTES,
@@ -196,6 +197,11 @@ export {
   type TokenRecord,
   type TokenScope,
   SITE_PROFILES,
+  SMTP_TLS_MODES,
+  type EngineSettings,
+  type SmtpSettings,
+  type SmtpSettingsRecord,
+  type SmtpTlsMode,
 } from "./types.ts";
 export {
   MUTATION_OPS,
@@ -365,6 +371,34 @@ export {
   type ReferenceDeps,
   type ReferenceTickResult,
 } from "./references-lifecycle.ts";
+export {
+  BACKUP_VERSION,
+  backupStatus,
+  createBackup,
+  listBackups,
+  resolveBackupDir,
+  type BackupManifest,
+  type BackupRun,
+  type BackupStatus,
+  type BackupSummary,
+} from "./backup.ts";
+export {
+  sendTestMail,
+  SmtpError,
+  smtpMailSender,
+  type MailMessage,
+  type MailSender,
+  type SmtpConfig,
+  type SmtpFailureReason,
+  type TestMailFailureReason,
+  type TestMailResult,
+} from "./mailer.ts";
+export {
+  TestMailBodySchema,
+  UpdateSettingsBodySchema,
+  type TestMailBody,
+  type UpdateSettingsBody,
+} from "./settings-contract.ts";
 
 export type EngineOptions = {
   db: Db;
@@ -376,6 +410,9 @@ export type EngineOptions = {
   maxUploadBytes?: number;
   // Public base URL the stamped form action points at (default: same origin).
   formsBaseUrl?: string;
+  // Settings (T12): the mail sender for test mails and the outbox. Tests pass a
+  // double; production uses the real SMTP client.
+  mailSender?: MailSender;
   // References (T14): capture driver, analyzer and LLM config. Default: live
   // Playwright capture plus the heuristic analyzer (or the LLM when
   // SENIFY_LLM_ENDPOINT/-MODEL are configured).
@@ -426,6 +463,7 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
       destructivePerMinute: 5,
     }),
     referenceDeps: options.referenceDeps ?? referenceDepsFromEnv(process.env),
+    ...(options.mailSender === undefined ? {} : { mailSender: options.mailSender }),
     ...(options.formsBaseUrl === undefined
       ? {}
       : { formBaseUrl: options.formsBaseUrl }),

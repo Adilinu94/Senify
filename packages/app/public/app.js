@@ -88,6 +88,18 @@ function formatDate(value) {
   return new Date(value).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" });
 }
 
+function formatBytes(value) {
+  if (!value) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let size = value;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit += 1;
+  }
+  return `${size.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
 function initials(name) {
   return name.trim().slice(0, 2).toUpperCase();
 }
@@ -923,6 +935,8 @@ async function referenceDetailView(referenceId) {
 
 async function settingsView() {
   const { tokens } = await api("/api/tokens");
+  const settings = await api("/api/settings");
+  const backups = await api("/api/backups");
   const rows = tokens.map((token) =>
     el(
       "tr",
@@ -1022,19 +1036,222 @@ async function settingsView() {
       "section",
       { class: "panel" },
       el("h2", { text: "E-Mail" }),
-      el("p", { class: "muted", text: "SMTP für Formular-Benachrichtigungen folgt mit dem Formular-Ticket." }),
+      el("p", {
+        class: "muted",
+        text: "SMTP-Postfach für Formular-Benachrichtigungen und Newsletter. Das Passwort wird verschlüsselt gespeichert und nie angezeigt.",
+      }),
+      el(
+        "div",
+        { class: "inline" },
+        el("input", { id: "smtp-host", type: "text", placeholder: "smtp.example.com", value: settings.email.host }),
+        el("input", { id: "smtp-port", type: "number", placeholder: "587", value: String(settings.email.port) }),
+        el(
+          "select",
+          { id: "smtp-tls" },
+          ...["starttls", "tls", "none"].map((mode) =>
+            el("option", {
+              value: mode,
+              text: mode,
+              selected: mode === settings.email.tls ? "" : undefined,
+            }),
+          ),
+        ),
+      ),
+      el(
+        "div",
+        { class: "inline" },
+        el("input", { id: "smtp-user", type: "text", placeholder: "Benutzer", value: settings.email.user }),
+        el("input", {
+          id: "smtp-password",
+          type: "password",
+          placeholder: settings.email.hasPassword
+            ? "Passwort gespeichert (leer lassen = unverändert)"
+            : "kein Passwort gespeichert",
+        }),
+        el("input", { id: "smtp-from", type: "text", placeholder: "Absender, z. B. formular@kunde.de", value: settings.email.from }),
+      ),
+      el(
+        "div",
+        { class: "inline", style: "margin-top: 0.6rem" },
+        el("button", {
+          class: "primary",
+          text: "Speichern",
+          onclick: async () => {
+            const value = (id) => document.getElementById(id).value;
+            const password = value("smtp-password");
+            try {
+              await api("/api/settings", {
+                method: "PUT",
+                body: {
+                  email: {
+                    host: value("smtp-host"),
+                    port: Number(value("smtp-port")) || 587,
+                    tls: value("smtp-tls"),
+                    user: value("smtp-user"),
+                    from: value("smtp-from"),
+                    ...(password ? { password } : {}),
+                  },
+                },
+              });
+              toast("E-Mail-Einstellungen gespeichert");
+              await renderRoute();
+            } catch (error) {
+              failed(error);
+            }
+          },
+        }),
+        el("input", { id: "smtp-test-to", type: "text", placeholder: "Testmail an …" }),
+        el("button", {
+          class: "ghost",
+          text: "Testmail senden",
+          onclick: async () => {
+            const to = document.getElementById("smtp-test-to").value.trim();
+            const result = document.getElementById("smtp-test-result");
+            if (!to) {
+              toast("Bitte eine Empfängeradresse angeben.", "error");
+              return;
+            }
+            result.textContent = "Sende …";
+            try {
+              const response = await api("/api/settings/email/test", { method: "POST", body: { to } });
+              result.textContent = response.ok
+                ? `Gesendet an ${response.to}.`
+                : `Fehler (${response.reason}): ${response.message}`;
+              if (!response.ok) toast(response.message, "error");
+            } catch (error) {
+              result.textContent = "";
+              failed(error);
+            }
+          },
+        }),
+        el("span", { id: "smtp-test-result", class: "muted" }),
+      ),
     ),
     el(
       "section",
       { class: "panel" },
       el("h2", { text: "Speicher & Sicherung" }),
-      el("p", { class: "muted", text: "Backup-Status und Restore-Anleitung folgen mit dem Hosting-Ticket." }),
+      el("p", {
+        class: "muted",
+        text: backups.status.lastBackup
+          ? `Letzte Sicherung: ${formatDate(backups.status.lastBackup.createdAt)}, ${formatBytes(backups.status.lastBackup.bytes)}, ${backups.status.lastBackup.fileCount} Dateien`
+          : "Noch keine Sicherung erstellt.",
+      }),
+      el("p", {
+        class: "muted",
+        text: `${backups.status.count} Sicherung(en), Zielordner: ${backups.status.targetDir}`,
+      }),
+      el(
+        "div",
+        { class: "inline" },
+        el("input", { id: "backup-dir", type: "text", placeholder: "Zielordner (leer = Standard)", value: settings.backup.targetDir }),
+        el("button", {
+          class: "ghost",
+          text: "Zielordner speichern",
+          onclick: async () => {
+            try {
+              await api("/api/settings", {
+                method: "PUT",
+                body: { backup: { targetDir: document.getElementById("backup-dir").value.trim() || null } },
+              });
+              toast("Zielordner gespeichert");
+              await renderRoute();
+            } catch (error) {
+              failed(error);
+            }
+          },
+        }),
+        el("button", {
+          class: "primary",
+          text: "Sicherung jetzt erstellen",
+          onclick: async () => {
+            try {
+              const created = await api("/api/backups", { method: "POST" });
+              toast(`Sicherung erstellt: ${created.backup.id}`);
+              await renderRoute();
+            } catch (error) {
+              failed(error);
+            }
+          },
+        }),
+      ),
+      el(
+        "details",
+        {},
+        el("summary", { text: "Restore-Anleitung" }),
+        el("p", {
+          class: "muted",
+          text: "Die Wiederherstellung ist ein manueller Schritt: die Engine schreibt nie automatisch zurück.",
+        }),
+        el(
+          "ol",
+          {},
+          el("li", { text: "Engine beenden (`senify start` mit Strg+C)." }),
+          el("li", { text: "Zielordner öffnen, den gewünschten Zeitstempel-Ordner wählen und das Manifest prüfen." }),
+          el("li", { text: "Tabellen aus `tables/*.json` in die Zieldatenbank einspielen (psql, z. B. TRUNCATE dann COPY)." }),
+          el("li", { text: "Dateien aus `files/` über das Datenverzeichnis kopieren (SENIFY_DATA_DIR, Standard ~/.senify)." }),
+          el("li", { text: "Engine starten und Projektliste sowie Health-Check prüfen." }),
+        ),
+      ),
     ),
     el(
       "section",
       { class: "panel" },
       el("h2", { text: "Standardwerte" }),
-      el("p", { class: "muted", text: "Standard-Niveau, Layout und Autostart folgen mit dem Profil-/Hosting-Ticket." }),
+      el("p", {
+        class: "muted",
+        text: "Gelten für neue Projekte, das Standard-Layout und den Programmstart.",
+      }),
+      el(
+        "div",
+        { class: "inline" },
+        el("label", { class: "muted", for: "defaults-profile" }, "Standard-Niveau"),
+        el(
+          "select",
+          { id: "defaults-profile" },
+          ...["clean", "standard", "showcase"].map((profile) =>
+            el("option", {
+              value: profile,
+              text: profile,
+              selected: profile === settings.defaults.defaultProfile ? "" : undefined,
+            }),
+          ),
+        ),
+        el("label", { class: "muted", for: "defaults-layout" }, "Standard-Layout"),
+        el("input", { id: "defaults-layout", type: "text", value: settings.defaults.defaultLayout }),
+      ),
+      el(
+        "label",
+        { class: "muted", for: "defaults-autostart" },
+        el("input", {
+          id: "defaults-autostart",
+          type: "checkbox",
+          checked: settings.defaults.autostart ? "" : undefined,
+        }),
+        " Autostart: beim `senify start` den Browser automatisch öffnen",
+      ),
+      el("button", {
+        class: "primary",
+        text: "Speichern",
+        onclick: async () => {
+          try {
+            await api("/api/settings", {
+              method: "PUT",
+              body: {
+                defaults: {
+                  defaultProfile: document.getElementById("defaults-profile").value,
+                  defaultLayout: document.getElementById("defaults-layout").value.trim(),
+                  autostart: document.getElementById("defaults-autostart").checked,
+                },
+              },
+            });
+            toast("Standardwerte gespeichert");
+            await renderRoute();
+          } catch (error) {
+            failed(error);
+          }
+        },
+      }),
     ),
   ]);
 }
