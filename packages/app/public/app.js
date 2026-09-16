@@ -475,9 +475,11 @@ async function deleteReference(reference) {
     await api(`/api/references/${reference.id}${used > 0 ? "?force=1" : ""}`, {
       method: "DELETE",
     });
+    // Das offene Fenster zeigt eine geloeschte Referenz: erst schliessen.
+    if (refsInspector && refsInspector.dialog.open) refsInspector.dialog.close();
     refsToast("Referenz gelöscht");
     // The deleted detail is gone: fall back to the library list.
-    if (location.hash.startsWith("#/references/")) location.hash = "#/references";
+    if (location.hash.startsWith("#/references")) location.hash = "#/references";
     else await renderRoute();
   } catch (error) {
     failed(error);
@@ -529,7 +531,6 @@ const REFS_ICON_PLUS_UPLOAD = refsIcon('<path d="M12 5.4v13.2M5.4 12h13.2"/>', 2
 const REFS_ICON_CLOSE = refsIcon('<path d="M6.8 6.8 17.2 17.2M17.2 6.8 6.8 17.2"/>', 17);
 const REFS_ICON_PREV = refsIcon('<path d="M14.4 5.6 8 12l6.4 6.4"/>', 17);
 const REFS_ICON_NEXT = refsIcon('<path d="M9.6 5.6 16 12l-6.4 6.4"/>', 17);
-const REFS_ICON_BACK = refsIcon('<path d="M14.4 5.6 8 12l6.4 6.4"/>', 13);
 const REFS_ICON_SEARCH_LARGE = refsIcon(
   '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
   35,
@@ -540,7 +541,6 @@ const REFS_ICON_CHECK_BOX = refsIcon('<path d="M5.6 12.4 10 16.8 18.4 7.6"/>', 2
 let refsCollections = [];
 let refsStyleCatalog = null;
 let refsRouteActive = false;
-let refsDetailIds = [];
 let refsDom = null;
 let refsTray = null;
 let refsQueryTimer = null;
@@ -617,7 +617,7 @@ function refsApplyAddress(hash) {
 }
 
 function refsSyncAddress() {
-  if (!/^#\/references(\?|$)/.test(location.hash)) return;
+  if (!/^#\/references(\/|\?|$)/.test(location.hash)) return;
   const params = new window.URLSearchParams();
   if (refsState.query !== "") params.set("q", refsState.query);
   if (refsState.collection !== "") params.set("collection", refsState.collection);
@@ -639,6 +639,9 @@ function refsActiveCollection() {
 
 // Toast der Referenzen-Seite: unten mittig, 2600 ms sichtbar, Uebergang wie im
 // Vorbild (`#toast`). Anders als die Shell-Toasts (rechts oben in der Ecke).
+// Liegt ein modales Fenster offen, wandert der Toast hinein: die oberste Ebene
+// (`top layer`) deckt sonst alles ab, was am `<body>` haengt — genau wie im
+// Vorbild haengt `notify()` den Toast in den zuletzt geoeffneten Dialog.
 function refsToast(message) {
   for (const old of document.querySelectorAll(".refs-toast")) old.remove();
   const node = el("div", {
@@ -647,7 +650,8 @@ function refsToast(message) {
     "aria-live": "polite",
     text: message,
   });
-  document.body.append(node);
+  const open = document.querySelector("dialog[open]");
+  (open ?? document.body).append(node);
   window.requestAnimationFrame(() => node.classList.add("show"));
   setTimeout(() => {
     node.classList.remove("show");
@@ -660,7 +664,7 @@ function refsCopy(text, message) {
   const clipboard = window.navigator ? window.navigator.clipboard : undefined;
   if (clipboard && typeof clipboard.writeText === "function") {
     clipboard.writeText(text).then(
-      () => toast(message ?? "Brief kopiert"),
+      () => refsToast(message ?? "Brief kopiert"),
       () => refsCopyFallback(text),
     );
     return;
@@ -776,28 +780,6 @@ function refsEntryFor(reference) {
     vocabulary: reference.vocabulary ?? [],
     note: reference.note ?? null,
   };
-}
-
-function refsChip(word, onClick) {
-  return el("button", {
-    type: "button",
-    class: "refs-chip",
-    text: word,
-    onclick: onClick ?? (() => refsFilterByVocabulary(word)),
-  });
-}
-
-// Vokabular-Chips filtern die Liste (Adresse traegt den Suchbegriff).
-function refsFilterByVocabulary(word) {
-  refsState.query = word;
-  refsState.view = "";
-  if (refsDom && refsDom.searchInput) refsDom.searchInput.value = word;
-  if (location.hash.startsWith("#/references/")) {
-    location.hash = `#/references?q=${encodeURIComponent(word)}`;
-    return;
-  }
-  refsSyncAddress();
-  void refsRefresh();
 }
 
 function refsNavItem(input) {
@@ -2053,11 +2035,7 @@ function refsCardImage(reference) {
   );
 }
 
-function refsOpenDetail(referenceId) {
-  location.hash = `#/references/${referenceId}`;
-}
-
-// Aufklappbare Bausteine der Detailseite (Rezept, Historie, Evidenz, Profil).
+// Aufklappbare Bausteine der Detailspalte (Rezept, Historie, Evidenz, Profil).
 function refsFold(title, body, open) {
   const details = el("details", { class: "refs-fold" });
   if (open) details.open = true;
@@ -2350,72 +2328,374 @@ function refsProfileFolds(reference) {
   return folds;
 }
 
-function refsAssignPanel(reference, sites) {
+// Projekt-Zuordnung im Referenz-Fenster: die Projektliste kommt erst beim
+// Aufklappen (ein Abruf weniger beim Oeffnen).
+function refsAssignPanel(reference) {
+  const details = el("details", { class: "refs-fold" }, el("summary", { text: "Projekt zuordnen" }));
+  const body = el("div", { class: "refs-fold-body" });
+  details.append(body);
+  let loaded = false;
+  details.addEventListener("toggle", async () => {
+    if (!details.open || loaded) return;
+    loaded = true;
+    body.replaceChildren(el("p", { class: "muted", text: "Lädt…" }));
+    try {
+      const data = await api("/api/sites");
+      body.replaceChildren(refsAssignBody(reference, data.sites ?? []));
+    } catch (error) {
+      body.replaceChildren(el("p", { class: "muted", text: error.message }));
+    }
+  });
+  return details;
+}
+
+function refsAssignBody(reference, sites) {
   const scaleBoxes = ["color", "type", "motion", "rest"].map((scale) => {
     const box = el("input", { type: "checkbox", "data-scale": scale });
     box.checked = true;
     return el("label", { class: "inline" }, box, scale);
   });
-  const host =
-    sites.length === 0
-      ? el("p", { class: "muted", text: "Noch keine Projekte." })
-      : el(
+  return sites.length === 0
+    ? el("p", { class: "muted", text: "Noch keine Projekte." })
+    : el(
+        "div",
+        { class: "inline" },
+        el(
+          "select",
+          { "aria-label": "Projekt" },
+          ...sites.map((site) => el("option", { value: site.id, text: site.name })),
+        ),
+        ...scaleBoxes,
+        el("button", {
+          type: "button",
+          class: "refs-button primary",
+          text: "Zuordnen",
+          onclick: async (event) => {
+            const select = event.target.closest(".inline")?.querySelector("select");
+            const siteId = select ? select.value : "";
+            const scales = [...event.target.closest(".inline").querySelectorAll("[data-scale]")]
+              .filter((box) => box.checked)
+              .map((box) => box.dataset.scale);
+            if (scales.length === 0) {
+              refsToast("Mindestens eine Skala auswählen.");
+              return;
+            }
+            try {
+              await api(`/api/sites/${siteId}/references`, {
+                method: "POST",
+                body: { author: AUTHOR, referenceId: reference.id, scales },
+              });
+              refsToast("Referenz zugeordnet");
+            } catch (error) {
+              failed(error);
+            }
+          },
+        }),
+      );
+}
+
+/* Referenz-Fenster (Popup). Aufbau, Masse und Verhalten stammen aus dem Vorbild
+   `Repos/taste-vault` (MIT, Taste Vault von cth9191): `<dialog>` mit
+   `showModal()`, Kopfbereich mit Zaehler und Werkzeugen, zwei Spalten
+   (Bildbuehne + Detailspalte) und ein aufklappbares Bildrezept. Die Texte sind
+   deutsch. */
+
+const REFS_ZOOM_IN = "Zoom";
+const REFS_ZOOM_OUT = "Einpassen";
+
+let refsInspector = null;
+let refsInspectorIds = [];
+let refsInspectorId = null;
+let refsInspectorReturn = null;
+let refsInspectorToken = 0;
+
+// Ids der aktuellen Ansicht: genau die Karten, die gerade stehen. So zaehlt
+// „Referenz x von n" mit Suche, Sammlung und Sortierung mit.
+function refsInspectorList() {
+  if (refsDom && refsDom.root && refsDom.root.isConnected) {
+    const ids = [...refsDom.gallery.querySelectorAll(".refs-card")].map(
+      (card) => card.dataset.reference,
+    );
+    if (ids.length > 0) return ids;
+  }
+  return refsInspectorIds;
+}
+
+// Klick auf eine Karte (oder Enter): oeffnet das Fenster — ohne neuen
+// Verlaufseintrag und ohne Hash-Wechsel, wie im Vorbild.
+function refsOpenDetail(referenceId) {
+  void refsOpenInspector(referenceId);
+}
+
+function refsInspectorBuild() {
+  const label = el("span", { class: "refs-dialog-label", text: "Referenz" });
+  const previous = el("button", {
+    type: "button",
+    id: "refs-inspector-previous",
+    class: "refs-icon-button",
+    "aria-label": "Vorherige Referenz",
+    html: REFS_ICON_PREV,
+    onclick: () => refsInspectorStep(-1),
+  });
+  const next = el("button", {
+    type: "button",
+    id: "refs-inspector-next",
+    class: "refs-icon-button",
+    "aria-label": "Nächste Referenz",
+    html: REFS_ICON_NEXT,
+    onclick: () => refsInspectorStep(1),
+  });
+  const zoom = el("button", {
+    type: "button",
+    id: "refs-inspector-zoom",
+    class: "refs-button quiet",
+    "aria-pressed": "false",
+    text: REFS_ZOOM_IN,
+    onclick: () => refsInspectorSetZoom(!refsInspector.zoomed),
+  });
+  const close = el("button", {
+    type: "button",
+    id: "refs-inspector-close",
+    class: "refs-icon-button",
+    "aria-label": "Referenz schließen",
+    html: REFS_ICON_CLOSE,
+    onclick: () => refsInspector.dialog.close(),
+  });
+  const image = el("img", { id: "refs-inspector-image", class: "refs-inspector-image", alt: "" });
+  const placeholder = el("div", { class: "refs-card-placeholder" });
+  const stage = el("div", { id: "refs-inspector-stage", class: "refs-inspector-stage" }, image);
+  const panel = el("section", { id: "refs-inspector-panel", class: "refs-inspector-panel" });
+  const dialog = el(
+    "dialog",
+    {
+      id: "refs-inspector",
+      class: "refs-dialog refs-inspector",
+      role: "dialog",
+      "aria-modal": "true",
+      "aria-label": "Referenz-Detail",
+    },
+    el(
+      "div",
+      { class: "refs-inspector-head" },
+      label,
+      el("div", { class: "refs-dialog-tools" }, previous, next, zoom, close),
+    ),
+    el("div", { class: "refs-inspector-layout" }, stage, panel),
+  );
+
+  // Klick auf den Hintergrund schliesst, ein Klick im Fenster (auch im
+  // Kopfbereich) nicht — dieselbe Regel wie bei den uebrigen Dialogen.
+  refsBindBackdropClose(dialog);
+  dialog.addEventListener("close", () => {
+    document.documentElement.style.overflow = "";
+    refsInspector.zoomed = false;
+    refsInspectorId = null;
+    const back = refsInspectorReturn;
+    refsInspectorReturn = null;
+    if (back && back.isConnected) back.focus();
+  });
+  // Pfeiltasten blaettern (kein Feld fokussiert) — wie im Vorbild.
+  dialog.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    if (/INPUT|TEXTAREA|SELECT/.test(event.target.tagName ?? "")) return;
+    event.preventDefault();
+    refsInspectorStep(event.key === "ArrowRight" ? 1 : -1);
+  });
+  document.body.append(dialog);
+  return {
+    dialog,
+    label,
+    previous,
+    next,
+    zoom,
+    close,
+    stage,
+    image,
+    placeholder,
+    panel,
+    zoomed: false,
+  };
+}
+
+// Zoom vergroessert das Bild auf Originalmasse; die Buehne scrollt dann intern.
+function refsInspectorSetZoom(on) {
+  const dom = refsInspector;
+  if (!dom) return;
+  dom.zoomed = Boolean(on);
+  dom.stage.classList.toggle("zoomed", dom.zoomed);
+  dom.zoom.textContent = dom.zoomed ? REFS_ZOOM_OUT : REFS_ZOOM_IN;
+  dom.zoom.setAttribute("aria-pressed", dom.zoomed ? "true" : "false");
+}
+
+// Blaettern innerhalb der aktuellen Ansicht (Knoepfe und Pfeiltasten).
+function refsInspectorStep(delta) {
+  const ids = refsInspectorList();
+  const position = ids.indexOf(refsInspectorId);
+  if (position < 0) return;
+  const target = ids[position + delta];
+  if (target) void refsInspectorShow(target);
+}
+
+// Nachbearbeitung: alles, was das Vorbild nicht kennt und unsere Daten
+// mitbringen (Provenienz, Breakpoint-Aufnahmen, Bibliotheksfelder, Revisionen,
+// Evidenz, Profil, Projekt-Zuordnung, Loeschen). Es steht unterhalb der
+// Vorbild-Abschnitte, zugeklappt, und aendert deren Masse nicht.
+function refsInspectorExtras(reference) {
+  const referenceId = reference.id;
+  const nameEdit = el("input", { class: "refs-input", type: "text", maxlength: "120" });
+  nameEdit.value = reference.name;
+  const collectionEdit = refsInspectorCollectionSelect(reference);
+  const noteEdit = el("textarea", { class: "refs-input", rows: "3", maxlength: "1000" });
+  noteEdit.value = reference.note ?? "";
+  const vocabularyEdit = el("input", { class: "refs-input", type: "text" });
+  vocabularyEdit.value = (reference.vocabulary ?? []).join(", ");
+  const recipeEdit = el("textarea", { class: "refs-input", rows: "3", maxlength: "2000" });
+  recipeEdit.value = reference.imageRecipe ?? "";
+  const extras = [
+    refsProvenanceFold(reference),
+    refsFold(
+      "Bearbeiten",
+      el(
+        "div",
+        {},
+        el("label", { class: "refs-field-label", text: "Name" }),
+        nameEdit,
+        el("label", { class: "refs-field-label", text: "Sammlung" }),
+        collectionEdit,
+        el("label", { class: "refs-field-label", text: "Notiz" }),
+        noteEdit,
+        el("label", { class: "refs-field-label", text: "Vokabular (Komma-getrennt)" }),
+        vocabularyEdit,
+        el("label", { class: "refs-field-label", text: "Bildrezept" }),
+        recipeEdit,
+        el(
           "div",
-          { class: "inline" },
-          el(
-            "select",
-            { "aria-label": "Projekt" },
-            ...sites.map((site) => el("option", { value: site.id, text: site.name })),
-          ),
-          ...scaleBoxes,
+          { class: "refs-row-actions" },
           el("button", {
             type: "button",
             class: "refs-button primary",
-            text: "Zuordnen",
-            onclick: async (event) => {
-              const select = event.target.closest(".inline")?.querySelector("select");
-              const siteId = select ? select.value : "";
-              const scales = [...event.target.closest(".inline").querySelectorAll("[data-scale]")]
-                .filter((box) => box.checked)
-                .map((box) => box.dataset.scale);
-              if (scales.length === 0) {
-                toast("Mindestens eine Skala auswählen.", "error");
-                return;
-              }
+            text: "Speichern",
+            onclick: async () => {
+              const name = nameEdit.value.trim();
               try {
-                await api(`/api/sites/${siteId}/references`, {
-                  method: "POST",
-                  body: { author: AUTHOR, referenceId: reference.id, scales },
+                await api(`/api/references/${referenceId}`, {
+                  method: "PATCH",
+                  body: {
+                    ...(name === "" ? {} : { name }),
+                    collectionId: collectionEdit.value === "" ? null : collectionEdit.value,
+                    note: noteEdit.value.trim(),
+                    vocabulary: refsSplit(vocabularyEdit.value),
+                    imageRecipe: recipeEdit.value.trim(),
+                  },
                 });
-                toast("Referenz zugeordnet");
+                refsToast("Referenz gespeichert");
+                await refsInspectorShow(referenceId);
               } catch (error) {
                 failed(error);
               }
             },
           }),
-        );
-  return refsFold("Projekt zuordnen", host);
+        ),
+      ),
+    ),
+    refsRevisionsFold(referenceId),
+    refsEvidenceFold(reference),
+  ];
+  const shots = (reference.snapshots ?? []).filter((shot) => shot.previewPath);
+  if (shots.length > 1) {
+    extras.push(
+      refsFold(
+        `Aufnahmen (${shots.length})`,
+        el(
+          "div",
+          {},
+          refsSnapshotStage(reference, shots),
+          el("p", {
+            class: "snapshot-meta",
+            text: "Breakpoint-Vergleich. Pfeiltasten oder Klick wechseln das Bild.",
+          }),
+        ),
+      ),
+    );
+  }
+  // `refsProfileFolds` beginnt mit der Provenienz (schon oben gezeigt).
+  extras.push(...refsProfileFolds(reference).slice(1));
+  extras.push(
+    refsAssignPanel(reference),
+    el(
+      "div",
+      { class: "refs-row-actions" },
+      el("button", {
+        type: "button",
+        class: "refs-button danger",
+        text: "Referenz löschen",
+        onclick: () => void deleteReference(reference),
+      }),
+    ),
+  );
+  return el("div", { class: "refs-inspector-extras" }, ...extras);
 }
 
-async function referenceDetailView(referenceId) {
-  activeTab("references");
-  refsApplyAddress();
+function refsInspectorCollectionSelect(reference) {
+  const select = el("select", { class: "refs-input", "aria-label": "Sammlung" });
+  select.append(el("option", { value: "", text: "Ohne Sammlung" }));
+  for (const item of refsCollections.filter((entry) => entry.kind === "collection")) {
+    select.append(el("option", { value: item.id, text: item.name }));
+  }
+  select.value = reference.collectionId ?? "";
+  return select;
+}
+
+// Inhalte des Fensters aus den echten Daten: Sammlung, Titel, Familie, Notiz,
+// Vokabular, Komposition, Bildrezept und die zwei Brief-Kopierer.
+async function refsInspectorShow(referenceId) {
+  const dom = refsInspector;
+  if (!dom) return;
+  const token = (refsInspectorToken += 1);
   let reference;
   try {
     reference = await api(`/api/references/${referenceId}`);
   } catch (error) {
     failed(error);
-    render([el("div", { class: "empty", text: "Referenz nicht gefunden." })]);
     return;
   }
-  const [listData, briefData, sitesData] = await Promise.all([
-    api(`/api/references?sort=${refsState.sort}`).catch(() => ({ references: [] })),
-    api(`/api/references/${referenceId}/brief`).catch(() => null),
-    api("/api/sites").catch(() => ({ sites: [] })),
-  ]);
-  const sites = sitesData.sites ?? [];
-  refsDetailIds = (listData.references ?? []).map((entry) => entry.id);
-  const position = refsDetailIds.indexOf(referenceId);
+  const brief = await api(`/api/references/${referenceId}/brief`).catch(() => null);
+  if (token !== refsInspectorToken) return;
+  refsInspectorId = referenceId;
+
+  const ids = refsInspectorList();
+  const position = ids.indexOf(referenceId);
+  dom.label.textContent =
+    position >= 0 ? `Referenz ${position + 1} von ${ids.length}` : "Referenz";
+  dom.previous.disabled = position <= 0;
+  dom.next.disabled = position < 0 || position >= ids.length - 1;
+
+  // Jede Referenz startet wieder in der Einpass-Ansicht (wie im Vorbild).
+  refsInspectorSetZoom(false);
+
+  const shot =
+    (reference.snapshots ?? []).find((entry) => entry.previewPath) ??
+    (reference.snapshots ?? [])[0] ??
+    null;
+  if (shot) {
+    dom.placeholder.remove();
+    dom.image.hidden = false;
+    dom.image.alt = reference.name;
+    refsImageSource(snapshotImageURL(reference.id, shot)).then(
+      (src) => {
+        if (refsInspectorId === referenceId) dom.image.src = src;
+      },
+      () => {
+        if (refsInspectorId === referenceId) dom.image.removeAttribute("src");
+      },
+    );
+  } else {
+    dom.image.removeAttribute("src");
+    dom.image.hidden = true;
+    dom.image.alt = "";
+    dom.placeholder.textContent = initials(reference.name || "R");
+    if (!dom.placeholder.isConnected) dom.stage.append(dom.placeholder);
+  }
 
   const profile = reference.profile;
   const collection = reference.collection;
@@ -2428,68 +2708,57 @@ async function referenceDetailView(referenceId) {
   const heroUsage = reference.heroUsage ?? "Nutze die Referenz für Komposition und Hierarchie.";
   const recipe = reference.imageRecipe ?? collection?.imageStyle ?? null;
   const vocabulary =
-    reference.vocabulary.length > 0 ? reference.vocabulary : (collection?.vocabulary ?? []);
+    (reference.vocabulary ?? []).length > 0
+      ? reference.vocabulary
+      : (collection?.vocabulary ?? []);
   const selected = refsIsSelected(reference.id);
 
-  const stage = el("div", { class: "refs-stage" });
-  const snapshotImages = reference.snapshots.filter((shot) => shot.previewPath);
-  if (snapshotImages.length > 0) {
-    stage.append(refsSnapshotStage(reference, snapshotImages));
-    stage.append(
-      el("p", {
-        class: "snapshot-meta",
-        text: "Breakpoint-Vergleich. Pfeiltasten oder Klick wechseln das Bild.",
-      }),
-    );
-  } else {
-    stage.append(
-      el("div", { class: "refs-card-placeholder", text: initials(reference.name || "R") }),
-    );
-  }
+  const copyPrompt = el("button", {
+    type: "button",
+    class: "refs-button refs-copy-prompt",
+    text: "Bild-Prompt kopieren",
+    onclick: () => {
+      if (!brief?.imagePrompt) return;
+      refsCopy(brief.imagePrompt, "Bild-Prompt kopiert");
+    },
+  });
+  copyPrompt.disabled = !brief?.imagePrompt;
 
-  const zoomButton = el("button", { type: "button", class: "refs-button quiet", text: "Zoom" });
-  zoomButton.addEventListener("click", () => {
-    const zoomed = stage.classList.toggle("zoomed");
-    zoomButton.textContent = zoomed ? "Bild einpassen" : "Zoom";
+  const copyBrief = el("button", {
+    type: "button",
+    class: "refs-button primary refs-copy-brief",
+    text: "Design-Brief kopieren",
+    onclick: () => refsCopy(brief?.brief?.text ?? "", "Brief kopiert"),
   });
 
-  const imagePromptButton = () => {
-    const button = el("button", {
-      type: "button",
-      class: "refs-button",
-      text: "Bild-Prompt kopieren",
-      onclick: () => {
-        if (briefData?.imagePrompt) refsCopy(briefData.imagePrompt, "Bild-Prompt kopiert");
-        else toast("Kein Bildrezept gespeichert.", "error");
-      },
-    });
-    button.disabled = !briefData?.imagePrompt;
-    return button;
-  };
+  const select = el("button", {
+    type: "button",
+    class: `refs-button refs-detail-select${selected ? " quiet" : ""}`,
+    "aria-pressed": selected ? "true" : "false",
+    text: selected ? "Aus dem Vergleich nehmen" : "Zum Vergleich wählen",
+    onclick: () => {
+      refsToggleSelection(refsEntryFor(reference));
+      const on = refsIsSelected(reference.id);
+      select.classList.toggle("quiet", on);
+      select.setAttribute("aria-pressed", on ? "true" : "false");
+      select.textContent = on ? "Aus dem Vergleich nehmen" : "Zum Vergleich wählen";
+    },
+  });
 
   const recipeDetails = el(
     "details",
     { class: "refs-recipe" },
-    el("summary", {}, "Bildrezept", el("span", { "aria-hidden": "true", html: REFS_ICON_PLUS_BUTTON })),
+    el(
+      "summary",
+      {},
+      "Bildrezept ",
+      el("span", { "aria-hidden": "true", html: REFS_ICON_PLUS_BUTTON }),
+    ),
     el("p", { text: recipe ?? "Kein Bildrezept gespeichert." }),
-    imagePromptButton(),
+    copyPrompt,
   );
 
-  const selectButton = el("button", {
-    type: "button",
-    class: selected ? "refs-button quiet" : "refs-button",
-    text: selected ? "Aus Vergleich entfernen" : "Zum Vergleich",
-  });
-  selectButton.addEventListener("click", () => {
-    refsToggleSelection(refsEntryFor(reference));
-    selectButton.textContent = refsIsSelected(reference.id)
-      ? "Aus Vergleich entfernen"
-      : "Zum Vergleich";
-  });
-
-  const brief = el(
-    "section",
-    { class: "refs-brief" },
+  dom.panel.replaceChildren(
     el("div", { class: "refs-eyebrow", text: collection ? collection.name : "Ohne Sammlung" }),
     el("h2", { text: reference.name }),
     el("p", { class: "refs-brief-family", text: family ?? "Ohne Familie" }),
@@ -2503,183 +2772,58 @@ async function referenceDetailView(referenceId) {
       "div",
       { class: "refs-detail-section" },
       el("h3", { text: "Design-Vokabular" }),
-      el("div", { class: "refs-tags" }, vocabulary.map((word) => refsChip(word))),
+      el(
+        "div",
+        { class: "refs-tags" },
+        vocabulary.length === 0
+          ? el("span", { text: "Kein Vokabular erfasst." })
+          : vocabulary.map((word) => el("span", { text: word })),
+      ),
     ),
     el(
       "div",
       { class: "refs-detail-section" },
-      el("h3", { text: "Aufbau & Platzierung" }),
+      el("h3", { text: "Komposition & Platzierung" }),
       el("p", { text: heroUsage }),
     ),
     recipeDetails,
     el(
       "div",
       { class: "refs-detail-actions" },
-      el("button", {
-        type: "button",
-        class: "refs-button primary",
-        text: "Design-Brief kopieren",
-        onclick: () => refsCopy(briefData?.brief?.text ?? "", "Brief kopiert"),
+      copyBrief,
+      select,
+      el("p", {
+        class: "refs-preference-status",
+        text: brief?.brief?.status ?? "Referenz-Brief.",
       }),
-      imagePromptButton(),
-      selectButton,
     ),
-    el("p", {
-      class: "refs-preference-status",
-      text: briefData?.brief?.status ?? "Referenz-Brief.",
-    }),
+    refsInspectorExtras(reference),
   );
-
-  // Bearbeiten: Name, Sammlung, Notiz, Vokabular, Rezept (PATCH /api/references/:id).
-  const nameEdit = el("input", { class: "refs-input", type: "text", maxlength: "120" });
-  nameEdit.value = reference.name;
-  const collectionEdit = el("select", {});
-  collectionEdit.append(el("option", { value: "", text: "Ohne Sammlung" }));
-  for (const item of refsCollections.filter((entry) => entry.kind === "collection")) {
-    collectionEdit.append(el("option", { value: item.id, text: item.name }));
-  }
-  collectionEdit.value = reference.collectionId ?? "";
-  const noteEdit = el("textarea", { class: "refs-input", rows: "3", maxlength: "1000" });
-  noteEdit.value = reference.note ?? "";
-  const vocabularyEdit = el("input", { class: "refs-input", type: "text" });
-  vocabularyEdit.value = vocabulary.join(", ");
-  const recipeEdit = el("textarea", { class: "refs-input", rows: "3", maxlength: "2000" });
-  recipeEdit.value = reference.imageRecipe ?? "";
-  const editFold = refsFold(
-    "Bearbeiten",
-    el(
-      "div",
-      {},
-      el("label", { class: "refs-field-label", text: "Name" }),
-      nameEdit,
-      el("label", { class: "refs-field-label", text: "Sammlung" }),
-      collectionEdit,
-      el("label", { class: "refs-field-label", text: "Notiz" }),
-      noteEdit,
-      el("label", { class: "refs-field-label", text: "Vokabular (Komma-getrennt)" }),
-      vocabularyEdit,
-      el("label", { class: "refs-field-label", text: "Bildrezept" }),
-      recipeEdit,
-      el(
-        "div",
-        { class: "refs-row-actions" },
-        el("button", {
-          type: "button",
-          class: "refs-button primary",
-          text: "Speichern",
-          onclick: async () => {
-            const name = nameEdit.value.trim();
-            try {
-              await api(`/api/references/${referenceId}`, {
-                method: "PATCH",
-                body: {
-                  ...(name === "" ? {} : { name }),
-                  collectionId: collectionEdit.value === "" ? null : collectionEdit.value,
-                  note: noteEdit.value.trim(),
-                  vocabulary: refsSplit(vocabularyEdit.value),
-                  imageRecipe: recipeEdit.value.trim(),
-                },
-              });
-              toast("Referenz gespeichert");
-              await referenceDetailView(referenceId);
-            } catch (error) {
-              failed(error);
-            }
-          },
-        }),
-      ),
-    ),
-  );
-
-  const prevButton = el("button", {
-    type: "button",
-    class: "refs-icon-button",
-    "aria-label": "Vorherige Referenz",
-    html: REFS_ICON_PREV,
-    onclick: () => refsNavigate(-1),
-  });
-  const nextButton = el("button", {
-    type: "button",
-    class: "refs-icon-button",
-    "aria-label": "Nächste Referenz",
-    html: REFS_ICON_NEXT,
-    onclick: () => refsNavigate(1),
-  });
-  prevButton.disabled = position <= 0;
-  nextButton.disabled = position < 0 || position >= refsDetailIds.length - 1;
-
-  render([
-    el(
-      "div",
-      { class: "refs-detail-head" },
-      el("button", {
-        type: "button",
-        class: "refs-button quiet",
-        onclick: () => (location.hash = "#/references"),
-      }, el("span", { "aria-hidden": "true", html: REFS_ICON_BACK }), "Referenzen"),
-      el("span", {
-        class: "refs-dialog-label",
-        text: position >= 0 ? `Referenz ${position + 1} von ${refsDetailIds.length}` : "Referenz",
-      }),
-      el(
-        "div",
-        { class: "refs-actions" },
-        prevButton,
-        nextButton,
-        zoomButton,
-        el("span", { class: "tag", text: reference.status }),
-        el("button", {
-          type: "button",
-          class: "refs-button danger",
-          text: "Löschen",
-          onclick: () => deleteReference(reference),
-        }),
-      ),
-    ),
-    el("div", { class: "refs-detail" }, stage, brief),
-    editFold,
-    refsRevisionsFold(referenceId),
-    refsEvidenceFold(reference),
-    ...refsProfileFolds(reference),
-    refsAssignPanel(reference, sites),
-  ]);
 }
 
-function refsNavigate(delta) {
-  const match = location.hash.match(/^#\/references\/([^/?]+)/);
-  if (!match) return;
-  const position = refsDetailIds.indexOf(match[1]);
-  if (position < 0) return;
-  const target = refsDetailIds[position + delta];
-  if (target) location.hash = `#/references/${target}`;
+// Fenster oeffnen bzw. fuellen. `options.replace` schreibt die Adresse zurueck
+// auf die Bibliothek, wenn der Aufruf von einem Deep-Link kommt.
+async function refsOpenInspector(referenceId, options = {}) {
+  if (!refsInspector) refsInspector = refsInspectorBuild();
+  const dom = refsInspector;
+  if (options.list) refsInspectorIds = options.list;
+  if (!dom.dialog.open) {
+    const active = document.activeElement;
+    refsInspectorReturn = active && active.classList.contains("refs-card-art") ? active : null;
+    // Seiten-Scroll bleibt gesperrt, solange das Fenster offen ist.
+    document.documentElement.style.overflow = "hidden";
+    dom.dialog.showModal();
+    await refsInspectorShow(referenceId);
+    // Startfokus auf den Weiter-Knopf (wie im Vorbild).
+    dom.next.focus();
+    dom.stage.scrollTop = 0;
+    dom.stage.scrollLeft = 0;
+    dom.panel.scrollTop = 0;
+  } else {
+    await refsInspectorShow(referenceId);
+  }
+  if (options.replace) refsSyncAddress();
 }
-
-// Tastatur: `/` fokussiert die Suche, Pfeiltasten blättern in der Detailseite.
-document.addEventListener("keydown", (event) => {
-  const editing = /INPUT|TEXTAREA|SELECT/.test(event.target.tagName ?? "");
-  const dialogOpen = document.querySelector("dialog[open]") !== null;
-  if (
-    event.key === "/" &&
-    !editing &&
-    !dialogOpen &&
-    refsDom &&
-    refsDom.searchInput &&
-    refsDom.root.isConnected
-  ) {
-    event.preventDefault();
-    refsDom.searchInput.focus();
-    return;
-  }
-  if (editing || dialogOpen || !refsRouteActive) return;
-  if (!/^#\/references\/[^/?]+/.test(location.hash)) return;
-  if (event.key === "ArrowLeft") {
-    event.preventDefault();
-    refsNavigate(-1);
-  } else if (event.key === "ArrowRight") {
-    event.preventDefault();
-    refsNavigate(1);
-  }
-});
 
 /* Vorlieben und Haus-DNA im Einstellungen-Tab (T12/T14). */
 function refsSettingsSection(settings) {
@@ -4297,6 +4441,10 @@ async function renderRoute() {
   const isReferences = route === "#/references" || referenceMatch !== null;
   view.classList.toggle("refs-view", isReferences);
   refsRouteActive = isReferences;
+  // Verlaesst die Route die Referenzen, schliesst das offene Fenster mit.
+  if (!isReferences && refsInspector && refsInspector.dialog.open) {
+    refsInspector.dialog.close();
+  }
   try {
     const project = route.match(/^#\/projects\/([^/]+)\/(pages|articles|templates|submissions|review|activity|settings)$/);
     const pageMatch = route.match(/^#\/projects\/([^/]+)\/pages\/([^/]+)$/);
@@ -4317,7 +4465,11 @@ async function renderRoute() {
     } else if (route === "#/references") {
       await referencesView();
     } else if (referenceMatch) {
-      await referenceDetailView(referenceMatch[1]);
+      // Deep-Link auf eine Referenz: die Bibliothek steht, die Detailansicht
+      // liegt als Fenster darueber. Die Adresse faellt danach auf die
+      // Bibliothek zurueck, damit „Zurueck" das Fenster nicht schliesst.
+      await referencesView();
+      await refsOpenInspector(referenceMatch[1], { replace: true });
     } else if (route === "#/trash") {
       activeTab("projects");
       await trashView();

@@ -138,22 +138,39 @@ describe.skipIf(!browserAvailable)("reference library in the program (T14)", () 
       expect(await tab.locator(".refs-add-url").isVisible()).toBe(true);
       await tab.locator(".refs-add-dialog .refs-icon-button").click();
 
-      // Detailseite: Brief-Spalte, Vokabular-Chips und die zwei Kopier-Aktionen.
+      // Detailfenster: Brief-Spalte, Vokabular-Chips und die zwei Kopier-Aktionen.
+      // Es oeffnet sich als Fenster ueber der Liste, ohne die Adresse zu wechseln.
       await tab.locator(".refs-card-art").first().click();
-      await expect.poll(async () => tab.url()).toContain("#/references/");
-      await tab.waitForSelector(".refs-detail");
-      expect(await tab.locator(".refs-brief").textContent()).toContain("Die Idee zum Mitnehmen");
-      expect(await tab.locator(".refs-brief").textContent()).toContain("Aufbau & Platzierung");
-      expect(await tab.locator('.refs-button:has-text("Design-Brief kopieren")').count()).toBe(1);
-      expect(await tab.locator('.refs-detail-actions .refs-button:has-text("Vergleich")').count()).toBe(1);
+      await tab.waitForSelector(".refs-inspector[open]");
+      expect(await tab.url()).not.toContain("#/references/");
+      const panel = tab.locator("#refs-inspector-panel");
+      await tab.waitForSelector("#refs-inspector-panel .refs-detail-section");
+      const panelText = (await panel.textContent()) ?? "";
+      expect(panelText).toContain("Die Idee zum Mitnehmen");
+      expect(panelText).toContain("Komposition & Platzierung");
+      expect(panelText).toContain("Design-Vokabular");
+      await expect.poll(async () => tab.locator(".refs-copy-brief").count()).toBe(1);
+      await expect.poll(async () => tab.locator(".refs-detail-select").count()).toBe(1);
+      expect(await tab.locator(".refs-copy-brief").textContent()).toContain("Design-Brief kopieren");
+      expect(await tab.locator(".refs-detail-select").textContent()).toContain("Vergleich");
+
+      // Blaettern mit der Pfeiltaste, danach schliesst Escape das Fenster.
+      const firstLabel = await tab.locator(".refs-inspector-head").textContent();
+      await tab.keyboard.press("ArrowRight");
+      await expect.poll(async () => tab.locator(".refs-inspector-head").textContent()).not.toBe(firstLabel);
+      await tab.keyboard.press("Escape");
+      await expect.poll(async () => tab.locator(".refs-inspector[open]").count()).toBe(0);
 
       // Ohne Zwischenablage oeffnet der Fallback den Dialog mit dem Brieftext.
+      await tab.locator(".refs-card-art").first().click();
+      await tab.waitForSelector(".refs-inspector[open]");
       await tab.locator('.refs-button:has-text("Design-Brief kopieren")').click();
       await tab.waitForSelector(".refs-copy-dialog");
       expect(await tab.locator(".refs-copy-dialog textarea").inputValue()).toContain(
         "Reference: ",
       );
       await tab.locator(".refs-copy-dialog .refs-icon-button").click();
+      await tab.keyboard.press("Escape");
 
       // Der Zustand ueberlebt das Neuladen.
       await tab.goto(`${running.dashboardUrl}/#/references?q=sakura&sort=name`, {

@@ -640,7 +640,10 @@ dialog.modal select,
   padding: 0;
 }
 
-.refs-shell {
+/* Die Referenzen-Flaeche und alle ihre Dialoge teilen sich Farb- und
+   Schriftvariablen: die Dialoge haengen am Body, nicht in der Flaeche. */
+.refs-shell,
+.refs-dialog {
   --refs-ink: #292333;
   --refs-ground: #f6f5f9;
   --refs-muted: #716a7e;
@@ -650,12 +653,15 @@ dialog.modal select,
   --refs-display: "Bahnschrift", "Arial Narrow", "Segoe UI", sans-serif;
   /* Die Grundschrift des Vorbilds: auf Windows Segoe UI Variable. */
   font-family: "Segoe UI Variable", "Segoe UI", Arial, sans-serif;
+  color: var(--refs-ink);
+}
+
+.refs-shell {
   /* Hoehe der App-Kopfzeile; wird beim Aufbau gemessen (siehe refsBuildShell). */
   --refs-top: 3.25rem;
   --refs-rail: 219px;
   min-height: calc(100vh - var(--refs-top));
   background: var(--refs-ground);
-  color: var(--refs-ink);
 }
 
 .refs-skip-link {
@@ -1263,6 +1269,36 @@ dialog.modal select,
   cursor: not-allowed;
 }
 
+/* Die Dialoge liegen ausserhalb der Flaeche, dort greift die App-Regel
+   `button.primary` und wuerde Groesse, Radius und Schrift der Knoepfe
+   ueberschreiben. Hier stehen die Maße des Vorbilds verbindlich. */
+.refs-shell .refs-button,
+.refs-dialog .refs-button {
+  border-radius: 7px;
+  padding: 8px 13px;
+  min-height: 37px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 1.4;
+}
+
+.refs-shell .refs-button.primary,
+.refs-dialog .refs-button.primary {
+  padding: 8px 15px;
+  background: var(--refs-accent);
+  border-color: var(--refs-accent);
+  color: #fff;
+  box-shadow: 0 3px 8px #6346d718;
+}
+
+.refs-shell .refs-button.quiet,
+.refs-dialog .refs-button.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: #626875;
+}
+
 .refs-icon-button {
   height: 34px;
   min-width: 34px;
@@ -1440,65 +1476,87 @@ dialog.modal select,
   line-height: 1.7;
 }
 
-/* ---------------------------------------------------------- detail page */
+/* ------------------------------------------------- Referenz-Fenster (Popup)
+   Aufbau, Masse und Verhalten aus `Repos/taste-vault/styles.css` (MIT, Taste
+   Vault von cth9191): Dialog mit 13px Radius, Kopfbereich 14px 19px, zwei
+   Spalten `minmax(0, 1fr) 345px`, Bildbuehne `#e9ecf1` mit 24px Innenabstand,
+   Detailspalte 27px 24px. */
 
-.refs-detail-head {
+.refs-inspector {
+  width: 1460px;
+}
+
+.refs-inspector-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 14px;
-  flex-wrap: wrap;
-  margin-bottom: 18px;
+  padding: 14px 19px;
+  border-bottom: 1px solid var(--refs-line);
+  background: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 3;
 }
 
-.refs-detail-head h1 {
-  font-family: var(--refs-display);
-  font-size: 34px;
-  letter-spacing: -1.2px;
-  margin: 0;
-}
-
-.refs-detail {
+.refs-inspector-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 345px;
-  border: 1px solid var(--refs-line);
-  border-radius: 13px;
-  overflow: hidden;
-  background: #fff;
+  max-height: calc(94dvh - 65px);
 }
 
-.refs-stage {
+.refs-inspector-stage {
   background: #e9ecf1;
-  padding: 24px;
   overflow: auto;
+  padding: 24px;
+  display: grid;
+  align-items: start;
+  justify-items: center;
   min-height: 200px;
 }
 
-.refs-stage .snapshot-image {
+.refs-inspector-stage img {
   width: 100%;
-  max-height: 70vh;
+  height: auto;
+  max-height: calc(94dvh - 113px);
   object-fit: contain;
-  object-position: top center;
-  background: #fff;
+  object-position: 50% 0%;
+  box-shadow: 0 4px 20px #18203715;
 }
 
-.refs-stage.zoomed .snapshot-image {
-  max-width: none;
+.refs-inspector-stage.zoomed {
+  display: block;
+}
+
+.refs-inspector-stage.zoomed img {
   width: auto;
+  max-width: none;
+  max-height: none;
+  box-shadow: none;
 }
 
-.refs-brief {
+.refs-inspector-panel {
   padding: 27px 24px;
-  border-left: 1px solid var(--refs-line);
   overflow: auto;
+  border-left: 1px solid var(--refs-line);
+  min-width: 0;
 }
 
-.refs-brief h2 {
+.refs-inspector-panel h2 {
   font-family: var(--refs-display);
   font-size: 30px;
   font-weight: 600;
   letter-spacing: -1px;
   line-height: 1.15;
   margin: 0;
+}
+
+/* Zusatz unserer Daten (Provenienz, Bibliotheksfelder, Revisionen, Evidenz,
+   Profil, Zuordnung): zugeklappt unterhalb der Vorbild-Abschnitte. */
+.refs-inspector-extras {
+  margin-top: 25px;
+  border-top: 1px solid var(--refs-line);
+  padding-top: 16px;
 }
 
 .refs-brief-family {
@@ -1984,12 +2042,20 @@ dialog.modal select,
     max-width: calc(100vw - 30px);
   }
 
-  .refs-detail {
+  .refs-inspector-layout {
     grid-template-columns: minmax(0, 1fr) 295px;
   }
 
-  .refs-brief {
+  .refs-inspector-panel {
     padding: 23px 19px;
+  }
+
+  .refs-inspector-stage {
+    padding: 16px;
+  }
+
+  .refs-inspector-stage img {
+    max-height: calc(94dvh - 95px);
   }
 }
 
@@ -2133,13 +2199,53 @@ dialog.modal select,
     display: none;
   }
 
-  .refs-detail {
-    grid-template-columns: minmax(0, 1fr);
+  /* Einspaltig: Bildbuehne oben (55dvh), Detailspalte darunter mit oberer
+     Trennlinie und kleineren Knoepfen; die Flaeche ist hier heller. */
+  .refs-inspector {
+    max-height: 95dvh;
   }
 
-  .refs-brief {
+  .refs-inspector-head {
+    padding: 10px 13px;
+  }
+
+  .refs-dialog-tools {
+    gap: 0;
+  }
+
+  .refs-dialog-label {
+    font-size: 10px;
+  }
+
+  .refs-dialog-tools .refs-button {
+    font-size: 10px;
+    padding: 5px 8px;
+  }
+
+  .refs-inspector-layout {
+    display: block;
+    max-height: none;
+    background: #f9fafc;
+  }
+
+  .refs-inspector-stage {
+    max-height: 55dvh;
+    padding: 12px;
+  }
+
+  .refs-inspector-stage img {
+    max-height: 50dvh;
+  }
+
+  .refs-inspector-stage.zoomed img {
+    max-height: none;
+  }
+
+  .refs-inspector-panel {
     border-left: 0;
     border-top: 1px solid var(--refs-line);
+    overflow: visible;
+    background: #f9fafc;
   }
 
   .refs-compare-grid {
@@ -2163,10 +2269,25 @@ dialog.modal select,
   }
 }
 
-/* Ganz schmal: die Miniaturen der Vergleichsleiste entfallen (wie im Vorbild). */
+/* Ganz schmal: die Miniaturen der Vergleichsleiste entfallen, und die
+   App-Kopfzeile wird weiter verkleinert (wie im Vorbild). */
 @media (max-width: 380px) {
   .refs-tray-thumbs {
     display: none;
+  }
+
+  .topbar {
+    gap: 0.6rem;
+    padding-inline: 0.75rem;
+  }
+
+  .brand {
+    font-size: 0.95rem;
+  }
+
+  .cmd-button {
+    font-size: 0.78rem;
+    padding-inline: 0.5rem;
   }
 }
 
@@ -2249,7 +2370,11 @@ dialog.modal select,
 .refs-sidebar-add:focus-visible,
 .refs-mobile-nav select:focus-visible,
 .refs-sort select:focus-visible,
-.refs-tags button:focus-visible {
+.refs-tags button:focus-visible,
+.refs-inspector summary:focus-visible,
+.refs-inspector input:focus-visible,
+.refs-inspector select:focus-visible,
+.refs-inspector textarea:focus-visible {
   outline: 3px solid #8f73eb;
   outline-offset: 4px;
 }
@@ -2294,7 +2419,12 @@ dialog.modal select,
 @media (prefers-reduced-motion: reduce) {
   .refs-shell *,
   .refs-shell *::before,
-  .refs-shell *::after {
+  .refs-shell *::after,
+  .refs-toast,
+  .refs-inspector,
+  .refs-inspector *,
+  .refs-inspector *::before,
+  .refs-inspector *::after {
     animation: none !important;
     transition: none !important;
     scroll-behavior: auto !important;
