@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** umgesetzt (`pnpm verify` grün; Monorepo mit zwölf Paketen, Core-Bausteine, Engine-Gerüst, Compose-Datei; die zwei Fidelity-Tests laufen jetzt gegen echtes Postgres, Startbefehl unten)
 
 - [ ] Monorepo baut, Typecheck + Lint + Tests laufen grün (ein Befehl)
 - [ ] Schema-System validiert eine SectionDefinition inkl. Props, Varianten, Slots und Golden-Beispiel (TypeBox als Single Source)

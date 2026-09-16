@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 (Site & Pages + Mutations), 06 (MCP-Kern & Agent-Setup), 08 (Media — media-Felder).
 
-**Status:** Engine + MCP umgesetzt (`pnpm verify` grün, 273 Tests) — die Content-Workspace-UI folgt mit T12
+**Status:** umgesetzt (`pnpm verify` grün; Engine, MCP und Content-Workspace im Programm, der Content-Teil ist mit T12 in die Programm-Shell integriert)
 
 - [x] Collections anlegen/ändern (additiv, Deprecation statt Löschen); Felder mit `description` (agentenlesbar); Kategorien=Collection+Relation und Tags=multiSelect funktionieren als Muster
 - [x] Entry-Workflow vollständig inkl. scheduled (Job-Tick `POST /api/entries/tick`, Fehler → zurück auf draft); Versionen entstehen nur bei Publish (Retention 50); Restore kopiert in den Draft
