@@ -844,6 +844,9 @@ type Route = {
   public?: boolean;
   scope?: TokenScope;
   destructive?: boolean;
+  // Ausgelieferte Dateien (Bilder einer Referenz) laufen nicht in die
+  // Drosselung: eine Uebersicht laedt leicht mehr als 60 Bilder je Minute.
+  rateLimit?: boolean;
   // Health and the restore itself stay reachable during a maintenance window;
   // the restore acquires the gate from its handler.
   maintenanceExempt?: boolean;
@@ -888,7 +891,9 @@ async function authenticate(
       suggestion: `Create a token with the "${required}" scope: senify tokens create --name "<client>" --scopes ${suggested}`,
     });
   }
-  context.rateLimiter.check(record.id, route.destructive === true);
+  if (route.rateLimit !== false) {
+    context.rateLimiter.check(record.id, route.destructive === true);
+  }
   await context.store.touchToken(record.id);
   return { tokenId: record.id, tokenName: record.name, scopes: record.scopes };
 }
@@ -2857,6 +2862,7 @@ const ROUTES: Route[] = [
     method: "GET",
     segments: ["api", "references", ":referenceId", "snapshots", ":filename"],
     scope: "read",
+    rateLimit: false,
     handler: async (context, params) => {
       const reference = await context.store.getReference(
         requireParam(params, "referenceId"),
