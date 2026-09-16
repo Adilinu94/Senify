@@ -22,7 +22,7 @@ async function runCli(args: string[]): Promise<string[]> {
 describe("senify CLI skeleton", () => {
   it("exposes the skeleton commands", () => {
     const program = createProgram();
-    expect(commandNames(program)).toEqual(["start", "setup", "mcp", "tokens"]);
+    expect(commandNames(program)).toEqual(["start", "startup", "shortcut", "setup", "mcp", "tokens"]);
   });
 
   it("nests the mcp and tokens commands", () => {
@@ -35,6 +35,18 @@ describe("senify CLI skeleton", () => {
       "list",
       "revoke",
     ]);
+  });
+});
+
+describe("senify system integration CLI", () => {
+  it("reports the status of launcher, startup entry and shortcut", async () => {
+    const logs = await runCli(["startup", "--status"]);
+    const output = logs.join("\n");
+    expect(output).toContain("Launcher:");
+    expect(output).toContain("System-Start:");
+    expect(output).toContain("Verknüpfung:");
+    const layout = await runCli(["shortcut", "--status"]);
+    expect(layout.join("\n")).toContain("Verknüpfung:");
   });
 });
 

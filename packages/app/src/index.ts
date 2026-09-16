@@ -1,5 +1,18 @@
 export { openBrowser } from "./browser.ts";
 export {
+  createShortcut,
+  disableStartup,
+  enableStartup,
+  removeShortcut,
+  repoRoot,
+  startupContext,
+  startupPlan,
+  startupStatus,
+  type StartupContext,
+  type StartupPlan,
+  type StartupStatus,
+} from "./startup.ts";
+export {
   createAppServer,
   type AppServer,
   type AppServerOptions,

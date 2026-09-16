@@ -2727,6 +2727,54 @@ function linesToList(value) {
     .filter(Boolean);
 }
 
+// One backup row: the restore runs through POST /api/backups/:id/restore
+// (destructive) and needs an explicit second click; the engine writes a
+// safety backup of the replaced state before it touches anything.
+function backupRow(backup) {
+  const cancel = el("button", { class: "ghost", text: "Abbrechen", hidden: true });
+  const button = el("button", { class: "ghost", text: "Wiederherstellen" });
+  cancel.addEventListener("click", () => {
+    button.dataset.stage = "";
+    button.textContent = "Wiederherstellen";
+    button.disabled = false;
+    cancel.hidden = true;
+  });
+  button.addEventListener("click", async () => {
+    if (button.dataset.stage !== "confirm") {
+      button.dataset.stage = "confirm";
+      button.textContent = "Wirklich wiederherstellen?";
+      cancel.hidden = false;
+      return;
+    }
+    button.disabled = true;
+    button.textContent = "Stelle wieder her …";
+    try {
+      const result = await api(`/api/backups/${encodeURIComponent(backup.id)}/restore`, {
+        method: "POST",
+        body: { confirm: true },
+      });
+      toast(`Wiederhergestellt — Schutznetz: ${result.safetyBackup}`);
+      await renderRoute();
+    } catch (error) {
+      failed(error);
+      button.disabled = false;
+      button.textContent = "Wiederherstellen";
+      button.dataset.stage = "";
+      cancel.hidden = true;
+    }
+  });
+  return el(
+    "tr",
+    {},
+    el("td", { text: formatDate(backup.createdAt) }),
+    el("td", { text: formatBytes(backup.bytes) }),
+    el("td", {
+      text: `${backup.fileCount} Dateien · ${Object.keys(backup.tables).length} Tabellen`,
+    }),
+    el("td", {}, el("span", { class: "inline" }, button, cancel)),
+  );
+}
+
 async function settingsView() {
   const { tokens } = await api("/api/tokens");
   const settings = await api("/api/settings");
@@ -2970,13 +3018,39 @@ async function settingsView() {
         }),
       ),
       el(
+        "div",
+        { class: "backup-list" },
+        (backups.backups ?? []).length === 0
+          ? el("p", {
+              class: "muted",
+              text: "Noch keine Sicherung vorhanden — oben eine erstellen.",
+            })
+          : el(
+              "table",
+              {},
+              el(
+                "thead",
+                {},
+                el(
+                  "tr",
+                  {},
+                  el("th", { text: "Zeitpunkt" }),
+                  el("th", { text: "Größe" }),
+                  el("th", { text: "Inhalt" }),
+                  el("th", {}),
+                ),
+              ),
+              el("tbody", {}, ...(backups.backups ?? []).map((backup) => backupRow(backup))),
+            ),
+      ),
+      el("p", {
+        class: "muted",
+        text: "Die Wiederherstellung ersetzt Tabellen und Dateien durch die Sicherung; der bisherige Stand wird vorher automatisch als Schutznetz gesichert. Währenddessen nicht im Programm arbeiten.",
+      }),
+      el(
         "details",
         {},
-        el("summary", { text: "Restore-Anleitung" }),
-        el("p", {
-          class: "muted",
-          text: "Die Wiederherstellung ist ein manueller Schritt: die Engine schreibt nie automatisch zurück.",
-        }),
+        el("summary", { text: "Manuelle Wiederherstellung (ohne laufende Engine)" }),
         el(
           "ol",
           {},

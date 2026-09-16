@@ -4,6 +4,14 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { startProgram } from "@senify/app";
+import {
+  createShortcut,
+  disableStartup,
+  enableStartup,
+  removeShortcut,
+  startupContext,
+  startupStatus,
+} from "@senify/app";
 import { SenifyError } from "@senify/core";
 import { skillReferenceFiles } from "@senify/docs-portal";
 import { skillFiles } from "@senify/skills";
@@ -137,6 +145,52 @@ export function createProgram(): Command {
       };
       process.once("SIGINT", shutdown);
       process.once("SIGTERM", shutdown);
+    });
+
+  program
+    .command("startup")
+    .description("System-Start: Eintrag im Windows-Autostartordner anlegen, entfernen oder zeigen")
+    .option("--remove", "Eintrag entfernen")
+    .option("--status", "nur anzeigen")
+    .action(async (options) => {
+      const context = startupContext();
+      if (options.status === true) {
+        const status = startupStatus(context);
+        console.log(`Launcher:    ${status.launcher ? "vorhanden" : "fehlt"} · ${status.paths.launcher}`);
+        console.log(`System-Start: ${status.startupEntry ? "aktiv" : "inaktiv"} · ${status.paths.startupEntry}`);
+        console.log(`Verknüpfung: ${status.shortcut ? "vorhanden" : "fehlt"} · ${status.paths.shortcut}`);
+        return;
+      }
+      if (options.remove === true) {
+        const { removed } = disableStartup(context);
+        console.log(
+          removed.length === 0 ? "Nichts zu entfernen." : `Entfernt: ${removed.join(", ")}`,
+        );
+        return;
+      }
+      const { entry } = enableStartup(context);
+      console.log(`System-Start aktiv — Eintrag: ${entry}`);
+    });
+
+  program
+    .command("shortcut")
+    .description("Desktop-Verknüpfung anlegen, entfernen oder zeigen")
+    .option("--remove", "Verknüpfung entfernen")
+    .option("--status", "nur anzeigen")
+    .action(async (options) => {
+      const context = startupContext();
+      if (options.status === true) {
+        const status = startupStatus(context);
+        console.log(`Verknüpfung: ${status.shortcut ? "vorhanden" : "fehlt"} · ${status.paths.shortcut}`);
+        return;
+      }
+      if (options.remove === true) {
+        const { removed } = removeShortcut(context);
+        console.log(removed ? "Verknüpfung entfernt." : "Keine Verknüpfung gefunden.");
+        return;
+      }
+      const { shortcut } = createShortcut(context);
+      console.log(`Verknüpfung angelegt: ${shortcut}`);
     });
 
   program
