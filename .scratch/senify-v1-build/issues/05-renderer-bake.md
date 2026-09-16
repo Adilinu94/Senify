@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 (Site & Pages + Mutations), 03 (Section-Library), 04 (Theme & Tokens).
 
-**Status:** implemented (verify grün, Review/Fixes ausstehend)
+**Status:** umgesetzt (voller `pnpm verify` grün; Bake mit Bindings, Listen, Formular-Token, Vorschau-Pfad und Re-Bake)
 
 - [x] Fixture-Release (Golden-Sektionen + Theme) baut als statische Site; Produktions-Bake enthält keine Draft-Daten
 - [x] Semantisches HTML (Section-Tags, Heading-Hierarchie) + `node.motion`-Konfiguration wird deterministisch in Page-Script-/CSS-Output übersetzt (A–C-Presets)

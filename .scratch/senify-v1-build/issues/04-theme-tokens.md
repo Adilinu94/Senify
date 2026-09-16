@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 (Section-Library).
 
-**Status:** implemented (verify grün, Review/Fixes ausstehend)
+**Status:** umgesetzt (voller `pnpm verify` grün; Theme und Tokens speisen Bake, Editor-Panels und die Ableitung aus Referenzen)
 
 - [x] Theme-JSON (primitives/semantic/modes/fonts/motion) ist Gesamtquelle; Build erzeugt CSS-Variablen und Tailwind-Mapping 1:1
 - [x] Skalen-Engine generiert Farbskalen/fluide Typo/Spacing-Stufen aus wenigen Eingaben; Overrides gewinnen einzeln

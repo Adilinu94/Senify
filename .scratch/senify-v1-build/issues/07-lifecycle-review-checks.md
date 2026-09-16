@@ -4,7 +4,7 @@
 
 **Blocked by:** 05 (Renderer & Bake), 06 (MCP-Kern & Agent-Setup).
 
-**Status:** implemented (`pnpm verify` grün, 204 Tests + 2 skipped); Screenshot-/Motion-Video-Diffs bewusst offen (Playwright, siehe Comments)
+**Status:** umgesetzt (voller `pnpm verify` grün; Story-Screenshot-Diffs sind mit dem installierten Playwright/Chromium jetzt möglich, Motion-Video-Diffs bleiben offen)
 
 - [x] Flow „Mutationen → Preview → Submit → Approve → Release → Bake" funktioniert komplett; Preview-URL signiert + TTL-Cleanup („Swap" = aktives Release; Deploy-Adapter folgt mit T14)
 - [x] Rollback erzeugt ein neues Release aus altem Zustand (`basisReleaseId`); Restore einer Revision erzeugt einen neuen Draft (nichts wird überschrieben)

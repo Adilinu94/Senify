@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 (Projekt-Fundament).
 
-**Status:** implemented (verify grün, Review/Fixes ausstehend)
+**Status:** umgesetzt (voller `pnpm verify` grün; Sites, Seiten und der Mutations-Vertrag tragen Editor, MCP und Shell)
 
 - [x] Site + Page anlegen/laden/löschen; NodeTree flach (rootNodeId + nodes-Map) in Postgres/JSONB persistiert
 - [x] Alle kanonischen Mutations funktionieren einzeln und validiert; ungültige Verstöße (Registry-Nesting, falsche Prop-Typen) liefern strukturierte Fehler mit Feld + Vorschlag

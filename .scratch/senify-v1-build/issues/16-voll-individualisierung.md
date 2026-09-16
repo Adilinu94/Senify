@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 (Section-Library), 04 (Theme & Tokens), 05 (Renderer & Bake).
 
-**Status:** implemented (`pnpm verify` grün, 164 Tests + 2 skipped)
+**Status:** umgesetzt (voller `pnpm verify` grün; Individualisierung über Theme, Vorlagen und Referenz-Profile in allen Oberflächen verfügbar)
 
 - [x] section-sdk: Control `scale` (Token-Ref oder freier Wert), `tokenGroup` und `part` an PropSpec; Validierung unverändert (flache Keys)
 - [x] Alle 25 Sektionen deklarieren das Standard-Set; passende Innenteile (card/button/heading/media/link); Layout-Regler je Sektionsgruppe

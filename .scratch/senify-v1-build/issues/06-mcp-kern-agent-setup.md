@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 (Projekt-Fundament), 02 (Site & Pages + Mutations).
 
-**Status:** implemented (`pnpm verify` grün, 187 Tests + 2 skipped; zusätzlich E2E-Smoke über `senify mcp serve` als Subprozess)
+**Status:** umgesetzt (voller `pnpm verify` grün; MCP-Kern mit Tokens, Scopes und Audit, dazu die Werkzeuge der Referenz-Bibliothek aus T14 und der E2E-Smoke über `senify mcp serve` als Subprozess)
 
 - [x] MCP-Client (stdio) verbindet; Tool-Katalog ist korrekt deklariert; Scope-Verstöße liefern agentenlesbare Fehler mit Token-Anlage-Hinweis
 - [x] `apply_mutations`: Batch atomar all-or-nothing; `dry_run` validiert ohne Schreiben; Konflikt → 409 mit Neu-Laden-Anweisung; Warnings kommen als `warnings[]`

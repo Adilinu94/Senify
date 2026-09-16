@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 (Projekt-Fundament).
 
-**Status:** implemented (verify grün, Review/Fixes ausstehend)
+**Status:** umgesetzt (voller `pnpm verify` grün; Sektionen, Varianten und Golden-Beispiele werden von Editor, Bake und Referenz-Abgleich genutzt)
 
 - [x] Alle 25 Sektionen sind registriert, TypeBox-validiert und über die Registry-API abrufbar (Typ, Titel, Kurzbeschreibung)
 - [x] Jede Sektion hat 2–3 Varianten mit Preset-Probs und mindestens ein Golden-Beispiel-JSON, das ohne Fehler durch die Validierung läuft
