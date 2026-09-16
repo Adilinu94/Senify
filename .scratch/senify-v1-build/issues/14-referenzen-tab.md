@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 (Theme & Tokens — Theme-Ableitung), 07 (Lifecycle, Review & Checks — QA-Adhärenz weich), 12 (Programm-Shell — Tab).
 
-**Status:** ready-for-agent
+**Status:** umgesetzt (`pnpm verify` grün; Analyse-Pipeline mit echter Live-Aufnahme (Playwright/Chromium) und Snapshot-Fallback, Theme-Ableitung, MCP-Workflow, Referenzen-Tab mit Karten, Detailansicht, Snapshot-Bildern und Breakpoint-Slider, Projekt-Zuordnung mit Round-Trip) — offen: Motion-Videos, sobald die Pipeline solche Artefakte erzeugt
 
 - [ ] URL → Analyse-Job → Profil mit Status analyzing/ready/failed; Fortschritt sichtbar; Ergebnis ist sofort in Projekten nutzbar
 - [ ] Token-Extraktion frequenz-gerankt mit Belegstellen (uses + where); Typo/Spacing/Radii/Shadows/Breakpoints je Breakpoint; `:root`-Vokabular der Referenz als Mapping-Hinweis erkannt

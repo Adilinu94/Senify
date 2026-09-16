@@ -4,7 +4,7 @@
 
 **Blocked by:** 05 (Renderer & Bake — Section-SDK), 08 (Media — Medien-Fenster), 10 (Templates — Vorlagen-Tab), 12 (Programm-Shell — Arbeitsbereich).
 
-**Status:** ready-for-agent
+**Status:** umgesetzt (`pnpm verify` grün, 88 Editor-Tests; Editor-Kern als eigenes Paket mit Puck-kompatiblem Adapter, Panels, Frames, Inline-Text, Explorer/Spotlight/Deep-Links, Undo/Redo, von der Programm-Shell über `@senify/editor/browser` eingebunden) — offen: Puck-Runtime im Browser und Sichtprüfung
 
 - [ ] Design-Modus: 3 Breakpoint-Frames nebeneinander, alle editierbar; Änderungen in einem Frame wirken in allen (Overrides korrekt); Zoom/Pan funktioniert
 - [ ] Live-Modus: ein Frame in echter Größe, scrollbar, voll editierbar; Umschalter Design ⇄ Live erhält den Zustand

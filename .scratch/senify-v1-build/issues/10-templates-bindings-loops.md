@@ -4,7 +4,7 @@
 
 **Blocked by:** 05 (Renderer & Bake), 09 (Content-Kern).
 
-**Status:** ready-for-agent
+**Status:** umgesetzt (`pnpm verify` grün; Vorlagen ohne eigene Route, Bindings und Loops, `?seite=N`-Variante, Preview-Endpoint und Re-Bake-Pfade, Blog-Bake-Tests) — offen: Live-Vorschau unveröffentlichter Entwürfe über einen eigenen Draft-Pfad
 
 - [ ] Blog-Fixture läuft: Layout + Sammelseite mit `collection-list` + Detailseite über Entry-Template; Blättern `?seite=N` ohne JS; leere Liste/Out-of-range sauber
 - [ ] Bindings füllen Props und Text-Mix korrekt; Typ-Mismatch und unbekannte Felder sind Validierungsfehler; Markdown-Body ist XSS-sicher

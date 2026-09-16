@@ -4,7 +4,7 @@
 
 **Blocked by:** 09 (Content-Kern), 10 (Templates, Bindings & Loops — Seitenverweise/Checks).
 
-**Status:** ready-for-agent
+**Status:** umgesetzt (`pnpm verify` grün; Formular-Snapshot mit HMAC-Token im Bake, öffentlicher Submit-Endpoint mit Honeypot/Mindestzeit/Origin/Rate-Limit/Feld-Whitelist, Einsendung als Entry, Benachrichtigungs-Outbox mit Retry, Newsletter-Double-Opt-In, CSV-Export) — offen: Ansicht der Einsendungen und Job-Retry im Programm
 
 - [ ] Formular-Sektion konfigurieren → „Sammlung anlegen" erzeugt Collection samt Feldern; Felder validieren (Pflicht, Muster, Options)
 - [ ] Bake stempelt Token; Absenden funktioniert mit und ohne JavaScript über denselben Endpoint (kein Logik-Drift)
