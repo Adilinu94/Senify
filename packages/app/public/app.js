@@ -449,7 +449,7 @@ snapshotForm.addEventListener("submit", async (event) => {
   snapshotDialog.close();
   if (submitter?.value !== "ok") return;
   if (!url || html.trim() === "") {
-    toast("URL und HTML werden benötigt.", "error");
+    refsToast("URL und HTML werden benötigt.");
     return;
   }
   try {
@@ -457,7 +457,7 @@ snapshotForm.addEventListener("submit", async (event) => {
       method: "POST",
       body: { url, author: AUTHOR, wait: true, snapshot: { html } },
     });
-    toast("Referenz aus Quelltext analysiert (reduziertes Profil)");
+    refsToast("Referenz aus Quelltext analysiert (reduziertes Profil)");
     location.hash = `#/references/${result.reference.id}`;
   } catch (error) {
     failed(error);
@@ -475,7 +475,7 @@ async function deleteReference(reference) {
     await api(`/api/references/${reference.id}${used > 0 ? "?force=1" : ""}`, {
       method: "DELETE",
     });
-    toast("Referenz gelöscht");
+    refsToast("Referenz gelöscht");
     // The deleted detail is gone: fall back to the library list.
     if (location.hash.startsWith("#/references/")) location.hash = "#/references";
     else await renderRoute();
@@ -637,6 +637,24 @@ function refsActiveCollection() {
   return refsCollections.find((entry) => entry.id === refsState.collection) ?? null;
 }
 
+// Toast der Referenzen-Seite: unten mittig, 2600 ms sichtbar, Uebergang wie im
+// Vorbild (`#toast`). Anders als die Shell-Toasts (rechts oben in der Ecke).
+function refsToast(message) {
+  for (const old of document.querySelectorAll(".refs-toast")) old.remove();
+  const node = el("div", {
+    class: "refs-toast",
+    role: "status",
+    "aria-live": "polite",
+    text: message,
+  });
+  document.body.append(node);
+  window.requestAnimationFrame(() => node.classList.add("show"));
+  setTimeout(() => {
+    node.classList.remove("show");
+    setTimeout(() => node.remove(), 200);
+  }, 2600);
+}
+
 // Brief kopieren: Clipboard wenn verfuegbar, sonst Dialog zum Markieren.
 function refsCopy(text, message) {
   const clipboard = window.navigator ? window.navigator.clipboard : undefined;
@@ -717,7 +735,7 @@ function refsToggleSelection(entry) {
   } else if (refsState.selected.length < REFS_MAX_COMPARE) {
     refsState.selected.push(entry);
   } else {
-    toast("Drei ausgewählt. Entferne eine, um eine andere hinzuzufügen.", "error");
+    refsToast("Drei ausgewählt. Entferne eine, um eine andere hinzuzufügen.");
     return;
   }
   // Die Auswahl ist reine Ansichtssache: nur die Knöpfe und die Leiste
@@ -1117,7 +1135,7 @@ function refsOpenCollectionForm(collection) {
                   body,
                 })
               : await api("/api/reference-collections", { method: "POST", body });
-            toast(editing ? "Sammlung gespeichert" : "Sammlung angelegt");
+            refsToast(editing ? "Sammlung gespeichert" : "Sammlung angelegt");
             dialog.close();
             refsState.collection = result.collection.id;
             refsState.view = "";
@@ -1165,7 +1183,7 @@ async function refsDeleteCollection(collection) {
     const result = await api(`/api/reference-collections/${collection.id}`, {
       method: "DELETE",
     });
-    toast(
+    refsToast(
       result.affectedReferences > 0
         ? `Sammlung gelöscht, ${result.affectedReferences} Referenz(en) ohne Sammlung`
         : "Sammlung gelöscht",
@@ -1290,7 +1308,7 @@ function refsOpenAddDialog() {
               author: AUTHOR,
             },
           });
-          toast("Referenz gespeichert");
+          refsToast("Referenz gespeichert");
           dialog.close();
           refsState.collection = result.reference.collectionId ?? "";
           refsState.view = "";
@@ -1370,12 +1388,11 @@ function refsOpenAddDialog() {
           const result = await api("/api/references", { method: "POST", body });
           const reference = result.reference;
           if (reference.status === "failed") {
-            toast(
+            refsToast(
               `Analyse fehlgeschlagen: ${reference.failureReason ?? "unbekannt"} — nutze „Aus Quelltext“ als Fallback.`,
-              "error",
             );
           } else {
-            toast("Referenz analysiert");
+            refsToast("Referenz analysiert");
           }
           dialog.close();
           location.hash = `#/references/${reference.id}`;
@@ -1575,11 +1592,30 @@ function refsBuildShell() {
     el("span", { "aria-hidden": "true", html: REFS_ICON_LINK }),
   );
   aboutButton.hidden = true;
+  // Die Seitenaktionen sitzen im Kopf (rechter Platz der Ueberschrift), weil
+  // unsere App-Kopfzeile die Navigation traegt. Der Hauptbereich beginnt so
+  // genau wie im Vorbild unter der Kopfzeile.
+  const addButton = el(
+    "button",
+    {
+      type: "button",
+      class: "refs-button primary",
+      onclick: () => refsOpenAddDialog(),
+    },
+    el("span", { "aria-hidden": "true", html: REFS_ICON_PLUS_BUTTON }),
+    " Referenz hinzufügen",
+  );
+  const headingActions = el(
+    "div",
+    { class: "refs-heading-actions" },
+    aboutButton,
+    addButton,
+  );
   const heading = el(
     "section",
     { class: "refs-heading" },
     el("div", {}, el("h1", {}, titleText, countEl), description),
-    aboutButton,
+    headingActions,
   );
 
   const searchInput = el("input", {
@@ -1666,28 +1702,8 @@ function refsBuildShell() {
 
   const main = el(
     "div",
-    { class: "refs-main" },
+    { class: "refs-main", id: "refs-main", tabindex: "-1" },
     mobileNav,
-    el(
-      "div",
-      { class: "refs-topbar" },
-      el("span", { class: "refs-topbar-label", text: "Referenz-Bibliothek" }),
-      el(
-        "div",
-        { class: "refs-actions" },
-        el("button", {
-          type: "button",
-          class: "refs-button quiet",
-          text: "Einstellungen",
-          onclick: () => (location.hash = "#/settings"),
-        }),
-        el("button", {
-          type: "button",
-          class: "refs-button primary",
-          onclick: () => refsOpenAddDialog(),
-        }, el("span", { "aria-hidden": "true", html: REFS_ICON_PLUS_BUTTON }), " Referenz hinzufügen"),
-      ),
-    ),
     heading,
     toolbar,
     progress,
@@ -1697,9 +1713,33 @@ function refsBuildShell() {
     footer,
   );
 
-  const root = el("div", { class: "refs-shell" }, sidebar, main);
+  // Skip-Link: der erste Fokus der Seite springt zum Hauptinhalt.
+  const skipLink = el(
+    "a",
+    {
+      class: "refs-skip-link",
+      href: "#refs-main",
+      onclick: (event) => {
+        event.preventDefault();
+        main.focus();
+      },
+    },
+    "Zum Hauptinhalt springen",
+  );
+
+  const root = el("div", { class: "refs-shell" }, skipLink, sidebar, main);
+  // Die App-Kopfzeile steht sticky ueber der Seite; die Leiste beginnt genau
+  // darunter. Statt die Hoehe zu schaetzen, messen wir sie.
+  const header = document.querySelector(".topbar");
+  if (header) {
+    root.style.setProperty(
+      "--refs-top",
+      `${Math.round(header.getBoundingClientRect().height)}px`,
+    );
+  }
   refsDom = {
     root,
+    main,
     mobileSelect,
     libraryNav,
     collectionNav,
@@ -1900,7 +1940,7 @@ function refsStyleMatches(collection, query) {
 }
 
 function refsFooterText(count, noun, query) {
-  return `${count} ${noun}${query === "" ? " in Ansicht" : ` passend zu “${query}”`}`;
+  return `${count} ${noun}${query === "" ? " in Sicht" : ` passend zu “${query}”`}`;
 }
 
 function refsSetView(view) {
@@ -1920,7 +1960,7 @@ function refsSetCollection(collectionId) {
 async function refsSeedStyles() {
   try {
     const result = await api("/api/reference-collections/styles", { method: "POST" });
-    toast(`${result.seed?.created ?? 0} Stilfamilien eingespielt`);
+    refsToast(`${result.seed?.created ?? 0} Stilfamilien eingespielt`);
     await refsRefresh();
   } catch (error) {
     failed(error);
@@ -4230,6 +4270,20 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
     void openCmdk();
   }
+});
+
+// Tastenkuerzel `/` setzt den Fokus ins Suchfeld (wie im Vorbild): nur auf der
+// Referenzen-Seite und nur, wenn kein Dialog offen und kein Feld fokussiert ist.
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "/" || event.defaultPrevented) return;
+  if (!refsRouteActive) return;
+  if (document.querySelector("dialog[open]")) return;
+  const active = document.activeElement;
+  if (active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName)) return;
+  const input = document.querySelector(".refs-search input");
+  if (!input) return;
+  event.preventDefault();
+  input.focus();
 });
 
 /* Router */

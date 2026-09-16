@@ -648,13 +648,31 @@ dialog.modal select,
   --refs-accent: #6346d7;
   --refs-surface: #fff;
   --refs-display: "Bahnschrift", "Arial Narrow", "Segoe UI", sans-serif;
+  /* Die Grundschrift des Vorbilds: auf Windows Segoe UI Variable. */
+  font-family: "Segoe UI Variable", "Segoe UI", Arial, sans-serif;
+  /* Hoehe der App-Kopfzeile; wird beim Aufbau gemessen (siehe refsBuildShell). */
   --refs-top: 3.25rem;
-  display: grid;
-  grid-template-columns: 219px minmax(0, 1fr);
-  align-items: start;
+  --refs-rail: 219px;
   min-height: calc(100vh - var(--refs-top));
   background: var(--refs-ground);
   color: var(--refs-ink);
+}
+
+.refs-skip-link {
+  position: fixed;
+  top: -60px;
+  left: 0;
+  z-index: 100;
+  background: #fff;
+  color: var(--refs-ink);
+  padding: 12px;
+  border-radius: 0 0 8px 0;
+}
+
+.refs-skip-link:focus {
+  top: 10px;
+  outline: 3px solid #8f73eb;
+  outline-offset: 4px;
 }
 
 .refs-shell [hidden] {
@@ -664,10 +682,11 @@ dialog.modal select,
 /* --------------------------------------------------------------- left rail */
 
 .refs-sidebar {
-  position: sticky;
+  position: fixed;
+  left: 0;
   top: var(--refs-top);
-  align-self: start;
-  max-height: calc(100vh - var(--refs-top));
+  bottom: 0;
+  width: var(--refs-rail);
   overflow: auto;
   border-right: 1px solid var(--refs-line);
   background: var(--refs-surface);
@@ -722,6 +741,7 @@ dialog.modal select,
   min-height: 37px;
   font: inherit;
   font-size: 12px;
+  line-height: 17px;
   color: #676d78;
   cursor: pointer;
 }
@@ -791,32 +811,19 @@ dialog.modal select,
 /* ------------------------------------------------------------ main column */
 
 .refs-main {
+  margin-left: var(--refs-rail);
   min-width: 0;
   padding: 37px 36px 115px;
   max-width: 2200px;
+  outline: none;
 }
 
-.refs-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  margin-bottom: 30px;
-}
-
-.refs-topbar-label {
-  font-family: var(--refs-display);
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.2px;
-  color: #4c4560;
-}
-
-.refs-actions {
+.refs-heading-actions {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .refs-heading {
@@ -837,7 +844,9 @@ dialog.modal select,
   font-size: 56px;
   line-height: 1.06;
   font-weight: 600;
+  font-stretch: semi-condensed;
   letter-spacing: -2.3px;
+  text-wrap: balance;
   margin: 0;
 }
 
@@ -1142,7 +1151,7 @@ dialog.modal select,
 .refs-card-meta p {
   font-size: 11px;
   color: #797181;
-  margin-top: 5px;
+  margin: 5px 0 0;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1571,6 +1580,30 @@ dialog.modal select,
   display: none;
 }
 
+/* Toast unten mittig: Flaeche, Innenabstand, Radius und Uebergang wie im
+   Vorbild (`#toast`), 2600 ms sichtbar (siehe refsToast). */
+.refs-toast {
+  position: fixed;
+  bottom: 94px;
+  left: 50%;
+  transform: translate(-50%, 12px);
+  opacity: 0;
+  pointer-events: none;
+  background: #252b39;
+  color: #fff;
+  padding: 11px 18px;
+  border-radius: 8px;
+  font-size: 12px;
+  z-index: 1000;
+  transition: opacity 0.15s, transform 0.15s;
+  max-width: 90vw;
+}
+
+.refs-toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
 .refs-tray-thumbs {
   display: flex;
   gap: 5px;
@@ -1887,7 +1920,8 @@ dialog.modal select,
   font-weight: 600;
 }
 
-/* -------------------------------------------------------- breakpoints */
+/* -------------------------------------------------------- breakpoints
+   Vier Umbruchpunkte wie im Vorbild: 1750 / 1190 / 1000 / 650 (plus 380). */
 
 @media (min-width: 1750px) {
   .refs-gallery,
@@ -1901,13 +1935,13 @@ dialog.modal select,
 }
 
 @media (max-width: 1190px) {
+  .refs-shell {
+    --refs-rail: 200px;
+  }
+
   .refs-gallery,
   .refs-style-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .refs-shell {
-    grid-template-columns: 200px minmax(0, 1fr);
   }
 
   .refs-sidebar {
@@ -1926,7 +1960,7 @@ dialog.modal select,
 
 @media (max-width: 1000px) {
   .refs-shell {
-    grid-template-columns: minmax(0, 1fr);
+    --refs-rail: 0px;
   }
 
   .refs-sidebar {
@@ -1935,6 +1969,14 @@ dialog.modal select,
 
   .refs-main {
     padding: 22px 25px 110px;
+  }
+
+  .refs-heading {
+    margin-bottom: 22px;
+  }
+
+  .refs-heading p {
+    max-width: 530px;
   }
 
   .refs-compare-tray {
@@ -1951,7 +1993,146 @@ dialog.modal select,
   }
 }
 
-@media (max-width: 700px) {
+@media (max-width: 650px) {
+  .refs-main {
+    padding: 20px 17px 125px;
+  }
+
+  .refs-mobile-nav {
+    margin-bottom: 20px;
+  }
+
+  .refs-heading {
+    align-items: flex-start;
+  }
+
+  .refs-heading h1 {
+    font-size: 37px;
+    letter-spacing: -1.5px;
+  }
+
+  .refs-count {
+    font-size: 10px;
+    margin: 4px 0 0 8px;
+    padding: 4px 7px;
+  }
+
+  .refs-heading p {
+    font-size: 11px;
+  }
+
+  .refs-heading-actions .refs-button {
+    font-size: 10px;
+    white-space: normal;
+    max-width: 85px;
+    padding: 4px;
+  }
+
+  .refs-toolbar {
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+
+  .refs-sort {
+    font-size: 0;
+    gap: 0;
+  }
+
+  .refs-sort select {
+    font-size: 11px;
+    max-width: 100px;
+  }
+
+  .refs-search {
+    height: 38px;
+    padding: 0 9px;
+  }
+
+  .refs-search input {
+    font-size: 11px;
+  }
+
+  .refs-search kbd {
+    display: none;
+  }
+
+  .refs-gallery,
+  .refs-style-grid {
+    gap: 22px 12px;
+  }
+
+  .refs-card-art {
+    border-radius: 6px;
+    aspect-ratio: 1.23;
+  }
+
+  .refs-card-meta {
+    padding-top: 9px;
+  }
+
+  .refs-card-meta h2 {
+    font-size: 12px;
+  }
+
+  .refs-card-meta p {
+    font-size: 10px;
+  }
+
+  .refs-card-arrow {
+    display: none;
+  }
+
+  .refs-select {
+    opacity: 1;
+    width: 23px;
+    height: 23px;
+    top: 7px;
+    left: 7px;
+  }
+
+  .refs-hint {
+    font-size: 10px;
+  }
+
+  .refs-page-footer {
+    font-size: 9px;
+    line-height: 1.6;
+  }
+
+  .refs-page-footer > span:last-child {
+    text-align: right;
+    max-width: 160px;
+  }
+
+  .refs-compare-tray {
+    gap: 8px;
+    padding: 8px;
+    bottom: 14px;
+    border-radius: 9px;
+  }
+
+  .refs-tray-thumbs {
+    gap: 3px;
+  }
+
+  .refs-tray-thumbs img {
+    width: 26px;
+    height: 30px;
+  }
+
+  .refs-compare-tray > span {
+    font-size: 10px;
+  }
+
+  .refs-compare-tray .refs-button {
+    font-size: 10px;
+    padding: 7px 8px;
+  }
+
+  .refs-compare-tray .refs-button > span {
+    display: none;
+  }
+
   .refs-detail {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1959,11 +2140,6 @@ dialog.modal select,
   .refs-brief {
     border-left: 0;
     border-top: 1px solid var(--refs-line);
-  }
-
-  .refs-heading h1 {
-    font-size: 37px;
-    letter-spacing: -1.5px;
   }
 
   .refs-compare-grid {
@@ -1987,6 +2163,13 @@ dialog.modal select,
   }
 }
 
+/* Ganz schmal: die Miniaturen der Vergleichsleiste entfallen (wie im Vorbild). */
+@media (max-width: 380px) {
+  .refs-tray-thumbs {
+    display: none;
+  }
+}
+
 /* ---------------------------------------------------------- Feinschliff */
 
 /* Mobil: die linke Leiste ist ausgeblendet, hier waehlt man die Ansicht. */
@@ -1994,7 +2177,7 @@ dialog.modal select,
   display: none;
   align-items: center;
   gap: 9px;
-  margin-bottom: 22px;
+  margin-bottom: 25px;
   font-size: 11px;
   color: #797181;
 }
@@ -2056,7 +2239,8 @@ dialog.modal select,
   vertical-align: -1px;
 }
 
-/* Sichtbarer Fokus fuer Tastaturbedienung. */
+/* Sichtbarer Fokus fuer Tastaturbedienung (3px Ring, 4px Abstand wie im
+   Vorbild). */
 .refs-nav-item:focus-visible,
 .refs-button:focus-visible,
 .refs-icon-button:focus-visible,
@@ -2066,8 +2250,8 @@ dialog.modal select,
 .refs-mobile-nav select:focus-visible,
 .refs-sort select:focus-visible,
 .refs-tags button:focus-visible {
-  outline: 2px solid #8f73eb;
-  outline-offset: 2px;
+  outline: 3px solid #8f73eb;
+  outline-offset: 4px;
 }
 
 /* Der aktive Eintrag faerbt sein Symbol mit (wie im Vorbild). */
@@ -2127,7 +2311,8 @@ dialog.modal select,
   }
 }
 
-/* Kopfleiste der Shell auf schmalen Fenstern: kein waagerechter Ueberlauf. */
+/* Kopfleiste der Shell auf schmalen Fenstern: kein waagerechter Ueberlauf.
+   Betrifft nur die App-Kopfzeile, nicht die Referenzen-Seite. */
 @media (max-width: 700px) {
   .cmd-button kbd {
     display: none;
@@ -2151,27 +2336,5 @@ dialog.modal select,
 
   .cmd-button {
     padding-inline: 8px;
-  }
-
-  /* Werkzeugleiste stapeln, sonst bleibt der Suche zu wenig Platz. */
-  .refs-toolbar {
-    flex-wrap: wrap;
-    gap: 12px;
-  }
-
-  .refs-search {
-    max-width: none;
-    flex: 1 1 100%;
-  }
-
-  .refs-sort {
-    margin-left: 0;
-  }
-}
-
-@media (max-width: 480px) {
-  .refs-gallery,
-  .refs-style-grid {
-    grid-template-columns: minmax(0, 1fr);
   }
 }
