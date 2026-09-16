@@ -35,6 +35,11 @@ describe("client configuration", () => {
       mcpServers: { senify: { args: string[]; env: Record<string, string> } };
     };
     expect(written.mcpServers.senify.args.slice(-2)).toEqual(["mcp", "serve"]);
+    // Spawned on plain Node via the launcher: node cannot load the registry's
+    // .tsx files by itself, the launcher registers tsx first.
+    expect(written.mcpServers.senify.args[0]?.replaceAll("\\", "/")).toMatch(
+      /packages\/mcp\/launch\.mjs$/,
+    );
     expect(written.mcpServers.senify.env.SENIFY_TOKEN).toBe("snfy_demo");
 
     const again = configureClient(target, "http://127.0.0.1:9999", "snfy_next");
@@ -56,6 +61,9 @@ describe("client configuration", () => {
     };
     expect(snippet.mcp.senify.type).toBe("local");
     expect(snippet.mcp.senify.command.slice(-2)).toEqual(["mcp", "serve"]);
+    expect(snippet.mcp.senify.command[1]?.replaceAll("\\", "/")).toMatch(
+      /packages\/mcp\/launch\.mjs$/,
+    );
     expect(snippet.mcp.senify.environment.SENIFY_TOKEN).toBe("snfy_demo");
   });
 });

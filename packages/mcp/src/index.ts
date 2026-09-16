@@ -15,6 +15,7 @@ export {
   configureClient,
   clientTargets,
   detectedClients,
+  launcherEntry,
   selectTargets,
   type ClientId,
   type ClientTarget,

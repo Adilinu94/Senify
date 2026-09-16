@@ -45,8 +45,11 @@ export function detectedClients(
   );
 }
 
-export function cliEntry(): string {
-  return fileURLToPath(new URL("./cli.ts", import.meta.url));
+// The clients spawn plain Node on the launcher: it registers tsx (the
+// registry ships .tsx components) and hands over to the CLI, so the config
+// works without shell wrappers and regardless of the working directory.
+export function launcherEntry(): string {
+  return fileURLToPath(new URL("../launch.mjs", import.meta.url));
 }
 
 function serverEntry(
@@ -55,7 +58,7 @@ function serverEntry(
   token: string,
 ): unknown {
   const command = process.execPath;
-  const args = [cliEntry(), "mcp", "serve"];
+  const args = [launcherEntry(), "mcp", "serve"];
   if (target.format === "opencode") {
     return {
       type: "local",
