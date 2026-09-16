@@ -1,5 +1,13 @@
-import type { Node, NodeTree, PropValue, Registry } from "@senify/section-sdk";
+import type {
+  Node,
+  NodeTree,
+  PropValue,
+  Registry,
+  SectionDefinition,
+} from "@senify/section-sdk";
 import type { Theme } from "@senify/tokens";
+import type { Mutation, ParentRef } from "@senify/engine";
+import { goldenTreeToMutations } from "./golden.ts";
 import {
   buildLayerList,
   buildMediaTab,
@@ -53,6 +61,16 @@ import {
   type EditorAction,
   type FrameBreakpoint,
 } from "./types.ts";
+
+// The editor core, shaped after the Elementor workbench (T17): a top bar
+// (brand menu, add element, page settings, history, page name, device
+// switcher, structure, finder, preview, publish), one left panel that flips
+// between the widget catalog and the element settings (Content/Style/
+// Advanced), a gray stage with white sheets per breakpoint, a selection
+// handle with edit/duplicate/delete, "+" insert points, a right-click context
+// menu and a zoom footer. The core stays renderer-agnostic: the frame
+// renderer is injected; every edit funnels through the canonical mutations of
+// the engine.
 
 // The one seam where Puck enters: the program shell injects the pinned Puck
 // binding behind this interface, the editor core stays renderer-agnostic.
@@ -111,6 +129,42 @@ export type EditorInstance = {
   destroy(): void;
 };
 
+type PanelMode = "widgets" | "settings" | "page";
+type PanelTab = "content" | "style" | "advanced";
+type MenuName = "brand" | "history" | "publish";
+type InsertTarget = { parent: ParentRef; index?: number };
+
+type MountedFrame = {
+  frame: FrameDescriptor;
+  wrap: DomElement;
+  body: DomElement;
+  offsetLeft: number;
+  offsetTop: number;
+};
+
+// The gray gap between the stage edge and the sheets. Frames live in content
+// coordinates of the stage, so the selection overlay shares the same origin.
+const STAGE_OFFSET = 24;
+
+const CATEGORY_ORDER = ["structure", "content", "commerce", "media", "utility"] as const;
+const CATEGORY_LABELS: Record<string, string> = {
+  structure: "Struktur",
+  content: "Inhalte",
+  commerce: "Commerce",
+  media: "Medien",
+  utility: "Werkzeuge",
+};
+const STYLE_GROUPS = new Set(["Styling", "Layout"]);
+const PANEL_TABS: readonly { id: PanelTab; label: string }[] = [
+  { id: "content", label: "Content" },
+  { id: "style", label: "Style" },
+  { id: "advanced", label: "Advanced" },
+];
+
+function groupBase(id: string): string {
+  return id.split("/")[0] ?? id;
+}
+
 // Frame document of one breakpoint: host stylesheets (theme tokens, section
 // styles) load via frameStyles, the editor's own overlay rules stay inline.
 function frameDoc(styles: readonly string[] = []): string {
@@ -120,12 +174,12 @@ function frameDoc(styles: readonly string[] = []): string {
   return `<!doctype html><html><head><meta charset="utf-8">${links}<style>
 html, body { margin: 0; padding: 0; }
 body { font: 14px/1.5 system-ui, sans-serif; background: var(--bg-base, #ffffff); }
-[data-node-id] { position: relative; outline: 1px dashed transparent; }
-[data-node-id]:hover { outline-color: rgba(79,70,229,.45); }
+[data-node-id] { position: relative; outline: 1px dashed transparent; outline-offset: -1px; }
+[data-node-id]:hover { outline-color: rgba(208, 4, 212, .4); }
 [data-node-id][data-hidden="true"] { opacity: .35; }
-[data-node-id][data-selected="true"] { outline: 2px solid #4f46e5; }
+[data-node-id][data-selected="true"] { outline: 2px solid #d004d4; outline-offset: -2px; }
 [data-inline] { cursor: text; }
-[data-inline]:hover { background: rgba(79,70,229,.08); }
+[data-inline]:hover { background: rgba(208, 4, 212, .08); }
 .senify-frame-page { min-height: 100vh; }
 </style></head><body></body></html>`;
 }
@@ -158,7 +212,7 @@ function h(doc: DomDocument, tag: string, spec?: ElementSpec): DomElement {
 
 // Default renderer: draws the node tree of one breakpoint as editable stubs,
 // so frame manager, overlays, panels, inline text and deep links are fully
-// exercisable without Puck. The shell swaps in the Puck frame renderer.
+// exercisable without Puck. The shell swaps in the real frame renderer.
 export function createStubRenderer(): FrameRenderer {
   return {
     mount(frame, body, context): void {
@@ -249,39 +303,54 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
       : undefined,
   );
   let activeTab: ExplorerTab = "layers";
+  let panelMode: PanelMode = bootLink?.node ? "settings" : "widgets";
+  let panelTab: PanelTab = "content";
+  let insertTarget: InsertTarget | null = null;
+  let insertHint: string | null = null;
+  let menuOpen: MenuName | null = null;
+  let contextMenu: { nodeId: string; left: number; top: number } | null = null;
+  let railHidden = false;
+  let widgetQuery = "";
   let message: string | null = null;
+  let messageTone: "info" | "error" = "info";
   let spotlightOpen = false;
   let spotlightQuery = "";
+  let pageMeta = { title: options.page.title, path: options.page.path };
+  const collapsed = new Set<string>();
   // Frame documents currently mounted: selection rings are written straight
   // into them so selecting never re-creates (and reloads) the iframes.
-  const frameBodies: DomElement[] = [];
+  const mountedFrames: MountedFrame[] = [];
 
   const root = h(doc, "div", { className: "senify-editor", data: { "senify-editor": "true" } });
-  // #1829: our own toolbar and overlays, never Puck's default action bar.
-  const toolbar = h(doc, "div", {
-    className: "senify-editor__toolbar",
+  // #1829: our own top bar and overlays, never Puck's default action bar.
+  const topbar = h(doc, "div", {
+    className: "senify-editor__topbar",
     data: { toolbar: "senify" },
   });
   const main = h(doc, "div", { className: "senify-editor__main" });
+  const panelHost = h(doc, "div", { className: "senify-editor__panels" });
   const rail = h(doc, "div", { className: "senify-editor__rail" });
   const stage = h(doc, "div", { className: "senify-editor__stage" });
-  const panelHost = h(doc, "div", { className: "senify-editor__panels" });
+  const framesHost = h(doc, "div", { className: "senify-editor__frames" });
+  const overlay = h(doc, "div", { className: "senify-editor__overlay" });
   const status = h(doc, "div", { className: "senify-editor__status" });
-  const overlay = h(doc, "div", {
+  const spotlight = h(doc, "div", {
     className: "senify-editor__spotlight",
     attributes: { hidden: "hidden" },
   });
   const spotlightInput = h(doc, "input", { className: "senify-editor__spotlight-input" });
   const spotlightList = h(doc, "div", { className: "senify-editor__spotlight-list" });
 
-  overlay.appendChild(spotlightInput);
-  overlay.appendChild(spotlightList);
+  spotlight.appendChild(spotlightInput);
+  spotlight.appendChild(spotlightList);
+  stage.appendChild(framesHost);
+  stage.appendChild(overlay);
+  main.appendChild(panelHost);
   main.appendChild(rail);
   main.appendChild(stage);
-  main.appendChild(panelHost);
-  root.appendChild(toolbar);
+  root.appendChild(topbar);
   root.appendChild(main);
-  root.appendChild(overlay);
+  root.appendChild(spotlight);
   root.appendChild(status);
   container.appendChild(root);
 
@@ -309,21 +378,23 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     }
   }
 
-  function report(text: string | null): void {
+  function report(text: string | null, tone: "info" | "error" = "info"): void {
     message = text;
+    messageTone = tone;
   }
 
   function reportError(error: unknown): void {
     if (error instanceof DraftConflictError) {
-      report(error.message);
+      report(error.message, "error");
     } else {
-      report(error instanceof Error ? error.message : String(error));
+      report(error instanceof Error ? error.message : String(error), "error");
     }
     options.onError?.(error);
   }
 
-  async function runAction(action: EditorAction, label: string): Promise<void> {
-    const mutations = emitMutations(action, { tree: options.tree() });
+  // Every editor action funnels through here: emit canonical mutations,
+  // apply them, record the undo entry, refresh the chrome.
+  async function applyMutations(mutations: Mutation[], label: string): Promise<void> {
     if (mutations.length === 0) return;
     const versionBefore = session.version;
     try {
@@ -345,381 +416,696 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     }
   }
 
-  function renderToolbar(): void {
-    toolbar.textContent = "";
+  function runAction(action: EditorAction, label: string): Promise<void> {
+    return applyMutations(emitMutations(action, { tree: options.tree() }), label);
+  }
+
+  /* ------------------------------------------------------------ top bar */
+
+  function iconButton(spec: {
+    id: string;
+    text: string;
+    title?: string;
+    active?: boolean;
+    enabled?: boolean;
+    onClick: () => void;
+  }): DomElement {
+    const button = h(doc, "button", {
+      className: "senify-editor__button",
+      text: spec.text,
+      data: {
+        action: spec.id,
+        ...(spec.active === undefined ? {} : { active: String(spec.active) }),
+        ...(spec.enabled === undefined ? {} : { enabled: String(spec.enabled) }),
+      },
+      ...(spec.title === undefined ? {} : { attributes: { title: spec.title } }),
+    });
+    button.setAttribute("type", "button");
+    if (spec.enabled === false) button.setAttribute("disabled", "disabled");
+    button.addEventListener("click", spec.onClick);
+    return button;
+  }
+
+  function menuItem(
+    label: string,
+    onClick: () => void,
+    options?: { enabled?: boolean; active?: boolean; danger?: boolean; trailing?: string },
+  ): DomElement {
+    const item = h(doc, "button", {
+      className: "senify-editor__menu-item",
+      data: {
+        ...(options?.enabled === undefined ? {} : { enabled: String(options.enabled) }),
+        ...(options?.active === undefined ? {} : { active: String(options.active) }),
+        ...(options?.danger === undefined ? {} : { danger: String(options.danger) }),
+      },
+    });
+    item.setAttribute("type", "button");
+    item.appendChild(h(doc, "span", { text: label }));
+    if (options?.trailing) {
+      item.appendChild(h(doc, "span", { className: "senify-editor__history-time", text: options.trailing }));
+    }
+    item.addEventListener("click", (event) => {
+      event.stopPropagation?.();
+      if (options?.enabled === false) return;
+      menuOpen = null;
+      if (contextMenu !== null) contextMenu = null;
+      onClick();
+      renderTopbar();
+      renderOverlay();
+    });
+    return item;
+  }
+
+  function menuSeparator(): DomElement {
+    return h(doc, "div", { className: "senify-editor__menu-sep" });
+  }
+
+  function menuGroup(spec: {
+    id: MenuName;
+    button: DomElement;
+    build: () => DomElement;
+    align?: "end";
+  }): DomElement {
+    const wrap = h(doc, "div", { className: "senify-editor__menugroup" });
+    wrap.appendChild(spec.button);
+    if (menuOpen === spec.id) {
+      const menu = spec.build();
+      if (spec.align === "end") menu.setAttribute("data-align", "end");
+      menu.addEventListener("click", (event) => event.stopPropagation?.());
+      wrap.appendChild(menu);
+    }
+    return wrap;
+  }
+
+  function toggleMenu(name: MenuName): void {
+    menuOpen = menuOpen === name ? null : name;
+    if (contextMenu !== null) contextMenu = null;
+    renderTopbar();
+  }
+
+  function brandMenu(): DomElement {
+    const menu = h(doc, "div", { className: "senify-editor__menu", data: { menu: "brand" } });
+    menu.appendChild(
+      menuItem("Seiten-Einstellungen", () => {
+        panelMode = "page";
+        renderPanelHost();
+      }),
+    );
+    menu.appendChild(
+      menuItem("Tastenkürzel anzeigen", () => {
+        report(
+          "Strg+Z/Y Undo/Redo · Strg+D Duplizieren · Entf Löschen · Strg+S Speichern · Esc Auswahl aufheben",
+        );
+        renderStatus();
+      }),
+    );
+    menu.appendChild(menuSeparator());
+    menu.appendChild(menuItem("Spotlight öffnen · Strg+K", () => openSpotlight(true)));
+    return menu;
+  }
+
+  function historyMenu(): DomElement {
+    const menu = h(doc, "div", { className: "senify-editor__menu", data: { menu: "history" } });
+    menu.appendChild(
+      menuItem("Rückgängig · Strg+Z", () => void instance.undo(), { enabled: history.canUndo }),
+    );
+    menu.appendChild(
+      menuItem("Wiederholen · Strg+Y", () => void instance.redo(), { enabled: history.canRedo }),
+    );
+    const appliedEntries = history.applied();
+    if (appliedEntries.length > 0) {
+      menu.appendChild(menuSeparator());
+      menu.appendChild(h(doc, "div", { className: "senify-editor__menu-label", text: "Verlauf" }));
+      for (const entry of [...appliedEntries].reverse().slice(0, 12)) {
+        menu.appendChild(
+          menuItem(entry.label, () => void restoreTo(entry.id), {
+            trailing: `v${entry.versionAfter}`,
+          }),
+        );
+      }
+    }
+    return menu;
+  }
+
+  function publishMenu(): DomElement {
+    const menu = h(doc, "div", { className: "senify-editor__menu", data: { menu: "publish" } });
+    menu.appendChild(
+      menuItem("Zum Review senden", () => options.onCommand?.({ type: "publish" })),
+    );
+    menu.appendChild(menuItem("Vorschau öffnen", () => setMode("live")));
+    return menu;
+  }
+
+  async function restoreTo(entryId: string): Promise<void> {
+    let guard = 0;
+    while (history.canUndo && history.top()?.id !== entryId && guard < 200) {
+      const entry = history.undo();
+      if (!entry) break;
+      await options.onUndo?.(entry);
+      guard += 1;
+    }
+    render();
+  }
+
+  function renderTopbar(): void {
+    topbar.textContent = "";
+    const brandButton = h(doc, "button", {
+      className: "senify-editor__brand",
+      data: { action: "menu-brand" },
+    });
+    brandButton.setAttribute("type", "button");
+    brandButton.appendChild(h(doc, "span", { className: "senify-editor__brand-mark", text: "S" }));
+    brandButton.appendChild(h(doc, "span", { text: "Senify" }));
+    brandButton.addEventListener("click", (event) => {
+      event.stopPropagation?.();
+      toggleMenu("brand");
+    });
+    topbar.appendChild(menuGroup({ id: "brand", button: brandButton, build: brandMenu }));
+    topbar.appendChild(
+      iconButton({
+        id: "add",
+        text: "+",
+        title: "Element hinzufügen",
+        active: panelMode === "widgets",
+        onClick: () => openCatalog(null),
+      }),
+    );
+    topbar.appendChild(
+      iconButton({
+        id: "page-settings",
+        text: "Seite",
+        title: "Seiten-Einstellungen",
+        active: panelMode === "page",
+        onClick: () => {
+          panelMode = "page";
+          renderPanelHost();
+        },
+      }),
+    );
+    const historyButton = iconButton({
+      id: "history",
+      text: "↺",
+      title: "Verlauf · Rückgängig und Wiederholen",
+      active: menuOpen === "history",
+      onClick: () => toggleMenu("history"),
+    });
+    topbar.appendChild(menuGroup({ id: "history", button: historyButton, build: historyMenu }));
+    const pageButton = h(doc, "button", {
+      className: "senify-editor__title",
+      data: { action: "page-name" },
+    });
+    pageButton.setAttribute("type", "button");
+    pageButton.appendChild(h(doc, "strong", { text: pageMeta.title || options.page.pageId }));
+    pageButton.appendChild(h(doc, "small", { text: pageMeta.path }));
+    pageButton.addEventListener("click", () => {
+      panelMode = "page";
+      renderPanelHost();
+    });
+    topbar.appendChild(pageButton);
+    topbar.appendChild(h(doc, "div", { className: "senify-editor__spacer" }));
+
+    const devices = h(doc, "div", { className: "senify-editor__devices" });
+    for (const device of [
+      { id: "desktop" as const, label: "Desktop" },
+      { id: "tablet" as const, label: "Tablet" },
+      { id: "mobile" as const, label: "Mobile" },
+    ]) {
+      const button = h(doc, "button", {
+        className: "senify-editor__button",
+        text: device.label,
+        data: { bp: device.id, active: String(state.activeBreakpoint === device.id) },
+        attributes: { title: `${device.label}-Ansicht` },
+      });
+      button.setAttribute("type", "button");
+      button.addEventListener("click", () => setBreakpoint(device.id));
+      devices.appendChild(button);
+    }
+    topbar.appendChild(devices);
+    topbar.appendChild(
+      iconButton({
+        id: "structure",
+        text: "Struktur",
+        title: "Struktur ein-/ausblenden",
+        active: !railHidden,
+        onClick: () => {
+          railHidden = !railHidden;
+          syncMain();
+          renderTopbar();
+        },
+      }),
+    );
+    topbar.appendChild(
+      iconButton({
+        id: "finder",
+        text: "Suchen",
+        title: "Finder · Strg+K",
+        onClick: () => openSpotlight(true),
+      }),
+    );
     const modeGroup = h(doc, "div", { className: "senify-editor__group" });
     for (const mode of ["design", "live"] as const) {
       const button = h(doc, "button", {
         className: "senify-editor__button",
-        text: mode === "design" ? "Design" : "Live",
+        text: mode === "design" ? "Design" : "Vorschau",
         data: { mode, active: String(state.mode === mode) },
+        attributes: { title: mode === "design" ? "Design-Modus" : "Vorschau-Modus" },
       });
       button.setAttribute("type", "button");
       button.addEventListener("click", () => setMode(mode));
       modeGroup.appendChild(button);
     }
-    const bpGroup = h(doc, "div", { className: "senify-editor__group" });
-    for (const breakpoint of ["desktop", "tablet", "mobile"] as const) {
-      const button = h(doc, "button", {
-        className: "senify-editor__button",
-        text: breakpoint,
-        data: { bp: breakpoint, active: String(state.activeBreakpoint === breakpoint) },
-      });
-      button.setAttribute("type", "button");
-      button.addEventListener("click", () => setBreakpoint(breakpoint));
-      bpGroup.appendChild(button);
-    }
-    const zoomGroup = h(doc, "div", { className: "senify-editor__group" });
-    const zoomOut = h(doc, "button", { className: "senify-editor__button", text: "−" });
-    zoomOut.setAttribute("type", "button");
-    zoomOut.addEventListener("click", () => zoomByStep(-0.1));
-    const zoomReset = h(doc, "button", {
-      className: "senify-editor__button",
-      text: `${Math.round(state.design.zoom * 100)} %`,
-      data: { action: "zoom-reset" },
+    topbar.appendChild(modeGroup);
+    topbar.appendChild(h(doc, "div", { className: "senify-editor__sep" }));
+
+    const publishGroup = h(doc, "div", { className: "senify-editor__publish-group" });
+    const publish = h(doc, "button", {
+      className: "senify-editor__publish",
+      text: "Veröffentlichen",
+      data: { action: "publish" },
     });
-    zoomReset.setAttribute("type", "button");
-    zoomReset.addEventListener("click", () => resetZoom());
-    const zoomIn = h(doc, "button", { className: "senify-editor__button", text: "+" });
-    zoomIn.setAttribute("type", "button");
-    zoomIn.addEventListener("click", () => zoomByStep(0.1));
-    zoomGroup.appendChild(zoomOut);
-    zoomGroup.appendChild(zoomReset);
-    zoomGroup.appendChild(zoomIn);
-    const historyGroup = h(doc, "div", { className: "senify-editor__group" });
-    const undo = h(doc, "button", {
-      className: "senify-editor__button",
-      text: "Undo",
-      data: { action: "undo", enabled: String(history.canUndo) },
+    publish.setAttribute("type", "button");
+    publish.addEventListener("click", () => options.onCommand?.({ type: "publish" }));
+    const publishCaret = h(doc, "button", {
+      className: "senify-editor__publish-caret",
+      text: "▾",
+      data: { action: "publish-menu" },
     });
-    undo.setAttribute("type", "button");
-    undo.addEventListener("click", () => void instance.undo());
-    const redo = h(doc, "button", {
-      className: "senify-editor__button",
-      text: "Redo",
-      data: { action: "redo", enabled: String(history.canRedo) },
+    publishCaret.setAttribute("type", "button");
+    publishCaret.addEventListener("click", (event) => {
+      event.stopPropagation?.();
+      toggleMenu("publish");
     });
-    redo.setAttribute("type", "button");
-    redo.addEventListener("click", () => void instance.redo());
-    historyGroup.appendChild(undo);
-    historyGroup.appendChild(redo);
-    toolbar.appendChild(modeGroup);
-    toolbar.appendChild(bpGroup);
-    toolbar.appendChild(zoomGroup);
-    toolbar.appendChild(historyGroup);
-    toolbar.appendChild(
-      h(doc, "div", {
-        className: "senify-editor__title",
-        text: `${options.page.title} · v${session.version}`,
-      }),
-    );
+    publishGroup.appendChild(publish);
+    publishGroup.appendChild(publishCaret);
+    const publishWrap = menuGroup({
+      id: "publish",
+      button: publishGroup,
+      build: publishMenu,
+      align: "end",
+    });
+    topbar.appendChild(publishWrap);
   }
 
-  function wireInlineEditing(body: DomElement | null): void {
-    if (!body) return;
-    body.addEventListener("dblclick", (event: DomEvent) => {
-      const target = (event.target as DomElement | null)?.closest?.("[data-inline]");
-      if (!target) return;
-      const nodeId =
-        target.getAttribute("data-inline-node") ?? target.getAttribute("data-node-id");
-      const key = target.getAttribute("data-prop-key");
-      if (!nodeId || !key) return;
-      inline.start({ nodeId, key, value: target.textContent ?? "" });
-      target.setAttribute("contenteditable", "plaintext-only");
-      target.focus?.();
-      event.preventDefault?.();
+  function syncMain(): void {
+    main.className = railHidden
+      ? "senify-editor__main senify-editor__main--norail"
+      : "senify-editor__main";
+  }
+
+  /* ------------------------------------------------------------ widget catalog */
+
+  function openCatalog(target: InsertTarget | null): void {
+    insertTarget = target;
+    insertHint = target === null ? null : insertHint ?? "Einfügeposition gewählt — Element wählen";
+    panelMode = "widgets";
+    widgetQuery = "";
+    renderPanelHost();
+    renderTopbar();
+  }
+
+  function startInsert(target: InsertTarget, hint: string): void {
+    insertTarget = target;
+    insertHint = hint;
+    panelMode = "widgets";
+    widgetQuery = "";
+    renderTopbar();
+    renderPanelHost();
+  }
+
+  function insertWidget(type: string): void {
+    if (!options.registry.has(type)) return;
+    const definition = options.registry.get(type);
+    const tree = options.tree();
+    const parent: ParentRef = insertTarget?.parent ?? { nodeId: tree.rootNodeId };
+    const index = insertTarget?.index;
+    const placement = goldenTreeToMutations(definition.golden.tree, parent, index);
+    insertTarget = null;
+    insertHint = null;
+    void applyMutations(placement.mutations, `${definition.title} einfügen`)
+      .then(() => {
+        panelMode = "settings";
+        select(placement.rootId);
+      })
+      .catch(() => undefined);
+  }
+
+  function renderCatalog(): void {
+    const header = h(doc, "div", { className: "senify-editor__panel-header" });
+    header.appendChild(h(doc, "strong", { className: "senify-editor__panel-heading", text: "Elemente" }));
+    panelHost.appendChild(header);
+    if (insertTarget) {
+      const hint = h(doc, "div", { className: "senify-editor__hint", data: { hint: "insert" } });
+      hint.appendChild(h(doc, "span", { text: insertHint ?? "Einfügeposition gewählt" }));
+      const cancel = h(doc, "button", {
+        className: "senify-editor__iconbtn",
+        text: "✕",
+        attributes: { title: "Einfügen abbrechen" },
+      });
+      cancel.setAttribute("type", "button");
+      cancel.addEventListener("click", () => {
+        insertTarget = null;
+        insertHint = null;
+        renderPanelHost();
+      });
+      hint.appendChild(cancel);
+      panelHost.appendChild(hint);
+    }
+    const search = h(doc, "input", {
+      className: "senify-editor__search",
+      value: widgetQuery,
+      data: { control: "widget-search" },
     });
-    body.addEventListener("input", (event: DomEvent) => {
-      const target = (event.target as DomElement | null)?.closest?.("[data-inline]");
-      if (!target || !inline.session) return;
-      void commitInline(target.textContent ?? "");
-    });
-    body.addEventListener("keydown", (event: DomEvent) => {
-      if (!inline.session) return;
-      if (event.key === "Escape") {
-        void revertInline();
+    search.setAttribute("placeholder", "Elemente suchen");
+    panelHost.appendChild(search);
+    const list = h(doc, "div", { className: "senify-editor__widgets" });
+    panelHost.appendChild(list);
+    const paint = (): void => {
+      list.textContent = "";
+      const query = widgetQuery.trim().toLowerCase();
+      const definitions = options.registry
+        .list()
+        .filter((definition) => definition.deprecated !== true)
+        .filter(
+          (definition) =>
+            query === "" ||
+            `${definition.title} ${definition.description} ${definition.type} ${definition.category}`
+              .toLowerCase()
+              .includes(query),
+        );
+      if (definitions.length === 0) {
+        list.appendChild(h(doc, "div", { className: "senify-editor__empty", text: "Keine Elemente gefunden" }));
         return;
       }
-      if (event.key === "Enter") {
-        const target = (event.target as DomElement | null)?.closest?.("[data-inline]");
-        target?.removeAttribute("contenteditable");
-        inline.commit();
-      }
-    });
-  }
-
-  async function commitInline(value: string): Promise<void> {
-    const { mutation } = inline.type(value);
-    const versionBefore = session.version;
-    try {
-      const response = await session.applyMutations([mutation]);
-      inline.record({
-        undoPatch: response.results.flatMap((result) => result.undoPatch),
-        batchId: response.undoBatchId,
-        versionBefore,
-        versionAfter: response.newDraftVersion,
-      });
-      report(null);
-    } catch (error) {
-      reportError(error);
-    }
-  }
-
-  async function revertInline(): Promise<void> {
-    const { mutation } = inline.revert();
-    report("Inline-Text zurückgesetzt");
-    if (!mutation) {
-      renderStatus();
-      return;
-    }
-    try {
-      await session.applyMutations([mutation]);
-      render();
-    } catch (error) {
-      reportError(error);
-      renderStatus();
-    }
-  }
-
-  function renderFrames(): void {
-    stage.textContent = "";
-    renderer.destroy();
-    frameBodies.length = 0;
-    const placements = framePlacements(state);
-    framesForState(state).forEach((frame, index) => {
-      const placement = placements[index];
-      const wrap = h(doc, "div", {
-        className: "senify-editor__frame",
-        data: { breakpoint: frame.breakpoint },
-        style: {
-          position: "absolute",
-          left: `${placement?.left ?? 0}px`,
-          top: `${placement?.top ?? 0}px`,
-          width: `${frame.width ?? 0}px`,
-          height: `${frame.height ?? 0}px`,
-          transform: `scale(${frame.scale})`,
-          transformOrigin: "0 0",
-        },
-      });
-      const iframe = h(doc, "iframe", {
-        className: "senify-editor__iframe",
-        attributes: { title: frame.label, "data-frame": frame.breakpoint },
-        style: { width: "100%", height: "100%", border: "0" },
-      });
-      const mount = (): void => {
-        const body = iframe.contentWindow?.document.body ?? null;
-        if (body) {
-          renderer.mount(frame, body, {
-            tree: options.tree(),
-            registry: options.registry,
-            breakpoint: frame.breakpoint,
+      for (const category of CATEGORY_ORDER) {
+        const items = definitions.filter((definition) => definition.category === category);
+        if (items.length === 0) continue;
+        list.appendChild(
+          h(doc, "div", {
+            className: "senify-editor__widget-category",
+            text: CATEGORY_LABELS[category] ?? category,
+          }),
+        );
+        const grid = h(doc, "div", { className: "senify-editor__widget-grid" });
+        for (const definition of items) {
+          const card = h(doc, "button", {
+            className: "senify-editor__widget-card",
+            data: { widget: definition.type },
+            attributes: { title: definition.description },
           });
-          frameBodies.push(body);
-          wireFrameSelection(body);
-          syncSelectionRing();
+          card.setAttribute("type", "button");
+          card.appendChild(h(doc, "span", { className: "senify-editor__widget-icon" }));
+          card.appendChild(
+            h(doc, "span", { className: "senify-editor__widget-label", text: definition.title }),
+          );
+          card.addEventListener("click", () => insertWidget(definition.type));
+          grid.appendChild(card);
         }
-        wireInlineEditing(body);
-      };
-      iframe.addEventListener("load", mount);
-      iframe.setAttribute("srcdoc", frameDoc(options.frameStyles));
-      wrap.appendChild(iframe);
-      stage.appendChild(wrap);
-      mount();
-    });
-  }
-
-  // Clicking a node stub selects it; Alt-click steps one level up (the same
-  // inspect ladder as in the layer rail).
-  function wireFrameSelection(body: DomElement): void {
-    body.addEventListener("click", (event: DomEvent) => {
-      if (inline.session) return;
-      const target = (event.target as DomElement | null)?.closest?.("[data-node-id]");
-      const nodeId = target?.getAttribute("data-node-id") ?? null;
-      if (!nodeId) return;
-      const next =
-        event.altKey === true ? (parentIdOf(nodeId) ?? nodeId) : nodeId;
-      if (next !== state.selectedNodeId) select(next);
-      event.stopPropagation?.();
-    });
-  }
-
-  function parentIdOf(nodeId: string): string | null {
-    const tree = options.tree();
-    if (nodeId === tree.rootNodeId) return null;
-    const visit = (ownerId: string): string | null => {
-      const owner = tree.nodes[ownerId];
-      if (!owner) return null;
-      for (const childId of owner.children ?? []) {
-        if (childId === nodeId) return ownerId;
-        const found = visit(childId);
-        if (found) return found;
+        list.appendChild(grid);
       }
-      for (const list of Object.values(owner.slots ?? {})) {
-        for (const childId of list) {
-          if (childId === nodeId) return ownerId;
-          const found = visit(childId);
-          if (found) return found;
-        }
-      }
-      return null;
     };
-    return visit(tree.rootNodeId);
+    search.addEventListener("input", () => {
+      widgetQuery = search.value ?? "";
+      paint();
+    });
+    paint();
   }
 
-  function syncSelectionRing(): void {
-    for (const body of frameBodies) {
-      for (const element of body.querySelectorAll("[data-node-id]")) {
-        const id = element.getAttribute("data-node-id");
-        if (id !== null && id === state.selectedNodeId) {
-          element.setAttribute("data-selected", "true");
-        } else {
-          element.removeAttribute("data-selected");
-        }
-      }
-    }
-  }
+  /* ------------------------------------------------------------ settings panel */
 
-  function renderRail(): void {
-    rail.textContent = "";
-    const tabs = h(doc, "div", { className: "senify-editor__tabs" });
-    for (const tab of EXPLORER_TABS) {
+  function renderSettings(node: Node, definition: SectionDefinition): void {
+    const header = h(doc, "div", { className: "senify-editor__panel-header" });
+    const back = h(doc, "button", {
+      className: "senify-editor__iconbtn",
+      text: "‹",
+      data: { action: "settings-back" },
+      attributes: { title: "Zurück zu den Elementen" },
+    });
+    back.setAttribute("type", "button");
+    back.addEventListener("click", () => {
+      panelMode = "widgets";
+      renderPanelHost();
+      renderTopbar();
+    });
+    header.appendChild(back);
+    header.appendChild(
+      h(doc, "strong", { className: "senify-editor__panel-heading", text: definition.title }),
+    );
+    panelHost.appendChild(header);
+    const tabs = h(doc, "div", { className: "senify-editor__ptabs" });
+    for (const tab of PANEL_TABS) {
       const button = h(doc, "button", {
-        className: "senify-editor__tab",
+        className: "senify-editor__ptab",
         text: tab.label,
-        data: { tab: tab.id, active: String(activeTab === tab.id) },
+        data: { ptab: tab.id, active: String(panelTab === tab.id) },
       });
       button.setAttribute("type", "button");
       button.addEventListener("click", () => {
-        activeTab = tab.id;
-        renderRail();
+        panelTab = tab.id;
+        renderPanelHost();
       });
       tabs.appendChild(button);
     }
-    rail.appendChild(tabs);
-    const list = h(doc, "div", { className: "senify-editor__list" });
-    if (activeTab === "layers") {
-      for (const item of buildLayerList(options.tree(), { registry: options.registry })) {
-        list.appendChild(layerRow(item));
-      }
-    } else if (activeTab === "pages") {
-      for (const page of options.pages?.() ?? []) {
-        const row = h(doc, "button", {
-          className: "senify-editor__row",
-          text: `${page.title} · ${page.path}`,
-          data: { page: page.id, active: String(page.id === options.page.pageId) },
-        });
-        row.setAttribute("type", "button");
-        row.addEventListener("click", () =>
-          options.onCommand?.({ type: "open-page", pageId: page.id }),
-        );
-        list.appendChild(row);
-      }
-      const templates = buildTemplatesSection(options.templates?.() ?? [], null);
-      if (templates.length > 0) {
-        list.appendChild(h(doc, "div", { className: "senify-editor__section", text: "Vorlagen" }));
-        for (const template of templates) list.appendChild(templateRow(template.label, template.badge, template.id));
-      }
-    } else if (activeTab === "templates") {
-      for (const template of buildTemplatesSection(options.templates?.() ?? [], null)) {
-        list.appendChild(templateRow(template.label, template.badge, template.id));
-      }
-    } else {
-      const search = h(doc, "input", { className: "senify-editor__search" });
-      search.setAttribute("placeholder", "Medien suchen");
-      list.appendChild(search);
-      const media = buildMediaTab(options.media?.() ?? [], options.mediaQuery?.());
-      for (const item of media.items) {
-        list.appendChild(
-          h(doc, "div", {
-            className: "senify-editor__row",
-            text: item.name,
-            data: { media: item.id },
-          }),
-        );
-      }
-    }
-    rail.appendChild(list);
-  }
-
-  function templateRow(label: string, badge: string, id: string): DomElement {
-    return h(doc, "div", {
-      className: "senify-editor__row",
-      text: `${label} · ${badge}`,
-      data: { template: id },
-    });
-  }
-
-  function layerRow(item: LayerItem): DomElement {
-    const row = h(doc, "button", {
-      className: "senify-editor__row",
-      text: `${"  ".repeat(item.depth)}${item.label}`,
-      data: {
-        node: item.id,
-        active: String(item.id === state.selectedNodeId),
-        hidden: String(item.hidden),
-        locked: String(item.locked),
-      },
-    });
-    row.setAttribute("type", "button");
-    row.addEventListener("click", (event: DomEvent) => {
-      // Alt-Klick steigt eine Ebene hoch (Inspect-Ladder).
-      select(event.altKey ? item.parentId : item.id);
-    });
-    return row;
-  }
-
-  function renderPanels(): void {
-    panelHost.textContent = "";
-    const selected = state.selectedNodeId;
-    if (!selected) {
-      panelHost.appendChild(
-        h(doc, "div", { className: "senify-editor__empty", text: "Keine Auswahl" }),
-      );
+    panelHost.appendChild(tabs);
+    if (panelTab === "advanced") {
+      renderAdvanced(node, definition);
       return;
     }
-    const node = options.tree().nodes[selected];
-    if (!node) return;
-    if (!options.registry.has(node.type)) return;
-    const definition = options.registry.get(node.type);
-    for (const group of buildPanels({
+    const groups = buildPanels({
       definition,
-      nodeId: selected,
+      nodeId: node.id,
       tree: options.tree(),
       breakpoint: state.activeBreakpoint,
       theme: options.theme,
-    })) {
-      panelHost.appendChild(renderGroup(group, selected));
-    }
-    const motion = buildMotionPanel({ definition, nodeId: selected, tree: options.tree() });
-    const motionGroup = h(doc, "div", { className: "senify-editor__panel", data: { group: "motion" } });
-    motionGroup.appendChild(h(doc, "div", { className: "senify-editor__panel-title", text: "Motion" }));
-    const select = h(doc, "select", {
-      className: "senify-editor__control",
-      data: { control: "motion-preset" },
     });
-    for (const preset of motion.presets) {
-      const option = h(doc, "option", { text: preset, attributes: { value: preset } });
-      if (preset === motion.preset) option.setAttribute("selected", "selected");
-      select.appendChild(option);
-    }
-    select.addEventListener("change", () => {
-      const value = select.value ?? motion.presets[0] ?? "";
-      void runAction(
-        {
-          kind: "motion",
-          nodeId: selected,
-          spec: { preset: value, intensity: motion.intensity },
-        },
-        "Motion ändern",
+    const subset = groups.filter(
+      (group) => (panelTab === "style") === STYLE_GROUPS.has(groupBase(group.id)),
+    );
+    if (subset.length === 0) {
+      panelHost.appendChild(
+        h(doc, "div", {
+          className: "senify-editor__empty",
+          text: "Keine Einstellungen in diesem Tab",
+        }),
       );
-    });
-    motionGroup.appendChild(select);
-    panelHost.appendChild(motionGroup);
+    }
+    for (const group of subset) panelHost.appendChild(renderGroup(group, node.id));
   }
 
+  function renderAdvanced(node: Node, definition: SectionDefinition): void {
+    const motion = buildMotionPanel({ definition, nodeId: node.id, tree: options.tree() });
+    const group = h(doc, "div", { className: "senify-editor__panel", data: { group: "motion" } });
+    group.appendChild(h(doc, "div", { className: "senify-editor__panel-title", text: "Motion" }));
+    if (motion.presets.length === 0) {
+      group.appendChild(
+        h(doc, "div", { className: "senify-editor__empty", text: "Keine Motion-Presets" }),
+      );
+    } else {
+      const presetSelect = h(doc, "select", {
+        className: "senify-editor__control",
+        data: { control: "motion-preset" },
+      });
+      for (const preset of motion.presets) {
+        const option = h(doc, "option", { text: preset, attributes: { value: preset } });
+        if (preset === (motion.preset ?? motion.presets[0])) {
+          option.setAttribute("selected", "selected");
+        }
+        presetSelect.appendChild(option);
+      }
+      const intensity = h(doc, "input", {
+        className: "senify-editor__control",
+        value: String(motion.intensity),
+        data: { control: "motion-intensity" },
+      });
+      intensity.setAttribute("type", "number");
+      intensity.setAttribute("min", "1");
+      intensity.setAttribute("max", "10");
+      const triggerSelect = h(doc, "select", {
+        className: "senify-editor__control",
+        data: { control: "motion-trigger" },
+      });
+      for (const trigger of ["viewport", "load", "scroll", "hover"]) {
+        const option = h(doc, "option", { text: trigger, attributes: { value: trigger } });
+        if (trigger === motion.trigger) option.setAttribute("selected", "selected");
+        triggerSelect.appendChild(option);
+      }
+      const delay = h(doc, "input", {
+        className: "senify-editor__control",
+        value: String(motion.delay),
+        data: { control: "motion-delay" },
+      });
+      delay.setAttribute("type", "number");
+      delay.setAttribute("min", "0");
+      const dispatch = (): void => {
+        void runAction(
+          {
+            kind: "motion",
+            nodeId: node.id,
+            spec: {
+              preset: presetSelect.value ?? motion.presets[0] ?? "",
+              intensity: Number(intensity.value ?? motion.intensity) || motion.intensity,
+              trigger: (triggerSelect.value ?? motion.trigger) as
+                | "load"
+                | "scroll"
+                | "viewport"
+                | "hover",
+              delay: Number(delay.value ?? motion.delay) || 0,
+            },
+          },
+          "Motion ändern",
+        ).catch(() => undefined);
+      };
+      const row = (label: string, control: DomElement): DomElement => {
+        const field = h(doc, "div", { className: "senify-editor__field", data: { key: `motion-${label}` } });
+        field.appendChild(h(doc, "label", { className: "senify-editor__label", text: label }));
+        field.appendChild(control);
+        return field;
+      };
+      group.appendChild(row("Preset", presetSelect));
+      group.appendChild(row("Intensität", intensity));
+      group.appendChild(row("Auslöser", triggerSelect));
+      group.appendChild(row("Verzögerung", delay));
+      for (const control of [presetSelect, intensity, triggerSelect, delay]) {
+        control.addEventListener("change", dispatch);
+      }
+      if (motion.preset !== null) {
+        const remove = h(doc, "button", {
+          className: "senify-editor__reset",
+          text: "Motion entfernen",
+          data: { action: "motion-remove" },
+        });
+        remove.setAttribute("type", "button");
+        remove.addEventListener("click", () => {
+          void runAction({ kind: "motion", nodeId: node.id, spec: null }, "Motion entfernen").catch(
+            () => undefined,
+          );
+        });
+        group.appendChild(remove);
+      }
+    }
+    panelHost.appendChild(group);
+
+    const visibility = h(doc, "div", {
+      className: "senify-editor__panel",
+      data: { group: "visibility" },
+    });
+    visibility.appendChild(
+      h(doc, "div", { className: "senify-editor__panel-title", text: "Sichtbarkeit" }),
+    );
+    const hideRow = h(doc, "div", { className: "senify-editor__field", data: { key: "hidden" } });
+    hideRow.appendChild(
+      h(doc, "label", {
+        className: "senify-editor__label",
+        text: `Auf ${state.activeBreakpoint} ausblenden`,
+      }),
+    );
+    const hideBox = h(doc, "input", { className: "senify-editor__control", data: { control: "hidden" } });
+    hideBox.setAttribute("type", "checkbox");
+    if (isHiddenAt(options.tree(), node.id, state.activeBreakpoint)) {
+      hideBox.setAttribute("checked", "checked");
+    }
+    hideBox.addEventListener("change", () => toggleHidden(node.id));
+    hideRow.appendChild(hideBox);
+    visibility.appendChild(hideRow);
+    panelHost.appendChild(visibility);
+  }
+
+  function renderPageSettings(): void {
+    const header = h(doc, "div", { className: "senify-editor__panel-header" });
+    const back = h(doc, "button", {
+      className: "senify-editor__iconbtn",
+      text: "‹",
+      data: { action: "page-back" },
+      attributes: { title: "Zurück" },
+    });
+    back.setAttribute("type", "button");
+    back.addEventListener("click", () => {
+      panelMode = state.selectedNodeId ? "settings" : "widgets";
+      renderPanelHost();
+      renderTopbar();
+    });
+    header.appendChild(back);
+    header.appendChild(
+      h(doc, "strong", { className: "senify-editor__panel-heading", text: "Seiten-Einstellungen" }),
+    );
+    panelHost.appendChild(header);
+    const form = h(doc, "div", { className: "senify-editor__page-form" });
+    const title = h(doc, "input", {
+      className: "senify-editor__control",
+      value: pageMeta.title,
+      data: { control: "page-title" },
+    });
+    const path = h(doc, "input", {
+      className: "senify-editor__control",
+      value: pageMeta.path,
+      data: { control: "page-path" },
+    });
+    const row = (label: string, control: DomElement): DomElement => {
+      const field = h(doc, "div", { className: "senify-editor__field" });
+      field.appendChild(h(doc, "label", { className: "senify-editor__label", text: label }));
+      field.appendChild(control);
+      return field;
+    };
+    form.appendChild(row("Titel", title));
+    form.appendChild(row("Pfad", path));
+    const apply = h(doc, "button", {
+      className: "senify-editor__button senify-editor__button--primary",
+      text: "Übernehmen",
+      data: { action: "page-apply" },
+    });
+    apply.setAttribute("type", "button");
+    apply.addEventListener("click", () => {
+      const nextTitle = title.value ?? pageMeta.title;
+      const nextPath = path.value ?? pageMeta.path;
+      void runAction({ kind: "page-meta", title: nextTitle, path: nextPath }, "Seite ändern")
+        .then(() => {
+          pageMeta = { title: nextTitle, path: nextPath };
+          report("Seiteneinstellungen gespeichert");
+          renderTopbar();
+          renderStatus();
+        })
+        .catch(() => undefined);
+    });
+    form.appendChild(apply);
+    panelHost.appendChild(form);
+  }
+
+  function renderPanelHost(): void {
+    panelHost.textContent = "";
+    if (panelMode === "page") {
+      renderPageSettings();
+      return;
+    }
+    const selected = state.selectedNodeId;
+    const node = selected ? options.tree().nodes[selected] : undefined;
+    const definition =
+      node && options.registry.has(node.type) ? options.registry.get(node.type) : null;
+    if (panelMode === "settings" && node && definition) {
+      renderSettings(node, definition);
+      return;
+    }
+    renderCatalog();
+  }
+
+  /* ------------------------------------------------------------ settings fields */
+
   function renderGroup(group: PanelGroup, selected: string): DomElement {
-    const panel = h(doc, "div", { className: "senify-editor__panel", data: { group: group.id } });
-    panel.appendChild(h(doc, "div", { className: "senify-editor__panel-title", text: group.label }));
+    const isCollapsed = collapsed.has(group.id);
+    const panel = h(doc, "div", {
+      className: "senify-editor__panel",
+      data: { group: group.id, collapsed: String(isCollapsed) },
+    });
+    const head = h(doc, "button", {
+      className: "senify-editor__panel-title",
+      text: `${isCollapsed ? "▸" : "▾"} ${group.label}`,
+    });
+    head.setAttribute("type", "button");
+    head.addEventListener("click", () => {
+      if (isCollapsed) collapsed.delete(group.id);
+      else collapsed.add(group.id);
+      renderPanelHost();
+    });
+    panel.appendChild(head);
+    if (isCollapsed) return panel;
     for (const field of group.fields) {
       if (field.hidden) continue;
       panel.appendChild(renderField(field, selected));
@@ -737,7 +1123,7 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
         breakpoint: state.activeBreakpoint,
       },
       `Feld ${field.key}`,
-    );
+    ).catch(() => undefined);
   }
 
   function renderField(field: PanelField, selected: string): DomElement {
@@ -820,19 +1206,632 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
         void runAction(
           { kind: "override-reset", nodeId: selected, key: field.key, breakpoint: field.target },
           `Override zurücksetzen · ${field.key}`,
-        );
+        ).catch(() => undefined);
       });
       row.appendChild(reset);
     }
     return row;
   }
 
-  function renderSpotlight(): void {
-    if (!spotlightOpen) {
-      overlay.setAttribute("hidden", "hidden");
+  /* ------------------------------------------------------------ frames and stage */
+
+  function renderFrames(): void {
+    framesHost.textContent = "";
+    renderer.destroy();
+    mountedFrames.length = 0;
+    const placements = framePlacements(state);
+    framesForState(state).forEach((frame, index) => {
+      const placement = placements[index];
+      const live = frame.width === null;
+      const offsetLeft = live ? 0 : (placement?.left ?? 0) + STAGE_OFFSET;
+      const offsetTop = live ? 0 : (placement?.top ?? 0) + STAGE_OFFSET;
+      const wrap = h(doc, "div", {
+        className: "senify-editor__frame",
+        data: { breakpoint: frame.breakpoint },
+        style: live
+          ? { left: "0", top: "0", width: "100%", height: "100%" }
+          : {
+              left: `${offsetLeft}px`,
+              top: `${offsetTop}px`,
+              width: `${frame.width ?? 0}px`,
+              height: `${frame.height ?? 0}px`,
+              transform: `scale(${frame.scale})`,
+              transformOrigin: "0 0",
+            },
+      });
+      const iframe = h(doc, "iframe", {
+        className: "senify-editor__iframe",
+        attributes: { title: frame.label, "data-frame": frame.breakpoint },
+        style: { width: "100%", height: "100%", border: "0" },
+      });
+      const mount = (): void => {
+        const body = iframe.contentWindow?.document.body ?? null;
+        if (!body) return;
+        renderer.mount(frame, body, {
+          tree: options.tree(),
+          registry: options.registry,
+          breakpoint: frame.breakpoint,
+        });
+        // The first mount can land in the initial about:blank document, which
+        // the srcdoc load replaces. Keep exactly one live entry per frame:
+        // a stale detached body reports zero-size rects to the overlay.
+        const stale = mountedFrames.findIndex((entry) => entry.wrap === wrap);
+        if (stale >= 0) mountedFrames.splice(stale, 1);
+        mountedFrames.push({ frame, wrap, body, offsetLeft, offsetTop });
+        wireFrameBody(body);
+        syncSelectionRing();
+        renderOverlay();
+      };
+      iframe.addEventListener("load", mount);
+      iframe.setAttribute("srcdoc", frameDoc(options.frameStyles));
+      wrap.appendChild(iframe);
+      framesHost.appendChild(wrap);
+      mount();
+    });
+  }
+
+  function wireFrameBody(body: DomElement): void {
+    body.addEventListener("click", (event: DomEvent) => {
+      if (inline.session) return;
+      const target = (event.target as DomElement | null)?.closest?.("[data-node-id]");
+      const nodeId = target?.getAttribute("data-node-id") ?? null;
+      if (!nodeId) return;
+      const next = event.altKey === true ? parentIdOf(nodeId) ?? nodeId : nodeId;
+      if (next !== state.selectedNodeId) select(next);
+      event.stopPropagation?.();
+    });
+    body.addEventListener("contextmenu", (event: DomEvent) => {
+      if (inline.session) return;
+      const target = (event.target as DomElement | null)?.closest?.("[data-node-id]");
+      const nodeId = target?.getAttribute("data-node-id") ?? null;
+      if (!nodeId) return;
+      event.preventDefault?.();
+      select(nodeId);
+      const mounted = mountedFrames.find((entry) => entry.body === body);
+      const scale = mounted?.frame.scale ?? 1;
+      contextMenu = {
+        nodeId,
+        left: (mounted?.offsetLeft ?? 0) + (event.clientX ?? 0) * scale,
+        top: (mounted?.offsetTop ?? 0) + (event.clientY ?? 0) * scale,
+      };
+      renderOverlay();
+    });
+    body.addEventListener("dblclick", (event: DomEvent) => {
+      const target = (event.target as DomElement | null)?.closest?.("[data-inline]");
+      if (!target) return;
+      const nodeId =
+        target.getAttribute("data-inline-node") ?? target.getAttribute("data-node-id");
+      const key = target.getAttribute("data-prop-key");
+      if (!nodeId || !key) return;
+      startInline(target, nodeId, key);
+      event.preventDefault?.();
+    });
+    body.addEventListener("input", (event: DomEvent) => {
+      const target = (event.target as DomElement | null)?.closest?.("[data-inline]");
+      if (!target || !inline.session) return;
+      void commitInline(target.textContent ?? "");
+    });
+    body.addEventListener("keydown", (event: DomEvent) => {
+      if (!inline.session) return;
+      if (event.key === "Escape") {
+        void revertInline();
+        return;
+      }
+      if (event.key === "Enter") {
+        const target = (event.target as DomElement | null)?.closest?.("[data-inline]");
+        target?.removeAttribute("contenteditable");
+        inline.commit();
+      }
+    });
+  }
+
+  function parentIdOf(nodeId: string): string | null {
+    const tree = options.tree();
+    if (nodeId === tree.rootNodeId) return null;
+    const visit = (ownerId: string): string | null => {
+      const owner = tree.nodes[ownerId];
+      if (!owner) return null;
+      for (const childId of owner.children ?? []) {
+        if (childId === nodeId) return ownerId;
+        const found = visit(childId);
+        if (found) return found;
+      }
+      for (const list of Object.values(owner.slots ?? {})) {
+        for (const childId of list) {
+          if (childId === nodeId) return ownerId;
+          const found = visit(childId);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    return visit(tree.rootNodeId);
+  }
+
+  // Where a node sits in its owner list — the anchor for insert points and
+  // the move commands of the context menu.
+  function siblingPlacement(
+    nodeId: string,
+  ): { parent: ParentRef; index: number; count: number } | null {
+    const tree = options.tree();
+    const visit = (ownerId: string): { parent: ParentRef; index: number; count: number } | null => {
+      const owner = tree.nodes[ownerId];
+      if (!owner) return null;
+      const lists: { slot: string | null; ids: string[] }[] = [
+        { slot: null, ids: owner.children ?? [] },
+        ...Object.entries(owner.slots ?? {}).map(([slot, ids]) => ({ slot, ids: [...ids] })),
+      ];
+      for (const list of lists) {
+        const index = list.ids.indexOf(nodeId);
+        if (index >= 0) {
+          return {
+            parent: list.slot === null ? { nodeId: ownerId } : { nodeId: ownerId, slot: list.slot },
+            index,
+            count: list.ids.length,
+          };
+        }
+      }
+      for (const list of lists) {
+        for (const childId of list.ids) {
+          const found = visit(childId);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    return visit(tree.rootNodeId);
+  }
+
+  function syncSelectionRing(): void {
+    for (const mounted of mountedFrames) {
+      for (const element of mounted.body.querySelectorAll("[data-node-id]")) {
+        const id = element.getAttribute("data-node-id");
+        if (id !== null && id === state.selectedNodeId) {
+          element.setAttribute("data-selected", "true");
+        } else {
+          element.removeAttribute("data-selected");
+        }
+      }
+    }
+  }
+
+  function selectionRect(
+    nodeId: string,
+  ): { left: number; top: number; width: number; height: number } | null {
+    for (const mounted of mountedFrames) {
+      const element = mounted.body.querySelector(`[data-node-id="${nodeId}"]`);
+      if (!element) continue;
+      const rect = element.getBoundingClientRect?.();
+      if (!rect) continue;
+      const scale = mounted.frame.scale;
+      return {
+        left: mounted.offsetLeft + rect.left * scale,
+        top: mounted.offsetTop + rect.top * scale,
+        width: rect.width * scale,
+        height: rect.height * scale,
+      };
+    }
+    return null;
+  }
+
+  function inlineTargetFor(nodeId: string): DomElement | null {
+    for (const mounted of mountedFrames) {
+      const found = mounted.body.querySelector(`[data-inline-node="${nodeId}"]`);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  function startInline(target: DomElement, nodeId: string, key: string): void {
+    inline.start({ nodeId, key, value: target.textContent ?? "" });
+    target.setAttribute("contenteditable", "plaintext-only");
+    target.focus?.();
+  }
+
+  function editNodeInline(nodeId: string): void {
+    const target = inlineTargetFor(nodeId);
+    if (!target) {
+      report("Dieses Element hat keinen bearbeitbaren Text.");
+      renderStatus();
       return;
     }
-    overlay.removeAttribute("hidden");
+    const key = target.getAttribute("data-prop-key");
+    if (!key) return;
+    startInline(target, nodeId, key);
+  }
+
+  async function commitInline(value: string): Promise<void> {
+    const { mutation } = inline.type(value);
+    const versionBefore = session.version;
+    try {
+      const response = await session.applyMutations([mutation]);
+      inline.record({
+        undoPatch: response.results.flatMap((result) => result.undoPatch),
+        batchId: response.undoBatchId,
+        versionBefore,
+        versionAfter: response.newDraftVersion,
+      });
+      report(null);
+    } catch (error) {
+      reportError(error);
+    }
+  }
+
+  async function revertInline(): Promise<void> {
+    const { mutation } = inline.revert();
+    report("Inline-Text zurückgesetzt");
+    if (!mutation) {
+      renderStatus();
+      return;
+    }
+    try {
+      await session.applyMutations([mutation]);
+      render();
+    } catch (error) {
+      reportError(error);
+      renderStatus();
+    }
+  }
+
+  function handleButton(
+    id: string,
+    glyph: string,
+    title: string,
+    onClick: () => void,
+    enabled = true,
+  ): DomElement {
+    const button = h(doc, "button", {
+      className: `senify-editor__handle-btn${id === "grip" ? " senify-editor__handle-grip" : ""}`,
+      text: glyph,
+      data: { action: id },
+      attributes: { title: enabled ? title : `${title} — gesperrt` },
+    });
+    button.setAttribute("type", "button");
+    if (!enabled) button.setAttribute("disabled", "disabled");
+    if (enabled) button.addEventListener("click", onClick);
+    return button;
+  }
+
+  function renderOverlay(): void {
+    overlay.textContent = "";
+    if (state.mode !== "design") return;
+    const nodeId = state.selectedNodeId;
+    if (nodeId !== null) renderSelectionOverlay(nodeId);
+    if (contextMenu !== null) renderContextMenu();
+  }
+
+  function renderSelectionOverlay(nodeId: string): void {
+    const tree = options.tree();
+    const node = tree.nodes[nodeId];
+    if (!node) return;
+    const placement = siblingPlacement(nodeId);
+    const rect = selectionRect(nodeId);
+    const isRoot = nodeId === tree.rootNodeId;
+    const locked = node.locked === true;
+    if (rect) {
+      // Elementor's handle hugs the element's top-left corner; at the very top
+      // of the page it flips inside so it never floats over the gray stage.
+      const handleTop = rect.top > 34 ? rect.top - 32 : rect.top + 2;
+      const bar = h(doc, "div", {
+        className: "senify-editor__handle",
+        data: { handle: nodeId },
+        style: {
+          left: `${Math.max(0, rect.left)}px`,
+          top: `${Math.max(0, handleTop)}px`,
+        },
+      });
+      const definition = options.registry.has(node.type)
+        ? options.registry.get(node.type)
+        : undefined;
+      const label = definition?.title ?? node.type;
+      if (!isRoot) {
+        bar.appendChild(
+          handleButton("grip", "⠿", `${label} verschieben`, () => undefined, false),
+        );
+      }
+      bar.appendChild(
+        handleButton(
+          "edit",
+          "✎",
+          `${label} bearbeiten`,
+          () => editNodeInline(nodeId),
+          inlineTargetFor(nodeId) !== null,
+        ),
+      );
+      if (!isRoot) {
+        bar.appendChild(
+          handleButton("duplicate", "⧉", `${label} duplizieren`, () => duplicateNode(nodeId), !locked),
+        );
+        bar.appendChild(
+          handleButton("delete", "✕", `${label} löschen`, () => removeNode(nodeId), !locked),
+        );
+      }
+      overlay.appendChild(bar);
+    }
+    if (placement !== null) {
+      const top = rect ? rect.top : null;
+      const bottom = rect ? rect.top + rect.height : null;
+      const center = rect ? rect.left + rect.width / 2 - 13 : null;
+      if (top !== null && center !== null) {
+        const before = h(doc, "button", {
+          className: "senify-editor__insert",
+          text: "+",
+          data: { action: "insert-before" },
+          attributes: { title: "Element davor einfügen" },
+          style: { left: `${Math.max(0, center)}px`, top: `${Math.max(0, top - 13)}px` },
+        });
+        before.setAttribute("type", "button");
+        before.addEventListener("click", () =>
+          startInsert(
+            {
+              parent: placement.parent,
+              index: placement.index,
+            },
+            "Neues Element davor einfügen",
+          ),
+        );
+        overlay.appendChild(before);
+      }
+      if (bottom !== null && center !== null) {
+        const after = h(doc, "button", {
+          className: "senify-editor__insert",
+          text: "+",
+          data: { action: "insert-after" },
+          attributes: { title: "Element danach einfügen" },
+          style: { left: `${Math.max(0, center)}px`, top: `${Math.max(0, bottom - 13)}px` },
+        });
+        after.setAttribute("type", "button");
+        after.addEventListener("click", () =>
+          startInsert(
+            {
+              parent: placement.parent,
+              index: placement.index + 1,
+            },
+            "Neues Element danach einfügen",
+          ),
+        );
+        overlay.appendChild(after);
+      }
+    }
+  }
+
+  function contextItem(
+    label: string,
+    onClick: () => void,
+    options?: { danger?: boolean; enabled?: boolean; trailing?: string },
+  ): DomElement {
+    const item = h(doc, "button", {
+      className: "senify-editor__context-item",
+      data: {
+        ...(options?.danger === undefined ? {} : { danger: String(options.danger) }),
+        ...(options?.enabled === undefined ? {} : { enabled: String(options.enabled) }),
+      },
+    });
+    item.setAttribute("type", "button");
+    item.appendChild(h(doc, "span", { text: label }));
+    if (options?.trailing) {
+      item.appendChild(h(doc, "span", { className: "senify-editor__history-time", text: options.trailing }));
+    }
+    item.addEventListener("click", (event) => {
+      event.stopPropagation?.();
+      if (options?.enabled === false) return;
+      contextMenu = null;
+      onClick();
+      renderOverlay();
+    });
+    return item;
+  }
+
+  function renderContextMenu(): void {
+    if (contextMenu === null) return;
+    const { nodeId, left, top } = contextMenu;
+    const tree = options.tree();
+    const node = tree.nodes[nodeId];
+    if (!node) {
+      contextMenu = null;
+      return;
+    }
+    const definition = options.registry.has(node.type) ? options.registry.get(node.type) : undefined;
+    const isRoot = nodeId === tree.rootNodeId;
+    const locked = node.locked === true;
+    const hidden = isHiddenAt(tree, nodeId, state.activeBreakpoint);
+    const menu = h(doc, "div", {
+      className: "senify-editor__context",
+      data: { context: nodeId },
+      style: { left: `${Math.max(0, left)}px`, top: `${Math.max(0, top)}px` },
+    });
+    menu.addEventListener("click", (event) => event.stopPropagation?.());
+    menu.appendChild(
+      contextItem(`Einstellungen${definition ? ` · ${definition.title}` : ""}`, () => {
+        select(nodeId);
+        panelMode = "settings";
+        panelTab = "content";
+        renderPanelHost();
+      }),
+    );
+    menu.appendChild(
+      contextItem(
+        "Text bearbeiten",
+        () => editNodeInline(nodeId),
+        { enabled: inlineTargetFor(nodeId) !== null },
+      ),
+    );
+    menu.appendChild(menuSeparator());
+    const placement = siblingPlacement(nodeId);
+    menu.appendChild(
+      contextItem("Duplizieren", () => duplicateNode(nodeId), {
+        enabled: !isRoot && !locked,
+        trailing: "Strg+D",
+      }),
+    );
+    menu.appendChild(
+      contextItem("Nach oben", () => moveNode(nodeId, (placement?.index ?? 0) - 1), {
+        enabled: !isRoot && !locked && placement !== null && placement.index > 0,
+      }),
+    );
+    menu.appendChild(
+      contextItem("Nach unten", () => moveNode(nodeId, placement?.index ?? 0), {
+        enabled:
+          !isRoot &&
+          !locked &&
+          placement !== null &&
+          placement.index < placement.count - 1,
+      }),
+    );
+    menu.appendChild(
+      contextItem(hidden ? "Einblenden" : "Ausblenden", () => toggleHidden(nodeId), {
+        enabled: !isRoot,
+      }),
+    );
+    menu.appendChild(menuSeparator());
+    menu.appendChild(
+      contextItem("Löschen", () => removeNode(nodeId), {
+        danger: true,
+        enabled: !isRoot && !locked,
+        trailing: "Entf",
+      }),
+    );
+    overlay.appendChild(menu);
+  }
+
+  function duplicateNode(nodeId: string): void {
+    void runAction({ kind: "duplicate", nodeId }, "Knoten duplizieren").catch(() => undefined);
+  }
+
+  function removeNode(nodeId: string): void {
+    const tree = options.tree();
+    if (nodeId === tree.rootNodeId) return;
+    const parent = parentIdOf(nodeId);
+    void applyMutations(emitMutations({ kind: "delete", nodeId }, { tree }), "Knoten löschen")
+      .then(() => {
+        if (state.selectedNodeId === nodeId) select(parent);
+      })
+      .catch(() => undefined);
+  }
+
+  // `index` is the post-removal position (engine contract): moving one slot
+  // up is index-1, one slot down is index.
+  function moveNode(nodeId: string, index: number): void {
+    const placement = siblingPlacement(nodeId);
+    if (!placement) return;
+    if (index < 0 || index > placement.count - 1) return;
+    void runAction({ kind: "move", nodeId, target: placement.parent, index }, "Knoten verschieben")
+      .catch(() => undefined);
+  }
+
+  function toggleHidden(nodeId: string): void {
+    const hidden = isHiddenAt(options.tree(), nodeId, state.activeBreakpoint);
+    void runAction(
+      { kind: "hide", nodeId, hidden: !hidden, breakpoint: state.activeBreakpoint },
+      hidden ? "Knoten einblenden" : "Knoten ausblenden",
+    )
+      .then(() => {
+        renderPanelHost();
+      })
+      .catch(() => undefined);
+  }
+
+  /* ------------------------------------------------------------ rail (structure) */
+
+  function renderRail(): void {
+    rail.textContent = "";
+    const tabs = h(doc, "div", { className: "senify-editor__tabs" });
+    for (const tab of EXPLORER_TABS) {
+      const button = h(doc, "button", {
+        className: "senify-editor__tab",
+        text: tab.label,
+        data: { tab: tab.id, active: String(activeTab === tab.id) },
+      });
+      button.setAttribute("type", "button");
+      button.addEventListener("click", () => {
+        activeTab = tab.id;
+        renderRail();
+      });
+      tabs.appendChild(button);
+    }
+    rail.appendChild(tabs);
+    const list = h(doc, "div", { className: "senify-editor__list" });
+    if (activeTab === "layers") {
+      for (const item of buildLayerList(options.tree(), { registry: options.registry })) {
+        list.appendChild(layerRow(item));
+      }
+    } else if (activeTab === "pages") {
+      for (const page of options.pages?.() ?? []) {
+        const row = h(doc, "button", {
+          className: "senify-editor__row",
+          text: `${page.title} · ${page.path}`,
+          data: { page: page.id, active: String(page.id === options.page.pageId) },
+        });
+        row.setAttribute("type", "button");
+        row.addEventListener("click", () =>
+          options.onCommand?.({ type: "open-page", pageId: page.id }),
+        );
+        list.appendChild(row);
+      }
+      const templates = buildTemplatesSection(options.templates?.() ?? [], null);
+      if (templates.length > 0) {
+        list.appendChild(h(doc, "div", { className: "senify-editor__section", text: "Vorlagen" }));
+        for (const template of templates) {
+          list.appendChild(templateRow(template.label, template.badge, template.id));
+        }
+      }
+    } else if (activeTab === "templates") {
+      for (const template of buildTemplatesSection(options.templates?.() ?? [], null)) {
+        list.appendChild(templateRow(template.label, template.badge, template.id));
+      }
+    } else {
+      const search = h(doc, "input", { className: "senify-editor__search" });
+      search.setAttribute("placeholder", "Medien suchen");
+      list.appendChild(search);
+      const media = buildMediaTab(options.media?.() ?? [], options.mediaQuery?.());
+      for (const item of media.items) {
+        list.appendChild(
+          h(doc, "div", {
+            className: "senify-editor__row",
+            text: item.name,
+            data: { media: item.id },
+          }),
+        );
+      }
+    }
+    rail.appendChild(list);
+  }
+
+  function templateRow(label: string, badge: string, id: string): DomElement {
+    return h(doc, "div", {
+      className: "senify-editor__row",
+      text: `${label} · ${badge}`,
+      data: { template: id },
+    });
+  }
+
+  function layerRow(item: LayerItem): DomElement {
+    const row = h(doc, "button", {
+      className: "senify-editor__row",
+      text: `${"  ".repeat(item.depth)}${item.label}`,
+      data: {
+        node: item.id,
+        active: String(item.id === state.selectedNodeId),
+        hidden: String(item.hidden),
+        locked: String(item.locked),
+      },
+    });
+    row.setAttribute("type", "button");
+    row.addEventListener("click", (event: DomEvent) => {
+      // Alt-Klick steigt eine Ebene hoch (Inspect-Ladder).
+      select(event.altKey ? item.parentId : item.id);
+    });
+    return row;
+  }
+
+  /* ------------------------------------------------------------ spotlight */
+
+  function renderSpotlight(): void {
+    if (!spotlightOpen) {
+      spotlight.setAttribute("hidden", "hidden");
+      return;
+    }
+    spotlight.removeAttribute("hidden");
     spotlightList.textContent = "";
     for (const item of searchSpotlight(spotlightIndex(), spotlightQuery)) {
       const row = h(doc, "button", {
@@ -842,7 +1841,20 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
       });
       row.setAttribute("type", "button");
       row.addEventListener("click", () => {
-        options.onCommand?.(item.command);
+        if (item.command.type === "insert-section") {
+          const definition = options.registry.has(item.command.sectionType)
+            ? options.registry.get(item.command.sectionType)
+            : undefined;
+          if (definition) {
+            void applyMutations(
+              goldenTreeToMutations(definition.golden.tree, { nodeId: options.tree().rootNodeId })
+                .mutations,
+              `${definition.title} einfügen`,
+            ).catch(() => undefined);
+          }
+        } else {
+          options.onCommand?.(item.command);
+        }
         openSpotlight(false);
       });
       spotlightList.appendChild(row);
@@ -857,8 +1869,29 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     });
   }
 
+  /* ------------------------------------------------------------ status footer */
+
   function renderStatus(): void {
-    status.textContent = message ?? "";
+    status.textContent = "";
+    status.setAttribute("data-tone", messageTone);
+    if (state.mode === "design") {
+      const zoomGroup = h(doc, "div", { className: "senify-editor__zoom" });
+      zoomGroup.appendChild(iconButton({ id: "zoom-out", text: "−", title: "Herauszoomen", onClick: () => zoomByStep(-0.1) }));
+      zoomGroup.appendChild(
+        iconButton({
+          id: "zoom-reset",
+          text: `${Math.round(state.design.zoom * 100)} %`,
+          title: "Zoom zurücksetzen",
+          onClick: () => resetZoom(),
+        }),
+      );
+      zoomGroup.appendChild(iconButton({ id: "zoom-in", text: "+", title: "Hineinzoomen", onClick: () => zoomByStep(0.1) }));
+      status.appendChild(zoomGroup);
+    }
+    const text =
+      message ??
+      (state.mode === "live" ? "Vorschau-Modus — Bearbeitung im Design-Modus" : "");
+    status.appendChild(h(doc, "div", { className: "senify-editor__status-message", text }));
     if (message) {
       const reload = h(doc, "button", { className: "senify-editor__reload", text: "Neu laden" });
       reload.setAttribute("type", "button");
@@ -871,11 +1904,15 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     }
   }
 
+  /* ------------------------------------------------------------ lifecycle */
+
   function render(): void {
-    renderToolbar();
+    syncMain();
+    renderTopbar();
     renderFrames();
     renderRail();
-    renderPanels();
+    renderPanelHost();
+    renderOverlay();
     renderSpotlight();
     renderStatus();
   }
@@ -889,21 +1926,42 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
   function setBreakpoint(breakpoint: FrameBreakpoint): void {
     state = setBreakpointState(state, breakpoint);
     syncDeepLink();
-    render();
+    renderTopbar();
+    renderPanelHost();
+    renderOverlay();
+    focusActiveFrame();
+  }
+
+  function focusActiveFrame(): void {
+    if (state.mode !== "design") return;
+    const mounted = mountedFrames.find(
+      (entry) => entry.frame.breakpoint === state.activeBreakpoint,
+    );
+    if (!mounted) return;
+    stage.scrollLeft = Math.max(0, mounted.offsetLeft - STAGE_OFFSET);
   }
 
   function select(nodeId: string | null): void {
     state = selectNode(state, nodeId);
+    if (nodeId === null && panelMode === "settings") panelMode = "widgets";
+    if (nodeId !== null && panelMode === "widgets" && insertTarget === null) {
+      panelMode = "settings";
+    }
+    contextMenu = null;
     syncDeepLink();
+    renderTopbar();
     renderRail();
-    renderPanels();
+    renderPanelHost();
     syncSelectionRing();
+    renderOverlay();
   }
 
   function zoomByStep(delta: number): void {
     state = zoomBy(state, delta);
     renderFrames();
-    renderToolbar();
+    renderTopbar();
+    renderOverlay();
+    renderStatus();
   }
 
   function resetZoom(): void {
@@ -911,7 +1969,9 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     stage.scrollLeft = 0;
     stage.scrollTop = 0;
     renderFrames();
-    renderToolbar();
+    renderTopbar();
+    renderOverlay();
+    renderStatus();
   }
 
   function openSpotlight(open?: boolean): void {
@@ -925,16 +1985,56 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     renderSpotlight();
   });
 
+  const closeFloating = (): void => {
+    if (menuOpen !== null) {
+      menuOpen = null;
+      renderTopbar();
+    }
+    if (contextMenu !== null) {
+      contextMenu = null;
+      renderOverlay();
+    }
+  };
+  const onStageScroll = (): void => renderOverlay();
+  const onResize = (): void => renderOverlay();
+  doc.addEventListener("click", closeFloating);
+  stage.addEventListener("scroll", onStageScroll);
+
   const onKeydown = (event: DomEvent): void => {
     const modifier = event.metaKey === true || event.ctrlKey === true;
     const key = (event.key ?? "").toLowerCase();
+    const target = event.target as { tagName?: string; isContentEditable?: boolean } | null;
+    const tag = target?.tagName?.toLowerCase() ?? "";
+    const editable =
+      tag === "input" || tag === "textarea" || tag === "select" || target?.isContentEditable === true;
     if (modifier && key === "k") {
-      openSpotlight();
+      openSpotlight(true);
       event.preventDefault?.();
       return;
     }
-    if (event.key === "Escape" && spotlightOpen) {
-      openSpotlight(false);
+    if (event.key === "Escape") {
+      if (menuOpen !== null) {
+        menuOpen = null;
+        renderTopbar();
+        return;
+      }
+      if (contextMenu !== null) {
+        contextMenu = null;
+        renderOverlay();
+        return;
+      }
+      if (spotlightOpen) {
+        openSpotlight(false);
+        return;
+      }
+      if (!editable && state.selectedNodeId !== null) select(null);
+      return;
+    }
+    if (editable) return;
+    if (modifier && key === "s") {
+      event.preventDefault?.();
+      report(`Entwurf gespeichert · v${session.version}`);
+      renderStatus();
       return;
     }
     if (modifier && key === "z") {
@@ -946,10 +2046,21 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     if (modifier && key === "y") {
       void instance.redo();
       event.preventDefault?.();
+      return;
+    }
+    if (modifier && key === "d" && state.selectedNodeId !== null) {
+      event.preventDefault?.();
+      duplicateNode(state.selectedNodeId);
+      return;
+    }
+    if (key === "delete" && state.selectedNodeId !== null) {
+      event.preventDefault?.();
+      removeNode(state.selectedNodeId);
     }
   };
   const keyboardTarget: DomDocument | DomWindow = win ?? doc;
   keyboardTarget.addEventListener("keydown", onKeydown);
+  if (win) win.addEventListener("resize", onResize);
 
   const instance: EditorInstance = {
     state: () => state,
@@ -975,6 +2086,9 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     select,
     openTab: (tab) => {
       activeTab = tab;
+      railHidden = false;
+      syncMain();
+      renderTopbar();
       renderRail();
     },
     zoom: zoomByStep,
@@ -984,6 +2098,9 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     refresh: render,
     message: () => message,
     destroy: () => {
+      doc.removeEventListener("click", closeFloating);
+      stage.removeEventListener("scroll", onStageScroll);
+      if (win) win.removeEventListener("resize", onResize);
       keyboardTarget.removeEventListener("keydown", onKeydown);
       renderer.destroy();
       root.remove();

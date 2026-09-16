@@ -9,6 +9,9 @@ export type DomEvent = {
   readonly ctrlKey?: boolean;
   readonly shiftKey?: boolean;
   readonly detail?: number;
+  readonly button?: number;
+  readonly clientX?: number;
+  readonly clientY?: number;
   readonly target?: unknown;
   preventDefault?(): void;
   stopPropagation?(): void;
@@ -45,6 +48,14 @@ export type DomElement = {
   closest(selector: string): DomElement | null;
   focus?(): void;
   remove(): void;
+  // Real elements in the browser expose their box; the overlay handle and the
+  // "+" insert points are positioned from it.
+  getBoundingClientRect?(): {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  };
 };
 
 export type DomDocument = {

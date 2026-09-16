@@ -98,13 +98,19 @@ describe.skipIf(!browserAvailable)("editor in a real browser (T13)", () => {
       // Design mode: three breakpoint frames with real media queries.
       expect(await tab.locator(".senify-editor__iframe").count()).toBe(3);
 
-      // The stage sits right of the rail, the frames inside the stage.
+      // The stage sits right of the rail, the frames inside the stage; the
+      // settings/catalog panel is the leftmost column (Elementor layout).
+      const panelBox = await tab.locator(".senify-editor__panels").boundingBox();
       const railBox = await tab.locator(".senify-editor__rail").boundingBox();
       const stageBox = await tab.locator(".senify-editor__stage").boundingBox();
       const frameBox = await tab.locator(".senify-editor__frame").first().boundingBox();
+      expect(panelBox).not.toBeNull();
       expect(railBox).not.toBeNull();
       expect(stageBox).not.toBeNull();
       expect(frameBox).not.toBeNull();
+      expect((panelBox?.x ?? 0) + (panelBox?.width ?? 0)).toBeLessThanOrEqual(
+        (railBox?.x ?? 0) + 1,
+      );
       expect((railBox?.x ?? 0) + (railBox?.width ?? 0)).toBeLessThanOrEqual(
         (stageBox?.x ?? 0) + 1,
       );
@@ -188,6 +194,83 @@ describe.skipIf(!browserAvailable)("editor in a real browser (T13)", () => {
         .poll(async () => renderedHeadline.getAttribute("contenteditable"))
         .toBe("plaintext-only");
       await tab.keyboard.press("Escape");
+
+      // --- Elementor-like chrome (T17/M2) ---
+      // Top bar with device switcher, structure toggle and publish.
+      expect(await tab.locator(".senify-editor__topbar").count()).toBe(1);
+      expect(
+        await tab.locator(".senify-editor__devices .senify-editor__button[data-bp]").count(),
+      ).toBe(3);
+      expect(await tab.locator(".senify-editor__publish").count()).toBe(1);
+
+      // The device switcher moves the active flag without re-creating frames.
+      await tab.locator('.senify-editor__devices [data-bp="tablet"]').click();
+      await expect
+        .poll(async () =>
+          tab
+            .locator('.senify-editor__devices [data-bp="tablet"][data-active="true"]')
+            .count(),
+        )
+        .toBe(1);
+      expect(await tab.locator(".senify-editor__iframe").count()).toBe(3);
+      await tab.locator('.senify-editor__devices [data-bp="desktop"]').click();
+
+      // Structure button hides and restores the rail.
+      await tab.locator('.senify-editor__button[data-action="structure"]').click();
+      expect(await tab.locator(".senify-editor__rail").isVisible()).toBe(false);
+      await tab.locator('.senify-editor__button[data-action="structure"]').click();
+      expect(await tab.locator(".senify-editor__rail").isVisible()).toBe(true);
+
+      // Settings tabs: Content → Style → Advanced (Motion + Sichtbarkeit).
+      await tab.locator('.senify-editor__ptab[data-ptab="style"]').click();
+      await expect
+        .poll(async () =>
+          tab.locator('.senify-editor__ptab[data-ptab="style"][data-active="true"]').count(),
+        )
+        .toBe(1);
+      await tab.locator('.senify-editor__ptab[data-ptab="advanced"]').click();
+      await expect
+        .poll(async () => tab.locator('.senify-editor__panel[data-group="motion"]').count())
+        .toBe(1);
+      expect(await tab.locator('.senify-editor__panel[data-group="visibility"]').count()).toBe(1);
+      await tab.locator('.senify-editor__ptab[data-ptab="content"]').click();
+
+      // Selection handle: duplicate and delete right from the canvas.
+      const heroSections = (): Promise<number> =>
+        firstFrame.locator('section[data-section="hero"]').count();
+      const heroesBefore = await heroSections();
+      await tab.locator('.senify-editor__handle [data-action="duplicate"]').click();
+      await expect.poll(heroSections).toBe(heroesBefore + 1);
+      await tab.locator('.senify-editor__handle [data-action="delete"]').click();
+      await expect.poll(heroSections).toBe(heroesBefore);
+
+      // "+" insert point: opens the catalog with a hint, the picked widget
+      // lands next to the selected section.
+      await firstFrame.locator("h1").first().click();
+      const insertAfter = tab.locator('.senify-editor__insert[data-action="insert-after"]');
+      await expect.poll(async () => insertAfter.count()).toBe(1);
+      await insertAfter.click();
+      await expect.poll(async () => tab.locator(".senify-editor__hint").count()).toBe(1);
+      await tab.locator('.senify-editor__widget-card[data-widget="divider"]').click();
+      await expect
+        .poll(async () => firstFrame.locator('section[data-section="divider"]').count())
+        .toBe(1);
+
+      // Right-click inside a frame opens the element context menu; clicking
+      // the gray stage closes it again.
+      await firstFrame.locator("h1").first().click({ button: "right" });
+      await expect.poll(async () => tab.locator(".senify-editor__context").count()).toBe(1);
+      await tab.locator(".senify-editor__stage").click({ position: { x: 6, y: 6 } });
+      await expect.poll(async () => tab.locator(".senify-editor__context").count()).toBe(0);
+
+      // Zoom lives in the footer (Elementor's bottom bar).
+      await tab.locator('.senify-editor__zoom [data-action="zoom-in"]').click();
+      await expect
+        .poll(async () =>
+          tab.locator('.senify-editor__zoom [data-action="zoom-reset"]').textContent(),
+        )
+        .toContain("60");
+      await tab.locator('.senify-editor__zoom [data-action="zoom-reset"]').click();
 
       // Live mode: one frame in real size, switching back keeps the state.
       await tab.locator('.senify-editor__button[data-mode="live"]').click();

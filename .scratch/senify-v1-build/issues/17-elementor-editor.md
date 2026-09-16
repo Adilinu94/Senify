@@ -4,7 +4,7 @@
 
 **Blocked by:** 13 (Editor-Kern, umgesetzt), 12 (Programm-Shell).
 
-**Status:** in Arbeit — M1 (echtes Rendering im Canvas) umgesetzt; M2–M4 offen
+**Status:** in Arbeit — M1 (echtes Rendering) und M2 (Elementor-Chrome) umgesetzt; M3–M4 offen
 
 ## Recherche (Elementor-Editor, Stand 09/2026)
 
@@ -44,3 +44,14 @@ Quellen: Elementor Help „Explore the Elementor Editor", „Elementor Top Bar",
 - **Stylesheet:** `packages/app/editor/frame.css` (`@import "tailwindcss" source(none)`, `@import` der `components.css` aus dem Renderer-Template, `@source` auf `packages/registry/src`); `packages/app/src/frame-css.ts` kompiliert einmalig lazy über `@tailwindcss/node` + `@tailwindcss/oxide`-Scanner und cached das Ergebnis; Server-Route `/editor-frame.css`.
 - **Frames:** `EditorOptions.frameStyles?: string[]` — `mount.ts` hängt die URLs als `<link>` in das Frame-Dokument (App übergibt `/theme.css`, `/editor-frame.css`). `app.js` erzeugt den Renderer mit `context` (Seitenpfade; Assets löst der Renderer über `/assets/...`-Fallback auf).
 - **Tests:** `editor-browser.test.ts` prüft jetzt echtes Markup im Frame (`section[data-section="hero"]`, `h1`-Text in allen drei Frames), Klick-Auswahl über den Frame, Inline-Annotation (`contenteditable` nach Doppelklick) und dass keine Stub-Kästen mehr erscheinen; `/editor-frame.css` wird auf ausgelieferte Utilities geprüft.
+
+## Umsetzungs-Notiz (M2)
+
+- **Aufbau:** Panel (17,5 rem, ab 1440 px 18,75 rem) | Struktur-Spalte | Canvas — das Panel ist die linke Spalte wie bei Elementor; die Struktur lässt sich per Top-Bar-Knopf ausblenden (`main--norail`).
+- **Top Bar (48 px):** Marken-Menü (Seiten-Einstellungen, Tastenkürzel, Spotlight), `+` (Widget-Katalog), `Seite`, `↺` Verlauf (Undo/Redo + Liste zum gezielten Zurückspringen ueber `restoreTo`), Seitenname mit Pfad, Geraete-Umschalter PC/Tablet/Mobile (setzt den aktiven Breakpoint, ohne Frames neu zu bauen, und scrollt den Rahmen in den Blick), `Struktur`, `Suchen` (Finder/Strg+K), `Design | Vorschau`, `Veroeffentlichen` + Dropdown (Review, Vorschau).
+- **Widget-Katalog:** Suche + Kategorien (Struktur/Inhalte/Commerce/Medien/Werkzeuge) als Kartenraster; Klick fuegt ueber die Golden-Vorlage ein (`goldenTreeToMutations`) — an der gewaehlten Position oder am Seitenende — und oeffnet danach die Einstellungen des neuen Elements.
+- **Einstellungen:** Kopf mit Zurueck-Pfeil, Tabs Content/Style/Advanced (Gruppen-Taxonomie der Registry wird aufgeteilt: Styling+Layout = Style, Motion+Sichtbarkeit = Advanced), Akkordeons mit Klapp-Zustand, Felder wie bisher inkl. Override-Badge/Reset.
+- **Canvas:** grauer Grund (#e0e0e0), weisse Sheets mit Schatten, Handle am Element (Griff, Bearbeiten-Stift, Duplizieren, Loeschen; gesperrte/root-Knoten eingeschraenkt) und `+`-Einfuegepunkte oben/unten; Rechtsklick-Kontextmenue (Einstellungen, Text bearbeiten, Duplizieren, Nach oben/unten, Ein-/Ausblenden, Loeschen) mit nur funktionierenden Aktionen; Tastenkürzel Strg+S/Strg+D/Entf/Esc.
+- **Architektur-Notiz:** `packages/editor/src/golden.ts` ist ein browser-sicherer Zwilling von `@senify/engine`s `goldenTreeToMutations` (der Engine-Index zieht pg/sharp/node:crypto und darf nicht ins Editor-Bundle); Signatur um einen Ziel-Index erweitert.
+- **Bugfix unterwegs:** Der erste Frame-Mount landet im about:blank-Dokument; der zweite (Load) ersetzt ihn. `mountedFrames` fuehrt jetzt genau einen Lebend-Eintrag je Frame, sonst rechnen Overlay/Handle mit Null-Rects des verworfenen Dokuments.
+- **Tests:** `editor-browser.test.ts` prueft die neue Chrome im echten Browser: Panel|Struktur|Canvas-Reihenfolge, Geraete-Umschalter, Struktur-Toggle, Panel-Tabs, Handle-Duplizieren/-Loeschen, `+`-Einfuegen mit Hinweis, Kontextmenue oeffnen/schliessen, Zoom-Footer.
