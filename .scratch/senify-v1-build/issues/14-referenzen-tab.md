@@ -92,3 +92,17 @@ Teil 1 liegt im Arbeitsbaum (nicht committet): `references-contract.ts`, `refere
 - **Stil-Guide:** Karten je Stilfamilie mit Vorschau, Erkennungsmerkmalen, Vokabular, Warnung, Beispielseiten und "Brief kopieren"/"Vokabular kopieren"; ein leerer Katalog lässt sich direkt aus der Ansicht einspielen.
 - **Zustand und Bedienung:** `?q=`, `?collection=`, `?sort=` in der Adresse, Hintergrund-Klick schließt Dialoge, Toast-Meldungen, Kopieren mit Fallback-Dialog.
 - **Tests:** `packages/app/test/references-browser.test.ts` (Leiste, Karten, Vergleich, Detail, Adresszustand im echten Chromium) und erweiterte Proxy-/Payload-Tests in `packages/app/test/server.test.ts`; alle App-Tests grün (12 Tests in 5 Dateien).
+
+## Design-Prüfung (Nacharbeit, gemessen gegen das Vorbild)
+
+- **Messung** bei 1440, 1024, 900 und 375 px in beiden Oberflächen mit Chromium: Raster und Typografie stimmen (drei Spalten à 367 px, Abstand 32/24 px, H1 56 px mit -2,3 px Laufweite, Suche 480x44 px mit Radius 9, Kartenrand 10 px, Vergleichsauswahl 25x25 px, Leisten-Eintrag 12 px).
+- **Behoben:**
+  - Waagerechter Überlauf bei 375 px (580 statt 375, Ursache war die Kopfleiste der Shell): kompakte Tab-Leiste, Tastenhinweis ausgeblendet, Knöpfe enger. Jetzt 375/375 ohne Überlauf.
+  - Unter 1000 px war die linke Leiste ausgeblendet und die Sammlung damit nicht erreichbar: Auswahlfeld wie im Vorbild (führt `collection`/`view` in die Adresse, Umschalten geprüft).
+  - Fehlende Fokusringe auf Leisten-Einträgen, Knöpfen, Chips, Auswahl und Auswahlfeldern ergänzt.
+  - Bewegungsreduktion (`prefers-reduced-motion`) ergänzt, wie im Vorbild.
+  - Trefferfläche der Vergleichsauswahl vergrößert (sichtbar 25 px bleibt, Treffer 45 px, mit Klick außerhalb der Fläche belegt).
+  - Kontrast der Hinweiszeilen und Zähler von 2,26 bis 3,01 auf 5,24 angehoben.
+  - Das aktive Leisten-Symbol nimmt jetzt die Farbe des Eintrags an (im Vorbild 6,57 statt vorher 2,67).
+  - Suchfeld wird unter 700 px nicht mehr gequetscht (Werkzeugleiste stapelt, Feld 325 statt etwa 110 px), Raster unter 480 px einspaltig.
+- **Bewusste Abweichungen:** Zähler und Hinweiszeilen etwas dunkler als das Vorbild (Kontrast), Tab-Leiste scrollt unter 700 px, Karten bleiben über 480 px zweispaltig wie im Vorbild.

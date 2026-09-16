@@ -1939,3 +1939,141 @@ dialog.modal select,
     gap: 12px;
   }
 }
+
+/* ---------------------------------------------------------- Feinschliff */
+
+/* Mobil: die linke Leiste ist ausgeblendet, hier waehlt man die Ansicht. */
+.refs-mobile-nav {
+  display: none;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 22px;
+  font-size: 11px;
+  color: #797181;
+}
+
+.refs-mobile-nav select {
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 550;
+  color: #4c5666;
+  padding: 3px 0;
+  max-width: calc(100vw - 135px);
+}
+
+@media (max-width: 1000px) {
+  .refs-mobile-nav {
+    display: flex;
+  }
+}
+
+/* Sichtbarer Fokus fuer Tastaturbedienung. */
+.refs-nav-item:focus-visible,
+.refs-button:focus-visible,
+.refs-icon-button:focus-visible,
+.refs-select:focus-visible,
+.refs-chip:focus-visible,
+.refs-sidebar-add:focus-visible,
+.refs-mobile-nav select:focus-visible,
+.refs-sort select:focus-visible,
+.refs-tags button:focus-visible {
+  outline: 2px solid #8f73eb;
+  outline-offset: 2px;
+}
+
+/* Der aktive Eintrag faerbt sein Symbol mit (wie im Vorbild). */
+.refs-nav-item.active .refs-nav-icon {
+  color: inherit;
+}
+
+/* Die Vergleichsauswahl bleibt 25px klein, trifft aber 45px wie ein Finger. */
+.refs-select::after {
+  content: "";
+  position: absolute;
+  inset: -10px;
+}
+
+/* Kleine Hinweiszeilen und Zaehler waren unter 4.5:1 Kontrast. */
+.refs-footer-count,
+.refs-sidebar-footer,
+.refs-nav-item .refs-nav-count,
+.refs-nav-count {
+  color: #6f6a78;
+}
+
+/* Auf Fingergeraeten groessere Ziele. */
+@media (pointer: coarse) {
+  .refs-nav-item {
+    min-height: 44px;
+  }
+
+  .refs-select {
+    width: 30px;
+    height: 30px;
+  }
+
+  .refs-mobile-nav select {
+    padding: 10px 0;
+  }
+}
+
+/* Bewegungsreduktion respektieren (Vorbild macht das ebenfalls). */
+@media (prefers-reduced-motion: reduce) {
+  .refs-shell *,
+  .refs-shell *::before,
+  .refs-shell *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Kopfleiste der Shell auf schmalen Fenstern: kein waagerechter Ueberlauf. */
+@media (max-width: 700px) {
+  .cmd-button kbd {
+    display: none;
+  }
+
+  .tabs {
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+    font-size: 11px;
+    gap: 2px;
+  }
+
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tabs a {
+    padding-inline: 7px;
+  }
+
+  .cmd-button {
+    padding-inline: 8px;
+  }
+
+  /* Werkzeugleiste stapeln, sonst bleibt der Suche zu wenig Platz. */
+  .refs-toolbar {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .refs-search {
+    max-width: none;
+    flex: 1 1 100%;
+  }
+
+  .refs-sort {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .refs-gallery,
+  .refs-style-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

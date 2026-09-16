@@ -1606,9 +1606,25 @@ function refsBuildShell() {
     el("span", { text: "Gute Arbeit beginnt mit einer guten Referenz." }),
   );
 
+  // Unter 1000px ist die linke Leiste ausgeblendet, dann waehlt man die
+  // Ansicht ueber dieses Feld (Muster und Maße wie im Vorbild).
+  const mobileSelect = el("select", { "aria-label": "Sammlung oder Ansicht wählen" });
+  mobileSelect.addEventListener("change", () => {
+    if (mobileSelect.value === "styles") refsSetView("styles");
+    else if (mobileSelect.value === "") refsSetView("");
+    else refsSetCollection(mobileSelect.value);
+  });
+  const mobileNav = el(
+    "label",
+    { class: "refs-mobile-nav" },
+    el("span", { text: "Sammlung" }),
+    mobileSelect,
+  );
+
   const main = el(
     "div",
     { class: "refs-main" },
+    mobileNav,
     el(
       "div",
       { class: "refs-topbar" },
@@ -1640,6 +1656,7 @@ function refsBuildShell() {
   const root = el("div", { class: "refs-shell" }, sidebar, main);
   refsDom = {
     root,
+    mobileSelect,
     libraryNav,
     collectionNav,
     collectionCount,
@@ -1702,6 +1719,19 @@ async function refsRefresh() {
   const activeCollection = refsActiveCollection();
   const styleFamilies = refsCollections.filter((entry) => entry.kind === "style");
   const personalCollections = refsCollections.filter((entry) => entry.kind !== "style");
+
+  // Mobil: dasselbe Ziel wie die linke Leiste, nur als Auswahlfeld.
+  refsDom.mobileSelect.replaceChildren(
+    el("option", { value: "", text: "Alle Referenzen" }),
+    ...personalCollections.map((collection) =>
+      el("option", {
+        value: collection.id,
+        text: `${collection.name} (${collection.referenceCount ?? 0})`,
+      }),
+    ),
+    el("option", { value: "styles", text: "Stil-Guide" }),
+  );
+  refsDom.mobileSelect.value = styleMode ? "styles" : refsState.collection;
 
   // Linke Leiste
   refsDom.libraryNav.replaceChildren(
