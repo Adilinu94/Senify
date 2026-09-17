@@ -10,6 +10,74 @@ Tastatur, Bewegung, Kontrast und Pruefkriterium), `.scratch/editor-v2-rebuild/ui
 Kein Schritt aendert `packages/app/public/app.css` oder `app.js` (laufende Oberflaeche bleibt unberuehrt).
 Die Aufgaben 1 bis 31 sind der Bestand, die Aufgaben 32 bis 47 setzen `ui-plan.md` um.
 
+## Auftragsrunde 60 – Nachweis am laufenden Editor (Stand dieser Runde)
+
+Kein Commit. **Dienste zuerst abgefragt:** `http://127.0.0.1:4322` (Programm) und
+`http://127.0.0.1:4321` (Engine) antworteten **beide mit `ECONNREFUSED`** (ebenso die Route
+`/editor-fonts/Inter-Regular.woff2`); sie wurden auf Auflage **nicht** gestartet. Der Nachweis lief
+deshalb -- wie die Browser-Tests des Repos (`packages/app/test/*-browser.test.ts`) -- gegen eine
+**eigene, fluechtige Programm-Instanz** (`startProgram`, `appPort: 0` / `enginePort: 0`), die das
+Skript am Ende selbst beendet. Es fasst keinen laufenden Prozess an.
+
+Frisch gemessen, nichts aus dem Vorlauf uebernommen:
+`.scratch/editor-v2-rebuild/pruef-nachweis-r60.mjs` -> `.scratch/refs/nick/ui/nachweis-r60.json`
+und `r60-{editor,canvas,vorschau}-{1280,1440,1920,schmal}.png`.
+
+**Bisherige Oberflaeche (`?view=editor`), 1280/1440/1920/schmal -- jetzt malt die neue Haut:**
+
+- **Farben:** Wurzelknoten `data-senify-editor` mit **116 von 116** Tokens **gleich** `tokens.ts`
+  (0 fehlend, 0 abweichend). Was **gemalt** wird, ist jetzt Tiefwasser statt Alt-Magenta: Kopfleiste
+  `rgb(2 67 100)` = `--ed-surface-raised`, Veroeffentlichen-Knopf `rgb(203 255 151)` =
+  `--ed-signal-accent`, Panels `rgb(8 50 71)` = `--ed-surface-panel`. (Vorlauf: Knopf noch
+  `rgb(208 4 212)`, Kopfleiste `#ffffff`.)
+- **Symbole:** **36 von 36** `.ic`-Elementen zeichnen (data-URI-Maske, Groesse > 0); **0**
+  Platzhalter-Zeichen. (Vorlauf: 0 Masken und die Zeichen `+ ↺ ▾ −`.)
+- **Schrift:** berechnete Familie `Inter, system-ui, sans-serif`; im Editor geladen `Inter 400/500/600`;
+  im Rahmen zusaetzlich **`Sora 700`** (Titel der Inhalte). CLS hoechstens 0,032.
+- **Layout:** `ueberlaufPx` 0 bei allen vier Breiten; drei Rahmen montiert; Statusleiste sichtbar;
+  Buehne scrollt allein (`overflow-y: auto`).
+- **Null Konsolenfehler, null fehlgeschlagene Anfragen, null Fremdanfragen.**
+- **Bedienbarkeit unveraendert:** die Markenmenue oeffnet mit drei Eintraegen, Escape schliesst.
+
+**Neue Canvas-Ansicht (`?view=canvas`), dieselben vier Breiten -- unveraendert alt:**
+
+- **0 von 116** Tokens; Kopfleiste `rgb(255 255 255)`; Familie `system-ui, sans-serif`; keine
+  Statusleiste. 2 von 2 Symbolen zeichnen, 0 Platzhalter. `ueberlaufPx` 0, keine Fehler.
+  Bleibt offen (eigene Runde; `ui-plan.md` nennt die T17-Oberflaeche als Umfang).
+
+**Sollbild (`.scratch/editor-v2-rebuild/ui-preview/index.html`), dieselben vier Breiten:**
+
+- Kontraste **41 von 41** Zeilen ohne Abweichung (`data-kontrast-geprueft="ok"`); Symbole
+  **195 von 199** gezeichnet (177/199 bei 480 -- die uebrigen im eingeklappten Block, kein Fehler);
+  Familien `Inter` (Text) und `"Inter Display", Inter` (Titel); `ueberlaufPx` 0; CLS 0; keine Fehler.
+
+**In dieser Runde erledigt:**
+
+- **26 (Rest):** Fokus auf einem Tab ist jetzt unterscheidbar. Der Fokus-Zustand des Panel-Tabs
+  setzt nicht mehr `outline: none`, sondern traegt zusaetzlich den **2px-Ring in Lime**
+  (`ui-preview/index.html`, Regel `[data-state="fokus"] .ed-tab`). Der Test
+  `zustands-und-layoutprobe.test.ts` fuehrt die Ausnahme "Panel-Tab / fokus" nicht mehr; es
+  unterscheiden sich jetzt **78** von 96 Zellen sichtbar von der Ruhe (statt 77). Beleg:
+  Screenshot `r60-vorschau-1440.png`.
+- **1 (Rest) -- die Haut malt:** am laufenden Editor belegt (Zahlen oben). Der Vorlauf-Beleg
+  `nachweis-editor.json` war vor dem letzten Commit entstanden (noch Magenta und Platzhalter) und
+  ist damit ueberholt.
+- **Symbole im laufenden Editor:** belegt (36/36, 0 Platzhalter).
+- **Schrift der Inhalte (Sora):** belegt (Sora 700 im Rahmen geladen).
+- **28 (Editor-Teil):** Layoutprobe der laufenden Haut gemessen (kein Ueberlauf, Statusleiste,
+  Buehne).
+
+**Neu offen und ehrlich:**
+
+- **Dienste:** 4322/4321 waren nicht erreichbar; der Beleg gilt gegen eine fluechtige Instanz auf
+  freien Ports, nicht gegen die festen Ports.
+- **29 (Editor-Teil):** Panel-Ziehen (Explorer 200-360, Inspektor 260-420) ist weiter nur fuer die
+  Vorschau belegt; die laufende Haut hat feste Spalten ohne Trennkanten.
+- **Titel-Schrift der laufenden Haut:** `--ed-font-display` wird nirgends gesetzt, Titel laufen in
+  Inter; Inter Display wird im Editor nicht geladen. `ui-plan.md` Abschnitt 1 nennt fuer die
+  Wortmarke `--ed-font-display` (`600`) -- offen.
+- **Canvas-Ansicht:** ohne den neuen Token-Satz (`0/116`), helle Alt-Haut, kein Statusband.
+
 ## Auftragsrunde (Abschluss) – Stand nach dieser Runde
 
 Pruefung abgeschlossen, kein Commit. Alles neu gemessen, nichts aus dem Vorlauf uebernommen.
@@ -206,7 +274,9 @@ Pruef: Im Browser traegt der Editor-Wurzelknoten alle `--ed-*`-Variablen; `pnpm 
 Erledigt (Auftragsrunde): `EDITOR_TOKEN_STYLES` + `ensureEditorStyles()` in `packages/editor/src/styles.ts`,
 `data-senify-editor` ueber `EDITOR_ROOT_ATTRIBUTE` in `mount.ts`; Pruefmittel
 `packages/editor/test/ui/editor-tokens-einspeisung.test.ts` und der Browser-Nachweis
-`116 von 116 Tokens gleich` (`.scratch/refs/nick/ui/nachweis-editor.json`).
+`116 von 116 Tokens gleich` (`.scratch/refs/nick/ui/nachweis-editor.json`). Runde 60 ergaenzt: die
+Haut **malt** die Tokens jetzt auch (Kopfleiste `#024364`, Veroeffentlichen-Knopf `#cbff97`),
+Beleg `.scratch/refs/nick/ui/nachweis-r60.json`.
 
 **2 Paritaetstest Tokens gegen Palette.**
 Neuer Test `packages/editor/test/ui/tokens.test.ts`: jeder Farbwert ist entweder ein Anker der Designsprache oder eine im Kommentar dokumentierte Mischung genau zweier Anker. Dazu die 22 Nachweispaare aus `EDITOR_CONTRAST_PROOF` mit der Luminanzfunktion aus `packages/tokens` nachrechnen (Toleranz 0,02).
@@ -337,8 +407,10 @@ Pruef: Kein Kuerselkonflikt; jede Zeile mit Kuersel druckt es aus; Windows-Schre
 Abhaengig von: 7 bis 23.
 Pruef: 96 Zellen vorhanden; keine Zelle ohne sichtbaren Unterschied zur Ruhe ausser dort, wo der Zustand nicht vorgesehen ist.
 Erledigt (Auftragsrunde): Testfall 1 in `packages/editor/test/ui/zustands-und-layoutprobe.test.ts`
-(96 Zellen, 77 sichtbar anders, drei dokumentierte Ausnahmen); Beleg
-`.scratch/refs/nick/ui/pruefung-zustand-layout.json`, Screenshot `zustandsprobe-1440.png`.
+(96 Zellen; nach Runde 60 **78** sichtbar anders, **zwei** dokumentierte Ausnahmen -- die Panel-Tab-
+Ausnahme "fokus" ist entfallen, weil der Fokus jetzt einen eigenen 2px-Ring traegt); Beleg
+`.scratch/refs/nick/ui/pruefung-zustand-layout.json`, Screenshot `zustandsprobe-1440.png`
+(neu: `r60-vorschau-1440.png`).
 
 **27 Kontrastrechner als Test.**
 `packages/editor/test/ui/contrast.test.ts` rechnet die Paare aus Abschnitt 8 des Dokuments nach, inklusive der Regel "auf Auswahlflaechen kein `--ed-ink-muted`".
@@ -372,6 +444,9 @@ Pruef: Eine Abweichung laesst das Skript mit Fehler enden; ohne Abweichung endet
 Playwright oeffnet die Vorschau und prueft Konsolenfehler, fehlgeschlagene Anfragen, Kontrastzeilen und Ueberlauf; Screenshots nach `.scratch/refs/nick/ui/`.
 Abhaengig von: 28, 30.
 Pruef: Null Konsolenfehler, null fehlgeschlagene Anfragen, 41 von 41 Kontrastzeilen ohne Abweichung, Screenshots je Breite vorhanden. Die Vorschau umfasst dabei auch die Zusatzabschnitte 6 und 7 (Aufgaben 33 bis 43), also 1280, 1440, 1920 und schmal, je ohne Ueberlauf.
+Runde 60: `pruef-nachweis-r60.mjs` fuehrt die Pruefung zusaetzlich gegen die **laufende**
+Editor-Oberflaeche (beide Ansichten, 1280/1440/1920/schmal) und gegen die Vorschau; Beleg
+`.scratch/refs/nick/ui/nachweis-r60.json`, siehe Abschnitt "Auftragsrunde 60" oben.
 
 ## D. Zusatzbausteine aus dem UI-Plan
 
