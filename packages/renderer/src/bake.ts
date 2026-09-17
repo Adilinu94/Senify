@@ -16,6 +16,10 @@ import { createRequire } from "node:module";
 import { SenifyError } from "@senify/core";
 import { bundledSections } from "@senify/registry";
 import { getSectionComponent, type AssetDelivery } from "@senify/registry/components";
+import {
+  describePrimitive,
+  isCatalogPrimitive,
+} from "@senify/widget-engine";
 import type { NodeTree, SectionDefinition } from "@senify/section-sdk";
 import {
   buildLlmsTxt,
@@ -176,7 +180,15 @@ function assertBakeable(pages: BakePageInput[]): BakeWarning[] {
     }
     for (const node of Object.values(page.tree.nodes)) {
       if (node.id === page.tree.rootNodeId) continue;
-      if (!getSectionComponent(node.type)) {
+      // Two vocabularies, one render path (Phase 1): a node of the running
+      // section registry renders its section component, a node of the widget
+      // catalog renders from the one markup description
+      // (`widget-engine/src/markup.ts`). Both are bakeable; only a name neither
+      // side knows is an error.
+      const described = isCatalogPrimitive(node.type)
+        ? describePrimitive(node.type, node.props)
+        : undefined;
+      if (getSectionComponent(node.type) === undefined && described === undefined) {
         throw new SenifyError(
           "validation",
           `Page "${page.path}" uses unknown section "${node.type}"`,
@@ -188,7 +200,10 @@ function assertBakeable(pages: BakePageInput[]): BakeWarning[] {
       }
       if (
         node.id !== page.tree.rootNodeId &&
-        (node.children?.length ?? 0) > 0
+        (node.children?.length ?? 0) > 0 &&
+        // A catalog container renders its children through its `childrenSlot`
+        // (`markup.ts`), so they are not dropped and the warning is not true.
+        described?.childrenSlot === undefined
       ) {
         warnings.push({
           code: "children-unrendered",

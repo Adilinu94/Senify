@@ -1,5 +1,6 @@
 ---
 import { SectionTree, type SectionContext } from "@senify/registry/components";
+import { PRIMITIVE_BASE_CSS, isCatalogPrimitive } from "@senify/widget-engine";
 import type { Node } from "@senify/section-sdk";
 
 type Props = {
@@ -9,5 +10,22 @@ type Props = {
 
 const { tree, ctx } = Astro.props;
 const nodes = tree.nodes as unknown as Record<string, Node>;
+
+// The widget base stylesheet (Phase 1) travels with the markup that needs it.
+// It is the very same string the canvas frame imports for its own rules
+// (`packages/editor/src/canvas/rules.ts`), built once from the catalog in
+// `widget-engine/src/markup.ts` — no second copy on either render path.
+//
+// It sits *before* the section markup on purpose: `PRIMITIVE_BASE_CSS` lives in
+// `@layer user-authored`, and the layer is registered by its first appearance.
+// The head already carries Tailwind's bundle (`@layer theme/base/components/
+// utilities` via `global.css`), so the widget layer lands after them and wins —
+// exactly the order the canvas frame produces (chrome unlayered, then
+// `user-authored`). A page without a catalog primitive carries nothing.
+const usesCatalog = Object.values(nodes).some((node) =>
+  isCatalogPrimitive(node.type),
+);
 ---
+
+{usesCatalog && <style is:inline set:html={PRIMITIVE_BASE_CSS} />}
 <SectionTree rootNodeId={tree.rootNodeId} nodes={nodes} ctx={ctx} />

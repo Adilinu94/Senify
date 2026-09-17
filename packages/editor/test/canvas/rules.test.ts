@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CASCADE_LAYER,
+  PRIMITIVE_BASE_CSS,
   compileCss,
   mediaQueryFor,
   nodeSelector,
@@ -72,6 +73,21 @@ describe("frame rules", () => {
     // Only the marker chrome is left.
     expect(active.chrome).toBe(CANVAS_CHROME_CSS.trim());
     expect(active.css).toContain(active.authored);
+  });
+
+  it("feeds the widget base stylesheet into the frame, before the document rules", () => {
+    // Phase 1, one source: the frame imports the very constant the release
+    // carries (`bake.ts` / `Section.astro`), so the foundation stones' element
+    // defaults cannot drift between canvas and release. Base and document rules
+    // share `@layer user-authored`; the base comes first so a node rule wins on
+    // source order (same specificity: `.w-*` vs `[data-node-id]`).
+    const { base, css, authored } = canvasFrameRules(document());
+    expect(base).toBe(PRIMITIVE_BASE_CSS);
+    expect(css).toContain(".w-heading {");
+    expect(css).toContain("grid-template-columns: repeat(3, minmax(0, 1fr));");
+    // Chrome first (unlayered), then the base, then the document rules.
+    expect(css.indexOf(".senify-canvas__marker")).toBeLessThan(css.indexOf(base));
+    expect(css.indexOf(base)).toBeLessThan(css.indexOf(authored));
   });
 
   it("forwards the token resolver into the generated rules", () => {

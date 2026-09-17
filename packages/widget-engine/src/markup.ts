@@ -527,7 +527,11 @@ export function cssDefaultValuesOf(primitive: string): Record<string, PropValue>
 export const PRIMITIVE_RESET: Readonly<Record<string, readonly string[]>> = {
   frame: [],
   section: [],
-  grid: [],
+  // A container whose whole catalogue value is "how many columns, how wide the
+  // gap" has to lay out as a grid: without it `grid-template-columns` would sit
+  // on a block box and the columns value would be inert. Not a design value —
+  // the removal of a browser default, like the `display: flex` of `input`.
+  grid: ["display: grid;"],
   column: [],
   heading: ["margin: 0;", "font: inherit;"],
   text: ["margin: 0;"],

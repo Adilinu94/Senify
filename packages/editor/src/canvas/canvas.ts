@@ -89,9 +89,16 @@ const PREVIEW_STATES: readonly (StateName | "none")[] = [
   "active",
 ];
 
+// The frame shell: the browser defaults the editor has to take out (the frame
+// scrolls its own document, so the body must not add a margin) and nothing else.
+// In particular the frame brings **no** typography of its own: the content must
+// look like the release, and on the release the type comes from the page's
+// stylesheets (theme tokens + Tailwind's reset). A frame-owned `font: 14px/…`
+// would be editor skin on the content and would drift from the release the
+// moment either side changes — exactly what the parity gate of Phase 1 measures.
 const FRAME_BASE_CSS = `
 html, body { margin: 0; padding: 0; }
-body { font: 14px/1.5 var(--font-body, system-ui, sans-serif); background: #ffffff; }
+body { background: #ffffff; }
 `;
 
 // Bundled @font-face rules (Inter/Inter Display for the tool, Sora for content)
