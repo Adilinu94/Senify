@@ -1,22 +1,41 @@
 import type { Theme } from "./schema.ts";
 
+// Deep-water brand anchors of the binding design language
+// (`.scratch/refs/precious-board/design.md`). The editor chrome
+// (`packages/editor/src/ui/tokens.ts`) uses exactly these hexes; the site theme
+// derives its brand ramp from the same base, so there is only one brand truth.
+//
+// The previous default carried indigo `#4f46e5`, which contradicted the design
+// language (deep water with lime, no violet). Reverting is a plain value swap:
+// set `brand` back to `#4f46e5` and `accent` back to `#4f46e5` (kept below as
+// LEGACY_INDIGO for that purpose). Stored sites keep their own theme snapshot,
+// so this only moves the default for new pages.
+export const LEGACY_INDIGO = "#4f46e5";
+// brand-700, "Hauptflaeche der Marke" (design.md, 17 measured uses).
+export const DEFAULT_BRAND = "#024364";
+// brand-600, "Akzent, Links, Icons" (design.md).
+export const DEFAULT_ACCENT = "#006092";
+// Deep-water shadow tint, the same value the editor chrome shadows are
+// derived from (`rgb(1 18 27)` in `tokens.ts`).
+export const DEFAULT_SHADOW_TINT = "#01121b";
+
 export function defaultTheme(): Theme {
   return {
     id: "theme-default",
     name: "Standard",
     scales: {
-      brand: "#4f46e5",
+      brand: DEFAULT_BRAND,
       neutralBase: "#6f6a63",
       typeBase: 16,
       typeRatio: 1.25,
       spacingBase: 4,
       radiusBase: "0.5rem",
-      shadowTint: "#1a1a1a",
+      shadowTint: DEFAULT_SHADOW_TINT,
     },
     tokens: {
       primitive: {
         color: {
-          accent: "#4f46e5",
+          accent: DEFAULT_ACCENT,
           success: "#15803d",
           "success-vivid": "#4ade80",
           warning: "#b45309",

@@ -17,14 +17,15 @@ const themeB = mergeThemePatch(defaultTheme(), {
 describe("token resolver", () => {
   it("reads the emitted variable of the theme", () => {
     const resolve = themeTokenResolver(themeA);
-    expect(resolve("color.brand")).toBe("#4f46e5");
+    // Deep-water brand-700 is the default brand base (was indigo #4f46e5).
+    expect(resolve("color.brand")).toBe("#024364");
     expect(resolve("color.brand")).toBe(themeVariables(resolveTheme(themeA))["--color-brand"]);
   });
 
   it("follows a semantic role to its primitive", () => {
     const resolve = themeTokenResolver(themeA);
     // `accent` is a semantic role; it resolves through the $ref chain.
-    expect(resolve("accent")).toBe("#4f46e5");
+    expect(resolve("accent")).toBe("#006092");
     expect(resolve("not.a.token")).toBeUndefined();
   });
 
@@ -45,7 +46,7 @@ describe("compiler with a theme", () => {
       layer: null,
       resolveToken: themeTokenResolver(themeA),
     });
-    expect(css).toBe(`[data-node-id="n"] {\n  color: #4f46e5;\n}`);
+    expect(css).toBe(`[data-node-id="n"] {\n  color: #024364;\n}`);
   });
 
   it("changes with the theme (two theme states)", () => {
@@ -54,7 +55,7 @@ describe("compiler with a theme", () => {
         layer: null,
         resolveToken: themeTokenResolver(theme),
       });
-    expect(make(themeA)).toContain("#4f46e5");
+    expect(make(themeA)).toContain("#024364");
     expect(make(themeB)).toContain("#ff0000");
     expect(make(themeA)).not.toBe(make(themeB));
   });
@@ -120,7 +121,7 @@ describe("compiler with a theme", () => {
 describe("format helpers", () => {
   it("resolves or falls back per colour", () => {
     const resolve = themeTokenResolver(themeA);
-    expect(formatColor({ $token: "color.brand" }, resolve)).toBe("#4f46e5");
+    expect(formatColor({ $token: "color.brand" }, resolve)).toBe("#024364");
     expect(formatColor({ $token: "nope" }, resolve)).toBe("var(--nope)");
     expect(formatColor({ $token: "nope" })).toBe("var(--nope)");
   });

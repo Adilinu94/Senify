@@ -60,7 +60,16 @@ sind nur teilweise zutreffend.
 ## Offene technische Punkte (vor der jeweiligen Phase zu entscheiden)
 
 - **O1** Kaskade: D5 (Reihenfolge ueber `kind`) und D7 (`@layer user-authored`) zu **einer**
-  Entscheidung zusammenfuehren. Vor Phase 2.
+  Entscheidung zusammenfuehren. Vor Phase 2. **Entschieden im CSS-Compiler-Happen**
+  (`packages/widget-engine/src/css/cascade.ts`): *eine* Schicht `@layer user-authored` fuer
+  alle erzeugten Regeln, darin die Reihenfolge allein durch die Ausgabereihenfolge der
+  festen Stufen `base -> device -> state -> class -> inline` (schwach nach stark). `kind`
+  (class|ambient|scoped) bleibt Datum und bestimmt die Reihenfolge **nicht** mehr. Inline
+  liegt ausserhalb der Schicht (style-Attribut) und gewinnt deshalb immer; nicht geschichtetes
+  Editor-Chrome schlaegt weiterhin jede erzeugte Regel (Instatic-Muster). Klassenregeln werden
+  auf den Knoten verankert (`[data-node-id="x"].cls`), damit sie dieselbe Spezifitaet wie eine
+  Zustandsregel haben und ueber die Quellreihenfolge gewinnen. Geprueft:
+  `packages/widget-engine/test/css-cascade.test.ts`.
 - **O2** Persistenz- und Migrationsformat versionieren (NodeTree v2) mit Roundtrip-Test und
   Ruecknahme. Vor Phase 1.
 - **O3** Pixel-Vergleich als **Toleranz** formulieren (nicht "= 0"); ansonsten bleibt das Tor

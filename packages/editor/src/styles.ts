@@ -1,4 +1,5 @@
 import type { DomDocument } from "./dom.ts";
+import { editorFontFaceCss } from "./ui/fonts.ts";
 
 // The editor chrome, shaped after the Elementor workbench (T17): top bar with
 // device switcher, page name, structure, finder, preview and publish; one
@@ -13,7 +14,7 @@ import type { DomDocument } from "./dom.ts";
 // viewport) or 18.75rem (>=1440px), accent #d004d4, hover #e879f9, text
 // #515962, borders #d5d8dc, top bar 3rem.
 
-export const EDITOR_STYLES = `
+export const EDITOR_STYLES = `${editorFontFaceCss()}
 .senify-editor {
   --ed-accent: #d004d4;
   --ed-accent-light: #f0abfc;
@@ -32,7 +33,9 @@ export const EDITOR_STYLES = `
   overflow: hidden;
   background: var(--ed-canvas);
   color: var(--ed-text);
-  font-family: var(--font-body, system-ui, sans-serif);
+  /* The chrome uses Inter (bundled, see ui/fonts.ts); the theme variable
+     already starts with Inter and stays as the fallback chain otherwise. */
+  font-family: var(--font-body, "Inter", system-ui, sans-serif);
   font-size: 13px;
   line-height: 1.45;
   border: 1px solid rgba(0, 0, 0, 0.12);

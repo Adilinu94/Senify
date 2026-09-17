@@ -101,10 +101,10 @@ describe("roundtrip", () => {
     expect(css).not.toContain("var(--");
     expect(css).toContain(`[data-node-id="root1"] {`);
     // Text keeps its colour …
-    expect(css).toContain("color: #4f46e5;"); // head1 base (color.brand)
+    expect(css).toContain("color: #024364;"); // head1 base (color.brand)
     expect(css).toContain("color: #dc2626;"); // head1 hover (color.danger)
     // … and backgrounds keep theirs.
-    expect(css).toContain("background-color: #4f46e5;"); // cta (color.brand)
+    expect(css).toContain("background-color: #024364;"); // cta (color.brand)
     expect(css).toContain("background-color: #b45309;"); // cta mobile (color.warning)
   });
 

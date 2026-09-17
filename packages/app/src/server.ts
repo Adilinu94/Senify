@@ -13,6 +13,12 @@ import { defaultTheme, emitCss, resolveTheme } from "@senify/tokens";
 import { loadFrameCss } from "./frame-css.ts";
 
 const PUBLIC_DIR = fileURLToPath(new URL("../public", import.meta.url));
+// The editor chrome fonts (Inter / Inter Display, SIL OFL 1.1) live next to the
+// editor they belong to; the dashboard serves them under `/editor-fonts/*` so
+// the injected `@font-face` rules resolve without a network fetch.
+const EDITOR_FONT_DIR = fileURLToPath(
+  new URL("../../editor/assets/fonts", import.meta.url),
+);
 const require = createRequire(import.meta.url);
 
 let editorBundle: Promise<string> | undefined;
@@ -191,6 +197,10 @@ export function createAppServer(options: AppServerOptions): Promise<AppServer> {
             error instanceof Error ? error.message : String(error),
           );
         });
+      return;
+    }
+    if (url.startsWith("/editor-fonts/")) {
+      serveStatic(EDITOR_FONT_DIR, url.slice("/editor-fonts".length), res);
       return;
     }
     // `/api/`, `/assets/` and `/_astro/` belong to the engine: the asset store,

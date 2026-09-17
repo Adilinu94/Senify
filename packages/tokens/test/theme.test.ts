@@ -51,8 +51,10 @@ describe("default theme", () => {
 
   it("resolves token refs through semantic and primitive paths", () => {
     const theme = defaultTheme();
-    expect(resolveTokenRef(theme, "accent")).toBe("#4f46e5");
-    expect(resolveTokenRef(theme, "color.accent")).toBe("#4f46e5");
+    // Default brand moved from indigo #4f46e5 to the deep-water palette
+    // (brand-600 #006092, `.scratch/refs/precious-board/design.md`).
+    expect(resolveTokenRef(theme, "accent")).toBe("#006092");
+    expect(resolveTokenRef(theme, "color.accent")).toBe("#006092");
     expect(resolveTokenRef(theme, "bg.base")).toMatch(/^oklch\(/);
     expect(resolveTokenRef(theme, "nope.missing")).toBeUndefined();
   });
