@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./browser": "./src/browser-entry.ts"
+    "./browser": "./src/browser-entry.ts",
+    "./breakpoints": "./src/breakpoints.ts"
   },
   "dependencies": {
     "@astrojs/react": "^6.0.5",

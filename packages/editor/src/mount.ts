@@ -22,7 +22,7 @@ import {
 import { DraftConflictError, MutationsSession } from "./client.ts";
 import { emitMutations } from "./mutations.ts";
 import { InlineEditing } from "./inline-text.ts";
-import { HistoryStack, type HistoryEntry } from "./history.ts";
+import { HistoryStack, patchesToMutations, type HistoryEntry } from "./history.ts";
 import { buildMotionPanel, buildPanels, type PanelField, type PanelGroup } from "./panels.ts";
 import {
   buildSpotlightIndex,
@@ -417,7 +417,20 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
 
   // Every editor action funnels through here: emit canonical mutations,
   // apply them, record the undo entry, refresh the chrome.
-  async function applyMutations(mutations: Mutation[], label: string): Promise<void> {
+  let writes: Promise<void> = Promise.resolve();
+  const redoMutations = new WeakMap<HistoryEntry, Mutation[]>();
+
+  function enqueueWrite(write: () => Promise<void>): Promise<void> {
+    const next = writes.then(write);
+    writes = next.catch(() => undefined);
+    return next;
+  }
+
+  function applyMutations(mutations: Mutation[], label: string): Promise<void> {
+    return enqueueWrite(() => recordMutations(mutations, label));
+  }
+
+  async function recordMutations(mutations: Mutation[], label: string): Promise<void> {
     if (mutations.length === 0) return;
     const versionBefore = session.version;
     try {
@@ -426,7 +439,7 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
         label,
         op: mutations[0]?.op ?? "updateNodeProps",
         mutations,
-        undoPatch: response.results.flatMap((result) => result.undoPatch),
+        undoPatch: [...response.results].reverse().flatMap((result) => result.undoPatch),
         batchId: response.undoBatchId,
         versionBefore,
         versionAfter: response.newDraftVersion,
@@ -579,15 +592,42 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     return menu;
   }
 
-  async function restoreTo(entryId: string): Promise<void> {
-    let guard = 0;
-    while (history.canUndo && history.top()?.id !== entryId && guard < 200) {
-      const entry = history.undo();
-      if (!entry) break;
-      await options.onUndo?.(entry);
-      guard += 1;
+  async function replayHistory(direction: "undo" | "redo"): Promise<boolean> {
+    const entry = direction === "undo" ? history.top() : history.future()[0];
+    if (!entry) return false;
+    try {
+      const callback = direction === "undo" ? options.onUndo : options.onRedo;
+      if (callback) {
+        await callback(entry);
+      } else {
+        const mutations = direction === "undo"
+          ? patchesToMutations(entry.undoPatch)
+          : redoMutations.get(entry) ?? entry.mutations;
+        const response = await session.applyMutations(mutations);
+        const inverse = [...response.results].reverse().flatMap((result) => result.undoPatch);
+        if (direction === "undo") redoMutations.set(entry, patchesToMutations(inverse));
+      }
+      if (direction === "undo") history.undo();
+      else history.redo();
+      report(null);
+      render();
+      return true;
+    } catch (error) {
+      reportError(error);
+      renderStatus();
+      return false;
     }
-    render();
+  }
+
+  function restoreTo(entryId: string): Promise<void> {
+    return enqueueWrite(async () => {
+      let guard = 0;
+      while (history.canUndo && history.top()?.id !== entryId && guard < 200) {
+        if (!await replayHistory("undo")) break;
+        guard += 1;
+      }
+      render();
+    });
   }
 
   function renderTopbar(): void {
@@ -1547,26 +1587,26 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
   }
 
   function startInline(target: DomElement, nodeId: string, key: string): void {
-    inline.start({ nodeId, key, value: target.textContent ?? "" });
-    target.setAttribute("contenteditable", "plaintext-only");
-    target.focus?.();
-    inlineElement = target;
-    renderOverlay();
+    void finishInline();
+    void enqueueWrite(async () => {
+      inline.start({ nodeId, key, value: target.textContent ?? "" });
+      target.setAttribute("contenteditable", "plaintext-only");
+      target.focus?.();
+      inlineElement = target;
+      renderOverlay();
+    });
   }
 
   // Enter or the toolbar's "Fertig": flush the pending write, keep the edit,
   // drop the editing mode.
-  async function finishInline(): Promise<void> {
-    if (inlineTimer !== null) {
-      clearTimeout(inlineTimer);
-      inlineTimer = null;
-      const target = inlineElement;
-      if (target && inline.session) await commitInline(target.textContent ?? "");
-    }
-    inlineElement?.removeAttribute("contenteditable");
-    if (inline.session) inline.commit();
-    inlineElement = null;
-    renderOverlay();
+  function finishInline(): Promise<void> {
+    flushInlineCommit();
+    return enqueueWrite(async () => {
+      inlineElement?.removeAttribute("contenteditable");
+      if (inline.session) inline.commit();
+      inlineElement = null;
+      renderOverlay();
+    });
   }
 
   function editNodeInline(nodeId: string): void {
@@ -1581,7 +1621,11 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     startInline(target, nodeId, key);
   }
 
-  async function commitInline(value: string): Promise<void> {
+  function commitInline(value: string): Promise<void> {
+    return enqueueWrite(() => writeInline(value));
+  }
+
+  async function writeInline(value: string): Promise<void> {
     if (!inline.session) return;
     if (value === inline.session.original && inline.session.entryId === null) return;
     const { mutation } = inline.type(value);
@@ -1589,7 +1633,7 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     try {
       const response = await session.applyMutations([mutation]);
       inline.record({
-        undoPatch: response.results.flatMap((result) => result.undoPatch),
+        undoPatch: [...response.results].reverse().flatMap((result) => result.undoPatch),
         batchId: response.undoBatchId,
         versionBefore,
         versionAfter: response.newDraftVersion,
@@ -1619,31 +1663,32 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     void commitInline(target.textContent ?? "");
   }
 
-  async function revertInline(): Promise<void> {
+  function revertInline(): Promise<void> {
     if (inlineTimer !== null) {
       clearTimeout(inlineTimer);
       inlineTimer = null;
     }
-    inlineElement?.removeAttribute("contenteditable");
-    inlineElement = null;
-    if (!inline.session) {
-      renderOverlay();
-      return;
-    }
-    const { mutation } = inline.revert();
-    report("Inline-Text zurückgesetzt");
-    if (!mutation) {
-      renderStatus();
-      renderOverlay();
-      return;
-    }
-    try {
-      await session.applyMutations([mutation]);
-      render();
-    } catch (error) {
-      reportError(error);
-      renderStatus();
-    }
+    return enqueueWrite(async () => {
+      const current = inline.session;
+      if (!current) return;
+      try {
+        if (current.entryId !== null) {
+          await session.applyMutations([{
+            op: "updateNodeProps", id: current.nodeId,
+            patch: { [current.key]: current.original },
+          }]);
+        }
+        inline.revert();
+        if (inlineElement) inlineElement.textContent = current.original;
+        inlineElement?.removeAttribute("contenteditable");
+        inlineElement = null;
+        report("Inline-Text zurückgesetzt");
+        render();
+      } catch (error) {
+        reportError(error);
+        renderStatus();
+      }
+    });
   }
 
   function handleButton(
@@ -2364,17 +2409,13 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     session,
     deepLink,
     dispatch: (action) => runAction(action, actionLabel(action)),
-    undo: async () => {
-      const entry = history.undo();
-      if (!entry) return;
-      await options.onUndo?.(entry);
-      render();
+    undo: () => {
+      void finishInline();
+      return enqueueWrite(async () => { await replayHistory("undo"); });
     },
-    redo: async () => {
-      const entry = history.redo();
-      if (!entry) return;
-      await options.onRedo?.(entry);
-      render();
+    redo: () => {
+      void finishInline();
+      return enqueueWrite(async () => { await replayHistory("redo"); });
     },
     setMode,
     setBreakpoint,

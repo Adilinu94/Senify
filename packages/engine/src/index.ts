@@ -235,12 +235,14 @@ export {
   type SmtpTlsMode,
 } from "./types.ts";
 export {
+  EDITOR_MUTATION_OPS,
   MUTATION_OPS,
   parseApplyMutationsBody,
   parseBody,
   validateShape,
   type ApplyMutationsBody,
   type AuthorInput,
+  type EditorMutationOp,
   type Mutation,
   type MutationOp,
   type NodeSpec,
@@ -249,6 +251,18 @@ export {
   type PatchOp,
   type UpdateThemeBody,
 } from "./mutations/contract.ts";
+export {
+  EDITOR_MUTATION_SCHEMA_BY_OP,
+  EditorMutationSchema,
+  EditorNodeSpecSchema,
+  DeviceSchema,
+  ClassNameSchema,
+  isEditorMutationOp,
+  parseEditorMutation,
+  parseEditorMutationBatch,
+  type EditorMutation,
+  type EditorNodeSpec,
+} from "./mutations/editor-contract.ts";
 export {
   applyMutations,
   applyUndoBatch,

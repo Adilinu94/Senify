@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./pg": "./src/pg-db.ts"
+    "./pg": "./src/pg-db.ts",
+    "./browser": "./src/browser.ts"
   },
   "dependencies": {
     "@senify/analysis-worker": "workspace:*",

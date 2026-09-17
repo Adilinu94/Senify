@@ -32,16 +32,24 @@ const flushSyncRender = flushSync as unknown as (callback: () => void) => void;
 const INLINE_CONTROLS = new Set(["text", "richtext"]);
 
 export function createReactRenderer(options: ReactRendererOptions = {}): FrameRenderer {
-  const roots = new Map<DomElement, ReactRoot>();
+  // One live root per frame body. Re-mounting the same body re-renders that
+  // root in place (the canvas refresh path: a store change updates the frame
+  // without reloading the iframe), instead of stacking a second page next to
+  // the first.
+  const roots = new Map<DomElement, { root: ReactRoot; host: DomElement }>();
   return {
     mount(frame, body, context): void {
       const doc = body.ownerDocument;
       if (!doc) return;
-      const host = doc.createElement("div");
-      host.className = "senify-frame-page";
-      body.appendChild(host);
-      const root = createRoot(host);
-      roots.set(body, root);
+      const existing = roots.get(body);
+      const host = existing?.host ?? doc.createElement("div");
+      if (existing === undefined) {
+        host.className = "senify-frame-page";
+        body.appendChild(host);
+        roots.set(body, { root: createRoot(host), host });
+      }
+      const root = roots.get(body)?.root;
+      if (root === undefined) return;
       flushSyncRender(() => {
         root.render(
           <SectionTree
@@ -55,7 +63,10 @@ export function createReactRenderer(options: ReactRendererOptions = {}): FrameRe
       annotateHidden(host, context.tree, context.breakpoint);
     },
     destroy(): void {
-      for (const root of roots.values()) root.unmount();
+      for (const entry of roots.values()) {
+        entry.root.unmount();
+        entry.host.remove();
+      }
       roots.clear();
     },
   };

@@ -22,12 +22,9 @@ let editorBundle: Promise<string> | undefined;
 function loadEditorBundle(): Promise<string> {
   if (!editorBundle) {
     const entry = require.resolve("@senify/editor/browser");
-    // The editor only needs the renderer's breakpoint constants; the package
-    // index would pull the Node-side bake into the browser bundle. Resolve
-    // through the editor's own dependencies.
-    const rendererBrowser = createRequire(entry).resolve(
-      "@senify/renderer/browser",
-    );
+    // No alias is needed: the editor and the widget engine read the renderer's
+    // breakpoints through the browser-safe `@senify/renderer/breakpoints`
+    // subpath, so the Node-side bake never enters the browser bundle.
     editorBundle = build({
       entryPoints: [entry],
       bundle: true,
@@ -36,7 +33,6 @@ function loadEditorBundle(): Promise<string> {
       platform: "browser",
       target: "es2022",
       logLevel: "silent",
-      alias: { "@senify/renderer": rendererBrowser },
     })
       .then((result) => result.outputFiles[0]?.text ?? "")
       .catch((error: unknown) => {

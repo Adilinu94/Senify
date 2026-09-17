@@ -8,6 +8,11 @@ import type {
   StyleGroup,
   ValueType,
 } from "./types.ts";
+import {
+  controlShapeIssues,
+  primitiveShapeIssues,
+  type ValidationIssue,
+} from "./schema.ts";
 
 function isRecord(value: PropValue): value is { [key: string]: PropValue } {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -97,38 +102,21 @@ export function isControlVisible(
   return isConditionSatisfied(control.condition, values);
 }
 
-const KNOWN_CONTROL_KINDS = new Set<string>([
-  "text",
-  "textarea",
-  "number",
-  "slider",
-  "color",
-  "switcher",
-  "choose",
-  "select",
-  "dimensions",
-  "gaps",
-  "repeater",
-  "url",
-  "media",
-  "icon",
-]);
-
-export function validateControl(control: Control, path: string): string[] {
-  const issues: string[] = [];
+// Structural check first (`ControlSchema` via TypeBox — the same mechanism the
+// section SDK uses), then the semantic rules TypeBox cannot express. Both
+// return `ValidationIssue[]`, exactly like `validateDefinition` in
+// `@senify/section-sdk`.
+export function validateControl(control: Control, path: string): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
   const p = `${path}.${control.key || "?"}`;
 
-  if (!control.key) {
-    issues.push(`${p}: key fehlt`);
-  }
-  if (!control.label) {
-    issues.push(`${p}: label fehlt`);
-  }
-  if (!KNOWN_CONTROL_KINDS.has(control.kind)) {
-    issues.push(`${p}: unbekanntes Steuerelement "${control.kind}"`);
-  }
+  issues.push(...controlShapeIssues(control, p));
+
   if (!matchesValueType(control.valueType, control.default)) {
-    issues.push(`${p}: Standardwert passt nicht zum Typ "${control.valueType}"`);
+    issues.push({
+      path: p,
+      message: `Standardwert passt nicht zum Typ "${control.valueType}"`,
+    });
   }
 
   switch (control.kind) {
@@ -136,21 +124,30 @@ export function validateControl(control: Control, path: string): string[] {
     case "number": {
       const { min, max, step } = control;
       if (min === undefined || max === undefined || step === undefined) {
-        issues.push(`${p}: min, max und step sind Pflicht`);
+        issues.push({ path: p, message: "min, max und step sind Pflicht" });
       } else {
         if (!(min < max)) {
-          issues.push(`${p}: min (${min}) muss kleiner als max (${max}) sein`);
+          issues.push({
+            path: p,
+            message: `min (${min}) muss kleiner als max (${max}) sein`,
+          });
         }
         if (!(step > 0)) {
-          issues.push(`${p}: step muss positiv sein`);
+          issues.push({ path: p, message: "step muss positiv sein" });
         }
         const value = control.default;
         if (typeof value === "number" && (value < min || value > max)) {
-          issues.push(`${p}: Standardwert liegt außerhalb von [${min}, ${max}]`);
+          issues.push({
+            path: p,
+            message: `Standardwert liegt außerhalb von [${min}, ${max}]`,
+          });
         }
       }
       if (control.kind === "slider" && (control.units?.length ?? 0) === 0) {
-        issues.push(`${p}: Schieberegler braucht mindestens eine Einheit`);
+        issues.push({
+          path: p,
+          message: "Schieberegler braucht mindestens eine Einheit",
+        });
       }
       break;
     }
@@ -158,60 +155,60 @@ export function validateControl(control: Control, path: string): string[] {
     case "select": {
       const options = control.options;
       if (!options || options.length === 0) {
-        issues.push(`${p}: Auswahl braucht Optionen`);
+        issues.push({ path: p, message: "Auswahl braucht Optionen" });
         break;
       }
       const values = options.map((option) => option.value);
       if (new Set(values).size !== values.length) {
-        issues.push(`${p}: doppelte Optionswerte`);
+        issues.push({ path: p, message: "doppelte Optionswerte" });
       }
       if (
         typeof control.default === "string" &&
         !values.includes(control.default)
       ) {
-        issues.push(`${p}: Standardwert ist keine der Optionen`);
+        issues.push({ path: p, message: "Standardwert ist keine der Optionen" });
       }
       break;
     }
     case "color": {
       if (control.alpha !== undefined && typeof control.alpha !== "boolean") {
-        issues.push(`${p}: alpha muss ein Wahrheitswert sein`);
+        issues.push({ path: p, message: "alpha muss ein Wahrheitswert sein" });
       }
       if (control.palette && control.palette.length === 0) {
-        issues.push(`${p}: Palette ist leer`);
+        issues.push({ path: p, message: "Palette ist leer" });
       }
       break;
     }
     case "dimensions": {
       if ((control.units?.length ?? 0) === 0) {
-        issues.push(`${p}: Vierfach-Werte brauchen eine Einheit`);
+        issues.push({ path: p, message: "Vierfach-Werte brauchen eine Einheit" });
       }
       if (!isSpacingValue(control.default)) {
-        issues.push(`${p}: Standardwert ist kein Vierfach-Wert`);
+        issues.push({ path: p, message: "Standardwert ist kein Vierfach-Wert" });
       }
       break;
     }
     case "gaps": {
       if ((control.units?.length ?? 0) === 0) {
-        issues.push(`${p}: Zwei-Werte brauchen eine Einheit`);
+        issues.push({ path: p, message: "Zwei-Werte brauchen eine Einheit" });
       }
       if (!isGapsValue(control.default)) {
-        issues.push(`${p}: Standardwert ist kein Zwei-Wert`);
+        issues.push({ path: p, message: "Standardwert ist kein Zwei-Wert" });
       }
       break;
     }
     case "repeater": {
       if (!Array.isArray(control.default)) {
-        issues.push(`${p}: Standardwert ist keine Liste`);
+        issues.push({ path: p, message: "Standardwert ist keine Liste" });
       }
       const fields = control.fields;
       if (!fields || fields.length === 0) {
-        issues.push(`${p}: Wiederholfeld braucht Felder`);
+        issues.push({ path: p, message: "Wiederholfeld braucht Felder" });
         break;
       }
       const keys = fields.map((field) => field.key);
       if (new Set(keys).size !== keys.length) {
-        issues.push(`${p}: doppelte Feld-Keys`);
+        issues.push({ path: p, message: "doppelte Feld-Keys" });
       }
       for (const field of fields) {
         issues.push(...validateControl(field, p));
@@ -221,14 +218,20 @@ export function validateControl(control: Control, path: string): string[] {
         control.maxItems !== undefined &&
         control.minItems > control.maxItems
       ) {
-        issues.push(`${p}: minItems darf nicht größer als maxItems sein`);
+        issues.push({
+          path: p,
+          message: "minItems darf nicht größer als maxItems sein",
+        });
       }
       if (
         control.minItems !== undefined &&
         Array.isArray(control.default) &&
         control.default.length < control.minItems
       ) {
-        issues.push(`${p}: Standardwert hat weniger Einträge als minItems`);
+        issues.push({
+          path: p,
+          message: "Standardwert hat weniger Einträge als minItems",
+        });
       }
       break;
     }
@@ -238,16 +241,19 @@ export function validateControl(control: Control, path: string): string[] {
 
   if (control.condition) {
     if (!control.condition.prop) {
-      issues.push(`${p}: Bedingung ohne Eigenschaft`);
+      issues.push({ path: p, message: "Bedingung ohne Eigenschaft" });
     }
     if (control.condition.prop === control.key) {
-      issues.push(`${p}: Bedingung verweist auf sich selbst`);
+      issues.push({ path: p, message: "Bedingung verweist auf sich selbst" });
     }
     if (
       control.condition.equals !== undefined &&
       control.condition.notEquals !== undefined
     ) {
-      issues.push(`${p}: Bedingung setzt equals und notEquals zugleich`);
+      issues.push({
+        path: p,
+        message: "Bedingung setzt equals und notEquals zugleich",
+      });
     }
   }
 
@@ -258,26 +264,22 @@ export function controlKeys(primitive: PrimitiveDefinition): string[] {
   return primitive.controls.map((control) => control.key);
 }
 
-export function validatePrimitive(primitive: PrimitiveDefinition): string[] {
-  const issues: string[] = [];
+export function validatePrimitive(primitive: PrimitiveDefinition): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
   const p = `primitive(${primitive.type || "?"})`;
 
-  if (!primitive.type) {
-    issues.push(`${p}: type fehlt`);
-  }
-  if (!primitive.name) {
-    issues.push(`${p}: name fehlt`);
-  }
+  issues.push(...primitiveShapeIssues(primitive, p));
+
   if (primitive.description.length === 0) {
-    issues.push(`${p}: description fehlt`);
+    issues.push({ path: p, message: "description fehlt" });
   }
   if (primitive.styleGroups.length === 0) {
-    issues.push(`${p}: keine Stil-Gruppen`);
+    issues.push({ path: p, message: "keine Stil-Gruppen" });
   }
 
   const keys = controlKeys(primitive);
   if (new Set(keys).size !== keys.length) {
-    issues.push(`${p}: doppelte Control-Keys`);
+    issues.push({ path: p, message: "doppelte Control-Keys" });
   }
   for (const control of primitive.controls) {
     issues.push(...validateControl(control, `${p}.controls`));
@@ -286,9 +288,10 @@ export function validatePrimitive(primitive: PrimitiveDefinition): string[] {
   const known = new Set(keys);
   for (const control of primitive.controls) {
     if (control.condition && !known.has(control.condition.prop)) {
-      issues.push(
-        `${p}.${control.key}: Bedingung verweist auf unbekannte Eigenschaft "${control.condition.prop}"`,
-      );
+      issues.push({
+        path: `${p}.${control.key}`,
+        message: `Bedingung verweist auf unbekannte Eigenschaft "${control.condition.prop}"`,
+      });
     }
   }
 
@@ -296,9 +299,10 @@ export function validatePrimitive(primitive: PrimitiveDefinition): string[] {
   const isContainer =
     primitive.allowedChildren !== "none" || hasSlots;
   if (primitive.container !== isContainer) {
-    issues.push(
-      `${p}: Container-Flag passt nicht zur Kinder-Regel (${String(primitive.allowedChildren)})`,
-    );
+    issues.push({
+      path: p,
+      message: `Container-Flag passt nicht zur Kinder-Regel (${String(primitive.allowedChildren)})`,
+    });
   }
 
   return issues;

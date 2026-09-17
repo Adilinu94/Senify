@@ -105,6 +105,24 @@ describe("inline text editing", () => {
     expect(history.size).toBe(1);
   });
 
+  it("keeps completed editing sessions as separate undo entries", () => {
+    const history = new HistoryStack();
+    const inline = new InlineEditing(history);
+    for (const original of ["Start", "Erste Änderung"]) {
+      inline.start({ nodeId: "hero000001", key: "headline", value: original });
+      inline.type(original === "Start" ? "Erste Änderung" : "Zweite Änderung");
+      inline.record({ ...RECORD, undoPatch: [
+        { patch: "setProps", id: "hero000001", props: { headline: original } },
+      ] });
+      inline.commit();
+    }
+    expect(history.size).toBe(2);
+    expect(history.undo()?.undoPatch).toEqual([
+      { patch: "setProps", id: "hero000001", props: { headline: "Erste Änderung" } },
+    ]);
+    expect(history.undo()?.undoPatch).toEqual(RECORD.undoPatch);
+  });
+
   it("keeps rich text out of the inline path", () => {
     const history = new HistoryStack();
     const inline = new InlineEditing(history);

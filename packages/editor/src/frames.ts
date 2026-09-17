@@ -1,5 +1,5 @@
 import { SenifyError } from "@senify/core";
-import { BREAKPOINTS } from "@senify/renderer";
+import { BREAKPOINTS } from "@senify/renderer/breakpoints";
 import type { Node, NodeTree, PropValue } from "@senify/section-sdk";
 import {
   isOverrideBreakpoint,

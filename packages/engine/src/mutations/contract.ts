@@ -25,7 +25,34 @@ export const MUTATION_OPS = [
   "updatePageMeta",
 ] as const;
 
-export type MutationOp = (typeof MUTATION_OPS)[number];
+// The v2 editor operations (rebuild Phase 0, third slice). They extend the
+// mutation vocabulary of this contract without touching the twelve section
+// ops above: the editor document store (packages/editor/src/state) applies
+// them to the widget-engine node tree, while the engine's own `apply` path
+// keeps operating on the section `NodeTree`. Op names shared with the section
+// set (insertNode, deleteNode, duplicateNode, moveNode) keep the same meaning;
+// in the editor contract they address widget primitives (`primitive`).
+export const EDITOR_MUTATION_OPS = [
+  "setNodeProp",
+  "clearNodeProp",
+  "assignClass",
+  "removeClass",
+  "renameClass",
+  "createStyleRule",
+  "updateStyleRule",
+  "deleteStyleRule",
+  "insertNode",
+  "duplicateNode",
+  "moveNode",
+  "deleteNode",
+  "setSlotContent",
+  "createCollectionEntry",
+  "updateCollectionEntry",
+] as const;
+
+export type EditorMutationOp = (typeof EDITOR_MUTATION_OPS)[number];
+
+export type MutationOp = (typeof MUTATION_OPS)[number] | EditorMutationOp;
 
 export type PatchOp =
   | { patch: "insertRaw"; parent: ParentRef; index: number; nodes: Node[] }
@@ -233,7 +260,7 @@ export const MUTATION_SCHEMA_BY_OP = {
   setMotion: SetMotionSchema,
   clearMotion: ClearMotionSchema,
   updatePageMeta: UpdatePageMetaSchema,
-} satisfies Record<MutationOp, TSchema>;
+} satisfies Record<(typeof MUTATION_OPS)[number], TSchema>;
 
 export const MutationSchema = Type.Union([
   InsertNodeSchema,
@@ -312,7 +339,7 @@ export const UpdateThemeBodySchema = Type.Object(
 );
 export type UpdateThemeBody = Static<typeof UpdateThemeBodySchema>;
 
-function formatField(path: string): string {
+export function formatField(path: string): string {
   const parts = path
     .replace(/^\//, "")
     .split("/")
@@ -359,7 +386,7 @@ export function parseBody<T>(
 export function assertKnownMutation(
   mutation: { op: string },
   opIndex: number,
-): MutationOp {
+): (typeof MUTATION_OPS)[number] {
   const knownOps: readonly string[] = MUTATION_OPS;
   if (!knownOps.includes(mutation.op)) {
     throw new SenifyError(
@@ -371,7 +398,7 @@ export function assertKnownMutation(
       },
     );
   }
-  return mutation.op as MutationOp;
+  return mutation.op as (typeof MUTATION_OPS)[number];
 }
 
 const ApplyMutationsShapeSchema = Type.Object(

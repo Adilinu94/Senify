@@ -1,14 +1,12 @@
 import type { NodeTree } from "@senify/section-sdk";
 import { styleVarsFor } from "@senify/registry";
+import { BREAKPOINTS } from "./breakpoints.ts";
 
 // Breakpoint overrides cannot travel inline: they become a generated
 // stylesheet keyed by data-node-id. The same numbers serve the editor
-// frames (T13) and the bake.
-
-export const BREAKPOINTS = {
-  tablet: 1024,
-  mobile: 640,
-} as const;
+// frames (T13) and the bake. The numbers themselves live in `breakpoints.ts`
+// so the canvas can read them without the registry.
+export { BREAKPOINTS };
 
 export type StyleCssPage = {
   path: string;

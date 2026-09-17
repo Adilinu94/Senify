@@ -5,7 +5,10 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./browser": "./src/browser-entry.ts"
+    "./browser": "./src/browser-entry.ts",
+    "./state": "./src/state/index.ts",
+    "./state/browser": "./src/state/browser.ts",
+    "./canvas": "./src/canvas/index.ts"
   },
   "dependencies": {
     "@senify/core": "workspace:*",
@@ -14,6 +17,7 @@
     "@senify/renderer": "workspace:*",
     "@senify/section-sdk": "workspace:*",
     "@senify/tokens": "workspace:*",
+    "@senify/widget-engine": "workspace:*",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },

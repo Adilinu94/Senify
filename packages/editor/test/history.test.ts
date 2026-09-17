@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { HistoryStack } from "@senify/editor";
+import { patchesToMutations } from "../src/history.ts";
 import { applyMutations, applyTreePatches, type Mutation } from "@senify/engine";
 import type { NodeTree } from "@senify/section-sdk";
 import { draftTree, registry } from "./fixtures.ts";
@@ -37,6 +38,34 @@ function recordRealSteps(history: HistoryStack, steps: Mutation[][]): Step[] {
   });
   return recorded;
 }
+
+describe("history replay through canonical mutations", () => {
+  it.each([
+    [{ op: "updateNodeProps", id: "hero000001", patch: { headline: "Neu" } }],
+    [{ op: "deleteNode", id: "hero000001" }],
+    [{ op: "duplicateNode", id: "hero000001" }],
+    [{ op: "moveNode", id: "hero000001", target: { nodeId: "page000001" }, index: 2 }],
+    [
+      { op: "updateNodeProps", id: "hero000001", patch: { headline: "Zwischenstand" } },
+      { op: "updateNodeProps", id: "hero000001", patch: { headline: "Endstand" } },
+    ],
+    [{ op: "clearBreakpointOverride", id: "hero000001", breakpoint: "mobile" }],
+  ] satisfies Mutation[][])("restores and replays %j with stable node ids", (...mutations) => {
+    const original = draftTree();
+    const apply = (tree: NodeTree, batch: Mutation[]) => applyMutations({
+      registry, tree, mutations: batch, ...PAGE,
+    });
+    const forward = apply(original, mutations);
+    const inverse = (outcome: ReturnType<typeof apply>) => patchesToMutations(
+      [...outcome.results].reverse().flatMap((result) => result.undoPatch),
+    );
+    const undone = apply(forward.tree, inverse(forward));
+    expect(undone.tree).toEqual(original);
+    const redone = apply(undone.tree, inverse(undone));
+    expect(redone.tree).toEqual(forward.tree);
+    expect(apply(redone.tree, inverse(forward)).tree).toEqual(original);
+  });
+});
 
 describe("undo / redo stack", () => {
   it("walks the cursor back and forth", () => {

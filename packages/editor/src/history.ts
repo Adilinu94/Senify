@@ -1,9 +1,85 @@
 import { SenifyError } from "@senify/core";
 import type { Mutation, MutationOp, PatchOp } from "@senify/engine";
+import type { Node } from "@senify/section-sdk";
 
 // Undo/Redo runs on the canonical patches the engine hands back for every
 // batch (artifacts/09 §6). Nothing is re-implemented: an undo replays
 // `undoPatch`, a redo replays the forward mutations.
+
+export function patchesToMutations(patches: readonly PatchOp[]): Mutation[] {
+  const mutations: Mutation[] = [];
+  for (const patch of patches) {
+    switch (patch.patch) {
+      case "setProps":
+        mutations.push({ op: "updateNodeProps", id: patch.id, patch: patch.props });
+        break;
+      case "setPageMeta":
+        mutations.push({ op: "updatePageMeta", title: patch.title, path: patch.path });
+        break;
+      case "setNodeFields":
+        mutations.push({ op: "updateNodeMeta", id: patch.id, meta: {
+          variant: patch.fields.variant ?? null,
+          locked: patch.fields.locked ?? false,
+          hidden: patch.fields.hidden ?? false,
+        } });
+        break;
+      case "setOverride":
+        mutations.push({ op: "clearBreakpointOverride", id: patch.id, breakpoint: patch.breakpoint });
+        if (patch.override !== null) mutations.push({
+          op: "setBreakpointOverride", id: patch.id, breakpoint: patch.breakpoint, override: patch.override,
+        });
+        break;
+      case "setMotion":
+        mutations.push(patch.spec === null
+          ? { op: "clearMotion", id: patch.id }
+          : { op: "setMotion", id: patch.id, spec: patch.spec });
+        break;
+      case "deleteRaw":
+        mutations.push({ op: "deleteNode", id: patch.id });
+        break;
+      case "moveRaw":
+        mutations.push({ op: "moveNode", id: patch.id, target: patch.target, index: patch.index });
+        break;
+      case "insertRaw": {
+        const nodes = new Map(patch.nodes.map((node) => [node.id, node]));
+        const seen = new Set<string>();
+        const restore = (node: Node, parent: Extract<Mutation, { op: "insertNode" }>["parent"], index: number): void => {
+          if (seen.has(node.id)) throw new Error("Ungültiger History-Baum");
+          seen.add(node.id);
+          mutations.push({ op: "insertNode", parent, index, node: {
+            id: node.id, type: node.type, props: node.props,
+            ...(node.variant === undefined ? {} : { variant: node.variant }),
+          } });
+          if (node.hidden !== undefined || node.locked !== undefined) {
+            mutations.push({ op: "updateNodeMeta", id: node.id, meta: {
+              ...(node.hidden === undefined ? {} : { hidden: node.hidden }),
+              ...(node.locked === undefined ? {} : { locked: node.locked }),
+            } });
+          }
+          for (const breakpoint of ["tablet", "mobile"] as const) {
+            const override = node.overrides?.[breakpoint];
+            if (override) mutations.push({ op: "setBreakpointOverride", id: node.id, breakpoint, override });
+          }
+          if (node.motion) mutations.push({ op: "setMotion", id: node.id, spec: node.motion });
+          const children = (ids: string[], slot?: string): void => {
+            ids.forEach((id, childIndex) => {
+              const child = nodes.get(id);
+              if (!child) throw new Error(`History-Knoten fehlt: ${id}`);
+              restore(child, { nodeId: node.id, ...(slot === undefined ? {} : { slot }) }, childIndex);
+            });
+          };
+          children(node.children ?? []);
+          for (const [slot, ids] of Object.entries(node.slots ?? {})) children(ids, slot);
+        };
+        const root = patch.nodes[0];
+        if (!root) throw new Error("Leerer History-Baum");
+        restore(root, patch.parent, patch.index);
+        break;
+      }
+    }
+  }
+  return mutations;
+}
 
 export type HistoryEntry = {
   id: string;

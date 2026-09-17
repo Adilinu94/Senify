@@ -180,6 +180,52 @@ describe.skipIf(!browserAvailable)("editor in a real browser (T13)", () => {
         expect(text?.trim()).toBe("Neue Headline");
       }
 
+      // DEFERRED — Ticket 03 "Editor-Chrome" (Phase 3) owns the undo/redo *UI*
+      // contract: "Undo/Redo-History im UI" and "Keyboard: Cmd+Z/Shift+Z"
+      // (.scratch/editor-v2-rebuild/issues/03-editor-chrome.md). The rebuild's
+      // chrome does not carry that keyboard contract yet, so this browser check
+      // is deliberately skipped, not deleted: the block below is kept verbatim
+      // and is switched on together with Ticket 03. The store-level patch
+      // history (Ticket 01, Phase 0) is covered by
+      // packages/editor/test/state/store.test.ts and
+      // packages/editor/test/history.test.ts.
+      const editorChromeUndoReady = false;
+      if (editorChromeUndoReady) {
+        const storedHeadline = async (): Promise<string | undefined> => {
+          const response = await fetch(`${running.dashboardUrl}/api/pages/${page.id}`);
+          expect(response.status).toBe(200);
+          const saved = await response.json() as {
+            draft: { nodes: Record<string, { props: { headline?: string } }> };
+          };
+          return saved.draft.nodes[heroId]?.props.headline;
+        };
+        await tab.route(`**/api/pages/${page.id}/mutations`, async (route) => {
+          await route.fulfill({
+            status: 500,
+            contentType: "application/json",
+            body: JSON.stringify({ error: { message: "Testweise fehlgeschlagener Schreibzugriff" } }),
+          });
+        }, { times: 1 });
+        await tab.locator(".senify-editor__stage").click({ position: { x: 6, y: 6 } });
+        await tab.keyboard.press("Control+z");
+        await expect.poll(async () => tab.locator(".senify-editor").textContent())
+          .toContain("Testweise fehlgeschlagener Schreibzugriff");
+        expect(await storedHeadline()).toBe("Neue Headline");
+        expect(
+          errors.every((error) => error.startsWith("console:") && error.includes("500")),
+        ).toBe(true);
+        errors.length = 0;
+        for (const expected of ["Browser-Prüfung", "Neue Headline", "Browser-Prüfung", "Neue Headline"]) {
+          await tab.locator(".senify-editor__stage").click({ position: { x: 6, y: 6 } });
+          await tab.keyboard.press(expected === "Browser-Prüfung" ? "Control+z" : "Control+y");
+          await expect.poll(storedHeadline).toBe(expected);
+          for (const index of [0, 1, 2]) {
+            await expect.poll(async () => tab.locator(".senify-editor__iframe")
+              .nth(index).contentFrame().locator("h1").first().textContent()).toBe(expected);
+          }
+        }
+      }
+
       // The deep link carries the selection and survives a reload; the
       // rendered heading keeps its inline anchor (double-click edits it).
       await expect.poll(async () => tab.url()).toContain(`node=${heroId}`);

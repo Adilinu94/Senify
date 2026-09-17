@@ -107,8 +107,11 @@ export class InlineEditing {
       batchId: record.batchId,
       versionBefore: record.versionBefore,
       versionAfter: record.versionAfter,
-      coalesceKey: INLINE_COALESCE_KEY,
+      ...(session.entryId === null ? {} : {
+        coalesceKey: `${INLINE_COALESCE_KEY}:${session.entryId}`,
+      }),
     });
+    entry.coalesceKey = `${INLINE_COALESCE_KEY}:${entry.id}`;
     session.entryId = entry.id;
     return entry.id;
   }

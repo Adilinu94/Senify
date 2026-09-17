@@ -34,7 +34,7 @@ describe("slider control", () => {
       step: 1,
       units: [],
     };
-    expect(validateControl(broken, "test").join(" ")).toContain("Einheit");
+    expect(validateControl(broken, "test").map((issue) => issue.message).join(" ")).toContain("Einheit");
   });
 
   it("rejects a default outside the range", () => {
@@ -49,7 +49,7 @@ describe("slider control", () => {
       step: 1,
       units: ["px"],
     };
-    expect(validateControl(broken, "test").join(" ")).toContain("außerhalb");
+    expect(validateControl(broken, "test").map((issue) => issue.message).join(" ")).toContain("außerhalb");
   });
 });
 
@@ -97,7 +97,7 @@ describe("choose and select controls", () => {
       default: "nope",
       options: [{ value: "a", label: "A" }],
     };
-    expect(validateControl(broken, "test").join(" ")).toContain("keine der Optionen");
+    expect(validateControl(broken, "test").map((issue) => issue.message).join(" ")).toContain("keine der Optionen");
   });
 });
 
@@ -140,7 +140,7 @@ describe("repeater control", () => {
       default: [],
       fields: [],
     };
-    expect(validateControl(broken, "test").join(" ")).toContain("Felder");
+    expect(validateControl(broken, "test").map((issue) => issue.message).join(" ")).toContain("Felder");
   });
 });
 
@@ -169,6 +169,6 @@ describe("conditions", () => {
       default: "",
       condition: { prop: "mode", equals: "a", notEquals: "b" },
     };
-    expect(validateControl(broken, "test").join(" ")).toContain("zugleich");
+    expect(validateControl(broken, "test").map((issue) => issue.message).join(" ")).toContain("zugleich");
   });
 });
