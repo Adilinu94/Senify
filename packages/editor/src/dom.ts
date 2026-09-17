@@ -17,8 +17,15 @@ export type DomEvent = {
   stopPropagation?(): void;
 };
 
+// Inline styles. Index assignment (`style.color = …`) covers the ordinary
+// declarations; the custom properties of the panel widths (Aufgabe 29) need
+// `setProperty`, which only a real `CSSStyleDeclaration` carries.
+export type DomStyle = Record<string, string> & {
+  setProperty?(name: string, value: string): void;
+};
+
 export type DomElement = {
-  readonly style: Record<string, string>;
+  readonly style: DomStyle;
   readonly dataset: Record<string, string | undefined>;
   readonly classList: {
     add(...tokens: string[]): void;
@@ -70,6 +77,12 @@ export type DomDocument = {
 
 export type DomWindow = {
   readonly document: DomDocument;
+  // Panel widths (Aufgabe 29) survive a reload: the editor stores them here
+  // when the browser offers it (a private window may not).
+  readonly localStorage?: {
+    getItem(key: string): string | null;
+    setItem(key: string, value: string): void;
+  };
   readonly location: { readonly search: string; readonly href: string };
   readonly history: {
     replaceState(data: unknown, title: string, url: string): void;

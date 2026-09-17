@@ -235,6 +235,10 @@ export const EDITOR_STYLES = `${editorFontFaceCss()}
 }
 .senify-editor__main--norail { grid-template-columns: 17.5rem 0 minmax(0, 1fr); }
 .senify-editor__main--norail .senify-editor__rail { display: none; }
+/* Panel-Trennkanten (Aufgabe 29) gehoeren zur neuen Haut: ohne sie sind sie
+   unsichtbar und ohne Wirkung, das alte Raster bleibt unveraendert. Die Haut
+   (ui/skin.ts) blendet sie ein und verstellt die Spaltenbreite. */
+.senify-editor__split { display: none; }
 @media (min-width: 1440px) {
   .senify-editor__main { grid-template-columns: 18.75rem minmax(8rem, 13rem) minmax(0, 1fr); }
   .senify-editor__main--norail { grid-template-columns: 18.75rem 0 minmax(0, 1fr); }

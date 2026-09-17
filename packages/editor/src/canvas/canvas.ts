@@ -28,6 +28,8 @@ import type { FrameRenderer } from "../mount.ts";
 import { getDocument, type DomDocument, type DomElement, type DomEvent } from "../dom.ts";
 import { ensureCanvasStyles } from "./styles.ts";
 import { editorFontFaceCss } from "../ui/fonts.ts";
+import { applyEditorSkin, EDITOR_SKIN_DEFAULT } from "../ui/skin.ts";
+import { EDITOR_ROOT_ATTRIBUTE } from "../ui/tokens.ts";
 import { EditorStore } from "../state/store.ts";
 import { canvasFrames, fitZoom, ZOOM_MAX, ZOOM_MIN } from "./device.ts";
 import { canvasFrameRules } from "./rules.ts";
@@ -153,6 +155,12 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   const mounted: MountedFrame[] = [];
 
   const root = create(doc, "div", "senify-canvas", { "data-zoom": String(zoom) });
+  // The canvas carries the same marker and the same skin name as the editor, so
+  // it reads the very same `--ed-*` tokens (`CANVAS_TOKEN_CSS`, scoped to the
+  // marker) and the canvas skin (`EDITOR_CANVAS_SKIN_STYLES`) paints it from
+  // them. One source, no second palette — see `ui/skin.ts`.
+  root.setAttribute(EDITOR_ROOT_ATTRIBUTE, "true");
+  applyEditorSkin(root, EDITOR_SKIN_DEFAULT);
   const topbar = create(doc, "div", "senify-canvas__topbar");
   const stage = create(doc, "div", "senify-canvas__stage");
   const status = create(doc, "span", "senify-canvas__status", { "data-role": "status" });

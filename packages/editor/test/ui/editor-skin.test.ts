@@ -62,10 +62,40 @@ describe("editor skin is one source of appearance", () => {
     }
   });
 
+  it("uses the title face --ed-font-display (Aufgabe 4 / ui-plan.md Abschnitt 1)", () => {
+    expect(EDITOR_SKIN_STYLES).toContain("var(--ed-font-display)");
+    // Wortmarke, Dokumenttitel und Panel-Titel tragen die Titel-Schrift.
+    const displayRules = [
+      ...EDITOR_SKIN_STYLES.matchAll(/[^{}]*\{([^}]*var\(--ed-font-display\)[^}]*)\}/g),
+    ];
+    expect(displayRules.length).toBeGreaterThanOrEqual(3);
+  });
+
   it("never carries the legacy violet accent", () => {
     for (const legacy of ["#d004d4", "#a21caf", "#86198f", "#7c3aed", "#4f46e5", "#b000b0"]) {
       expect(EDITOR_SKIN_STYLES.toLowerCase()).not.toContain(legacy);
     }
+  });
+});
+
+describe("panel edges belong to the new skin (Aufgabe 29)", () => {
+  it("shows and sizes the two edges from the token widths", () => {
+    expect(EDITOR_SKIN_STYLES).toContain(".senify-editor__split");
+    // Bounds and defaults come from tokens.ts, never a second number.
+    expect(EDITOR_SKIN_STYLES).toContain("grid-template-columns: var(--ed-w-inspector) var(--ed-w-explorer) minmax(0, 1fr);");
+    expect(EDITOR_SKIN_STYLES).toContain("left: calc(var(--ed-w-inspector) - 4px);");
+    expect(EDITOR_SKIN_STYLES).toContain(
+      "left: calc(var(--ed-w-inspector) + var(--ed-w-explorer) - 4px);",
+    );
+    // The old chrome has no visible edge: the base sheet hides it.
+    expect(EDITOR_STYLES).toContain(".senify-editor__split { display: none; }");
+  });
+
+  it("wires the two edges in the running editor (mount.ts)", () => {
+    const mount = readFileSync(new URL("../../src/mount.ts", import.meta.url), "utf8");
+    expect(mount).toContain('splitHandle("inspector")');
+    expect(mount).toContain('splitHandle("explorer")');
+    expect(mount).toContain("senify-editor-panelbreiten");
   });
 });
 

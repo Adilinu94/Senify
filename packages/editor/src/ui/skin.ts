@@ -15,6 +15,14 @@
 // the attribute) turns the sheet off and the previous Elementor-like light chrome
 // shows through unchanged — that is the "Umschaltung zwischen alter und neuer
 // Ansicht" this sheet must leave intact.
+//
+// Two roots, one appearance source. The new canvas view (`?view=canvas`,
+// `.senify-canvas`) carries the very same token marker and the same skin name,
+// so `canvasSkinCss()` below paints it from these same `var(--ed-*)` values.
+// There is no second palette: the canvas sheet holds no hex at all. The sheet
+// itself (`.senify-canvas__frame` / `__iframe`, the white paper with the page
+// content) stays neutral — it is a separate document that the skin never
+// reaches, so nothing of the chrome bleeds into the content.
 
 import { EDITOR_ROOT_ATTRIBUTE } from "./tokens.ts";
 
@@ -78,7 +86,12 @@ function skinCss(): string {
       "gap: var(--ed-space-2);",
       "border-radius: var(--ed-radius-sm);",
       "color: var(--ed-ink-strong);",
+      // Aufgabe 4 / ui-plan.md Abschnitt 1: die Wortmarke traegt die Titel-
+      // Schrift (Inter Display), Gewicht 600, Laufweite --ed-track-display.
+      "font-family: var(--ed-font-display);",
+      "font-size: var(--ed-text-13);",
       "font-weight: var(--ed-weight-semibold);",
+      "letter-spacing: var(--ed-track-display);",
     ].join("\n"),
   );
   rule(
@@ -168,7 +181,14 @@ function skinCss(): string {
     ].join("\n"),
   );
   rule(" .senify-editor__title:hover", "background: var(--ed-fill-hover);");
-  rule(" .senify-editor__title strong", "color: var(--ed-ink-strong);\nfont-weight: var(--ed-weight-medium);");
+  rule(
+    " .senify-editor__title strong",
+    [
+      "color: var(--ed-ink-strong);",
+      "font-family: var(--ed-font-display);",
+      "font-weight: var(--ed-weight-medium);",
+    ].join("\n"),
+  );
   rule(" .senify-editor__title small", "color: var(--ed-ink-muted);");
   group(
     " .senify-editor__publish| .senify-editor__publish-caret",
@@ -236,11 +256,67 @@ function skinCss(): string {
   // ------------------------------------------------------------- Panels/Rail
   rule(
     " .senify-editor__main",
-    "grid-template-columns: var(--ed-w-explorer) minmax(8rem, 13rem) minmax(0, 1fr);",
+    [
+      // Die Trennkanten sitzen absolut im Raster; ihr Bezug ist `main`.
+      "position: relative;",
+      // Aufgabe 29: das Inspektor-Panel links (--ed-w-inspector), die
+      // Ebenenliste (Explorer) daneben (--ed-w-explorer); beide sind ziehbar.
+      "grid-template-columns: var(--ed-w-inspector) var(--ed-w-explorer) minmax(0, 1fr);",
+    ].join("\n"),
   );
   rule(
     " .senify-editor__main--norail",
-    "grid-template-columns: var(--ed-w-explorer) 0 minmax(0, 1fr);",
+    "grid-template-columns: var(--ed-w-inspector) 0 minmax(0, 1fr);",
+  );
+  // Aufgabe 29: die Trennkanten. Sie folgen dem Zeiger und verstellen die
+  // Spaltenbreite; Doppelklick setzt den Standard, die Pfeiltasten verstellen
+  // ohne Zeiger. Kein zweiter Wert: die Grenzen und der Standard kommen aus
+  // `tokens.ts` (--ed-w-inspector = 320px, --ed-w-explorer = 264px).
+  rule(
+    " .senify-editor__split",
+    [
+      "display: block;",
+      "position: absolute;",
+      "top: 0;",
+      "bottom: 0;",
+      "z-index: 4;",
+      "width: 9px;",
+      "background: transparent;",
+      "cursor: ew-resize;",
+      "touch-action: none;",
+    ].join("\n"),
+  );
+  rule(
+    " .senify-editor__main--norail .senify-editor__split[data-panel=\"explorer\"]",
+    "display: none;",
+  );
+  rule(
+    " .senify-editor__split[data-panel=\"inspector\"]",
+    "left: calc(var(--ed-w-inspector) - 4px);",
+  );
+  rule(
+    " .senify-editor__split[data-panel=\"explorer\"]",
+    "left: calc(var(--ed-w-inspector) + var(--ed-w-explorer) - 4px);",
+  );
+  rule(
+    " .senify-editor__split::after",
+    [
+      "content: \"\";",
+      "position: absolute;",
+      "top: 0;",
+      "bottom: 0;",
+      "left: 4px;",
+      "width: 1px;",
+      "background: var(--ed-line-hairline);",
+    ].join("\n"),
+  );
+  group(
+    " .senify-editor__split:hover::after| .senify-editor__split[data-aktiv=\"true\"]::after",
+    "background: var(--ed-signal-select);",
+  );
+  rule(
+    " .senify-editor__split:focus-visible",
+    "outline: 2px solid var(--ed-focus);\noutline-offset: -1px;",
   );
   rule(
     " .senify-editor__panels",
@@ -260,7 +336,16 @@ function skinCss(): string {
       "border-bottom: 1px solid var(--ed-line-hairline);",
     ].join("\n"),
   );
-  rule(" .senify-editor__panel-heading", "color: var(--ed-ink-strong);\nfont-size: var(--ed-text-12);\nfont-weight: var(--ed-weight-medium);");
+  rule(
+    " .senify-editor__panel-heading",
+    [
+      "color: var(--ed-ink-strong);",
+      // Panel-Titel tragen die Titel-Schrift (Aufgabe 4: "--ed-font-display").
+      "font-family: var(--ed-font-display);",
+      "font-size: var(--ed-text-12);",
+      "font-weight: var(--ed-weight-semibold);",
+    ].join("\n"),
+  );
   rule(
     " .senify-editor__ptabs",
     "border-bottom: 1px solid var(--ed-line-hairline);\nbackground: var(--ed-surface-panel);",
@@ -476,6 +561,123 @@ function skinCss(): string {
 }
 
 export const EDITOR_SKIN_STYLES = skinCss();
+
+// The scope of the canvas skin: the canvas root carries the same token marker
+// and the same skin name, so the very same `--ed-*` vocabulary paints it.
+const CANVAS_SCOPE = `.senify-canvas[${EDITOR_ROOT_ATTRIBUTE}][${EDITOR_SKIN_ATTRIBUTE}="${EDITOR_SKIN_TIEFWASSER}"]`;
+
+// The canvas view's chrome, expressed in the tokens of `tokens.ts` alone (no
+// hex, no second palette). The sheet with the page content is untouched: the
+// frame keeps its neutral white in the structural sheet, and the content lives
+// in its own document where this scope never matches — the skin does not bleed
+// into the content area.
+function canvasSkinCss(): string {
+  const blocks: string[] = [];
+  const rule = (selector: string, body: string): void => {
+    blocks.push(`${CANVAS_SCOPE}${selector} {\n${body}\n}`);
+  };
+  // --------------------------------------------------------------- Grundfläche
+  rule(
+    "",
+    [
+      "border: 1px solid var(--ed-line-hairline);",
+      "border-radius: var(--ed-radius-0);",
+      "background: var(--ed-surface-canvas);",
+      "color: var(--ed-ink-base);",
+      "font-family: var(--ed-font-body);",
+      "font-size: var(--ed-text-13);",
+      "line-height: var(--ed-lh-13);",
+      "box-shadow: var(--ed-edge-top);",
+    ].join("\n"),
+  );
+
+  // --------------------------------------------------------------- Kopfleiste
+  rule(
+    " .senify-canvas__topbar",
+    [
+      "min-height: var(--ed-h-topbar);",
+      "padding: 0 var(--ed-space-3);",
+      "gap: var(--ed-space-2);",
+      "background: var(--ed-surface-raised);",
+      "border-bottom: 1px solid var(--ed-line-hairline);",
+      "box-shadow: var(--ed-edge-top);",
+    ].join("\n"),
+  );
+  rule(
+    " .senify-canvas__group",
+    [
+      "gap: 1px;",
+      "padding: 2px;",
+      "border: 0;",
+      "border-radius: var(--ed-radius-full);",
+      "background: var(--ed-surface-inset);",
+    ].join("\n"),
+  );
+  rule(
+    " .senify-canvas__button",
+    [
+      "min-height: var(--ed-h-btn-sm);",
+      "min-width: var(--ed-h-iconbtn);",
+      "padding: 0 var(--ed-space-2);",
+      "border-radius: var(--ed-radius-sm);",
+      "color: var(--ed-ink-base);",
+      "transition: background-color var(--ed-t-1) var(--ed-ease-standard), color var(--ed-t-1) var(--ed-ease-standard);",
+    ].join("\n"),
+  );
+  rule(
+    " .senify-canvas__button:hover",
+    "background: var(--ed-fill-hover);\ncolor: var(--ed-ink-strong);",
+  );
+  rule(
+    " .senify-canvas__button[data-active=\"true\"]",
+    [
+      "background: var(--ed-surface-raised);",
+      "color: var(--ed-ink-strong);",
+      "box-shadow: var(--ed-edge-hairline);",
+    ].join("\n"),
+  );
+  rule(
+    " .senify-canvas__select",
+    [
+      "min-height: var(--ed-h-field);",
+      "padding: 0 var(--ed-space-2);",
+      "border: 0;",
+      "border-radius: var(--ed-radius-0);",
+      "background: var(--ed-surface-inset);",
+      "box-shadow: inset 0 0 0 1px var(--ed-line-control);",
+      "color: var(--ed-ink-strong);",
+      "font-size: var(--ed-text-12);",
+    ].join("\n"),
+  );
+  rule(
+    " .senify-canvas__zoom-label",
+    "color: var(--ed-ink-base);\nfont-family: var(--ed-font-mono);\nfont-size: var(--ed-text-12);\nfont-variant-numeric: tabular-nums;",
+  );
+  rule(
+    " .senify-canvas__status",
+    [
+      "display: flex;",
+      "align-items: center;",
+      "min-height: var(--ed-h-statusbar);",
+      "color: var(--ed-ink-muted);",
+      "font-size: var(--ed-text-11);",
+    ].join("\n"),
+  );
+
+  // ------------------------------------------------------------------- Bühne
+  // Nur der Grund um die Blätter traegt die Haut; das Blatt selbst
+  // (`.senify-canvas__frame`, `.senify-canvas__iframe`) bleibt neutral weiss
+  // (siehe `CANVAS_STYLES`). Hier wird kein Inhalt eingefaerbt.
+  rule(" .senify-canvas__stage", "background: var(--ed-surface-canvas);");
+  rule(
+    " .senify-canvas__frame",
+    "border-radius: var(--ed-radius-sm);\nbox-shadow: var(--ed-shadow-float), var(--ed-edge-hairline);",
+  );
+
+  return `${blocks.join("\n")}\n`;
+}
+
+export const EDITOR_CANVAS_SKIN_STYLES = canvasSkinCss();
 
 /** True when `value` names one of the two known skins. */
 export function isEditorSkin(value: string | null): value is EditorSkin {

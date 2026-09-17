@@ -10,6 +10,77 @@ Tastatur, Bewegung, Kontrast und Pruefkriterium), `.scratch/editor-v2-rebuild/ui
 Kein Schritt aendert `packages/app/public/app.css` oder `app.js` (laufende Oberflaeche bleibt unberuehrt).
 Die Aufgaben 1 bis 31 sind der Bestand, die Aufgaben 32 bis 47 setzen `ui-plan.md` um.
 
+## Auftragsrunde – Die Canvas-Ansicht an die Haut angeschlossen (Stand dieser Runde)
+
+Kein Commit. **Dienste zuerst abgefragt:** `http://127.0.0.1:4322` (Programm) und
+`http://127.0.0.1:4321` (Engine) antworteten **beide mit `ECONNREFUSED`** (ebenso die Route
+`/editor-fonts/Inter-Regular.woff2`); sie wurden auf Auflage **nicht** gestartet und kein Prozess
+wurde beendet. Der Nachweis lief -- wie die Browser-Tests des Repos -- gegen eine **eigene,
+fluechtige Programm-Instanz** (`startProgram`, `appPort: 0` / `enginePort: 0`), die das Skript am
+Ende selbst beendet. Frisch gemessen, nichts aus dem Vorlauf uebernommen:
+`.scratch/editor-v2-rebuild/pruef-nachweis-canvas.mjs` -> `.scratch/refs/nick/ui/nachweis-canvas.json`
+und `canvas-{editor,canvas,vorschau}-{1280,1440,1920,schmal}.png` + `canvas-panels-1440.png`.
+
+**Die Canvas-Ansicht traegt jetzt dieselbe Haut (Auftragspunkt 1).** Die Werte kommen aus derselben
+Quelle wie beim Editor: `ui/tokens.ts` (der `--ed-*`-Satz), `ui/skin.ts` (die neue
+`EDITOR_CANVAS_SKIN_STYLES`, nur `var(--ed-*)`, kein Hex), `ui/fonts.ts` und `ui/icons.ts`.
+`packages/editor/src/canvas/canvas.ts` setzt auf den Canvas-Wurzelknoten denselben Marker
+(`data-senify-editor`) und dieselbe Haut (`data-editor-skin="tiefwasser"`); `canvas/styles.ts`
+speist Tokens, Schriften, Symbole und Haut ein (fuenf eigene `style`-Elemente). Die **Arbeitsflaeche
+bleibt neutral**: `.senify-canvas__frame`/`__iframe` behalten ihr weisses Blatt (`#ffffff`) als
+einzigen Literal in `CANVAS_STYLES`, und die Haut trifft kein Inhaltselement.
+
+Beide Ansichten, 1280/1440/1920/schmal:
+
+- **Farben:** Wurzelknoten mit **116 von 116** Tokens **gleich** `tokens.ts` (0 fehlend, 0
+  abweichend) -- im Editor **und** jetzt in der Canvas-Ansicht. Was gemalt wird: Kopfleiste beider
+  Ansichten `rgb(2 67 100)` = `--ed-surface-raised` (`#024364`), Buehne beide `rgb(1 40 60)` =
+  `--ed-surface-canvas` (`#01283c`), Editor-Veroeffentlichen-Knopf `rgb(203 255 151)` =
+  `--ed-signal-accent` (`#cbff97`).
+- **Schrift:** berechnete Familien `Inter, system-ui, sans-serif` (Text) und -- im Editor --
+  `"Inter Display", Inter, system-ui, sans-serif` (Titel). Geladen: Inter 400/600 und Sora 700 in
+  beiden Ansichten, zusaetzlich Inter Display 500/600 im Editor (Titel). CLS hoechstens 0,047.
+- **Symbole:** Editor **36 von 36**, Canvas **2 von 2** gezeichnet (data-URI-Maske, Groesse > 0);
+  **0** Platzhalter-Zeichen.
+- **Layout:** `ueberlaufPx` 0 bei allen vier Breiten in beiden Ansichten, Statusleiste sichtbar,
+  Buehne scrollt allein (`overflow-y: auto`), CLS <= 0,047.
+- **Null Konsolenfehler, null fehlgeschlagene Anfragen, null Fremdanfragen** in beiden Ansichten und
+  in der Vorschau.
+
+**Inhaltsbereich nachweislich unberuehrt:** im Inhaltsdokument (iframe) stehen **0** `--ed-*`-Variablen
+und **kein** `data-editor-skin`-Attribut. Mit Haut an und Haut aus gemessen sind **Hintergrund,
+Textfarbe und Familie des Blattes identisch** (Editor: `oklch(0.97 0.0044 76.53)`/`rgb(0 0 0)`;
+Canvas: `rgb(255 255 255)`/`rgb(0 0 0)`), waehrend sich die Kopfleiste der Bedienoberflaeche mit der
+Haut aendert (`rgb(2 67 100)` -> `rgb(255 255 255)` bzw. transparent). Das Blatt traegt keine Haut.
+
+**Auftragspunkt 2 (Reste) -- erledigt:**
+
+- **Titel-Schrift `--ed-font-display`** wird jetzt genutzt (`ui/skin.ts`: Wortmarke, Dokumenttitel
+  und Panel-Titel), berechnet als `"Inter Display", Inter, system-ui, sans-serif`; Inter Display
+  500/600 sind im Editor geladen.
+- **Ziehen an den Panels im echten Editor** (Aufgabe 29, bisher nur Vorschau): zwei Trennkanten
+  `.senify-editor__split` (Inspektor links 260-420 Standard 320, Explorer daneben 200-360 Standard
+  264, Grenzen/Standard aus `EDITOR_METRIC`). Gemessen: Standard `320x264`; Ziehen +40 -> `360x264`
+  (der Rand bleibt unter dem Zeiger, Abweichung 0); weiter ziehen -> `420x264` (Grenze); Doppelklick
+  -> `320x264`; Pfeil rechts -> `328x264`; Explorer +30 -> `328x294`, Doppelklick -> `328x264`;
+  nach Neuladen unveraendert `328x264`; `ueberlaufPx` immer 0. Zusaetzlich als Test verankert
+  (`packages/app/test/editor-panels-browser.test.ts`).
+
+**Neu offen und ehrlich:**
+
+- **Dienste:** 4322/4321 waren nicht erreichbar; der Beleg gilt gegen eine fluechtige Instanz auf
+  freien Ports, nicht gegen die festen Ports.
+- **Canvas ohne Titel:** die Canvas-Kopfleiste hat keine Titelzeile, deshalb nutzt sie
+  `--ed-font-display` dort nicht (nur `--ed-font-body`); Inter Display wird in der Canvas-Ansicht
+  nicht geladen. Der Wurzeltext steht auf der geplanten Familie.
+- **Inhalts-Grundflaeche:** Editor-Rahmen und Canvas-Rahmen tragen unterschiedliche neutrale
+  Blattgruende (`var(--bg-base)` gegen `#ffffff`); das ist Bestand in `canvas.ts` (`FRAME_BASE_CSS`)
+  und wurde in dieser Runde nicht angefasst.
+- **Aufgabe 4 (Rest):** die Typo-Primitiven `Text`/`Micro`/`Label`/`MonoNum` als Bausteine in
+  `src/ui` fehlen weiter; belegt ist nur die Titelschrift.
+- **Punkte 33-46** (Medienwahl, Typografie-Gruppe, Bedingung, Raster, Mehrfachauswahl, Vorlesbarkeit
+  u. a.) bleiben offen wie in der Liste unten gefuehrt.
+
 ## Auftragsrunde 60 – Nachweis am laufenden Editor (Stand dieser Runde)
 
 Kein Commit. **Dienste zuerst abgefragt:** `http://127.0.0.1:4322` (Programm) und
@@ -277,6 +348,11 @@ Erledigt (Auftragsrunde): `EDITOR_TOKEN_STYLES` + `ensureEditorStyles()` in `pac
 `116 von 116 Tokens gleich` (`.scratch/refs/nick/ui/nachweis-editor.json`). Runde 60 ergaenzt: die
 Haut **malt** die Tokens jetzt auch (Kopfleiste `#024364`, Veroeffentlichen-Knopf `#cbff97`),
 Beleg `.scratch/refs/nick/ui/nachweis-r60.json`.
+Runde Canvas: **die Canvas-Ansicht (`?view=canvas`) traegt denselben Satz.** Der Canvas-Wurzelknoten
+setzt `data-senify-editor` (+ `data-editor-skin="tiefwasser"`), `canvas/styles.ts` speist
+`editorTokensCss()` aus derselben Quelle ein; gemessen **116 von 116** Tokens gleich `tokens.ts`,
+Kopfleiste `#024364`, Buehne `#01283c`, in **beiden** Ansichten. Beleg
+`.scratch/refs/nick/ui/nachweis-canvas.json`; Test `packages/editor/test/ui/canvas-skin.test.ts`.
 
 **2 Paritaetstest Tokens gegen Palette.**
 Neuer Test `packages/editor/test/ui/tokens.test.ts`: jeder Farbwert ist entweder ein Anker der Designsprache oder eine im Kommentar dokumentierte Mischung genau zweier Anker. Dazu die 22 Nachweispaare aus `EDITOR_CONTRAST_PROOF` mit der Luminanzfunktion aus `packages/tokens` nachrechnen (Toleranz 0,02).
@@ -292,6 +368,10 @@ Pruef: In `src/ui` gibt es ausser `--ed-shadow-float` und `--ed-shadow-dialog` k
 `Text` (12px), `Micro` (11px gesperrt), `Label` (12px, Nebentext), `MonoNum` (tabellarisch). Feste px-Werte, keine Fluid-Groesse.
 Abhaengig von: 1.
 Pruef: In `src/ui` kommt kein `clamp(`, `vw` oder `rem`-Schriftwert vor; jeder Titel nutzt `--ed-font-display`.
+Runde Canvas: **`--ed-font-display` erledigt** -- `ui/skin.ts` setzt die Titelschrift auf Wortmarke,
+Dokumenttitel und Panel-Titel, berechnet `"Inter Display", Inter, system-ui, sans-serif`; Inter
+Display 500/600 im Editor geladen (`.scratch/refs/nick/ui/nachweis-canvas.json`). Die Primitiven
+`Text`/`Micro`/`Label`/`MonoNum` als Bausteine in `src/ui` fehlen weiter (offen).
 
 **5 Bewegungs-Hilfe.**
 `motion.ts` mit den sechs Dauern und vier Kurven, Umschaltung auf `prefers-reduced-motion: reduce`.
@@ -424,6 +504,9 @@ Pruef: Kein waagerechter Ueberlauf (`document.documentElement.scrollWidth === cl
 Erledigt fuer die Vorschau (Auftragsrunde): Testfall 2 in
 `packages/editor/test/ui/zustands-und-layoutprobe.test.ts` (1280/1440/1920/480/900); offen bleibt die
 Messung an der laufenden Editor-Haut.
+Runde Canvas: **nun auch an der laufenden Haut gemessen** -- `ueberlaufPx` 0, Statusleiste sichtbar,
+Buehne `overflow-y: auto` bei 1280/1440/1920/schmal, in **beiden** Ansichten
+(`.scratch/refs/nick/ui/nachweis-canvas.json`).
 
 **29 Panelbreiten und Ziehen.**
 Explorer 200 bis 360px, Inspektor 260 bis 420px, Doppelklick auf der Trennkante setzt den Standard.
@@ -434,6 +517,14 @@ Erledigt fuer die Vorschau (Auftragsrunde): Testfall 3 in
 Feld, Sprung 0,5px, Bestand nach Neuladen); eingebautes Sollbild in
 `.scratch/editor-v2-rebuild/ui-preview/index.html` (`.app__split`, `localStorage`-Schluessel
 `pv-panelbreiten`); offen bleibt die Uebertragung in die laufende Editor-Haut.
+Runde Canvas: **in die laufende Editor-Haut uebertragen und belegt.** `mount.ts` bringt zwei
+Trennkanten `.senify-editor__split` an (Inspektor links, Explorer daneben); die Haut blendet sie ein
+und verstellt die Spaltenbreite, Grenzen/Standard aus `EDITOR_METRIC` (`--ed-w-inspector` 320,
+`--ed-w-explorer` 264). Gemessen in der fluechtigen Instanz: Standard `320x264`, Ziehen +40 ->
+`360x264`, Grenze `420x264`, Doppelklick `320x264`, Pfeil rechts `328x264`, Explorer +30 ->
+`328x294`, nach Neuladen `328x264`, kein Ueberlauf. Test:
+`packages/app/test/editor-panels-browser.test.ts`; Beleg `.scratch/refs/nick/ui/nachweis-canvas.json`
+und `canvas-panels-1440.png`.
 
 **30 Vorschau-Paritaet.**
 Kleines Pruefskript, das die in der Vorschau einkopierten Tokens gegen `packages/editor/src/ui/tokens.ts` vergleicht.

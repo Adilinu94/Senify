@@ -54,7 +54,7 @@ import {
   EDITOR_SKIN_DEFAULT,
   type EditorSkin,
 } from "./ui/skin.ts";
-import { EDITOR_ROOT_ATTRIBUTE } from "./ui/tokens.ts";
+import { EDITOR_METRIC, EDITOR_ROOT_ATTRIBUTE } from "./ui/tokens.ts";
 import {
   getDocument,
   requireDocument,
@@ -164,6 +164,24 @@ type DragTransfer = {
 // The gray gap between the stage edge and the sheets. Frames live in content
 // coordinates of the stage, so the selection overlay shares the same origin.
 const STAGE_OFFSET = 24;
+
+// Aufgabe 29 ("Panelbreiten und Ziehen") for the running editor: two editable
+// panels. The left one is the Inspektor (properties), the structure column
+// beside it is the Explorer (Ebenenliste). The bounds and the defaults are the
+// ones `ui-plan.md` names and `tokens.ts` carries — `--ed-w-inspector` (320px,
+// 260 bis 420) and `--ed-w-explorer` (264px, 200 bis 360); they are read from
+// `EDITOR_METRIC`, so there is no second number.
+type PanelName = "inspector" | "explorer";
+const PANEL_LIMITS: Record<PanelName, readonly [number, number]> = {
+  inspector: [260, 420],
+  explorer: [200, 360],
+};
+const PANEL_DEFAULTS: Record<PanelName, number> = {
+  inspector: Number.parseInt(EDITOR_METRIC.inspector, 10),
+  explorer: Number.parseInt(EDITOR_METRIC.explorer, 10),
+};
+const PANEL_STORAGE_KEY = "senify-editor-panelbreiten";
+const PANEL_STEP = 8;
 
 const CATEGORY_ORDER = ["structure", "content", "commerce", "media", "utility"] as const;
 const CATEGORY_LABELS: Record<string, string> = {
@@ -369,6 +387,11 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
   // Frame documents currently mounted: selection rings are written straight
   // into them so selecting never re-creates (and reloads) the iframes.
   const mountedFrames: MountedFrame[] = [];
+  // Aufgabe 29: current panel widths in px (defaults from `tokens.ts`).
+  const panelWidths: Record<PanelName, number> = {
+    inspector: PANEL_DEFAULTS.inspector,
+    explorer: PANEL_DEFAULTS.explorer,
+  };
 
   const root = h(doc, "div", { className: "senify-editor" });
   // Aufgabe 1: the root node carries the new chrome token set. The attribute is
@@ -397,6 +420,10 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
   });
   const spotlightInput = h(doc, "input", { className: "senify-editor__spotlight-input" });
   const spotlightList = h(doc, "div", { className: "senify-editor__spotlight-list" });
+  // Aufgabe 29: the two panel edges. They sit absolutely inside the grid (no
+  // grid item of their own), so the column structure stays exactly as it was.
+  const splitInspector = splitHandle("inspector");
+  const splitExplorer = splitHandle("explorer");
 
   spotlight.appendChild(spotlightInput);
   spotlight.appendChild(spotlightList);
@@ -405,6 +432,8 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
   main.appendChild(panelHost);
   main.appendChild(rail);
   main.appendChild(stage);
+  main.appendChild(splitInspector);
+  main.appendChild(splitExplorer);
   root.appendChild(topbar);
   root.appendChild(main);
   root.appendChild(spotlight);
@@ -865,6 +894,104 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     main.className = railHidden
       ? "senify-editor__main senify-editor__main--norail"
       : "senify-editor__main";
+  }
+
+  /* ------------------------------------------------------- panel widths (29) */
+
+  // Paint the panel widths onto the grid: `--ed-w-inspector` and
+  // `--ed-w-explorer` sit on `main`, so the two columns and the two edges
+  // (which are positioned from the same values) move together. A third state
+  // attribute records the pair for the measurement, like the preview does.
+  function paintPanels(): void {
+    main.style.setProperty?.("--ed-w-inspector", `${panelWidths.inspector}px`);
+    main.style.setProperty?.("--ed-w-explorer", `${panelWidths.explorer}px`);
+    main.setAttribute("data-breiten", `${panelWidths.inspector}x${panelWidths.explorer}`);
+  }
+
+  function setPanelWidth(name: PanelName, value: number): void {
+    const [min, max] = PANEL_LIMITS[name];
+    panelWidths[name] = Math.round(Math.min(max, Math.max(min, value)));
+    paintPanels();
+    const handle = name === "inspector" ? splitInspector : splitExplorer;
+    handle.setAttribute("aria-valuenow", String(panelWidths[name]));
+  }
+
+  function readPanelWidths(): void {
+    try {
+      const raw = win?.localStorage?.getItem(PANEL_STORAGE_KEY) ?? null;
+      if (raw === null) return;
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      for (const name of Object.keys(PANEL_LIMITS) as PanelName[]) {
+        const value = Math.round(Number(parsed[name]));
+        const [min, max] = PANEL_LIMITS[name];
+        if (Number.isFinite(value) && value >= min && value <= max) panelWidths[name] = value;
+      }
+    } catch {
+      // No (or unreadable) storage: the defaults stay.
+    }
+  }
+
+  function storePanelWidths(): void {
+    try {
+      win?.localStorage?.setItem(PANEL_STORAGE_KEY, JSON.stringify(panelWidths));
+    } catch {
+      // A private window may refuse: the widths then last for this session only.
+    }
+  }
+
+  // One edge: drag with the pointer, arrow keys without it, double click for the
+  // default. The pointer delta widens the panel under it by exactly the distance
+  // moved, so the edge stays under the finger and never jumps.
+  function splitHandle(name: PanelName): DomElement {
+    const [min, max] = PANEL_LIMITS[name];
+    const label = name === "inspector" ? "Inspektor" : "Ebenenliste";
+    const handle = h(doc, "div", {
+      className: "senify-editor__split",
+      data: { panel: name },
+      attributes: {
+        role: "separator",
+        tabindex: "0",
+        "aria-orientation": "vertical",
+        "aria-label": `${label} ${min} bis ${max}px, Pfeiltasten oder Doppelklick auf ${PANEL_DEFAULTS[name]}px`,
+        "aria-valuemin": String(min),
+        "aria-valuemax": String(max),
+        "aria-valuenow": String(panelWidths[name]),
+      },
+    });
+    handle.addEventListener("pointerdown", (event: DomEvent) => {
+      if (event.button !== 0) return;
+      event.preventDefault?.();
+      const startX = event.clientX ?? 0;
+      const startWidth = panelWidths[name];
+      handle.setAttribute("data-aktiv", "true");
+      const move = (moveEvent: DomEvent): void => {
+        setPanelWidth(name, startWidth + ((moveEvent.clientX ?? 0) - startX));
+      };
+      const up = (): void => {
+        handle.removeAttribute("data-aktiv");
+        doc.removeEventListener("pointermove", move);
+        doc.removeEventListener("pointerup", up);
+        storePanelWidths();
+        renderOverlay();
+      };
+      doc.addEventListener("pointermove", move);
+      doc.addEventListener("pointerup", up);
+    });
+    handle.addEventListener("dblclick", () => {
+      setPanelWidth(name, PANEL_DEFAULTS[name]);
+      storePanelWidths();
+      renderOverlay();
+    });
+    handle.addEventListener("keydown", (event: DomEvent) => {
+      const step =
+        event.key === "ArrowLeft" ? -PANEL_STEP : event.key === "ArrowRight" ? PANEL_STEP : 0;
+      if (step === 0) return;
+      event.preventDefault?.();
+      setPanelWidth(name, panelWidths[name] + step);
+      storePanelWidths();
+      renderOverlay();
+    });
+    return handle;
   }
 
   /* ------------------------------------------------------------ widget catalog */
@@ -2558,6 +2685,9 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     },
   };
 
+  // Aufgabe 29: restore the panel widths and paint them before the first render.
+  readPanelWidths();
+  paintPanels();
   render();
   syncDeepLink();
   return instance;
