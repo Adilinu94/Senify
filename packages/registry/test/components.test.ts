@@ -265,7 +265,51 @@ describe("section components", () => {
         pageInfo: { current: 2, count: 3, urls: ["/blog", "/blog/seite/2", "/blog/seite/3"] },
       }),
     );
-    expect(paged).toContain('href="/blog/seite/2"');
-    expect(paged).toContain('aria-current="page"');
+      expect(paged).toContain('href="/blog/seite/2"');
+      expect(paged).toContain('aria-current="page"');
+  });
+
+  // Phase 1: a node of the widget catalog renders from the one markup
+  // description (`widget-engine/src/markup.ts`), through the same SectionTree
+  // the canvas and the bake share.
+  it("renders a catalog primitive from the markup description", () => {
+    const html = render({
+      root: { id: "root", type: "page", props: {}, children: ["h"] },
+      h: { id: "h", type: "heading", props: { level: "h1", text: "Katalog" } },
+    });
+    // The element comes from the catalog value, the class and the node markers
+    // from the description — no section component is involved.
+    expect(html).toContain("<h1");
+    expect(html).toContain('class="w-heading"');
+    expect(html).toContain('data-widget="heading"');
+    expect(html).toContain('data-node-id="h"');
+    expect(html).toContain("Katalog");
+    expect(html).not.toContain("data-section");
+  });
+
+  it("lets a primitive container take the node's children", () => {
+    const html = render({
+      root: { id: "root", type: "page", props: {}, children: ["g"] },
+      g: { id: "g", type: "grid", props: {}, children: ["t"] },
+      t: { id: "t", type: "text", props: { text: "Zelle" } },
+    });
+    expect(html).toMatch(/<div class="w-grid"[^>]*><p class="w-text"[^>]*>Zelle<\/p>/);
+    expect(html).toContain('data-widget="grid"');
+    expect(html).toContain('data-widget="text"');
+  });
+
+  it("keeps the section component where both vocabularies use the same name", () => {
+    // "divider" and "embed" are catalog primitives *and* running sections. The
+    // strangler decision (E2 in `.scratch/editor-v2-rebuild/map.md`) leaves the
+    // name with the registry until the parity gate, so a legacy page is not
+    // silently re-rendered and the old editor's inline anchors keep their hook.
+    for (const type of ["divider", "embed"]) {
+      const html = render({
+        root: { id: "root", type: "page", props: {}, children: ["n"] },
+        n: { id: "n", type, props: {} },
+      });
+      expect(html, type).toContain(`data-section="${type}"`);
+      expect(html, type).not.toContain(`data-widget="${type}"`);
+    }
   });
 });

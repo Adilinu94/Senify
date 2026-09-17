@@ -22,7 +22,7 @@
 // longer decides the order — the stage does. That is the merger: one layer,
 // one fixed stage list, no per-kind layers.
 
-import { BREAKPOINTS } from "@senify/renderer/breakpoints";
+import { BREAKPOINTS } from "../breakpoints.ts";
 
 export const CASCADE_LAYER = "user-authored";
 
@@ -45,11 +45,12 @@ const STATE_PSEUDO_CLASS: Record<StateName, string> = {
 
 // The media queries reuse the breakpoints of the existing inventory instead of
 // inventing new ones. The one definition lives in `BREAKPOINTS`
-// (`@senify/renderer/breakpoints`, tablet 1024, mobile 640); the editor frames
-// (`packages/editor/src/frames.ts`, `mediaQueryFor`) and the bake read it from
-// there too. This module imports the browser-safe `breakpoints` subpath — the
-// numbers are never written down a second time and the widget engine stays free
-// of the renderer's Node-side bake (registry, child_process, fs).
+// (`./breakpoints.ts`, tablet 1024, mobile 640); the editor frames
+// (`packages/editor/src/frames.ts`, `mediaQueryFor`) and the bake read the same
+// numbers through `@senify/renderer/breakpoints`, which re-exports them. The
+// numbers are never written down a second time, and the widget engine pulls in
+// neither the renderer's Node-side bake (registry, child_process, fs) nor the
+// registry — which is what lets the registry render the catalog (Phase 1).
 export const DEVICE_BREAKPOINTS = {
   tablet: BREAKPOINTS.tablet,
   mobile: BREAKPOINTS.mobile,

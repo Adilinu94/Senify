@@ -57,6 +57,7 @@ export {
   compileCssReport,
   declarationsForNode,
   declarationsPerDevice,
+  defaultSelectorFor,
   deviceExpandedBlocks,
   flattenNodes,
   inlineStyleFor,

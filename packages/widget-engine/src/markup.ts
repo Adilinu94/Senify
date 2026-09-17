@@ -1,0 +1,652 @@
+// Widget markup: the one description of what a primitive renders (Phase 1).
+//
+// The catalog (`catalog.ts`) says which primitives exist and which controls
+// they carry; the compiler (`css/`) says what their values mean in CSS. What
+// was missing until now is the third leg: the *markup*. This module is it —
+// and it is the only one.
+//
+// Both render paths read the same description: the editor canvas mounts the
+// registry's `SectionTree` (React) into the frame, the bake mounts the very
+// same `SectionTree` through `Section.astro`. The registry's primitive
+// components turn an `ElementSpec` into React elements; nothing else knows a
+// tag name. A primitive is therefore never a special case in a component —
+// it is a catalog entry plus this description.
+//
+// The description is plain data (no DOM, no React), so it is unit-testable,
+// and it stays neutral: no `--ed-*` token, no editor skin. The skin lives on
+// the editor chrome, never on the content (see the design rule in `ui-plan.md`).
+
+import { PROP_MAPPINGS, STYLE_PROPERTIES } from "./css/properties.ts";
+import { compileCss } from "./css/compile.ts";
+import type { CssNode } from "./css/compile.ts";
+import { PRIMITIVES, getPrimitive } from "./catalog.ts";
+import { CASCADE_LAYER } from "./css/cascade.ts";
+import type { Control, PrimitiveDefinition, PropValue } from "./types.ts";
+
+// ---------------------------------------------------------------------------
+// Element description
+// ---------------------------------------------------------------------------
+
+// Attribute names are written the way React wants them (`strokeWidth`,
+// `playsInline`): React is the one renderer of both paths, so a second casing
+// would only create a second truth. `data-*` attributes are spelled as in HTML.
+export type MarkupAttrs = Record<string, string | number | boolean | undefined>;
+
+export type ElementSpec = {
+  tag: string;
+  classes?: readonly string[];
+  attrs?: MarkupAttrs;
+  // Fixed children, rendered first.
+  children?: readonly ElementSpec[];
+  // Where the node's own children (or the named slot) go: after `children`,
+  // before `text`.
+  childrenSlot?: "children" | string;
+  // Rendered last (after `children` and the slot content).
+  text?: string;
+  // The element that carries `data-node-id` / `data-widget` for this node.
+  root?: boolean;
+};
+
+const CLASS_PREFIX = "w-";
+
+export function primitiveClass(primitive: string): string {
+  return `${CLASS_PREFIX}${primitive}`;
+}
+
+function modifier(primitive: string, value: string): string {
+  return `${primitiveClass(primitive)}--${value}`;
+}
+
+// ---------------------------------------------------------------------------
+// Value access
+// ---------------------------------------------------------------------------
+
+function value(props: Record<string, PropValue>, key: string): PropValue | undefined {
+  const found = props[key];
+  return found === undefined || found === null ? undefined : found;
+}
+
+function text(props: Record<string, PropValue>, key: string): string {
+  const found = value(props, key);
+  return typeof found === "string" ? found : typeof found === "number" ? String(found) : "";
+}
+
+function flag(props: Record<string, PropValue>, key: string, fallback = false): boolean {
+  const found = value(props, key);
+  return typeof found === "boolean" ? found : fallback;
+}
+
+function choice(
+  props: Record<string, PropValue>,
+  key: string,
+  fallback: string,
+): string {
+  const found = value(props, key);
+  return typeof found === "string" && found !== "" ? found : fallback;
+}
+
+function list(props: Record<string, PropValue>, key: string): Record<string, PropValue>[] {
+  const found = value(props, key);
+  if (!Array.isArray(found)) return [];
+  return found.filter(
+    (entry): entry is Record<string, PropValue> =>
+      typeof entry === "object" && entry !== null && !Array.isArray(entry),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Per-primitive markup
+// ---------------------------------------------------------------------------
+
+const HEADING_LEVELS = new Set(["h1", "h2", "h3", "h4", "h5", "h6"]);
+
+const FRAME_TAGS = new Set([
+  "div",
+  "section",
+  "nav",
+  "header",
+  "footer",
+  "main",
+  "aside",
+]);
+
+const INPUT_TAGS: Record<string, string> = {
+  text: "text",
+  email: "email",
+  tel: "tel",
+  number: "number",
+  date: "date",
+  password: "password",
+};
+
+function root(tag: string, classes: readonly string[], attrs?: MarkupAttrs): ElementSpec {
+  return { tag, classes, attrs, root: true };
+}
+
+function containerRoot(
+  tag: string,
+  classes: readonly string[],
+  attrs?: MarkupAttrs,
+  children?: readonly ElementSpec[],
+): ElementSpec {
+  return { tag, classes, attrs, children, childrenSlot: "children", root: true };
+}
+
+function describeOne(primitive: string, props: Record<string, PropValue>): ElementSpec {
+  switch (primitive) {
+    // Layout ----------------------------------------------------------------
+    case "root":
+      return containerRoot("div", [primitiveClass("root")]);
+
+    case "frame": {
+      const semantic = choice(props, "semantic", "div");
+      const tag = FRAME_TAGS.has(semantic) ? semantic : "div";
+      const display = choice(props, "display", "block");
+      return containerRoot(tag, [primitiveClass("frame"), modifier("frame", display)]);
+    }
+
+    case "section":
+      return containerRoot("section", [
+        primitiveClass("section"),
+        modifier("section", choice(props, "contentWidth", "regular")),
+        modifier("section", choice(props, "align", "left")),
+      ]);
+
+    case "grid":
+      return containerRoot("div", [primitiveClass("grid")]);
+
+    case "column":
+      return containerRoot("div", [primitiveClass("column")]);
+
+    // Basis -----------------------------------------------------------------
+    case "heading": {
+      const level = choice(props, "level", "h2");
+      const tag = HEADING_LEVELS.has(level) ? level : "h2";
+      const eyebrow = text(props, "eyebrow");
+      const children: ElementSpec[] =
+        eyebrow === "" ? [] : [{ tag: "span", classes: [modifier("heading", "eyebrow")], text: eyebrow }];
+      return { tag, classes: [primitiveClass("heading")], children, text: text(props, "text"), root: true };
+    }
+
+    case "text":
+      return { tag: "p", classes: [primitiveClass("text")], text: text(props, "text"), root: true };
+
+    case "body": {
+      // The image of the body text is the plain text; the author's markup
+      // (Markdown/HTML) is carried in the same property but rendered as text
+      // until the sanitized rich-text path of the registry is wired in. Nothing
+      // is injected as HTML here.
+      const dropCap = flag(props, "dropCap");
+      return {
+        tag: "div",
+        classes: [primitiveClass("body"), ...(dropCap ? [modifier("body", "drop-cap")] : [])],
+        text: text(props, "html"),
+        root: true,
+      };
+    }
+
+    case "button":
+      return {
+        tag: "a",
+        classes: [
+          primitiveClass("button"),
+          modifier("button", choice(props, "variant", "solid")),
+          modifier("button", choice(props, "size", "md")),
+        ],
+        attrs: { href: text(props, "link") || "#" },
+        text: text(props, "label"),
+        root: true,
+      };
+
+    case "link": {
+      const newTab = flag(props, "newTab");
+      return {
+        tag: "a",
+        classes: [primitiveClass("link")],
+        attrs: { href: text(props, "link") || "#", ...(newTab ? { target: "_blank" } : {}) },
+        text: text(props, "label"),
+        root: true,
+      };
+    }
+
+    case "list": {
+      const ordered = flag(props, "ordered");
+      return containerRoot(ordered ? "ol" : "ul", [
+        primitiveClass("list"),
+        modifier("list", choice(props, "marker", ordered ? "decimal" : "disc")),
+      ]);
+    }
+
+    // Media -----------------------------------------------------------------
+    case "image": {
+      const asset = text(props, "asset");
+      const alt = text(props, "alt");
+      return root("img", [primitiveClass("image")], {
+        src: asset === "" ? "" : `/assets/${asset}`,
+        alt,
+        "data-asset": asset === "" ? undefined : asset,
+      });
+    }
+
+    case "video": {
+      const url = text(props, "url");
+      const provider = choice(props, "provider", "file");
+      if (provider !== "file") {
+        return root("iframe", [primitiveClass("video"), modifier("video", provider)], {
+          src: url,
+          title: "Video",
+          allowFullscreen: true,
+        });
+      }
+      const poster = text(props, "poster");
+      return root("video", [primitiveClass("video")], {
+        src: url,
+        controls: flag(props, "showControls", true),
+        autoplay: flag(props, "autoplay"),
+        loop: flag(props, "loop"),
+        muted: flag(props, "muted", true),
+        playsInline: true,
+        poster: poster === "" ? undefined : poster,
+      });
+    }
+
+    case "icon": {
+      const size = typeof value(props, "size") === "number" ? (value(props, "size") as number) : 24;
+      const stroke =
+        typeof value(props, "strokeWidth") === "number"
+          ? (value(props, "strokeWidth") as number)
+          : 1.5;
+      return {
+        tag: "svg",
+        classes: [primitiveClass("icon")],
+        attrs: {
+          viewBox: "0 0 24 24",
+          width: size,
+          height: size,
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: stroke,
+          strokeLinecap: "round",
+          strokeLinejoin: "round",
+          "data-name": text(props, "name") || "symbol",
+          "aria-hidden": "true",
+        },
+        children: [{ tag: "circle", attrs: { cx: 12, cy: 12, r: 9 } }],
+        root: true,
+      };
+    }
+
+    // Formular --------------------------------------------------------------
+    case "input": {
+      const inputType = choice(props, "inputType", "text");
+      const name = text(props, "name");
+      const label = text(props, "label");
+      const required = flag(props, "required");
+      const common = { name, required, "data-input-type": inputType };
+      const control: ElementSpec =
+        inputType === "textarea"
+          ? { tag: "textarea", classes: [modifier("input", "control")], attrs: { ...common, placeholder: text(props, "placeholder") || undefined } }
+          : {
+              tag: "input",
+              classes: [modifier("input", "control")],
+              attrs: {
+                ...common,
+                type: INPUT_TAGS[inputType] ?? "text",
+                placeholder: text(props, "placeholder") || undefined,
+              },
+            };
+      return {
+        tag: "label",
+        classes: [primitiveClass("input"), "w-field"],
+        children: [
+          { tag: "span", classes: ["w-field__label"], text: label },
+          control,
+        ],
+        root: true,
+      };
+    }
+
+    case "select": {
+      const options = list(props, "options");
+      const optionSpecs: ElementSpec[] = options.map((option) => ({
+        tag: "option",
+        attrs: { value: typeof option.value === "string" ? option.value : "" },
+        text: typeof option.label === "string" ? option.label : "",
+      }));
+      return {
+        tag: "label",
+        classes: [primitiveClass("select"), "w-field"],
+        children: [
+          { tag: "span", classes: ["w-field__label"], text: text(props, "label") },
+          {
+            tag: "select",
+            classes: [modifier("select", "control")],
+            attrs: { name: text(props, "name"), required: flag(props, "required") },
+            children: optionSpecs,
+          },
+        ],
+        root: true,
+      };
+    }
+
+    case "checkbox":
+      return {
+        tag: "label",
+        classes: [primitiveClass("checkbox")],
+        children: [
+          {
+            tag: "input",
+            attrs: {
+              type: "checkbox",
+              name: text(props, "name"),
+              checked: flag(props, "checked"),
+              required: flag(props, "required"),
+            },
+          },
+          { tag: "span", classes: ["w-checkbox__label"], text: text(props, "label") },
+        ],
+        root: true,
+      };
+
+    case "submit":
+      return {
+        tag: "button",
+        classes: [
+          primitiveClass("submit"),
+          modifier("submit", choice(props, "variant", "solid")),
+          modifier("submit", choice(props, "size", "md")),
+        ],
+        attrs: { type: "submit" },
+        text: text(props, "label"),
+        root: true,
+      };
+
+    // Erweitert -------------------------------------------------------------
+    case "table": {
+      const columns = list(props, "columns");
+      const rows = list(props, "rows");
+      const head: ElementSpec = {
+        tag: "thead",
+        children: [
+          {
+            tag: "tr",
+            children: columns.map((column) => ({
+              tag: "th",
+              text: typeof column.header === "string" ? column.header : "",
+            })),
+          },
+        ],
+      };
+      const body: ElementSpec = {
+        tag: "tbody",
+        children: rows.map((row) => {
+          const cells = (typeof row.values === "string" ? row.values : "")
+            .split(",")
+            .map((cell) => cell.trim());
+          const label = typeof row.label === "string" ? row.label : "";
+          const rowCells: ElementSpec[] = cells.map((cell) => ({ tag: "td", text: cell }));
+          if (label !== "") {
+            rowCells.unshift({ tag: "th", classes: ["w-table__row-label"], text: label });
+          }
+          return { tag: "tr", children: rowCells };
+        }),
+      };
+      return {
+        tag: "table",
+        classes: [
+          primitiveClass("table"),
+          ...(flag(props, "striped", true) ? [modifier("table", "striped")] : []),
+          ...(flag(props, "bordered", true) ? [modifier("table", "bordered")] : []),
+        ],
+        children: [head, body],
+        root: true,
+      };
+    }
+
+    case "accordion":
+      return {
+        tag: "details",
+        classes: [primitiveClass("accordion")],
+        attrs: { open: flag(props, "open") },
+        children: [
+          {
+            tag: "summary",
+            classes: [modifier("accordion", "summary")],
+            text: text(props, "summary"),
+          },
+        ],
+        childrenSlot: "children",
+        root: true,
+      };
+
+    case "divider": {
+      const style = choice(props, "style", "line");
+      if (style === "space") {
+        return root("div", [primitiveClass("divider"), modifier("divider", "space")], {
+          "aria-hidden": "true",
+        });
+      }
+      return root("hr", [primitiveClass("divider"), modifier("divider", style)]);
+    }
+
+    case "embed":
+      return root(
+        "iframe",
+        [primitiveClass("embed"), modifier("embed", choice(props, "provider", "iframe"))],
+        {
+          src: text(props, "url"),
+          title: text(props, "title") || "Einbettung",
+          loading: "lazy",
+          allowFullscreen: true,
+        },
+      );
+
+    case "collection":
+      return {
+        tag: "div",
+        classes: [primitiveClass("collection")],
+        childrenSlot: "item",
+        root: true,
+      };
+
+    default:
+      // Unknown or legacy section type: not part of the catalog. The caller
+      // falls back to the section components.
+      return { tag: "div", classes: [], root: true };
+  }
+}
+
+// `describePrimitive` returns `undefined` for a node the catalog does not know
+// (an existing section type of the running registry). Callers then take the
+// section render path, so a migrated v1 tree keeps rendering.
+export function describePrimitive(
+  primitive: string,
+  props: Record<string, PropValue> = {},
+): ElementSpec | undefined {
+  const definition = getPrimitive(primitive);
+  if (definition === undefined || definition.legacy === true) return undefined;
+  return describeOne(primitive, props);
+}
+
+export function isCatalogPrimitive(primitive: string): boolean {
+  const definition = getPrimitive(primitive);
+  return definition !== undefined && definition.legacy !== true;
+}
+
+// ---------------------------------------------------------------------------
+// Widget defaults (the weakest stage of the cascade)
+// ---------------------------------------------------------------------------
+
+// The values a fresh node carries: every control default that reaches CSS.
+// A control without a default, or with an empty one, contributes nothing.
+export function defaultValuesOf(primitive: string): Record<string, PropValue> {
+  const definition = getPrimitive(primitive);
+  if (definition === undefined || definition.legacy === true) return {};
+  const values: Record<string, PropValue> = {};
+  for (const control of definition.controls) {
+    const fallback = control.default;
+    if (fallback === undefined || fallback === null || fallback === "") continue;
+    values[control.key] = fallback;
+  }
+  return values;
+}
+
+// The properties a control default can reach, so a default that is not a style
+// value (a tag name, a level, a label) never enters the defaults bag.
+function reachesCss(primitive: string, control: Control): boolean {
+  const mapping = PROP_MAPPINGS.find(
+    (entry) => entry.prop === control.key && entry.onlyPrimitives?.includes(primitive) === true,
+  );
+  if (mapping !== undefined) return true;
+  if (PROP_MAPPINGS.some((entry) => entry.prop === control.key && entry.onlyPrimitives !== undefined)) {
+    return false;
+  }
+  return STYLE_PROPERTIES.some((entry) => entry.prop === control.key);
+}
+
+export function cssDefaultValuesOf(primitive: string): Record<string, PropValue> {
+  const definition = getPrimitive(primitive);
+  if (definition === undefined) return {};
+  const all = defaultValuesOf(primitive);
+  const values: Record<string, PropValue> = {};
+  for (const control of definition.controls) {
+    if (!reachesCss(primitive, control)) continue;
+    const fallback = all[control.key];
+    if (fallback === undefined) continue;
+    values[control.key] = fallback;
+  }
+  return values;
+}
+
+// The neutral reset of element defaults (user-agent styles, not design values).
+// The catalog cannot express "no margin" or "no pointer cursor": that is not a
+// design decision, it is the removal of a browser default. Everything here
+// inherits from the page (`currentColor`, `font: inherit`), so no colour or
+// type value is invented and no second palette comes into being. Order matters:
+// the compiled defaults of the catalog follow and win on equal specificity.
+export const PRIMITIVE_RESET: Readonly<Record<string, readonly string[]>> = {
+  frame: [],
+  section: [],
+  grid: [],
+  column: [],
+  heading: ["margin: 0;", "font: inherit;"],
+  text: ["margin: 0;"],
+  body: ["margin: 0;", "white-space: pre-line;"],
+  button: [
+    "display: inline-flex;",
+    "align-items: center;",
+    "justify-content: center;",
+    "gap: 0.5rem;",
+    "border: 1px solid currentColor;",
+    "background: transparent;",
+    "color: inherit;",
+    "font: inherit;",
+    "padding: 0.55rem 1.1rem;",
+    "text-decoration: none;",
+    "cursor: pointer;",
+  ],
+  link: ["color: inherit;"],
+  list: ["margin: 0;", "padding-inline-start: 1.25rem;"],
+  image: ["display: block;", "max-width: 100%;"],
+  video: ["display: block;", "max-width: 100%;"],
+  icon: ["display: block;", "flex: none;"],
+  input: ["display: flex;", "flex-direction: column;", "gap: 0.35rem;"],
+  select: ["display: flex;", "flex-direction: column;", "gap: 0.35rem;"],
+  checkbox: ["display: inline-flex;", "align-items: center;", "gap: 0.4rem;"],
+  submit: [
+    "display: inline-flex;",
+    "align-items: center;",
+    "justify-content: center;",
+    "border: 1px solid currentColor;",
+    "background: transparent;",
+    "color: inherit;",
+    "font: inherit;",
+    "padding: 0.55rem 1.1rem;",
+    "cursor: pointer;",
+  ],
+  table: ["width: 100%;", "border-collapse: collapse;"],
+  accordion: ["display: block;"],
+  divider: ["border-width: 0;"],
+  embed: ["display: block;", "max-width: 100%;", "border: 0;"],
+  collection: ["display: grid;", "gap: 1rem;"],
+};
+
+// The elements a primitive builds itself, spelled as the markup writes them.
+// The key is the full selector, so a part can reach into a modifier.
+const PART_RESET: Readonly<Record<string, readonly string[]>> = {
+  ".w-field__label": ["font-weight: 600;"],
+  ".w-input--control, .w-select--control": [
+    "border: 1px solid currentColor;",
+    "background: transparent;",
+    "color: inherit;",
+    "font: inherit;",
+    "padding: 0.5rem 0.65rem;",
+  ],
+  ".w-table--striped tbody tr:nth-child(even)": [
+    "background: var(--table-stripe-color, transparent);",
+  ],
+  ".w-table--bordered th, .w-table--bordered td": [
+    "border: 1px solid currentColor;",
+    "padding: 0.4rem 0.6rem;",
+    "text-align: left;",
+  ],
+  ".w-accordion--summary": ["cursor: pointer;"],
+};
+
+export function primitiveResetCss(): string {
+  const blocks: string[] = [];
+  for (const [primitive, declarations] of Object.entries(PRIMITIVE_RESET)) {
+    if (declarations.length === 0) continue;
+    blocks.push(
+      `.${primitiveClass(primitive)} {\n${declarations.map((line) => `  ${line}`).join("\n")}\n}`,
+    );
+  }
+  for (const [selector, declarations] of Object.entries(PART_RESET)) {
+    blocks.push(`${selector} {\n${declarations.map((line) => `  ${line}`).join("\n")}\n}`);
+  }
+  return blocks.join("\n\n");
+}
+
+function baseCssNodes(): CssNode[] {
+  return PRIMITIVES.filter((definition) => definition.type !== "root").map((definition) => ({
+    id: primitiveClass(definition.type),
+    primitive: definition.type,
+    props: cssDefaultValuesOf(definition.type),
+  }));
+}
+
+function indentBlock(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => (line === "" ? line : `  ${line}`))
+    .join("\n");
+}
+
+function buildPrimitiveBaseCss(): string {
+  const compiled = compileCss(
+    { nodes: baseCssNodes() },
+    {
+      layer: CASCADE_LAYER,
+      includeDefaults: true,
+      selectorFor: (id) => `.${id}`,
+    },
+  );
+  // One authored layer, the reset first, then the catalog defaults: the
+  // weakest stage of the cascade decision (O1) and the same string on both
+  // sides (canvas frame and baked page).
+  const reset = `@layer ${CASCADE_LAYER} {\n${indentBlock(primitiveResetCss())}\n}`;
+  return `${reset}\n\n${compiled}`.trim();
+}
+
+// The stylesheet every page with catalog primitives carries: the widget
+// defaults, in the authored layer, before the node rules. Computed once.
+export const PRIMITIVE_BASE_CSS = buildPrimitiveBaseCss();
+
+// The class the markup puts on the root element of a primitive node.
+export function primitiveRootClasses(spec: ElementSpec): string[] {
+  return [...(spec.classes ?? [])];
+}
+
+export function primitiveDefinitions(): readonly PrimitiveDefinition[] {
+  return PRIMITIVES;
+}

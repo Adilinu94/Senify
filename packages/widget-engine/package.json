@@ -5,10 +5,10 @@
   "type": "module",
   "description": "Widget catalog for the editor rebuild: primitive foundation stones with per-device values.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./breakpoints": "./src/breakpoints.ts"
   },
   "dependencies": {
-    "@senify/renderer": "workspace:*",
     "@senify/section-sdk": "workspace:*",
     "@senify/tokens": "workspace:*",
     "@sinclair/typebox": "^0.34.0"

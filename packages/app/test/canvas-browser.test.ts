@@ -1,6 +1,6 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { startProgram } from "@senify/app";
 import { browserAvailable, memoryDb } from "./support.ts";
@@ -28,12 +28,17 @@ const HARNESS = `<!doctype html>
       version: 2,
       rootNodeId: "root000001",
       nodes: {
-        root000001: { id: "root000001", primitive: "root", props: {}, children: ["div000001"] },
+        root000001: { id: "root000001", primitive: "root", props: {}, children: ["div000001", "head000001"] },
         div000001: {
           id: "div000001",
           primitive: "divider",
           props: {},
           states: { hover: { background: "#ff0000" } },
+        },
+        head000001: {
+          id: "head000001",
+          primitive: "heading",
+          props: { level: "h2", text: "Katalogbaustein" },
         },
       },
       classes: {},
@@ -147,6 +152,24 @@ describe.skipIf(!browserAvailable)("editor canvas in a real browser", () => {
       await desktopFrame.locator('section[data-section="divider"]').first().waitFor();
       expect(await desktopFrame.locator('section[data-section="divider"]').count()).toBe(1);
       expect(await desktopFrame.locator('[data-node-id="div000001"]').count()).toBe(1);
+
+      // A catalog primitive without a section twin draws from the one markup
+      // description (Phase 1): real element, real class, node markers and text.
+      // The tag is the catalog value ("h2"), not a fixed one.
+      const describedHeading = desktopFrame.locator('h2[data-widget="heading"]');
+      await describedHeading.waitFor();
+      expect(await describedHeading.getAttribute("class")).toBe("w-heading");
+      expect(await describedHeading.getAttribute("data-node-id")).toBe("head000001");
+      expect(await describedHeading.textContent()).toBe("Katalogbaustein");
+      // A name both vocabularies carry ("divider") stays with the running
+      // section registry (strangler, E2), so the legacy node is not re-rendered.
+      expect(await desktopFrame.locator('[data-widget="divider"]').count()).toBe(0);
+
+      // Visual evidence of the round: the transient instance only, no fixed
+      // ports (4321/4322 stay untouched).
+      const shotDir = resolve(process.cwd(), ".scratch/refs/nick/ui");
+      mkdirSync(shotDir, { recursive: true });
+      await tab.screenshot({ path: join(shotDir, "canvas-bausteine-1600.png") });
 
       // The compiler rules reach the frame: the authored layer plus the chrome.
       const injectedRules = await desktopFrame

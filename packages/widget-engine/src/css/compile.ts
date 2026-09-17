@@ -55,7 +55,17 @@ export type CompileOptions = TranslateOptions & {
   // Layer name for all authored output. `null` writes unlayered CSS (used by
   // the golden tests and for measuring what the layer wrapper costs).
   layer?: string | null;
+  // How a node id becomes a selector. The default is the node attribute
+  // (`[data-node-id="…"]`) the renderer marks every node with. The widget
+  // defaults (`markup.ts`) compile the very same declarations under the
+  // primitive's class instead, so a node rule and a widget default differ in
+  // exactly one thing: which element they address.
+  selectorFor?: (nodeId: string) => string;
 };
+
+export function defaultSelectorFor(nodeId: string): string {
+  return nodeSelector(nodeId);
+}
 
 // One emitted rule as data: its media wrapper, its selector, the cascade stage
 // it belongs to and the selector modifiers it combines. The stylesheet string
@@ -288,6 +298,7 @@ type BuildResult = {
 
 function build(document: CssDocument, options: CompileOptions): BuildResult {
   const flat = flattenNodes(document.nodes);
+  const selectorFor = options.selectorFor ?? defaultSelectorFor;
   const blocks: string[] = [];
   const rules: CompiledRule[] = [];
   let ruleCount = 0;
@@ -304,16 +315,17 @@ function build(document: CssDocument, options: CompileOptions): BuildResult {
   for (const node of flat) {
     const declarations = declarationsForNode(node, "desktop", options);
     if (declarations.length === 0) continue;
+    const selector = selectorFor(node.id);
     push(
       {
         media: null,
-        selector: nodeSelector(node.id),
+        selector,
         stage: "base",
         state: null,
         classIds: [],
         declarations,
       },
-      writeBlock(nodeSelector(node.id), declarations, 0),
+      writeBlock(selector, declarations, 0),
     );
   }
 
@@ -331,10 +343,11 @@ function build(document: CssDocument, options: CompileOptions): BuildResult {
         baseline,
       });
       if (declarations.length === 0) continue;
-      deviceBlocks.push(writeBlock(nodeSelector(node.id), declarations, 1));
+      const selector = selectorFor(node.id);
+      deviceBlocks.push(writeBlock(selector, declarations, 1));
       rules.push({
         media: query,
-        selector: nodeSelector(node.id),
+        selector,
         stage: "device",
         state: null,
         classIds: [],

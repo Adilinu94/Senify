@@ -1,5 +1,6 @@
 import type { ComponentType, ReactNode } from "react";
-import type { Node } from "@senify/section-sdk";
+import type { Node, PropValue } from "@senify/section-sdk";
+import { describePrimitive } from "@senify/widget-engine";
 import { Navbar } from "./Navbar.tsx";
 import { Footer } from "./Footer.tsx";
 import { Hero } from "./Hero.tsx";
@@ -29,6 +30,7 @@ import { Outlet } from "./Outlet.tsx";
 import { CollectionList } from "./CollectionList.tsx";
 import { Card } from "./Card.tsx";
 import type { SectionContext, SectionProps } from "./shared.tsx";
+import { PrimitiveNode } from "./primitives.tsx";
 
 export const SECTION_COMPONENTS: Record<string, ComponentType<SectionProps>> = {
   navbar: Navbar,
@@ -77,15 +79,36 @@ export function SectionTree({
   const renderNode = (id: string): ReactNode => {
     const node = nodes[id];
     if (!node) return null;
-    const Component = SECTION_COMPONENTS[node.type];
-    if (!Component) {
-      return <div key={id} data-unknown-section={node.type} data-node-id={id} />;
-    }
     const slots: Record<string, ReactNode> = {};
     for (const [name, ids] of Object.entries(node.slots ?? {})) {
       slots[name] = <>{ids.map((childId) => renderNode(childId))}</>;
     }
-    return <Component key={id} node={node} slots={slots} ctx={ctx} />;
+    // Two vocabularies, one render path: a node of the running section registry
+    // renders its section component, a node of the widget catalog renders from
+    // its description (Phase 1). The canvas and the bake both come through
+    // here, which is what keeps them from drifting apart.
+    //
+    // The section registry is asked *first* on purpose: two names exist in both
+    // vocabularies ("divider", "embed" — `widget-engine/src/legacy.ts`), and the
+    // strangler decision (E2 in `map.md`) keeps the running sections
+    // authoritative until the parity gate. Asking for the description first
+    // would silently hijack every legacy page that carries such a node, and the
+    // old editor's inline anchors (`react-renderer.tsx`, which only knows
+    // registry types) would lose their hook.
+    const Component = SECTION_COMPONENTS[node.type];
+    if (Component !== undefined) {
+      return <Component key={id} node={node} slots={slots} ctx={ctx} />;
+    }
+    // A catalog primitive without a section twin renders from the one markup
+    // description (`widget-engine/src/markup.ts`).
+    if (describePrimitive(node.type, node.props as Record<string, PropValue>) !== undefined) {
+      return (
+        <PrimitiveNode key={id} node={node} slots={slots} ctx={ctx}>
+          {(node.children ?? []).map((childId) => renderNode(childId))}
+        </PrimitiveNode>
+      );
+    }
+    return <div key={id} data-unknown-section={node.type} data-node-id={id} />;
   };
   const root = nodes[rootNodeId];
   if (!root) return null;

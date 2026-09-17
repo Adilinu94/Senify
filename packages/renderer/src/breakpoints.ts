@@ -1,12 +1,9 @@
-// The one breakpoint definition of the platform (Phase 0, fourth slice).
+// The one breakpoint definition of the platform (Phase 0, fourth slice; moved
+// to the widget engine in Phase 1).
 //
-// It used to live in `style-css.ts`, which imports the registry (and through it
-// the section components) — far too much for a browser module that only wants
-// the three numbers. This file carries nothing but the numbers, so the editor
-// canvas can read the shared source (`@senify/renderer/breakpoints`) without
-// pulling the Node-side bake. `style-css.ts` and `browser-entry.ts` both
-// re-export it, so the existing importers keep working.
-export const BREAKPOINTS = {
-  tablet: 1024,
-  mobile: 640,
-} as const;
+// The numbers decide the media queries the CSS compiler writes, so they belong
+// to the layer that owns the catalog. They live in
+// `@senify/widget-engine/breakpoints` — a module that imports nothing — and are
+// re-exported here so the existing importers (`packages/editor/src/frames.ts`,
+// the bake, the browser entry) keep working. One definition, one place.
+export { BREAKPOINTS } from "@senify/widget-engine/breakpoints";
