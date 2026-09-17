@@ -1,12 +1,17 @@
-// Editor chrome typography: the local font files and the @font-face rules that
-// bind them.
+// Editor typography: the local font files and the @font-face rules that bind
+// them. This module is the one source for every font the editor bundles; the
+// files themselves live in `packages/editor/assets/fonts/` (SIL OFL 1.1, see
+// `LICENSE.txt`) and are served under `/editor-fonts/*`, so the editor never
+// fetches a font over the network at runtime.
 //
-// The binding design language (`.scratch/refs/precious-board/design.md` and
-// `design-guidelines.md`) names "Inter Display" for headings and "Inter" for
-// text. The editor chrome uses exactly these two families (`--ed-font-display`,
-// `--ed-font-body` in `tokens.ts`). Both files are bundled under
-// `packages/editor/assets/fonts/` (SIL OFL 1.1, see `LICENSE.txt`), so the
-// editor never fetches a font over the network at runtime.
+// Two roles, one directory and one route:
+//   * Tool / chrome face — Inter Display for headings, Inter for text
+//     (`--ed-font-display`, `--ed-font-body` in `tokens.ts`; the binding design
+//     language `.scratch/refs/precious-board/design-guidelines.md`).
+//   * Content face — Sora, the theme's display family
+//     (`packages/tokens/src/default-theme.ts`, `fonts.display`). The editor
+//     draws page content inside its frames, so the file is bundled here too and
+//     injected into every frame document; the theme only names the family.
 //
 // `font-display: swap` is required: it lets the text render with the fallback
 // immediately and swaps in when the font is ready. Because the chrome uses
@@ -34,6 +39,24 @@ export const EDITOR_FONT_FILES: readonly EditorFontFile[] = [
   { family: "Inter Display", weight: 700, file: "InterDisplay-Bold.woff2" },
 ];
 
+// Sora, the content display face of the site theme. The three weights are the
+// ones `defaultTheme().fonts.display.weights` names ([400, 600, 700]); without
+// the files the theme emits no @font-face (`fontFaceBlocks()` skips a weight
+// without a file) and content falls back to system-ui. Bundling them here makes
+// the theme's family name resolve locally.
+export const EDITOR_CONTENT_FONT_FILES: readonly EditorFontFile[] = [
+  { family: "Sora", weight: 400, file: "Sora-Regular.woff2" },
+  { family: "Sora", weight: 600, file: "Sora-SemiBold.woff2" },
+  { family: "Sora", weight: 700, file: "Sora-Bold.woff2" },
+];
+
+// The single list the @font-face rules are generated from: chrome faces, then
+// the content face.
+export const EDITOR_BUNDLED_FONT_FILES: readonly EditorFontFile[] = [
+  ...EDITOR_FONT_FILES,
+  ...EDITOR_CONTENT_FONT_FILES,
+];
+
 function quoteFamily(family: string): string {
   return /[\s"']/.test(family) ? `"${family.replace(/"/g, "")}"` : family;
 }
@@ -42,7 +65,7 @@ function quoteFamily(family: string): string {
 // (`packages/app/src/server.ts` proxies `/editor-fonts/*` to this directory).
 export function editorFontFaceCss(baseUrl = "/editor-fonts"): string {
   const prefix = baseUrl.replace(/\/$/, "");
-  return EDITOR_FONT_FILES.map(({ family, weight, file }) => {
+  return EDITOR_BUNDLED_FONT_FILES.map(({ family, weight, file }) => {
     return [
       "@font-face {",
       `  font-family: ${quoteFamily(family)};`,

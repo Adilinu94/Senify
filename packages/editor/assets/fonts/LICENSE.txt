@@ -1,29 +1,38 @@
-Inter and Inter Display — bundled font files
-============================================
+Bundled font files — Inter, Inter Display, Sora
+================================================
 
-Files in this directory:
+Files in this directory (all bundled locally, no network fetch at runtime):
 
-  Inter-Regular.woff2          Inter Display Regular  (weight 400)
-  Inter-Medium.woff2           Inter Display Medium   (weight 500)
-  Inter-SemiBold.woff2         Inter Display SemiBold (weight 600)
-  Inter-Bold.woff2             Inter Display Bold     (weight 700)
+  Inter-Regular.woff2          Inter Regular          (weight 400)  chrome text
+  Inter-Medium.woff2           Inter Medium           (weight 500)  chrome controls
+  Inter-SemiBold.woff2         Inter SemiBold         (weight 600)  chrome titles
+  Inter-Bold.woff2             Inter Bold             (weight 700)  chrome emphasis
 
   InterDisplay-Regular.woff2
   InterDisplay-Medium.woff2
   InterDisplay-SemiBold.woff2
   InterDisplay-Bold.woff2
 
-Both families come from the Inter project (https://github.com/rsms/inter) and
-are used by the editor chrome exactly as the binding design language prescribes
-(`.scratch/refs/precious-board/design-guidelines.md`: "Inter Display for
-headings, Inter for text"). They are bundled locally so the editor never
-fetches a font over the network at runtime.
+  Sora-Regular.woff2           Sora Regular           (weight 400)  content text
+  Sora-SemiBold.woff2          Sora SemiBold          (weight 600)  content headings
+  Sora-Bold.woff2              Sora Bold              (weight 700)  content emphasis
+
+Inter and Inter Display come from the Inter project
+(https://github.com/rsms/inter) and are used by the editor chrome exactly as the
+binding design language prescribes (`.scratch/refs/precious-board/design-guidelines.md`:
+"Inter Display for headings, Inter for text").
+
+Sora is the content face of the site theme (`packages/tokens/src/default-theme.ts`,
+`fonts.display.weights` [400, 600, 700]). The editor renders page content inside
+its frames, so the file is bundled here too. Both families are bundled locally
+so the editor never fetches a font over the network at runtime.
 
 License: SIL Open Font License, Version 1.1 (below).
 
 ---------------------------------------------------------------------------
 
 Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)
+Copyright 2019 The Sora Project Authors (https://github.com/sora-xor/sora-font)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:

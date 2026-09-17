@@ -28,13 +28,20 @@
       "@senify/mcp": ["packages/mcp/src/index.ts"],
       "@senify/mcp/tools": ["packages/mcp/src/tools.ts"],
       "@senify/engine": ["packages/engine/src/index.ts"],
+      "@senify/engine/browser": ["packages/engine/src/browser.ts"],
       "@senify/renderer": ["packages/renderer/src/index.ts"],
+      "@senify/renderer/breakpoints": ["packages/renderer/src/breakpoints.ts"],
+      "@senify/renderer/browser": ["packages/renderer/src/browser-entry.ts"],
       "@senify/editor": ["packages/editor/src/index.ts"],
+      "@senify/editor/state": ["packages/editor/src/state/index.ts"],
+      "@senify/editor/state/browser": ["packages/editor/src/state/browser.ts"],
+      "@senify/editor/canvas": ["packages/editor/src/canvas/index.ts"],
       "@senify/app": ["packages/app/src/index.ts"],
       "@senify/analysis-worker": ["packages/analysis-worker/src/index.ts"],
       "@senify/docs-portal": ["packages/docs-portal/src/index.ts"],
       "@senify/skills": ["packages/skills/src/index.ts"],
-      "@senify/tokens": ["packages/tokens/src/index.ts"]
+      "@senify/tokens": ["packages/tokens/src/index.ts"],
+      "@senify/widget-engine": ["packages/widget-engine/src/index.ts"]
     }
   },
   "include": ["packages/*/src", "packages/*/test", "packages/*/*.ts"],

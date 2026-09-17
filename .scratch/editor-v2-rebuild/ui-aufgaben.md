@@ -10,7 +10,126 @@ Tastatur, Bewegung, Kontrast und Pruefkriterium), `.scratch/editor-v2-rebuild/ui
 Kein Schritt aendert `packages/app/public/app.css` oder `app.js` (laufende Oberflaeche bleibt unberuehrt).
 Die Aufgaben 1 bis 31 sind der Bestand, die Aufgaben 32 bis 47 setzen `ui-plan.md` um.
 
+## Auftragsrunde (Abschluss) – Stand nach dieser Runde
+
+Pruefung abgeschlossen, kein Commit. Alles neu gemessen, nichts aus dem Vorlauf uebernommen.
+
+- **Typecheck (`pnpm typecheck`) – gruen.** Erster Lauf: genau ein Fehler,
+  `packages/editor/test/ui/editor-skin.test.ts` Zeile 59
+  (`TS18048: 'name' is possibly 'undefined'` — die `matchAll`-Gruppe `m[1]` ist
+  `string | undefined`). Behoben mit einer Typverengung
+  (`.filter((name): name is string => name !== undefined)`); kein Testfall und keine
+  Zusicherung geloescht. Zweiter Lauf: keine Ausgabe, Exit 0.
+- **Lint (`pnpm lint`) – gruen.** Exit 0, keine Meldung (auch nach der Testaenderung erneut).
+- **Tests (`pnpm test`) – gruen.** **895 gesamt, 893 gruen, 2 uebersprungen, 0 rot.** Die zwei
+  uebersprungenen sind die bekannten Postgres-Faelle in `packages/engine/test/transactions.test.ts`
+  ("persistBatch transactions (real Postgres)") und in Ordnung. Keine roten Tests zu reparieren,
+  keine Testauswahl noetig.
+- **Aufgeraeumt:** keine neuen Artefakte ausserhalb `.scratch/`. Die einzige leere Datei
+  ausserhalb `.scratch/` und ausserhalb der Referenzklone (`Repos/`) ist
+  `.commandcode/taste/taste.md` (0 Byte, gehoert zum Werkzeug, bleibt). Der neue Belegstand liegt
+  als `.scratch/editor-v2-rebuild/pruef-abschluss-r40.mjs` neben den uebrigen `pruef-*.mjs`.
+
+Beleg im echten Browser (Vorschau `.scratch/editor-v2-rebuild/ui-preview/index.html` per `file://`,
+1440 Breite; 0 Konsolenfehler, 0 fehlgeschlagene Anfragen, 0 Fremdanfragen):
+
+- **Schrift:** Sora 400/600/700 **geladen** (jeder Schnitt per `document.fonts.load` angestossen,
+  kein Abruf scheitert — die lokalen Dateien liegen also vor und entpacken); Inhaltsschrift
+  `Sora, system-ui, sans-serif`; Inter und Inter Display ebenfalls geladen.
+- **Symbole:** 199 Symbolmasken, davon **195 gezeichnet** (data-URI-Maske, Groesse > 0). Die vier
+  uebrigen sind `ic--down ic--12` mit Breite 0 (eingeklappter Block), kein Fehler.
+- **Farben:** der Wurzelknoten traegt **116** `--ed-*`-Tokens; Stichproben exakt wie `tokens.ts`
+  (`--ed-signal-accent` `#cbff97`, `--ed-surface-canvas` `#01283c`, `--ed-line-control` `#6390a7`).
+- **Kontrast** `data-kontrast-geprueft="ok"` (41 von 41 Zeilen); **kein waagerechter Ueberlauf** bei
+  1440 (`scrollWidth === clientWidth`).
+- Beleg: `.scratch/refs/nick/ui/abschluss-vorschau-1440.png` und `abschluss-vorschau-1440.json`.
+
+Neu offen und ehrlich:
+
+- **Laufende Dienste:** `127.0.0.1:4321`/`:4322` liefen nicht und wurden auf Auflage **nicht**
+  gestartet. Der obige Beleg gilt deshalb fuer die **Vorschau** (`file://`), nicht fuer die
+  **laufende** Editor-Oberflaeche. Ein Laufzeitnachweis dort ist diese Runde nicht gefahren.
+- **Symbole im laufenden Editor:** unveraendert offen (siehe unten); belegt ist nur die Vorschau.
+- **Hautumstellung der laufenden (T17) Oberflaeche:** die neue Haut liegt als eigene Schicht
+  (`ui/skin.ts`, `data-editor-skin="tiefwasser"`) bereit und ist in der Vorschau umgestellt; ob der
+  laufende Editor sie malt, ist ohne Dienst nicht pruefbar und bleibt eine eigene Runde.
+
+## Auftragsrunde (Anschluss an Runde 80) – Stand nach dieser Runde
+
+Abgeschlossen in dieser Runde (mit Pruefmittel und Ort):
+
+- **1 Tokens in den Editor bringen – erledigt.** `packages/editor/src/styles.ts` legt
+  `EDITOR_TOKEN_STYLES = editorTokensCss("[data-senify-editor]")` an und `ensureEditorStyles()` schreibt
+  sie in ein eigenes `style[data-senify-editor-tokens]`; `mount.ts` setzt `EDITOR_ROOT_ATTRIBUTE`
+  (`data-senify-editor`) auf den Wurzelknoten. **Eine Quelle, kein zweiter Wert:** die Variablen werden
+  aus `packages/editor/src/ui/tokens.ts` erzeugt, nie abgeschrieben. Der laufende (T17) Editor bleibt
+  unberuehrt — seine Namen (`--ed-accent`, `--ed-text`, `--ed-line`, `--ed-surface`, `--ed-hover`,
+  `--ed-canvas`, `--ed-line-soft`) schneiden sich mit dem neuen Satz (`--ed-surface-*`, `--ed-ink-*`,
+  `--ed-signal-*`, `--ed-h-*` …) nicht; belegt in
+  `packages/editor/test/ui/editor-tokens-einspeisung.test.ts` (4 Faelle) und im Browser.
+- **26 Zustandsprobe – erledigt (pruefbares Sollbild = Vorschau).**
+  `packages/editor/test/ui/zustands-und-layoutprobe.test.ts` misst 16 Zeilen x 6 Zustaende = 96 Zellen,
+  je 16 pro Zustand; 77 Zellen unterscheiden sich sichtbar von ihrer Ruhezelle. Ausnahmen (im Plan
+  gedeckt, als Liste im Test): `Panel-Tab / hover` und `Panel-Tab / ausgewaehlt` (die Ruhezelle zeigt
+  bereits einen ausgewaehlten Tab) sowie `Panel-Tab / fokus` (Fokus-Unterkante ist Lime, dieselbe Farbe
+  wie die Auswahl-Unterkante — als Beobachtung notiert, siehe unten).
+- **28 Layoutprobe – erledigt (fuer die Vorschau).** Derselbe Test misst 1280/1440/1920/480 und
+  zusaetzlich 900 fuer die 1024er-Regel: kein waagerechter Ueberlauf
+  (`scrollWidth === clientWidth`), Statusleiste sichtbar, Buehne `overflow-y: auto` und scrollt allein,
+  Panels angedockt ab 1024px, Inspektor unter der Buehne darunter, unter 760px schmale Form.
+  Beleg: `.scratch/refs/nick/ui/pruefung-zustand-layout.json` und `layoutprobe-*.png`.
+- **29 Panelbreiten und Ziehen – erledigt (Sollbild = Vorschau).**
+  `.scratch/editor-v2-rebuild/ui-preview/index.html` traegt jetzt zwei Trennkanten
+  (`role="separator"`, Pfeiltasten), Explorer 200 bis 360px, Inspektor 260 bis 420px, Doppelklick setzt
+  den Standard des jeweiligen Feldes (264 / 320). Die Breiten liegen als CSS-Variablen auf
+  `.app__body` und ueberleben ein Neuladen (`localStorage`, Schluessel `pv-panelbreiten`). Gemessen:
+  Sprung beim Ziehen 0,5px, Grenzen 200/360 und 260/420 greifen, nach Neuladen 208x320 unveraendert,
+  `ueberlaufPx` immer 0. Beleg: derselbe JSON-Bericht, Screenshot `panelbreiten-1440.png`, Testfall 3.
+
+Editor-Nachweis im echten Browser (Auftragspunkte 1 und 4), je 1280/1440/1920/480, beide Ansichten:
+
+- **Farben:** der Editor-Wurzelknoten traegt **116 von 116** Tokens mit **genau** dem Wert aus
+  `tokens.ts` (0 fehlend, 0 abweichend), z. B. `--ed-surface-canvas` = `#01283c`,
+  `--ed-signal-accent` = `#cbff97`, `--ed-line-control` = `#6390a7`.
+- **Schrift:** berechnete Familie `Inter, system-ui, sans-serif`; `@font-face` fuer alle acht Schnitte
+  bekannt, Inter 400/500/600/700 geladen (Inter Display noch nicht, weil die alte Haut
+  `--ed-font-display` nicht benutzt); CLS ≤ 0,046 (kein sichtbarer Sprung, `font-display: swap`).
+- **Symbole:** `icMaskenElemente` 0 — im laufenden Editor stecken weiter Platzhalter-Zeichen (`+`,
+  `↺`, `▾`, `−`); der Phosphor-Satz ist nur in der Vorschau eingehaengt.
+- **Null Konsolenfehler, null fehlgeschlagene Anfragen, null Fremdanfragen** in beiden Ansichten.
+- **Canvas-Ansicht (`?view=canvas`):** `data-senify-editor` fehlt, 0 von 116 Tokens vorhanden, Familie
+  `system-ui, sans-serif`, keine Statusleiste. Die Tokens werden nur beim Editor-Host eingespeist.
+- Belege: `.scratch/refs/nick/ui/nachweis-editor.json`,
+  `editor-editor-{1280,1440,1920,schmal}.png`, `editor-canvas-{1280,1440,1920,schmal}.png`.
+
+Neu offen und ehrlich:
+
+- **1 (Rest):** die Tokens liegen auf dem Wurzelknoten, aber die laufende Oberflaeche **malt** sie noch
+  nicht: gemessen ist der Veroeffentlichen-Knopf weiter `rgb(208, 4, 212)` (Alt-Magenta) und die
+  Kopfleiste `#ffffff`. Die Hautumstellung ist eine eigene Runde (`ui-plan.md` Abschnitt 0).
+- **26 (Rest):** Fokus auf einem **ausgewaehlten** Tab ist nicht unterscheidbar, weil
+  `[data-state="fokus"] .ed-tab` dieselbe Lime-Unterkante setzt wie der ausgewaehlte Tab. Der Zustand
+  ist vorhanden, aber farbgleich; pruefen, ob ein Tab im Fokus eine zweite Kennzeichnung braucht
+  (Aufgabe 24 fordert einen sichtbaren Fokusring in jedem Zustand).
+- **28/29 (Editor-Teil):** Layoutprobe und Panel-Ziehen sind fuer die **Vorschau** belegt, nicht fuer
+  die laufende Editor-Haut (feste Spalten ohne Trennkanten). Bleibt offen bis zur Hautumstellung.
+- **Symbole im laufenden Editor:** der Symbolsatz ist nur in Editor und Vorschau getrennt vorhanden;
+  im laufenden Editor zeichnet ihn niemand. Offen.
+- **Schrift der Inhalte:** `defaultTheme().fonts` bleibt Sora/Inter ohne `files`; im Repo liegt keine
+  Sora-Laufschriftdatei (nur Inter/Inter Display als Werkzeugschrift unter
+  `packages/editor/assets/fonts/`). Ohne eigene Dateien je Schnitt emittiert `fontFaceBlocks()` kein
+  `@font-face` fuer den Inhalt (Mechanik geprueft in `packages/tokens/test/theme.test.ts`). Offen, weil
+  Datei und Auslieferungsweg fehlen — nicht geraten, nicht erfunden.
+- **Aufgabe 31 (Editor-Teil):** die festen Dienste waren auch diesmal nicht erreichbar
+  (`Test-NetConnection 127.0.0.1:4322` = false, `:4321` = false) und wurden auf Auflage **nicht**
+  gestartet. Der Editor-Beleg lief deshalb gegen eine eigene, fluechtige Programm-Instanz
+  (`startProgram`, `appPort: 0`), wie es die Browser-Tests des Repos tun; die Messung fasst keinen
+  laufenden Prozess an und beendet am Ende nur die eigene Instanz.
+
 ## Stand der Schlussrunde (Runde 80)
+
+*(Historischer Stand. Die Punkte zu Aufgabe 1, 26, 28 und 29 sind in der Auftragsrunde oben
+abgearbeitet oder neu gefasst.)*
 
 Abgeschlossen in dieser Runde (mit Pruefmittel und Ort):
 
@@ -84,6 +203,10 @@ Neu offen und ehrlich:
 `packages/editor/src/ui/tokens.ts` ist angelegt. Aufgabe: `editorTokensCss()` beim Aufbau des Editor-Hosts in ein `style`-Element schreiben und `data-senify-editor` auf den Wurzelknoten setzen.
 Abhaengig von: nichts.
 Pruef: Im Browser traegt der Editor-Wurzelknoten alle `--ed-*`-Variablen; `pnpm typecheck` und `pnpm lint` gruen.
+Erledigt (Auftragsrunde): `EDITOR_TOKEN_STYLES` + `ensureEditorStyles()` in `packages/editor/src/styles.ts`,
+`data-senify-editor` ueber `EDITOR_ROOT_ATTRIBUTE` in `mount.ts`; Pruefmittel
+`packages/editor/test/ui/editor-tokens-einspeisung.test.ts` und der Browser-Nachweis
+`116 von 116 Tokens gleich` (`.scratch/refs/nick/ui/nachweis-editor.json`).
 
 **2 Paritaetstest Tokens gegen Palette.**
 Neuer Test `packages/editor/test/ui/tokens.test.ts`: jeder Farbwert ist entweder ein Anker der Designsprache oder eine im Kommentar dokumentierte Mischung genau zweier Anker. Dazu die 22 Nachweispaare aus `EDITOR_CONTRAST_PROOF` mit der Luminanzfunktion aus `packages/tokens` nachrechnen (Toleranz 0,02).
@@ -213,6 +336,9 @@ Pruef: Kein Kuerselkonflikt; jede Zeile mit Kuersel druckt es aus; Windows-Schre
 16 Komponenten in sechs Zustaenden als pruefbares Sollbild (Vorschau-Snapshot oder Storybook).
 Abhaengig von: 7 bis 23.
 Pruef: 96 Zellen vorhanden; keine Zelle ohne sichtbaren Unterschied zur Ruhe ausser dort, wo der Zustand nicht vorgesehen ist.
+Erledigt (Auftragsrunde): Testfall 1 in `packages/editor/test/ui/zustands-und-layoutprobe.test.ts`
+(96 Zellen, 77 sichtbar anders, drei dokumentierte Ausnahmen); Beleg
+`.scratch/refs/nick/ui/pruefung-zustand-layout.json`, Screenshot `zustandsprobe-1440.png`.
 
 **27 Kontrastrechner als Test.**
 `packages/editor/test/ui/contrast.test.ts` rechnet die Paare aus Abschnitt 8 des Dokuments nach, inklusive der Regel "auf Auswahlflaechen kein `--ed-ink-muted`".
@@ -223,11 +349,19 @@ Pruef: Test rot, sobald ein Textwert unter 4,5:1 faellt oder eine Nicht-Textkant
 1280, 1440, 1920 und schmales Fenster; Panels angedockt, Blatt erst unter 1024px.
 Abhaengig von: 3.
 Pruef: Kein waagerechter Ueberlauf (`document.documentElement.scrollWidth === clientWidth`); Statusleiste sichtbar; Buehne scrollt allein.
+Erledigt fuer die Vorschau (Auftragsrunde): Testfall 2 in
+`packages/editor/test/ui/zustands-und-layoutprobe.test.ts` (1280/1440/1920/480/900); offen bleibt die
+Messung an der laufenden Editor-Haut.
 
 **29 Panelbreiten und Ziehen.**
 Explorer 200 bis 360px, Inspektor 260 bis 420px, Doppelklick auf der Trennkante setzt den Standard.
 Abhaengig von: 28.
 Pruef: Breite bleibt nach Neuladen erhalten; Ziehen erzeugt keinen Sprung und keinen waagerechten Ueberlauf.
+Erledigt fuer die Vorschau (Auftragsrunde): Testfall 3 in
+`packages/editor/test/ui/zustands-und-layoutprobe.test.ts` (Grenzen 200/360 und 260/420, Doppelklick je
+Feld, Sprung 0,5px, Bestand nach Neuladen); eingebautes Sollbild in
+`.scratch/editor-v2-rebuild/ui-preview/index.html` (`.app__split`, `localStorage`-Schluessel
+`pv-panelbreiten`); offen bleibt die Uebertragung in die laufende Editor-Haut.
 
 **30 Vorschau-Paritaet.**
 Kleines Pruefskript, das die in der Vorschau einkopierten Tokens gegen `packages/editor/src/ui/tokens.ts` vergleicht.

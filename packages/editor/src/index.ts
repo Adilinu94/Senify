@@ -2,7 +2,32 @@
 // `mountEditor(container, options)`; everything else is the editor's contract.
 
 export { mountEditor, createStubRenderer, type EditorInstance, type EditorOptions, type FrameRenderContext, type FrameRenderer } from "./mount.ts";
-export { EDITOR_STYLES, ensureEditorStyles } from "./styles.ts";
+export {
+  EDITOR_ICON_BASE_CSS,
+  EDITOR_ICON_STYLES,
+  EDITOR_STYLES,
+  EDITOR_TOKEN_STYLES,
+  ensureEditorStyles,
+} from "./styles.ts";
+export {
+  applyEditorSkin,
+  EDITOR_SKIN_ALT,
+  EDITOR_SKIN_ATTRIBUTE,
+  EDITOR_SKIN_DEFAULT,
+  EDITOR_SKIN_STYLES,
+  EDITOR_SKIN_TIEFWASSER,
+  isEditorSkin,
+  type EditorSkin,
+} from "./ui/skin.ts";
+export {
+  EDITOR_BUNDLED_FONT_FILES,
+  EDITOR_CONTENT_FONT_FILES,
+  EDITOR_FONT_FACE_CSS,
+  EDITOR_FONT_FILES,
+  editorFontFaceCss,
+  type EditorFontFile,
+} from "./ui/fonts.ts";
+export { EDITOR_ROOT_ATTRIBUTE } from "./ui/tokens.ts";
 export {
   createHttpTransport,
   DRAFT_CONFLICT_MESSAGE,

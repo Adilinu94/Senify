@@ -48,6 +48,13 @@ import {
 } from "./frames.ts";
 import { parseDeepLink, serializeDeepLink, type DeepLinkState } from "./deep-links.ts";
 import { ensureEditorStyles } from "./styles.ts";
+import { editorFontFaceCss } from "./ui/fonts.ts";
+import {
+  applyEditorSkin,
+  EDITOR_SKIN_DEFAULT,
+  type EditorSkin,
+} from "./ui/skin.ts";
+import { EDITOR_ROOT_ATTRIBUTE } from "./ui/tokens.ts";
 import {
   getDocument,
   requireDocument,
@@ -98,6 +105,9 @@ export type EditorOptions = {
   renderer?: FrameRenderer;
   // Stylesheets every frame document loads (theme tokens, section styles).
   frameStyles?: string[];
+  // Appearance of the chrome: the new deep-water skin (default) or the previous
+  // light chrome. Structure and behaviour are identical either way.
+  skin?: EditorSkin;
   initialSearch?: string;
   onDeepLink?: (search: string, state: DeepLinkState) => void;
   onRefresh?: () => void | Promise<void>;
@@ -117,6 +127,9 @@ export type EditorInstance = {
   undo(): Promise<void>;
   redo(): Promise<void>;
   setMode(mode: FrameState["mode"]): void;
+  // Hautumstellung: read/switch the chrome skin (new deep-water vs. old light).
+  skin(): EditorSkin;
+  setSkin(skin: EditorSkin): void;
   setBreakpoint(breakpoint: FrameBreakpoint): void;
   select(nodeId: string | null): void;
   openTab(tab: ExplorerTab): void;
@@ -160,6 +173,15 @@ const CATEGORY_LABELS: Record<string, string> = {
   media: "Medien",
   utility: "Werkzeuge",
 };
+// Aufgabe 3: the catalog card shows a real symbol per category instead of a
+// blank swatch (names from `ui/icons.ts`).
+const CATEGORY_ICON: Record<string, string> = {
+  structure: "box",
+  content: "text",
+  commerce: "spark",
+  media: "image",
+  utility: "slider",
+};
 const STYLE_GROUPS = new Set(["Styling", "Layout"]);
 const PANEL_TABS: readonly { id: PanelTab; label: string }[] = [
   { id: "content", label: "Content" },
@@ -180,13 +202,17 @@ function formatTime(at: number): string {
 
 // Frame document of one breakpoint: host stylesheets (theme tokens, section
 // styles) load via frameStyles, the editor's own overlay rules stay inline.
+// The bundled @font-face rules go in too, so the theme's content family (Sora)
+// and the chrome family (Inter) resolve from the local files inside the frame —
+// no network fetch, and `font-display: swap` keeps the first paint immediate.
 function frameDoc(styles: readonly string[] = []): string {
   const links = styles
     .map((href) => `<link rel="stylesheet" href="${href}">`)
     .join("");
   return `<!doctype html><html><head><meta charset="utf-8">${links}<style>
+${editorFontFaceCss()}
 html, body { margin: 0; padding: 0; }
-body { font: 14px/1.5 system-ui, sans-serif; background: var(--bg-base, #ffffff); }
+body { font: 14px/1.5 var(--font-body, system-ui, sans-serif); background: var(--bg-base, #ffffff); }
 [data-node-id] { position: relative; outline: 1px dashed transparent; outline-offset: -1px; }
 [data-node-id]:hover { outline-color: rgba(208, 4, 212, .4); }
 [data-node-id][data-hidden="true"] { opacity: .35; }
@@ -344,7 +370,15 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
   // into them so selecting never re-creates (and reloads) the iframes.
   const mountedFrames: MountedFrame[] = [];
 
-  const root = h(doc, "div", { className: "senify-editor", data: { "senify-editor": "true" } });
+  const root = h(doc, "div", { className: "senify-editor" });
+  // Aufgabe 1: the root node carries the new chrome token set. The attribute is
+  // the selector `EDITOR_TOKEN_STYLES` scopes to (see `styles.ts`), so the whole
+  // `--ed-*` vocabulary lands here; the old chrome keeps its own names.
+  root.setAttribute(EDITOR_ROOT_ATTRIBUTE, "true");
+  // Hautumstellung: the deep-water skin is on by default; `setSkin("alt")` puts
+  // the previous light chrome back without touching structure or behaviour.
+  let skin: EditorSkin = options.skin ?? EDITOR_SKIN_DEFAULT;
+  applyEditorSkin(root, skin);
   // #1829: our own top bar and overlays, never Puck's default action bar.
   const topbar = h(doc, "div", {
     className: "senify-editor__topbar",
@@ -458,9 +492,28 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
 
   /* ------------------------------------------------------------ top bar */
 
+  // Aufgabe 3: one Phosphor mask icon per span, drawn from the local
+  // `EDITOR_ICON_CSS` (the one source, mirrored by the preview). `size` is the
+  // step from the plan (18 default, 16 menu, 14 row, 12, 10); `mod` carries
+  // rotation classes such as `ic--back`.
+  function icon(
+    name: string,
+    size?: 16 | 14 | 12 | 10,
+    mod?: string,
+  ): DomElement {
+    const className = `ic ic--${name}${size === undefined ? "" : ` ic--${size}`}${
+      mod === undefined ? "" : ` ${mod}`
+    }`;
+    const span = h(doc, "span", { className });
+    span.setAttribute("aria-hidden", "true");
+    return span;
+  }
+
   function iconButton(spec: {
     id: string;
-    text: string;
+    text?: string;
+    icon?: string;
+    iconSize?: 16 | 14 | 12 | 10;
     title?: string;
     active?: boolean;
     enabled?: boolean;
@@ -468,7 +521,6 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
   }): DomElement {
     const button = h(doc, "button", {
       className: "senify-editor__button",
-      text: spec.text,
       data: {
         action: spec.id,
         ...(spec.active === undefined ? {} : { active: String(spec.active) }),
@@ -477,6 +529,14 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
       ...(spec.title === undefined ? {} : { attributes: { title: spec.title } }),
     });
     button.setAttribute("type", "button");
+    if (spec.icon !== undefined) {
+      button.appendChild(icon(spec.icon, spec.iconSize));
+      // Ein Nur-Symbol-Ziel traegt einen vorlesbaren Namen (Aufgabe 45).
+      if (spec.text === undefined && spec.title !== undefined) {
+        button.setAttribute("aria-label", spec.title);
+      }
+    }
+    if (spec.text !== undefined) button.appendChild(h(doc, "span", { text: spec.text }));
     if (spec.enabled === false) button.setAttribute("disabled", "disabled");
     button.addEventListener("click", spec.onClick);
     return button;
@@ -485,7 +545,14 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
   function menuItem(
     label: string,
     onClick: () => void,
-    options?: { enabled?: boolean; active?: boolean; danger?: boolean; trailing?: string },
+    options?: {
+      enabled?: boolean;
+      active?: boolean;
+      danger?: boolean;
+      trailing?: string;
+      icon?: string;
+      iconSize?: 16 | 14 | 12 | 10;
+    },
   ): DomElement {
     const item = h(doc, "button", {
       className: "senify-editor__menu-item",
@@ -496,6 +563,9 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
       },
     });
     item.setAttribute("type", "button");
+    if (options?.icon !== undefined) {
+      item.appendChild(icon(options.icon, options.iconSize ?? 16));
+    }
     item.appendChild(h(doc, "span", { text: label }));
     if (options?.trailing) {
       item.appendChild(h(doc, "span", { className: "senify-editor__history-time", text: options.trailing }));
@@ -542,31 +612,47 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
   function brandMenu(): DomElement {
     const menu = h(doc, "div", { className: "senify-editor__menu", data: { menu: "brand" } });
     menu.appendChild(
-      menuItem("Seiten-Einstellungen", () => {
-        panelMode = "page";
-        renderPanelHost();
-      }),
+      menuItem(
+        "Seiten-Einstellungen",
+        () => {
+          panelMode = "page";
+          renderPanelHost();
+        },
+        { icon: "slider" },
+      ),
     );
     menu.appendChild(
-      menuItem("Tastenkürzel anzeigen", () => {
-        report(
-          "Strg+Z/Y Undo/Redo · Strg+D Duplizieren · Entf Löschen · Strg+S Speichern · Esc Auswahl aufheben",
-        );
-        renderStatus();
-      }),
+      menuItem(
+        "Tastenkürzel anzeigen",
+        () => {
+          report(
+            "Strg+Z/Y Undo/Redo · Strg+D Duplizieren · Entf Löschen · Strg+S Speichern · Esc Auswahl aufheben",
+          );
+          renderStatus();
+        },
+        { icon: "info" },
+      ),
     );
     menu.appendChild(menuSeparator());
-    menu.appendChild(menuItem("Spotlight öffnen · Strg+K", () => openSpotlight(true)));
+    menu.appendChild(
+      menuItem("Spotlight öffnen · Strg+K", () => openSpotlight(true), { icon: "search" }),
+    );
     return menu;
   }
 
   function historyMenu(): DomElement {
     const menu = h(doc, "div", { className: "senify-editor__menu", data: { menu: "history" } });
     menu.appendChild(
-      menuItem("Rückgängig · Strg+Z", () => void instance.undo(), { enabled: history.canUndo }),
+      menuItem("Rückgängig · Strg+Z", () => void instance.undo(), {
+        enabled: history.canUndo,
+        icon: "undo",
+      }),
     );
     menu.appendChild(
-      menuItem("Wiederholen · Strg+Y", () => void instance.redo(), { enabled: history.canRedo }),
+      menuItem("Wiederholen · Strg+Y", () => void instance.redo(), {
+        enabled: history.canRedo,
+        icon: "redo",
+      }),
     );
     const appliedEntries = history.applied();
     if (appliedEntries.length > 0) {
@@ -576,6 +662,7 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
         menu.appendChild(
           menuItem(entry.label, () => void restoreTo(entry.id), {
             trailing: `v${entry.versionAfter} · ${formatTime(entry.at)}`,
+            icon: "dot",
           }),
         );
       }
@@ -586,9 +673,13 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
   function publishMenu(): DomElement {
     const menu = h(doc, "div", { className: "senify-editor__menu", data: { menu: "publish" } });
     menu.appendChild(
-      menuItem("Zum Review senden", () => options.onCommand?.({ type: "publish" })),
+      menuItem("Zum Review senden", () => options.onCommand?.({ type: "publish" }), {
+        icon: "publish",
+      }),
     );
-    menu.appendChild(menuItem("Vorschau öffnen", () => setMode("live")));
+    menu.appendChild(
+      menuItem("Vorschau öffnen", () => setMode("live"), { icon: "eye" }),
+    );
     return menu;
   }
 
@@ -647,7 +738,7 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     topbar.appendChild(
       iconButton({
         id: "add",
-        text: "+",
+        icon: "plus",
         title: "Element hinzufügen",
         active: panelMode === "widgets",
         onClick: () => openCatalog(null),
@@ -667,7 +758,7 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     );
     const historyButton = iconButton({
       id: "history",
-      text: "↺",
+      icon: "undo",
       title: "Verlauf · Rückgängig und Wiederholen",
       active: menuOpen === "history",
       onClick: () => toggleMenu("history"),
@@ -750,10 +841,11 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     publish.addEventListener("click", () => options.onCommand?.({ type: "publish" }));
     const publishCaret = h(doc, "button", {
       className: "senify-editor__publish-caret",
-      text: "▾",
       data: { action: "publish-menu" },
     });
     publishCaret.setAttribute("type", "button");
+    publishCaret.setAttribute("aria-label", "Veröffentlichungs-Menü");
+    publishCaret.appendChild(icon("down", 14));
     publishCaret.addEventListener("click", (event) => {
       event.stopPropagation?.();
       toggleMenu("publish");
@@ -841,10 +933,10 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
       hint.appendChild(h(doc, "span", { text: insertHint ?? "Einfügeposition gewählt" }));
       const cancel = h(doc, "button", {
         className: "senify-editor__iconbtn",
-        text: "✕",
-        attributes: { title: "Einfügen abbrechen" },
+        attributes: { title: "Einfügen abbrechen", "aria-label": "Einfügen abbrechen" },
       });
       cancel.setAttribute("type", "button");
+      cancel.appendChild(icon("close", 14));
       cancel.addEventListener("click", () => {
         insertTarget = null;
         insertHint = null;
@@ -896,7 +988,9 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
             attributes: { title: definition.description, draggable: "true" },
           });
           card.setAttribute("type", "button");
-          card.appendChild(h(doc, "span", { className: "senify-editor__widget-icon" }));
+          const swatch = h(doc, "span", { className: "senify-editor__widget-icon" });
+          swatch.appendChild(icon(CATEGORY_ICON[category] ?? "box", 16));
+          card.appendChild(swatch);
           card.appendChild(
             h(doc, "span", { className: "senify-editor__widget-label", text: definition.title }),
           );
@@ -930,11 +1024,11 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     const header = h(doc, "div", { className: "senify-editor__panel-header" });
     const back = h(doc, "button", {
       className: "senify-editor__iconbtn",
-      text: "‹",
       data: { action: "settings-back" },
-      attributes: { title: "Zurück zu den Elementen" },
+      attributes: { title: "Zurück zu den Elementen", "aria-label": "Zurück zu den Elementen" },
     });
     back.setAttribute("type", "button");
+    back.appendChild(icon("caret", 14, "ic--back"));
     back.addEventListener("click", () => {
       panelMode = "widgets";
       renderPanelHost();
@@ -1107,11 +1201,11 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     const header = h(doc, "div", { className: "senify-editor__panel-header" });
     const back = h(doc, "button", {
       className: "senify-editor__iconbtn",
-      text: "‹",
       data: { action: "page-back" },
-      attributes: { title: "Zurück" },
+      attributes: { title: "Zurück", "aria-label": "Zurück" },
     });
     back.setAttribute("type", "button");
+    back.appendChild(icon("caret", 14, "ic--back"));
     back.addEventListener("click", () => {
       panelMode = state.selectedNodeId ? "settings" : "widgets";
       renderPanelHost();
@@ -1190,9 +1284,11 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     });
     const head = h(doc, "button", {
       className: "senify-editor__panel-title",
-      text: `${isCollapsed ? "▸" : "▾"} ${group.label}`,
     });
     head.setAttribute("type", "button");
+    head.setAttribute("aria-expanded", String(!isCollapsed));
+    head.appendChild(icon("caret", 12, isCollapsed ? "ic--collapsed" : undefined));
+    head.appendChild(h(doc, "span", { text: group.label }));
     head.addEventListener("click", () => {
       if (isCollapsed) collapsed.delete(group.id);
       else collapsed.add(group.id);
@@ -1693,18 +1789,18 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
 
   function handleButton(
     id: string,
-    glyph: string,
+    iconName: string,
     title: string,
     onClick: () => void,
     enabled = true,
   ): DomElement {
     const button = h(doc, "button", {
       className: `senify-editor__handle-btn${id === "grip" ? " senify-editor__handle-grip" : ""}`,
-      text: glyph,
       data: { action: id },
-      attributes: { title: enabled ? title : `${title} — gesperrt` },
+      attributes: { title: enabled ? title : `${title} — gesperrt`, "aria-label": title },
     });
     button.setAttribute("type", "button");
+    button.appendChild(icon(iconName, 14));
     if (!enabled) button.setAttribute("disabled", "disabled");
     if (enabled) button.addEventListener("click", onClick);
     return button;
@@ -1733,11 +1829,15 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
         top: `${Math.max(0, rect.top > 34 ? rect.top - 32 : rect.top + 2)}px`,
       },
     });
-    const done = h(doc, "button", { text: "✓ Fertig", data: { action: "inline-done" } });
+    const done = h(doc, "button", { data: { action: "inline-done" } });
     done.setAttribute("type", "button");
+    done.appendChild(icon("check", 14));
+    done.appendChild(h(doc, "span", { text: "Fertig" }));
     done.addEventListener("click", () => void finishInline());
-    const discard = h(doc, "button", { text: "✕ Verwerfen", data: { action: "inline-discard" } });
+    const discard = h(doc, "button", { data: { action: "inline-discard" } });
     discard.setAttribute("type", "button");
+    discard.appendChild(icon("close", 14));
+    discard.appendChild(h(doc, "span", { text: "Verwerfen" }));
     discard.addEventListener("click", () => void revertInline());
     bar.appendChild(done);
     bar.appendChild(discard);
@@ -1770,13 +1870,13 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
       const label = definition?.title ?? node.type;
       if (!isRoot) {
         bar.appendChild(
-          handleButton("grip", "⠿", `${label} verschieben`, () => undefined, false),
+          handleButton("grip", "grip", `${label} verschieben`, () => undefined, false),
         );
       }
       bar.appendChild(
         handleButton(
           "edit",
-          "✎",
+          "text",
           `${label} bearbeiten`,
           () => editNodeInline(nodeId),
           inlineTargetFor(nodeId) !== null,
@@ -1784,10 +1884,10 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
       );
       if (!isRoot) {
         bar.appendChild(
-          handleButton("duplicate", "⧉", `${label} duplizieren`, () => duplicateNode(nodeId), !locked),
+          handleButton("duplicate", "copy", `${label} duplizieren`, () => duplicateNode(nodeId), !locked),
         );
         bar.appendChild(
-          handleButton("delete", "✕", `${label} löschen`, () => removeNode(nodeId), !locked),
+          handleButton("delete", "trash", `${label} löschen`, () => removeNode(nodeId), !locked),
         );
       }
       overlay.appendChild(bar);
@@ -1799,12 +1899,12 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
       if (top !== null && center !== null) {
         const before = h(doc, "button", {
           className: "senify-editor__insert",
-          text: "+",
           data: { action: "insert-before" },
-          attributes: { title: "Element davor einfügen" },
+          attributes: { title: "Element davor einfügen", "aria-label": "Element davor einfügen" },
           style: { left: `${Math.max(0, center)}px`, top: `${Math.max(0, top - 13)}px` },
         });
         before.setAttribute("type", "button");
+        before.appendChild(icon("plus", 14));
         before.addEventListener("click", () =>
           startInsert(
             {
@@ -1819,12 +1919,12 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
       if (bottom !== null && center !== null) {
         const after = h(doc, "button", {
           className: "senify-editor__insert",
-          text: "+",
           data: { action: "insert-after" },
-          attributes: { title: "Element danach einfügen" },
+          attributes: { title: "Element danach einfügen", "aria-label": "Element danach einfügen" },
           style: { left: `${Math.max(0, center)}px`, top: `${Math.max(0, bottom - 13)}px` },
         });
         after.setAttribute("type", "button");
+        after.appendChild(icon("plus", 14));
         after.addEventListener("click", () =>
           startInsert(
             {
@@ -1842,7 +1942,7 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
   function contextItem(
     label: string,
     onClick: () => void,
-    options?: { danger?: boolean; enabled?: boolean; trailing?: string },
+    options?: { danger?: boolean; enabled?: boolean; trailing?: string; icon?: string },
   ): DomElement {
     const item = h(doc, "button", {
       className: "senify-editor__context-item",
@@ -1852,6 +1952,7 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
       },
     });
     item.setAttribute("type", "button");
+    if (options?.icon !== undefined) item.appendChild(icon(options.icon, 16));
     item.appendChild(h(doc, "span", { text: label }));
     if (options?.trailing) {
       item.appendChild(h(doc, "span", { className: "senify-editor__history-time", text: options.trailing }));
@@ -1886,18 +1987,22 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     });
     menu.addEventListener("click", (event) => event.stopPropagation?.());
     menu.appendChild(
-      contextItem(`Einstellungen${definition ? ` · ${definition.title}` : ""}`, () => {
-        select(nodeId);
-        panelMode = "settings";
-        panelTab = "content";
-        renderPanelHost();
-      }),
+      contextItem(
+        `Einstellungen${definition ? ` · ${definition.title}` : ""}`,
+        () => {
+          select(nodeId);
+          panelMode = "settings";
+          panelTab = "content";
+          renderPanelHost();
+        },
+        { icon: "slider" },
+      ),
     );
     menu.appendChild(
       contextItem(
         "Text bearbeiten",
         () => editNodeInline(nodeId),
-        { enabled: inlineTargetFor(nodeId) !== null },
+        { enabled: inlineTargetFor(nodeId) !== null, icon: "text" },
       ),
     );
     menu.appendChild(menuSeparator());
@@ -1906,11 +2011,13 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
       contextItem("Duplizieren", () => duplicateNode(nodeId), {
         enabled: !isRoot && !locked,
         trailing: "Strg+D",
+        icon: "copy",
       }),
     );
     menu.appendChild(
       contextItem("Nach oben", () => moveNode(nodeId, (placement?.index ?? 0) - 1), {
         enabled: !isRoot && !locked && placement !== null && placement.index > 0,
+        icon: "edge-t",
       }),
     );
     menu.appendChild(
@@ -1920,11 +2027,13 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
           !locked &&
           placement !== null &&
           placement.index < placement.count - 1,
+        icon: "edge-b",
       }),
     );
     menu.appendChild(
       contextItem(hidden ? "Einblenden" : "Ausblenden", () => toggleHidden(nodeId), {
         enabled: !isRoot,
+        icon: hidden ? "eye" : "eyeoff",
       }),
     );
     menu.appendChild(menuSeparator());
@@ -1933,6 +2042,7 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
         danger: true,
         enabled: !isRoot && !locked,
         trailing: "Entf",
+        icon: "trash",
       }),
     );
     overlay.appendChild(menu);
@@ -2079,11 +2189,11 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
         text: `${"  ".repeat(item.depth)}${item.label}`,
       }),
     );
+    const eyeLabel = item.hidden ? "Einblenden" : "Ausblenden";
     const eye = h(doc, "span", {
-      className: "senify-editor__eye",
-      text: item.hidden ? "◌" : "●",
+      className: `senify-editor__eye ic ic--${item.hidden ? "eyeoff" : "eye"} ic--14`,
       data: { eye: item.id },
-      attributes: { role: "button", title: item.hidden ? "Einblenden" : "Ausblenden" },
+      attributes: { role: "button", title: eyeLabel, "aria-label": eyeLabel, tabindex: "0" },
     });
     eye.addEventListener("click", (event: DomEvent) => {
       event.stopPropagation?.();
@@ -2216,7 +2326,7 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     status.setAttribute("data-tone", messageTone);
     if (state.mode === "design") {
       const zoomGroup = h(doc, "div", { className: "senify-editor__zoom" });
-      zoomGroup.appendChild(iconButton({ id: "zoom-out", text: "−", title: "Herauszoomen", onClick: () => zoomByStep(-0.1) }));
+      zoomGroup.appendChild(iconButton({ id: "zoom-out", icon: "zoomout", title: "Herauszoomen", onClick: () => zoomByStep(-0.1) }));
       zoomGroup.appendChild(
         iconButton({
           id: "zoom-reset",
@@ -2225,7 +2335,7 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
           onClick: () => resetZoom(),
         }),
       );
-      zoomGroup.appendChild(iconButton({ id: "zoom-in", text: "+", title: "Hineinzoomen", onClick: () => zoomByStep(0.1) }));
+      zoomGroup.appendChild(iconButton({ id: "zoom-in", icon: "zoomin", title: "Hineinzoomen", onClick: () => zoomByStep(0.1) }));
       status.appendChild(zoomGroup);
     }
     const text =
@@ -2418,6 +2528,11 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
       return enqueueWrite(async () => { await replayHistory("redo"); });
     },
     setMode,
+    skin: () => skin,
+    setSkin: (next: EditorSkin) => {
+      skin = next;
+      applyEditorSkin(root, next);
+    },
     setBreakpoint,
     select,
     openTab: (tab) => {

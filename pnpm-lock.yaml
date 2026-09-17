@@ -151,6 +151,9 @@ importers:
       '@senify/tokens':
         specifier: workspace:*
         version: link:../tokens
+      '@senify/widget-engine':
+        specifier: workspace:*
+        version: link:../widget-engine
       react:
         specifier: ^19.3.0
         version: 19.3.0
@@ -297,6 +300,21 @@ importers:
 
   packages/tokens:
     dependencies:
+      '@sinclair/typebox':
+        specifier: ^0.34.0
+        version: 0.34.52
+
+  packages/widget-engine:
+    dependencies:
+      '@senify/renderer':
+        specifier: workspace:*
+        version: link:../renderer
+      '@senify/section-sdk':
+        specifier: workspace:*
+        version: link:../section-sdk
+      '@senify/tokens':
+        specifier: workspace:*
+        version: link:../tokens
       '@sinclair/typebox':
         specifier: ^0.34.0
         version: 0.34.52

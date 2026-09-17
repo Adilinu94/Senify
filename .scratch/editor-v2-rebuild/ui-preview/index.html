@@ -107,6 +107,13 @@
 @font-face { font-family: "Inter Display"; font-style: normal; font-weight: 500; font-display: swap; src: url("../../../packages/editor/assets/fonts/InterDisplay-Medium.woff2") format("woff2"); }
 @font-face { font-family: "Inter Display"; font-style: normal; font-weight: 600; font-display: swap; src: url("../../../packages/editor/assets/fonts/InterDisplay-SemiBold.woff2") format("woff2"); }
 @font-face { font-family: "Inter Display"; font-style: normal; font-weight: 700; font-display: swap; src: url("../../../packages/editor/assets/fonts/InterDisplay-Bold.woff2") format("woff2"); }
+/* Inhalts-Schrift (Sora): der Anzeigesatz der Seitenvorlage
+   (packages/tokens/src/default-theme.ts, fonts.display [400, 600, 700]). Dieselbe
+   Liste fuehrt packages/editor/src/ui/fonts.ts (EDITOR_CONTENT_FONT_FILES); ein
+   Test vergleicht beide. Lokal, kein Netzabruf, font-display: swap. */
+@font-face { font-family: "Sora"; font-style: normal; font-weight: 400; font-display: swap; src: url("../../../packages/editor/assets/fonts/Sora-Regular.woff2") format("woff2"); }
+@font-face { font-family: "Sora"; font-style: normal; font-weight: 600; font-display: swap; src: url("../../../packages/editor/assets/fonts/Sora-SemiBold.woff2") format("woff2"); }
+@font-face { font-family: "Sora"; font-style: normal; font-weight: 700; font-display: swap; src: url("../../../packages/editor/assets/fonts/Sora-Bold.woff2") format("woff2"); }
 
 /* ================================================================ Grund */
 * { box-sizing: border-box; }
@@ -667,6 +674,25 @@ main { display: flex; flex-direction: column; gap: var(--ed-space-10); padding: 
   font-size: var(--ed-text-11); color: var(--ed-ink-muted);
 }
 .app__status .mono { color: var(--ed-ink-base); }
+/* Panelbreiten (Aufgabe 29): angedockt und in Grenzen verstellbar. Die
+   Trennkante sitzt am Panelrand, damit das Raster dreispaltig bleibt; sie
+   traegt keine eigene Flaeche, sondern nur die 1px-Linie des Panels und beim
+   Ziehen die Zustandskante --ed-signal-select. */
+.app__explorer, .app__inspector { position: relative; }
+.app__split {
+  position: absolute; top: 0; bottom: 0; width: 9px; z-index: 4;
+  background: transparent; cursor: ew-resize; touch-action: none;
+}
+.app__split:focus-visible { outline: 2px solid var(--ed-focus); outline-offset: -3px; }
+.app__explorer > .app__split { right: -4px; }
+.app__inspector > .app__split { left: -4px; }
+.app__split::after {
+  content: ''; position: absolute; top: 0; bottom: 0; width: 1px;
+  background: var(--ed-line-hairline);
+}
+.app__explorer > .app__split::after { left: 4px; }
+.app__inspector > .app__split::after { right: 4px; }
+.app__split:hover::after, .app__split[data-aktiv="true"]::after { background: var(--ed-signal-select); }
 .panelhead {
   display: flex; align-items: center; gap: var(--ed-space-2); height: var(--ed-h-panelhead);
   padding: 0 var(--ed-space-3); box-shadow: inset 0 -1px 0 var(--ed-line-hairline); flex: none;
@@ -703,6 +729,9 @@ main { display: flex; flex-direction: column; gap: var(--ed-space-10); padding: 
 .page__nav { background: var(--ed-brand-800); color: #ffffff; box-shadow: inset 0 -1px 0 rgb(255 255 255 / 0.14); }
 .page__navin { display: flex; align-items: center; gap: 24px; padding: 12px 24px; }
 .page__brand { font-family: var(--ed-font-display); font-size: 15px; font-weight: var(--ed-weight-semibold); letter-spacing: -0.02em; }
+/* Inhalts-Anzeigesatz aus den lokalen Sora-Dateien (siehe @font-face oben);
+   die Werkzeug-Haut bleibt bei Inter/Inter Display. */
+.page__brand, .page h1 { font-family: "Sora", system-ui, sans-serif; }
 .page__nav ul { display: flex; gap: 20px; list-style: none; margin: 0; padding: 0; margin-left: auto; }
 .page__nav a { font-size: 11px; font-weight: var(--ed-weight-medium); color: rgb(255 255 255 / 0.8); border-bottom: 1px solid transparent; }
 .page__nav a:hover { color: #ffffff; border-bottom-color: var(--ed-lime); }
@@ -1090,6 +1119,7 @@ main { display: flex; flex-direction: column; gap: var(--ed-space-10); padding: 
 
     <div class="app__body">
       <aside class="app__explorer">
+        <span class="app__split" data-panel="explorer" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Ebenenliste 200 bis 360px, Pfeiltasten oder Doppelklick auf 264px"></span>
         <div class="panelhead">
           <span class="ed-micro">Ebenen</span>
           <span class="ed-chip panelhead__count num">24</span>
@@ -1237,6 +1267,7 @@ main { display: flex; flex-direction: column; gap: var(--ed-space-10); padding: 
       </div>
 
       <aside class="app__inspector">
+        <span class="app__split" data-panel="inspector" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Inspektor 260 bis 420px, Pfeiltasten oder Doppelklick auf 320px"></span>
         <div class="paneltabs">
           <button class="ed-tab" type="button" aria-selected="false">Inhalt</button>
           <button class="ed-tab" type="button" aria-selected="true">Stil</button>
@@ -1300,6 +1331,7 @@ main { display: flex; flex-direction: column; gap: var(--ed-space-10); padding: 
       <span>Frame <b class="num mono">1440 px</b></span>
       <span class="mono">Startseite / hero / ueberschrift</span>
       <span class="app__spacer"></span>
+      <span>Panels <b class="num" id="panelbreiten">264 / 320</b></span>
       <span>Bereit</span>
     </div>
   </div>
@@ -2418,6 +2450,89 @@ main { display: flex; flex-direction: column; gap: var(--ed-space-10); padding: 
   if (raster) raster.setAttribute('data-raster-bereit', 'ja');
   anzahlAktualisieren();
   rasterAktualisieren(false);
+})();
+</script>
+<script>
+/* ================================= Panelbreiten (Aufgabe 29) ============
+   Explorer 200 bis 360px, Inspektor 260 bis 420px, Doppelklick auf der
+   Trennkante setzt den Standard (264 / 320). Die Breiten stehen als
+   CSS-Variablen auf `.app__body`, bleiben ueber ein Neuladen erhalten
+   (localStorage) und werden ueber den Zeiger gezogen: gerechnet wird aus der
+   Breite beim Aufsetzen plus der Zeigerdifferenz, damit der Griff unter dem
+   Zeiger bleibt und kein Sprung entsteht. Das Raster behaelt in der Mitte
+   `minmax(0, 1fr)`, deshalb waechst nur die Buehne bzw. schrumpft, ohne
+   waagerechten Ueberlauf. */
+(function () {
+  var koerper = document.querySelector('.app__body');
+  if (!koerper) return;
+  var GRENZEN = { explorer: [200, 360], inspector: [260, 420] };
+  var STANDARD = { explorer: 264, inspector: 320 };
+  var SCHLUESSEL = 'pv-panelbreiten';
+  var breiten = { explorer: STANDARD.explorer, inspector: STANDARD.inspector };
+
+  function ausSpeicher() {
+    try {
+      var roh = localStorage.getItem(SCHLUESSEL);
+      if (!roh) return;
+      var gelesen = JSON.parse(roh);
+      for (var name in GRENZEN) {
+        var wert = Math.round(Number(gelesen[name]));
+        if (wert >= GRENZEN[name][0] && wert <= GRENZEN[name][1]) breiten[name] = wert;
+      }
+    } catch (error) { /* kein Speicher verfuegbar: Standard bleibt */ }
+  }
+  function speichern() {
+    try { localStorage.setItem(SCHLUESSEL, JSON.stringify(breiten)); } catch (error) { /* egal */ }
+  }
+  function malen() {
+    koerper.style.setProperty('--ed-w-explorer', breiten.explorer + 'px');
+    koerper.style.setProperty('--ed-w-inspector', breiten.inspector + 'px');
+    koerper.setAttribute('data-breiten', breiten.explorer + 'x' + breiten.inspector);
+    var anzeige = document.getElementById('panelbreiten');
+    if (anzeige) anzeige.textContent = breiten.explorer + ' / ' + breiten.inspector;
+  }
+  function setzen(name, wert) {
+    var grenze = GRENZEN[name];
+    if (!grenze) return;
+    breiten[name] = Math.round(Math.min(grenze[1], Math.max(grenze[0], wert)));
+    malen();
+  }
+
+  ausSpeicher();
+  malen();
+
+  var griffe = document.querySelectorAll('.app__split');
+  for (var i = 0; i < griffe.length; i += 1) {
+    (function (griff) {
+      var name = griff.getAttribute('data-panel');
+      if (!GRENZEN[name]) return;
+      griff.addEventListener('pointerdown', function (ereignis) {
+        if (ereignis.button !== 0) return;
+        ereignis.preventDefault();
+        var start = ereignis.clientX;
+        var startBreite = breiten[name];
+        var richtung = name === 'explorer' ? 1 : -1;
+        griff.setAttribute('data-aktiv', 'true');
+        function bewegen(e) { setzen(name, startBreite + richtung * (e.clientX - start)); }
+        function loslassen() {
+          griff.removeAttribute('data-aktiv');
+          document.removeEventListener('pointermove', bewegen);
+          document.removeEventListener('pointerup', loslassen);
+          speichern();
+        }
+        document.addEventListener('pointermove', bewegen);
+        document.addEventListener('pointerup', loslassen);
+      });
+      griff.addEventListener('dblclick', function () { setzen(name, STANDARD[name]); speichern(); });
+      griff.addEventListener('keydown', function (ereignis) {
+        var schritt = ereignis.key === 'ArrowLeft' ? -8 : ereignis.key === 'ArrowRight' ? 8 : 0;
+        if (schritt === 0) return;
+        ereignis.preventDefault();
+        setzen(name, breiten[name] + (name === 'explorer' ? schritt : -schritt));
+        speichern();
+      });
+    })(griffe[i]);
+  }
 })();
 </script>
 </body>

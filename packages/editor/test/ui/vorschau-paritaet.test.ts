@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { EDITOR_FONT_FILES } from "../../src/ui/fonts.ts";
+import { EDITOR_BUNDLED_FONT_FILES } from "../../src/ui/fonts.ts";
 import { EDITOR_ICON_CSS } from "../../src/ui/icons.ts";
 import { EDITOR_TOKENS } from "../../src/ui/tokens.ts";
 
@@ -37,11 +37,11 @@ describe("preview tokens equal tokens.ts", () => {
   });
 });
 
-describe("preview fonts are the bundled chrome fonts", () => {
+describe("preview fonts are the bundled fonts (chrome + content)", () => {
   const faces = [...html.matchAll(/@font-face \{([^}]*)\}/g)].map((m) => m[1] ?? "");
 
-  it("declares exactly the files of EDITOR_FONT_FILES with font-display: swap", () => {
-    expect(faces.length).toBe(EDITOR_FONT_FILES.length);
+  it("declares exactly the files of EDITOR_BUNDLED_FONT_FILES with font-display: swap", () => {
+    expect(faces.length).toBe(EDITOR_BUNDLED_FONT_FILES.length);
     const declared = new Set<string>();
     for (const face of faces) {
       expect(face).toContain("font-display: swap");
@@ -51,13 +51,14 @@ describe("preview fonts are the bundled chrome fonts", () => {
       if (family && weight && file) declared.add(`${family}|${weight}|${file}`);
     }
     const expected = new Set(
-      EDITOR_FONT_FILES.map((f) => `${f.family}|${f.weight}|${f.file}`),
+      EDITOR_BUNDLED_FONT_FILES.map((f) => `${f.family}|${f.weight}|${f.file}`),
     );
     expect(declared).toEqual(expected);
   });
 
   it("points at the bundled files with a repo-relative path and never over the network", () => {
     expect(html).toContain("../../../packages/editor/assets/fonts/Inter-Regular.woff2");
+    expect(html).toContain("../../../packages/editor/assets/fonts/Sora-Regular.woff2");
     for (const face of faces) {
       expect(face).not.toContain("http");
     }

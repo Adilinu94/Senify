@@ -9,7 +9,12 @@ import {
   EDITOR_TOKENS_CSS,
   editorTokensCss,
 } from "../../src/ui/tokens.ts";
-import { EDITOR_FONT_FACE_CSS, EDITOR_FONT_FILES } from "../../src/ui/fonts.ts";
+import {
+  EDITOR_BUNDLED_FONT_FILES,
+  EDITOR_CONTENT_FONT_FILES,
+  EDITOR_FONT_FACE_CSS,
+  EDITOR_FONT_FILES,
+} from "../../src/ui/fonts.ts";
 import {
   EDITOR_ICON_CSS,
   EDITOR_ICONS,
@@ -228,18 +233,31 @@ describe("prohibition rules (ui-design.md section 6)", () => {
 describe("fonts and symbols are local and emoji-free", () => {
   it("declares a swap font-face for every bundled file", () => {
     expect(EDITOR_FONT_FACE_CSS).toContain("font-display: swap;");
-    for (const { file } of EDITOR_FONT_FILES) {
+    for (const { file } of EDITOR_BUNDLED_FONT_FILES) {
       expect(EDITOR_FONT_FACE_CSS).toContain(`/editor-fonts/${file}`);
     }
-    // The declared families are exactly the chrome tokens.
+    // The chrome families are exactly the chrome tokens.
     expect(EDITOR_TOKENS["--ed-font-display"]).toContain('"Inter Display"');
     expect(EDITOR_TOKENS["--ed-font-body"]).toContain('"Inter"');
+  });
+
+  it("bundles the content display face (Sora) with the three theme weights", () => {
+    // The theme names the family (`defaultTheme().fonts.display.family`); the
+    // bytes are bundled here so the editor frames never fetch over the network.
+    expect(EDITOR_CONTENT_FONT_FILES.map((f) => f.family)).toEqual(["Sora", "Sora", "Sora"]);
+    expect(EDITOR_CONTENT_FONT_FILES.map((f) => f.weight)).toEqual([400, 600, 700]);
+    for (const { file } of EDITOR_CONTENT_FONT_FILES) {
+      expect(EDITOR_FONT_FACE_CSS).toContain(`font-family: Sora;`);
+      expect(EDITOR_FONT_FACE_CSS).toContain(`/editor-fonts/${file}`);
+    }
+    // The chrome list stays Inter-only (no content face leaks into the tool set).
+    expect(EDITOR_FONT_FILES.every((f) => f.family.startsWith("Inter"))).toBe(true);
   });
 
   it("keeps every bundled font file present on disk", () => {
     const dir = fileURLToPath(new URL("../../assets/fonts/", import.meta.url));
     const present = new Set(readdirSync(dir));
-    for (const { file } of EDITOR_FONT_FILES) {
+    for (const { file } of EDITOR_BUNDLED_FONT_FILES) {
       expect(present.has(file), `missing font ${file}`).toBe(true);
     }
     expect(present.has("LICENSE.txt")).toBe(true);

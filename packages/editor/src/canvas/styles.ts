@@ -5,6 +5,22 @@
 // (`rules.ts`, `CANVAS_CHROME_CSS`); this file is only the editor surface.
 
 import type { DomDocument } from "../dom.ts";
+import { EDITOR_ICON_CSS } from "../ui/icons.ts";
+
+export const CANVAS_ICON_CSS = `
+.senify-canvas .ic {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  background-color: currentColor;
+  -webkit-mask: var(--m) center / contain no-repeat;
+  mask: var(--m) center / contain no-repeat;
+}
+.senify-canvas .ic--14 { width: 14px; height: 14px; }
+.senify-canvas .ic--12 { width: 12px; height: 12px; }
+${EDITOR_ICON_CSS}
+`.trim();
 
 export const CANVAS_STYLES = `
 .senify-canvas {
@@ -70,6 +86,12 @@ export const CANVAS_STYLES = `
 `.trim();
 
 export function ensureCanvasStyles(doc: DomDocument): void {
+  if (doc.querySelector("style[data-senify-canvas-icons]") === null) {
+    const icons = doc.createElement("style");
+    icons.setAttribute("data-senify-canvas-icons", "");
+    icons.textContent = CANVAS_ICON_CSS;
+    (doc.head ?? doc.body).appendChild(icons);
+  }
   if (doc.querySelector("style[data-senify-canvas-styles]") !== null) return;
   const style = doc.createElement("style");
   style.setAttribute("data-senify-canvas-styles", "");

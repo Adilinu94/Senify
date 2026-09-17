@@ -27,6 +27,7 @@ import type { FrameBreakpoint } from "../types.ts";
 import type { FrameRenderer } from "../mount.ts";
 import { getDocument, type DomDocument, type DomElement, type DomEvent } from "../dom.ts";
 import { ensureCanvasStyles } from "./styles.ts";
+import { editorFontFaceCss } from "../ui/fonts.ts";
 import { EditorStore } from "../state/store.ts";
 import { canvasFrames, fitZoom, ZOOM_MAX, ZOOM_MIN } from "./device.ts";
 import { canvasFrameRules } from "./rules.ts";
@@ -88,14 +89,16 @@ const PREVIEW_STATES: readonly (StateName | "none")[] = [
 
 const FRAME_BASE_CSS = `
 html, body { margin: 0; padding: 0; }
-body { font: 14px/1.5 system-ui, sans-serif; background: #ffffff; }
+body { font: 14px/1.5 var(--font-body, system-ui, sans-serif); background: #ffffff; }
 `;
 
+// Bundled @font-face rules (Inter/Inter Display for the tool, Sora for content)
+// so the frame renders the theme's families from the local files, no network.
 function frameDoc(styles: readonly string[]): string {
   const links = styles
     .map((href) => `<link rel="stylesheet" href="${href}">`)
     .join("");
-  return `<!doctype html><html><head><meta charset="utf-8">${links}<style>${FRAME_BASE_CSS}</style></head><body class="senify-canvas-body"></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8">${links}<style>${editorFontFaceCss()}\n${FRAME_BASE_CSS}</style></head><body class="senify-canvas-body"></body></html>`;
 }
 
 function create(
@@ -228,14 +231,18 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   const zoomOut = create(doc, "button", "senify-canvas__button", {
     type: "button",
     "data-action": "zoom-out",
+    "aria-label": "Herauszoomen",
   });
-  zoomOut.textContent = "−";
+  const zoomOutIcon = create(doc, "span", "ic ic--zoomout ic--14", { "aria-hidden": "true" });
+  zoomOut.appendChild(zoomOutIcon);
   zoomOut.addEventListener("click", () => setZoom(zoom - 0.1));
   const zoomIn = create(doc, "button", "senify-canvas__button", {
     type: "button",
     "data-action": "zoom-in",
+    "aria-label": "Hineinzoomen",
   });
-  zoomIn.textContent = "+";
+  const zoomInIcon = create(doc, "span", "ic ic--zoomin ic--14", { "aria-hidden": "true" });
+  zoomIn.appendChild(zoomInIcon);
   zoomIn.addEventListener("click", () => setZoom(zoom + 0.1));
   const zoomFit = create(doc, "button", "senify-canvas__button", {
     type: "button",
