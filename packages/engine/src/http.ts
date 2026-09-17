@@ -30,6 +30,11 @@ import {
   type CreateSiteBody,
   type UpdateThemeBody,
 } from "./mutations/contract.ts";
+import {
+  parseApplyEditorMutationsBody,
+  type ApplyEditorMutationsBody,
+} from "./mutations/editor-contract.ts";
+import { editorMutationsToSection } from "./mutations/editor-bridge.ts";
 import { draftConflictError } from "./paths.ts";
 import { RateLimiter, RateLimitError } from "./rate-limit.ts";
 import { hardGuardrailsForTree } from "./guardrails.ts";
@@ -808,6 +813,24 @@ async function applyMutationsToPage(
   });
 }
 
+// The canvas persists its v2 editor ops through the same write path: they are
+// translated into the section vocabulary and handed to `applyMutationsToPage`,
+// so the conflict check, the hard guardrails, the version bump, the audit log
+// and the optimistic locking are all shared with the section mutations route.
+async function applyEditorMutationsToPage(
+  context: EngineContext,
+  pageId: string,
+  input: ApplyEditorMutationsBody,
+): Promise<RouteResult["body"]> {
+  const sectionBody: ApplyMutationsBody = {
+    baseDraftVersion: input.baseDraftVersion,
+    author: input.author,
+    ...(input.dry_run === undefined ? {} : { dry_run: input.dry_run }),
+    mutations: editorMutationsToSection(input.mutations),
+  };
+  return applyMutationsToPage(context, pageId, sectionBody);
+}
+
 function pathOpIndex(input: ApplyMutationsBody): number | undefined {
   let found: number | undefined;
   input.mutations.forEach((mutation, index) => {
@@ -1196,6 +1219,22 @@ const ROUTES: Route[] = [
       const body = await readJsonBody(req);
       const input: ApplyMutationsBody = parseApplyMutationsBody(body);
       const result = await applyMutationsToPage(context, pageId, input);
+      return { status: 200, body: result };
+    },
+  },
+  {
+    // The canvas (rebuild Phase 0) persists its v2 editor ops here. Additive to
+    // the section mutations route above: same envelope, same write path, only
+    // the op vocabulary differs. The draft stays a section NodeTree.
+    method: "POST",
+    segments: ["api", "pages", ":pageId", "editor-mutations"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const pageId = params.pageId;
+      if (!pageId) throw new SenifyError("validation", "Missing page id", { field: "pageId" });
+      const body = await readJsonBody(req);
+      const input = parseApplyEditorMutationsBody(body);
+      const result = await applyEditorMutationsToPage(context, pageId, input);
       return { status: 200, body: result };
     },
   },

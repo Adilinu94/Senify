@@ -142,6 +142,34 @@ kbd {
   max-width: none;
 }
 
+/* Umschalter zwischen dem bisherigen Editor (v1-Baum) und dem neuen Canvas
+   (v2-Dokument) im Kopf der Seitenansicht (Phase 0). */
+.editor-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.15rem;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  background: var(--bg-base);
+}
+
+.editor-switch button {
+  font: inherit;
+  font-size: 0.85rem;
+  border: 0;
+  border-radius: 0.4rem;
+  padding: 0.3rem 0.7rem;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.editor-switch button.active {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
 /* Toolbar */
 
 .toolbar {

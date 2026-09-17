@@ -53,7 +53,19 @@ export type EditorStoreOptions = {
   selection?: SelectionState;
   history?: HistoryStack;
   idFactory?: () => string;
+  // Reports every committed change so a shell can mirror the canvas onto the
+  // engine (Phase 0, fifth slice). Additive: the store never depends on it.
+  onAction?: (event: EditorStoreAction) => void;
 };
+
+// One entry per committed store change. `apply` carries the editor mutation
+// that was written, so a listener can forward exactly the batch that should be
+// persisted; `undo` / `redo` let the listener keep its own queue in step with
+// the linear history.
+export type EditorStoreAction =
+  | { type: "apply"; mutation: EditorMutation }
+  | { type: "undo" }
+  | { type: "redo" };
 
 export type ApplyOptions = {
   coalesceKey?: string;
@@ -99,6 +111,7 @@ export class EditorStore {
   #selection: SelectionState;
   readonly #history: HistoryStack;
   readonly #idFactory: () => string;
+  readonly #onAction: ((event: EditorStoreAction) => void) | undefined;
   readonly #listeners = new Set<() => void>();
 
   constructor(options: EditorStoreOptions = {}) {
@@ -106,6 +119,7 @@ export class EditorStore {
     this.#document = options.document ?? createDocument(this.#idFactory);
     this.#selection = options.selection ?? EMPTY_SELECTION;
     this.#history = options.history ?? new HistoryStack();
+    this.#onAction = options.onAction;
   }
 
   // The canvas follows the store instead of polling it: every write, undo,
@@ -184,6 +198,7 @@ export class EditorStore {
     this.#document = next;
     entry.versionAfter = this.version;
     this.#emit();
+    this.#onAction?.({ type: "apply", mutation });
     return { changed: true, patches: result.forward, warnings: result.warnings };
   }
 
@@ -206,6 +221,7 @@ export class EditorStore {
       entry.undoPatch as unknown as DocumentPatch[],
     );
     this.#emit();
+    this.#onAction?.({ type: "undo" });
     return true;
   }
 
@@ -217,6 +233,7 @@ export class EditorStore {
       entry.mutations as unknown as DocumentPatch[],
     );
     this.#emit();
+    this.#onAction?.({ type: "redo" });
     return true;
   }
 

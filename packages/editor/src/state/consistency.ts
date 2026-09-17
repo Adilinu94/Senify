@@ -121,7 +121,14 @@ export function validateDocument(document: EditorDocument): DocumentIssue[] {
 
     for (const [slot, list] of Object.entries(node.slots ?? {})) {
       const slotSpec = definition?.slots[slot];
-      if (definition !== undefined && slotSpec === undefined) {
+      // A legacy stand-in (an existing section type, see widget-engine
+      // `legacy.ts`) carries no slot rules of its own: their truth lives in the
+      // section registry, so the slot is tolerated here.
+      if (
+        definition !== undefined &&
+        definition.legacy !== true &&
+        slotSpec === undefined
+      ) {
         issues.push({
           kind: "slot-unknown",
           nodeId: node.id,

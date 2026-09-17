@@ -101,6 +101,18 @@ describe("consistency check", () => {
     expect(kinds(full)).toContain("slot-full");
   });
 
+  // A v1 page names its nodes by section type; those become legacy stand-ins
+  // (widget-engine `legacy.ts`) whose slot rules live in the section registry.
+  // The check must tolerate their slots (rebuild Phase 0, fifth slice).
+  it("tolerates a slot on a legacy section stand-in", () => {
+    const legacy = doc({
+      root: { id: "root", primitive: "root", props: {}, children: ["hero"] },
+      hero: { id: "hero", primitive: "hero", props: {}, slots: { visual: ["pic"] } },
+      pic: { id: "pic", primitive: "media", props: {} },
+    });
+    expect(kinds(legacy)).toEqual([]);
+  });
+
   it("flags a reference cycle", () => {
     const broken = doc({
       root: { id: "root", primitive: "root", props: {}, children: ["a"] },

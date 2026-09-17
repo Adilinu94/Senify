@@ -4361,6 +4361,112 @@ async function reviewAction(siteId, reviewId, action) {
   }
 }
 
+// The new canvas view (rebuild Phase 0, fifth slice). It reads the very page
+// draft of the running engine (`GET /api/pages/:pageId`) and lifts it to the v2
+// editor document with the existing migration; changes are written back through
+// the engine's mutations path (`POST /api/pages/:pageId/editor-mutations`), so
+// the canvas owns no storage of its own.
+function canvasModeOf(search) {
+  return /(?:^|&)view=canvas(?:&|$)/.test(String(search ?? "")) ? "canvas" : "editor";
+}
+
+function mountCanvasView({ pageId, page, host, toolbar, editor, pagesCache, assetContext }) {
+  const loaded = editor.loadDocument(page.draft);
+  let draftVersion = page.draftVersion;
+
+  const statusEl = el("span", { class: "muted", "data-role": "canvas-status" });
+  const saveButton = el("button", {
+    type: "button",
+    class: "primary",
+    "data-action": "canvas-save",
+    text: "Speichern",
+  });
+  saveButton.disabled = true;
+
+  // A linear mirror of the store history: what was applied and not undone is
+  // exactly what the next save sends. Redo moves it back.
+  const pending = [];
+  const undone = [];
+  const refreshSave = () => {
+    saveButton.disabled = pending.length === 0;
+    saveButton.textContent = pending.length > 0 ? `Speichern (${pending.length})` : "Speichern";
+  };
+
+  const store = new editor.EditorStore({
+    document: loaded.document,
+    onAction: (event) => {
+      if (event.type === "apply") {
+        pending.push(event.mutation);
+        undone.length = 0;
+      } else if (event.type === "undo") {
+        if (pending.length > 0) undone.push(pending.pop());
+      } else if (event.type === "redo") {
+        if (undone.length > 0) pending.push(undone.pop());
+      }
+      refreshSave();
+    },
+  });
+
+  const canvas = editor.mountCanvas(host, {
+    store,
+    registry: editor.createRegistry(),
+    renderer: editor.createReactRenderer({
+      context: () => ({
+        pagePaths: Object.fromEntries(pagesCache.map((entry) => [entry.id, entry.path])),
+        assets: assetContext,
+      }),
+    }),
+    theme: editor.defaultTheme(),
+    frameStyles: ["/theme.css", "/editor-frame.css"],
+    onMessage: (message) => {
+      statusEl.textContent = message ?? "";
+    },
+  });
+
+  const setVersion = (version) => {
+    const badge = document.getElementById("page-version");
+    if (badge) badge.textContent = `Draft v${version}`;
+  };
+
+  const save = async () => {
+    if (pending.length === 0) return;
+    saveButton.disabled = true;
+    try {
+      const result = await api(`/api/pages/${pageId}/editor-mutations`, {
+        method: "POST",
+        body: { baseDraftVersion: draftVersion, author: AUTHOR, mutations: pending.slice() },
+      });
+      draftVersion = result.newDraftVersion;
+      pending.length = 0;
+      undone.length = 0;
+      setVersion(draftVersion);
+      refreshSave();
+      statusEl.textContent = "Gespeichert";
+      toast("Canvas gespeichert");
+      // The draft is the source of truth: re-read it and re-seed the canvas so
+      // engine-generated ids and normalized values line up.
+      try {
+        const fresh = await api(`/api/pages/${pageId}`);
+        draftVersion = fresh.draftVersion;
+        store.replaceDocument(editor.loadDocument(fresh.draft).document);
+        setVersion(draftVersion);
+      } catch {
+        // Keep the local document when only the re-read failed.
+      }
+    } catch (error) {
+      failed(error);
+      refreshSave();
+    }
+  };
+  saveButton.addEventListener("click", () => {
+    void save();
+  });
+
+  toolbar.append(statusEl, saveButton);
+  refreshSave();
+  return canvas;
+}
+
 async function pageView(siteId, pageId, initialSearch) {
   const page = await api(`/api/pages/${pageId}`);
   let currentTree = page.draft;
@@ -4417,6 +4523,13 @@ async function pageView(siteId, pageId, initialSearch) {
     assetContext = {};
   }
 
+  // Zwei Ansichten, ein Umschalter: der bisherige Elementor-nahe Editor
+  // (`mountEditor`, v1-Baum) bleibt die Voreinstellung, der neue Canvas
+  // (`mountCanvas`, v2-Dokument) laesst sich daneben oeffnen. Der Zustand steht
+  // in der Adresse (`?view=canvas`), damit ein Neuladen und ein Deep-Link ihn
+  // mittragen.
+  const mode = canvasModeOf(initialSearch);
+  const routeBase = `#/projects/${siteId}/pages/${pageId}`;
   const toolbar = el(
     "div",
     { class: "toolbar" },
@@ -4425,6 +4538,28 @@ async function pageView(siteId, pageId, initialSearch) {
     el("code", { text: page.path }),
     el("div", { class: "spacer" }),
     el("span", { class: "muted", id: "page-version", text: `Draft v${page.draftVersion}` }),
+    el(
+      "div",
+      { class: "editor-switch", role: "group", "aria-label": "Editor-Ansicht" },
+      el("button", {
+        type: "button",
+        "data-view": "editor",
+        class: mode === "editor" ? "active" : "",
+        text: "Editor (bisher)",
+        onclick: () => {
+          location.hash = `${routeBase}?view=editor`;
+        },
+      }),
+      el("button", {
+        type: "button",
+        "data-view": "canvas",
+        class: mode === "canvas" ? "active" : "",
+        text: "Canvas (neu)",
+        onclick: () => {
+          location.hash = `${routeBase}?view=canvas`;
+        },
+      }),
+    ),
   );
   const host = el("div", { class: "editor-host", id: "editor-host" });
   render([toolbar, host]);
@@ -4435,6 +4570,26 @@ async function pageView(siteId, pageId, initialSearch) {
   } catch {
     editor = null;
   }
+
+  if (mode === "canvas") {
+    if (editor) {
+      mountCanvasView({
+        pageId,
+        page,
+        host,
+        toolbar,
+        editor,
+        pagesCache,
+        assetContext,
+      });
+    } else {
+      host.replaceChildren(
+        el("p", { class: "muted", text: "Das Editor-Bundle ist nicht verfügbar." }),
+      );
+    }
+    return;
+  }
+
   let refreshSeq = 0;
   if (editor) {
     try {

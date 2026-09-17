@@ -258,11 +258,17 @@ export {
   DeviceSchema,
   ClassNameSchema,
   isEditorMutationOp,
+  parseApplyEditorMutationsBody,
   parseEditorMutation,
   parseEditorMutationBatch,
+  type ApplyEditorMutationsBody,
   type EditorMutation,
   type EditorNodeSpec,
 } from "./mutations/editor-contract.ts";
+export {
+  editorMutationToSection,
+  editorMutationsToSection,
+} from "./mutations/editor-bridge.ts";
 export {
   applyMutations,
   applyUndoBatch,

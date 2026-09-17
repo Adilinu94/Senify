@@ -141,6 +141,11 @@ export type PrimitiveDefinition = {
   slots: Record<string, SlotSpec>;
   controls: Control[];
   styleGroups: StyleGroup[];
+  // Stand-in for an existing section type whose real shape is not (yet) part of
+  // the catalog (see `legacy.ts`). It marks the node as structurally tolerated:
+  // the consistency check skips its slot rules, because their truth lives in the
+  // section registry.
+  legacy?: boolean;
 };
 
 export type CategoryDefinition = {

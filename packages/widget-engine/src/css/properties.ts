@@ -16,7 +16,7 @@
 import { getPrimitive } from "../catalog.ts";
 import { isConditionSatisfied } from "../controls.ts";
 import type { DeviceValueMap } from "../device.ts";
-import type { PropValue, StyleGroup, Unit } from "../types.ts";
+import type { PrimitiveDefinition, PropValue, StyleGroup, Unit } from "../types.ts";
 import {
   camelToKebab,
   deepEqualProp,
@@ -224,6 +224,17 @@ export function stylePropertyFor(prop: string): StylePropertySpec | undefined {
   return STYLE_PROPERTIES.find((entry) => entry.prop === prop);
 }
 
+// The style groups a definition narrows to. A legacy stand-in (widget-engine
+// `legacy.ts`, an existing section type) carries no catalog shape, so it must
+// not restrict anything: it behaves like a type the catalog does not know, which
+// is what the compiler did before the sections were bridged. Only a real
+// definition narrows the set of translatable properties.
+function styleGroupsOf(definition: PrimitiveDefinition | undefined): Set<StyleGroup> | undefined {
+  return definition !== undefined && definition.legacy !== true
+    ? new Set<StyleGroup>(definition.styleGroups)
+    : undefined;
+}
+
 export function mappingFor(prop: string, primitiveType: string | undefined): PropMapping | undefined {
   return PROP_MAPPINGS.find(
     (entry) =>
@@ -236,7 +247,7 @@ export function mappingFor(prop: string, primitiveType: string | undefined): Pro
 // The property names the compiler can translate, in emission order.
 export function translatableProperties(primitiveType: string | undefined): string[] {
   const definition = primitiveType === undefined ? undefined : getPrimitive(primitiveType);
-  const groups = definition ? new Set<StyleGroup>(definition.styleGroups) : undefined;
+  const groups = styleGroupsOf(definition);
   const props: string[] = [];
   for (const mapping of PROP_MAPPINGS) {
     if (
@@ -330,7 +341,7 @@ export function declarationsForValues(
 ): Declaration[] {
   const definition = primitiveType === undefined ? undefined : getPrimitive(primitiveType);
   const controls = definition?.controls ?? [];
-  const groups = definition ? new Set<StyleGroup>(definition.styleGroups) : undefined;
+  const groups = styleGroupsOf(definition);
   const declarations: Declaration[] = [];
   const emittedProps = new Set<string>();
   // One CSS property per rule: the first table entry that reaches it wins, so

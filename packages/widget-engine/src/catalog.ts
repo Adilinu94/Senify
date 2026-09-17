@@ -10,6 +10,7 @@ import type {
   StyleGroupDefinition,
   Unit,
 } from "./types.ts";
+import { legacyPrimitive } from "./legacy.ts";
 
 export const CATEGORIES: readonly CategoryDefinition[] = [
   { id: "layout", name: "Layout", order: 1 },
@@ -681,7 +682,11 @@ export function primitiveTypes(): string[] {
 }
 
 export function getPrimitive(type: string): PrimitiveDefinition | undefined {
-  return PRIMITIVES.find((primitive) => primitive.type === type);
+  // The section types of the running registry get a permissive stand-in so a
+  // migrated v1 page stays loadable (Phase 0, fifth slice; see `legacy.ts`).
+  return (
+    PRIMITIVES.find((primitive) => primitive.type === type) ?? legacyPrimitive(type)
+  );
 }
 
 export function primitivesByCategory(category: PrimitiveDefinition["category"]): PrimitiveDefinition[] {

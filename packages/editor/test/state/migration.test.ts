@@ -52,6 +52,38 @@ describe("v1 -> v2 migration", () => {
   });
 });
 
+// The real pages of the running engine name their nodes by section type and use
+// slots (a `hero` with a `visual` slot, a `navbar` with breakpoint overrides).
+// Those are not catalog primitives, so the load must tolerate them and migrate,
+// not abort (rebuild Phase 0, fifth slice; page draft of site `jEg_UhCBhjc3m1`).
+describe("legacy section migration", () => {
+  it("lifts a v1 page with legacy sections and a slot instead of aborting", () => {
+    const tree = {
+      rootNodeId: "page",
+      nodes: {
+        page: { id: "page", type: "page", props: {}, children: ["navbar", "hero"] },
+        navbar: { id: "navbar", type: "navbar", props: { logo: "Nick" }, hidden: false },
+        hero: {
+          id: "hero",
+          type: "hero",
+          props: { headline: "Hallo" },
+          slots: { visual: ["pic"] },
+          overrides: { mobile: { props: { headline: "Kurz" } } },
+        },
+        pic: { id: "pic", type: "media", props: { aspect: "1/1" } },
+      },
+    };
+    const result = loadDocument(tree);
+    expect(result.status).toBe("migrated");
+    expect(result.issues).toEqual([]);
+    expect(validateDocument(result.document)).toEqual([]);
+    // Nothing is dropped: the slot and the device override survive.
+    expect(result.document.nodes["hero"]?.slots).toEqual({ visual: ["pic"] });
+    expect(result.document.nodes["hero"]?.props["headline_mobile"]).toBe("Kurz");
+    expect(result.document.nodes["page"]?.primitive).toBe("root");
+  });
+});
+
 describe("reindexing", () => {
   it("drops dangling references and unreachable nodes", () => {
     const document: EditorDocument = {

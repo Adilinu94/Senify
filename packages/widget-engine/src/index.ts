@@ -2,6 +2,7 @@ export * from "./types.ts";
 export * from "./schema.ts";
 export * from "./controls.ts";
 export * from "./catalog.ts";
+export * from "./legacy.ts";
 export * from "./device.ts";
 export * from "./theme.ts";
 export * from "./mapping.ts";

@@ -15,6 +15,7 @@ import { Type, type Static, type TSchema } from "@sinclair/typebox";
 import { SenifyError } from "@senify/core";
 import type { PropValue } from "@senify/section-sdk";
 import {
+  AuthorSchema,
   EDITOR_MUTATION_OPS,
   ParentRefSchema,
   formatField,
@@ -291,4 +292,32 @@ export function parseEditorMutation(
 
 export function parseEditorMutationBatch(input: readonly unknown[]): EditorMutation[] {
   return input.map((entry, index) => parseEditorMutation(entry, index));
+}
+
+// The request body of the editor's persistence sub-path
+// (`POST /api/pages/:pageId/editor-mutations`, rebuild Phase 0, fifth slice).
+// This is additive to the section `mutations` envelope: the same
+// `baseDraftVersion` / `author` / `dry_run` fields, but the array carries the v2
+// editor ops. The engine translates them into the section vocabulary and writes
+// through the one existing `applyMutations` + `persistBatch` path, so the canvas
+// has no storage of its own.
+const ApplyEditorMutationsShapeSchema = Type.Object(
+  {
+    baseDraftVersion: Type.Integer({ minimum: 1 }),
+    author: AuthorSchema,
+    dry_run: Type.Optional(Type.Boolean()),
+    mutations: Type.Array(EditorMutationSchema, { minItems: 1, maxItems: 500 }),
+  },
+  CLOSED,
+);
+
+export type ApplyEditorMutationsBody = Static<typeof ApplyEditorMutationsShapeSchema>;
+
+export function parseApplyEditorMutationsBody(
+  body: unknown,
+): ApplyEditorMutationsBody {
+  validateShape(ApplyEditorMutationsShapeSchema, body, "editor mutations request");
+  const shaped = body as { mutations: unknown[] };
+  const mutations = parseEditorMutationBatch(shaped.mutations);
+  return { ...(body as ApplyEditorMutationsBody), mutations };
 }
