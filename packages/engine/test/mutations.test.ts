@@ -540,6 +540,41 @@ describe("props, meta, overrides, motion", () => {
       (invalid.body as unknown as { error: { field: string } }).error.field,
     ).toBe("mutations[0].override.props.nope");
 
+    // Ticket 11 (L2): a selective clear touches only what was asked for.
+    const selectiveProps = await apply([
+      {
+        op: "clearBreakpointOverride",
+        id: "override-01",
+        breakpoint: "tablet",
+        props: ["headline"],
+      },
+    ]);
+    expect(selectiveProps.status).toBe(200);
+    expect(nodeOf(page, "override-01").overrides).toEqual({
+      tablet: { props: { count: 9 }, hidden: true },
+    });
+    expect(selectiveProps.body.results[0]?.undoPatch).toEqual([
+      {
+        patch: "setOverride",
+        id: "override-01",
+        breakpoint: "tablet",
+        override: { props: { headline: "Kurz", count: 9 }, hidden: true },
+      },
+    ]);
+
+    const selectiveHidden = await apply([
+      {
+        op: "clearBreakpointOverride",
+        id: "override-01",
+        breakpoint: "tablet",
+        hidden: true,
+      },
+    ]);
+    expect(selectiveHidden.status).toBe(200);
+    expect(nodeOf(page, "override-01").overrides).toEqual({
+      tablet: { props: { count: 9 } },
+    });
+
     const cleared = await apply([
       { op: "clearBreakpointOverride", id: "override-01", breakpoint: "tablet" },
     ]);
@@ -1380,6 +1415,46 @@ describe("undo roundtrips against server state", () => {
     expect(restored.title).toBe(before.title);
     expect(restored.path).toBe(before.path);
   }
+
+  it("reports a stale undo as a warning instead of a silent corruption", async () => {
+    const current = await loadPage(page.id);
+    const clean = applyUndoBatch({
+      tree: treeOf(current),
+      title: current.title,
+      path: current.path,
+      batch: [],
+    });
+    expect(clean.warnings).toEqual([]);
+
+    // A batch recorded against another tree state can leave references to
+    // nodes that no longer exist; the undo reports it instead of passing.
+    const stale = applyUndoBatch({
+      tree: treeOf(current),
+      title: current.title,
+      path: current.path,
+      batch: [
+        {
+          undoPatch: [
+            {
+              patch: "insertRaw",
+              parent: { nodeId: current.draft.rootNodeId },
+              index: 0,
+              nodes: [
+                {
+                  id: "ghost-parent",
+                  type: "container",
+                  props: {},
+                  children: ["ghost-child"],
+                },
+              ],
+            } as unknown as PatchOp,
+          ],
+        },
+      ],
+    });
+    expect(stale.warnings.length).toBeGreaterThan(0);
+    expect(stale.warnings[0]?.field).toBe("tree");
+  });
 
   it("roundtrips insert, delete and duplicate", async () => {
     const placement = goldenTreeToMutations(containerSection.golden.tree, {

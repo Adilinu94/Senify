@@ -64,6 +64,24 @@ describe("v1 -> v2 migration", () => {
     });
     expect(validateDocument(document)).toEqual([]);
   });
+
+  it("lifts the per-breakpoint hidden flags into hiddenDevices (ticket 11)", () => {
+    const tree = v1Tree();
+    const frame = tree.nodes["frame000001"];
+    expect(frame).toBeDefined();
+    if (frame === undefined) return;
+    frame.overrides = { ...frame.overrides, mobile: { hidden: true } };
+    const document = migrateV1ToV2(tree);
+    const migrated = document.nodes["frame000001"];
+    expect(migrated?.hiddenDevices).toEqual(["mobile"]);
+    // The lift is additive: props of the same override still become device keys.
+    expect(migrated?.props).toEqual({ display: "flex", display_tablet: "grid" });
+    expect(validateDocument(document)).toEqual([]);
+    // The load path keeps the field (serialize -> parse -> load).
+    const reloaded = loadDocument(parseDocument(serializeDocument(document)));
+    expect(reloaded.status).toBe("loaded");
+    expect(reloaded.document.nodes["frame000001"]?.hiddenDevices).toEqual(["mobile"]);
+  });
 });
 
 // The real pages of the running engine name their nodes by section type and use

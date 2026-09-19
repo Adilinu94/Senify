@@ -77,12 +77,16 @@ function sectionNodeSpec(spec: EditorNodeSpec): NodeSpec {
   for (const [key, value] of Object.entries(spec.props ?? {})) {
     props[baseKeyOf(key)] = value;
   }
+  // Ticket 11: the per-breakpoint hidden flags travel as v1 overrides.
+  const overrides: NonNullable<NodeSpec["overrides"]> = {};
+  for (const device of spec.hiddenDevices ?? []) overrides[device] = { hidden: true };
   return {
     type: spec.primitive,
     ...(Object.keys(props).length > 0 ? { props } : {}),
     ...(spec.id === undefined ? {} : { id: spec.id }),
     ...(spec.classes === undefined ? {} : { classes: [...spec.classes] }),
     ...(spec.hidden === undefined ? {} : { hidden: spec.hidden }),
+    ...(Object.keys(overrides).length > 0 ? { overrides } : {}),
     ...(spec.locked === undefined ? {} : { locked: spec.locked }),
     ...(spec.motion === undefined ? {} : { motion: structuredClone(spec.motion) }),
   };
@@ -128,11 +132,14 @@ export function editorMutationToSection(mutation: EditorMutation): Mutation[] {
           { op: "updateNodeProps", id: mutation.id, patch: { [mutation.key]: null } },
         ];
       }
+      // Selective clear (ticket 11, L2): only the one prop goes away, the
+      // other overrides of that breakpoint stay.
       return [
         {
           op: "clearBreakpointOverride",
           id: mutation.id,
           breakpoint: overrideBreakpoint(device),
+          props: [mutation.key],
         },
       ];
     }
@@ -187,6 +194,27 @@ export function editorMutationToSection(mutation: EditorMutation): Mutation[] {
           },
         },
       ];
+    case "setNodeHiddenDevices": {
+      // Ticket 11: both devices are written idempotently — set when listed,
+      // selectively cleared (the hidden flag only) when not. The selective
+      // clear keeps other overrides of that breakpoint intact.
+      const wanted = new Set(mutation.devices);
+      return (["tablet", "mobile"] as const).map((device) =>
+        wanted.has(device)
+          ? {
+              op: "setBreakpointOverride" as const,
+              id: mutation.id,
+              breakpoint: device,
+              override: { hidden: true },
+            }
+          : {
+              op: "clearBreakpointOverride" as const,
+              id: mutation.id,
+              breakpoint: device,
+              hidden: true as const,
+            },
+      );
+    }
     case "setMotion":
       return [{ op: "setMotion", id: mutation.id, spec: mutation.spec }];
     case "clearMotion":

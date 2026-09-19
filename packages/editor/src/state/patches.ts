@@ -16,6 +16,7 @@ import {
   locateParent,
   type EditorDocument,
   type EditorNode,
+  type HiddenDevice,
   type NodeId,
   type ParentRef,
 } from "./document.ts";
@@ -32,6 +33,7 @@ export type DocumentPatch =
       fields: {
         classes?: string[] | null;
         hidden?: boolean | null;
+        hiddenDevices?: HiddenDevice[] | null;
         locked?: boolean | null;
       };
     }
@@ -88,6 +90,9 @@ function removeSubtree(document: EditorDocument, id: NodeId): void {
 function prune(document: EditorDocument): void {
   for (const node of Object.values(document.nodes)) {
     if (node.classes !== undefined && node.classes.length === 0) delete node.classes;
+    if (node.hiddenDevices !== undefined && node.hiddenDevices.length === 0) {
+      delete node.hiddenDevices;
+    }
     if (node.children !== undefined && node.children.length === 0) delete node.children;
     if (node.slots !== undefined) {
       for (const slot of Object.keys(node.slots)) {
@@ -121,6 +126,13 @@ export function applyDocumentPatch(
       if (fields.hidden !== undefined) {
         if (fields.hidden === null) delete node.hidden;
         else node.hidden = fields.hidden;
+      }
+      if (fields.hiddenDevices !== undefined) {
+        if (fields.hiddenDevices === null || fields.hiddenDevices.length === 0) {
+          delete node.hiddenDevices;
+        } else {
+          node.hiddenDevices = [...fields.hiddenDevices];
+        }
       }
       if (fields.locked !== undefined) {
         if (fields.locked === null) delete node.locked;

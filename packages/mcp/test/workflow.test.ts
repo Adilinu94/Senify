@@ -139,6 +139,35 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     expect(readTool?.annotations?.readOnlyHint).toBe(true);
   });
 
+  it("sets the full annotation matrix (E4 slice 0)", async () => {
+    const listed = await session.client.listTools();
+    const byName = new Map(listed.tools.map((tool) => [tool.name, tool]));
+    for (const tool of listed.tools) {
+      // Every hint is explicit; the MCP defaults are pessimistic.
+      expect(typeof tool.annotations?.readOnlyHint).toBe("boolean");
+      expect(typeof tool.annotations?.destructiveHint).toBe("boolean");
+      expect(typeof tool.annotations?.idempotentHint).toBe("boolean");
+      expect(typeof tool.annotations?.openWorldHint).toBe("boolean");
+      // Read tools are never destructive.
+      if (tool.annotations?.readOnlyHint === true) {
+        expect(tool.annotations?.destructiveHint).toBe(false);
+      }
+    }
+    // Destructive only where state is removed or overwritten.
+    expect(byName.get("delete_page")?.annotations?.destructiveHint).toBe(true);
+    expect(byName.get("rollback_release")?.annotations?.destructiveHint).toBe(true);
+    expect(byName.get("create_page")?.annotations?.destructiveHint).toBe(false);
+    expect(byName.get("upload_asset")?.annotations?.destructiveHint).toBe(false);
+    // Open world only for the web capture.
+    expect(byName.get("analyze_reference")?.annotations?.openWorldHint).toBe(true);
+    expect(byName.get("list_sites")?.annotations?.openWorldHint).toBe(false);
+    expect(byName.get("apply_mutations")?.annotations?.openWorldHint).toBe(false);
+    // Idempotency mirrors the server-side semantics.
+    expect(byName.get("update_theme")?.annotations?.idempotentHint).toBe(true);
+    expect(byName.get("create_page")?.annotations?.idempotentHint).toBe(false);
+    expect(byName.get("apply_mutations")?.annotations?.idempotentHint).toBe(false);
+  });
+
   it("serves the documentation tools", async () => {
     const search = await call(session, "search_docs", {
       query: "apply_mutations baseDraftVersion",

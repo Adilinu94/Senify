@@ -39,6 +39,7 @@ export const EDITOR_MUTATION_OPS = [
   "setNodeProp",
   "clearNodeProp",
   "setNodeMeta",
+  "setNodeHiddenDevices",
   "setMotion",
   "clearMotion",
   "assignClass",
@@ -106,6 +107,17 @@ const ClassNameSchema = Type.String({
   pattern: "^[A-Za-z][A-Za-z0-9_-]*$",
 });
 
+// Closed envelope for the API boundary. The value shapes inside (prop
+// records) stay open by design — section-sdk owns the data shapes,
+// this contract owns the transport shapes.
+const ClosedNodeOverrideSchema = Type.Object(
+  {
+    props: Type.Optional(PropRecordSchema),
+    hidden: Type.Optional(Type.Boolean()),
+  },
+  CLOSED,
+);
+
 export const NodeSpecSchema = Type.Object(
   {
     type: Type.String({ minLength: 1 }),
@@ -114,6 +126,17 @@ export const NodeSpecSchema = Type.Object(
     id: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9_-]{6,32}$" })),
     classes: Type.Optional(Type.Array(ClassNameSchema)),
     hidden: Type.Optional(Type.Boolean()),
+    // Ticket 11: a fresh node may carry per-breakpoint hidden overrides, so
+    // duplicate and undo-restore keep the behavior.
+    overrides: Type.Optional(
+      Type.Object(
+        {
+          tablet: Type.Optional(ClosedNodeOverrideSchema),
+          mobile: Type.Optional(ClosedNodeOverrideSchema),
+        },
+        CLOSED,
+      ),
+    ),
     locked: Type.Optional(Type.Boolean()),
     // A fresh node may already carry its motion spec (ticket 19): the editor's
     // undo of a delete restores whole subtrees, motion included.
@@ -126,17 +149,6 @@ export const ParentRefSchema = Type.Object(
   {
     nodeId: Type.String({ minLength: 1 }),
     slot: Type.Optional(Type.String({ minLength: 1 })),
-  },
-  CLOSED,
-);
-
-// Closed envelope for the API boundary. The value shapes inside (prop
-// records) stay open by design — section-sdk owns the data shapes,
-// this contract owns the transport shapes.
-const ClosedNodeOverrideSchema = Type.Object(
-  {
-    props: Type.Optional(PropRecordSchema),
-    hidden: Type.Optional(Type.Boolean()),
   },
   CLOSED,
 );
@@ -248,6 +260,11 @@ const ClearBreakpointOverrideSchema = Type.Object(
     op: Type.Literal("clearBreakpointOverride"),
     id: NodeIdSchema,
     breakpoint: BreakpointOverrideSchema,
+    // Selective clearing (ticket 11, L2): `props` removes only the listed
+    // props and `hidden` removes only the hidden flag. With neither field the
+    // whole override is removed (the previous behavior).
+    props: Type.Optional(Type.Array(Type.String())),
+    hidden: Type.Optional(Type.Literal(true)),
   },
   CLOSED,
 );

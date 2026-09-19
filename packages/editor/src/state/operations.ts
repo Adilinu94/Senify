@@ -575,6 +575,33 @@ function applySetNodeMeta(
   return { forward, inverse, warnings: [] };
 }
 
+// Ticket 11: the breakpoints on which a node is additionally hidden. The list
+// is authoritative; `null` in the inverse patch removes the field.
+function applySetNodeHiddenDevices(
+  document: EditorDocument,
+  mutation: Extract<EditorMutation, { op: "setNodeHiddenDevices" }>,
+): OperationResult {
+  const node = requireNode(document, mutation.id, "id");
+  const before = node.hiddenDevices === undefined ? null : [...node.hiddenDevices];
+  return {
+    forward: [
+      {
+        patch: "setNodeFields",
+        id: node.id,
+        fields: { hiddenDevices: [...mutation.devices] },
+      },
+    ],
+    inverse: [
+      {
+        patch: "setNodeFields",
+        id: node.id,
+        fields: { hiddenDevices: before },
+      },
+    ],
+    warnings: [],
+  };
+}
+
 // ------------------------------------------------------------- style rules
 
 // The hard shape check plus the semantic rules the schema cannot express:
@@ -1154,6 +1181,8 @@ export function applyEditorMutation(
       return applyClearNodeProp(document, mutation);
     case "setNodeMeta":
       return applySetNodeMeta(document, mutation);
+    case "setNodeHiddenDevices":
+      return applySetNodeHiddenDevices(document, mutation);
     case "setMotion":
       return applySetMotion(document, mutation);
     case "clearMotion":

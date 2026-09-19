@@ -49,8 +49,15 @@ export type EditorNode = {
   // canvas preview and bake read the same spec.
   motion?: MotionSpec;
   hidden?: boolean;
+  // Ticket 11: the breakpoints on which the node is *additionally* hidden.
+  // `hidden` stays the global (desktop) flag; the v1 per-breakpoint
+  // `overrides[device].hidden` lifts into this list, so the migration no
+  // longer drops it. The renderer marks such nodes per frame (`isHiddenAt`).
+  hiddenDevices?: readonly HiddenDevice[];
   locked?: boolean;
 };
+
+export type HiddenDevice = "tablet" | "mobile";
 
 export type EditorDocument = {
   version: typeof DOCUMENT_VERSION;

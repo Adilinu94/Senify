@@ -39,7 +39,7 @@ describe("editor mutation bridge", () => {
         breakpoint: "tablet",
         override: { props: { headline: "Tablet" } },
       },
-      { op: "clearBreakpointOverride", id: "n1", breakpoint: "mobile" },
+      { op: "clearBreakpointOverride", id: "n1", breakpoint: "mobile", props: ["headline"] },
       {
         op: "insertNode",
         parent: { nodeId: "root" },
@@ -49,6 +49,48 @@ describe("editor mutation bridge", () => {
       { op: "deleteNode", id: "n1" },
       { op: "moveNode", id: "n1", target: { nodeId: "root" }, index: 0 },
       { op: "duplicateNode", id: "n1" },
+    ]);
+  });
+
+  it("maps the hidden-device op onto both breakpoint overrides (ticket 11)", () => {
+    expect(
+      editorMutationsToSection([
+        { op: "setNodeHiddenDevices", id: "n1", devices: ["mobile"] },
+      ]),
+    ).toEqual([
+      {
+        op: "clearBreakpointOverride",
+        id: "n1",
+        breakpoint: "tablet",
+        hidden: true,
+      },
+      {
+        op: "setBreakpointOverride",
+        id: "n1",
+        breakpoint: "mobile",
+        override: { hidden: true },
+      },
+    ]);
+  });
+
+  it("carries per-breakpoint hidden overrides with a fresh node (ticket 11)", () => {
+    expect(
+      editorMutationsToSection([
+        {
+          op: "insertNode",
+          parent: { nodeId: "root" },
+          node: { primitive: "hero", hiddenDevices: ["tablet", "mobile"] },
+        },
+      ]),
+    ).toEqual([
+      {
+        op: "insertNode",
+        parent: { nodeId: "root" },
+        node: {
+          type: "hero",
+          overrides: { tablet: { hidden: true }, mobile: { hidden: true } },
+        },
+      },
     ]);
   });
 

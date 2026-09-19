@@ -60,6 +60,11 @@ export const EditorNodeSpecSchema = Type.Object(
     id: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9_-]{6,32}$" })),
     classes: Type.Optional(Type.Array(ClassNameSchema)),
     hidden: Type.Optional(Type.Boolean()),
+    // Ticket 11: the per-breakpoint hidden flags travel with a fresh node, so
+    // duplicate and undo-restore keep them.
+    hiddenDevices: Type.Optional(
+      Type.Array(Type.Union([Type.Literal("tablet"), Type.Literal("mobile")])),
+    ),
     locked: Type.Optional(Type.Boolean()),
     // A fresh node may already carry its motion spec (ticket 19): undo of a
     // delete restores whole subtrees, motion included.
@@ -125,6 +130,17 @@ const SetNodeMetaSchema = Type.Object(
       },
       CLOSED,
     ),
+  },
+  CLOSED,
+);
+
+// Ticket 11: the breakpoints on which a node is additionally hidden. The list
+// is authoritative — the bridge writes both devices idempotently.
+const SetNodeHiddenDevicesSchema = Type.Object(
+  {
+    op: Type.Literal("setNodeHiddenDevices"),
+    id: NodeIdSchema,
+    devices: Type.Array(Type.Union([Type.Literal("tablet"), Type.Literal("mobile")])),
   },
   CLOSED,
 );
@@ -259,6 +275,7 @@ export const EDITOR_MUTATION_SCHEMA_BY_OP = {
   setNodeProp: SetNodePropSchema,
   clearNodeProp: ClearNodePropSchema,
   setNodeMeta: SetNodeMetaSchema,
+  setNodeHiddenDevices: SetNodeHiddenDevicesSchema,
   setMotion: SetMotionSchema,
   clearMotion: ClearMotionSchema,
   assignClass: AssignClassSchema,
@@ -280,6 +297,7 @@ export const EditorMutationSchema = Type.Union([
   SetNodePropSchema,
   ClearNodePropSchema,
   SetNodeMetaSchema,
+  SetNodeHiddenDevicesSchema,
   SetMotionSchema,
   ClearMotionSchema,
   AssignClassSchema,

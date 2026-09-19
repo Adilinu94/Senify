@@ -33,6 +33,13 @@ export function canvasNodeTree(document: EditorDocument): NodeTree {
       if (Object.keys(slots).length > 0) sectionNode.slots = slots;
     }
     if (node.hidden !== undefined) sectionNode.hidden = node.hidden;
+    // Ticket 11: the per-breakpoint flags travel as v1 overrides so
+    // `isHiddenAt` marks the node in exactly the affected frames.
+    if (node.hiddenDevices !== undefined && node.hiddenDevices.length > 0) {
+      const overrides: NonNullable<Node["overrides"]> = {};
+      for (const device of node.hiddenDevices) overrides[device] = { hidden: true };
+      sectionNode.overrides = overrides;
+    }
     if (node.locked !== undefined) sectionNode.locked = node.locked;
     if (node.motion !== undefined) sectionNode.motion = structuredClone(node.motion);
     nodes[id] = sectionNode;

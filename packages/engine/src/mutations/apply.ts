@@ -288,6 +288,7 @@ function buildNode(
     id?: string;
     classes?: string[];
     hidden?: boolean;
+    overrides?: { tablet?: NodeOverride; mobile?: NodeOverride };
     locked?: boolean;
     motion?: MotionSpec;
   },
@@ -323,6 +324,8 @@ function buildNode(
     node.classes = [...new Set(spec.classes)];
   }
   if (spec.hidden !== undefined) node.hidden = spec.hidden;
+  // Ticket 11: per-breakpoint hidden overrides travel with the spec.
+  if (spec.overrides !== undefined) node.overrides = structuredClone(spec.overrides);
   if (spec.locked !== undefined) node.locked = spec.locked;
   if (spec.motion !== undefined) node.motion = structuredClone(spec.motion);
   state.tree.nodes.set(id, node);
@@ -666,16 +669,30 @@ function applyClearOverride(
   const current = node.overrides?.[mutation.breakpoint];
   if (!current) return [];
   const breakpoint: OverrideBreakpoint = mutation.breakpoint;
-  if (node.overrides) {
-    delete node.overrides[breakpoint];
-    if (Object.keys(node.overrides).length === 0) delete node.overrides;
+  // The undo patch keeps the state before this mutation; clone first because
+  // the selective path edits `current` in place (ticket 11, L2).
+  const before = structuredClone(current);
+  const selective = mutation.props !== undefined || mutation.hidden === true;
+  if (selective) {
+    if (mutation.props !== undefined && current.props !== undefined) {
+      for (const key of mutation.props) delete current.props[key];
+      if (Object.keys(current.props).length === 0) delete current.props;
+    }
+    if (mutation.hidden === true) delete current.hidden;
+  }
+  const empty = current.props === undefined && current.hidden === undefined;
+  if (!selective || empty) {
+    if (node.overrides) {
+      delete node.overrides[breakpoint];
+      if (Object.keys(node.overrides).length === 0) delete node.overrides;
+    }
   }
   return [
     {
       patch: "setOverride",
       id: mutation.id,
       breakpoint,
-      override: structuredClone(current),
+      override: before,
     },
   ];
 }
@@ -1016,6 +1033,7 @@ export function applyUndoBatch(input: UndoBatchInput): {
   tree: NodeTree;
   title: string;
   path: string;
+  warnings: MutationWarning[];
 } {
   const working = cloneTree(input.tree);
   let title = input.title;
@@ -1033,5 +1051,18 @@ export function applyUndoBatch(input: UndoBatchInput): {
     }
   }
   pruneEmptyLists(working);
-  return { tree: toNodeTree(working), title, path };
+  const tree = toNodeTree(working);
+  // E17 (slice 1): an undo runs through the same integrity check as a forward
+  // batch. A stale batch (recorded against a different tree state) surfaces as
+  // a warning instead of silently corrupting the tree.
+  const warnings: MutationWarning[] = [];
+  for (const issue of validateTreeIntegrity(tree)) {
+    warnings.push({
+      field: "tree",
+      message: issue.message,
+      suggestion:
+        "The undo was recorded against a different tree state — reload the page and redo the step.",
+    });
+  }
+  return { tree, title, path, warnings };
 }

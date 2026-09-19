@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createSavePipeline,
+  patchesToPending,
   type SaveRequest,
   type SaveResponse,
   type SaveState,
@@ -283,5 +284,34 @@ describe("save pipeline", () => {
     expect(pipeline.state().status).toBe("error");
     expect(pipeline.state().message).toBe("Boom");
     expect(pipeline.state().pending).toBe(1);
+  });
+});
+
+describe("patch translation (ticket 11)", () => {
+  it("maps the hidden-device field onto the dedicated op", () => {
+    const set = patchesToPending([
+      {
+        patch: "setNodeFields",
+        id: "head000001",
+        fields: { hiddenDevices: ["mobile"] },
+      },
+    ]);
+    expect(set.pending).toEqual([
+      {
+        kind: "page",
+        mutation: { op: "setNodeHiddenDevices", id: "head000001", devices: ["mobile"] },
+      },
+    ]);
+
+    // `null` clears the list; the op carries the empty array.
+    const cleared = patchesToPending([
+      { patch: "setNodeFields", id: "head000001", fields: { hiddenDevices: null } },
+    ]);
+    expect(cleared.pending).toEqual([
+      {
+        kind: "page",
+        mutation: { op: "setNodeHiddenDevices", id: "head000001", devices: [] },
+      },
+    ]);
   });
 });

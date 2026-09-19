@@ -237,6 +237,37 @@ describe("class operations", () => {
     ).toThrow(/not assigned/);
   });
 
+  it("sets and clears the per-breakpoint hidden flags (ticket 11)", () => {
+    const document = baseStore().document;
+    const result = applyEditorMutation(
+      document,
+      { op: "setNodeHiddenDevices", id: "head000001", devices: ["tablet", "mobile"] },
+      { idFactory: counterIds() },
+    );
+    expect(result.forward).toEqual([
+      {
+        patch: "setNodeFields",
+        id: "head000001",
+        fields: { hiddenDevices: ["tablet", "mobile"] },
+      },
+    ]);
+    expect(result.inverse).toEqual([
+      { patch: "setNodeFields", id: "head000001", fields: { hiddenDevices: null } },
+    ]);
+    const next = nextOf(document, {
+      op: "setNodeHiddenDevices",
+      id: "head000001",
+      devices: ["mobile"],
+    });
+    expect(next.nodes["head000001"]?.hiddenDevices).toEqual(["mobile"]);
+    // The store path: undo removes the field again.
+    const store = baseStore();
+    store.apply({ op: "setNodeHiddenDevices", id: "head000001", devices: ["mobile"] });
+    expect(store.document.nodes["head000001"]?.hiddenDevices).toEqual(["mobile"]);
+    expect(store.undo()).toBe(true);
+    expect(store.document.nodes["head000001"]?.hiddenDevices).toBeUndefined();
+  });
+
   it("rejects a rename onto an existing name and a missing source", () => {
     const store = baseStore();
     store.apply({ op: "upsertStyleRule", rule: rule("r-a", "a", { color: "#000" }) });

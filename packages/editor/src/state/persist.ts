@@ -133,6 +133,7 @@ function nodeSpec(node: EditorNode): EditorMutation["op"] extends never ? never 
     props: { ...node.props },
     ...(node.classes === undefined ? {} : { classes: [...node.classes] }),
     ...(node.hidden === undefined ? {} : { hidden: node.hidden }),
+    ...(node.hiddenDevices === undefined ? {} : { hiddenDevices: [...node.hiddenDevices] }),
     ...(node.locked === undefined ? {} : { locked: node.locked }),
     ...(node.motion === undefined ? {} : { motion: structuredClone(node.motion) }),
   };
@@ -246,6 +247,18 @@ export function patchesToPending(patches: readonly DocumentPatch[]): {
           pending.push({
             kind: "page",
             mutation: { op: "setNodeMeta", id: patch.id, meta },
+          });
+        }
+        // Ticket 11: the per-breakpoint hidden flags have their own op; the
+        // bridge writes both devices idempotently.
+        if (patch.fields.hiddenDevices !== undefined) {
+          pending.push({
+            kind: "page",
+            mutation: {
+              op: "setNodeHiddenDevices",
+              id: patch.id,
+              devices: [...(patch.fields.hiddenDevices ?? [])],
+            },
           });
         }
         break;

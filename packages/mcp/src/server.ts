@@ -103,6 +103,51 @@ function defaultErrorHandler(message: string, error: unknown): void {
   console.error(`[senify mcp] ${message}`, error);
 }
 
+// Tool annotations are a client promise (E4 slice 0): the MCP spec defaults
+// are pessimistic (destructive and open world), so every hint is set
+// explicitly. Destructive covers only operations that remove or overwrite
+// state; open world only the web capture. `idempotentHint` mirrors the
+// server-side idempotency work of ticket 18.
+const DESTRUCTIVE_TOOLS = new Set([
+  "delete_page",
+  "delete_entry",
+  "delete_asset",
+  "rollback_release",
+  "restore_asset",
+  "restore_entry",
+  "restore_entry_version",
+  "restore_revision",
+]);
+
+const IDEMPOTENT_TOOLS = new Set([
+  "update_theme",
+  "update_asset",
+  "replace_asset",
+  "set_motion",
+  "clear_motion",
+  "upload_asset",
+  "delete_page",
+  "delete_entry",
+  "delete_asset",
+  "restore_asset",
+  "restore_entry",
+  "restore_entry_version",
+  "restore_revision",
+]);
+
+const OPEN_WORLD_TOOLS = new Set(["analyze_reference"]);
+
+// The workflow the tools are meant to be used in; the MCP initialize result
+// carries it as a soft guideline for the client (E4 slice 0).
+const SERVER_INSTRUCTIONS = [
+  "Senify is a local website builder. Typical workflow:",
+  "list_sites → list_pages/get_page → get_section (golden props) → apply_mutations",
+  "→ create_preview → submit_for_review → publish_release.",
+  "Read tools work with the read scope; write tools need write, publish tools publish.",
+  "apply_mutations is atomic per page and honors baseDraftVersion (on 409 reload the page and retry).",
+  "Prefer theme tokens over literal values; set_motion validates against the preset registry.",
+].join(" ");
+
 function toolListing(): Tool[] {
   return TOOLS.map((tool) => ({
     name: tool.name,
@@ -111,7 +156,9 @@ function toolListing(): Tool[] {
     inputSchema: tool.inputSchema as Tool["inputSchema"],
     annotations: {
       readOnlyHint: tool.scope === "read",
-      destructiveHint: tool.scope !== "read",
+      destructiveHint: DESTRUCTIVE_TOOLS.has(tool.name),
+      idempotentHint: IDEMPOTENT_TOOLS.has(tool.name),
+      openWorldHint: OPEN_WORLD_TOOLS.has(tool.name),
     },
   }));
 }
@@ -119,7 +166,7 @@ function toolListing(): Tool[] {
 export function createMcpServer(options: McpServerOptions): Server {
   const server = new Server(
     { name: "senify", version: "0.1.0" },
-    { capabilities: { tools: {} } },
+    { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
 
   server.setRequestHandler(

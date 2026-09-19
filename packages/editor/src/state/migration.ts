@@ -24,6 +24,7 @@ import {
   DOCUMENT_VERSION,
   type EditorDocument,
   type EditorNode,
+  type HiddenDevice,
   type NodeId,
 } from "./document.ts";
 import { validateDocument } from "./consistency.ts";
@@ -54,14 +55,16 @@ export function detectDocumentVersion(input: unknown): 1 | 2 | undefined {
 }
 
 // v1 section tree -> v2 editor document. Additive: values, children, slots,
-// motion, locked and hidden travel; the per-breakpoint `hidden` flag is the one
-// thing the v2 node model does not carry yet.
+// motion, locked, hidden and the per-breakpoint hidden flags travel (ticket 11:
+// `overrides[device].hidden` lifts into `hiddenDevices` instead of being dropped).
 export function migrateV1ToV2(tree: NodeTree): EditorDocument {
   const nodes: Record<NodeId, EditorNode> = {};
   for (const [id, node] of Object.entries(tree.nodes)) {
     const props: DeviceValueMap = { ...(node.props ?? {}) };
+    const hiddenDevices: HiddenDevice[] = [];
     for (const device of ["tablet", "mobile"] as const) {
       const override = node.overrides?.[device];
+      if (override?.hidden === true) hiddenDevices.push(device);
       if (override?.props === undefined) continue;
       for (const [key, value] of Object.entries(override.props)) {
         props[deviceKey(key, device)] = value;
@@ -81,6 +84,7 @@ export function migrateV1ToV2(tree: NodeTree): EditorDocument {
     }
     if (node.locked !== undefined) migrated.locked = node.locked;
     if (node.hidden !== undefined) migrated.hidden = node.hidden;
+    if (hiddenDevices.length > 0) migrated.hiddenDevices = hiddenDevices;
     if (node.motion !== undefined) migrated.motion = structuredClone(node.motion);
     nodes[id] = migrated;
   }
