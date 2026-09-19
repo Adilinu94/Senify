@@ -114,6 +114,16 @@ gehoeren bewusst **nicht** in die Undo-History (Webstudio-Muster). Hinweis: `doc
 wurde parallel um „Teil II" (§10–§16: Referenz-Transfer, Anti-Slop, Editor-Tiefe) erweitert —
 beide Teile koexistieren; nichts ueberschrieben. Kein Produktcode geaendert.
 
+**Baseline 19.09. (committet):** Drei Commits sichern den bis dahin uncommitteten Stand:
+`d434ffc` (Produktcode: Motion M0–M5, Style-Pipeline, Live-Modus, Transport — 111 Dateien),
+`49bacbd` (Planung: Tickets 07–22, ADRs 0004–0006, Verbesserungsplan, HANDOFF), `e62fe1f`
+(Planung: Motion-Papierpaket + Ticket 18 senify-v1-build). Vorheriger HEAD: `e2783da`.
+Untracked bleiben nur bewusst lokale Artefakte: Test-Logs (`.scratch/testlauf*.log`,
+`vitest-browser.*`), Screenshots (`FireShot-*.jpg`, `refs/nick/`, `refs/aufnahmen/`),
+`.backup-18-09/`, Debug-Dateien in `.scratch/refs/` (`*-mine.*`, `debug-*.ts`,
+`commit-msg.txt`, `tsconfig-ohne-fremd.json`). Offen: `TEST_DATABASE_URL`-Lauf (Port 5433
+geschlossen, Docker nicht installiert) — vor Release-Themen nachholen.
+
 **Konsolidierung 19.09. (Verbesserungsplan, vierte Runde):** Teil I und Teil II (paralleler Strang:
 Referenz-Transfer/Anti-Slop/UI, Epics E24–E27, Luecken R1–R14) vollstaendig gegengelesen und
 zusammengefuehrt. Fuenf Inkonsistenzen aus der Parallelarbeit gefixt: Epic-ID-Bereich in §16.2

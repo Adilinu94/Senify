@@ -4,10 +4,12 @@ Diese Datei ersetzt die Abend-Fassung vom 17.09. und den ersten 18.09.-Stand. Si
 Arbeitsbaum so, dass eine Person oder ein Agent ohne Vorwissen weiterarbeiten kann: was entschieden
 ist, was gebaut ist, was offen ist, wie man startet und prüft, welche Fallen lauern.
 
-**Wichtigster Satz vorab:** Der Arbeitsbaum enthält **uncommitteten Produktcode** (Style-Rules,
-Ticket 13 Rest) **und uncommittete Planungsdokumente** (Motion-Papierpaket, §2.5). Der Handoff
-beschreibt den Arbeitsbaum, **nicht `HEAD`** (letzter Commit: `e2783da`). Wer `git status` liest,
-sieht deshalb mehr als die letzten Commits hergeben.
+**Wichtigster Satz vorab:** Der Arbeitsbaum ist seit dem 19.09. **committet** (Baseline):
+`e62fe1f` (Planung: Motion-Papierpaket, Ticket 18), `49bacbd` (Planung: Tickets 07–22, ADRs
+0004–0006, Verbesserungsplan, HANDOFF), `d434ffc` (Produktcode: Motion, Style-Pipeline,
+Live-Modus, Transport). Untracked bleiben nur bewusst lokale Artefakte (Test-Logs, Screenshots,
+`.backup-18-09/`, Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese
+Restliste.
 
 ---
 
@@ -198,10 +200,14 @@ sieht deshalb mehr als die letzten Commits hergeben.
   die Golden-Snapshots stammten noch aus der Zeit vor der Öffnung. Sie sind inzwischen
   nachgezogen; der Eintrag bleibt als Beleg, dass die Reihenfolge (erst Grammatik, dann Tor)
   eingehalten wurde.
-- Die 2 übersprungenen Tests brauchen echtes Postgres (`TEST_DATABASE_URL`).
-- **Kein Commit** — weder für die vorgefundene Engine-Runde noch für Ticket 13 Rest noch für
-  Motion M0–M2 noch für Tickets 21/22 noch für den Slot-/Collection-Transport noch für
-  Ticket 14. `git status`: 97 geänderte, 73 neue Dateien (HEAD `e2783da`).
+- Die 2 übersprungenen Tests brauchen echtes Postgres (`TEST_DATABASE_URL`); Port 5433 war am
+  19.09. geschlossen (Docker nicht installiert) — vor Release-Themen nachholen.
+- **Commit-Stand 19.09. (Baseline):** `d434ffc` (Produktcode: Motion M0–M5, Style-Pipeline,
+  Live-Modus, Transport; 111 Dateien), `49bacbd` (Planung: Tickets 07–22, ADRs 0004–0006,
+  Verbesserungsplan, HANDOFF), `e62fe1f` (Planung: Motion-Papierpaket, Ticket 18). Untracked
+  bleiben bewusst: Test-Logs (`.scratch/testlauf*.log`, `vitest-browser.*`), Screenshots
+  (`FireShot-*.jpg`, `refs/nick/`, `refs/aufnahmen/`), `.backup-18-09/` und Debug-Artefakte
+  in `.scratch/refs/` (`*-mine.*`, `debug-*.ts`, `commit-msg.txt`).
 
 ### 2.5 Motion: M0–M5 + Site-Profil (18.09.)
 
