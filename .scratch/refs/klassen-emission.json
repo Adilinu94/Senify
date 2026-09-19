@@ -1,0 +1,62 @@
+{
+  "date": "2026-09-19T08:04:31.925Z",
+  "results": [
+    {
+      "name": "a-30-knoten-1-klasse-20-deklarationen",
+      "nodes": 30,
+      "classes": 1,
+      "regional": {
+        "bytes": 16295,
+        "rules": 60,
+        "classRules": 30,
+        "declarations": 630
+      },
+      "global": {
+        "bytes": 1987,
+        "rules": 31,
+        "classRules": 1,
+        "declarations": 50
+      },
+      "ratio": 8.2,
+      "problems": []
+    },
+    {
+      "name": "b-120-knoten-6-klassen-15-deklarationen",
+      "nodes": 120,
+      "classes": 6,
+      "regional": {
+        "bytes": 54867,
+        "rules": 240,
+        "classRules": 120,
+        "declarations": 1920
+      },
+      "global": {
+        "bytes": 8356,
+        "rules": 126,
+        "classRules": 6,
+        "declarations": 210
+      },
+      "ratio": 6.57,
+      "problems": []
+    },
+    {
+      "name": "c-hero-15-knoten-3-klassen-40-deklarationen",
+      "nodes": 15,
+      "classes": 3,
+      "regional": {
+        "bytes": 15185,
+        "rules": 30,
+        "classRules": 15,
+        "declarations": 615
+      },
+      "global": {
+        "bytes": 3590,
+        "rules": 18,
+        "classRules": 3,
+        "declarations": 135
+      },
+      "ratio": 4.23,
+      "problems": []
+    }
+  ]
+}

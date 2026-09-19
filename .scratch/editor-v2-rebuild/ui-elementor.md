@@ -247,6 +247,9 @@ lesbar und verleitet zum versehentlichen Leeren; unser Grundsatz 10 in `ui-desig
 **Beleg.** `packages/packages/core/editor-app-bar/src/extensions/responsive/components/breakpoints-switcher.tsx`
 baut die Umschaltung aus `Tabs`, je Station ein Symbol (`WidescreenIcon`, `DesktopIcon`, `LaptopIcon`,
 `TabletLandscapeIcon`, `TabletPortraitIcon`, `MobileLandscapeIcon`, `MobilePortraitIcon`), ein
+**Hinweis (O10, 17.09.):** Das ist die Referenz von Elementor. Senify kennt bewusst **drei**
+Stationen (desktop/tablet/mobile, ui-plan 5.13); die sieben Symbole sind Anschauungsmaterial, keine
+Senify-Festlegung.
 `aria-label` "Switch Device" an der Gruppe, ein `aria-label` je Station aus `labelsMap` mit
 `'%s (%dpx and up)'` fuer `min-width` und `'%s (up to %dpx)'` fuer `max-width`, und ein
 `data-testid="switch-device-to-<id>"`. Daneben steht in v3 eine eigene Geräteleiste:

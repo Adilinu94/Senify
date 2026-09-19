@@ -567,9 +567,9 @@ Abhaengig von: 8, 17.
 Pruef: Steht der Wert auf der Vorgabe, ist die Aktion `aria-disabled` (Messung); ein Zuruecksetzen erzeugt genau einen Verlaufseintrag mit dem Feldnamen; kein Rot (nicht als Loeschhandlung gestaltet).
 
 **37 Geraetestationen in der Werkzeugleiste und Geraetezeile.**
-Acht Stationen als Segment 32px (bei knapper Breite auf drei gekuerzt), darunter eine Zeile 28px mit Name, Breite und Groessenfeld 60x18px, Zustand "Breite angepasst".
+Drei Stationen (desktop 1440, tablet 1024, mobile 390) als Segment 32px — Entscheidung O10 (map.md, 17.09.), konsistent mit DeviceSchema/DEVICE_BREAKPOINTS —, darunter eine Zeile 28px mit Name, Breite und Groessenfeld 60x18px (freie Breite als Ansichtssache, schreibt keinen Stilwert), Zustand "Breite angepasst".
 Abhaengig von: 7, 28.
-Pruef: Ein Geraetewechsel erzeugt keinen Verlaufseintrag (keine Datenänderung); bei 1024px bleiben drei Stationen sichtbar; bei "Breite angepasst" ersetzt der Text die Breitenangabe.
+Pruef: Genau drei Stationen in jeder Breite (kein Kuerzungs-Pfad); ein Geraetewechsel oder eine freie Breitenaenderung erzeugt keinen Verlaufseintrag (keine Datenänderung); bei "Breite angepasst" ersetzt der Text die Breitenangabe.
 
 **38 Geraeteumschaltung im Panel.**
 Zeile 28px mit drei Stationen und einem Textknopf "Alle anzeigen", Punkt 8px fuer hier gesetzte Werte, hohler Punkt fuer geerbte, `aria-label` je Station mit Breitenangabe.

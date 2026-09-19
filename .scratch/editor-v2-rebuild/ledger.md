@@ -34,4 +34,359 @@
 - **Ziehen und Ablegen (DnD), Plus-Punkte, Einfuegelinie** (Ticket 01 Punkt 7): bewusst noch nicht gebaut (`packages/editor/src/canvas/insert.ts`, Zeile 9: Einfuegen nur per Katalog-Klick). Selektionsring und vier Handles gibt es bereits; DnD/Werkzeugkasten liegen bei Phase 3 (Chrome).
 - Danach **Phase 2** (Style-Engine/Inspektor/MCP) und **Phase 3** (Chrome), siehe `issues/02-style-engine-inspector.md` und `issues/03-editor-chrome.md`.
 
-**Naechster Schritt:** Phase 2 beginnen und die **Style-Rule-Registry im Engine-Store** anlegen: `sites.style_rules_json` additiv migrieren, Regeln als `kind class|ambient|scoped` mit `contextStyles`, `origin` und Kaskaden-Reihenfolge speichern und ueber die Mutations-API (`createStyleRule`/`updateStyleRule`/`deleteStyleRule`/`reorderStyleRule`) schreibbar machen, mit Roundtrip-Test (Ticket 02, Punkt 1).
+**Entscheidungen getroffen (17.09., Nutzer):** O10 drei Geraetestationen (ui-plan 5.13 + ui-aufgaben 34 angepasst), O11 disabled als vierter State (Option A), O12 PG-only als ADR-0004 (`docs/adr/0004-postgres-only-bis-phase-5.md`). Tickets 08/09/15 sind damit entschieden; Rest in 15: Gate-Test + HANDOFF-Eintrag.
+
+**Entscheidung getroffen (18.09., Nutzer): O13 — offenes CSS statt Whitelist** (ADR-0005,
+`docs/adr/0005-offenes-css-statt-whitelist.md`).
+
+*Anlass:* Die Produktfrage war „bekomme ich spaeter Baukasten-Seiten oder individuelle Seiten?".
+Die Code-Pruefung ergab drei echte Deckel, die nichts mit dem Style-Rule-Modell zu tun hatten:
+(1) `STYLE_PROPERTIES` (`widget-engine/src/css/properties.ts`) fuehrt **30** Properties und
+`assertStyleProp` (`editor/src/state/operations.ts`) lehnt jede andere im Schreibpfad ab — nicht
+setzbar waren u. a. `position`, `inset`, `overflow`, `zIndex`, Flex-Einzelwerte, `gridTemplate*`,
+`clipPath`, `maskImage`, `textShadow`, `cursor`, `outline`, `containerType`, `scrollSnap*`, sowie
+Pseudo-Elemente, Keyframes und Animationen ueberhaupt nicht; (2) `styleGroups` (`catalog.ts`) sperrt
+zusaetzlich pro Baustein (`heading` ohne `border`/`size`, `image` ohne Typografie); (3) es gab kein
+Freiheits-Ventil (keine freien Selektoren, kein rohes CSS, keine eigenen Bedingungen).
+Die Vergleichsbasis (`Repos/instatic/docs/reference/css-class-registry.md`) hat all das:
+`styles` als offenes CSS-Bag, `ambient`-Selektoren, `rawCss`, `contextStyles`, `stylePriorities`,
+18 Pseudo-Zustaende.
+
+*Entscheidung:* Die Property-Tabelle beschreibt ab jetzt die **Oberflaeche** (welches Bedienelement
+eine Property bekommt), nicht die Erlaubnis. `assertStyleProp` faellt weg, `styleGroups` wird
+Sortierung, drei Freiheits-Ventile gehoeren ins Modell. Die Grenze ist Sicherheit/Struktur
+(`assertSafeDeclaration`), nicht Geschmack.
+
+**Vorgefunden am 18.09. (uncommittet im Working Tree, nicht von dieser Runde):** die Site-weite
+Style-Rule-Registry ist serverseitig **fertig** — kanonisches `StyleRule`-Modell
+(`widget-engine/src/css/style-rule.ts`: `id`, `name`, `kind class|ambient|scoped`, freier
+`selector`, `order`, `styles`, `stylePriorities`, `contextStyles`, `rawCss`, `scope`, `origin`),
+`sites.style_rules_json`, Store-CRUD mit Audit, Routen `/api/sites/:siteId/style-rules` (+ `reorder`),
+`editor-bridge.ts` verweist Regel-Ops dorthin, Tests `engine/test/style-rules.test.ts` und
+`widget-engine/test/style-rule.test.ts`. Damit ist **Ticket 02 Punkt 1 erledigt** und
+**Ticket 13 zur Haelfte** (Editor-Anbindung fehlt).
+
+**Folgen fuer die Tickets (alle drei Dateien sind neu gefasst):**
+- **07** baut auf dem kanonischen Modell auf (nicht auf dem engeren B1-Entwurf mit `props`/`position`/
+  `origin: user|agent|preset`, der weder `id` noch `selector`/`rawCss`/`contextStyles` hatte und den
+  Deckel ins Datenmodell eingebaut haette). Ergaenzt wird das kanonische Modell nur um `states`
+  (O11) und `statePriorities`. `DOCUMENT_VERSION` bleibt **2**: additives Feld, und das
+  Editor-Dokument wird nirgends als Ganzes persistiert (`serializeDocument` lebt nur in Tests).
+- **10** schafft das Schreibtor ab, statt die Liste zu verlaengern; Layout-Eintraege kommen als
+  Bedienelement-Beschreibung dazu; persistiert werden echte CSS-Namen (`border-radius`), Kunstnamen
+  bleiben Eingangs-Alias.
+- **13** ist auf den realen Stand korrigiert (Server fertig, Editor-Anbindung + Bake offen).
+- **14** bekommt ein neues Argument: `ambient`-Regeln koennen keinen Knotenanker haben, globale
+  Emission ist fuer sie Pflicht.
+
+**Neuer offener Punkt O14:** **Templates + Outlet fehlen im editor-v2-Bauplan.** Die
+Vergleichsanalyse nennt sie als *erste* Stufe der Wiederverwendung (vor Loops, vor Visual
+Components). **Praezisierung 18.09.:** Der v1-Kern hat sie bereits (`page_templates`,
+`templates.ts` mit `findFirstOutlet`/`spliceOutlet`/`composePageTree`/`findLayout`/
+`findEntryTemplate`/`putPageTemplate`, plus MCP-Tools); die Luecke ist editor-v2-seitig und bei
+den VC-Ebenen-Templates (Phase 4). Zu entscheiden: eigene Phase vor/mit Phase 4, ob die
+v1-Mechanik im Editor sichtbar wird, und ob Loops mitkommen.
+
+**Analyse 19.09. (Verbesserungsplan erstellt):** Sechs unabhaengige Audits (Technik, Editor-UX,
+KI/MCP, Produktreife, Framer/Webflow-Benchmark, UI-Qualitaet) gegen den Arbeitsbaum; die
+Kernbehauptungen wurden stichprobenartig am Code verifiziert (49 MCP-Tools in `tools.ts`,
+`triggerRebake`-Stub `rebake.ts:22-39`, Editor-Doppelpfad `app.js:4582-4596`, Legacy-Farben
+`styles.ts:22-31`, `hidden`-Migrationsluecke `migration.ts:56-92`, Marker-Fremdfarben
+`canvas/rules.ts:62-73`). Ergebnis: **`docs/verbesserungsplan.md`** — Zielbild Framer/Webflow-Niveau,
+Luecken L1–L33 (P0–P3), 16 Epics E1–E16 mit Akzeptanzkriterien, Roadmap Phase A–D, Gates und die
+naechsten 10 Arbeitspakete. Kein Produktcode geaendert; Teststand unveraendert 1176/2/132.
+
+**Haertung 19.09. (Verbesserungsplan, zweite Runde):** Drei Härtungs-Pruefungen (MCP-Best-Practices,
+Editor-Architektur-Best-Practices, Red-Team) plus lokaler Test von drei Agenten-Vorbildern
+(OpenResearch, hyperresearch, Agent-Reach; Details in `docs/verbesserungsplan.md` §10.3 —
+hyperresearch-CLI praktisch getestet, Agent-Reach-Testsuite **589 gruen / 3 umgebungsbedingt rot**,
+OpenResearch quellcodeseitig). Eingearbeitet: korrigierte Paritaetszahl, L12a (MCP-Vertragshygiene,
+verifiziert: falsche Tool-Annotations `server.ts:112-115`), L34–L44, Epics E17–E23, neue
+Abschnitte §8 (KPIs, Risiko-Register, Betrieb, DSGVO, Kosten, Abhaengigkeitsgraph, Cutover),
+Zielwerte/Test-Matrix, Glossar. Weiterhin kein Produktcode geaendert.
+
+**Quellcode-Studien 19.09. (Verbesserungsplan, dritte Runde):** Webstudio, Payload CMS und Plasmic
+flach geklont und gezielt gelesen; 15 Muster als „Uebernommene Muster"-Absaetze in die Epics
+E1–E23 eingearbeitet (u. a. `@layer presets`/Atomic-Emit fuer E20, Claim/Lease/Heartbeat fuer E12,
+Autosave in-place fuer E13, Confirmation-Token fuer E21, Definition/Instanz-Trennung fuer E11,
+Split-Modell fuer E23) plus Uebersicht §16.6. Eine **Korrektur am eigenen Plan:** Selection/Zoom
+gehoeren bewusst **nicht** in die Undo-History (Webstudio-Muster). Hinweis: `docs/verbesserungsplan.md`
+wurde parallel um „Teil II" (§10–§16: Referenz-Transfer, Anti-Slop, Editor-Tiefe) erweitert —
+beide Teile koexistieren; nichts ueberschrieben. Kein Produktcode geaendert.
+
+**Konsolidierung 19.09. (Verbesserungsplan, vierte Runde):** Teil I und Teil II (paralleler Strang:
+Referenz-Transfer/Anti-Slop/UI, Epics E24–E27, Luecken R1–R14) vollstaendig gegengelesen und
+zusammengefuehrt. Fuenf Inkonsistenzen aus der Parallelarbeit gefixt: Epic-ID-Bereich in §16.2
+(E1–E27), Quellen-Verweis auf §16.6 statt §10.6, Risiko-Register auf 27 Epics, Querverweis
+§9 ↔ §15.2 (Reihenfolge der beiden Arbeitspaket-Listen), L-/R-Abgrenzung in §10.4. Ergaenzt:
+KPI „Design-Score" (§8.1). Inhaltliche Widersprueche wurden **nicht** gefunden (E23/E25-Verhaeltnis
+in §10.3 explizit geklaert; E4 S0, L42/E13-Vault und E15→E26-Abhaengigkeiten konsistent referenziert).
+Dokument jetzt konsistent ueber beide Teile.
+
+**Umsetzung 19.09. (Ticket 14: Klassen-Emission gemessen und auf global umgestellt):**
+
+- **Messung (Ticket-Kriterium):** `pruef-klassen-emission.mjs` baut die drei Dokumente des
+  Tickets und misst beide Strategien ueber `compileCssReport`. Ergebnis (regional / global):
+  a (30 Knoten, 1 Klasse, 20 Deklarationen) **16.295 B / 1.987 B = 8,2x**; b (120/6/15)
+  **54.867 B / 8.356 B = 6,57x**; c (Hero 15/3/40) **15.185 B / 3.590 B = 4,23x**.
+  Korrektheitsprobe je Dokument gruen (gleiche Deklarationen je Traeger in beiden Strategien).
+  Bericht `.scratch/refs/klassen-emission.md` + `.json`.
+- **Entscheidung:** Kriterium „bei (b) mehr als ~2x regional -> global" deutlich erfuellt ->
+  **global umgestellt** (O15 in `map.md`).
+- **Umsetzung:** `CompileOptions.classEmission` (`"global"` Default, `"regional"` als Option und
+  Rueckweg); `globalClassSelector` in `cascade.ts` (exportiert); die Klassen-Emission folgt der
+  Regel-Reihenfolge des Dokuments (`order`, Ticket 07) statt der Knoten-Reihenfolge. Knoten-eigene
+  Zustaende bleiben verankert (`[data-node-id].cls:hover`), weil `.cls` (0,1,0) gegen
+  `[data-node-id]:hover` (0,2,0) sonst verloere (O1); Regel-Zustaende ohne Knoten-Zustand sind
+  global (`.cls:hover`). Neue Testdatei `css-class-emission.test.ts` (6 Faelle).
+- **Nachgezogene Erwartungen (Form, Semantik erhalten):** `css-cascade`, `css-combinations`
+  (Golden), `css-injection`, `css-rule-kinds`, `roundtrip`, `theme` (widget-engine);
+  `editor/test/state/compiler.test.ts`; `renderer/test/style-rules-css.test.ts` (inkl.
+  Gegenprobe „nicht mehr am Knoten verankert"); `engine/test/bake.test.ts` (globale Regel +
+  Traeger-Element mit Klasse und `data-node-id`).
+- **Nebenbefund (gleicher Lauf):** `editor-browser.test.ts` klickte im Live-Modus auf die erste
+  Section — nach dem DnD das Banner mit `/kontakt`-Link; der Frame navigierte weg, der
+  Fehler-Tracker meldete den 404. Klick geht jetzt auf den linkfreien Divider. Kein
+  Produktfehler; per Stash-Gegenprobe belegt, dass es nicht an dieser Runde lag.
+- **Zahlen:** `pnpm test` **1176 gruen / 2 uebersprungen / 132 Dateien**, typecheck 0, lint 0.
+  Kein Commit. Log `.scratch/testlauf-19-09-ticket14.log`.
+- **Naechster Schritt:** M4 Stufe 1 mit Ticket 03; parallel 12/18.
+
+**Verifikation 19.09. (Slot-/Collection-Transport abgeschlossen + paralleler Strang):**
+
+- **Vorgefunden:** Ein paralleler Strang hat am 18.09. um 22:04 — nach dem letzten gruenen
+  Gesamtlauf — `contract.ts`, `apply.ts`, `editor-bridge.ts`, `persist.ts` und
+  `persist.test.ts` geaendert: die drei v2-Ops `setSlotContent`/`createCollectionEntry`/
+  `updateCollectionEntry` sind jetzt durchgaengig (Section-Contract + Apply + Undo-Patches,
+  Bridge-Uebersetzung, Save-Pipeline-Transport). Die Doku nannte sie noch offen.
+- **Dabei gefunden und behoben:** (1) `editor-mutations.test.ts` erwartete noch die alte
+  Ablehnung („refuses ops without a section equivalent") — ersetzt durch einen Mapping-Test
+  ueber alle drei Ops. (2) `editor-bridge.ts` `default`-Zweig war durch die vollstaendige
+  Fallabdeckung `never` → Typfehler; jetzt expliziter Laufzeit-Guard fuer unbekannte Ops.
+- **Abdeckung ergaenzt (Engine):** neuer Describe in `mutations.test.ts` — Slot-Regeln
+  (`max 1`, `allowedTypes ["card"]`, unbekannter Slot), Entry anlegen/patchen (Index-Fehler,
+  voller Slot, unbekanntes Prop) plus Undo-Roundtrip (`setSlotContent`, `create+update`) ueber
+  `applyUndoBatch`.
+- **Benannte Grenze:** Editor adressiert Katalog-`collection`, die Engine die Section
+  `collection-list`; die UI-Nutzung der Slot-Ops faellt mit dem E2-Cutover (Phase 4). Der
+  Transport selbst ist fertig.
+- **Zahlen:** `pnpm test` **1168 gruen / 2 uebersprungen / 131 Dateien** (Log
+  `.scratch/testlauf-19-09.log`), typecheck 0, lint 0. Kein Commit.
+- **Naechster Schritt:** M4 Stufe 1 mit Ticket 03; parallel 12/14/18.
+
+**Umsetzung 18.09. (Tickets 21/22: Klassen am DOM + scoped-Rekey im Bake):**
+
+- **Echter Fund (Ticket 21):** `node.classes` und die generierte Scope-Klasse erreichten nie
+  das DOM. Der Compiler ankert `class`-Regeln als `[data-node-id].name` und scoped-Regeln als
+  `[data-node-id].__senify_scope_<id>` — beide Selektorformen waren damit tote Regeln (Canvas
+  und Bake nutzen dieselben Komponenten). `SectionShell`, `PrimitiveNode` und der
+  Unbekannt-Platzhalter tragen jetzt User-Klassen + deterministische Scope-Klasse
+  (`nodeRootClasses`, `shared.tsx`); die Scope-Klasse ist aus der Knoten-ID ableitbar, deshalb
+  braucht der Renderer keine Regel-Registry (die Referenz loest es ueber classIds-Referenzen).
+- **Ticket 22 (benannter Rest aus 13):** `composePageTree` fuellt eine
+  Draft→komponiert-ID-Map (`rekeyChildren`/`spliceOutlet`); `buildBakeInput` haengt sie pro
+  Route als `nodeIdMap` an die `BakePageInput`s; `styleRulesCss` remappt scoped-Regeln
+  kanonisch auf die komponierten Knoten (dedupliziert je Regel+Ziel, eine Kopie pro
+  Auspraegung). Pagination-Varianten teilen die Map.
+- **Tests:** Registry +2, Templates +3, Renderer +2, Engine-Bake +1 plus die
+  Klassen-Assertion im bestehenden Regel-Test; bestehende exakte `class="w-..."`-Erwartungen
+  angepasst (registry/components, renderer/widget-bake, app/canvas-browser).
+- **Zahlen:** `pnpm test` **1165 gruen / 2 uebersprungen / 131 Dateien**, typecheck 0, lint 0.
+  Kein Commit.
+- **Naechster Schritt:** Slot-/Collection-Transport (letzter Rest aus 13), dann 12/14/18 bzw.
+  M4 Stufe 1 mit Ticket 03.
+
+**Umsetzung 18.09. (Ticket 15: PG-Dialekt-Gate):**
+
+- `packages/engine/test/dialect-gate.test.ts`: scannt `packages/engine/src/**/*.ts` (ohne
+  `db.ts`) auf `::`-Casts, `now()` in DML, `DISTINCT ON` und
+  `ADD COLUMN IF NOT EXISTS`; Gegenprobe (Sample muss alle vier Muster treffen) inklusive.
+  Keine Verstoesse im Bestand (nur `forms.ts` hat ein IPv6-Literal `"::1"`, das bewusst
+  nicht als Cast gilt).
+- **Zahlen:** +1 Datei / +2 Tests (Gesamtlauf danach 1157/2/131). Kein Commit.
+
+**Umsetzung 18.09. (Ticket 20 + Motion M3-M5: Profil-Kanal, Inspektor, Play-Preview, Gates):**
+
+- **Ticket 20 (F6/F7):** `PATCH /api/sites/:siteId` traegt jetzt `name` und/oder `profile`
+  (`UpdateSiteBodySchema`, Audit `update_site_profile`); `Store.updateSiteProfile`;
+  `SiteProfile`/`SITE_PROFILES` kommen aus section-sdk (eine Definition). Editor:
+  Topbar-Select + Cap-Hinweis, Wechsel gegen das Dokument validiert (`profileIssues`,
+  nichts aendert sich still), App laedt das Profil in `pageView` und schickt den PATCH.
+- **M3:** Motion-Panel vollstaendig (Profil-Cap als `max` + Hinweis, Easing, Dauer-/Stagger-
+  Faktor, RM-Variante, Aktiv-Schalter, „gesperrt"-Markierung, Engine-Warnungen inline),
+  Explorer-Badge, MCP `set_motion`/`clear_motion`, Skill `motion.md` + Portal-Guide.
+- **M4 Stufe 2:** `GET /api/motion-vendor/:name` (self-hosted Runtime fuer den Editor);
+  Topbar-Schalter „Motion" injiziert `motion-data` + per-Preset-Vendor + Runtime in den
+  aktiven Frame (Lenis aus), Stoppen setzt die Frames zurueck. Stufe 1 (Live mit echter
+  Seite) bleibt Ticket 03.
+- **M5:** `hardGuardrailsForTree(tree, profile)` + `runChecks`/Schreibpfad lesen das Profil
+  (Cap, Klassen, Pins, 3D); weicher `reveal-too-long`-Hinweis im Bake; Freeze-Baseline +
+  Gegenprobe bleiben das Paritaets-Tor.
+- **Tests:** Engine +5 (sites, motion-vendor, guardrails), section-sdk +2, Editor +3
+  (consistency, panels), Renderer +1, MCP/Skills/Guides angepasst, Browser (Profil-Select
+  + Play → `window.gsap` im Frame).
+- **Zahlen:** `pnpm test` **1155 gruen / 2 uebersprungen / 130 Dateien**, typecheck 0,
+  lint 0. Kein Commit.
+- **Naechster Schritt:** M4 Stufe 1 mit Ticket 03; danach die kleineren Tickets
+  (15 Dialekt-Gate, scoped-Rekey, Slot-/Collection-Transport, 12/14/18).
+
+**Umsetzung 18.09. (Ticket 19 M2: self-hosted Runtime + Bake, Site-Profile entschieden):**
+
+- **Entschieden (Nutzer):** F6 Profile 1:1 aus v1 (`clean`/`standard`/`showcase`,
+  Default `standard`, Caps 3/7/10, Lenis aus/an/an, Pin 0/1/1, 3D nein/nein/ja);
+  F7 Durchsetzung gestaffelt (M2 Lenis, M5 harte Gates, Profil im Editor erst mit
+  Site-Settings-Ticket vor M3). Eingearbeitet in ADR-0006, `plan.md` §8, Ticket 19.
+- **Vendor:** `gsap@3.15.0` + `lenis@1.3.26` als Renderer-Dependencies; der Bake
+  kopiert `assets/vendor/{gsap,ScrollTrigger,SplitText,lenis}.min.js` und verlinkt
+  pro Seite nur die Skripte, die die Preset-`needs` verlangen. Kein CDN mehr.
+- **Payload v2:** `motionDataFor` → `{ v: 2, breakpoints, entries }` mit
+  `hides`/`needs`/`reducedMotion`; Breakpoints aus `mediaMaxWidth` (eine Quelle);
+  Leser akzeptiert weiter die v1-Liste. `enabled: false` erzeugt keinen Eintrag.
+- **FOUC:** `motionPends` (section-sdk) + `data-motion-pending` an
+  `SectionShell`/`PrimitiveNode`; `Page.astro` mit Pending-CSS, `<noscript>`-Override
+  und 1,6-s-Failsafe; die Runtime gibt frei, sobald sie uebernimmt.
+- **Reduced Motion** pro Eintrag (`static`/`fade`/`off`); Lenis nur ohne RM.
+- **Freeze:** Kill-Switch `__SENIFY_MOTION__ = "off"`; `visual.ts` mit
+  `motion: "off" | "live"`, `scroll-behavior: auto`, 2 rAF; Browser-Gegenprobe.
+- **Tests:** Renderer-Motion (+6), section-sdk (+1), Bake (+2, inkl. Budget
+  ≤ 150 KB), Visual (+1). **Zahlen:** `pnpm test` **1144 gruen / 2 uebersprungen /
+  129 Dateien**, typecheck 0, lint 0. Kein Commit.
+- **Naechster Schritt:** M3 (Inspektor) bzw. Site-Settings-Ticket (Profil) davor.
+
+**Umsetzung 18.09. (Ticket 19 M0 + M1: Motion-Modell):**
+
+- **M0:** ADR-0006 angenommen (`docs/adr/0006-motion-authoring.md`); Entscheidungen F1–F5
+  (Start nach Ticket-13-Rest, Presets + Intensity, Live + Play, Ticket 19, self-hosted).
+- **M1 Modell/Datenpfad:** Preset-Registry in `section-sdk/src/motion.ts` (24 Eintraege mit
+  Flags, GSAP-Bedarf, Coverage); `MotionSpec` um `reducedMotion`/`enabled` erweitert;
+  `EditorNode.motion`; Patch `setNodeMotion` (`null` loescht); Ops `setMotion`/`clearMotion`
+  mit `assertMotionSpec`; Transport (`persist.ts`, `PAGE_OPS`, `patchesToPending`); v2-Ops im
+  Editor-Contract; Bridge 1:1 auf die v1-Ops `setMotion`/`clearMotion`; `NodeSpecSchema` +
+  `buildNode` tragen Motion (Undo restauriert Subtrees inkl. Motion); Consistency
+  (`motion-preset-unknown`, `motion-pin-excess`); Migration traegt Motion (der irrefuehrende
+  Kommentar ist korrigiert); Canvas-Adapter reicht sie durch.
+- **Tests:** `section-sdk/test/motion.test.ts`, `renderer/test/motion-presets.test.ts`
+  (Drift-Guard Registry <-> `PAGE_SCRIPT_PRESETS`/`PIN_PRESETS`), Editor-Operations/
+  Consistency/Persist/Migration, Engine-Bridge + Route-Roundtrip.
+- **Zahlen:** `pnpm test` **1135 gruen / 2 uebersprungen / 129 Dateien**, typecheck 0,
+  lint 0. Kein Commit.
+- **Naechster Schritt:** M2 (Runtime/Bake: self-hosted GSAP 3.15, `motion-data` v2,
+  FOUC-Guard, Freeze-Protokoll); vorher Site-Profile entscheiden.
+
+**Umsetzung 18.09. (Ticket 13 Rest: Bake-Renderpfad + Klassen-Transport):**
+
+- **Klassen-Transport geschlossen:** der v1-Knoten traegt `classes`
+  (`section-sdk/src/types.ts`); `updateNodeMeta` kann die ganze Liste setzen (`classes`),
+  ergaenzen (`addClasses`), entfernen (`removeClasses`); `null` loescht `hidden`/`locked`
+  (undo-faehig). Neue Editor-Mutation `setNodeMeta`; die Bridge uebersetzt sie 1:1,
+  `assignClass`/`removeClass` ueber die Diff-Form. Die Save-Pipeline sendet die
+  `setNodeFields`-Patches als `setNodeMeta` — Klassen-Zuweisung ist damit keine
+  `unsupported`-Luecke mehr (Slots/Sammlungen bleiben es, benannt).
+- **Bake-Renderpfad:** `bakePages` liest `store.listStyleRules(siteId)` und reicht die
+  Registry an `bakeSite`; `styleRulesCss` (`renderer/src/style-css.ts`) kompiliert sie —
+  class-Regeln am tragenden Knoten, `ambient` verbatim, `scoped` am Knoten, `rawCss`
+  (@keyframes) — nach `assets/style-rules.css`, in `@layer user-authored` und **nach** der
+  Widget-Basis gelinkt (Reihenfolge wie im Canvas-Frame). Eine Quelle: die Registry.
+- **`styleRuleToClassRule`** (widget-engine) ist jetzt die eine Abbildung
+  Registry -> Compiler fuer alle drei Kinds; Editor (`classRules`) und Bake nutzen sie.
+- **Echter Fund:** der Layout-Splice rekeyt die Page-Knoten (`templates.ts`
+  `rekeyChildren`) — class-Regeln wandern am Knoten mit und bleiben korrekt, eine
+  `scoped`-Regel verliert ihre Draft-ID im Release. Benannt (Code-Kommentar + Testnotiz);
+  die Loesung braucht die ID-Map pro Seite im Bake-Pfad (eigenes Ticket).
+- **Tests:** `style-rules-css.test.ts` (4, inkl. echtem Bake), Engine-Bake-Test mit
+  Registry-Regel, Bridge-/Transport-Tests (`mutations.test.ts`, `editor-mutations.test.ts`),
+  `save-pipeline.test.ts` mit Klassen-Roundtrip inkl. Undo.
+- **Zahlen:** `pnpm test` **1121 gruen / 2 uebersprungen / 127 Dateien**, typecheck 0,
+  lint 0. Kein Commit.
+
+**Umsetzung 18.09. spaet (Ticket 13 Save-Pipeline):**
+
+- **Entscheidungen des Nutzers:** Autosave gebuendelt (400 ms), Konflikt-Hinweis mit
+  „Neu laden" / „Erneut versuchen".
+- **`createSavePipeline`** (`editor/src/state/persist.ts`): Batcht Store-Aktionen, routet
+  Struktur-Ops an `POST /api/pages/:pageId/editor-mutations` und Regel-Ops an die
+  Site-Routen, fuehrt die Version, pausiert bei `409`, persistiert Undo/Redo ueber die
+  History-Patches. `unsupported`-Liste statt stillem Verwerfen.
+- **Shell verdrahtet** (`packages/app/public/app.js`): Autosave im Canvas, Knopf als
+  manueller Flush, Konflikt-Knoepfe. Ein echter Fund dabei: der `apply`-Pfad sendete die
+  rohe Mutation (ohne generierte Node-Id) — jetzt werden einheitlich die Patches uebersetzt.
+- **Tests:** `persist.test.ts` (9), `save-pipeline.test.ts` gegen die echte Engine,
+  Browser-Test auf Autosave umgestellt.
+- **Zahlen:** `pnpm test` **1112 gruen / 2 uebersprungen / 126 Dateien**, typecheck 0,
+  lint 0. Kein Commit.
+- **Offen:** Bake-Renderpfad der Registry; Transport fuer Klassen-Zuweisung/hidden/locked.
+
+**Umsetzung 18.09. abends (Ticket 07 Stufen 1-6 + Ticket 13 Transport):**
+
+- **Kanonisches Modell** um `states`, `statePriorities`, `authoredBy` erweitert;
+  `canonicalStyleRule` garantiert eine byte-stabile Serialisierung.
+- **Editor-Dokument** fuehrt `styleRules: StyleRule[]` (Array = Kaskadenordnung) statt
+  des Wert-Bag-Records; Patches/Ops adressieren per stabiler `id`
+  (`upsertStyleRule`/`deleteStyleRule`/`reorderStyleRule`/`renameStyleRule`).
+- **Compiler** emittiert Klassen-States, `ambient` (verbatim), `scoped` (am Knoten),
+  `contextStyles` (verschachtelte Bedingung) und `rawCss` (nur gepruefte `@keyframes`).
+- **Migration** liftet alte `classes`-Bags additiv; `DOCUMENT_VERSION` bleibt 2.
+- **Site-Routen** tragen `states`/Prioritaeten/`rawCss`/`authoredBy`;
+  `#assertWritableRule` prueft `rawCss`.
+- **Zahlen:** `pnpm test` **1102 gruen / 2 uebersprungen / 124 Dateien**, typecheck 0,
+  lint 0. Kein Commit.
+- **Offen (Ticket 13):** Save-Pipeline im Editor (Struktur -> Seiten-Route, Regeln ->
+  Site-Routen; Takt/Konflikt-UX zu entscheiden) und der Bake-Renderpfad der Registry.
+
+**Umsetzung 18.09. (Wert-Grammatik, Schreibtor, vierter State):**
+
+- **Ticket 09 erledigt:** `disabled` als vierter State in `cascade.ts` (nach `active`) und
+  `canvas.ts` (`PREVIEW_STATES`); Tests in `css-cascade.test.ts`.
+- **Ticket 07 Stufe 0 erledigt (das Gate):** `widget-engine/src/css/value-grammar.ts` —
+  Normalisierung (Escapes, Kommentare, Schreibweisen) + Allowlist-Parser; 94 Tests mit 23
+  Umgehungs- und 50+ Durchlassfaellen. Im Compiler verdrahtet (Text-Werte geprueft,
+  unsichere verworfen — `css-injection.test.ts`, 9 Tests). Im Editor-Schreibpfad:
+  `assertStyleProp` entfernt, `assertSafeValue` wirft `SenifyError` (Knoten-Props **und**
+  Stilregeln).
+- **Ticket 10 umgesetzt (bis auf die Inspektor-Anzeige):** unbekannte Properties werden
+  durchgereicht (sortiert, baseline-faehig), `styleGroups` entsperrt, `canonicalStyleKey`
+  loest `borderRadius`/`border-radius` auf dieselbe Deklaration, `layout`-Gruppe + 25
+  Layout-Eintraege als Bedienelement-Beschreibung. `css-open-space.test.ts` (10 Tests).
+- **Zwei echte Funde:** (1) Der Compiler emittierte Text-Werte bisher **ungeprueft**
+  (`boxShadow: "red; } body {"` war eine lebende CSS-Injektion) — geschlossen.
+  (2) Katalog-Controls (`text`, `level`, `striped`) sind Verhaltens-Props, kein CSS — der
+  offene Pfad schliesst sie aus, sonst stuende `text: Hallo` im Stylesheet.
+- **Zahlen:** `pnpm test` **1073 gruen / 2 uebersprungen / 123 Dateien**, typecheck 0,
+  lint 0. Kein Commit.
+
+**Naechster Schritt (Stand 18.09. abends):**
+
+Die Reihenfolge hat sich geaendert, weil ADR-0005 eine **Vorbedingung** eingefuehrt hat: die
+Wert-Grammatik ist die Sicherheitsgrenze, die die Whitelist ersetzt. Solange sie nicht steht, darf
+`assertStyleProp` nicht fallen — sonst ist die Oeffnung ein Sicherheitsrueckschritt (es gibt im Repo
+keinen CSS-Sanitizer; `sanitize-html` wirkt nur in `registry/src/md.ts` auf HTML).
+
+1. ~~Ticket 09~~ **erledigt.**
+2. ~~Wert-Grammatik + `assertSafeDeclaration`~~ **erledigt** (Stufe 0, `value-grammar.ts`).
+   Allowlist auf Wert-Formen, Normalisierung von CSS-Escapes/Kommentaren **vor** der Pruefung,
+   Umgehungs-Tests (`url(jav\61 script:...)`, `u\72 l(...)`, `expr/**/ession(...)`, Schreibweisen).
+   **Gate:** erst wenn diese Tests gruen sind, geht es weiter.
+3. ~~Ticket 10~~ **erledigt** bis auf die Inspektor-Anzeige. Ursprungsauftrag: `assertStyleProp` faellt, `styleGroups` entsperrt,
+   unbekannte Properties werden durchgereicht, CSS-Namen + Alias, Layout-Eintraege als
+   Bedienelement-Beschreibung. **Nur `assertStyleProp`** (2 Aufrufstellen) — `assertKnownProp`
+   (4 Aufrufstellen, prueft Knoten-Props gegen den Katalog) **bleibt**.
+4. **Ticket 07** (Editor-Dokument auf `styleRules[]`, kanonisches Modell + `states`/`statePriorities`
+   + `authoredBy`, Patches/Ops per `id`, Konsistenz, Migration, Compiler-Emission fuer
+   states/ambient/scoped/contextStyles/rawCss).
+5. ~~Ticket 13~~ **erledigt** (Server, Transport, Save-Pipeline, Bake-Renderpfad).
+   Offen bleiben zwei benannte Luecken: die scoped-Rekey-Luecke im Bake (Layout-Splice
+   vergibt Knoten-IDs neu) und der Transport fuer Slot-/Collection-Ops.
+6. Parallel moeglich: **12 (DnD)**, **14 (Klassen-Emission messen)**, **18 (Agent-Style-Gate =
+   Wert-Ebene-Fence fuer `authoredBy: "agent"`)**.
+7. Ende Phase 2/Anfang Phase 3: **16 (Marker-Overlay)**, **17 (Releases-Cutover, Paritaets-Tor als
+   CI-Blocker)**.
+8. Vor dem Cutover (04/06): **11 (per-Breakpoint `hidden` retten)**. Jederzeit: **15 (Gate-Test
+   fuer den PG-Dialekt)**.
+
+**Ticket 08 ist erfuellt (korrigiert 18.09.):** `ui-plan.md` Z116 nennt „drei Stationen", 5.13
+traegt die O10-Entscheidung samt „Kein Acht-Stationen-Pfad"; `ui-aufgaben.md` Aufgabe 37 ebenso.
+Die Abnahme des Tickets („Kein Plan-Dokument referenziert mehr Stationen als das Modell kennt")
+ist damit erfuellt. Eine fruehere Notiz hier behauptete das Gegenteil, weil sie vor der
+ui-plan-Korrektur geschrieben wurde.
+
+**Ticket 02 Punkt 1 ist erledigt** (Registry im Engine-Store); was uebrig ist, steht in Ticket 13.

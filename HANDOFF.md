@@ -1,188 +1,455 @@
-# Übergabe: Editor v2 (Senify)
+# Übergabe: Editor v2 (Senify) — Stand 19.09.2026 (Nachtrag: Ticket 13 vollständig, Klassen am DOM, Motion M0–M5)
 
-Stand: 17.09.2026, Runde nach dem senkrechten Durchstich. Diese Datei ersetzt die frühere Übergabe zu Senify v1 und beschreibt den Stand so, dass eine Person oder ein Agent ohne Vorwissen weiterarbeiten kann: was gebaut ist, was bewiesen ist, was offen ist, wie man startet, prüft, welche Entscheidungen gelten und welche Fallen lauern.
+Diese Datei ersetzt die Abend-Fassung vom 17.09. und den ersten 18.09.-Stand. Sie beschreibt den
+Arbeitsbaum so, dass eine Person oder ein Agent ohne Vorwissen weiterarbeiten kann: was entschieden
+ist, was gebaut ist, was offen ist, wie man startet und prüft, welche Fallen lauern.
 
-In dieser Runde erneut geprüft (nicht aus alten Berichten übernommen):
+**Wichtigster Satz vorab:** Der Arbeitsbaum enthält **uncommitteten Produktcode** (Style-Rules,
+Ticket 13 Rest) **und uncommittete Planungsdokumente** (Motion-Papierpaket, §2.5). Der Handoff
+beschreibt den Arbeitsbaum, **nicht `HEAD`** (letzter Commit: `e2783da`). Wer `git status` liest,
+sieht deshalb mehr als die letzten Commits hergeben.
 
-- `pnpm test`: 921 grün, 2 übersprungen, 117 Testdateien, 0 rot (Log `.scratch/testlauf-handoff.log`).
-- `pnpm typecheck`: Exit 0. `pnpm lint`: Exit 0.
-- Die festen Dienste `127.0.0.1:4322` (Programm) und `127.0.0.1:4321` (Engine) waren nicht erreichbar (Ports geschlossen). Sie wurden nicht gestartet.
+---
 
-Alles Weitere stammt aus den unten genannten Berichten und Belegordnern und ist dort als früher gemessen gekennzeichnet. Kein Commit in dieser Runde.
+## 1. Was am 18./19.09. geschah (in Reihenfolge)
 
-## 1. Worum es geht
+1. **Entscheidung O13 — offenes CSS statt Whitelist.** Der Stilwert-Raum ist offen; die
+   Property-Tabelle (`STYLE_PROPERTIES`) beschreibt ab jetzt die **Oberfläche** (welches
+   Bedienelement), nicht die Erlaubnis. Festgehalten in **ADR-0005**
+   (`docs/adr/0005-offenes-css-statt-whitelist.md`), in `map.md` als O13, im Ledger.
+2. **Fünf Tickets neu gefasst:** 07 (kanonisches Modell statt engem B1-Entwurf), 10 (Tor
+   abschaffen statt Liste verlängern), 13 (realer Stand: Server fertig, Editor-Anbindung offen),
+   18 (`authoredBy` statt `origin`, Wert-Ebene-Fence), 02 (Punkt 1 als erledigt markiert).
+3. **O14 eröffnet:** Templates + Outlet fehlen im editor-v2-Plan (Präzisierung: der v1-Kern hat
+   sie bereits, die Lücke ist editor-v2-seitig und bei VC-Templates).
+4. **Reihenfolge im Ledger neu gefasst:** die **Wert-Grammatik** ist Vorbedingung; erst wenn ihre
+   Umgehungs-Tests grün sind, darf `assertStyleProp` fallen.
+5. **Fehlerdurchlauf über die Abend-Dokumente:** Zahlen (33 statt 30), 12 kaputte Pfade,
+   Widersprüche zwischen Ticket 13 und seinem Korrekturblock, Ticket 18/07 (`origin`),
+   Ticket 10/ADR (`assertKnownProp`), veraltete Ledger-Notizen, O14-Prämisse — alle korrigiert.
+6. **Vorgefunden (nicht von dieser Runde):** der Server-Teil der Style-Rule-Registry lag
+   uncommittet im Arbeitsbaum; ein zweiter Strang baute O13/Ticket 10 im Compiler um.
+7. **Ticket 13 Rest gebaut:** der **Bake-Renderpfad** (`bakePages` liest die Registry,
+   `styleRulesCss` schreibt `assets/style-rules.css` in `@layer user-authored`, nach der
+   Widget-Basis gelinkt) und die **Klassen-Transportlücke** (v1-Knoten trägt `classes`,
+   `updateNodeMeta` kann setzen/ergänzen/entfernen, neue Editor-Mutation `setNodeMeta`,
+   Pipeline sendet die Patches). Ein echter Fund dabei: der **Layout-Splice rekeyt Knoten-IDs** —
+   class-Regeln wandern mit, `scoped` verliert seine Draft-ID im Release (benannt, eigenes Ticket).
+8. **Motion: Recherche, Papierpaket, Ticket 19.** Der v1-Motion-Stack (ADR-0003: GSAP +
+   ScrollTrigger + Lenis, MotionSpec, 24 Presets) existiert im Kern, aber der v2-Umbau hat ihn
+   verloren (`migration.ts` kopiert `motion` nicht — der Kommentar dort behauptet fälschlich, nur
+   `hidden` falle weg). Externe Recherche (GSAP ist seit Webflow 100 % frei inkl. Commercial;
+   Lenis MIT; CSS Scroll-Driven Animations weiter nicht Baseline) und die Analyse des
+   Elementor-Plugins `wp-gsap-heading-reveal` sind abgeschlossen; das Papierpaket liegt unter
+   `.scratch/motion-v2/` (7 Dokumente), Ticket 19 ist angelegt. **Kein Motion-Code geschrieben.**
+9. **Verifikation dieser Runde:** Der gemeldete Ticket-13-Rest-Stand wurde gegen den Arbeitsbaum
+   geprüft — Zahlen und Behauptungen bestätigt (§2.4). Eine Abweichung in der Meldung: der
+   `style-rules.css`-Link liegt in `Page.astro:80` (Body nach `<Section>`), nicht bei `:66`.
+10. **Motion M0 + M1 umgesetzt (Ticket 19):** ADR-0006 angenommen
+    (`docs/adr/0006-motion-authoring.md`); das Modell steht — Preset-Registry (24, mit Flags)
+    in `section-sdk`, `EditorNode.motion`, Ops `setMotion`/`clearMotion` mit Validierung,
+    Transport, Bridge auf die v1-Ops, Consistency-Guardrails, Migration trägt Motion,
+    Canvas-Adapter reicht sie durch.
+11. **Motion M2 umgesetzt (Ticket 19):** Runtime/Bake steht — GSAP 3.15 + ScrollTrigger +
+    SplitText + Lenis **self-hosted** als Renderer-Dependencies (kein CDN), `motion-data` v2
+    aus `motionConfigsForTree` (Breakpoints zentral, `hides`/`needs`/`reducedMotion` aus der
+    Registry, `enabled: false` übersprungen), per-Preset-Skripte, FOUC-Pending
+    (`data-motion-pending` + `<noscript>` + 1,6-s-Failsafe), Reduced-Motion-Policies pro
+    Eintrag, Freeze-Kill-Switch `__SENIFY_MOTION__` in Runtime und `visual.ts` inkl.
+    Browser-Gegenprobe. Site-Profile 1:1 entschieden (F6/F7).
+12. **Ticket 20 + Motion M3–M5 umgesetzt (18.09.):** Site-Profil erreicht den Editor
+    (`PATCH /api/sites/:id` mit `profile`, Topbar-Select, Wechsel-Validierung über
+    `profileIssues`; `SiteProfile`/`SITE_PROFILES` aus section-sdk). Inspektor vollständig
+    (Cap, Easing, Dauer/Stagger, RM, Aktiv, gesperrte Presets markiert, Warnungen inline),
+    Explorer-Badge, MCP `set_motion`/`clear_motion`, Skill `motion.md` + Portal-Guide.
+    **M4 Stufe 2:** Play-Schalter im Design-Modus injiziert `motion-data` + Vendor
+    (`GET /api/motion-vendor/:name`) + Runtime in den aktiven Frame (Lenis aus); Stoppen
+    setzt die Frames zurück. **M5:** `hardGuardrailsForTree(tree, profile)` in Schreib-,
+    Submit- und Publish-Pfad; weicher `reveal-too-long`-Hinweis. **Ticket 15:** PG-Dialekt-
+     Gate (`dialect-gate.test.ts`, Gegenprobe inklusive). Offen: M4 Stufe 1
+     (Live-Modus, Ticket 03), Scrub (M6).
+13. **Tickets 21 + 22 umgesetzt (18.09.): Klassen am DOM + scoped-Rekey im Bake.** Beim Bau der
+    Rekey-Loesung gefunden: `node.classes` und die generierte Scope-Klasse erreichten nie das
+    DOM — der Compiler ankert `class`-Regeln als `[data-node-id].name` und scoped-Regeln als
+    `[data-node-id].__senify_scope_<id>`, beide waren tote Regeln. Jetzt tragen
+    `SectionShell`/`PrimitiveNode`/Unbekannt-Platzhalter die Klassen am Wurzelelement
+    (`nodeRootClasses`). Die ID-Map des Layout-Splices reist als `nodeIdMap` pro Route in den
+    Bake, `styleRulesCss` remappt scoped-Regeln auf die komponierten Knoten (eine Kopie je
+    Auspraegung). Verifiziert: 1165/2/131, typecheck 0, lint 0.
+14. **Slot-/Collection-Transport abgeschlossen und verifiziert (19.09.).** Ein **paralleler
+    Strang** hatte den Arbeitsbaum nach dem letzten Gesamtlauf (18.09. 22:04) geaendert:
+    `setSlotContent`/`createCollectionEntry`/`updateCollectionEntry` sind jetzt durchgaengig
+    (Section-Contract + Apply + Bridge + Save-Pipeline), aber ein Bridge-Test erwartete noch die
+    alte Ablehnung und der `default`-Zweig der Bridge war durch die vollstaendige Fallabdeckung
+    ein Typfehler. Beides behoben, Engine-Abdeckung ergaenzt (Validierung, Undo-Roundtrip) →
+    **1168/2/131**, typecheck 0, lint 0. Grenze (benannt): Editor adressiert Katalog-
+    `collection`, die Engine `collection-list`; die UI-Nutzung faellt mit dem E2-Cutover.
+15. **Ticket 14 umgesetzt (19.09.): Klassen-Emission gemessen und auf global umgestellt.**
+    Messung (`pruef-klassen-emission.mjs`, Bericht `.scratch/refs/klassen-emission.md`):
+    regional gegen global **8,2x / 6,57x / 4,23x** Ersparnis (Dokumente a/b/c),
+    Korrektheitsprobe gruen — das Ticket-Kriterium („bei b mehr als ~2x") ist deutlich erfuellt.
+    `compileCss`-Default ist jetzt `classEmission: "global"` (`.cls` einmalig je Klasse, Dedupe
+    ueber alle Traeger, Reihenfolge aus der Regel-`order`); `"regional"` bleibt als Option und
+    Rueckweg. Knoten-eigene Zustaende bleiben verankert (`[data-node-id].cls:hover`), weil `.cls`
+    (0,1,0) gegen `[data-node-id]:hover` (0,2,0) sonst verloere (O1). Golden-Snapshots und
+    betroffene Tests nachgezogen, neue Testdatei `css-class-emission.test.ts`. Nebenbefund im
+    selben Lauf: der Live-Modus-Klick des Browser-Tests traf den Banner-Link (`/kontakt`) und
+    navigierte den Frame weg (404) — Klick geht jetzt auf den linkfreien Divider (per
+    Stash-Gegenprobe belegt, dass es nicht an dieser Runde lag). Verifiziert: **1176/2/132**,
+    typecheck 0, lint 0.
 
-Senify ist eine agent-native Website-Plattform: Agenten und Menschen bearbeiten dieselben strukturierten Baupläne (NodeTrees), die zu statischen Websites gerendert werden. Das laufende Produkt (Senify v1, Tickets 01 bis 17) steht und wird nicht neu gebaut; der aktuelle Umbau "Editor v2" ersetzt nur den visuellen Editor durch drei neue Schichten: Widget-Engine (Bausteine, CSS-Compiler, Kaskade), Style-Engine (Inspektor) und Canvas-UI (Chrome). Bisher ist der senkrechte Durchstich gebaut und belegt: eine Sektion entsteht im Editor-Store, wird im echten Canvas gerendert, veröffentlicht und mit tolerantem Bildvergleich gegen die ausgelieferte Seite geprüft.
+**Kein Commit in dieser Runde.**
 
-## 2. Stand in einer Tabelle
+---
 
-| Phase | Inhalt | Zustand | Beleg (eine Zeile) |
+## 2. Der Code-Stand im Arbeitsbaum (uncommittet, ehrlich)
+
+### 2.1 Fertig: Style-Rule-Registry, Server-Seite
+
+- `sites.style_rules_json` additiv (`ALTER TABLE … ADD COLUMN IF NOT EXISTS`, `db.ts`);
+  `jsonColumns()` erkennt jetzt auch per `ALTER` ergänzte jsonb-Spalten (sonst übergäbe ein
+  Restore ein Objekt statt JSON-Text).
+- Kanonisches Modell `packages/widget-engine/src/css/style-rule.ts`: `id`, `name`,
+  `kind class|ambient|scoped`, freier `selector`, `order`, `styles`, `stylePriorities`,
+  `contextStyles`, `contextStylePriorities`, `rawCss`, `scope`, `origin` (Import-Herkunft),
+  mit TypeBox-Schema, tolerantem Parser, Konstruktoren und Compiler-Brücke.
+- Store-CRUD mit Audit (`store.ts`): `listStyleRules`, `getStyleRule`, `createStyleRule`,
+  `updateStyleRule`, `deleteStyleRule`, `reorderStyleRule` (`order` wird auf die Array-Position
+  normalisiert).
+- Routen: `GET|POST /api/sites/:siteId/style-rules`, `GET|PATCH|DELETE …/:ruleId`,
+  `POST …/:ruleId/reorder` (read / write / publish).
+- `editor-bridge.ts` lehnt Style-Rule-Ops im Seiten-Batch bewusst ab (`siteWide()`) und nennt die
+  Site-Route.
+- Tests: `engine/test/style-rules.test.ts` (echte HTTP-Runde), `engine/test/db-schema.test.ts`,
+  `widget-engine/test/style-rule.test.ts`.
+
+### 2.2 Erledigt am 18.09.: Ticket 07 (Stufen 0-6), Wert-Grammatik, Schreibtor, vierter State
+
+- **Ticket 09:** `disabled` als vierter Pseudo-State in `cascade.ts` (nach `active`) und
+  `canvas.ts` (`PREVIEW_STATES`); Tests in `css-cascade.test.ts`.
+- **Ticket 07 Stufe 0 (das Sicherheits-Gate):** neue Datei
+  `packages/widget-engine/src/css/value-grammar.ts` — Normalisierung (Escapes, Kommentare,
+  Schreibweisen) plus Allowlist-Parser; `value-grammar.test.ts` mit 94 Tests (23 Umgehungs-,
+  50+ Durchlassfälle).
+- **Compiler verdrahtet:** Text-Werte (`boxShadow`, `transform`, `filter`, …) werden geprüft,
+  unsichere Werte verworfen — `css-injection.test.ts` (9 Tests) belegt es. Das hat ein
+  **echtes, bis dahin offenes Loch geschlossen**: `boxShadow: "red; } body {"` wurde vorher
+  ungeprüft ins Stylesheet geschrieben.
+- **Schreibpfad:** `assertStyleProp` entfernt; `assertSafeValue`/`assertStyleDeclaration`
+  prüfen Knoten-Props und Stilregeln und werfen `SenifyError` mit Feldpfad.
+- **Ticket 10 (bis auf die Inspektor-Anzeige):** unbekannte Properties werden durchgereicht
+  (sortiert, baseline-fähig — kein Wiederholen in schmaleren Device-Blöcken), `styleGroups`
+  entsperrt, `canonicalStyleKey` löst `borderRadius`/`border-radius` auf dieselbe Deklaration
+  auf, neue `layout`-Gruppe plus 25 Layout-Einträge als Bedienelement-Beschreibung.
+  `css-open-space.test.ts` (10 Tests). Goldens und Katalog-Tests nachgezogen.
+- **Zweiter echter Fund:** Katalog-Controls (`text`, `level`, `striped`, `dropCap`) sind
+  Verhaltens-Props, kein CSS — der offene Durchreich-Pfad schließt sie aus, sonst stünde
+  `text: Hallo` im Stylesheet.
+
+### 2.3 Style-Pipeline: Bake-Renderpfad, Klassen-Transport, Klassen-Emission (Nachtrag)
+
+- **Bake liest die Registry:** `bakePages` (`engine/src/bake.ts:351`) lädt
+  `store.listStyleRules(siteId)` und reicht sie an `bakeSite` (`:397`);
+  `styleRulesCss` (`renderer/src/style-css.ts:75`) kompiliert sie in `assets/style-rules.css`
+  (class-Regeln global `.cls` seit Ticket 14, `ambient` verbatim, `scoped` am Knoten, `rawCss`
+  als geprüftes `@keyframes`). Eine Quelle: die Registry — nicht Dokument *und* Spalte.
+- **Layer-Reihenfolge:** `style-rules.css` wird im Template **im Body nach** der Widget-Basis
+  gelinkt (`Page.astro:80`, nach `<Section>`), damit `@layer user-authored` in derselben Ordnung
+  entsteht wie im Canvas-Frame (Basis schwächer, authored Regeln danach).
+- **`styleRuleToClassRule`** ist die eine Abbildung Registry -> Compiler für alle drei
+  Kinds; der Editor (`classRules`, `document.ts:205`) nutzt sie ebenfalls (vorher baute er sie nach).
+- **Klassen-Transport:** `Node.classes` (section-sdk), `updateNodeMeta` mit `classes`
+  (setzen), `addClasses`/`removeClasses` (Diff) und `null`-Löschung für `hidden`/`locked`
+  (undo-fähig, `apply.ts:593-617`); neue Editor-Mutation `setNodeMeta`
+  (`editor-contract.ts:111-127`); Bridge und Save-Pipeline übersetzen sie
+  (`editor-bridge.ts:136-165`, `persist.ts:239-252`). Die Slot-/Collection-Ops sind seit dem
+  Nachtrag vom 18.09. (22:04) ebenfalls durchgängig (`setSlotContent`,
+  `createCollectionEntry`, `updateCollectionEntry`; Bridge + Apply + Undo-Patches);
+  die UI-Nutzung fällt mit dem E2-Cutover (Katalog-Namen in der Engine).
+- **Echter Fund (mit Ticket 22 geschlossen):** `templates.ts` `rekeyChildren` (`:114-150`) vergibt
+  beim Layout-Splice frische Knoten-IDs. Class-Regeln wandern am Knoten mit und bleiben korrekt;
+  eine `scoped`-Regel (gebunden an die Draft-ID) verlor im Release ihren Knoten. Gelöst: der
+  Splice füllt eine Draft→komponiert-Map, der Bake reicht sie pro Route als `nodeIdMap` durch,
+  `styleRulesCss` remappt die scoped-Regeln darauf (eine Kopie je komponierter Ausprägung).
+- **Zweiter Fund (Ticket 21):** `node.classes` und die Scope-Klasse standen nie im DOM — damit
+  waren `class`- und `scoped`-Regeln auch ohne Splice tote Selektoren (Canvas und Bake teilen die
+  Komponenten). `SectionShell`/`PrimitiveNode`/Unbekannt-Platzhalter setzen jetzt User-Klassen +
+  deterministische Scope-Klasse (`nodeRootClasses`, `shared.tsx`).
+- **Tests:** `renderer/test/style-rules-css.test.ts` (4, inkl. echtem Bake),
+  `engine/test/bake.test.ts` (Registry-Regel im Output), `mutations.test.ts` (Klassen-Diff +
+  Undo), `editor-mutations.test.ts` (Bridge + Route), `save-pipeline.test.ts`
+  (Klassen-Roundtrip inkl. Undo gegen die echte Engine).
+- **Klassen-Emission global (Ticket 14, 19.09.):** `compileCss` emittiert `class`-Regeln
+  einmalig je Klasse (`.cls`, Dedupe über alle Träger, Reihenfolge aus der Regel-`order`);
+  die regionale Form (`[data-node-id].cls` je Träger) bleibt als Option
+  (`classEmission: "regional"`, Default ist `"global"`). Gemessen: 4,2–8,2x weniger Bytes
+  (`.scratch/refs/klassen-emission.md`). Knoten-eigene Zustände bleiben verankert
+  (`[data-node-id].cls:hover`), weil `.cls` (0,1,0) gegen `[data-node-id]:hover` (0,2,0)
+  sonst verlöre. Beleg-Test `widget-engine/test/css-class-emission.test.ts`.
+
+### 2.4 Gemessener Stand (19.09., dieser Arbeitsbaum)
+
+- `pnpm test`: **1176 grün / 2 übersprungen / 132 Dateien** (19.09., ~10:25, 143 s, Log
+  `.scratch/testlauf-19-09-ticket14.log`), `pnpm typecheck`: Exit 0, `pnpm lint`: Exit 0.
+  Vorherige Stände: 1168/2/131 (Slot-/Collection-Transport), 1165/2/131 (Tickets 21/22),
+  1157/2/131 (Ticket 15), 1155/2/130 (Ticket 20 + M3–M5), 1144/2/129 (Motion M2),
+  1135/2/129 (Motion M1), 1121/2/127 (Ticket 13 Rest), 1073/2/123 davor.
+- Ein **Zwischenstand** um 13:49 war rot (1045/17/122, Log `.scratch/testlauf-18-09.log`):
+  die Golden-Snapshots stammten noch aus der Zeit vor der Öffnung. Sie sind inzwischen
+  nachgezogen; der Eintrag bleibt als Beleg, dass die Reihenfolge (erst Grammatik, dann Tor)
+  eingehalten wurde.
+- Die 2 übersprungenen Tests brauchen echtes Postgres (`TEST_DATABASE_URL`).
+- **Kein Commit** — weder für die vorgefundene Engine-Runde noch für Ticket 13 Rest noch für
+  Motion M0–M2 noch für Tickets 21/22 noch für den Slot-/Collection-Transport noch für
+  Ticket 14. `git status`: 97 geänderte, 73 neue Dateien (HEAD `e2783da`).
+
+### 2.5 Motion: M0–M5 + Site-Profil (18.09.)
+
+- **M0:** ADR-0006 accepted; Papierpaket in `.scratch/motion-v2/` — `research.md` (externer
+  Stand + Codebase-Befund), `plan.md` (M0–M5), `plugin-analyse.md` (Elementor-Plugin
+  `wp-gsap-heading-reveal`), `preset-matrix.md` (Contract + Abdeckung), `payload-spec.md`
+  (`motion-data` v2), `freeze-spec.md` (Parität/Freeze), `adr-0006-entwurf.md` (Protokoll).
+- **M1 (uncommittet):** `section-sdk/src/motion.ts` (Preset-Registry, 24 Einträge mit
+  Flags/GSAP-Bedarf/Coverage), `MotionSpec` um `reducedMotion`/`enabled` erweitert,
+  `EditorNode.motion` + Patch `setNodeMotion` + Ops `setMotion`/`clearMotion` (mit
+  `assertMotionSpec`), Transport in `persist.ts`, Bridge 1:1 auf die v1-Ops, Consistency
+  (`motion-preset-unknown`, `motion-pin-excess`), Migration trägt Motion, Canvas-Adapter.
+- **M2 (uncommittet):** `gsap@3.15.0`/`lenis@1.3.26` in `packages/renderer`; Bake kopiert
+  `assets/vendor/*.min.js` und verlinkt seitenweise nur die nötigen Skripte; `motionDataFor`
+  (v2-Envelope, Breakpoints aus `mediaMaxWidth`); `motionPends` + `data-motion-pending` in
+  `SectionShell`/`PrimitiveNode`, Pending-CSS/noscript/Failsafe in `Page.astro`; RM-Policies
+  pro Eintrag; `visual.ts` mit Kill-Switch, `scroll-behavior:auto`, 2 rAF.
+- **M3 (uncommittet):** Motion-Panel vollständig (Cap-Hinweis, Easing, Dauer-/Stagger-
+  Faktor, RM-Variante, Aktiv-Schalter, „gesperrt"-Markierung, Engine-Warnungen inline),
+  Explorer-Badge, MCP `set_motion`/`clear_motion`, `senify-motion`-Skill + Portal-Guide.
+- **M4 Stufe 2 (uncommittet):** `GET /api/motion-vendor/:name` serviert die Runtime-Dateien;
+  der Topbar-Schalter „Motion" injiziert `motion-data` + per-Preset-Vendor + Runtime in den
+  aktiven Frame (Lenis aus); Stoppen erzeugt die Frames neu. Stufe 1 offen (Ticket 03).
+- **M5 (uncommittet):** `hardGuardrailsForTree(tree, profile)` + `runChecks` + Schreibpfad
+  prüfen Cap/Klassen/Pins/3D; weicher `reveal-too-long`-Hinweis im Bake.
+- **Ticket 20 (uncommittet):** `PATCH /api/sites/:siteId` mit `name`/`profile`
+  (`UpdateSiteBodySchema`, Audit `update_site_profile`), `Store.updateSiteProfile`,
+  `SiteProfile`/`SITE_PROFILES` aus section-sdk, `profileIssues` im Editor,
+  Topbar-Select + Wechsel-Validierung, App lädt das Profil in `pageView`.
+- Tests: section-sdk/renderer/registry/Bake (Budget ≤ 150 KB), Engine (Profil-Route,
+  Vendor-Route, Gates), Editor (Consistency, Panels), MCP/Skills/Guides, Visual-Gegenprobe,
+  Browser (Profil-Select, Play → `window.gsap` im Frame).
+
+### 2.6 Klassen am DOM + scoped-Rekey (Tickets 21/22, 18.09.)
+
+- **Ticket 21 (eigener Fund):** `nodeRootClasses(node)` in `registry/src/components/shared.tsx`
+  liefert `node.classes` + `__senify_scope_<id>`; `SectionShell`, `reactAttrs` (nur
+  `spec.root === true`) und der Unbekannt-Platzhalter in `map.tsx` setzen sie. Die Scope-Klasse
+  ist deterministisch, deshalb braucht der Renderer keine Regel-Registry; sie ist inert, solange
+  keine scoped-Regel existiert.
+- **Ticket 22 (Rest aus 13):** `rekeyChildren`/`spliceOutlet`/`composePageTree` füllen eine
+  `Map<NodeId, NodeId>`; `buildBakeInput` hängt sie pro Route als `nodeIdMap` an die
+  `BakePageInput`s (Pagination-Varianten teilen sie); `BakePageInput`/`StyleCssPage` tragen das
+  Feld; `styleRulesCss` baut scoped-Regeln kanonisch auf die Ziel-ID um (`scopeNameFor`/
+  `scopeSelectorFor`), dedupliziert je Regel+Ziel, eine Kopie pro komponierter Ausprägung.
+- Tests: `engine/test/bake.test.ts` (scoped über den Layout-Splice + Klasse am Element),
+  `renderer/test/style-rules-css.test.ts` (+2 Remap/Dedupe), `engine/test/templates.test.ts`
+  (+3 Map), `registry/test/components.test.ts` (+2 DOM-Klassen); exakte
+  `class="w-…"`-Erwartungen in `registry`/`renderer`/`app`-Tests angepasst.
+- Zahlen: 1165/2/131 (§2.4).
+
+---
+
+## 3. Phasenstand
+
+| Phase | Inhalt | Zustand | Beleg |
 |---|---|---|---|
-| Phase 0 | Fundament: `widget-engine` (Katalog, CSS-Compiler, Kaskade), Editor-Store, Canvas | fertig | Commit `862d795` "Phase 0 (Editor-Neubau): Widget-Katalog, CSS-Compiler, Store und Canvas"; Code in `packages/widget-engine/`, `packages/editor/src/state/`, `packages/editor/src/canvas/` |
-| Phase 1 | Markup-Beschreiber, Grund-CSS in beiden Renderpfaden, senkrechter Durchstich mit Paritäts-Tor | teilweise | Durchstich steht (Commit `a53f583`; `packages/app/test/widget-slice-browser.test.ts` läuft grün); offen sind DnD, Plus-Punkte, Einfügelinie und die Katalog-Namen in der Mutations-API der Engine |
-| Phase 2 | Style-Engine und Inspektor | offen | nicht begonnen; nächster Schritt laut Zustandsbuch, Umfang in `issues/02-style-engine-inspector.md` |
-| Phase 3 | Editor-Chrome (Explorer, Kontextmenü, Spotlight, Inline-Edit, Tastatur) | offen | Plan und Sollbild liegen vor (`ui-plan.md`, `.scratch/editor-v2-rebuild/ui-preview/index.html`), im Neubau nicht gebaut |
+| −1 | Auslieferungsfehler behoben | ✅ | Commit `7c521e0` |
+| 0 | Fundament: Widget-Katalog, CSS-Compiler, Store, Canvas | ✅ | Commit `862d795` |
+| 1 | Markup-Beschreiber, Grund-CSS in beiden Pfaden, Durchstich mit Paritäts-Tor | ✅ | Commit `a53f583` |
+| — | Analyse-Runde: B1–B12, Tickets 07–18, O10–O12, ADR-0004 | ✅ | `research/`, `issues/07–18` |
+| — | 18.09.: O13/ADR-0005, Tickets 07/10/13/18/02 neu, O14, Wert-Grammatik | ✅ | `docs/adr/0005`, `issues/`, `ledger.md` |
+| — | 18.09.: Ticket 13 Rest (Bake + Klassen-Transport + scoped-Rekey) + Klassen am DOM + Motion M0–M5 + Ticket 20; 19.09.: Slot-/Collection-Transport verifiziert | ✅ | `issues/13`, `issues/19`–`22`, `docs/adr/0006`, `.scratch/motion-v2/` |
+| 2 | Style-Rule-Registry (Server ✅), Wert-Grammatik ✅, Editor-Modell ✅, Inspektor | 🔄 | `issues/07`, `10`, `13`, `02` |
+| 3 | Chrome: Explorer, Kontextmenü, Spotlight, DnD, Inline-Edit, Undo-UI, Keyboard | ❌ | `issues/03` + 12/16 |
+| 4 | Visual Components, Sections als VCs, Puck-Cutover | ❌ | `issues/04` + 11 (vorher) + 17 (vorher) |
+| 5 | SSE-Kanal, Live-Mitverfolgung, Leistungsbudget | ❌ | `issues/05` |
 
-Davor lag Phase -1 (belegte Auslieferungsfehler behoben, fertig, Commit `7c521e0`). Danach folgen Phase 4 (Visual Components, Sections als VCs, Puck-Cutover) und Phase 5 (Live-Mitverfolgung, Leistungsbudget), beide offen (Tickets 04 und 05).
+---
 
-## 3. Was gebaut ist
+## 4. Entscheidungen, die gelten
 
-Je Paket unter `packages/` ein Zweck und die wichtigsten Dateien. Nur was wirklich existiert.
+**Aus früheren Runden unverändert:** E1 (voller Neubau), E2 (Strangler mit Puck bis zum
+Paritäts-Tor), E3 (ausgeklammert: Rollen, Mehrsprachigkeit, Hosting, A11y, Versionierung,
+Gleichzeitigkeit), E4 (kein Freigabe-Gate; O9-Pflichtprüfung), D1–D12, O1–O9.
 
-| Paket | Zweck | Wichtigste Dateien |
+**17.09.:** O10 drei Gerätestationen (desktop 1440 / tablet 1024 / mobile 390; freie Breite ist
+Ansichtssache), O11 vier Pseudo-States inkl. `disabled`, O12 PG-only bis Phase 5 (**ADR-0004**).
+
+**18.09.:**
+- **O13 — offenes CSS (ADR-0005).** Vier Regeln: (1) kein Property-Verbot im Schreibpfad,
+  (2) `styleGroups` ist Sortierung, kein Verbot, (3) drei Freiheits-Ventile gehören zum Modell
+  (freie `ambient`-Selektoren inkl. Pseudo-Elemente, `rawCss` für `@keyframes`, `contextStyles`
+  für eigene Bedingungen), (4) die Grenze ist **Sicherheit** — und zwar als **Allowlist auf der
+  Wert-Grammatik** mit Normalisierung vor der Prüfung, nicht als Denylist auf Zeichenketten.
+  **Die Grammatik ist Vorbedingung:** solange ihre Umgehungs-Tests nicht grün sind, bleibt
+  `assertStyleProp` stehen. **Nur das Style-Tor fällt:** `assertKnownProp` (Knoten-Props gegen
+  den Katalog, Tippfehler-Erkennung) bleibt.
+- **O14 — Templates + Outlet fehlen im editor-v2-Plan** (offen). Präzisierung: `page_templates`
+  und `templates.ts` existieren im v1-Kern; die Lücke ist editor-v2-seitig und bei VC-Templates.
+- **Zwei-Ebenen-Fence:** ADR-0005 öffnet die **Property-Ebene** für Menschen. Die **Wert-Ebene**
+  bleibt für Agenten eingehegt (Ticket 18: Token-Zwang statt Roh-Hex), verortet im Schreibpfad des
+  Stores, abhängig von `authoredBy`.
+- **Motion (Ticket 19):** F1 Start **nach Ticket-13-Rest** (erfüllt); F2 Authoring **Presets +
+  Intensity** (keine freie Timeline — bleibt M6); F3 Canvas **Live-Modus + Play-Button**, ruhend
+  als Default; F4 Verankerung als **Ticket 19 + ADR-0006**; F5 Runtime **self-hosted**
+  (GSAP 3.15 + ScrollTrigger + SplitText + Lenis, kein ScrollSmoother); **F6 Site-Profile 1:1
+  aus v1** (`clean`/`standard`/`showcase`, Default `standard`, Caps 3/7/10, Lenis aus/an/an,
+  Pin 0/1/1, 3D nein/nein/ja — 3D bleibt M6); **F7 Durchsetzung gestaffelt** (M2 Lenis, M5
+  harte Gates, Profil im Editor über Ticket 20).
+  M0–M5 sind umgesetzt (§2.5); M4 Stufe 1 (Live-Modus mit echter Seite) hängt an Ticket 03.
+
+---
+
+## 5. Die Tickets 01–19
+
+Alle unter `.scratch/editor-v2-rebuild/issues/`. Stand:
+
+| Ticket | Kern | Stand |
 |---|---|---|
-| `@senify/core` | Fehlertyp `SenifyError` und gemeinsame Grundlagen | `src/errors.ts`, `src/index.ts`, `src/testing/` |
-| `@senify/section-sdk` | Schema und Typen für Sektionen (TypeBox als einzige Quelle) | `src/schema.ts`, `src/types.ts`, `src/registry.ts` |
-| `@senify/widget-engine` (neu, Umbau) | Katalog der 23 Grundbausteine, der eine CSS-Compiler, die Kaskaden-Entscheidung, der Markup-Beschreiber, die Legacy-Brücke | `src/catalog.ts`, `src/markup.ts`, `src/css/cascade.ts`, `src/css/compile.ts`, `src/legacy.ts`, `src/mapping.ts`, `src/controls.ts`, `src/device.ts`, `src/types.ts` |
-| `@senify/registry` | Sektionskatalog mit 28 kuratierten Sektionen, Varianten, Golden-Beispielen und React-Komponenten; dazu der gemeinsame Renderpfad | `src/index.ts`, `src/components/map.tsx` (`SectionTree`, fragt zuerst die laufende Section-Registry, dann den Katalog-Beschreiber), `src/components/primitives.tsx` (Katalog-Renderer) |
-| `@senify/renderer` | Bake der statischen Seiten, Bindings, Loops, Formular-Auslieferung | `src/bake.ts` (schreibt das Grund-CSS als `assets/primitive-base.css`), `src/style-css.ts`, `src/bindings.ts`, `astro-template/src/components/Section.astro` (inlinet `PRIMITIVE_BASE_CSS` genau dann, wenn ein Katalog-Baustein vorkommt) |
-| `@senify/tokens` | Theme und Tokens (Farben, Typo, Abstände, Radius) | `src/default-theme.ts` (trägt jetzt die Tiefwasser-Palette statt Indigo), `src/scales.ts`, `src/emit.ts`, `src/contrast.ts`, `src/resolve.ts` |
-| `@senify/engine` | Backend: Store, HTTP-Routen, Mutations, Checks, Lifecycle, Formulare, Referenzen, Einstellungen, Mail, Backup | `src/http.ts`, `src/store.ts`, `src/mutations/contract.ts`, `src/mutations/editor-contract.ts`, `src/mutations/editor-bridge.ts`, `src/bake.ts`, `src/lifecycle.ts` |
-| `@senify/editor` | der visuelle Editor. Neubau: Store, Canvas, Editor-Haut (Tokens, Schrift, Symbole). Altbestand (Elementor-nahe T17-Oberfläche, weiter in Betrieb) | Neubau: `src/state/store.ts` (EditorStore, einziges Schreibtor), `src/state/{document,operations,patches,selection,migration,consistency}.ts`, `src/canvas/{canvas,rules,styles,insert,selection,device}.ts`, `src/ui/{tokens,skin,fonts,icons}.ts`, `src/styles.ts`, `src/mount.ts`. Altbestand: `src/adapter.ts`, `src/puck.ts`, `src/panels.ts`, `src/explorer.ts`, `src/spotlight.ts`, `src/golden.ts` |
-| `@senify/app` | Programm-Shell: Dashboard-Server mit Proxy, SPA, Editor-Bundle on demand (esbuild) | `src/server.ts`, `src/start.ts`, `src/startup.ts`, `public/app.js`, `public/app.css` |
-| `@senify/mcp` | CLI (`senify`), MCP-Server, Token-Ausgabe, Skill-Auslieferung | `src/cli.ts`, `src/server.ts`, `src/tools.ts`, `src/clients.ts` |
-| `@senify/docs-portal` | Statisches Dokumentationsportal (Astro, Pagefind, Agenten-Exporte) | `src/index.ts`, `src/portal.ts`, `src/exports.ts`, `src/reference.ts` |
-| `@senify/skills` | Skillpaket für Agenten-Clients | `src/index.ts` |
-| `@senify/analysis-worker` | Worker für die Referenz-Analyse und den Bildvergleich (Playwright, Pixel-Diff, Motion-Video) | `src/index.ts`, `src/visual.ts` |
+| 01-widget-engine-canvas | Phase 0/1: Fundament, Primitive, Canvas, DnD | Fundament ✅, Punkt 7 (DnD) offen → Ticket 12 |
+| 02-style-engine-inspector | Inspektor, volle CSS-Fähigkeiten, MCP-Style-Tools | Punkt 1 erledigt (Server); Punkte 2–7 offen |
+| 03-editor-chrome | Phase 3: Explorer, Kontextmenü, Spotlight, Inline-Edit, Tastatur | offen |
+| 04-visual-components | Phase 4: VCs, Sections als VCs, Cutover | offen |
+| 05-live-build-follow-polish | Phase 5: SSE, Live-Mitverfolgung | offen |
+| 06-adr-puck-abschied | ADR-06 (Puck-Abschied) | offen |
+| 07-style-rule-modell | Kanonisches Modell im Editor-Dokument + Wert-Grammatik + `states`/`authoredBy` | **erledigt (Stufen 0–6)** |
+| 08-geraetestationen | Drei Stationen | **erledigt** (O10; ui-plan/aufgaben korrigiert) |
+| 09-pseudo-state-disabled | `disabled` als vierter State | **erledigt** (O11) |
+| 10-layout-vokabular | Tor abschaffen, Layout als Oberflächen-Beschreibung, CSS-Namen | **erledigt** bis auf die Inspektor-Anzeige |
+| 11-hidden-devices-migration | per-Breakpoint `hidden` retten | offen, **vor Cutover** |
+| 12-dnd-vorziehen | DnD/Plus-Punkte/Einfügelinie | offen, parallel |
+| 13-bridge-style-rules | Editor-Anbindung, Bake, `states` im Transport | **erledigt** (Server, Transport, Save-Pipeline, Bake, scoped-Rekey mit 22, Slot-/Collection-Transport); UI-Nutzung der Slot-Ops mit dem E2-Cutover |
+| 14-klassen-emission-messen | Klassen-Emission regional vs. global messen | **erledigt (19.09.)**: global umgestellt (4,2–8,2x), regional als Option |
+| 15-dialekt-entscheidung | ADR-0004 + grep-Gate-Test | **erledigt** (18.09.) |
+| 16-marker-overlay-portal | Marker-Overlay im Portal (Alt-Palette beenden) | offen |
+| 17-releases-cutover | Publish über `POST /api/releases`, Paritäts-Tor als CI-Blocker | offen |
+| 18-agent-style-gate | Wert-Ebene-Fence als Tests (`authoredBy`) | offen |
+| 19-motion-authoring | Motion-Spec v2 im Editor: Modell/Bridge, Inspektor, Canvas (Play), Guardrails | **M0–M5 umgesetzt** (18.09.); offen: M4 Stufe 1 (Ticket 03) |
+| 20-site-settings-profile | Site-Profil im Editor: Kanal, Anzeige, Wechsel-Validierung, Profil-Gates | **umgesetzt** (18.09.) |
+| 21-klassen-am-dom | User-Klassen + Scope-Klasse am Wurzelelement (Anker-Selektoren treffen in Canvas und Bake) | **umgesetzt** (18.09.) |
+| 22-scoped-rekey-bake | ID-Map aus dem Layout-Splice, `nodeIdMap` pro Route, scoped-Remap in `styleRulesCss` | **umgesetzt** (18.09.) |
 
-## 4. Was bewiesen ist
+---
 
-Zahlen und Belege mit Fundort. "Heute" heißt: in dieser Runde erneut gefahren. "Frühere Runde" heißt: aus einem Bericht oder Screenshot zitiert, heute nicht erneut gefahren.
+## 6. Nächste Schritte (Reihenfolge aus `ledger.md`)
 
-| Beleg | Zahl | Fundort | Wann |
-|---|---|---|---|
-| Testlage | 921 grün, 2 übersprungen, 117 Dateien, 0 rot | `pnpm test`, Log `.scratch/testlauf-handoff.log` | heute |
-| Typecheck und Lint | je Exit 0 | `pnpm typecheck`, `pnpm lint` | heute |
-| Durchstich Canvas gegen Release | 1120 x 48 Bildpunkte, 3 abweichende, Verhältnis 0,0000558 (Toleranz 0,01); jedes Maß gleich (maxWidth 1120px; `grid-template-columns` `362.656px 362.672px 362.656px`; `columnGap` 16px; `margin` 0px); Überlauf 0 px auf beiden Seiten | `packages/app/test/widget-slice-browser.test.ts`, Zeile `PARITY` im Test-Log; Belege `.scratch/refs/nick/ui/phase1-durchstich-canvas-voll.png`, `phase1-durchstich-release-1440.png` | heute |
-| Gegenprobe des Paritäts-Tors | ohne Grund-CSS Verhältnis 0,485 und `maxWidth: none`; das Tor ist scharf genug | derselbe Test, Zeile `PARITY-GEGENPROBE`; `phase1-durchstich-gegenprobe.png`, `phase1-durchstich-ohne-grund-angleich.png` | heute |
-| Grund-Styling in beiden Pfaden | Canvas-Frame und Release tragen dasselbe `PRIMITIVE_BASE_CSS` in `@layer user-authored`, byte-gleich, vor dem Markup | `packages/editor/test/canvas/rules.test.ts`, `packages/renderer/test/widget-bake.test.ts` (grün in der Suite) | heute |
-| Token-Treue in Editor und Canvas | je 116 von 116 `--ed-*`-Tokens gleich `packages/editor/src/ui/tokens.ts`; Kopfleiste `rgb(2 67 100)`, Veröffentlichen-Knopf `rgb(203 255 151)`, Bühne `rgb(1 40 60)` | `.scratch/refs/nick/ui/nachweis-canvas.json` (und `nachweis-r60.json`); Test `packages/editor/test/ui/canvas-skin.test.ts` | frühere Runde (Skript `pruef-nachweis-canvas.mjs`), Test in der Suite |
-| Kontraste | 41 von 41 Zeilen ohne Abweichung (`data-kontrast-geprueft="ok"`) | `.scratch/refs/nick/ui/nachweis-r60.json`; Test `packages/editor/test/ui/contrast.test.ts` | frühere Runde (Skript), Test heute |
-| Symbole | Editor 36 von 36 gezeichnet, 0 Platzhalter; Canvas 2 von 2; Vorschau 195 von 199 (die 4 übrigen im eingeklappten "Weitere"-Block, kein Fehler) | `nachweis-canvas.json`, `nachweis-r60.json` | frühere Runde |
-| Schrift | berechnete Familien Inter (Text) und Inter Display (Titel), sechs Schnitte geladen, CLS höchstens 0,046 | `nachweis-canvas.json`, `nachweis-r60.json` | frühere Runde |
-| Zustandsprobe je Komponente | 96 Zellen, 78 sichtbar anders als die Ruhe, zwei dokumentierte Ausnahmen | `.scratch/refs/nick/ui/pruefung-zustand-layout.json`; Test `packages/editor/test/ui/zustands-und-layoutprobe.test.ts` | frühere Runde (Skript), Test heute |
-| Panel-Breiten und Ziehen | Standard 320 x 264, Ziehen +40 auf 360, Grenze 420, Doppelklick zurück, Explorer 200 bis 360, kein Überlauf | `packages/app/test/editor-panels-browser.test.ts`; `.scratch/refs/nick/ui/canvas-panels-1440.png` | heute (Test in der Suite) |
-| Canvas-Bausteine | `[data-widget="heading"]` mit `class="w-heading"` in allen drei Geräten, `[data-widget="divider"]` 0 Treffer (Dublette bleibt bei der Section), null Konsolenfehler | `packages/app/test/canvas-browser.test.ts` (Test heute); Belegbild `.scratch/refs/nick/ui/canvas-bausteine-1600.png` | Test heute, Belegbild frühere Runde |
+**Erledigt am 18.09.:** Ticket 09, die Wert-Grammatik (Ticket 07 Stufe 0), Ticket 10
+bis auf die Inspektor-Anzeige, Ticket 13 komplett (Transport, Save-Pipeline,
+Bake-Renderpfad, scoped-Rekey), Klassen am DOM (Ticket 21), Motion M0–M5 (Ticket 19),
+Ticket 20 (Site-Profil) und Ticket 15 (PG-Dialekt-Gate). **Am 19.09.:** Slot-/Collection-
+Transport verifiziert und abgeschlossen (Nachtrag eines parallelen Strangs), Ticket 14
+(Klassen-Emission gemessen, auf global umgestellt). Der Testlauf ist grün (1176/2/132).
 
-Die zwei übersprungenen Tests sind die bekannten Postgres-Fälle `persistBatch transactions (real Postgres)` in `packages/engine/test/transactions.test.ts` (`describe.skipIf`, weil `TEST_DATABASE_URL` nicht gesetzt ist). Kein Test ist ohne Grund übersprungen, keiner gelöscht.
+**Als Nächstes:**
 
-## 5. Wie man startet und prüft
+1. **M4 Stufe 1** (Ticket 19): Live-Modus zeigt die echte Seite (Ticket 03) → echte Motion
+   ohne Extra-Code; Scrub-Stufe bleibt M6. Danach ist Motion fachlich abgeschlossen.
+2. **Ticket 03 (Editor-Chrome):** Explorer/Kontextmenü/Spotlight/Inline-Edit/Tastatur —
+   enthält den Live-Modus, auf dem M4 Stufe 1 aufsetzt.
+3. **Parallel:** 12 (DnD), 18 (Agent-Style-Gate).
+4. **Ende Phase 2/Anfang 3:** 16 (Marker-Overlay), 17 (Releases-Cutover).
+5. **Vor dem Cutover:** 11. **Erledigt:** 14 (Emission), 15 (PG-Dialekt-Gate), 21 (Klassen am
+   DOM), 22 (scoped-Rekey), 13 vollständig (18./19.09.).
 
-### Voraussetzungen
+**Strategischer Rahmen (19.09.):** `docs/verbesserungsplan.md` — Zielbild Framer/Webflow-Niveau,
+Lücken L1–L33 (P0–P3), 16 Epics (E1–E16) mit Akzeptanzkriterien, Roadmap Phase A–D, Gates und die
+nächsten 10 Arbeitspakete. Aus sechs Audits (Technik, UX, KI/MCP, Produktreife, Benchmark, UI),
+Kernbehauptungen am Code verifiziert.
 
-- Node.js 24 oder neuer, pnpm 10.
-- Ein Postgres. Entweder Docker (`docker compose up -d`, Postgres auf Port 5433) oder eine eigene Instanz. Die Verbindungs-URL steht als `databaseUrl` in `~/.senify/config.json` oder als Umgebungsvariable `SENIFY_DATABASE_URL`.
-- Für Browser-Belege Chromium: `npx playwright install chromium`.
+---
 
-### Starten
+## 7. Starten und prüfen
 
-```bash
-pnpm install
-pnpm start                # Engine und Dashboard in einem Prozess
-pnpm start -- --no-open   # ohne Browser zu öffnen
-```
+- Node.js 24+, pnpm 10, Postgres (Docker `docker compose up -d` auf Port 5433 oder eigene
+  Instanz; URL als `SENIFY_DATABASE_URL` oder in `~/.senify/config.json`).
+- `pnpm install && pnpm start` (oder `-- --no-open`); Programm `http://localhost:4322`,
+  Engine `http://localhost:4321`.
+- Editor: `…/pages/<page-id>?view=editor`, Canvas: `?view=canvas`.
+- `pnpm test` / `pnpm typecheck` / `pnpm lint` / `pnpm verify` (das Gate).
+- Die zwei übersprungenen Tests brauchen echtes Postgres (`TEST_DATABASE_URL`).
+- Für Messungen: flüchtige Instanz (`startProgram`, `appPort: 0`/`enginePort: 0`) statt der
+  festen Dienste — so tun es die Browser-Tests und die `pruef-*.mjs`.
 
-- Programm (Dashboard): `http://localhost:4322`
-- Engine: `http://localhost:4321`
-- Beenden mit Strg+C. `--engine-port` und `--app-port` ändern die Ports; `--no-open` verhindert das Öffnen des Browsers.
+---
 
-### Ansichten im Browser erreichen
+## 8. Fallen und Erfahrungen
 
-- Projekt anlegen (nur ein Name genügt), die Karte in der Übersicht öffnen, dann eine Seite öffnen.
-- Die Arbeitsflächen-Ansicht (der laufende Elementor-nahe Editor) öffnet über die Adresse `http://localhost:4322/#/projects/<site-id>/pages/<page-id>?view=editor`.
-- Die Canvas-Ansicht öffnet über dieselbe Adresse mit `?view=canvas`.
-- Umschalten geht auch über die Knöpfe in der Oberfläche: `.editor-switch button[data-view="editor"]` und `[data-view="canvas"]`.
+**Aus früheren Runden weiter gültig:** Dienste nach Codeänderungen neu starten (Bundles werden im
+Speicher gehalten); für Messungen eine flüchtige Instanz; Namensdublette `divider`/`embed` bleibt
+bei der Section; Bildvergleich nur mit Toleranz; Sonderzeichen in Commit-Nachrichten über eine
+Datei; CLI über `tsx`; `pg-mem` verdeckt Rollback; React-`key` nie über einen Spread;
+Tailwind-`@source` nach dem Staging neu schreiben; `display: grid` ist kein Designwert;
+`--ed-ink-faint` ist kein Textwert; Lazy-Bilder erst nach `scrollIntoViewIfNeeded()`; vor jedem
+Commit `git status` prüfen und nach Pfaden stagen, nie `git add -A`.
 
-### Prüfen
+**Neu am 18.09.:**
 
-```bash
-pnpm test        # vitest über alle Pakete
-pnpm typecheck   # tsc
-pnpm lint        # eslint packages
-pnpm verify      # build + lint + test, das Gate
-```
+- **Die Dokumente beschreiben den Arbeitsbaum, nicht `HEAD`.** Mehrere Stellen sagen „liegt
+  uncommittet im Arbeitsbaum, nicht in HEAD". Wer eine Behauptung prüft, prüft zuerst `git grep
+  … HEAD` — die Spalte `style_rules_json` etwa war nie in einem Commit.
+- **Parallele Stränge arbeiten im selben Baum.** Am 18.09. 22:04 änderte eine zweite Sitzung
+  `contract.ts`/`apply.ts`/`editor-bridge.ts`/`persist.ts` **nach** dem letzten grünen
+  Gesamtlauf; zurück blieben ein stale Bridge-Test (erwartete die alte Ablehnung) und ein
+  Typfehler im jetzt unerreichbaren `default`-Zweig. Ein grüner Lauf gilt nur für den Stand,
+  auf dem er lief: vor dem Weiterarbeiten `git status` **und Dateizeiten** prüfen, nach fremden
+  Änderungen erst `pnpm test` + `pnpm typecheck` + `pnpm lint`, dann dokumentieren.
+- **DB ist PG-only by decision (ADR-0004).** Keine `::`-Casts, kein `now()` in DML, JSON nur über
+  die `db.ts`-Helfer, `ALTER … ADD COLUMN IF NOT EXISTS` nur in `db.ts`. Der grep-Gate-Test dazu
+  ist Ticket 15.
+- **Das offene CSS hat Golden-Snapshots geändert.** Wer `styleGroups` entsperrt oder Properties
+  durchreicht, muss die Snapshots nachziehen (am 18.09. geschehen; der rote Zwischenstand mit
+  15 `css-golden`-Fällen ist im Log als Beleg, kein Regressionsbefund).
+- **Die Wert-Grammatik ist die Sicherheitsgrenze.** Eine Denylist auf Teilstrings (`javascript:`,
+  `expression(`, `@import`) ist umgehbar (`url(jav\61 script:…)`, `u\72 l(…)`, `expr/**/ession(…)`,
+  `URL( JAVASCRIPT:… )`). Geprüft wird die **normalisierte** Form, emittiert wird dieselbe.
+- **`origin` hat zwei Bedeutungen, die nicht vermischt werden dürfen:** Import-Herkunft
+  (`{ source, ordinal }`, kanonisches Modell) und Autor-Herkunft (`authoredBy`, Ticket 18).
+- **Ticket 08 war scheinbar offen, weil ein grep „Acht-Stationen-Pfad" als Treffer zählte.** Die
+  Plan-Dokumente sind korrigiert; die Abnahme ist erfüllt.
+- **Bekannt flaky:** `packages/engine/test/theme.test.ts` (Ephemeral-Port + undici; in Isolation
+  grün) und der Playwright-Klick in `entry-preview-browser.test.ts` (Timeout, Neulauf).
+- **Der Bake rekeyt Knoten-IDs beim Layout-Splice** (`engine/src/templates.ts`
+  `rekeyChildren`). Seit Ticket 22 gibt `composePageTree` die Draft→komponiert-Map mit aus
+  (`idMap`), der Bake reicht sie als `nodeIdMap` durch und `styleRulesCss` remappt scoped-Regeln
+  darauf. Wer komponiert und Regeln an Draft-IDs bindet, muss die Map mitziehen — sonst fällt die
+  Regel im Release still weg. `class`-Regeln hängen am Knoten und wandern mit;
+  `ambient`/`rawCss` sind ID-frei.
+- **Anker-Selektoren brauchen die Klasse im DOM** (Ticket 21): `class`-Regeln werden als
+  `[data-node-id].name`, scoped als `[data-node-id].__senify_scope_<id>` emittiert. Das
+  Wurzelelement trägt beides über `nodeRootClasses` (User-Klassen + deterministische
+  Scope-Klasse). Wer eine neue Renderstelle für Knoten baut, muss sie ebenfalls setzen, sonst
+  sind die Regeln dort tote Selektoren.
+- **Motion überlebt die v1→v2-Migration jetzt** (M1, 18.09.): `migration.ts` kopiert `motion`
+  mit; der frühere stille Verlust und der falsche Kommentar („nur `hidden` fällt weg") sind
+  behoben und getestet.
+- **Der Freeze ist implementiert (M2):** `analysis-worker/src/visual.ts` setzt
+  `__SENIFY_MOTION__ = "off"` per `addInitScript` (Option `motion: "off" | "live"`, Default
+  off), erzwingt `scroll-behavior: auto` und wartet 2 rAF; die Runtime respektiert den
+  Kill-Switch und gibt Pending frei. Gegenprobe als Browser-Test (`visual.test.ts`); das
+  Paritäts-Tor selbst (`widget-slice-browser.test.ts`) bleibt unverändert.
 
-Die zwei übersprungenen Tests brauchen echtes Postgres:
-
-```powershell
-$env:TEST_DATABASE_URL = "postgres://senify@127.0.0.1:5433/senify"
-pnpm exec vitest run packages/engine/test/transactions.test.ts
-```
-
-Freiwillige Browser- und Messberichte:
-
-- Die Skripte `pruef-*.mjs` unter `.scratch/editor-v2-rebuild/` schreiben JSON-Berichte und Screenshots nach `.scratch/refs/nick/ui/`.
-- Sie starten eine eigene, flüchtige Programm-Instanz (`startProgram`, `appPort: 0` / `enginePort: 0`), fassen keinen laufenden Dienst an und beenden die eigene Instanz wieder.
-- Die Browser-Tests des Repos (`packages/app/test/*-browser.test.ts`) laufen mit `pnpm test` mit und überspringen sich sauber, wenn kein Chromium vorhanden ist.
-
-## 6. Entscheidungen, die gelten
-
-- **Tiefwasser-Designsprache mit Limette als Signal.** Dunkles Tiefwasser (`#01283c`, `#083247`, `#024364`) als Grund, Lime `#cbff97` genau einmal je Abschnitt als Hauptaktion und Fokusring; der Inhalt bleibt die hellste Fläche. Quelle: `.scratch/refs/precious-board/design.md`, `design-guidelines.md`, `design-components.md`.
-- **Tokens aus einer Quelle.** Alle Editor-Werte stehen als Code in `packages/editor/src/ui/tokens.ts`; die CSS-Variablen werden daraus erzeugt, nie abgeschrieben. Tests: `packages/editor/test/ui/plan-tokens.test.ts`, `vorschau-paritaet.test.ts`, `tokens` gegen `tokens.ts`. Die Site-Theme-Ausgabe (`packages/tokens/src/default-theme.ts`) und die Editor-Haut teilen dieselben Anker.
-- **Inhaltsbereich bleibt neutral.** Die Haut trifft nur die Bedienoberfläche. Im Inhaltsdokument (iframe) stehen 0 `--ed-*`-Variablen und kein `data-editor-skin`; das Canvas-Blatt bleibt `#ffffff`. Quelle: `ui-plan.md` Abschnitt 0, `ui-design.md` Grundsatz 1.
-- **Oberfläche im Modus Operate ohne KI-Look.** Zwölf Verbotsregeln (keine Verläufe, kein Glas außer der einen Spotlight-Fläche, keine Emoji, keine großen Radien, keine Dauerbewegung, keine Farbe als einziger Träger, keine zweite Palette). Quelle: `ui-design.md` Abschnitt 6.
-- **Kein Code aus `Repos/elementor-main`.** Die Ablage dient nur als Bauplan; jeder Eintrag nennt Konzept, Maß und Verhalten und die Datei. Lizenz und Konzepttrennung stehen in `ui-elementor.md` Abschnitt 0. Es wird nichts kopiert.
-- **Puck wird am Ende entfernt.** Strangler-Strategie (Entscheidung E2 in `map.md`): Puck bleibt bis zum Paritäts-Tor, erst danach wird er entfernt. `adapter.ts`, `puck.ts` und die Puck-Typen fallen mit dem Cutover (Ticket 06, ADR noch zu schreiben).
-- **Direktes Veröffentlichen ist erlaubt.** Kein Freigabe-Gate (E4). Dafür ist die automatische Browser-Prüfung vor dem Veröffentlichen Pflicht (O9), sonst fehlt jedes Netz.
-- **Eine Kaskade, ein Ort.** Alle erzeugten Regeln liegen in der einen Schicht `@layer user-authored`; die Reihenfolge macht allein die Ausgabereihenfolge der festen Stufen `base -> device -> state -> class -> inline` (schwach nach stark). `kind` (class|ambient|scoped) bleibt Datum und bestimmt die Reihenfolge nicht. Nicht geschichtetes Editor-Chrome schlägt jede erzeugte Regel. Quelle: `packages/widget-engine/src/css/cascade.ts`, `ui-plan.md` Abschnitt 0 (O1).
-- **Ein Markup-Beschreiber ist die einzige Quelle.** Tag, Klassen, Attribute und Grund-CSS der 23 Bausteine stehen in `packages/widget-engine/src/markup.ts`. Canvas und Bake nutzen beide `SectionTree` und malen daraus; kein Baustein ist ein Sonderfall in einer Komponente.
-- **Namensdublette `divider` und `embed` bleibt bei der Section.** Wo beide Vokabulare denselben Namen tragen, bleibt die laufende Section-Registry zuständig; der Katalog-Beschreiber greift nur, wo es keine Section-Komponente gibt (Strangler, E2). Auflösung mit dem Cutover.
-- **Der Store ist das einzige Schreibtor.** Jede Änderung geht durch `EditorStore.apply` (Validierung, Patch, History); die Engine-seitige Schreib-API sind die kanonischen Mutationen (`CONTEXT.md`, ADR 0001).
-
-## 7. Fallen und Erfahrungen
-
-- **Dienste nach Codeänderungen neu starten.** Das Editor-Bundle (`/editor.js`) wird beim ersten Aufruf gebaut und im laufenden Prozess gemerkt (`packages/app/src/server.ts`, `editorBundle`); auch Engine und Programm halten Code im Speicher. Ein laufender Dienst zeigt sonst den alten Stand, und Messungen am alten Stand sind wertlos.
-- **Für Messungen eine flüchtige Instanz verwenden.** Statt die festen Dienste zu starten, eine eigene Instanz über `startProgram` mit `appPort: 0` und `enginePort: 0` auf freien Ports aufziehen (so tun es die Browser-Tests des Repos und die `pruef-*.mjs`). Das fasst keinen laufenden Prozess an und räumt sich selbst auf.
-- **Namensdublette `divider` und `embed`.** Dieselben zwei Namen stehen in `widget-engine/src/legacy.ts` und in `packages/registry/src/index.ts`. Fragt der Renderpfad den Katalog zuerst, werden Altseiten stillschweigend umgeleitet. Deshalb fragt `SectionTree` (in `src/components/map.tsx`) zuerst die Section-Registry. Reihenfolge nicht umdrehen.
-- **Bildvergleich nur mit Toleranz, nie auf Pixelgleichheit.** Schrift- und Kantenglättung unterscheiden sich zwischen Canvas und Release. Das Tor von Phase 1 vergleicht daher mit Toleranz (`threshold: 24` je Kanal, Verhältnis-Obergrenze 0,01) und liest zusätzlich jedes Maß numerisch. Gegenprobe nicht vergessen, sonst sagt die Zahl nichts.
-- **Sonderzeichen in Commit-Nachrichten über eine Datei übergeben.** Betreffzeilen mit Umlauten über die Kommandozeile zu übergeben verstümmelt sie unter Windows. Stattdessen in eine Datei schreiben und `git commit -F <datei>` verwenden (Beispiel: `.scratch/refs/commit-msg.txt`). Betreffzeile mit Ticketnummer, Leerzeile, `Co-authored-by`-Zeile.
-- **Node kann die CLI nicht direkt ausführen.** Die Registry enthält `.tsx`-Dateien, die reines Node nicht lädt. Deshalb läuft die CLI über `tsx` (`pnpm start`, `pnpm senify`).
-- **`pg-mem` verdeckt Rollback.** In der Standardsuite läuft die Datenbank auf `pg-mem` und ignoriert das Rollback in `withTransaction`. Zwei Tests prüfen das nur gegen echtes Postgres und überspringen sich ohne `TEST_DATABASE_URL` (`packages/engine/test/transactions.test.ts`).
-- **React-`key` nie über einen Spread geben.** Er muss direkt am Element stehen, sonst warnt React (Konsolenfehler). Gefunden erst im Browser-Test; siehe `packages/registry/src/components/primitives.tsx`.
-- **Tailwind-`@source` nach dem Staging neu schreiben.** Der Bake kopiert `astro-template` eine Ebene tiefer und rechnet den `registry`-Pfad in `global.css` neu (`packages/renderer/src/bake.ts`, `rewriteTailwindSource`). Ohne das greift Tailwind auf den falschen Quellen.
-- **Bekannt flaky, nicht angefasst:** `packages/engine/test/theme.test.ts` kann beim Token-Bootstrap mit `fetch failed` / `bad port` rot werden. Ursache ist der Ephemeral-Port aus `engine.listen({ port: 0 })`; undici verweigert bestimmte Ports. In Isolation grün. Inhaltfehler ist ausgeschlossen.
-- **`display: grid` für einen Gitter-Container ist kein Designwert.** Ohne es läge `grid-template-columns` auf einer Blockbox und bliebe wirkungslos. Deshalb steht im Reset von `markup.ts` `grid: ["display: grid;"]` (wie `display: flex` bei `input`).
-- **`--ed-ink-faint` ist kein Textwert.** Er erreicht nur 2,64 bis 3,83:1 und wird nur für Symbole und Trenner benutzt, nie als alleinige Kennzeichnung. Auf Auswahlflächen steht nie `--ed-ink-muted`, sondern `--ed-ink-base` oder `--ed-ink-strong` (`ui-design.md` 8.3).
-- **Lazy-Bilder laden im Test erst im Sichtfeld.** Für `naturalWidth`-Prüfungen erst `scrollIntoViewIfNeeded()`, und als Fixture ein echt dekodierbares PNG verwenden.
-- **Zwei Sessions im selben Arbeitsbaum.** Vor jedem Commit `git status` prüfen und immer nach Pfaden stagen, nie `git add -A`. `.scratch/` und `.commandcode/` bleiben absichtlich uncommittet.
-
-## 8. Offene Punkte und nächste Schritte
-
-Nach Dringlichkeit geordnet, aus dem Zustandsbuch (`.scratch/editor-v2-rebuild/ledger.md`).
-
-1. **Phase 2 beginnen: die Style-Rule-Registry im Engine-Store anlegen.** Das ist der erste Schritt und lässt sich ohne Rückfrage starten. Im Einzelnen: `sites.style_rules_json` additiv migrieren (kein `ALTER` an Bestehendem); Regeln als `kind class|ambient|scoped` mit `contextStyles`, `origin` und der Kaskaden-Reihenfolge speichern; über die Mutations-API schreibbar machen (`createStyleRule`, `updateStyleRule`, `deleteStyleRule`, `reorderStyleRule`) und mit einem Roundtrip-Test absichern (Ticket 02, Punkt 1). Berührte Stellen: `packages/engine/src/mutations/contract.ts`, `packages/engine/src/store.ts`, `packages/editor/src/state/`, `packages/widget-engine/src/css/`. Danach `pnpm typecheck`, `pnpm lint`, `pnpm test` grün fahren.
-2. **Veröffentlichen und Speichern mit Katalog-Namen.** Der Durchstich veröffentlicht bisher über `bakeSite` (dieselbe Funktion, die `bakePages` der Engine ruft) und noch nicht über `POST /api/releases`; die Katalog-Namen sind in der Mutations-API der Engine nicht registriert (Strangler, E2). Fällt mit dem Cutover in Phase 4.
-3. **Dublette `divider` und `embed` auflösen.** Bis zum Paritäts-Tor bleibt sie bei der Section (Katalog-Beschreiber für diese zwei ungenutzt). Auflösung mit dem Cutover in Phase 4 oder als eigene Namensentscheidung.
-4. **Ziehen und Ablegen, Plus-Punkte, Einfügelinie** (Ticket 01 Punkt 7) bauen. Bewusst noch nicht gebaut (`packages/editor/src/canvas/insert.ts`: Einfügen nur per Katalog-Klick). Selektionsring und vier Handles gibt es bereits.
-5. **Phase 3 (Chrome): Explorer, Kontextmenü, Spotlight, Inline-Edit, Undo-UI, Tastatur.** Umfang in `issues/03-editor-chrome.md`, ausführlicher Bauplan in `ui-plan.md` und `ui-aufgaben.md`. Offene UI-Reste laut `ui-aufgaben.md`: die Typo-Primitiven `Text`/`Micro`/`Label`/`MonoNum`, die Canvas-Kopfleiste ohne Titelzeile (nutzt dort nur `--ed-font-body`), und die Punkte 33 bis 46 (Medienwahl, Typografie-Gruppe, Bedingung, Raster, Mehrfachauswahl, Vorlesbarkeit und weitere).
-6. **ADR-06 schreiben (Puck-Abschied).** `adapter.ts`, `puck.ts` und die Puck-Typen werden mit dem Cutover entfernt; der neue Vertrag ist `WidgetDefinition` plus NodeTree-v2 plus Mutations-v2. Nächste freie Nummer in `docs/adr/`.
-7. **Später:** Phase 4 (Visual Components, Sections als VCs, Cutover) und Phase 5 (SSE-Kanal, Live-Mitverfolgung, Leistungsbudget).
+---
 
 ## 9. Verweise
 
-Plandokumente und Zustandsbuch (unter `.scratch/editor-v2-rebuild/`):
-
-- `ledger.md` (Zustandsbuch: Ziel, Kern, Geprüft, Offen, Nächster Schritt)
-- `map.md` (Umbauplan mit den Entscheidungen E1 bis E5 und den Phasen -1 bis 5)
-- `ui-plan.md` (verbindlicher UI-Plan je Baustein), `ui-aufgaben.md` (Aufgabenliste und Rundenstände), `ui-elementor.md` (Bauplanauswertung mit Dateibelegen), `ui-design.md` (Werte, Regeln, Kontrastnachweise)
-- `ui-preview/index.html` (Sollbild aller Komponenten und Zustände ohne Buildschritt)
-- `issues/01-widget-engine-canvas.md` bis `issues/06-adr-puck-abschied.md` (die sechs Tickets)
-
-Architekturentscheidungen:
-
-- `docs/adr/0001-json-first-bau-modell.md`, `docs/adr/0002-astro-als-site-renderer.md`, `docs/adr/0003-gsap-als-choreografie-kern.md` (ADR-06 steht noch aus)
-
-Designsprache (Auftraggeber, verbindlich):
-
-- `.scratch/refs/precious-board/design.md`, `design-guidelines.md`, `design-components.md`
-
-Belegordner (Messberichte und Screenshots, nicht committet):
-
-- `.scratch/refs/nick/ui/` (JSON-Berichte `nachweis-*.json`, `pruefung-*.json`; Screenshots `phase1-durchstich-*.png`, `r60-*.png`, `canvas-*.png`, `layoutprobe-*.png` und weitere)
-- `.scratch/testlauf-handoff.log` (Testlauf dieser Runde)
-- Die Belegskripte `.scratch/editor-v2-rebuild/pruef-*.mjs`
-
-Fachmodell und Arbeitsweise:
-
-- `CONTEXT.md` (Fachmodell und Begriffe), `AGENTS.md` (Arbeitsweise für Agenten), `docs/agents/` (Ticketprozess, Triage, Domänendokumente)
-- `README.md` (Startanleitung), `docs/adr/` (Entscheidungen)
+- Entscheidungen: `docs/adr/0001–0006` (0004 PG-only, 0005 offenes CSS, 0006 Motion-Authoring).
+- Planung: `.scratch/editor-v2-rebuild/` — `map.md` (E/D/O-Entscheidungen, Tickets 01–22),
+  `ledger.md` (Zustandsbuch + nächste Schritte), `ui-plan.md`, `ui-design.md`, `ui-aufgaben.md`,
+  `ui-elementor.md`, `ui-preview/index.html`, `issues/01–22`.
+- Motion: `docs/adr/0006-motion-authoring.md` + `.scratch/motion-v2/` — `research.md`, `plan.md`,
+  `plugin-analyse.md`, `preset-matrix.md`, `payload-spec.md`, `freeze-spec.md`
+  (`adr-0006-entwurf.md` bleibt als Protokoll); Plugin-Quelle:
+  `C:\Users\adini\Local Sites\hcm\app\public\wp-content\plugins\wp-gsap-heading-reveal`.
+- Analyse: `.scratch/editor-v2-rebuild/research/` (`01-analyse.md`, `02-bauplan-aenderungen.md`,
+  `03-strategische-ueberholspuren.md`, `README.md`).
+- Vergleichsbasis: `Repos/instatic` (Clone) + `Repos/instatic/research/instatic/` (21 Dokumente);
+  Bauplan-Quellen `Repos/elementor-main`, `Repos/emdash` (nur Lektüre, nichts kopiert).
+- Belege: `.scratch/testlauf-18-09.log` (roter Zwischenstand), `.scratch/refs/nick/ui/`,
+  `pruef-*.mjs`-Skripte.
+- Fachmodell/Arbeitsweise: `CONTEXT.md`, `AGENTS.md`, `docs/agents/`, `README.md`.

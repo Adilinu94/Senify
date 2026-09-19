@@ -93,6 +93,65 @@ sind nur teilweise zutreffend.
   und Release oeffnen, keine 404, CSS und Skripte vorhanden, Bilder geladen,
   Ueberschriftengroessen, kein waagerechter Ueberlauf, Navigation sichtbar, Mobil geprueft.
   Nachtrag in Ticket 07 und in `.scratch/senify-v1-build/issues/07-lifecycle-review-checks.md`.
+- **O10 ENTSCHEIDEN (17.09.):** Geraetestationen = **drei** (desktop/tablet/mobile) als einzige
+  Override-Stufen; freie Breite ist Ansichtssache (Frame-Label mit px-Feld) und schreibt keinen
+  Stilwert. ui-plan 5.13 und ui-aufgaben 34 sind entsprechend angepasst. Kein Schema-/Compiler-
+  Ausbau auf acht Stationen.
+- **O11 ENTSCHEIDEN (17.09.):** Pseudo-States = **vier** (hover, focus, active, disabled).
+  `StateName`/`STATE_ORDER`/`PREVIEW_STATES` werden um disabled erweitert (disabled emittiert
+  nach active). Ticket 02 Punkt 5 baut den Inspektor mit vier Zustands-Reitern.
+- **O12 ENTSCHEIDEN (17.09.):** Senify ist **PG-only bis Phase 5**. ADR-004 in `docs/adr/`
+  schreibt die Entscheidung fest; neue Repositories halten SQL ANSI-nah (keine `::casts`, kein
+  `now()` in DML, JSON-Behandlung nur ueber db.ts-Helfer); ein grep-Gate-Test setzt die Regel
+  durch. Dual-Dialect bleibt Ausstiegsoption, wird aber nicht vorab gebaut.
+- **O13 ENTSCHEIDEN (18.09.):** **Offenes CSS statt Whitelist** — ADR-0005
+  (`docs/adr/0005-offenes-css-statt-whitelist.md`). Der Stilwert-Raum ist offen: `STYLE_PROPERTIES`
+  beschreibt ab jetzt die **Oberflaeche** (welches Bedienelement eine Property bekommt) und ist
+  **kein Schreibtor** mehr (`assertStyleProp` faellt weg); `styleGroups` wird **Sortierung**, kein
+  Verbot; drei Freiheits-Ventile gehoeren ins Modell (freie `ambient`-Selektoren inkl.
+  Pseudo-Elemente, `rawCss` fuer `@keyframes`, `contextStyles` fuer eigene
+  `@media`/`@container`/`@supports`-Bedingungen). Die Grenze ist Sicherheit/Struktur, nicht
+  Geschmack (Allowlist auf der Wert-Grammatik, **nicht** Denylist auf Zeichenketten — siehe ADR,
+  Abschnitt „Die Sicherheitsgrenze"; es gibt im Repo keinen CSS-Sanitizer, die Whitelist **war**
+  die faktische Grenze, deshalb ist die Grammatik Vorbedingung der Oeffnung).
+  **Anlass:** Senify konnte 33 Properties schreiben (properties.ts:62-101) und lehnte alles andere ab
+  (`position`, `overflow`, `zIndex`, Flex-Einzelwerte, `gridTemplate*`, `clipPath`, `textShadow`,
+  `cursor`, Pseudo-Elemente, Keyframes); `heading` hatte per `styleGroups` kein `border`/`size`.
+  Das ist der Baukasten-Deckel, den das Produktziel („eindrucksvolle, individuelle Seiten")
+  ausschliesst. Folgen: **Ticket 07** baut auf dem kanonischen Modell aus
+  `widget-engine/src/css/style-rule.ts` (nicht auf dem engeren B1-Entwurf), **Ticket 10** wird
+  umgeschrieben (Tor abschaffen statt Liste verlaengern), ein Gate-Test schreibt eine Property
+  ausserhalb jeder Tabelle und erwartet sie im CSS.
+- **O14 OFFEN (18.09.):** **Templates + Outlet fehlen im editor-v2-Bauplan.**
+  (`Repos/instatic/research/instatic/08-content-bausteine-*.md`, „Fuer den Nachbau" nennt
+  Templates als **erste** Stufe der Wiederverwendung: `page.template` + `base.outlet`, Ketten pro
+  Route (`everywhere` fuer Kopf/Fuss, Entry-Templates pro Typ, `notFound`), danach Loops, danach
+  Visual Components.)
+  **Praezisierung 18.09.:** Der Mechanismus existiert im v1-Kern bereits — Tabelle
+  `page_templates` (kind `layout`/`collection`), `packages/engine/src/templates.ts` mit
+  `findFirstOutlet`, `spliceOutlet`, `composePageTree`, `findLayout`, `findEntryTemplate`,
+  `putPageTemplate`, dazu die MCP-Tools. Die Luecke ist **editor-v2-seitig** (kein Ticket deckt
+  Templates ab) und bei den **VC-Ebenen-Templates** (wiederverwendbare Komponenten, Phase 4).
+  Ohne sie wird jedes Layout dupliziert — auch das erzeugt Baukasten-Gefuehl. Zu entscheiden:
+  eigene Phase vor oder mit Phase 4, ob die vorhandene v1-Mechanik im Editor sichtbar wird, und
+  ob Loops (`data.rows`) mitkommen.
+- **O15 ENTSCHEIDEN (19.09.):** **Klassen-Emission global** (Ticket 14, B8). Messung
+  `.scratch/refs/klassen-emission.md`: regional (Anker je Knoten) gegen global (`.cls` einmalig,
+  Dedupe ueber alle Traeger) — **8,2x / 6,57x / 4,23x** Ersparnis (a/b/c), Korrektheitsprobe
+  gruen (gleiche Deklarationen je Traeger). Kriterium „bei (b) mehr als ~2x regional -> global"
+  deutlich erfuellt -> **umgestellt**. `compileCss`-Default ist `classEmission: "global"`; die
+  regionale Form bleibt als Option (Rueckweg, Messvergleich). Die Klassen-Reihenfolge kommt jetzt
+  aus der Regel-Reihenfolge des Dokuments (`order`, Ticket 07), nicht mehr aus der
+  Knoten-Reihenfolge. Knoten-eigene Zustaende bleiben verankert
+  (`[data-node-id].cls:hover`), weil `.cls` (0,1,0) gegen `[data-node-id]:hover` (0,2,0) sonst
+  verloere (O1). Golden-Snapshots aktualisiert; Beleg-Test
+  `packages/widget-engine/test/css-class-emission.test.ts`.
+
+Herkunft der Tickets 07–18: `.scratch/editor-v2-rebuild/research/02-bauplan-aenderungen.md` (B1–B12).
+Reihenfolge-Empfehlung: vor Phase 2 = 08, 09, 07; parallel zu Phase 2 = 12, 10, 13, 18; Ende Phase 2/Anfang Phase 3 = 16, 17; vor Cutover = 11; jederzeit = 15. **Erledigt:** 07 (Wert-Grammatik), 09, 10, 13, 14, 15, 21, 22.
+**Korrektur 18.09. (O13):** 07 und 10 sind neu gefasst — 07 baut auf dem kanonischen StyleRule-Modell,
+10 schafft das Schreibtor ab. Ticket 13 ist serverseitig bereits gebaut (Site-Registry unter
+`sites.style_rules_json` mit Routen `/api/sites/:siteId/style-rules`), es fehlt die Editor-Anbindung.
 
 ## Blaupausen
 
@@ -122,6 +181,22 @@ Wurzel-Assets ausliefern, Tailwind-Quellen in
 | 04-visual-components | Phase 4: VC-Engine, Sections als VCs, Multi-Widgets aus Primitiven, Parallelbetrieb | 03 |
 | 05-live-build-follow-polish | Phase 5: T18 SSE-Kanal, Live-Mitverfolgung, Leistungsbudget | 04 |
 | 06-adr-puck-abschied | ADR: Puck wird nach dem Paritaets-Tor entfernt, Widget-Engine ist der neue Vertrag | 01 |
+| 07-style-rule-modell | Kanonisches StyleRule-Modell im Editor-Dokument + states/authoredBy (O13) - **Wert-Grammatik erledigt** | 01, 09, 10 erledigt, vor 02 |
+| 08-geraetestationen | Drei Geraetestationen festnageln (Plan-Anpassung) - **Restarbeit: ui-plan Z116/Z464 sagen noch "acht"** | vor 02 |
+| 09-pseudo-state-disabled | disabled als vierter State (O11) - **erledigt 18.09.** | - |
+| 10-layout-vokabular | Schreibtor abgeschafft, Layout als Oberflaechen-Beschreibung, CSS-Namen (O13) - **erledigt 18.09.** (Inspektor-Anzeige folgt in 02) | 07-Sicherheitsteil erledigt |
+| 11-hidden-devices-migration | per-Breakpoint hidden bei v1->v2 retten | vor Cutover (04) |
+| 12-dnd-vorziehen | DnD/Plus-Punkte/Einfuegelinie aus 01 Punkt 7 vorziehen | parallel zu 02 |
+| 13-bridge-style-rules | **erledigt** (Server, Transport, Save-Pipeline, Bake-Renderpfad, scoped-Rekey mit 22, Slot-/Collection-Transport); UI-Nutzung der Slot-Ops erst mit dem E2-Cutover | 07 |
+| 14-klassen-emission-messen | Klassen-Emission regional vs. global MESSEN - **erledigt 19.09.: global umgestellt (4,2-8,2x Ersparnis), regional als Option** | 07, vor Inspektor |
+| 15-dialekt-entscheidung | Dialekt-ADR (PG-only bis Phase 5?) + ANSI-Regel + Gate-Test - **erledigt 18.09.** (ADR-0004 + `dialect-gate.test.ts`) | jederzeit, am besten jetzt |
+| 16-marker-overlay-portal | Marker-Overlay im Portal (Ende Alt-Palette im Canvas) | Ende 02 / Anfang 03 |
+| 17-releases-cutover | Editor-Publish ueber POST /api/releases; Paritaets-Tor als CI-Blocker | 13, vor 04 |
+| 18-agent-style-gate | Guardrails als harte Tests im Schreibpfad (Token-Zwang, origin-Integritaet, CSS-Grenzen) | 07+13, mit 02 Punkt 7 |
+| 19-motion-authoring | Motion-Spec v2 im Editor: Modell/Bridge, Inspektor, Canvas (Play), Guardrails - **M0-M5 umgesetzt 18.09.** (self-hosted Runtime, `motion-data` v2, FOUC-Pending, Freeze, Inspektor+MCP+Skill, Play-Preview, Profil-Gates); offen: M4 Stufe 1 (Ticket 03). Plan: `.scratch/motion-v2/`, ADR-0006 | 07, 13, 02, 03 |
+| 20-site-settings-profile | Site-Profil in den Editor: Kanal (`PATCH /api/sites/:id` mit `profile`), Topbar-Anzeige, Wechsel-Validierung, Profil-Gates - **umgesetzt 18.09.** (F6/F7) | 07, 19 |
+| 21-klassen-am-dom | User-Klassen (`node.classes`) + deterministische Scope-Klasse am Wurzelelement; macht die Anker-Selektoren (`[data-node-id].cls`, `[data-node-id].__senify_scope_<id>`) in Canvas und Bake treffend - **umgesetzt 18.09.** (eigener Fund) | 07, 13 |
+| 22-scoped-rekey-bake | Draft→komponiert-ID-Map aus `composePageTree`, pro Route an den Bake, scoped-Regeln in `styleRulesCss` remappen - **umgesetzt 18.09.** (Rest aus 13) | 13, 21 |
 
 ## Teststrategie
 

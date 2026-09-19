@@ -1,17 +1,30 @@
 # Editor v2 - Style-Engine und Inspektor (Phase 2)
 
-Status: offen
-Abhaengig von: 01-widget-engine-canvas
+Status: offen — **Punkt 1 erledigt, Stand-Korrektur 18.09.**
+Abhaengig von: 01-widget-engine-canvas, 07-style-rule-modell (Dokument-Modell), 10 (Schreibtor)
+Entscheidungen: O13/ADR-0005 (offenes CSS), O10 (drei Stationen), O11 (vier Pseudo-States)
 
 ## Ziel
 
 Der kritische Pfad fuer "Framer like": jede Widget-Instanz ist komplett individuell stylbar.
 Phase 2 des Umbauplans.
 
+**Praezisierung 18.09. (O13/ADR-0005):** „komplett individuell stylbar" heisst ab jetzt
+buchstaeblich — der Property-Raum ist offen, nicht auf eine Liste beschraenkt. Der Inspektor zeigt
+gute Bedienelemente fuer die bekannten Properties und erlaubt daneben jede weitere CSS-Property;
+`STYLE_PROPERTIES` ist Oberflaechen-Beschreibung, kein Tor.
+
 ## Umfang
 
-1. Style-Rule-Registry im Engine-Store: sites.style_rules_json (Migration additiv).
-   kind class|ambient|scoped, contextStyles, origin, Kaskaden-Reihenfolge.
+1. ~~Style-Rule-Registry im Engine-Store: sites.style_rules_json (Migration additiv).
+   kind class|ambient|scoped, contextStyles, origin, Kaskaden-Reihenfolge.~~
+   **ERLEDIGT** (18.09. im Arbeitsbaum vorgefunden, uncommittet): kanonisches Modell in
+   `widget-engine/src/css/style-rule.ts`, Spalte `sites.style_rules_json`, Store-CRUD mit Audit,
+   Routen `/api/sites/:siteId/style-rules` (+ `reorder`), Tests `engine/test/style-rules.test.ts`.
+   Was von Punkt 1 uebrig ist, steht in **Ticket 13** (Editor-Anbindung, Bake, `states` im
+   Transport). **Achtung:** `origin` ist im kanonischen Modell die *Import-Herkunft*; die
+   Autor-Herkunft heisst `authoredBy` (Ticket 07/18).
+   **1a.** Die Ops des Editors adressieren Regeln per `ruleId`, nicht per Name (Ticket 07/13).
 2. Inspektor mit drei Tabs (Content / Style / Advanced), Controls generiert aus
    Widget-Definition - nie handgebaut (Registry -> UI bleibt Senify-Philosophie).
 3. Style-Tab mit vollen CSS-Faehigkeiten pro Widget:

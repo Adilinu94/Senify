@@ -113,8 +113,8 @@ zu belasten.
 `inset 0 -1px 0 var(--ed-line-hairline)`. Knoepfe 28x28px als Symbol oder 28px hoch mit Text; Symbole
 18px im 24px-Raster, Strich 1.5, `stroke-linecap: round`. Gruppen in dieser Reihenfolge:
 Einfuegen (Katalogauswahl 28px hoch, 160px breit; "Danach", "Hinein"), Umformen ("Ebene hoeher",
-"Umbenennen", "Duplizieren", "Loeschen"), Zustand ("Verstecken", "Sperren"), Gerät (acht Stationen
-als Segment 32px, siehe 5.13), Ansicht (Lineale, Fuehrungslinien, Raster, Gliederung, Entwurf),
+"Umbenennen", "Duplizieren", "Loeschen"), Zustand ("Verstecken", "Sperren"), Gerät (drei Stationen
+als Segment 32px, siehe 5.13 und O10), Ansicht (Lineale, Fuehrungslinien, Raster, Gliederung, Entwurf),
 Zoom (kleiner, Wert, groesser, einpassen).
 
 **Zustaende.** Wie Abschnitt 1, dazu "aktiv" fuer Ansichts-Schalter als Zustandsflaeche
@@ -459,20 +459,24 @@ Desktop bleibt ohne; "Alle anzeigen" zeigt genau die Spalten Desktop, Tablet, Te
 
 ### 5.13 Gerätestationen der Werkzeugleiste
 **Zweck.** Die Arbeitsbreite umschalten, ohne den Wert zu aendern.
-**Aufbau.** Segment 32px in der Werkzeugleiste mit acht Stationen (`widescreen`, `desktop`, `laptop`,
-`tablet_extra`, `tablet`, `mobile_extra`, `mobile`; Beleg `iconsMap`), beim Kuerzen auf die drei
-wichtigsten (1440, 1024, 390) reduziert, wenn die Breite nicht reicht. Unter dem Rahmen eine Zeile 28px
-mit dem Namen, der Breite in px und einem Groessenfeld 60x18px (Beleg `_responsive-bar.scss`).
+**Entscheidung O10 (map.md, 17.09.):** Drei Stationen (desktop 1440, tablet 1024, mobile 390) als
+einzige Override-Stufen — konsistent mit `DeviceSchema` und `DEVICE_BREAKPOINTS`. Kein
+Acht-Stationen-Pfad.
+**Aufbau.** Segment 32px in der Werkzeugleiste mit drei Stationen, je mit Symbol und Breite in der
+Beschriftung. Daneben (nicht als Override-Stufe) die freie Breitenanzeige: unter dem Rahmen eine Zeile
+28px mit dem Namen, der Breite in px und einem Groessenfeld 60x18px (Beleg `_responsive-bar.scss`);
+das Groessenfeld resisiert nur den Rahmen und schreibt keinen Stilwert.
 **Zustaende.** Ruhe, aktiv, "Breite angepasst" (breiter als der Fensterinhalt), Deaktiviert.
 **Verhalten.** Umschalten aendert nur die Breite des Rahmens und die Skalierungsvariable; es setzt oder
 loescht keinen Stilwert. Passt die Breite nicht, ist die Station "Breite angepasst" aktiv und die
-Breitenangabe wird durch "Breite angepasst" ersetzt.
+Breitenangabe wird durch "Breite angepasst" ersetzt. Overrides speichern ausschliesslich die drei
+Stationen (desktop/tablet/mobile); die freie Breite ist reine Ansicht.
 **Tastatur.** Pfeile wechseln, `Shift+2/3/4` springen auf Desktop, Tablet, Telefon.
 **Bewegung.** Breitenwechsel 240ms `--ed-ease-drawer` (Rahmen bewegt sich, Inhalt nicht).
 **Kontrast.** Aktive Station `--ed-surface-raised` mit `--ed-edge-hairline` auf `--ed-surface-inset`
 (1,28:1 Flaechenunterschied), deshalb zusaetzlich Symbol und Unterkante.
-**Pruefkriterium.** Bei 1024px Breite bleiben drei Stationen; bei 1280px erscheinen alle acht ohne
-Umbruch; ein Gerätewechsel erzeugt **keinen** Verlaufseintrag (keine Datenänderung).
+**Pruefkriterium.** Genau drei Stationen in jeder Breite (kein Kuerzungs-Pfad mehr); ein Gerätewechsel
+oder eine freie Breitenaenderung erzeugt **keinen** Verlaufseintrag (keine Datenänderung).
 
 ---
 
