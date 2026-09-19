@@ -17,6 +17,7 @@ import { getPrimitive } from "../catalog.ts";
 import { isConditionSatisfied } from "../controls.ts";
 import type { DeviceValueMap } from "../device.ts";
 import type { PrimitiveDefinition, PropValue, StyleGroup, Unit } from "../types.ts";
+import { isSafeCssProperty, parseCssValue } from "./value-grammar.ts";
 import {
   camelToKebab,
   deepEqualProp,
@@ -29,6 +30,8 @@ import {
   formatText,
   formatUnitless,
   isRecord,
+  resolveTokenRef,
+  tokenRef,
   type TokenResolver,
 } from "./format.ts";
 
@@ -57,9 +60,40 @@ export type StylePropertySpec = {
   units?: readonly Unit[];
 };
 
-// Properties a style group owns but the catalog does not model as controls
-// yet — the vocabulary the style engine (ticket 02) writes.
+// The style vocabulary: it tells the inspector which control a property gets
+// (colour picker, slider, four-side bag) and in which section it appears.
+// Since ADR-0005 it is a *description of the surface*, not a write gate — a
+// property outside this table is still emitted, as free CSS.
+//
+// The order is the emission order: layout first, because display, position and
+// overflow are the ground the other declarations sit on.
 export const STYLE_PROPERTIES: readonly StylePropertySpec[] = [
+  { prop: "position", group: "layout", kind: "keyword" },
+  { prop: "inset", group: "layout", kind: "spacing", css: "inset" },
+  { prop: "top", group: "layout", kind: "length", units: ["px", "rem", "em", "%", "vw", "vh"] },
+  { prop: "right", group: "layout", kind: "length", units: ["px", "rem", "em", "%", "vw", "vh"] },
+  { prop: "bottom", group: "layout", kind: "length", units: ["px", "rem", "em", "%", "vw", "vh"] },
+  { prop: "left", group: "layout", kind: "length", units: ["px", "rem", "em", "%", "vw", "vh"] },
+  { prop: "zIndex", group: "layout", kind: "unitless", css: "z-index" },
+  { prop: "overflow", group: "layout", kind: "keyword" },
+  { prop: "overflowX", group: "layout", kind: "keyword", css: "overflow-x" },
+  { prop: "overflowY", group: "layout", kind: "keyword", css: "overflow-y" },
+  { prop: "flexDirection", group: "layout", kind: "keyword", css: "flex-direction" },
+  { prop: "flexWrap", group: "layout", kind: "keyword", css: "flex-wrap" },
+  { prop: "justifyContent", group: "layout", kind: "keyword", css: "justify-content" },
+  { prop: "alignItems", group: "layout", kind: "keyword", css: "align-items" },
+  { prop: "alignContent", group: "layout", kind: "keyword", css: "align-content" },
+  { prop: "placeItems", group: "layout", kind: "keyword", css: "place-items" },
+  { prop: "flexGrow", group: "layout", kind: "unitless", css: "flex-grow" },
+  { prop: "flexShrink", group: "layout", kind: "unitless", css: "flex-shrink" },
+  { prop: "flexBasis", group: "layout", kind: "length", css: "flex-basis", units: ["px", "rem", "em", "%"] },
+  { prop: "order", group: "layout", kind: "unitless" },
+  { prop: "gridTemplateColumns", group: "layout", kind: "text", css: "grid-template-columns" },
+  { prop: "gridTemplateRows", group: "layout", kind: "text", css: "grid-template-rows" },
+  { prop: "gridColumn", group: "layout", kind: "text", css: "grid-column" },
+  { prop: "gridRow", group: "layout", kind: "text", css: "grid-row" },
+  { prop: "gridAutoFlow", group: "layout", kind: "keyword", css: "grid-auto-flow" },
+
   { prop: "padding", group: "spacing", kind: "spacing" },
   { prop: "margin", group: "spacing", kind: "spacing" },
   { prop: "gap", group: "spacing", kind: "gaps" },
@@ -220,8 +254,22 @@ type ResolvedSpec = {
   literal?: string;
 };
 
+// The spec for a name, accepting both spellings of the same property: the
+// table's own camelCase name (`borderRadius`) and its CSS name
+// (`border-radius`). The alias keeps existing documents and free-form input
+// working while the table stays the one source for value formatting
+// (ADR-0005, ticket 10).
 export function stylePropertyFor(prop: string): StylePropertySpec | undefined {
-  return STYLE_PROPERTIES.find((entry) => entry.prop === prop);
+  return (
+    STYLE_PROPERTIES.find((entry) => entry.prop === prop) ??
+    STYLE_PROPERTIES.find((entry) => (entry.css ?? camelToKebab(entry.prop)) === prop)
+  );
+}
+
+// The table's canonical name for a base key. An unknown name stays untouched —
+// that is the open part of the space.
+export function canonicalStyleKey(base: string): string {
+  return stylePropertyFor(base)?.prop ?? base;
 }
 
 // The style groups a definition narrows to. A legacy stand-in (widget-engine
@@ -299,8 +347,15 @@ function translate(
       return formatted === undefined ? [] : names.map((name) => ({ property: name, value: formatted }));
     }
     case "text": {
+      // Free-form text is the one kind the old whitelist could not protect:
+      // `boxShadow`, `transform`, `filter` and friends carry a whole value
+      // grammar. It is validated here and emitted in its normalized form
+      // (ADR-0005, ticket 07 stage 0) — the compiler is the last line of
+      // defence, the write path rejects loudly.
       const formatted = formatText(value);
-      return formatted === undefined ? [] : names.map((name) => ({ property: name, value: formatted }));
+      if (formatted === undefined) return [];
+      const parsed = parseCssValue(formatted);
+      return parsed.ok ? names.map((name) => ({ property: name, value: parsed.value })) : [];
     }
     case "radius": {
       const formatted = isRecord(value)
@@ -334,6 +389,21 @@ export type TranslateOptions = {
   resolveToken?: TokenResolver;
 };
 
+// A value of an open-space property as CSS text. Numbers stay bare (the table
+// is what knows about units), strings run through the value grammar, token
+// references resolve like everywhere else. Records are skipped: a free
+// property has no shape contract.
+function openValueText(value: PropValue, options: TranslateOptions): string | undefined {
+  if (typeof value === "number") return formatNumber(value);
+  if (typeof value === "string") {
+    const parsed = parseCssValue(value);
+    return parsed.ok ? parsed.value : undefined;
+  }
+  const ref = tokenRef(value);
+  if (ref !== undefined) return resolveTokenRef(ref, options.resolveToken);
+  return undefined;
+}
+
 export function declarationsForValues(
   primitiveType: string | undefined,
   values: DeviceValueMap,
@@ -341,24 +411,39 @@ export function declarationsForValues(
 ): Declaration[] {
   const definition = primitiveType === undefined ? undefined : getPrimitive(primitiveType);
   const controls = definition?.controls ?? [];
-  const groups = styleGroupsOf(definition);
   const declarations: Declaration[] = [];
   const emittedProps = new Set<string>();
   // One CSS property per rule: the first table entry that reaches it wins, so
   // `icon.size` keeps `width` and the generic `width` style property stays out.
   const emittedCss = new Set<string>();
 
+  // Both spellings of a known property collapse onto the table's name, so
+  // `borderRadius` and `border-radius` produce the same declaration.
+  const canonical: DeviceValueMap = {};
+  for (const [key, value] of Object.entries(values)) {
+    canonical[canonicalStyleKey(key)] = value;
+  }
+  const baseline: DeviceValueMap | undefined =
+    options.baseline === undefined
+      ? undefined
+      : Object.fromEntries(
+          Object.entries(options.baseline).map(([key, value]) => [
+            canonicalStyleKey(key),
+            value,
+          ]),
+        );
+
   const emit = (prop: string, spec: ResolvedSpec): void => {
     if (emittedProps.has(prop)) return;
-    const value = values[prop];
+    const value = canonical[prop];
     if (value === undefined || value === null) return;
 
     const control = controls.find((entry) => entry.key === prop);
-    if (control?.condition && !isConditionSatisfied(control.condition, values)) return;
+    if (control?.condition && !isConditionSatisfied(control.condition, canonical)) return;
     if (
-      options.baseline !== undefined &&
-      Object.prototype.hasOwnProperty.call(options.baseline, prop) &&
-      deepEqualProp(value, options.baseline[prop])
+      baseline !== undefined &&
+      Object.prototype.hasOwnProperty.call(baseline, prop) &&
+      deepEqualProp(value, baseline[prop])
     ) {
       return;
     }
@@ -394,13 +479,59 @@ export function declarationsForValues(
     });
   }
 
+  // `styleGroups` is a display order for the inspector, not a gate (ADR-0005):
+  // a heading may carry a border, an image a text colour.
   for (const spec of STYLE_PROPERTIES) {
-    if (groups !== undefined && !groups.has(spec.group)) continue;
     emit(spec.prop, {
       kind: spec.kind,
       css: spec.css ?? camelToKebab(spec.prop),
       units: spec.units,
     });
+  }
+
+  // The open part of the space: every value the table does not know is emitted
+  // as `property: value`. Sorted by name so the output stays stable for equal
+  // input, and grammar-checked so the open space is not an injection hole.
+  //
+  // A catalog control key is *not* open space: `text`, `level`, `striped` and
+  // friends are behavioural props of the widget, not CSS. They are excluded —
+  // otherwise the open pass would emit `text: Hallo` into the stylesheet.
+  const known = new Set<string>();
+  for (const mapping of PROP_MAPPINGS) {
+    // A mapping that does not apply to this primitive is *not* known here:
+    // otherwise `display` on a heading or on an ambient rule would be swallowed
+    // instead of reaching the open pass (ADR-0005).
+    if (
+      mapping.onlyPrimitives !== undefined &&
+      (primitiveType === undefined || !mapping.onlyPrimitives.includes(primitiveType))
+    ) {
+      continue;
+    }
+    known.add(mapping.prop);
+  }
+  for (const spec of STYLE_PROPERTIES) known.add(spec.prop);
+  for (const control of controls) known.add(control.key);
+  const openKeys = Object.keys(canonical)
+    .filter((key) => !known.has(key) && !emittedProps.has(key))
+    .sort();
+  for (const key of openKeys) {
+    const value = canonical[key];
+    if (value === undefined || value === null) continue;
+    // Device expansion: a free value that equals the inherited one is not
+    // repeated in the narrower media block, exactly like a table property.
+    if (
+      baseline !== undefined &&
+      Object.prototype.hasOwnProperty.call(baseline, key) &&
+      deepEqualProp(value, baseline[key])
+    ) {
+      continue;
+    }
+    const property = camelToKebab(key);
+    if (!isSafeCssProperty(property) || emittedCss.has(property)) continue;
+    const text = openValueText(value, options);
+    if (text === undefined) continue;
+    emittedCss.add(property);
+    declarations.push({ property, value: text });
   }
 
   return declarations;

@@ -20,7 +20,12 @@ export const CATEGORIES: readonly CategoryDefinition[] = [
   { id: "advanced", name: "Erweitert", order: 5 },
 ];
 
+// Display order of the inspector's style sections. Since ADR-0005 this is a
+// *presentation* order — it no longer decides which property a primitive may
+// carry. `layout` leads because display, position and overflow are the ground
+// the other values sit on.
 export const STYLE_GROUPS: readonly StyleGroupDefinition[] = [
+  { id: "layout", name: "Layout" },
   { id: "spacing", name: "Abstand" },
   { id: "typography", name: "Schrift" },
   { id: "color", name: "Farbe" },
@@ -30,6 +35,7 @@ export const STYLE_GROUPS: readonly StyleGroupDefinition[] = [
 ];
 
 const ALL_STYLE_GROUPS: StyleGroup[] = [
+  "layout",
   "spacing",
   "typography",
   "color",

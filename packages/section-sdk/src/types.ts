@@ -36,6 +36,10 @@ export type Node = {
   motion?: MotionSpec;
   locked?: boolean;
   hidden?: boolean;
+  // Style class names assigned to this node (Phase 2, ADR-0005). The rules
+  // themselves live in the site-wide registry (`sites.style_rules_json`); the
+  // node only carries the assignment, exactly like the editor document.
+  classes?: string[];
 };
 
 export type NodeTree = {

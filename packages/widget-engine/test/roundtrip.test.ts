@@ -113,6 +113,6 @@ describe("roundtrip", () => {
     expect(css).toContain("@media (max-width: 1023.98px)");
     expect(css).toContain("@media (max-width: 639.98px)");
     expect(css).toContain(`[data-node-id="head1"]:hover {`);
-    expect(css).toContain(`[data-node-id="btn01"].cta {`);
+    expect(css).toContain(`.cta {`);
   });
 });

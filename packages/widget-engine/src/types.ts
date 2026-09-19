@@ -12,6 +12,7 @@ export type PrimitiveCategory =
   | "advanced";
 
 export type StyleGroup =
+  | "layout"
   | "spacing"
   | "typography"
   | "color"

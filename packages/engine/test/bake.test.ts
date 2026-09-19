@@ -27,6 +27,7 @@ function tree(spec: {
     variant?: string;
     props?: Record<string, unknown>;
     slots?: Record<string, string[]>;
+    classes?: string[];
   }[];
 }): NodeTree {
   const nodes: Record<string, NodeTree["nodes"][string]> = {
@@ -39,9 +40,17 @@ function tree(spec: {
       props: (item.props ?? {}) as NodeTree["nodes"][string]["props"],
       ...(item.variant === undefined ? {} : { variant: item.variant }),
       ...(item.slots === undefined ? {} : { slots: item.slots }),
+      ...(item.classes === undefined ? {} : { classes: item.classes }),
     };
   }
   return { rootNodeId: "root", nodes };
+}
+
+// The class attribute of the tag that carries `data-node-id` — the element the
+// compiler anchors class and scoped rules on (tickets 21/22).
+function classAttrOf(html: string, nodeId: string): string | undefined {
+  const tag = new RegExp(`<[^>]*data-node-id="${nodeId}"[^>]*>`).exec(html)?.[0];
+  return tag?.match(/class="([^"]*)"/)?.[1];
 }
 
 const FILLER_BODY = "**Fett** und <script>alert(1)</script>";
@@ -294,9 +303,39 @@ beforeAll(async () => {
     tree({
       children: ["hero"],
       nodes: [
-        { id: "hero", type: "hero", props: { headline: "Willkommen" } },
+        {
+          id: "hero",
+          type: "hero",
+          props: { headline: "Willkommen" },
+          classes: ["accent"],
+        },
       ],
     }),
+  );
+
+  // The site-wide rule registry (ADR-0005) is the one source for the release:
+  // `bakePages` reads it and the renderer compiles `assets/style-rules.css`.
+  await store.createStyleRule(
+    site.id,
+    { name: "accent", styles: { color: "#ff0000" } },
+    TEST_AUTHOR,
+  );
+  await store.createStyleRule(
+    site.id,
+    { kind: "ambient", name: "h1", selector: "h1", styles: { letterSpacing: "0.02em" } },
+    TEST_AUTHOR,
+  );
+  // Scoped rules (ADR-0005) are bound to draft node ids; the layout splice
+  // rekeys the composed tree, so the bake has to remap them (ticket 22).
+  await store.createStyleRule(
+    site.id,
+    { name: "ignored", kind: "scoped", nodeId: "hero", styles: { color: "#00ff00" } },
+    TEST_AUTHOR,
+  );
+  await store.createStyleRule(
+    site.id,
+    { name: "ignored", kind: "scoped", nodeId: "intro", styles: { color: "#0000ff" } },
+    TEST_AUTHOR,
   );
 
   outDir = mkdtempSync(join(env.engine.dataDir, "blog-bake-"));
@@ -315,6 +354,46 @@ afterAll(async () => {
 });
 
 describe("blog bake (Prüfstelle 2)", () => {
+  it("bakes the site style rules into assets/style-rules.css", async () => {
+    expect(await baked.exists("assets/style-rules.css")).toBe(true);
+    const css = await baked.read("assets/style-rules.css");
+    const html = await baked.read("index.html");
+    // The class rule is emitted once for the class (ticket 14); the element
+    // that carries the name keeps the class attribute (ticket 21), which is
+    // what makes the global selector match after the layout splice rekeyed the
+    // node id.
+    expect(css).toContain(".accent {");
+    const carrier = /<[^>]*class="[^"]*\baccent\b[^"]*"[^>]*>/.exec(html)?.[0];
+    expect(carrier).toBeDefined();
+    expect(carrier).toMatch(/data-node-id="/);
+    // The ambient rule attaches by matching — both from the one registry.
+    expect(css).toContain("h1");
+    expect(html).toContain('href="/assets/style-rules.css"');
+  });
+
+  it("keeps scoped rules alive through the layout splice", async () => {
+    const css = await baked.read("assets/style-rules.css");
+    // One selector per composed occurrence: the Start page's hero and the
+    // entry template's intro in both published entry routes.
+    const scopedIds = [
+      ...css.matchAll(/\[data-node-id="([A-Za-z0-9_-]+)"\]\.__senify_scope_\1 \{/g),
+    ].map((match) => match[1] ?? "");
+    expect(scopedIds.length).toBeGreaterThanOrEqual(3);
+
+    const pages = [
+      "index.html",
+      "blog/neuer-slug/index.html",
+      "blog/zweiter-beitrag/index.html",
+    ];
+    const htmls = await Promise.all(pages.map((path) => baked.read(path)));
+    for (const id of scopedIds) {
+      const html = htmls.find((candidate) => candidate.includes(`data-node-id="${id}"`));
+      expect(html, `composed node ${id} is in a baked page`).toBeDefined();
+      // The DOM side of ticket 21: the generated scope class is on that node.
+      expect(classAttrOf(html ?? "", id)).toContain(`__senify_scope_${id}`);
+    }
+  });
+
   it("bakes the collection page with pagination and no JS", async () => {
     expect(await baked.exists("blog/index.html")).toBe(true);
     expect(await baked.exists("blog/seite/2/index.html")).toBe(true);

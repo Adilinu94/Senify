@@ -198,6 +198,79 @@ describe("composePageTree (resolve chain)", () => {
     expect(composed.nodes[composed.rootNodeId]?.children).toEqual(["shared", "n0"]);
   });
 
+  it("reports the draft-to-composed id map of the splice", () => {
+    let counter = 0;
+    const layout = tree({
+      children: ["header", "out"],
+      nodes: [
+        { id: "header", type: "hero" },
+        { id: "out", type: "outlet" },
+      ],
+    });
+    const contentTree = tree({
+      children: ["content"],
+      nodes: [{ id: "content", type: "content" }],
+    });
+    const idMap = new Map<string, string>();
+    const composed = composePageTree({
+      layout,
+      template: null,
+      page: contentTree,
+      article: null,
+      createId: () => `n${counter++}`,
+      idMap,
+    });
+
+    // The inserted page subtree is rekeyed; the map names the composed node
+    // (ticket 22: scoped style rules are remapped through it).
+    const mapped = idMap.get("content");
+    expect(mapped).toBe("n0");
+    expect(composed.nodes[mapped ?? ""]?.type).toBe("content");
+    // The layout is the container: its own nodes keep their draft ids.
+    expect(idMap.has("header")).toBe(false);
+  });
+
+  it("maps template nodes through both splice steps", () => {
+    let counter = 0;
+    const layout = tree({ children: ["out"], nodes: [{ id: "out", type: "outlet" }] });
+    const template = tree({
+      children: ["intro", "out"],
+      nodes: [
+        { id: "intro", type: "content" },
+        { id: "out", type: "outlet" },
+      ],
+    });
+    const idMap = new Map<string, string>();
+    const composed = composePageTree({
+      layout,
+      template,
+      page: null,
+      article: "Text",
+      createId: () => `n${counter++}`,
+      idMap,
+    });
+
+    const intro = idMap.get("intro");
+    expect(intro).toBeDefined();
+    expect(composed.nodes[intro ?? ""]?.type).toBe("content");
+  });
+
+  it("leaves the id map empty without a layout splice", () => {
+    const contentTree = tree({
+      children: ["content"],
+      nodes: [{ id: "content", type: "content" }],
+    });
+    const idMap = new Map<string, string>();
+    composePageTree({
+      layout: null,
+      template: null,
+      page: contentTree,
+      article: null,
+      idMap,
+    });
+    expect(idMap.size).toBe(0);
+  });
+
   it("fills only the first outlet; further outlets stay empty", () => {
     const template = outletTree(["out-1", "out-2"]);
     const composed = composePageTree({

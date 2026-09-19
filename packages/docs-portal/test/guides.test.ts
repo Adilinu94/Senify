@@ -60,6 +60,7 @@ describe("curated guides", () => {
       "/changelog",
       "/getting-started",
       "/guides/assets",
+      "/guides/motion",
       "/guides/site-aus-brief",
       "/platform/sites-and-pages",
     ]);

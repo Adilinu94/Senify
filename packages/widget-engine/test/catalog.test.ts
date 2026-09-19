@@ -67,8 +67,10 @@ describe("categories", () => {
     }
   });
 
-  it("declares the six style groups", () => {
+  it("declares the seven style groups, layout first", () => {
+    // ADR-0005: the groups are the inspector's display order, not a gate.
     expect(STYLE_GROUPS.map((group) => group.name)).toEqual([
+      "Layout",
       "Abstand",
       "Schrift",
       "Farbe",

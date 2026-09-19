@@ -17,6 +17,7 @@ import {
   TEST_AUTHOR,
   treeOf,
   type BootEnv,
+  type ErrorResponse,
   type MutationsResponse,
   type PageResponse,
 } from "./helpers.ts";
@@ -409,7 +410,7 @@ describe("props, meta, overrides, motion", () => {
       {
         patch: "setNodeFields",
         id: "meta-box-01",
-        fields: { variant: null, locked: null, hidden: null },
+        fields: { variant: null, locked: null, hidden: null, classes: null },
       },
     ]);
 
@@ -421,6 +422,45 @@ describe("props, meta, overrides, motion", () => {
       .error;
     expect(error.field).toBe("mutations[0].meta.variant");
     expect(error.suggestion).toContain("boxed");
+  });
+
+  it("carries classes through insert and updateNodeMeta", async () => {
+    await apply([
+      {
+        op: "insertNode",
+        parent: { nodeId: page.draft.rootNodeId },
+        node: { id: "class-box-01", type: "container", props: {}, classes: ["seed"] },
+      },
+    ]);
+    expect(nodeOf(page, "class-box-01").classes).toEqual(["seed"]);
+
+    await apply([
+      { op: "updateNodeMeta", id: "class-box-01", meta: { addClasses: ["cta", "wide"] } },
+    ]);
+    expect(nodeOf(page, "class-box-01").classes).toEqual(["seed", "cta", "wide"]);
+
+    await apply([
+      { op: "updateNodeMeta", id: "class-box-01", meta: { removeClasses: ["cta"] } },
+    ]);
+    expect(nodeOf(page, "class-box-01").classes).toEqual(["seed", "wide"]);
+
+    const replaced = await apply([
+      { op: "updateNodeMeta", id: "class-box-01", meta: { classes: ["solo"] } },
+    ]);
+    expect(nodeOf(page, "class-box-01").classes).toEqual(["solo"]);
+    // The undo patch carries the whole previous list, so a revert is exact.
+    expect(replaced.body.results[0]?.undoPatch).toEqual([
+      {
+        patch: "setNodeFields",
+        id: "class-box-01",
+        fields: { variant: null, locked: null, hidden: null, classes: ["seed", "wide"] },
+      },
+    ]);
+
+    await apply([
+      { op: "updateNodeMeta", id: "class-box-01", meta: { classes: null } },
+    ]);
+    expect(nodeOf(page, "class-box-01").classes).toBeUndefined();
   });
 
   it("rejects variants for sections without variants", async () => {
@@ -789,6 +829,126 @@ describe("tree operations", () => {
 
     const deleteRoot = await apply([{ op: "deleteNode", id: page.draft.rootNodeId }]);
     expect(deleteRoot.status).toBe(400);
+  });
+});
+
+// Slot and collection content (ticket 13 rest): the section form of the v2
+// editor ops. The slot rules come from the section registry — `collection-list`
+// allows exactly one `card` in its `item` slot.
+describe("slot and collection content", () => {
+  async function setupCollection(): Promise<void> {
+    const setup = await apply([
+      {
+        op: "insertNode",
+        parent: { nodeId: page.draft.rootNodeId },
+        node: { id: "coll-1", type: "collection-list", props: { title: "Liste" } },
+      },
+    ]);
+    expect(setup.status).toBe(200);
+  }
+
+  it("replaces a slot's content and enforces the slot rules", async () => {
+    await setupCollection();
+    const replaced = await apply([
+      {
+        op: "setSlotContent",
+        id: "coll-1",
+        slot: "item",
+        nodes: [{ id: "card-1", type: "card", props: { title: "Erster" } }],
+      },
+    ]);
+    expect(replaced.status).toBe(200);
+    expect(slotIds(page, "coll-1", "item")).toEqual(["card-1"]);
+    expect(propsOf(page, "card-1")["title"]).toBe("Erster");
+
+    // Replacing again swaps the whole list, not just the first node.
+    const swapped = await apply([
+      {
+        op: "setSlotContent",
+        id: "coll-1",
+        slot: "item",
+        nodes: [{ id: "card-2", type: "card", props: { title: "Zweiter" } }],
+      },
+    ]);
+    expect(swapped.status).toBe(200);
+    expect(slotIds(page, "coll-1", "item")).toEqual(["card-2"]);
+    expect(page.draft.nodes["card-1"]).toBeUndefined();
+
+    const tooMany = await apply([
+      {
+        op: "setSlotContent",
+        id: "coll-1",
+        slot: "item",
+        nodes: [
+          { type: "card", props: { title: "A" } },
+          { type: "card", props: { title: "B" } },
+        ],
+      },
+    ]);
+    expect(tooMany.status).toBe(400);
+    expect((tooMany.body as unknown as ErrorResponse).error.message).toMatch(/at most 1/);
+
+    const wrongType = await apply([
+      {
+        op: "setSlotContent",
+        id: "coll-1",
+        slot: "item",
+        nodes: [{ type: "block", props: { headline: "Kein Card" } }],
+      },
+    ]);
+    expect(wrongType.status).toBe(400);
+    expect((wrongType.body as unknown as ErrorResponse).error.message).toMatch(/does not allow/);
+
+    const unknownSlot = await apply([
+      { op: "setSlotContent", id: "coll-1", slot: "nope", nodes: [] },
+    ]);
+    expect(unknownSlot.status).toBe(400);
+    expect((unknownSlot.body as unknown as ErrorResponse).error.message).toMatch(/has no slot/);
+  });
+
+  it("creates an entry, patches it and rejects out-of-range indexes", async () => {
+    await setupCollection();
+    const created = await apply([
+      {
+        op: "createCollectionEntry",
+        id: "coll-1",
+        node: { id: "card-1", type: "card", props: { title: "Erster" } },
+      },
+    ]);
+    expect(created.status).toBe(200);
+    expect(slotIds(page, "coll-1", "item")).toEqual(["card-1"]);
+
+    const updated = await apply([
+      {
+        op: "updateCollectionEntry",
+        id: "coll-1",
+        index: 0,
+        patch: { title: "Geändert" },
+      },
+    ]);
+    expect(updated.status).toBe(200);
+    expect(propsOf(page, "card-1")["title"]).toBe("Geändert");
+
+    const full = await apply([
+      {
+        op: "createCollectionEntry",
+        id: "coll-1",
+        node: { id: "card-2", type: "card", props: { title: "Zweiter" } },
+      },
+    ]);
+    expect(full.status).toBe(400);
+    expect((full.body as unknown as ErrorResponse).error.message).toMatch(/is full/);
+
+    const noEntry = await apply([
+      { op: "updateCollectionEntry", id: "coll-1", index: 3, patch: { title: "X" } },
+    ]);
+    expect(noEntry.status).toBe(400);
+    expect((noEntry.body as unknown as ErrorResponse).error.message).toMatch(/No collection entry/);
+
+    const unknownProp = await apply([
+      { op: "updateCollectionEntry", id: "coll-1", index: 0, patch: { nope: true } },
+    ]);
+    expect(unknownProp.status).toBe(400);
   });
 });
 
@@ -1335,6 +1495,53 @@ describe("undo roundtrips against server state", () => {
     ]);
     expect(meta.status).toBe(200);
     await undoAndCompare(beforeMeta, meta.body.results);
+  });
+
+  it("roundtrips slot content and collection entries", async () => {
+    const setup = await apply([
+      {
+        op: "insertNode",
+        parent: { nodeId: page.draft.rootNodeId },
+        node: { id: "rt-coll", type: "collection-list", props: {} },
+      },
+    ]);
+    expect(setup.status).toBe(200);
+
+    const beforeSlot = await snapshot();
+    const slot = await apply([
+      {
+        op: "setSlotContent",
+        id: "rt-coll",
+        slot: "item",
+        nodes: [{ id: "rt-card", type: "card", props: { title: "Eins" } }],
+      },
+    ]);
+    expect(slot.status).toBe(200);
+    await undoAndCompare(beforeSlot, slot.body.results);
+
+    // `undoAndCompare` simulates the undo; the server still holds the card, so
+    // the slot is cleared explicitly before the entry batch (max 1).
+    const cleared = await apply([
+      { op: "setSlotContent", id: "rt-coll", slot: "item", nodes: [] },
+    ]);
+    expect(cleared.status).toBe(200);
+
+    const beforeEntry = await snapshot();
+    const entry = await apply([
+      {
+        op: "createCollectionEntry",
+        id: "rt-coll",
+        node: { id: "rt-card-2", type: "card", props: { title: "Zwei" } },
+      },
+      {
+        op: "updateCollectionEntry",
+        id: "rt-coll",
+        index: 0,
+        patch: { title: "Zwei geändert" },
+      },
+    ]);
+    expect(entry.status, JSON.stringify(entry.body)).toBe(200);
+    await undoAndCompare(beforeEntry, entry.body.results);
   });
 });
 

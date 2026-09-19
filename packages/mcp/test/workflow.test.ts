@@ -91,6 +91,8 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "search_docs",
       "read_docs",
       "apply_mutations",
+      "set_motion",
+      "clear_motion",
       "create_page",
       "update_theme",
       "create_preview",

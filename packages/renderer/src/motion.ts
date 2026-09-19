@@ -1,4 +1,5 @@
-import type { MotionSpec, NodeTree } from "@senify/section-sdk";
+import { motionPreset, type NodeTree } from "@senify/section-sdk";
+import { mediaMaxWidth } from "@senify/widget-engine";
 
 export const PAGE_SCRIPT_PRESETS = [
   "fade-up",
@@ -32,10 +33,28 @@ export type MotionConfig = {
   duration?: number;
   stagger?: number;
   cssOnly?: boolean;
+  // The preset registry flags, carried into the payload: `hides` drives the
+  // FOUC pending counter, `needs` the per-page plugin scripts.
+  hides?: boolean;
+  needs?: string[];
+  reducedMotion?: "static" | "fade" | "off";
+};
+
+// `motion-data` v2 (`payload-spec.md`): one versioned envelope with the
+// breakpoint queries once per page and the entries as a list. The page script
+// also accepts the v1 array, so an older release keeps working.
+export type MotionData = {
+  v: 2;
+  breakpoints: { tablet: string; mobile: string };
+  entries: MotionConfig[];
 };
 
 export type MotionWarning = {
-  code?: "unimplemented-preset" | "pin-excess" | "char-split-excess";
+  code?:
+    | "unimplemented-preset"
+    | "pin-excess"
+    | "char-split-excess"
+    | "reveal-too-long";
   nodeId?: string;
   preset?: string;
   message: string;
@@ -64,9 +83,13 @@ export function motionConfigsForTree(
   let pins = 0;
   let charSplits = 0;
   for (const node of Object.values(tree.nodes)) {
-    const motion: MotionSpec | undefined = node.motion;
+    const motion = node.motion;
     if (!motion) continue;
-    if (!(PAGE_SCRIPT_PRESETS as readonly string[]).includes(motion.preset)) {
+    // The editor switch keeps the spec without playing it (ticket 19): a
+    // disabled spec emits no entry, no pending marker and no runtime work.
+    if (motion.enabled === false) continue;
+    const preset = motionPreset(motion.preset);
+    if (preset === undefined || (preset.runtime !== "page" && preset.runtime !== "css")) {
       warnings.push({
         code: "unimplemented-preset",
         nodeId: node.id,
@@ -76,7 +99,7 @@ export function motionConfigsForTree(
       });
       continue;
     }
-    if (PIN_PRESETS.includes(motion.preset)) pins += 1;
+    if (preset.flags.includes("pins")) pins += 1;
     if (motion.preset === "char-split") charSplits += 1;
     const intensity = Math.min(10, Math.max(1, Math.round(motion.intensity ?? 5)));
     if (motion.intensity !== undefined && intensity !== motion.intensity) {
@@ -87,6 +110,19 @@ export function motionConfigsForTree(
         suggestion: "Use an intensity between 1 and 10.",
       });
     }
+    const durationSeconds =
+      ((motion.tokens?.durationScale ?? 1) * tokens.baseDurationMs) / 1000;
+    // Soft review budget (artifacts/03): a reveal that runs longer than ~800 ms
+    // feels sluggish — it warns, it never blocks.
+    if (preset.flags.includes("hides") && durationSeconds > 0.8) {
+      warnings.push({
+        code: "reveal-too-long",
+        nodeId: node.id,
+        preset: motion.preset,
+        message: `Reveal "${motion.preset}" runs ${durationSeconds.toFixed(2)}s (soft budget 0.8s)`,
+        suggestion: "Keep reveals under ~800 ms.",
+      });
+    }
     configs.push({
       nodeId: node.id,
       preset: motion.preset,
@@ -94,11 +130,13 @@ export function motionConfigsForTree(
       trigger: motion.trigger ?? "viewport",
       delay: motion.delay ?? 0,
       ease: motion.tokens?.ease ? tokens.ease[motion.tokens.ease] : undefined,
-      duration:
-        ((motion.tokens?.durationScale ?? 1) * tokens.baseDurationMs) / 1000,
+      duration: durationSeconds,
       stagger:
         ((motion.tokens?.stagger ?? 1) * tokens.baseStaggerMs) / 1000,
-      cssOnly: motion.preset === "marquee" ? true : undefined,
+      cssOnly: preset.runtime === "css" ? true : undefined,
+      hides: preset.flags.includes("hides") ? true : undefined,
+      needs: preset.gsapPlugins.length > 0 ? [...preset.gsapPlugins] : undefined,
+      reducedMotion: motion.reducedMotion ?? "static",
     });
   }
   if (pins > 1) {
@@ -118,18 +156,24 @@ export function motionConfigsForTree(
   return { configs, warnings };
 }
 
-export const GSAP_CDN = "https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js";
-export const SCROLL_TRIGGER_CDN =
-  "https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/ScrollTrigger.min.js";
-export const SPLIT_TEXT_CDN =
-  "https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/SplitText.min.js";
-export const LENIS_CDN =
-  "https://cdn.jsdelivr.net/npm/lenis@1.1.18/dist/lenis.min.js";
+// The v2 envelope the bake writes into `<script id="motion-data">`. The
+// breakpoint queries come from the widget engine's one definition
+// (`mediaMaxWidth`), so the payload and the compiled CSS never drift.
+export function motionDataFor(configs: readonly MotionConfig[]): MotionData {
+  return {
+    v: 2,
+    breakpoints: {
+      tablet: `(max-width: ${mediaMaxWidth("tablet")}px)`,
+      mobile: `(max-width: ${mediaMaxWidth("mobile")}px)`,
+    },
+    entries: [...configs],
+  };
+}
 
 export function renderPageScript(options: { lenis: boolean }): string {
   const lenisBlock = options.lenis
     ? `
-    if (typeof window.Lenis !== "undefined" && !window.matchMedia("(pointer: coarse)").matches) {
+    if (!rm && typeof window.Lenis !== "undefined" && !window.matchMedia("(pointer: coarse)").matches) {
       var lenis = new window.Lenis({ autoRaf: false });
       if (hasGsap && window.ScrollTrigger) {
         lenis.on("scroll", window.ScrollTrigger.update);
@@ -143,28 +187,56 @@ export function renderPageScript(options: { lenis: boolean }): string {
     : "";
   return `(function () {
   "use strict";
-  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  function releasePending() {
+    var pending = document.querySelectorAll("[data-motion-pending]");
+    for (var index = 0; index < pending.length; index += 1) {
+      pending[index].removeAttribute("data-motion-pending");
+    }
+  }
+  // Freeze kill-switch (freeze-spec.md): a capture sets it before load; the
+  // runtime never starts and the baseline markup stands.
+  if (window.__SENIFY_MOTION__ === "off") { releasePending(); return; }
+  var rm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var has = {
+    scrolltrigger: typeof window.ScrollTrigger !== "undefined",
+    splittext: typeof window.SplitText !== "undefined"
+  };
   function ready(fn) {
     if (document.readyState !== "loading") fn();
     else document.addEventListener("DOMContentLoaded", fn);
   }
   ready(function () {
     var data = document.getElementById("motion-data");
-    var configs = [];
+    var payload = [];
     try {
-      configs = data ? JSON.parse(data.textContent || "[]") : [];
+      payload = data ? JSON.parse(data.textContent || "[]") : [];
     } catch {
+      releasePending();
       return;
     }
+    var configs = Array.isArray(payload) ? payload : (payload.entries || []);
     var hasGsap = typeof window.gsap !== "undefined";${lenisBlock}
     if (hasGsap && window.ScrollTrigger) window.gsap.registerPlugin(window.ScrollTrigger);
+    var pendingLeft = document.querySelectorAll("[data-motion-pending]").length;
     configs.forEach(function (config) {
-      if (!config || config.cssOnly) return;
+      if (!config) return;
+      if (config.hides) pendingLeft -= 1;
+      if (config.cssOnly) return;
       var el = document.querySelector('[data-node-id="' + config.nodeId + '"]');
       if (!el) return;
+      if (rm) {
+        var policy = config.reducedMotion || "static";
+        if (policy === "fade" && config.hides) fadeIn(el);
+        if (policy !== "ignore") return;
+      }
       runPreset(el, config);
     });
+    if (pendingLeft <= 0) releasePending();
   });
+  function fadeIn(el) {
+    if (typeof el.animate !== "function") return;
+    el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 400, easing: "ease-out" });
+  }
   function escapeHtml(text) {
     return String(text)
       .replace(/&/g, "&amp;")
@@ -179,6 +251,13 @@ export function renderPageScript(options: { lenis: boolean }): string {
   }
   function runPreset(el, config) {
     if (typeof window.gsap === "undefined") return;
+    // A missing plugin degrades to the block state instead of half-running
+    // (payload-spec.md §4): the needs come from the preset registry.
+    if (config.needs) {
+      for (var index = 0; index < config.needs.length; index += 1) {
+        if (!has[config.needs[index]]) return;
+      }
+    }
     var gsap = window.gsap;
     var ease = config.ease || "power2.out";
     var duration = config.duration || 0.6;

@@ -1,15 +1,19 @@
-import type { Author, NodeTree } from "@senify/section-sdk";
+import {
+  MOTION_PROFILES,
+  type Author,
+  type MotionProfile,
+  type NodeTree,
+} from "@senify/section-sdk";
 import type { FormSnapshot } from "@senify/renderer";
 import type { Theme } from "@senify/tokens";
 import type { PatchOp } from "./mutations/contract.ts";
 
-export type SiteProfile = "clean" | "standard" | "showcase";
+// The profile union lives in the section SDK (ticket 21/19): the editor needs
+// the same table, and the engine must not be the only source. Re-exported here
+// so the existing engine imports stay valid.
+export type SiteProfile = MotionProfile;
 
-export const SITE_PROFILES: readonly SiteProfile[] = [
-  "clean",
-  "standard",
-  "showcase",
-];
+export const SITE_PROFILES: readonly SiteProfile[] = MOTION_PROFILES;
 
 export type Site = {
   id: string;

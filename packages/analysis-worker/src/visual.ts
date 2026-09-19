@@ -33,6 +33,10 @@ export type CaptureOptions = {
   breakpoints?: readonly Breakpoint[];
   // Extra milliseconds after the scroll settle (websockets, lazy media).
   settleMs?: number;
+  // Freeze kill-switch (freeze-spec.md): "off" (default) sets
+  // `window.__SENIFY_MOTION__` before load, so the page script never starts and
+  // the capture compares the baseline. "live" leaves the runtime running.
+  motion?: "off" | "live";
 };
 
 export type DiffReport = {
@@ -70,9 +74,11 @@ async function loadPlaywright(): Promise<{
 }
 
 // Freezing motion makes two captures of the same state comparable; the scroll
-// pass triggers lazy media and settles sticky headers before the shot.
+// pass triggers lazy media and settles sticky headers before the shot. The
+// explicit `scroll-behavior: auto` keeps smooth-scroll pages measurable
+// (freeze-spec.md §4): otherwise the scroll pass measures a moving target.
 const FREEZE_CSS =
-  "*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }";
+  "*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; } html { scroll-behavior: auto !important; }";
 
 // The browser slice the evaluate callbacks touch. The repo compiles without a
 // DOM lib on purpose (like the editor's dom.ts), so every callback declares
@@ -83,7 +89,11 @@ type BrowserSlice = {
     documentElement: { scrollWidth: number; scrollHeight: number };
     fonts?: { ready: Promise<unknown> };
   };
-  window: { innerHeight: number; scrollTo(x: number, y: number): void };
+  window: {
+    innerHeight: number;
+    scrollTo(x: number, y: number): void;
+    requestAnimationFrame(callback: () => void): void;
+  };
 };
 type ImageLike = {
   naturalWidth: number;
@@ -118,6 +128,13 @@ async function settle(page: import("playwright").Page, extraMs: number): Promise
     slice.window.scrollTo(0, 0);
     await new Promise((resolve) => setTimeout(resolve, 80));
     await slice.document.fonts?.ready;
+    // Layout settle after fonts and scroll (freeze-spec.md §4): two frames
+    // before the shot, so late reflows cannot land in the diff.
+    await new Promise<void>((resolve) =>
+      slice.window.requestAnimationFrame(() =>
+        slice.window.requestAnimationFrame(() => resolve()),
+      ),
+    );
   });
   if (extraMs > 0) await page.waitForTimeout(extraMs);
 }
@@ -136,6 +153,11 @@ export async function captureScreenshots(options: CaptureOptions): Promise<Visua
         reducedMotion: "reduce",
       });
       const page = await context.newPage();
+      if (options.motion !== "live") {
+        await context.addInitScript(() => {
+          (globalThis as unknown as { __SENIFY_MOTION__?: string }).__SENIFY_MOTION__ = "off";
+        });
+      }
       await page.goto(options.url, { waitUntil: "load" });
       await settle(page, options.settleMs ?? 150);
       const path = join(options.outDir, `${breakpoint}.png`);

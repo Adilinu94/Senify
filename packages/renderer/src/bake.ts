@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import {
+  copyFileSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -19,6 +20,7 @@ import { getSectionComponent, type AssetDelivery } from "@senify/registry/compon
 import {
   describePrimitive,
   isCatalogPrimitive,
+  type StyleRule,
 } from "@senify/widget-engine";
 import type { NodeTree, SectionDefinition } from "@senify/section-sdk";
 import {
@@ -38,16 +40,13 @@ import {
   type PageContext,
 } from "./bindings.ts";
 import {
-  GSAP_CDN,
-  LENIS_CDN,
   motionConfigsForTree,
+  motionDataFor,
   renderIslandsScript,
   renderPageScript,
-  SCROLL_TRIGGER_CDN,
-  SPLIT_TEXT_CDN,
   type MotionTokens,
 } from "./motion.ts";
-import { overridesCss } from "./style-css.ts";
+import { overridesCss, styleRulesCss } from "./style-css.ts";
 
 export type BakePageInput = {
   id: string;
@@ -56,6 +55,10 @@ export type BakePageInput = {
   description?: string;
   ogImage?: string;
   tree: NodeTree;
+  // Draft-id -> composed-id pairs of the layout splice (ticket 22): the
+  // renderer remaps `scoped` style rules, which are bound to draft node ids,
+  // through this map when it compiles `assets/style-rules.css`.
+  nodeIdMap?: Record<string, string>;
 };
 
 export type BakeInput = {
@@ -64,6 +67,10 @@ export type BakeInput = {
   pages: BakePageInput[];
   themeCss: string;
   motionTokens: MotionTokens;
+  // The site-wide style rules of the registry (`sites.style_rules_json`).
+  // One source for the release: the engine reads the store, the renderer
+  // compiles. The bake never reads a page-local copy.
+  styleRules?: readonly StyleRule[];
   profile?: "clean" | "standard" | "showcase";
   assets?: Record<string, AssetDelivery>;
   fontPreloads?: { href: string }[];
@@ -77,6 +84,7 @@ export type BakeWarning = {
   code?:
     | "pin-excess"
     | "char-split-excess"
+    | "reveal-too-long"
     | "unimplemented-preset"
     | "invalid-jsonld"
     | "billing-silent"
@@ -139,6 +147,23 @@ function astroBin(): string {
       : (pkg.bin?.astro ?? Object.values(pkg.bin ?? {})[0]);
   if (!entry) throw new Error("Astro package exposes no bin entry");
   return join(dirname(pkgPath), entry);
+}
+
+// Self-hosted motion runtime (ticket 19, M2): the vendored files travel with
+// the release — no CDN request, no third-party origin, and the version is
+// frozen in the lockfile. The bake copies them next to the other assets; the
+// layout links only the files a page's presets ask for (`needs`).
+export function motionVendorFiles(): { name: string; from: string }[] {
+  const require = createRequire(import.meta.url);
+  return [
+    { name: "gsap.min.js", from: require.resolve("gsap/dist/gsap.min.js") },
+    {
+      name: "ScrollTrigger.min.js",
+      from: require.resolve("gsap/dist/ScrollTrigger.min.js"),
+    },
+    { name: "SplitText.min.js", from: require.resolve("gsap/dist/SplitText.min.js") },
+    { name: "lenis.min.js", from: require.resolve("lenis/dist/lenis.min.js") },
+  ];
 }
 
 function assertBakeable(pages: BakePageInput[]): BakeWarning[] {
@@ -365,23 +390,27 @@ export async function bakeSite(
     for (const message of jsonLdWarnings) {
       warnings.push({ code: "invalid-jsonld", page: page.path, message });
     }
-    const needsSplitText = configs.some(
-      (config) => config.preset === "masked-headline" || config.preset === "char-split",
-    );
+    const needsPlugin = (plugin: string): boolean =>
+      configs.some((config) => config.needs?.includes(plugin) ?? false);
     manifestPages.push({
       path: page.path,
       title: page.title,
       description: page.description ?? "",
       ogImage: page.ogImage ?? "",
       tree: page.tree,
-      motion: jsonForHtml(configs),
+      motion: jsonForHtml(motionDataFor(configs)),
       jsonLd:
         entities.length > 0
           ? jsonForHtml(entities.length === 1 ? entities[0] : { "@context": "https://schema.org", "@graph": entities })
           : null,
       flags: {
         hasMotion: configs.length > 0,
-        needsSplitText,
+        needsScrollTrigger: needsPlugin("scrolltrigger"),
+        needsSplitText: needsPlugin("splittext"),
+        // Lenis is a site decision (profile): `clean` stays without smooth
+        // scroll; the runtime is never initialized in reduced-motion mode.
+        hasLenis: configs.length > 0 && input.profile !== "clean",
+        hasPending: configs.some((config) => config.hides === true),
         islands: [...islands],
         hasForm,
       },
@@ -405,6 +434,7 @@ export async function bakeSite(
   }
 
   const sectionsCss = overridesCss(input.pages);
+  const siteRulesCss = styleRulesCss(input.pages, input.styleRules ?? []);
   const stageDir = await stageTemplate(
     {
       site: { name: input.siteName, baseUrl: input.baseUrl, lang: "de" },
@@ -414,11 +444,12 @@ export async function bakeSite(
       // Only a non-empty file is written, so the page only links it when it
       // exists (an empty <link> would just cost a request).
       sectionsCss: sectionsCss !== "",
-      cdn: {
-        gsap: GSAP_CDN,
-        scrollTrigger: SCROLL_TRIGGER_CDN,
-        splitText: SPLIT_TEXT_CDN,
-        lenis: LENIS_CDN,
+      styleRulesCss: siteRulesCss !== "",
+      vendor: {
+        gsap: "/assets/vendor/gsap.min.js",
+        scrollTrigger: "/assets/vendor/ScrollTrigger.min.js",
+        splitText: "/assets/vendor/SplitText.min.js",
+        lenis: "/assets/vendor/lenis.min.js",
       },
     },
     input.themeCss,
@@ -433,11 +464,19 @@ export async function bakeSite(
       readFileSync(join(stageDir, "src", "styles", "components.css"), "utf8"),
     );
     if (sectionsCss !== "") writeFileSync(join(outDir, "assets", "sections.css"), sectionsCss);
+    if (siteRulesCss !== "") {
+      writeFileSync(join(outDir, "assets", "style-rules.css"), siteRulesCss);
+    }
     if (anyMotion) {
       writeFileSync(
         join(outDir, "assets", "page.js"),
         renderPageScript({ lenis: input.profile !== "clean" }),
       );
+      const vendorDir = join(outDir, "assets", "vendor");
+      mkdirSync(vendorDir, { recursive: true });
+      for (const file of motionVendorFiles()) {
+        copyFileSync(file.from, join(vendorDir, file.name));
+      }
     }
     if (islandKinds.size > 0) {
       writeFileSync(join(outDir, "assets", "islands.js"), renderIslandsScript(islandKinds));

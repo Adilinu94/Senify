@@ -14,13 +14,28 @@
 //   as overrides).
 // - structure ops keep the same meaning and only rename the node spec field
 //   (`primitive` -> `type`).
-// - class and collection ops have no section equivalent yet; they fail loudly
-//   instead of writing something the section store cannot express.
+// - `setNodeMeta` maps field by field onto `updateNodeMeta` (whole class list,
+//   hidden, locked). `assignClass` / `removeClass` use the diff form
+//   (`addClasses` / `removeClasses`), because the bridge is stateless and the
+//   caller does not send the surrounding list.
+// - `setMotion` / `clearMotion` map 1:1 onto the section motion ops; the spec
+//   travels unchanged (the v2 fields are additive to the v1 schema).
+// - slot and collection ops map onto their section forms (same names, ticket 13
+//   rest): `setSlotContent` replaces a slot, `createCollectionEntry` inserts
+//   into the `item` slot, `updateCollectionEntry` patches one entry.
+// - style rule ops are site-wide now (Phase 2): the registry lives on the site,
+//   not in a page draft, so a page-scoped batch cannot carry them. They are
+//   written through the site routes (`/api/sites/:siteId/style-rules`) and this
+//   bridge points there instead of silently dropping the op.
 
 import { SenifyError } from "@senify/core";
 import type { PropValue } from "@senify/section-sdk";
-import { type Mutation, type OverrideBreakpoint } from "./contract.ts";
-import type { EditorMutation } from "./editor-contract.ts";
+import {
+  type Mutation,
+  type NodeSpec,
+  type OverrideBreakpoint,
+} from "./contract.ts";
+import type { EditorMutation, EditorNodeSpec } from "./editor-contract.ts";
 
 const TABLET_SUFFIX = "_tablet";
 const MOBILE_SUFFIX = "_mobile";
@@ -49,7 +64,39 @@ function unsupported(op: string): never {
     {
       field: "mutations",
       suggestion:
-        "Der Canvas speichert in Phase 0 nur Struktur- und Basiswerte; Klassen und Sammlungen folgen in Phase 1/2.",
+        "Struktur-, Werte-, Meta-, Motion-, Klassen-, Slot- und Sammlungs-Vorgaenge sind gespeichert.",
+    },
+  );
+}
+
+// The editor node spec as the section store reads it: `primitive` becomes
+// `type`, device suffixes are stripped (the base value wins on insert), the
+// remaining fields keep their names.
+function sectionNodeSpec(spec: EditorNodeSpec): NodeSpec {
+  const props: Record<string, PropValue> = {};
+  for (const [key, value] of Object.entries(spec.props ?? {})) {
+    props[baseKeyOf(key)] = value;
+  }
+  return {
+    type: spec.primitive,
+    ...(Object.keys(props).length > 0 ? { props } : {}),
+    ...(spec.id === undefined ? {} : { id: spec.id }),
+    ...(spec.classes === undefined ? {} : { classes: [...spec.classes] }),
+    ...(spec.hidden === undefined ? {} : { hidden: spec.hidden }),
+    ...(spec.locked === undefined ? {} : { locked: spec.locked }),
+    ...(spec.motion === undefined ? {} : { motion: structuredClone(spec.motion) }),
+  };
+}
+
+// Style rules are site-wide (Phase 2), so they never belong to a page batch.
+function siteWide(op: string): never {
+  throw new SenifyError(
+    "validation",
+    `Der Vorgang "${op}" gehoert zur Seite, nicht zur Seite-Datei`,
+    {
+      field: "mutations",
+      suggestion:
+        "Stilregeln liegen site-weit auf der Site: nutze /api/sites/:siteId/style-rules.",
     },
   );
 }
@@ -90,23 +137,76 @@ export function editorMutationToSection(mutation: EditorMutation): Mutation[] {
       ];
     }
     case "insertNode": {
-      const props: Record<string, PropValue> = {};
-      for (const [key, value] of Object.entries(mutation.node.props ?? {})) {
-        props[baseKeyOf(key)] = value;
-      }
       return [
         {
           op: "insertNode",
           parent: { ...mutation.parent },
           ...(mutation.index === undefined ? {} : { index: mutation.index }),
-          node: {
-            type: mutation.node.primitive,
-            ...(Object.keys(props).length > 0 ? { props } : {}),
-            ...(mutation.node.id === undefined ? {} : { id: mutation.node.id }),
-          },
+          node: sectionNodeSpec(mutation.node),
         },
       ];
     }
+    case "setSlotContent":
+      return [
+        {
+          op: "setSlotContent",
+          id: mutation.id,
+          slot: mutation.slot,
+          nodes: mutation.nodes.map((spec) => sectionNodeSpec(spec)),
+        },
+      ];
+    case "createCollectionEntry":
+      return [
+        {
+          op: "createCollectionEntry",
+          id: mutation.id,
+          node: sectionNodeSpec(mutation.node),
+          ...(mutation.index === undefined ? {} : { index: mutation.index }),
+        },
+      ];
+    case "updateCollectionEntry":
+      return [
+        {
+          op: "updateCollectionEntry",
+          id: mutation.id,
+          index: mutation.index,
+          patch: { ...mutation.patch },
+        },
+      ];
+    case "setNodeMeta":
+      return [
+        {
+          op: "updateNodeMeta",
+          id: mutation.id,
+          meta: {
+            ...(mutation.meta.classes === undefined
+              ? {}
+              : { classes: mutation.meta.classes === null ? null : [...mutation.meta.classes] }),
+            ...(mutation.meta.hidden === undefined ? {} : { hidden: mutation.meta.hidden }),
+            ...(mutation.meta.locked === undefined ? {} : { locked: mutation.meta.locked }),
+          },
+        },
+      ];
+    case "setMotion":
+      return [{ op: "setMotion", id: mutation.id, spec: mutation.spec }];
+    case "clearMotion":
+      return [{ op: "clearMotion", id: mutation.id }];
+    case "assignClass":
+      return [
+        {
+          op: "updateNodeMeta",
+          id: mutation.id,
+          meta: { addClasses: [mutation.classId] },
+        },
+      ];
+    case "removeClass":
+      return [
+        {
+          op: "updateNodeMeta",
+          id: mutation.id,
+          meta: { removeClasses: [mutation.classId] },
+        },
+      ];
     case "deleteNode":
       return [{ op: "deleteNode", id: mutation.id }];
     case "moveNode":
@@ -127,8 +227,18 @@ export function editorMutationToSection(mutation: EditorMutation): Mutation[] {
           ...(mutation.index === undefined ? {} : { index: mutation.index }),
         },
       ];
-    default:
-      return unsupported(mutation.op);
+    case "renameStyleRule":
+    case "upsertStyleRule":
+    case "deleteStyleRule":
+    case "reorderStyleRule":
+      return siteWide(mutation.op);
+    default: {
+      // The vocabulary is fully covered; a newer client may still send an op
+      // this bridge does not know yet. Keep the loud rejection instead of
+      // dropping it silently (the type narrowing reaches `never` here).
+      const unknown = (mutation as { op: string }).op;
+      return unsupported(unknown);
+    }
   }
 }
 

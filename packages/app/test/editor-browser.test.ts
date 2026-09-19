@@ -86,6 +86,11 @@ describe.skipIf(!browserAvailable)("editor in a real browser (T13)", () => {
         if (message.type() === "error") errors.push(`console: ${message.text()}`);
       });
       tab.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+      tab.on("response", (response) => {
+        if (response.status() >= 400) {
+          errors.push(`http-${response.status()}: ${response.url()}`);
+        }
+      });
 
       const url = `${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`;
       let mounted = false;
@@ -270,6 +275,37 @@ describe.skipIf(!browserAvailable)("editor in a real browser (T13)", () => {
       await tab.locator('.senify-editor__button[data-action="structure"]').click();
       expect(await tab.locator(".senify-editor__rail").isVisible()).toBe(true);
 
+      // Site profile (ticket 20): the top bar carries the site's level.
+      const profileSelect = tab.locator('[data-control="site-profile"]');
+      expect(await profileSelect.count()).toBe(1);
+      expect(await profileSelect.inputValue()).toBe("standard");
+
+      // Motion play preview (M4): the button injects the runtime contract into
+      // the active frame and stopping recreates the baseline frames.
+      const motionButton = tab.locator('.senify-editor__button[data-action="motion-play"]');
+      expect(await motionButton.count()).toBe(1);
+      await motionButton.click();
+      await expect
+        .poll(async () => firstFrame.locator('[data-senify-motion="runtime"]').count())
+        .toBe(1);
+      // The vendor really loaded (a failed fetch would leave window.gsap unset).
+      await expect
+        .poll(async () =>
+          firstFrame.locator("body").evaluate((element) => {
+            const view = (
+              element as unknown as {
+                ownerDocument?: { defaultView?: { gsap?: unknown } };
+              }
+            ).ownerDocument?.defaultView;
+            return typeof view?.gsap !== "undefined";
+          }),
+        )
+        .toBe(true);
+      await motionButton.click();
+      await expect
+        .poll(async () => firstFrame.locator('[data-senify-motion="runtime"]').count())
+        .toBe(0);
+
       // Settings tabs: Content → Style → Advanced (Motion + Sichtbarkeit).
       await tab.locator('.senify-editor__ptab[data-ptab="style"]').click();
       await expect
@@ -282,6 +318,11 @@ describe.skipIf(!browserAvailable)("editor in a real browser (T13)", () => {
         .poll(async () => tab.locator('.senify-editor__panel[data-group="motion"]').count())
         .toBe(1);
       expect(await tab.locator('.senify-editor__panel[data-group="visibility"]').count()).toBe(1);
+      // The full spec is editable (M3): cap hint, RM variant, enabled switch.
+      expect(await tab.locator('[data-role="motion-cap"]').count()).toBe(1);
+      expect(await tab.locator('[data-control="motion-reduced"]').count()).toBe(1);
+      expect(await tab.locator('[data-control="motion-enabled"]').count()).toBe(1);
+      expect(await tab.locator('[data-control="motion-ease"]').count()).toBe(1);
       await tab.locator('.senify-editor__ptab[data-ptab="content"]').click();
 
       // Selection handle: duplicate and delete right from the canvas.
@@ -421,11 +462,84 @@ describe.skipIf(!browserAvailable)("editor in a real browser (T13)", () => {
         )
         .toBeGreaterThan(0);
 
-      // Live mode: one frame in real size, switching back keeps the state.
+      // The design zoom survives the live round trip (Ticket 03: live runs at
+      // 100%, design keeps its own zoom).
+      const zoomLabel = (): Promise<string> =>
+        tab.locator('.senify-editor__zoom button[data-action="zoom-reset"]').innerText();
+      const zoomBefore = await zoomLabel();
+      await tab.locator('.senify-editor__zoom button[data-action="zoom-out"]').click();
+      const zoomChanged = await zoomLabel();
+      expect(zoomChanged).not.toBe(zoomBefore);
+
+      // Live mode: one frame in real size, and the real page plays motion with
+      // the site profile (standard → Lenis). Switching back restores the frames.
       await tab.locator('.senify-editor__button[data-mode="live"]').click();
+      await tab.waitForTimeout(150);
       expect(await tab.locator(".senify-editor__iframe").count()).toBe(1);
+      // Native page scroll: the stage never scrolls and carries no zoom group;
+      // the sheet sits in the layout flow at stage size, so the frame document
+      // itself scrolls — exactly like the release page.
+      expect(await tab.locator(".senify-editor__zoom").count()).toBe(0);
+      const liveStage = (await tab.locator(".senify-editor__stage").evaluate(`(() => {
+        const element = document.querySelector(".senify-editor__stage");
+        return { overflow: getComputedStyle(element).overflow, scrollTop: element.scrollTop };
+      })()`)) as { overflow: string; scrollTop: number };
+      expect(liveStage.overflow).toBe("hidden");
+      expect(liveStage.scrollTop).toBe(0);
+      const liveSheet = (await tab
+        .locator(".senify-editor__frame")
+        .first()
+        .evaluate(`(() => {
+          const style = getComputedStyle(document.querySelector(".senify-editor__frame"));
+          return { position: style.position, boxShadow: style.boxShadow, radius: style.borderRadius };
+        })()`)) as { position: string; boxShadow: string; radius: string };
+      expect(liveSheet.position).toBe("relative");
+      expect(liveSheet.boxShadow).toBe("none");
+      expect(liveSheet.radius).toBe("0px");
+      const liveFrame = tab.locator(".senify-editor__iframe").first().contentFrame();
+      // The frame document is the scroll container (Ticket 03 acceptance:
+      // live shows native scroll, the stage never scrolls). The test page is
+      // shorter than the stage, so the probe extends the document briefly.
+      const liveScrollTop = (await liveFrame
+        .locator("body")
+        .evaluate(`(() => {
+          const scrolling = document.scrollingElement ?? document.documentElement;
+          const spacer = document.createElement("div");
+          spacer.style.height = "2000px";
+          document.body.appendChild(spacer);
+          scrolling.scrollTop = 300;
+          const scrollTop = scrolling.scrollTop;
+          spacer.remove();
+          scrolling.scrollTop = 0;
+          return scrollTop;
+        })()`)) as number;
+      expect(liveScrollTop).toBeGreaterThan(0);
+      await expect
+        .poll(async () => liveFrame.locator('[data-senify-motion="runtime"]').count())
+        .toBe(1);
+      // The profile contract reached the frame: Lenis is part of the live page.
+      await expect
+        .poll(async () =>
+          liveFrame.locator("body").evaluate((element) => {
+            const view = (
+              element as unknown as {
+                ownerDocument?: { defaultView?: { Lenis?: unknown } };
+              }
+            ).ownerDocument?.defaultView;
+            return typeof view?.Lenis !== "undefined";
+          }),
+        )
+        .toBe(true);
+      // The live page keeps its own behaviour: a click selects nothing. The
+      // click goes to the link-free divider — the first section is the banner,
+      // whose link would navigate the frame to its (unrouted) target.
+      await liveFrame.locator('section[data-section="divider"]').click();
+      await expect
+        .poll(async () => tab.locator(".senify-editor__handle").count())
+        .toBe(0);
       await tab.locator('.senify-editor__button[data-mode="design"]').click();
       expect(await tab.locator(".senify-editor__iframe").count()).toBe(3);
+      expect(await zoomLabel()).toBe(zoomChanged);
 
       // The explorer pages tab is wired to the site's pages.
       await tab.locator('.senify-editor__tab[data-tab="pages"]').click();

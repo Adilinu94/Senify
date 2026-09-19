@@ -5,7 +5,7 @@ describe("senify skill pack", () => {
   it("ships the router, the master flow and the asset guide", () => {
     const files = skillFiles();
     const names = files.map((file) => file.name);
-    expect(names).toEqual(["assets.md", "router.md", "workflow.md"]);
+    expect(names).toEqual(["assets.md", "motion.md", "router.md", "workflow.md"]);
     expect(skillsDir()).toContain("skills");
   });
 

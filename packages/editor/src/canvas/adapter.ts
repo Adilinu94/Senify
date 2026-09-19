@@ -34,6 +34,7 @@ export function canvasNodeTree(document: EditorDocument): NodeTree {
     }
     if (node.hidden !== undefined) sectionNode.hidden = node.hidden;
     if (node.locked !== undefined) sectionNode.locked = node.locked;
+    if (node.motion !== undefined) sectionNode.motion = structuredClone(node.motion);
     nodes[id] = sectionNode;
   }
   return { rootNodeId: document.rootNodeId, nodes };

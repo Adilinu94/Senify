@@ -30,6 +30,7 @@ import { Outlet } from "./Outlet.tsx";
 import { CollectionList } from "./CollectionList.tsx";
 import { Card } from "./Card.tsx";
 import type { SectionContext, SectionProps } from "./shared.tsx";
+import { nodeRootClasses } from "./shared.tsx";
 import { PrimitiveNode } from "./primitives.tsx";
 
 export const SECTION_COMPONENTS: Record<string, ComponentType<SectionProps>> = {
@@ -108,7 +109,14 @@ export function SectionTree({
         </PrimitiveNode>
       );
     }
-    return <div key={id} data-unknown-section={node.type} data-node-id={id} />;
+    return (
+      <div
+        key={id}
+        data-unknown-section={node.type}
+        data-node-id={id}
+        className={nodeRootClasses(node).join(" ")}
+      />
+    );
   };
   const root = nodes[rootNodeId];
   if (!root) return null;

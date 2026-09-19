@@ -13,3 +13,4 @@ export * from "./consistency.ts";
 export * from "./migration.ts";
 export * from "./ids.ts";
 export * from "./store.ts";
+export * from "./persist.ts";

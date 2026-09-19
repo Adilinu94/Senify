@@ -8,8 +8,8 @@
 // uses for the section tree, only over the editor document.
 
 import { SenifyError } from "@senify/core";
-import type { PropValue } from "@senify/section-sdk";
-import type { DeviceValueMap } from "@senify/widget-engine";
+import type { MotionSpec, PropValue } from "@senify/section-sdk";
+import { classKindSelector, type StyleRule } from "@senify/widget-engine";
 import {
   cloneDocument,
   collectSubtree,
@@ -35,6 +35,7 @@ export type DocumentPatch =
         locked?: boolean | null;
       };
     }
+  | { patch: "setNodeMotion"; id: NodeId; spec: MotionSpec | null }
   | {
       patch: "insertNodes";
       parent: ParentRef;
@@ -43,8 +44,10 @@ export type DocumentPatch =
     }
   | { patch: "deleteNode"; id: NodeId }
   | { patch: "moveNode"; id: NodeId; target: ParentRef; index: number }
-  | { patch: "setStyleRule"; name: string; rule: DeviceValueMap | null }
-  | { patch: "renameClass"; from: string; to: string };
+  | { patch: "upsertStyleRule"; rule: StyleRule }
+  | { patch: "deleteStyleRule"; id: string }
+  | { patch: "reorderStyleRule"; id: string; index: number }
+  | { patch: "renameStyleRule"; id: string; name: string };
 
 function requireNode(document: EditorDocument, id: NodeId): EditorNode {
   const node = document.nodes[id];
@@ -125,6 +128,12 @@ export function applyDocumentPatch(
       }
       return;
     }
+    case "setNodeMotion": {
+      const node = requireNode(document, patch.id);
+      if (patch.spec === null) delete node.motion;
+      else node.motion = structuredClone(patch.spec);
+      return;
+    }
     case "insertNodes": {
       if (patch.nodes.length === 0) {
         throw new SenifyError("validation", "insertNodes restores no node", {
@@ -156,20 +165,40 @@ export function applyDocumentPatch(
       list.splice(Math.min(patch.index, list.length), 0, patch.id);
       return;
     }
-    case "setStyleRule": {
-      if (patch.rule === null) delete document.classes[patch.name];
-      else document.classes[patch.name] = { ...patch.rule };
+    case "upsertStyleRule": {
+      // Address by id, not by name: a rename must not break the rule (and the
+      // site routes address by ruleId too).
+      const index = document.styleRules.findIndex((rule) => rule.id === patch.rule.id);
+      const next = structuredClone(patch.rule);
+      if (index < 0) document.styleRules.push(next);
+      else document.styleRules[index] = next;
       return;
     }
-    case "renameClass": {
-      const rule = document.classes[patch.from];
-      delete document.classes[patch.from];
-      if (rule !== undefined) document.classes[patch.to] = rule;
+    case "deleteStyleRule": {
+      document.styleRules = document.styleRules.filter((rule) => rule.id !== patch.id);
+      return;
+    }
+    case "reorderStyleRule": {
+      // The array order is the cascade order. A missing id or an out-of-range
+      // index leaves the list untouched.
+      const from = document.styleRules.findIndex((rule) => rule.id === patch.id);
+      if (from < 0) return;
+      if (patch.index < 0 || patch.index >= document.styleRules.length) return;
+      const [moved] = document.styleRules.splice(from, 1);
+      if (moved === undefined) return;
+      document.styleRules.splice(patch.index, 0, moved);
+      return;
+    }
+    case "renameStyleRule": {
+      const rule = document.styleRules.find((entry) => entry.id === patch.id);
+      if (rule === undefined) return;
+      const previous = rule.name;
+      rule.name = patch.name;
+      rule.selector = classKindSelector(patch.name);
+      // Nodes reference the class by name, so the assignment follows the rename.
       for (const node of Object.values(document.nodes)) {
-        if (node.classes === undefined) continue;
-        const next = node.classes.map((name) =>
-          name === patch.from ? patch.to : name,
-        );
+        if (node.classes === undefined || !node.classes.includes(previous)) continue;
+        const next = node.classes.map((name) => (name === previous ? patch.name : name));
         node.classes = [...new Set(next)];
       }
       return;

@@ -35,7 +35,7 @@ describe("v1 -> v2 migration", () => {
       fontSize: 24,
       fontSize_mobile: 16,
     });
-    expect(document.classes).toEqual({});
+    expect(document.styleRules).toEqual([]);
     expect(validateDocument(document)).toEqual([]);
   });
 
@@ -49,6 +49,20 @@ describe("v1 -> v2 migration", () => {
   it("loads a v2 document with the loaded status", () => {
     const result = loadDocument(baseStore().document);
     expect(result.status).toBe("loaded");
+  });
+
+  it("carries a v1 motion spec into the document", () => {
+    const tree = v1Tree();
+    const heading = tree.nodes["head000001"];
+    expect(heading).toBeDefined();
+    if (heading === undefined) return;
+    heading.motion = { preset: "fade-up", intensity: 7 };
+    const document = migrateV1ToV2(tree);
+    expect(document.nodes["head000001"]?.motion).toEqual({
+      preset: "fade-up",
+      intensity: 7,
+    });
+    expect(validateDocument(document)).toEqual([]);
   });
 });
 
@@ -94,7 +108,7 @@ describe("reindexing", () => {
         kept: { id: "kept", primitive: "text", props: {} },
         orphan: { id: "orphan", primitive: "text", props: {} },
       },
-      classes: {},
+      styleRules: [],
     };
     const reindexed = reindexDocument(document);
     expect(reindexed.nodes["root"]?.children).toEqual(["kept"]);
@@ -102,10 +116,64 @@ describe("reindexing", () => {
   });
 });
 
+describe("style rule lift", () => {
+  it("lifts an old v2 document with a classes value bag", () => {
+    const legacy = {
+      version: 2,
+      rootNodeId: "root",
+      nodes: {
+        root: { id: "root", primitive: "root", props: {}, children: ["btn"] },
+        btn: { id: "btn", primitive: "button", props: {}, classes: ["cta"] },
+      },
+      classes: { cta: { background: "#f00" }, ghost: {} },
+    };
+    const result = loadDocument(legacy);
+    expect(result.status).toBe("loaded");
+    expect(result.document.styleRules.map((rule) => rule.name)).toEqual(["cta", "ghost"]);
+    const cta = result.document.styleRules[0];
+    expect(cta?.kind).toBe("class");
+    expect(cta?.selector).toBe(".cta");
+    expect(cta?.styles).toEqual({ background: "#f00" });
+    expect(cta?.order).toBe(0);
+    // The assignment still resolves against the lifted rule.
+    expect(validateDocument(result.document)).toEqual([]);
+    // A second cycle is stable.
+    const again = loadDocument(parseDocument(serializeDocument(result.document)));
+    expect(again.document).toEqual(result.document);
+  });
+
+  it("drops a corrupt entry but keeps the rest of the registry", () => {
+    const result = loadDocument({
+      version: 2,
+      rootNodeId: "root",
+      nodes: { root: { id: "root", primitive: "root", props: {} } },
+      styleRules: [
+        { id: "r1", name: "good", kind: "class", selector: ".good", order: 0, styles: {}, contextStyles: {} },
+        { name: "no-id" },
+        "junk",
+      ],
+    });
+    expect(result.document.styleRules.map((rule) => rule.id)).toEqual(["r1"]);
+  });
+});
+
 describe("round-trip", () => {
   it("load, change, save, load again yields the same tree", () => {
     const store = baseStore();
-    store.apply({ op: "createStyleRule", name: "cta", props: { background: "#f00" } });
+    store.apply({
+      op: "upsertStyleRule",
+      rule: {
+        id: "r-cta",
+        name: "cta",
+        kind: "class",
+        selector: ".cta",
+        order: 0,
+        styles: { background: "#f00" },
+        states: { hover: { background: "#0f0" } },
+        contextStyles: {},
+        authoredBy: "agent",
+      },
+    });
     store.apply({ op: "assignClass", id: "btn0000001", classId: "cta" });
     store.apply({
       op: "setNodeProp",
@@ -137,7 +205,7 @@ describe("rollback", () => {
       rootNodeId: "root",
       // The root is not a "root" primitive, and reindexing cannot fix that.
       nodes: { root: { id: "root", primitive: "frame", props: {} } },
-      classes: {},
+      styleRules: [],
     };
     const result = loadDocument(broken, { fallback });
     expect(result.status).toBe("restored");

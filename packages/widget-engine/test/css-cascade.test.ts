@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CASCADE_LAYER,
   CASCADE_ORDER,
+  STATE_ORDER,
   classSelector,
   compileCss,
   inlineStyleFor,
@@ -52,7 +53,7 @@ describe("cascade decision", () => {
     const base = css.indexOf(`[data-node-id="card"] {`);
     const device = css.indexOf("@media (max-width: 1023.98px)");
     const state = css.indexOf(`[data-node-id="card"]:hover {`);
-    const userClass = css.indexOf(`[data-node-id="card"].highlight {`);
+    const userClass = css.indexOf(`.highlight {`);
 
     expect(base).toBeGreaterThan(-1);
     expect(device).toBeGreaterThan(base);
@@ -76,17 +77,52 @@ describe("cascade decision", () => {
 
   it("lets the user class override the state rule", () => {
     const css = compileCss(document);
-    // Same specificity (attribute + one class / one pseudo class), later in the
-    // source — so the class wins without leaving the layer.
+    // Ticket 14: the plain class rule is global (`.highlight`, one simple
+    // selector) and still wins against base/device/state through source order;
+    // where the node has its own state, the anchored combination
+    // (`[data-node-id].highlight:hover`, three simple selectors) carries the
+    // class values over the state values.
     expect(classSelector("card", "highlight")).toBe(`[data-node-id="card"].highlight`);
     expect(stateSelector("card", "hover")).toBe(`[data-node-id="card"]:hover`);
-    expect(block(css, `[data-node-id="card"].highlight {`)).toContain("color: #0000ff;");
+    expect(block(css, `.highlight {`)).toContain("color: #0000ff;");
+    expect(block(css, `[data-node-id="card"].highlight:hover {`)).toContain("color: #0000ff;");
   });
 
   it("leaves the inline value as the strongest level, outside the layer", () => {
     const css = compileCss(document);
     expect(css).not.toContain("#000000");
     expect(inlineStyleFor(node)).toBe("color: #000000");
+  });
+});
+
+// O11 (17.09.): vier Pseudo-States, `disabled` nach `active`. Der Inspektor baut
+// vier Zustands-Reiter; der Compiler muss dieselbe Reihenfolge tragen, sonst
+// gewinnt `disabled` gegen `active`, sobald beide am selben Knoten stehen.
+describe("pseudo states (O11)", () => {
+  it("orders the four states weak to strong, disabled last", () => {
+    expect([...STATE_ORDER]).toEqual(["hover", "focus", "active", "disabled"]);
+    expect(stateSelector("card", "disabled")).toBe(`[data-node-id="card"]:disabled`);
+  });
+
+  it("emits a disabled rule in the state stage, after active", () => {
+    const css = compileCss({
+      nodes: [
+        {
+          id: "btn",
+          primitive: "button",
+          props: { color: "#111111" },
+          states: {
+            disabled: { color: "#999999" },
+            active: { color: "#333333" },
+          },
+        },
+      ],
+    });
+    const active = css.indexOf(`[data-node-id="btn"]:active {`);
+    const disabled = css.indexOf(`[data-node-id="btn"]:disabled {`);
+    expect(active).toBeGreaterThan(-1);
+    expect(disabled).toBeGreaterThan(active);
+    expect(block(css, `[data-node-id="btn"]:disabled {`)).toContain("color: #999999;");
   });
 });
 

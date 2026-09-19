@@ -145,12 +145,14 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       await expect.poll(dividerCount).toBe(1);
       await tab.screenshot({ path: join(shotDir, "04-canvas-insert.png") });
 
-      // Saving sends the pending editor ops to the engine and bumps the draft.
+      // Autosave (decided 18.09.): the pending ops reach the engine after the
+      // quiet period, without a click. The button stays as a manual flush.
       const save = tab.locator('[data-action="canvas-save"]');
-      await expect.poll(async () => save.isEnabled()).toBe(true);
-      await save.click();
-      await expect.poll(async () => tab.locator("#page-version").textContent()).toBe("Draft v3");
+      await expect.poll(async () => tab.locator("#page-version").textContent()).toMatch(/Draft v[3-9]/);
       await expect.poll(async () => save.isEnabled()).toBe(false);
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent()).toBe(
+        "Gespeichert",
+      );
       await tab.screenshot({ path: join(shotDir, "05-canvas-saved.png") });
 
       // Round-trip: reload the canvas and the saved divider is still there.

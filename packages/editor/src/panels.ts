@@ -1,6 +1,8 @@
 import { resolveTheme, type Theme } from "@senify/tokens";
 import {
+  MOTION_PROFILE_RULES,
   isPropHidden,
+  type MotionProfile,
   type Node,
   type NodeTree,
   type PropControl,
@@ -65,8 +67,16 @@ export type MotionPanel = {
   intensity: number;
   trigger: string;
   delay: number;
+  tokens: { ease: string; durationScale: number; stagger: number };
+  reducedMotion: "static" | "fade" | "off";
+  enabled: boolean;
   presets: string[];
   presetsDisabled: boolean;
+  // The site profile narrows the section's presets and caps the dial (ticket
+  // 20/21). The panel shows the cap; the publish gate enforces it.
+  profile: MotionProfile;
+  intensityCap: number;
+  allowedPresets: readonly string[] | "all";
 };
 
 export type BuildPanelsInput = {
@@ -285,16 +295,29 @@ export function buildMotionPanel(input: {
   definition: SectionDefinition;
   nodeId: string;
   tree: NodeTree;
+  profile?: MotionProfile;
 }): MotionPanel {
   const node = nodeOf(input.tree, input.nodeId);
   const presets = input.definition.motionPresets ?? [];
+  const profile = input.profile ?? "standard";
+  const rules = MOTION_PROFILE_RULES[profile];
   return {
     nodeId: input.nodeId,
     preset: node.motion?.preset ?? null,
     intensity: node.motion?.intensity ?? 5,
     trigger: node.motion?.trigger ?? "viewport",
     delay: node.motion?.delay ?? 0,
+    tokens: {
+      ease: node.motion?.tokens?.ease ?? "",
+      durationScale: node.motion?.tokens?.durationScale ?? 1,
+      stagger: node.motion?.tokens?.stagger ?? 1,
+    },
+    reducedMotion: node.motion?.reducedMotion ?? "static",
+    enabled: node.motion?.enabled !== false,
     presets,
     presetsDisabled: presets.length === 0,
+    profile,
+    intensityCap: rules.intensityCap,
+    allowedPresets: rules.presets,
   };
 }

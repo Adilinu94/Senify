@@ -2,6 +2,7 @@ export {
   bakeSite,
   inlineBakedAssets,
   jsonForHtml,
+  motionVendorFiles,
   selfContainedHtml,
   type BakeInput,
   type BakeOptions,
@@ -29,23 +30,22 @@ export {
   type IslandKind,
 } from "./islands.ts";
 export {
-  GSAP_CDN,
-  LENIS_CDN,
   motionConfigsForTree,
+  motionDataFor,
   parseDurationMs,
   PIN_PRESETS,
   PAGE_SCRIPT_PRESETS,
   renderIslandsScript,
   renderPageScript,
-  SCROLL_TRIGGER_CDN,
-  SPLIT_TEXT_CDN,
   type MotionConfig,
+  type MotionData,
   type MotionTokens,
   type MotionWarning,
 } from "./motion.ts";
 export {
   BREAKPOINTS,
   overridesCss,
+  styleRulesCss,
   type StyleCssPage,
 } from "./style-css.ts";
 export {

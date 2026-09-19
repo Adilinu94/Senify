@@ -30,7 +30,17 @@ function document(): EditorDocument {
         },
       },
     },
-    classes: { cta: { color: "#222222" } },
+    styleRules: [
+      {
+        id: "r-cta",
+        name: "cta",
+        kind: "class",
+        selector: ".cta",
+        order: 0,
+        styles: { color: "#222222" },
+        contextStyles: {},
+      },
+    ],
   };
 }
 
@@ -102,7 +112,7 @@ describe("frame rules", () => {
           props: { background: { $token: "color.brand-500" } },
         },
       },
-      classes: {},
+      styleRules: [],
     };
     const { authored } = canvasFrameRules(withToken, {
       resolveToken: (ref) => (ref === "color.brand-500" ? "#123456" : undefined),

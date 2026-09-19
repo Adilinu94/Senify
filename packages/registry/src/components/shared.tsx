@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import type { Node, PropValue } from "@senify/section-sdk";
+import { motionPends, type Node, type PropValue } from "@senify/section-sdk";
+import { scopeNameFor } from "@senify/widget-engine";
 import { partVarsFor, styleValue } from "../style.ts";
 
 export { styleValue } from "../style.ts";
@@ -376,6 +377,27 @@ export function focalStyle(asset: unknown): React.CSSProperties | undefined {
   return { objectPosition: `${focal.x * 100}% ${focal.y * 100}%` };
 }
 
+// FOUC marker for hiding presets (ticket 19, M2): the bake's page script
+// releases the attribute when it takes over, a 1.6 s failsafe and <noscript>
+// cover a broken or disabled script. The canvas renders the same markup — the
+// attribute is inert there because the pending CSS lives only in the bake.
+export function motionPendingAttrs(node: Node): Record<string, string> {
+  const motion = node.motion;
+  if (motion === undefined || motion.enabled === false) return {};
+  return motionPends(motion.preset) ? { "data-motion-pending": "" } : {};
+}
+
+// The classes of the element that carries `data-node-id` (ticket 21): the
+// assigned user classes (`node.classes`) and the node's generated scope class.
+// The compiler anchors `class` rules as `[data-node-id].name` and `scoped`
+// rules as `[data-node-id].__senify_scope_<id>` (ADR-0005), so both need the
+// attribute in the DOM. The scope class is deterministic — every node carries
+// it, and it stays inert until a scoped rule exists for that node. No rule
+// registry has to reach the renderer this way.
+export function nodeRootClasses(node: Node): string[] {
+  return [...(node.classes ?? []), scopeNameFor(node.id)];
+}
+
 export function SectionShell({
   node,
   section,
@@ -394,7 +416,8 @@ export function SectionShell({
       data-section={section}
       data-variant={node.variant}
       data-node-id={node.id}
-      className={className}
+      {...motionPendingAttrs(node)}
+      className={cx(className, ...nodeRootClasses(node))}
       style={{ ...sectionStyle(node), ...style }}
     >
       {children}

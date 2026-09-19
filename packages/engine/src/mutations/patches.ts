@@ -88,6 +88,10 @@ export function applyPatchOp(tree: WorkingTree, patch: PatchOp): void {
       else node.locked = fields.locked;
       if (fields.hidden === null || fields.hidden === undefined) delete node.hidden;
       else node.hidden = fields.hidden;
+      if (fields.classes !== undefined) {
+        if (fields.classes === null || fields.classes.length === 0) delete node.classes;
+        else node.classes = [...fields.classes];
+      }
       return;
     }
     case "setOverride": {

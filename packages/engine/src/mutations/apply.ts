@@ -281,8 +281,17 @@ function resolveIndex(index: number | undefined, length: number): number {
 
 function buildNode(
   state: ApplierState,
-  spec: { type: string; variant?: string; props?: Record<string, PropValue>; id?: string },
-  fieldPrefix: "node" | "wrapper",
+  spec: {
+    type: string;
+    variant?: string;
+    props?: Record<string, PropValue>;
+    id?: string;
+    classes?: string[];
+    hidden?: boolean;
+    locked?: boolean;
+    motion?: MotionSpec;
+  },
+  fieldPrefix: string,
 ): Node {
   assertRegistered(state.registry, spec.type, `${fieldPrefix}.type`);
   const definition = state.registry.get(spec.type);
@@ -310,6 +319,12 @@ function buildNode(
   }
   const node: Node = { id, type: spec.type, props: { ...props } };
   if (spec.variant !== undefined) node.variant = spec.variant;
+  if (spec.classes !== undefined && spec.classes.length > 0) {
+    node.classes = [...new Set(spec.classes)];
+  }
+  if (spec.hidden !== undefined) node.hidden = spec.hidden;
+  if (spec.locked !== undefined) node.locked = spec.locked;
+  if (spec.motion !== undefined) node.motion = structuredClone(spec.motion);
   state.tree.nodes.set(id, node);
   return node;
 }
@@ -566,17 +581,42 @@ function applyUpdateMeta(
     variant?: string | null;
     locked?: boolean | null;
     hidden?: boolean | null;
+    classes?: string[] | null;
   } = {
     variant: node.variant ?? null,
     locked: node.locked ?? null,
     hidden: node.hidden ?? null,
+    classes: node.classes === undefined ? null : [...node.classes],
   };
   if (meta.variant !== undefined) {
     if (meta.variant === null) delete node.variant;
     else node.variant = meta.variant;
   }
-  if (meta.locked !== undefined) node.locked = meta.locked;
-  if (meta.hidden !== undefined) node.hidden = meta.hidden;
+  if (meta.locked !== undefined) {
+    if (meta.locked === null) delete node.locked;
+    else node.locked = meta.locked;
+  }
+  if (meta.hidden !== undefined) {
+    if (meta.hidden === null) delete node.hidden;
+    else node.hidden = meta.hidden;
+  }
+  // Class assignment (ADR-0005): replace first, then union, then subtract —
+  // one op may combine the forms, the result is order-independent enough.
+  if (meta.classes !== undefined) {
+    if (meta.classes === null || meta.classes.length === 0) delete node.classes;
+    else node.classes = [...new Set(meta.classes)];
+  }
+  if (meta.addClasses !== undefined && meta.addClasses.length > 0) {
+    const next = new Set(node.classes ?? []);
+    for (const name of meta.addClasses) next.add(name);
+    node.classes = [...next];
+  }
+  if (meta.removeClasses !== undefined && meta.removeClasses.length > 0) {
+    const remove = new Set(meta.removeClasses);
+    const next = (node.classes ?? []).filter((name) => !remove.has(name));
+    if (next.length > 0) node.classes = next;
+    else delete node.classes;
+  }
   return [{ patch: "setNodeFields", id: mutation.id, fields: undo }];
 }
 
@@ -717,6 +757,174 @@ function applyUpdatePageMeta(
   return [{ patch: "setPageMeta", title: previous.title, path: previous.path }];
 }
 
+// Slot existence without the per-insert max check: `setSlotContent` replaces
+// the whole list, so the total count is validated once, not per node.
+function requireSlotSpec(
+  state: ApplierState,
+  parent: Node,
+  slot: string,
+): NonNullable<SectionDefinition["slots"]>[string] {
+  const definition = definitionForNode(state.registry, parent);
+  const slotSpec = definition?.slots?.[slot];
+  if (!slotSpec) {
+    const available = definition?.slots ? Object.keys(definition.slots) : [];
+    throw new SenifyError(
+      "validation",
+      `Section "${parent.type}" has no slot "${slot}"`,
+      {
+        field: "slot",
+        suggestion:
+          available.length > 0
+            ? `Available slots: ${available.join(", ")}.`
+            : "This section has no slots — insert into children instead.",
+      },
+    );
+  }
+  return slotSpec;
+}
+
+function assertSlotAllowedTypes(
+  parent: Node,
+  slot: string,
+  slotSpec: { allowedTypes?: string[] },
+  childType: string,
+  field: string,
+): void {
+  const allowed = slotSpec.allowedTypes;
+  if (allowed && allowed.length > 0 && !allowed.includes(childType)) {
+    throw new SenifyError(
+      "validation",
+      `Slot "${slot}" of section "${parent.type}" does not allow "${childType}"`,
+      { field, suggestion: `Allowed types: ${allowed.join(", ")}.` },
+    );
+  }
+}
+
+// Replaces the whole content of one slot (ticket 13 rest). The undo removes
+// the new roots and re-inserts the old subtrees at their recorded indices.
+function applySetSlotContent(
+  state: ApplierState,
+  mutation: Extract<Mutation, { op: "setSlotContent" }>,
+): PatchOp[] {
+  const parent = requireNode(state.tree, mutation.id, "id");
+  const slotSpec = requireSlotSpec(state, parent, mutation.slot);
+  const newNodes = mutation.nodes.map((spec, index) => {
+    const node = buildNode(state, spec, `nodes[${index}]`);
+    warnLiteralValues(
+      state.registry.get(node.type),
+      node.props,
+      `nodes[${index}].props`,
+      state,
+      state.currentOpIndex,
+    );
+    return node;
+  });
+  for (const node of newNodes) {
+    assertSlotAllowedTypes(parent, mutation.slot, slotSpec, node.type, "nodes");
+  }
+  if (slotSpec.max !== undefined && newNodes.length > slotSpec.max) {
+    throw new SenifyError(
+      "validation",
+      `Slot "${mutation.slot}" of section "${parent.type}" holds at most ${slotSpec.max} nodes`,
+      { field: "nodes", suggestion: "Remove entries from the slot first." },
+    );
+  }
+  const previous = [...slotList(parent, mutation.slot)];
+  const oldSubtrees = previous.map((id) =>
+    structuredClone(collectSubtree(state.tree, id)),
+  );
+  for (const id of previous) {
+    for (const entry of collectSubtree(state.tree, id)) {
+      state.tree.nodes.delete(entry.id);
+    }
+  }
+  const list = slotList(parent, mutation.slot);
+  list.splice(0, list.length, ...newNodes.map((node) => node.id));
+  return [
+    ...newNodes.map((node): PatchOp => ({ patch: "deleteRaw", id: node.id })),
+    ...oldSubtrees.map((subtree, index): PatchOp => ({
+      patch: "insertRaw",
+      parent: { nodeId: mutation.id, slot: mutation.slot },
+      index,
+      nodes: subtree,
+    })),
+  ];
+}
+
+// A collection is a section with an `item` slot; the entry list is that slot.
+function collectionEntryIds(parent: Node): NodeId[] {
+  return parent.slots?.item ?? [];
+}
+
+function applyCreateCollectionEntry(
+  state: ApplierState,
+  mutation: Extract<Mutation, { op: "createCollectionEntry" }>,
+): PatchOp[] {
+  const parent = requireNode(state.tree, mutation.id, "id");
+  const slotSpec = requireSlotSpec(state, parent, "item");
+  const node = buildNode(state, mutation.node, "node");
+  warnLiteralValues(
+    state.registry.get(node.type),
+    node.props,
+    "node.props",
+    state,
+    state.currentOpIndex,
+  );
+  assertSlotAllowedTypes(parent, "item", slotSpec, node.type, "node");
+  const existing = collectionEntryIds(parent);
+  if (slotSpec.max !== undefined && existing.length >= slotSpec.max) {
+    throw new SenifyError(
+      "validation",
+      `The item slot of "${parent.type}" is full (max ${slotSpec.max})`,
+      { field: "node", suggestion: "Remove the existing entry first." },
+    );
+  }
+  const index = resolveIndex(mutation.index, existing.length);
+  insertAt(slotList(parent, "item"), index, node.id);
+  return [{ patch: "deleteRaw", id: node.id }];
+}
+
+function applyUpdateCollectionEntry(
+  state: ApplierState,
+  mutation: Extract<Mutation, { op: "updateCollectionEntry" }>,
+): PatchOp[] {
+  const parent = requireNode(state.tree, mutation.id, "id");
+  const entryIds = collectionEntryIds(parent);
+  const entryId = entryIds[mutation.index];
+  if (entryId === undefined) {
+    throw new SenifyError(
+      "validation",
+      `No collection entry at index ${mutation.index}`,
+      {
+        field: "index",
+        suggestion: `The item slot holds ${entryIds.length} entries.`,
+      },
+    );
+  }
+  const entry = requireNode(state.tree, entryId, "index");
+  const definition = definitionForNode(state.registry, entry);
+  if (!definition) {
+    throw new SenifyError("validation", "The page root is not a collection entry", {
+      field: "index",
+    });
+  }
+  const next: Record<string, PropValue> = { ...entry.props };
+  const undo: Record<string, PropValue | null> = {};
+  for (const [key, value] of Object.entries(mutation.patch)) {
+    undo[key] = entry.props[key] ?? null;
+    if (value === null) delete next[key];
+    else next[key] = value;
+  }
+  throwOnIssues(validatePropValues(definition, next, "patch"));
+  const changedProps: Record<string, PropValue> = {};
+  for (const [key, value] of Object.entries(mutation.patch)) {
+    if (value !== null) changedProps[key] = value;
+  }
+  warnLiteralValues(definition, changedProps, "patch", state, state.currentOpIndex);
+  entry.props = next;
+  return [{ patch: "setProps", id: entryId, props: undo }];
+}
+
 function applyOne(
   state: ApplierState,
   mutation: Mutation,
@@ -748,6 +956,12 @@ function applyOne(
       return applyClearMotion(state, mutation);
     case "updatePageMeta":
       return applyUpdatePageMeta(state, mutation);
+    case "setSlotContent":
+      return applySetSlotContent(state, mutation);
+    case "createCollectionEntry":
+      return applyCreateCollectionEntry(state, mutation);
+    case "updateCollectionEntry":
+      return applyUpdateCollectionEntry(state, mutation);
   }
 }
 

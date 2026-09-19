@@ -8,7 +8,13 @@
 // node or class it points at. The store runs this after every write and refuses
 // a patch that would break the document.
 
-import { getPrimitive } from "@senify/widget-engine";
+import {
+  getPrimitive,
+  isValidCssSelector,
+  reservedContextIds,
+  STYLE_RULE_KINDS,
+} from "@senify/widget-engine";
+import { motionPreset, motionProfileViolations, type MotionProfile } from "@senify/section-sdk";
 import {
   DOCUMENT_VERSION,
   isClassDefined,
@@ -30,6 +36,19 @@ export type DocumentIssueKind =
   | "slot-not-allowed"
   | "slot-full"
   | "undefined-class"
+  | "duplicate-rule-id"
+  | "duplicate-class-name"
+  | "duplicate-scope"
+  | "unknown-rule-kind"
+  | "invalid-rule-selector"
+  | "reserved-context-id"
+  | "scoped-rule-without-node"
+  | "motion-preset-unknown"
+  | "motion-pin-excess"
+  | "profile-intensity-cap"
+  | "profile-preset"
+  | "profile-pin"
+  | "profile-3d"
   | "cycle";
 
 export type DocumentIssue = {
@@ -81,6 +100,7 @@ export function validateDocument(document: EditorDocument): DocumentIssue[] {
     parents.set(childId, parentId);
   };
 
+  let motionPins = 0;
   for (const node of Object.values(document.nodes)) {
     const definition = getPrimitive(node.primitive);
     if (definition === undefined) {
@@ -179,6 +199,29 @@ export function validateDocument(document: EditorDocument): DocumentIssue[] {
         });
       }
     }
+
+    if (node.motion !== undefined) {
+      const preset = motionPreset(node.motion.preset);
+      if (preset === undefined) {
+        issues.push({
+          kind: "motion-preset-unknown",
+          nodeId: node.id,
+          message: `Node "${node.id}" uses unknown motion preset "${node.motion.preset}"`,
+        });
+      } else if (preset.flags.includes("pins")) {
+        motionPins += 1;
+      }
+    }
+  }
+
+  // The hard motion guardrail (ticket 19): at most one pin preset per page.
+  // The soft rules (one char-split, reveal length) stay bake warnings — they
+  // do not block a write.
+  if (motionPins > 1) {
+    issues.push({
+      kind: "motion-pin-excess",
+      message: `Page uses ${motionPins} pin motion presets (max 1)`,
+    });
   }
 
   for (const node of Object.values(document.nodes)) {
@@ -191,7 +234,92 @@ export function validateDocument(document: EditorDocument): DocumentIssue[] {
     }
   }
 
+  issues.push(...validateStyleRules(document));
   issues.push(...detectCycles(document));
+  return issues;
+}
+
+// The rule registry invariants: ids and class names are unique, the kind is
+// known, a selector is usable, a context id may not shadow a device stage, and
+// a scoped rule points at exactly one living node.
+function validateStyleRules(document: EditorDocument): DocumentIssue[] {
+  const issues: DocumentIssue[] = [];
+  const seenIds = new Set<string>();
+  const seenClassNames = new Set<string>();
+  const seenScopes = new Set<string>();
+
+  for (const rule of document.styleRules ?? []) {
+    if (seenIds.has(rule.id)) {
+      issues.push({
+        kind: "duplicate-rule-id",
+        classId: rule.name,
+        message: `Style rule id "${rule.id}" is used more than once`,
+      });
+    }
+    seenIds.add(rule.id);
+
+    if (!(STYLE_RULE_KINDS as readonly string[]).includes(rule.kind)) {
+      issues.push({
+        kind: "unknown-rule-kind",
+        classId: rule.name,
+        message: `Style rule "${rule.id}" uses unknown kind "${String(rule.kind)}"`,
+      });
+    }
+
+    if (rule.kind === "class" && rule.scope === undefined) {
+      if (seenClassNames.has(rule.name)) {
+        issues.push({
+          kind: "duplicate-class-name",
+          classId: rule.name,
+          message: `Style class "${rule.name}" is defined more than once`,
+        });
+      }
+      seenClassNames.add(rule.name);
+    }
+
+    if (
+      (rule.kind === "ambient" || rule.kind === "scoped") &&
+      !isValidCssSelector(rule.selector)
+    ) {
+      issues.push({
+        kind: "invalid-rule-selector",
+        classId: rule.name,
+        message: `Style rule "${rule.id}" carries an unusable selector "${rule.selector}"`,
+      });
+    }
+
+    const reserved = reservedContextIds(rule);
+    if (reserved.length > 0) {
+      issues.push({
+        kind: "reserved-context-id",
+        classId: rule.name,
+        message: `Style rule "${rule.id}" uses the reserved context id "${reserved[0]}"`,
+      });
+    }
+
+    if (rule.kind === "scoped") {
+      const nodeId = rule.scope?.nodeId;
+      if (nodeId === undefined || document.nodes[nodeId] === undefined) {
+        issues.push({
+          kind: "scoped-rule-without-node",
+          classId: rule.name,
+          message:
+            nodeId === undefined
+              ? `Scoped rule "${rule.id}" names no node`
+              : `Scoped rule "${rule.id}" points at missing node "${nodeId}"`,
+        });
+      } else if (seenScopes.has(nodeId)) {
+        issues.push({
+          kind: "duplicate-scope",
+          classId: rule.name,
+          message: `Node "${nodeId}" owns more than one scoped style rule`,
+        });
+      } else {
+        seenScopes.add(nodeId);
+      }
+    }
+  }
+
   return issues;
 }
 
@@ -233,4 +361,28 @@ export function firstIssueMessage(
 
 export function isConsistent(document: EditorDocument): boolean {
   return validateDocument(document).length === 0;
+}
+
+// The profile gate over the document's motion specs (ticket 20/21): intensity
+// cap, allowed preset classes and 3D. The editor lists these before it changes
+// the site profile (nothing changes silently); the engine blocks them at
+// publish (M5). Not part of `validateDocument`: a profile downgrade must not
+// freeze unrelated edits — it is a publish/wechsel gate, not a write gate.
+export function profileIssues(
+  document: EditorDocument,
+  profile: MotionProfile,
+): DocumentIssue[] {
+  const entries = Object.values(document.nodes)
+    .filter((node) => node.motion !== undefined)
+    .map((node) => ({
+      nodeId: node.id,
+      preset: node.motion?.preset ?? "",
+      ...(node.motion?.intensity === undefined ? {} : { intensity: node.motion.intensity }),
+      ...(node.motion?.enabled === undefined ? {} : { enabled: node.motion.enabled }),
+    }));
+  return motionProfileViolations(profile, entries).map((violation) => ({
+    kind: violation.code,
+    ...(violation.nodeId === undefined ? {} : { nodeId: violation.nodeId }),
+    message: violation.message,
+  }));
 }

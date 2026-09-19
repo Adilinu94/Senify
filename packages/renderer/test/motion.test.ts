@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   motionConfigsForTree,
+  motionDataFor,
   parseDurationMs,
   renderIslandsScript,
   renderPageScript,
@@ -75,6 +76,73 @@ describe("motion configs", () => {
       TOKENS,
     );
     expect(configs[0]?.cssOnly).toBe(true);
+  });
+
+  it("carries the registry flags into the config", () => {
+    const { configs } = motionConfigsForTree(
+      treeWithMotion([
+        { id: "headline", preset: "masked-headline" },
+        { id: "counter", preset: "counter" },
+        { id: "pin", preset: "scrub-pin" },
+      ]),
+      TOKENS,
+    );
+    const headline = configs.find((config) => config.nodeId === "headline");
+    expect(headline?.hides).toBe(true);
+    expect(headline?.needs).toEqual(["splittext"]);
+    expect(headline?.reducedMotion).toBe("static");
+    const counter = configs.find((config) => config.nodeId === "counter");
+    expect(counter?.hides).toBeUndefined();
+    expect(counter?.needs).toBeUndefined();
+    expect(configs.find((config) => config.nodeId === "pin")?.needs).toEqual([
+      "scrolltrigger",
+    ]);
+  });
+
+  it("emits nothing for a disabled spec", () => {
+    const tree = treeWithMotion([{ id: "a", preset: "fade-up" }]);
+    const node = tree.nodes["a"];
+    if (node) node.motion = { preset: "fade-up", enabled: false };
+    const { configs, warnings } = motionConfigsForTree(tree, TOKENS);
+    expect(configs).toEqual([]);
+    expect(warnings).toEqual([]);
+  });
+
+  it("wraps configs into the versioned v2 envelope with central breakpoints", () => {
+    const { configs } = motionConfigsForTree(
+      treeWithMotion([{ id: "a", preset: "fade-up" }]),
+      TOKENS,
+    );
+    const data = motionDataFor(configs);
+    expect(data.v).toBe(2);
+    expect(data.entries).toHaveLength(1);
+    // The queries come from the widget engine's one breakpoint definition.
+    expect(data.breakpoints.tablet).toBe("(max-width: 1023.98px)");
+    expect(data.breakpoints.mobile).toBe("(max-width: 639.98px)");
+  });
+
+  it("reads both payload shapes, honours the kill-switch and releases pending", () => {
+    const script = renderPageScript({ lenis: false });
+    expect(script).toContain('window.__SENIFY_MOTION__ === "off"');
+    expect(script).toContain("releasePending");
+    expect(script).toContain("data-motion-pending");
+    expect(script).toContain("Array.isArray(payload) ? payload : (payload.entries || [])");
+    expect(script).toContain('config.reducedMotion || "static"');
+    expect(script).toContain("fadeIn");
+    expect(script).toContain("has[config.needs[index]]");
+  });
+
+  it("emits the same script for the same input", () => {
+    expect(renderPageScript({ lenis: true })).toBe(renderPageScript({ lenis: true }));
+  });
+
+  it("warns softly when a reveal runs past the 800 ms budget", () => {
+    const tree = treeWithMotion([{ id: "a", preset: "fade-up" }]);
+    const node = tree.nodes["a"];
+    if (node) node.motion = { preset: "fade-up", tokens: { durationScale: 3 } };
+    // baseDurationMs 300 → 0.9 s.
+    const { warnings } = motionConfigsForTree(tree, TOKENS);
+    expect(warnings.some((warning) => warning.code === "reveal-too-long")).toBe(true);
   });
 
   it("clamps intensity to the 1–10 dial with a warning", () => {

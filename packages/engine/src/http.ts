@@ -35,16 +35,23 @@ import {
   type ApplyEditorMutationsBody,
 } from "./mutations/editor-contract.ts";
 import { editorMutationsToSection } from "./mutations/editor-bridge.ts";
+import { motionVendorFiles } from "@senify/renderer";
 import { draftConflictError } from "./paths.ts";
 import { RateLimiter, RateLimitError } from "./rate-limit.ts";
 import { hardGuardrailsForTree } from "./guardrails.ts";
 import {
+  CreateStyleRuleBodySchema,
   DuplicateSiteBodySchema,
-  RenameSiteBodySchema,
+  ReorderStyleRuleBodySchema,
   SiteEventBodySchema,
+  UpdateSiteBodySchema,
+  UpdateStyleRuleBodySchema,
+  type CreateStyleRuleBody,
   type DuplicateSiteBody,
-  type RenameSiteBody,
+  type UpdateSiteBody,
+  type ReorderStyleRuleBody,
   type SiteEventBody,
+  type UpdateStyleRuleBody,
 } from "./site-contract.ts";
 import {
   approveReview,
@@ -734,7 +741,10 @@ async function applyMutationsToPage(
       previousPath: page.path,
     });
     // Hard guardrails block the whole batch: nothing is written on a violation.
-    const guardrails = hardGuardrailsForTree(outcome.tree);
+    // The site profile is part of the gate (ticket 21): intensity cap, preset
+    // classes, pin budget.
+    const site = await context.store.getSite(page.siteId);
+    const guardrails = hardGuardrailsForTree(outcome.tree, site.profile);
     if (guardrails.length > 0) {
       const first = guardrails[0];
       if (first) {
@@ -999,18 +1009,40 @@ const ROUTES: Route[] = [
     handler: async (context, params, req) => {
       const siteId = requireParam(params, "siteId");
       const body = (await readJsonBody(req)) ?? {};
-      const parsed = parseBody<RenameSiteBody>(
-        RenameSiteBodySchema,
+      const parsed = parseBody<UpdateSiteBody>(
+        UpdateSiteBodySchema,
         body,
-        "site rename",
+        "site update",
       );
-      const site = await context.store.renameSite(siteId, parsed.name);
-      await context.store.recordSiteEvent({
-        siteId,
-        mutation: "rename_site",
-        params: { name: parsed.name },
-        author: parsed.author,
-      });
+      if (parsed.name === undefined && parsed.profile === undefined) {
+        throw new SenifyError(
+          "validation",
+          "Nothing to update: pass a name or a profile",
+          {
+            field: "body",
+            suggestion: 'Send { "name": "…" } or { "profile": "clean|standard|showcase" }.',
+          },
+        );
+      }
+      let site = await context.store.getSite(siteId);
+      if (parsed.name !== undefined) {
+        site = await context.store.renameSite(siteId, parsed.name);
+        await context.store.recordSiteEvent({
+          siteId,
+          mutation: "rename_site",
+          params: { name: parsed.name },
+          author: parsed.author,
+        });
+      }
+      if (parsed.profile !== undefined) {
+        site = await context.store.updateSiteProfile(siteId, parsed.profile);
+        await context.store.recordSiteEvent({
+          siteId,
+          mutation: "update_site_profile",
+          params: { profile: parsed.profile },
+          author: parsed.author,
+        });
+      }
       return { status: 200, body: site };
     },
   },
@@ -1165,6 +1197,124 @@ const ROUTES: Route[] = [
           siteId,
         }),
       };
+    },
+  },
+  // The self-hosted motion runtime for the editor's play preview (ticket 19,
+  // M4): the same files the bake copies into a release. The local program
+  // proxies `/api/` with its operator token, so the editor frame can load
+  // them without a token of its own.
+  {
+    method: "GET",
+    segments: ["api", "motion-vendor", ":name"],
+    scope: "read",
+    handler: async (_context, params) => {
+      const name = requireParam(params, "name");
+      const file = motionVendorFiles().find((entry) => entry.name === name);
+      if (file === undefined) {
+        throw new SenifyError("not_found", `Unknown motion vendor file "${name}"`, {
+          field: "name",
+          suggestion: "Use gsap.min.js, ScrollTrigger.min.js, SplitText.min.js or lenis.min.js.",
+        });
+      }
+      return {
+        status: 200,
+        file: { path: file.from, contentType: "text/javascript; charset=utf-8" },
+      };
+    },
+  },
+  // Style rules (Phase 2): site-wide, so they hang off the site like the theme
+// does. Reads are open to any token, writes need `write`, deletion needs
+// `publish` (same ladder the other destructive site resources use).
+  {
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "style-rules"],
+    scope: "read",
+    handler: async (context, params) => {
+      const siteId = requireParam(params, "siteId");
+      return { status: 200, body: { rules: await context.store.listStyleRules(siteId) } };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "style-rules"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const siteId = requireParam(params, "siteId");
+      const body = (await readJsonBody(req)) ?? {};
+      const parsed = parseBody<CreateStyleRuleBody>(
+        CreateStyleRuleBodySchema,
+        body,
+        "style rule",
+      );
+      const { author, ...input } = parsed;
+      const rule = await context.store.createStyleRule(siteId, input, author);
+      return { status: 201, body: rule };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "style-rules", ":ruleId"],
+    scope: "read",
+    handler: async (context, params) => {
+      const siteId = requireParam(params, "siteId");
+      const ruleId = requireParam(params, "ruleId");
+      return { status: 200, body: await context.store.getStyleRule(siteId, ruleId) };
+    },
+  },
+  {
+    method: "PATCH",
+    segments: ["api", "sites", ":siteId", "style-rules", ":ruleId"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const siteId = requireParam(params, "siteId");
+      const ruleId = requireParam(params, "ruleId");
+      const body = (await readJsonBody(req)) ?? {};
+      const parsed = parseBody<UpdateStyleRuleBody>(
+        UpdateStyleRuleBodySchema,
+        body,
+        "style rule update",
+      );
+      const { author, ...patch } = parsed;
+      return {
+        status: 200,
+        body: await context.store.updateStyleRule(siteId, ruleId, patch, author),
+      };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "style-rules", ":ruleId", "reorder"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const siteId = requireParam(params, "siteId");
+      const ruleId = requireParam(params, "ruleId");
+      const body = (await readJsonBody(req)) ?? {};
+      const parsed = parseBody<ReorderStyleRuleBody>(
+        ReorderStyleRuleBodySchema,
+        body,
+        "style rule reorder",
+      );
+      const rules = await context.store.reorderStyleRule(
+        siteId,
+        ruleId,
+        parsed.index,
+        parsed.author,
+      );
+      return { status: 200, body: { rules } };
+    },
+  },
+  {
+    method: "DELETE",
+    segments: ["api", "sites", ":siteId", "style-rules", ":ruleId"],
+    scope: "publish",
+    destructive: true,
+    handler: async (context, params, req) => {
+      const siteId = requireParam(params, "siteId");
+      const ruleId = requireParam(params, "ruleId");
+      const body = (await readJsonBody(req)) ?? {};
+      const parsed = parseBody<SiteEventBody>(SiteEventBodySchema, body, "style rule delete");
+      await context.store.deleteStyleRule(siteId, ruleId, parsed.author);
+      return { status: 204 };
     },
   },
   {

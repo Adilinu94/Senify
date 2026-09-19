@@ -14,7 +14,7 @@
 import type { ElementType, ReactNode } from "react";
 import type { Node, PropValue } from "@senify/section-sdk";
 import { describePrimitive, type ElementSpec, type MarkupAttrs } from "@senify/widget-engine";
-import { resolveAsset, type SectionContext } from "./shared.tsx";
+import { motionPendingAttrs, nodeRootClasses, resolveAsset, type SectionContext } from "./shared.tsx";
 
 export type PrimitiveProps = {
   node: Node;
@@ -24,8 +24,7 @@ export type PrimitiveProps = {
 };
 
 type RenderScope = {
-  nodeId: string;
-  primitive: string;
+  node: Node;
   children: ReactNode;
   slots: Record<string, ReactNode>;
   ctx: SectionContext;
@@ -53,11 +52,15 @@ function reactAttrs(
       if (asset.height !== null) attrs.height = asset.height;
     }
   }
-  const classes = spec.classes ?? [];
+  const classes =
+    spec.root === true
+      ? [...(spec.classes ?? []), ...nodeRootClasses(scope.node)]
+      : [...(spec.classes ?? [])];
   if (classes.length > 0) attrs.className = classes.join(" ");
   if (spec.root === true) {
-    attrs["data-node-id"] = scope.nodeId;
-    attrs["data-widget"] = scope.primitive;
+    attrs["data-node-id"] = scope.node.id;
+    attrs["data-widget"] = scope.node.type;
+    Object.assign(attrs, motionPendingAttrs(scope.node));
   }
   return attrs;
 }
@@ -96,8 +99,7 @@ export function PrimitiveNode({ node, children, slots, ctx }: PrimitiveProps): R
   return renderSpec(
     described,
     {
-      nodeId: node.id,
-      primitive: node.type,
+      node,
       children: children ?? null,
       slots: slots ?? {},
       ctx,

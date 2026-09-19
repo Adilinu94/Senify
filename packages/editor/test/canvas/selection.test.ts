@@ -29,7 +29,7 @@ function document(): EditorDocument {
       head: { id: "head", primitive: "heading", props: { text: "Hi" } },
       coll: { id: "coll", primitive: "collection", props: {}, slots: { item: [] } },
     },
-    classes: {},
+    styleRules: [],
   };
 }
 
@@ -66,7 +66,7 @@ describe("children and slots", () => {
         c: { id: "c", primitive: "collection", props: {}, slots: { item: ["x"] } },
         x: { id: "x", primitive: "frame", props: {} },
       },
-      classes: {},
+      styleRules: [],
     };
     expect(firstChildId(withSlot, "c")).toBe("x");
   });

@@ -41,7 +41,8 @@
       "@senify/docs-portal": ["packages/docs-portal/src/index.ts"],
       "@senify/skills": ["packages/skills/src/index.ts"],
       "@senify/tokens": ["packages/tokens/src/index.ts"],
-      "@senify/widget-engine": ["packages/widget-engine/src/index.ts"]
+      "@senify/widget-engine": ["packages/widget-engine/src/index.ts"],
+      "@senify/widget-engine/breakpoints": ["packages/widget-engine/src/breakpoints.ts"]
     }
   },
   "include": ["packages/*/src", "packages/*/test", "packages/*/*.ts"],

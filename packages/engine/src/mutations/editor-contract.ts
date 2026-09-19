@@ -13,7 +13,8 @@
 
 import { Type, type Static, type TSchema } from "@sinclair/typebox";
 import { SenifyError } from "@senify/core";
-import type { PropValue } from "@senify/section-sdk";
+import { MotionSpecSchema, type PropValue } from "@senify/section-sdk";
+import { StyleRuleSchema } from "@senify/widget-engine";
 import {
   AuthorSchema,
   EDITOR_MUTATION_OPS,
@@ -60,6 +61,9 @@ export const EditorNodeSpecSchema = Type.Object(
     classes: Type.Optional(Type.Array(ClassNameSchema)),
     hidden: Type.Optional(Type.Boolean()),
     locked: Type.Optional(Type.Boolean()),
+    // A fresh node may already carry its motion spec (ticket 19): undo of a
+    // delete restores whole subtrees, motion included.
+    motion: Type.Optional(MotionSpecSchema),
   },
   CLOSED,
 );
@@ -104,37 +108,81 @@ const RemoveClassSchema = Type.Object(
   CLOSED,
 );
 
-const RenameClassSchema = Type.Object(
+// Structural node fields the canvas patches directly (`setNodeFields` in the
+// editor document): the whole class list, hidden and locked. It mirrors the
+// section `updateNodeMeta` shape, so the bridge stays a field mapping.
+const SetNodeMetaSchema = Type.Object(
   {
-    op: Type.Literal("renameClass"),
-    from: ClassNameSchema,
-    to: ClassNameSchema,
+    op: Type.Literal("setNodeMeta"),
+    id: NodeIdSchema,
+    meta: Type.Object(
+      {
+        classes: Type.Optional(
+          Type.Union([Type.Array(ClassNameSchema), Type.Null()]),
+        ),
+        hidden: Type.Optional(Type.Union([Type.Boolean(), Type.Null()])),
+        locked: Type.Optional(Type.Union([Type.Boolean(), Type.Null()])),
+      },
+      CLOSED,
+    ),
   },
   CLOSED,
 );
 
-const CreateStyleRuleSchema = Type.Object(
+// The motion authoring ops (ticket 19). The spec is the v2 shape (preset,
+// intensity, tokens, trigger, reduced-motion policy, enabled); the bridge hands
+// it to the section `setMotion` / `clearMotion` ops unchanged.
+const SetMotionSchema = Type.Object(
   {
-    op: Type.Literal("createStyleRule"),
+    op: Type.Literal("setMotion"),
+    id: NodeIdSchema,
+    spec: MotionSpecSchema,
+  },
+  CLOSED,
+);
+
+const ClearMotionSchema = Type.Object(
+  {
+    op: Type.Literal("clearMotion"),
+    id: NodeIdSchema,
+  },
+  CLOSED,
+);
+
+const RenameStyleRuleSchema = Type.Object(
+  {
+    op: Type.Literal("renameStyleRule"),
+    id: Type.String({ minLength: 1 }),
     name: ClassNameSchema,
-    props: PropRecordSchema,
   },
   CLOSED,
 );
 
-const UpdateStyleRuleSchema = Type.Object(
+// The canonical rule, shared with the site registry (`widget-engine`
+// `StyleRuleSchema`). One model: what the canvas edits is what the site stores.
+const UpsertStyleRuleSchema = Type.Object(
   {
-    op: Type.Literal("updateStyleRule"),
-    name: ClassNameSchema,
-    props: PropPatchSchema,
+    op: Type.Literal("upsertStyleRule"),
+    rule: StyleRuleSchema,
   },
   CLOSED,
 );
 
+// Addressed by the stable rule id, exactly like the site routes.
 const DeleteStyleRuleSchema = Type.Object(
   {
     op: Type.Literal("deleteStyleRule"),
-    name: ClassNameSchema,
+    id: Type.String({ minLength: 1 }),
+  },
+  CLOSED,
+);
+
+// Reordering is a permutation of the registry; `index` is the target position.
+const ReorderStyleRuleSchema = Type.Object(
+  {
+    op: Type.Literal("reorderStyleRule"),
+    id: Type.String({ minLength: 1 }),
+    index: Type.Integer({ minimum: 0 }),
   },
   CLOSED,
 );
@@ -210,12 +258,15 @@ const UpdateCollectionEntrySchema = Type.Object(
 export const EDITOR_MUTATION_SCHEMA_BY_OP = {
   setNodeProp: SetNodePropSchema,
   clearNodeProp: ClearNodePropSchema,
+  setNodeMeta: SetNodeMetaSchema,
+  setMotion: SetMotionSchema,
+  clearMotion: ClearMotionSchema,
   assignClass: AssignClassSchema,
   removeClass: RemoveClassSchema,
-  renameClass: RenameClassSchema,
-  createStyleRule: CreateStyleRuleSchema,
-  updateStyleRule: UpdateStyleRuleSchema,
+  renameStyleRule: RenameStyleRuleSchema,
+  upsertStyleRule: UpsertStyleRuleSchema,
   deleteStyleRule: DeleteStyleRuleSchema,
+  reorderStyleRule: ReorderStyleRuleSchema,
   insertNode: InsertNodeSchema,
   duplicateNode: DuplicateNodeSchema,
   moveNode: MoveNodeSchema,
@@ -228,12 +279,15 @@ export const EDITOR_MUTATION_SCHEMA_BY_OP = {
 export const EditorMutationSchema = Type.Union([
   SetNodePropSchema,
   ClearNodePropSchema,
+  SetNodeMetaSchema,
+  SetMotionSchema,
+  ClearMotionSchema,
   AssignClassSchema,
   RemoveClassSchema,
-  RenameClassSchema,
-  CreateStyleRuleSchema,
-  UpdateStyleRuleSchema,
+  RenameStyleRuleSchema,
+  UpsertStyleRuleSchema,
   DeleteStyleRuleSchema,
+  ReorderStyleRuleSchema,
   InsertNodeSchema,
   DuplicateNodeSchema,
   MoveNodeSchema,

@@ -594,12 +594,35 @@ input[type="checkbox"].senify-editor__control { justify-self: start; }
   overflow: auto;
   background: var(--ed-canvas);
 }
+/* Live mode (M4 Stufe 1): the sheet sits in the layout flow at stage size and
+   the stage itself never scrolls — only the frame document scrolls, like the
+   release page. */
+.senify-editor__stage[data-mode="live"] { overflow: hidden; }
+.senify-editor__stage[data-mode="live"] .senify-editor__frames { display: contents; }
 .senify-editor__frame {
   position: absolute;
   background: #ffffff;
   border-radius: 2px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
   overflow: hidden;
+}
+/* Live mode (M4 Stufe 1): the single sheet sits in the layout flow at real
+   size and the frame document scrolls natively — no zoom, no transformed
+   overlay. The token marker raises this rule above the skin's frame
+   shadow/border (the skin scope counts four class-level parts); the edit
+   chrome stays quiet and the content owns its hover states like the release. */
+.senify-editor[data-senify-editor] .senify-editor__stage[data-mode="live"] .senify-editor__frame {
+  position: relative;
+  left: 0;
+  top: 0;
+  box-shadow: none;
+  border-radius: 0;
+}
+.senify-editor__stage[data-mode="live"] [data-node-id]:hover {
+  outline-color: transparent;
+}
+.senify-editor__stage[data-mode="live"] [data-node-id][data-selected="true"] {
+  outline: none;
 }
 .senify-editor__iframe { display: block; background: #ffffff; }
 .senify-editor__overlay {

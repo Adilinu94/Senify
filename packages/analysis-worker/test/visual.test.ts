@@ -125,4 +125,46 @@ describe.skipIf(!browserAvailable)("visual harness", () => {
       rmSync(file, { recursive: true, force: true });
     }
   }, 120000);
+
+  it("gates a motion page through the kill-switch (freeze counterproof)", async () => {
+    // Mimics the baked runtime contract: content hides until the page script
+    // reveals it, and the script refuses to run when the kill-switch is set.
+    const file = fixture(`<!doctype html><html><head><meta charset="utf-8"><style>
+body { margin: 0; }
+[data-motion-pending] { opacity: 0; }
+#revealed { width: 320px; height: 160px; background: #d004d4; }
+</style></head><body>
+<div id="revealed" data-motion-pending></div>
+<script>
+if (window.__SENIFY_MOTION__ !== "off") {
+  setTimeout(function () {
+    document.getElementById("revealed").removeAttribute("data-motion-pending");
+  }, 50);
+}
+</script>
+</body></html>`);
+    const root = join(file, "..");
+    const frozen = join(root, "frozen");
+    const live = join(root, "live");
+    const outDir = join(root, "diffs");
+    try {
+      const url = `file:///${file.replace(/\\/g, "/")}`;
+      await captureScreenshots({ url, outDir: frozen, breakpoints: ["desktop"] });
+      await captureScreenshots({
+        url,
+        outDir: live,
+        breakpoints: ["desktop"],
+        motion: "live",
+      });
+      const report = await diffScreenshots({
+        before: join(frozen, "desktop.png"),
+        after: join(live, "desktop.png"),
+        outDir,
+        name: "kill-switch",
+      });
+      expect(report.changedPixels).toBeGreaterThan(0);
+    } finally {
+      rmSync(file, { recursive: true, force: true });
+    }
+  }, 180000);
 });

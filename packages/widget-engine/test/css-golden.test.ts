@@ -4,9 +4,12 @@ import { compileCss, compileCssReport, measureCss } from "../src/index.ts";
 import type { DeviceValueMap } from "../src/index.ts";
 
 // Golden per primitive: one node with a fixed style sample plus the properties
-// that only that primitive owns. The sample covers every style group, so a
-// golden also shows which groups a primitive does *not* have (`heading` drops
-// `border-width`, `text` drops `border-width`, `box-shadow` and `opacity`).
+// that only that primitive owns.
+//
+// Since ADR-0005 the sample reaches *every* primitive: `styleGroups` is the
+// inspector's display order, no longer a gate, so a heading carries the same
+// border, width and shadow values as a frame. The goldens pin that — a diff
+// here means the open style space changed, not that a group was narrowed.
 
 const PADDING = { top: "8", right: "16", bottom: "8", left: "16", isLinked: false, unit: "px" };
 const GAP = { row: "12", column: "16", isLinked: false, unit: "px" };
@@ -95,23 +98,36 @@ const EXPECTED: Record<string, string> = {
   heading: `[data-node-id="n1"] {
   padding: 8px 16px;
   gap: 12px 16px;
+  width: 320px;
   font-size: 16px;
   color: #111111;
+  border-width: 1px;
+  border-radius: 8px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
   opacity: 0.5;
 }`,
   text: `[data-node-id="n1"] {
   padding: 8px 16px;
   gap: 12px 16px;
+  width: 320px;
   font-size: 16px;
   color: #111111;
+  border-width: 1px;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  opacity: 0.5;
 }`,
   body: `[data-node-id="n1"] {
   --drop-cap-lines: 3;
   padding: 8px 16px;
   gap: 12px 16px;
+  width: 320px;
   font-size: 16px;
   color: #111111;
+  border-width: 1px;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  opacity: 0.5;
 }`,
   button: `[data-node-id="n1"] {
   padding: 8px 16px;
@@ -127,15 +143,25 @@ const EXPECTED: Record<string, string> = {
   link: `[data-node-id="n1"] {
   padding: 8px 16px;
   gap: 12px 16px;
+  width: 320px;
   font-size: 16px;
   color: #111111;
+  border-width: 1px;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  opacity: 0.5;
 }`,
   list: `[data-node-id="n1"] {
   list-style-type: none;
   padding: 8px 16px;
   gap: 12px 16px;
+  width: 320px;
   font-size: 16px;
   color: #111111;
+  border-width: 1px;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  opacity: 0.5;
 }`,
   image: `[data-node-id="n1"] {
   aspect-ratio: 16 / 9;
@@ -143,6 +169,8 @@ const EXPECTED: Record<string, string> = {
   padding: 8px 16px;
   gap: 12px 16px;
   width: 320px;
+  font-size: 16px;
+  color: #111111;
   border-width: 1px;
   border-radius: 8px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
@@ -152,6 +180,8 @@ const EXPECTED: Record<string, string> = {
   padding: 8px 16px;
   gap: 12px 16px;
   width: 320px;
+  font-size: 16px;
+  color: #111111;
   border-width: 1px;
   border-radius: 8px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
@@ -165,6 +195,10 @@ const EXPECTED: Record<string, string> = {
   gap: 12px 16px;
   font-size: 16px;
   color: #111111;
+  border-width: 1px;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  opacity: 0.5;
 }`,
   input: `[data-node-id="n1"] {
   padding: 8px 16px;
@@ -191,8 +225,13 @@ const EXPECTED: Record<string, string> = {
   checkbox: `[data-node-id="n1"] {
   padding: 8px 16px;
   gap: 12px 16px;
+  width: 320px;
   font-size: 16px;
   color: #111111;
+  border-width: 1px;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  opacity: 0.5;
 }`,
   submit: `[data-node-id="n1"] {
   padding: 8px 16px;
@@ -209,18 +248,24 @@ const EXPECTED: Record<string, string> = {
   --table-stripe-color: #ff0000;
   padding: 8px 16px;
   gap: 12px 16px;
+  width: 320px;
   font-size: 16px;
   color: #111111;
   border-width: 1px;
   border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  opacity: 0.5;
 }`,
   accordion: `[data-node-id="n1"] {
   padding: 8px 16px;
   gap: 12px 16px;
+  width: 320px;
   font-size: 16px;
   color: #111111;
   border-width: 1px;
   border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  opacity: 0.5;
 }`,
   divider: `[data-node-id="n1"] {
   border-top-style: dashed;
@@ -229,22 +274,35 @@ const EXPECTED: Record<string, string> = {
   padding: 8px 16px;
   gap: 12px 16px;
   width: 320px;
+  font-size: 16px;
+  color: #111111;
   border-width: 1px;
   border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  opacity: 0.5;
 }`,
   embed: `[data-node-id="n1"] {
   aspect-ratio: 4 / 3;
   padding: 8px 16px;
   gap: 12px 16px;
   width: 320px;
+  font-size: 16px;
+  color: #111111;
   border-width: 1px;
   border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  opacity: 0.5;
 }`,
   collection: `[data-node-id="n1"] {
   padding: 8px 16px;
   gap: 12px 16px;
+  width: 320px;
   font-size: 16px;
   color: #111111;
+  border-width: 1px;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  opacity: 0.5;
 }`,
   root: `[data-node-id="n1"] {
   background-color: #f5f5f5;

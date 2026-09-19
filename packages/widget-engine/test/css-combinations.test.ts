@@ -48,7 +48,7 @@ const GOLDEN = `[data-node-id="card"] {
   }
 }
 
-[data-node-id="card"].highlight {
+.highlight {
   background-color: #222222;
 }
 
@@ -57,7 +57,7 @@ const GOLDEN = `[data-node-id="card"] {
 }
 
 @media (max-width: 1023.98px) {
-  [data-node-id="card"].highlight {
+  .highlight {
     background-color: #333333;
   }
 
@@ -104,7 +104,7 @@ describe("combination coverage", () => {
 
   it("orders the stages state before class", () => {
     expect(css.indexOf(`[data-node-id="card"]:hover {`)).toBeLessThan(
-      css.indexOf(`[data-node-id="card"].highlight {`),
+      css.indexOf(`.highlight {`),
     );
   });
 
@@ -133,7 +133,7 @@ describe("combination coverage", () => {
       },
       { layer: null },
     );
-    expect(alone).toContain(`[data-node-id="solo"].flat {`);
+    expect(alone).toContain(`.flat {`);
     expect(alone).not.toContain(".flat:hover");
   });
 });

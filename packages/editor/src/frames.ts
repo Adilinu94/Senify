@@ -100,7 +100,10 @@ export function framesForState(state: FrameState): FrameDescriptor[] {
         width: null,
         height: null,
         scale: 1,
-        mediaMaxWidth: null,
+        // The live sheet sizes with the stage, but the responsive rules of the
+        // chosen breakpoint still apply (M4 Stufe 1: the "real page" renders
+        // like the release at that device width).
+        mediaMaxWidth: mediaMaxWidthFor(state.activeBreakpoint),
         editable: true,
       },
     ];

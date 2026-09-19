@@ -14,7 +14,7 @@
 //   base   -> `[data-node-id="id"]`                     (desktop values)
 //   device -> `@media (max-width: …)` per device        (tablet, then mobile)
 //   state  -> `[data-node-id="id"]:hover` etc.
-//   class  -> `[data-node-id="id"].user-class`
+//   class  -> `.user-class` once per class              (ticket 14)
 //   inline -> the element's `style` attribute, outside the layer
 //
 // A rule of a stronger stage is written after the weaker one, so it wins the
@@ -32,15 +32,19 @@ export const CASCADE_ORDER = ["base", "device", "state", "class", "inline"] as c
 
 export type CascadeStage = (typeof CASCADE_ORDER)[number];
 
-export type StateName = "hover" | "focus" | "active";
+// Decision O11 (17.09.): four pseudo states. `disabled` is not a transient
+// interaction like the other three — it is a form state — but it belongs to the
+// same stage, and it emits last so it wins against `active` when both are set.
+export type StateName = "hover" | "focus" | "active" | "disabled";
 
 // Emission order of the pseudo states, weak to strong.
-export const STATE_ORDER: readonly StateName[] = ["hover", "focus", "active"];
+export const STATE_ORDER: readonly StateName[] = ["hover", "focus", "active", "disabled"];
 
 const STATE_PSEUDO_CLASS: Record<StateName, string> = {
   hover: ":hover",
   focus: ":focus",
   active: ":active",
+  disabled: ":disabled",
 };
 
 // The media queries reuse the breakpoints of the existing inventory instead of
@@ -89,11 +93,28 @@ export function stateSelector(id: string, state: StateName): string {
   return `${nodeSelector(id)}${STATE_PSEUDO_CLASS[state]}`;
 }
 
-// A user class is anchored on the node: `[data-node-id].cls` has the same
-// specificity as a state rule of the same node, so the later stage (classes)
-// wins purely through source order and the layer stays intact.
-export function classSelector(id: string, className: string): string {
+function escapeClassName(className: string): string {
   const trimmed = className.trim();
-  const escaped = trimmed.replace(/[^a-zA-Z0-9_-]/g, (char) => `\\${char}`);
-  return `${nodeSelector(id)}.${escaped}`;
+  return trimmed.replace(/[^a-zA-Z0-9_-]/g, (char) => `\\${char}`);
+}
+
+// The anchored spelling of a class rule: `[data-node-id].cls` has the same
+// specificity as a state rule of the same node, so the later stage (classes)
+// wins purely through source order and the layer stays intact. Since ticket 14
+// the compiler emits classes globally (`.cls`, `globalClassSelector`); the
+// anchored form stays for node state combinations and as the measured
+// regional alternative.
+export function classSelector(id: string, className: string): string {
+  return `${nodeSelector(id)}.${escapeClassName(className)}`;
+}
+
+// The global spelling of a class rule (ticket 14, the measured winner): one
+// `.cls` selector for all carriers instead of one anchored rule per node.
+// The class stage still wins against base/device/state through source order
+// (base < device < state < class), but the selector is one simple selector
+// lighter than an anchored one — a node state (`[data-node-id]:hover`, two
+// simple selectors) would win against it, which is why the compiler keeps
+// node-specific state combinations anchored on their node.
+export function globalClassSelector(className: string): string {
+  return `.${escapeClassName(className)}`;
 }

@@ -192,4 +192,26 @@ describe("motion panel", () => {
     expect(panel.intensity).toBe(5);
     expect(panel.presets).toEqual(["fade-up"]);
   });
+
+  it("carries the v2 fields and the profile cap", () => {
+    const panel = buildMotionPanel({
+      definition: registry.get("hero"),
+      nodeId: "hero000001",
+      tree: draftTree(),
+      profile: "clean",
+    });
+    expect(panel.reducedMotion).toBe("static");
+    expect(panel.enabled).toBe(true);
+    expect(panel.tokens).toEqual({ ease: "", durationScale: 1, stagger: 1 });
+    expect(panel.profile).toBe("clean");
+    expect(panel.intensityCap).toBe(3);
+    expect(panel.allowedPresets).not.toBe("all");
+    // The default without a site context is `standard`.
+    const standard = buildMotionPanel({
+      definition: registry.get("hero"),
+      nodeId: "hero000001",
+      tree: draftTree(),
+    });
+    expect(standard.intensityCap).toBe(7);
+  });
 });

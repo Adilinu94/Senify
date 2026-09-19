@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { validateDocument, type EditorDocument } from "@senify/editor/state";
+import { profileIssues, validateDocument, type EditorDocument } from "@senify/editor/state";
 
 function doc(
   nodes: EditorDocument["nodes"],
-  classes: EditorDocument["classes"] = {},
+  styleRules: EditorDocument["styleRules"] = [],
 ): EditorDocument {
-  return { version: 2, rootNodeId: "root", nodes, classes };
+  return { version: 2, rootNodeId: "root", nodes, styleRules };
 }
 
 const valid = doc({
@@ -120,5 +120,51 @@ describe("consistency check", () => {
       b: { id: "b", primitive: "frame", props: {}, children: ["a"] },
     });
     expect(kinds(broken)).toContain("cycle");
+  });
+
+  it("flags an unknown motion preset", () => {
+    const broken = doc({
+      root: { id: "root", primitive: "root", props: {}, children: ["frame"] },
+      frame: { id: "frame", primitive: "frame", props: {}, motion: { preset: "warp" } },
+    });
+    expect(kinds(broken)).toContain("motion-preset-unknown");
+  });
+
+  it("flags more than one pin preset per page, but accepts a single one", () => {
+    const pinned = doc({
+      root: { id: "root", primitive: "root", props: {}, children: ["a", "b"] },
+      a: { id: "a", primitive: "frame", props: {}, motion: { preset: "scrub-pin" } },
+      b: { id: "b", primitive: "frame", props: {}, motion: { preset: "sticky-stack" } },
+    });
+    expect(kinds(pinned)).toContain("motion-pin-excess");
+
+    const single = doc({
+      root: { id: "root", primitive: "root", props: {}, children: ["a", "b"] },
+      a: { id: "a", primitive: "frame", props: {}, motion: { preset: "scrub-pin" } },
+      b: { id: "b", primitive: "frame", props: {}, motion: { preset: "fade-up" } },
+    });
+    expect(kinds(single)).toEqual([]);
+  });
+
+  it("lists profile violations without blocking the write path", () => {
+    const document = doc({
+      root: { id: "root", primitive: "root", props: {}, children: ["a", "b"] },
+      a: {
+        id: "a",
+        primitive: "frame",
+        props: {},
+        motion: { preset: "char-split", intensity: 9 },
+      },
+      b: { id: "b", primitive: "frame", props: {}, motion: { preset: "scrub-pin" } },
+    });
+    // The document itself stays consistent: the profile is a Wechsel-/Publish-
+    // Gate, not a per-write gate (ticket 20/21).
+    expect(kinds(document)).toEqual([]);
+    const issues = profileIssues(document, "clean");
+    expect(issues.map((issue) => issue.kind).sort()).toEqual([
+      "profile-preset",
+      "profile-preset",
+    ]);
+    expect(profileIssues(document, "showcase")).toEqual([]);
   });
 });

@@ -61,6 +61,27 @@ describe("frame manager", () => {
     expect(frames[0]?.editable).toBe(true);
   });
 
+  it("the live frame carries the active breakpoint's media boundary (M4 Stufe 1)", () => {
+    // The sheet fills the stage, but the responsive rules of the chosen
+    // breakpoint still apply — the live page renders like the release.
+    const mobileLive = framesForState(setMode(setBreakpoint(createFrameState(), "mobile"), "live"));
+    expect(mobileLive[0]?.mediaMaxWidth).toBe(BREAKPOINTS.mobile);
+    const tabletLive = framesForState(setMode(setBreakpoint(createFrameState(), "tablet"), "live"));
+    expect(tabletLive[0]?.mediaMaxWidth).toBe(BREAKPOINTS.tablet);
+    const desktopLive = framesForState(setMode(createFrameState(), "live"));
+    expect(desktopLive[0]?.mediaMaxWidth).toBeNull();
+  });
+
+  it("live mode keeps the breakpoint's media rules (the real page, not desktop)", () => {
+    // Tablet/mobile live frames carry their mediaMaxWidth, so the frame renders
+    // the responsive rules of that device — desktop stays unbounded.
+    const tabletLive = framesForState(setMode(setBreakpoint(createFrameState(), "tablet"), "live"));
+    expect(tabletLive[0]?.mediaMaxWidth).toBe(BREAKPOINTS.tablet);
+    expect(tabletLive[0]?.width).toBeNull();
+    const desktopLive = framesForState(setMode(createFrameState(), "live"));
+    expect(desktopLive[0]?.mediaMaxWidth).toBeNull();
+  });
+
   it("switching design ⇄ live keeps selection, breakpoint and zoom", () => {
     const start = selectNode(setBreakpoint(createFrameState(), "mobile"), "hero000001");
     const live = setMode(start, "live");

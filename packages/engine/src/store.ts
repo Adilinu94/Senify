@@ -15,6 +15,21 @@ import {
   validateTheme,
   type Theme,
 } from "@senify/tokens";
+import {
+  STATE_ORDER,
+  assertValidCssClassName,
+  classKindSelector,
+  createAmbientRule,
+  createClassRule,
+  createScopedRule,
+  isSafeRawCss,
+  isValidCssSelector,
+  normalizeRuleOrder,
+  parseStyleRuleRegistry,
+  reservedContextIds,
+  styleRuleErrors,
+  type StyleRule,
+} from "@senify/widget-engine";
 import type { Db, DbClient, Row } from "./db.ts";
 import { jsonColumns, tableNames } from "./db.ts";
 import { generateToken } from "./auth.ts";
@@ -157,6 +172,12 @@ type SiteRow = {
   updated_at: unknown;
 };
 
+// The style rule column is read on its own, never through `SiteRow`: the rules
+// are a separate resource with their own endpoints.
+type StyleRuleRow = {
+  style_rules_json: unknown;
+};
+
 type PageRow = {
   id: string;
   site_id: string;
@@ -234,6 +255,175 @@ function mapSite(row: SiteRow): Site {
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   };
+}
+
+// -------------------------------------------------- style rule helpers (P2)
+
+// The schema reports a dotted field; the write path surfaces the first one.
+function StyleRuleSchemaErrors(rule: unknown): string[] {
+  return styleRuleErrors(rule);
+}
+
+function assertValidClassName(name: string): string {
+  return assertValidCssClassName(name);
+}
+
+function isWritableSelector(selector: string): boolean {
+  return isValidCssSelector(selector);
+}
+
+// A class-kind or scoped rule owns its class token; a second rule with the
+// same name would emit a duplicate selector that no assignment can separate.
+function assertClassNameFree(
+  rules: readonly StyleRule[],
+  name: string,
+  exceptId: string,
+  field: string,
+): void {
+  const clash = rules.find(
+    (rule) => rule.id !== exceptId && rule.kind !== "ambient" && rule.name === name,
+  );
+  if (clash !== undefined) {
+    throw new SenifyError("conflict", `Style class "${name}" already exists`, {
+      field,
+      suggestion: "Pick a name that is not in use yet.",
+    });
+  }
+}
+
+// One scoped rule per node: a second rule for the same node would compete with
+// the first without a user-visible way to tell them apart.
+function assertSingleScopedRule(
+  rules: readonly StyleRule[],
+  nodeId: string,
+  exceptId: string,
+): void {
+  const clash = rules.find(
+    (rule) =>
+      rule.id !== exceptId &&
+      rule.scope !== undefined &&
+      rule.scope.nodeId === nodeId,
+  );
+  if (clash !== undefined) {
+    throw new SenifyError(
+      "conflict",
+      `Node "${nodeId}" already owns a scoped style rule`,
+      {
+        field: "nodeId",
+        suggestion: "Update the existing rule instead of creating a second one.",
+      },
+    );
+  }
+}
+
+type CreateStyleRuleInput = {
+  id?: string;
+  name: string;
+  kind?: "class" | "ambient" | "scoped";
+  selector?: string;
+  nodeId?: string;
+  description?: string;
+  styles?: Record<string, unknown>;
+  stylePriorities?: Record<string, "important">;
+  states?: Record<string, Record<string, unknown>>;
+  statePriorities?: Record<string, Record<string, "important">>;
+  contextStyles?: Record<string, Record<string, unknown>>;
+  contextStylePriorities?: Record<string, Record<string, "important">>;
+  rawCss?: string;
+  authoredBy?: "user" | "agent" | "preset";
+};
+
+// Turns the transport input into a complete rule through the widget engine
+// constructors, so name and selector can never drift apart.
+function buildStyleRule(
+  input: CreateStyleRuleInput,
+  kind: "class" | "ambient" | "scoped",
+  id: string,
+  order: number,
+): StyleRule {
+  const styles = (input.styles ?? {}) as StyleRule["styles"];
+  const base = { id, order, styles };
+
+  if (kind === "ambient") {
+    if (input.selector === undefined) {
+      throw new Error("An ambient rule requires a selector");
+    }
+    return withExtras(
+      createAmbientRule({
+        ...base,
+        selector: input.selector,
+        ...(input.description === undefined ? {} : { description: input.description }),
+      }),
+      input,
+    );
+  }
+  if (kind === "scoped") {
+    if (input.nodeId === undefined) {
+      throw new Error("A scoped rule requires the node it belongs to");
+    }
+    return withExtras(
+      createScopedRule({ ...base, nodeId: input.nodeId }),
+      input,
+    );
+  }
+  return withExtras(
+    createClassRule({
+      ...base,
+      name: input.name,
+      ...(input.description === undefined ? {} : { description: input.description }),
+    }),
+    input,
+  );
+}
+
+// The optional extras a transport input may carry: custom conditions, the four
+// pseudo states (O11) and the author provenance (ADR-0005).
+function withExtras(rule: StyleRule, input: CreateStyleRuleInput): StyleRule {
+  let next = rule;
+  if (input.contextStyles !== undefined) {
+    const contexts: StyleRule["contextStyles"] = { ...next.contextStyles };
+    for (const [contextId, bag] of Object.entries(input.contextStyles)) {
+      contexts[contextId] = { ...(bag as StyleRule["styles"]) };
+    }
+    next = { ...next, contextStyles: contexts };
+  }
+  if (input.states !== undefined) {
+    const states: NonNullable<StyleRule["states"]> = { ...next.states };
+    for (const state of STATE_ORDER) {
+      const bag = input.states[state];
+      if (bag !== undefined) states[state] = { ...(bag as StyleRule["styles"]) };
+    }
+    next = { ...next, states };
+  }
+  if (input.stylePriorities !== undefined) {
+    next = { ...next, stylePriorities: { ...input.stylePriorities } };
+  }
+  if (input.statePriorities !== undefined) {
+    const statePriorities: NonNullable<StyleRule["statePriorities"]> = {
+      ...next.statePriorities,
+    };
+    for (const state of STATE_ORDER) {
+      const priority = input.statePriorities[state];
+      if (priority !== undefined) statePriorities[state] = { ...priority };
+    }
+    next = { ...next, statePriorities };
+  }
+  if (input.contextStylePriorities !== undefined) {
+    next = {
+      ...next,
+      contextStylePriorities: {
+        ...next.contextStylePriorities,
+        ...input.contextStylePriorities,
+      },
+    };
+  }
+  if (input.rawCss !== undefined) {
+    next = { ...next, rawCss: input.rawCss };
+  }
+  if (input.authoredBy !== undefined) {
+    next = { ...next, authoredBy: input.authoredBy };
+  }
+  return next;
 }
 
 function assertDraftShape(draft: unknown): asserts draft is NodeTree {
@@ -1009,6 +1199,31 @@ export class Store {
     return mapSite(row);
   }
 
+  // The site profile (ticket 21/20): same validation as `createSite`. The
+  // editor validates the document against the new profile before it asks for
+  // the change; the engine stays the authoritative gate.
+  async updateSiteProfile(id: string, profile: Site["profile"]): Promise<Site> {
+    if (!SITE_PROFILES.includes(profile)) {
+      throw new SenifyError("validation", `Unknown site profile "${profile}"`, {
+        field: "profile",
+        suggestion: `Choose one of: ${SITE_PROFILES.join(", ")}.`,
+      });
+    }
+    const now = new Date().toISOString();
+    const result = await this.#db.query<SiteRow>(
+      `UPDATE sites SET profile = $2, updated_at = $3 WHERE id = $1
+       RETURNING id, name, slug, profile, theme_id, created_at, updated_at`,
+      [id, profile, now],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Site "${id}" does not exist`, {
+        field: "siteId",
+      });
+    }
+    return mapSite(row);
+  }
+
   // The trash lives in its own table: the schema stays additive (no ALTERs)
   // and listSites simply excludes trashed sites.
   async trashSite(id: string): Promise<Site> {
@@ -1377,6 +1592,350 @@ export class Store {
       return newVersion;
     });
     return this.getTheme(siteId);
+  }
+
+  // ------------------------------------------------- style rules (Phase 2)
+  //
+  // The rule registry is site-wide: a reusable class (`hero-button`) applies to
+  // every page, so it belongs to the site and not to a page draft. Reads are
+  // tolerant (a corrupt entry drops, it never blocks the registry), writes are
+  // hard (the shape either matches `StyleRuleSchema` or the write fails with
+  // the offending field).
+  //
+  // Every write appends to the same append-only audit log the page mutations
+  // use (`pageId: null`), so a rule change is traceable like any other edit.
+
+  async #readStyleRules(siteId: string): Promise<StyleRule[]> {
+    const result = await this.#db.query<StyleRuleRow>(
+      `SELECT style_rules_json FROM sites WHERE id = $1`,
+      [siteId],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Site "${siteId}" does not exist`, {
+        field: "siteId",
+        suggestion: "Create the site first or check the id.",
+      });
+    }
+    if (row.style_rules_json === null || row.style_rules_json === undefined) {
+      return [];
+    }
+    return parseStyleRuleRegistry(toJson<unknown>(row.style_rules_json));
+  }
+
+  async listStyleRules(siteId: string): Promise<StyleRule[]> {
+    return this.#readStyleRules(siteId);
+  }
+
+  async getStyleRule(siteId: string, ruleId: string): Promise<StyleRule> {
+    const rules = await this.#readStyleRules(siteId);
+    const found = rules.find((rule) => rule.id === ruleId);
+    if (found === undefined) {
+      throw new SenifyError("not_found", `Style rule "${ruleId}" does not exist`, {
+        field: "ruleId",
+        suggestion: "List the style rules of the site and pick an existing id.",
+      });
+    }
+    return found;
+  }
+
+  // The whole registry is rewritten in one transaction-free UPDATE: the array
+  // is the document, so a partial write cannot leave two sources of truth. The
+  // audit entry records what changed, not the whole array.
+  async #writeStyleRules(
+    siteId: string,
+    rules: StyleRule[],
+    event: { mutation: string; params: Record<string, unknown>; author: Author },
+  ): Promise<StyleRule[]> {
+    const normalized = normalizeRuleOrder(rules);
+    const now = new Date().toISOString();
+    const result = await this.#db.query<{ id: string }>(
+      `UPDATE sites SET style_rules_json = $2, updated_at = $3 WHERE id = $1 RETURNING id`,
+      [siteId, toJsonParam(normalized), now],
+    );
+    if (result.rows.length === 0) {
+      throw new SenifyError("not_found", `Site "${siteId}" does not exist`, {
+        field: "siteId",
+      });
+    }
+    await this.recordSiteEvent({ siteId, ...event });
+    return normalized;
+  }
+
+  // Hard shape check of one rule plus the semantic rules the schema cannot
+  // express: context ids may not shadow the device suffixes, a scoped rule
+  // must name its node, and an ambient rule needs a real selector.
+  #assertWritableRule(rule: StyleRule, field: string): void {
+    const errors = StyleRuleSchemaErrors(rule);
+    if (errors.length > 0) {
+      throw new SenifyError("validation", `Invalid style rule: ${errors[0]}`, {
+        field,
+        suggestion: "Check the rule against the documented shape.",
+      });
+    }
+    if (rule.rawCss !== undefined && !isSafeRawCss(rule.rawCss)) {
+      throw new SenifyError("validation", "rawCss must be a single @keyframes block", {
+        field: `${field}.rawCss`,
+        suggestion:
+          "Only sanitised @keyframes are carried verbatim; everything else is structured.",
+      });
+    }
+    const reserved = reservedContextIds(rule);
+    if (reserved.length > 0) {
+      throw new SenifyError(
+        "validation",
+        `Context id "${reserved[0]}" is reserved for a built-in device`,
+        {
+          field: `${field}.contextStyles`,
+          suggestion:
+            "Use the device suffix form (`padding_tablet`) for tablet and mobile; use context ids only for custom conditions.",
+        },
+      );
+    }
+  }
+
+  async createStyleRule(
+    siteId: string,
+    input: {
+      id?: string;
+      name: string;
+      kind?: "class" | "ambient" | "scoped";
+      selector?: string;
+      nodeId?: string;
+      description?: string;
+      styles?: Record<string, unknown>;
+      contextStyles?: Record<string, Record<string, unknown>>;
+    },
+    author: Author,
+  ): Promise<StyleRule> {
+    const rules = await this.#readStyleRules(siteId);
+    const kind = input.kind ?? "class";
+
+    let rule: StyleRule;
+    try {
+      rule = buildStyleRule(input, kind, input.id ?? newEntityId(), rules.length);
+    } catch (error) {
+      throw new SenifyError(
+        "validation",
+        error instanceof Error ? error.message : "Invalid style rule",
+        { field: "name", suggestion: "Check the class name or selector." },
+      );
+    }
+
+    // The scope check comes first: a scoped rule derives its name from its node,
+    // so a second rule for the same node would also trip the name check and
+    // report the wrong cause.
+    if (rule.scope !== undefined) {
+      assertSingleScopedRule(rules, rule.scope.nodeId, rule.id);
+    }
+    if (kind !== "ambient") {
+      assertClassNameFree(rules, rule.name, rule.id, "name");
+    }
+    this.#assertWritableRule(rule, "rule");
+
+    const next = [...rules, rule];
+    const written = await this.#writeStyleRules(siteId, next, {
+      mutation: "create_style_rule",
+      params: { ruleId: rule.id, name: rule.name, kind: rule.kind },
+      author,
+    });
+    return written.find((entry) => entry.id === rule.id) ?? rule;
+  }
+
+  async updateStyleRule(
+    siteId: string,
+    ruleId: string,
+    patch: {
+      name?: string;
+      selector?: string;
+      description?: string | null;
+      styles?: Record<string, unknown>;
+      stylePriorities?: Record<string, "important">;
+      states?: Record<string, Record<string, unknown>>;
+      statePriorities?: Record<string, Record<string, "important">>;
+      contextStyles?: Record<string, Record<string, unknown>>;
+      contextStylePriorities?: Record<string, Record<string, "important">>;
+      rawCss?: string | null;
+      authoredBy?: "user" | "agent" | "preset";
+    },
+    author: Author,
+  ): Promise<StyleRule> {
+    const rules = await this.#readStyleRules(siteId);
+    const index = rules.findIndex((rule) => rule.id === ruleId);
+    if (index < 0) {
+      throw new SenifyError("not_found", `Style rule "${ruleId}" does not exist`, {
+        field: "ruleId",
+      });
+    }
+    const current = rules[index]!;
+    const next: StyleRule = { ...current, styles: { ...current.styles }, contextStyles: { ...current.contextStyles } };
+
+    if (patch.name !== undefined) {
+      if (current.kind === "ambient") {
+        throw new SenifyError(
+          "validation",
+          "An ambient rule is renamed through its selector",
+          {
+            field: "name",
+            suggestion: "Send `selector` instead; the name mirrors it.",
+          },
+        );
+      }
+      if (current.scope !== undefined) {
+        throw new SenifyError("validation", "A scoped rule cannot be renamed", {
+          field: "name",
+          suggestion: "Scoped rules are owned by their node and generated.",
+        });
+      }
+      try {
+        next.name = assertValidClassName(patch.name);
+      } catch (error) {
+        throw new SenifyError(
+          "validation",
+          error instanceof Error ? error.message : "Invalid style class name",
+          { field: "name" },
+        );
+      }
+      next.selector = classKindSelector(next.name);
+      assertClassNameFree(rules, next.name, ruleId, "name");
+    }
+
+    if (patch.selector !== undefined) {
+      if (current.kind !== "ambient") {
+        throw new SenifyError(
+          "validation",
+          "Only an ambient rule carries a free selector",
+          {
+            field: "selector",
+            suggestion: "A class rule derives its selector from its name.",
+          },
+        );
+      }
+      const selector = patch.selector.trim();
+      if (!isWritableSelector(selector)) {
+        throw new SenifyError("validation", `Invalid CSS selector "${patch.selector}"`, {
+          field: "selector",
+        });
+      }
+      next.selector = selector;
+      next.name = selector;
+    }
+
+    if (patch.description !== undefined) {
+      if (patch.description === null) delete next.description;
+      else next.description = patch.description;
+    }
+    if (patch.styles !== undefined) {
+      next.styles = { ...next.styles, ...(patch.styles as StyleRule["styles"]) };
+    }
+    if (patch.contextStyles !== undefined) {
+      next.contextStyles = {
+        ...next.contextStyles,
+        ...(patch.contextStyles as StyleRule["contextStyles"]),
+      };
+    }
+    if (patch.states !== undefined) {
+      const states: NonNullable<StyleRule["states"]> = { ...next.states };
+      for (const state of STATE_ORDER) {
+        const bag = patch.states[state];
+        if (bag !== undefined) states[state] = { ...(bag as StyleRule["styles"]) };
+      }
+      next.states = states;
+    }
+    if (patch.authoredBy !== undefined) {
+      next.authoredBy = patch.authoredBy;
+    }
+    if (patch.stylePriorities !== undefined) {
+      next.stylePriorities = { ...next.stylePriorities, ...patch.stylePriorities };
+    }
+    if (patch.statePriorities !== undefined) {
+      const statePriorities: NonNullable<StyleRule["statePriorities"]> = {
+        ...next.statePriorities,
+      };
+      for (const state of STATE_ORDER) {
+        const priority = patch.statePriorities[state];
+        if (priority !== undefined) statePriorities[state] = { ...priority };
+      }
+      next.statePriorities = statePriorities;
+    }
+    if (patch.contextStylePriorities !== undefined) {
+      next.contextStylePriorities = {
+        ...next.contextStylePriorities,
+        ...patch.contextStylePriorities,
+      };
+    }
+    if (patch.rawCss !== undefined) {
+      if (patch.rawCss === null) delete next.rawCss;
+      else next.rawCss = patch.rawCss;
+    }
+    next.updatedAt = new Date().toISOString();
+    this.#assertWritableRule(next, "rule");
+
+    const result = [...rules];
+    result[index] = next;
+    const written = await this.#writeStyleRules(siteId, result, {
+      mutation: "update_style_rule",
+      params: { ruleId, patch: Object.keys(patch) },
+      author,
+    });
+    return written[index] ?? next;
+  }
+
+  async deleteStyleRule(
+    siteId: string,
+    ruleId: string,
+    author: Author,
+  ): Promise<void> {
+    const rules = await this.#readStyleRules(siteId);
+    const index = rules.findIndex((rule) => rule.id === ruleId);
+    if (index < 0) {
+      throw new SenifyError("not_found", `Style rule "${ruleId}" does not exist`, {
+        field: "ruleId",
+      });
+    }
+    const next = rules.filter((rule) => rule.id !== ruleId);
+    await this.#writeStyleRules(siteId, next, {
+      mutation: "delete_style_rule",
+      params: { ruleId, name: rules[index]!.name, kind: rules[index]!.kind },
+      author,
+    });
+  }
+
+  // Reorder is a permutation of the array; `order` is normalized to the array
+  // position afterwards, so a stale number can never win over it.
+  async reorderStyleRule(
+    siteId: string,
+    ruleId: string,
+    toIndex: number,
+    author: Author,
+  ): Promise<StyleRule[]> {
+    const rules = await this.#readStyleRules(siteId);
+    const from = rules.findIndex((rule) => rule.id === ruleId);
+    if (from < 0) {
+      throw new SenifyError("not_found", `Style rule "${ruleId}" does not exist`, {
+        field: "ruleId",
+      });
+    }
+    if (!Number.isInteger(toIndex) || toIndex < 0 || toIndex >= rules.length) {
+      throw new SenifyError(
+        "validation",
+        `Index ${toIndex} is outside the style rule list`,
+        {
+          field: "index",
+          suggestion: `Use an index between 0 and ${rules.length - 1}.`,
+        },
+      );
+    }
+    if (from === toIndex) return rules;
+
+    const next = [...rules];
+    const [moved] = next.splice(from, 1);
+    next.splice(toIndex, 0, moved!);
+    return this.#writeStyleRules(siteId, next, {
+      mutation: "reorder_style_rule",
+      params: { ruleId, from, to: toIndex },
+      author,
+    });
   }
 
   async listPageDrafts(siteId: string): Promise<Page[]> {

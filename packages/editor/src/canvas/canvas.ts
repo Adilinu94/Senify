@@ -87,6 +87,7 @@ const PREVIEW_STATES: readonly (StateName | "none")[] = [
   "hover",
   "focus",
   "active",
+  "disabled",
 ];
 
 // The frame shell: the browser defaults the editor has to take out (the frame

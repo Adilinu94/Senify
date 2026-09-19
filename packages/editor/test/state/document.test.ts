@@ -16,7 +16,7 @@ describe("document", () => {
     expect(document.version).toBe(2);
     expect(document.rootNodeId).toBe("r000000001");
     expect(document.nodes[document.rootNodeId]?.primitive).toBe("root");
-    expect(document.classes).toEqual({});
+    expect(document.styleRules).toEqual([]);
   });
 
   it("walks children then slots in document order", () => {
@@ -30,7 +30,7 @@ describe("document", () => {
         b: { id: "b", primitive: "frame", props: {}, slots: { item: ["b1"] } },
         b1: { id: "b1", primitive: "text", props: {} },
       },
-      classes: {},
+      styleRules: [],
     };
     expect(documentOrder(document)).toEqual(["root", "a", "a1", "b", "b1"]);
   });
@@ -52,17 +52,32 @@ describe("document", () => {
 
   it("maps the document to the compiler shape with class rules", () => {
     const store = baseStore();
-    store.apply({ op: "createStyleRule", name: "cta", props: { background: "#ff0000" } });
+    store.apply({
+      op: "upsertStyleRule",
+      rule: {
+        id: "r-cta",
+        name: "cta",
+        kind: "class",
+        selector: ".cta",
+        order: 0,
+        styles: { background: "#ff0000" },
+        contextStyles: {},
+      },
+    });
     store.apply({ op: "assignClass", id: "btn0000001", classId: "cta" });
     const css = toCssDocument(store.document);
     expect(css.nodes).toHaveLength(1);
     expect(css.nodes[0]?.primitive).toBe("root");
+    // The rule reaches the compiler in its canonical shape.
     expect(css.classRules).toEqual([
-      { name: "cta", props: { background: "#ff0000" } },
+      {
+        name: "cta",
+        props: { background: "#ff0000" },
+        kind: "class",
+        selector: ".cta",
+      },
     ]);
-    expect(classRules(store.document)).toEqual([
-      { name: "cta", props: { background: "#ff0000" } },
-    ]);
+    expect(classRules(store.document)).toEqual(css.classRules);
   });
 
   it("serialises an empty document the same way it was built", () => {

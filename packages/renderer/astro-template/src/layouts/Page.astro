@@ -12,19 +12,51 @@ type Props = {
     tree: { rootNodeId: string; nodes: Record<string, unknown> };
     motion: string;
     jsonLd: string | null;
-    flags: { hasMotion: boolean; needsSplitText: boolean; islands: string[]; hasForm: boolean };
+    flags: {
+      hasMotion: boolean;
+      needsScrollTrigger: boolean;
+      needsSplitText: boolean;
+      hasLenis: boolean;
+      hasPending: boolean;
+      islands: string[];
+      hasForm: boolean;
+    };
   };
   site: { name: string; baseUrl: string; lang?: string };
   ctx: SectionContext;
   // The bake only writes assets/sections.css when a page carries style
   // overrides; a missing file must not be linked (it would 404).
   sectionsCss?: boolean;
+  // The site-wide style rules (ADR-0005), written when the registry has rules.
+  // Linked at the end of the body, after the widget base stylesheet: both sit
+  // in `@layer user-authored` and the base must stay the weaker stage — the
+  // same order the canvas frame compiles (base, then authored rules).
+  styleRulesCss?: boolean;
   fontPreloads: { href: string }[];
-  cdn: { gsap: string; scrollTrigger: string; splitText: string; lenis: string };
+  // Self-hosted motion runtime (ticket 19, M2): local files the bake copies
+  // next to the other assets — no CDN request, version frozen in the lockfile.
+  vendor: { gsap: string; scrollTrigger: string; splitText: string; lenis: string };
 };
 
-const { page, site, ctx, sectionsCss = false, fontPreloads, cdn } = Astro.props;
+const {
+  page,
+  site,
+  ctx,
+  sectionsCss = false,
+  styleRulesCss = false,
+  fontPreloads,
+  vendor,
+} = Astro.props;
 const lang = site.lang ?? "de";
+
+// FOUC guard (payload-spec.md §3): the render paths stamp
+// `data-motion-pending` on nodes whose preset hides them until the page script
+// runs. The inline failsafe survives a broken page.js; <noscript> is the only
+// correct !important — without JS the content must be visible.
+const PENDING_CSS = "[data-motion-pending]{opacity:0}";
+const PENDING_NOSCRIPT = "[data-motion-pending]{opacity:1 !important}";
+const PENDING_FAILSAFE =
+  'setTimeout(function(){var pending=document.querySelectorAll("[data-motion-pending]");for(var index=0;index<pending.length;index+=1){pending[index].removeAttribute("data-motion-pending");}},1600);';
 ---
 <html lang={lang}>
   <head>
@@ -51,12 +83,21 @@ const lang = site.lang ?? "de";
     {page.jsonLd && <script type="application/ld+json" set:html={page.jsonLd} />}
     {page.flags.hasMotion && (
       <>
+        {page.flags.hasPending && <style is:inline set:html={PENDING_CSS} />}
         <script type="application/json" id="motion-data" set:html={page.motion} />
-        <script src={cdn.gsap} defer />
-        <script src={cdn.scrollTrigger} defer />
-        {page.flags.needsSplitText && <script src={cdn.splitText} defer />}
-        <script src={cdn.lenis} defer />
+        <script src={vendor.gsap} defer />
+        {page.flags.needsScrollTrigger && <script src={vendor.scrollTrigger} defer />}
+        {page.flags.needsSplitText && <script src={vendor.splitText} defer />}
+        {page.flags.hasLenis && <script src={vendor.lenis} defer />}
         <script src="/assets/page.js" defer />
+        {page.flags.hasPending && (
+          <>
+            <noscript>
+              <style is:inline set:html={PENDING_NOSCRIPT} />
+            </noscript>
+            <script is:inline set:html={PENDING_FAILSAFE} />
+          </>
+        )}
       </>
     )}
     {page.flags.islands.length > 0 && <script src="/assets/islands.js" defer />}
@@ -64,5 +105,6 @@ const lang = site.lang ?? "de";
   </head>
   <body>
     <Section tree={page.tree} ctx={ctx} />
+    {styleRulesCss && <link rel="stylesheet" href="/assets/style-rules.css" />}
   </body>
 </html>

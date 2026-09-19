@@ -20,7 +20,7 @@ import {
   type MutationOp,
   type PatchOp,
 } from "@senify/engine/browser";
-import { HistoryStack } from "../history.ts";
+import { HistoryStack, type HistoryEntry } from "../history.ts";
 import { newNodeId } from "./ids.ts";
 import {
   createDocument,
@@ -60,12 +60,12 @@ export type EditorStoreOptions = {
 
 // One entry per committed store change. `apply` carries the editor mutation
 // that was written, so a listener can forward exactly the batch that should be
-// persisted; `undo` / `redo` let the listener keep its own queue in step with
-// the linear history.
+// persisted; `undo` / `redo` carry the history entry, whose patch lists are
+// what a persistence layer has to translate back into mutations.
 export type EditorStoreAction =
-  | { type: "apply"; mutation: EditorMutation }
-  | { type: "undo" }
-  | { type: "redo" };
+  | { type: "apply"; mutation: EditorMutation; entry: HistoryEntry }
+  | { type: "undo"; entry: HistoryEntry }
+  | { type: "redo"; entry: HistoryEntry };
 
 export type ApplyOptions = {
   coalesceKey?: string;
@@ -111,7 +111,7 @@ export class EditorStore {
   #selection: SelectionState;
   readonly #history: HistoryStack;
   readonly #idFactory: () => string;
-  readonly #onAction: ((event: EditorStoreAction) => void) | undefined;
+  #onAction: ((event: EditorStoreAction) => void) | undefined;
   readonly #listeners = new Set<() => void>();
 
   constructor(options: EditorStoreOptions = {}) {
@@ -120,6 +120,15 @@ export class EditorStore {
     this.#selection = options.selection ?? EMPTY_SELECTION;
     this.#history = options.history ?? new HistoryStack();
     this.#onAction = options.onAction;
+  }
+
+  // Late binding for the persistence layer: the save pipeline is created after
+  // the store (it needs the store), so the constructor option is not always
+  // available. Passing `undefined` detaches the listener.
+  setActionListener(
+    listener: ((event: EditorStoreAction) => void) | undefined,
+  ): void {
+    this.#onAction = listener;
   }
 
   // The canvas follows the store instead of polling it: every write, undo,
@@ -198,7 +207,7 @@ export class EditorStore {
     this.#document = next;
     entry.versionAfter = this.version;
     this.#emit();
-    this.#onAction?.({ type: "apply", mutation });
+    this.#onAction?.({ type: "apply", mutation, entry });
     return { changed: true, patches: result.forward, warnings: result.warnings };
   }
 
@@ -221,7 +230,7 @@ export class EditorStore {
       entry.undoPatch as unknown as DocumentPatch[],
     );
     this.#emit();
-    this.#onAction?.({ type: "undo" });
+    this.#onAction?.({ type: "undo", entry });
     return true;
   }
 
@@ -233,7 +242,7 @@ export class EditorStore {
       entry.mutations as unknown as DocumentPatch[],
     );
     this.#emit();
-    this.#onAction?.({ type: "redo" });
+    this.#onAction?.({ type: "redo", entry });
     return true;
   }
 

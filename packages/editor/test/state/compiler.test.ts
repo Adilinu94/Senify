@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { toCssDocument } from "@senify/editor/state";
 import {
-  classSelector,
   compileCss,
   compileCssReport,
+  globalClassSelector,
   mediaQueryFor,
   nodeSelector,
 } from "@senify/widget-engine";
@@ -29,9 +29,16 @@ function builtCss(): string {
     device: "mobile",
   });
   store.apply({
-    op: "createStyleRule",
-    name: "cta",
-    props: { background: "#ff0000", background_mobile: "#00ff00" },
+    op: "upsertStyleRule",
+    rule: {
+      id: "r-cta",
+      name: "cta",
+      kind: "class",
+      selector: ".cta",
+      order: 0,
+      styles: { background: "#ff0000", background_mobile: "#00ff00" },
+      contextStyles: {},
+    },
   });
   store.apply({ op: "assignClass", id: "btn0000001", classId: "cta" });
   return compileCss(toCssDocument(store.document));
@@ -51,7 +58,7 @@ describe("document -> compiler", () => {
     expect(css).toContain("font-size: 18px;");
     expect(css).toContain("font-size: 14px;");
 
-    expect(css).toContain(classSelector("btn0000001", "cta") + " {");
+    expect(css).toContain(globalClassSelector("cta") + " {");
     expect(css).toContain("background-color: #ff0000;");
     expect(css).toContain("background-color: #00ff00;");
   });
@@ -66,12 +73,23 @@ describe("document -> compiler", () => {
 
   it("reports the class stage as data on the node", () => {
     const store = baseStore();
-    store.apply({ op: "createStyleRule", name: "cta", props: { background: "#ff0000" } });
+    store.apply({
+      op: "upsertStyleRule",
+      rule: {
+        id: "r-cta",
+        name: "cta",
+        kind: "class",
+        selector: ".cta",
+        order: 0,
+        styles: { background: "#ff0000" },
+        contextStyles: {},
+      },
+    });
     store.apply({ op: "assignClass", id: "btn0000001", classId: "cta" });
     const report = compileCssReport(toCssDocument(store.document));
     const classRule = report.rules.find(
       (rule) =>
-        rule.selector === classSelector("btn0000001", "cta") && rule.stage === "class",
+        rule.selector === globalClassSelector("cta") && rule.stage === "class",
     );
     expect(classRule?.classIds).toEqual(["cta"]);
     expect(report.ruleCount).toBeGreaterThan(0);

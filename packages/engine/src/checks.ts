@@ -319,7 +319,7 @@ export function runChecks(input: {
   const pageIds = new Set(input.pages.map((page) => page.id));
 
   for (const page of input.pages) {
-    for (const violation of hardGuardrailsForTree(page.draft)) {
+    for (const violation of hardGuardrailsForTree(page.draft, input.site.profile)) {
       hard.push({
         code: violation.code,
         severity: "hard",

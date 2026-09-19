@@ -4370,9 +4370,8 @@ function canvasModeOf(search) {
   return /(?:^|&)view=canvas(?:&|$)/.test(String(search ?? "")) ? "canvas" : "editor";
 }
 
-function mountCanvasView({ pageId, page, host, toolbar, editor, pagesCache, assetContext }) {
+function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCache, assetContext }) {
   const loaded = editor.loadDocument(page.draft);
-  let draftVersion = page.draftVersion;
 
   const statusEl = el("span", { class: "muted", "data-role": "canvas-status" });
   const saveButton = el("button", {
@@ -4382,30 +4381,73 @@ function mountCanvasView({ pageId, page, host, toolbar, editor, pagesCache, asse
     text: "Speichern",
   });
   saveButton.disabled = true;
+  // Conflict hint (decided 18.09.): reload the draft or resend the own change.
+  const reloadButton = el("button", {
+    type: "button",
+    "data-action": "canvas-reload",
+    text: "Neu laden",
+  });
+  const retryButton = el("button", {
+    type: "button",
+    "data-action": "canvas-retry",
+    text: "Erneut versuchen",
+  });
+  reloadButton.hidden = true;
+  retryButton.hidden = true;
 
-  // A linear mirror of the store history: what was applied and not undone is
-  // exactly what the next save sends. Redo moves it back.
-  const pending = [];
-  const undone = [];
-  const refreshSave = () => {
-    saveButton.disabled = pending.length === 0;
-    saveButton.textContent = pending.length > 0 ? `Speichern (${pending.length})` : "Speichern";
+  const store = new editor.EditorStore({ document: loaded.document });
+
+  const setVersion = (version) => {
+    const badge = document.getElementById("page-version");
+    if (badge) badge.textContent = `Draft v${version}`;
   };
 
-  const store = new editor.EditorStore({
-    document: loaded.document,
-    onAction: (event) => {
-      if (event.type === "apply") {
-        pending.push(event.mutation);
-        undone.length = 0;
-      } else if (event.type === "undo") {
-        if (pending.length > 0) undone.push(pending.pop());
-      } else if (event.type === "redo") {
-        if (undone.length > 0) pending.push(undone.pop());
-      }
-      refreshSave();
-    },
+  // The save pipeline owns batching, version tracking and conflict handling;
+  // the transport is the same `api` helper the rest of the shell uses, so a
+  // `409` keeps its status.
+  const transport = async (request) => {
+    try {
+      const body = await api(request.path, {
+        method: request.method,
+        ...(request.body === undefined ? {} : { body: request.body }),
+      });
+      return { status: 200, body };
+    } catch (error) {
+      return {
+        status: typeof error?.status === "number" ? error.status : 500,
+        body: { error: { message: error?.message ?? String(error) } },
+      };
+    }
+  };
+  const pipeline = editor.createSavePipeline({
+    store,
+    pageId,
+    siteId,
+    author: AUTHOR,
+    request: transport,
   });
+  pipeline.acceptVersion(page.draftVersion);
+
+  const applyState = (state) => {
+    saveButton.disabled = state.pending === 0;
+    saveButton.textContent = state.pending > 0 ? `Speichern (${state.pending})` : "Speichern";
+    const conflict = state.status === "conflict";
+    reloadButton.hidden = !conflict;
+    retryButton.hidden = !conflict;
+    if (state.status === "saving") statusEl.textContent = "Speichert …";
+    else if (state.status === "saved") statusEl.textContent = "Gespeichert";
+    else if (conflict) statusEl.textContent = state.message ?? "Entwurf wurde geändert";
+    else if (state.status === "error") statusEl.textContent = state.message ?? "Speichern fehlgeschlagen";
+    else statusEl.textContent = state.pending > 0 ? `${state.pending} offen` : "";
+    if (state.unsupported.length > 0) {
+      statusEl.textContent = `${statusEl.textContent} · nicht speicherbar: ${state.unsupported.join(", ")}`.trim();
+    }
+  };
+  pipeline.subscribe((state) => {
+    setVersion(state.version);
+    applyState(state);
+  });
+  applyState(pipeline.state());
 
   const canvas = editor.mountCanvas(host, {
     store,
@@ -4423,52 +4465,44 @@ function mountCanvasView({ pageId, page, host, toolbar, editor, pagesCache, asse
     },
   });
 
-  const setVersion = (version) => {
-    const badge = document.getElementById("page-version");
-    if (badge) badge.textContent = `Draft v${version}`;
-  };
-
-  const save = async () => {
-    if (pending.length === 0) return;
-    saveButton.disabled = true;
+  saveButton.addEventListener("click", () => {
+    void pipeline.flush();
+  });
+  reloadButton.addEventListener("click", async () => {
     try {
-      const result = await api(`/api/pages/${pageId}/editor-mutations`, {
-        method: "POST",
-        body: { baseDraftVersion: draftVersion, author: AUTHOR, mutations: pending.slice() },
-      });
-      draftVersion = result.newDraftVersion;
-      pending.length = 0;
-      undone.length = 0;
-      setVersion(draftVersion);
-      refreshSave();
-      statusEl.textContent = "Gespeichert";
-      toast("Canvas gespeichert");
-      // The draft is the source of truth: re-read it and re-seed the canvas so
-      // engine-generated ids and normalized values line up.
-      try {
-        const fresh = await api(`/api/pages/${pageId}`);
-        draftVersion = fresh.draftVersion;
-        store.replaceDocument(editor.loadDocument(fresh.draft).document);
-        setVersion(draftVersion);
-      } catch {
-        // Keep the local document when only the re-read failed.
-      }
+      const fresh = await api(`/api/pages/${pageId}`);
+      store.replaceDocument(editor.loadDocument(fresh.draft).document);
+      pipeline.acceptVersion(fresh.draftVersion);
+      setVersion(fresh.draftVersion);
+      statusEl.textContent = "Neu geladen";
     } catch (error) {
       failed(error);
-      refreshSave();
     }
-  };
-  saveButton.addEventListener("click", () => {
-    void save();
+  });
+  retryButton.addEventListener("click", async () => {
+    try {
+      const fresh = await api(`/api/pages/${pageId}`);
+      await pipeline.retry(fresh.draftVersion);
+    } catch (error) {
+      failed(error);
+    }
   });
 
-  toolbar.append(statusEl, saveButton);
-  refreshSave();
+  toolbar.append(statusEl, saveButton, reloadButton, retryButton);
   return canvas;
 }
 
 async function pageView(siteId, pageId, initialSearch) {
   const page = await api(`/api/pages/${pageId}`);
+  // Das Site-Profil (Ticket 20): der Editor zeigt es und validiert Profil-
+  // Wechsel gegen das Dokument, bevor er den PATCH ausloest.
+  let siteProfile = "standard";
+  try {
+    const site = await api(`/api/sites/${siteId}`);
+    siteProfile = site.profile ?? "standard";
+  } catch {
+    // Kein Site-Kontext erreichbar: der Editor faellt auf `standard` zurueck.
+  }
   let currentTree = page.draft;
   let editorInstance = null;
   let pagesCache = [];
@@ -4575,6 +4609,7 @@ async function pageView(siteId, pageId, initialSearch) {
     if (editor) {
       mountCanvasView({
         pageId,
+        siteId,
         page,
         host,
         toolbar,
@@ -4644,6 +4679,14 @@ async function pageView(siteId, pageId, initialSearch) {
         frameStyles: ["/theme.css", "/editor-frame.css"],
         pages: () => pagesCache,
         media: () => mediaCache,
+        site: { profile: siteProfile },
+        onSiteProfile: async (profile) => {
+          const updated = await api(`/api/sites/${siteId}`, {
+            method: "PATCH",
+            body: { profile, author: AUTHOR },
+          });
+          siteProfile = updated.profile ?? profile;
+        },
         ...(initialSearch ? { initialSearch } : {}),
         onDeepLink: (search) => {
           const base = `${location.origin}${location.pathname}${location.search}`;

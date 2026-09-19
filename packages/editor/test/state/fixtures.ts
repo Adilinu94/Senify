@@ -70,6 +70,26 @@ export function emptyV2Document(): EditorDocument {
     version: 2,
     rootNodeId: "root000001",
     nodes: { root000001: { id: "root000001", primitive: "root", props: {} } },
-    classes: {},
+    styleRules: [],
+  };
+}
+
+// A rule in the canonical shape, for tests that need one without going through
+// the store. Deterministic ids keep the assertions readable.
+export function classRule(
+  id: string,
+  name: string,
+  styles: import("@senify/widget-engine").DeviceValueMap = {},
+  extra: Partial<import("@senify/editor/state").StyleRule> = {},
+): import("@senify/editor/state").StyleRule {
+  return {
+    id,
+    name,
+    kind: "class",
+    selector: `.${name}`,
+    order: 0,
+    styles,
+    contextStyles: {},
+    ...extra,
   };
 }

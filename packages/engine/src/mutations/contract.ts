@@ -23,6 +23,9 @@ export const MUTATION_OPS = [
   "setMotion",
   "clearMotion",
   "updatePageMeta",
+  "setSlotContent",
+  "createCollectionEntry",
+  "updateCollectionEntry",
 ] as const;
 
 // The v2 editor operations (rebuild Phase 0, third slice). They extend the
@@ -35,12 +38,15 @@ export const MUTATION_OPS = [
 export const EDITOR_MUTATION_OPS = [
   "setNodeProp",
   "clearNodeProp",
+  "setNodeMeta",
+  "setMotion",
+  "clearMotion",
   "assignClass",
   "removeClass",
-  "renameClass",
-  "createStyleRule",
-  "updateStyleRule",
+  "renameStyleRule",
+  "upsertStyleRule",
   "deleteStyleRule",
+  "reorderStyleRule",
   "insertNode",
   "duplicateNode",
   "moveNode",
@@ -70,6 +76,7 @@ export type PatchOp =
         variant?: string | null;
         locked?: boolean | null;
         hidden?: boolean | null;
+        classes?: string[] | null;
       };
     }
   | {
@@ -90,12 +97,27 @@ const CLOSED = { additionalProperties: false } as const;
 
 const NodeIdSchema = Type.String({ minLength: 1 });
 
+// Style class names (Phase 2, ADR-0005): the assignment a node carries. The
+// rule registry itself is site-wide and validated by the widget engine; here
+// only the name shape is checked.
+const ClassNameSchema = Type.String({
+  minLength: 1,
+  maxLength: 64,
+  pattern: "^[A-Za-z][A-Za-z0-9_-]*$",
+});
+
 export const NodeSpecSchema = Type.Object(
   {
     type: Type.String({ minLength: 1 }),
     variant: Type.Optional(Type.String({ minLength: 1 })),
     props: Type.Optional(PropRecordSchema),
     id: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9_-]{6,32}$" })),
+    classes: Type.Optional(Type.Array(ClassNameSchema)),
+    hidden: Type.Optional(Type.Boolean()),
+    locked: Type.Optional(Type.Boolean()),
+    // A fresh node may already carry its motion spec (ticket 19): the editor's
+    // undo of a delete restores whole subtrees, motion included.
+    motion: Type.Optional(MotionSpecSchema),
   },
   CLOSED,
 );
@@ -193,8 +215,17 @@ const UpdateNodeMetaSchema = Type.Object(
         variant: Type.Optional(
           Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
         ),
-        locked: Type.Optional(Type.Boolean()),
-        hidden: Type.Optional(Type.Boolean()),
+        // `null` removes the field (undo-friendly), a value sets it.
+        locked: Type.Optional(Type.Union([Type.Boolean(), Type.Null()])),
+        hidden: Type.Optional(Type.Union([Type.Boolean(), Type.Null()])),
+        // Class assignment: `classes` replaces the whole list (`null` clears),
+        // `addClasses` unions and `removeClasses` subtracts. The editor sends
+        // whole lists (its patches carry them); a stateless caller can diff.
+        classes: Type.Optional(
+          Type.Union([Type.Array(ClassNameSchema), Type.Null()]),
+        ),
+        addClasses: Type.Optional(Type.Array(ClassNameSchema)),
+        removeClasses: Type.Optional(Type.Array(ClassNameSchema)),
       },
       CLOSED,
     ),
@@ -247,6 +278,40 @@ const UpdatePageMetaSchema = Type.Object(
   CLOSED,
 );
 
+// Slot and collection content (ticket 13 rest): the section form of the v2
+// editor ops with the same names. The v2 side validates against the widget
+// catalog; here the slot rules of the section registry apply.
+const SetSlotContentSchema = Type.Object(
+  {
+    op: Type.Literal("setSlotContent"),
+    id: NodeIdSchema,
+    slot: Type.String({ minLength: 1 }),
+    nodes: Type.Array(NodeSpecSchema),
+  },
+  CLOSED,
+);
+
+const CreateCollectionEntrySchema = Type.Object(
+  {
+    op: Type.Literal("createCollectionEntry"),
+    id: NodeIdSchema,
+    node: NodeSpecSchema,
+    index: Type.Optional(Type.Integer({ minimum: 0 })),
+  },
+  CLOSED,
+);
+
+const UpdateCollectionEntrySchema = Type.Object(
+  {
+    op: Type.Literal("updateCollectionEntry"),
+    id: NodeIdSchema,
+    index: Type.Integer({ minimum: 0 }),
+    // A value sets, `null` removes the key (same contract as updateNodeProps).
+    patch: PropRecordSchema,
+  },
+  CLOSED,
+);
+
 export const MUTATION_SCHEMA_BY_OP = {
   insertNode: InsertNodeSchema,
   deleteNode: DeleteNodeSchema,
@@ -260,6 +325,9 @@ export const MUTATION_SCHEMA_BY_OP = {
   setMotion: SetMotionSchema,
   clearMotion: ClearMotionSchema,
   updatePageMeta: UpdatePageMetaSchema,
+  setSlotContent: SetSlotContentSchema,
+  createCollectionEntry: CreateCollectionEntrySchema,
+  updateCollectionEntry: UpdateCollectionEntrySchema,
 } satisfies Record<(typeof MUTATION_OPS)[number], TSchema>;
 
 export const MutationSchema = Type.Union([
@@ -275,6 +343,9 @@ export const MutationSchema = Type.Union([
   SetMotionSchema,
   ClearMotionSchema,
   UpdatePageMetaSchema,
+  SetSlotContentSchema,
+  CreateCollectionEntrySchema,
+  UpdateCollectionEntrySchema,
 ]);
 
 export type Mutation = Static<typeof MutationSchema>;

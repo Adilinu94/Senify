@@ -11,20 +11,26 @@
 
 import {
   getPrimitive,
+  styleRuleToClassRule,
   type CssClassRule,
   type CssDocument,
   type CssNode,
   type DeviceValueMap,
   type StateName,
+  type StyleRule,
 } from "@senify/widget-engine";
+import type { MotionSpec } from "@senify/section-sdk";
 
 export const DOCUMENT_VERSION = 2;
 
 export type NodeId = string;
 
-// `classes` maps a class name to the values of its style rule, useable with the
-// device suffixes exactly like node props.
-export type StyleRuleMap = Record<string, DeviceValueMap>;
+// The style rules of the document, in the canonical shape of the site registry
+// (`widget-engine/src/css/style-rule.ts`): stable `id`, `kind`, free `selector`,
+// `order` as the array position, `styles`, `states` (O11), `contextStyles` and
+// the freedom valves of ADR-0005. One model, not three — the editor document is
+// the canvas-side copy of the registry, and the compiler reads it directly.
+export type { StyleRule };
 
 export type EditorNode = {
   id: NodeId;
@@ -38,6 +44,10 @@ export type EditorNode = {
   children?: NodeId[];
   slots?: Record<string, NodeId[]>;
   classes?: string[];
+  // The motion spec (ticket 19): preset + intensity + tokens, the authoring
+  // half of the v1 motion runtime. The bridge hands it to the section tree;
+  // canvas preview and bake read the same spec.
+  motion?: MotionSpec;
   hidden?: boolean;
   locked?: boolean;
 };
@@ -46,7 +56,9 @@ export type EditorDocument = {
   version: typeof DOCUMENT_VERSION;
   rootNodeId: NodeId;
   nodes: Record<NodeId, EditorNode>;
-  classes: StyleRuleMap;
+  // Array, not a record: the position in the array *is* the cascade order, the
+  // same normalization the site registry uses (`normalizeRuleOrder`).
+  styleRules: StyleRule[];
 };
 
 export type ParentRef = {
@@ -70,7 +82,7 @@ export function createDocument(idFactory: () => string): EditorDocument {
     version: DOCUMENT_VERSION,
     rootNodeId: rootId,
     nodes: { [rootId]: { id: rootId, primitive: "root", props: {} } },
-    classes: {},
+    styleRules: [],
   };
 }
 
@@ -156,19 +168,46 @@ export function descendantIds(
   return new Set(collectSubtree(document, id).map((node) => node.id));
 }
 
+// `?? []` everywhere a document may still be a literal from before the rule
+// registry moved into the canonical shape (a cached bundle, a harness page).
+// The load path normalizes, but a missing list must not break the canvas.
+export function styleRulesOf(document: EditorDocument): StyleRule[] {
+  return document.styleRules ?? [];
+}
+
+export function styleRuleById(
+  document: EditorDocument,
+  id: string,
+): StyleRule | undefined {
+  return styleRulesOf(document).find((rule) => rule.id === id);
+}
+
+// The rule a node can be assigned to: a reusable class, never an ambient rule
+// (it attaches by matching) and never a scoped rule (its name is generated).
+export function styleRuleByName(
+  document: EditorDocument,
+  name: string,
+): StyleRule | undefined {
+  return styleRulesOf(document).find(
+    (rule) => rule.kind === "class" && rule.scope === undefined && rule.name === name,
+  );
+}
+
 export function styleRuleNames(document: EditorDocument): string[] {
-  return Object.keys(document.classes);
+  return styleRulesOf(document)
+    .filter((rule) => rule.kind === "class" && rule.scope === undefined)
+    .map((rule) => rule.name);
 }
 
 export function isClassDefined(document: EditorDocument, name: string): boolean {
-  return Object.prototype.hasOwnProperty.call(document.classes, name);
+  return styleRuleByName(document, name) !== undefined;
 }
 
+// Every rule as the compiler reads it, order included (the array order is the
+// cascade order). One mapping, shared with the bake: `styleRuleToClassRule`
+// (widget engine) carries all three kinds and the freedom valves.
 export function classRules(document: EditorDocument): CssClassRule[] {
-  return Object.entries(document.classes).map(([name, props]) => ({
-    name,
-    props: { ...props },
-  }));
+  return styleRulesOf(document).map((rule) => styleRuleToClassRule(rule));
 }
 
 function toCssNode(document: EditorDocument, id: NodeId): CssNode | undefined {

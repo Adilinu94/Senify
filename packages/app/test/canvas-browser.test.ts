@@ -41,7 +41,7 @@ const HARNESS = `<!doctype html>
           props: { level: "h2", text: "Katalogbaustein" },
         },
       },
-      classes: {},
+      styleRules: [],
     };
 
     const store = new EditorStore({ document: initialDocument });
@@ -155,10 +155,13 @@ describe.skipIf(!browserAvailable)("editor canvas in a real browser", () => {
 
       // A catalog primitive without a section twin draws from the one markup
       // description (Phase 1): real element, real class, node markers and text.
-      // The tag is the catalog value ("h2"), not a fixed one.
+      // The tag is the catalog value ("h2"), not a fixed one. The generated
+      // scope class rides along (ticket 21) so anchored rules can match.
       const describedHeading = desktopFrame.locator('h2[data-widget="heading"]');
       await describedHeading.waitFor();
-      expect(await describedHeading.getAttribute("class")).toBe("w-heading");
+      expect(await describedHeading.getAttribute("class")).toBe(
+        "w-heading __senify_scope_head000001",
+      );
       expect(await describedHeading.getAttribute("data-node-id")).toBe("head000001");
       expect(await describedHeading.textContent()).toBe("Katalogbaustein");
       // A name both vocabularies carry ("divider") stays with the running

@@ -68,6 +68,33 @@ describe("hard guardrails", () => {
     };
     expect(hardGuardrailsForTree(parallax)[0]?.code).toBe("parallax-excess");
   });
+
+  it("applies the site profile to the hard gate", () => {
+    const tree: NodeTree = {
+      rootNodeId: "root",
+      nodes: {
+        root: { id: "root", type: "page", props: {} },
+        a: { id: "a", type: "hero", props: {}, motion: { preset: "fade-up", intensity: 9 } },
+        b: { id: "b", type: "hero", props: {}, motion: { preset: "char-split" } },
+      },
+    };
+    expect(hardGuardrailsForTree(tree, "clean").map((entry) => entry.code).sort()).toEqual([
+      "profile-intensity-cap",
+      "profile-preset",
+    ]);
+    expect(hardGuardrailsForTree(tree, "showcase")).toEqual([]);
+    // With a profile the profile message is the pin gate (no duplicate).
+    const pins: NodeTree = {
+      rootNodeId: "root",
+      nodes: {
+        root: { id: "root", type: "page", props: {} },
+        a: { id: "a", type: "hero", props: {}, motion: { preset: "scrub-pin" } },
+        b: { id: "b", type: "features", props: {}, motion: { preset: "sticky-stack" } },
+      },
+    };
+    const violations = hardGuardrailsForTree(pins, "standard");
+    expect(violations.map((entry) => entry.code)).toEqual(["profile-pin"]);
+  });
 });
 
 describe("check pipeline", () => {
@@ -147,5 +174,45 @@ describe("check pipeline", () => {
     const codes = report.soft.map((entry) => entry.code);
     expect(codes).toContain("missing-description");
     expect(codes).toContain("empty-page");
+  });
+
+  it("blocks profile violations at submit and publish", () => {
+    const withMotion = page("page-1", {
+      a: {
+        id: "a",
+        type: "hero",
+        props: {},
+        motion: { preset: "fade-up", intensity: 9 },
+      },
+      b: { id: "b", type: "features", props: {}, motion: { preset: "char-split" } },
+    });
+    const cleanSite: Site = { ...site, profile: "clean" };
+    const report = runChecks({
+      stage: "publish",
+      pages: [withMotion],
+      site: cleanSite,
+      theme: defaultTheme(),
+    });
+    const codes = report.hard.map((entry) => entry.code);
+    expect(codes).toContain("profile-intensity-cap");
+    expect(codes).toContain("profile-preset");
+    // The standard profile allows both presets once the dial fits.
+    const moderate = page("page-1", {
+      a: {
+        id: "a",
+        type: "hero",
+        props: {},
+        motion: { preset: "fade-up", intensity: 7 },
+      },
+      b: { id: "b", type: "features", props: {}, motion: { preset: "char-split" } },
+    });
+    const standard = runChecks({
+      stage: "publish",
+      pages: [moderate],
+      site,
+      theme: defaultTheme(),
+    });
+    expect(standard.hard.map((entry) => entry.code)).not.toContain("profile-intensity-cap");
+    expect(standard.hard.map((entry) => entry.code)).not.toContain("profile-preset");
   });
 });

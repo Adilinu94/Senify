@@ -473,6 +473,74 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: "set_motion",
+    title: "Set motion",
+    description:
+      "Sets the motion spec of one node: preset + intensity (1-10) + trigger + delay + tokens (ease/durationScale/stagger) + reduced-motion policy (static|fade|off) + enabled. Presets come from the registry (get_section.motionPresets); the site profile caps the intensity and narrows the preset classes. Send baseDraftVersion from get_page.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        pageId: { type: "string" },
+        nodeId: { type: "string" },
+        baseDraftVersion: { type: "number" },
+        preset: { type: "string" },
+        intensity: { type: "number" },
+        trigger: { type: "string" },
+        delay: { type: "number" },
+        tokens: { type: "object" },
+        reducedMotion: { type: "string" },
+        enabled: { type: "boolean" },
+      },
+      ["pageId", "nodeId", "baseDraftVersion", "preset"],
+    ),
+    entity: (args) => `page:${String(args.pageId ?? "")}`,
+    handler: async (context, args) => {
+      const pageId = requireString(args, "pageId");
+      const name = await context.client.tokenName();
+      const intensity = optionalNumber(args, "intensity");
+      const trigger = optionalString(args, "trigger");
+      const delay = optionalNumber(args, "delay");
+      const reducedMotion = optionalString(args, "reducedMotion");
+      const enabled = optionalBoolean(args, "enabled");
+      const tokens = args.tokens;
+      const spec: Record<string, unknown> = { preset: requireString(args, "preset") };
+      if (intensity !== undefined) spec.intensity = intensity;
+      if (trigger !== undefined) spec.trigger = trigger;
+      if (delay !== undefined) spec.delay = delay;
+      if (reducedMotion !== undefined) spec.reducedMotion = reducedMotion;
+      if (enabled !== undefined) spec.enabled = enabled;
+      if (tokens !== undefined && typeof tokens === "object" && tokens !== null) {
+        spec.tokens = tokens;
+      }
+      return context.client.request("POST", `/api/pages/${pageId}/mutations`, {
+        baseDraftVersion: requireNumber(args, "baseDraftVersion"),
+        author: { kind: "agent", id: name, label: name },
+        mutations: [{ op: "setMotion", id: requireString(args, "nodeId"), spec }],
+      });
+    },
+  },
+  {
+    name: "clear_motion",
+    title: "Clear motion",
+    description:
+      "Removes the motion spec of one node (the node stays, only the animation goes). Send baseDraftVersion from get_page.",
+    scope: "write",
+    inputSchema: objectSchema(
+      { pageId: { type: "string" }, nodeId: { type: "string" }, baseDraftVersion: { type: "number" } },
+      ["pageId", "nodeId", "baseDraftVersion"],
+    ),
+    entity: (args) => `page:${String(args.pageId ?? "")}`,
+    handler: async (context, args) => {
+      const pageId = requireString(args, "pageId");
+      const name = await context.client.tokenName();
+      return context.client.request("POST", `/api/pages/${pageId}/mutations`, {
+        baseDraftVersion: requireNumber(args, "baseDraftVersion"),
+        author: { kind: "agent", id: name, label: name },
+        mutations: [{ op: "clearMotion", id: requireString(args, "nodeId") }],
+      });
+    },
+  },
+  {
     name: "create_page",
     title: "Create page",
     description:

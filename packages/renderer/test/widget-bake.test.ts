@@ -80,13 +80,15 @@ describe("widget base stylesheet in the release (Phase 1)", () => {
 
     // The markup of the foundation stones: element, class and node markers all
     // from `markup.ts`, rendered through the SectionTree the canvas shares.
+    // The scope class is deterministic per node (ticket 21): it makes the
+    // anchored `scoped` selectors match without a rule registry in the renderer.
     expect(html).toContain(
-      '<h2 class="w-heading" data-node-id="h" data-widget="heading">Katalogbaustein</h2>',
+      '<h2 class="w-heading __senify_scope_h" data-node-id="h" data-widget="heading">Katalogbaustein</h2>',
     );
     expect(html).toContain(
-      '<div class="w-grid" data-node-id="g" data-widget="grid">' +
-        '<p class="w-text" data-node-id="t1" data-widget="text">Zelle eins</p>' +
-        '<p class="w-text" data-node-id="t2" data-widget="text">Zelle zwei</p></div>',
+      '<div class="w-grid __senify_scope_g" data-node-id="g" data-widget="grid">' +
+        '<p class="w-text __senify_scope_t1" data-node-id="t1" data-widget="text">Zelle eins</p>' +
+        '<p class="w-text __senify_scope_t2" data-node-id="t2" data-widget="text">Zelle zwei</p></div>',
     );
 
     // One source: the stylesheet in the page is the constant itself, byte for

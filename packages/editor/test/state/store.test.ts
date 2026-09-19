@@ -47,7 +47,7 @@ describe("store write gate", () => {
       version: 2,
       rootNodeId: "root",
       nodes: { root: { id: "root", primitive: "root", props: {}, children: ["gone"] } },
-      classes: {},
+      styleRules: [],
     };
     const store = new EditorStore({ document: broken, idFactory: counterIds() });
     expect(() =>

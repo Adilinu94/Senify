@@ -477,6 +477,11 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   `ALTER TABLE design_references ADD COLUMN IF NOT EXISTS origin text`,
   `CREATE INDEX IF NOT EXISTS design_references_collection_idx
     ON design_references (collection_id)`,
+  // Style rule registry (Phase 2). The rules are site-wide — a reusable class
+  // such as `hero-button` applies to every page — so they live next to the
+  // site, not in a page draft. Additive and nullable: an installation from an
+  // earlier ticket reads `NULL` and simply has no rules yet.
+  `ALTER TABLE sites ADD COLUMN IF NOT EXISTS style_rules_json jsonb`,
   // Reference preferences (T14): House DNA and the project notes live in the
   // engine (not in the browser), so MCP tools build the same briefs. A single
   // row keeps the schema additive next to engine_settings.
@@ -536,14 +541,29 @@ export function tableNames(): string[] {
 // The JSONB columns of a table, derived from the same statements. A restore
 // hands these values back as JSON text: a dump carries them parsed (objects,
 // arrays) or already as text, and both forms are valid JSON input.
+//
+// Both shapes are read: a column declared in the CREATE TABLE, and one added
+// later through the additive `ALTER TABLE ... ADD COLUMN ... jsonb` form (for
+// example `sites.style_rules_json`). Missing the latter would let a restore
+// hand the driver a bare object where the column expects JSON text.
 export function jsonColumns(name: string): Set<string> {
   const columns = new Set<string>();
   for (const statement of SCHEMA_STATEMENTS) {
-    const table = /CREATE TABLE IF NOT EXISTS\s+([A-Za-z0-9_]+)/.exec(statement)?.[1];
-    if (table !== name) continue;
-    for (const line of statement.split("\n")) {
-      const column = /^\s*([a-z_][a-z0-9_]*)\s+jsonb\b/.exec(line);
-      if (column?.[1] !== undefined) columns.add(column[1]);
+    const created = /CREATE TABLE IF NOT EXISTS\s+([A-Za-z0-9_]+)/.exec(statement);
+    if (created !== null) {
+      if (created[1] !== name) continue;
+      for (const line of statement.split("\n")) {
+        const column = /^\s*([a-z_][a-z0-9_]*)\s+jsonb\b/.exec(line);
+        if (column?.[1] !== undefined) columns.add(column[1]);
+      }
+      continue;
+    }
+    const altered =
+      /ALTER TABLE\s+([A-Za-z0-9_]+)\s+ADD COLUMN IF NOT EXISTS\s+([a-z_][a-z0-9_]*)\s+jsonb\b/.exec(
+        statement,
+      );
+    if (altered?.[1] === name && altered[2] !== undefined) {
+      columns.add(altered[2]);
     }
   }
   return columns;

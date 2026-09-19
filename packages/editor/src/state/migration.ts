@@ -12,7 +12,14 @@
 
 import { SenifyError } from "@senify/core";
 import type { NodeTree } from "@senify/section-sdk";
-import { deviceKey, type DeviceValueMap } from "@senify/widget-engine";
+import {
+  createClassRule,
+  deviceKey,
+  normalizeRuleOrder,
+  parseStyleRuleRegistry,
+  type DeviceValueMap,
+  type StyleRule,
+} from "@senify/widget-engine";
 import {
   DOCUMENT_VERSION,
   type EditorDocument,
@@ -46,8 +53,9 @@ export function detectDocumentVersion(input: unknown): 1 | 2 | undefined {
   return undefined;
 }
 
-// v1 section tree -> v2 editor document. Additive: nothing is dropped except the
-// per-breakpoint `hidden` flag, which the v2 node model does not carry yet.
+// v1 section tree -> v2 editor document. Additive: values, children, slots,
+// motion, locked and hidden travel; the per-breakpoint `hidden` flag is the one
+// thing the v2 node model does not carry yet.
 export function migrateV1ToV2(tree: NodeTree): EditorDocument {
   const nodes: Record<NodeId, EditorNode> = {};
   for (const [id, node] of Object.entries(tree.nodes)) {
@@ -73,14 +81,44 @@ export function migrateV1ToV2(tree: NodeTree): EditorDocument {
     }
     if (node.locked !== undefined) migrated.locked = node.locked;
     if (node.hidden !== undefined) migrated.hidden = node.hidden;
+    if (node.motion !== undefined) migrated.motion = structuredClone(node.motion);
     nodes[id] = migrated;
   }
   return {
     version: DOCUMENT_VERSION,
     rootNodeId: tree.rootNodeId,
     nodes,
-    classes: {},
+    styleRules: [],
   };
+}
+
+// The style rules of a document, tolerant. Two shapes are read: the canonical
+// `styleRules` array (parsed with the same tolerant parser the site registry
+// uses) and the older v2 `classes` value bag, lifted additively — one class
+// rule per entry, `order` from the insertion order (ADR-0005, ticket 07).
+function liftStyleRules(input: unknown): StyleRule[] {
+  if (!isRecord(input)) return [];
+  if (Array.isArray(input["styleRules"])) {
+    return parseStyleRuleRegistry(input["styleRules"]);
+  }
+  const classes = input["classes"];
+  if (!isRecord(classes)) return [];
+  const rules: StyleRule[] = [];
+  for (const [name, props] of Object.entries(classes)) {
+    try {
+      rules.push(
+        createClassRule({
+          id: `class-${name}`,
+          name,
+          styles: isRecord(props) ? (props as DeviceValueMap) : {},
+          order: rules.length,
+        }),
+      );
+    } catch {
+      // A corrupt entry drops; the rest of the registry survives.
+    }
+  }
+  return normalizeRuleOrder(rules);
 }
 
 // Keeps only what the root reaches, drops dangling references and empty lists —
@@ -122,7 +160,7 @@ export function reindexDocument(document: EditorDocument): EditorDocument {
     version: DOCUMENT_VERSION,
     rootNodeId: document.rootNodeId,
     nodes,
-    classes: { ...(document.classes ?? {}) },
+    styleRules: liftStyleRules(document),
   };
 }
 

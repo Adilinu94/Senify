@@ -110,12 +110,16 @@ export function findFirstOutlet(tree: NodeTree): NodeId | undefined {
 }
 
 // Clones the inserted subtree with fresh ids so two spliced trees never share a
-// node id (artifacts/23 §"ID-Rekeying") and returns the new top ids.
+// node id (artifacts/23 §"ID-Rekeying") and returns the new top ids. When
+// `idMap` is given, it collects the draft-id -> composed-id pairs of the splice
+// (ticket 22): the bake needs them to remap `scoped` style rules, which are
+// bound to draft node ids, onto the composed tree.
 function rekeyChildren(
   target: Record<string, Node>,
   source: NodeTree,
   ids: readonly NodeId[],
   createId: () => NodeId,
+  idMap?: Map<NodeId, NodeId>,
 ): NodeId[] {
   const mapping = new Map<NodeId, NodeId>();
   const walk = (id: NodeId): NodeId | undefined => {
@@ -125,6 +129,7 @@ function rekeyChildren(
     if (existing !== undefined) return existing;
     const newId = createId();
     mapping.set(id, newId);
+    idMap?.set(id, newId);
     target[newId] = { ...node, id: newId };
     const children = (node.children ?? [])
       .map((child) => walk(child))
@@ -175,18 +180,27 @@ function replaceReference(
 }
 
 // The first outlet of `container` is replaced by the children of `inserted`
-// (ids rekeyed), which is the splice step of the template chain.
+// (ids rekeyed), which is the splice step of the template chain. `idMap`
+// collects the rekeying for callers that bind data to draft node ids (scoped
+// style rules, ticket 22).
 export function spliceOutlet(input: {
   container: NodeTree;
   outletId: NodeId;
   inserted: NodeTree;
   createId?: () => NodeId;
+  idMap?: Map<NodeId, NodeId>;
 }): NodeTree {
   const createId = input.createId ?? newNodeId;
   const nodes = structuredClone(input.container.nodes);
   if (nodes[input.outletId] === undefined) return { ...input.container };
   const insertedIds = input.inserted.nodes[input.inserted.rootNodeId]?.children ?? [];
-  const rekeyed = rekeyChildren(nodes, input.inserted, insertedIds, createId);
+  const rekeyed = rekeyChildren(
+    nodes,
+    input.inserted,
+    insertedIds,
+    createId,
+    input.idMap,
+  );
   const replaced = replaceReference(nodes, input.outletId, rekeyed);
   if (!replaced) return { ...input.container };
   delete nodes[input.outletId];
@@ -218,12 +232,17 @@ export type ComposeInput = {
   page: NodeTree | null;
   article: string | null;
   createId?: () => NodeId;
+  // Draft-id -> composed-id pairs of every splice step (ticket 22). A caller
+  // that compiles scoped style rules against the result needs the map; a
+  // composition without layout keeps the draft ids and leaves the map empty.
+  idMap?: Map<NodeId, NodeId>;
 };
 
 // Resolve-Reihenfolge Layout → Entry-Template → Inhalt (artifacts/23 §1): a
 // template without outlet counts as unfinished and is ignored (no error).
 export function composePageTree(input: ComposeInput): NodeTree {
   const createId = input.createId ?? newNodeId;
+  const idMap = input.idMap;
   let content: NodeTree;
   if (input.template !== null) {
     const outlet = findFirstOutlet(input.template);
@@ -235,6 +254,7 @@ export function composePageTree(input: ComposeInput): NodeTree {
             outletId: outlet,
             inserted: articleTree(input.article, createId),
             createId,
+            ...(idMap === undefined ? {} : { idMap }),
           });
   } else if (input.page !== null) {
     content = input.page;
@@ -249,6 +269,7 @@ export function composePageTree(input: ComposeInput): NodeTree {
         outletId: outlet,
         inserted: content,
         createId,
+        ...(idMap === undefined ? {} : { idMap }),
       });
     }
   }

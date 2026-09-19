@@ -178,13 +178,55 @@ describe("bake (Prüfstelle 2)", () => {
     expect(motion).toContain('id="motion-data"');
     expect(motion).toContain("masked-headline");
     expect(motion).toContain("/assets/page.js");
-    expect(motion).toContain("gsap.min.js");
+    // Self-hosted vendor files (M2), per-page by preset needs: the fixture
+    // page needs SplitText but no ScrollTrigger.
+    expect(motion).toContain("/assets/vendor/gsap.min.js");
+    expect(motion).toContain("/assets/vendor/SplitText.min.js");
+    expect(motion).toContain("/assets/vendor/lenis.min.js");
+    expect(motion).not.toContain("/assets/vendor/ScrollTrigger.min.js");
+    expect(motion).not.toContain("cdn.jsdelivr");
+    expect(motion).toContain('"v":2');
+    expect(motion).toContain('"entries"');
     expect(await site.exists("assets/page.js")).toBe(true);
+    expect(await site.exists("assets/vendor/gsap.min.js")).toBe(true);
+    expect(await site.exists("assets/vendor/lenis.min.js")).toBe(true);
 
     const minimal = await site.read("pur/index.html");
     expect(minimal).not.toContain("/assets/page.js");
     expect(minimal).not.toContain("motion-data");
     expect(minimal).not.toContain("<script");
+  }, 180000);
+
+  it("stamps the FOUC pending marker, noscript and failsafe for hiding presets", async () => {
+    if (!baked) throw new Error("bake missing");
+    const site = loadBakedSite(baked.outDir);
+    const motion = await site.read("motion/index.html");
+    expect(motion).toContain("data-motion-pending");
+    expect(motion).toContain("<noscript>");
+    expect(motion).toContain("[data-motion-pending]{opacity:0}");
+    expect(motion).toContain("[data-motion-pending]{opacity:1 !important}");
+    expect(motion).toContain("1600");
+    // A page without motion carries neither marker nor failsafe.
+    const home = await site.read("index.html");
+    expect(home).not.toContain("data-motion-pending");
+  }, 180000);
+
+  it("keeps the self-hosted motion runtime within the bundle budget", async () => {
+    if (!baked) throw new Error("bake missing");
+    const site = loadBakedSite(baked.outDir);
+    // v1 guideline: motion JS ≤ ~150 KB (raw) per page. The vendored files are
+    // local; SplitText and ScrollTrigger only load where a preset needs them.
+    let vendor = 0;
+    for (const name of [
+      "gsap.min.js",
+      "ScrollTrigger.min.js",
+      "SplitText.min.js",
+      "lenis.min.js",
+    ]) {
+      vendor += (await site.read(`assets/vendor/${name}`)).length;
+    }
+    const pageJs = (await site.read("assets/page.js")).length;
+    expect(vendor + pageJs).toBeLessThanOrEqual(150 * 1024);
   }, 180000);
 
   it("references islands only where interactive sections exist", async () => {

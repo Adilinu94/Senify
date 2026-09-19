@@ -113,7 +113,7 @@ describe("compiler with a theme", () => {
     );
     expect(css).toContain(`[data-node-id="n"]:hover {`);
     expect(css).toContain("background-color: #ff0000;");
-    expect(css).toContain(`[data-node-id="n"].branded {`);
+    expect(css).toContain(`.branded {`);
     expect(css).toContain("border-color: #ff0000;");
   });
 });

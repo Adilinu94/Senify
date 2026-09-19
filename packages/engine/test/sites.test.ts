@@ -143,6 +143,45 @@ describe("project management (rename, trash, duplicate)", () => {
     expect(entries.some((entry) => entry.mutation === "rename_site")).toBe(true);
   });
 
+  it("updates the site profile and records the activity", async () => {
+    const site = await createSite("Profile Me");
+    const updated = await env.api.request({
+      method: "PATCH",
+      path: `/api/sites/${site.id}`,
+      body: { profile: "showcase", author },
+    });
+    expect(updated.status).toBe(200);
+    expect((updated.body as { profile: string }).profile).toBe("showcase");
+
+    const audit = await env.api.request({
+      method: "GET",
+      path: `/api/sites/${site.id}/audit?limit=5`,
+    });
+    const entries = (audit.body as { entries: { mutation: string }[] }).entries;
+    expect(entries.some((entry) => entry.mutation === "update_site_profile")).toBe(true);
+  });
+
+  it("rejects an unknown profile and an empty site update", async () => {
+    const site = await createSite("Strict Profile");
+    const unknown = await env.api.request({
+      method: "PATCH",
+      path: `/api/sites/${site.id}`,
+      body: { profile: "wild", author },
+    });
+    expect(unknown.status).toBe(400);
+    expect((unknown.body as { error: { field: string } }).error.field).toBe("profile");
+
+    const empty = await env.api.request({
+      method: "PATCH",
+      path: `/api/sites/${site.id}`,
+      body: { author },
+    });
+    expect(empty.status).toBe(400);
+    expect((empty.body as { error: { message: string } }).error.message).toContain(
+      "Nothing to update",
+    );
+  });
+
   it("trashes, lists and restores a project", async () => {
     const site = await createSite("Trash Me");
     const trashed = await env.api.request({

@@ -29,6 +29,8 @@ export type LayerItem = {
   locked: boolean;
   variant: string | undefined;
   childCount: number;
+  // The node carries a motion spec (ticket 19/M3): the explorer shows a badge.
+  motion: boolean;
 };
 
 export function layerLabel(type: string, registry?: Registry): string {
@@ -71,6 +73,7 @@ export function buildLayerList(
       locked: node.locked === true,
       variant: node.variant,
       childCount: childCount(tree, node.id),
+      motion: node.motion !== undefined,
     });
     for (const childId of node.children ?? []) {
       visit(childId, depth + 1, node.id, null);

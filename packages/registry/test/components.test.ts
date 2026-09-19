@@ -280,11 +280,45 @@ describe("section components", () => {
     // The element comes from the catalog value, the class and the node markers
     // from the description — no section component is involved.
     expect(html).toContain("<h1");
-    expect(html).toContain('class="w-heading"');
+    expect(html).toContain('class="w-heading __senify_scope_h"');
     expect(html).toContain('data-widget="heading"');
     expect(html).toContain('data-node-id="h"');
     expect(html).toContain("Katalog");
     expect(html).not.toContain("data-section");
+  });
+
+  // Ticket 21: the compiler anchors `class` rules as `[data-node-id].name` and
+  // `scoped` rules as `[data-node-id].__senify_scope_<id>` (ADR-0005). Both
+  // selector forms need the class attribute on the element that carries
+  // `data-node-id` — in the canvas and in the release, which share this path.
+  it("puts assigned classes and the scope class on the node root", () => {
+    const html = render({
+      root: { id: "root", type: "page", props: {}, children: ["h", "p"] },
+      h: {
+        id: "h",
+        type: "hero",
+        props: { headline: "Klasse" },
+        classes: ["accent"],
+      },
+      p: {
+        id: "p",
+        type: "heading",
+        props: { level: "h2", text: "Primitiv" },
+        classes: ["accent"],
+      },
+    });
+    // Section: component class, assigned class and generated scope class.
+    expect(html).toMatch(/class="[^"]*accent[^"]*__senify_scope_h"/);
+    // Catalog primitive: same contract on the described root.
+    expect(html).toMatch(/class="w-heading accent __senify_scope_p"/);
+  });
+
+  it("carries the deterministic scope class without any assigned class", () => {
+    const html = render({
+      root: { id: "root", type: "page", props: {}, children: ["h"] },
+      h: { id: "h", type: "hero", props: { headline: "Scope" } },
+    });
+    expect(html).toContain("__senify_scope_h");
   });
 
   it("lets a primitive container take the node's children", () => {
@@ -293,7 +327,9 @@ describe("section components", () => {
       g: { id: "g", type: "grid", props: {}, children: ["t"] },
       t: { id: "t", type: "text", props: { text: "Zelle" } },
     });
-    expect(html).toMatch(/<div class="w-grid"[^>]*><p class="w-text"[^>]*>Zelle<\/p>/);
+    expect(html).toMatch(
+      /<div class="w-grid __senify_scope_g"[^>]*><p class="w-text __senify_scope_t"[^>]*>Zelle<\/p>/,
+    );
     expect(html).toContain('data-widget="grid"');
     expect(html).toContain('data-widget="text"');
   });

@@ -17,6 +17,7 @@ import {
   CASCADE_LAYER,
   STATE_ORDER,
   classSelector,
+  globalClassSelector,
   mediaQueryFor,
   nodeSelector,
   statePseudoClass,
@@ -26,6 +27,7 @@ import {
   type StateName,
 } from "./cascade.ts";
 import { declarationsForValues, type Declaration, type TranslateOptions } from "./properties.ts";
+import { isSafeRawCss, normalizeRawCss } from "./value-grammar.ts";
 
 export type CssNode = {
   id: string;
@@ -41,9 +43,22 @@ export type CssNode = {
   slots?: Readonly<Record<string, readonly CssNode[]>>;
 };
 
+// A user-authored rule as the compiler reads it. `kind`/`selector`/`scope` are
+// optional so a plain value bag (the editor's older class form) still works;
+// a rule that carries them is emitted the way the site registry stores it
+// (ADR-0005): `ambient` verbatim without a node anchor, `scoped` anchored on
+// its node, `contextStyles` as custom conditions beside the device stages.
 export type CssClassRule = {
   name: string;
   props: DeviceValueMap;
+  // Pseudo states at the rule (O11). A node that carries the rule and a state
+  // gets the combined selector `[data-node-id].cls:hover`.
+  states?: Partial<Record<StateName, DeviceValueMap>>;
+  kind?: "class" | "ambient" | "scoped";
+  selector?: string;
+  scope?: { nodeId: string };
+  contextStyles?: Record<string, DeviceValueMap>;
+  rawCss?: string;
 };
 
 export type CssDocument = {
@@ -61,6 +76,16 @@ export type CompileOptions = TranslateOptions & {
   // primitive's class instead, so a node rule and a widget default differ in
   // exactly one thing: which element they address.
   selectorFor?: (nodeId: string) => string;
+  // How class rules reach the stylesheet (ticket 14, measured against each
+  // other): `global` emits one `.cls` rule per class and dedupes it over all
+  // carriers (the measured winner and the default), `regional` anchors every
+  // class rule on every carrying node (`[data-node-id].cls`, the older path,
+  // kept for the measurement and as the documented retreat). The global
+  // variant translates the rule with the primitive of its first carrier and
+  // keeps node-specific state combinations anchored (see `build`), because an
+  // unanchored `.cls` loses against `[data-node-id]:hover` on specificity
+  // alone.
+  classEmission?: "global" | "regional";
 };
 
 export function defaultSelectorFor(nodeId: string): string {
@@ -77,6 +102,9 @@ export type CompiledRule = {
   stage: CascadeStage;
   state: StateName | null;
   classIds: readonly string[];
+  // The custom condition a declaration sits in (ADR-0005). `media` stays the
+  // device query, so the two levels of a nested at-rule stay readable.
+  context?: string;
   declarations: Declaration[];
 };
 
@@ -168,7 +196,7 @@ export type DeviceDeclarations = {
 // again. Base and device stages, state, class and the forced-state preview all
 // share this one expansion.
 export function declarationsPerDevice(
-  primitive: string,
+  primitive: string | undefined,
   values: DeviceValueMap,
   options: TranslateOptions = {},
 ): DeviceDeclarations {
@@ -205,14 +233,32 @@ export function deviceExpandedBlocks(
 
 // A value source of the `state` / `class` stages: one selector plus the values
 // that belong to it. Device expansion happens when the source is flushed.
+// `primitive` may be undefined (an ambient rule belongs to no widget), and
+// `context` wraps the source in a custom condition (ADR-0005).
 type ValueSource = {
   selector: string;
-  primitive: string;
+  primitive: string | undefined;
   values: DeviceValueMap;
   stage: "state" | "class";
   state: StateName | null;
   classIds: readonly string[];
+  context?: string;
 };
+
+// A context id is either a full at-rule prelude (`@media …`, `@container …`,
+// `@supports …`) or a bare condition (`(orientation: landscape)`), which is a
+// media condition. Sorted by id so the output is stable.
+export function contextPrelude(contextId: string): string {
+  const trimmed = contextId.trim();
+  return trimmed.startsWith("@") ? trimmed : `@media ${trimmed}`;
+}
+
+function contextEntries(
+  contexts: Record<string, DeviceValueMap> | undefined,
+): [string, DeviceValueMap][] {
+  if (contexts === undefined) return [];
+  return Object.entries(contexts).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+}
 
 // The stronger bag wins per base prop key, including all its device levels: a
 // class that overrides a prop for tablet replaces the state value entirely, so
@@ -248,16 +294,46 @@ function expandSources(
 
   for (const source of sources) {
     const per = declarationsPerDevice(source.primitive, source.values, options);
+    const ruleFor = (
+      media: string | null,
+      declarations: Declaration[],
+    ): CompiledRule => ({
+      media,
+      selector: source.selector,
+      stage: source.stage,
+      state: source.state,
+      classIds: source.classIds,
+      ...(source.context === undefined ? {} : { context: source.context }),
+      declarations,
+    });
+
+    // A custom condition nests the device blocks inside its at-rule: the two
+    // conditions are independent, so they may not be merged with `and`.
+    if (source.context !== undefined) {
+      const inner: string[] = [];
+      if (per.desktop.length > 0) {
+        inner.push(writeBlock(source.selector, per.desktop, 1));
+        rules.push(ruleFor(null, per.desktop));
+        ruleCount += 1;
+        declarationCount += per.desktop.length;
+      }
+      for (const device of ["tablet", "mobile"] as const) {
+        const declarations = per[device];
+        if (declarations.length === 0) continue;
+        inner.push(
+          writeMedia(mediaQueryFor(device), [writeBlock(source.selector, declarations, 2)], 1),
+        );
+        rules.push(ruleFor(mediaQueryFor(device), declarations));
+        ruleCount += 1;
+        declarationCount += declarations.length;
+      }
+      if (inner.length > 0) blocks.push(writeMedia(source.context, inner, 0));
+      continue;
+    }
+
     if (per.desktop.length > 0) {
       blocks.push(writeBlock(source.selector, per.desktop, 0));
-      rules.push({
-        media: null,
-        selector: source.selector,
-        stage: source.stage,
-        state: source.state,
-        classIds: source.classIds,
-        declarations: per.desktop,
-      });
+      rules.push(ruleFor(null, per.desktop));
       ruleCount += 1;
       declarationCount += per.desktop.length;
     }
@@ -266,14 +342,7 @@ function expandSources(
       if (declarations.length === 0) continue;
       const bucket = buckets[device];
       bucket.blocks.push(writeBlock(source.selector, declarations, 1));
-      bucket.rules.push({
-        media: mediaQueryFor(device),
-        selector: source.selector,
-        stage: source.stage,
-        state: source.state,
-        classIds: source.classIds,
-        declarations,
-      });
+      bucket.rules.push(ruleFor(mediaQueryFor(device), declarations));
       ruleCount += 1;
       declarationCount += declarations.length;
     }
@@ -386,43 +455,174 @@ function build(document: CssDocument, options: CompileOptions): BuildResult {
   ruleCount += stateStage.ruleCount;
   declarationCount += stateStage.declarationCount;
 
-  // 4 — user classes, anchored on the node that carries them. A node that also
-  // carries a state gets a combined rule (`[data-node-id].cls:hover`) with the
-  // class values over the state values, so device, state and class meet in one
-  // rule and the class stays the stronger stage.
+  // 4 — user rules, in the class stage.
+  //
+  // A class rule is emitted once for all its carriers (`.cls`, ticket 14) by
+  // default; the rule order of the document carries the class stage. A state
+  // at the node or at the rule becomes a combined selector — anchored on the
+  // node when the node state is involved (`[data-node-id].cls:hover`), global
+  // when only the rule state is — with the class stage staying the stronger
+  // one (O1): class state over class props over node state.
+  //
+  // An ambient rule is emitted verbatim and never anchored — it attaches by
+  // selector matching. A scoped rule is anchored on the one node it belongs to.
+  // Both are skipped when nothing can carry them.
   const classSources: ValueSource[] = [];
-  for (const node of flat) {
-    for (const name of node.classIds ?? []) {
-      const rule = classRules.get(name);
-      if (rule === undefined) continue;
-      const selector = classSelector(node.id, name);
+
+  // The props of a rule (and its custom conditions), one selector each.
+  const pushRuleProps = (
+    rule: CssClassRule,
+    selector: string,
+    primitive: string | undefined,
+    classIds: readonly string[],
+  ): void => {
+    classSources.push({
+      selector,
+      primitive,
+      values: rule.props,
+      stage: "class",
+      state: null,
+      classIds,
+    });
+    for (const [context, contextValues] of contextEntries(rule.contextStyles)) {
       classSources.push({
         selector,
-        primitive: node.primitive,
-        values: rule.props,
+        primitive,
+        values: overlayDeviceValues(contextValues, rule.props),
         stage: "class",
         state: null,
-        classIds: [name],
+        classIds,
+        context: contextPrelude(context),
       });
-      for (const state of STATE_ORDER) {
-        const stateValues = node.states?.[state];
-        if (stateValues === undefined) continue;
+    }
+  };
+
+  // The pseudo states of a rule, combined with the states of a node when the
+  // call comes from a carrying node. The rule state wins over the node state,
+  // the class stage stays stronger than both (O1).
+  const pushRuleStates = (
+    rule: CssClassRule,
+    selector: string,
+    primitive: string | undefined,
+    nodeStates: Partial<Record<StateName, DeviceValueMap>> | undefined,
+    classIds: readonly string[],
+  ): void => {
+    for (const state of STATE_ORDER) {
+      const nodeState = nodeStates?.[state];
+      const ruleState = rule.states?.[state];
+      if (nodeState === undefined && ruleState === undefined) continue;
+      const overNode = overlayDeviceValues(rule.props, nodeState ?? {});
+      const stateValues = ruleState === undefined ? overNode : overlayDeviceValues(ruleState, overNode);
+      const stateSelector_ = `${selector}${statePseudoClass(state)}`;
+      classSources.push({
+        selector: stateSelector_,
+        primitive,
+        values: stateValues,
+        stage: "class",
+        state,
+        classIds,
+      });
+      for (const [context, contextValues] of contextEntries(rule.contextStyles)) {
         classSources.push({
-          selector: `${selector}${statePseudoClass(state)}`,
-          primitive: node.primitive,
-          values: overlayDeviceValues(rule.props, stateValues),
+          selector: stateSelector_,
+          primitive,
+          values: overlayDeviceValues(contextValues, stateValues),
           stage: "class",
           state,
-          classIds: [name],
+          classIds,
+          context: contextPrelude(context),
         });
       }
     }
+  };
+
+  const pushRuleSources = (
+    rule: CssClassRule,
+    selector: string,
+    primitive: string | undefined,
+    nodeStates: Partial<Record<StateName, DeviceValueMap>> | undefined,
+    classIds: readonly string[],
+  ): void => {
+    pushRuleProps(rule, selector, primitive, classIds);
+    pushRuleStates(rule, selector, primitive, nodeStates, classIds);
+  };
+
+  if (options.classEmission === "regional") {
+    for (const node of flat) {
+      for (const name of node.classIds ?? []) {
+        const rule = classRules.get(name);
+        if (rule === undefined) continue;
+        pushRuleSources(
+          rule,
+          classSelector(node.id, name),
+          node.primitive,
+          node.states,
+          [name],
+        );
+      }
+    }
+  } else {
+    // Ticket 14: one rule per class for all its carriers, in the rule order of
+    // the document (`order` is the cascade order, ticket 07) — the class stage
+    // no longer depends on where the first carrier sits in the tree. The props
+    // (and rule states) are emitted once; a node that carries both the class
+    // and its own state keeps the anchored combination, because the unanchored
+    // `.cls` would lose against `[data-node-id]:hover` (two simple selectors
+    // beat one) and the class stage must stay the stronger one (O1).
+    const firstCarrier = new Map<string, CssNode>();
+    for (const node of flat) {
+      for (const name of node.classIds ?? []) {
+        if (!firstCarrier.has(name)) firstCarrier.set(name, node);
+      }
+    }
+    for (const rule of document.classRules ?? []) {
+      if (rule.kind !== undefined && rule.kind !== "class") continue;
+      const carrier = firstCarrier.get(rule.name);
+      if (carrier === undefined) continue;
+      pushRuleSources(rule, globalClassSelector(rule.name), carrier.primitive, undefined, [rule.name]);
+    }
+    for (const node of flat) {
+      if (node.states === undefined) continue;
+      for (const name of node.classIds ?? []) {
+        const rule = classRules.get(name);
+        if (rule === undefined) continue;
+        pushRuleStates(rule, classSelector(node.id, name), node.primitive, node.states, [name]);
+      }
+    }
   }
+
+  for (const rule of document.classRules ?? []) {
+    if (rule.kind === "ambient") {
+      const selector = rule.selector ?? rule.name;
+      pushRuleSources(rule, selector, undefined, undefined, []);
+      continue;
+    }
+    if (rule.kind === "scoped" && rule.scope !== undefined) {
+      const node = flat.find((entry) => entry.id === rule.scope?.nodeId);
+      // A scoped rule whose node is gone is dead; it is not emitted.
+      if (node === undefined || rule.selector === undefined) continue;
+      pushRuleSources(
+        rule,
+        `${selectorFor(node.id)}${rule.selector}`,
+        node.primitive,
+        node.states,
+        [rule.name],
+      );
+    }
+  }
+
   const classStage = expandSources(classSources, options);
   blocks.push(...classStage.blocks);
   rules.push(...classStage.rules);
   ruleCount += classStage.ruleCount;
   declarationCount += classStage.declarationCount;
+
+  // 5 — raw at-rules (ADR-0005): only `@keyframes`, validated and normalized.
+  // They carry no declarations of a rule, so they add bytes but no rule count.
+  for (const rule of document.classRules ?? []) {
+    if (rule.rawCss === undefined || !isSafeRawCss(rule.rawCss)) continue;
+    blocks.push(normalizeRawCss(rule.rawCss));
+  }
 
   return { blocks, rules, ruleCount, declarationCount };
 }

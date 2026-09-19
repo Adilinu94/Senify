@@ -160,7 +160,15 @@ export async function buildBakeInput(
     tree: NodeTree;
     source: BindingSource;
     currentEntryId: string | null;
+    // Draft-id -> composed-id pairs of the layout splice (ticket 22). Scoped
+    // style rules are bound to draft ids; the renderer remaps them through
+    // this map when it compiles `assets/style-rules.css`.
+    idMap?: ReadonlyMap<string, string>;
   }): Promise<void> => {
+    const nodeIdMap =
+      route.idMap === undefined || route.idMap.size === 0
+        ? undefined
+        : Object.fromEntries(route.idMap);
     const base = await prefetchLists({
       store,
       tree: route.tree,
@@ -175,6 +183,7 @@ export async function buildBakeInput(
       title: route.title,
       ...(route.description === undefined ? {} : { description: route.description }),
       ...(route.ogImage === undefined ? {} : { ogImage: route.ogImage }),
+      ...(nodeIdMap === undefined ? {} : { nodeIdMap }),
       tree: route.tree,
     });
     out.trees.push(route.tree);
@@ -203,6 +212,7 @@ export async function buildBakeInput(
         ...(route.description === undefined
           ? {}
           : { description: route.description }),
+        ...(nodeIdMap === undefined ? {} : { nodeIdMap }),
         tree: route.tree,
       });
       out.trees.push(route.tree);
@@ -217,11 +227,13 @@ export async function buildBakeInput(
     // Template pages have no route of their own (no sitemap/navigation entry).
     if (page.template !== null) continue;
     const layout = findLayout(pages, page.layoutId, defaultLayout);
+    const idMap = new Map<string, string>();
     const tree = composePageTree({
       layout: layout?.draft ?? null,
       template: null,
       page: page.draft,
       article: null,
+      idMap,
     });
     await addRoute({
       pageId: page.id,
@@ -234,6 +246,7 @@ export async function buildBakeInput(
       tree,
       source: { site: siteInfo, entries },
       currentEntryId: null,
+      idMap,
     });
   }
 
@@ -267,11 +280,13 @@ export async function buildBakeInput(
           : typeof entry.cells[bodyField.id] === "string"
             ? String(entry.cells[bodyField.id])
             : "";
+      const idMap = new Map<string, string>();
       const tree = composePageTree({
         layout: layout?.draft ?? null,
         template: template.draft,
         page: null,
         article,
+        idMap,
       });
       const title =
         typeof entry.cells[collection.titleField] === "string"
@@ -284,6 +299,7 @@ export async function buildBakeInput(
         tree,
         source: { site: siteInfo, entries, entry: entries[entry.id] },
         currentEntryId: entry.id,
+        idMap,
       });
     }
   }
@@ -346,6 +362,9 @@ export async function bakePages(
   },
 ): Promise<BakeOutcome> {
   const siteTheme = await store.getTheme(input.site.id);
+  // The site-wide rule registry is the one source for the release: the engine
+  // reads it here, the renderer compiles it into `assets/style-rules.css`.
+  const styleRules = await store.listStyleRules(input.site.id);
   const resolved = resolveTheme(siteTheme.theme);
   const baseDuration = resolved.motion.duration.base;
   mkdirSync(input.outDir, { recursive: true });
@@ -391,6 +410,7 @@ export async function bakePages(
       pages: build.pages,
       contexts: build.contexts,
       themeCss: siteTheme.css,
+      styleRules,
       motionTokens: {
         ease: resolved.motion.ease,
         baseDurationMs:

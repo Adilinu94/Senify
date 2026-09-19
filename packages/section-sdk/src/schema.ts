@@ -122,12 +122,24 @@ export const MotionTokensSchema = Type.Object({
 });
 export type MotionTokens = Static<typeof MotionTokensSchema>;
 
+// Motion spec v2 (ticket 19): the reduced-motion policy travels with the spec
+// (`static` is the WCAG default), `enabled` is the editor switch that keeps a
+// spec without playing it. Both fields are additive to the v1 shape.
+export const MotionReducedPolicySchema = Type.Union([
+  Type.Literal("static"),
+  Type.Literal("fade"),
+  Type.Literal("off"),
+]);
+export type MotionReducedPolicy = Static<typeof MotionReducedPolicySchema>;
+
 export const MotionSpecSchema = Type.Object({
   preset: Type.String({ minLength: 1 }),
   intensity: Type.Optional(Type.Number({ minimum: 1, maximum: 10 })),
   tokens: Type.Optional(MotionTokensSchema),
   trigger: Type.Optional(MotionTriggerSchema),
   delay: Type.Optional(Type.Number({ minimum: 0 })),
+  reducedMotion: Type.Optional(MotionReducedPolicySchema),
+  enabled: Type.Optional(Type.Boolean()),
 });
 export type MotionSpec = Static<typeof MotionSpecSchema>;
 

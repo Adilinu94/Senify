@@ -32,6 +32,7 @@ export const PRIMITIVE_CATEGORIES = [
 ] as const;
 
 export const STYLE_GROUP_IDS = [
+  "layout",
   "spacing",
   "typography",
   "color",

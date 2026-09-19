@@ -1,11 +1,23 @@
-import type {
-  Node,
-  NodeTree,
-  PropValue,
-  Registry,
-  SectionDefinition,
+import {
+  MOTION_PROFILE_RULES,
+  MOTION_PROFILES,
+  motionProfileViolations,
+  type MotionProfile,
+  type Node,
+  type NodeTree,
+  type PropValue,
+  type Registry,
+  type SectionDefinition,
 } from "@senify/section-sdk";
 import type { Theme } from "@senify/tokens";
+import { resolveTheme } from "@senify/tokens";
+import {
+  motionConfigsForTree,
+  motionDataFor,
+  parseDurationMs,
+  renderPageScript,
+  type MotionTokens,
+} from "@senify/renderer/motion";
 import type { Mutation, ParentRef } from "@senify/engine";
 import { goldenTreeToMutations } from "./golden.ts";
 import {
@@ -115,6 +127,15 @@ export type EditorOptions = {
   onRedo?: (entry: HistoryEntry) => void | Promise<void>;
   onCommand?: (command: SpotlightCommand) => void;
   onError?: (error: unknown) => void;
+  // The site profile (ticket 20): the shell hands in the current value and the
+  // transport for a change. The editor validates the document against the new
+  // profile before it calls — nothing changes silently (ticket 21).
+  site?: { profile: MotionProfile };
+  onSiteProfile?: (profile: MotionProfile) => void | Promise<void>;
+  // The play preview (ticket 19, M4) loads the self-hosted motion runtime from
+  // this base; the local program proxies it to the engine. Default matches the
+  // proxy path, so a plain `mountEditor` works in the program.
+  motionVendorBase?: string;
 };
 
 export type EditorInstance = {
@@ -139,6 +160,7 @@ export type EditorInstance = {
   openSpotlight(open?: boolean): void;
   refresh(): void;
   message(): string | null;
+  setSiteProfile(profile: MotionProfile): void;
   destroy(): void;
 };
 
@@ -218,6 +240,14 @@ function formatTime(at: number): string {
   return `${hours}:${minutes}`;
 }
 
+// Baked contract, shared by canvas and live mode: reveal presets stamp
+// `data-motion-pending` (the components do it, canvas and bake alike), so the
+// first paint never flashes the un-animated state; the page script releases the
+// attribute again, the failsafe and <noscript> cover the failure paths — the
+// same rules Page.astro inlines.
+const FRAME_PENDING_CSS = "[data-motion-pending]{opacity:0}";
+const FRAME_PENDING_NOSCRIPT = "[data-motion-pending]{opacity:1 !important}";
+
 // Frame document of one breakpoint: host stylesheets (theme tokens, section
 // styles) load via frameStyles, the editor's own overlay rules stay inline.
 // The bundled @font-face rules go in too, so the theme's content family (Sora)
@@ -228,6 +258,7 @@ function frameDoc(styles: readonly string[] = []): string {
     .map((href) => `<link rel="stylesheet" href="${href}">`)
     .join("");
   return `<!doctype html><html><head><meta charset="utf-8">${links}<style>
+${FRAME_PENDING_CSS}
 ${editorFontFaceCss()}
 html, body { margin: 0; padding: 0; }
 body { font: 14px/1.5 var(--font-body, system-ui, sans-serif); background: var(--bg-base, #ffffff); }
@@ -239,7 +270,9 @@ body { font: 14px/1.5 var(--font-body, system-ui, sans-serif); background: var(-
 [data-inline]:hover { background: rgba(208, 4, 212, .08); }
 .senify-drop-line { position: fixed; left: 0; right: 0; height: 2px; background: #d004d4; z-index: 9999; pointer-events: none; }
 .senify-frame-page { min-height: 100vh; }
-</style></head><body></body></html>`;
+</style><noscript><style>
+${FRAME_PENDING_NOSCRIPT}
+</style></noscript></head><body></body></html>`;
 }
 
 type ElementSpec = {
@@ -383,6 +416,12 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
   let spotlightOpen = false;
   let spotlightQuery = "";
   let pageMeta = { title: options.page.title, path: options.page.path };
+  // The site profile (ticket 20) and the last motion write's warnings (M3).
+  let siteProfile: MotionProfile = options.site?.profile ?? "standard";
+  let motionNotice: string | null = null;
+  // The play preview (M4): the active frame runs the baked motion runtime on
+  // demand in design mode; in live mode the page plays on its own (Stufe 1).
+  let motionPlaying = state.mode === "live";
   const collapsed = new Set<string>();
   // Frame documents currently mounted: selection rings are written straight
   // into them so selecting never re-creates (and reloads) the iframes.
@@ -402,6 +441,11 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
   // the previous light chrome back without touching structure or behaviour.
   let skin: EditorSkin = options.skin ?? EDITOR_SKIN_DEFAULT;
   applyEditorSkin(root, skin);
+  // Live mode (M4 Stufe 1): the stage marks itself so the sheet sits in the
+  // layout flow and only the iframe scrolls — native page scroll.
+  const syncStageMode = (): void => {
+    stage.setAttribute("data-mode", state.mode);
+  };
   // #1829: our own top bar and overlays, never Puck's default action bar.
   const topbar = h(doc, "div", {
     className: "senify-editor__topbar",
@@ -507,6 +551,11 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
         versionBefore,
         versionAfter: response.newDraftVersion,
       });
+      // Surface the engine's motion warnings in the panel (M3): the write path
+      // clamps and reports instead of failing, the editor shows it inline.
+      if (mutations.some((mutation) => mutation.op === "setMotion" || mutation.op === "clearMotion")) {
+        motionNotice = response.warnings.length > 0 ? response.warnings.join(" · ") : null;
+      }
       report(null);
       render();
     } catch (error) {
@@ -750,6 +799,43 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     });
   }
 
+  // The site profile select (ticket 20): the document is validated against the
+  // new profile first — a change with violations is refused and listed (ticket
+  // 21: nothing changes silently). The shell performs the write.
+  async function changeSiteProfile(next: MotionProfile, select: DomElement): Promise<void> {
+    if (next === siteProfile) return;
+    const entries = Object.values(options.tree().nodes)
+      .filter((node) => node.motion !== undefined)
+      .map((node) => ({
+        nodeId: node.id,
+        preset: node.motion?.preset ?? "",
+        ...(node.motion?.intensity === undefined ? {} : { intensity: node.motion.intensity }),
+        ...(node.motion?.enabled === undefined ? {} : { enabled: node.motion.enabled }),
+      }));
+    const violations = motionProfileViolations(next, entries);
+    if (violations.length > 0) {
+      report(
+        `Profil-Wechsel blockiert: ${violations.length} Verstoß${
+          violations.length === 1 ? "" : "e"
+        } — ${violations[0]?.message ?? ""}`,
+        "error",
+      );
+      select.value = siteProfile;
+      renderStatus();
+      return;
+    }
+    try {
+      await options.onSiteProfile?.(next);
+      siteProfile = next;
+      report(null);
+    } catch (error) {
+      reportError(error);
+      select.value = siteProfile;
+    }
+    renderTopbar();
+    renderPanelHost();
+  }
+
   function renderTopbar(): void {
     topbar.textContent = "";
     const brandButton = h(doc, "button", {
@@ -805,6 +891,33 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
       renderPanelHost();
     });
     topbar.appendChild(pageButton);
+    if (options.site !== undefined || options.onSiteProfile !== undefined) {
+      const profileWrap = h(doc, "label", {
+        className: "senify-editor__profile",
+        data: { role: "site-profile" },
+        attributes: {
+          title: `Site-Profil · Intensität ≤ ${MOTION_PROFILE_RULES[siteProfile].intensityCap}`,
+        },
+      });
+      profileWrap.appendChild(
+        h(doc, "span", { className: "senify-editor__label", text: "Profil" }),
+      );
+      const profileSelect = h(doc, "select", {
+        className: "senify-editor__control",
+        data: { control: "site-profile" },
+      });
+      for (const profile of MOTION_PROFILES) {
+        const option = h(doc, "option", { text: profile, attributes: { value: profile } });
+        if (profile === siteProfile) option.setAttribute("selected", "selected");
+        profileSelect.appendChild(option);
+      }
+      if (options.onSiteProfile === undefined) profileSelect.setAttribute("disabled", "disabled");
+      profileSelect.addEventListener("change", () => {
+        void changeSiteProfile(profileSelect.value as MotionProfile, profileSelect);
+      });
+      profileWrap.appendChild(profileSelect);
+      topbar.appendChild(profileWrap);
+    }
     topbar.appendChild(h(doc, "div", { className: "senify-editor__spacer" }));
 
     const devices = h(doc, "div", { className: "senify-editor__devices" });
@@ -858,6 +971,19 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
       modeGroup.appendChild(button);
     }
     topbar.appendChild(modeGroup);
+    if (state.mode === "design") {
+      topbar.appendChild(
+        iconButton({
+          id: "motion-play",
+          text: "Motion",
+          title: motionPlaying
+            ? "Motion stoppen (aktiver Frame)"
+            : "Motion im aktiven Frame abspielen",
+          active: motionPlaying,
+          onClick: () => toggleMotion(),
+        }),
+      );
+    }
     topbar.appendChild(h(doc, "div", { className: "senify-editor__sep" }));
 
     const publishGroup = h(doc, "div", { className: "senify-editor__publish-group" });
@@ -1207,7 +1333,12 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
   }
 
   function renderAdvanced(node: Node, definition: SectionDefinition): void {
-    const motion = buildMotionPanel({ definition, nodeId: node.id, tree: options.tree() });
+    const motion = buildMotionPanel({
+      definition,
+      nodeId: node.id,
+      tree: options.tree(),
+      profile: siteProfile,
+    });
     const group = h(doc, "div", { className: "senify-editor__panel", data: { group: "motion" } });
     group.appendChild(h(doc, "div", { className: "senify-editor__panel-title", text: "Motion" }));
     if (motion.presets.length === 0) {
@@ -1215,12 +1346,42 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
         h(doc, "div", { className: "senify-editor__empty", text: "Keine Motion-Presets" }),
       );
     } else {
+      const allowsPreset = (preset: string): boolean =>
+        motion.allowedPresets === "all" || motion.allowedPresets.includes(preset);
+      group.appendChild(
+        h(doc, "div", {
+          className: "senify-editor__hint",
+          data: { role: "motion-cap" },
+          text: `Profil ${motion.profile} · Intensität ≤ ${motion.intensityCap}`,
+        }),
+      );
+      if (motion.preset !== null && !allowsPreset(motion.preset)) {
+        group.appendChild(
+          h(doc, "div", {
+            className: "senify-editor__warning",
+            data: { role: "motion-profile" },
+            text: `„${motion.preset}“ ist im Profil ${motion.profile} nicht erlaubt`,
+          }),
+        );
+      }
+      if (motionNotice !== null) {
+        group.appendChild(
+          h(doc, "div", {
+            className: "senify-editor__warning",
+            data: { role: "motion-notice" },
+            text: motionNotice,
+          }),
+        );
+      }
       const presetSelect = h(doc, "select", {
         className: "senify-editor__control",
         data: { control: "motion-preset" },
       });
       for (const preset of motion.presets) {
-        const option = h(doc, "option", { text: preset, attributes: { value: preset } });
+        const option = h(doc, "option", {
+          text: allowsPreset(preset) ? preset : `${preset} · gesperrt`,
+          attributes: { value: preset },
+        });
         if (preset === (motion.preset ?? motion.presets[0])) {
           option.setAttribute("selected", "selected");
         }
@@ -1233,7 +1394,7 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
       });
       intensity.setAttribute("type", "number");
       intensity.setAttribute("min", "1");
-      intensity.setAttribute("max", "10");
+      intensity.setAttribute("max", String(motion.intensityCap));
       const triggerSelect = h(doc, "select", {
         className: "senify-editor__control",
         data: { control: "motion-trigger" },
@@ -1250,38 +1411,115 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
       });
       delay.setAttribute("type", "number");
       delay.setAttribute("min", "0");
+      const easeSelect = h(doc, "select", {
+        className: "senify-editor__control",
+        data: { control: "motion-ease" },
+      });
+      easeSelect.appendChild(h(doc, "option", { text: "Standard", attributes: { value: "" } }));
+      for (const [name, value] of Object.entries(options.theme?.motion.ease ?? {})) {
+        if (typeof value !== "string") continue;
+        const option = h(doc, "option", { text: name, attributes: { value: name } });
+        if (name === motion.tokens.ease) option.setAttribute("selected", "selected");
+        easeSelect.appendChild(option);
+      }
+      const durationScale = h(doc, "input", {
+        className: "senify-editor__control",
+        value: String(motion.tokens.durationScale),
+        data: { control: "motion-duration" },
+      });
+      durationScale.setAttribute("type", "number");
+      durationScale.setAttribute("min", "0.1");
+      durationScale.setAttribute("step", "0.05");
+      const stagger = h(doc, "input", {
+        className: "senify-editor__control",
+        value: String(motion.tokens.stagger),
+        data: { control: "motion-stagger" },
+      });
+      stagger.setAttribute("type", "number");
+      stagger.setAttribute("min", "0");
+      stagger.setAttribute("step", "0.05");
+      const reducedSelect = h(doc, "select", {
+        className: "senify-editor__control",
+        data: { control: "motion-reduced" },
+      });
+      for (const policy of ["static", "fade", "off"] as const) {
+        const option = h(doc, "option", { text: policy, attributes: { value: policy } });
+        if (policy === motion.reducedMotion) option.setAttribute("selected", "selected");
+        reducedSelect.appendChild(option);
+      }
+      let enabledValue = motion.enabled;
+      const enabledBox = h(doc, "input", {
+        className: "senify-editor__control",
+        data: { control: "motion-enabled" },
+      });
+      enabledBox.setAttribute("type", "checkbox");
+      if (motion.enabled) enabledBox.setAttribute("checked", "checked");
       const dispatch = (): void => {
+        const rawIntensity = Number(intensity.value ?? motion.intensity) || motion.intensity;
         void runAction(
           {
             kind: "motion",
             nodeId: node.id,
             spec: {
               preset: presetSelect.value ?? motion.presets[0] ?? "",
-              intensity: Number(intensity.value ?? motion.intensity) || motion.intensity,
+              intensity: Math.min(motion.intensityCap, Math.max(1, rawIntensity)),
               trigger: (triggerSelect.value ?? motion.trigger) as
                 | "load"
                 | "scroll"
                 | "viewport"
                 | "hover",
               delay: Number(delay.value ?? motion.delay) || 0,
+              tokens: {
+                ...(easeSelect.value ? { ease: easeSelect.value } : {}),
+                durationScale: Number(durationScale.value) || 1,
+                stagger: Number(stagger.value) || 1,
+              },
+              reducedMotion: (reducedSelect.value ?? motion.reducedMotion) as
+                | "static"
+                | "fade"
+                | "off",
+              enabled: enabledValue,
             },
           },
           "Motion ändern",
         ).catch(() => undefined);
       };
-      const row = (label: string, control: DomElement): DomElement => {
-        const field = h(doc, "div", { className: "senify-editor__field", data: { key: `motion-${label}` } });
+      const row = (key: string, label: string, control: DomElement): DomElement => {
+        const field = h(doc, "div", { className: "senify-editor__field", data: { key: `motion-${key}` } });
         field.appendChild(h(doc, "label", { className: "senify-editor__label", text: label }));
         field.appendChild(control);
         return field;
       };
-      group.appendChild(row("Preset", presetSelect));
-      group.appendChild(row("Intensität", intensity));
-      group.appendChild(row("Auslöser", triggerSelect));
-      group.appendChild(row("Verzögerung", delay));
-      for (const control of [presetSelect, intensity, triggerSelect, delay]) {
-        control.addEventListener("change", dispatch);
+      group.appendChild(row("preset", "Preset", presetSelect));
+      group.appendChild(row("intensity", "Intensität", intensity));
+      group.appendChild(row("trigger", "Auslöser", triggerSelect));
+      group.appendChild(row("delay", "Verzögerung", delay));
+      group.appendChild(row("ease", "Easing", easeSelect));
+      group.appendChild(row("duration", "Dauer-Faktor", durationScale));
+      group.appendChild(row("stagger", "Stagger-Faktor", stagger));
+      group.appendChild(row("reduced", "Reduced Motion", reducedSelect));
+      group.appendChild(row("enabled", "Aktiv", enabledBox));
+      const controls = [
+        presetSelect,
+        intensity,
+        triggerSelect,
+        delay,
+        easeSelect,
+        durationScale,
+        stagger,
+        reducedSelect,
+      ];
+      // Tokens, RM and the switch only make sense on an existing spec; the
+      // preset select is the way in.
+      if (motion.preset === null) {
+        for (const control of controls.slice(1)) control.setAttribute("disabled", "disabled");
+        enabledBox.setAttribute("disabled", "disabled");
       }
+      for (const control of controls) control.addEventListener("change", dispatch);
+      enabledBox.addEventListener("change", () => {
+        enabledValue = !enabledValue;
+        dispatch();
+      });
       if (motion.preset !== null) {
         const remove = h(doc, "button", {
           className: "senify-editor__reset",
@@ -1591,6 +1829,9 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
         wireFrameBody(body);
         syncSelectionRing();
         renderOverlay();
+        if (motionPlaying && frame.breakpoint === state.activeBreakpoint) {
+          injectMotion(body);
+        }
       };
       iframe.addEventListener("load", mount);
       iframe.setAttribute("srcdoc", frameDoc(options.frameStyles));
@@ -1600,9 +1841,107 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     });
   }
 
+  // The play preview (M4): inject the baked runtime contract into one frame
+  // document. Lenis stays off in design mode; the vendor comes from the engine
+  // route, and the runtime runs after its plugins — an inline script appended
+  // first would see an empty `window.gsap`.
+  function motionTokens(): MotionTokens {
+    const resolved = options.theme === undefined ? undefined : resolveTheme(options.theme);
+    const baseDuration = resolved?.motion.duration.base;
+    return {
+      ease: resolved?.motion.ease ?? {},
+      baseDurationMs: baseDuration === undefined ? 300 : parseDurationMs(baseDuration),
+      baseStaggerMs: 80,
+    };
+  }
+
+  // Lenis is part of the site profile (F6/F7, MOTION_PROFILE_RULES): the live
+  // mode mirrors the release, so it honours the same switch the bake reads.
+  function liveLenis(): boolean {
+    return siteProfile !== "clean";
+  }
+
+  function injectMotion(body: DomElement): void {
+    const frameDoc = body.ownerDocument;
+    if (frameDoc === undefined) return;
+    // Live mode runs the site profile's contract: Lenis is on except for the
+    // clean profile (the bake reads the same table); design play stays without.
+    const live = state.mode === "live";
+    const withLenis = live && liveLenis();
+    const { configs, warnings } = motionConfigsForTree(options.tree(), motionTokens());
+    const firstWarning = warnings[0];
+    if (firstWarning !== undefined) report(firstWarning.message);
+    const payload = frameDoc.createElement("script");
+    payload.setAttribute("type", "application/json");
+    payload.setAttribute("id", "motion-data");
+    payload.textContent = JSON.stringify(motionDataFor(configs));
+    body.appendChild(payload);
+
+    const needs = new Set(configs.flatMap((config) => config.needs ?? []));
+    const names = [
+      "gsap.min.js",
+      ...(needs.has("scrolltrigger") ? ["ScrollTrigger.min.js"] : []),
+      ...(needs.has("splittext") ? ["SplitText.min.js"] : []),
+      ...(withLenis ? ["lenis.min.js"] : []),
+    ];
+    const base = options.motionVendorBase ?? "/api/motion-vendor";
+    let remaining = names.length;
+    const runRuntime = (): void => {
+      const script = frameDoc.createElement("script");
+      script.setAttribute("data-senify-motion", "runtime");
+      script.textContent = renderPageScript({ lenis: withLenis });
+      body.appendChild(script);
+    };
+    if (remaining === 0) {
+      runRuntime();
+      return;
+    }
+    for (const name of names) {
+      const script = frameDoc.createElement("script");
+      script.setAttribute("src", `${base}/${name}`);
+      script.setAttribute("data-senify-motion", "vendor");
+      const async = script as unknown as {
+        async?: boolean;
+        onload?: (() => void) | null;
+        onerror?: (() => void) | null;
+      };
+      async.async = false;
+      const done = (): void => {
+        remaining -= 1;
+        if (remaining === 0) runRuntime();
+      };
+      async.onload = done;
+      async.onerror = done;
+      body.appendChild(script);
+    }
+  }
+
+  function toggleMotion(): void {
+    motionPlaying = !motionPlaying;
+    if (motionPlaying) {
+      const mounted = mountedFrames.find(
+        (entry) => entry.frame.breakpoint === state.activeBreakpoint,
+      );
+      if (mounted) injectMotion(mounted.body);
+      report("Motion läuft im aktiven Frame");
+    } else {
+      // Recreating the frames drops every inline transform and opacity the
+      // runtime wrote — the canvas returns to the baseline state.
+      renderFrames();
+      syncSelectionRing();
+      renderOverlay();
+      report(null);
+    }
+    renderTopbar();
+    renderStatus();
+  }
+
   function wireFrameBody(body: DomElement): void {
     body.addEventListener("click", (event: DomEvent) => {
       if (inline.session) return;
+      // Live mode shows the real page: content keeps its own behaviour
+      // (links, islands), the edit overlays stay in design mode.
+      if (state.mode === "live") return;
       const target = (event.target as DomElement | null)?.closest?.("[data-node-id]");
       const nodeId = target?.getAttribute("data-node-id") ?? null;
       if (!nodeId) return;
@@ -1612,6 +1951,7 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     });
     body.addEventListener("contextmenu", (event: DomEvent) => {
       if (inline.session) return;
+      if (state.mode === "live") return;
       const target = (event.target as DomElement | null)?.closest?.("[data-node-id]");
       const nodeId = target?.getAttribute("data-node-id") ?? null;
       if (!nodeId) return;
@@ -1627,6 +1967,7 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
       renderOverlay();
     });
     body.addEventListener("dblclick", (event: DomEvent) => {
+      if (state.mode === "live") return;
       const target = (event.target as DomElement | null)?.closest?.("[data-inline]");
       if (!target) return;
       const nodeId =
@@ -1639,6 +1980,7 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     body.addEventListener("input", (event: DomEvent) => {
       const target = (event.target as DomElement | null)?.closest?.("[data-inline]");
       if (!target || !inline.session) return;
+      if (state.mode === "live") return;
       // Keep the local session value current (Escape/Enter use it), the
       // server write follows on the idle tick.
       inline.type(target.textContent ?? "");
@@ -1652,23 +1994,23 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     // listeners live here. The drop position comes from the node under the
     // pointer and its vertical midpoint.
     body.addEventListener("dragenter", (event: DomEvent) => {
-      if (dragWidget === null) return;
+      if (state.mode === "live" || dragWidget === null) return;
       event.preventDefault?.();
     });
     body.addEventListener("dragover", (event: DomEvent) => {
-      if (dragWidget === null) return;
+      if (state.mode === "live" || dragWidget === null) return;
       event.preventDefault?.();
       const target = (event.target as DomElement | null)?.closest?.("[data-node-id]") ?? null;
       showDropLine(body, target, event.clientY ?? 0);
     });
     body.addEventListener("dragleave", (event: DomEvent) => {
-      if (dragWidget === null) return;
+      if (state.mode === "live" || dragWidget === null) return;
       const related = (event as { relatedTarget?: unknown }).relatedTarget;
       if (related && body.contains?.(related) === true) return;
       clearDropLine(body);
     });
     body.addEventListener("drop", (event: DomEvent) => {
-      if (dragWidget === null) return;
+      if (state.mode === "live" || dragWidget === null) return;
       event.preventDefault?.();
       const target = (event.target as DomElement | null)?.closest?.("[data-node-id]") ?? null;
       const clientY = event.clientY ?? 0;
@@ -2316,6 +2658,17 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
         text: `${"  ".repeat(item.depth)}${item.label}`,
       }),
     );
+    // Motion badge (ticket 19/M3): the spec is visible in the tree, not only
+    // in the Advanced tab.
+    if (item.motion) {
+      row.appendChild(
+        h(doc, "span", {
+          className: "senify-editor__badge",
+          text: "M",
+          attributes: { title: "Motion-Spec gesetzt", "aria-label": "Motion" },
+        }),
+      );
+    }
     const eyeLabel = item.hidden ? "Einblenden" : "Ausblenden";
     const eye = h(doc, "span", {
       className: `senify-editor__eye ic ic--${item.hidden ? "eyeoff" : "eye"} ic--14`,
@@ -2485,6 +2838,7 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
 
   function render(): void {
     syncMain();
+    syncStageMode();
     renderTopbar();
     renderFrames();
     renderRail();
@@ -2496,6 +2850,15 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
 
   function setMode(mode: FrameState["mode"]): void {
     state = setModeState(state, mode);
+    syncStageMode();
+    if (state.mode === "live") {
+      // Live = the real page: motion plays with the site profile (Lenis),
+      // the play toggle stays paused so leaving live mode returns to rest.
+      motionPlaying = true;
+    } else if (motionPlaying) {
+      motionPlaying = false;
+      report(null);
+    }
     syncDeepLink();
     render();
   }
@@ -2585,7 +2948,7 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     const editable =
       tag === "input" || tag === "textarea" || tag === "select" || target?.isContentEditable === true;
     if (modifier && key === "k") {
-      openSpotlight(true);
+      if (state.mode !== "live") openSpotlight(true);
       event.preventDefault?.();
       return;
     }
@@ -2608,6 +2971,9 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
       return;
     }
     if (editable) return;
+    // The live frame is a preview: keyboard edits and undo/redo stay in the
+    // design mode (and in the frame's focus, which never reaches this handler).
+    if (state.mode === "live") return;
     if (modifier && key === "s") {
       event.preventDefault?.();
       report(`Entwurf gespeichert · v${session.version}`);
@@ -2675,6 +3041,10 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
     openSpotlight,
     refresh: render,
     message: () => message,
+    setSiteProfile: (profile: MotionProfile) => {
+      siteProfile = profile;
+      render();
+    },
     destroy: () => {
       doc.removeEventListener("click", closeFloating);
       stage.removeEventListener("scroll", onStageScroll);
@@ -2688,6 +3058,7 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
   // Aufgabe 29: restore the panel widths and paint them before the first render.
   readPanelWidths();
   paintPanels();
+  syncStageMode();
   render();
   syncDeepLink();
   return instance;
