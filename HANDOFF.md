@@ -7,9 +7,11 @@ ist, was gebaut ist, was offen ist, wie man startet und prüft, welche Fallen la
 **Wichtigster Satz vorab:** Der Arbeitsbaum ist seit dem 19.09. **committet** (Baseline):
 `e62fe1f` (Planung: Motion-Papierpaket, Ticket 18), `49bacbd` (Planung: Tickets 07–22, ADRs
 0004–0006, Verbesserungsplan, HANDOFF), `d434ffc` (Produktcode: Motion, Style-Pipeline,
-Live-Modus, Transport). Untracked bleiben nur bewusst lokale Artefakte (Test-Logs, Screenshots,
-`.backup-18-09/`, Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese
-Restliste.
+Live-Modus, Transport). Darauf liegen die Welle-1-Commits `5ad0d48`/`23f7885` (Teil 1:
+Ticket 11, E17 S1, E4 S0) und `824b9ba` (Teile 2+3: Ticket 18 komplett — Author-Resolver,
+Idempotency-Keys, `authoredBy`-Fence). Untracked bleiben nur bewusst lokale Artefakte
+(Test-Logs, Screenshots, `.backup-18-09/`, Debug-Dateien in `.scratch/refs/`). Wer
+`git status` liest, sieht genau diese Restliste.
 
 ---
 
@@ -208,11 +210,30 @@ Restliste.
   bleiben bewusst: Test-Logs (`.scratch/testlauf*.log`, `vitest-browser.*`), Screenshots
   (`FireShot-*.jpg`, `refs/nick/`, `refs/aufnahmen/`), `.backup-18-09/` und Debug-Artefakte
   in `.scratch/refs/` (`*-mine.*`, `debug-*.ts`, `commit-msg.txt`).
-- **Welle 1, Teil 1 (19.09., uncommittet):** Ticket 11 (`hiddenDevices` + property-weiser
-  Reset, L2), E17 Scheibe 1 (Undo-Integritätsprüfung), E4 Scheibe 0 (MCP-Annotations-Matrix +
-  Server-Instructions). `pnpm test` **1183/2/132** (Log `.scratch/testlauf-19-09-welle1.log`),
-  typecheck 0, lint 0. Offen aus Welle 1: Ticket 18 (Author aus Token, Idempotency-Keys,
-  Fence) — Scheiben-Plan im Ticket `.scratch/editor-v2-rebuild/issues/18-agent-style-gate.md`.
+- **Welle 1, Teil 1 (19.09., committet `5ad0d48`/`23f7885`):** Ticket 11 (`hiddenDevices` +
+  property-weiser Reset, L2), E17 Scheibe 1 (Undo-Integritätsprüfung), E4 Scheibe 0
+  (MCP-Annotations-Matrix + Server-Instructions). `pnpm test` **1183/2/132**
+  (Log `.scratch/testlauf-19-09-welle1.log`), typecheck 0, lint 0.
+- **Welle 1, Teil 2 (19.09., committet `824b9ba`): Ticket 18 Scheibe 1 — Author-Resolver.** Der
+  Audit-Autor kommt **immer** aus dem Token (nie aus dem Body): additives Token-Feld
+  `kind: "human" | "agent"` (DB-Spalte additiv per ALTER mit Fail-closed-Default `agent`,
+  `whoami.kind`, `tokens create --kind`, `senify setup` → agent, Programm-Token human +
+  In-place-Selbstheilung über `store.updateTokenKind`); `resolveAuthor(auth)` und alle 30
+  Aufrufstellen in `http.ts` umgestellt; Body-`author` in allen 24 Vertrags-Schemas optional
+  (Vorschlag, wird nie auditiert). `pnpm test` **1187/2/132** (Log
+  `.scratch/testlauf-19-09-ticket18s1.log`), typecheck 0, lint 0.
+- **Welle 1, Teil 3 (19.09., committet `824b9ba`): Ticket 18 Scheiben 2+3 — Idempotency-Keys +
+  `authoredBy`-Fence.** Scheibe 2: optionales Body-Feld `idempotencyKey` auf `create_page`,
+  `create_entry`, `upload-url`, `create_reference_collection`; Claim-first-Tabelle
+  `idempotency_keys` (Fingerprint über die kanonisierte Body-JSON, TTL 24 h, Stale-Übernahme
+  nach 2 min, Release nach Fehlversuch), Replay mit Header `idempotency-replayed: true`,
+  MCP-Durchreiche; `idempotentHint` bleibt `false` (ohne Key nicht idempotent). Scheibe 3:
+  `authoredBy` wird aus dem Token abgeleitet (Updates erhalten die Provenienz), Agenten
+  brauchen für Farb-Literale ein passendes Theme-Token (sonst Freiheit), `ambient`/`rawCss`
+  bleiben Mensch, rawCss max. 2.000 Zeichen + kein `url()`-Fremdhost, Reorder fremder Regeln
+  wird audit-markiert. `pnpm test` **1210/2/134** (Log
+  `.scratch/testlauf-19-09-ticket18s23.log`), typecheck 0, lint 0. **Ticket 18 damit
+  vollständig; die Welle-1-Pakete #1–#4 sind erledigt** (Teile 1–3 committet).
 
 ### 2.5 Motion: M0–M5 + Site-Profil (18.09.)
 
@@ -303,9 +324,11 @@ Ansichtssache), O11 vier Pseudo-States inkl. `disabled`, O12 PG-only bis Phase 5
   den Katalog, Tippfehler-Erkennung) bleibt.
 - **O14 — Templates + Outlet fehlen im editor-v2-Plan** (offen). Präzisierung: `page_templates`
   und `templates.ts` existieren im v1-Kern; die Lücke ist editor-v2-seitig und bei VC-Templates.
-- **Zwei-Ebenen-Fence:** ADR-0005 öffnet die **Property-Ebene** für Menschen. Die **Wert-Ebene**
-  bleibt für Agenten eingehegt (Ticket 18: Token-Zwang statt Roh-Hex), verortet im Schreibpfad des
-  Stores, abhängig von `authoredBy`.
+- **Zwei-Ebenen-Fence (umgesetzt, Ticket 18):** ADR-0005 öffnet die **Property-Ebene** für
+  Menschen. Die **Wert-Ebene** ist für Agenten eingehegt: `authoredBy` kommt aus dem Token
+  (Updates erhalten die Provenienz), Farb-Literale brauchen ein passendes Theme-Token,
+  `ambient`/`rawCss` bleiben Mensch — verortet im Schreibpfad des Stores
+  (`engine/src/style-fence.ts`).
 - **Motion (Ticket 19):** F1 Start **nach Ticket-13-Rest** (erfüllt); F2 Authoring **Presets +
   Intensity** (keine freie Timeline — bleibt M6); F3 Canvas **Live-Modus + Play-Button**, ruhend
   als Default; F4 Verankerung als **Ticket 19 + ADR-0006**; F5 Runtime **self-hosted**
@@ -340,7 +363,7 @@ Alle unter `.scratch/editor-v2-rebuild/issues/`. Stand:
 | 15-dialekt-entscheidung | ADR-0004 + grep-Gate-Test | **erledigt** (18.09.) |
 | 16-marker-overlay-portal | Marker-Overlay im Portal (Alt-Palette beenden) | offen |
 | 17-releases-cutover | Publish über `POST /api/releases`, Paritäts-Tor als CI-Blocker | offen |
-| 18-agent-style-gate | Wert-Ebene-Fence als Tests (`authoredBy`) | offen |
+| 18-agent-style-gate | Wert-Ebene-Fence als Tests (`authoredBy`) | **erledigt (19.09.)** — Author-Resolver, Idempotency-Keys, Fence; `idempotentHint` bleibt opt-in |
 | 19-motion-authoring | Motion-Spec v2 im Editor: Modell/Bridge, Inspektor, Canvas (Play), Guardrails | **M0–M5 umgesetzt** (18.09.); offen: M4 Stufe 1 (Ticket 03) |
 | 20-site-settings-profile | Site-Profil im Editor: Kanal, Anzeige, Wechsel-Validierung, Profil-Gates | **umgesetzt** (18.09.) |
 | 21-klassen-am-dom | User-Klassen + Scope-Klasse am Wurzelelement (Anker-Selektoren treffen in Canvas und Bake) | **umgesetzt** (18.09.) |
@@ -355,18 +378,20 @@ bis auf die Inspektor-Anzeige, Ticket 13 komplett (Transport, Save-Pipeline,
 Bake-Renderpfad, scoped-Rekey), Klassen am DOM (Ticket 21), Motion M0–M5 (Ticket 19),
 Ticket 20 (Site-Profil) und Ticket 15 (PG-Dialekt-Gate). **Am 19.09.:** Slot-/Collection-
 Transport verifiziert und abgeschlossen (Nachtrag eines parallelen Strangs), Ticket 14
-(Klassen-Emission gemessen, auf global umgestellt). Der Testlauf ist grün (1176/2/132).
+(Klassen-Emission gemessen, auf global umgestellt), Welle 1 Teil 1 (Ticket 11, E17 S1,
+E4 S0 — committet) sowie Ticket 18 komplett (Author-Resolver, Idempotency-Keys,
+`authoredBy`-Fence — uncommittet). Der Testlauf ist grün (**1210/2/134**).
 
 **Als Nächstes:**
 
-1. **M4 Stufe 1** (Ticket 19): Live-Modus zeigt die echte Seite (Ticket 03) → echte Motion
+1. **Welle-1-Rest aus §9:** #5 Ticket 02 S1 (Inspektor/MCP-Style-Tools), #6 E5 S1
+   (EditorSession), #7 Ticket 03 S1 (Chrome), #8 Ticket 12 (DnD), #9 Ticket 17
+   (Release-Cutover), #10 E16 P0 + E12 S1.
+2. **M4 Stufe 1** (Ticket 19): Live-Modus zeigt die echte Seite (Ticket 03) → echte Motion
    ohne Extra-Code; Scrub-Stufe bleibt M6. Danach ist Motion fachlich abgeschlossen.
-2. **Ticket 03 (Editor-Chrome):** Explorer/Kontextmenü/Spotlight/Inline-Edit/Tastatur —
-   enthält den Live-Modus, auf dem M4 Stufe 1 aufsetzt.
-3. **Parallel:** 12 (DnD), 18 (Agent-Style-Gate).
-4. **Ende Phase 2/Anfang 3:** 16 (Marker-Overlay), 17 (Releases-Cutover).
-5. **Vor dem Cutover:** 11. **Erledigt:** 14 (Emission), 15 (PG-Dialekt-Gate), 21 (Klassen am
-   DOM), 22 (scoped-Rekey), 13 vollständig (18./19.09.).
+3. **Ende Phase 2/Anfang 3:** 16 (Marker-Overlay), 17 (Releases-Cutover).
+4. **Vor dem Cutover:** 11. **Erledigt:** 13 vollständig, 14 (Emission), 15 (PG-Dialekt-Gate),
+   18 (Agent-Style-Gate), 21 (Klassen am DOM), 22 (scoped-Rekey).
 
 **Strategischer Rahmen (19.09.):** `docs/verbesserungsplan.md` — Zielbild Framer/Webflow-Niveau,
 Lücken L1–L33 (P0–P3), 16 Epics (E1–E16) mit Akzeptanzkriterien, Roadmap Phase A–D, Gates und die

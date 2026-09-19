@@ -114,6 +114,79 @@ gehoeren bewusst **nicht** in die Undo-History (Webstudio-Muster). Hinweis: `doc
 wurde parallel um „Teil II" (§10–§16: Referenz-Transfer, Anti-Slop, Editor-Tiefe) erweitert —
 beide Teile koexistieren; nichts ueberschrieben. Kein Produktcode geaendert.
 
+**Welle 1, Teil 3 (19.09., umgesetzt): Ticket 18 Scheiben 2+3 — Idempotency-Keys und `authoredBy`-Fence.**
+
+- **Scheibe 2 (Idempotency-Keys):** optionales Body-Feld `idempotencyKey` (1–200 Zeichen,
+  `IdempotencyKeySchema` in `mutations/contract.ts`) auf `create_page`, `create_entry`,
+  `upload-url` und `create_reference_collection`; neue Tabelle `idempotency_keys`
+  (PK `(token_id, route, idempotency_key)`, `fingerprint`, `status`, `response jsonb`,
+  `created_at`) in `db.ts`. Store: **Claim-first** — `claimIdempotencyKey` (INSERT, bei
+  Unique-Verletzung lesen: fertig → Replay, frisch pending → `in_progress`, älter als 2 min →
+  Übernahme, Fingerprint-Mismatch bei fertigem Eintrag → `mismatch`), `completeIdempotencyKey`,
+  `releaseIdempotencyKey` (Fehlversuch verbrennt den Key nicht); TTL 24 h, Aufräumen beim Claim.
+  `http.ts`: `withIdempotency(...)` mit SHA-256-Fingerprint über die kanonisierte Body-JSON
+  (Schlüssel sortiert, Key-Feld ausgenommen); Replay trägt Header `idempotency-replayed: true`,
+  Konflikte sind `conflict` mit `field: "idempotencyKey"`. MCP: `idempotencyKey` als Argument
+  der vier Tools durchgereicht; `idempotentHint` bleibt `false` (ohne Key ist der Aufruf nicht
+  idempotent — Annotation = Client-Versprechen, Key = Server-Garantie).
+- **Scheibe 3 (`authoredBy`-Fence):** neues Modul `engine/src/style-fence.ts`
+  (`themeColorTokens` = Rückwärtsindex der Theme-Farben, semantische Rollen vor Primitiven;
+  `agentStyleViolations`; `rawCssViolations`; `styleRuleBags`). Store: `authoredBy` wird **aus
+  dem Token abgeleitet** (agent → `agent`, sonst `user`), Body-Werte werden ignoriert; Updates
+  **erhalten** die Provenienz (Agent-Umbau einer user-Regel erzeugt keine agent-Regel), der
+  Audit-Eintrag trägt den echten Akteur. Agenten: Token-Zwang für Farb-Literale **nur wenn ein
+  passendes Token existiert** (Vorschlag `{ $token: … }`), keine `ambient`-Regeln, kein `rawCss`,
+  keine Selektor-Patches; Fence prüft nur die Patch-Bags, damit Alt-Werte einen unrelated Edit
+  nicht blockieren. `rawCss`-Grenzen für alle Schreiber: max. 2.000 Zeichen, kein
+  `url()`-Fremdhost (`@import`/Markup waren schon durch `isSafeRawCss` gesperrt); Scoped-Selektor
+  ist strukturell der eigene Knoten-Anker (Test). `reorderStyleRule` markiert fremde Provenienz
+  im Audit (`params.foreignAuthoredBy`).
+- **Tests:** `engine/test/idempotency.test.ts` (12: Replay je Route, anderer Key/kein Key,
+  Body-Mismatch, Token-/Routen-Scope, Release nach Fehler, in-progress + Stale-Übernahme,
+  kanonisierte Schlüsselreihenfolge, Key-Form); `engine/test/agent-style-gate.test.ts` (9: Ablehnung + Durchlass je Regel,
+  Provenienz aus Token, Patch-Fence, Audit-Marker, rawCss-Grenzen, Scoped-Anker);
+  `mcp/test/workflow.test.ts` +1 (Durchreiche, gleiche Seite, Schema-Feld) und
+  `engine/test/db-schema.test.ts` +1 (`jsonColumns` sieht `response`);
+  `helpers.ts` mit `humanApi` (kind human) + `HUMAN_AUTHOR`; bestehende Tests auf die
+  Token-Semantik gezogen (bake.test ambient → human, save-pipeline `authoredBy` → `user`).
+- **Zahlen:** `pnpm test` **1210 grün / 2 übersprungen / 134 Dateien**, typecheck 0, lint 0
+  (Log `.scratch/testlauf-19-09-ticket18s23.log`). Ticket 18 damit **vollständig**,
+  committet als `824b9ba` (Welle-1-Teile 2+3).
+
+**Welle 1, Teil 2 (19.09., umgesetzt): Ticket 18 Scheibe 1 — Author-Resolver.** Der Audit-Autor
+kommt jetzt **immer** aus dem Token, nie aus dem Body (E3-Akzeptanz: „Ein direkter API-Call kann
+kein `kind: human` auditieren"):
+
+- **Token-`kind` (additiv):** `TokenKind = "human" | "agent"` in `types.ts`; DB-Spalte `kind` nur
+  additiv per `ALTER TABLE … ADD COLUMN IF NOT EXISTS` mit Fail-closed-Default `'agent'`
+  (Haus-Konvention wie `style_rules_json`); `ApiToken.kind`; `mapToken` validiert das Feld;
+  `createToken({ kind })` mit Default `agent`; `updateTokenKind` (Selbstheilung); `whoami`
+  liefert `kind`.
+- **`resolveAuthor(auth)`** (`http.ts`): Identitaet (`id`/`label`) **immer** `auth.tokenName`, `kind`
+  aus dem Token; **einmal pro Batch** aufgeloest (nicht pro Audit-Eintrag). **30** Aufrufstellen
+  umgestellt (Mutations-Batch, Editor-Mutations-Bridge, Site-Update/Trash/Restore/Duplikat, Theme,
+  4× Style-Rules, Release/Revision/Preview/Review-Aktionen, Entry-Trash/Restore/Purge/Publish/
+  Unpublish/Version-Restore, Referenz-Analyze/Manual/Profil-Revision/Apply). `authenticate` reicht
+  `record.kind` in `AuthInfo`.
+- **Body-`author` ist Vorschlag:** alle 24 `author: AuthorSchema` in den Vertragsdateien
+  (content/lifecycle/mutations/editor/references/site/templates) → `Type.Optional(AuthorSchema)`.
+  Ein mitgeschickter Author wird weiter validiert (Closed Shape), aber nie auditiert.
+- **Rollen:** `senify setup` erzeugt `kind: "agent"`; `senify tokens create` hat `--kind
+  human|agent` (Default agent); der Programm-Token (Dashboard) ist `human` — `start.ts` heilt
+  Bestandstoken **in-place** ueber `whoami.kind` + `store.updateTokenKind` (gleiches Secret, keine
+  zweite „Programm"-Zeile); `tokens list` zeigt `kind=…`.
+- **Tests:** `auth.test.ts` +2 (explizit `human`/ungueltiges `kind`; Audit-Kind aus Token trotz
+  `agent`-Body) und whoami-Assertion; `mutations.test.ts` Test „derives the audit author from the
+  token, never from the body" (gefaelschte `human`-Identitaet landet nicht im Audit; fehlender
+  Body-Author bleibt 200); `server.test.ts` +1 (Selbstheilung eines `agent`-Programm-Tokens:
+  whoami `human`, genau eine „Programm"-Zeile, gleiche id; dafuer `createReentrantTestDb` in
+  `@senify/core/testing`, weil pg-mem ein wiederholtes `CREATE TABLE IF NOT EXISTS` ablehnt);
+  Pflichtfeld-Tests (Theme, Manual-Reference) auf optionale Semantik umgestellt;
+  `TOKEN_AUTHOR`-Konstante in `helpers.ts` (Token-Identitaet vs. `TEST_AUTHOR`).
+  Verifiziert: `pnpm test` **1187/2/132**, typecheck 0, lint 0 (Log
+  `.scratch/testlauf-19-09-ticket18s1.log`). Offen: Scheiben 2 (Idempotency-Keys) und 3
+  (`authoredBy`-Fence). Bekannte Grenze: Token-Routen bleiben public (Loopback-Vertrauen, L26/E21).
+
 **Welle 1, Teil 1 (19.09., umgesetzt):** Drei Fundament-Pakete aus §9 des Verbesserungsplans:
 (1) **Ticket 11** — `hiddenDevices` im Editor-Modell, v1-Lift ohne Datenverlust (Migration +
 Roundtrip-Test), Renderer-Mapping über `isHiddenAt` (Adapter), neue Editor-Mutation
