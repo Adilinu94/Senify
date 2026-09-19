@@ -15,6 +15,7 @@ import {
   createTestPage,
   createTestSite,
   TEST_AUTHOR,
+  TOKEN_AUTHOR,
   treeOf,
   type BootEnv,
   type ErrorResponse,
@@ -1065,7 +1066,7 @@ describe("versions, audit and request validation", () => {
     expect((audit.body as { entries: unknown[] }).entries).toHaveLength(1);
   });
 
-  it("records per-mutation audit entries with the author", async () => {
+  it("records per-mutation audit entries with the token author", async () => {
     const applied = await apply([
       {
         op: "insertNode",
@@ -1099,7 +1100,8 @@ describe("versions, audit and request validation", () => {
     expect(batchIds.size).toBe(1);
     expect([...batchIds][0]).toBe(applied.body.undoBatchId);
     for (const entry of entries) {
-      expect(entry.author).toEqual({ ...TEST_AUTHOR });
+      // The body sent TEST_AUTHOR; the engine records the token identity.
+      expect(entry.author).toEqual({ ...TOKEN_AUTHOR });
       expect(entry.draftVersionAfter).toBe(applied.body.newDraftVersion);
       expect(entry.mutation).toBe(
         ["updateNodeMeta", "updateNodeProps", "insertNode"][2 - (entry.opIndex as number)],
@@ -1143,17 +1145,8 @@ describe("versions, audit and request validation", () => {
   });
 
   it("rejects invalid request shapes", async () => {
-    const missingAuthor = await applyMutationsRequest(
-      env.api,
-      page,
-      [{ op: "clearMotion", id: "x" }],
-      { author: undefined },
-    );
-    expect(missingAuthor.status).toBe(400);
-    expect(
-      (missingAuthor.body as unknown as { error: { field: string } }).error.field,
-    ).toBe("author");
-
+    // Since ticket 18 the body author is optional: the token is the identity.
+    // A malformed author is still rejected by the schema.
     const badKind = await applyMutationsRequest(
       env.api,
       page,
@@ -1172,6 +1165,42 @@ describe("versions, audit and request validation", () => {
     expect(
       (unknownOp.body as unknown as { error: { field: string } }).error.field,
     ).toBe("mutations[0].op");
+  });
+
+  it("derives the audit author from the token, never from the body", async () => {
+    // A forged body identity must not reach the audit log: the engine records
+    // the bearer token instead (ticket 18, slice 1).
+    const forged = await applyMutationsRequest(
+      env.api,
+      page,
+      [
+        {
+          op: "insertNode",
+          parent: { nodeId: page.draft.rootNodeId },
+          node: { id: "forged-box", type: "container", props: {} },
+        },
+      ],
+      { author: { kind: "human", id: "chef", label: "Der Chef" } },
+    );
+    expect(forged.status).toBe(200);
+
+    const audit = await env.api.request({
+      method: "GET",
+      path: `/api/pages/${page.id}/audit?limit=1`,
+    });
+    expect(audit.status).toBe(200);
+    const entry = (audit.body as { entries: Record<string, unknown>[] })
+      .entries[0];
+    expect(entry?.author).toEqual({ ...TOKEN_AUTHOR });
+
+    // Without any body author the token still carries the identity.
+    const anonymous = await applyMutationsRequest(
+      env.api,
+      page,
+      [{ op: "updateNodeMeta", id: "forged-box", meta: { variant: "full" } }],
+      { baseDraftVersion: forged.body.newDraftVersion, author: undefined },
+    );
+    expect(anonymous.status).toBe(200);
   });
 
   it("validates asset and richtext fallbacks", async () => {

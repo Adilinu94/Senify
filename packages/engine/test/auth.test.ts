@@ -15,6 +15,7 @@ type TokenBody = {
   token: {
     id: string;
     name: string;
+    kind: string;
     scopes: string[];
     prefix: string;
     expiresAt: string | null;
@@ -47,6 +48,8 @@ describe("api tokens", () => {
     expect(created.body.secret).toMatch(/^snfy_[A-Za-z0-9_-]{20,}$/);
     expect(created.body.token.prefix).toBe(created.body.secret.slice(0, 12));
     expect(created.body.token.scopes).toEqual(["read", "write"]);
+    // Tokens created by hand default to the agent identity (ticket 18).
+    expect(created.body.token.kind).toBe("agent");
     expect(created.body.token.expiresAt).toBeTruthy();
     expect(created.body.token.lastUsedAt).toBeNull();
 
@@ -59,8 +62,27 @@ describe("api tokens", () => {
       (token) => token.id === created.body.token.id,
     );
     expect(entry?.prefix).toBe(created.body.token.prefix);
+    expect(entry?.kind).toBe("agent");
     expect(JSON.stringify(listed.body)).not.toContain(created.body.secret);
     expect(entry?.tokenHash).toBeUndefined();
+  });
+
+  it("accepts an explicit human kind and rejects unknown kinds", async () => {
+    const human = await env.api.request<TokenBody>({
+      method: "POST",
+      path: "/api/tokens",
+      body: { name: "Operator", kind: "human", scopes: ["read"] },
+    });
+    expect(human.status).toBe(201);
+    expect(human.body.token.kind).toBe("human");
+
+    const invalid = await env.api.request<ErrorBody>({
+      method: "POST",
+      path: "/api/tokens",
+      body: { name: "Bot", kind: "bot", scopes: ["read"] },
+    });
+    expect(invalid.status).toBe(400);
+    expect(invalid.body.error.field).toBe("kind");
   });
 
   it("rejects missing, unknown, revoked and expired credentials with 401", async () => {
@@ -147,15 +169,58 @@ describe("api tokens", () => {
   it("reports token identity via whoami", async () => {
     const who = await env.api.request<{
       name: string;
+      kind: string;
       scopes: string[];
       prefix: string;
       lastUsedAt: string | null;
     }>({ method: "GET", path: "/api/whoami" });
     expect(who.status).toBe(200);
     expect(who.body.name).toBe("engine-tests");
+    expect(who.body.kind).toBe("agent");
     expect(who.body.scopes).toEqual(["read", "write", "publish"]);
     expect(who.body.prefix).toMatch(/^snfy_/);
     expect(who.body.lastUsedAt).toBeTruthy();
+  });
+
+  it("derives the audit kind from the token, not the body", async () => {
+    // Counter-check to the forgery test: a human token records "human" even
+    // when the body claims "agent" (ticket 18, slice 1).
+    const site = await createTestSite(env.api, "Identity Site");
+    const page = await createTestPage(env.api, site.id);
+    const human = await env.api.request<TokenBody>({
+      method: "POST",
+      path: "/api/tokens",
+      body: { name: "Operator", kind: "human", scopes: ["read", "write"] },
+    });
+    const operator = createApiHarness(env.server.origin, {
+      token: human.body.secret,
+    });
+    const applied = await operator.request({
+      method: "POST",
+      path: `/api/pages/${page.id}/mutations`,
+      body: {
+        baseDraftVersion: page.draftVersion,
+        author: { kind: "agent", id: "bot", label: "Bot" },
+        mutations: [
+          {
+            op: "insertNode",
+            parent: { nodeId: page.draft.rootNodeId },
+            node: { id: "human-box", type: "container", props: {} },
+          },
+        ],
+      },
+    });
+    expect(applied.status).toBe(200);
+
+    const audit = await operator.request<{
+      entries: { author: unknown }[];
+    }>({ method: "GET", path: `/api/pages/${page.id}/audit?limit=1` });
+    expect(audit.status).toBe(200);
+    expect(audit.body.entries[0]?.author).toEqual({
+      kind: "human",
+      id: "Operator",
+      label: "Operator",
+    });
   });
 
   it("audits mcp calls with redacted secrets", async () => {

@@ -32,6 +32,7 @@ type ApiOption = { api?: string };
 type TokenEntry = {
   id: string;
   name: string;
+  kind: string;
   scopes: string[];
   prefix: string;
   createdAt: string;
@@ -77,6 +78,7 @@ function formatToken(token: TokenEntry): string {
   const parts = [
     token.id,
     token.name,
+    `kind=${token.kind}`,
     `scopes=${token.scopes.join(",")}`,
     `prefix=${token.prefix}`,
     `last=${token.lastUsedAt ?? "never"}`,
@@ -208,10 +210,11 @@ export function createProgram(): Command {
         secret: string;
       }>("POST", "/api/tokens", {
         name: String(options.name),
+        kind: "agent",
         scopes: parseScopes(String(options.scopes)),
       });
       console.log(
-        `Token "${created.token.name}" created (id ${created.token.id}, scopes ${created.token.scopes.join(",")}).`,
+        `Token "${created.token.name}" created (id ${created.token.id}, kind ${created.token.kind}, scopes ${created.token.scopes.join(",")}).`,
       );
       console.log(`Secret (shown once): ${created.secret}`);
 
@@ -297,22 +300,31 @@ export function createProgram(): Command {
     .command("create")
     .description("Create a scoped token (read, write, publish)")
     .requiredOption("--name <name>", 'client name, e.g. "Claude Code"')
+    .option("--kind <kind>", "human | agent (default agent)", "agent")
     .option("--scopes <scopes>", "comma-separated scopes", "read,write")
     .option("--expires <expires>", "expiry in days, e.g. 90d")
     .option("--api <url>")
     .action(async (options) => {
+      const kind = String(options.kind);
+      if (kind !== "human" && kind !== "agent") {
+        throw new SenifyError("validation", `Unknown token kind "${kind}"`, {
+          field: "kind",
+          suggestion: 'Use "human" or "agent".',
+        });
+      }
       const created = await operator(options).request<{
         token: TokenEntry;
         secret: string;
       }>("POST", "/api/tokens", {
         name: String(options.name),
+        kind,
         scopes: parseScopes(String(options.scopes)),
         ...(options.expires === undefined
           ? {}
           : { expires: String(options.expires) }),
       });
       console.log(
-        `Token "${created.token.name}" created (id ${created.token.id}, scopes ${created.token.scopes.join(",")}).`,
+        `Token "${created.token.name}" created (id ${created.token.id}, kind ${created.token.kind}, scopes ${created.token.scopes.join(",")}).`,
       );
       console.log(`Secret (shown once): ${created.secret}`);
       console.log(

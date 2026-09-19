@@ -107,6 +107,15 @@ const ClassNameSchema = Type.String({
   pattern: "^[A-Za-z][A-Za-z0-9_-]*$",
 });
 
+// Idempotency keys (ticket 18, slice 2). A create route may carry one; a retry
+// with the same key (same token, same route, same body) replays the first
+// response instead of creating a duplicate. The key is a client-chosen string,
+// typically a UUID; it is scoped to the token, so two clients never collide.
+export const IdempotencyKeySchema = Type.String({
+  minLength: 1,
+  maxLength: 200,
+});
+
 // Closed envelope for the API boundary. The value shapes inside (prop
 // records) stay open by design — section-sdk owns the data shapes,
 // this contract owns the transport shapes.
@@ -385,7 +394,7 @@ export type AuthorInput = Static<typeof AuthorSchema>;
 export const ApplyMutationsBodySchema = Type.Object(
   {
     baseDraftVersion: Type.Integer({ minimum: 1 }),
-    author: AuthorSchema,
+    author: Type.Optional(AuthorSchema),
     dry_run: Type.Optional(Type.Boolean()),
     mutations: Type.Array(MutationSchema, { minItems: 1, maxItems: 500 }),
   },
@@ -413,6 +422,7 @@ export const CreatePageBodySchema = Type.Object(
   {
     title: Type.Optional(Type.String({ minLength: 1 })),
     path: Type.Optional(Type.String({ minLength: 1 })),
+    idempotencyKey: Type.Optional(IdempotencyKeySchema),
   },
   CLOSED,
 );
@@ -421,7 +431,7 @@ export type CreatePageBody = Static<typeof CreatePageBodySchema>;
 export const UpdateThemeBodySchema = Type.Object(
   {
     theme: Type.Unsafe<Record<string, unknown>>(Type.Any()),
-    author: AuthorSchema,
+    author: Type.Optional(AuthorSchema),
   },
   CLOSED,
 );
@@ -492,7 +502,7 @@ export function assertKnownMutation(
 const ApplyMutationsShapeSchema = Type.Object(
   {
     baseDraftVersion: Type.Integer({ minimum: 1 }),
-    author: AuthorSchema,
+    author: Type.Optional(AuthorSchema),
     dry_run: Type.Optional(Type.Boolean()),
     mutations: Type.Array(Type.Object({ op: Type.String() }), {
       minItems: 1,

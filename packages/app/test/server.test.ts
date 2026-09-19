@@ -1,14 +1,19 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createTestDb } from "@senify/core/testing";
+import { createReentrantTestDb, createTestDb } from "@senify/core/testing";
 import type { Db, DbResult, Row } from "@senify/engine";
 import { startProgram } from "@senify/app";
 
-// pg-mem double, same shape as the engine and MCP test helpers use.
-function memoryDb(): { db: Db; close(): Promise<void> } {
-  const memory = createTestDb();
+// pg-mem double, same shape as the engine and MCP test helpers use. The
+// reentrant variant tolerates the second schema boot of a restart.
+function memoryDb(options: { reentrant?: boolean } = {}): {
+  db: Db;
+  close(): Promise<void>;
+} {
+  const memory =
+    options.reentrant === true ? createReentrantTestDb() : createTestDb();
   const { Pool } = memory.adapters.createPg();
   const pool = new Pool();
   const db: Db = {
@@ -82,6 +87,64 @@ describe("program shell (Prüfstelle Programm)", () => {
       expect(error.error.message).toContain("nicht-da.js");
     } finally {
       await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  it("heals a pre-ticket-18 program token in place to kind human", async () => {
+    const database = memoryDb({ reentrant: true });
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-app-heal-"));
+    const tokenFile = join(dataDir, "program-token.json");
+    const first = await startProgram({
+      db: database.db,
+      dataDir,
+      programTokenFile: tokenFile,
+      enginePort: 0,
+      appPort: 0,
+      openBrowser: false,
+    });
+    let saved: { id: string; secret: string };
+    try {
+      saved = JSON.parse(readFileSync(tokenFile, "utf8")) as {
+        id: string;
+        secret: string;
+      };
+      // Simulate an installation from before ticket 18: the same token, but
+      // with the fail-closed default kind "agent".
+      await database.db.query(
+        "UPDATE api_tokens SET kind = 'agent' WHERE id = $1",
+        [saved.id],
+      );
+    } finally {
+      await first.close();
+    }
+
+    const second = await startProgram({
+      db: database.db,
+      dataDir,
+      programTokenFile: tokenFile,
+      enginePort: 0,
+      appPort: 0,
+      openBrowser: false,
+    });
+    try {
+      const who = await fetch(`${second.engineOrigin}/api/whoami`, {
+        headers: { authorization: `Bearer ${saved.secret}` },
+      });
+      expect(who.status).toBe(200);
+      expect(((await who.json()) as { kind: string }).kind).toBe("human");
+
+      // The same token was healed, not replaced: exactly one "Programm" entry.
+      const listed = await fetch(`${second.engineOrigin}/api/tokens`);
+      const body = (await listed.json()) as {
+        tokens: { id: string; name: string }[];
+      };
+      const programs = body.tokens.filter((token) => token.name === "Programm");
+      expect(programs).toHaveLength(1);
+      expect(programs[0]?.id).toBe(saved.id);
+    } finally {
+      await second.close();
       await database.close();
       rmSync(dataDir, { recursive: true, force: true });
     }

@@ -2,6 +2,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
+import { createHash } from "node:crypto";
 import { SenifyError } from "@senify/core";
 import type { Registry } from "@senify/section-sdk";
 import {
@@ -26,6 +27,7 @@ import {
   parseBody,
   UpdateThemeBodySchema,
   type ApplyMutationsBody,
+  type AuthorInput,
   type CreatePageBody,
   type CreateSiteBody,
   type UpdateThemeBody,
@@ -236,6 +238,7 @@ import type {
   ReferencePreferences,
   ReferenceSummary,
   ReviewStatus,
+  TokenKind,
   TokenScope,
 } from "./types.ts";
 import { REVIEW_STATUSES } from "./types.ts";
@@ -327,8 +330,108 @@ async function settingsView(
 type AuthInfo = {
   tokenId: string;
   tokenName: string;
+  kind: TokenKind;
   scopes: TokenScope[];
 };
+
+// The audited author is always the token, never the request body (ticket 18):
+// a direct API call cannot claim a foreign identity or a different kind. The
+// body's `author` stays a suggestion that the server overrides here.
+function resolveAuthor(auth: AuthInfo | undefined): AuthorInput {
+  if (!auth) {
+    throw new AuthError(401, "Missing bearer token", {
+      suggestion: "Author-bearing routes require a token; the token is the identity.",
+    });
+  }
+  return { kind: auth.kind, id: auth.tokenName, label: auth.tokenName };
+}
+
+// Deterministic JSON for the idempotency fingerprint: object keys are sorted
+// recursively, so two requests that differ only in key order are the same.
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return `{${entries
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+// Idempotent create (ticket 18, slice 2): the request claims a slot keyed by
+// (token, route, key) before it runs. A retry replays the stored response, a
+// concurrent duplicate is rejected as in-flight, and a failed attempt releases
+// the slot so the same key may be retried (with a corrected body if needed).
+async function withIdempotency(
+  context: EngineContext,
+  auth: AuthInfo | undefined,
+  req: IncomingMessage,
+  url: URL,
+  key: string | undefined,
+  body: Record<string, unknown>,
+  run: () => Promise<RouteResult>,
+): Promise<RouteResult> {
+  if (key === undefined || auth === undefined) return run();
+  const route = `${req.method ?? "POST"} ${url.pathname}`;
+  const { idempotencyKey: _ignored, ...fingerprintBody } = body;
+  const fingerprint = createHash("sha256")
+    .update(stableJson(fingerprintBody))
+    .digest("hex");
+  const claim = await context.store.claimIdempotencyKey({
+    tokenId: auth.tokenId,
+    route,
+    key,
+    fingerprint,
+  });
+  if (claim.state === "replay") {
+    return {
+      status: claim.status,
+      body: claim.body,
+      headers: { "idempotency-replayed": "true" },
+    };
+  }
+  if (claim.state === "mismatch") {
+    throw new SenifyError(
+      "conflict",
+      "This idempotency key was already used with a different request",
+      {
+        field: "idempotencyKey",
+        suggestion:
+          "Use a fresh key for a different request, or resend the original body.",
+      },
+    );
+  }
+  if (claim.state === "in_progress") {
+    throw new SenifyError(
+      "conflict",
+      "A request with this idempotency key is still in progress",
+      {
+        field: "idempotencyKey",
+        suggestion: "Retry in a moment; the first attempt has not finished yet.",
+      },
+    );
+  }
+  try {
+    const result = await run();
+    await context.store.completeIdempotencyKey({
+      tokenId: auth.tokenId,
+      route,
+      key,
+      status: result.status,
+      body: result.body ?? null,
+    });
+    return result;
+  } catch (error) {
+    // A failed attempt does not burn the key: the caller may retry it.
+    await context.store
+      .releaseIdempotencyKey({ tokenId: auth.tokenId, route, key })
+      .catch(() => undefined);
+    throw error;
+  }
+}
 
 type RouteResult = {
   status: number;
@@ -727,6 +830,7 @@ async function applyMutationsToPage(
   context: EngineContext,
   pageId: string,
   input: ApplyMutationsBody,
+  auth: AuthInfo | undefined,
 ): Promise<RouteResult["body"]> {
   return context.locks.run(pageId, async () => {
     const page = await context.store.getPage(pageId);
@@ -782,6 +886,9 @@ async function applyMutationsToPage(
       };
     }
     const batchId = newEntityId();
+    // The token is the identity for the whole batch; the body author is only
+    // a suggestion and never reaches the audit log (ticket 18).
+    const author = resolveAuthor(auth);
     let newVersion: number;
     try {
       newVersion = await context.store.persistBatch({
@@ -802,7 +909,7 @@ async function applyMutationsToPage(
             opIndex: result.opIndex,
             mutation: result.op,
             params: { ...source } as Record<string, unknown>,
-            author: input.author,
+            author,
             undoPatch: result.undoPatch,
             draftVersionAfter: 0,
           };
@@ -831,14 +938,16 @@ async function applyEditorMutationsToPage(
   context: EngineContext,
   pageId: string,
   input: ApplyEditorMutationsBody,
+  auth: AuthInfo | undefined,
 ): Promise<RouteResult["body"]> {
+  // The author is resolved from the token inside `applyMutationsToPage`; the
+  // section envelope carries no author on this path.
   const sectionBody: ApplyMutationsBody = {
     baseDraftVersion: input.baseDraftVersion,
-    author: input.author,
     ...(input.dry_run === undefined ? {} : { dry_run: input.dry_run }),
     mutations: editorMutationsToSection(input.mutations),
   };
-  return applyMutationsToPage(context, pageId, sectionBody);
+  return applyMutationsToPage(context, pageId, sectionBody, auth);
 }
 
 function pathOpIndex(input: ApplyMutationsBody): number | undefined {
@@ -930,7 +1039,12 @@ async function authenticate(
     context.rateLimiter.check(record.id, route.destructive === true);
   }
   await context.store.touchToken(record.id);
-  return { tokenId: record.id, tokenName: record.name, scopes: record.scopes };
+  return {
+    tokenId: record.id,
+    tokenName: record.name,
+    kind: record.kind,
+    scopes: record.scopes,
+  };
 }
 
 function matchRoute(route: Route, method: string, segments: string[]): RouteParams | undefined {
@@ -1006,7 +1120,7 @@ const ROUTES: Route[] = [
     method: "PATCH",
     segments: ["api", "sites", ":siteId"],
     scope: "write",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const siteId = requireParam(params, "siteId");
       const body = (await readJsonBody(req)) ?? {};
       const parsed = parseBody<UpdateSiteBody>(
@@ -1031,7 +1145,7 @@ const ROUTES: Route[] = [
           siteId,
           mutation: "rename_site",
           params: { name: parsed.name },
-          author: parsed.author,
+          author: resolveAuthor(auth),
         });
       }
       if (parsed.profile !== undefined) {
@@ -1040,7 +1154,7 @@ const ROUTES: Route[] = [
           siteId,
           mutation: "update_site_profile",
           params: { profile: parsed.profile },
-          author: parsed.author,
+          author: resolveAuthor(auth),
         });
       }
       return { status: 200, body: site };
@@ -1051,20 +1165,17 @@ const ROUTES: Route[] = [
     segments: ["api", "sites", ":siteId", "trash"],
     scope: "publish",
     destructive: true,
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const siteId = requireParam(params, "siteId");
       const body = (await readJsonBody(req)) ?? {};
-      const parsed = parseBody<SiteEventBody>(
-        SiteEventBodySchema,
-        body,
-        "site trash",
-      );
+      // The body stays validated (closed shape); the token is the identity.
+      parseBody<SiteEventBody>(SiteEventBodySchema, body, "site trash");
       const site = await context.store.trashSite(siteId);
       await context.store.recordSiteEvent({
         siteId,
         mutation: "trash_site",
         params: {},
-        author: parsed.author,
+        author: resolveAuthor(auth),
       });
       return { status: 200, body: site };
     },
@@ -1073,20 +1184,17 @@ const ROUTES: Route[] = [
     method: "POST",
     segments: ["api", "sites", ":siteId", "restore"],
     scope: "write",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const siteId = requireParam(params, "siteId");
       const body = (await readJsonBody(req)) ?? {};
-      const parsed = parseBody<SiteEventBody>(
-        SiteEventBodySchema,
-        body,
-        "site restore",
-      );
+      // The body stays validated (closed shape); the token is the identity.
+      parseBody<SiteEventBody>(SiteEventBodySchema, body, "site restore");
       const site = await context.store.restoreSite(siteId);
       await context.store.recordSiteEvent({
         siteId,
         mutation: "restore_site",
         params: {},
-        author: parsed.author,
+        author: resolveAuthor(auth),
       });
       return { status: 200, body: site };
     },
@@ -1095,7 +1203,7 @@ const ROUTES: Route[] = [
     method: "POST",
     segments: ["api", "sites", ":siteId", "duplicate"],
     scope: "write",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const siteId = requireParam(params, "siteId");
       const body = (await readJsonBody(req)) ?? {};
       const parsed = parseBody<DuplicateSiteBody>(
@@ -1105,7 +1213,7 @@ const ROUTES: Route[] = [
       );
       const site = await context.store.duplicateSite(siteId, {
         withContent: parsed.withContent ?? false,
-        author: parsed.author,
+        author: resolveAuthor(auth),
       });
       return { status: 201, body: site };
     },
@@ -1136,13 +1244,16 @@ const ROUTES: Route[] = [
     method: "POST",
     segments: ["api", "sites", ":siteId", "pages"],
     scope: "write",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, url, auth) => {
       const siteId = params.siteId;
       if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
       const body = (await readJsonBody(req)) ?? {};
       const pageBody = parseBody<CreatePageBody>(CreatePageBodySchema, body, "page");
-      const page = await context.store.createPage(siteId, pageBody);
-      return { status: 201, body: page };
+      const { idempotencyKey, ...pageInput } = pageBody;
+      return withIdempotency(context, auth, req, url, idempotencyKey, pageBody, async () => {
+        const page = await context.store.createPage(siteId, pageInput);
+        return { status: 201, body: page };
+      });
     },
   },
   {
@@ -1169,7 +1280,7 @@ const ROUTES: Route[] = [
     method: "PUT",
     segments: ["api", "sites", ":siteId", "theme"],
     scope: "write",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const siteId = params.siteId;
       if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
       const body = (await readJsonBody(req)) ?? {};
@@ -1177,7 +1288,7 @@ const ROUTES: Route[] = [
       const updated = await context.store.updateTheme(
         siteId,
         themeBody.theme,
-        themeBody.author,
+        resolveAuthor(auth),
       );
       return { status: 200, body: updated };
     },
@@ -1238,7 +1349,7 @@ const ROUTES: Route[] = [
     method: "POST",
     segments: ["api", "sites", ":siteId", "style-rules"],
     scope: "write",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const siteId = requireParam(params, "siteId");
       const body = (await readJsonBody(req)) ?? {};
       const parsed = parseBody<CreateStyleRuleBody>(
@@ -1246,8 +1357,8 @@ const ROUTES: Route[] = [
         body,
         "style rule",
       );
-      const { author, ...input } = parsed;
-      const rule = await context.store.createStyleRule(siteId, input, author);
+      const { author: _suggestion, ...input } = parsed;
+      const rule = await context.store.createStyleRule(siteId, input, resolveAuthor(auth));
       return { status: 201, body: rule };
     },
   },
@@ -1265,7 +1376,7 @@ const ROUTES: Route[] = [
     method: "PATCH",
     segments: ["api", "sites", ":siteId", "style-rules", ":ruleId"],
     scope: "write",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const siteId = requireParam(params, "siteId");
       const ruleId = requireParam(params, "ruleId");
       const body = (await readJsonBody(req)) ?? {};
@@ -1274,10 +1385,10 @@ const ROUTES: Route[] = [
         body,
         "style rule update",
       );
-      const { author, ...patch } = parsed;
+      const { author: _suggestion, ...patch } = parsed;
       return {
         status: 200,
-        body: await context.store.updateStyleRule(siteId, ruleId, patch, author),
+        body: await context.store.updateStyleRule(siteId, ruleId, patch, resolveAuthor(auth)),
       };
     },
   },
@@ -1285,7 +1396,7 @@ const ROUTES: Route[] = [
     method: "POST",
     segments: ["api", "sites", ":siteId", "style-rules", ":ruleId", "reorder"],
     scope: "write",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const siteId = requireParam(params, "siteId");
       const ruleId = requireParam(params, "ruleId");
       const body = (await readJsonBody(req)) ?? {};
@@ -1298,7 +1409,7 @@ const ROUTES: Route[] = [
         siteId,
         ruleId,
         parsed.index,
-        parsed.author,
+        resolveAuthor(auth),
       );
       return { status: 200, body: { rules } };
     },
@@ -1308,12 +1419,13 @@ const ROUTES: Route[] = [
     segments: ["api", "sites", ":siteId", "style-rules", ":ruleId"],
     scope: "publish",
     destructive: true,
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const siteId = requireParam(params, "siteId");
       const ruleId = requireParam(params, "ruleId");
       const body = (await readJsonBody(req)) ?? {};
-      const parsed = parseBody<SiteEventBody>(SiteEventBodySchema, body, "style rule delete");
-      await context.store.deleteStyleRule(siteId, ruleId, parsed.author);
+      // The body stays validated (closed shape); the token is the identity.
+      parseBody<SiteEventBody>(SiteEventBodySchema, body, "style rule delete");
+      await context.store.deleteStyleRule(siteId, ruleId, resolveAuthor(auth));
       return { status: 204 };
     },
   },
@@ -1363,12 +1475,12 @@ const ROUTES: Route[] = [
     method: "POST",
     segments: ["api", "pages", ":pageId", "mutations"],
     scope: "write",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const pageId = params.pageId;
       if (!pageId) throw new SenifyError("validation", "Missing page id", { field: "pageId" });
       const body = await readJsonBody(req);
       const input: ApplyMutationsBody = parseApplyMutationsBody(body);
-      const result = await applyMutationsToPage(context, pageId, input);
+      const result = await applyMutationsToPage(context, pageId, input, auth);
       return { status: 200, body: result };
     },
   },
@@ -1379,12 +1491,12 @@ const ROUTES: Route[] = [
     method: "POST",
     segments: ["api", "pages", ":pageId", "editor-mutations"],
     scope: "write",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const pageId = params.pageId;
       if (!pageId) throw new SenifyError("validation", "Missing page id", { field: "pageId" });
       const body = await readJsonBody(req);
       const input = parseApplyEditorMutationsBody(body);
-      const result = await applyEditorMutationsToPage(context, pageId, input);
+      const result = await applyEditorMutationsToPage(context, pageId, input, auth);
       return { status: 200, body: result };
     },
   },
@@ -1445,6 +1557,7 @@ const ROUTES: Route[] = [
       );
       const created = await context.store.createToken({
         name: input.name,
+        kind: input.kind,
         scopes: input.scopes ?? ["read", "write"],
         expiresAt: parseExpires(input.expires),
       });
@@ -1493,6 +1606,7 @@ const ROUTES: Route[] = [
         status: 200,
         body: {
           name: token.name,
+          kind: token.kind,
           scopes: token.scopes,
           prefix: token.prefix,
           createdAt: token.createdAt,
@@ -1547,7 +1661,7 @@ const ROUTES: Route[] = [
     method: "POST",
     segments: ["api", "sites", ":siteId", "releases"],
     scope: "publish",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const siteId = requireParam(params, "siteId");
       const body = (await readJsonBody(req)) ?? {};
       const input = parseBody<PublishReleaseBody>(
@@ -1557,7 +1671,7 @@ const ROUTES: Route[] = [
       );
       const result = await publishRelease(lifecycleContext(context), {
         siteId,
-        author: input.author,
+        author: resolveAuthor(auth),
         note: input.note ?? null,
         basisReleaseId: input.basisReleaseId ?? null,
       });
@@ -1614,7 +1728,7 @@ const ROUTES: Route[] = [
     method: "POST",
     segments: ["api", "pages", ":pageId", "restore"],
     scope: "write",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const pageId = requireParam(params, "pageId");
       const body = (await readJsonBody(req)) ?? {};
       const input = parseBody<RestoreRevisionBody>(
@@ -1627,7 +1741,7 @@ const ROUTES: Route[] = [
         body: await restoreRevisionAsDraft(lifecycleContext(context), {
           pageId,
           revisionId: input.revisionId,
-          author: input.author,
+          author: resolveAuthor(auth),
         }),
       };
     },
@@ -1636,7 +1750,7 @@ const ROUTES: Route[] = [
     method: "POST",
     segments: ["api", "sites", ":siteId", "previews"],
     scope: "write",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const siteId = requireParam(params, "siteId");
       const body = (await readJsonBody(req)) ?? {};
       const input = parseBody<CreatePreviewBody>(
@@ -1646,7 +1760,7 @@ const ROUTES: Route[] = [
       );
       const preview = await createPreview(lifecycleContext(context), {
         siteId,
-        author: input.author,
+        author: resolveAuthor(auth),
         ttlDays: input.ttlDays,
       });
       return {
@@ -1678,7 +1792,7 @@ const ROUTES: Route[] = [
     method: "POST",
     segments: ["api", "sites", ":siteId", "reviews"],
     scope: "write",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const siteId = requireParam(params, "siteId");
       const body = (await readJsonBody(req)) ?? {};
       const input = parseBody<SubmitReviewBody>(
@@ -1688,7 +1802,7 @@ const ROUTES: Route[] = [
       );
       const result = await submitReview(lifecycleContext(context), {
         siteId,
-        author: input.author,
+        author: resolveAuthor(auth),
         note: input.note ?? null,
         pageIds: input.pageIds,
       });
@@ -1774,7 +1888,7 @@ const ROUTES: Route[] = [
     method: "POST",
     segments: ["api", "reviews", ":reviewId", "approve"],
     scope: "publish",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const reviewId = requireParam(params, "reviewId");
       const body = (await readJsonBody(req)) ?? {};
       const input = parseBody<ReviewActionBody>(
@@ -1786,7 +1900,7 @@ const ROUTES: Route[] = [
         status: 200,
         body: await approveReview(lifecycleContext(context), {
           reviewId,
-          author: input.author,
+          author: resolveAuthor(auth),
           note: input.note,
         }),
       };
@@ -1796,7 +1910,7 @@ const ROUTES: Route[] = [
     method: "POST",
     segments: ["api", "reviews", ":reviewId", "request-changes"],
     scope: "write",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const reviewId = requireParam(params, "reviewId");
       const body = (await readJsonBody(req)) ?? {};
       const input = parseBody<ReviewActionBody>(
@@ -1808,7 +1922,7 @@ const ROUTES: Route[] = [
         status: 200,
         body: await requestChanges(lifecycleContext(context), {
           reviewId,
-          author: input.author,
+          author: resolveAuthor(auth),
           note: input.note ?? "",
         }),
       };
@@ -1818,7 +1932,7 @@ const ROUTES: Route[] = [
     method: "POST",
     segments: ["api", "reviews", ":reviewId", "discard"],
     scope: "write",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const reviewId = requireParam(params, "reviewId");
       const body = (await readJsonBody(req)) ?? {};
       const input = parseBody<ReviewActionBody>(
@@ -1830,7 +1944,7 @@ const ROUTES: Route[] = [
         status: 200,
         body: await discardReview(lifecycleContext(context), {
           reviewId,
-          author: input.author,
+          author: resolveAuthor(auth),
           note: input.note,
         }),
       };
@@ -1840,7 +1954,7 @@ const ROUTES: Route[] = [
     method: "POST",
     segments: ["api", "sites", ":siteId", "assets", "upload-url"],
     scope: "write",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, url, auth) => {
       const siteId = requireParam(params, "siteId");
       const body = (await readJsonBody(req)) ?? {};
       const input = parseBody<UploadUrlBody>(
@@ -1848,19 +1962,22 @@ const ROUTES: Route[] = [
         body,
         "upload request",
       );
-      const { uploadId, ticket } = await createUploadTicket(mediaContext(context), {
-        siteId,
-        body: input,
+      const { idempotencyKey, ...uploadInput } = input;
+      return withIdempotency(context, auth, req, url, idempotencyKey, input, async () => {
+        const { uploadId, ticket } = await createUploadTicket(mediaContext(context), {
+          siteId,
+          body: uploadInput,
+        });
+        const token = context.uploadSigner.sign(ticket);
+        return {
+          status: 201,
+          body: {
+            uploadId,
+            url: `/api/assets/upload/${uploadId}?token=${encodeURIComponent(token)}`,
+            expiresAt: ticket.expiresAt,
+          },
+        };
       });
-      const token = context.uploadSigner.sign(ticket);
-      return {
-        status: 201,
-        body: {
-          uploadId,
-          url: `/api/assets/upload/${uploadId}?token=${encodeURIComponent(token)}`,
-          expiresAt: ticket.expiresAt,
-        },
-      };
     },
   },
   {
@@ -2279,7 +2396,7 @@ const ROUTES: Route[] = [
     method: "POST",
     segments: ["api", "sites", ":siteId", "entries"],
     scope: "write",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, url, auth) => {
       const siteId = requireParam(params, "siteId");
       const body = (await readJsonBody(req)) ?? {};
       const input = parseBody<CreateEntryBody>(
@@ -2287,10 +2404,14 @@ const ROUTES: Route[] = [
         body,
         "entry",
       );
-      return {
+      const { idempotencyKey, ...entryInput } = input;
+      return withIdempotency(context, auth, req, url, idempotencyKey, input, async () => ({
         status: 201,
-        body: await createEntry(context.store, { siteId, body: input }),
-      };
+        body: await createEntry(context.store, {
+          siteId,
+          body: { ...entryInput, author: resolveAuthor(auth) },
+        }),
+      }));
     },
   },
   {
@@ -2431,7 +2552,7 @@ const ROUTES: Route[] = [
     method: "PUT",
     segments: ["api", "entries", ":entryId"],
     scope: "write",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const entryId = requireParam(params, "entryId");
       const body = (await readJsonBody(req)) ?? {};
       const input = parseBody<UpdateEntryBody>(
@@ -2441,7 +2562,10 @@ const ROUTES: Route[] = [
       );
       return {
         status: 200,
-        body: await updateEntry(context.store, { entryId, body: input }),
+        body: await updateEntry(context.store, {
+          entryId,
+          body: { ...input, author: resolveAuthor(auth) },
+        }),
       };
     },
   },
@@ -2449,19 +2573,16 @@ const ROUTES: Route[] = [
     method: "DELETE",
     segments: ["api", "entries", ":entryId"],
     scope: "write",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const entryId = requireParam(params, "entryId");
       const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<EntryActionBody>(
-        EntryActionBodySchema,
-        body,
-        "entry action",
-      );
+      // The body stays validated (closed shape); the token is the identity.
+      parseBody<EntryActionBody>(EntryActionBodySchema, body, "entry action");
       return {
         status: 200,
         body: await trashEntry(context.store, {
           entryId,
-          author: input.author,
+          author: resolveAuthor(auth),
         }),
       };
     },
@@ -2470,19 +2591,16 @@ const ROUTES: Route[] = [
     method: "POST",
     segments: ["api", "entries", ":entryId", "restore"],
     scope: "write",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const entryId = requireParam(params, "entryId");
       const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<EntryActionBody>(
-        EntryActionBodySchema,
-        body,
-        "entry restore",
-      );
+      // The body stays validated (closed shape); the token is the identity.
+      parseBody<EntryActionBody>(EntryActionBodySchema, body, "entry restore");
       return {
         status: 200,
         body: await restoreEntryFromTrash(context.store, {
           entryId,
-          author: input.author,
+          author: resolveAuthor(auth),
         }),
       };
     },
@@ -2493,17 +2611,14 @@ const ROUTES: Route[] = [
     segments: ["api", "entries", ":entryId", "purge"],
     scope: "publish",
     destructive: true,
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const entryId = requireParam(params, "entryId");
       const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<EntryActionBody>(
-        EntryActionBodySchema,
-        body,
-        "entry purge",
-      );
+      // The body stays validated (closed shape); the token is the identity.
+      parseBody<EntryActionBody>(EntryActionBodySchema, body, "entry purge");
       return {
         status: 200,
-        body: await purgeEntry(context.store, { entryId, author: input.author }),
+        body: await purgeEntry(context.store, { entryId, author: resolveAuthor(auth) }),
       };
     },
   },
@@ -2511,7 +2626,7 @@ const ROUTES: Route[] = [
     method: "POST",
     segments: ["api", "entries", ":entryId", "publish"],
     scope: "write",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const entryId = requireParam(params, "entryId");
       const body = (await readJsonBody(req)) ?? {};
       const input = parseBody<PublishEntryBody>(
@@ -2523,7 +2638,7 @@ const ROUTES: Route[] = [
         status: 200,
         body: await publishEntry(context.store, {
           entryId,
-          author: input.author,
+          author: resolveAuthor(auth),
           ...(input.baseVersion === undefined
             ? {}
             : { baseVersion: input.baseVersion }),
@@ -2535,7 +2650,7 @@ const ROUTES: Route[] = [
     method: "POST",
     segments: ["api", "entries", ":entryId", "unpublish"],
     scope: "write",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const entryId = requireParam(params, "entryId");
       const body = (await readJsonBody(req)) ?? {};
       const input = parseBody<PublishEntryBody>(
@@ -2547,7 +2662,7 @@ const ROUTES: Route[] = [
         status: 200,
         body: await unpublishEntry(context.store, {
           entryId,
-          author: input.author,
+          author: resolveAuthor(auth),
           ...(input.baseVersion === undefined
             ? {}
             : { baseVersion: input.baseVersion }),
@@ -2572,10 +2687,11 @@ const ROUTES: Route[] = [
     method: "POST",
     segments: ["api", "entries", ":entryId", "restore-version", ":versionId"],
     scope: "write",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const entryId = requireParam(params, "entryId");
       const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<EntryActionBody>(
+      // The body stays validated (closed shape); the token is the identity.
+      parseBody<EntryActionBody>(
         EntryActionBodySchema,
         body,
         "entry version restore",
@@ -2585,7 +2701,7 @@ const ROUTES: Route[] = [
         body: await restoreEntryVersionAsDraft(context.store, {
           entryId,
           versionId: requireParam(params, "versionId"),
-          author: input.author,
+          author: resolveAuthor(auth),
         }),
       };
     },
@@ -2817,7 +2933,7 @@ const ROUTES: Route[] = [
     method: "POST",
     segments: ["api", "references"],
     scope: "write",
-    handler: async (context, _params, req) => {
+    handler: async (context, _params, req, _url, auth) => {
       const body = (await readJsonBody(req)) ?? {};
       const input = parseBody<AnalyzeReferenceBody>(
         AnalyzeReferenceBodySchema,
@@ -2826,7 +2942,7 @@ const ROUTES: Route[] = [
       );
       const result = await analyzeReference(referenceContext(context), {
         url: input.url,
-        author: input.author,
+        author: resolveAuthor(auth),
         ...(input.name === undefined ? {} : { name: input.name }),
         ...(input.snapshot === undefined ? {} : { snapshot: input.snapshot }),
         ...(input.wait === undefined ? {} : { wait: input.wait }),
@@ -2882,7 +2998,7 @@ const ROUTES: Route[] = [
     method: "POST",
     segments: ["api", "references", "manual"],
     scope: "write",
-    handler: async (context, _params, req) => {
+    handler: async (context, _params, req, _url, auth) => {
       const body = (await readJsonBody(req, MANUAL_REFERENCE_BODY_LIMIT_BYTES)) ?? {};
       const input = parseBody<ManualReferenceBody>(
         ManualReferenceBodySchema,
@@ -2892,7 +3008,10 @@ const ROUTES: Route[] = [
       return {
         status: 201,
         body: {
-          reference: await createManualReference(referenceContext(context), input),
+          reference: await createManualReference(referenceContext(context), {
+            ...input,
+            author: resolveAuthor(auth),
+          }),
         },
       };
     },
@@ -3061,7 +3180,7 @@ const ROUTES: Route[] = [
     method: "POST",
     segments: ["api", "references", ":referenceId", "revisions"],
     scope: "write",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const referenceId = requireParam(params, "referenceId");
       const body = (await readJsonBody(req)) ?? {};
       const input = parseBody<EditReferenceProfileBody>(
@@ -3071,7 +3190,7 @@ const ROUTES: Route[] = [
       );
       const revision = await editReferenceProfile(referenceContext(context), {
         referenceId,
-        author: input.author,
+        author: resolveAuthor(auth),
         ...(input.vocabulary === undefined ? {} : { vocabulary: input.vocabulary }),
         ...(input.families === undefined ? {} : { families: input.families }),
         ...(input.rules === undefined ? {} : { rules: input.rules }),
@@ -3146,7 +3265,7 @@ const ROUTES: Route[] = [
     method: "POST",
     segments: ["api", "sites", ":siteId", "references"],
     scope: "write",
-    handler: async (context, params, req) => {
+    handler: async (context, params, req, _url, auth) => {
       const body = (await readJsonBody(req)) ?? {};
       const input = parseBody<ApplyReferenceBody>(
         ApplyReferenceBodySchema,
@@ -3156,7 +3275,7 @@ const ROUTES: Route[] = [
       const result = await applyReference(referenceContext(context), {
         siteId: requireParam(params, "siteId"),
         referenceId: input.referenceId,
-        author: input.author,
+        author: resolveAuthor(auth),
         ...(input.scales === undefined ? {} : { scales: input.scales }),
       });
       return { status: 201, body: result };
@@ -3319,17 +3438,18 @@ const ROUTES: Route[] = [
     method: "POST",
     segments: ["api", "reference-collections"],
     scope: "write",
-    handler: async (context, _params, req) => {
+    handler: async (context, _params, req, url, auth) => {
       const body = (await readJsonBody(req)) ?? {};
       const input = parseBody<CreateReferenceCollectionBody>(
         CreateReferenceCollectionBodySchema,
         body,
         "reference collection",
       );
-      return {
+      const { idempotencyKey, ...collectionInput } = input;
+      return withIdempotency(context, auth, req, url, idempotencyKey, input, async () => ({
         status: 201,
-        body: { collection: await context.store.createReferenceCollection(input) },
-      };
+        body: { collection: await context.store.createReferenceCollection(collectionInput) },
+      }));
     },
   },
   {

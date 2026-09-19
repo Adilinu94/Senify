@@ -24,6 +24,13 @@ describe("schema helpers", () => {
     expect(sites.has("style_rules_json")).toBe(true);
   });
 
+  it("knows the idempotency response column as JSONB", () => {
+    // The response of an idempotent request is JSONB: a restore hands it back
+    // as JSON text, so the column must be in `jsonColumns`.
+    expect(tableNames()).toContain("idempotency_keys");
+    expect(jsonColumns("idempotency_keys").has("response")).toBe(true);
+  });
+
   it("does not attribute one table's columns to another", () => {
     expect(jsonColumns("site_trash").size).toBe(0);
     expect(jsonColumns("pages").has("style_rules_json")).toBe(false);

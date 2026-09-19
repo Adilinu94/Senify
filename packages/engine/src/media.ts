@@ -4,6 +4,7 @@ import { Type, type Static } from "@sinclair/typebox";
 import { SenifyError } from "@senify/core";
 import type { NodeTree } from "@senify/section-sdk";
 import { newEntityId } from "./ids.ts";
+import { IdempotencyKeySchema } from "./mutations/contract.ts";
 import type { Store } from "./store.ts";
 import {
   assetFilePath,
@@ -41,6 +42,7 @@ export const UploadUrlBodySchema = Type.Object(
     tags: Type.Optional(
       Type.Array(Type.String({ minLength: 1 }), { maxItems: 30 }),
     ),
+    idempotencyKey: Type.Optional(IdempotencyKeySchema),
   },
   CLOSED,
 );

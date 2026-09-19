@@ -1,6 +1,6 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { SenifyError } from "@senify/core";
-import { AuthorSchema } from "./mutations/contract.ts";
+import { AuthorSchema, IdempotencyKeySchema } from "./mutations/contract.ts";
 import {
   REFERENCE_COLLECTION_KINDS,
   REFERENCE_LIST_SORTS,
@@ -208,7 +208,7 @@ export const AnalyzeReferenceBodySchema = Type.Object(
   {
     url: Type.String({ minLength: 1, maxLength: 2048 }),
     name: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
-    author: AuthorSchema,
+    author: Type.Optional(AuthorSchema),
     // false leaves the job queued for the tick route (long captures).
     wait: Type.Optional(Type.Boolean()),
     snapshot: Type.Optional(ReferenceSnapshotBodySchema),
@@ -225,7 +225,7 @@ export type ReferenceTickBody = Static<typeof ReferenceTickBodySchema>;
 
 export const EditReferenceProfileBodySchema = Type.Object(
   {
-    author: AuthorSchema,
+    author: Type.Optional(AuthorSchema),
     note: Type.Optional(Type.String({ maxLength: 500 })),
     // Nachbearbeitung: each edit writes a new profile revision (append-only).
     vocabulary: Type.Optional(
@@ -250,7 +250,7 @@ export type EditReferenceProfileBody = Static<typeof EditReferenceProfileBodySch
 
 export const ApplyReferenceBodySchema = Type.Object(
   {
-    author: AuthorSchema,
+    author: Type.Optional(AuthorSchema),
     referenceId: Type.String({ minLength: 1 }),
     scales: Type.Optional(
       Type.Array(
@@ -310,6 +310,7 @@ export const CreateReferenceCollectionBodySchema = Type.Object(
     ),
     kind: Type.Optional(CollectionKindSchema),
     position: Type.Optional(Type.Integer({ minimum: 0, maximum: 100000 })),
+    idempotencyKey: Type.Optional(IdempotencyKeySchema),
   },
   CLOSED,
 );
@@ -387,7 +388,7 @@ export const ManualReferenceBodySchema = Type.Object(
     // a plain upload leaves it out and gets the time of the upload.
     capturedAt: Type.Optional(Type.String({ minLength: 1, maxLength: 40 })),
     image: Type.String({ minLength: 1, maxLength: MANUAL_REFERENCE_BODY_LIMIT_BYTES }),
-    author: AuthorSchema,
+    author: Type.Optional(AuthorSchema),
   },
   CLOSED,
 );

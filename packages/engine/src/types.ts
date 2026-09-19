@@ -83,9 +83,15 @@ export type AuditEntry = {
 
 export type TokenScope = "read" | "write" | "publish";
 
+// Who a token acts as (ticket 18): the program's own token (dashboard) is a
+// human operator, `senify setup` hands the agent its own token. The audit
+// author is derived from this field server-side; the body can never fake it.
+export type TokenKind = "human" | "agent";
+
 export type ApiToken = {
   id: string;
   name: string;
+  kind: TokenKind;
   scopes: TokenScope[];
   prefix: string;
   createdAt: string;

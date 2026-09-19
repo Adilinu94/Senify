@@ -151,7 +151,9 @@ describe("style rule registry (site-wide)", () => {
     const env = await bootEngine();
     try {
       const site = await createTestSite(env.api, "Ambient");
-      const created = await env.api.request<StyleRuleResponse>({
+      // Ambient rules are a human capability (ticket 18, slice 3): the agent
+      // token is rejected, the editor token is the one that writes them.
+      const created = await env.humanApi.request<StyleRuleResponse>({
         method: "POST",
         path: `/api/sites/${site.id}/style-rules`,
         body: { name: "h1", kind: "ambient", selector: "h1 > span", author: TEST_AUTHOR },
@@ -303,6 +305,7 @@ describe("style rule registry (site-wide)", () => {
   it("takes a canonical editor-document rule unchanged", async () => {
     // The acceptance of ticket 07: a rule as the editor document holds it (the
     // canonical shape) is accepted by the site route and comes back the same.
+    // rawCss is a human capability, so the editor token writes it (ticket 18).
     const env = await bootEngine();
     try {
       const site = await createTestSite(env.api, "Roundtrip");
@@ -324,7 +327,7 @@ describe("style rule registry (site-wide)", () => {
       // save path drops the field and everything else travels unchanged.
       const { order, ...body } = documentRule;
       expect(order).toBe(0);
-      const created = await env.api.request<StyleRuleResponse>({
+      const created = await env.humanApi.request<StyleRuleResponse>({
         method: "POST",
         path: `/api/sites/${site.id}/style-rules`,
         body: { ...body, author: TEST_AUTHOR },

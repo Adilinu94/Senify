@@ -141,7 +141,10 @@ describe("save pipeline against the engine", () => {
       const saved = rules.rules.find((rule) => rule.id === "r-cta");
       expect(saved).toBeDefined();
       expect(saved?.states).toEqual({ hover: { color: "#00ff00" } });
-      expect(saved?.authoredBy).toBe("agent");
+      // Provenance comes from the token (the program's operator token is
+      // "human"), never from the body: the rule is a user rule even though the
+      // document field claims "agent" (ticket 18, slice 3).
+      expect(saved?.authoredBy).toBe("user");
 
       // 3 — a stale version conflicts, keeps the batch and recovers on retry.
       pipeline.acceptVersion(1);

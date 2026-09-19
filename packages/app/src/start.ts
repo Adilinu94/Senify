@@ -2,7 +2,13 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { SenifyError } from "@senify/core";
-import { createEngine, createPgDb, createReviewVisualDriver, type Db } from "@senify/engine";
+import {
+  createEngine,
+  createPgDb,
+  createReviewVisualDriver,
+  type Db,
+  type Store,
+} from "@senify/engine";
 import type { RateLimitConfig, ReferenceDeps, ReviewVisualDriver } from "@senify/engine";
 import { createRegistry } from "@senify/registry";
 import { openBrowser } from "./browser.ts";
@@ -44,20 +50,32 @@ function programTokenPath(): string {
 }
 
 // The dashboard is the local operator surface. It reuses one persisted token
-// (name "Programm") and heals itself when the token was revoked or expired.
+// (name "Programm", kind "human") and heals itself when the token was revoked,
+// expired or still carries the pre-ticket-18 default kind "agent".
 async function ensureOperatorToken(
   engineOrigin: string,
+  store: Store,
   path: string,
 ): Promise<string> {
   try {
     const saved = JSON.parse(readFileSync(path, "utf8")) as {
+      id?: string;
       secret?: string;
     };
     if (typeof saved.secret === "string" && saved.secret !== "") {
       const check = await fetch(`${engineOrigin}/api/whoami`, {
         headers: { authorization: `Bearer ${saved.secret}` },
       });
-      if (check.ok) return saved.secret;
+      if (check.ok) {
+        const who = (await check.json()) as { kind?: string };
+        if (who.kind === "human") return saved.secret;
+        // A token from before ticket 18 carries the default kind "agent":
+        // heal it in place (the secret stays valid, no second token appears).
+        if (typeof saved.id === "string" && saved.id !== "") {
+          await store.updateTokenKind(saved.id, "human");
+          return saved.secret;
+        }
+      }
     }
   } catch {
     // No usable saved token: create one below.
@@ -67,6 +85,7 @@ async function ensureOperatorToken(
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       name: "Programm",
+      kind: "human",
       scopes: ["read", "write", "publish"],
     }),
   });
@@ -147,6 +166,7 @@ export async function startProgram(
   try {
     const operatorToken = await ensureOperatorToken(
       engineServer.origin,
+      engine.store,
       options.programTokenFile ?? programTokenPath(),
     );
     appServer = await createAppServer({

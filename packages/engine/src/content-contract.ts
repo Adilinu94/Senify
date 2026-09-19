@@ -1,6 +1,6 @@
 import { Type, type Static, type TSchema } from "@sinclair/typebox";
 import { SenifyError } from "@senify/core";
-import { AuthorSchema } from "./mutations/contract.ts";
+import { AuthorSchema, IdempotencyKeySchema } from "./mutations/contract.ts";
 import {
   ENTRY_STATUSES,
   MEDIA_KINDS,
@@ -204,7 +204,8 @@ export const CreateEntryBodySchema = Type.Object(
     collectionId: FieldIdSchema,
     slug: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
     cells: Type.Optional(Type.Record(Type.String(), Type.Any())),
-    author: AuthorSchema,
+    idempotencyKey: Type.Optional(IdempotencyKeySchema),
+    author: Type.Optional(AuthorSchema),
   },
   CLOSED,
 );
@@ -221,7 +222,7 @@ export const UpdateEntryBodySchema = Type.Object(
     scheduledAt: Type.Optional(
       Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
     ),
-    author: AuthorSchema,
+    author: Type.Optional(AuthorSchema),
   },
   CLOSED,
 );
@@ -229,7 +230,7 @@ export type UpdateEntryBody = Static<typeof UpdateEntryBodySchema>;
 
 export const PublishEntryBodySchema = Type.Object(
   {
-    author: AuthorSchema,
+    author: Type.Optional(AuthorSchema),
     baseVersion: Type.Optional(Type.Integer({ minimum: 1 })),
   },
   CLOSED,
@@ -248,7 +249,7 @@ export const EntryPreviewBodySchema = Type.Object(
 export type EntryPreviewBody = Static<typeof EntryPreviewBodySchema>;
 
 export const EntryActionBodySchema = Type.Object(
-  { author: AuthorSchema },
+  { author: Type.Optional(AuthorSchema) },
   CLOSED,
 );
 export type EntryActionBody = Static<typeof EntryActionBodySchema>;

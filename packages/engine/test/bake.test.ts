@@ -14,7 +14,7 @@ import {
   type Site,
   type Store,
 } from "@senify/engine";
-import { bootEngine, TEST_AUTHOR, type BootEnv } from "./helpers.ts";
+import { bootEngine, HUMAN_AUTHOR, TEST_AUTHOR, type BootEnv } from "./helpers.ts";
 
 // End-to-end "Blog" (Prüfstelle 2): layout + collection page with
 // `collection-list` + entry template, backed by real collections and entries.
@@ -323,7 +323,7 @@ beforeAll(async () => {
   await store.createStyleRule(
     site.id,
     { kind: "ambient", name: "h1", selector: "h1", styles: { letterSpacing: "0.02em" } },
-    TEST_AUTHOR,
+    HUMAN_AUTHOR,
   );
   // Scoped rules (ADR-0005) are bound to draft node ids; the layout splice
   // rekeys the composed tree, so the bake has to remap them (ticket 22).

@@ -23,11 +23,20 @@ export const TokenScopeSchema = Type.Union([
   Type.Literal("publish"),
 ]);
 
+// The token's identity class (ticket 18): the audit author is derived from it
+// server-side. `human` is the program's own operator token, `agent` is every
+// integration token (`senify setup` creates one).
+export const TokenKindSchema = Type.Union([
+  Type.Literal("human"),
+  Type.Literal("agent"),
+]);
+
 const CLOSED = { additionalProperties: false } as const;
 
 export const CreateTokenBodySchema = Type.Object(
   {
     name: Type.String({ minLength: 1 }),
+    kind: Type.Optional(TokenKindSchema),
     scopes: Type.Optional(Type.Array(TokenScopeSchema, { minItems: 1 })),
     expires: Type.Optional(Type.String({ minLength: 1 })),
   },

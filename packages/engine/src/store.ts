@@ -37,6 +37,12 @@ import { entryConflictError } from "./content-contract.ts";
 import { newEntityId, newNodeId } from "./ids.ts";
 import { validateShape } from "./mutations/contract.ts";
 import { assertPagePathFormat, draftConflictError } from "./paths.ts";
+import {
+  agentStyleViolations,
+  rawCssViolations,
+  styleRuleBags,
+  type StyleBag,
+} from "./style-fence.ts";
 import type { GeneratedVariant } from "./variants.ts";
 import {
   ASSET_KINDS,
@@ -112,6 +118,7 @@ import {
   type SmtpTlsMode,
   type StructureChange,
   type SupportsFlag,
+  type TokenKind,
   type TokenRecord,
   type TokenScope,
 } from "./types.ts";
@@ -330,7 +337,6 @@ type CreateStyleRuleInput = {
   contextStyles?: Record<string, Record<string, unknown>>;
   contextStylePriorities?: Record<string, Record<string, "important">>;
   rawCss?: string;
-  authoredBy?: "user" | "agent" | "preset";
 };
 
 // Turns the transport input into a complete rule through the widget engine
@@ -420,9 +426,6 @@ function withExtras(rule: StyleRule, input: CreateStyleRuleInput): StyleRule {
   if (input.rawCss !== undefined) {
     next = { ...next, rawCss: input.rawCss };
   }
-  if (input.authoredBy !== undefined) {
-    next = { ...next, authoredBy: input.authoredBy };
-  }
   return next;
 }
 
@@ -509,6 +512,7 @@ function mapAudit(row: AuditRow): AuditEntry {
 type TokenRow = {
   id: string;
   name: string;
+  kind: unknown;
   scopes: unknown;
   token_prefix: string;
   created_at: unknown;
@@ -530,6 +534,24 @@ type McpAuditRow = {
   duration_ms: unknown;
   created_at: unknown;
 };
+
+type IdempotencyRow = {
+  fingerprint: string;
+  status: unknown;
+  response: unknown;
+  created_at: unknown;
+};
+
+// A completed idempotent response is replayable for a day; a claim without a
+// response older than two minutes is a crashed attempt and may be taken over.
+const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+const IDEMPOTENCY_STALE_MS = 2 * 60 * 1000;
+
+export type IdempotencyClaim =
+  | { state: "claimed" }
+  | { state: "replay"; status: number; body: unknown }
+  | { state: "in_progress" }
+  | { state: "mismatch" };
 
 type RevisionRow = {
   id: string;
@@ -684,9 +706,13 @@ function mapToken(row: TokenRow): ApiToken {
   ) {
     throw new Error(`Stored token scopes are invalid: ${String(row.scopes)}`);
   }
+  if (row.kind !== "human" && row.kind !== "agent") {
+    throw new Error(`Stored token kind is invalid: ${String(row.kind)}`);
+  }
   return {
     id: row.id,
     name: row.name,
+    kind: row.kind,
     scopes: scopes as TokenScope[],
     prefix: row.token_prefix,
     createdAt: toIso(row.created_at),
@@ -1680,6 +1706,15 @@ export class Store {
           "Only sanitised @keyframes are carried verbatim; everything else is structured.",
       });
     }
+    if (rule.rawCss !== undefined) {
+      const violation = rawCssViolations(rule.rawCss, `${field}.rawCss`)[0];
+      if (violation !== undefined) {
+        throw new SenifyError("validation", violation.message, {
+          field: violation.field,
+          suggestion: violation.suggestion,
+        });
+      }
+    }
     const reserved = reservedContextIds(rule);
     if (reserved.length > 0) {
       throw new SenifyError(
@@ -1689,6 +1724,45 @@ export class Store {
           field: `${field}.contextStyles`,
           suggestion:
             "Use the device suffix form (`padding_tablet`) for tablet and mobile; use context ids only for custom conditions.",
+        },
+      );
+    }
+  }
+
+  // Ticket 18, slice 3: the value-level fence for agent writes. The theme is
+  // loaded only when there is something to check, so human writes pay nothing.
+  async #assertAgentValues(siteId: string, bags: readonly StyleBag[]): Promise<void> {
+    if (bags.length === 0) return;
+    const theme = (await this.getTheme(siteId)).theme;
+    const violation = agentStyleViolations({ theme, bags })[0];
+    if (violation === undefined) return;
+    throw new SenifyError("validation", violation.message, {
+      field: violation.field,
+      suggestion: violation.suggestion,
+    });
+  }
+
+  // Ambient rules and rawCss stay a human capability: an agent cannot author
+  // free selectors or free CSS (ticket 18; ADR-0005 keeps the property space
+  // open, this closes only the value form for agents).
+  #assertAgentRuleKind(rule: { kind: StyleRule["kind"]; rawCss?: string }): void {
+    if (rule.kind === "ambient") {
+      throw new SenifyError(
+        "validation",
+        "Ambient rules are authored in the editor, not by agents",
+        {
+          field: "rule.kind",
+          suggestion: "Use a class or scoped rule; ambient selectors stay human.",
+        },
+      );
+    }
+    if (rule.rawCss !== undefined) {
+      throw new SenifyError(
+        "validation",
+        "rawCss is authored in the editor, not by agents",
+        {
+          field: "rule.rawCss",
+          suggestion: "Use a registered motion preset instead of a custom animation.",
         },
       );
     }
@@ -1722,6 +1796,11 @@ export class Store {
       );
     }
 
+    // Provenance comes from the token, never from the body (ticket 18): only
+    // an agent token produces an agent-authored rule, and a rule created by
+    // the editor stays user-authored even if a body field claims otherwise.
+    rule = { ...rule, authoredBy: author.kind === "agent" ? "agent" : "user" };
+
     // The scope check comes first: a scoped rule derives its name from its node,
     // so a second rule for the same node would also trip the name check and
     // report the wrong cause.
@@ -1732,6 +1811,10 @@ export class Store {
       assertClassNameFree(rules, rule.name, rule.id, "name");
     }
     this.#assertWritableRule(rule, "rule");
+    if (author.kind === "agent") {
+      this.#assertAgentRuleKind(rule);
+      await this.#assertAgentValues(siteId, styleRuleBags(rule, "rule"));
+    }
 
     const next = [...rules, rule];
     const written = await this.#writeStyleRules(siteId, next, {
@@ -1756,7 +1839,6 @@ export class Store {
       contextStyles?: Record<string, Record<string, unknown>>;
       contextStylePriorities?: Record<string, Record<string, "important">>;
       rawCss?: string | null;
-      authoredBy?: "user" | "agent" | "preset";
     },
     author: Author,
   ): Promise<StyleRule> {
@@ -1842,9 +1924,6 @@ export class Store {
       }
       next.states = states;
     }
-    if (patch.authoredBy !== undefined) {
-      next.authoredBy = patch.authoredBy;
-    }
     if (patch.stylePriorities !== undefined) {
       next.stylePriorities = { ...next.stylePriorities, ...patch.stylePriorities };
     }
@@ -1870,6 +1949,49 @@ export class Store {
     }
     next.updatedAt = new Date().toISOString();
     this.#assertWritableRule(next, "rule");
+    if (author.kind === "agent") {
+      // The fence checks only what the patch writes, not the whole rule: a
+      // human value that predates the fence must not block an unrelated edit.
+      if (patch.rawCss !== undefined) {
+        throw new SenifyError(
+          "validation",
+          "rawCss is authored in the editor, not by agents",
+          {
+            field: "rule.rawCss",
+            suggestion: "Use a registered motion preset instead of a custom animation.",
+          },
+        );
+      }
+      if (patch.selector !== undefined) {
+        throw new SenifyError(
+          "validation",
+          "Ambient selectors are authored in the editor, not by agents",
+          {
+            field: "rule.selector",
+            suggestion: "Change the rule's styles; selectors stay human.",
+          },
+        );
+      }
+      const bags: StyleBag[] = [];
+      if (patch.styles !== undefined) {
+        bags.push({ field: "rule.styles", values: patch.styles });
+      }
+      if (patch.states !== undefined) {
+        for (const [state, values] of Object.entries(patch.states)) {
+          if (values !== undefined) {
+            bags.push({ field: `rule.states.${state}`, values });
+          }
+        }
+      }
+      if (patch.contextStyles !== undefined) {
+        for (const [contextId, values] of Object.entries(patch.contextStyles)) {
+          if (values !== undefined) {
+            bags.push({ field: `rule.contextStyles.${contextId}`, values });
+          }
+        }
+      }
+      await this.#assertAgentValues(siteId, bags);
+    }
 
     const result = [...rules];
     result[index] = next;
@@ -1928,12 +2050,23 @@ export class Store {
     }
     if (from === toIndex) return rules;
 
+    const moved = rules[from]!;
+    // Reordering a rule another author wrote is allowed, but the audit marks
+    // it (ticket 18, point 2): the rule keeps its provenance, the entry names
+    // the foreign authorship.
+    const expected = author.kind === "agent" ? "agent" : "user";
+    const authoredBy = moved.authoredBy ?? "user";
     const next = [...rules];
-    const [moved] = next.splice(from, 1);
-    next.splice(toIndex, 0, moved!);
+    next.splice(from, 1);
+    next.splice(toIndex, 0, moved);
     return this.#writeStyleRules(siteId, next, {
       mutation: "reorder_style_rule",
-      params: { ruleId, from, to: toIndex },
+      params: {
+        ruleId,
+        from,
+        to: toIndex,
+        ...(authoredBy === expected ? {} : { foreignAuthoredBy: authoredBy }),
+      },
       author,
     });
   }
@@ -2278,6 +2411,7 @@ export class Store {
     name: string;
     scopes: TokenScope[];
     expiresAt: string | null;
+    kind?: TokenKind;
   }): Promise<{ token: ApiToken; secret: string }> {
     const name = input.name.trim();
     if (!name) {
@@ -2293,15 +2427,19 @@ export class Store {
         suggestion: 'Use one or more of "read", "write", "publish".',
       });
     }
+    // Default "agent": a token created by hand is an integration, not the
+    // program's own operator identity (ticket 18).
+    const kind: TokenKind = input.kind ?? "agent";
     const generated = generateToken();
     const id = newEntityId();
     await this.#db.query(
       `INSERT INTO api_tokens
-        (id, name, scopes, token_hash, token_prefix, created_at, expires_at, last_used_at, revoked_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, NULL)`,
+        (id, name, kind, scopes, token_hash, token_prefix, created_at, expires_at, last_used_at, revoked_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL)`,
       [
         id,
         name,
+        kind,
         toJsonParam(scopes),
         generated.hash,
         generated.prefix,
@@ -2314,7 +2452,7 @@ export class Store {
 
   async getToken(id: string): Promise<ApiToken> {
     const result = await this.#db.query<TokenRow>(
-      `SELECT id, name, scopes, token_prefix, created_at, expires_at, last_used_at, revoked_at
+      `SELECT id, name, kind, scopes, token_prefix, created_at, expires_at, last_used_at, revoked_at
        FROM api_tokens WHERE id = $1`,
       [id],
     );
@@ -2330,7 +2468,7 @@ export class Store {
 
   async listTokens(): Promise<ApiToken[]> {
     const result = await this.#db.query<TokenRow>(
-      `SELECT id, name, scopes, token_prefix, created_at, expires_at, last_used_at, revoked_at
+      `SELECT id, name, kind, scopes, token_prefix, created_at, expires_at, last_used_at, revoked_at
        FROM api_tokens ORDER BY created_at DESC, id DESC`,
     );
     return result.rows.map(mapToken);
@@ -2338,7 +2476,7 @@ export class Store {
 
   async findTokenByHash(tokenHash: string): Promise<TokenRecord | undefined> {
     const result = await this.#db.query<TokenRecordRow>(
-      `SELECT id, name, scopes, token_hash, token_prefix, created_at, expires_at, last_used_at, revoked_at
+      `SELECT id, name, kind, scopes, token_hash, token_prefix, created_at, expires_at, last_used_at, revoked_at
        FROM api_tokens WHERE token_hash = $1`,
       [tokenHash],
     );
@@ -2362,6 +2500,120 @@ export class Store {
     await this.#db.query(
       `UPDATE api_tokens SET last_used_at = $2 WHERE id = $1`,
       [id, new Date().toISOString()],
+    );
+  }
+
+  // Self-healing for the program's own token (ticket 18): an installation from
+  // before the `kind` column carries "agent" by default; the operator heals
+  // its token to "human" on the next start instead of recreating it.
+  async updateTokenKind(id: string, kind: TokenKind): Promise<void> {
+    const updated = await this.#db.query<{ id: string }>(
+      `UPDATE api_tokens SET kind = $2
+       WHERE id = $1 AND kind <> $2 RETURNING id`,
+      [id, kind],
+    );
+    if (updated.rows.length > 0) return;
+    await this.getToken(id);
+  }
+
+  // ------------------------------------------------------- idempotency keys
+
+  // Claim-first (ticket 18, slice 2): the slot is taken before the operation
+  // runs, so two concurrent requests with the same key cannot both write.
+  // A completed slot replays its stored response; a slot still in flight
+  // answers "in_progress"; a slot from a crashed attempt (older than the stale
+  // window) may be taken over once. The fingerprint pins the key to the body,
+  // so reusing it for a different request fails loudly instead of replaying a
+  // foreign response.
+  async claimIdempotencyKey(input: {
+    tokenId: string;
+    route: string;
+    key: string;
+    fingerprint: string;
+  }): Promise<IdempotencyClaim> {
+    const now = new Date().toISOString();
+    await this.#db.query(`DELETE FROM idempotency_keys WHERE created_at < $1`, [
+      new Date(Date.now() - IDEMPOTENCY_TTL_MS).toISOString(),
+    ]);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        await this.#db.query(
+          `INSERT INTO idempotency_keys
+            (token_id, route, idempotency_key, fingerprint, status, response, created_at)
+           VALUES ($1, $2, $3, $4, NULL, NULL, $5)`,
+          [input.tokenId, input.route, input.key, input.fingerprint, now],
+        );
+        return { state: "claimed" };
+      } catch (error) {
+        if (!isUniqueViolation(error)) throw error;
+      }
+      const existing = await this.#db.query<IdempotencyRow>(
+        `SELECT fingerprint, status, response, created_at FROM idempotency_keys
+         WHERE token_id = $1 AND route = $2 AND idempotency_key = $3`,
+        [input.tokenId, input.route, input.key],
+      );
+      const row = existing.rows[0];
+      // Raced with a release between insert and read: try to claim again.
+      if (row === undefined) continue;
+      if (row.status === null || row.response === null) {
+        const age = Date.now() - Date.parse(toIso(row.created_at));
+        if (age <= IDEMPOTENCY_STALE_MS) return { state: "in_progress" };
+        // A crashed attempt never completes: release it and claim once more.
+        await this.#db.query(
+          `DELETE FROM idempotency_keys
+           WHERE token_id = $1 AND route = $2 AND idempotency_key = $3`,
+          [input.tokenId, input.route, input.key],
+        );
+        continue;
+      }
+      if (row.fingerprint !== input.fingerprint) return { state: "mismatch" };
+      return {
+        state: "replay",
+        status: toFiniteNumber(row.status, "status"),
+        body: toJson<unknown>(row.response),
+      };
+    }
+    throw new SenifyError(
+      "conflict",
+      "Idempotency key could not be claimed",
+      {
+        field: "idempotencyKey",
+        suggestion: "Retry the request; use a fresh key for a new operation.",
+      },
+    );
+  }
+
+  async completeIdempotencyKey(input: {
+    tokenId: string;
+    route: string;
+    key: string;
+    status: number;
+    body: unknown;
+  }): Promise<void> {
+    await this.#db.query(
+      `UPDATE idempotency_keys SET status = $4, response = $5
+       WHERE token_id = $1 AND route = $2 AND idempotency_key = $3`,
+      [
+        input.tokenId,
+        input.route,
+        input.key,
+        input.status,
+        toJsonParam(input.body ?? null),
+      ],
+    );
+  }
+
+  // A failed attempt does not burn the key: releasing it lets the caller retry
+  // with the same key (and a corrected body, if the failure was validation).
+  async releaseIdempotencyKey(input: {
+    tokenId: string;
+    route: string;
+    key: string;
+  }): Promise<void> {
+    await this.#db.query(
+      `DELETE FROM idempotency_keys
+       WHERE token_id = $1 AND route = $2 AND idempotency_key = $3`,
+      [input.tokenId, input.route, input.key],
     );
   }
 

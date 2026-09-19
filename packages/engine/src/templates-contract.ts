@@ -33,7 +33,7 @@ export const PutPageTemplateBodySchema = Type.Object(
     layoutId: Type.Optional(
       Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
     ),
-    author: AuthorSchema,
+    author: Type.Optional(AuthorSchema),
   },
   CLOSED,
 );

@@ -166,6 +166,19 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     expect(byName.get("update_theme")?.annotations?.idempotentHint).toBe(true);
     expect(byName.get("create_page")?.annotations?.idempotentHint).toBe(false);
     expect(byName.get("apply_mutations")?.annotations?.idempotentHint).toBe(false);
+    // The create tools accept the opt-in key (ticket 18, slice 2); without it
+    // the call stays non-idempotent, so the hint remains false.
+    for (const name of [
+      "create_page",
+      "create_entry",
+      "upload_asset",
+      "create_reference_collection",
+    ]) {
+      const schema = byName.get(name)?.inputSchema as {
+        properties?: Record<string, unknown>;
+      };
+      expect(schema.properties?.idempotencyKey).toBeDefined();
+    }
   });
 
   it("serves the documentation tools", async () => {
@@ -307,6 +320,28 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     } finally {
       await reader.close();
     }
+  });
+
+  it("passes an idempotency key through create_page and reuses the first result", async () => {
+    const siteId = await createSite(env, "MCP Idempotenz");
+    const first = await call(session, "create_page", {
+      siteId,
+      title: "Einmalig",
+      idempotencyKey: "mcp-key-1",
+    });
+    expect(first.ok).toBe(true);
+
+    const retry = await call(session, "create_page", {
+      siteId,
+      title: "Einmalig",
+      idempotencyKey: "mcp-key-1",
+    });
+    expect(retry.ok).toBe(true);
+    expect(retry.data.id).toBe(first.data.id);
+
+    const pages = await call(session, "list_pages", { siteId });
+    const ids = (pages.data.pages as { id: string }[]).map((page) => page.id);
+    expect(ids.filter((id) => id === first.data.id)).toHaveLength(1);
   });
 
   it("runs the review loop: publish → submit → request changes → fix → approve", async () => {

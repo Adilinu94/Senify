@@ -215,7 +215,13 @@ export type BootEnv = {
   engine: Engine;
   server: EngineServer;
   api: ApiHarness;
+  // A second token of kind "human": the style-rule fence (ticket 18, slice 3)
+  // distinguishes agent and editor writes, so tests need both identities.
+  humanApi: ApiHarness;
   registry: Registry;
+  // Direct database access for tests that must inspect or seed rows the HTTP
+  // surface does not expose (e.g. a stale idempotency claim).
+  db: Db;
   token: string;
   close(): Promise<void>;
 };
@@ -259,17 +265,38 @@ export async function bootEngine(
   const created = await bootstrap.request<{ secret: string }>({
     method: "POST",
     path: "/api/tokens",
-    body: { name: "engine-tests", scopes: ["read", "write", "publish"] },
+    body: {
+      name: "engine-tests",
+      kind: "agent",
+      scopes: ["read", "write", "publish"],
+    },
   });
   if (created.status !== 201) {
     throw new Error(`Token bootstrap failed: ${JSON.stringify(created.body)}`);
   }
   const api = createApiHarness(server.origin, { token: created.body.secret });
+  const humanCreated = await bootstrap.request<{ secret: string }>({
+    method: "POST",
+    path: "/api/tokens",
+    body: {
+      name: "engine-human",
+      kind: "human",
+      scopes: ["read", "write", "publish"],
+    },
+  });
+  if (humanCreated.status !== 201) {
+    throw new Error(`Human token bootstrap failed: ${JSON.stringify(humanCreated.body)}`);
+  }
+  const humanApi = createApiHarness(server.origin, {
+    token: humanCreated.body.secret,
+  });
   return {
     engine,
     server,
     api,
+    humanApi,
     registry,
+    db: database.db,
     token: created.body.secret,
     async close() {
       await server.close();
@@ -279,10 +306,27 @@ export async function bootEngine(
   };
 }
 
+// The body author stays a suggestion since ticket 18: the engine derives the
+// audited author from the bearer token. TEST_AUTHOR is what tests send;
+// TOKEN_AUTHOR is what the engine records (the harness token's identity).
 export const TEST_AUTHOR = {
   kind: "agent",
   id: "agent-test-1",
   label: "Test Agent",
+} as const;
+
+export const TOKEN_AUTHOR = {
+  kind: "agent",
+  id: "engine-tests",
+  label: "engine-tests",
+} as const;
+
+// The human identity of the harness: ambient rules and rawCss are a human
+// capability (ticket 18, slice 3), so store-level tests need both kinds.
+export const HUMAN_AUTHOR = {
+  kind: "human",
+  id: "engine-human",
+  label: "engine-human",
 } as const;
 
 export type SiteResponse = {

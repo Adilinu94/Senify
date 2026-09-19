@@ -1027,7 +1027,7 @@ export async function updateCollection(
 
 export async function createEntry(
   store: Store,
-  input: { siteId: string; body: CreateEntryBody },
+  input: { siteId: string; body: CreateEntryBody & { author: Author } },
 ): Promise<Entry> {
   const collection = await collectionFor(
     store,
@@ -1087,7 +1087,7 @@ function deriveSlug(
 
 export async function updateEntry(
   store: Store,
-  input: { entryId: string; body: UpdateEntryBody },
+  input: { entryId: string; body: UpdateEntryBody & { author: Author } },
 ): Promise<Entry> {
   const entry = await store.getEntry(input.entryId);
   if (entry.deletedAt !== null) {

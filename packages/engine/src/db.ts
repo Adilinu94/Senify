@@ -475,6 +475,10 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   `ALTER TABLE design_references ADD COLUMN IF NOT EXISTS hero_usage text`,
   `ALTER TABLE design_references ADD COLUMN IF NOT EXISTS family text`,
   `ALTER TABLE design_references ADD COLUMN IF NOT EXISTS origin text`,
+  // Token identity (ticket 18): `kind` decides how the audit author is derived
+  // from the token. Existing rows default to "agent" (fail-closed); the
+  // program's own token heals itself to "human" on the next start.
+  `ALTER TABLE api_tokens ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'agent'`,
   `CREATE INDEX IF NOT EXISTS design_references_collection_idx
     ON design_references (collection_id)`,
   // Style rule registry (Phase 2). The rules are site-wide — a reusable class
@@ -519,6 +523,23 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     secret text NOT NULL,
     created_at timestamptz NOT NULL
   )`,
+  // Idempotency keys (ticket 18, slice 2): a create request may carry an
+  // `idempotencyKey`; a retry with the same key on the same route replays the
+  // stored response instead of creating a second entity. The row is claimed
+  // before the operation runs (`status`/`response` stay NULL while it is in
+  // flight), so a concurrent duplicate is rejected instead of writing twice.
+  `CREATE TABLE IF NOT EXISTS idempotency_keys (
+    token_id text NOT NULL,
+    route text NOT NULL,
+    idempotency_key text NOT NULL,
+    fingerprint text NOT NULL,
+    status integer,
+    response jsonb,
+    created_at timestamptz NOT NULL,
+    PRIMARY KEY (token_id, route, idempotency_key)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idempotency_keys_created_idx
+    ON idempotency_keys (created_at)`,
 ];
 
 export async function ensureSchema(db: Db): Promise<void> {

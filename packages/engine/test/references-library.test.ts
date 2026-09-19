@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { MANUAL_REFERENCE_MAX_BYTES } from "@senify/engine";
-import { bootEngine, TEST_AUTHOR, type BootEnv, type ErrorResponse } from "./helpers.ts";
+import { bootEngine, TEST_AUTHOR, TOKEN_AUTHOR, type BootEnv, type ErrorResponse } from "./helpers.ts";
 
 // Header-only PNG (IHDR): the manual upload sniffs the 8-byte signature and
 // reads the size at offsets 16/20, so magic plus IHDR bytes are enough.
@@ -456,7 +456,7 @@ describe("reference library (T14, collections and briefs)", () => {
       `/api/references/${String(reference.id)}/snapshots/manual-fullpage-1.png`,
     );
     expect((reference.provenance as Json).method).toBe("manual");
-    expect((reference.provenance as Json).author).toEqual(TEST_AUTHOR);
+    expect((reference.provenance as Json).author).toEqual(TOKEN_AUTHOR);
 
     const wrongType = await env.api.request<ErrorResponse>({
       method: "POST",
@@ -493,13 +493,14 @@ describe("reference library (T14, collections and briefs)", () => {
     expect(noName.status).toBe(400);
     expect(noName.body.error.field).toBe("name");
 
-    const noAuthor = await env.api.request<ErrorResponse>({
+    // Since ticket 18 the token carries the identity; the body author is a
+    // suggestion and may be omitted entirely.
+    const noAuthor = await env.api.request<ReferenceBody>({
       method: "POST",
       path: "/api/references/manual",
       body: { name: "Ohne Autor", image: pngImage() },
     });
-    expect(noAuthor.status).toBe(400);
-    expect(noAuthor.body.error.field).toBe("author");
+    expect(noAuthor.status).toBe(201);
 
     const noImage = await env.api.request<ErrorResponse>({
       method: "POST",

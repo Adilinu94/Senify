@@ -17,7 +17,7 @@ export const UpdateSiteBodySchema = Type.Object(
   {
     name: Type.Optional(Type.String({ minLength: 1 })),
     profile: Type.Optional(SiteProfileSchema),
-    author: AuthorSchema,
+    author: Type.Optional(AuthorSchema),
   },
   CLOSED,
 );
@@ -25,7 +25,7 @@ export type UpdateSiteBody = Static<typeof UpdateSiteBodySchema>;
 
 export const SiteEventBodySchema = Type.Object(
   {
-    author: AuthorSchema,
+    author: Type.Optional(AuthorSchema),
   },
   CLOSED,
 );
@@ -34,7 +34,7 @@ export type SiteEventBody = Static<typeof SiteEventBodySchema>;
 export const DuplicateSiteBodySchema = Type.Object(
   {
     withContent: Type.Optional(Type.Boolean()),
-    author: AuthorSchema,
+    author: Type.Optional(AuthorSchema),
   },
   CLOSED,
 );
@@ -106,7 +106,7 @@ export const CreateStyleRuleBodySchema = Type.Object(
     contextStylePriorities: Type.Optional(Type.Record(Type.String(), PriorityMapSchema)),
     rawCss: Type.Optional(Type.String()),
     authoredBy: Type.Optional(StyleRuleAuthorSchema),
-    author: AuthorSchema,
+    author: Type.Optional(AuthorSchema),
   },
   CLOSED,
 );
@@ -125,7 +125,7 @@ export const UpdateStyleRuleBodySchema = Type.Object(
     contextStylePriorities: Type.Optional(Type.Record(Type.String(), PriorityMapSchema)),
     rawCss: Type.Optional(Type.Union([Type.String(), Type.Null()])),
     authoredBy: Type.Optional(StyleRuleAuthorSchema),
-    author: AuthorSchema,
+    author: Type.Optional(AuthorSchema),
   },
   CLOSED,
 );
@@ -134,7 +134,7 @@ export type UpdateStyleRuleBody = Static<typeof UpdateStyleRuleBodySchema>;
 export const ReorderStyleRuleBodySchema = Type.Object(
   {
     index: Type.Integer({ minimum: 0 }),
-    author: AuthorSchema,
+    author: Type.Optional(AuthorSchema),
   },
   CLOSED,
 );

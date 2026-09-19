@@ -5,6 +5,7 @@ import {
   createTestPage,
   createTestSite,
   TEST_AUTHOR,
+  TOKEN_AUTHOR,
   type BootEnv,
   type PageResponse,
 } from "./helpers.ts";
@@ -97,7 +98,7 @@ describe("site themes", () => {
     const siteAudit = await env.engine.store.listSiteAudit(siteId, 10);
     const themeEntry = siteAudit.find((entry) => entry.mutation === "update_theme");
     expect(themeEntry).toBeDefined();
-    expect(themeEntry?.author).toEqual({ ...TEST_AUTHOR });
+    expect(themeEntry?.author).toEqual({ ...TOKEN_AUTHOR });
     expect(themeEntry?.pageId).toBeNull();
   });
 
@@ -130,9 +131,11 @@ describe("site themes", () => {
     ).toBe("scales.brand");
   });
 
-  it("requires an author", async () => {
+  it("accepts a theme write without a body author", async () => {
+    // Since ticket 18 the token carries the identity; the body author is a
+    // suggestion and may be omitted entirely.
     const response = await putTheme({ theme: { scales: { brand: "#000000" } } });
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(200);
   });
 });
 

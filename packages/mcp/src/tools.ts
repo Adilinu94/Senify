@@ -544,21 +544,24 @@ export const TOOLS: ToolDefinition[] = [
     name: "create_page",
     title: "Create page",
     description:
-      "Creates a page on a site and returns it with an empty node tree. The path defaults to a slug of the title; \"/\" is the home page.",
+      "Creates a page on a site and returns it with an empty node tree. The path defaults to a slug of the title; \"/\" is the home page. Pass an idempotencyKey to make a retry return the first result instead of creating a duplicate.",
     scope: "write",
     inputSchema: objectSchema({
       siteId: { type: "string" },
       title: { type: "string" },
       path: { type: "string" },
+      idempotencyKey: { type: "string" },
     }, ["siteId"]),
     entity: (args) => `site:${String(args.siteId ?? "")}`,
     handler: async (context, args) => {
       const siteId = requireString(args, "siteId");
       const title = optionalString(args, "title");
       const path = optionalString(args, "path");
+      const idempotencyKey = optionalString(args, "idempotencyKey");
       return context.client.request("POST", `/api/sites/${siteId}/pages`, {
         ...(title === undefined ? {} : { title }),
         ...(path === undefined ? {} : { path }),
+        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
       });
     },
   },
@@ -773,7 +776,7 @@ export const TOOLS: ToolDefinition[] = [
     name: "upload_asset",
     title: "Upload asset",
     description:
-      "Uploads a local file to the media library: asks for a signed upload URL, sends the bytes and returns the asset record. Identical bytes dedupe onto the existing asset instead of creating a second record.",
+      "Uploads a local file to the media library: asks for a signed upload URL, sends the bytes and returns the asset record. Identical bytes dedupe onto the existing asset instead of creating a second record. Pass an idempotencyKey to make a retry reuse the first upload URL.",
     scope: "write",
     inputSchema: objectSchema(
       {
@@ -783,6 +786,7 @@ export const TOOLS: ToolDefinition[] = [
         decorative: { type: "boolean" },
         folderId: { type: "string" },
         tags: { type: "array", items: { type: "string" } },
+        idempotencyKey: { type: "string" },
       },
       ["siteId", "filePath"],
     ),
@@ -799,6 +803,8 @@ export const TOOLS: ToolDefinition[] = [
       if (folderId !== undefined) extra.folderId = folderId;
       const tags = optionalStringArray(args, "tags");
       if (tags !== undefined) extra.tags = tags;
+      const idempotencyKey = optionalString(args, "idempotencyKey");
+      if (idempotencyKey !== undefined) extra.idempotencyKey = idempotencyKey;
       return uploadLocalFile(context, { siteId, filePath, extra });
     },
   },
@@ -1003,7 +1009,7 @@ export const TOOLS: ToolDefinition[] = [
     name: "create_entry",
     title: "Create entry",
     description:
-      "Creates a draft entry in a collection. Cells are keyed by field id (see get_collection) and may stay incomplete; required fields are checked at publish. Without a slug it is derived from the title field.",
+      "Creates a draft entry in a collection. Cells are keyed by field id (see get_collection) and may stay incomplete; required fields are checked at publish. Without a slug it is derived from the title field. Pass an idempotencyKey to make a retry return the first result instead of creating a duplicate.",
     scope: "write",
     inputSchema: objectSchema(
       {
@@ -1011,6 +1017,7 @@ export const TOOLS: ToolDefinition[] = [
         collectionId: { type: "string" },
         cells: { type: "object" },
         slug: { type: "string" },
+        idempotencyKey: { type: "string" },
       },
       ["siteId", "collectionId"],
     ),
@@ -1020,11 +1027,13 @@ export const TOOLS: ToolDefinition[] = [
       const cells =
         args.cells === undefined ? undefined : requireRecord(args, "cells");
       const slug = optionalString(args, "slug");
+      const idempotencyKey = optionalString(args, "idempotencyKey");
       const name = await context.client.tokenName();
       return context.client.request("POST", `/api/sites/${siteId}/entries`, {
         collectionId: requireString(args, "collectionId"),
         ...(cells === undefined ? {} : { cells }),
         ...(slug === undefined ? {} : { slug }),
+        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
         author: { kind: "agent", id: name, label: name },
       });
     },
@@ -1334,7 +1343,7 @@ export const TOOLS: ToolDefinition[] = [
     name: "create_reference_collection",
     title: "Create reference collection",
     description:
-      "Legt eine Sammlung der Referenz-Bibliothek an: name ist Pflicht, description, deployFor, vocabulary, risk, accent, imageStyle, recognize, examples (je name und url), warning, kind und position sind optional. kind=style legt einen Eintrag des Stil-Katalogs an. Nutze list_reference_collections für die bestehenden Sammlungen und assign_reference_to_collection, um Referenzen zuzuordnen.",
+      "Legt eine Sammlung der Referenz-Bibliothek an: name ist Pflicht, description, deployFor, vocabulary, risk, accent, imageStyle, recognize, examples (je name und url), warning, kind und position sind optional. kind=style legt einen Eintrag des Stil-Katalogs an. Nutze list_reference_collections für die bestehenden Sammlungen und assign_reference_to_collection, um Referenzen zuzuordnen. idempotencyKey lässt einen Retry die erste Antwort liefern statt eines Duplikats.",
     scope: "write",
     inputSchema: objectSchema(
       {
@@ -1350,6 +1359,7 @@ export const TOOLS: ToolDefinition[] = [
         warning: { type: "string" },
         kind: { type: "string", enum: ["collection", "style"] },
         position: { type: "number" },
+        idempotencyKey: { type: "string" },
       },
       ["name"],
     ),
@@ -1368,6 +1378,7 @@ export const TOOLS: ToolDefinition[] = [
       const warning = optionalNullableString(args, "warning");
       const kind = optionalString(args, "kind");
       const position = optionalNumber(args, "position");
+      const idempotencyKey = optionalString(args, "idempotencyKey");
       return context.client.request("POST", "/api/reference-collections", {
         name,
         ...(description === undefined ? {} : { description }),
@@ -1381,6 +1392,7 @@ export const TOOLS: ToolDefinition[] = [
         ...(warning === undefined ? {} : { warning }),
         ...(kind === undefined ? {} : { kind }),
         ...(position === undefined ? {} : { position }),
+        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
       });
     },
   },
