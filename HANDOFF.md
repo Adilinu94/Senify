@@ -208,6 +208,11 @@ Restliste.
   bleiben bewusst: Test-Logs (`.scratch/testlauf*.log`, `vitest-browser.*`), Screenshots
   (`FireShot-*.jpg`, `refs/nick/`, `refs/aufnahmen/`), `.backup-18-09/` und Debug-Artefakte
   in `.scratch/refs/` (`*-mine.*`, `debug-*.ts`, `commit-msg.txt`).
+- **Welle 1, Teil 1 (19.09., uncommittet):** Ticket 11 (`hiddenDevices` + property-weiser
+  Reset, L2), E17 Scheibe 1 (Undo-Integritätsprüfung), E4 Scheibe 0 (MCP-Annotations-Matrix +
+  Server-Instructions). `pnpm test` **1183/2/132** (Log `.scratch/testlauf-19-09-welle1.log`),
+  typecheck 0, lint 0. Offen aus Welle 1: Ticket 18 (Author aus Token, Idempotency-Keys,
+  Fence) — Scheiben-Plan im Ticket `.scratch/editor-v2-rebuild/issues/18-agent-style-gate.md`.
 
 ### 2.5 Motion: M0–M5 + Site-Profil (18.09.)
 

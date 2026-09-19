@@ -114,6 +114,19 @@ gehoeren bewusst **nicht** in die Undo-History (Webstudio-Muster). Hinweis: `doc
 wurde parallel um „Teil II" (§10–§16: Referenz-Transfer, Anti-Slop, Editor-Tiefe) erweitert —
 beide Teile koexistieren; nichts ueberschrieben. Kein Produktcode geaendert.
 
+**Welle 1, Teil 1 (19.09., umgesetzt):** Drei Fundament-Pakete aus §9 des Verbesserungsplans:
+(1) **Ticket 11** — `hiddenDevices` im Editor-Modell, v1-Lift ohne Datenverlust (Migration +
+Roundtrip-Test), Renderer-Mapping über `isHiddenAt` (Adapter), neue Editor-Mutation
+`setNodeHiddenDevices` (Bridge schreibt beide Devices idempotent), `NodeSpec.overrides` fuer
+Duplikat/Undo; dazu der **property-weise Reset (L2):** `clearBreakpointOverride` mit optionalen
+`props`/`hidden` statt „ganzer Breakpoint weg" (inkl. korrektem Undo-Patch). (2) **E17 Scheibe 1** —
+`applyUndoBatch` laeuft durch `validateTreeIntegrity` und meldet stale Undos als Warnung statt
+stiller Korruption. (3) **E4 Scheibe 0** — MCP-Annotations-Matrix (destruktiv nur
+Delete/Rollback/Restore, openWorld nur `analyze_reference`, idempotent je Semantik) plus
+Server-Instructions. Verifiziert: `pnpm test` **1183/2/132**, typecheck 0, lint 0 (Log
+`.scratch/testlauf-19-09-welle1.log`). Offen aus Welle 1: Ticket 18 (Author aus Token,
+Idempotency-Keys, Fence) — Scheiben-Plan im Ticket dokumentiert.
+
 **Baseline 19.09. (committet):** Drei Commits sichern den bis dahin uncommitteten Stand:
 `d434ffc` (Produktcode: Motion M0–M5, Style-Pipeline, Live-Modus, Transport — 111 Dateien),
 `49bacbd` (Planung: Tickets 07–22, ADRs 0004–0006, Verbesserungsplan, HANDOFF), `e62fe1f`

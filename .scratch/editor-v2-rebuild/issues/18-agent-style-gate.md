@@ -74,6 +74,28 @@ Regelliste als Tests.
 
 - Testdatei zeigt je Regel: Ablehnungsfall (mit erwartetem field/suggestion) und
   Durchlassfall.
-- Ein Agent-Batch mit Roh-Hex bei vorhandenem Token schlägt fehl, OHNE dass etwas
+- Ein Agent-Batch mit Roh-Hex bei vorhandenem Token schlaegt fehl, OHNE dass etwas
   geschrieben wird (Transaktionsgarantie aus dem Store/Batch-Pfad bleibt intakt).
 - `pnpm test`, `pnpm typecheck`, `pnpm lint` gruen.
+
+## Nachtrag 19.09. (Befund + Scheiben-Plan aus Welle 1)
+
+Die Audit-Luecke aus dem Verbesserungsplan (E3) beruehrt dieses Ticket: `author` ist ein freies
+Body-Feld (`contract.ts:375-383`) und wird ungeprueft auditiert — Identitaetsfaelschung moeglich.
+Befund der Planung: Die Author-Nutzung zieht sich durch **25+ Stellen** in `http.ts`
+(`parsed.author`/`input.author` an Store/Audit/Events); eine zentrale Body-Parse-Stelle mit
+Auth-Zugriff gibt es nicht (`readJsonBody` kennt die Auth nicht).
+
+**Scheiben-Plan (naechste Session, in dieser Reihenfolge):**
+
+1. **Author-Resolver (Scheibe 1):** `AuthInfo` in den Route-Kontext reichen; Helper
+   `resolveAuthor(auth, body)` — Identitaet (`id`/`label`) **immer** aus `auth.tokenName`;
+   `kind` aus dem Token (neues additives Token-Feld `kind: "human" | "agent"`: Programm-Token
+   human, `senify setup` agent, `tokens create --kind`); alle `author:`-Stellen umstellen.
+   Test: ein direkter API-Call kann keine fremde Identitaet auditieren.
+2. **Idempotency-Keys (Scheibe 2):** `create_page`, `create_entry`, `upload_asset`,
+   `create_reference_collection` mit optionalem Key (Unique-Constraint; Retry liefert die
+   gleiche Antwort statt eines Duplikats).
+3. **Fence (Scheibe 3, Kern dieses Tickets):** `authoredBy`-Pflicht im Style-Schreibpfad —
+   Agenten nur Token-Referenzen (`$token`), `ambient`/`rawCss` nur `user`; Regelliste als Tests
+   (wie oben unter Abnahme beschrieben).
