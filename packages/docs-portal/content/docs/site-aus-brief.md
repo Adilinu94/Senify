@@ -43,3 +43,7 @@ Seitenstruktur und Sektionsfolge als kurze Textliste vorschlagen — ebenfalls *
 - **Drafts first** — nie direkt „live" denken; Releases entstehen aus Revisionen.
 - **Katalog vor Erfindung** — es gibt 25 kuratierte Sektionen; lieber Variante und Props nutzen als Layouts improvisieren.
 - **Fehler als Anweisung lesen** — Kategorie, Feld, Vorschlag: siehe [Fehlercodes](/reference/errors).
+
+## Verwandt
+
+- Ein Redesign im Stil vorhandener Referenzen läuft über das Paket aus `plan_redesign`: siehe [Redesign aus Referenzen](/guides/redesign-aus-referenzen).

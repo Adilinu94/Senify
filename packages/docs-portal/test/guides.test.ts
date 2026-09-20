@@ -61,6 +61,7 @@ describe("curated guides", () => {
       "/getting-started",
       "/guides/assets",
       "/guides/motion",
+      "/guides/redesign-aus-referenzen",
       "/guides/site-aus-brief",
       "/platform/sites-and-pages",
     ]);

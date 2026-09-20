@@ -77,3 +77,17 @@ _Avoid_: Version, Bundle, Deployment
 
 **Mutation**: Eine benannte, typisierte Schreiboperation; die einzige öffentliche Schreib-API für Editor, MCP und Agenten.
 _Avoid_: Patch, Edit, Änderung
+
+### Referenzen
+
+**Referenz**: Ein Vorbild in der Bibliothek, aus dem ein Projekt Stil-Skalen ableitet (analysiert per URL oder als Import abgelegt).
+_Avoid_: Inspirationsquelle, Vorlage, Template
+
+**Referenz-Dokumente (`documents`)**: Die Originaltexte einer importierten Referenz (`design`, `guidelines`, `components`), wie sie im Referenzen-Tab stehen und der Agent liest.
+_Avoid_: Anhang, Datei, Doku
+
+**Referenz-Profil**: Die aus Laufzeit oder Dokumenten gelesenen Messwerte einer Referenz (Tokens mit Belegstellen, Typo-Skala, Regeln); Grundlage jeder Theme-Ableitung.
+_Avoid_: Analyse, Auswertung, Style-Guide
+
+**Redesign-Paket**: Der Lesevorgang `plan_redesign`, der Seiteninhalt, Theme-Patch je Referenz, Dokumente und Regeln für einen Umbau bündelt.
+_Avoid_: Umbau-Plan, Briefing, Konzept
