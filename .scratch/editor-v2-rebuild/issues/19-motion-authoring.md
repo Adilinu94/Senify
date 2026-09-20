@@ -1,8 +1,8 @@
 # Editor v2 - Motion-Authoring (Motion-Spec v2, Inspektor, Canvas)
 
-Status: **M0-M5 umgesetzt** (18.09.) - Modell, Runtime/Bake, Inspektor, Play-Preview und
-Guardrails stehen; offen bleibt M4 Stufe 1 (Live-Modus mit echter Seite, haengt an Ticket 03)
-und die optionale Scrub-Stufe (M6).
+Status: **M0-M5 + M4 Stufe 1 umgesetzt** (M0-M5 am 18.09., M4 Stufe 1 am 20.09.) -
+Modell, Runtime/Bake, Inspektor, Play-Preview, Live-Modus und Guardrails stehen; offen
+bleibt nur die optionale Scrub-Stufe (M6).
 Herkunft: Papierpaket in `.scratch/motion-v2/` — `research.md`, `plan.md`, `plugin-analyse.md`, `preset-matrix.md`, `payload-spec.md`, `freeze-spec.md`, `adr-0006-entwurf.md` (18.09.2026)
 Abhaengig von: 07 (Dokument-Modell), 13 (Save-Pipeline/Bake), 02 (Inspektor), 03 (Live-Modus)
 Entscheidungen: ADR-0003 gilt weiter; F1-F7 vom 18.09.2026 (siehe unten)
@@ -105,6 +105,21 @@ v2-Dokument plus Editor-Authoring. Details: `.scratch/motion-v2/research.md`.
   geladen, Stopp entfernt es).
 - **Offen (Stufe 1):** Live-Modus mit echter Seite (Ticket 03) - dann laeuft die Release-
   Runtime ohne Extra-Code; Scrub-Slider bleibt M6.
+
+## Umsetzung M4 Stufe 1 (20.09.2026) - Live-Modus im Umbau-Canvas
+
+- **Live = die echte Seite:** Der Design/Live-Toggle (Ticket 03 Punkt 6) baut den Canvas
+  auf **einen** Frame um: aktiver Breakpoint, echte Groesse (100 %), nativer Scroll,
+  Editor-Chrome aus (`canvasFrameRules({ chrome: false })`), Klicks behalten das
+  Seitenverhalten. Die Runtime wird beim Live-Mount injiziert - derselbe Vertrag wie im
+  Bake, Lenis nach Site-Profil (F6/F7).
+- **Eine Quelle:** `editor/src/motion-inject.ts` (neu) traegt `motion-data` v2, die
+  self-hosted Vendor-Dateien und `renderPageScript`; der v1-Editor (`mount.ts`, Play +
+  Live) und der Canvas rufen dieselbe Funktion, der Marker-Guard verhindert doppelte
+  Injektion.
+- **Tests:** `canvas/device.test.ts` (Live-Spec), `canvas/rules.test.ts` (Chrome aus),
+  Browser-Test: Live-Klick → ein Frame mit `window.gsap` + `motion-data` + Runtime-Script,
+  zurueck zu drei Blaettern. Zahlen im Ledger (20.09.).
 
 ## Umsetzung M5 (18.09.2026) - Guardrails & Agent-Experience
 

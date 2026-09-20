@@ -1,6 +1,6 @@
 # Editor v2 - Editor-Chrome und Verhalten (Phase 3)
 
-Status: offen — **Scheibe 1 (Explorer, Kontextmenü, Spotlight) erledigt (20.09.)**
+Status: offen — **Scheibe 1 (Explorer, Kontextmenü, Spotlight) erledigt (20.09.); Punkt 6 (Design/Live-Toggle, Zoom-Footer, Frame-Labels, Dimming) erledigt (20.09.)**
 Abhaengig von: 02-style-engine-inspector
 
 ## Ziel
@@ -55,6 +55,29 @@ einen Document-Listener, Plus-Punkte nur bei sichtbarem Overlay.
 Ledger, Welle 1 Teil 4.
 
 **Offen (Rest von Ticket 03):** Inline-Text-Editing (Punkt 4), Undo/Redo-History im UI
-(Punkt 5), Design/Live-Toggle + Zoom-Footer (Punkt 6), Alt-Hover-Inspect-Ladder (Punkt 7),
-Explorer-Drag mit Zyklus-Schutz, Site-/Media-Tabs, Copy/Paste und Wrap-to-Container
-(Punkte 1/2); das Editor-Designsystem (Punkt 8) ist als E16-P0-Grundhaut begonnen.
+(Punkt 5), Alt-Hover-Inspect-Ladder (Punkt 7), Explorer-Drag mit Zyklus-Schutz,
+Site-/Media-Tabs, Copy/Paste und Wrap-to-Container (Punkte 1/2); das Editor-Designsystem
+(Punkt 8) ist als E16-P0-Grundhaut begonnen.
+
+## Ergebnis Punkt 6 (20.09., umgesetzt) — Design/Live, Zoom-Footer, Labels, Dimming
+
+**Design/Live-Toggle:** Mode-Gruppe in der Canvas-Topbar (`data-mode="design|live"`,
+aria-pressed); im Live-Modus wird der Frame neu aufgebaut (ein Blatt, aktiver Breakpoint,
+echte Größe, nativer Scroll — M4 Stufe 1), die Editor-Haut bleibt draußen (keine Marker,
+kein Zeiger-Cursor, kein Forced State), Klicks behalten das Seitenverhalten. Der
+Spotlight-Befehl `set-mode` und die Session (`ui.mode`, persistiert) sind verdrahtet.
+
+**Zoom-Footer:** Zoom-Bedienung liegt jetzt im Footer unter der Bühne (Meldung links,
+Zoom rechts), das Zoom-Label ist der Reset auf 100 %, Strg/Cmd+0 resettet ebenfalls;
+im Live-Modus sind Zoom und Forced-State-Schalter deaktiviert (Live ist 100 %).
+
+**Frame-Labels + Dimming:** Jedes Blatt trägt ein Label („Desktop · 1440 px", im
+skalierten Blatt gegenskaliert lesbar); der aktive Breakpoint ist hell, inaktive Blätter
+dimmen (`data-active`, Tooltip „Zum Bearbeiten aktivieren"), ein Klick in ein Blatt
+aktiviert seinen Breakpoint — die Session spiegelt ihn für den Inspektor.
+
+**Tests:** `canvas/device.test.ts` (+2), `canvas/rules.test.ts` (+1),
+`state/session.test.ts` (+1, 2 angepasst), Browser-Test (`canvas-view-browser.test.ts`)
+um Labels/Dimming/Aktivierung, Zoom-Reset und den Live-Modus erweitert (ein Frame,
+`window.gsap` + `motion-data` + Runtime im Frame, Rückkehr zu drei Blättern). Zahlen im
+Ledger (M4 Stufe 1 + Punkt 6, 20.09.).

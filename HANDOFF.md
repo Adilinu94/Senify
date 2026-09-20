@@ -8,10 +8,13 @@ ist, was gebaut ist, was offen ist, wie man startet und prüft, welche Fallen la
 `e62fe1f` (Planung: Motion-Papierpaket, Ticket 18), `49bacbd` (Planung: Tickets 07–22, ADRs
 0004–0006, Verbesserungsplan, HANDOFF), `d434ffc` (Produktcode: Motion, Style-Pipeline,
 Live-Modus, Transport). Darauf liegen die Welle-1-Commits `5ad0d48`/`23f7885` (Teil 1:
-Ticket 11, E17 S1, E4 S0) und `824b9ba` (Teile 2+3: Ticket 18 komplett — Author-Resolver,
-Idempotency-Keys, `authoredBy`-Fence). Untracked bleiben nur bewusst lokale Artefakte
-(Test-Logs, Screenshots, `.backup-18-09/`, Debug-Dateien in `.scratch/refs/`). Wer
-`git status` liest, sieht genau diese Restliste.
+Ticket 11, E17 S1, E4 S0), `824b9ba` (Teile 2+3: Ticket 18 komplett — Author-Resolver,
+Idempotency-Keys, `authoredBy`-Fence) und `55593f1`/`c162251` (Teil 4: Pakete #5–#10 aus
+§9). **Uncommittet** im Baum: M4 Stufe 1 + Ticket 03 Punkt 6 (Live-Modus, Chrome-Rest,
+20.09.) — und ein **zweiter Strang** an der Referenz-Bibliothek/Redesign (`references-*`,
+`redesign-package.*`, app.js/app.css; siehe §8). Untracked bleiben die bewusst lokalen
+Artefakte (Test-Logs, Screenshots, `.backup-18-09/`, Debug-Dateien in `.scratch/refs/`).
+Wer `git status` liest, sieht genau diese Restliste.
 
 ---
 
@@ -246,6 +249,17 @@ Idempotency-Keys, `authoredBy`-Fence). Untracked bleiben nur bewusst lokale Arte
   injizierbarer Zeit. `pnpm test` **1270/2/141**, typecheck 0, lint 0, build 0 (Log
   `.scratch/testlauf-20-09-welle1rest-4.log`). Code committet als `55593f1`, die Doku folgt
   mit dem Doku-Commit.
+- **M4 Stufe 1 + Ticket 03 Punkt 6 (20.09., uncommittet): Live-Modus im Canvas.** Der
+  Design/Live-Toggle baut den Canvas auf **einen** Frame um (aktiver Breakpoint, echte
+  Größe, nativer Scroll); die Editor-Chrome bleibt draußen (`canvasFrameRules({ chrome:
+  false })`), die Release-Runtime wird injiziert — eine Quelle für v1 und Canvas
+  (`editor/src/motion-inject.ts`). Dazu: Zoom-Footer (Strg/Cmd+0 = 100 %), Frame-Labels,
+  Breakpoint-Dimming mit Klick-Aktivierung, `mode` im View-State (`ui-state.ts`,
+  `session.setMode`), Spotlight-`set-mode` verdrahtet. Zwei Funde: ein Komma-Selektor in
+  der Skin war nur halb gescoped (Test fing es), der Paper-Regex des Skin-Tests matchte
+  `__frame-label`. `pnpm test` **1292/2/144** (Log `.scratch/testlauf-20-09-m4s1-2.log`),
+  typecheck 0, build 0; lint in den eigenen Bereichen 0 (ein fremder Ein-Zeilen-Fehler im
+  parallelen Strang, siehe §8).
 
 ### 2.5 Motion: M0–M5 + Site-Profil (18.09.)
 
@@ -310,7 +324,7 @@ Idempotency-Keys, `authoredBy`-Fence). Untracked bleiben nur bewusst lokale Arte
 | — | 18.09.: O13/ADR-0005, Tickets 07/10/13/18/02 neu, O14, Wert-Grammatik | ✅ | `docs/adr/0005`, `issues/`, `ledger.md` |
 | — | 18.09.: Ticket 13 Rest (Bake + Klassen-Transport + scoped-Rekey) + Klassen am DOM + Motion M0–M5 + Ticket 20; 19.09.: Slot-/Collection-Transport verifiziert | ✅ | `issues/13`, `issues/19`–`22`, `docs/adr/0006`, `.scratch/motion-v2/` |
 | 2 | Style-Rule-Registry (Server ✅), Wert-Grammatik ✅, Editor-Modell ✅, Inspektor S1 ✅ (20.09.) | 🔄 | `issues/07`, `10`, `13`, `02` |
-| 3 | Chrome: Explorer/Kontextmenü/Spotlight ✅ und DnD ✅ (20.09.); offen: Inline-Edit, Undo-UI, Keyboard | 🔄 | `issues/03` + 12/16 |
+| 3 | Chrome: Explorer/Kontextmenü/Spotlight ✅, DnD ✅, Design/Live + Zoom/Labels/Dimming ✅ (20.09.); offen: Inline-Edit, Undo-UI, Keyboard | 🔄 | `issues/03` + 12/16 |
 | 4 | Visual Components, Sections als VCs, Puck-Cutover | ❌ | `issues/04` + 11 (vorher) + 17 (vorher) |
 | 5 | SSE-Kanal, Live-Mitverfolgung, Leistungsbudget | ❌ | `issues/05` |
 
@@ -360,7 +374,7 @@ Alle unter `.scratch/editor-v2-rebuild/issues/`. Stand:
 |---|---|---|
 | 01-widget-engine-canvas | Phase 0/1: Fundament, Primitive, Canvas, DnD | Fundament ✅, Punkt 7 (DnD) offen → Ticket 12 |
 | 02-style-engine-inspector | Inspektor, volle CSS-Fähigkeiten, MCP-Style-Tools | Punkt 1 erledigt (Server); **Scheibe 1 Inspektor erledigt (20.09.)**; Rest: Override-UX, Forced States, Token-Picker überall, MCP-Tools |
-| 03-editor-chrome | Phase 3: Explorer, Kontextmenü, Spotlight, Inline-Edit, Tastatur | **Scheibe 1 (Explorer/Kontextmenü/Spotlight) erledigt (20.09.)**; Rest: Inline-Edit, Undo-UI, Toggle/Zoom, Explorer-Drag |
+| 03-editor-chrome | Phase 3: Explorer, Kontextmenü, Spotlight, Inline-Edit, Tastatur | **Scheibe 1 + Punkt 6 (Design/Live, Zoom-Footer, Labels, Dimming) erledigt (20.09.)**; Rest: Inline-Edit, Undo-UI, Keyboard, Explorer-Drag, Site-/Media-Tabs, Copy/Paste/Wrap |
 | 04-visual-components | Phase 4: VCs, Sections als VCs, Cutover | offen |
 | 05-live-build-follow-polish | Phase 5: SSE, Live-Mitverfolgung | offen |
 | 06-adr-puck-abschied | ADR-06 (Puck-Abschied) | offen |
@@ -376,7 +390,7 @@ Alle unter `.scratch/editor-v2-rebuild/issues/`. Stand:
 | 16-marker-overlay-portal | Marker-Overlay im Portal (Alt-Palette beenden) | offen |
 | 17-releases-cutover | Publish über `POST /api/releases`, Paritäts-Tor als CI-Blocker | **erledigt (20.09.)** — O9-Vorhang, Route-Publish, Paritäts-Tor gegen das Release, Rollback; Funde: `variant`, Font-Auslieferung |
 | 18-agent-style-gate | Wert-Ebene-Fence als Tests (`authoredBy`) | **erledigt (19.09.)** — Author-Resolver, Idempotency-Keys, Fence; `idempotentHint` bleibt opt-in |
-| 19-motion-authoring | Motion-Spec v2 im Editor: Modell/Bridge, Inspektor, Canvas (Play), Guardrails | **M0–M5 umgesetzt** (18.09.); offen: M4 Stufe 1 (Ticket 03) |
+| 19-motion-authoring | Motion-Spec v2 im Editor: Modell/Bridge, Inspektor, Canvas (Play), Guardrails | **M0–M5 + M4 Stufe 1 umgesetzt** (20.09.); offen nur M6 (Scrub) |
 | 20-site-settings-profile | Site-Profil im Editor: Kanal, Anzeige, Wechsel-Validierung, Profil-Gates | **umgesetzt** (18.09.) |
 | 21-klassen-am-dom | User-Klassen + Scope-Klasse am Wurzelelement (Anker-Selektoren treffen in Canvas und Bake) | **umgesetzt** (18.09.) |
 | 22-scoped-rekey-bake | ID-Map aus dem Layout-Splice, `nodeIdMap` pro Route, scoped-Remap in `styleRulesCss` | **umgesetzt** (18.09.) |
@@ -395,15 +409,19 @@ E4 S0 — committet) sowie Ticket 18 komplett (Author-Resolver, Idempotency-Keys
 `authoredBy`-Fence — committet `824b9ba`). **Am 20.09.:** Welle 1 Teil 4 — Pakete #5–#10
 (Inspektor S1, EditorSession, Chrome S1, DnD, Release-Cutover, E16 P0 + E12 S1; Code
 committet `55593f1`). Der Testlauf ist grün (**1270/2/141**, Log
-`.scratch/testlauf-20-09-welle1rest-4.log`).
+`.scratch/testlauf-20-09-welle1rest-4.log`). Danach **M4 Stufe 1 + Ticket 03 Punkt 6**
+(Live-Modus im Canvas, Zoom-Footer, Frame-Labels, Breakpoint-Dimming; **1292/2/144**, Log
+`.scratch/testlauf-20-09-m4s1-2.log`; uncommittet, §2.4).
 
 **Als Nächstes:**
 
 1. **Welle-1-Rest aus §9: erledigt (20.09., Teil 4; Code committet `55593f1`).** #5 Ticket 02
    S1, #6 E5 S1, #7 Ticket 03 S1, #8 Ticket 12, #9 Ticket 17, #10 E16 P0 + E12 S1 — siehe
    §2.4. Damit sind alle Pakete #1–#10 aus §9 umgesetzt.
-2. **M4 Stufe 1** (Ticket 19): Live-Modus zeigt die echte Seite (Ticket 03) → echte Motion
-   ohne Extra-Code; Scrub-Stufe bleibt M6. Danach ist Motion fachlich abgeschlossen.
+2. **M4 Stufe 1: erledigt (20.09.).** Live-Modus zeigt die echte Seite (Ticket 03), die
+   Release-Runtime läuft ohne Extra-Code; Scrub-Stufe bleibt M6. **Ticket 03 Punkt 6
+   (Design/Live-Toggle, Zoom-Footer, Labels, Dimming) ebenfalls erledigt** — Motion ist
+   fachlich abgeschlossen.
 3. **Ende Phase 2/Anfang 3:** 16 (Marker-Overlay) offen; **17 (Releases-Cutover) erledigt
    (20.09.)**.
 4. **Vor dem Cutover:** 11. **Erledigt:** 12, 13 vollständig, 14 (Emission), 15
@@ -486,6 +504,22 @@ Commit `git status` prüfen und nach Pfaden stagen, nie `git add -A`.
   off), erzwingt `scroll-behavior: auto` und wartet 2 rAF; die Runtime respektiert den
   Kill-Switch und gibt Pending frei. Gegenprobe als Browser-Test (`visual.test.ts`); das
   Paritäts-Tor selbst (`widget-slice-browser.test.ts`) bleibt unverändert.
+
+**Neu am 20.09.:**
+
+- **Ein zweiter Strang arbeitet im selben Baum** (Referenz-Bibliothek/Redesign:
+  `references-*`, `redesign-package.*`, app.js/app.css). Seine unfertigen Stellen sind
+  nicht vom Editor-Umbau: `pnpm lint` meldet `plainId` in
+  `packages/engine/test/redesign-package.test.ts`, und ein Gesamtlauf kollidierte beim
+  docs-portal-Build (`dist`), der in Isolation 4/4 grün ist. Vor dem eigenen Commit den
+  Baum erneut prüfen und fremde Änderungen mitnehmen.
+- **Der Koordinaten-Klick über die iframe-Grenze bleibt unzuverlässig:** im
+  Canvas-Browser-Test kommt der Playwright-Klick in das weit rechts liegende Tablet-Blatt
+  nicht an — der Test klickt programmatisch (`element.click()`) und prüft denselben Handler.
+- **Live-Modus im Canvas ist 100 % und ohne Chrome:** Zoom- und Forced-State-Schalter sind
+  dort deaktiviert, die Bühne hat kein Padding, der Frame scrollt selbst
+  (`data-mode="live"`); die Runtime kommt aus `motion-inject.ts` (eine Quelle mit dem
+  v1-Editor), Lenis folgt dem Site-Profil.
 
 ---
 

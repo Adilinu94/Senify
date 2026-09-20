@@ -114,6 +114,51 @@ gehoeren bewusst **nicht** in die Undo-History (Webstudio-Muster). Hinweis: `doc
 wurde parallel um „Teil II" (§10–§16: Referenz-Transfer, Anti-Slop, Editor-Tiefe) erweitert —
 beide Teile koexistieren; nichts ueberschrieben. Kein Produktcode geaendert.
 
+**M4 Stufe 1 + Ticket 03 Punkt 6 (20.09., umgesetzt): Live-Modus zeigt die echte Seite;
+Design/Live-Toggle, Zoom-Footer, Frame-Labels, Dimming.** Kein Commit.
+
+- **Ein Injektionsmodul für beide Editorpfade:** `editor/src/motion-inject.ts` (neu) baut
+  den Runtime-Vertrag (`motion-data` v2, self-hosted Vendor, `renderPageScript`, Lenis nach
+  Site-Profil) — `mount.ts` (v1) und `canvas.ts` (Umbau) rufen dieselbe Quelle; der
+  Marker-Guard (`script[data-senify-motion], #motion-data`) verhindert Doppel-Injektion.
+  Der v1-Editor verliert dadurch ~60 Zeilen eigene Injektionslogik, das Verhalten bleibt.
+- **Live-Spec im Canvas:** `canvas/device.ts` — `canvasFrames(zoom, { mode, breakpoint })`
+  liefert im Live-Modus **einen** Frame (aktiver Breakpoint, `width/height null`, `scale 1`,
+  `mediaMaxWidth` des Geräts, Label „Live"); Design bleibt die drei Blätter.
+  `CanvasFrameSpec` trägt `mode` und nullable Maße.
+- **Chrome aus im Live:** `canvas/rules.ts` — `chrome: false` lässt Marker, Zeiger-Cursor
+  und Forced-State weg; Base + `@layer user-authored` bleiben (die echte Seite).
+- **Canvas-Chrome (Ticket 03 Punkt 6):** Mode-Gruppe Design/Live in der Topbar (aria-pressed),
+  Zoom + Meldung in einen **Footer** verschoben, Zoom-Label ist der Reset auf 100 %,
+  Strg/Cmd+0 resettet ebenfalls; Frame-Labels (Name + Breite, im skalierten Blatt
+  gegenskaliert); inaktive Blätter dimmen (`data-active`, Tooltip „Zum Bearbeiten
+  aktivieren"), ein Klick in ein Blatt aktiviert seinen Breakpoint (Session-`device` folgt).
+  Live: `rebuildFrames()` (frischer Frame), Full-Stage-Layout, nativer Scroll, Klicks
+  behalten ihr Seitenverhalten, `setMode`/`setBreakpoint` in der Instanz-API,
+  `CanvasState` + `mode`/`breakpoint`.
+- **View-State:** `state/ui-state.ts` + `state/session.ts` — `mode` (design/live) wird
+  persistiert und restauriert; `app.js` verdrahtet `mode`/`breakpoint`/`profile` und die
+  Session als eine Quelle (Inspektor-Gerät ⇄ Canvas-Breakpoint); der Spotlight-Befehl
+  `set-mode` ruft jetzt `canvas.setMode` statt des Platzhalters.
+- **Zwei Funde:** (1) Der Disabled-Selektor in der Skin war als Komma-Selektor nur zur
+  Hälfte gescoped (`canvas-skin.test.ts` fing es — jetzt zwei Einzelregeln). (2) Der
+  Paper-Regex des Skin-Tests matchte `__frame-label` als Blatt; Regex auf Wortgrenze
+  präzisiert. (3) Browser-Test: Der Koordinaten-Klick über die iframe-Grenze in das
+  Tablet-Blatt kommt nicht an (bekannte Playwright-Falle, HANDOFF §8) — der Test klickt
+  programmatisch und prüft denselben Handler.
+- **Tests:** `canvas/device.test.ts` (+2 Live), `canvas/rules.test.ts` (+1 Live-Chrome),
+  `state/session.test.ts` (+1 mode, 2 angepasst), `ui/canvas-skin.test.ts` (Regex),
+  `app/test/canvas-view-browser.test.ts` erweitert (Labels/Dimming + Tablet-Aktivierung,
+  Zoom-Reset per Strg+0, Live: ein Frame, `window.gsap` + `motion-data` + Runtime im Frame,
+  zurück zu drei Blättern).
+- **Zahlen:** `pnpm test` **1292 grün / 2 übersprungen / 144 Dateien** (Log
+  `.scratch/testlauf-20-09-m4s1-2.log`), typecheck 0, build 0. **Lint:** meine Bereiche 0
+  (`eslint packages/editor packages/app packages/tokens`), im Gesamtlauf ein fremder
+  Ein-Zeilen-Fehler (`packages/engine/test/redesign-package.test.ts`: `plainId` unbenutzt)
+  aus dem parallelen Strang, der im selben Baum an Referenz-Bibliothek/Redesign arbeitet.
+  Erster Gesamtlauf zusätzlich mit docs-portal-Build-Kollision (`dist`), in Isolation 4/4
+  grün — Umgebungs-Race des Parallelstrangs, kein Inhaltsfehler.
+
 **Welle 1, Teil 4 (20.09., umgesetzt): Die Pakete #5–#10 aus §9 — Inspektor, EditorSession,
 Chrome, DnD, Release-Cutover, E16 P0 + E12 Scheibe 1.** Code committet als `55593f1`.
 
