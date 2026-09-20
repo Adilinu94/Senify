@@ -35,3 +35,7 @@ Die bereits angelegten Referenzseiten sollen in die Portal-Bibliothek („Refere
 - Live-Analyse der 684 URLs (Playwright) — die Dokumente tragen die Werte; ein Live-Lauf bleibt je Referenz möglich (`analyze_reference`).
 - Bearbeiten der Dokumente im Portal (die Dateien bleiben die Quelle; ein zweiter Import-Lauf frischt sie auf).
 - Bilder der Referenzen im Repo (die Sammlung ist ab jetzt in `.gitignore`; die Kopien liegen im Datenverzeichnis der Engine).
+
+## Offen
+
+- **Import in die eigene Bibliothek:** Der Volllauf lief gegen eine temporäre Instanz (pg-mem) und ist belegt. In die echte Bibliothek (`~/.senify/pg` auf Port 5433, so steht es in `~/.senify/config.json`) konnte er am 20.09. nicht laufen, weil die Instanz nicht erreichbar war: Start über `pg_ctl` gelang, aber jeder Client-Backend brach mit `0xC0000142` ab (Umgebungsproblem der Instanz, nicht der Anwendung). Sobald die Datenbank erreichbar ist, genügen zwei Befehle (siehe Ausgabe des Auftrags): Trockenlauf, dann Echtlauf; der Lauf ist wiederholbar.
