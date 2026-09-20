@@ -17,6 +17,7 @@
 // Der Lauf ist wiederholbar: Sammlungen werden ueber ihren Namen gefunden,
 // Referenzen ueber ihren Namen aktualisiert (Metadaten und Dokumente).
 
+import { request as httpRequest } from "node:http";
 import { MANUAL_REFERENCE_MAX_BYTES } from "../src/references-contract.ts";
 import {
   planReferenzsites,
@@ -86,6 +87,46 @@ function parseOptions(argv: string[]): Options {
 const pause = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
+// Eine einzelne Anfrage ohne Verbindungspool: der Lauf endet danach von
+// selbst, statt auf offene Sockets von `fetch` zu warten (auf Windows brach der
+// erzwungene Abschluss sonst gelegentlich mit einem libuv-Fehler ab).
+async function once(
+  api: string,
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<{ status: number; text: string }> {
+  const url = new URL(path, api);
+  const payload = body === undefined ? null : Buffer.from(JSON.stringify(body), "utf8");
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(
+      {
+        host: url.hostname,
+        port: url.port === "" ? 80 : Number.parseInt(url.port, 10),
+        path: `${url.pathname}${url.search}`,
+        method,
+        headers:
+          payload === null
+            ? {}
+            : { "content-type": "application/json", "content-length": String(payload.length) },
+        agent: false,
+        timeout: 120_000,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () =>
+          resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString("utf8") }),
+        );
+      },
+    );
+    req.on("error", reject);
+    req.on("timeout", () => req.destroy(new Error("Zeitüberschreitung")));
+    if (payload !== null) req.write(payload);
+    req.end();
+  });
+}
+
 // Die Engine drosselt auf 60 Anfragen je Minute und bricht bei grossen
 // Bildpaketen gelegentlich die Verbindung ab: beides wird hier abgefangen.
 async function request(
@@ -96,19 +137,15 @@ async function request(
 ): Promise<{ status: number; body: unknown }> {
   let lastError: Error | undefined;
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    let response: Response;
+    let response: { status: number; text: string };
     try {
-      response = await fetch(`${options.api}${path}`, {
-        method,
-        headers: body === undefined ? {} : { "content-type": "application/json" },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      });
+      response = await once(options.api, method, path, body);
     } catch (error) {
       lastError = new Error(`${method} ${path}: ${(error as Error).message}`);
       await pause(2000 * (attempt + 1));
       continue;
     }
-    const text = await response.text();
+    const text = response.text;
     let parsed: unknown = null;
     if (text !== "") {
       try {
@@ -117,7 +154,9 @@ async function request(
         parsed = text;
       }
     }
-    if (response.ok) return { status: response.status, body: parsed };
+    if (response.status >= 200 && response.status < 300) {
+      return { status: response.status, body: parsed };
+    }
     const message =
       typeof parsed === "object" && parsed !== null && "error" in parsed
         ? JSON.stringify((parsed as { error: unknown }).error)
@@ -303,12 +342,9 @@ async function main(): Promise<void> {
   if (failures.length > 0) process.exitCode = 1;
 }
 
-await main()
-  .then(() => {
-    // fetch keeps its sockets alive; a one-shot script has to say goodbye.
-    process.exit(process.exitCode ?? 0);
-  })
-  .catch((error: unknown) => {
-    process.stderr.write(`${(error as Error).message}\n`);
-    process.exit(1);
-  });
+// Ohne Verbindungspool endet der Prozess von selbst; der Exit-Code steht in
+// process.exitCode (1 nur bei echten Fehlern).
+await main().catch((error: unknown) => {
+  process.stderr.write(`${(error as Error).message}\n`);
+  process.exitCode = 1;
+});
