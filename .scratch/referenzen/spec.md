@@ -38,4 +38,5 @@ Die bereits angelegten Referenzseiten sollen in die Portal-Bibliothek („Refere
 
 ## Offen
 
-- **Import in die eigene Bibliothek:** Der Volllauf lief gegen eine temporäre Instanz (pg-mem) und ist belegt. In die echte Bibliothek (`~/.senify/pg` auf Port 5433, so steht es in `~/.senify/config.json`) konnte er am 20.09. nicht laufen, weil die Instanz nicht erreichbar war: Start über `pg_ctl` gelang, aber jeder Client-Backend brach mit `0xC0000142` ab (Umgebungsproblem der Instanz, nicht der Anwendung). Sobald die Datenbank erreichbar ist, genügen zwei Befehle (siehe Ausgabe des Auftrags): Trockenlauf, dann Echtlauf; der Lauf ist wiederholbar.
+- **Nichts.** Der Import in die eigene Bibliothek ist gelaufen (20.09.): 679 Referenzen und 41 Sammlungen neu, 0 Fehler, 824 s; der Kontrolllauf legte nichts neu an (0 neu/679 aktualisiert). Bestand jetzt: 726 Referenzen, 71 Sammlungen, 18 Stilfamilien.
+- Der Import läuft gegen die eigene Instanz (`~/.senify/pg` auf Port 5433, Eintrag in `~/.senify/config.json`). Wichtig beim Start von Hand: Der Postmaster muss aus einer normalen Shell kommen; aus einer eingeschränkten Prozessumgebung brachen die Client-Backends mit `0xC0000142` ab (Umgebungsproblem, nicht der Anwendung).

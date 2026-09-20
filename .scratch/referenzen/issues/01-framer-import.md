@@ -29,6 +29,8 @@ Die 684 lokal angelegten Referenz-Ordner (Framer-Marketplace-Auswertung) sollen 
 ## Belege
 
 - Volllauf gegen eine temporäre Instanz (pg-mem, `--pause 5`): 679 Referenzen, 41 Sammlungen, 0 Fehler in 117 s; zweiter Lauf 0 neu/679 aktualisiert; 8 unvollständige Ordner gemeldet.
-- Alle 679 Referenzen tragen eine Quell-URL und ein Profil (`withSource`/`withProfile` je 679).
+- Volllauf gegen die eigene Bibliothek (20.09., Port 5433): 679 Referenzen und 41 Sammlungen neu, 0 Fehler, 824 s; Kontrolllauf 0 neu/679 aktualisiert. Bestand: 726 Referenzen, 71 Sammlungen (mit den 30 bestehenden), 18 Stilfamilien.
+- Sichtprüfung im echten Portal: Suche „achilles" führt zur Karte, das Detailfenster zeigt vier Reiter, der Design.md-Reiter zehn Tabellen, ohne Konsolenfehler (Bilder in `.scratch/refs/referenzen-import/`).
+- Alle 679 Referenzen tragen eine Quell-URL und ein Profil (`withSource`/`withProfile` je 680 inkl. Bestand).
 - Tests: `references-documents.test.ts`, `references-referenzsites.test.ts` (inkl. Kategorie-Split), `references-library.test.ts` (Import-Fall).
 - Stichproben: `Achilles` (9 Farb-Tokens, 5 Typo-Stufen, 3 Radien, Design.md 4160 Zeichen, Guidelines 2393, Komponenten 2975), `Alta®` (4 Typo-Stufen), `David Sinclair` (3 Typo-Stufen); überall Snapshots `manual` und `mobile`.
