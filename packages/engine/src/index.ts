@@ -411,6 +411,30 @@ export {
 } from "./references-analyze.ts";
 export { buildReferenceProfile, normalizeVocabulary } from "./references.ts";
 export {
+  buildRedesignPackage,
+  type RedesignNodeSummary,
+  type RedesignPackage,
+  type RedesignTarget,
+} from "./redesign-package.ts";
+export {
+  buildDocumentProfile,
+  type DocumentProfile,
+  type DocumentProfileInput,
+} from "./references-documents.ts";
+export {
+  planReferenzsites,
+  readReferenzsites,
+  REFERENZSITES_CAPTURED_AT,
+  type ReadReferenzsitesOptions,
+  type ReferenzSiteImage,
+  type ReferenzSiteIssue,
+  type ReferenzSiteRecord,
+  type ReferenzSitesCollectionPlan,
+  type ReferenzSitesEntryPlan,
+  type ReferenzSitesPlan,
+  type ReferenzSitesReadResult,
+} from "./references-referenzsites.ts";
+export {
   deriveThemeDraft,
   materializeThemeDraft,
   verifyThemeRoundTrip,

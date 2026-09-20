@@ -571,16 +571,44 @@ function refsImageSource(url) {
   return pending;
 }
 
+// Kartenbilder laden erst, wenn die Karte in Sicht kommt: die Bibliothek kann
+// mehrere hundert Referenzen halten, und jede Aufnahme ist ein paar hundert
+// Kilobyte gross.
+let refsImageObserver = null;
+
+function refsLoadOnSight(image, load) {
+  if (typeof IntersectionObserver !== "function") {
+    load();
+    return;
+  }
+  if (refsImageObserver === null) {
+    refsImageObserver = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          refsImageObserver.unobserve(entry.target);
+          entry.target.refsLoad?.();
+        }
+      },
+      { rootMargin: "320px" },
+    );
+  }
+  image.refsLoad = load;
+  refsImageObserver.observe(image);
+}
+
 function refsPreviewImage(url, alt, fallback) {
   const image = el("img", { alt });
-  refsImageSource(url).then(
-    (src) => {
-      image.src = src;
-    },
-    () => {
-      if (fallback) image.replaceWith(fallback());
-    },
-  );
+  refsLoadOnSight(image, () => {
+    refsImageSource(url).then(
+      (src) => {
+        image.src = src;
+      },
+      () => {
+        if (fallback) image.replaceWith(fallback());
+      },
+    );
+  });
   return image;
 }
 
@@ -1900,7 +1928,10 @@ async function refsRefresh() {
       "Versuche ein anderes Wort oder durchsuche die ganze Bibliothek.";
     refsDom.empty.querySelector("button").textContent = "Filter zurücksetzen";
     refsDom.empty.hidden = references.length > 0;
-    refsDom.gallery.replaceChildren(...references.map((reference) => refsCard(reference)));
+    refsRenderCards(references, refsDom.gallery);
+    // Die Zaehlung im Fenster ("Referenz x von n") folgt der vollen Auswahl,
+    // nicht nur den bereits gezeichneten Karten.
+    refsInspectorIds = references.map((reference) => reference.id);
     refsDom.countEl.textContent = String(counts.inView ?? references.length);
     refsDom.footer.querySelector(".refs-footer-count").textContent = refsFooterText(
       counts.inView ?? references.length,
@@ -1909,6 +1940,58 @@ async function refsRefresh() {
     );
   }
   refsTrayResync();
+}
+
+// Karten in Bloecken zeichnen: bei mehreren hundert Referenzen waeren alle
+// Karten samt Bildern auf einmal zu viel. Der Waechter am Ende der Liste zieht
+// den naechsten Block nach, sobald er in Sicht kommt.
+const REFS_CARD_BATCH = 48;
+let refsCardObserver = null;
+
+function refsRenderCards(references, gallery) {
+  gallery.replaceChildren();
+  if (references.length === 0) return;
+  // Der Waechter steht von Anfang an in der Liste: die Karten werden jeweils
+  // davor eingefuegt, und er zieht den naechsten Block nach, sobald er in Sicht
+  // kommt.
+  const sentinel = el("div", { class: "refs-sentinel", "aria-hidden": "true" });
+  gallery.append(sentinel);
+  let rendered = 0;
+  const renderNext = () => {
+    const next = references.slice(rendered, rendered + REFS_CARD_BATCH);
+    rendered += next.length;
+    for (const reference of next) gallery.insertBefore(refsCard(reference), sentinel);
+  };
+  const finish = () => {
+    refsCardObserver?.unobserve(sentinel);
+    sentinel.remove();
+  };
+  renderNext();
+  if (rendered >= references.length) {
+    finish();
+    return;
+  }
+  if (typeof IntersectionObserver !== "function") {
+    // Ohne Beobachter bleibt nur der volle Aufbau.
+    while (rendered < references.length) renderNext();
+    finish();
+    return;
+  }
+  if (refsCardObserver === null) {
+    refsCardObserver = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) entry.target.refsMore?.();
+        }
+      },
+      { rootMargin: "600px" },
+    );
+  }
+  sentinel.refsMore = () => {
+    renderNext();
+    if (rendered >= references.length) finish();
+  };
+  refsCardObserver.observe(sentinel);
 }
 
 function refsEmptyAction() {
@@ -2414,15 +2497,10 @@ let refsInspectorId = null;
 let refsInspectorReturn = null;
 let refsInspectorToken = 0;
 
-// Ids der aktuellen Ansicht: genau die Karten, die gerade stehen. So zaehlt
-// „Referenz x von n" mit Suche, Sammlung und Sortierung mit.
+// Ids der aktuellen Ansicht: die volle Auswahl der Liste (Suche, Sammlung und
+// Sortierung zaehlen mit). So zaehlt „Referenz x von n" auch dann richtig, wenn
+// die Karten erst in Bloecken gezeichnet werden.
 function refsInspectorList() {
-  if (refsDom && refsDom.root && refsDom.root.isConnected) {
-    const ids = [...refsDom.gallery.querySelectorAll(".refs-card")].map(
-      (card) => card.dataset.reference,
-    );
-    if (ids.length > 0) return ids;
-  }
   return refsInspectorIds;
 }
 
@@ -2680,8 +2758,164 @@ function refsInspectorCollectionSelect(reference) {
   return select;
 }
 
-// Inhalte des Fensters aus den echten Daten: Sammlung, Titel, Familie, Notiz,
-// Vokabular, Komposition, Bildrezept und die zwei Brief-Kopierer.
+/* Dokumente der importierten Referenzen (design.md, Guidelines, Komponenten).
+   Der Renderer deckt genau ab, was diese Dateien nutzen: Ueberschriften,
+   Tabellen, Listen, Blockzitate, Code, Hervorhebungen und Links. Rohes HTML
+   wird immer maskiert, es gibt keinen Durchgriff auf das Dokument. */
+function refsEscapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function refsInlineMarkdown(value) {
+  return String(value)
+    .split(/(`[^`]+`)/g)
+    .map((part) => {
+      if (part.length > 2 && part.startsWith("`") && part.endsWith("`")) {
+        return `<code>${refsEscapeHtml(part.slice(1, -1))}</code>`;
+      }
+      return refsEscapeHtml(part)
+        .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+        .replace(/(^|[\s(])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+        .replace(
+          /\[([^\]]+)\]\((https?:[^)\s]+)\)/g,
+          '<a href="$2" target="_blank" rel="noreferrer">$1</a>',
+        );
+    })
+    .join("");
+}
+
+function refsMarkdownTable(rows) {
+  const cells = (row) =>
+    String(row)
+      .replace(/^\|/, "")
+      .replace(/\|$/, "")
+      .split("|")
+      .map((cell) => cell.trim());
+  const head = cells(rows[0] ?? "")
+    .map((cell) => `<th>${refsInlineMarkdown(cell)}</th>`)
+    .join("");
+  const body = rows
+    .slice(2)
+    .map(
+      (row) =>
+        `<tr>${cells(row)
+          .map((cell) => `<td>${refsInlineMarkdown(cell)}</td>`)
+          .join("")}</tr>`,
+    )
+    .join("");
+  return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function refsRenderMarkdown(source) {
+  const lines = String(source ?? "").replace(/\r\n/g, "\n").split("\n");
+  const out = [];
+  let paragraph = [];
+  let listKind = null;
+  let codeLines = null;
+
+  const closeList = () => {
+    if (listKind !== null) {
+      out.push(`</${listKind}>`);
+      listKind = null;
+    }
+  };
+  const flushParagraph = () => {
+    if (paragraph.length > 0) {
+      out.push(`<p>${refsInlineMarkdown(paragraph.join(" "))}</p>`);
+      paragraph = [];
+    }
+  };
+  const flushAll = () => {
+    flushParagraph();
+    closeList();
+  };
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    const trimmed = line.trim();
+
+    if (codeLines !== null) {
+      if (trimmed.startsWith("```")) {
+        out.push(`<pre><code>${refsEscapeHtml(codeLines.join("\n"))}</code></pre>`);
+        codeLines = null;
+      } else {
+        codeLines.push(line);
+      }
+      continue;
+    }
+    if (trimmed.startsWith("```")) {
+      flushAll();
+      codeLines = [];
+      continue;
+    }
+    if (trimmed === "") {
+      flushAll();
+      continue;
+    }
+
+    const heading = /^(#{1,6})\s+(.*)$/.exec(trimmed);
+    if (heading !== null) {
+      flushAll();
+      const level = (heading[1] ?? "#").length;
+      out.push(`<h${level}>${refsInlineMarkdown(heading[2] ?? "")}</h${level}>`);
+      continue;
+    }
+
+    const next = (lines[index + 1] ?? "").trim();
+    if (trimmed.startsWith("|") && next.startsWith("|") && /^\|?[\s:|-]+\|/.test(next)) {
+      flushAll();
+      const table = [];
+      while (index < lines.length && (lines[index] ?? "").trim().startsWith("|")) {
+        table.push((lines[index] ?? "").trim());
+        index += 1;
+      }
+      index -= 1;
+      out.push(refsMarkdownTable(table));
+      continue;
+    }
+
+    const bullet = /^[-*]\s+(.+)$/.exec(trimmed);
+    const ordered = /^\d+\.\s+(.+)$/.exec(trimmed);
+    if (bullet !== null || ordered !== null) {
+      flushParagraph();
+      const kind = ordered === null ? "ul" : "ol";
+      if (listKind !== kind) {
+        closeList();
+        out.push(`<${kind}>`);
+        listKind = kind;
+      }
+      out.push(`<li>${refsInlineMarkdown((bullet ?? ordered)[1] ?? "")}</li>`);
+      continue;
+    }
+
+    if (trimmed.startsWith(">")) {
+      flushAll();
+      out.push(`<blockquote>${refsInlineMarkdown(trimmed.replace(/^>\s?/, ""))}</blockquote>`);
+      continue;
+    }
+
+    paragraph.push(trimmed);
+  }
+  if (codeLines !== null) {
+    out.push(`<pre><code>${refsEscapeHtml(codeLines.join("\n"))}</code></pre>`);
+  }
+  flushAll();
+  return out.join("");
+}
+
+// Der Umschalter der Vorschaubilder (Desktop/Mobil) am Rand der Bildbuehne.
+function refsShotLabel(shot) {
+  if (shot.breakpoint === "mobile") return "Mobil";
+  if (shot.breakpoint === "tablet") return "Tablet";
+  return "Desktop";
+}
+
+/* Inhalte des Fensters aus den echten Daten: Sammlung, Titel, Familie, Notiz,
+   Vokabular, Komposition, Bildrezept und die zwei Brief-Kopierer. */
 async function refsInspectorShow(referenceId) {
   const dom = refsInspector;
   if (!dom) return;
@@ -2707,17 +2941,13 @@ async function refsInspectorShow(referenceId) {
   // Jede Referenz startet wieder in der Einpass-Ansicht (wie im Vorbild).
   refsInspectorSetZoom(false);
 
-  const shot =
-    (reference.snapshots ?? []).find(
-      (entry) => entry.previewPath && entry.kind !== "motion",
-    ) ??
-    (reference.snapshots ?? []).find((entry) => entry.previewPath) ??
-    null;
-  if (shot) {
-    dom.placeholder.remove();
-    dom.image.hidden = false;
-    dom.image.alt = reference.name;
-    refsImageSource(snapshotImageURL(reference.id, shot)).then(
+  const shots = (reference.snapshots ?? []).filter(
+    (entry) => entry.previewPath && entry.kind !== "motion",
+  );
+  const shot = shots[0] ?? null;
+  const showShot = (entry) => {
+    if (entry === undefined || entry === null) return;
+    refsImageSource(snapshotImageURL(reference.id, entry)).then(
       (src) => {
         if (refsInspectorId === referenceId) dom.image.src = src;
       },
@@ -2725,12 +2955,37 @@ async function refsInspectorShow(referenceId) {
         if (refsInspectorId === referenceId) dom.image.removeAttribute("src");
       },
     );
+  };
+  if (shot) {
+    dom.placeholder.remove();
+    dom.image.hidden = false;
+    dom.image.alt = reference.name;
+    showShot(shot);
   } else {
     dom.image.removeAttribute("src");
     dom.image.hidden = true;
     dom.image.alt = "";
     dom.placeholder.textContent = initials(reference.name || "R");
     if (!dom.placeholder.isConnected) dom.stage.append(dom.placeholder);
+  }
+  // Umschalter nur, wenn es wirklich mehrere Bilder gibt (Import: Desktop/Mobil).
+  dom.stage.querySelector(".refs-shot-switch")?.remove();
+  if (shots.length > 1) {
+    const buttons = shots.map((entry, index) =>
+      el("button", {
+        type: "button",
+        "aria-pressed": index === 0 ? "true" : "false",
+        text: refsShotLabel(entry),
+        onclick: () => {
+          for (const other of buttons) other.setAttribute("aria-pressed", "false");
+          buttons[index]?.setAttribute("aria-pressed", "true");
+          showShot(entry);
+        },
+      }),
+    );
+    dom.stage.append(
+      el("div", { class: "refs-shot-switch", role: "group", "aria-label": "Vorschaubild" }, ...buttons),
+    );
   }
 
   const profile = reference.profile;
@@ -2794,10 +3049,18 @@ async function refsInspectorShow(referenceId) {
     copyPrompt,
   );
 
-  dom.panel.replaceChildren(
-    el("div", { class: "refs-eyebrow", text: collection ? collection.name : "Ohne Sammlung" }),
-    el("h2", { text: reference.name }),
-    el("p", { class: "refs-brief-family", text: family ?? "Ohne Familie" }),
+  // Reiter des Fensters: die Uebersicht kennt jede Referenz, die Dokumente
+  // (design.md, Guidelines, Komponenten) nur die importierten.
+  const documents = reference.documents ?? {};
+  const documentTabs = [
+    { id: "design", label: "Design.md", text: documents.design },
+    { id: "guidelines", label: "Guidelines", text: documents.guidelines },
+    { id: "components", label: "Komponenten", text: documents.components },
+  ].filter((entry) => typeof entry.text === "string" && entry.text.trim() !== "");
+
+  const overview = el(
+    "div",
+    { class: "refs-doc-page", "data-page": "overview" },
     el(
       "div",
       { class: "refs-detail-section" },
@@ -2835,6 +3098,71 @@ async function refsInspectorShow(referenceId) {
     ),
     refsInspectorExtras(reference),
   );
+
+  const pages = [{ id: "overview", label: "Übersicht", page: overview }];
+  for (const entry of documentTabs) {
+    pages.push({
+      id: entry.id,
+      label: entry.label,
+      page: el(
+        "div",
+        { class: "refs-doc-page", "data-page": entry.id, hidden: true },
+        el(
+          "div",
+          { class: "refs-doc-actions" },
+          el("button", {
+            type: "button",
+            class: "refs-button quiet refs-copy-document",
+            text: "Dokument kopieren",
+            onclick: () => refsCopy(entry.text, "Dokument kopiert"),
+          }),
+        ),
+        el("div", { class: "refs-doc", html: refsRenderMarkdown(entry.text) }),
+      ),
+    });
+  }
+
+  const head = el(
+    "div",
+    {},
+    el("div", { class: "refs-eyebrow", text: collection ? collection.name : "Ohne Sammlung" }),
+    el("h2", { text: reference.name }),
+    el("p", { class: "refs-brief-family", text: family ?? "Ohne Familie" }),
+    typeof reference.sourceUrl === "string" && reference.sourceUrl !== ""
+      ? el("p", { class: "refs-source-row" }, el("a", {
+          class: "refs-source-link",
+          href: reference.sourceUrl,
+          target: "_blank",
+          rel: "noreferrer",
+          text: "Live-Preview öffnen",
+        }))
+      : null,
+  );
+
+  if (pages.length > 1) {
+    const tabs = el("div", { class: "refs-doc-tabs", role: "tablist" });
+    const buttons = pages.map((entry, index) =>
+      el("button", {
+        type: "button",
+        class: "refs-doc-tab",
+        role: "tab",
+        "data-tab": entry.id,
+        "aria-selected": index === 0 ? "true" : "false",
+        text: entry.label,
+        onclick: () => {
+          buttons.forEach((button, buttonIndex) => {
+            const active = buttonIndex === index;
+            button.setAttribute("aria-selected", active ? "true" : "false");
+            pages[buttonIndex].page.hidden = !active;
+          });
+        },
+      }),
+    );
+    tabs.append(...buttons);
+    dom.panel.replaceChildren(head, tabs, ...pages.map((entry) => entry.page));
+  } else {
+    dom.panel.replaceChildren(head, ...pages.map((entry) => entry.page));
+  }
 }
 
 // Fenster oeffnen bzw. fuellen. `options.replace` schreibt die Adresse zurueck

@@ -17,6 +17,45 @@ function pngImage(width = 1440, height = 900): string {
   return `data:image/png;base64,${pngBytes(width, height).toString("base64")}`;
 }
 
+// Cut-down import documents: the tables the profile reader understands.
+const IMPORT_DESIGN = [
+  "# Achilles Design System - Token Reference",
+  "",
+  "Achilles is a dark-themed Framer template design system with mono typography and terminal UI.",
+  "",
+  "## Colors",
+  "",
+  "| Role | Hex | Usage |",
+  "|------|-----|-------|",
+  "| primary | `#00E07A` | CTAs |",
+  "| background | `#141414` | Page canvas |",
+  "| ink | `#FFFFFF` | Headlines |",
+  "",
+  "## Typography",
+  "",
+  "Font family: **Geist Mono, Inter**, fallback `system-ui, sans-serif`.",
+  "",
+  "| Style | Size | Weight | Line Height | Spacing |",
+  "|-------|------|--------|-------------|---------|",
+  "| Body | 14px | 400 | 1.6 | 0 |",
+  "",
+  "## Shape",
+  "",
+  "| Token | Radius | Components |",
+  "|-------|--------|------------|",
+  "| Base | 0px | Cards |",
+  "",
+].join("\n");
+
+const IMPORT_GUIDELINES = [
+  "# Achilles - Guidelines",
+  "",
+  "## Don'ts",
+  "",
+  "- Never place two green CTAs in one viewport.",
+  "",
+].join("\n");
+
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -518,6 +557,91 @@ describe("reference library (T14, collections and briefs)", () => {
     expect(brokenBase64.status).toBe(400);
     expect(brokenBase64.body.error.field).toBe("image");
     expect(brokenBase64.body.error.message).toContain("Base64");
+  }, 30000);
+
+  it("stores an imported reference with documents, mobile shot and profile", async () => {
+    const imported = await env.api.request<ReferenceBody>({
+      method: "POST",
+      path: "/api/references/manual",
+      body: {
+        name: "Import-Test Achilles",
+        sourceUrl: "https://getachilles.framer.ai/",
+        family: "Dev-Tool / KI",
+        note: "AI SaaS template von Arthur Duchesne",
+        capturedAt: "2026-09-19T00:00:00.000Z",
+        documents: {
+          design: IMPORT_DESIGN,
+          guidelines: IMPORT_GUIDELINES,
+          components: "## Actions\n\n### Button (Primary)\n",
+        },
+        image: pngImage(1920, 1080),
+        imageMobile: pngImage(360, 800),
+        author: TEST_AUTHOR,
+      },
+    });
+    expect(imported.status).toBe(201);
+    const reference = imported.body.reference;
+    expect(reference.sourceUrl).toBe("https://getachilles.framer.ai/");
+    expect(reference.documents).toEqual({
+      design: IMPORT_DESIGN,
+      guidelines: IMPORT_GUIDELINES,
+      components: "## Actions\n\n### Button (Primary)\n",
+    });
+    const snapshots = reference.snapshots as { breakpoint: string; previewPath?: string }[];
+    expect(snapshots.map((entry) => entry.breakpoint)).toEqual(["manual", "mobile"]);
+    expect(snapshots[1]?.previewPath).toBe(
+      `/api/references/${String(reference.id)}/snapshots/mobile-fullpage-2.png`,
+    );
+    expect((reference.provenance as Json).note).toContain("Design-Dokumenten");
+
+    // The profile is read out of the documents, so theme derivation works
+    // without a live capture.
+    const profile = reference.profile as {
+      tokens: { color: Json[]; type: Json[]; radius: Json[]; families: Json[] };
+      rules: { constants: string[]; never: string[] };
+      styleBrief: string;
+      reduced: boolean;
+    };
+    expect(profile.reduced).toBe(false);
+    expect(profile.tokens.color).toHaveLength(3);
+    expect((profile.tokens.type[0] as Json).role).toBe("body");
+    expect((profile.tokens.radius[0] as Json).value).toBe("0px");
+    expect((profile.tokens.families[0] as Json).value).toBe("Geist Mono");
+    expect(profile.rules.never).toEqual(["Never place two green CTAs in one viewport."]);
+    expect(profile.styleBrief).toContain("https://getachilles.framer.ai/");
+    expect(reference.evidence).toHaveLength(7);
+    expect((reference.evidence as Json[])[0]?.claim).toBe("color.primary = #00E07A");
+    expect(reference.revision).toBe(1);
+
+    // The revision carries the note of the reader.
+    const revisions = await env.api.request<{ revisions: { note: string | null }[] }>({
+      method: "GET",
+      path: `/api/references/${String(reference.id)}/revisions`,
+    });
+    expect(revisions.body.revisions[0]?.note).toBe("Aus Design.md gelesen");
+
+    // A second import run refreshes the documents over the same route.
+    const refreshed = await env.api.request<ReferenceBody>({
+      method: "PATCH",
+      path: `/api/references/${String(reference.id)}`,
+      body: {
+        sourceUrl: "https://getachilles.framer.ai/updated",
+        documents: { design: IMPORT_DESIGN, guidelines: null, components: null },
+      },
+    });
+    expect(refreshed.status).toBe(200);
+    expect(refreshed.body.reference.sourceUrl).toBe("https://getachilles.framer.ai/updated");
+    expect(refreshed.body.reference.documents).toEqual({
+      design: IMPORT_DESIGN,
+      guidelines: null,
+      components: null,
+    });
+
+    // The list stays lean: documents reach the detail view only.
+    const listed = await list("q=Achilles");
+    const card = listed.references.find((entry) => entry.id === reference.id);
+    expect(card).toBeDefined();
+    expect(card?.documents).toBeUndefined();
   }, 30000);
 
   it("builds the single, combined, collection and style brief", async () => {

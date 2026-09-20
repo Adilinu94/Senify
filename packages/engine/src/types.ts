@@ -740,6 +740,22 @@ export type ReferenceSnapshot = {
   previewPath?: string;
 };
 
+// The documents of an imported reference (Framer template set): design.md,
+// design-guidelines.md and design-components.md, kept verbatim. They are the
+// source the detail view renders and the agent reads; the profile derived from
+// them carries the numbers.
+export type ReferenceDocuments = {
+  design: string | null;
+  guidelines: string | null;
+  components: string | null;
+};
+
+export const EMPTY_REFERENCE_DOCUMENTS: ReferenceDocuments = {
+  design: null,
+  guidelines: null,
+  components: null,
+};
+
 // "manual" is the uploaded reference (Taste Vault "Add reference"): it never
 // runs the analysis pipeline and carries no profile.
 export type ReferenceMethod = "playwright" | "snapshot" | "manual";
@@ -827,6 +843,8 @@ export type Reference = {
   imageRecipe: string | null;
   heroUsage: string | null;
   family: string | null;
+  // Verbatim import documents; empty for references without them.
+  documents: ReferenceDocuments;
   revision: number;
   profile: ReferenceProfile | null;
   evidence: ReferenceEvidence[];
@@ -835,8 +853,10 @@ export type Reference = {
   updatedAt: string;
 };
 
-// Card view of the Referenzen tab: no profile payload.
-export type ReferenceSummary = Omit<Reference, "profile" | "evidence">;
+// Card view of the Referenzen tab: no profile payload and no documents (the
+// imported documents are tens of kilobytes each, only the detail view loads
+// them).
+export type ReferenceSummary = Omit<Reference, "profile" | "evidence" | "documents">;
 
 export const REFERENCE_LIST_SORTS = ["newest", "name"] as const;
 export type ReferenceListSort = (typeof REFERENCE_LIST_SORTS)[number];

@@ -227,6 +227,7 @@ function makeReference(
     imageRecipe: null,
     heroUsage: null,
     family: null,
+    documents: { design: null, guidelines: null, components: null },
     revision: 0,
     profile: null,
     evidence: [],

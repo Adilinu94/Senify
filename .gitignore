@@ -6,6 +6,8 @@ coverage/
 output/
 *.tsbuildinfo
 Repos/
+# Referenzsammlung: fremde Screenshots und Analysen liegen lokal, nicht im Repo
+Referenzsites/
 .bake/
 .astro/
 packages/renderer/astro-template/src/generated/

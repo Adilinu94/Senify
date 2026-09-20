@@ -82,6 +82,8 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "whoami",
       "list_sites",
       "get_site",
+      "create_site",
+      "duplicate_site",
       "list_pages",
       "get_page",
       "get_nodes",
@@ -128,6 +130,7 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "create_reference_collection",
       "assign_reference_to_collection",
       "get_reference_brief",
+      "plan_redesign",
     ]);
     for (const tool of listed.tools) {
       expect(tool.description?.length ?? 0).toBeGreaterThan(30);
@@ -970,6 +973,108 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     expect((detached.data.reference as { collectionId: string | null }).collectionId).toBe(
       null,
     );
+  }, 60000);
+
+  it("plans a redesign, duplicates the site and writes the derived theme", async () => {
+    const siteId = await createSite(env, "Redesign Quelle");
+    const created = await call(session, "create_page", { siteId, title: "Werkstatt" });
+    expect(created.ok).toBe(true);
+    const pageId = created.data.id as string;
+    const rootNodeId = (created.data.draft as { rootNodeId: string }).rootNodeId;
+    const inserted = await call(session, "apply_mutations", {
+      pageId,
+      baseDraftVersion: created.data.draftVersion as number,
+      mutations: [
+        {
+          op: "insertNode",
+          parent: { nodeId: rootNodeId },
+          node: { type: "hero", variant: "centered", props: { headline: "Unsere Werkstatt" } },
+        },
+      ],
+    });
+    expect(inserted.ok).toBe(true);
+
+    const snapshotReference = async (name: string, html: string): Promise<string> => {
+      const analyzed = await call(session, "analyze_reference", {
+        url: `https://${name.toLowerCase().replace(/[^a-z]+/g, "-")}.test`,
+        name,
+        snapshot: { html },
+      });
+      expect(analyzed.ok).toBe(true);
+      return (analyzed.data.reference as { id: string }).id;
+    };
+    const darkId = await snapshotReference(
+      "Dunkle Referenz",
+      `<style>
+        body { background: #101418; color: #f5f7fa; font-family: 'Sora', sans-serif; font-size: 16px }
+        h1 { font-size: 56px; line-height: 1.05; font-weight: 700 }
+      </style>
+      <section class="hero"><h1>Dunkle Referenz</h1></section>`,
+    );
+    const lightId = await snapshotReference(
+      "Helle Referenz",
+      `<style>
+        body { background: #fbf7f0; color: #2b2118; font-family: 'Fraunces', serif; font-size: 19px }
+        h1 { font-size: 72px; line-height: 1.1; font-weight: 400 }
+      </style>
+      <section class="hero"><h1>Helle Referenz</h1></section>`,
+    );
+
+    const plan = await call(session, "plan_redesign", {
+      pageId,
+      referenceIds: [darkId, lightId],
+    });
+    expect(plan.ok).toBe(true);
+    const targets = plan.data.targets as {
+      reference: { name: string };
+      themePatch: { scales: Record<string, unknown> };
+      verification: { ok: boolean };
+    }[];
+    expect(targets).toHaveLength(2);
+    expect(targets.map((target) => target.reference.name)).toEqual([
+      "Dunkle Referenz",
+      "Helle Referenz",
+    ]);
+    expect(targets.every((target) => target.verification.ok)).toBe(true);
+    expect(targets[0]?.themePatch.scales["brand"]).toBeTruthy();
+    expect(targets[0]?.themePatch.scales["brand"]).not.toBe(
+      targets[1]?.themePatch.scales["brand"],
+    );
+    const outline = (plan.data.source as { outline: { type: string; text: Json }[] }).outline;
+    expect(outline.map((entry) => [entry.type, entry.text["headline"]])).toEqual([
+      ["hero", "Unsere Werkstatt"],
+    ]);
+    expect((plan.data.steps as string[])[0]).toContain("duplicate_site");
+
+    // The copy brings the content and takes the derived theme.
+    const copy = await call(session, "duplicate_site", {
+      siteId,
+      name: "Werkstatt im Dunklen",
+    });
+    expect(copy.ok).toBe(true);
+    const copyId = copy.data.id as string;
+    expect(copy.data.name).toBe("Werkstatt im Dunklen");
+    const copyPages = await call(session, "list_pages", { siteId: copyId });
+    expect((copyPages.data.pages as { title: string }[]).map((entry) => entry.title)).toEqual([
+      "Werkstatt",
+    ]);
+
+    const themed = await call(session, "update_theme", {
+      siteId: copyId,
+      theme: targets[0]?.themePatch as Json,
+    });
+    expect(themed.ok).toBe(true);
+    expect((themed.data.theme as { scales: Record<string, unknown> }).scales["brand"]).toBe(
+      targets[0]?.themePatch.scales["brand"],
+    );
+
+    // A brand-new project works without a source site as well.
+    const fresh = await call(session, "create_site", { name: "Leeres Projekt" });
+    expect(fresh.ok).toBe(true);
+    expect(fresh.data.slug).toBe("leeres-projekt");
+
+    const withoutReferences = await call(session, "plan_redesign", { pageId, referenceIds: [] });
+    expect(withoutReferences.ok).toBe(false);
   }, 60000);
 
   it("records every tool call in the server-side audit log", async () => {

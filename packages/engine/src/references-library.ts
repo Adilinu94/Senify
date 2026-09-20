@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import { SenifyError } from "@senify/core";
 import { imageDimensions } from "./media.ts";
+import { buildDocumentProfile } from "./references-documents.ts";
 import {
   MANUAL_REFERENCE_MAX_BYTES,
+  referenceDocumentsFrom,
   type ManualReferenceBody,
 } from "./references-contract.ts";
 import {
@@ -11,7 +13,7 @@ import {
 } from "./references-lifecycle.ts";
 import { REFERENCE_STYLE_CATALOG } from "./references-styles.ts";
 import type { Store } from "./store.ts";
-import type { Reference } from "./types.ts";
+import type { Reference, ReferenceProvenance } from "./types.ts";
 
 // The manually stored reference (Taste Vault "Add reference"): an uploaded
 // screenshot becomes a ready reference with a snapshot and no analysis profile.
@@ -146,10 +148,40 @@ export async function createManualReference(
       suggestion: "Ein vollständiges PNG, JPEG oder WebP senden.",
     });
   }
+  const mobile =
+    input.imageMobile === undefined ? null : decodeReferenceImage(input.imageMobile);
+  const mobileDimensions =
+    mobile === null ? undefined : imageDimensions(mobile.bytes, mobile.mime);
+  if (mobile !== null && mobileDimensions === undefined) {
+    throw new SenifyError("validation", "Die Bildgröße des Mobilbilds ließ sich nicht lesen", {
+      field: "imageMobile",
+      suggestion: "Ein vollständiges PNG, JPEG oder WebP senden.",
+    });
+  }
+  // Imported documents turn the reference into a documented one: the profile is
+  // read out of them, so theme derivation and the redesign package work without
+  // a live capture. An upload without documents stays profile-less.
+  const documents = referenceDocumentsFrom(input.documents);
+  const documented =
+    documents.design !== null ||
+    documents.guidelines !== null ||
+    documents.components !== null;
+  const sourceUrl = input.sourceUrl?.trim() ?? "";
+  const capturedAt = input.capturedAt ?? new Date().toISOString();
+  const provenance: ReferenceProvenance = {
+    url: sourceUrl,
+    capturedAt,
+    hash: createHash("sha256").update(image.bytes).digest("hex"),
+    method: "manual",
+    note: documented
+      ? "Import mit Design-Dokumenten (Profil aus den Dokumenten gelesen)"
+      : "Manuell abgelegte Referenz (Bild-Upload, kein Analyseprofil)",
+    author: input.author,
+  };
   const reference = await context.store.createReference({
     name,
-    // A manual reference has no analysed URL: the snapshot carries the image.
-    sourceUrl: "",
+    // A reference without a source carries its image; an import names the page.
+    sourceUrl,
     method: "manual",
     origin: "manual",
     status: "ready",
@@ -160,14 +192,8 @@ export async function createManualReference(
     imageRecipe:
       input.imageRecipe === undefined ? null : input.imageRecipe.trim(),
     heroUsage: input.heroUsage === undefined ? null : input.heroUsage.trim(),
-    provenance: {
-      url: "",
-      capturedAt: input.capturedAt ?? new Date().toISOString(),
-      hash: createHash("sha256").update(image.bytes).digest("hex"),
-      method: "manual",
-      note: "Manuell abgelegte Referenz (Bild-Upload, kein Analyseprofil)",
-      author: input.author,
-    },
+    documents,
+    provenance,
   });
   await context.store.updateReference(reference.id, {
     vocabulary: terms(input.vocabulary ?? []),
@@ -181,8 +207,43 @@ export async function createManualReference(
         height: dimensions.height,
         extension: image.extension,
       },
+      ...(mobile === null || mobileDimensions === undefined
+        ? []
+        : [
+            {
+              breakpoint: "mobile",
+              kind: "fullpage" as const,
+              bytes: mobile.bytes,
+              width: mobileDimensions.width,
+              height: mobileDimensions.height,
+              extension: mobile.extension,
+            },
+          ]),
     ]),
   });
+  if (documents.design !== null || documents.components !== null) {
+    const built = buildDocumentProfile({
+      name,
+      sourceUrl: sourceUrl === "" ? null : sourceUrl,
+      capturedAt,
+      design: documents.design ?? "",
+      guidelines: documents.guidelines,
+      components: documents.components,
+    });
+    await context.store.createReferenceProfileRevision({
+      referenceId: reference.id,
+      profile: built.profile,
+      evidence: built.evidence,
+      provenance,
+      author: input.author ?? { kind: "human", id: "import", label: "Import" },
+      note: "Aus Design.md gelesen",
+    });
+    await context.store.updateReference(reference.id, {
+      styleBrief: built.profile.styleBrief,
+      families: built.profile.families,
+      vocabulary: built.profile.vocabulary,
+    });
+  }
   return context.store.getReference(reference.id);
 }
 

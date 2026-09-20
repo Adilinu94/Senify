@@ -186,6 +186,7 @@ import {
   parseReferenceListFilters,
   ReferenceBriefBodySchema,
   ReferenceTickBodySchema,
+  referenceDocumentsFrom,
   referenceFooterText,
   UpdateReferenceBodySchema,
   UpdateReferenceCollectionBodySchema,
@@ -205,6 +206,7 @@ import {
   referenceStyleCatalogInfo,
   seedReferenceStyles,
 } from "./references-library.ts";
+import { buildRedesignPackage } from "./redesign-package.ts";
 import {
   buildCollectionBrief,
   buildImagePrompt,
@@ -3125,14 +3127,38 @@ const ROUTES: Route[] = [
         body: {
           reference: await context.store.updateReference(referenceId, {
             ...(name === undefined ? {} : { name }),
+            ...(input.sourceUrl === undefined ? {} : { sourceUrl: input.sourceUrl }),
             ...(input.collectionId === undefined ? {} : { collectionId: input.collectionId }),
             ...(input.note === undefined ? {} : { note: input.note }),
             ...(input.vocabulary === undefined ? {} : { vocabulary: input.vocabulary }),
             ...(input.imageRecipe === undefined ? {} : { imageRecipe: input.imageRecipe }),
             ...(input.heroUsage === undefined ? {} : { heroUsage: input.heroUsage }),
             ...(input.family === undefined ? {} : { family: input.family }),
+            ...(input.documents === undefined
+              ? {}
+              : { documents: referenceDocumentsFrom(input.documents) }),
           }),
         },
+      };
+    },
+  },
+  {
+    // The redesign package for one page: the content plus one theme patch per
+    // reference. A read; nothing is written.
+    method: "GET",
+    segments: ["api", "pages", ":pageId", "redesign-package"],
+    scope: "read",
+    handler: async (context, params, _req, url) => {
+      const referenceIds = (url.searchParams.get("referenceIds") ?? "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter((value) => value !== "");
+      return {
+        status: 200,
+        body: await buildRedesignPackage(context.store, {
+          pageId: requireParam(params, "pageId"),
+          referenceIds,
+        }),
       };
     },
   },

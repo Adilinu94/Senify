@@ -15,6 +15,29 @@ const PNG = Buffer.from(
   "hex",
 );
 
+// Die Dokumente eines Imports (Framer-Sammlung), kurz gehalten.
+const DESIGN_DOC = [
+  "# Achilles Design System - Token Reference",
+  "",
+  "Achilles is a dark-themed Framer template design system with mono typography.",
+  "",
+  "## Colors",
+  "",
+  "| Role | Hex | Usage |",
+  "|------|-----|-------|",
+  "| primary | `#00E07A` | CTAs, highlights |",
+  "| background | `#141414` | Page canvas |",
+  "",
+  "## Typography",
+  "",
+  "Font family: **Geist Mono, Inter**, fallback `system-ui, sans-serif`.",
+  "",
+  "| Style | Size | Weight |",
+  "|-------|------|--------|",
+  "| Body | 14px | 400 |",
+  "",
+].join("\n");
+
 describe.skipIf(!browserAvailable)("reference library in the program (T14)", () => {
   it("renders the rail, cards, comparison, detail and the address state", async () => {
     const { chromium } = await import("playwright");
@@ -195,6 +218,137 @@ describe.skipIf(!browserAvailable)("reference library in the program (T14)", () 
       await expect.poll(async () => tab.url()).toContain("view=styles");
       await tab.locator(".refs-search input").fill("bauhaus");
       await expect.poll(async () => tab.locator(".refs-style-card").count()).toBeLessThan(18);
+
+      expect(errors).toEqual([]);
+    } finally {
+      await browser.close();
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 180000);
+});
+
+describe.skipIf(!browserAvailable)("reference documents in the program", () => {
+  it("shows design.md, guidelines and components as tabs of the detail view", async () => {
+    const { chromium } = await import("playwright");
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-reference-docs-"));
+    const running = await startProgram({
+      db: database.db,
+      dataDir,
+      programTokenFile: join(dataDir, "program-token.json"),
+      enginePort: 0,
+      appPort: 0,
+      openBrowser: false,
+    });
+    const jsonHeaders = { "content-type": "application/json" };
+    const post = (path: string, body: unknown): Promise<Response> =>
+      fetch(`${running.dashboardUrl}${path}`, {
+        method: "POST",
+        headers: jsonHeaders,
+        body: JSON.stringify(body),
+      });
+    const browser = await chromium.launch({ headless: true });
+    const errors: string[] = [];
+    try {
+      const documented = await post("/api/references/manual", {
+        name: "Import-Test Achilles",
+        sourceUrl: "https://getachilles.framer.ai/",
+        note: "AI SaaS template von Arthur Duchesne",
+        documents: {
+          design: DESIGN_DOC,
+          guidelines: "# Achilles - Guidelines\n\n## Don'ts\n\n- Never place two green CTAs.\n",
+          components: "# Achilles - Components\n\n## Actions\n\n### Button (Primary)\n",
+        },
+        image: PNG.toString("base64"),
+        imageMobile: PNG.toString("base64"),
+        author,
+      });
+      expect(documented.status).toBe(201);
+      const plain = await post("/api/references/manual", {
+        name: "Ohne Dokumente",
+        image: PNG.toString("base64"),
+        author,
+      });
+      expect(plain.status).toBe(201);
+
+      const context = await browser.newContext({ viewport: { width: 1500, height: 1000 } });
+      // Ohne Zwischenablage laeuft jede Kopier-Aktion in den Fallback-Dialog.
+      await context.addInitScript(() => {
+        Object.defineProperty(navigator, "clipboard", {
+          configurable: true,
+          get: () => ({ writeText: () => Promise.reject(new Error("keine Zwischenablage")) }),
+        });
+      });
+      const tab = await context.newPage();
+      tab.setDefaultTimeout(15000);
+      tab.on("console", (message) => {
+        if (message.type() === "error") errors.push(`console: ${message.text()}`);
+      });
+      tab.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+
+      await tab.goto(`${running.dashboardUrl}/#/references`, { waitUntil: "domcontentloaded" });
+      await tab.waitForSelector(".refs-card");
+      await tab.locator('.refs-card:has-text("Import-Test Achilles") .refs-card-art').click();
+      await tab.waitForSelector(".refs-inspector[open]");
+
+      // Vier Reiter: Uebersicht plus die drei Dokumente des Imports.
+      const tabs = await tab.locator(".refs-doc-tab").allTextContents();
+      expect(tabs).toEqual(["Übersicht", "Design.md", "Guidelines", "Komponenten"]);
+      expect(await tab.locator(".refs-doc-tab[aria-selected='true']").textContent()).toBe(
+        "Übersicht",
+      );
+      // Der Live-Link steht in der Uebersicht.
+      expect(
+        await tab.locator(".refs-source-link").getAttribute("href"),
+      ).toBe("https://getachilles.framer.ai/");
+
+      // Design.md: die Token-Tabellen kommen als echte Tabellen an.
+      await tab.locator('.refs-doc-tab:has-text("Design.md")').click();
+      const designPage = tab.locator('.refs-doc-page[data-page="design"]');
+      await expect.poll(async () => designPage.locator("table").count()).toBe(2);
+      const designText = (await designPage.textContent()) ?? "";
+      expect(designText).toContain("CTAs, highlights");
+      expect(designText).toContain("Geist Mono, Inter");
+      expect(await designPage.locator("code").first().textContent()).toBe("#00E07A");
+
+      // Kopieren ohne Zwischenablage: der Fallback zeigt das Dokument.
+      await designPage.locator(".refs-copy-document").click();
+      await tab.waitForSelector(".refs-copy-dialog");
+      expect(await tab.locator(".refs-copy-dialog textarea").inputValue()).toContain(
+        "# Achilles Design System",
+      );
+      await tab.locator(".refs-copy-dialog .refs-icon-button").click();
+
+      // Guidelines und Komponenten sind eigene Reiter.
+      await tab.locator('.refs-doc-tab:has-text("Guidelines")').click();
+      expect(
+        await tab.locator('.refs-doc-page[data-page="guidelines"]').textContent(),
+      ).toContain("Never place two green CTAs.");
+      await tab.locator('.refs-doc-tab:has-text("Komponenten")').click();
+      expect(
+        await tab.locator('.refs-doc-page[data-page="components"] h2').textContent(),
+      ).toBe("Actions");
+
+      // Der Bildumschalter wechselt zwischen Desktop- und Mobilaufnahme.
+      const desktopSrc = await tab.locator("#refs-inspector-image").getAttribute("src");
+      await tab.locator('.refs-shot-switch button:has-text("Mobil")').click();
+      await expect
+        .poll(async () => tab.locator("#refs-inspector-image").getAttribute("src"))
+        .not.toBe(desktopSrc);
+      await tab.locator('.refs-shot-switch button:has-text("Desktop")').click();
+      await expect
+        .poll(async () => tab.locator("#refs-inspector-image").getAttribute("src"))
+        .toBe(desktopSrc);
+
+      // Eine Referenz ohne Dokumente kennt keine Dokument-Reiter.
+      await tab.keyboard.press("Escape");
+      await expect.poll(async () => tab.locator(".refs-inspector[open]").count()).toBe(0);
+      await tab.locator('.refs-card:has-text("Ohne Dokumente") .refs-card-art').click();
+      await tab.waitForSelector(".refs-inspector[open]");
+      expect(await tab.locator(".refs-doc-tab").count()).toBe(0);
+      expect(await tab.locator(".refs-shot-switch").count()).toBe(0);
 
       expect(errors).toEqual([]);
     } finally {

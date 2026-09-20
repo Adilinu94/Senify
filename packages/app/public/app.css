@@ -1580,6 +1580,7 @@ dialog.modal select,
 }
 
 .refs-inspector-stage {
+  position: relative;
   background: #e9ecf1;
   overflow: auto;
   padding: 24px;
@@ -1607,6 +1608,166 @@ dialog.modal select,
   max-width: none;
   max-height: none;
   box-shadow: none;
+}
+
+/* Reiter des Detailfensters: die Uebersicht und die Dokumente der importierten
+   Referenzen (design.md, Guidelines, Komponenten). */
+.refs-doc-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0 14px;
+}
+
+.refs-doc-tab {
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--refs-line);
+  background: transparent;
+  color: var(--refs-muted);
+  cursor: pointer;
+}
+
+.refs-doc-tab[aria-selected="true"] {
+  background: var(--refs-ink);
+  border-color: var(--refs-ink);
+  color: var(--refs-surface);
+}
+
+.refs-doc-page[hidden] {
+  display: none;
+}
+
+.refs-doc-actions {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.refs-doc {
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.refs-doc h1 {
+  font-size: 19px;
+  margin: 0 0 10px;
+}
+
+.refs-doc h2 {
+  font-size: 16px;
+  margin: 18px 0 8px;
+}
+
+.refs-doc h3 {
+  font-size: 14px;
+  margin: 14px 0 6px;
+}
+
+.refs-doc p {
+  margin: 0 0 10px;
+}
+
+.refs-doc ul,
+.refs-doc ol {
+  margin: 0 0 10px;
+  padding-left: 18px;
+}
+
+.refs-doc blockquote {
+  margin: 0 0 10px;
+  padding: 6px 10px;
+  border-left: 2px solid var(--refs-line);
+  color: var(--refs-muted);
+}
+
+.refs-doc code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  background: #f3f1f7;
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+.refs-doc pre {
+  background: #f3f1f7;
+  padding: 10px;
+  border-radius: 8px;
+  overflow: auto;
+}
+
+.refs-doc pre code {
+  background: none;
+  padding: 0;
+}
+
+.refs-doc table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 12px;
+  font-size: 12px;
+}
+
+.refs-doc th,
+.refs-doc td {
+  text-align: left;
+  vertical-align: top;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--refs-line);
+}
+
+.refs-doc th {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--refs-muted);
+}
+
+.refs-source-row {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+
+.refs-source-link {
+  color: var(--refs-accent);
+}
+
+/* Umschalter der Vorschaubilder (Desktop/Mobil) in der Bildbuehne. */
+.refs-shot-switch {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--refs-line);
+  border-radius: 999px;
+  background: var(--refs-surface);
+}
+
+.refs-shot-switch button {
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--refs-muted);
+  cursor: pointer;
+}
+
+.refs-shot-switch button[aria-pressed="true"] {
+  background: var(--refs-ink);
+  color: var(--refs-surface);
+}
+
+/* Waechter der Kartenliste: zieht den naechsten Block nach. */
+.refs-sentinel {
+  grid-column: 1 / -1;
+  height: 1px;
 }
 
 .refs-inspector-panel {

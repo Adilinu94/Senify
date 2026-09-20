@@ -5,6 +5,7 @@ import {
   REFERENCE_COLLECTION_KINDS,
   REFERENCE_LIST_SORTS,
   REFERENCE_STATUSES,
+  type ReferenceDocuments,
   type ReferenceListSort,
   type ReferenceStatus,
 } from "./types.ts";
@@ -318,6 +319,36 @@ export type CreateReferenceCollectionBody = Static<
   typeof CreateReferenceCollectionBodySchema
 >;
 
+// The verbatim import documents of a reference (Framer template set):
+// design.md, design-guidelines.md and design-components.md. The cap sits well
+// above the largest real document (~15 KB), so a complete import always fits.
+// null clears a document.
+const DocumentTextSchema = Type.Union([
+  Type.String({ maxLength: 200_000 }),
+  Type.Null(),
+]);
+
+export const ReferenceDocumentsSchema = Type.Object(
+  {
+    design: Type.Optional(DocumentTextSchema),
+    guidelines: Type.Optional(DocumentTextSchema),
+    components: Type.Optional(DocumentTextSchema),
+  },
+  CLOSED,
+);
+export type ReferenceDocumentsBody = Static<typeof ReferenceDocumentsSchema>;
+
+// Normalises a documents body (optional fields, nulls) into the stored shape.
+export function referenceDocumentsFrom(
+  input: ReferenceDocumentsBody | undefined,
+): ReferenceDocuments {
+  return {
+    design: input?.design ?? null,
+    guidelines: input?.guidelines ?? null,
+    components: input?.components ?? null,
+  };
+}
+
 // The edit of a collection: kind and external id are set at creation only.
 export const UpdateReferenceCollectionBodySchema = Type.Object(
   {
@@ -350,6 +381,8 @@ export type UpdateReferenceCollectionBody = Static<
 export const UpdateReferenceBodySchema = Type.Object(
   {
     name: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
+    // The live page the reference was taken from (import: the preview link).
+    sourceUrl: Type.Optional(Type.String({ maxLength: 2048 })),
     collectionId: Type.Optional(
       Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
     ),
@@ -366,6 +399,8 @@ export const UpdateReferenceBodySchema = Type.Object(
     family: Type.Optional(
       Type.Union([Type.String({ maxLength: 60 }), Type.Null()]),
     ),
+    // A second import run refreshes the documents of a reference.
+    documents: Type.Optional(ReferenceDocumentsSchema),
   },
   CLOSED,
 );
@@ -376,6 +411,9 @@ export type UpdateReferenceBody = Static<typeof UpdateReferenceBodySchema>;
 export const ManualReferenceBodySchema = Type.Object(
   {
     name: Type.String({ minLength: 1, maxLength: 120 }),
+    // The live page of the reference; an uploaded screenshot without a source
+    // leaves it out.
+    sourceUrl: Type.Optional(Type.String({ maxLength: 2048 })),
     collectionId: Type.Optional(
       Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
     ),
@@ -387,7 +425,13 @@ export const ManualReferenceBodySchema = Type.Object(
     // Imported references carry the day they were added in the source library;
     // a plain upload leaves it out and gets the time of the upload.
     capturedAt: Type.Optional(Type.String({ minLength: 1, maxLength: 40 })),
+    // Imported documents (design.md and friends); an upload leaves them out.
+    documents: Type.Optional(ReferenceDocumentsSchema),
     image: Type.String({ minLength: 1, maxLength: MANUAL_REFERENCE_BODY_LIMIT_BYTES }),
+    // The mobile shot of an import (360x800); the main image is the desktop one.
+    imageMobile: Type.Optional(
+      Type.String({ minLength: 1, maxLength: MANUAL_REFERENCE_BODY_LIMIT_BYTES }),
+    ),
     author: Type.Optional(AuthorSchema),
   },
   CLOSED,

@@ -93,6 +93,7 @@ import {
   type ReferenceCollectionExample,
   type ReferenceCollectionKind,
   type ReferenceDna,
+  type ReferenceDocuments,
   type ReferenceEvidence,
   type ReferenceJob,
   type ReferenceJobStatus,
@@ -4352,6 +4353,8 @@ export class Store {
     note?: string | null;
     imageRecipe?: string | null;
     heroUsage?: string | null;
+    family?: string | null;
+    documents?: ReferenceDocuments;
     // Manually stored references are ready on arrival: there is no pipeline.
     status?: ReferenceStatus;
     stage?: string;
@@ -4363,9 +4366,9 @@ export class Store {
       `INSERT INTO design_references
         (id, name, source_url, method, status, stage, progress, failure_reason,
          families, vocabulary, style_brief, snapshots, provenance, created_at, updated_at,
-         collection_id, note, image_recipe, hero_usage, family, origin)
+         collection_id, note, image_recipe, hero_usage, family, origin, documents)
        VALUES ($1, $2, $3, $4, $5, $6, $7, NULL,
-         '[]', '[]', '', '[]', $8, $9, $9, $10, $11, $12, $13, NULL, $14)`,
+         '[]', '[]', '', '[]', $8, $9, $9, $10, $11, $12, $13, NULL, $14, $15)`,
       [
         id,
         input.name,
@@ -4381,6 +4384,7 @@ export class Store {
         input.imageRecipe ?? null,
         input.heroUsage ?? null,
         input.origin ?? "analysis",
+        toJsonParam(input.documents ?? {}),
       ],
     );
     return this.getReference(id);
@@ -4388,7 +4392,7 @@ export class Store {
 
   async getReference(id: string): Promise<Reference> {
     const result = await this.#db.query<ReferenceRow>(
-      `SELECT ${REFERENCE_COLUMNS} FROM design_references WHERE id = $1`,
+      `SELECT ${REFERENCE_COLUMNS_WITH_DOCUMENTS} FROM design_references WHERE id = $1`,
       [id],
     );
     const row = result.rows[0];
@@ -4442,6 +4446,7 @@ export class Store {
     id: string,
     patch: {
       name?: string;
+      sourceUrl?: string;
       status?: ReferenceStatus;
       stage?: string;
       progress?: number;
@@ -4457,6 +4462,7 @@ export class Store {
       imageRecipe?: string | null;
       heroUsage?: string | null;
       family?: string | null;
+      documents?: ReferenceDocuments;
     },
   ): Promise<Reference> {
     const current = await this.getReference(id);
@@ -4465,7 +4471,7 @@ export class Store {
          status = $2, stage = $3, progress = $4, failure_reason = $5,
          families = $6, vocabulary = $7, style_brief = $8, snapshots = $9, updated_at = $10,
          provenance = $11, name = $12, collection_id = $13, note = $14, image_recipe = $15,
-         hero_usage = $16, family = $17, origin = $18
+         hero_usage = $16, family = $17, origin = $18, documents = $19, source_url = $20
        WHERE id = $1`,
       [
         id,
@@ -4486,6 +4492,8 @@ export class Store {
         patch.heroUsage === undefined ? current.heroUsage : patch.heroUsage,
         patch.family === undefined ? current.family : patch.family,
         patch.origin ?? current.origin,
+        toJsonParam(patch.documents ?? current.documents),
+        patch.sourceUrl ?? current.sourceUrl,
       ],
     );
     return this.getReference(id);
@@ -5314,6 +5322,10 @@ function mapNewsletterToken(row: NewsletterTokenRow): NewsletterToken {
 const REFERENCE_COLUMNS =
   "id, name, source_url, method, status, stage, progress, failure_reason, families, vocabulary, style_brief, snapshots, provenance, created_at, updated_at, collection_id, note, image_recipe, hero_usage, family, origin";
 
+// The documents are tens of kilobytes each: the card list never selects them,
+// only the detail view reads them along with the row.
+const REFERENCE_COLUMNS_WITH_DOCUMENTS = `${REFERENCE_COLUMNS}, documents`;
+
 const REFERENCE_COLLECTION_COLUMNS =
   "id, name, description, deploy_for, vocabulary, risk, accent, image_style, recognize, examples, warning, kind, external_id, position, created_at, updated_at";
 
@@ -5359,10 +5371,23 @@ type ReferenceRow = {
   hero_usage: unknown;
   family: unknown;
   origin: unknown;
+  // Only the detail view selects the column.
+  documents?: unknown;
 };
 
 function optionalText(value: unknown): string | null {
   return typeof value === "string" && value !== "" ? value : null;
+}
+
+// Imported documents are a JSONB object with three optional texts; a row from
+// before the column exists reads as an empty object.
+function mapReferenceDocuments(value: unknown): ReferenceDocuments {
+  const parsed = toJson<Partial<Record<keyof ReferenceDocuments, unknown>>>(value);
+  return {
+    design: optionalText(parsed?.design),
+    guidelines: optionalText(parsed?.guidelines),
+    components: optionalText(parsed?.components),
+  };
 }
 
 // Rows written before the library fields existed carry neither a collection nor
@@ -5409,6 +5434,7 @@ function mapReference(
 ): Reference {
   return {
     ...mapReferenceSummary(row, profileRevision?.revision ?? 0, usedInProjects, collection),
+    documents: mapReferenceDocuments(row.documents),
     profile: profileRevision?.profile ?? null,
     evidence: profileRevision?.evidence ?? [],
   };

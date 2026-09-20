@@ -296,6 +296,61 @@ export const TOOLS: ToolDefinition[] = [
       context.client.request("GET", `/api/sites/${requireString(args, "siteId")}`),
   },
   {
+    name: "create_site",
+    title: "Create site",
+    description:
+      "Legt ein Website-Projekt an: name ist Pflicht, slug und profile (clean|standard|showcase) sind optional. Für ein Redesign ist duplicate_site meist der bessere Start, weil es Inhalte und Theme mitbringt.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        name: { type: "string" },
+        slug: { type: "string" },
+        profile: { type: "string" },
+      },
+      ["name"],
+    ),
+    handler: async (context, args) => {
+      const name = requireString(args, "name");
+      const slug = optionalString(args, "slug");
+      const profile = optionalString(args, "profile");
+      return context.client.request("POST", "/api/sites", {
+        name,
+        ...(slug === undefined ? {} : { slug }),
+        ...(profile === undefined ? {} : { profile }),
+      });
+    },
+  },
+  {
+    name: "duplicate_site",
+    title: "Duplicate site",
+    description:
+      "Kopiert ein Projekt samt Theme; withContent (Default true) übernimmt Seiten, Artikel und Sammlungen, sonst nur Struktur und Design. name benennt die Kopie direkt um (sonst \"<Name> (Kopie)\"). Der Weg für ein Redesign: je Referenz eine Kopie, danach update_theme mit dem themePatch aus plan_redesign.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        siteId: { type: "string" },
+        name: { type: "string" },
+        withContent: { type: "boolean" },
+      },
+      ["siteId"],
+    ),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
+      const name = optionalString(args, "name");
+      const withContent = optionalBoolean(args, "withContent");
+      const created = (await context.client.request(
+        "POST",
+        `/api/sites/${siteId}/duplicate`,
+        { withContent: withContent ?? true },
+      )) as { id?: string };
+      if (name === undefined || created.id === undefined) return created;
+      // The copy is named "<Name> (Kopie)" by the store; the rename makes the
+      // two redesign copies distinguishable in the project list.
+      return context.client.request("PATCH", `/api/sites/${created.id}`, { name });
+    },
+  },
+  {
     name: "list_pages",
     title: "List pages",
     description:
@@ -1471,6 +1526,39 @@ export const TOOLS: ToolDefinition[] = [
       return context.client.request("POST", "/api/references/brief", {
         referenceIds,
       });
+    },
+  },
+  {
+    name: "plan_redesign",
+    title: "Plan redesign",
+    description:
+      "Das Redesign-Paket für eine Seite im Stil von ein bis drei Referenzen: Inhalts-Outline der Seite, je Referenz der abgeleitete Theme-Patch (für update_theme), die Vorschau der Skalenwerte, die Gegenprobe, Design.md/Guidelines/Komponenten, Vokabular, Regeln und die Schrittfolge. Ablauf: plan_redesign → je Referenz duplicate_site → update_theme mit dem themePatch → Seite anpassen (apply_mutations) → create_preview → submit_for_review. Eine Referenz ohne Profil (reiner Bild-Upload) wird mit Hinweis abgelehnt.",
+    scope: "read",
+    inputSchema: objectSchema(
+      {
+        pageId: { type: "string" },
+        referenceIds: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 3 },
+      },
+      ["pageId", "referenceIds"],
+    ),
+    entity: (args) => `page:${String(args.pageId ?? "")}`,
+    handler: async (context, args) => {
+      const pageId = requireString(args, "pageId");
+      const referenceIds = requireArray(args, "referenceIds").map((value) => {
+        if (typeof value !== "string" || value.trim() === "") {
+          throw new SenifyError("validation", '"referenceIds" must contain ids', {
+            field: "referenceIds",
+            suggestion: "Bis zu drei Referenz-ids übergeben.",
+          });
+        }
+        return value;
+      });
+      return context.client.request(
+        "GET",
+        `/api/pages/${pageId}/redesign-package?referenceIds=${encodeURIComponent(
+          referenceIds.join(","),
+        )}`,
+      );
     },
   },
 ];

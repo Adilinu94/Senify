@@ -495,6 +495,11 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   `ALTER TABLE design_references ADD COLUMN IF NOT EXISTS hero_usage text`,
   `ALTER TABLE design_references ADD COLUMN IF NOT EXISTS family text`,
   `ALTER TABLE design_references ADD COLUMN IF NOT EXISTS origin text`,
+  // Imported documents (Framer template set): design.md, design-guidelines.md
+  // and design-components.md verbatim. Additive, so existing rows read as "no
+  // documents" and the detail view hides the document tabs.
+  `ALTER TABLE design_references
+     ADD COLUMN IF NOT EXISTS documents jsonb NOT NULL DEFAULT '{}'::jsonb`,
   // Token identity (ticket 18): `kind` decides how the audit author is derived
   // from the token. Existing rows default to "agent" (fail-closed); the
   // program's own token heals itself to "human" on the next start.
