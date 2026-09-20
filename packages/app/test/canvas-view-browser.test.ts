@@ -5,17 +5,19 @@ import { describe, expect, it } from "vitest";
 import { startProgram } from "@senify/app";
 import { browserAvailable, memoryDb } from "./support.ts";
 
-// The new canvas wired into the editor page (rebuild Phase 0, fifth slice): the
-// page view keeps the old editor as the default and offers the canvas behind a
-// switch. This run drives that switch in a real browser: the canvas appears with
-// three device frames, a click selects, a widget inserts, Undo takes it back, a
-// save round-trips through the engine, and the old editor still loads.
+// The canvas wired into the editor page (rebuild Phase 0, fifth slice). Since
+// E5 slice 1 it is the one visible editor: the page mounts it directly (no
+// switch), the inspector is part of the mount, and the old editor stays
+// reachable as an explicit `?view=editor` deep link. This run drives the real
+// path in a browser: three device frames, a click selects, a widget inserts,
+// Undo takes it back, the inspector writes through the store, a save
+// round-trips through the engine, and the legacy editor still loads.
 // Skipped when Playwright is missing (same contract as the other browser tests).
 
 const author = { kind: "human", id: "programm", label: "Programm" };
 
 describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
-  it("switches views, selects, inserts, undoes, saves and reloads", async () => {
+  it("mounts the canvas by default, selects, inserts, undoes, saves and reloads", async () => {
     const { chromium } = await import("playwright");
     const database = memoryDb();
     const dataDir = mkdtempSync(join(tmpdir(), "senify-canvas-view-"));
@@ -96,25 +98,18 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       for (let attempt = 0; attempt < 3 && !mounted; attempt += 1) {
         await tab.goto(pageUrl, { waitUntil: "domcontentloaded" });
         mounted = await tab
-          .waitForSelector(".senify-editor", { timeout: 30000 })
+          .waitForSelector(".senify-canvas", { timeout: 30000 })
           .then(() => true)
           .catch(() => false);
       }
       expect(mounted).toBe(true);
 
-      // The default view stays the old editor and keeps working.
-      expect(await tab.locator(".senify-editor__iframe").count()).toBe(3);
-      expect(await tab.locator(".editor-switch button.active").textContent()).toBe(
-        "Editor (bisher)",
-      );
-      await tab.screenshot({ path: join(shotDir, "01-editor-default.png") });
-
-      // Switch to the canvas: the new view mounts with three device frames.
-      await tab.locator('.editor-switch button[data-view="canvas"]').click();
-      await tab.waitForSelector(".senify-canvas", { timeout: 30000 });
-      expect(await tab.url()).toContain("view=canvas");
+      // E5 slice 1: the canvas is the one visible editor — no switch, no
+      // `view` parameter needed. The inspector is part of the mount.
+      expect(await tab.locator(".editor-switch").count()).toBe(0);
       expect(await tab.locator(".senify-canvas__frame").count()).toBe(3);
       expect(await tab.locator(".senify-canvas__iframe").count()).toBe(3);
+      expect(await tab.locator(".senify-inspector").count()).toBe(1);
       await tab.screenshot({ path: join(shotDir, "02-canvas-frames.png") });
 
       const desktopFrame = () =>
@@ -145,6 +140,113 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       await expect.poll(dividerCount).toBe(1);
       await tab.screenshot({ path: join(shotDir, "04-canvas-insert.png") });
 
+      // The inspector (ticket 02, slice 1): four tabs, the generated field
+      // family and the store as the one source. The divider is a registered
+      // section, so its `background` style prop round-trips through the real
+      // save path; the change must reach the canvas without a reload.
+      const dividerNode = desktopFrame().locator('section[data-section="divider"]').first();
+      await dividerNode.click();
+      await tab.waitForSelector(".senify-inspector", { timeout: 30000 });
+      expect(await tab.locator(".senify-inspector__tab").count()).toBe(4);
+      expect(await tab.locator(".senify-inspector__tab").allTextContents()).toEqual([
+        "Content",
+        "Style",
+        "Interactions",
+        "Advanced",
+      ]);
+      await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
+      const backgroundField = tab.locator(
+        '.senify-inspector__field[data-key="background"] input',
+      );
+      await backgroundField.waitFor({ timeout: 30000 });
+      await backgroundField.fill("#123456");
+      await backgroundField.dispatchEvent("change");
+      await expect
+        .poll(async () =>
+          dividerNode.evaluate((element) => {
+            const target = element as unknown as {
+              ownerDocument: {
+                defaultView: {
+                  getComputedStyle(node: unknown): { backgroundColor: string };
+                };
+              };
+            };
+            return target.ownerDocument.defaultView.getComputedStyle(element).backgroundColor;
+          }),
+        )
+        .toBe("rgb(18, 52, 86)");
+      await tab.screenshot({ path: join(shotDir, "04b-inspector.png") });
+
+      // The explorer (ticket 03, slice 1): the tree lists the layers, a click
+      // selects into the same store, the arrows move the selection and the
+      // context menu opens with Shift+F10 and returns the focus on Escape.
+      await tab.waitForSelector(".senify-explorer__item", { timeout: 30000 });
+      const heroItem = tab.locator(`.senify-explorer__item[data-node="${heroId}"]`);
+      await heroItem.click();
+      await expect
+        .poll(async () => tab.locator(`.senify-canvas[data-selected="${heroId}"]`).count())
+        .toBe(1);
+      await tab.keyboard.press("ArrowDown");
+      await expect
+        .poll(async () => tab.locator(`.senify-explorer__item[data-selected="true"]`).count())
+        .toBe(1);
+      await tab.keyboard.press("ArrowUp");
+      await expect
+        .poll(async () => tab.locator(`.senify-canvas[data-selected="${heroId}"]`).count())
+        .toBe(1);
+      await tab.keyboard.press("Shift+F10");
+      await expect
+        .poll(async () => tab.locator(".senify-explorer__menu").count())
+        .toBe(1);
+      await tab.keyboard.press("Escape");
+      await expect
+        .poll(async () => tab.locator(".senify-explorer__menu").count())
+        .toBe(0);
+      await tab.screenshot({ path: join(shotDir, "04c-explorer.png") });
+
+      // The spotlight (Ctrl+K, ticket 03): search a catalog primitive and
+      // insert it behind the selected node — the same insert path as the
+      // canvas buttons.
+      await tab.keyboard.press("Control+k");
+      await tab.waitForSelector('.senify-spotlight[data-open="true"]', { timeout: 30000 });
+      await tab.fill(".senify-spotlight__input", "Trenn");
+      await expect
+        .poll(async () => tab.locator(".senify-spotlight__row").first().textContent())
+        .toContain("Trennlinie");
+      await tab.keyboard.press("Enter");
+      await expect.poll(dividerCount).toBe(2);
+      await tab.screenshot({ path: join(shotDir, "04d-spotlight.png") });
+
+      // Plus points (ticket 12): hovering a node shows the insert points in the
+      // editor overlay; a click inserts the catalog selection — the same
+      // mutation as the top bar button.
+      const heroSection = desktopFrame().locator('section[data-section="hero"]').first();
+      await heroSection.hover();
+      await expect
+        .poll(async () => tab.locator('.senify-canvas__plus[data-position="after"]').count())
+        .toBe(1);
+      await tab.locator('.senify-canvas__plus[data-position="after"]').click();
+      await expect.poll(dividerCount).toBe(3);
+      await tab.screenshot({ path: join(shotDir, "04e-pluspunkte.png") });
+
+      // Reorder (ticket 12): dragging an existing node moves it with `moveNode`
+      // — one undo step, the frame follows the document order.
+      await heroSection.hover();
+      await tab.mouse.down();
+      await tab.mouse.move(10, 10);
+      const lastDivider = desktopFrame().locator('section[data-section="divider"]').last();
+      await lastDivider.hover();
+      await tab.mouse.up();
+      await expect
+        .poll(async () =>
+          tab.evaluate(`(() => {
+            const frame = document.querySelector('.senify-canvas__frame[data-device="desktop"] iframe');
+            const sections = frame.contentDocument.querySelectorAll('section[data-section]');
+            return Array.from(sections).map((el) => el.getAttribute("data-section")).join(",");
+          })()`),
+        )
+        .toMatch(/divider,divider,hero$/);
+
       // Autosave (decided 18.09.): the pending ops reach the engine after the
       // quiet period, without a click. The button stays as a manual flush.
       const save = tab.locator('[data-action="canvas-save"]');
@@ -156,12 +258,22 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       await tab.screenshot({ path: join(shotDir, "05-canvas-saved.png") });
 
       // Round-trip: reload the canvas and the saved divider is still there.
+      // The view state survives too (E5 slice 1): the selected node comes back
+      // from the session storage.
+      const selectedBeforeReload = await tab
+        .locator(".senify-canvas")
+        .getAttribute("data-selected");
+      expect(selectedBeforeReload).toBeTruthy();
       await tab.reload({ waitUntil: "domcontentloaded" });
       await tab.waitForSelector(".senify-canvas", { timeout: 30000 });
-      await expect.poll(dividerCount).toBe(1);
+      await expect.poll(dividerCount).toBe(3);
+      await expect
+        .poll(async () => tab.locator(".senify-canvas").getAttribute("data-selected"))
+        .toBe(selectedBeforeReload);
 
-      // The old editor is still reachable and still lays out its frames.
-      await tab.locator('.editor-switch button[data-view="editor"]').click();
+      // The old editor stays reachable as an explicit deep link (strangler E2)
+      // and still lays out its frames.
+      await tab.goto(`${pageUrl}?view=editor`, { waitUntil: "domcontentloaded" });
       await tab.waitForSelector(".senify-editor", { timeout: 60000 });
       expect(await tab.locator(".senify-editor__iframe").count()).toBe(3);
       await tab.screenshot({ path: join(shotDir, "06-editor-again.png") });

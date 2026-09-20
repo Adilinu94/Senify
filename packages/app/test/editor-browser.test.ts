@@ -92,7 +92,9 @@ describe.skipIf(!browserAvailable)("editor in a real browser (T13)", () => {
         }
       });
 
-      const url = `${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`;
+      // The legacy editor is an explicit deep link since E5 slice 1 (the
+      // canvas is the default path).
+      const url = `${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}?view=editor`;
       let mounted = false;
       for (let attempt = 0; attempt < 3 && !mounted; attempt += 1) {
         await tab.goto(url, { waitUntil: "domcontentloaded" });

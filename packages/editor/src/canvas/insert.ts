@@ -23,7 +23,7 @@ import {
   type ParentRef,
 } from "../state/document.ts";
 
-export type InsertPosition = "after" | "into";
+export type InsertPosition = "before" | "after" | "into";
 
 export type InsertPlan = {
   parent: ParentRef;
@@ -151,7 +151,7 @@ export function insertPlan(
   requireNode(document, targetId);
   requirePrimitive(primitive);
 
-  if (position === "after") {
+  if (position === "before" || position === "after") {
     const located = locateParent(document, targetId);
     if (located === undefined) {
       throw new SenifyError(
@@ -161,7 +161,10 @@ export function insertPlan(
       );
     }
     assertChildAllowed(document, located.parent, primitive);
-    return { parent: located.parent, index: located.index + 1 };
+    return {
+      parent: located.parent,
+      index: position === "before" ? located.index : located.index + 1,
+    };
   }
 
   const target = requireNode(document, targetId);

@@ -56,6 +56,9 @@ export const ClassNameSchema = Type.String({
 export const EditorNodeSpecSchema = Type.Object(
   {
     primitive: Type.String({ minLength: 1 }),
+    // The section variant ("centered", "split", …): the canvas and the release
+    // must render the same variant (ticket 17).
+    variant: Type.Optional(Type.String({ minLength: 1 })),
     props: Type.Optional(PropRecordSchema),
     id: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9_-]{6,32}$" })),
     classes: Type.Optional(Type.Array(ClassNameSchema)),

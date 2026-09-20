@@ -5,7 +5,7 @@ import {
   type NodeId,
   type NodeTree,
 } from "@senify/section-sdk";
-import { triggerRebake, type RebakeTrigger } from "./content.ts";
+import { enqueueRebakeForPage, type RebakeTrigger } from "./rebake.ts";
 import { newNodeId } from "./ids.ts";
 import { entryPathFor } from "./paths.ts";
 import type { Store } from "./store.ts";
@@ -73,10 +73,11 @@ export async function putPageTemplate(
     template,
     layoutId,
   });
-  const rebake = triggerRebake(
-    page.siteId,
-    `template.changed:${page.id}`,
-  );
+  const { trigger: rebake } = await enqueueRebakeForPage(store, {
+    siteId: page.siteId,
+    pageId: page.id,
+    reason: `template.changed:${page.id}`,
+  });
   return { page: updated, rebake };
 }
 

@@ -1,4 +1,6 @@
 import type { NodeTree, Registry } from "@senify/section-sdk";
+import { getPrimitive, resolveAllForDevice } from "@senify/widget-engine";
+import type { EditorDocument, EditorNode } from "./state/document.ts";
 
 // Explorer tabs (artifacts/24 §3): Ebenen · Seiten (+ Vorlagen-Abschnitt) ·
 // Vorlagen · Medien. All four are headless list models — the shell renders
@@ -36,6 +38,96 @@ export type LayerItem = {
 export function layerLabel(type: string, registry?: Registry): string {
   if (registry?.has(type)) return registry.get(type).title;
   return type;
+}
+
+/* ------------------------------------------------------- editor document (v2)
+ * The rebuild explorer reads the v2 editor document, not the section tree. The
+ * model stays the same shape (depth-first, children then slots) so the panel
+ * can render both paths; only the label source differs: the primitive catalog
+ * names the type, the content props give the readable suffix ("Überschrift ·
+ * Hallo Welt"). */
+
+export type EditorLayerItem = {
+  id: string;
+  primitive: string;
+  label: string;
+  depth: number;
+  parentId: string | null;
+  slot: string | null;
+  hidden: boolean;
+  hiddenDevices: readonly string[];
+  locked: boolean;
+  motion: boolean;
+  hasChildren: boolean;
+  childCount: number;
+};
+
+const LABEL_TEXT_KEYS = ["text", "headline", "label", "html", "eyebrow"] as const;
+
+// A short, plain-text snippet of the node's own content, for the tree label.
+export function editorNodeSnippet(node: EditorNode, limit = 32): string | undefined {
+  const props = resolveAllForDevice(node.props, "desktop");
+  for (const key of LABEL_TEXT_KEYS) {
+    const value = props[key];
+    if (typeof value !== "string") continue;
+    const plain = value
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (plain === "") continue;
+    return plain.length > limit ? `${plain.slice(0, limit - 1)}…` : plain;
+  }
+  return undefined;
+}
+
+export function editorNodeLabel(node: EditorNode): string {
+  const name = getPrimitive(node.primitive)?.name ?? node.primitive;
+  const snippet = editorNodeSnippet(node);
+  return snippet === undefined ? name : `${name} · ${snippet}`;
+}
+
+function editorChildCount(node: EditorNode): number {
+  const slots = Object.values(node.slots ?? {}).reduce((sum, list) => sum + list.length, 0);
+  return (node.children?.length ?? 0) + slots;
+}
+
+export function buildEditorLayerList(
+  document: EditorDocument,
+  options?: { rootLabel?: string },
+): EditorLayerItem[] {
+  const items: EditorLayerItem[] = [];
+  const visit = (
+    nodeId: string,
+    depth: number,
+    parentId: string | null,
+    slot: string | null,
+  ): void => {
+    const node = document.nodes[nodeId];
+    if (node === undefined) return;
+    items.push({
+      id: node.id,
+      primitive: node.primitive,
+      label:
+        depth === 0 && options?.rootLabel !== undefined
+          ? options.rootLabel
+          : editorNodeLabel(node),
+      depth,
+      parentId,
+      slot,
+      hidden: node.hidden === true,
+      hiddenDevices: node.hiddenDevices ?? [],
+      locked: node.locked === true,
+      motion: node.motion !== undefined,
+      hasChildren: editorChildCount(node) > 0,
+      childCount: editorChildCount(node),
+    });
+    for (const childId of node.children ?? []) visit(childId, depth + 1, node.id, null);
+    for (const [slotName, list] of Object.entries(node.slots ?? {})) {
+      for (const childId of list) visit(childId, depth + 1, node.id, slotName);
+    }
+  };
+  visit(document.rootNodeId, 0, null, null);
+  return items;
 }
 
 function childCount(tree: NodeTree, nodeId: string): number {

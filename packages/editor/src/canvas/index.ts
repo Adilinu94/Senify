@@ -32,6 +32,17 @@ export {
   type InsertPosition,
 } from "./insert.ts";
 export {
+  dropPositionFor,
+  isContainer,
+  resolveDrop,
+  resolveInsertDrop,
+  resolveMoveDrop,
+  type Box,
+  type DropPosition,
+  type DropResolution,
+  type DropSource,
+} from "./dnd.ts";
+export {
   drillDownId,
   firstChildId,
   resolveClick,

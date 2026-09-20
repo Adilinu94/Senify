@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Registry } from "@senify/section-sdk";
 import { ensureSchema, type Db } from "./db.ts";
-import { createFormSigner } from "./forms.ts";
+import { createFormSigner, type FormSigner } from "./forms.ts";
 import { createRequestHandler } from "./http.ts";
 import type { MailSender } from "./mailer.ts";
 import { PageLocks } from "./locks.ts";
@@ -39,6 +39,7 @@ export {
   discardReview,
   expirePreviews,
   publishRelease,
+  rebakeActiveRelease,
   requestChanges,
   resolvePreviewFile,
   restoreRevisionAsDraft,
@@ -48,6 +49,14 @@ export {
   type LifecycleContext,
   type SubmitResult,
 } from "./lifecycle.ts";
+export {
+  DEFAULT_BAKE_BACKOFF_MS,
+  DEFAULT_BAKE_LEASE_MS,
+  runBakeJobOnce,
+  startBakeWorker,
+  type BakeWorker,
+  type BakeWorkerOptions,
+} from "./bake-worker.ts";
 export {
   CreatePreviewBodySchema,
   PublishReleaseBodySchema,
@@ -317,6 +326,9 @@ export {
   type ListPrefetchResult,
 } from "./lists.ts";
 export {
+  enqueueRebake,
+  enqueueRebakeForEntry,
+  enqueueRebakeForPage,
   rebakePathsForCollection,
   rebakePathsForEntry,
   rebakePathsForPage,
@@ -540,6 +552,10 @@ export type Engine = {
   // Maintenance window of the running engine (T12 restore).
   maintenance: MaintenanceGate;
   dataDir: string;
+  // Forms (T11): the release/re-bake bakes stamp signed form tokens with this
+  // signer; the worker hands it to the lifecycle context.
+  formSigner: FormSigner;
+  formBaseUrl: string | undefined;
   listen(options?: { port?: number; host?: string }): Promise<EngineServer>;
 };
 
@@ -589,6 +605,8 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
     locks,
     maintenance,
     dataDir,
+    formSigner,
+    formBaseUrl: options.formsBaseUrl,
     async listen(listenOptions?: { port?: number; host?: string }): Promise<EngineServer> {
       const server = createServer(handler);
       const host = listenOptions?.host ?? "127.0.0.1";

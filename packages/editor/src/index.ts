@@ -93,6 +93,33 @@ export {
   type TokenOption,
 } from "./panels.ts";
 export {
+  buildInspector,
+  INSPECTOR_TABS,
+  motionSpecFrom,
+  numberPart,
+  tokenRefOf,
+  unitOfValue,
+  type BuildInspectorInput,
+  type InspectorCommit,
+  type InspectorField,
+  type InspectorFieldKind,
+  type InspectorGroup,
+  type InspectorModel,
+  type InspectorMotion,
+  type InspectorTab,
+  type InspectorTabId,
+} from "./inspector/model.ts";
+export {
+  createInspector,
+  type InspectorInstance,
+  type InspectorOptions,
+} from "./inspector/inspector.ts";
+export {
+  ensureInspectorStyles,
+  INSPECTOR_ICON_CSS,
+  INSPECTOR_STYLES,
+} from "./inspector/styles.ts";
+export {
   HistoryStack,
   HISTORY_LIMIT,
   type HistoryEntry,
@@ -118,9 +145,13 @@ export {
   buildMediaTab,
   buildPageList,
   buildTemplatesSection,
+  buildEditorLayerList,
+  editorNodeLabel,
+  editorNodeSnippet,
   EXPLORER_TABS,
   filterMedia,
   layerLabel,
+  type EditorLayerItem,
   type ExplorerTab,
   type ExplorerTabSpec,
   type LayerItem,
@@ -131,16 +162,34 @@ export {
   type TemplateKind,
 } from "./explorer.ts";
 export {
+  createExplorer,
+  type ExplorerInstance,
+  type ExplorerOptions,
+} from "./explorer/panel.ts";
+export {
+  ensureExplorerStyles,
+  EXPLORER_ICON_CSS,
+  EXPLORER_STYLES,
+} from "./explorer/styles.ts";
+export {
   buildSpotlightIndex,
+  buildEditorSpotlightIndex,
   matchesSpotlight,
   scoreSpotlight,
   searchSpotlight,
   SPOTLIGHT_ACTIONS,
+  type EditorSpotlightInput,
   type PageRef,
   type SpotlightCommand,
   type SpotlightItem,
   type SpotlightKind,
 } from "./spotlight.ts";
+export {
+  createSpotlightDialog,
+  type SpotlightDialog,
+  type SpotlightDialogOptions,
+} from "./spotlight/dialog.ts";
+export { ensureSpotlightStyles, SPOTLIGHT_STYLES } from "./spotlight/styles.ts";
 export {
   assertInlineEditingSupported,
   buildPuckConfig,

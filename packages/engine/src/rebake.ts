@@ -1,45 +1,101 @@
 import { findListNodes } from "./lists.ts";
 import { entryPathFor } from "./paths.ts";
 import type { Store } from "./store.ts";
-import type { Collection, Entry, Page } from "./types.ts";
+import type { BakeJob, Collection, Entry, Page } from "./types.ts";
 
 // Re-Bake dependency index (artifacts/23 §6): derives the affected paths from
 // an entry, collection, layout or template change so a publish only bakes the
 // detail route and the lists that actually show it.
+//
+// Since E12 slice 1 the trigger is a **durable job** (`bake_jobs`, claimed with
+// a lease by the worker in `bake-worker.ts`); the dependency index still
+// computes the affected paths, and the job carries them for the worker and the
+// status view.
 
 export type RebakeTrigger = {
   siteId: string;
   reason: string;
   queued: true;
   at: string;
+  jobId: string;
   affectedPaths: string[];
 };
 
 const rebakeCounts = new Map<string, number>();
 
-// Trigger stub for ticket 23: T09 owns the trigger, not the job. It records and
-// counts the request so tests and diagnostics can observe it.
+// The trigger description for a response (the job itself lives in the store).
 export function triggerRebake(
   siteId: string,
   reason: string,
   affectedPaths: string[] = [],
 ): RebakeTrigger {
   rebakeCounts.set(siteId, (rebakeCounts.get(siteId) ?? 0) + 1);
-  const trigger: RebakeTrigger = {
+  return {
     siteId,
     reason,
     queued: true,
     at: new Date().toISOString(),
+    jobId: "",
     affectedPaths,
   };
-  console.log(
-    `[engine] rebake requested (site ${siteId}): ${reason} → ${affectedPaths.join(", ") || "full site"}`,
-  );
-  return trigger;
 }
 
 export function rebakeCount(siteId: string): number {
   return rebakeCounts.get(siteId) ?? 0;
+}
+
+// Enqueue a durable re-bake job (dedup per site) and return the job plus the
+// trigger shape the existing routes carry.
+export async function enqueueRebake(
+  store: Store,
+  input: { siteId: string; reason: string; paths?: readonly string[] },
+): Promise<{ job: BakeJob; trigger: RebakeTrigger }> {
+  const job = await store.enqueueBakeJob({
+    siteId: input.siteId,
+    reason: input.reason,
+    paths: input.paths ?? [],
+  });
+  const trigger: RebakeTrigger = {
+    siteId: input.siteId,
+    reason: input.reason,
+    queued: true,
+    at: job.createdAt,
+    jobId: job.id,
+    affectedPaths: job.paths,
+  };
+  rebakeCounts.set(input.siteId, (rebakeCounts.get(input.siteId) ?? 0) + 1);
+  return { job, trigger };
+}
+
+// Entry change (publish/unpublish/trash/restore): the detail route plus every
+// list page that shows the collection.
+export async function enqueueRebakeForEntry(
+  store: Store,
+  input: { entry: Entry; collection: Collection; reason: string },
+): Promise<{ job: BakeJob; trigger: RebakeTrigger }> {
+  const paths = await rebakePathsForEntry(store, {
+    siteId: input.entry.siteId,
+    entry: input.entry,
+    collection: input.collection,
+  });
+  return enqueueRebake(store, {
+    siteId: input.entry.siteId,
+    reason: input.reason,
+    paths,
+  });
+}
+
+// Template or layout change: every route that uses the template.
+export async function enqueueRebakeForPage(
+  store: Store,
+  input: { siteId: string; pageId: string; reason: string },
+): Promise<{ job: BakeJob; trigger: RebakeTrigger }> {
+  const paths = await rebakePathsForPage(store, input);
+  return enqueueRebake(store, {
+    siteId: input.siteId,
+    reason: input.reason,
+    paths,
+  });
 }
 
 export function collectionOfList(node: { props: Record<string, unknown> }): string {

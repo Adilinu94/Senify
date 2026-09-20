@@ -1694,6 +1694,21 @@ const ROUTES: Route[] = [
     },
   },
   {
+    // Re-bake jobs (E12 slice 1): the durable outbox behind content changes.
+    // The status is the read side of the worker — queued, running, done, failed
+    // with attempts, next attempt time and the last error.
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "bake-jobs"],
+    scope: "read",
+    handler: async (context, params) => {
+      const siteId = requireParam(params, "siteId");
+      return {
+        status: 200,
+        body: { jobs: await context.store.listBakeJobs(siteId) },
+      };
+    },
+  },
+  {
     method: "GET",
     segments: ["api", "releases", ":releaseId"],
     scope: "read",
@@ -3864,6 +3879,14 @@ const BUILD_ROOT_FILES = new Set([
   "islands.js",
   "page.js",
   "forms.js",
+  // The theme webfonts (Sora, Inter): the theme CSS references them as root
+  // files, the bake copies them next to it (ticket 17).
+  "sora-400.woff2",
+  "sora-600.woff2",
+  "sora-700.woff2",
+  "inter-400.woff2",
+  "inter-500.woff2",
+  "inter-600.woff2",
 ]);
 
 // Which build serves those root paths? `?release=`/`?preview=` pick one

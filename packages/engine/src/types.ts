@@ -594,6 +594,31 @@ export const REFERENCE_JOB_STATUSES = [
 ] as const;
 export type ReferenceJobStatus = (typeof REFERENCE_JOB_STATUSES)[number];
 
+// Re-bake jobs (E12, slice 1): a durable outbox instead of the trigger stub.
+// A job carries the affected paths (the dependency index computes them), is
+// claimed with a lease (crash recovery), retried with backoff and keeps its
+// error as the end state.
+export const BAKE_JOB_STATUSES = ["queued", "running", "done", "failed"] as const;
+export type BakeJobStatus = (typeof BAKE_JOB_STATUSES)[number];
+
+export type BakeJob = {
+  id: string;
+  siteId: string;
+  reason: string;
+  // The routes the change affects (dependency index); the worker records them
+  // and, for now, re-bakes the site.
+  paths: string[];
+  status: BakeJobStatus;
+  attempts: number;
+  maxAttempts: number;
+  nextAttemptAt: string;
+  leaseUntil: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
+};
+
 // Evidence levels of the pipeline (research/29 §3): measured at runtime,
 // observed in a sweep, or guessed from markup. Never upgraded.
 export const EVIDENCE_LEVELS = ["confirmed", "observed", "inferred"] as const;

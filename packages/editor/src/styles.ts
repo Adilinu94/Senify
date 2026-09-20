@@ -1,6 +1,7 @@
 import type { DomDocument } from "./dom.ts";
 import { editorFontFaceCss } from "./ui/fonts.ts";
 import { EDITOR_ICON_CSS } from "./ui/icons.ts";
+import { editorBaseCss } from "./ui/base.ts";
 import { EDITOR_SKIN_STYLES } from "./ui/skin.ts";
 import { EDITOR_ROOT_ATTRIBUTE, editorTokensCss } from "./ui/tokens.ts";
 
@@ -840,6 +841,14 @@ export function ensureEditorStyles(doc: DomDocument): void {
     tokens.setAttribute("data-senify-editor-tokens", "");
     tokens.textContent = EDITOR_TOKEN_STYLES;
     (doc.head ?? doc.body).appendChild(tokens);
+  }
+  // The shared chrome base (E16 P0): selection, scrollbars, press/disabled
+  // states and reduced-motion, scoped to the token marker.
+  if (!doc.querySelector("style[data-senify-editor-base]")) {
+    const base = doc.createElement("style");
+    base.setAttribute("data-senify-editor-base", "");
+    base.textContent = editorBaseCss();
+    (doc.head ?? doc.body).appendChild(base);
   }
   // Aufgabe 3: the symbol rules (base mask + Phosphor data-URIs).
   if (!doc.querySelector("style[data-senify-editor-icons]")) {

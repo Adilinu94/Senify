@@ -34,8 +34,9 @@ import { EditorStore } from "../state/store.ts";
 import { canvasFrames, fitZoom, ZOOM_MAX, ZOOM_MIN } from "./device.ts";
 import { canvasFrameRules } from "./rules.ts";
 import { canvasNodeTree } from "./adapter.ts";
-import { insertPlan, insertMutation, type InsertPosition } from "./insert.ts";
+import { type InsertPosition } from "./insert.ts";
 import { resolveClick, selectionLabel } from "./selection.ts";
+import { createDropController } from "./dnd-dom.ts";
 
 export type CanvasOptions = {
   store: EditorStore;
@@ -48,6 +49,9 @@ export type CanvasOptions = {
   zoom?: number;
   previewState?: StateName | null;
   onMessage?: (message: string | null) => void;
+  // Reports view changes (zoom, selection, forced state) so the session can
+  // persist them; the canvas itself stays storage-free.
+  onState?: (state: CanvasState) => void;
 };
 
 export type CanvasState = {
@@ -170,11 +174,36 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   root.setAttribute(EDITOR_ROOT_ATTRIBUTE, "true");
   applyEditorSkin(root, EDITOR_SKIN_DEFAULT);
   const topbar = create(doc, "div", "senify-canvas__topbar");
+  const catalogStripHost = create(doc, "div", "senify-canvas__cataloghost");
   const stage = create(doc, "div", "senify-canvas__stage");
+  const overlay = create(doc, "div", "senify-canvas__overlay", { "data-role": "overlay" });
   const status = create(doc, "span", "senify-canvas__status", { "data-role": "status" });
   root.appendChild(topbar);
+  root.appendChild(catalogStripHost);
   root.appendChild(stage);
+  stage.appendChild(overlay);
   host.appendChild(root);
+
+  // Drag and drop (ticket 12): the catalog strip lives in `catalogStripHost`,
+  // the drop line and the plus points in the stage overlay — never in the
+  // content frame.
+  const drop = createDropController({
+    doc,
+    stage,
+    overlay,
+    store,
+    frames: () =>
+      mounted.map((entry) => ({
+        device: entry.device,
+        doc: entry.doc,
+        body: entry.body,
+        wrap: entry.wrap,
+        scale: entry.frame.scale,
+      })),
+    catalogValue: () => (typeof catalog.value === "string" ? catalog.value : ""),
+    onMessage: (value) => message(value),
+  });
+  catalogStripHost.appendChild(drop.catalog);
 
   function message(value: string | null): void {
     status.textContent = value ?? "";
@@ -183,6 +212,10 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
 
   function selectedId(): string | null {
     return store.selection.focus ?? store.selection.selected[0] ?? null;
+  }
+
+  function stateOf(): CanvasState {
+    return { zoom, previewState, selected: selectedId() };
   }
 
   // ---------------------------------------------------------------- top bar
@@ -428,6 +461,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       store.select(resolution.id);
       message(resolution.kind === "drill" ? "Ebene tiefer gewählt" : null);
     }
+    options.onState?.(stateOf());
   }
 
   function bindFrame(entry: MountedFrame): void {
@@ -480,6 +514,13 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       entry.label = null;
       entry.markers = [];
       bindFrame(entry);
+      drop.attachFrame({
+        device: entry.device,
+        doc: entry.doc,
+        body: entry.body,
+        wrap: entry.wrap,
+        scale: entry.frame.scale,
+      });
       refresh();
     });
     iframe.setAttribute("srcdoc", frameDoc(options.frameStyles ?? []));
@@ -522,6 +563,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(value * 1000) / 1000));
     applyFrameLayout();
     refresh();
+    options.onState?.(stateOf());
   }
 
   function fit(): void {
@@ -538,11 +580,13 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       updateRules(entry);
     }
     updateChrome();
+    options.onState?.(stateOf());
   }
 
   function select(id: string | null): void {
     if (id === null) store.clearSelection();
     else store.select(id);
+    options.onState?.(stateOf());
   }
 
   function insert(primitive: string, position: InsertPosition): boolean {
@@ -551,15 +595,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       message("Wähle zuerst einen Knoten im Canvas.");
       return false;
     }
-    try {
-      const plan = insertPlan(store.document, target, primitive, position);
-      store.apply(insertMutation(plan, primitive));
-      message(null);
-      return true;
-    } catch (error) {
-      message(error instanceof Error ? error.message : String(error));
-      return false;
-    }
+    return drop.insertAt(target, primitive, position);
   }
 
   const unsubscribe = store.subscribe(() => refresh());
@@ -592,10 +628,11 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     insert,
     undo: () => store.undo(),
     redo: () => store.redo(),
-    state: () => ({ zoom, previewState, selected: selectedId() }),
+    state: stateOf,
     destroy(): void {
       unsubscribe();
       global.removeEventListener?.("resize", onResize);
+      drop.destroy();
       renderer.destroy();
       root.remove();
     },

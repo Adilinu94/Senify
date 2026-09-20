@@ -8,6 +8,7 @@ import {
   ensureCanvasStyles,
 } from "../../src/canvas/styles.ts";
 import { EDITOR_ICON_CSS } from "../../src/ui/icons.ts";
+import { editorBaseCss } from "../../src/ui/base.ts";
 import { EDITOR_CANVAS_SKIN_STYLES } from "../../src/ui/skin.ts";
 import {
   EDITOR_ROOT_ATTRIBUTE,
@@ -112,8 +113,10 @@ describe("canvas skin is the editor skin, scoped to the canvas root", () => {
 describe("canvas view draws from the one appearance source", () => {
   it("feeds the very same tokens as the editor, scoped to the shared marker", () => {
     expect(EDITOR_ROOT_ATTRIBUTE).toBe("data-senify-editor");
-    // The same selector the editor host uses: one token list, no second.
-    expect(CANVAS_TOKEN_CSS).toBe(editorTokensCss(`[${EDITOR_ROOT_ATTRIBUTE}]`));
+    // The same selector the editor host uses: one token list, no second. The
+    // shared chrome base (E16 P0) rides along in the same sheet.
+    expect(CANVAS_TOKEN_CSS.startsWith(editorTokensCss(`[${EDITOR_ROOT_ATTRIBUTE}]`))).toBe(true);
+    expect(CANVAS_TOKEN_CSS).toContain(editorBaseCss());
     expect(CANVAS_TOKEN_CSS).toContain(`[${EDITOR_ROOT_ATTRIBUTE}] {`);
     for (const [name, value] of Object.entries(EDITOR_TOKENS)) {
       expect(CANVAS_TOKEN_CSS, `token ${name}`).toContain(`  ${name}: ${value};`);

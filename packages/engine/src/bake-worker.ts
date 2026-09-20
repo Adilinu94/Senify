@@ -1,0 +1,98 @@
+// Re-bake worker (E12, slice 1): the durable job instead of the trigger stub.
+//
+// Content changes enqueue a job (`store.enqueueBakeJob`); this worker claims
+// the oldest due job per site (lease + concurrency key), re-bakes the active
+// release's build and records the outcome:
+//
+// - claim: `claimBakeJob` marks the job running, increments `attempts` and sets
+//   the lease; a second worker racing for the same job gets no row,
+// - crash recovery: an expired lease returns the job to the queue
+//   (`expireBakeLeases`), so a killed engine does not lose the re-bake,
+// - retry: a failed bake goes back to the queue with exponential backoff until
+//   `maxAttempts` is reached — then the job stays `failed` with its error,
+// - status: the job list is readable via `GET /api/sites/:siteId/bake-jobs`.
+//
+// The worker is deliberately small and testable: `runBakeJobOnce` does one
+// claim-and-run cycle, `startBakeWorker` is the interval wrapper the engine
+// boots with.
+
+import type { LifecycleContext } from "./lifecycle.ts";
+import { rebakeActiveRelease } from "./lifecycle.ts";
+import type { BakeJob } from "./types.ts";
+
+export type BakeWorkerOptions = {
+  context: LifecycleContext;
+  // How long a claimed job may run before another worker may take it over.
+  leaseMs?: number;
+  // First retry delay; doubles per attempt (1 s, 2 s, 4 s, …).
+  baseBackoffMs?: number;
+  now?: () => Date;
+};
+
+export const DEFAULT_BAKE_LEASE_MS = 60_000;
+export const DEFAULT_BAKE_BACKOFF_MS = 1_000;
+
+// One claim-and-run cycle. Returns the job it ran (done or failed/queued for a
+// retry), or `null` when nothing was due.
+export async function runBakeJobOnce(options: BakeWorkerOptions): Promise<BakeJob | null> {
+  const now = (options.now?.() ?? new Date()).toISOString();
+  await options.context.store.expireBakeLeases(now);
+  const job = await options.context.store.claimBakeJob({
+    now,
+    leaseMs: options.leaseMs ?? DEFAULT_BAKE_LEASE_MS,
+  });
+  if (job === null) return null;
+  try {
+    await rebakeActiveRelease(options.context, job.siteId);
+    return await options.context.store.completeBakeJob(job.id);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const backoff =
+      (options.baseBackoffMs ?? DEFAULT_BAKE_BACKOFF_MS) *
+      2 ** Math.max(0, job.attempts - 1);
+    return await options.context.store.failBakeJob({
+      id: job.id,
+      error: message,
+      backoffMs: backoff,
+    });
+  }
+}
+
+export type BakeWorker = {
+  // Runs one cycle immediately (the interval keeps running).
+  tick(): Promise<void>;
+  stop(): void;
+};
+
+// The interval wrapper the engine boots with. It drains a small number of jobs
+// per tick and never overlaps with itself.
+export function startBakeWorker(options: BakeWorkerOptions & { intervalMs?: number }): BakeWorker {
+  let stopped = false;
+  let running = false;
+  const tick = async (): Promise<void> => {
+    if (stopped || running) return;
+    running = true;
+    try {
+      for (let index = 0; index < 5; index += 1) {
+        const job = await runBakeJobOnce(options);
+        if (job === null) break;
+      }
+    } catch (error) {
+      console.error("[engine] bake worker failed", error);
+    } finally {
+      running = false;
+    }
+  };
+  const timer = setInterval(() => {
+    void tick();
+  }, options.intervalMs ?? 2_000);
+  timer.unref?.();
+  void tick();
+  return {
+    tick,
+    stop: () => {
+      stopped = true;
+      clearInterval(timer);
+    },
+  };
+}

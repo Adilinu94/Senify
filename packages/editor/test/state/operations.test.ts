@@ -110,6 +110,31 @@ describe("structure operations", () => {
     ]);
   });
 
+  it("normalizes a same-list move to the post-removal index (engine semantics)", () => {
+    const store = makeStore();
+    const root = store.document.rootNodeId;
+    for (const id of ["a000000001", "b000000001", "c000000001"]) {
+      store.apply({
+        op: "insertNode",
+        parent: { nodeId: root },
+        node: { primitive: "divider", id },
+      });
+    }
+    // Moving "a" behind "c": the pre-removal length is 3, the post-removal
+    // index is 2 — the index the section contract resolves.
+    store.apply({
+      op: "moveNode",
+      id: "a000000001",
+      target: { nodeId: root },
+      index: 3,
+    });
+    expect(store.document.nodes[root]?.children).toEqual([
+      "b000000001",
+      "c000000001",
+      "a000000001",
+    ]);
+  });
+
   it("duplicates a subtree with fresh ids", () => {
     const store = baseStore();
     const before = Object.keys(store.document.nodes).length;

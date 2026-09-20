@@ -41,6 +41,7 @@ export function canvasNodeTree(document: EditorDocument): NodeTree {
       sectionNode.overrides = overrides;
     }
     if (node.locked !== undefined) sectionNode.locked = node.locked;
+    if (node.variant !== undefined) sectionNode.variant = node.variant;
     if (node.motion !== undefined) sectionNode.motion = structuredClone(node.motion);
     nodes[id] = sectionNode;
   }

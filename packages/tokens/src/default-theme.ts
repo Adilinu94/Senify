@@ -97,11 +97,26 @@ export function defaultTheme(): Theme {
         family: "Sora",
         fallback: ["system-ui", "sans-serif"],
         weights: [400, 600, 700],
+        // The deliverable ships these files (`packages/renderer/assets/fonts`,
+        // copied into every bake); the canvas frame loads the same files from
+        // the editor bundle. Without them the release would fall back to a
+        // system font while the editor showed Sora — the parity gate catches
+        // exactly that (ticket 17).
+        files: {
+          "400": "/assets/sora-400.woff2",
+          "600": "/assets/sora-600.woff2",
+          "700": "/assets/sora-700.woff2",
+        },
       },
       body: {
         family: "Inter",
         fallback: ["system-ui", "sans-serif"],
         weights: [400, 500, 600],
+        files: {
+          "400": "/assets/inter-400.woff2",
+          "500": "/assets/inter-500.woff2",
+          "600": "/assets/inter-600.woff2",
+        },
       },
     },
     motion: {

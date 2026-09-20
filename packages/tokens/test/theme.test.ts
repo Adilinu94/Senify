@@ -162,7 +162,10 @@ describe("emitters", () => {
     expect(css).toContain("--space-4:");
     expect(css).toContain("--ease-snappy:");
     expect(css).toContain(':root[data-theme="dark"] {');
-    expect(css).not.toContain("@font-face");
+    // The default theme ships its webfonts (ticket 17): the release must render
+    // the same faces the editor previews.
+    expect(css).toContain("@font-face");
+    expect(css).toContain("/assets/sora-400.woff2");
 
     const tailwind = emitTailwindTheme(resolveTheme(defaultTheme()));
     expect(tailwind.startsWith("@theme {")).toBe(true);
@@ -173,6 +176,9 @@ describe("emitters", () => {
 
   it("emits font faces and preloads once files exist", () => {
     const theme = defaultTheme();
+    // Isolate the one file this test names: the default theme ships its own
+    // webfonts, which would otherwise show up in the preload list.
+    theme.fonts.display.files = undefined;
     theme.fonts.body.files = { "400": "/fonts/inter-400.woff2" };
     const resolved = resolveTheme(theme);
     const css = emitCss(resolved);

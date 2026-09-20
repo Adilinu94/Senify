@@ -654,6 +654,46 @@ dialog.modal select,
   min-height: 24rem;
 }
 
+/* Canvas-Ansicht (Tickets 02/03): Ebenen-Explorer, Arbeitsflaeche und
+   Inspektor in drei Spalten. Beide Panels tragen die Breite der Plan-Vorgabe
+   (Explorer 264px/200-360, Inspektor 320px/260-420) und scrollen fuer sich;
+   der Canvas behaelt den Rest. */
+.editor-host.canvas-view {
+  display: grid;
+  grid-template-columns: clamp(200px, 18vw, 360px) minmax(0, 1fr) clamp(260px, 22vw, 420px);
+  gap: 0.75rem;
+  height: clamp(30rem, calc(100vh - 12rem), 72rem);
+}
+.canvas-view__stage {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.canvas-view__explorer,
+.canvas-view__inspector {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+@media (max-width: 1280px) {
+  .editor-host.canvas-view {
+    grid-template-columns: clamp(200px, 22vw, 300px) minmax(0, 1fr);
+  }
+  .canvas-view__inspector {
+    grid-column: 1 / -1;
+    height: 26rem;
+  }
+}
+@media (max-width: 1100px) {
+  .editor-host.canvas-view {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+  }
+  .canvas-view__stage { height: 36rem; }
+  .canvas-view__explorer { height: 20rem; }
+  .canvas-view__inspector { height: 30rem; }
+}
+
 .entry-preview-frame {
   width: 100%;
   height: 34rem;

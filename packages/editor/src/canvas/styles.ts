@@ -18,6 +18,7 @@
 import type { DomDocument } from "../dom.ts";
 import { editorFontFaceCss } from "../ui/fonts.ts";
 import { EDITOR_ICON_CSS } from "../ui/icons.ts";
+import { editorBaseCss } from "../ui/base.ts";
 import { EDITOR_CANVAS_SKIN_STYLES } from "../ui/skin.ts";
 import { EDITOR_ROOT_ATTRIBUTE, editorTokensCss } from "../ui/tokens.ts";
 
@@ -39,7 +40,8 @@ ${EDITOR_ICON_CSS}
 // The new chrome tokens, scoped to the same marker the editor uses
 // (`data-senify-editor`). The canvas root sets it too, so the canvas carries
 // every `--ed-*` variable from the one source (`ui/tokens.ts`) — no second list.
-export const CANVAS_TOKEN_CSS = editorTokensCss(`[${EDITOR_ROOT_ATTRIBUTE}]`);
+// The shared chrome base (E16 P0) rides along: one injection point per path.
+export const CANVAS_TOKEN_CSS = `${editorTokensCss(`[${EDITOR_ROOT_ATTRIBUTE}]`)}\n${editorBaseCss()}\n`;
 
 export const CANVAS_STYLES = `
 .senify-canvas {
@@ -78,13 +80,44 @@ export const CANVAS_STYLES = `
 .senify-canvas__select { min-height: 1.9rem; border: 0; background: transparent; font: inherit; }
 .senify-canvas__zoom-label { min-width: 3rem; text-align: center; }
 .senify-canvas__status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Der Katalog-Streifen (Ticket 12): Chips zum Ziehen, Klick fuegt ein.
+   Ganzzahlige Hoehen (28px Chip, 5px Fuss): der Rahmen darunter muss auf einem
+   ganzen Pixel sitzen, sonst rastert die Arbeitsflaeche die Schriften auf
+   halben Pixeln und das Paritaets-Tor (Phase 1) misst Glaettungsunterschiede. */
+.senify-canvas__cataloghost { padding: 0 0.5rem 5px; }
+.senify-canvas__catalog {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.senify-canvas__chip {
+  min-height: 28px;
+  padding: 0 0.5rem;
+  border: 0;
+  border-radius: 0.25rem;
+  background: var(--ed-surface-inset);
+  box-shadow: inset 0 0 0 1px var(--ed-line-control);
+  color: var(--ed-ink-base);
+  font: inherit;
+  font-size: var(--ed-text-11);
+  cursor: grab;
+}
+.senify-canvas__chip:hover { background: var(--ed-fill-hover); color: var(--ed-ink-strong); }
+.senify-canvas__chip:active { cursor: grabbing; }
+.senify-canvas__button:focus-visible,
+.senify-canvas__chip:focus-visible,
+.senify-canvas__select:focus-visible,
+.senify-canvas__plus:focus-visible {
+  outline: 2px solid var(--ed-focus);
+  outline-offset: 1px;
+}
 .senify-canvas__stage {
   position: relative;
   flex: 1;
   overflow: auto;
   padding: 24px;
 }
-/* The paper carries the page content: neutral white, the one literal here. */
+/* Paper carries the page content: neutral white, the one literal here. */
 .senify-canvas__frame {
   position: absolute;
   background: #ffffff;
@@ -92,6 +125,40 @@ export const CANVAS_STYLES = `
   transform-origin: 0 0;
 }
 .senify-canvas__iframe { display: block; border: 0; background: #ffffff; }
+/* Das Editor-Overlay (Ticket 12): Linie und Plus-Punkte ueber der Flaeche,
+   nie im Inhaltsrahmen. Nur die Plus-Knoepfe nehmen Zeigerereignisse an. */
+.senify-canvas__overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+.senify-canvas__dropline {
+  position: absolute;
+  height: 2px;
+  background: var(--ed-snap-line);
+  box-shadow: 0 0 0 1px rgb(1 20 32 / 0.35);
+}
+.senify-canvas__dropline[data-state="hidden"] { display: none; }
+.senify-canvas__dropline[data-state="rejected"] { background: var(--ed-signal-danger-ink); }
+.senify-canvas__plus {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ed-radius-full);
+  background: var(--ed-snap-line);
+  color: var(--ed-ink-on-lime);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 1px 2px rgb(1 20 32 / 0.35);
+}
+.senify-canvas__plus[data-state="hidden"] { display: none; }
+.senify-canvas__plus:hover { background: var(--ed-fill-accent-hover); }
 `.trim();
 
 export function ensureCanvasStyles(doc: DomDocument): void {

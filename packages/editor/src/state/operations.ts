@@ -259,6 +259,7 @@ function buildNode(
     });
   }
   const node: EditorNode = { id, primitive: spec.primitive, props };
+  if (spec.variant !== undefined) node.variant = spec.variant;
   if (spec.classes !== undefined) {
     for (const name of spec.classes) {
       if (!isClassDefined(document, name)) {
@@ -962,7 +963,15 @@ function applyMoveNode(
   }
   const targetOwner = requireNode(document, mutation.target.nodeId, "target.nodeId");
   const list = targetList(document, targetOwner, node.primitive, mutation.target, "target.nodeId");
-  const index = resolveIndex(mutation.index, list.length, "index");
+  // The section contract resolves the move index *after* the node left its old
+  // list (the engine unlinks first, then inserts). The editor accepts the
+  // natural pre-removal index (0..length) and normalizes it for a same-list
+  // move, so the index that reaches the engine is one it can resolve.
+  const raw = resolveIndex(mutation.index, list.length, "index");
+  const sameList =
+    located.parent.nodeId === mutation.target.nodeId &&
+    located.parent.slot === mutation.target.slot;
+  const index = sameList && raw > located.index ? raw - 1 : raw;
   return {
     forward: [
       { patch: "moveNode", id: mutation.id, target: mutation.target, index },

@@ -6,6 +6,7 @@ import {
   createEngine,
   createPgDb,
   createReviewVisualDriver,
+  startBakeWorker,
   type Db,
   type Store,
 } from "@senify/engine";
@@ -162,6 +163,16 @@ export async function startProgram(
   const engineServer = await engine.listen({
     port: options.enginePort ?? DEFAULT_ENGINE_PORT,
   });
+  // The re-bake worker (E12 slice 1): content changes enqueue durable jobs,
+  // this loop claims and runs them against the active release's build.
+  const bakeWorker = startBakeWorker({
+    context: {
+      store: engine.store,
+      dataDir: engine.dataDir,
+      formSigner: engine.formSigner,
+      ...(engine.formBaseUrl === undefined ? {} : { formBaseUrl: engine.formBaseUrl }),
+    },
+  });
   let appServer;
   try {
     const operatorToken = await ensureOperatorToken(
@@ -191,6 +202,7 @@ export async function startProgram(
     enginePort: engineServer.port,
     appPort: appServer.port,
     close: async () => {
+      bakeWorker.stop();
       await appServer.close();
       await engineServer.close();
       await closeDb?.();

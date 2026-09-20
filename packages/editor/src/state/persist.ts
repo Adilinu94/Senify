@@ -130,6 +130,7 @@ function nodeSpec(node: EditorNode): EditorMutation["op"] extends never ? never 
   return {
     primitive: node.primitive,
     id: node.id,
+    ...(node.variant === undefined ? {} : { variant: node.variant }),
     props: { ...node.props },
     ...(node.classes === undefined ? {} : { classes: [...node.classes] }),
     ...(node.hidden === undefined ? {} : { hidden: node.hidden }),

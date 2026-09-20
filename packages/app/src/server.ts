@@ -19,6 +19,12 @@ const PUBLIC_DIR = fileURLToPath(new URL("../public", import.meta.url));
 const EDITOR_FONT_DIR = fileURLToPath(
   new URL("../../editor/assets/fonts", import.meta.url),
 );
+// The theme webfonts (Sora, Inter) live with the deliverable they ship in
+// (`@senify/renderer`); the program serves them under `/assets/<file>.woff2`,
+// the path the emitted theme CSS names.
+const THEME_FONT_DIR = fileURLToPath(
+  new URL("../../renderer/assets/fonts", import.meta.url),
+);
 const require = createRequire(import.meta.url);
 
 let editorBundle: Promise<string> | undefined;
@@ -201,6 +207,15 @@ export function createAppServer(options: AppServerOptions): Promise<AppServer> {
     }
     if (url.startsWith("/editor-fonts/")) {
       serveStatic(EDITOR_FONT_DIR, url.slice("/editor-fonts".length), res);
+      return;
+    }
+    // The theme webfonts (Sora, Inter): the editor frame's `/theme.css` names
+    // them as root files; the engine serves the same files from a build once a
+    // release exists, the program serves them locally so the editor never
+    // depends on a published build (ticket 17).
+    const themeFont = /^\/assets\/(sora|inter)-\d{3}\.woff2$/.exec(url);
+    if (themeFont) {
+      serveStatic(THEME_FONT_DIR, url.slice("/assets".length), res);
       return;
     }
     // `/api/`, `/assets/` and `/_astro/` belong to the engine: the asset store,

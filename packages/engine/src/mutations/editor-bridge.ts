@@ -82,6 +82,7 @@ function sectionNodeSpec(spec: EditorNodeSpec): NodeSpec {
   for (const device of spec.hiddenDevices ?? []) overrides[device] = { hidden: true };
   return {
     type: spec.primitive,
+    ...(spec.variant === undefined ? {} : { variant: spec.variant }),
     ...(Object.keys(props).length > 0 ? { props } : {}),
     ...(spec.id === undefined ? {} : { id: spec.id }),
     ...(spec.classes === undefined ? {} : { classes: [...spec.classes] }),

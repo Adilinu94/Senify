@@ -36,6 +36,10 @@ export type EditorNode = {
   id: NodeId;
   primitive: string;
   props: DeviceValueMap;
+  // The section variant of a legacy node ("centered", "split", …). The canvas
+  // and the release must render the same variant; the migration lifts it and
+  // the bridge hands it back (ticket 17 parity finding).
+  variant?: string;
   // Pseudo-state values (hover / focus / active), the same shape as `props`
   // including the device suffixes. Phase 0 only passes them through to the
   // compiler so the canvas can force a state for the preview; the style panel

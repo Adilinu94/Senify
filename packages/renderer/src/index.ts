@@ -10,6 +10,9 @@ export {
   type BakeResult,
   type BakeWarning,
 } from "./bake.ts";
+// The theme's webfont files (Sora, Inter). The bake copies them into every
+// build; the local program serves them for the editor frames.
+export { FONT_ASSETS_DIR } from "./bake.ts";
 // The delivered-asset shape the bake hands to the image components.
 export type { AssetDelivery } from "@senify/registry/components";
 export {

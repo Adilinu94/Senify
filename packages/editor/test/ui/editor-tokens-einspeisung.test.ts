@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DomDocument } from "../../src/dom.ts";
 import { EDITOR_STYLES, EDITOR_TOKEN_STYLES, ensureEditorStyles } from "../../src/styles.ts";
+import { EDITOR_BASE_STYLES } from "../../src/ui/base.ts";
 import {
   EDITOR_ROOT_ATTRIBUTE,
   EDITOR_TOKENS,
@@ -79,11 +80,13 @@ describe("Aufgabe 1: editor tokens are fed into the host", () => {
     ensureEditorStyles(doc);
     ensureEditorStyles(doc);
 
-    // Four sheets, each written once: tokens, icons, skin, chrome.
-    expect(styles).toHaveLength(4);
+    // Five sheets, each written once: tokens, base (E16 P0), icons, skin, chrome.
+    expect(styles).toHaveLength(5);
     const tokenStyle = styles.find((style) => "data-senify-editor-tokens" in style.attrs);
+    const baseStyle = styles.find((style) => "data-senify-editor-base" in style.attrs);
     const chromeStyle = styles.find((style) => "data-senify-editor-styles" in style.attrs);
     expect(tokenStyle?.textContent).toBe(EDITOR_TOKEN_STYLES);
+    expect(baseStyle?.textContent).toBe(EDITOR_BASE_STYLES);
     expect(chromeStyle?.textContent).toBe(EDITOR_STYLES);
   });
 

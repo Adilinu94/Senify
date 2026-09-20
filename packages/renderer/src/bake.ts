@@ -117,6 +117,10 @@ export function jsonForHtml(value: unknown): string {
 
 const rendererDir = dirname(fileURLToPath(import.meta.url));
 
+// The bundled theme webfonts: the bake copies them into every build, the local
+// program serves them next to the editor frames (`/assets/<file>.woff2`).
+export const FONT_ASSETS_DIR = join(rendererDir, "..", "assets", "fonts");
+
 // Binding + list resolution is shared by build and preview and fails loudly:
 // an unresolvable binding is a validation error with the prop path.
 function expandOrThrow(input: {
@@ -458,6 +462,17 @@ export async function bakeSite(
     const outDir = options.outDir ?? join(tmpdir(), `senify-bake-${Date.now()}`);
     runAstroBuild(stageDir, outDir);
     mkdirSync(join(outDir, "assets"), { recursive: true });
+    // The theme's webfonts (Sora, Inter): copied into every build so the
+    // release renders the very faces the editor previews. The theme CSS
+    // references them as root files (`/assets/sora-400.woff2`), the engine
+    // serves those from the build root (ticket 17 parity finding).
+    const fontDir = FONT_ASSETS_DIR;
+    if (existsSync(fontDir)) {
+      for (const entry of readdirSync(fontDir)) {
+        if (!entry.endsWith(".woff2")) continue;
+        copyFileSync(join(fontDir, entry), join(outDir, "assets", entry));
+      }
+    }
     writeFileSync(join(outDir, "assets", "theme.css"), input.themeCss);
     writeFileSync(
       join(outDir, "assets", "components.css"),

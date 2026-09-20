@@ -421,6 +421,26 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS reference_jobs_due_idx
     ON reference_jobs (status, next_attempt_at ASC, created_at ASC, id ASC)`,
+  // Re-bake outbox (E12, slice 1): content changes enqueue a durable job, the
+  // worker claims it with a lease (crash recovery), retries with backoff and
+  // keeps the error as the end state. `paths` is the dependency index result.
+  `CREATE TABLE IF NOT EXISTS bake_jobs (
+    id text PRIMARY KEY,
+    site_id text NOT NULL,
+    reason text NOT NULL,
+    paths jsonb NOT NULL,
+    status text NOT NULL,
+    attempts integer NOT NULL,
+    max_attempts integer NOT NULL,
+    next_attempt_at timestamptz NOT NULL,
+    lease_until timestamptz,
+    last_error text,
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL,
+    finished_at timestamptz
+  )`,
+  `CREATE INDEX IF NOT EXISTS bake_jobs_due_idx
+    ON bake_jobs (status, next_attempt_at ASC, created_at ASC, id ASC)`,
   // Project assignment per scale: one row per (site, reference), scales names
   // the scales the reference contributes (default: all of them).
   `CREATE TABLE IF NOT EXISTS reference_assignments (

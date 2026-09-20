@@ -1,15 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildEditorLayerList,
+  buildEditorSpotlightIndex,
   buildLayerList,
   buildMediaTab,
   buildPageList,
   buildTemplatesSection,
+  editorNodeLabel,
+  editorNodeSnippet,
   EXPLORER_TABS,
   filterMedia,
   layerLabel,
   type MediaItem,
 } from "@senify/editor";
 import { draftTree, registry } from "./fixtures.ts";
+import { baseStore, emptyV2Document } from "./state/fixtures.ts";
 
 const media: MediaItem[] = [
   {
@@ -109,5 +114,91 @@ describe("explorer tabs", () => {
     expect(tab.total).toBe(3);
     expect(tab.folders).toEqual(["2026", "Marke", "Referenzen"]);
     expect(tab.tags).toEqual(["foto", "hero", "logo", "team"]);
+  });
+});
+
+// Ticket 03, slice 1: the rebuild explorer reads the v2 editor document.
+describe("editor layer tree (v2)", () => {
+  it("lists the document depth-first with catalog names and content snippets", () => {
+    const store = baseStore();
+    const layers = buildEditorLayerList(store.document, { rootLabel: "Seite" });
+    expect(layers.map((layer) => [layer.id, layer.depth, layer.parentId])).toEqual([
+      [store.document.rootNodeId, 0, null],
+      ["sec0000001", 1, store.document.rootNodeId],
+      ["head000001", 2, "sec0000001"],
+      ["btn0000001", 1, store.document.rootNodeId],
+    ]);
+    expect(layers[0]?.label).toBe("Seite");
+    // The heading carries its text, the button its label.
+    expect(layers[2]?.label).toContain("Hallo");
+    expect(layers[3]?.label).toContain("Los");
+    expect(layers[1]?.hasChildren).toBe(true);
+    expect(layers[2]?.hasChildren).toBe(false);
+  });
+
+  it("flags hidden, locked, motion and per-device hidden nodes", () => {
+    const store = baseStore();
+    store.apply({
+      op: "setNodeMeta",
+      id: "head000001",
+      meta: { hidden: true, locked: true },
+    });
+    store.apply({
+      op: "setNodeHiddenDevices",
+      id: "head000001",
+      devices: ["mobile"],
+    });
+    store.apply({
+      op: "setMotion",
+      id: "head000001",
+      spec: { preset: "fade-up", intensity: 5 },
+    });
+    const layers = buildEditorLayerList(store.document);
+    const heading = layers.find((layer) => layer.id === "head000001");
+    expect(heading?.hidden).toBe(true);
+    expect(heading?.hiddenDevices).toEqual(["mobile"]);
+    expect(heading?.locked).toBe(true);
+    expect(heading?.motion).toBe(true);
+  });
+
+  it("renders the snippet without markup and truncates long text", () => {
+    expect(editorNodeSnippet({ id: "n", primitive: "heading", props: { text: "<b>Hallo</b>  Welt" } })).toBe(
+      "Hallo Welt",
+    );
+    const long = editorNodeSnippet({
+      id: "n",
+      primitive: "heading",
+      props: { text: "x".repeat(100) },
+    });
+    expect(long?.length).toBe(32);
+    expect(long?.endsWith("…")).toBe(true);
+    expect(editorNodeLabel({ id: "n", primitive: "heading", props: {} })).toBe("Überschrift");
+  });
+
+  it("handles an empty document", () => {
+    const layers = buildEditorLayerList(emptyV2Document());
+    expect(layers).toHaveLength(1);
+    expect(layers[0]?.primitive).toBe("root");
+  });
+});
+
+describe("editor spotlight index (v2)", () => {
+  it("indexes pages, primitives and actions with insert commands", () => {
+    const index = buildEditorSpotlightIndex({
+      pages: [{ id: "p1", title: "Start", path: "/" }],
+      primitives: [
+        { type: "root", name: "Wurzel", description: "", category: "layout" },
+        { type: "heading", name: "Überschrift", description: "Titel", category: "basic" },
+      ],
+      currentPageId: "p1",
+    });
+    expect(index.some((item) => item.command.type === "open-page")).toBe(true);
+    expect(index.some((item) => item.command.type === "insert-primitive")).toBe(true);
+    expect(index.some((item) => item.command.type === "publish")).toBe(true);
+    // The root is not insertable and stays out of the index.
+    expect(index.some((item) => item.id === "primitive:root")).toBe(false);
+    const heading = index.find((item) => item.id === "primitive:heading");
+    expect(heading?.command).toEqual({ type: "insert-primitive", primitive: "heading" });
+    expect(heading?.group).toBe("Bausteine");
   });
 });

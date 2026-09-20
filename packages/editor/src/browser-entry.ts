@@ -9,3 +9,6 @@ export * from "./state/index.ts";
 export * from "./canvas/index.ts";
 export { createRegistry } from "@senify/registry";
 export { defaultTheme, resolveTheme } from "@senify/tokens";
+// The widget catalog (ticket 03: the spotlight indexes the primitives; the
+// shell needs the list, the editor core stays renderer-agnostic).
+export { getPrimitive, primitiveTypes } from "@senify/widget-engine";

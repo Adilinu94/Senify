@@ -84,6 +84,7 @@ export function migrateV1ToV2(tree: NodeTree): EditorDocument {
     }
     if (node.locked !== undefined) migrated.locked = node.locked;
     if (node.hidden !== undefined) migrated.hidden = node.hidden;
+    if (node.variant !== undefined) migrated.variant = node.variant;
     if (hiddenDevices.length > 0) migrated.hiddenDevices = hiddenDevices;
     if (node.motion !== undefined) migrated.motion = structuredClone(node.motion);
     nodes[id] = migrated;

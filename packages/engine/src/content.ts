@@ -14,6 +14,7 @@ import {
   type UpdateEntryBody,
 } from "./content-contract.ts";
 import { newEntityId } from "./ids.ts";
+import { enqueueRebakeForEntry, type RebakeTrigger } from "./rebake.ts";
 import { slugify, type NewAuditEntry, type Store } from "./store.ts";
 import {
   ENTRY_VERSION_RETENTION,
@@ -102,32 +103,9 @@ const BUILTIN_TITLE_FIELD: FieldDef = {
 
 // ---------------------------------------------------------------- rebake stub
 
-export type RebakeTrigger = {
-  siteId: string;
-  reason: string;
-  queued: true;
-  at: string;
-};
-
-const rebakeCounts = new Map<string, number>();
-
-// Trigger stub for ticket 23: T09 owns the trigger, not the job. It records
-// and counts the request so tests and diagnostics can observe it.
-export function triggerRebake(siteId: string, reason: string): RebakeTrigger {
-  rebakeCounts.set(siteId, (rebakeCounts.get(siteId) ?? 0) + 1);
-  const trigger: RebakeTrigger = {
-    siteId,
-    reason,
-    queued: true,
-    at: new Date().toISOString(),
-  };
-  console.log(`[engine] rebake requested (site ${siteId}): ${reason}`);
-  return trigger;
-}
-
-export function rebakeCount(siteId: string): number {
-  return rebakeCounts.get(siteId) ?? 0;
-}
+// Re-bake triggers live in `rebake.ts` (E12 slice 1: a durable job, not a
+// stub). The exports stay here so the engine's public surface is unchanged.
+export { rebakeCount, triggerRebake, type RebakeTrigger } from "./rebake.ts";
 
 // ------------------------------------------------------------------- helpers
 
@@ -1274,7 +1252,11 @@ export async function publishEntry(
     },
   });
   await pruneEntryVersions(store, entry.id);
-  const rebake = triggerRebake(entry.siteId, `entry.published:${entry.id}`);
+  const { trigger: rebake } = await enqueueRebakeForEntry(store, {
+    entry,
+    collection,
+    reason: `entry.published:${entry.id}`,
+  });
   await store.appendAudit([
     contentAudit({
       siteId: entry.siteId,
@@ -1336,7 +1318,11 @@ export async function unpublishEntry(
       updatedAt: now,
     },
   });
-  const rebake = triggerRebake(entry.siteId, `entry.unpublished:${entry.id}`);
+  const { trigger: rebake } = await enqueueRebakeForEntry(store, {
+    entry,
+    collection,
+    reason: `entry.unpublished:${entry.id}`,
+  });
   await store.appendAudit([
     contentAudit({
       siteId: entry.siteId,
@@ -1494,7 +1480,12 @@ export async function trashEntry(
     }),
   ]);
   // A trashed published entry loses its route: the bake has to catch up.
-  triggerRebake(entry.siteId, `entry.trashed:${entry.id}`);
+  const collection = await store.getCollection(entry.collectionId);
+  await enqueueRebakeForEntry(store, {
+    entry,
+    collection,
+    reason: `entry.trashed:${entry.id}`,
+  });
   return trashed;
 }
 
@@ -1516,7 +1507,11 @@ export async function restoreEntryFromTrash(
       versionAfter: entry.version,
     }),
   ]);
-  triggerRebake(entry.siteId, `entry.restored:${entry.id}`);
+  await enqueueRebakeForEntry(store, {
+    entry,
+    collection,
+    reason: `entry.restored:${entry.id}`,
+  });
   return restored;
 }
 

@@ -8,6 +8,7 @@ export type SpotlightKind = "page" | "section" | "action";
 export type SpotlightCommand =
   | { type: "open-page"; pageId: string }
   | { type: "insert-section"; sectionType: string }
+  | { type: "insert-primitive"; primitive: string }
   | { type: "set-mode"; mode: "design" | "live" }
   | { type: "open-media" }
   | { type: "publish" };
@@ -110,6 +111,52 @@ export function buildSpotlightIndex(input: SpotlightIndexInput): SpotlightItem[]
     return Number(bActive) - Number(aActive);
   });
   return [...ordered, ...sections, ...SPOTLIGHT_ACTIONS];
+}
+
+export type EditorSpotlightInput = {
+  pages: readonly PageRef[];
+  primitives: readonly {
+    type: string;
+    name: string;
+    description: string;
+    category: string;
+  }[];
+  currentPageId?: string | null;
+};
+
+// The rebuild canvas indexes the widget catalog instead of the section
+// registry: the same model, the same scoring, `insert-primitive` as the
+// command.
+export function buildEditorSpotlightIndex(input: EditorSpotlightInput): SpotlightItem[] {
+  const pages: SpotlightItem[] = input.pages.map((page) => ({
+    id: `page:${page.id}`,
+    kind: "page",
+    label: page.title,
+    description: page.path,
+    group: "Seiten",
+    thumbnail: undefined,
+    keywords: [page.path],
+    command: { type: "open-page", pageId: page.id },
+  }));
+  const primitives: SpotlightItem[] = input.primitives
+    .filter((primitive) => primitive.type !== "root")
+    .map((primitive) => ({
+      id: `primitive:${primitive.type}`,
+      kind: "section",
+      label: primitive.name,
+      description: primitive.description,
+      group: "Bausteine",
+      thumbnail: undefined,
+      keywords: [primitive.type, primitive.category],
+      command: { type: "insert-primitive", primitive: primitive.type },
+    }));
+  const current = input.currentPageId ?? null;
+  const ordered = [...pages].sort((a, b) => {
+    const aActive = a.command.type === "open-page" && a.command.pageId === current;
+    const bActive = b.command.type === "open-page" && b.command.pageId === current;
+    return Number(bActive) - Number(aActive);
+  });
+  return [...ordered, ...primitives, ...SPOTLIGHT_ACTIONS];
 }
 
 function haystack(item: SpotlightItem): string {

@@ -4366,14 +4366,33 @@ async function reviewAction(siteId, reviewId, action) {
 // editor document with the existing migration; changes are written back through
 // the engine's mutations path (`POST /api/pages/:pageId/editor-mutations`), so
 // the canvas owns no storage of its own.
+//
+// E5 Scheibe 1: der Umbau-Pfad ist der **eine sichtbare Editor**. Der alte
+// Elementor-nahe Editor bleibt waehrend des Stranglers (E2) als expliziter
+// Deep-Link `?view=editor` erreichbar, aber es gibt keinen Umschalter mehr.
 function canvasModeOf(search) {
-  return /(?:^|&)view=canvas(?:&|$)/.test(String(search ?? "")) ? "canvas" : "editor";
+  return /(?:^|&)view=editor(?:&|$)/.test(String(search ?? "")) ? "editor" : "canvas";
 }
 
-function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCache, assetContext }) {
+function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCache, assetContext, siteProfile }) {
   const loaded = editor.loadDocument(page.draft);
 
+  // Drei Spalten: Ebenen-Explorer, Arbeitsflaeche (Canvas) und Inspektor
+  // (Tickets 02/03). Alle drei lesen denselben Store — die Auswahl im Canvas
+  // ist die Auswahl in beiden Panels, eine Aenderung erscheint ueberall.
+  const explorerHost = el("aside", { class: "canvas-view__explorer" });
+  const canvasHost = el("div", { class: "canvas-view__stage" });
+  const inspectorHost = el("aside", { class: "canvas-view__inspector" });
+  host.classList.add("canvas-view");
+  host.replaceChildren(explorerHost, canvasHost, inspectorHost);
+
   const statusEl = el("span", { class: "muted", "data-role": "canvas-status" });
+  const publishButton = el("button", {
+    type: "button",
+    class: "primary",
+    "data-action": "canvas-publish",
+    text: "Veröffentlichen",
+  });
   const saveButton = el("button", {
     type: "button",
     class: "primary",
@@ -4394,8 +4413,6 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
   });
   reloadButton.hidden = true;
   retryButton.hidden = true;
-
-  const store = new editor.EditorStore({ document: loaded.document });
 
   const setVersion = (version) => {
     const badge = document.getElementById("page-version");
@@ -4419,14 +4436,37 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
       };
     }
   };
-  const pipeline = editor.createSavePipeline({
-    store,
+
+  // Ein Session-Kern (E5 Scheibe 1): Dokument + Auswahl + History + Server-
+  // version + Pending in einem Objekt. Canvas und Inspektor sind Projektionen
+  // derselben Session; der Ansichtszustand (Geraet, Tab, Zoom, Auswahl)
+  // ueberlebt das Neuladen ueber den lokalen Speicher.
+  const storage = {
+    get: (key) => {
+      try {
+        return localStorage.getItem(key);
+      } catch {
+        return null;
+      }
+    },
+    set: (key, value) => {
+      try {
+        localStorage.setItem(key, value);
+      } catch {
+        // Ein privates Fenster verweigert den Schreibzugriff; der Editor laeuft weiter.
+      }
+    },
+  };
+  const session = editor.createEditorSession({
+    document: loaded.document,
     pageId,
     siteId,
     author: AUTHOR,
     request: transport,
+    initialVersion: page.draftVersion,
+    storage,
   });
-  pipeline.acceptVersion(page.draftVersion);
+  const savedUi = session.ui();
 
   const applyState = (state) => {
     saveButton.disabled = state.pending === 0;
@@ -4443,14 +4483,15 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
       statusEl.textContent = `${statusEl.textContent} · nicht speicherbar: ${state.unsupported.join(", ")}`.trim();
     }
   };
-  pipeline.subscribe((state) => {
+  session.subscribe(() => {
+    const state = session.saveState();
     setVersion(state.version);
     applyState(state);
   });
-  applyState(pipeline.state());
+  applyState(session.saveState());
 
-  const canvas = editor.mountCanvas(host, {
-    store,
+  const canvas = editor.mountCanvas(canvasHost, {
+    store: session.store,
     registry: editor.createRegistry(),
     renderer: editor.createReactRenderer({
       context: () => ({
@@ -4460,19 +4501,113 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
     }),
     theme: editor.defaultTheme(),
     frameStyles: ["/theme.css", "/editor-frame.css"],
+    zoom: savedUi.zoom,
+    onState: (state) => {
+      session.patchUi({ zoom: state.zoom, selectedId: state.selected });
+    },
     onMessage: (message) => {
       statusEl.textContent = message ?? "";
     },
   });
 
+  // Der Ebenen-Explorer (Ticket 03 Scheibe 1): Tree mit Tastatur,
+  // Kontextmenue und Fokus-Rueckgabe.
+  const explorer = editor.createExplorer({
+    host: explorerHost,
+    store: session.store,
+    onMessage: (message) => {
+      if (message !== null) statusEl.textContent = message;
+    },
+  });
+
+  // Die Spotlight (Cmd+K, Ticket 03 Scheibe 1): Bausteine, Seiten und
+  // Aktionen ueber die bestehende Suchlogik; `insert-primitive` fuegt am
+  // ausgewaehlten Knoten ein.
+  const spotlightIndex = editor.buildEditorSpotlightIndex({
+    pages: pagesCache,
+    primitives: editor.primitiveTypes().map((type) => {
+      const definition = editor.getPrimitive(type);
+      return {
+        type,
+        name: definition?.name ?? type,
+        description: definition?.description ?? "",
+        category: definition?.category ?? "",
+      };
+    }),
+    currentPageId: pageId,
+  });
+  const spotlight = editor.createSpotlightDialog({
+    index: spotlightIndex,
+    onCommand: (command) => {
+      if (command.type === "open-page") {
+        location.hash = `#/projects/${siteId}/pages/${command.pageId}`;
+      } else if (command.type === "insert-primitive") {
+        canvas.insert(command.primitive, "after");
+      } else if (command.type === "publish") {
+        location.hash = `#/projects/${siteId}/review`;
+      } else if (command.type === "set-mode") {
+        statusEl.textContent = "Der Live-Modus folgt mit dem Chrome-Ausbau.";
+      }
+    },
+  });
+  document.addEventListener("keydown", (event) => {
+    if ((event.metaKey === true || event.ctrlKey === true) && event.key === "k") {
+      event.preventDefault?.();
+      spotlight.open();
+    }
+  });
+
+  // Der Inspektor (Ticket 02 Scheibe 1): Tabs Content/Style/Interactions/
+  // Advanced, Feld-Familie aus der Vorschau, Token<->Literal.
+  const inspector = editor.createInspector({
+    host: inspectorHost,
+    store: session.store,
+    theme: editor.defaultTheme(),
+    profile: siteProfile ?? "standard",
+    breakpoint: savedUi.device,
+    onTabChange: (tab) => session.setTab(tab),
+    onBreakpointChange: (device) => session.setDevice(device),
+    onMessage: (message) => {
+      if (message !== null) statusEl.textContent = message;
+    },
+  });
+  inspector.setTab(savedUi.tab);
+  // Die Auswahl aus der letzten Sitzung wiederherstellen, sofern der Knoten
+  // noch existiert; `store.select` umgeht den Persistenz-Schreibpfad nicht.
+  if (savedUi.selectedId && session.document.nodes[savedUi.selectedId]) {
+    session.store.select(savedUi.selectedId);
+  }
+
   saveButton.addEventListener("click", () => {
-    void pipeline.flush();
+    void session.flush();
+  });
+  // Veroeffentlichen ueber die echte Route (Ticket 17): erst die offenen
+  // Aenderungen speichern, dann `POST /api/sites/:siteId/releases` — derselbe
+  // Pfad wie der MCP-`publish_release` (Revisionen, Theme-Snapshot, Release,
+  // O9-Vorhang, aktives Release). Der Editor baut nichts selbst.
+  publishButton.addEventListener("click", async () => {
+    publishButton.disabled = true;
+    statusEl.textContent = "Veröffentliche …";
+    try {
+      await session.flush();
+      const result = await api(`/api/sites/${siteId}/releases`, {
+        method: "POST",
+        body: { author: AUTHOR },
+      });
+      const releaseId = result.release?.id ?? "?";
+      statusEl.textContent = `Release ${releaseId} aktiv`;
+      toast(`Veröffentlicht — Release ${releaseId}`, "info");
+    } catch (error) {
+      statusEl.textContent = error?.message ?? "Veröffentlichen fehlgeschlagen";
+      toast(`Veröffentlichen fehlgeschlagen: ${error?.message ?? error}`, "error");
+    } finally {
+      publishButton.disabled = false;
+    }
   });
   reloadButton.addEventListener("click", async () => {
     try {
       const fresh = await api(`/api/pages/${pageId}`);
-      store.replaceDocument(editor.loadDocument(fresh.draft).document);
-      pipeline.acceptVersion(fresh.draftVersion);
+      session.replaceDocument(editor.loadDocument(fresh.draft).document, fresh.draftVersion);
       setVersion(fresh.draftVersion);
       statusEl.textContent = "Neu geladen";
     } catch (error) {
@@ -4482,14 +4617,14 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
   retryButton.addEventListener("click", async () => {
     try {
       const fresh = await api(`/api/pages/${pageId}`);
-      await pipeline.retry(fresh.draftVersion);
+      await session.retry(fresh.draftVersion);
     } catch (error) {
       failed(error);
     }
   });
 
-  toolbar.append(statusEl, saveButton, reloadButton, retryButton);
-  return canvas;
+  toolbar.append(statusEl, publishButton, saveButton, reloadButton, retryButton);
+  return { session, canvas, inspector, explorer, spotlight };
 }
 
 async function pageView(siteId, pageId, initialSearch) {
@@ -4557,13 +4692,11 @@ async function pageView(siteId, pageId, initialSearch) {
     assetContext = {};
   }
 
-  // Zwei Ansichten, ein Umschalter: der bisherige Elementor-nahe Editor
-  // (`mountEditor`, v1-Baum) bleibt die Voreinstellung, der neue Canvas
-  // (`mountCanvas`, v2-Dokument) laesst sich daneben oeffnen. Der Zustand steht
-  // in der Adresse (`?view=canvas`), damit ein Neuladen und ein Deep-Link ihn
-  // mittragen.
+  // Ein sichtbarer Editorpfad (E5 Scheibe 1): der Umbau-Canvas (`mountCanvas`,
+  // v2-Dokument) ist die Voreinstellung. Der bisherige Elementor-nahe Editor
+  // (`mountEditor`, v1-Baum) bleibt nur als Deep-Link `?view=editor` erreichbar
+  // (Strangler E2); einen Umschalter gibt es nicht mehr.
   const mode = canvasModeOf(initialSearch);
-  const routeBase = `#/projects/${siteId}/pages/${pageId}`;
   const toolbar = el(
     "div",
     { class: "toolbar" },
@@ -4572,28 +4705,6 @@ async function pageView(siteId, pageId, initialSearch) {
     el("code", { text: page.path }),
     el("div", { class: "spacer" }),
     el("span", { class: "muted", id: "page-version", text: `Draft v${page.draftVersion}` }),
-    el(
-      "div",
-      { class: "editor-switch", role: "group", "aria-label": "Editor-Ansicht" },
-      el("button", {
-        type: "button",
-        "data-view": "editor",
-        class: mode === "editor" ? "active" : "",
-        text: "Editor (bisher)",
-        onclick: () => {
-          location.hash = `${routeBase}?view=editor`;
-        },
-      }),
-      el("button", {
-        type: "button",
-        "data-view": "canvas",
-        class: mode === "canvas" ? "active" : "",
-        text: "Canvas (neu)",
-        onclick: () => {
-          location.hash = `${routeBase}?view=canvas`;
-        },
-      }),
-    ),
   );
   const host = el("div", { class: "editor-host", id: "editor-host" });
   render([toolbar, host]);
@@ -4616,6 +4727,7 @@ async function pageView(siteId, pageId, initialSearch) {
         editor,
         pagesCache,
         assetContext,
+        siteProfile,
       });
     } else {
       host.replaceChildren(
@@ -4690,7 +4802,9 @@ async function pageView(siteId, pageId, initialSearch) {
         ...(initialSearch ? { initialSearch } : {}),
         onDeepLink: (search) => {
           const base = `${location.origin}${location.pathname}${location.search}`;
-          const suffix = search === "" ? "" : `?${search}`;
+          // Der Alt-Pfad bleibt im Deep-Link erhalten (`?view=editor`), sonst
+          // faellt ein Reload auf den Canvas zurueck (E5 Scheibe 1).
+          const suffix = `?view=editor${search === "" ? "" : `&${search}`}`;
           history.replaceState(
             null,
             "",
@@ -4841,6 +4955,9 @@ cmdkInput.addEventListener("keydown", (event) => {
 document.getElementById("cmdk-open").addEventListener("click", openCmdk);
 document.addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+    // Auf der Editor-Seite uebernimmt die Editor-Spotlight (Ticket 03); die
+    // allgemeine Befehlspalette bleibt den uebrigen Ansichten.
+    if (document.querySelector(".senify-canvas")) return;
     event.preventDefault();
     void openCmdk();
   }

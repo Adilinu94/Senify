@@ -55,6 +55,7 @@ export type DomElement = {
   closest(selector: string): DomElement | null;
   contains?(node: unknown): boolean;
   focus?(): void;
+  scrollIntoView?(options?: unknown): void;
   remove(): void;
   // Real elements in the browser expose their box; the overlay handle and the
   // "+" insert points are positioned from it.
@@ -69,6 +70,8 @@ export type DomElement = {
 export type DomDocument = {
   readonly body: DomElement;
   readonly head?: DomElement | null;
+  // The focused element; the spotlight remembers and restores it (E7).
+  readonly activeElement?: DomElement | null;
   createElement(tag: string): DomElement;
   addEventListener(type: string, handler: (event: DomEvent) => void): void;
   removeEventListener(type: string, handler: (event: DomEvent) => void): void;
