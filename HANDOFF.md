@@ -10,8 +10,9 @@ ist, was gebaut ist, was offen ist, wie man startet und prüft, welche Fallen la
 Live-Modus, Transport). Darauf liegen die Welle-1-Commits `5ad0d48`/`23f7885` (Teil 1:
 Ticket 11, E17 S1, E4 S0), `824b9ba` (Teile 2+3: Ticket 18 komplett — Author-Resolver,
 Idempotency-Keys, `authoredBy`-Fence) und `55593f1`/`c162251` (Teil 4: Pakete #5–#10 aus
-§9). **Uncommittet** im Baum: M4 Stufe 1 + Ticket 03 Punkt 6 (Live-Modus, Chrome-Rest,
-20.09.) — und ein **zweiter Strang** an der Referenz-Bibliothek/Redesign (`references-*`,
+§9). Darauf liegen `a4ec1c4` (M4 Stufe 1 + Ticket 03 Punkt 6: Live-Modus im Canvas,
+Zoom-Footer, Labels, Dimming) und `ab0abdc` (Doku dazu). **Uncommittet** im Baum bleibt
+ein **zweiter Strang** an der Referenz-Bibliothek/Redesign (`references-*`,
 `redesign-package.*`, app.js/app.css; siehe §8). Untracked bleiben die bewusst lokalen
 Artefakte (Test-Logs, Screenshots, `.backup-18-09/`, Debug-Dateien in `.scratch/refs/`).
 Wer `git status` liest, sieht genau diese Restliste.
@@ -249,7 +250,7 @@ Wer `git status` liest, sieht genau diese Restliste.
   injizierbarer Zeit. `pnpm test` **1270/2/141**, typecheck 0, lint 0, build 0 (Log
   `.scratch/testlauf-20-09-welle1rest-4.log`). Code committet als `55593f1`, die Doku folgt
   mit dem Doku-Commit.
-- **M4 Stufe 1 + Ticket 03 Punkt 6 (20.09., uncommittet): Live-Modus im Canvas.** Der
+- **M4 Stufe 1 + Ticket 03 Punkt 6 (20.09., committet `a4ec1c4`): Live-Modus im Canvas.** Der
   Design/Live-Toggle baut den Canvas auf **einen** Frame um (aktiver Breakpoint, echte
   Größe, nativer Scroll); die Editor-Chrome bleibt draußen (`canvasFrameRules({ chrome:
   false })`), die Release-Runtime wird injiziert — eine Quelle für v1 und Canvas
@@ -411,7 +412,7 @@ E4 S0 — committet) sowie Ticket 18 komplett (Author-Resolver, Idempotency-Keys
 committet `55593f1`). Der Testlauf ist grün (**1270/2/141**, Log
 `.scratch/testlauf-20-09-welle1rest-4.log`). Danach **M4 Stufe 1 + Ticket 03 Punkt 6**
 (Live-Modus im Canvas, Zoom-Footer, Frame-Labels, Breakpoint-Dimming; **1292/2/144**, Log
-`.scratch/testlauf-20-09-m4s1-2.log`; uncommittet, §2.4).
+`.scratch/testlauf-20-09-m4s1-2.log`; committet `a4ec1c4`, §2.4).
 
 **Als Nächstes:**
 

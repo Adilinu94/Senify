@@ -115,7 +115,8 @@ wurde parallel um „Teil II" (§10–§16: Referenz-Transfer, Anti-Slop, Editor
 beide Teile koexistieren; nichts ueberschrieben. Kein Produktcode geaendert.
 
 **M4 Stufe 1 + Ticket 03 Punkt 6 (20.09., umgesetzt): Live-Modus zeigt die echte Seite;
-Design/Live-Toggle, Zoom-Footer, Frame-Labels, Dimming.** Kein Commit.
+Design/Live-Toggle, Zoom-Footer, Frame-Labels, Dimming.** Code committet als `a4ec1c4`,
+Doku als `ab0abdc`.
 
 - **Ein Injektionsmodul für beide Editorpfade:** `editor/src/motion-inject.ts` (neu) baut
   den Runtime-Vertrag (`motion-data` v2, self-hosted Vendor, `renderPageScript`, Lenis nach
