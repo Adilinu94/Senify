@@ -16,6 +16,8 @@ export type EditorUiState = {
   device: "desktop" | "tablet" | "mobile";
   tab: EditorTabId;
   zoom: number;
+  // Design/Live (Ticket 03 Punkt 6): the live mode survives a reload too.
+  mode: "design" | "live";
   selectedId: string | null;
 };
 
@@ -23,6 +25,7 @@ export const DEFAULT_UI_STATE: EditorUiState = {
   device: "desktop",
   tab: "content",
   zoom: 1,
+  mode: "design",
   selectedId: null,
 };
 
@@ -43,6 +46,10 @@ function isDevice(value: unknown): value is EditorUiState["device"] {
   return value === "desktop" || value === "tablet" || value === "mobile";
 }
 
+function isMode(value: unknown): value is EditorUiState["mode"] {
+  return value === "design" || value === "live";
+}
+
 // A stored state is trusted only field by field; anything else falls back to
 // the default. A corrupt entry never blocks the editor.
 export function parseUiState(input: unknown): EditorUiState {
@@ -57,6 +64,7 @@ export function parseUiState(input: unknown): EditorUiState {
       typeof record["zoom"] === "number" && Number.isFinite(record["zoom"]) && record["zoom"] > 0
         ? record["zoom"]
         : DEFAULT_UI_STATE.zoom,
+    mode: isMode(record["mode"]) ? record["mode"] : DEFAULT_UI_STATE.mode,
     selectedId: typeof record["selectedId"] === "string" ? record["selectedId"] : null,
   };
 }

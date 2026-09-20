@@ -10,14 +10,7 @@ import {
   type SectionDefinition,
 } from "@senify/section-sdk";
 import type { Theme } from "@senify/tokens";
-import { resolveTheme } from "@senify/tokens";
-import {
-  motionConfigsForTree,
-  motionDataFor,
-  parseDurationMs,
-  renderPageScript,
-  type MotionTokens,
-} from "@senify/renderer/motion";
+import { injectMotionRuntime, profileLenis } from "./motion-inject.ts";
 import type { Mutation, ParentRef } from "@senify/engine";
 import { goldenTreeToMutations } from "./golden.ts";
 import {
@@ -1842,78 +1835,24 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
   }
 
   // The play preview (M4): inject the baked runtime contract into one frame
-  // document. Lenis stays off in design mode; the vendor comes from the engine
-  // route, and the runtime runs after its plugins — an inline script appended
-  // first would see an empty `window.gsap`.
-  function motionTokens(): MotionTokens {
-    const resolved = options.theme === undefined ? undefined : resolveTheme(options.theme);
-    const baseDuration = resolved?.motion.duration.base;
-    return {
-      ease: resolved?.motion.ease ?? {},
-      baseDurationMs: baseDuration === undefined ? 300 : parseDurationMs(baseDuration),
-      baseStaggerMs: 80,
-    };
-  }
-
-  // Lenis is part of the site profile (F6/F7, MOTION_PROFILE_RULES): the live
-  // mode mirrors the release, so it honours the same switch the bake reads.
-  function liveLenis(): boolean {
-    return siteProfile !== "clean";
-  }
-
+  // document. One source (`motion-inject.ts`) — the rebuild canvas injects the
+  // very same contract when it switches to live. Lenis stays off in design
+  // mode; live mode follows the site profile.
   function injectMotion(body: DomElement): void {
     const frameDoc = body.ownerDocument;
     if (frameDoc === undefined) return;
-    // Live mode runs the site profile's contract: Lenis is on except for the
-    // clean profile (the bake reads the same table); design play stays without.
-    const live = state.mode === "live";
-    const withLenis = live && liveLenis();
-    const { configs, warnings } = motionConfigsForTree(options.tree(), motionTokens());
-    const firstWarning = warnings[0];
-    if (firstWarning !== undefined) report(firstWarning.message);
-    const payload = frameDoc.createElement("script");
-    payload.setAttribute("type", "application/json");
-    payload.setAttribute("id", "motion-data");
-    payload.textContent = JSON.stringify(motionDataFor(configs));
-    body.appendChild(payload);
-
-    const needs = new Set(configs.flatMap((config) => config.needs ?? []));
-    const names = [
-      "gsap.min.js",
-      ...(needs.has("scrolltrigger") ? ["ScrollTrigger.min.js"] : []),
-      ...(needs.has("splittext") ? ["SplitText.min.js"] : []),
-      ...(withLenis ? ["lenis.min.js"] : []),
-    ];
-    const base = options.motionVendorBase ?? "/api/motion-vendor";
-    let remaining = names.length;
-    const runRuntime = (): void => {
-      const script = frameDoc.createElement("script");
-      script.setAttribute("data-senify-motion", "runtime");
-      script.textContent = renderPageScript({ lenis: withLenis });
-      body.appendChild(script);
-    };
-    if (remaining === 0) {
-      runRuntime();
-      return;
-    }
-    for (const name of names) {
-      const script = frameDoc.createElement("script");
-      script.setAttribute("src", `${base}/${name}`);
-      script.setAttribute("data-senify-motion", "vendor");
-      const async = script as unknown as {
-        async?: boolean;
-        onload?: (() => void) | null;
-        onerror?: (() => void) | null;
-      };
-      async.async = false;
-      const done = (): void => {
-        remaining -= 1;
-        if (remaining === 0) runRuntime();
-      };
-      async.onload = done;
-      async.onerror = done;
-      body.appendChild(script);
-    }
+    injectMotionRuntime({
+      doc: frameDoc,
+      body,
+      tree: options.tree(),
+      ...(options.theme === undefined ? {} : { theme: options.theme }),
+      profile: siteProfile,
+      lenis: state.mode === "live" && profileLenis(siteProfile),
+      ...(options.motionVendorBase === undefined
+        ? {}
+        : { vendorBase: options.motionVendorBase }),
+      onMessage: report,
+    });
   }
 
   function toggleMotion(): void {

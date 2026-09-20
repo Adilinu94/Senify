@@ -663,6 +663,40 @@ function canvasSkinCss(): string {
       "font-size: var(--ed-text-11);",
     ].join("\n"),
   );
+  // Der Fuss (Ticket 03 Punkt 6) traegt Meldung und Zoom.
+  rule(
+    " .senify-canvas__footer",
+    [
+      "min-height: var(--ed-h-statusbar);",
+      "padding: 0 var(--ed-space-3);",
+      "gap: var(--ed-space-2);",
+      "background: var(--ed-surface-raised);",
+      "border-top: 1px solid var(--ed-line-hairline);",
+      "color: var(--ed-ink-muted);",
+      "font-size: var(--ed-text-11);",
+    ].join("\n"),
+  );
+  rule(
+    " .senify-canvas__button:disabled",
+    "color: var(--ed-ink-faint);\nbackground: transparent;\nbox-shadow: none;",
+  );
+  rule(
+    " .senify-canvas__zoom-label:disabled",
+    "color: var(--ed-ink-faint);\nbackground: transparent;\nbox-shadow: none;",
+  );
+  // Das Frame-Label: dezent ueber dem Blatt, im aktiven Blatt staerker.
+  rule(
+    " .senify-canvas__frame-label",
+    [
+      "background: var(--ed-surface-inset);",
+      "color: var(--ed-ink-muted);",
+      "box-shadow: inset 0 0 0 1px var(--ed-line-hairline);",
+    ].join("\n"),
+  );
+  rule(
+    ' .senify-canvas__frame[data-active="true"] .senify-canvas__frame-label',
+    "color: var(--ed-ink-strong);",
+  );
 
   // ------------------------------------------------------------------- Bühne
   // Nur der Grund um die Blätter traegt die Haut; das Blatt selbst

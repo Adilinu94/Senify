@@ -78,8 +78,29 @@ export const CANVAS_STYLES = `
   cursor: pointer;
 }
 .senify-canvas__select { min-height: 1.9rem; border: 0; background: transparent; font: inherit; }
-.senify-canvas__zoom-label { min-width: 3rem; text-align: center; }
+.senify-canvas__zoom-label {
+  min-width: 3.5rem;
+  min-height: 1.9rem;
+  padding: 0 0.3rem;
+  border: 0;
+  border-radius: 0.25rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.senify-canvas__zoom-label:disabled { cursor: default; }
 .senify-canvas__status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Der Fuss (Ticket 03 Punkt 6): Meldung links, Zoom rechts — der Zoom gehoert
+   zur Arbeitsflaeche, nicht in die Werkzeugleiste. */
+.senify-canvas__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.2rem;
+  padding: 0 0.5rem;
+}
 /* Der Katalog-Streifen (Ticket 12): Chips zum Ziehen, Klick fuegt ein.
    Ganzzahlige Hoehen (28px Chip, 5px Fuss): der Rahmen darunter muss auf einem
    ganzen Pixel sitzen, sonst rastert die Arbeitsflaeche die Schriften auf
@@ -125,6 +146,29 @@ export const CANVAS_STYLES = `
   transform-origin: 0 0;
 }
 .senify-canvas__iframe { display: block; border: 0; background: #ffffff; }
+/* Das Frame-Label (Ticket 03 Punkt 6): Name und Breite des Blattes. Es sitzt im
+   skalierten Blatt und wird per JS gegenskaliert, damit es lesbar bleibt. */
+.senify-canvas__frame-label {
+  position: absolute;
+  left: 0;
+  top: -1.7rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 0.2rem 0.2rem 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+  transform-origin: left bottom;
+  pointer-events: none;
+}
+/* Inaktive Blätter dimmen (Ticket 03 Punkt 6): der aktive Breakpoint ist hell,
+   die anderen warten auf ihre Aktivierung (Klick in das Blatt). */
+.senify-canvas__frame[data-active="false"] .senify-canvas__iframe { opacity: 0.55; }
+.senify-canvas__frame[data-active="false"]:hover .senify-canvas__iframe { opacity: 0.8; }
+/* Live (M4 Stufe 1): ein Blatt, randlos, nativer Scroll — die echte Seite. */
+.senify-canvas__stage[data-mode="live"] { padding: 0; overflow: hidden; }
+.senify-canvas__frame[data-mode="live"] { border-radius: 0; box-shadow: none; }
+.senify-canvas__frame[data-mode="live"] .senify-canvas__frame-label { display: none; }
+.senify-canvas__frame[data-mode="live"] .senify-canvas__iframe { opacity: 1; }
 /* Das Editor-Overlay (Ticket 12): Linie und Plus-Punkte ueber der Flaeche,
    nie im Inhaltsrahmen. Nur die Plus-Knoepfe nehmen Zeigerereignisse an. */
 .senify-canvas__overlay {

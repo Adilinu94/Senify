@@ -39,6 +39,9 @@ export type FrameRulesOptions = {
   forcedState?: StateName | null;
   // Token resolution for theme colours and sizes (optional).
   resolveToken?: TokenResolver;
+  // Live mode shows the real page (M4 Stufe 1): the editor chrome — markers,
+  // the pointer cursor, the forced state — stays out of the frame.
+  chrome?: boolean;
 };
 
 export type FrameRules = {
@@ -112,15 +115,17 @@ export function canvasFrameRules(
   );
   const chromeParts: string[] = [];
   const forced = options.forcedState ?? null;
-  if (forced !== null) {
-    const forcedCss = forcedStateCss(cssDocument, forced, {
-      ...(options.resolveToken === undefined
-        ? {}
-        : { resolveToken: options.resolveToken }),
-    });
-    if (forcedCss.trim() !== "") chromeParts.push(forcedCss);
+  if (options.chrome ?? true) {
+    if (forced !== null) {
+      const forcedCss = forcedStateCss(cssDocument, forced, {
+        ...(options.resolveToken === undefined
+          ? {}
+          : { resolveToken: options.resolveToken }),
+      });
+      if (forcedCss.trim() !== "") chromeParts.push(forcedCss);
+    }
+    chromeParts.push(CANVAS_CHROME_CSS);
   }
-  chromeParts.push(CANVAS_CHROME_CSS);
   const chrome = chromeParts.join("\n\n");
   // Base before the document rules: both live in `@layer user-authored`, so the
   // node rules win the tie on source order — the same weak-to-strong order the

@@ -4502,12 +4502,28 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
     theme: editor.defaultTheme(),
     frameStyles: ["/theme.css", "/editor-frame.css"],
     zoom: savedUi.zoom,
+    // Design/Live (Ticket 03 Punkt 6): live zeigt die echte Seite (M4 Stufe 1).
+    mode: savedUi.mode,
+    breakpoint: savedUi.device,
+    profile: siteProfile ?? "standard",
     onState: (state) => {
-      session.patchUi({ zoom: state.zoom, selectedId: state.selected });
+      session.patchUi({
+        zoom: state.zoom,
+        selectedId: state.selected,
+        mode: state.mode,
+        device: state.breakpoint,
+      });
     },
     onMessage: (message) => {
       statusEl.textContent = message ?? "";
     },
+  });
+  // Die Session ist die eine Quelle (E5): wechselt der Inspektor das Geraet,
+  // folgt die Arbeitsflaeche; der Canvas meldet seine Wechsel ueber `onState`.
+  session.subscribe(() => {
+    const ui = session.ui();
+    canvas.setMode(ui.mode);
+    canvas.setBreakpoint(ui.device);
   });
 
   // Der Ebenen-Explorer (Ticket 03 Scheibe 1): Tree mit Tastatur,
@@ -4546,7 +4562,7 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
       } else if (command.type === "publish") {
         location.hash = `#/projects/${siteId}/review`;
       } else if (command.type === "set-mode") {
-        statusEl.textContent = "Der Live-Modus folgt mit dem Chrome-Ausbau.";
+        canvas.setMode(command.mode);
       }
     },
   });

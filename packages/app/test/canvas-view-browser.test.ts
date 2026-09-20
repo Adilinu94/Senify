@@ -271,6 +271,77 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
         .poll(async () => tab.locator(".senify-canvas").getAttribute("data-selected"))
         .toBe(selectedBeforeReload);
 
+      // Chrome (Ticket 03 Punkt 6): frame labels and the active-breakpoint
+      // dimming. The desktop sheet starts active; a click in the tablet sheet
+      // activates it — the session mirrors it for the inspector.
+      expect(await tab.locator(".senify-canvas__frame-label").count()).toBe(3);
+      await expect
+        .poll(async () =>
+          tab
+            .locator('.senify-canvas__frame[data-device="desktop"]')
+            .getAttribute("data-active"),
+        )
+        .toBe("true");
+      const tabletFrame = tab
+        .locator('.senify-canvas__frame[data-device="tablet"] .senify-canvas__iframe')
+        .contentFrame();
+      // A programmatic click: the tablet sheet sits far right of the stage, and
+      // the coordinate click across the iframe boundary is the known Playwright
+      // flake (handoff §8). The handler under test is the same either way.
+      await tabletFrame
+        .locator(`[data-node-id="${heroId}"]`)
+        .first()
+        .evaluate((element) => {
+          (element as unknown as { click(): void }).click();
+        });
+      await expect
+        .poll(async () =>
+          tab
+            .locator('.senify-canvas__frame[data-device="tablet"]')
+            .getAttribute("data-active"),
+        )
+        .toBe("true");
+
+      // Zoom footer (Ticket 03 Punkt 6): zoom-in, then Strg+0 resets to 100 %.
+      await tab.locator('.senify-canvas__button[data-action="zoom-in"]').click();
+      await expect
+        .poll(async () => tab.locator('[data-role="zoom"]').textContent())
+        .toBe("110%");
+      await tab.keyboard.press("Control+0");
+      await expect
+        .poll(async () => tab.locator('[data-role="zoom"]').textContent())
+        .toBe("100%");
+
+      // Design/Live (Ticket 03 Punkt 6 + M4 Stufe 1): live shows the real page
+      // — one frame at 100 %, native scroll, the release runtime injected (the
+      // same contract the bake writes; Lenis follows the site profile).
+      await tab.locator('.senify-canvas__button[data-mode="live"]').click();
+      await expect.poll(async () => tab.locator(".senify-canvas__frame").count()).toBe(1);
+      await expect
+        .poll(async () =>
+          tab.locator(".senify-canvas__frame").first().getAttribute("data-device"),
+        )
+        .toBe("tablet");
+      await expect
+        .poll(async () =>
+          tab.evaluate(`(() => {
+            const frame = document.querySelector('.senify-canvas__frame iframe');
+            const win = frame && frame.contentWindow;
+            const doc = frame && frame.contentDocument;
+            return Boolean(
+              win && win.gsap && doc && doc.getElementById("motion-data") &&
+                doc.querySelector('script[data-senify-motion="runtime"]'),
+            );
+          })()`),
+        )
+        .toBe(true);
+      await tab.screenshot({ path: join(shotDir, "07-canvas-live.png") });
+
+      // Back in design: the three sheets return, the chrome is back.
+      await tab.locator('.senify-canvas__button[data-mode="design"]').click();
+      await expect.poll(async () => tab.locator(".senify-canvas__frame").count()).toBe(3);
+      await expect.poll(dividerCount).toBe(3);
+
       // The old editor stays reachable as an explicit deep link (strangler E2)
       // and still lays out its frames.
       await tab.goto(`${pageUrl}?view=editor`, { waitUntil: "domcontentloaded" });

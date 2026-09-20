@@ -186,6 +186,12 @@ export class EditorSession {
     this.patchUi({ tab });
   }
 
+  // Design/Live (Ticket 03 Punkt 6): the canvas mirrors the session, so the
+  // mode is one truth and survives a reload.
+  setMode(mode: EditorUiState["mode"]): void {
+    this.patchUi({ mode });
+  }
+
   setZoom(zoom: number): void {
     this.patchUi({ zoom });
   }

@@ -63,6 +63,18 @@ describe("frame rules", () => {
     );
   });
 
+  it("leaves the editor chrome out in live mode (M4 Stufe 1)", () => {
+    const live = canvasFrameRules(document(), { chrome: false, forcedState: "hover" });
+    // The real page: no markers, no pointer cursor, no forced state.
+    expect(live.chrome).toBe("");
+    expect(live.css).not.toContain(".senify-canvas__marker");
+    expect(live.css).not.toContain("data-force-state");
+    // The release rules stay untouched — base and document rules still apply.
+    expect(live.css).toContain(`@layer ${CASCADE_LAYER} {`);
+    expect(live.css).toContain(nodeSelector("card") + " {");
+    expect(live.authored).toBe(canvasFrameRules(document()).authored);
+  });
+
   it("paints a forced state through the root attribute without touching the release", () => {
     const base = document();
     const plain = canvasFrameRules(base);

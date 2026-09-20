@@ -41,6 +41,27 @@ describe("canvas device frames", () => {
     expect(canvasFrames(5).every((frame) => frame.scale === ZOOM_MAX)).toBe(true);
   });
 
+  it("live mode gives one real-size frame for the active breakpoint", () => {
+    const frames = canvasFrames(1, { mode: "live", breakpoint: "mobile" });
+    expect(frames).toHaveLength(1);
+    expect(frames[0]?.device).toBe("mobile");
+    expect(frames[0]?.mode).toBe("live");
+    expect(frames[0]?.label).toBe("Live");
+    // Real size: the frame fills the stage and scrolls natively (M4 Stufe 1).
+    expect(frames[0]?.width).toBeNull();
+    expect(frames[0]?.height).toBeNull();
+    expect(frames[0]?.scale).toBe(1);
+    // The responsive rules of the chosen device still apply.
+    expect(frames[0]?.mediaMaxWidth).toBe(640);
+  });
+
+  it("design mode keeps the three sheets, the live switch stays out", () => {
+    const frames = canvasFrames(0.5, { mode: "design", breakpoint: "tablet" });
+    expect(frames).toHaveLength(3);
+    expect(frames.map((frame) => frame.mode)).toEqual(["design", "design", "design"]);
+    expect(frames.every((frame) => frame.scale === 0.5)).toBe(true);
+  });
+
   it("builds a per-device selector", () => {
     expect(CANVAS_DEVICES).toHaveLength(3);
     expect(frameSelector("mobile")).toBe('.senify-canvas__frame[data-device="mobile"]');

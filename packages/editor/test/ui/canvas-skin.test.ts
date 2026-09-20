@@ -135,10 +135,11 @@ describe("canvas view draws from the one appearance source", () => {
     expect(CANVAS_STYLES).toContain(".senify-canvas__frame {");
     expect(CANVAS_STYLES).toContain("background: #ffffff;");
     expect(CANVAS_STYLES).toContain(".senify-canvas__iframe { display: block; border: 0; background: #ffffff; }");
-    // The skin never sets a background on the paper (frame/iframe/marker).
+    // The skin never sets a background on the paper (frame/iframe/marker) —
+    // but it may paint the frame label, which only shares the name prefix.
     const paperRules = [
       ...EDITOR_CANVAS_SKIN_STYLES.matchAll(
-        /[^{}]*\.senify-canvas__(?:frame|iframe|marker)[^{]*\{([^}]*)\}/g,
+        /[^{}]*\.senify-canvas__(?:frame|iframe|marker)(?![\w-])[^{]*\{([^}]*)\}/g,
       ),
     ];
     for (const rule of paperRules) {

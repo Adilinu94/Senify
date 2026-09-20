@@ -12,7 +12,7 @@
 // chrome (markers, handles, labels) — unlayered, so it beats the authored
 // layer, exactly as the cascade decision (O1) prescribes.
 
-import type { Registry } from "@senify/section-sdk";
+import type { MotionProfile, Registry } from "@senify/section-sdk";
 import {
   getPrimitive,
   primitiveTypes,
@@ -23,15 +23,16 @@ import {
 import type { Theme } from "@senify/tokens";
 import { createReactRenderer } from "../react-renderer.tsx";
 import type { FrameDescriptor } from "../frames.ts";
-import type { FrameBreakpoint } from "../types.ts";
+import type { EditorMode, FrameBreakpoint } from "../types.ts";
 import type { FrameRenderer } from "../mount.ts";
 import { getDocument, type DomDocument, type DomElement, type DomEvent } from "../dom.ts";
 import { ensureCanvasStyles } from "./styles.ts";
 import { editorFontFaceCss } from "../ui/fonts.ts";
 import { applyEditorSkin, EDITOR_SKIN_DEFAULT } from "../ui/skin.ts";
 import { EDITOR_ROOT_ATTRIBUTE } from "../ui/tokens.ts";
+import { injectMotionRuntime, MOTION_VENDOR_BASE, profileLenis } from "../motion-inject.ts";
 import { EditorStore } from "../state/store.ts";
-import { canvasFrames, fitZoom, ZOOM_MAX, ZOOM_MIN } from "./device.ts";
+import { canvasFrames, fitZoom, ZOOM_MAX, ZOOM_MIN, type CanvasFrameSpec } from "./device.ts";
 import { canvasFrameRules } from "./rules.ts";
 import { canvasNodeTree } from "./adapter.ts";
 import { type InsertPosition } from "./insert.ts";
@@ -48,9 +49,18 @@ export type CanvasOptions = {
   resolveToken?: TokenResolver;
   zoom?: number;
   previewState?: StateName | null;
+  // Design/Live (Ticket 03 Punkt 6): live shows the real page (M4 Stufe 1) —
+  // one frame at 100 %, native scroll, the release runtime running.
+  mode?: EditorMode;
+  // The breakpoint the live frame renders at; in design it is the frame the
+  // editor marks as active (dimming, activation).
+  breakpoint?: FrameBreakpoint;
+  // The site profile decides the Lenis switch of the live runtime (F6/F7).
+  profile?: MotionProfile;
+  motionVendorBase?: string;
   onMessage?: (message: string | null) => void;
-  // Reports view changes (zoom, selection, forced state) so the session can
-  // persist them; the canvas itself stays storage-free.
+  // Reports view changes (zoom, selection, mode, breakpoint, forced state) so
+  // the session can persist them; the canvas itself stays storage-free.
   onState?: (state: CanvasState) => void;
 };
 
@@ -58,6 +68,8 @@ export type CanvasState = {
   zoom: number;
   previewState: StateName | null;
   selected: string | null;
+  mode: EditorMode;
+  breakpoint: FrameBreakpoint;
 };
 
 export type CanvasInstance = {
@@ -66,6 +78,10 @@ export type CanvasInstance = {
   setZoom(zoom: number): void;
   fit(): void;
   setPreviewState(state: StateName | null): void;
+  setMode(mode: EditorMode): void;
+  setBreakpoint(device: FrameBreakpoint): void;
+  mode(): EditorMode;
+  breakpoint(): FrameBreakpoint;
   select(id: string | null): void;
   insert(primitive: string, position: InsertPosition): boolean;
   undo(): boolean;
@@ -83,6 +99,7 @@ type MountedFrame = {
   body: DomElement | null;
   rules: DomElement | null;
   label: DomElement | null;
+  frameLabel: DomElement;
   markers: DomElement[];
 };
 
@@ -164,9 +181,16 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
 
   let zoom = options.zoom ?? 0.5;
   let previewState: StateName | null = options.previewState ?? null;
+  let mode: EditorMode = options.mode ?? "design";
+  let breakpoint: FrameBreakpoint = options.breakpoint ?? "desktop";
+  const profile: MotionProfile = options.profile ?? "standard";
+  const vendorBase = options.motionVendorBase ?? MOTION_VENDOR_BASE;
   const mounted: MountedFrame[] = [];
 
-  const root = create(doc, "div", "senify-canvas", { "data-zoom": String(zoom) });
+  const root = create(doc, "div", "senify-canvas", {
+    "data-zoom": String(zoom),
+    "data-mode": mode,
+  });
   // The canvas carries the same marker and the same skin name as the editor, so
   // it reads the very same `--ed-*` tokens (`CANVAS_TOKEN_CSS`, scoped to the
   // marker) and the canvas skin (`EDITOR_CANVAS_SKIN_STYLES`) paints it from
@@ -177,10 +201,12 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   const catalogStripHost = create(doc, "div", "senify-canvas__cataloghost");
   const stage = create(doc, "div", "senify-canvas__stage");
   const overlay = create(doc, "div", "senify-canvas__overlay", { "data-role": "overlay" });
+  const footer = create(doc, "div", "senify-canvas__footer");
   const status = create(doc, "span", "senify-canvas__status", { "data-role": "status" });
   root.appendChild(topbar);
   root.appendChild(catalogStripHost);
   root.appendChild(stage);
+  root.appendChild(footer);
   stage.appendChild(overlay);
   host.appendChild(root);
 
@@ -215,7 +241,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   }
 
   function stateOf(): CanvasState {
-    return { zoom, previewState, selected: selectedId() };
+    return { zoom, previewState, selected: selectedId(), mode, breakpoint };
   }
 
   // ---------------------------------------------------------------- top bar
@@ -299,7 +325,27 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   });
   zoomFit.textContent = "Einpassen";
   zoomFit.addEventListener("click", () => fit());
-  const zoomLabel = create(doc, "span", "senify-canvas__zoom-label", { "data-role": "zoom" });
+  const zoomLabel = create(doc, "button", "senify-canvas__zoom-label", {
+    type: "button",
+    "data-role": "zoom",
+    "data-action": "zoom-reset",
+    title: "Zoom zurücksetzen (Strg+0)",
+  });
+  zoomLabel.addEventListener("click", () => setZoom(1));
+
+  // Design/Live (Ticket 03 Punkt 6): live shows the real page (M4 Stufe 1).
+  const modeGroup = create(doc, "div", "senify-canvas__group", { "data-role": "mode" });
+  const modeButtons = new Map<EditorMode, DomElement>();
+  for (const value of ["design", "live"] as const) {
+    const button = create(doc, "button", "senify-canvas__button", {
+      type: "button",
+      "data-mode": value,
+    });
+    button.textContent = value === "design" ? "Design" : "Live";
+    button.addEventListener("click", () => setMode(value));
+    modeButtons.set(value, button);
+    modeGroup.appendChild(button);
+  }
 
   const insertGroup = create(doc, "div", "senify-canvas__group");
   insertGroup.appendChild(catalog);
@@ -314,18 +360,34 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   zoomGroup.appendChild(zoomIn);
   zoomGroup.appendChild(zoomFit);
 
+  topbar.appendChild(modeGroup);
   topbar.appendChild(stateGroup);
   topbar.appendChild(insertGroup);
   topbar.appendChild(historyGroup);
-  topbar.appendChild(zoomGroup);
-  topbar.appendChild(status);
+  footer.appendChild(status);
+  footer.appendChild(zoomGroup);
 
   // ----------------------------------------------------------------- frames
   function applyFrameLayout(): void {
+    if (mode === "live") {
+      const [entry] = mounted;
+      if (entry !== undefined) {
+        entry.wrap.style.left = "0px";
+        entry.wrap.style.top = "0px";
+        entry.wrap.style.width = "100%";
+        entry.wrap.style.height = "100%";
+        entry.wrap.style.transform = "none";
+        entry.iframe.style.width = "100%";
+        entry.iframe.style.height = "100%";
+      }
+      root.setAttribute("data-zoom", "1");
+      zoomLabel.textContent = "100 %";
+      return;
+    }
     let left = 0;
     for (const entry of mounted) {
       const frame = canvasFrames(zoom).find((spec) => spec.device === entry.device);
-      if (frame === undefined) continue;
+      if (frame === undefined || frame.width === null || frame.height === null) continue;
       entry.wrap.style.left = `${left}px`;
       entry.wrap.style.top = "0px";
       entry.wrap.style.width = `${frame.width}px`;
@@ -333,16 +395,9 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       entry.wrap.style.transform = `scale(${frame.scale})`;
       entry.iframe.style.width = `${frame.width}px`;
       entry.iframe.style.height = `${frame.height}px`;
-      entry.frame = {
-        breakpoint: entry.device,
-        label: frame.label,
-        mode: "design",
-        width: frame.width,
-        height: frame.height,
-        scale: frame.scale,
-        mediaMaxWidth: frame.mediaMaxWidth,
-        editable: true,
-      };
+      entry.frame = { ...entry.frame, scale: frame.scale };
+      // The label sits in the scaled sheet; the counter-scale keeps it legible.
+      entry.frameLabel.style.transform = `scale(${1 / frame.scale})`;
       left += frame.width * frame.scale + 32;
     }
     root.setAttribute("data-zoom", String(zoom));
@@ -436,6 +491,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     if (entry.body === null) return;
     const rules = canvasFrameRules(store.document, {
       forcedState: previewState,
+      ...(mode === "live" ? { chrome: false } : {}),
       ...(resolveToken === undefined ? {} : { resolveToken }),
     });
     if (entry.rules === null) {
@@ -466,30 +522,45 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
 
   function bindFrame(entry: MountedFrame): void {
     entry.doc.addEventListener("click", (event: DomEvent) => {
+      // Live shows the real page (M4 Stufe 1): links and islands keep their
+      // own behaviour, the editor chrome stays out.
+      if (mode === "live") return;
+      // A click in a sheet makes it the active breakpoint (dimming cue).
+      setBreakpoint(entry.device);
       applyResolution(resolveClick(store.document, hitNodeId(event.target)));
     });
     entry.doc.addEventListener("dblclick", (event: DomEvent) => {
+      if (mode === "live") return;
       applyResolution(resolveClick(store.document, hitNodeId(event.target), { double: true }));
     });
   }
 
-  function mountFrame(device: FrameBreakpoint): void {
-    const frame = canvasFrames(zoom).find((spec) => spec.device === device);
-    if (frame === undefined) return;
-    const wrap = create(doc, "div", "senify-canvas__frame", { "data-device": device });
-    const iframe = create(doc, "iframe", "senify-canvas__iframe", { title: frame.label });
+  function mountFrame(spec: CanvasFrameSpec): void {
+    const device = spec.device;
+    const wrap = create(doc, "div", "senify-canvas__frame", {
+      "data-device": device,
+      "data-mode": spec.mode,
+    });
+    // The frame label (Ticket 03 Punkt 6): name and width of the sheet. It sits
+    // in the scaled sheet, so the counter-scale keeps it legible at any zoom.
+    const frameLabel = create(doc, "span", "senify-canvas__frame-label");
+    frameLabel.textContent =
+      spec.mode === "live" ? "Live" : `${spec.label} · ${spec.width ?? 0} px`;
+    frameLabel.style.transform = `scale(${1 / spec.scale})`;
+    wrap.appendChild(frameLabel);
+    const iframe = create(doc, "iframe", "senify-canvas__iframe", { title: spec.label });
     wrap.appendChild(iframe);
     stage.appendChild(wrap);
     const entry: MountedFrame = {
       device,
       frame: {
         breakpoint: device,
-        label: frame.label,
-        mode: "design",
-        width: frame.width,
-        height: frame.height,
-        scale: frame.scale,
-        mediaMaxWidth: frame.mediaMaxWidth,
+        label: spec.label,
+        mode: spec.mode,
+        width: spec.width,
+        height: spec.height,
+        scale: spec.scale,
+        mediaMaxWidth: spec.mediaMaxWidth,
         editable: true,
       },
       wrap,
@@ -498,6 +569,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       body: null,
       rules: null,
       label: null,
+      frameLabel,
       markers: [],
     };
     mounted.push(entry);
@@ -524,12 +596,25 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       refresh();
     });
     iframe.setAttribute("srcdoc", frameDoc(options.frameStyles ?? []));
+  }
+
+  // One frame in live mode (the active breakpoint, real size), three sheets in
+  // design. Switching rebuilds the frames: the live frame starts from the
+  // baseline state, and the design frames drop any runtime the live mode wrote.
+  function rebuildFrames(): void {
+    for (const entry of mounted) entry.wrap.remove();
+    mounted.length = 0;
+    for (const spec of canvasFrames(zoom, { mode, breakpoint })) mountFrame(spec);
     applyFrameLayout();
+    updateChrome();
   }
 
   function updateChrome(): void {
     const selected = selectedId();
-    root.setAttribute("data-selected", selected ?? "");
+    root.setAttribute("data-mode", mode);
+    stage.setAttribute("data-mode", mode);
+    // Live shows the real page: no selection ring, no handles, no label.
+    root.setAttribute("data-selected", mode === "design" ? selected ?? "" : "");
     root.setAttribute("data-preview-state", previewState ?? "none");
     for (const button of stateButtons) {
       const value = button.getAttribute("data-state");
@@ -538,10 +623,46 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
         String((value === "none" ? null : value) === previewState),
       );
     }
-    for (const entry of mounted) {
-      markSelectedNode(entry, selected);
-      paintSelection(entry, selected);
+    for (const [value, button] of modeButtons) {
+      button.setAttribute("data-active", String(value === mode));
     }
+    // Zoom and forced states belong to the design mode; live is 100 % by
+    // definition and shows the real page without editor chrome.
+    const designOnly = [...stateButtons, zoomOut, zoomIn, zoomFit, zoomLabel];
+    for (const button of designOnly) {
+      if (mode === "design") button.removeAttribute("disabled");
+      else button.setAttribute("disabled", "disabled");
+    }
+    for (const entry of mounted) {
+      const active = entry.device === breakpoint;
+      entry.wrap.setAttribute("data-active", String(active));
+      if (active) entry.wrap.removeAttribute("title");
+      else entry.wrap.setAttribute("title", "Zum Bearbeiten aktivieren");
+      if (mode === "design") {
+        markSelectedNode(entry, selected);
+        paintSelection(entry, selected);
+      } else {
+        markSelectedNode(entry, null);
+        clearMarkers(entry);
+      }
+    }
+  }
+
+  // Live mode runs the release runtime (M4 Stufe 1): the same contract the bake
+  // writes, Lenis following the site profile. The module's guard keeps a
+  // refresh from stacking a second runtime next to the first.
+  function injectLiveMotion(entry: MountedFrame): void {
+    if (entry.body === null) return;
+    injectMotionRuntime({
+      doc: entry.doc,
+      body: entry.body,
+      tree: canvasNodeTree(store.document),
+      ...(options.theme === undefined ? {} : { theme: options.theme }),
+      profile,
+      lenis: profileLenis(profile),
+      vendorBase,
+      onMessage: (value) => message(value),
+    });
   }
 
   function refresh(): void {
@@ -555,14 +676,32 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       });
       updateRules(entry);
       setForcedState(entry);
+      if (mode === "live") injectLiveMotion(entry);
     }
     updateChrome();
   }
 
   function setZoom(value: number): void {
+    if (mode === "live") return;
     zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(value * 1000) / 1000));
     applyFrameLayout();
     refresh();
+    options.onState?.(stateOf());
+  }
+
+  function setMode(next: EditorMode): void {
+    if (mode === next) return;
+    mode = next;
+    rebuildFrames();
+    options.onState?.(stateOf());
+  }
+
+  function setBreakpoint(device: FrameBreakpoint): void {
+    if (breakpoint === device) return;
+    breakpoint = device;
+    // Design only re-marks the sheets; live re-renders at the new width.
+    if (mode === "live") rebuildFrames();
+    else updateChrome();
     options.onState?.(stateOf());
   }
 
@@ -573,6 +712,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   }
 
   function setPreviewState(value: StateName | null): void {
+    if (mode === "live") return;
     previewState = value;
     for (const entry of mounted) {
       if (entry.body === null) continue;
@@ -600,10 +740,19 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
 
   const unsubscribe = store.subscribe(() => refresh());
 
+  // Strg/Cmd+0 resets the design zoom to 100 % (Ticket 03 Punkt 6).
+  const onKeydown = (event: DomEvent): void => {
+    if ((event.metaKey === true || event.ctrlKey === true) && event.key === "0") {
+      event.preventDefault?.();
+      setZoom(1);
+    }
+  };
+  doc.addEventListener("keydown", onKeydown);
+
   const onResize = (): void => {
     const width = rectOf(stage).width;
     const needed = canvasFrames(zoom).reduce(
-      (sum, spec) => sum + spec.width * spec.scale,
+      (sum, spec) => sum + (spec.width ?? 0) * spec.scale,
       0,
     );
     if (width > 0 && needed > width) setZoom(fitZoom(width, { margin: 24 }));
@@ -614,7 +763,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   };
   global.addEventListener?.("resize", onResize);
 
-  for (const device of ["desktop", "tablet", "mobile"] as const) mountFrame(device);
+  for (const spec of canvasFrames(zoom, { mode, breakpoint })) mountFrame(spec);
   applyFrameLayout();
   updateChrome();
 
@@ -624,6 +773,10 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     setZoom,
     fit,
     setPreviewState,
+    setMode,
+    setBreakpoint,
+    mode: () => mode,
+    breakpoint: () => breakpoint,
     select,
     insert,
     undo: () => store.undo(),
@@ -631,6 +784,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     state: stateOf,
     destroy(): void {
       unsubscribe();
+      doc.removeEventListener("keydown", onKeydown);
       global.removeEventListener?.("resize", onResize);
       drop.destroy();
       renderer.destroy();

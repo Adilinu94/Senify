@@ -19,7 +19,7 @@ import {
   clampZoom,
   mediaMaxWidthFor,
 } from "../frames.ts";
-import type { FrameBreakpoint } from "../types.ts";
+import type { EditorMode, FrameBreakpoint } from "../types.ts";
 
 export type CanvasDevice = FrameBreakpoint;
 
@@ -28,20 +28,50 @@ export const CANVAS_DEVICES: readonly CanvasDevice[] = FRAME_BREAKPOINTS;
 export type CanvasFrameSpec = {
   device: CanvasDevice;
   label: string;
-  width: number;
-  height: number;
+  mode: EditorMode;
+  // null = live mode: the frame fills the stage at real size (100 %), so the
+  // page scrolls natively inside the frame.
+  width: number | null;
+  height: number | null;
   scale: number;
   mediaMaxWidth: number | null;
 };
 
-// The three sheets side by side, all at the same zoom.
-export function canvasFrames(zoom: number): CanvasFrameSpec[] {
+export type CanvasFramesOptions = {
+  mode?: EditorMode;
+  // The breakpoint the live frame renders at (M4 Stufe 1: the real page at the
+  // chosen device width).
+  breakpoint?: FrameBreakpoint;
+};
+
+// The three sheets side by side, all at the same zoom. In live mode one frame
+// fills the stage: real size, native scroll, the responsive rules of the active
+// breakpoint — the release behaviour, not an editor approximation.
+export function canvasFrames(
+  zoom: number,
+  options: CanvasFramesOptions = {},
+): CanvasFrameSpec[] {
+  if ((options.mode ?? "design") === "live") {
+    const breakpoint = options.breakpoint ?? "desktop";
+    return [
+      {
+        device: breakpoint,
+        label: "Live",
+        mode: "live",
+        width: null,
+        height: null,
+        scale: 1,
+        mediaMaxWidth: mediaMaxWidthFor(breakpoint),
+      },
+    ];
+  }
   const scale = clampZoom(zoom);
   return CANVAS_DEVICES.map((device) => {
     const size = DESIGN_FRAMES[device];
     return {
       device,
       label: size.label,
+      mode: "design" as const,
       width: size.width,
       height: size.height,
       scale,
@@ -50,10 +80,10 @@ export function canvasFrames(zoom: number): CanvasFrameSpec[] {
   });
 }
 
-// The stage width the three frames occupy at that zoom (gaps included).
+// The stage width the three design frames occupy at that zoom (gaps included).
 export function canvasStageWidth(zoom: number, gap = FRAME_GAP): number {
   return (
-    canvasFrames(zoom).reduce((sum, frame) => sum + frame.width * frame.scale, 0) +
+    canvasFrames(zoom).reduce((sum, frame) => sum + (frame.width ?? 0) * frame.scale, 0) +
     gap * (CANVAS_DEVICES.length - 1)
   );
 }

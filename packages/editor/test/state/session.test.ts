@@ -113,8 +113,19 @@ describe("editor session", () => {
       device: "mobile",
       tab: "style",
       zoom: 0.8,
+      mode: "design",
       selectedId: "head000001",
     });
+  });
+
+  it("persists the design/live mode like the rest of the view state", () => {
+    const storage = memoryStorage();
+    const { session } = harness({ storage });
+    session.setMode("live");
+    expect(session.ui().mode).toBe("live");
+    expect(storage.entries[uiStateKey("page1")] ?? "").toContain('"mode":"live"');
+    const { session: restored } = harness({ storage });
+    expect(restored.ui().mode).toBe("live");
   });
 
   it("drops a stale selection when the document is replaced", () => {
@@ -150,7 +161,13 @@ describe("ui state persistence", () => {
 
   it("round-trips a stored state", () => {
     const storage = memoryStorage();
-    const state = { device: "tablet" as const, tab: "advanced" as const, zoom: 1.25, selectedId: "n1" };
+    const state = {
+      device: "tablet" as const,
+      tab: "advanced" as const,
+      zoom: 1.25,
+      mode: "live" as const,
+      selectedId: "n1",
+    };
     saveUiState(storage, "page1", state);
     expect(loadUiState(storage, "page1")).toEqual(state);
   });
