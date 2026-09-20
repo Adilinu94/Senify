@@ -114,6 +114,78 @@ gehoeren bewusst **nicht** in die Undo-History (Webstudio-Muster). Hinweis: `doc
 wurde parallel um „Teil II" (§10–§16: Referenz-Transfer, Anti-Slop, Editor-Tiefe) erweitert —
 beide Teile koexistieren; nichts ueberschrieben. Kein Produktcode geaendert.
 
+**Welle 1, Teil 4 (20.09., umgesetzt): Die Pakete #5–#10 aus §9 — Inspektor, EditorSession,
+Chrome, DnD, Release-Cutover, E16 P0 + E12 Scheibe 1.** Code committet als `55593f1`.
+
+- **#5 Ticket 02 Scheibe 1 — Inspektor-Grundstock.** `editor/src/inspector/model.ts`
+  (`buildInspector`, `INSPECTOR_TABS` Content/Style/Interactions/Advanced, Feld-Familie
+  Zahl/Slider/Switch/Select/Farbe/Dimensions/Gaps, Token↔Literal mit Warnung, Motion-Felder,
+  Advanced-Gruppen, Helfer `numberPart`/`unitOfValue`/`tokenRefOf`/`motionSpecFrom`),
+  `inspector.ts` (`createInspector`, Rendering je Feld-Familie, `tab()/setTab()`,
+  `breakpoint()`, `onTabChange/onBreakpointChange`), `inspector/styles.ts`; Host in der
+  Canvas-Ansicht (app.js). Tests `editor/test/inspector.test.ts` (12) + Browser-Test
+  (Tabs + `background` setzen → Canvas und Save-Route). Zwei Funde: ein Override entsteht
+  nur auf Tablet/Mobile (Desktop ist der Basiswert), und Katalog-Primitives sind über die
+  v1-Bridge nicht speicherbar (E2-Grenze).
+- **#6 E5 Scheibe 1 — EditorSession.** `state/session.ts` (EditorSession = Store +
+  Save-Pipeline + UI-State), `state/ui-state.ts` (Tab/Gerät/Zoom über localStorage,
+  `EDITOR_TAB_IDS`, `SessionStorage`); die Canvas-Ansicht läuft komplett über die Session,
+  Auswahl wird über die Store-Subscription persistiert; `canvas.ts` mit `onState/stateOf`;
+  `?view=editor` bleibt Deep-Link (Strangler), Default ist die Canvas-Ansicht; Shell-Cmd+K
+  weicht auf der Editor-Seite. Tests `session.test.ts` (7).
+- **#7 Ticket 03 Scheibe 1 — Explorer + Spotlight.** `explorer.ts` (Layer-Liste, Label/
+  Snippet), `explorer/panel.ts` (Roving-Tabindex, Pfeile/Home/End/Enter, F2-Rename über die
+  Text-Prop, Delete, Shift+F10-Kontextmenü Duplizieren/Verschieben/Hide/Lock/Delete,
+  Fokus-Rückgabe, ensureVisible), `explorer/styles.ts`; `spotlight.ts` +
+  `spotlight/dialog.ts` (role=dialog/listbox, aria-activedescendant, Fokus-Rückgabe,
+  Kommando `insert-primitive`), Ctrl+K in app.js; `dom.ts` um `activeElement`/
+  `scrollIntoView`; `browser-entry.ts` exportiert `getPrimitive`/`primitiveTypes`. Tests
+  `explorer.test.ts` (10) + Browser-Test. Fixes: NodeList→`Array.from`, Menü-Escape über
+  einen Document-Listener, Plus-Punkte nur bei sichtbarem Overlay.
+- **#8 Ticket 12 — DnD, Plus-Punkte, Einfügelinie.** `canvas/dnd.ts` (pur:
+  `dropPositionFor`, `resolveInsertDrop`, `resolveMoveDrop`, `resolveDrop`, `isContainer`),
+  `canvas/dnd-dom.ts` (`createDropController`: Katalog-Chips, Drop-Linie in `--ed-snap-line`
+  bzw. Danger, Plus-Punkte, Knoten-Umsortierung mit `dragCoalesceKey` — ein Zug = ein
+  Undo-Eintrag), `insert.ts` mit Position `before|after|into`. **Fund + Fix:** `moveNode`
+  in derselben Liste indiziert nach dem Entfernen — der Editor normalisiert
+  (`raw > located.index ? raw - 1 : raw`), Regressionstest. Tests `canvas/dnd.test.ts` (12)
+  + Browser-Test (Plus-Punkt-Einfügen, Umsortieren `divider, divider, hero`).
+- **#9 Ticket 17 — Releases-Cutover.** `engine/src/release-checks.ts` (O9-Vorhang auf dem
+  echten Bake: lokale Verweise, Stylesheet, Heading-Ordnung), `publishRelease` umgebaut
+  (Preflight-Bake ins Temp-Verzeichnis → Checks → Revisionen/Release → ein `rename` →
+  aktivieren; Rollback stellt Theme + Drafts vor dem Bake zurück). Publish-Button
+  `[data-action="canvas-publish"]` ruft die echte Route. **Funde + Fixes:** (1) `variant`
+  fehlte im v2-`EditorNode` (jetzt durch alle Schichten gereicht); (2) Releases lieferten
+  **keine Schriften** aus (Theme-`@font-face` ohne Dateien) — `renderer/assets/fonts/*.woff2`
+  + `files`-Maps im Default-Theme + Font-Kopie im Bake + App-Route. Tests:
+  `release-checks.test.ts` (9), `release-cutover-browser.test.ts` (Route-Publish,
+  Revisionen, aktives Release, Release-Auslieferung, Paritäts-Tor Kopf 0 / Sektion 0,00088,
+  zweiter Publish, Rollback). Das Tor läuft gegen das Release und ist über `pnpm test` Teil
+  von `pnpm verify`; `widget-slice` bleibt auf `bakeSite` (Katalog-Primitives passen nicht
+  durch die v1-Bridge, E2-Grenze), der Route-Pfad ist mit registrierten Sektionen belegt.
+- **#10 E16 P0 + E12 Scheibe 1.** E16: `editor/src/ui/base.ts` (`editorBaseCss`:
+  `color-scheme: dark`, Auswahl, Scrollbars, Antialiasing, `:active`, disabled 38 %,
+  Reduced-Motion) in alle Editor-Wurzeln eingespeist, Focus-visible-Regeln ergänzt,
+  Hex-Fallbacks entfernt; Test `ui/fremdfarben.test.ts` (5) + angepasste Token-Tests.
+  E12: Tabelle `bake_jobs` (Claim/Lease 60 s, Dedup je Site mit Pfad-Merge, Backoff
+  1→2→4 s, max. 3 Versuche, Lease-Ablauf = Crash-Recovery), `bake-worker.ts`
+  (`runBakeJobOnce`, `startBakeWorker`), `rebakeActiveRelease` (Bake nach `.next`, Swap),
+  Trigger in content/templates, Route `GET /api/sites/:siteId/bake-jobs`, Worker-Start/-Stop
+  in `startProgram`. Tests `engine/test/bake-jobs.test.ts` (8, inkl. Integration).
+- **Nachzug aus dem Gesamtlauf (3 rote Dateien, 13 Tests):** (1) Der O9-Hard-Check „erste
+  Überschrift ist h1" blockierte `forms`/`submissions` (nur die Hero-Sektion rendert h1) —
+  „Start unter h1" ist jetzt **soft** (`release-heading-start`), der Stufensprung bleibt
+  hard. (2) Der Katalog-Streifen war 32,78 px hoch und schob den Canvas-Rahmen auf
+  y=81,78 — halbe Pixel: Screenshot 1 px größer, Glyphen-Rasterisierung driftet; Chips
+  28 px + 5 px Fuß (ganzzahlig), `widget-slice` wieder 0,57 % (309 px) gegen 48,8 %
+  Gegenprobe. (3) `enqueueBakeJob` stempelte die echte Uhr, die Tests claimten mit festem
+  `NOW` — Zeitbombe (seit 10:00Z rot): `now` ist jetzt injizierbar, der Reihenfolge-Test
+  trennt die Sites um 500 ms (Tie-Break war die Zufalls-ID).
+- **Zahlen:** `pnpm test` **1270 grün / 2 übersprungen / 141 Dateien**, typecheck 0, lint 0,
+  build 0 (Log `.scratch/testlauf-20-09-welle1rest-4.log`; die Zwischenläufe -2/-3 mit 4 bzw.
+  1 roten Dateien bleiben als Belege der Funde). Code committet als `55593f1`, die Doku
+  folgt mit dem Doku-Commit.
+
 **Welle 1, Teil 3 (19.09., umgesetzt): Ticket 18 Scheiben 2+3 — Idempotency-Keys und `authoredBy`-Fence.**
 
 - **Scheibe 2 (Idempotency-Keys):** optionales Body-Feld `idempotencyKey` (1–200 Zeichen,

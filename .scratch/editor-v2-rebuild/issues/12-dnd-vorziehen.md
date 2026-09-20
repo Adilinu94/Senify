@@ -1,6 +1,6 @@
 # Editor v2 - DnD, Plus-Punkte und Einfügelinie vorziehen (B7)
 
-Status: offen
+Status: **erledigt (20.09.)** — DnD, Plus-Punkte und Einfügelinie im Canvas; ein Zug ist ein Undo-Eintrag
 Abhaengig von: 01-widget-engine-canvas (insert.ts, Selektion, Frames stehen); parallel zu Ticket 02
 Entscheid: aus Ticket 01 Punkt 7 („bewusst noch nicht gebaut") in einen eigenen Prä-Phase-2-Sprint
 Herkunft: `.scratch/editor-v2-rebuild/research/02-bauplan-aenderungen.md`, B7
@@ -53,3 +53,28 @@ Inspektor-Politur ausgeführt.
 - Plus-Punkt-Einfügen erzeugt denselben Zustand wie Katalog-Klick (gleiche Mutation,
   gleiche Ablehnungsgründe).
 - Kein Konsolenfehler, kein Fremd-Netzwerk; `pnpm test`, `pnpm typecheck`, `pnpm lint` gruen.
+
+## Ergebnis 20.09. (umgesetzt)
+
+**Planung pur (`canvas/dnd.ts`):** `dropPositionFor`, `resolveInsertDrop`, `resolveMoveDrop`,
+`resolveDrop`, `isContainer` — Ablehnungen tragen den vorhandenen Grund-Text (Slot fehlt,
+Typ nicht erlaubt, Slot voll).
+
+**DOM-Schicht (`canvas/dnd-dom.ts`):** `createDropController` mit Katalog-Chips (Klick und
+Ziehen), Einfügelinie im Overlay (`--ed-snap-line`, `--ed-signal-danger` bei unzulässigem
+Ziel), Plus-Punkten an Hover-Kanten und Knoten-Umsortierung; ein Zug ist per
+`dragCoalesceKey` **ein** Undo-Eintrag. `insert.ts` kennt jetzt `before|after|into`;
+`canvas.ts`/`styles.ts` verdrahten Overlay und Streifen, `canvas/index.ts` exportiert die
+Planung.
+
+**Fund + Fix:** `moveNode` innerhalb derselben Liste indiziert nach dem Entfernen — der
+Editor normalisiert den Index (`raw > located.index ? raw - 1 : raw`), Regressionstest in
+`operations.test.ts`.
+
+**Paritäts-Nachzug (E16):** Der Katalog-Streifen war 32,78 px hoch und schob den
+Canvas-Rahmen auf einen halben Pixel (Screenshot 1 px größer, Glyphen-Rasterisierung
+driftet) — Chips jetzt 28 px, Fuß 5 px (ganzzahlig); `widget-slice` wieder 0,57 % Diff.
+
+**Tests:** `packages/editor/test/canvas/dnd.test.ts` (12) + Browser-Test (Plus-Punkt-
+Einfügen, Umsortieren `divider, divider, hero`); Gesamtlauf siehe Ledger, Welle 1 Teil 4.
+Abnahme erfüllt; Explorer-Drag/Multi-Drag/Wrap bleiben bewusst bei Ticket 03.

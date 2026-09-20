@@ -1,6 +1,6 @@
 # Editor v2 - Style-Engine und Inspektor (Phase 2)
 
-Status: offen — **Punkt 1 erledigt, Stand-Korrektur 18.09.**
+Status: offen — **Punkt 1 erledigt (18.09.), Scheibe 1 des Inspektors erledigt (20.09.)**
 Abhaengig von: 01-widget-engine-canvas, 07-style-rule-modell (Dokument-Modell), 10 (Schreibtor)
 Entscheidungen: O13/ADR-0005 (offenes CSS), O10 (drei Stationen), O11 (vier Pseudo-States)
 
@@ -54,3 +54,30 @@ gute Bedienelemente fuer die bekannten Properties und erlaubt daneben jede weite
   Mobil-Override) ohne eine Zeile Section-Code
 - Publizierter Output zeigt identisches Ergebnis (Pixel-Diff Canvas vs Bake = 0)
 - Geraetepunkt-Signal erscheint bei Override, Reset raeumt auf
+
+## Ergebnis Scheibe 1 (20.09., umgesetzt) — Inspektor-Grundstock
+
+**Modell (`editor/src/inspector/model.ts`):** `buildInspector(...)` liefert je Tab die
+Feldliste — Content (Primitive-Props aus dem Katalog), Style (CSS-Gruppen aus der
+Wert-Grammatik, Token↔Literal mit Warnung), Interactions (Motion-Spec aus der
+Preset-Registry) und Advanced (Verhalten/Sichtbarkeit). Feld-Familien: Zahl/Slider/Switch/
+Select/Farbe/Dimensions/Gaps; `numberPart`/`unitOfValue`/`tokenRefOf`/`motionSpecFrom` als
+reine Helfer, `INSPECTOR_TABS` als eine Quelle der Tab-IDs.
+
+**UI (`inspector/inspector.ts`, `inspector/styles.ts`):** `createInspector` rendert die Tabs
+und je Feld-Familie das passende Control; `tab()/setTab()`, `breakpoint()`,
+`onTabChange`/`onBreakpointChange`; `ensureInspectorStyles` liefert die Grundhaut. In der
+Canvas-Ansicht hängt der Inspektor als rechte Spalte (`app.js`).
+
+**Funde:** (1) Ein Override entsteht nur auf Tablet/Mobile — Desktop ist der Basiswert, kein
+Override; die Anzeige war zuerst falsch. (2) Style-Gruppen müssen je Primitive gefiltert
+werden, sonst zeigt der Inspektor Gruppen, die der Baustein nicht kennt.
+
+**Tests:** `packages/editor/test/inspector.test.ts` (12) + Browser-Test (Tabs +
+`background` setzen → Canvas und Save-Route). Gesamtlauf siehe Ledger, Welle 1 Teil 4.
+
+**Offen (Rest von Ticket 02):** Breakpoint-Override-UX an jedem Control (Punkt 4),
+Forced-State-Preview für Pseudo-States (Punkt 5), Token-Picker an allen Controls (Punkt 6),
+die volle CSS-Fläche inkl. Gradient-/Shadow-Layer-Editor (Punkt 3) und die MCP-Tools
+(Punkt 7). Bewusste Grenze: Katalog-Primitives sind über die v1-Bridge nicht speicherbar
+(E2-Strangler) — der Browser-Test speichert über registrierte Sektionen.

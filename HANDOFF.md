@@ -234,6 +234,18 @@ Idempotency-Keys, `authoredBy`-Fence). Untracked bleiben nur bewusst lokale Arte
   wird audit-markiert. `pnpm test` **1210/2/134** (Log
   `.scratch/testlauf-19-09-ticket18s23.log`), typecheck 0, lint 0. **Ticket 18 damit
   vollständig; die Welle-1-Pakete #1–#4 sind erledigt** (Teile 1–3 committet).
+- **Welle 1, Teil 4 (20.09., uncommittet): Pakete #5–#10 aus §9.** Ticket 02 Scheibe 1
+  (Inspektor-Grundstock: Modell/UI/Tests, vier Tabs, Token↔Literal), E5 Scheibe 1
+  (EditorSession + UI-State über localStorage), Ticket 03 Scheibe 1 (Explorer mit voller
+  Tastatur, Kontextmenü, Spotlight/Ctrl+K), Ticket 12 (DnD, Plus-Punkte, Einfügelinie,
+  `moveNode`-Index-Fix), Ticket 17 (O9-Vorhang, Publish über die Route, Paritäts-Tor gegen
+  das Release, Rollback; Funde: `variant`-Durchreiche, Font-Auslieferung), E16 P0
+  (Editor-Grundhaut, Focus-visible, Fremdfarben-Test) + E12 Scheibe 1 (`bake_jobs`-Outbox
+  mit Claim/Lease/Backoff, Worker, Status-Route). Nachzug aus dem Gesamtlauf: O9-„Start
+  unter h1" soft, Katalog-Streifen ganzzahlig (halber Pixel), `enqueueBakeJob` mit
+  injizierbarer Zeit. `pnpm test` **1270/2/141**, typecheck 0, lint 0, build 0 (Log
+  `.scratch/testlauf-20-09-welle1rest-4.log`). Code committet als `55593f1`, die Doku folgt
+  mit dem Doku-Commit.
 
 ### 2.5 Motion: M0–M5 + Site-Profil (18.09.)
 
@@ -297,8 +309,8 @@ Idempotency-Keys, `authoredBy`-Fence). Untracked bleiben nur bewusst lokale Arte
 | — | Analyse-Runde: B1–B12, Tickets 07–18, O10–O12, ADR-0004 | ✅ | `research/`, `issues/07–18` |
 | — | 18.09.: O13/ADR-0005, Tickets 07/10/13/18/02 neu, O14, Wert-Grammatik | ✅ | `docs/adr/0005`, `issues/`, `ledger.md` |
 | — | 18.09.: Ticket 13 Rest (Bake + Klassen-Transport + scoped-Rekey) + Klassen am DOM + Motion M0–M5 + Ticket 20; 19.09.: Slot-/Collection-Transport verifiziert | ✅ | `issues/13`, `issues/19`–`22`, `docs/adr/0006`, `.scratch/motion-v2/` |
-| 2 | Style-Rule-Registry (Server ✅), Wert-Grammatik ✅, Editor-Modell ✅, Inspektor | 🔄 | `issues/07`, `10`, `13`, `02` |
-| 3 | Chrome: Explorer, Kontextmenü, Spotlight, DnD, Inline-Edit, Undo-UI, Keyboard | ❌ | `issues/03` + 12/16 |
+| 2 | Style-Rule-Registry (Server ✅), Wert-Grammatik ✅, Editor-Modell ✅, Inspektor S1 ✅ (20.09.) | 🔄 | `issues/07`, `10`, `13`, `02` |
+| 3 | Chrome: Explorer/Kontextmenü/Spotlight ✅ und DnD ✅ (20.09.); offen: Inline-Edit, Undo-UI, Keyboard | 🔄 | `issues/03` + 12/16 |
 | 4 | Visual Components, Sections als VCs, Puck-Cutover | ❌ | `issues/04` + 11 (vorher) + 17 (vorher) |
 | 5 | SSE-Kanal, Live-Mitverfolgung, Leistungsbudget | ❌ | `issues/05` |
 
@@ -347,8 +359,8 @@ Alle unter `.scratch/editor-v2-rebuild/issues/`. Stand:
 | Ticket | Kern | Stand |
 |---|---|---|
 | 01-widget-engine-canvas | Phase 0/1: Fundament, Primitive, Canvas, DnD | Fundament ✅, Punkt 7 (DnD) offen → Ticket 12 |
-| 02-style-engine-inspector | Inspektor, volle CSS-Fähigkeiten, MCP-Style-Tools | Punkt 1 erledigt (Server); Punkte 2–7 offen |
-| 03-editor-chrome | Phase 3: Explorer, Kontextmenü, Spotlight, Inline-Edit, Tastatur | offen |
+| 02-style-engine-inspector | Inspektor, volle CSS-Fähigkeiten, MCP-Style-Tools | Punkt 1 erledigt (Server); **Scheibe 1 Inspektor erledigt (20.09.)**; Rest: Override-UX, Forced States, Token-Picker überall, MCP-Tools |
+| 03-editor-chrome | Phase 3: Explorer, Kontextmenü, Spotlight, Inline-Edit, Tastatur | **Scheibe 1 (Explorer/Kontextmenü/Spotlight) erledigt (20.09.)**; Rest: Inline-Edit, Undo-UI, Toggle/Zoom, Explorer-Drag |
 | 04-visual-components | Phase 4: VCs, Sections als VCs, Cutover | offen |
 | 05-live-build-follow-polish | Phase 5: SSE, Live-Mitverfolgung | offen |
 | 06-adr-puck-abschied | ADR-06 (Puck-Abschied) | offen |
@@ -357,12 +369,12 @@ Alle unter `.scratch/editor-v2-rebuild/issues/`. Stand:
 | 09-pseudo-state-disabled | `disabled` als vierter State | **erledigt** (O11) |
 | 10-layout-vokabular | Tor abschaffen, Layout als Oberflächen-Beschreibung, CSS-Namen | **erledigt** bis auf die Inspektor-Anzeige |
 | 11-hidden-devices-migration | per-Breakpoint `hidden` retten | offen, **vor Cutover** |
-| 12-dnd-vorziehen | DnD/Plus-Punkte/Einfügelinie | offen, parallel |
+| 12-dnd-vorziehen | DnD/Plus-Punkte/Einfügelinie | **erledigt (20.09.)** — ein Zug = ein Undo-Eintrag, `moveNode`-Index-Fix |
 | 13-bridge-style-rules | Editor-Anbindung, Bake, `states` im Transport | **erledigt** (Server, Transport, Save-Pipeline, Bake, scoped-Rekey mit 22, Slot-/Collection-Transport); UI-Nutzung der Slot-Ops mit dem E2-Cutover |
 | 14-klassen-emission-messen | Klassen-Emission regional vs. global messen | **erledigt (19.09.)**: global umgestellt (4,2–8,2x), regional als Option |
 | 15-dialekt-entscheidung | ADR-0004 + grep-Gate-Test | **erledigt** (18.09.) |
 | 16-marker-overlay-portal | Marker-Overlay im Portal (Alt-Palette beenden) | offen |
-| 17-releases-cutover | Publish über `POST /api/releases`, Paritäts-Tor als CI-Blocker | offen |
+| 17-releases-cutover | Publish über `POST /api/releases`, Paritäts-Tor als CI-Blocker | **erledigt (20.09.)** — O9-Vorhang, Route-Publish, Paritäts-Tor gegen das Release, Rollback; Funde: `variant`, Font-Auslieferung |
 | 18-agent-style-gate | Wert-Ebene-Fence als Tests (`authoredBy`) | **erledigt (19.09.)** — Author-Resolver, Idempotency-Keys, Fence; `idempotentHint` bleibt opt-in |
 | 19-motion-authoring | Motion-Spec v2 im Editor: Modell/Bridge, Inspektor, Canvas (Play), Guardrails | **M0–M5 umgesetzt** (18.09.); offen: M4 Stufe 1 (Ticket 03) |
 | 20-site-settings-profile | Site-Profil im Editor: Kanal, Anzeige, Wechsel-Validierung, Profil-Gates | **umgesetzt** (18.09.) |
@@ -380,18 +392,23 @@ Ticket 20 (Site-Profil) und Ticket 15 (PG-Dialekt-Gate). **Am 19.09.:** Slot-/Co
 Transport verifiziert und abgeschlossen (Nachtrag eines parallelen Strangs), Ticket 14
 (Klassen-Emission gemessen, auf global umgestellt), Welle 1 Teil 1 (Ticket 11, E17 S1,
 E4 S0 — committet) sowie Ticket 18 komplett (Author-Resolver, Idempotency-Keys,
-`authoredBy`-Fence — uncommittet). Der Testlauf ist grün (**1210/2/134**).
+`authoredBy`-Fence — committet `824b9ba`). **Am 20.09.:** Welle 1 Teil 4 — Pakete #5–#10
+(Inspektor S1, EditorSession, Chrome S1, DnD, Release-Cutover, E16 P0 + E12 S1; Code
+committet `55593f1`). Der Testlauf ist grün (**1270/2/141**, Log
+`.scratch/testlauf-20-09-welle1rest-4.log`).
 
 **Als Nächstes:**
 
-1. **Welle-1-Rest aus §9:** #5 Ticket 02 S1 (Inspektor/MCP-Style-Tools), #6 E5 S1
-   (EditorSession), #7 Ticket 03 S1 (Chrome), #8 Ticket 12 (DnD), #9 Ticket 17
-   (Release-Cutover), #10 E16 P0 + E12 S1.
+1. **Welle-1-Rest aus §9: erledigt (20.09., Teil 4; Code committet `55593f1`).** #5 Ticket 02
+   S1, #6 E5 S1, #7 Ticket 03 S1, #8 Ticket 12, #9 Ticket 17, #10 E16 P0 + E12 S1 — siehe
+   §2.4. Damit sind alle Pakete #1–#10 aus §9 umgesetzt.
 2. **M4 Stufe 1** (Ticket 19): Live-Modus zeigt die echte Seite (Ticket 03) → echte Motion
    ohne Extra-Code; Scrub-Stufe bleibt M6. Danach ist Motion fachlich abgeschlossen.
-3. **Ende Phase 2/Anfang 3:** 16 (Marker-Overlay), 17 (Releases-Cutover).
-4. **Vor dem Cutover:** 11. **Erledigt:** 13 vollständig, 14 (Emission), 15 (PG-Dialekt-Gate),
-   18 (Agent-Style-Gate), 21 (Klassen am DOM), 22 (scoped-Rekey).
+3. **Ende Phase 2/Anfang 3:** 16 (Marker-Overlay) offen; **17 (Releases-Cutover) erledigt
+   (20.09.)**.
+4. **Vor dem Cutover:** 11. **Erledigt:** 12, 13 vollständig, 14 (Emission), 15
+   (PG-Dialekt-Gate), 17 (Cutover), 18 (Agent-Style-Gate), 21 (Klassen am DOM),
+   22 (scoped-Rekey).
 
 **Strategischer Rahmen (19.09.):** `docs/verbesserungsplan.md` — Zielbild Framer/Webflow-Niveau,
 Lücken L1–L33 (P0–P3), 16 Epics (E1–E16) mit Akzeptanzkriterien, Roadmap Phase A–D, Gates und die

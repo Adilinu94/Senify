@@ -1,6 +1,6 @@
 # Editor v2 - Releases-Cutover vor Phase 4 (B11)
 
-Status: offen
+Status: **erledigt (20.09.)** — Publish über die Route, O9-Vorhang, Paritäts-Tor gegen das Release, Rollback belegt
 Abhaengig von: 13-bridge-style-rules (Klassen persistieren), sonst keine harte Abhängigkeit
 Muss liegen: Ende von Phase 2 bzw. Anfang Phase 3 — VOR Ticket 04 (VCs/Cutover)
 Herkunft: `.scratch/editor-v2-rebuild/research/02-bauplan-aenderungen.md`, B11
@@ -41,3 +41,35 @@ Persistenz-Risiko.
   `pnpm verify`.
 - Rollback über die API kehrt den sichtbaren Stand nachweisbar um.
 - `pnpm test`, `pnpm typecheck`, `pnpm lint` gruen.
+
+## Ergebnis 20.09. (umgesetzt)
+
+**O9-Vorhang (`engine/src/release-checks.ts`):** läuft auf dem echten Bake — lokale Verweise
+müssen auf Dateien des Builds zeigen, ein Stylesheet muss verlinkt sein, die
+Heading-Ordnung darf keine Stufe überspringen. „Keine Überschrift" und „Start unter h1"
+sind **soft**: nur die Hero-Sektion rendert ein h1, ein harter Start-Check hätte alle
+validen Seiten ohne Hero blockiert (Fund über `forms`/`submissions`). Der Browser-Ausbau
+(Overflow, mobil, echtes Netzwerk) bleibt bewusst Phase 5.
+
+**Publish-Pfad (`lifecycle.ts`):** Preflight-Bake ins Temp-Verzeichnis → Checks → erst
+danach Revisionen, Release und Aktivierung (ein `rename`, kein zweiter Bake). Ein
+gescheiterter Check wirft, es entsteht kein Release; der Rollback stellt Theme und Drafts
+vor dem Bake zurück. Der Editor-Publish-Button (`[data-action="canvas-publish"]`) ruft die
+echte Route.
+
+**Zwei echte Funde:** (1) `variant` fehlte im v2-`EditorNode` — Canvas und Release hätten
+Varianten unterschiedlich gerendert (jetzt durch alle Schichten gereicht). (2) Releases
+lieferten **keine Schriften** aus (das Theme verlinkte Font-Familien ohne Dateien) —
+`renderer/assets/fonts/*.woff2` + `files`-Maps im Default-Theme, Font-Kopie im Bake und die
+App-Route liefern sie jetzt; erst damit ist die Parität echt.
+
+**Paritäts-Tor:** `packages/app/test/release-cutover-browser.test.ts` publiziert über
+`POST /api/sites/:siteId/releases` und misst gegen das ausgelieferte Release: Kopf-Diff 0,
+Sektion 0,00088 (Toleranz 0,01), dazu Revisionen, aktives Release, zweiter Publish und
+Rollback (`basisReleaseId`). Der Test läuft in `pnpm test` und damit in `pnpm verify`.
+`widget-slice-browser.test.ts` bleibt auf `bakeSite`: Katalog-Primitives sind über die
+v1-Bridge nicht speicherbar (E2-Strangler), der Route-Pfad ist mit registrierten Sektionen
+belegt.
+
+**Tests:** `release-checks.test.ts` (9) + `release-cutover-browser.test.ts`; Gesamtlauf
+siehe Ledger, Welle 1 Teil 4.
