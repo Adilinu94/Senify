@@ -153,6 +153,18 @@ namensgleicher, migrationsgesicherter Wechsel. Tests: `mapping.test.ts` +4, Edit
 +1. Zahlen: 1163 gruen / 2 uebersprungen / 106 Dateien (nur die betroffenen Pakete),
 typecheck 0.
 
+**Paritaets-Tor als CI-Blocker scharf geschaltet (21.09.).** `pnpm verify:parity`
+(`scripts/verify-parity.mjs`) fuehrt den Release-Cutover-Test mit
+`SENIFY_REQUIRE_BROWSER=1` aus: fehlt der Browser, faellt das Tor rot statt zu
+ueberspringen (`browserSkip` in `packages/app/test/support.ts`, klare Meldung im
+Test). Der Lauf startet ueber `pnpm exec vitest`, weil der Astro-Bake
+`tailwindcss` nur mit den pnpm-Modulpfaden aus dem Stage-Verzeichnis aufloest
+(ein direkter `node vitest.mjs`-Start war rot — Fund dieser Runde). CI:
+`.github/workflows/verify.yml` (install, chromium, `pnpm verify`,
+`pnpm verify:parity`). README + HANDOFF §7. Beleg: Gate-Lauf gruen (26,6 s,
+Kopf-Diff 0, Sektion 0,00088), Fehlpfad rot mit klarer Meldung (4,8 s,
+`PLAYWRIGHT_BROWSERS_PATH` leer).
+
 **Ticket 05 Scheibe 2 (21.09., umgesetzt): Vorschau-Follow, Agent-Vorschau, Leistungsbudget.**
 
 - **Punkt 4 (Vorschau-Follow):** Live-Modus baut bei Store-Wechsel die Frames neu

@@ -32,6 +32,8 @@ Persistenz-Risiko.
    `basis_release_id` (bestehende Semantik) und der Editor zeigt den zurückgerollten Stand.
 5. Das Paritäts-Tor als CI-Blocker: der Test gehört in `pnpm verify`-Pfad und bricht den
    Build bei Verhältnis > Toleranz (O3-Zahlen bleiben: 0,01 Verhältnis, Gegenprobe).
+   **(erledigt 21.09.: `pnpm verify:parity` + `.github/workflows/verify.yml`, Browser
+   Pflicht — fehlt er, wird das Tor rot statt übersprungen)**
 
 ## Abnahme
 

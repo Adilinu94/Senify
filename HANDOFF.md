@@ -578,6 +578,20 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
   Prop-Bruecken), `editor/test/inspector.test.ts` +1. **Zahlen:** 1163 gruen / 2 uebersprungen
   / 106 Dateien (betroffene Pakete), typecheck 0.
 
+### 2.16 Paritaets-Tor als CI-Blocker (21.09., uncommittet)
+
+- **Gate-Schritt:** `pnpm verify:parity` (`scripts/verify-parity.mjs`) fuehrt
+  `release-cutover-browser.test.ts` mit `SENIFY_REQUIRE_BROWSER=1` aus. Fehlt der Browser,
+  wird das Tor **rot statt uebersprungen** (`browserSkip`/`browserRequired` in
+  `packages/app/test/support.ts`, klare Meldung im Test).
+- **Fund:** Ein direkter `node node_modules/vitest/vitest.mjs`-Start scheitert im Astro-Bake
+  an `Can't resolve 'tailwindcss'` (Stage-Verzeichnis ohne pnpm-Modulpfade); der Gate-Lauf
+  startet deshalb ueber `pnpm exec vitest`.
+- **CI:** `.github/workflows/verify.yml` — install, `playwright install --with-deps chromium`,
+  `pnpm verify`, `pnpm verify:parity`. README + §7 nennen den Schritt.
+- **Beleg:** Gate gruen (26,6 s, Kopf-Diff 0, Sektion 0,00088 < 0,01); Fehlpfad rot mit
+  klarer Meldung (4,8 s, `PLAYWRIGHT_BROWSERS_PATH` auf leeres Verzeichnis gesetzt).
+
 ---
 
 ## 3. Phasenstand
@@ -655,7 +669,7 @@ Alle unter `.scratch/editor-v2-rebuild/issues/`. Stand:
 | 14-klassen-emission-messen | Klassen-Emission regional vs. global messen | **erledigt (19.09.)**: global umgestellt (4,2–8,2x), regional als Option |
 | 15-dialekt-entscheidung | ADR-0004 + grep-Gate-Test | **erledigt** (18.09.) |
 | 16-marker-overlay-portal | Marker-Overlay im Portal (Alt-Palette beenden) | **erledigt (20.09.)** — Portal-DOM, Token-Doppelkante, Geometrie-Tests |
-| 17-releases-cutover | Publish über `POST /api/releases`, Paritäts-Tor als CI-Blocker | **erledigt (20.09.)** — O9-Vorhang, Route-Publish, Paritäts-Tor gegen das Release, Rollback; Funde: `variant`, Font-Auslieferung |
+| 17-releases-cutover | Publish über `POST /api/releases`, Paritäts-Tor als CI-Blocker | **erledigt (20.09./21.09.)** — O9-Vorhang, Route-Publish, Paritäts-Tor gegen das Release, Rollback, `pnpm verify:parity` + CI-Workflow; Funde: `variant`, Font-Auslieferung |
 | 18-agent-style-gate | Wert-Ebene-Fence als Tests (`authoredBy`) | **erledigt (19.09.)** — Author-Resolver, Idempotency-Keys, Fence; `idempotentHint` bleibt opt-in |
 | 19-motion-authoring | Motion-Spec v2 im Editor: Modell/Bridge, Inspektor, Canvas (Play), Guardrails | **M0–M5 + M4 Stufe 1 umgesetzt** (20.09.); offen nur M6 (Scrub) |
 | 20-site-settings-profile | Site-Profil im Editor: Kanal, Anzeige, Wechsel-Validierung, Profil-Gates | **umgesetzt** (18.09.) |
@@ -717,6 +731,9 @@ Kernbehauptungen am Code verifiziert.
   Engine `http://localhost:4321`.
 - Editor: `…/pages/<page-id>?view=editor`, Canvas: `?view=canvas`.
 - `pnpm test` / `pnpm typecheck` / `pnpm lint` / `pnpm verify` (das Gate).
+- `pnpm verify:parity` — das Paritäts-Tor als blockierender Schritt (Browser
+  Pflicht, `SENIFY_REQUIRE_BROWSER=1`; fehlt Chromium, wird das Tor rot statt
+  übersprungen). In CI: `.github/workflows/verify.yml` (verify + verify:parity).
 - Die zwei übersprungenen Tests brauchen echtes Postgres (`TEST_DATABASE_URL`).
 - Für Messungen: flüchtige Instanz (`startProgram`, `appPort: 0`/`enginePort: 0`) statt der
   festen Dienste — so tun es die Browser-Tests und die `pruef-*.mjs`.

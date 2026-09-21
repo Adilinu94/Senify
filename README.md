@@ -53,6 +53,17 @@ Senify ist ein lokales Programm, das Websites baut. Ein Agent (Claude Code, Curs
 pnpm verify
 ```
 
+Das Paritäts-Tor (Canvas vs. ausgeliefertes Release) läuft als eigener
+blockierender Schritt und verlangt einen installierten Chromium:
+
+```bash
+pnpm exec playwright install chromium
+pnpm verify:parity
+```
+
+In CI läuft beides nacheinander (`.github/workflows/verify.yml`); fehlt der
+Browser, wird das Tor rot statt still übersprungen.
+
 Zusätzlich die zwei Tests, die echtes Postgres brauchen (Wegwerf-Schema, wird danach aufgeräumt):
 
 ```powershell
