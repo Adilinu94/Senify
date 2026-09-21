@@ -12,9 +12,10 @@ Ticket 11, E17 S1, E4 S0), `824b9ba` (Teile 2+3: Ticket 18 komplett — Author-R
 Idempotency-Keys, `authoredBy`-Fence) und `55593f1`/`c162251` (Teil 4: Pakete #5–#10 aus
 §9). Darauf liegen `a4ec1c4` (M4 Stufe 1 + Ticket 03 Punkt 6: Live-Modus im Canvas,
 Zoom-Footer, Labels, Dimming), `ab0abdc` (Doku dazu) und `8c67f56` (Doku-Nachtrag dazu).
-**Uncommittet** liegen darauf die **Runde 2 vom 20.09.** (Tickets 16, 02 Punkte 3–7, 03
-Punkte 1/2/4/5/7, 06/ADR-0007) und weiterhin der **zweite Strang** an der
-Referenz-Bibliothek/Redesign (`references-*`, `redesign-package.*`, app.js/app.css; siehe §8).
+Die **Runde 2+3 vom 20.09.** (Tickets 16, 02 Punkte 3–7, 03 Punkte 1/2/4/5/7, 06/ADR-0007
+und Ticket 04 Scheibe 1) ist committet: Code `d25e4d0`, Doku `c0da522`. **Uncommittet**
+bleibt nur noch der **zweite Strang** an der Referenz-Bibliothek/Redesign
+(`eslint.config.mjs`; siehe §8) — dessen Code ist inzwischen committet (`ea113de` ff.).
 Untracked bleiben die bewusst lokalen Artefakte (Test-Logs, Screenshots, `.backup-18-09/`,
 Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Restliste.
 
@@ -313,7 +314,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
   `class="w-…"`-Erwartungen in `registry`/`renderer`/`app`-Tests angepasst.
 - Zahlen: 1165/2/131 (§2.4).
 
-### 2.7 Runde 2 (20.09., uncommittet): Tickets 16, 02 Punkte 3–7, 03 Punkte 1/2/4/5/7, 06
+### 2.7 Runde 2 (20.09., committet `d25e4d0`/`c0da522`): Tickets 16, 02 Punkte 3–7, 03 Punkte 1/2/4/5/7, 06
 
 - **Ticket 16 — Marker-Overlay im Portal.** `editor/src/canvas/overlay.ts` (neu): reine
   Geometrie (`overlayRect`, `intersectsViewport`, `isOccluded`, `badgeTop`, 20 ms Drossel)
@@ -360,7 +361,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
   (`submissions-browser.test.ts`: Klick auf „Fällige Jobs jetzt senden"; fremder Strang),
   Wiederholungslauf vollständig grün. Logs `.scratch/testlauf-20-09-runde2-*.log`.
 
-### 2.8 Ticket 04 Scheibe 1 (20.09., uncommittet): Component-Kern
+### 2.8 Ticket 04 Scheibe 1 (20.09., committet `d25e4d0`/`c0da522`): Component-Kern
 
 - **Modell (`section-sdk/src/components.ts`, rein):** Eine Komponente lebt im Baum —
   reservierte Typen `__component` (Definition, ein Wurzelkind), `__component_slot`

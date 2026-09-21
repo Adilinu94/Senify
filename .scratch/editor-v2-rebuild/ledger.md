@@ -114,7 +114,7 @@ gehoeren bewusst **nicht** in die Undo-History (Webstudio-Muster). Hinweis: `doc
 wurde parallel um „Teil II" (§10–§16: Referenz-Transfer, Anti-Slop, Editor-Tiefe) erweitert —
 beide Teile koexistieren; nichts ueberschrieben. Kein Produktcode geaendert.
 
-**Ticket 04 Scheibe 1 (20.09., umgesetzt, uncommittet): Component-Kern — Definition,
+**Ticket 04 Scheibe 1 (20.09., umgesetzt): Component-Kern — Definition,
 Instanz, Slots, Zyklus-Schutz, Inlining für Canvas und Bake, Editor-Ops.**
 
 - **Modell rein (`section-sdk/src/components.ts`):** Komponenten leben im Baum
@@ -134,7 +134,7 @@ Instanz, Slots, Zyklus-Schutz, Inlining für Canvas und Bake, Editor-Ops.**
 - **Offen (Scheibe 2):** Overrides/Varianten/Publish-Versionen, Multi-Instanz-Remap,
   Slot-Restriktionen, Editor-UI (Komponenten-Tab), MCP/Skills, Sections-Migration.
 
-**Runde 2 (20.09., umgesetzt, uncommittet): Tickets 16, 02 Punkte 3–7, 03 Punkte
+**Runde 2 (20.09., umgesetzt): Tickets 16, 02 Punkte 3–7, 03 Punkte
 1/2/4/5/7, 06/ADR-0007 — alle offenen Punkte aus §9 in einem Durchgang.**
 
 - **Ticket 16 — Marker-Overlay im Portal.** `canvas/overlay.ts` (neu) mit reiner Geometrie
