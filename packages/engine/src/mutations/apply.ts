@@ -1,5 +1,7 @@
 import { SenifyError } from "@senify/core";
 import {
+  COMPONENT_SLOT_TYPE,
+  isComponentType,
   PAGE_ROOT_TYPE,
   validatePropValues,
   type MotionSpec,
@@ -182,6 +184,10 @@ function assertChildPlacement(
   field: string,
 ): void {
   if (parent.type === PAGE_ROOT_TYPE) return;
+  // Structural nodes (component definition, instance, slot) are indirection,
+  // not content: the section child rules cannot judge them, so they fit
+  // wherever a node may sit. A slot placeholder stays a leaf.
+  if (isComponentType(childType) && parent.type !== COMPONENT_SLOT_TYPE) return;
   const definition = state.registry.get(parent.type);
   const allowed = definition.allowedChildren;
   if (allowed === undefined || allowed === "none") {
@@ -195,6 +201,8 @@ function assertChildPlacement(
       },
     );
   }
+  // `"any"` is the open container: every registered type fits.
+  if (allowed === "any") return;
   if (!allowed.includes(childType)) {
     throw new SenifyError(
       "validation",
@@ -213,6 +221,12 @@ function assertSlotPlacement(
 ): NodeId[] {
   const definition = definitionForNode(state.registry, parent);
   const slotSpec = definition?.slots?.[slot];
+  // Open containers (`"any"`) declare no slots: a component instance carries
+  // the slots of its definition, which only the editor can resolve, so any
+  // slot name is accepted here.
+  if (definition?.allowedChildren === "any") {
+    return slotList(parent, slot);
+  }
   if (!slotSpec) {
     const available = definition?.slots ? Object.keys(definition.slots) : [];
     throw new SenifyError(
@@ -507,15 +521,18 @@ function applyWrap(
   const wrapper = buildNode(state, mutation.wrapper, "wrapper");
   const wrapperDefinition = state.registry.get(wrapper.type);
   const allowed = wrapperDefinition.allowedChildren;
-  if (allowed === undefined || allowed === "none" || !allowed.includes(node.type)) {
+  // An open container (`"any"`) wraps every registered type.
+  const listed = Array.isArray(allowed) ? allowed : undefined;
+  const fits = allowed === "any" || (listed !== undefined && listed.includes(node.type));
+  if (!fits) {
     throw new SenifyError(
       "validation",
       `Section "${wrapper.type}" does not allow child "${node.type}"`,
       {
         field: "wrapper.type",
         suggestion:
-          allowed && allowed !== "none" && allowed.length > 0
-            ? `Allowed children: ${allowed.join(", ")}.`
+          listed !== undefined && listed.length > 0
+            ? `Allowed children: ${listed.join(", ")}.`
             : "This section cannot wrap other nodes.",
       },
     );

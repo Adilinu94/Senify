@@ -63,15 +63,24 @@ export type ClickResolution =
   | { kind: "clear" }
   | { kind: "drill"; id: NodeId };
 
+// A copy of a component definition (ticket 04) is not part of the document:
+// the canvas resolves the click through the origins map of the last render, so
+// clicking inside an instance selects the instance node (and its overrides in
+// the inspector).
 export function resolveClick(
   document: EditorDocument,
   hitId: NodeId | null,
-  options: { double?: boolean } = {},
+  options: {
+    double?: boolean;
+    origins?: ReadonlyMap<NodeId, { instanceId: NodeId; partId: NodeId }>;
+  } = {},
 ): ClickResolution {
   if (hitId === null) return { kind: "clear" };
+  const origin = options.origins?.get(hitId);
+  const id = origin === undefined ? hitId : origin.instanceId;
   if (options.double === true) {
-    const deeper = firstChildId(document, hitId);
+    const deeper = firstChildId(document, id);
     if (deeper !== null) return { kind: "drill", id: deeper };
   }
-  return { kind: "select", id: hitId };
+  return { kind: "select", id };
 }

@@ -87,4 +87,49 @@ describe("Registry", () => {
     });
     expect(issues.some((i) => i.message.includes('does not allow child "nope"'))).toBe(true);
   });
+
+  // Ticket 04: the structural node types of the component model are known to
+  // validation but stay out of the authorable catalog (`list()`).
+  it("registers structural types without listing them", () => {
+    const registry = new Registry();
+    registry.register(heroDefinition());
+    registry.registerStructural({
+      type: "__component_instance",
+      version: 1,
+      title: "Instanz",
+      description: "Test",
+      category: "utility",
+      props: [
+        { key: "componentId", control: "text", label: "Komponente" },
+        { key: "overrides", control: "json", label: "Overrides" },
+      ],
+      allowedChildren: "any",
+      golden: {
+        tree: { type: "__component_instance", props: { componentId: "def-1" } },
+        thumbnails: {},
+      },
+    });
+    expect(registry.has("__component_instance")).toBe(true);
+    expect(registry.get("__component_instance").title).toBe("Instanz");
+    expect(registry.list().map((section) => section.type)).toEqual(["hero"]);
+    expect(() => registry.registerStructural(heroDefinition())).toThrowError(
+      /already registered/,
+    );
+  });
+
+  it("accepts any registered child under an open container", () => {
+    const registry = new Registry();
+    registry.register(cardDefinition());
+    const definition = heroDefinition();
+    definition.allowedChildren = "any";
+    definition.golden.tree.children = [{ type: "card", props: { title: "Nested" } }];
+    expect(() => registry.register(definition)).not.toThrow();
+
+    const issues = registry.validateGoldenTree(definition, {
+      type: "hero",
+      props: { headline: "Welcome", columns: 2 },
+      children: [{ type: "unregistered", props: {} }],
+    });
+    expect(issues.some((i) => i.message.includes("is not registered"))).toBe(true);
+  });
 });

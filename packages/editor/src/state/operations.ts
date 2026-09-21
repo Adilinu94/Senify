@@ -25,6 +25,7 @@ import {
   isSafeCssProperty,
   isSafeRawCss,
   isValidCssSelector,
+  isComponentPrimitive,
   matchesValueType,
   canonicalStyleRule,
   parseCssValue,
@@ -127,6 +128,11 @@ function assertKnownProp(
 // grammar, numbers must be finite, token references must be well-formed and a
 // spacing bag is formatted and then checked like any other value. This is the
 // loud half of the boundary — the compiler drops what it cannot trust.
+//
+// The structural props of the component model (ticket 04) are exempt: they
+// carry JSON, not style values.
+const STRUCTURAL_PROPS = new Set(["overrides", "componentId", "name"]);
+
 function assertSafeValue(value: PropValue, field: string): void {
   if (value === null) return;
   if (typeof value === "number") {
@@ -190,6 +196,10 @@ function assertPropValue(
 ): void {
   if (value === null) return;
   const base = baseKeyOf(key);
+  // The structural props of the component model carry JSON — the override bag
+  // is a map of maps, the ids are opaque strings. The value grammar (ADR-0005)
+  // describes style values and does not apply here.
+  if (isComponentPrimitive(definition.type) && STRUCTURAL_PROPS.has(base)) return;
   const control = definition.controls.find((entry) => entry.key === base);
   if (control !== undefined) {
     if (!matchesValueType(control.valueType, value)) {

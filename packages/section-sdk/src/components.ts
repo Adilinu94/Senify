@@ -25,6 +25,20 @@ export const COMPONENT_INSTANCE_TYPE = "__component_instance";
 export const COMPONENT_SLOT_TYPE = "__component_slot";
 export const COMPONENT_STUB_TYPE = "__component_stub";
 
+// The structural node types: they are indirection, not content. Placement
+// rules of the section catalog cannot judge them (an instance stands in for
+// whatever its definition renders), so the engine lets them through wherever
+// a node may sit — only the slot placeholder stays a leaf.
+const STRUCTURAL_TYPES: readonly string[] = [
+  COMPONENT_DEFINITION_TYPE,
+  COMPONENT_INSTANCE_TYPE,
+  COMPONENT_SLOT_TYPE,
+];
+
+export function isComponentType(type: string): boolean {
+  return STRUCTURAL_TYPES.includes(type);
+}
+
 export type ComponentProblemKind =
   | "unknown-component"
   | "cycle"
@@ -53,6 +67,12 @@ export type InlineResult = {
   nodeIdMap: Map<NodeId, NodeId>;
   /** definition node id -> every copy, in expansion order (rule remapping). */
   copies: Map<NodeId, NodeId[]>;
+  /**
+   * copy id -> where it came from: the instance that rendered it and the part
+   * it copies. The canvas uses this to map a click inside an instance back to
+   * the instance node (the copy id is not part of the document).
+   */
+  origins: Map<NodeId, { instanceId: NodeId; partId: NodeId }>;
   problems: ComponentProblem[];
 };
 
@@ -85,6 +105,67 @@ function nameOf(node: Node): string {
 function componentIdOf(node: Node): string {
   const value: PropValue | undefined = node.props["componentId"];
   return typeof value === "string" ? value : "";
+}
+
+// The override bag of an instance: part id -> the props this instance changes.
+// Part ids are the node ids inside the definition — stable, declared, never
+// derived from labels (the Plasmic lesson). A missing or malformed bag is an
+// empty one; the inliner then renders the definition unchanged.
+export type ComponentOverrides = Record<NodeId, Record<string, PropValue>>;
+
+export function instanceOverrides(instance: Node): ComponentOverrides {
+  const value: PropValue | undefined = instance.props["overrides"];
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const out: ComponentOverrides = {};
+  for (const [partId, props] of Object.entries(value)) {
+    if (props === null || typeof props !== "object" || Array.isArray(props)) continue;
+    out[partId] = { ...props };
+  }
+  return out;
+}
+
+export type ComponentPart = {
+  id: NodeId;
+  type: string;
+  props: Record<string, PropValue>;
+};
+
+// The declared register of a definition: every node of its reusable subtree,
+// in tree order. The ids are the override keys — the editor and the agents
+// read this list instead of guessing from labels. Slot placeholders are
+// structure, not overridable parts, so they stay out.
+export function componentParts(tree: NodeTree, definitionId: NodeId): ComponentPart[] {
+  const definition = componentDefinition(tree, definitionId);
+  if (definition === undefined || definition.rootChildId === null) return [];
+  const parts: ComponentPart[] = [];
+  const seen = new Set<NodeId>();
+  const visit = (id: NodeId): void => {
+    const node = tree.nodes[id];
+    if (node === undefined || seen.has(id)) return;
+    seen.add(id);
+    if (node.type === COMPONENT_DEFINITION_TYPE || node.type === COMPONENT_SLOT_TYPE) return;
+    parts.push({ id: node.id, type: node.type, props: { ...node.props } });
+    for (const child of node.children ?? []) visit(child);
+    for (const list of Object.values(node.slots ?? {})) {
+      for (const child of list) visit(child);
+    }
+  };
+  visit(definition.rootChildId);
+  return parts;
+}
+
+// Overrides whose part no longer exists (the definition changed after the
+// instance was written). They stay in the data — dropping them silently would
+// be the kind of quiet loss this codebase refuses — but the editor and the MCP
+// surface them so a human or agent can clean up.
+export function staleOverrides(tree: NodeTree, instance: Node): NodeId[] {
+  const bag = instanceOverrides(instance);
+  const definition = componentDefinition(tree, componentIdOf(instance));
+  if (definition === undefined) return Object.keys(bag);
+  const parts = new Set(componentParts(tree, definition.id).map((part) => part.id));
+  return Object.keys(bag).filter((partId) => !parts.has(partId));
 }
 
 // Every definition in the tree, in tree order. A definition is a node of the
@@ -195,6 +276,7 @@ export function inlineComponents(tree: NodeTree, options: InlineOptions = {}): I
   const problems: ComponentProblem[] = [];
   const nodeIdMap = new Map<NodeId, NodeId>();
   const copies = new Map<NodeId, NodeId[]>();
+  const origins = new Map<NodeId, { instanceId: NodeId; partId: NodeId }>();
   const nodes: Record<NodeId, Node> = {};
   const definitions = new Map<NodeId, ComponentDefinition>();
   for (const definition of componentDefinitions(tree)) {
@@ -295,7 +377,16 @@ export function inlineComponents(tree: NodeTree, options: InlineOptions = {}): I
     const original = tree.nodes[originalId];
     if (original === undefined) return null;
     if (original.type === COMPONENT_DEFINITION_TYPE) return null;
-    if (original.type === COMPONENT_INSTANCE_TYPE) return expandInstance(original, stack);
+    if (original.type === COMPONENT_INSTANCE_TYPE) {
+      // A nested instance is itself a part: the outer instance may swap it or
+      // write its overrides. Merge first, then expand as usual.
+      const patch = instanceOverrides(instance)[original.id];
+      const merged: Node =
+        patch === undefined
+          ? original
+          : { ...original, props: { ...original.props, ...patch } };
+      return expandInstance(merged, stack);
+    }
     if (original.type === COMPONENT_SLOT_TYPE) {
       // The placeholder gives way to the instance's slot content. The content
       // lives on the page, so its nodes keep their own ids.
@@ -322,10 +413,14 @@ export function inlineComponents(tree: NodeTree, options: InlineOptions = {}): I
     const list = copies.get(original.id) ?? [];
     list.push(id);
     copies.set(original.id, list);
+    origins.set(id, { instanceId: instance.id, partId: original.id });
+    // The override bag of the instance wins over the definition's own props —
+    // for this copy only. The definition stays untouched.
+    const patch = instanceOverrides(instance)[original.id];
     const copy: Node = {
       ...original,
       id,
-      props: { ...original.props },
+      props: { ...original.props, ...(patch ?? {}) },
     };
     if (original.children !== undefined) {
       copy.children = original.children
@@ -386,7 +481,7 @@ export function inlineComponents(tree: NodeTree, options: InlineOptions = {}): I
     rootNodeId: rootId ?? tree.rootNodeId,
     nodes,
   };
-  return { tree: result, nodeIdMap, copies, problems };
+  return { tree: result, nodeIdMap, copies, origins, problems };
 }
 
 // The names a definition declares vs. the slots an instance fills — the check

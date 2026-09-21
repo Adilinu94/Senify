@@ -110,8 +110,25 @@ export function validateDefinition(
 
 export class Registry {
   readonly #sections = new Map<string, SectionDefinition>();
+  // Structural node types (the component model of ticket 04) are part of the
+  // tree vocabulary but not of the authorable catalog: `has`/`get` know them,
+  // so mutation validation accepts and checks them, while `list()` stays the
+  // section catalog the editor and the agents see.
+  readonly #structural = new Map<string, SectionDefinition>();
 
   register(definition: SectionDefinition): void {
+    this.#admit(definition, "Section");
+    this.#sections.set(definition.type, definition);
+  }
+
+  // Registers a structural node type (the component model): validated like a
+  // section, reachable through `has`/`get`, but absent from `list()`.
+  registerStructural(definition: SectionDefinition): void {
+    this.#admit(definition, "Structural type");
+    this.#structural.set(definition.type, definition);
+  }
+
+  #admit(definition: SectionDefinition, label: string): void {
     const definitionIssues = validateDefinition(definition);
     if (definitionIssues.length > 0) {
       throw new SenifyError(
@@ -120,10 +137,12 @@ export class Registry {
         { field: definitionIssues[0]?.path },
       );
     }
-    if (this.#sections.has(definition.type)) {
+    // A type is registered exactly once across both maps: a structural type
+    // may not shadow an authorable section and vice versa.
+    if (this.has(definition.type)) {
       throw new SenifyError(
         "conflict",
-        `Section type "${definition.type}" is already registered`,
+        `${label} "${definition.type}" is already registered`,
       );
     }
 
@@ -177,16 +196,14 @@ export class Registry {
         }
       }
     }
-
-    this.#sections.set(definition.type, definition);
   }
 
   has(type: string): boolean {
-    return this.#sections.has(type);
+    return this.#sections.has(type) || this.#structural.has(type);
   }
 
   get(type: string): SectionDefinition {
-    const definition = this.#sections.get(type);
+    const definition = this.#sections.get(type) ?? this.#structural.get(type);
     if (!definition) {
       throw new SenifyError("not_found", `Unknown section type "${type}"`, {
         suggestion:
@@ -228,7 +245,9 @@ export class Registry {
         });
       } else {
         children.forEach((child, index) => {
-          if (!allowed.includes(child.type)) {
+          // `"any"` is the open container: the list check falls away, the
+          // registration check and the recursion stay.
+          if (allowed !== "any" && !allowed.includes(child.type)) {
             issues.push({
               path: `${basePath}.children[${index}].type`,
               message: `Section "${definition.type}" does not allow child "${child.type}"`,

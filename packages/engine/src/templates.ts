@@ -121,7 +121,7 @@ function rekeyChildren(
   source: NodeTree,
   ids: readonly NodeId[],
   createId: () => NodeId,
-  idMap?: Map<NodeId, NodeId>,
+  idMap?: Map<NodeId, NodeId[]>,
 ): NodeId[] {
   const mapping = new Map<NodeId, NodeId>();
   const walk = (id: NodeId): NodeId | undefined => {
@@ -131,7 +131,9 @@ function rekeyChildren(
     if (existing !== undefined) return existing;
     const newId = createId();
     mapping.set(id, newId);
-    idMap?.set(id, newId);
+    // Last splice wins: a node inserted twice (page -> template -> layout)
+    // ends up under its final composed id, exactly as before.
+    idMap?.set(id, [newId]);
     target[newId] = { ...node, id: newId };
     const children = (node.children ?? [])
       .map((child) => walk(child))
@@ -184,13 +186,14 @@ function replaceReference(
 // The first outlet of `container` is replaced by the children of `inserted`
 // (ids rekeyed), which is the splice step of the template chain. `idMap`
 // collects the rekeying for callers that bind data to draft node ids (scoped
-// style rules, ticket 22).
+// style rules, ticket 22); one draft id can end up with several composed ids
+// (component copies, ticket 04), so the value is a list.
 export function spliceOutlet(input: {
   container: NodeTree;
   outletId: NodeId;
   inserted: NodeTree;
   createId?: () => NodeId;
-  idMap?: Map<NodeId, NodeId>;
+  idMap?: Map<NodeId, NodeId[]>;
 }): NodeTree {
   const createId = input.createId ?? newNodeId;
   const nodes = structuredClone(input.container.nodes);
@@ -237,7 +240,9 @@ export type ComposeInput = {
   // Draft-id -> composed-id pairs of every splice step (ticket 22). A caller
   // that compiles scoped style rules against the result needs the map; a
   // composition without layout keeps the draft ids and leaves the map empty.
-  idMap?: Map<NodeId, NodeId>;
+  // The values are lists: a component part can have one copy per instance
+  // (ticket 04), and a doubly spliced node keeps its final id.
+  idMap?: Map<NodeId, NodeId[]>;
 };
 
 // Resolve-Reihenfolge Layout → Entry-Template → Inhalt (artifacts/23 §1): a
@@ -250,7 +255,9 @@ export type ComposeInput = {
 // derivation the canvas runs (`inlineComponents`), so both sides agree.
 export function composePageTree(input: ComposeInput): NodeTree {
   const createId = input.createId ?? newNodeId;
-  const idMap = input.idMap;
+  // The splice map is always collected: the component reference rewrite below
+  // needs it even when the caller only wants the tree (no scoped rules).
+  const idMap = input.idMap ?? new Map<NodeId, NodeId[]>();
   let content: NodeTree;
   if (input.template !== null) {
     const outlet = findFirstOutlet(input.template);
@@ -262,7 +269,7 @@ export function composePageTree(input: ComposeInput): NodeTree {
             outletId: outlet,
             inserted: articleTree(input.article, createId),
             createId,
-            ...(idMap === undefined ? {} : { idMap }),
+            idMap,
           });
   } else if (input.page !== null) {
     content = input.page;
@@ -280,11 +287,16 @@ export function composePageTree(input: ComposeInput): NodeTree {
             outletId: outlet,
             inserted: content,
             createId,
-            ...(idMap === undefined ? {} : { idMap }),
+            idMap,
           });
   } else {
     composed = content;
   }
+  // A definition that sits in a spliced tree (page or template) is rekeyed by
+  // the splice; the instance still names the draft id. Rewrite the reference
+  // before inlining — otherwise a definition in the page would count as
+  // "unknown" in the release. (The canvas never splices, so this is bake-only.)
+  composed = remapComponentRefs(composed, idMap);
   const inlined = inlineComponents(composed);
   if (inlined.problems.length > 0) {
     const first = inlined.problems[0]!;
@@ -294,17 +306,62 @@ export function composePageTree(input: ComposeInput): NodeTree {
         "Fix the component definition or the instance before publishing (the canvas shows a stub for it).",
     });
   }
-  // Scoped style rules of a definition follow its copies: the first copy per
-  // node rides the existing draft->composed map (ticket 22). More than one
-  // instance per definition needs the multi-target remap (ticket 04, slice 2).
-  if (idMap !== undefined) {
+  // Scoped style rules of a definition follow its copies: every copy rides the
+  // existing draft->composed map (ticket 22). A part with two instances has two
+  // targets; a spliced draft id is expanded to its copies through the same map.
+  if (inlined.copies.size > 0) {
+    const spliced = new Set<NodeId>();
+    for (const targets of idMap.values()) {
+      for (const target of targets) spliced.add(target);
+    }
+    const expand = (id: NodeId): NodeId[] => {
+      const list = inlined.copies.get(id);
+      return list !== undefined && list.length > 0 ? list : [id];
+    };
+    for (const [draftId, targets] of [...idMap]) {
+      idMap.set(draftId, unique(targets.flatMap(expand)));
+    }
     for (const [original, copies] of inlined.copies) {
-      if (idMap.has(original)) continue;
-      const first = copies[0];
-      if (first !== undefined) idMap.set(original, first);
+      // A composed id is covered by its draft key above; only ids that never
+      // travelled through a splice (page without layout) are new here.
+      if (spliced.has(original)) continue;
+      if (!idMap.has(original)) idMap.set(original, unique(copies));
     }
   }
   return inlined.tree;
+}
+
+function unique(ids: readonly NodeId[]): NodeId[] {
+  const seen = new Set<NodeId>();
+  const out: NodeId[] = [];
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+// The splice rekeys nodes, not the string references inside their props. The
+// component instance is the one reference prop today: point it at the composed
+// definition. Copy-on-write so a caller's draft tree is never touched.
+function remapComponentRefs(
+  tree: NodeTree,
+  idMap: ReadonlyMap<NodeId, NodeId[]>,
+): NodeTree {
+  let changed = false;
+  const nodes: Record<NodeId, Node> = {};
+  for (const [id, node] of Object.entries(tree.nodes)) {
+    const ref = node.props["componentId"];
+    const target = typeof ref === "string" ? idMap.get(ref)?.[0] : undefined;
+    if (target === undefined || target === ref) {
+      nodes[id] = node;
+      continue;
+    }
+    changed = true;
+    nodes[id] = { ...node, props: { ...node.props, componentId: target } };
+  }
+  return changed ? { rootNodeId: tree.rootNodeId, nodes } : tree;
 }
 
 // After a merge every reference points at an existing node and unreachable

@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   componentDefinitionsIn,
+  componentPartsIn,
   createComponent,
   detachComponent,
   insertSlot,
   instantiateComponent,
+  overridesOf,
+  setComponentOverride,
 } from "@senify/editor/state";
 import { inlineComponents, type Node, type NodeTree } from "@senify/section-sdk";
 import { canvasNodeTree } from "@senify/editor/canvas";
@@ -96,5 +99,69 @@ describe("editor components", () => {
     // A second, independent run gives the same ids (canvas and bake agree).
     const again = inlineComponents(canvasNodeTree(store.document));
     expect(Object.keys(again.tree.nodes).sort()).toEqual(Object.keys(tree.nodes).sort());
+  });
+
+  it("writes and clears an instance override, one part at a time", () => {
+    const store = baseStore();
+    const definitionId = createComponent(store, "head000001", "karte");
+    const instanceId = store.document.nodes["sec0000001"]?.children?.[0];
+    expect(instanceId).toBeDefined();
+    const parts = componentPartsIn(store, definitionId!);
+    // The heading is the definition root and its only part.
+    expect(parts.map((part) => part.id)).toEqual(["head000001"]);
+
+    expect(
+      setComponentOverride(store, instanceId!, "head000001", "text", "Eigene Karte"),
+    ).toBe(true);
+    expect(overridesOf(store, instanceId!)).toEqual({
+      head000001: { text: "Eigene Karte" },
+    });
+    // The definition itself stays untouched; the canvas copy shows the value.
+    expect(store.document.nodes["head000001"]?.props["text"]).toBe("Hallo");
+    const tree = canvasNodeTree(store.document);
+    const texts = Object.values(tree.nodes)
+      .filter((node) => node.type === "heading")
+      .map((node) => node.props["text"]);
+    expect(texts).toEqual(["Eigene Karte"]);
+
+    // Clearing removes the value and prunes the empty bag entirely.
+    expect(setComponentOverride(store, instanceId!, "head000001", "text", null)).toBe(true);
+    expect(overridesOf(store, instanceId!)).toEqual({});
+    expect(store.document.nodes[instanceId!]?.props["overrides"]).toBeUndefined();
+
+    // One undo brings the override back (the clear was its own entry).
+    expect(store.undo()).toBe(true);
+    expect(overridesOf(store, instanceId!)).toEqual({
+      head000001: { text: "Eigene Karte" },
+    });
+  });
+
+  it("refuses an override for a part that does not exist", () => {
+    const store = baseStore();
+    createComponent(store, "head000001", "karte");
+    const instanceId = store.document.nodes["sec0000001"]?.children?.[0] ?? "";
+    expect(() =>
+      setComponentOverride(store, instanceId, "missing001", "text", "x"),
+    ).toThrowError(/no part "missing001"/);
+  });
+
+  it("materializes overrides when an instance is detached", () => {
+    const store = baseStore();
+    createComponent(store, "head000001", "karte");
+    const instanceId = store.document.nodes["sec0000001"]?.children?.[0] ?? "";
+    setComponentOverride(store, instanceId, "head000001", "text", "Eigene Karte");
+    const detached = detachComponent(store, instanceId);
+    expect(detached).not.toBeNull();
+    // The copy carries the override as a real prop; the definition is intact.
+    expect(store.document.nodes[detached!]?.props["text"]).toBe("Eigene Karte");
+    expect(store.document.nodes["head000001"]?.props["text"]).toBe("Hallo");
+    // Both steps of the detach share one coalesce key: one undo restores the
+    // instance (with its override bag).
+    expect(store.undo()).toBe(true);
+    expect(store.document.nodes[instanceId]?.primitive).toBe("__component_instance");
+    expect(overridesOf(store, instanceId)).toEqual({
+      head000001: { text: "Eigene Karte" },
+    });
+    expect(store.document.nodes[detached!]).toBeUndefined();
   });
 });

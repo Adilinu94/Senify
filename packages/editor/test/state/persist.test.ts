@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  createComponent,
   createSavePipeline,
   patchesToPending,
+  setComponentOverride,
   type SaveRequest,
   type SaveResponse,
   type SaveState,
@@ -186,8 +188,7 @@ describe("save pipeline", () => {
     expect(pipeline.state().unsupported).toEqual([]);
   });
 
-  it("persists a motion spec as setMotion and its clear as clearMotion", async () => {
-    const { store, pipeline, requests } = harness();
+  it("persists a motion spec as setMotion and its clear as clearMotion", async () => {    const { store, pipeline, requests } = harness();
     store.apply({
       op: "setMotion",
       id: "head000001",
@@ -205,6 +206,30 @@ describe("save pipeline", () => {
     await pipeline.flush();
     const cleared = requests[0]?.body as { mutations: unknown[] };
     expect(cleared.mutations).toEqual([{ op: "clearMotion", id: "head000001" }]);
+    expect(pipeline.state().unsupported).toEqual([]);
+  });
+
+  // Ticket 04: an instance override is an ordinary prop write on the instance
+  // node — the engine validates it against the structural definition and the
+  // bridge maps it onto `updateNodeProps`.
+  it("persists an instance override as a setNodeProp bag", async () => {
+    const { store, pipeline, requests } = harness();
+    createComponent(store, "head000001", "karte");
+    await pipeline.flush();
+    requests.length = 0;
+    const instanceId = store.document.nodes["sec0000001"]?.children?.[0] ?? "";
+    setComponentOverride(store, instanceId, "head000001", "text", "Eigene Karte");
+    await pipeline.flush();
+    expect(requests).toHaveLength(1);
+    const body = requests[0]?.body as { mutations: unknown[] };
+    expect(body.mutations).toEqual([
+      {
+        op: "setNodeProp",
+        id: instanceId,
+        key: "overrides",
+        value: { head000001: { text: "Eigene Karte" } },
+      },
+    ]);
     expect(pipeline.state().unsupported).toEqual([]);
   });
 

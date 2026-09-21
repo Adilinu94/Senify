@@ -15,6 +15,7 @@
 
 import {
   baseKeyOf,
+  COMPONENT_INSTANCE_PRIMITIVE,
   DEVICES,
   getPrimitive,
   hasDeviceOverride,
@@ -41,6 +42,7 @@ import {
 } from "@senify/section-sdk";
 import type { Theme } from "@senify/tokens";
 import { tokenOptionsFor, type TokenOption } from "../panels.ts";
+import { componentParts, editorOverrides } from "../state/components.ts";
 import type { EditorDocument, EditorNode, StyleRule } from "../state/document.ts";
 import type { EditorTabId } from "../state/ui-state.ts";
 
@@ -68,14 +70,15 @@ export type InspectorFieldKind =
   | "repeater";
 
 // Where a committed value goes: node props (device-aware), the motion spec, the
-// structural flags of the node, or the pseudo-state bag of the node's scoped
-// rule (ticket 02 point 5).
+// structural flags of the node, the pseudo-state bag of the node's scoped rule
+// (ticket 02 point 5), or the override bag of a component instance (ticket 04).
 export type InspectorCommit =
   | { kind: "prop" }
   | { kind: "motion" }
   | { kind: "hidden"; device: "tablet" | "mobile" }
   | { kind: "locked" }
-  | { kind: "state"; state: StateName };
+  | { kind: "state"; state: StateName }
+  | { kind: "override"; partId: string };
 
 export type InspectorField = {
   key: string;
@@ -574,8 +577,72 @@ function controlToField(
   return field;
 }
 
-function kindForControl(control: Control): InspectorFieldKind {
-  switch (control.kind) {
+// The override groups of a component instance (ticket 04): one group per part
+// of the definition, its fields committed into the instance's override bag.
+// The value shown is the effective one (override wins, definition as fallback);
+// clearing a field removes the override, never the definition's value.
+function overrideGroups(
+  document: EditorDocument,
+  node: EditorNode,
+  breakpoint: Device,
+  theme: Theme | undefined,
+): InspectorGroup[] {
+  const componentId = node.props["componentId"];
+  if (typeof componentId !== "string") return [];
+  const overrides = editorOverrides(node);
+  const groups: InspectorGroup[] = [];
+  const seen = new Map<string, number>();
+  for (const part of componentParts(document, componentId)) {
+    const definition = getPrimitive(part.primitive);
+    const controls = definition?.controls ?? [];
+    if (controls.length === 0) continue;
+    const partOverrides = overrides[part.id] ?? {};
+    const merged: EditorNode = {
+      id: part.id,
+      primitive: part.primitive,
+      props: { ...part.props, ...partOverrides },
+    };
+    const fields = controls.map((control) => {
+      const field = controlToField(control, merged, breakpoint, theme);
+      return markOverride(field, part.id, partOverrides, part.props);
+    });
+    const name = definition?.name ?? part.primitive;
+    const count = (seen.get(name) ?? 0) + 1;
+    seen.set(name, count);
+    groups.push({
+      id: `content/override:${part.id}`,
+      label: count === 1 ? name : `${name} ${count}`,
+      fields,
+    });
+  }
+  return groups;
+}
+
+// Marks a field tree as an override: the commit names the part, `base` keeps
+// the definition's own value (the reset target) and `overridden` tells whether
+// this instance changed it.
+function markOverride(
+  field: InspectorField,
+  partId: string,
+  overrides: DeviceValueMap,
+  definitionProps: DeviceValueMap,
+): InspectorField {
+  const overridden = overrides[field.key] !== undefined;
+  const next: InspectorField = {
+    ...field,
+    commit: { kind: "override", partId },
+    base: resolveDeviceValue(definitionProps, field.key, "desktop"),
+    overridden,
+    // The override bag has no device levels yet; the device dots stay empty.
+    overrideDevices: [],
+    fields: field.fields?.map((nested) =>
+      markOverride(nested, partId, overrides, definitionProps),
+    ),
+  };
+  return next;
+}
+
+function kindForControl(control: Control): InspectorFieldKind {  switch (control.kind) {
     case "text":
     case "textarea":
     case "url":
@@ -992,6 +1059,11 @@ export function buildInspector(input: BuildInspectorInput): InspectorModel | nul
   const motion = motionFields(node, input.theme, profile);
   const content: InspectorGroup[] = [
     { id: "content/main", label: definition?.name ?? node.primitive, fields: contentFields },
+    // A component instance has no controls of its own; its Content tab shows
+    // the parts of the definition and writes the instance's overrides.
+    ...(node.primitive === COMPONENT_INSTANCE_PRIMITIVE
+      ? overrideGroups(input.document, node, breakpoint, input.theme)
+      : []),
   ];
   const groupsFor = (id: InspectorTabId): InspectorGroup[] => {
     switch (id) {

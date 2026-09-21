@@ -10,8 +10,11 @@ import {
   COMPONENT_DEFINITION_PRIMITIVE,
   COMPONENT_INSTANCE_PRIMITIVE,
   COMPONENT_SLOT_PRIMITIVE,
+  type DeviceValueMap,
+  type PropValue,
 } from "@senify/widget-engine";
-import { locateParent } from "./document.ts";
+import { SenifyError } from "@senify/core";
+import { collectSubtree, locateParent, type EditorDocument } from "./document.ts";
 import { newNodeId } from "./ids.ts";
 import type { EditorStore } from "./store.ts";
 
@@ -20,6 +23,122 @@ function definitionOf(store: EditorStore, id: string): { id: string; name: strin
   if (node === undefined || node.primitive !== COMPONENT_DEFINITION_PRIMITIVE) return null;
   const name = typeof node.props["name"] === "string" ? node.props["name"] : id;
   return { id, name };
+}
+
+// The declared parts of a definition in the editor document, in tree order —
+// the override keys. Slot placeholders are structure, not parts.
+export function componentParts(
+  document: EditorDocument,
+  definitionId: string,
+): { id: string; primitive: string; props: DeviceValueMap }[] {
+  const definition = document.nodes[definitionId];
+  const rootChildId = definition?.children?.[0];
+  if (definition?.primitive !== COMPONENT_DEFINITION_PRIMITIVE || rootChildId === undefined) {
+    return [];
+  }
+  const parts: { id: string; primitive: string; props: DeviceValueMap }[] = [];
+  const visit = (id: string): void => {
+    const node = document.nodes[id];
+    if (node === undefined) return;
+    if (
+      node.primitive === COMPONENT_DEFINITION_PRIMITIVE ||
+      node.primitive === COMPONENT_SLOT_PRIMITIVE
+    ) {
+      return;
+    }
+    parts.push({ id: node.id, primitive: node.primitive, props: node.props });
+    for (const child of node.children ?? []) visit(child);
+    for (const list of Object.values(node.slots ?? {})) {
+      for (const child of list) visit(child);
+    }
+  };
+  visit(rootChildId);
+  return parts;
+}
+
+export function componentPartsIn(
+  store: EditorStore,
+  definitionId: string,
+): { id: string; primitive: string; props: DeviceValueMap }[] {
+  return componentParts(store.document, definitionId);
+}
+
+// The override bag of an instance, read from the editor node. The shape is the
+// one `section-sdk/components.ts` defines: part id -> changed props.
+export function editorOverrides(node: {
+  props: DeviceValueMap;
+}): Record<string, Record<string, PropValue>> {
+  const value = node.props["overrides"];
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return {};
+  const out: Record<string, Record<string, PropValue>> = {};
+  for (const [partId, props] of Object.entries(value)) {
+    if (props === null || typeof props !== "object" || Array.isArray(props)) continue;
+    out[partId] = { ...props };
+  }
+  return out;
+}
+
+// Sets or clears one override of one instance part. `null` removes the value
+// again; an empty part bag (and an empty bag overall) is pruned so the stored
+// document stays free of dead entries. One `applyBatch`, so one undo entry.
+export function setComponentOverride(
+  store: EditorStore,
+  instanceId: string,
+  partId: string,
+  key: string,
+  value: PropValue | null,
+): boolean {
+  const instance = store.document.nodes[instanceId];
+  if (instance === undefined || instance.primitive !== COMPONENT_INSTANCE_PRIMITIVE) {
+    return false;
+  }
+  const componentId = instance.props["componentId"];
+  if (typeof componentId !== "string") return false;
+  const definition = definitionOf(store, componentId);
+  if (definition === null) {
+    throw new SenifyError(
+      "not_found",
+      `Component "${componentId}" is not defined`,
+      { field: "componentId" },
+    );
+  }
+  const parts = componentPartsIn(store, componentId);
+  if (!parts.some((part) => part.id === partId)) {
+    throw new SenifyError(
+      "not_found",
+      `Component "${definition.name}" has no part "${partId}"`,
+      {
+        field: "partId",
+        suggestion: `Parts: ${parts.map((part) => part.id).join(", ") || "none"}.`,
+      },
+    );
+  }
+  const bag = editorOverrides(instance);
+  const part = { ...(bag[partId] ?? {}) };
+  if (value === null) delete part[key];
+  else part[key] = value;
+  if (Object.keys(part).length === 0) delete bag[partId];
+  else bag[partId] = part;
+  const next: Record<string, PropValue> = { ...bag };
+  const mutation =
+    Object.keys(next).length === 0
+      ? { op: "clearNodeProp", id: instanceId, key: "overrides" }
+      : { op: "setNodeProp", id: instanceId, key: "overrides", value: next };
+  const outcome = store.applyBatch([mutation], {
+    label: value === null ? `Override zurücksetzen · ${key}` : `Override · ${key}`,
+  });
+  return outcome.changed;
+}
+
+// The override bag of one instance in the editor document (read helper for the
+// inspector and the MCP side).
+export function overridesOf(
+  store: EditorStore,
+  instanceId: string,
+): Record<string, Record<string, PropValue>> {
+  const node = store.document.nodes[instanceId];
+  if (node === undefined || node.primitive !== COMPONENT_INSTANCE_PRIMITIVE) return {};
+  return editorOverrides(node);
 }
 
 // Every definition in the document, in tree order — the list the explorer's
@@ -144,7 +263,9 @@ export function instantiateComponent(
 
 // The anti-baukasten lever: replaces the instance with a real copy of the
 // definition's subtree (`duplicateNode` clones it with fresh ids and its scoped
-// rules), then removes the instance. One undo entry.
+// rules), then removes the instance. The instance's overrides are materialized
+// into the copy (a detached tree has no definition to override), and both steps
+// share one coalesce key, so a single undo restores the instance.
 export function detachComponent(store: EditorStore, instanceId: string): string | null {
   const instance = store.document.nodes[instanceId];
   if (instance === undefined || instance.primitive !== COMPONENT_INSTANCE_PRIMITIVE) {
@@ -156,6 +277,9 @@ export function detachComponent(store: EditorStore, instanceId: string): string 
   if (rootChildId === undefined) return null;
   const located = locateParent(store.document, instanceId);
   if (located === undefined) return null;
+  const overrides = editorOverrides(instance);
+  const subtree = collectSubtree(store.document, rootChildId);
+  const coalesceKey = `detach:${instanceId}`;
   const outcome = store.applyBatch(
     [
       {
@@ -166,9 +290,24 @@ export function detachComponent(store: EditorStore, instanceId: string): string 
       },
       { op: "deleteNode", id: instanceId },
     ],
-    { label: "Komponente auflösen" },
+    { label: "Komponente auflösen", coalesceKey },
   );
   const insert = outcome.patches.find((patch) => patch.patch === "insertNodes");
   if (insert === undefined || insert.patch !== "insertNodes") return null;
-  return insert.nodes[0]?.id ?? null;
+  const root = insert.nodes[0];
+  // The duplicate keeps the subtree order, so the copy of a part sits at the
+  // same index as the part itself.
+  const writes: unknown[] = [];
+  subtree.forEach((node, index) => {
+    const copy = insert.nodes[index];
+    const part = copy === undefined ? undefined : overrides[node.id];
+    if (copy === undefined || part === undefined) return;
+    for (const [key, value] of Object.entries(part)) {
+      writes.push({ op: "setNodeProp", id: copy.id, key, value });
+    }
+  });
+  if (writes.length > 0) {
+    store.applyBatch(writes, { label: "Overrides übernehmen", coalesceKey });
+  }
+  return root?.id ?? null;
 }

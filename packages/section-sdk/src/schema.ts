@@ -13,6 +13,9 @@ export const PropControlSchema = Type.Union([
   Type.Literal("link"),
   Type.Literal("list"),
   Type.Literal("slot"),
+  // A free-form JSON bag (the override map of a component instance): the
+  // section model does not describe its inner shape, so nothing is validated.
+  Type.Literal("json"),
 ]);
 export type PropControl = Static<typeof PropControlSchema>;
 
@@ -163,6 +166,7 @@ const CONTROL_FALLBACKS: Record<PropControl, TSchema | undefined> = {
   link: LinkValueSchema,
   list: Type.Array(Type.Any()),
   slot: undefined,
+  json: undefined,
 };
 
 export function resolvePropSchema(spec: PropSpec): TSchema | undefined {
@@ -236,7 +240,10 @@ export const SectionDefinitionSchema = Type.Object({
   styleProps: Type.Optional(Type.Array(PropSpecSchema)),
   slots: Type.Optional(Type.Record(Type.String(), SlotSpecSchema)),
   allowedChildren: Type.Optional(
-    Type.Union([Type.Literal("none"), Type.Array(Type.String())]),
+    // `"any"` is the open container: it accepts every registered type (and,
+    // for structural nodes, every slot name) without a fixed list. The widget
+    // catalog has carried the same rule since Phase 0 (`ChildRule`).
+    Type.Union([Type.Literal("none"), Type.Literal("any"), Type.Array(Type.String())]),
   ),
   motionPresets: Type.Optional(Type.Array(Type.String())),
   golden: GoldenSchema,

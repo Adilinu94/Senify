@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { defaultTheme } from "@senify/tokens";
 import { createScopedRule } from "@senify/widget-engine";
 import { buildInspector, motionSpecFrom, numberPart, tokenRefOf, unitOfValue } from "@senify/editor";
+import {
+  createComponent,
+  setComponentOverride,
+} from "@senify/editor/state";
 import { baseStore } from "./state/fixtures.ts";
 
 // Ticket 02, slice 1: the inspector model. The panel is generated from the
@@ -358,6 +362,47 @@ describe("buildInspector", () => {
     const stateField = stateCustom?.fields.find((entry) => entry.key === "scrollSnapType");
     expect(stateField?.value).toBe("x mandatory");
     expect(stateField?.commit).toEqual({ kind: "state", state: "focus" });
+  });
+
+  // Ticket 04: an instance has no controls of its own — its Content tab shows
+  // the parts of the definition, and the fields write the instance's override
+  // bag. The definition's values stay the base the reset returns to.
+  it("offers the definition's parts as overrides on an instance", () => {
+    const store = baseStore();
+    createComponent(store, "head000001", "karte");
+    const instanceId = store.document.nodes["sec0000001"]?.children?.[0] ?? "";
+    setComponentOverride(store, instanceId, "head000001", "text", "Eigene Karte");
+
+    const model = buildInspector({
+      document: store.document,
+      nodeId: instanceId,
+      breakpoint: "desktop",
+      theme: defaultTheme(),
+    });
+    const groups = model?.tabs.find((tab) => tab.id === "content")?.groups ?? [];
+    const overrideGroup = groups.find((group) => group.id === "content/override:head000001");
+    expect(overrideGroup).toBeDefined();
+    const text = overrideGroup?.fields.find((field) => field.key === "text");
+    expect(text?.value).toBe("Eigene Karte");
+    expect(text?.base).toBe("Hallo");
+    expect(text?.overridden).toBe(true);
+    expect(text?.commit).toEqual({ kind: "override", partId: "head000001" });
+
+    // Clearing the override in the model view: the value falls back, the
+    // field reports it as not overridden.
+    setComponentOverride(store, instanceId, "head000001", "text", null);
+    const plain = buildInspector({
+      document: store.document,
+      nodeId: instanceId,
+      breakpoint: "desktop",
+      theme: defaultTheme(),
+    });
+    const plainText = plain?.tabs
+      .find((tab) => tab.id === "content")
+      ?.groups.find((group) => group.id === "content/override:head000001")
+      ?.fields.find((field) => field.key === "text");
+    expect(plainText?.value).toBe("Hallo");
+    expect(plainText?.overridden).toBe(false);
   });
 });
 

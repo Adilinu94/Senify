@@ -59,6 +59,13 @@ export function componentPrimitive(type: string): PrimitiveDefinition | undefine
   };
 }
 
+// The structural node types of the component model. Their props are JSON
+// (componentId, name, the override bag), not style values, so the value
+// grammar of ADR-0005 does not apply to them.
+export function isComponentPrimitive(type: string): boolean {
+  return RESERVED[type] !== undefined;
+}
+
 // The section types of the current registry (`@senify/registry`). The list is
 // mirrored from `SECTION_COMPOSITION`; a guard test keeps both in step.
 export const LEGACY_SECTION_TYPES = [

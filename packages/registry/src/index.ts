@@ -27,6 +27,7 @@ import { marqueeSection } from "./sections/marquee.ts";
 import { outletSection } from "./sections/outlet.ts";
 import { collectionListSection } from "./sections/collection-list.ts";
 import { cardSection } from "./sections/card.ts";
+import { structuralSections } from "./sections/structural.ts";
 
 export { heroSection } from "./sections/hero.ts";
 export { renderMarkdown } from "./md.ts";export { navbarSection } from "./sections/navbar.ts";
@@ -101,6 +102,11 @@ export function createRegistry(): Registry {
   const registry = new Registry();
   for (const section of bundledSections) {
     registry.register(section);
+  }
+  // The structural node types of the component model (ticket 04): known to
+  // validation, absent from the authorable catalog (`list()`).
+  for (const section of structuralSections) {
+    registry.registerStructural(section);
   }
   return registry;
 }

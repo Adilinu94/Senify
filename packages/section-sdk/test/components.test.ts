@@ -5,7 +5,10 @@ import {
   COMPONENT_SLOT_TYPE,
   COMPONENT_STUB_TYPE,
   componentDefinitions,
+  componentParts,
   inlineComponents,
+  instanceOverrides,
+  staleOverrides,
   unfilledSlots,
   wouldCreateCycle,
   type Node,
@@ -178,5 +181,126 @@ describe("inlineComponents", () => {
     const result = inlineComponents(plain);
     expect(result.problems).toEqual([]);
     expect(result.tree).toEqual(plain);
+  });
+});
+
+describe("instance overrides", () => {
+  // The instance changes the heading text of its copy only — the definition
+  // (and every other instance) stays untouched.
+  function withOverride(): NodeTree {
+    const tree = fixture();
+    tree.nodes["inst000001"] = node("inst000001", COMPONENT_INSTANCE_TYPE, {
+      props: {
+        componentId: "def0000001",
+        overrides: { head000001: { text: "Eigene Karte" } },
+      },
+      slots: { content: ["body000001"] },
+    });
+    return tree;
+  }
+
+  it("reads the override bag of an instance", () => {
+    const tree = withOverride();
+    expect(instanceOverrides(tree.nodes["inst000001"]!)).toEqual({
+      head000001: { text: "Eigene Karte" },
+    });
+    expect(instanceOverrides(node("x", COMPONENT_INSTANCE_TYPE))).toEqual({});
+    expect(
+      instanceOverrides(
+        node("x", COMPONENT_INSTANCE_TYPE, { props: { overrides: "kaputt" } }),
+      ),
+    ).toEqual({});
+  });
+
+  it("merges overrides into the copy, never into the definition", () => {
+    const tree = withOverride();
+    const result = inlineComponents(tree);
+    expect(result.problems).toEqual([]);
+    const texts = Object.values(result.tree.nodes)
+      .filter((entry) => entry.type === "heading")
+      .map((entry) => entry.props["text"]);
+    expect(texts).toEqual(["Eigene Karte"]);
+    expect(tree.nodes["head000001"]?.props["text"]).toBe("Karte");
+  });
+
+  it("leaves other instances of the same definition unchanged", () => {
+    const tree = withOverride();
+    tree.nodes["sec0000002"] = node("sec0000002", "frame", { children: ["inst000002"] });
+    tree.nodes["inst000002"] = node("inst000002", COMPONENT_INSTANCE_TYPE, {
+      props: { componentId: "def0000001" },
+      slots: { content: [] },
+    });
+    tree.nodes["root000001"] = node("root000001", "page", {
+      children: ["def0000001", "sec0000001", "sec0000002"],
+    });
+    const result = inlineComponents(tree);
+    const texts = Object.values(result.tree.nodes)
+      .filter((entry) => entry.type === "heading")
+      .map((entry) => entry.props["text"])
+      .sort();
+    expect(texts).toEqual(["Eigene Karte", "Karte"]);
+  });
+
+  it("lets an instance swap a nested instance through its part id", () => {
+    // Two definitions; A embeds B. An instance of A overrides the nested
+    // instance's `componentId` — instance swap without touching the definition.
+    const tree: NodeTree = {
+      rootNodeId: "root000001",
+      nodes: {
+        root000001: node("root000001", "page", {
+          children: ["defa000001", "defb000001", "defc000001", "insta00001"],
+        }),
+        defa000001: node("defa000001", COMPONENT_DEFINITION_TYPE, {
+          props: { name: "a" },
+          children: ["inner00001"],
+        }),
+        inner00001: node("inner00001", COMPONENT_INSTANCE_TYPE, {
+          props: { componentId: "defb000001" },
+        }),
+        defb000001: node("defb000001", COMPONENT_DEFINITION_TYPE, {
+          props: { name: "b" },
+          children: ["headb00001"],
+        }),
+        headb00001: node("headb00001", "heading", { props: { text: "B" } }),
+        defc000001: node("defc000001", COMPONENT_DEFINITION_TYPE, {
+          props: { name: "c" },
+          children: ["headc00001"],
+        }),
+        headc00001: node("headc00001", "heading", { props: { text: "C" } }),
+        insta00001: node("insta00001", COMPONENT_INSTANCE_TYPE, {
+          props: {
+            componentId: "defa000001",
+            overrides: { inner00001: { componentId: "defc000001" } },
+          },
+        }),
+      },
+    };
+    const result = inlineComponents(tree);
+    expect(result.problems).toEqual([]);
+    const texts = Object.values(result.tree.nodes)
+      .filter((entry) => entry.type === "heading")
+      .map((entry) => entry.props["text"]);
+    expect(texts).toEqual(["C"]);
+  });
+
+  it("lists the parts of a definition and reports stale overrides", () => {
+    const tree = withOverride();
+    const parts = componentParts(tree, "def0000001");
+    expect(parts.map((part) => part.id)).toEqual(["head000001"]);
+    expect(parts[0]?.props["text"]).toBe("Karte");
+    // A slot placeholder is structure, not an overridable part.
+    expect(parts.some((part) => part.type === COMPONENT_SLOT_TYPE)).toBe(false);
+    expect(staleOverrides(tree, tree.nodes["inst000001"]!)).toEqual([]);
+
+    const stale = node("inst000002", COMPONENT_INSTANCE_TYPE, {
+      props: {
+        componentId: "def0000001",
+        overrides: { gone000001: { text: "weg" }, head000001: { text: "da" } },
+      },
+    });
+    expect(staleOverrides(tree, stale)).toEqual(["gone000001"]);
+    // The stale entry does not break the inliner; it simply has no target.
+    const result = inlineComponents(tree);
+    expect(result.problems).toEqual([]);
   });
 });

@@ -87,15 +87,34 @@ describe("styleRulesCss", () => {
       },
     };
     const css = styleRulesCss(
-      [{ path: "/", tree: composed, nodeIdMap: { "hero-xyz789": "n7" } }],
+      [{ path: "/", tree: composed, nodeIdMap: { "hero-xyz789": ["n7"] } }],
       [createScopedRule({ id: "r1", nodeId: "hero-xyz789", styles: { color: "#00ff00" } })],
     );
     expect(css).toContain('[data-node-id="n7"].__senify_scope_n7');
     expect(css).not.toContain("hero-xyz789");
   });
 
+  // Ticket 04: one definition part can be copied once per instance, so a
+  // draft id maps to several composed ids — every copy gets its selector.
+  it("emits one scoped selector per component copy", () => {
+    const composed: NodeTree = {
+      rootNodeId: "root",
+      nodes: {
+        root: { id: "root", type: "page", props: {} },
+        c1: { id: "c1", type: "heading", props: {} },
+        c2: { id: "c2", type: "heading", props: {} },
+      },
+    };
+    const css = styleRulesCss(
+      [{ path: "/", tree: composed, nodeIdMap: { "def-head": ["c1", "c2"] } }],
+      [createScopedRule({ id: "r1", nodeId: "def-head", styles: { color: "#00ff00" } })],
+    );
+    expect(css).toContain('[data-node-id="c1"].__senify_scope_c1');
+    expect(css).toContain('[data-node-id="c2"].__senify_scope_c2');
+  });
+
   it("emits one scoped selector per composed occurrence, deduplicated per map", () => {
-    const pageWith = (id: string): { path: string; tree: NodeTree; nodeIdMap: Record<string, string> } => ({
+    const pageWith = (id: string): { path: string; tree: NodeTree; nodeIdMap: Record<string, string[]> } => ({
       path: `/${id}`,
       tree: {
         rootNodeId: "root",
@@ -104,7 +123,7 @@ describe("styleRulesCss", () => {
           [id]: { id, type: "content", props: {} },
         },
       },
-      nodeIdMap: { intro: id },
+      nodeIdMap: { intro: [id] },
     });
     // Two entry routes compose their own `intro` node; pagination variants of
     // one route share the map (and the tree) and must not emit twice.

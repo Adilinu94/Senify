@@ -30,6 +30,7 @@ import {
 import type { MotionProfile, MotionSpec } from "@senify/section-sdk";
 import type { Theme } from "@senify/tokens";
 import { requireDocument, type DomDocument, type DomElement } from "../dom.ts";
+import { setComponentOverride } from "../state/components.ts";
 import { newNodeId } from "../state/ids.ts";
 import { EditorStore, typingCoalesceKey } from "../state/store.ts";
 import { EDITOR_ROOT_ATTRIBUTE } from "../ui/tokens.ts";
@@ -165,7 +166,8 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
   }
 
   // One commit path for every target: node props (device-aware), the pseudo
-  // state bag of the scoped rule, or a plain key of the open property space.
+  // state bag of the scoped rule, the override bag of a component instance, or
+  // a plain key of the open property space.
   function commitField(
     nodeId: string,
     key: string,
@@ -182,11 +184,35 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       );
       return;
     }
+    if (commit.kind === "override") {
+      commitOverride(nodeId, commit.partId, key, value);
+      return;
+    }
     apply(
       { op: "setNodeProp", id: nodeId, key, value, device: breakpoint },
       `Feld ${key}`,
       typingCoalesceKey(nodeId, key, breakpoint),
     );
+  }
+
+  // An instance override is its own write (ticket 04): the value lands in the
+  // instance's override bag, the definition stays untouched.
+  function commitOverride(
+    nodeId: string,
+    partId: string,
+    key: string,
+    value: PropValue | null,
+  ): void {
+    try {
+      setComponentOverride(options.store, nodeId, partId, key, value);
+      report(null);
+    } catch (error) {
+      const category =
+        error !== null && typeof error === "object" && "category" in error
+          ? String((error as { category: unknown }).category)
+          : "";
+      report(MESSAGES[category] ?? messageOf(error));
+    }
   }
 
   function clearProp(nodeId: string, field: InspectorField): void {
@@ -196,6 +222,10 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
   function clearField(nodeId: string, key: string, commit: InspectorCommit): void {
     if (commit.kind === "state") {
       commitState(nodeId, commit.state, key, null);
+      return;
+    }
+    if (commit.kind === "override") {
+      commitOverride(nodeId, commit.partId, key, null);
       return;
     }
     apply(
@@ -853,7 +883,10 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     // dot is an existing override, the ring marks the device being edited. A
     // click on another device switches the view; a click on the active one
     // turns the override on (materialise the effective value) or off.
-    if (field.responsive) {
+    //
+    // An instance override (ticket 04) has no device levels yet, so it gets no
+    // dots — only the reset that removes the override again.
+    if (field.responsive && field.commit.kind !== "override") {
       const dots = h(doc, "span", { className: "senify-inspector__dots" });
       for (const device of DEVICES) {
         const active = device === breakpoint;
@@ -891,7 +924,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       }
       side.appendChild(dots);
     }
-    if (field.overridden && field.responsive) {
+    if (field.overridden && (field.responsive || field.commit.kind === "override")) {
       const reset = h(doc, "button", {
         className: "senify-inspector__reset",
         text: "Reset",

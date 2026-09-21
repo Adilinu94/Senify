@@ -38,7 +38,7 @@ import { createHistoryDialog } from "../history/dialog.ts";
 import { canvasFrames, fitZoom, ZOOM_MAX, ZOOM_MIN, type CanvasFrameSpec } from "./device.ts";
 import { canvasFrameRules } from "./rules.ts";
 import { createMarkerOverlay, type OverlayFrame } from "./overlay.ts";
-import { canvasNodeTree } from "./adapter.ts";
+import { canvasNodeTree, canvasNodeTreeWithCopies } from "./adapter.ts";
 import { type InsertPosition } from "./insert.ts";
 import { firstChildId, resolveClick, selectionLabel } from "./selection.ts";
 import { locateParent } from "../state/document.ts";
@@ -182,6 +182,9 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   let zoom = options.zoom ?? 0.5;
   let previewState: StateName | null = options.previewState ?? null;
   let mode: EditorMode = options.mode ?? "design";
+  // Copy id -> the instance that rendered it, from the last `refresh`. A click
+  // inside a component instance resolves through it (ticket 04).
+  let copyOrigins: ReadonlyMap<string, { instanceId: string; partId: string }> = new Map();
   let breakpoint: FrameBreakpoint = options.breakpoint ?? "desktop";
   const profile: MotionProfile = options.profile ?? "standard";
   const vendorBase = options.motionVendorBase ?? MOTION_VENDOR_BASE;
@@ -703,7 +706,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
         event.altKey === true && hit !== null
           ? (locateParent(store.document, hit)?.parent.nodeId ?? hit)
           : hit;
-      applyResolution(resolveClick(store.document, id));
+      applyResolution(resolveClick(store.document, id, { origins: copyOrigins }));
     });
     entry.doc.addEventListener("dblclick", (event: DomEvent) => {
       if (mode === "live") return;
@@ -713,7 +716,12 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
         startInline(inline);
         return;
       }
-      applyResolution(resolveClick(store.document, hitNodeId(event.target), { double: true }));
+      applyResolution(
+        resolveClick(store.document, hitNodeId(event.target), {
+          double: true,
+          origins: copyOrigins,
+        }),
+      );
     });
     entry.doc.addEventListener("input", (event: DomEvent) => {
       const session = inlineSession;
@@ -901,7 +909,11 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   }
 
   function refresh(): void {
-    const tree = canvasNodeTree(store.document);
+    const expanded = canvasNodeTreeWithCopies(store.document);
+    const tree = expanded.tree;
+    // A click inside an instance hits a copy id that is not a document node;
+    // the map from the last render resolves it back to the instance (ticket 04).
+    copyOrigins = expanded.origins;
     for (const entry of mounted) {
       if (entry.body === null) continue;
       // While an inline edit runs the frame DOM belongs to the user: React

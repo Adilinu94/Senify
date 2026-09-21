@@ -211,7 +211,7 @@ describe("composePageTree (resolve chain)", () => {
       children: ["content"],
       nodes: [{ id: "content", type: "content" }],
     });
-    const idMap = new Map<string, string>();
+    const idMap = new Map<string, string[]>();
     const composed = composePageTree({
       layout,
       template: null,
@@ -222,10 +222,11 @@ describe("composePageTree (resolve chain)", () => {
     });
 
     // The inserted page subtree is rekeyed; the map names the composed node
-    // (ticket 22: scoped style rules are remapped through it).
+    // (ticket 22: scoped style rules are remapped through it). Since ticket 04
+    // the value is a list: one draft id can have several composed ids.
     const mapped = idMap.get("content");
-    expect(mapped).toBe("n0");
-    expect(composed.nodes[mapped ?? ""]?.type).toBe("content");
+    expect(mapped).toEqual(["n0"]);
+    expect(composed.nodes[mapped?.[0] ?? ""]?.type).toBe("content");
     // The layout is the container: its own nodes keep their draft ids.
     expect(idMap.has("header")).toBe(false);
   });
@@ -240,7 +241,7 @@ describe("composePageTree (resolve chain)", () => {
         { id: "out", type: "outlet" },
       ],
     });
-    const idMap = new Map<string, string>();
+    const idMap = new Map<string, string[]>();
     const composed = composePageTree({
       layout,
       template,
@@ -250,7 +251,7 @@ describe("composePageTree (resolve chain)", () => {
       idMap,
     });
 
-    const intro = idMap.get("intro");
+    const intro = idMap.get("intro")?.[0];
     expect(intro).toBeDefined();
     expect(composed.nodes[intro ?? ""]?.type).toBe("content");
   });
@@ -260,7 +261,7 @@ describe("composePageTree (resolve chain)", () => {
       children: ["content"],
       nodes: [{ id: "content", type: "content" }],
     });
-    const idMap = new Map<string, string>();
+    const idMap = new Map<string, string[]>();
     composePageTree({
       layout: null,
       template: null,

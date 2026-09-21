@@ -57,8 +57,9 @@ export type BakePageInput = {
   tree: NodeTree;
   // Draft-id -> composed-id pairs of the layout splice (ticket 22): the
   // renderer remaps `scoped` style rules, which are bound to draft node ids,
-  // through this map when it compiles `assets/style-rules.css`.
-  nodeIdMap?: Record<string, string>;
+  // through this map when it compiles `assets/style-rules.css`. A list per
+  // draft id since ticket 04: a component part has one copy per instance.
+  nodeIdMap?: Record<string, string[]>;
 };
 
 export type BakeInput = {

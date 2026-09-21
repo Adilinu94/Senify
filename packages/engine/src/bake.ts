@@ -162,8 +162,9 @@ export async function buildBakeInput(
     currentEntryId: string | null;
     // Draft-id -> composed-id pairs of the layout splice (ticket 22). Scoped
     // style rules are bound to draft ids; the renderer remaps them through
-    // this map when it compiles `assets/style-rules.css`.
-    idMap?: ReadonlyMap<string, string>;
+    // this map when it compiles `assets/style-rules.css`. The values are lists
+    // since ticket 04: a component part has one composed id per instance.
+    idMap?: ReadonlyMap<string, string[]>;
   }): Promise<void> => {
     const nodeIdMap =
       route.idMap === undefined || route.idMap.size === 0
@@ -227,7 +228,7 @@ export async function buildBakeInput(
     // Template pages have no route of their own (no sitemap/navigation entry).
     if (page.template !== null) continue;
     const layout = findLayout(pages, page.layoutId, defaultLayout);
-    const idMap = new Map<string, string>();
+    const idMap = new Map<string, string[]>();
     const tree = composePageTree({
       layout: layout?.draft ?? null,
       template: null,
@@ -280,7 +281,7 @@ export async function buildBakeInput(
           : typeof entry.cells[bodyField.id] === "string"
             ? String(entry.cells[bodyField.id])
             : "";
-      const idMap = new Map<string, string>();
+      const idMap = new Map<string, string[]>();
       const tree = composePageTree({
         layout: layout?.draft ?? null,
         template: template.draft,

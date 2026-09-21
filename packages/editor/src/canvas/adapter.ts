@@ -25,10 +25,13 @@ export function canvasNodeTree(document: EditorDocument): NodeTree {
 // The inliner run for the canvas: the render tree plus the copy map. The frame
 // rules use the map to emit the definition's own node rules for every copy
 // (an instance must look styled exactly like the definition), so canvas and
-// bake derive from the same expansion.
+// bake derive from the same expansion. `origins` maps a copy back to the
+// instance that rendered it — the click resolution uses it (a copy id is not
+// part of the document).
 export function canvasNodeTreeWithCopies(document: EditorDocument): {
   tree: NodeTree;
   copies: Map<string, string[]>;
+  origins: Map<string, { instanceId: string; partId: string }>;
 } {
   const nodes: Record<string, Node> = {};
   for (const [id, node] of Object.entries(document.nodes)) {
@@ -60,5 +63,5 @@ export function canvasNodeTreeWithCopies(document: EditorDocument): {
   }
   const tree: NodeTree = { rootNodeId: document.rootNodeId, nodes };
   const result = inlineComponents(tree);
-  return { tree: result.tree, copies: result.copies };
+  return { tree: result.tree, copies: result.copies, origins: result.origins };
 }

@@ -53,6 +53,22 @@ describe("click resolution", () => {
       id: "head",
     });
   });
+
+  // Ticket 04: the canvas renders a component instance as the definition's
+  // subtree under fresh copy ids. A click lands on a copy, which is not a
+  // document node — the origins map turns it back into the instance.
+  it("maps a click on a component copy to the instance", () => {
+    const origins = new Map([["copy000001", { instanceId: "inst000001", partId: "head" }]]);
+    expect(resolveClick(document(), "copy000001", { origins })).toEqual({
+      kind: "select",
+      id: "inst000001",
+    });
+    // Without the map the copy id stays unknown (the old behavior).
+    expect(resolveClick(document(), "copy000001")).toEqual({
+      kind: "select",
+      id: "copy000001",
+    });
+  });
 });
 
 describe("children and slots", () => {

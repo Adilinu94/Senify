@@ -21,8 +21,9 @@ export type StyleCssPage = {
   tree: NodeTree;
   // Draft-id -> composed-id pairs of the layout splice (ticket 22). Scoped
   // rules are bound to draft node ids; with a map they are rebuilt on the
-  // composed node (see `remapScopedRules`).
-  nodeIdMap?: Readonly<Record<string, string>>;
+  // composed nodes (see `remapScopedRules`). A list per draft id: a component
+  // part has one composed node per instance (ticket 04).
+  nodeIdMap?: Readonly<Record<string, string[]>>;
 };
 
 function mediaQuery(maxWidth: number, body: string): string {
@@ -108,14 +109,16 @@ export function styleRulesCss(
 // so a copy for a composed node is built canonically — the same rebuild the
 // editor's `applyDuplicateNode` does. One copy per composed occurrence,
 // deduplicated by rule id + target id: an entry template used by ten entries
-// yields ten selectors, one per composed node.
+// yields ten selectors, one per composed node. Since ticket 04 a draft id can
+// map to several composed ids (one per component instance) — every target gets
+// its selector.
 function remapScopedRules(
   pages: readonly StyleCssPage[],
   rules: readonly StyleRule[],
 ): StyleRule[] {
   const maps = pages
     .map((page) => page.nodeIdMap)
-    .filter((map): map is Readonly<Record<string, string>> => map !== undefined);
+    .filter((map): map is Readonly<Record<string, string[]>> => map !== undefined);
   if (maps.length === 0) return [...rules];
   const out: StyleRule[] = [];
   const seen = new Set<string>();
@@ -127,18 +130,19 @@ function remapScopedRules(
     const draftId = rule.scope.nodeId;
     let remapped = false;
     for (const map of maps) {
-      const target = map[draftId];
-      if (target === undefined || target === draftId) continue;
-      const key = `${rule.id}\u0000${target}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      remapped = true;
-      out.push({
-        ...rule,
-        name: scopeNameFor(target),
-        selector: scopeSelectorFor(target),
-        scope: { ...rule.scope, nodeId: target },
-      });
+      for (const target of map[draftId] ?? []) {
+        if (target === undefined || target === draftId) continue;
+        const key = `${rule.id}\u0000${target}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        remapped = true;
+        out.push({
+          ...rule,
+          name: scopeNameFor(target),
+          selector: scopeSelectorFor(target),
+          scope: { ...rule.scope, nodeId: target },
+        });
+      }
     }
     // No page composed this node: keep the rule as-is; the compiler drops it
     // when the node is gone (the behavior before ticket 22).
