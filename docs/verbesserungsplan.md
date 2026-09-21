@@ -373,13 +373,16 @@ Jedes Epic: **Ziel · Umfang · Akzeptanzkriterien · Belege · Abhängigkeiten 
 
 ### E11 · Visual Components & Templates — **P0, L**
 
-**Stand (20.09., Ticket 04):** Scheibe 1 + Scheibe 2 Teil 1 umgesetzt — Component-Kern im Baum
-(reservierte Typen, `inlineComponents` als eine Ableitung), Engine-Aufnahme
-(`registerStructural`, `allowedChildren: "any"`), Bake-Rekey über den Layout-Splice,
-Multi-Instanz-Remap für scoped Regeln, Instanz-Overrides (Modell, Editor-Op, Inspektor,
-Canvas-Klick). Offen: unveränderliche Publish-Versionen, Slot-Restriktionen
-(`allowedComponents`/`max`), Varianten, Styles je Instanz, Komponenten-Tab/Kontextmenü,
-MCP-Fassade, Sections-Migration.
+**Stand (21.09., Ticket 04):** Scheibe 1 + Scheibe 2 Teil 1/2/3 + MCP-Fassade umgesetzt —
+Component-Kern im Baum (reservierte Typen, `inlineComponents` als eine Ableitung),
+Engine-Aufnahme (`registerStructural`, `allowedChildren: "any"`), Bake-Rekey über den
+Layout-Splice, Multi-Instanz-Remap für scoped Regeln, Instanz-Overrides (Modell, Editor-Op,
+Inspektor, Canvas-Klick), Komponenten-Tab und Kontextmenü (anlegen, benennen, einsetzen,
+auflösen), Definition/Instanz-Versionen mit Drift (`bump_component_version`,
+`update_component_instances`), Slot-Regeln (`allowedTypes`/`max` in Engine und Editor),
+MCP `list_components`/`get_component`/`set_component_override`.
+Offen: unveränderliche Publish-Versionen site-weit, Varianten, Styles je Instanz,
+Sections-Migration.
 
 **Ziel:** Wiederverwendung statt Kopieren.
 **Umfang:** Component-Definition/Instanz/Version, Overrides (Props/Styles), Slots mit Restrictions, Detach, Cycle-Detection, Publish-Inlining; Template-/Outlet-Autorenschaft im Editor; VC-Templates; `collection`/`collection-list`-Konsolidierung; MCP-Tools für Components/Templates.
@@ -630,7 +633,7 @@ Vier Phasen, jede endet mit einem nutzbaren, ehrlich abgenommenen Zustand.
 | E-Commerce | verworfen | nur Shopify-Embed über `embed` auf Anfrage |
 | Framer/Webflow-Import | später | nach VC-Modell + Versionierung |
 | Component-Marketplace | später | nach VC + Signierung + Lizenzmodell |
-| Eigene generative KI (Bild/Text) | bewusst nicht | BYOK-Agenten + Referenz-Briefe bleiben der Weg |
+| Eigene generative KI (Bild/Text) | aufgehoben (ADR-0008, 21.09.): lokale Bildgenerierung via ComfyUI-Provider; BYOK-Agenten bleiben daneben möglich | Lizenzprüfung (Qwen Research License) vor Produktivbetrieb |
 | Code-Export-Feature | entfällt | Bake **ist** das offene Ergebnis |
 
 ### 8.5 Annahmen (Prüfdatum)

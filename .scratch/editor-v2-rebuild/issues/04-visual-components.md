@@ -1,7 +1,92 @@
 # Editor v2 - Visual Components und Sections-Migration (Phase 4)
 
-Status: **Scheibe 1 erledigt (20.09.)**, **Scheibe 2 Teil 1 erledigt (20.09., committet `7f7ccd6`/`2c64aaf`)** — Component-Kern, Engine-Aufnahme, Bake-Rekey/Multi-Instanz-Remap, Overrides (Modell, Editor-Op, Inspektor). Offen: Sections als VCs (Punkt 2), Multi-Widget-VCs (Punkt 3), Publish-Versionen, Slot-Restriktionen, Komponenten-Tab, MCP-Fassade.
+Status: **Scheibe 1 erledigt (20.09.)**, **Scheibe 2 Teil 1 erledigt (20.09., committet `7f7ccd6`/`2c64aaf`)**, **Scheibe 2 Teil 2 erledigt (21.09.)**, **MCP-Fassade erledigt (21.09.)**, **Scheibe 2 Teil 3 erledigt (21.09.)** — Component-Kern, Engine-Aufnahme, Bake-Rekey/Multi-Instanz-Remap, Overrides (Modell, Editor-Op, Inspektor), Komponenten-Tab und Kontextmenü, MCP-Tools (`list_components`, `get_component`, `set_component_override`), Versionen mit Drift und Slot-Regeln (`allowedTypes`/`max`). Offen: Sections als VCs (Punkt 2), Multi-Widget-VCs (Punkt 3), Publish-Versionen site-weit, Varianten.
 Abhaengig von: 03-editor-chrome
+
+## Ergebnis Scheibe 2 Teil 3 (21.09., umgesetzt) - Versionen und Slot-Regeln
+
+Eine Definition trägt eine Version (`props.version`, Default 1), jede Instanz pinnt die Version
+ihrer Platzierung (`props.componentVersion`, Default 1). Alte Versionen werden **nicht**
+gespeichert - der Pin ist das Drift-Signal, der Release-Snapshot friert die Seite ein.
+
+- **Modell (`section-sdk/src/components.ts`):** `ComponentSlotSpec` (`allowedTypes`, leer = alles;
+  `max`, null = unbegrenzt) über `readSlotSpec`; `instanceVersion`, `componentDrift(tree)`;
+  `ComponentDefinition.version` und `collectSlots` mit Specs.
+- **Engine (`engine/src/mutations/apply.ts`):** die Slot-Regeln kommen aus dem Baum
+  (`slotRulesFor`/`componentSlotSpecs`/`requireSlotRules`); `assertSlotPlacement`,
+  `applySetSlotContent` und `applyCreateCollectionEntry` lehnen unbekannten Slot, nicht erlaubten
+  Typ und Überfüllung ab. Test +1 in `engine/test/components.test.ts`.
+- **Editor:** `editorSlotSpecs` als einzige Auflösung (Instanz → Definition, sonst Katalog);
+  `operations.ts`, `canvas/insert.ts`, `canvas/dnd.ts`, `state/consistency.ts` umgestellt; neue
+  Ops `bumpComponentVersion`, `updateComponentInstances` (ein Batch), `componentDriftOf/In`,
+  `definitionVersionOf`, `instanceVersionOf`; `insertSlot` nimmt `allowedTypes`/`max`.
+- **UI:** Drift-Badge `v1` am Instanz-Knoten, Menü `Version erhöhen` / `Instanzen aktualisieren`
+  (letzteres nur bei Drift), Tab-Hinweis `v2 · 2 Instanzen · 1 alt`; Browser-Rundlauf mit
+  Screenshot `10-komponente-version.png`.
+- **MCP:** `bump_component_version`, `update_component_instances`; `list_components`/`get_component`
+  liefern Version, Drift und je Instanz Pin/`outdated`.
+
+**Zahlen:** `pnpm test` 1352 grün / 2 übersprungen / 149 Dateien (Log
+`.scratch/testlauf-21-09-m4s2t4.log`), typecheck 0, lint in den eigenen Bereichen 0.
+
+## Ergebnis MCP-Fassade (21.09., umgesetzt) - Komponenten für Agenten
+
+Dieselben Fähigkeiten wie im Editor, über den bestehenden Mutations-Pfad: Definitionen liegen als
+gewöhnliche Knoten im Seiten-Draft, die Tools lesen den Draft und schreiben Overrides über
+`updateNodeProps` (Autor = Token-Name).
+
+- **`list_components(pageId)`** (read): Definitionen mit Name, Part-Anzahl, Slot-Namen,
+  Instanz-Anzahl und Instanz-Ids.
+- **`get_component(pageId, componentId)`** (read): Parts (`id`, `type`, aktuelle Props - die
+  Override-Schlüssel), Slot-Platzhalter (`id`, `name`) und Instanzen mit ihren Override-Beuteln.
+- **`set_component_override(pageId, instanceId, partId, key, value, baseDraftVersion)`** (write):
+  merged den Beutel wie die Editor-Op (leerer Beutel wird entfernt, `value: null` löscht den
+  Schlüssel); die Definition bleibt unberührt. Guardrails: unbekannte Instanz, unbekannter Part
+  (Vorschlag listet die gültigen Part-Ids) und fehlender `value` werden abgewiesen.
+
+**Tests:** `packages/mcp/test/workflow.test.ts` +1 (Draft über `apply_mutations` aufbauen,
+list/get, Override setzen und wieder löschen, `get_nodes` belegt den entfernten Beutel, drei
+Guardrail-Fälle) und die Tool-Liste im Katalog-Test um die drei Namen erweitert.
+`packages/skills` Router/Workflow nennen den Komponenten-Weg; `SERVER_INSTRUCTIONS` tragen ihn
+als Leitlinie. **Zahlen:** `pnpm test` 1326 grün / 2 übersprungen / 147 Dateien (Log
+`.scratch/testlauf-21-09-m4s2t3.log`, ohne Flake), typecheck 0, lint in den eigenen Bereichen 0.
+
+## Ergebnis Scheibe 2 Teil 2 (21.09., umgesetzt) - im Editor bedienbar
+
+Der Komponenten-Kern ist jetzt ohne Agenten benutzbar: anlegen, benennen, einsetzen, auflösen.
+
+**Modelle rein (`editor/src/explorer.ts`):** `editorNodeLabel` löst die reservierten Typen auf -
+eine Definition heißt `Komponente · <name>`, eine Instanz liest den Namen der Definition über
+`componentId` (fehlt sie, steht dort die Id), ein Slot `Slot · <name>`. `buildComponentList`
+zählt je Definition die Instanzen (der Komponenten-Tab). `editorMenuItems` liefert das
+Kontextmenü je Knotenart mit bereits aufgelösten Zustandslabels (`Ausblenden`/`Einblenden`):
+`component-create` an einem gewöhnlichen Knoten, `component-detach` an einer Instanz,
+`component-insert` an einer Definition; Wurzel und Slot-Platzhalter bieten keine der drei.
+Die Modelle sind DOM-frei und damit im Node-Lauf geprüft; das Panel rendert nur.
+
+**Panel (`editor/src/explorer/panel.ts`):** das Menü kommt aus dem Modell. Die drei Aktionen
+laufen über `createComponent`/`detachComponent`/`instantiateComponent`; ein Fehler wird als
+Statusmeldung berichtet statt still verloren. Nach dem Anlegen ist die **Definition** ausgewählt
+(F2 benennt sie um - `textKeyOf` kennt `name` bei Definition und Slot; eine Instanz meldet, dass
+sie den Namen ihrer Komponente trägt). Nach Auflösen/Einfügen ist der neue Knoten ausgewählt.
+
+**Shell (`packages/app/public/app.js`):** vierter Explorer-Tab `Komponenten` mit Instanz-Zähler;
+ein Klick fügt eine Instanz hinter der Auswahl ein und wählt sie.
+
+**Tests:** `editor/test/explorer.test.ts` +3 (Labels inkl. Stale-Fallback, Liste und Zähler,
+Menü je Knotenart samt Zustandslabels). `packages/app/test/canvas-view-browser.test.ts` führt den
+ganzen Rundlauf im Browser: Kontextmenü legt die Definition an (der Hero bleibt als Instanz 1x im
+Canvas), F2 benennt sie in `karte` um, der Tab listet `1 Instanz`, der Klick fügt die zweite
+Instanz ein (Hero 2x), das Kontextmenü löst sie wieder in einen echten Teilbaum auf (die
+Definition bleibt mit ihrer ersten Instanz). **Zahlen:** `pnpm test` 1325 grün / 2 übersprungen /
+147 Dateien (Log `.scratch/testlauf-21-09-m4s2t2.log`, ohne Flake), typecheck 0, lint in den
+eigenen Bereichen 0.
+
+**Bewusste Grenzen (Scheibe 2 Rest):** Overrides sind basisweit (keine Geräteebenen) und
+betreffen Props, keine Styles/Klassen je Instanz; Publish-Versionen (unveränderliche
+Definitionen) fehlen; Slot-Restriktionen (`allowedComponents`/`max`) sind noch nicht am
+Modell; die MCP-Fassade (`list_components`, `set_component_override`) folgt; die inhaltliche
+Migration der 27 Sections (Punkte 2/3) steht weiter aus.
 
 ## Ergebnis Scheibe 2 Teil 1 (20.09., umgesetzt) — speicherbar, auflösbar, überschreibbar
 

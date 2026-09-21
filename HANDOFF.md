@@ -414,6 +414,90 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
   je Instanz, keine Geräteebenen); Publish-Versionen, Slot-Restriktionen, Varianten,
   Komponenten-Tab, MCP-Fassade und die Sections-Migration fehlen.
 
+### 2.10 Ticket 04 Scheibe 2 Teil 2 (21.09., uncommittet): Komponenten im Editor bedienbar
+
+- **Modelle rein (`editor/src/explorer.ts`):** `editorNodeLabel` löst die reservierten Typen auf
+  (Definition `Komponente · name`, Instanz liest den Namen der Definition über `componentId` -
+  fehlt sie, steht dort die Id; Slot `Slot · name`). `buildComponentList` zählt je Definition die
+  Instanzen. `editorMenuItems` liefert das Kontextmenü je Knotenart mit aufgelösten
+  Zustandslabels: `component-create` an einem gewöhnlichen Knoten, `component-detach` an einer
+  Instanz, `component-insert` an einer Definition; Wurzel und Slot-Platzhalter bieten keine der
+  drei. DOM-frei und im Node-Lauf geprüft.
+- **Panel (`explorer/panel.ts`):** das Menü kommt aus dem Modell; die drei Aktionen laufen über
+  `createComponent`/`detachComponent`/`instantiateComponent`, ein Fehler wird als Statusmeldung
+  berichtet statt still verloren. Nach dem Anlegen ist die **Definition** ausgewählt (F2 benennt
+  sie um - `textKeyOf` kennt `name` bei Definition und Slot; eine Instanz meldet, dass sie den
+  Namen ihrer Komponente trägt).
+- **Shell (`packages/app/public/app.js`):** vierter Explorer-Tab `Komponenten` mit
+  Instanz-Zähler; ein Klick fügt eine Instanz hinter der Auswahl ein und wählt sie.
+- **Tests:** `editor/test/explorer.test.ts` +3 (Labels inkl. Stale-Fallback, Liste/Zähler, Menü je
+  Knotenart + Zustandslabels); `app/test/canvas-view-browser.test.ts` fährt den Rundlauf im
+  Browser (anlegen → F2 `karte` → Tab `1 Instanz` → Instanz einfügen (Hero 2x) → auflösen;
+  Screenshots `08-komponente-angelegt.png`/`09-komponenten-tab.png`).
+- **Zahlen:** `pnpm test` **1325 grün / 2 übersprungen / 147 Dateien** (Log
+  `.scratch/testlauf-21-09-m4s2t2.log`, ohne Flake), typecheck 0, lint (eigene Bereiche) 0.
+- **Grenzen:** wie 2.9 (Overrides basisweit, keine Publish-Versionen/Slot-Regeln/Varianten,
+  MCP-Fassade und Sections-Migration offen).
+
+### 2.11 Ticket 04 MCP-Fassade (21.09., uncommittet): Komponenten für Agenten
+
+- **Drei Tools (`mcp/src/tools.ts`):** `list_components(pageId)` (Name, Part-Anzahl, Slot-Namen,
+  Instanz-Zähler und -Ids), `get_component(pageId, componentId)` (Parts mit Id/Typ/Props als
+  Override-Schlüssel, Slot-Platzhalter, Instanzen mit Beuteln), `set_component_override(pageId,
+  instanceId, partId, key, value, baseDraftVersion)` (merged wie die Editor-Op, `value: null`
+  löscht, leerer Beutel wird entfernt, Definition bleibt unberührt). Die Helfer spiegeln
+  `componentParts`/`editorOverrides`, ohne Editor-Pakete zu importieren.
+- **Guardrails:** unbekannte Instanz/Definition/Part (Vorschlag listet die gültigen Part-Ids),
+  fehlender `value`; geschrieben wird über `updateNodeProps` (Autor = Token-Name).
+- **Skills:** `packages/skills` Router + Master-Flow nennen den Weg, `SERVER_INSTRUCTIONS` eine
+  Leitlinie.
+- **Tests:** `mcp/test/workflow.test.ts` +1 (Aufbau per `apply_mutations`, list/get, Override
+  setzen/löschen, `get_nodes`-Beleg, drei Guardrails), Katalog-Test um drei Namen erweitert.
+- **Zahlen:** `pnpm test` **1326 grün / 2 übersprungen / 147 Dateien** (Log
+  `.scratch/testlauf-21-09-m4s2t3.log`, ohne Flake), typecheck 0, lint (eigene Bereiche) 0.
+
+### 2.12 Ticket 04 Scheibe 2 Teil 3 (21.09., uncommittet): Versionen und Slot-Regeln
+
+- **Modell (`section-sdk/src/components.ts`):** `ComponentSlotSpec` mit `allowedTypes` (leer =
+  alles) und `max` (null = unbegrenzt), gelesen über `readSlotSpec` (malformed wird ignoriert);
+  `ComponentDefinition.version` (`props.version`, Default 1); `instanceVersion` (`props.
+  componentVersion`, Default 1 - der **Pin**, kein Lookup-Schlüssel: alte Versionen werden nicht
+  gespeichert, der Release-Snapshot friert die Seite); `componentDrift(tree)` listet Instanzen,
+  deren Pin hinter der Definition liegt; `collectSlots` liefert die Specs.
+- **Registry (`registry/src/sections/structural.ts`):** Definition trägt `version`, Instanz
+  `componentVersion`, Slot `allowedTypes` (list) und `max` (number) - sichtbar als strukturelle
+  Props.
+- **Engine (`engine/src/mutations/apply.ts`):** `slotRulesFor`/`componentSlotSpecs` lesen die
+  Regeln aus dem Baum (WorkingTree, kein Definitions-Lookup über `componentDefinition`),
+  `requireSlotRules` ersetzt `requireSlotSpec`; `assertSlotPlacement`, `applySetSlotContent` und
+  `applyCreateCollectionEntry` prüfen unbekannten Slot, nicht erlaubten Typ und `max`. Test +1
+  (leeren → Regeln setzen → füllen → max/divider/unbekannter Slot abgelehnt), 7 grün.
+- **Editor:** `editorSlotSpecs` (`state/document.ts`) ist die **einzige** Auflösung (Instanz →
+  Definitions-Slots, sonst Widget-Katalog); `operations.ts` (`targetList`, `applySetSlotContent`,
+  `STRUCTURAL_PROPS`, `assertKnownProp`-Ausnahme), `canvas/insert.ts` (dokumentbasierte
+  Slot-Ablehnung, Instanz als Slot-Container), `canvas/dnd.ts` (`takesChildren`),
+  `state/consistency.ts` (slot-unknown/-not-allowed/-full, fehlende Definition toleriert).
+  Neue Ops in `state/components.ts`: `definitionVersionOf`, `instanceVersionOf`,
+  `componentDriftOf`/`componentDriftIn`, `bumpComponentVersion`, `updateComponentInstances`
+  (ein Batch = ein Undo); `createComponent` setzt v1/Pin v1, `instantiateComponent` pinnt die
+  aktuelle Version, `insertSlot` nimmt `allowedTypes`/`max` entgegen.
+- **UI:** Drift-Badge `v1` am Instanz-Knoten (title `Version 1 · Definition ist v2`), Menü an der
+  Definition um `Version erhöhen` (v1 → v2) und - nur bei Drift - `Instanzen aktualisieren`
+  erweitert; Tab-Hinweis `v2 · 2 Instanzen · 1 alt`. Browser-Rundlauf im
+  `canvas-view-browser.test.ts` (bump → Badge sichtbar → update → Badge weg; Screenshot
+  `10-komponente-version.png`).
+- **MCP:** `list_components` liefert `version`/`outdated`, `get_component` zusätzlich `drift` und
+  je Instanz `componentVersion`/`outdated`; zwei neue Tools `bump_component_version` und
+  `update_component_instances` (idempotent: ohne Drift `updated: 0`, kein Schreibzugriff),
+  SERVER_INSTRUCTIONS und Skills (Router + Master-Flow) nennen den Weg.
+- **Tests:** section-sdk 15, engine components 7, editor components 10, explorer 14, mcp 18,
+  Browser-Rundlauf grün.
+- **Zahlen:** `pnpm test` **1352 grün / 2 übersprungen / 149 Dateien** (Log
+  `.scratch/testlauf-21-09-m4s2t4.log`), typecheck 0, lint (eigene Bereiche) 0.
+- **Grenzen:** Drift ist ein Signal im Editor/MCP, kein automatisches Nachziehen beim Publish;
+  Varianten, Styles je Instanz, Geräteebenen für Overrides und Publish-Versionen site-weit
+  bleiben offen.
+
 ---
 
 ## 3. Phasenstand
@@ -428,7 +512,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
 | — | 18.09.: Ticket 13 Rest (Bake + Klassen-Transport + scoped-Rekey) + Klassen am DOM + Motion M0–M5 + Ticket 20; 19.09.: Slot-/Collection-Transport verifiziert | ✅ | `issues/13`, `issues/19`–`22`, `docs/adr/0006`, `.scratch/motion-v2/` |
 | 2 | Style-Rule-Registry (Server ✅), Wert-Grammatik ✅, Editor-Modell ✅, Inspektor ✅ (20.09.) | ✅ | `issues/07`, `10`, `13`, `02` |
 | 3 | Chrome: Explorer/Kontextmenü/Spotlight ✅, DnD ✅, Design/Live ✅, Inline-Edit ✅, Undo-UI ✅, Keyboard ✅, Drag + Tabs ✅ (20.09.) | ✅ | `issues/03` + 12/16 |
-| 4 | Visual Components: Scheibe 1 (Component-Kern) ✅ + Scheibe 2 Teil 1 (speicherbar, Bake-Rekey, Overrides) ✅ (20.09.); Sections-Migration offen | 🔄 | `issues/04` |
+| 4 | Visual Components: Scheibe 1 (Component-Kern) ✅ + Scheibe 2 Teil 1 (speicherbar, Bake-Rekey, Overrides) ✅ (20.09.) + Teil 2 (Komponenten-Tab, Kontextmenü) ✅ (21.09.); Sections-Migration offen | 🔄 | `issues/04` |
 | 5 | SSE-Kanal, Live-Mitverfolgung, Leistungsbudget | ❌ | `issues/05` |
 
 ---
@@ -478,7 +562,7 @@ Alle unter `.scratch/editor-v2-rebuild/issues/`. Stand:
 | 01-widget-engine-canvas | Phase 0/1: Fundament, Primitive, Canvas, DnD | Fundament ✅, Punkt 7 (DnD) offen → Ticket 12 |
 | 02-style-engine-inspector | Inspektor, volle CSS-Fähigkeiten, MCP-Style-Tools | **erledigt (20.09.)** — Punkte 3–7: Override-UX, Forced States (scoped Rule + Transport), Token-Picker, offene Property-Zeile, MCP-Tools |
 | 03-editor-chrome | Phase 3: Explorer, Kontextmenü, Spotlight, Inline-Edit, Tastatur | **erledigt (20.09.)** — inkl. Inline-Edit, Verlauf, Keyboard, Explorer-Drag, Site-/Media-Tabs, Copy/Paste/Wrap |
-| 04-visual-components | Phase 4: VCs, Sections als VCs, Cutover | **Scheibe 1 + Scheibe 2 Teil 1 erledigt (20.09.)** — Kern, Engine-Aufnahme, Bake-Rekey/Multi-Instanz-Remap, Overrides (Modell/Editor/Inspektor/Canvas); offen: Publish-Versionen, Slot-Restriktionen, Varianten, Komponenten-Tab, MCP-Fassade, Sections-Migration |
+| 04-visual-components | Phase 4: VCs, Sections als VCs, Cutover | **Scheibe 1 + Scheibe 2 Teil 1/2/3 + MCP-Fassade erledigt (20./21.09.)** — Kern, Engine-Aufnahme, Bake-Rekey/Multi-Instanz-Remap, Overrides (Modell/Editor/Inspektor/Canvas), Komponenten-Tab + Kontextmenü, Versionen mit Drift, Slot-Regeln (`allowedTypes`/`max`), MCP `list_components`/`get_component`/`set_component_override`/`bump_component_version`/`update_component_instances`; offen: Publish-Versionen site-weit, Varianten, Sections-Migration |
 | 05-live-build-follow-polish | Phase 5: SSE, Live-Mitverfolgung | offen |
 | 06-adr-puck-abschied | ADR-07 (Puck-Abschied) | **erledigt (20.09.)** — ADR-0007, Puck-Code + Peer-Dependency entfernt |
 | 07-style-rule-modell | Kanonisches Modell im Editor-Dokument + Wert-Grammatik + `states`/`authoredBy` | **erledigt (Stufen 0–6)** |
@@ -519,11 +603,15 @@ committet `55593f1`). Der Testlauf ist grün (**1270/2/141**, Log
 **Als Nächstes:**
 
 1. **Runde 2 + Ticket 04 Scheibe 1 (20.09.): erledigt, committet** (`d25e4d0`/`c0da522`/
-   `619c5d8`) — siehe §2.7/§2.8. **Ticket 04 Scheibe 2 Teil 1 (20.09.): erledigt,
-   uncommittet** — siehe §2.9. Damit sind die Phasen 2 und 3 fachlich abgeschlossen; offen
-   sind **Ticket 04 Scheibe 2 Rest** (Publish-Versionen, Slot-Restriktionen, Varianten,
-   Komponenten-Tab, MCP-Fassade, Sections-Migration), **Ticket 05 (Phase 5: SSE-Kanal,
-   Live-Mitverfolgung, Leistungsbudget)** und **Ticket 19 M6** (optionale Scrub-Stufe).
+   `619c5d8`) - siehe §2.7/§2.8. **Ticket 04 Scheibe 2 Teil 1 (20.09.): erledigt, committet**
+   (`7f7ccd6`/`2c64aaf`/`41a2ddb`) - siehe §2.9. **Teil 2 (21.09.): erledigt, uncommittet**
+   (Komponenten-Tab, Kontextmenü, Namen im Baum) - siehe §2.10. **MCP-Fassade (21.09.):
+   erledigt, uncommittet** (`list_components`, `get_component`, `set_component_override`) -
+   siehe §2.11. **Teil 3 (21.09.): erledigt, uncommittet** (Versionen mit Drift, Slot-Regeln,
+   `bump_component_version`/`update_component_instances`) - siehe §2.12. Damit sind die Phasen 2
+   und 3 fachlich abgeschlossen; offen sind **Ticket 04 Scheibe 2 Rest** (Publish-Versionen
+   site-weit, Varianten, Sections-Migration), **Ticket 05 (Phase 5: SSE-Kanal, Live-Mitverfolgung,
+   Leistungsbudget)** und **Ticket 19 M6** (optionale Scrub-Stufe).
 2. **Vor dem E2-Cutover (Ticket 04):** Katalog-Namen in der Engine registrieren (Strangler) —
    **die strukturellen Typen sind jetzt registriert** (§2.9); noch offen: Dublette
    `divider`/`embed` auflösen, Paritäts-Tor als CI-Blocker scharf schalten.
@@ -607,8 +695,42 @@ Commit `git status` prüfen und nach Pfaden stagen, nie `git add -A`.
   Kill-Switch und gibt Pending frei. Gegenprobe als Browser-Test (`visual.test.ts`); das
   Paritäts-Tor selbst (`widget-slice-browser.test.ts`) bleibt unverändert.
 
-**Neu am 20.09.:**
+**Neu am 21.09.:**
 
+- **Die UI-Entscheidung gehört ins Modell, nicht ins DOM.** Das Panel ist im Node-Lauf nicht
+  prüfbar; welcher Menüeintrag für welchen Knoten gilt (und wie Zustandslabels heißen), liegt
+  deshalb als reine Funktion in `explorer.ts` (`editorMenuItems`, `buildComponentList`,
+  `editorNodeLabel`) — das Panel rendert nur. Muster für die nächsten UI-Slices.
+- **Der v1-Deep-Link (`?view=editor`) prüft nur die Hülle:** `app.js` reicht
+  `currentTree = fresh.draft` (v2-Dokument) an `mountEditor`, das ihn als v1-`NodeTree` liest
+  (`node.type` statt `primitive`); der Browser-Test zählt nur die drei iframes. Der Alt-Pfad ist
+  damit schon vor dem Cutover außerhalb seines Vertrags — Kandidat für Ticket 04/E2.
+- **Definitionen und Slots tragen ihren Anzeigenamen in `name`:** F2 schreibt dort (die
+  Wert-Grammatik lässt strukturelle Props aus); eine Instanz hat keinen eigenen Namen, ihr Label
+  kommt aus der Definition über `componentId` (Fallback Id).
+- **Eine Definition hat genau ein Wurzelkind** — ein Slot-Platzhalter gehört *in* dieses Kind,
+  nicht als zweites Kind der Definition; sonst meldet der Inliner „mehr als eine Wurzel". Die
+  Engine erlaubt strukturelle Kinder auch in Sektionen mit `allowedChildren: "none"`
+  (Indirektion), das Modell bleibt trotzdem eines.
+- **Die Produktions-Registry kennt `container`/`block` nicht** (Test-Sektionen aus
+  `engine/test/helpers.ts`); MCP-/Engine-Tests bauen Definitionen aus kuratierten Typen
+  (`hero`, `divider`, …). Die MCP-Komponenten-Tools spiegeln die Editor-Logik als eigene
+  Helfer, importieren aber keine Editor-Pakete (Dependency-Richtung bleibt mcp → registry).
+- **Slot-Regeln kommen aus dem Baum, nicht aus einem Register:** Engine (`slotRulesFor`) und
+  Editor (`editorSlotSpecs`) lösen Instanz → Definition im jeweils eigenen Baum auf; so gelten
+  die Regeln auch für Definitionen, die erst im selben Draft/Bake entstehen.
+  `componentDefinition(tree)` (section-sdk) bleibt der Lesepfad für Modell-Nutzer.
+- **`version`/`componentVersion` sind strukturelle Props:** die Registry deklariert sie nur
+  (`version`, `componentVersion`, `allowedTypes`, `max`), der Editor nimmt sie in
+  `STRUCTURAL_PROPS` von der Bekannt-Prüfung aus; ein Bump schreibt genau `props.version`.
+- **Drift ist ein Signal, kein Automatismus:** `bumpComponentVersion` lässt jede Instanz auf
+  ihrem Pin; erst `updateComponentInstances` zieht alle in **einem** Batch nach (ein Undo).
+  Der Release-Snapshot friert die Seite weiter ein — alte Versionen werden nicht gespeichert.
+- **Im Browser-Test nach dem Umbenennen neu lokalisieren:** ein Locator mit
+  `hasText: "Komponente · hero"` matcht nach F2 (`karte`) nichts mehr; der Timeout schlug im
+  `click` zu, nicht am Badge. Nach jeder Umbenennung einen frischen Locator bauen.
+
+**Neu am 20.09.:**
 - **Ein zweiter Strang arbeitet im selben Baum** (Referenz-Bibliothek/Redesign:
   `references-*`, `redesign-package.*`, app.js/app.css). Seine unfertigen Stellen sind
   nicht vom Editor-Umbau: `pnpm lint` meldet `plainId` in
