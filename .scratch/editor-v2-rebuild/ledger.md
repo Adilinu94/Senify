@@ -139,6 +139,24 @@ beide Teile koexistieren; nichts ueberschrieben. Kein Produktcode geaendert.
   typecheck 0, lint in den eigenen Bereichen 0.
 - **Offen (Ticket 05 Rest):** Vorschau-Follow, Agent-Preview-Modus, Performance-Budget.
 
+**Ticket 05 Scheibe 2 (21.09., umgesetzt): Vorschau-Follow, Agent-Vorschau, Leistungsbudget.**
+
+- **Punkt 4 (Vorschau-Follow):** Live-Modus baut bei Store-Wechsel die Frames neu
+  (`rebuildFrames` statt Patch) — echte Seite + frische Runtime; `pendingFlash` wartet auf den
+  frischen Frame; Marker-Paint auch live (Viewport aus echter Frame-Groesse, Auswahl aus).
+  Browser-Test beweist den Reload per Dokument-Marker + Banner + Ring
+  (`12-live-vorschau-follow.png`).
+- **Punkt 5 (Agent-Vorschau):** Schalter `canvas-follow` (Default an, `localStorage`);
+  seitenuebergreifendes Folgen bei `draft.changed`, `page.created` zieht die Seitenliste nach und
+  oeffnet die Seite (ohne offene Aenderungen); eigene Seitenwahl schaltet ab; SSE-Kanal wird beim
+  Routenwechsel geschlossen (`activeLiveStream`). Test `13-agent-vorschau.png`.
+- **Punkt 7 (Leistungsbudget):** `pruef-t05-performance.mjs` (echtes Canvas + Harness, CDP-Layout,
+  rAF-Beobachter) und `pruef-t05-breakdown.mjs` (CPU-Profil). Fixes: Regeln einmal je Refresh,
+  Annotationen in einem DOM-Durchlauf, `flushNextFrame()` (rAF-Split), React-Element-Cache,
+  Nebenschienen einen Frame spaeter. **Ergebnis:** Paint 620-850 ms, Insert-Median 12-13 ms,
+  p95 21-25 ms, ~2,3 Layouts je Insert, keine Konsolenfehler
+  (`.scratch/refs/nick/perf/t05-performance.json`).
+
 **Ticket 04 Scheibe 2 Teil 3 (21.09., umgesetzt): Versionen und Slot-Regeln -
 Definition/Instanz-Drift, Regeln aus dem Baum, Editor-/MCP-Oberfläche.**
 

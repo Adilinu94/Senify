@@ -394,11 +394,13 @@ Sections-Migration.
 
 ### E12 · Build-System: Re-Bake, Jobs, SSE — **P1, L**
 
-**Stand (21.09., Ticket 05 Scheibe 1):** Der SSE-Kanal steht — `GET /api/events?site=…` mit
+**Stand (21.09., Ticket 05 Scheibe 1/2):** Der SSE-Kanal steht — `GET /api/events?site=…` mit
 Prozess-Bus (`EngineEvents`), Publish bei Draft-, Seiten-, Asset- und Release-Änderungen; der
-Editor folgt live (Store-Patch, Blitz-Highlight, Bau-Protokoll), der Proxy reicht den Strom
-durch und räumt beim Client-Abbruch auf. Offen: Job-API mit Claim/Lease (S1 ist nur der
-Status-Lesepfad), inkrementelle Routen-Bakes, `senify doctor`, Fallback-Ketten.
+Editor folgt live (Store-Patch, Blitz-Highlight, Bau-Protokoll), im Live-Modus lädt die Vorschau
+bei fremder Änderung neu, die **Agent-Vorschau** folgt dem Agenten über Seitengrenzen (Seitenliste
+zieht nach, eigene Seitenwahl schaltet ab), der Proxy reicht den Strom durch und räumt beim
+Client-Abbruch auf. Offen: Job-API mit Claim/Lease (S1 ist nur der Status-Lesepfad),
+inkrementelle Routen-Bakes, `senify doctor`, Fallback-Ketten.
 
 **Ziel:** Content-Änderungen landen zuverlässig und schnell auf der Seite.
 **Umfang:** Durable Outbox + Dependency-Index; Job-API (Status, Retry, Dedup, Priorität); inkrementelle Routen-Bakes; Build-Status in UI/MCP/Audit; SSE-Kanal für Live-Mitverfolgung (Ticket 05); CMS-Grenze 500 auflösen (Pagination); **`senify doctor`** (Status je Fähigkeit — Engine, PG, Token, MCP, Assets, Bake, Ports — mit konkretem Fix-Befehl und ehrlicher „nicht verifiziert"-Markierung, Muster Agent-Reach); **Fallback-Ketten mit Health-Checks** für Fetch (Playwright → Firecrawl → Snapshot) und Deploy (Adapter-Primary → Fallback).
@@ -450,6 +452,15 @@ Status-Lesepfad), inkrementelle Routen-Bakes, `senify doctor`, Fallback-Ketten.
 **Abhängig:** E5 (Session-Kern). **Blockiert:** sauberes Konfliktverhalten, Agenten-Undo.
 
 ### E18 · Performance-Budget & inkrementelles Rendering — **P1, M**
+
+**Stand (21.09., Ticket 05 Scheibe 2):** Ein Messskript liegt vor
+(`.scratch/editor-v2-rebuild/pruef-t05-performance.mjs`, Zerlegung in
+`pruef-t05-breakdown.mjs`); gemessen auf 60 Nodes / 3 Blätter: erstes Paint 620-850 ms
+(< 1 s), Insert-Median 12-13 ms (< 16 ms), p95 21-25 ms, ~2,3 Layouts je Insert. Der
+Refresh kompiliert die CSS-Regeln einmal je Durchlauf, annotiert in einem DOM-Durchlauf,
+teilt den React-Element-Aufbau und rendert die Nebenschienen einen Frame später
+(rAF-Split). Offen bleibt der Kern von E18: selektor-basierte Subscriptions,
+Change-Sets/Subtree-Invalidierung, Node-Memoization, Parent-Index, CSS-Dirty-Marker.
 
 **Ziel:** Der Editor bleibt bei 1.000+ Nodes flüssig und messbar; L21 wird vom Befund zum Gate.
 **Umfang:** Budget mit Zahlen (Store-Apply < 8 ms bei 1.000 Nodes; Interaktion < 16 ms; Explorer-Scroll 60 fps virtualisiert; CSS-Emission nur betroffener Regeln); selektor-basierte Subscriptions statt globalem `subscribe`; Change-Set aus Patch-Liste → nur betroffene Subtrees invalidieren; Node-Memoization; Parent-/Child-Index statt O(n)-Suche; CSS-Cache mit Dirty-Markern; inkrementelle Style-Emission; Undo-Snapshot-Limits.

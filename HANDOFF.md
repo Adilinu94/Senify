@@ -414,7 +414,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
   je Instanz, keine Geräteebenen); Publish-Versionen, Slot-Restriktionen, Varianten,
   Komponenten-Tab, MCP-Fassade und die Sections-Migration fehlen.
 
-### 2.10 Ticket 04 Scheibe 2 Teil 2 (21.09., uncommittet): Komponenten im Editor bedienbar
+### 2.10 Ticket 04 Scheibe 2 Teil 2 (21.09., committet cb640d2): Komponenten im Editor bedienbar
 
 - **Modelle rein (`editor/src/explorer.ts`):** `editorNodeLabel` löst die reservierten Typen auf
   (Definition `Komponente · name`, Instanz liest den Namen der Definition über `componentId` -
@@ -439,7 +439,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
 - **Grenzen:** wie 2.9 (Overrides basisweit, keine Publish-Versionen/Slot-Regeln/Varianten,
   MCP-Fassade und Sections-Migration offen).
 
-### 2.11 Ticket 04 MCP-Fassade (21.09., uncommittet): Komponenten für Agenten
+### 2.11 Ticket 04 MCP-Fassade (21.09., committet 781112c): Komponenten für Agenten
 
 - **Drei Tools (`mcp/src/tools.ts`):** `list_components(pageId)` (Name, Part-Anzahl, Slot-Namen,
   Instanz-Zähler und -Ids), `get_component(pageId, componentId)` (Parts mit Id/Typ/Props als
@@ -456,7 +456,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
 - **Zahlen:** `pnpm test` **1326 grün / 2 übersprungen / 147 Dateien** (Log
   `.scratch/testlauf-21-09-m4s2t3.log`, ohne Flake), typecheck 0, lint (eigene Bereiche) 0.
 
-### 2.12 Ticket 04 Scheibe 2 Teil 3 (21.09., uncommittet): Versionen und Slot-Regeln
+### 2.12 Ticket 04 Scheibe 2 Teil 3 (21.09., committet cb640d2): Versionen und Slot-Regeln
 
 - **Modell (`section-sdk/src/components.ts`):** `ComponentSlotSpec` mit `allowedTypes` (leer =
   alles) und `max` (null = unbegrenzt), gelesen über `readSlotSpec` (malformed wird ignoriert);
@@ -498,7 +498,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
   Varianten, Styles je Instanz, Geräteebenen für Overrides und Publish-Versionen site-weit
   bleiben offen.
 
-### 2.13 Ticket 05 Scheibe 1 (21.09., uncommittet): SSE-Kanal, Live-Mitverfolgung, Bau-Protokoll
+### 2.13 Ticket 05 Scheibe 1 (21.09., committet dfff706): SSE-Kanal, Live-Mitverfolgung, Bau-Protokoll
 
 - **Engine (`engine/src/events.ts`, neu):** `EngineEvents` als Prozess-Bus (`publish`/`subscribe`),
   `openStream(res, siteId)` schreibt einen SSE-Strom (Filter je Site, `retry: 3000`, Heartbeat
@@ -535,6 +535,33 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
 - **Grenzen (Ticket 05 Rest):** Punkt 4 (Vorschau folgt) und Punkt 5 (Agent-Preview-Modus im
   Live-Modus) sind noch nicht verdrahtet; Punkt 7 (Performance-Budget/Messskript) steht aus.
 
+### 2.14 Ticket 05 Scheibe 2 (21.09., uncommittet): Vorschau-Follow, Agent-Vorschau, Leistungsbudget
+
+- **Vorschau-Follow (Punkt 4):** Im Live-Modus baut ein Store-Wechsel die Frames neu
+  (`rebuildFrames` statt Baum-Patch) — die echte Seite wird ersetzt und die Release-Runtime
+  frisch injiziert. Der Fern-Blitz wartet auf den frischen Frame (`pendingFlash`, weil das alte
+  Dokument gleich verschwindet); der Marker-Paint laeuft auch im Live-Modus (Viewport aus der
+  echten Frame-Groesse, Auswahl-Chrome bleibt aus). Browser-Test: Dokument-Marker beweist den
+  Reload, Banner erscheint, Ring blitzt (`12-live-vorschau-follow.png`).
+- **Agent-Vorschau (Punkt 5):** Schalter in der Werkzeugleiste (`data-action="canvas-follow"`,
+  standardmaessig an, global in `localStorage`); `draft.changed` auf einer anderen Seite
+  wechselt dorthin, `page.created` zieht die Seitenliste nach (Explorer) und oeffnet die neue
+  Seite — nur ohne offene lokale Aenderungen. Eigene Seitenwahl schaltet den Schalter aus.
+  Der SSE-Kanal wird beim Routenwechsel geschlossen (`activeLiveStream`, vorher leckte jede
+  Navigation eine Verbindung). Browser-Test: `13-agent-vorschau.png`.
+- **Leistungsbudget (Punkt 7):** Neues Skript
+  `.scratch/editor-v2-rebuild/pruef-t05-performance.mjs` (fluechtige Instanz; Teil A echtes
+  Canvas — erstes Paint; Teil B Harness — Insert-Serie, CDP-Layoutzaehler, rAF-Beobachter) und
+  `pruef-t05-breakdown.mjs` (Zerlegung + CPU-Profil). **Fixes:** CSS-Regeln einmal je Refresh
+  statt je Blatt; Annotationen in einem DOM-Durchlauf; Marker-Paint per `flushNextFrame()`
+  (rAF-Lesen/Schreiben getrennt); React-Element einmal je Refresh (Cache, JSX war der
+  Profil-Spitzenreiter); Nebenschienen einen Frame spaeter (Write-Split, aktives Blatt
+  synchron). **Zahlen:** erstes Paint 620-850 ms (< 1 s), Insert-Median 12-13 ms (< 16 ms),
+  p95 21-25 ms, 2,2-2,5 Layouts je Insert, ohne Konsolenfehler; Streuung im Headless-Lauf hoch,
+  Urteil ueber die zwei Ticket-Zahlen (`.scratch/refs/nick/perf/t05-performance.json`).
+- **Tests:** `canvas-view-browser.test.ts` erweitert (Live-Reload + Ring, Agent-Vorschau,
+  erwarteter SSE-Abbruch beim Routenwechsel); Editor-Suite unveraendert gruen.
+
 ---
 
 ## 3. Phasenstand
@@ -550,7 +577,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
 | 2 | Style-Rule-Registry (Server ✅), Wert-Grammatik ✅, Editor-Modell ✅, Inspektor ✅ (20.09.) | ✅ | `issues/07`, `10`, `13`, `02` |
 | 3 | Chrome: Explorer/Kontextmenü/Spotlight ✅, DnD ✅, Design/Live ✅, Inline-Edit ✅, Undo-UI ✅, Keyboard ✅, Drag + Tabs ✅ (20.09.) | ✅ | `issues/03` + 12/16 |
 | 4 | Visual Components: Scheibe 1 (Component-Kern) ✅ + Scheibe 2 Teil 1 (speicherbar, Bake-Rekey, Overrides) ✅ (20.09.) + Teil 2 (Komponenten-Tab, Kontextmenü) ✅ (21.09.); Sections-Migration offen | 🔄 | `issues/04` |
-| 5 | SSE-Kanal, Live-Mitverfolgung, Leistungsbudget | ❌ | `issues/05` |
+| 5 | SSE-Kanal, Live-Mitverfolgung, Leistungsbudget | ✅ (21.09.) | `issues/05`, `pruef-t05-performance.mjs` |
 
 ---
 
@@ -600,7 +627,7 @@ Alle unter `.scratch/editor-v2-rebuild/issues/`. Stand:
 | 02-style-engine-inspector | Inspektor, volle CSS-Fähigkeiten, MCP-Style-Tools | **erledigt (20.09.)** — Punkte 3–7: Override-UX, Forced States (scoped Rule + Transport), Token-Picker, offene Property-Zeile, MCP-Tools |
 | 03-editor-chrome | Phase 3: Explorer, Kontextmenü, Spotlight, Inline-Edit, Tastatur | **erledigt (20.09.)** — inkl. Inline-Edit, Verlauf, Keyboard, Explorer-Drag, Site-/Media-Tabs, Copy/Paste/Wrap |
 | 04-visual-components | Phase 4: VCs, Sections als VCs, Cutover | **Scheibe 1 + Scheibe 2 Teil 1/2/3 + MCP-Fassade erledigt (20./21.09.)** — Kern, Engine-Aufnahme, Bake-Rekey/Multi-Instanz-Remap, Overrides (Modell/Editor/Inspektor/Canvas), Komponenten-Tab + Kontextmenü, Versionen mit Drift, Slot-Regeln (`allowedTypes`/`max`), MCP `list_components`/`get_component`/`set_component_override`/`bump_component_version`/`update_component_instances`; offen: Publish-Versionen site-weit, Varianten, Sections-Migration |
-| 05-live-build-follow-polish | Phase 5: SSE, Live-Mitverfolgung | **Scheibe 1 erledigt (21.09., uncommittet)** — SSE-Kanal, Live-Follow mit Store-Patch + Blitz, Bau-Protokoll, Auswahl-Pruning; offen: Vorschau-Follow, Agent-Preview-Modus, Performance-Budget |
+| 05-live-build-follow-polish | Phase 5: SSE, Live-Mitverfolgung | **erledigt (21.09., committet `dfff706`/`12de0aa`, Scheibe 2 uncommittet)** — SSE-Kanal, Live-Follow mit Store-Patch + Blitz, Bau-Protokoll, Auswahl-Pruning, Vorschau-Follow im Live-Modus, Agent-Vorschau ueber Seitengrenzen, Leistungsbudget mit Messskript (Insert-Median 12-13 ms) |
 | 06-adr-puck-abschied | ADR-07 (Puck-Abschied) | **erledigt (20.09.)** — ADR-0007, Puck-Code + Peer-Dependency entfernt |
 | 07-style-rule-modell | Kanonisches Modell im Editor-Dokument + Wert-Grammatik + `states`/`authoredBy` | **erledigt (Stufen 0–6)** |
 | 08-geraetestationen | Drei Stationen | **erledigt** (O10; ui-plan/aufgaben korrigiert) |
@@ -646,17 +673,18 @@ committet `55593f1`). Der Testlauf ist grün (**1270/2/141**, Log
    erledigt, uncommittet** (`list_components`, `get_component`, `set_component_override`) -
    siehe §2.11. **Teil 3 (21.09.): erledigt, uncommittet** (Versionen mit Drift, Slot-Regeln,
    `bump_component_version`/`update_component_instances`) - siehe §2.12. **Ticket 05 Scheibe 1
-   (21.09.): erledigt, uncommittet** (SSE-Kanal, Live-Follow, Bau-Protokoll) - siehe §2.13.
-   Damit sind die Phasen 2 und 3 fachlich abgeschlossen; offen sind **Ticket 04 Scheibe 2 Rest**
-   (Publish-Versionen site-weit, Varianten, Sections-Migration), **Ticket 05 Rest**
-   (Vorschau-Follow, Agent-Preview-Modus, Performance-Budget) und **Ticket 19 M6** (optionale
-   Scrub-Stufe).
+   (21.09.): erledigt, committet** (`dfff706`/`12de0aa`) - siehe §2.13. **Ticket 05 Scheibe 2
+   (21.09.): erledigt, uncommittet** (Vorschau-Follow, Agent-Vorschau, Leistungsbudget) - siehe
+   §2.14. Damit sind die Phasen 2, 3 und 5 fachlich abgeschlossen; offen sind **Ticket 04
+   Scheibe 2 Rest** (Publish-Versionen site-weit, Varianten, Sections-Migration) und **Ticket 19
+   M6** (optionale Scrub-Stufe).
 2. **Vor dem E2-Cutover (Ticket 04):** Katalog-Namen in der Engine registrieren (Strangler) —
    **die strukturellen Typen sind jetzt registriert** (§2.9); noch offen: Dublette
    `divider`/`embed` auflösen, Paritäts-Tor als CI-Blocker scharf schalten.
    Ticket 11 ist erledigt (19.09., `hiddenDevices`).
-3. **Danach:** Ticket 05 Rest (Vorschau-Follow, Performance-Budget) und die offenen E-Pakete aus
-   `docs/verbesserungsplan.md`.
+3. **Danach:** Ticket 04 Scheibe 2 Rest (Publish-Versionen, Varianten, Override-Ebenen,
+   Sections-Migration), Ticket 19 M6 (Scrub) und die offenen E-Pakete aus
+   `docs/verbesserungsplan.md` (E18 inkrementelles Rendering hat mit §2.14 jetzt Zahlen).
 
 **Strategischer Rahmen (19.09.):** `docs/verbesserungsplan.md` — Zielbild Framer/Webflow-Niveau,
 Lücken L1–L33 (P0–P3), 16 Epics (E1–E16) mit Akzeptanzkriterien, Roadmap Phase A–D, Gates und die
