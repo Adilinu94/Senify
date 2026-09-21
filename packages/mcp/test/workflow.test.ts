@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer, EngineClient, type ToolContext } from "@senify/mcp";
+import { runImageJobOnce, type ImageProvider } from "@senify/engine";
 import {
   bootMcpEnv,
   createSite,
@@ -97,6 +98,11 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "apply_mutations",
       "set_motion",
       "clear_motion",
+      "list_components",
+      "get_component",
+      "set_component_override",
+      "bump_component_version",
+      "update_component_instances",
       "set_styles",
       "create_style_rule",
       "create_page",
@@ -114,6 +120,9 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "replace_asset",
       "delete_asset",
       "restore_asset",
+      "generate_image",
+      "get_image_job",
+      "list_image_jobs",
       "list_collections",
       "get_collection",
       "list_entries",
@@ -422,8 +431,214 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     expect((nameless.data.error as Json).category).toBe("validation");
   });
 
-  it("blocks write tools for read-only tokens with an actionable error", async () => {
-    const siteId = await createSite(env, "Read Only");
+  it("lists, reads and overrides components (ticket 04)", async () => {
+    const siteId = await createSite(env, "MCP Components");
+    const created = await call(session, "create_page", { siteId, title: "Start" });
+    const pageId = created.data.id as string;
+    const rootNodeId = (created.data.draft as { rootNodeId: string }).rootNodeId;
+    // The definition is ordinary page data: a container with a block and a
+    // slot, plus one instance under the root.
+    const applied = await call(session, "apply_mutations", {
+      pageId,
+      baseDraftVersion: 1,
+      mutations: [
+        {
+          op: "insertNode",
+          parent: { nodeId: rootNodeId },
+          node: { id: "def-card-01", type: "__component", props: { name: "Karte" } },
+        },
+        {
+          op: "insertNode",
+          parent: { nodeId: "def-card-01" },
+          node: { id: "def-head-01", type: "hero", props: { headline: "Titel" } },
+        },
+        {
+          op: "insertNode",
+          parent: { nodeId: "def-head-01" },
+          node: { id: "def-slot-01", type: "__component_slot", props: { name: "inhalt" } },
+        },
+        {
+          op: "insertNode",
+          parent: { nodeId: rootNodeId },
+          node: {
+            id: "inst-01",
+            type: "__component_instance",
+            props: { componentId: "def-card-01" },
+          },
+        },
+      ],
+    });
+    expect(applied.ok).toBe(true);
+
+    // list_components: name, part count, slot names, instance count and ids.
+    const list = await call(session, "list_components", { pageId });
+    expect(list.ok).toBe(true);
+    const components = list.data.components as Json[];
+    expect(components).toHaveLength(1);
+    expect(components[0]?.name).toBe("Karte");
+    expect(components[0]?.parts).toBe(1);
+    expect(components[0]?.slots).toEqual(["inhalt"]);
+    expect(components[0]?.instances).toBe(1);
+    expect(components[0]?.instanceIds).toEqual(["inst-01"]);
+    expect(components[0]?.version).toBe(1);
+    expect(components[0]?.outdated).toBe(0);
+
+    // get_component: part ids are the override keys, slots and instances come
+    // with their current state.
+    const detail = await call(session, "get_component", {
+      pageId,
+      componentId: "def-card-01",
+    });
+    expect(detail.ok).toBe(true);
+    const parts = detail.data.parts as { id: string; type: string; props: Json }[];
+    expect(parts.map((part) => part.id)).toEqual(["def-head-01"]);
+    expect(parts[0]?.type).toBe("hero");
+    expect(parts[0]?.props.headline).toBe("Titel");
+    expect(detail.data.slots).toEqual([{ id: "def-slot-01", name: "inhalt" }]);
+    expect(detail.data.version).toBe(1);
+    expect(detail.data.drift).toEqual([]);
+    expect(detail.data.instances).toEqual([
+      { id: "inst-01", componentVersion: 1, outdated: false, overrides: {} },
+    ]);
+
+    const missing = await call(session, "get_component", {
+      pageId,
+      componentId: "gibtsnicht",
+    });
+    expect(missing.ok).toBe(false);
+    expect((missing.data.error as Json).category).toBe("not_found");
+
+    // set_component_override writes only the instance's bag; the definition
+    // part keeps its own value.
+    const overridden = await call(session, "set_component_override", {
+      pageId,
+      instanceId: "inst-01",
+      partId: "def-head-01",
+      key: "headline",
+      value: "Eigene Karte",
+      baseDraftVersion: list.data.draftVersion,
+    });
+    expect(overridden.ok).toBe(true);
+    expect(overridden.data.overrides).toEqual({
+      "def-head-01": { headline: "Eigene Karte" },
+    });
+    const afterWrite = await call(session, "get_component", {
+      pageId,
+      componentId: "def-card-01",
+    });
+    expect((afterWrite.data.instances as Json[])[0]?.overrides).toEqual({
+      "def-head-01": { headline: "Eigene Karte" },
+    });
+    expect(
+      (afterWrite.data.parts as { id: string; props: Json }[]).find(
+        (part) => part.id === "def-head-01",
+      )?.props.headline,
+    ).toBe("Titel");
+
+    // `value: null` clears the key and prunes the empty bag entirely.
+    const cleared = await call(session, "set_component_override", {
+      pageId,
+      instanceId: "inst-01",
+      partId: "def-head-01",
+      key: "headline",
+      value: null,
+      baseDraftVersion: overridden.data.newDraftVersion,
+    });
+    expect(cleared.ok).toBe(true);
+    expect(cleared.data.overrides).toBeNull();
+    const stored = await call(session, "get_nodes", { pageId, nodeIds: ["inst-01"] });
+    expect((stored.data.nodes as { props: Json }[])[0]?.props.overrides).toBeUndefined();
+
+    // Guardrails: unknown part, unknown instance and a missing value.
+    const version = cleared.data.newDraftVersion;
+    const badPart = await call(session, "set_component_override", {
+      pageId,
+      instanceId: "inst-01",
+      partId: "nope",
+      key: "headline",
+      value: "x",
+      baseDraftVersion: version,
+    });
+    expect(badPart.ok).toBe(false);
+    expect((badPart.data.error as Json).category).toBe("not_found");
+    expect(String((badPart.data.error as Json).suggestion)).toContain("def-head-01");
+
+    const badInstance = await call(session, "set_component_override", {
+      pageId,
+      instanceId: "def-head-01",
+      partId: "def-head-01",
+      key: "headline",
+      value: "x",
+      baseDraftVersion: version,
+    });
+    expect(badInstance.ok).toBe(false);
+    expect((badInstance.data.error as Json).category).toBe("not_found");
+
+    const noValue = await call(session, "set_component_override", {
+      pageId,
+      instanceId: "inst-01",
+      partId: "def-head-01",
+      key: "headline",
+      baseDraftVersion: version,
+    });
+    expect(noValue.ok).toBe(false);
+    expect((noValue.data.error as Json).category).toBe("validation");
+
+    // Versions: the definition starts at v1 and the instance pins v1. A bump
+    // creates drift, the update tool resolves it in one batch.
+    const bumped = await call(session, "bump_component_version", {
+      pageId,
+      componentId: "def-card-01",
+      baseDraftVersion: version,
+    });
+    expect(bumped.ok).toBe(true);
+    expect(bumped.data.version).toBe(2);
+    const drifted = await call(session, "get_component", {
+      pageId,
+      componentId: "def-card-01",
+    });
+    expect(drifted.data.version).toBe(2);
+    expect(drifted.data.drift).toEqual([
+      { instanceId: "inst-01", componentId: "def-card-01", pinned: 1, current: 2 },
+    ]);
+    expect((drifted.data.instances as Json[])[0]?.outdated).toBe(true);
+
+    const updated = await call(session, "update_component_instances", {
+      pageId,
+      componentId: "def-card-01",
+      baseDraftVersion: bumped.data.newDraftVersion,
+    });
+    expect(updated.ok).toBe(true);
+    expect(updated.data.updated).toBe(1);
+    expect(updated.data.version).toBe(2);
+
+    const clean = await call(session, "get_component", {
+      pageId,
+      componentId: "def-card-01",
+    });
+    expect(clean.data.drift).toEqual([]);
+    expect((clean.data.instances as Json[])[0]?.componentVersion).toBe(2);
+
+    // A second update finds nothing to do (no mutation, no draft change).
+    const again = await call(session, "update_component_instances", {
+      pageId,
+      componentId: "def-card-01",
+      baseDraftVersion: updated.data.newDraftVersion,
+    });
+    expect(again.ok).toBe(true);
+    expect(again.data.updated).toBe(0);
+
+    // An unknown definition is refused.
+    const noComponent = await call(session, "bump_component_version", {
+      pageId,
+      componentId: "gibtsnicht",
+      baseDraftVersion: updated.data.newDraftVersion,
+    });
+    expect(noComponent.ok).toBe(false);
+    expect((noComponent.data.error as Json).category).toBe("not_found");
+  });
+
+  it("blocks write tools for read-only tokens with an actionable error", async () => {    const siteId = await createSite(env, "Read Only");
     const readOnly = await createToken(env, "read-only", ["read"]);
     const reader = await connect(env.origin, readOnly);
     try {
@@ -618,6 +833,66 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  }, 30000);
+
+  it("generates an image: job → worker → asset (S2)", async () => {
+    const siteId = await createSite(env, "Bildgenerierung");
+    const generated = await call(session, "generate_image", {
+      siteId,
+      prompt: "a red teapot on a wooden table",
+      width: 512,
+      height: 512,
+      steps: 5,
+      altText: "Rote Teekanne",
+      tags: ["hero"],
+    });
+    expect(generated.ok).toBe(true);
+    expect(generated.data.status).toBe("queued");
+    expect(generated.data.provider).toBe("image-use");
+    const jobId = String(generated.data.jobId);
+
+    const queued = await call(session, "get_image_job", { jobId });
+    expect(queued.ok).toBe(true);
+    expect(queued.data.status).toBe("queued");
+
+    // The worker runs one claim-and-run cycle with a stub provider, so no real
+    // ComfyUI and no subscription is touched.
+    const bytes = pngBytes(512, 512);
+    const provider: ImageProvider = {
+      health: async () => ({ ok: true, built: true }),
+      generate: async () => ({
+        bytes,
+        mime: "image/png",
+        width: 512,
+        height: 512,
+        seed: 5,
+      }),
+    };
+    const job = await runImageJobOnce({
+      context: {
+        store: env.engine.store,
+        dataDir: env.engine.dataDir,
+        maxUploadBytes: env.engine.maxUploadBytes,
+        providers: () => ({ "image-use": provider }),
+      },
+    });
+    expect(job?.status).toBe("succeeded");
+    expect(job?.assetId).toBeTruthy();
+
+    const done = await call(session, "get_image_job", { jobId });
+    expect(done.data.status).toBe("succeeded");
+    expect(done.data.providerUsed).toBe("image-use");
+    expect(done.data.assetId).toBe(job?.assetId);
+
+    const listed = await call(session, "list_image_jobs", {
+      siteId,
+      status: "succeeded",
+    });
+    expect((listed.data.jobs as unknown[]).length).toBeGreaterThan(0);
+
+    const assets = await call(session, "list_assets", { siteId, tag: "hero" });
+    const items = assets.data.assets as { id: string; altText: string | null }[];
+    expect(items.some((asset) => asset.id === done.data.assetId)).toBe(true);
   }, 30000);
 
   it("runs the content workflow: collection → entry → publish → search", async () => {

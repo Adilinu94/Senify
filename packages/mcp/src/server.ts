@@ -145,6 +145,7 @@ const SERVER_INSTRUCTIONS = [
   "→ create_preview → submit_for_review → publish_release.",
   "Read tools work with the read scope; write tools need write, publish tools publish.",
   "apply_mutations is atomic per page and honors baseDraftVersion (on 409 reload the page and retry).",
+  "Components live on the page: list_components/get_component read definitions, instances and parts; set_component_override changes one instance without touching the definition. A definition carries a version (`props.version`), each instance pins the version it was placed with; bump_component_version moves the definition ahead and update_component_instances pulls drifting instances up in one batch.",
   "Prefer theme tokens over literal values; set_motion validates against the preset registry.",
 ].join(" ");
 

@@ -23,6 +23,7 @@ Follow the stages in order. Stop after each stage and check the result with a re
 - Pro Sektion: `get_section` (Props, Varianten, Golden), dann `insertNode` mit Golden-Props als Startpunkt, danach Inhalte über `updateNodeProps`.
 - Bündeln: mehrere Mutationen in einem `apply_mutations`-Batch (atomar, ein Undo).
 - Nach jedem Batch: `get_page` für den neuen `draftVersion`, Warnings lesen.
+- Wiederkehrende Bausteine als Komponente: `list_components` → `get_component` (Parts, Slots, Instanzen) → `set_component_override` ändert nur die eine Instanz. Versionen: `bump_component_version` hebt die Definition an, `update_component_instances` zieht abweichende Instanzen in einem Batch nach (Drift zeigt `get_component.drift`).
 
 ## 5. Styling und Layout
 

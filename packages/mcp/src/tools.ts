@@ -12,6 +12,15 @@ import {
   type StyleGroup,
 } from "@senify/registry";
 import type { PropSpec, Registry, SectionDefinition } from "@senify/section-sdk";
+import {
+  COMPONENT_DEFINITION_TYPE,
+  COMPONENT_INSTANCE_TYPE,
+  COMPONENT_SLOT_TYPE,
+  componentDefinitions,
+  componentDrift,
+  instanceVersion,
+  type NodeTree,
+} from "@senify/section-sdk";
 import type { EngineClient } from "./client.ts";
 import { pageOutline, selectNodes, type PageSummaryInput } from "./outline.ts";
 
@@ -272,6 +281,101 @@ async function pageFor(
   pageId: string,
 ): Promise<PageSummaryInput> {
   return context.client.request<PageSummaryInput>("GET", `/api/pages/${pageId}`);
+}
+
+/* ------------------------------------------------------- components (ticket 04)
+ * A component lives as ordinary nodes in the page draft: `__component` is the
+ * definition, `__component_instance` an instance, `__component_slot` a
+ * placeholder. The tools read the draft (list/get) and write the instance's
+ * override bag through the same mutation route the editor uses. */
+
+type ComponentWalk = {
+  parts: { id: string; type: string; props: Record<string, unknown> }[];
+  slots: { id: string; name: string }[];
+};
+
+// The declared parts and slot placeholders of a definition, in tree order.
+// Parts are the override keys; slot placeholders are structure, not parts.
+function walkComponent(tree: NodeTree, definitionId: string): ComponentWalk {
+  const parts: ComponentWalk["parts"] = [];
+  const slots: ComponentWalk["slots"] = [];
+  const rootChildId = tree.nodes[definitionId]?.children?.[0];
+  if (rootChildId === undefined) return { parts, slots };
+  const visit = (id: string): void => {
+    const node = tree.nodes[id];
+    if (node === undefined) return;
+    if (node.type === COMPONENT_SLOT_TYPE) {
+      slots.push({
+        id: node.id,
+        name: typeof node.props["name"] === "string" ? node.props["name"] : node.id,
+      });
+      return;
+    }
+    if (node.type === COMPONENT_DEFINITION_TYPE) return;
+    parts.push({
+      id: node.id,
+      type: node.type,
+      props: node.props as Record<string, unknown>,
+    });
+    for (const child of node.children ?? []) visit(child);
+    for (const list of Object.values(node.slots ?? {})) {
+      for (const child of list) visit(child);
+    }
+  };
+  visit(rootChildId);
+  return { parts, slots };
+}
+
+function readOverrideBag(value: unknown): Record<string, Record<string, unknown>> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return {};
+  const bag: Record<string, Record<string, unknown>> = {};
+  for (const [partId, props] of Object.entries(value)) {
+    if (props === null || typeof props !== "object" || Array.isArray(props)) continue;
+    bag[partId] = { ...(props as Record<string, unknown>) };
+  }
+  return bag;
+}
+
+// The version a definition carries (`props.version`, default 1) - the same
+// reading the editor and the bake use (section-sdk `ComponentDefinition`).
+function definitionVersion(tree: NodeTree, definitionId: string): number {
+  return (
+    componentDefinitions(tree).find((entry) => entry.id === definitionId)?.version ?? 1
+  );
+}
+
+// Every instance of one definition, with its pin and current override bag.
+// `outdated` marks the drift the update tool resolves.
+function componentInstanceList(
+  tree: NodeTree,
+  definitionId: string,
+): {
+  id: string;
+  componentVersion: number;
+  outdated: boolean;
+  overrides: Record<string, Record<string, unknown>>;
+}[] {
+  const current = definitionVersion(tree, definitionId);
+  return Object.values(tree.nodes)
+    .filter(
+      (node) =>
+        node.type === COMPONENT_INSTANCE_TYPE &&
+        node.props["componentId"] === definitionId,
+    )
+    .map((node) => {
+      const pinned = instanceVersion(node);
+      return {
+        id: node.id,
+        componentVersion: pinned,
+        outdated: pinned !== current,
+        overrides: readOverrideBag(node.props["overrides"]),
+      };
+    });
+}
+
+function componentName(tree: NodeTree, definitionId: string): string {
+  const value = tree.nodes[definitionId]?.props["name"];
+  return typeof value === "string" ? value : definitionId;
 }
 
 // The control of a widget as the agent reads it: what it is called, which
@@ -786,6 +890,272 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: "list_components",
+    title: "List components",
+    description:
+      "Lists the visual components defined on a page (definitions in the page draft) with name, part count, slot names and instance count. Use get_component for part ids, slot ids and instance ids.",
+    scope: "read",
+    inputSchema: objectSchema({ pageId: { type: "string" } }, ["pageId"]),
+    entity: (args) => `page:${String(args.pageId ?? "")}`,
+    handler: async (context, args) => {
+      const pageId = requireString(args, "pageId");
+      const page = await pageFor(context, pageId);
+      const components = Object.values(page.draft.nodes)
+        .filter((node) => node.type === COMPONENT_DEFINITION_TYPE)
+        .map((node) => {
+          const { parts, slots } = walkComponent(page.draft, node.id);
+          const instances = componentInstanceList(page.draft, node.id);
+          const drift = componentDrift(page.draft).filter(
+            (entry) => entry.componentId === node.id,
+          );
+          return {
+            id: node.id,
+            name: componentName(page.draft, node.id),
+            version: definitionVersion(page.draft, node.id),
+            parts: parts.length,
+            slots: slots.map((slot) => slot.name),
+            instances: instances.length,
+            outdated: drift.length,
+            instanceIds: instances.map((entry) => entry.id),
+          };
+        });
+      return { pageId: page.id, draftVersion: page.draftVersion, components };
+    },
+  },
+  {
+    name: "get_component",
+    title: "Get component",
+    description:
+      "Returns one component definition with its parts (id, type, current props - the override keys), its slot placeholders and its instances with their override bags. Use set_component_override to change one instance without touching the definition.",
+    scope: "read",
+    inputSchema: objectSchema(
+      { pageId: { type: "string" }, componentId: { type: "string" } },
+      ["pageId", "componentId"],
+    ),
+    entity: (args) => `page:${String(args.pageId ?? "")}`,
+    handler: async (context, args) => {
+      const pageId = requireString(args, "pageId");
+      const componentId = requireString(args, "componentId");
+      const page = await pageFor(context, pageId);
+      const definition = page.draft.nodes[componentId];
+      if (definition === undefined || definition.type !== COMPONENT_DEFINITION_TYPE) {
+        throw new SenifyError(
+          "not_found",
+          `Component "${componentId}" is not on the page`,
+          {
+            field: "componentId",
+            suggestion: "List the page's components with list_components.",
+          },
+        );
+      }
+      const { parts, slots } = walkComponent(page.draft, componentId);
+      return {
+        pageId: page.id,
+        draftVersion: page.draftVersion,
+        id: definition.id,
+        name: componentName(page.draft, componentId),
+        version: definitionVersion(page.draft, componentId),
+        parts,
+        slots,
+        drift: componentDrift(page.draft).filter(
+          (entry) => entry.componentId === componentId,
+        ),
+        instances: componentInstanceList(page.draft, componentId),
+      };
+    },
+  },
+  {
+    name: "set_component_override",
+    title: "Set component override",
+    description:
+      "Sets or clears one override of a component instance: the value applies only to this instance, the definition stays untouched. `value: null` clears the key; an empty override bag is removed. Read part ids and instance ids with get_component, then send baseDraftVersion from get_page.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        pageId: { type: "string" },
+        instanceId: { type: "string" },
+        partId: { type: "string" },
+        key: { type: "string" },
+        value: { description: "Any JSON value; null clears the key." },
+        baseDraftVersion: { type: "number" },
+      },
+      ["pageId", "instanceId", "partId", "key", "value", "baseDraftVersion"],
+    ),
+    entity: (args) => `page:${String(args.pageId ?? "")}`,
+    handler: async (context, args) => {
+      const pageId = requireString(args, "pageId");
+      const instanceId = requireString(args, "instanceId");
+      const partId = requireString(args, "partId");
+      const key = requireString(args, "key");
+      const page = await pageFor(context, pageId);
+      const instance = page.draft.nodes[instanceId];
+      if (instance === undefined || instance.type !== COMPONENT_INSTANCE_TYPE) {
+        throw new SenifyError(
+          "not_found",
+          `Instance "${instanceId}" is not on the page`,
+          {
+            field: "instanceId",
+            suggestion: "List the component's instances with get_component.",
+          },
+        );
+      }
+      const componentId = instance.props["componentId"];
+      const definition =
+        typeof componentId === "string" ? page.draft.nodes[componentId] : undefined;
+      if (definition === undefined || definition.type !== COMPONENT_DEFINITION_TYPE) {
+        throw new SenifyError(
+          "not_found",
+          `Component "${String(componentId)}" is not defined`,
+          {
+            field: "instanceId",
+            suggestion: "The instance points at a definition that is not on the page.",
+          },
+        );
+      }
+      const { parts } = walkComponent(page.draft, definition.id);
+      if (!parts.some((part) => part.id === partId)) {
+        throw new SenifyError(
+          "not_found",
+          `Component "${componentName(page.draft, definition.id)}" has no part "${partId}"`,
+          {
+            field: "partId",
+            suggestion: `Parts: ${parts.map((part) => part.id).join(", ") || "none"}.`,
+          },
+        );
+      }
+      const bag = readOverrideBag(instance.props["overrides"]);
+      const part = { ...(bag[partId] ?? {}) };
+      const value = args.value;
+      if (value === undefined) {
+        throw new SenifyError("validation", 'Missing "value"', {
+          field: "value",
+          suggestion: "Pass a JSON value, or null to clear the key.",
+        });
+      }
+      if (value === null) delete part[key];
+      else part[key] = value;
+      if (Object.keys(part).length === 0) delete bag[partId];
+      else bag[partId] = part;
+      const next = Object.keys(bag).length === 0 ? null : bag;
+      const name = await context.client.tokenName();
+      const response = await context.client.request<Record<string, unknown>>(
+        "POST",
+        `/api/pages/${pageId}/mutations`,
+        {
+          baseDraftVersion: requireNumber(args, "baseDraftVersion"),
+          author: { kind: "agent", id: name, label: name },
+          mutations: [
+            { op: "updateNodeProps", id: instanceId, patch: { overrides: next } },
+          ],
+        },
+      );
+      return { ...response, overrides: next };
+    },
+  },
+  {
+    name: "bump_component_version",
+    title: "Bump component version",
+    description:
+      "Raises a component definition's version by one (`props.version`). The instances keep their pin, so the difference shows as drift until update_component_instances pulls them up. Send baseDraftVersion from get_page.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        pageId: { type: "string" },
+        componentId: { type: "string" },
+        baseDraftVersion: { type: "number" },
+      },
+      ["pageId", "componentId", "baseDraftVersion"],
+    ),
+    entity: (args) => `page:${String(args.pageId ?? "")}`,
+    handler: async (context, args) => {
+      const pageId = requireString(args, "pageId");
+      const componentId = requireString(args, "componentId");
+      const page = await pageFor(context, pageId);
+      const definition = page.draft.nodes[componentId];
+      if (definition === undefined || definition.type !== COMPONENT_DEFINITION_TYPE) {
+        throw new SenifyError(
+          "not_found",
+          `Component "${componentId}" is not on the page`,
+          {
+            field: "componentId",
+            suggestion: "List the page's components with list_components.",
+          },
+        );
+      }
+      const version = definitionVersion(page.draft, componentId) + 1;
+      const name = await context.client.tokenName();
+      const response = await context.client.request<Record<string, unknown>>(
+        "POST",
+        `/api/pages/${pageId}/mutations`,
+        {
+          baseDraftVersion: requireNumber(args, "baseDraftVersion"),
+          author: { kind: "agent", id: name, label: name },
+          mutations: [{ op: "updateNodeProps", id: componentId, patch: { version } }],
+        },
+      );
+      return { ...response, version };
+    },
+  },
+  {
+    name: "update_component_instances",
+    title: "Update component instances",
+    description:
+      "Pulls every instance of a definition up to its current version in one batch (one undo). Instances that are already current stay untouched. Read versions and drift with get_component, then send baseDraftVersion from get_page.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        pageId: { type: "string" },
+        componentId: { type: "string" },
+        baseDraftVersion: { type: "number" },
+      },
+      ["pageId", "componentId", "baseDraftVersion"],
+    ),
+    entity: (args) => `page:${String(args.pageId ?? "")}`,
+    handler: async (context, args) => {
+      const pageId = requireString(args, "pageId");
+      const componentId = requireString(args, "componentId");
+      const page = await pageFor(context, pageId);
+      const definition = page.draft.nodes[componentId];
+      if (definition === undefined || definition.type !== COMPONENT_DEFINITION_TYPE) {
+        throw new SenifyError(
+          "not_found",
+          `Component "${componentId}" is not on the page`,
+          {
+            field: "componentId",
+            suggestion: "List the page's components with list_components.",
+          },
+        );
+      }
+      const version = definitionVersion(page.draft, componentId);
+      const stale = componentDrift(page.draft).filter(
+        (entry) => entry.componentId === componentId,
+      );
+      if (stale.length === 0) {
+        return {
+          pageId: page.id,
+          draftVersion: page.draftVersion,
+          version,
+          updated: 0,
+        };
+      }
+      const name = await context.client.tokenName();
+      const response = await context.client.request<Record<string, unknown>>(
+        "POST",
+        `/api/pages/${pageId}/mutations`,
+        {
+          baseDraftVersion: requireNumber(args, "baseDraftVersion"),
+          author: { kind: "agent", id: name, label: name },
+          mutations: stale.map((entry) => ({
+            op: "updateNodeProps",
+            id: entry.instanceId,
+            patch: { componentVersion: version },
+          })),
+        },
+      );
+      return { ...response, version, updated: stale.length };
+    },
+  },
+  {
     name: "set_styles",
     title: "Set styles",
     description:
@@ -1262,6 +1632,102 @@ export const TOOLS: ToolDefinition[] = [
         "POST",
         `/api/assets/${requireString(args, "assetId")}/restore`,
       ),
+  },
+  {
+    name: "generate_image",
+    title: "Generate image",
+    description:
+      "Starts an image generation job and returns its id — poll it with get_image_job. The default provider runs on the ChatGPT subscription (~1 min); the local Qwen fallback takes 9–45 min, so read providerUsed. Pass a prompt or a referenceId with a stored recipe; altText, decorative, folderId and tags carry the asset metadata. Not idempotent: an idempotencyKey makes retries safe.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        siteId: { type: "string" },
+        prompt: { type: "string" },
+        referenceId: { type: "string" },
+        provider: { type: "string", enum: ["image-use", "comfyui", "off"] },
+        width: { type: "number" },
+        height: { type: "number" },
+        steps: { type: "number" },
+        seed: { type: "number" },
+        filename: { type: "string" },
+        altText: { type: "string" },
+        decorative: { type: "boolean" },
+        folderId: { type: "string" },
+        tags: { type: "array", items: { type: "string" } },
+        idempotencyKey: { type: "string" },
+      },
+      ["siteId"],
+    ),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
+      const body: Record<string, unknown> = {};
+      const prompt = optionalString(args, "prompt");
+      if (prompt !== undefined) body.prompt = prompt;
+      const referenceId = optionalString(args, "referenceId");
+      if (referenceId !== undefined) body.referenceId = referenceId;
+      const provider = optionalString(args, "provider");
+      if (provider !== undefined) body.provider = provider;
+      for (const key of ["width", "height", "steps", "seed"]) {
+        const value = optionalNumber(args, key);
+        if (value !== undefined) body[key] = value;
+      }
+      const filename = optionalString(args, "filename");
+      if (filename !== undefined) body.filename = filename;
+      const altText = optionalString(args, "altText");
+      if (altText !== undefined) body.altText = altText;
+      const decorative = optionalBoolean(args, "decorative");
+      if (decorative !== undefined) body.decorative = decorative;
+      const folderId = optionalString(args, "folderId");
+      if (folderId !== undefined) body.folderId = folderId;
+      const tags = optionalStringArray(args, "tags");
+      if (tags !== undefined) body.tags = tags;
+      const idempotencyKey = optionalString(args, "idempotencyKey");
+      if (idempotencyKey !== undefined) body.idempotencyKey = idempotencyKey;
+      return context.client.request("POST", `/api/sites/${siteId}/images/jobs`, body);
+    },
+  },
+  {
+    name: "get_image_job",
+    title: "Get image job",
+    description:
+      "Returns the status of an image job: status, providerUsed, assetId, the provider attempt history and timestamps. Poll it (at least every 60 s); succeeded hands over the assetId for the assetRef.",
+    scope: "read",
+    inputSchema: objectSchema({ jobId: { type: "string" } }, ["jobId"]),
+    entity: (args) => `job:${String(args.jobId ?? "")}`,
+    handler: async (context, args) =>
+      context.client.request(
+        "GET",
+        `/api/images/jobs/${requireString(args, "jobId")}`,
+      ),
+  },
+  {
+    name: "list_image_jobs",
+    title: "List image jobs",
+    description:
+      "Lists the image jobs of a site (newest first), optionally filtered by status. Use it to coordinate parallel generations.",
+    scope: "read",
+    inputSchema: objectSchema(
+      {
+        siteId: { type: "string" },
+        status: {
+          type: "string",
+          enum: ["queued", "running", "succeeded", "failed", "canceled"],
+        },
+      },
+      ["siteId"],
+    ),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
+      const status = optionalString(args, "status");
+      const query =
+        status === undefined ? "" : `?status=${encodeURIComponent(status)}`;
+      return context.client.request(
+        "GET",
+        `/api/sites/${siteId}/images/jobs${query}`,
+      );
+    },
   },
   {
     name: "list_collections",
