@@ -1,6 +1,6 @@
 # Editor v2 - Editor-Chrome und Verhalten (Phase 3)
 
-Status: offen — **Scheibe 1 (Explorer, Kontextmenü, Spotlight) erledigt (20.09.); Punkt 6 (Design/Live-Toggle, Zoom-Footer, Frame-Labels, Dimming) erledigt (20.09.)**
+Status: **erledigt (20.09.)** — Scheibe 1 (Explorer, Kontextmenü, Spotlight), Punkt 6 (Design/Live-Toggle, Zoom-Footer, Frame-Labels, Dimming), Punkt 4 (Inline-Text), Punkt 5 (Verlauf), Punkt 7 (Keyboard), Punkt 1 Rest (Drag + Site-/Media-Tabs) und Punkt 2 Rest (Copy/Paste, Wrap) sind umgesetzt. Siehe „Ergebnis Runde 2 (20.09.)".
 Abhaengig von: 02-style-engine-inspector
 
 ## Ziel
@@ -81,3 +81,53 @@ aktiviert seinen Breakpoint — die Session spiegelt ihn für den Inspektor.
 um Labels/Dimming/Aktivierung, Zoom-Reset und den Live-Modus erweitert (ein Frame,
 `window.gsap` + `motion-data` + Runtime im Frame, Rückkehr zu drei Blättern). Zahlen im
 Ledger (M4 Stufe 1 + Punkt 6, 20.09.).
+
+## Ergebnis Runde 2 (20.09., umgesetzt) — Punkte 1 Rest, 2 Rest, 4, 5, 7
+
+**Punkt 4 — Inline-Text:** Doppelklick auf ein Text-Blatt startet die Session
+(`contenteditable="plaintext-only"` auf dem echten Element, `[data-inline]`-Cursor);
+Schreiben läuft als `setNodeProp` mit `typingCoalesceKey(nodeId, key, device)` (Tipp-Burst
+= 1 Undo-Eintrag), Escape revertiert und **entfernt** den gefalteten Eintrag
+(`store.history.remove`, wenn der Coalesce-Key passt), Enter/Blur/Tab beenden; `refresh()`
+rendert während der Session nicht (Caret-Schutz). `react-renderer.tsx` annotiert jetzt auch
+Katalog-Primitives (`getPrimitive().controls`, kinds `text`/`textarea`, Root erlaubt).
+**Fund:** die Plus-Punkte kurzer Knoten (Höhe < 36) lagen über dem Text und schluckten den
+Doppelklick — sie werden jetzt außerhalb platziert und beim Verlassen des Knotens versteckt
+(`dnd-dom.ts showPluses`).
+
+**Punkt 5 — Verlauf:** `store.restoreTo(entryId)` springt über den normalen Undo/Redo-Gate;
+Blatt `history/dialog.ts` (+ `styles.ts`) zeigt die Einträge neueste zuerst (Zeit
+`HH:MM:SS`, Label, „jetzt"-Markierung, `data-current`/`data-future`), Klick springt, Escape
+schließt (dokumentweiter Listener, Fokus-Rückgabe). „Verlauf"-Knopf in der History-Gruppe
+der Canvas-Topbar. **Semantik:** ein neuer Apply nach Undo verwirft den Redo-Future
+(HistoryStack) — der Browser-Test insertet dafür zweimal hintereinander.
+
+**Punkt 7 — Keyboard:** eine `shortcut()`-Schicht für Dokument und Frames: Cmd/Ctrl+0
+Zoom-Reset, Cmd/Ctrl+Z, Shift+Cmd+Z / Cmd+Y, Cmd+D (Duplicate), Cmd+C/V (Clipboard),
+Delete/Backspace (nur außerhalb von Textfeldern, `isTextEntry`), Escape → Elternknoten,
+Enter → erster Kindknoten; im Design-Frame blockt Tab den Fokuswechsel, Inline-Keys gewinnen
+vor den Shortcuts (`DomEvent.defaultPrevented` als Schichten-Vertrag). Alt+Klick wählt den
+Elternknoten, Alt+Hover hebt ihn (Overlay-Option `parent`).
+
+**Punkt 2 Rest — Copy/Paste/Wrap:** `store.applyBatch(inputs, options)` = mehrere Ops
+atomar, **ein** History-Eintrag (Forward-Patches konkateniert, Inverse umgekehrt);
+`state/clipboard.ts` (`copyNode`/`pasteNode` via `duplicateNode` inkl. Scoped-Rules,
+`wrapNode` via applyBatch, `copiedNode`, `clearClipboard`); Kontextmenü um Kopieren,
+Einfügen, In Wickeln, Im Navigator zeigen erweitert; Cmd+C/V auch im Explorer-Baum und in
+der Canvas-Schicht. Bewusst kein neues Contract-Op: Wrap läuft als Batch aus
+`insertNode`+`moveNode` und erreicht die Engine nie als eigenes Op.
+
+**Punkt 1 Rest — Drag + Site-Tabs:** Explorer-Zeilen sind `draggable`; `dragover`/`drop`
+nutzen `dropPositionFor`/`isContainer`/`resolveMoveDrop` aus `canvas/dnd.ts` (Zyklus-Schutz
+sichtbar, `data-drop` = before/after/into/rejected, rot = rejected, kein Re-Render während
+dragover). Site-Tabs: `ExplorerTabSource`/`ExplorerTabItem`, `options.tabs`, `setTab`/
+`activeTab`; `app.js` verdrahtet „Seiten" (Hash-Navigation) und „Medien"
+(`canvas.insert("image", "after", { asset: id })`, neuer `props`-Parameter an
+`insertAt`/`insert`). Vorlagen/Komponenten bleiben bei O14 (keine Datenquelle; Templates
+haben nur die PUT-Route).
+
+**Tests:** `test/state/clipboard.test.ts` (neu, 4), `test/state/store.test.ts` (+1
+restoreTo), `test/canvas/overlay.test.ts` (+parent), `test/state/persist.test.ts` (+1
+Scoped-Transport), Browser-Test (`canvas-browser.test.ts`) um Inline-Block, Verlauf-Blatt
+und Keyboard-Block erweitert; `canvas-view-browser.test.ts` prüft die Tabs.
+Zahlen im Ledger (Runde 2, 20.09.).

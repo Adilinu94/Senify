@@ -1,7 +1,17 @@
 # Editor v2 - ADR Puck-Abschied und Widget-Engine
 
-Status: offen
+Status: **erledigt (20.09.)** — ADR-0007 geschrieben, Puck-Code und Peer-Dependency entfernt.
 Abhaengig von: 01-widget-engine-canvas (zur Entlastung vor Phase 1 schreiben)
+
+## Ergebnis (20.09., umgesetzt)
+
+ADR `docs/adr/0007-puck-abschied.md` (accepted): Entscheidung, Optionen und Konsequenzen.
+Entfernt: `packages/editor/src/adapter.ts`, `packages/editor/src/puck.ts`, deren Exporte in
+`src/index.ts`, die Tests `adapter.test.ts`/`puck-regression.test.ts`, die optionale
+Peer-Dependency `@puckeditor/core` (Lockfile aktualisiert). Stale Puck-Kommentare in
+`mount.ts` auf den heutigen `FrameRenderer`-Seam umgeschrieben. Kein Laufzeit-Code und
+keine App-Stelle importierte Puck (nachgeprueft); die v1-Altdaten laufen weiter ueber
+`migrateV1ToV2`.
 
 ## Entscheidung
 

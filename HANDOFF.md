@@ -1,4 +1,4 @@
-# Übergabe: Editor v2 (Senify) — Stand 19.09.2026 (Nachtrag: Ticket 13 vollständig, Klassen am DOM, Motion M0–M5)
+# Übergabe: Editor v2 (Senify) — Stand 20.09.2026 (Runde 2: Tickets 16, 02, 03, 06 erledigt)
 
 Diese Datei ersetzt die Abend-Fassung vom 17.09. und den ersten 18.09.-Stand. Sie beschreibt den
 Arbeitsbaum so, dass eine Person oder ein Agent ohne Vorwissen weiterarbeiten kann: was entschieden
@@ -11,11 +11,12 @@ Live-Modus, Transport). Darauf liegen die Welle-1-Commits `5ad0d48`/`23f7885` (T
 Ticket 11, E17 S1, E4 S0), `824b9ba` (Teile 2+3: Ticket 18 komplett — Author-Resolver,
 Idempotency-Keys, `authoredBy`-Fence) und `55593f1`/`c162251` (Teil 4: Pakete #5–#10 aus
 §9). Darauf liegen `a4ec1c4` (M4 Stufe 1 + Ticket 03 Punkt 6: Live-Modus im Canvas,
-Zoom-Footer, Labels, Dimming) und `ab0abdc` (Doku dazu). **Uncommittet** im Baum bleibt
-ein **zweiter Strang** an der Referenz-Bibliothek/Redesign (`references-*`,
-`redesign-package.*`, app.js/app.css; siehe §8). Untracked bleiben die bewusst lokalen
-Artefakte (Test-Logs, Screenshots, `.backup-18-09/`, Debug-Dateien in `.scratch/refs/`).
-Wer `git status` liest, sieht genau diese Restliste.
+Zoom-Footer, Labels, Dimming), `ab0abdc` (Doku dazu) und `8c67f56` (Doku-Nachtrag dazu).
+**Uncommittet** liegen darauf die **Runde 2 vom 20.09.** (Tickets 16, 02 Punkte 3–7, 03
+Punkte 1/2/4/5/7, 06/ADR-0007) und weiterhin der **zweite Strang** an der
+Referenz-Bibliothek/Redesign (`references-*`, `redesign-package.*`, app.js/app.css; siehe §8).
+Untracked bleiben die bewusst lokalen Artefakte (Test-Logs, Screenshots, `.backup-18-09/`,
+Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Restliste.
 
 ---
 
@@ -312,6 +313,74 @@ Wer `git status` liest, sieht genau diese Restliste.
   `class="w-…"`-Erwartungen in `registry`/`renderer`/`app`-Tests angepasst.
 - Zahlen: 1165/2/131 (§2.4).
 
+### 2.7 Runde 2 (20.09., uncommittet): Tickets 16, 02 Punkte 3–7, 03 Punkte 1/2/4/5/7, 06
+
+- **Ticket 16 — Marker-Overlay im Portal.** `editor/src/canvas/overlay.ts` (neu): reine
+  Geometrie (`overlayRect`, `intersectsViewport`, `isOccluded`, `badgeTop`, 20 ms Drossel)
+  plus Controller; Layer je Blatt im `senify-canvas__overlay` über der Bühne
+  (`pointer-events: none`, Verdeckungsprobe via `elementFromPoint`), Ringe/Label/
+  Größenpaar/4 Eckgriffe (8 px sichtbar, 24 × 24 Trefferfläche), Alt-Hover-Ladder
+  (Option `parent`). `CANVAS_CHROME_CSS` trägt nur noch Cursor-Regeln; neuer Token
+  `--ed-selection-edge` (Doppelkante außen) in `ui/tokens.ts`, `ui/skin.ts`,
+  `plan-tokens.test.ts` und der UI-Vorschau. Tests `canvas/overlay.test.ts` (neu),
+  `rules.test.ts`, Browser-Test (Portal, Geometrie, Hover über synthetisches `mousemove` —
+  Playwright liefert über die iframe-Grenze ein spurious `mouseout`, §8).
+- **Ticket 02 Punkte 3–7.** P4: Gerätepunkte an **jedem** responsive Control (Signal =
+  Override, Ring = aktiv; Klick wechselt die Ansicht, Klick auf den aktiven Punkt schaltet
+  den Override an/aus, Desktop bleibt Basis). P5: Zustandszeile im Style-Tab
+  (Basis + 4 States), Werte liegen in der **scoped Rule** des Knotens
+  (`upsertStyleRule`/`deleteStyleRule`, `deviceKey`-Suffixe), der Chip erzwingt die
+  Canvas-Vorschau; **Transport-Fund:** `transportRule` schickte die `scope` nicht — die
+  Create-Route will `nodeId` (PATCH behält den Scope), behoben + Test. P6: Token-Picker für
+  spacing/radius/shadow/type (`renderTokenPanel`, `{ $token }`, Literal zurück), Zahlen-/
+  Textfelder zeigen `{ref}`; **Fund:** das gemeinsame `paletteOpen` öffnete Panels unter
+  jedem Farbfeld — jetzt per Feld-Key (ein Panel zur Zeit). P3: eigene Property-Zeile
+  (`add-prop`) + Gruppe „Eigene Properties" mit Entfernen (offene Fläche, O13; auf
+  Sektionen greift die E2-Grenze der v1-Bridge). P7: MCP `list_widgets`, `get_widget`,
+  `set_styles` (scoped Rule, `device`/`state`, Merge), `create_style_rule`; Guardrail
+  Style-Tabelle + Engine-Token-Fence; Katalog über Re-Export aus `@senify/registry`.
+- **Ticket 03 Punkte 1/2/4/5/7.** P4: Inline-Text (`contenteditable="plaintext-only"`,
+  `typingCoalesceKey`, Escape verbraucht den Eintrag, Caret-Schutz in `refresh()`; Renderer
+  annotiert Katalog-Primitives); **Fund:** Plus-Punkte kurzer Knoten schluckten den
+  Doppelklick (jetzt außerhalb + versteckt). P5: Verlauf (`store.restoreTo`, Blatt
+  `history/dialog.ts`, Zeit/Label/`data-current`/`data-future`, Escape dokumentweit);
+  Redo-Future fällt bei neuem Apply (Test insertet zweimal). P7: `shortcut()`-Schicht
+  (Cmd+0/Z/Shift+Z/Y/D/C/V, Delete, Escape→Eltern, Enter→Kind), Tab-Block im Design-Frame,
+  `DomEvent.defaultPrevented` als Schichten-Vertrag, Alt-Klick/-Hover. P2: `applyBatch`
+  (mehrere Ops, **ein** History-Eintrag), `state/clipboard.ts` (Copy/Paste inkl.
+  Scoped-Rules via `duplicateNode`, Wrap als Batch, kein neues Contract-Op). P1:
+  Explorer-Drag (`resolveMoveDrop`, `data-drop`, Zyklus-Schutz sichtbar) + Site-/Media-Tabs
+  (`options.tabs`, `insertAt`/`insert` mit `props`); Vorlagen/Komponenten bleiben O14.
+- **Ticket 06 — ADR-0007 (Puck-Abschied).** `adapter.ts`/`puck.ts`, deren Exporte und die
+  beiden Puck-Tests entfernt, optionale Peer-Dependency `@puckeditor/core` raus
+  (Lockfile aktualisiert), stale Puck-Kommentare in `mount.ts` auf den
+  `FrameRenderer`-Seam umgeschrieben. Kein Laufzeit-Import existierte.
+- **Zahlen:** `pnpm test` **1289 grün / 2 übersprungen / 144 Dateien**, typecheck 0,
+  build 0, lint in den eigenen Bereichen 0. Erster Gesamtlauf mit zwei Browser-Flakes
+  (`submissions-browser.test.ts`: Klick auf „Fällige Jobs jetzt senden"; fremder Strang),
+  Wiederholungslauf vollständig grün. Logs `.scratch/testlauf-20-09-runde2-*.log`.
+
+### 2.8 Ticket 04 Scheibe 1 (20.09., uncommittet): Component-Kern
+
+- **Modell (`section-sdk/src/components.ts`, rein):** Eine Komponente lebt im Baum —
+  reservierte Typen `__component` (Definition, ein Wurzelkind), `__component_slot`
+  (Füllplatz), `__component_instance` (`componentId`, Slots füllen). `inlineComponents`
+  ist die eine Ableitung für Canvas und Bake (Definitionen raus, Instanzen expandiert,
+  Slots gefüllt, deterministische Ids, `nodeIdMap`/`copies`); Probleme (unbekannt,
+  Zyklus, mehrere Wurzeln) enden im Stub. `wouldCreateCycle`, `unfilledSlots`.
+- **Canvas:** `canvas/adapter.ts` inlined vor dem Rendern (`canvasNodeTreeWithCopies`);
+  `canvas/rules.ts` emittiert die Knotenregeln der Definition je Kopie.
+- **Bake:** `engine/src/templates.ts` (`composePageTree`) inlined nach der Komposition
+  und blockiert mit Fehler bei Problemen; die Kopien wandern in die bestehende
+  Draft→komponiert-Map (Ticket 22, erste Kopie je Knoten).
+- **Editor-Ops:** `createComponent`, `insertSlot`, `instantiateComponent`,
+  `detachComponent` — je ein `applyBatch` (ein Undo, bestehender Speicherpfad).
+- **Tests:** `section-sdk/test/components.test.ts` (8), `editor/test/state/components.test.ts`
+  (5). **Zahlen:** `pnpm test` 1301/2/146 (der eine rote Lauf war der bekannte
+  Ephemeral-Port-Flake), typecheck 0, build 0, lint 0.
+- **Offen (Scheibe 2):** Overrides/Varianten/Publish-Versionen, Multi-Instanz-Remap,
+  Slot-Restriktionen, Komponenten-Tab im Editor, MCP/Skills, Sections-Migration.
+
 ---
 
 ## 3. Phasenstand
@@ -324,9 +393,9 @@ Wer `git status` liest, sieht genau diese Restliste.
 | — | Analyse-Runde: B1–B12, Tickets 07–18, O10–O12, ADR-0004 | ✅ | `research/`, `issues/07–18` |
 | — | 18.09.: O13/ADR-0005, Tickets 07/10/13/18/02 neu, O14, Wert-Grammatik | ✅ | `docs/adr/0005`, `issues/`, `ledger.md` |
 | — | 18.09.: Ticket 13 Rest (Bake + Klassen-Transport + scoped-Rekey) + Klassen am DOM + Motion M0–M5 + Ticket 20; 19.09.: Slot-/Collection-Transport verifiziert | ✅ | `issues/13`, `issues/19`–`22`, `docs/adr/0006`, `.scratch/motion-v2/` |
-| 2 | Style-Rule-Registry (Server ✅), Wert-Grammatik ✅, Editor-Modell ✅, Inspektor S1 ✅ (20.09.) | 🔄 | `issues/07`, `10`, `13`, `02` |
-| 3 | Chrome: Explorer/Kontextmenü/Spotlight ✅, DnD ✅, Design/Live + Zoom/Labels/Dimming ✅ (20.09.); offen: Inline-Edit, Undo-UI, Keyboard | 🔄 | `issues/03` + 12/16 |
-| 4 | Visual Components, Sections als VCs, Puck-Cutover | ❌ | `issues/04` + 11 (vorher) + 17 (vorher) |
+| 2 | Style-Rule-Registry (Server ✅), Wert-Grammatik ✅, Editor-Modell ✅, Inspektor ✅ (20.09.) | ✅ | `issues/07`, `10`, `13`, `02` |
+| 3 | Chrome: Explorer/Kontextmenü/Spotlight ✅, DnD ✅, Design/Live ✅, Inline-Edit ✅, Undo-UI ✅, Keyboard ✅, Drag + Tabs ✅ (20.09.) | ✅ | `issues/03` + 12/16 |
+| 4 | Visual Components: Scheibe 1 (Component-Kern) ✅ (20.09.); Sections-Migration offen | 🔄 | `issues/04` |
 | 5 | SSE-Kanal, Live-Mitverfolgung, Leistungsbudget | ❌ | `issues/05` |
 
 ---
@@ -374,11 +443,11 @@ Alle unter `.scratch/editor-v2-rebuild/issues/`. Stand:
 | Ticket | Kern | Stand |
 |---|---|---|
 | 01-widget-engine-canvas | Phase 0/1: Fundament, Primitive, Canvas, DnD | Fundament ✅, Punkt 7 (DnD) offen → Ticket 12 |
-| 02-style-engine-inspector | Inspektor, volle CSS-Fähigkeiten, MCP-Style-Tools | Punkt 1 erledigt (Server); **Scheibe 1 Inspektor erledigt (20.09.)**; Rest: Override-UX, Forced States, Token-Picker überall, MCP-Tools |
-| 03-editor-chrome | Phase 3: Explorer, Kontextmenü, Spotlight, Inline-Edit, Tastatur | **Scheibe 1 + Punkt 6 (Design/Live, Zoom-Footer, Labels, Dimming) erledigt (20.09.)**; Rest: Inline-Edit, Undo-UI, Keyboard, Explorer-Drag, Site-/Media-Tabs, Copy/Paste/Wrap |
-| 04-visual-components | Phase 4: VCs, Sections als VCs, Cutover | offen |
+| 02-style-engine-inspector | Inspektor, volle CSS-Fähigkeiten, MCP-Style-Tools | **erledigt (20.09.)** — Punkte 3–7: Override-UX, Forced States (scoped Rule + Transport), Token-Picker, offene Property-Zeile, MCP-Tools |
+| 03-editor-chrome | Phase 3: Explorer, Kontextmenü, Spotlight, Inline-Edit, Tastatur | **erledigt (20.09.)** — inkl. Inline-Edit, Verlauf, Keyboard, Explorer-Drag, Site-/Media-Tabs, Copy/Paste/Wrap |
+| 04-visual-components | Phase 4: VCs, Sections als VCs, Cutover | **Scheibe 1 erledigt (20.09.)** — Component-Kern, Inlining Canvas/Bake, Editor-Ops; offen: Sections-Migration, Overrides/Versionen, UI, MCP |
 | 05-live-build-follow-polish | Phase 5: SSE, Live-Mitverfolgung | offen |
-| 06-adr-puck-abschied | ADR-06 (Puck-Abschied) | offen |
+| 06-adr-puck-abschied | ADR-07 (Puck-Abschied) | **erledigt (20.09.)** — ADR-0007, Puck-Code + Peer-Dependency entfernt |
 | 07-style-rule-modell | Kanonisches Modell im Editor-Dokument + Wert-Grammatik + `states`/`authoredBy` | **erledigt (Stufen 0–6)** |
 | 08-geraetestationen | Drei Stationen | **erledigt** (O10; ui-plan/aufgaben korrigiert) |
 | 09-pseudo-state-disabled | `disabled` als vierter State | **erledigt** (O11) |
@@ -388,7 +457,7 @@ Alle unter `.scratch/editor-v2-rebuild/issues/`. Stand:
 | 13-bridge-style-rules | Editor-Anbindung, Bake, `states` im Transport | **erledigt** (Server, Transport, Save-Pipeline, Bake, scoped-Rekey mit 22, Slot-/Collection-Transport); UI-Nutzung der Slot-Ops mit dem E2-Cutover |
 | 14-klassen-emission-messen | Klassen-Emission regional vs. global messen | **erledigt (19.09.)**: global umgestellt (4,2–8,2x), regional als Option |
 | 15-dialekt-entscheidung | ADR-0004 + grep-Gate-Test | **erledigt** (18.09.) |
-| 16-marker-overlay-portal | Marker-Overlay im Portal (Alt-Palette beenden) | offen |
+| 16-marker-overlay-portal | Marker-Overlay im Portal (Alt-Palette beenden) | **erledigt (20.09.)** — Portal-DOM, Token-Doppelkante, Geometrie-Tests |
 | 17-releases-cutover | Publish über `POST /api/releases`, Paritäts-Tor als CI-Blocker | **erledigt (20.09.)** — O9-Vorhang, Route-Publish, Paritäts-Tor gegen das Release, Rollback; Funde: `variant`, Font-Auslieferung |
 | 18-agent-style-gate | Wert-Ebene-Fence als Tests (`authoredBy`) | **erledigt (19.09.)** — Author-Resolver, Idempotency-Keys, Fence; `idempotentHint` bleibt opt-in |
 | 19-motion-authoring | Motion-Spec v2 im Editor: Modell/Bridge, Inspektor, Canvas (Play), Guardrails | **M0–M5 + M4 Stufe 1 umgesetzt** (20.09.); offen nur M6 (Scrub) |
@@ -416,18 +485,16 @@ committet `55593f1`). Der Testlauf ist grün (**1270/2/141**, Log
 
 **Als Nächstes:**
 
-1. **Welle-1-Rest aus §9: erledigt (20.09., Teil 4; Code committet `55593f1`).** #5 Ticket 02
-   S1, #6 E5 S1, #7 Ticket 03 S1, #8 Ticket 12, #9 Ticket 17, #10 E16 P0 + E12 S1 — siehe
-   §2.4. Damit sind alle Pakete #1–#10 aus §9 umgesetzt.
-2. **M4 Stufe 1: erledigt (20.09.).** Live-Modus zeigt die echte Seite (Ticket 03), die
-   Release-Runtime läuft ohne Extra-Code; Scrub-Stufe bleibt M6. **Ticket 03 Punkt 6
-   (Design/Live-Toggle, Zoom-Footer, Labels, Dimming) ebenfalls erledigt** — Motion ist
-   fachlich abgeschlossen.
-3. **Ende Phase 2/Anfang 3:** 16 (Marker-Overlay) offen; **17 (Releases-Cutover) erledigt
-   (20.09.)**.
-4. **Vor dem Cutover:** 11. **Erledigt:** 12, 13 vollständig, 14 (Emission), 15
-   (PG-Dialekt-Gate), 17 (Cutover), 18 (Agent-Style-Gate), 21 (Klassen am DOM),
-   22 (scoped-Rekey).
+1. **Runde 2 (20.09.): erledigt, uncommittet.** Tickets 16, 02 (Punkte 3–7), 03 (Punkte
+   1/2/4/5/7) und 06/ADR-0007 — siehe §2.7. Damit sind die Phasen 2 und 3 fachlich
+   abgeschlossen; offen sind nur noch **Ticket 04 (Phase 4: Visual Components, Sections als
+   VCs, E2-Cutover)**, **Ticket 05 (Phase 5: SSE-Kanal, Live-Mitverfolgung,
+   Leistungsbudget)**, **Ticket 11** (per-Breakpoint `hidden` — vor dem Cutover) und
+   **Ticket 19 M6** (optionale Scrub-Stufe).
+2. **Vor dem E2-Cutover (Ticket 04):** Katalog-Namen in der Engine registrieren (Strangler),
+   Dublette `divider`/`embed` auflösen, Paritäts-Tor als CI-Blocker scharf schalten,
+   Ticket 11 nachziehen.
+3. **Danach:** Ticket 05 (SSE) und die offenen E-Pakete aus `docs/verbesserungsplan.md`.
 
 **Strategischer Rahmen (19.09.):** `docs/verbesserungsplan.md` — Zielbild Framer/Webflow-Niveau,
 Lücken L1–L33 (P0–P3), 16 Epics (E1–E16) mit Akzeptanzkriterien, Roadmap Phase A–D, Gates und die
@@ -521,12 +588,28 @@ Commit `git status` prüfen und nach Pfaden stagen, nie `git add -A`.
   dort deaktiviert, die Bühne hat kein Padding, der Frame scrollt selbst
   (`data-mode="live"`); die Runtime kommt aus `motion-inject.ts` (eine Quelle mit dem
   v1-Editor), Lenis folgt dem Site-Profil.
+- **Playwright liefert über die iframe-Grenze ein spurious `mouseout`:** Ein gestufter
+  `mouse.move` auf ein Element im Frame löst `mousemove` **und** direkt danach `mouseout`
+  (relatedTarget `null`) aus — Hover-Zustände flackern weg. Der Canvas-Browser-Test
+  dispatcht für den Hover-Ring deshalb synthetisch eine bubbelnde `MouseEvent` im Frame
+  (derselbe Handler).
+- **Ein Panel zur Zeit:** Paletten/Token-Panels des Inspektors hängen an einem Feld-Key
+  (`paletteKey`/`tokenPanelKey`), nicht an einem Boolean — ein gemeinsames Flag öffnete das
+  Panel unter **jedem** passenden Feld.
+- **Scoped-Regeln im Transport:** Die Create-Route (`POST /api/sites/:id/style-rules`)
+  erwartet `nodeId` und leitet Name/Selector daraus ab; das PATCH-Schema hat kein `scope`
+  (der Server behält es). `scope` im Create-Body würde am geschlossenen Schema scheitern.
+- **Die v1-Bridge ist die Grenze für Katalog-Features:** `setNodeProp` auf einer Sektion
+  akzeptiert nur deren Props (`Unknown prop "borderRadius" for section "divider"`, HTTP 400).
+  Der Browser-Test für die offene CSS-Fläche nutzt deshalb eine Sektions-Property
+  (`textColor`); freie Properties sind im Modelltest belegt und bleiben dem E2-Cutover
+  (Ticket 04) vorbehalten.
 
 ---
 
 ## 9. Verweise
 
-- Entscheidungen: `docs/adr/0001–0006` (0004 PG-only, 0005 offenes CSS, 0006 Motion-Authoring).
+- Entscheidungen: `docs/adr/0001–0007` (0004 PG-only, 0005 offenes CSS, 0006 Motion-Authoring, 0007 Puck-Abschied).
 - Planung: `.scratch/editor-v2-rebuild/` — `map.md` (E/D/O-Entscheidungen, Tickets 01–22),
   `ledger.md` (Zustandsbuch + nächste Schritte), `ui-plan.md`, `ui-design.md`, `ui-aufgaben.md`,
   `ui-elementor.md`, `ui-preview/index.html`, `issues/01–22`.

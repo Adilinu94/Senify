@@ -1162,11 +1162,11 @@ Die Referenz-Transfer-Strecke ist **der Differenzierungs-Kern** des Produkts, ab
 | Ticket | Inhalt | Status |
 |---|---|---|
 | 01 | Widget-Engine/Canvas (Phase 0–1) | offen (Kern gebaut, Restpunkte im Ticket) |
-| 02 | Style-Engine/Inspektor (Punkt 1 erledigt) | offen |
-| 03 | Editor-Chrome (Live-Modus gebaut, Doku folgt) | offen |
+| 02 | Style-Engine/Inspektor | **erledigt (20.09.)** — Punkte 1–7 |
+| 03 | Editor-Chrome | **erledigt (20.09.)** — Scheibe 1, Punkt 6, Punkte 1/2/4/5/7 |
 | 04 | Visual Components | offen |
 | 05 | Live-Build-Follow/Performance (SSE) | offen |
-| 06 | ADR: Puck-Abschied | offen |
+| 06 | ADR: Puck-Abschied | **erledigt (20.09.)** — ADR-0007, Code + Peer-Dependency entfernt |
 | 07 | Style-Rule-Modell (Stufen 0–6) | erledigt (18.09.) |
 | 08 | Gerätestationen (O10; Abnahme nachgeprüft) | **erledigt** (18.09.) |
 | 09 | `disabled` als vierter State | erledigt (18.09.) |

@@ -114,6 +114,58 @@ gehoeren bewusst **nicht** in die Undo-History (Webstudio-Muster). Hinweis: `doc
 wurde parallel um „Teil II" (§10–§16: Referenz-Transfer, Anti-Slop, Editor-Tiefe) erweitert —
 beide Teile koexistieren; nichts ueberschrieben. Kein Produktcode geaendert.
 
+**Ticket 04 Scheibe 1 (20.09., umgesetzt, uncommittet): Component-Kern — Definition,
+Instanz, Slots, Zyklus-Schutz, Inlining für Canvas und Bake, Editor-Ops.**
+
+- **Modell rein (`section-sdk/src/components.ts`):** Komponenten leben im Baum
+  (reservierte Typen `__component`, `__component_slot`, `__component_instance`),
+  `inlineComponents` als eine Ableitung für beide Renderpfade (deterministische Ids,
+  `nodeIdMap`/`copies`, Stub statt Absturz, `wouldCreateCycle`/`unfilledSlots`).
+- **Canvas:** Adapter inlined vor dem Rendern; die Frame-Regeln emittieren die
+  Knotenregeln der Definition je Kopie (kein Styling-Verlust, keine Drift zum Bake).
+- **Bake:** `composePageTree` inlined nach der Komposition und **blockiert mit Fehler**
+  bei Problemen; die Kopien wandern in die Draft→komponiert-Map (Ticket 22).
+- **Editor-Ops:** `createComponent`/`insertSlot`/`instantiateComponent`/`detachComponent`
+  als `applyBatch` (ein Undo, bestehender Speicherpfad).
+- **Zahlen:** `pnpm test` **1301 grün / 2 übersprungen / 146 Dateien** (Log
+  `.scratch/testlauf-20-09-runde3-1.log`; der eine rote Lauf war der bekannte
+  Ephemeral-Port-Flake in `engine/test/style-rules.test.ts`, in Isolation 11/11 grün),
+  typecheck 0, build 0, lint (eigene Bereiche) 0.
+- **Offen (Scheibe 2):** Overrides/Varianten/Publish-Versionen, Multi-Instanz-Remap,
+  Slot-Restriktionen, Editor-UI (Komponenten-Tab), MCP/Skills, Sections-Migration.
+
+**Runde 2 (20.09., umgesetzt, uncommittet): Tickets 16, 02 Punkte 3–7, 03 Punkte
+1/2/4/5/7, 06/ADR-0007 — alle offenen Punkte aus §9 in einem Durchgang.**
+
+- **Ticket 16 — Marker-Overlay im Portal.** `canvas/overlay.ts` (neu) mit reiner Geometrie
+  (`overlayRect`, `intersectsViewport`, `isOccluded`, `badgeTop`, 20-ms-Drossel) und
+  Controller; Layer je Blatt über der Bühne, Verdeckungsprobe, Alt-Hover-Ladder
+  (`parent`); `CANVAS_CHROME_CSS` nur noch Cursor; neuer Token `--ed-selection-edge`
+  (Doppelkante) in Tokens/Skin/Tests/Vorschau. Tests: `overlay.test.ts` (neu),
+  `rules.test.ts`, Browser-Test.
+- **Ticket 02 P4–P7.** Gerätepunkte an jedem Control (an/aus/Reset); Zustandszeile mit
+  Werten in der scoped Rule + erzwungener Canvas-Vorschau; Token-Picker für
+  spacing/radius/shadow/type (ein Panel zur Zeit — vorher öffnete ein gemeinsames Flag
+  alle); eigene Property-Zeile + „Eigene Properties" (offene Fläche, E2-Grenze auf
+  Sektionen); MCP `list_widgets`/`get_widget`/`set_styles`/`create_style_rule` mit
+  Style-Tabelle als Guardrail und der Engine-Token-Fence. **Transport-Fund:**
+  `transportRule` schickte die `scope` nicht — Create will `nodeId`, PATCH behält den
+  Scope; behoben, Test in `persist.test.ts`.
+- **Ticket 03 P1/P2/P4/P5/P7.** Inline-Text (contenteditable plaintext-only,
+  Coalesce-Burst, Escape verbraucht den Eintrag; Plus-Punkte kurzer Knoten lagen über dem
+  Text — jetzt außerhalb); Verlauf (`restoreTo`, Blatt mit Zeit/Label/Future, Redo-Future
+  fällt bei neuem Apply); Keyboard (`shortcut()`-Schicht, Tab-Block, Alt-Ladder,
+  `defaultPrevented`-Vertrag); `applyBatch` + Clipboard (Copy/Paste inkl. Scoped-Rules,
+  Wrap als Batch); Explorer-Drag mit Zyklus-Schutz + Site-/Media-Tabs (`options.tabs`,
+  `insert` mit `props`); Vorlagen/Komponenten bleiben O14.
+- **Ticket 06 — ADR-0007 (Puck-Abschied).** `adapter.ts`/`puck.ts` + Puck-Tests +
+  optionale Peer-Dependency entfernt (Lockfile aktualisiert); keine Laufzeit-Importe
+  existierten.
+- **Zahlen:** `pnpm test` **1289 grün / 2 übersprungen / 144 Dateien**, typecheck 0,
+  build 0, lint (eigene Bereiche) 0; erster Gesamtlauf mit zwei Browser-Flakes
+  (`submissions-browser.test.ts`, fremder Strang), Wiederholungslauf vollständig grün.
+  Logs `.scratch/testlauf-20-09-runde2-*.log`.
+
 **M4 Stufe 1 + Ticket 03 Punkt 6 (20.09., umgesetzt): Live-Modus zeigt die echte Seite;
 Design/Live-Toggle, Zoom-Footer, Frame-Labels, Dimming.** Code committet als `a4ec1c4`,
 Doku als `ab0abdc`.
