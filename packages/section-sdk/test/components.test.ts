@@ -145,6 +145,26 @@ describe("inlineComponents", () => {
     expect(first.nodeIdMap.get("head000001")).toBe(second.nodeIdMap.get("head000001"));
   });
 
+  // Styles per instance (ticket 04): the instance itself maps to its root copy,
+  // and the instance's classes ride on that copy — the editor's scoped rule and
+  // the class rules then find the rendered element on canvas and bake alike.
+  it("maps the instance to its root copy and carries its classes", () => {
+    const tree = fixture();
+    tree.nodes["inst000001"] = {
+      ...tree.nodes["inst000001"]!,
+      classes: ["instanz-rot"],
+    };
+    const result = inlineComponents(tree);
+    expect(result.problems).toEqual([]);
+    const rootCopy = result.nodeIdMap.get("inst000001");
+    expect(rootCopy).toBeDefined();
+    expect(result.copies.get("inst000001")).toEqual([rootCopy]);
+    // The definition's root child copies to the very same node.
+    expect(result.nodeIdMap.get("head000001")).toBe(rootCopy);
+    const copy = result.tree.nodes[rootCopy!]!;
+    expect(copy.classes).toContain("instanz-rot");
+  });
+
   it("expands the same definition twice without id collisions", () => {
     const tree = fixture();
     tree.nodes["sec0000002"] = node("sec0000002", "frame", { children: ["inst000002"] });

@@ -31,12 +31,16 @@ import {
   PRIMITIVE_BASE_CSS,
   compileCss,
   forcedStateCss,
+  scopeNameFor,
+  scopeSelectorFor,
+  type CssClassRule,
   type CssDocument,
   type CssNode,
   type StateName,
   type TokenResolver,
 } from "@senify/widget-engine";
 import { toCssDocument, type EditorDocument } from "../state/document.ts";
+import { editorOverrides } from "../state/components.ts";
 import { canvasNodeTreeWithCopies } from "./adapter.ts";
 
 export type FrameRulesOptions = {
@@ -79,20 +83,32 @@ export const CANVAS_CHROME_CSS = `
 // keyed by the original ids, so they are emitted once more per copy — otherwise
 // an instance would lose the styling the definition was built with, and canvas
 // and bake would drift apart. The copies are pure data (`inlineComponents`).
+//
+// Two more things ride the copy (ticket 04, styles per instance): the instance's
+// override bag is merged into the copy's props — an overridden *style* prop must
+// reach the compiler, not only the rendered tree — and a scoped rule of the
+// instance (or of a definition part) is emitted once per copy, anchored on the
+// copy id the DOM carries.
 function withComponentCopies(
   cssDocument: CssDocument,
   document: EditorDocument,
 ): CssDocument {
-  const { copies } = canvasNodeTreeWithCopies(document);
+  const { copies, origins } = canvasNodeTreeWithCopies(document);
   if (copies.size === 0) return cssDocument;
   const extra: CssNode[] = [];
   const walk = (nodes: readonly CssNode[]): void => {
     for (const node of nodes) {
       for (const copyId of copies.get(node.id) ?? []) {
         if (copyId === node.id) continue;
+        const origin = origins.get(copyId);
+        const instance =
+          origin === undefined ? undefined : document.nodes[origin.instanceId];
+        const patch =
+          instance === undefined ? undefined : editorOverrides(instance)[node.id];
         extra.push({
           ...node,
           id: copyId,
+          ...(patch === undefined ? {} : { props: { ...node.props, ...patch } }),
           children: undefined,
           slots: undefined,
         });
@@ -102,8 +118,37 @@ function withComponentCopies(
     }
   };
   walk(cssDocument.nodes);
-  if (extra.length === 0) return cssDocument;
-  return { ...cssDocument, nodes: [...cssDocument.nodes, ...extra] };
+  const classRules = cssDocument.classRules ?? [];
+  const keptRules: CssClassRule[] = [];
+  const extraRules: CssClassRule[] = [];
+  for (const rule of classRules) {
+    const scopeId = rule.scope?.nodeId;
+    const copiesOfScope =
+      scopeId === undefined ? [] : (copies.get(scopeId) ?? []).filter((id) => id !== scopeId);
+    // A node that renders as copies does not keep its own anchor: the rule
+    // follows the copies (the same replacement the bake's remap does).
+    if (copiesOfScope.length === 0) {
+      keptRules.push(rule);
+      continue;
+    }
+    for (const copyId of copiesOfScope) {
+      // Name and selector are rebuilt from the copy id — the same canonical
+      // copy the bake's `remapScopedRules` writes; the compiler keys rules by
+      // name, so a duplicate with the old name would collide with the dead one.
+      extraRules.push({
+        ...rule,
+        name: scopeNameFor(copyId),
+        selector: scopeSelectorFor(copyId),
+        scope: { nodeId: copyId },
+      });
+    }
+  }
+  if (extra.length === 0 && extraRules.length === 0) return cssDocument;
+  return {
+    ...cssDocument,
+    nodes: [...cssDocument.nodes, ...extra],
+    classRules: [...keptRules, ...extraRules],
+  };
 }
 
 export function canvasFrameRules(

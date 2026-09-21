@@ -135,4 +135,62 @@ describe("frame rules", () => {
     // The plain compiler keeps the variable form when no resolver is given.
     expect(compileCss(toCssDocument(withToken))).toContain("var(--");
   });
+
+  // Ticket 04, styles per instance: a scoped rule the editor wrote on the
+  // instance follows its root copy, and a device-suffixed override of a style
+  // prop reaches the copy's media block (the canvas compiles from the document,
+  // so the override must be merged into the copy's CssNode).
+  it("follows an instance's scoped rule and device override to its copies", () => {
+    const instanceDoc: EditorDocument = {
+      version: 2,
+      rootNodeId: "root",
+      nodes: {
+        root: { id: "root", primitive: "root", props: {}, children: ["def", "ins"] },
+        def: {
+          id: "def",
+          primitive: "__component",
+          props: { name: "karte", version: 1 },
+          children: ["hero"],
+        },
+        hero: { id: "hero", primitive: "hero", props: {} },
+        ins: {
+          id: "ins",
+          primitive: "__component_instance",
+          props: {
+            componentId: "def",
+            componentVersion: 1,
+            overrides: { hero: { background: "#111111", background_tablet: "#222222" } },
+          },
+        },
+      },
+      styleRules: [
+        {
+          id: "r-ins",
+          name: "__senify_scope_ins",
+          kind: "scoped",
+          selector: ".__senify_scope_ins",
+          order: 0,
+          scope: { type: "node", nodeId: "ins", role: "module-style" },
+          styles: { color: "#00ff00" },
+          contextStyles: {},
+        },
+      ],
+    };
+    const { authored } = canvasFrameRules(instanceDoc);
+    // The scoped rule is anchored on the copy, never on the instance id.
+    expect(authored).not.toContain('[data-node-id="ins"].__senify_scope_ins');
+    const scoped = authored.match(
+      /\[data-node-id="([^"]+)"\]\.__senify_scope_[A-Za-z0-9_]+ \{\s*color: #00ff00;/,
+    );
+    expect(scoped).not.toBeNull();
+    const copyId = scoped?.[1] ?? "";
+    expect(copyId).not.toBe("");
+    // The override patch reaches the copy: base value and tablet block.
+    expect(authored).toContain(`[data-node-id="${copyId}"]`);
+    expect(authored).toContain("background-color: #111111;");
+    const tablet = authored.slice(authored.indexOf(mediaQueryFor("tablet")));
+    expect(tablet).toContain("background-color: #222222;");
+    // The structural props stay out of the stylesheet (no `component-id`).
+    expect(authored).not.toContain("component-id:");
+  });
 });

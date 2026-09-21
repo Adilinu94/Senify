@@ -15,6 +15,7 @@
 
 import { getPrimitive } from "../catalog.ts";
 import { isConditionSatisfied } from "../controls.ts";
+import { STRUCTURAL_PROP_KEYS } from "../legacy.ts";
 import type { DeviceValueMap } from "../device.ts";
 import type { PrimitiveDefinition, PropValue, StyleGroup, Unit } from "../types.ts";
 import { isSafeCssProperty, parseCssValue } from "./value-grammar.ts";
@@ -511,6 +512,9 @@ export function declarationsForValues(
   }
   for (const spec of STYLE_PROPERTIES) known.add(spec.prop);
   for (const control of controls) known.add(control.key);
+  // The structural props of the component model (`componentId`, `name`, the
+  // override bag) are JSON, never CSS — the open pass must not emit them.
+  for (const key of STRUCTURAL_PROP_KEYS) known.add(key);
   const openKeys = Object.keys(canonical)
     .filter((key) => !known.has(key) && !emittedProps.has(key))
     .sort();

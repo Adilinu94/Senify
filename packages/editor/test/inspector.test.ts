@@ -433,6 +433,46 @@ describe("buildInspector", () => {
     expect(plainText?.value).toBe("Hallo");
     expect(plainText?.overridden).toBe(false);
   });
+
+  // Ticket 04, device levels: the override bag carries the same suffix keys as
+  // a plain prop, so the fields resolve per breakpoint and the device dots see
+  // the existing levels.
+  it("gives instance overrides device levels", () => {
+    const store = baseStore();
+    createComponent(store, "head000001", "karte");
+    const instanceId = store.document.nodes["sec0000001"]?.children?.[0] ?? "";
+    setComponentOverride(store, instanceId, "head000001", "text_tablet", "Klein");
+
+    const tablet = buildInspector({
+      document: store.document,
+      nodeId: instanceId,
+      breakpoint: "tablet",
+      theme: defaultTheme(),
+    });
+    const tabletText = tablet?.tabs
+      .find((tab) => tab.id === "content")
+      ?.groups.find((group) => group.id === "content/override:head000001")
+      ?.fields.find((field) => field.key === "text");
+    expect(tabletText?.value).toBe("Klein");
+    expect(tabletText?.overridden).toBe(true);
+    expect(tabletText?.overrideDevices).toEqual(["tablet"]);
+
+    // Desktop shows the definition's value and no override of its own; the
+    // tablet dot stays filled.
+    const desktop = buildInspector({
+      document: store.document,
+      nodeId: instanceId,
+      breakpoint: "desktop",
+      theme: defaultTheme(),
+    });
+    const desktopText = desktop?.tabs
+      .find((tab) => tab.id === "content")
+      ?.groups.find((group) => group.id === "content/override:head000001")
+      ?.fields.find((field) => field.key === "text");
+    expect(desktopText?.value).toBe("Hallo");
+    expect(desktopText?.overridden).toBe(false);
+    expect(desktopText?.overrideDevices).toEqual(["tablet"]);
+  });
 });
 
 describe("inspector value helpers", () => {

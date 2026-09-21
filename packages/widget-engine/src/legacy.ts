@@ -118,6 +118,19 @@ export function isSectionPrimitiveTwin(type: string): boolean {
   return (SECTION_PRIMITIVE_TWINS as readonly string[]).includes(type);
 }
 
+// The structural props of the component model: JSON values (ids, the override
+// bag), never style values. The value grammar (ADR-0005) does not apply to
+// them, and the CSS compiler's open pass must not emit them as declarations.
+export const STRUCTURAL_PROP_KEYS: readonly string[] = [
+  "overrides",
+  "componentId",
+  "componentVersion",
+  "name",
+  "version",
+  "allowedTypes",
+  "max",
+];
+
 export function legacyPrimitive(type: string): PrimitiveDefinition | undefined {
   if (!LEGACY.has(type)) return undefined;
   return {

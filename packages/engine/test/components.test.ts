@@ -337,6 +337,41 @@ describe("component composition", () => {
     expect(new Set(targets).size).toBe(2);
   });
 
+  // Styles per instance (ticket 04): a scoped rule can sit on the instance
+  // itself. The instance is not rekeyed by a splice here, so the idMap entry
+  // comes from the inliner — it must point at the instance's root copy, the
+  // element that carries the rendered node.
+  it("maps the instance id to its root copy", () => {
+    let counter = 0;
+    const draft: NodeTree = {
+      rootNodeId: "page-root",
+      nodes: {
+        "page-root": node("page-root", "page", {}, {
+          children: ["def-card", "inst-a"],
+        }),
+        "def-card": node("def-card", "__component", { name: "Karte" }, {
+          children: ["def-root"],
+        }),
+        "def-root": node("def-root", "container", {}, { children: ["def-head"] }),
+        "def-head": node("def-head", "block", { headline: "Titel" }),
+        "inst-a": node("inst-a", "__component_instance", { componentId: "def-card" }),
+      },
+    };
+    const idMap = new Map<string, string[]>();
+    const composed = composePageTree({
+      layout: null,
+      template: null,
+      page: draft,
+      article: null,
+      createId: () => `n${counter++}`,
+      idMap,
+    });
+    const targets = idMap.get("inst-a") ?? [];
+    expect(targets).toHaveLength(1);
+    // The target is the copy of the definition root, not a fresh node.
+    expect(composed.nodes[targets[0]!]?.type).toBe("container");
+  });
+
   it("keeps a definition of the layout alive for instances of the page", () => {
     // The definition sits in the container (layout), the instance in the page:
     // no rekeying, but the resolution must span the spliced tree.

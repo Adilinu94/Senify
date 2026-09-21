@@ -33,6 +33,7 @@ import {
   scopeNameFor,
   scopeSelectorFor,
   sectionTwinControls,
+  STRUCTURAL_PROP_KEYS,
   styleRuleErrors,
   tokenRef,
   translatableProperties,
@@ -141,16 +142,9 @@ function assertKnownProp(
 // loud half of the boundary — the compiler drops what it cannot trust.
 //
 // The structural props of the component model (ticket 04) are exempt: they
-// carry JSON, not style values.
-const STRUCTURAL_PROPS = new Set([
-  "overrides",
-  "componentId",
-  "componentVersion",
-  "name",
-  "version",
-  "allowedTypes",
-  "max",
-]);
+// carry JSON, not style values. The list lives in widget-engine so the CSS
+// compiler's open pass uses the very same one.
+const STRUCTURAL_PROPS = new Set(STRUCTURAL_PROP_KEYS);
 
 function assertSafeValue(value: PropValue, field: string): void {
   if (value === null) return;

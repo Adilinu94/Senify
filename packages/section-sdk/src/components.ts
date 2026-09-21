@@ -448,7 +448,26 @@ export function inlineComponents(tree: NodeTree, options: InlineOptions = {}): I
     }
     const nextStack = [...stack, definition.id];
     const copyId = copyNode(definition.rootChildId, instance, nextStack);
-    if (copyId !== null) noteCopy(definition.id, copyId);
+    if (copyId !== null) {
+      noteCopy(definition.id, copyId);
+      // The instance maps to its root copy: a scoped style rule the editor wrote
+      // on the instance follows the copy (styles per instance). The bake's
+      // scoped remap and the canvas's rule duplication both read this mapping.
+      nodeIdMap.set(instance.id, copyId);
+      const instanceCopies = copies.get(instance.id) ?? [];
+      instanceCopies.push(copyId);
+      copies.set(instance.id, instanceCopies);
+      // The instance's own classes belong on the root copy: the rendered
+      // element must carry them for the class rules to match (canvas and bake
+      // alike).
+      const instanceClasses = instance.classes ?? [];
+      if (instanceClasses.length > 0) {
+        const root = nodes[copyId];
+        if (root !== undefined) {
+          root.classes = [...new Set([...(root.classes ?? []), ...instanceClasses])];
+        }
+      }
+    }
     return copyId;
   };
 

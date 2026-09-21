@@ -17,6 +17,7 @@ import {
   baseKeyOf,
   COMPONENT_INSTANCE_PRIMITIVE,
   DEVICES,
+  deviceKey,
   getPrimitive,
   hasDeviceOverride,
   isControlVisible,
@@ -605,7 +606,7 @@ function overrideGroups(
     };
     const fields = controls.map((control) => {
       const field = controlToField(control, merged, breakpoint, theme);
-      return markOverride(field, part.id, partOverrides, part.props);
+      return markOverride(field, part.id, partOverrides, part.props, breakpoint);
     });
     const name = definition?.name ?? part.primitive;
     const count = (seen.get(name) ?? 0) + 1;
@@ -621,23 +622,28 @@ function overrideGroups(
 
 // Marks a field tree as an override: the commit names the part, `base` keeps
 // the definition's own value (the reset target) and `overridden` tells whether
-// this instance changed it.
+// this instance changed it for the active device. The override bag carries
+// device levels through the same suffix keys as every other prop
+// (`headline_tablet`), so the dots work exactly like on a plain node.
 function markOverride(
   field: InspectorField,
   partId: string,
   overrides: DeviceValueMap,
   definitionProps: DeviceValueMap,
+  breakpoint: Device,
 ): InspectorField {
-  const overridden = overrides[field.key] !== undefined;
+  const overridden = overrides[deviceKey(field.key, breakpoint)] !== undefined;
   const next: InspectorField = {
     ...field,
     commit: { kind: "override", partId },
-    base: resolveDeviceValue(definitionProps, field.key, "desktop"),
+    base: resolveDeviceValue(definitionProps, field.key, breakpoint),
     overridden,
-    // The override bag has no device levels yet; the device dots stay empty.
-    overrideDevices: [],
+    overrideDevices: DEVICES.filter(
+      (device) =>
+        device !== "desktop" && overrides[deviceKey(field.key, device)] !== undefined,
+    ),
     fields: field.fields?.map((nested) =>
-      markOverride(nested, partId, overrides, definitionProps),
+      markOverride(nested, partId, overrides, definitionProps, breakpoint),
     ),
   };
   return next;

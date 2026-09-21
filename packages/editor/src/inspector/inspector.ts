@@ -185,7 +185,9 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       return;
     }
     if (commit.kind === "override") {
-      commitOverride(nodeId, commit.partId, key, value);
+      // The override bag carries device levels as suffix keys, exactly like a
+      // plain node prop: the active breakpoint decides the key.
+      commitOverride(nodeId, commit.partId, deviceKey(key, breakpoint), value);
       return;
     }
     apply(
@@ -225,7 +227,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       return;
     }
     if (commit.kind === "override") {
-      commitOverride(nodeId, commit.partId, key, null);
+      commitOverride(nodeId, commit.partId, deviceKey(key, breakpoint), null);
       return;
     }
     apply(
@@ -882,11 +884,10 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     // Device dots at every responsive control (ticket 02 point 4): the filled
     // dot is an existing override, the ring marks the device being edited. A
     // click on another device switches the view; a click on the active one
-    // turns the override on (materialise the effective value) or off.
-    //
-    // An instance override (ticket 04) has no device levels yet, so it gets no
-    // dots — only the reset that removes the override again.
-    if (field.responsive && field.commit.kind !== "override") {
+    // turns the override on (materialise the effective value) or off. Instance
+    // overrides carry their device levels as suffix keys (ticket 04), so they
+    // get the very same dots.
+    if (field.responsive) {
       const dots = h(doc, "span", { className: "senify-inspector__dots" });
       for (const device of DEVICES) {
         const active = device === breakpoint;
