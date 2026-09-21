@@ -114,6 +114,27 @@ gehoeren bewusst **nicht** in die Undo-History (Webstudio-Muster). Hinweis: `doc
 wurde parallel um „Teil II" (§10–§16: Referenz-Transfer, Anti-Slop, Editor-Tiefe) erweitert —
 beide Teile koexistieren; nichts ueberschrieben. Kein Produktcode geaendert.
 
+**Ticket 04 Scheibe 3 (21.09., umgesetzt): Styles je Instanz + Geraetestufen fuer Overrides.**
+Der Override der Instanz ist jetzt ein echter Stil-Schreibvorgang: eine scoped Rule auf der
+Instanz folgt ihrer Root-Kopie, und Override-Props tragen Geraetestufen.
+
+- **Inliner (`section-sdk/src/components.ts`):** `nodeIdMap.set(instance.id, copyId)` +
+  `copies.set(instance.id, [copyId])`; die Klassen der Instanz wandern auf die Root-Kopie
+  (sonst matcht keine Klassenregel am gerenderten Element).
+- **Canvas (`editor/canvas/rules.ts` `withComponentCopies`):** Override-Beutel wird in die
+  Copy-CssNode gemergt (`editorOverrides` + `origins`), scoped Rules je Kopie mit neuem
+  Namen/Selektor dupliziert (`scopeNameFor`/`scopeSelectorFor`), Original entfaellt bei
+  Kopien — dieselbe Ersetzung wie das Bake-Remap.
+- **Geraetestufen (`editor/inspector/model.ts` + `inspector.ts`):** `markOverride` geraete-
+  bewusst (`deviceKey`, `resolveDeviceValue` je Breakpoint, `overrideDevices` aus Suffix-Keys);
+  Commit/Clear via `deviceKey(key, breakpoint)`; Geraetepunkte auch fuer Override-Felder.
+- **Compiler:** `STRUCTURAL_PROP_KEYS` in `widget-engine/legacy.ts`, vom offenen CSS-Pass
+  ausgeschlossen (kein `component-id:` im Stylesheet); Store nutzt dieselbe Liste.
+- **Tests:** section-sdk +1 (Instanz→Root-Kopie + Klassen), Engine +1 (idMap-Eintrag),
+  Editor-Rules +1 (Rule + Tablet-Override auf der Kopie), Inspector +1 (Geraetestufen).
+  **Zahlen:** fokussiert 399/28, gesamt 1372 gruen / 2 uebersprungen / 151 Dateien (ein
+  bekannter Ephemeral-Port-Flake in `editor-browser`, in Isolation gruen), typecheck 0, lint 0.
+
 **Ticket 05 Scheibe 1 (21.09., umgesetzt): SSE-Kanal, Live-Mitverfolgung, Bau-Protokoll.**
 
 - **Engine (`engine/src/events.ts`):** Prozess-Bus `EngineEvents` (`publish`/`subscribe`),

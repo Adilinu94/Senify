@@ -1,7 +1,32 @@
 # Editor v2 - Visual Components und Sections-Migration (Phase 4)
 
-Status: **Scheibe 1 erledigt (20.09.)**, **Scheibe 2 Teil 1 erledigt (20.09., committet `7f7ccd6`/`2c64aaf`)**, **Scheibe 2 Teil 2 erledigt (21.09.)**, **MCP-Fassade erledigt (21.09.)**, **Scheibe 2 Teil 3 erledigt (21.09.)** — Component-Kern, Engine-Aufnahme, Bake-Rekey/Multi-Instanz-Remap, Overrides (Modell, Editor-Op, Inspektor), Komponenten-Tab und Kontextmenü, MCP-Tools (`list_components`, `get_component`, `set_component_override`), Versionen mit Drift und Slot-Regeln (`allowedTypes`/`max`). Offen: Sections als VCs (Punkt 2), Multi-Widget-VCs (Punkt 3), Publish-Versionen site-weit, Varianten.
+Status: **Scheibe 1 erledigt (20.09.)**, **Scheibe 2 Teil 1 erledigt (20.09., committet `7f7ccd6`/`2c64aaf`)**, **Scheibe 2 Teil 2 erledigt (21.09.)**, **MCP-Fassade erledigt (21.09.)**, **Scheibe 2 Teil 3 erledigt (21.09.)**, **Scheibe 3 erledigt (21.09.)** — Component-Kern, Engine-Aufnahme, Bake-Rekey/Multi-Instanz-Remap, Overrides (Modell, Editor-Op, Inspektor), Komponenten-Tab und Kontextmenü, MCP-Tools (`list_components`, `get_component`, `set_component_override`), Versionen mit Drift und Slot-Regeln (`allowedTypes`/`max`), Styles je Instanz mit Geräteebenen für Overrides. Offen: Sections als VCs (Punkt 2), Multi-Widget-VCs (Punkt 3), Publish-Versionen site-weit, Varianten.
 Abhaengig von: 03-editor-chrome
+
+## Ergebnis Scheibe 3 (21.09., umgesetzt) - Styles je Instanz + Geraetestufen fuer Overrides
+
+Ein Override ist jetzt ein echter Stil-Schreibvorgang: die Instanz kann eigene Regeln und
+Klassen tragen, und Override-Props haben Geräteebenen wie jeder andere Prop.
+
+- **Inliner (`section-sdk/src/components.ts`):** die Instanz mappt auf ihre Root-Kopie
+  (`nodeIdMap`/`copies`), ihre Klassen wandern auf die Root-Kopie — nur so matcht eine
+  Klassenregel am gerenderten Element (Canvas wie Bake).
+- **Canvas (`editor/src/canvas/rules.ts` `withComponentCopies`):** der Override-Beutel wird in
+  die Copy-CssNode gemergt (ein übersteuerter Stil-Prop muss in den Compiler, nicht nur in den
+  gerenderten Baum); scoped Rules der Instanz (oder eines Definition-Parts) werden je Kopie mit
+  neuem Namen/Selektor dupliziert und die Original-Regel entfällt — dieselbe Ersetzung wie das
+  Bake-Remap, damit Canvas und Release denselben Anker lesen.
+- **Geräteebenen (`editor/src/inspector/model.ts` + `inspector.ts`):** `markOverride` löst je
+  Breakpoint auf (`deviceKey`, `resolveDeviceValue`), `overrideDevices` kommen aus den
+  Suffix-Keys; Commit/Clear schreiben `deviceKey(key, breakpoint)`; die Gerätepunkte gelten auch
+  für Override-Felder.
+- **Compiler (`widget-engine/src/legacy.ts`):** `STRUCTURAL_PROP_KEYS` zentral, der offene
+  CSS-Pass schließt sie aus (sonst stünde `component-id: …` im Stylesheet).
+- **Tests:** section-sdk +1, Engine +1, Editor-Rules +1, Inspector +1.
+
+**Zahlen:** fokussiert 399 grün / 28 Dateien; gesamt 1372 grün / 2 übersprungen / 151 Dateien
+(Log `.scratch/testlauf-21-09-t04s3.log`; ein bekannter Ephemeral-Port-Flake in
+`editor-browser`, in Isolation grün), typecheck 0, lint in den eigenen Bereichen 0.
 
 ## Ergebnis Scheibe 2 Teil 3 (21.09., umgesetzt) - Versionen und Slot-Regeln
 

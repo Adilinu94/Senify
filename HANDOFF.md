@@ -592,6 +592,33 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
 - **Beleg:** Gate gruen (26,6 s, Kopf-Diff 0, Sektion 0,00088 < 0,01); Fehlpfad rot mit
   klarer Meldung (4,8 s, `PLAYWRIGHT_BROWSERS_PATH` auf leeres Verzeichnis gesetzt).
 
+### 2.17 Ticket 04 Scheibe 3 (21.09., uncommittet): Styles je Instanz + Geraetestufen fuer Overrides
+
+- **Kern:** Ein Override der Instanz ist jetzt ein echter Stil-Schreibvorgang — die Instanz
+  traegt eine eigene scoped Rule und Geraetestufen, beides landet auf ihren Kopien.
+- **Inliner (`section-sdk/components.ts`):** Die Instanz mappt auf ihre Root-Kopie
+  (`nodeIdMap.set(instance.id, copyId)`, `copies.set(instance.id, [copyId])`); die Klassen der
+  Instanz wandern auf die Root-Kopie (sonst findet keine Klassenregel das gerenderte Element).
+  Damit traegt die Kopie denselben Anker, den Canvas und Bake lesen.
+- **Canvas (`editor/canvas/rules.ts` `withComponentCopies`):** Der Override-Beutel der Instanz
+  wird in die Copy-CssNode gemergt (`editorOverrides` + `origins` — ein uebersteuerter
+  Stil-Prop muss in den Compiler, nicht nur in den gerenderten Baum); scoped Rules werden je
+  Kopie mit neu gebautem Namen/Selektor dupliziert (`scopeNameFor`/`scopeSelectorFor`) und die
+  Original-Regel entfaellt, wenn Kopien existieren — dieselbe Ersetzung wie das Bake-Remap.
+- **Geraetestufen (`inspector/model.ts`, `inspector/inspector.ts`):** `markOverride` ist
+  geraetebewusst (`deviceKey`, `resolveDeviceValue` je Breakpoint, `overrideDevices` aus den
+  Suffix-Keys); Commit/Clear schreiben `deviceKey(key, breakpoint)`; die Geraetepunkte gelten
+  jetzt auch fuer Override-Felder (vorher ausgenommen).
+- **Compiler-Rand:** `STRUCTURAL_PROP_KEYS` (Overrides, componentId, name, ...) lebt jetzt in
+  `widget-engine/legacy.ts` und wird vom offenen CSS-Pass ausgeschlossen — sonst emittiert der
+  Compiler `component-id: ...` als Deklaration; der Editor-Store nutzt dieselbe Liste.
+- **Tests:** `section-sdk` +1 (Instanz→Root-Kopie + Klassen), `engine/test/components.test.ts`
+  +1 (idMap-Eintrag der Instanz), `editor/test/canvas/rules.test.ts` +1 (scoped Rule + Tablet-
+  Override auf der Kopie, kein `component-id`), `editor/test/inspector.test.ts` +1
+  (Override-Feld mit Geraetestufen). **Zahlen:** fokussiert 399 gruen / 28 Dateien,
+  Gesamtlauf 1372 gruen / 2 uebersprungen / 151 Dateien (ein bekannter Ephemeral-Port-Flake
+  `editor-browser`, in Isolation gruen), typecheck 0, lint 0.
+
 ---
 
 ## 3. Phasenstand
@@ -606,7 +633,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
 | — | 18.09.: Ticket 13 Rest (Bake + Klassen-Transport + scoped-Rekey) + Klassen am DOM + Motion M0–M5 + Ticket 20; 19.09.: Slot-/Collection-Transport verifiziert | ✅ | `issues/13`, `issues/19`–`22`, `docs/adr/0006`, `.scratch/motion-v2/` |
 | 2 | Style-Rule-Registry (Server ✅), Wert-Grammatik ✅, Editor-Modell ✅, Inspektor ✅ (20.09.) | ✅ | `issues/07`, `10`, `13`, `02` |
 | 3 | Chrome: Explorer/Kontextmenü/Spotlight ✅, DnD ✅, Design/Live ✅, Inline-Edit ✅, Undo-UI ✅, Keyboard ✅, Drag + Tabs ✅ (20.09.) | ✅ | `issues/03` + 12/16 |
-| 4 | Visual Components: Scheibe 1 (Component-Kern) ✅ + Scheibe 2 Teil 1 (speicherbar, Bake-Rekey, Overrides) ✅ (20.09.) + Teil 2 (Komponenten-Tab, Kontextmenü) ✅ (21.09.); Sections-Migration offen | 🔄 | `issues/04` |
+| 4 | Visual Components: Scheibe 1 (Component-Kern) ✅ + Scheibe 2 Teil 1 (speicherbar, Bake-Rekey, Overrides) ✅ (20.09.) + Teil 2 (Komponenten-Tab, Kontextmenü) ✅ (21.09.) + Scheibe 3 (Styles je Instanz, Gerätestufen) ✅ (21.09.); Sections-Migration offen | 🔄 | `issues/04` |
 | 5 | SSE-Kanal, Live-Mitverfolgung, Leistungsbudget | ✅ (21.09.) | `issues/05`, `pruef-t05-performance.mjs` |
 
 ---
