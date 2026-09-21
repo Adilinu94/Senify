@@ -39,6 +39,13 @@ export function createReactRenderer(options: ReactRendererOptions = {}): FrameRe
   // without reloading the iframe), instead of stacking a second page next to
   // the first.
   const roots = new Map<DomElement, { root: ReactRoot; host: DomElement }>();
+  // The tree object is shared by every sheet of one refresh, and a React
+  // element is an immutable description: build it once and mount it into all
+  // frame roots (ticket 05, point 7 — the JSX work dominated the insert path).
+  // Both callers replace the tree object on every change (immutable trees), so
+  // reference identity is the cache key.
+  let cachedTree: NodeTree | null = null;
+  let cachedElement: ReactNode = null;
   return {
     mount(frame, body, context): void {
       const doc = body.ownerDocument;
@@ -52,17 +59,21 @@ export function createReactRenderer(options: ReactRendererOptions = {}): FrameRe
       }
       const root = roots.get(body)?.root;
       if (root === undefined) return;
-      flushSyncRender(() => {
-        root.render(
+      if (cachedTree !== context.tree || cachedElement === null) {
+        cachedTree = context.tree;
+        cachedElement = (
           <SectionTree
             rootNodeId={context.tree.rootNodeId}
             nodes={context.tree.nodes}
             ctx={options.context?.() ?? EMPTY_CONTEXT}
-          />,
+          />
         );
+      }
+      const element = cachedElement;
+      flushSyncRender(() => {
+        root.render(element);
       });
-      annotateInlineText(host, context.tree, context.registry);
-      annotateHidden(host, context.tree, context.breakpoint);
+      annotate(host, context.tree, context.registry, context.breakpoint);
     },
     destroy(): void {
       for (const entry of roots.values()) {
@@ -74,17 +85,31 @@ export function createReactRenderer(options: ReactRendererOptions = {}): FrameRe
   };
 }
 
-// The section components mark their root with data-node-id; the text props
-// have no DOM hook of their own. After every render the smallest matching leaf
-// of each text prop becomes the inline anchor (double-click target). A catalog
-// primitive without a section twin carries its text controls in the catalog
-// description, and its root may be the leaf itself (the heading).
-function annotateInlineText(host: DomElement, tree: NodeTree, registry: Registry): void {
+// Post-render annotations in one DOM pass (ticket 05, point 7): inline-text
+// anchors and the per-breakpoint hidden mark. One `querySelectorAll` instead of
+// one `querySelector` per node keeps a refresh cheap; attribute writes only
+// happen when the value actually changes.
+function annotate(
+  host: DomElement,
+  tree: NodeTree,
+  registry: Registry,
+  breakpoint: FrameBreakpoint,
+): void {
+  const elements = new Map<string, DomElement>();
+  for (const element of host.querySelectorAll("[data-node-id]")) {
+    const id = element.getAttribute("data-node-id");
+    if (id !== null && !elements.has(id)) elements.set(id, element);
+  }
   for (const [nodeId, node] of Object.entries(tree.nodes)) {
+    const root = elements.get(nodeId);
+    if (root === undefined) continue;
+    if (isHiddenAt(tree, nodeId, breakpoint)) {
+      if (root.getAttribute("data-hidden") !== "true") root.setAttribute("data-hidden", "true");
+    } else if (root.getAttribute("data-hidden") !== null) {
+      root.removeAttribute("data-hidden");
+    }
     const keys = inlineControlKeys(node.type, registry);
     if (keys.length === 0) continue;
-    const root = host.querySelector(`[data-node-id="${nodeId}"]`);
-    if (!root) continue;
     for (const key of keys) {
       const value = node.props[key];
       if (typeof value !== "string" || value.trim() === "") continue;
@@ -116,19 +141,8 @@ function inlineControlKeys(type: string, registry: Registry): string[] {
 
 // Hidden nodes (per breakpoint) dim in the frame. The bake skips them or
 // leaves the decision to the runtime; the editor marks the live DOM so the
-// structure column's eye and the frame agree immediately.
-function annotateHidden(host: DomElement, tree: NodeTree, breakpoint: FrameBreakpoint): void {
-  for (const nodeId of Object.keys(tree.nodes)) {
-    const root = host.querySelector(`[data-node-id="${nodeId}"]`);
-    if (!root) continue;
-    if (isHiddenAt(tree, nodeId, breakpoint)) {
-      root.setAttribute("data-hidden", "true");
-    } else {
-      root.removeAttribute("data-hidden");
-    }
-  }
-}
-
+// structure column's eye and the frame agree immediately. Folded into
+// `annotate` (one DOM pass); the helper stays for the leaf lookup.
 function findLeafWithText(root: DomElement, value: string): DomElement | null {
   const needle = value.trim();
   const candidates = [root, ...root.querySelectorAll("*")];

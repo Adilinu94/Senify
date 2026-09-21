@@ -3686,6 +3686,10 @@ const WORKSPACE_TABS = [
 // Selected form in the submissions tab (per program run, not per project).
 let selectedFormId = null;
 
+// The open SSE channel of the active canvas view (ticket 05): a route change
+// closes it before the next view subscribes, so streams do not stack up.
+let activeLiveStream = null;
+
 // The entry preview stays open across re-renders of the article editor.
 let entryPreviewOpen = false;
 
@@ -4702,7 +4706,7 @@ function canvasModeOf(search) {
   return /(?:^|&)view=editor(?:&|$)/.test(String(search ?? "")) ? "editor" : "canvas";
 }
 
-function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCache, assetContext, siteProfile }) {
+function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCache, mediaCache, assetContext, siteProfile }) {
   const loaded = editor.loadDocument(page.draft);
 
   // Drei Spalten: Ebenen-Explorer, Arbeitsflaeche (Canvas) und Inspektor
@@ -4874,6 +4878,9 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
             active: entry.id === pageId,
           })),
         onActivate: (id) => {
+          // Eine eigene Seitenwahl beendet die Agent-Vorschau: der Nutzer
+          // will diese Seite sehen, kein Auto-Wechsel soll ihn wegziehen.
+          if (id !== pageId) setFollowAgent(false);
           location.hash = `#/projects/${siteId}/pages/${id}`;
         },
       },
@@ -5036,15 +5043,58 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
   // Eigene Schreibvorgaenge tragen den Programm-Token; sie sind kein
   // "Agent baut" und werden weder protokolliert noch nachgeladen.
   const isOwnEvent = (payload) => payload.actor?.label === AUTHOR.label;
+  // Agent-Vorschau (Ticket 05, Punkt 5): der Schalter laesst die Ansicht dem
+  // Agenten ueber Seitengrenzen folgen - "Agent baut, Nutzer sieht es im
+  // Canvas wachsen". Er liegt global (nicht je Seite), ist standardmaessig an
+  // und schaltet sich aus, sobald der Nutzer selbst eine Seite waehlt; offene
+  // Aenderungen blockieren jeden Wechsel.
+  let followAgent = storage.get("senify-agent-preview") !== "0";
+  const followButton = el("button", {
+    type: "button",
+    "data-action": "canvas-follow",
+    "aria-pressed": String(followAgent),
+    text: "Agent-Vorschau",
+    title: "Fremden Änderungen folgen — auch auf andere Seiten",
+  });
+  followButton.classList.toggle("active", followAgent);
+  const setFollowAgent = (value) => {
+    followAgent = value;
+    storage.set("senify-agent-preview", value ? "1" : "0");
+    followButton.setAttribute("aria-pressed", String(value));
+    followButton.classList.toggle("active", value);
+  };
+  followButton.addEventListener("click", () => {
+    setFollowAgent(!followAgent);
+    statusEl.textContent = followAgent ? "Agent-Vorschau an" : "Agent-Vorschau aus";
+  });
+  // Wechselt auf die Seite, an der der Agent gerade arbeitet - nur ohne
+  // offene lokale Aenderungen (sonst gingen sie beim Routenwechsel verloren).
+  const followPage = (targetPageId) => {
+    if (!followAgent || targetPageId === pageId) return false;
+    const state = session.saveState();
+    if (state.pending > 0 || state.status === "saving") {
+      statusEl.textContent = "Fremde Änderung auf einer anderen Seite - bitte speichern";
+      return false;
+    }
+    location.hash = `#/projects/${siteId}/pages/${targetPageId}`;
+    return true;
+  };
+  // Nur eine Canvas-Ansicht ist aktiv; die vorige schliesst ihren Kanal beim
+  // Routenwechsel (sonst leckt jede Navigation eine SSE-Verbindung).
+  activeLiveStream?.close();
   const live =
     typeof EventSource === "function"
       ? new EventSource(`/api/events?site=${encodeURIComponent(siteId)}`)
       : null;
+  activeLiveStream = live;
   live?.addEventListener("draft.changed", (event) => {
     const payload = parseEngineEvent(event);
     if (isOwnEvent(payload)) return;
     logProtocol(payload);
-    if (payload.pageId !== pageId) return;
+    if (payload.pageId !== pageId) {
+      followPage(payload.pageId);
+      return;
+    }
     const state = session.saveState();
     if (state.pending > 0 || state.status === "saving") {
       statusEl.textContent = "Fremde Änderung erkannt - bitte speichern oder neu laden";
@@ -5069,7 +5119,27 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
     const payload = parseEngineEvent(event);
     if (isOwnEvent(payload)) return;
     logProtocol(payload);
-    statusEl.textContent = "Neue Seite angelegt - Seitenliste über den Explorer neu laden";
+    // Die Seitenliste der Shell nachziehen, damit die neue Seite im Explorer
+    // waehlbar ist; mit Agent-Vorschau wechselt die Ansicht gleich dorthin.
+    void (async () => {
+      try {
+        const listed = await api(`/api/sites/${siteId}/pages`);
+        pagesCache.length = 0;
+        pagesCache.push(
+          ...(listed.pages ?? []).map((entry) => ({
+            id: entry.id,
+            title: entry.title || entry.path,
+            path: entry.path,
+          })),
+        );
+        explorer.refresh();
+        if (!followPage(payload.pageId)) {
+          statusEl.textContent = "Neue Seite angelegt - im Explorer wählbar";
+        }
+      } catch (error) {
+        failed(error);
+      }
+    })();
   });
   live?.addEventListener("asset.uploaded", (event) => {
     const payload = parseEngineEvent(event);
@@ -5083,7 +5153,10 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
   });
   // Beim Verlassen der Ansicht den Kanal schliessen (kein abgebrochener
   // Request, kein Leck beim Wechsel der Route).
-  window.addEventListener("pagehide", () => live?.close());
+  window.addEventListener("pagehide", () => {
+    live?.close();
+    if (activeLiveStream === live) activeLiveStream = null;
+  });
 
   saveButton.addEventListener("click", () => {
     void session.flush();
@@ -5130,7 +5203,7 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
     }
   });
 
-  toolbar.append(statusEl, publishButton, saveButton, reloadButton, retryButton);
+  toolbar.append(statusEl, followButton, publishButton, saveButton, reloadButton, retryButton);
   return { session, canvas, inspector, explorer, spotlight };
 }
 
@@ -5233,6 +5306,7 @@ async function pageView(siteId, pageId, initialSearch) {
         toolbar,
         editor,
         pagesCache,
+        mediaCache,
         assetContext,
         siteProfile,
       });

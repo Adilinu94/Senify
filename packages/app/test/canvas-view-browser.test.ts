@@ -86,6 +86,14 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       tab.on("pageerror", (error) => consoleErrors.push(`pageerror: ${error.message}`));
       tab.on("requestfailed", (request) => {
         if (isFavicon(request.url())) return;
+        // Der SSE-Kanal wird beim Routenwechsel bewusst geschlossen (Ticket 05);
+        // der Browser meldet die laufende Verbindung als abgebrochenen Request.
+        if (
+          request.url().includes("/api/events") &&
+          request.failure()?.errorText === "net::ERR_ABORTED"
+        ) {
+          return;
+        }
         failedRequests.push(`failed: ${request.url()} (${request.failure()?.errorText ?? "?"})`);
       });
       tab.on("response", (response) => {
@@ -600,6 +608,108 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
           { timeout: 10000 },
         )
         .toBe(0);
+
+      // Vorschau-Follow (Ticket 05, Punkt 4): im Live-Modus laedt die echte
+      // Seite bei einer fremden Aenderung neu — das Dokument wird ersetzt
+      // (nicht gepatcht), die Release-Runtime wird frisch injiziert und der
+      // Ring landet auf dem neuen Frame.
+      await tab.locator('.senify-canvas__button[data-mode="live"]').click();
+      await expect.poll(async () => tab.locator(".senify-canvas__frame").count()).toBe(1);
+      const liveProbe = (): Promise<string> =>
+        tab.evaluate(`(() => {
+          const frame = document.querySelector('.senify-canvas__frame iframe');
+          const doc = frame && frame.contentDocument;
+          if (!doc) return "kein Frame";
+          if (doc.__senifyProbe === "vorher") return "altes Dokument";
+          if (!doc.getElementById("motion-data")) return "keine Runtime";
+          const text = doc.body ? doc.body.textContent : "";
+          return text.includes("Live-Vorschau frisch") ? "frisch" : "alter Inhalt";
+        })()`);
+      await expect
+        .poll(async () =>
+          tab.evaluate(`(() => {
+            const frame = document.querySelector('.senify-canvas__frame iframe');
+            const doc = frame && frame.contentDocument;
+            return Boolean(doc && doc.getElementById("motion-data"));
+          })()`),
+        )
+        .toBe(true);
+      await tab.evaluate(`(() => {
+        const frame = document.querySelector('.senify-canvas__frame iframe');
+        if (frame && frame.contentDocument) frame.contentDocument.__senifyProbe = "vorher";
+      })()`);
+
+      const beforeLive = (await (
+        await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)
+      ).json()) as {
+        draftVersion: number;
+        draft: { rootNodeId: string };
+      };
+      const remoteLive = await fetch(
+        `${running.dashboardUrl}/api/pages/${page.id}/mutations`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${agentToken.secret}`,
+          },
+          body: JSON.stringify({
+            baseDraftVersion: beforeLive.draftVersion,
+            mutations: [
+              {
+                op: "insertNode",
+                parent: { nodeId: beforeLive.draft.rootNodeId },
+                index: 0,
+                node: {
+                  id: "banner00001",
+                  type: "banner",
+                  props: { text: "Live-Vorschau frisch" },
+                },
+              },
+            ],
+          }),
+        },
+      );
+      expect(remoteLive.status).toBe(200);
+      // Der Blitz gehoert zum Reload: er wird erst auf dem frischen Frame
+      // gezeichnet und ist kurzlebig, deshalb zuerst pruefen.
+      await expect
+        .poll(async () => tab.locator(".senify-canvas__flash-ring:visible").count(), {
+          timeout: 10000,
+        })
+        .toBeGreaterThan(0);
+      await expect.poll(liveProbe, { timeout: 10000 }).toBe("frisch");
+      await tab.screenshot({ path: join(shotDir, "12-live-vorschau-follow.png") });
+      await tab.locator('.senify-canvas__button[data-mode="design"]').click();
+      await expect.poll(async () => tab.locator(".senify-canvas__frame").count()).toBe(3);
+
+      // Agent-Vorschau (Ticket 05, Punkt 5): der Schalter ist an; legt der
+      // Agent eine neue Seite an, zieht die Ansicht mit ("Agent baut, Nutzer
+      // sieht es im Canvas wachsen") und die Seitenliste kennt die Seite.
+      const followButton = tab.locator('button[data-action="canvas-follow"]');
+      await expect.poll(async () => followButton.getAttribute("aria-pressed")).toBe("true");
+      const created = await fetch(`${running.dashboardUrl}/api/sites/${site.id}/pages`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${agentToken.secret}`,
+        },
+        body: JSON.stringify({ title: "Agent-Seite", path: "/agent" }),
+      });
+      expect(created.status).toBe(201);
+      const createdPage = (await created.json()) as { id: string };
+      await expect
+        .poll(async () => tab.evaluate("location.hash"), { timeout: 10000 })
+        .toContain(createdPage.id);
+      await tab.locator('.senify-explorer__tab[data-tab="pages"]').click();
+      await expect
+        .poll(async () =>
+          tab
+            .locator('.senify-explorer__tabitem', { hasText: "Agent-Seite" })
+            .count(),
+        )
+        .toBeGreaterThan(0);
+      await tab.screenshot({ path: join(shotDir, "13-agent-vorschau.png") });
 
       // The old editor stays reachable as an explicit deep link (strangler E2)
       // and still lays out its frames.

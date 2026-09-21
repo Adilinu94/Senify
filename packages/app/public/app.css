@@ -195,6 +195,24 @@ kbd {
   flex: 1;
 }
 
+/* Agent-Vorschau (Ticket 05): der Schalter der Live-Mitverfolgung zeigt
+   seinen Zustand am Rand der Werkzeugleiste. */
+.toolbar button[data-action="canvas-follow"] {
+  font: inherit;
+  font-size: 0.9rem;
+  border-radius: 0.5rem;
+  padding: 0.4rem 0.85rem;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--bg-base);
+  color: var(--fg-base);
+}
+
+.toolbar button[data-action="canvas-follow"][aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 /* Buttons */
 
 button.primary,

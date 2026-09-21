@@ -31,6 +31,7 @@ export default tseslint.config(
         Node: "readonly",
         URL: "readonly",
         IntersectionObserver: "readonly",
+        EventSource: "readonly",
       },
     },
   },

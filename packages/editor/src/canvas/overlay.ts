@@ -98,6 +98,10 @@ export type MarkerOverlay = {
   // The live-follow highlight: draws a ring over each node for a moment.
   flash(ids: string[], durationMs?: number): void;
   flush(): void;
+  // Read/write split (ticket 05, point 7): the store change writes the DOM in
+  // this task; the marker geometry is measured in the next frame, so the
+  // insert path never forces a synchronous layout.
+  flushNextFrame(): void;
   schedule(): void;
   destroy(): void;
 };
@@ -151,6 +155,8 @@ export function createMarkerOverlay(options: MarkerOverlayOptions): MarkerOverla
   let timer: ReturnType<typeof setTimeout> | null = null;
   let flashIds: string[] = [];
   let flashTimer: ReturnType<typeof setTimeout> | null = null;
+  let frameHandle: number | null = null;
+  let frameTimer: ReturnType<typeof setTimeout> | null = null;
 
   function ensureLayer(frameDoc: DomDocument): Layer {
     const existing = layers.get(frameDoc);
@@ -333,10 +339,6 @@ export function createMarkerOverlay(options: MarkerOverlayOptions): MarkerOverla
     for (const frame of frames) {
       const layer = ensureLayer(frame.doc);
       live.add(frame.doc);
-      if (frame.mode === "live" || frame.body === null) {
-        hideNode(layer);
-        continue;
-      }
       const wrapRect = rectOf(frame.wrap);
       const origin = {
         left: wrapRect.left - stageRect.left + stage.scrollLeft,
@@ -346,6 +348,13 @@ export function createMarkerOverlay(options: MarkerOverlayOptions): MarkerOverla
       layer.root.style.top = `${origin.top}px`;
       layer.root.style.width = `${Math.max(0, frame.viewport.width * frame.scale)}px`;
       layer.root.style.height = `${Math.max(0, frame.viewport.height * frame.scale)}px`;
+      if (frame.mode === "live" || frame.body === null) {
+        // Live shows the real page: selection chrome stays out. The live-follow
+        // flash still marks the changed node (ticket 05).
+        hideNode(layer);
+        if (frame.body !== null) paintFlash(frame, layer);
+        continue;
+      }
       paintHover(frame, layer);
       paintSelection(frame, layer);
       paintFlash(frame, layer);
@@ -372,6 +381,24 @@ export function createMarkerOverlay(options: MarkerOverlayOptions): MarkerOverla
       timer = null;
     }
     paint();
+  }
+
+  // The next-frame slot: one rAF where available, otherwise the next task.
+  function flushNextFrame(): void {
+    if (frameHandle !== null || frameTimer !== null) return;
+    const raf = (globalThis as { requestAnimationFrame?: (cb: () => void) => number })
+      .requestAnimationFrame;
+    if (typeof raf === "function") {
+      frameHandle = raf(() => {
+        frameHandle = null;
+        paint();
+      });
+      return;
+    }
+    frameTimer = setTimeout(() => {
+      frameTimer = null;
+      paint();
+    }, 0);
   }
 
   return {
@@ -416,7 +443,9 @@ export function createMarkerOverlay(options: MarkerOverlayOptions): MarkerOverla
         flashIds = [];
         flush();
       }, durationMs);
-      flush();
+      // The ring follows in the next frame (read/write split): the store change
+      // of this task writes the DOM first.
+      flushNextFrame();
       // A remote follow replaces the document and flashes in the same tick; the
       // renderer commits a moment later. One late paint catches the fresh DOM.
       setTimeout(() => {
@@ -424,6 +453,7 @@ export function createMarkerOverlay(options: MarkerOverlayOptions): MarkerOverla
       }, 60);
     },
     flush,
+    flushNextFrame,
     schedule,
     destroy(): void {
       if (timer !== null) {
@@ -433,6 +463,15 @@ export function createMarkerOverlay(options: MarkerOverlayOptions): MarkerOverla
       if (flashTimer !== null) {
         clearTimeout(flashTimer);
         flashTimer = null;
+      }
+      if (frameHandle !== null) {
+        (globalThis as { cancelAnimationFrame?: (handle: number) => void })
+          .cancelAnimationFrame?.(frameHandle);
+        frameHandle = null;
+      }
+      if (frameTimer !== null) {
+        clearTimeout(frameTimer);
+        frameTimer = null;
       }
       flashIds = [];
       for (const layer of layers.values()) layer.root.remove();

@@ -12,7 +12,7 @@
 // the pointer cursor unlayered in the frame (cascade decision O1), the
 // selection and hover markers in the editor portal over the stage (ticket 16).
 
-import type { MotionProfile, Registry } from "@senify/section-sdk";
+import type { MotionProfile, NodeTree, Registry } from "@senify/section-sdk";
 import {
   getPrimitive,
   primitiveTypes,
@@ -36,7 +36,7 @@ import { copyNode, pasteNode } from "../state/clipboard.ts";
 import { sanitizeInlineText } from "../inline-text.ts";
 import { createHistoryDialog } from "../history/dialog.ts";
 import { canvasFrames, fitZoom, ZOOM_MAX, ZOOM_MIN, type CanvasFrameSpec } from "./device.ts";
-import { canvasFrameRules } from "./rules.ts";
+import { canvasFrameRules, type FrameRules } from "./rules.ts";
 import { createMarkerOverlay, type OverlayFrame } from "./overlay.ts";
 import { canvasNodeTree, canvasNodeTreeWithCopies } from "./adapter.ts";
 import { type InsertPosition } from "./insert.ts";
@@ -187,6 +187,10 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   // Copy id -> the instance that rendered it, from the last `refresh`. A click
   // inside a component instance resolves through it (ticket 04).
   let copyOrigins: ReadonlyMap<string, { instanceId: string; partId: string }> = new Map();
+  // Live preview reload (ticket 05, point 4): the live frame reloads on a
+  // remote change, so a flash for the changed nodes waits for the fresh frame
+  // (the old DOM is about to be replaced and would swallow the ring).
+  let pendingFlash: string[] | null = null;
   let breakpoint: FrameBreakpoint = options.breakpoint ?? "desktop";
   const profile: MotionProfile = options.profile ?? "standard";
   const vendorBase = options.motionVendorBase ?? MOTION_VENDOR_BASE;
@@ -440,19 +444,27 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       : `${node.primitive} · ${id}`;
   }
 
-  function updateRules(entry: MountedFrame): void {
-    if (entry.body === null) return;
-    const rules = canvasFrameRules(store.document, {
+  // The frame rules of the current document and view state. The compiler run
+  // is the expensive part of a refresh (ticket 05, point 7), so the refresh
+  // path compiles once and hands the same rules to every sheet.
+  function frameRules(): FrameRules {
+    return canvasFrameRules(store.document, {
       forcedState: previewState,
       ...(mode === "live" ? { chrome: false } : {}),
       ...(resolveToken === undefined ? {} : { resolveToken }),
     });
+  }
+
+  function updateRules(entry: MountedFrame, prepared?: FrameRules): void {
+    if (entry.body === null) return;
+    const rules = prepared ?? frameRules();
     if (entry.rules === null) {
       const style = create(entry.doc, "style", undefined, { "data-senify-canvas-rules": "" });
       (entry.doc.head ?? entry.body).appendChild(style);
       entry.rules = style;
     }
-    entry.rules.textContent = rules.css;
+    // The same CSS for every sheet: a rewrite only when it actually changed.
+    if (entry.rules.textContent !== rules.css) entry.rules.textContent = rules.css;
   }
 
   function setForcedState(entry: MountedFrame): void {
@@ -834,6 +846,12 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   }
 
   function overlayFrame(entry: MountedFrame): OverlayFrame {
+    // Live frames have no fixed size (real size, native scroll): the viewport
+    // is what the frame shows right now, so the flash can still be placed.
+    const viewport =
+      entry.frame.width !== null && entry.frame.height !== null
+        ? { width: entry.frame.width, height: entry.frame.height }
+        : { width: rectOf(entry.iframe).width, height: rectOf(entry.iframe).height };
     return {
       device: entry.device,
       doc: entry.doc,
@@ -841,7 +859,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       wrap: entry.wrap,
       scale: entry.frame.scale,
       mode,
-      viewport: { width: entry.frame.width ?? 0, height: entry.frame.height ?? 0 },
+      viewport,
     };
   }
 
@@ -850,6 +868,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   // baseline state, and the design frames drop any runtime the live mode wrote.
   function rebuildFrames(): void {
     finishInline();
+    cancelDeferred();
     for (const entry of mounted) entry.wrap.remove();
     mounted.length = 0;
     for (const spec of canvasFrames(zoom, { mode, breakpoint })) mountFrame(spec);
@@ -888,9 +907,11 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       else entry.wrap.setAttribute("title", "Zum Bearbeiten aktivieren");
     }
     // Selection chrome lives in the portal (ticket 16); live shows the real
-    // page without it. `flush` keeps the ring in step with zoom and rebuilds.
+    // page without it. The geometry is measured in the next frame (ticket 05,
+    // point 7): the DOM writes of this task settle first, so an insert never
+    // forces a synchronous layout. A selection change still flushes at once.
     markers.setSelection(mode === "design" ? selected : null);
-    markers.flush();
+    markers.flushNextFrame();
   }
 
   // Live mode runs the release runtime (M4 Stufe 1): the same contract the bake
@@ -910,27 +931,89 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     });
   }
 
+  // One sheet of the refresh: React render (unless an inline edit owns the
+  // DOM), the shared rules, the forced state and — in live — the runtime.
+  function renderEntry(entry: MountedFrame, tree: NodeTree, rules: FrameRules): void {
+    if (entry.body === null) return;
+    // While an inline edit runs the frame DOM belongs to the user: React
+    // would rewrite the leaf and drop the caret. The document still updates
+    // through the store gate; commit and revert refresh the frames.
+    if (inlineSession === null) {
+      renderer.mount(entry.frame, entry.body, {
+        tree,
+        registry: options.registry,
+        breakpoint: entry.device,
+      });
+    }
+    updateRules(entry, rules);
+    setForcedState(entry);
+    if (mode === "live") injectLiveMotion(entry);
+  }
+
+  // The sheets beside the active breakpoint follow one frame later (ticket 05,
+  // point 7): the insert path writes the sheet the user works on, the dimmed
+  // sheets catch up in the next frame. A pending render is replaced by the
+  // newer one, never queued twice.
+  let deferredRender: { tree: NodeTree; rules: FrameRules } | null = null;
+  let deferredHandle: number | null = null;
+
+  function flushDeferred(): void {
+    deferredHandle = null;
+    const pending = deferredRender;
+    deferredRender = null;
+    if (pending === null) return;
+    for (const entry of mounted) {
+      if (entry.device === breakpoint) continue;
+      renderEntry(entry, pending.tree, pending.rules);
+    }
+  }
+
+  function scheduleDeferred(tree: NodeTree, rules: FrameRules): void {
+    deferredRender = { tree, rules };
+    if (deferredHandle !== null) return;
+    const raf = (globalThis as { requestAnimationFrame?: (cb: () => void) => number })
+      .requestAnimationFrame;
+    if (typeof raf === "function") {
+      deferredHandle = raf(() => flushDeferred());
+      return;
+    }
+    deferredHandle = setTimeout(() => flushDeferred(), 0) as unknown as number;
+  }
+
+  function cancelDeferred(): void {
+    deferredRender = null;
+    if (deferredHandle === null) return;
+    const caf = (globalThis as { cancelAnimationFrame?: (handle: number) => void })
+      .cancelAnimationFrame;
+    if (typeof caf === "function") caf(deferredHandle);
+    else clearTimeout(deferredHandle as unknown as ReturnType<typeof setTimeout>);
+    deferredHandle = null;
+  }
+
   function refresh(): void {
     const expanded = canvasNodeTreeWithCopies(store.document);
     const tree = expanded.tree;
     // A click inside an instance hits a copy id that is not a document node;
     // the map from the last render resolves it back to the instance (ticket 04).
     copyOrigins = expanded.origins;
+    // One compiler run for all sheets (ticket 05, point 7).
+    const rules = frameRules();
+    let deferred = false;
     for (const entry of mounted) {
       if (entry.body === null) continue;
-      // While an inline edit runs the frame DOM belongs to the user: React
-      // would rewrite the leaf and drop the caret. The document still updates
-      // through the store gate; commit and revert refresh the frames.
-      if (inlineSession === null) {
-        renderer.mount(entry.frame, entry.body, {
-          tree,
-          registry: options.registry,
-          breakpoint: entry.device,
-        });
+      if (entry.device === breakpoint) {
+        renderEntry(entry, tree, rules);
+      } else {
+        deferred = true;
       }
-      updateRules(entry);
-      setForcedState(entry);
-      if (mode === "live") injectLiveMotion(entry);
+    }
+    if (deferred) scheduleDeferred(tree, rules);
+    // The live preview reloaded (point 4): the ring for the remote change lands
+    // on the fresh frame, where the copy map is current again.
+    if (mode === "live" && pendingFlash !== null) {
+      const ids = pendingFlash;
+      pendingFlash = null;
+      markers.flash(flashIds(ids));
     }
     updateChrome();
   }
@@ -968,10 +1051,11 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   function setPreviewState(value: StateName | null): void {
     if (mode === "live") return;
     previewState = value;
+    const rules = frameRules();
     for (const entry of mounted) {
       if (entry.body === null) continue;
       setForcedState(entry);
-      updateRules(entry);
+      updateRules(entry, rules);
     }
     updateChrome();
     options.onState?.(stateOf());
@@ -996,7 +1080,26 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     return drop.insertAt(target, primitive, position, props);
   }
 
-  const unsubscribe = store.subscribe(() => refresh());
+  // The event names document nodes; a component instance renders as copies
+  // with their own ids (and a definition part renders once per instance). The
+  // copy map of the last render resolves both to the visible element.
+  function flashIds(ids: string[]): string[] {
+    const resolved = new Set(ids);
+    for (const [copyId, origin] of copyOrigins) {
+      if (resolved.has(origin.instanceId) || resolved.has(origin.partId)) {
+        resolved.add(copyId);
+      }
+    }
+    return [...resolved];
+  }
+
+  const unsubscribe = store.subscribe(() => {
+    // Live is the real page (M4 Stufe 1): a remote change reloads the preview
+    // (point 4) instead of patching the tree, so the release runtime rebinds to
+    // the fresh DOM. Design keeps the store patch, which preserves the caret.
+    if (mode === "live") rebuildFrames();
+    else refresh();
+  });
 
   // The outer shortcut layer (Ticket 03 Punkt 7): the frame handler covers the
   // content focus, this one covers the editor chrome. Text entry keeps its own
@@ -1039,22 +1142,20 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     select,
     insert,
     flashNodes(ids: string[]): void {
-      // The event names document nodes; a component instance renders as copies
-      // with their own ids (and a definition part renders once per instance).
-      // The copy map of the last render resolves both to the visible element.
-      const resolved = new Set(ids);
-      for (const [copyId, origin] of copyOrigins) {
-        if (resolved.has(origin.instanceId) || resolved.has(origin.partId)) {
-          resolved.add(copyId);
-        }
+      // Live reloads on the next store change (point 4): the ring lands on the
+      // fresh frame via `refresh`, where the copy map is current again.
+      if (mode === "live") {
+        pendingFlash = ids;
+        return;
       }
-      markers.flash([...resolved]);
+      markers.flash(flashIds(ids));
     },
     undo: () => store.undo(),
     redo: () => store.redo(),
     state: stateOf,
     destroy(): void {
       unsubscribe();
+      cancelDeferred();
       doc.removeEventListener("keydown", onKeydown);
       global.removeEventListener?.("resize", onResize);
       drop.destroy();
