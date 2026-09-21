@@ -988,3 +988,100 @@ export type ReferenceSettings = {
   preferences: ReferencePreferences;
   updatedAt: string;
 };
+
+// ------------------------------------------------------------ images (S1)
+
+// The provider chain of the image generation (ADR-0008): image-use is the
+// subscription default, ComfyUI + Qwen-Image-2.1 the local fallback, `off`
+// disables generation entirely.
+export const IMAGE_PROVIDERS = ["image-use", "comfyui", "off"] as const;
+export type ImageProviderName = (typeof IMAGE_PROVIDERS)[number];
+
+export const IMAGE_FALLBACK_PROVIDERS = ["comfyui", "none"] as const;
+export type ImageFallbackProvider = (typeof IMAGE_FALLBACK_PROVIDERS)[number];
+
+// Global image settings (one row): provider choice, the ComfyUI connection and
+// the model file names. No secrets.
+export type ImageSettings = {
+  provider: ImageProviderName;
+  fallbackProvider: ImageFallbackProvider;
+  // Provider pause after a quota/availability failure (S2).
+  cooldownMinutes: number;
+  // image-use CLI; defaults to the skill installation of the operator.
+  cliPath: string;
+  baseUrl: string;
+  diffusionModel: string;
+  textEncoder: string;
+  vae: string;
+  defaultSteps: number;
+  // Upper bound for width * height (the local fallback is slow at large sizes).
+  maxPixels: number;
+  timeoutMinutes: number;
+};
+
+// ------------------------------------------------------------ image jobs (S2)
+
+export const IMAGE_JOB_STATUSES = [
+  "queued",
+  "running",
+  "succeeded",
+  "failed",
+  "canceled",
+] as const;
+export type ImageJobStatus = (typeof IMAGE_JOB_STATUSES)[number];
+
+// The stored request of a job: everything the worker needs to generate the
+// image and commit it through the media pipeline.
+export type ImageJobRequest = {
+  prompt: string;
+  width: number;
+  height: number;
+  steps: number;
+  seed?: number;
+  filename: string;
+  altText: string | null;
+  decorative: boolean;
+  folderId: string | null;
+  tags: string[];
+  // The desired provider (job override or the settings default at enqueue
+  // time); the worker walks the chain from here.
+  provider: ImageProviderName;
+  referenceId?: string;
+};
+
+// One provider attempt; the job carries the whole history in `error` (jsonb).
+export type ImageJobAttempt = {
+  provider: string;
+  kind: string;
+  message: string;
+  at: string;
+  suggestion?: string;
+};
+
+export type ImageJob = {
+  id: string;
+  siteId: string;
+  status: ImageJobStatus;
+  request: ImageJobRequest;
+  providerUsed: string | null;
+  attempts: number;
+  maxAttempts: number;
+  leaseUntil: string | null;
+  // The provider's own job handle (ComfyUI prompt id): resume instead of a
+  // double submit after a crash.
+  providerJobId: string | null;
+  assetId: string | null;
+  error: ImageJobAttempt[];
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  updatedAt: string;
+};
+
+// Provider pause after a quota/availability failure (S2). The duration comes
+// from the settings (`image.cooldownMinutes`), the state lives here.
+export type ProviderCooldown = {
+  provider: string;
+  until: string;
+  reason: string;
+};

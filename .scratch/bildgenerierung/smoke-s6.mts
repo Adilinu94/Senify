@@ -1,0 +1,127 @@
+import { createApiHarness, createTestDb } from "@senify/core/testing";
+import {
+  createEngine,
+  defaultImageProviders,
+  runImageJobOnce,
+} from "../../packages/engine/src/index.ts";
+import { createRegistry } from "../../packages/registry/src/index.ts";
+
+// One-off smoke test for S6 (Ticket 06): the default provider image-use — job
+// over HTTP → worker → real CLI (web backend) → asset. Documented in the
+// ticket with the runtime.
+
+const memory = createTestDb();
+const { Pool } = memory.adapters.createPg();
+const pool = new Pool();
+const db = {
+  query: async (text: string, params?: readonly unknown[]) => {
+    const result = await pool.query(text, params as unknown[] | undefined);
+    return { rows: result.rows as Record<string, unknown>[] };
+  },
+  withTransaction: async <T>(task: (client: unknown) => Promise<T>): Promise<T> =>
+    task(db),
+};
+
+const engine = await createEngine({
+  db: db as never,
+  registry: createRegistry(),
+  dataDir: "G:/ai-studio/temp/senify-s6-data",
+  rateLimits: { perMinute: 10_000, burst: 10_000, destructivePerMinute: 10_000 },
+});
+const server = await engine.listen({ port: 0 });
+const anon = createApiHarness(server.origin);
+const created = await anon.request<{ secret: string }>({
+  method: "POST",
+  path: "/api/tokens",
+  body: { name: "smoke-s6", scopes: ["read", "write", "publish"] },
+});
+const api = createApiHarness(server.origin, { token: created.body.secret });
+const site = await api.request<{ id: string }>({
+  method: "POST",
+  path: "/api/sites",
+  body: { name: "S6 Smoke" },
+});
+
+// Defaults stay untouched: provider image-use, fallback comfyui.
+const settings = await api.request<{ image: Record<string, unknown> }>({
+  method: "GET",
+  path: "/api/settings",
+});
+console.log("settings.image:", JSON.stringify(settings.body.image));
+
+const health = await api.request<Record<string, unknown>>({
+  method: "GET",
+  path: "/api/images/health",
+});
+console.log("health:", JSON.stringify(health.body, null, 2));
+
+const job = await api.request<{ jobId: string; status: string; provider: string }>({
+  method: "POST",
+  path: `/api/sites/${site.body.id}/images/jobs`,
+  body: {
+    prompt:
+      "A small red ceramic teapot beside a green plant on a worn wooden kitchen table. Soft morning light through a window, realistic ceramic glaze and wood grain, quiet documentary photograph.",
+    altText: "S6 Smoke: rote Teekanne",
+    tags: ["smoke"],
+  },
+});
+console.log("POST job:", job.status, JSON.stringify(job.body));
+
+const started = Date.now();
+const run = await runImageJobOnce({
+  context: {
+    store: engine.store,
+    dataDir: engine.dataDir,
+    maxUploadBytes: engine.maxUploadBytes,
+    providers: defaultImageProviders,
+  },
+});
+const seconds = Math.round((Date.now() - started) / 1000);
+console.log(
+  `worker: status=${run?.status} provider=${run?.providerUsed} asset=${run?.assetId} in ${seconds}s`,
+);
+if (run?.error.length) console.log("history:", JSON.stringify(run.error, null, 2));
+
+const status = await api.request<Record<string, unknown>>({
+  method: "GET",
+  path: `/api/images/jobs/${job.body.jobId}`,
+});
+console.log(
+  "GET job:",
+  JSON.stringify({
+    status: status.body.status,
+    providerUsed: status.body.providerUsed,
+    assetId: status.body.assetId,
+  }),
+);
+
+const assets = await api.request<{
+  assets: {
+    id: string;
+    filename: string;
+    width: number | null;
+    height: number | null;
+    byteSize?: number;
+    altText: string | null;
+    tags: string[];
+  }[];
+}>({
+  method: "GET",
+  path: `/api/sites/${site.body.id}/assets`,
+});
+console.log(
+  "assets:",
+  JSON.stringify(
+    assets.body.assets.map((asset) => ({
+      id: asset.id,
+      filename: asset.filename,
+      size: `${asset.width}x${asset.height}`,
+      bytes: asset.byteSize,
+      altText: asset.altText,
+      tags: asset.tags,
+    })),
+  ),
+);
+
+await server.close();
+await pool.end();

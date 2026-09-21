@@ -244,7 +244,18 @@ export {
   type TokenScope,
   SITE_PROFILES,
   SMTP_TLS_MODES,
+  IMAGE_FALLBACK_PROVIDERS,
+  IMAGE_JOB_STATUSES,
+  IMAGE_PROVIDERS,
   type EngineSettings,
+  type ImageFallbackProvider,
+  type ImageJob,
+  type ImageJobAttempt,
+  type ImageJobRequest,
+  type ImageJobStatus,
+  type ImageProviderName,
+  type ImageSettings,
+  type ProviderCooldown,
   type SmtpSettings,
   type SmtpSettingsRecord,
   type SmtpTlsMode,
@@ -514,15 +525,53 @@ export {
   type TestMailResult,
 } from "./mailer.ts";
 export {
+  ImageSettingsBodySchema,
   ReferenceDnaBodySchema,
   ReferencePreferencesBodySchema,
   TestMailBodySchema,
   UpdateSettingsBodySchema,
+  type ImageSettingsBody,
   type ReferenceDnaBody,
   type ReferencePreferencesBody,
   type TestMailBody,
   type UpdateSettingsBody,
 } from "./settings-contract.ts";
+export {
+  ImageProviderError,
+  validateImageRequest,
+  type ImageGenerationRequest,
+  type ImageGenerationResult,
+  type ImageProvider,
+  type ImageProviderFailureKind,
+  type ImageProviderHealth,
+} from "./image-provider.ts";
+export {
+  buildQwenGraph,
+  createComfyImageProvider,
+  type ComfyImageConfig,
+  type QwenImageGraph,
+} from "./image-comfy.ts";
+export {
+  createImageUseProvider,
+  type ImageUseConfig,
+  type ImageUseProcess,
+  type ImageUseProcessResult,
+  type ImageUseProviderDeps,
+} from "./image-use-provider.ts";
+export {
+  defaultImageProviders,
+  providerChain,
+  runImageJobOnce,
+  SHORT_COOLDOWN_MINUTES,
+  startImageWorker,
+  type ImageWorker,
+  type ImageWorkerContext,
+  type ImageWorkerOptions,
+} from "./image-worker.ts";
+export {
+  CreateImageJobBodySchema,
+  type CreateImageJobBody,
+} from "./images-contract.ts";
 export {
   CreateReferenceCollectionBodySchema,
   MANUAL_REFERENCE_BODY_LIMIT_BYTES,
@@ -576,6 +625,9 @@ export type Engine = {
   // Maintenance window of the running engine (T12 restore).
   maintenance: MaintenanceGate;
   dataDir: string;
+  // Upload cap in bytes (default 25 MB); the image worker commits its results
+  // through the same pipeline.
+  maxUploadBytes: number;
   // Forms (T11): the release/re-bake bakes stamp signed form tokens with this
   // signer; the worker hands it to the lifecycle context.
   formSigner: FormSigner;
@@ -629,6 +681,7 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
     locks,
     maintenance,
     dataDir,
+    maxUploadBytes: options.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES,
     formSigner,
     formBaseUrl: options.formsBaseUrl,
     async listen(listenOptions?: { port?: number; host?: string }): Promise<EngineServer> {

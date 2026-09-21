@@ -1,4 +1,6 @@
 import { randomBytes } from "node:crypto";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { SenifyError } from "@senify/core";
 import {
   PAGE_ROOT_TYPE,
@@ -49,6 +51,9 @@ import {
   ASSET_VARIANT_FORMATS,
   ENTRY_STATUSES,
   FIELD_TYPES,
+  IMAGE_FALLBACK_PROVIDERS,
+  IMAGE_JOB_STATUSES,
+  IMAGE_PROVIDERS,
   REVIEW_STATUSES,
   SITE_PROFILES,
   SMTP_TLS_MODES,
@@ -73,6 +78,13 @@ import {
   type EntryVersion,
   type FieldDef,
   type FormSnapshotRecord,
+  type ImageFallbackProvider,
+  type ImageJob,
+  type ImageJobAttempt,
+  type ImageJobRequest,
+  type ImageJobStatus,
+  type ImageProviderName,
+  type ImageSettings,
   type McpAuditEntry,
   type NewsletterToken,
   type NewsletterTokenKind,
@@ -85,6 +97,7 @@ import {
   type PageTemplate,
   type Preview,
   type PreviewStatus,
+  type ProviderCooldown,
   type Reference,
   type ReferenceAssignment,
   type BakeJob,
@@ -1070,6 +1083,20 @@ export type EngineSettingsPatch = {
   defaultLayout?: string;
   autostart?: boolean;
   backupDir?: string | null;
+};
+
+export type ImageSettingsPatch = {
+  provider?: ImageProviderName;
+  fallbackProvider?: ImageFallbackProvider;
+  cooldownMinutes?: number;
+  cliPath?: string;
+  baseUrl?: string;
+  diffusionModel?: string;
+  textEncoder?: string;
+  vae?: string;
+  defaultSteps?: number;
+  maxPixels?: number;
+  timeoutMinutes?: number;
 };
 
 export class Store {
@@ -5031,6 +5058,335 @@ export class Store {
     return next;
   }
 
+  // Image generation (S1, ADR-0008): one row with the provider chain, the
+  // ComfyUI connection and the model file names. The defaults resolve the
+  // image-use CLI from the skill installation of the operator.
+  async getImageSettings(): Promise<ImageSettings> {
+    const existing = await this.#db.query<ImageSettingsRow>(
+      `SELECT ${IMAGE_SETTINGS_COLUMNS} FROM image_settings WHERE id = 'image'`,
+    );
+    const row = existing.rows[0];
+    if (row) return mapImageSettings(row);
+    const defaults = defaultImageSettings();
+    try {
+      await this.#db.query(
+        `INSERT INTO image_settings (id, provider, fallback_provider, cooldown_minutes,
+           cli_path, base_url, diffusion_model, text_encoder, vae, default_steps,
+           max_pixels, timeout_minutes, updated_at)
+         VALUES ('image', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [
+          defaults.provider,
+          defaults.fallbackProvider,
+          defaults.cooldownMinutes,
+          defaults.cliPath,
+          defaults.baseUrl,
+          defaults.diffusionModel,
+          defaults.textEncoder,
+          defaults.vae,
+          defaults.defaultSteps,
+          defaults.maxPixels,
+          defaults.timeoutMinutes,
+          new Date().toISOString(),
+        ],
+      );
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+    }
+    const created = await this.#db.query<ImageSettingsRow>(
+      `SELECT ${IMAGE_SETTINGS_COLUMNS} FROM image_settings WHERE id = 'image'`,
+    );
+    const stored = created.rows[0];
+    return stored === undefined ? defaults : mapImageSettings(stored);
+  }
+
+  async updateImageSettings(patch: ImageSettingsPatch): Promise<ImageSettings> {
+    const current = await this.getImageSettings();
+    const next: ImageSettings = {
+      provider: patch.provider ?? current.provider,
+      fallbackProvider: patch.fallbackProvider ?? current.fallbackProvider,
+      cooldownMinutes: patch.cooldownMinutes ?? current.cooldownMinutes,
+      cliPath: patch.cliPath ?? current.cliPath,
+      baseUrl: patch.baseUrl ?? current.baseUrl,
+      diffusionModel: patch.diffusionModel ?? current.diffusionModel,
+      textEncoder: patch.textEncoder ?? current.textEncoder,
+      vae: patch.vae ?? current.vae,
+      defaultSteps: patch.defaultSteps ?? current.defaultSteps,
+      maxPixels: patch.maxPixels ?? current.maxPixels,
+      timeoutMinutes: patch.timeoutMinutes ?? current.timeoutMinutes,
+    };
+    if (!IMAGE_PROVIDERS.includes(next.provider)) {
+      throw new SenifyError("validation", `Unknown image provider "${next.provider}"`, {
+        field: "image.provider",
+        suggestion: `Choose one of: ${IMAGE_PROVIDERS.join(", ")}.`,
+      });
+    }
+    if (!IMAGE_FALLBACK_PROVIDERS.includes(next.fallbackProvider)) {
+      throw new SenifyError(
+        "validation",
+        `Unknown image fallback provider "${next.fallbackProvider}"`,
+        {
+          field: "image.fallbackProvider",
+          suggestion: `Choose one of: ${IMAGE_FALLBACK_PROVIDERS.join(", ")}.`,
+        },
+      );
+    }
+    await this.#db.query(
+      `UPDATE image_settings SET provider = $2, fallback_provider = $3,
+         cooldown_minutes = $4, cli_path = $5, base_url = $6, diffusion_model = $7,
+         text_encoder = $8, vae = $9, default_steps = $10, max_pixels = $11,
+         timeout_minutes = $12, updated_at = $13 WHERE id = $1`,
+      [
+        "image",
+        next.provider,
+        next.fallbackProvider,
+        next.cooldownMinutes,
+        next.cliPath,
+        next.baseUrl,
+        next.diffusionModel,
+        next.textEncoder,
+        next.vae,
+        next.defaultSteps,
+        next.maxPixels,
+        next.timeoutMinutes,
+        new Date().toISOString(),
+      ],
+    );
+    return next;
+  }
+
+  // ------------------------------------------------------ image jobs (S2)
+
+  async enqueueImageJob(input: {
+    siteId: string;
+    request: ImageJobRequest;
+    maxAttempts?: number;
+    now?: string;
+  }): Promise<ImageJob> {
+    const now = input.now ?? new Date().toISOString();
+    const inserted = await this.#db.query<ImageJobRow>(
+      `INSERT INTO image_jobs
+        (id, site_id, status, request, provider_used, attempts, max_attempts,
+         lease_until, provider_job_id, asset_id, error, created_at, started_at,
+         finished_at, updated_at)
+       VALUES ($1, $2, 'queued', $3, NULL, 0, $4, NULL, NULL, NULL, $5, $6, NULL, NULL, $6)
+       RETURNING ${IMAGE_JOB_COLUMNS}`,
+      [
+        newEntityId(),
+        input.siteId,
+        toJsonParam(input.request),
+        input.maxAttempts ?? 3,
+        toJsonParam([]),
+        now,
+      ],
+    );
+    const row = inserted.rows[0];
+    if (!row) throw new Error("Image job insert returned no row");
+    return mapImageJob(row);
+  }
+
+  // Claim the oldest due job whose site has no live running job (the
+  // concurrency key: one generation per site at a time). The conditional
+  // update makes the claim atomic.
+  async claimImageJob(input: { now: string; leaseMs: number }): Promise<ImageJob | null> {
+    const running = await this.#db.query<{ site_id: string }>(
+      `SELECT DISTINCT site_id FROM image_jobs
+       WHERE status = 'running' AND lease_until IS NOT NULL AND lease_until > $1`,
+      [input.now],
+    );
+    const busy = new Set(running.rows.map((row) => row.site_id));
+    const due = await this.#db.query<ImageJobRow>(
+      `SELECT ${IMAGE_JOB_COLUMNS} FROM image_jobs
+       WHERE status = 'queued'
+       ORDER BY created_at ASC, id ASC LIMIT 50`,
+    );
+    const candidate = due.rows.map(mapImageJob).find((job) => !busy.has(job.siteId));
+    if (candidate === undefined) return null;
+    const leaseUntil = new Date(Date.parse(input.now) + input.leaseMs).toISOString();
+    const claimed = await this.#db.query<ImageJobRow>(
+      `UPDATE image_jobs SET status = 'running', attempts = attempts + 1,
+         lease_until = $2, started_at = COALESCE(started_at, $1), updated_at = $1
+       WHERE id = $3 AND status = 'queued'
+       RETURNING ${IMAGE_JOB_COLUMNS}`,
+      [input.now, leaseUntil, candidate.id],
+    );
+    const row = claimed.rows[0];
+    return row === undefined ? null : mapImageJob(row);
+  }
+
+  // Records which provider is currently running (and its own job handle), so a
+  // crash can resume instead of submitting a second run.
+  async setImageJobProvider(input: {
+    id: string;
+    providerUsed: string;
+    providerJobId?: string | null;
+    now?: string;
+  }): Promise<ImageJob> {
+    const now = input.now ?? new Date().toISOString();
+    const updated = await this.#db.query<ImageJobRow>(
+      `UPDATE image_jobs SET provider_used = $2, provider_job_id = $3, updated_at = $4
+       WHERE id = $1 RETURNING ${IMAGE_JOB_COLUMNS}`,
+      [input.id, input.providerUsed, input.providerJobId ?? null, now],
+    );
+    const row = updated.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Image job "${input.id}" does not exist`, {
+        field: "jobId",
+      });
+    }
+    return mapImageJob(row);
+  }
+
+  async completeImageJob(
+    id: string,
+    result: { assetId: string; providerUsed: string; error: ImageJobAttempt[] },
+    now = new Date().toISOString(),
+  ): Promise<ImageJob> {
+    const updated = await this.#db.query<ImageJobRow>(
+      `UPDATE image_jobs SET status = 'succeeded', asset_id = $2, provider_used = $3,
+         error = $5, lease_until = NULL, provider_job_id = NULL,
+         finished_at = $4, updated_at = $4
+       WHERE id = $1 RETURNING ${IMAGE_JOB_COLUMNS}`,
+      [id, result.assetId, result.providerUsed, now, toJsonParam(result.error)],
+    );
+    const row = updated.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Image job "${id}" does not exist`, {
+        field: "jobId",
+      });
+    }
+    return mapImageJob(row);
+  }
+
+  // The final state: the error column carries the whole provider history.
+  async failImageJob(input: {
+    id: string;
+    error: ImageJobAttempt[];
+    now?: string;
+  }): Promise<ImageJob> {
+    const now = input.now ?? new Date().toISOString();
+    const updated = await this.#db.query<ImageJobRow>(
+      `UPDATE image_jobs SET status = 'failed', error = $2, lease_until = NULL,
+         provider_job_id = NULL, finished_at = $3, updated_at = $3
+       WHERE id = $1 RETURNING ${IMAGE_JOB_COLUMNS}`,
+      [input.id, toJsonParam(input.error), now],
+    );
+    const row = updated.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Image job "${input.id}" does not exist`, {
+        field: "jobId",
+      });
+    }
+    return mapImageJob(row);
+  }
+
+  // Cancel only a queued job; a running job needs the provider's interrupt
+  // (later slice) and answers with a conflict.
+  async cancelImageJob(id: string, now = new Date().toISOString()): Promise<ImageJob> {
+    const updated = await this.#db.query<ImageJobRow>(
+      `UPDATE image_jobs SET status = 'canceled', finished_at = $2, updated_at = $2
+       WHERE id = $1 AND status = 'queued' RETURNING ${IMAGE_JOB_COLUMNS}`,
+      [id, now],
+    );
+    const row = updated.rows[0];
+    if (row) return mapImageJob(row);
+    const current = await this.getImageJob(id);
+    throw new SenifyError(
+      "conflict",
+      `Image job "${id}" cannot be canceled (status: ${current.status})`,
+      {
+        field: "jobId",
+        suggestion: "Only a queued job can be canceled.",
+      },
+    );
+  }
+
+  // Crash recovery: a running job whose lease expired goes back to the queue;
+  // a job that used up its attempts fails instead of looping forever.
+  async expireImageLeases(now: string): Promise<number> {
+    const requeued = await this.#db.query<{ id: string }>(
+      `UPDATE image_jobs SET status = 'queued', lease_until = NULL, updated_at = $1
+       WHERE status = 'running' AND (lease_until IS NULL OR lease_until <= $1)
+         AND attempts < max_attempts
+       RETURNING id`,
+      [now],
+    );
+    const failed = await this.#db.query<{ id: string }>(
+      `UPDATE image_jobs SET status = 'failed', lease_until = NULL,
+         provider_job_id = NULL, finished_at = $1, updated_at = $1
+       WHERE status = 'running' AND (lease_until IS NULL OR lease_until <= $1)
+         AND attempts >= max_attempts
+       RETURNING id`,
+      [now],
+    );
+    return requeued.rows.length + failed.rows.length;
+  }
+
+  async getImageJob(id: string): Promise<ImageJob> {
+    const result = await this.#db.query<ImageJobRow>(
+      `SELECT ${IMAGE_JOB_COLUMNS} FROM image_jobs WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Image job "${id}" does not exist`, {
+        field: "jobId",
+      });
+    }
+    return mapImageJob(row);
+  }
+
+  async listImageJobs(
+    siteId: string,
+    options: { status?: ImageJobStatus; limit?: number } = {},
+  ): Promise<ImageJob[]> {
+    const limit = Math.max(1, Math.min(100, options.limit ?? 20));
+    const result = options.status === undefined
+      ? await this.#db.query<ImageJobRow>(
+          `SELECT ${IMAGE_JOB_COLUMNS} FROM image_jobs
+           WHERE site_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2`,
+          [siteId, limit],
+        )
+      : await this.#db.query<ImageJobRow>(
+          `SELECT ${IMAGE_JOB_COLUMNS} FROM image_jobs
+           WHERE site_id = $1 AND status = $2 ORDER BY created_at DESC, id DESC LIMIT $3`,
+          [siteId, options.status, limit],
+        );
+    return result.rows.map(mapImageJob);
+  }
+
+  // Active provider cooldowns at `now`; the worker skips those providers.
+  async listProviderCooldowns(now: string): Promise<ProviderCooldown[]> {
+    const result = await this.#db.query<{
+      provider: string;
+      until: string;
+      reason: string;
+    }>(
+      `SELECT provider, until, reason FROM image_provider_cooldowns
+       WHERE until > $1 ORDER BY provider ASC`,
+      [now],
+    );
+    return result.rows.map((row) => ({
+      provider: row.provider,
+      until: new Date(row.until).toISOString(),
+      reason: row.reason,
+    }));
+  }
+
+  async setProviderCooldown(input: {
+    provider: string;
+    until: string;
+    reason: string;
+    now?: string;
+  }): Promise<void> {
+    const now = input.now ?? new Date().toISOString();
+    await this.#db.query(
+      `INSERT INTO image_provider_cooldowns (provider, until, reason, updated_at)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (provider) DO UPDATE SET until = $2, reason = $3, updated_at = $4`,
+      [input.provider, input.until, input.reason, now],
+    );
+  }
+
   // House DNA and the preferences of the reference briefs (T14). They live in
   // the engine so the surface and the MCP tools build the same brief.
   async getReferenceSettings(): Promise<ReferenceSettings> {
@@ -5709,5 +6065,124 @@ function mapEngineSettings(row: EngineSettingsRow): EngineSettings {
     defaultLayout: row.default_layout,
     autostart: toBoolean(row.autostart),
     backupDir: typeof row.backup_dir === "string" ? row.backup_dir : null,
+  };
+}
+
+// ------------------------------------------------------------ images (S1)
+
+const IMAGE_SETTINGS_COLUMNS =
+  "provider, fallback_provider, cooldown_minutes, cli_path, base_url, diffusion_model, text_encoder, vae, default_steps, max_pixels, timeout_minutes";
+
+type ImageSettingsRow = {
+  provider: string;
+  fallback_provider: string;
+  cooldown_minutes: unknown;
+  cli_path: string;
+  base_url: string;
+  diffusion_model: string;
+  text_encoder: string;
+  vae: string;
+  default_steps: unknown;
+  max_pixels: unknown;
+  timeout_minutes: unknown;
+};
+
+export function defaultImageSettings(): ImageSettings {
+  return {
+    provider: "image-use",
+    fallbackProvider: "comfyui",
+    cooldownMinutes: 60,
+    // The CLI of the image-use skill installation; an empty stored value keeps
+    // this default, so a fresh installation works without setup.
+    cliPath: join(homedir(), ".agents", "skills", "image-use", "image-use"),
+    baseUrl: "http://127.0.0.1:8188",
+    diffusionModel: "qwen-image-2.1-Q4_K_M.gguf",
+    textEncoder: "qwen3vl_8b_int8_convrot.safetensors",
+    vae: "qwen_image_2.1_vae_bf16.safetensors",
+    defaultSteps: 40,
+    maxPixels: 1_048_576,
+    timeoutMinutes: 60,
+  };
+}
+
+function positiveInteger(value: unknown, fallback: number): number {
+  const parsed = toFiniteNumber(value, "image");
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function mapImageSettings(row: ImageSettingsRow): ImageSettings {
+  const defaults = defaultImageSettings();
+  const provider = IMAGE_PROVIDERS.includes(row.provider as ImageProviderName)
+    ? (row.provider as ImageProviderName)
+    : defaults.provider;
+  const fallbackProvider = IMAGE_FALLBACK_PROVIDERS.includes(
+    row.fallback_provider as ImageFallbackProvider,
+  )
+    ? (row.fallback_provider as ImageFallbackProvider)
+    : defaults.fallbackProvider;
+  return {
+    provider,
+    fallbackProvider,
+    cooldownMinutes: positiveInteger(row.cooldown_minutes, defaults.cooldownMinutes),
+    cliPath: row.cli_path === "" ? defaults.cliPath : row.cli_path,
+    baseUrl: row.base_url === "" ? defaults.baseUrl : row.base_url,
+    diffusionModel: row.diffusion_model === "" ? defaults.diffusionModel : row.diffusion_model,
+    textEncoder: row.text_encoder === "" ? defaults.textEncoder : row.text_encoder,
+    vae: row.vae === "" ? defaults.vae : row.vae,
+    defaultSteps: positiveInteger(row.default_steps, defaults.defaultSteps),
+    maxPixels: positiveInteger(row.max_pixels, defaults.maxPixels),
+    timeoutMinutes: positiveInteger(row.timeout_minutes, defaults.timeoutMinutes),
+  };
+}
+
+// ------------------------------------------------------ image jobs (S2)
+
+const IMAGE_JOB_COLUMNS =
+  "id, site_id, status, request, provider_used, attempts, max_attempts, lease_until, provider_job_id, asset_id, error, created_at, started_at, finished_at, updated_at";
+
+type ImageJobRow = {
+  id: string;
+  site_id: string;
+  status: string;
+  request: unknown;
+  provider_used: unknown;
+  attempts: unknown;
+  max_attempts: unknown;
+  lease_until: unknown;
+  provider_job_id: unknown;
+  asset_id: unknown;
+  error: unknown;
+  created_at: unknown;
+  started_at: unknown;
+  finished_at: unknown;
+  updated_at: unknown;
+};
+
+function timestampOrNull(value: unknown): string | null {
+  return typeof value === "string" ? new Date(value).toISOString() : null;
+}
+
+function mapImageJob(row: ImageJobRow): ImageJob {
+  const status = IMAGE_JOB_STATUSES.includes(row.status as ImageJobStatus)
+    ? (row.status as ImageJobStatus)
+    : "failed";
+  const attempts = toJson<ImageJobAttempt[]>(row.error);
+  return {
+    id: row.id,
+    siteId: row.site_id,
+    status,
+    request: toJson<ImageJobRequest>(row.request),
+    providerUsed: typeof row.provider_used === "string" ? row.provider_used : null,
+    attempts: toFiniteNumber(row.attempts, "attempts"),
+    maxAttempts: toFiniteNumber(row.max_attempts, "max_attempts"),
+    leaseUntil: timestampOrNull(row.lease_until),
+    providerJobId:
+      typeof row.provider_job_id === "string" ? row.provider_job_id : null,
+    assetId: typeof row.asset_id === "string" ? row.asset_id : null,
+    error: Array.isArray(attempts) ? attempts : [],
+    createdAt: new Date(String(row.created_at)).toISOString(),
+    startedAt: timestampOrNull(row.started_at),
+    finishedAt: timestampOrNull(row.finished_at),
+    updatedAt: new Date(String(row.updated_at)).toISOString(),
   };
 }

@@ -1,5 +1,10 @@
 import { Type, type Static } from "@sinclair/typebox";
-import { SITE_PROFILES, SMTP_TLS_MODES } from "./types.ts";
+import {
+  IMAGE_FALLBACK_PROVIDERS,
+  IMAGE_PROVIDERS,
+  SITE_PROFILES,
+  SMTP_TLS_MODES,
+} from "./types.ts";
 
 const CLOSED = { additionalProperties: false } as const;
 
@@ -7,6 +12,14 @@ const TlsSchema = Type.Union(SMTP_TLS_MODES.map((mode) => Type.Literal(mode)));
 
 const ProfileSchema = Type.Union(
   SITE_PROFILES.map((profile) => Type.Literal(profile)),
+);
+
+const ImageProviderSchema = Type.Union(
+  IMAGE_PROVIDERS.map((provider) => Type.Literal(provider)),
+);
+
+const ImageFallbackProviderSchema = Type.Union(
+  IMAGE_FALLBACK_PROVIDERS.map((provider) => Type.Literal(provider)),
 );
 
 // Email settings: `password` is optional. A string stores a new password, null
@@ -72,6 +85,28 @@ export type ReferencePreferencesBody = Static<
   typeof ReferencePreferencesBodySchema
 >;
 
+// Image generation (S1, ADR-0008): provider chain and the ComfyUI fallback
+// configuration. No secrets; an empty cliPath keeps the operator default.
+export const ImageSettingsBodySchema = Type.Object(
+  {
+    provider: Type.Optional(ImageProviderSchema),
+    fallbackProvider: Type.Optional(ImageFallbackProviderSchema),
+    cooldownMinutes: Type.Optional(Type.Integer({ minimum: 0, maximum: 1440 })),
+    cliPath: Type.Optional(Type.String({ maxLength: 500 })),
+    baseUrl: Type.Optional(Type.String({ maxLength: 500 })),
+    diffusionModel: Type.Optional(Type.String({ maxLength: 200 })),
+    textEncoder: Type.Optional(Type.String({ maxLength: 200 })),
+    vae: Type.Optional(Type.String({ maxLength: 200 })),
+    defaultSteps: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
+    maxPixels: Type.Optional(
+      Type.Integer({ minimum: 32 * 32, maximum: 4096 * 4096 }),
+    ),
+    timeoutMinutes: Type.Optional(Type.Integer({ minimum: 1, maximum: 1440 })),
+  },
+  CLOSED,
+);
+export type ImageSettingsBody = Static<typeof ImageSettingsBodySchema>;
+
 export const UpdateSettingsBodySchema = Type.Object(
   {
     email: Type.Optional(SmtpSettingsBodySchema),
@@ -79,6 +114,7 @@ export const UpdateSettingsBodySchema = Type.Object(
     backup: Type.Optional(BackupSettingsBodySchema),
     referenceDna: Type.Optional(ReferenceDnaBodySchema),
     referencePreferences: Type.Optional(ReferencePreferencesBodySchema),
+    image: Type.Optional(ImageSettingsBodySchema),
   },
   CLOSED,
 );

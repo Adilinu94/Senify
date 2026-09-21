@@ -6,6 +6,7 @@ import {
   createEngine,
   type Db,
   type DbResult,
+  type Engine,
   type Row,
 } from "@senify/engine";
 import { createRegistry } from "@senify/registry";
@@ -14,6 +15,9 @@ export type McpTestEnv = {
   origin: string;
   token: string;
   api: ApiHarness;
+  // The running engine: suites that need the worker (image jobs) run their own
+  // claim-and-run cycle against this instance.
+  engine: Engine;
   close(): Promise<void>;
 };
 
@@ -65,6 +69,7 @@ export async function bootMcpEnv(): Promise<McpTestEnv> {
     origin: server.origin,
     token,
     api: createApiHarness(server.origin, { token }),
+    engine,
     async close() {
       await server.close();
       await database.close();

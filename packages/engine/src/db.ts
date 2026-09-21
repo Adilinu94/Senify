@@ -541,6 +541,56 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     backup_dir text,
     updated_at timestamptz NOT NULL
   )`,
+  // Image generation (S1, ADR-0008): the provider chain, the ComfyUI
+  // connection and the model file names. One row, additive next to
+  // engine_settings; no secrets.
+  `CREATE TABLE IF NOT EXISTS image_settings (
+    id text PRIMARY KEY,
+    provider text NOT NULL DEFAULT 'image-use',
+    fallback_provider text NOT NULL DEFAULT 'comfyui',
+    cooldown_minutes integer NOT NULL DEFAULT 60,
+    cli_path text NOT NULL DEFAULT '',
+    base_url text NOT NULL DEFAULT 'http://127.0.0.1:8188',
+    diffusion_model text NOT NULL DEFAULT 'qwen-image-2.1-Q4_K_M.gguf',
+    text_encoder text NOT NULL DEFAULT 'qwen3vl_8b_int8_convrot.safetensors',
+    vae text NOT NULL DEFAULT 'qwen_image_2.1_vae_bf16.safetensors',
+    default_steps integer NOT NULL DEFAULT 40,
+    max_pixels integer NOT NULL DEFAULT 1048576,
+    timeout_minutes integer NOT NULL DEFAULT 60,
+    updated_at timestamptz NOT NULL
+  )`,
+  // Durable image jobs (S2, ADR-0008): the worker claims with a lease, the
+  // request travels as jsonb, and the error column carries one entry per
+  // provider attempt (the fallback history).
+  `CREATE TABLE IF NOT EXISTS image_jobs (
+    id text PRIMARY KEY,
+    site_id text NOT NULL,
+    status text NOT NULL,
+    request jsonb NOT NULL,
+    provider_used text,
+    attempts integer NOT NULL,
+    max_attempts integer NOT NULL,
+    lease_until timestamptz,
+    provider_job_id text,
+    asset_id text,
+    error jsonb NOT NULL,
+    created_at timestamptz NOT NULL,
+    started_at timestamptz,
+    finished_at timestamptz,
+    updated_at timestamptz NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS image_jobs_due_idx
+    ON image_jobs (status, created_at ASC, id ASC)`,
+  `CREATE INDEX IF NOT EXISTS image_jobs_site_idx
+    ON image_jobs (site_id, created_at DESC, id DESC)`,
+  // Provider cooldowns (S2): after a quota/availability failure the provider
+  // pauses for `image.cooldownMinutes` and the chain uses the fallback.
+  `CREATE TABLE IF NOT EXISTS image_provider_cooldowns (
+    provider text PRIMARY KEY,
+    until timestamptz NOT NULL,
+    reason text NOT NULL,
+    updated_at timestamptz NOT NULL
+  )`,
   // Persisted secrets used for encryption at rest, mirroring form_settings.
   `CREATE TABLE IF NOT EXISTS engine_secrets (
     id text PRIMARY KEY,

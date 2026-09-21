@@ -82,11 +82,22 @@ import {
   type SubmitReviewBody,
 } from "./lifecycle-contract.ts";
 import { Store } from "./store.ts";
-import type { EngineSettingsPatch, SmtpSettingsPatch } from "./store.ts";
+import type {
+  EngineSettingsPatch,
+  ImageSettingsPatch,
+  SmtpSettingsPatch,
+} from "./store.ts";
 import { backupStatus, createBackup, listBackups, restoreBackup } from "./backup.ts";
 import { MaintenanceError, type MaintenanceGate } from "./maintenance.ts";
 import { reviewVisualFileNames, type ReviewVisualDriver } from "./review-visuals.ts";
 import { sendTestMail, smtpMailSender, type MailSender } from "./mailer.ts";
+import { createComfyImageProvider } from "./image-comfy.ts";
+import { createImageUseProvider } from "./image-use-provider.ts";
+import { validateImageRequest } from "./image-provider.ts";
+import {
+  CreateImageJobBodySchema,
+  type CreateImageJobBody,
+} from "./images-contract.ts";
 import {
   encryptSmtpPassword,
   referenceSettingsPatch,
@@ -236,6 +247,9 @@ import {
 import { resolveStoredFile, storedFileName } from "./storage.ts";
 import { buildThemeReport } from "./theme-report.ts";
 import type {
+  ImageJobRequest,
+  ImageJobStatus,
+  ImageSettings,
   ReferenceDna,
   ReferencePreferences,
   ReferenceSummary,
@@ -243,7 +257,7 @@ import type {
   TokenKind,
   TokenScope,
 } from "./types.ts";
-import { REVIEW_STATUSES } from "./types.ts";
+import { IMAGE_JOB_STATUSES, REVIEW_STATUSES } from "./types.ts";
 import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { extname } from "node:path";
 
@@ -300,7 +314,8 @@ function mediaContext(context: EngineContext): MediaContext {
 }
 
 // The settings view the app reads: SMTP without the password, the defaults, the
-// backup target (T12) and the reference preferences (T14).
+// backup target (T12), the reference preferences (T14) and the image generation
+// (S1).
 async function settingsView(
   context: EngineContext,
 ): Promise<{
@@ -309,12 +324,14 @@ async function settingsView(
   backup: { targetDir: string };
   referenceDna: ReferenceDna;
   referencePreferences: ReferencePreferences;
+  image: ImageSettings;
 }> {
-  const [email, settings, status, references] = await Promise.all([
+  const [email, settings, status, references, image] = await Promise.all([
     context.store.getSmtpSettings(),
     context.store.getEngineSettings(),
     backupStatus({ store: context.store, dataDir: context.dataDir }),
     context.store.getReferenceSettings(),
+    context.store.getImageSettings(),
   ]);
   return {
     email: smtpView(email),
@@ -326,6 +343,7 @@ async function settingsView(
     backup: { targetDir: status.targetDir },
     referenceDna: references.dna,
     referencePreferences: references.preferences,
+    image,
   };
 }
 
@@ -3412,6 +3430,34 @@ const ROUTES: Route[] = [
           }),
         );
       }
+      // Image generation (S1): a branch that is left out keeps its value.
+      if (input.image !== undefined) {
+        const patch: ImageSettingsPatch = {};
+        if (input.image.provider !== undefined) patch.provider = input.image.provider;
+        if (input.image.fallbackProvider !== undefined) {
+          patch.fallbackProvider = input.image.fallbackProvider;
+        }
+        if (input.image.cooldownMinutes !== undefined) {
+          patch.cooldownMinutes = input.image.cooldownMinutes;
+        }
+        if (input.image.cliPath !== undefined) patch.cliPath = input.image.cliPath.trim();
+        if (input.image.baseUrl !== undefined) patch.baseUrl = input.image.baseUrl.trim();
+        if (input.image.diffusionModel !== undefined) {
+          patch.diffusionModel = input.image.diffusionModel.trim();
+        }
+        if (input.image.textEncoder !== undefined) {
+          patch.textEncoder = input.image.textEncoder.trim();
+        }
+        if (input.image.vae !== undefined) patch.vae = input.image.vae.trim();
+        if (input.image.defaultSteps !== undefined) {
+          patch.defaultSteps = input.image.defaultSteps;
+        }
+        if (input.image.maxPixels !== undefined) patch.maxPixels = input.image.maxPixels;
+        if (input.image.timeoutMinutes !== undefined) {
+          patch.timeoutMinutes = input.image.timeoutMinutes;
+        }
+        await context.store.updateImageSettings(patch);
+      }
       return { status: 200, body: await settingsView(context) };
     },
   },
@@ -3450,6 +3496,171 @@ const ROUTES: Route[] = [
         }),
       };
     },
+  },
+  // ------------------------------------------------------- images (S1)
+  {
+    // Diagnosis of both providers of the chain: the image-use backend (doctor,
+    // capped) and ComfyUI reachability plus the configured model files. With
+    // `provider: off` the answer stays a clean state, not an error.
+    method: "GET",
+    segments: ["api", "images", "health"],
+    scope: "read",
+    handler: async (context) => {
+      const settings = await context.store.getImageSettings();
+      if (settings.provider === "off") {
+        return {
+          status: 200,
+          body: {
+            provider: settings.provider,
+            fallbackProvider: settings.fallbackProvider,
+            detail:
+              "Bildgenerierung ist in den Einstellungen deaktiviert (provider: off).",
+            providers: { "image-use": null, comfyui: null },
+          },
+        };
+      }
+      const [imageUse, comfyui] = await Promise.all([
+        createImageUseProvider(settings).health(),
+        createComfyImageProvider(settings).health(),
+      ]);
+      return {
+        status: 200,
+        body: {
+          provider: settings.provider,
+          fallbackProvider: settings.fallbackProvider,
+          providers: { "image-use": imageUse, comfyui },
+        },
+      };
+    },
+  },
+  {
+    // Starts a durable image job (S2): the worker walks the provider chain and
+    // commits the result through the media pipeline.
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "images", "jobs"],
+    scope: "write",
+    handler: async (context, params, req, url, auth) => {
+      const siteId = requireParam(params, "siteId");
+      await context.store.getSite(siteId);
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<CreateImageJobBody>(
+        CreateImageJobBodySchema,
+        body,
+        "image job",
+      );
+      const settings = await context.store.getImageSettings();
+      const provider = input.provider ?? settings.provider;
+      if (provider === "off") {
+        throw new SenifyError(
+          "validation",
+          "Bildgenerierung ist in den Einstellungen deaktiviert (provider: off)",
+          {
+            field: "image.provider",
+            suggestion: "Den Provider in den Einstellungen aktivieren.",
+          },
+        );
+      }
+      let prompt = input.prompt?.trim() ?? "";
+      if (prompt === "" && input.referenceId !== undefined) {
+        const reference = await context.store.getReference(input.referenceId);
+        const built = buildImagePrompt(reference);
+        if (built === null) {
+          throw new SenifyError(
+            "validation",
+            `Referenz "${input.referenceId}" hat kein Bildrezept`,
+            {
+              field: "referenceId",
+              suggestion:
+                "get_reference_brief liefert imagePrompt, sobald ein Rezept hinterlegt ist.",
+            },
+          );
+        }
+        prompt = built;
+      }
+      if (prompt === "") {
+        throw new SenifyError("validation", "prompt oder referenceId ist nötig", {
+          field: "prompt",
+          suggestion: "Einen Prompt senden oder eine Referenz mit Bildrezept angeben.",
+        });
+      }
+      const request: ImageJobRequest = {
+        prompt,
+        width: input.width ?? 1024,
+        height: input.height ?? 1024,
+        steps: input.steps ?? settings.defaultSteps,
+        ...(input.seed === undefined ? {} : { seed: input.seed }),
+        filename:
+          input.filename?.trim() ?? `senify-bild-${newEntityId().slice(0, 8)}.png`,
+        altText: input.altText?.trim() ?? null,
+        decorative: input.decorative ?? false,
+        folderId: input.folderId ?? null,
+        tags: input.tags ?? [],
+        provider,
+        ...(input.referenceId === undefined
+          ? {}
+          : { referenceId: input.referenceId }),
+      };
+      validateImageRequest(provider, request, settings.maxPixels);
+      return withIdempotency(
+        context,
+        auth,
+        req,
+        url,
+        input.idempotencyKey,
+        input,
+        async () => {
+          const job = await context.store.enqueueImageJob({ siteId, request });
+          return {
+            status: 202,
+            body: { jobId: job.id, status: job.status, provider },
+          };
+        },
+      );
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "images", "jobs"],
+    scope: "read",
+    handler: async (context, params, _req, url) => {
+      const siteId = requireParam(params, "siteId");
+      const status = url.searchParams.get("status");
+      if (
+        status !== null &&
+        !IMAGE_JOB_STATUSES.includes(status as ImageJobStatus)
+      ) {
+        throw new SenifyError("validation", `Unknown image job status "${status}"`, {
+          field: "status",
+          suggestion: `Use one of: ${IMAGE_JOB_STATUSES.join(", ")}.`,
+        });
+      }
+      return {
+        status: 200,
+        body: {
+          jobs: await context.store.listImageJobs(siteId, {
+            ...(status === null ? {} : { status: status as ImageJobStatus }),
+          }),
+        },
+      };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "images", "jobs", ":jobId"],
+    scope: "read",
+    handler: async (context, params) => ({
+      status: 200,
+      body: await context.store.getImageJob(requireParam(params, "jobId")),
+    }),
+  },
+  {
+    method: "DELETE",
+    segments: ["api", "images", "jobs", ":jobId"],
+    scope: "write",
+    handler: async (context, params) => ({
+      status: 200,
+      body: await context.store.cancelImageJob(requireParam(params, "jobId")),
+    }),
   },
   // ------------------------------------- reference collections (T14)
   {

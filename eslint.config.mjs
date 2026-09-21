@@ -30,6 +30,7 @@ export default tseslint.config(
         FormData: "readonly",
         Node: "readonly",
         URL: "readonly",
+        IntersectionObserver: "readonly",
       },
     },
   },

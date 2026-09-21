@@ -6,7 +6,9 @@ import {
   createEngine,
   createPgDb,
   createReviewVisualDriver,
+  defaultImageProviders,
   startBakeWorker,
+  startImageWorker,
   type Db,
   type Store,
 } from "@senify/engine";
@@ -173,6 +175,16 @@ export async function startProgram(
       ...(engine.formBaseUrl === undefined ? {} : { formBaseUrl: engine.formBaseUrl }),
     },
   });
+  // The image worker (S2): durable generation jobs over the provider chain
+  // (image-use default → ComfyUI fallback).
+  const imageWorker = startImageWorker({
+    context: {
+      store: engine.store,
+      dataDir: engine.dataDir,
+      maxUploadBytes: engine.maxUploadBytes,
+      providers: defaultImageProviders,
+    },
+  });
   let appServer;
   try {
     const operatorToken = await ensureOperatorToken(
@@ -186,6 +198,7 @@ export async function startProgram(
       port: options.appPort ?? DEFAULT_APP_PORT,
     });
   } catch (error) {
+    imageWorker.stop();
     await engineServer.close();
     await closeDb?.();
     throw error;
@@ -203,6 +216,7 @@ export async function startProgram(
     appPort: appServer.port,
     close: async () => {
       bakeWorker.stop();
+      imageWorker.stop();
       await appServer.close();
       await engineServer.close();
       await closeDb?.();
