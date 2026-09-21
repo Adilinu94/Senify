@@ -141,7 +141,7 @@ Multi-Instanz-Remap, Overrides (Modell/Editor/Inspektor/Canvas).**
   engine/test/components.test.ts (6, neu: HTTP-Speicherpfad, Splice-Rekey, zwei Instanzen,
   Overrides), renderer +1 (Kopie-Selektoren), editor 8 + Inspektor 16 + Canvas 8.
 - **Zahlen:** `pnpm test` **1322 grün / 2 übersprungen / 147 Dateien** (Log `.scratch/testlauf-20-09-m4s2t1.log`; ein roter Lauf = bekannter Browser-Flake, in Isolation grün), typecheck 0,
-  lint (eigene Bereiche) 0. Kein Commit (Auftrag offen).
+  lint (eigene Bereiche) 0. Code committet als `7f7ccd6`, Doku als `2c64aaf`.
 - **Offen (Scheibe 2 Rest):** Publish-Versionen, Slot-Restriktionen, Varianten, Styles je
   Instanz, Geräteebenen für Overrides, Komponenten-Tab/Kontextmenü, MCP-Fassade,
   Sections-Migration.

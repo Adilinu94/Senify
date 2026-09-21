@@ -1,6 +1,6 @@
 # Editor v2 - Visual Components und Sections-Migration (Phase 4)
 
-Status: **Scheibe 1 erledigt (20.09.)**, **Scheibe 2 Teil 1 erledigt (20.09.)** — Component-Kern, Engine-Aufnahme, Bake-Rekey/Multi-Instanz-Remap, Overrides (Modell, Editor-Op, Inspektor). Offen: Sections als VCs (Punkt 2), Multi-Widget-VCs (Punkt 3), Publish-Versionen, Slot-Restriktionen, Komponenten-Tab, MCP-Fassade.
+Status: **Scheibe 1 erledigt (20.09.)**, **Scheibe 2 Teil 1 erledigt (20.09., committet `7f7ccd6`/`2c64aaf`)** — Component-Kern, Engine-Aufnahme, Bake-Rekey/Multi-Instanz-Remap, Overrides (Modell, Editor-Op, Inspektor). Offen: Sections als VCs (Punkt 2), Multi-Widget-VCs (Punkt 3), Publish-Versionen, Slot-Restriktionen, Komponenten-Tab, MCP-Fassade.
 Abhaengig von: 03-editor-chrome
 
 ## Ergebnis Scheibe 2 Teil 1 (20.09., umgesetzt) — speicherbar, auflösbar, überschreibbar

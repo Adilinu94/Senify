@@ -382,7 +382,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
 - **Offen (Scheibe 2):** Overrides/Varianten/Publish-Versionen, Multi-Instanz-Remap,
   Slot-Restriktionen, Komponenten-Tab im Editor, MCP/Skills, Sections-Migration.
 
-### 2.9 Ticket 04 Scheibe 2 Teil 1 (20.09., uncommittet): speicherbar, Bake-Rekey, Overrides
+### 2.9 Ticket 04 Scheibe 2 Teil 1 (20.09., committet `7f7ccd6`/`2c64aaf`): speicherbar, Bake-Rekey, Overrides
 
 - **Der Fund zuerst:** Scheibe 1 war lokal korrekt, aber **nicht speicherbar** — die Engine
   kannte die reservierten Typen nicht (`Unknown section type "__component"` beim ersten
@@ -409,7 +409,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
   `engine/test/components.test.ts` (6, neu: HTTP-Speicherpfad, Splice-Rekey, zwei Instanzen,
   Overrides), Renderer (+1 Kopie-Selektoren), Editor (8) + Inspektor (16) + Canvas (8).
 - **Zahlen:** `pnpm test` **1322 grün / 2 übersprungen / 147 Dateien** (Log `.scratch/testlauf-20-09-m4s2t1.log`; der eine rote Lauf war der bekannte Browser-Flake `submissions-browser.test.ts`, in Isolation grün), typecheck 0, lint
-  (eigene Bereiche) 0. **Kein Commit** (Auftrag offen).
+  (eigene Bereiche) 0. **Commit:** Code `7f7ccd6`, Doku `2c64aaf`.
 - **Grenzen (Scheibe 2 Rest):** Overrides sind basisweit und betreffen Props (keine Styles
   je Instanz, keine Geräteebenen); Publish-Versionen, Slot-Restriktionen, Varianten,
   Komponenten-Tab, MCP-Fassade und die Sections-Migration fehlen.
