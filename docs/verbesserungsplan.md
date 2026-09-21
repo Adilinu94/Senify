@@ -373,6 +373,14 @@ Jedes Epic: **Ziel · Umfang · Akzeptanzkriterien · Belege · Abhängigkeiten 
 
 ### E11 · Visual Components & Templates — **P0, L**
 
+**Stand (20.09., Ticket 04):** Scheibe 1 + Scheibe 2 Teil 1 umgesetzt — Component-Kern im Baum
+(reservierte Typen, `inlineComponents` als eine Ableitung), Engine-Aufnahme
+(`registerStructural`, `allowedChildren: "any"`), Bake-Rekey über den Layout-Splice,
+Multi-Instanz-Remap für scoped Regeln, Instanz-Overrides (Modell, Editor-Op, Inspektor,
+Canvas-Klick). Offen: unveränderliche Publish-Versionen, Slot-Restriktionen
+(`allowedComponents`/`max`), Varianten, Styles je Instanz, Komponenten-Tab/Kontextmenü,
+MCP-Fassade, Sections-Migration.
+
 **Ziel:** Wiederverwendung statt Kopieren.
 **Umfang:** Component-Definition/Instanz/Version, Overrides (Props/Styles), Slots mit Restrictions, Detach, Cycle-Detection, Publish-Inlining; Template-/Outlet-Autorenschaft im Editor; VC-Templates; `collection`/`collection-list`-Konsolidierung; MCP-Tools für Components/Templates.
 **Instanz-Datenmodell (Best-Practice-Ergänzung):** Instanz-Node trägt `componentId` (stabile Definition-ID, versioniert) + `overrides: Record<partId, Partial<Props>>` — Part-IDs sind **stabil und unabhängig von Anzeigenamen** (Figma matcht über Layer-Namen; das gilt als dokumentierte Fehlerquelle). Instance Swap mit Override-Migration; Nested Components; Cycle-Detection im Schreibpfad (Muster existiert für Moves); Slots auf Komponentenebene (`allowedComponents`, `max`, Preferred Replacements); Variants als Property-Sets (Name/Wert), Variant-Swap behält Overrides auf denselben Part-IDs; Detach erzeugt tiefe Kopie mit frischen IDs (Muster `applyDuplicateNode`).

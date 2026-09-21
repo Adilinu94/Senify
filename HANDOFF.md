@@ -382,6 +382,38 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
 - **Offen (Scheibe 2):** Overrides/Varianten/Publish-Versionen, Multi-Instanz-Remap,
   Slot-Restriktionen, Komponenten-Tab im Editor, MCP/Skills, Sections-Migration.
 
+### 2.9 Ticket 04 Scheibe 2 Teil 1 (20.09., uncommittet): speicherbar, Bake-Rekey, Overrides
+
+- **Der Fund zuerst:** Scheibe 1 war lokal korrekt, aber **nicht speicherbar** — die Engine
+  kannte die reservierten Typen nicht (`Unknown section type "__component"` beim ersten
+  Speichern). Und der Bake verlor Definitionen aus gespleißten Bäumen: der Layout-Splice
+  rekeyt Knoten, aber `componentId` blieb die Draft-Id (`Component "…" is not defined`).
+- **Engine-Aufnahme:** `Registry.registerStructural` (structural types sind `has`/`get`,
+  aber nicht in `list()` — Katalog/Doku bleiben kuratiert); `allowedChildren` kennt `"any"`,
+  `PropControl` kennt `"json"`; `registry/src/sections/structural.ts` beschreibt Definition,
+  Instanz und Slot; `apply.ts` lässt strukturelle Kinder überall zu (außer im Slot) und
+  behandelt offene Container in Kind-, Slot- und Wrap-Prüfung.
+- **Bake:** `remapComponentRefs` schreibt `componentId` vor dem Inlining um (copy-on-write);
+  die Draft→komponiert-Map trägt **Listen** (`Map<NodeId, NodeId[]>`), Kopien werden
+  expandiert — scoped Regeln folgen jetzt **allen** Instanzen (`remapScopedRules` je Kopie
+  ein Selektor). `bake.ts`/`renderer` reichen `Record<string, string[]>` durch.
+- **Overrides:** `props.overrides` auf der Instanz (`{ partId: { key: Wert } }`, Part-Ids
+  sind die stabilen Knoten-Ids der Definition). `inlineComponents` mischt in die Kopie (die
+  Definition bleibt unberührt; verschachtelte Instanzen inkl. Swap über `componentId`),
+  `componentParts`/`staleOverrides` als Register/Prüfung. Editor: `setComponentOverride`
+  (leerer Beutel wird gepruned), `detachComponent` materialisiert Overrides (zwei Batches,
+  **ein** Coalesce-Key = ein Undo). Inspektor: je Teil eine Content-Gruppe,
+  `commit.kind: "override"`, `base` = Definitionswert für den Reset. Canvas: `origins`
+  (Kopie → Instanz + Teil) — Klick in eine Instanz wählt die Instanz.
+- **Tests:** `section-sdk/test/components.test.ts` (13), Registry (+2),
+  `engine/test/components.test.ts` (6, neu: HTTP-Speicherpfad, Splice-Rekey, zwei Instanzen,
+  Overrides), Renderer (+1 Kopie-Selektoren), Editor (8) + Inspektor (16) + Canvas (8).
+- **Zahlen:** `pnpm test` **1322 grün / 2 übersprungen / 147 Dateien** (Log `.scratch/testlauf-20-09-m4s2t1.log`; der eine rote Lauf war der bekannte Browser-Flake `submissions-browser.test.ts`, in Isolation grün), typecheck 0, lint
+  (eigene Bereiche) 0. **Kein Commit** (Auftrag offen).
+- **Grenzen (Scheibe 2 Rest):** Overrides sind basisweit und betreffen Props (keine Styles
+  je Instanz, keine Geräteebenen); Publish-Versionen, Slot-Restriktionen, Varianten,
+  Komponenten-Tab, MCP-Fassade und die Sections-Migration fehlen.
+
 ---
 
 ## 3. Phasenstand
@@ -396,7 +428,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
 | — | 18.09.: Ticket 13 Rest (Bake + Klassen-Transport + scoped-Rekey) + Klassen am DOM + Motion M0–M5 + Ticket 20; 19.09.: Slot-/Collection-Transport verifiziert | ✅ | `issues/13`, `issues/19`–`22`, `docs/adr/0006`, `.scratch/motion-v2/` |
 | 2 | Style-Rule-Registry (Server ✅), Wert-Grammatik ✅, Editor-Modell ✅, Inspektor ✅ (20.09.) | ✅ | `issues/07`, `10`, `13`, `02` |
 | 3 | Chrome: Explorer/Kontextmenü/Spotlight ✅, DnD ✅, Design/Live ✅, Inline-Edit ✅, Undo-UI ✅, Keyboard ✅, Drag + Tabs ✅ (20.09.) | ✅ | `issues/03` + 12/16 |
-| 4 | Visual Components: Scheibe 1 (Component-Kern) ✅ (20.09.); Sections-Migration offen | 🔄 | `issues/04` |
+| 4 | Visual Components: Scheibe 1 (Component-Kern) ✅ + Scheibe 2 Teil 1 (speicherbar, Bake-Rekey, Overrides) ✅ (20.09.); Sections-Migration offen | 🔄 | `issues/04` |
 | 5 | SSE-Kanal, Live-Mitverfolgung, Leistungsbudget | ❌ | `issues/05` |
 
 ---
@@ -446,7 +478,7 @@ Alle unter `.scratch/editor-v2-rebuild/issues/`. Stand:
 | 01-widget-engine-canvas | Phase 0/1: Fundament, Primitive, Canvas, DnD | Fundament ✅, Punkt 7 (DnD) offen → Ticket 12 |
 | 02-style-engine-inspector | Inspektor, volle CSS-Fähigkeiten, MCP-Style-Tools | **erledigt (20.09.)** — Punkte 3–7: Override-UX, Forced States (scoped Rule + Transport), Token-Picker, offene Property-Zeile, MCP-Tools |
 | 03-editor-chrome | Phase 3: Explorer, Kontextmenü, Spotlight, Inline-Edit, Tastatur | **erledigt (20.09.)** — inkl. Inline-Edit, Verlauf, Keyboard, Explorer-Drag, Site-/Media-Tabs, Copy/Paste/Wrap |
-| 04-visual-components | Phase 4: VCs, Sections als VCs, Cutover | **Scheibe 1 erledigt (20.09.)** — Component-Kern, Inlining Canvas/Bake, Editor-Ops; offen: Sections-Migration, Overrides/Versionen, UI, MCP |
+| 04-visual-components | Phase 4: VCs, Sections als VCs, Cutover | **Scheibe 1 + Scheibe 2 Teil 1 erledigt (20.09.)** — Kern, Engine-Aufnahme, Bake-Rekey/Multi-Instanz-Remap, Overrides (Modell/Editor/Inspektor/Canvas); offen: Publish-Versionen, Slot-Restriktionen, Varianten, Komponenten-Tab, MCP-Fassade, Sections-Migration |
 | 05-live-build-follow-polish | Phase 5: SSE, Live-Mitverfolgung | offen |
 | 06-adr-puck-abschied | ADR-07 (Puck-Abschied) | **erledigt (20.09.)** — ADR-0007, Puck-Code + Peer-Dependency entfernt |
 | 07-style-rule-modell | Kanonisches Modell im Editor-Dokument + Wert-Grammatik + `states`/`authoredBy` | **erledigt (Stufen 0–6)** |
@@ -486,15 +518,16 @@ committet `55593f1`). Der Testlauf ist grün (**1270/2/141**, Log
 
 **Als Nächstes:**
 
-1. **Runde 2 (20.09.): erledigt, uncommittet.** Tickets 16, 02 (Punkte 3–7), 03 (Punkte
-   1/2/4/5/7) und 06/ADR-0007 — siehe §2.7. Damit sind die Phasen 2 und 3 fachlich
-   abgeschlossen; offen sind nur noch **Ticket 04 (Phase 4: Visual Components, Sections als
-   VCs, E2-Cutover)**, **Ticket 05 (Phase 5: SSE-Kanal, Live-Mitverfolgung,
-   Leistungsbudget)**, **Ticket 11** (per-Breakpoint `hidden` — vor dem Cutover) und
-   **Ticket 19 M6** (optionale Scrub-Stufe).
-2. **Vor dem E2-Cutover (Ticket 04):** Katalog-Namen in der Engine registrieren (Strangler),
-   Dublette `divider`/`embed` auflösen, Paritäts-Tor als CI-Blocker scharf schalten,
-   Ticket 11 nachziehen.
+1. **Runde 2 + Ticket 04 Scheibe 1 (20.09.): erledigt, committet** (`d25e4d0`/`c0da522`/
+   `619c5d8`) — siehe §2.7/§2.8. **Ticket 04 Scheibe 2 Teil 1 (20.09.): erledigt,
+   uncommittet** — siehe §2.9. Damit sind die Phasen 2 und 3 fachlich abgeschlossen; offen
+   sind **Ticket 04 Scheibe 2 Rest** (Publish-Versionen, Slot-Restriktionen, Varianten,
+   Komponenten-Tab, MCP-Fassade, Sections-Migration), **Ticket 05 (Phase 5: SSE-Kanal,
+   Live-Mitverfolgung, Leistungsbudget)** und **Ticket 19 M6** (optionale Scrub-Stufe).
+2. **Vor dem E2-Cutover (Ticket 04):** Katalog-Namen in der Engine registrieren (Strangler) —
+   **die strukturellen Typen sind jetzt registriert** (§2.9); noch offen: Dublette
+   `divider`/`embed` auflösen, Paritäts-Tor als CI-Blocker scharf schalten.
+   Ticket 11 ist erledigt (19.09., `hiddenDevices`).
 3. **Danach:** Ticket 05 (SSE) und die offenen E-Pakete aus `docs/verbesserungsplan.md`.
 
 **Strategischer Rahmen (19.09.):** `docs/verbesserungsplan.md` — Zielbild Framer/Webflow-Niveau,
@@ -605,6 +638,26 @@ Commit `git status` prüfen und nach Pfaden stagen, nie `git add -A`.
   Der Browser-Test für die offene CSS-Fläche nutzt deshalb eine Sektions-Property
   (`textColor`); freie Properties sind im Modelltest belegt und bleiben dem E2-Cutover
   (Ticket 04) vorbehalten.
+- **Strukturelle Knoten brauchen die Engine-Registry, nicht nur den Editor:** Die
+  reservierten Typen waren nur im Widget-Katalog bekannt; jeder Speicherversuch endete in
+  `Unknown section type "__component"`. `registerStructural` hält sie aus `list()` heraus
+  (Katalog/Doku bleiben kuratiert) und `allowedChildren: "any"` ist die Form für offene
+  Container (der Widget-Katalog kennt sie seit Phase 0).
+- **Der Layout-Splice rekeyt Knoten, keine String-Referenzen:** `componentId` zeigte nach
+  dem Splice auf eine Draft-Id, die es im komponierten Baum nicht mehr gibt — der Bake
+  brach mit `Component "…" is not defined` ab. `remapComponentRefs` (copy-on-write) schreibt
+  vor dem Inlining um; die Canvas ist nie betroffen (sie splict nicht), der Fehler war
+  bake-only.
+- **Eine Draft-Id, mehrere komponierte Ziele:** Die Draft→komponiert-Map (Ticket 22) trägt
+  seit Ticket 04 **Listen** (`Map<NodeId, NodeId[]>`). Vorher folgte eine scoped Regel nur
+  der ersten Kopie; jetzt bekommt jede Instanz ihren Selektor.
+- **Overrides gehören auf die Instanz, nicht in die Definition:** Der Beutel
+  (`props.overrides`, Part-Ids = Knoten-Ids) wird beim Inlining in die Kopie gemischt. Beim
+  Detach müssen die Werte in echte Props materialisiert werden (zwei `applyBatch`-Schritte,
+  aber ein gemeinsamer Coalesce-Key = ein Undo).
+- **Ein Klick in eine Instanz trifft eine Kopie:** Die Kopie-Id existiert nicht im Dokument;
+  `inlineComponents.origins` (Kopie → Instanz + Teil) macht daraus die Instanz-Auswahl —
+  ohne die Map wäre die Instanz nur über den Explorer erreichbar.
 
 ---
 

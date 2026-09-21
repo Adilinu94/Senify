@@ -114,6 +114,38 @@ gehoeren bewusst **nicht** in die Undo-History (Webstudio-Muster). Hinweis: `doc
 wurde parallel um „Teil II" (§10–§16: Referenz-Transfer, Anti-Slop, Editor-Tiefe) erweitert —
 beide Teile koexistieren; nichts ueberschrieben. Kein Produktcode geaendert.
 
+**Ticket 04 Scheibe 2 Teil 1 (20.09., umgesetzt): Komponenten speicherbar, Bake-Rekey,
+Multi-Instanz-Remap, Overrides (Modell/Editor/Inspektor/Canvas).**
+
+- **Fund vor dem Bau (die Scheibe 1 war nicht speicherbar):** Die Engine kannte die
+  reservierten Typen nicht — `createComponent` + Speichern endete in
+  `Unknown section type "__component"`. Dazu verlor der Bake jede Definition, die im
+  gespleißten Baum lag (`componentId` zeigt auf die Draft-Id, der Splice rekeyt nur Knoten).
+- **Engine-Aufnahme:** `Registry.registerStructural` (bekannt für `has`/`get`, nicht in
+  `list()`), `allowedChildren: "any"` + `PropControl: "json"` in der section-sdk,
+  `registry/src/sections/structural.ts` (drei Definitionen), `apply.ts`: strukturelle Kinder
+  überall (außer im Slot), offene Container in Kind- und Slot-Prüfung, Wrap behandelt `"any"`.
+- **Bake:** `remapComponentRefs` (copy-on-write) schreibt `componentId` vor dem Inlining;
+  `composePageTree`-`idMap` trägt **Listen** (`Map<NodeId, NodeId[]>`), Kopien werden
+  expandiert; `bake.ts`/`renderer` reichen `Record<string, string[]>` durch,
+  `remapScopedRules` emittiert je Kopie einen Selektor.
+- **Overrides:** Instanz-Prop `overrides` (`{ partId: { key: Wert } }`, Part = Knoten-Id der
+  Definition); `inlineComponents` mischt in die Kopie (auch verschachtelte Instanzen,
+  Instanz-Swap über `componentId`), `componentParts`/`staleOverrides` als Register/Prüfung.
+  Editor: `setComponentOverride` (Prune leerer Beutel), `detachComponent` materialisiert
+  Overrides (zwei Batches, ein Coalesce-Key = ein Undo), `componentPartsIn`/`overridesOf`.
+  Inspektor: Gruppen je Teil mit `commit.kind: "override"` (Basis = Definitionswert, keine
+  Gerätepunkte); Canvas: `origins` (Kopie → Instanz) macht den Klick in eine Instanz zur
+  Instanz-Auswahl.
+- **Tests:** section-sdk 13 (+5 Overrides/Swap/Parts/stale) + Registry +2,
+  engine/test/components.test.ts (6, neu: HTTP-Speicherpfad, Splice-Rekey, zwei Instanzen,
+  Overrides), renderer +1 (Kopie-Selektoren), editor 8 + Inspektor 16 + Canvas 8.
+- **Zahlen:** `pnpm test` **1322 grün / 2 übersprungen / 147 Dateien** (Log `.scratch/testlauf-20-09-m4s2t1.log`; ein roter Lauf = bekannter Browser-Flake, in Isolation grün), typecheck 0,
+  lint (eigene Bereiche) 0. Kein Commit (Auftrag offen).
+- **Offen (Scheibe 2 Rest):** Publish-Versionen, Slot-Restriktionen, Varianten, Styles je
+  Instanz, Geräteebenen für Overrides, Komponenten-Tab/Kontextmenü, MCP-Fassade,
+  Sections-Migration.
+
 **Ticket 04 Scheibe 1 (20.09., umgesetzt): Component-Kern — Definition,
 Instanz, Slots, Zyklus-Schutz, Inlining für Canvas und Bake, Editor-Ops.**
 
