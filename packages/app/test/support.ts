@@ -35,3 +35,9 @@ export const browserAvailable = (() => {
     return false;
   }
 })();
+
+// The parity gate runs as a blocking step (`pnpm verify:parity`, ticket 17
+// point 5): with SENIFY_REQUIRE_BROWSER=1 a missing browser fails the gate
+// instead of skipping it silently.
+export const browserRequired = process.env["SENIFY_REQUIRE_BROWSER"] === "1";
+export const browserSkip = !browserAvailable && !browserRequired;

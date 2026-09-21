@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { startProgram } from "@senify/app";
 import { diffScreenshots } from "@senify/analysis-worker";
-import { browserAvailable, memoryDb } from "./support.ts";
+import { browserAvailable, browserSkip, memoryDb } from "./support.ts";
 
 // Ticket 17: the release cutover. The editor publishes through the real route
 // (`POST /api/sites/:siteId/releases` — the same path the MCP tool uses), the
@@ -13,12 +13,22 @@ import { browserAvailable, memoryDb } from "./support.ts";
 //
 // The O9 curtain (static release checks) runs inside the publish path; this
 // test proves the route, the revisions, the active release and the rollback.
+//
+// This test IS the parity gate (ticket 17 point 5, L4): `pnpm verify:parity`
+// runs it with SENIFY_REQUIRE_BROWSER=1, so a missing browser turns the gate
+// red instead of skipping it. The ratio budget stays at 0.01 (O3).
 
 const author = { kind: "human", id: "programm", label: "Programm" };
 const PARITY_RATIO = 0.01;
 
-describe.skipIf(!browserAvailable)("release cutover (ticket 17)", () => {
+describe.skipIf(browserSkip)("release cutover (ticket 17)", () => {
   it("publishes via the route, serves the release, measures parity and rolls back", async () => {
+    if (!browserAvailable) {
+      throw new Error(
+        "Paritaets-Tor: Browser fehlt, aber SENIFY_REQUIRE_BROWSER=1 ist gesetzt. " +
+          "Erst `pnpm exec playwright install chromium` ausfuehren.",
+      );
+    }
     const { chromium } = await import("playwright");
     const database = memoryDb();
     const dataDir = mkdtempSync(join(tmpdir(), "senify-release-cutover-"));

@@ -1,0 +1,29 @@
+name: verify
+
+# Das Gate des Repos (Ticket 17 Punkt 5, Luecke L4): Build, Lint und die
+# Testsuite laufen als blockierender Schritt, danach das Paritaets-Tor mit
+# Pflicht-Browser (SENIFY_REQUIRE_BROWSER=1, siehe scripts/verify-parity.mjs).
+# Ohne installierten Chromium wird das Tor rot statt still uebersprungen.
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Browser fuer die Paritaets-Messung
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Gate (Build, Lint, Tests)
+        run: pnpm verify
+      - name: Paritaets-Tor (Canvas vs. Release)
+        run: pnpm verify:parity

@@ -35,4 +35,15 @@ export default tseslint.config(
       },
     },
   },
+  {
+    // Gate-Skripte des Repos (Node, kein Browser).
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      globals: {
+        process: "readonly",
+        console: "readonly",
+        URL: "readonly",
+      },
+    },
+  },
 );
