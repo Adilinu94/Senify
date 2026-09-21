@@ -130,6 +130,12 @@ function proxyRequest(
       "Starte das Programm erneut mit `senify start`.",
     );
   });
+  // The live channel (ticket 05) stays open by design: when the client goes
+  // away, the upstream request must go with it — otherwise the engine stream
+  // and both servers keep a dead connection and a shutdown waits forever.
+  res.on("close", () => {
+    if (!res.writableEnded) upstream.destroy();
+  });
   req.pipe(upstream);
 }
 

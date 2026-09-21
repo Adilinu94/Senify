@@ -6,6 +6,7 @@ import type { Registry } from "@senify/section-sdk";
 import { ensureSchema, type Db } from "./db.ts";
 import { createFormSigner, type FormSigner } from "./forms.ts";
 import { createRequestHandler } from "./http.ts";
+import { EngineEvents } from "./events.ts";
 import type { MailSender } from "./mailer.ts";
 import { PageLocks } from "./locks.ts";
 import { MaintenanceGate } from "./maintenance.ts";
@@ -123,6 +124,8 @@ export {
 export { createId, newEntityId, newNodeId } from "./ids.ts";
 export { PageLocks } from "./locks.ts";
 export { MaintenanceError, MaintenanceGate } from "./maintenance.ts";
+export { EngineEvents } from "./events.ts";
+export type { EngineEvent, EngineEventKind } from "./events.ts";
 export {
   bakedRouteFile,
   createReviewVisualDriver,
@@ -622,6 +625,8 @@ export type Engine = {
   registry: Registry;
   store: Store;
   locks: PageLocks;
+  // Live events (ticket 05): the bus behind GET /api/events.
+  events: EngineEvents;
   // Maintenance window of the running engine (T12 restore).
   maintenance: MaintenanceGate;
   dataDir: string;
@@ -644,6 +649,7 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
   const store = new Store(options.db);
   const locks = new PageLocks();
   const maintenance = new MaintenanceGate();
+  const events = new EngineEvents();
   const dataDir = options.dataDir ?? defaultDataDir();
   // The signer secret is persisted, so tokens stamped into static HTML keep
   // verifying after a restart.
@@ -653,6 +659,7 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
     registry: options.registry,
     locks,
     maintenance,
+    events,
     rateLimiter: new RateLimiter(options.rateLimits ?? DEFAULT_RATE_LIMITS),
     dataDir,
     maxUploadBytes: options.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES,
@@ -679,6 +686,7 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
     registry: options.registry,
     store,
     locks,
+    events,
     maintenance,
     dataDir,
     maxUploadBytes: options.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES,

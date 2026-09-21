@@ -23,6 +23,8 @@ export type OverlayViewport = { width: number; height: number };
 export const OVERLAY_THROTTLE_MS = 20;
 export const OVERLAY_LABEL_HEIGHT = 18;
 export const OVERLAY_HANDLE_HIT = 24;
+// The live-follow highlight (ticket 05): a remote change flashes its nodes.
+export const OVERLAY_FLASH_MS = 1200;
 
 // Frame-viewport rect -> stage-content rect at the frame scale.
 export function overlayRect(
@@ -93,6 +95,8 @@ export type MarkerOverlay = {
   attachFrame(frame: OverlayFrame): void;
   setSelection(id: string | null): void;
   setHover(id: string | null): void;
+  // The live-follow highlight: draws a ring over each node for a moment.
+  flash(ids: string[], durationMs?: number): void;
   flush(): void;
   schedule(): void;
   destroy(): void;
@@ -105,6 +109,8 @@ type Layer = {
   label: DomElement;
   size: DomElement;
   handles: DomElement[];
+  // A pool of flash rings, grown on demand (one per flashed node).
+  flash: DomElement[];
 };
 
 function h(doc: DomDocument, tag: string, className: string): DomElement {
@@ -143,6 +149,8 @@ export function createMarkerOverlay(options: MarkerOverlayOptions): MarkerOverla
   let selection: string | null = null;
   let hover: string | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let flashIds: string[] = [];
+  let flashTimer: ReturnType<typeof setTimeout> | null = null;
 
   function ensureLayer(frameDoc: DomDocument): Layer {
     const existing = layers.get(frameDoc);
@@ -165,9 +173,19 @@ export function createMarkerOverlay(options: MarkerOverlayOptions): MarkerOverla
       root.appendChild(element);
     }
     overlay.appendChild(root);
-    const layer: Layer = { root, hoverRing, selectRing, label, size, handles };
+    const layer: Layer = { root, hoverRing, selectRing, label, size, handles, flash: [] };
     layers.set(frameDoc, layer);
     return layer;
+  }
+
+  function ensureFlashRings(layer: Layer, count: number): DomElement[] {
+    while (layer.flash.length < count) {
+      const ring = h(doc, "div", "senify-canvas__flash-ring");
+      hide(ring);
+      layer.root.appendChild(ring);
+      layer.flash.push(ring);
+    }
+    return layer.flash;
   }
 
   function hideNode(layer: Layer): void {
@@ -282,6 +300,32 @@ export function createMarkerOverlay(options: MarkerOverlayOptions): MarkerOverla
     });
   }
 
+  // The live-follow ring (ticket 05): a soft highlight over each changed node,
+  // drawn like the selection (same geometry, no handles/label). The rings stay
+  // until the flash window ends; a new flash replaces the old ids.
+  function paintFlash(frame: OverlayFrame, layer: Layer): void {
+    if (flashIds.length === 0) {
+      for (const ring of layer.flash) hide(ring);
+      return;
+    }
+    const rects: OverlayRect[] = [];
+    for (const id of flashIds) {
+      const found = nodeRect(frame, id);
+      if (found !== null) {
+        rects.push(overlayRect(found.rect, { left: 0, top: 0 }, frame.scale));
+      }
+    }
+    const rings = ensureFlashRings(layer, rects.length);
+    rings.forEach((ring, index) => {
+      const rect = rects[index];
+      if (rect === undefined) {
+        hide(ring);
+        return;
+      }
+      place(ring, rect);
+    });
+  }
+
   function paint(): void {
     const stageRect = rectOf(stage);
     const frames = options.frames();
@@ -304,6 +348,7 @@ export function createMarkerOverlay(options: MarkerOverlayOptions): MarkerOverla
       layer.root.style.height = `${Math.max(0, frame.viewport.height * frame.scale)}px`;
       paintHover(frame, layer);
       paintSelection(frame, layer);
+      paintFlash(frame, layer);
       paintLabel(frame, layer);
     }
     for (const [frameDoc, layer] of layers) {
@@ -363,6 +408,21 @@ export function createMarkerOverlay(options: MarkerOverlayOptions): MarkerOverla
       hover = id;
       schedule();
     },
+    flash(ids: string[], durationMs = OVERLAY_FLASH_MS): void {
+      flashIds = [...new Set(ids)];
+      if (flashTimer !== null) clearTimeout(flashTimer);
+      flashTimer = setTimeout(() => {
+        flashTimer = null;
+        flashIds = [];
+        flush();
+      }, durationMs);
+      flush();
+      // A remote follow replaces the document and flashes in the same tick; the
+      // renderer commits a moment later. One late paint catches the fresh DOM.
+      setTimeout(() => {
+        if (flashIds.length > 0) flush();
+      }, 60);
+    },
     flush,
     schedule,
     destroy(): void {
@@ -370,6 +430,11 @@ export function createMarkerOverlay(options: MarkerOverlayOptions): MarkerOverla
         clearTimeout(timer);
         timer = null;
       }
+      if (flashTimer !== null) {
+        clearTimeout(flashTimer);
+        flashTimer = null;
+      }
+      flashIds = [];
       for (const layer of layers.values()) layer.root.remove();
       layers.clear();
     },

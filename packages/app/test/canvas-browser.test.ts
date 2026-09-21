@@ -274,6 +274,22 @@ describe.skipIf(!browserAvailable)("editor canvas in a real browser", () => {
         expect(ringBox.x + ringBox.width).toBeLessThanOrEqual(ringSheetBox.x + ringSheetBox.width + 1);
       }
 
+      // The live-follow flash (ticket 05): a ring over the changed node that
+      // fades by itself — the same geometry as the selection, no handles.
+      await tab.evaluate(() => {
+        (globalThis as unknown as { __canvas: { flashNodes(ids: string[]): void } }).__canvas.flashNodes([
+          "div000001",
+        ]);
+      });
+      await expect
+        .poll(async () => tab.locator(".senify-canvas__flash-ring:visible").count())
+        .toBeGreaterThan(0);
+      await expect
+        .poll(async () => tab.locator(".senify-canvas__flash-ring:visible").count(), {
+          timeout: 4000,
+        })
+        .toBe(0);
+
       // A forced hover paints through the injected rules: the frame root carries
       // the attribute and the section's computed background flips to red.
       const sectionBackground = (): Promise<string> =>

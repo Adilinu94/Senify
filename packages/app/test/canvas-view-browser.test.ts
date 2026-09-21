@@ -537,6 +537,70 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
         .poll(async () => instanceItem.locator('[data-role="drift"]').count())
         .toBe(0);
 
+      // Live-Mitverfolgung (Ticket 05): eine fremde Mutation (hier direkt über
+      // die API) kommt per SSE an — die offene Seite lädt nach, der geänderte
+      // Knoten blinkt, das Bau-Protokoll nennt Akteur und Aktion.
+      await tab.locator('button[data-action="canvas-save"]').click();
+      await expect
+        .poll(async () => (await tab.locator('[data-role="canvas-status"]').textContent()) ?? "")
+        .toContain("Gespeichert");
+
+      const before = (await (
+        await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)
+      ).json()) as { draftVersion: number; draft: { rootNodeId: string } };
+      // Ein eigener Agenten-Token: nur fremde Akteure loesen die Mitverfolgung
+      // aus (der Programm-Token ist der eigene).
+      const agentToken = (await (
+        await post("/api/tokens", {
+          name: "browser-agent",
+          kind: "agent",
+          scopes: ["read", "write"],
+        })
+      ).json()) as { secret: string };
+      const remote = await fetch(
+        `${running.dashboardUrl}/api/pages/${page.id}/mutations`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${agentToken.secret}`,
+          },
+          body: JSON.stringify({
+            baseDraftVersion: before.draftVersion,
+            mutations: [
+              {
+                op: "updateNodeProps",
+                id: heroId,
+                patch: { headline: "Live geändert" },
+              },
+            ],
+          }),
+        },
+      );
+      expect(remote.status).toBe(200);
+
+      await expect
+        .poll(async () => tab.locator('[data-role="protocol"]').isVisible())
+        .toBe(true);
+      await expect
+        .poll(
+          async () => tab.locator(".senify-canvas__flash-ring:visible").count(),
+          { timeout: 10000 },
+        )
+        .toBeGreaterThan(0);
+      const protocolText = (await tab.locator('[data-role="protocol"]').textContent()) ?? "";
+      expect(protocolText).toContain("geändert");
+      expect(protocolText).toContain("browser-agent");
+      await tab.screenshot({ path: join(shotDir, "11-live-follow.png") });
+
+      // Nach dem Blitz verschwinden die Ringe wieder.
+      await expect
+        .poll(
+          async () => tab.locator(".senify-canvas__flash-ring:visible").count(),
+          { timeout: 10000 },
+        )
+        .toBe(0);
+
       // The old editor stays reachable as an explicit deep link (strangler E2)
       // and still lays out its frames.
       await tab.goto(`${pageUrl}?view=editor`, { waitUntil: "domcontentloaded" });

@@ -93,6 +93,8 @@ export type CanvasInstance = {
     position: InsertPosition,
     props?: Record<string, import("@senify/widget-engine").PropValue>,
   ): boolean;
+  // The live-follow highlight (ticket 05): rings over remotely changed nodes.
+  flashNodes(ids: string[]): void;
   undo(): boolean;
   redo(): boolean;
   state(): CanvasState;
@@ -1036,6 +1038,18 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     breakpoint: () => breakpoint,
     select,
     insert,
+    flashNodes(ids: string[]): void {
+      // The event names document nodes; a component instance renders as copies
+      // with their own ids (and a definition part renders once per instance).
+      // The copy map of the last render resolves both to the visible element.
+      const resolved = new Set(ids);
+      for (const [copyId, origin] of copyOrigins) {
+        if (resolved.has(origin.instanceId) || resolved.has(origin.partId)) {
+          resolved.add(copyId);
+        }
+      }
+      markers.flash([...resolved]);
+    },
     undo: () => store.undo(),
     redo: () => store.redo(),
     state: stateOf,

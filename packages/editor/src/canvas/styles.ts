@@ -219,6 +219,24 @@ export const CANVAS_STYLES = `
   box-sizing: border-box;
   pointer-events: none;
 }
+/* Die Live-Mitverfolgung (Ticket 05): ein weicher Lime-Ring ueber jedem
+   ferngesteuert geaenderten Knoten; er blendet sich selbst aus (1200 ms). */
+.senify-canvas__flash-ring {
+  position: absolute;
+  display: none;
+  box-sizing: border-box;
+  border: 2px solid var(--ed-lime);
+  border-radius: var(--ed-radius-sm);
+  background: color-mix(in srgb, var(--ed-lime) 12%, transparent);
+  pointer-events: none;
+  animation: senify-flash 1200ms var(--ed-ease-standard) both;
+}
+@keyframes senify-flash {
+  0% { opacity: 0; }
+  15% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { opacity: 0; }
+}
 .senify-canvas__select-label,
 .senify-canvas__select-size {
   position: absolute;

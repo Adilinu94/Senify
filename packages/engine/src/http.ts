@@ -18,6 +18,7 @@ import {
 } from "./auth.ts";
 import { newEntityId } from "./ids.ts";
 import { PageLocks } from "./locks.ts";
+import type { EngineEvents } from "./events.ts";
 import { applyMutations } from "./mutations/apply.ts";
 import { renderEntryPreview } from "./bake.ts";
 import {
@@ -268,6 +269,9 @@ export type EngineContext = {
   registry: Registry;
   locks: PageLocks;
   rateLimiter: RateLimiter;
+  // Live events (ticket 05): the in-process bus behind GET /api/events. Write
+  // handlers publish, the SSE route subscribes.
+  events: EngineEvents;
   // Maintenance window (T12 restore): blocks requests while it runs.
   maintenance: MaintenanceGate;
   dataDir: string;
@@ -457,6 +461,13 @@ type RouteResult = {
   status: number;
   body?: unknown;
   headers?: Record<string, string>;
+  // Server-Sent Events (ticket 05): the handler returns an opener instead of a
+  // body; the dispatcher writes the headers and keeps the response open until
+  // the client disconnects (the opener returns its cleanup).
+  stream?: {
+    contentType: string;
+    open: (res: ServerResponse) => () => void;
+  };
   // Plain-text response (CSV export).
   text?: {
     contentType: string;
@@ -941,6 +952,16 @@ async function applyMutationsToPage(
       }
       throw error;
     }
+    // Live follow (ticket 05): the write is durable, the event tells the
+    // program and the open editor what changed (page, nodes, actor).
+    context.events.publish({
+      kind: "draft.changed",
+      siteId: page.siteId,
+      pageId: page.id,
+      nodeIds: touchedNodeIds(input),
+      action: input.mutations[0]?.op ?? "batch",
+      actor: author,
+    });
     return {
       newDraftVersion: newVersion,
       undoBatchId: batchId,
@@ -978,6 +999,29 @@ function pathOpIndex(input: ApplyMutationsBody): number | undefined {
     }
   });
   return found;
+}
+
+// The node ids a batch touched, for the live highlight in the editor. Every
+// mutation names its target under a different key; missing ids are fine.
+function touchedNodeIds(input: ApplyMutationsBody): string[] {
+  const ids = new Set<string>();
+  for (const mutation of input.mutations) {
+    const record = mutation as Record<string, unknown>;
+    if (typeof record.id === "string") ids.add(record.id);
+    const node = record.node;
+    if (node !== null && typeof node === "object") {
+      const nodeId = (node as Record<string, unknown>).id;
+      if (typeof nodeId === "string") ids.add(nodeId);
+    }
+    for (const key of ["parent", "target"] as const) {
+      const ref = record[key];
+      if (ref !== null && typeof ref === "object") {
+        const nodeId = (ref as Record<string, unknown>).nodeId;
+        if (typeof nodeId === "string") ids.add(nodeId);
+      }
+    }
+  }
+  return [...ids];
 }
 
 function withPathOpIndex(
@@ -1106,6 +1150,25 @@ const ROUTES: Route[] = [
         maintenance: context.maintenance.active,
       },
     }),
+  },
+  {
+    // Live events (ticket 05): the SSE channel the program and the editor
+    // follow. `?site=` narrows the stream; an unknown site is a 404 instead of
+    // a silent empty stream.
+    method: "GET",
+    segments: ["api", "events"],
+    scope: "read",
+    handler: async (context, _params, _req, url) => {
+      const siteId = url.searchParams.get("site") ?? "";
+      if (siteId !== "") await context.store.getSite(siteId);
+      return {
+        status: 200,
+        stream: {
+          contentType: "text/event-stream; charset=utf-8",
+          open: (res) => context.events.openStream(res, siteId),
+        },
+      };
+    },
   },
   {
     method: "POST",
@@ -1272,6 +1335,13 @@ const ROUTES: Route[] = [
       const { idempotencyKey, ...pageInput } = pageBody;
       return withIdempotency(context, auth, req, url, idempotencyKey, pageBody, async () => {
         const page = await context.store.createPage(siteId, pageInput);
+        context.events.publish({
+          kind: "page.created",
+          siteId,
+          pageId: page.id,
+          action: "createPage",
+          actor: resolveAuthor(auth),
+        });
         return { status: 201, body: page };
       });
     },
@@ -1695,6 +1765,12 @@ const ROUTES: Route[] = [
         note: input.note ?? null,
         basisReleaseId: input.basisReleaseId ?? null,
       });
+      context.events.publish({
+        kind: "release.published",
+        siteId,
+        action: "publishRelease",
+        actor: resolveAuthor(auth),
+      });
       return { status: 201, body: result };
     },
   },
@@ -2040,10 +2116,13 @@ const ROUTES: Route[] = [
         });
       }
       const data = await readRawBody(req, context.maxUploadBytes);
-      return {
-        status: 201,
-        body: await commitUpload(mediaContext(context), { ticket, data }),
-      };
+      const upload = await commitUpload(mediaContext(context), { ticket, data });
+      context.events.publish({
+        kind: "asset.uploaded",
+        siteId: upload.asset.siteId,
+        action: "uploadAsset",
+      });
+      return { status: 201, body: upload };
     },
   },
   {
@@ -4267,6 +4346,16 @@ async function handleRequest(
       );
       if (result.redirect !== undefined) {
         sendRedirect(res, result.redirect);
+        return;
+      }
+      if (result.stream !== undefined) {
+        res.writeHead(result.status, {
+          "content-type": result.stream.contentType,
+          "cache-control": "no-cache, no-transform",
+          connection: "keep-alive",
+          ...(result.headers ?? {}),
+        });
+        result.stream.open(res);
         return;
       }
       if (result.text !== undefined) {

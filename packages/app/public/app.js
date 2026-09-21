@@ -4985,6 +4985,106 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
     session.store.select(savedUi.selectedId);
   }
 
+  /* ------------------------------------------------------- Live-Mitverfolgung
+   * Ticket 05: die Engine meldet Aenderungen ueber SSE (`GET /api/events`).
+   * Der Editor laedt die offene Seite nach (Store-Patch statt Voll-Neuladen),
+   * hebt die geaenderten Knoten kurz hervor (Lime-Ring, 1200 ms) und fuehrt
+   * ein Bau-Protokoll. Eigene offene Aenderungen blockieren das Nachladen,
+   * sonst gingen sie verloren; ohne Kanal bleibt alles beim manuellen Neuladen. */
+  const protocol = el("div", {
+    class: "canvas-view__protocol",
+    "data-role": "protocol",
+  });
+  protocol.hidden = true;
+  canvasHost.append(protocol);
+  const protocolRows = [];
+  const protocolAction = (action) => MUTATION_LABELS[action] ?? action ?? "Änderung";
+  const protocolTime = () =>
+    new Date().toLocaleTimeString("de-DE", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  function logProtocol(payload) {
+    protocolRows.unshift({
+      actor: payload.actor?.label ?? "Unbekannt",
+      action: protocolAction(payload.action),
+      time: protocolTime(),
+    });
+    protocolRows.length = Math.min(protocolRows.length, 6);
+    protocol.replaceChildren(
+      el("div", { class: "canvas-view__protocol-title", text: "Was gerade passiert" }),
+      ...protocolRows.map((row) =>
+        el(
+          "div",
+          { class: "canvas-view__protocol-row" },
+          el("span", { class: "canvas-view__protocol-actor", text: row.actor }),
+          el("span", { class: "canvas-view__protocol-action", text: row.action }),
+          el("span", { class: "canvas-view__protocol-time", text: row.time }),
+        ),
+      ),
+    );
+    protocol.hidden = false;
+  }
+  const parseEngineEvent = (event) => {
+    try {
+      return JSON.parse(event.data ?? "{}");
+    } catch {
+      return {};
+    }
+  };
+  // Eigene Schreibvorgaenge tragen den Programm-Token; sie sind kein
+  // "Agent baut" und werden weder protokolliert noch nachgeladen.
+  const isOwnEvent = (payload) => payload.actor?.label === AUTHOR.label;
+  const live =
+    typeof EventSource === "function"
+      ? new EventSource(`/api/events?site=${encodeURIComponent(siteId)}`)
+      : null;
+  live?.addEventListener("draft.changed", (event) => {
+    const payload = parseEngineEvent(event);
+    if (isOwnEvent(payload)) return;
+    logProtocol(payload);
+    if (payload.pageId !== pageId) return;
+    const state = session.saveState();
+    if (state.pending > 0 || state.status === "saving") {
+      statusEl.textContent = "Fremde Änderung erkannt - bitte speichern oder neu laden";
+      return;
+    }
+    void (async () => {
+      try {
+        const fresh = await api(`/api/pages/${pageId}`);
+        session.replaceDocument(
+          editor.loadDocument(fresh.draft).document,
+          fresh.draftVersion,
+        );
+        canvas.flashNodes(Array.isArray(payload.nodeIds) ? payload.nodeIds : []);
+        setVersion(fresh.draftVersion);
+        statusEl.textContent = `Live: ${protocolAction(payload.action)}`;
+      } catch (error) {
+        failed(error);
+      }
+    })();
+  });
+  live?.addEventListener("page.created", (event) => {
+    const payload = parseEngineEvent(event);
+    if (isOwnEvent(payload)) return;
+    logProtocol(payload);
+    statusEl.textContent = "Neue Seite angelegt - Seitenliste über den Explorer neu laden";
+  });
+  live?.addEventListener("asset.uploaded", (event) => {
+    const payload = parseEngineEvent(event);
+    if (isOwnEvent(payload)) return;
+    logProtocol(payload);
+  });
+  live?.addEventListener("release.published", (event) => {
+    const payload = parseEngineEvent(event);
+    if (isOwnEvent(payload)) return;
+    logProtocol(payload);
+  });
+  // Beim Verlassen der Ansicht den Kanal schliessen (kein abgebrochener
+  // Request, kein Leck beim Wechsel der Route).
+  window.addEventListener("pagehide", () => live?.close());
+
   saveButton.addEventListener("click", () => {
     void session.flush();
   });

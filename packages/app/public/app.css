@@ -665,9 +665,53 @@ dialog.modal select,
   height: clamp(30rem, calc(100vh - 12rem), 72rem);
 }
 .canvas-view__stage {
+  position: relative;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+/* Die Live-Mitverfolgung (Ticket 05): das Bau-Protokoll schwebt unten rechts
+   ueber der Buehne und erscheint mit dem ersten Ereignis. */
+.canvas-view__protocol {
+  position: absolute;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  z-index: 4;
+  min-width: 15rem;
+  max-width: 22rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--bg-base);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+  font-size: 0.78rem;
+  pointer-events: none;
+}
+.canvas-view__protocol-title {
+  margin-bottom: 0.3rem;
+  color: var(--fg-muted);
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.68rem;
+}
+.canvas-view__protocol-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+.canvas-view__protocol-actor { font-weight: 600; }
+.canvas-view__protocol-action {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canvas-view__protocol-time {
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 .canvas-view__explorer,
 .canvas-view__inspector {
