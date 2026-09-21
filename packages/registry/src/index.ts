@@ -116,8 +116,10 @@ export function createRegistry(): Registry {
 // here instead of taking a direct dependency on the widget engine.
 export {
   getPrimitive,
+  isSectionPrimitiveTwin,
   PRIMITIVES,
   primitiveTypes,
+  sectionTwinControls,
   STYLE_PROPERTIES,
   stylePropertyFor,
   type Control,

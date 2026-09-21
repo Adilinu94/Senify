@@ -21,6 +21,7 @@ import {
   hasDeviceOverride,
   isControlVisible,
   resolveDeviceValue,
+  sectionTwinControls,
   STYLE_PROPERTIES,
   stylePropertyFor,
   type Choice,
@@ -1040,7 +1041,10 @@ export function buildInspector(input: BuildInspectorInput): InspectorModel | nul
   if (node === undefined) return null;
   const definition = getPrimitive(node.primitive);
   const breakpoint = input.breakpoint;
-  const controls = definition?.controls ?? [];
+  // A twin name (divider/embed) is rendered by the running section until the
+  // parity gate: its controls must write the section's props, not the
+  // primitive's (`sectionTwinControls`, widget-engine).
+  const controls = sectionTwinControls(node.primitive) ?? definition?.controls ?? [];
   const contentFields = controls.map((control) =>
     controlToField(control, node, breakpoint, input.theme),
   );

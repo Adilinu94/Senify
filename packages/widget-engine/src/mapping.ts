@@ -45,6 +45,52 @@ export function primitivesFor(section: string): string[] | undefined {
   return SECTION_COMPOSITION.find((entry) => entry.section === section)?.primitives;
 }
 
+// The cutover bridge for the twin names (see `SECTION_PRIMITIVE_TWINS`): turns a
+// section-shaped node into the primitive shape of the same name. The running
+// section renders until the parity gate, so nothing calls this in the editor —
+// the cutover migration reads it, and the test pins every value so the swap
+// cannot lose content. `undefined` for every other section (their migration is
+// the "Sections as VCs" step, ticket 04).
+const DIVIDER_SPACING_PX: Record<string, number> = {
+  xs: 8,
+  s: 16,
+  m: 32,
+  l: 64,
+  xl: 128,
+};
+
+// The section variants map onto the primitive's style choices; "dots" is the
+// dotted line. No variant (legacy nodes) stays the plain line.
+const DIVIDER_STYLE: Record<string, string> = {
+  line: "line",
+  space: "space",
+  dots: "dotted",
+};
+
+export function sectionToPrimitiveProps(
+  section: string,
+  props: Record<string, unknown>,
+  variant?: string,
+): Record<string, unknown> | undefined {
+  if (section === "divider") {
+    const spacing = typeof props["spacing"] === "string" ? props["spacing"] : "m";
+    return {
+      style: DIVIDER_STYLE[variant ?? ""] ?? "line",
+      spacing: DIVIDER_SPACING_PX[spacing] ?? DIVIDER_SPACING_PX["m"],
+    };
+  }
+  if (section === "embed") {
+    const provider = variant === "map" || variant === "social" ? variant : "iframe";
+    return {
+      url: typeof props["url"] === "string" ? props["url"] : "",
+      provider,
+      aspect: typeof props["aspect"] === "string" ? props["aspect"] : "16/9",
+      title: typeof props["title"] === "string" ? props["title"] : "Eingebetteter Inhalt",
+    };
+  }
+  return undefined;
+}
+
 // Primitives referenced by the mapping but missing from the catalog.
 export function missingPrimitives(
   composition: readonly SectionComposition[] = SECTION_COMPOSITION,

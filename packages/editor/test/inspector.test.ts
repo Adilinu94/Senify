@@ -42,6 +42,35 @@ describe("buildInspector", () => {
     expect(level?.options?.map((option) => option.value)).toContain("h2");
   });
 
+  // The twin names (divider/embed) are rendered by the running section until
+  // the parity gate: the Content tab must write the section's props. The
+  // primitive's own controls (style/thickness, provider) would be dead writes.
+  it("writes the running section's props for a twin name", () => {
+    const store = baseStore();
+    store.apply({
+      op: "insertNode",
+      parent: { nodeId: store.document.rootNodeId },
+      node: { primitive: "divider", id: "div0000001", props: { spacing: "m" } },
+    });
+    const divider = buildInspector({
+      document: store.document,
+      nodeId: "div0000001",
+      breakpoint: "desktop",
+    });
+    const content = divider?.tabs.find((tab) => tab.id === "content");
+    const fields = content?.groups.flatMap((group) => group.fields) ?? [];
+    expect(fields.map((field) => field.key)).toEqual(["spacing"]);
+    expect(fields[0]?.kind).toBe("select");
+    expect(fields[0]?.options?.map((option) => option.value)).toEqual([
+      "xs",
+      "s",
+      "m",
+      "l",
+      "xl",
+    ]);
+    expect(fields[0]?.value).toBe("m");
+  });
+
   it("narrows the Style tab by the primitive style groups and keeps owned controls out", () => {
     const store = baseStore();
     const heading = buildInspector({

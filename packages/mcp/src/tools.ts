@@ -4,8 +4,10 @@ import { SenifyError } from "@senify/core";
 import {
   createRegistry,
   getPrimitive,
+  isSectionPrimitiveTwin,
   PRIMITIVES,
   primitiveTypes,
+  sectionTwinControls,
   STYLE_PROPERTIES,
   stylePropertyFor,
   type Control,
@@ -702,6 +704,9 @@ export const TOOLS: ToolDefinition[] = [
         category: definition.category,
         description: definition.description,
         styleGroups: [...definition.styleGroups],
+        // A twin name (divider/embed) is rendered by the running section until
+        // the parity gate; its controls in get_widget are the section's.
+        ...(isSectionPrimitiveTwin(definition.type) ? { sectionTwin: true } : {}),
       })),
     }),
   },
@@ -723,6 +728,8 @@ export const TOOLS: ToolDefinition[] = [
         });
       }
       const groups = new Set<StyleGroup>(definition.styleGroups);
+      // A twin name writes the running section's props until the cutover.
+      const controls = sectionTwinControls(type) ?? definition.controls;
       return {
         type: definition.type,
         name: definition.name,
@@ -732,7 +739,8 @@ export const TOOLS: ToolDefinition[] = [
         allowedChildren: definition.allowedChildren,
         slots: definition.slots,
         styleGroups: [...definition.styleGroups],
-        controls: definition.controls.map(controlInfo),
+        controls: controls.map(controlInfo),
+        ...(isSectionPrimitiveTwin(type) ? { sectionTwin: true } : {}),
         styleProperties: STYLE_PROPERTIES.filter((spec) => groups.has(spec.group)).map(
           (spec) => ({
             property: spec.prop,

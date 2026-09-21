@@ -105,6 +105,19 @@ export function isLegacySection(type: string): boolean {
   return LEGACY.has(type);
 }
 
+// The only two names both vocabularies carry: `divider` and `embed` exist as
+// running sections (`SECTION_COMPONENTS`) *and* as real catalog primitives.
+// The strangler (E2) keeps the section authoritative until the parity gate —
+// `sectionTwinControls` (catalog.ts) hands the editor the section's own control
+// surface, `sectionToPrimitiveProps` (mapping.ts) is the cutover bridge. The
+// guard test pins the list, so a new accidental collision fails CI instead of
+// silently hijacking a page.
+export const SECTION_PRIMITIVE_TWINS = ["divider", "embed"] as const;
+
+export function isSectionPrimitiveTwin(type: string): boolean {
+  return (SECTION_PRIMITIVE_TWINS as readonly string[]).includes(type);
+}
+
 export function legacyPrimitive(type: string): PrimitiveDefinition | undefined {
   if (!LEGACY.has(type)) return undefined;
   return {

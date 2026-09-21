@@ -698,6 +698,37 @@ export function getPrimitive(type: string): PrimitiveDefinition | undefined {
   );
 }
 
+// The Content controls for a twin name (see `SECTION_PRIMITIVE_TWINS`): until
+// the cutover the *running section* renders the node, so the editor must write
+// the section's props — the primitive's own controls (style/thickness vs.
+// provider) would be dead writes. At the parity gate the section component is
+// removed and `getPrimitive(type).controls` take over unchanged.
+export function sectionTwinControls(type: string): Control[] | undefined {
+  if (type === "divider") {
+    return [
+      choose(
+        "spacing",
+        "Abstand",
+        O(["xs", "XS"], ["s", "S"], ["m", "M"], ["l", "L"], ["xl", "XL"]),
+        "m",
+      ),
+    ];
+  }
+  if (type === "embed") {
+    return [
+      url("url", "Einbettungs-URL", ""),
+      choose(
+        "aspect",
+        "Seitenverhältnis",
+        O(["16/9", "16:9"], ["4/3", "4:3"], ["1/1", "1:1"]),
+        "16/9",
+      ),
+      text("title", "Titel", "Eingebetteter Inhalt"),
+    ];
+  }
+  return undefined;
+}
+
 export function primitivesByCategory(category: PrimitiveDefinition["category"]): PrimitiveDefinition[] {
   return PRIMITIVES.filter((primitive) => primitive.category === category);
 }

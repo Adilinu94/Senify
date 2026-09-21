@@ -32,6 +32,7 @@ import {
   reservedContextIds,
   scopeNameFor,
   scopeSelectorFor,
+  sectionTwinControls,
   styleRuleErrors,
   tokenRef,
   translatableProperties,
@@ -90,7 +91,12 @@ function requirePrimitive(primitive: string, field: string): PrimitiveDefinition
       suggestion: "Use a primitive from the widget catalog.",
     });
   }
-  return definition;
+  // A twin name (divider/embed) is rendered by the running section until the
+  // parity gate: the store validates against the section's control surface, so
+  // a migrated or newly written section value is storable. At the cutover the
+  // primitive's own controls apply unchanged.
+  const twin = sectionTwinControls(primitive);
+  return twin === undefined ? definition : { ...definition, controls: twin };
 }
 
 function knownProps(definition: PrimitiveDefinition): Set<string> {
