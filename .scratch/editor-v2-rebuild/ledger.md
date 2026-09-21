@@ -139,6 +139,20 @@ beide Teile koexistieren; nichts ueberschrieben. Kein Produktcode geaendert.
   typecheck 0, lint in den eigenen Bereichen 0.
 - **Offen (Ticket 05 Rest):** Vorschau-Follow, Agent-Preview-Modus, Performance-Budget.
 
+**Dublette `divider`/`embed` aufgeloest (21.09., Cutover-Vorbereitung).** Die zwei Namen
+leben bewusst in beiden Vokabularen (laufende Section + Katalog-Primitive). Die Auflösung
+ist die Zwillings-Bruecke: `SECTION_PRIMITIVE_TWINS`/`isSectionPrimitiveTwin` (`legacy.ts`)
+pinnen die Liste, `sectionTwinControls` (`catalog.ts`) gibt Editor und MCP die
+**Section-Props** als Bedienoberflaeche (divider: `spacing`-Enum; embed: `url`/`aspect`/
+`title`), `sectionToPrimitiveProps` (`mapping.ts`) ist die Cutover-Migration (Enum → px,
+Variante → style/provider; Test pinnt jeden Wert). Der Store validiert Zwillinge gegen die
+Section-Flaeche (`requirePrimitive` in `operations.ts`), der Inspektor zeigt die
+Section-Controls, MCP `list_widgets`/`get_widget` tragen `sectionTwin` + die Section-Controls.
+Damit ist die Section bis zum Paritaets-Tor die Wahrheit und der Cutover ein
+namensgleicher, migrationsgesicherter Wechsel. Tests: `mapping.test.ts` +4, Editor-Inspektor
++1. Zahlen: 1163 gruen / 2 uebersprungen / 106 Dateien (nur die betroffenen Pakete),
+typecheck 0.
+
 **Ticket 05 Scheibe 2 (21.09., umgesetzt): Vorschau-Follow, Agent-Vorschau, Leistungsbudget.**
 
 - **Punkt 4 (Vorschau-Follow):** Live-Modus baut bei Store-Wechsel die Frames neu

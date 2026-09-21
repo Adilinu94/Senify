@@ -562,6 +562,22 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
 - **Tests:** `canvas-view-browser.test.ts` erweitert (Live-Reload + Ring, Agent-Vorschau,
   erwarteter SSE-Abbruch beim Routenwechsel); Editor-Suite unveraendert gruen.
 
+### 2.15 Dublette `divider`/`embed` aufgeloest (21.09., uncommittet): Zwillings-Bruecke
+
+- **Befund:** Die zwei Namen leben bewusst in beiden Vokabularen (laufende Section +
+  Katalog-Primitive); die Section gewinnt beim Rendern. Der Store validierte aber gegen das
+  Primitive (`Value for "spacing" must be a number`) und der Inspektor zeigte die
+  Primitive-Controls (style/thickness) — tote Schreibvorgaenge.
+- **Auflösung:** `SECTION_PRIMITIVE_TWINS`/`isSectionPrimitiveTwin` (`widget-engine/legacy.ts`)
+  pinnen die Liste (Guard-Test), `sectionTwinControls` (`catalog.ts`) liefert die
+  Section-Props als Oberflaeche (divider: `spacing`-Enum; embed: `url`/`aspect`/`title`),
+  `sectionToPrimitiveProps` (`mapping.ts`) ist die Cutover-Migration (Enum → px,
+  Variante → style/provider). Store (`requirePrimitive`), Inspektor und MCP
+  (`list_widgets`/`get_widget` mit `sectionTwin`) nutzen die Section-Flaeche.
+- **Tests:** `widget-engine/test/mapping.test.ts` +4 (Kollisions-Guard, Controls, beide
+  Prop-Bruecken), `editor/test/inspector.test.ts` +1. **Zahlen:** 1163 gruen / 2 uebersprungen
+  / 106 Dateien (betroffene Pakete), typecheck 0.
+
 ---
 
 ## 3. Phasenstand
@@ -679,9 +695,9 @@ committet `55593f1`). Der Testlauf ist grün (**1270/2/141**, Log
    Scheibe 2 Rest** (Publish-Versionen site-weit, Varianten, Sections-Migration) und **Ticket 19
    M6** (optionale Scrub-Stufe).
 2. **Vor dem E2-Cutover (Ticket 04):** Katalog-Namen in der Engine registrieren (Strangler) —
-   **die strukturellen Typen sind jetzt registriert** (§2.9); noch offen: Dublette
-   `divider`/`embed` auflösen, Paritäts-Tor als CI-Blocker scharf schalten.
-   Ticket 11 ist erledigt (19.09., `hiddenDevices`).
+   **die strukturellen Typen sind jetzt registriert** (§2.9), **die Dublette `divider`/`embed`
+   ist aufgeloest** (§2.15, Zwillings-Bruecke + Guard); noch offen: Paritäts-Tor als
+   CI-Blocker scharf schalten. Ticket 11 ist erledigt (19.09., `hiddenDevices`).
 3. **Danach:** Ticket 04 Scheibe 2 Rest (Publish-Versionen, Varianten, Override-Ebenen,
    Sections-Migration), Ticket 19 M6 (Scrub) und die offenen E-Pakete aus
    `docs/verbesserungsplan.md` (E18 inkrementelles Rendering hat mit §2.14 jetzt Zahlen).
