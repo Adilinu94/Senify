@@ -25,6 +25,62 @@ function definitionOf(store: EditorStore, id: string): { id: string; name: strin
   return { id, name };
 }
 
+function positiveVersion(value: PropValue | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 1
+    ? Math.floor(value)
+    : 1;
+}
+
+// The version a definition carries (`props.version`, default 1) - the same
+// reading as section-sdk `ComponentDefinition.version`.
+export function definitionVersionOf(document: EditorDocument, id: string): number | null {
+  const node = document.nodes[id];
+  if (node === undefined || node.primitive !== COMPONENT_DEFINITION_PRIMITIVE) return null;
+  return positiveVersion(node.props["version"]);
+}
+
+// The version an instance pins (`props.componentVersion`, default 1). The pin
+// is the drift signal, not a lookup key (section-sdk `instanceVersion`).
+export function instanceVersionOf(node: { props: DeviceValueMap }): number {
+  return positiveVersion(node.props["componentVersion"]);
+}
+
+export type ComponentDriftEntry = {
+  instanceId: string;
+  componentId: string;
+  pinned: number;
+  current: number;
+};
+
+// Instances whose pin differs from their definition's version - the editor
+// counterpart of section-sdk `componentDrift` (which reads the baked tree).
+export function componentDriftOf(
+  document: EditorDocument,
+  definitionId?: string,
+): ComponentDriftEntry[] {
+  const drift: ComponentDriftEntry[] = [];
+  for (const node of Object.values(document.nodes)) {
+    if (node.primitive !== COMPONENT_INSTANCE_PRIMITIVE) continue;
+    const componentId = node.props["componentId"];
+    if (typeof componentId !== "string") continue;
+    if (definitionId !== undefined && componentId !== definitionId) continue;
+    const current = definitionVersionOf(document, componentId);
+    if (current === null) continue;
+    const pinned = instanceVersionOf(node);
+    if (pinned !== current) {
+      drift.push({ instanceId: node.id, componentId, pinned, current });
+    }
+  }
+  return drift;
+}
+
+export function componentDriftIn(
+  store: EditorStore,
+  definitionId?: string,
+): ComponentDriftEntry[] {
+  return componentDriftOf(store.document, definitionId);
+}
+
 // The declared parts of a definition in the editor document, in tree order —
 // the override keys. Slot placeholders are structure, not parts.
 export function componentParts(
@@ -178,7 +234,7 @@ export function createComponent(store: EditorStore, id: string, name?: string): 
         node: {
           primitive: COMPONENT_DEFINITION_PRIMITIVE,
           id: definitionId,
-          props: { name: name ?? node.primitive },
+          props: { name: name ?? node.primitive, version: 1 },
         },
       },
       { op: "moveNode", id, target: { nodeId: definitionId }, index: 0 },
@@ -189,7 +245,7 @@ export function createComponent(store: EditorStore, id: string, name?: string): 
         node: {
           primitive: COMPONENT_INSTANCE_PRIMITIVE,
           id: instanceId,
-          props: { componentId: definitionId },
+          props: { componentId: definitionId, componentVersion: 1 },
         },
       },
     ],
@@ -200,11 +256,19 @@ export function createComponent(store: EditorStore, id: string, name?: string): 
 
 // Declares a slot in a definition: a placeholder a later instance fills. The
 // placeholder goes into the definition's root child (the reusable structure).
+// `allowedTypes` (empty = anything) and `max` (absent = unlimited) are the
+// rules the engine enforces on insert (section-sdk `readSlotSpec`).
+export type SlotOptions = {
+  allowedTypes?: string[];
+  max?: number | null;
+};
+
 export function insertSlot(
   store: EditorStore,
   definitionId: string,
   name: string,
   parentId?: string,
+  options: SlotOptions = {},
 ): string | null {
   const definition = definitionOf(store, definitionId);
   if (definition === null) return null;
@@ -212,6 +276,18 @@ export function insertSlot(
   const parent = parentId ?? rootChildId;
   if (parent === undefined) return null;
   if (store.document.nodes[parent] === undefined) return null;
+  const props: DeviceValueMap = { name };
+  const allowedTypes = (options.allowedTypes ?? []).filter(
+    (entry) => typeof entry === "string" && entry !== "",
+  );
+  if (allowedTypes.length > 0) props["allowedTypes"] = allowedTypes;
+  if (
+    typeof options.max === "number" &&
+    Number.isFinite(options.max) &&
+    options.max >= 0
+  ) {
+    props["max"] = Math.floor(options.max);
+  }
   const slotId = newNodeId();
   const outcome = store.applyBatch(
     [
@@ -221,13 +297,46 @@ export function insertSlot(
         node: {
           primitive: COMPONENT_SLOT_PRIMITIVE,
           id: slotId,
-          props: { name },
+          props,
         },
       },
     ],
     { label: `Slot ${name} anlegen` },
   );
   return outcome.changed ? slotId : null;
+}
+
+// Raises the definition's version (`props.version`). The instances keep their
+// pin - that difference is exactly the drift the editor shows until the author
+// updates them.
+export function bumpComponentVersion(store: EditorStore, definitionId: string): number | null {
+  const current = definitionVersionOf(store.document, definitionId);
+  if (current === null) return null;
+  const version = current + 1;
+  const outcome = store.applyBatch(
+    [{ op: "setNodeProp", id: definitionId, key: "version", value: version }],
+    { label: `Komponente versionieren · v${version}` },
+  );
+  return outcome.changed ? version : null;
+}
+
+// Pulls every instance of a definition up to its current version. One batch,
+// so the whole update is a single undo step.
+export function updateComponentInstances(store: EditorStore, definitionId: string): number {
+  const current = definitionVersionOf(store.document, definitionId);
+  if (current === null) return 0;
+  const stale = componentDriftIn(store, definitionId);
+  if (stale.length === 0) return 0;
+  store.applyBatch(
+    stale.map((entry) => ({
+      op: "setNodeProp" as const,
+      id: entry.instanceId,
+      key: "componentVersion",
+      value: current,
+    })),
+    { label: `Instanzen aktualisieren · v${current}` },
+  );
+  return stale.length;
 }
 
 // Places an instance of a definition behind the target node (or at the end of
@@ -238,6 +347,7 @@ export function instantiateComponent(
   targetId?: string | null,
 ): string | null {
   if (definitionOf(store, componentId) === null) return null;
+  const version = definitionVersionOf(store.document, componentId) ?? 1;
   const anchor = targetId ?? store.document.rootNodeId;
   const located = locateParent(store.document, anchor);
   const parent = located?.parent ?? { nodeId: store.document.rootNodeId };
@@ -252,7 +362,7 @@ export function instantiateComponent(
         node: {
           primitive: COMPONENT_INSTANCE_PRIMITIVE,
           id: instanceId,
-          props: { componentId },
+          props: { componentId, componentVersion: version },
         },
       },
     ],

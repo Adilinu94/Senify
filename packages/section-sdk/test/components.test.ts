@@ -5,9 +5,12 @@ import {
   COMPONENT_SLOT_TYPE,
   COMPONENT_STUB_TYPE,
   componentDefinitions,
+  componentDrift,
   componentParts,
   inlineComponents,
   instanceOverrides,
+  instanceVersion,
+  readSlotSpec,
   staleOverrides,
   unfilledSlots,
   wouldCreateCycle,
@@ -58,7 +61,47 @@ describe("component definitions", () => {
     const definitions = componentDefinitions(fixture());
     expect(definitions).toHaveLength(1);
     expect(definitions[0]?.name).toBe("card");
-    expect(definitions[0]?.slots).toEqual(["content"]);
+    expect(definitions[0]?.slots.map((slot) => slot.name)).toEqual(["content"]);
+    expect(definitions[0]?.version).toBe(1);
+  });
+
+  it("reads the slot rules from the placeholder props", () => {
+    const tree = fixture();
+    tree.nodes["slot000001"]!.props = {
+      name: "content",
+      allowedTypes: ["heading", "body"],
+      max: 2,
+    };
+    const definition = componentDefinitions(tree)[0]!;
+    expect(definition.slots).toEqual([
+      {
+        name: "content",
+        nodeId: "slot000001",
+        allowedTypes: ["heading", "body"],
+        max: 2,
+      },
+    ]);
+    // Malformed values are ignored, not fatal.
+    expect(
+      readSlotSpec({ id: "s1", props: { name: "x", allowedTypes: "heading", max: -3 } }),
+    ).toEqual({ name: "x", nodeId: "s1", allowedTypes: [], max: null });
+    // Without a name the node id stands in.
+    expect(readSlotSpec({ id: "s2", props: {} }).name).toBe("s2");
+  });
+
+  it("reports instances whose pin differs from the definition version", () => {
+    const tree = fixture();
+    expect(componentDrift(tree)).toEqual([]);
+    tree.nodes["def0000001"]!.props = { name: "card", version: 2 };
+    expect(componentDrift(tree)).toEqual([
+      { instanceId: "inst000001", componentId: "def0000001", pinned: 1, current: 2 },
+    ]);
+    tree.nodes["inst000001"]!.props = { componentId: "def0000001", componentVersion: 2 };
+    expect(instanceVersion(tree.nodes["inst000001"]!)).toBe(2);
+    expect(componentDrift(tree)).toEqual([]);
+    // An instance without a definition is a problem, not drift.
+    tree.nodes["inst000001"]!.props = { componentId: "missing001", componentVersion: 9 };
+    expect(componentDrift(tree)).toEqual([]);
   });
 
   it("reports unfilled slots against an instance", () => {

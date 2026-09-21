@@ -12,11 +12,24 @@
 // entry is also reachable by keyboard.
 
 import { SenifyError } from "@senify/core";
-import { getPrimitive } from "@senify/widget-engine";
+import {
+  COMPONENT_DEFINITION_PRIMITIVE,
+  COMPONENT_INSTANCE_PRIMITIVE,
+  COMPONENT_SLOT_PRIMITIVE,
+  getPrimitive,
+} from "@senify/widget-engine";
 import { requireDocument, type DomDocument, type DomElement, type DomEvent } from "../dom.ts";
 import { EDITOR_ROOT_ATTRIBUTE } from "../ui/tokens.ts";
 import { EditorStore } from "../state/store.ts";
 import { copyNode, pasteNode, wrapNode } from "../state/clipboard.ts";
+import {
+  bumpComponentVersion,
+  componentDriftIn,
+  createComponent,
+  detachComponent,
+  instantiateComponent,
+  updateComponentInstances,
+} from "../state/components.ts";
 import { locateParent } from "../state/document.ts";
 import {
   dropPositionFor,
@@ -25,6 +38,7 @@ import {
 } from "../canvas/dnd.ts";
 import {
   buildEditorLayerList,
+  editorMenuItems,
   editorNodeSnippet,
   type EditorLayerItem,
 } from "../explorer.ts";
@@ -152,6 +166,19 @@ export function createExplorer(options: ExplorerOptions): ExplorerInstance {
     }
   }
 
+  // Component operations throw on an inconsistent document; the panel turns
+  // that into a status message instead of losing the action silently.
+  function runComponentOp(run: () => string | null, failure: string): string | null {
+    try {
+      const result = run();
+      if (result === null) report(failure);
+      return result;
+    } catch (error) {
+      report(messageOf(error));
+      return null;
+    }
+  }
+
   function items(): EditorLayerItem[] {
     return buildEditorLayerList(options.store.document);
   }
@@ -192,6 +219,15 @@ export function createExplorer(options: ExplorerOptions): ExplorerInstance {
   function textKeyOf(id: string): string | undefined {
     const node = options.store.document.nodes[id];
     if (node === undefined) return undefined;
+    // A definition and a slot carry their display name in `name`; an instance
+    // has none of its own (it shows the definition's name).
+    if (
+      node.primitive === COMPONENT_DEFINITION_PRIMITIVE ||
+      node.primitive === COMPONENT_SLOT_PRIMITIVE
+    ) {
+      return "name";
+    }
+    if (node.primitive === COMPONENT_INSTANCE_PRIMITIVE) return undefined;
     const definition = getPrimitive(node.primitive);
     if (definition === undefined) return undefined;
     for (const key of TEXT_PROP_KEYS) {
@@ -201,25 +237,6 @@ export function createExplorer(options: ExplorerOptions): ExplorerInstance {
   }
 
   /* ------------------------------------------------------------ context menu */
-
-  const MENU_ITEMS: readonly {
-    id: string;
-    label: string;
-    hint?: string;
-    danger?: boolean;
-  }[] = [
-    { id: "rename", label: "Umbenennen", hint: "F2" },
-    { id: "duplicate", label: "Duplizieren", hint: "Cmd+D" },
-    { id: "copy", label: "Kopieren", hint: "Cmd+C" },
-    { id: "paste", label: "Einfügen", hint: "Cmd+V" },
-    { id: "wrap", label: "In Container einwickeln" },
-    { id: "up", label: "Nach oben" },
-    { id: "down", label: "Nach unten" },
-    { id: "hidden", label: "Ausblenden" },
-    { id: "locked", label: "Sperren" },
-    { id: "reveal", label: "Im Navigator zeigen" },
-    { id: "delete", label: "Löschen", hint: "Entf", danger: true },
-  ];
 
   function closeMenu(): void {
     if (menu === null) return;
@@ -281,6 +298,11 @@ export function createExplorer(options: ExplorerOptions): ExplorerInstance {
     if (node === undefined) return;
     switch (action) {
       case "rename": {
+        if (node.primitive === COMPONENT_INSTANCE_PRIMITIVE) {
+          report("Eine Instanz trägt den Namen ihrer Komponente.");
+          closeMenu();
+          return;
+        }
         const key = textKeyOf(id);
         if (key === undefined) {
           report("Dieser Baustein hat keine Beschriftung.");
@@ -347,6 +369,68 @@ export function createExplorer(options: ExplorerOptions): ExplorerInstance {
       case "delete":
         apply({ op: "deleteNode", id }, "Ebene löschen");
         break;
+      // Components (ticket 04): the node becomes a definition and an instance
+      // takes its place; the definition is selected so F2 can name it. The
+      // instance detaches back into a real subtree; a definition drops a new
+      // instance next to itself.
+      case "component-create": {
+        const definitionId = runComponentOp(
+          () => createComponent(options.store, id),
+          "Hier lässt sich keine Komponente anlegen.",
+        );
+        if (definitionId === null) break;
+        focusedId = definitionId;
+        options.store.select(definitionId);
+        report("Komponente angelegt - F2 benennt sie um.");
+        break;
+      }
+      case "component-detach": {
+        const detached = runComponentOp(
+          () => detachComponent(options.store, id),
+          "Die Instanz lässt sich nicht auflösen.",
+        );
+        if (detached === null) break;
+        focusedId = detached;
+        options.store.select(detached);
+        report(null);
+        break;
+      }
+      case "component-insert": {
+        const instanceId = runComponentOp(
+          () => instantiateComponent(options.store, id, id),
+          "Die Instanz ließ sich nicht einfügen.",
+        );
+        if (instanceId === null) break;
+        focusedId = instanceId;
+        options.store.select(instanceId);
+        report(null);
+        break;
+      }
+      // The version lever (ticket 04, slice 3): a bump moves the definition
+      // ahead, the instances stay pinned until they are pulled up - the badge
+      // in the tree shows the difference.
+      case "component-bump": {
+        const version = runComponentOp(
+          () => {
+            const next = bumpComponentVersion(options.store, id);
+            return next === null ? null : String(next);
+          },
+          "Die Version ließ sich nicht erhöhen.",
+        );
+        if (version === null) break;
+        const drift = componentDriftIn(options.store, id).length;
+        report(`Version v${version} - ${drift} Instanz(en) folgen noch.`);
+        break;
+      }
+      case "component-update": {
+        const count = updateComponentInstances(options.store, id);
+        if (count === 0) {
+          report("Alle Instanzen sind bereits aktuell.");
+          break;
+        }
+        report(count === 1 ? "1 Instanz aktualisiert" : `${count} Instanzen aktualisiert`);
+        break;
+      }
       default:
         break;
     }
@@ -569,6 +653,17 @@ export function createExplorer(options: ExplorerOptions): ExplorerInstance {
     }
     const badges = h(doc, "span", { className: "senify-explorer__badges" });
     if (item.motion) badges.appendChild(h(doc, "span", { className: "senify-explorer__badge", text: "M" }));
+    if (item.drift !== undefined) {
+      const badge = h(doc, "span", {
+        className: "senify-explorer__badge senify-explorer__badge--drift",
+        text: `v${item.drift.pinned}`,
+        data: { role: "drift" },
+        attributes: {
+          title: `Version ${item.drift.pinned} · Definition ist v${item.drift.current}`,
+        },
+      });
+      badges.appendChild(badge);
+    }
     if (item.hidden || item.hiddenDevices.length > 0) {
       badges.appendChild(icon(doc, "eyeoff", 12));
     }
@@ -656,8 +751,7 @@ export function createExplorer(options: ExplorerOptions): ExplorerInstance {
   function renderMenu(): DomElement | null {
     if (menu === null) return null;
     const menuId = menu.id;
-    const node = options.store.document.nodes[menuId];
-    if (node === undefined) return null;
+    if (options.store.document.nodes[menuId] === undefined) return null;
     const list = h(doc, "div", {
       className: "senify-explorer__menu",
       data: { role: "context-menu" },
@@ -665,23 +759,13 @@ export function createExplorer(options: ExplorerOptions): ExplorerInstance {
     });
     list.style.left = `${menu.left}px`;
     list.style.top = `${menu.top}px`;
-    for (const entry of MENU_ITEMS) {
-      const label =
-        entry.id === "hidden"
-          ? node.hidden === true
-            ? "Einblenden"
-            : "Ausblenden"
-          : entry.id === "locked"
-            ? node.locked === true
-              ? "Entsperren"
-              : "Sperren"
-            : entry.label;
+    for (const entry of editorMenuItems(options.store.document, menuId)) {
       const item = h(doc, "button", {
         className: "senify-explorer__menu-item",
         data: { action: entry.id, danger: String(entry.danger === true) },
         attributes: { type: "button", role: "menuitem", tabindex: "-1" },
       });
-      item.appendChild(h(doc, "span", { text: label }));
+      item.appendChild(h(doc, "span", { text: entry.label }));
       if (entry.hint !== undefined) {
         item.appendChild(h(doc, "span", { className: "senify-explorer__menu-hint", text: entry.hint }));
       }

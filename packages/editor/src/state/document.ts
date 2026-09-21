@@ -10,6 +10,9 @@
 // Migration from the older section `NodeTree` (v1) lives in `migration.ts`.
 
 import {
+  COMPONENT_DEFINITION_PRIMITIVE,
+  COMPONENT_INSTANCE_PRIMITIVE,
+  COMPONENT_SLOT_PRIMITIVE,
   getPrimitive,
   styleRuleToClassRule,
   type CssClassRule,
@@ -138,6 +141,75 @@ export function childIds(node: EditorNode): NodeId[] {
 
 export function slotIds(node: EditorNode, slot: string): NodeId[] {
   return node.slots?.[slot] ?? [];
+}
+
+/* ------------------------------------------------------- component slots
+ * The slot rules that apply to one owner node: an ordinary primitive reads
+ * them from the widget catalog, a component instance from its definition's
+ * slot placeholders (the catalog only knows the structural type). The editor
+ * document is the source here - the engine resolves the same rules from its
+ * own tree. */
+
+export type EditorSlotSpec = {
+  allowedTypes: string[];
+  max: number | null;
+};
+
+export function editorSlotSpecs(
+  document: EditorDocument,
+  owner: EditorNode,
+): Record<string, EditorSlotSpec> {
+  const specs: Record<string, EditorSlotSpec> = {};
+  if (owner.primitive === COMPONENT_INSTANCE_PRIMITIVE) {
+    const componentId = owner.props["componentId"];
+    const definition =
+      typeof componentId === "string" ? document.nodes[componentId] : undefined;
+    if (
+      definition === undefined ||
+      definition.primitive !== COMPONENT_DEFINITION_PRIMITIVE
+    ) {
+      return specs;
+    }
+    const visit = (id: NodeId): void => {
+      const node = document.nodes[id];
+      if (node === undefined) return;
+      if (node.primitive === COMPONENT_SLOT_PRIMITIVE) {
+        const name =
+          typeof node.props["name"] === "string" ? node.props["name"] : node.id;
+        if (specs[name] === undefined) {
+          const rawTypes = node.props["allowedTypes"];
+          const allowedTypes = Array.isArray(rawTypes)
+            ? rawTypes.filter(
+                (entry): entry is string => typeof entry === "string" && entry !== "",
+              )
+            : [];
+          const rawMax = node.props["max"];
+          specs[name] = {
+            allowedTypes,
+            max:
+              typeof rawMax === "number" && Number.isFinite(rawMax) && rawMax >= 0
+                ? Math.floor(rawMax)
+                : null,
+          };
+        }
+        return;
+      }
+      for (const child of node.children ?? []) visit(child);
+      for (const list of Object.values(node.slots ?? {})) {
+        for (const child of list) visit(child);
+      }
+    };
+    for (const child of definition.children ?? []) visit(child);
+    return specs;
+  }
+  const definition = getPrimitive(owner.primitive);
+  for (const [name, spec] of Object.entries(definition?.slots ?? {})) {
+    specs[name] = {
+      allowedTypes: [...(spec.allowedTypes ?? [])],
+      max: spec.max ?? null,
+    };
+  }
+  return specs;
 }
 
 export function locateParent(

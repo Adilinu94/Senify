@@ -1,9 +1,13 @@
 import { SenifyError } from "@senify/core";
 import {
+  COMPONENT_DEFINITION_TYPE,
+  COMPONENT_INSTANCE_TYPE,
   COMPONENT_SLOT_TYPE,
   isComponentType,
   PAGE_ROOT_TYPE,
+  readSlotSpec,
   validatePropValues,
+  type ComponentSlotSpec,
   type MotionSpec,
   type Node,
   type NodeId,
@@ -212,6 +216,62 @@ function assertChildPlacement(
   }
 }
 
+// The slot rules that apply to one parent node: a section reads them from its
+// registry definition, a component instance from its definition's slot
+// placeholders (the registry only knows the structural type, not the slots the
+// definition declares). `undefined` = the slot does not exist, `null` = an
+// open container (any slot name, no rules), otherwise the declared rules.
+type SlotRules = { allowedTypes?: string[]; max?: number };
+
+// The slot placeholders a definition declares, in tree order. The engine works
+// on a working tree (Map), so this walks it directly instead of building a
+// NodeTree for `componentDefinitions`.
+function componentSlotSpecs(state: ApplierState, definition: Node): ComponentSlotSpec[] {
+  const specs: ComponentSlotSpec[] = [];
+  const visit = (id: NodeId): void => {
+    const node = state.tree.nodes.get(id);
+    if (node === undefined) return;
+    if (node.type === COMPONENT_SLOT_TYPE) {
+      const spec = readSlotSpec({ id: node.id, props: node.props });
+      if (!specs.some((entry) => entry.name === spec.name)) specs.push(spec);
+      return;
+    }
+    for (const child of node.children ?? []) visit(child);
+    for (const list of Object.values(node.slots ?? {})) {
+      for (const child of list) visit(child);
+    }
+  };
+  for (const child of definition.children ?? []) visit(child);
+  return specs;
+}
+
+function slotRulesFor(
+  state: ApplierState,
+  parent: Node,
+  slot: string,
+): SlotRules | null | undefined {
+  if (parent.type === COMPONENT_INSTANCE_TYPE) {
+    const componentId = parent.props["componentId"];
+    if (typeof componentId !== "string") return null;
+    const definition = state.tree.nodes.get(componentId);
+    // A stale instance (definition removed) stays writable; the inliner
+    // reports it and the editor/MCP surface the drift.
+    if (definition === undefined || definition.type !== COMPONENT_DEFINITION_TYPE) {
+      return null;
+    }
+    const spec = componentSlotSpecs(state, definition).find((entry) => entry.name === slot);
+    if (spec === undefined) return undefined;
+    return {
+      allowedTypes: spec.allowedTypes,
+      ...(spec.max === null ? {} : { max: spec.max }),
+    };
+  }
+  const definition = definitionForNode(state.registry, parent);
+  // Open containers (`"any"`) declare no slots: any slot name is accepted.
+  if (definition?.allowedChildren === "any") return null;
+  return definition?.slots?.[slot];
+}
+
 function assertSlotPlacement(
   state: ApplierState,
   parent: Node,
@@ -220,14 +280,9 @@ function assertSlotPlacement(
   field: string,
 ): NodeId[] {
   const definition = definitionForNode(state.registry, parent);
-  const slotSpec = definition?.slots?.[slot];
-  // Open containers (`"any"`) declare no slots: a component instance carries
-  // the slots of its definition, which only the editor can resolve, so any
-  // slot name is accepted here.
-  if (definition?.allowedChildren === "any") {
-    return slotList(parent, slot);
-  }
-  if (!slotSpec) {
+  const rules = slotRulesFor(state, parent, slot);
+  if (rules === null) return slotList(parent, slot);
+  if (rules === undefined) {
     const available = definition?.slots ? Object.keys(definition.slots) : [];
     throw new SenifyError(
       "validation",
@@ -242,24 +297,24 @@ function assertSlotPlacement(
     );
   }
   if (
-    slotSpec.allowedTypes &&
-    slotSpec.allowedTypes.length > 0 &&
-    !slotSpec.allowedTypes.includes(childType)
+    rules.allowedTypes &&
+    rules.allowedTypes.length > 0 &&
+    !rules.allowedTypes.includes(childType)
   ) {
     throw new SenifyError(
       "validation",
       `Slot "${slot}" of section "${parent.type}" does not allow "${childType}"`,
       {
         field,
-        suggestion: `Allowed types: ${slotSpec.allowedTypes.join(", ")}.`,
+        suggestion: `Allowed types: ${rules.allowedTypes.join(", ")}.`,
       },
     );
   }
   const list = slotList(parent, slot);
-  if (slotSpec.max !== undefined && list.length >= slotSpec.max) {
+  if (rules.max !== undefined && list.length >= rules.max) {
     throw new SenifyError(
       "validation",
-      `Slot "${slot}" of section "${parent.type}" is full (max ${slotSpec.max})`,
+      `Slot "${slot}" of section "${parent.type}" is full (max ${rules.max})`,
       { field, suggestion: "Remove a node from this slot first." },
     );
   }
@@ -792,15 +847,16 @@ function applyUpdatePageMeta(
 }
 
 // Slot existence without the per-insert max check: `setSlotContent` replaces
-// the whole list, so the total count is validated once, not per node.
-function requireSlotSpec(
+// the whole list, so the total count is validated once, not per node. `null`
+// means an open container (any slot name, no rules).
+function requireSlotRules(
   state: ApplierState,
   parent: Node,
   slot: string,
-): NonNullable<SectionDefinition["slots"]>[string] {
-  const definition = definitionForNode(state.registry, parent);
-  const slotSpec = definition?.slots?.[slot];
-  if (!slotSpec) {
+): SlotRules | null {
+  const rules = slotRulesFor(state, parent, slot);
+  if (rules === undefined) {
+    const definition = definitionForNode(state.registry, parent);
     const available = definition?.slots ? Object.keys(definition.slots) : [];
     throw new SenifyError(
       "validation",
@@ -814,7 +870,7 @@ function requireSlotSpec(
       },
     );
   }
-  return slotSpec;
+  return rules;
 }
 
 function assertSlotAllowedTypes(
@@ -841,7 +897,7 @@ function applySetSlotContent(
   mutation: Extract<Mutation, { op: "setSlotContent" }>,
 ): PatchOp[] {
   const parent = requireNode(state.tree, mutation.id, "id");
-  const slotSpec = requireSlotSpec(state, parent, mutation.slot);
+  const rules = requireSlotRules(state, parent, mutation.slot);
   const newNodes = mutation.nodes.map((spec, index) => {
     const node = buildNode(state, spec, `nodes[${index}]`);
     warnLiteralValues(
@@ -853,15 +909,17 @@ function applySetSlotContent(
     );
     return node;
   });
-  for (const node of newNodes) {
-    assertSlotAllowedTypes(parent, mutation.slot, slotSpec, node.type, "nodes");
-  }
-  if (slotSpec.max !== undefined && newNodes.length > slotSpec.max) {
-    throw new SenifyError(
-      "validation",
-      `Slot "${mutation.slot}" of section "${parent.type}" holds at most ${slotSpec.max} nodes`,
-      { field: "nodes", suggestion: "Remove entries from the slot first." },
-    );
+  if (rules !== null) {
+    for (const node of newNodes) {
+      assertSlotAllowedTypes(parent, mutation.slot, rules, node.type, "nodes");
+    }
+    if (rules.max !== undefined && newNodes.length > rules.max) {
+      throw new SenifyError(
+        "validation",
+        `Slot "${mutation.slot}" of section "${parent.type}" holds at most ${rules.max} nodes`,
+        { field: "nodes", suggestion: "Remove entries from the slot first." },
+      );
+    }
   }
   const previous = [...slotList(parent, mutation.slot)];
   const oldSubtrees = previous.map((id) =>
@@ -895,7 +953,7 @@ function applyCreateCollectionEntry(
   mutation: Extract<Mutation, { op: "createCollectionEntry" }>,
 ): PatchOp[] {
   const parent = requireNode(state.tree, mutation.id, "id");
-  const slotSpec = requireSlotSpec(state, parent, "item");
+  const slotSpec = requireSlotRules(state, parent, "item");
   const node = buildNode(state, mutation.node, "node");
   warnLiteralValues(
     state.registry.get(node.type),
@@ -904,9 +962,11 @@ function applyCreateCollectionEntry(
     state,
     state.currentOpIndex,
   );
-  assertSlotAllowedTypes(parent, "item", slotSpec, node.type, "node");
+  if (slotSpec !== null) {
+    assertSlotAllowedTypes(parent, "item", slotSpec, node.type, "node");
+  }
   const existing = collectionEntryIds(parent);
-  if (slotSpec.max !== undefined && existing.length >= slotSpec.max) {
+  if (slotSpec !== null && slotSpec.max !== undefined && existing.length >= slotSpec.max) {
     throw new SenifyError(
       "validation",
       `The item slot of "${parent.type}" is full (max ${slotSpec.max})`,

@@ -10,6 +10,7 @@ import {
   createTestPage,
   createTestSite,
   type BootEnv,
+  type ErrorResponse,
   type MutationsResponse,
   type PageResponse,
 } from "./helpers.ts";
@@ -133,6 +134,68 @@ describe("component nodes through the save path", () => {
     expect(rawNode(fresh, "inst-01")?.props?.["overrides"]).toEqual({
       "def-head-01": { body: "Eigener Titel" },
     });
+  });
+
+  it("enforces the slot rules the definition declares", async () => {
+    page = await loadPage(page.id);
+    // The first test filled the slot; empty it before the rules apply.
+    const cleared = await apply([{ op: "deleteNode", id: "inst-body-01" }]);
+    expect(cleared.status).toBe(200);
+
+    page = await loadPage(page.id);
+    // The slot accepts a block only, at most one node.
+    const rules = await apply([
+      {
+        op: "updateNodeProps",
+        id: "def-slot-01",
+        patch: { allowedTypes: ["block"], max: 1 },
+      },
+    ]);
+    expect(rules.status).toBe(200);
+
+    page = await loadPage(page.id);
+    const filled = await apply([
+      {
+        op: "insertNode",
+        parent: { nodeId: "inst-01", slot: "inhalt" },
+        node: { id: "inst-fill-01", type: "block", props: { headline: "Hallo" } },
+      },
+    ]);
+    expect(filled.status).toBe(200);
+
+    // A second node is refused (max), a wrong type too (allowedTypes).
+    page = await loadPage(page.id);
+    const full = await apply([
+      {
+        op: "insertNode",
+        parent: { nodeId: "inst-01", slot: "inhalt" },
+        node: { id: "inst-fill-02", type: "block", props: { headline: "Noch" } },
+      },
+    ]);
+    expect(full.status).toBe(400);
+    expect((full.body as unknown as ErrorResponse).error.message).toContain("full (max 1)");
+
+    const wrong = await apply([
+      {
+        op: "insertNode",
+        parent: { nodeId: "inst-01", slot: "inhalt" },
+        node: { id: "inst-fill-03", type: "divider", props: {} },
+      },
+    ]);
+    expect(wrong.status).toBe(400);
+    expect((wrong.body as unknown as ErrorResponse).error.message).toContain("does not allow");
+
+    // An unknown slot name on the instance is refused (the definition names
+    // its slots, not the structural type).
+    const unknown = await apply([
+      {
+        op: "insertNode",
+        parent: { nodeId: "inst-01", slot: "gibtsnicht" },
+        node: { id: "inst-fill-04", type: "block", props: { headline: "X" } },
+      },
+    ]);
+    expect(unknown.status).toBe(400);
+    expect((unknown.body as unknown as ErrorResponse).error.message).toContain("no slot");
   });
 });
 

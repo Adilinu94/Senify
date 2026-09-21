@@ -9,6 +9,8 @@
 // a patch that would break the document.
 
 import {
+  COMPONENT_DEFINITION_PRIMITIVE,
+  COMPONENT_INSTANCE_PRIMITIVE,
   getPrimitive,
   isValidCssSelector,
   reservedContextIds,
@@ -17,6 +19,7 @@ import {
 import { motionPreset, motionProfileViolations, type MotionProfile } from "@senify/section-sdk";
 import {
   DOCUMENT_VERSION,
+  editorSlotSpecs,
   isClassDefined,
   type EditorDocument,
   type NodeId,
@@ -140,14 +143,28 @@ export function validateDocument(document: EditorDocument): DocumentIssue[] {
     }
 
     for (const [slot, list] of Object.entries(node.slots ?? {})) {
-      const slotSpec = definition?.slots[slot];
+      const spec = editorSlotSpecs(document, node)[slot];
       // A legacy stand-in (an existing section type, see widget-engine
       // `legacy.ts`) carries no slot rules of its own: their truth lives in the
-      // section registry, so the slot is tolerated here.
+      // section registry, so the slot is tolerated here. A component instance
+      // is judged against its definition - unless the definition is missing,
+      // which is the inliner's problem, not a slot error.
+      const instanceDefinition =
+        node.primitive === COMPONENT_INSTANCE_PRIMITIVE
+          ? document.nodes[
+              typeof node.props["componentId"] === "string"
+                ? (node.props["componentId"] as string)
+                : ""
+            ]
+          : undefined;
+      const definitionMissing =
+        node.primitive === COMPONENT_INSTANCE_PRIMITIVE &&
+        instanceDefinition?.primitive !== COMPONENT_DEFINITION_PRIMITIVE;
       if (
         definition !== undefined &&
         definition.legacy !== true &&
-        slotSpec === undefined
+        !definitionMissing &&
+        spec === undefined
       ) {
         issues.push({
           kind: "slot-unknown",
@@ -155,11 +172,11 @@ export function validateDocument(document: EditorDocument): DocumentIssue[] {
           message: `Primitive "${node.primitive}" has no slot "${slot}"`,
         });
       }
-      if (slotSpec?.max !== undefined && list.length > slotSpec.max) {
+      if (spec !== undefined && spec.max !== null && list.length > spec.max) {
         issues.push({
           kind: "slot-full",
           nodeId: node.id,
-          message: `Slot "${slot}" of node "${node.id}" holds ${list.length} nodes (max ${slotSpec.max})`,
+          message: `Slot "${slot}" of node "${node.id}" holds ${list.length} nodes (max ${spec.max})`,
         });
       }
       for (const childId of list) {
@@ -174,9 +191,9 @@ export function validateDocument(document: EditorDocument): DocumentIssue[] {
           continue;
         }
         if (
-          slotSpec?.allowedTypes !== undefined &&
-          slotSpec.allowedTypes.length > 0 &&
-          !slotSpec.allowedTypes.includes(child.primitive)
+          spec !== undefined &&
+          spec.allowedTypes.length > 0 &&
+          !spec.allowedTypes.includes(child.primitive)
         ) {
           issues.push({
             kind: "slot-not-allowed",

@@ -19,10 +19,13 @@ export const componentDefinitionSection: SectionDefinition = {
   description:
     "Definition einer Visual Component: der eine Wurzelknoten in den Kindern ist die wiederverwendbare Struktur, `__component_slot`-Knoten sind ihre Füllplätze.",
   category: "utility",
-  props: [{ key: "name", control: "text", label: "Name" }],
+  props: [
+    { key: "name", control: "text", label: "Name" },
+    { key: "version", control: "number", label: "Version", group: "Komponente" },
+  ],
   allowedChildren: "any",
   golden: {
-    tree: { type: COMPONENT_DEFINITION_TYPE, props: { name: "Komponente" } },
+    tree: { type: COMPONENT_DEFINITION_TYPE, props: { name: "Komponente", version: 1 } },
     thumbnails: {},
   },
 };
@@ -32,10 +35,16 @@ export const componentInstanceSection: SectionDefinition = {
   version: 1,
   title: "Komponenten-Instanz",
   description:
-    "Instanz einer Komponente: `componentId` nennt die Definition, die Slots tragen den Inhalt, `overrides` die Werte, die nur diese Instanz ändert. Wird beim Rendern und beim Bake inlined.",
+    "Instanz einer Komponente: `componentId` nennt die Definition, `componentVersion` die gepinnte Version, die Slots tragen den Inhalt, `overrides` die Werte, die nur diese Instanz ändert. Wird beim Rendern und beim Bake inlined.",
   category: "utility",
   props: [
     { key: "componentId", control: "text", label: "Komponente" },
+    {
+      key: "componentVersion",
+      control: "number",
+      label: "Version",
+      group: "Instanz",
+    },
     {
       key: "overrides",
       control: "json",
@@ -49,7 +58,7 @@ export const componentInstanceSection: SectionDefinition = {
   golden: {
     tree: {
       type: COMPONENT_INSTANCE_TYPE,
-      props: { componentId: "component-1" },
+      props: { componentId: "component-1", componentVersion: 1 },
     },
     thumbnails: {},
   },
@@ -60,12 +69,24 @@ export const componentSlotSection: SectionDefinition = {
   version: 1,
   title: "Komponenten-Slot",
   description:
-    "Füllplatz in einer Komponenten-Definition: `name` ist der Slot-Name, den eine Instanz füllt.",
+    "Füllplatz in einer Komponenten-Definition: `name` ist der Slot-Name, den eine Instanz füllt, `allowedTypes` und `max` sind seine Regeln.",
   category: "utility",
-  props: [{ key: "name", control: "text", label: "Slot-Name" }],
+  props: [
+    { key: "name", control: "text", label: "Slot-Name" },
+    {
+      key: "allowedTypes",
+      control: "list",
+      label: "Erlaubte Bausteine",
+      group: "Slot",
+    },
+    { key: "max", control: "number", label: "Maximal", group: "Slot" },
+  ],
   allowedChildren: "none",
   golden: {
-    tree: { type: COMPONENT_SLOT_TYPE, props: { name: "inhalt" } },
+    tree: {
+      type: COMPONENT_SLOT_TYPE,
+      props: { name: "inhalt", allowedTypes: [], max: 1 },
+    },
     thumbnails: {},
   },
 };

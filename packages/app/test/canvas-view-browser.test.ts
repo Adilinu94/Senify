@@ -446,6 +446,97 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       await expect.poll(async () => tab.locator(".senify-canvas__frame").count()).toBe(3);
       await expect.poll(dividerCount).toBe(3);
 
+      // Components (ticket 04, slice 2): the context menu turns the hero into
+      // a definition, the components tab inserts a second instance, and the
+      // context menu detaches it back into a real subtree. Every step travels
+      // the ordinary store/save path (the instance has been saveable since
+      // slice 2.1); the canvas renders the instance in place.
+      const heroCount = (): Promise<number> =>
+        desktopFrame().locator('section[data-section="hero"]').count();
+      await tab
+        .locator(`.senify-explorer__item[data-node="${heroId}"]`)
+        .click({ button: "right" });
+      await tab.waitForSelector(".senify-explorer__menu", { timeout: 10000 });
+      await tab
+        .locator('.senify-explorer__menu-item[data-action="component-create"]')
+        .click();
+      const definitionItem = tab.locator(".senify-explorer__item", {
+        hasText: "Komponente · hero",
+      });
+      await expect.poll(async () => definitionItem.count()).toBe(1);
+      await expect.poll(heroCount).toBe(1);
+
+      // F2 renames the definition (the name is what the tab shows).
+      await definitionItem.click({ button: "right" });
+      await tab.waitForSelector(".senify-explorer__menu", { timeout: 10000 });
+      await tab.locator('.senify-explorer__menu-item[data-action="rename"]').click();
+      const renameInput = tab.locator('[data-role="rename-input"]');
+      await renameInput.fill("karte");
+      await renameInput.press("Enter");
+      await expect
+        .poll(async () =>
+          tab.locator(".senify-explorer__item", { hasText: "Komponente · karte" }).count(),
+        )
+        .toBe(1);
+      await tab.screenshot({ path: join(shotDir, "08-komponente-angelegt.png") });
+
+      // The components tab lists the definition with its instance count; a
+      // click inserts another instance behind the definition.
+      await tab.locator('.senify-explorer__tab[data-tab="components"]').click();
+      const componentItem = tab.locator(".senify-explorer__tabitem", {
+        hasText: "karte",
+      });
+      await expect.poll(async () => componentItem.count()).toBe(1);
+      expect(await componentItem.textContent()).toContain("1 Instanz");
+      await componentItem.click();
+      await expect.poll(heroCount).toBe(2);
+      await tab.locator('.senify-explorer__tab[data-tab="layers"]').click();
+      await tab.screenshot({ path: join(shotDir, "09-komponenten-tab.png") });
+
+      // The new instance is selected; detaching it leaves a real copy and
+      // keeps the definition with its first instance.
+      await tab
+        .locator('.senify-explorer__item[data-selected="true"]')
+        .click({ button: "right" });
+      await tab.waitForSelector(".senify-explorer__menu", { timeout: 10000 });
+      await tab
+        .locator('.senify-explorer__menu-item[data-action="component-detach"]')
+        .click();
+      await expect
+        .poll(async () =>
+          tab.locator(".senify-explorer__item", { hasText: "Instanz · karte" }).count(),
+        )
+        .toBe(1);
+      await expect.poll(heroCount).toBe(2);
+
+      // Versions (slice 3): the definition bumps to v2 from the context menu,
+      // the remaining instance shows the drift badge, and pulling it up from
+      // the definition's menu clears the badge again.
+      const renamedDefinition = tab.locator(".senify-explorer__item", {
+        hasText: "Komponente · karte",
+      });
+      await renamedDefinition.click({ button: "right" });
+      await tab.waitForSelector(".senify-explorer__menu", { timeout: 10000 });
+      await tab
+        .locator('.senify-explorer__menu-item[data-action="component-bump"]')
+        .click();
+      const instanceItem = tab.locator(".senify-explorer__item", {
+        hasText: "Instanz · karte",
+      });
+      await expect
+        .poll(async () => instanceItem.locator('[data-role="drift"]').count())
+        .toBe(1);
+      await tab.screenshot({ path: join(shotDir, "10-komponente-version.png") });
+
+      await renamedDefinition.click({ button: "right" });
+      await tab.waitForSelector(".senify-explorer__menu", { timeout: 10000 });
+      await tab
+        .locator('.senify-explorer__menu-item[data-action="component-update"]')
+        .click();
+      await expect
+        .poll(async () => instanceItem.locator('[data-role="drift"]').count())
+        .toBe(0);
+
       // The old editor stays reachable as an explicit deep link (strangler E2)
       // and still lays out its frames.
       await tab.goto(`${pageUrl}?view=editor`, { waitUntil: "domcontentloaded" });

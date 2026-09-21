@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildComponentList,
   buildEditorLayerList,
   buildEditorSpotlightIndex,
   buildLayerList,
   buildMediaTab,
   buildPageList,
   buildTemplatesSection,
+  editorMenuItems,
   editorNodeLabel,
   editorNodeSnippet,
   EXPLORER_TABS,
@@ -13,6 +15,12 @@ import {
   layerLabel,
   type MediaItem,
 } from "@senify/editor";
+import {
+  bumpComponentVersion,
+  createComponent,
+  insertSlot,
+  instantiateComponent,
+} from "@senify/editor/state";
 import { draftTree, registry } from "./fixtures.ts";
 import { baseStore, emptyV2Document } from "./state/fixtures.ts";
 
@@ -179,6 +187,116 @@ describe("editor layer tree (v2)", () => {
     const layers = buildEditorLayerList(emptyV2Document());
     expect(layers).toHaveLength(1);
     expect(layers[0]?.primitive).toBe("root");
+  });
+});
+
+// Ticket 04, slice 2: the components UI. The models are headless — the panel
+// renders them, the shell fills the tab — so they are asserted here.
+describe("editor components UI (v2)", () => {
+  it("labels definitions, instances and slots with their names", () => {
+    const store = baseStore();
+    // The section is the useful definition root: it can hold a slot.
+    const definitionId = createComponent(store, "sec0000001", "karte");
+    expect(definitionId).not.toBeNull();
+    const root = store.document.nodes[store.document.rootNodeId];
+    const instanceId =
+      root?.children?.find(
+        (id) => store.document.nodes[id]?.primitive === "__component_instance",
+      ) ?? "";
+    const slotId = insertSlot(store, definitionId!, "content");
+    expect(slotId).not.toBeNull();
+
+    const layers = buildEditorLayerList(store.document);
+    const labelOf = (id: string): string | undefined =>
+      layers.find((layer) => layer.id === id)?.label;
+    expect(labelOf(definitionId!)).toBe("Komponente · karte");
+    // The instance reads the name from the definition it points at.
+    expect(labelOf(instanceId)).toBe("Instanz · karte");
+    expect(labelOf(slotId!)).toBe("Slot · content");
+    // A definition whose instance lost its target falls back to the id.
+    const stale = buildEditorLayerList({
+      ...store.document,
+      nodes: {
+        ...store.document.nodes,
+        [instanceId]: {
+          ...store.document.nodes[instanceId]!,
+          props: { componentId: "missing001" },
+        },
+      },
+    });
+    expect(stale.find((layer) => layer.id === instanceId)?.label).toBe(
+      "Instanz · missing001",
+    );
+  });
+
+  it("lists components with their instance counts", () => {
+    const store = baseStore();
+    expect(buildComponentList(store.document)).toEqual([]);
+    const definitionId = createComponent(store, "head000001", "karte");
+    expect(buildComponentList(store.document)).toEqual([
+      { id: definitionId, name: "karte", instances: 1, version: 1, drift: 0 },
+    ]);
+    // A second instance raises the count; an unnamed definition falls back to
+    // its id, a stale reference counts nowhere.
+    instantiateComponent(store, definitionId!);
+    expect(buildComponentList(store.document)[0]?.instances).toBe(2);
+    // A bump moves the definition ahead; both instances count as drift until
+    // they are pulled up.
+    bumpComponentVersion(store, definitionId!);
+    expect(buildComponentList(store.document)[0]?.version).toBe(2);
+    expect(buildComponentList(store.document)[0]?.drift).toBe(2);
+    expect(buildComponentList(emptyV2Document())).toEqual([]);
+  });
+
+  it("badges a drifting instance in the layer tree", () => {
+    const store = baseStore();
+    const definitionId = createComponent(store, "head000001", "karte");
+    const instanceId = store.document.nodes["sec0000001"]?.children?.[0] ?? "";
+    const driftOf = (id: string) =>
+      buildEditorLayerList(store.document).find((layer) => layer.id === id)?.drift;
+    expect(driftOf(instanceId)).toBeUndefined();
+    bumpComponentVersion(store, definitionId!);
+    expect(driftOf(instanceId)).toEqual({ pinned: 1, current: 2 });
+    expect(driftOf(definitionId!)).toBeUndefined();
+  });
+
+  it("offers the component actions per node kind in the context menu", () => {
+    const store = baseStore();
+    const idsOf = (id: string): string[] =>
+      editorMenuItems(store.document, id).map((entry) => entry.id);
+    // An ordinary node can become a definition; the root cannot.
+    expect(idsOf("head000001")).toContain("component-create");
+    expect(idsOf(store.document.rootNodeId)).not.toContain("component-create");
+
+    const definitionId = createComponent(store, "sec0000001", "karte");
+    const root = store.document.nodes[store.document.rootNodeId];
+    const instanceId =
+      root?.children?.find(
+        (id) => store.document.nodes[id]?.primitive === "__component_instance",
+      ) ?? "";
+    expect(idsOf(definitionId!)).toContain("component-insert");
+    expect(idsOf(definitionId!)).toContain("component-bump");
+    expect(idsOf(definitionId!)).not.toContain("component-update");
+    expect(idsOf(definitionId!)).not.toContain("component-create");
+    // A bump makes the instances drift: only then does the update entry show.
+    bumpComponentVersion(store, definitionId!);
+    expect(idsOf(definitionId!)).toContain("component-update");
+    expect(idsOf(instanceId)).toContain("component-detach");
+    expect(idsOf(instanceId)).not.toContain("component-create");
+    const slotId = insertSlot(store, definitionId!, "content") ?? "";
+    expect(idsOf(slotId)).not.toContain("component-create");
+    expect(idsOf(slotId)).not.toContain("component-detach");
+
+    // The state labels resolve in the model (the panel only renders).
+    const labels = editorMenuItems(store.document, "head000001").map(
+      (entry) => entry.label,
+    );
+    expect(labels).toContain("Ausblenden");
+    store.apply({ op: "setNodeMeta", id: "head000001", meta: { hidden: true } });
+    expect(
+      editorMenuItems(store.document, "head000001").map((entry) => entry.label),
+    ).toContain("Einblenden");
+    expect(editorMenuItems(store.document, "gone000001")).toEqual([]);
   });
 });
 

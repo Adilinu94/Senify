@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  bumpComponentVersion,
   componentDefinitionsIn,
+  componentDriftIn,
   componentPartsIn,
   createComponent,
+  definitionVersionOf,
   detachComponent,
   insertSlot,
   instantiateComponent,
+  instanceVersionOf,
   overridesOf,
   setComponentOverride,
+  updateComponentInstances,
 } from "@senify/editor/state";
 import { inlineComponents, type Node, type NodeTree } from "@senify/section-sdk";
 import { canvasNodeTree } from "@senify/editor/canvas";
@@ -62,6 +67,51 @@ describe("editor components", () => {
     expect(slotId).not.toBeNull();
     expect(store.document.nodes["sec0000001"]?.children).toContain(slotId);
     expect(store.document.nodes[slotId!]?.props["name"]).toBe("content");
+    // Without options the placeholder carries nothing but its name.
+    expect(store.document.nodes[slotId!]?.props).toEqual({ name: "content" });
+  });
+
+  it("stores the slot rules a declaration passes in", () => {
+    const store = baseStore();
+    const definitionId = createComponent(store, "sec0000001", "karte");
+    const slotId = insertSlot(store, definitionId!, "content", undefined, {
+      allowedTypes: ["heading", "text", ""],
+      max: 2,
+    });
+    expect(store.document.nodes[slotId!]?.props["allowedTypes"]).toEqual([
+      "heading",
+      "text",
+    ]);
+    expect(store.document.nodes[slotId!]?.props["max"]).toBe(2);
+  });
+
+  it("versions a definition and pins instances until they are updated", () => {
+    const store = baseStore();
+    const definitionId = createComponent(store, "head000001", "karte");
+    const instanceId = store.document.nodes["sec0000001"]?.children?.[0] ?? "";
+    // A fresh definition is v1 and its instance pins v1: no drift.
+    expect(definitionVersionOf(store.document, definitionId!)).toBe(1);
+    expect(instanceVersionOf(store.document.nodes[instanceId]!)).toBe(1);
+    expect(componentDriftIn(store)).toEqual([]);
+
+    // A bump leaves the instance behind - that difference is the drift.
+    expect(bumpComponentVersion(store, definitionId!)).toBe(2);
+    expect(store.document.nodes[definitionId!]?.props["version"]).toBe(2);
+    expect(componentDriftIn(store)).toEqual([
+      { instanceId, componentId: definitionId, pinned: 1, current: 2 },
+    ]);
+
+    // A new instance pins the current version; updating pulls the old one up.
+    const freshId = instantiateComponent(store, definitionId!, "head000001");
+    expect(instanceVersionOf(store.document.nodes[freshId!]!)).toBe(2);
+    expect(updateComponentInstances(store, definitionId!)).toBe(1);
+    expect(componentDriftIn(store)).toEqual([]);
+    expect(store.document.nodes[instanceId]?.props["componentVersion"]).toBe(2);
+
+    // One undo brings the drift back; a non-definition cannot be bumped.
+    expect(store.undo()).toBe(true);
+    expect(componentDriftIn(store)).toHaveLength(1);
+    expect(bumpComponentVersion(store, instanceId)).toBeNull();
   });
 
   it("detaches an instance back into a real subtree", () => {

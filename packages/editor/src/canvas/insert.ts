@@ -12,10 +12,12 @@
 import { SenifyError } from "@senify/core";
 import {
   getPrimitive,
+  isComponentPrimitive,
   type PrimitiveDefinition,
   type PropValue,
 } from "@senify/widget-engine";
 import {
+  editorSlotSpecs,
   locateParent,
   type EditorDocument,
   type EditorNode,
@@ -57,25 +59,26 @@ function slotLength(node: EditorNode, slot: string): number {
   return (node.slots?.[slot] ?? []).length;
 }
 
-// Why a slot does not take a primitive, or `null` when it does.
+// Why a slot does not take a primitive, or `null` when it does. The rules of
+// a component instance come from its definition (`editorSlotSpecs`), not from
+// the structural catalog type.
 export function slotRejection(
-  definition: PrimitiveDefinition,
-  node: EditorNode,
+  document: EditorDocument,
+  owner: EditorNode,
   slot: string,
   childPrimitive: string,
 ): string | null {
-  const spec = definition.slots[slot];
+  const spec = editorSlotSpecs(document, owner)[slot];
   if (spec === undefined) {
-    return `"${definition.type}" hat keinen Slot "${slot}"`;
+    return `"${owner.primitive}" hat keinen Slot "${slot}"`;
   }
   if (
-    spec.allowedTypes !== undefined &&
     spec.allowedTypes.length > 0 &&
     !spec.allowedTypes.includes(childPrimitive)
   ) {
     return `Slot "${slot}" erlaubt kein "${childPrimitive}" (erlaubt: ${spec.allowedTypes.join(", ")})`;
   }
-  if (spec.max !== undefined && slotLength(node, slot) >= spec.max) {
+  if (spec.max !== null && slotLength(owner, slot) >= spec.max) {
     return `Slot "${slot}" ist voll (max ${spec.max})`;
   }
   return null;
@@ -93,12 +96,17 @@ export function childRejection(
   if (definition === undefined) return `Unbekanntes Primitiv "${owner.primitive}"`;
 
   if (parent.slot !== undefined) {
-    return slotRejection(definition, owner, parent.slot, childPrimitive);
+    return slotRejection(document, owner, parent.slot, childPrimitive);
   }
 
+  const slots = Object.keys(editorSlotSpecs(document, owner));
+  if (isComponentPrimitive(owner.primitive)) {
+    return slots.length > 0
+      ? `"${owner.primitive}" nimmt keine Kinder auf - nutze einen Slot (${slots.join(", ")})`
+      : `"${owner.primitive}" nimmt keine Kinder auf`;
+  }
   const allowed = definition.allowedChildren;
   if (allowed === "none") {
-    const slots = Object.keys(definition.slots);
     return slots.length > 0
       ? `"${definition.type}" nimmt keine Kinder auf — nutze einen Slot (${slots.join(", ")})`
       : `"${definition.type}" nimmt keine Kinder auf`;
@@ -111,12 +119,12 @@ export function childRejection(
 
 // The first slot of a container that takes the primitive and is not full.
 export function firstFreeSlot(
-  definition: PrimitiveDefinition,
-  node: EditorNode,
+  document: EditorDocument,
+  owner: EditorNode,
   childPrimitive: string,
 ): string | undefined {
-  for (const slot of Object.keys(definition.slots)) {
-    if (slotRejection(definition, node, slot, childPrimitive) === null) return slot;
+  for (const slot of Object.keys(editorSlotSpecs(document, owner))) {
+    if (slotRejection(document, owner, slot, childPrimitive) === null) return slot;
   }
   return undefined;
 }
@@ -170,24 +178,29 @@ export function insertPlan(
   const target = requireNode(document, targetId);
   const definition = requirePrimitive(target.primitive);
   const allowed = definition.allowedChildren;
-  if (
-    allowed === "any" ||
-    (Array.isArray(allowed) && allowed.includes(primitive))
-  ) {
-    return { parent: { nodeId: targetId }, index: (target.children ?? []).length };
+  // A component instance is a container of *slots*, not of children: the
+  // catalog's structural "any" says nothing about where content belongs, the
+  // definition names the slots.
+  if (!isComponentPrimitive(target.primitive)) {
+    if (
+      allowed === "any" ||
+      (Array.isArray(allowed) && allowed.includes(primitive))
+    ) {
+      return { parent: { nodeId: targetId }, index: (target.children ?? []).length };
+    }
   }
 
-  const slot = firstFreeSlot(definition, target, primitive);
+  const slot = firstFreeSlot(document, target, primitive);
   if (slot !== undefined) {
     return { parent: { nodeId: targetId, slot }, index: slotLength(target, slot) };
   }
 
   // No children allowed and no free slot: say exactly why.
-  const slotNames = Object.keys(definition.slots);
+  const slotNames = Object.keys(editorSlotSpecs(document, target));
   const firstSlot = slotNames[0];
   const reason =
-    allowed === "none" && firstSlot !== undefined
-      ? slotRejection(definition, target, firstSlot, primitive)
+    firstSlot !== undefined
+      ? slotRejection(document, target, firstSlot, primitive)
       : childRejection(document, { nodeId: targetId }, primitive);
   throw new SenifyError(
     "validation",

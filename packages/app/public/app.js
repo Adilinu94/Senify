@@ -4878,6 +4878,29 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
         },
       },
       {
+        id: "components",
+        label: "Komponenten",
+        empty: "Noch keine Komponenten - Rechtsklick auf eine Ebene, dann ,Als Komponente anlegen'.",
+        items: () =>
+          editor.buildComponentList(session.store.document).map((entry) => ({
+            id: entry.id,
+            label: entry.name,
+            hint: `v${entry.version} · ${
+              entry.instances === 1 ? "1 Instanz" : `${entry.instances} Instanzen`
+            }${entry.drift > 0 ? ` · ${entry.drift} alt` : ""}`,
+          })),
+        onActivate: (id) => {
+          const target = session.store.selection.focus ?? null;
+          const instanceId = editor.instantiateComponent(session.store, id, target);
+          if (instanceId === null) {
+            statusEl.textContent = "Die Instanz ließ sich nicht einfügen.";
+            return;
+          }
+          session.select(instanceId);
+          statusEl.textContent = "Instanz eingefügt";
+        },
+      },
+      {
         id: "media",
         label: "Medien",
         empty: "Keine Dateien in der Mediathek.",

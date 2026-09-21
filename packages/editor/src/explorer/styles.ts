@@ -127,6 +127,10 @@ export const EXPLORER_STYLES = `
   font-size: var(--ed-text-10);
   color: var(--ed-ink-muted);
 }
+.senify-explorer__badge--drift {
+  background: var(--ed-signal-warning);
+  color: var(--ed-ink-on-lime);
+}
 .senify-explorer__rename { flex: 1; min-width: 0; }
 .senify-explorer__rename-input {
   width: 100%;

@@ -42,6 +42,7 @@ import {
 } from "@senify/widget-engine";
 import {
   collectSubtree,
+  editorSlotSpecs,
   locateParent,
   nodeExists,
   styleRuleById,
@@ -110,6 +111,10 @@ function assertKnownProp(
 ): void {
   const base = baseKeyOf(key);
   if (knownProps(definition).has(base)) return;
+  // The structural props of the component model (ids, versions, the override
+  // bag, the slot rules) are JSON, not CSS - they never run through the style
+  // grammar, neither as a control nor as an open property.
+  if (isComponentPrimitive(definition.type) && STRUCTURAL_PROPS.has(base)) return;
   const property = camelToKebab(base);
   if (!isSafeCssProperty(property)) {
     throw new SenifyError(
@@ -131,7 +136,15 @@ function assertKnownProp(
 //
 // The structural props of the component model (ticket 04) are exempt: they
 // carry JSON, not style values.
-const STRUCTURAL_PROPS = new Set(["overrides", "componentId", "name"]);
+const STRUCTURAL_PROPS = new Set([
+  "overrides",
+  "componentId",
+  "componentVersion",
+  "name",
+  "version",
+  "allowedTypes",
+  "max",
+]);
 
 function assertSafeValue(value: PropValue, field: string): void {
   if (value === null) return;
@@ -303,9 +316,12 @@ function targetList(
 ): NodeId[] {
   const definition = requirePrimitive(parent.primitive, field);
   if (ref.slot !== undefined) {
-    const slotSpec = definition.slots[ref.slot];
+    // A component instance carries the slots of its definition, not of the
+    // structural catalog type - `editorSlotSpecs` resolves both.
+    const specs = editorSlotSpecs(document, parent);
+    const slotSpec = specs[ref.slot];
     if (slotSpec === undefined) {
-      const available = Object.keys(definition.slots);
+      const available = Object.keys(specs);
       throw new SenifyError(
         "validation",
         `Primitive "${definition.type}" has no slot "${ref.slot}"`,
@@ -319,7 +335,6 @@ function targetList(
       );
     }
     if (
-      slotSpec.allowedTypes !== undefined &&
       slotSpec.allowedTypes.length > 0 &&
       !slotSpec.allowedTypes.includes(childPrimitive)
     ) {
@@ -330,7 +345,7 @@ function targetList(
       );
     }
     const list = parent.slots?.[ref.slot] ?? [];
-    if (slotSpec.max !== undefined && list.length >= slotSpec.max) {
+    if (slotSpec.max !== null && list.length >= slotSpec.max) {
       throw new SenifyError(
         "validation",
         `Slot "${ref.slot}" of primitive "${definition.type}" is full (max ${slotSpec.max})`,
@@ -1036,9 +1051,10 @@ function applySetSlotContent(
 ): OperationResult {
   const parent = requireNode(document, mutation.id, "id");
   const definition = requirePrimitive(parent.primitive, "id");
-  const slotSpec = definition.slots[mutation.slot];
+  const specs = editorSlotSpecs(document, parent);
+  const slotSpec = specs[mutation.slot];
   if (slotSpec === undefined) {
-    const available = Object.keys(definition.slots);
+    const available = Object.keys(specs);
     throw new SenifyError(
       "validation",
       `Primitive "${definition.type}" has no slot "${mutation.slot}"`,
@@ -1053,7 +1069,6 @@ function applySetSlotContent(
   );
   for (const node of newNodes) {
     if (
-      slotSpec.allowedTypes !== undefined &&
       slotSpec.allowedTypes.length > 0 &&
       !slotSpec.allowedTypes.includes(node.primitive)
     ) {
@@ -1064,7 +1079,7 @@ function applySetSlotContent(
       );
     }
   }
-  if (slotSpec.max !== undefined && newNodes.length > slotSpec.max) {
+  if (slotSpec.max !== null && newNodes.length > slotSpec.max) {
     throw new SenifyError(
       "validation",
       `Slot "${mutation.slot}" of primitive "${definition.type}" holds at most ${slotSpec.max} nodes`,

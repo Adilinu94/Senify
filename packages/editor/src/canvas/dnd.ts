@@ -12,9 +12,10 @@
 //   node itself or inside its own subtree (the visible cycle guard).
 
 import { SenifyError } from "@senify/core";
-import { getPrimitive } from "@senify/widget-engine";
+import { getPrimitive, isComponentPrimitive } from "@senify/widget-engine";
 import {
   descendantIds,
+  editorSlotSpecs,
   locateParent,
   type EditorDocument,
   type NodeId,
@@ -52,7 +53,14 @@ function takesChildren(document: EditorDocument, id: NodeId): boolean {
   if (node === undefined) return false;
   const definition = getPrimitive(node.primitive);
   if (definition === undefined) return false;
-  return definition.allowedChildren !== "none" || Object.keys(definition.slots).length > 0;
+  // A component instance takes content through its definition's slots only.
+  if (isComponentPrimitive(node.primitive)) {
+    return Object.keys(editorSlotSpecs(document, node)).length > 0;
+  }
+  return (
+    definition.allowedChildren !== "none" ||
+    Object.keys(editorSlotSpecs(document, node)).length > 0
+  );
 }
 
 export function isContainer(document: EditorDocument, id: NodeId): boolean {

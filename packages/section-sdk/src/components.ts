@@ -51,14 +51,46 @@ export type ComponentProblem = {
   message: string;
 };
 
+export type ComponentSlotSpec = {
+  name: string;
+  nodeId: NodeId;
+  /** Section types the slot accepts; empty means "anything". */
+  allowedTypes: string[];
+  /** Upper bound for filled nodes; null means unlimited. */
+  max: number | null;
+};
+
+// The slot rules a placeholder declares: `allowedTypes` (a list of section
+// types, empty = any) and `max` (a positive number, absent = unlimited). A
+// malformed value is ignored - the writer (editor/MCP) validates before it
+// stores, the model stays readable.
+export function readSlotSpec(node: {
+  id: string;
+  props: Record<string, PropValue>;
+}): ComponentSlotSpec {
+  const rawTypes = node.props["allowedTypes"];
+  const allowedTypes = Array.isArray(rawTypes)
+    ? rawTypes.filter((entry): entry is string => typeof entry === "string" && entry !== "")
+    : [];
+  const rawMax = node.props["max"];
+  const max =
+    typeof rawMax === "number" && Number.isFinite(rawMax) && rawMax >= 0
+      ? Math.floor(rawMax)
+      : null;
+  const name = nameOfProps(node.props);
+  return { name: name === "" ? node.id : name, nodeId: node.id, allowedTypes, max };
+}
+
 export type ComponentDefinition = {
   id: NodeId;
   name: string;
+  /** The version of the definition (props.version, default 1). */
+  version: number;
   rootNodeId: NodeId;
   /** The one root child of the definition (its reusable subtree). */
   rootChildId: NodeId | null;
-  /** The slot names the definition declares, in tree order. */
-  slots: string[];
+  /** The slots the definition declares, in tree order. */
+  slots: ComponentSlotSpec[];
 };
 
 export type InlineResult = {
@@ -97,14 +129,64 @@ function hashString(input: string): number {
   return hash;
 }
 
-function nameOf(node: Node): string {
-  const value: PropValue | undefined = node.props["name"];
+function nameOfProps(props: Record<string, PropValue>): string {
+  const value: PropValue | undefined = props["name"];
   return typeof value === "string" ? value : "";
+}
+
+function nameOf(node: Node): string {
+  return nameOfProps(node.props);
 }
 
 function componentIdOf(node: Node): string {
   const value: PropValue | undefined = node.props["componentId"];
   return typeof value === "string" ? value : "";
+}
+
+function positiveVersion(value: PropValue | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 1
+    ? Math.floor(value)
+    : 1;
+}
+
+// The version a definition carries (`props.version`, default 1).
+function versionOf(node: Node): number {
+  return positiveVersion(node.props["version"]);
+}
+
+// The version an instance pins (`props.componentVersion`, default 1). The
+// draft renders the definition as it is; the pin is the drift signal, not a
+// lookup key (old versions are not stored - the release snapshot freezes the
+// whole page instead).
+export function instanceVersion(instance: Node): number {
+  return positiveVersion(instance.props["componentVersion"]);
+}
+
+export type ComponentDrift = {
+  instanceId: NodeId;
+  componentId: NodeId;
+  pinned: number;
+  current: number;
+};
+
+// Instances whose pin differs from their definition's version: the editor and
+// the MCP surface them so a human or agent can update the instances in one
+// step. An instance without a definition is not drift - it is a problem the
+// inliner reports.
+export function componentDrift(tree: NodeTree): ComponentDrift[] {
+  const definitions = new Map(componentDefinitions(tree).map((entry) => [entry.id, entry]));
+  const drift: ComponentDrift[] = [];
+  for (const node of Object.values(tree.nodes)) {
+    if (node.type !== COMPONENT_INSTANCE_TYPE) continue;
+    const componentId = componentIdOf(node);
+    const definition = definitions.get(componentId);
+    if (definition === undefined) continue;
+    const pinned = instanceVersion(node);
+    if (pinned !== definition.version) {
+      drift.push({ instanceId: node.id, componentId, pinned, current: definition.version });
+    }
+  }
+  return drift;
 }
 
 // The override bag of an instance: part id -> the props this instance changes.
@@ -181,6 +263,7 @@ export function componentDefinitions(tree: NodeTree): ComponentDefinition[] {
       definitions.push({
         id: node.id,
         name: nameOf(node) === "" ? node.id : nameOf(node),
+        version: versionOf(node),
         rootNodeId: node.id,
         rootChildId: node.children?.[0] ?? null,
         slots: collectSlots(tree, node.id),
@@ -196,16 +279,16 @@ export function componentDefinitions(tree: NodeTree): ComponentDefinition[] {
   return definitions;
 }
 
-function collectSlots(tree: NodeTree, definitionId: NodeId): string[] {
-  const names: string[] = [];
+function collectSlots(tree: NodeTree, definitionId: NodeId): ComponentSlotSpec[] {
+  const specs: ComponentSlotSpec[] = [];
   const seen = new Set<NodeId>();
   const visit = (id: NodeId): void => {
     const node = tree.nodes[id];
     if (node === undefined || seen.has(id)) return;
     seen.add(id);
     if (node.type === COMPONENT_SLOT_TYPE) {
-      const name = nameOf(node);
-      if (name !== "" && !names.includes(name)) names.push(name);
+      const spec = readSlotSpec({ id: node.id, props: node.props });
+      if (!specs.some((entry) => entry.name === spec.name)) specs.push(spec);
       return;
     }
     for (const child of node.children ?? []) visit(child);
@@ -214,7 +297,7 @@ function collectSlots(tree: NodeTree, definitionId: NodeId): string[] {
     }
   };
   for (const child of tree.nodes[definitionId]?.children ?? []) visit(child);
-  return names;
+  return specs;
 }
 
 export function componentDefinition(
@@ -490,5 +573,7 @@ export function unfilledSlots(
   definition: ComponentDefinition,
   instance: Node,
 ): string[] {
-  return definition.slots.filter((name) => (instance.slots?.[name] ?? []).length === 0);
+  return definition.slots
+    .filter((slot) => (instance.slots?.[slot.name] ?? []).length === 0)
+    .map((slot) => slot.name);
 }
