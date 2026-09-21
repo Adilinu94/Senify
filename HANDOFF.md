@@ -498,6 +498,43 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
   Varianten, Styles je Instanz, Geräteebenen für Overrides und Publish-Versionen site-weit
   bleiben offen.
 
+### 2.13 Ticket 05 Scheibe 1 (21.09., uncommittet): SSE-Kanal, Live-Mitverfolgung, Bau-Protokoll
+
+- **Engine (`engine/src/events.ts`, neu):** `EngineEvents` als Prozess-Bus (`publish`/`subscribe`),
+  `openStream(res, siteId)` schreibt einen SSE-Strom (Filter je Site, `retry: 3000`, Heartbeat
+  alle 15 s, Cleanup bei `res`-`close`). Neue Route `GET /api/events?site=…` (Scope read; ein
+  unbekannter Site-Wert ist 404 statt leerer Strom). `RouteResult` kennt jetzt `stream`
+  (Content-Type + Opener); der Dispatcher hält die Verbindung offen.
+- **Publish-Punkte:** `applyMutationsToPage` (nach erfolgreichem Persist: `draft.changed` mit
+  Seite, berührten Knoten-Ids, erster Op als Aktion, Akteur aus dem Token), `POST …/pages`
+  (`page.created`), Asset-Upload (`asset.uploaded`), `POST …/releases` (`release.published`).
+  `Engine.events` liegt am Engine-Objekt (Tests/Doubles können direkt subscriben).
+- **Programm (`app/public/app.js`):** die Canvas-Ansicht abonniert `EventSource('/api/events')`.
+  Fremde `draft.changed` laden die offene Seite per Store-Patch nach
+  (`session.replaceDocument`, Auswahl wird beschnitten — Ticket-05-Punkt 6), heben die
+  geänderten Knoten mit einem Lime-Ring hervor (1200 ms) und schreiben ins **Bau-Protokoll**
+  (Akteur, Aktion, Uhrzeit, unten rechts über der Bühne). Eigene Schreibvorgänge (Programm-Token)
+  werden ignoriert; offene lokale Änderungen blockieren das Nachladen mit Hinweis statt
+  Datenverlust. `pagehide` schließt den Kanal.
+- **Editor (`editor/src/canvas/overlay.ts`, `canvas.ts`):** `markers.flash(ids)` zeichnet
+  Ringe mit derselben Geometrie wie die Auswahl (Pool je Blatt, späte Nachzeichnung nach dem
+  React-Commit); `canvas.flashNodes(ids)` löst Dokument-Ids über die Copy-Map des letzten
+  Renders auf — eine Instanz und ein Definitions-Part blitzen damit in **allen** sichtbaren
+  Kopien auf. Styling in `canvas/styles.ts` (`senify-flash`, 1200 ms).
+- **Proxy (`app/src/server.ts`):** der Engine-Proxy beendet den Upstream-Request, wenn der
+  Client geht (`res`-`close`) — ohne das hielten SSE-Verbindung und Shutdown ewig.
+- **Tests:** `engine/test/events.test.ts` +3 (Stream-Header/Filter/Akteur, `page.created` mit
+  Fremd-Site-Ausschluss, 401/404); `canvas-browser.test.ts` prüft den Blitz direkt (Ring
+  sichtbar → nach dem Fenster weg); `canvas-view-browser.test.ts` fährt den Rundlauf mit einem
+  eigenen Agenten-Token (Protokoll nennt `browser-agent`, Ringe erscheinen und verschwinden;
+  Screenshot `11-live-follow.png`).
+- **Zahlen:** `pnpm test` **1362 grün / 2 übersprungen / 151 Dateien** (Log
+  `.scratch/testlauf-21-09-t05s1.log`; ein Lauf zuvor hatte 4 bekannte Parallel-Flakes —
+  `backup-restore`, `settings-browser`, `startup`, `submissions-browser` —, alle in Isolation
+  grün), typecheck 0, lint (eigene Bereiche) 0.
+- **Grenzen (Ticket 05 Rest):** Punkt 4 (Vorschau folgt) und Punkt 5 (Agent-Preview-Modus im
+  Live-Modus) sind noch nicht verdrahtet; Punkt 7 (Performance-Budget/Messskript) steht aus.
+
 ---
 
 ## 3. Phasenstand
@@ -563,7 +600,7 @@ Alle unter `.scratch/editor-v2-rebuild/issues/`. Stand:
 | 02-style-engine-inspector | Inspektor, volle CSS-Fähigkeiten, MCP-Style-Tools | **erledigt (20.09.)** — Punkte 3–7: Override-UX, Forced States (scoped Rule + Transport), Token-Picker, offene Property-Zeile, MCP-Tools |
 | 03-editor-chrome | Phase 3: Explorer, Kontextmenü, Spotlight, Inline-Edit, Tastatur | **erledigt (20.09.)** — inkl. Inline-Edit, Verlauf, Keyboard, Explorer-Drag, Site-/Media-Tabs, Copy/Paste/Wrap |
 | 04-visual-components | Phase 4: VCs, Sections als VCs, Cutover | **Scheibe 1 + Scheibe 2 Teil 1/2/3 + MCP-Fassade erledigt (20./21.09.)** — Kern, Engine-Aufnahme, Bake-Rekey/Multi-Instanz-Remap, Overrides (Modell/Editor/Inspektor/Canvas), Komponenten-Tab + Kontextmenü, Versionen mit Drift, Slot-Regeln (`allowedTypes`/`max`), MCP `list_components`/`get_component`/`set_component_override`/`bump_component_version`/`update_component_instances`; offen: Publish-Versionen site-weit, Varianten, Sections-Migration |
-| 05-live-build-follow-polish | Phase 5: SSE, Live-Mitverfolgung | offen |
+| 05-live-build-follow-polish | Phase 5: SSE, Live-Mitverfolgung | **Scheibe 1 erledigt (21.09., uncommittet)** — SSE-Kanal, Live-Follow mit Store-Patch + Blitz, Bau-Protokoll, Auswahl-Pruning; offen: Vorschau-Follow, Agent-Preview-Modus, Performance-Budget |
 | 06-adr-puck-abschied | ADR-07 (Puck-Abschied) | **erledigt (20.09.)** — ADR-0007, Puck-Code + Peer-Dependency entfernt |
 | 07-style-rule-modell | Kanonisches Modell im Editor-Dokument + Wert-Grammatik + `states`/`authoredBy` | **erledigt (Stufen 0–6)** |
 | 08-geraetestationen | Drei Stationen | **erledigt** (O10; ui-plan/aufgaben korrigiert) |
@@ -608,15 +645,18 @@ committet `55593f1`). Der Testlauf ist grün (**1270/2/141**, Log
    (Komponenten-Tab, Kontextmenü, Namen im Baum) - siehe §2.10. **MCP-Fassade (21.09.):
    erledigt, uncommittet** (`list_components`, `get_component`, `set_component_override`) -
    siehe §2.11. **Teil 3 (21.09.): erledigt, uncommittet** (Versionen mit Drift, Slot-Regeln,
-   `bump_component_version`/`update_component_instances`) - siehe §2.12. Damit sind die Phasen 2
-   und 3 fachlich abgeschlossen; offen sind **Ticket 04 Scheibe 2 Rest** (Publish-Versionen
-   site-weit, Varianten, Sections-Migration), **Ticket 05 (Phase 5: SSE-Kanal, Live-Mitverfolgung,
-   Leistungsbudget)** und **Ticket 19 M6** (optionale Scrub-Stufe).
+   `bump_component_version`/`update_component_instances`) - siehe §2.12. **Ticket 05 Scheibe 1
+   (21.09.): erledigt, uncommittet** (SSE-Kanal, Live-Follow, Bau-Protokoll) - siehe §2.13.
+   Damit sind die Phasen 2 und 3 fachlich abgeschlossen; offen sind **Ticket 04 Scheibe 2 Rest**
+   (Publish-Versionen site-weit, Varianten, Sections-Migration), **Ticket 05 Rest**
+   (Vorschau-Follow, Agent-Preview-Modus, Performance-Budget) und **Ticket 19 M6** (optionale
+   Scrub-Stufe).
 2. **Vor dem E2-Cutover (Ticket 04):** Katalog-Namen in der Engine registrieren (Strangler) —
    **die strukturellen Typen sind jetzt registriert** (§2.9); noch offen: Dublette
    `divider`/`embed` auflösen, Paritäts-Tor als CI-Blocker scharf schalten.
    Ticket 11 ist erledigt (19.09., `hiddenDevices`).
-3. **Danach:** Ticket 05 (SSE) und die offenen E-Pakete aus `docs/verbesserungsplan.md`.
+3. **Danach:** Ticket 05 Rest (Vorschau-Follow, Performance-Budget) und die offenen E-Pakete aus
+   `docs/verbesserungsplan.md`.
 
 **Strategischer Rahmen (19.09.):** `docs/verbesserungsplan.md` — Zielbild Framer/Webflow-Niveau,
 Lücken L1–L33 (P0–P3), 16 Epics (E1–E16) mit Akzeptanzkriterien, Roadmap Phase A–D, Gates und die

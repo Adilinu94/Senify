@@ -394,6 +394,12 @@ Sections-Migration.
 
 ### E12 · Build-System: Re-Bake, Jobs, SSE — **P1, L**
 
+**Stand (21.09., Ticket 05 Scheibe 1):** Der SSE-Kanal steht — `GET /api/events?site=…` mit
+Prozess-Bus (`EngineEvents`), Publish bei Draft-, Seiten-, Asset- und Release-Änderungen; der
+Editor folgt live (Store-Patch, Blitz-Highlight, Bau-Protokoll), der Proxy reicht den Strom
+durch und räumt beim Client-Abbruch auf. Offen: Job-API mit Claim/Lease (S1 ist nur der
+Status-Lesepfad), inkrementelle Routen-Bakes, `senify doctor`, Fallback-Ketten.
+
 **Ziel:** Content-Änderungen landen zuverlässig und schnell auf der Seite.
 **Umfang:** Durable Outbox + Dependency-Index; Job-API (Status, Retry, Dedup, Priorität); inkrementelle Routen-Bakes; Build-Status in UI/MCP/Audit; SSE-Kanal für Live-Mitverfolgung (Ticket 05); CMS-Grenze 500 auflösen (Pagination); **`senify doctor`** (Status je Fähigkeit — Engine, PG, Token, MCP, Assets, Bake, Ports — mit konkretem Fix-Befehl und ehrlicher „nicht verifiziert"-Markierung, Muster Agent-Reach); **Fallback-Ketten mit Health-Checks** für Fetch (Playwright → Firecrawl → Snapshot) und Deploy (Adapter-Primary → Fallback).
 **Akzeptanz:** Entry-Publish backt nur betroffene Routen; ein fehlgeschlagener Job ist sichtbar und wiederholbar; der Editor folgt Agenten-Änderungen < 1 s; kein Full-Bake bei Einzeländerung.

@@ -114,6 +114,31 @@ gehoeren bewusst **nicht** in die Undo-History (Webstudio-Muster). Hinweis: `doc
 wurde parallel um „Teil II" (§10–§16: Referenz-Transfer, Anti-Slop, Editor-Tiefe) erweitert —
 beide Teile koexistieren; nichts ueberschrieben. Kein Produktcode geaendert.
 
+**Ticket 05 Scheibe 1 (21.09., umgesetzt): SSE-Kanal, Live-Mitverfolgung, Bau-Protokoll.**
+
+- **Engine (`engine/src/events.ts`):** Prozess-Bus `EngineEvents` (`publish`/`subscribe`),
+  `openStream(res, siteId)` (Site-Filter, `retry: 3000`, 15-s-Heartbeat, Cleanup bei
+  `res`-`close`); `RouteResult.stream` + Dispatcher hält die Verbindung offen; Route
+  `GET /api/events?site=…` (read; unbekannte Site = 404). Publish-Punkte: `draft.changed`
+  (nach erfolgreichem Persist, mit Knoten-Ids/Aktion/Akteur), `page.created`, `asset.uploaded`,
+  `release.published`; `Engine.events` liegt am Engine-Objekt.
+- **Programm (`app/public/app.js`):** EventSource in der Canvas-Ansicht; fremde Änderungen laden
+  die Seite per Store-Patch nach (`session.replaceDocument`), blitzen die Knoten auf und
+  schreiben ins Bau-Protokoll (Akteur, Aktion, Uhrzeit); eigene Schreibvorgänge (Programm-Token)
+  werden ignoriert, offene lokale Änderungen blockieren mit Hinweis; `pagehide` schließt.
+- **Editor:** `markers.flash` (Ringe wie die Auswahl, Pool je Blatt, späte Nachzeichnung nach dem
+  React-Commit), `canvas.flashNodes` löst Instanz-/Part-Ids über die Copy-Map in alle sichtbaren
+  Kopien auf; Styles `senify-flash` (1200 ms).
+- **Proxy (`app/src/server.ts`):** Upstream wird beendet, wenn der Client geht (sonst halten
+  SSE-Verbindung und Shutdown ewig).
+- **Tests:** `engine/test/events.test.ts` +3; `canvas-browser.test.ts` (Blitz direkt),
+  `canvas-view-browser.test.ts` (Rundlauf mit Agenten-Token, Protokoll, Ringe; Screenshot
+  `11-live-follow.png`).
+- **Zahlen:** `pnpm test` **1362 grün / 2 übersprungen / 151 Dateien** (Log
+  `.scratch/testlauf-21-09-t05s1.log`; ein Lauf zuvor hatte 4 Parallel-Flakes, in Isolation grün),
+  typecheck 0, lint in den eigenen Bereichen 0.
+- **Offen (Ticket 05 Rest):** Vorschau-Follow, Agent-Preview-Modus, Performance-Budget.
+
 **Ticket 04 Scheibe 2 Teil 3 (21.09., umgesetzt): Versionen und Slot-Regeln -
 Definition/Instanz-Drift, Regeln aus dem Baum, Editor-/MCP-Oberfläche.**
 
