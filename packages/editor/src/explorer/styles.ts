@@ -173,6 +173,78 @@ export const EXPLORER_STYLES = `
   font-size: var(--ed-text-10);
   color: var(--ed-ink-faint);
 }
+/* Site-Tabs (Ticket 03 Punkt 1): Ebenen, Seiten, Medien — die Daten liefert
+   die Shell. */
+.senify-explorer__tabs {
+  display: flex;
+  gap: 2px;
+  padding: 4px 6px 0;
+  border-bottom: 1px solid var(--ed-line-hairline);
+}
+.senify-explorer__tab {
+  min-height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--ed-radius-sm) var(--ed-radius-sm) 0 0;
+  background: transparent;
+  color: var(--ed-ink-muted);
+  font: inherit;
+  font-size: var(--ed-text-11);
+  cursor: pointer;
+}
+.senify-explorer__tab:hover { background: var(--ed-fill-hover); color: var(--ed-ink-strong); }
+.senify-explorer__tab[data-active="true"] {
+  background: var(--ed-surface-inset);
+  color: var(--ed-ink-strong);
+  box-shadow: inset 0 -2px 0 var(--ed-signal-select);
+}
+.senify-explorer__tab:focus-visible { outline: 2px solid var(--ed-focus); outline-offset: -2px; }
+.senify-explorer__tablist {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+}
+.senify-explorer__tabitem {
+  display: flex;
+  align-items: center;
+  gap: var(--ed-space-2);
+  min-height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--ed-radius-sm);
+  background: transparent;
+  color: var(--ed-ink-base);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.senify-explorer__tabitem:hover { background: var(--ed-fill-hover); color: var(--ed-ink-strong); }
+.senify-explorer__tabitem[data-active="true"] {
+  background: var(--ed-fill-select);
+  color: var(--ed-ink-strong);
+  box-shadow: inset 0 0 0 1px var(--ed-signal-select);
+}
+.senify-explorer__tabitem:focus-visible { outline: 2px solid var(--ed-focus); outline-offset: -2px; }
+.senify-explorer__tabhint {
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--ed-font-mono);
+  font-size: var(--ed-text-10);
+  color: var(--ed-ink-faint);
+}
+.senify-explorer__tabempty {
+  padding: 12px 8px;
+  color: var(--ed-ink-muted);
+  font-size: var(--ed-text-12);
+}
+/* Ziehen (Ticket 03 Punkt 1): die Einfuegemarke zeigt vor/nach/hinein, rot
+   bleibt der abgelehnte Zyklus-Fall. */
+.senify-explorer__item[data-drop="before"] { box-shadow: inset 0 2px 0 var(--ed-signal-select); }
+.senify-explorer__item[data-drop="after"] { box-shadow: inset 0 -2px 0 var(--ed-signal-select); }
+.senify-explorer__item[data-drop="into"] { box-shadow: inset 0 0 0 1px var(--ed-signal-select); }
+.senify-explorer__item[data-drop="rejected"] { box-shadow: inset 0 0 0 1px var(--ed-signal-danger); }
 `.trim();
 
 export function ensureExplorerStyles(doc: DomDocument): void {

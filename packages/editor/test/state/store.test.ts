@@ -54,6 +54,28 @@ describe("store write gate", () => {
       store.apply({ op: "setNodeProp", id: "root", key: "background", value: "#ffffff" }),
     ).toThrow(/Refusing an inconsistent change/);
   });
+
+  it("jumps to a history entry through the ordinary undo/redo gate", () => {
+    const store = baseStore();
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "A" });
+    const first = store.history.top();
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "B" });
+    const second = store.history.top();
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "C" });
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+    if (first === null || second === null) return;
+    // Back to the state right after the first entry (A) …
+    expect(store.restoreTo(first.id)).toBe(true);
+    expect(store.document.nodes["head000001"]?.props["text"]).toBe("A");
+    expect(store.canRedo).toBe(true);
+    // … and forward again to the second (B).
+    expect(store.restoreTo(second.id)).toBe(true);
+    expect(store.document.nodes["head000001"]?.props["text"]).toBe("B");
+    // An unknown entry is refused without touching the document.
+    expect(store.restoreTo("missing")).toBe(false);
+    expect(store.document.nodes["head000001"]?.props["text"]).toBe("B");
+  });
 });
 
 describe("coalescing", () => {

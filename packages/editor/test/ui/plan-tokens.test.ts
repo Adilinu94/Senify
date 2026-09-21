@@ -110,6 +110,7 @@ const EXPECTED_TOKENS: Record<string, string> = {
   "--ed-grid-help": "rgb(154 201 226 / 0.35)",
   "--ed-snap-line": "#cbff97",
   "--ed-marquee": "rgb(154 201 226 / 0.16)",
+  "--ed-selection-edge": "rgb(1 40 60 / 0.55)",
   "--ed-band-margin": "rgb(248 113 113 / 0.12)",
   "--ed-band-padding": "rgb(74 222 128 / 0.12)",
   "--ed-font-display": '"Inter Display", "Inter", system-ui, sans-serif',
@@ -185,6 +186,7 @@ describe("editor tokens against the plan", () => {
       gridHelp: "rgb(154 201 226 / 0.35)",
       snapLine: "#cbff97",
       marquee: "rgb(154 201 226 / 0.16)",
+      selectionEdge: "rgb(1 40 60 / 0.55)",
       bandMargin: "rgb(248 113 113 / 0.12)",
       bandPadding: "rgb(74 222 128 / 0.12)",
     });

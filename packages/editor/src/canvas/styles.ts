@@ -203,6 +203,55 @@ export const CANVAS_STYLES = `
 }
 .senify-canvas__plus[data-state="hidden"] { display: none; }
 .senify-canvas__plus:hover { background: var(--ed-fill-accent-hover); }
+/* Das Marker-Portal (Ticket 16): Auswahl und Hover liegen als eigene Schicht
+   ueber der Buehne, nie im Inhaltsrahmen — der Inhalt bleibt token-frei. Je
+   Blatt eine Schicht, damit der Ring an der Blattkante abschneidet; die
+   Doppelkante und das Plaetzchen faerbt die Haut (ui/skin.ts). */
+.senify-canvas__marker-layer {
+  position: absolute;
+  overflow: hidden;
+  pointer-events: none;
+}
+.senify-canvas__hover-ring,
+.senify-canvas__select-ring {
+  position: absolute;
+  display: none;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.senify-canvas__select-label,
+.senify-canvas__select-size {
+  position: absolute;
+  display: none;
+  height: 18px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.senify-canvas__select-size {
+  font-family: var(--ed-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+/* Vier Eckgriffe: 8px sichtbar, 24x24px Trefferflaeche (WCAG 2.5.8,
+   ui-plan.md Abschnitt 8). Das Ziehen kommt mit B7; hier stehen die Ziele. */
+.senify-canvas__handle {
+  position: absolute;
+  display: none;
+  width: 24px;
+  height: 24px;
+  pointer-events: none;
+}
+.senify-canvas__handle-dot {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  width: 8px;
+  height: 8px;
+  box-sizing: border-box;
+}
 `.trim();
 
 export function ensureCanvasStyles(doc: DomDocument): void {

@@ -8,15 +8,28 @@
 // markup is device-independent; the device levels live in the stylesheet), and
 // children and slots are copied.
 //
-// In Phase 1 the primitives get their own components; until then SectionTree
-// renders the documented unknown-node placeholder keyed by `data-node-id`, so
-// the structure, the selection and the generated rules are already visible.
+// Components (ticket 04): the tree leaves the adapter **inlined** — the same
+// `inlineComponents` derivation the bake runs, so an instance renders the
+// definition's subtree on both sides. Problems (unknown component, cycle) end
+// in a stub node, never in a crash; the canvas shows the stub, the bake
+// refuses to publish (see `bake.ts`).
 
-import type { Node, NodeTree } from "@senify/section-sdk";
+import { inlineComponents, type Node, type NodeTree } from "@senify/section-sdk";
 import { resolveAllForDevice } from "@senify/widget-engine";
 import type { EditorDocument } from "../state/document.ts";
 
 export function canvasNodeTree(document: EditorDocument): NodeTree {
+  return canvasNodeTreeWithCopies(document).tree;
+}
+
+// The inliner run for the canvas: the render tree plus the copy map. The frame
+// rules use the map to emit the definition's own node rules for every copy
+// (an instance must look styled exactly like the definition), so canvas and
+// bake derive from the same expansion.
+export function canvasNodeTreeWithCopies(document: EditorDocument): {
+  tree: NodeTree;
+  copies: Map<string, string[]>;
+} {
   const nodes: Record<string, Node> = {};
   for (const [id, node] of Object.entries(document.nodes)) {
     const sectionNode: Node = {
@@ -45,5 +58,7 @@ export function canvasNodeTree(document: EditorDocument): NodeTree {
     if (node.motion !== undefined) sectionNode.motion = structuredClone(node.motion);
     nodes[id] = sectionNode;
   }
-  return { rootNodeId: document.rootNodeId, nodes };
+  const tree: NodeTree = { rootNodeId: document.rootNodeId, nodes };
+  const result = inlineComponents(tree);
+  return { tree: result.tree, copies: result.copies };
 }

@@ -1,5 +1,6 @@
 import { SenifyError } from "@senify/core";
 import {
+  inlineComponents,
   PAGE_ROOT_TYPE,
   type Node,
   type NodeId,
@@ -241,6 +242,12 @@ export type ComposeInput = {
 
 // Resolve-Reihenfolge Layout → Entry-Template → Inhalt (artifacts/23 §1): a
 // template without outlet counts as unfinished and is ignored (no error).
+//
+// Components (ticket 04) are inlined as the last step: the page, the template
+// and the layout may define them, instances may sit anywhere, and only after
+// the composition is the tree complete. A tree that cannot be resolved (unknown
+// component, cycle) is a publish error, never a silent fallback — the same
+// derivation the canvas runs (`inlineComponents`), so both sides agree.
 export function composePageTree(input: ComposeInput): NodeTree {
   const createId = input.createId ?? newNodeId;
   const idMap = input.idMap;
@@ -262,19 +269,42 @@ export function composePageTree(input: ComposeInput): NodeTree {
   } else {
     content = emptyTree(createId);
   }
+  let composed: NodeTree;
   if (input.layout !== null) {
     const outlet = findFirstOutlet(input.layout);
-    if (outlet !== undefined) {
-      return spliceOutlet({
-        container: input.layout,
-        outletId: outlet,
-        inserted: content,
-        createId,
-        ...(idMap === undefined ? {} : { idMap }),
-      });
+    composed =
+      outlet === undefined
+        ? content
+        : spliceOutlet({
+            container: input.layout,
+            outletId: outlet,
+            inserted: content,
+            createId,
+            ...(idMap === undefined ? {} : { idMap }),
+          });
+  } else {
+    composed = content;
+  }
+  const inlined = inlineComponents(composed);
+  if (inlined.problems.length > 0) {
+    const first = inlined.problems[0]!;
+    throw new SenifyError("validation", first.message, {
+      field: "tree",
+      suggestion:
+        "Fix the component definition or the instance before publishing (the canvas shows a stub for it).",
+    });
+  }
+  // Scoped style rules of a definition follow its copies: the first copy per
+  // node rides the existing draft->composed map (ticket 22). More than one
+  // instance per definition needs the multi-target remap (ticket 04, slice 2).
+  if (idMap !== undefined) {
+    for (const [original, copies] of inlined.copies) {
+      if (idMap.has(original)) continue;
+      const first = copies[0];
+      if (first !== undefined) idMap.set(original, first);
     }
   }
-  return content;
+  return inlined.tree;
 }
 
 // After a merge every reference points at an existing node and unreachable

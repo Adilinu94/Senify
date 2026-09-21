@@ -7,6 +7,7 @@ import {
   type SaveState,
 } from "@senify/editor/state";
 import type { Author } from "@senify/section-sdk";
+import { createScopedRule } from "@senify/widget-engine";
 import { baseStore } from "./fixtures.ts";
 
 const AUTHOR: Author = { kind: "human", id: "tester", label: "Tester" };
@@ -97,6 +98,55 @@ describe("save pipeline", () => {
     expect(createBody["id"]).toBe("r-cta");
     expect(createBody["order"]).toBeUndefined();
     expect(createBody["styles"]).toEqual({ color: "#fff" });
+  });
+
+  it("creates a scoped rule with its node and patches it without a scope (ticket 02 point 5)", async () => {
+    const { store, pipeline, requests } = harness();
+    store.apply({
+      op: "upsertStyleRule",
+      rule: {
+        ...createScopedRule({ id: "scope00001", nodeId: "head000001" }),
+        states: { hover: { color: "#00ff00" } },
+      },
+    });
+    await pipeline.flush();
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.method).toBe("POST");
+    const createBody = requests[0]?.body as Record<string, unknown>;
+    // The create route derives name and selector from `nodeId`; a scope object
+    // would be rejected by the closed body schema.
+    expect(createBody["nodeId"]).toBe("head000001");
+    expect(createBody["scope"]).toBeUndefined();
+    expect(createBody["states"]).toEqual({ hover: { color: "#00ff00" } });
+
+    // The second upsert of the same id is a PATCH and keeps the scope
+    // server-side (the patch schema has no scope field).
+    const knownStore = baseStore();
+    const knownRequests: SaveRequest[] = [];
+    const knownPipeline = createSavePipeline({
+      store: knownStore,
+      pageId: "page1",
+      siteId: "site1",
+      author: AUTHOR,
+      knownRuleIds: ["scope00001"],
+      request: async (request) => {
+        knownRequests.push(request);
+        return { status: 200, body: {} };
+      },
+    });
+    knownStore.apply({
+      op: "upsertStyleRule",
+      rule: {
+        ...createScopedRule({ id: "scope00001", nodeId: "head000001" }),
+        states: { hover: { color: "#ff0000" } },
+      },
+    });
+    await knownPipeline.flush();
+    expect(knownRequests[0]?.method).toBe("PATCH");
+    const patchBody = knownRequests[0]?.body as Record<string, unknown>;
+    expect(patchBody["nodeId"]).toBeUndefined();
+    expect(patchBody["scope"]).toBeUndefined();
+    expect(patchBody["states"]).toEqual({ hover: { color: "#ff0000" } });
   });
 
   it("updates a rule the server already knows instead of creating it twice", async () => {

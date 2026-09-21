@@ -222,6 +222,65 @@ export class EditorStore {
     }
   }
 
+  // Several operations in one atomic step (e.g. wrap: insert a container, then
+  // move the node into it). The patches of every step land in one history
+  // entry — undo restores the state before the whole action, and the save
+  // pipeline forwards the combined patch list like any other change.
+  applyBatch(inputs: readonly unknown[], options: ApplyOptions = {}): ApplyOutcome {
+    const mutations = inputs.map((input) => parseEditorMutation(input));
+    const first = mutations[0];
+    if (first === undefined) return { changed: false, patches: [], warnings: [] };
+    let document = this.#document;
+    const forward: DocumentPatch[] = [];
+    const inverse: DocumentPatch[] = [];
+    const warnings: string[] = [];
+    mutations.forEach((mutation, index) => {
+      let result: OperationResult;
+      try {
+        result = applyEditorMutation(document, mutation, { idFactory: this.#idFactory });
+      } catch (error) {
+        prefixField(error, index);
+      }
+      if (result.forward.length === 0) return;
+      document = applyDocumentPatches(document, result.forward);
+      forward.push(...result.forward);
+      // Undo runs the inverses in reverse order: the last step first, so an
+      // inserted container is emptied before it is removed.
+      inverse.unshift(...result.inverse);
+      warnings.push(...result.warnings);
+    });
+    if (forward.length === 0) return { changed: false, patches: [], warnings };
+    const issue = validateDocument(document)[0];
+    if (issue !== undefined) {
+      throw new SenifyError(
+        "validation",
+        `Refusing an inconsistent change: ${issue.message}`,
+        {
+          field: "document",
+          suggestion: "The mutations would break the document; nothing was written.",
+        },
+      );
+    }
+    const versionBefore = this.version;
+    const entry = this.#history.record({
+      label: options.label ?? first.op,
+      op: first.op as MutationOp,
+      mutations: forward as unknown as Mutation[],
+      undoPatch: inverse as unknown as PatchOp[],
+      batchId: null,
+      versionBefore,
+      versionAfter: versionBefore + 1,
+      ...(options.coalesceKey === undefined
+        ? {}
+        : { coalesceKey: options.coalesceKey }),
+    });
+    this.#document = document;
+    entry.versionAfter = this.version;
+    this.#emit();
+    this.#onAction?.({ type: "apply", mutation: first, entry });
+    return { changed: true, patches: forward, warnings };
+  }
+
   undo(): boolean {
     const entry = this.#history.undo();
     if (entry === null) return false;
@@ -244,6 +303,24 @@ export class EditorStore {
     this.#emit();
     this.#onAction?.({ type: "redo", entry });
     return true;
+  }
+
+  // The history dialog (ticket 03 point 5): jump to the state right after
+  // `entryId`. Runs through the ordinary undo/redo gate, so document, cursor
+  // and save pipeline stay in step — no second restore path.
+  restoreTo(entryId: string): boolean {
+    const index = this.#history.entries().findIndex((entry) => entry.id === entryId);
+    if (index < 0) return false;
+    let changed = false;
+    while (this.#history.applied().length > index + 1) {
+      if (!this.undo()) break;
+      changed = true;
+    }
+    while (this.#history.applied().length < index + 1) {
+      if (!this.redo()) break;
+      changed = true;
+    }
+    return changed;
   }
 
   // Replaces the document (after a load/migration) and clears the history.

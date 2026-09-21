@@ -13,6 +13,9 @@ export type DomEvent = {
   readonly clientX?: number;
   readonly clientY?: number;
   readonly target?: unknown;
+  // Set by a handler that already consumed the event; later listeners (the
+  // canvas shortcut layer) skip it.
+  readonly defaultPrevented?: boolean;
   preventDefault?(): void;
   stopPropagation?(): void;
 };

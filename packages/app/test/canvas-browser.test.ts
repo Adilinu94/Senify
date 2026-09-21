@@ -174,28 +174,105 @@ describe.skipIf(!browserAvailable)("editor canvas in a real browser", () => {
       mkdirSync(shotDir, { recursive: true });
       await tab.screenshot({ path: join(shotDir, "canvas-bausteine-1600.png") });
 
-      // The compiler rules reach the frame: the authored layer plus the chrome.
+      // The compiler rules reach the frame: the authored layer plus the chrome
+      // (the pointer cursor; the markers moved to the portal, ticket 16).
       const injectedRules = await desktopFrame
         .locator("style[data-senify-canvas-rules]")
         .textContent();
       expect(injectedRules).toContain("@layer user-authored");
-      expect(injectedRules).toContain(".senify-canvas__marker");
+      expect(injectedRules).toContain("[data-node-id] { cursor: pointer; }");
+      expect(injectedRules).not.toContain(".senify-canvas__marker");
+      // Content neutrality: no editor token and none of the legacy palette
+      // reaches the frame.
+      expect(injectedRules).not.toContain("--ed-");
+      expect(injectedRules).not.toContain("#d004d4");
+      expect(injectedRules).not.toContain("#0ea5e9");
 
-      // A click selects the node and marks it in the frame, the root and the
-      // selection ring.
+      // Inline text (ticket 03 point 4): double-click edits the real leaf in
+      // place; the burst folds into one history entry, Escape consumes it.
+      const headingText = (): Promise<string | null> =>
+        tab.evaluate(() => {
+          const scope = globalThis as unknown as {
+            __store?: { document: { nodes: Record<string, { props: Record<string, unknown> }> } };
+          };
+          const value = scope.__store?.document.nodes.head000001?.props.text;
+          return typeof value === "string" ? value : null;
+        });
+      const inlineLeaf = desktopFrame.locator('[data-inline][data-inline-node="head000001"]');
+      await inlineLeaf.dblclick();
+      await expect
+        .poll(async () => inlineLeaf.getAttribute("contenteditable"))
+        .toBe("plaintext-only");
+      await inlineLeaf.pressSequentially("Neu-");
+      await expect.poll(headingText).toContain("Neu-");
+      await tab.keyboard.press("Escape");
+      await expect.poll(headingText).toBe("Katalogbaustein");
+      await expect.poll(async () => inlineLeaf.getAttribute("contenteditable")).toBeNull();
+      // The revert consumed the burst: nothing left to undo.
+      await expect.poll(async () => (await probe()).canUndo).toBe(false);
+
+      // Commit with Enter keeps the text as one entry; a single undo restores it.
+      await inlineLeaf.dblclick();
+      await inlineLeaf.pressSequentially("Neu-");
+      await tab.keyboard.press("Enter");
+      await expect.poll(headingText).toContain("Neu-");
+      await expect.poll(async () => inlineLeaf.getAttribute("contenteditable")).toBeNull();
+      await expect.poll(async () => (await probe()).canUndo).toBe(true);
+      await tab.locator('.senify-canvas__button[data-action="undo"]').click();
+      await expect.poll(headingText).toBe("Katalogbaustein");
+
+      // Hover draws the 1px ring in the portal with the name badge — outside
+      // the frame, so the content stays untouched. The pointer path into the
+      // frame is the known iframe-boundary flake (HANDOFF §8): Playwright's
+      // stepped mouse move delivers the mousemove and then a spurious
+      // `mouseout`, so the test dispatches the same bubbling mousemove the
+      // handler listens for. The target differs from the current selection
+      // (the inline edit left the heading selected).
+      await desktopFrame.locator('[data-node-id="div000001"]').evaluate((element) => {
+        const view = (element as unknown as {
+          ownerDocument: { defaultView: { MouseEvent: new (type: string, init: object) => Event } };
+        }).ownerDocument.defaultView;
+        (element as unknown as { dispatchEvent(event: Event): void }).dispatchEvent(
+          new view.MouseEvent("mousemove", { bubbles: true }),
+        );
+      });
+      await expect
+        .poll(async () => tab.locator(".senify-canvas__hover-ring:visible").count())
+        .toBeGreaterThan(0);
+      const hoverBox = await tab.locator(".senify-canvas__hover-ring:visible").first().boundingBox();
+      expect(hoverBox).not.toBeNull();
+      expect(await desktopFrame.locator(".senify-canvas__marker").count()).toBe(0);
+
+      // A click selects the node: the root carries it and the selection ring
+      // lives in the portal over the stage.
       await desktopFrame.locator('[data-node-id="div000001"]').click();
       await expect.poll(async () => (await probe()).focus).toBe("div000001");
       expect(await tab.locator('.senify-canvas[data-selected="div000001"]').count()).toBe(1);
       await expect
-        .poll(async () =>
-          desktopFrame.locator('[data-node-id="div000001"][data-selected="true"]').count(),
-        )
-        .toBe(1);
+        .poll(async () => tab.locator(".senify-canvas__select-ring:visible").count())
+        .toBeGreaterThan(0);
+      // One ring per sheet, four 24x24 handles at the active one, the size
+      // pair as text — all in the editor DOM, not in the frame.
+      expect(await tab.locator(".senify-canvas__select-ring:visible").count()).toBe(3);
       await expect
-        .poll(async () =>
-          desktopFrame.locator('.senify-canvas__marker[data-kind="selection"]').first().isVisible(),
-        )
-        .toBe(true);
+        .poll(async () => tab.locator(".senify-canvas__handle:visible").count())
+        .toBe(12);
+      expect(await tab.locator(".senify-canvas__select-size:visible").first().textContent()).toMatch(
+        /^\d+ × \d+$/,
+      );
+      expect(await desktopFrame.locator('[data-selected="true"]').count()).toBe(0);
+      // The ring sits inside the desktop sheet's visual box (geometry bridge).
+      const ringBox = await tab.locator(".senify-canvas__select-ring:visible").first().boundingBox();
+      const ringSheetBox = await tab
+        .locator('.senify-canvas__frame[data-device="desktop"]')
+        .boundingBox();
+      expect(ringBox).not.toBeNull();
+      expect(ringSheetBox).not.toBeNull();
+      if (ringBox !== null && ringSheetBox !== null) {
+        expect(ringBox.x).toBeGreaterThanOrEqual(ringSheetBox.x - 1);
+        expect(ringBox.y).toBeGreaterThanOrEqual(ringSheetBox.y - 1);
+        expect(ringBox.x + ringBox.width).toBeLessThanOrEqual(ringSheetBox.x + ringSheetBox.width + 1);
+      }
 
       // A forced hover paints through the injected rules: the frame root carries
       // the attribute and the section's computed background flips to red.
@@ -241,6 +318,58 @@ describe.skipIf(!browserAvailable)("editor canvas in a real browser", () => {
       await expect
         .poll(async () => desktopFrame.locator('section[data-section="divider"]').count())
         .toBe(1);
+
+      // The history sheet (ticket 03 point 5): time and action per row, a click
+      // jumps to that state through the undo/redo gate. Two changes in a row
+      // (a new change after an undo drops the redo future — HistoryStack).
+      await tab.locator('.senify-canvas__button[data-action="insert-after"]').click();
+      await expect
+        .poll(async () => desktopFrame.locator('section[data-section="divider"]').count())
+        .toBe(2);
+      await tab.locator('.senify-canvas__button[data-action="insert-after"]').click();
+      await expect
+        .poll(async () => desktopFrame.locator('section[data-section="divider"]').count())
+        .toBe(3);
+      await tab.locator('.senify-canvas__button[data-action="history"]').click();
+      const historyRows = tab.locator(".senify-history__row");
+      await expect.poll(async () => historyRows.count()).toBeGreaterThanOrEqual(2);
+      expect(await tab.locator('.senify-history__row[data-current="true"]').count()).toBe(1);
+      expect(await tab.locator(".senify-history__time").first().textContent()).toMatch(
+        /^\d{2}:\d{2}:\d{2}$/,
+      );
+      // Newest first: the last row is the older state — jumping back removes
+      // the newest divider, the newer entry stays visible as the future.
+      await historyRows.last().click();
+      await expect
+        .poll(async () => desktopFrame.locator('section[data-section="divider"]').count())
+        .toBe(2);
+      await expect
+        .poll(async () => tab.locator('.senify-history__row[data-future="true"]').count())
+        .toBeGreaterThan(0);
+      await tab.keyboard.press("Escape");
+      await expect
+        .poll(async () => tab.locator('.senify-history[data-open="true"]').count())
+        .toBe(0);
+
+      // Keyboard (ticket 03 point 7): Cmd+D duplicates, Delete removes, Cmd+Z
+      // restores, Escape walks one level up and Enter one level down.
+      const dividerCount = (): Promise<number> =>
+        desktopFrame.locator('section[data-section="divider"]').count();
+      await desktopFrame.locator('[data-node-id="div000001"]').click();
+      await expect.poll(async () => (await probe()).focus).toBe("div000001");
+      expect(await dividerCount()).toBe(2);
+      await tab.keyboard.press("Control+d");
+      await expect.poll(dividerCount).toBe(3);
+      await tab.keyboard.press("Control+z");
+      await expect.poll(dividerCount).toBe(2);
+      await tab.keyboard.press("Delete");
+      await expect.poll(dividerCount).toBe(1);
+      await tab.keyboard.press("Control+z");
+      await expect.poll(dividerCount).toBe(2);
+      await tab.keyboard.press("Escape");
+      await expect.poll(async () => (await probe()).focus).toBe("root000001");
+      await tab.keyboard.press("Enter");
+      await expect.poll(async () => (await probe()).focus).toBe("div000001");
 
       expect(consoleErrors).toEqual([]);
       expect(failedRequests).toEqual([]);

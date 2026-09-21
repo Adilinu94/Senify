@@ -49,7 +49,12 @@ export type DropControllerOptions = {
 export type DropController = {
   catalog: DomElement;
   attachFrame(frame: DropFrame): void;
-  insertAt(targetId: string, primitive: string, position: InsertPosition): boolean;
+  insertAt(
+    targetId: string,
+    primitive: string,
+    position: InsertPosition,
+    props?: Record<string, PropValue>,
+  ): boolean;
   dragging(): boolean;
   destroy(): void;
 };
@@ -104,7 +109,12 @@ export function createDropController(options: DropControllerOptions): DropContro
 
   // Insert at a target (the same resolution the drag uses); the chips, the plus
   // points and the top bar buttons all funnel through here.
-  function insertAt(targetId: string, primitive: string, position: InsertPosition): boolean {
+  function insertAt(
+    targetId: string,
+    primitive: string,
+    position: InsertPosition,
+    props: Record<string, PropValue> = {},
+  ): boolean {
     const resolution = resolveDrop(
       store.document,
       { kind: "primitive", primitive },
@@ -121,7 +131,7 @@ export function createDropController(options: DropControllerOptions): DropContro
         op: "insertNode",
         parent: resolution.parent,
         index: resolution.index,
-        node: { primitive, props: {} as Record<string, PropValue> },
+        node: { primitive, props },
       },
       { label: "Baustein einfügen" },
     );
@@ -244,15 +254,20 @@ export function createDropController(options: DropControllerOptions): DropContro
     const width = Math.max(8, rect.width * frame.scale);
     const height = Math.max(1, rect.height * frame.scale);
     const center = left + width / 2;
+    // Short nodes: the 18px plus points would cover the node's own middle and
+    // swallow the selection click (and the inline double-click), so they move
+    // fully outside the edge instead of sitting on it.
+    const short = height < 36;
     const place = (button: DomElement, x: number, y: number): void => {
       button.style.left = `${x}px`;
       button.style.top = `${y}px`;
       button.setAttribute("data-state", "visible");
     };
-    place(plusTop, center, top - 9);
-    place(plusBottom, center, top + height - 9);
-    if (isContainer(store.document, nodeId)) place(plusInto, center, top + height / 2 - 9);
-    else plusInto.setAttribute("data-state", "hidden");
+    place(plusTop, center, short ? top - 18 : top - 9);
+    place(plusBottom, center, short ? top + height : top + height - 9);
+    if (isContainer(store.document, nodeId)) {
+      place(plusInto, short ? left - 18 : center, top + height / 2 - 9);
+    } else plusInto.setAttribute("data-state", "hidden");
   }
 
   function endDrag(): void {
@@ -372,7 +387,15 @@ export function createDropController(options: DropControllerOptions): DropContro
       }
       if (dragSource !== null) return;
       const nodeId = hitNodeId(event.target);
-      if (nodeId === null) return;
+      if (nodeId === null) {
+        // Left the node (the frame body, a gap): the plus points follow the
+        // hovered node, they do not linger.
+        if (hoverNodeId !== null) {
+          hoverNodeId = null;
+          hidePluses();
+        }
+        return;
+      }
       hoverNodeId = nodeId;
       showPluses(frame, nodeId);
     });

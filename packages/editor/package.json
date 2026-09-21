@@ -20,13 +20,5 @@
     "@senify/widget-engine": "workspace:*",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
-  },
-  "peerDependencies": {
-    "@puckeditor/core": "0.23.0"
-  },
-  "peerDependenciesMeta": {
-    "@puckeditor/core": {
-      "optional": true
-    }
   }
 }

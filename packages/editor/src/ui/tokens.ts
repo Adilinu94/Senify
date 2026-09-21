@@ -194,6 +194,10 @@ export const EDITOR_CANVAS = {
   snapLine: "#cbff97",
   // Auswahlrechteck beim Aufziehen.
   marquee: "rgb(154 201 226 / 0.16)",
+  // Aussenlinie der Doppelkante am Auswahlrahmen (`ui-design.md` § Auswahl und
+  // Griffe): feste Tiefwasser-Kante, damit eine der beiden Linien auf hellem
+  // und dunklem Inhalt 3:1 erreicht.
+  selectionEdge: "rgb(1 40 60 / 0.55)",
   // Aussenband am Rahmen (Fehlerrot bei 12%).
   bandMargin: "rgb(248 113 113 / 0.12)",
   // Innenband am Rahmen (Erfolgsgruen bei 12%).
@@ -402,6 +406,7 @@ export const EDITOR_TOKENS: EditorTokenSet = {
   "--ed-grid-help": EDITOR_CANVAS.gridHelp,
   "--ed-snap-line": EDITOR_CANVAS.snapLine,
   "--ed-marquee": EDITOR_CANVAS.marquee,
+  "--ed-selection-edge": EDITOR_CANVAS.selectionEdge,
   "--ed-band-margin": EDITOR_CANVAS.bandMargin,
   "--ed-band-padding": EDITOR_CANVAS.bandPadding,
   // Typografie

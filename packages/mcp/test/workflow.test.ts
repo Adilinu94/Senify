@@ -90,11 +90,15 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "list_sections",
       "get_section",
       "get_theme",
+      "list_widgets",
+      "get_widget",
       "search_docs",
       "read_docs",
       "apply_mutations",
       "set_motion",
       "clear_motion",
+      "set_styles",
+      "create_style_rule",
       "create_page",
       "update_theme",
       "create_preview",
@@ -308,6 +312,114 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     const staleError = stale.data.error as Json;
     expect(staleError.category).toBe("conflict");
     expect(String(staleError.suggestion).toLowerCase()).toContain("reload");
+  });
+
+  it("describes widgets and writes styles over the MCP client (ticket 02 point 7)", async () => {
+    const siteId = await createSite(env, "MCP Styles");
+    const created = await call(session, "create_page", { siteId, title: "Start" });
+    const pageId = created.data.id as string;
+    const rootNodeId = (created.data.draft as { rootNodeId: string }).rootNodeId;
+    await call(session, "apply_mutations", {
+      pageId,
+      baseDraftVersion: 1,
+      mutations: [
+        {
+          op: "insertNode",
+          parent: { nodeId: rootNodeId },
+          node: { type: "hero", props: { headline: "Stil" } },
+        },
+      ],
+    });
+    const outline = await call(session, "get_page", { pageId });
+    const nodeId = (outline.data.sections as { id: string }[])[0]?.id as string;
+
+    // The widget catalog: list, then one schema with controls and the style
+    // surface of its groups.
+    const widgets = await call(session, "list_widgets");
+    expect(widgets.ok).toBe(true);
+    const types = (widgets.data.widgets as { type: string }[]).map((widget) => widget.type);
+    expect(types).toContain("heading");
+    expect(types).toContain("frame");
+
+    const heading = await call(session, "get_widget", { type: "heading" });
+    expect(heading.ok).toBe(true);
+    expect(heading.data.container).toBe(false);
+    const controls = heading.data.controls as { key: string; kind: string }[];
+    expect(controls.some((control) => control.key === "text")).toBe(true);
+    const styleProperties = heading.data.styleProperties as { property: string }[];
+    expect(styleProperties.some((spec) => spec.property === "fontSize")).toBe(true);
+
+    const unknown = await call(session, "get_widget", { type: "gibtsnicht" });
+    expect(unknown.ok).toBe(false);
+    expect((unknown.data.error as Json).category).toBe("not_found");
+
+    // set_styles writes the node's scoped rule, device and state included.
+    const styled = await call(session, "set_styles", {
+      siteId,
+      pageId,
+      nodeId,
+      styles: { fontSize: { $token: "type.body.size" }, letterSpacing: "2px" },
+      device: "mobile",
+      state: "hover",
+    });
+    expect(styled.ok).toBe(true);
+    expect(styled.data.kind).toBe("scoped");
+    expect(styled.data.scope).toEqual({ type: "node", nodeId, role: "module-style" });
+    expect((styled.data.states as Json).hover).toEqual({
+      fontSize_mobile: { $token: "type.body.size" },
+      letterSpacing_mobile: "2px",
+    });
+
+    // A second call merges instead of clashing (one scoped rule per node).
+    const merged = await call(session, "set_styles", {
+      siteId,
+      pageId,
+      nodeId,
+      styles: { color: { $token: "accent" } },
+    });
+    expect(merged.ok).toBe(true);
+    expect((merged.data.styles as Json).color).toEqual({ $token: "accent" });
+    expect((merged.data.states as Json).hover).toBeDefined();
+
+    // The schema guardrail: the open CSS space stays human.
+    const open = await call(session, "set_styles", {
+      siteId,
+      pageId,
+      nodeId,
+      styles: { scrollSnapType: "x mandatory" },
+    });
+    expect(open.ok).toBe(false);
+    expect((open.data.error as Json).category).toBe("validation");
+
+    // The token fence of the engine stays in force for agents.
+    const literal = await call(session, "set_styles", {
+      siteId,
+      pageId,
+      nodeId,
+      styles: { color: "#006092" },
+    });
+    expect(literal.ok).toBe(false);
+    expect(String((literal.data.error as Json).suggestion)).toContain("$token");
+
+    // create_style_rule: a class rule for reuse.
+    const rule = await call(session, "create_style_rule", {
+      siteId,
+      name: "cta-band",
+      styles: { background: { $token: "accent" } },
+      states: { hover: { opacity: 0.8 } },
+    });
+    expect(rule.ok).toBe(true);
+    expect(rule.data.kind).toBe("class");
+    expect(rule.data.name).toBe("cta-band");
+    expect((rule.data.states as Json).hover).toEqual({ opacity: 0.8 });
+
+    // Without a name and without a node there is nothing to create.
+    const nameless = await call(session, "create_style_rule", {
+      siteId,
+      styles: { color: "#fff" },
+    });
+    expect(nameless.ok).toBe(false);
+    expect((nameless.data.error as Json).category).toBe("validation");
   });
 
   it("blocks write tools for read-only tokens with an actionable error", async () => {

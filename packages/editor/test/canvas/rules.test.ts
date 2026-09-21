@@ -10,8 +10,9 @@ import { toCssDocument, type EditorDocument } from "@senify/editor/state";
 import { CANVAS_CHROME_CSS, canvasFrameRules } from "@senify/editor/canvas";
 
 // Point 6: the generated rules reach every frame inside `@layer user-authored`,
-// the editor chrome (markers, forced state) stays unlayered and therefore
-// stronger, and forcing a state never changes the release stylesheet.
+// the editor chrome (cursor, forced state) stays unlayered and therefore
+// stronger, and forcing a state never changes the release stylesheet. The
+// selection/hover markers are portal DOM (ticket 16, `overlay.test.ts`).
 
 function document(): EditorDocument {
   return {
@@ -55,19 +56,20 @@ describe("frame rules", () => {
 
   it("keeps the editor chrome unlayered so it beats the layer", () => {
     const { chrome, css } = canvasFrameRules(document());
-    expect(chrome).toContain(".senify-canvas__marker");
+    expect(chrome).toContain("[data-node-id] { cursor: pointer; }");
     expect(chrome).not.toContain("@layer");
     // The injected stylesheet carries both parts, chrome first.
-    expect(css.indexOf(".senify-canvas__marker")).toBeLessThan(
+    expect(css.indexOf("[data-node-id] { cursor: pointer; }")).toBeLessThan(
       css.indexOf(`@layer ${CASCADE_LAYER}`),
     );
   });
 
   it("leaves the editor chrome out in live mode (M4 Stufe 1)", () => {
     const live = canvasFrameRules(document(), { chrome: false, forcedState: "hover" });
-    // The real page: no markers, no pointer cursor, no forced state.
+    // The real page: no editor cursor rule, no forced state. (The widget base
+    // may carry `cursor: pointer` for the button primitive — that is content.)
     expect(live.chrome).toBe("");
-    expect(live.css).not.toContain(".senify-canvas__marker");
+    expect(live.css).not.toContain(CANVAS_CHROME_CSS.trim());
     expect(live.css).not.toContain("data-force-state");
     // The release rules stay untouched — base and document rules still apply.
     expect(live.css).toContain(`@layer ${CASCADE_LAYER} {`);
@@ -92,7 +94,7 @@ describe("frame rules", () => {
   it("writes nothing for a state no node carries", () => {
     const active = canvasFrameRules(document(), { forcedState: "active" });
     expect(active.chrome).not.toContain("data-force-state");
-    // Only the marker chrome is left.
+    // Only the cursor chrome is left.
     expect(active.chrome).toBe(CANVAS_CHROME_CSS.trim());
     expect(active.css).toContain(active.authored);
   });
@@ -108,7 +110,7 @@ describe("frame rules", () => {
     expect(css).toContain(".w-heading {");
     expect(css).toContain("grid-template-columns: repeat(3, minmax(0, 1fr));");
     // Chrome first (unlayered), then the base, then the document rules.
-    expect(css.indexOf(".senify-canvas__marker")).toBeLessThan(css.indexOf(base));
+    expect(css.indexOf("[data-node-id] { cursor: pointer; }")).toBeLessThan(css.indexOf(base));
     expect(css.indexOf(base)).toBeLessThan(css.indexOf(authored));
   });
 

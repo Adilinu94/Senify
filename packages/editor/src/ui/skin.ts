@@ -708,6 +708,32 @@ function canvasSkinCss(): string {
     "border-radius: var(--ed-radius-sm);\nbox-shadow: var(--ed-shadow-float), var(--ed-edge-hairline);",
   );
 
+  // ------------------------------------------------------ Marker-Portal (16)
+  // Die Doppelkante: aussen die feste Tiefwasser-Kante, innen
+  // `--ed-signal-select` — eine der beiden Linien erreicht auf hellem und
+  // dunklem Inhalt 3:1 (`ui-design.md` §8). Das Plaetzchen traegt den Namen,
+  // das Groessenpaar sitzt am rechten oberen Eck.
+  rule(
+    " .senify-canvas__hover-ring",
+    "box-shadow: 0 0 0 1px var(--ed-selection-edge), inset 0 0 0 1px var(--ed-signal-select);",
+  );
+  rule(
+    " .senify-canvas__select-ring",
+    "box-shadow: 0 0 0 1px var(--ed-selection-edge), inset 0 0 0 2px var(--ed-signal-select);",
+  );
+  rule(
+    " .senify-canvas__select-label",
+    "background: var(--ed-signal-select);\ncolor: var(--ed-ink-on-lime);\nfont-weight: var(--ed-weight-medium);",
+  );
+  rule(
+    " .senify-canvas__select-size",
+    "background: var(--ed-surface-raised);\ncolor: var(--ed-ink-strong);\nbox-shadow: inset 0 0 0 1px var(--ed-line-hairline);",
+  );
+  rule(
+    " .senify-canvas__handle-dot",
+    "background: var(--ed-ink-strong);\nbox-shadow: inset 0 0 0 1px var(--ed-signal-select);",
+  );
+
   return `${blocks.join("\n")}\n`;
 }
 

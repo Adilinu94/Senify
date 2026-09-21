@@ -1,28 +1,46 @@
-// Inspector DOM (ticket 02, slice 1).
+// Inspector DOM (ticket 02).
 //
 // Renders the model of `model.ts` with the field family of `styles.ts` and
 // writes every change through the store's single gate (`setNodeProp`,
-// `clearNodeProp`, `setNodeHiddenDevices`, `setNodeMeta`, `setMotion`). The
-// inspector is a projection of the session: it reads the selection and the
-// document from the store and re-renders on every store event, so canvas and
-// panel can never drift apart.
+// `clearNodeProp`, `setNodeHiddenDevices`, `setNodeMeta`, `setMotion` — and
+// `upsertStyleRule` for the pseudo states, ticket 02 point 5). The inspector is
+// a projection of the session: it reads the selection and the document from the
+// store and re-renders on every store event, so canvas and panel can never
+// drift apart.
 //
 // One undo step per interaction: a typing burst on one property folds through
 // `typingCoalesceKey`, a slider drag through the same key (the store's burst
 // folding), a switch or select is one step by itself.
 
-import { isGapsValue, isSpacingValue, type Device, type GapsValue, type PropValue, type SpacingValue, type Unit } from "@senify/widget-engine";
+import {
+  createScopedRule,
+  deviceKey,
+  DEVICES,
+  isGapsValue,
+  isSpacingValue,
+  STATE_ORDER,
+  type Device,
+  type GapsValue,
+  type PropValue,
+  type SpacingValue,
+  type StateName,
+  type StyleRule,
+  type Unit,
+} from "@senify/widget-engine";
 import type { MotionProfile, MotionSpec } from "@senify/section-sdk";
 import type { Theme } from "@senify/tokens";
 import { requireDocument, type DomDocument, type DomElement } from "../dom.ts";
+import { newNodeId } from "../state/ids.ts";
 import { EditorStore, typingCoalesceKey } from "../state/store.ts";
 import { EDITOR_ROOT_ATTRIBUTE } from "../ui/tokens.ts";
 import {
   buildInspector,
   motionSpecFrom,
   numberPart,
+  scopedRuleFor,
   tokenRefOf,
   unitOfValue,
+  type InspectorCommit,
   type InspectorField,
   type InspectorModel,
   type InspectorTabId,
@@ -39,6 +57,9 @@ export type InspectorOptions = {
   // View changes the session persists (E5, slice 1).
   onTabChange?: (tab: InspectorTabId) => void;
   onBreakpointChange?: (device: Device) => void;
+  // The pseudo state the Style tab edits — the canvas forces it for the
+  // preview (ticket 02 point 5).
+  onStateChange?: (state: StateName | null) => void;
 };
 
 export type InspectorInstance = {
@@ -50,6 +71,8 @@ export type InspectorInstance = {
   setTab(tab: InspectorTabId): void;
   profile(): MotionProfile;
   setProfile(profile: MotionProfile): void;
+  state(): StateName | null;
+  setState(state: StateName | null): void;
   destroy(): void;
 };
 
@@ -103,8 +126,12 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
   let activeTab: InspectorTabId = "content";
   let breakpoint: Device = options.breakpoint ?? "desktop";
   let profile: MotionProfile = options.profile ?? "standard";
+  let state: StateName | null = null;
   const collapsed = new Set<string>();
-  let paletteOpen = false;
+  // One panel at a time, addressed by the field that owns it (a shared boolean
+  // would open the panel under every token/colour field at once).
+  let paletteKey: string | null = null;
+  let tokenPanelKey: string | null = null;
   let unsubscribe: (() => void) | null = null;
 
   const report = (message: string | null): void => {
@@ -134,17 +161,88 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
   }
 
   function commitProp(nodeId: string, field: InspectorField, value: PropValue): void {
+    commitField(nodeId, field.key, field.commit, value);
+  }
+
+  // One commit path for every target: node props (device-aware), the pseudo
+  // state bag of the scoped rule, or a plain key of the open property space.
+  function commitField(
+    nodeId: string,
+    key: string,
+    commit: InspectorCommit,
+    value: PropValue,
+  ): void {
+    if (commit.kind === "state") {
+      commitState(
+        nodeId,
+        commit.state,
+        key,
+        value,
+        typingCoalesceKey(nodeId, key, breakpoint),
+      );
+      return;
+    }
     apply(
-      { op: "setNodeProp", id: nodeId, key: field.key, value, device: breakpoint },
-      `Feld ${field.key}`,
-      typingCoalesceKey(nodeId, field.key, breakpoint),
+      { op: "setNodeProp", id: nodeId, key, value, device: breakpoint },
+      `Feld ${key}`,
+      typingCoalesceKey(nodeId, key, breakpoint),
     );
   }
 
   function clearProp(nodeId: string, field: InspectorField): void {
+    clearField(nodeId, field.key, field.commit);
+  }
+
+  function clearField(nodeId: string, key: string, commit: InspectorCommit): void {
+    if (commit.kind === "state") {
+      commitState(nodeId, commit.state, key, null);
+      return;
+    }
     apply(
-      { op: "clearNodeProp", id: nodeId, key: field.key, device: breakpoint },
-      `Override zurücksetzen · ${field.key}`,
+      { op: "clearNodeProp", id: nodeId, key, device: breakpoint },
+      `Override zurücksetzen · ${key}`,
+    );
+  }
+
+  // The scoped rule of the node is the carrier of the pseudo-state values; it
+  // is created on demand and dropped again when nothing is left in it. The
+  // write is a normal store mutation, so it lands in history and save like
+  // every other change.
+  function commitState(
+    nodeId: string,
+    stateName: StateName,
+    key: string,
+    value: PropValue | null,
+    coalesceKey?: string,
+  ): void {
+    const existing = scopedRuleFor(options.store.document, nodeId);
+    const rule: StyleRule =
+      existing === undefined
+        ? createScopedRule({ id: newNodeId(), nodeId })
+        : structuredClone(existing);
+    const bag = { ...(rule.states?.[stateName] ?? {}) };
+    const storeKey = deviceKey(key, breakpoint);
+    if (value === null) delete bag[storeKey];
+    else bag[storeKey] = value;
+    const states = { ...(rule.states ?? {}) };
+    if (Object.keys(bag).length === 0) delete states[stateName];
+    else states[stateName] = bag;
+    rule.states = states;
+    const label = value === null ? `Zustand zurücksetzen · ${key}` : `Zustand ${stateName} · ${key}`;
+    if (existing !== undefined && isEmptyRule(rule)) {
+      apply({ op: "deleteStyleRule", id: rule.id }, label);
+      return;
+    }
+    apply({ op: "upsertStyleRule", rule }, label, coalesceKey);
+  }
+
+  function isEmptyRule(rule: StyleRule): boolean {
+    const states = rule.states ?? {};
+    return (
+      Object.keys(rule.styles).length === 0 &&
+      Object.keys(rule.contextStyles).length === 0 &&
+      (rule.rawCss === undefined || rule.rawCss === "") &&
+      Object.values(states).every((bag) => Object.keys(bag).length === 0)
     );
   }
 
@@ -157,16 +255,24 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
   ): void {
     const wrap = h(doc, "div", { className: "ed-field" });
     const input = h(doc, "input", { data: { control: "number" } });
-    input.setAttribute("type", "number");
     const shown = numberPart(field.value);
-    input.value = shown === undefined ? "" : String(shown);
+    const ref = tokenRefOf(field.value);
+    // A token value is text (`{accent}`), a literal is a number: the input
+    // follows the value, so the token stays visible and editable.
+    input.setAttribute("type", ref !== null ? "text" : "number");
+    input.value = ref !== null ? `{${ref}}` : shown === undefined ? "" : String(shown);
     if (field.min !== undefined) input.setAttribute("min", String(field.min));
     if (field.max !== undefined) input.setAttribute("max", String(field.max));
     if (field.step !== undefined) input.setAttribute("step", String(field.step));
     const commitNumber = (): void => {
-      const next = numberPart(input.value);
+      const raw = (input.value ?? "").trim();
+      if (raw.startsWith("{") && raw.endsWith("}")) {
+        commitProp(nodeId, field, { $token: raw.slice(1, -1) });
+        return;
+      }
+      const next = numberPart(raw);
       if (next === undefined) {
-        input.value = shown === undefined ? "" : String(shown);
+        input.value = ref !== null ? `{${ref}}` : shown === undefined ? "" : String(shown);
         return;
       }
       const unit = unitOfValue(field.value, field.units);
@@ -315,12 +421,65 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     if (tag === "input") {
       input.setAttribute("type", "text");
     }
-    input.value = typeof field.value === "string" ? field.value : "";
+    const ref = tokenRefOf(field.value);
+    input.value = ref !== null ? `{${ref}}` : typeof field.value === "string" ? field.value : "";
     input.addEventListener("change", () => {
-      commitProp(nodeId, field, input.value ?? "");
+      const next = (input.value ?? "").trim();
+      if (next.startsWith("{") && next.endsWith("}")) {
+        commitProp(nodeId, field, { $token: next.slice(1, -1) });
+        return;
+      }
+      commitProp(nodeId, field, next);
     });
     wrap.appendChild(input);
     control.appendChild(wrap);
+  }
+
+  // The token picker (ticket 02 point 6): theme tokens for every style field
+  // family, not only colours. A pick keeps the Senify DNA (`{ $token: ref }`),
+  // the literal button resolves back.
+  function renderTokenPanel(nodeId: string, field: InspectorField): DomElement {
+    const panel = h(doc, "div", {
+      className: "ed-color__panel",
+      data: { role: "token-panel" },
+    });
+    const list = h(doc, "div", { className: "ed-token__list" });
+    const ref = tokenRefOf(field.value);
+    for (const option of field.tokenOptions ?? []) {
+      const tile = h(doc, "button", {
+        className: "ed-token__tile",
+        data: { token: String(option.ref === ref), ref: option.ref },
+        attributes: {
+          type: "button",
+          title: `${option.label} · ${option.value}`,
+        },
+      });
+      tile.appendChild(h(doc, "span", { className: "ed-token__name", text: option.label }));
+      tile.appendChild(h(doc, "span", { className: "ed-token__value", text: option.value }));
+      tile.addEventListener("click", () => {
+        commitProp(nodeId, field, { $token: option.ref });
+        tokenPanelKey = null;
+        render();
+      });
+      list.appendChild(tile);
+    }
+    panel.appendChild(list);
+    if (ref !== null) {
+      const literal = field.tokenOptions?.find((option) => option.ref === ref)?.value;
+      const back = h(doc, "button", {
+        className: "senify-inspector__reset",
+        text: "Literal",
+        data: { action: "token-literal" },
+        attributes: { type: "button" },
+      });
+      back.addEventListener("click", () => {
+        commitProp(nodeId, field, literal ?? "");
+        tokenPanelKey = null;
+        render();
+      });
+      panel.appendChild(back);
+    }
+    return panel;
   }
 
   function colorCss(field: InspectorField): string {
@@ -364,20 +523,21 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       }
     });
     fieldWrap.appendChild(input);
+    const paletteShown = paletteKey === field.key;
     const toggle = h(doc, "button", {
       className: "ed-linkbtn",
       data: { control: "color-palette" },
-      attributes: { type: "button", "aria-label": "Palette öffnen", "aria-expanded": String(paletteOpen) },
+      attributes: { type: "button", "aria-label": "Palette öffnen", "aria-expanded": String(paletteShown) },
     });
     toggle.appendChild(icon(doc, "palette", 12));
     toggle.addEventListener("click", () => {
-      paletteOpen = !paletteOpen;
+      paletteKey = paletteShown ? null : field.key;
       render();
     });
     fieldWrap.appendChild(toggle);
     line.appendChild(fieldWrap);
     row.appendChild(line);
-    if (paletteOpen) {
+    if (paletteShown) {
       row.appendChild(renderPalette(nodeId, field));
     }
     control.appendChild(row);
@@ -404,7 +564,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
         } else {
           commitProp(nodeId, field, option.value);
         }
-        paletteOpen = false;
+        paletteKey = null;
         render();
       });
       palette.appendChild(tile);
@@ -430,7 +590,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       });
       back.addEventListener("click", () => {
         commitProp(nodeId, field, resolved ?? "#000000");
-        paletteOpen = false;
+        paletteKey = null;
         render();
       });
       meta.appendChild(back);
@@ -572,6 +732,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
   }
 
   let currentModel: InspectorModel | null = null;
+  let lastNodeId: string | null = null;
 
   function motionModel(): InspectorModel["motion"] | null {
     return currentModel?.motion ?? null;
@@ -579,11 +740,15 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
 
   /* ------------------------------------------------------------- structure */
 
-  function renderFieldRow(model: InspectorModel, field: InspectorField): DomElement {
+  function renderFieldRow(
+    model: InspectorModel,
+    field: InspectorField,
+    groupId: string,
+  ): DomElement {
     const nodeId = model.nodeId;
     const row = h(doc, "div", {
       className: "senify-inspector__field",
-      data: { key: field.key, kind: field.kind },
+      data: { key: field.key, kind: field.kind, group: groupId },
     });
     row.appendChild(
       h(doc, "span", { className: "senify-inspector__field-label", text: field.label }),
@@ -662,18 +827,65 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
         break;
     }
     row.appendChild(control);
-    if (field.overrideDevices.length > 0 && field.responsive) {
+    // The token picker sits next to the free text of every style field that
+    // has a theme family (ticket 02 point 6); colours own their palette.
+    if (field.tokenOptions !== undefined && field.tokenOptions.length > 0 && field.kind !== "color") {
+      const tokensShown = tokenPanelKey === field.key;
+      const toggle = h(doc, "button", {
+        className: "ed-linkbtn",
+        data: { control: "tokens", token: String(field.tokenRef !== null) },
+        attributes: {
+          type: "button",
+          "aria-label": "Tokens öffnen",
+          "aria-expanded": String(tokensShown),
+          title: field.tokenRef === null ? "Theme-Token wählen" : `Token: ${field.tokenRef}`,
+        },
+      });
+      toggle.appendChild(icon(doc, "palette", 12));
+      toggle.addEventListener("click", () => {
+        tokenPanelKey = tokensShown ? null : field.key;
+        render();
+      });
+      side.appendChild(toggle);
+      if (tokensShown) row.appendChild(renderTokenPanel(nodeId, field));
+    }
+    // Device dots at every responsive control (ticket 02 point 4): the filled
+    // dot is an existing override, the ring marks the device being edited. A
+    // click on another device switches the view; a click on the active one
+    // turns the override on (materialise the effective value) or off.
+    if (field.responsive) {
       const dots = h(doc, "span", { className: "senify-inspector__dots" });
-      for (const device of field.overrideDevices) {
+      for (const device of DEVICES) {
+        const active = device === breakpoint;
+        const override = field.overrideDevices.includes(device);
         const dot = h(doc, "span", {
           className: "senify-inspector__dot",
-          data: { dot: device, active: String(device === breakpoint) },
-          attributes: { role: "button", title: `Override für ${device} — Ansicht wechseln` },
+          data: {
+            dot: device,
+            active: String(active),
+            override: String(override),
+          },
+          attributes: {
+            role: "button",
+            title: active
+              ? device === "desktop"
+                ? "Basiswert (Desktop)"
+                : override
+                  ? `Override für ${device} entfernen`
+                  : `Override für ${device} anlegen`
+              : `Ansicht auf ${device} wechseln`,
+          },
         });
         dot.addEventListener("click", () => {
-          breakpoint = device;
-          options.onBreakpointChange?.(device);
-          render();
+          if (!active) {
+            breakpoint = device;
+            options.onBreakpointChange?.(device);
+            render();
+            return;
+          }
+          if (device === "desktop") return;
+          if (override) clearProp(nodeId, field);
+          else if (field.value !== undefined) commitProp(nodeId, field, field.value);
         });
         dots.appendChild(dot);
       }
@@ -688,6 +900,17 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       });
       reset.addEventListener("click", () => clearProp(nodeId, field));
       side.appendChild(reset);
+    }
+    // An own property (open CSS surface, O13) can be removed again.
+    if (groupId === "style/custom") {
+      const remove = h(doc, "button", {
+        className: "senify-inspector__reset",
+        text: "×",
+        data: { action: "clear-prop" },
+        attributes: { type: "button", title: `${field.key} entfernen` },
+      });
+      remove.addEventListener("click", () => clearField(nodeId, field.key, field.commit));
+      side.appendChild(remove);
     }
     row.appendChild(side);
     if (field.literalWarning !== undefined) {
@@ -719,10 +942,75 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     if (!isCollapsed) {
       for (const field of fields) {
         if (field.hidden) continue;
-        group.appendChild(renderFieldRow(model, field));
+        group.appendChild(renderFieldRow(model, field, groupId));
       }
     }
     return group;
+  }
+
+  // The state row of the Style tab (ticket 02 point 5): the base state edits
+  // the node props, a pseudo state edits the scoped rule and the canvas forces
+  // the state for the preview.
+  function renderStateRow(model: InspectorModel): DomElement {
+    const row = h(doc, "div", {
+      className: "senify-inspector__states",
+      data: { role: "states" },
+    });
+    const entries: { id: StateName | null; label: string }[] = [
+      { id: null, label: "Basis" },
+      ...STATE_ORDER.map((name) => ({ id: name as StateName | null, label: `:${name}` })),
+    ];
+    for (const entry of entries) {
+      const active = entry.id === model.state;
+      const button = h(doc, "button", {
+        className: "senify-inspector__state",
+        text: entry.label,
+        data: { state: entry.id ?? "basis", active: String(active) },
+        attributes: { type: "button", "aria-pressed": String(active) },
+      });
+      button.addEventListener("click", () => {
+        state = entry.id;
+        options.onStateChange?.(state);
+        render();
+      });
+      row.appendChild(button);
+    }
+    return row;
+  }
+
+  // The open property space in the UI (ticket 02 point 3, O13): any CSS
+  // property can be added by name; the store gate validates the value form.
+  function renderAddProperty(model: InspectorModel): DomElement {
+    const row = h(doc, "div", {
+      className: "senify-inspector__addprop",
+      data: { role: "add-prop" },
+    });
+    const name = h(doc, "input", { data: { control: "prop-name" } });
+    name.setAttribute("type", "text");
+    name.setAttribute("placeholder", "css-eigenschaft");
+    const value = h(doc, "input", { data: { control: "prop-value" } });
+    value.setAttribute("type", "text");
+    value.setAttribute("placeholder", "wert");
+    const add = h(doc, "button", {
+      className: "senify-inspector__addbtn",
+      text: "Hinzufügen",
+      data: { action: "add-prop" },
+      attributes: { type: "button" },
+    });
+    add.addEventListener("click", () => {
+      const key = (name.value ?? "").trim();
+      const raw = (value.value ?? "").trim();
+      if (key === "" || raw === "") return;
+      const commit: InspectorCommit =
+        model.state === null ? { kind: "prop" } : { kind: "state", state: model.state };
+      commitField(model.nodeId, key, commit, raw);
+      name.value = "";
+      value.value = "";
+    });
+    row.appendChild(name);
+    row.appendChild(value);
+    row.appendChild(add);
+    return row;
   }
 
   function renderTabBody(model: InspectorModel, tabId: InspectorTabId): DomElement {
@@ -737,9 +1025,15 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       );
       return body;
     }
+    if (tabId === "style") {
+      body.appendChild(renderStateRow(model));
+    }
     for (const group of tab.groups) {
       if (group.fields.length === 0) continue;
       body.appendChild(renderGroup(model, group.id, group.label, group.fields));
+    }
+    if (tabId === "style") {
+      body.appendChild(renderAddProperty(model));
     }
     if (tabId === "interactions" && model.motion.preset !== null) {
       const remove = h(doc, "button", {
@@ -777,6 +1071,13 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
 
   function render(): void {
     const nodeId = selectedId();
+    // A new selection closes the floating panels: their keys belong to the
+    // previous node's fields.
+    if (nodeId !== lastNodeId) {
+      lastNodeId = nodeId;
+      paletteKey = null;
+      tokenPanelKey = null;
+    }
     const model =
       nodeId === null
         ? null
@@ -786,6 +1087,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
             breakpoint,
             ...(options.theme === undefined ? {} : { theme: options.theme }),
             profile,
+            state,
           });
     currentModel = model;
     root.textContent = "";
@@ -833,6 +1135,11 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     profile: () => profile,
     setProfile: (next: MotionProfile) => {
       profile = next;
+      render();
+    },
+    state: () => state,
+    setState: (next: StateName | null) => {
+      state = next;
       render();
     },
     destroy: () => {

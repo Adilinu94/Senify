@@ -311,6 +311,12 @@ function transportRule(rule: StyleRule): Record<string, unknown> {
     name: rule.name,
     kind: rule.kind,
     selector: rule.selector,
+    // A scoped rule names its node, not a scope object: the create route
+    // derives name and selector from it (`buildStyleRule`). Later upserts are
+    // PATCHes and keep the scope server-side (the patch schema has no scope).
+    ...(rule.kind === "scoped" && rule.scope !== undefined
+      ? { nodeId: rule.scope.nodeId }
+      : {}),
     ...(rule.description === undefined ? {} : { description: rule.description }),
     styles: { ...rule.styles },
     ...(rule.stylePriorities === undefined ? {} : { stylePriorities: { ...rule.stylePriorities } }),

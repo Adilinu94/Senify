@@ -12,6 +12,53 @@
 
 import type { PrimitiveDefinition } from "./types.ts";
 
+// The reserved types of the component model (ticket 04). A definition, an
+// instance and a slot placeholder are nodes in the tree; the editor holds them
+// like any other node (the inspector writes props, the explorer shows them),
+// while the inliner turns them into the plain tree both render paths consume.
+// Their names are reserved — a section may never claim them.
+export const COMPONENT_DEFINITION_PRIMITIVE = "__component";
+export const COMPONENT_INSTANCE_PRIMITIVE = "__component_instance";
+export const COMPONENT_SLOT_PRIMITIVE = "__component_slot";
+
+const RESERVED: Record<string, { name: string; description: string }> = {
+  [COMPONENT_DEFINITION_PRIMITIVE]: {
+    name: "Komponente",
+    description:
+      "Definition einer Visual Component: der eine Wurzelknoten in den Kindern ist die wiederverwendbare Struktur, `__component_slot`-Knoten sind ihre Füllplätze.",
+  },
+  [COMPONENT_INSTANCE_PRIMITIVE]: {
+    name: "Komponenten-Instanz",
+    description:
+      "Instanz einer Komponente: `componentId` nennt die Definition, die Slots tragen den Inhalt. Wird beim Rendern und beim Bake inlined.",
+  },
+  [COMPONENT_SLOT_PRIMITIVE]: {
+    name: "Komponenten-Slot",
+    description:
+      "Füllplatz in einer Komponenten-Definition: `name` ist der Slot-Name, den eine Instanz füllt.",
+  },
+};
+
+export function componentPrimitive(type: string): PrimitiveDefinition | undefined {
+  const entry = RESERVED[type];
+  if (entry === undefined) return undefined;
+  const isSlot = type === COMPONENT_SLOT_PRIMITIVE;
+  return {
+    type,
+    name: entry.name,
+    category: "advanced",
+    description: entry.description,
+    container: !isSlot,
+    allowedChildren: isSlot ? "none" : "any",
+    slots: {},
+    controls: [],
+    // No style groups: a definition container carries no styling of its own;
+    // the subtree inside it uses the full style surface.
+    styleGroups: [],
+    legacy: true,
+  };
+}
+
 // The section types of the current registry (`@senify/registry`). The list is
 // mirrored from `SECTION_COMPOSITION`; a guard test keeps both in step.
 export const LEGACY_SECTION_TYPES = [

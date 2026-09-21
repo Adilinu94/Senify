@@ -8,9 +8,9 @@
 //
 // Nothing here is a second render path: `renderer.mount` is the very
 // `FrameRenderer` the program shell injects (`createReactRenderer`), and the
-// stylesheet is the single compiler output. The canvas only adds the frame
-// chrome (markers, handles, labels) — unlayered, so it beats the authored
-// layer, exactly as the cascade decision (O1) prescribes.
+// stylesheet is the single compiler output. The canvas adds the frame chrome —
+// the pointer cursor unlayered in the frame (cascade decision O1), the
+// selection and hover markers in the editor portal over the stage (ticket 16).
 
 import type { MotionProfile, Registry } from "@senify/section-sdk";
 import {
@@ -31,12 +31,17 @@ import { editorFontFaceCss } from "../ui/fonts.ts";
 import { applyEditorSkin, EDITOR_SKIN_DEFAULT } from "../ui/skin.ts";
 import { EDITOR_ROOT_ATTRIBUTE } from "../ui/tokens.ts";
 import { injectMotionRuntime, MOTION_VENDOR_BASE, profileLenis } from "../motion-inject.ts";
-import { EditorStore } from "../state/store.ts";
+import { EditorStore, typingCoalesceKey } from "../state/store.ts";
+import { copyNode, pasteNode } from "../state/clipboard.ts";
+import { sanitizeInlineText } from "../inline-text.ts";
+import { createHistoryDialog } from "../history/dialog.ts";
 import { canvasFrames, fitZoom, ZOOM_MAX, ZOOM_MIN, type CanvasFrameSpec } from "./device.ts";
 import { canvasFrameRules } from "./rules.ts";
+import { createMarkerOverlay, type OverlayFrame } from "./overlay.ts";
 import { canvasNodeTree } from "./adapter.ts";
 import { type InsertPosition } from "./insert.ts";
-import { resolveClick, selectionLabel } from "./selection.ts";
+import { firstChildId, resolveClick, selectionLabel } from "./selection.ts";
+import { locateParent } from "../state/document.ts";
 import { createDropController } from "./dnd-dom.ts";
 
 export type CanvasOptions = {
@@ -83,7 +88,11 @@ export type CanvasInstance = {
   mode(): EditorMode;
   breakpoint(): FrameBreakpoint;
   select(id: string | null): void;
-  insert(primitive: string, position: InsertPosition): boolean;
+  insert(
+    primitive: string,
+    position: InsertPosition,
+    props?: Record<string, import("@senify/widget-engine").PropValue>,
+  ): boolean;
   undo(): boolean;
   redo(): boolean;
   state(): CanvasState;
@@ -98,9 +107,7 @@ type MountedFrame = {
   doc: DomDocument;
   body: DomElement | null;
   rules: DomElement | null;
-  label: DomElement | null;
   frameLabel: DomElement;
-  markers: DomElement[];
 };
 
 const PREVIEW_STATES: readonly (StateName | "none")[] = [
@@ -144,13 +151,6 @@ function create(
     element.setAttribute(name, value);
   }
   return element;
-}
-
-function docScroll(doc: DomDocument): { x: number; y: number } {
-  const root = (doc as unknown as {
-    documentElement?: { scrollLeft: number; scrollTop: number };
-  }).documentElement;
-  return { x: root?.scrollLeft ?? 0, y: root?.scrollTop ?? 0 };
 }
 
 function rectOf(element: DomElement): { left: number; top: number; width: number; height: number } {
@@ -231,6 +231,18 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   });
   catalogStripHost.appendChild(drop.catalog);
 
+  // The marker portal (ticket 16): selection and hover chrome over the stage,
+  // never in the content frame. One layer per sheet clips the ring at the
+  // sheet edge; the geometry is recomputed from the live frame rects.
+  const markers = createMarkerOverlay({
+    doc,
+    stage,
+    overlay,
+    frames: () => mounted.map((entry) => overlayFrame(entry)),
+    label: (id) => markerLabel(id),
+    parent: (id) => locateParent(store.document, id)?.parent.nodeId ?? null,
+  });
+
   function message(value: string | null): void {
     status.textContent = value ?? "";
     options.onMessage?.(value);
@@ -302,6 +314,15 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   redoButton.addEventListener("click", () => {
     if (store.redo()) message(null);
   });
+  // The history sheet (ticket 03 point 5): time + action per row, a click
+  // jumps to that state through the ordinary undo/redo gate.
+  const historyDialog = createHistoryDialog({ doc, store });
+  const historyButton = create(doc, "button", "senify-canvas__button", {
+    type: "button",
+    "data-action": "history",
+  });
+  historyButton.textContent = "Verlauf";
+  historyButton.addEventListener("click", () => historyDialog.toggle());
 
   const zoomOut = create(doc, "button", "senify-canvas__button", {
     type: "button",
@@ -354,6 +375,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   const historyGroup = create(doc, "div", "senify-canvas__group");
   historyGroup.appendChild(undoButton);
   historyGroup.appendChild(redoButton);
+  historyGroup.appendChild(historyButton);
   const zoomGroup = create(doc, "div", "senify-canvas__group");
   zoomGroup.appendChild(zoomOut);
   zoomGroup.appendChild(zoomLabel);
@@ -404,71 +426,6 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
   }
 
-  function ensureMarkers(entry: MountedFrame): void {
-    if (entry.body === null) return;
-    while (entry.markers.length < 5) {
-      const kind = entry.markers.length === 0 ? "selection" : "handle";
-      const marker = create(entry.doc, "div", "senify-canvas__marker", { "data-kind": kind });
-      marker.style.display = "none";
-      entry.body.appendChild(marker);
-      entry.markers.push(marker);
-    }
-    if (entry.label === null) {
-      const label = create(entry.doc, "div", "senify-canvas__label");
-      label.style.display = "none";
-      entry.body.appendChild(label);
-      entry.label = label;
-    }
-  }
-
-  function clearMarkers(entry: MountedFrame): void {
-    for (const marker of entry.markers) marker.style.display = "none";
-    if (entry.label !== null) entry.label.style.display = "none";
-  }
-
-  function paintSelection(entry: MountedFrame, id: string | null): void {
-    ensureMarkers(entry);
-    const [ring] = entry.markers;
-    const handles = entry.markers.slice(1, 5);
-    if (id === null || ring === undefined || entry.body === null) {
-      clearMarkers(entry);
-      return;
-    }
-    const target = entry.body.querySelector(`[data-node-id="${id}"]`);
-    if (target === null) {
-      clearMarkers(entry);
-      return;
-    }
-    const rect = rectOf(target);
-    const scroll = docScroll(entry.doc);
-    const left = rect.left + scroll.x;
-    const top = rect.top + scroll.y;
-    ring.style.display = "block";
-    ring.style.left = `${left}px`;
-    ring.style.top = `${top}px`;
-    ring.style.width = `${rect.width}px`;
-    ring.style.height = `${rect.height}px`;
-    const corners = [
-      { x: left - 4, y: top - 4 },
-      { x: left + rect.width - 4, y: top - 4 },
-      { x: left - 4, y: top + rect.height - 4 },
-      { x: left + rect.width - 4, y: top + rect.height - 4 },
-    ];
-    handles.forEach((handle, index) => {
-      const corner = corners[index];
-      if (corner === undefined) return;
-      handle.style.display = "block";
-      handle.style.left = `${corner.x}px`;
-      handle.style.top = `${corner.y}px`;
-    });
-    if (entry.label !== null) {
-      entry.label.style.display = "block";
-      entry.label.style.left = `${left}px`;
-      entry.label.style.top = `${Math.max(0, top - 18)}px`;
-      entry.label.textContent = markerLabel(id);
-    }
-  }
-
   function markerLabel(id: string): string {
     const node = store.document.nodes[id];
     const fromStore = selectionLabel(store.document, store.selection);
@@ -476,15 +433,6 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     return fromStore !== null && store.selection.selected.includes(id)
       ? fromStore
       : `${node.primitive} · ${id}`;
-  }
-
-  function markSelectedNode(entry: MountedFrame, id: string | null): void {
-    if (entry.body === null) return;
-    for (const element of entry.body.querySelectorAll("[data-selected]")) {
-      element.removeAttribute("data-selected");
-    }
-    if (id === null) return;
-    entry.body.querySelector(`[data-node-id="${id}"]`)?.setAttribute("data-selected", "true");
   }
 
   function updateRules(entry: MountedFrame): void {
@@ -520,18 +468,298 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     options.onState?.(stateOf());
   }
 
+  // ------------------------------------------------------- inline text (P4)
+  // Double-click on a text leaf edits the real element (`contentEditable`
+  // plaintext-only, artifacts/24 §2). Every input writes through the one store
+  // gate with a typing coalesce key, so the burst folds into one undo entry and
+  // the save pipeline persists it. The frames stay un-rendered while the
+  // session runs — React would reset the caret on every keystroke; commit,
+  // Enter and Escape refresh them.
+  let inlineSession: {
+    nodeId: string;
+    key: string;
+    original: string;
+    element: DomElement;
+  } | null = null;
+
+  function inlineTargetOf(
+    target: unknown,
+  ): { element: DomElement; nodeId: string; key: string } | null {
+    const element = (target as DomElement | null)?.closest?.("[data-inline]") ?? null;
+    if (element === null) return null;
+    const nodeId =
+      element.getAttribute("data-inline-node") ?? element.getAttribute("data-node-id");
+    const key = element.getAttribute("data-prop-key");
+    if (nodeId === null || key === null) return null;
+    return { element, nodeId, key };
+  }
+
+  function inlineValue(): string {
+    return sanitizeInlineText(inlineSession?.element.textContent ?? "");
+  }
+
+  function writeInline(value: string): void {
+    const session = inlineSession;
+    if (session === null) return;
+    try {
+      // A no-op value produces no patch and no history entry (the store gate).
+      store.apply(
+        {
+          op: "setNodeProp",
+          id: session.nodeId,
+          key: session.key,
+          value: sanitizeInlineText(value),
+        },
+        {
+          coalesceKey: typingCoalesceKey(session.nodeId, session.key),
+          label: "Text bearbeiten",
+        },
+      );
+    } catch (error) {
+      message(error instanceof Error ? error.message : "Text konnte nicht gespeichert werden.");
+    }
+  }
+
+  function startInline(target: { element: DomElement; nodeId: string; key: string }): void {
+    finishInline();
+    inlineSession = {
+      nodeId: target.nodeId,
+      key: target.key,
+      original: target.element.textContent ?? "",
+      element: target.element,
+    };
+    target.element.setAttribute("contenteditable", "plaintext-only");
+    target.element.focus?.();
+    options.onState?.(stateOf());
+  }
+
+  // Enter, a click elsewhere or a focus loss: keep the edit, drop the mode.
+  function finishInline(): void {
+    if (inlineSession === null) return;
+    inlineSession.element.removeAttribute("contenteditable");
+    inlineSession = null;
+    refresh();
+    options.onState?.(stateOf());
+  }
+
+  // Escape: back to the original text; the coalesced burst entry is consumed,
+  // so Cmd+Z afterwards undoes the *previous* action (artifacts/24 §2).
+  function revertInline(): void {
+    const session = inlineSession;
+    if (session === null) return;
+    if (inlineValue() !== session.original) {
+      store.apply(
+        {
+          op: "setNodeProp",
+          id: session.nodeId,
+          key: session.key,
+          value: session.original,
+        },
+        {
+          coalesceKey: typingCoalesceKey(session.nodeId, session.key),
+          label: "Text bearbeiten",
+        },
+      );
+    }
+    const top = store.history.top();
+    if (top !== null && top.coalesceKey === typingCoalesceKey(session.nodeId, session.key)) {
+      store.history.remove(top.id);
+    }
+    session.element.textContent = session.original;
+    session.element.removeAttribute("contenteditable");
+    inlineSession = null;
+    message("Inline-Text zurückgesetzt");
+    refresh();
+    options.onState?.(stateOf());
+  }
+
+  // --------------------------------------------------------- keyboard (P7)
+  // One shortcut layer for the outer document and every frame: Cmd+Z /
+  // Shift+Cmd+Z, Cmd+D, Delete, Escape (one level up), Enter (one level down),
+  // Cmd+0. Text entry and an open sheet keep their own keys.
+  function isTextEntry(target: unknown): boolean {
+    const element = target as (DomElement & { isContentEditable?: boolean }) | null;
+    if (element === null || element === undefined) return false;
+    const tag = (element as { tagName?: string }).tagName?.toUpperCase();
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+    return element.isContentEditable === true;
+  }
+
+  function selectedOrNull(): string | null {
+    return selectedId();
+  }
+
+  function duplicateSelected(): void {
+    const id = selectedOrNull();
+    if (id === null || id === store.document.rootNodeId) return;
+    try {
+      store.apply({ op: "duplicateNode", id }, { label: "Ebene duplizieren" });
+      message(null);
+    } catch (error) {
+      message(error instanceof Error ? error.message : "Duplizieren nicht möglich.");
+    }
+  }
+
+  function deleteSelected(): void {
+    const id = selectedOrNull();
+    if (id === null || id === store.document.rootNodeId) return;
+    try {
+      store.apply({ op: "deleteNode", id }, { label: "Ebene löschen" });
+      message(null);
+    } catch (error) {
+      message(error instanceof Error ? error.message : "Löschen nicht möglich.");
+    }
+  }
+
+  function shortcut(event: DomEvent): void {
+    const mod = event.metaKey === true || event.ctrlKey === true;
+    const key = event.key?.toLowerCase();
+    if (mod && event.key === "0") {
+      event.preventDefault?.();
+      setZoom(1);
+      return;
+    }
+    if (mod && key === "z") {
+      event.preventDefault?.();
+      if (event.shiftKey === true) {
+        if (store.redo()) message(null);
+      } else if (store.undo()) {
+        message(null);
+      }
+      return;
+    }
+    if (mod && key === "y") {
+      event.preventDefault?.();
+      if (store.redo()) message(null);
+      return;
+    }
+    if (mod && key === "d") {
+      event.preventDefault?.();
+      duplicateSelected();
+      return;
+    }
+    if (mod && key === "c") {
+      event.preventDefault?.();
+      const id = selectedOrNull();
+      if (id !== null && copyNode(store, id)) message("Ebene kopiert");
+      return;
+    }
+    if (mod && key === "v") {
+      event.preventDefault?.();
+      const pasted = pasteNode(store, selectedOrNull());
+      if (pasted === null) {
+        message("Die Zwischenablage ist leer oder die Quelle fehlt.");
+        return;
+      }
+      store.select(pasted);
+      options.onState?.(stateOf());
+      message(null);
+      return;
+    }
+    if ((event.key === "Delete" || event.key === "Backspace") && !isTextEntry(event.target)) {
+      event.preventDefault?.();
+      deleteSelected();
+      return;
+    }
+    if (event.key === "Escape") {
+      if (event.defaultPrevented === true) return;
+      // The frame handler reverts a running inline edit before this runs.
+      if (inlineSession !== null) return;
+      if (selectedOrNull() === null) return;
+      event.preventDefault?.();
+      store.selectParent();
+      options.onState?.(stateOf());
+      return;
+    }
+    if (event.key === "Enter" && !isTextEntry(event.target)) {
+      const id = selectedOrNull();
+      if (id === null) return;
+      const child = firstChildId(store.document, id);
+      if (child === null) return;
+      event.preventDefault?.();
+      store.select(child);
+      options.onState?.(stateOf());
+    }
+  }
+
   function bindFrame(entry: MountedFrame): void {
     entry.doc.addEventListener("click", (event: DomEvent) => {
       // Live shows the real page (M4 Stufe 1): links and islands keep their
       // own behaviour, the editor chrome stays out.
       if (mode === "live") return;
+      // While a text is being edited, clicks inside the leaf place the caret;
+      // a click elsewhere commits the burst first.
+      if (inlineSession !== null) {
+        const target = event.target as DomElement | null;
+        if (inlineSession.element.contains?.(target) === true) return;
+        finishInline();
+      }
       // A click in a sheet makes it the active breakpoint (dimming cue).
       setBreakpoint(entry.device);
-      applyResolution(resolveClick(store.document, hitNodeId(event.target)));
+      // Alt walks one step up the tree (the inspect ladder): the click selects
+      // the parent of what the pointer hit.
+      const hit = hitNodeId(event.target);
+      const id =
+        event.altKey === true && hit !== null
+          ? (locateParent(store.document, hit)?.parent.nodeId ?? hit)
+          : hit;
+      applyResolution(resolveClick(store.document, id));
     });
     entry.doc.addEventListener("dblclick", (event: DomEvent) => {
       if (mode === "live") return;
+      const inline = inlineTargetOf(event.target);
+      if (inline !== null) {
+        event.preventDefault?.();
+        startInline(inline);
+        return;
+      }
       applyResolution(resolveClick(store.document, hitNodeId(event.target), { double: true }));
+    });
+    entry.doc.addEventListener("input", (event: DomEvent) => {
+      const session = inlineSession;
+      if (session === null) return;
+      if ((event.target as DomElement | null) !== session.element) return;
+      writeInline(session.element.textContent ?? "");
+    });
+    entry.doc.addEventListener("focusout", (event: DomEvent) => {
+      const session = inlineSession;
+      if (session === null) return;
+      const related = (event as { relatedTarget?: unknown }).relatedTarget ?? null;
+      if (related === session.element) return;
+      finishInline();
+    });
+    entry.doc.addEventListener("keydown", (event: DomEvent) => {
+      if (inlineSession !== null) {
+        if (event.key === "Escape") {
+          event.preventDefault?.();
+          revertInline();
+          return;
+        }
+        if (event.key === "Enter") {
+          event.preventDefault?.();
+          finishInline();
+          return;
+        }
+        if (event.key === "Tab") {
+          // Tab never walks into the content (ui-plan section 17).
+          event.preventDefault?.();
+          finishInline();
+          return;
+        }
+        // The text field keeps the rest of its keys (copy/paste of text, not
+        // of the node).
+        return;
+      }
+      if (mode === "live") return;
+      if (event.key === "Tab") {
+        // The design frame is not a tab stop; the editor chrome owns the
+        // focus order (ui-plan section 17: "Der Fokus geht nie in den
+        // Canvas-Inhalt").
+        event.preventDefault?.();
+        return;
+      }
+      if (event.defaultPrevented === true) return;
+      shortcut(event);
     });
   }
 
@@ -568,9 +796,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       doc,
       body: null,
       rules: null,
-      label: null,
       frameLabel,
-      markers: [],
     };
     mounted.push(entry);
     iframe.addEventListener("load", () => {
@@ -583,8 +809,6 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       entry.doc = resolved;
       entry.body = resolved.body;
       entry.rules = null;
-      entry.label = null;
-      entry.markers = [];
       bindFrame(entry);
       drop.attachFrame({
         device: entry.device,
@@ -593,15 +817,29 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
         wrap: entry.wrap,
         scale: entry.frame.scale,
       });
+      markers.attachFrame(overlayFrame(entry));
       refresh();
     });
     iframe.setAttribute("srcdoc", frameDoc(options.frameStyles ?? []));
+  }
+
+  function overlayFrame(entry: MountedFrame): OverlayFrame {
+    return {
+      device: entry.device,
+      doc: entry.doc,
+      body: entry.body,
+      wrap: entry.wrap,
+      scale: entry.frame.scale,
+      mode,
+      viewport: { width: entry.frame.width ?? 0, height: entry.frame.height ?? 0 },
+    };
   }
 
   // One frame in live mode (the active breakpoint, real size), three sheets in
   // design. Switching rebuilds the frames: the live frame starts from the
   // baseline state, and the design frames drop any runtime the live mode wrote.
   function rebuildFrames(): void {
+    finishInline();
     for (const entry of mounted) entry.wrap.remove();
     mounted.length = 0;
     for (const spec of canvasFrames(zoom, { mode, breakpoint })) mountFrame(spec);
@@ -638,14 +876,11 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       entry.wrap.setAttribute("data-active", String(active));
       if (active) entry.wrap.removeAttribute("title");
       else entry.wrap.setAttribute("title", "Zum Bearbeiten aktivieren");
-      if (mode === "design") {
-        markSelectedNode(entry, selected);
-        paintSelection(entry, selected);
-      } else {
-        markSelectedNode(entry, null);
-        clearMarkers(entry);
-      }
     }
+    // Selection chrome lives in the portal (ticket 16); live shows the real
+    // page without it. `flush` keeps the ring in step with zoom and rebuilds.
+    markers.setSelection(mode === "design" ? selected : null);
+    markers.flush();
   }
 
   // Live mode runs the release runtime (M4 Stufe 1): the same contract the bake
@@ -669,11 +904,16 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     const tree = canvasNodeTree(store.document);
     for (const entry of mounted) {
       if (entry.body === null) continue;
-      renderer.mount(entry.frame, entry.body, {
-        tree,
-        registry: options.registry,
-        breakpoint: entry.device,
-      });
+      // While an inline edit runs the frame DOM belongs to the user: React
+      // would rewrite the leaf and drop the caret. The document still updates
+      // through the store gate; commit and revert refresh the frames.
+      if (inlineSession === null) {
+        renderer.mount(entry.frame, entry.body, {
+          tree,
+          registry: options.registry,
+          breakpoint: entry.device,
+        });
+      }
       updateRules(entry);
       setForcedState(entry);
       if (mode === "live") injectLiveMotion(entry);
@@ -729,23 +969,28 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     options.onState?.(stateOf());
   }
 
-  function insert(primitive: string, position: InsertPosition): boolean {
+  function insert(
+    primitive: string,
+    position: InsertPosition,
+    props: Record<string, import("@senify/widget-engine").PropValue> = {},
+  ): boolean {
     const target = selectedId();
     if (target === null) {
       message("Wähle zuerst einen Knoten im Canvas.");
       return false;
     }
-    return drop.insertAt(target, primitive, position);
+    return drop.insertAt(target, primitive, position, props);
   }
 
   const unsubscribe = store.subscribe(() => refresh());
 
-  // Strg/Cmd+0 resets the design zoom to 100 % (Ticket 03 Punkt 6).
+  // The outer shortcut layer (Ticket 03 Punkt 7): the frame handler covers the
+  // content focus, this one covers the editor chrome. Text entry keeps its own
+  // keys, an open history sheet swallows the rest.
   const onKeydown = (event: DomEvent): void => {
-    if ((event.metaKey === true || event.ctrlKey === true) && event.key === "0") {
-      event.preventDefault?.();
-      setZoom(1);
-    }
+    if (historyDialog.isOpen()) return;
+    if (isTextEntry(event.target)) return;
+    shortcut(event);
   };
   doc.addEventListener("keydown", onKeydown);
 
@@ -787,6 +1032,8 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       doc.removeEventListener("keydown", onKeydown);
       global.removeEventListener?.("resize", onResize);
       drop.destroy();
+      markers.destroy();
+      historyDialog.destroy();
       renderer.destroy();
       root.remove();
     },

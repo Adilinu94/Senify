@@ -20,6 +20,20 @@ export {
   type FitOptions,
 } from "./device.ts";
 export { CANVAS_CHROME_CSS, canvasFrameRules, type FrameRules, type FrameRulesOptions } from "./rules.ts";
+export {
+  OVERLAY_HANDLE_HIT,
+  OVERLAY_LABEL_HEIGHT,
+  OVERLAY_THROTTLE_MS,
+  badgeTop,
+  intersectsViewport,
+  isOccluded,
+  overlayRect,
+  type MarkerOverlay,
+  type MarkerOverlayOptions,
+  type OverlayFrame,
+  type OverlayRect,
+  type OverlayViewport,
+} from "./overlay.ts";
 export { canvasNodeTree } from "./adapter.ts";
 export {
   assertChildAllowed,

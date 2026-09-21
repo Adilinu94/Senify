@@ -13,6 +13,8 @@ export * from "./consistency.ts";
 export * from "./migration.ts";
 export * from "./ids.ts";
 export * from "./store.ts";
+export * from "./clipboard.ts";
+export * from "./components.ts";
 export * from "./persist.ts";
 export * from "./ui-state.ts";
 export * from "./session.ts";

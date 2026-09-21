@@ -39,18 +39,6 @@ export {
   type HttpTransportOptions,
   type MutationsSessionOptions,
 } from "./client.ts";
-export {
-  fromPuckData,
-  toPuckData,
-  PUCK_CHILDREN_KEY,
-  PUCK_ID_KEY,
-  PUCK_META_KEY,
-  PUCK_RESERVED_KEYS,
-  type PuckComponent,
-  type PuckData,
-  type PuckNodeMeta,
-  type PuckProps,
-} from "./adapter.ts";
 export { emitBatch, emitMutations, type ActionContext } from "./mutations.ts";
 export {
   activeView,
@@ -190,28 +178,6 @@ export {
   type SpotlightDialogOptions,
 } from "./spotlight/dialog.ts";
 export { ensureSpotlightStyles, SPOTLIGHT_STYLES } from "./spotlight/styles.ts";
-export {
-  assertInlineEditingSupported,
-  buildPuckConfig,
-  INLINE_ROOT_UNSUPPORTED,
-  isPuckIssueCovered,
-  KNOWN_ISSUE_IDS,
-  loadPuck,
-  PUCK_KNOWN_ISSUES,
-  PUCK_PACKAGE,
-  PUCK_PACKAGE_SPEC,
-  PUCK_VERSION,
-  puckFieldFor,
-  puckOverrides,
-  SENIFY_FIELD_TYPES,
-  type PuckComponentConfig,
-  type PuckConfig,
-  type PuckField,
-  type PuckFieldType,
-  type PuckKnownIssue,
-  type PuckModule,
-  type PuckOverrides,
-} from "./puck.ts";
 export {
   isOverrideBreakpoint,
   OVERRIDE_BREAKPOINTS,

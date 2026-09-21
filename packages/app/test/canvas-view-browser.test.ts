@@ -177,6 +177,110 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
         .toBe("rgb(18, 52, 86)");
       await tab.screenshot({ path: join(shotDir, "04b-inspector.png") });
 
+      // Ticket 02 Rest: Geraetepunkte an jedem Style-Control, Token-Picker,
+      // Pseudo-Zustaende mit erzwungener Vorschau und die offene Property-Zeile.
+      // Die Aenderungen bleiben im Rahmen der v1-Sektion (E2-Strangler): nur
+      // Props, die die Divider-Sektion kennt, erreichen die Speicher-Route.
+      const backgroundRow = tab.locator('.senify-inspector__field[data-key="background"]');
+      expect(await backgroundRow.locator(".senify-inspector__dot").count()).toBe(3);
+      expect(
+        await backgroundRow
+          .locator('.senify-inspector__dot[data-active="true"]')
+          .getAttribute("data-dot"),
+      ).toBe("desktop");
+
+      // Token-Picker: das Panel oeffnet an einem Style-Feld mit Theme-Familie
+      // und listet die Tokens (der Klick selbst schreibt `{ $token: … }` — die
+      // Modell- und Transporttests decken den Wert ab).
+      const marginRow = tab.locator('.senify-inspector__field[data-key="margin"]');
+      await marginRow.locator('[data-control="tokens"]').click();
+      await tab.waitForSelector('[data-role="token-panel"]', { timeout: 10000 });
+      expect(await tab.locator('[data-role="token-panel"] .ed-token__tile').count()).toBeGreaterThan(0);
+      expect(
+        await tab.locator('[data-role="token-panel"] .ed-token__tile').first().getAttribute("data-ref"),
+      ).toBeTruthy();
+      await marginRow.locator('[data-control="tokens"]').click();
+      await expect.poll(async () => tab.locator('[data-role="token-panel"]').count()).toBe(0);
+
+      // Geraetepunkt: Ansicht wechseln, am aktiven Punkt den Override anlegen
+      // (materialisiert den Wert), Signal und Reset, dann zurueck auf Desktop.
+      await backgroundRow.locator('.senify-inspector__dot[data-dot="tablet"]').click();
+      await expect
+        .poll(async () =>
+          tab
+            .locator('.senify-canvas__frame[data-device="tablet"]')
+            .getAttribute("data-active"),
+        )
+        .toBe("true");
+      await backgroundRow.locator('.senify-inspector__dot[data-dot="tablet"]').click();
+      await expect
+        .poll(async () =>
+          backgroundRow
+            .locator('.senify-inspector__dot[data-dot="tablet"]')
+            .getAttribute("data-override"),
+        )
+        .toBe("true");
+      await expect
+        .poll(async () => backgroundRow.locator('[data-action="reset"]').count())
+        .toBe(1);
+      await backgroundRow.locator('[data-action="reset"]').click();
+      await expect
+        .poll(async () =>
+          backgroundRow
+            .locator('.senify-inspector__dot[data-dot="tablet"]')
+            .getAttribute("data-override"),
+        )
+        .toBe("false");
+      await backgroundRow.locator('.senify-inspector__dot[data-dot="desktop"]').click();
+
+      // Pseudo-Zustand: der Chip erzwingt die Vorschau, eine Aenderung landet
+      // als scoped Rule mit `:hover` im Frame (Site-Route, nicht Seite).
+      await tab.locator('.senify-inspector__state[data-state="hover"]').click();
+      await expect
+        .poll(async () => tab.locator(".senify-canvas").getAttribute("data-preview-state"))
+        .toBe("hover");
+      const hoverColor = backgroundRow.locator('input[data-control="color-text"]');
+      await hoverColor.fill("#00ff00");
+      await hoverColor.dispatchEvent("change");
+      await expect
+        .poll(async () =>
+          tab.evaluate(`(() => {
+            const frame = document.querySelector('.senify-canvas__frame[data-device="desktop"] iframe');
+            const style = frame && frame.contentDocument.querySelector('style[data-senify-canvas-rules]');
+            return style ? style.textContent.includes('.__senify_scope_') && style.textContent.includes(':hover') : false;
+          })()`),
+        )
+        .toBe(true);
+      await tab.locator('.senify-inspector__state[data-state="basis"]').click();
+      await expect
+        .poll(async () => tab.locator(".senify-canvas").getAttribute("data-preview-state"))
+        .toBe("none");
+
+      // Offene Property-Zeile: eine eigene Property erreicht die Sektion
+      // sofort und erscheint als eigene Zeile (hier eine, die die Sektion
+      // kennt — der freie CSS-Fall ist im Modelltest belegt).
+      const styleBody = tab.locator('.senify-inspector__body[data-tab="style"]');
+      await styleBody.locator('[data-control="prop-name"]').fill("textColor");
+      await styleBody.locator('[data-control="prop-value"]').fill("#ff0000");
+      await styleBody.locator('[data-action="add-prop"]').click();
+      await expect
+        .poll(async () =>
+          dividerNode.evaluate((element) => {
+            const target = element as unknown as {
+              ownerDocument: {
+                defaultView: {
+                  getComputedStyle(node: unknown): { color: string };
+                };
+              };
+            };
+            return target.ownerDocument.defaultView.getComputedStyle(element).color;
+          }),
+        )
+        .toBe("rgb(255, 0, 0)");
+      expect(
+        await tab.locator('.senify-inspector__field[data-key="textColor"]').count(),
+      ).toBe(1);
+
       // The explorer (ticket 03, slice 1): the tree lists the layers, a click
       // selects into the same store, the arrows move the selection and the
       // context menu opens with Shift+F10 and returns the focus on Escape.

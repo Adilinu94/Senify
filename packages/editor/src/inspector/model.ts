@@ -14,6 +14,7 @@
 // behind an override, and every device that carries one — the device dots.
 
 import {
+  baseKeyOf,
   DEVICES,
   getPrimitive,
   hasDeviceOverride,
@@ -24,8 +25,10 @@ import {
   type Choice,
   type Control,
   type Device,
+  type DeviceValueMap,
   type PrimitiveDefinition,
   type PropValue,
+  type StateName,
   type StyleGroup,
   type Unit,
 } from "@senify/widget-engine";
@@ -34,10 +37,11 @@ import {
   MOTION_PRESETS,
   type MotionProfile,
   type MotionSpec,
+  type TokenGroup,
 } from "@senify/section-sdk";
 import type { Theme } from "@senify/tokens";
 import { tokenOptionsFor, type TokenOption } from "../panels.ts";
-import type { EditorDocument, EditorNode } from "../state/document.ts";
+import type { EditorDocument, EditorNode, StyleRule } from "../state/document.ts";
 import type { EditorTabId } from "../state/ui-state.ts";
 
 // The tab vocabulary lives in the session state (`state/ui-state.ts`) so the
@@ -63,13 +67,15 @@ export type InspectorFieldKind =
   | "icon"
   | "repeater";
 
-// Where a committed value goes: node props (device-aware), the motion spec, or
-// the structural flags of the node.
+// Where a committed value goes: node props (device-aware), the motion spec, the
+// structural flags of the node, or the pseudo-state bag of the node's scoped
+// rule (ticket 02 point 5).
 export type InspectorCommit =
   | { kind: "prop" }
   | { kind: "motion" }
   | { kind: "hidden"; device: "tablet" | "mobile" }
-  | { kind: "locked" };
+  | { kind: "locked" }
+  | { kind: "state"; state: StateName };
 
 export type InspectorField = {
   key: string;
@@ -96,7 +102,8 @@ export type InspectorField = {
   fields: InspectorField[] | undefined;
   minItems: number | undefined;
   maxItems: number | undefined;
-  // Colour fields: the theme tokens and the literal rule.
+  // Style fields: the theme tokens for this property (colour, spacing, radius,
+  // shadow, type) and the literal rule (ticket 02 point 6).
   tokenOptions: TokenOption[] | undefined;
   tokenRef: string | null;
   literalWarning: string | undefined;
@@ -132,6 +139,9 @@ export type InspectorModel = {
   title: string;
   tabs: InspectorTab[];
   motion: InspectorMotion;
+  // The pseudo state the Style tab edits: `null` is the base state; a state
+  // reads and writes the node's scoped style rule (ticket 02 point 5).
+  state: StateName | null;
 };
 
 export type BuildInspectorInput = {
@@ -140,6 +150,7 @@ export type BuildInspectorInput = {
   breakpoint: Device;
   theme?: Theme;
   profile?: MotionProfile;
+  state?: StateName | null;
 };
 
 export const INSPECTOR_TABS: readonly { id: InspectorTabId; label: string }[] = [
@@ -250,11 +261,13 @@ export function numberPart(value: PropValue | undefined): number | undefined {
 }
 
 function styleFieldsFor(
+  document: EditorDocument,
   definition: PrimitiveDefinition | undefined,
   node: EditorNode,
   breakpoint: Device,
   theme: Theme | undefined,
   controlKeys: Set<string>,
+  state: StateName | null,
 ): InspectorGroup[] {
   // A real catalog primitive narrows the style groups it offers; an unknown or
   // legacy type keeps the whole table (ADR-0005: the groups are an order, not a
@@ -263,7 +276,13 @@ function styleFieldsFor(
     definition !== undefined && definition.legacy !== true
       ? new Set<StyleGroup>(definition.styleGroups)
       : undefined;
-  const values = node.props;
+  // The base state reads the node props; a pseudo state reads the state bag of
+  // the node's scoped rule (ticket 02 point 5) — same device grammar, same
+  // control family.
+  const scoped = state === null ? undefined : scopedRuleFor(document, node.id);
+  const values: DeviceValueMap =
+    state === null ? node.props : (scoped?.states?.[state] ?? {});
+  const commit: InspectorCommit = state === null ? { kind: "prop" } : { kind: "state", state };
   const collected = new Map<StyleGroup, InspectorField[]>();
   for (const spec of STYLE_PROPERTIES) {
     if (groups !== undefined && !groups.has(spec.group)) continue;
@@ -276,7 +295,7 @@ function styleFieldsFor(
       key: spec.prop,
       label: labelForStyleProp(spec.prop),
       kind: fieldKindForStyle(spec.kind),
-      commit: { kind: "prop" },
+      commit,
       value,
       base,
       // Desktop carries the base value; only the narrower devices can be an
@@ -306,16 +325,62 @@ function styleFieldsFor(
       source: "style",
       styleGroup: spec.group,
     };
-    attachColorTokens(field, theme);
+    attachTokenOptions(
+      field,
+      theme,
+      field.kind === "color" ? "color" : tokenGroupForStyleProp(spec.prop),
+    );
     const list = collected.get(spec.group) ?? [];
     list.push(field);
     collected.set(spec.group, list);
   }
-  return [...collected.entries()].map(([group, fields]) => ({
+  // The open property space (O13/ADR-0005): every value the node carries that
+  // neither a catalog control nor the style table owns stays editable — the
+  // "Custom CSS" surface of ticket 02 point 3.
+  const custom: InspectorField[] = [];
+  const known = new Set(STYLE_PROPERTIES.map((spec) => canonical(spec.prop)));
+  for (const key of Object.keys(values)) {
+    const base = canonical(baseKeyOf(key));
+    if (known.has(base) || controlKeys.has(base)) continue;
+    custom.push({
+      key: base,
+      label: base,
+      kind: "text",
+      commit,
+      value: resolveDeviceValue(values, base, breakpoint),
+      base: resolveDeviceValue(values, base, "desktop"),
+      overridden: breakpoint !== "desktop" && hasDeviceOverride(values, base, breakpoint),
+      overrideDevices: DEVICES.filter(
+        (device) => device !== "desktop" && hasDeviceOverride(values, base, device),
+      ),
+      responsive: true,
+      hidden: false,
+      min: undefined,
+      max: undefined,
+      step: undefined,
+      units: undefined,
+      options: undefined,
+      alpha: false,
+      linkable: false,
+      fields: undefined,
+      minItems: undefined,
+      maxItems: undefined,
+      tokenOptions: undefined,
+      tokenRef: null,
+      literalWarning: undefined,
+      source: "style",
+      styleGroup: undefined,
+    });
+  }
+  const groupsOut = [...collected.entries()].map(([group, fields]) => ({
     id: `style/${group}`,
     label: STYLE_GROUP_LABELS[group],
     fields,
   }));
+  if (custom.length > 0) {
+    groupsOut.push({ id: "style/custom", label: "Eigene Properties", fields: custom });
+  }
+  return groupsOut;
 }
 
 function fieldKindForStyle(kind: string): InspectorFieldKind {
@@ -405,12 +470,55 @@ function labelForStyleProp(prop: string): string {
   return STYLE_PROP_LABELS[prop] ?? prop;
 }
 
-function attachColorTokens(field: InspectorField, theme: Theme | undefined): void {
-  if (field.kind !== "color") return;
-  if (theme === undefined) return;
-  field.tokenOptions = tokenOptionsFor("color", theme);
+// Which theme token family belongs to a style property (ticket 02 point 6:
+// the token picker next to the free text, `{ $token: … }` stays the DNA).
+// Colours resolve through the field kind; these are the non-colour families.
+const TOKEN_GROUP_BY_PROP: Record<string, TokenGroup> = {
+  padding: "space",
+  margin: "space",
+  gap: "space",
+  inset: "space",
+  top: "space",
+  right: "space",
+  bottom: "space",
+  left: "space",
+  width: "space",
+  height: "space",
+  minWidth: "space",
+  maxWidth: "space",
+  minHeight: "space",
+  maxHeight: "space",
+  borderRadius: "radius",
+  boxShadow: "shadow",
+  fontFamily: "type",
+  fontSize: "type",
+};
+
+export function tokenGroupForStyleProp(prop: string): TokenGroup | undefined {
+  return TOKEN_GROUP_BY_PROP[prop];
+}
+
+// The scoped style rule of a node — the carrier of the pseudo-state values
+// (ticket 02 point 5). A node owns at most one (consistency rule).
+export function scopedRuleFor(
+  document: EditorDocument,
+  nodeId: string,
+): StyleRule | undefined {
+  return (document.styleRules ?? []).find(
+    (rule) => rule.kind === "scoped" && rule.scope?.nodeId === nodeId,
+  );
+}
+
+function attachTokenOptions(
+  field: InspectorField,
+  theme: Theme | undefined,
+  group: TokenGroup | undefined,
+): void {
+  if (group === undefined || theme === undefined) return;
+  field.tokenOptions = tokenOptionsFor(group, theme);
   field.tokenRef = tokenRefOf(field.value);
   if (
+    field.kind === "color" &&
     field.tokenRef === null &&
     typeof field.value === "string" &&
     field.tokenOptions.length > 0
@@ -462,7 +570,7 @@ function controlToField(
     source: "control",
     styleGroup: undefined,
   };
-  attachColorTokens(field, theme);
+  attachTokenOptions(field, theme, field.kind === "color" ? "color" : undefined);
   return field;
 }
 
@@ -870,7 +978,16 @@ export function buildInspector(input: BuildInspectorInput): InspectorModel | nul
     controlToField(control, node, breakpoint, input.theme),
   );
   const controlKeys = new Set(controls.map((control) => canonical(control.key)));
-  const styleGroups = styleFieldsFor(definition, node, breakpoint, input.theme, controlKeys);
+  const state = input.state ?? null;
+  const styleGroups = styleFieldsFor(
+    input.document,
+    definition,
+    node,
+    breakpoint,
+    input.theme,
+    controlKeys,
+    state,
+  );
   const profile = input.profile ?? "standard";
   const motion = motionFields(node, input.theme, profile);
   const content: InspectorGroup[] = [
@@ -897,6 +1014,7 @@ export function buildInspector(input: BuildInspectorInput): InspectorModel | nul
       groups: groupsFor(tab.id),
     })),
     motion,
+    state,
   };
 }
 

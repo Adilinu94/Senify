@@ -84,8 +84,9 @@ import {
 // renderer is injected; every edit funnels through the canonical mutations of
 // the engine.
 
-// The one seam where Puck enters: the program shell injects the pinned Puck
-// binding behind this interface, the editor core stays renderer-agnostic.
+// The one seam where the frame renderer enters: the program shell injects the
+// React renderer (or a stub in tests) behind this interface, the editor core
+// stays renderer-agnostic.
 export type FrameRenderContext = {
   tree: NodeTree;
   registry: Registry;
@@ -296,7 +297,7 @@ function h(doc: DomDocument, tag: string, spec?: ElementSpec): DomElement {
 
 // Default renderer: draws the node tree of one breakpoint as editable stubs,
 // so frame manager, overlays, panels, inline text and deep links are fully
-// exercisable without Puck. The shell swaps in the real frame renderer.
+// exercisable without the React renderer. The shell swaps in the real one.
 export function createStubRenderer(): FrameRenderer {
   return {
     mount(frame, body, context): void {
@@ -439,7 +440,7 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
   const syncStageMode = (): void => {
     stage.setAttribute("data-mode", state.mode);
   };
-  // #1829: our own top bar and overlays, never Puck's default action bar.
+  // Our own top bar and overlays, never a builder's default action bar.
   const topbar = h(doc, "div", {
     className: "senify-editor__topbar",
     data: { toolbar: "senify" },

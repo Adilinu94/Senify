@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { defaultTheme } from "@senify/tokens";
+import { createScopedRule } from "@senify/widget-engine";
 import { buildInspector, motionSpecFrom, numberPart, tokenRefOf, unitOfValue } from "@senify/editor";
 import { baseStore } from "./state/fixtures.ts";
 
@@ -239,6 +240,124 @@ describe("buildInspector", () => {
       breakpoint: "desktop",
     });
     expect(model).toBeNull();
+  });
+
+  it("offers theme tokens for non-colour style fields (point 6)", () => {
+    const store = baseStore();
+    const model = buildInspector({
+      document: store.document,
+      nodeId: "head000001",
+      breakpoint: "desktop",
+      theme: defaultTheme(),
+    });
+    const fields = model?.tabs
+      .flatMap((tab) => tab.groups)
+      .flatMap((group) => group.fields);
+    const margin = fields?.find((entry) => entry.key === "margin");
+    expect(margin?.tokenOptions?.length ?? 0).toBeGreaterThan(0);
+    // A spacing literal is normal, not a warning (the warning is the colour rule).
+    expect(margin?.literalWarning).toBeUndefined();
+    const shadow = fields?.find((entry) => entry.key === "boxShadow");
+    expect(shadow?.tokenOptions?.length ?? 0).toBeGreaterThan(0);
+    const fontSize = fields?.find((entry) => entry.key === "fontSize");
+    expect(fontSize?.tokenOptions?.length ?? 0).toBeGreaterThan(0);
+    // The heading owns no border group: no radius tokens offered.
+    expect(fields?.some((entry) => entry.key === "borderRadius")).toBe(false);
+  });
+
+  it("reads and commits pseudo states through the scoped rule (point 5)", () => {
+    const store = baseStore();
+    store.apply({
+      op: "upsertStyleRule",
+      rule: {
+        ...createScopedRule({ id: "scope00001", nodeId: "head000001" }),
+        states: { hover: { color: "#00ff00", fontSize_mobile: 30 } },
+      },
+    });
+    const model = buildInspector({
+      document: store.document,
+      nodeId: "head000001",
+      breakpoint: "desktop",
+      state: "hover",
+    });
+    expect(model?.state).toBe("hover");
+    const color = model?.tabs
+      .flatMap((tab) => tab.groups)
+      .flatMap((group) => group.fields)
+      .find((entry) => entry.key === "color");
+    expect(color?.value).toBe("#00ff00");
+    expect(color?.commit).toEqual({ kind: "state", state: "hover" });
+    expect(color?.overridden).toBe(false);
+
+    const mobile = buildInspector({
+      document: store.document,
+      nodeId: "head000001",
+      breakpoint: "mobile",
+      state: "hover",
+    });
+    const mobileFont = mobile?.tabs
+      .flatMap((tab) => tab.groups)
+      .flatMap((group) => group.fields)
+      .find((entry) => entry.key === "fontSize");
+    expect(mobileFont?.value).toBe(30);
+    expect(mobileFont?.overridden).toBe(true);
+    expect(mobileFont?.overrideDevices).toContain("mobile");
+
+    // The base state still reads the node props, not the rule.
+    const base = buildInspector({
+      document: store.document,
+      nodeId: "head000001",
+      breakpoint: "desktop",
+    });
+    expect(base?.state).toBeNull();
+    const baseColor = base?.tabs
+      .flatMap((tab) => tab.groups)
+      .flatMap((group) => group.fields)
+      .find((entry) => entry.key === "color");
+    expect(baseColor?.commit).toEqual({ kind: "prop" });
+  });
+
+  it("keeps own CSS properties editable in the custom group (point 3)", () => {
+    const store = baseStore();
+    store.apply({
+      op: "setNodeProp",
+      id: "head000001",
+      key: "textShadow",
+      value: "0 0 2px #000",
+    });
+    const model = buildInspector({
+      document: store.document,
+      nodeId: "head000001",
+      breakpoint: "desktop",
+    });
+    const custom = model?.tabs.find((tab) => tab.id === "style")?.groups.find(
+      (group) => group.id === "style/custom",
+    );
+    const field = custom?.fields.find((entry) => entry.key === "textShadow");
+    expect(field?.value).toBe("0 0 2px #000");
+    expect(field?.kind).toBe("text");
+    expect(field?.commit).toEqual({ kind: "prop" });
+
+    // A custom property inside a pseudo state stays reachable there.
+    store.apply({
+      op: "upsertStyleRule",
+      rule: {
+        ...createScopedRule({ id: "scope00001", nodeId: "head000001" }),
+        states: { focus: { scrollSnapType: "x mandatory" } },
+      },
+    });
+    const stateModel = buildInspector({
+      document: store.document,
+      nodeId: "head000001",
+      breakpoint: "desktop",
+      state: "focus",
+    });
+    const stateCustom = stateModel?.tabs
+      .find((tab) => tab.id === "style")
+      ?.groups.find((group) => group.id === "style/custom");
+    const stateField = stateCustom?.fields.find((entry) => entry.key === "scrollSnapType");
+    expect(stateField?.value).toBe("x mandatory");
+    expect(stateField?.commit).toEqual({ kind: "state", state: "focus" });
   });
 });
 

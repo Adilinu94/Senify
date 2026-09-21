@@ -4,9 +4,11 @@
 // the cascade decision (O1, `packages/widget-engine/src/css/cascade.ts`):
 //
 //   1. the editor chrome, unlayered: the forced-state preview
-//      (`data-force-state`) and the canvas markers. Unlayered CSS beats every
-//      layer, so chrome and the forced state always win where they must, no
-//      matter how specific a rule inside a layer is;
+//      (`data-force-state`) and the pointer cursor on nodes. Unlayered CSS
+//      beats every layer, so chrome and the forced state always win where they
+//      must, no matter how specific a rule inside a layer is. The selection and
+//      hover markers are not here anymore — they live in the editor portal over
+//      the stage (`canvas/overlay.ts`, ticket 16);
 //   2. the widget base stylesheet (`PRIMITIVE_BASE_CSS`), which is the very
 //      same string the release carries (`bake.ts` writes it as
 //      `assets/primitive-base.css`). It is the weakest authored stage: the
@@ -29,10 +31,13 @@ import {
   PRIMITIVE_BASE_CSS,
   compileCss,
   forcedStateCss,
+  type CssDocument,
+  type CssNode,
   type StateName,
   type TokenResolver,
 } from "@senify/widget-engine";
 import { toCssDocument, type EditorDocument } from "../state/document.ts";
+import { canvasNodeTreeWithCopies } from "./adapter.ts";
 
 export type FrameRulesOptions = {
   // The pseudo state the editor forces for the preview, or `null` for none.
@@ -57,56 +62,55 @@ export type FrameRules = {
   css: string;
 };
 
-// The marker elements live inside the frame so they scale with it; they are
-// unlayered chrome and never take pointer events (clicks fall through to the
-// node underneath). Class names are shared with `canvas.ts`.
+// The marker chrome moved to the editor portal (ticket 16): selection and
+// hover rings, the Plaetzchen and the handles are DOM over the stage
+// (`canvas/overlay.ts`), so the frame carries no editor colour at all. What
+// stays is the interaction hint the content itself must give: the pointer
+// cursor on every node and the text cursor on an inline-editable leaf
+// (ticket 03 point 4).
 export const CANVAS_CHROME_CSS = `
 /* Editor chrome — unlayered, so it beats the authored layer. */
-.senify-canvas__marker {
-  position: absolute;
-  z-index: 2147483000;
-  box-sizing: border-box;
-  pointer-events: none;
-}
-.senify-canvas__marker[data-kind="hover"] {
-  outline: 1px dashed #0ea5e9;
-  outline-offset: -1px;
-}
-.senify-canvas__marker[data-kind="selection"] {
-  outline: 2px solid #d004d4;
-  outline-offset: -2px;
-}
-.senify-canvas__label {
-  position: absolute;
-  z-index: 2147483001;
-  max-width: 16rem;
-  overflow: hidden;
-  padding: 0.1rem 0.4rem;
-  border-radius: 0.2rem 0.2rem 0.2rem 0;
-  background: #d004d4;
-  color: #ffffff;
-  font: 600 11px/1.5 system-ui, sans-serif;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  pointer-events: none;
-}
-.senify-canvas__handle {
-  position: absolute;
-  z-index: 2147483001;
-  width: 8px;
-  height: 8px;
-  border: 1px solid #ffffff;
-  background: #d004d4;
-  pointer-events: none;
-}
 [data-node-id] { cursor: pointer; }
+[data-inline] { cursor: text; }
 `.trim();
+
+// A component instance renders the definition's subtree under fresh node ids
+// (the inliner). The definition's own node rules (props, classes, states) are
+// keyed by the original ids, so they are emitted once more per copy — otherwise
+// an instance would lose the styling the definition was built with, and canvas
+// and bake would drift apart. The copies are pure data (`inlineComponents`).
+function withComponentCopies(
+  cssDocument: CssDocument,
+  document: EditorDocument,
+): CssDocument {
+  const { copies } = canvasNodeTreeWithCopies(document);
+  if (copies.size === 0) return cssDocument;
+  const extra: CssNode[] = [];
+  const walk = (nodes: readonly CssNode[]): void => {
+    for (const node of nodes) {
+      for (const copyId of copies.get(node.id) ?? []) {
+        if (copyId === node.id) continue;
+        extra.push({
+          ...node,
+          id: copyId,
+          children: undefined,
+          slots: undefined,
+        });
+      }
+      walk(node.children ?? []);
+      for (const list of Object.values(node.slots ?? {})) walk(list);
+    }
+  };
+  walk(cssDocument.nodes);
+  if (extra.length === 0) return cssDocument;
+  return { ...cssDocument, nodes: [...cssDocument.nodes, ...extra] };
+}
 
 export function canvasFrameRules(
   document: EditorDocument,
   options: FrameRulesOptions = {},
 ): FrameRules {
-  const cssDocument = toCssDocument(document);
+  const cssDocument = withComponentCopies(toCssDocument(document), document);
   const authored = compileCss(
     cssDocument,
     options.resolveToken === undefined

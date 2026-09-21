@@ -4855,10 +4855,45 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
   });
 
   // Der Ebenen-Explorer (Ticket 03 Scheibe 1): Tree mit Tastatur,
-  // Kontextmenue und Fokus-Rueckgabe.
+  // Kontextmenue und Fokus-Rueckgabe. Die Site-Tabs (Ticket 03 Punkt 1)
+  // speisen sich aus den Caches der Shell: Seiten wechseln, Medien als Bild
+  // einfuegen; Vorlagen/Komponenten folgen mit ihrer Datenquelle (O14).
   const explorer = editor.createExplorer({
     host: explorerHost,
     store: session.store,
+    tabs: [
+      {
+        id: "pages",
+        label: "Seiten",
+        empty: "Keine Seiten gefunden.",
+        items: () =>
+          pagesCache.map((entry) => ({
+            id: entry.id,
+            label: entry.title || entry.path,
+            hint: entry.path,
+            active: entry.id === pageId,
+          })),
+        onActivate: (id) => {
+          location.hash = `#/projects/${siteId}/pages/${id}`;
+        },
+      },
+      {
+        id: "media",
+        label: "Medien",
+        empty: "Keine Dateien in der Mediathek.",
+        items: () =>
+          mediaCache.map((asset) => ({
+            id: asset.id,
+            label: asset.name,
+            hint: asset.kind,
+          })),
+        onActivate: (id) => {
+          if (canvas.insert("image", "after", { asset: id })) {
+            statusEl.textContent = "";
+          }
+        },
+      },
+    ],
     onMessage: (message) => {
       if (message !== null) statusEl.textContent = message;
     },
@@ -4911,6 +4946,11 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
     breakpoint: savedUi.device,
     onTabChange: (tab) => session.setTab(tab),
     onBreakpointChange: (device) => session.setDevice(device),
+    // Der Zustand des Style-Tabs ist die Vorschau (Ticket 02 Punkt 5): der
+    // Canvas erzwingt :hover/:focus/:active/:disabled am gewaehlten Knoten.
+    onStateChange: (state) => {
+      canvas.setPreviewState(state);
+    },
     onMessage: (message) => {
       if (message !== null) statusEl.textContent = message;
     },

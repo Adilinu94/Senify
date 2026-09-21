@@ -105,4 +105,19 @@ export function createRegistry(): Registry {
   return registry;
 }
 
+// The widget catalog next to the section catalog: consumers that describe the
+// placeable surface (the MCP server's widget tools, ticket 02 point 7) read it
+// here instead of taking a direct dependency on the widget engine.
+export {
+  getPrimitive,
+  PRIMITIVES,
+  primitiveTypes,
+  STYLE_PROPERTIES,
+  stylePropertyFor,
+  type Control,
+  type PrimitiveDefinition,
+  type StyleGroup,
+  type StylePropertySpec,
+} from "@senify/widget-engine";
+
 export * from "./style.ts";

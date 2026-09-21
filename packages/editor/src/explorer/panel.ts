@@ -16,7 +16,13 @@ import { getPrimitive } from "@senify/widget-engine";
 import { requireDocument, type DomDocument, type DomElement, type DomEvent } from "../dom.ts";
 import { EDITOR_ROOT_ATTRIBUTE } from "../ui/tokens.ts";
 import { EditorStore } from "../state/store.ts";
+import { copyNode, pasteNode, wrapNode } from "../state/clipboard.ts";
 import { locateParent } from "../state/document.ts";
+import {
+  dropPositionFor,
+  isContainer,
+  resolveMoveDrop,
+} from "../canvas/dnd.ts";
 import {
   buildEditorLayerList,
   editorNodeSnippet,
@@ -24,9 +30,28 @@ import {
 } from "../explorer.ts";
 import { ensureExplorerStyles } from "./styles.ts";
 
+export type ExplorerTabItem = {
+  id: string;
+  label: string;
+  hint?: string;
+  active?: boolean;
+};
+
+// A site tab next to the layer tree (ticket 03 point 1): pages and media come
+// from the shell, so the panel stays free of engine calls. Templates and
+// components follow once their data sources exist (O14).
+export type ExplorerTabSource = {
+  id: string;
+  label: string;
+  items: () => ExplorerTabItem[];
+  onActivate?: (id: string) => void;
+  empty?: string;
+};
+
 export type ExplorerOptions = {
   host: DomElement;
   store: EditorStore;
+  tabs?: readonly ExplorerTabSource[];
   onMessage?: (message: string | null) => void;
 };
 
@@ -37,6 +62,8 @@ export type ExplorerInstance = {
   focus(nodeId: string | null): void;
   openContextMenu(nodeId: string): void;
   menuOpen(): boolean;
+  setTab(id: string): void;
+  activeTab(): string;
   destroy(): void;
 };
 
@@ -82,6 +109,11 @@ export function createExplorer(options: ExplorerOptions): ExplorerInstance {
   const countEl = h(doc, "span", { className: "senify-explorer__count" });
   header.appendChild(countEl);
   root.appendChild(header);
+  const tabRow = h(doc, "div", {
+    className: "senify-explorer__tabs",
+    attributes: { role: "tablist", "aria-label": "Bereiche" },
+  });
+  if ((options.tabs ?? []).length > 0) root.appendChild(tabRow);
   const body = h(doc, "div", { className: "senify-explorer__body" });
   root.appendChild(body);
 
@@ -89,7 +121,10 @@ export function createExplorer(options: ExplorerOptions): ExplorerInstance {
   let focusedId: string | null = null;
   let renaming: { id: string; key: string } | null = null;
   let menu: { id: string; left: number; top: number } | null = null;
+  let activeTab = "layers";
   let unsubscribe: (() => void) | null = null;
+  let dragId: string | null = null;
+  let dropRow: DomElement | null = null;
 
   // The root starts open (the tree is useless collapsed) and every ancestor of
   // the focused node is expanded, so the selection is always visible.
@@ -174,11 +209,15 @@ export function createExplorer(options: ExplorerOptions): ExplorerInstance {
     danger?: boolean;
   }[] = [
     { id: "rename", label: "Umbenennen", hint: "F2" },
-    { id: "duplicate", label: "Duplizieren" },
+    { id: "duplicate", label: "Duplizieren", hint: "Cmd+D" },
+    { id: "copy", label: "Kopieren", hint: "Cmd+C" },
+    { id: "paste", label: "Einfügen", hint: "Cmd+V" },
+    { id: "wrap", label: "In Container einwickeln" },
     { id: "up", label: "Nach oben" },
     { id: "down", label: "Nach unten" },
     { id: "hidden", label: "Ausblenden" },
     { id: "locked", label: "Sperren" },
+    { id: "reveal", label: "Im Navigator zeigen" },
     { id: "delete", label: "Löschen", hint: "Entf", danger: true },
   ];
 
@@ -256,6 +295,37 @@ export function createExplorer(options: ExplorerOptions): ExplorerInstance {
       case "duplicate":
         apply({ op: "duplicateNode", id }, "Ebene duplizieren");
         break;
+      case "copy":
+        if (copyNode(options.store, id)) report("Ebene kopiert");
+        else report("Die Wurzel lässt sich nicht kopieren.");
+        break;
+      case "paste": {
+        const pasted = pasteNode(options.store, id);
+        if (pasted === null) {
+          report("Die Zwischenablage ist leer oder die Quelle fehlt.");
+          break;
+        }
+        focusedId = pasted;
+        options.store.select(pasted);
+        report(null);
+        break;
+      }
+      case "wrap": {
+        const container = wrapNode(options.store, id);
+        if (container === null) report("Einwickeln ist hier nicht möglich.");
+        else {
+          focusedId = container;
+          options.store.select(container);
+          report(null);
+        }
+        break;
+      }
+      case "reveal":
+        focusedId = id;
+        ensureVisible(id);
+        render();
+        focusTreeItem(id);
+        return;
       case "up":
         move(id, -1);
         break;
@@ -362,6 +432,26 @@ export function createExplorer(options: ExplorerOptions): ExplorerInstance {
         event.preventDefault?.();
         if (item === undefined) return;
         openMenu(item.id);
+        return;
+      }
+      case "c": {
+        if (event.metaKey !== true && event.ctrlKey !== true) return;
+        event.preventDefault?.();
+        if (item === undefined) return;
+        if (copyNode(options.store, item.id)) report("Ebene kopiert");
+        return;
+      }
+      case "v": {
+        if (event.metaKey !== true && event.ctrlKey !== true) return;
+        event.preventDefault?.();
+        const pasted = pasteNode(options.store, item?.id ?? null);
+        if (pasted === null) {
+          report("Die Zwischenablage ist leer oder die Quelle fehlt.");
+          return;
+        }
+        focusedId = pasted;
+        options.store.select(pasted);
+        report(null);
         return;
       }
       case "Escape": {
@@ -495,6 +585,71 @@ export function createExplorer(options: ExplorerOptions): ExplorerInstance {
       openMenu(item.id, { left: event.clientX ?? 0, top: event.clientY ?? 0 });
     });
     row.addEventListener("keydown", handleTreeKey);
+    // Drag and drop (ticket 03 point 1): a row drags onto another row; the
+    // drop position comes from the row's vertical halves (containers take
+    // "into" in the middle band). `resolveMoveDrop` is the visible cycle
+    // guard — a node never lands inside its own subtree.
+    row.setAttribute("draggable", "true");
+    row.addEventListener("dragstart", (event) => {
+      dragId = item.id;
+      const transfer = (event as {
+        dataTransfer?: { setData?: (format: string, value: string) => void; effectAllowed?: string };
+      }).dataTransfer;
+      transfer?.setData?.("text/plain", item.id);
+      if (transfer !== undefined) transfer.effectAllowed = "move";
+    });
+    row.addEventListener("dragover", (event) => {
+      if (dragId === null || dragId === item.id) return;
+      event.preventDefault?.();
+      const rect = row.getBoundingClientRect?.() ?? { left: 0, top: 0, width: 0, height: 0 };
+      const position = dropPositionFor(
+        rect,
+        event.clientY ?? 0,
+        isContainer(options.store.document, item.id),
+      );
+      const resolution = resolveMoveDrop(options.store.document, dragId, item.id, position);
+      if (dropRow !== null && dropRow !== row) dropRow.removeAttribute("data-drop");
+      dropRow = row;
+      row.setAttribute(
+        "data-drop",
+        resolution.kind === "reject" ? "rejected" : position,
+      );
+    });
+    row.addEventListener("drop", (event) => {
+      if (dragId === null) return;
+      event.preventDefault?.();
+      const source = dragId;
+      const target = item.id;
+      const rect = row.getBoundingClientRect?.() ?? { left: 0, top: 0, width: 0, height: 0 };
+      const position = dropPositionFor(
+        rect,
+        event.clientY ?? 0,
+        isContainer(options.store.document, target),
+      );
+      dragId = null;
+      dropRow?.removeAttribute("data-drop");
+      dropRow = null;
+      const resolution = resolveMoveDrop(options.store.document, source, target, position);
+      if (resolution.kind === "reject") {
+        report(resolution.reason);
+        render();
+        return;
+      }
+      if (resolution.kind !== "move") {
+        render();
+        return;
+      }
+      apply(
+        { op: "moveNode", id: source, target: resolution.target, index: resolution.index },
+        "Ebene verschieben",
+      );
+      render();
+    });
+    row.addEventListener("dragend", () => {
+      dragId = null;
+      dropRow?.removeAttribute("data-drop");
+      dropRow = null;
+    });
     return row;
   }
 
@@ -558,13 +713,82 @@ export function createExplorer(options: ExplorerOptions): ExplorerInstance {
     return list;
   }
 
+  function renderTabs(): void {
+    tabRow.textContent = "";
+    const entries = [
+      { id: "layers", label: "Ebenen" },
+      ...(options.tabs ?? []).map((tab) => ({ id: tab.id, label: tab.label })),
+    ];
+    for (const entry of entries) {
+      const active = entry.id === activeTab;
+      const button = h(doc, "button", {
+        className: "senify-explorer__tab",
+        text: entry.label,
+        data: { tab: entry.id, active: String(active) },
+        attributes: {
+          type: "button",
+          role: "tab",
+          "aria-selected": String(active),
+          tabindex: active ? "0" : "-1",
+        },
+      });
+      button.addEventListener("click", () => setTab(entry.id));
+      tabRow.appendChild(button);
+    }
+  }
+
+  function renderTabList(source: ExplorerTabSource): void {
+    const list = h(doc, "div", {
+      className: "senify-explorer__tablist",
+      attributes: { role: "list", "aria-label": source.label },
+    });
+    const entries = source.items();
+    if (entries.length === 0) {
+      list.appendChild(
+        h(doc, "div", {
+          className: "senify-explorer__tabempty",
+          text: source.empty ?? "Nichts vorhanden.",
+        }),
+      );
+    }
+    for (const entry of entries) {
+      const row = h(doc, "button", {
+        className: "senify-explorer__tabitem",
+        data: { id: entry.id, active: String(entry.active === true) },
+        attributes: { type: "button", title: entry.hint ?? entry.label },
+      });
+      row.appendChild(h(doc, "span", { className: "senify-explorer__label", text: entry.label }));
+      if (entry.hint !== undefined) {
+        row.appendChild(h(doc, "span", { className: "senify-explorer__tabhint", text: entry.hint }));
+      }
+      row.addEventListener("click", () => source.onActivate?.(entry.id));
+      list.appendChild(row);
+    }
+    body.appendChild(list);
+  }
+
+  function setTab(id: string): void {
+    if (activeTab === id) return;
+    activeTab = id;
+    render();
+  }
+
   function render(): void {
+    renderTabs();
+    body.textContent = "";
+    if (activeTab !== "layers") {
+      const source = (options.tabs ?? []).find((tab) => tab.id === activeTab);
+      if (source !== undefined) {
+        renderTabList(source);
+        return;
+      }
+      activeTab = "layers";
+    }
     const all = items();
     if (focusedId === null) focusedId = selectedId() ?? all[0]?.id ?? null;
     ensureVisible(focusedId ?? options.store.document.rootNodeId);
     const visible = visibleItems();
     countEl.textContent = `${all.length}`;
-    body.textContent = "";
     const tree = h(doc, "div", {
       className: "senify-explorer__tree",
       attributes: { role: "tree", "aria-label": "Ebenen des Dokuments" },
@@ -601,6 +825,8 @@ export function createExplorer(options: ExplorerOptions): ExplorerInstance {
     },
     openContextMenu: (nodeId: string) => openMenu(nodeId),
     menuOpen: () => menu !== null,
+    setTab,
+    activeTab: () => activeTab,
     destroy: () => {
       unsubscribe?.();
       unsubscribe = null;
