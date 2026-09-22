@@ -91,6 +91,8 @@ export type ComponentDefinition = {
   rootChildId: NodeId | null;
   /** The slots the definition declares, in tree order. */
   slots: ComponentSlotSpec[];
+  /** The named props overlays the definition offers (props.variants). */
+  variants: ComponentVariants;
 };
 
 export type InlineResult = {
@@ -196,7 +198,18 @@ export function componentDrift(tree: NodeTree): ComponentDrift[] {
 export type ComponentOverrides = Record<NodeId, Record<string, PropValue>>;
 
 export function instanceOverrides(instance: Node): ComponentOverrides {
-  const value: PropValue | undefined = instance.props["overrides"];
+  return parseOverrides(instance.props["overrides"]);
+}
+
+// Variants (ticket 04): named props overlays of a definition. The definition
+// declares them (`props.variants`: name -> part id -> props), an instance
+// activates any number of them (`props.variants`: name list). Overlays merge in
+// definition order and the instance's own overrides always win — so a variant
+// swap keeps the instance's overrides, because those are addressed by the
+// stable part ids, not by the variant.
+export type ComponentVariants = Record<string, ComponentOverrides>;
+
+function parseOverrides(value: PropValue | undefined): ComponentOverrides {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return {};
   }
@@ -206,6 +219,65 @@ export function instanceOverrides(instance: Node): ComponentOverrides {
     out[partId] = { ...props };
   }
   return out;
+}
+
+export function definitionVariants(definition: {
+  props: Record<string, PropValue>;
+}): ComponentVariants {
+  const value: PropValue | undefined = definition.props["variants"];
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const out: ComponentVariants = {};
+  for (const [name, overlay] of Object.entries(value)) {
+    if (name === "") continue;
+    out[name] = parseOverrides(overlay);
+  }
+  return out;
+}
+
+// The variant names an instance activates. A single string counts as one
+// activation (agents write both shapes); everything else is ignored.
+export function instanceVariants(instance: {
+  props: Record<string, PropValue>;
+}): string[] {
+  const value: PropValue | undefined = instance.props["variants"];
+  if (typeof value === "string") return value === "" ? [] : [value];
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const entry of value) {
+    if (typeof entry === "string" && entry !== "" && !out.includes(entry)) out.push(entry);
+  }
+  return out;
+}
+
+// The merged overlay of every active variant, in definition order. Unknown
+// names are ignored (the writer reports them through `unknownVariants`).
+export function activeVariantProps(
+  definition: { props: Record<string, PropValue> },
+  instance: { props: Record<string, PropValue> },
+): ComponentOverrides {
+  const variants = definitionVariants(definition);
+  const active = instanceVariants(instance);
+  const merged: ComponentOverrides = {};
+  for (const name of Object.keys(variants)) {
+    if (!active.includes(name)) continue;
+    for (const [partId, props] of Object.entries(variants[name] ?? {})) {
+      merged[partId] = { ...merged[partId], ...props };
+    }
+  }
+  return merged;
+}
+
+// Activated variants the definition does not declare. They stay in the data
+// (dropping them silently would be a quiet loss) but the editor and the MCP
+// surface them so a human or agent can clean up.
+export function unknownVariants(
+  definition: { props: Record<string, PropValue> },
+  instance: { props: Record<string, PropValue> },
+): string[] {
+  const declared = definitionVariants(definition);
+  return instanceVariants(instance).filter((name) => declared[name] === undefined);
 }
 
 export type ComponentPart = {
@@ -267,6 +339,7 @@ export function componentDefinitions(tree: NodeTree): ComponentDefinition[] {
         rootNodeId: node.id,
         rootChildId: node.children?.[0] ?? null,
         slots: collectSlots(tree, node.id),
+        variants: definitionVariants(node),
       });
       return;
     }
@@ -447,7 +520,12 @@ export function inlineComponents(tree: NodeTree, options: InlineOptions = {}): I
       return stubFor(instance, `Component "${definition.name}" has more than one root`);
     }
     const nextStack = [...stack, definition.id];
-    const copyId = copyNode(definition.rootChildId, instance, nextStack);
+    // The active variants of the instance: their overlays apply to every part
+    // copy before the instance's own overrides (which always win).
+    const definitionNode = tree.nodes[definition.id];
+    const variantProps =
+      definitionNode === undefined ? {} : activeVariantProps(definitionNode, instance);
+    const copyId = copyNode(definition.rootChildId, instance, nextStack, variantProps);
     if (copyId !== null) {
       noteCopy(definition.id, copyId);
       // The instance maps to its root copy: a scoped style rule the editor wrote
@@ -475,16 +553,21 @@ export function inlineComponents(tree: NodeTree, options: InlineOptions = {}): I
     originalId: NodeId,
     instance: Node,
     stack: readonly NodeId[],
+    variantProps: ComponentOverrides,
   ): NodeId | null => {
     const original = tree.nodes[originalId];
     if (original === undefined) return null;
     if (original.type === COMPONENT_DEFINITION_TYPE) return null;
     if (original.type === COMPONENT_INSTANCE_TYPE) {
       // A nested instance is itself a part: the outer instance may swap it or
-      // write its overrides. Merge first, then expand as usual.
-      const patch = instanceOverrides(instance)[original.id];
+      // write its overrides (a variant may swap it too). Merge first, then
+      // expand as usual.
+      const patch = {
+        ...(variantProps[original.id] ?? {}),
+        ...(instanceOverrides(instance)[original.id] ?? {}),
+      };
       const merged: Node =
-        patch === undefined
+        Object.keys(patch).length === 0
           ? original
           : { ...original, props: { ...original.props, ...patch } };
       return expandInstance(merged, stack);
@@ -517,16 +600,22 @@ export function inlineComponents(tree: NodeTree, options: InlineOptions = {}): I
     copies.set(original.id, list);
     origins.set(id, { instanceId: instance.id, partId: original.id });
     // The override bag of the instance wins over the definition's own props —
-    // for this copy only. The definition stays untouched.
+    // for this copy only. The active variants of the instance sit between
+    // definition and overrides (their overlays are the definition's variation,
+    // the overrides are the instance's own decision).
     const patch = instanceOverrides(instance)[original.id];
     const copy: Node = {
       ...original,
       id,
-      props: { ...original.props, ...(patch ?? {}) },
+      props: {
+        ...original.props,
+        ...(variantProps[original.id] ?? {}),
+        ...(patch ?? {}),
+      },
     };
     if (original.children !== undefined) {
       copy.children = original.children
-        .map((childId) => copyNode(childId, instance, stack))
+        .map((childId) => copyNode(childId, instance, stack, variantProps))
         .filter((childId): childId is NodeId => childId !== null);
     } else {
       delete copy.children;
@@ -535,7 +624,7 @@ export function inlineComponents(tree: NodeTree, options: InlineOptions = {}): I
       const slots: Record<string, NodeId[]> = {};
       for (const [slot, list] of Object.entries(original.slots)) {
         slots[slot] = list
-          .map((childId) => copyNode(childId, instance, stack))
+          .map((childId) => copyNode(childId, instance, stack, variantProps))
           .filter((childId): childId is NodeId => childId !== null);
       }
       copy.slots = slots;

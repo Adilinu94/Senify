@@ -5,6 +5,7 @@ import { buildInspector, motionSpecFrom, numberPart, tokenRefOf, unitOfValue } f
 import {
   createComponent,
   setComponentOverride,
+  setComponentVariants,
 } from "@senify/editor/state";
 import { baseStore } from "./state/fixtures.ts";
 
@@ -472,6 +473,64 @@ describe("buildInspector", () => {
     expect(desktopText?.value).toBe("Hallo");
     expect(desktopText?.overridden).toBe(false);
     expect(desktopText?.overrideDevices).toEqual(["tablet"]);
+  });
+
+  // Ticket 04, variants: the instance gets one switch per declared variant; the
+  // active ones are on, and the commit writes the instance's variant list (the
+  // definition's overlays stay where they are).
+  it("offers the declared variants as switches on an instance", () => {
+    const store = baseStore();
+    const definitionId = createComponent(store, "head000001", "karte");
+    const instanceId = store.document.nodes["sec0000001"]?.children?.[0] ?? "";
+    store.applyBatch(
+      [
+        {
+          op: "setNodeProp",
+          id: definitionId!,
+          key: "variants",
+          value: {
+            groß: { head000001: { text: "Groß" } },
+            dunkel: { head000001: { text: "Dunkel" } },
+          },
+        },
+      ],
+      { label: "Varianten anlegen" },
+    );
+    setComponentVariants(store, instanceId, ["dunkel"]);
+
+    const model = buildInspector({
+      document: store.document,
+      nodeId: instanceId,
+      breakpoint: "desktop",
+      theme: defaultTheme(),
+    });
+    const group = model?.tabs
+      .find((tab) => tab.id === "content")
+      ?.groups.find((entry) => entry.id === "content/variants");
+    expect(group?.label).toBe("Varianten");
+    expect(group?.fields.map((field) => field.key)).toEqual(["groß", "dunkel"]);
+    const active = group?.fields.find((field) => field.key === "dunkel");
+    expect(active?.kind).toBe("switcher");
+    expect(active?.value).toBe(true);
+    expect(active?.overridden).toBe(true);
+    expect(active?.commit).toEqual({ kind: "variant" });
+    expect(group?.fields.find((field) => field.key === "groß")?.value).toBe(false);
+
+    // A definition without variants gets no group.
+    const store2 = baseStore();
+    createComponent(store2, "head000001", "karte");
+    const plainInstance = store2.document.nodes["sec0000001"]?.children?.[0] ?? "";
+    const plain = buildInspector({
+      document: store2.document,
+      nodeId: plainInstance,
+      breakpoint: "desktop",
+      theme: defaultTheme(),
+    });
+    expect(
+      plain?.tabs
+        .find((tab) => tab.id === "content")
+        ?.groups.some((entry) => entry.id === "content/variants"),
+    ).toBe(false);
   });
 });
 

@@ -30,7 +30,7 @@ import {
 import type { MotionProfile, MotionSpec } from "@senify/section-sdk";
 import type { Theme } from "@senify/tokens";
 import { requireDocument, type DomDocument, type DomElement } from "../dom.ts";
-import { setComponentOverride } from "../state/components.ts";
+import { setComponentOverride, setComponentVariants, variantsOf } from "../state/components.ts";
 import { newNodeId } from "../state/ids.ts";
 import { EditorStore, typingCoalesceKey } from "../state/store.ts";
 import { EDITOR_ROOT_ATTRIBUTE } from "../ui/tokens.ts";
@@ -190,6 +190,10 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       commitOverride(nodeId, commit.partId, deviceKey(key, breakpoint), value);
       return;
     }
+    if (commit.kind === "variant") {
+      toggleVariant(nodeId, key, value === true);
+      return;
+    }
     apply(
       { op: "setNodeProp", id: nodeId, key, value, device: breakpoint },
       `Feld ${key}`,
@@ -217,6 +221,26 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     }
   }
 
+  // A variant toggle writes the instance's variant list (ticket 04): the
+  // overlays live in the definition, the activation in the instance — the
+  // instance's overrides survive a swap, because they are addressed by part ids.
+  function toggleVariant(nodeId: string, name: string, active: boolean): void {
+    const current = variantsOf(options.store, nodeId);
+    const next = active
+      ? [...current, name]
+      : current.filter((entry) => entry !== name);
+    try {
+      setComponentVariants(options.store, nodeId, next);
+      report(null);
+    } catch (error) {
+      const category =
+        error !== null && typeof error === "object" && "category" in error
+          ? String((error as { category: unknown }).category)
+          : "";
+      report(MESSAGES[category] ?? messageOf(error));
+    }
+  }
+
   function clearProp(nodeId: string, field: InspectorField): void {
     clearField(nodeId, field.key, field.commit);
   }
@@ -228,6 +252,10 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     }
     if (commit.kind === "override") {
       commitOverride(nodeId, commit.partId, deviceKey(key, breakpoint), null);
+      return;
+    }
+    if (commit.kind === "variant") {
+      toggleVariant(nodeId, key, false);
       return;
     }
     apply(
@@ -819,6 +847,10 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
             if (typeof preset === "string" && preset !== "") {
               commitMotion(nodeId, preset, field, field.value !== true);
             }
+            return;
+          }
+          if (field.commit.kind === "variant") {
+            toggleVariant(nodeId, field.key, field.value !== true);
             return;
           }
           commitProp(nodeId, field, field.value !== true);

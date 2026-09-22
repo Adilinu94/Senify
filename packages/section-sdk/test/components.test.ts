@@ -4,15 +4,19 @@ import {
   COMPONENT_INSTANCE_TYPE,
   COMPONENT_SLOT_TYPE,
   COMPONENT_STUB_TYPE,
+  activeVariantProps,
   componentDefinitions,
   componentDrift,
   componentParts,
+  definitionVariants,
   inlineComponents,
   instanceOverrides,
+  instanceVariants,
   instanceVersion,
   readSlotSpec,
   staleOverrides,
   unfilledSlots,
+  unknownVariants,
   wouldCreateCycle,
   type Node,
   type NodeTree,
@@ -365,5 +369,119 @@ describe("instance overrides", () => {
     // The stale entry does not break the inliner; it simply has no target.
     const result = inlineComponents(tree);
     expect(result.problems).toEqual([]);
+  });
+});
+
+describe("component variants", () => {
+  // A definition with two named overlays; the instance activates any number of
+  // them. Overlays merge in definition order, the instance's own overrides win.
+  function withVariants(active: string[], overrides?: Record<string, Record<string, string>>): NodeTree {
+    const tree = fixture();
+    tree.nodes["def0000001"] = node("def0000001", COMPONENT_DEFINITION_TYPE, {
+      props: {
+        name: "card",
+        variants: {
+          large: { head000001: { text: "Groß" } },
+          dark: { head000001: { text: "Dunkel" } },
+        },
+      },
+      children: ["head000001"],
+    });
+    tree.nodes["inst000001"] = node("inst000001", COMPONENT_INSTANCE_TYPE, {
+      props: {
+        componentId: "def0000001",
+        variants: active,
+        ...(overrides === undefined ? {} : { overrides }),
+      },
+      slots: { content: ["body000001"] },
+    });
+    return tree;
+  }
+
+  function headingTexts(tree: NodeTree) {
+    const result = inlineComponents(tree);
+    expect(result.problems).toEqual([]);
+    return Object.values(result.tree.nodes)
+      .filter((entry) => entry.type === "heading")
+      .map((entry) => entry.props["text"]);
+  }
+
+  it("reads the declared variants and the active ones", () => {
+    const tree = withVariants(["large", "dark"]);
+    const definition = tree.nodes["def0000001"]!;
+    expect(Object.keys(definitionVariants(definition))).toEqual(["large", "dark"]);
+    expect(instanceVariants(tree.nodes["inst000001"]!)).toEqual(["large", "dark"]);
+    // A single string counts as one activation; malformed values are ignored.
+    expect(instanceVariants(node("x", COMPONENT_INSTANCE_TYPE, { props: { variants: "large" } }))).toEqual(["large"]);
+    expect(instanceVariants(node("x", COMPONENT_INSTANCE_TYPE, { props: { variants: 42 } }))).toEqual([]);
+    // Merged overlay in definition order.
+    expect(activeVariantProps(definition, tree.nodes["inst000001"]!)).toEqual({
+      head000001: { text: "Dunkel" },
+    });
+    expect(unknownVariants(definition, tree.nodes["inst000001"]!)).toEqual([]);
+  });
+
+  it("merges the active overlays into the copy, never into the definition", () => {
+    const tree = withVariants(["large"]);
+    expect(headingTexts(tree)).toEqual(["Groß"]);
+    // The definition keeps its own props.
+    expect(tree.nodes["head000001"]?.props["text"]).toBe("Karte");
+    // An inactive variant changes nothing.
+    expect(headingTexts(withVariants(["dark"]))).toEqual(["Dunkel"]);
+    expect(headingTexts(withVariants([]))).toEqual(["Karte"]);
+  });
+
+  it("keeps the instance's overrides across a variant swap", () => {
+    const overrides = { head000001: { text: "Eigen" } };
+    // The override wins over every variant overlay — activating another variant
+    // never drops it, because it is addressed by the part id.
+    expect(headingTexts(withVariants(["large"], overrides))).toEqual(["Eigen"]);
+    expect(headingTexts(withVariants(["dark"], overrides))).toEqual(["Eigen"]);
+  });
+
+  it("swaps a nested instance through a variant", () => {
+    // Definition A embeds an instance of B; the variant "c" swaps that nested
+    // instance to C — the definition itself stays untouched.
+    const tree: NodeTree = {
+      rootNodeId: "root000001",
+      nodes: {
+        root000001: node("root000001", "page", {
+          children: ["defa000001", "defb000001", "defc000001", "insta00001"],
+        }),
+        defa000001: node("defa000001", COMPONENT_DEFINITION_TYPE, {
+          props: {
+            name: "a",
+            variants: { c: { inner00001: { componentId: "defc000001" } } },
+          },
+          children: ["inner00001"],
+        }),
+        inner00001: node("inner00001", COMPONENT_INSTANCE_TYPE, {
+          props: { componentId: "defb000001" },
+        }),
+        defb000001: node("defb000001", COMPONENT_DEFINITION_TYPE, {
+          props: { name: "b" },
+          children: ["headb00001"],
+        }),
+        headb00001: node("headb00001", "heading", { props: { text: "B" } }),
+        defc000001: node("defc000001", COMPONENT_DEFINITION_TYPE, {
+          props: { name: "c" },
+          children: ["headc00001"],
+        }),
+        headc00001: node("headc00001", "heading", { props: { text: "C" } }),
+        insta00001: node("insta00001", COMPONENT_INSTANCE_TYPE, {
+          props: { componentId: "defa000001", variants: ["c"] },
+        }),
+      },
+    };
+    expect(headingTexts(tree)).toEqual(["C"]);
+    expect(tree.nodes["inner00001"]?.props["componentId"]).toBe("defb000001");
+  });
+
+  it("reports activated variants the definition does not declare", () => {
+    const tree = withVariants(["large", "weg"]);
+    const definition = tree.nodes["def0000001"]!;
+    expect(unknownVariants(definition, tree.nodes["inst000001"]!)).toEqual(["weg"]);
+    // Unknown names are ignored by the merge, not rendered.
+    expect(headingTexts(tree)).toEqual(["Groß"]);
   });
 });

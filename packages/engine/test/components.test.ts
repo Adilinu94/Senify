@@ -306,8 +306,45 @@ describe("component composition", () => {
     expect(draft.nodes["def-head"]?.props["headline"]).toBe("Titel");
   });
 
-  it("maps scoped rules of a definition part to every copy", () => {
+  // Variants (ticket 04): the definition declares named props overlays, the
+  // instance activates them; the composed copy carries the merged value while
+  // the definition keeps its own.
+  it("applies the active variant's overlay in the composition", () => {
     let counter = 0;
+    const draft: NodeTree = {
+      rootNodeId: "page-root",
+      nodes: {
+        "page-root": node("page-root", "page", {}, {
+          children: ["def-card", "inst-a"],
+        }),
+        "def-card": node("def-card", "__component", {
+          name: "Karte",
+          variants: { groß: { "def-head": { headline: "Groß" } } },
+        }, { children: ["def-root"] }),
+        "def-root": node("def-root", "container", {}, { children: ["def-head"] }),
+        "def-head": node("def-head", "block", { headline: "Titel" }),
+        "inst-a": node("inst-a", "__component_instance", {
+          componentId: "def-card",
+          variants: ["groß"],
+        }),
+      },
+    };
+    const composed = composePageTree({
+      layout: null,
+      template: null,
+      page: draft,
+      article: null,
+      createId: () => `n${counter++}`,
+    });
+    const texts = Object.values(composed.nodes)
+      .filter((entry) => entry.type === "block")
+      .map((entry) => entry.props["headline"]);
+    expect(texts).toEqual(["Groß"]);
+    // The definition itself was not touched.
+    expect(draft.nodes["def-head"]?.props["headline"]).toBe("Titel");
+  });
+
+  it("maps scoped rules of a definition part to every copy", () => {    let counter = 0;
     const draft: NodeTree = {
       rootNodeId: "page-root",
       nodes: {

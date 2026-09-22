@@ -41,6 +41,7 @@ import {
 } from "@senify/widget-engine";
 import { toCssDocument, type EditorDocument } from "../state/document.ts";
 import { editorOverrides } from "../state/components.ts";
+import { activeVariantProps } from "@senify/section-sdk";
 import { canvasNodeTreeWithCopies } from "./adapter.ts";
 
 export type FrameRulesOptions = {
@@ -84,11 +85,11 @@ export const CANVAS_CHROME_CSS = `
 // an instance would lose the styling the definition was built with, and canvas
 // and bake would drift apart. The copies are pure data (`inlineComponents`).
 //
-// Two more things ride the copy (ticket 04, styles per instance): the instance's
-// override bag is merged into the copy's props — an overridden *style* prop must
-// reach the compiler, not only the rendered tree — and a scoped rule of the
-// instance (or of a definition part) is emitted once per copy, anchored on the
-// copy id the DOM carries.
+// Two more things ride the copy (ticket 04, styles per instance): the active
+// variants and the override bag of the instance are merged into the copy's
+// props — an overridden *style* prop must reach the compiler, not only the
+// rendered tree — and a scoped rule of the instance (or of a definition part)
+// is emitted once per copy, anchored on the copy id the DOM carries.
 function withComponentCopies(
   cssDocument: CssDocument,
   document: EditorDocument,
@@ -103,12 +104,25 @@ function withComponentCopies(
         const origin = origins.get(copyId);
         const instance =
           origin === undefined ? undefined : document.nodes[origin.instanceId];
-        const patch =
+        const componentId =
+          instance === undefined ? undefined : instance.props["componentId"];
+        const definition =
+          typeof componentId === "string" ? document.nodes[componentId] : undefined;
+        // The variants sit between definition and overrides — the same order
+        // the inliner applies (`activeVariantProps`).
+        const variantPatch =
+          definition === undefined || instance === undefined
+            ? {}
+            : (activeVariantProps(definition, instance)[node.id] ?? {});
+        const overridePatch =
           instance === undefined ? undefined : editorOverrides(instance)[node.id];
+        const patch = { ...variantPatch, ...(overridePatch ?? {}) };
         extra.push({
           ...node,
           id: copyId,
-          ...(patch === undefined ? {} : { props: { ...node.props, ...patch } }),
+          ...(Object.keys(patch).length === 0
+            ? {}
+            : { props: { ...node.props, ...patch } }),
           children: undefined,
           slots: undefined,
         });

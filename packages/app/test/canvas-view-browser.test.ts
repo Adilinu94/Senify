@@ -545,14 +545,57 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
         .poll(async () => instanceItem.locator('[data-role="drift"]').count())
         .toBe(0);
 
-      // Live-Mitverfolgung (Ticket 05): eine fremde Mutation (hier direkt über
-      // die API) kommt per SSE an — die offene Seite lädt nach, der geänderte
-      // Knoten blinkt, das Bau-Protokoll nennt Akteur und Aktion.
       await tab.locator('button[data-action="canvas-save"]').click();
       await expect
         .poll(async () => (await tab.locator('[data-role="canvas-status"]').textContent()) ?? "")
         .toContain("Gespeichert");
 
+      // Varianten (Ticket 04): die Definition bekommt ein benanntes Overlay (per
+      // API — der Agenten-Weg ist `apply_mutations`), die Instanz aktiviert es
+      // im Inspektor, der Canvas zeigt den Overlay-Wert. Die Definition selbst
+      // behaelt ihren eigenen Text.
+      const definitionNodeId = (await renamedDefinition.getAttribute("data-node")) ?? "";
+      expect(definitionNodeId).not.toBe("");
+      const beforeVariant = (await (
+        await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)
+      ).json()) as { draftVersion: number };
+      const variantWrite = await post(`/api/pages/${page.id}/mutations`, {
+        baseDraftVersion: beforeVariant.draftVersion,
+        author,
+        mutations: [
+          {
+            op: "updateNodeProps",
+            id: definitionNodeId,
+            patch: { variants: { groß: { [heroId]: { headline: "Großer Hero" } } } },
+          },
+        ],
+      });
+      expect(variantWrite.status).toBe(200);
+      await tab.reload({ waitUntil: "domcontentloaded" });
+      await tab.waitForSelector(".senify-canvas", { timeout: 30000 });
+      const variantInstance = tab.locator(".senify-explorer__item", {
+        hasText: "Instanz · karte",
+      });
+      await expect.poll(async () => variantInstance.count()).toBe(1);
+      await variantInstance.click();
+      await tab.locator('.senify-inspector__tab[data-tab="content"]').click();
+      const variantSwitch = tab.locator(
+        '.senify-inspector__field[data-key="groß"] .ed-switch',
+      );
+      await expect.poll(async () => variantSwitch.count()).toBe(1);
+      await variantSwitch.click();
+      await expect
+        .poll(async () => (await desktopFrame().locator("body").textContent()) ?? "")
+        .toContain("Großer Hero");
+      await tab.locator('button[data-action="canvas-save"]').click();
+      await expect
+        .poll(async () => (await tab.locator('[data-role="canvas-status"]').textContent()) ?? "")
+        .toContain("Gespeichert");
+      await tab.screenshot({ path: join(shotDir, "14-komponente-variante.png") });
+
+      // Live-Mitverfolgung (Ticket 05): eine fremde Mutation (hier direkt über
+      // die API) kommt per SSE an — die offene Seite lädt nach, der geänderte
+      // Knoten blinkt, das Bau-Protokoll nennt Akteur und Aktion.
       const before = (await (
         await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)
       ).json()) as { draftVersion: number; draft: { rootNodeId: string } };

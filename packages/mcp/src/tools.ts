@@ -20,6 +20,8 @@ import {
   COMPONENT_SLOT_TYPE,
   componentDefinitions,
   componentDrift,
+  definitionVariants,
+  instanceVariants,
   instanceVersion,
   type NodeTree,
 } from "@senify/section-sdk";
@@ -346,8 +348,8 @@ function definitionVersion(tree: NodeTree, definitionId: string): number {
   );
 }
 
-// Every instance of one definition, with its pin and current override bag.
-// `outdated` marks the drift the update tool resolves.
+// Every instance of one definition, with its pin, its active variants and its
+// current override bag. `outdated` marks the drift the update tool resolves.
 function componentInstanceList(
   tree: NodeTree,
   definitionId: string,
@@ -355,6 +357,7 @@ function componentInstanceList(
   id: string;
   componentVersion: number;
   outdated: boolean;
+  variants: string[];
   overrides: Record<string, Record<string, unknown>>;
 }[] {
   const current = definitionVersion(tree, definitionId);
@@ -370,6 +373,7 @@ function componentInstanceList(
         id: node.id,
         componentVersion: pinned,
         outdated: pinned !== current,
+        variants: instanceVariants(node),
         overrides: readOverrideBag(node.props["overrides"]),
       };
     });
@@ -922,6 +926,7 @@ export const TOOLS: ToolDefinition[] = [
             version: definitionVersion(page.draft, node.id),
             parts: parts.length,
             slots: slots.map((slot) => slot.name),
+            variants: Object.keys(definitionVariants(node)),
             instances: instances.length,
             outdated: drift.length,
             instanceIds: instances.map((entry) => entry.id),
@@ -965,6 +970,7 @@ export const TOOLS: ToolDefinition[] = [
         version: definitionVersion(page.draft, componentId),
         parts,
         slots,
+        variants: definitionVariants(definition),
         drift: componentDrift(page.draft).filter(
           (entry) => entry.componentId === componentId,
         ),
@@ -1058,6 +1064,94 @@ export const TOOLS: ToolDefinition[] = [
         },
       );
       return { ...response, overrides: next };
+    },
+  },
+  {
+    name: "set_component_variant",
+    title: "Set component variant",
+    description:
+      "Activates or deactivates one variant of a component instance: the definition declares the variants (props overlays on its parts), the instance activates them. Several variants can be active at once; the instance's overrides always win and survive a variant swap. Read the variants and instance ids with get_component, then send baseDraftVersion from get_page.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        pageId: { type: "string" },
+        instanceId: { type: "string" },
+        variant: { type: "string" },
+        active: { type: "boolean", description: "true activates, false deactivates." },
+        baseDraftVersion: { type: "number" },
+      },
+      ["pageId", "instanceId", "variant", "active", "baseDraftVersion"],
+    ),
+    entity: (args) => `page:${String(args.pageId ?? "")}`,
+    handler: async (context, args) => {
+      const pageId = requireString(args, "pageId");
+      const instanceId = requireString(args, "instanceId");
+      const variant = requireString(args, "variant");
+      const page = await pageFor(context, pageId);
+      const instance = page.draft.nodes[instanceId];
+      if (instance === undefined || instance.type !== COMPONENT_INSTANCE_TYPE) {
+        throw new SenifyError(
+          "not_found",
+          `Instance "${instanceId}" is not on the page`,
+          {
+            field: "instanceId",
+            suggestion: "List the component's instances with get_component.",
+          },
+        );
+      }
+      const componentId = instance.props["componentId"];
+      const definition =
+        typeof componentId === "string" ? page.draft.nodes[componentId] : undefined;
+      if (definition === undefined || definition.type !== COMPONENT_DEFINITION_TYPE) {
+        throw new SenifyError(
+          "not_found",
+          `Component "${String(componentId)}" is not defined`,
+          {
+            field: "instanceId",
+            suggestion: "The instance points at a definition that is not on the page.",
+          },
+        );
+      }
+      const declared = Object.keys(definitionVariants(definition));
+      if (!declared.includes(variant)) {
+        throw new SenifyError(
+          "not_found",
+          `Component "${componentName(page.draft, definition.id)}" has no variant "${variant}"`,
+          {
+            field: "variant",
+            suggestion: `Variants: ${declared.join(", ") || "none"}.`,
+          },
+        );
+      }
+      const active = args.active;
+      if (typeof active !== "boolean") {
+        throw new SenifyError("validation", 'Missing "active"', {
+          field: "active",
+          suggestion: "Pass true to activate the variant, false to deactivate it.",
+        });
+      }
+      const current = instanceVariants(instance);
+      const wanted = active
+        ? [...current, variant]
+        : current.filter((entry) => entry !== variant);
+      const next = declared.filter((name) => wanted.includes(name));
+      const name = await context.client.tokenName();
+      const response = await context.client.request<Record<string, unknown>>(
+        "POST",
+        `/api/pages/${pageId}/mutations`,
+        {
+          baseDraftVersion: requireNumber(args, "baseDraftVersion"),
+          author: { kind: "agent", id: name, label: name },
+          mutations: [
+            {
+              op: "updateNodeProps",
+              id: instanceId,
+              patch: { variants: next.length === 0 ? null : next },
+            },
+          ],
+        },
+      );
+      return { ...response, variants: next };
     },
   },
   {

@@ -193,4 +193,54 @@ describe("frame rules", () => {
     // The structural props stay out of the stylesheet (no `component-id`).
     expect(authored).not.toContain("component-id:");
   });
+
+  // Ticket 04, variants: the overlay of an active variant is part of the copy's
+  // effective props, so its style values must reach the compiler — otherwise
+  // the canvas would render the definition's base and drift from the bake.
+  it("applies an active variant's overlay to the copies", () => {
+    const variantDoc: EditorDocument = {
+      version: 2,
+      rootNodeId: "root",
+      nodes: {
+        root: { id: "root", primitive: "root", props: {}, children: ["def", "ins"] },
+        def: {
+          id: "def",
+          primitive: "__component",
+          props: {
+            name: "karte",
+            version: 1,
+            variants: { groß: { hero: { background: "#333333" } } },
+          },
+          children: ["hero"],
+        },
+        hero: { id: "hero", primitive: "hero", props: { background: "#eeeeee" } },
+        ins: {
+          id: "ins",
+          primitive: "__component_instance",
+          props: { componentId: "def", componentVersion: 1, variants: ["groß"] },
+        },
+      },
+      styleRules: [],
+    };
+    const { authored } = canvasFrameRules(variantDoc);
+    // The overlay lands on the copy (never on the definition's own node, which
+    // does not render): the rule that carries the value is anchored on a copy id.
+    const overlayRule = authored.match(
+      /\[data-node-id="([^"]+)"\][^{]*\{[^}]*background-color: #333333;/,
+    );
+    expect(overlayRule).not.toBeNull();
+    expect(overlayRule?.[1]).not.toBe("hero");
+    // The variant list itself is structure, never a declaration.
+    expect(authored).not.toContain("variants:");
+
+    // The instance's own override wins over the variant overlay.
+    const withOverride: EditorDocument = structuredClone(variantDoc);
+    withOverride.nodes["ins"]!.props = {
+      ...withOverride.nodes["ins"]!.props,
+      overrides: { hero: { background: "#111111" } },
+    };
+    const overridden = canvasFrameRules(withOverride).authored;
+    expect(overridden).toContain("background-color: #111111;");
+    expect(overridden).not.toContain("background-color: #333333;");
+  });
 });

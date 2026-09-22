@@ -12,7 +12,7 @@ Read this file first: it routes a job to the right tool or reference.
 | Change brand tokens | `update_theme` (scales and semantic roles) |
 | Create a new page | `create_page` |
 | Inspect a node in detail | `get_nodes` (full props, overrides, motion for given ids) |
-| Reuse a subtree on the page (component) | `list_components` → `get_component` (parts, slots, instances, version/drift) → `set_component_override` (one instance, definition untouched); version it with `bump_component_version` + `update_component_instances` |
+| Reuse a subtree on the page (component) | `list_components` → `get_component` (parts, slots, instances, variants, version/drift) → `set_component_override` (one instance, definition untouched) · `set_component_variant` (activate a declared variant); version it with `bump_component_version` + `update_component_instances` |
 | Animate a section | `motion.md`, then `set_motion` / `clear_motion` (preset + intensity + RM; profile caps apply) |
 | Generate images for a project | `images.md`, then `generate_image` → `get_image_job` |
 | See the draft as a real website | `create_preview` (signed URL, 30 days) |

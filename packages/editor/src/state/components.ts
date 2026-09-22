@@ -13,6 +13,7 @@ import {
   type DeviceValueMap,
   type PropValue,
 } from "@senify/widget-engine";
+import { definitionVariants, instanceVariants } from "@senify/section-sdk";
 import { SenifyError } from "@senify/core";
 import { collectSubtree, locateParent, type EditorDocument } from "./document.ts";
 import { newNodeId } from "./ids.ts";
@@ -195,6 +196,74 @@ export function overridesOf(
   const node = store.document.nodes[instanceId];
   if (node === undefined || node.primitive !== COMPONENT_INSTANCE_PRIMITIVE) return {};
   return editorOverrides(node);
+}
+
+// The variant names a definition offers (`props.variants` of the definition,
+// keys in declaration order) - the list the inspector renders as toggles.
+export function definitionVariantNames(
+  document: EditorDocument,
+  definitionId: string,
+): string[] {
+  const node = document.nodes[definitionId];
+  if (node === undefined || node.primitive !== COMPONENT_DEFINITION_PRIMITIVE) return [];
+  return Object.keys(definitionVariants(node));
+}
+
+// The variant names an instance activates (section-sdk `instanceVariants`).
+export function variantsOf(store: EditorStore, instanceId: string): string[] {
+  const node = store.document.nodes[instanceId];
+  if (node === undefined || node.primitive !== COMPONENT_INSTANCE_PRIMITIVE) return [];
+  return instanceVariants(node);
+}
+
+// Activates or deactivates variant names of one instance. Unknown names are
+// rejected (the definition is the register, never a guess), the stored list
+// keeps definition order and an empty list clears the prop. One `applyBatch`,
+// so one undo entry - and the instance's overrides stay untouched, because
+// they are addressed by part ids (the variant swap keeps them).
+export function setComponentVariants(
+  store: EditorStore,
+  instanceId: string,
+  names: readonly string[],
+): boolean {
+  const instance = store.document.nodes[instanceId];
+  if (instance === undefined || instance.primitive !== COMPONENT_INSTANCE_PRIMITIVE) {
+    return false;
+  }
+  const componentId = instance.props["componentId"];
+  if (typeof componentId !== "string") return false;
+  const definition = definitionOf(store, componentId);
+  if (definition === null) {
+    throw new SenifyError(
+      "not_found",
+      `Component "${componentId}" is not defined`,
+      { field: "componentId" },
+    );
+  }
+  const declared = definitionVariantNames(store.document, componentId);
+  for (const name of names) {
+    if (!declared.includes(name)) {
+      throw new SenifyError(
+        "not_found",
+        `Component "${definition.name}" has no variant "${name}"`,
+        {
+          field: "variants",
+          suggestion: `Variants: ${declared.join(", ") || "none"}.`,
+        },
+      );
+    }
+  }
+  const next = declared.filter((name) => names.includes(name));
+  const current = instanceVariants(instance);
+  if (current.join("\u0000") === next.join("\u0000")) return false;
+  const mutation =
+    next.length === 0
+      ? { op: "clearNodeProp", id: instanceId, key: "variants" }
+      : { op: "setNodeProp", id: instanceId, key: "variants", value: next };
+  const outcome = store.applyBatch([mutation], {
+    label: next.length === 0 ? "Varianten zurücksetzen" : `Varianten · ${next.join(", ")}`,
+  });
+  return outcome.changed;
 }
 
 // Every definition in the document, in tree order — the list the explorer's

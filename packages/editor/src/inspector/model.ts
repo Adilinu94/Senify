@@ -38,13 +38,18 @@ import {
 import {
   MOTION_PROFILE_RULES,
   MOTION_PRESETS,
+  instanceVariants,
   type MotionProfile,
   type MotionSpec,
   type TokenGroup,
 } from "@senify/section-sdk";
 import type { Theme } from "@senify/tokens";
 import { tokenOptionsFor, type TokenOption } from "../panels.ts";
-import { componentParts, editorOverrides } from "../state/components.ts";
+import {
+  componentParts,
+  definitionVariantNames,
+  editorOverrides,
+} from "../state/components.ts";
 import type { EditorDocument, EditorNode, StyleRule } from "../state/document.ts";
 import type { EditorTabId } from "../state/ui-state.ts";
 
@@ -73,14 +78,16 @@ export type InspectorFieldKind =
 
 // Where a committed value goes: node props (device-aware), the motion spec, the
 // structural flags of the node, the pseudo-state bag of the node's scoped rule
-// (ticket 02 point 5), or the override bag of a component instance (ticket 04).
+// (ticket 02 point 5), the override bag of a component instance (ticket 04), or
+// its variant activation (ticket 04).
 export type InspectorCommit =
   | { kind: "prop" }
   | { kind: "motion" }
   | { kind: "hidden"; device: "tablet" | "mobile" }
   | { kind: "locked" }
   | { kind: "state"; state: StateName }
-  | { kind: "override"; partId: string };
+  | { kind: "override"; partId: string }
+  | { kind: "variant" };
 
 export type InspectorField = {
   key: string;
@@ -620,6 +627,47 @@ function overrideGroups(
   return groups;
 }
 
+// The variant toggles of a component instance (ticket 04): one switch per
+// variant the definition declares, committed into the instance's variant list.
+// The overlays live in the definition; activating one here changes the copies,
+// while the instance's own overrides stay untouched (they are addressed by
+// part ids, not by the variant).
+function variantGroup(document: EditorDocument, node: EditorNode): InspectorGroup | null {
+  const componentId = node.props["componentId"];
+  if (typeof componentId !== "string") return null;
+  const names = definitionVariantNames(document, componentId);
+  if (names.length === 0) return null;
+  const active = instanceVariants(node);
+  const fields: InspectorField[] = names.map((name) => ({
+    key: name,
+    label: name,
+    kind: "switcher",
+    commit: { kind: "variant" },
+    value: active.includes(name),
+    base: false,
+    overridden: active.includes(name),
+    overrideDevices: [],
+    responsive: false,
+    hidden: false,
+    min: undefined,
+    max: undefined,
+    step: undefined,
+    units: undefined,
+    options: undefined,
+    alpha: false,
+    linkable: false,
+    fields: undefined,
+    minItems: undefined,
+    maxItems: undefined,
+    tokenOptions: undefined,
+    tokenRef: null,
+    literalWarning: undefined,
+    source: "control",
+    styleGroup: undefined,
+  }));
+  return { id: "content/variants", label: "Varianten", fields };
+}
+
 // Marks a field tree as an override: the commit names the part, `base` keeps
 // the definition's own value (the reset target) and `overridden` tells whether
 // this instance changed it for the active device. The override bag carries
@@ -1067,10 +1115,15 @@ export function buildInspector(input: BuildInspectorInput): InspectorModel | nul
   );
   const profile = input.profile ?? "standard";
   const motion = motionFields(node, input.theme, profile);
+  const variants =
+    node.primitive === COMPONENT_INSTANCE_PRIMITIVE
+      ? variantGroup(input.document, node)
+      : null;
   const content: InspectorGroup[] = [
     { id: "content/main", label: definition?.name ?? node.primitive, fields: contentFields },
     // A component instance has no controls of its own; its Content tab shows
-    // the parts of the definition and writes the instance's overrides.
+    // the variant toggles and the parts of the definition (overrides).
+    ...(variants === null ? [] : [variants]),
     ...(node.primitive === COMPONENT_INSTANCE_PRIMITIVE
       ? overrideGroups(input.document, node, breakpoint, input.theme)
       : []),

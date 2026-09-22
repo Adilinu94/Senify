@@ -17,11 +17,12 @@ export const componentDefinitionSection: SectionDefinition = {
   version: 1,
   title: "Komponente",
   description:
-    "Definition einer Visual Component: der eine Wurzelknoten in den Kindern ist die wiederverwendbare Struktur, `__component_slot`-Knoten sind ihre Füllplätze.",
+    "Definition einer Visual Component: der eine Wurzelknoten in den Kindern ist die wiederverwendbare Struktur, `__component_slot`-Knoten sind ihre Füllplätze, `variants` sind benannte Props-Overlays auf die Teile.",
   category: "utility",
   props: [
     { key: "name", control: "text", label: "Name" },
     { key: "version", control: "number", label: "Version", group: "Komponente" },
+    { key: "variants", control: "json", label: "Varianten", group: "Komponente" },
   ],
   allowedChildren: "any",
   golden: {
@@ -35,7 +36,7 @@ export const componentInstanceSection: SectionDefinition = {
   version: 1,
   title: "Komponenten-Instanz",
   description:
-    "Instanz einer Komponente: `componentId` nennt die Definition, `componentVersion` die gepinnte Version, die Slots tragen den Inhalt, `overrides` die Werte, die nur diese Instanz ändert. Wird beim Rendern und beim Bake inlined.",
+    "Instanz einer Komponente: `componentId` nennt die Definition, `componentVersion` die gepinnte Version, `variants` die aktivierten Varianten, die Slots tragen den Inhalt, `overrides` die Werte, die nur diese Instanz ändert. Wird beim Rendern und beim Bake inlined.",
   category: "utility",
   props: [
     { key: "componentId", control: "text", label: "Komponente" },
@@ -43,6 +44,12 @@ export const componentInstanceSection: SectionDefinition = {
       key: "componentVersion",
       control: "number",
       label: "Version",
+      group: "Instanz",
+    },
+    {
+      key: "variants",
+      control: "json",
+      label: "Varianten",
       group: "Instanz",
     },
     {

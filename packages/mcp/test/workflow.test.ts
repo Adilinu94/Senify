@@ -101,6 +101,7 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "list_components",
       "get_component",
       "set_component_override",
+      "set_component_variant",
       "bump_component_version",
       "update_component_instances",
       "set_styles",
@@ -445,7 +446,14 @@ describe("mcp workflow (Prüfstelle 3)", () => {
         {
           op: "insertNode",
           parent: { nodeId: rootNodeId },
-          node: { id: "def-card-01", type: "__component", props: { name: "Karte" } },
+          node: {
+            id: "def-card-01",
+            type: "__component",
+            props: {
+              name: "Karte",
+              variants: { groß: { "def-head-01": { headline: "Groß" } } },
+            },
+          },
         },
         {
           op: "insertNode",
@@ -482,6 +490,7 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     expect(components[0]?.instanceIds).toEqual(["inst-01"]);
     expect(components[0]?.version).toBe(1);
     expect(components[0]?.outdated).toBe(0);
+    expect(components[0]?.variants).toEqual(["groß"]);
 
     // get_component: part ids are the override keys, slots and instances come
     // with their current state.
@@ -497,8 +506,11 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     expect(detail.data.slots).toEqual([{ id: "def-slot-01", name: "inhalt" }]);
     expect(detail.data.version).toBe(1);
     expect(detail.data.drift).toEqual([]);
+    expect(detail.data.variants).toEqual({
+      groß: { "def-head-01": { headline: "Groß" } },
+    });
     expect(detail.data.instances).toEqual([
-      { id: "inst-01", componentVersion: 1, outdated: false, overrides: {} },
+      { id: "inst-01", componentVersion: 1, outdated: false, variants: [], overrides: {} },
     ]);
 
     const missing = await call(session, "get_component", {
@@ -584,12 +596,54 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     expect(noValue.ok).toBe(false);
     expect((noValue.data.error as Json).category).toBe("validation");
 
+    // Variants: the definition declares one, the instance activates it. The
+    // activation lands on the instance, the overlays stay in the definition.
+    const activated = await call(session, "set_component_variant", {
+      pageId,
+      instanceId: "inst-01",
+      variant: "groß",
+      active: true,
+      baseDraftVersion: version,
+    });
+    expect(activated.ok).toBe(true);
+    expect(activated.data.variants).toEqual(["groß"]);
+    const withVariant = await call(session, "get_component", {
+      pageId,
+      componentId: "def-card-01",
+    });
+    expect((withVariant.data.instances as Json[])[0]?.variants).toEqual(["groß"]);
+    expect(withVariant.data.variants).toEqual({
+      groß: { "def-head-01": { headline: "Groß" } },
+    });
+
+    // Deactivating clears the list again; an unknown variant is refused.
+    const deactivated = await call(session, "set_component_variant", {
+      pageId,
+      instanceId: "inst-01",
+      variant: "groß",
+      active: false,
+      baseDraftVersion: activated.data.newDraftVersion,
+    });
+    expect(deactivated.ok).toBe(true);
+    expect(deactivated.data.variants).toEqual([]);
+
+    const unknownVariant = await call(session, "set_component_variant", {
+      pageId,
+      instanceId: "inst-01",
+      variant: "weg",
+      active: true,
+      baseDraftVersion: deactivated.data.newDraftVersion,
+    });
+    expect(unknownVariant.ok).toBe(false);
+    expect((unknownVariant.data.error as Json).category).toBe("not_found");
+    expect(String((unknownVariant.data.error as Json).suggestion)).toContain("groß");
+
     // Versions: the definition starts at v1 and the instance pins v1. A bump
     // creates drift, the update tool resolves it in one batch.
     const bumped = await call(session, "bump_component_version", {
       pageId,
       componentId: "def-card-01",
-      baseDraftVersion: version,
+      baseDraftVersion: deactivated.data.newDraftVersion,
     });
     expect(bumped.ok).toBe(true);
     expect(bumped.data.version).toBe(2);

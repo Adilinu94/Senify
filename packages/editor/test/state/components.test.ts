@@ -12,7 +12,9 @@ import {
   instanceVersionOf,
   overridesOf,
   setComponentOverride,
+  setComponentVariants,
   updateComponentInstances,
+  variantsOf,
 } from "@senify/editor/state";
 import { inlineComponents, type Node, type NodeTree } from "@senify/section-sdk";
 import { canvasNodeTree } from "@senify/editor/canvas";
@@ -193,6 +195,46 @@ describe("editor components", () => {
     expect(() =>
       setComponentOverride(store, instanceId, "missing001", "text", "x"),
     ).toThrowError(/no part "missing001"/);
+  });
+
+  it("activates variants on an instance and keeps its overrides", () => {
+    const store = baseStore();
+    const definitionId = createComponent(store, "head000001", "karte");
+    const instanceId = store.document.nodes["sec0000001"]?.children?.[0] ?? "";
+    store.applyBatch(
+      [
+        {
+          op: "setNodeProp",
+          id: definitionId!,
+          key: "variants",
+          value: { groß: { head000001: { text: "Groß" } } },
+        },
+      ],
+      { label: "Varianten anlegen" },
+    );
+    const texts = () =>
+      Object.values(canvasNodeTree(store.document).nodes)
+        .filter((node) => node.type === "heading")
+        .map((node) => node.props["text"]);
+
+    expect(setComponentVariants(store, instanceId, ["groß"])).toBe(true);
+    expect(variantsOf(store, instanceId)).toEqual(["groß"]);
+    expect(texts()).toEqual(["Groß"]);
+    // The definition itself keeps its own value.
+    expect(store.document.nodes["head000001"]?.props["text"]).toBe("Hallo");
+
+    // An override survives the variant swap — it is addressed by part id.
+    setComponentOverride(store, instanceId, "head000001", "text", "Eigen");
+    expect(texts()).toEqual(["Eigen"]);
+    expect(setComponentVariants(store, instanceId, [])).toBe(true);
+    expect(variantsOf(store, instanceId)).toEqual([]);
+    expect(store.document.nodes[instanceId]?.props["variants"]).toBeUndefined();
+    expect(texts()).toEqual(["Eigen"]);
+
+    // An unknown variant is refused (the definition is the register).
+    expect(() => setComponentVariants(store, instanceId, ["weg"])).toThrowError(
+      /no variant "weg"/,
+    );
   });
 
   it("materializes overrides when an instance is detached", () => {
