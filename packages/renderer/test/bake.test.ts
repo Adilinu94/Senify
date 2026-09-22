@@ -114,6 +114,12 @@ function fixtureInput(aeo = true): BakeInput {
     }),
   });
   pages.push({
+    id: "page-transition",
+    path: "/uebergang",
+    title: "Übergang",
+    tree: withMotion(buildTree(["hero"]), { hero: { preset: "page-fade" } }),
+  });
+  pages.push({
     id: "page-minimal",
     path: "/pur",
     title: "Pur",
@@ -152,6 +158,7 @@ describe("bake (Prüfstelle 2)", () => {
     expect(await site.exists("index.html")).toBe(true);
     expect(await site.exists("seite-2/index.html")).toBe(true);
     expect(await site.exists("motion/index.html")).toBe(true);
+    expect(await site.exists("uebergang/index.html")).toBe(true);
     expect(await site.exists("pur/index.html")).toBe(true);
     expect(await site.exists("assets/theme.css")).toBe(true);
     expect(await site.exists("assets/components.css")).toBe(true);
@@ -195,6 +202,17 @@ describe("bake (Prüfstelle 2)", () => {
     expect(minimal).not.toContain("/assets/page.js");
     expect(minimal).not.toContain("motion-data");
     expect(minimal).not.toContain("<script");
+  }, 180000);
+
+  it("inlines the page transition CSS without a page script", async () => {
+    if (!baked) throw new Error("bake missing");
+    const site = loadBakedSite(baked.outDir);
+    const transition = await site.read("uebergang/index.html");
+    expect(transition).toContain("@view-transition { navigation: auto; }");
+    expect(transition).toContain("prefers-reduced-motion: reduce");
+    // Page-level CSS only: no motion payload, no page.js for this page.
+    expect(transition).not.toContain('id="motion-data"');
+    expect(transition).not.toContain("/assets/page.js");
   }, 180000);
 
   it("stamps the FOUC pending marker, noscript and failsafe for hiding presets", async () => {

@@ -21,7 +21,7 @@ describe("motion preset registry", () => {
     expect(ids).toHaveLength(24);
     for (const preset of MOTION_PRESETS) {
       expect(MOTION_PRESET_GROUPS).toContain(preset.group);
-      expect(["page", "css", "island", "planned"]).toContain(preset.runtime);
+      expect(["page", "css", "document", "island", "planned"]).toContain(preset.runtime);
       for (const flag of preset.flags) expect(MOTION_PRESET_FLAGS).toContain(flag);
     }
   });
@@ -39,6 +39,8 @@ describe("motion preset registry", () => {
   it("resolves presets by id", () => {
     expect(motionPreset("fade-up")?.group).toBe("entry");
     expect(motionPreset("webgl-scene")?.runtime).toBe("planned");
+    // The page transition is page-level CSS, not a per-node script preset.
+    expect(motionPreset("page-fade")?.runtime).toBe("document");
     expect(motionPreset("warp-speed")).toBeUndefined();
   });
 
@@ -46,8 +48,9 @@ describe("motion preset registry", () => {
     expect(motionPends("fade-up")).toBe(true);
     expect(motionPends("masked-headline")).toBe(true);
     expect(motionPends("scrub-pin")).toBe(false);
-    // Planned and island presets never hide before a script runs.
+    // Planned, document and island presets never hide before a script runs.
     expect(motionPends("preloader-light")).toBe(false);
+    expect(motionPends("page-fade")).toBe(false);
     expect(motionPends("accordion")).toBe(false);
     expect(motionPends("warp-speed")).toBe(false);
   });

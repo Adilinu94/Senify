@@ -54,7 +54,8 @@ export type MotionWarning = {
     | "unimplemented-preset"
     | "pin-excess"
     | "char-split-excess"
-    | "reveal-too-long";
+    | "reveal-too-long"
+    | "document-excess";
   nodeId?: string;
   preset?: string;
   message: string;
@@ -89,6 +90,9 @@ export function motionConfigsForTree(
     // disabled spec emits no entry, no pending marker and no runtime work.
     if (motion.enabled === false) continue;
     const preset = motionPreset(motion.preset);
+    // Page-level presets (`document`) carry no per-node entry: the bake emits
+    // their CSS once per page (`pageTransitionForTree`).
+    if (preset?.runtime === "document") continue;
     if (preset === undefined || (preset.runtime !== "page" && preset.runtime !== "css")) {
       warnings.push({
         code: "unimplemented-preset",
@@ -154,6 +158,65 @@ export function motionConfigsForTree(
     });
   }
   return { configs, warnings };
+}
+
+// Page transitions (ticket 19, M6): a `document` preset opts the whole page
+// into cross-document View Transitions. The spec sits on a node like any
+// other, but the effect is page-wide — one CSS block in the head, no per-node
+// script. Both the old and the new document must opt in, so the preset belongs
+// on every page (or on the layout that wraps them).
+export type PageTransition = {
+  preset: string;
+  intensity: number;
+  reducedMotion: "static" | "fade" | "off";
+};
+
+export function pageTransitionForTree(tree: NodeTree): {
+  transition: PageTransition | null;
+  warnings: MotionWarning[];
+} {
+  const warnings: MotionWarning[] = [];
+  let transition: PageTransition | null = null;
+  for (const node of Object.values(tree.nodes)) {
+    const motion = node.motion;
+    if (!motion || motion.enabled === false) continue;
+    if (motionPreset(motion.preset)?.runtime !== "document") continue;
+    if (transition !== null) {
+      warnings.push({
+        code: "document-excess",
+        nodeId: node.id,
+        preset: motion.preset,
+        message: `Page carries a second "${motion.preset}" spec — one page transition per page`,
+        suggestion: "Keep the transition on one node (the page root or its layout).",
+      });
+      continue;
+    }
+    transition = {
+      preset: motion.preset,
+      intensity: Math.min(10, Math.max(1, Math.round(motion.intensity ?? 5))),
+      reducedMotion: motion.reducedMotion ?? "static",
+    };
+  }
+  return { transition, warnings };
+}
+
+// The CSS block the page head carries. `@view-transition { navigation: auto; }`
+// is the opt-in (the old <meta> tag is dead); the duration scales with the
+// intensity (0.3–0.5 s). The reduced-motion policy decides the gate: `static`
+// skips the transition, `fade` keeps a short cross-fade, `off` plays full.
+export function pageTransitionCss(transition: PageTransition): string {
+  const duration = (0.3 + ((transition.intensity - 1) / 9) * 0.2).toFixed(2);
+  const gate =
+    transition.reducedMotion === "static"
+      ? "@media (prefers-reduced-motion: reduce) { ::view-transition-old(root), ::view-transition-new(root) { animation: none !important; } }"
+      : transition.reducedMotion === "fade"
+        ? "@media (prefers-reduced-motion: reduce) { ::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.2s; } }"
+        : "";
+  return [
+    "@view-transition { navigation: auto; }",
+    `::view-transition-old(root), ::view-transition-new(root) { animation-duration: ${duration}s; animation-timing-function: ease; }`,
+    ...(gate === "" ? [] : [gate]),
+  ].join("\n");
 }
 
 // The v2 envelope the bake writes into `<script id="motion-data">`. The

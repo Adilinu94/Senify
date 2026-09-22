@@ -6,6 +6,8 @@ import { join } from "node:path";
 import {
   motionConfigsForTree,
   motionDataFor,
+  pageTransitionCss,
+  pageTransitionForTree,
   parseDurationMs,
   renderIslandsScript,
   renderPageScript,
@@ -203,5 +205,66 @@ describe("motion configs", () => {
     expect(script).toContain('data-island="menu"');
     expect(script).toContain('data-island="consent"');
     expect(script).not.toContain('data-island="slider"');
+  });
+});
+
+describe("page transitions (document presets)", () => {
+  it("collects the document preset once and keeps it out of the per-node configs", () => {
+    const tree = treeWithMotion([{ id: "hero", preset: "page-fade", intensity: 9 }]);
+    const { configs, warnings } = motionConfigsForTree(tree, TOKENS);
+    // The page transition is page-level CSS: no entry, no unimplemented warning.
+    expect(configs).toEqual([]);
+    expect(warnings).toEqual([]);
+    const { transition, warnings: transitionWarnings } = pageTransitionForTree(tree);
+    expect(transition).toEqual({
+      preset: "page-fade",
+      intensity: 9,
+      reducedMotion: "static",
+    });
+    expect(transitionWarnings).toEqual([]);
+  });
+
+  it("warns on a second transition and ignores disabled specs", () => {
+    const tree = treeWithMotion([
+      { id: "a", preset: "page-fade" },
+      { id: "b", preset: "page-fade", intensity: 4 },
+    ]);
+    const { transition, warnings } = pageTransitionForTree(tree);
+    expect(transition).toMatchObject({ preset: "page-fade", intensity: 5 });
+    expect(warnings.map((warning) => warning.code)).toEqual(["document-excess"]);
+    expect(warnings[0]?.nodeId).toBe("b");
+
+    const disabled = treeWithMotion([{ id: "a", preset: "page-fade" }]);
+    const node = disabled.nodes["a"];
+    if (node) node.motion = { preset: "page-fade", enabled: false };
+    expect(pageTransitionForTree(disabled)).toEqual({ transition: null, warnings: [] });
+  });
+
+  it("emits the opt-in with intensity duration and reduced-motion gates", () => {
+    const staticCss = pageTransitionCss({
+      preset: "page-fade",
+      intensity: 1,
+      reducedMotion: "static",
+    });
+    expect(staticCss).toContain("@view-transition { navigation: auto; }");
+    expect(staticCss).toContain("animation-duration: 0.30s");
+    expect(staticCss).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(staticCss).toContain("animation: none !important");
+
+    const fadeCss = pageTransitionCss({
+      preset: "page-fade",
+      intensity: 10,
+      reducedMotion: "fade",
+    });
+    expect(fadeCss).toContain("animation-duration: 0.50s");
+    expect(fadeCss).toContain("animation-duration: 0.2s");
+    expect(fadeCss).not.toContain("none !important");
+
+    const offCss = pageTransitionCss({
+      preset: "page-fade",
+      intensity: 5,
+      reducedMotion: "off",
+    });
+    expect(offCss).not.toContain("prefers-reduced-motion");
   });
 });

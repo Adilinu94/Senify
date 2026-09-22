@@ -5,8 +5,9 @@
 // guardrails, rationale) lives in `.scratch/motion-v2/preset-matrix.md`.
 //
 // `runtime` is the coverage state, not the contract: `page`/`css` run in the
-// baked page script today, `island` has its own vanilla island, `planned` is
-// accepted by the editor but not implemented yet (the bake warns).
+// baked page script today, `document` emits page-level CSS once (View
+// Transitions), `island` has its own vanilla island, `planned` is accepted by
+// the editor but not implemented yet (the bake warns).
 
 export const MOTION_PRESET_GROUPS = [
   "entry",
@@ -30,7 +31,7 @@ export const MOTION_PRESET_FLAGS = [
 ] as const;
 export type MotionPresetFlag = (typeof MOTION_PRESET_FLAGS)[number];
 
-export type MotionPresetRuntime = "page" | "css" | "island" | "planned";
+export type MotionPresetRuntime = "page" | "css" | "document" | "island" | "planned";
 
 export type MotionPreset = {
   id: string;
@@ -112,7 +113,7 @@ export const MOTION_PRESETS: readonly MotionPreset[] = [
   },
   { id: "tilt-card", group: "hover", flags: ["interactive"], gsapPlugins: [], runtime: "planned" },
   { id: "cursor-glow", group: "hover", flags: ["interactive"], gsapPlugins: [], runtime: "planned" },
-  { id: "page-fade", group: "state", flags: [], gsapPlugins: [], runtime: "planned" },
+  { id: "page-fade", group: "state", flags: [], gsapPlugins: [], runtime: "document" },
   {
     id: "preloader-light",
     group: "state",

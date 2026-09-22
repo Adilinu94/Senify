@@ -11,6 +11,8 @@ type Props = {
     ogImage?: string;
     tree: { rootNodeId: string; nodes: Record<string, unknown> };
     motion: string;
+    // The page-level View Transition block (M6), null without the preset.
+    pageTransition: string | null;
     jsonLd: string | null;
     flags: {
       hasMotion: boolean;
@@ -81,6 +83,7 @@ const PENDING_FAILSAFE =
       />
     ))}
     {page.jsonLd && <script type="application/ld+json" set:html={page.jsonLd} />}
+    {page.pageTransition && <style is:inline set:html={page.pageTransition} />}
     {page.flags.hasMotion && (
       <>
         {page.flags.hasPending && <style is:inline set:html={PENDING_CSS} />}

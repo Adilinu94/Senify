@@ -42,6 +42,8 @@ import {
 import {
   motionConfigsForTree,
   motionDataFor,
+  pageTransitionCss,
+  pageTransitionForTree,
   renderIslandsScript,
   renderPageScript,
   type MotionTokens,
@@ -87,6 +89,7 @@ export type BakeWarning = {
     | "char-split-excess"
     | "reveal-too-long"
     | "unimplemented-preset"
+    | "document-excess"
     | "invalid-jsonld"
     | "billing-silent"
     | "children-unrendered";
@@ -386,6 +389,18 @@ export async function bakeSite(
         suggestion: warning.suggestion,
       });
     }
+    const { transition, warnings: transitionWarnings } = pageTransitionForTree(
+      page.tree,
+    );
+    for (const warning of transitionWarnings) {
+      warnings.push({
+        code: warning.code,
+        page: page.path,
+        nodeId: warning.nodeId,
+        message: warning.message,
+        suggestion: warning.suggestion,
+      });
+    }
     const islands = islandsForTree(page.tree);
     for (const kind of islands) islandKinds.add(kind);
     if (configs.length > 0) anyMotion = true;
@@ -404,6 +419,9 @@ export async function bakeSite(
       ogImage: page.ogImage ?? "",
       tree: page.tree,
       motion: jsonForHtml(motionDataFor(configs)),
+      // The page-level View Transition block (M6): null unless a node carries
+      // a `document` preset; the template inlines it into the head.
+      pageTransition: transition === null ? null : pageTransitionCss(transition),
       jsonLd:
         entities.length > 0
           ? jsonForHtml(entities.length === 1 ? entities[0] : { "@context": "https://schema.org", "@graph": entities })
