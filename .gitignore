@@ -13,3 +13,23 @@ Referenzsites/
 packages/renderer/astro-template/src/generated/
 packages/renderer/astro-template/dist/
 packages/docs-portal/public/portal-config.json
+# Agent-Artefakte (lokal, nicht ins Repo)
+.commandcode/
+.freebuff/
+.scratch/**/*.log
+.scratch/**/*.err
+.scratch/**/commit-msg*.txt
+.scratch/**/.backup-*/
+.scratch/**/*.patch
+.scratch/**/*.diff
+.scratch/**/debug-*.ts
+.scratch/**/*-probe.cjs
+.scratch/senify-v1/prototypes/
+.scratch/refs/aufnahmen/
+.scratch/refs/nick/
+.scratch/refs/referenzen-import/
+.scratch/refs/*.jpg
+.scratch/refs/*.png
+.scratch/refs/*.mjs
+.scratch/import-echt.json
+.scratch/voll-import-summary.json
