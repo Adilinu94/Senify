@@ -200,6 +200,53 @@ describe("guardrails and checks", () => {
     expect(blockedAlt.status).toBe(422);
     expect(blockedAlt.body.error.message).toContain("alt text");
   });
+
+  // Ticket 04, publish versions: the pin is a contract — the release blocks
+  // site-wide while an instance pins an older definition version (no silent
+  // fallback to the newer definition), and passes once the instances follow.
+  it("blocks publish while a component instance pins an older version", async () => {
+    const site = (await createTestSite(env.api, "Drift")).id;
+    const page = await createTestPage(env.api, site, { title: "Drift" });
+
+    const definition = await insertNode(page.id, "def-card-01", "__component", {
+      name: "Karte",
+      version: 1,
+    });
+    expect(definition.status).toBe(200);
+    const child = await applyMutationsRequest(env.api, await loadPage(page.id), [
+      {
+        op: "insertNode",
+        parent: { nodeId: "def-card-01" },
+        node: { id: "def-head-01", type: "hero", props: { headline: "Titel" } },
+      },
+    ]);
+    expect(child.status).toBe(200);
+    const instance = await insertNode(page.id, "inst-a-01", "__component_instance", {
+      componentId: "def-card-01",
+      componentVersion: 1,
+    });
+    expect(instance.status).toBe(200);
+
+    // The definition moves on, the instance still pins v1: the release blocks.
+    const bumped = await applyMutationsRequest(env.api, await loadPage(page.id), [
+      { op: "updateNodeProps", id: "def-card-01", patch: { version: 2 } },
+    ]);
+    expect(bumped.status).toBe(200);
+    const blocked = await publishRelease(site);
+    expect(blocked.status).toBe(422);
+    expect(blocked.body.error.category).toBe("guardrail");
+    expect(blocked.body.error.message).toContain("pins component version 1");
+    expect(blocked.body.error.message).toContain("version 2");
+    expect(blocked.body.error.suggestion).toContain("update_component_instances");
+
+    // Updating the instance resolves the drift: the same release goes through.
+    const updated = await applyMutationsRequest(env.api, await loadPage(page.id), [
+      { op: "updateNodeProps", id: "inst-a-01", patch: { componentVersion: 2 } },
+    ]);
+    expect(updated.status).toBe(200);
+    const published = await publishRelease(site);
+    expect(published.status).toBe(201);
+  }, 90000);
 });
 
 describe("review loop", () => {

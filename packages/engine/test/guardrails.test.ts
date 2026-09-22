@@ -215,4 +215,60 @@ describe("check pipeline", () => {
     expect(standard.hard.map((entry) => entry.code)).not.toContain("profile-intensity-cap");
     expect(standard.hard.map((entry) => entry.code)).not.toContain("profile-preset");
   });
+
+  // Ticket 04, publish versions: an instance pinning an older definition
+  // version would ship the newer definition silently — the release blocks with
+  // the exact instance, the review only hints (site-wide over all pages).
+  it("blocks publish on component drift and hints at submit", () => {
+    const component = (instanceVersion: number) => {
+      const p = page("page-1", {
+        "def-card": {
+          id: "def-card",
+          type: "__component",
+          props: { name: "Karte", version: 2 },
+          children: ["def-head"],
+        },
+        "def-head": { id: "def-head", type: "block", props: { headline: "Titel" } },
+        "inst-a": {
+          id: "inst-a",
+          type: "__component_instance",
+          props: { componentId: "def-card", componentVersion: instanceVersion },
+        },
+      });
+      // The tree walk starts at the root: the definition and the instance must
+      // hang under it, or nothing is found.
+      p.draft.nodes["root"]!.children = ["def-card", "inst-a"];
+      return p;
+    };
+
+    const submit = runChecks({
+      stage: "submit",
+      pages: [component(1)],
+      site,
+      theme: defaultTheme(),
+    });
+    expect(submit.hard.some((entry) => entry.code === "component-drift")).toBe(false);
+    expect(submit.soft.find((entry) => entry.code === "component-drift")?.nodeId).toBe("inst-a");
+
+    const publish = runChecks({
+      stage: "publish",
+      pages: [component(1)],
+      site,
+      theme: defaultTheme(),
+    });
+    const blocked = publish.hard.find((entry) => entry.code === "component-drift");
+    expect(blocked?.nodeId).toBe("inst-a");
+    expect(blocked?.pageId).toBe("page-1");
+    expect(blocked?.message).toContain("version 1");
+    expect(blocked?.message).toContain("version 2");
+    expect(blocked?.suggestion).toContain("update_component_instances");
+
+    const resolved = runChecks({
+      stage: "publish",
+      pages: [component(2)],
+      site,
+      theme: defaultTheme(),
+    });
+    expect(resolved.hard.some((entry) => entry.code === "component-drift")).toBe(false);
+  });
 });

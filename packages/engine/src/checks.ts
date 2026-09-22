@@ -1,5 +1,5 @@
 import { gradeContrast, resolveTokenRef, type Theme } from "@senify/tokens";
-import type { PropValue } from "@senify/section-sdk";
+import { componentDrift, type PropValue } from "@senify/section-sdk";
 import type { AssetUsage, CheckIssue, CheckReport, Page, Site } from "./types.ts";
 import { checkForms } from "./forms.ts";
 import { hardGuardrailsForTree } from "./guardrails.ts";
@@ -250,6 +250,34 @@ function checkThemeContrast(
   return issues;
 }
 
+// Component versions (ticket 04, E11): an instance pins the definition version
+// it was last updated against. The draft renders the definition as it is, so a
+// publish with drift would silently ship a newer definition than the pin —
+// site-wide over all pages, that is a hard error with the exact instances to
+// update (editor context menu or `update_component_instances`). The review
+// (submit) only hints: it exists to look at the drift before resolving it.
+function checkComponentDrift(
+  pages: Page[],
+  severity: "hard" | "soft",
+): CheckIssue[] {
+  const issues: CheckIssue[] = [];
+  for (const page of pages) {
+    for (const drift of componentDrift(page.draft)) {
+      issues.push({
+        code: "component-drift",
+        severity,
+        message: `Instance "${drift.instanceId}" pins component version ${drift.pinned}, but the definition is at version ${drift.current}`,
+        pageId: page.id,
+        nodeId: drift.instanceId,
+        field: "props.componentVersion",
+        suggestion:
+          "Update the instances before publishing (editor: context menu \"Update instances\"; MCP: update_component_instances) — or bump the definition only after the release.",
+      });
+    }
+  }
+  return issues;
+}
+
 function softNotices(pages: Page[]): CheckIssue[] {
   const soft: CheckIssue[] = [];
   for (const page of pages) {
@@ -341,11 +369,13 @@ export function runChecks(input: {
     soft.push(
       ...checkThemeContrast(input.theme, SECONDARY_CONTRAST_PAIRS, "soft"),
     );
+    soft.push(...checkComponentDrift(input.pages, "soft"));
   }
   if (input.stage === "publish") {
     hard.push(
       ...checkThemeContrast(input.theme, PRIMARY_CONTRAST_PAIRS, "hard"),
     );
+    hard.push(...checkComponentDrift(input.pages, "hard"));
     if (input.collectionIds !== undefined) {
       const formIssues = checkForms({
         pages: input.pages,
