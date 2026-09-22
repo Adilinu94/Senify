@@ -51,6 +51,24 @@ schaltet bei `prefers-reduced-motion` ab, `fade` kürzt den Cross-Fade, `off` sp
 ohne View-Transition-Support (Firefox) degradiert es still zum normalen Seitenwechsel. Pro
 Seite zählt der erste Knoten, ein zweiter erzeugt den Review-Hinweis `document-excess`.
 
+## Hover, Ambient, Preloader, Modal
+
+- `hover-lift`, `ambient-float`, `grain` sind **CSS-Effekte**: Der Bake schreibt ihren
+  Block einmal pro Seite, das Preset muss also nur an einem Knoten stehen (die erste
+  Intensity gewinnt). `hover-lift` hebt beim Hover (Gate für Touch und Reduced
+  Motion), `ambient-float` läuft als Endlos-Loop (10–19 s, unter Reduced Motion aus),
+  `grain` legt eine animierte Körnung über den Knoten.
+- `magnetic-button`, `tilt-card`, `cursor-glow` brauchen einen Zeiger und laufen nur
+  auf Geräten mit `(hover: hover)`; unter `prefers-reduced-motion` sind sie aus, nur
+  die bewusste Policy `off` erzwingt sie.
+- `preloader-light` ist der Lade-Vorhang der Seite (≤ 2,5 s, unter Reduced Motion
+  sofort weg, ohne JS per `noscript` versteckt) — er gehört an den Seiten-Root oder
+  die erste Sektion.
+- `modal` macht die Medien im Knoten (Bild, Video, Iframe) als Dialog aufklappbar
+  (Lightbox) — passend für Gallery, Media und Embed.
+- Alle vier sind pro Seite einmal wirksam: ein zweites Vorkommen erzeugt keinen
+  Fehler, aber auch keinen zweiten Effekt.
+
 ## Site-Profile
 
 | Profil | Intensity | Lenis | Pins | 3D | Preset-Klassen |

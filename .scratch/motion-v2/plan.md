@@ -222,12 +222,18 @@ bleibt M6.
 
 ### M6 — Ausbau (spaeter, je eigenes Ticket)
 
-- Freie Timeline/Scrub-Editor (nur falls Entscheidung F2 das fordert).
+- Freie Timeline/Scrub-Editor — **gestrichen** (Nutzerentscheidung 22.09.): die
+  Presets decken die Faelle ab, F2 hatte sie nur als Option notiert.
 - Page Transitions (View Transitions, degradiert ohne Support) als Preset. ✔ (22.09.,
   `page-fade` = `document`-Runtime: Head-CSS `@view-transition`, Intensity-Dauer,
   RM-Gate; kein Seiten-Skript)
-- 3D-Preset (WebGL, genau 1 Canvas/Seite) — v1 vorbereitet.
+- 3D-Preset (WebGL, genau 1 Canvas/Seite) — v1 vorbereitet. **Runtime-Entscheidung
+  (22.09.): three.js direkt** (self-hosted, kein React im Release); Umsetzung offen.
 - Motion an VCs/Templates (Phase 4); Site-Profile (Lenis, Intensity-Cap). ✔ (22.09.)
+- Kleine Presets (D/E/F) ✔ (22.09.): `hover-lift`, `ambient-float`, `grain` als
+  Head-CSS mit `data-motion`; `magnetic-button`, `tilt-card`, `cursor-glow` im
+  page.js (canHover, quickTo, RM); `preloader-light` als Markup-Curtain (≤ 2,5 s);
+  `modal` als Island-Medien-Lightbox (`<dialog>`).
 
 **Aufwand gesamt M0–M5: ~2–3 Wochen fokussiert**, verteilt auf Phase 2/3; M1 kann sofort
 parallel zum Ticket-13-Rest laufen.

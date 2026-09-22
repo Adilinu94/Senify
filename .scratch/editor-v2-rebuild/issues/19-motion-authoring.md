@@ -1,10 +1,6 @@
 # Editor v2 - Motion-Authoring (Motion-Spec v2, Inspektor, Canvas)
 
-Status: **M0-M5 + M4 Stufe 1 + M6 Scrub + M6 Motion an VCs + M6 Page Transitions umgesetzt**
-(M0-M5 am 18.09., M4 Stufe 1 am 20.09., M6 Scrub am 21.09., Motion an VCs und Page
-Transitions am 22.09.) - Modell, Runtime/Bake, Inspektor, Play-Preview, Live-Modus,
-Guardrails, der Scrub-Regler, Motion an Komponenten und das `page-fade`-Seiten-Preset
-stehen; vom M6-Ausbau bewusst offen: freie Timeline, 3D-Preset (je eigenes Ticket).
+Status: **M0-M5 + M4 Stufe 1 + M6 Scrub + M6 Motion an VCs + M6 Page Transitions + M6 kleine Presets umgesetzt** (M0-M5 am 18.09., M4 Stufe 1 am 20.09., M6 Scrub am 21.09., Motion an VCs, Page Transitions und die 8 kleinen Presets am 22.09.) - Modell, Runtime/Bake, Inspektor, Play-Preview, Live-Modus, Guardrails, der Scrub-Regler, Motion an Komponenten, das `page-fade`-Seiten-Preset, Hover-/Ambient-/Preloader-/Modal-Presets stehen; vom M6-Ausbau bewusst offen: nur noch das 3D-Preset (three.js). Die freie Timeline ist auf Nutzerentscheidung (22.09.) gestrichen.
 Herkunft: Papierpaket in `.scratch/motion-v2/` — `research.md`, `plan.md`, `plugin-analyse.md`, `preset-matrix.md`, `payload-spec.md`, `freeze-spec.md`, `adr-0006-entwurf.md` (18.09.2026)
 Abhaengig von: 07 (Dokument-Modell), 13 (Save-Pipeline/Bake), 02 (Inspektor), 03 (Live-Modus)
 Entscheidungen: ADR-0003 gilt weiter; F1-F7 vom 18.09.2026 (siehe unten)
@@ -172,7 +168,8 @@ v2-Dokument plus Editor-Authoring. Details: `.scratch/motion-v2/research.md`.
 
 - **Kern:** Neuer Runtime-Wert `document` in der Registry: `page-fade` liegt wie jede Spec
   an einem Knoten, wirkt aber auf die ganze Seite. Der Bake sammelt sie pro Seite
-  (`pageTransitionForTree`, erster Knoten gewinnt) und schreibt einmal Head-CSS
+  (`pageEffectsForTree`, erster Knoten gewinnt; bis 22.09. `pageTransitionForTree`) und
+  schreibt einmal Head-CSS
   (`pageTransitionCss`): `@view-transition { navigation: auto; }`, Dauer 0,3-0,5 s nach
   Intensity, `animation-timing-function: ease` und das RM-Gate (`static` -> `animation:
   none !important`, `fade` -> Cross-Fade 0,2 s, `off` -> ohne Gate). Kein Seiten-Skript,
@@ -190,6 +187,44 @@ v2-Dokument plus Editor-Authoring. Details: `.scratch/motion-v2/research.md`.
   Fremdstrang-Tests der Bildgenerierung, eigene +4: Renderer +3, Bake +1), typecheck 0,
   lint 0.
 - **M6-Rest:** freie Timeline, 3D-Preset — je eigenes Ticket.
+
+## Umsetzung M6 kleine Presets (22.09.2026) - Hover, Ambient, Preloader, Modal
+
+- **Entscheidung (Nutzer, 22.09.):** alle 8 offenen D/E/F-Presets umsetzen; die
+  **freie Timeline wird gestrichen** (die Presets decken die Faelle ab, F2 war nur
+  eine Option); 3D laeuft spaeter mit **three.js direkt** (self-hosted, kein React
+  im Release).
+- **Drei Wege, je nach Effekt:**
+  - **Head-CSS (`document`-Runtime):** `hover-lift`, `ambient-float`, `grain` — der
+    Bake sammelt sie pro Seite (`pageEffectsForTree`, erster Knoten gewinnt) und
+    schreibt einen Block (`motionEffectCss`), der ueber `data-motion="<preset>"`
+    greift; die Renderpfade stempeln das Attribut (`motionPendingAttrs`). Intensity
+    skaliert Hub/Travel/Opacity, jede Block-haelfte traegt das RM-Gate, `hover-lift`
+    zusaetzlich `(hover: none)`.
+  - **page.js:** `magnetic-button` (quickTo, max ~16 px), `tilt-card` (max 8°,
+    Perspektive 900, Touch uebersprungen), `cursor-glow` (Inertia-Layer,
+    `pointer-events:none`, 1 pro Seite) — alle hinter `(hover: hover)`, RM-Policy
+    `static`/`fade` schaltet sie ab. Nebenbei: das RM-Gate prueft jetzt `off`
+    (vorher `ignore` — die Policy `off` lief nie).
+  - **Markup/Island:** `preloader-light` rendert als Curtain im Template (CSS +
+    Inline-Failsafe: load, 2,5-s-Cap, RM sofort, noscript versteckt); `modal` ist
+    eine Island-Medien-Lightbox (`<dialog>` fuer Bilder/Videos/Iframes im Knoten,
+    das Preset ist das Opt-in, `islandsForNode` liest die Spec).
+- **Editor:** Live-Modus und Play injizieren den Head-CSS-Block mit
+  (`motion-inject.ts`); im Design bleibt es ruhig (kein Dauer-Loop beim Editieren).
+- **Sections:** `get_section.motionPresets` erweitert (Hero: magnetic/cursor-glow/
+  ambient/grain/preloader; CTA: magnetic/cursor-glow; Gallery/Projects: hover-lift/
+  tilt-card; Gallery/Media/Embed: modal; Pricing/Team/Testimonials: hover-lift;
+  Footer: grain; Card: tilt-card).
+- **Tests:** section-sdk +1 (CSS-Preset-Liste = document), Renderer +6 (Sammeln je
+  Preset, Skip in Configs, Preloader-Flag, CSS-Bloecke, Island-Skip, Pointer-Configs),
+  Islands +1 (modal), Registry +1 (`data-motion`/pending/disabled), Editor-Panel-Liste
+  nachgezogen, Bake-Assertions erweitert; Bundle-Budget auf 160 KB (Pointer-Gruppe).
+- **Zahlen:** gesamt **1427 gruen / 2 uebersprungen / 154 Dateien, EXIT 0**
+  (`.scratch/testlauf-22-09-m6presets-5.log`; Laeufe 2-4 hatten bekannte Flakes —
+  `settings-browser`, `bake-jobs`/`auth` `bad port` —, alle in Isolation gruen; Lauf 1
+  zwei Panel-Erwartungen), typecheck 0, lint 0.
+- **M6-Rest:** 3D-Preset (three.js direkt) — eigenes Ticket.
 
 ## Umfang (Phasen aus plan.md)
 

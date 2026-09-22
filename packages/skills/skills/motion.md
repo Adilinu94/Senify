@@ -44,6 +44,24 @@ voll. Ohne View-Transition-Support (Firefox) degradiert es still zum normalen We
 Pro Seite zählt der erste Knoten; ein zweiter erzeugt den Review-Hinweis
 `document-excess`.
 
+## Hover, Ambient, Preloader, Modal
+
+- `hover-lift`, `ambient-float`, `grain` sind **CSS-Effekte**: Der Bake schreibt ihren
+  Block einmal pro Seite, das Preset muss also nur an einem Knoten stehen (die erste
+  Intensity gewinnt). `hover-lift` hebt beim Hover (`(hover: none)`- und RM-Gate),
+  `ambient-float` läuft als Endlos-Loop (10–19 s, RM aus), `grain` legt eine
+  animierte Körnung über den Knoten (`pointer-events: none`, RM aus).
+- `magnetic-button`, `tilt-card`, `cursor-glow` brauchen einen Zeiger und laufen nur
+  auf Geräten mit `(hover: hover)`; unter `prefers-reduced-motion` sind sie aus
+  (Policy `static`/`fade`), nur `off` erzwingt sie.
+- `preloader-light` ist der Lade-Vorhang der Seite (≤ 2,5 s, unter Reduced Motion
+  sofort weg, ohne JS per `noscript` versteckt); er gehört an den Seiten-Root oder
+  die erste Sektion.
+- `modal` macht die Medien im Knoten (Bild, Video, Iframe) als Dialog aufklappbar
+  (Lightbox) — passend für Gallery, Media, Embed.
+- Alle vier sind pro Seite einmal wirksam: ein zweites Vorkommen erzeugt keinen
+  Fehler, aber auch keinen zweiten Effekt.
+
 ## Werkzeuge
 
 - `set_motion` — setzt die Spec eines Knotens (`pageId`, `nodeId`, `baseDraftVersion`, `preset`, …).

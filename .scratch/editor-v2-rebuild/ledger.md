@@ -114,6 +114,22 @@ gehoeren bewusst **nicht** in die Undo-History (Webstudio-Muster). Hinweis: `doc
 wurde parallel um „Teil II" (§10–§16: Referenz-Transfer, Anti-Slop, Editor-Tiefe) erweitert —
 beide Teile koexistieren; nichts ueberschrieben. Kein Produktcode geaendert.
 
+**Ticket 19 M6 kleine Presets (22.09., umgesetzt): Hover, Ambient, Preloader, Modal.**
+Entscheidung (Nutzer): alle 8 offenen D/E/F-Presets umsetzen, die **freie Timeline
+streichen**, 3D spaeter mit **three.js direkt** (self-hosted, kein React). Drei Wege:
+`hover-lift`, `ambient-float`, `grain` als Head-CSS (`document`-Runtime,
+`pageEffectsForTree`/`motionEffectCss`, Hook `data-motion`, RM- und `(hover: none)`-
+Gates, Intensity skaliert Hub/Travel/Opacity); `magnetic-button`, `tilt-card`,
+`cursor-glow` im page.js (quickTo, canHover, Touch skip, ein Glow-Layer pro Seite);
+`preloader-light` als Markup-Curtain (load/2,5-s-Cap/RM sofort, noscript versteckt);
+`modal` als Island-Medien-Lightbox (`<dialog>`, Preset = Opt-in). RM-Gate prueft jetzt
+`off` statt `ignore` (Policy lief nie). Editor: Live/Play injizieren den Head-CSS-Block,
+Design bleibt ruhig. Sections-`motionPresets` erweitert, Bundle-Budget 160 KB. Tests:
+section-sdk +1, Renderer +6, Islands +1, Registry +1, Panel-Listen nachgezogen, Bake
+erweitert. Zahlen: gesamt **1427 gruen / 2 uebersprungen / 154 Dateien, EXIT 0**
+(`.scratch/testlauf-22-09-m6presets-5.log`; Laeufe 2-4: bekannte Flakes, in Isolation
+gruen), typecheck 0, lint 0. M6-Rest: 3D.
+
 **Ticket 19 M6 Page Transitions (22.09., umgesetzt): `page-fade` als Seiten-Preset.**
 Neuer Runtime-Wert `document` in der Registry: `page-fade` liegt wie jede Spec an einem
 Knoten, wirkt aber auf die ganze Seite. Der Bake sammelt sie pro Seite

@@ -43,20 +43,23 @@ Legende Heute: **page.js** = im Page-Script implementiert (`PAGE_SCRIPT_PRESETS`
 | 11 | C | `counter` | — | — | viewport/load | page.js (`data-count`) | — |
 | 12 | C | `marquee` | loops | — | load | **CSS** (`cssOnly`) | WCAG-Pause-Button + `userPaused`-Disziplin fehlen (Plugin-Vorlage) |
 | 13 | C | `char-split` | splits, staggers, hides | splittext | viewport/load | page.js (Eigenbau-Char-Split) | **weich max 1/Seite**; SplitText + Revert |
-| 14 | D | `hover-lift` | interactive | — | hover | **offen** | als CSS-Transition machbar (Style-Rules) |
-| 15 | D | `magnetic-button` | interactive | — (quickTo) | hover | **offen** | `canHover`-Gate, passives `pointermove` |
-| 16 | D | `tilt-card` | interactive | — (Observer/Pointer) | hover | **offen** | max 6–8°; Touch ueberspringen |
-| 17 | D | `cursor-glow` | interactive | — (quickTo) | hover | **offen** | Inertia; `pointer-events:none`-Layer |
+| 14 | D | `hover-lift` | interactive | — | hover | **`document`** (Head-CSS, `data-motion`) | CSS-Transition; `(hover: none)`- und RM-Gate |
+| 15 | D | `magnetic-button` | interactive | — (quickTo) | hover | **page.js** | `canHover`-Gate, passives `pointermove`, max ~16 px |
+| 16 | D | `tilt-card` | interactive | — (quickTo) | hover | **page.js** | max 8°, Touch überspringen, Perspektive 900 |
+| 17 | D | `cursor-glow` | interactive | — (quickTo) | hover | **page.js** | Inertia, `pointer-events:none`-Layer, 1 pro Seite |
 | 18 | E | `page-fade` | — | — (View Transitions) | load/Navigation | **`document`** (Head-CSS) | CSS `@view-transition`; degradiert ohne Support; beide Seiten opt-in |
-| 19 | E | `preloader-light` | hides, loops | — | load | **offen** | **weich ≤ 2,5 s**; RM statisch |
+| 19 | E | `preloader-light` | hides, loops | — | load | **`document`** (Head-CSS + Inline) | **weich ≤ 2,5 s**; Markup-Curtain, RM sofort; noscript versteckt |
 | 20 | E | `accordion` | — | — | click | **Island** (details-Fade) | Basis vorhanden; Motion-Variante offen |
-| 21 | E | `modal` | — | — | click | **offen** | Vanilla-Island noetig (Motion nur Editor-UI) |
-| 22 | F | `ambient-float` | loops | — | load | **offen** | CSS-Loop (8–20 s, mirror) |
-| 23 | F | `grain` | loops | — | load | **offen** | `pointer-events:none`; RM statisch |
-| 24 | G | `webgl-scene` | loops | (3D) | load/viewport | **Stub-Island** (`motion.ts:361-365`) | eigenes Ticket; 1 Canvas/Seite, lazy, Poster |
+| 21 | E | `modal` | — | — | click | **Island** (Medien-Lightbox) | `<dialog>` für Bilder/Videos/Iframes im Knoten; Preset ist das Opt-in |
+| 22 | F | `ambient-float` | loops | — | load | **`document`** (Head-CSS) | CSS-Loop (10–19 s, alternate); RM statisch |
+| 23 | F | `grain` | loops | — | load | **`document`** (Head-CSS) | `::after`, `pointer-events:none`; RM statisch |
+| 24 | G | `webgl-scene` | loops | (3D) | load/viewport | **Stub-Island** (`motion.ts:361-365`) | eigenes Ticket; three.js direkt (Entscheidung 22.09.); 1 Canvas/Seite, lazy, Poster |
 
-**Abdeckung heute:** 12 × page.js + 1 × CSS (`marquee`) = 13 (`PAGE_SCRIPT_PRESETS`),
-1 × Island (`accordion`), 1 × Head-CSS (`page-fade`), **9 offen** (D 14–17, E 19/21, F 22/23, G 24).
+**Abdeckung heute:** 15 × page.js-Effekt + 1 × CSS (`marquee`) = 16
+(`PAGE_SCRIPT_PRESETS`), 2 × Island (`accordion`, `modal`), 5 × Head-CSS
+(`page-fade`, `hover-lift`, `ambient-float`, `grain`, `preloader-light`),
+**1 offen** (G 24 `webgl-scene`; three.js). Die freie Timeline ist auf
+Nutzerentscheidung (22.09.) **gestrichen**.
 
 ## 3. Guardrails je Flag
 
