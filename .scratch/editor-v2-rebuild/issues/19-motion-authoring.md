@@ -1,9 +1,10 @@
 # Editor v2 - Motion-Authoring (Motion-Spec v2, Inspektor, Canvas)
 
-Status: **M0-M5 + M4 Stufe 1 + M6 Scrub umgesetzt** (M0-M5 am 18.09., M4 Stufe 1 am 20.09.,
-M6 Scrub am 21.09.) - Modell, Runtime/Bake, Inspektor, Play-Preview, Live-Modus, Guardrails
-und der Scrub-Regler stehen; vom M6-Ausbau bewusst offen: freie Timeline, Page Transitions,
-3D-Preset, Motion an VCs/Templates (je eigenes Ticket).
+Status: **M0-M5 + M4 Stufe 1 + M6 Scrub + M6 Motion an VCs umgesetzt** (M0-M5 am 18.09.,
+M4 Stufe 1 am 20.09., M6 Scrub am 21.09., Motion an VCs am 22.09.) - Modell, Runtime/Bake,
+Inspektor, Play-Preview, Live-Modus, Guardrails, der Scrub-Regler und Motion an Komponenten
+stehen; vom M6-Ausbau bewusst offen: freie Timeline, Page Transitions, 3D-Preset (je
+eigenes Ticket).
 Herkunft: Papierpaket in `.scratch/motion-v2/` — `research.md`, `plan.md`, `plugin-analyse.md`, `preset-matrix.md`, `payload-spec.md`, `freeze-spec.md`, `adr-0006-entwurf.md` (18.09.2026)
 Abhaengig von: 07 (Dokument-Modell), 13 (Save-Pipeline/Bake), 02 (Inspektor), 03 (Live-Modus)
 Entscheidungen: ADR-0003 gilt weiter; F1-F7 vom 18.09.2026 (siehe unten)
@@ -146,8 +147,26 @@ v2-Dokument plus Editor-Authoring. Details: `.scratch/motion-v2/research.md`.
   Rueckweg auf 0, Design disabled).
 - **Zahlen:** gesamt 1386 gruen / 2 uebersprungen / 152 Dateien, EXIT 0
   (`.scratch/testlauf-21-09-m6scrub.log`), typecheck 0, lint 0.
-- **M6-Rest:** freie Timeline, Page Transitions, 3D-Preset, Motion an VCs/Templates — je
-  eigenes Ticket.
+- **M6-Rest:** freie Timeline, Page Transitions, 3D-Preset — je eigenes Ticket.
+
+## Umsetzung M6 Motion an VCs (22.09.2026) - Motion an Komponenten
+
+- **Kern:** Motion am Komponenten-Knoten ueberlebt das Inlining. Die Spec der **Instanz**
+  gewinnt auf der Wurzel-Kopie; ohne sie gilt der Default der Definition — erst das
+  Wurzel-Teil, dann der Definitions-Knoten (`inlineComponents`, `section-sdk`). Die uebrigen
+  Teile tragen ihre eigene Motion unveraendert mit der Kopie. Canvas und Bake emittieren die
+  Animation damit fuer die Kopie-Id, die das DOM traegt; Guardrails (Draft) und Bake (inline)
+  zaehlen dieselben Pins.
+- **Editor:** `detachComponent` uebergibt dieselbe Spec an die Wurzel des abgeloesten Baums
+  (gleiche Reihenfolge) — ohne das verloere das Aufloesen der Komponente die Animation.
+- **Vorlagen:** Das Splice (`composePageTree`) reicht Knoten samt Motion durch; ein Test pinnt das.
+- **Tests:** section-sdk +4 (Instanz-Vorrang, Wurzel-Teil-Default, Definitions-Default,
+  Teile bleiben), Editor +2 (Motion in der Canvas-Kopie + im Payload, detach), Engine +2
+  (Komposition, Vorlagen-Splice).
+- **Zahlen:** gesamt **1408 gruen / 2 uebersprungen / 153 Dateien, EXIT 0**
+  (`.scratch/testlauf-22-09-motion-vcs-2.log`; der erste Lauf hatte den bekannten
+  `canvas-view-browser`-Flake, in Isolation gruen), typecheck 0, lint 0.
+- **M6-Rest:** freie Timeline, Page Transitions, 3D-Preset — je eigenes Ticket.
 
 ## Umfang (Phasen aus plan.md)
 

@@ -114,6 +114,18 @@ gehoeren bewusst **nicht** in die Undo-History (Webstudio-Muster). Hinweis: `doc
 wurde parallel um „Teil II" (§10–§16: Referenz-Transfer, Anti-Slop, Editor-Tiefe) erweitert —
 beide Teile koexistieren; nichts ueberschrieben. Kein Produktcode geaendert.
 
+**Motion an VCs (22.09., umgesetzt): Motion an Komponenten ueberlebt das Inlining.**
+Die Motion der Instanz ist die Entscheidung der Instanz und landet auf der Wurzel-Kopie;
+ohne sie gilt der Default der Definition (erst das Wurzel-Teil, dann der Definitions-Knoten).
+`inlineComponents` (`section-sdk/src/components.ts`) uebertraegt sie zusammen mit den Klassen;
+`detachComponent` gibt dieselbe Spec an die Wurzel des abgeloesten Baums weiter; das
+Vorlagen-Splice reicht Knoten samt Motion durch (Test). Damit emittieren Canvas und Bake die
+Animation fuer die Kopie-Id, die das DOM traegt, und Guardrails (Draft) und Bake (inline)
+zaehlen dieselben Pins. Tests: section-sdk +4, Editor +2, Engine +2. Zahlen: gesamt **1408
+gruen / 2 uebersprungen / 153 Dateien, EXIT 0** (`.scratch/testlauf-22-09-motion-vcs-2.log`;
+der erste Lauf hatte den bekannten `canvas-view-browser`-Flake, in Isolation gruen),
+typecheck 0, lint 0. M6-Rest: freie Timeline, Page Transitions, 3D.
+
 **Varianten im Editor (21.09., umgesetzt): extrahieren, umbenennen, loeschen.** Entscheidung
 (Nutzer): Anlegen aus Instanz-Overrides (Kontextmenue „Als Variante speichern", Name per
 Dialog), Verwaltung im Inspektor der Komponente (Register mit Umbenennen und Loeschen) —

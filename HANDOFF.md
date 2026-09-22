@@ -690,8 +690,9 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
   fuehrt den Regler auf 0, im Design ist er aus. **Zahlen:** Gesamtlauf **1386 gruen /
   2 uebersprungen / 152 Dateien, EXIT 0** (Log `.scratch/testlauf-21-09-m6scrub.log`),
   typecheck 0, lint 0.
-- **M6-Rest (bewusst offen, je eigenes Ticket):** freie Timeline, Page Transitions,
-  3D-Preset, Motion an VCs/Templates.
+- **M6-Rest (21.09. bewusst offen, je eigenes Ticket):** freie Timeline, Page Transitions,
+  3D-Preset, Motion an VCs/Templates. **Motion an VCs/Templates ist am 22.09. umgesetzt**
+  (§2.23); offen bleiben freie Timeline, Page Transitions, 3D-Preset.
 
 ### 2.21 Entscheidung (21.09.): Sections-Migration vertagt
 
@@ -701,7 +702,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
   Styles je Instanz, MCP) ist vollständig; die kuratierten Sections rendern weiter ihre
   React-Komponenten, die Widget-Primitive sind der zweite, bakebare Pfad.
 - **Damit bewusst offen:** Sections als VCs (Punkt 2), Multi-Widget-VCs (Punkt 3),
-  M6-Rest (freie Timeline, Page Transitions, 3D, Motion an VCs).
+  M6-Rest (freie Timeline, Page Transitions, 3D; Motion an VCs seit 22.09. erledigt, §2.23).
 
 ### 2.22 Varianten im Editor (21.09., umgesetzt) - extrahieren, umbenennen, loeschen
 
@@ -728,6 +729,27 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
   Kuratierte Sections tragen ihre Props nicht im Widget-Katalog — dort kommen Overrides
   (und damit die Extraktion) weiter über `apply_mutations`/MCP.
 
+### 2.23 Ticket 19 M6 (22.09., committet fc53d0c): Motion an Komponenten (VCs/Templates)
+
+- **Kern:** Motion am Komponenten-Knoten überlebt das Inlining. Die Spec der **Instanz**
+  gewinnt auf der Wurzel-Kopie; ohne sie gilt der Default der **Definition** — erst das
+  Wurzel-Teil, dann der Definitions-Knoten (`inlineComponents`, `section-sdk`). Die übrigen
+  Teile tragen ihre eigene Motion unverändert mit der Kopie. Canvas und Bake emittieren die
+  Animation damit für die Kopie-Id, die das DOM trägt; Guardrails (Draft) und Bake (inline)
+  zählen dieselben Pins.
+- **Editor:** `detachComponent` übergibt dieselbe Spec an die Wurzel des abgelösten Baums
+  (gleiche Reihenfolge) — ohne das verlöre das Auflösen der Komponente die Animation.
+- **Vorlagen:** Das Splice (`composePageTree`) reicht Knoten samt Motion durch; ein Test
+  pinnt das.
+- **Tests:** section-sdk +4 (Instanz-Vorrang, Wurzel-Teil-Default, Definitions-Default,
+  Teile bleiben), Editor +2 (Motion in der Canvas-Kopie + im Payload, detach), Engine +2
+  (Komposition, Vorlagen-Splice).
+- **Zahlen:** Gesamtlauf **1408 grün / 2 übersprungen / 153 Dateien, EXIT 0**
+  (Log `.scratch/testlauf-22-09-motion-vcs-2.log`; der erste Lauf hatte den bekannten
+  `canvas-view-browser`-Flake, in Isolation grün), typecheck 0, lint 0.
+- **M6-Rest (bewusst offen, je eigenes Ticket):** freie Timeline, Page Transitions,
+  3D-Preset.
+
 ---
 
 ## 3. Phasenstand
@@ -742,7 +764,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
 | — | 18.09.: Ticket 13 Rest (Bake + Klassen-Transport + scoped-Rekey) + Klassen am DOM + Motion M0–M5 + Ticket 20; 19.09.: Slot-/Collection-Transport verifiziert | ✅ | `issues/13`, `issues/19`–`22`, `docs/adr/0006`, `.scratch/motion-v2/` |
 | 2 | Style-Rule-Registry (Server ✅), Wert-Grammatik ✅, Editor-Modell ✅, Inspektor ✅ (20.09.) | ✅ | `issues/07`, `10`, `13`, `02` |
 | 3 | Chrome: Explorer/Kontextmenü/Spotlight ✅, DnD ✅, Design/Live ✅, Inline-Edit ✅, Undo-UI ✅, Keyboard ✅, Drag + Tabs ✅ (20.09.) | ✅ | `issues/03` + 12/16 |
-| 4 | Visual Components: Scheibe 1 (Component-Kern) ✅ + Scheibe 2 Teil 1 (speicherbar, Bake-Rekey, Overrides) ✅ (20.09.) + Teil 2 (Komponenten-Tab, Kontextmenü) ✅ (21.09.) + Scheibe 3 (Styles je Instanz, Gerätestufen) ✅ (21.09.) + Publish-Versionen ✅ + Varianten ✅ + Varianten im Editor ✅ (21.09.); Sections-Migration bewusst vertagt (21.09.) | 🔄 | `issues/04` |
+| 4 | Visual Components: Scheibe 1 (Component-Kern) ✅ + Scheibe 2 Teil 1 (speicherbar, Bake-Rekey, Overrides) ✅ (20.09.) + Teil 2 (Komponenten-Tab, Kontextmenü) ✅ (21.09.) + Scheibe 3 (Styles je Instanz, Gerätestufen) ✅ (21.09.) + Publish-Versionen ✅ + Varianten ✅ + Varianten im Editor ✅ (21.09.) + Motion an VCs ✅ (22.09.); Sections-Migration bewusst vertagt (21.09.) | 🔄 | `issues/04`, `issues/19` |
 | 5 | SSE-Kanal, Live-Mitverfolgung, Leistungsbudget | ✅ (21.09.) | `issues/05`, `pruef-t05-performance.mjs` |
 
 ---
@@ -807,7 +829,7 @@ Alle unter `.scratch/editor-v2-rebuild/issues/`. Stand:
 | 16-marker-overlay-portal | Marker-Overlay im Portal (Alt-Palette beenden) | **erledigt (20.09.)** — Portal-DOM, Token-Doppelkante, Geometrie-Tests |
 | 17-releases-cutover | Publish über `POST /api/releases`, Paritäts-Tor als CI-Blocker | **erledigt (20.09./21.09.)** — O9-Vorhang, Route-Publish, Paritäts-Tor gegen das Release, Rollback, `pnpm verify:parity` + CI-Workflow; Funde: `variant`, Font-Auslieferung |
 | 18-agent-style-gate | Wert-Ebene-Fence als Tests (`authoredBy`) | **erledigt (19.09.)** — Author-Resolver, Idempotency-Keys, Fence; `idempotentHint` bleibt opt-in |
-| 19-motion-authoring | Motion-Spec v2 im Editor: Modell/Bridge, Inspektor, Canvas (Play), Guardrails | **M0–M5 + M4 Stufe 1 + M6 Scrub umgesetzt** (20./21.09.); M6-Rest (freie Timeline, Page Transitions, 3D, Motion an VCs) bewusst offen |
+| 19-motion-authoring | Motion-Spec v2 im Editor: Modell/Bridge, Inspektor, Canvas (Play), Guardrails | **M0–M5 + M4 Stufe 1 + M6 Scrub + M6 Motion an VCs umgesetzt** (20.–22.09.); M6-Rest (freie Timeline, Page Transitions, 3D) bewusst offen |
 | 20-site-settings-profile | Site-Profil im Editor: Kanal, Anzeige, Wechsel-Validierung, Profil-Gates | **umgesetzt** (18.09.) |
 | 21-klassen-am-dom | User-Klassen + Scope-Klasse am Wurzelelement (Anker-Selektoren treffen in Canvas und Bake) | **umgesetzt** (18.09.) |
 | 22-scoped-rekey-bake | ID-Map aus dem Layout-Splice, `nodeIdMap` pro Route, scoped-Remap in `styleRulesCss` | **umgesetzt** (18.09.) |
@@ -844,8 +866,10 @@ committet `55593f1`). Der Testlauf ist grün (**1270/2/141**, Log
    §2.14. Damit sind die Phasen 2, 3 und 5 fachlich abgeschlossen. **Am 21.09. folgten**
    Ticket 04 Scheibe 3 (§2.17), Publish-Versionen (§2.18), Varianten (§2.19) und der
    Editor-Weg dazu (§2.22), Ticket 19 M6 Scrub (§2.20) sowie die Entscheidung, die
-   Sections-Migration zu vertagen (§2.21) - alles committet. Offen sind damit nur noch die
-   vertagte Migration (Sections als VCs, Multi-Widget-VCs) und der M6-Rest.
+   Sections-Migration zu vertagen (§2.21) - alles committet. **Am 22.09. folgte** Motion an
+   VCs (§2.23, Ticket 19 M6) - committet. Offen sind damit nur noch die vertagte Migration
+   (Sections als VCs, Multi-Widget-VCs) und der M6-Rest (freie Timeline, Page Transitions,
+   3D-Preset).
 2. **Vor dem E2-Cutover (Ticket 04):** Katalog-Namen in der Engine registrieren (Strangler) —
    **die strukturellen Typen sind jetzt registriert** (§2.9), **die Dublette `divider`/`embed`
    ist aufgeloest** (§2.15, Zwillings-Bruecke + Guard), **das Paritaets-Tor ist als CI-Blocker

@@ -31,6 +31,14 @@ Menschen benutzen denselben Kanal: `set_motion` / `clear_motion` (oder `setMotio
 Endzustand, es wird nur nicht animiert. `fade` blendet Hiding-Presets in 0,4 s ein.
 `off` ist die bewusste Ausnahme.
 
+## Motion an Komponenten
+
+Motion sitzt am Knoten — auch an einer Komponente. Die **Instanz** entscheidet mit ihrer
+Spec und gewinnt; ohne sie gilt der Default der **Definition** (erst das Wurzel-Teil, dann
+der Definitions-Knoten). Rendering und Bake übertragen die Spec auf die Wurzel-Kopie, die
+Animation läuft also einmal pro Instanz; das Auflösen einer Komponente (`detach`) nimmt sie
+mit. Die übrigen Teile tragen ihre eigene Motion unabhängig davon.
+
 ## Site-Profile
 
 | Profil | Intensity | Lenis | Pins | 3D | Preset-Klassen |

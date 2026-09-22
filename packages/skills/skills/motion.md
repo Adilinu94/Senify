@@ -23,6 +23,14 @@ Seiten-Runtime (GSAP + ScrollTrigger + Lenis, self-hosted im Release).
 nicht animiert. `fade` blendet Hiding-Presets in 0,4 s ein. `off` nur bewusst und
 begründet — es ist die einzige Variante ohne Schonung.
 
+## Motion an Komponenten
+
+Motion sitzt am Knoten — auch an einer Komponente. Die **Instanz** entscheidet mit ihrer
+Spec und gewinnt; ohne sie gilt der Default der **Definition** (erst das Wurzel-Teil,
+dann der Definitions-Knoten). Rendering und Bake übertragen die Spec auf die Wurzel-Kopie,
+die Animation läuft also einmal pro Instanz; `detach` nimmt sie mit. Die übrigen Teile
+tragen ihre eigene Motion unabhängig davon.
+
 ## Werkzeuge
 
 - `set_motion` — setzt die Spec eines Knotens (`pageId`, `nodeId`, `baseDraftVersion`, `preset`, …).

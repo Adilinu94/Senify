@@ -1089,7 +1089,7 @@ Kurzlegende: **Nutzen** = Hebel für das Zielbild · **Aufwand** S/M/L · **Prio
 | I7 | Style-Copy/Paste zwischen Elementen/Seiten/Projekten | Konsistenz ohne Wiederholung | S–M | P2 | E6 |
 | I8 | Referenz-Overlay (Referenzbild halbtransparent über der Seite) | „Nähe zur Referenz" sichtbar justieren | S | P2 | E25 |
 | I9 | Design-Radar (welche Seite nutzt welche Referenz, Nähe-Score) | Design-Herkunft und Drift im Blick | M | P3 | E24/E26 |
-| I10 | Bildrezept → Asset (BYOK-Bildgenerierung, lizenzsauber) | Eigene Motive statt Stock | M | P2 | E24 (Rezept existiert) |
+| I10 | ✅ Bildrezept → Asset (Engine-Bildgenerierung: `generate_image` mit `referenceId`, Kette custom → image-use → ComfyUI) | Eigene Motive statt Stock | M | P2 | E24 (Rezept existiert); erledigt 22.09.2026 (Bildgenerierung 01–07, `.scratch/bildgenerierung/`) |
 | I11 | Font-Pairing + Self-Hosting aus Referenz-Fonts | Typo-Qualität ohne Lizenzrisiko | S–M | P2 | E27 |
 | I12 | Referenz-Diff (zwei Referenzen visuell vergleichen) | Kuratierung der Sammlung | S | P3 | E24 |
 
@@ -1212,7 +1212,7 @@ Die Referenz-Transfer-Strecke ist **der Differenzierungs-Kern** des Produkts, ab
 | 16 | Marker-Overlay-Portal | offen |
 | 17 | Releases-Cutover | offen (P0) |
 | 18 | Agent-Style-Gate | offen (P0) |
-| 19 | Motion (M0–M5 + M4 Stufe 1 umgesetzt; Scrub = M6) | fast fertig |
+| 19 | Motion (M0–M5 + M4 Stufe 1 + M6 Scrub + Motion an VCs umgesetzt; M6-Rest: freie Timeline, Page Transitions, 3D) | fast fertig |
 | 20 | Site-Settings/Profil | umgesetzt (18.09.) |
 | 21 | Klassen am DOM | umgesetzt (18.09.) |
 | 22 | Scoped-Rekey im Bake | umgesetzt (18.09.) |
