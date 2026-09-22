@@ -409,6 +409,54 @@ describe("component composition", () => {
     expect(composed.nodes[targets[0]!]?.type).toBe("container");
   });
 
+  // Motion an Komponenten (Ticket 19, M6): der Bake laeuft ueber dieselbe
+  // Komposition — die Motion der Instanz muss auf der Wurzel-Kopie landen,
+  // sonst animiert die veroeffentlichte Seite nichts.
+  it("carries the instance's motion through the composition", () => {
+    let counter = 0;
+    const draft: NodeTree = {
+      rootNodeId: "page-root",
+      nodes: {
+        "page-root": node("page-root", "page", {}, {
+          children: ["def-card", "inst-a", "inst-b"],
+        }),
+        "def-card": node("def-card", "__component", { name: "Karte" }, {
+          children: ["def-root"],
+          motion: { preset: "stagger-cascade", intensity: 3 },
+        }),
+        "def-root": node("def-root", "container", {}, { children: ["def-head"] }),
+        "def-head": node("def-head", "block", { headline: "Titel" }),
+        "inst-a": node(
+          "inst-a",
+          "__component_instance",
+          { componentId: "def-card" },
+          { motion: { preset: "fade-up", intensity: 8 } },
+        ),
+        "inst-b": node("inst-b", "__component_instance", { componentId: "def-card" }),
+      },
+    };
+    const idMap = new Map<string, string[]>();
+    const composed = composePageTree({
+      layout: null,
+      template: null,
+      page: draft,
+      article: null,
+      createId: () => `n${counter++}`,
+      idMap,
+    });
+    const motionOf = (instanceId: string) => {
+      const target = idMap.get(instanceId)?.[0] ?? "";
+      return composed.nodes[target]?.motion;
+    };
+    expect(motionOf("inst-a")).toEqual({ preset: "fade-up", intensity: 8 });
+    expect(motionOf("inst-b")).toEqual({ preset: "stagger-cascade", intensity: 3 });
+    // The definition keeps its own default.
+    expect(draft.nodes["def-card"]?.motion).toEqual({
+      preset: "stagger-cascade",
+      intensity: 3,
+    });
+  });
+
   it("keeps a definition of the layout alive for instances of the page", () => {
     // The definition sits in the container (layout), the instance in the page:
     // no rekeying, but the resolution must span the spliced tree.

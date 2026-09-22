@@ -21,6 +21,7 @@ import {
   variantsOf,
 } from "@senify/editor/state";
 import { inlineComponents, type Node, type NodeTree } from "@senify/section-sdk";
+import { motionConfigsForTree } from "@senify/renderer/motion";
 import { canvasNodeTree } from "@senify/editor/canvas";
 import { baseStore } from "./fixtures.ts";
 
@@ -137,6 +138,24 @@ describe("editor components", () => {
     expect(store.document.nodes[definitionId!]).toBeDefined();
   });
 
+  // Motion an Komponenten (Ticket 19, M6): das Aufloesen darf die Animation der
+  // Instanz nicht verlieren — die Wurzel des abgeloesten Baums uebernimmt sie.
+  it("keeps the instance's motion when a component is detached", () => {
+    const store = baseStore();
+    createComponent(store, "head000001", "karte");
+    const instanceId = store.document.nodes["sec0000001"]?.children?.[0] ?? "";
+    store.applyBatch(
+      [{ op: "setMotion", id: instanceId, spec: { preset: "fade-up", intensity: 7 } }],
+      { label: "Motion setzen" },
+    );
+    const detached = detachComponent(store, instanceId);
+    expect(detached).not.toBeNull();
+    expect(store.document.nodes[detached!]?.motion).toEqual({
+      preset: "fade-up",
+      intensity: 7,
+    });
+  });
+
   it("inlines the canvas tree the way the bake does", () => {
     const store = baseStore();
     const definitionId = createComponent(store, "sec0000001", "karte");
@@ -155,6 +174,29 @@ describe("editor components", () => {
     // A second, independent run gives the same ids (canvas and bake agree).
     const again = inlineComponents(canvasNodeTree(store.document));
     expect(Object.keys(again.tree.nodes).sort()).toEqual(Object.keys(tree.nodes).sort());
+  });
+
+  // Motion an Komponenten (Ticket 19, M6): die Motion der Instanz reist in die
+  // Canvas-Kopie, und der Motion-Payload nennt die Kopie-Id — genau die Id, die
+  // das DOM traegt, damit die injizierte Runtime das Element findet.
+  it("carries the instance's motion into the canvas copy", () => {
+    const store = baseStore();
+    createComponent(store, "head000001", "karte");
+    const instanceId = store.document.nodes["sec0000001"]?.children?.[0] ?? "";
+    store.applyBatch(
+      [{ op: "setMotion", id: instanceId, spec: { preset: "fade-up", intensity: 7 } }],
+      { label: "Motion setzen" },
+    );
+    const tree = canvasNodeTree(store.document);
+    const headings = Object.values(tree.nodes).filter((node) => node.type === "heading");
+    expect(headings).toHaveLength(1);
+    expect(headings[0]?.motion).toEqual({ preset: "fade-up", intensity: 7 });
+    const { configs } = motionConfigsForTree(tree, {
+      ease: {},
+      baseDurationMs: 300,
+      baseStaggerMs: 80,
+    });
+    expect(configs.map((config) => config.nodeId)).toEqual([headings[0]?.id]);
   });
 
   it("writes and clears an instance override, one part at a time", () => {

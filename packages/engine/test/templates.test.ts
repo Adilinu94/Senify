@@ -166,6 +166,34 @@ describe("composePageTree (resolve chain)", () => {
     expect(composed.nodes[composed.rootNodeId]?.children).toHaveLength(2);
   });
 
+  // Motion an Vorlagen (Ticket 19, M6): ein Knoten der Vorlage behaelt seine
+  // Motion durch das Splice — die Kopie des Rekeyings traegt sie mit.
+  it("keeps a template node's motion through the splice", () => {
+    let counter = 0;
+    const layout: NodeTree = {
+      rootNodeId: "root",
+      nodes: {
+        root: { id: "root", type: "page", props: {}, children: ["header", "out"] },
+        header: {
+          id: "header",
+          type: "hero",
+          props: {},
+          motion: { preset: "fade-up", intensity: 6 },
+        },
+        out: { id: "out", type: "outlet", props: {} },
+      },
+    };
+    const composed = composePageTree({
+      layout,
+      template: null,
+      page: tree({ children: ["content"], nodes: [{ id: "content", type: "content" }] }),
+      article: null,
+      createId: () => `n${counter++}`,
+    });
+    const header = Object.values(composed.nodes).find((node) => node.type === "hero");
+    expect(header?.motion).toEqual({ preset: "fade-up", intensity: 6 });
+  });
+
   it("rekeys spliced nodes so ids stay unique across layout and content", () => {
     let counter = 0;
     // The layout already owns a node with the id the page content also uses.

@@ -655,6 +655,12 @@ export function detachComponent(store: EditorStore, instanceId: string): string 
   if (located === undefined) return null;
   const overrides = editorOverrides(instance);
   const subtree = collectSubtree(store.document, rootChildId);
+  // Motion (Ticket 19, M6): the detached root keeps what the instance rendered
+  // — its own spec first, then the definition's default. The duplicate already
+  // carries the motion of the definition's parts; the instance's spec would be
+  // lost with the deleted instance node.
+  const definitionMotion = store.document.nodes[componentId]?.motion;
+  const instanceMotion = instance.motion;
   const coalesceKey = `detach:${instanceId}`;
   const outcome = store.applyBatch(
     [
@@ -682,6 +688,11 @@ export function detachComponent(store: EditorStore, instanceId: string): string 
       writes.push({ op: "setNodeProp", id: copy.id, key, value });
     }
   });
+  const rootMotion =
+    instanceMotion ?? (root === undefined ? undefined : store.document.nodes[root.id]?.motion) ?? definitionMotion;
+  if (root !== undefined && rootMotion !== undefined) {
+    writes.push({ op: "setMotion", id: root.id, spec: structuredClone(rootMotion) });
+  }
   if (writes.length > 0) {
     store.applyBatch(writes, { label: "Overrides übernehmen", coalesceKey });
   }

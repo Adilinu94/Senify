@@ -535,15 +535,22 @@ export function inlineComponents(tree: NodeTree, options: InlineOptions = {}): I
       const instanceCopies = copies.get(instance.id) ?? [];
       instanceCopies.push(copyId);
       copies.set(instance.id, instanceCopies);
-      // The instance's own classes belong on the root copy: the rendered
-      // element must carry them for the class rules to match (canvas and bake
-      // alike).
-      const instanceClasses = instance.classes ?? [];
-      if (instanceClasses.length > 0) {
-        const root = nodes[copyId];
-        if (root !== undefined) {
+      const root = nodes[copyId];
+      if (root !== undefined) {
+        // The instance's own classes belong on the root copy: the rendered
+        // element must carry them for the class rules to match (canvas and bake
+        // alike).
+        const instanceClasses = instance.classes ?? [];
+        if (instanceClasses.length > 0) {
           root.classes = [...new Set([...(root.classes ?? []), ...instanceClasses])];
         }
+        // Motion on a component (ticket 19, M6): the instance's spec is the
+        // instance's decision and wins on the rendered root copy; without one
+        // the definition's default applies — the root part's own spec first,
+        // then the definition container's. Motion on the other parts already
+        // rides the copy itself (the spread in `copyNode`).
+        const motion = instance.motion ?? root.motion ?? definitionNode?.motion;
+        if (motion !== undefined) root.motion = structuredClone(motion);
       }
     }
     return copyId;

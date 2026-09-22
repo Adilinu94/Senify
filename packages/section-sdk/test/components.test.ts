@@ -169,6 +169,77 @@ describe("inlineComponents", () => {
     expect(copy.classes).toContain("instanz-rot");
   });
 
+  // Motion an Komponenten (Ticket 19, M6): die Motion der Instanz ist die
+  // Entscheidung der Instanz und gewinnt auf der Wurzel-Kopie; ohne sie gilt
+  // der Default der Definition (erst das Wurzel-Teil, dann der Definitions-
+  // knoten). Die Motion der uebrigen Teile reist ohnehin mit der Kopie.
+  it("carries the instance's motion onto the root copy, instance wins", () => {
+    const tree = fixture();
+    tree.nodes["inst000001"] = {
+      ...tree.nodes["inst000001"]!,
+      motion: { preset: "fade-up", intensity: 7 },
+    };
+    tree.nodes["head000001"] = {
+      ...tree.nodes["head000001"]!,
+      motion: { preset: "scroll-reveal", intensity: 2 },
+    };
+    tree.nodes["def0000001"] = {
+      ...tree.nodes["def0000001"]!,
+      motion: { preset: "stagger-cascade", intensity: 3 },
+    };
+    const result = inlineComponents(tree);
+    expect(result.problems).toEqual([]);
+    const rootCopy = result.nodeIdMap.get("inst000001")!;
+    expect(result.tree.nodes[rootCopy]?.motion).toEqual({ preset: "fade-up", intensity: 7 });
+    // The definition itself stays untouched.
+    expect(tree.nodes["head000001"]?.motion).toEqual({ preset: "scroll-reveal", intensity: 2 });
+  });
+
+  it("falls back to the root part's motion, then the definition's", () => {
+    const partDefault = fixture();
+    partDefault.nodes["head000001"] = {
+      ...partDefault.nodes["head000001"]!,
+      motion: { preset: "scroll-reveal", intensity: 4 },
+    };
+    const withPart = inlineComponents(partDefault);
+    const partCopy = withPart.nodeIdMap.get("inst000001")!;
+    expect(withPart.tree.nodes[partCopy]?.motion).toEqual({
+      preset: "scroll-reveal",
+      intensity: 4,
+    });
+
+    const definitionDefault = fixture();
+    definitionDefault.nodes["def0000001"] = {
+      ...definitionDefault.nodes["def0000001"]!,
+      motion: { preset: "stagger-cascade", intensity: 6 },
+    };
+    const withDefinition = inlineComponents(definitionDefault);
+    const definitionCopy = withDefinition.nodeIdMap.get("inst000001")!;
+    expect(withDefinition.tree.nodes[definitionCopy]?.motion).toEqual({
+      preset: "stagger-cascade",
+      intensity: 6,
+    });
+  });
+
+  it("keeps the motion of the other parts and never overwrites it", () => {
+    const tree = fixture();
+    tree.nodes["body000001"] = {
+      ...tree.nodes["body000001"]!,
+      motion: { preset: "fade-up", intensity: 9 },
+    };
+    tree.nodes["inst000001"] = {
+      ...tree.nodes["inst000001"]!,
+      motion: { preset: "fade-up", intensity: 1 },
+    };
+    const result = inlineComponents(tree);
+    expect(result.problems).toEqual([]);
+    // The slot content keeps its own spec; only the root copy takes the
+    // instance's.
+    expect(result.tree.nodes["body000001"]?.motion).toEqual({ preset: "fade-up", intensity: 9 });
+    const rootCopy = result.nodeIdMap.get("inst000001")!;
+    expect(result.tree.nodes[rootCopy]?.motion).toEqual({ preset: "fade-up", intensity: 1 });
+  });
+
   it("expands the same definition twice without id collisions", () => {
     const tree = fixture();
     tree.nodes["sec0000002"] = node("sec0000002", "frame", { children: ["inst000002"] });
