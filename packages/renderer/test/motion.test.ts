@@ -6,8 +6,9 @@ import { join } from "node:path";
 import {
   motionConfigsForTree,
   motionDataFor,
+  motionEffectCss,
+  pageEffectsForTree,
   pageTransitionCss,
-  pageTransitionForTree,
   parseDurationMs,
   renderIslandsScript,
   renderPageScript,
@@ -62,12 +63,12 @@ describe("motion configs", () => {
         { id: "b", preset: "sticky-stack" },
         { id: "c", preset: "char-split" },
         { id: "d", preset: "char-split" },
-        { id: "e", preset: "tilt-card" },
+        { id: "e", preset: "webgl-scene" },
       ]),
       TOKENS,
     );
     expect(configs).toHaveLength(4);
-    expect(warnings.some((w) => w.preset === "tilt-card")).toBe(true);
+    expect(warnings.some((w) => w.preset === "webgl-scene")).toBe(true);
     expect(warnings.some((w) => w.message.includes("pin presets"))).toBe(true);
     expect(warnings.some((w) => w.message.includes("char-split"))).toBe(true);
   });
@@ -108,6 +109,36 @@ describe("motion configs", () => {
     const { configs, warnings } = motionConfigsForTree(tree, TOKENS);
     expect(configs).toEqual([]);
     expect(warnings).toEqual([]);
+  });
+
+  it("skips island presets silently (the island is the implementation)", () => {
+    const { configs, warnings } = motionConfigsForTree(
+      treeWithMotion([
+        { id: "a", preset: "modal" },
+        { id: "b", preset: "accordion" },
+      ]),
+      TOKENS,
+    );
+    expect(configs).toEqual([]);
+    expect(warnings).toEqual([]);
+  });
+
+  it("carries the pointer presets into the page script without plugins", () => {
+    const { configs, warnings } = motionConfigsForTree(
+      treeWithMotion([
+        { id: "a", preset: "magnetic-button" },
+        { id: "b", preset: "tilt-card" },
+        { id: "c", preset: "cursor-glow" },
+      ]),
+      TOKENS,
+    );
+    expect(warnings).toEqual([]);
+    expect(configs.map((config) => config.preset)).toEqual([
+      "magnetic-button",
+      "tilt-card",
+      "cursor-glow",
+    ]);
+    expect(configs.every((config) => config.needs === undefined)).toBe(true);
   });
 
   it("wraps configs into the versioned v2 envelope with central breakpoints", () => {
@@ -215,13 +246,15 @@ describe("page transitions (document presets)", () => {
     // The page transition is page-level CSS: no entry, no unimplemented warning.
     expect(configs).toEqual([]);
     expect(warnings).toEqual([]);
-    const { transition, warnings: transitionWarnings } = pageTransitionForTree(tree);
+    const { transition, css, preloader, warnings: effectWarnings } = pageEffectsForTree(tree);
     expect(transition).toEqual({
       preset: "page-fade",
       intensity: 9,
       reducedMotion: "static",
     });
-    expect(transitionWarnings).toEqual([]);
+    expect(css).toBe("");
+    expect(preloader).toBe(false);
+    expect(effectWarnings).toEqual([]);
   });
 
   it("warns on a second transition and ignores disabled specs", () => {
@@ -229,7 +262,7 @@ describe("page transitions (document presets)", () => {
       { id: "a", preset: "page-fade" },
       { id: "b", preset: "page-fade", intensity: 4 },
     ]);
-    const { transition, warnings } = pageTransitionForTree(tree);
+    const { transition, warnings } = pageEffectsForTree(tree);
     expect(transition).toMatchObject({ preset: "page-fade", intensity: 5 });
     expect(warnings.map((warning) => warning.code)).toEqual(["document-excess"]);
     expect(warnings[0]?.nodeId).toBe("b");
@@ -237,7 +270,12 @@ describe("page transitions (document presets)", () => {
     const disabled = treeWithMotion([{ id: "a", preset: "page-fade" }]);
     const node = disabled.nodes["a"];
     if (node) node.motion = { preset: "page-fade", enabled: false };
-    expect(pageTransitionForTree(disabled)).toEqual({ transition: null, warnings: [] });
+    expect(pageEffectsForTree(disabled)).toMatchObject({
+      transition: null,
+      css: "",
+      preloader: false,
+      warnings: [],
+    });
   });
 
   it("emits the opt-in with intensity duration and reduced-motion gates", () => {
@@ -266,5 +304,55 @@ describe("page transitions (document presets)", () => {
       reducedMotion: "off",
     });
     expect(offCss).not.toContain("prefers-reduced-motion");
+  });
+});
+
+describe("pure-CSS effects and the preloader (document presets)", () => {
+  it("collects each CSS effect once (first intensity wins) and builds its block", () => {
+    const tree = treeWithMotion([
+      { id: "a", preset: "hover-lift", intensity: 3 },
+      { id: "b", preset: "hover-lift", intensity: 9 },
+      { id: "c", preset: "ambient-float" },
+      { id: "d", preset: "grain" },
+    ]);
+    const { css, preloader, warnings } = pageEffectsForTree(tree);
+    expect(warnings).toEqual([]);
+    expect(preloader).toBe(false);
+    // One block per preset: the first spec decides the intensity.
+    expect(css.match(/data-motion="hover-lift"/g)?.length).toBe(5);
+    expect(css).toContain("translateY(-3.3px)");
+    expect(css).not.toContain("translateY(-8px)");
+    expect(css).toContain("senify-float");
+    expect(css).toContain("senify-grain");
+    // The loops guardrail: every block carries the reduced-motion gate.
+    expect(css.match(/prefers-reduced-motion/g)?.length).toBe(3);
+  });
+
+  it("keeps the CSS effects out of the per-node configs", () => {
+    const tree = treeWithMotion([{ id: "a", preset: "hover-lift" }]);
+    const { configs, warnings } = motionConfigsForTree(tree, TOKENS);
+    expect(configs).toEqual([]);
+    expect(warnings).toEqual([]);
+  });
+
+  it("flags the preloader and ignores a second one", () => {
+    const tree = treeWithMotion([
+      { id: "a", preset: "preloader-light" },
+      { id: "b", preset: "preloader-light" },
+    ]);
+    const { preloader, css, warnings } = pageEffectsForTree(tree);
+    expect(preloader).toBe(true);
+    expect(css).toBe("");
+    expect(warnings).toEqual([]);
+  });
+
+  it("builds every block with the intensity dial and the RM gate", () => {
+    const low = motionEffectCss("hover-lift", 1);
+    const high = motionEffectCss("hover-lift", 10);
+    expect(low).toContain("translateY(-2px)");
+    expect(high).toContain("translateY(-8px)");
+    expect(motionEffectCss("ambient-float", 1)).toContain("senify-float 19s");
+    expect(motionEffectCss("grain", 1)).toContain("senify-grain 7s");
+    expect(motionEffectCss("fade-up", 5)).toBe("");
   });
 });

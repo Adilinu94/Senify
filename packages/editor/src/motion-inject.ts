@@ -13,6 +13,7 @@ import { resolveTheme, type Theme } from "@senify/tokens";
 import {
   motionConfigsForTree,
   motionDataFor,
+  pageEffectsForTree,
   parseDurationMs,
   renderPageScript,
   type MotionTokens,
@@ -67,6 +68,16 @@ export function injectMotionRuntime(options: InjectMotionOptions): void {
   );
   const firstWarning = warnings[0];
   if (firstWarning !== undefined) options.onMessage?.(firstWarning.message);
+
+  // The pure-CSS effects (hover-lift, ambient-float, grain) ride the same
+  // injection as the runtime (M6): play and live show what the release shows.
+  const effectCss = pageEffectsForTree(options.tree).css;
+  if (effectCss !== "") {
+    const style = doc.createElement("style");
+    style.setAttribute("data-senify-motion", "effects");
+    style.textContent = effectCss;
+    body.appendChild(style);
+  }
 
   const payload = doc.createElement("script");
   payload.setAttribute("type", "application/json");

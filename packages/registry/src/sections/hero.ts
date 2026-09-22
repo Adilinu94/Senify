@@ -47,7 +47,7 @@ export const heroSection: SectionDefinition = {
     visual: { allowedTypes: ["media"], max: 1 },
   },
   allowedChildren: "none",
-  motionPresets: ["masked-headline", "fade-up", "fade-up-deblur"],
+  motionPresets: ["masked-headline", "fade-up", "fade-up-deblur", "magnetic-button", "cursor-glow", "ambient-float", "grain", "preloader-light"],
   golden: {
     tree: {
       type: "hero",

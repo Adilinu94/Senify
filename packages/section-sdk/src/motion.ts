@@ -103,28 +103,28 @@ export const MOTION_PRESETS: readonly MotionPreset[] = [
     gsapPlugins: ["splittext"],
     runtime: "page",
   },
-  { id: "hover-lift", group: "hover", flags: ["interactive"], gsapPlugins: [], runtime: "planned" },
+  { id: "hover-lift", group: "hover", flags: ["interactive"], gsapPlugins: [], runtime: "document" },
   {
     id: "magnetic-button",
     group: "hover",
     flags: ["interactive"],
     gsapPlugins: [],
-    runtime: "planned",
+    runtime: "page",
   },
-  { id: "tilt-card", group: "hover", flags: ["interactive"], gsapPlugins: [], runtime: "planned" },
-  { id: "cursor-glow", group: "hover", flags: ["interactive"], gsapPlugins: [], runtime: "planned" },
+  { id: "tilt-card", group: "hover", flags: ["interactive"], gsapPlugins: [], runtime: "page" },
+  { id: "cursor-glow", group: "hover", flags: ["interactive"], gsapPlugins: [], runtime: "page" },
   { id: "page-fade", group: "state", flags: [], gsapPlugins: [], runtime: "document" },
   {
     id: "preloader-light",
     group: "state",
     flags: ["hides", "loops"],
     gsapPlugins: [],
-    runtime: "planned",
+    runtime: "document",
   },
   { id: "accordion", group: "state", flags: [], gsapPlugins: [], runtime: "island" },
-  { id: "modal", group: "state", flags: [], gsapPlugins: [], runtime: "planned" },
-  { id: "ambient-float", group: "ambient", flags: ["loops"], gsapPlugins: [], runtime: "planned" },
-  { id: "grain", group: "ambient", flags: ["loops"], gsapPlugins: [], runtime: "planned" },
+  { id: "modal", group: "state", flags: [], gsapPlugins: [], runtime: "island" },
+  { id: "ambient-float", group: "ambient", flags: ["loops"], gsapPlugins: [], runtime: "document" },
+  { id: "grain", group: "ambient", flags: ["loops"], gsapPlugins: [], runtime: "document" },
   { id: "webgl-scene", group: "scene", flags: ["loops"], gsapPlugins: [], runtime: "planned" },
 ];
 
@@ -145,6 +145,16 @@ export function hasMotionFlag(id: string, flag: MotionPresetFlag): boolean {
 export function motionPends(id: string): boolean {
   const preset = PRESET_BY_ID.get(id);
   return preset !== undefined && preset.runtime === "page" && preset.flags.includes("hides");
+}
+
+// The pure-CSS page effects (ticket 19, M6): their block is emitted once per
+// page (like the View Transition), the render paths stamp `data-motion="<id>"`
+// on the node so the selectors have something to hook. One intensity per preset
+// per page — the first enabled spec wins. Guarded against the registry by test.
+export const MOTION_CSS_PRESETS = ["hover-lift", "ambient-float", "grain"] as const;
+
+export function motionCssEffect(id: string): boolean {
+  return (MOTION_CSS_PRESETS as readonly string[]).includes(id);
 }
 
 // The presets the baked page script carries (page + CSS-only). The renderer's

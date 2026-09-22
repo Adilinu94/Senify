@@ -13,6 +13,11 @@ type Props = {
     motion: string;
     // The page-level View Transition block (M6), null without the preset.
     pageTransition: string | null;
+    // The pure-CSS effect blocks (hover-lift, ambient-float, grain), null
+    // without such a preset.
+    motionCss: string | null;
+    // preloader-light: the page renders the loading curtain.
+    hasPreloader: boolean;
     jsonLd: string | null;
     flags: {
       hasMotion: boolean;
@@ -59,6 +64,16 @@ const PENDING_CSS = "[data-motion-pending]{opacity:0}";
 const PENDING_NOSCRIPT = "[data-motion-pending]{opacity:1 !important}";
 const PENDING_FAILSAFE =
   'setTimeout(function(){var pending=document.querySelectorAll("[data-motion-pending]");for(var index=0;index<pending.length;index+=1){pending[index].removeAttribute("data-motion-pending");}},1600);';
+
+// preloader-light (M6): the curtain is part of the markup, so the first paint
+// never flashes the content; the inline script removes it on load, at the
+// 2.5 s cap (soft budget) or instantly under reduced motion. Without JS the
+// <noscript> block hides it — it must never become the page.
+const PRELOADER_CSS =
+  ".senify-preloader{position:fixed;inset:0;z-index:9998;background:var(--bg-base,#ffffff);opacity:1;transition:opacity .4s ease;pointer-events:none;}";
+const PRELOADER_NOSCRIPT = ".senify-preloader{display:none}";
+const PRELOADER_SCRIPT =
+  '(function(){var preloader=document.querySelector("[data-preloader]");if(!preloader)return;var reduce=window.matchMedia("(prefers-reduced-motion: reduce)").matches;var done=function(){if(!preloader.parentNode)return;if(reduce){preloader.remove();return;}preloader.style.opacity="0";setTimeout(function(){preloader.remove();},450);};if(document.readyState==="complete")done();else window.addEventListener("load",done);setTimeout(done,2500);})();';
 ---
 <html lang={lang}>
   <head>
@@ -84,6 +99,8 @@ const PENDING_FAILSAFE =
     ))}
     {page.jsonLd && <script type="application/ld+json" set:html={page.jsonLd} />}
     {page.pageTransition && <style is:inline set:html={page.pageTransition} />}
+    {page.motionCss && <style is:inline set:html={page.motionCss} />}
+    {page.hasPreloader && <style is:inline set:html={PRELOADER_CSS} />}
     {page.flags.hasMotion && (
       <>
         {page.flags.hasPending && <style is:inline set:html={PENDING_CSS} />}
@@ -107,6 +124,15 @@ const PENDING_FAILSAFE =
     {page.flags.hasForm && <script src="/assets/forms.js" defer />}
   </head>
   <body>
+    {page.hasPreloader && (
+      <>
+        <div class="senify-preloader" data-preloader aria-hidden="true"></div>
+        <noscript>
+          <style is:inline set:html={PRELOADER_NOSCRIPT} />
+        </noscript>
+        <script is:inline set:html={PRELOADER_SCRIPT} />
+      </>
+    )}
     <Section tree={page.tree} ctx={ctx} />
     {styleRulesCss && <link rel="stylesheet" href="/assets/style-rules.css" />}
   </body>

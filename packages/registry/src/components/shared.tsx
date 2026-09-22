@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { motionPends, type Node, type PropValue } from "@senify/section-sdk";
+import { motionCssEffect, motionPends, type Node, type PropValue } from "@senify/section-sdk";
 import { scopeNameFor } from "@senify/widget-engine";
 import { partVarsFor, styleValue } from "../style.ts";
 
@@ -381,9 +381,12 @@ export function focalStyle(asset: unknown): React.CSSProperties | undefined {
 // releases the attribute when it takes over, a 1.6 s failsafe and <noscript>
 // cover a broken or disabled script. The canvas renders the same markup — the
 // attribute is inert there because the pending CSS lives only in the bake.
+// The pure-CSS effects (M6) stamp `data-motion="<preset>"` instead: the page
+// block targets it, one block per preset per page.
 export function motionPendingAttrs(node: Node): Record<string, string> {
   const motion = node.motion;
   if (motion === undefined || motion.enabled === false) return {};
+  if (motionCssEffect(motion.preset)) return { "data-motion": motion.preset };
   return motionPends(motion.preset) ? { "data-motion-pending": "" } : {};
 }
 

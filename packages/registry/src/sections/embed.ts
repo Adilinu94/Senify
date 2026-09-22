@@ -30,7 +30,7 @@ export const embedSection: SectionDefinition = {
   },
   styleProps: [...sectionStyleProps(), ...mediaPart()],
   allowedChildren: "none",
-  motionPresets: ["fade-up"],
+  motionPresets: ["fade-up", "modal"],
   golden: {
     tree: {
       type: "embed",

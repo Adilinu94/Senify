@@ -176,7 +176,16 @@ describe("motion panel", () => {
       nodeId: "hero000001",
       tree: draftTree(),
     });
-    expect(panel.presets).toEqual(["masked-headline", "fade-up", "fade-up-deblur"]);
+    expect(panel.presets).toEqual([
+      "masked-headline",
+      "fade-up",
+      "fade-up-deblur",
+      "magnetic-button",
+      "cursor-glow",
+      "ambient-float",
+      "grain",
+      "preloader-light",
+    ]);
     expect(panel.preset).toBe("masked-headline");
     expect(panel.intensity).toBe(7);
     expect(panel.presetsDisabled).toBe(false);
@@ -190,7 +199,7 @@ describe("motion panel", () => {
     });
     expect(panel.preset).toBeNull();
     expect(panel.intensity).toBe(5);
-    expect(panel.presets).toEqual(["fade-up"]);
+    expect(panel.presets).toEqual(["fade-up", "hover-lift"]);
   });
 
   it("carries the v2 fields and the profile cap", () => {

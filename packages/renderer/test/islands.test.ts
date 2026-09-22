@@ -51,6 +51,17 @@ describe("hydration dispatcher", () => {
     ).toEqual(["billing"]);
   });
 
+  it("enables the modal lightbox through the motion preset", () => {
+    expect(islandsForNode(node("gallery"))).toEqual([]);
+    expect(
+      islandsForNode(node("gallery", { motion: { preset: "modal" } })),
+    ).toEqual(["modal"]);
+    // A disabled spec opts out again.
+    expect(
+      islandsForNode(node("gallery", { motion: { preset: "modal", enabled: false } })),
+    ).toEqual([]);
+  });
+
   it("collects island kinds across a tree", () => {
     const kinds = islandsForTree({
       rootNodeId: "root",

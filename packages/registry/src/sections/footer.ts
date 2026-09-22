@@ -48,7 +48,7 @@ export const footerSection: SectionDefinition = {
   },
   styleProps: [...sectionStyleProps(), ...linkPart()],
   allowedChildren: "none",
-  motionPresets: ["fade-up"],
+  motionPresets: ["fade-up", "grain"],
   golden: {
     tree: {
       type: "footer",

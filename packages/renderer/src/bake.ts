@@ -42,8 +42,8 @@ import {
 import {
   motionConfigsForTree,
   motionDataFor,
+  pageEffectsForTree,
   pageTransitionCss,
-  pageTransitionForTree,
   renderIslandsScript,
   renderPageScript,
   type MotionTokens,
@@ -389,10 +389,9 @@ export async function bakeSite(
         suggestion: warning.suggestion,
       });
     }
-    const { transition, warnings: transitionWarnings } = pageTransitionForTree(
-      page.tree,
-    );
-    for (const warning of transitionWarnings) {
+    const { transition, css: effectCss, preloader, warnings: effectWarnings } =
+      pageEffectsForTree(page.tree);
+    for (const warning of effectWarnings) {
       warnings.push({
         code: warning.code,
         page: page.path,
@@ -422,6 +421,11 @@ export async function bakeSite(
       // The page-level View Transition block (M6): null unless a node carries
       // a `document` preset; the template inlines it into the head.
       pageTransition: transition === null ? null : pageTransitionCss(transition),
+      // The pure-CSS effect blocks (hover-lift, ambient-float, grain) of this
+      // page, or null; the template inlines them after the transition.
+      motionCss: effectCss === "" ? null : effectCss,
+      // preloader-light: the template renders the loading curtain.
+      hasPreloader: preloader,
       jsonLd:
         entities.length > 0
           ? jsonForHtml(entities.length === 1 ? entities[0] : { "@context": "https://schema.org", "@graph": entities })

@@ -55,6 +55,33 @@ describe("section components", () => {
     expect(html).toContain('data-node-id="h"');
   });
 
+  it("stamps the motion hooks (pending for reveals, data-motion for CSS effects)", () => {
+    const html = render({
+      root: { id: "root", type: "page", props: {}, children: ["h", "s"] },
+      h: {
+        id: "h",
+        type: "hero",
+        variant: "centered",
+        props: { headline: "Hi" },
+        motion: { preset: "fade-up" },
+      },
+      s: { id: "s", type: "stats", props: {}, motion: { preset: "hover-lift" } },
+    });
+    expect(html).toContain('data-motion-pending=""');
+    expect(html).toContain('data-motion="hover-lift"');
+    // A disabled spec stamps nothing at all.
+    const off = render({
+      root: { id: "root", type: "page", props: {}, children: ["s"] },
+      s: {
+        id: "s",
+        type: "stats",
+        props: {},
+        motion: { preset: "hover-lift", enabled: false },
+      },
+    });
+    expect(off).not.toContain("data-motion");
+  });
+
   it("renders faq as native details and marks unknown sections", () => {
     const html = render({
       root: { id: "root", type: "page", props: {}, children: ["f", "x"] },

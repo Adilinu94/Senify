@@ -33,7 +33,7 @@ export const mediaSection: SectionDefinition = {
   },
   styleProps: [...sectionStyleProps(), ...mediaPart()],
   allowedChildren: "none",
-  motionPresets: ["fade-up", "parallax-subtle"],
+  motionPresets: ["fade-up", "parallax-subtle", "ambient-float", "modal"],
   golden: {
     tree: {
       type: "media",

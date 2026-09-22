@@ -7,6 +7,7 @@ export type IslandKind =
   | "billing"
   | "dismiss"
   | "consent"
+  | "modal"
   | "webgl-scene";
 
 export type Hydration =
@@ -15,6 +16,11 @@ export type Hydration =
 
 export function islandsForNode(node: Node): IslandKind[] {
   const kinds: IslandKind[] = [];
+  // The modal preset turns the node's media into a lightbox (M6): the island
+  // is the implementation of the preset, so it is the motion spec that opts in.
+  if (node.motion?.enabled !== false && node.motion?.preset === "modal") {
+    kinds.push("modal");
+  }
   switch (node.type) {
     case "navbar":
       kinds.push("menu");

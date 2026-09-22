@@ -35,8 +35,9 @@ export {
 export {
   motionConfigsForTree,
   motionDataFor,
+  motionEffectCss,
+  pageEffectsForTree,
   pageTransitionCss,
-  pageTransitionForTree,
   parseDurationMs,
   PIN_PRESETS,
   PAGE_SCRIPT_PRESETS,
@@ -46,6 +47,7 @@ export {
   type MotionData,
   type MotionTokens,
   type MotionWarning,
+  type PageEffects,
   type PageTransition,
 } from "./motion.ts";
 export {

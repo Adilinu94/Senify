@@ -41,7 +41,7 @@ export const cardSection: SectionDefinition = {
   ],
   slots: {},
   allowedChildren: "none",
-  motionPresets: ["fade-up", "hover-lift"],
+  motionPresets: ["fade-up", "hover-lift", "tilt-card"],
   golden: {
     tree: {
       type: "card",

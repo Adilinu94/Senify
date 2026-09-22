@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  MOTION_CSS_PRESETS,
   MOTION_PRESETS,
   MOTION_PRESET_FLAGS,
   MOTION_PRESET_GROUPS,
   MOTION_PROFILE_RULES,
   hasMotionFlag,
+  motionCssEffect,
   motionPends,
   motionPreset,
   motionProfileViolations,
@@ -42,6 +44,19 @@ describe("motion preset registry", () => {
     // The page transition is page-level CSS, not a per-node script preset.
     expect(motionPreset("page-fade")?.runtime).toBe("document");
     expect(motionPreset("warp-speed")).toBeUndefined();
+  });
+
+  it("keeps the CSS effects on the document runtime and stamps them", () => {
+    // The three page-level CSS effects: the block is emitted once per page,
+    // the attribute is the hook (one intensity per preset per page).
+    for (const id of MOTION_CSS_PRESETS) {
+      expect(motionPreset(id)?.runtime, id).toBe("document");
+      expect(motionCssEffect(id), id).toBe(true);
+      expect(motionPends(id), id).toBe(false);
+    }
+    expect(motionCssEffect("fade-up")).toBe(false);
+    expect(motionCssEffect("page-fade")).toBe(false);
+    expect(motionCssEffect("preloader-light")).toBe(false);
   });
 
   it("pends only page-runtime hiding presets (FOUC marker)", () => {

@@ -38,7 +38,7 @@ export const gallerySection: SectionDefinition = {
     ...mediaPart(),
   ],
   allowedChildren: "none",
-  motionPresets: ["scroll-reveal"],
+  motionPresets: ["scroll-reveal", "hover-lift", "tilt-card", "modal"],
   golden: {
     tree: {
       type: "gallery",

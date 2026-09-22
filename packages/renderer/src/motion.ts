@@ -1,4 +1,4 @@
-import { motionPreset, type NodeTree } from "@senify/section-sdk";
+import { motionCssEffect, motionPreset, type NodeTree } from "@senify/section-sdk";
 import { mediaMaxWidth } from "@senify/widget-engine";
 
 export const PAGE_SCRIPT_PRESETS = [
@@ -15,6 +15,9 @@ export const PAGE_SCRIPT_PRESETS = [
   "marquee",
   "char-split",
   "parallax-subtle",
+  "magnetic-button",
+  "tilt-card",
+  "cursor-glow",
 ] as const;
 
 export const PIN_PRESETS: readonly string[] = [
@@ -91,8 +94,9 @@ export function motionConfigsForTree(
     if (motion.enabled === false) continue;
     const preset = motionPreset(motion.preset);
     // Page-level presets (`document`) carry no per-node entry: the bake emits
-    // their CSS once per page (`pageTransitionForTree`).
-    if (preset?.runtime === "document") continue;
+    // their CSS once per page (`pageEffectsForTree`). Island presets run
+    // through their own vanilla island (accordion, modal) — also no entry.
+    if (preset?.runtime === "document" || preset?.runtime === "island") continue;
     if (preset === undefined || (preset.runtime !== "page" && preset.runtime !== "css")) {
       warnings.push({
         code: "unimplemented-preset",
@@ -171,33 +175,100 @@ export type PageTransition = {
   reducedMotion: "static" | "fade" | "off";
 };
 
-export function pageTransitionForTree(tree: NodeTree): {
+// The page-level effects of one tree (ticket 19, M6): the View Transition
+// (`page-fade`), the pure-CSS blocks keyed by `data-motion` (hover-lift,
+// ambient-float, grain) and the preloader flag. Everything here is emitted
+// once per page; one intensity per preset, the first enabled spec wins.
+export type PageEffects = {
   transition: PageTransition | null;
+  css: string;
+  preloader: boolean;
   warnings: MotionWarning[];
-} {
+};
+
+export function pageEffectsForTree(tree: NodeTree): PageEffects {
   const warnings: MotionWarning[] = [];
   let transition: PageTransition | null = null;
+  let preloader = false;
+  const cssEffects = new Map<string, number>();
   for (const node of Object.values(tree.nodes)) {
     const motion = node.motion;
     if (!motion || motion.enabled === false) continue;
     if (motionPreset(motion.preset)?.runtime !== "document") continue;
-    if (transition !== null) {
-      warnings.push({
-        code: "document-excess",
-        nodeId: node.id,
-        preset: motion.preset,
-        message: `Page carries a second "${motion.preset}" spec — one page transition per page`,
-        suggestion: "Keep the transition on one node (the page root or its layout).",
-      });
+    const intensity = Math.min(10, Math.max(1, Math.round(motion.intensity ?? 5)));
+    if (motion.preset === "preloader-light") {
+      preloader = true;
       continue;
     }
-    transition = {
-      preset: motion.preset,
-      intensity: Math.min(10, Math.max(1, Math.round(motion.intensity ?? 5))),
-      reducedMotion: motion.reducedMotion ?? "static",
-    };
+    if (motion.preset === "page-fade") {
+      if (transition !== null) {
+        warnings.push({
+          code: "document-excess",
+          nodeId: node.id,
+          preset: motion.preset,
+          message: `Page carries a second "${motion.preset}" spec — one page transition per page`,
+          suggestion: "Keep the transition on one node (the page root or its layout).",
+        });
+        continue;
+      }
+      transition = {
+        preset: motion.preset,
+        intensity,
+        reducedMotion: motion.reducedMotion ?? "static",
+      };
+      continue;
+    }
+    if (motionCssEffect(motion.preset) && !cssEffects.has(motion.preset)) {
+      cssEffects.set(motion.preset, intensity);
+    }
   }
-  return { transition, warnings };
+  const css = [...cssEffects.entries()]
+    .map(([preset, intensity]) => motionEffectCss(preset, intensity))
+    .join("\n");
+  return { transition, css, preloader, warnings };
+}
+
+function px(value: number): string {
+  return `${Math.round(value * 10) / 10}px`;
+}
+
+// The block of one pure-CSS effect. Intensity scales the travel/opacity, the
+// reduced-motion media query is part of every block (the `loops` guardrail).
+export function motionEffectCss(preset: string, intensity: number): string {
+  switch (preset) {
+    case "hover-lift": {
+      const lift = 2 + ((intensity - 1) / 9) * 6;
+      return [
+        '[data-motion="hover-lift"] { transition: transform 0.3s ease, box-shadow 0.3s ease; }',
+        `[data-motion="hover-lift"]:hover { transform: translateY(-${px(lift)}); box-shadow: 0 12px 32px color-mix(in srgb, currentColor 14%, transparent); }`,
+        '@media (hover: none) { [data-motion="hover-lift"]:hover { transform: none; box-shadow: none; } }',
+        '@media (prefers-reduced-motion: reduce) { [data-motion="hover-lift"] { transition: none; } [data-motion="hover-lift"]:hover { transform: none; } }',
+      ].join("\n");
+    }
+    case "ambient-float": {
+      const travel = 3 + intensity * 0.9;
+      const duration = 20 - intensity;
+      return [
+        `[data-motion="ambient-float"] { animation: senify-float ${duration}s ease-in-out infinite alternate; }`,
+        `@keyframes senify-float { from { transform: translateY(-${px(travel)}); } to { transform: translateY(${px(travel)}); } }`,
+        '@media (prefers-reduced-motion: reduce) { [data-motion="ambient-float"] { animation: none; } }',
+      ].join("\n");
+    }
+    case "grain": {
+      const opacity = 0.03 + intensity * 0.004;
+      const duration = 6 + intensity;
+      const noise =
+        "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")";
+      return [
+        ':where([data-motion="grain"]) { position: relative; }',
+        `[data-motion="grain"]::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: ${opacity.toFixed(3)}; background-image: ${noise}; background-size: 180px 180px; animation: senify-grain ${duration}s steps(8) infinite; }`,
+        "@keyframes senify-grain { to { background-position: 180px 180px; } }",
+        '@media (prefers-reduced-motion: reduce) { [data-motion="grain"]::after { animation: none; } }',
+      ].join("\n");
+    }
+    default:
+      return "";
+  }
 }
 
 // The CSS block the page head carries. `@view-transition { navigation: auto; }`
@@ -260,6 +331,7 @@ export function renderPageScript(options: { lenis: boolean }): string {
   // runtime never starts and the baseline markup stands.
   if (window.__SENIFY_MOTION__ === "off") { releasePending(); return; }
   var rm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var hoverable = window.matchMedia("(hover: hover)").matches;
   var has = {
     scrolltrigger: typeof window.ScrollTrigger !== "undefined",
     splittext: typeof window.SplitText !== "undefined"
@@ -290,7 +362,7 @@ export function renderPageScript(options: { lenis: boolean }): string {
       if (rm) {
         var policy = config.reducedMotion || "static";
         if (policy === "fade" && config.hides) fadeIn(el);
-        if (policy !== "ignore") return;
+        if (policy !== "off") return;
       }
       runPreset(el, config);
     });
@@ -400,6 +472,53 @@ export function renderPageScript(options: { lenis: boolean }): string {
         gsap.from(source.querySelectorAll("span"), Object.assign({ opacity: 0, y: 8, duration: 0.4, ease: ease, delay: delay, stagger: 0.02 }, triggerProps(config)));
         break;
       }
+      case "magnetic-button": {
+        if (!hoverable || typeof gsap.quickTo !== "function") break;
+        var magnet = el.matches("a, button") ? el : el.querySelector("a, button");
+        if (!magnet) break;
+        var strength = 4 + intensity * 1.2;
+        var magnetX = gsap.quickTo(magnet, "x", { duration: 0.3, ease: "power2.out" });
+        var magnetY = gsap.quickTo(magnet, "y", { duration: 0.3, ease: "power2.out" });
+        magnet.addEventListener("pointermove", function (event) {
+          var rect = magnet.getBoundingClientRect();
+          magnetX(((event.clientX - rect.left) / rect.width - 0.5) * strength);
+          magnetY(((event.clientY - rect.top) / rect.height - 0.5) * strength);
+        });
+        magnet.addEventListener("pointerleave", function () { magnetX(0); magnetY(0); });
+        break;
+      }
+      case "tilt-card": {
+        if (!hoverable || typeof gsap.quickTo !== "function") break;
+        var tiltMax = 3 + intensity * 0.5;
+        var tiltX = gsap.quickTo(el, "rotationX", { duration: 0.4, ease: "power2.out", transformPerspective: 900 });
+        var tiltY = gsap.quickTo(el, "rotationY", { duration: 0.4, ease: "power2.out", transformPerspective: 900 });
+        el.addEventListener("pointermove", function (event) {
+          if (event.pointerType === "touch") return;
+          var rect = el.getBoundingClientRect();
+          tiltX(-((event.clientY - rect.top) / rect.height - 0.5) * tiltMax);
+          tiltY(((event.clientX - rect.left) / rect.width - 0.5) * tiltMax);
+        });
+        el.addEventListener("pointerleave", function () { tiltX(0); tiltY(0); });
+        break;
+      }
+      case "cursor-glow": {
+        if (!hoverable || typeof gsap.quickTo !== "function") break;
+        if (document.querySelector("[data-motion-glow]")) break;
+        var size = 180 + intensity * 40;
+        var glow = document.createElement("div");
+        glow.setAttribute("data-motion-glow", "");
+        glow.style.cssText = "position:fixed;left:0;top:0;width:" + size + "px;height:" + size + "px;margin:" + (-size / 2) + "px 0 0 " + (-size / 2) + "px;border-radius:50%;pointer-events:none;z-index:2;opacity:0;transition:opacity 0.3s ease;background:radial-gradient(circle,color-mix(in srgb, var(--accent) 22%, transparent) 0%, transparent 70%);";
+        document.body.appendChild(glow);
+        var glowX = gsap.quickTo(glow, "x", { duration: 0.6, ease: "power3.out" });
+        var glowY = gsap.quickTo(glow, "y", { duration: 0.6, ease: "power3.out" });
+        el.addEventListener("pointerenter", function () { glow.style.opacity = "1"; });
+        el.addEventListener("pointermove", function (event) {
+          glowX(event.clientX);
+          glowY(event.clientY);
+        });
+        el.addEventListener("pointerleave", function () { glow.style.opacity = "0"; });
+        break;
+      }
       default:
         break;
     }
@@ -496,6 +615,29 @@ export function renderIslandsScript(kinds: Set<string>): string {
       button.addEventListener("click", function () {
         try { window.localStorage.setItem("senify-consent", button.getAttribute("data-consent") || "dismissed"); } catch { /* ignore */ }
         dialog.style.display = "none";
+      });
+    });
+  });`);
+  }
+  if (kinds.has("modal")) {
+    blocks.push(`
+  document.querySelectorAll('[data-island="modal"]').forEach(function (host) {
+    host.querySelectorAll("img, video, iframe").forEach(function (media) {
+      media.style.cursor = "zoom-in";
+      media.addEventListener("click", function () {
+        var dialog = document.createElement("dialog");
+        dialog.setAttribute("data-motion-modal", "");
+        dialog.style.cssText = "border:none;padding:0;background:transparent;max-width:92vw;max-height:92vh;";
+        var clone = media.cloneNode(true);
+        clone.removeAttribute("style");
+        clone.style.cssText = "display:block;max-width:92vw;max-height:92vh;width:auto;height:auto;";
+        dialog.appendChild(clone);
+        dialog.addEventListener("click", function (event) {
+          if (event.target === dialog) dialog.close();
+        });
+        dialog.addEventListener("close", function () { dialog.remove(); });
+        document.body.appendChild(dialog);
+        dialog.showModal();
       });
     });
   });`);

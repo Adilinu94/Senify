@@ -38,7 +38,7 @@ export const ctaSection: SectionDefinition = {
     ...buttonPart(),
   ],
   allowedChildren: "none",
-  motionPresets: ["fade-up"],
+  motionPresets: ["fade-up", "magnetic-button", "cursor-glow"],
   golden: {
     tree: {
       type: "cta",

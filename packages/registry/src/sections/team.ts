@@ -39,7 +39,7 @@ export const teamSection: SectionDefinition = {
     ...mediaPart(),
   ],
   allowedChildren: "none",
-  motionPresets: ["scroll-reveal", "fade-up"],
+  motionPresets: ["scroll-reveal", "fade-up", "hover-lift"],
   golden: {
     tree: {
       type: "team",

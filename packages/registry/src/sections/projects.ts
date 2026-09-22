@@ -46,7 +46,7 @@ export const projectsSection: SectionDefinition = {
     ...mediaPart(),
   ],
   allowedChildren: "none",
-  motionPresets: ["scroll-reveal"],
+  motionPresets: ["scroll-reveal", "hover-lift", "tilt-card"],
   golden: {
     tree: {
       type: "projects",

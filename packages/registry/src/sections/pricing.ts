@@ -57,7 +57,7 @@ export const pricingSection: SectionDefinition = {
     ...buttonPart(),
   ],
   allowedChildren: "none",
-  motionPresets: ["fade-up"],
+  motionPresets: ["fade-up", "hover-lift"],
   golden: {
     tree: {
       type: "pricing",
