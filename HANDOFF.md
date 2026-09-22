@@ -535,7 +535,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
 - **Grenzen (Ticket 05 Rest):** Punkt 4 (Vorschau folgt) und Punkt 5 (Agent-Preview-Modus im
   Live-Modus) sind noch nicht verdrahtet; Punkt 7 (Performance-Budget/Messskript) steht aus.
 
-### 2.14 Ticket 05 Scheibe 2 (21.09., uncommittet): Vorschau-Follow, Agent-Vorschau, Leistungsbudget
+### 2.14 Ticket 05 Scheibe 2 (21.09., committet 11679e1/650665a): Vorschau-Follow, Agent-Vorschau, Leistungsbudget
 
 - **Vorschau-Follow (Punkt 4):** Im Live-Modus baut ein Store-Wechsel die Frames neu
   (`rebuildFrames` statt Baum-Patch) — die echte Seite wird ersetzt und die Release-Runtime
@@ -562,7 +562,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
 - **Tests:** `canvas-view-browser.test.ts` erweitert (Live-Reload + Ring, Agent-Vorschau,
   erwarteter SSE-Abbruch beim Routenwechsel); Editor-Suite unveraendert gruen.
 
-### 2.15 Dublette `divider`/`embed` aufgeloest (21.09., uncommittet): Zwillings-Bruecke
+### 2.15 Dublette `divider`/`embed` aufgeloest (21.09., committet 32b3424/3a42dc4): Zwillings-Bruecke
 
 - **Befund:** Die zwei Namen leben bewusst in beiden Vokabularen (laufende Section +
   Katalog-Primitive); die Section gewinnt beim Rendern. Der Store validierte aber gegen das
@@ -578,7 +578,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
   Prop-Bruecken), `editor/test/inspector.test.ts` +1. **Zahlen:** 1163 gruen / 2 uebersprungen
   / 106 Dateien (betroffene Pakete), typecheck 0.
 
-### 2.16 Paritaets-Tor als CI-Blocker (21.09., uncommittet)
+### 2.16 Paritaets-Tor als CI-Blocker (21.09., committet 106b99a/b124a92)
 
 - **Gate-Schritt:** `pnpm verify:parity` (`scripts/verify-parity.mjs`) fuehrt
   `release-cutover-browser.test.ts` mit `SENIFY_REQUIRE_BROWSER=1` aus. Fehlt der Browser,
@@ -592,7 +592,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
 - **Beleg:** Gate gruen (26,6 s, Kopf-Diff 0, Sektion 0,00088 < 0,01); Fehlpfad rot mit
   klarer Meldung (4,8 s, `PLAYWRIGHT_BROWSERS_PATH` auf leeres Verzeichnis gesetzt).
 
-### 2.17 Ticket 04 Scheibe 3 (21.09., uncommittet): Styles je Instanz + Geraetestufen fuer Overrides
+### 2.17 Ticket 04 Scheibe 3 (21.09., committet 6af4f56/2312834): Styles je Instanz + Geraetestufen fuer Overrides
 
 - **Kern:** Ein Override der Instanz ist jetzt ein echter Stil-Schreibvorgang — die Instanz
   traegt eine eigene scoped Rule und Geraetestufen, beides landet auf ihren Kopien.
@@ -619,7 +619,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
   Gesamtlauf 1372 gruen / 2 uebersprungen / 151 Dateien (ein bekannter Ephemeral-Port-Flake
   `editor-browser`, in Isolation gruen), typecheck 0, lint 0.
 
-### 2.18 Publish-Versionen site-weit (21.09., uncommittet): Drift blockiert das Release
+### 2.18 Publish-Versionen site-weit (21.09., committet f4b4f67/751c6d8): Drift blockiert das Release
 
 - **Entscheidung (Nutzer, 21.09.):** Der Pin wird ein Vertrag — der Release-Publish bricht ab,
   solange eine Instanz eine aeltere Definitionsversion pinnt (site-weit ueber alle Seiten);
@@ -640,7 +640,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
   **1375 gruen / 2 uebersprungen / 151 Dateien, EXIT 0** (Log
   `.scratch/testlauf-21-09-t04publish.log`), typecheck 0, lint 0.
 
-### 2.19 Varianten (21.09., uncommittet): kombinierbare Property-Sets
+### 2.19 Varianten (21.09., committet 910b924/057bf9d): kombinierbare Property-Sets
 
 - **Entscheidung (Nutzer, 21.09.):** Kombinierbare Property-Sets — die Definition erklaert
   benannte Varianten, jede ein Props-Overlay auf ihre Teile; die Instanz aktiviert beliebig
@@ -672,7 +672,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
   (`updateNodeProps` auf die Definition, Agenten-Weg); der Editor aktiviert sie nur. Ein
   Editor-Menue zum Anlegen bleibt offen.
 
-### 2.20 Ticket 19 M6 (21.09., uncommittet): Scrub-Regler im Live-Modus
+### 2.20 Ticket 19 M6 (21.09., committet eca223c/a193eda): Scrub-Regler im Live-Modus
 
 - **Kern:** Der Live-Modus zeigt die echte Seite mit der Release-Runtime; ein Regler im Fuss
   faehrt jetzt ihre Scroll-Position an — Pin-/Scrub-Presets sind ohne Mausrad pruefbar
@@ -701,7 +701,32 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
   Styles je Instanz, MCP) ist vollständig; die kuratierten Sections rendern weiter ihre
   React-Komponenten, die Widget-Primitive sind der zweite, bakebare Pfad.
 - **Damit bewusst offen:** Sections als VCs (Punkt 2), Multi-Widget-VCs (Punkt 3),
-  Varianten-Anlegen im Editor, M6-Rest (freie Timeline, Page Transitions, 3D, Motion an VCs).
+  M6-Rest (freie Timeline, Page Transitions, 3D, Motion an VCs).
+
+### 2.22 Varianten im Editor (21.09., umgesetzt) - extrahieren, umbenennen, loeschen
+
+- **Nutzerentscheidung:** Anlegen aus Instanz-Overrides (Rechtsklick → „Als Variante
+  speichern", Name per Dialog), Verwaltung im Inspektor der Komponente (Register mit
+  Umbenennen und Löschen). Kein leerer Deklarationsmodus.
+- **Ops (`editor/src/state/components.ts`):** `createVariantFromOverrides` (der
+  Override-Beutel wandert als benanntes Overlay in die Definition, die Instanz verliert
+  die Overrides und aktiviert die Variante), `renameVariant` (Overlay behält seinen Platz,
+  Instanzlisten folgen), `deleteVariant` (Overlay weg, aktive Listen bereinigt),
+  `suggestVariantName`; jede Aktion ein `applyBatch` (ein Undo), unbekannte/leere/doppelte
+  Namen werden abgewiesen.
+- **Explorer/Inspektor:** Das Kontextmenü der Instanz zeigt „Als Variante speichern" nur
+  mit eigenen Werten (Name per `prompt`, Default „Variante N"); eine Definition zeigt ihr
+  Register (`content/variant-register`): Textfeld = Name (`commit: variant-rename`, kein
+  Token-Parsing), × = löschen. Die Instanz behält die Switches.
+- **Tests:** Editor +5 (`state/components` +4, `inspector` +1), Explorer-Menü erweitert,
+  Browser-Rundlauf erweitert (Override per API → Kontextmenü + Dialog → Register sichtbar
+  → Umbenennen; Screenshot `15-komponente-variante-anlegen.png`). **Zahlen:** Gesamtlauf
+  **1399 gruen / 2 uebersprungen / 153 Dateien, EXIT 0**
+  (Log `.scratch/testlauf-21-09-varianten-editor.log`; die Differenz zum Vorlauf enthält
+  Fremdstrang-Tests der Bildgenerierung), typecheck 0, lint 0.
+- **Grenze:** Der Editor-Weg extrahiert Overrides, die an Widget-Primitiven entstehen.
+  Kuratierte Sections tragen ihre Props nicht im Widget-Katalog — dort kommen Overrides
+  (und damit die Extraktion) weiter über `apply_mutations`/MCP.
 
 ---
 
@@ -717,7 +742,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
 | — | 18.09.: Ticket 13 Rest (Bake + Klassen-Transport + scoped-Rekey) + Klassen am DOM + Motion M0–M5 + Ticket 20; 19.09.: Slot-/Collection-Transport verifiziert | ✅ | `issues/13`, `issues/19`–`22`, `docs/adr/0006`, `.scratch/motion-v2/` |
 | 2 | Style-Rule-Registry (Server ✅), Wert-Grammatik ✅, Editor-Modell ✅, Inspektor ✅ (20.09.) | ✅ | `issues/07`, `10`, `13`, `02` |
 | 3 | Chrome: Explorer/Kontextmenü/Spotlight ✅, DnD ✅, Design/Live ✅, Inline-Edit ✅, Undo-UI ✅, Keyboard ✅, Drag + Tabs ✅ (20.09.) | ✅ | `issues/03` + 12/16 |
-| 4 | Visual Components: Scheibe 1 (Component-Kern) ✅ + Scheibe 2 Teil 1 (speicherbar, Bake-Rekey, Overrides) ✅ (20.09.) + Teil 2 (Komponenten-Tab, Kontextmenü) ✅ (21.09.) + Scheibe 3 (Styles je Instanz, Gerätestufen) ✅ (21.09.) + Publish-Versionen ✅ + Varianten ✅ (21.09.); Sections-Migration bewusst vertagt (21.09.) | 🔄 | `issues/04` |
+| 4 | Visual Components: Scheibe 1 (Component-Kern) ✅ + Scheibe 2 Teil 1 (speicherbar, Bake-Rekey, Overrides) ✅ (20.09.) + Teil 2 (Komponenten-Tab, Kontextmenü) ✅ (21.09.) + Scheibe 3 (Styles je Instanz, Gerätestufen) ✅ (21.09.) + Publish-Versionen ✅ + Varianten ✅ + Varianten im Editor ✅ (21.09.); Sections-Migration bewusst vertagt (21.09.) | 🔄 | `issues/04` |
 | 5 | SSE-Kanal, Live-Mitverfolgung, Leistungsbudget | ✅ (21.09.) | `issues/05`, `pruef-t05-performance.mjs` |
 
 ---
@@ -767,7 +792,7 @@ Alle unter `.scratch/editor-v2-rebuild/issues/`. Stand:
 | 01-widget-engine-canvas | Phase 0/1: Fundament, Primitive, Canvas, DnD | Fundament ✅, Punkt 7 (DnD) offen → Ticket 12 |
 | 02-style-engine-inspector | Inspektor, volle CSS-Fähigkeiten, MCP-Style-Tools | **erledigt (20.09.)** — Punkte 3–7: Override-UX, Forced States (scoped Rule + Transport), Token-Picker, offene Property-Zeile, MCP-Tools |
 | 03-editor-chrome | Phase 3: Explorer, Kontextmenü, Spotlight, Inline-Edit, Tastatur | **erledigt (20.09.)** — inkl. Inline-Edit, Verlauf, Keyboard, Explorer-Drag, Site-/Media-Tabs, Copy/Paste/Wrap |
-| 04-visual-components | Phase 4: VCs, Sections als VCs, Cutover | **Scheibe 1 + Scheibe 2 Teil 1/2/3 + MCP-Fassade erledigt (20./21.09.)** — Kern, Engine-Aufnahme, Bake-Rekey/Multi-Instanz-Remap, Overrides (Modell/Editor/Inspektor/Canvas), Komponenten-Tab + Kontextmenü, Versionen mit Drift, Slot-Regeln (`allowedTypes`/`max`), MCP `list_components`/`get_component`/`set_component_override`/`bump_component_version`/`update_component_instances`; offen: Publish-Versionen site-weit, Varianten, Sections-Migration |
+| 04-visual-components | Phase 4: VCs, Sections als VCs, Cutover | **Scheibe 1 + Scheibe 2 Teil 1/2/3 + MCP-Fassade + Scheibe 3 + Publish-Versionen + Varianten + Editor-Weg erledigt (20./21.09.)** — Kern, Engine-Aufnahme, Bake-Rekey/Multi-Instanz-Remap, Overrides (Modell/Editor/Inspektor/Canvas), Komponenten-Tab + Kontextmenü, Versionen mit Drift, Slot-Regeln (`allowedTypes`/`max`), MCP `list_components`/`get_component`/`set_component_override`/`set_component_variant`/`bump_component_version`/`update_component_instances`, Styles je Instanz mit Gerätestufen, Drift als harter Publish-Blocker, Varianten-Register im Inspektor; offen nur noch Sections als VCs / Multi-Widget-VCs (mit der Migration vertagt) |
 | 05-live-build-follow-polish | Phase 5: SSE, Live-Mitverfolgung | **erledigt (21.09., committet `dfff706`/`12de0aa`, Scheibe 2 uncommittet)** — SSE-Kanal, Live-Follow mit Store-Patch + Blitz, Bau-Protokoll, Auswahl-Pruning, Vorschau-Follow im Live-Modus, Agent-Vorschau ueber Seitengrenzen, Leistungsbudget mit Messskript (Insert-Median 12-13 ms) |
 | 06-adr-puck-abschied | ADR-07 (Puck-Abschied) | **erledigt (20.09.)** — ADR-0007, Puck-Code + Peer-Dependency entfernt |
 | 07-style-rule-modell | Kanonisches Modell im Editor-Dokument + Wert-Grammatik + `states`/`authoredBy` | **erledigt (Stufen 0–6)** |
@@ -816,16 +841,18 @@ committet `55593f1`). Der Testlauf ist grün (**1270/2/141**, Log
    `bump_component_version`/`update_component_instances`) - siehe §2.12. **Ticket 05 Scheibe 1
    (21.09.): erledigt, committet** (`dfff706`/`12de0aa`) - siehe §2.13. **Ticket 05 Scheibe 2
    (21.09.): erledigt, uncommittet** (Vorschau-Follow, Agent-Vorschau, Leistungsbudget) - siehe
-   §2.14. Damit sind die Phasen 2, 3 und 5 fachlich abgeschlossen; offen sind **Ticket 04
-   Scheibe 2 Rest** (Publish-Versionen site-weit, Varianten, Sections-Migration) und **Ticket 19
-   M6** (optionale Scrub-Stufe).
+   §2.14. Damit sind die Phasen 2, 3 und 5 fachlich abgeschlossen. **Am 21.09. folgten**
+   Ticket 04 Scheibe 3 (§2.17), Publish-Versionen (§2.18), Varianten (§2.19) und der
+   Editor-Weg dazu (§2.22), Ticket 19 M6 Scrub (§2.20) sowie die Entscheidung, die
+   Sections-Migration zu vertagen (§2.21) - alles committet. Offen sind damit nur noch die
+   vertagte Migration (Sections als VCs, Multi-Widget-VCs) und der M6-Rest.
 2. **Vor dem E2-Cutover (Ticket 04):** Katalog-Namen in der Engine registrieren (Strangler) —
    **die strukturellen Typen sind jetzt registriert** (§2.9), **die Dublette `divider`/`embed`
-   ist aufgeloest** (§2.15, Zwillings-Bruecke + Guard); noch offen: Paritäts-Tor als
-   CI-Blocker scharf schalten. Ticket 11 ist erledigt (19.09., `hiddenDevices`).
-3. **Danach:** Ticket 04 Scheibe 2 Rest (Publish-Versionen, Varianten, Override-Ebenen,
-   Sections-Migration), Ticket 19 M6 (Scrub) und die offenen E-Pakete aus
-   `docs/verbesserungsplan.md` (E18 inkrementelles Rendering hat mit §2.14 jetzt Zahlen).
+   ist aufgeloest** (§2.15, Zwillings-Bruecke + Guard), **das Paritaets-Tor ist als CI-Blocker
+   scharf** (§2.16). Der Cutover selbst liegt mit der Migration auf der Wartebank (§2.21).
+3. **Danach:** die offenen E-Pakete aus `docs/verbesserungsplan.md` (E18 inkrementelles
+   Rendering hat mit §2.14 jetzt Zahlen); die Sections-Migration liegt als eigenes Projekt
+   auf der Wartebank (§2.21).
 
 **Strategischer Rahmen (19.09.):** `docs/verbesserungsplan.md` — Zielbild Framer/Webflow-Niveau,
 Lücken L1–L33 (P0–P3), 16 Epics (E1–E16) mit Akzeptanzkriterien, Roadmap Phase A–D, Gates und die

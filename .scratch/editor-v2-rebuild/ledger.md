@@ -114,12 +114,29 @@ gehoeren bewusst **nicht** in die Undo-History (Webstudio-Muster). Hinweis: `doc
 wurde parallel um „Teil II" (§10–§16: Referenz-Transfer, Anti-Slop, Editor-Tiefe) erweitert —
 beide Teile koexistieren; nichts ueberschrieben. Kein Produktcode geaendert.
 
+**Varianten im Editor (21.09., umgesetzt): extrahieren, umbenennen, loeschen.** Entscheidung
+(Nutzer): Anlegen aus Instanz-Overrides (Kontextmenue „Als Variante speichern", Name per
+Dialog), Verwaltung im Inspektor der Komponente (Register mit Umbenennen und Loeschen) —
+kein leerer Deklarationsmodus. Ops (`editor/src/state/components.ts`):
+`createVariantFromOverrides` (der Override-Beutel wandert als benanntes Overlay in die
+Definition, die Instanz verliert die Overrides und aktiviert die Variante), `renameVariant`
+(Overlay behaelt seinen Platz, Instanzlisten folgen), `deleteVariant` (Overlay weg, aktive
+Listen bereinigt), `suggestVariantName`; je ein `applyBatch` (ein Undo), unbekannte/leere/
+doppelte Namen abgewiesen. Explorer: Menueeintrag nur mit eigenen Werten, `prompt` mit
+Default; Inspektor: Register an der Definition (`content/variant-register`, Textfeld = Name
+ohne Token-Parsing, × = loeschen). Tests: Editor +5, Menue erweitert, Browser-Rundlauf
+(Screenshot `15-komponente-variante-anlegen.png`). Zahlen: gesamt **1399 gruen / 2
+uebersprungen / 153 Dateien, EXIT 0** (`.scratch/testlauf-21-09-varianten-editor.log`; die
+Differenz zum Vorlauf enthaelt Fremdstrang-Tests der Bildgenerierung), typecheck 0, lint 0.
+Grenze: kuratierte Sections tragen ihre Props nicht im Widget-Katalog — dort kommen
+Overrides (und damit die Extraktion) weiter ueber `apply_mutations`/MCP.
+
 **Entscheidung (21.09.): Sections-Migration vertagt.** Nutzerentscheidung: Die Migration der
 27 kuratierten Sections zu Visual Components samt E2-Cutover (Plan: 2-3 Wochen) wird vertagt
 und als eigenes Projekt geplant. Stand bleibt der Parallelbetrieb: VC-Mechanik vollstaendig
 (Kern, Overrides, Versionen, Varianten, Styles je Instanz, MCP), kuratierte Sections rendern
 weiter ihre React-Komponenten, die Widget-Primitive bleiben der zweite bakebare Pfad. Bewusst
-offen: Sections als VCs, Multi-Widget-VCs, Varianten-Anlegen im Editor, M6-Rest.
+offen: Sections als VCs, Multi-Widget-VCs, M6-Rest.
 
 **Ticket 19 M6 Scrub (21.09., umgesetzt): Scrub-Regler im Live-Modus.** Der Live-Modus zeigt
 die echte Seite mit der Release-Runtime; ein Regler im Fuss (`input[data-action="scrub"]`)

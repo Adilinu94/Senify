@@ -1,6 +1,6 @@
 # Editor v2 - Visual Components und Sections-Migration (Phase 4)
 
-Status: **Scheibe 1 erledigt (20.09.)**, **Scheibe 2 Teil 1 erledigt (20.09., committet `7f7ccd6`/`2c64aaf`)**, **Scheibe 2 Teil 2 erledigt (21.09.)**, **MCP-Fassade erledigt (21.09.)**, **Scheibe 2 Teil 3 erledigt (21.09.)**, **Scheibe 3 erledigt (21.09.)**, **Publish-Versionen site-weit erledigt (21.09.)**, **Varianten erledigt (21.09.)** — Component-Kern, Engine-Aufnahme, Bake-Rekey/Multi-Instanz-Remap, Overrides (Modell, Editor-Op, Inspektor), Komponenten-Tab und Kontextmenü, MCP-Tools (`list_components`, `get_component`, `set_component_override`, `set_component_variant`), Versionen mit Drift und Slot-Regeln (`allowedTypes`/`max`), Styles je Instanz mit Geräteebenen für Overrides, Drift als harter Publish-Blocker, kombinierbare Varianten. Offen: Sections als VCs (Punkt 2), Multi-Widget-VCs (Punkt 3), Varianten-Anlegen im Editor.
+Status: **Scheibe 1 erledigt (20.09.)**, **Scheibe 2 Teil 1 erledigt (20.09., committet `7f7ccd6`/`2c64aaf`)**, **Scheibe 2 Teil 2 erledigt (21.09.)**, **MCP-Fassade erledigt (21.09.)**, **Scheibe 2 Teil 3 erledigt (21.09.)**, **Scheibe 3 erledigt (21.09.)**, **Publish-Versionen site-weit erledigt (21.09.)**, **Varianten erledigt (21.09.)**, **Varianten im Editor erledigt (21.09.)** — Component-Kern, Engine-Aufnahme, Bake-Rekey/Multi-Instanz-Remap, Overrides (Modell, Editor-Op, Inspektor), Komponenten-Tab und Kontextmenü, MCP-Tools (`list_components`, `get_component`, `set_component_override`, `set_component_variant`), Versionen mit Drift und Slot-Regeln (`allowedTypes`/`max`), Styles je Instanz mit Geräteebenen für Overrides, Drift als harter Publish-Blocker, kombinierbare Varianten samt Editor-Weg (extrahieren, umbenennen, löschen). Offen: Sections als VCs (Punkt 2, mit der Migration vertagt), Multi-Widget-VCs (Punkt 3).
 Abhaengig von: 03-editor-chrome
 
 ## Ergebnis Varianten (21.09., umgesetzt) - kombinierbare Property-Sets
@@ -28,9 +28,40 @@ per Part-Id adressiert sind.
 **Zahlen:** Gesamtlauf 1384 grün / 2 übersprungen / 151 Dateien, EXIT 0
 (`.scratch/testlauf-21-09-varianten.log`), typecheck 0, lint 0.
 
-**Grenze:** Varianten anlegen (Overlay schreiben) läuft über `apply_mutations`
-(`updateNodeProps` auf die Definition); der Editor aktiviert sie nur. Ein Editor-Menü zum
-Anlegen bleibt offen.
+## Ergebnis Varianten im Editor (21.09., umgesetzt) - extrahieren, umbenennen, loeschen
+
+Entscheidung (Nutzer): Anlegen aus Instanz-Overrides (Rechtsklick -> "Als Variante
+speichern", Name per Dialog), Verwaltung im Inspektor der Komponente (Register mit
+Umbenennen und Loeschen). Kein leerer Deklarationsmodus.
+
+- **Ops (`editor/src/state/components.ts`):** `createVariantFromOverrides` (der
+  Override-Beutel wandert als benanntes Overlay in die Definition, die Instanz verliert
+  die Overrides und aktiviert die Variante), `renameVariant` (Overlay behaelt seinen Platz,
+  Instanzlisten folgen), `deleteVariant` (Overlay weg, aktive Listen bereinigt),
+  `suggestVariantName` (erster freier "Variante N"-Name). Jede Aktion ein `applyBatch`,
+  also ein Undo; unbekannte/leere/doppelte Namen werden abgewiesen.
+- **Explorer:** Das Kontextmenue einer Instanz zeigt "Als Variante speichern" nur, wenn
+  eigene Werte existieren; das Panel fragt den Namen ueber `prompt` (Default aus
+  `suggestVariantName`, in Tests/Umgebungen ohne Dialog eine Statusmeldung) und meldet
+  den Erfolg.
+- **Inspektor:** Eine Definition zeigt ihr Varianten-Register (`content/variant-register`)
+  mit einer Zeile je Variante - das Textfeld schreibt den Namen (`commit: variant-rename`,
+  kein Token-Parsing), das × loescht die Variante. Die Instanz behaelt die Switches
+  (`content/variants`).
+- **Tests:** `editor/test/state/components.test.ts` +4 (suggest, extrahieren inkl.
+  Reihenfolge/Undo/Fehlerfaelle, umbenennen, loeschen), `editor/test/explorer.test.ts`
+  (Menue nur mit Overrides), `editor/test/inspector.test.ts` +1 (Register an der
+  Definition, Instanz ohne Register), Browser-Rundlauf erweitert (Override per API,
+  Kontextmenue + Dialog, Register sichtbar, Umbenennen; Screenshot
+  `15-komponente-variante-anlegen.png`).
+
+**Zahlen:** Gesamtlauf 1399 grün / 2 übersprungen / 153 Dateien, EXIT 0
+(`.scratch/testlauf-21-09-varianten-editor.log`; die Differenz zum Vorlauf enthaelt
+Fremdstrang-Tests der Bildgenerierung), typecheck 0, lint 0.
+
+**Grenze:** Der Editor-Weg extrahiert Overrides, die an Widget-Primitiven im Inspektor
+entstehen. Kuratierte Sections tragen ihre Props nicht im Widget-Katalog, dort kommen
+Overrides (und damit die Extraktion) weiter ueber `apply_mutations`/MCP.
 
 ## Ergebnis Publish-Versionen site-weit (21.09., umgesetzt) - Drift blockiert das Release
 

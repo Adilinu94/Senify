@@ -374,18 +374,20 @@ Jedes Epic: **Ziel · Umfang · Akzeptanzkriterien · Belege · Abhängigkeiten 
 ### E11 · Visual Components & Templates — **P0, L**
 
 **Stand (21.09., Ticket 04):** Scheibe 1 + Scheibe 2 Teil 1/2/3 + MCP-Fassade + Scheibe 3 +
-Publish-Versionen + Varianten umgesetzt — Component-Kern im Baum (reservierte Typen,
-`inlineComponents` als eine Ableitung), Engine-Aufnahme (`registerStructural`,
-`allowedChildren: "any"`), Bake-Rekey über den Layout-Splice, Multi-Instanz-Remap für scoped
-Regeln, Instanz-Overrides (Modell, Editor-Op, Inspektor, Canvas-Klick) mit Geräteebenen und
-Styles/Klassen je Instanz, kombinierbare Varianten (Definition-Overlays, Instanz aktiviert,
-Overrides überleben den Swap), Komponenten-Tab und Kontextmenü (anlegen, benennen, einsetzen,
-auflösen), Definition/Instanz-Versionen mit Drift (`bump_component_version`,
-`update_component_instances`), Slot-Regeln (`allowedTypes`/`max` in Engine und Editor), MCP
+Publish-Versionen + Varianten + Varianten im Editor umgesetzt — Component-Kern im Baum
+(reservierte Typen, `inlineComponents` als eine Ableitung), Engine-Aufnahme
+(`registerStructural`, `allowedChildren: "any"`), Bake-Rekey über den Layout-Splice,
+Multi-Instanz-Remap für scoped Regeln, Instanz-Overrides (Modell, Editor-Op, Inspektor,
+Canvas-Klick) mit Geräteebenen und Styles/Klassen je Instanz, kombinierbare Varianten
+(Definition-Overlays, Instanz aktiviert, Overrides überleben den Swap) samt Editor-Weg
+(aus Instanz-Overrides extrahieren, Register mit Umbenennen/Löschen), Komponenten-Tab und
+Kontextmenü (anlegen, benennen, einsetzen, auflösen), Definition/Instanz-Versionen mit Drift
+(`bump_component_version`, `update_component_instances`), Slot-Regeln (`allowedTypes`/`max`
+in Engine und Editor), MCP
 `list_components`/`get_component`/`set_component_override`/`set_component_variant`, Drift als
 harter Publish-Blocker (site-weit, kein stiller Fallback; `rebakeActiveRelease` bewusst
 ausgenommen).
-Offen: Sections-Migration.
+Offen: Sections-Migration (bewusst vertagt, eigenes Projekt — `HANDOFF.md` §2.21).
 
 **Ziel:** Wiederverwendung statt Kopieren.
 **Umfang:** Component-Definition/Instanz/Version, Overrides (Props/Styles), Slots mit Restrictions, Detach, Cycle-Detection, Publish-Inlining; Template-/Outlet-Autorenschaft im Editor; VC-Templates; `collection`/`collection-list`-Konsolidierung; MCP-Tools für Components/Templates.
