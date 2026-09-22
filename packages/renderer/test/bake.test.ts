@@ -81,6 +81,17 @@ function withOverride(
   return { rootNodeId: tree.rootNodeId, nodes };
 }
 
+// The 3D scene (M6) hangs on the media surface: the island drives it, the
+// preset only tunes intensity.
+function withScene(tree: NodeTree): NodeTree {
+  const nodes = structuredClone(tree.nodes);
+  const node = Object.values(nodes).find((entry) => entry.type === "media");
+  if (!node) throw new Error("No media node for the 3D scene");
+  node.variant = "3d-scene";
+  node.props.scene = "orb";
+  return { rootNodeId: tree.rootNodeId, nodes };
+}
+
 const theme = defaultTheme();
 const resolved = resolveTheme(theme);
 if (resolved.issues.length > 0) throw new Error("Default theme does not resolve");
@@ -128,6 +139,14 @@ function fixtureInput(aeo = true): BakeInput {
     path: "/pur",
     title: "Pur",
     tree: buildTree(["divider"]),
+  });
+  pages.push({
+    id: "page-scene",
+    path: "/szene",
+    title: "Szene",
+    tree: withMotion(withScene(buildTree(["media"])), {
+      media: { preset: "webgl-scene", intensity: 7 },
+    }),
   });
   return {
     siteName: "Musterstudio",
@@ -269,6 +288,37 @@ describe("bake (Prüfstelle 2)", () => {
     expect(minimal).not.toContain("/assets/islands.js");
   }, 180000);
 
+  it("ships the lazy three bundle only for 3D scene pages", async () => {
+    if (!baked) throw new Error("bake missing");
+    const site = loadBakedSite(baked.outDir);
+    const scene = await site.read("szene/index.html");
+    expect(scene).toContain('data-island="webgl-scene"');
+    expect(scene).toContain('data-scene="orb"');
+    expect(scene).toContain('data-intensity="7"');
+    expect(scene).toContain("/assets/islands.js");
+    // The bundle is lazy: the page never links it as a script tag, the island
+    // script imports it when the surface scrolls near the viewport.
+    expect(scene).not.toContain('src="/assets/vendor/three.module.min.js"');
+    expect(await site.exists("assets/vendor/three.module.min.js")).toBe(true);
+    const islands = await site.read("assets/islands.js");
+    expect(islands).toContain("/assets/vendor/three.module.min.js");
+    expect(islands).toContain("IntersectionObserver");
+    // Pages without a scene never reference the bundle.
+    const home = await site.read("index.html");
+    expect(home).not.toContain("three.module.min.js");
+  }, 180000);
+
+  it("keeps the lazy 3D bundle inside its own budget", async () => {
+    if (!baked) throw new Error("bake missing");
+    const site = loadBakedSite(baked.outDir);
+    const bundle = await site.read("assets/vendor/three.module.min.js");
+    // The v1 reference measured an 879 KB chunk for the R3F island; the direct
+    // three bundle is smaller and only scene pages ever fetch it.
+    expect(bundle.length).toBeGreaterThan(100 * 1024);
+    expect(bundle.length).toBeLessThanOrEqual(900 * 1024);
+    expect(bundle.startsWith("/* three.js r")).toBe(true);
+  }, 180000);
+
   it("writes the aeo minimum and omits it when disabled", async () => {
     if (!baked) throw new Error("bake missing");
     const site = loadBakedSite(baked.outDir);
@@ -360,6 +410,27 @@ describe("strict bake gates", () => {
       },
     };
     await expect(tinyInput(tree, { strict: true })).rejects.toThrow(/JSON-LD|json-ld/i);
+  }, 180000);
+
+  it("warns when the 3D preset has no surface to drive", async () => {
+    const tree: NodeTree = {
+      rootNodeId: "root",
+      nodes: {
+        root: { id: "root", type: "page", props: {}, children: ["h"] },
+        h: {
+          id: "h",
+          type: "hero",
+          props: { headline: "Hi" },
+          motion: { preset: "webgl-scene" },
+        },
+      },
+    };
+    const result = await tinyInput(tree);
+    try {
+      expect(result.warnings.some((w) => w.code === "scene-without-surface")).toBe(true);
+    } finally {
+      rmSync(result.outDir, { recursive: true, force: true });
+    }
   }, 180000);
 
   it("warns on silent billing fallback and loads split-text for splits", async () => {

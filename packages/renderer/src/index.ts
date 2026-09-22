@@ -43,6 +43,8 @@ export {
   PAGE_SCRIPT_PRESETS,
   renderIslandsScript,
   renderPageScript,
+  WEBGL_VENDOR_NAME,
+  WEBGL_VENDOR_URL,
   type MotionConfig,
   type MotionData,
   type MotionTokens,
@@ -50,6 +52,10 @@ export {
   type PageEffects,
   type PageTransition,
 } from "./motion.ts";
+// The lazy 3D island asset (M6): bundled from the installed three version at
+// bake time (no minified three build exists upstream, and the module build
+// pulls a second file). Node-only — the browser paths never import it.
+export { threeVersion, webglVendorCode } from "./webgl-vendor.ts";
 export {
   BREAKPOINTS,
   overridesCss,

@@ -146,6 +146,35 @@ describe("consistency check", () => {
     expect(kinds(single)).toEqual([]);
   });
 
+  it("flags more than one 3D surface per page, but accepts one", () => {
+    const two = doc({
+      root: { id: "root", primitive: "root", props: {}, children: ["a", "b"] },
+      a: { id: "a", primitive: "media", variant: "3d-scene", props: {} },
+      b: { id: "b", primitive: "media", variant: "3d-scene", props: {} },
+    });
+    expect(kinds(two)).toContain("motion-scene-excess");
+
+    const one = doc({
+      root: { id: "root", primitive: "root", props: {}, children: ["a"] },
+      a: { id: "a", primitive: "media", variant: "3d-scene", props: {} },
+    });
+    expect(kinds(one)).toEqual([]);
+
+    // A disabled spec leaves the poster: no canvas, no excess.
+    const disabled = doc({
+      root: { id: "root", primitive: "root", props: {}, children: ["a", "b"] },
+      a: { id: "a", primitive: "media", variant: "3d-scene", props: {} },
+      b: {
+        id: "b",
+        primitive: "media",
+        variant: "3d-scene",
+        props: {},
+        motion: { preset: "webgl-scene", enabled: false },
+      },
+    });
+    expect(kinds(disabled)).toEqual([]);
+  });
+
   it("lists profile violations without blocking the write path", () => {
     const document = doc({
       root: { id: "root", primitive: "root", props: {}, children: ["a", "b"] },

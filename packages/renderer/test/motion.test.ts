@@ -12,6 +12,7 @@ import {
   parseDurationMs,
   renderIslandsScript,
   renderPageScript,
+  WEBGL_VENDOR_URL,
 } from "@senify/renderer";
 import type { NodeTree } from "@senify/section-sdk";
 
@@ -63,12 +64,12 @@ describe("motion configs", () => {
         { id: "b", preset: "sticky-stack" },
         { id: "c", preset: "char-split" },
         { id: "d", preset: "char-split" },
-        { id: "e", preset: "webgl-scene" },
+        { id: "e", preset: "warp-speed" },
       ]),
       TOKENS,
     );
     expect(configs).toHaveLength(4);
-    expect(warnings.some((w) => w.preset === "webgl-scene")).toBe(true);
+    expect(warnings.some((w) => w.preset === "warp-speed")).toBe(true);
     expect(warnings.some((w) => w.message.includes("pin presets"))).toBe(true);
     expect(warnings.some((w) => w.message.includes("char-split"))).toBe(true);
   });
@@ -116,6 +117,7 @@ describe("motion configs", () => {
       treeWithMotion([
         { id: "a", preset: "modal" },
         { id: "b", preset: "accordion" },
+        { id: "c", preset: "webgl-scene" },
       ]),
       TOKENS,
     );
@@ -236,6 +238,19 @@ describe("motion configs", () => {
     expect(script).toContain('data-island="menu"');
     expect(script).toContain('data-island="consent"');
     expect(script).not.toContain('data-island="slider"');
+  });
+
+  it("lazy-loads the self-hosted three bundle for the 3D island", () => {
+    const script = renderIslandsScript(new Set(["webgl-scene"]));
+    // The island imports the baked vendor file, not a CDN and not eagerly.
+    expect(script).toContain(`import("${WEBGL_VENDOR_URL}")`);
+    expect(script).not.toContain("cdn.jsdelivr");
+    expect(script).toContain("IntersectionObserver");
+    expect(script).toContain('rootMargin: "200px"');
+    expect(script).toContain("prefers-reduced-motion: reduce");
+    expect(script).toContain('getPropertyValue("--accent")');
+    // No 3D code without the island kind.
+    expect(renderIslandsScript(new Set(["menu"]))).not.toContain("WebGLRenderer");
   });
 });
 

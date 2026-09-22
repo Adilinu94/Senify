@@ -6,8 +6,10 @@
 //
 // `runtime` is the coverage state, not the contract: `page`/`css` run in the
 // baked page script today, `document` emits page-level CSS once (View
-// Transitions), `island` has its own vanilla island, `planned` is accepted by
-// the editor but not implemented yet (the bake warns).
+// Transitions), `island` has its own vanilla island (modal, webgl-scene),
+// `planned` is accepted by the editor but not implemented yet (the bake warns).
+
+import type { MotionSpec } from "./schema.ts";
 
 export const MOTION_PRESET_GROUPS = [
   "entry",
@@ -40,7 +42,6 @@ export type MotionPreset = {
   gsapPlugins: readonly string[];
   runtime: MotionPresetRuntime;
 };
-
 export const MOTION_PRESETS: readonly MotionPreset[] = [
   { id: "fade-up", group: "entry", flags: ["hides"], gsapPlugins: [], runtime: "page" },
   { id: "fade-up-deblur", group: "entry", flags: ["hides"], gsapPlugins: [], runtime: "page" },
@@ -125,7 +126,7 @@ export const MOTION_PRESETS: readonly MotionPreset[] = [
   { id: "modal", group: "state", flags: [], gsapPlugins: [], runtime: "island" },
   { id: "ambient-float", group: "ambient", flags: ["loops"], gsapPlugins: [], runtime: "document" },
   { id: "grain", group: "ambient", flags: ["loops"], gsapPlugins: [], runtime: "document" },
-  { id: "webgl-scene", group: "scene", flags: ["loops"], gsapPlugins: [], runtime: "planned" },
+  { id: "webgl-scene", group: "scene", flags: ["loops"], gsapPlugins: [], runtime: "island" },
 ];
 
 const PRESET_BY_ID = new Map(MOTION_PRESETS.map((preset) => [preset.id, preset]));
@@ -161,6 +162,40 @@ export function motionCssEffect(id: string): boolean {
 // `PAGE_SCRIPT_PRESETS` must stay equal to this list — a test guards the drift.
 export function motionPresetIds(): string[] {
   return MOTION_PRESETS.map((preset) => preset.id);
+}
+
+// ------------------------------------------------------------- webgl surface
+// The 3D scene (M6) hangs on its render surface, not on the preset: the island
+// is the implementation of `webgl-scene`, and the surface is what the island
+// drives — a media node with the `3d-scene` variant, or a hero with
+// `showcase-3d` whose visual slot is empty (a filled slot brings its own
+// surface). The spec is the opt-in for intensity and the switch: `enabled:
+// false` leaves the static poster and loads no runtime.
+type WebglSceneNode = {
+  type: string;
+  variant?: string;
+  slots?: Record<string, readonly string[]>;
+  motion?: MotionSpec;
+};
+
+export function webglSceneSurface(node: WebglSceneNode): boolean {
+  if (node.type === "media" && node.variant === "3d-scene") return true;
+  if (node.type === "hero" && node.variant === "showcase-3d") {
+    return (node.slots?.visual?.length ?? 0) === 0;
+  }
+  return false;
+}
+
+export function webglSceneEnabled(node: WebglSceneNode): boolean {
+  if (!webglSceneSurface(node)) return false;
+  return !(node.motion?.preset === "webgl-scene" && node.motion.enabled === false);
+}
+
+export function webglSceneIntensity(node: WebglSceneNode): number {
+  const intensity =
+    node.motion?.preset === "webgl-scene" ? node.motion.intensity : undefined;
+  const value = Math.round(intensity ?? 5);
+  return Math.min(10, Math.max(1, value));
 }
 
 // --------------------------------------------------------------- site profiles

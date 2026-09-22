@@ -69,6 +69,63 @@ describe("hard guardrails", () => {
     expect(hardGuardrailsForTree(parallax)[0]?.code).toBe("parallax-excess");
   });
 
+  it("allows one 3D scene and flags a second surface", () => {
+    const one: NodeTree = {
+      rootNodeId: "root",
+      nodes: {
+        root: { id: "root", type: "page", props: {} },
+        a: { id: "a", type: "media", variant: "3d-scene", props: {} },
+      },
+    };
+    expect(hardGuardrailsForTree(one)).toEqual([]);
+
+    const two: NodeTree = {
+      rootNodeId: "root",
+      nodes: {
+        root: { id: "root", type: "page", props: {} },
+        a: { id: "a", type: "media", variant: "3d-scene", props: {} },
+        b: { id: "b", type: "hero", variant: "showcase-3d", props: {} },
+      },
+    };
+    const violations = hardGuardrailsForTree(two);
+    expect(violations.map((entry) => entry.code)).toEqual(["scene-excess"]);
+    expect(violations[0]?.nodeId).toBe("b");
+    expect(violations[0]?.suggestion).toContain("one WebGL scene");
+
+    // A filled hero slot brings its own surface, a disabled spec leaves the
+    // poster — neither counts as a second canvas.
+    const heroWithSlot: NodeTree = {
+      rootNodeId: "root",
+      nodes: {
+        root: { id: "root", type: "page", props: {} },
+        a: { id: "a", type: "media", variant: "3d-scene", props: {} },
+        b: {
+          id: "b",
+          type: "hero",
+          variant: "showcase-3d",
+          props: {},
+          slots: { visual: ["a"] },
+        },
+      },
+    };
+    expect(hardGuardrailsForTree(heroWithSlot)).toEqual([]);
+    const disabled: NodeTree = {
+      rootNodeId: "root",
+      nodes: {
+        root: { id: "root", type: "page", props: {} },
+        a: { id: "a", type: "media", variant: "3d-scene", props: {} },
+        b: {
+          id: "b",
+          type: "media",
+          variant: "3d-scene",
+          props: {},
+          motion: { preset: "webgl-scene", enabled: false },
+        },
+      },
+    };
+    expect(hardGuardrailsForTree(disabled)).toEqual([]);
+  });
+
   it("applies the site profile to the hard gate", () => {
     const tree: NodeTree = {
       rootNodeId: "root",

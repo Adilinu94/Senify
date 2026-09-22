@@ -82,8 +82,62 @@ describe("section components", () => {
     expect(off).not.toContain("data-motion");
   });
 
-  it("renders faq as native details and marks unknown sections", () => {
+  it("renders the 3D surface as island host with a poster and the tuned intensity", () => {
     const html = render({
+      root: { id: "root", type: "page", props: {}, children: ["m"] },
+      m: {
+        id: "m",
+        type: "media",
+        variant: "3d-scene",
+        props: { scene: "wave" },
+        motion: { preset: "webgl-scene", intensity: 8 },
+      },
+    });
+    expect(html).toContain('data-island="webgl-scene"');
+    expect(html).toContain('data-scene="wave"');
+    expect(html).toContain('data-intensity="8"');
+    // The poster stands without JS: a CSS background behind the canvas.
+    expect(html).toContain("radial-gradient");
+    expect(html).toContain("<canvas");
+
+    // A disabled spec keeps the poster and drops the island host.
+    const off = render({
+      root: { id: "root", type: "page", props: {}, children: ["m"] },
+      m: {
+        id: "m",
+        type: "media",
+        variant: "3d-scene",
+        props: {},
+        motion: { preset: "webgl-scene", enabled: false },
+      },
+    });
+    expect(off).not.toContain("data-island");
+    expect(off).toContain("<canvas");
+  });
+
+  it("lets the hero showcase-3d bring a surface only without a filled slot", () => {
+    const bare = render({
+      root: { id: "root", type: "page", props: {}, children: ["h"] },
+      h: { id: "h", type: "hero", variant: "showcase-3d", props: { headline: "Hi" } },
+    });
+    expect(bare).toContain('data-island="webgl-scene"');
+
+    // A filled visual slot carries its own media surface: the hero adds none.
+    const filled = render({
+      root: { id: "root", type: "page", props: {}, children: ["h"] },
+      h: {
+        id: "h",
+        type: "hero",
+        variant: "showcase-3d",
+        props: { headline: "Hi" },
+        slots: { visual: ["m"] },
+      },
+      m: { id: "m", type: "media", variant: "image", props: { asset: { assetId: "a1" } } },
+    });
+    expect(filled).not.toContain("data-island");
+  });
+
+  it("renders faq as native details and marks unknown sections", () => {    const html = render({
       root: { id: "root", type: "page", props: {}, children: ["f", "x"] },
       f: {
         id: "f",

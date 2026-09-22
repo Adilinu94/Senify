@@ -10,6 +10,9 @@ import {
   motionPends,
   motionPreset,
   motionProfileViolations,
+  webglSceneEnabled,
+  webglSceneIntensity,
+  webglSceneSurface,
 } from "@senify/section-sdk";
 
 // The preset registry is the contract behind motion specs (ticket 19): the
@@ -40,7 +43,9 @@ describe("motion preset registry", () => {
 
   it("resolves presets by id", () => {
     expect(motionPreset("fade-up")?.group).toBe("entry");
-    expect(motionPreset("webgl-scene")?.runtime).toBe("planned");
+    // The 3D scene runs through its own island (M6): three.js is loaded by
+    // the island script, not by the page script.
+    expect(motionPreset("webgl-scene")?.runtime).toBe("island");
     // The page transition is page-level CSS, not a per-node script preset.
     expect(motionPreset("page-fade")?.runtime).toBe("document");
     expect(motionPreset("warp-speed")).toBeUndefined();
@@ -63,11 +68,56 @@ describe("motion preset registry", () => {
     expect(motionPends("fade-up")).toBe(true);
     expect(motionPends("masked-headline")).toBe(true);
     expect(motionPends("scrub-pin")).toBe(false);
-    // Planned, document and island presets never hide before a script runs.
+    // Document and island presets never hide before a script runs.
     expect(motionPends("preloader-light")).toBe(false);
     expect(motionPends("page-fade")).toBe(false);
     expect(motionPends("accordion")).toBe(false);
+    expect(motionPends("webgl-scene")).toBe(false);
     expect(motionPends("warp-speed")).toBe(false);
+  });
+
+  it("hangs the 3D scene on its render surface, not on the preset", () => {
+    expect(webglSceneSurface({ type: "media", variant: "3d-scene" })).toBe(true);
+    expect(webglSceneSurface({ type: "media", variant: "image" })).toBe(false);
+    expect(webglSceneSurface({ type: "hero", variant: "showcase-3d" })).toBe(true);
+    // A filled visual slot brings its own surface (usually the media node).
+    expect(
+      webglSceneSurface({ type: "hero", variant: "showcase-3d", slots: { visual: ["m1"] } }),
+    ).toBe(false);
+    expect(webglSceneSurface({ type: "hero", variant: "split" })).toBe(false);
+
+    // The spec tunes the surface; `enabled: false` switches back to the poster.
+    expect(
+      webglSceneEnabled({
+        type: "media",
+        variant: "3d-scene",
+        motion: { preset: "webgl-scene", intensity: 9 },
+      }),
+    ).toBe(true);
+    expect(
+      webglSceneIntensity({
+        type: "media",
+        variant: "3d-scene",
+        motion: { preset: "webgl-scene", intensity: 9 },
+      }),
+    ).toBe(9);
+    expect(
+      webglSceneEnabled({
+        type: "media",
+        variant: "3d-scene",
+        motion: { preset: "webgl-scene", enabled: false },
+      }),
+    ).toBe(false);
+    // Without a spec the surface still renders (default intensity).
+    expect(webglSceneIntensity({ type: "media", variant: "3d-scene" })).toBe(5);
+    // A spec without a surface never enables an island.
+    expect(
+      webglSceneEnabled({
+        type: "media",
+        variant: "image",
+        motion: { preset: "webgl-scene" },
+      }),
+    ).toBe(false);
   });
 
   it("derives the profile rules from the registry", () => {

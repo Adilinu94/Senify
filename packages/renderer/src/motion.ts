@@ -26,6 +26,15 @@ export const PIN_PRESETS: readonly string[] = [
   "horizontal-pan",
 ];
 
+// The 3D preset's runtime (M6): three.js is self-hosted like the GSAP files,
+// but it is an island asset — the bake writes it only for pages that carry a
+// `webgl-scene` island, and the island script imports it lazily once the host
+// scrolls near the viewport. The URL is the one `bakeSite` copies to; the
+// bundle itself is produced at bake time (`webgl-vendor.ts`, esbuild) so the
+// shipped file always matches the installed three version.
+export const WEBGL_VENDOR_NAME = "three.module.min.js";
+export const WEBGL_VENDOR_URL = `/assets/vendor/${WEBGL_VENDOR_NAME}`;
+
 export type MotionConfig = {
   nodeId: string;
   preset: string;
@@ -644,9 +653,166 @@ export function renderIslandsScript(kinds: Set<string>): string {
   }
   if (kinds.has("webgl-scene")) {
     blocks.push(`
-  // 3D islands render through the R3F island (lands with the 3D follow-up).
-  // Until then the server-rendered canvas poster stays put — no JS needed.
-  void 0;`);
+  // 3D scene (M6): three.js is self-hosted and lazy. The module loads only
+  // when the first host scrolls near the viewport; until then — and without
+  // WebGL, JS or with reduced motion — the CSS poster stands. One canvas per
+  // page is a hard guardrail: the script drives the hosts the markup provides,
+  // it never creates one.
+  (function () {
+    var hosts = document.querySelectorAll('[data-island="webgl-scene"]');
+    if (hosts.length === 0 || typeof IntersectionObserver !== "function") return;
+    var started = false;
+    var start = function () {
+      if (started) return;
+      started = true;
+      import("${WEBGL_VENDOR_URL}").then(function (THREE) {
+        for (var index = 0; index < hosts.length; index += 1) {
+          try { buildScene(THREE, hosts[index]); } catch (error) { /* poster stands */ }
+        }
+      }).catch(function () { /* poster stands */ });
+    };
+    var observer = new IntersectionObserver(function (entries) {
+      for (var index = 0; index < entries.length; index += 1) {
+        if (entries[index].isIntersecting) { observer.disconnect(); start(); return; }
+      }
+    }, { rootMargin: "200px" });
+    for (var index = 0; index < hosts.length; index += 1) observer.observe(hosts[index]);
+  })();
+  function readColor(value, fallback) {
+    var text = String(value || "").trim();
+    return text === "" ? fallback : text;
+  }
+  function buildScene(THREE, host) {
+    var canvas = host.querySelector("canvas");
+    if (!canvas) return;
+    var computed = window.getComputedStyle(host);
+    var accent = readColor(computed.getPropertyValue("--accent"), "#4f46e5");
+    var muted = readColor(computed.getPropertyValue("--fg-muted"), "#94a3b8");
+    var intensity = Number(host.getAttribute("data-intensity"));
+    if (!isFinite(intensity) || intensity < 1 || intensity > 10) intensity = 5;
+    var variant = host.getAttribute("data-scene") || "orb";
+    var renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true, powerPreference: "low-power" });
+    var scene = new THREE.Scene();
+    var camera = new THREE.PerspectiveCamera(42, 1, 0.1, 80);
+    var root = new THREE.Group();
+    var spin = new THREE.Group();
+    root.add(spin);
+    scene.add(root);
+    var update = null;
+    if (variant === "wave") {
+      camera.position.set(0, 1.05, 4.4);
+      camera.lookAt(0, 0, 0);
+      var columns = 64;
+      var rows = 32;
+      var spacing = 0.14;
+      var count = columns * rows;
+      var positions = new Float32Array(count * 3);
+      var base = new Float32Array(count * 2);
+      var cursor = 0;
+      for (var row = 0; row < rows; row += 1) {
+        for (var column = 0; column < columns; column += 1) {
+          var x = (column - (columns - 1) / 2) * spacing;
+          var z = (row - (rows - 1) / 2) * spacing;
+          positions[cursor * 3] = x;
+          positions[cursor * 3 + 1] = 0;
+          positions[cursor * 3 + 2] = z;
+          base[cursor * 2] = x;
+          base[cursor * 2 + 1] = z;
+          cursor += 1;
+        }
+      }
+      var geometry = new THREE.BufferGeometry();
+      var attribute = new THREE.BufferAttribute(positions, 3);
+      attribute.setUsage(THREE.DynamicDrawUsage);
+      geometry.setAttribute("position", attribute);
+      var points = new THREE.Points(geometry, new THREE.PointsMaterial({ color: accent, size: 0.045, transparent: true, opacity: 0.85, sizeAttenuation: true, depthWrite: false }));
+      points.rotation.x = -0.55;
+      spin.add(points);
+      var amplitude = 0.12 + intensity * 0.02;
+      update = function (time) {
+        for (var index = 0; index < count; index += 1) {
+          var px = base[index * 2];
+          var pz = base[index * 2 + 1];
+          positions[index * 3 + 1] = Math.sin(px * 1.3 + time * 0.0011) * Math.cos(pz * 1.1 - time * 0.0009) * amplitude;
+        }
+        attribute.needsUpdate = true;
+      };
+    } else {
+      camera.position.set(0, 0, 4.6);
+      var wire = new THREE.Mesh(
+        new THREE.IcosahedronGeometry(1.2, 1),
+        new THREE.MeshBasicMaterial({ color: accent, wireframe: true, transparent: true, opacity: 0.5 })
+      );
+      spin.add(wire);
+      var cloudCount = 380;
+      var cloudPositions = new Float32Array(cloudCount * 3);
+      var golden = Math.PI * (1 + Math.sqrt(5));
+      for (var point = 0; point < cloudCount; point += 1) {
+        var t = point / cloudCount;
+        var phi = Math.acos(1 - 2 * t);
+        var theta = golden * point;
+        var radius = 1.55 + (point % 9) * 0.02;
+        cloudPositions[point * 3] = Math.sin(phi) * Math.cos(theta) * radius;
+        cloudPositions[point * 3 + 1] = Math.cos(phi) * radius;
+        cloudPositions[point * 3 + 2] = Math.sin(phi) * Math.sin(theta) * radius;
+      }
+      var cloudGeometry = new THREE.BufferGeometry();
+      cloudGeometry.setAttribute("position", new THREE.BufferAttribute(cloudPositions, 3));
+      var cloud = new THREE.Points(cloudGeometry, new THREE.PointsMaterial({ color: muted, size: 0.03, transparent: true, opacity: 0.7, sizeAttenuation: true, depthWrite: false }));
+      spin.add(cloud);
+    }
+    var resize = function () {
+      var rect = host.getBoundingClientRect();
+      var width = Math.max(1, Math.round(rect.width));
+      var height = Math.max(1, Math.round(rect.height));
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+      renderer.setSize(width, height, false);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    };
+    resize();
+    if (typeof ResizeObserver === "function") new ResizeObserver(resize).observe(host);
+    else window.addEventListener("resize", resize);
+    // Reduced motion: one static frame, no loop, no pointer coupling.
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      renderer.render(scene, camera);
+      return;
+    }
+    var pointer = { x: 0, y: 0 };
+    var target = { x: 0, y: 0 };
+    if (window.matchMedia("(hover: hover)").matches) {
+      host.addEventListener("pointermove", function (event) {
+        var rect = host.getBoundingClientRect();
+        target.x = ((event.clientX - rect.left) / rect.width - 0.5) * 2;
+        target.y = ((event.clientY - rect.top) / rect.height - 0.5) * 2;
+      });
+      host.addEventListener("pointerleave", function () { target.x = 0; target.y = 0; });
+    }
+    var visible = true;
+    new IntersectionObserver(function (entries) {
+      if (entries[0]) visible = entries[0].isIntersecting;
+    }).observe(host);
+    var time = 0;
+    var previous = 0;
+    var tick = function (now) {
+      var delta = previous === 0 ? 16 : Math.min(48, now - previous);
+      previous = now;
+      if (visible && !document.hidden) {
+        time += delta;
+        var speed = 0.00005 + intensity * 0.00002;
+        spin.rotation.y += delta * speed;
+        spin.position.y = Math.sin(time * 0.0006) * (0.03 + intensity * 0.012);
+        pointer.x += (target.x - pointer.x) * 0.06;
+        pointer.y += (target.y - pointer.y) * 0.06;
+        root.rotation.y = pointer.x * 0.35;
+        root.rotation.x = pointer.y * 0.22;
+        if (update) update(time);
+        renderer.render(scene, camera);
+      }
+      window.requestAnimationFrame(tick);
+    };
+    window.requestAnimationFrame(tick);
+  }`);
   }
   if (blocks.length === 0) return "";
   return `(function () {

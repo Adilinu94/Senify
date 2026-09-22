@@ -9,6 +9,7 @@ import {
   str,
   type SectionProps,
 } from "./shared.tsx";
+import { WebglScene } from "./Scene.tsx";
 
 export function Hero({ node, slots, ctx }: SectionProps): React.JSX.Element {
   const ctas = (Array.isArray(node.props.ctas) ? node.props.ctas : []) as {
@@ -60,9 +61,13 @@ export function Hero({ node, slots, ctx }: SectionProps): React.JSX.Element {
             </div>
           )}
         </div>
-        {slots?.visual && (
+        {(slots?.visual || node.variant === "showcase-3d") && (
           <div className="visual" style={reversed ? { order: 1 } : undefined}>
-            {slots.visual}
+            {slots?.visual ?? (
+              // The showcase-3d variant promises a scene: without a filled
+              // visual slot the section brings its own surface (M6).
+              <WebglScene node={node} className="w-full" style={{ aspectRatio: "16 / 10" }} />
+            )}
           </div>
         )}
       </div>

@@ -16,7 +16,7 @@ import {
   reservedContextIds,
   STYLE_RULE_KINDS,
 } from "@senify/widget-engine";
-import { motionPreset, motionProfileViolations, type MotionProfile } from "@senify/section-sdk";
+import { motionPreset, motionProfileViolations, webglSceneEnabled, type MotionProfile } from "@senify/section-sdk";
 import {
   DOCUMENT_VERSION,
   editorSlotSpecs,
@@ -48,6 +48,7 @@ export type DocumentIssueKind =
   | "scoped-rule-without-node"
   | "motion-preset-unknown"
   | "motion-pin-excess"
+  | "motion-scene-excess"
   | "profile-intensity-cap"
   | "profile-preset"
   | "profile-pin"
@@ -238,6 +239,24 @@ export function validateDocument(document: EditorDocument): DocumentIssue[] {
     issues.push({
       kind: "motion-pin-excess",
       message: `Page uses ${motionPins} pin motion presets (max 1)`,
+    });
+  }
+
+  // One WebGL scene per page (M6): the count follows the render surfaces, not
+  // the specs — a disabled spec leaves the poster and renders no canvas.
+  const sceneSurfaces = Object.values(document.nodes).filter((node) =>
+    webglSceneEnabled({
+      type: node.primitive,
+      variant: node.variant,
+      slots: node.slots,
+      motion: node.motion,
+    }),
+  );
+  if (sceneSurfaces.length > 1) {
+    issues.push({
+      kind: "motion-scene-excess",
+      nodeId: sceneSurfaces[sceneSurfaces.length - 1]?.id,
+      message: `Page renders ${sceneSurfaces.length} 3D scenes (max 1)`,
     });
   }
 

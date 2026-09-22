@@ -23,6 +23,7 @@ import {
   type StyleRule,
 } from "@senify/widget-engine";
 import type { NodeTree, SectionDefinition } from "@senify/section-sdk";
+import { webglSceneSurface } from "@senify/section-sdk";
 import {
   buildLlmsTxt,
   buildRobots,
@@ -46,9 +47,11 @@ import {
   pageTransitionCss,
   renderIslandsScript,
   renderPageScript,
+  WEBGL_VENDOR_NAME,
   type MotionTokens,
 } from "./motion.ts";
 import { overridesCss, styleRulesCss } from "./style-css.ts";
+import { webglVendorCode } from "./webgl-vendor.ts";
 
 export type BakePageInput = {
   id: string;
@@ -90,6 +93,7 @@ export type BakeWarning = {
     | "reveal-too-long"
     | "unimplemented-preset"
     | "document-excess"
+    | "scene-without-surface"
     | "invalid-jsonld"
     | "billing-silent"
     | "children-unrendered";
@@ -402,6 +406,22 @@ export async function bakeSite(
     }
     const islands = islandsForTree(page.tree);
     for (const kind of islands) islandKinds.add(kind);
+    // A `webgl-scene` spec without a surface is a silent no-op: the island
+    // hangs on the surface (media `3d-scene`, hero `showcase-3d`), the spec
+    // only tunes intensity and the switch. Say so instead of dropping it.
+    for (const node of Object.values(page.tree.nodes)) {
+      if (node.motion?.preset !== "webgl-scene" || node.motion.enabled === false) continue;
+      if (!webglSceneSurface(node)) {
+        warnings.push({
+          code: "scene-without-surface",
+          page: page.path,
+          nodeId: node.id,
+          message: `Node "${node.id}" carries the webgl-scene preset but renders no 3D surface`,
+          suggestion:
+            'Use the media variant "3d-scene" or the hero variant "showcase-3d" for the scene.',
+        });
+      }
+    }
     if (configs.length > 0) anyMotion = true;
     const hasForm = treeHasForms(page.tree);
     if (hasForm) anyForm = true;
@@ -505,16 +525,23 @@ export async function bakeSite(
     if (siteRulesCss !== "") {
       writeFileSync(join(outDir, "assets", "style-rules.css"), siteRulesCss);
     }
+    const vendorDir = join(outDir, "assets", "vendor");
+    if (anyMotion || islandKinds.has("webgl-scene")) {
+      mkdirSync(vendorDir, { recursive: true });
+    }
     if (anyMotion) {
       writeFileSync(
         join(outDir, "assets", "page.js"),
         renderPageScript({ lenis: input.profile !== "clean" }),
       );
-      const vendorDir = join(outDir, "assets", "vendor");
-      mkdirSync(vendorDir, { recursive: true });
       for (const file of motionVendorFiles()) {
         copyFileSync(file.from, join(vendorDir, file.name));
       }
+    }
+    // The 3D island asset (M6): only pages that carry a `webgl-scene` island
+    // pay for it — the island script lazy-loads the file when it scrolls in.
+    if (islandKinds.has("webgl-scene")) {
+      writeFileSync(join(vendorDir, WEBGL_VENDOR_NAME), webglVendorCode());
     }
     if (islandKinds.size > 0) {
       writeFileSync(join(outDir, "assets", "islands.js"), renderIslandsScript(islandKinds));

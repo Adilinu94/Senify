@@ -10,6 +10,7 @@ import {
   str,
   type SectionProps,
 } from "./shared.tsx";
+import { WebglScene } from "./Scene.tsx";
 
 export function Media({ node, ctx }: SectionProps): React.JSX.Element {
   const asset = resolveAsset(node.props.asset, ctx);
@@ -30,14 +31,11 @@ export function Media({ node, ctx }: SectionProps): React.JSX.Element {
             className="w-full bg-[var(--bg-muted)]"
           />
         ) : node.variant === "3d-scene" ? (
-          <div
-            data-island="webgl-scene"
-            data-scene={str(node.props.scene)}
+          <WebglScene
+            node={node}
             style={{ aspectRatio: aspect.replace("/", " / "), ...mediaStyle(node) }}
-            className="flex w-full items-center justify-center bg-[var(--bg-muted)]"
-          >
-            <canvas aria-label="3D-Szene" />
-          </div>
+            className="w-full"
+          />
         ) : asset ? (
           <ResponsiveImage
             asset={asset}

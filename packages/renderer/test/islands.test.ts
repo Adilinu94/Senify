@@ -35,6 +35,29 @@ describe("hydration dispatcher", () => {
     ).toEqual(["webgl-scene"]);
   });
 
+  it("hangs the 3D island on the surface and honours the switch", () => {
+    // A hero whose visual slot is filled lets the slot bring the surface.
+    expect(
+      islandsForNode(node("hero", { variant: "showcase-3d", slots: { visual: ["m1"] } })),
+    ).toEqual([]);
+    // The preset alone never starts the island — the surface is the contract.
+    expect(
+      islandsForNode(node("media", { variant: "image", motion: { preset: "webgl-scene" } })),
+    ).toEqual([]);
+    // A disabled spec switches the surface back to its static poster.
+    expect(
+      islandsForNode(
+        node("media", { variant: "3d-scene", motion: { preset: "webgl-scene", enabled: false } }),
+      ),
+    ).toEqual([]);
+    // Surface plus spec stays a single kind (no duplicate in the set).
+    expect(
+      islandsForNode(
+        node("media", { variant: "3d-scene", motion: { preset: "webgl-scene" } }),
+      ),
+    ).toEqual(["webgl-scene"]);
+  });
+
   it("enables billing only with a yearly price present", () => {
     expect(
       islandsForNode(node("pricing", { props: { billingToggle: true, plans: [] } })),

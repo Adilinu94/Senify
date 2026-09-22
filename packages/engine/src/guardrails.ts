@@ -1,5 +1,6 @@
 import {
   motionProfileViolations,
+  webglSceneEnabled,
   type MotionProfile,
   type NodeTree,
 } from "@senify/section-sdk";
@@ -11,6 +12,9 @@ import type { GuardrailViolation } from "./types.ts";
 // prefers-reduced-motion by construction — there is no free motion code.
 export const MAX_PINS_PER_PAGE = 1;
 export const MAX_PARALLAX_PER_PAGE = 2;
+// Exactly one WebGL canvas per page (artifacts/03): a second scene costs a
+// second context and breaks the budget the profile promises.
+export const MAX_SCENES_PER_PAGE = 1;
 
 export const PIN_PRESETS: readonly string[] = [
   "scrub-pin",
@@ -29,11 +33,16 @@ export function hardGuardrailsForTree(
   const violations: GuardrailViolation[] = [];
   const pinNodes: string[] = [];
   const parallaxNodes: string[] = [];
+  const sceneNodes: string[] = [];
   for (const node of Object.values(tree.nodes)) {
     const preset = node.motion?.preset;
-    if (preset === undefined) continue;
-    if (PIN_PRESETS.includes(preset)) pinNodes.push(node.id);
-    if (PARALLAX_PRESETS.includes(preset)) parallaxNodes.push(node.id);
+    if (preset !== undefined) {
+      if (PIN_PRESETS.includes(preset)) pinNodes.push(node.id);
+      if (PARALLAX_PRESETS.includes(preset)) parallaxNodes.push(node.id);
+    }
+    // The 3D surface is what renders a canvas — the preset alone is not a
+    // scene (and a disabled spec switches the surface back to its poster).
+    if (webglSceneEnabled(node)) sceneNodes.push(node.id);
   }
   if (profile !== undefined) {
     const entries = Object.values(tree.nodes)
@@ -75,6 +84,16 @@ export function hardGuardrailsForTree(
       field: "motion.preset",
       suggestion:
         "Reduce parallax layers: keep the two that carry the most impact.",
+    });
+  }
+  if (sceneNodes.length > MAX_SCENES_PER_PAGE) {
+    violations.push({
+      code: "scene-excess",
+      message: `Page renders ${sceneNodes.length} 3D scenes (max ${MAX_SCENES_PER_PAGE})`,
+      nodeId: sceneNodes[sceneNodes.length - 1],
+      field: "motion.preset",
+      suggestion:
+        "Keep one WebGL scene per page: switch the other surface to an image or video variant.",
     });
   }
   return violations;

@@ -185,6 +185,7 @@ describe("motion panel", () => {
       "ambient-float",
       "grain",
       "preloader-light",
+      "webgl-scene",
     ]);
     expect(panel.preset).toBe("masked-headline");
     expect(panel.intensity).toBe(7);
