@@ -90,6 +90,19 @@ export const CANVAS_STYLES = `
   cursor: pointer;
 }
 .senify-canvas__zoom-label:disabled { cursor: default; }
+/* Der Scrub-Regler (Ticket 19, M6): nur im Live-Modus aktiv, faehrt die
+   Scroll-Position der echten Seite an. */
+.senify-canvas__scrub-label {
+  color: var(--ed-ink-muted);
+  font-size: var(--ed-text-11);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.senify-canvas__scrub {
+  width: 9rem;
+  accent-color: var(--ed-signal-accent);
+}
+.senify-canvas__scrub:disabled { opacity: 0.4; }
 .senify-canvas__status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Der Fuss (Ticket 03 Punkt 6): Meldung links, Zoom rechts — der Zoom gehoert
    zur Arbeitsflaeche, nicht in die Werkzeugleiste. */

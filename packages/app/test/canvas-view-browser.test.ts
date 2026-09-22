@@ -658,6 +658,32 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       // Ring landet auf dem neuen Frame.
       await tab.locator('.senify-canvas__button[data-mode="live"]').click();
       await expect.poll(async () => tab.locator(".senify-canvas__frame").count()).toBe(1);
+
+      // Scrub (Ticket 19, M6): der Regler faehrt die Scroll-Position der echten
+      // Seite an (Pin-/Scrub-Presets ohne Mausrad pruefbar), manuelles Scrollen
+      // fuehrt ihn zurueck; im Design-Modus ist er aus.
+      const scrub = tab.locator('.senify-canvas__footer input[data-action="scrub"]');
+      await expect.poll(async () => scrub.count()).toBe(1);
+      expect(await scrub.isDisabled()).toBe(false);
+      const scrollProbe = (): Promise<number> =>
+        tab.evaluate(`(() => {
+          const frame = document.querySelector('.senify-canvas__frame iframe');
+          const doc = frame && frame.contentDocument;
+          return doc ? Math.round(doc.documentElement.scrollTop) : -1;
+        })()`);
+      await tab.evaluate(`(() => {
+        const input = document.querySelector('.senify-canvas__footer input[data-action="scrub"]');
+        if (!input) return;
+        input.value = "100";
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      })()`);
+      await expect.poll(scrollProbe, { timeout: 10000 }).toBeGreaterThan(0);
+      await tab.evaluate(`(() => {
+        const frame = document.querySelector('.senify-canvas__frame iframe');
+        if (frame && frame.contentDocument) frame.contentDocument.documentElement.scrollTop = 0;
+      })()`);
+      await expect.poll(async () => scrub.inputValue()).toBe("0");
+
       const liveProbe = (): Promise<string> =>
         tab.evaluate(`(() => {
           const frame = document.querySelector('.senify-canvas__frame iframe');
@@ -725,6 +751,8 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       await tab.screenshot({ path: join(shotDir, "12-live-vorschau-follow.png") });
       await tab.locator('.senify-canvas__button[data-mode="design"]').click();
       await expect.poll(async () => tab.locator(".senify-canvas__frame").count()).toBe(3);
+      // Der Scrub gehoert zum Live-Modus (M6): im Design ist er aus.
+      await expect.poll(async () => scrub.isDisabled()).toBe(true);
 
       // Agent-Vorschau (Ticket 05, Punkt 5): der Schalter ist an; legt der
       // Agent eine neue Seite an, zieht die Ansicht mit ("Agent baut, Nutzer

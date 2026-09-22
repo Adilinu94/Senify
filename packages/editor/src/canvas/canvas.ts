@@ -36,6 +36,7 @@ import { copyNode, pasteNode } from "../state/clipboard.ts";
 import { sanitizeInlineText } from "../inline-text.ts";
 import { createHistoryDialog } from "../history/dialog.ts";
 import { canvasFrames, fitZoom, ZOOM_MAX, ZOOM_MIN, type CanvasFrameSpec } from "./device.ts";
+import { scrubOffset, scrubProgress } from "./scrub.ts";
 import { canvasFrameRules, type FrameRules } from "./rules.ts";
 import { createMarkerOverlay, type OverlayFrame } from "./overlay.ts";
 import { canvasNodeTree, canvasNodeTreeWithCopies } from "./adapter.ts";
@@ -391,11 +392,34 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   zoomGroup.appendChild(zoomIn);
   zoomGroup.appendChild(zoomFit);
 
+  // Scrub (Ticket 19, M6): im Live-Modus faehrt der Regler die Scroll-Position
+  // der echten Seite an — Pin-/Scrub-Presets werden ohne Mausrad pruefbar.
+  // ScrollTrigger reagiert auf das ausgeloeste Scroll-Event; der Rueckweg
+  // (Scrollen im Frame) fuehrt den Regler nach.
+  const scrubGroup = create(doc, "div", "senify-canvas__group", { "data-role": "scrub" });
+  const scrubLabel = create(doc, "span", "senify-canvas__scrub-label");
+  scrubLabel.textContent = "Scrub";
+  const scrubInput = create(doc, "input", "senify-canvas__scrub", {
+    type: "range",
+    min: "0",
+    max: "100",
+    step: "1",
+    value: "0",
+    "data-action": "scrub",
+    "aria-label": "Scroll-Position der Live-Vorschau",
+  });
+  scrubInput.addEventListener("input", () => {
+    scrubTo(Number(scrubInput.value ?? "0") / 100);
+  });
+  scrubGroup.appendChild(scrubLabel);
+  scrubGroup.appendChild(scrubInput);
+
   topbar.appendChild(modeGroup);
   topbar.appendChild(stateGroup);
   topbar.appendChild(insertGroup);
   topbar.appendChild(historyGroup);
   footer.appendChild(status);
+  footer.appendChild(scrubGroup);
   footer.appendChild(zoomGroup);
 
   // ----------------------------------------------------------------- frames
@@ -700,6 +724,9 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   }
 
   function bindFrame(entry: MountedFrame): void {
+    // The scrub slider follows the wheel (ticket 19, M6): scrolling inside the
+    // live frame writes the progress back into the control.
+    entry.doc.addEventListener("scroll", () => syncScrub(entry));
     entry.doc.addEventListener("click", (event: DomEvent) => {
       // Live shows the real page (M4 Stufe 1): links and islands keep their
       // own behaviour, the editor chrome stays out.
@@ -900,6 +927,14 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       if (mode === "design") button.removeAttribute("disabled");
       else button.setAttribute("disabled", "disabled");
     }
+    // The scrub slider is the live preview's counterpart (ticket 19, M6).
+    if (mode === "live") {
+      scrubInput.removeAttribute("disabled");
+      scrubGroup.setAttribute("data-active", "true");
+    } else {
+      scrubInput.setAttribute("disabled", "disabled");
+      scrubGroup.removeAttribute("data-active");
+    }
     for (const entry of mounted) {
       const active = entry.device === breakpoint;
       entry.wrap.setAttribute("data-active", String(active));
@@ -912,6 +947,36 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     // forces a synchronous layout. A selection change still flushes at once.
     markers.setSelection(mode === "design" ? selected : null);
     markers.flushNextFrame();
+  }
+
+  // The scrub slider of the live preview (ticket 19, M6): it reads and writes
+  // the active frame's scroll offset. ScrollTrigger listens to the resulting
+  // scroll events, so pin/scrub presets can be inspected without the wheel.
+  function activeEntry(): MountedFrame | undefined {
+    return mounted.find((entry) => entry.device === breakpoint) ?? mounted[0];
+  }
+
+  function maxScrollOf(entry: MountedFrame): number {
+    const rootEl = entry.doc.documentElement;
+    if (rootEl === undefined) return 0;
+    return Math.max(0, (rootEl.scrollHeight ?? 0) - (rootEl.clientHeight ?? 0));
+  }
+
+  function scrubTo(progress: number): void {
+    if (mode !== "live") return;
+    const entry = activeEntry();
+    const rootEl = entry?.doc.documentElement;
+    if (entry === undefined || rootEl === undefined) return;
+    rootEl.scrollTop = scrubOffset(progress, maxScrollOf(entry));
+  }
+
+  function syncScrub(entry: MountedFrame): void {
+    if (mode !== "live") return;
+    if (entry !== activeEntry()) return;
+    const rootEl = entry.doc.documentElement;
+    if (rootEl === undefined) return;
+    const progress = scrubProgress(rootEl.scrollTop, maxScrollOf(entry));
+    scrubInput.value = String(Math.round(progress * 100));
   }
 
   // Live mode runs the release runtime (M4 Stufe 1): the same contract the bake

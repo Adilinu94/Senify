@@ -20,6 +20,7 @@ export {
   type FitOptions,
 } from "./device.ts";
 export { CANVAS_CHROME_CSS, canvasFrameRules, type FrameRules, type FrameRulesOptions } from "./rules.ts";
+export { scrubOffset, scrubProgress } from "./scrub.ts";
 export {
   OVERLAY_HANDLE_HIT,
   OVERLAY_LABEL_HEIGHT,

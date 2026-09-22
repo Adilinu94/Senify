@@ -43,6 +43,10 @@ export type DomElement = {
   className: string;
   scrollLeft: number;
   scrollTop: number;
+  // Scrolling geometry (the scrub slider, ticket 19 M6): a real element exposes
+  // both; test doubles may leave them out.
+  scrollHeight?: number;
+  clientHeight?: number;
   appendChild(child: DomElement): DomElement;
   setAttribute(name: string, value: string): void;
   getAttribute(name: string): string | null;
@@ -73,6 +77,9 @@ export type DomElement = {
 export type DomDocument = {
   readonly body: DomElement;
   readonly head?: DomElement | null;
+  // The document element carries the page scroll (the scrub slider reads and
+  // writes it, ticket 19 M6); test doubles may leave it out.
+  readonly documentElement?: DomElement;
   // The focused element; the spotlight remembers and restores it (E7).
   readonly activeElement?: DomElement | null;
   createElement(tag: string): DomElement;
