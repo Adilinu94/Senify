@@ -593,6 +593,75 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
         .toContain("Gespeichert");
       await tab.screenshot({ path: join(shotDir, "14-komponente-variante.png") });
 
+      // Varianten-Anlegen im Editor (Ticket 04): die Instanz bekommt einen
+      // eigenen Wert (per API — die kuratierte Section hat keine
+      // Inspektor-Felder fuer ihre Teile), das Kontextmenue extrahiert ihn als
+      // benannte Variante (Dialog), die Instanz aktiviert sie statt der
+      // Overrides. Das Register der Definition zeigt die Variante zum
+      // Umbenennen/Loeschen.
+      const instanceNodeId = (await variantInstance.getAttribute("data-node")) ?? "";
+      expect(instanceNodeId).not.toBe("");
+      const beforeOverride = (await (
+        await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)
+      ).json()) as { draftVersion: number };
+      const overrideWrite = await post(`/api/pages/${page.id}/mutations`, {
+        baseDraftVersion: beforeOverride.draftVersion,
+        author,
+        mutations: [
+          {
+            op: "updateNodeProps",
+            id: instanceNodeId,
+            patch: { overrides: { [heroId]: { headline: "Eigener Hero" } } },
+          },
+        ],
+      });
+      expect(overrideWrite.status).toBe(200);
+      await tab.reload({ waitUntil: "domcontentloaded" });
+      await tab.waitForSelector(".senify-canvas", { timeout: 30000 });
+      await expect
+        .poll(async () => (await desktopFrame().locator("body").textContent()) ?? "")
+        .toContain("Eigener Hero");
+      tab.once("dialog", (dialog) => dialog.accept("riesig"));
+      const variantInstanceAgain = tab.locator(".senify-explorer__item", {
+        hasText: "Instanz · karte",
+      });
+      await expect.poll(async () => variantInstanceAgain.count()).toBe(1);
+      await variantInstanceAgain.click({ button: "right" });
+      await tab.waitForSelector(".senify-explorer__menu", { timeout: 10000 });
+      await tab
+        .locator('.senify-explorer__menu-item[data-action="component-save-variant"]')
+        .click();
+      // Die Extraktion laesst den sichtbaren Wert stehen (jetzt traegt ihn die
+      // Variante), die Instanz hat keine eigenen Werte mehr.
+      await expect
+        .poll(async () => (await desktopFrame().locator("body").textContent()) ?? "")
+        .toContain("Eigener Hero");
+      // Die Definition zeigt das Register; die Variante laesst sich dort
+      // umbenennen (Textfeld) und loeschen (×).
+      await renamedDefinition.click();
+      await tab.locator('.senify-inspector__tab[data-tab="content"]').click();
+      const registerRow = tab.locator(
+        '.senify-inspector__field[data-group="content/variant-register"][data-key="riesig"]',
+      );
+      await expect.poll(async () => registerRow.count()).toBe(1);
+      const renameField = registerRow.locator('input[data-control="text"]');
+      await renameField.fill("riesig-umbenannt");
+      await renameField.press("Tab");
+      await expect
+        .poll(async () =>
+          (
+            await tab.locator(
+              '.senify-inspector__field[data-group="content/variant-register"][data-key="riesig-umbenannt"]',
+            ).count()
+          ).toString(),
+        )
+        .toBe("1");
+      await tab.screenshot({ path: join(shotDir, "15-komponente-variante-anlegen.png") });
+      await tab.locator('button[data-action="canvas-save"]').click();
+      await expect
+        .poll(async () => (await tab.locator('[data-role="canvas-status"]').textContent()) ?? "")
+        .toContain("Gespeichert");
+
       // Live-Mitverfolgung (Ticket 05): eine fremde Mutation (hier direkt über
       // die API) kommt per SSE an — die offene Seite lädt nach, der geänderte
       // Knoten blinkt, das Bau-Protokoll nennt Akteur und Aktion.

@@ -532,6 +532,72 @@ describe("buildInspector", () => {
         ?.groups.some((entry) => entry.id === "content/variants"),
     ).toBe(false);
   });
+
+  // Ticket 04, variant register: a definition shows one editable row per
+  // variant (the name is the value, the commit renames the overlay and pulls
+  // the active instances along); an instance gets the switches instead.
+  it("offers the variant register on a definition", () => {
+    const store = baseStore();
+    const definitionId = createComponent(store, "head000001", "karte");
+    store.applyBatch(
+      [
+        {
+          op: "setNodeProp",
+          id: definitionId!,
+          key: "variants",
+          value: { groß: { head000001: { text: "Groß" } } },
+        },
+      ],
+      { label: "Varianten anlegen" },
+    );
+
+    const model = buildInspector({
+      document: store.document,
+      nodeId: definitionId!,
+      breakpoint: "desktop",
+      theme: defaultTheme(),
+    });
+    const group = model?.tabs
+      .find((tab) => tab.id === "content")
+      ?.groups.find((entry) => entry.id === "content/variant-register");
+    expect(group?.label).toBe("Varianten");
+    const row = group?.fields[0];
+    expect(row?.key).toBe("groß");
+    expect(row?.kind).toBe("text");
+    expect(row?.value).toBe("groß");
+    expect(row?.commit).toEqual({ kind: "variant-rename", name: "groß" });
+    expect(row?.responsive).toBe(false);
+    expect(row?.overridden).toBe(false);
+    // The instance of the same definition shows the switch group, not the
+    // register.
+    const instanceId = store.document.nodes["sec0000001"]?.children?.[0] ?? "";
+    const instanceModel = buildInspector({
+      document: store.document,
+      nodeId: instanceId,
+      breakpoint: "desktop",
+      theme: defaultTheme(),
+    });
+    expect(
+      instanceModel?.tabs
+        .find((tab) => tab.id === "content")
+        ?.groups.some((entry) => entry.id === "content/variant-register"),
+    ).toBe(false);
+
+    // A definition without variants gets no register group.
+    const store2 = baseStore();
+    const plainId = createComponent(store2, "head000001", "karte");
+    const plain = buildInspector({
+      document: store2.document,
+      nodeId: plainId!,
+      breakpoint: "desktop",
+      theme: defaultTheme(),
+    });
+    expect(
+      plain?.tabs
+        .find((tab) => tab.id === "content")
+        ?.groups.some((entry) => entry.id === "content/variant-register"),
+    ).toBe(false);
+  });
 });
 
 describe("inspector value helpers", () => {

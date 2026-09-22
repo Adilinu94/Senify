@@ -7,7 +7,11 @@ import {
   resolveAllForDevice,
 } from "@senify/widget-engine";
 import type { EditorDocument, EditorNode } from "./state/document.ts";
-import { componentDriftOf, definitionVersionOf } from "./state/components.ts";
+import {
+  componentDriftOf,
+  definitionVersionOf,
+  editorOverrides,
+} from "./state/components.ts";
 
 // Explorer tabs (artifacts/24 §3): Ebenen · Seiten (+ Vorlagen-Abschnitt) ·
 // Vorlagen · Medien. All four are headless list models — the shell renders
@@ -217,6 +221,14 @@ export function editorMenuItems(
     );
   } else if (isInstance) {
     entries.splice(1, 0, { id: "component-detach", label: "Komponente auflösen" });
+    // The variant lever (ticket 04): only an instance with own values has
+    // something to extract - a bare instance offers no entry.
+    if (Object.keys(editorOverrides(node)).length > 0) {
+      entries.splice(1, 0, {
+        id: "component-save-variant",
+        label: "Als Variante speichern",
+      });
+    }
   } else if (!isSlot && nodeId !== document.rootNodeId) {
     entries.splice(1, 0, { id: "component-create", label: "Als Komponente anlegen" });
   }

@@ -96,6 +96,9 @@ export type DomWindow = {
     getItem(key: string): string | null;
     setItem(key: string, value: string): void;
   };
+  // The variant prompt (ticket 04) asks for a name; test doubles may leave it
+  // out, then the action reports instead of asking.
+  prompt?(message: string, initial: string): string | null;
   readonly location: { readonly search: string; readonly href: string };
   readonly history: {
     replaceState(data: unknown, title: string, url: string): void;

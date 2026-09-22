@@ -266,6 +266,203 @@ export function setComponentVariants(
   return outcome.changed;
 }
 
+// A fresh variant name for the prompt default ("Variante 1", "Variante 2", …):
+// the first number that is not taken, so the author can confirm with Enter.
+export function suggestVariantName(names: readonly string[]): string {
+  let index = names.length + 1;
+  let candidate = `Variante ${index}`;
+  while (names.includes(candidate)) {
+    index += 1;
+    candidate = `Variante ${index}`;
+  }
+  return candidate;
+}
+
+// Turns the instance's own values into a named variant of its definition: the
+// override bag moves into `props.variants` of the definition, the instance
+// drops its overrides and activates the new variant instead. One `applyBatch`,
+// so one undo entry - and the definition stays the register for every other
+// instance.
+export function createVariantFromOverrides(
+  store: EditorStore,
+  instanceId: string,
+  name: string,
+): boolean {
+  const instance = store.document.nodes[instanceId];
+  if (instance === undefined || instance.primitive !== COMPONENT_INSTANCE_PRIMITIVE) {
+    return false;
+  }
+  const componentId = instance.props["componentId"];
+  if (typeof componentId !== "string") return false;
+  const definitionNode = store.document.nodes[componentId];
+  const definition = definitionOf(store, componentId);
+  if (definition === null || definitionNode === undefined) {
+    throw new SenifyError(
+      "not_found",
+      `Component "${componentId}" is not defined`,
+      { field: "componentId" },
+    );
+  }
+  const trimmed = name.trim();
+  if (trimmed === "") {
+    throw new SenifyError("validation", "Eine Variante braucht einen Namen", {
+      field: "name",
+    });
+  }
+  const overrides = editorOverrides(instance);
+  if (Object.keys(overrides).length === 0) {
+    throw new SenifyError(
+      "validation",
+      `Die Instanz von "${definition.name}" hat keine eigenen Werte`,
+      { field: "overrides" },
+    );
+  }
+  const variants = definitionVariants(definitionNode);
+  if (Object.prototype.hasOwnProperty.call(variants, trimmed)) {
+    throw new SenifyError(
+      "validation",
+      `Variante "${trimmed}" gibt es bei "${definition.name}" bereits`,
+      {
+        field: "name",
+        suggestion: `Variants: ${Object.keys(variants).join(", ")}.`,
+      },
+    );
+  }
+  const nextVariants = { ...variants, [trimmed]: overrides };
+  const declared = Object.keys(nextVariants);
+  const active = instanceVariants(instance);
+  const nextActive = declared.filter(
+    (entry) => entry === trimmed || active.includes(entry),
+  );
+  const outcome = store.applyBatch(
+    [
+      { op: "setNodeProp", id: componentId, key: "variants", value: nextVariants },
+      { op: "clearNodeProp", id: instanceId, key: "overrides" },
+      { op: "setNodeProp", id: instanceId, key: "variants", value: nextActive },
+    ],
+    { label: `Variante ${trimmed} speichern` },
+  );
+  return outcome.changed;
+}
+
+// Renames a declared variant: the overlay keeps its place in the definition's
+// order, every instance that had the old name active follows. One `applyBatch`.
+export function renameVariant(
+  store: EditorStore,
+  definitionId: string,
+  from: string,
+  to: string,
+): boolean {
+  const definitionNode = store.document.nodes[definitionId];
+  const definition = definitionOf(store, definitionId);
+  if (definition === null || definitionNode === undefined) {
+    throw new SenifyError(
+      "not_found",
+      `Component "${definitionId}" is not defined`,
+      { field: "componentId" },
+    );
+  }
+  const variants = definitionVariants(definitionNode);
+  if (!Object.prototype.hasOwnProperty.call(variants, from)) {
+    throw new SenifyError(
+      "not_found",
+      `"${definition.name}" hat keine Variante "${from}"`,
+      {
+        field: "name",
+        suggestion: `Variants: ${Object.keys(variants).join(", ") || "none"}.`,
+      },
+    );
+  }
+  const trimmed = to.trim();
+  if (trimmed === "") {
+    throw new SenifyError("validation", "Eine Variante braucht einen Namen", {
+      field: "name",
+    });
+  }
+  if (trimmed === from) return false;
+  if (Object.prototype.hasOwnProperty.call(variants, trimmed)) {
+    throw new SenifyError(
+      "validation",
+      `Variante "${trimmed}" gibt es bei "${definition.name}" bereits`,
+      { field: "name" },
+    );
+  }
+  const nextVariants: Record<string, Record<string, Record<string, PropValue>>> = {};
+  for (const [key, value] of Object.entries(variants)) {
+    nextVariants[key === from ? trimmed : key] = value;
+  }
+  const mutations: unknown[] = [
+    { op: "setNodeProp", id: definitionId, key: "variants", value: nextVariants },
+  ];
+  for (const node of Object.values(store.document.nodes)) {
+    if (node.primitive !== COMPONENT_INSTANCE_PRIMITIVE) continue;
+    if (node.props["componentId"] !== definitionId) continue;
+    const active = instanceVariants(node);
+    if (!active.includes(from)) continue;
+    mutations.push({
+      op: "setNodeProp",
+      id: node.id,
+      key: "variants",
+      value: active.map((entry) => (entry === from ? trimmed : entry)),
+    });
+  }
+  const outcome = store.applyBatch(mutations, {
+    label: `Variante umbenennen · ${from} → ${trimmed}`,
+  });
+  return outcome.changed;
+}
+
+// Removes a declared variant: the overlay leaves the definition, instances
+// that had it active drop it from their list. One `applyBatch`.
+export function deleteVariant(
+  store: EditorStore,
+  definitionId: string,
+  name: string,
+): boolean {
+  const definitionNode = store.document.nodes[definitionId];
+  const definition = definitionOf(store, definitionId);
+  if (definition === null || definitionNode === undefined) {
+    throw new SenifyError(
+      "not_found",
+      `Component "${definitionId}" is not defined`,
+      { field: "componentId" },
+    );
+  }
+  const variants = definitionVariants(definitionNode);
+  if (!Object.prototype.hasOwnProperty.call(variants, name)) {
+    throw new SenifyError(
+      "not_found",
+      `"${definition.name}" hat keine Variante "${name}"`,
+      {
+        field: "name",
+        suggestion: `Variants: ${Object.keys(variants).join(", ") || "none"}.`,
+      },
+    );
+  }
+  const nextVariants = { ...variants };
+  delete nextVariants[name];
+  const mutations: unknown[] =
+    Object.keys(nextVariants).length === 0
+      ? [{ op: "clearNodeProp", id: definitionId, key: "variants" }]
+      : [{ op: "setNodeProp", id: definitionId, key: "variants", value: nextVariants }];
+  for (const node of Object.values(store.document.nodes)) {
+    if (node.primitive !== COMPONENT_INSTANCE_PRIMITIVE) continue;
+    if (node.props["componentId"] !== definitionId) continue;
+    const active = instanceVariants(node);
+    if (!active.includes(name)) continue;
+    const nextActive = active.filter((entry) => entry !== name);
+    mutations.push(
+      nextActive.length === 0
+        ? { op: "clearNodeProp", id: node.id, key: "variants" }
+        : { op: "setNodeProp", id: node.id, key: "variants", value: nextActive },
+    );
+  }
+  const outcome = store.applyBatch(mutations, {
+    label: `Variante ${name} löschen`,
+  });
+  return outcome.changed;
+}
+
 // Every definition in the document, in tree order — the list the explorer's
 // component tab and the instantiate action read.
 export function componentDefinitionsIn(store: EditorStore): { id: string; name: string }[] {

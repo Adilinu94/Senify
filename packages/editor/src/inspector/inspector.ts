@@ -30,7 +30,13 @@ import {
 import type { MotionProfile, MotionSpec } from "@senify/section-sdk";
 import type { Theme } from "@senify/tokens";
 import { requireDocument, type DomDocument, type DomElement } from "../dom.ts";
-import { setComponentOverride, setComponentVariants, variantsOf } from "../state/components.ts";
+import {
+  deleteVariant,
+  renameVariant,
+  setComponentOverride,
+  setComponentVariants,
+  variantsOf,
+} from "../state/components.ts";
 import { newNodeId } from "../state/ids.ts";
 import { EditorStore, typingCoalesceKey } from "../state/store.ts";
 import { EDITOR_ROOT_ATTRIBUTE } from "../ui/tokens.ts";
@@ -194,11 +200,25 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       toggleVariant(nodeId, key, value === true);
       return;
     }
+    if (commit.kind === "variant-rename") {
+      renameVariantOf(nodeId, commit.name, value);
+      return;
+    }
     apply(
       { op: "setNodeProp", id: nodeId, key, value, device: breakpoint },
       `Feld ${key}`,
       typingCoalesceKey(nodeId, key, breakpoint),
     );
+  }
+
+  // One report path for the component writes: a category becomes a readable
+  // message, anything else falls back to the error text.
+  function reportCommitError(error: unknown): void {
+    const category =
+      error !== null && typeof error === "object" && "category" in error
+        ? String((error as { category: unknown }).category)
+        : "";
+    report(MESSAGES[category] ?? messageOf(error));
   }
 
   // An instance override is its own write (ticket 04): the value lands in the
@@ -213,11 +233,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       setComponentOverride(options.store, nodeId, partId, key, value);
       report(null);
     } catch (error) {
-      const category =
-        error !== null && typeof error === "object" && "category" in error
-          ? String((error as { category: unknown }).category)
-          : "";
-      report(MESSAGES[category] ?? messageOf(error));
+      reportCommitError(error);
     }
   }
 
@@ -233,11 +249,30 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       setComponentVariants(options.store, nodeId, next);
       report(null);
     } catch (error) {
-      const category =
-        error !== null && typeof error === "object" && "category" in error
-          ? String((error as { category: unknown }).category)
-          : "";
-      report(MESSAGES[category] ?? messageOf(error));
+      reportCommitError(error);
+    }
+  }
+
+  // The variant register of a definition (ticket 04): a rename rewrites the
+  // overlay key and every instance list that had the old name active.
+  function renameVariantOf(definitionId: string, name: string, value: PropValue): void {
+    if (typeof value !== "string") return;
+    try {
+      renameVariant(options.store, definitionId, name, value);
+      report(null);
+    } catch (error) {
+      reportCommitError(error);
+    }
+  }
+
+  // The remove button of a register row: the overlay leaves the definition,
+  // instances that had it active drop the name from their list.
+  function removeVariant(definitionId: string, name: string): void {
+    try {
+      deleteVariant(options.store, definitionId, name);
+      report(null);
+    } catch (error) {
+      reportCommitError(error);
     }
   }
 
@@ -256,6 +291,10 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     }
     if (commit.kind === "variant") {
       toggleVariant(nodeId, key, false);
+      return;
+    }
+    if (commit.kind === "variant-rename") {
+      // A register row has no "clear": deleting the variant is its own button.
       return;
     }
     apply(
@@ -485,6 +524,11 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     input.value = ref !== null ? `{${ref}}` : typeof field.value === "string" ? field.value : "";
     input.addEventListener("change", () => {
       const next = (input.value ?? "").trim();
+      // A variant name is a plain string, never a token reference.
+      if (field.commit.kind === "variant-rename") {
+        commitProp(nodeId, field, next);
+        return;
+      }
       if (next.startsWith("{") && next.endsWith("}")) {
         commitProp(nodeId, field, { $token: next.slice(1, -1) });
         return;
@@ -976,6 +1020,19 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
         attributes: { type: "button", title: `${field.key} entfernen` },
       });
       remove.addEventListener("click", () => clearField(nodeId, field.key, field.commit));
+      side.appendChild(remove);
+    }
+    // A variant register row (ticket 04) deletes the variant itself; the name
+    // lives in the text field, so the × is the whole row action.
+    if (field.commit.kind === "variant-rename") {
+      const variantName = field.commit.name;
+      const remove = h(doc, "button", {
+        className: "senify-inspector__reset",
+        text: "×",
+        data: { action: "variant-delete" },
+        attributes: { type: "button", title: `Variante ${variantName} löschen` },
+      });
+      remove.addEventListener("click", () => removeVariant(nodeId, variantName));
       side.appendChild(remove);
     }
     row.appendChild(side);

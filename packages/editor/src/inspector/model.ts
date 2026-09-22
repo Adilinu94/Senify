@@ -15,6 +15,7 @@
 
 import {
   baseKeyOf,
+  COMPONENT_DEFINITION_PRIMITIVE,
   COMPONENT_INSTANCE_PRIMITIVE,
   DEVICES,
   deviceKey,
@@ -87,7 +88,8 @@ export type InspectorCommit =
   | { kind: "locked" }
   | { kind: "state"; state: StateName }
   | { kind: "override"; partId: string }
-  | { kind: "variant" };
+  | { kind: "variant" }
+  | { kind: "variant-rename"; name: string };
 
 export type InspectorField = {
   key: string;
@@ -668,6 +670,47 @@ function variantGroup(document: EditorDocument, node: EditorNode): InspectorGrou
   return { id: "content/variants", label: "Varianten", fields };
 }
 
+// The variant register of a definition (ticket 04): one editable row per
+// declared variant. The value is the name (a rename keeps the overlay's place
+// and rewrites the instances that had it active); the remove button in the row
+// deletes the variant and cleans those lists (inspector.ts).
+function variantRegisterGroup(
+  document: EditorDocument,
+  node: EditorNode,
+): InspectorGroup | null {
+  if (node.primitive !== COMPONENT_DEFINITION_PRIMITIVE) return null;
+  const names = definitionVariantNames(document, node.id);
+  if (names.length === 0) return null;
+  const fields: InspectorField[] = names.map((name) => ({
+    key: name,
+    label: name,
+    kind: "text",
+    commit: { kind: "variant-rename", name },
+    value: name,
+    base: name,
+    overridden: false,
+    overrideDevices: [],
+    responsive: false,
+    hidden: false,
+    min: undefined,
+    max: undefined,
+    step: undefined,
+    units: undefined,
+    options: undefined,
+    alpha: false,
+    linkable: false,
+    fields: undefined,
+    minItems: undefined,
+    maxItems: undefined,
+    tokenOptions: undefined,
+    tokenRef: null,
+    literalWarning: undefined,
+    source: "control",
+    styleGroup: undefined,
+  }));
+  return { id: "content/variant-register", label: "Varianten", fields };
+}
+
 // Marks a field tree as an override: the commit names the part, `base` keeps
 // the definition's own value (the reset target) and `overridden` tells whether
 // this instance changed it for the active device. The override bag carries
@@ -1119,11 +1162,14 @@ export function buildInspector(input: BuildInspectorInput): InspectorModel | nul
     node.primitive === COMPONENT_INSTANCE_PRIMITIVE
       ? variantGroup(input.document, node)
       : null;
+  const register = variantRegisterGroup(input.document, node);
   const content: InspectorGroup[] = [
     { id: "content/main", label: definition?.name ?? node.primitive, fields: contentFields },
     // A component instance has no controls of its own; its Content tab shows
     // the variant toggles and the parts of the definition (overrides).
     ...(variants === null ? [] : [variants]),
+    // A definition shows its variant register (rename and delete).
+    ...(register === null ? [] : [register]),
     ...(node.primitive === COMPONENT_INSTANCE_PRIMITIVE
       ? overrideGroups(input.document, node, breakpoint, input.theme)
       : []),

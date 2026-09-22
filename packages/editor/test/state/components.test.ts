@@ -5,14 +5,18 @@ import {
   componentDriftIn,
   componentPartsIn,
   createComponent,
+  createVariantFromOverrides,
   definitionVersionOf,
+  deleteVariant,
   detachComponent,
   insertSlot,
   instantiateComponent,
   instanceVersionOf,
   overridesOf,
+  renameVariant,
   setComponentOverride,
   setComponentVariants,
+  suggestVariantName,
   updateComponentInstances,
   variantsOf,
 } from "@senify/editor/state";
@@ -255,5 +259,121 @@ describe("editor components", () => {
       head000001: { text: "Eigene Karte" },
     });
     expect(store.document.nodes[detached!]).toBeUndefined();
+  });
+
+  it("suggests the first free variant name", () => {
+    expect(suggestVariantName([])).toBe("Variante 1");
+    expect(suggestVariantName(["groß"])).toBe("Variante 2");
+    expect(suggestVariantName(["groß", "Variante 2"])).toBe("Variante 3");
+  });
+
+  it("extracts the instance's own values into a named variant", () => {
+    const store = baseStore();
+    const definitionId = createComponent(store, "head000001", "karte");
+    const instanceId = store.document.nodes["sec0000001"]?.children?.[0] ?? "";
+    setComponentOverride(store, instanceId, "head000001", "text", "Groß");
+    const texts = () =>
+      Object.values(canvasNodeTree(store.document).nodes)
+        .filter((node) => node.type === "heading")
+        .map((node) => node.props["text"]);
+
+    expect(createVariantFromOverrides(store, instanceId, " groß ")).toBe(true);
+    // The overlay moved into the definition, the instance dropped the bag and
+    // activates the variant instead.
+    expect(store.document.nodes[definitionId!]?.props["variants"]).toEqual({
+      groß: { head000001: { text: "Groß" } },
+    });
+    expect(store.document.nodes[instanceId]?.props["overrides"]).toBeUndefined();
+    expect(variantsOf(store, instanceId)).toEqual(["groß"]);
+    expect(texts()).toEqual(["Groß"]);
+    // The definition itself keeps its own value.
+    expect(store.document.nodes["head000001"]?.props["text"]).toBe("Hallo");
+
+    // A second extraction appends and keeps the declaration order.
+    setComponentOverride(store, instanceId, "head000001", "text", "Klein");
+    expect(createVariantFromOverrides(store, instanceId, "klein")).toBe(true);
+    expect(Object.keys(store.document.nodes[definitionId!]?.props["variants"] as object)).toEqual([
+      "groß",
+      "klein",
+    ]);
+    expect(variantsOf(store, instanceId)).toEqual(["groß", "klein"]);
+    // Without own values there is nothing to extract.
+    expect(() => createVariantFromOverrides(store, instanceId, "x")).toThrowError(
+      /keine eigenen Werte/,
+    );
+    // One undo restores the override bag of the last extraction.
+    expect(store.undo()).toBe(true);
+    expect(overridesOf(store, instanceId)).toEqual({ head000001: { text: "Klein" } });
+    // A taken name is refused.
+    expect(() => createVariantFromOverrides(store, instanceId, "groß")).toThrowError(
+      /bereits/,
+    );
+
+    // A node that is no instance is refused without throwing.
+    expect(createVariantFromOverrides(store, "missing001", "x")).toBe(false);
+  });
+
+  it("renames a variant and pulls the active instances along", () => {
+    const store = baseStore();
+    const definitionId = createComponent(store, "head000001", "karte");
+    const instanceId = store.document.nodes["sec0000001"]?.children?.[0] ?? "";
+    store.applyBatch(
+      [
+        {
+          op: "setNodeProp",
+          id: definitionId!,
+          key: "variants",
+          value: {
+            groß: { head000001: { text: "Groß" } },
+            klein: { head000001: { text: "Klein" } },
+          },
+        },
+      ],
+      { label: "Varianten anlegen" },
+    );
+    setComponentVariants(store, instanceId, ["groß"]);
+
+    expect(renameVariant(store, definitionId!, "groß", "riesig")).toBe(true);
+    // The overlay keeps its place in the declaration order.
+    expect(Object.keys(store.document.nodes[definitionId!]?.props["variants"] as object)).toEqual([
+      "riesig",
+      "klein",
+    ]);
+    expect(variantsOf(store, instanceId)).toEqual(["riesig"]);
+    // The same name is a no-op, an empty one and a taken one are refused.
+    expect(renameVariant(store, definitionId!, "riesig", "riesig")).toBe(false);
+    expect(() => renameVariant(store, definitionId!, "riesig", " ")).toThrowError(
+      /Namen/,
+    );
+    expect(() => renameVariant(store, definitionId!, "riesig", "klein")).toThrowError(
+      /bereits/,
+    );
+    expect(() => renameVariant(store, definitionId!, "weg", "x")).toThrowError(
+      /keine Variante/,
+    );
+  });
+
+  it("deletes a variant and cleans the instance lists", () => {
+    const store = baseStore();
+    const definitionId = createComponent(store, "head000001", "karte");
+    const instanceId = store.document.nodes["sec0000001"]?.children?.[0] ?? "";
+    store.applyBatch(
+      [
+        {
+          op: "setNodeProp",
+          id: definitionId!,
+          key: "variants",
+          value: { groß: { head000001: { text: "Groß" } } },
+        },
+      ],
+      { label: "Varianten anlegen" },
+    );
+    setComponentVariants(store, instanceId, ["groß"]);
+
+    expect(deleteVariant(store, definitionId!, "groß")).toBe(true);
+    // The last variant clears the prop entirely, the instance list follows.
+    expect(store.document.nodes[definitionId!]?.props["variants"]).toBeUndefined();
+    expect(store.document.nodes[instanceId]?.props["variants"]).toBeUndefined();
+    expect(() => deleteVariant(store, definitionId!, "groß")).toThrowError(/keine Variante/);
   });
 });

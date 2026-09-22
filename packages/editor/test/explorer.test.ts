@@ -20,6 +20,7 @@ import {
   createComponent,
   insertSlot,
   instantiateComponent,
+  setComponentOverride,
 } from "@senify/editor/state";
 import { draftTree, registry } from "./fixtures.ts";
 import { baseStore, emptyV2Document } from "./state/fixtures.ts";
@@ -283,6 +284,10 @@ describe("editor components UI (v2)", () => {
     expect(idsOf(definitionId!)).toContain("component-update");
     expect(idsOf(instanceId)).toContain("component-detach");
     expect(idsOf(instanceId)).not.toContain("component-create");
+    // "Save as variant" only shows once the instance carries own values.
+    expect(idsOf(instanceId)).not.toContain("component-save-variant");
+    setComponentOverride(store, instanceId, "sec0000001", "align", "left");
+    expect(idsOf(instanceId)).toContain("component-save-variant");
     const slotId = insertSlot(store, definitionId!, "content") ?? "";
     expect(idsOf(slotId)).not.toContain("component-create");
     expect(idsOf(slotId)).not.toContain("component-detach");
