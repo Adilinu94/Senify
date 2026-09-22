@@ -693,6 +693,16 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
 - **M6-Rest (bewusst offen, je eigenes Ticket):** freie Timeline, Page Transitions,
   3D-Preset, Motion an VCs/Templates.
 
+### 2.21 Entscheidung (21.09.): Sections-Migration vertagt
+
+- **Nutzerentscheidung:** Die Migration der 27 kuratierten Sections zu Visual Components
+  samt E2-Cutover (Plan: 2–3 Wochen) wird **vertagt** und als eigenes Projekt geplant. Der
+  Stand bleibt der Parallelbetrieb: Die VC-Mechanik (Kern, Overrides, Versionen, Varianten,
+  Styles je Instanz, MCP) ist vollständig; die kuratierten Sections rendern weiter ihre
+  React-Komponenten, die Widget-Primitive sind der zweite, bakebare Pfad.
+- **Damit bewusst offen:** Sections als VCs (Punkt 2), Multi-Widget-VCs (Punkt 3),
+  Varianten-Anlegen im Editor, M6-Rest (freie Timeline, Page Transitions, 3D, Motion an VCs).
+
 ---
 
 ## 3. Phasenstand
@@ -707,7 +717,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
 | — | 18.09.: Ticket 13 Rest (Bake + Klassen-Transport + scoped-Rekey) + Klassen am DOM + Motion M0–M5 + Ticket 20; 19.09.: Slot-/Collection-Transport verifiziert | ✅ | `issues/13`, `issues/19`–`22`, `docs/adr/0006`, `.scratch/motion-v2/` |
 | 2 | Style-Rule-Registry (Server ✅), Wert-Grammatik ✅, Editor-Modell ✅, Inspektor ✅ (20.09.) | ✅ | `issues/07`, `10`, `13`, `02` |
 | 3 | Chrome: Explorer/Kontextmenü/Spotlight ✅, DnD ✅, Design/Live ✅, Inline-Edit ✅, Undo-UI ✅, Keyboard ✅, Drag + Tabs ✅ (20.09.) | ✅ | `issues/03` + 12/16 |
-| 4 | Visual Components: Scheibe 1 (Component-Kern) ✅ + Scheibe 2 Teil 1 (speicherbar, Bake-Rekey, Overrides) ✅ (20.09.) + Teil 2 (Komponenten-Tab, Kontextmenü) ✅ (21.09.) + Scheibe 3 (Styles je Instanz, Gerätestufen) ✅ (21.09.); Sections-Migration offen | 🔄 | `issues/04` |
+| 4 | Visual Components: Scheibe 1 (Component-Kern) ✅ + Scheibe 2 Teil 1 (speicherbar, Bake-Rekey, Overrides) ✅ (20.09.) + Teil 2 (Komponenten-Tab, Kontextmenü) ✅ (21.09.) + Scheibe 3 (Styles je Instanz, Gerätestufen) ✅ (21.09.) + Publish-Versionen ✅ + Varianten ✅ (21.09.); Sections-Migration bewusst vertagt (21.09.) | 🔄 | `issues/04` |
 | 5 | SSE-Kanal, Live-Mitverfolgung, Leistungsbudget | ✅ (21.09.) | `issues/05`, `pruef-t05-performance.mjs` |
 
 ---

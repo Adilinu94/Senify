@@ -114,6 +114,13 @@ gehoeren bewusst **nicht** in die Undo-History (Webstudio-Muster). Hinweis: `doc
 wurde parallel um „Teil II" (§10–§16: Referenz-Transfer, Anti-Slop, Editor-Tiefe) erweitert —
 beide Teile koexistieren; nichts ueberschrieben. Kein Produktcode geaendert.
 
+**Entscheidung (21.09.): Sections-Migration vertagt.** Nutzerentscheidung: Die Migration der
+27 kuratierten Sections zu Visual Components samt E2-Cutover (Plan: 2-3 Wochen) wird vertagt
+und als eigenes Projekt geplant. Stand bleibt der Parallelbetrieb: VC-Mechanik vollstaendig
+(Kern, Overrides, Versionen, Varianten, Styles je Instanz, MCP), kuratierte Sections rendern
+weiter ihre React-Komponenten, die Widget-Primitive bleiben der zweite bakebare Pfad. Bewusst
+offen: Sections als VCs, Multi-Widget-VCs, Varianten-Anlegen im Editor, M6-Rest.
+
 **Ticket 19 M6 Scrub (21.09., umgesetzt): Scrub-Regler im Live-Modus.** Der Live-Modus zeigt
 die echte Seite mit der Release-Runtime; ein Regler im Fuss (`input[data-action="scrub"]`)
 faehrt ihre Scroll-Position an (ScrollTrigger reagiert auf das Scroll-Event), manuelles
