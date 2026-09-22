@@ -24,13 +24,14 @@ Die Engine wählt den Provider automatisch (Kette); der Agent muss nur den Job-S
 
 | Provider | Wann | Dauer |
 |---|---|---|
+| `custom` (eigene API, optional) | wenn der Operator Base-URL + API-Key hinterlegt hat und ihn als Provider wählt | Sekunden bis ≈ 1 min (Anbieter-abhängig) |
 | `image-use` (ChatGPT-Abo, Default) | Standard | ≈ 1 min |
-| `comfyui` / Qwen (lokal, Fallback) | Kontingent/Rate-Limit, Relay/Chrome aus, image-use nicht verfügbar | Minuten statt Sekunden: 512² ≈ 2–9 min (kalt ≈ 9 min, warm ≈ 2 min), 1024² ≈ 25–45 min; 2K ist auf dieser Maschine ungeeignet |
+| `comfyui` / Qwen (lokal) | Kontingent/Rate-Limit, Relay/Chrome aus, Anbieter nicht verfügbar; immer die letzte Reserve | Minuten statt Sekunden: 512² ≈ 2–9 min (kalt ≈ 9 min, warm ≈ 2 min), 1024² ≈ 25–45 min; 2K ist auf dieser Maschine ungeeignet |
 
 - `providerUsed` im Job-Status lesen, nicht raten. Läuft der Job lange, ist der lokale Fallback
   aktiv — weiterarbeiten, nicht abbrechen.
-- Beide Provider nicht verfügbar: Operator informieren (Chrome/Relay bzw. ComfyUI starten;
-  Einstellungen `image` prüfen).
+- Alle Provider nicht verfügbar: Operator informieren (Chrome/Relay bzw. ComfyUI starten;
+  Einstellungen `image` prüfen — dort stehen auch Provider, Fallback und der Custom-API-Key).
 
 ## Prompt-Rezept
 

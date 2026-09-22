@@ -398,6 +398,44 @@ export const EDITOR_STYLES = `${editorFontFaceCss()}
   outline: 1px solid var(--ed-accent);
 }
 
+/* ------------------------------------------------------ image generation (T04) */
+
+.senify-editor__generate {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0 0.65rem 0.6rem;
+}
+.senify-editor__generate-field {
+  width: 100%;
+  padding: 0.42rem 0.55rem;
+  border: 1px solid var(--ed-line);
+  border-radius: 0.25rem;
+  background: var(--ed-surface);
+  color: inherit;
+  font: inherit;
+}
+.senify-editor__generate-field:focus {
+  border-color: var(--ed-accent);
+  outline: 1px solid var(--ed-accent);
+}
+.senify-editor__generate textarea.senify-editor__generate-field {
+  min-height: 3.6rem;
+  resize: vertical;
+}
+.senify-editor__job {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem 0.55rem;
+  border: 1px solid var(--ed-line);
+  border-radius: 0.3rem;
+  background: color-mix(in srgb, var(--ed-accent) 6%, transparent);
+}
+.senify-editor__job-status { font-weight: 600; }
+.senify-editor__job[data-status="failed"] { border-color: #b91c1c; }
+.senify-editor__job[data-status="succeeded"] { border-color: #15803d; }
+
 /* ------------------------------------------------------------- widget catalog */
 
 .senify-editor__widgets { padding: 0 0.65rem 0.9rem; }

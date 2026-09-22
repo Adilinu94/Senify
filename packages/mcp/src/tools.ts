@@ -1739,14 +1739,14 @@ export const TOOLS: ToolDefinition[] = [
     name: "generate_image",
     title: "Generate image",
     description:
-      "Starts an image generation job and returns its id — poll it with get_image_job. The default provider runs on the ChatGPT subscription (~1 min); the local Qwen fallback takes 9–45 min, so read providerUsed. Pass a prompt or a referenceId with a stored recipe; altText, decorative, folderId and tags carry the asset metadata. Not idempotent: an idempotencyKey makes retries safe.",
+      "Starts an image generation job and returns its id — poll it with get_image_job. The provider chain is configured in the program (custom endpoint → ChatGPT subscription → local Qwen fallback); read providerUsed instead of guessing. The subscription takes ~1 min, the local Qwen fallback 9–45 min. Pass a prompt or a referenceId with a stored recipe; altText, decorative, folderId and tags carry the asset metadata. Not idempotent: an idempotencyKey makes retries safe.",
     scope: "write",
     inputSchema: objectSchema(
       {
         siteId: { type: "string" },
         prompt: { type: "string" },
         referenceId: { type: "string" },
-        provider: { type: "string", enum: ["image-use", "comfyui", "off"] },
+        provider: { type: "string", enum: ["image-use", "comfyui", "custom", "off"] },
         width: { type: "number" },
         height: { type: "number" },
         steps: { type: "number" },

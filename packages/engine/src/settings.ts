@@ -2,6 +2,10 @@ import type { SmtpConfig } from "./mailer.ts";
 import { decryptSecret, encryptSecret, keyFromSecret } from "./secrets.ts";
 import type { Store } from "./store.ts";
 import type {
+  ImageCustomFormat,
+  ImageFallbackProvider,
+  ImageProviderName,
+  ImageSettings,
   ReferenceDna,
   ReferencePreferences,
   SmtpSettings,
@@ -28,6 +32,66 @@ export async function encryptSmtpPassword(
 ): Promise<string> {
   const key = keyFromSecret(await store.getOrCreateEngineSecret());
   return encryptSecret(plaintext, key);
+}
+
+// ------------------------------------------------- images (S1 + third path)
+
+// The API view of the image settings: everything except the custom API key,
+// which stays encrypted in the engine (only `hasCustomApiKey` leaves).
+export type ImageSettingsView = {
+  provider: ImageProviderName;
+  fallbackProvider: ImageFallbackProvider;
+  cooldownMinutes: number;
+  cliPath: string;
+  baseUrl: string;
+  diffusionModel: string;
+  textEncoder: string;
+  vae: string;
+  defaultSteps: number;
+  maxPixels: number;
+  timeoutMinutes: number;
+  customBaseUrl: string;
+  customModel: string;
+  customFormat: ImageCustomFormat;
+  hasCustomApiKey: boolean;
+};
+
+export function imageView(settings: ImageSettings): ImageSettingsView {
+  return {
+    provider: settings.provider,
+    fallbackProvider: settings.fallbackProvider,
+    cooldownMinutes: settings.cooldownMinutes,
+    cliPath: settings.cliPath,
+    baseUrl: settings.baseUrl,
+    diffusionModel: settings.diffusionModel,
+    textEncoder: settings.textEncoder,
+    vae: settings.vae,
+    defaultSteps: settings.defaultSteps,
+    maxPixels: settings.maxPixels,
+    timeoutMinutes: settings.timeoutMinutes,
+    customBaseUrl: settings.customBaseUrl,
+    customModel: settings.customModel,
+    customFormat: settings.customFormat,
+    hasCustomApiKey: settings.customApiKeyEncrypted !== null,
+  };
+}
+
+export async function encryptImageApiKey(
+  store: Store,
+  plaintext: string,
+): Promise<string> {
+  const key = keyFromSecret(await store.getOrCreateEngineSecret());
+  return encryptSecret(plaintext, key);
+}
+
+// Resolves the stored custom API key for the provider; null when unset.
+export async function resolveCustomApiKey(store: Store): Promise<string | null> {
+  const settings = await store.getImageSettings();
+  if (settings.customApiKeyEncrypted === null) return null;
+  return decryptSecret(
+    settings.customApiKeyEncrypted,
+    keyFromSecret(await store.getOrCreateEngineSecret()),
+  );
 }
 
 // ------------------------------------------------- references (T14)

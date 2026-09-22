@@ -51,6 +51,7 @@ import {
   ASSET_VARIANT_FORMATS,
   ENTRY_STATUSES,
   FIELD_TYPES,
+  IMAGE_CUSTOM_FORMATS,
   IMAGE_FALLBACK_PROVIDERS,
   IMAGE_JOB_STATUSES,
   IMAGE_PROVIDERS,
@@ -78,6 +79,7 @@ import {
   type EntryVersion,
   type FieldDef,
   type FormSnapshotRecord,
+  type ImageCustomFormat,
   type ImageFallbackProvider,
   type ImageJob,
   type ImageJobAttempt,
@@ -1097,6 +1099,10 @@ export type ImageSettingsPatch = {
   defaultSteps?: number;
   maxPixels?: number;
   timeoutMinutes?: number;
+  customBaseUrl?: string;
+  customModel?: string;
+  customFormat?: ImageCustomFormat;
+  customApiKeyEncrypted?: string | null;
 };
 
 export class Store {
@@ -5072,8 +5078,9 @@ export class Store {
       await this.#db.query(
         `INSERT INTO image_settings (id, provider, fallback_provider, cooldown_minutes,
            cli_path, base_url, diffusion_model, text_encoder, vae, default_steps,
-           max_pixels, timeout_minutes, updated_at)
-         VALUES ('image', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+           max_pixels, timeout_minutes, custom_base_url, custom_model, custom_format,
+           custom_api_key_encrypted, updated_at)
+         VALUES ('image', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
         [
           defaults.provider,
           defaults.fallbackProvider,
@@ -5086,6 +5093,10 @@ export class Store {
           defaults.defaultSteps,
           defaults.maxPixels,
           defaults.timeoutMinutes,
+          defaults.customBaseUrl,
+          defaults.customModel,
+          defaults.customFormat,
+          defaults.customApiKeyEncrypted,
           new Date().toISOString(),
         ],
       );
@@ -5113,6 +5124,13 @@ export class Store {
       defaultSteps: patch.defaultSteps ?? current.defaultSteps,
       maxPixels: patch.maxPixels ?? current.maxPixels,
       timeoutMinutes: patch.timeoutMinutes ?? current.timeoutMinutes,
+      customBaseUrl: patch.customBaseUrl ?? current.customBaseUrl,
+      customModel: patch.customModel ?? current.customModel,
+      customFormat: patch.customFormat ?? current.customFormat,
+      customApiKeyEncrypted:
+        patch.customApiKeyEncrypted === undefined
+          ? current.customApiKeyEncrypted
+          : patch.customApiKeyEncrypted,
     };
     if (!IMAGE_PROVIDERS.includes(next.provider)) {
       throw new SenifyError("validation", `Unknown image provider "${next.provider}"`, {
@@ -5134,7 +5152,9 @@ export class Store {
       `UPDATE image_settings SET provider = $2, fallback_provider = $3,
          cooldown_minutes = $4, cli_path = $5, base_url = $6, diffusion_model = $7,
          text_encoder = $8, vae = $9, default_steps = $10, max_pixels = $11,
-         timeout_minutes = $12, updated_at = $13 WHERE id = $1`,
+         timeout_minutes = $12, custom_base_url = $13, custom_model = $14,
+         custom_format = $15, custom_api_key_encrypted = $16, updated_at = $17
+         WHERE id = $1`,
       [
         "image",
         next.provider,
@@ -5148,6 +5168,10 @@ export class Store {
         next.defaultSteps,
         next.maxPixels,
         next.timeoutMinutes,
+        next.customBaseUrl,
+        next.customModel,
+        next.customFormat,
+        next.customApiKeyEncrypted,
         new Date().toISOString(),
       ],
     );
@@ -6071,7 +6095,7 @@ function mapEngineSettings(row: EngineSettingsRow): EngineSettings {
 // ------------------------------------------------------------ images (S1)
 
 const IMAGE_SETTINGS_COLUMNS =
-  "provider, fallback_provider, cooldown_minutes, cli_path, base_url, diffusion_model, text_encoder, vae, default_steps, max_pixels, timeout_minutes";
+  "provider, fallback_provider, cooldown_minutes, cli_path, base_url, diffusion_model, text_encoder, vae, default_steps, max_pixels, timeout_minutes, custom_base_url, custom_model, custom_format, custom_api_key_encrypted";
 
 type ImageSettingsRow = {
   provider: string;
@@ -6085,6 +6109,10 @@ type ImageSettingsRow = {
   default_steps: unknown;
   max_pixels: unknown;
   timeout_minutes: unknown;
+  custom_base_url: string;
+  custom_model: string;
+  custom_format: string;
+  custom_api_key_encrypted: string | null;
 };
 
 export function defaultImageSettings(): ImageSettings {
@@ -6102,6 +6130,12 @@ export function defaultImageSettings(): ImageSettings {
     defaultSteps: 40,
     maxPixels: 1_048_576,
     timeoutMinutes: 60,
+    // The custom endpoint (third path) defaults to MiniMax; the API key has to
+    // be stored before the provider can run.
+    customBaseUrl: "https://api.minimax.io/v1",
+    customModel: "image-01",
+    customFormat: "minimax",
+    customApiKeyEncrypted: null,
   };
 }
 
@@ -6120,6 +6154,11 @@ function mapImageSettings(row: ImageSettingsRow): ImageSettings {
   )
     ? (row.fallback_provider as ImageFallbackProvider)
     : defaults.fallbackProvider;
+  const customFormat = IMAGE_CUSTOM_FORMATS.includes(
+    row.custom_format as ImageCustomFormat,
+  )
+    ? (row.custom_format as ImageCustomFormat)
+    : defaults.customFormat;
   return {
     provider,
     fallbackProvider,
@@ -6132,6 +6171,14 @@ function mapImageSettings(row: ImageSettingsRow): ImageSettings {
     defaultSteps: positiveInteger(row.default_steps, defaults.defaultSteps),
     maxPixels: positiveInteger(row.max_pixels, defaults.maxPixels),
     timeoutMinutes: positiveInteger(row.timeout_minutes, defaults.timeoutMinutes),
+    customBaseUrl:
+      row.custom_base_url === "" ? defaults.customBaseUrl : row.custom_base_url,
+    customModel: row.custom_model === "" ? defaults.customModel : row.custom_model,
+    customFormat,
+    customApiKeyEncrypted:
+      typeof row.custom_api_key_encrypted === "string"
+        ? row.custom_api_key_encrypted
+        : null,
   };
 }
 

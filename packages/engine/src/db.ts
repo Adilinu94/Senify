@@ -542,8 +542,9 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     updated_at timestamptz NOT NULL
   )`,
   // Image generation (S1, ADR-0008): the provider chain, the ComfyUI
-  // connection and the model file names. One row, additive next to
-  // engine_settings; no secrets.
+  // connection and the model file names. The custom endpoint (third path)
+  // stores its base URL, model, wire format and the encrypted API key here;
+  // the key never leaves the engine in plaintext.
   `CREATE TABLE IF NOT EXISTS image_settings (
     id text PRIMARY KEY,
     provider text NOT NULL DEFAULT 'image-use',
@@ -557,8 +558,22 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     default_steps integer NOT NULL DEFAULT 40,
     max_pixels integer NOT NULL DEFAULT 1048576,
     timeout_minutes integer NOT NULL DEFAULT 60,
+    custom_base_url text NOT NULL DEFAULT 'https://api.minimax.io/v1',
+    custom_model text NOT NULL DEFAULT 'image-01',
+    custom_format text NOT NULL DEFAULT 'minimax',
+    custom_api_key_encrypted text,
     updated_at timestamptz NOT NULL
   )`,
+  // The custom endpoint (third path) arrived after the first installations:
+  // additive columns keep them working (the API key column is nullable, the
+  // rest fall back to the MiniMax defaults).
+  `ALTER TABLE image_settings
+     ADD COLUMN IF NOT EXISTS custom_base_url text NOT NULL DEFAULT 'https://api.minimax.io/v1'`,
+  `ALTER TABLE image_settings
+     ADD COLUMN IF NOT EXISTS custom_model text NOT NULL DEFAULT 'image-01'`,
+  `ALTER TABLE image_settings
+     ADD COLUMN IF NOT EXISTS custom_format text NOT NULL DEFAULT 'minimax'`,
+  `ALTER TABLE image_settings ADD COLUMN IF NOT EXISTS custom_api_key_encrypted text`,
   // Durable image jobs (S2, ADR-0008): the worker claims with a lease, the
   // request travels as jsonb, and the error column carries one entry per
   // provider attempt (the fallback history).

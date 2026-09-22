@@ -58,3 +58,16 @@ Alt-Text-Pflicht) — kein Sonderweg. Das Agentenwissen steht im Skill-Pack (`im
 `packages/engine/src/media.ts` (`createUploadTicket`/`commitUpload`), `packages/engine/src/bake-worker.ts`
 (Job-Muster, Start in `packages/app/src/start.ts`), `packages/mcp/src/tools.ts`,
 `packages/skills/skills/assets.md`, `.scratch/bildgenerierung/spec.md`.
+
+---
+
+## Nachtrag 22.09.2026: Custom-Endpoint als dritter Weg
+
+Der Operator kann einen beliebigen HTTP-Bildendpunkt selbst konfigurieren (Base-URL, Modell,
+API-Key, Wire-Format `minimax` oder `openai`) - der dritte Weg neben Subscription und lokalem
+Modell. Der API-Key wird verschluesselt gespeichert (wie das SMTP-Passwort) und nie ausgeliefert.
+Die Kette ist frei konfigurierbar (`provider` + `fallbackProvider`); **jede Kette, die einen
+Fallback aktiviert, endet zusaetzlich immer bei ComfyUI** (lokal, kostenlos, offline-fest), sodass
+die vom Nutzer gewuenschte Reihenfolge `custom → image-use → comfyui` ohne dritte Einstellung
+funktioniert. Getestet mit MiniMax (`image-01`); Details und Evidence in
+`.scratch/bildgenerierung/issues/07-custom-provider.md`.

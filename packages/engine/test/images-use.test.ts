@@ -37,6 +37,10 @@ function argValue(args: string[], flag: string): string | undefined {
 
 type FakeCall = { file: string; args: string[]; env: NodeJS.ProcessEnv };
 
+// generate() pre-warms the chrome-use daemon; tests inject a no-op so nothing
+// ever touches a real browser.
+const noPrewarm = async (): Promise<void> => {};
+
 function fakeProcess(
   handler: (args: string[]) => ImageUseProcessResult | Promise<ImageUseProcessResult>,
 ): { run: ImageUseProcess; calls: FakeCall[] } {
@@ -67,6 +71,10 @@ function imageSettings(overrides: Partial<ImageSettings> = {}): ImageSettings {
     defaultSteps: 40,
     maxPixels: 1_048_576,
     timeoutMinutes: 60,
+    customBaseUrl: "https://api.minimax.io/v1",
+    customModel: "image-01",
+    customFormat: "minimax",
+    customApiKeyEncrypted: null,
     ...overrides,
   };
 }
@@ -90,7 +98,7 @@ describe("image-use provider: generate", () => {
       writeFileSync(target, bytes);
       return { code: 0, stdout: `${target}\n`, stderr: "[ 12.3s] generating\n" };
     });
-    const provider = createImageUseProvider(config(), { process: fake.run });
+    const provider = createImageUseProvider(config(), { process: fake.run, prewarm: noPrewarm });
 
     const result = await provider.generate(
       { prompt: "a teapot", width: 512, height: 512, steps: 40, seed: 9 },
@@ -134,7 +142,7 @@ describe("image-use provider: generate", () => {
     ];
     for (const [stderr, kind] of cases) {
       const fake = fakeProcess(() => ({ code: 1, stdout: "", stderr }));
-      const provider = createImageUseProvider(config(), { process: fake.run });
+      const provider = createImageUseProvider(config(), { process: fake.run, prewarm: noPrewarm });
       await expect(
         provider.generate({ prompt: "x", width: 512, height: 512, steps: 5 }, { timeoutMs: 60_000 }),
       ).rejects.toMatchObject({ kind, provider: "image-use" });
@@ -148,7 +156,10 @@ describe("image-use provider: generate", () => {
       stderr: "",
       timedOut: true,
     }));
-    const timeoutProvider = createImageUseProvider(config(), { process: killed.run });
+    const timeoutProvider = createImageUseProvider(config(), {
+      process: killed.run,
+      prewarm: noPrewarm,
+    });
     await expect(
       timeoutProvider.generate(
         { prompt: "x", width: 512, height: 512, steps: 5 },
@@ -162,7 +173,10 @@ describe("image-use provider: generate", () => {
       stderr: "",
       spawnError: "spawn python ENOENT",
     }));
-    const unavailableProvider = createImageUseProvider(config(), { process: broken.run });
+    const unavailableProvider = createImageUseProvider(config(), {
+      process: broken.run,
+      prewarm: noPrewarm,
+    });
     await expect(
       unavailableProvider.generate(
         { prompt: "x", width: 512, height: 512, steps: 5 },
@@ -171,9 +185,36 @@ describe("image-use provider: generate", () => {
     ).rejects.toMatchObject({ kind: "unavailable" });
   });
 
+  it("pre-warms the chrome-use session before the CLI runs", async () => {
+    const order: string[] = [];
+    const fake = fakeProcess(async (args) => {
+      order.push("cli");
+      const target = argValue(args, "-o") ?? "";
+      writeFileSync(target, await pngBytes(32, 32));
+      return { code: 0, stdout: `${target}\n`, stderr: "" };
+    });
+    const provider = createImageUseProvider(config(), {
+      process: fake.run,
+      prewarm: async () => {
+        order.push("prewarm");
+      },
+    });
+    await provider.generate(
+      { prompt: "a teapot", width: 512, height: 512, steps: 5 },
+      { timeoutMs: 60_000 },
+    );
+    expect(order).toEqual(["prewarm", "cli"]);
+  });
+
   it("rejects invalid input without starting the CLI", async () => {
     const fake = fakeProcess(() => ({ code: 0, stdout: "", stderr: "" }));
-    const provider = createImageUseProvider(config(), { process: fake.run });
+    let prewarmed = 0;
+    const provider = createImageUseProvider(config(), {
+      process: fake.run,
+      prewarm: async () => {
+        prewarmed += 1;
+      },
+    });
     await expect(
       provider.generate({ prompt: "", width: 512, height: 512, steps: 5 }, { timeoutMs: 5_000 }),
     ).rejects.toMatchObject({ kind: "invalid_input" });
@@ -181,17 +222,9 @@ describe("image-use provider: generate", () => {
       provider.generate({ prompt: "x", width: 100, height: 512, steps: 5 }, { timeoutMs: 5_000 }),
     ).rejects.toMatchObject({ kind: "invalid_input" });
     expect(fake.calls).toHaveLength(0);
+    expect(prewarmed).toBe(0);
   });
 });
-
-type ImageProviderResultKind =
-  | "quota"
-  | "unavailable"
-  | "refusal"
-  | "timeout"
-  | "aborted"
-  | "generation"
-  | "invalid_input";
 
 describe("image-use provider: health", () => {
   it("reports a missing CLI as a clean state with a setup hint", async () => {
@@ -246,6 +279,6 @@ describe("image-use provider: health", () => {
 describe("image-use provider: wiring", () => {
   it("is part of the default chain next to ComfyUI", () => {
     const providers = defaultImageProviders(imageSettings());
-    expect(Object.keys(providers).sort()).toEqual(["comfyui", "image-use"]);
+    expect(Object.keys(providers).sort()).toEqual(["comfyui", "custom", "image-use"]);
   });
 });

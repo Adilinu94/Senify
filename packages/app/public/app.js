@@ -3520,6 +3520,129 @@ async function settingsView() {
     el(
       "section",
       { class: "panel" },
+      el("h2", { text: "Bildgenerierung" }),
+      el("p", {
+        class: "muted",
+        text: "Provider-Kette für generate_image: Der erste Provider springt ein; fällt er aus, übernimmt der Fallback, am Ende immer die lokale ComfyUI-Reserve. Der API-Key des Custom-Endpoints wird verschlüsselt gespeichert und nie angezeigt.",
+      }),
+      el(
+        "div",
+        { class: "inline" },
+        el("label", { class: "muted", for: "image-provider" }, "Provider"),
+        el(
+          "select",
+          { id: "image-provider" },
+          ...["image-use", "comfyui", "custom", "off"].map((provider) =>
+            el("option", {
+              value: provider,
+              text: provider,
+              selected: provider === settings.image.provider ? "" : undefined,
+            }),
+          ),
+        ),
+        el("label", { class: "muted", for: "image-fallback" }, "Fallback"),
+        el(
+          "select",
+          { id: "image-fallback" },
+          ...["comfyui", "image-use", "custom", "none"].map((provider) =>
+            el("option", {
+              value: provider,
+              text: provider,
+              selected: provider === settings.image.fallbackProvider ? "" : undefined,
+            }),
+          ),
+        ),
+      ),
+      el("h3", { text: "Custom-Endpoint (eigene API)" }),
+      el(
+        "div",
+        { class: "inline" },
+        el(
+          "select",
+          { id: "image-custom-format" },
+          ...["minimax", "openai"].map((format) =>
+            el("option", {
+              value: format,
+              text: format,
+              selected: format === settings.image.customFormat ? "" : undefined,
+            }),
+          ),
+        ),
+        el("input", {
+          id: "image-custom-url",
+          type: "text",
+          placeholder: "https://api.minimax.io/v1",
+          value: settings.image.customBaseUrl,
+        }),
+        el("input", {
+          id: "image-custom-model",
+          type: "text",
+          placeholder: "image-01",
+          value: settings.image.customModel,
+        }),
+      ),
+      el(
+        "div",
+        { class: "inline", style: "margin-top: 0.6rem" },
+        el("input", {
+          id: "image-custom-key",
+          type: "password",
+          placeholder: settings.image.hasCustomApiKey
+            ? "API-Key gespeichert (leer lassen = unverändert)"
+            : "kein API-Key gespeichert",
+        }),
+        el("button", {
+          class: "primary",
+          text: "Speichern",
+          onclick: async () => {
+            const value = (id) => document.getElementById(id).value;
+            const key = value("image-custom-key");
+            try {
+              await api("/api/settings", {
+                method: "PUT",
+                body: {
+                  image: {
+                    provider: value("image-provider"),
+                    fallbackProvider: value("image-fallback"),
+                    customFormat: value("image-custom-format"),
+                    customBaseUrl: value("image-custom-url"),
+                    customModel: value("image-custom-model"),
+                    ...(key ? { customApiKey: key } : {}),
+                  },
+                },
+              });
+              toast("Bildgenerierung gespeichert");
+              await renderRoute();
+            } catch (error) {
+              failed(error);
+            }
+          },
+        }),
+        el("button", {
+          class: "ghost",
+          text: "Status prüfen",
+          onclick: async () => {
+            const out = document.getElementById("image-health");
+            out.textContent = "prüfe …";
+            try {
+              const health = await api("/api/images/health");
+              const custom = health.providers?.custom;
+              out.textContent = `custom: ${custom?.ok ? "bereit" : "nicht bereit"} – ${custom?.detail ?? "keine Antwort"}`;
+            } catch (error) {
+              out.textContent = String(error?.message ?? error);
+            }
+          },
+        }),
+        el("span", { id: "image-health", class: "muted" }),
+      ),
+      el("p", {
+        class: "muted",
+        text: "Formate: minimax (POST /image_generation, aspect_ratio) oder openai (POST /images/generations, size).",
+      }),
+    ),
+    el(
+      "section",
+      { class: "panel" },
       el("h2", { text: "Speicher & Sicherung" }),
       el("p", {
         class: "muted",
@@ -5236,41 +5359,44 @@ async function pageView(siteId, pageId, initialSearch) {
   // (`/assets/<id>/<datei>`); ohne ihn fällt der Renderer auf
   // `/assets/<id>` ohne Dateinamen zurück und jedes Bild läuft ins Leere.
   let assetContext = {};
-  try {
-    const listed = await api(`/api/sites/${siteId}/assets`);
-    const assets = listed.assets ?? [];
-    mediaCache = assets.map((asset) => ({
-      id: asset.id,
-      name: asset.filename,
-      kind: asset.kind,
-      folders: [],
-      tags: asset.tags ?? [],
-      createdAt: Date.parse(asset.createdAt) || undefined,
-    }));
-    assetContext = Object.fromEntries(
-      assets.map((asset) => {
-        // Der Versionsparameter bricht den Cache nach einem Austausch.
-        const version = Date.parse(asset.updatedAt) || 0;
-        return [
-          asset.id,
-          {
-            src: `/assets/${asset.id}/${encodeURIComponent(asset.filename)}?v=${version}`,
-            width: asset.width ?? null,
-            height: asset.height ?? null,
-            blurhash: asset.blurhash ?? null,
-            variants: (asset.variants ?? []).map((variant) => ({
-              format: variant.format,
-              width: variant.width,
-              url: `/assets/${asset.id}/variants/${variant.width}.${variant.format}?v=${version}`,
-            })),
-          },
-        ];
-      }),
-    );
-  } catch {
-    mediaCache = [];
-    assetContext = {};
+  async function refreshMedia() {
+    try {
+      const listed = await api(`/api/sites/${siteId}/assets`);
+      const assets = listed.assets ?? [];
+      mediaCache = assets.map((asset) => ({
+        id: asset.id,
+        name: asset.filename,
+        kind: asset.kind,
+        folders: asset.folderId ? [asset.folderId] : [],
+        tags: asset.tags ?? [],
+        createdAt: Date.parse(asset.createdAt) || undefined,
+      }));
+      assetContext = Object.fromEntries(
+        assets.map((asset) => {
+          // Der Versionsparameter bricht den Cache nach einem Austausch.
+          const version = Date.parse(asset.updatedAt) || 0;
+          return [
+            asset.id,
+            {
+              src: `/assets/${asset.id}/${encodeURIComponent(asset.filename)}?v=${version}`,
+              width: asset.width ?? null,
+              height: asset.height ?? null,
+              blurhash: asset.blurhash ?? null,
+              variants: (asset.variants ?? []).map((variant) => ({
+                format: variant.format,
+                width: variant.width,
+                url: `/assets/${asset.id}/variants/${variant.width}.${variant.format}?v=${version}`,
+              })),
+            },
+          ];
+        }),
+      );
+    } catch {
+      mediaCache = [];
+      assetContext = {};
+    }
   }
+  await refreshMedia();
 
   // Ein sichtbarer Editorpfad (E5 Scheibe 1): der Umbau-Canvas (`mountCanvas`,
   // v2-Dokument) ist die Voreinstellung. Der bisherige Elementor-nahe Editor
@@ -5355,6 +5481,77 @@ async function pageView(siteId, pageId, initialSearch) {
           void load(0);
         },
       });
+      // Bildgenerierung (Ticket 04): die Shell besitzt die HTTP-Aufrufe und das
+      // Polling; der Editor rendert Formular, Job-Karte und Health-Hinweis.
+      let imageJob = null;
+      let imageHealth = null;
+      let imageReferences = [];
+      let imageJobTimer = null;
+      const pollImageJob = () => {
+        if (imageJobTimer !== null) clearTimeout(imageJobTimer);
+        imageJobTimer = setTimeout(async () => {
+          if (imageJob === null) return;
+          try {
+            imageJob = await api(`/api/images/jobs/${imageJob.id}`);
+            editorInstance?.refresh();
+            if (imageJob.status === "queued" || imageJob.status === "running") {
+              pollImageJob();
+            } else if (imageJob.status === "succeeded") {
+              await refreshMedia();
+              editorInstance?.refresh();
+            }
+          } catch {
+            editorInstance?.refresh();
+          }
+        }, 3000);
+      };
+      const imageGeneration = {
+        health: () => imageHealth,
+        job: () => imageJob,
+        references: () => imageReferences,
+        start: async (request) => {
+          const created = await api(`/api/sites/${siteId}/images/jobs`, {
+            method: "POST",
+            body: request,
+          });
+          imageJob = {
+            id: created.jobId,
+            status: created.status ?? "queued",
+            providerUsed: created.provider ?? null,
+            assetId: null,
+            error: [],
+          };
+          pollImageJob();
+        },
+        cancel: async (jobId) => {
+          await api(`/api/images/jobs/${jobId}`, { method: "DELETE" });
+          imageJob = {
+            id: jobId,
+            status: "canceled",
+            providerUsed: imageJob?.providerUsed ?? null,
+            assetId: null,
+            error: [],
+          };
+          if (imageJobTimer !== null) clearTimeout(imageJobTimer);
+        },
+      };
+      void (async () => {
+        try {
+          imageHealth = await api("/api/images/health");
+        } catch {
+          imageHealth = null;
+        }
+        try {
+          const listed = await api("/api/references");
+          imageReferences = (listed.references ?? []).map((entry) => ({
+            id: entry.id,
+            name: entry.name,
+          }));
+        } catch {
+          imageReferences = [];
+        }
+        editorInstance?.refresh();
+      })();
       editorInstance = editor.mountEditor(host, {
         session,
         registry: editor.createRegistry(),
@@ -5372,6 +5569,7 @@ async function pageView(siteId, pageId, initialSearch) {
         frameStyles: ["/theme.css", "/editor-frame.css"],
         pages: () => pagesCache,
         media: () => mediaCache,
+        imageGeneration,
         site: { profile: siteProfile },
         onSiteProfile: async (profile) => {
           const updated = await api(`/api/sites/${siteId}`, {

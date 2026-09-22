@@ -1,6 +1,6 @@
 # Bildgenerierung 06 — Default-Provider `image-use` (S6)
 
-Status: ready-for-agent
+Status: resolved (22.09.2026)
 Quelle: `.scratch/bildgenerierung/spec.md` (Default-Provider, S6).
 Blocked by: 02
 
@@ -50,3 +50,25 @@ sonst gilt der Provider als nicht verfügbar und der Job geht direkt auf Qwen.
 - `.scratch/bildgenerierung/spec.md` (Default-Provider, Provider-Kette, S6)
 - `C:\Users\adini\.agents\skills\image-use\SKILL.md` (CLI-Optionen, Fehlerfälle, Limits)
 - `packages/engine/src/image-provider.ts` (aus Ticket 01)
+
+## Comments
+
+- **22.09.2026 — Live-Beweis über die Engine (grün):** Smoke-Lauf 8 (`.scratch/bildgenerierung/smoke-s6.mts`,
+  Log `smoke-s6-run8`-Stand in `smoke-s6.log`): Job `CnWz5tUsfob1r7` → `worker: status=succeeded
+  provider=image-use asset=RzhNvIaZgD_z5k in 88s`; Asset `senify-bild-z1SJRJZ1.png`, 1254×1254,
+  2.006.845 Bytes. Damit ist die Akzeptanz „läuft standardmäßig über image-use und liefert ein
+  Asset" erfüllt.
+- **22.09.2026 — Ursache der früheren „could not confirm"-Fehlläufe gefunden und behoben:** Zwei
+  chrome-use-Eigenheiten (Windows, gemessen):
+  1. Der Session-Daemon entsteht beim ERSTEN `open` einer Session und erbt die stdio-Pipes des
+     Aufrufers; der image-use-CLI (python `subprocess.run(capture_output=True)`) blockiert dann auf
+     Pipe-EOF → der beobachtete Endlos-Hang „opening ChatGPT via current Chrome". Der Provider
+     pre-warmt deshalb den Daemon mit verworfenem stdio (`defaultPrewarm`).
+  2. Nach jedem CLI-Lauf schließt der CLI die Session (`_close()`), was den Chrome-Relay trennt;
+     der nächste `open` blockiert ~90 s beim eigenen Reconnect — länger als das 30-s-Timeout des
+     CLI. Der Prewarm ruft deshalb zuerst `chrome-use reconnect` (Budget 90 s) und danach `open`
+     (Budget 60 s); danach kehrt der CLI-`open` in ~3 s zurück.
+  Der manuelle Gegenbeweis: `chrome-use click` auf den Send-Button sendet zuverlässig, sobald der
+  Relay frisch gebunden ist; die früheren Fehlläufe waren Relay-Zustand, kein CLI-Bug.
+- Tests: `packages/engine/test/images-use.test.ts` 9/9 grün (inkl. Prewarm-Reihenfolge), Typecheck
+  sauber.

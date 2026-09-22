@@ -93,6 +93,7 @@ import { MaintenanceError, type MaintenanceGate } from "./maintenance.ts";
 import { reviewVisualFileNames, type ReviewVisualDriver } from "./review-visuals.ts";
 import { sendTestMail, smtpMailSender, type MailSender } from "./mailer.ts";
 import { createComfyImageProvider } from "./image-comfy.ts";
+import { createImageCustomProvider } from "./image-custom.ts";
 import { createImageUseProvider } from "./image-use-provider.ts";
 import { validateImageRequest } from "./image-provider.ts";
 import {
@@ -100,8 +101,11 @@ import {
   type CreateImageJobBody,
 } from "./images-contract.ts";
 import {
+  encryptImageApiKey,
   encryptSmtpPassword,
+  imageView,
   referenceSettingsPatch,
+  resolveCustomApiKey,
   resolveSmtpConfig,
   smtpView,
 } from "./settings.ts";
@@ -250,7 +254,6 @@ import { buildThemeReport } from "./theme-report.ts";
 import type {
   ImageJobRequest,
   ImageJobStatus,
-  ImageSettings,
   ReferenceDna,
   ReferencePreferences,
   ReferenceSummary,
@@ -328,7 +331,7 @@ async function settingsView(
   backup: { targetDir: string };
   referenceDna: ReferenceDna;
   referencePreferences: ReferencePreferences;
-  image: ImageSettings;
+  image: ReturnType<typeof imageView>;
 }> {
   const [email, settings, status, references, image] = await Promise.all([
     context.store.getSmtpSettings(),
@@ -347,7 +350,7 @@ async function settingsView(
     backup: { targetDir: status.targetDir },
     referenceDna: references.dna,
     referencePreferences: references.preferences,
-    image,
+    image: imageView(image),
   };
 }
 
@@ -3535,6 +3538,28 @@ const ROUTES: Route[] = [
         if (input.image.timeoutMinutes !== undefined) {
           patch.timeoutMinutes = input.image.timeoutMinutes;
         }
+        // Custom endpoint (third path). A new API key is encrypted; null
+        // clears it; omitting keeps the stored one.
+        if (input.image.customBaseUrl !== undefined) {
+          patch.customBaseUrl = input.image.customBaseUrl.trim();
+        }
+        if (input.image.customModel !== undefined) {
+          patch.customModel = input.image.customModel.trim();
+        }
+        if (input.image.customFormat !== undefined) {
+          patch.customFormat = input.image.customFormat;
+        }
+        if (
+          typeof input.image.customApiKey === "string" &&
+          input.image.customApiKey !== ""
+        ) {
+          patch.customApiKeyEncrypted = await encryptImageApiKey(
+            context.store,
+            input.image.customApiKey,
+          );
+        } else if (input.image.customApiKey === null) {
+          patch.customApiKeyEncrypted = null;
+        }
         await context.store.updateImageSettings(patch);
       }
       return { status: 200, body: await settingsView(context) };
@@ -3594,20 +3619,29 @@ const ROUTES: Route[] = [
             fallbackProvider: settings.fallbackProvider,
             detail:
               "Bildgenerierung ist in den Einstellungen deaktiviert (provider: off).",
-            providers: { "image-use": null, comfyui: null },
+            providers: { "image-use": null, comfyui: null, custom: null },
           },
         };
       }
-      const [imageUse, comfyui] = await Promise.all([
+      const [imageUse, comfyui, custom] = await Promise.all([
         createImageUseProvider(settings).health(),
         createComfyImageProvider(settings).health(),
+        createImageCustomProvider(
+          {
+            baseUrl: settings.customBaseUrl,
+            model: settings.customModel,
+            format: settings.customFormat,
+            maxPixels: settings.maxPixels,
+          },
+          { resolveApiKey: () => resolveCustomApiKey(context.store) },
+        ).health(),
       ]);
       return {
         status: 200,
         body: {
           provider: settings.provider,
           fallbackProvider: settings.fallbackProvider,
-          providers: { "image-use": imageUse, comfyui },
+          providers: { "image-use": imageUse, comfyui, custom },
         },
       };
     },

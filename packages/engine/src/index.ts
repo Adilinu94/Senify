@@ -555,6 +555,12 @@ export {
   type QwenImageGraph,
 } from "./image-comfy.ts";
 export {
+  createImageCustomProvider,
+  nearestAspectRatio,
+  type CustomImageConfig,
+  type CustomImageProviderDeps,
+} from "./image-custom.ts";
+export {
   createImageUseProvider,
   type ImageUseConfig,
   type ImageUseProcess,

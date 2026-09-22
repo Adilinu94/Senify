@@ -1,5 +1,6 @@
 import { Type, type Static } from "@sinclair/typebox";
 import {
+  IMAGE_CUSTOM_FORMATS,
   IMAGE_FALLBACK_PROVIDERS,
   IMAGE_PROVIDERS,
   SITE_PROFILES,
@@ -20,6 +21,10 @@ const ImageProviderSchema = Type.Union(
 
 const ImageFallbackProviderSchema = Type.Union(
   IMAGE_FALLBACK_PROVIDERS.map((provider) => Type.Literal(provider)),
+);
+
+const ImageCustomFormatSchema = Type.Union(
+  IMAGE_CUSTOM_FORMATS.map((format) => Type.Literal(format)),
 );
 
 // Email settings: `password` is optional. A string stores a new password, null
@@ -85,8 +90,10 @@ export type ReferencePreferencesBody = Static<
   typeof ReferencePreferencesBodySchema
 >;
 
-// Image generation (S1, ADR-0008): provider chain and the ComfyUI fallback
-// configuration. No secrets; an empty cliPath keeps the operator default.
+// Image generation (S1, ADR-0008): provider chain, the ComfyUI fallback
+// configuration and the custom endpoint (third path). The API key follows the
+// SMTP password rule: a string stores a new key, null clears it, leaving it out
+// keeps the stored one (never returned).
 export const ImageSettingsBodySchema = Type.Object(
   {
     provider: Type.Optional(ImageProviderSchema),
@@ -102,6 +109,10 @@ export const ImageSettingsBodySchema = Type.Object(
       Type.Integer({ minimum: 32 * 32, maximum: 4096 * 4096 }),
     ),
     timeoutMinutes: Type.Optional(Type.Integer({ minimum: 1, maximum: 1440 })),
+    customBaseUrl: Type.Optional(Type.String({ maxLength: 500 })),
+    customModel: Type.Optional(Type.String({ maxLength: 200 })),
+    customFormat: Type.Optional(ImageCustomFormatSchema),
+    customApiKey: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   },
   CLOSED,
 );

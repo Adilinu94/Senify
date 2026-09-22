@@ -51,6 +51,15 @@ describe.skipIf(!browserAvailable)("editor in a real browser (T13)", () => {
       const site = (await (await post("/api/sites", { name: "Browser-Prüfung" })).json()) as {
         id: string;
       };
+      // Bildgenerierung (Ticket 04): in diesem Test ist der Provider aus — der
+      // Erzeugen-Bereich zeigt den deaktivierten Zustand, der Absendeversuch
+      // liefert die lesbare Fehlermeldung der Engine (kein echter Lauf).
+      const disabled = await fetch(`${running.dashboardUrl}/api/settings`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ image: { provider: "off" } }),
+      });
+      expect(disabled.status).toBe(200);
       const page = (await (
         await post(`/api/sites/${site.id}/pages`, { title: "Start", path: "/" })
       ).json()) as { id: string; draftVersion: number; draft: { rootNodeId: string } };
@@ -549,7 +558,35 @@ describe.skipIf(!browserAvailable)("editor in a real browser (T13)", () => {
         .poll(async () => tab.locator(".senify-editor__row", { hasText: "Start" }).count())
         .toBeGreaterThan(0);
 
-      expect(errors).toEqual([]);
+      // Medien-Tab mit Erzeugen-Bereich (Bildgenerierung Ticket 04): der
+      // deaktivierte Provider wird benannt, das Formular ist bedienbar und der
+      // Absendeversuch scheitert lesbar statt still.
+      await tab.locator('.senify-editor__tab[data-tab="media"]').click();
+      await tab.locator(".senify-editor__generate").waitFor({ timeout: 15000 });
+      await expect
+        .poll(async () =>
+          tab.locator('.senify-editor__hint:has-text("deaktiviert")').count(),
+        )
+        .toBe(1);
+      await tab
+        .locator(".senify-editor__generate textarea")
+        .fill("Eine rote Teekanne auf einem Holztisch");
+      await tab.locator('.senify-editor__generate button:has-text("Erzeugen")').click();
+      await expect
+        .poll(async () =>
+          tab.locator('.senify-editor__hint:has-text("deaktiviert")').count(),
+        )
+        .toBe(2);
+
+      // Der Job-Start scheitert absichtlich (provider: off) — alle anderen
+      // Antworten des Laufs bleiben fehlerfrei (der 400er erscheint nur als
+      // Konsolen-Zeile "Failed to load resource").
+      expect(
+        errors.filter(
+          (entry) =>
+            !entry.includes("/images/jobs") && !entry.includes("status of 400"),
+        ),
+      ).toEqual([]);
     } finally {
       await browser.close();
       await running.close();

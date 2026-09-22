@@ -4,8 +4,9 @@
 
 1. **Bedarf aus dem Brief ableiten:** Hero-Bild, Team-Fotos, Projekt-Cover, Logos, Icons — und wo Platzhalter reichen.
 2. **Quelle wählen:**
-   - **Engine-Generierung** über `generate_image` → `get_image_job` (Default `image-use` ≈ 1 min,
-     lokaler Qwen-Fallback Minuten; Ablauf, Prompt-Rezept und Fehlerfälle in `images.md`) —
+   - **Engine-Generierung** über `generate_image` → `get_image_job` (Kette: Custom-Endpoint →
+     ChatGPT-Abo `image-use` ≈ 1 min → lokaler Qwen-Fallback Minuten; Ablauf, Prompt-Rezept und
+     Fehlerfälle in `images.md`) -
      Konsistenz über alle Bilder, keine Stock-Optik,
    - oder lizenzfreie Stock-Quellen (CC0/Public Domain oder gekauft).
 3. **Prüfen:** Format (JPEG/WebP/AVIF, SVG für Icons), Größe (keine Riesen-Uploads), Ausschnitt/Fokus.

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import sharp from "sharp";
 import {
   ImageProviderError,
+  buildImagePrompt,
   runImageJobOnce,
   type ImageGenerationRequest,
   type ImageGenerationResult,
@@ -208,6 +209,79 @@ describe("image jobs: lifecycle", () => {
         body: { prompt: "a teapot" },
       });
       expect(response.status).toBe(400);
+    });
+  });
+
+  it("takes the prompt from the reference recipe (I10)", async () => {
+    await withEngine(async (env) => {
+      const site = await createTestSite(env.api);
+      const reference = await env.engine.store.createReference({
+        name: "Teekannen-Referenz",
+        sourceUrl: "https://example.com/teekanne",
+        method: "manual",
+        provenance: {
+          url: "https://example.com/teekanne",
+          capturedAt: new Date().toISOString(),
+          hash: "test-hash-recipe",
+          method: "manual",
+          note: null,
+        },
+        status: "ready",
+        imageRecipe:
+          "editorial photograph of a red ceramic teapot on a worn wooden table, soft morning light",
+        heroUsage: "centered hero image with generous whitespace",
+      });
+
+      // No prompt at all: the route builds it from the stored recipe.
+      const response = await env.api.request<{
+        jobId: string;
+        status: string;
+        provider: string;
+      }>({
+        method: "POST",
+        path: `/api/sites/${site.id}/images/jobs`,
+        body: { referenceId: reference.id },
+      });
+      expect(response.status).toBe(202);
+      expect(response.body.status).toBe("queued");
+
+      const provider = okProvider("image-use", await pngBytes());
+      const job = await runImageJobOnce({
+        context: workerContext(env, { "image-use": provider }),
+      });
+      expect(job?.status).toBe("succeeded");
+
+      const sent = provider.generateCalls[0]?.prompt ?? "";
+      const stored = await env.engine.store.getReference(reference.id);
+      expect(sent).toBe(buildImagePrompt(stored));
+      expect(sent).toContain("editorial photograph of a red ceramic teapot");
+      expect(sent).toContain("centered hero image with generous whitespace");
+    });
+  });
+
+  it("rejects a reference without a stored recipe", async () => {
+    await withEngine(async (env) => {
+      const site = await createTestSite(env.api);
+      const reference = await env.engine.store.createReference({
+        name: "Ohne Rezept",
+        sourceUrl: "https://example.com/ohne-rezept",
+        method: "manual",
+        provenance: {
+          url: "https://example.com/ohne-rezept",
+          capturedAt: new Date().toISOString(),
+          hash: "test-hash-no-recipe",
+          method: "manual",
+          note: null,
+        },
+        status: "ready",
+      });
+      const response = await env.api.request({
+        method: "POST",
+        path: `/api/sites/${site.id}/images/jobs`,
+        body: { referenceId: reference.id },
+      });
+      expect(response.status).toBe(400);
+      expect(JSON.stringify(response.body)).toContain("Bildrezept");
     });
   });
 });

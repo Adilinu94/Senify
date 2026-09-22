@@ -52,6 +52,19 @@ import {
   type FrameState,
 } from "./frames.ts";
 import { parseDeepLink, serializeDeepLink, type DeepLinkState } from "./deep-links.ts";
+import {
+  DEFAULT_IMAGE_GENERATE_FORM,
+  IMAGE_SIZE_PRESETS,
+  imageGenerateRequest,
+  imageHealthHint,
+  imageJobActive,
+  imageJobErrorText,
+  imageJobStatusLabel,
+  validateImageGenerateForm,
+  type ImageGenerateForm,
+  type ImageGenerationBridge,
+  type ImageJobView,
+} from "./media-generate.ts";
 import { ensureEditorStyles } from "./styles.ts";
 import { editorFontFaceCss } from "./ui/fonts.ts";
 import {
@@ -107,6 +120,9 @@ export type EditorOptions = {
   templates?: () => { id: string; kind: TemplateKind; label: string }[];
   media?: () => MediaItem[];
   mediaQuery?: () => MediaQuery;
+  // Image generation (ticket 04): the shell owns the HTTP calls and the
+  // polling, the editor renders the "Erzeugen" area and the job card.
+  imageGeneration?: ImageGenerationBridge;
   theme?: Theme;
   renderer?: FrameRenderer;
   // Stylesheets every frame document loads (theme tokens, section styles).
@@ -388,6 +404,10 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
       : undefined,
   );
   let activeTab: ExplorerTab = "layers";
+  // The "Erzeugen" form of the media tab (ticket 04) survives re-renders.
+  const imageForm: ImageGenerateForm = { ...DEFAULT_IMAGE_GENERATE_FORM };
+  let imageFormError: string | null = null;
+  let imageBusy = false;
   let panelMode: PanelMode = bootLink?.node ? "settings" : "widgets";
   let panelTab: PanelTab = "content";
   let insertTarget: InsertTarget | null = null;
@@ -2551,6 +2571,9 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
         list.appendChild(templateRow(template.label, template.badge, template.id));
       }
     } else {
+      // Bildgenerierung (Ticket 04): der Erzeugen-Bereich steht über der Liste.
+      const generate = imageGenerateSection();
+      if (generate !== null) list.appendChild(generate);
       const search = h(doc, "input", { className: "senify-editor__search" });
       search.setAttribute("placeholder", "Medien suchen");
       list.appendChild(search);
@@ -2579,6 +2602,200 @@ export function mountEditor(container: DomElement, options: EditorOptions): Edit
       text: `${label} · ${badge}`,
       data: { template: id },
     });
+  }
+
+  // ---------------------------------------------------------- images (ticket 04)
+  // The "Erzeugen" area of the media tab. The shell owns the HTTP calls and the
+  // polling (options.imageGeneration); the editor renders the form, the job
+  // card and the health hint and keeps the form state while the tab is open.
+
+  function imageField(
+    tag: "input" | "select" | "textarea",
+    value: string,
+    placeholder: string,
+    disabled: boolean,
+    onInput: (value: string) => void,
+  ): DomElement {
+    const field = h(doc, tag, { className: "senify-editor__generate-field", value });
+    field.setAttribute("placeholder", placeholder);
+    if (disabled) field.setAttribute("disabled", "true");
+    field.addEventListener(tag === "select" ? "change" : "input", () => {
+      onInput(field.value ?? "");
+    });
+    return field;
+  }
+
+  function imageOptionSelect(
+    options_: readonly { label: string; value: string }[],
+    current: string,
+    disabled: boolean,
+    onPick: (value: string) => void,
+  ): DomElement {
+    const select = h(doc, "select", { className: "senify-editor__generate-field" });
+    for (const entry of options_) {
+      const option = h(doc, "option", { text: entry.label, value: entry.value });
+      if (entry.value === current) option.setAttribute("selected", "true");
+      select.appendChild(option);
+    }
+    if (disabled) select.setAttribute("disabled", "true");
+    select.addEventListener("change", () => onPick(select.value ?? ""));
+    return select;
+  }
+
+  function imageGenerateSection(): DomElement | null {
+    const bridge = options.imageGeneration;
+    if (bridge === undefined) return null;
+    const wrap = h(doc, "div", { className: "senify-editor__generate" });
+    wrap.appendChild(
+      h(doc, "div", { className: "senify-editor__section", text: "Bild erzeugen" }),
+    );
+
+    const hint = imageHealthHint(bridge.health?.() ?? null);
+    if (hint !== null) {
+      wrap.appendChild(h(doc, "div", { className: "senify-editor__hint", text: hint }));
+    }
+
+    const job = bridge.job?.() ?? null;
+    if (job !== null) wrap.appendChild(imageJobCard(job, bridge));
+
+    const busy = imageBusy || imageJobActive(job);
+    wrap.appendChild(
+      imageField(
+        "textarea",
+        imageForm.prompt,
+        "Motiv beschreiben – oder eine Referenz mit Bildrezept wählen",
+        busy,
+        (value) => {
+          imageForm.prompt = value;
+        },
+      ),
+    );
+
+    const sizeKey = `${imageForm.width}x${imageForm.height}`;
+    wrap.appendChild(
+      imageOptionSelect(
+        IMAGE_SIZE_PRESETS.map((preset) => ({
+          label: preset.label,
+          value: `${preset.width}x${preset.height}`,
+        })),
+        sizeKey,
+        busy,
+        (value) => {
+          const [width, height] = value.split("x").map((part) => Number(part));
+          imageForm.width = width ?? 1024;
+          imageForm.height = height ?? 1024;
+        },
+      ),
+    );
+
+    const references = bridge.references?.() ?? [];
+    if (references.length > 0) {
+      wrap.appendChild(
+        imageOptionSelect(
+          [
+            { label: "Ohne Referenz (Prompt nutzen)", value: "" },
+            ...references.map((entry) => ({ label: entry.name, value: entry.id })),
+          ],
+          imageForm.referenceId,
+          busy,
+          (value) => {
+            imageForm.referenceId = value;
+          },
+        ),
+      );
+    }
+
+    const folders = [
+      ...new Set((options.media?.() ?? []).flatMap((item) => [...item.folders])),
+    ].sort();
+    if (folders.length > 0) {
+      wrap.appendChild(
+        imageOptionSelect(
+          [
+            { label: "Ohne Ordner", value: "" },
+            ...folders.map((folder) => ({ label: folder, value: folder })),
+          ],
+          imageForm.folderId,
+          busy,
+          (value) => {
+            imageForm.folderId = value;
+          },
+        ),
+      );
+    }
+
+    wrap.appendChild(
+      imageField("input", imageForm.altText, "Alt-Text (Pflicht für die Bibliothek)", busy, (value) => {
+        imageForm.altText = value;
+      }),
+    );
+    wrap.appendChild(
+      imageField("input", imageForm.tags, "Tags, mit Komma getrennt", busy, (value) => {
+        imageForm.tags = value;
+      }),
+    );
+
+    const submit = h(doc, "button", {
+      className: "senify-editor__button",
+      text: imageBusy ? "Wird gesendet …" : "Erzeugen",
+    });
+    if (busy) submit.setAttribute("disabled", "true");
+    submit.addEventListener("click", () => {
+      const invalid = validateImageGenerateForm(imageForm);
+      if (invalid !== null) {
+        imageFormError = invalid;
+        renderRail();
+        return;
+      }
+      imageFormError = null;
+      imageBusy = true;
+      renderRail();
+      void bridge
+        .start(imageGenerateRequest(imageForm))
+        .catch((cause: unknown) => {
+          imageFormError = cause instanceof Error ? cause.message : String(cause);
+        })
+        .finally(() => {
+          imageBusy = false;
+          renderRail();
+        });
+    });
+    wrap.appendChild(submit);
+
+    if (imageFormError !== null) {
+      wrap.appendChild(h(doc, "div", { className: "senify-editor__hint", text: imageFormError }));
+    }
+    return wrap;
+  }
+
+  function imageJobCard(job: ImageJobView, bridge: ImageGenerationBridge): DomElement {
+    const card = h(doc, "div", {
+      className: "senify-editor__job",
+      data: { status: job.status },
+    });
+    card.appendChild(
+      h(doc, "div", {
+        className: "senify-editor__job-status",
+        text: imageJobStatusLabel(job),
+      }),
+    );
+    const failure = imageJobErrorText(job);
+    if (failure !== null) {
+      card.appendChild(h(doc, "div", { className: "senify-editor__hint", text: failure }));
+    }
+    const cancel = bridge.cancel;
+    if (job.status === "queued" && cancel !== undefined) {
+      const button = h(doc, "button", { className: "senify-editor__button", text: "Abbrechen" });
+      button.addEventListener("click", () => {
+        void cancel(job.id)
+          .catch((cause: unknown) => {
+            imageFormError = cause instanceof Error ? cause.message : String(cause);
+          })
+          .finally(() => renderRail());
+      });
+      card.appendChild(button);
+    }
+    return card;
   }
 
   function layerRow(item: LayerItem): DomElement {

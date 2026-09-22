@@ -1,7 +1,8 @@
 // Image generation worker (S2, ADR-0008): the durable job behind
 // `generate_image`. One claim-and-run cycle resolves the provider chain
-// (image-use default → ComfyUI fallback), classifies failures, honours the
-// provider cooldowns and commits the result through the media pipeline.
+// (custom endpoint → image-use → ComfyUI, configurable in the settings),
+// classifies failures, honours the provider cooldowns and commits the result
+// through the media pipeline.
 //
 // - claim: `claimImageJob` marks the job running, increments `attempts` and
 //   sets the lease; the lease is at least the job timeout, so a slow local run
@@ -24,8 +25,10 @@ import {
   type ImageProvider,
 } from "./image-provider.ts";
 import { createComfyImageProvider } from "./image-comfy.ts";
+import { createImageCustomProvider } from "./image-custom.ts";
 import { createImageUseProvider } from "./image-use-provider.ts";
 import { commitUpload, createUploadTicket, type MediaContext } from "./media.ts";
+import { decryptSecret, keyFromSecret } from "./secrets.ts";
 import type { Store } from "./store.ts";
 import type {
   Asset,
@@ -57,19 +60,43 @@ export type ImageWorkerOptions = {
 // Chrome/ComfyUI a minute later.
 export const SHORT_COOLDOWN_MINUTES = 5;
 
-// The providers the engine builds from the settings: image-use (ChatGPT
-// subscription) is the default, ComfyUI + Qwen the local fallback.
+// The providers the engine builds from the settings: the custom endpoint (the
+// operator's own API key), image-use (ChatGPT subscription) and ComfyUI + Qwen
+// (the local fallback). The store is optional so tests can build the providers
+// without one (the custom provider then has no API key).
 export function defaultImageProviders(
   settings: ImageSettings,
+  store?: Store,
 ): Partial<Record<ImageProviderName, ImageProvider>> {
   return {
     "image-use": createImageUseProvider(settings),
     comfyui: createComfyImageProvider(settings),
+    custom: createImageCustomProvider(
+      {
+        baseUrl: settings.customBaseUrl,
+        model: settings.customModel,
+        format: settings.customFormat,
+        maxPixels: settings.maxPixels,
+      },
+      {
+        resolveApiKey: async () => {
+          if (settings.customApiKeyEncrypted === null || store === undefined) {
+            return null;
+          }
+          return decryptSecret(
+            settings.customApiKeyEncrypted,
+            keyFromSecret(await store.getOrCreateEngineSecret()),
+          );
+        },
+      },
+    ),
   };
 }
 
 // One provider per attempt; the fallback only starts when it differs from the
-// chosen provider and is not "none".
+// chosen provider and is not "none". A chain that opted into a fallback always
+// ends at the local ComfyUI: it is free and offline, so custom → image-use →
+// comfyui works without a third setting.
 export function providerChain(
   settings: ImageSettings,
   override?: ImageProviderName,
@@ -78,7 +105,10 @@ export function providerChain(
   const chain: ImageProviderName[] = [];
   if (primary !== "off") chain.push(primary);
   const fallback = settings.fallbackProvider;
-  if (fallback !== "none" && fallback !== primary) chain.push(fallback);
+  if (fallback !== "none") {
+    if (fallback !== primary) chain.push(fallback);
+    if (!chain.includes("comfyui")) chain.push("comfyui");
+  }
   return chain;
 }
 

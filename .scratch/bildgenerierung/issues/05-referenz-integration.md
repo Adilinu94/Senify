@@ -1,6 +1,6 @@
 # Bildgenerierung 05 — Referenz-Integration „Bildrezept → Asset" (S5, I10)
 
-Status: ready-for-agent
+Status: resolved (22.09.2026)
 Quelle: `.scratch/bildgenerierung/spec.md` (Scheibe S5), Verbesserungsplan I10.
 Blocked by: 02
 
@@ -32,3 +32,18 @@ Asset") ist damit erledigt.
 - `.scratch/bildgenerierung/spec.md` (S5)
 - `packages/engine/src/references-brief.ts` (`buildImagePrompt`),
   `packages/engine/src/http.ts`, `docs/verbesserungsplan.md` (I10)
+
+## Comments
+
+- **22.09.2026 — erledigt:**
+  - Der `referenceId`-Pfad ist in `POST /api/sites/:siteId/images/jobs` verdrahtet: ohne `prompt`
+    baut die Route den Prompt aus `buildImagePrompt(reference)`; fehlt das Rezept, kommt ein
+    `validation`-Fehler mit Verweis auf `get_reference_brief` (`http.ts`, „kein Bildrezept").
+    Wichtig für Clients: `prompt` weglassen (nicht leer senden) — das Schema verlangt `minLength: 1`.
+  - Tests (`packages/engine/test/images-jobs.test.ts`, +2): „takes the prompt from the reference
+    recipe (I10)" belegt, dass der an den Provider gesendete Prompt exakt `buildImagePrompt` des
+    gespeicherten Referenz-Datensatzes ist (inkl. Rezept- und Kompositions-Zeile);
+    „rejects a reference without a stored recipe" prüft den 400er mit „Bildrezept"-Hinweis.
+  - I10 in `docs/verbesserungsplan.md` auf ✅ gesetzt (Verweis auf Bildgenerierung 01–07).
+  - Der optionale Batch aus dem Redesign-Paket bleibt bewusst offen (kein Sonderweg nötig); bei
+    Bedarf als Folge-Ticket.

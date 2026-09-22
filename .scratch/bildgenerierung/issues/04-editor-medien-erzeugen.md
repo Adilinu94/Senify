@@ -1,6 +1,6 @@
 # Bildgenerierung 04 — Editor: Erzeugen im Medien-Fenster (S4)
 
-Status: ready-for-agent
+Status: resolved (22.09.2026)
 Quelle: `.scratch/bildgenerierung/spec.md` (Scheibe S4).
 Blocked by: 02
 Hinweis: Das Medien-Fenster (Spotlight-Aktion `open-media`) hat noch keinen Handler. Falls es zum
@@ -32,6 +32,38 @@ Job-Modell und derselben Asset-Pipeline wie der Agent.
 
 ## Referenzen
 
-- `.scratch/bildgenerierung/spec.md` (User Stories 8–11, S4)
+- `.scratch/bildgenerierung/spec.md` (User Stories 8-11, S4)
 - `packages/editor/src/spotlight.ts` (`open-media`), `packages/editor/src/panels.ts`,
   `packages/app/src/start.ts`
+
+## Comments
+
+- **22.09.2026 — erledigt.** Der `open-media`-Spotlight-Befehl öffnete den Medien-Tab schon
+  (`app.js`: `editorInstance.openTab("media")`); der Tab selbst hatte nur Suche + Liste. Neu:
+  - `packages/editor/src/media-generate.ts` (headless Modell): Formular-Defaults (1024², Größen-
+    Presets in 32er-Schritten), `validateImageGenerateForm`, `imageGenerateRequest` (leere
+    Optionalfelder fallen raus, Tags werden gesplittet), Job-Karten-Texte
+    (`imageJobStatusLabel`, `imageJobErrorText` inkl. OOM-Hinweis „kleinere Auflösung wählen"),
+    `imageHealthHint` (deaktiviert / Provider nicht bereit) und der Bridge-Typ
+    `ImageGenerationBridge`.
+  - `packages/editor/src/mount.ts`: Der Medien-Tab rendert über der Liste den Bereich
+    „Bild erzeugen" (Prompt, Größe, Referenz-Select, Ordner-Select, Alt-Text, Tags, Absenden),
+    die Job-Karte (Status · Provider, Fehlertext, „Abbrechen" für `queued`) und den
+    Health-Hinweis. Während eines Laufs ist das Formular gesperrt. Die Shell behält die Hoheit
+    über HTTP + Polling (`options.imageGeneration`).
+  - `packages/app/public/app.js`: Bridge der Shell — `start` (POST `/api/sites/:id/images/jobs`),
+    `status`-Polling alle 3 s (`GET /api/images/jobs/:id`), `cancel` (DELETE), Health und
+    Referenzliste (GET `/api/images/health`, `/api/references`), Medien-Refresh nach Erfolg
+    (`refreshMedia` aus dem bisherigen Inline-Ladevorgang extrahiert).
+  - Styles für den Bereich (`__generate`, `__generate-field`, `__job`, `__job-status`) im
+    Deep-Water-Skin.
+  - Tests: `packages/editor/test/media-generate.test.ts` (6 Tests: Validierung, Request-Bau,
+    Job-Labels/Fehler, Health-Hinweis, Tags) und der bestehende Browser-Test
+    (`packages/app/test/editor-browser.test.ts`) prüft den Bereich im echten Editor: Media-Tab
+    öffnen, „deaktiviert"-Hinweis bei `provider: off`, Formular ausfüllen, Absenden → lesbarer
+    Fehler (der absichtliche 400er ist aus der Konsolen-Fehlerliste ausgenommen).
+- **Bewusste Grenzen:** (1) Der Browser-Test fährt den Erfolgspfad nicht (die Engine-Tests
+  injizieren Provider, der Live-Erfolg ist über den Custom-Smoke bewiesen); (2) die
+  Ordner-Auswahl nutzt die `folderId` als Beschriftung (die Ordner-Namen liefert der Medien-Cache
+  noch nicht); (3) der Canvas-Pfad (Standardansicht) behandelt `open-media` weiterhin nicht —
+  der Medien-Tab lebt im vollen Editor (`?view=editor`).

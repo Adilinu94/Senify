@@ -992,16 +992,23 @@ export type ReferenceSettings = {
 // ------------------------------------------------------------ images (S1)
 
 // The provider chain of the image generation (ADR-0008): image-use is the
-// subscription default, ComfyUI + Qwen-Image-2.1 the local fallback, `off`
-// disables generation entirely.
-export const IMAGE_PROVIDERS = ["image-use", "comfyui", "off"] as const;
+// subscription default, ComfyUI + Qwen-Image-2.1 the local fallback, `custom`
+// drives any HTTP endpoint with an API key, `off` disables generation entirely.
+export const IMAGE_PROVIDERS = ["image-use", "comfyui", "custom", "off"] as const;
 export type ImageProviderName = (typeof IMAGE_PROVIDERS)[number];
 
-export const IMAGE_FALLBACK_PROVIDERS = ["comfyui", "none"] as const;
+export const IMAGE_FALLBACK_PROVIDERS = ["comfyui", "image-use", "custom", "none"] as const;
 export type ImageFallbackProvider = (typeof IMAGE_FALLBACK_PROVIDERS)[number];
 
+// Wire format of the custom endpoint (the third path): MiniMax's
+// `/image_generation` (aspect_ratio + data.image_urls) or the OpenAI-compatible
+// `/images/generations` (size + data[0].b64_json/url).
+export const IMAGE_CUSTOM_FORMATS = ["minimax", "openai"] as const;
+export type ImageCustomFormat = (typeof IMAGE_CUSTOM_FORMATS)[number];
+
 // Global image settings (one row): provider choice, the ComfyUI connection and
-// the model file names. No secrets.
+// the model file names. The custom API key stays encrypted here; the settings
+// view only exposes `hasCustomApiKey`.
 export type ImageSettings = {
   provider: ImageProviderName;
   fallbackProvider: ImageFallbackProvider;
@@ -1017,6 +1024,12 @@ export type ImageSettings = {
   // Upper bound for width * height (the local fallback is slow at large sizes).
   maxPixels: number;
   timeoutMinutes: number;
+  // Custom endpoint (the third path): base URL, model, wire format and the
+  // encrypted API key. Never leaves the engine in plaintext.
+  customBaseUrl: string;
+  customModel: string;
+  customFormat: ImageCustomFormat;
+  customApiKeyEncrypted: string | null;
 };
 
 // ------------------------------------------------------------ image jobs (S2)

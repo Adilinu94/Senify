@@ -159,6 +159,25 @@ export {
   type ExplorerOptions,
 } from "./explorer/panel.ts";
 export {
+  DEFAULT_IMAGE_GENERATE_FORM,
+  IMAGE_JOB_POLL_MS,
+  IMAGE_SIZE_PRESETS,
+  imageGenerateRequest,
+  imageHealthHint,
+  imageJobActive,
+  imageJobErrorText,
+  imageJobStatusLabel,
+  parseImageTags,
+  validateImageGenerateForm,
+  type ImageGenerateForm,
+  type ImageGenerateRequest,
+  type ImageGenerationBridge,
+  type ImageHealthView,
+  type ImageJobAttemptView,
+  type ImageJobStatus,
+  type ImageJobView,
+} from "./media-generate.ts";
+export {
   ensureExplorerStyles,
   EXPLORER_ICON_CSS,
   EXPLORER_STYLES,

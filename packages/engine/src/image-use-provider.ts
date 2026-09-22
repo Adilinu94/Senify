@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -50,6 +50,8 @@ export type ImageUseProcess = (
 
 export type ImageUseProviderDeps = {
   process?: ImageUseProcess;
+  // Opens the shared chrome-use session BEFORE the CLI runs. Best effort.
+  prewarm?: () => Promise<void>;
 };
 
 const HEALTH_TIMEOUT_MS = 60_000;
@@ -92,40 +94,110 @@ function imageUseError(
   );
 }
 
+const MAX_CAPTURE_CHARS = 8 * 1024 * 1024;
+const WEB_CHAT_URL = "https://chatgpt.com/";
+// Must match the CLI's stable session (CHATGPT_WEB_SESSION) so the daemon is
+// reused instead of re-created by the CLI's own first `open`.
+const WEB_SESSION = "chatgpt-web";
+// `chrome-use reconnect` waits for the extension to re-bind the relay; measured
+// ~46s when the relay was dropped, so give it real headroom.
+const PREWARM_RECONNECT_TIMEOUT_MS = 90_000;
+// Starting the session daemon is fast once the relay answers (~3s measured).
+const PREWARM_OPEN_TIMEOUT_MS = 60_000;
+
+function killTree(child: ChildProcess): void {
+  if (child.pid === undefined) return;
+  if (process.platform === "win32") {
+    // The CLI spawns chrome-use children; only a tree kill releases them.
+    spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
+      windowsHide: true,
+      stdio: "ignore",
+    });
+    return;
+  }
+  child.kill("SIGKILL");
+}
+
+// Best-effort `chrome-use <args>` with discarded stdio and a hard timeout.
+function runChromeUse(args: string[], timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    const child = spawn("chrome-use", args, { windowsHide: true, stdio: "ignore" });
+    const timer = setTimeout(() => {
+      killTree(child);
+      resolve();
+    }, timeoutMs);
+    const finish = (): void => {
+      clearTimeout(timer);
+      resolve();
+    };
+    child.on("error", finish);
+    child.on("close", finish);
+  });
+}
+
+// Two chrome-use quirks force this order (both measured on Windows):
+// 1. chrome-use creates the session daemon on the FIRST `open` of a session.
+//    That daemon inherits the caller's stdout/stderr pipes, and the image-use
+//    CLI — which runs chrome-use through subprocess.run(capture_output=True) —
+//    then blocks on pipe EOF until the daemon dies: the observed endless
+//    "opening ChatGPT via current Chrome" hang. Pre-warming the daemon here,
+//    with stdio discarded, gives the CLI the reuse path, which returns promptly.
+// 2. The CLI closes the session after every run, which drops the Chrome relay;
+//    the next `open` then blocks ~90s while it reconnects on its own — longer
+//    than the CLI's own 30s open timeout. `reconnect` re-binds the relay first.
+async function defaultPrewarm(): Promise<void> {
+  await runChromeUse(["reconnect"], PREWARM_RECONNECT_TIMEOUT_MS);
+  await runChromeUse(["open", WEB_CHAT_URL, "--session", WEB_SESSION], PREWARM_OPEN_TIMEOUT_MS);
+}
+
+// stdin is deliberately closed (NUL): the CLI passes its stdin down to
+// chrome-use; a never-closing pipe there serves no purpose. stdout/stderr stay
+// pipes because the CLI's failure classification reads them.
 const defaultProcess: ImageUseProcess = (file, args, options) =>
   new Promise((resolve) => {
-    execFile(
-      file,
-      args,
-      {
-        timeout: options.timeoutMs,
-        env: options.env,
-        windowsHide: true,
-        maxBuffer: 8 * 1024 * 1024,
-      },
-      (error, stdout, stderr) => {
-        const out = stdout ?? "";
-        const err = stderr ?? "";
-        if (error === null) {
-          resolve({ code: 0, stdout: out, stderr: err });
-          return;
-        }
-        const code = (error as { code?: unknown }).code;
-        const killed = (error as { killed?: boolean }).killed === true;
-        const signal = (error as { signal?: unknown }).signal;
-        if (typeof code === "string") {
-          // ENOENT/EACCES: the interpreter itself never started.
-          resolve({ code: null, stdout: out, stderr: err, spawnError: errorMessage(error) });
-          return;
-        }
-        resolve({
-          code: typeof code === "number" ? code : null,
-          stdout: out,
-          stderr: err,
-          ...(killed || typeof signal === "string" ? { timedOut: true } : {}),
-        });
-      },
-    );
+    const child = spawn(file, args, {
+      env: options.env,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    let settled = false;
+    const capture = (current: string, chunk: Buffer): string =>
+      (current + chunk.toString()).slice(-MAX_CAPTURE_CHARS);
+    const settle = (result: ImageUseProcessResult): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutTimer);
+      clearTimeout(graceTimer);
+      resolve(result);
+    };
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout = capture(stdout, chunk);
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr = capture(stderr, chunk);
+    });
+    child.on("error", (error) => {
+      // ENOENT/EACCES: the interpreter itself never started.
+      settle({ code: null, stdout, stderr, spawnError: errorMessage(error) });
+    });
+    child.on("close", (code) => {
+      settle({
+        code,
+        stdout,
+        stderr,
+        ...(timedOut ? { timedOut: true } : {}),
+      });
+    });
+    const graceTimer = setTimeout(() => {
+      settle({ code: null, stdout, stderr, timedOut: true });
+    }, options.timeoutMs + KILL_MARGIN_MS);
+    const timeoutTimer = setTimeout(() => {
+      timedOut = true;
+      killTree(child);
+    }, options.timeoutMs);
   });
 
 // Map a finished (or failed) CLI run onto the provider failure kinds.
@@ -186,6 +258,7 @@ export function createImageUseProvider(
   deps: ImageUseProviderDeps = {},
 ): ImageProvider {
   const run = deps.process ?? defaultProcess;
+  const prewarm = deps.prewarm ?? defaultPrewarm;
   const python = config.pythonPath ?? (process.platform === "win32" ? "python" : "python3");
   const env: NodeJS.ProcessEnv = { ...process.env, PYTHONIOENCODING: "utf-8" };
 
@@ -254,6 +327,7 @@ export function createImageUseProvider(
       opts: ImageGenerateOptions,
     ): Promise<ImageGenerationResult> {
       validateImageRequest("image-use", req, config.maxPixels);
+      await prewarm().catch(() => {});
       const dir = await mkdtemp(join(tmpdir(), "senify-image-use-"));
       const target = join(dir, `bild-${randomUUID()}.png`);
       try {

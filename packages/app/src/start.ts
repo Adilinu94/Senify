@@ -176,13 +176,13 @@ export async function startProgram(
     },
   });
   // The image worker (S2): durable generation jobs over the provider chain
-  // (image-use default → ComfyUI fallback).
+  // (custom endpoint → image-use → ComfyUI, configurable in the settings).
   const imageWorker = startImageWorker({
     context: {
       store: engine.store,
       dataDir: engine.dataDir,
       maxUploadBytes: engine.maxUploadBytes,
-      providers: defaultImageProviders,
+      providers: (settings) => defaultImageProviders(settings, engine.store),
     },
   });
   let appServer;

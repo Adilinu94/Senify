@@ -1,7 +1,8 @@
 import { SenifyError } from "@senify/core";
 
-// Image generation as a provider chain (ADR-0008): image-use (ChatGPT
-// subscription, default) falls back to ComfyUI + Qwen-Image-2.1. Every
+// Image generation as a provider chain (ADR-0008): a custom HTTP endpoint
+// (operator's own API key), image-use (ChatGPT subscription) and ComfyUI +
+// Qwen-Image-2.1 (the local last resort) - configurable in the settings. Every
 // provider answers the same two calls, so the worker (S2) walks the chain
 // without knowing the transport.
 
