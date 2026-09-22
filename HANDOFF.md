@@ -640,6 +640,38 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
   **1375 gruen / 2 uebersprungen / 151 Dateien, EXIT 0** (Log
   `.scratch/testlauf-21-09-t04publish.log`), typecheck 0, lint 0.
 
+### 2.19 Varianten (21.09., uncommittet): kombinierbare Property-Sets
+
+- **Entscheidung (Nutzer, 21.09.):** Kombinierbare Property-Sets — die Definition erklaert
+  benannte Varianten, jede ein Props-Overlay auf ihre Teile; die Instanz aktiviert beliebig
+  viele gleichzeitig. Keine Achsen-Matrix, keine Kombinatorik-Explosion.
+- **Modell (`section-sdk/components.ts`):** Definition `props.variants` =
+  `{ name: { partId: props } }`, Instanz `props.variants` = Namensliste (ein String zaehlt als
+  einer). `definitionVariants`, `instanceVariants`, `activeVariantProps` (Merge in
+  Definitionsreihenfolge), `unknownVariants` (gemeldet, nie still geloescht);
+  `ComponentDefinition.variants` traegt die geparste Form. Der Inliner merged die aktiven
+  Overlays **vor** den Instanz-Overrides — der Variant-Swap behaelt sie, weil sie per Part-Id
+  adressiert sind; ein Varianten-Patch auf einer verschachtelten Instanz ist ein Swap.
+- **Canvas (`editor/canvas/rules.ts`):** der Varianten-Patch landet wie der Override in der
+  Copy-CssNode (sonst driftet das Canvas-Styling vom Bake).
+- **Inspektor (`inspector/model.ts`, `inspector.ts`):** eine Gruppe „Varianten" mit einem
+  Switch je deklarierter Variante (`commit.kind: "variant"`); Commit/Clear schreiben die
+  Instanzliste (`setComponentVariants`, Definition-Reihenfolge, unbekannte Namen abgelehnt).
+- **MCP:** `list_components`/`get_component` zeigen Varianten (Definition: Namen/Overlays,
+  Instanz: aktive); neues Tool `set_component_variant` (aktivieren/deaktivieren, idempotent);
+  Registry (`structural.ts`) kennt `variants` an Definition und Instanz; Skills (Router +
+  Master-Flow) nennen den Weg.
+- **Tests:** section-sdk +5 (Lesehelfer, Merge, Swap behaelt Overrides, Nested-Swap,
+  unbekannte Namen), Editor +3 (Op, Inspektor-Gruppe, Canvas-Copy), Engine +1 (Komposition),
+  MCP-Workflow erweitert, Browser-Rundlauf (Variante per API, Switch im Inspektor, Canvas
+  zeigt den Overlay-Text; `14-komponente-variante.png`).
+- **Zahlen:** Gesamtlauf **1384 gruen / 2 uebersprungen / 151 Dateien, EXIT 0** (Log
+  `.scratch/testlauf-21-09-varianten.log`; ein erster Lauf hing an einer Windows-Dateisperre
+  im Bake-Stage, in Isolation gruen), typecheck 0, lint 0.
+- **Grenze:** Varianten **anlegen** (Overlay schreiben) laeuft ueber `apply_mutations`
+  (`updateNodeProps` auf die Definition, Agenten-Weg); der Editor aktiviert sie nur. Ein
+  Editor-Menue zum Anlegen bleibt offen.
+
 ---
 
 ## 3. Phasenstand

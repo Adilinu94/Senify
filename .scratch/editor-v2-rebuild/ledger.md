@@ -114,6 +114,21 @@ gehoeren bewusst **nicht** in die Undo-History (Webstudio-Muster). Hinweis: `doc
 wurde parallel um „Teil II" (§10–§16: Referenz-Transfer, Anti-Slop, Editor-Tiefe) erweitert —
 beide Teile koexistieren; nichts ueberschrieben. Kein Produktcode geaendert.
 
+**Varianten (21.09., umgesetzt): kombinierbare Property-Sets.** Entscheidung (Nutzer): die
+Definition erklaert benannte Varianten (je ein Props-Overlay auf ihre Teile), die Instanz
+aktiviert beliebig viele gleichzeitig — keine Achsen-Matrix. Modell (`section-sdk`):
+`definitionVariants`/`instanceVariants`/`activeVariantProps`/`unknownVariants`,
+`ComponentDefinition.variants`; der Inliner merged die aktiven Overlays vor den
+Instanz-Overrides (Variant-Swap behaelt sie, Part-Id-Adressierung; Patch auf verschachtelter
+Instanz = Swap). Canvas: Patch in der Copy-CssNode. Inspektor: Gruppe „Varianten" mit Switches
+(`setComponentVariants`, Definition-Reihenfolge, unbekannte Namen abgelehnt). MCP:
+`list_components`/`get_component` zeigen Varianten, neues Tool `set_component_variant`;
+Registry `structural.ts` kennt `variants`; Skills aktualisiert. Tests: section-sdk +5,
+Editor +3, Engine +1, MCP-Workflow erweitert, Browser-Rundlauf (Screenshot
+`14-komponente-variante.png`). Zahlen: gesamt **1384 gruen / 2 uebersprungen / 151 Dateien,
+EXIT 0** (`.scratch/testlauf-21-09-varianten.log`), typecheck 0, lint 0. Grenze: Varianten
+anlegen laeuft ueber `apply_mutations` (Agenten-Weg), der Editor aktiviert nur.
+
 **Publish-Versionen site-weit (21.09., umgesetzt): Drift blockiert das Release.** Entscheidung
 (Nutzer): Der Pin wird ein Vertrag — der Release-Publish bricht ab, solange eine Instanz eine
 aeltere Definitionsversion pinnt (site-weit ueber alle Seiten); kein stiller Fallback auf die

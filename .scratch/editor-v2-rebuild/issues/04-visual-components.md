@@ -1,7 +1,36 @@
 # Editor v2 - Visual Components und Sections-Migration (Phase 4)
 
-Status: **Scheibe 1 erledigt (20.09.)**, **Scheibe 2 Teil 1 erledigt (20.09., committet `7f7ccd6`/`2c64aaf`)**, **Scheibe 2 Teil 2 erledigt (21.09.)**, **MCP-Fassade erledigt (21.09.)**, **Scheibe 2 Teil 3 erledigt (21.09.)**, **Scheibe 3 erledigt (21.09.)**, **Publish-Versionen site-weit erledigt (21.09.)** — Component-Kern, Engine-Aufnahme, Bake-Rekey/Multi-Instanz-Remap, Overrides (Modell, Editor-Op, Inspektor), Komponenten-Tab und Kontextmenü, MCP-Tools (`list_components`, `get_component`, `set_component_override`), Versionen mit Drift und Slot-Regeln (`allowedTypes`/`max`), Styles je Instanz mit Geräteebenen für Overrides, Drift als harter Publish-Blocker. Offen: Sections als VCs (Punkt 2), Multi-Widget-VCs (Punkt 3), Varianten.
+Status: **Scheibe 1 erledigt (20.09.)**, **Scheibe 2 Teil 1 erledigt (20.09., committet `7f7ccd6`/`2c64aaf`)**, **Scheibe 2 Teil 2 erledigt (21.09.)**, **MCP-Fassade erledigt (21.09.)**, **Scheibe 2 Teil 3 erledigt (21.09.)**, **Scheibe 3 erledigt (21.09.)**, **Publish-Versionen site-weit erledigt (21.09.)**, **Varianten erledigt (21.09.)** — Component-Kern, Engine-Aufnahme, Bake-Rekey/Multi-Instanz-Remap, Overrides (Modell, Editor-Op, Inspektor), Komponenten-Tab und Kontextmenü, MCP-Tools (`list_components`, `get_component`, `set_component_override`, `set_component_variant`), Versionen mit Drift und Slot-Regeln (`allowedTypes`/`max`), Styles je Instanz mit Geräteebenen für Overrides, Drift als harter Publish-Blocker, kombinierbare Varianten. Offen: Sections als VCs (Punkt 2), Multi-Widget-VCs (Punkt 3), Varianten-Anlegen im Editor.
 Abhaengig von: 03-editor-chrome
+
+## Ergebnis Varianten (21.09., umgesetzt) - kombinierbare Property-Sets
+
+Entscheidung (Nutzer): Die Definition erklärt benannte Varianten, jede ein Props-Overlay auf
+ihre Teile; die Instanz aktiviert beliebig viele gleichzeitig. Overlays mergen in
+Definitionsreihenfolge, Instanz-Overrides gewinnen — der Variant-Swap behält sie, weil sie
+per Part-Id adressiert sind.
+
+- **Modell (`section-sdk/src/components.ts`):** `props.variants` an der Definition
+  (`{ name: { partId: props } }`) und an der Instanz (Namensliste; ein String zählt als
+  einer); `definitionVariants`, `instanceVariants`, `activeVariantProps`, `unknownVariants`;
+  `ComponentDefinition.variants`. Der Inliner mergt die aktiven Overlays vor den
+  Instanz-Overrides; ein Varianten-Patch auf einer verschachtelten Instanz ist ein Swap.
+- **Canvas:** der Varianten-Patch landet wie der Override in der Copy-CssNode (kein
+  Styling-Drift zwischen Canvas und Bake).
+- **Inspektor:** Gruppe „Varianten" mit einem Switch je deklarierter Variante
+  (`commit.kind: "variant"`); `setComponentVariants` schreibt die Instanzliste in
+  Definitionsreihenfolge und lehnt unbekannte Namen ab.
+- **MCP:** `list_components`/`get_component` zeigen Varianten; neues Tool
+  `set_component_variant`; Registry (`structural.ts`) kennt `variants`; Skills aktualisiert.
+- **Tests:** section-sdk +5, Editor +3, Engine +1, MCP-Workflow erweitert, Browser-Rundlauf
+  (`14-komponente-variante.png`).
+
+**Zahlen:** Gesamtlauf 1384 grün / 2 übersprungen / 151 Dateien, EXIT 0
+(`.scratch/testlauf-21-09-varianten.log`), typecheck 0, lint 0.
+
+**Grenze:** Varianten anlegen (Overlay schreiben) läuft über `apply_mutations`
+(`updateNodeProps` auf die Definition); der Editor aktiviert sie nur. Ein Editor-Menü zum
+Anlegen bleibt offen.
 
 ## Ergebnis Publish-Versionen site-weit (21.09., umgesetzt) - Drift blockiert das Release
 
