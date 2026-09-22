@@ -971,3 +971,26 @@ ist damit erfuellt. Eine fruehere Notiz hier behauptete das Gegenteil, weil sie 
 ui-plan-Korrektur geschrieben wurde.
 
 **Ticket 02 Punkt 1 ist erledigt** (Registry im Engine-Store); was uebrig ist, steht in Ticket 13.
+
+---
+
+## 22.09.2026 — Ticket 19 M6 abgeschlossen: das 3D-Preset (`webgl-scene`)
+
+- **Entscheidung (Nutzer, 22.09.):** three.js direkt, self-hosted, kein React im Release;
+  genau 1 Canvas/Seite, lazy, Poster. Die freie Timeline ist gestrichen.
+- **Modell (section-sdk):** `webglSceneSurface`/`webglSceneEnabled`/`webglSceneIntensity` —
+  das Island haengt an der Flaeche (media `3d-scene`, hero `showcase-3d` ohne gefuellten
+  Visual-Slot), die Spec stimmt Intensity und Schalter ab. Registry-Runtime von `planned`
+  auf `island`.
+- **Registry:** `Scene.tsx` (Island-Host + CSS-Poster + Canvas), Media/Hero nutzen sie;
+  `props.scene` = `orb` | `wave`.
+- **Renderer/Bake:** drei.js-Szene im Island-Script (lazy per `import()`,
+  IntersectionObserver, DPR <= 1.75, RM = ein statisches Bild); `webgl-vendor.ts` bundelt
+  three zur Bake-Zeit mit esbuild (521 KB min, three r186, Banner mit Version), geschrieben
+  nur fuer Seiten mit 3D-Flaeche; ohne Bundle (Preview ohne Dateiserver) bleibt das Poster.
+- **Guardrails:** `scene-excess` hart (Engine, zaehlt Flaechen), `motion-scene-excess` im
+  Editor; `scene-without-surface` als Bake-Hinweis; `profile-3d` (nur `showcase`) war schon da.
+- **Tests:** +10 (section-sdk 2, Renderer 3, Registry 2, Engine 1, Editor 1, Panel-Liste).
+- **Zahlen:** gesamt **1437 gruen / 2 uebersprungen / 154 Dateien, EXIT 0**
+  (`.scratch/testlauf-22-09-m6-3d-2.log`), typecheck 0, lint 0.
+- **Damit ist der M6-Ausbau vollstaendig**; Details in `HANDOFF.md` §2.26 und Ticket 19.

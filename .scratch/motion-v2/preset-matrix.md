@@ -1,6 +1,6 @@
 # Preset-Matrix v2 — Contract, Abdeckung, Luecken
 
-> Papierpaket zu Ticket 19 (M1). Stand 18.09.2026.
+> Papierpaket zu Ticket 19 (M1). Stand 18.09.2026, Abdeckung nachgezogen 22.09.2026 (M6 vollstaendig).
 > Quellen: `.scratch/senify-v1/artifacts/03-motion-3d.md` (Katalog), `packages/renderer/src/motion.ts`
 > (Runtime heute), `plugin-analyse.md` (Contract-Vorbild), `packages/editor/src/state/migration.ts`.
 > Zweck: Die 24 v1-Presets in den **Preset-Contract** (Flags) ueberfuehren und die
@@ -53,13 +53,13 @@ Legende Heute: **page.js** = im Page-Script implementiert (`PAGE_SCRIPT_PRESETS`
 | 21 | E | `modal` | — | — | click | **Island** (Medien-Lightbox) | `<dialog>` für Bilder/Videos/Iframes im Knoten; Preset ist das Opt-in |
 | 22 | F | `ambient-float` | loops | — | load | **`document`** (Head-CSS) | CSS-Loop (10–19 s, alternate); RM statisch |
 | 23 | F | `grain` | loops | — | load | **`document`** (Head-CSS) | `::after`, `pointer-events:none`; RM statisch |
-| 24 | G | `webgl-scene` | loops | (3D) | load/viewport | **Stub-Island** (`motion.ts:361-365`) | eigenes Ticket; three.js direkt (Entscheidung 22.09.); 1 Canvas/Seite, lazy, Poster |
+| 24 | G | `webgl-scene` | loops | (3D) | load/viewport | **Island** (three.js, lazy, Poster) | Fläche trägt das Island (media `3d-scene`, hero `showcase-3d`); Spec = Intensity/Schalter; drei.js self-hosted als Bake-Bundle; 1 Canvas/Seite |
 
 **Abdeckung heute:** 15 × page.js-Effekt + 1 × CSS (`marquee`) = 16
-(`PAGE_SCRIPT_PRESETS`), 2 × Island (`accordion`, `modal`), 5 × Head-CSS
+(`PAGE_SCRIPT_PRESETS`), 3 × Island (`accordion`, `modal`, `webgl-scene`), 5 × Head-CSS
 (`page-fade`, `hover-lift`, `ambient-float`, `grain`, `preloader-light`),
-**1 offen** (G 24 `webgl-scene`; three.js). Die freie Timeline ist auf
-Nutzerentscheidung (22.09.) **gestrichen**.
+**0 offen** (22.09.: G 24 `webgl-scene` mit three.js umgesetzt; die freie Timeline ist auf
+Nutzerentscheidung (22.09.) **gestrichen**).
 
 ## 3. Guardrails je Flag
 

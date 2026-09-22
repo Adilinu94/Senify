@@ -1,8 +1,13 @@
-# Übergabe: Editor v2 (Senify) — Stand 20.09.2026 (Runde 2: Tickets 16, 02, 03, 06 erledigt)
+# Übergabe: Editor v2 (Senify) — Stand 22.09.2026 (Ticket 19 M6 abgeschlossen: Motion-Ausbau vollständig)
 
 Diese Datei ersetzt die Abend-Fassung vom 17.09. und den ersten 18.09.-Stand. Sie beschreibt den
 Arbeitsbaum so, dass eine Person oder ein Agent ohne Vorwissen weiterarbeiten kann: was entschieden
 ist, was gebaut ist, was offen ist, wie man startet und prüft, welche Fallen lauern.
+
+> **Nachtrag 22.09.:** Die Überschrift nennt die Runde 2 (20.09.), darunter stehen alle späteren
+> Runden fortlaufend in §2.20–§2.26 (Scrub, Motion an VCs, Page Transitions, kleine Presets,
+> 3D-Preset). Der Motion-Ausbau (Ticket 19) ist damit vollständig; offen sind nur noch die
+> vertagte Sections-Migration (Ticket 04, §2.21) und die E-Pakete aus dem Verbesserungsplan.
 
 **Wichtigster Satz vorab:** Der Arbeitsbaum ist seit dem 19.09. **committet** (Baseline):
 `e62fe1f` (Planung: Motion-Papierpaket, Ticket 18), `49bacbd` (Planung: Tickets 07–22, ADRs
@@ -809,6 +814,48 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
   zwei Panel-Erwartungen), typecheck 0, lint 0.
 - **M6-Rest (bewusst offen, je eigenes Ticket):** 3D-Preset (three.js direkt).
 
+### 2.26 Ticket 19 M6 (22.09., umgesetzt): 3D-Preset `webgl-scene` mit three.js
+
+- **Entscheidung (Nutzer, 22.09.):** three.js direkt, self-hosted, kein React im Release;
+  genau 1 Canvas/Seite, lazy, Poster; die freie Timeline bleibt gestrichen.
+- **Das Island hängt an der Fläche, nicht am Preset (`section-sdk/src/motion.ts`):**
+  `webglSceneSurface` (media `3d-scene` oder hero `showcase-3d` ohne gefüllten
+  Visual-Slot), `webglSceneEnabled` (`enabled: false` schaltet aufs Poster zurück),
+  `webglSceneIntensity` (Spec am Flächenknoten, Default 5). Renderer (`islandsForNode`),
+  Registry (`Scene.tsx`) und Guardrails lesen dieselbe Regel; die Registry-Runtime des
+  Presets ist von `planned` auf `island` gewechselt.
+- **Registry:** neue `WebglScene`-Komponente — Island-Host mit
+  `data-island`/`data-scene`/`data-intensity`, CSS-Poster (Akzent-Gradient) als Baseline,
+  Canvas als Overlay; `Media` (3d-scene) und `Hero` (showcase-3d ohne Slot) nutzen sie,
+  `props.scene` wählt `orb` (Default) oder `wave`.
+- **Runtime (`renderIslandsScript`):** three.js-Szene (WebGLRenderer, Perspektivkamera,
+  Wireframe-Icosahedron + Punktewolke bzw. Wellen-Punktefläche), lazy per dynamischem
+  `import()` beim Heranscrollen (IntersectionObserver, 200 px), DPR ≤ 1.75, Pausieren
+  außerhalb des Viewports und bei `document.hidden`, Maus-Parallaxe nur `(hover: hover)`,
+  unter Reduced Motion genau ein statisches Bild. Fehlt three (kein WebGL, Preview ohne
+  Dateiserver), bleibt das Poster stehen.
+- **Vendor (Bake):** `renderer/src/webgl-vendor.ts` bündelt three zur Bake-Zeit mit
+  esbuild (three liefert seit r150 keine minifizierten Builds mehr und zieht
+  `three.core.js` als zweite Datei nach) — **521 KB minifiziert (three r186)**, Banner
+  mit Version; geschrieben nur für Seiten mit 3D-Fläche nach
+  `assets/vendor/three.module.min.js`, lazy geladen (kein `<script src>`-Tag).
+  `three` und `esbuild` sind Dependencies von `@senify/renderer`.
+- **Guardrails:** hart **max 1 3D-Szene/Seite** — `scene-excess` in
+  `hardGuardrailsForTree` (zählt Flächen, nicht Specs) und `motion-scene-excess` im
+  Editor-Validate; eine Spec ohne Fläche meldet der Bake weich
+  (`scene-without-surface`). `profile-3d` (nur `showcase`) war seit M5 da.
+- **Sections:** `get_section.motionPresets` um `webgl-scene` erweitert (Hero, Media).
+- **Tests:** +10 — section-sdk +2 (Flächen-/Schalter-Regel, Runtime `island`), Renderer +3
+  (Island-Trigger/Schalter, Lazy-Import im Islands-Script, Bake: three nur auf
+  Szenenseiten + Bundle-Budget), Registry +2 (Host/Poster/Intensity, Hero-Fläche),
+  Engine +1 (`scene-excess`), Editor +1 (`motion-scene-excess`), Panel-Liste nachgezogen.
+- **Zahlen:** Gesamtlauf **1437 grün / 2 übersprungen / 154 Dateien, EXIT 0**
+  (Log `.scratch/testlauf-22-09-m6-3d-2.log`; Lauf 1 hatte die Panel-Erwartung, im
+  selben Rutsch nachgezogen), typecheck 0, lint 0.
+- **Damit ist der M6-Ausbau vollständig** (Scrub, Motion an VCs, Page Transitions,
+  8 kleine Presets, 3D); offen bleiben nur die vertagte Sections-Migration und die
+  E-Pakete aus `docs/verbesserungsplan.md`.
+
 ---
 
 ## 3. Phasenstand
@@ -823,7 +870,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
 | — | 18.09.: Ticket 13 Rest (Bake + Klassen-Transport + scoped-Rekey) + Klassen am DOM + Motion M0–M5 + Ticket 20; 19.09.: Slot-/Collection-Transport verifiziert | ✅ | `issues/13`, `issues/19`–`22`, `docs/adr/0006`, `.scratch/motion-v2/` |
 | 2 | Style-Rule-Registry (Server ✅), Wert-Grammatik ✅, Editor-Modell ✅, Inspektor ✅ (20.09.) | ✅ | `issues/07`, `10`, `13`, `02` |
 | 3 | Chrome: Explorer/Kontextmenü/Spotlight ✅, DnD ✅, Design/Live ✅, Inline-Edit ✅, Undo-UI ✅, Keyboard ✅, Drag + Tabs ✅ (20.09.) | ✅ | `issues/03` + 12/16 |
-| 4 | Visual Components: Scheibe 1 (Component-Kern) ✅ + Scheibe 2 Teil 1 (speicherbar, Bake-Rekey, Overrides) ✅ (20.09.) + Teil 2 (Komponenten-Tab, Kontextmenü) ✅ (21.09.) + Scheibe 3 (Styles je Instanz, Gerätestufen) ✅ (21.09.) + Publish-Versionen ✅ + Varianten ✅ + Varianten im Editor ✅ (21.09.) + Motion an VCs ✅ (22.09.) + Page Transitions ✅ (22.09.) + kleine Presets ✅ (22.09.); Sections-Migration bewusst vertagt (21.09.) | 🔄 | `issues/04`, `issues/19` |
+| 4 | Visual Components: Scheibe 1 (Component-Kern) ✅ + Scheibe 2 Teil 1 (speicherbar, Bake-Rekey, Overrides) ✅ (20.09.) + Teil 2 (Komponenten-Tab, Kontextmenü) ✅ (21.09.) + Scheibe 3 (Styles je Instanz, Gerätestufen) ✅ (21.09.) + Publish-Versionen ✅ + Varianten ✅ + Varianten im Editor ✅ (21.09.) + Motion an VCs ✅ (22.09.) + Page Transitions ✅ (22.09.) + kleine Presets ✅ (22.09.) + 3D-Preset ✅ (22.09.); Sections-Migration bewusst vertagt (21.09.) | 🔄 | `issues/04`, `issues/19` |
 | 5 | SSE-Kanal, Live-Mitverfolgung, Leistungsbudget | ✅ (21.09.) | `issues/05`, `pruef-t05-performance.mjs` |
 
 ---
@@ -861,6 +908,9 @@ Ansichtssache), O11 vier Pseudo-States inkl. `disabled`, O12 PG-only bis Phase 5
   Pin 0/1/1, 3D nein/nein/ja — 3D bleibt M6); **F7 Durchsetzung gestaffelt** (M2 Lenis, M5
   harte Gates, Profil im Editor über Ticket 20).
   M0–M5 sind umgesetzt (§2.5); M4 Stufe 1 (Live-Modus mit echter Seite) hängt an Ticket 03.
+  **M6 ist vollständig (22.09.):** Scrub (§2.20), Motion an VCs (§2.23), Page Transitions
+  (§2.24), 8 kleine Presets (§2.25), 3D-Preset mit three.js (§2.26); die freie Timeline ist
+  gestrichen. `webgl-scene` läuft nur im `showcase`-Profil und höchstens einmal pro Seite.
 
 ---
 
@@ -888,7 +938,7 @@ Alle unter `.scratch/editor-v2-rebuild/issues/`. Stand:
 | 16-marker-overlay-portal | Marker-Overlay im Portal (Alt-Palette beenden) | **erledigt (20.09.)** — Portal-DOM, Token-Doppelkante, Geometrie-Tests |
 | 17-releases-cutover | Publish über `POST /api/releases`, Paritäts-Tor als CI-Blocker | **erledigt (20.09./21.09.)** — O9-Vorhang, Route-Publish, Paritäts-Tor gegen das Release, Rollback, `pnpm verify:parity` + CI-Workflow; Funde: `variant`, Font-Auslieferung |
 | 18-agent-style-gate | Wert-Ebene-Fence als Tests (`authoredBy`) | **erledigt (19.09.)** — Author-Resolver, Idempotency-Keys, Fence; `idempotentHint` bleibt opt-in |
-| 19-motion-authoring | Motion-Spec v2 im Editor: Modell/Bridge, Inspektor, Canvas (Play), Guardrails | **M0–M5 + M4 Stufe 1 + M6 Scrub + M6 Motion an VCs + M6 Page Transitions + M6 kleine Presets umgesetzt** (20.–22.09.); M6-Rest: nur noch 3D (three.js); freie Timeline gestrichen |
+| 19-motion-authoring | Motion-Spec v2 im Editor: Modell/Bridge, Inspektor, Canvas (Play), Guardrails | **vollständig umgesetzt (20.–22.09.)** — M0–M5, M4 Stufe 1, M6 Scrub, Motion an VCs, Page Transitions, 8 kleine Presets, 3D-Preset (`webgl-scene`, three.js lazy + Poster, §2.26); freie Timeline gestrichen |
 | 20-site-settings-profile | Site-Profil im Editor: Kanal, Anzeige, Wechsel-Validierung, Profil-Gates | **umgesetzt** (18.09.) |
 | 21-klassen-am-dom | User-Klassen + Scope-Klasse am Wurzelelement (Anker-Selektoren treffen in Canvas und Bake) | **umgesetzt** (18.09.) |
 | 22-scoped-rekey-bake | ID-Map aus dem Layout-Splice, `nodeIdMap` pro Route, scoped-Remap in `styleRulesCss` | **umgesetzt** (18.09.) |
@@ -926,9 +976,10 @@ committet `55593f1`). Der Testlauf ist grün (**1270/2/141**, Log
    Ticket 04 Scheibe 3 (§2.17), Publish-Versionen (§2.18), Varianten (§2.19) und der
    Editor-Weg dazu (§2.22), Ticket 19 M6 Scrub (§2.20) sowie die Entscheidung, die
    Sections-Migration zu vertagen (§2.21) - alles committet. **Am 22.09. folgten** Motion an
-   VCs (§2.23), Page Transitions (§2.24) und die 8 kleinen Presets (§2.25, Ticket 19 M6) -
-   committet. Offen sind damit nur noch die vertagte Migration (Sections als VCs,
-   Multi-Widget-VCs) und der M6-Rest (nur 3D-Preset; freie Timeline gestrichen).
+   VCs (§2.23), Page Transitions (§2.24), die 8 kleinen Presets (§2.25, Ticket 19 M6) und
+   das 3D-Preset (§2.26, Ticket 19 M6) - committet. **Der Motion-Ausbau (Ticket 19) ist
+   damit vollständig**; offen sind nur noch die vertagte Migration (Sections als VCs,
+   Multi-Widget-VCs) und die E-Pakete aus dem Verbesserungsplan.
 2. **Vor dem E2-Cutover (Ticket 04):** Katalog-Namen in der Engine registrieren (Strangler) —
    **die strukturellen Typen sind jetzt registriert** (§2.9), **die Dublette `divider`/`embed`
    ist aufgeloest** (§2.15, Zwillings-Bruecke + Guard), **das Paritaets-Tor ist als CI-Blocker
@@ -1102,6 +1153,26 @@ Commit `git status` prüfen und nach Pfaden stagen, nie `git add -A`.
 - **Ein Klick in eine Instanz trifft eine Kopie:** Die Kopie-Id existiert nicht im Dokument;
   `inlineComponents.origins` (Kopie → Instanz + Teil) macht daraus die Instanz-Auswahl —
   ohne die Map wäre die Instanz nur über den Explorer erreichbar.
+
+**Neu am 22.09.:**
+
+- **Das 3D-Island hängt an der Fläche, nicht am Preset.** `webglSceneSurface`/`webglSceneEnabled`
+  (section-sdk) sind die einzige Regel; Renderer (`islandsForNode`), Registry (`Scene.tsx`)
+  und Guardrails lesen sie. Wer eine neue 3D-Fläche baut, muss sie dort anmelden — sonst
+  rendert das Canvas ohne Island oder das Island lädt three für nichts.
+- **three.js hat keine minifizierten Builds mehr** (seit r150) und `three.module.js` zieht
+  `three.core.js` als zweite Datei nach. Deshalb bundelt der Bake mit esbuild zur Bake-Zeit
+  (`renderer/src/webgl-vendor.ts`, Entry-Liste = was die Szene nutzt, 521 KB min). Ein
+  three-Update braucht kein neues Skript, nur `pnpm install`; das Bundle trägt die Version
+  im Banner (Test prüft die Größe).
+- **3D braucht den Dateiserver:** Previews mit `selfContained` haben keinen, das dynamische
+  `import()` schlägt still fehl und das Poster bleibt. Das ist gewollt (Baseline), kein Bug —
+  im Release und im Live-Modus lädt das Bundle.
+- **`data-intensity` kommt aus der Spec am Flächenknoten** (`webglSceneIntensity`), Default 5;
+  `enabled: false` lässt `data-island` weg, damit weder three noch das Island-Script laden.
+- **Zwei Panel-/Preset-Listen hängen an `motionPresets`:** Wer die Sektions-Listen erweitert,
+  zieht `packages/editor/test/panels.test.ts` und `packages/registry/test/catalog.test.ts`
+  nach (diesmal: Hero/Media + `webgl-scene`).
 
 ---
 

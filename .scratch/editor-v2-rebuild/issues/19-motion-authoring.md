@@ -1,6 +1,6 @@
 # Editor v2 - Motion-Authoring (Motion-Spec v2, Inspektor, Canvas)
 
-Status: **M0-M5 + M4 Stufe 1 + M6 Scrub + M6 Motion an VCs + M6 Page Transitions + M6 kleine Presets umgesetzt** (M0-M5 am 18.09., M4 Stufe 1 am 20.09., M6 Scrub am 21.09., Motion an VCs, Page Transitions und die 8 kleinen Presets am 22.09.) - Modell, Runtime/Bake, Inspektor, Play-Preview, Live-Modus, Guardrails, der Scrub-Regler, Motion an Komponenten, das `page-fade`-Seiten-Preset, Hover-/Ambient-/Preloader-/Modal-Presets stehen; vom M6-Ausbau bewusst offen: nur noch das 3D-Preset (three.js). Die freie Timeline ist auf Nutzerentscheidung (22.09.) gestrichen.
+Status: **vollstaendig umgesetzt** (M0-M5 am 18.09., M4 Stufe 1 am 20.09., M6 Scrub am 21.09., Motion an VCs, Page Transitions, die 8 kleinen Presets und das 3D-Preset am 22.09.) - Modell, Runtime/Bake, Inspektor, Play-Preview, Live-Modus, Guardrails, der Scrub-Regler, Motion an Komponenten, das `page-fade`-Seiten-Preset, Hover-/Ambient-/Preloader-/Modal-Presets und die `webgl-scene`-Szene (three.js, lazy, Poster) stehen. Die freie Timeline ist auf Nutzerentscheidung (22.09.) gestrichen.
 Herkunft: Papierpaket in `.scratch/motion-v2/` — `research.md`, `plan.md`, `plugin-analyse.md`, `preset-matrix.md`, `payload-spec.md`, `freeze-spec.md`, `adr-0006-entwurf.md` (18.09.2026)
 Abhaengig von: 07 (Dokument-Modell), 13 (Save-Pipeline/Bake), 02 (Inspektor), 03 (Live-Modus)
 Entscheidungen: ADR-0003 gilt weiter; F1-F7 vom 18.09.2026 (siehe unten)
@@ -225,6 +225,45 @@ v2-Dokument plus Editor-Authoring. Details: `.scratch/motion-v2/research.md`.
   `settings-browser`, `bake-jobs`/`auth` `bad port` —, alle in Isolation gruen; Lauf 1
   zwei Panel-Erwartungen), typecheck 0, lint 0.
 - **M6-Rest:** 3D-Preset (three.js direkt) — eigenes Ticket.
+
+## Umsetzung M6 3D-Preset (22.09.2026) - `webgl-scene` mit three.js
+
+- **Entscheidung (Nutzer, 22.09.):** three.js direkt, self-hosted, kein React im
+  Release; genau 1 Canvas/Seite, lazy, Poster.
+- **Das Island haengt an der Flaeche, nicht am Preset (section-sdk):**
+  `webglSceneSurface` (media `3d-scene`, hero `showcase-3d` ohne gefuellten
+  Visual-Slot), `webglSceneEnabled` (`enabled: false` schaltet zurueck aufs Poster),
+  `webglSceneIntensity` (Spec am Flaecheknoten, Default 5). Renderer (`islandsForNode`),
+  Registry (`Scene.tsx`) und Guardrails lesen dieselbe Regel.
+- **Renderpfad (Registry):** neue `WebglScene`-Komponente — Island-Host mit
+  `data-island`/`data-scene`/`data-intensity`, CSS-Poster (Akzent-Gradient) als
+  Baseline, Canvas als Overlay. `Media` (3d-scene) und `Hero` (showcase-3d ohne Slot)
+  nutzen sie; `props.scene` waehlt `orb` (Default) oder `wave`.
+- **Runtime (Renderer):** `renderIslandsScript` baut die Szene (three.js: WebGLRenderer,
+  Perspektivkamera, Wireframe-Icosahedron + Punktewolke bzw. Wellen-Punkteflaeche),
+  laedt das Bundle per dynamischem `import()` erst beim Heranscrollen
+  (IntersectionObserver, rootMargin 200 px), DPR <= 1.75, Pausieren ausserhalb des
+  Viewports/bei `document.hidden`, Maus-Parallaxe nur `(hover: hover)`, RM = genau ein
+  statisches Bild. Ohne three (kein WebGL, Preview ohne Dateiserver) bleibt das Poster.
+- **Vendor (Bake):** `webgl-vendor.ts` bundelt three zur Bake-Zeit mit esbuild
+  (three liefert seit r150 keine minifizierten Builds mehr und zieht `three.core.js`
+  als zweite Datei nach) — 521 KB minifiziert (three r186), Banner mit Version;
+  geschrieben nur fuer Seiten mit 3D-Flaeche (`assets/vendor/three.module.min.js`),
+  lazy geladen, kein `<script src>`-Tag. `three` + `esbuild` sind Dependencies des
+  Renderers.
+- **Guardrails:** hart max 1 3D-Szene/Seite (`scene-excess` in `hardGuardrailsForTree`,
+  zaehlt Flaechen, nicht Specs) und im Editor (`motion-scene-excess`); die Spec ohne
+  Flaeche meldet der Bake weich (`scene-without-surface`). Das Profil-Gate
+  (`profile-3d`, nur `showcase`) stand schon (M5).
+- **Sections:** `get_section.motionPresets` um `webgl-scene` erweitert (Hero, Media).
+- **Tests:** section-sdk +2 (Flaechen-/Schalter-Regel, Registry-Runtime `island`),
+  Renderer +3 (Island-Trigger/Schalter, Lazy-Import, Bake: three nur auf Szenenseiten,
+  Bundle-Budget), Registry +2 (Host/Poster/Intensity, Hero-Flaeche), Engine +1
+  (`scene-excess`), Editor +1 (`motion-scene-excess`), Panel-Liste nachgezogen.
+- **Zahlen:** gesamt **1437 gruen / 2 uebersprungen / 154 Dateien, EXIT 0**
+  (`.scratch/testlauf-22-09-m6-3d-2.log`; Lauf 1 hatte die Panel-Liste, nachgezogen),
+  typecheck 0, lint 0. Damit ist der M6-Ausbau vollstaendig (freie Timeline
+  gestrichen).
 
 ## Umfang (Phasen aus plan.md)
 

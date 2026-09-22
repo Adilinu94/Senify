@@ -62,6 +62,28 @@ Pro Seite zählt der erste Knoten; ein zweiter erzeugt den Review-Hinweis
 - Alle vier sind pro Seite einmal wirksam: ein zweites Vorkommen erzeugt keinen
   Fehler, aber auch keinen zweiten Effekt.
 
+## 3D-Szene (`webgl-scene`)
+
+`webgl-scene` hängt an der **Fläche**, nicht am Preset: die Media-Variante `3d-scene`
+oder die Hero-Variante `showcase-3d` (ohne gefüllten Visual-Slot) rendert das Canvas.
+Die Spec am selben Knoten stimmt nur Intensity (1–10) und Schalter ab — ohne Spec
+läuft die Fläche mit Intensity 5, mit `enabled: false` bleibt das statische Poster
+und es wird kein three.js geladen. Eine Spec ohne Fläche ist wirkungslos; der Bake
+meldet `scene-without-surface`.
+
+- **Lazy und self-hosted:** Der Bake schreibt `assets/vendor/three.module.min.js`
+  (gebündelt aus der installierten three-Version, keine CDN-Anfrage) nur für Seiten
+  mit 3D-Fläche. Das Island lädt sie erst, wenn die Fläche in die Nähe des Viewports
+  scrollt.
+- **Poster als Baseline:** Ohne JS, ohne WebGL oder unter `prefers-reduced-motion`
+  steht ein statisches CSS-Poster (Akzent-Gradient); die Szene erscheint darüber.
+  Unter Reduced Motion rendert das Island genau ein Bild, ohne Loop und Zeiger.
+- **Varianten über `props.scene`:** `orb` (Default, schwebende Wireframe-Kugel mit
+  Punktewolke) und `wave` (Wellen-Punktefläche). Farben kommen aus dem Theme
+  (`--accent`, `--fg-muted`).
+- **Profil:** 3D gibt es nur im `showcase`-Profil (`profile-3d`), maximal eine Szene
+  pro Seite (`scene-excess`).
+
 ## Werkzeuge
 
 - `set_motion` — setzt die Spec eines Knotens (`pageId`, `nodeId`, `baseDraftVersion`, `preset`, …).
@@ -86,6 +108,7 @@ Verstöße hart. Default ist `standard`.
 
 - **max 1 Pin-Preset pro Seite** (`scrub-pin`, `sticky-stack`, `horizontal-pan`).
 - **max 2 Parallax-Layer pro Viewport.**
+- **max 1 3D-Szene pro Seite** (`webgl-scene`-Fläche; nur `showcase`-Profil).
 - **Reduced-Motion-Variante vorhanden** (Default `static`).
 - **Kein Above-fold-`opacity: 0` ohne Fallback** — Hiding-Presets bekommen automatisch
   den Pending-Guard (noscript + 1,6-s-Failsafe), Hero-Texte trotzdem sparsam animieren.

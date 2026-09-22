@@ -13,6 +13,9 @@
 > Verankerung als **Ticket 19** (`issues/19-motion-authoring.md`) + ADR-0006.
 > **Stand 18.09.:** M0–M2 umgesetzt (Modell/Datenpfad + self-hosted Runtime/Bake
 > mit `motion-data` v2, FOUC-Pending und Freeze-Kill-Switch).
+> **Stand 22.09.:** M0–M5, M4 Stufe 1 und der komplette M6-Ausbau umgesetzt
+> (Scrub, Motion an VCs, Page Transitions, 8 kleine Presets, 3D `webgl-scene`
+> mit three.js); die freie Timeline ist gestrichen. Ticket 19 ist vollstaendig.
 
 ## 1. Zielbild
 
@@ -228,7 +231,10 @@ bleibt M6.
   `page-fade` = `document`-Runtime: Head-CSS `@view-transition`, Intensity-Dauer,
   RM-Gate; kein Seiten-Skript)
 - 3D-Preset (WebGL, genau 1 Canvas/Seite) — v1 vorbereitet. **Runtime-Entscheidung
-  (22.09.): three.js direkt** (self-hosted, kein React im Release); Umsetzung offen.
+  (22.09.): three.js direkt** (self-hosted, kein React im Release). ✔ (22.09.,
+  `webgl-scene` = Island an der Fläche (media `3d-scene`, hero `showcase-3d`), three.js
+  als Bake-Bundle lazy geladen, Poster-Baseline, RM statisch, `scene-excess` hart;
+  Bundle 521 KB / three r186)
 - Motion an VCs/Templates (Phase 4); Site-Profile (Lenis, Intensity-Cap). ✔ (22.09.)
 - Kleine Presets (D/E/F) ✔ (22.09.): `hover-lift`, `ambient-float`, `grain` als
   Head-CSS mit `data-motion`; `magnetic-button`, `tilt-card`, `cursor-glow` im

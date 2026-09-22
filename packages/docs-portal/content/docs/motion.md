@@ -69,6 +69,24 @@ Seite zählt der erste Knoten, ein zweiter erzeugt den Review-Hinweis `document-
 - Alle vier sind pro Seite einmal wirksam: ein zweites Vorkommen erzeugt keinen
   Fehler, aber auch keinen zweiten Effekt.
 
+## 3D-Szene
+
+`webgl-scene` hängt an der Fläche, nicht am Preset: die Media-Variante `3d-scene`
+oder die Hero-Variante `showcase-3d` (ohne gefüllten Visual-Slot) rendert das Canvas.
+Die Spec am selben Knoten stimmt Intensity und Schalter ab; ohne Spec läuft die
+Fläche mit Intensity 5, mit `enabled: false` bleibt das Poster und es wird kein
+three.js geladen. Eine Spec ohne Fläche ist wirkungslos (Bake-Hinweis
+`scene-without-surface`).
+
+- **Lazy und self-hosted:** Der Bake schreibt `assets/vendor/three.module.min.js`
+  (gebündelt aus der installierten three-Version, keine CDN-Anfrage) nur für Seiten
+  mit 3D-Fläche; das Island lädt sie erst beim Heranscrollen.
+- **Poster als Baseline:** Ohne JS, ohne WebGL oder unter `prefers-reduced-motion`
+  steht ein statisches CSS-Poster; unter Reduced Motion rendert das Island genau
+  ein Bild, ohne Loop und Zeiger.
+- **Varianten (`props.scene`):** `orb` (Default) und `wave`; Farben aus dem Theme.
+- **Profil:** nur `showcase`, maximal eine Szene pro Seite.
+
 ## Site-Profile
 
 | Profil | Intensity | Lenis | Pins | 3D | Preset-Klassen |
@@ -83,9 +101,10 @@ validiert: Verstöße werden gelistet, der Wechsel passiert erst nach Bereinigun
 
 ## Guardrails
 
-- **Hart:** max 1 Pin-Preset pro Seite, max 2 Parallax-Layer pro Viewport, Reduced-Motion-
-  Variante vorhanden, kein Above-fold-`opacity: 0` ohne Fallback (der Pending-Guard aus
-  noscript + 1,6-s-Failsafe deckt Hiding-Presets ab).
+- **Hart:** max 1 Pin-Preset pro Seite, max 2 Parallax-Layer pro Viewport, max 1
+  3D-Szene pro Seite (nur `showcase`), Reduced-Motion-Variante vorhanden, kein
+  Above-fold-`opacity: 0` ohne Fallback (der Pending-Guard aus noscript +
+  1,6-s-Failsafe deckt Hiding-Presets ab).
 - **Weich (Review-Hinweise):** Reveals < 800 ms, ein Char-Split pro Seite, Preloader ≤ 2,5 s.
 
 ## Workflow
