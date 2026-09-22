@@ -619,6 +619,27 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
   Gesamtlauf 1372 gruen / 2 uebersprungen / 151 Dateien (ein bekannter Ephemeral-Port-Flake
   `editor-browser`, in Isolation gruen), typecheck 0, lint 0.
 
+### 2.18 Publish-Versionen site-weit (21.09., uncommittet): Drift blockiert das Release
+
+- **Entscheidung (Nutzer, 21.09.):** Der Pin wird ein Vertrag — der Release-Publish bricht ab,
+  solange eine Instanz eine aeltere Definitionsversion pinnt (site-weit ueber alle Seiten);
+  kein stiller Fallback auf die neuere Definition. (Die Alternative „alte Versionen
+  speichern, Bake gegen den Pin rendern" wurde verworfen — der Release-Snapshot friert die
+  Seite weiterhin ein, der Pin ist das Signal.)
+- **Check (`engine/src/checks.ts`):** `checkComponentDrift(pages, severity)` laeuft ueber
+  `componentDrift` (section-sdk) — `stage: "publish"` hart, `stage: "submit"` weich (der
+  Review soll den Drift sehen, bevor er aufgeloest wird). Die Meldung nennt Instanz, Pin und
+  aktuelle Version, die Empfehlung den Weg (`update_component_instances` bzw. das
+  Kontextmenue „Instanzen aktualisieren").
+- **Wirkung:** `publishRelease` bricht mit `guardrail`/422 ab (`Hard checks failed during
+  publish: Instance … pins component version 1, but the definition is at version 2`);
+  `rebakeActiveRelease` bleibt bewusst unberuehrt (Content-Pfad, kein Release) — als Grenze
+  dokumentiert.
+- **Tests:** `guardrails.test.ts` +1 (publish hart, submit weich, ohne Drift frei),
+  `lifecycle.test.ts` +1 (HTTP: Publish 422 → Instanz-Update → 201). **Zahlen:** Gesamtlauf
+  **1375 gruen / 2 uebersprungen / 151 Dateien, EXIT 0** (Log
+  `.scratch/testlauf-21-09-t04publish.log`), typecheck 0, lint 0.
+
 ---
 
 ## 3. Phasenstand

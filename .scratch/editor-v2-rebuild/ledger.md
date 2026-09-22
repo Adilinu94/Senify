@@ -114,6 +114,16 @@ gehoeren bewusst **nicht** in die Undo-History (Webstudio-Muster). Hinweis: `doc
 wurde parallel um „Teil II" (§10–§16: Referenz-Transfer, Anti-Slop, Editor-Tiefe) erweitert —
 beide Teile koexistieren; nichts ueberschrieben. Kein Produktcode geaendert.
 
+**Publish-Versionen site-weit (21.09., umgesetzt): Drift blockiert das Release.** Entscheidung
+(Nutzer): Der Pin wird ein Vertrag — der Release-Publish bricht ab, solange eine Instanz eine
+aeltere Definitionsversion pinnt (site-weit ueber alle Seiten); kein stiller Fallback auf die
+neuere Definition. `checkComponentDrift(pages, severity)` (`engine/src/checks.ts`) laeuft ueber
+`componentDrift` (section-sdk): publish hart (422 `guardrail`, Meldung mit Instanz/Pin/Version
+und dem Weg `update_component_instances`), submit weich. `rebakeActiveRelease` bleibt bewusst
+unberuehrt (Content-Pfad). Tests: `guardrails.test.ts` +1, `lifecycle.test.ts` +1 (422 → Update
+→ 201). Zahlen: gesamt **1375 gruen / 2 uebersprungen / 151 Dateien, EXIT 0**
+(`.scratch/testlauf-21-09-t04publish.log`), typecheck 0, lint 0.
+
 **Ticket 04 Scheibe 3 (21.09., umgesetzt): Styles je Instanz + Geraetestufen fuer Overrides.**
 Der Override der Instanz ist jetzt ein echter Stil-Schreibvorgang: eine scoped Rule auf der
 Instanz folgt ihrer Root-Kopie, und Override-Props tragen Geraetestufen.

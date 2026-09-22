@@ -1,7 +1,25 @@
 # Editor v2 - Visual Components und Sections-Migration (Phase 4)
 
-Status: **Scheibe 1 erledigt (20.09.)**, **Scheibe 2 Teil 1 erledigt (20.09., committet `7f7ccd6`/`2c64aaf`)**, **Scheibe 2 Teil 2 erledigt (21.09.)**, **MCP-Fassade erledigt (21.09.)**, **Scheibe 2 Teil 3 erledigt (21.09.)**, **Scheibe 3 erledigt (21.09.)** — Component-Kern, Engine-Aufnahme, Bake-Rekey/Multi-Instanz-Remap, Overrides (Modell, Editor-Op, Inspektor), Komponenten-Tab und Kontextmenü, MCP-Tools (`list_components`, `get_component`, `set_component_override`), Versionen mit Drift und Slot-Regeln (`allowedTypes`/`max`), Styles je Instanz mit Geräteebenen für Overrides. Offen: Sections als VCs (Punkt 2), Multi-Widget-VCs (Punkt 3), Publish-Versionen site-weit, Varianten.
+Status: **Scheibe 1 erledigt (20.09.)**, **Scheibe 2 Teil 1 erledigt (20.09., committet `7f7ccd6`/`2c64aaf`)**, **Scheibe 2 Teil 2 erledigt (21.09.)**, **MCP-Fassade erledigt (21.09.)**, **Scheibe 2 Teil 3 erledigt (21.09.)**, **Scheibe 3 erledigt (21.09.)**, **Publish-Versionen site-weit erledigt (21.09.)** — Component-Kern, Engine-Aufnahme, Bake-Rekey/Multi-Instanz-Remap, Overrides (Modell, Editor-Op, Inspektor), Komponenten-Tab und Kontextmenü, MCP-Tools (`list_components`, `get_component`, `set_component_override`), Versionen mit Drift und Slot-Regeln (`allowedTypes`/`max`), Styles je Instanz mit Geräteebenen für Overrides, Drift als harter Publish-Blocker. Offen: Sections als VCs (Punkt 2), Multi-Widget-VCs (Punkt 3), Varianten.
 Abhaengig von: 03-editor-chrome
+
+## Ergebnis Publish-Versionen site-weit (21.09., umgesetzt) - Drift blockiert das Release
+
+Entscheidung (Nutzer): Der Pin wird ein Vertrag. Der Release-Publish bricht ab, solange eine
+Instanz eine ältere Definitionsversion pinnt — site-weit über alle Seiten, kein stiller
+Fallback auf die neuere Definition.
+
+- **Check (`engine/src/checks.ts`):** `checkComponentDrift(pages, severity)` liest
+  `componentDrift` (section-sdk); `stage: "publish"` hart, `stage: "submit"` weich (der Review
+  soll den Drift sehen). Die Meldung nennt Instanz, Pin und aktuelle Version, die Empfehlung
+  den Weg (`update_component_instances` / Kontextmenü „Instanzen aktualisieren").
+- **Wirkung:** `publishRelease` bricht mit `guardrail`/422 ab; `rebakeActiveRelease` bleibt
+  bewusst unberührt (Content-Pfad ohne Release — als Grenze dokumentiert).
+- **Tests:** `guardrails.test.ts` +1 (publish hart, submit weich, ohne Drift frei),
+  `lifecycle.test.ts` +1 (HTTP 422 → Instanz-Update → 201).
+
+**Zahlen:** Gesamtlauf 1375 grün / 2 übersprungen / 151 Dateien, EXIT 0
+(`.scratch/testlauf-21-09-t04publish.log`), typecheck 0, lint 0.
 
 ## Ergebnis Scheibe 3 (21.09., umgesetzt) - Styles je Instanz + Geraetestufen fuer Overrides
 
