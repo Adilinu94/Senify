@@ -1,8 +1,9 @@
 # Editor v2 - Motion-Authoring (Motion-Spec v2, Inspektor, Canvas)
 
-Status: **M0-M5 + M4 Stufe 1 umgesetzt** (M0-M5 am 18.09., M4 Stufe 1 am 20.09.) -
-Modell, Runtime/Bake, Inspektor, Play-Preview, Live-Modus und Guardrails stehen; offen
-bleibt nur die optionale Scrub-Stufe (M6).
+Status: **M0-M5 + M4 Stufe 1 + M6 Scrub umgesetzt** (M0-M5 am 18.09., M4 Stufe 1 am 20.09.,
+M6 Scrub am 21.09.) - Modell, Runtime/Bake, Inspektor, Play-Preview, Live-Modus, Guardrails
+und der Scrub-Regler stehen; vom M6-Ausbau bewusst offen: freie Timeline, Page Transitions,
+3D-Preset, Motion an VCs/Templates (je eigenes Ticket).
 Herkunft: Papierpaket in `.scratch/motion-v2/` — `research.md`, `plan.md`, `plugin-analyse.md`, `preset-matrix.md`, `payload-spec.md`, `freeze-spec.md`, `adr-0006-entwurf.md` (18.09.2026)
 Abhaengig von: 07 (Dokument-Modell), 13 (Save-Pipeline/Bake), 02 (Inspektor), 03 (Live-Modus)
 Entscheidungen: ADR-0003 gilt weiter; F1-F7 vom 18.09.2026 (siehe unten)
@@ -132,6 +133,21 @@ v2-Dokument plus Editor-Authoring. Details: `.scratch/motion-v2/research.md`.
 - **Doku:** `senify-motion`-Skillpaket + Portal-Guide (siehe M3), ADR-0006 aktualisiert.
 - **Tests:** Engine-Guardrails (+2), Renderer-Motion (+1).
 - **Zahlen:** `pnpm test` 1155 gruen / 2 uebersprungen / 130 Dateien, typecheck 0, lint 0.
+
+## Umsetzung M6 Scrub (21.09.2026) - Scrub-Regler im Live-Modus
+
+- **Kern:** Der Live-Modus zeigt die echte Seite mit der Release-Runtime; ein Regler im Fuss
+  (`input[data-action="scrub"]`) faehrt ihre Scroll-Position an — ScrollTrigger reagiert auf
+  das ausgeloeste Scroll-Event, Pin-/Scrub-Presets sind ohne Mausrad pruefbar. Der Rueckweg
+  fuehrt den Regler nach (Scroll-Listener je Frame in `bindFrame`); im Design-Modus ist er aus.
+- **Mathematik:** `editor/src/canvas/scrub.ts` (`scrubOffset`/`scrubProgress`, begrenzt,
+  NaN-fest); `dom.ts` kennt `documentElement`/`scrollHeight`/`clientHeight` (optional).
+- **Tests:** `scrub.test.ts` +2; Browser-Rundlauf (Regler auf 100 % -> `scrollTop > 0`,
+  Rueckweg auf 0, Design disabled).
+- **Zahlen:** gesamt 1386 gruen / 2 uebersprungen / 152 Dateien, EXIT 0
+  (`.scratch/testlauf-21-09-m6scrub.log`), typecheck 0, lint 0.
+- **M6-Rest:** freie Timeline, Page Transitions, 3D-Preset, Motion an VCs/Templates — je
+  eigenes Ticket.
 
 ## Umfang (Phasen aus plan.md)
 

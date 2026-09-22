@@ -114,6 +114,17 @@ gehoeren bewusst **nicht** in die Undo-History (Webstudio-Muster). Hinweis: `doc
 wurde parallel um „Teil II" (§10–§16: Referenz-Transfer, Anti-Slop, Editor-Tiefe) erweitert —
 beide Teile koexistieren; nichts ueberschrieben. Kein Produktcode geaendert.
 
+**Ticket 19 M6 Scrub (21.09., umgesetzt): Scrub-Regler im Live-Modus.** Der Live-Modus zeigt
+die echte Seite mit der Release-Runtime; ein Regler im Fuss (`input[data-action="scrub"]`)
+faehrt ihre Scroll-Position an (ScrollTrigger reagiert auf das Scroll-Event), manuelles
+Scrollen fuehrt ihn zurueck; im Design ist er aus. Mathematik pur in
+`editor/src/canvas/scrub.ts` (`scrubOffset`/`scrubProgress`), Scroll-Listener je Frame in
+`bindFrame`, `dom.ts` kennt `documentElement`/`scrollHeight`/`clientHeight` (optional). Tests:
+`scrub.test.ts` +2, Browser-Rundlauf (100 % -> scrollTop > 0, Rueckweg, Design disabled).
+Zahlen: gesamt **1386 gruen / 2 uebersprungen / 152 Dateien, EXIT 0**
+(`.scratch/testlauf-21-09-m6scrub.log`), typecheck 0, lint 0. M6-Rest (freie Timeline,
+Page Transitions, 3D, Motion an VCs) bleibt bewusst offen.
+
 **Varianten (21.09., umgesetzt): kombinierbare Property-Sets.** Entscheidung (Nutzer): die
 Definition erklaert benannte Varianten (je ein Props-Overlay auf ihre Teile), die Instanz
 aktiviert beliebig viele gleichzeitig — keine Achsen-Matrix. Modell (`section-sdk`):

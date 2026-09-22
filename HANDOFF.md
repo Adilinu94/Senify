@@ -672,6 +672,27 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
   (`updateNodeProps` auf die Definition, Agenten-Weg); der Editor aktiviert sie nur. Ein
   Editor-Menue zum Anlegen bleibt offen.
 
+### 2.20 Ticket 19 M6 (21.09., uncommittet): Scrub-Regler im Live-Modus
+
+- **Kern:** Der Live-Modus zeigt die echte Seite mit der Release-Runtime; ein Regler im Fuss
+  faehrt jetzt ihre Scroll-Position an — Pin-/Scrub-Presets sind ohne Mausrad pruefbar
+  (ScrollTrigger reagiert auf das ausgeloeste Scroll-Event). Der Rueckweg fuehrt den Regler
+  nach: Scrollen im Frame schreibt den Fortschritt zurueck.
+- **Mathematik (`editor/src/canvas/scrub.ts`, neu):** `scrubOffset(progress, maxScroll)` und
+  `scrubProgress(scrollTop, maxScroll)` — begrenzt, NaN-fest, ohne DOM.
+- **Canvas (`canvas.ts`):** Regler `input[data-action="scrub"]` in der Fuss-Gruppe, nur im
+  Live-Modus aktiv (Design disabled); `bindFrame` haengt den Scroll-Listener an jedes
+  Frame-Dokument. `dom.ts` kennt dafuer `documentElement`/`scrollHeight`/`clientHeight`
+  (optional, Test-Doubles bleiben gueltig). Styles in `canvas/styles.ts` (`--ed-ink-muted`,
+  `--ed-signal-accent`).
+- **Tests:** `editor/test/canvas/scrub.test.ts` +2 (beide Richtungen, Grenzen);
+  Browser-Rundlauf: Live-Modus → Regler auf 100 % → `scrollTop > 0`, manuelles Scrollen
+  fuehrt den Regler auf 0, im Design ist er aus. **Zahlen:** Gesamtlauf **1386 gruen /
+  2 uebersprungen / 152 Dateien, EXIT 0** (Log `.scratch/testlauf-21-09-m6scrub.log`),
+  typecheck 0, lint 0.
+- **M6-Rest (bewusst offen, je eigenes Ticket):** freie Timeline, Page Transitions,
+  3D-Preset, Motion an VCs/Templates.
+
 ---
 
 ## 3. Phasenstand
@@ -751,7 +772,7 @@ Alle unter `.scratch/editor-v2-rebuild/issues/`. Stand:
 | 16-marker-overlay-portal | Marker-Overlay im Portal (Alt-Palette beenden) | **erledigt (20.09.)** — Portal-DOM, Token-Doppelkante, Geometrie-Tests |
 | 17-releases-cutover | Publish über `POST /api/releases`, Paritäts-Tor als CI-Blocker | **erledigt (20.09./21.09.)** — O9-Vorhang, Route-Publish, Paritäts-Tor gegen das Release, Rollback, `pnpm verify:parity` + CI-Workflow; Funde: `variant`, Font-Auslieferung |
 | 18-agent-style-gate | Wert-Ebene-Fence als Tests (`authoredBy`) | **erledigt (19.09.)** — Author-Resolver, Idempotency-Keys, Fence; `idempotentHint` bleibt opt-in |
-| 19-motion-authoring | Motion-Spec v2 im Editor: Modell/Bridge, Inspektor, Canvas (Play), Guardrails | **M0–M5 + M4 Stufe 1 umgesetzt** (20.09.); offen nur M6 (Scrub) |
+| 19-motion-authoring | Motion-Spec v2 im Editor: Modell/Bridge, Inspektor, Canvas (Play), Guardrails | **M0–M5 + M4 Stufe 1 + M6 Scrub umgesetzt** (20./21.09.); M6-Rest (freie Timeline, Page Transitions, 3D, Motion an VCs) bewusst offen |
 | 20-site-settings-profile | Site-Profil im Editor: Kanal, Anzeige, Wechsel-Validierung, Profil-Gates | **umgesetzt** (18.09.) |
 | 21-klassen-am-dom | User-Klassen + Scope-Klasse am Wurzelelement (Anker-Selektoren treffen in Canvas und Bake) | **umgesetzt** (18.09.) |
 | 22-scoped-rekey-bake | ID-Map aus dem Layout-Splice, `nodeIdMap` pro Route, scoped-Remap in `styleRulesCss` | **umgesetzt** (18.09.) |
