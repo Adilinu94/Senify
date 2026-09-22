@@ -114,6 +114,22 @@ gehoeren bewusst **nicht** in die Undo-History (Webstudio-Muster). Hinweis: `doc
 wurde parallel um „Teil II" (§10–§16: Referenz-Transfer, Anti-Slop, Editor-Tiefe) erweitert —
 beide Teile koexistieren; nichts ueberschrieben. Kein Produktcode geaendert.
 
+**Ticket 19 M6 Page Transitions (22.09., umgesetzt): `page-fade` als Seiten-Preset.**
+Neuer Runtime-Wert `document` in der Registry: `page-fade` liegt wie jede Spec an einem
+Knoten, wirkt aber auf die ganze Seite. Der Bake sammelt sie pro Seite
+(`pageTransitionForTree`, erster Knoten gewinnt, Duplikat -> Warnung `document-excess`) und
+schreibt einmal Head-CSS (`pageTransitionCss`): `@view-transition { navigation: auto; }`,
+Dauer 0,3–0,5 s nach Intensity, RM-Gate (`static` -> `animation: none !important`, `fade`
+-> Cross-Fade 0,2 s, `off` -> ohne Gate). `motionConfigsForTree` ueberspringt `document`
+ohne Warnung; `Page.astro` rendert das Block-CSS als Inline-`<style>` nur auf Seiten mit
+Preset. Beide Seiten brauchen das Opt-in (sonst kein Cross-Document-View-Transition),
+ohne Support degradiert es still. Tests: section-sdk (Runtime-Liste, `page-fade` =
+`document`, kein Pending), Renderer +3 (Sammeln/Skip, Duplikat/disabled, CSS-Gates), Bake
++1 (Head-CSS ohne `motion-data`/`page.js`). Zahlen: gesamt **1418 gruen / 2 uebersprungen /
+154 Dateien, EXIT 0** (`.scratch/testlauf-22-09-pagetransitions.log`; die Differenz zum
+Vorlauf enthaelt Fremdstrang-Tests der Bildgenerierung, eigene +4), typecheck 0, lint 0.
+M6-Rest: freie Timeline, 3D.
+
 **Motion an VCs (22.09., umgesetzt): Motion an Komponenten ueberlebt das Inlining.**
 Die Motion der Instanz ist die Entscheidung der Instanz und landet auf der Wurzel-Kopie;
 ohne sie gilt der Default der Definition (erst das Wurzel-Teil, dann der Definitions-Knoten).

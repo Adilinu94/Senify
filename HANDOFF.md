@@ -692,7 +692,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
   typecheck 0, lint 0.
 - **M6-Rest (21.09. bewusst offen, je eigenes Ticket):** freie Timeline, Page Transitions,
   3D-Preset, Motion an VCs/Templates. **Motion an VCs/Templates ist am 22.09. umgesetzt**
-  (§2.23); offen bleiben freie Timeline, Page Transitions, 3D-Preset.
+  (§2.23), **Page Transitions am 22.09.** (§2.24); offen bleiben freie Timeline, 3D-Preset.
 
 ### 2.21 Entscheidung (21.09.): Sections-Migration vertagt
 
@@ -702,7 +702,8 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
   Styles je Instanz, MCP) ist vollständig; die kuratierten Sections rendern weiter ihre
   React-Komponenten, die Widget-Primitive sind der zweite, bakebare Pfad.
 - **Damit bewusst offen:** Sections als VCs (Punkt 2), Multi-Widget-VCs (Punkt 3),
-  M6-Rest (freie Timeline, Page Transitions, 3D; Motion an VCs seit 22.09. erledigt, §2.23).
+  M6-Rest (freie Timeline, 3D; Motion an VCs seit 22.09. erledigt, §2.23, Page Transitions
+  seit 22.09., §2.24).
 
 ### 2.22 Varianten im Editor (21.09., umgesetzt) - extrahieren, umbenennen, loeschen
 
@@ -747,8 +748,32 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
 - **Zahlen:** Gesamtlauf **1408 grün / 2 übersprungen / 153 Dateien, EXIT 0**
   (Log `.scratch/testlauf-22-09-motion-vcs-2.log`; der erste Lauf hatte den bekannten
   `canvas-view-browser`-Flake, in Isolation grün), typecheck 0, lint 0.
-- **M6-Rest (bewusst offen, je eigenes Ticket):** freie Timeline, Page Transitions,
-  3D-Preset.
+- **M6-Rest (bewusst offen, je eigenes Ticket):** freie Timeline, 3D-Preset.
+
+### 2.24 Ticket 19 M6 (22.09., umgesetzt): Page Transitions - `page-fade` als Seiten-Preset
+
+- **Kern:** Neuer Registry-Runtime-Wert `document`: `page-fade` liegt wie jede Spec an einem
+  Knoten (typisch Seiten-Root oder Layout), wirkt aber auf die ganze Seite. Der Bake sammelt
+  sie pro Seite (`pageTransitionForTree`, `renderer/src/motion.ts`; erster Knoten gewinnt,
+  ein zweiter erzeugt die Warnung `document-excess`) und schreibt einmal Head-CSS
+  (`pageTransitionCss`): `@view-transition { navigation: auto; }`, Dauer 0,3–0,5 s nach
+  Intensity, `animation-timing-function: ease` und das RM-Gate — `static` schaltet ab
+  (`animation: none !important`), `fade` kürzt den Cross-Fade auf 0,2 s, `off` spielt ohne
+  Gate. Kein Seiten-Skript, kein Per-Knoten-Eintrag; `motionConfigsForTree` überspringt
+  `document` ohne Warnung.
+- **Template:** `Page.astro` rendert das Block-CSS als Inline-`<style>` im Head, nur auf
+  Seiten mit Preset (`pageTransition` im Manifest, sonst `null`); `page.js`/`motion-data`
+  bleiben aus, wenn die Seite sonst keine Motion trägt.
+- **Semantik:** Cross-Document-View-Transitions brauchen das Opt-in auf beiden Seiten —
+  das Preset gehört auf jede Seite oder in das Layout, das sie umschließt; ohne Support
+  (Firefox) degradiert es still zum normalen Wechsel.
+- **Tests:** section-sdk (Runtime-Liste, `page-fade` = `document`, kein Pending), Renderer
+  +3 (Sammeln/Skip, Duplikat/disabled, CSS-Gates), Bake +1 (Head-CSS ohne `motion-data`/
+  `page.js`); `motion-presets` unverändert (`document` ist kein Skript-Preset).
+- **Zahlen:** Gesamtlauf **1418 grün / 2 übersprungen / 154 Dateien, EXIT 0**
+  (Log `.scratch/testlauf-22-09-pagetransitions.log`; die Differenz zum Vorlauf enthält
+  Fremdstrang-Tests der Bildgenerierung, eigene +4), typecheck 0, lint 0.
+- **M6-Rest (bewusst offen, je eigenes Ticket):** freie Timeline, 3D-Preset.
 
 ---
 
@@ -764,7 +789,7 @@ Debug-Dateien in `.scratch/refs/`). Wer `git status` liest, sieht genau diese Re
 | — | 18.09.: Ticket 13 Rest (Bake + Klassen-Transport + scoped-Rekey) + Klassen am DOM + Motion M0–M5 + Ticket 20; 19.09.: Slot-/Collection-Transport verifiziert | ✅ | `issues/13`, `issues/19`–`22`, `docs/adr/0006`, `.scratch/motion-v2/` |
 | 2 | Style-Rule-Registry (Server ✅), Wert-Grammatik ✅, Editor-Modell ✅, Inspektor ✅ (20.09.) | ✅ | `issues/07`, `10`, `13`, `02` |
 | 3 | Chrome: Explorer/Kontextmenü/Spotlight ✅, DnD ✅, Design/Live ✅, Inline-Edit ✅, Undo-UI ✅, Keyboard ✅, Drag + Tabs ✅ (20.09.) | ✅ | `issues/03` + 12/16 |
-| 4 | Visual Components: Scheibe 1 (Component-Kern) ✅ + Scheibe 2 Teil 1 (speicherbar, Bake-Rekey, Overrides) ✅ (20.09.) + Teil 2 (Komponenten-Tab, Kontextmenü) ✅ (21.09.) + Scheibe 3 (Styles je Instanz, Gerätestufen) ✅ (21.09.) + Publish-Versionen ✅ + Varianten ✅ + Varianten im Editor ✅ (21.09.) + Motion an VCs ✅ (22.09.); Sections-Migration bewusst vertagt (21.09.) | 🔄 | `issues/04`, `issues/19` |
+| 4 | Visual Components: Scheibe 1 (Component-Kern) ✅ + Scheibe 2 Teil 1 (speicherbar, Bake-Rekey, Overrides) ✅ (20.09.) + Teil 2 (Komponenten-Tab, Kontextmenü) ✅ (21.09.) + Scheibe 3 (Styles je Instanz, Gerätestufen) ✅ (21.09.) + Publish-Versionen ✅ + Varianten ✅ + Varianten im Editor ✅ (21.09.) + Motion an VCs ✅ (22.09.) + Page Transitions ✅ (22.09.); Sections-Migration bewusst vertagt (21.09.) | 🔄 | `issues/04`, `issues/19` |
 | 5 | SSE-Kanal, Live-Mitverfolgung, Leistungsbudget | ✅ (21.09.) | `issues/05`, `pruef-t05-performance.mjs` |
 
 ---
@@ -829,7 +854,7 @@ Alle unter `.scratch/editor-v2-rebuild/issues/`. Stand:
 | 16-marker-overlay-portal | Marker-Overlay im Portal (Alt-Palette beenden) | **erledigt (20.09.)** — Portal-DOM, Token-Doppelkante, Geometrie-Tests |
 | 17-releases-cutover | Publish über `POST /api/releases`, Paritäts-Tor als CI-Blocker | **erledigt (20.09./21.09.)** — O9-Vorhang, Route-Publish, Paritäts-Tor gegen das Release, Rollback, `pnpm verify:parity` + CI-Workflow; Funde: `variant`, Font-Auslieferung |
 | 18-agent-style-gate | Wert-Ebene-Fence als Tests (`authoredBy`) | **erledigt (19.09.)** — Author-Resolver, Idempotency-Keys, Fence; `idempotentHint` bleibt opt-in |
-| 19-motion-authoring | Motion-Spec v2 im Editor: Modell/Bridge, Inspektor, Canvas (Play), Guardrails | **M0–M5 + M4 Stufe 1 + M6 Scrub + M6 Motion an VCs umgesetzt** (20.–22.09.); M6-Rest (freie Timeline, Page Transitions, 3D) bewusst offen |
+| 19-motion-authoring | Motion-Spec v2 im Editor: Modell/Bridge, Inspektor, Canvas (Play), Guardrails | **M0–M5 + M4 Stufe 1 + M6 Scrub + M6 Motion an VCs + M6 Page Transitions umgesetzt** (20.–22.09.); M6-Rest (freie Timeline, 3D) bewusst offen |
 | 20-site-settings-profile | Site-Profil im Editor: Kanal, Anzeige, Wechsel-Validierung, Profil-Gates | **umgesetzt** (18.09.) |
 | 21-klassen-am-dom | User-Klassen + Scope-Klasse am Wurzelelement (Anker-Selektoren treffen in Canvas und Bake) | **umgesetzt** (18.09.) |
 | 22-scoped-rekey-bake | ID-Map aus dem Layout-Splice, `nodeIdMap` pro Route, scoped-Remap in `styleRulesCss` | **umgesetzt** (18.09.) |
@@ -866,10 +891,10 @@ committet `55593f1`). Der Testlauf ist grün (**1270/2/141**, Log
    §2.14. Damit sind die Phasen 2, 3 und 5 fachlich abgeschlossen. **Am 21.09. folgten**
    Ticket 04 Scheibe 3 (§2.17), Publish-Versionen (§2.18), Varianten (§2.19) und der
    Editor-Weg dazu (§2.22), Ticket 19 M6 Scrub (§2.20) sowie die Entscheidung, die
-   Sections-Migration zu vertagen (§2.21) - alles committet. **Am 22.09. folgte** Motion an
-   VCs (§2.23, Ticket 19 M6) - committet. Offen sind damit nur noch die vertagte Migration
-   (Sections als VCs, Multi-Widget-VCs) und der M6-Rest (freie Timeline, Page Transitions,
-   3D-Preset).
+   Sections-Migration zu vertagen (§2.21) - alles committet. **Am 22.09. folgten** Motion an
+   VCs (§2.23) und Page Transitions (§2.24, Ticket 19 M6) - committet. Offen sind damit nur
+   noch die vertagte Migration (Sections als VCs, Multi-Widget-VCs) und der M6-Rest (freie
+   Timeline, 3D-Preset).
 2. **Vor dem E2-Cutover (Ticket 04):** Katalog-Namen in der Engine registrieren (Strangler) —
    **die strukturellen Typen sind jetzt registriert** (§2.9), **die Dublette `divider`/`embed`
    ist aufgeloest** (§2.15, Zwillings-Bruecke + Guard), **das Paritaets-Tor ist als CI-Blocker

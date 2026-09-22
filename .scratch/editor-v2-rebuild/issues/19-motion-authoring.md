@@ -1,10 +1,10 @@
 # Editor v2 - Motion-Authoring (Motion-Spec v2, Inspektor, Canvas)
 
-Status: **M0-M5 + M4 Stufe 1 + M6 Scrub + M6 Motion an VCs umgesetzt** (M0-M5 am 18.09.,
-M4 Stufe 1 am 20.09., M6 Scrub am 21.09., Motion an VCs am 22.09.) - Modell, Runtime/Bake,
-Inspektor, Play-Preview, Live-Modus, Guardrails, der Scrub-Regler und Motion an Komponenten
-stehen; vom M6-Ausbau bewusst offen: freie Timeline, Page Transitions, 3D-Preset (je
-eigenes Ticket).
+Status: **M0-M5 + M4 Stufe 1 + M6 Scrub + M6 Motion an VCs + M6 Page Transitions umgesetzt**
+(M0-M5 am 18.09., M4 Stufe 1 am 20.09., M6 Scrub am 21.09., Motion an VCs und Page
+Transitions am 22.09.) - Modell, Runtime/Bake, Inspektor, Play-Preview, Live-Modus,
+Guardrails, der Scrub-Regler, Motion an Komponenten und das `page-fade`-Seiten-Preset
+stehen; vom M6-Ausbau bewusst offen: freie Timeline, 3D-Preset (je eigenes Ticket).
 Herkunft: Papierpaket in `.scratch/motion-v2/` — `research.md`, `plan.md`, `plugin-analyse.md`, `preset-matrix.md`, `payload-spec.md`, `freeze-spec.md`, `adr-0006-entwurf.md` (18.09.2026)
 Abhaengig von: 07 (Dokument-Modell), 13 (Save-Pipeline/Bake), 02 (Inspektor), 03 (Live-Modus)
 Entscheidungen: ADR-0003 gilt weiter; F1-F7 vom 18.09.2026 (siehe unten)
@@ -147,7 +147,7 @@ v2-Dokument plus Editor-Authoring. Details: `.scratch/motion-v2/research.md`.
   Rueckweg auf 0, Design disabled).
 - **Zahlen:** gesamt 1386 gruen / 2 uebersprungen / 152 Dateien, EXIT 0
   (`.scratch/testlauf-21-09-m6scrub.log`), typecheck 0, lint 0.
-- **M6-Rest:** freie Timeline, Page Transitions, 3D-Preset — je eigenes Ticket.
+- **M6-Rest:** freie Timeline, Page Transitions, 3D-Preset, Motion an VCs — je eigenes Ticket.
 
 ## Umsetzung M6 Motion an VCs (22.09.2026) - Motion an Komponenten
 
@@ -167,6 +167,29 @@ v2-Dokument plus Editor-Authoring. Details: `.scratch/motion-v2/research.md`.
   (`.scratch/testlauf-22-09-motion-vcs-2.log`; der erste Lauf hatte den bekannten
   `canvas-view-browser`-Flake, in Isolation gruen), typecheck 0, lint 0.
 - **M6-Rest:** freie Timeline, Page Transitions, 3D-Preset — je eigenes Ticket.
+
+## Umsetzung M6 Page Transitions (22.09.2026) - `page-fade` als Seiten-Preset
+
+- **Kern:** Neuer Runtime-Wert `document` in der Registry: `page-fade` liegt wie jede Spec
+  an einem Knoten, wirkt aber auf die ganze Seite. Der Bake sammelt sie pro Seite
+  (`pageTransitionForTree`, erster Knoten gewinnt) und schreibt einmal Head-CSS
+  (`pageTransitionCss`): `@view-transition { navigation: auto; }`, Dauer 0,3-0,5 s nach
+  Intensity, `animation-timing-function: ease` und das RM-Gate (`static` -> `animation:
+  none !important`, `fade` -> Cross-Fade 0,2 s, `off` -> ohne Gate). Kein Seiten-Skript,
+  kein Per-Knoten-Eintrag; `motionConfigsForTree` ueberspringt `document` ohne Warnung.
+- **Template:** `Page.astro` rendert das Block-CSS als Inline-`<style>` im Head, nur auf
+  Seiten mit Preset (`pageTransition` im Manifest, sonst `null`).
+- **Semantik:** Cross-Document-View-Transitions brauchen das Opt-in auf beiden Seiten —
+  das Preset gehoert auf jede Seite oder in das Layout. Ohne Support (Firefox) degradiert
+  es still. Ein zweiter Knoten mit `page-fade` erzeugt die Bake-Warnung `document-excess`.
+- **Tests:** section-sdk (Runtime-Liste + `page-fade` = `document`, kein Pending), Renderer
+  +3 (Sammeln/Skip, Duplikat/disabled, CSS-Gates), Bake +1 (Head-CSS ohne `motion-data`/
+  `page.js`), `motion-presets` unveraendert (document ist kein Skript-Preset).
+- **Zahlen:** gesamt **1418 gruen / 2 uebersprungen / 154 Dateien, EXIT 0**
+  (`.scratch/testlauf-22-09-pagetransitions.log`; die Differenz zum Vorlauf enthaelt
+  Fremdstrang-Tests der Bildgenerierung, eigene +4: Renderer +3, Bake +1), typecheck 0,
+  lint 0.
+- **M6-Rest:** freie Timeline, 3D-Preset — je eigenes Ticket.
 
 ## Umfang (Phasen aus plan.md)
 

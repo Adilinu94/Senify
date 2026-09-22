@@ -47,7 +47,7 @@ Legende Heute: **page.js** = im Page-Script implementiert (`PAGE_SCRIPT_PRESETS`
 | 15 | D | `magnetic-button` | interactive | — (quickTo) | hover | **offen** | `canHover`-Gate, passives `pointermove` |
 | 16 | D | `tilt-card` | interactive | — (Observer/Pointer) | hover | **offen** | max 6–8°; Touch ueberspringen |
 | 17 | D | `cursor-glow` | interactive | — (quickTo) | hover | **offen** | Inertia; `pointer-events:none`-Layer |
-| 18 | E | `page-fade` | — | — (View Transitions) | load/Navigation | **offen** | CSS `@view-transition`; degradiert ohne Support |
+| 18 | E | `page-fade` | — | — (View Transitions) | load/Navigation | **`document`** (Head-CSS) | CSS `@view-transition`; degradiert ohne Support; beide Seiten opt-in |
 | 19 | E | `preloader-light` | hides, loops | — | load | **offen** | **weich ≤ 2,5 s**; RM statisch |
 | 20 | E | `accordion` | — | — | click | **Island** (details-Fade) | Basis vorhanden; Motion-Variante offen |
 | 21 | E | `modal` | — | — | click | **offen** | Vanilla-Island noetig (Motion nur Editor-UI) |
@@ -56,7 +56,7 @@ Legende Heute: **page.js** = im Page-Script implementiert (`PAGE_SCRIPT_PRESETS`
 | 24 | G | `webgl-scene` | loops | (3D) | load/viewport | **Stub-Island** (`motion.ts:361-365`) | eigenes Ticket; 1 Canvas/Seite, lazy, Poster |
 
 **Abdeckung heute:** 12 × page.js + 1 × CSS (`marquee`) = 13 (`PAGE_SCRIPT_PRESETS`),
-1 × Island (`accordion`), **10 offen** (D 14–17, E 18/19/21, F 22/23, G 24).
+1 × Island (`accordion`), 1 × Head-CSS (`page-fade`), **9 offen** (D 14–17, E 19/21, F 22/23, G 24).
 
 ## 3. Guardrails je Flag
 

@@ -223,9 +223,11 @@ bleibt M6.
 ### M6 — Ausbau (spaeter, je eigenes Ticket)
 
 - Freie Timeline/Scrub-Editor (nur falls Entscheidung F2 das fordert).
-- Page Transitions (View Transitions, degradiert ohne Support) als Preset.
+- Page Transitions (View Transitions, degradiert ohne Support) als Preset. ✔ (22.09.,
+  `page-fade` = `document`-Runtime: Head-CSS `@view-transition`, Intensity-Dauer,
+  RM-Gate; kein Seiten-Skript)
 - 3D-Preset (WebGL, genau 1 Canvas/Seite) — v1 vorbereitet.
-- Motion an VCs/Templates (Phase 4); Site-Profile (Lenis, Intensity-Cap).
+- Motion an VCs/Templates (Phase 4); Site-Profile (Lenis, Intensity-Cap). ✔ (22.09.)
 
 **Aufwand gesamt M0–M5: ~2–3 Wochen fokussiert**, verteilt auf Phase 2/3; M1 kann sofort
 parallel zum Ticket-13-Rest laufen.

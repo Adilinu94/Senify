@@ -31,6 +31,19 @@ dann der Definitions-Knoten). Rendering und Bake übertragen die Spec auf die Wu
 die Animation läuft also einmal pro Instanz; `detach` nimmt sie mit. Die übrigen Teile
 tragen ihre eigene Motion unabhängig davon.
 
+## Page Transitions (`page-fade`)
+
+`page-fade` ist ein **Seiten-Preset**: Die Spec liegt wie jede andere an einem Knoten
+(typisch am Seiten-Root oder am Layout), wirkt aber auf die ganze Seite. Der Bake schreibt
+`@view-transition { navigation: auto; }` samt Dauer (0,3–0,5 s nach Intensity) und
+Reduced-Motion-Gate einmal in den Head — kein Seiten-Skript, kein Per-Knoten-Eintrag.
+Beide Seiten müssen opt-in tragen, sonst läuft beim Wechsel keine Transition: das Preset
+gehört auf jede Seite oder in das Layout, das sie umschließt. `static` (Default) schaltet
+die Transition bei `prefers-reduced-motion` ab, `fade` kürzt den Cross-Fade, `off` spielt
+voll. Ohne View-Transition-Support (Firefox) degradiert es still zum normalen Wechsel.
+Pro Seite zählt der erste Knoten; ein zweiter erzeugt den Review-Hinweis
+`document-excess`.
+
 ## Werkzeuge
 
 - `set_motion` — setzt die Spec eines Knotens (`pageId`, `nodeId`, `baseDraftVersion`, `preset`, …).

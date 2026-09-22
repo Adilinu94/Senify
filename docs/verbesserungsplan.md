@@ -1212,7 +1212,7 @@ Die Referenz-Transfer-Strecke ist **der Differenzierungs-Kern** des Produkts, ab
 | 16 | Marker-Overlay-Portal | offen |
 | 17 | Releases-Cutover | offen (P0) |
 | 18 | Agent-Style-Gate | offen (P0) |
-| 19 | Motion (M0–M5 + M4 Stufe 1 + M6 Scrub + Motion an VCs umgesetzt; M6-Rest: freie Timeline, Page Transitions, 3D) | fast fertig |
+| 19 | Motion (M0–M5 + M4 Stufe 1 + M6 Scrub + Motion an VCs + M6 Page Transitions umgesetzt; M6-Rest: freie Timeline, 3D) | fast fertig |
 | 20 | Site-Settings/Profil | umgesetzt (18.09.) |
 | 21 | Klassen am DOM | umgesetzt (18.09.) |
 | 22 | Scoped-Rekey im Bake | umgesetzt (18.09.) |
