@@ -24,5 +24,11 @@ export default defineConfig({
   test: {
     include: ["packages/*/test/**/*.test.ts"],
     environment: "node",
+    // Die Suite mischt schwere Browser- und Engine-Tests mit schnellen
+    // Unit-Tests. Mit vollem Parallelismus (alle Kerne) verhungern die
+    // laengeren Tests (Playwright-Klicks, powershell-Spawn, MCP-Läufe) an
+    // ihren Timeouts, obwohl sie solo schnell sind. Vier Worker halten die
+    // Last unter der Kernzahl; CI kann via --pool-threads uebersteuern.
+    poolOptions: { threads: { maxThreads: 4, minThreads: 1 } },
   },
 });

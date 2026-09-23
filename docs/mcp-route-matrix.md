@@ -4,7 +4,7 @@ Stand: 2026-09-23 — generiert mit `pnpm route-matrix` aus `packages/engine/src
 
 **Regel (E4):** Jede Route hat einen bewussten Status. **Tool** — ein MCP-Tool ruft sie direkt auf. **Workflow-gebündelt** — nur als Teil eines Mehr-Routen-Workflows erreichbar (Via-Spalte nennt das bündelnde Tool). **Operator** — UI/CLI/öffentlich, bewusst ohne Tool.
 
-**Zahlen:** 148 Routen — 77 Tool, 1 Workflow-gebündelt, 70 Operator.
+**Zahlen:** 152 Routen — 79 Tool, 1 Workflow-gebündelt, 72 Operator.
 
 | Methode | Route | Scope | Status | MCP-Tool(s) / Anmerkung |
 |---|---|---|---|---|
@@ -51,6 +51,8 @@ Stand: 2026-09-23 — generiert mit `pnpm route-matrix` aus `packages/engine/src
 | POST | `/api/sites/:siteId/deployments` | publish | Tool | `deploy_site` |
 | GET | `/api/sites/:siteId/deploy-settings` | read | Tool | `get_deploy_settings` |
 | PUT | `/api/sites/:siteId/deploy-settings` | write | Tool | `set_deploy_settings` |
+| GET | `/api/sites/:siteId/design-contract` | read | Operator | UI/CLI |
+| PUT | `/api/sites/:siteId/design-contract` | write | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/deployments` | read | Tool | `list_deployments` |
 | GET | `/api/releases/:releaseId` | read | Tool | `get_release` |
 | GET | `/api/pages/:pageId/revisions` | read | Operator | UI/CLI |
@@ -120,11 +122,13 @@ Stand: 2026-09-23 — generiert mit `pnpm route-matrix` aus `packages/engine/src
 | POST | `/api/notifications/tick` | write | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/notifications` | read | Operator | UI/CLI |
 | POST | `/api/references` | write | Tool | `analyze_reference` |
+| GET | `/api/references/search` | read | Tool | `get_reference`, `get_reference_docs`, `list_references`, `search_references` |
+| GET | `/api/references/duplicates` | read | Tool | `find_duplicate_references`, `get_reference`, `get_reference_docs`, `list_references` |
 | GET | `/api/references` | read | Tool | `get_reference`, `get_reference_docs`, `list_references` |
 | POST | `/api/references/manual` | write | Tool | `create_manual_reference` |
 | POST | `/api/references/brief` | read | Tool | `get_reference_brief` |
 | POST | `/api/references/tick` | write | Tool | `reference_tick` |
-| GET | `/api/references/:referenceId` | read | Tool | `get_reference`, `get_reference_docs`, `list_references` |
+| GET | `/api/references/:referenceId` | read | Tool | `find_duplicate_references`, `get_reference`, `get_reference_docs`, `list_references`, `search_references` |
 | PATCH | `/api/references/:referenceId` | write | Tool | `assign_reference_to_collection`, `update_reference`, `update_reference_doc` |
 | GET | `/api/pages/:pageId/redesign-package` | read | Tool | `plan_redesign` |
 | GET | `/api/references/:referenceId/design-system` | read | Tool | `import_design_system` |
