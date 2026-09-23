@@ -14,6 +14,12 @@ import { EDITOR_ROOT_ATTRIBUTE, editorTokensCss } from "./ui/tokens.ts";
 // same shell; the frame content stays untouched — each iframe owns its own
 // document and its own (theme-driven) styles.
 //
+// LEGACY-Sockel ("Alt-Haut", `data-editor-skin="alt"`): die `--ed-accent`-,
+// `#d004d4`- und `#a21caf`-Werte unten gelten nur noch in der Vergleichs-
+// ansicht. Der Standard-Skin "tiefwasser" (`ui/skin.ts`) ueberschreibt jede
+// sichtbare Stelle mit dem Canvas-Satz aus `ui/tokens.ts`; weder Standard-
+// ansicht noch Frame duerfen Magenta zeigen (siehe `mount.ts`, frameDoc).
+//
 // The palette mirrors the reference measurements: panel 17.5rem (<1440px
 // viewport) or 18.75rem (>=1440px), accent #d004d4, hover #e879f9, text
 // #515962, borders #d5d8dc, top bar 3rem.

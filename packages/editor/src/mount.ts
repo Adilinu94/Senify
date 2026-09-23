@@ -273,12 +273,17 @@ ${editorFontFaceCss()}
 html, body { margin: 0; padding: 0; }
 body { font: 14px/1.5 var(--font-body, system-ui, sans-serif); background: var(--bg-base, #ffffff); }
 [data-node-id] { position: relative; outline: 1px dashed transparent; outline-offset: -1px; }
-[data-node-id]:hover { outline-color: rgba(208, 4, 212, .4); }
+// Frame-Overlay: keine eigene Marke. Auswahl und Einrastlinie folgen dem
+// Canvas-Satz (ui/tokens.ts, EDITOR_CANVAS) — Tiefwasser-Kante aussen,
+// Limette mit dunklem Saum fuer die Einrastlinie. Der Frame kennt die
+// Editor-Tokens nicht (eigenes Dokument), deshalb stehen hier die
+// aufgeloesten Werte mit Herkunftsvermerk statt var().
+[data-node-id]:hover { outline-color: rgb(1 40 60 / 0.4); }
 [data-node-id][data-hidden="true"] { opacity: .35; }
-[data-node-id][data-selected="true"] { outline: 2px solid #d004d4; outline-offset: -2px; }
+[data-node-id][data-selected="true"] { outline: 2px solid rgb(1 40 60 / 0.55); outline-offset: -2px; }
 [data-inline] { cursor: text; }
-[data-inline]:hover { background: rgba(208, 4, 212, .08); }
-.senify-drop-line { position: fixed; left: 0; right: 0; height: 2px; background: #d004d4; z-index: 9999; pointer-events: none; }
+[data-inline]:hover { background: rgb(1 40 60 / 0.08); }
+.senify-drop-line { position: fixed; left: 0; right: 0; height: 2px; background: #cbff97; box-shadow: 0 0 0 1px rgb(1 20 32 / 0.35); z-index: 9999; pointer-events: none; }
 .senify-frame-page { min-height: 100vh; }
 </style><noscript><style>
 ${FRAME_PENDING_NOSCRIPT}

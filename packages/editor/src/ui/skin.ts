@@ -215,6 +215,25 @@ function skinCss(): string {
     " .senify-editor__publish:hover| .senify-editor__publish-caret:hover",
     "background: var(--ed-fill-accent-hover);",
   );
+  // Alt-Haut-Reste, die sonst unter dem Standard-Skin Magenta zeigen: Auge,
+  // Ablage-Kante, Widget-Signet und Status-Badge folgen dem Canvas-Satz.
+  rule(" .senify-editor__eye:hover", "color: var(--ed-ink-strong);");
+  rule(
+    ' .senify-editor__row[data-drop="before"]',
+    "box-shadow: inset 0 2px 0 var(--ed-snap-line), inset 0 3px 0 rgb(1 20 32 / 0.35);",
+  );
+  rule(
+    ' .senify-editor__row[data-drop="after"]',
+    "box-shadow: inset 0 -2px 0 var(--ed-snap-line), inset 0 -3px 0 rgb(1 20 32 / 0.35);",
+  );
+  rule(
+    " .senify-editor__widget-icon",
+    "background: var(--ed-signal-accent);\ncolor: var(--ed-ink-on-lime);",
+  );
+  rule(
+    " .senify-editor__badge",
+    "background: var(--ed-fill-select);\ncolor: var(--ed-ink-strong);",
+  );
 
   // ----------------------------------------------------------------- Menüs
   group(

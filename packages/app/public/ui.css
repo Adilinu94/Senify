@@ -1,0 +1,458 @@
+/* =====================================================================
+   Senify App-Shell — Designtoken-Schicht (ui.css)
+
+   QUELLE: `.scratch/editor-v2-rebuild/design-system/senify.css` (verbindlich).
+   Diese Datei ist eine 1:1-Kopie der Quelle plus diesem Kopf. NICHT hier
+   editieren: in der Quelle aendern, dann den Rumpf erneut kopieren.
+   `packages/app/test/ui-tokens-parity.test.ts` meldet jede Abweichung.
+
+   Ladereihenfolge in `index.html`: `theme.css` (Plattform-Theme, dynamisch),
+   `ui.css` (`--ui-*`-Schicht), `app.css` (Komponenten, nutzt die Tokens).
+   ===================================================================== */
+
+/* =====================================================================
+   Senify — Designsystem, Farbschicht
+   =====================================================================
+
+   Eine Quelle. Diese Datei ersetzt die vier Farbsätze, die heute
+   nebeneinander im Code stehen:
+
+     * Plattform/Shell   `--bg-base`, `--fg-base`, `--line`, `--accent`,
+                         `--accent-ink`            (packages/app/public/app.css)
+     * Editor, alte Haut `--ed-accent`, `--ed-surface`, `--ed-text`
+                         (packages/editor/src/ui/mount.ts)
+     * Editor, neue Haut 116 Tokens                (packages/editor/src/ui/tokens.ts)
+                         (Tiefwasser brand-900 … brand-300 + Lime)
+     * Canvas            rohe rem-Werte            (packages/editor/src/ui/canvas/styles.ts)
+
+   Grundzustand ist HELL. Dunkel ist kein zweiter Satz, sondern dieselbe
+   Leiter invertiert — belegt bei frappe und Vvveb: Pixel für Pixel gleiche
+   Struktur, nur die Neutralleiter gedreht.
+
+   Aufbau, streng zwei Schichten:
+     Rohwerte   `--ui-neutral-*`  helle Leiter     (13 Stufen)
+                `--ui-dark-*`     dunkle Leiter    (15 Stufen)
+                `--ui-hue-*`      Bunttöne         (Wert je Modus)
+     Semantik   Rolle → Rohwert. Nur hier wird Bedeutung vergeben.
+
+   Eine Rolle wird nie neu erfunden, nur neu gebunden. Wer eine Fläche
+   hinzufügt, muss sie im dunklen Block ergänzen — `pruef-kontrast.mjs`
+   meldet jede Rolle, die in beiden Modi denselben Wert behält.
+
+   Belege und Messverfahren: `../farben-referenz-2026-09-22.md`
+   Nachweis:                 `../pruef-kontrast.mjs`
+   ===================================================================== */
+
+/* ===================================================================
+   ROHWERTE
+   =================================================================== */
+
+:root {
+  /* --- Helle Leiter ------------------------------------------------
+     Der Anzug ist unbunt (R = G = B bei 200/250); nur die Tints kippen
+     minimal ins Blauviolette (B 4 bis 10 Stufen höher), die Tinte
+     ebenfalls. Kein Blau, kein Violett als Marke. */
+  --ui-neutral-000: #ffffff; /* Karte, Panel, Blatt */
+  --ui-neutral-050: #f4f4f8; /* eingelassen 1: Feld-Innenraum */
+  --ui-neutral-100: #eeedf4; /* eingelassen 2: Spur, Chip, Tabellenkopf */
+  --ui-neutral-150: #e3e2ec; /* Haarlineal auf Weiß */
+  --ui-neutral-200: #e2e2e2; /* Grund hinter den Karten */
+  --ui-neutral-250: #d9d9df; /* Trenner */
+  --ui-neutral-300: #ceced1; /* Trenner, kräftig */
+  --ui-neutral-400: #94939b; /* Geist: nur Nicht-Text */
+  --ui-neutral-450: #75747f; /* Meta, und zugleich die tragende Kante */
+  --ui-neutral-500: #6a6973; /* weich */
+  --ui-neutral-600: #55545f; /* gedämpft */
+  --ui-neutral-700: #2e2e33; /* Tinte, zweiter Rang */
+  --ui-neutral-900: #111116; /* Tinte; zugleich die zweite Fläche */
+
+  /* --- Dunkle Leiter ----------------------------------------------
+     Dieselbe Rampe, invertiert. Der tiefste Ton ist #0a0a0d, nicht
+     #000000 — sonst franst die Kante an den Radien. */
+  --ui-dark-000: #0a0a0d;
+  --ui-dark-050: #0d0d10; /* Grund */
+  --ui-dark-100: #111116; /* eingelassen 2 */
+  --ui-dark-150: #15151a; /* eingelassen 1 */
+  --ui-dark-200: #1a1a1f; /* Panel */
+  --ui-dark-250: #1f1f25; /* gehoben */
+  --ui-dark-300: #2a2a31;
+  --ui-dark-350: #35353d;
+  --ui-dark-400: #45454e;
+  --ui-dark-450: #6e6d78;
+  --ui-dark-500: #82818c;
+  --ui-dark-550: #94939d;
+  --ui-dark-600: #a9a8b3;
+  --ui-dark-700: #dcdce1;
+  --ui-dark-900: #f5f5f7;
+
+  /* --- Bunttöne ----------------------------------------------------
+     Genau vier Bedeutungen trägt das Werkzeug: „jetzt zählt das"
+     (Limette), Hinweis, Alarm, Erfolg. Sie sind kein Grund, sondern
+     eine Aussage — deshalb bleiben sie über die Modi hinweg
+     wiedererkennbar und wechseln nur die Stufe. */
+  --ui-hue-lime: #c9f24c;
+  --ui-hue-on-lime: #141805; /* 14,0:1 auf Limette */
+  --ui-hue-amber: #eca122;
+  --ui-hue-on-amber: #141805; /* 8,3:1 auf Amber */
+  --ui-hue-amber-surface: #fcefd8;
+  --ui-hue-amber-ink: #8a5a05; /* 5,2:1 auf der Hinweisfläche */
+  --ui-hue-danger: #cf4529; /* korrigiert aus #e1543a */
+  --ui-hue-danger-ink: #b03c20; /* 5,0:1 auf der Alarmfläche */
+  --ui-hue-danger-surface: #fbe7e2;
+  --ui-hue-success: #3f6f1e; /* 6,0:1 auf Panel */
+  --ui-hue-success-surface: #eef7da;
+}
+
+[data-mode="dark"] {
+  /* Nur die Rohwerte, die sich im dunklen Modus ändern. Limette und
+     ihr Gegenton bleiben: der Akzent ist in beiden Modi derselbe. */
+  --ui-hue-amber-ink: #f0bd5e;
+  --ui-hue-amber-surface: #33260c;
+  --ui-hue-danger: #ff7a5c;
+  --ui-hue-danger-ink: #ffb3a1;
+  --ui-hue-danger-surface: #3a1a12;
+  --ui-hue-success: #b7e35c;
+  --ui-hue-success-surface: #22300f;
+}
+
+/* ===================================================================
+   SEMANTIK, HELL (Grundzustand)
+   =================================================================== */
+
+:root {
+  /* --- Native Bedienelemente ----------------------------------------
+     Kein Farbwert, sondern die Ansage, in welchen Werten der Browser
+     seine eigenen Flächen malen soll: die geöffnete Liste eines
+     Auswahlfelds, Scrollbalken, Caret, Ring. Ohne diese Zeile stand die
+     Liste im Dunkelmodus hell über dunkler Tinte. */
+  color-scheme: light;
+
+  /* --- Flächen ------------------------------------------------------
+     Der Grund ist #e2e2e2, nicht Weiß: Karten schweben sichtbar.
+     Höhe entsteht ausschließlich hier — Flächenwechsel plus 1 px Kante.
+     Kein Verlauf, kein Schatten als Hierarchie. */
+  --ui-surface-canvas: var(--ui-neutral-200);
+  --ui-surface-panel: var(--ui-neutral-000);
+  --ui-surface-raised: var(--ui-neutral-000); /* + --ui-shadow-float */
+  --ui-surface-inset: var(--ui-neutral-050);
+  --ui-surface-track: var(--ui-neutral-100);
+  /* Die zweite Fläche ist fast schwarz, kein Buntton: hervorgehobene
+     Karte, Hauptknopf, aktive Zeile, aktive Segment-Option. */
+  --ui-surface-emphasis: var(--ui-neutral-900);
+
+  /* --- Kanten -------------------------------------------------------
+     Im Vorbild trägt keine Kante Bedeutung: Felder sind gefüllt, nicht
+     umrandet. line-control ist deshalb unser Zusatz und steht nur dort,
+     wo die Füllung allein die Grenze nicht erkennbar macht. */
+  --ui-line-hairline: var(--ui-neutral-150); /* 1,3:1 — nur Dekoration */
+  --ui-line: var(--ui-neutral-250); /* Trenner */
+  --ui-line-strong: var(--ui-neutral-300);
+  /* Eine Kante, die 3:1 erreichen muss, wiegt so viel wie die blasseste
+     Schrift — es ist derselbe Anker. Leichtere Grautöne des Vorbilds
+     tragen keine Grenze (ihr #ceced1 kommt auf Weiß auf 1,57:1). */
+  --ui-line-control: var(--ui-neutral-450);
+
+  /* --- Tinte --------------------------------------------------------
+     Fünf Textstufen auf Weiß, vier auf getönter Füllung, drei auf dem
+     Grund. Das ist keine Willkür: die helle Leiter hat nach unten nur
+     bis Weiß Platz, deshalb trägt sie auf einer Füllung weniger Stufen.
+     Genau so verhält sich das Vorbild — fast aller Text liegt dort auf
+     weißen Karten, die Chips tragen dunkle Schrift. */
+  --ui-ink-strong: var(--ui-neutral-900); /* 18,8:1 */
+  --ui-ink: var(--ui-neutral-700); /* 13,5:1 */
+  --ui-ink-muted: var(--ui-neutral-600); /* 7,5:1 */
+  --ui-ink-soft: var(--ui-neutral-500); /* 5,4:1 */
+  --ui-ink-faint: var(--ui-neutral-450); /* 4,6:1 auf Weiß — Korrektur */
+  --ui-ink-ghost: var(--ui-neutral-400); /* 3,4:1 — nur Nicht-Text */
+  --ui-ink-on-emphasis: var(--ui-neutral-000);
+  --ui-ink-on-accent: var(--ui-hue-on-lime);
+
+  /* --- Signale ------------------------------------------------------
+     Limette trägt genau eine Bedeutung: „hier zählt es jetzt".
+     ACHTUNG: als dünne Marke auf Weiß hat sie 1,3:1. Sie funktioniert
+     nur als gefüllte Fläche mit dunkler Schrift oder auf der zweiten
+     Fläche (14,6:1). Nie als Unterstreichung, Ring oder Punkt auf
+     hellem Grund — genau so, wie das Vorbild sie einsetzt. */
+  --ui-signal-accent: var(--ui-hue-lime);
+  /* Auswahl zeigt auf die zweite Fläche statt auf einen eigenen Wert:
+     so folgt sie dem Modus von selbst. */
+  --ui-signal-select: var(--ui-surface-emphasis);
+  --ui-signal-warning: var(--ui-hue-amber);
+  --ui-signal-warning-ink: var(--ui-hue-amber-ink);
+  --ui-signal-warning-surface: var(--ui-hue-amber-surface);
+  /* Alarm hat zwei Stufen, genau wie der Hinweis: `danger` ist die
+     Füllung (weiße Schrift trägt sie mit 4,63:1) und der Strich,
+     `danger-ink` ist die Schrift auf der getönten Alarmfläche. Eine
+     Stufe allein kann beides nicht. */
+  --ui-signal-danger: var(--ui-hue-danger);
+  --ui-signal-danger-ink: var(--ui-hue-danger-ink);
+  --ui-signal-danger-surface: var(--ui-hue-danger-surface);
+  --ui-signal-success: var(--ui-hue-success);
+  --ui-signal-success-surface: var(--ui-hue-success-surface);
+
+  /* --- Füllungen (Zustände) -----------------------------------------
+     Im hellen Modus dunkelt Hover ab, im dunklen hellt es auf. */
+  --ui-fill-hover: rgb(17 17 22 / 0.05); /* ≈ #f3f3f3 */
+  --ui-fill-active: rgb(17 17 22 / 0.08);
+  --ui-fill-select: var(--ui-surface-emphasis);
+  --ui-fill-select-ink: var(--ui-ink-on-emphasis);
+  --ui-fill-danger: rgb(207 69 41 / 0.1);
+
+  /* Der Fokusring ist bewusst NICHT Limette: Limette ist eine Aussage,
+     kein Zustand. Das Vorbild ist ein Marketing-Bild und zeigt keinen
+     Fokus; für ein Werkzeug ist ein sichtbarer Ring Pflicht (WCAG
+     2.4.11), und die Tinte ist in beiden Modi der höchste erreichbare
+     Kontrast. */
+  --ui-focus: var(--ui-neutral-900); /* 18,8:1 */
+  --ui-focus-on-accent: var(--ui-hue-on-lime); /* 14,0:1 */
+  --ui-focus-on-emphasis: var(--ui-neutral-000);
+
+  /* --- Schatten ------------------------------------------------------
+     Nur schwebende Platten. Struktur bekommt keinen Schatten. */
+  --ui-shadow-float: 0 10px 30px -12px rgb(17 17 22 / 0.18),
+    0 2px 6px -2px rgb(17 17 22 / 0.08);
+  --ui-shadow-dialog: 0 24px 60px -20px rgb(17 17 22 / 0.26);
+  --ui-scrim: rgb(17 17 22 / 0.45);
+}
+
+/* ===================================================================
+   SEMANTIK, DUNKEL
+
+   Nur Rollen werden neu gebunden, nie neu erfunden. Fehlt hier eine
+   Zeile, die es oben gibt, meldet der Nachweis eine Rolle, die in
+   beiden Modi denselben Wert behält.
+   =================================================================== */
+
+[data-mode="dark"] {
+  /* Dasselbe für den dunklen Modus: die native Ebene folgt der Leiter. */
+  color-scheme: dark;
+
+  --ui-surface-canvas: var(--ui-dark-050);
+  --ui-surface-panel: var(--ui-dark-200);
+  --ui-surface-raised: var(--ui-dark-250);
+  --ui-surface-inset: var(--ui-dark-150);
+  --ui-surface-track: var(--ui-dark-100);
+  /* Die zweite Fläche invertiert: was im Hellen fast schwarz ist, ist
+     im Dunklen fast weiß — genau wie frappes Publish-Knopf es macht. */
+  --ui-surface-emphasis: var(--ui-dark-900);
+
+  --ui-line-hairline: var(--ui-dark-300);
+  --ui-line: var(--ui-dark-350);
+  --ui-line-strong: var(--ui-dark-400);
+  --ui-line-control: var(--ui-dark-450);
+
+  --ui-ink-strong: var(--ui-dark-900);
+  --ui-ink: var(--ui-dark-700);
+  --ui-ink-muted: var(--ui-dark-600);
+  --ui-ink-soft: var(--ui-dark-550);
+  --ui-ink-faint: var(--ui-dark-500);
+  --ui-ink-ghost: var(--ui-dark-450);
+  --ui-ink-on-emphasis: var(--ui-dark-100);
+
+  --ui-fill-hover: rgb(255 255 255 / 0.06);
+  --ui-fill-active: rgb(255 255 255 / 0.1);
+  --ui-fill-danger: rgb(255 122 92 / 0.14);
+
+  --ui-focus: var(--ui-dark-900);
+  --ui-focus-on-emphasis: var(--ui-dark-100);
+
+  --ui-shadow-float: 0 10px 30px -12px rgb(0 0 0 / 0.6),
+    0 2px 6px -2px rgb(0 0 0 / 0.4);
+  --ui-shadow-dialog: 0 24px 60px -20px rgb(0 0 0 / 0.7);
+  --ui-scrim: rgb(0 0 0 / 0.55);
+}
+
+/* ===================================================================
+   VERMERK — die Abweichungen vom Vorbild, jede mit Grund
+
+   1. `--ui-ink-faint` (#75747f statt #8a8996)
+      Die Meta-Stufe des Vorbilds liegt mit 3,44:1 unter AA, wird dort
+      aber als 13–14 px gesetzt. Hier ist die Textstufe 4,60:1; der
+      Originalwert bleibt als `--ui-ink-ghost` erhalten, für Nicht-Text.
+      Minimal dunkler, im Bild nicht zu unterscheiden.
+
+   2. `--ui-hue-danger` (#cf4529 statt #e1543a) + `--ui-hue-danger-ink`
+      Weiß auf #e1543a erreicht nur 3,80:1 und verfehlt AA für Kleintext.
+      #cf4529 erreicht 4,63:1 und trägt weiße Schrift ebenso, wie es als
+      Text auf hellem Grund lesbar bleibt. Für Schrift auf der getönten
+      Alarmfläche braucht es eine eigene, dunklere Stufe — dieselbe
+      Zweiteilung, die das Vorbild beim Hinweis schon vormacht.
+
+   3. `--ui-line-control` (kein Wert des Vorbilds)
+      Das Vorbild umrandet keine Felder, es füllt sie (#f4f4f8 auf
+      #ffffff sind 1,07:1). Für dichte Inspektoren ist die gefüllte
+      Variante richtig und bleibt der Normalfall. Wo die Füllung die
+      Grenze nicht erkennbar macht — Zelle im Raster, Feld im Feld —
+      trägt diese Kante sie mit mindestens 3,15:1.
+      Folge: eine vollständig umrandete Maske wirkt schwer, weil eine
+      AA-feste Kante so dunkel ist wie die blasseste Schrift. Umranden
+      ist deshalb die Ausnahme, nicht der Grundsatz.
+
+   Kein weiterer Wert weicht ab.
+   =================================================================== */
+
+/* ===================================================================
+   CANVAS-HILFEN
+
+   Die Bühne ist die dritte Oberfläche. Ihre Hilfen sind Hilfen: keine
+   traegt eine Aussage allein, deshalb unterliegen sie nicht der 3:1-
+   Anforderung aus WCAG 1.4.11. Die Einrastlinie ist die Ausnahme — sie
+   ist der Akzent, weil "das rastet jetzt ein" ein Stand ist.
+
+   Die Doppelkante am Auswahlrahmen bleibt: eine Linie allein ist auf
+   keinem Inhalt gleichzeitig sichtbar. Aussen dunkel, innen hell.
+   =================================================================== */
+
+:root {
+  --ui-grid-step: 4px; /* Einrast- und Rasterschritt, 4-px-Takt */
+  --ui-grid-help: rgb(17 17 22 / 0.08);
+  --ui-marquee: rgb(17 17 22 / 0.08);
+  --ui-snap-line: var(--ui-hue-lime);
+  --ui-selection-edge: rgb(17 17 22 / 0.6);
+  --ui-selection-inner: rgb(255 255 255 / 0.9);
+  --ui-band-margin: rgb(207 69 41 / 0.12);
+  --ui-band-padding: rgb(63 111 30 / 0.12);
+}
+
+[data-mode="dark"] {
+  --ui-grid-help: rgb(255 255 255 / 0.1);
+  --ui-marquee: rgb(255 255 255 / 0.1);
+  --ui-selection-edge: rgb(255 255 255 / 0.7);
+  --ui-selection-inner: rgb(10 10 13 / 0.85);
+  --ui-band-margin: rgb(255 122 92 / 0.14);
+  --ui-band-padding: rgb(183 227 92 / 0.14);
+}
+
+/* ===================================================================
+   MASSE UND FORM
+
+   Die dunkle Leiter bindet hier nichts neu: Maß und Form sind in beiden
+   Modi gleich. Nur Farbe kennt zwei Zustände.
+   =================================================================== */
+
+:root {
+  /* --- Abstand: 4-px-Takt --------------------------------------------
+     Kein Zwischenwert. Wo 4 px zu eng und 8 px zu weit wirken, ist die
+     Anordnung falsch, nicht das Maß. */
+  --ui-space-0: 0;
+  --ui-space-1: 4px;
+  --ui-space-2: 8px;
+  --ui-space-3: 12px;
+  --ui-space-4: 16px;
+  --ui-space-5: 20px;
+  --ui-space-6: 24px;
+  --ui-space-8: 32px;
+  --ui-space-10: 40px;
+  --ui-space-12: 48px;
+  --ui-space-16: 64px;
+
+  /* --- Radius ---------------------------------------------------------
+     Gemessen an der Vorlage, Verfahren und Streubreite stehen in
+     ../farben-referenz-2026-09-22.md, Abschnitt 9.
+
+     Der Befund hat zwei Teile:
+       * Alles bis rund 48 px Höhe ist runde Kante (Pille). Fünf Formen
+         bestätigen das unabhängig: Suchfeld (45 hoch), ⌘K-Chip (39),
+         Hinweis-Chip (39), dunkle Pille (48), Handlungs-Chip (38).
+       * Alles darüber trägt einen festen Radius, gemessen 33 und 34,5
+         bei Karten, 45 bis 47 bei großen Flächen und der App-Schale.
+
+     Wir legen das auf eine saubere Skala: 4 / 8 / 12 / 16 / 24 / 32 /
+     48 / Pille. Die beiden oberen Stufen entsprechen den Messwerten. */
+  --ui-radius-0: 0;
+  --ui-radius-xs: 4px;
+  --ui-radius-sm: 8px;
+  --ui-radius-md: 12px;
+  --ui-radius-lg: 16px;
+  --ui-radius-xl: 24px;
+  --ui-radius-2xl: 32px; /* Karten — gemessen 33 bis 34,5 */
+  --ui-radius-3xl: 48px; /* Schale, große Flächen — gemessen 45 bis 47 */
+  --ui-radius-pill: 9999px;
+
+  /* --- Höhen ----------------------------------------------------------
+     Zwei Profile, ein Begriff. Das Werkzeug ist dicht (28 bis 48), das
+     Produkt großzügig (38 bis 72) — die gemessenen Werte der Vorlage
+     stehen in den Klammern. Beide Profile sind nötig: ein Inspektor mit
+     72-px-Zeilen zeigt vier Eigenschaften statt zehn. */
+  --ui-h-24: 24px;
+  --ui-h-row: 28px; /* Werkzeug: Zeile, Feld */
+  --ui-h-32: 32px; /* Werkzeug: Knopf, Menüzeile */
+  --ui-h-36: 36px; /* Werkzeug: Reiterreihe, Panelkopf */
+  --ui-h-chip: 38px; /* Produkt: Chip (gemessen 38) */
+  --ui-h-40: 40px; /* Werkzeug: Werkzeugleiste, großer Knopf */
+  --ui-h-control: 44px; /* Produkt: Feld, kleiner Knopf (gemessen 44/45) */
+  --ui-h-48: 48px; /* Werkzeug: Kopfleiste · Produkt: Knopf (gemessen 48) */
+  --ui-h-row-nav: 56px; /* Produkt: Navigationszeile (gemessen 57) */
+  --ui-h-60: 60px; /* Produkt: Handlungsknopf (gemessen 60) */
+  --ui-h-72: 72px; /* Produkt: Hauptknopf (gemessen 72) */
+  --ui-h-handle: 8px; /* sichtbarer Griff; Trefferfläche 24 px */
+  --ui-hit-min: 24px; /* WCAG 2.5.8 */
+
+  /* --- Breiten ---------------------------------------------------------
+     Die Navigationsbreite ist gemessen: 360 px, auf beiden Bildern
+     dieselbe. Die übrigen sind Vorgaben des Werkzeugs. */
+  --ui-w-nav: 360px;
+  --ui-w-explorer: 264px;
+  --ui-w-inspector: 320px;
+  --ui-w-spotlight: 640px;
+  --ui-w-dialog: 560px;
+  --ui-w-menu-min: 200px;
+  --ui-w-menu-max: 320px;
+  --ui-w-toast-max: 360px;
+
+  /* --- Typografie ------------------------------------------------------
+     Die Schriftfamilien und die Werkzeuggrößen sind gesetzt (Inter für den
+     Anzug, Inter Display für Titel); die Staffel 20 bis 34 ist der
+     Produktbereich. Sie ist NICHT gemessen — Bildhöhen lassen keine
+     Schriftgröße ablesen. Der Anteil der Vorlage ist übernommen, die
+     Zahlen sind unsere. */
+  --ui-font-display: "Inter Display", "Inter", system-ui, sans-serif;
+  --ui-font-body: "Inter", system-ui, sans-serif;
+  --ui-font-mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+  --ui-text-10: 10px;
+  --ui-text-11: 11px;
+  --ui-text-12: 12px;
+  --ui-text-13: 13px;
+  --ui-text-15: 15px;
+  --ui-text-17: 17px;
+  --ui-text-20: 20px;
+  --ui-text-24: 24px;
+  --ui-text-30: 30px;
+  --ui-text-34: 34px;
+  --ui-lh-tight: 1.15;
+  --ui-lh-snug: 1.3;
+  --ui-lh-base: 1.45;
+  --ui-lh-loose: 1.6;
+  --ui-weight-regular: 400;
+  --ui-weight-medium: 500;
+  --ui-weight-semibold: 600;
+  --ui-track-micro: 0.06em; /* Aufschrift in Kapitälchen */
+  --ui-track-display: -0.01em; /* Titel */
+
+  /* --- Bewegung --------------------------------------------------------
+     Werkzeugbewegung bleibt unter 300 ms. Die lange Dauer gilt für das
+     Erscheinen der Seite im Canvas und den Wechsel Design/Live, nicht
+     für einen Klick. */
+  --ui-t-0: 0ms;
+  --ui-t-1: 120ms;
+  --ui-t-2: 160ms;
+  --ui-t-3: 200ms;
+  --ui-t-4: 240ms;
+  --ui-t-brand: 1200ms;
+  --ui-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ui-ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ui-ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --ui-ease-standard: cubic-bezier(0.16, 1, 0.3, 1);
+  --ui-ease-linear: linear;
+
+  /* --- Ebenen ----------------------------------------------------------
+     Die zweite Fläche trägt die nächste Stufe. Alles darüber sind
+     schwebende Platten, und nur die bekommen einen Schatten. */
+  --ui-z-canvas: 0;
+  --ui-z-marker: 10;
+  --ui-z-sticky: 20;
+  --ui-z-dropdown: 40;
+  --ui-z-scrim: 50;
+  --ui-z-dialog: 60;
+  --ui-z-toast: 70;
+}
