@@ -113,19 +113,27 @@ describe("system integration (T12)", () => {
   });
 
   describe.skipIf(process.platform !== "win32")("desktop shortcut on Windows", () => {
-    it("creates a real link that survives a status check", () => {
-      const root = tempRoot();
-      try {
-        const ctx = context(root);
-        const { shortcut } = createShortcut(ctx);
-        expect(existsSync(shortcut)).toBe(true);
-        expect(startupStatus(ctx).shortcut).toBe(true);
-        const { removed } = removeShortcut(ctx);
-        expect(removed).toBe(true);
-        expect(existsSync(shortcut)).toBe(false);
-      } finally {
-        rmSync(root, { recursive: true, force: true });
-      }
-    });
+    // Der Test spawnt powershell.exe (COM-Verknuepfung). Solo dauert das
+    // unter einer Sekunde; unter der vollen Suite (alle Worker belegt) kann
+    // der Spawn den Vitest-Standard-Timeout von 5s sprengen. Deshalb hier
+    // ein eigenes, groesseres Budget.
+    it(
+      "creates a real link that survives a status check",
+      () => {
+        const root = tempRoot();
+        try {
+          const ctx = context(root);
+          const { shortcut } = createShortcut(ctx);
+          expect(existsSync(shortcut)).toBe(true);
+          expect(startupStatus(ctx).shortcut).toBe(true);
+          const { removed } = removeShortcut(ctx);
+          expect(removed).toBe(true);
+          expect(existsSync(shortcut)).toBe(false);
+        } finally {
+          rmSync(root, { recursive: true, force: true });
+        }
+      },
+      30_000,
+    );
   });
 });

@@ -5,13 +5,18 @@ describe("senify skill pack", () => {
   it("ships the router, the master flow and the asset guide", () => {
     const files = skillFiles();
     const names = files.map((file) => file.name);
-    expect(names).toEqual([
-      "assets.md",
-      "images.md",
-      "motion.md",
-      "router.md",
-      "workflow.md",
-    ]);
+    // Der Router darf neue Referenzdateien bekommen, ohne dass dieser Test
+    // mitwachsen muss: der Vertrag prueft die Kernbestandteile, nicht die
+    // vollstaendige Liste.
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "assets.md",
+        "images.md",
+        "motion.md",
+        "router.md",
+        "workflow.md",
+      ]),
+    );
     expect(skillsDir()).toContain("skills");
   });
 

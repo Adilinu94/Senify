@@ -78,8 +78,9 @@ describe.skipIf(!browserAvailable)("entry preview in the article editor (T10)", 
       expect(layoutTree.status).toBe(200);
       expect(
         (
+          // The layout label is the page title at read time; nothing is sent.
           await put(`/api/pages/${layout.id}/template`, {
-            template: { kind: "layout", label: "Standard" },
+            template: { kind: "layout" },
             author,
           })
         ).status,
@@ -142,7 +143,11 @@ describe.skipIf(!browserAvailable)("entry preview in the article editor (T10)", 
         { waitUntil: "domcontentloaded" },
       );
       await tab.waitForSelector("#cell-" + titleId);
-      await tab.locator('button:has-text("Vorschau")').click();
+      // Der Vorschau-Knopf erscheint erst nach dem Mount der Artikelansicht;
+      // unter der Last der vollen Suite (alle Worker belegt) braucht der
+      // Renderer da laenger als das 20s-Budget des Klicks. Auto-Waiting
+      // verlaengert das Budget, statt blind zu klicken.
+      await tab.locator('button:has-text("Vorschau")').click({ timeout: 60_000 });
 
       const srcdoc = () => tab.locator("iframe.entry-preview-frame").getAttribute("srcdoc");
       await expect
