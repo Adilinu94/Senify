@@ -1,6 +1,6 @@
 # Editor v2 - Widget-Engine und Canvas (Phase 0-1)
 
-Status: offen
+Status: **erledigt (20.09.)** — Fundament, Primitive und Canvas stehen; Punkt 7 (DnD, Plus-Punkte, Einfuegelinie) ist ueber Ticket 12 erledigt.
 Abhaengig von: nichts (Startticket)
 
 ## Ziel

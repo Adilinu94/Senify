@@ -1,6 +1,6 @@
 # Editor v2 - Whitelist als Schreibtor abschaffen, Layout-Gruppe als Oberflaeche (B4)
 
-Status: **umgesetzt (18.09.) - bis auf die reine UI-Anzeige**
+Status: **erledigt (18.09.; UI-Anzeige mit Ticket 02 am 20.09. nachgezogen)**
 
 **Umsetzung:** `assertStyleProp` entfernt; `assertSafeValue`/`assertStyleDeclaration` in
 `operations.ts` pruefen Property-Name und Wert (Wert-Grammatik). `declarationsForValues`
@@ -10,7 +10,7 @@ mehr, `canonicalStyleKey` loest beide Schreibweisen auf dieselbe Deklaration auf
 `STYLE_PROPERTIES` (position, inset, top/right/bottom/left, z-index, overflow*, Flex-Einzelwerte,
 grid-template*, order). Tests: `css-open-space.test.ts` (10), `css-injection.test.ts` (9),
 `value-grammar.test.ts` (94), Katalog-/Golden-Tests nachgezogen.
-**Offen:** die eigentliche Inspektor-Anzeige (Controls je Gruppe) - das ist Ticket 02.
+**Nachgezogen (20.09.):** die eigentliche Inspektor-Anzeige (Controls je Gruppe) kam mit Ticket 02.
 Abhaengig von: 07-style-rule-modell (Modell + `assertSafeDeclaration`)
 Muss liegen: VOR dem Inspektor-Layout-Tab (Ticket 02 Punkt 3)
 Herkunft: `.scratch/editor-v2-rebuild/research/02-bauplan-aenderungen.md`, B4

@@ -994,3 +994,254 @@ ui-plan-Korrektur geschrieben wurde.
 - **Zahlen:** gesamt **1437 gruen / 2 uebersprungen / 154 Dateien, EXIT 0**
   (`.scratch/testlauf-22-09-m6-3d-2.log`), typecheck 0, lint 0.
 - **Damit ist der M6-Ausbau vollstaendig**; Details in `HANDOFF.md` §2.26 und Ticket 19.
+
+---
+
+## 22.09.2026 — Doku-Abgleich: Statuszeilen auf den Stand nach Ticket 19
+
+- **HANDOFF:** §5-Tabelle korrigiert (Ticket 01 erledigt über Ticket 12; Ticket 05 mit beiden
+  Commit-Paaren; Ticket 10 mit Ticket 02 nachgezogen; Ticket 11 erledigt am 19.09.),
+  §5-Überschrift 01–22, §6 mit konkreter Paket-Reihenfolge (E18-Kern, E12-Rest, E17-Rest,
+  E24-Rest–E27, E13–E15), Kopf-Nachtrag und Commit-Absatz aktualisiert.
+- **Verbesserungsplan:** §16.1 auf Stand 22.09. (Zeilen 01/04/05/11/12/16/17/18), Tracker B
+  (Re-Bake kein Trigger-Stub mehr) und Tracker C (§15.2 #1/#2/#4 umgesetzt); §9-Stand (Pakete
+  #1–#10 erledigt), §15.2-Stand; E12-Stand korrigiert (Claim/Lease + inkrementelle Routen-Bakes
+  stehen; offen nur `senify doctor`, Fallback-Ketten, Pagination); Stand-Notizen E17/E24/E25.
+- **Ticketdateien:** 01 (Status erledigt), 10 (Inspektor-Anzeige nachgezogen), 13 (Puck-Restpunkte
+  überholt), senify-v1-build T18 (über editor-v2 Ticket 05 erledigt); Bildgenerierungs-Spec
+  (Verbesserungsplan nachgezogen).
+- **Kein Code geändert** — nur Dokumente.
+
+---
+
+## 22.09.2026 - E-Pakete, Scheibe 1: Manifest, Re-Bake-Events, Konflikt-Dialog, Templates, Deploy
+
+- **Release-Manifest (E2/L3):** `releases.manifest` additiv (Stil-Registry-Snapshot,
+  `RENDERER_VERSION` per Test an package.json gepinnt, Build-Hash aus sortierten Dateien+Bytes,
+  `siteDate`, `rebakedAt`, `restoredFrom`); Rollback restauriert die Registry
+  (`store.replaceStyleRules`) und bäckt mit dem Datum des Basis-Releases -> byte-identischer
+  Build (Test `release-manifest.test.ts`); `activateRelease` schreibt Release-Zeile + aktives
+  Release in EINER Transaktion; `buildSitemap(baseUrl, paths, siteDate)`.
+- **Re-Bake sichtbar (E12/L11):** Worker publiziert `bake.done`/`bake.failed` (nur Endzustand);
+  Bake-Badge in der Canvas-Ansicht (Job-Liste beim Mount + Events + Fehler-Toast); MCP
+  `list_bake_jobs`, `list_releases`, `get_release`.
+- **Konflikt-Dialog (L17):** `SaveState.conflict` + `conflictDialogModel`, `<dialog>` mit
+  "Server laden (eigene Änderungen verwerfen)" / "Eigene Änderungen senden (n)" / "Später";
+  `discardPending()` verwirft die Batch wirklich; Browser-Test `save-conflict-browser.test.ts`.
+- **Templates editor-seitig (O14):** Vorlagen-Tab (Layout/Entry, Details, Markierung entfernen,
+  Layout-Zuordnung, Markieren als Layout/Entry); totes `label`-Feld der Route entfernt
+  (Anzeigename = Seitentitel); MCP `set_page_template`.
+- **Deploy (E14):** `deployActiveRelease` (Staging + Swap, Recovery, Guards gegen relative Ziele
+  und Build-Überlappung), Tabelle `deployments`, Routen `POST/GET /api/sites/:siteId/deployments`,
+  Event `deploy.finished`, CLI `senify deploy --site --target`, MCP `deploy_site`/`list_deployments`,
+  Panel im Einstellungen-Tab.
+- **Zahlen:** `pnpm test` **1448 grün / 2 übersprungen / 158 Dateien, EXIT 0**
+  (`.scratch/testlauf-22-09-epakete-2.log`; Lauf 1 hatte 2 rote: CLI-Kommando-Liste + Template-label),
+  typecheck 0, lint 0.
+- **Offen (bewusst):** gehostete Deploy-Adapter (Vercel/Netlify), inkrementelles Rendering
+  (E18/L14), E4 Scheiben 1-2, E17-Rest, E13/L20; Sections-Migration weiter vertagt.
+
+---
+
+## 22.09.2026 - E-Pakete, Scheibe 2: MCP-Bibliothek, design.md→Theme, Design-Score, `senify doctor`
+
+- **MCP-Bibliotheks-Parität (E24 S4):** 13 neue Tools — `create_manual_reference`,
+  `update_reference`, `update_reference_doc`, `delete_reference`, `edit_reference_profile`,
+  `list_reference_revisions`, `unassign_reference`, `reference_tick`,
+  `update_reference_collection`, `delete_reference_collection`, `get_reference_settings`,
+  `set_reference_settings` (+ `import_design_system`, s. u.); Annotations-Matrix in
+  `server.ts` nachgezogen (destruktiv nur `delete_reference`/`delete_reference_collection`;
+  idempotent u. a. `update_reference*`, `unassign_reference`, `set_reference_settings`).
+  **Engine-Fund:** PATCH `/api/references/:id` ersetzte den ganzen Dokumenten-Satz
+  (`referenceDocumentsFrom` mit `null`-Fallback) — ein Einzel-Dokument-Update hätte die
+  anderen zwei gelöscht; `mergeReferenceDocuments` merged jetzt nur die gesendeten Kinds.
+- **`import_design_system` (E27):** `design-system-import.ts` + Route
+  `GET /api/references/:referenceId/design-system?siteId=…` — Theme-Patch aus dem design.md
+  mit Belegstelle/Evidenz je Wert, `gaps` (dort bleibt das Theme unverändert), Font-Zuordnung
+  (offen/proprietär/unbekannt + offene Alternative), `conflicts` gegen das aktuelle Theme,
+  `reduced`-Kennzeichnung, Gegenprobe. Lese-Weg; geschrieben wird mit `update_theme`.
+- **Design-Score (E26 S1):** `design-report.ts` + Route `GET /api/sites/:siteId/design-report`
+  + Tool `get_design_report` — 0-100 aus acht Dimensionen, Schwellen je Profil
+  (clean 75/55, standard 80/60, showcase 85/65), Findings S1-S12 im `CheckIssue`-Format mit
+  Fundstelle und Vorschlag, direkter Finding-Abzug (soft 4, hart 10) gegen das Hängenbleiben
+  an der Dimensionsgrenze. Reproduzierbar; Workflow-Test: generische Seite (Hero+3xCards+CTA)
+  ergibt 59 → gate.
+- **`senify doctor` (E12/L43):** Status je Fähigkeit (Engine, Dashboard, Datenbank,
+  Programm-Token, MCP-Client, Daten, Bake) mit Fix-Befehl, ehrlichem "nicht verifiziert"
+  (ohne Token bleiben Datenbank/Bake unverified) und `--json`; Exit 1 bei Fehlern.
+- **Doku:** Router-Skill (+3 Zeilen), Portal-Guide `redesign-aus-referenzen` (§2b + §6),
+  Server-Instructions (Referenz-Pfad).
+- **Zahlen:** `pnpm test` **1444 grün / 2 übersprungen / 158 Dateien**; die **9 roten sind
+  fremd** (paralleler Design-Strang baut `ui-preview/` um: `index.html` = neuer 2-KB-Prototyp,
+  alte Vorschau als `styleguide.html`; die zwei Paritäts-Testdateien lesen noch `index.html`).
+  Eigene Bereiche vollständig grün; typecheck 0, lint 0, build 0
+  (`.scratch/testlauf-22-09-epakete-3.log`).
+- **Offen (bewusst):** gehostete Deploy-Adapter, E18-Kern (inkrementelles Rendering/Performance),
+  E25 S2/S3 (`apply_redesign`, Editor-Modus), E24 S3 (Screenshot-Slots/Specimens), E26 S2
+  (Referenz-Visual-Diff), E4 Scheibe 2, E17-Rest, E13-E15/L20; Sections-Migration vertagt.
+
+---
+
+## 23.09.2026 - E-Pakete, Scheibe 3: E4 S2, E26 S2, E24 S3, E25 S2, E14 Netlify
+
+- **E4 S2 komplett:** Prompts (4 Reisen, Validierung), Resources (senify://docs, senify://theme/{siteId}),
+  Elicitation (Form, generische Pflichtfeld-Fuellung + get_reference_brief-Quellfrage), kein Sampling
+  (ADR-0009). Skills: Thin Router + senify-layout/senify-cms/senify-review; llms.txt im Root;
+  Routen-Matrix generiert (pnpm route-matrix, Test blockt neue Routen ohne Zeile; 148 Routen).
+  Token-Messung Referenz-Workflow: 18.337 Zeichen ~ 4.584 Tokens (< 25k-Budget, .scratch/e4-s2/token-messung.md).
+- **E26 S2:** reference-visual-diff.ts + POST /api/references/:id/visual-diff + GET .../visual-diffs/:filename
+  + MCP diff_reference; Draft-Bake in Wegwerf-Verzeichnis, Capture in Slot-Breiten (widths-Override in
+  analysis-worker), Kennzahl + Heatmap je Slot; read-only in Wirkung. Tests 6/6.
+- **E24 S3:** Snapshot-Kinds hero-desktop/hero-mobile, Dimensions-Cap 8000 px, selectCardSnapshot
+  (Hero zuerst, nie motion) als cardSnapshot am Summary; Dashboard-Karte nutzt ihn. Tests gruen.
+- **E25 S2:** apply-redesign.ts + POST /api/sites/:siteId/redesign + MCP apply_redesign; Duplikat
+  (oder In-place-Seiten-Rebuild), Theme-Patch (erste Referenz fuehrt), Golden-Geruest fuer leere
+  Seiten, Design-Record als Audit-Event; alles kanonisch (persistBatch), nie am aktiven Release.
+  Tests 3/3 + MCP-Workflow.
+- **E14 Netlify:** deploy_settings-Tabelle (Token verschluesselt, nur hasNetlifyToken nach außen),
+  GET/PUT /api/sites/:siteId/deploy-settings, Adapter File-Digest(SHA1) -> Upload required -> Poll ready
+  (10 min), Live-URL im target; fetchImpl/pollMs injizierbar. MCP deploy_site erweitert +
+  get/set_deploy_settings. Tests 6/6.
+- **Zahlen:** typecheck 0, lint 0; Gesamtlauf 1483 gruen / 12 uebersprungen / 164 Dateien — 3 rote
+  waren Timing-Flakes der Visual-Diff-Tests unter Volllast (Timeout 30->60 s, Einzellaeufe gruen);
+  9 fremde rote (ui-preview-Umbau, Design-Strang) unangetastet.
+- **Offen:** Vercel-Adapter, E24 S3-Rest (Specimens/FTS), E25 S3 (Editor-Modus, Set-Deploy),
+  E26 S3 (Publish-Gate, DNA-Fence), E18-Kern, E17-Rest, E13-E15/L20; Sections-Migration vertagt.
+
+---
+
+## 23.09.2026 (2) - E-Pakete, Scheibe 4: E26 S3, E25 S3a, E14 Vercel, E24 FTS/Dedupe
+
+- **E26 S3a (R9):** design-contract.ts + DesignContract am Site (sites.design_contract jsonb),
+  abgeleitet aus zugewiesenen Referenzen (apply_reference/unassign frischen nach, manuell
+  ueberlebt), GET/PUT /api/sites/:siteId/design-contract + MCP get/set_design_contract.
+  Fence im Schreibpfad: never-Regeln auf messbare Muster gemappt (Gradienten in allen
+  String-Props, Schatten, Rundungen, Weiss, Neon, Zentrierung, Monospace) — Agenten hart
+  (guardrail 422, nichts geschrieben), Menschen Warnung.
+- **E26 S3b (R8):** publishRelease blockiert bei verdict gate (clean 55 / standard 60 /
+  showcase 65) mit benanntem Finding; submit haengt Score als soft issue an das Review.
+- **E25 S3a (R13):** apply_redesign akzeptiert collectionId (Set-Semantik: fertige Referenzen
+  der Sammlung, aelteste fuehrt, Cap 3; Ausschluss mit referenceIds; leere Sammlung Konflikt).
+- **E14:** Vercel-Adapter hinter derselben Seam (deploy_settings um vercel_project_id/
+  vercel_token_encrypted, deployToVercel: Dateiliste SHA1 -> missing-Upload -> Poll READY,
+  URL im target), resolveVercelToken, Contract/Routen/MCP erweitert. Tests 8/8.
+- **E24 (L42):** searchReferences (FTS ueber Name/Notiz/Vokabular/Familien/Sammlung UND
+  Dokumente, Gewichts-Ranking 4/2/1) + GET /api/references/search + MCP search_references;
+  findDuplicateReferences (URL- oder Namen-Dedupe, neuere ist Duplikat der aelteren, rein
+  lesend) + GET /api/references/duplicates + MCP find_duplicate_references.
+- **Zahlen:** typecheck 0, lint 0; Gesamtlauf **1508 gruen / 12 uebersprungen / 164 Dateien
+  — null rot** (auch die 9 fremden ui-preview-Tests sind gefixt). Fremd-Fix: ErrorResponse-
+  Import in code-payloads.test.ts (nur Import).
+- **Offen:** E25 S3-Rest (Editor-Modus, E5-gebunden; Design-Record im Review), E24 S3-Rest
+  (Specimens), E18-Kern, E17-Rest, E13/E15/L20; Sections-Migration vertagt.
+
+## 23.09.2026 (3) - Framer-Import: S3b-Nachweis, offene S0-Punkte, Fixtures
+
+- **S3b-Nachweis komplett:** wave-payload.mjs buendelt das echte WaveBackground-Modul
+  (esbuild, React/three aus dem eigenen Repo). Zwei Bugs gefixt: Shim-Ersetzung ohne
+  Aufruf (`(() => {...})` statt `(() => {...})()`, three.js-Body lief nie) und
+  React.createRoot statt ReactDOM.createRoot. beweis-lauf 9 PASS, Live-Check: Canvas
+  rendert im echten Release (payloadState=mounted, WebGL-Loop).
+- **Payload-Budget:** gemessen 2,78 MB (three.js + React inlined) — Budgets auf 3 MB je
+  Payload / 8 MB je Seite erhoeht (guardrails.ts, ADR-0010 §6). Tests 21/21.
+- **Tablet 1024 ueberall:** visual.ts VISUAL_VIEWPORTS.tablet 768x1024 → 1024x768,
+  frames.ts DESIGN_FRAMES.tablet dito; fitZoom rundet jetzt ab (kaufmaennisches Runden
+  ueberschritt das Fenster um 0,77 px). Tests 37/37.
+- **Fixtures im Repo:** packages/framer-import/test/fixtures/ mit drei getrimmten
+  Exporten (index.html + Seiten-CSS, 3,33 MB statt 81 MB), README mit Herkunft/Lizenz.
+- **Offene S0-Punkte geschlossen (befund.md §4):** Live-Lauf gegen font2yeux.github.io
+  (yeuxtest.framer.website ist 404): 48 Requests, 12,30 MB CDN, 675 Knoten, 51
+  @font-face (Inter, 6 Gewichte x 8 Subsets), animate-Opacity nach Settle = 1.
+  WAAPI-Verifikation: genau eine Loop-Form (Ticker-Marquee 140 s, iterations null),
+  Rest Appear. Motion-Lauf an allen drei Spiegeln: IO 27/34/198, 0 GSAP.
+- **Plan nachgeschaerft:** DNA-Konformitaet S1.4 (Fundart dna-adjustment), 1024 in S5.2,
+  Fixtures 6.1b, Font-DSGVO 2.3b, Lenis als smooth-scroll-Fundart S1.6, Endlos-Loops
+  als loop-animation S2.2, Pfade korrigiert.
+- **Zahlen:** code-payloads/frames/device-Suiten gruen; typecheck/lint 0.
+
+## 23.09.2026 (4) - Framer-Import S1: IR, Capture, Normalizer, Mapper, Fidelity
+
+- **Neues Paket `packages/framer-import`** (deps: core, editor, section-sdk, tokens,
+  widget-engine; tsconfig-Path `@senify/framer-import`).
+- **ir.ts:** FramerIrDocument mit IrNode.states[] (hiddenAt aus ssr-variant-Wrappern,
+  variantHash aus framer-v-*), toleranter parseIr (parseStyleRule-Muster), neue Fundarten
+  dna-adjustment / smooth-scroll / loop-animation / font-subset.
+- **capture-html.ts:** eigener Tag-Scanner (keine Parser-Dep). Liest appear/breakpoints/
+  handover-Kanaele, Token-Definitionen, @font-face (auch aus der verlinkten Seiten-CSS),
+  Text-Presets, Assets. Löst ssr-variant-Wrapper auf (hidden-Hashes wandern ans Kind).
+- **normalize.ts:** DNA-Pfad (Gradient → flache Farbe, Schatten weg, Radius 0, Headings
+  links, Neon/Mono als Fund) — jede Anpassung = Fundart dna-adjustment mit Beleg.
+  Konsolidierung ueber Deklarations-Sets, Vendor-Praefixe fallen gezählt.
+- **mapper.ts:** mapDocument → version-2-EditorDocument + StyleRule[] (origin
+  framer-import) + Theme-Patch (dominante Font-Familie). Geraete-Merge in zwei Ebenen:
+  Geschwister mit identischer Basis-Klassen-Signatur folden zu einem Knoten, das Duplikat
+  wird Device-State (Framer-Ranges ≥1200 / 810–1199,98 / ≤809,98), nur der Wertunterschied
+  wird _tablet/_mobile-Prop. Ehrliche Abbildung: RichTextContainer mit einem Heading-Kind
+  → heading mit level; RichText mit Bloecken → body mit Inline-HTML; <a> nur Text → link,
+  <a> mit Bloecken → frame + Fund; ul mit Block-Items → frame; svg mit Kindern → frame,
+  nacktes svg → icon + Fund. Alles nach allowedChildren des Katalogs.
+- **fidelity.ts:** buildFidelityReport (counts/declarations/motion/findings/score/steps).
+- **Tests 48:** ir/capture/normalize/mapper/golden/integrity. validateDocument = 0 Issues
+  auf allen drei Fixtures, compileCss ohne gradient( (DNA-Fence haelt bis ins CSS).
+- **Zahlen:** typecheck 0, lint 0; Gesamtlauf **1556 gruen / 12 uebersprungen / 170
+  Dateien — null rot**.
+
+## 23.09.2026 (5) - Framer-Import S2: Browser-Capture, Probes, Assets, Fonts-DSGVO
+
+- **capture-browser.ts:** Playwright-Lauf (URL oder file://-Mirror), Settle-Pass, SSR-HTML
+  durch die statische Capture (source.kind = browser). Freeze off = __SENIFY_MOTION__ +
+  Freeze-CSS (animation none) — frozen Baseline zaehlt keine WAAPI-Eintraege; Motion-
+  Inventar laeuft mit motion: live.
+- **probes/**: motion-probe.mjs + tokens-probe.mjs als unveraenderte MIT-Kopien aus
+  Repos/site-clone (Herkunft/Lizenz in probes/README.md, eslint-Ausnahme fuer catch {}).
+- **Eigener Scroll-Sensor:** Bounding-Boxen vor/nach dem Scrollpass; Delta ≠ Scrollstrecke
+  = scroll-getriebenes Sample (S0/B8c).
+- **Endlos-Loops:** WAAPI iterations endless/null → Samples mit trigger time +
+  Fundart loop-animation (statischer Kanal UND Probe fuehren zur Fundart);
+  marqueeCandidates() liefert die Marquee-Preset-Zuordnung.
+- **assets.ts:** Download je URL, SHA-256-Dedupe, Alt-Texte, Fehlgeschlagene = Fundart
+  asset-blocked. Zwei Ablage-Wege: Uploader-Callback (S3: signierte Upload-Route) oder
+  Mirror-Ordner.
+- **Fonts-DSGVO (2.3b):** Font-Dateien geholt, Dedupe ueber (SHA-256, unicode-range),
+  IR-src-Listen zeigen nur lokale Pfade — keine framerusercontent-URL ueberlebt den
+  Import (Test: not.toContain).
+- **import.ts (runImport):** eine Orchestrierung fuer CLI/MCP/Dialog. Idempotenz:
+  irHashOf + compareRuns + summaryOf/compareSummaries (S2.5).
+- **Tests +22:** assets 11, capture-browser 5 (skipIf ohne Chromium; IO/Loop-Inventar
+  gegen minimale Testseite mit echtem IO + element.animate()), import 6 (zweiter Lauf
+  No-Op, identical: true).
+- **Zahlen:** typecheck 0, lint 0; framer-import **70/70**, Gesamtlauf **1578 gruen /
+  12 uebersprungen / 172 Dateien — null rot**.
+
+## 23.09.2026 (6) - Framer-Import S3: Weg in die Engine
+
+- **imports-contract.ts + imports.ts:** CreateImportBodySchema (Quelle url/rootDir/html,
+  pagePath, assets, fonts, applyTheme, write, pageId, idempotencyKey) + ImportReportSchema
+  (eine Form fuer Dry-Run und Write). runFramerImportJob: Dry-Run schreibt nichts;
+  write legt das Dokument als EINE Revision ueber persistBatch ab (Audit importFramer).
+- **editorDocumentToNodeTree:** exakte Umkehrung von migrateV1ToV2 — root-primitive →
+  PAGE_ROOT_TYPE, _tablet/_mobile-Suffixe → Node-Overrides.
+- **appendImportedStyleRules (Store):** importierte Regeln mit framer-import-Origin in
+  die site-weite Registry (Audit importFramerStyleRules), harte Checks wie manuell.
+- **import_jobs:** Tabelle (wie reference_jobs), ImportJob-Typ, Store-Funktionen
+  create/get/payload/listDue/update/result/setResult — Report liegt auf dem Job.
+- **Routen:** POST /api/sites/:siteId/imports/framer (Job → running → Run →
+  succeeded/failed, Antwort mit finalem Job-Stand + Report, withIdempotency),
+  GET /api/sites/:siteId/imports, GET /api/imports/:jobId. route-matrix: 155 Routen.
+- **CLI:** senify import framer <quelle> (URL/HTML-Datei/Mirror-Ordner nach Form erkannt),
+  --write, --report, --apply-theme, --page-id.
+- **MCP:** import_framer_page (write; IDEMPOTENT_TOOLS + OPEN_WORLD_TOOLS) +
+  get_import_report (read).
+- **Tests +8:** imports.test.ts — Dry-Run aendert nichts; Write = eine Revision
+  (Draft 1→2, validateTreeIntegrity 0, bakePages 1 Seite); bestehende Seite +1;
+  framer-import-Origin in der Registry; Job-Protokoll; identer irHash; 400 bei
+  leerer/ambiguer Quelle; Mirror offline. Pins: cli.test.ts (+import),
+  workflow.test.ts (+2 Tools).
+- **Zahlen:** typecheck 0, lint 0; stabiler Gesamtlauf mit einem Worker **1593 gruen / 12 uebersprungen / 178 Dateien — null rot**. Der parallele Standardlauf kann den bekannten Release-Cutover-Browsertest unter Volllast im Klick-Timing verlieren; isoliert und seriell ist er gruen.
+
+## 24.09.2026 (7) - Framer-Import S4: Oberfläche, Kandidaten, Review
+
+- **Importdialog:** App-Toolbar mit Quelle URL/HTML/Mirror, Ziel, Assets/Fonts/Theme, Dry-Run und Apply; Session-Flush vor Write, `replaceDocument` bei bestehender Seite.
+- **Kandidaten:** memoiserte Strukturfingerprints und wiederholte Teilbäume im gespeicherten ImportReport; 4 neue Tests in `packages/framer-import/test/library.test.ts`.
+- **Review:** additive `import_reports`-Spalte, `ReviewItem.importReports`, sitebezogene Import-History und Reportblock in `app.js`; Engine-Importtests 11/11.
+- **Klasse-C:** Framer Code/Shader werden als sichtbare Payload-Platte mit Finding/Resolution geführt; echte automatische Framer-Modul-Extraktion bleibt als S4-Rest offen.

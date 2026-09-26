@@ -4,7 +4,7 @@
 
 **Blocked by:** 05 (Renderer & Bake — Section-SDK), 08 (Media — Medien-Fenster), 10 (Templates — Vorlagen-Tab), 12 (Programm-Shell — Arbeitsbereich).
 
-**Status:** umgesetzt (`pnpm verify` grün; Editor-Kern als eigenes Paket mit Puck-kompatiblem Adapter, Panels, Frames, Inline-Text, Explorer/Spotlight/Deep-Links, Undo/Redo, von der Programm-Shell über `@senify/editor/browser` eingebunden; im echten Browser geprüft: Frame-Layout, Klick-Auswahl in den Frames, Panels, Mutation, Inline-Text, Live-Modus, Deep-Link-Reload) — offen: echte Sektions-Komponenten in den Frames (Puck-/Renderer-Einbindung), Mini-Toolbar, Sektions-Einfügen aus dem Spotlight, Vorlagen-Daten im Explorer
+**Status:** umgesetzt (`pnpm verify` grün; Editor-Kern als eigenes Paket mit Puck-kompatiblem Adapter, Panels, Frames, Inline-Text, Explorer/Spotlight/Deep-Links, Undo/Redo, von der Programm-Shell über `@senify/editor/browser` eingebunden; im echten Browser geprüft: Frame-Layout, Klick-Auswahl in den Frames, Panels, Mutation, Inline-Text, Live-Modus, Deep-Link-Reload) — offen: echte Sektions-Komponenten in den Frames (Puck-/Renderer-Einbindung), Mini-Toolbar, Sektions-Einfügen aus dem Spotlight, Vorlagen-Daten im Explorer (die Puck-basierten Punkte sind mit ADR-0007/editor-v2 überholt; „Vorlagen-Daten im Explorer" bleibt als Restpunkt, vgl. O14)
 
 - [ ] Design-Modus: 3 Breakpoint-Frames nebeneinander, alle editierbar; Änderungen in einem Frame wirken in allen (Overrides korrekt); Zoom/Pan funktioniert
 - [ ] Live-Modus: ein Frame in echter Größe, scrollbar, voll editierbar; Umschalter Design ⇄ Live erhält den Zustand

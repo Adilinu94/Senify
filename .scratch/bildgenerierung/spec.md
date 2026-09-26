@@ -300,7 +300,7 @@ ein Rezept → `validation`-Fehler mit Hinweis auf `get_reference_brief`.
 - **Quota-Erkennung:** Die Fallback-Trigger sind Heuristiken über CLI-Fehlermeldungen
   (429/„Too many requests"/Tageslimit) — bei geänderten Meldungen nachziehen; im Zweifel lieber
   Fallback.
-- **Verbesserungsplan nachziehen:** §8.4-Zeile (mit ADR-0008 aktualisiert), I10-Status.
+- **Verbesserungsplan:** nachgezogen (22.09.) — §8.4-Zeile trägt ADR-0008 samt Lizenzbedingung, I10 steht auf erledigt.
 
 ## Nachweise
 

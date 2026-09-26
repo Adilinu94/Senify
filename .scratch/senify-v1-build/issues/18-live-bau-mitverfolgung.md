@@ -1,6 +1,6 @@
 # T18 Live-Bau-Mitverfolgung
 
-Status: offen
+Status: **erledigt (21.09., über editor-v2 Ticket 05)** — Ereignis-Kanal (`GET /api/events`), Live-Follow mit Blitz, Bau-Protokoll und Vorschau-Follow sind im editor-v2 umgesetzt; der Puck-Editor aus T13/T17 ist mit ADR-0007 abgelöst.
 Abhaengig von: T02 (Mutationen), T13 (visueller Editor), T17 (Elementor-Editor)
 
 ## Problem

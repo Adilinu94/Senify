@@ -1,0 +1,112 @@
+
+======================================================================
+BILD: C:/Users/adini/projects/nick-portal/HSzxw_Sb0AARFwe.png
+GROESSE: 2466 x 3051 px   (Bild ist doppelt aufgeloest, CSS = px / 2)
+======================================================================
+
+--- Weiss (Karten, Panels) (#ffffff, Toleranz +-3, ab 4000 px Flaeche) ---
+     1107 x 1515 px   Radius    0 px           Ort 0,0%,50,3%
+    CSS  553,5 x 757,5       Radius  0,0      [Tangente 0, Schwelle 0, Stille 0]  [am Bildrand]
+     2115 x  948 px   Radius   69 px           Ort 0,0%,17,7%
+    CSS  1057,5 x 474,0       Radius 34,5      [Tangente 69, Schwelle 35, Stille 33]  [am Bildrand]
+      960 x  711 px   Radius   90 px           Ort 46,8%,76,7%
+    CSS  480,0 x 355,5       Radius 45,0      [Tangente 90, Schwelle 81, Stille 33]  [am Bildrand]
+      708 x  144 px   Radius   66 px           Ort 31,1%,11,4%
+    CSS  354,0 x 72,0       Radius 33,0      [Tangente 66, Schwelle 59, Stille 26]
+      816 x   90 px   Radius   45 px  (Pille)   Ort 49,8%,96,0%
+    CSS  408,0 x 45,0       Radius 22,5      [Tangente 43, Schwelle 35, Stille 18]
+      144 x  144 px   Radius   66 px           Ort 60,8%,11,4%
+    CSS   72,0 x 72,0       Radius 33,0      [Tangente 66, Schwelle 59, Stille 26]
+
+--- Limette (Akzent) (#c9f24c, Toleranz +-16, ab 4000 px Flaeche) ---
+      912 x  519 px   Radius   69 px           Ort 47,8%,83,0%
+    CSS  456,0 x 259,5       Radius 34,5      [Tangente 69, Schwelle 59, Stille 24]  [am Bildrand]
+      714 x   90 px   Radius   28 px           Ort 22,3%,39,0%
+    CSS  357,0 x 45,0       Radius 14,0      [Tangente 28, Schwelle 22, Stille 12]
+      345 x  120 px   Radius   57 px           Ort 48,8%,69,6%
+    CSS  172,5 x 60,0       Radius 28,5      [Tangente 57, Schwelle 49, Stille 20]
+      462 x   77 px   Radius   32 px           Ort 13,3%,52,9%
+    CSS  231,0 x 38,5       Radius 16,0      [Tangente 32, Schwelle 29, Stille 11]
+      234 x   90 px   Radius    0 px           Ort 0,0%,12,3%
+    CSS  117,0 x 45,0       Radius  0,0      [Tangente 0, Schwelle 0, Stille 0]  [am Bildrand]
+       96 x   78 px   Radius   39 px  (Pille)   Ort 55,2%,12,5%
+    CSS   48,0 x 39,0       Radius 19,5      [Tangente 37, Schwelle 30, Stille 15]
+
+--- Amber (Hinweis) (#eca122, Toleranz +-16, ab 4000 px Flaeche) ---
+    keine Form ueber der Schwelle
+
+--- Hinweisflaeche (#fcefd8, Toleranz +-10, ab 4000 px Flaeche) ---
+      201 x   78 px   Radius   35 px           Ort 22,5%,93,8%
+    CSS  100,5 x 39,0       Radius 17,5      [Tangente 35, Schwelle 29, Stille 16]
+      201 x   78 px   Radius   35 px           Ort 22,5%,87,6%
+    CSS  100,5 x 39,0       Radius 17,5      [Tangente 35, Schwelle 29, Stille 16]
+      201 x   78 px   Radius   35 px           Ort 22,5%,81,4%
+    CSS  100,5 x 39,0       Radius 17,5      [Tangente 35, Schwelle 29, Stille 16]
+
+--- Fast-schwarz (zweite Flaeche) (#111116, Toleranz +-10, ab 4000 px Flaeche) ---
+      960 x  756 px   Radius   93 px           Ort 46,8%,50,3%
+    CSS  480,0 x 378,0       Radius 46,5      [Tangente 93, Schwelle 82, Stille 29]
+      504 x  300 px   Radius   69 px           Ort 0,1%,24,4%
+    CSS  252,0 x 150,0       Radius 34,5      [Tangente 69, Schwelle 60, Stille 22]
+      447 x  144 px   Radius   69 px           Ort 67,6%,11,4%
+    CSS  223,5 x 72,0       Radius 34,5      [Tangente 69, Schwelle 60, Stille 22]
+      207 x   96 px   Radius   48 px  (Pille)   Ort 65,0%,19,7%
+    CSS  103,5 x 48,0       Radius 24,0      [Tangente 46, Schwelle 38, Stille 16]
+      183 x   90 px   Radius   28 px           Ort 75,4%,39,0%
+    CSS   91,5 x 45,0       Radius 14,0      [Tangente 28, Schwelle 22, Stille 12]
+
+
+======================================================================
+BILD: C:/Users/adini/projects/nick-portal/HSzxv9UaIAAOXbw.jpeg
+GROESSE: 2466 x 3051 px   (Bild ist doppelt aufgeloest, CSS = px / 2)
+======================================================================
+
+--- Weiss (Karten, Panels) (#ffffff, Toleranz +-3, ab 4000 px Flaeche) ---
+     1344 x 1506 px   Radius   94 px           Ort 45,5%,50,6%
+    CSS  672,0 x 753,0       Radius 47,0      [Tangente 94, Schwelle 83, Stille 19]  [am Bildrand]
+      720 x 2694 px   Radius   91 px           Ort 14,4%,11,7%
+    CSS  360,0 x 1347,0       Radius 45,5      [Tangente 91, Schwelle 83, Stille 19]  [am Bildrand]
+     1140 x  501 px   Radius  250 px  (Pille)   Ort 48,2%,30,5%
+    CSS  570,0 x 250,5       Radius 125,0      [Tangente 426, Schwelle 57, Stille 8]
+     1272 x  948 px   Radius   91 px           Ort 45,5%,18,0%
+    CSS  636,0 x 474,0       Radius 45,5      [Tangente 91, Schwelle 83, Stille 19]
+      352 x  174 px   Radius    2 px           Ort 64,2%,39,9%
+    CSS  176,0 x 87,0       Radius  1,0      [Tangente 2, Schwelle 1, Stille 4]
+      352 x  174 px   Radius    0 px           Ort 78,5%,39,9%
+    CSS  176,0 x 87,0       Radius  0,0      [Tangente 0, Schwelle 0, Stille 2]
+      352 x  174 px   Radius   43 px           Ort 49,8%,39,9%
+    CSS  176,0 x 87,0       Radius 21,5      [Tangente 43, Schwelle 35, Stille 6]
+      573 x   70 px   Radius   35 px  (Pille)   Ort 17,4%,97,7%
+    CSS  286,5 x 35,0       Radius 17,5      [Tangente 524, Schwelle 33, Stille 7]  [am Bildrand]
+       24 x  880 px   Radius   23 px           Ort 99,0%,19,1%
+    CSS   12,0 x 440,0       Radius 11,5      [Tangente 23, Schwelle 48, Stille 2]  [am Bildrand]
+      288 x   87 px   Radius   36 px           Ort 48,3%,20,2%
+    CSS  144,0 x 43,5       Radius 18,0      [Tangente 36, Schwelle 35, Stille 2]
+      120 x  120 px   Radius   55 px           Ort 16,5%,18,4%
+    CSS   60,0 x 60,0       Radius 27,5      [Tangente 55, Schwelle 47, Stille 19]
+
+--- Limette (Akzent) (#c9f24c, Toleranz +-16, ab 4000 px Flaeche) ---
+      646 x  245 px   Radius   66 px           Ort 15,9%,92,0%
+    CSS  323,0 x 122,5       Radius 33,0      [Tangente 66, Schwelle 58, Stille 1]  [am Bildrand]
+      371 x   88 px   Radius   39 px           Ort 85,0%,12,6%
+    CSS  185,5 x 44,0       Radius 19,5      [Tangente 39, Schwelle 35, Stille 6]  [am Bildrand]
+
+--- Amber (Hinweis) (#eca122, Toleranz +-16, ab 4000 px Flaeche) ---
+      330 x   76 px   Radius   38 px  (Pille)   Ort 81,0%,20,4%
+    CSS  165,0 x 38,0       Radius 19,0      [Tangente 89, Schwelle 25, Stille 12]
+
+--- Hinweisflaeche (#fcefd8, Toleranz +-10, ab 4000 px Flaeche) ---
+    keine Form ueber der Schwelle
+
+--- Fast-schwarz (zweite Flaeche) (#111116, Toleranz +-10, ab 4000 px Flaeche) ---
+      648 x  114 px   Radius   54 px           Ort 15,8%,23,9%
+    CSS  324,0 x 57,0       Radius 27,0      [Tangente 54, Schwelle 46, Stille 22]
+      702 x   23 px   Radius   11 px  (Pille)   Ort 49,6%,37,3%
+    CSS  351,0 x 11,5       Radius  5,5      [Tangente 9, Schwelle 9, Stille 5]
+       96 x   96 px   Radius   28 px           Ort 16,5%,13,3%
+    CSS   48,0 x 48,0       Radius 14,0      [Tangente 28, Schwelle 22, Stille 2]
+       94 x   93 px   Radius   36 px           Ort 17,3%,93,4%
+    CSS   47,0 x 46,5       Radius 18,0      [Tangente 36, Schwelle 38, Stille 4]
+      118 x   68 px   Radius   26 px           Ort 35,8%,93,8%
+    CSS   59,0 x 34,0       Radius 13,0      [Tangente 26, Schwelle 28, Stille 2]
+
