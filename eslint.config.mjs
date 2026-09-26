@@ -36,6 +36,34 @@ export default tseslint.config(
     },
   },
   {
+    // Browser probes: injected into the captured page as init scripts, so
+    // they run IN the browser and legitimately touch window/document. The
+    // files are unchanged MIT copies (probes/README.md) — their defensive
+    // `catch (_) {}` blocks stay as published, so the two style rules are
+    // switched off for this folder only.
+    files: ["packages/framer-import/probes/**/*.mjs"],
+    languageOptions: {
+      globals: {
+        window: "readonly",
+        document: "readonly",
+        location: "readonly",
+        getComputedStyle: "readonly",
+        requestAnimationFrame: "readonly",
+        IntersectionObserver: "readonly",
+        MutationObserver: "readonly",
+        Element: "readonly",
+        Node: "readonly",
+        EventTarget: "readonly",
+        CSSRule: "readonly",
+        module: "readonly",
+      },
+    },
+    rules: {
+      "no-empty": "off",
+      "@typescript-eslint/no-unused-vars": "off",
+    },
+  },
+  {
     // Gate-Skripte des Repos (Node, kein Browser).
     files: ["scripts/**/*.mjs"],
     languageOptions: {

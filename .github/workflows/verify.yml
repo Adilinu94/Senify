@@ -25,5 +25,16 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
       - name: Gate (Build, Lint, Tests)
         run: pnpm verify
+      - name: Visuelles PNG-Gate (Settings, Referenzen, Editor)
+        run: pnpm test:visual
+      - name: Visuelle Diff-Artefakte
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-diffs
+          path: .scratch/editor-v2-rebuild/visual-diffs
+          if-no-files-found: ignore
       - name: Paritaets-Tor (Canvas vs. Release)
         run: pnpm verify:parity
+      - name: Import-Tor (Original vs. Senify)
+        run: pnpm verify:import

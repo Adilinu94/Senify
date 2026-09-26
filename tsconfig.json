@@ -38,6 +38,7 @@
       "@senify/editor/canvas": ["packages/editor/src/canvas/index.ts"],
       "@senify/app": ["packages/app/src/index.ts"],
       "@senify/analysis-worker": ["packages/analysis-worker/src/index.ts"],
+      "@senify/framer-import": ["packages/framer-import/src/index.ts"],
       "@senify/docs-portal": ["packages/docs-portal/src/index.ts"],
       "@senify/skills": ["packages/skills/src/index.ts"],
       "@senify/tokens": ["packages/tokens/src/index.ts"],
