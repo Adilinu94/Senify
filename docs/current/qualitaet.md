@@ -17,6 +17,8 @@
 | Paritäts-Tor | `pnpm verify:parity` | in dieser Sitzung **nicht** ausgeführt (setzt installierten Chromium und Zeit voraus; CI fährt es) |
 | Route-Matrix | `pnpm route-matrix` | in dieser Sitzung **nicht** neu erzeugt; Datei nennt 171 Routen |
 
+**Nachlauf 26.09.2026 (nach P0-1, Basis `9f183c7`):** Typecheck grün (Exit 0), Lint grün (Exit 0), `git diff --check` grün, Gesamttests **1641 grün / 15 übersprungen / 1 rot** in 190 Dateien (317 s). Der eine rote Test (`packages/app/test/accessibility-browser.test.ts`, Timeout auf `.refs-search input` unter Volllast) ist im Isolierlauf **grün in 17,6 s** — dieselbe Lastflaky-Klasse wie die drei bekannten Fälle unten. Log: `.scratch/testlauf-26-09-p01.log`, `.scratch/a11y-isoliert.log`.
+
 **Der Lintfehler ist behoben.** `packages/engine/test/redesign-transaction.test.ts:2` importierte ein ungenutztes `ensureSchema` und blockierte damit `pnpm verify` vollständig. Der Import ist entfernt, `pnpm lint` läuft seit 25.09.2026 mit Exit 0. `pnpm verify` erreicht den Testlauf. Details: `docs/fahrplan.md` P0-2.
 
 ## Testzahlen im Detail
@@ -40,13 +42,14 @@ Zusätzlich können Browser-Suiten über `browserSkip`/`!browserAvailable` über
 
 ## Flakes unter Volllast (dokumentiert, nicht behoben)
 
-Im ersten Volllauf dieser Sitzung waren drei Browser-Tests rot. Alle drei bestehen **isoliert**:
+In den Vollläufen vom 25.09. (drei Browser-Tests) und 26.09. (ein Browser-Test) waren Browser-Suiten unter Volllast rot. **Alle bestehen isoliert:**
 
 | Test | Volllauf | isoliert |
 |---|---|---|
 | `app/test/submissions-browser.test.ts` | Timeout bei `td:has-text("Max Mustermann")` | grün, 53,4 s |
 | `framer-import/test/capture-browser.test.ts` | Timeout bei „URL unreachable" | grün, 5/5 |
 | `framer-import/test/import-visual-gate-browser.test.ts` | Timeout 240 s | grün, 93,4 s |
+| `app/test/accessibility-browser.test.ts` | Timeout bei `.refs-search input` (Volllauf 26.09., 317 s) | grün, 17,6 s |
 
 Der Wiederholungslauf des Gesamtbestands war vollständig grün (1642/15/0). Ursache ist die Last durch vier parallele Worker (`vitest.config.ts`, `poolOptions.threads.maxThreads: 4`) plus schwere Playwright-Suiten; die Suite ist in der Datei bereits kommentiert gedeckelt. **Das ist R12/R11-Territorium, kein Inhaltsfehler.**
 
