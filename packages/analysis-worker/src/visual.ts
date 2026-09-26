@@ -15,7 +15,10 @@ export type Breakpoint = "desktop" | "tablet" | "mobile";
 
 export const VISUAL_VIEWPORTS: Record<Breakpoint, { width: number; height: number }> = {
   desktop: { width: 1440, height: 900 },
-  tablet: { width: 768, height: 1024 },
+  // Tablet is 1024 everywhere (decision 23.09.): the Framer tablet range is
+  // 810–1199, so 1024 sits inside it and the import gate compares at the same
+  // width the visual checks capture.
+  tablet: { width: 1024, height: 768 },
   mobile: { width: 390, height: 844 },
 };
 
@@ -31,6 +34,10 @@ export type CaptureOptions = {
   url: string;
   outDir: string;
   breakpoints?: readonly Breakpoint[];
+  // Viewport width override per breakpoint (E26 slice 2): the reference diff
+  // captures the result at the reference shot's own width, so widths stay
+  // comparable. Absent = the fixed VISUAL_VIEWPORTS width.
+  widths?: Partial<Record<Breakpoint, number>>;
   // Extra milliseconds after the scroll settle (websockets, lazy media).
   settleMs?: number;
   // Freeze kill-switch (freeze-spec.md): "off" (default) sets
@@ -148,8 +155,9 @@ export async function captureScreenshots(options: CaptureOptions): Promise<Visua
   try {
     for (const breakpoint of breakpoints) {
       const viewport = VISUAL_VIEWPORTS[breakpoint];
+      const width = options.widths?.[breakpoint] ?? viewport.width;
       const context = await browser.newContext({
-        viewport,
+        viewport: { width, height: viewport.height },
         reducedMotion: "reduce",
       });
       const page = await context.newPage();

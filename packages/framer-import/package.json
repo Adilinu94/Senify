@@ -1,0 +1,17 @@
+{
+  "name": "@senify/framer-import",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@senify/core": "workspace:*",
+    "@senify/editor": "workspace:*",
+    "@senify/section-sdk": "workspace:*",
+    "@senify/tokens": "workspace:*",
+    "@senify/widget-engine": "workspace:*",
+    "esbuild": "^0.28.2"
+  }
+}
