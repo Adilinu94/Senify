@@ -17,7 +17,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "vitest run --coverage packages/engine/test packages/editor/test packages/mcp/test",
     "test:postgres": "node scripts/verify-postgres.mjs",
     "test:visual": "node scripts/verify-visual.mjs",
     "lint": "eslint packages scripts",

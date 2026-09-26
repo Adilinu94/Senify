@@ -4,6 +4,13 @@ name: verify
 # Testsuite laufen als blockierender Schritt, danach das Paritaets-Tor mit
 # Pflicht-Browser (SENIFY_REQUIRE_BROWSER=1, siehe scripts/verify-parity.mjs).
 # Ohne installierten Chromium wird das Tor rot statt still uebersprungen.
+#
+# Zwei weitere Jobs fuehren die Nachweise, die der erste Job nicht erbringen
+# kann: `postgres-tests` die Transaktionsbeweise gegen eine ECHTE Postgres und
+# `coverage` das Schwellen-Tor ueber den teuersten Pfaden (Fahrplan P1-1 und
+# P1-2, R11). Beide sind absichtlich eigene Jobs und keine weiteren Schritte im
+# ersten: sie sollen als eigener gruener oder roter Balken sichtbar sein, nicht
+# als Zeile im Rollout eines anderen Jobs.
 on:
   push:
   pull_request:
@@ -38,3 +45,67 @@ jobs:
         run: pnpm verify:parity
       - name: Import-Tor (Original vs. Senify)
         run: pnpm verify:import
+
+  postgres-tests:
+    name: Transaktionsbeweise gegen echte Postgres
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: senify
+          POSTGRES_PASSWORD: senify
+          POSTGRES_DB: senify
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U senify -d senify"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://senify:senify@localhost:5432/senify
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Das Schema muss kein Schritt vorher anlegen: packages/engine/test/helpers.ts
+      # baut pro Lauf ein eigenes, veraenderliches Schema auf (ensureSchema) und
+      # haengt es beim Schliessen wieder ab. Ein kaputter Aufbau loescht sein
+      # Schema selbst, damit die Lane keine halben Tabellen hinterlaesst.
+      # Die Lane selbst ist rot, wenn auch nur ein Fall uebersprungen wird.
+      - name: Lane (Pflicht: 0 uebersprungen)
+        run: pnpm test:postgres
+
+  coverage:
+    name: Coverage-Tor der geschuetzten Pfade
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Die Schwellen liegen in vitest.config.ts und gelten pro Datei. Der Job
+      # faehrt nur die Suites der geschuetzten Pfade, nicht die schweren
+      # Browser-Suiten - damit das Tor von der Sache redet und nicht von der
+      # Playwright-Last des Laufers.
+      - name: Tor (pro Datei, keine Durchschnittsrettung)
+        run: pnpm test:coverage
+      - name: Zusammenfassung als Artefakt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-summary
+          path: coverage/coverage-summary.json
+          if-no-files-found: ignore
