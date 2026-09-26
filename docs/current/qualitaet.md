@@ -1,6 +1,6 @@
 # Qualitäts- und Gate-Stand
 
-> Basis: Arbeitsbaum auf Commit `6973cb1` plus 230 uncommittete Dateien.
+> Basis: Commit `67a2862` — derselbe Inhalt wie der gemessene Arbeitsbaum vom 25.09., jetzt in den zehn P0-1-Commits seit `6973cb1`.
 > Messzeitpunkt: **25.09.2026**, alle Werte in diesem Dokument wurden in dieser Sitzung selbst gemessen.
 > Aktueller Stand: `docs/current/stand.md`. Planung: `docs/fahrplan.md`.
 

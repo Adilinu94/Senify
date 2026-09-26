@@ -1,7 +1,7 @@
 # Aktueller Stand
 
-> Basis: Arbeitsbaum auf Commit `6973cb1` (23.09.2026), mit 230 uncommitteten Dateien (110 geändert, 1 gelöscht, 119 untracked).
-> Stand: 25.09.2026. Messzahlen stehen ausschließlich in `docs/current/qualitaet.md`.
+> Basis: Commit `67a2862` (26.09.2026) — Arbeitsbaum sauber; die früheren 230 uncommitteten Dateien stecken in den zehn P0-1-Commits seit `6973cb1`.
+> Stand: 26.09.2026. Messzahlen stehen ausschließlich in `docs/current/qualitaet.md`.
 > Geplante Arbeit und Reihenfolge: `docs/fahrplan.md`. Historisches: `docs/history/`.
 
 ## Lesehinweis

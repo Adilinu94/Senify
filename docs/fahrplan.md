@@ -1,7 +1,7 @@
 # Fahrplan
 
 > **Dokumenttyp:** fortlaufender Umsetzungsplan mit Gates. Dieses Dokument begleitet die Umsetzung und wird bei jedem abgeschlossenen Schritt aktualisiert.
-> **Stand:** 25.09.2026 · **Basis:** Commit `6973cb1` + 230 uncommittete Dateien · **Belege:** `docs/current/stand.md`, `docs/current/architektur.md`, `docs/current/qualitaet.md`
+> **Stand:** 26.09.2026 · **Basis:** Commit `67a2862` (Arbeitsbaum sauber) · **Belege:** `docs/current/stand.md`, `docs/current/architektur.md`, `docs/current/qualitaet.md`
 > **Nicht verbindlich hier:** Testzahlen (gehören nach `docs/current/qualitaet.md`), Fachbegriffe (`CONTEXT.md`), angenommene Entscheidungen (`docs/adr/`).
 > **Ersetzt:** `docs/umbauplan.md` (dort stehen Phasen 0–9, die hier nicht fortgeführt werden; siehe `docs/README.md` für die Vorrangregeln).
 
@@ -20,7 +20,9 @@
 
 Vor jeder inhaltlichen Arbeit gilt: **Der Arbeitsbaum ist das größte Risiko, und `pnpm build` ist der größte Bluff im Projekt.**
 
-### P0-1 · Arbeitsbaum in fachlichen Commits sichern
+### P0-1 · Arbeitsbaum in fachlichen Commits sichern — erledigt am 26.09.2026
+
+**Erledigt 26.09.2026:** Zehn Commits `1e4645a…67a2862` in der Reihenfolge Hygiene → Gate → Engine → Import → Renderer+Widget-Engine → Editor → App → MCP+Skills → Doku → Notizen; `git status --short` ist leer; `.gitignore` ergänzt um `.scratch/ui-audit/*.json` (erzeugte Messläufe bleiben lokal, Notizen und Messwerkzeuge sind getrackt). Der Plan darunter bleibt als Dokumentation der Klassifikation stehen.
 
 **Warum:** 110 geänderte, 1 gelöschte und 119 untrackte Dateien. Solange steht kein einzelner Stand auf einem Commit; `stand.md` muss auf einen Hash zeigen, nicht auf eine Momentaufnahme.
 
@@ -407,7 +409,7 @@ Leitet von `stand.md` und `architektur.md` ab. **Status** ist der Stand, **Schri
 | R10 | Import-Assets außerhalb der Tx | offen | P3-5 |
 | R11 | Kein PG-Service, kein Coverage in CI | offen | P1-1, P1-2 |
 | R12 | God-Files | offen | P3-2 |
-| R13 | Arbeitsbaum ungesichert (230 Dateien) | offen | **P0-1** |
+| R13 | Arbeitsbaum ungesichert (230 Dateien) | **geschlossen 26.09.2026** (`6973cb1..67a2862`) | **P0-1** |
 
 ---
 
@@ -439,6 +441,7 @@ Ein Schritt gilt erst als fertig, wenn **alle** erfüllt sind:
 | Datum | Änderung |
 |---|---|
 | 25.09.2026 | Erste Fassung. Grundlage: eigene Gate-Läufe dieser Sitzung (typecheck, lint, Gesamttests, `test:visual` — Zahlen in `docs/current/qualitaet.md`, inkl. Nachläufe der drei Flakes) und Code-Prüfung aller `R`-Einträge an `Datei:Zeile`. |
+| 26.09.2026 | P0-1 abgeschlossen: Arbeitsbaum in zehn fachlichen Commits gesichert (`1e4645a…67a2862`), `git status` leer, R13 geschlossen. P0-2 war bereits am 25.09. erledigt; offen in P0 bleiben P0-3 und P0-4. |
 
 **Offene Felder bewusst nicht ausgefüllt:** Aufwandsschätzungen. Der Umbauplan hatte sie nicht, der Verbesserungsplan nannte nur Größenklassen ohne Bezug zum konkreten Code. Sobald P0-1 steht, sind Schätzungen anhand der tatsächlichen Diffs möglich — bis dahin wäre jede Zahl eine Erfindung.
 
