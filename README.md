@@ -53,6 +53,19 @@ Senify ist ein lokales Programm, das Websites baut. Ein Agent (Claude Code, Curs
 pnpm verify
 ```
 
+## Dokumentation
+
+- Fachmodell: [`CONTEXT.md`](CONTEXT.md)
+- Dokumentationseinstieg und Vorrangregeln: [`docs/README.md`](docs/README.md)
+- **Offene Arbeit, priorisiert und mit Gates: [`docs/fahrplan.md`](docs/fahrplan.md)**
+- Aktueller Stand: [`docs/current/stand.md`](docs/current/stand.md)
+- Aktuelle Architektur: [`docs/current/architektur.md`](docs/current/architektur.md)
+- Test- und Gate-Stand: [`docs/current/qualitaet.md`](docs/current/qualitaet.md)
+- Entscheidungen: [`docs/adr/`](docs/adr/)
+- Historische Übergaben und abgelöste Pläne: [`HANDOFF.md`](HANDOFF.md), [`docs/umbauplan.md`](docs/umbauplan.md), [`docs/verbesserungsplan.md`](docs/verbesserungsplan.md)
+
+## Tests
+
 Das Paritäts-Tor (Canvas vs. ausgeliefertes Release) läuft als eigener
 blockierender Schritt und verlangt einen installierten Chromium:
 

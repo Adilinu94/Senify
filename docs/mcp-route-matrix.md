@@ -1,10 +1,10 @@
 # MCP-Routen-Matrix
 
-Stand: 2026-09-23 — generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und `packages/mcp/src/tools.ts` (+ Server-Audit). Bei neuer Route die Matrix neu erzeugen; `packages/engine/test/route-matrix.test.ts` prüft Vollständigkeit.
+Stand: 2026-09-25 — generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und `packages/mcp/src/tools.ts` (+ Server-Audit). Bei neuer Route die Matrix neu erzeugen; `packages/engine/test/route-matrix.test.ts` prüft Vollständigkeit.
 
 **Regel (E4):** Jede Route hat einen bewussten Status. **Tool** — ein MCP-Tool ruft sie direkt auf. **Workflow-gebündelt** — nur als Teil eines Mehr-Routen-Workflows erreichbar (Via-Spalte nennt das bündelnde Tool). **Operator** — UI/CLI/öffentlich, bewusst ohne Tool.
 
-**Zahlen:** 152 Routen — 79 Tool, 1 Workflow-gebündelt, 72 Operator.
+**Zahlen:** 171 Routen — 92 Tool, 1 Workflow-gebündelt, 78 Operator.
 
 | Methode | Route | Scope | Status | MCP-Tool(s) / Anmerkung |
 |---|---|---|---|---|
@@ -21,6 +21,7 @@ Stand: 2026-09-23 — generiert mit `pnpm route-matrix` aus `packages/engine/src
 | POST | `/api/sites/:siteId/pages` | write | Tool | `create_page` |
 | GET | `/api/sites/:siteId/pages` | read | Tool | `list_pages` |
 | GET | `/api/sites/:siteId/theme` | read | Tool | `get_theme`, `server (automatisch)` |
+| GET | `/api/sites/:siteId/theme.css` | read | Operator | UI/CLI |
 | PUT | `/api/sites/:siteId/theme` | write | Tool | `update_theme` |
 | GET | `/api/sites/:siteId/theme/report` | read | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/design-report` | read | Tool | `get_design_report` |
@@ -39,9 +40,9 @@ Stand: 2026-09-23 — generiert mit `pnpm route-matrix` aus `packages/engine/src
 | POST | `/api/pages/:pageId/undo-batch` | write | Tool | `undo_batch` |
 | GET | `/api/pages/:pageId/audit` | read | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/audit` | read | Operator | UI/CLI |
-| POST | `/api/tokens` | read | Operator | CLI-Bootstrap (`senify tokens create`) |
+| POST | `/api/tokens` | write | Operator | CLI-Bootstrap (`senify tokens create`) |
 | GET | `/api/tokens` | read | Operator | CLI (`senify tokens list`) |
-| DELETE | `/api/tokens/:tokenId` | read | Operator | CLI/Programm |
+| DELETE | `/api/tokens/:tokenId` | publish | Operator | CLI/Programm |
 | GET | `/api/whoami` | read | Operator | `whoami` — auch CLI/Diagnose |
 | POST | `/api/mcp/audit` | read | Tool | `server (automatisch)` — automatisch — der MCP-Server auditiert jeden Tool-Call |
 | GET | `/api/mcp/audit` | read | Operator | Abfrage (Tests/Diagnose) |
@@ -51,8 +52,8 @@ Stand: 2026-09-23 — generiert mit `pnpm route-matrix` aus `packages/engine/src
 | POST | `/api/sites/:siteId/deployments` | publish | Tool | `deploy_site` |
 | GET | `/api/sites/:siteId/deploy-settings` | read | Tool | `get_deploy_settings` |
 | PUT | `/api/sites/:siteId/deploy-settings` | write | Tool | `set_deploy_settings` |
-| GET | `/api/sites/:siteId/design-contract` | read | Operator | UI/CLI |
-| PUT | `/api/sites/:siteId/design-contract` | write | Operator | UI/CLI |
+| GET | `/api/sites/:siteId/design-contract` | read | Tool | `get_design_contract` |
+| PUT | `/api/sites/:siteId/design-contract` | write | Tool | `set_design_contract` |
 | GET | `/api/sites/:siteId/deployments` | read | Tool | `list_deployments` |
 | GET | `/api/releases/:releaseId` | read | Tool | `get_release` |
 | GET | `/api/pages/:pageId/revisions` | read | Operator | UI/CLI |
@@ -70,21 +71,31 @@ Stand: 2026-09-23 — generiert mit `pnpm route-matrix` aus `packages/engine/src
 | POST | `/api/sites/:siteId/assets/upload-url` | write | Tool | `import { readFileSync } from ` — via upload_asset (uploadLocalFile-Helper) |
 | PUT | `/api/assets/upload/:uploadId` | read | Workflow-gebündelt | Byte-Sink des Upload-Flows (via upload_asset, signierte URL) |
 | GET | `/api/sites/:siteId/assets` | read | Tool | `list_assets` |
+| GET | `/api/library-components` | read | Tool | `get_library_component`, `list_library_components` |
+| POST | `/api/library-components` | write | Tool | `promote_to_library` |
+| GET | `/api/library-components/audit` | read | Tool | `get_library_component`, `library_audit` |
+| GET | `/api/library-components/:componentId` | read | Tool | `get_library_component`, `library_audit` |
+| PATCH | `/api/library-components/:componentId` | write | Operator | UI/CLI |
+| DELETE | `/api/library-components/:componentId` | write | Operator | UI/CLI |
+| GET | `/api/sites/:siteId/library-installs` | read | Operator | UI/CLI |
+| POST | `/api/sites/:siteId/library-installs` | write | Tool | `install_library_component` |
+| POST | `/api/sites/:siteId/library-installs/:installId/update` | write | Tool | `update_library_instances` |
+| DELETE | `/api/sites/:siteId/library-installs/:installId` | write | Tool | `uninstall_library_component` |
 | POST | `/api/sites/:siteId/code-payloads` | write | Operator | Import/CLI (MCP-Tools folgen mit der Bibliothek, S6) |
 | GET | `/api/sites/:siteId/code-payloads` | read | Operator | Import-Bericht/Editor |
 | GET | `/api/code-payloads/:payloadId` | read | Operator | Import-Bericht/Editor |
 | DELETE | `/api/code-payloads/:payloadId` | write | Operator | CLI/Editor (destruktiv, mit Audit) |
-| GET | `/api/assets/:assetId` | read | Tool | `replace_asset` |
-| PATCH | `/api/assets/:assetId` | write | Tool | `replace_asset`, `update_asset` |
-| DELETE | `/api/assets/:assetId` | write | Tool | `delete_asset` |
-| POST | `/api/assets/:assetId/restore` | write | Tool | `restore_asset` |
-| POST | `/api/assets/:assetId/purge` | publish | Operator | UI/CLI |
-| GET | `/api/assets/:assetId/history` | read | Operator | UI/CLI |
-| POST | `/api/assets/:assetId/restore-history/:historyId` | write | Operator | UI/CLI |
+| GET | `/api/sites/:siteId/assets/:assetId` | read | Tool | `list_assets` |
+| PATCH | `/api/sites/:siteId/assets/:assetId` | write | Tool | `replace_asset`, `update_asset` |
+| DELETE | `/api/sites/:siteId/assets/:assetId` | write | Tool | `delete_asset` |
+| POST | `/api/sites/:siteId/assets/:assetId/restore` | write | Tool | `restore_asset` |
+| POST | `/api/sites/:siteId/assets/:assetId/purge` | publish | Operator | UI/CLI |
+| GET | `/api/sites/:siteId/assets/:assetId/history` | read | Operator | UI/CLI |
+| POST | `/api/sites/:siteId/assets/:assetId/restore-history/:historyId` | write | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/assets/bulk` | write | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/asset-folders` | write | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/asset-folders` | read | Operator | UI/CLI |
-| DELETE | `/api/asset-folders/:folderId` | write | Operator | UI/CLI |
+| DELETE | `/api/sites/:siteId/asset-folders/:folderId` | write | Operator | UI/CLI |
 | GET | `/assets/:filename` | read | Operator | öffentlich |
 | GET | `/_astro/:filename` | read | Operator | öffentlich |
 | GET | `/assets/:assetId/:filename` | read | Operator | öffentlich |
@@ -143,6 +154,11 @@ Stand: 2026-09-23 — generiert mit `pnpm route-matrix` aus `packages/engine/src
 | POST | `/api/sites/:siteId/references` | write | Tool | `apply_reference` |
 | DELETE | `/api/sites/:siteId/references/:referenceId` | write | Tool | `unassign_reference` |
 | POST | `/api/sites/:siteId/redesign` | write | Tool | `apply_redesign` |
+| POST | `/api/pages/:pageId/redesign-proposals` | write | Tool | `create_redesign_proposal` |
+| GET | `/api/pages/:pageId/redesign-proposals` | read | Operator | UI/CLI |
+| GET | `/api/redesign-proposals/:proposalId` | read | Tool | `get_redesign_proposal` |
+| GET | `/api/redesign-proposals/:proposalId/cards/:directionId/screenshot` | read | Operator | UI/CLI |
+| POST | `/api/redesign-proposals/:proposalId/confirm` | write | Operator | UI/CLI |
 | GET | `/api/settings` | read | Tool | `get_reference_settings` |
 | PUT | `/api/settings` | write | Tool | `set_reference_settings` |
 | POST | `/api/settings/email/test` | write | Operator | UI/CLI |
@@ -160,3 +176,6 @@ Stand: 2026-09-23 — generiert mit `pnpm route-matrix` aus `packages/engine/src
 | GET | `/api/backups` | read | Operator | UI/CLI |
 | POST | `/api/backups` | write | Operator | UI/CLI |
 | POST | `/api/backups/:name/restore` | write | Operator | UI/CLI |
+| POST | `/api/sites/:siteId/imports/framer` | write | Tool | `import_framer_page` |
+| GET | `/api/sites/:siteId/imports` | read | Operator | UI/CLI |
+| GET | `/api/imports/:jobId` | read | Tool | `get_import_report` |

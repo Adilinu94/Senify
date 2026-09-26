@@ -46,10 +46,11 @@ RM-Pflicht, LCP-Schutz (kein Above-fold-`opacity:0` ohne Fallback).
   das Profil, wo der Bake es schon kennt (Lenis, `profile !== "clean"`); harte
   Caps/Preset-Klassen kommen mit den Publish-Gates in M5; das Profil erreicht den
   Editor erst mit einem eigenen Site-Settings-Ticket (vor M3). 3D bleibt M6.
-- **Umsetzungsstand:** M0 (dieses ADR), M1 (Modell/Datenpfad), M2 (Runtime/Bake),
-  M3 (Inspektor + MCP + Skill), M4 Stufe 2 (Play-Preview im Canvas) und M5
-  (Profil-Gates + weiche Hinweise) sind am 18.09. umgesetzt. Offen: M4 Stufe 1
-  (Live-Modus mit echter Seite, haengt an Ticket 03) und die optionale Scrub-Stufe (M6).
+- **Umsetzungsstand:** M0–M5, M4 Stufe 2, Play-Preview, kleine Presets, Page Transitions und
+  3D `webgl-scene` sind umgesetzt. Die freie Timeline wurde bewusst gestrichen. Der Framer-Import
+  bildet gemessene Appear-, Viewport-, Scroll- und horizontale Endlos-Loop-Samples deterministisch
+  auf bestehende Presets ab; nicht abbildbare Samples bleiben als Findings mit Rohbeleg sichtbar.
+  Die Framer-spezifische Import-Abdeckung und ihre eigene Entscheidung bleiben offen.
 
 **Referenz:** `.scratch/motion-v2/research.md`, `plugin-analyse.md`, `preset-matrix.md`,
 `payload-spec.md`, `freeze-spec.md`, `plan.md`; `docs/adr/0003-gsap-als-choreografie-kern.md`.

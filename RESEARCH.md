@@ -1,5 +1,11 @@
 # Senify — Research & Projekt-Grundlage
 
+> ## ⚠️ HISTORISCH — Stand 14.09.2026, nicht aktueller Wahrheitsstand
+>
+> Dies ist die **Gründungsrecherche** vom Projektstart. Die Vergleiche und Technologie-Empfehlungen dieses Dokuments wurden **nicht** alle umgesetzt; was tatsächlich angenommen wurde, steht in `docs/adr/`. Für Ist-Aussagen gilt `docs/current/stand.md`, für die offene Arbeit `docs/fahrplan.md`.
+>
+> Wertvoll bleibt es als Begründungsarchiv: Es erklärt, warum Senify eine grüne Wiese wurde und welche Wege verworfen wurden.
+
 > **Stand:** 14. September 2026
 > **Status:** Projekt-Gründung. Research abgeschlossen (Phase 0).
 > **Entscheidung #1 (festgelegt):** Greenfield-Plattform, unabhängig von WordPress.

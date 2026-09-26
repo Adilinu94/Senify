@@ -38,6 +38,9 @@ _Avoid_: Component-Library, UI-Kit, Kit
 **Page-Controller**: Das zentrale vanilla Script-Tier einer Seite, das Scroll (Lenis), Motion (GSAP) und geteilten Zustand orchestriert und den Shared Store für Islands versorgt.
 _Avoid_: Page-Script-Layer, Motion-Layer, Controller
 
+**Island-Payload**: Ein versioniertes Fremd-Code-Paket einer Site (importiert oder hochgeladen), das **neben** dem NodeTree liegt und nur in Preview und Release als Island geladen wird — mit Herkunft, Lizenz, Integritätsnachweis und sichtbarem Rückfall. Transport und Bake-Regeln stehen in `docs/adr/0010-island-payload-fuer-importierten-fremd-code.md`; aktuelle Budgets stehen in `packages/engine/src/guardrails.ts`. Der Editor-Canvas lädt nie Fremd-Code, sondern Poster oder Platte.
+_Avoid_: Custom-Code, Snippet, Fremd-Skript
+
 ### Design
 
 **Token**: Eine benannte Design-Entscheidung (Farbe, Typografie, Abstand, Radius …) innerhalb eines Themes.
@@ -91,3 +94,24 @@ _Avoid_: Analyse, Auswertung, Style-Guide
 
 **Redesign-Paket**: Der Lesevorgang `plan_redesign`, der Seiteninhalt, Theme-Patch je Referenz, Dokumente und Regeln für einen Umbau bündelt.
 _Avoid_: Umbau-Plan, Briefing, Konzept
+
+**Direction Card**: Eine konkret angebotene Redesign-Richtung aus einer Referenz (Bild, Theme-Specimen, Begründung, Regeln), abgeleitet aus Quellseite, Theme und Referenzprofil.
+_Avoid_: Vorschau, Vorschlag, Option, Entwurf, Template
+
+**Redesign Proposal**: Die reloadfeste Sammlung von ein bis drei Direction Cards für eine Quellseite, zusammen mit ihrer Planbasis, der Direction Decision und dem Apply-Ergebnis.
+_Avoid_: Plan, Redesign-Paket, Session, Job
+
+**Direction Decision**: Die irreversible menschliche Wahl genau einer Direction Card innerhalb eines Redesign Proposals.
+_Avoid_: Auswahl, Freigabe, Entscheid, Bestätigung (als persistierter Zustand)
+
+**Sektions-Plan**: Die immutable Zuordnung der Sections einer Quellseite zu registrierten Zieltypen und Varianten, mit erhaltenen Inhalten, vollständiger Slot-Struktur und Medienbedarf; Teil der Direction Card.
+_Avoid_: Umbau-Plan, Blueprint, Layout-Plan, Soll-Liste
+
+**Medienbedarf**: Eine im Sektions-Plan ausgewiesene Medienrolle mit Herkunft und Behandlung (wiederverwenden, auswählen, hochladen, erzeugen, vermeiden, manuell entscheiden); nie ein übernommenes Referenz-Asset.
+_Avoid_: Bildkopie, Asset-Import, Platzhalterbild
+
+**Asset-Kopie**: Das Übernehmen der von den Seiten genutzten Medien einer Site in eine andere Site mit neuen Kennungen, neu gebildeten Speicherpfaden und umgeschriebenen Draft-Verweisen; beide Sites bleiben danach unabhängig.
+_Avoid_: Asset-Referenz, Verweis, Freigabe
+
+**Apply-Plan**: Die vollständig vorbereitete Schreibfolge eines Redesign-Applies mit vorab vergebenen Kennungen, erwarteten Versionen und Audit-Einträgen; reine Datenstruktur ohne Nebenwirkung.
+_Avoid_: Entwurf, Skript, Auftragsliste

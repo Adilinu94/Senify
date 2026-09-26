@@ -1,0 +1,31 @@
+# Senify
+
+> Agent-natives Website-System: eigener Editor, kanonische Mutationen, MCP-Parität für Agenten, Referenz-Bibliothek mit Design-Transfer. Engine/Postgres/Assets lokal.
+
+## Einstieg (in dieser Reihenfolge)
+
+- `README.md` — Start, Ausprobieren und Tests.
+- `CONTEXT.md` — Fachmodell und Domänenbegriffe.
+- `docs/README.md` — Dokumentrollen und Vorrangregeln.
+- `docs/current/stand.md` — aktueller, belegter Implementierungsstand.
+- `docs/current/architektur.md` — aktuelle Seams und Datenflüsse.
+- `docs/current/qualitaet.md` — letzter verifizierter Test- und Gate-Stand.
+- `docs/adr/README.md` — angenommene Entscheidungen.
+- `docs/umbauplan.md` — geplante Arbeit und aktive Reihenfolge.
+- `HANDOFF.md`, `docs/verbesserungsplan.md`, `.scratch/**` — historische Übergaben, Research und Arbeitsmaterial, nicht automatisch kanonischer Truth.
+
+## Agenten-Anbindung (MCP)
+
+- Setup: `pnpm senify setup` (schreibt die MCP-Konfiguration für den lokalen Client).
+- Einstieg für Aufträge: `packages/skills/skills/router.md` (Thin Router) — erst routen, dann das passende Modul laden (`senify-layout`, `senify-cms`, `senify-review`, `motion`, `images`, `assets`); Vollkataloge (`tools.md`, `sections.md`, `errors.md`) werden aus dem Code generiert.
+- Reisen als Prompts: `site-aus-brief`, `referenz-uebernehmen`, `review-und-release`, `content-pflege` (Argumente werden validiert).
+- Doku-Portal und Theme-Snapshots liegen zusätzlich als Resources (`senify://docs…`, `senify://theme/{siteId}`); führend bleiben die Tools. Volle Routen-Matrix: `docs/mcp-route-matrix.md`.
+- **Read-only-Standard für Inspektion:** Token mit Scope `read`, nur `read`-Tools (z. B. `get_page`, `get_nodes`, `get_theme`, `list_*`, `get_design_report`), Prompts/Briefs lesen statt schreiben. Schreib-Token (`write`/`publish`) nur für Bau-Aufträge; Freigaben (Publish/Rollback/Delete) entscheidet der Betreiber.
+- Fehlende Pflichtparameter fragt der Server per Elicitation nach (Client-Capability `elicitation`); Sampling nutzt Senify bewusst nicht (`docs/adr/0009-kein-mcp-sampling.md`).
+
+## Regeln
+
+- Deutsch antworten und dokumentieren; Fachbegriffe Englisch.
+- Drafts zuerst (`apply_mutations` mit `baseDraftVersion`); Tokens vor Literalen; Registry ist Gesetz.
+- Nie am aktiven Release bauen (Redesigns immer als Draft/Revision); Publish nur nach Freigabe.
+- Keine Commits ohne Aufforderung; fremde rote Tests nicht anfassen, nur als Fremdbefund melden.
