@@ -65,7 +65,7 @@ export default tseslint.config(
   },
   {
     // Gate-Skripte des Repos (Node, kein Browser).
-    files: ["scripts/**/*.mjs"],
+    files: ["scripts/**/*.mjs", "packages/*/build.mjs"],
     languageOptions: {
       globals: {
         process: "readonly",

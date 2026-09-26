@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { createApiHarness } from "@senify/core/testing";
-import { type DbResult, type Row } from "@senify/engine";
 import {
   bootEngine,
   createTestSite,
