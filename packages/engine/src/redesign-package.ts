@@ -62,6 +62,9 @@ export type RedesignTarget = {
   components: { name: string; variants: string[] }[];
   families: string[];
   documents: ReferenceDocuments;
+  // The warnings that belong to this reference alone, so a Direction Card can
+  // show its own risks instead of the whole package's.
+  warnings: string[];
 };
 
 export type RedesignPackage = {
@@ -161,13 +164,14 @@ export async function buildRedesignPackage(
     const verification = verifyThemeRoundTrip(draft, theme.theme);
     const merged = materializeThemeDraft(draft, theme.theme);
     const documents = reference.documents ?? { design: null, guidelines: null, components: null };
+    const targetWarnings: string[] = [];
     if (documents.design === null) {
-      warnings.push(
+      targetWarnings.push(
         `Referenz "${reference.name}" hat kein Design.md; der Entwurf stützt sich auf Profilwerte und Sammlung.`,
       );
     }
     if (!verification.ok) {
-      warnings.push(
+      targetWarnings.push(
         `Theme-Entwurf für "${reference.name}" besteht die Gegenprobe nicht: ${verification.issues.join("; ")}`,
       );
     }
@@ -176,10 +180,11 @@ export async function buildRedesignPackage(
       Object.keys(draft.fonts).length === 0 &&
       Object.keys(draft.motion).length === 0
     ) {
-      warnings.push(
+      targetWarnings.push(
         `Referenz "${reference.name}" liefert keine Skalenwerte; das Theme bliebe unverändert.`,
       );
     }
+    warnings.push(...targetWarnings);
     targets.push({
       reference: {
         id: reference.id,
@@ -211,6 +216,7 @@ export async function buildRedesignPackage(
       })),
       families: reference.profile.families,
       documents,
+      warnings: targetWarnings,
     });
   }
 
@@ -228,12 +234,14 @@ export async function buildRedesignPackage(
         .filter((entry): entry is RedesignNodeSummary => entry !== null),
     },
     targets,
+    // The canonical way out of this package. The old text still described the
+    // manual duplicate/update_theme path; apply_redesign does both in one call.
     steps: [
-      "Pro Referenz duplicate_site auf die Ziel-Site (withContent true) und die Kopie benennen.",
-      "update_theme je Kopie mit dem themePatch der zugehörigen Referenz.",
-      "Seite prüfen und anpassen: apply_mutations mit variant-/props-Änderungen, Texte aus source.outline übernehmen, fehlende Sektionen aus dem Katalog ergänzen (list_sections/get_section).",
-      "create_preview je Kopie und das Ergebnis ansehen.",
-      "submit_for_review je Kopie; Publish bleibt beim Menschen.",
+      "create_redesign_proposal mit derselben Quellseite und den gewählten Referenz-Ids (nur pageId und referenceIds; die Karten leitet der Server ab).",
+      "create_redesign_proposal: die Direction Cards einem Menschen vorlegen und auf dessen Bestätigung warten.",
+      "get_redesign_proposal: Status und Decision prüfen, danach je Seite get_page, get_section und apply_mutations.",
+      "create_preview und das Ergebnis ansehen; prüfen mit get_design_report und diff_reference.",
+      "submit_for_review; publish_release bleibt beim Menschen.",
     ],
     warnings,
   };

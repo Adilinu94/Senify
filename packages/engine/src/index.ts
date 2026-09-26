@@ -16,6 +16,7 @@ import {
   createUploadSigner,
 } from "./media.ts";
 import { referenceDepsFromEnv, type ReferenceDeps } from "./references-lifecycle.ts";
+import type { ReferenceDiffDeps } from "./reference-visual-diff.ts";
 import {
   DEFAULT_RATE_LIMITS,
   RateLimiter,
@@ -28,9 +29,34 @@ export {
   hardGuardrailsForTree,
   MAX_PARALLAX_PER_PAGE,
   MAX_PINS_PER_PAGE,
+  MAX_PAYLOAD_NODES_PER_PAGE,
+  MAX_PAGE_PAYLOAD_BYTES,
+  MAX_PAYLOAD_BYTES,
   PARALLAX_PRESETS,
+  payloadRefOf,
+  PAYLOAD_BUDGET_BY_PROFILE,
   PIN_PRESETS,
 } from "./guardrails.ts";
+export { createCodePayload, normalizeProvenance } from "./code-payloads.ts";
+export {
+  CreateCodePayloadBodySchema,
+  CodePayloadProvenanceSchema,
+  CodePayloadLicenseSchema,
+  type CreateCodePayloadBody,
+} from "./code-payloads-contract.ts";
+export {
+  editorDocumentToNodeTree,
+  framerImportKeys,
+  runFramerImportJob,
+  IMPORT_MAX_ATTEMPTS,
+  type ImportRunResult,
+} from "./imports.ts";
+export {
+  CreateImportBodySchema,
+  ImportReportSchema,
+  type CreateImportBody,
+  type ImportReport,
+} from "./imports-contract.ts";
 export { runChecks, type CheckStage } from "./checks.ts";
 export { imageDimensions } from "./media.ts";
 export { VARIANT_WIDTHS } from "./variants.ts";
@@ -58,6 +84,14 @@ export {
   type BakeWorker,
   type BakeWorkerOptions,
 } from "./bake-worker.ts";
+export { deployActiveRelease, type DeployInput } from "./deploy.ts";
+export {
+  CreateDeploymentBodySchema,
+  UpdateDeploySettingsBodySchema,
+  type CreateDeploymentBody,
+  type UpdateDeploySettingsBody,
+} from "./deploy-contract.ts";
+export { resolveNetlifyToken } from "./settings.ts";
 export {
   CreatePreviewBodySchema,
   PublishReleaseBodySchema,
@@ -131,12 +165,34 @@ export {
   createReviewVisualDriver,
   persistReviewVisuals,
   reviewVisualFileNames,
+  serveCaptureDir,
   type ReviewVisualBreakpoint,
   type ReviewVisualCapture,
   type ReviewVisualDriver,
   type ReviewVisualPage,
   type ReviewVisualRequest,
 } from "./review-visuals.ts";
+export {
+  breakpointForWidth,
+  diffableSnapshots,
+  diffReferenceAgainstDraft,
+  diffReferenceDesign,
+  type ReferenceDiffDeps,
+  type ReferenceDiffInput,
+  type ReferenceDiffResult,
+  type ReferenceDraftDiffInput,
+} from "./reference-visual-diff.ts";
+export {
+  applyRedesign,
+  commitRedesignApply,
+  compileRedesign,
+  type ApplyRedesignInput,
+  type ApplyRedesignResult,
+  type RedesignCommitPlan,
+  type RedesignPageResult,
+  type RedesignRecord,
+  type RedesignTargetSummary,
+} from "./apply-redesign.ts";
 export {
   CreateTokenBodySchema,
   generateToken,
@@ -170,7 +226,16 @@ export {
   type UpdateStyleRuleBody,
 } from "./site-contract.ts";
 export { assertPagePathFormat, draftConflictError, PAGE_PATH_PATTERN } from "./paths.ts";
-export { Store, slugify, type CreatePageInput, type CreateSiteInput, type NewAuditEntry } from "./store.ts";
+export {
+  Store,
+  slugify,
+  type CreatePageInput,
+  type CreateSiteInput,
+  type FramerImportCommitPlan,
+  type FramerImportCommitResult,
+  type NewAuditEntry,
+  type PreparedCodePayload,
+} from "./store.ts";
 export {
   ENTRY_STATUSES,
   ENTRY_VERSION_RETENTION,
@@ -182,6 +247,7 @@ export {
   REFERENCE_COLLECTION_KINDS,
   REFERENCE_LIST_SORTS,
   REFERENCE_ORIGINS,
+  REFERENCE_SNAPSHOT_KINDS,
   REFERENCE_STATUSES,
   REVIEW_STATUSES,
   SUPPORTS_FLAGS,
@@ -191,11 +257,13 @@ export {
   type ReferenceCollectionExample,
   type ReferenceCollectionKind,
   type ReferenceCollectionListView,
+  type ReferenceDesignDiff,
   type ReferenceDna,
   type ReferenceListView,
   type ReferenceListSort,
   type ReferenceOrigin,
   type ReferencePreferences,
+  type ReferenceProfile,
   type ReferenceSettings,
   type ReferenceStyleCatalogInfo,
   type ApiToken,
@@ -205,6 +273,10 @@ export {
   type CheckIssue,
   type CheckReport,
   type Collection,
+  type Deployment,
+  type DeploymentStatus,
+  type DeployProvider,
+  type DeploySettings,
   type Entry,
   type EntryRedirect,
   type EntrySearchHit,
@@ -215,6 +287,10 @@ export {
   type FieldType,
   type FormSnapshotRecord,
   type GuardrailViolation,
+  type ImportJob,
+  type ImportJobSource,
+  type ImportJobStatus,
+  type ImportReceipt,
   type McpAuditEntry,
   type MediaKind,
   type MediaRef,
@@ -222,6 +298,10 @@ export {
   type NewsletterTokenKind,
   type NotificationMessage,
   type NotificationStatus,
+  type CodePayload,
+  type CodePayloadKind,
+  type CodePayloadLicense,
+  type CodePayloadProvenance,
   type Page,
   type PageMeta,
   type PageRevision,
@@ -246,6 +326,8 @@ export {
   type TokenRecord,
   type TokenScope,
   SITE_PROFILES,
+  DEPLOYMENT_STATUSES,
+  DEPLOY_PROVIDERS,
   SMTP_TLS_MODES,
   IMAGE_FALLBACK_PROVIDERS,
   IMAGE_JOB_STATUSES,
@@ -309,6 +391,15 @@ export {
 } from "./mutations/apply.ts";
 export { applyPatchOp, applyTreePatches } from "./mutations/patches.ts";
 export { validateTreeIntegrity, type TreeIntegrityIssue } from "./mutations/integrity.ts";
+export {
+  parseUndoBatchBody,
+  remainingBatches,
+  undoBatches,
+  UNDO_MUTATION,
+  type UndoBatchOutcome,
+  type UndoBatchRequest,
+  type UndoneBatch,
+} from "./undo-batch.ts";
 export {
   buildThemeReport,
   type ThemeReport,
@@ -482,6 +573,21 @@ export {
   type ReferenceTickResult,
 } from "./references-lifecycle.ts";
 export {
+  createDefaultCaptureDriver,
+  createFallbackCaptureDriver,
+  createFirecrawlCaptureDriver,
+  createHttpSnapshotCaptureDriver,
+  defaultCaptureProviders,
+  FIRECRAWL_DEFAULT_ENDPOINT,
+  type CaptureAttempt,
+  type CaptureProvider,
+  type CaptureProviderName,
+  type DefaultCaptureOptions,
+  type FallbackCaptureOptions,
+  type FirecrawlCaptureOptions,
+  type HttpSnapshotOptions,
+} from "./references-capture-chain.ts";
+export {
   buildCollectionBrief,
   buildImagePrompt,
   buildPreferenceBlock,
@@ -489,6 +595,7 @@ export {
   buildStyleFamilyBrief,
   preferenceStatus,
   referenceBriefSection,
+  referenceProfileLines,
   referenceScreenshotPath,
 } from "./references-brief.ts";
 export {
@@ -496,6 +603,7 @@ export {
   decodeReferenceImage,
   referenceStyleCatalogInfo,
   seedReferenceStyles,
+  selectCardSnapshot,
   type DecodedReferenceImage,
   type ReferenceStyleSeedResult,
 } from "./references-library.ts";
@@ -591,12 +699,16 @@ export {
   referenceFooterText,
   UpdateReferenceBodySchema,
   UpdateReferenceCollectionBodySchema,
+  VisualDiffBodySchema,
+  ApplyRedesignBodySchema,
   type CreateReferenceCollectionBody,
   type ManualReferenceBody,
   type ReferenceBriefBody,
   type ReferenceListFilters,
   type UpdateReferenceBody,
   type UpdateReferenceCollectionBody,
+  type VisualDiffBody,
+  type ApplyRedesignBody,
 } from "./references-contract.ts";
 
 export type EngineOptions = {
@@ -619,6 +731,10 @@ export type EngineOptions = {
   // Review visuals (T07): screenshots, diffs and the motion video of a
   // submit. Off unless a driver is passed (production and visual tests).
   reviewVisuals?: ReviewVisualDriver;
+  // Reference visual diff (E26 slice 2): capture + differ of the
+  // reference-against-draft comparison. Off unless injected (visual tests);
+  // production lazily loads the analysis-worker harness.
+  referenceDiffs?: ReferenceDiffDeps;
 };
 
 export type EngineServer = {
@@ -683,6 +799,9 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
     ...(options.reviewVisuals === undefined
       ? {}
       : { visuals: options.reviewVisuals }),
+    ...(options.referenceDiffs === undefined
+      ? {}
+      : { referenceDiffs: options.referenceDiffs }),
     ...(options.mailSender === undefined ? {} : { mailSender: options.mailSender }),
     ...(options.formsBaseUrl === undefined
       ? {}

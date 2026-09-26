@@ -1,7 +1,40 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { bootEngine, type BootEnv } from "./helpers.ts";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { bootEngine, type BootEnv, type PageResponse } from "./helpers.ts";
 
 let env: BootEnv;
+
+type CopiedAsset = {
+  id: string;
+  siteId: string;
+  filename: string;
+  altText: string | null;
+  hash: string;
+  storageRef: string;
+  status: string;
+};
+
+// Header-only PNG: the upload validation reads the dimensions from the header.
+function pngHeader(width: number, height: number): Buffer {
+  const buffer = Buffer.alloc(24);
+  buffer.writeUInt32BE(0x89504e47, 0);
+  buffer.writeUInt32BE(0x0d0a1a0a, 4);
+  buffer.writeUInt32BE(width, 16);
+  buffer.writeUInt32BE(height, 20);
+  return buffer;
+}
+
+function collectFromProps(value: unknown, into: Set<string>): void {
+  if (Array.isArray(value)) {
+    for (const entry of value) collectFromProps(entry, into);
+    return;
+  }
+  if (value === null || typeof value !== "object") return;
+  const record = value as Record<string, unknown>;
+  if (typeof record.assetId === "string") into.add(record.assetId);
+  for (const entry of Object.values(record)) collectFromProps(entry, into);
+}
 
 beforeAll(async () => {
   env = await bootEngine();
@@ -319,7 +352,120 @@ describe("project management (rename, trash, duplicate)", () => {
       path: `/api/sites/${structural.body.id}/entries`,
     });
     expect(structuralEntries.body.entries).toHaveLength(0);
-  });
+  }, 60000);
+
+  it("copies the used media so the copy is publishable on its own (ADR-0014)", async () => {
+    const author = { kind: "human", id: "operator", label: "Operator" };
+    const source = (await env.api.request({
+      method: "POST",
+      path: "/api/sites",
+      body: { name: "Medienquelle" },
+    })).body as { id: string };
+    const page = (await env.api.request({
+      method: "POST",
+      path: `/api/sites/${source.id}/pages`,
+      body: {},
+    })).body as { id: string; draft: { rootNodeId: string }; draftVersion: number };
+
+    const ticket = (await env.api.request<{ uploadId: string; url: string }>({
+      method: "POST",
+      path: `/api/sites/${source.id}/assets/upload-url`,
+      body: { filename: "atelier.png", mime: "image/png", byteSize: 24, altText: "Atelier" },
+    })).body;
+    const put = await fetch(`${env.server.origin}${ticket.url}`, {
+      method: "PUT",
+      headers: { "content-type": "image/png" },
+      body: new Uint8Array(pngHeader(240, 160)),
+    });
+    expect(put.status).toBe(201);
+    const sourceAssetId = ((await put.json()) as { asset: { id: string } }).asset.id;
+
+    const inserted = await env.api.request<Record<string, unknown>>({
+      method: "POST",
+      path: `/api/pages/${page.id}/mutations`,
+      body: {
+        baseDraftVersion: page.draftVersion,
+        author,
+        mutations: [
+          {
+            op: "insertNode",
+            parent: { nodeId: page.draft.rootNodeId },
+            node: {
+              type: "media",
+              variant: "image",
+              props: { asset: { assetId: sourceAssetId }, caption: "Atelier" },
+            },
+          },
+        ],
+      },
+    });
+    expect(inserted.status, JSON.stringify(inserted.body)).toBe(200);
+
+    const copy = (await env.api.request<{ id: string }>({
+      method: "POST",
+      path: `/api/sites/${source.id}/duplicate`,
+      body: { withContent: true, author },
+    })).body;
+
+    // The copy owns its media: new id, new storage path, same metadata.
+    const sourceAssets = (await env.api.request<{ assets: CopiedAsset[] }>({
+      method: "GET",
+      path: `/api/sites/${source.id}/assets`,
+    })).body.assets;
+    expect(sourceAssets).toHaveLength(1);
+    const sourcePage = (await env.api.request<PageResponse>({
+      method: "GET",
+      path: `/api/pages/${page.id}`,
+    })).body;
+    const sourceAssetIds = new Set<string>();
+    for (const node of Object.values(sourcePage.draft.nodes)) {
+      collectFromProps(node.props, sourceAssetIds);
+    }
+    expect([...sourceAssetIds]).toEqual([sourceAssetId]);
+    const copiedAssets = (await env.api.request<{ assets: CopiedAsset[] }>({
+      method: "GET",
+      path: `/api/sites/${copy.id}/assets`,
+    })).body.assets;
+    expect(copiedAssets).toHaveLength(1);
+    const copied = copiedAssets[0];
+    const sourceAsset = (await env.api.request<CopiedAsset>({
+      method: "GET",
+      path: `/api/sites/${source.id}/assets/${sourceAssetId}`,
+    })).body;
+    expect(copied?.id).not.toBe(sourceAssetId);
+    expect(copied?.altText).toBe("Atelier");
+    expect(copied?.storageRef).toBe(
+      `assets/${copy.id}/${copied?.id}/${sourceAsset.filename}`,
+    );
+    expect(existsSync(join(env.engine.dataDir, copied?.storageRef ?? ""))).toBe(true);
+    // The source file is a separate file, not a shared one.
+    expect(existsSync(join(env.engine.dataDir, sourceAsset.storageRef))).toBe(true);
+    expect(copied?.storageRef).not.toBe(sourceAsset.storageRef);
+
+    // The copied draft points at the copied asset.
+    const copiedPages = (await env.api.request<{ pages: { id: string }[] }>({
+      method: "GET",
+      path: `/api/sites/${copy.id}/pages`,
+    })).body.pages;
+    const copiedPageDetail = (await env.api.request<PageResponse>({
+      method: "GET",
+      path: `/api/pages/${copiedPages[0]?.id}`,
+    })).body;
+    const assetIds = new Set<string>();
+    for (const node of Object.values(copiedPageDetail.draft.nodes)) {
+      collectFromProps(node.props, assetIds);
+    }
+    expect([...assetIds]).toEqual([copied?.id]);
+
+    // Purge isolation: removing the copy's asset leaves the source intact.
+    const purged = await env.api.request({ method: "POST", path: `/api/sites/${copy.id}/assets/${copied?.id}/purge` });
+    expect(purged.status).toBe(200);
+    expect(existsSync(join(env.engine.dataDir, sourceAsset.storageRef))).toBe(true);
+    const stillThere = await fetch(
+      `${env.server.origin}/assets/${sourceAssetId}/${sourceAsset.filename}`,
+    );
+    expect(stillThere.status).toBe(200);
+  }, 120000);
 });
 
 describe("pages", () => {

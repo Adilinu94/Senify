@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { runBakeJobOnce } from "@senify/engine";
+import { EngineEvents, runBakeJobOnce } from "@senify/engine";
 import {
   applyMutationsRequest,
   bootEngine,
@@ -237,17 +237,40 @@ describe("bake worker (integration)", () => {
         reason: "entry.published:demo",
         paths: ["/"],
       });
+      // The worker announces the outcome over the event bus (E12): the editor
+      // shows the re-bake without polling.
+      const events = new EngineEvents();
+      const seen: string[] = [];
+      events.subscribe((event) => seen.push(event.kind));
       const ran = await runBakeJobOnce({
         context: {
           store: env.engine.store,
           dataDir: env.engine.dataDir,
           formSigner: env.engine.formSigner,
         },
+        events,
       });
       expect(ran?.id).toBe(job.id);
       expect(ran?.status).toBe("done");
-      const refreshed = await (
+      expect(seen).toEqual(["bake.done"]);
+      const releases = await env.api.request<{
+        releases: { id: string; basisReleaseId: string | null }[];
+        activeReleaseId: string | null;
+      }>({
+        method: "GET",
+        path: `/api/sites/${site.id}/releases`,
+      });
+      expect(releases.body.releases).toHaveLength(2);
+      const newReleaseId = releases.body.activeReleaseId;
+      expect(newReleaseId).not.toBe(releaseId);
+      expect(newReleaseId).not.toBeNull();
+      expect(releases.body.releases.find((release) => release.id === newReleaseId)?.basisReleaseId).toBe(releaseId);
+      const unchanged = await (
         await fetch(`${env.server.origin}/api/releases/${releaseId}/files/index.html`)
+      ).text();
+      expect(unchanged).toBe(first);
+      const refreshed = await (
+        await fetch(`${env.server.origin}/api/releases/${newReleaseId}/files/index.html`)
       ).text();
       expect(refreshed).toContain("Zweite Fassung");
 
@@ -263,4 +286,31 @@ describe("bake worker (integration)", () => {
       await env.close();
     }
   }, 120000);
+
+  it("announces only the terminal failure, not the retry", async () => {
+    const env = await bootEngine();
+    try {
+      // No active release: the re-bake fails deterministically, the job ends
+      // failed with maxAttempts 1.
+      const site = await createTestSite(env.api, "Rebake-Fail");
+      const job = await env.engine.store.enqueueBakeJob({
+        siteId: site.id,
+        reason: "entry.published:kaputt",
+        paths: [],
+        maxAttempts: 1,
+      });
+      const events = new EngineEvents();
+      const seen: string[] = [];
+      events.subscribe((event) => seen.push(event.kind));
+      const ran = await runBakeJobOnce({
+        context: { store: env.engine.store, dataDir: env.engine.dataDir },
+        events,
+      });
+      expect(ran?.id).toBe(job.id);
+      expect(ran?.status).toBe("failed");
+      expect(seen).toEqual(["bake.failed"]);
+    } finally {
+      await env.close();
+    }
+  }, 60000);
 });

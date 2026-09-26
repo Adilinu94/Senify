@@ -3,10 +3,11 @@ import { AuthorSchema } from "./mutations/contract.ts";
 
 const CLOSED = { additionalProperties: false } as const;
 
+// A layout template carries no label of its own: the read side uses the page
+// title, so a stored label could only drift from it.
 const LayoutTemplateSchema = Type.Object(
   {
     kind: Type.Literal("layout"),
-    label: Type.Optional(Type.String({ maxLength: 120 })),
   },
   CLOSED,
 );

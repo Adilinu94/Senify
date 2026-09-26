@@ -487,12 +487,12 @@ describe("reference library (T14, collections and briefs)", () => {
       previewPath?: string;
     }[];
     expect(snapshots).toHaveLength(1);
-    expect(snapshots[0]?.breakpoint).toBe("manual");
-    expect(snapshots[0]?.kind).toBe("fullpage");
+    expect(snapshots[0]?.breakpoint).toBe("desktop");
+    expect(snapshots[0]?.kind).toBe("hero-desktop");
     expect(snapshots[0]?.width).toBe(1200);
     expect(snapshots[0]?.height).toBe(640);
     expect(snapshots[0]?.previewPath).toBe(
-      `/api/references/${String(reference.id)}/snapshots/manual-fullpage-1.png`,
+      `/api/references/${String(reference.id)}/snapshots/desktop-hero-desktop-1.png`,
     );
     expect((reference.provenance as Json).method).toBe("manual");
     expect((reference.provenance as Json).author).toEqual(TOKEN_AUTHOR);
@@ -587,10 +587,11 @@ describe("reference library (T14, collections and briefs)", () => {
       guidelines: IMPORT_GUIDELINES,
       components: "## Actions\n\n### Button (Primary)\n",
     });
-    const snapshots = reference.snapshots as { breakpoint: string; previewPath?: string }[];
-    expect(snapshots.map((entry) => entry.breakpoint)).toEqual(["manual", "mobile"]);
+    const snapshots = reference.snapshots as { breakpoint: string; kind: string; previewPath?: string }[];
+    expect(snapshots.map((entry) => entry.breakpoint)).toEqual(["desktop", "mobile"]);
+    expect(snapshots.map((entry) => entry.kind)).toEqual(["hero-desktop", "hero-mobile"]);
     expect(snapshots[1]?.previewPath).toBe(
-      `/api/references/${String(reference.id)}/snapshots/mobile-fullpage-2.png`,
+      `/api/references/${String(reference.id)}/snapshots/mobile-hero-mobile-2.png`,
     );
     expect((reference.provenance as Json).note).toContain("Design-Dokumenten");
 
@@ -644,6 +645,111 @@ describe("reference library (T14, collections and briefs)", () => {
     expect(card?.documents).toBeUndefined();
   }, 30000);
 
+  it("stores hero slots, selects the card snapshot and caps dimensions (E24 slice 3)", async () => {
+    const stored = await env.api.request<ReferenceBody>({
+      method: "POST",
+      path: "/api/references/manual",
+      body: {
+        name: "Slot-Test",
+        image: pngImage(1920, 1080),
+        imageMobile: pngImage(360, 800),
+        author: TEST_AUTHOR,
+      },
+    });
+    expect(stored.status).toBe(201);
+    const reference = stored.body.reference as {
+      id: string;
+      snapshots: {
+        breakpoint: string;
+        kind: string;
+        width: number;
+        height: number;
+        previewPath?: string;
+      }[];
+      cardSnapshot: { kind: string; previewPath?: string } | null;
+    };
+    expect(reference.snapshots.map((entry) => entry.kind)).toEqual([
+      "hero-desktop",
+      "hero-mobile",
+    ]);
+    expect(reference.cardSnapshot?.kind).toBe("hero-desktop");
+    expect(reference.cardSnapshot?.previewPath).toBe(
+      `/api/references/${reference.id}/snapshots/desktop-hero-desktop-1.png`,
+    );
+
+    // Absurd dimensions are rejected before they reach memory-heavy code.
+    const tooWide = await env.api.request<ErrorResponse>({
+      method: "POST",
+      path: "/api/references/manual",
+      body: { name: "Zu breit", image: pngImage(9000, 100), author: TEST_AUTHOR },
+    });
+    expect(tooWide.status).toBe(400);
+    expect(tooWide.body.error.category).toBe("validation");
+    expect(tooWide.body.error.field).toBe("image");
+    expect(tooWide.body.error.message).toContain("8000");
+
+    // Unknown snapshot kinds are rejected by the contract.
+    const badKind = await env.api.request<ErrorResponse>({
+      method: "POST",
+      path: "/api/references",
+      body: {
+        url: "https://slots.test",
+        author: TEST_AUTHOR,
+        wait: true,
+        snapshot: {
+          html: "<html><body><h1>Slots</h1></body></html>",
+          screenshots: [
+            {
+              breakpoint: "desktop",
+              kind: "panorama",
+              width: 100,
+              height: 100,
+              storageRef: "x",
+              hash: "y",
+            },
+          ],
+        },
+      },
+    });
+    expect(badKind.status).toBe(400);
+    expect(badKind.body.error.category).toBe("validation");
+  }, 30000);
+
+  it("selects the card snapshot by slot priority (E24 slice 3)", async () => {
+    const { selectCardSnapshot } = await import("@senify/engine");
+    const shot = (
+      kind: string,
+      previewPath?: string,
+    ): {
+      breakpoint: string;
+      width: number;
+      height: number;
+      kind: "hero-desktop" | "hero-mobile" | "fullpage" | "section" | "motion";
+      storageRef: string;
+      hash: string;
+      previewPath?: string;
+    } => ({
+      breakpoint: "desktop",
+      width: 100,
+      height: 100,
+      kind: kind as "fullpage",
+      storageRef: "stored",
+      hash: "hash",
+      ...(previewPath === undefined ? {} : { previewPath }),
+    });
+    // Hero wins over the capture, motion never shows.
+    expect(
+      selectCardSnapshot([shot("motion", "/m"), shot("fullpage", "/f"), shot("hero-desktop", "/h")])?.previewPath,
+    ).toBe("/h");
+    // Without a hero the capture carries the card.
+    expect(
+      selectCardSnapshot([shot("motion", "/m"), shot("fullpage", "/f")])?.previewPath,
+    ).toBe("/f");
+    // Snapshots without bytes cannot be shown.
+    expect(selectCardSnapshot([shot("hero-desktop")])).toBeNull();
+    expect(selectCardSnapshot([])).toBeNull();
+  });
+
   it("builds the single, combined, collection and style brief", async () => {
     const single = await env.api.request<BriefBody>({
       method: "GET",
@@ -655,23 +761,27 @@ describe("reference library (T14, collections and briefs)", () => {
     expect(brief.referenceIds).toEqual([alpha]);
     expect(brief.collectionId).toBe(werkschauId);
     expect(brief.text).toContain("Reference: Sort-Test Alpha");
+    // The served snapshot travels as an absolute address: a foreign assistant
+    // can only open the image with the host it was asked on.
     expect(brief.text).toContain(
-      `Screenshot: /api/references/${alpha}/snapshots/manual-fullpage-1.png`,
+      `Screenshot: ${env.server.origin}/api/references/${alpha}/snapshots/desktop-hero-desktop-1.png`,
     );
     // The family of the reference carries the collection as the aesthetic.
     expect(brief.text).toContain("Aesthetic: Editorial Minimalism (Werkschau)");
     expect(brief.text).toContain("Vocabulary: restraint");
     expect(brief.text).toContain("What to borrow: quiet grid");
-    expect(brief.text).toContain("Composition: Use the reference image for composition.");
+    // Nothing was measured for the composition, so the filler line of the
+    // original template stays out (our departure from it).
+    expect(brief.text).not.toContain("Composition:");
     // The recipe of the collection steps in when the reference has none.
     expect(brief.text).toContain("Image recipe: Editorial portrait of [SUBJECT]");
     expect(brief.status).toBe("Reference-led brief · House DNA is off.");
 
     // The image prompt of the same reference, built from the same fallbacks.
     expect(single.body.imagePrompt).toContain("Editorial portrait of [SUBJECT]");
-    expect(single.body.imagePrompt).toContain("Composition: Use the reference composition.");
+    expect(single.body.imagePrompt).not.toContain("Composition:");
     expect(single.body.imagePrompt).toContain(
-      `Use /api/references/${alpha}/snapshots/manual-fullpage-1.png as a style reference.`,
+      `Use ${env.server.origin}/api/references/${alpha}/snapshots/desktop-hero-desktop-1.png as a style reference.`,
     );
     expect(single.body.vocabulary).toBeNull();
 

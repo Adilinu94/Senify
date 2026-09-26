@@ -20,12 +20,14 @@ import {
   type BindingEntry,
   type BindingSource,
   type PageContext,
+  type PayloadDelivery,
 } from "@senify/renderer";
 import { resolveTheme } from "@senify/tokens";
 import type { NodeTree } from "@senify/section-sdk";
 import { prefetchLists } from "./lists.ts";
 import { toBindingEntry } from "./lists.ts";
 import { collectAssetIds } from "./media.ts";
+import { MAX_PAGE_PAYLOAD_BYTES, payloadRefOf } from "./guardrails.ts";
 import { stampFormsForBuild, type FormSigner } from "./forms.ts";
 import { resolveStoredFile } from "./storage.ts";
 import {
@@ -35,13 +37,24 @@ import {
   findFirstOutlet,
   findLayout,
 } from "./templates.ts";
-import type { CellValue, Collection, Entry, Page, Site } from "./types.ts";
+import type {
+  CellValue,
+  CodePayload,
+  Collection,
+  Entry,
+  Page,
+  Site,
+} from "./types.ts";
+import type { BakedPayload } from "@senify/renderer";
 import type { Store } from "./store.ts";
 
 export type BakeOutcome = {
   outDir: string;
   pageCount: number;
   warnings: BakeWarning[];
+  // The payload manifest of the bake (ADR-0010): what was emitted and where it
+  // sits — the release manifest and the import report read this.
+  payloads: BakedPayload[];
 };
 
 type DeliveredVariant = {
@@ -97,6 +110,46 @@ async function collectDeliverableAssets(input: {
     });
   }
   return delivered;
+}
+
+// Imported foreign code (ADR-0010): only the payloads the built trees point at
+// are delivered, and only their bundle is read. A reference to a payload that
+// does not exist (or belongs to another site) is not an error — the page keeps
+// its poster and the renderer reports it; a bake must never fail because a
+// carrier is empty.
+async function collectDeliverablePayloads(input: {
+  store: Store;
+  site: Site;
+  trees: NodeTree[];
+}): Promise<{
+  delivery: Record<string, PayloadDelivery>;
+  sizes: Map<string, number>;
+}> {
+  const referenced = new Set<string>();
+  for (const tree of input.trees) {
+    for (const node of Object.values(tree.nodes)) {
+      const ref = payloadRefOf(node);
+      if (ref !== undefined) referenced.add(ref);
+    }
+  }
+  const delivery: Record<string, PayloadDelivery> = {};
+  const sizes = new Map<string, number>();
+  for (const id of referenced) {
+    let found: { payload: CodePayload; bundle: string };
+    try {
+      found = await input.store.getCodePayloadBundle(id);
+    } catch {
+      continue;
+    }
+    if (found.payload.siteId !== input.site.id) continue;
+    delivery[id] = {
+      code: found.bundle,
+      integrity: found.payload.integrity,
+      bytes: found.payload.bytes,
+    };
+    sizes.set(id, found.payload.bytes);
+  }
+  return { delivery, sizes };
 }
 
 export type BakeBuild = {
@@ -358,6 +411,8 @@ export async function bakePages(
     // every page, so the served document needs no file server for the build
     // root (see servePreviewFile in http.ts).
     selfContained?: boolean;
+    // The build's own date for `sitemap.xml` (E2); absent = today.
+    siteDate?: string;
     // Live preview (T10): resolve exactly this entry from its current cells.
     previewEntry?: { entry: Entry; collection: Collection };
   },
@@ -390,6 +445,11 @@ export async function bakePages(
     trees: build.trees,
     dataDir: input.dataDir,
   });
+  const payloads = await collectDeliverablePayloads({
+    store,
+    site: input.site,
+    trees: build.trees,
+  });
   const assets: Record<string, AssetDelivery> = {};
   for (const entry of delivered) {
     assets[entry.assetId] = {
@@ -420,10 +480,32 @@ export async function bakePages(
       },
       profile: input.site.profile,
       assets,
+      payloads: payloads.delivery,
       ...(input.aeo === undefined ? {} : { aeo: input.aeo }),
+      ...(input.siteDate === undefined ? {} : { siteDate: input.siteDate }),
     },
     { outDir: input.outDir, selfContained: input.selfContained === true },
   );
+  // The page byte budget (ADR-0010 §6): the renderer writes the files, the
+  // budget lives in the engine's guardrails — checked here, where the sizes are
+  // known (the count budget is checked on every write, `hardGuardrailsForTree`).
+  for (const page of build.pages) {
+    let bytes = 0;
+    for (const node of Object.values(page.tree.nodes)) {
+      const ref = payloadRefOf(node);
+      if (ref === undefined) continue;
+      bytes += payloads.sizes.get(ref) ?? 0;
+    }
+    if (bytes > MAX_PAGE_PAYLOAD_BYTES) {
+      result.warnings.push({
+        code: "payload-over-budget",
+        page: page.path,
+        message: `Page loads ${bytes} bytes of imported code (max ${MAX_PAGE_PAYLOAD_BYTES})`,
+        suggestion:
+          "Move a payload to its own page or rebuild one of them with primitives.",
+      });
+    }
+  }
   // Astro empties the output directory during the build, so the files are
   // copied only afterwards (original and, when present, the encoded ladder).
   for (const entry of delivered) {
@@ -456,6 +538,7 @@ export async function bakePages(
     outDir: result.outDir,
     pageCount: result.pages.length,
     warnings: result.warnings,
+    payloads: result.payloads,
   };
 }
 

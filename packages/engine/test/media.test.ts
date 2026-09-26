@@ -199,6 +199,114 @@ afterAll(async () => {
   await env.close();
 });
 
+describe("asset ownership (ADR-0014)", () => {
+  it("refuses every id-based access to an asset of another site", async () => {
+    const owner = (await createTestSite(env.api, "Eigentümer")).id;
+    const other = (await createTestSite(env.api, "Fremde Site")).id;
+    const uploaded = await uploadAsset(owner, "motiv.png", pngBytes(120, 90), "image/png", {
+      altText: "Motiv",
+      tags: ["start"],
+    });
+    const assetId = uploaded.asset.id;
+    const folder = await env.api.request<FolderResponse>({
+      method: "POST",
+      path: `/api/sites/${owner}/asset-folders`,
+      body: { name: "Motive" },
+    });
+    expect(folder.status).toBe(201);
+
+    const read = await env.api.request({
+      method: "GET",
+      path: `/api/sites/${other}/assets/${assetId}`,
+    });
+    expect(read.status).toBe(400);
+    expect((read.body as ErrorResponse).error.field).toBe("assetId");
+
+    const patch = await env.api.request<ErrorResponse>({
+      method: "PATCH",
+      path: `/api/sites/${other}/assets/${assetId}`,
+      body: { tags: ["fremd"] },
+    });
+    expect(patch.status).toBe(400);
+    expect(patch.body.error.field).toBe("assetId");
+
+    const trash = await env.api.request<ErrorResponse>({
+      method: "DELETE",
+      path: `/api/sites/${other}/assets/${assetId}`,
+    });
+    expect(trash.status).toBe(400);
+
+    const restore = await env.api.request<ErrorResponse>({
+      method: "POST",
+      path: `/api/sites/${other}/assets/${assetId}/restore`,
+    });
+    expect(restore.status).toBe(400);
+
+    const history = await env.api.request<ErrorResponse>({
+      method: "GET",
+      path: `/api/sites/${other}/assets/${assetId}/history`,
+    });
+    expect(history.status).toBe(400);
+
+    const folderDelete = await env.api.request<ErrorResponse>({
+      method: "DELETE",
+      path: `/api/sites/${other}/asset-folders/${folder.body.id}`,
+    });
+    expect(folderDelete.status).toBe(400);
+    expect(folderDelete.body.error.field).toBe("folderId");
+
+    // The purge is the dangerous one: it deletes files, so it must not even
+    // reach the source site.
+    const purge = await env.api.request<ErrorResponse>({
+      method: "POST",
+      path: `/api/sites/${other}/assets/${assetId}/purge`,
+    });
+    expect(purge.status).toBe(400);
+    expect(existsSync(join(env.engine.dataDir, uploaded.asset.storageRef))).toBe(true);
+
+    // The source is untouched: the rejected patch wrote nothing.
+    const unchanged = (await env.api.request<AssetResponse>({
+      method: "GET",
+      path: `/api/sites/${owner}/assets/${assetId}`,
+    })).body;
+    expect(unchanged.tags).toEqual(["start"]);
+    expect(unchanged.status).toBe("ready");
+  }, 60000);
+
+  it("keeps the same operations working for the owning site", async () => {
+    const siteId = (await createTestSite(env.api, "Eigentümerarbeit")).id;
+    const uploaded = await uploadAsset(siteId, "bild.png", pngBytes(80, 60), "image/png");
+
+    const patched = await env.api.request<AssetResponse>({
+      method: "PATCH",
+      path: `/api/sites/${siteId}/assets/${uploaded.asset.id}`,
+      body: { altText: "Klar" },
+    });
+    expect(patched.status).toBe(200);
+    expect(patched.body.altText).toBe("Klar");
+
+    const trashed = await env.api.request<AssetResponse>({
+      method: "DELETE",
+      path: `/api/sites/${siteId}/assets/${uploaded.asset.id}`,
+    });
+    expect(trashed.status).toBe(200);
+    expect(trashed.body.status).toBe("trashed");
+
+    const restored = await env.api.request<AssetResponse>({
+      method: "POST",
+      path: `/api/sites/${siteId}/assets/${uploaded.asset.id}/restore`,
+    });
+    expect(restored.status).toBe(200);
+    expect(restored.body.status).toBe("ready");
+
+    const purged = await env.api.request<{ purged: string }>({
+      method: "POST",
+      path: `/api/sites/${siteId}/assets/${uploaded.asset.id}/purge`,
+    });
+    expect(purged.status).toBe(200);
+  }, 60000);
+});
+
 describe("image header parsing", () => {
   it("reads dimensions from PNG, GIF, JPEG and WebP headers", () => {
     expect(imageDimensions(pngBytes(320, 200), "image/png")).toEqual({
@@ -341,7 +449,7 @@ describe("library: folders, tags and smart lists", () => {
 
     const patched = await env.api.request<AssetResponse>({
       method: "PATCH",
-      path: `/api/assets/${small.asset.id}`,
+      path: `/api/sites/${siteId}/assets/${small.asset.id}`,
       body: { folderId: folder.body.id, tags: ["hero", "startseite"] },
     });
     expect(patched.status).toBe(200);
@@ -380,12 +488,12 @@ describe("library: folders, tags and smart lists", () => {
 
     const removed = await env.api.request({
       method: "DELETE",
-      path: `/api/asset-folders/${folder.body.id}`,
+      path: `/api/sites/${siteId}/asset-folders/${folder.body.id}`,
     });
     expect(removed.status).toBe(204);
     const afterDelete = await env.api.request<AssetResponse>({
       method: "GET",
-      path: `/api/assets/${small.asset.id}`,
+      path: `/api/sites/${siteId}/assets/${small.asset.id}`,
     });
     expect(afterDelete.body.folderId).toBeNull();
   });
@@ -440,7 +548,7 @@ describe("replace, history and restore", () => {
 
     const history = await env.api.request<HistoryResponse>({
       method: "GET",
-      path: `/api/assets/${created.asset.id}/history`,
+      path: `/api/sites/${siteId}/assets/${created.asset.id}/history`,
     });
     expect(history.body.history).toHaveLength(1);
     const previous = history.body.history[0];
@@ -451,7 +559,7 @@ describe("replace, history and restore", () => {
 
     const restored = await env.api.request<AssetResponse>({
       method: "POST",
-      path: `/api/assets/${created.asset.id}/restore-history/${previous?.id}`,
+      path: `/api/sites/${siteId}/assets/${created.asset.id}/restore-history/${previous?.id}`,
     });
     expect(restored.status).toBe(200);
     expect(restored.body.byteSize).toBe(original.length);
@@ -462,7 +570,7 @@ describe("replace, history and restore", () => {
 
     const afterRestore = await env.api.request<HistoryResponse>({
       method: "GET",
-      path: `/api/assets/${created.asset.id}/history`,
+      path: `/api/sites/${siteId}/assets/${created.asset.id}/history`,
     });
     expect(afterRestore.body.history).toHaveLength(2);
 
@@ -486,7 +594,7 @@ describe("trash, purge and bulk", () => {
 
     const trashed = await env.api.request<AssetResponse>({
       method: "DELETE",
-      path: `/api/assets/${asset.asset.id}`,
+      path: `/api/sites/${siteId}/assets/${asset.asset.id}`,
     });
     expect(trashed.status).toBe(200);
     expect(trashed.body.status).toBe("trashed");
@@ -499,20 +607,20 @@ describe("trash, purge and bulk", () => {
 
     const restored = await env.api.request<AssetResponse>({
       method: "POST",
-      path: `/api/assets/${asset.asset.id}/restore`,
+      path: `/api/sites/${siteId}/assets/${asset.asset.id}/restore`,
     });
     expect(restored.body.status).toBe("ready");
     expect((await fetchAssetFile(asset.asset)).status).toBe(200);
 
     const purged = await env.api.request<{ purged: string }>({
       method: "POST",
-      path: `/api/assets/${asset.asset.id}/purge`,
+      path: `/api/sites/${siteId}/assets/${asset.asset.id}/purge`,
     });
     expect(purged.status).toBe(200);
     expect(purged.body.purged).toBe(asset.asset.id);
     const gone = await env.api.request<ErrorResponse>({
       method: "GET",
-      path: `/api/assets/${asset.asset.id}`,
+      path: `/api/sites/${siteId}/assets/${asset.asset.id}`,
     });
     expect(gone.status).toBe(404);
     expect(existsSync(join(env.engine.dataDir, asset.asset.storageRef))).toBe(false);
@@ -544,7 +652,7 @@ describe("trash, purge and bulk", () => {
     expect(trashed.body.updated).toBe(1);
     const secondNow = await env.api.request<AssetResponse>({
       method: "GET",
-      path: `/api/assets/${second.asset.id}`,
+      path: `/api/sites/${siteId}/assets/${second.asset.id}`,
     });
     expect(secondNow.body.status).toBe("trashed");
 
@@ -555,7 +663,7 @@ describe("trash, purge and bulk", () => {
     });
     expect(noOperation.status).toBe(400);
 
-    const created = await env.api.request<{ secret: string }>({
+    const created = await env.humanApi.request<{ secret: string }>({
       method: "POST",
       path: "/api/tokens",
       body: { name: "media-writer", scopes: ["read", "write"] },
@@ -617,7 +725,7 @@ describe("image variant ladder and blurhash", () => {
 
     const purged = await env.api.request<{ purged: string }>({
       method: "POST",
-      path: `/api/assets/${uploaded.asset.id}/purge`,
+      path: `/api/sites/${siteId}/assets/${uploaded.asset.id}/purge`,
     });
     expect(purged.status).toBe(200);
     expect(
@@ -769,7 +877,7 @@ describe("asset reference checks", () => {
     // Soft-delete the referenced asset: the reference turns broken again.
     await env.api.request({
       method: "DELETE",
-      path: `/api/assets/${uploaded.asset.id}`,
+      path: `/api/sites/${siteId}/assets/${uploaded.asset.id}`,
     });
     const trashedAgain = await env.api.request<ErrorResponse>({
       method: "POST",
@@ -781,7 +889,7 @@ describe("asset reference checks", () => {
 
     await env.api.request({
       method: "POST",
-      path: `/api/assets/${uploaded.asset.id}/restore`,
+      path: `/api/sites/${siteId}/assets/${uploaded.asset.id}/restore`,
     });
     // The restored asset clears the check: verified against the real store,
     // because submit also bakes a preview and the test registry has no

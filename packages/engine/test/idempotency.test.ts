@@ -129,7 +129,7 @@ describe("idempotency keys (ticket 18, slice 2)", () => {
       });
       expect(first.status).toBe(201);
 
-      const other = await env.api.request<{ secret: string }>({
+      const other = await env.humanApi.request<{ secret: string }>({
         method: "POST",
         path: "/api/tokens",
         body: { name: "zweiter-client", kind: "human", scopes: ["read", "write"] },

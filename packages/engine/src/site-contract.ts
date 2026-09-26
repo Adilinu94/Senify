@@ -25,6 +25,7 @@ export type UpdateSiteBody = Static<typeof UpdateSiteBodySchema>;
 
 export const SiteEventBodySchema = Type.Object(
   {
+    baseVersion: Type.Optional(Type.Number({ minimum: 0 })),
     author: Type.Optional(AuthorSchema),
   },
   CLOSED,
@@ -106,6 +107,7 @@ export const CreateStyleRuleBodySchema = Type.Object(
     contextStylePriorities: Type.Optional(Type.Record(Type.String(), PriorityMapSchema)),
     rawCss: Type.Optional(Type.String()),
     authoredBy: Type.Optional(StyleRuleAuthorSchema),
+    baseVersion: Type.Optional(Type.Number({ minimum: 0 })),
     author: Type.Optional(AuthorSchema),
   },
   CLOSED,
@@ -125,6 +127,7 @@ export const UpdateStyleRuleBodySchema = Type.Object(
     contextStylePriorities: Type.Optional(Type.Record(Type.String(), PriorityMapSchema)),
     rawCss: Type.Optional(Type.Union([Type.String(), Type.Null()])),
     authoredBy: Type.Optional(StyleRuleAuthorSchema),
+    baseVersion: Type.Optional(Type.Number({ minimum: 0 })),
     author: Type.Optional(AuthorSchema),
   },
   CLOSED,
@@ -134,6 +137,7 @@ export type UpdateStyleRuleBody = Static<typeof UpdateStyleRuleBodySchema>;
 export const ReorderStyleRuleBodySchema = Type.Object(
   {
     index: Type.Integer({ minimum: 0 }),
+    baseVersion: Type.Optional(Type.Number({ minimum: 0 })),
     author: Type.Optional(AuthorSchema),
   },
   CLOSED,

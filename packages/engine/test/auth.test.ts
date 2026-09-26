@@ -39,7 +39,7 @@ afterAll(async () => {
 
 describe("api tokens", () => {
   it("creates a token with a one-time secret and lists metadata only", async () => {
-    const created = await env.api.request<TokenBody>({
+    const created = await env.humanApi.request<TokenBody>({
       method: "POST",
       path: "/api/tokens",
       body: { name: "Claude Code", scopes: ["read", "write"], expires: "90d" },
@@ -53,7 +53,7 @@ describe("api tokens", () => {
     expect(created.body.token.expiresAt).toBeTruthy();
     expect(created.body.token.lastUsedAt).toBeNull();
 
-    const listed = await env.api.request<{ tokens: Record<string, unknown>[] }>({
+    const listed = await env.humanApi.request<{ tokens: Record<string, unknown>[] }>({
       method: "GET",
       path: "/api/tokens",
     });
@@ -68,7 +68,7 @@ describe("api tokens", () => {
   });
 
   it("accepts an explicit human kind and rejects unknown kinds", async () => {
-    const human = await env.api.request<TokenBody>({
+    const human = await env.humanApi.request<TokenBody>({
       method: "POST",
       path: "/api/tokens",
       body: { name: "Operator", kind: "human", scopes: ["read"] },
@@ -76,13 +76,29 @@ describe("api tokens", () => {
     expect(human.status).toBe(201);
     expect(human.body.token.kind).toBe("human");
 
-    const invalid = await env.api.request<ErrorBody>({
+    const invalid = await env.humanApi.request<ErrorBody>({
       method: "POST",
       path: "/api/tokens",
       body: { name: "Bot", kind: "bot", scopes: ["read"] },
     });
     expect(invalid.status).toBe(400);
     expect(invalid.body.error.field).toBe("kind");
+  });
+
+  it("reserves token management for human operators", async () => {
+    const anonymous = await anon.request<ErrorBody>({
+      method: "GET",
+      path: "/api/tokens",
+    });
+    expect(anonymous.status).toBe(401);
+
+    const agent = await env.api.request<ErrorBody>({
+      method: "POST",
+      path: "/api/tokens",
+      body: { name: "Escalation", scopes: ["read", "write", "publish"] },
+    });
+    expect(agent.status).toBe(403);
+    expect(agent.body.error.message).toContain("human operator");
   });
 
   it("rejects missing, unknown, revoked and expired credentials with 401", async () => {
@@ -102,12 +118,12 @@ describe("api tokens", () => {
     expect(unknown.status).toBe(401);
     expect(unknown.body.error.message).toContain("unknown or revoked");
 
-    const created = await env.api.request<TokenBody>({
+    const created = await env.humanApi.request<TokenBody>({
       method: "POST",
       path: "/api/tokens",
       body: { name: "temp", scopes: ["read"] },
     });
-    const revoked = await env.api.request({
+    const revoked = await env.humanApi.request({
       method: "DELETE",
       path: `/api/tokens/${created.body.token.id}`,
     });
@@ -135,7 +151,7 @@ describe("api tokens", () => {
   });
 
   it("enforces scopes server-side with actionable errors", async () => {
-    const readOnly = await env.api.request<TokenBody>({
+    const readOnly = await env.humanApi.request<TokenBody>({
       method: "POST",
       path: "/api/tokens",
       body: { name: "reader", scopes: ["read"] },
@@ -187,7 +203,7 @@ describe("api tokens", () => {
     // when the body claims "agent" (ticket 18, slice 1).
     const site = await createTestSite(env.api, "Identity Site");
     const page = await createTestPage(env.api, site.id);
-    const human = await env.api.request<TokenBody>({
+    const human = await env.humanApi.request<TokenBody>({
       method: "POST",
       path: "/api/tokens",
       body: { name: "Operator", kind: "human", scopes: ["read", "write"] },

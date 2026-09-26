@@ -207,6 +207,107 @@ describe("restore a backup", () => {
     expect(after.status.count).toBe(count + 1);
   });
 
+  it("restores redesign proposals with their cards, decision and card images", async () => {
+    // ADR-0012: the decision is a durable fact, so it must survive a restore
+    // together with the images the human decided on.
+    const site = await createTestSite(env.api, "Richtungs-Backup");
+    const page = await createTestPage(env.api, site.id, { title: "Start", path: "/" });
+    const png = Buffer.alloc(24);
+    png.writeUInt32BE(0x89504e47, 0);
+    png.writeUInt32BE(0x0d0a1a0a, 4);
+    png.writeUInt32BE(1920, 16);
+    png.writeUInt32BE(1080, 20);
+    const reference = await env.api.request<{ reference: { id: string } }>({
+      method: "POST",
+      path: "/api/references/manual",
+      body: {
+        name: "Backup-Vorbild",
+        image: `data:image/png;base64,${png.toString("base64")}`,
+        documents: {
+          design: "# Backup\n\n## Colors\n| Token | Value |\n|---|---|\n| brand | #2f6f4e |\n",
+          guidelines: null,
+          components: null,
+        },
+      },
+    });
+    expect(reference.status).toBe(201);
+    const created = await env.api.request<{
+      proposal: { id: string; cards: { id: string }[] };
+    }>({
+      method: "POST",
+      path: `/api/pages/${page.id}/redesign-proposals`,
+      body: {
+        referenceIds: [reference.body.reference.id],
+        idempotencyKey: "backup-proposal-1",
+      },
+    });
+    expect(created.status).toBe(201);
+    const proposalId = created.body.proposal.id;
+    const directionId = created.body.proposal.cards[0]?.id ?? "";
+    const confirmed = await env.humanApi.request<{ proposal: { status: string } }>({
+      method: "POST",
+      path: `/api/redesign-proposals/${proposalId}/confirm`,
+      body: { directionId, idempotencyKey: "backup-confirm-1" },
+    });
+    expect(confirmed.status).toBe(200);
+    expect(confirmed.body.proposal.status).toBe("applied");
+
+    const backup = await createBackup();
+    expect(rows(backup.tables, "redesign_proposals")).toBeGreaterThan(0);
+
+    // The proposal is replaced by a later run and its image folder removed.
+    await env.db.query("DELETE FROM redesign_proposals WHERE id = $1", [proposalId]);
+    rmSync(join(env.engine.dataDir, "redesign-proposals", proposalId), {
+      recursive: true,
+      force: true,
+    });
+
+    const restored = await restore(backup.id, { confirm: true });
+    expect(restored.status).toBe(200);
+
+    const after = await env.api.request<{
+      proposal: {
+        status: string;
+        cards: {
+          id: string;
+          screenshot: { fileName: string };
+          sectionPlan: { planHash: string; entries: unknown[]; media: unknown[] };
+        }[];
+        decision: { directionId: string } | null;
+        applyResult: {
+          siteId: string | null;
+          scope?: string;
+          sectionPlanApplied?: boolean;
+          planHash?: string | null;
+        } | null;
+      };
+    }>({ method: "GET", path: `/api/redesign-proposals/${proposalId}` });
+    expect(after.status).toBe(200);
+    expect(after.body.proposal.status).toBe("applied");
+    expect(after.body.proposal.decision?.directionId).toBe(directionId);
+    expect(after.body.proposal.applyResult?.siteId).toBeTruthy();
+    // ADR-0013: the section plan and the honest apply scope survive the round
+    // trip as readable objects, and the plan hash still identifies the plan.
+    expect(typeof after.body.proposal.cards[0]?.id).toBe("string");
+    expect(after.body.proposal.cards[0]?.sectionPlan.planHash).toBeTruthy();
+    expect(Array.isArray(after.body.proposal.cards[0]?.sectionPlan.entries)).toBe(true);
+    expect(Array.isArray(after.body.proposal.cards[0]?.sectionPlan.media)).toBe(true);
+    expect(after.body.proposal.applyResult?.scope).toBe("scaffold-theme");
+    expect(after.body.proposal.applyResult?.sectionPlanApplied).toBe(false);
+    expect(after.body.proposal.applyResult?.planHash).toBe(
+      after.body.proposal.cards[0]?.sectionPlan.planHash,
+    );
+
+    const fileName = after.body.proposal.cards[0]?.screenshot.fileName ?? "";
+    const image = join(env.engine.dataDir, "redesign-proposals", proposalId, fileName);
+    expect(existsSync(image)).toBe(true);
+    const shot = await env.api.request<ErrorBody>({
+      method: "GET",
+      path: `/api/redesign-proposals/${proposalId}/cards/${directionId}/screenshot`,
+    });
+    expect(shot.status).toBe(200);
+  }, 60000);
+
   it("refuses an incomplete backup and changes nothing", async () => {
     const backup = await createBackup();
     const targetDir = (await listBackups()).status.targetDir;

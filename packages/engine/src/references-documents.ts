@@ -1,4 +1,5 @@
 import type {
+  ReferenceAsset,
   ReferenceComponent,
   ReferenceEvidence,
   ReferenceMotionRecipe,
@@ -437,6 +438,38 @@ function rulesFrom(section: Section | null): { constants: string[]; never: strin
   return { constants, never };
 }
 
+// The media a document names. Logos and fonts are brand carriers: they are
+// recorded so a redesign can see them and then deliberately not take them over
+// (ADR-0013). A table row looks like `| url | kind | where |`.
+function assetsFrom(list: readonly Section[]): ReferenceAsset[] {
+  const assets: ReferenceAsset[] = [];
+  for (const section of list) {
+    if (!/image|asset|media|logo|font|video|icon/i.test(section.title)) continue;
+    for (const row of tableRows(section)) {
+      const ref = inline(row[0] ?? "");
+      if (ref === "" || !/^(https?:)?\/\//i.test(ref)) continue;
+      const kindCell = inline(row[1] ?? "").toLowerCase();
+      const kind: ReferenceAsset["kind"] = /logo|mark|wordmark/.test(kindCell)
+        ? "logo"
+        : /font|typeface/.test(kindCell)
+          ? "font"
+          : /video|movie|clip/.test(kindCell)
+            ? "video"
+            : /icon|glyph/.test(kindCell)
+              ? "icon"
+              : "image";
+      const where = inline(row[2] ?? "");
+      assets.push({
+        kind,
+        ref,
+        where: where === "" ? [] : [where],
+        identityRisk: kind === "logo" || kind === "font",
+      });
+    }
+  }
+  return assets;
+}
+
 function componentsFrom(markdown: string | null | undefined): ReferenceComponent[] {
   if (markdown === null || markdown === undefined) return [];
   const components: ReferenceComponent[] = [];
@@ -514,7 +547,7 @@ export function buildDocumentProfile(input: DocumentProfileInput): DocumentProfi
     motion: motion.recipes,
     surfaces: [],
     libraries: [],
-    assets: [],
+    assets: assetsFrom(list),
     components,
     // The aesthetic families come from the collection; a document does not
     // classify itself, so the brief falls back to the collection vocabulary.

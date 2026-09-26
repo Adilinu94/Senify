@@ -16,6 +16,7 @@ import {
   type MailSender,
   type Mutation,
   type RateLimitConfig,
+  type ReferenceDiffDeps,
   type ReviewVisualDriver,
   type Row,
 } from "@senify/engine";
@@ -232,6 +233,7 @@ export async function bootEngine(
     maxUploadBytes?: number;
     mailSender?: MailSender;
     reviewVisuals?: ReviewVisualDriver;
+    referenceDiffs?: ReferenceDiffDeps;
   } = {},
 ): Promise<BootEnv> {
   const database = await createTestDatabase();
@@ -250,6 +252,9 @@ export async function bootEngine(
     ...(options.reviewVisuals === undefined
       ? {}
       : { reviewVisuals: options.reviewVisuals }),
+    ...(options.referenceDiffs === undefined
+      ? {}
+      : { referenceDiffs: options.referenceDiffs }),
     // Suites fire hundreds of calls per token; rate-limit behaviour is
     // covered by auth.test.ts with explicit tight limits.
     rateLimits:
@@ -260,36 +265,22 @@ export async function bootEngine(
       },
   });
   const server = await engine.listen({ port: 0 });
-  // Tokens are the only way in: the suite bootstraps one for itself.
-  const bootstrap = createApiHarness(server.origin);
-  const created = await bootstrap.request<{ secret: string }>({
-    method: "POST",
-    path: "/api/tokens",
-    body: {
-      name: "engine-tests",
-      kind: "agent",
-      scopes: ["read", "write", "publish"],
-    },
+  // Tokens are the only way in: the suite seeds both identities through the
+  // Store, because HTTP token management is reserved for human operators.
+  const created = await engine.store.createToken({
+    name: "engine-tests",
+    kind: "agent",
+    scopes: ["read", "write", "publish"],
+    expiresAt: null,
   });
-  if (created.status !== 201) {
-    throw new Error(`Token bootstrap failed: ${JSON.stringify(created.body)}`);
-  }
-  const api = createApiHarness(server.origin, { token: created.body.secret });
-  const humanCreated = await bootstrap.request<{ secret: string }>({
-    method: "POST",
-    path: "/api/tokens",
-    body: {
-      name: "engine-human",
-      kind: "human",
-      scopes: ["read", "write", "publish"],
-    },
+  const humanCreated = await engine.store.createToken({
+    name: "engine-human",
+    kind: "human",
+    scopes: ["read", "write", "publish"],
+    expiresAt: null,
   });
-  if (humanCreated.status !== 201) {
-    throw new Error(`Human token bootstrap failed: ${JSON.stringify(humanCreated.body)}`);
-  }
-  const humanApi = createApiHarness(server.origin, {
-    token: humanCreated.body.secret,
-  });
+  const api = createApiHarness(server.origin, { token: created.secret });
+  const humanApi = createApiHarness(server.origin, { token: humanCreated.secret });
   return {
     engine,
     server,
@@ -297,7 +288,7 @@ export async function bootEngine(
     humanApi,
     registry,
     db: database.db,
-    token: created.body.secret,
+    token: created.secret,
     async close() {
       await server.close();
       await database.close();

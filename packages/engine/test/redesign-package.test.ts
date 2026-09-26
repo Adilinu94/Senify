@@ -211,12 +211,15 @@ describe("redesign package", () => {
     expect(body.targets).toHaveLength(2);
     expect(body.warnings).toEqual([]);
     expect(body.steps).toHaveLength(5);
-    expect(body.steps[0]).toContain("duplicate_site");
+    // The package hands out the human direction step, not the old manual
+    // duplicate/update_theme pair (ADR-0012).
+    expect(body.steps[0]).toContain("create_redesign_proposal");
+    expect(body.steps.join(" ")).not.toContain("duplicate_site");
 
     const [dark, light] = body.targets;
     expect(dark?.reference.name).toBe("Dunkel Studio");
     expect(dark?.reference.screenshotPath).toBe(
-      `/api/references/${darkId}/snapshots/manual-fullpage-1.png`,
+      `/api/references/${darkId}/snapshots/desktop-hero-desktop-1.png`,
     );
     expect(dark?.documents.design).toContain("# Dunkel Studio");
     expect(dark?.rules.never).toEqual(["Never stack two shadows."]);

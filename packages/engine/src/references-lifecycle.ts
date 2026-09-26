@@ -14,6 +14,7 @@ import {
   type ReferenceLlmConfig,
 } from "./references-analyze.ts";
 import type { ReferenceSnapshotBody } from "./references-contract.ts";
+import { createDefaultCaptureDriver } from "./references-capture-chain.ts";
 import { buildStyleBrief } from "./references-analyze.ts";
 import { weakestEvidenceLevel } from "./references-evidence.ts";
 import { extractReference, type CaptureInput } from "./references-extract.ts";
@@ -35,6 +36,7 @@ import type {
   ReferenceProvenance,
   ReferenceScale,
   ReferenceSnapshot,
+  ReferenceSnapshotKind,
 } from "./types.ts";
 
 // Reference pipeline (T14): governance → capture → extraction → analysis →
@@ -43,7 +45,9 @@ import type {
 
 export type CapturedScreenshot = {
   breakpoint: string;
-  kind: "fullpage" | "section";
+  // Captures write fullpage/section; manual and import writes use the hero
+  // slots (persist maps the kind through, so the slot travels with the file).
+  kind: ReferenceSnapshotKind;
   bytes: Buffer;
   width: number;
   height: number;
@@ -63,6 +67,12 @@ export type CaptureResult = {
   screenshots?: CapturedScreenshot[];
   // Recorded scroll pass of a live capture (T14/T07): a short silent .webm.
   video?: { bytes: Buffer; durationMs: number };
+  // Which provider of the fallback chain produced the capture (E12). Absent
+  // for the manual snapshot upload and for injected test drivers.
+  provider?: "playwright" | "firecrawl" | "http";
+  // Human-readable provenance note of the provider (reduced profiles name
+  // themselves instead of leaving the reader guessing).
+  note?: string;
 };
 
 export type ReferenceCaptureDriver = (input: {
@@ -254,9 +264,10 @@ export async function runReferenceJob(
       capturedAt,
       hash: sha256(capture.markup),
       method: reference.method,
-      note: extraction.reduced
-        ? "Reduziertes Profil: Runtime-Werte fehlen (Snapshot-Fallback bzw. blockierte Live-Messung)"
-        : "Playwright-Capture (Desktop 1440 / Tablet 810 / Mobile 390)",
+      note: capture.note ??
+        (extraction.reduced
+          ? "Reduziertes Profil: Runtime-Werte fehlen (Snapshot-Fallback bzw. blockierte Live-Messung)"
+          : "Playwright-Capture (Desktop 1440 / Tablet 810 / Mobile 390)"),
     };
     const snapshots = persistReferenceSnapshots(
       context,
@@ -392,20 +403,22 @@ function analyzerFor(deps: ReferenceDeps | undefined): ReferenceAnalyzer {
 }
 
 // LLM configuration from the environment (same OpenAI-compatible shape as the
-// docs-portal BYOK config). Without it the heuristic analyzer runs.
+// docs-portal BYOK config). Without it the heuristic analyzer runs. The
+// capture chain (E12) is always wired: Playwright first, Firecrawl when a key
+// is present, the plain HTTP source as the last resort.
 export function referenceDepsFromEnv(env: NodeJS.ProcessEnv): ReferenceDeps {
+  const deps: ReferenceDeps = { capture: createDefaultCaptureDriver(env) };
   const endpoint = env.SENIFY_LLM_ENDPOINT;
   const model = env.SENIFY_LLM_MODEL;
   if (endpoint === undefined || endpoint === "" || model === undefined || model === "") {
-    return {};
+    return deps;
   }
-  return {
-    llm: {
-      endpoint,
-      model,
-      ...(env.SENIFY_LLM_API_KEY === undefined ? {} : { apiKey: env.SENIFY_LLM_API_KEY }),
-    },
+  deps.llm = {
+    endpoint,
+    model,
+    ...(env.SENIFY_LLM_API_KEY === undefined ? {} : { apiKey: env.SENIFY_LLM_API_KEY }),
   };
+  return deps;
 }
 
 // --------------------------------------------------------------- capture
@@ -814,6 +827,23 @@ export async function applyReference(
     priority: existing.find((entry) => entry.referenceId === input.referenceId)?.priority ?? existing.length,
   });
   const { draft, verification } = await referenceThemeDraft(context, input.siteId);
+  // Design-DNA (E26, R9): the assigned references feed the project contract.
+  // Manual contracts survive this call (the store keeps them).
+  const profiles: {
+    constants: readonly string[];
+    never: readonly string[];
+    vocabulary: readonly string[];
+  }[] = [];
+  for (const assignment of await context.store.listReferenceAssignments(input.siteId)) {
+    const revision = await context.store.getLatestReferenceProfile(assignment.referenceId);
+    if (!revision) continue;
+    profiles.push({
+      constants: revision.profile.rules.constants,
+      never: revision.profile.rules.never,
+      vocabulary: revision.profile.vocabulary,
+    });
+  }
+  await context.store.refreshDesignContractFromReferences(input.siteId, profiles);
   return {
     assignment,
     draft,
@@ -826,9 +856,25 @@ export async function removeReferenceAssignment(
   context: ReferenceContext,
   input: { siteId: string; referenceId: string },
 ): Promise<{ removed: boolean }> {
-  return {
-    removed: await context.store.deleteReferenceAssignment(input),
-  };
+  const removed = await context.store.deleteReferenceAssignment(input);
+  // Design-DNA (E26, R9): with the last assignment gone the derived contract
+  // goes too (manual contracts survive).
+  const profiles: {
+    constants: readonly string[];
+    never: readonly string[];
+    vocabulary: readonly string[];
+  }[] = [];
+  for (const assignment of await context.store.listReferenceAssignments(input.siteId)) {
+    const revision = await context.store.getLatestReferenceProfile(assignment.referenceId);
+    if (!revision) continue;
+    profiles.push({
+      constants: revision.profile.rules.constants,
+      never: revision.profile.rules.never,
+      vocabulary: revision.profile.vocabulary,
+    });
+  }
+  await context.store.refreshDesignContractFromReferences(input.siteId, profiles);
+  return { removed };
 }
 
 async function assignmentInputs(

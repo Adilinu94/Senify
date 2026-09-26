@@ -16,6 +16,7 @@ import {
   removeVariantFiles,
   resolveStoredFile,
   storedFileName,
+  variantFilePath,
   writeAssetFile,
 } from "./storage.ts";
 import { buildImageDerivatives, supportsVariants } from "./variants.ts";
@@ -91,7 +92,7 @@ export const DEFAULT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 // Signed URLs are short-lived: the client uploads right after asking for one.
 const UPLOAD_TTL_MS = 15 * 60 * 1000;
 
-const ALLOWED_MIME_LABEL = "image/*, video/mp4, application/pdf";
+const ALLOWED_MIME_LABEL = "image/*, video/mp4, application/pdf, font/*";
 
 const ASSET_KIND_BY_PREFIX: [prefix: string, kind: AssetKind][] = [
   ["image/", "image"],
@@ -101,6 +102,7 @@ const ASSET_KIND_BY_PREFIX: [prefix: string, kind: AssetKind][] = [
 function isAllowedMime(mime: string): boolean {
   return (
     mime.startsWith("image/") ||
+    mime.startsWith("font/") ||
     mime === "video/mp4" ||
     mime === "application/pdf"
   );
@@ -349,6 +351,27 @@ export function collectAssetIds(pages: { draft: NodeTree }[]): Set<string> {
     }
   }
   return ids;
+}
+
+// Rewrites every `assetRef` in a value through an id map (ADR-0014). Unknown
+// ids stay as they are: the `broken-asset` check then reports the gap honestly
+// instead of a reference quietly disappearing from the copy.
+export function rewriteAssetRefs<T>(value: T, idMap: ReadonlyMap<string, string>): T {
+  const walk = (input: unknown): unknown => {
+    if (Array.isArray(input)) return input.map(walk);
+    if (input === null || typeof input !== "object") return input;
+    const record = input as Record<string, unknown>;
+    const next: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(record)) {
+      if (key === "assetId" && typeof entry === "string") {
+        next[key] = idMap.get(entry) ?? entry;
+        continue;
+      }
+      next[key] = walk(entry);
+    }
+    return next;
+  };
+  return walk(value) as T;
 }
 
 // ------------------------------------------------------------------ context
@@ -646,9 +669,9 @@ export async function commitUpload(
 
 export async function restoreAssetHistory(
   context: MediaContext,
-  input: { assetId: string; historyId: string },
+  input: { siteId: string; assetId: string; historyId: string },
 ): Promise<Asset> {
-  const asset = await context.store.getAsset(input.assetId);
+  const asset = await context.store.getAssetOfSite(input.assetId, input.siteId);
   const entry = await context.store.getAssetHistory(input.historyId);
   if (entry.assetId !== asset.id) {
     throw new SenifyError(
@@ -711,10 +734,10 @@ export async function restoreAssetHistory(
 
 export async function applyAssetPatch(
   store: Store,
-  assetId: string,
+  input: { siteId: string; assetId: string },
   patch: AssetPatchBody,
 ): Promise<Asset> {
-  const asset = await store.getAsset(assetId);
+  const asset = await store.getAssetOfSite(input.assetId, input.siteId);
   const update: AssetUpdate = {};
   if (patch.altText !== undefined) {
     update.altText = normalizeAltText(patch.altText ?? "");
@@ -727,14 +750,175 @@ export async function applyAssetPatch(
     }
     update.folderId = patch.folderId;
   }
-  return store.updateAsset(assetId, update);
+  return store.updateAsset(asset.id, update);
 }
 
+// ------------------------------------------------- copying a site's media
+
+export type SiteAssetCopy = {
+  assets: number;
+  folders: number;
+  skipped: string[];
+  idMap: Map<string, string>;
+};
+
+// A duplicated site used to reference the source's asset ids (ADR-0014). That
+// made the copy unpublishable — the bake lists assets per site, so it delivered
+// no images and `submitReview` reported `broken-asset` — and a purge of the copy
+// deleted the source's file. The copy now gets its own ids, its own folders and
+// its own files; both sites are independent afterwards.
+//
+// The rows are written first, because they mint the target ids and storage refs
+// the files then have to match. If a file copy fails, the rows are rolled back
+// by hand: a rollback can delete rows but never files, so the residue of a
+// failure is a folder without rows, which is harmless. The other way round
+// would leave rows pointing at files that are not there, and the bake skips
+// those silently.
+export async function copySiteAssets(
+  context: MediaContext,
+  input: {
+    sourceSiteId: string;
+    targetSiteId: string;
+    assetIds: ReadonlySet<string>;
+    now: string;
+  },
+): Promise<SiteAssetCopy> {
+  // Step one: decide what is copied at all. A missing row, a missing file or a
+  // foreign id is reported as skipped instead of failing the whole duplicate.
+  const wanted: Asset[] = [];
+  const skipped: string[] = [];
+  for (const assetId of input.assetIds) {
+    let asset: Asset;
+    try {
+      asset = await context.store.getAsset(assetId);
+    } catch {
+      skipped.push(assetId);
+      continue;
+    }
+    if (asset.siteId !== input.sourceSiteId) {
+      // A draft may point at another site's asset; the copy keeps the reference
+      // so the broken-asset check reports it instead of losing it silently.
+      skipped.push(`${asset.id} (fremde Site)`);
+      continue;
+    }
+    wanted.push(asset);
+  }
+  if (wanted.length === 0) {
+    // Folders still come along, so the library keeps its structure.
+    const empty = await context.store.duplicateAssetRecords({
+      sourceSiteId: input.sourceSiteId,
+      targetSiteId: input.targetSiteId,
+      assetIds: new Set(),
+      now: input.now,
+    });
+    return { assets: 0, folders: empty.folders, skipped, idMap: empty.idMap };
+  }
+
+  // Step two: rows. The store mints the ids and the storage refs, so both sides
+  // agree on one map before a single file moves.
+  const copied = await context.store.duplicateAssetRecords({
+    sourceSiteId: input.sourceSiteId,
+    targetSiteId: input.targetSiteId,
+    assetIds: new Set(wanted.map((asset) => asset.id)),
+    now: input.now,
+  });
+
+  // Step three: files for whatever actually landed. A rewritten id still points
+  // at a deterministic target path, so the ladder follows the same rule as the
+  // original row. A source file that is already gone fails the copy on purpose:
+  // rows without files would bake into silently broken images.
+  const history = await Promise.all(
+    wanted.map((asset) => context.store.listAssetHistory(asset.id)),
+  );
+  try {
+    for (const [index, asset] of wanted.entries()) {
+      const targetId = copied.idMap.get(asset.id);
+      if (targetId === undefined) {
+        skipped.push(asset.id);
+        continue;
+      }
+      copyAssetTree(context, asset, input.targetSiteId, targetId, {
+        historyIds: copied.historyIds.get(asset.id) ?? new Map(),
+        history: history[index] ?? [],
+      });
+    }
+  } catch (error) {
+    for (const targetId of copied.idMap.values()) {
+      removeAssetDir(context.dataDir, input.targetSiteId, targetId);
+    }
+    await context.store.deleteCopiedAssetRecords(input.targetSiteId, copied.idMap);
+    throw error;
+  }
+  return {
+    assets: copied.assets,
+    folders: copied.folders,
+    skipped,
+    idMap: copied.idMap,
+  };
+}
+
+// Copies the original, the image ladder and the file history of one asset. The
+// target paths mirror the source layout, so every `storage_ref` the row copy
+// wrote resolves to a real file.
+function copyAssetTree(
+  context: MediaContext,
+  asset: Asset,
+  targetSiteId: string,
+  targetId: string,
+  copied: {
+    historyIds: ReadonlyMap<string, string>;
+    history: Awaited<ReturnType<Store["listAssetHistory"]>>;
+  },
+): void {
+  const name = storedFileName(asset.storageRef);
+  const from = resolveStoredFile(context.dataDir, asset.storageRef);
+  if (from === undefined || !existsSync(from)) {
+    throw new SenifyError("not_found", `The file of asset "${asset.id}" is missing`, {
+      field: "assetId",
+      suggestion: "Restore the source library or drop the reference before duplicating.",
+    });
+  }
+  writeAssetFile(
+    assetFilePath(context.dataDir, targetSiteId, targetId, name),
+    readFileSync(from),
+  );
+  for (const variant of asset.variants) {
+    const source = resolveStoredFile(context.dataDir, variant.storageRef);
+    if (source === undefined || !existsSync(source)) continue;
+    writeAssetFile(
+      variantFilePath(context.dataDir, targetSiteId, targetId, variant.width, variant.format),
+      readFileSync(source),
+    );
+  }
+  // The file history travels too, so restore-history works on the copy. The
+  // store minted a new history id per entry, so the file has to use exactly
+  // the id that ended up in the copied row.
+  for (const [sourceHistoryId, targetHistoryId] of copied.historyIds) {
+    const entry = copied.history.find((candidate) => candidate.id === sourceHistoryId);
+    if (entry === undefined) continue;
+    const source = resolveStoredFile(context.dataDir, entry.storageRef);
+    if (source === undefined || !existsSync(source)) continue;
+    writeAssetFile(
+      historyFilePath(
+        context.dataDir,
+        targetSiteId,
+        targetId,
+        targetHistoryId,
+        storedFileName(entry.storageRef),
+      ),
+      readFileSync(source),
+    );
+  }
+}
+
+// A purge deletes files, so it must never touch an asset of another site
+// (ADR-0014). A duplicated site used to point at the source ids, which made a
+// purge of the copy destroy the source's image.
 export async function purgeAsset(
   context: MediaContext,
-  assetId: string,
+  input: { siteId: string; assetId: string },
 ): Promise<Asset> {
-  const asset = await context.store.getAsset(assetId);
+  const asset = await context.store.getAssetOfSite(input.assetId, input.siteId);
   await context.store.deleteAssetHistory(asset.id);
   await context.store.deleteAssetDerivatives(asset.id);
   await context.store.deleteAssetRecord(asset.id);
@@ -763,20 +947,15 @@ export async function bulkAssets(
   const now = new Date().toISOString();
   for (const id of body.ids) {
     try {
-      const asset = await context.store.getAsset(id);
-      if (asset.siteId !== input.siteId) {
-        throw new SenifyError(
-          "validation",
-          `Asset "${id}" belongs to another site`,
-          { field: "ids" },
-        );
-      }
+      // The guard is the point of this call: a foreign id must fail before any
+      // write reaches it, and a purge of another site must not happen at all.
+      await context.store.getAssetOfSite(id, input.siteId);
       if (body.purge === true) {
-        await purgeAsset(context, id);
+        await purgeAsset(context, { siteId: input.siteId, assetId: id });
       } else if (body.trash === true) {
         await context.store.updateAsset(id, { status: "trashed", trashedAt: now });
       } else if (body.patch !== undefined) {
-        await applyAssetPatch(context.store, id, body.patch);
+        await applyAssetPatch(context.store, { siteId: input.siteId, assetId: id }, body.patch);
       }
       result.updated += 1;
     } catch (error) {

@@ -145,6 +145,36 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS previews_site_idx
     ON previews (site_id, created_at DESC, id DESC)`,
+  // Deployments (E14): every deploy of an active release keeps its outcome, so
+  // the operator can see where a site was delivered and when. The first
+  // provider copies into a static target directory.
+  `CREATE TABLE IF NOT EXISTS deployments (
+    id text PRIMARY KEY,
+    site_id text NOT NULL,
+    release_id text NOT NULL,
+    provider text NOT NULL DEFAULT 'static',
+    status text NOT NULL DEFAULT 'running',
+    target text NOT NULL,
+    file_count integer NOT NULL DEFAULT 0,
+    byte_size bigint NOT NULL DEFAULT 0,
+    error text,
+    author jsonb NOT NULL,
+    created_at timestamptz NOT NULL,
+    finished_at timestamptz
+  )`,
+  `CREATE INDEX IF NOT EXISTS deployments_site_idx
+    ON deployments (site_id, created_at DESC, id DESC)`,
+  // Deploy settings per site (E14): the hosted provider target. The token is
+  // encrypted at rest (settings secret), like the SMTP password.
+  `CREATE TABLE IF NOT EXISTS deploy_settings (
+    site_id text PRIMARY KEY,
+    provider text NOT NULL DEFAULT 'static',
+    netlify_site_id text,
+    netlify_token_encrypted text,
+    vercel_project_id text,
+    vercel_token_encrypted text,
+    updated_at text NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS review_items (
     id text PRIMARY KEY,
     site_id text NOT NULL,
@@ -190,6 +220,115 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     ON assets (site_id, created_at DESC, id DESC)`,
   `CREATE INDEX IF NOT EXISTS assets_site_hash_idx
     ON assets (site_id, hash)`,
+  // Imported foreign code (ADR-0010): a *payload* is a self-contained ES module
+  // plus its provenance and licence, stored next to the NodeTree — never in it.
+  // The bundle is the row's largest column; reads that only need metadata use
+  // CODE_PAYLOAD_COLUMNS (see store.ts).
+  `CREATE TABLE IF NOT EXISTS site_code_payloads (
+    id text PRIMARY KEY,
+    site_id text NOT NULL,
+    name text NOT NULL,
+    kind text NOT NULL,
+    bundle text NOT NULL,
+    bytes integer NOT NULL,
+    integrity text NOT NULL,
+    version integer NOT NULL,
+    provenance jsonb NOT NULL,
+    license jsonb NOT NULL,
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS site_code_payloads_site_idx
+    ON site_code_payloads (site_id, created_at DESC, id DESC)`,
+  // Redesign proposals (ADR-0012): the offered direction cards, the plan they
+  // were derived from, the human decision and the apply result in one row.
+  // Cards and basis never change; `source_page_id` is the only redundant
+  // scalar (the inbox lookup) and there is no foreign key, so a decision stays
+  // readable after the source page is deleted.
+  `CREATE TABLE IF NOT EXISTS redesign_proposals (
+    id text PRIMARY KEY,
+    source_page_id text NOT NULL,
+    status text NOT NULL,
+    cards jsonb NOT NULL,
+    basis jsonb NOT NULL,
+    decision jsonb,
+    apply_result jsonb,
+    created_at timestamptz NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS redesign_proposals_source_idx
+    ON redesign_proposals (source_page_id, status, created_at DESC, id DESC)`,
+  `CREATE TABLE IF NOT EXISTS library_components (
+    id text PRIMARY KEY,
+    name text NOT NULL,
+    slug text NOT NULL UNIQUE,
+    kind text NOT NULL,
+    definition jsonb NOT NULL,
+    fingerprint text NOT NULL UNIQUE,
+    tags jsonb NOT NULL,
+    provenance jsonb NOT NULL,
+    license jsonb NOT NULL,
+    notes text NOT NULL DEFAULT '',
+    version integer NOT NULL DEFAULT 1,
+    deprecated_at timestamptz,
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS library_components_updated_idx
+    ON library_components (updated_at DESC, id DESC)`,
+  `CREATE TABLE IF NOT EXISTS site_library_installs (
+    id text PRIMARY KEY,
+    site_id text NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+    library_component_id text NOT NULL REFERENCES library_components(id) ON DELETE CASCADE,
+    installed_version integer NOT NULL,
+    mode text NOT NULL,
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL,
+    UNIQUE (site_id, library_component_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS site_library_installs_site_idx
+    ON site_library_installs (site_id, updated_at DESC, id DESC)`,
+  // Framer import jobs (plan S3.2), modelled after reference_jobs: due jobs
+  // are queued and past their next attempt time; `result` carries the import
+  // report so a read-only client can poll a long run without re-running it.
+  `CREATE TABLE IF NOT EXISTS import_jobs (
+    id text PRIMARY KEY,
+    site_id text NOT NULL,
+    source_kind text NOT NULL,
+    source_url text,
+    page_path text NOT NULL,
+    dry_run boolean NOT NULL,
+    status text NOT NULL,
+    stage text NOT NULL,
+    progress integer NOT NULL,
+    attempts integer NOT NULL,
+    max_attempts integer NOT NULL,
+    next_attempt_at timestamptz NOT NULL,
+    last_error text,
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL,
+    finished_at timestamptz,
+    payload jsonb,
+    result jsonb
+  )`,
+  `CREATE INDEX IF NOT EXISTS import_jobs_due_idx
+    ON import_jobs (status, next_attempt_at ASC, created_at ASC, id ASC)`,
+  `CREATE INDEX IF NOT EXISTS import_jobs_site_idx
+    ON import_jobs (site_id, created_at DESC, id DESC)`,
+  `CREATE TABLE IF NOT EXISTS import_receipts (
+    id text PRIMARY KEY,
+    site_id text NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+    job_id text NOT NULL REFERENCES import_jobs(id) ON DELETE CASCADE,
+    content_key text NOT NULL,
+    request_fingerprint text NOT NULL,
+    page_id text NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+    draft_version integer NOT NULL,
+    result jsonb NOT NULL,
+    created_at timestamptz NOT NULL,
+    UNIQUE (site_id, content_key, request_fingerprint),
+    UNIQUE (job_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS import_receipts_content_idx
+    ON import_receipts (site_id, content_key, created_at DESC)`,
   `CREATE TABLE IF NOT EXISTS asset_folders (
     id text PRIMARY KEY,
     site_id text NOT NULL,
@@ -489,6 +628,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   // Visual artifacts of a review (T07): screenshots, pixel diffs and the
   // motion video; added later, so the column is additive.
   `ALTER TABLE review_items ADD COLUMN IF NOT EXISTS visuals jsonb`,
+  `ALTER TABLE review_items ADD COLUMN IF NOT EXISTS import_reports jsonb NOT NULL DEFAULT '[]'::jsonb`,
   `ALTER TABLE design_references ADD COLUMN IF NOT EXISTS collection_id text`,
   `ALTER TABLE design_references ADD COLUMN IF NOT EXISTS note text`,
   `ALTER TABLE design_references ADD COLUMN IF NOT EXISTS image_recipe text`,
@@ -511,6 +651,14 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   // site, not in a page draft. Additive and nullable: an installation from an
   // earlier ticket reads `NULL` and simply has no rules yet.
   `ALTER TABLE sites ADD COLUMN IF NOT EXISTS style_rules_json jsonb`,
+  `ALTER TABLE sites ADD COLUMN IF NOT EXISTS style_rules_version integer NOT NULL DEFAULT 0`,
+  // Design contract per site (E26, R9): the project's design DNA (constants/
+  // never/vocabulary). Additive and nullable — sites without DNA read NULL.
+  `ALTER TABLE sites ADD COLUMN IF NOT EXISTS design_contract jsonb`,
+  // Release manifest (E2): style registry snapshot, renderer version and build
+  // hash travel with the release. Additive and nullable — releases from before
+  // this column read as "no manifest" and keep working.
+  `ALTER TABLE releases ADD COLUMN IF NOT EXISTS manifest jsonb`,
   // Reference preferences (T14): House DNA and the project notes live in the
   // engine (not in the browser), so MCP tools build the same briefs. A single
   // row keeps the schema additive next to engine_settings.

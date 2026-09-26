@@ -180,8 +180,9 @@ const CAPTURE_CONTENT_TYPES: Record<string, string> = {
 };
 
 // Throwaway static server for one baked directory: only alive while the
-// capture runs, bound to 127.0.0.1 with a random port.
-async function serveCaptureDir(dir: string): Promise<{ origin: string; close(): Promise<void> }> {
+// capture runs, bound to 127.0.0.1 with a random port. Shared with the
+// reference visual diff (E26 slice 2).
+export async function serveCaptureDir(dir: string): Promise<{ origin: string; close(): Promise<void> }> {
   const root = resolve(dir);
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const requestPath = decodeURIComponent((req.url ?? "/").split("?")[0] ?? "/");

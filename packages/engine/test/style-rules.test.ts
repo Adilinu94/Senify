@@ -84,6 +84,45 @@ describe("style rule registry (site-wide)", () => {
     }
   });
 
+  it("versions the registry and rejects a stale baseVersion without writing", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Versionierte Registry");
+      const initial = await env.api.request<{ rules: StyleRuleResponse[]; version: number }>({
+        method: "GET",
+        path: `/api/sites/${site.id}/style-rules`,
+      });
+      expect(initial.status).toBe(200);
+      expect(initial.body.version).toBe(0);
+      expect(initial.headers["x-senify-style-version"]).toBe("0");
+
+      const created = await env.api.request<StyleRuleResponse>({
+        method: "POST",
+        path: `/api/sites/${site.id}/style-rules`,
+        body: { name: "versioned", baseVersion: initial.body.version, author: TEST_AUTHOR },
+      });
+      expect(created.status).toBe(201);
+      expect(created.headers["x-senify-style-version"]).toBe("1");
+
+      const stale = await env.api.request<ErrorResponse>({
+        method: "PATCH",
+        path: `/api/sites/${site.id}/style-rules/${created.body.id}`,
+        body: { styles: { color: "#123456" }, baseVersion: 0, author: TEST_AUTHOR },
+      });
+      expect(stale.status).toBe(409);
+      expect(stale.body.error.field).toBe("baseVersion");
+
+      const after = await env.api.request<{ rules: StyleRuleResponse[]; version: number }>({
+        method: "GET",
+        path: `/api/sites/${site.id}/style-rules`,
+      });
+      expect(after.body.version).toBe(1);
+      expect(after.body.rules[0]?.styles).toEqual({});
+    } finally {
+      await env.close();
+    }
+  });
+
   it("reorders by permutation and normalizes the order to the array position", async () => {
     const env = await bootEngine();
     try {

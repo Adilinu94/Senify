@@ -87,7 +87,8 @@ function normalizeTemplate(
 ): PageTemplate | null {
   if (template === undefined || template === null) return null;
   if (template.kind === "layout") {
-    return { kind: "layout", label: template.label ?? "" };
+    // The label is the page title at read time; nothing is stored here.
+    return { kind: "layout", label: "" };
   }
   return {
     kind: "collection",

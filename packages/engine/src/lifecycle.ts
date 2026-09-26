@@ -2,9 +2,13 @@ import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from "node:fs";
 import { dirname, join, normalize, resolve, sep } from "node:path";
 import { SenifyError } from "@senify/core";
+import { RENDERER_VERSION } from "@senify/renderer";
 import type { Author, NodeTree } from "@senify/section-sdk";
+import type { StyleRule } from "@senify/widget-engine";
 import { bakePages } from "./bake.ts";
+import { hashBuildDir } from "./build-hash.ts";
 import { runChecks } from "./checks.ts";
+import { buildDesignReport } from "./design-report.ts";
 import type { FormSigner } from "./forms.ts";
 import { newEntityId } from "./ids.ts";
 import { referenceAdherenceForSite } from "./references-lifecycle.ts";
@@ -14,6 +18,7 @@ import {
   type ReviewVisualBreakpoint,
   type ReviewVisualDriver,
 } from "./review-visuals.ts";
+import type { ImportReport } from "./imports-contract.ts";
 import type { Store } from "./store.ts";
 import type {
   CheckIssue,
@@ -132,44 +137,94 @@ function requireNote(note: string | undefined, action: string): string {
   return trimmed;
 }
 
-// Re-bake the active release's build in place (E12 slice 1): content changes
-// (entry publish, template change, …) refresh the published output without
-// creating a new release. The build happens into a sibling directory and is
-// swapped in only when complete, so a failed bake leaves the live site intact.
+// Re-bake the active release by creating a new immutable release. The old
+// release and its build directory remain untouched; the active pointer moves
+// only after the new build has passed its checks.
 export async function rebakeActiveRelease(
   context: LifecycleContext,
   siteId: string,
-): Promise<{ outDir: string; pageCount: number }> {
-  const releaseId = await context.store.getActiveReleaseId(siteId);
-  if (releaseId === null) {
+): Promise<{ outDir: string; pageCount: number; releaseId: string }> {
+  const activeReleaseId = await context.store.getActiveReleaseId(siteId);
+  if (activeReleaseId === null) {
     throw new SenifyError("validation", "Site has no active release to re-bake", {
       field: "siteId",
       suggestion: "Publish a release first (publish_release).",
     });
   }
-  const release = await context.store.getRelease(releaseId);
+  const activeRelease = await context.store.getRelease(activeReleaseId);
   const site = await context.store.getSite(siteId);
-  const target = release.buildRef ?? releaseDir(context, releaseId);
+  const pages = await context.store.listPageDrafts(siteId);
+  const author: Author = { kind: "human", id: "system", label: "System" };
+  const pageRevisions: ReleasePageRevision[] = [];
+  for (const page of pages) {
+    const revision = await context.store.createRevision({
+      pageId: page.id,
+      siteId: page.siteId,
+      title: page.title,
+      path: page.path,
+      tree: page.draft,
+      author,
+      note: "Content re-bake",
+    });
+    pageRevisions.push({ pageId: page.id, path: page.path, revisionId: revision.id });
+  }
+  const siteTheme = await context.store.getTheme(siteId);
+  const styleRules = await context.store.listStyleRules(siteId);
+  const capturedAt = new Date().toISOString();
+  const siteDate = capturedAt.slice(0, 10);
+  const release = await context.store.createRelease({
+    siteId,
+    pageRevisions,
+    themeSnapshot: siteTheme.theme,
+    buildRef: null,
+    manifest: {
+      styleRules,
+      rendererVersion: RENDERER_VERSION,
+      buildHash: "",
+      capturedAt,
+      siteDate,
+      rebakedFrom: activeRelease.id,
+    },
+    author,
+    note: "Content re-bake",
+    basisReleaseId: activeRelease.id,
+  });
+  const target = releaseDir(context, release.id);
   const next = `${target}.next`;
   rmSync(next, { recursive: true, force: true });
-  const baked = await bakePages(context.store, {
-    site,
-    pages: await context.store.listPageDrafts(siteId),
-    outDir: next,
-    dataDir: context.dataDir,
-    formBaseUrl: context.formBaseUrl,
-    ...(context.formSigner === undefined
-      ? {}
-      : { formSigner: context.formSigner }),
-  });
-  const previous = `${target}.previous`;
-  rmSync(previous, { recursive: true, force: true });
-  if (existsSync(target)) renameSync(target, previous);
-  mkdirSync(dirname(target), { recursive: true });
-  renameSync(baked.outDir, target);
-  rmSync(previous, { recursive: true, force: true });
-  await context.store.attachReleaseBuild(releaseId, target);
-  return { outDir: target, pageCount: baked.pageCount };
+  try {
+    const baked = await bakePages(context.store, {
+      site,
+      pages,
+      outDir: next,
+      dataDir: context.dataDir,
+      siteDate,
+      formBaseUrl: context.formBaseUrl,
+      ...(context.formSigner === undefined ? {} : { formSigner: context.formSigner }),
+    });
+    const preCheck = runReleasePreChecks({ outDir: baked.outDir });
+    if (preCheck.hard.length > 0) {
+      rmSync(baked.outDir, { recursive: true, force: true });
+      throw hardFailure(preCheck.hard, "rebake");
+    }
+    const buildHash = hashBuildDir(baked.outDir);
+    mkdirSync(dirname(target), { recursive: true });
+    renameSync(baked.outDir, target);
+    await context.store.finalizeRelease({
+      siteId,
+      releaseId: release.id,
+      buildRef: target,
+      manifest: {
+        ...(release.manifest as NonNullable<typeof release.manifest>),
+        buildHash,
+      },
+    });
+    return { outDir: target, pageCount: baked.pageCount, releaseId: release.id };
+  } catch (error) {
+    rmSync(next, { recursive: true, force: true });
+    rmSync(target, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 export async function publishRelease(
@@ -208,10 +263,34 @@ export async function publishRelease(
   if (report.hard.length > 0) {
     throw hardFailure(report.hard, "publish");
   }
+  // Design-Score-Gate (E26 S3): below the profile's threshold the publish
+  // blocks with the named findings — slop is not shippable. The threshold is
+  // the profile's gate value (clean 55 / standard 60 / showcase 65).
+  const designReport = await buildDesignReport({
+    store: context.store,
+    siteId: input.siteId,
+  });
+  if (designReport.verdict === "gate") {
+    throw new SenifyError(
+      "guardrail",
+      `Design-Score ${designReport.score} liegt unter der Schwelle ${designReport.thresholds.gate} (Profil ${designReport.profile})`,
+      {
+        field: "designScore",
+        suggestion:
+          designReport.findings[0]?.suggestion ??
+          "get_design_report liefert die Findings mit Fundstelle und Vorschlag.",
+      },
+    );
+  }
 
   const basisId = input.basisReleaseId ?? null;
   let pageRevisions: ReleasePageRevision[];
   let themeSnapshot: unknown;
+  // Manifest state (E2): a rollback restores the basis' style registry and
+  // records where it came from; a normal publish captures the current one.
+  let restoredRules: StyleRule[] | null = null;
+  let restoredFrom: string | undefined;
+  let restoredSiteDate: string | undefined;
   if (basisId !== null) {
     const basis = await context.store.getRelease(basisId);
     if (basis.siteId !== input.siteId) {
@@ -237,6 +316,18 @@ export async function publishRelease(
         author: input.author,
       });
     }
+    // A release from before the manifest column has none: the registry stays
+    // as it is (documented fallback), the output is reproducible for pages,
+    // theme and content.
+    if (basis.manifest !== null) {
+      restoredRules = await context.store.replaceStyleRules(
+        input.siteId,
+        basis.manifest.styleRules,
+        input.author,
+      );
+      restoredFrom = basis.id;
+      restoredSiteDate = basis.manifest.siteDate;
+    }
   } else {
     pageRevisions = [];
     for (const page of pages) {
@@ -258,6 +349,14 @@ export async function publishRelease(
     themeSnapshot = siteTheme.theme;
   }
 
+  // The registry the bake is about to read is the one the manifest records.
+  const styleRules =
+    restoredRules ?? (await context.store.listStyleRules(input.siteId));
+  const capturedAt = new Date().toISOString();
+  // A rollback keeps the restored release's sitemap date, a fresh publish uses
+  // its own — both travel in the manifest so the build is reproducible.
+  const bakedSiteDate = restoredSiteDate ?? capturedAt.slice(0, 10);
+
   // O9 curtain (ticket 17): the bake happens into a preflight directory, the
   // static release checks run against the real output, and only a passing build
   // becomes a release. A failing check throws — no release row, no activation,
@@ -270,6 +369,7 @@ export async function publishRelease(
       pages: await context.store.listPageDrafts(input.siteId),
       outDir: preflightDir,
       dataDir: context.dataDir,
+      siteDate: bakedSiteDate,
       formBaseUrl: context.formBaseUrl,
       ...(context.formSigner === undefined
         ? {}
@@ -290,17 +390,30 @@ export async function publishRelease(
     pageRevisions,
     themeSnapshot,
     buildRef: null,
+    manifest: {
+      styleRules,
+      rendererVersion: RENDERER_VERSION,
+      buildHash: hashBuildDir(baked.outDir),
+      capturedAt,
+      siteDate: bakedSiteDate,
+      ...(restoredFrom === undefined ? {} : { restoredFrom }),
+    },
     author: input.author,
     note: input.note,
     basisReleaseId: basisId,
   });
 
-  // Move the checked build into place: one rename, no second bake.
+  // Move the checked build into place: one rename, no second bake. The
+  // activation (build ref + active row) is one transaction; a crash before it
+  // leaves the previous release serving and this one inactive.
   const target = releaseDir(context, release.id);
   mkdirSync(dirname(target), { recursive: true });
   renameSync(baked.outDir, target);
-  await context.store.attachReleaseBuild(release.id, target);
-  await context.store.setActiveRelease(input.siteId, release.id);
+  await context.store.activateRelease({
+    siteId: input.siteId,
+    releaseId: release.id,
+    buildRef: target,
+  });
   return {
     release: { ...release, buildRef: target },
     checks: { hard: [], soft: [...report.soft, ...preCheck.soft] },
@@ -515,6 +628,20 @@ export async function submitReview(
   if (report.hard.length > 0) {
     throw hardFailure(report.hard, "submit");
   }
+  // Design-Score (E26 S3): submit never blocks on the score, but the findings
+  // ride along as soft issues so the review shows them with the item.
+  const designReport = await buildDesignReport({
+    store: context.store,
+    siteId: input.siteId,
+  });
+  if (designReport.verdict !== "green") {
+    report.soft.push({
+      code: "design-score",
+      severity: "soft",
+      message: `Design-Score ${designReport.score} (${designReport.verdict}, Schwelle grün ${designReport.thresholds.green})`,
+      suggestion: designReport.findings[0]?.suggestion ?? "get_design_report liefert die Findings.",
+    });
+  }
 
   const baseByPage = await baseTreesFromActiveRelease(context, input.siteId);
   const diff = structureDiff({ baseByPage, pages: allPages });
@@ -536,6 +663,17 @@ export async function submitReview(
     author: input.author,
     ttlDays: input.ttlDays,
   });
+  const importReports: ImportReport[] = [];
+  for (const job of await context.store.listImportJobsForSite(input.siteId, 100)) {
+    if (job.status !== "succeeded" || job.dryRun) continue;
+    const raw = await context.store.getImportJobResult(job.id);
+    if (raw === null) continue;
+    const report = raw as unknown as ImportReport;
+    if (report.pageId !== null && changedPages.some((page) => page.id === report.pageId)) {
+      importReports.push(report);
+    }
+  }
+
   let review = await context.store.createReviewItem({
     siteId: input.siteId,
     previewId: preview.id,
@@ -549,6 +687,7 @@ export async function submitReview(
     author: input.author,
     structureDiff: diff,
     guardrails: { hard: [], soft: report.soft },
+    importReports,
     note: input.note,
   });
   // Visual artifacts (T07): captured after the item exists so the files can

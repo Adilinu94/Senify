@@ -282,7 +282,7 @@ async function forceDue(entryId: string, scheduledAt: string): Promise<void> {
 }
 
 async function scopedApi(scopes: string[]): Promise<ApiHarness> {
-  const created = await env.api.request<{ secret: string }>({
+  const created = await env.humanApi.request<{ secret: string }>({
     method: "POST",
     path: "/api/tokens",
     body: { name: `content-test-${scopes.join("-")}`, scopes },

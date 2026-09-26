@@ -20,8 +20,15 @@ import { newEntityId } from "./ids.ts";
 import { PageLocks } from "./locks.ts";
 import type { EngineEvents } from "./events.ts";
 import { applyMutations } from "./mutations/apply.ts";
+import { designContractViolations, contractGate } from "./design-contract.ts";
 import { renderEntryPreview } from "./bake.ts";
+import { IMPORT_MAX_ATTEMPTS, runFramerImportJob } from "./imports.ts";
 import {
+  CreateImportBodySchema,
+  type CreateImportBody,
+} from "./imports-contract.ts";
+import {
+  AuthorSchema,
   CreatePageBodySchema,
   CreateSiteBodySchema,
   parseApplyMutationsBody,
@@ -38,6 +45,7 @@ import {
   type ApplyEditorMutationsBody,
 } from "./mutations/editor-contract.ts";
 import { editorMutationsToSection } from "./mutations/editor-bridge.ts";
+import { parseUndoBatchBody, undoBatches } from "./undo-batch.ts";
 import { motionVendorFiles } from "@senify/renderer";
 import { draftConflictError } from "./paths.ts";
 import { RateLimiter, RateLimitError } from "./rate-limit.ts";
@@ -82,11 +90,11 @@ import {
   type ReviewActionBody,
   type SubmitReviewBody,
 } from "./lifecycle-contract.ts";
-import { Store } from "./store.ts";
-import type {
-  EngineSettingsPatch,
-  ImageSettingsPatch,
-  SmtpSettingsPatch,
+import {
+  Store,
+  type EngineSettingsPatch,
+  type ImageSettingsPatch,
+  type SmtpSettingsPatch,
 } from "./store.ts";
 import { backupStatus, createBackup, listBackups, restoreBackup } from "./backup.ts";
 import { MaintenanceError, type MaintenanceGate } from "./maintenance.ts";
@@ -181,6 +189,17 @@ import {
 } from "./templates-contract.ts";
 import { putPageTemplate } from "./templates.ts";
 import {
+  CreateDeploymentBodySchema,
+  UpdateDeploySettingsBodySchema,
+  type CreateDeploymentBody,
+  type UpdateDeploySettingsBody,
+} from "./deploy-contract.ts";
+import {
+  UpdateDesignContractBodySchema,
+  type UpdateDesignContractBody,
+} from "./design-contract-schema.ts";
+import { deployActiveRelease } from "./deploy.ts";
+import {
   analyzeReference,
   applyReference,
   deleteReference,
@@ -199,15 +218,18 @@ import {
   EditReferenceProfileBodySchema,
   MANUAL_REFERENCE_BODY_LIMIT_BYTES,
   ManualReferenceBodySchema,
+  mergeReferenceDocuments,
   parseReferenceListFilters,
   ReferenceBriefBodySchema,
   ReferenceTickBodySchema,
-  referenceDocumentsFrom,
   referenceFooterText,
   UpdateReferenceBodySchema,
   UpdateReferenceCollectionBodySchema,
+  VisualDiffBodySchema,
+  ApplyRedesignBodySchema,
   type AnalyzeReferenceBody,
   type ApplyReferenceBody,
+  type ApplyRedesignBody,
   type CreateReferenceCollectionBody,
   type EditReferenceProfileBody,
   type ManualReferenceBody,
@@ -216,13 +238,48 @@ import {
   type ReferenceListFilters,
   type UpdateReferenceBody,
   type UpdateReferenceCollectionBody,
+  type VisualDiffBody,
 } from "./references-contract.ts";
+import {
+  diffReferenceAgainstDraft,
+  type ReferenceDiffDeps,
+} from "./reference-visual-diff.ts";
+import { applyRedesign } from "./apply-redesign.ts";
+import {
+  ConfirmRedesignProposalBodySchema,
+  CreateRedesignProposalBodySchema,
+  type ConfirmRedesignProposalBody,
+  type CreateRedesignProposalBody,
+} from "./redesign-proposal-contract.ts";
+import {
+  confirmRedesignProposal,
+  createRedesignProposal,
+  getRedesignProposalView,
+  listRedesignProposals,
+  proposalCardScreenshot,
+  type RedesignProposalContext,
+} from "./redesign-proposals.ts";
+import {
+  CreateCodePayloadBodySchema,
+  type CreateCodePayloadBody,
+} from "./code-payloads-contract.ts";
+import { createCodePayload } from "./code-payloads.ts";
+import {
+  CreateLibraryComponentBodySchema,
+  InstallLibraryComponentBodySchema,
+  UpdateLibraryComponentBodySchema,
+  type CreateLibraryComponentBody,
+  type InstallLibraryComponentBody,
+  type UpdateLibraryComponentBody,
+} from "./library-contract.ts";
 import {
   createManualReference,
   referenceStyleCatalogInfo,
   seedReferenceStyles,
 } from "./references-library.ts";
 import { buildRedesignPackage } from "./redesign-package.ts";
+import { buildDesignSystemImport } from "./design-system-import.ts";
+import { buildDesignReport } from "./design-report.ts";
 import {
   buildCollectionBrief,
   buildImagePrompt,
@@ -231,13 +288,16 @@ import {
 import {
   applyAssetPatch,
   bulkAssets,
+  collectAssetIds,
   commitUpload,
+  copySiteAssets,
   createAssetFolder,
   createUploadTicket,
   parseAssetListFilters,
   purgeAsset,
   queryAssets,
   restoreAssetHistory,
+  rewriteAssetRefs,
   AssetPatchBodySchema,
   BulkAssetsBodySchema,
   CreateAssetFolderBodySchema,
@@ -290,6 +350,10 @@ export type EngineContext = {
   // References (T14): the injected capture/analyzer dependencies. Without them
   // the live Playwright path and the heuristic analyzer are used.
   referenceDeps?: ReferenceDeps;
+  // Reference visual diff (E26 slice 2): capture + differ of the
+  // reference-against-draft comparison. Off unless injected (visual tests);
+  // production lazily loads the analysis-worker harness.
+  referenceDiffs?: ReferenceDiffDeps;
   // Review visuals (T07): the injected capture driver of a submit.
   visuals?: ReviewVisualDriver;
 };
@@ -299,6 +363,14 @@ function referenceContext(context: EngineContext): ReferenceContext {
     store: context.store,
     dataDir: context.dataDir,
     ...(context.referenceDeps === undefined ? {} : { deps: context.referenceDeps }),
+  };
+}
+
+function redesignProposalContext(context: EngineContext): RedesignProposalContext {
+  return {
+    store: context.store,
+    registry: context.registry,
+    dataDir: context.dataDir,
   };
 }
 
@@ -777,6 +849,27 @@ function requestHostOf(req: IncomingMessage): string | undefined {
   return typeof host === "string" && host !== "" ? host : undefined;
 }
 
+// Absolute base of the request: the briefs print the snapshot of a reference,
+// and an assistant outside the program can only open that image with the host
+// it was served from (`/api/...` alone says nothing about the machine). Behind
+// the dashboard the proxy forwards the origin the browser asked on, and that is
+// the address worth printing: it injects the operator token, the engine port
+// would answer 401 in a browser window.
+function publicBaseUrlOf(req: IncomingMessage): string | undefined {
+  const forwardedHost = req.headers["x-forwarded-host"];
+  const host =
+    typeof forwardedHost === "string" && forwardedHost.trim() !== ""
+      ? (forwardedHost.split(",")[0]?.trim() ?? undefined)
+      : requestHostOf(req);
+  if (host === undefined) return undefined;
+  const forwarded = req.headers["x-forwarded-proto"];
+  const proto =
+    typeof forwarded === "string" && forwarded.trim() !== ""
+      ? (forwarded.split(",")[0]?.trim() ?? "http")
+      : "http";
+  return `${proto}://${host}`;
+}
+
 // The JS path asks for JSON; the plain browser POST does not.
 function wantsJson(req: IncomingMessage): boolean {
   return String(req.headers.accept ?? "").includes("application/json");
@@ -892,6 +985,17 @@ async function applyMutationsToPage(
         });
       }
     }
+    // Design-DNA fence (E26, R9): the project's `never` rules are hard for
+    // agent tokens and a warning for humans. A manual contract applies to
+    // both; the author kind decides the gate.
+    const dnaWarnings: string[] = [];
+    if (site.designContract !== undefined && site.designContract.never.length > 0) {
+      const violations = designContractViolations(outcome.tree, site.designContract);
+      const authorKind = auth?.kind ?? "agent";
+      const gate = contractGate(violations, authorKind);
+      if (gate.error !== undefined) throw gate.error;
+      dnaWarnings.push(...gate.warnings);
+    }
     // No-op batches (every undo patch empty) change nothing: no version
     // bump, no audit — same response contract as dry_run (undoBatchId null).
     const touched = outcome.results.some(
@@ -915,7 +1019,7 @@ async function applyMutationsToPage(
       return {
         newDraftVersion: page.draftVersion,
         undoBatchId: null,
-        warnings: outcome.warnings,
+        warnings: [...outcome.warnings, ...dnaWarnings.map((message) => ({ field: "design-dna", message, suggestion: "" }))],
         results: outcome.results,
       };
     }
@@ -968,7 +1072,7 @@ async function applyMutationsToPage(
     return {
       newDraftVersion: newVersion,
       undoBatchId: batchId,
-      warnings: outcome.warnings,
+      warnings: [...outcome.warnings, ...dnaWarnings.map((message) => ({ field: "design-dna", message, suggestion: "" }))],
       results: outcome.results,
     };
   });
@@ -1050,9 +1154,9 @@ type RouteParams = Record<string, string>;
 type Route = {
   method: string;
   segments: string[];
-  // Local operator routes (token management) work without a bearer token:
-  // the CLI runs on the same machine and bootstraps the first token here.
   public?: boolean;
+  // Token management is an operator capability, not a public bootstrap.
+  operatorOnly?: boolean;
   scope?: TokenScope;
   destructive?: boolean;
   // Ausgelieferte Dateien (Bilder einer Referenz) laufen nicht in die
@@ -1093,6 +1197,12 @@ async function authenticate(
   if (record.expiresAt !== null && Date.parse(record.expiresAt) <= Date.now()) {
     throw new AuthError(401, `Token "${record.name}" expired on ${record.expiresAt}`, {
       suggestion: "Create a new token with `senify tokens create`.",
+    });
+  }
+  if (route.operatorOnly === true && record.kind !== "human") {
+    throw new AuthError(403, "This route requires a human operator", {
+      suggestion:
+        "Nur das lokale Programm (oder ein Human-Token) darf das — Agenten planen und lesen, der Mensch entscheidet.",
     });
   }
   const required: TokenScope = route.scope ?? "read";
@@ -1137,6 +1247,13 @@ function matchRoute(route: Route, method: string, segments: string[]): RoutePara
     }
   }
   return params;
+}
+
+function styleVersionHeaders(version: number): Record<string, string> {
+  return {
+    etag: `"style-v${version}"`,
+    "x-senify-style-version": String(version),
+  };
 }
 
 const ROUTES: Route[] = [
@@ -1297,10 +1414,41 @@ const ROUTES: Route[] = [
         body,
         "site duplicate",
       );
-      const site = await context.store.duplicateSite(siteId, {
+      const author = resolveAuthor(auth);
+      const sourcePages = await context.store.listPageDrafts(siteId);
+      const needed = collectAssetIds(sourcePages);
+      const { site, pageIds } = await context.store.duplicateSiteWithPlan(siteId, {
         withContent: parsed.withContent ?? false,
-        author: resolveAuthor(auth),
+        author,
       });
+      // The copy gets its own media (ADR-0014): without this the drafts would
+      // point at the source's assets, the copy could not be published, and a
+      // purge of the copy would delete the source's files.
+      const copy = await copySiteAssets(mediaContext(context), {
+        sourceSiteId: siteId,
+        targetSiteId: site.id,
+        assetIds: needed,
+        now: new Date().toISOString(),
+      });
+      for (const [sourcePageId, targetPageId] of pageIds) {
+        const page = sourcePages.find((candidate) => candidate.id === sourcePageId);
+        if (page === undefined) continue;
+        const draft = rewriteAssetRefs(page.draft, copy.idMap);
+        await context.store.replacePageDraft(targetPageId, draft);
+      }
+      if (copy.assets > 0 || copy.folders > 0 || copy.skipped.length > 0) {
+        await context.store.recordSiteEvent({
+          siteId: site.id,
+          mutation: "duplicate_site_assets",
+          params: {
+            sourceSiteId: siteId,
+            assets: copy.assets,
+            folders: copy.folders,
+            skipped: copy.skipped.length,
+          },
+          author,
+        });
+      }
       return { status: 201, body: site };
     },
   },
@@ -1370,6 +1518,24 @@ const ROUTES: Route[] = [
     },
   },
   {
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "theme.css"],
+    scope: "read",
+    handler: async (context, params) => {
+      const siteId = params.siteId;
+      if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
+      const stored = await context.store.getTheme(siteId);
+      return {
+        status: 200,
+        text: { contentType: "text/css; charset=utf-8", body: stored.css },
+        headers: {
+          "cache-control": "no-store",
+          "x-senify-theme-version": String(stored.version),
+        },
+      };
+    },
+  },
+  {
     method: "PUT",
     segments: ["api", "sites", ":siteId", "theme"],
     scope: "write",
@@ -1403,6 +1569,21 @@ const ROUTES: Route[] = [
       };
     },
   },
+  {
+    // Design report (E26): the reproducible 0-100 score with its eight
+    // dimensions and the named slop findings (S1-S12). A read; the gate
+    // stages stay in the release checks.
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "design-report"],
+    scope: "read",
+    handler: async (context, params) => ({
+      status: 200,
+      body: await buildDesignReport({
+        store: context.store,
+        siteId: requireParam(params, "siteId"),
+      }),
+    }),
+  },
   // The self-hosted motion runtime for the editor's play preview (ticket 19,
   // M4): the same files the bake copies into a release. The local program
   // proxies `/api/` with its operator token, so the editor frame can load
@@ -1435,7 +1616,8 @@ const ROUTES: Route[] = [
     scope: "read",
     handler: async (context, params) => {
       const siteId = requireParam(params, "siteId");
-      return { status: 200, body: { rules: await context.store.listStyleRules(siteId) } };
+      const registry = await context.store.getStyleRegistry(siteId);
+      return { status: 200, body: registry, headers: styleVersionHeaders(registry.version) };
     },
   },
   {
@@ -1452,7 +1634,8 @@ const ROUTES: Route[] = [
       );
       const { author: _suggestion, ...input } = parsed;
       const rule = await context.store.createStyleRule(siteId, input, resolveAuthor(auth));
-      return { status: 201, body: rule };
+      const version = (await context.store.getStyleRegistry(siteId)).version;
+      return { status: 201, body: rule, headers: styleVersionHeaders(version) };
     },
   },
   {
@@ -1479,10 +1662,9 @@ const ROUTES: Route[] = [
         "style rule update",
       );
       const { author: _suggestion, ...patch } = parsed;
-      return {
-        status: 200,
-        body: await context.store.updateStyleRule(siteId, ruleId, patch, resolveAuthor(auth)),
-      };
+      const rule = await context.store.updateStyleRule(siteId, ruleId, patch, resolveAuthor(auth));
+      const version = (await context.store.getStyleRegistry(siteId)).version;
+      return { status: 200, body: rule, headers: styleVersionHeaders(version) };
     },
   },
   {
@@ -1503,8 +1685,10 @@ const ROUTES: Route[] = [
         ruleId,
         parsed.index,
         resolveAuthor(auth),
+        parsed.baseVersion,
       );
-      return { status: 200, body: { rules } };
+      const version = (await context.store.getStyleRegistry(siteId)).version;
+      return { status: 200, body: { rules }, headers: styleVersionHeaders(version) };
     },
   },
   {
@@ -1517,9 +1701,15 @@ const ROUTES: Route[] = [
       const ruleId = requireParam(params, "ruleId");
       const body = (await readJsonBody(req)) ?? {};
       // The body stays validated (closed shape); the token is the identity.
-      parseBody<SiteEventBody>(SiteEventBodySchema, body, "style rule delete");
-      await context.store.deleteStyleRule(siteId, ruleId, resolveAuthor(auth));
-      return { status: 204 };
+      const parsed = parseBody<SiteEventBody>(SiteEventBodySchema, body, "style rule delete");
+      await context.store.deleteStyleRule(
+        siteId,
+        ruleId,
+        resolveAuthor(auth),
+        parsed.baseVersion,
+      );
+      const version = (await context.store.getStyleRegistry(siteId)).version;
+      return { status: 204, headers: styleVersionHeaders(version) };
     },
   },
   {
@@ -1594,6 +1784,26 @@ const ROUTES: Route[] = [
     },
   },
   {
+    // Agent undo (E17): the server-side Cmd+Z. Walks the page's audit log
+    // backwards (newest batches first), runs the inverse patches through the
+    // same integrity check as a forward batch and writes the result as a
+    // fresh, audited batch. A stale baseDraftVersion is a conflict.
+    method: "POST",
+    segments: ["api", "pages", ":pageId", "undo-batch"],
+    scope: "write",
+    handler: async (context, params, req, _url, auth) => {
+      const pageId = params.pageId;
+      if (!pageId) throw new SenifyError("validation", "Missing page id", { field: "pageId" });
+      const body = await readJsonBody(req);
+      const request = parseUndoBatchBody(body);
+      const author = resolveAuthor(auth);
+      return {
+        status: 200,
+        body: await undoBatches(context, pageId, request, author),
+      };
+    },
+  },
+  {
     method: "GET",
     segments: ["api", "pages", ":pageId", "audit"],
     scope: "read",
@@ -1640,7 +1850,8 @@ const ROUTES: Route[] = [
   {
     method: "POST",
     segments: ["api", "tokens"],
-    public: true,
+    operatorOnly: true,
+    scope: "write",
     handler: async (context, _params, req) => {
       const body = (await readJsonBody(req)) ?? {};
       const input = parseBody<CreateTokenBody>(
@@ -1667,7 +1878,8 @@ const ROUTES: Route[] = [
   {
     method: "GET",
     segments: ["api", "tokens"],
-    public: true,
+    operatorOnly: true,
+    scope: "read",
     handler: async (context) => ({
       status: 200,
       body: { tokens: await context.store.listTokens() },
@@ -1676,7 +1888,8 @@ const ROUTES: Route[] = [
   {
     method: "DELETE",
     segments: ["api", "tokens", ":tokenId"],
-    public: true,
+    operatorOnly: true,
+    scope: "publish",
     handler: async (context, params) => {
       const tokenId = params.tokenId;
       if (!tokenId) {
@@ -1804,6 +2017,152 @@ const ROUTES: Route[] = [
       return {
         status: 200,
         body: { jobs: await context.store.listBakeJobs(siteId) },
+      };
+    },
+  },
+  {
+    // Deploy (E14): delivers the active release's build to the target. The
+    // first adapter is a static directory; the outcome is recorded.
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "deployments"],
+    scope: "publish",
+    handler: async (context, params, req, _url, auth) => {
+      const siteId = requireParam(params, "siteId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<CreateDeploymentBody>(
+        CreateDeploymentBodySchema,
+        body,
+        "deployment",
+      );
+      const provider = input.provider ?? "static";
+      if (provider === "static" && input.targetDir === undefined) {
+        throw new SenifyError("validation", 'Static deploys need a "targetDir"', {
+          field: "targetDir",
+          suggestion: 'Send { "provider": "static", "targetDir": "C:\\\\sites\\\\seite" }.',
+        });
+      }
+      const deployment = await deployActiveRelease(context.store, {
+        siteId,
+        provider,
+        targetDir: input.targetDir ?? "",
+        author: resolveAuthor(auth),
+      });
+      context.events.publish({
+        kind: "deploy.finished",
+        siteId,
+        action: deployment.status,
+        actor: resolveAuthor(auth),
+      });
+      return { status: 201, body: { deployment } };
+    },
+  },
+  {
+    // Deploy settings (E14): where a hosted provider delivers. The token is
+    // encrypted at rest; the view only says whether one exists.
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "deploy-settings"],
+    scope: "read",
+    handler: async (context, params) => ({
+      status: 200,
+      body: await context.store.getDeploySettings(requireParam(params, "siteId")),
+    }),
+  },
+  {
+    method: "PUT",
+    segments: ["api", "sites", ":siteId", "deploy-settings"],
+    scope: "write",
+    handler: async (context, params, req, _url, auth) => {
+      const siteId = requireParam(params, "siteId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<UpdateDeploySettingsBody>(
+        UpdateDeploySettingsBodySchema,
+        body,
+        "deploy settings",
+      );
+      const patch: Parameters<Store["updateDeploySettings"]>[1] = {};
+      if (input.provider !== undefined) patch.provider = input.provider;
+      if (input.netlifySiteId !== undefined) patch.netlifySiteId = input.netlifySiteId;
+      if (input.netlifyToken !== undefined) {
+        patch.netlifyTokenEncrypted =
+          input.netlifyToken === null
+            ? null
+            : await encryptImageApiKey(context.store, input.netlifyToken);
+      }
+      if (input.vercelProjectId !== undefined) patch.vercelProjectId = input.vercelProjectId;
+      if (input.vercelToken !== undefined) {
+        patch.vercelTokenEncrypted =
+          input.vercelToken === null
+            ? null
+            : await encryptImageApiKey(context.store, input.vercelToken);
+      }
+      const settings = await context.store.updateDeploySettings(siteId, patch);
+      await context.store.recordSiteEvent({
+        siteId,
+        mutation: "update_deploy_settings",
+        params: {
+          provider: settings.provider,
+          netlifySiteId: settings.netlifySiteId,
+          vercelProjectId: settings.vercelProjectId,
+          tokenChanged:
+            input.netlifyToken !== undefined || input.vercelToken !== undefined,
+        },
+        author: resolveAuthor(auth),
+      });
+      return { status: 200, body: settings };
+    },
+  },
+  {
+    // Design contract (E26, R9): the project's design DNA. GET returns the
+    // contract or null; PUT sets a manual one (null clears it).
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "design-contract"],
+    scope: "read",
+    handler: async (context, params) => ({
+      status: 200,
+      body: await context.store.getDesignContract(requireParam(params, "siteId")),
+    }),
+  },
+  {
+    method: "PUT",
+    segments: ["api", "sites", ":siteId", "design-contract"],
+    scope: "write",
+    handler: async (context, params, req, _url, auth) => {
+      const siteId = requireParam(params, "siteId");
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<UpdateDesignContractBody>(
+        UpdateDesignContractBodySchema,
+        body,
+        "design contract",
+      );
+      const contract = await context.store.updateDesignContract(
+        siteId,
+        input.constants === undefined && input.never === undefined && input.vocabulary === undefined
+          ? null
+          : {
+              constants: input.constants ?? [],
+              never: input.never ?? [],
+              vocabulary: input.vocabulary ?? [],
+            },
+      );
+      await context.store.recordSiteEvent({
+        siteId,
+        mutation: "update_design_contract",
+        params: { manual: contract !== null },
+        author: resolveAuthor(auth),
+      });
+      return { status: 200, body: contract };
+    },
+  },
+  {
+    // The deploy history of a site (newest first).
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "deployments"],
+    scope: "read",
+    handler: async (context, params) => {
+      const siteId = requireParam(params, "siteId");
+      return {
+        status: 200,
+        body: { deployments: await context.store.listDeployments(siteId) },
       };
     },
   },
@@ -2148,18 +2507,167 @@ const ROUTES: Route[] = [
   },
   {
     method: "GET",
-    segments: ["api", "assets", ":assetId"],
+    segments: ["api", "library-components"],
+    scope: "read",
+    handler: async (context) => ({ status: 200, body: { components: await context.store.listLibraryComponents() } }),
+  },
+  {
+    method: "POST",
+    segments: ["api", "library-components"],
+    scope: "write",
+    handler: async (context, _params, req) => {
+      const body = parseBody<CreateLibraryComponentBody>(CreateLibraryComponentBodySchema, (await readJsonBody(req)) ?? {}, "library component");
+      return {
+        status: 201,
+        body: await context.store.createLibraryComponent({
+          id: newEntityId(),
+          name: body.name,
+          kind: body.kind ?? "component",
+          definition: body.definition,
+          fingerprint: body.fingerprint,
+          tags: body.tags ?? [],
+          provenance: body.provenance === undefined ? { kind: "hand", sourceUrl: null, pagePath: null, irHash: null } : { kind: body.provenance.kind, sourceUrl: body.provenance.sourceUrl ?? null, pagePath: body.provenance.pagePath ?? null, irHash: body.provenance.irHash ?? null },
+          license: body.license === undefined ? { id: "unknown", note: null, status: "unknown" } : { id: body.license.id, note: body.license.note ?? null, status: body.license.status ?? "unknown" },
+          notes: body.notes ?? "",
+          author: body.author,
+        }),
+      };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "library-components", "audit"],
+    scope: "read",
+    handler: async (context) => ({ status: 200, body: { entries: await context.store.listLibraryAudit() } }),
+  },
+  {
+    method: "GET",
+    segments: ["api", "library-components", ":componentId"],
+    scope: "read",
+    handler: async (context, params) => ({ status: 200, body: await context.store.getLibraryComponent(requireParam(params, "componentId")) }),
+  },
+  {
+    method: "PATCH",
+    segments: ["api", "library-components", ":componentId"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const body = parseBody<UpdateLibraryComponentBody>(UpdateLibraryComponentBodySchema, (await readJsonBody(req)) ?? {}, "library component update");
+      return { status: 200, body: await context.store.updateLibraryComponent({ id: requireParam(params, "componentId"), ...body, license: body.license === undefined ? undefined : { id: body.license.id, note: body.license.note ?? null, status: body.license.status ?? "unknown" } }) };
+    },
+  },
+  {
+    method: "DELETE",
+    segments: ["api", "library-components", ":componentId"],
+    scope: "write",
+    destructive: true,
+    handler: async (context, params) => ({ status: 200, body: await context.store.deleteLibraryComponent(requireParam(params, "componentId")) }),
+  },
+  {
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "library-installs"],
+    scope: "read",
+    handler: async (context, params) => ({ status: 200, body: { installs: await context.store.listLibraryInstalls(requireParam(params, "siteId")) } }),
+  },
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "library-installs"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const body = parseBody<InstallLibraryComponentBody>(InstallLibraryComponentBodySchema, (await readJsonBody(req)) ?? {}, "library install");
+      return { status: 201, body: await context.store.installLibraryComponent({ id: newEntityId(), siteId: requireParam(params, "siteId"), ...body, mode: body.mode ?? "linked" }) };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "library-installs", ":installId", "update"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const body = ((await readJsonBody(req)) ?? {}) as Record<string, unknown>;
+      const author = parseBody<{ kind: "human" | "agent"; id: string; label: string }>(AuthorSchema, body.author, "library install update");
+      return { status: 200, body: await context.store.updateLibraryInstall(requireParam(params, "installId"), author) };
+    },
+  },
+  {
+    method: "DELETE",
+    segments: ["api", "sites", ":siteId", "library-installs", ":installId"],
+    scope: "write",
+    destructive: true,
+    handler: async (context, params, req) => {
+      const body = ((await readJsonBody(req)) ?? {}) as Record<string, unknown>;
+      const author = parseBody<{ kind: "human" | "agent"; id: string; label: string }>(AuthorSchema, body.author, "library detach");
+      return { status: 200, body: await context.store.deleteLibraryInstall(requireParam(params, "installId"), author) };
+    },
+  },
+  // Imported foreign code (ADR-0010): a payload is a site's code package with
+  // its provenance. Writing one is an audited write (MCP needs the write
+  // scope); reading the metadata is enough for the report and the editor.
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "code-payloads"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const siteId = requireParam(params, "siteId");
+      const body = (await readJsonBody(req)) ?? {};
+      const parsed = parseBody<CreateCodePayloadBody>(
+        CreateCodePayloadBodySchema,
+        body,
+        "code payload",
+      );
+      const payload = await createCodePayload(context.store, { siteId, body: parsed });
+      return { status: 201, body: payload };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "code-payloads"],
+    scope: "read",
+    handler: async (context, params) => {
+      const siteId = requireParam(params, "siteId");
+      return {
+        status: 200,
+        body: { payloads: await context.store.listCodePayloads(siteId) },
+      };
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "code-payloads", ":payloadId"],
     scope: "read",
     handler: async (context, params) => ({
       status: 200,
-      body: await context.store.getAsset(requireParam(params, "assetId")),
+      body: await context.store.getCodePayload(requireParam(params, "payloadId")),
+    }),
+  },
+  {
+    method: "DELETE",
+    segments: ["api", "code-payloads", ":payloadId"],
+    scope: "write",
+    destructive: true,
+    handler: async (context, params) => ({
+      status: 200,
+      body: await context.store.deleteCodePayload(requireParam(params, "payloadId")),
+    }),
+  },
+  {
+    // Asset access is site-scoped (ADR-0014): a token is not bound to a site,
+    // so the site comes from the path and the loaded asset carries its own.
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "assets", ":assetId"],
+    scope: "read",
+    handler: async (context, params) => ({
+      status: 200,
+      body: await context.store.getAssetOfSite(
+        requireParam(params, "assetId"),
+        requireParam(params, "siteId"),
+      ),
     }),
   },
   {
     method: "PATCH",
-    segments: ["api", "assets", ":assetId"],
+    segments: ["api", "sites", ":siteId", "assets", ":assetId"],
     scope: "write",
     handler: async (context, params, req) => {
+      const siteId = requireParam(params, "siteId");
       const assetId = requireParam(params, "assetId");
       const body = (await readJsonBody(req)) ?? {};
       const patch = parseBody<AssetPatchBody>(
@@ -2169,17 +2677,19 @@ const ROUTES: Route[] = [
       );
       return {
         status: 200,
-        body: await applyAssetPatch(context.store, assetId, patch),
+        body: await applyAssetPatch(context.store, { siteId, assetId }, patch),
       };
     },
   },
   {
     method: "DELETE",
-    segments: ["api", "assets", ":assetId"],
+    segments: ["api", "sites", ":siteId", "assets", ":assetId"],
     scope: "write",
     handler: async (context, params) => {
+      const siteId = requireParam(params, "siteId");
       const assetId = requireParam(params, "assetId");
       // Soft delete: files stay on disk, the record flips to "trashed".
+      await context.store.getAssetOfSite(assetId, siteId);
       return {
         status: 200,
         body: await context.store.updateAsset(assetId, {
@@ -2191,10 +2701,12 @@ const ROUTES: Route[] = [
   },
   {
     method: "POST",
-    segments: ["api", "assets", ":assetId", "restore"],
+    segments: ["api", "sites", ":siteId", "assets", ":assetId", "restore"],
     scope: "write",
     handler: async (context, params) => {
+      const siteId = requireParam(params, "siteId");
       const assetId = requireParam(params, "assetId");
+      await context.store.getAssetOfSite(assetId, siteId);
       return {
         status: 200,
         body: await context.store.updateAsset(assetId, {
@@ -2206,35 +2718,38 @@ const ROUTES: Route[] = [
   },
   {
     method: "POST",
-    segments: ["api", "assets", ":assetId", "purge"],
+    segments: ["api", "sites", ":siteId", "assets", ":assetId", "purge"],
     scope: "publish",
     destructive: true,
     handler: async (context, params) => {
+      const siteId = requireParam(params, "siteId");
       const assetId = requireParam(params, "assetId");
-      const asset = await purgeAsset(mediaContext(context), assetId);
+      const asset = await purgeAsset(mediaContext(context), { siteId, assetId });
       return { status: 200, body: { purged: asset.id } };
     },
   },
   {
     method: "GET",
-    segments: ["api", "assets", ":assetId", "history"],
+    segments: ["api", "sites", ":siteId", "assets", ":assetId", "history"],
     scope: "read",
-    handler: async (context, params) => ({
-      status: 200,
-      body: {
-        history: await context.store.listAssetHistory(
-          requireParam(params, "assetId"),
-        ),
-      },
-    }),
+    handler: async (context, params) => {
+      const siteId = requireParam(params, "siteId");
+      const assetId = requireParam(params, "assetId");
+      await context.store.getAssetOfSite(assetId, siteId);
+      return {
+        status: 200,
+        body: { history: await context.store.listAssetHistory(assetId) },
+      };
+    },
   },
   {
     method: "POST",
-    segments: ["api", "assets", ":assetId", "restore-history", ":historyId"],
+    segments: ["api", "sites", ":siteId", "assets", ":assetId", "restore-history", ":historyId"],
     scope: "write",
     handler: async (context, params) => ({
       status: 200,
       body: await restoreAssetHistory(mediaContext(context), {
+        siteId: requireParam(params, "siteId"),
         assetId: requireParam(params, "assetId"),
         historyId: requireParam(params, "historyId"),
       }),
@@ -2301,10 +2816,15 @@ const ROUTES: Route[] = [
   },
   {
     method: "DELETE",
-    segments: ["api", "asset-folders", ":folderId"],
+    segments: ["api", "sites", ":siteId", "asset-folders", ":folderId"],
     scope: "write",
     handler: async (context, params) => {
-      await context.store.deleteAssetFolder(requireParam(params, "folderId"));
+      const folderId = requireParam(params, "folderId");
+      await context.store.getAssetFolderOfSite(
+        folderId,
+        requireParam(params, "siteId"),
+      );
+      await context.store.deleteAssetFolder(folderId);
       return { status: 204 };
     },
   },
@@ -3068,6 +3588,53 @@ const ROUTES: Route[] = [
     },
   },
   {
+    // FTS over the library (E24, L42): the search hits with weight ranking —
+    // the haystack includes the verbatim documents (design.md & Co.), so
+    // "vault first: search before capturing" works over the whole corpus.
+    method: "GET",
+    segments: ["api", "references", "search"],
+    scope: "read",
+    handler: async (context, _params, _req, url) => {
+      const query = (url.searchParams.get("q") ?? "").trim();
+      if (query === "") {
+        throw new SenifyError("validation", "Missing search query", {
+          field: "q",
+          suggestion: "Pass a query, e.g. ?q=swiss+grid.",
+        });
+      }
+      const hits = await context.store.searchReferences(query.split(/\s+/));
+      return {
+        status: 200,
+        body: {
+          query,
+          count: hits.length,
+          hits: hits.map((hit) => ({
+            reference: hit.reference,
+            weight: hit.weight,
+          })),
+        },
+      };
+    },
+  },
+  {
+    // Dedupe candidates (E24, L42): near-duplicates of the library (same
+    // source url or same normalised name). Read-only — deleting stays manual
+    // (delete_reference) so a fork with a different url is never lost.
+    method: "GET",
+    segments: ["api", "references", "duplicates"],
+    scope: "read",
+    handler: async (context) => {
+      const duplicates = await context.store.findDuplicateReferences();
+      return {
+        status: 200,
+        body: {
+          count: duplicates.length,
+          duplicates,
+        },
+      };
+    },
+  },
+  {
     // The library list: collection filter, search over title/family/note/
     // vocabulary/collection name, sort and the numbers of the footer line.
     method: "GET",
@@ -3159,8 +3726,12 @@ const ROUTES: Route[] = [
             references,
             dna: settings.dna,
             preferences: settings.preferences,
+            baseUrl: publicBaseUrlOf(req),
           }),
-          imagePrompt: references.length === 1 ? buildImagePrompt(references[0]!) : null,
+          imagePrompt:
+            references.length === 1
+              ? buildImagePrompt(references[0]!, { baseUrl: publicBaseUrlOf(req) })
+              : null,
           vocabulary: null,
         },
       };
@@ -3222,6 +3793,15 @@ const ROUTES: Route[] = [
       if (input.collectionId !== undefined && input.collectionId !== null) {
         await context.store.getReferenceCollection(input.collectionId);
       }
+      // A single document kind updates in place; the other kinds keep their
+      // text (mergeReferenceDocuments), null clears one explicitly.
+      const documents =
+        input.documents === undefined
+          ? undefined
+          : mergeReferenceDocuments(
+              (await context.store.getReference(referenceId)).documents,
+              input.documents,
+            );
       return {
         status: 200,
         body: {
@@ -3234,9 +3814,7 @@ const ROUTES: Route[] = [
             ...(input.imageRecipe === undefined ? {} : { imageRecipe: input.imageRecipe }),
             ...(input.heroUsage === undefined ? {} : { heroUsage: input.heroUsage }),
             ...(input.family === undefined ? {} : { family: input.family }),
-            ...(input.documents === undefined
-              ? {}
-              : { documents: referenceDocumentsFrom(input.documents) }),
+            ...(documents === undefined ? {} : { documents }),
           }),
         },
       };
@@ -3263,15 +3841,41 @@ const ROUTES: Route[] = [
     },
   },
   {
+    // design.md → Theme (E27): the documented tokens as a theme patch with the
+    // evidence of every value, the gaps of the document and the conflicts
+    // against the current theme. A read; the write stays update_theme.
+    method: "GET",
+    segments: ["api", "references", ":referenceId", "design-system"],
+    scope: "read",
+    handler: async (context, params, _req, url) => {
+      const siteId = url.searchParams.get("siteId") ?? "";
+      if (siteId === "") {
+        throw new SenifyError("validation", 'Missing "siteId"', {
+          field: "siteId",
+          suggestion:
+            "Pass the target site (?siteId=…): the patch is derived against its current theme.",
+        });
+      }
+      return {
+        status: 200,
+        body: await buildDesignSystemImport(context.store, {
+          referenceId: requireParam(params, "referenceId"),
+          siteId,
+        }),
+      };
+    },
+  },
+  {
     // Design brief of one reference plus its image prompt.
     method: "GET",
     segments: ["api", "references", ":referenceId", "brief"],
     scope: "read",
-    handler: async (context, params) => {
+    handler: async (context, params, req) => {
       const reference = await context.store.getReference(
         requireParam(params, "referenceId"),
       );
       const settings = await context.store.getReferenceSettings();
+      const baseUrl = publicBaseUrlOf(req);
       return {
         status: 200,
         body: {
@@ -3279,8 +3883,9 @@ const ROUTES: Route[] = [
             references: [reference],
             dna: settings.dna,
             preferences: settings.preferences,
+            baseUrl,
           }),
-          imagePrompt: buildImagePrompt(reference),
+          imagePrompt: buildImagePrompt(reference, { baseUrl }),
           vocabulary: null,
         },
       };
@@ -3383,6 +3988,74 @@ const ROUTES: Route[] = [
     },
   },
   {
+    // Visual diff reference ↔ result (E26 slice 2): bakes the page drafts to
+    // a throwaway directory, captures them at the slot widths of the
+    // reference and diffs slot by slot. Read-only in effect — no preview
+    // record, no review item; the heatmaps persist under the reference.
+    method: "POST",
+    segments: ["api", "references", ":referenceId", "visual-diff"],
+    scope: "read",
+    handler: async (context, params, req) => {
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<VisualDiffBody>(
+        VisualDiffBodySchema,
+        body,
+        "reference visual diff",
+      );
+      const reference = await context.store.getReference(
+        requireParam(params, "referenceId"),
+      );
+      const result = await diffReferenceAgainstDraft({
+        store: context.store,
+        siteId: input.siteId,
+        ...(input.pageId === undefined ? {} : { pageId: input.pageId }),
+        reference,
+        dataDir: context.dataDir,
+        formSigner: context.formSigner,
+        formBaseUrl: context.formBaseUrl,
+        ...(context.referenceDiffs === undefined
+          ? {}
+          : { deps: context.referenceDiffs }),
+      });
+      return { status: 200, body: result };
+    },
+  },
+  {
+    // Stored heatmaps of the reference diff. The filename is validated
+    // against its own directory, so traversal never resolves.
+    method: "GET",
+    segments: ["api", "references", ":referenceId", "visual-diffs", ":filename"],
+    scope: "read",
+    rateLimit: false,
+    handler: async (context, params) => {
+      const referenceId = requireParam(params, "referenceId");
+      await context.store.getReference(referenceId);
+      const filename = requireParam(params, "filename");
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.png$/.test(filename)) {
+        throw new SenifyError("not_found", `Visual "${filename}" does not exist`, {
+          field: "filename",
+        });
+      }
+      const file = resolveStoredFile(
+        context.dataDir,
+        ["references", referenceId, "visual-diffs", filename].join("/"),
+      );
+      if (file === undefined || !existsSync(file) || !statSync(file).isFile()) {
+        throw new SenifyError("not_found", `Visual file "${filename}" is missing`, {
+          field: "filename",
+        });
+      }
+      return {
+        status: 200,
+        file: {
+          path: file,
+          contentType: "image/png",
+          headers: { "cache-control": "public, max-age=0, must-revalidate" },
+        },
+      };
+    },
+  },
+  {
     // Project assignment of references + the derived theme draft (T14 reuse).
     method: "GET",
     segments: ["api", "sites", ":siteId", "references"],
@@ -3434,6 +4107,176 @@ const ROUTES: Route[] = [
         referenceId: requireParam(params, "referenceId"),
       }),
     }),
+  },
+  {
+    // apply_redesign (E25 slice 2): the mechanical steps of the redesign
+    // journey — duplicate (or rebuild one page), theme patch, section
+    // skeleton — through the canonical write paths. Never the active release:
+    // the duplicate is a new site, the rebuild runs against the draft.
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "redesign"],
+    scope: "write",
+    handler: async (context, params, req, url, auth) => {
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<ApplyRedesignBody>(
+        ApplyRedesignBodySchema,
+        body,
+        "apply redesign",
+      );
+      const siteId = requireParam(params, "siteId");
+      if (input.siteId !== undefined && input.siteId !== siteId) {
+        throw new SenifyError("validation", "The body siteId does not match the route", {
+          field: "siteId",
+          suggestion: "Use the siteId from the route path.",
+        });
+      }
+      return withIdempotency(context, auth, req, url, input.idempotencyKey, { ...input }, async () => {
+        const result = await applyRedesign({
+          store: context.store,
+          registry: context.registry,
+          siteId,
+          ...(input.referenceIds === undefined ? {} : { referenceIds: input.referenceIds }),
+          ...(input.collectionId === undefined ? {} : { collectionId: input.collectionId }),
+          ...(input.pageId === undefined ? {} : { pageId: input.pageId }),
+          ...(input.withContent === undefined ? {} : { withContent: input.withContent }),
+          author: resolveAuthor(auth),
+        });
+        return { status: 201, body: result };
+      });
+    },
+  },
+  // ----------------------------------------------- redesign proposals (ADR-0012)
+  // The human direction step. The agent proposes and reads; only a human
+  // operator confirms, and the confirm is one command (decision + apply).
+  {
+    method: "POST",
+    segments: ["api", "pages", ":pageId", "redesign-proposals"],
+    scope: "write",
+    handler: async (context, params, req, url, auth) => {
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<CreateRedesignProposalBody>(
+        CreateRedesignProposalBodySchema,
+        body,
+        "redesign proposal",
+      );
+      return withIdempotency(
+        context,
+        auth,
+        req,
+        url,
+        input.idempotencyKey,
+        { ...input },
+        async () => ({
+          status: 201,
+          body: {
+            proposal: await createRedesignProposal(redesignProposalContext(context), {
+              pageId: requireParam(params, "pageId"),
+              referenceIds: input.referenceIds,
+              author: resolveAuthor(auth),
+            }),
+          },
+        }),
+      );
+    },
+  },
+  {
+    method: "GET",
+    segments: ["api", "pages", ":pageId", "redesign-proposals"],
+    scope: "read",
+    handler: async (context, params) => ({
+      status: 200,
+      body: {
+        proposals: await listRedesignProposals(redesignProposalContext(context), {
+          pageId: requireParam(params, "pageId"),
+        }),
+      },
+    }),
+  },
+  {
+    method: "GET",
+    segments: ["api", "redesign-proposals", ":proposalId"],
+    scope: "read",
+    handler: async (context, params) => ({
+      status: 200,
+      body: {
+        proposal: await getRedesignProposalView(
+          redesignProposalContext(context),
+          requireParam(params, "proposalId"),
+        ),
+      },
+    }),
+  },
+  {
+    // The card image. Resolved only through the proposal's own folder and the
+    // file name the stored card carries, so a foreign id or a traversal never
+    // resolves (same guard as the reference snapshot route).
+    method: "GET",
+    segments: ["api", "redesign-proposals", ":proposalId", "cards", ":directionId", "screenshot"],
+    scope: "read",
+    rateLimit: false,
+    handler: async (context, params) => {
+      const proposal = await context.store.getRedesignProposal(
+        requireParam(params, "proposalId"),
+      );
+      const found = proposalCardScreenshot(
+        context.dataDir,
+        proposal,
+        requireParam(params, "directionId"),
+      );
+      if (found === null) {
+        throw new SenifyError(
+          "not_found",
+          `Direction "${params.directionId ?? ""}" has no stored image in this proposal`,
+          { field: "directionId" },
+        );
+      }
+      return {
+        status: 200,
+        file: {
+          path: found.path,
+          contentType:
+            CONTENT_TYPES[extname(found.path).toLowerCase()] ?? "image/png",
+          headers: { "cache-control": "no-store" },
+        },
+      };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "redesign-proposals", ":proposalId", "confirm"],
+    operatorOnly: true,
+    scope: "write",
+    handler: async (context, params, req, url, auth) => {
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<ConfirmRedesignProposalBody>(
+        ConfirmRedesignProposalBodySchema,
+        body,
+        "redesign confirmation",
+      );
+      return withIdempotency(
+        context,
+        auth,
+        req,
+        url,
+        input.idempotencyKey,
+        { ...input },
+        async () => {
+          const author = resolveAuthor(auth);
+          const confirmed = await confirmRedesignProposal(
+            redesignProposalContext(context),
+            {
+              proposalId: requireParam(params, "proposalId"),
+              directionId: input.directionId,
+              // operatorOnly already rejected every agent token above; the
+              // narrowing keeps the decision's author honest in the record.
+              author: { kind: "human" as const, id: author.id, label: author.label },
+              idempotencyKey: input.idempotencyKey,
+            },
+          );
+          return { status: 200, body: confirmed };
+        },
+      );
+    },
   },
   // ------------------------------------------------------- settings (T12)
   {
@@ -3894,7 +4737,7 @@ const ROUTES: Route[] = [
     method: "GET",
     segments: ["api", "reference-collections", ":collectionId", "brief"],
     scope: "read",
-    handler: async (context, params) => {
+    handler: async (context, params, req) => {
       const collection = await context.store.getReferenceCollection(
         requireParam(params, "collectionId"),
       );
@@ -3917,6 +4760,7 @@ const ROUTES: Route[] = [
             references,
             dna: settings.dna,
             preferences: settings.preferences,
+            baseUrl: publicBaseUrlOf(req),
           }),
           imagePrompt: null,
           vocabulary: collection.vocabulary.join(", "),
@@ -3985,6 +4829,137 @@ const ROUTES: Route[] = [
             name,
           }),
         ),
+      };
+    },
+  },
+  // Framer import (plan S3.3): the job protocol plus the run. The job row is
+  // created first (so a crashed run leaves its record), then the import runs
+  // inline — local sources are fast, the durable job keeps the report for
+  // clients that poll instead of re-running.
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "imports", "framer"],
+    scope: "write",
+    handler: async (context, params, req, url, auth) => {
+      const siteId = requireParam(params, "siteId");
+      const body = (await readJsonBody(req)) ?? {};
+      const parsed = parseBody<CreateImportBody>(CreateImportBodySchema, body, "import");
+      const { idempotencyKey, ...importInput } = parsed;
+      return withIdempotency(context, auth, req, url, idempotencyKey, parsed, async () => {
+        const author = resolveAuthor(auth);
+        const dryRun = importInput.write !== true;
+        const pagePath = importInput.pagePath ?? "/";
+        const job = await context.store.createImportJob({
+          siteId,
+          source: {
+            kind: importInput.source.url !== undefined
+              ? "url"
+              : importInput.source.rootDir !== undefined
+                ? "mirror"
+                : "html",
+            url: importInput.source.url ?? null,
+            rootDir: importInput.source.rootDir ?? null,
+            html: importInput.source.html ?? null,
+            baseUrl: importInput.source.baseUrl ?? null,
+          },
+          pagePath,
+          dryRun,
+          maxAttempts: IMPORT_MAX_ATTEMPTS,
+          payload: importInput as Record<string, unknown>,
+        });
+        try {
+          await context.store.updateImportJob({
+            id: job.id,
+            status: "running",
+            stage: "capture",
+            progress: 10,
+            attempts: job.attempts + 1,
+            nextAttemptAt: job.nextAttemptAt,
+            lastError: null,
+            finishedAt: null,
+          });
+          const result = await runFramerImportJob(context.store, {
+            siteId,
+            jobId: job.id,
+            body: importInput,
+            author,
+            media: mediaContext(context),
+          });
+          if (importInput.write !== true) {
+            await context.store.updateImportJob({
+              id: job.id,
+              status: "succeeded",
+              stage: "done",
+              progress: 100,
+              attempts: job.attempts + 1,
+              nextAttemptAt: job.nextAttemptAt,
+              lastError: null,
+              finishedAt: new Date().toISOString(),
+            });
+            await context.store.setImportJobResult(
+              job.id,
+              result.report as unknown as Record<string, unknown>,
+            );
+          }
+          // Re-read: the answer carries the final job state, not the
+          // queued snapshot from the insert.
+          const finished = await context.store.getImportJob(job.id);
+          if (importInput.write === true && !result.report.replayed) {
+            context.events.publish({
+              kind: "page.created",
+              siteId,
+              pageId: result.report.pageId ?? undefined,
+              action: "importFramer",
+              actor: author,
+            });
+          }
+          return { status: 201, body: { job: finished, report: result.report } };
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500);
+          await context.store
+            .updateImportJob({
+              id: job.id,
+              status: "failed",
+              stage: "failed",
+              progress: job.progress,
+              attempts: job.attempts + 1,
+              nextAttemptAt: job.nextAttemptAt,
+              lastError: message,
+              finishedAt: new Date().toISOString(),
+            })
+            .catch(() => undefined);
+          throw error;
+        }
+      });
+    },
+  },
+  // The job list of a site (the editor's import history).
+  {
+    // The site-scoped import history shown by the editor.
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "imports"],
+    scope: "read",
+    handler: async (context, params) => {
+      const siteId = requireParam(params, "siteId");
+      return {
+        status: 200,
+        body: { jobs: await context.store.listImportJobsForSite(siteId, 100) },
+      };
+    },
+  },
+  {
+    // The poll answer: the job record plus its report when the run finished.
+    method: "GET",
+    segments: ["api", "imports", ":jobId"],
+    scope: "read",
+    handler: async (context, params) => {
+      const jobId = requireParam(params, "jobId");
+      const job = await context.store.getImportJob(jobId);
+      const report = await context.store.getImportJobResult(jobId);
+      return {
+        status: 200,
+        body: { job, ...(report === null ? {} : { report }) },
       };
     },
   },

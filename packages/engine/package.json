@@ -11,6 +11,7 @@
   "dependencies": {
     "@senify/analysis-worker": "workspace:*",
     "@senify/core": "workspace:*",
+    "@senify/framer-import": "workspace:*",
     "@senify/renderer": "workspace:*",
     "@senify/section-sdk": "workspace:*",
     "@senify/tokens": "workspace:*",

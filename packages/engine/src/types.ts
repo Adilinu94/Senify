@@ -6,7 +6,9 @@ import {
 } from "@senify/section-sdk";
 import type { FormSnapshot } from "@senify/renderer";
 import type { Theme } from "@senify/tokens";
+import type { StyleRule } from "@senify/widget-engine";
 import type { PatchOp } from "./mutations/contract.ts";
+import type { ImportReport } from "./imports-contract.ts";
 
 // The profile union lives in the section SDK (ticket 21/19): the editor needs
 // the same table, and the engine must not be the only source. Re-exported here
@@ -21,8 +23,30 @@ export type Site = {
   slug: string;
   profile: SiteProfile;
   themeId: string | null;
+  // Design-DNA per project (E26, R9): the never-rules are hard for agents in
+  // the write path, a warning for humans. Derived from the assigned references
+  // or set by hand; absent when no references are assigned and nothing was set.
+  designContract?: DesignContract;
   createdAt: string;
   updatedAt: string;
+};
+
+// The enforceable part of the DNA: constants describe intent (brief material),
+// never rules map to measurable patterns and block agent writes.
+export type DesignContract = {
+  constants: string[];
+  never: string[];
+  vocabulary: string[];
+  source: "references" | "manual";
+  updatedAt: string;
+};
+
+export type DesignContractViolation = {
+  nodeId: string;
+  rule: string;
+  code: string;
+  message: string;
+  suggestion: string;
 };
 
 export type PageMeta = {
@@ -138,16 +162,77 @@ export type ReleasePageRevision = {
   revisionId: string;
 };
 
+// The release manifest (E2): what a release was baked with, beyond the page
+// revisions and the theme snapshot. The style registry is captured so a
+// rollback restores it and the output stays reproducible for the same renderer
+// version; the build hash proves it. CMS entries and assets are deliberately
+// not frozen — the re-bake path refreshes them in place (documented).
+export type ReleaseManifest = {
+  styleRules: StyleRule[];
+  rendererVersion: string;
+  buildHash: string;
+  capturedAt: string;
+  // The date stamped into `sitemap.xml`; a rollback re-uses the restored
+  // release's date, so the rebuilt output stays byte-identical.
+  siteDate: string;
+  // A content re-bake creates a new release; the old release stays immutable.
+  rebakedFrom?: string;
+  // Rollback copies: the release this one was restored from.
+  restoredFrom?: string;
+};
+
 export type Release = {
   id: string;
   siteId: string;
   pageRevisions: ReleasePageRevision[];
   themeSnapshot: unknown;
   buildRef: string | null;
+  manifest: ReleaseManifest | null;
   author: Author;
   note: string | null;
   basisReleaseId: string | null;
   createdAt: string;
+};
+
+// ---------------------------------------------------------------- deploy (E14)
+
+// The first deploy adapter copies the active release's build into a static
+// target directory. "netlify" ships the same build to a hosted site through
+// the Netlify API (file digest + uploads); the token sits encrypted in the
+// deploy settings. The provider seam stays open for further hosts.
+export const DEPLOY_PROVIDERS = ["static", "netlify", "vercel"] as const;
+export type DeployProvider = (typeof DEPLOY_PROVIDERS)[number];
+
+export const DEPLOYMENT_STATUSES = ["running", "succeeded", "failed"] as const;
+export type DeploymentStatus = (typeof DEPLOYMENT_STATUSES)[number];
+
+export type Deployment = {
+  id: string;
+  siteId: string;
+  releaseId: string;
+  provider: DeployProvider;
+  status: DeploymentStatus;
+  target: string;
+  fileCount: number;
+  byteSize: number;
+  error: string | null;
+  author: Author;
+  createdAt: string;
+  finishedAt: string | null;
+};
+
+// Deploy settings per site (E14): where a hosted provider delivers. The
+// token stays encrypted at rest and never leaves the engine in plaintext
+// (only `hasToken` leaves, like the SMTP password and the image API key).
+export type DeploySettings = {
+  provider: DeployProvider;
+  // Netlify: the site id (API id, not the name) of the target site.
+  netlifySiteId: string | null;
+  hasNetlifyToken: boolean;
+  // Vercel: the project name (or id) of the target project.
+  vercelProjectId: string | null;
+  hasVercelToken: boolean;
+  updatedAt: string;
 };
 
 export type PreviewStatus = "ready" | "failed" | "expired";
@@ -184,6 +269,18 @@ export type ReviewComment = {
   note: string;
 };
 
+// Redesign proposals (ADR-0012). `applying` is a durable claim: the human
+// decision is stored before the first effect, so a crash leaves a visible
+// "running or unfinished" state instead of a silently repeated apply.
+export type RedesignProposalStatus = "proposed" | "applying" | "applied" | "failed";
+
+export const REDESIGN_PROPOSAL_STATUSES: readonly RedesignProposalStatus[] = [
+  "proposed",
+  "applying",
+  "applied",
+  "failed",
+];
+
 export type GuardrailViolation = {
   code: string;
   message: string;
@@ -215,6 +312,7 @@ export type ReviewItem = {
   structureDiff: StructureChange[];
   guardrails: { hard: GuardrailViolation[]; soft: GuardrailViolation[] };
   thread: ReviewComment[];
+  importReports: ImportReport[];
   // Visual artifacts of the submit (T07): screenshots per breakpoint, pixel
   // diffs against the active release and a motion video when motion changed.
   visuals: ReviewVisuals | null;
@@ -300,6 +398,139 @@ export type AssetStatus = "ready" | "trashed";
 
 // "missing" is never stored: it marks an assetId that has no record at all.
 export type AssetReferenceStatus = "ready" | "trashed" | "missing";
+
+// Imported foreign code (ADR-0010). The row keeps the bundle; the read type
+// deliberately does not (a payload is code, not a prop — the bake asks for it
+// explicitly via `getCodePayloadBundle`). `integrity` is the SHA-256 of the
+// bundle and part of the emitted file name, so a changed payload is a changed
+// URL and therefore a new build.
+export type CodePayloadKind = "module" | "webgl-scene";
+
+export type CodePayloadProvenance = {
+  kind: "framer-import" | "upload" | "hand";
+  sourceUrl: string | null;
+  pagePath: string | null;
+  irHash: string | null;
+  capturedAt: string | null;
+};
+
+// ADR-0010 §4: the licence is mandatory and may be `unknown` — but it is then
+// visible (import report, release manifest, library) and blocks promotion into
+// the global component library.
+export type CodePayloadLicense = {
+  id: string;
+  note: string | null;
+  assertedBy: string | null;
+};
+
+export type CodePayload = {
+  id: string;
+  siteId: string;
+  name: string;
+  kind: CodePayloadKind;
+  bytes: number;
+  integrity: string;
+  version: number;
+  provenance: CodePayloadProvenance;
+  license: CodePayloadLicense;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LibraryLicense = {
+  id: string;
+  note: string | null;
+  status: "verified" | "unknown";
+};
+
+export type LibraryProvenance = {
+  kind: "framer-import" | "hand";
+  sourceUrl: string | null;
+  pagePath: string | null;
+  irHash: string | null;
+};
+
+export type LibraryComponent = {
+  id: string;
+  name: string;
+  slug: string;
+  kind: "frame" | "section" | "component";
+  definition: NodeTree;
+  fingerprint: string;
+  tags: string[];
+  provenance: LibraryProvenance;
+  license: LibraryLicense;
+  notes: string;
+  version: number;
+  deprecatedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LibraryInstall = {
+  id: string;
+  siteId: string;
+  componentId: string;
+  installedVersion: number;
+  mode: "linked" | "copied";
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LibraryAuditEntry = {
+  componentId: string;
+  siteId: string | null;
+  action: "created" | "updated" | "installed" | "updated-install" | "detached" | "deprecated";
+  author: Author;
+  createdAt: string;
+};
+
+// Framer import (plan S3): a job row is the durable protocol of one import run
+// — same shape as `ReferenceJob`, plus the source description and the final
+// report (`result`) so clients poll instead of re-running.
+export type ImportJobStatus = "queued" | "running" | "succeeded" | "failed";
+
+export type ImportJobSource = {
+  kind: "url" | "mirror" | "html";
+  // `url`: the page to fetch; `mirror`: a local folder on the operator's
+  // machine (the engine is a local program); `html`: the raw SSR markup.
+  url: string | null;
+  rootDir: string | null;
+  html: string | null;
+  // The base for relative asset URLs (mirror/html sources without a URL).
+  baseUrl: string | null;
+};
+
+export type ImportJob = {
+  id: string;
+  siteId: string;
+  sourceKind: ImportJobSource["kind"];
+  sourceUrl: string | null;
+  pagePath: string;
+  dryRun: boolean;
+  status: ImportJobStatus;
+  stage: string;
+  progress: number;
+  attempts: number;
+  maxAttempts: number;
+  nextAttemptAt: string;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
+};
+
+export type ImportReceipt = {
+  id: string;
+  siteId: string;
+  jobId: string;
+  contentKey: string;
+  requestFingerprint: string;
+  pageId: string;
+  draftVersion: number;
+  result: Record<string, unknown>;
+  createdAt: string;
+};
 
 export type Asset = {
   id: string;
@@ -730,8 +961,11 @@ export type ReferenceSnapshot = {
   breakpoint: string;
   width: number;
   height: number;
-  // "motion" is the recorded scroll pass of a live capture (.webm).
-  kind: "fullpage" | "section" | "motion";
+  // Screenshot slots (E24 slice 3): hero-desktop/hero-mobile are the card
+  // images of the collection format (1920×1080 / 360×800); fullpage is a
+  // capture of one breakpoint; section a captured excerpt (legacy capture
+  // kind); motion is the recorded scroll pass of a live capture (.webm).
+  kind: ReferenceSnapshotKind;
   storageRef: string;
   hash: string;
   // Length of a motion recording in milliseconds.
@@ -739,6 +973,17 @@ export type ReferenceSnapshot = {
   // Relative URL of the stored file, present only when the capture wrote bytes.
   previewPath?: string;
 };
+
+// Slot order of the card selection: the hero first, then the capture.
+export const REFERENCE_SNAPSHOT_KINDS = [
+  "hero-desktop",
+  "hero-mobile",
+  "fullpage",
+  "section",
+  "motion",
+] as const;
+export type ReferenceSnapshotKind =
+  (typeof REFERENCE_SNAPSHOT_KINDS)[number];
 
 // The documents of an imported reference (Framer template set): design.md,
 // design-guidelines.md and design-components.md, kept verbatim. They are the
@@ -835,6 +1080,9 @@ export type Reference = {
   vocabulary: string[];
   styleBrief: string;
   snapshots: ReferenceSnapshot[];
+  // Card image of the gallery, derived from the slots (hero-desktop first):
+  // the card shows a deliberate hero, never "some" snapshot.
+  cardSnapshot: ReferenceSnapshot | null;
   provenance: ReferenceProvenance;
   // Library fields of the card/detail view (Taste Vault entry).
   collectionId: string | null;
@@ -910,6 +1158,22 @@ export type ReferenceBriefView = {
   imagePrompt: string | null;
   // Collection only: the vocabulary as one line ("Copy vocabulary").
   vocabulary: string | null;
+};
+
+// Visual diff of a reference slot against a baked result (E26 slice 2): the
+// number (ratio + changed pixels) plus the heatmap file. The result is
+// captured at the slot's own width, so widths stay comparable.
+export type ReferenceDesignDiff = {
+  snapshotKind: ReferenceSnapshotKind;
+  breakpoint: "desktop" | "tablet" | "mobile";
+  width: number;
+  pageId: string;
+  pagePath: string;
+  changedPixels: number;
+  ratio: number;
+  bounds: { left: number; top: number; right: number; bottom: number } | null;
+  storageRef: string;
+  previewPath: string;
 };
 
 export type ReferenceJob = {

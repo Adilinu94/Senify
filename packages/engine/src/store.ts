@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { SenifyError } from "@senify/core";
@@ -33,10 +33,28 @@ import {
   type StyleRule,
 } from "@senify/widget-engine";
 import type { Db, DbClient, Row } from "./db.ts";
+import type { ImportReport } from "./imports-contract.ts";
 import { jsonColumns, tableNames } from "./db.ts";
+import {
+  isRedesignProposalStatus,
+  type DirectionCard,
+  type DirectionDecision,
+  type RedesignProposal,
+  type RedesignProposalApplyResult,
+  type RedesignProposalBasis,
+  type RedesignProposalStatus,
+} from "./redesign-proposal-contract.ts";
 import { generateToken } from "./auth.ts";
+import { selectCardSnapshot } from "./references-library.ts";
+import { deriveDesignContract } from "./design-contract.ts";
 import { entryConflictError } from "./content-contract.ts";
 import { newEntityId, newNodeId } from "./ids.ts";
+import {
+  assetStorageRef,
+  historyStorageRef,
+  storedFileName,
+  variantStorageRef,
+} from "./storage.ts";
 import { validateShape } from "./mutations/contract.ts";
 import { assertPagePathFormat, draftConflictError } from "./paths.ts";
 import {
@@ -71,7 +89,19 @@ import {
   type AssetVariantFormat,
   type AuditEntry,
   type CellValue,
+  type CodePayload,
+  type CodePayloadKind,
+  type CodePayloadLicense,
+  type CodePayloadProvenance,
   type Collection,
+  type ImportJob,
+  type ImportJobSource,
+  type ImportJobStatus,
+  type ImportReceipt,
+  type Deployment,
+  type DeploymentStatus,
+  type DeployProvider,
+  type DeploySettings,
   type EngineSettings,
   type Entry,
   type EntryRedirect,
@@ -100,6 +130,7 @@ import {
   type Preview,
   type PreviewStatus,
   type ProviderCooldown,
+  type ReleaseManifest,
   type Reference,
   type ReferenceAssignment,
   type BakeJob,
@@ -109,6 +140,7 @@ import {
   type ReferenceCollectionKind,
   type ReferenceDna,
   type ReferenceDocuments,
+  EMPTY_REFERENCE_DOCUMENTS,
   type ReferenceEvidence,
   type ReferenceJob,
   type ReferenceJobStatus,
@@ -130,6 +162,12 @@ import {
   type ReviewItem,
   type ReviewStatus,
   type RevisionSummary,
+  type DesignContract,
+  type LibraryAuditEntry,
+  type LibraryComponent,
+  type LibraryInstall,
+  type LibraryLicense,
+  type LibraryProvenance,
   type Site,
   type SiteTheme,
   type SmtpSettingsRecord,
@@ -197,10 +235,15 @@ type SiteRow = {
   updated_at: unknown;
 };
 
+// The design contract column is read on its own (getSite joins it lazily
+// through a second query in updateDesignContract/refresh), the SiteRow stays
+// lean like StyleRuleRow above.
+
 // The style rule column is read on its own, never through `SiteRow`: the rules
 // are a separate resource with their own endpoints.
 type StyleRuleRow = {
   style_rules_json: unknown;
+  style_rules_version: unknown;
 };
 
 type PageRow = {
@@ -227,6 +270,8 @@ const PAGE_COLUMNS =
   "p.id, p.site_id, p.path, p.title, p.meta, p.draft, p.draft_version, p.created_at, p.updated_at, pt.kind AS template_kind, pt.collection_ids, pt.priority, pt.layout_id";
 const PAGE_SUMMARY_COLUMNS =
   "p.id, p.site_id, p.path, p.title, p.meta, p.draft_version, p.created_at, p.updated_at, pt.kind AS template_kind, pt.collection_ids, pt.priority, pt.layout_id";
+const PAGE_WRITE_COLUMNS =
+  "id, site_id, path, title, meta, draft, draft_version, created_at, updated_at";
 
 type AuditRow = {
   id: string;
@@ -281,7 +326,6 @@ function mapSite(row: SiteRow): Site {
     updatedAt: toIso(row.updated_at),
   };
 }
-
 // -------------------------------------------------- style rule helpers (P2)
 
 // The schema reports a dotted field; the write path surfaces the first one.
@@ -589,6 +633,7 @@ type ReleaseRow = {
   page_revisions: unknown;
   theme_snapshot: unknown;
   build_ref: unknown;
+  manifest: unknown;
   author: unknown;
   note: unknown;
   basis_release_id: unknown;
@@ -606,6 +651,30 @@ type PreviewRow = {
   expires_at: unknown;
 };
 
+type DeploymentRow = {
+  id: string;
+  site_id: string;
+  release_id: string;
+  provider: string;
+  status: string;
+  target: string;
+  file_count: unknown;
+  byte_size: unknown;
+  error: unknown;
+  author: unknown;
+  created_at: unknown;
+  finished_at: unknown;
+};
+
+type DeploySettingsRow = {
+  provider: string;
+  netlify_site_id: unknown;
+  netlify_token_encrypted: unknown;
+  vercel_project_id: unknown;
+  vercel_token_encrypted: unknown;
+  updated_at: unknown;
+};
+
 type ReviewRow = {
   id: string;
   site_id: string;
@@ -618,12 +687,49 @@ type ReviewRow = {
   guardrails: unknown;
   thread: unknown;
   visuals: unknown;
+  import_reports: unknown;
   release_id: unknown;
   created_at: unknown;
   resolved_at: unknown;
 };
 
 const REVIEW_STATUS_VALUES: readonly ReviewStatus[] = REVIEW_STATUSES;
+
+type RedesignProposalRow = {
+  id: string;
+  source_page_id: string;
+  status: string;
+  cards: unknown;
+  basis: unknown;
+  decision: unknown;
+  apply_result: unknown;
+  created_at: unknown;
+};
+
+const REDESIGN_PROPOSAL_COLUMNS =
+  "id, source_page_id, status, cards, basis, decision, apply_result, created_at";
+
+function mapRedesignProposal(row: RedesignProposalRow): RedesignProposal {
+  if (!isRedesignProposalStatus(row.status)) {
+    throw new Error(`Stored redesign proposal status is invalid: ${row.status}`);
+  }
+  const basis = toJson<RedesignProposalBasis>(row.basis);
+  return {
+    id: row.id,
+    sourcePageId: row.source_page_id,
+    status: row.status,
+    source: basis.source,
+    cards: toJson<DirectionCard[]>(row.cards),
+    decision: row.decision === null || row.decision === undefined
+      ? null
+      : toJson<DirectionDecision>(row.decision),
+    applyResult:
+      row.apply_result === null || row.apply_result === undefined
+        ? null
+        : toJson<RedesignProposalApplyResult>(row.apply_result),
+    createdAt: toIso(row.created_at),
+  };
+}
 
 function mapRevision(row: RevisionRow): PageRevision {
   const tree = toJson<unknown>(row.tree);
@@ -653,11 +759,42 @@ function mapRelease(row: ReleaseRow): Release {
     pageRevisions: toJson<ReleasePageRevision[]>(row.page_revisions),
     themeSnapshot: toJson<unknown>(row.theme_snapshot),
     buildRef: typeof row.build_ref === "string" ? row.build_ref : null,
+    manifest:
+      row.manifest === null || row.manifest === undefined
+        ? null
+        : toJson<ReleaseManifest>(row.manifest),
     author: toJson<Author>(row.author),
     note: typeof row.note === "string" ? row.note : null,
     basisReleaseId:
       typeof row.basis_release_id === "string" ? row.basis_release_id : null,
     createdAt: toIso(row.created_at),
+  };
+}
+
+function mapDeployment(row: DeploymentRow): Deployment {
+  const status: DeploymentStatus =
+    row.status === "succeeded"
+      ? "succeeded"
+      : row.status === "failed"
+        ? "failed"
+        : "running";
+  return {
+    id: row.id,
+    siteId: row.site_id,
+    releaseId: row.release_id,
+    // One provider today; the seam widens when hosted adapters arrive.
+    provider: "static",
+    status,
+    target: row.target,
+    fileCount: Number(row.file_count ?? 0),
+    byteSize: Number(row.byte_size ?? 0),
+    error: typeof row.error === "string" ? row.error : null,
+    author: toJson<Author>(row.author),
+    createdAt: toIso(row.created_at),
+    finishedAt:
+      row.finished_at === null || row.finished_at === undefined
+        ? null
+        : toIso(row.finished_at),
   };
 }
 
@@ -696,6 +833,10 @@ function mapReviewItem(row: ReviewRow): ReviewItem {
     structureDiff: toJson<StructureChange[]>(row.structure_diff),
     guardrails: toJson<ReviewItem["guardrails"]>(row.guardrails),
     thread: toJson<ReviewComment[]>(row.thread),
+    importReports:
+      row.import_reports === null || row.import_reports === undefined
+        ? []
+        : toJson<ReviewItem["importReports"]>(row.import_reports),
     visuals:
       row.visuals === null || row.visuals === undefined
         ? null
@@ -885,6 +1026,45 @@ function mapAssetVariant(row: AssetVariantRow): AssetVariant {
 const ASSET_COLUMNS =
   "id, site_id, filename, mime, kind, byte_size, width, height, hash, alt_text, decorative, folder_id, tags, storage_ref, status, replaced_at, trashed_at, created_at, updated_at";
 
+type CodePayloadRow = {
+  id: string;
+  site_id: string;
+  name: string;
+  kind: string;
+  bytes: unknown;
+  integrity: string;
+  version: unknown;
+  provenance: unknown;
+  license: unknown;
+  created_at: unknown;
+  updated_at: unknown;
+};
+
+// Metadata only: the bundle is code and is read explicitly through
+// `getCodePayloadBundle`, so a list never drags every payload into memory.
+const CODE_PAYLOAD_COLUMNS =
+  "id, site_id, name, kind, bytes, integrity, version, provenance, license, created_at, updated_at";
+
+function mapCodePayload(row: CodePayloadRow): CodePayload {
+  const kind = row.kind;
+  if (kind !== "module" && kind !== "webgl-scene") {
+    throw new Error(`Stored payload kind is invalid: ${String(kind)}`);
+  }
+  return {
+    id: row.id,
+    siteId: row.site_id,
+    name: row.name,
+    kind,
+    bytes: toFiniteNumber(row.bytes, "bytes"),
+    integrity: row.integrity,
+    version: toFiniteNumber(row.version, "version"),
+    provenance: toJson<CodePayloadProvenance>(row.provenance),
+    license: toJson<CodePayloadLicense>(row.license),
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  };
+}
+
 type CollectionRow = {
   id: string;
   site_id: string;
@@ -1071,6 +1251,41 @@ export type NewAuditEntry = {
   draftVersionAfter: number;
 };
 
+export type PreparedCodePayload = {
+  id: string;
+  name: string;
+  kind: CodePayloadKind;
+  bundle: string;
+  provenance: CodePayloadProvenance;
+  license: CodePayloadLicense;
+};
+
+export type FramerImportCommitPlan = {
+  siteId: string;
+  jobId: string;
+  contentKey: string;
+  requestFingerprint: string;
+  author: Author;
+  target:
+    | { kind: "new"; path: string; title: string }
+    | { kind: "page"; pageId: string; baseDraftVersion: number };
+  draft: NodeTree;
+  payloads: readonly PreparedCodePayload[];
+  styleRules: readonly StyleRule[];
+  themePatch: Record<string, unknown> | null;
+  report: Omit<
+    ImportReport,
+    "pageId" | "newDraftVersion" | "receiptId" | "replayed"
+  >;
+};
+
+export type FramerImportCommitResult = {
+  receipt: ImportReceipt;
+  job: ImportJob;
+  report: ImportReport;
+  replayed: boolean;
+};
+
 export type SmtpSettingsPatch = {
   host?: string;
   port?: number;
@@ -1104,6 +1319,100 @@ export type ImageSettingsPatch = {
   customFormat?: ImageCustomFormat;
   customApiKeyEncrypted?: string | null;
 };
+
+export type LibraryCreateInput = {
+  id: string;
+  name: string;
+  kind: LibraryComponent["kind"];
+  definition: NodeTree;
+  fingerprint: string;
+  tags: string[];
+  provenance: LibraryProvenance;
+  license: LibraryLicense;
+  notes: string;
+  author: Author;
+};
+
+export type LibraryPatchInput = {
+  id: string;
+  name?: string;
+  tags?: string[];
+  notes?: string;
+  license?: LibraryLicense;
+  deprecated?: boolean;
+  author: Author;
+};
+
+export type LibraryInstallInput = {
+  id: string;
+  siteId: string;
+  componentId: string;
+  mode: LibraryInstall["mode"];
+  pageId?: string;
+  parentNodeId?: string;
+  author: Author;
+};
+
+type LibraryComponentRow = {
+  id: string;
+  name: string;
+  slug: string;
+  kind: string;
+  definition: unknown;
+  fingerprint: string;
+  tags: unknown;
+  provenance: unknown;
+  license: unknown;
+  notes: string;
+  version: unknown;
+  deprecated_at: unknown;
+  created_at: unknown;
+  updated_at: unknown;
+};
+
+type LibraryInstallRow = {
+  id: string;
+  site_id: string;
+  library_component_id: string;
+  installed_version: unknown;
+  mode: string;
+  created_at: unknown;
+  updated_at: unknown;
+};
+
+const LIBRARY_COLUMNS = "id, name, slug, kind, definition, fingerprint, tags, provenance, license, notes, version, deprecated_at, created_at, updated_at";
+const LIBRARY_INSTALL_COLUMNS = "id, site_id, library_component_id, installed_version, mode, created_at, updated_at";
+
+function mapLibraryComponent(row: LibraryComponentRow): LibraryComponent {
+  return {
+    id: row.id,
+    name: row.name,
+    slug: row.slug,
+    kind: row.kind as LibraryComponent["kind"],
+    definition: toJson<NodeTree>(row.definition),
+    fingerprint: row.fingerprint,
+    tags: toJson<string[]>(row.tags),
+    provenance: toJson<LibraryProvenance>(row.provenance),
+    license: toJson<LibraryLicense>(row.license),
+    notes: row.notes,
+    version: toFiniteNumber(row.version, "version"),
+    deprecatedAt: row.deprecated_at === null || row.deprecated_at === undefined ? null : toIso(row.deprecated_at),
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  };
+}
+
+function mapLibraryInstall(row: LibraryInstallRow): LibraryInstall {
+  return {
+    id: row.id,
+    siteId: row.site_id,
+    componentId: row.library_component_id,
+    installedVersion: toFiniteNumber(row.installed_version, "installed_version"),
+    mode: row.mode as LibraryInstall["mode"],
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  };
+}
 
 export class Store {
   readonly #db: Db;
@@ -1223,7 +1532,100 @@ export class Store {
         suggestion: "Create the site first or check the id.",
       });
     }
-    return mapSite(row);
+    const site = mapSite(row);
+    site.designContract = await this.readDesignContract(id);
+    return site;
+  }
+
+  // The design contract lives in its own column; absent means "no DNA yet".
+  private async readDesignContract(siteId: string): Promise<DesignContract | undefined> {
+    const result = await this.#db.query<{ design_contract: unknown }>(
+      `SELECT design_contract FROM sites WHERE id = $1`,
+      [siteId],
+    );
+    const raw = result.rows[0]?.design_contract;
+    if (raw === null || raw === undefined) return undefined;
+    const parsed = toJson<DesignContract>(raw);
+    if (
+      parsed === null ||
+      !Array.isArray(parsed.constants) ||
+      !Array.isArray(parsed.never) ||
+      !Array.isArray(parsed.vocabulary) ||
+      (parsed.source !== "references" && parsed.source !== "manual")
+    ) {
+      return undefined;
+    }
+    return parsed;
+  }
+
+  async getDesignContract(siteId: string): Promise<DesignContract | null> {
+    return (await this.readDesignContract(siteId)) ?? null;
+  }
+
+  // Manual override: the caller supplies the full contract; the store trims
+  // and dedupes the entries. `null` clears the contract.
+  async updateDesignContract(
+    siteId: string,
+    contract: {
+      constants: string[];
+      never: string[];
+      vocabulary: string[];
+    } | null,
+  ): Promise<DesignContract | null> {
+    await this.getSite(siteId);
+    if (contract === null) {
+      await this.#db.query(
+        `UPDATE sites SET design_contract = NULL, updated_at = $2 WHERE id = $1`,
+        [siteId, new Date().toISOString()],
+      );
+      return null;
+    }
+    const value: DesignContract = {
+      constants: [...new Set(contract.constants.map((c) => c.trim()).filter((c) => c !== ""))].slice(0, 12),
+      never: [...new Set(contract.never.map((c) => c.trim()).filter((c) => c !== ""))].slice(0, 12),
+      vocabulary: [...new Set(contract.vocabulary.map((c) => c.trim()).filter((c) => c !== ""))].slice(0, 12),
+      source: "manual",
+      updatedAt: new Date().toISOString(),
+    };
+    await this.#db.query(
+      `UPDATE sites SET design_contract = $2, updated_at = $3 WHERE id = $1`,
+      [siteId, toJsonParam(value), new Date().toISOString()],
+    );
+    return value;
+  }
+
+  // Re-derive the contract from the assigned references (called after
+  // applyReference/unassign): manual contracts are never overwritten.
+  async refreshDesignContractFromReferences(
+    siteId: string,
+    profiles: readonly {
+      constants: readonly string[];
+      never: readonly string[];
+      vocabulary: readonly string[];
+    }[],
+  ): Promise<DesignContract | null> {
+    const existing = await this.readDesignContract(siteId);
+    if (existing?.source === "manual") return existing;
+    if (profiles.length === 0) {
+      await this.#db.query(
+        `UPDATE sites SET design_contract = NULL, updated_at = $2 WHERE id = $1`,
+        [siteId, new Date().toISOString()],
+      );
+      return null;
+    }
+    const derived = deriveDesignContract(profiles);
+    const value: DesignContract = {
+      constants: [...derived.constants],
+      never: [...derived.never],
+      vocabulary: [...derived.vocabulary],
+      source: "references",
+      updatedAt: new Date().toISOString(),
+    };
+    await this.#db.query(
+      `UPDATE sites SET design_contract = $2, updated_at = $3 WHERE id = $1`,
+      [siteId, toJsonParam(value), new Date().toISOString()],
+    );
+    return value;
   }
 
   async deleteSite(id: string): Promise<void> {
@@ -1332,13 +1734,290 @@ export class Store {
     }));
   }
 
+  // Used by the atomic redesign compile (ADR-0014): the slug and the page path
+  // of a prepared copy have to be free before the transaction opens, because a
+  // unique violation inside a transaction cannot be retried.
+  async listSiteSlugs(): Promise<string[]> {
+    const result = await this.#db.query<{ slug: string }>(`SELECT slug FROM sites`);
+    return result.rows.map((row) => row.slug);
+  }
+
+  async listPagePaths(siteId: string): Promise<string[]> {
+    const result = await this.#db.query<{ path: string }>(
+      `SELECT path FROM pages WHERE site_id = $1`,
+      [siteId],
+    );
+    return result.rows.map((row) => row.path);
+  }
+
+  // Writes a prepared redesign plan in ONE transaction (ADR-0014): the
+  // duplicate, the theme, the seeded drafts, the audit trail and the proposal's
+  // final state. Nothing is read back and no branch is taken inside, because
+  // everything was decided by the compile. A crash therefore leaves neither a
+  // half-written site nor a proposal stuck in `applying`.
+  async applyRedesignPlan(
+    plan: {
+      targetSite: { id: string; name: string; slug: string; profile: string; withContent: boolean };
+      // The duplicate's own theme row, created from the source definition and
+      // then patched by `themeWrite`.
+      themeId: string;
+      startPage: { id: string; title: string; path: string } | null;
+      copiedPages: {
+        sourcePageId: string;
+        targetPageId: string;
+        path: string;
+        title: string;
+        meta: unknown;
+        draft: unknown;
+        draftVersion: number;
+      }[];
+      themeWrite: { themeId: string; expectedVersion: number; patch: Record<string, unknown> } | null;
+      pageWrites: {
+        pageId: string;
+        expectedVersion: number;
+        draft: unknown;
+        title: string;
+        path: string;
+      }[];
+      auditEntries: NewAuditEntry[];
+    },
+    input: {
+      now: string;
+      author: Author;
+      sourceSite: Site;
+      themeDefinition: unknown;
+      proposalClaim: { proposalId: string; directionId: string; decision: unknown } | null;
+      proposalFinalize: { proposalId: string; applyResult: unknown } | null;
+    },
+  ): Promise<void> {
+    await this.#db.withTransaction(async (tx) => {
+      // The decision is claimed inside the same transaction as its effects, so
+      // a rollback removes both together.
+      if (input.proposalClaim !== null) {
+        const locked = await tx.query<{ status: string }>(
+          `SELECT status FROM redesign_proposals WHERE id = $1 FOR UPDATE`,
+          [input.proposalClaim.proposalId],
+        );
+        const row = locked.rows[0];
+        if (row === undefined) {
+          throw new SenifyError("not_found", "The redesign proposal does not exist", {
+            field: "proposalId",
+          });
+        }
+        if (row.status !== "proposed") {
+          throw new SenifyError("conflict", "The direction was already decided", {
+            field: "proposalId",
+          });
+        }
+        await tx.query(
+          `UPDATE redesign_proposals SET status = 'applying', decision = $2 WHERE id = $1`,
+          [input.proposalClaim.proposalId, toJsonParam(input.proposalClaim.decision)],
+        );
+      }
+
+      const target = plan.targetSite;
+      await tx.query(
+        `INSERT INTO sites (id, name, slug, profile, theme_id, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, NULL, $5, $5)`,
+        [target.id, target.name, target.slug, target.profile, input.now],
+      );
+      // The copy's theme row. Its id comes from the plan so the theme write
+      // below targets this row and not the source site's theme.
+      await tx.query(
+        `INSERT INTO themes (id, site_id, name, definition, version, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, 1, $5, $5)`,
+        [
+          plan.themeId,
+          target.id,
+          input.sourceSite.name,
+          toJsonParam(input.themeDefinition),
+          input.now,
+        ],
+      );
+      await tx.query(`UPDATE sites SET theme_id = $2 WHERE id = $1`, [target.id, plan.themeId]);
+
+      if (plan.startPage !== null) {
+        const rootId = newNodeId();
+        await tx.query(
+          `INSERT INTO pages (id, site_id, path, title, meta, draft, draft_version, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, '{}'::jsonb, $5, 1, $6, $6)`,
+          [
+            plan.startPage.id,
+            target.id,
+            plan.startPage.path,
+            plan.startPage.title,
+            toJsonParam({ rootNodeId: rootId, nodes: { [rootId]: { id: rootId, type: "page", props: {} } } }),
+            input.now,
+          ],
+        );
+      }
+
+      // The copy's own page rows come first, so the seeded draft writes below
+      // land in the target site and never touch the source.
+      for (const page of plan.copiedPages) {
+        await tx.query(
+          `INSERT INTO pages (id, site_id, path, title, meta, draft, draft_version, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,
+          [
+            page.targetPageId,
+            target.id,
+            page.path,
+            page.title,
+            toJsonParam(page.meta),
+            toJsonParam(page.draft),
+            page.draftVersion,
+            input.now,
+          ],
+        );
+      }
+
+      for (const page of plan.pageWrites) {
+        const updated = await tx.query<{ draft_version: unknown }>(
+          `UPDATE pages SET draft = $4, title = $5, path = $6,
+             draft_version = draft_version + 1, updated_at = $3
+           WHERE id = $1 AND site_id = $2 AND draft_version = $7
+           RETURNING draft_version`,
+          [
+            page.pageId,
+            target.id,
+            input.now,
+            toJsonParam(page.draft),
+            page.title,
+            page.path,
+            page.expectedVersion,
+          ],
+        );
+        if (updated.rows.length === 0) {
+          throw draftConflictError(page.expectedVersion, page.expectedVersion + 1);
+        }
+      }
+
+      if (plan.themeWrite !== null) {
+        // Same merge and validation as `updateTheme`, so a prepared plan cannot
+        // write a theme the direct path would have refused.
+        const currentDefinition = toJson<Theme>(input.themeDefinition);
+        const merged = mergeThemePatch(currentDefinition, plan.themeWrite.patch);
+        merged.id = plan.themeWrite.themeId;
+        validateShape(ThemeSchema, merged, "theme");
+        const issues = validateTheme(merged);
+        const first = issues[0];
+        if (first !== undefined) {
+          throw new SenifyError(
+            "validation",
+            `Theme ist ungültig: ${first.message}`,
+            { field: "theme", suggestion: first.suggestion },
+          );
+        }
+        const updated = await tx.query<{ version: unknown }>(
+          `UPDATE themes SET definition = $3, version = version + 1, updated_at = $4
+           WHERE id = $1 AND version = $2 RETURNING version`,
+          [
+            plan.themeWrite.themeId,
+            plan.themeWrite.expectedVersion,
+            toJsonParam(merged),
+            input.now,
+          ],
+        );
+        if (updated.rows.length === 0) {
+          throw new SenifyError("conflict", "The theme changed while the redesign was prepared", {
+            field: "theme",
+            suggestion: "Confirm the direction again.",
+          });
+        }
+      }
+
+      if (plan.auditEntries.length > 0) {
+        const insert = buildAuditInsert(
+          plan.auditEntries.map((entry) => ({ ...entry, author: input.author })),
+        );
+        await tx.query(insert.text, insert.params);
+      }
+
+      if (input.proposalFinalize !== null) {
+        const finalized = await tx.query(
+          `UPDATE redesign_proposals
+             SET status = 'applied', apply_result = $2
+           WHERE id = $1 RETURNING id`,
+          [
+            input.proposalFinalize.proposalId,
+            toJsonParam(input.proposalFinalize.applyResult),
+          ],
+        );
+        if (finalized.rows.length === 0) {
+          throw new SenifyError("conflict", "The redesign proposal is not in the applying state", {
+            field: "proposalId",
+          });
+        }
+      }
+    });
+  }
+
+  // Writes a page's draft without going through the mutation pipeline. Only
+  // the site duplicate uses it, to point the copied drafts at the copied media
+  // (ADR-0014); every normal edit still goes through `applyMutations`.
+  async replacePageDraft(pageId: string, draft: NodeTree): Promise<number> {
+    const result = await this.#db.query<{ draft_version: unknown }>(
+      `UPDATE pages SET draft = $2, draft_version = draft_version + 1, updated_at = $3
+       WHERE id = $1 RETURNING draft_version`,
+      [pageId, toJsonParam(draft), new Date().toISOString()],
+    );
+    const row = result.rows[0];
+    if (row === undefined) {
+      throw new SenifyError("not_found", `Page "${pageId}" does not exist`, {
+        field: "pageId",
+      });
+    }
+    return toFiniteNumber(row.draft_version, "draft_version");
+  }
+
+  // Undoes a record copy whose files could not be written (ADR-0014). A file
+  // copy can fail after the rows committed, and rows without files would bake
+  // into silently broken images.
+  async deleteCopiedAssetRecords(
+    targetSiteId: string,
+    idMap: ReadonlyMap<string, string>,
+  ): Promise<void> {
+    const ids = [...idMap.values()];
+    if (ids.length === 0) return;
+    const placeholders = ids.map((_, index) => `$${index + 1}`).join(", ");
+    await this.#db.withTransaction(async (tx) => {
+      await tx.query(
+        `DELETE FROM asset_history WHERE asset_id IN (${placeholders})`,
+        ids,
+      );
+      await tx.query(
+        `DELETE FROM asset_variants WHERE asset_id IN (${placeholders})`,
+        ids,
+      );
+      await tx.query(
+        `DELETE FROM asset_blurhash WHERE asset_id IN (${placeholders})`,
+        ids,
+      );
+      await tx.query(
+        `DELETE FROM assets WHERE site_id = $1 AND id IN (${placeholders})`,
+        [targetSiteId, ...ids],
+      );
+    });
+  }
+
   // A copy is a fresh project: pages, theme and collection schemas come
-  // along; entries are copied as drafts (no publish state carries over) and
-  // assets are only referenced, never duplicated.
+  // along; entries are copied as drafts (no publish state carries over). The
+  // media the pages use are copied as well (ADR-0014) — see `copySiteAssets`
+  // in media.ts, which owns the files and calls `duplicateAssetRecords` here.
   async duplicateSite(
     sourceId: string,
-    options: { withContent: boolean; author: Author },
+    options: { withContent: boolean; author: Author; targetSiteId?: string },
   ): Promise<Site> {
+    return (await this.duplicateSiteWithPlan(sourceId, options)).site;
+  }
+
+  // Same as `duplicateSite`, but it also hands back the source-to-target page
+  // and collection id maps. The media copy needs them to rewrite the copied
+  // drafts' asset references (ADR-0014).
+  async duplicateSiteWithPlan(
+    sourceId: string,
+    options: { withContent: boolean; author: Author; targetSiteId?: string },
+  ): Promise<{ site: Site; pageIds: Map<string, string>; collectionIds: Map<string, string> }> {
     const source = await this.getSite(sourceId);
     const now = new Date().toISOString();
     const name = `${source.name} (Kopie)`;
@@ -1370,13 +2049,14 @@ export class Store {
     ).rows[0];
     const pageRows = (
       await this.#db.query<{
+        id: string;
         path: string;
         title: string;
         meta: unknown;
         draft: unknown;
         draft_version: unknown;
       }>(
-        `SELECT path, title, meta, draft, draft_version FROM pages WHERE site_id = $1 ORDER BY created_at ASC, id ASC`,
+        `SELECT id, path, title, meta, draft, draft_version FROM pages WHERE site_id = $1 ORDER BY created_at ASC, id ASC`,
         [sourceId],
       )
     ).rows;
@@ -1415,7 +2095,9 @@ export class Store {
         ).rows
       : [];
 
-    const siteId = newEntityId();
+    const siteId = options.targetSiteId ?? newEntityId();
+    const pageIds = new Map<string, string>();
+    const collectionIds = new Map<string, string>();
     await this.#db.withTransaction(async (tx) => {
       await tx.query(
         `INSERT INTO sites (id, name, slug, profile, theme_id, created_at, updated_at)
@@ -1442,11 +2124,13 @@ export class Store {
         ]);
       }
       for (const page of pageRows) {
+        const newPageId = newEntityId();
+        pageIds.set(page.id, newPageId);
         await tx.query(
           `INSERT INTO pages (id, site_id, path, title, meta, draft, draft_version, created_at, updated_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,
           [
-            newEntityId(),
+            newPageId,
             siteId,
             page.path,
             page.title,
@@ -1457,7 +2141,6 @@ export class Store {
           ],
         );
       }
-      const collectionIds = new Map<string, string>();
       for (const collection of collectionRows) {
         const newId = newEntityId();
         collectionIds.set(collection.id, newId);
@@ -1511,7 +2194,173 @@ export class Store {
       },
       author: options.author,
     });
-    return this.getSite(siteId);
+    return { site: await this.getSite(siteId), pageIds, collectionIds };
+  }
+
+  // Copies the media records of one site into another (ADR-0014). Every target
+  // id and every storage ref is new, so the two sites share no file: a purge on
+  // one side cannot take the other down. Files live in media.ts; this method
+  // only writes rows and returns the id map the caller needs.
+  async duplicateAssetRecords(input: {
+    sourceSiteId: string;
+    targetSiteId: string;
+    assetIds: ReadonlySet<string>;
+    now: string;
+  }): Promise<{
+    idMap: Map<string, string>;
+    // source asset id → source history id → new history id, so the caller can
+    // place the history files on exactly the ids the copied rows carry.
+    historyIds: Map<string, Map<string, string>>;
+    folders: number;
+    assets: number;
+  }> {
+    const idMap = new Map<string, string>();
+    const historyIds = new Map<string, Map<string, string>>();
+    const folderMap = new Map<string, string>();
+    return this.#db.withTransaction(async (tx) => {
+      const folders = (
+        await tx.query<{ id: string; name: string; parent_id: string | null }>(
+          `SELECT id, name, parent_id FROM asset_folders WHERE site_id = $1
+           ORDER BY created_at ASC, id ASC`,
+          [input.sourceSiteId],
+        )
+      ).rows;
+      for (const folder of folders) {
+        const newId = newEntityId();
+        folderMap.set(folder.id, newId);
+        await tx.query(
+          `INSERT INTO asset_folders (id, site_id, name, parent_id, created_at)
+           VALUES ($1, $2, $3, NULL, $4)`,
+          [newId, input.targetSiteId, folder.name, input.now],
+        );
+      }
+      for (const folder of folders) {
+        const parent = folder.parent_id === null ? null : folderMap.get(folder.parent_id) ?? null;
+        await tx.query(`UPDATE asset_folders SET parent_id = $2 WHERE id = $1`, [
+          folderMap.get(folder.id),
+          parent,
+        ]);
+      }
+
+      if (input.assetIds.size === 0) {
+        return { idMap, historyIds, folders: folders.length, assets: 0 };
+      }
+      const wanted = [...input.assetIds];
+      const placeholders = wanted.map((_, index) => `$${index + 2}`).join(", ");
+      const assets = (
+        await tx.query<AssetRow>(
+          `SELECT ${ASSET_COLUMNS} FROM assets
+           WHERE site_id = $1 AND id IN (${placeholders})
+           ORDER BY created_at ASC, id ASC`,
+          [input.sourceSiteId, ...wanted],
+        )
+      ).rows;
+      for (const row of assets) {
+        const source = mapAsset(row);
+        const newId = newEntityId();
+        idMap.set(source.id, newId);
+        const storageRef = assetStorageRef(
+          input.targetSiteId,
+          newId,
+          source.filename,
+        );
+        const folderId =
+          source.folderId === null ? null : folderMap.get(source.folderId) ?? null;
+        await tx.query(
+          `INSERT INTO assets (id, site_id, filename, mime, kind, byte_size, width, height,
+             hash, alt_text, decorative, folder_id, tags, storage_ref, status,
+             replaced_at, trashed_at, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$18)`,
+          [
+            newId,
+            input.targetSiteId,
+            source.filename,
+            source.mime,
+            source.kind,
+            source.byteSize,
+            source.width,
+            source.height,
+            source.hash,
+            source.altText,
+            source.decorative,
+            folderId,
+            toJsonParam(source.tags),
+            storageRef,
+            source.status,
+            source.replacedAt,
+            source.trashedAt,
+            input.now,
+          ],
+        );
+
+        const variants = (
+          await tx.query<{ id: string; width: number; format: string; byte_size: number }>(
+            `SELECT id, width, format, byte_size FROM asset_variants WHERE asset_id = $1`,
+            [source.id],
+          )
+        ).rows;
+        for (const variant of variants) {
+          await tx.query(
+            `INSERT INTO asset_variants (id, asset_id, width, format, storage_ref, byte_size, created_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+            [
+              newEntityId(),
+              newId,
+              variant.width,
+              variant.format,
+              variantStorageRef(
+                input.targetSiteId,
+                newId,
+                variant.width,
+                variant.format,
+              ),
+              variant.byte_size,
+              input.now,
+            ],
+          );
+        }
+
+        const blurhash = (
+          await tx.query<{ value: string }>(
+            `SELECT value FROM asset_blurhash WHERE asset_id = $1`,
+            [source.id],
+          )
+        ).rows[0];
+        if (blurhash !== undefined) {
+          await tx.query(
+            `INSERT INTO asset_blurhash (asset_id, value, created_at) VALUES ($1,$2,$3)`,
+            [newId, blurhash.value, input.now],
+          );
+        }
+
+        const history = (
+          await tx.query<{ id: string; mime: string; byte_size: number; storage_ref: string }>(
+            `SELECT id, mime, byte_size, storage_ref FROM asset_history WHERE asset_id = $1`,
+            [source.id],
+          )
+        ).rows;
+        for (const entry of history) {
+          const newHistoryId = newEntityId();
+          const name = storedFileName(entry.storage_ref) || source.filename;
+          const perAsset = historyIds.get(source.id) ?? new Map<string, string>();
+          perAsset.set(entry.id, newHistoryId);
+          historyIds.set(source.id, perAsset);
+          await tx.query(
+            `INSERT INTO asset_history (id, asset_id, storage_ref, mime, byte_size, created_at)
+             VALUES ($1,$2,$3,$4,$5,$6)`,
+            [
+              newHistoryId,
+              newId,
+              historyStorageRef(input.targetSiteId, newId, newHistoryId, name),
+              entry.mime,
+              entry.byte_size,
+              input.now,
+            ],
+          );
+        }
+      }
+      return { idMap, historyIds, folders: folders.length, assets: assets.length };
+    });
   }
 
   // Site-level activity (rename, trash, duplicate, theme) lands in the same
@@ -1667,9 +2516,9 @@ export class Store {
   // Every write appends to the same append-only audit log the page mutations
   // use (`pageId: null`), so a rule change is traceable like any other edit.
 
-  async #readStyleRules(siteId: string): Promise<StyleRule[]> {
-    const result = await this.#db.query<StyleRuleRow>(
-      `SELECT style_rules_json FROM sites WHERE id = $1`,
+  async #readStyleRules(siteId: string, client: DbClient = this.#db): Promise<StyleRule[]> {
+    const result = await client.query<StyleRuleRow>(
+      `SELECT style_rules_json, style_rules_version FROM sites WHERE id = $1`,
       [siteId],
     );
     const row = result.rows[0];
@@ -1685,8 +2534,26 @@ export class Store {
     return parseStyleRuleRegistry(toJson<unknown>(row.style_rules_json));
   }
 
+  async getStyleRegistry(siteId: string): Promise<{ version: number; rules: StyleRule[] }> {
+    const result = await this.#db.query<StyleRuleRow>(
+      `SELECT style_rules_json, style_rules_version FROM sites WHERE id = $1`,
+      [siteId],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Site "${siteId}" does not exist`, { field: "siteId" });
+    }
+    return {
+      version: toFiniteNumber(row.style_rules_version ?? 0, "style_rules_version"),
+      rules:
+        row.style_rules_json === null || row.style_rules_json === undefined
+          ? []
+          : parseStyleRuleRegistry(toJson<unknown>(row.style_rules_json)),
+    };
+  }
+
   async listStyleRules(siteId: string): Promise<StyleRule[]> {
-    return this.#readStyleRules(siteId);
+    return (await this.getStyleRegistry(siteId)).rules;
   }
 
   async getStyleRule(siteId: string, ruleId: string): Promise<StyleRule> {
@@ -1701,27 +2568,102 @@ export class Store {
     return found;
   }
 
+  // Rollback path of the release manifest (E2): the snapshot's registry
+  // replaces the current one. Every rule passes the same hard checks as a
+  // normal write; the audit records the restore, not the whole array.
+  async replaceStyleRules(
+    siteId: string,
+    rules: readonly StyleRule[],
+    author: Author,
+    baseVersion?: number,
+  ): Promise<StyleRule[]> {
+    rules.forEach((rule, index) =>
+      this.#assertWritableRule(rule, `rules[${index}]`),
+    );
+    return this.#writeStyleRules(siteId, [...rules], {
+      mutation: "restoreReleaseStyleRules",
+      params: { count: rules.length },
+      author,
+      baseVersion,
+    });
+  }
+
+  // Framer import (plan S3.1): appends the imported rules to the site
+  // registry with their `framer-import` origin intact. Every rule passes the
+  // same hard checks as a manual write; the audit records the import, so an
+  // undo of the batch does not need to touch the site-wide registry.
+  async appendImportedStyleRules(
+    siteId: string,
+    rules: readonly StyleRule[],
+    author: Author,
+    baseVersion?: number,
+  ): Promise<StyleRule[]> {
+    const existing = await this.#readStyleRules(siteId);
+    const appended = rules.map((rule, index) => {
+      const ordered: StyleRule = { ...rule, order: existing.length + index };
+      this.#assertWritableRule(ordered, `rules[${index}]`);
+      return ordered;
+    });
+    return this.#writeStyleRules(siteId, [...existing, ...appended], {
+      mutation: "importFramerStyleRules",
+      params: { count: appended.length },
+      author,
+      ...(baseVersion === undefined ? {} : { baseVersion }),
+    });
+  }
+
   // The whole registry is rewritten in one transaction-free UPDATE: the array
   // is the document, so a partial write cannot leave two sources of truth. The
   // audit entry records what changed, not the whole array.
   async #writeStyleRules(
     siteId: string,
     rules: StyleRule[],
-    event: { mutation: string; params: Record<string, unknown>; author: Author },
+    event: { mutation: string; params: Record<string, unknown>; author: Author; baseVersion?: number },
   ): Promise<StyleRule[]> {
     const normalized = normalizeRuleOrder(rules);
-    const now = new Date().toISOString();
-    const result = await this.#db.query<{ id: string }>(
-      `UPDATE sites SET style_rules_json = $2, updated_at = $3 WHERE id = $1 RETURNING id`,
-      [siteId, toJsonParam(normalized), now],
-    );
-    if (result.rows.length === 0) {
-      throw new SenifyError("not_found", `Site "${siteId}" does not exist`, {
-        field: "siteId",
-      });
-    }
-    await this.recordSiteEvent({ siteId, ...event });
-    return normalized;
+    return this.#db.withTransaction(async (tx) => {
+      const locked = await tx.query<StyleRuleRow>(
+        `SELECT style_rules_json, style_rules_version FROM sites WHERE id = $1 FOR UPDATE`,
+        [siteId],
+      );
+      const current = locked.rows[0];
+      if (!current) {
+        throw new SenifyError("not_found", `Site "${siteId}" does not exist`, { field: "siteId" });
+      }
+      const version = toFiniteNumber(current.style_rules_version ?? 0, "style_rules_version");
+      if (event.baseVersion !== undefined && event.baseVersion !== version) {
+        throw new SenifyError("conflict", "Die Style-Registry wurde zwischenzeitlich geändert", {
+          field: "baseVersion",
+          suggestion: "Lade die Style-Registry neu und sende den Write erneut.",
+        });
+      }
+      const nextVersion = version + 1;
+      const now = new Date().toISOString();
+      const result = await tx.query<{ style_rules_version: unknown }>(
+        `UPDATE sites
+         SET style_rules_json = $2, style_rules_version = $3, updated_at = $4
+         WHERE id = $1 RETURNING style_rules_version`,
+        [siteId, toJsonParam(normalized), nextVersion, now],
+      );
+      if (result.rows.length === 0) {
+        throw new SenifyError("not_found", `Site "${siteId}" does not exist`, { field: "siteId" });
+      }
+      const { text, params } = buildAuditInsert([
+        {
+          siteId,
+          pageId: null,
+          batchId: newEntityId(),
+          opIndex: 0,
+          mutation: event.mutation,
+          params: { ...event.params, styleRegistryVersion: nextVersion },
+          author: event.author,
+          undoPatch: [],
+          draftVersionAfter: nextVersion,
+        },
+      ]);
+      await tx.query(text, params);
+      return normalized;
+    });
   }
 
   // Hard shape check of one rule plus the semantic rules the schema cannot
@@ -1815,6 +2757,7 @@ export class Store {
       description?: string;
       styles?: Record<string, unknown>;
       contextStyles?: Record<string, Record<string, unknown>>;
+      baseVersion?: number;
     },
     author: Author,
   ): Promise<StyleRule> {
@@ -1857,6 +2800,7 @@ export class Store {
       mutation: "create_style_rule",
       params: { ruleId: rule.id, name: rule.name, kind: rule.kind },
       author,
+      ...(input.baseVersion === undefined ? {} : { baseVersion: input.baseVersion }),
     });
     return written.find((entry) => entry.id === rule.id) ?? rule;
   }
@@ -1875,6 +2819,7 @@ export class Store {
       contextStyles?: Record<string, Record<string, unknown>>;
       contextStylePriorities?: Record<string, Record<string, "important">>;
       rawCss?: string | null;
+      baseVersion?: number;
     },
     author: Author,
   ): Promise<StyleRule> {
@@ -2035,6 +2980,7 @@ export class Store {
       mutation: "update_style_rule",
       params: { ruleId, patch: Object.keys(patch) },
       author,
+      ...(patch.baseVersion === undefined ? {} : { baseVersion: patch.baseVersion }),
     });
     return written[index] ?? next;
   }
@@ -2043,6 +2989,7 @@ export class Store {
     siteId: string,
     ruleId: string,
     author: Author,
+    baseVersion?: number,
   ): Promise<void> {
     const rules = await this.#readStyleRules(siteId);
     const index = rules.findIndex((rule) => rule.id === ruleId);
@@ -2056,6 +3003,7 @@ export class Store {
       mutation: "delete_style_rule",
       params: { ruleId, name: rules[index]!.name, kind: rules[index]!.kind },
       author,
+      ...(baseVersion === undefined ? {} : { baseVersion }),
     });
   }
 
@@ -2066,6 +3014,7 @@ export class Store {
     ruleId: string,
     toIndex: number,
     author: Author,
+    baseVersion?: number,
   ): Promise<StyleRule[]> {
     const rules = await this.#readStyleRules(siteId);
     const from = rules.findIndex((rule) => rule.id === ruleId);
@@ -2104,6 +3053,7 @@ export class Store {
         ...(authoredBy === expected ? {} : { foreignAuthoredBy: authoredBy }),
       },
       author,
+      ...(baseVersion === undefined ? {} : { baseVersion }),
     });
   }
 
@@ -2204,6 +3154,264 @@ export class Store {
     const row = result.rows[0];
     if (!row) throw new Error("Page insert returned no row");
     return mapPage(row);
+  }
+
+  async listLibraryComponents(): Promise<LibraryComponent[]> {
+    const result = await this.#db.query<LibraryComponentRow>(
+      `SELECT ${LIBRARY_COLUMNS} FROM library_components ORDER BY updated_at DESC, id DESC`,
+    );
+    return result.rows.map(mapLibraryComponent);
+  }
+
+  async getLibraryComponent(id: string): Promise<LibraryComponent> {
+    const result = await this.#db.query<LibraryComponentRow>(
+      `SELECT ${LIBRARY_COLUMNS} FROM library_components WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Library component "${id}" does not exist`, {
+        field: "componentId",
+      });
+    }
+    return mapLibraryComponent(row);
+  }
+
+  async createLibraryComponent(input: LibraryCreateInput): Promise<LibraryComponent> {
+    assertDraftShape(input.definition);
+    const existing = await this.#db.query<LibraryComponentRow>(
+      `SELECT ${LIBRARY_COLUMNS} FROM library_components WHERE fingerprint = $1`,
+      [input.fingerprint],
+    );
+    if (existing.rows[0]) return mapLibraryComponent(existing.rows[0]);
+    const now = new Date().toISOString();
+    const result = await this.#db.query<LibraryComponentRow>(
+      `INSERT INTO library_components
+        (id, name, slug, kind, definition, fingerprint, tags, provenance, license, notes, version, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, $11, $11)
+       RETURNING ${LIBRARY_COLUMNS}`,
+      [
+        input.id,
+        input.name,
+        slugify(input.name),
+        input.kind,
+        toJsonParam(input.definition),
+        input.fingerprint,
+        toJsonParam(input.tags),
+        toJsonParam(input.provenance),
+        toJsonParam(input.license),
+        input.notes,
+        now,
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error("Library component insert returned no row");
+    await this.appendAudit([{
+      siteId: "__library__",
+      pageId: null,
+      batchId: input.id,
+      opIndex: 0,
+      mutation: "library.component.created",
+      params: { componentId: input.id, version: 1 },
+      author: input.author,
+      undoPatch: [],
+      draftVersionAfter: 0,
+    }]);
+    return mapLibraryComponent(row);
+  }
+
+  async updateLibraryComponent(input: LibraryPatchInput): Promise<LibraryComponent> {
+    const current = await this.getLibraryComponent(input.id);
+    const now = new Date().toISOString();
+    const result = await this.#db.query<LibraryComponentRow>(
+      `UPDATE library_components SET
+        name = $2, tags = $3, notes = $4, license = $5,
+        version = version + 1, deprecated_at = $6, updated_at = $7
+       WHERE id = $1 RETURNING ${LIBRARY_COLUMNS}`,
+      [
+        input.id,
+        input.name ?? current.name,
+        toJsonParam(input.tags ?? current.tags),
+        input.notes ?? current.notes,
+        toJsonParam(input.license ?? current.license),
+        input.deprecated === true ? now : input.deprecated === false ? null : current.deprecatedAt,
+        now,
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) throw new SenifyError("not_found", `Library component "${input.id}" does not exist`, { field: "componentId" });
+    await this.appendAudit([{
+      siteId: "__library__", pageId: null, batchId: input.id, opIndex: 0,
+      mutation: input.deprecated === true ? "library.component.deprecated" : "library.component.updated",
+      params: { componentId: input.id, version: row.version },
+      author: input.author, undoPatch: [], draftVersionAfter: 0,
+    }]);
+    return mapLibraryComponent(row);
+  }
+
+  async deleteLibraryComponent(id: string): Promise<LibraryComponent> {
+    const component = await this.getLibraryComponent(id);
+    const installs = await this.#db.query<{ id: string }>(
+      `SELECT id FROM site_library_installs WHERE library_component_id = $1 LIMIT 1`,
+      [id],
+    );
+    if (installs.rows.length > 0) {
+      throw new SenifyError("conflict", "Library component is still installed", { field: "componentId" });
+    }
+    await this.#db.query(`DELETE FROM library_components WHERE id = $1`, [id]);
+    return component;
+  }
+
+  async listLibraryInstalls(siteId: string): Promise<LibraryInstall[]> {
+    await this.getSite(siteId);
+    const result = await this.#db.query<LibraryInstallRow>(
+      `SELECT ${LIBRARY_INSTALL_COLUMNS} FROM site_library_installs WHERE site_id = $1 ORDER BY updated_at DESC, id DESC`,
+      [siteId],
+    );
+    return result.rows.map(mapLibraryInstall);
+  }
+
+  async installLibraryComponent(input: LibraryInstallInput): Promise<LibraryInstall> {
+    const site = await this.getSite(input.siteId);
+    const component = await this.getLibraryComponent(input.componentId);
+    const now = new Date().toISOString();
+    await this.#db.query(
+      `INSERT INTO site_library_installs (id, site_id, library_component_id, installed_version, mode, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $6)
+       ON CONFLICT (site_id, library_component_id) DO UPDATE SET
+         installed_version = EXCLUDED.installed_version, mode = EXCLUDED.mode, updated_at = EXCLUDED.updated_at`,
+      [input.id, input.siteId, input.componentId, component.version, input.mode, now],
+    );
+    if (input.pageId !== undefined) {
+      const page = await this.getPage(input.pageId);
+      if (page.siteId !== site.id) throw new SenifyError("validation", "Page belongs to another site", { field: "pageId" });
+      const tree = structuredClone(page.draft) as NodeTree;
+      const definitionRoot = component.definition.nodes[component.definition.rootNodeId];
+      if (definitionRoot === undefined) throw new SenifyError("validation", "Library component has no root", { field: "definition" });
+      const ids = new Map<string, string>();
+      for (const id of Object.keys(component.definition.nodes)) ids.set(id, newEntityId());
+      const definitionId = ids.get(component.definition.rootNodeId) as string;
+      for (const [oldId, node] of Object.entries(component.definition.nodes)) {
+        const nextId = ids.get(oldId) as string;
+        const children = node.children?.map((id) => ids.get(id) as string);
+        const slots = node.slots === undefined
+          ? undefined
+          : Object.fromEntries(Object.entries(node.slots).map(([slot, slotIds]) => [slot, slotIds.map((id) => ids.get(id) as string)]));
+        tree.nodes[nextId] = { ...node, id: nextId, ...(children === undefined ? {} : { children }), ...(slots === undefined ? {} : { slots }), props: { ...node.props, name: component.name, version: component.version, libraryComponentId: component.id, libraryOrigin: "linked" } };
+      }
+      const instanceId = newEntityId();
+      tree.nodes[instanceId] = { id: instanceId, type: "__component_instance", props: { componentId: definitionId, componentVersion: component.version, name: component.name, libraryComponentId: component.id, libraryOrigin: "linked" }, children: [] };
+      const root = tree.nodes[tree.rootNodeId];
+      if (root === undefined) throw new SenifyError("validation", "Page root is missing", { field: "pageId" });
+      const parentId = input.parentNodeId ?? tree.rootNodeId;
+      const parent = tree.nodes[parentId];
+      if (parent === undefined) throw new SenifyError("not_found", `Target node "${parentId}" does not exist`, { field: "parentNodeId" });
+      parent.children = [...(parent.children ?? []), definitionId, instanceId];
+      const definitionNode = tree.nodes[definitionId];
+      if (definitionNode !== undefined) {
+        definitionNode.type = "__component";
+        definitionNode.props = { ...definitionNode.props, name: component.name, version: component.version, libraryComponentId: component.id, libraryOrigin: "linked" };
+      }
+      const result = await this.persistBatch({
+        pageId: page.id, expectedVersion: page.draftVersion, draft: tree,
+        title: page.title, path: page.path,
+        entries: [{ siteId: site.id, pageId: page.id, batchId: input.id, opIndex: 0, mutation: "library.component.installed", params: { componentId: component.id, version: component.version }, author: input.author, undoPatch: [], draftVersionAfter: page.draftVersion + 1 }],
+      });
+      void result;
+    }
+    const row = (await this.#db.query<LibraryInstallRow>(`SELECT ${LIBRARY_INSTALL_COLUMNS} FROM site_library_installs WHERE site_id = $1 AND library_component_id = $2`, [input.siteId, input.componentId])).rows[0];
+    if (!row) throw new Error("Library install insert returned no row");
+    return mapLibraryInstall(row);
+  }
+
+  async updateLibraryInstall(id: string, author: Author): Promise<LibraryInstall> {
+    const current = (await this.#db.query<LibraryInstallRow>(
+      `SELECT ${LIBRARY_INSTALL_COLUMNS} FROM site_library_installs WHERE id = $1`,
+      [id],
+    )).rows[0];
+    if (!current) throw new SenifyError("not_found", `Library install "${id}" does not exist`, { field: "installId" });
+    const component = await this.getLibraryComponent(current.library_component_id);
+    const result = await this.#db.query<LibraryInstallRow>(
+      `UPDATE site_library_installs SET installed_version = $2, updated_at = $3 WHERE id = $1 RETURNING ${LIBRARY_INSTALL_COLUMNS}`,
+      [id, component.version, new Date().toISOString()],
+    );
+    const row = result.rows[0];
+    if (!row) throw new SenifyError("not_found", `Library install "${id}" does not exist`, { field: "installId" });
+    await this.appendAudit([{ siteId: row.site_id, pageId: null, batchId: id, opIndex: 0, mutation: "library.install.updated", params: { componentId: row.library_component_id, version: row.installed_version }, author, undoPatch: [], draftVersionAfter: 0 }]);
+    return mapLibraryInstall(row);
+  }
+
+  async deleteLibraryInstall(id: string, author: Author): Promise<LibraryInstall> {
+    const current = (await this.#db.query<LibraryInstallRow>(
+      `SELECT ${LIBRARY_INSTALL_COLUMNS} FROM site_library_installs WHERE id = $1`,
+      [id],
+    )).rows[0];
+    if (!current) throw new SenifyError("not_found", `Library install "${id}" does not exist`, { field: "installId" });
+    const component = await this.getLibraryComponent(current.library_component_id);
+    const pages = await this.listPages(current.site_id);
+    for (const summary of pages) {
+      const page = await this.getPage(summary.id);
+      const tree = structuredClone(page.draft) as NodeTree;
+      let changed = false;
+      for (const node of Object.values(tree.nodes)) {
+        if (node.type === "__component_instance" && node.props["libraryComponentId"] === component.id) {
+          node.type = "__component";
+          node.props = {
+            ...node.props,
+            name: component.name,
+            version: component.version,
+            libraryOrigin: "detached",
+            libraryDetachedFrom: component.id,
+          };
+          delete node.props["componentId"];
+          delete node.props["libraryComponentId"];
+          changed = true;
+        }
+        if (node.type === "__component" && node.props["libraryComponentId"] === component.id) {
+          node.props = {
+            ...node.props,
+            libraryOrigin: "detached",
+            libraryDetachedFrom: component.id,
+          };
+          delete node.props["libraryComponentId"];
+          changed = true;
+        }
+      }
+      if (!changed) continue;
+      await this.persistBatch({
+        pageId: page.id,
+        expectedVersion: page.draftVersion,
+        draft: tree,
+        title: page.title,
+        path: page.path,
+        entries: [{
+          siteId: page.siteId,
+          pageId: page.id,
+          batchId: id,
+          opIndex: 0,
+          mutation: "library.install.detached",
+          params: { componentId: component.id, version: component.version },
+          author,
+          undoPatch: [],
+          draftVersionAfter: page.draftVersion + 1,
+        }],
+      });
+    }
+    const result = await this.#db.query<LibraryInstallRow>(
+      `DELETE FROM site_library_installs WHERE id = $1 RETURNING ${LIBRARY_INSTALL_COLUMNS}`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) throw new SenifyError("not_found", `Library install "${id}" does not exist`, { field: "installId" });
+    await this.appendAudit([{ siteId: row.site_id, pageId: null, batchId: id, opIndex: 0, mutation: "library.install.detached", params: { componentId: row.library_component_id }, author, undoPatch: [], draftVersionAfter: 0 }]);
+    return mapLibraryInstall(row);
+  }
+
+  async listLibraryAudit(): Promise<LibraryAuditEntry[]> {
+    const result = await this.#db.query<{ mutation: string; params: unknown; author: unknown; site_id: string; created_at: unknown }>(
+      `SELECT mutation, params, author, site_id, created_at FROM audit_entries WHERE mutation LIKE 'library.%' ORDER BY created_at DESC`,
+    );
+    return result.rows.map((row) => ({ componentId: String((toJson<Record<string, unknown>>(row.params) ?? {}).componentId ?? ""), siteId: row.site_id === "__library__" ? null : row.site_id, action: row.mutation.endsWith("created") ? "created" : row.mutation.endsWith("installed") ? "installed" : row.mutation.endsWith("detached") ? "detached" : row.mutation.endsWith("deprecated") ? "deprecated" : "updated", author: toJson<Author>(row.author), createdAt: toIso(row.created_at) }));
   }
 
   async listPages(siteId: string): Promise<PageSummary[]> {
@@ -2763,22 +3971,25 @@ export class Store {
     pageRevisions: ReleasePageRevision[];
     themeSnapshot: unknown;
     buildRef: string | null;
+    manifest?: ReleaseManifest | null;
     author: Author;
     note: string | null;
     basisReleaseId: string | null;
   }): Promise<Release> {
     const id = newEntityId();
     const createdAt = new Date().toISOString();
+    const manifest = input.manifest ?? null;
     await this.#db.query(
       `INSERT INTO releases
-        (id, site_id, page_revisions, theme_snapshot, build_ref, author, note, basis_release_id, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        (id, site_id, page_revisions, theme_snapshot, build_ref, manifest, author, note, basis_release_id, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
       [
         id,
         input.siteId,
         toJsonParam(input.pageRevisions),
         toJsonParam(input.themeSnapshot),
         input.buildRef,
+        manifest === null ? null : toJsonParam(manifest),
         toJsonParam(input.author),
         input.note,
         input.basisReleaseId,
@@ -2791,6 +4002,7 @@ export class Store {
       pageRevisions: input.pageRevisions,
       themeSnapshot: input.themeSnapshot,
       buildRef: input.buildRef,
+      manifest,
       author: input.author,
       note: input.note,
       basisReleaseId: input.basisReleaseId,
@@ -2798,9 +4010,82 @@ export class Store {
     };
   }
 
+  // Atomic activation (E2): the build reference and the active-release row are
+  // written in one transaction. A crash before this call leaves the previous
+  // release serving and the new release inactive (harmless orphan); a crash
+  // after it never sees a half-activated release.
+  async activateRelease(input: {
+    siteId: string;
+    releaseId: string;
+    buildRef: string;
+  }): Promise<void> {
+    const now = new Date().toISOString();
+    await this.#db.withTransaction(async (tx) => {
+      const updated = await tx.query<{ id: string }>(
+        `UPDATE releases SET build_ref = $2
+         WHERE id = $1 AND build_ref IS NULL
+         RETURNING id`,
+        [input.releaseId, input.buildRef],
+      );
+      if (updated.rows.length === 0) {
+        throw new SenifyError("conflict", `Release "${input.releaseId}" is already finalized`, {
+          field: "releaseId",
+        });
+      }
+      await tx.query(
+        `INSERT INTO active_releases (site_id, release_id, updated_at)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (site_id) DO UPDATE
+           SET release_id = EXCLUDED.release_id, updated_at = EXCLUDED.updated_at`,
+        [input.siteId, input.releaseId, now],
+      );
+    });
+  }
+
+  async finalizeRelease(input: {
+    siteId: string;
+    releaseId: string;
+    buildRef: string;
+    manifest: ReleaseManifest;
+  }): Promise<void> {
+    const now = new Date().toISOString();
+    await this.#db.withTransaction(async (tx) => {
+      const updated = await tx.query<{ id: string }>(
+        `UPDATE releases SET build_ref = $2, manifest = $3
+         WHERE id = $1 AND build_ref IS NULL
+         RETURNING id`,
+        [input.releaseId, input.buildRef, toJsonParam(input.manifest)],
+      );
+      if (updated.rows.length === 0) {
+        throw new SenifyError("conflict", `Release "${input.releaseId}" is already finalized`, {
+          field: "releaseId",
+        });
+      }
+      await tx.query(
+        `INSERT INTO active_releases (site_id, release_id, updated_at)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (site_id) DO UPDATE
+           SET release_id = EXCLUDED.release_id, updated_at = EXCLUDED.updated_at`,
+        [input.siteId, input.releaseId, now],
+      );
+    });
+  }
+
+  async updateReleaseManifest(id: string, manifest: ReleaseManifest): Promise<void> {
+    const result = await this.#db.query<{ id: string }>(
+      `UPDATE releases SET manifest = $2 WHERE id = $1 AND build_ref IS NULL RETURNING id`,
+      [id, toJsonParam(manifest)],
+    );
+    if (result.rows.length === 0) {
+      throw new SenifyError("conflict", `Release "${id}" is already finalized`, {
+        field: "releaseId",
+      });
+    }
+  }
+
   async getRelease(id: string): Promise<Release> {
     const result = await this.#db.query<ReleaseRow>(
-      `SELECT id, site_id, page_revisions, theme_snapshot, build_ref, author, note, basis_release_id, created_at
+      `SELECT id, site_id, page_revisions, theme_snapshot, build_ref, manifest, author, note, basis_release_id, created_at
        FROM releases WHERE id = $1`,
       [id],
     );
@@ -2815,7 +4100,7 @@ export class Store {
 
   async listReleases(siteId: string, limit = 50): Promise<Release[]> {
     const result = await this.#db.query<ReleaseRow>(
-      `SELECT id, site_id, page_revisions, theme_snapshot, build_ref, author, note, basis_release_id, created_at
+      `SELECT id, site_id, page_revisions, theme_snapshot, build_ref, manifest, author, note, basis_release_id, created_at
        FROM releases WHERE site_id = $1
        ORDER BY created_at DESC, id DESC LIMIT $2`,
       [siteId, Math.max(1, Math.min(200, limit))],
@@ -2832,25 +4117,235 @@ export class Store {
   }
 
   async attachReleaseBuild(id: string, buildRef: string): Promise<void> {
-    await this.#db.query(`UPDATE releases SET build_ref = $2 WHERE id = $1`, [
-      id,
-      buildRef,
-    ]);
+    const result = await this.#db.query<{ id: string }>(
+      `UPDATE releases SET build_ref = $2 WHERE id = $1 AND build_ref IS NULL RETURNING id`,
+      [id, buildRef],
+    );
+    if (result.rows.length === 0) {
+      throw new SenifyError("conflict", `Release "${id}" is already finalized`, {
+        field: "releaseId",
+      });
+    }
   }
 
-  async setActiveRelease(siteId: string, releaseId: string): Promise<void> {
-    const now = new Date().toISOString();
-    const updated = await this.#db.query<{ site_id: string }>(
-      `UPDATE active_releases SET release_id = $2, updated_at = $3
-       WHERE site_id = $1 RETURNING site_id`,
-      [siteId, releaseId, now],
-    );
-    if (updated.rows.length > 0) return;
+  // ------------------------------------------------------- deployments (E14)
+
+  async createDeployment(input: {
+    siteId: string;
+    releaseId: string;
+    provider: DeployProvider;
+    target: string;
+    author: Author;
+  }): Promise<Deployment> {
+    const id = newEntityId();
+    const createdAt = new Date().toISOString();
     await this.#db.query(
-      `INSERT INTO active_releases (site_id, release_id, updated_at)
-       VALUES ($1, $2, $3)`,
-      [siteId, releaseId, now],
+      `INSERT INTO deployments
+        (id, site_id, release_id, provider, status, target, file_count, byte_size, error, author, created_at, finished_at)
+       VALUES ($1, $2, $3, $4, 'running', $5, 0, 0, NULL, $6, $7, NULL)`,
+      [
+        id,
+        input.siteId,
+        input.releaseId,
+        input.provider,
+        input.target,
+        toJsonParam(input.author),
+        createdAt,
+      ],
     );
+    return this.getDeployment(id);
+  }
+
+  async finishDeployment(input: {
+    id: string;
+    status: "succeeded" | "failed";
+    fileCount?: number;
+    byteSize?: number;
+    error?: string;
+  }): Promise<Deployment> {
+    const finishedAt = new Date().toISOString();
+    const updated = await this.#db.query<{ id: string }>(
+      `UPDATE deployments
+       SET status = $2, file_count = $3, byte_size = $4, error = $5, finished_at = $6
+       WHERE id = $1 RETURNING id`,
+      [
+        input.id,
+        input.status,
+        input.fileCount ?? 0,
+        input.byteSize ?? 0,
+        input.error ?? null,
+        finishedAt,
+      ],
+    );
+    if (updated.rows.length === 0) {
+      throw new SenifyError(
+        "not_found",
+        `Deployment "${input.id}" does not exist`,
+        { field: "deploymentId" },
+      );
+    }
+    return this.getDeployment(input.id);
+  }
+
+  async getDeployment(id: string): Promise<Deployment> {    const result = await this.#db.query<DeploymentRow>(
+      `SELECT id, site_id, release_id, provider, status, target, file_count, byte_size, error, author, created_at, finished_at
+       FROM deployments WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Deployment "${id}" does not exist`, {
+        field: "deploymentId",
+      });
+    }
+    return mapDeployment(row);
+  }
+
+  async listDeployments(siteId: string, limit = 20): Promise<Deployment[]> {
+    const result = await this.#db.query<DeploymentRow>(
+      `SELECT id, site_id, release_id, provider, status, target, file_count, byte_size, error, author, created_at, finished_at
+       FROM deployments WHERE site_id = $1
+       ORDER BY created_at DESC, id DESC LIMIT $2`,
+      [siteId, Math.max(1, Math.min(100, limit))],
+    );
+    return result.rows.map(mapDeployment);
+  }
+
+  // ------------------------------------------------------- deploy settings (E14)
+
+  // The settings of a site, or the static defaults when nothing was stored.
+  async getDeploySettings(siteId: string): Promise<DeploySettings> {
+    await this.getSite(siteId);
+    const result = await this.#db.query<DeploySettingsRow>(
+      `SELECT provider, netlify_site_id, netlify_token_encrypted,
+              vercel_project_id, vercel_token_encrypted, updated_at
+       FROM deploy_settings WHERE site_id = $1`,
+      [siteId],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      return {
+        provider: "static",
+        netlifySiteId: null,
+        hasNetlifyToken: false,
+        vercelProjectId: null,
+        hasVercelToken: false,
+        updatedAt: "",
+      };
+    }
+    return {
+      provider: row.provider as DeployProvider,
+      netlifySiteId: typeof row.netlify_site_id === "string" ? row.netlify_site_id : null,
+      hasNetlifyToken: typeof row.netlify_token_encrypted === "string",
+      vercelProjectId: typeof row.vercel_project_id === "string" ? row.vercel_project_id : null,
+      hasVercelToken: typeof row.vercel_token_encrypted === "string",
+      updatedAt: toIso(row.updated_at),
+    };
+  }
+
+  // Writes the hosted-provider target. A new token is encrypted; null clears
+  // it; omitting keeps it. The plaintext never persists and never returns.
+  async updateDeploySettings(
+    siteId: string,
+    patch: {
+      provider?: DeployProvider;
+      netlifySiteId?: string | null;
+      netlifyTokenEncrypted?: string | null;
+      vercelProjectId?: string | null;
+      vercelTokenEncrypted?: string | null;
+    },
+  ): Promise<DeploySettings> {
+    await this.getSite(siteId);
+    const now = new Date().toISOString();
+    const current = await this.getDeploySettings(siteId);
+    const row = (
+      await this.#db.query<DeploySettingsRow>(
+        `SELECT netlify_token_encrypted, vercel_token_encrypted FROM deploy_settings WHERE site_id = $1`,
+        [siteId],
+      )
+    ).rows[0];
+    const existingNetlifyToken =
+      typeof row?.netlify_token_encrypted === "string" ? row.netlify_token_encrypted : null;
+    const nextNetlifyToken =
+      patch.netlifyTokenEncrypted === undefined
+        ? existingNetlifyToken
+        : patch.netlifyTokenEncrypted;
+    const existingVercelToken =
+      typeof row?.vercel_token_encrypted === "string" ? row.vercel_token_encrypted : null;
+    const nextVercelToken =
+      patch.vercelTokenEncrypted === undefined
+        ? existingVercelToken
+        : patch.vercelTokenEncrypted;
+    const provider = patch.provider ?? current.provider;
+    const netlifySiteId =
+      patch.netlifySiteId === undefined ? current.netlifySiteId : patch.netlifySiteId;
+    const vercelProjectId =
+      patch.vercelProjectId === undefined ? current.vercelProjectId : patch.vercelProjectId;
+    if (provider === "netlify" && (netlifySiteId === null || nextNetlifyToken === null)) {
+      throw new SenifyError(
+        "validation",
+        'Netlify braucht eine site id und einen token (deploy settings)',
+        {
+          field: "netlifySiteId",
+          suggestion:
+            "PUT /api/sites/:siteId/deploy-settings mit provider netlify, netlifySiteId und netlifyToken setzen.",
+        },
+      );
+    }
+    if (provider === "vercel" && (vercelProjectId === null || nextVercelToken === null)) {
+      throw new SenifyError(
+        "validation",
+        "Vercel braucht eine project id und einen token (deploy settings)",
+        {
+          field: "vercelProjectId",
+          suggestion:
+            "PUT /api/sites/:siteId/deploy-settings mit provider vercel, vercelProjectId und vercelToken setzen.",
+        },
+      );
+    }
+    await this.#db.query(
+      `INSERT INTO deploy_settings (site_id, provider, netlify_site_id, netlify_token_encrypted, vercel_project_id, vercel_token_encrypted, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (site_id) DO UPDATE SET
+         provider = $2, netlify_site_id = $3, netlify_token_encrypted = $4, vercel_project_id = $5, vercel_token_encrypted = $6, updated_at = $7`,
+      [siteId, provider, netlifySiteId, nextNetlifyToken, vercelProjectId, nextVercelToken, now],
+    );
+    return this.getDeploySettings(siteId);
+  }
+
+  // The encrypted token for the deploy itself; decryption happens in the
+  // settings layer (resolveNetlifyToken / resolveVercelToken), never in the store.
+  async getNetlifyTokenEncrypted(siteId: string): Promise<string | null> {
+    const row = (
+      await this.#db.query<DeploySettingsRow>(
+        `SELECT netlify_token_encrypted FROM deploy_settings WHERE site_id = $1`,
+        [siteId],
+      )
+    ).rows[0];
+    const stored =
+      typeof row?.netlify_token_encrypted === "string" ? row.netlify_token_encrypted : null;
+    return stored;
+  }
+
+  async getVercelTokenEncrypted(siteId: string): Promise<string | null> {
+    const row = (
+      await this.#db.query<DeploySettingsRow>(
+        `SELECT vercel_token_encrypted FROM deploy_settings WHERE site_id = $1`,
+        [siteId],
+      )
+    ).rows[0];
+    const stored =
+      typeof row?.vercel_token_encrypted === "string" ? row.vercel_token_encrypted : null;
+    return stored;
+  }
+
+  // Carries the live URL of a hosted deploy into the record's target field
+  // (static keeps its directory, netlify gets its deploy URL).
+  async updateDeploymentTarget(id: string, target: string): Promise<void> {
+    await this.#db.query(`UPDATE deployments SET target = $2 WHERE id = $1`, [
+      id,
+      target,
+    ]);
   }
 
   // --------------------------------------------------------- re-bake jobs (E12)
@@ -3106,6 +4601,7 @@ export class Store {
     author: Author;
     structureDiff: StructureChange[];
     guardrails: ReviewItem["guardrails"];
+    importReports?: ReviewItem["importReports"];
     note: string | null;
   }): Promise<ReviewItem> {
     const id = newEntityId();
@@ -3116,8 +4612,8 @@ export class Store {
     const status: ReviewStatus = "submitted";
     await this.#db.query(
       `INSERT INTO review_items
-        (id, site_id, preview_id, base_state, pages, author, status, structure_diff, guardrails, thread, visuals, release_id, created_at, resolved_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, NULL, $11, NULL)`,
+        (id, site_id, preview_id, base_state, pages, author, status, structure_diff, guardrails, thread, visuals, import_reports, release_id, created_at, resolved_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, $11, NULL, $12, NULL)`,
       [
         id,
         input.siteId,
@@ -3129,6 +4625,7 @@ export class Store {
         toJsonParam(input.structureDiff),
         toJsonParam(input.guardrails),
         toJsonParam(thread),
+        toJsonParam(input.importReports ?? []),
         createdAt,
       ],
     );
@@ -3143,6 +4640,7 @@ export class Store {
       structureDiff: input.structureDiff,
       guardrails: input.guardrails,
       thread,
+      importReports: input.importReports ?? [],
       visuals: null,
       releaseId: null,
       createdAt,
@@ -3152,7 +4650,7 @@ export class Store {
 
   async getReviewItem(id: string): Promise<ReviewItem> {
     const result = await this.#db.query<ReviewRow>(
-      `SELECT id, site_id, preview_id, base_state, pages, author, status, structure_diff, guardrails, thread, visuals, release_id, created_at, resolved_at
+      `SELECT id, site_id, preview_id, base_state, pages, author, status, structure_diff, guardrails, thread, visuals, import_reports, release_id, created_at, resolved_at
        FROM review_items WHERE id = $1`,
       [id],
     );
@@ -3172,13 +4670,13 @@ export class Store {
     const limit = Math.max(1, Math.min(200, options.limit ?? 50));
     const result = options.status
       ? await this.#db.query<ReviewRow>(
-          `SELECT id, site_id, preview_id, base_state, pages, author, status, structure_diff, guardrails, thread, visuals, release_id, created_at, resolved_at
+          `SELECT id, site_id, preview_id, base_state, pages, author, status, structure_diff, guardrails, thread, visuals, import_reports, release_id, created_at, resolved_at
            FROM review_items WHERE site_id = $1 AND status = $2
            ORDER BY created_at DESC, id DESC LIMIT $3`,
           [siteId, options.status, limit],
         )
       : await this.#db.query<ReviewRow>(
-          `SELECT id, site_id, preview_id, base_state, pages, author, status, structure_diff, guardrails, thread, visuals, release_id, created_at, resolved_at
+          `SELECT id, site_id, preview_id, base_state, pages, author, status, structure_diff, guardrails, thread, visuals, import_reports, release_id, created_at, resolved_at
            FROM review_items WHERE site_id = $1
            ORDER BY created_at DESC, id DESC LIMIT $2`,
           [siteId, limit],
@@ -3220,6 +4718,140 @@ export class Store {
       resolvedAt,
       visuals,
     };
+  }
+
+  // -------------------------------------------------- redesign proposals (ADR-0012)
+  // Cards and basis are written once and never change; only status, decision
+  // and apply_result move. The claim below is the whole "exactly one human
+  // decision" guarantee: the row is locked, and a proposal that is not
+  // `proposed` can no longer be claimed.
+  async createRedesignProposal(input: {
+    // The caller owns the id: the card images are written into the proposal's
+    // own folder before the row exists, so both must share one identity.
+    id: string;
+    sourcePageId: string;
+    cards: DirectionCard[];
+    basis: RedesignProposalBasis;
+  }): Promise<RedesignProposal> {
+    const { id } = input;
+    const createdAt = new Date().toISOString();
+    const result = await this.#db.query<RedesignProposalRow>(
+      `INSERT INTO redesign_proposals
+        (id, source_page_id, status, cards, basis, decision, apply_result, created_at)
+       VALUES ($1, $2, 'proposed', $3, $4, NULL, NULL, $5)
+       RETURNING ${REDESIGN_PROPOSAL_COLUMNS}`,
+      [
+        id,
+        input.sourcePageId,
+        toJsonParam(input.cards),
+        toJsonParam(input.basis),
+        createdAt,
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error("Redesign proposal insert returned no row");
+    return mapRedesignProposal(row);
+  }
+
+  async getRedesignProposal(id: string): Promise<RedesignProposal> {
+    const result = await this.#db.query<RedesignProposalRow>(
+      `SELECT ${REDESIGN_PROPOSAL_COLUMNS} FROM redesign_proposals WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Redesign proposal "${id}" does not exist`, {
+        field: "proposalId",
+        suggestion: "Die Id kommt aus create_redesign_proposal.",
+      });
+    }
+    return mapRedesignProposal(row);
+  }
+
+  // The inbox of a source page: the open proposals first, then the finished
+  // ones for the history. `status: null` asks for everything.
+  async listRedesignProposals(
+    sourcePageId: string,
+    options: { status?: RedesignProposalStatus } = {},
+  ): Promise<RedesignProposal[]> {
+    const openFirst =
+      "ORDER BY CASE status WHEN 'proposed' THEN 0 WHEN 'applying' THEN 1 ELSE 2 END, created_at DESC, id DESC";
+    const result =
+      options.status === undefined
+        ? await this.#db.query<RedesignProposalRow>(
+            `SELECT ${REDESIGN_PROPOSAL_COLUMNS} FROM redesign_proposals
+             WHERE source_page_id = $1 ${openFirst}`,
+            [sourcePageId],
+          )
+        : await this.#db.query<RedesignProposalRow>(
+            `SELECT ${REDESIGN_PROPOSAL_COLUMNS} FROM redesign_proposals
+             WHERE source_page_id = $1 AND status = $2 ${openFirst}`,
+            [sourcePageId, options.status],
+          );
+    return result.rows.map(mapRedesignProposal);
+  }
+
+  // The human decision, stored before the first effect. Returns "claimed"
+  // only for the caller that moved the row; a second confirm of the same
+  // proposal loses and must not run the apply again.
+  async claimRedesignProposal(input: {
+    proposalId: string;
+    directionId: string;
+    decision: DirectionDecision;
+  }): Promise<{ state: "claimed" | "already_decided"; proposal: RedesignProposal }> {
+    return this.#db.withTransaction(async (tx) => {
+      const locked = await tx.query<RedesignProposalRow>(
+        `SELECT ${REDESIGN_PROPOSAL_COLUMNS} FROM redesign_proposals WHERE id = $1 FOR UPDATE`,
+        [input.proposalId],
+      );
+      const row = locked.rows[0];
+      if (!row) {
+        throw new SenifyError("not_found", `Redesign proposal "${input.proposalId}" does not exist`, {
+          field: "proposalId",
+        });
+      }
+      const current = mapRedesignProposal(row);
+      if (current.status !== "proposed") {
+        return { state: "already_decided" as const, proposal: current };
+      }
+      const result = await tx.query<RedesignProposalRow>(
+        `UPDATE redesign_proposals
+         SET status = 'applying', decision = $2
+         WHERE id = $1
+         RETURNING ${REDESIGN_PROPOSAL_COLUMNS}`,
+        [input.proposalId, toJsonParam(input.decision)],
+      );
+      const updated = result.rows[0];
+      if (!updated) throw new Error("Redesign proposal claim returned no row");
+      return { state: "claimed" as const, proposal: mapRedesignProposal(updated) };
+    });
+  }
+
+  async finalizeRedesignProposal(input: {
+    proposalId: string;
+    status: "applied" | "failed";
+    applyResult: RedesignProposalApplyResult;
+  }): Promise<RedesignProposal> {
+    const result = await this.#db.query<RedesignProposalRow>(
+      `UPDATE redesign_proposals
+       SET status = $2, apply_result = $3
+       WHERE id = $1 AND status = 'applying'
+       RETURNING ${REDESIGN_PROPOSAL_COLUMNS}`,
+      [input.proposalId, input.status, toJsonParam(input.applyResult)],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError(
+        "conflict",
+        `Redesign proposal "${input.proposalId}" is not in the applying state`,
+        {
+          field: "proposalId",
+          suggestion:
+            "Der Lauf wurde bereits abgeschlossen oder abgebrochen; Status mit get_redesign_proposal prüfen.",
+        },
+      );
+    }
+    return mapRedesignProposal(row);
   }
 
   // Loads encoded variants and blur hashes for a set of assets in two queries
@@ -3317,6 +4949,42 @@ export class Store {
     const asset = mapAsset(row);
     const [withDerivatives = asset] = await this.#attachDerivatives([asset]);
     return withDerivatives;
+  }
+
+  // An asset belongs to exactly one site (ADR-0014). This guard is the one
+  // place that enforces it, so an id from another site can never be read,
+  // changed or destroyed. `getAsset` stays unscoped on purpose: the redesign
+  // plan loads a draft's assets first and then checks the ownership itself.
+  async #getAssetInSite(assetId: string, siteId: string): Promise<Asset> {
+    const asset = await this.getAsset(assetId);
+    if (asset.siteId !== siteId) {
+      throw new SenifyError("validation", `Asset "${assetId}" belongs to another site`, {
+        field: "assetId",
+        suggestion: "Use an asset of this site.",
+      });
+    }
+    return asset;
+  }
+
+  async #getAssetFolderInSite(folderId: string, siteId: string): Promise<AssetFolder> {
+    const folder = await this.getAssetFolder(folderId);
+    if (folder.siteId !== siteId) {
+      throw new SenifyError(
+        "validation",
+        `Folder "${folderId}" belongs to another site`,
+        { field: "folderId", suggestion: "Use a folder of this site." },
+      );
+    }
+    return folder;
+  }
+
+  // Public, site-scoped entry points for the access paths (ADR-0014).
+  async getAssetOfSite(assetId: string, siteId: string): Promise<Asset> {
+    return this.#getAssetInSite(assetId, siteId);
+  }
+
+  async getAssetFolderOfSite(folderId: string, siteId: string): Promise<AssetFolder> {
+    return this.#getAssetFolderInSite(folderId, siteId);
   }
 
   // Dedupe only looks at live assets: re-uploading the same bytes after a trash
@@ -3476,6 +5144,91 @@ export class Store {
       });
     }
     return map;
+  }
+
+  // --- imported foreign code (ADR-0010) -----------------------------------
+
+  // The bundle arrives already self-contained (the importer's job, ADR-0010
+  // §2); the store keeps it verbatim and derives `bytes` and the SHA-256
+  // integrity from the very text it stores, so the two can never disagree.
+  async createCodePayload(input: {
+    id: string;
+    siteId: string;
+    name: string;
+    kind: CodePayloadKind;
+    bundle: string;
+    provenance: CodePayloadProvenance;
+    license: CodePayloadLicense;
+  }): Promise<CodePayload> {
+    await this.getSite(input.siteId);
+    const now = new Date().toISOString();
+    const result = await this.#db.query<CodePayloadRow>(
+      `INSERT INTO site_code_payloads
+        (id, site_id, name, kind, bundle, bytes, integrity, version, provenance, license, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 1, $8, $9, $10, $10)
+       RETURNING ${CODE_PAYLOAD_COLUMNS}`,
+      [
+        input.id,
+        input.siteId,
+        input.name,
+        input.kind,
+        input.bundle,
+        Buffer.byteLength(input.bundle, "utf8"),
+        createHash("sha256").update(input.bundle, "utf8").digest("hex"),
+        toJsonParam(input.provenance),
+        toJsonParam(input.license),
+        now,
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error("Code payload insert returned no row");
+    return mapCodePayload(row);
+  }
+
+  async listCodePayloads(siteId: string): Promise<CodePayload[]> {
+    await this.getSite(siteId);
+    const result = await this.#db.query<CodePayloadRow>(
+      `SELECT ${CODE_PAYLOAD_COLUMNS} FROM site_code_payloads WHERE site_id = $1
+       ORDER BY created_at DESC, id DESC`,
+      [siteId],
+    );
+    return result.rows.map(mapCodePayload);
+  }
+
+  async getCodePayload(id: string): Promise<CodePayload> {
+    const result = await this.#db.query<CodePayloadRow>(
+      `SELECT ${CODE_PAYLOAD_COLUMNS} FROM site_code_payloads WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Code payload "${id}" does not exist`, {
+        field: "payloadId",
+        suggestion: "List the site's payloads with `GET /api/sites/:siteId/code-payloads`.",
+      });
+    }
+    return mapCodePayload(row);
+  }
+
+  // The bake is the only caller that wants the code itself.
+  async getCodePayloadBundle(id: string): Promise<{ payload: CodePayload; bundle: string }> {
+    const result = await this.#db.query<CodePayloadRow & { bundle: string }>(
+      `SELECT ${CODE_PAYLOAD_COLUMNS}, bundle FROM site_code_payloads WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Code payload "${id}" does not exist`, {
+        field: "payloadId",
+      });
+    }
+    return { payload: mapCodePayload(row), bundle: row.bundle };
+  }
+
+  async deleteCodePayload(id: string): Promise<CodePayload> {
+    const payload = await this.getCodePayload(id);
+    await this.#db.query(`DELETE FROM site_code_payloads WHERE id = $1`, [id]);
+    return payload;
   }
 
   async createAssetFolder(input: {
@@ -4475,6 +6228,127 @@ export class Store {
     });
   }
 
+  // Ready reference ids of a collection, oldest first (the collection's order
+  // is the set's order — the first entry leads the redesign).
+  async listReferenceIdsByCollection(collectionId: string): Promise<string[]> {
+    const result = await this.#db.query<{ id: string }>(
+      `SELECT id FROM design_references
+       WHERE collection_id = $1 AND status = 'ready'
+       ORDER BY created_at ASC, id ASC`,
+      [collectionId],
+    );
+    return result.rows.map((row) => row.id);
+  }
+
+  // FTS over the library (E24, L42 vault-first): every query token must hit
+  // the searchable haystack — name, note, vocabulary, families, collection
+  // name AND the verbatim documents (design.md & Co.). The weight ranking is
+  // title A / vocabulary+note B / documents C, done on the loaded rows.
+  async searchReferences(searchTokens: readonly string[]): Promise<
+    { reference: ReferenceSummary; documents: ReferenceDocuments; weight: number }[]
+  > {
+    const tokens = searchTokens
+      .map((token) => token.trim().toLowerCase())
+      .filter((token) => token !== "");
+    if (tokens.length === 0) return [];
+    const rows = await this.#db.query<ReferenceRow & { documents: unknown }>(
+      `SELECT ${REFERENCE_COLUMNS_WITH_DOCUMENTS} FROM design_references`,
+    );
+    const usage = await this.#referenceUsage();
+    const revisions = await this.#db.query<{ reference_id: string; revision: unknown }>(
+      `SELECT reference_id, MAX(revision) AS revision FROM reference_profiles
+       GROUP BY reference_id`,
+    );
+    const revisionByReference = new Map(
+      revisions.rows.map((row) => [row.reference_id, toFiniteNumber(row.revision, "revision")]),
+    );
+    const collections = await this.#referenceCollections();
+    const hits: { reference: ReferenceSummary; documents: ReferenceDocuments; weight: number }[] = [];
+    for (const row of rows.rows) {
+      const revision = revisionByReference.get(row.id) ?? 0;
+      const collection =
+        row.collection_id === null || row.collection_id === undefined
+          ? null
+          : (collections.get(row.collection_id) ?? null);
+      const documents = toJson<ReferenceDocuments>(row.documents ?? EMPTY_REFERENCE_DOCUMENTS);
+      const haystacks = {
+        a: [row.name].join(" ").toLowerCase(),
+        b: [
+          row.note ?? "",
+          ...(toJson<string[]>(row.vocabulary) ?? []),
+          ...(toJson<string[]>(row.families) ?? []),
+          row.family ?? "",
+          collection?.name ?? "",
+        ]
+          .join(" ")
+          .toLowerCase(),
+        c: [documents.design ?? "", documents.guidelines ?? "", documents.components ?? ""]
+          .join(" ")
+          .toLowerCase(),
+      };
+      let weight = 0;
+      let all = true;
+      for (const token of tokens) {
+        if (haystacks.a.includes(token)) weight += 4;
+        else if (haystacks.b.includes(token)) weight += 2;
+        else if (haystacks.c.includes(token)) weight += 1;
+        else {
+          all = false;
+          break;
+        }
+      }
+      if (!all) continue;
+      hits.push({
+        reference: mapReferenceSummary(row, revision, usage.get(row.id) ?? [], collection),
+        documents,
+        weight,
+      });
+    }
+    hits.sort(
+      (left, right) =>
+        right.weight - left.weight ||
+        left.reference.name.localeCompare(right.reference.name),
+    );
+    return hits;
+  }
+
+  // Dedupe candidates (E24, L42): two references are near-duplicates when
+  // their source urls match (ignoring trailing slash / protocol) or their
+  // names normalise to the same string. The newer entry is the duplicate of
+  // the older one (the list is newest-first, so the *later* row wins the
+  // duplicate role). Document hashes stay out — the same design.md on two
+  // urls is a fork, not a duplicate.
+  async findDuplicateReferences(): Promise<
+    { reference: ReferenceSummary; duplicateOf: ReferenceSummary; reason: string }[]
+  > {
+    const all = (await this.listReferences()).slice().reverse();
+    const byUrlKey = new Map<string, ReferenceSummary>();
+    const byNameKey = new Map<string, ReferenceSummary>();
+    const duplicates: { reference: ReferenceSummary; duplicateOf: ReferenceSummary; reason: string }[] = [];
+    for (const reference of all) {
+      const urlKey = (reference.sourceUrl ?? "")
+        .toLowerCase()
+        .replace(/^https?:\/\//, "")
+        .replace(/\/+$/, "");
+      const nameKey = reference.name.toLowerCase().replace(/\s+/g, " ").trim();
+      if (urlKey !== "") {
+        const existing = byUrlKey.get(urlKey);
+        if (existing) {
+          duplicates.push({ reference, duplicateOf: existing, reason: "sourceUrl" });
+          continue;
+        }
+        byUrlKey.set(urlKey, reference);
+      }
+      const existingByName = byNameKey.get(nameKey);
+      if (existingByName) {
+        duplicates.push({ reference, duplicateOf: existingByName, reason: "name" });
+        continue;
+      }
+      byNameKey.set(nameKey, reference);
+    }
+    return duplicates;
+  }
+
   async updateReference(
     id: string,
     patch: {
@@ -4700,6 +6574,497 @@ export class Store {
       });
     }
     return mapReferenceJob(row);
+  }
+
+  // ------------------------------------------------- import jobs (plan S3.2)
+
+  async createImportJob(input: {
+    siteId: string;
+    source: ImportJobSource;
+    pagePath: string;
+    dryRun: boolean;
+    maxAttempts: number;
+    // The import request body, kept for a retry after a crash.
+    payload?: Record<string, unknown> | null;
+  }): Promise<ImportJob> {
+    await this.getSite(input.siteId);
+    const now = new Date().toISOString();
+    const result = await this.#db.query<ImportJobRow>(
+      `INSERT INTO import_jobs
+        (id, site_id, source_kind, source_url, page_path, dry_run, status, stage,
+         progress, attempts, max_attempts, next_attempt_at, last_error,
+         created_at, updated_at, finished_at, payload, result)
+       VALUES ($1, $2, $3, $4, $5, $6, 'queued', 'queued', 0, 0, $7, $8, NULL, $8, $8, NULL, $9, NULL)
+       RETURNING ${IMPORT_JOB_COLUMNS}`,
+      [
+        newEntityId(),
+        input.siteId,
+        input.source.kind,
+        input.source.url,
+        input.pagePath,
+        input.dryRun,
+        input.maxAttempts,
+        now,
+        input.payload === undefined || input.payload === null
+          ? null
+          : toJsonParam(input.payload),
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error("Import job insert returned no row");
+    return mapImportJob(row);
+  }
+
+  async getImportJob(id: string): Promise<ImportJob> {
+    const result = await this.#db.query<ImportJobRow>(
+      `SELECT ${IMPORT_JOB_COLUMNS} FROM import_jobs WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Import job "${id}" does not exist`, {
+        field: "jobId",
+      });
+    }
+    return mapImportJob(row);
+  }
+
+  getImportJobPayload(id: string): Promise<Record<string, unknown> | null> {
+    return this.getImportJobPayloadAsync(id);
+  }
+
+  private async getImportJobPayloadAsync(id: string): Promise<Record<string, unknown> | null> {
+    const result = await this.#db.query<{ payload: unknown }>(
+      `SELECT payload FROM import_jobs WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row || row.payload === null || row.payload === undefined) return null;
+    return toJson<Record<string, unknown>>(row.payload);
+  }
+
+  // Due jobs: queued and past their next attempt time (the claim pattern of
+  // `listDueReferenceJobs`, plan S3.2).
+  async listDueImportJobs(now: string, limit = 20): Promise<ImportJob[]> {
+    const result = await this.#db.query<ImportJobRow>(
+      `SELECT ${IMPORT_JOB_COLUMNS} FROM import_jobs
+       WHERE status = 'queued' AND next_attempt_at <= $1
+       ORDER BY next_attempt_at ASC, created_at ASC, id ASC LIMIT $2`,
+      [now, Math.max(1, Math.min(100, limit))],
+    );
+    return result.rows.map(mapImportJob);
+  }
+
+  async listImportJobsForSite(siteId: string, limit = 50): Promise<ImportJob[]> {
+    await this.getSite(siteId);
+    const result = await this.#db.query<ImportJobRow>(
+      `SELECT ${IMPORT_JOB_COLUMNS} FROM import_jobs
+       WHERE site_id = $1
+       ORDER BY created_at DESC, id DESC LIMIT $2`,
+      [siteId, Math.max(1, Math.min(100, limit))],
+    );
+    return result.rows.map(mapImportJob);
+  }
+
+  async updateImportJob(input: {
+    id: string;
+    status: ImportJobStatus;
+    stage: string;
+    progress: number;
+    attempts: number;
+    nextAttemptAt: string;
+    lastError: string | null;
+    finishedAt: string | null;
+  }): Promise<ImportJob> {
+    const result = await this.#db.query<ImportJobRow>(
+      `UPDATE import_jobs SET
+         status = $2, stage = $3, progress = $4, attempts = $5,
+         next_attempt_at = $6, last_error = $7, finished_at = $8, updated_at = $9
+       WHERE id = $1 RETURNING ${IMPORT_JOB_COLUMNS}`,
+      [
+        input.id,
+        input.status,
+        input.stage,
+        input.progress,
+        input.attempts,
+        input.nextAttemptAt,
+        input.lastError,
+        input.finishedAt,
+        new Date().toISOString(),
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Import job "${input.id}" does not exist`, {
+        field: "jobId",
+      });
+    }
+    return mapImportJob(row);
+  }
+
+  // The report of a finished run (poll answer, plan S3.3).
+  async getImportJobResult(id: string): Promise<Record<string, unknown> | null> {
+    const result = await this.#db.query<{ result: unknown }>(
+      `SELECT result FROM import_jobs WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row || row.result === null || row.result === undefined) return null;
+    return toJson<Record<string, unknown>>(row.result);
+  }
+
+  async setImportJobResult(id: string, result: Record<string, unknown>): Promise<void> {
+    await this.#db.query(
+      `UPDATE import_jobs SET result = $2, updated_at = $3 WHERE id = $1`,
+      [id, toJsonParam(result), new Date().toISOString()],
+    );
+  }
+
+  async commitFramerImportPlan(plan: FramerImportCommitPlan): Promise<FramerImportCommitResult> {
+    if (plan.target.kind === "new") assertPagePathFormat(plan.target.path);
+    plan.payloads.forEach((payload, index) => {
+      if (payload.id.trim() === "") {
+        throw new SenifyError("validation", `Prepared payload ${index} has no id`, {
+          field: "payloadId",
+        });
+      }
+    });
+
+    return this.#db.withTransaction(async (tx) => {
+      const receiptRows = await tx.query<ImportReceiptRow>(
+        `SELECT id, site_id, job_id, content_key, request_fingerprint,
+                page_id, draft_version, result, created_at
+           FROM import_receipts
+          WHERE site_id = $1 AND content_key = $2 AND request_fingerprint = $3`,
+        [plan.siteId, plan.contentKey, plan.requestFingerprint],
+      );
+      const receiptRow = receiptRows.rows[0];
+      if (receiptRow !== undefined) {
+        const receipt = mapImportReceipt(receiptRow);
+        const job = await this.#importJobWithClient(tx, receipt.jobId);
+        if (job === null) {
+          throw new SenifyError("conflict", "Der Import-Receipt verweist auf einen fehlenden Job", {
+            field: "receiptId",
+          });
+        }
+        const stored = receipt.result as unknown as ImportReport;
+        const report: ImportReport = {
+          ...stored,
+          receiptId: receipt.id,
+          replayed: true,
+        };
+        const completed = await tx.query<ImportJobRow>(
+          `UPDATE import_jobs
+              SET status = 'succeeded', stage = 'done', progress = 100,
+                  attempts = attempts + 1, last_error = NULL,
+                  finished_at = $2, updated_at = $2, result = $3
+            WHERE id = $1
+            RETURNING ${IMPORT_JOB_COLUMNS}`,
+          [plan.jobId, new Date().toISOString(), toJsonParam(report)],
+        );
+        const completedRow = completed.rows[0];
+        if (completedRow === undefined) {
+          throw new SenifyError("not_found", `Import job "${plan.jobId}" does not exist`, {
+            field: "jobId",
+          });
+        }
+        return {
+          receipt,
+          job: mapImportJob(completedRow),
+          report,
+          replayed: true,
+        };
+      }
+
+      const site = await tx.query<{ id: string }>(
+        `SELECT id FROM sites WHERE id = $1 FOR UPDATE`,
+        [plan.siteId],
+      );
+      if (site.rows.length === 0) {
+        throw new SenifyError("not_found", `Site "${plan.siteId}" does not exist`, {
+          field: "siteId",
+        });
+      }
+      const job = await this.#importJobWithClient(tx, plan.jobId);
+      if (job === null || job.siteId !== plan.siteId || job.dryRun) {
+        throw new SenifyError("validation", "Der Import-Job ist kein gültiges Write-Ziel", {
+          field: "jobId",
+        });
+      }
+
+      const now = new Date().toISOString();
+      const batchId = newEntityId();
+      let page: Page;
+      if (plan.target.kind === "new") {
+        const existingTarget = await tx.query<PageRow>(
+          `SELECT ${PAGE_WRITE_COLUMNS} FROM pages WHERE site_id = $1 AND path = $2 FOR UPDATE`,
+          [plan.siteId, plan.target.path],
+        );
+        if (existingTarget.rows[0] !== undefined) {
+          throw new SenifyError("conflict", `Page path "${plan.target.path}" is already in use on this site`, {
+            field: "path",
+            suggestion: "Use the existing pageId with its current baseDraftVersion, or choose another path.",
+          });
+        }
+        const pageId = newEntityId();
+        const inserted = await tx.query<PageRow>(
+          `INSERT INTO pages (id, site_id, path, title, meta, draft, draft_version, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, 2, $7, $7)
+           RETURNING ${PAGE_WRITE_COLUMNS}`,
+          [
+            pageId,
+            plan.siteId,
+            plan.target.path,
+            plan.target.title,
+            toJsonParam({}),
+            toJsonParam(plan.draft),
+            now,
+          ],
+        );
+        const insertedPage = inserted.rows[0];
+        if (insertedPage === undefined) throw new Error("Imported page insert returned no row");
+        page = mapPage(insertedPage);
+      } else {
+        const locked = await tx.query<PageRow>(
+          `SELECT ${PAGE_WRITE_COLUMNS} FROM pages WHERE id = $1 FOR UPDATE`,
+          [plan.target.pageId],
+        );
+        const current = locked.rows[0];
+        if (current === undefined) {
+          throw new SenifyError("not_found", `Page "${plan.target.pageId}" does not exist`, {
+            field: "pageId",
+          });
+        }
+        if (current.site_id !== plan.siteId) {
+          throw new SenifyError("validation", "Die Zielseite gehört zu einem anderen Projekt", {
+            field: "pageId",
+          });
+        }
+        const currentVersion = toFiniteNumber(current.draft_version, "draft_version");
+        if (currentVersion !== plan.target.baseDraftVersion) {
+          throw draftConflictError(plan.target.baseDraftVersion, currentVersion);
+        }
+        const updated = await tx.query<PageRow>(
+          `UPDATE pages
+              SET draft = $2, draft_version = draft_version + 1, updated_at = $3
+            WHERE id = $1 AND draft_version = $4
+            RETURNING ${PAGE_WRITE_COLUMNS}`,
+          [
+            plan.target.pageId,
+            toJsonParam(plan.draft),
+            now,
+            plan.target.baseDraftVersion,
+          ],
+        );
+        const updatedPage = updated.rows[0];
+        if (updatedPage === undefined) {
+          throw draftConflictError(plan.target.baseDraftVersion, currentVersion);
+        }
+        page = mapPage(updatedPage);
+      }
+
+      for (const payload of plan.payloads) {
+        const bytes = Buffer.byteLength(payload.bundle, "utf8");
+        await tx.query(
+          `INSERT INTO site_code_payloads
+             (id, site_id, name, kind, bundle, bytes, integrity, version, provenance, license, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 1, $8, $9, $10, $10)`,
+          [
+            payload.id,
+            plan.siteId,
+            payload.name,
+            payload.kind,
+            payload.bundle,
+            bytes,
+            createHash("sha256").update(payload.bundle, "utf8").digest("hex"),
+            toJsonParam(payload.provenance),
+            toJsonParam(payload.license),
+            now,
+          ],
+        );
+      }
+
+      const styleSite = await tx.query<StyleRuleRow>(
+        `SELECT style_rules_json, style_rules_version FROM sites WHERE id = $1 FOR UPDATE`,
+        [plan.siteId],
+      );
+      const styleRow = styleSite.rows[0];
+      if (styleRow === undefined) {
+        throw new SenifyError("not_found", `Site "${plan.siteId}" does not exist`, {
+          field: "siteId",
+        });
+      }
+      const currentRules =
+        styleRow.style_rules_json === null || styleRow.style_rules_json === undefined
+          ? []
+          : parseStyleRuleRegistry(toJson<unknown>(styleRow.style_rules_json));
+      const importedRules = plan.styleRules.map((rule, index) => {
+        const ordered: StyleRule = { ...rule, order: currentRules.length + index };
+        this.#assertWritableRule(ordered, `styleRules[${index}]`);
+        return ordered;
+      });
+      const nextRules = normalizeRuleOrder([...currentRules, ...importedRules]);
+      const nextStyleVersion =
+        toFiniteNumber(styleRow.style_rules_version ?? 0, "style_rules_version") + 1;
+      if (importedRules.length > 0) {
+        await tx.query(
+          `UPDATE sites
+              SET style_rules_json = $2, style_rules_version = $3, updated_at = $4
+            WHERE id = $1`,
+          [plan.siteId, toJsonParam(nextRules), nextStyleVersion, now],
+        );
+      }
+
+      if (plan.themePatch !== null) {
+        const themeRows = await tx.query<ThemeRow>(
+          `SELECT id, site_id, name, definition, version, created_at, updated_at
+             FROM themes WHERE site_id = $1 FOR UPDATE`,
+          [plan.siteId],
+        );
+        const themeRow = themeRows.rows[0];
+        if (themeRow === undefined) {
+          throw new SenifyError("not_found", `Theme for site "${plan.siteId}" does not exist`, {
+            field: "theme",
+          });
+        }
+        const currentDefinition = toJson<Theme>(themeRow.definition);
+        const merged = mergeThemePatch(currentDefinition, plan.themePatch);
+        merged.id = themeRow.id;
+        validateShape(ThemeSchema, merged, "theme");
+        const issues = validateTheme(merged);
+        const firstIssue = issues[0];
+        if (firstIssue !== undefined) {
+          throw new SenifyError(
+            "validation",
+            `Invalid theme: ${firstIssue.message}`,
+            { field: firstIssue.path, suggestion: firstIssue.suggestion },
+          );
+        }
+        const newThemeVersion =
+          toFiniteNumber(themeRow.version, "version") + 1;
+        await tx.query(
+          `UPDATE themes
+              SET definition = $2, name = $3, version = $4, updated_at = $5
+            WHERE id = $1`,
+          [themeRow.id, toJsonParam(merged), merged.name, newThemeVersion, now],
+        );
+      }
+
+      const auditEntries: NewAuditEntry[] = [
+        {
+          siteId: plan.siteId,
+          pageId: page.id,
+          batchId,
+          opIndex: 0,
+          mutation: "importFramer",
+          params: {
+            sourceUrl: plan.report.payloads?.[0]?.sourcePath ?? null,
+            pagePath: page.path,
+            irHash: plan.report.irHash,
+            score: plan.report.score,
+            receiptKey: plan.contentKey,
+            requestFingerprint: plan.requestFingerprint,
+          },
+          author: plan.author,
+          undoPatch: [],
+          draftVersionAfter: page.draftVersion,
+        },
+      ];
+      if (importedRules.length > 0) {
+        auditEntries.push({
+          siteId: plan.siteId,
+          pageId: null,
+          batchId,
+          opIndex: 1,
+          mutation: "importFramerStyleRules",
+          params: {
+            count: importedRules.length,
+            styleRegistryVersion: nextStyleVersion,
+            receiptKey: plan.contentKey,
+          },
+          author: plan.author,
+          undoPatch: [],
+          draftVersionAfter: nextStyleVersion,
+        });
+      }
+      if (plan.themePatch !== null) {
+        auditEntries.push({
+          siteId: plan.siteId,
+          pageId: null,
+          batchId,
+          opIndex: auditEntries.length,
+          mutation: "update_theme",
+          params: { patch: plan.themePatch, import: true },
+          author: plan.author,
+          undoPatch: [],
+          draftVersionAfter: 0,
+        });
+      }
+      const audit = buildAuditInsert(auditEntries);
+      await tx.query(audit.text, audit.params);
+
+      const receiptId = newEntityId();
+      const report: ImportReport = {
+        ...plan.report,
+        pageId: page.id,
+        newDraftVersion: page.draftVersion,
+        receiptId,
+        replayed: false,
+      };
+      const updatedJob = await tx.query<ImportJobRow>(
+        `UPDATE import_jobs
+            SET status = 'succeeded', stage = 'done', progress = 100,
+                attempts = attempts + 1, last_error = NULL,
+                finished_at = $2, updated_at = $2, result = $3
+          WHERE id = $1
+          RETURNING ${IMPORT_JOB_COLUMNS}`,
+        [plan.jobId, now, toJsonParam(report)],
+      );
+      const jobRow = updatedJob.rows[0];
+      if (jobRow === undefined) {
+        throw new SenifyError("not_found", `Import job "${plan.jobId}" does not exist`, {
+          field: "jobId",
+        });
+      }
+      const insertedReceipt = await tx.query<ImportReceiptRow>(
+        `INSERT INTO import_receipts
+           (id, site_id, job_id, content_key, request_fingerprint,
+            page_id, draft_version, result, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING id, site_id, job_id, content_key, request_fingerprint,
+                   page_id, draft_version, result, created_at`,
+        [
+          receiptId,
+          plan.siteId,
+          plan.jobId,
+          plan.contentKey,
+          plan.requestFingerprint,
+          page.id,
+          page.draftVersion,
+          toJsonParam(report),
+          now,
+        ],
+      );
+      const receipt = mapImportReceipt(insertedReceipt.rows[0]!);
+      return {
+        receipt,
+        job: mapImportJob(jobRow),
+        report,
+        replayed: false,
+      };
+    });
+  }
+
+  async #importJobWithClient(
+    client: DbClient,
+    id: string,
+  ): Promise<ImportJob | null> {
+    const result = await client.query<ImportJobRow>(
+      `SELECT ${IMPORT_JOB_COLUMNS} FROM import_jobs WHERE id = $1 FOR UPDATE`,
+      [id],
+    );
+    const row = result.rows[0];
+    return row === undefined ? null : mapImportJob(row);
   }
 
   async upsertReferenceAssignment(input: {
@@ -5726,6 +8091,9 @@ const REFERENCE_JOB_COLUMNS =
 const BAKE_JOB_COLUMNS =
   "id, site_id, reason, paths, status, attempts, max_attempts, next_attempt_at, lease_until, last_error, created_at, updated_at, finished_at";
 
+const IMPORT_JOB_COLUMNS =
+  "id, site_id, source_kind, source_url, page_path, dry_run, status, stage, progress, attempts, max_attempts, next_attempt_at, last_error, created_at, updated_at, finished_at";
+
 const REFERENCE_ASSIGNMENT_COLUMNS =
   "id, site_id, reference_id, scales, priority, created_at, updated_at";
 
@@ -5778,6 +8146,7 @@ function mapReferenceSummary(
   usedInProjects: string[],
   collection: ReferenceCollection | null = null,
 ): ReferenceSummary {
+  const snapshots = toJson<ReferenceSnapshot[]>(row.snapshots);
   return {
     id: row.id,
     name: row.name,
@@ -5791,7 +8160,8 @@ function mapReferenceSummary(
     families: toJson<string[]>(row.families),
     vocabulary: toJson<string[]>(row.vocabulary),
     styleBrief: row.style_brief,
-    snapshots: toJson<ReferenceSnapshot[]>(row.snapshots),
+    snapshots,
+    cardSnapshot: selectCardSnapshot(snapshots),
     provenance: toJson<ReferenceProvenance>(row.provenance),
     collectionId: collection?.id ?? optionalText(row.collection_id),
     collection,
@@ -5942,6 +8312,73 @@ function mapReferenceJob(row: ReferenceJobRow): ReferenceJob {
     id: row.id,
     referenceId: row.reference_id,
     status: row.status as ReferenceJobStatus,
+    stage: row.stage,
+    progress: toFiniteNumber(row.progress, "progress"),
+    attempts: toFiniteNumber(row.attempts, "attempts"),
+    maxAttempts: toFiniteNumber(row.max_attempts, "max_attempts"),
+    nextAttemptAt: toIso(row.next_attempt_at),
+    lastError: typeof row.last_error === "string" ? row.last_error : null,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+    finishedAt:
+      row.finished_at === null || row.finished_at === undefined ? null : toIso(row.finished_at),
+  };
+}
+
+type ImportReceiptRow = {
+  id: string;
+  site_id: string;
+  job_id: string;
+  content_key: string;
+  request_fingerprint: string;
+  page_id: string;
+  draft_version: unknown;
+  result: unknown;
+  created_at: unknown;
+};
+
+function mapImportReceipt(row: ImportReceiptRow): ImportReceipt {
+  return {
+    id: row.id,
+    siteId: row.site_id,
+    jobId: row.job_id,
+    contentKey: row.content_key,
+    requestFingerprint: row.request_fingerprint,
+    pageId: row.page_id,
+    draftVersion: toFiniteNumber(row.draft_version, "draft_version"),
+    result: toJson<Record<string, unknown>>(row.result),
+    createdAt: toIso(row.created_at),
+  };
+}
+
+type ImportJobRow = {
+  id: string;
+  site_id: string;
+  source_kind: string;
+  source_url: unknown;
+  page_path: string;
+  dry_run: unknown;
+  status: string;
+  stage: string;
+  progress: unknown;
+  attempts: unknown;
+  max_attempts: unknown;
+  next_attempt_at: unknown;
+  last_error: unknown;
+  created_at: unknown;
+  updated_at: unknown;
+  finished_at: unknown;
+};
+
+function mapImportJob(row: ImportJobRow): ImportJob {
+  return {
+    id: row.id,
+    siteId: row.site_id,
+    sourceKind: row.source_kind as ImportJobSource["kind"],
+    sourceUrl: row.source_url === null || row.source_url === undefined ? null : String(row.source_url),
+    pagePath: row.page_path,
+    dryRun: row.dry_run === true,
+    status: row.status as ImportJobStatus,
     stage: row.stage,
     progress: toFiniteNumber(row.progress, "progress"),
     attempts: toFiniteNumber(row.attempts, "attempts"),

@@ -14,7 +14,13 @@ export type EngineEventKind =
   | "page.created"
   | "draft.changed"
   | "asset.uploaded"
-  | "release.published";
+  | "release.published"
+  // Re-bake worker (E12): the outcome of a content re-bake; the job id and the
+  // reason travel in `action`, the editor reads the details from the job list.
+  | "bake.done"
+  | "bake.failed"
+  // Deploy (E14): a deployment finished; `action` carries its status.
+  | "deploy.finished";
 
 export type EngineEvent = {
   kind: EngineEventKind;

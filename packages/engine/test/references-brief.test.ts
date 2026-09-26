@@ -8,7 +8,12 @@ import {
   preferenceStatus,
   referenceBriefSection,
 } from "@senify/engine";
-import type { ReferenceCollection, ReferenceDna, ReferencePreferences } from "@senify/engine";
+import type {
+  ReferenceCollection,
+  ReferenceDna,
+  ReferencePreferences,
+  ReferenceProfile,
+} from "@senify/engine";
 
 // The briefs are ported verbatim from the original templates (Taste Vault, MIT).
 // These expectations are the ready-rendered examples of the original, taken from
@@ -162,6 +167,65 @@ const HOUSE_DNA: ReferenceDna = {
 const DNA_OFF: ReferencePreferences = { includeDna: false, overrides: "" };
 const DNA_ON: ReferencePreferences = { includeDna: true, overrides: ATELO_OVERRIDES };
 
+// A full profile, as the analysis writes it for an imported reference: the
+// numbers of the design and the protection rules of the guardrail catalog.
+const PROFILE: ReferenceProfile = {
+  tokens: {
+    color: [
+      { value: "#0E0E0E", uses: 12, where: [".button"], role: "primary", level: "inferred" },
+      { value: "#F6F6F6", uses: 4, where: ["body"], role: "background", level: "inferred" },
+    ],
+    type: [
+      { role: "display", size: "64px", lineHeight: "1.05", weight: 600, uses: 1, where: ["h1"], level: "inferred" },
+      { role: "h2", size: "48px", lineHeight: null, weight: null, uses: 2, where: ["h2"], level: "inferred" },
+    ],
+    families: [{ value: "Geist", uses: 3, where: ["body"], role: null, level: "inferred" }],
+    space: [{ value: "4px", uses: 1, where: ["gutter"], role: null, level: "inferred" }],
+    radius: [{ value: "12px", uses: 2, where: [".card"], role: null, level: "inferred" }],
+    shadow: [],
+  },
+  breakpoints: [],
+  customProperties: [],
+  motion: [
+    {
+      name: "fade in",
+      preset: "fadeIn",
+      trigger: "scroll",
+      params: { duration: "600ms" },
+      mechanism: "intersection-observer",
+      uses: 1,
+      where: ["section"],
+      level: "inferred",
+    },
+  ],
+  surfaces: [],
+  libraries: [],
+  assets: [],
+  components: [{ name: "Actions", variants: ["primary"], evidence: "inferred" }],
+  families: [],
+  vocabulary: [],
+  rules: {
+    constants: ["Do keep consistent radii per component group (8px cards / 8px buttons)."],
+    never: ["Don't stack shadows on nested elements."],
+  },
+  styleBrief: "",
+  guardrails: [
+    {
+      code: "original-copy",
+      severity: "soft",
+      message: "Originaltexte und identische Layouts der Referenz werden nie uebernommen",
+      suggestion: "Copy-Form behalten, Inhalt ersetzen.",
+    },
+    {
+      code: "eigene-pruefung",
+      severity: "soft",
+      message: "Meldung ohne Katalog-Eintrag",
+      suggestion: "Hinweis ohne Katalog-Eintrag",
+    },
+  ],
+  reduced: false,
+};
+
 function makeCollection(overrides: Partial<CollectionFixture> = {}): ReferenceCollection {
   return {
     id: "collection",
@@ -214,6 +278,7 @@ function makeReference(
         previewPath,
       },
     ],
+    cardSnapshot: null,
     provenance: {
       url: "https://example.com",
       capturedAt: "2026-09-08T00:00:00.000Z",
@@ -405,7 +470,9 @@ describe("reference briefs (T14, verbatim after the original)", () => {
     expect(section).not.toContain("Vocabulary:");
     expect(section).not.toContain("What to borrow:");
     expect(section).not.toContain("Image recipe:");
-    expect(section).toContain("Composition: Use the reference image for composition.");
+    // No measured composition: the original prints "Use the reference image for
+    // composition." here, which only repeats what a screenshot already is.
+    expect(section).not.toContain("Composition:");
     for (const line of section.split("\n")) {
       expect(line.trim()).not.toBe("");
       expect(line.endsWith(": ")).toBe(false);
@@ -447,5 +514,126 @@ describe("reference briefs (T14, verbatim after the original)", () => {
     });
     expect(notesOnly).not.toContain("General preferences");
     expect(notesOnly).toContain("Project-specific directions (take priority):\nNur die Notizen.");
+  });
+
+  it("prints the measured profile so the assistant does not guess it off the screenshot", () => {
+    const reference = makeReference(MONUMENTAL_EDITORIAL, "images/profile.png", {
+      profile: PROFILE,
+      note: "Make the image strip the portfolio preview.",
+      imageRecipe: "editorial photograph of [SUBJECT], soft daylight",
+      heroUsage: "central image with a staggered headline",
+    });
+    const lines = referenceBriefSection(reference).split("\n");
+    expect(lines).toContain("Palette: primary #0E0E0E (x12); background #F6F6F6 (x4)");
+    expect(lines).toContain("Type: Geist - display 64px/600, h2 48px");
+    expect(lines).toContain("Spacing/Radius: 4px / 12px");
+    expect(lines).toContain("Motion: fadeIn(scroll)");
+    expect(lines).toContain("Components: Actions");
+    expect(lines).toContain(
+      "Constants: Do keep consistent radii per component group (8px cards / 8px buttons).",
+    );
+    expect(lines).toContain("Never: Don't stack shadows on nested elements.");
+    expect(lines).toContain(
+      "Constraint: Never reuse the reference copy or its exact layout: keep the form, replace the content, generalise the design system instead of cloning it.",
+    );
+    // A recipe outside our preset catalog keeps its measured name.
+    const customMotion = makeReference(null, "images/motion.png", {
+      profile: {
+        ...PROFILE,
+        motion: [
+          {
+            name: "stagger reveal",
+            preset: null,
+            trigger: "viewport",
+            params: {},
+            mechanism: "css-animation",
+            uses: 1,
+            where: [".card"],
+            level: "inferred",
+          },
+        ],
+      },
+    });
+    expect(referenceBriefSection(customMotion)).toContain("Motion: stagger reveal");
+    // A guardrail without a catalog entry keeps the wording of the analysis.
+    expect(lines).toContain("Constraint: Meldung ohne Katalog-Eintrag — Hinweis ohne Katalog-Eintrag");
+    // The seven lines of the original keep their order; the profile follows them.
+    expect(lines.slice(0, 7).map((line) => line.slice(0, line.indexOf(":")))).toEqual([
+      "Reference",
+      "Screenshot",
+      "Aesthetic",
+      "Vocabulary",
+      "What to borrow",
+      "Composition",
+      "Image recipe",
+    ]);
+    // A reduced profile says so instead of pretending to know runtime values.
+    const reduced = makeReference(null, "images/reduced.png", {
+      profile: { ...PROFILE, reduced: true, guardrails: [] },
+    });
+    expect(referenceBriefSection(reduced)).toContain(
+      "Note: reduced profile (snapshot fallback) - runtime values are not measured.",
+    );
+    // A reference without a profile stays exactly like the original.
+    expect(referenceBriefSection(makeReference(null, "images/none.png"))).not.toContain("Palette:");
+    expect(buildReferenceBrief({ references: [reduced], dna: HOUSE_DNA, preferences: DNA_OFF }).text).toContain(
+      "Palette:",
+    );
+    expect(
+      buildCollectionBrief({
+        collection: MONUMENTAL_EDITORIAL,
+        references: [reference],
+        dna: HOUSE_DNA,
+        preferences: DNA_OFF,
+      }).text,
+    ).toContain("Constraint:");
+  });
+
+  it("prints the screenshot as an address when the caller knows the host", () => {
+    const reference = makeReference(null, "/api/references/ref/snapshots/full.png");
+    expect(referenceBriefSection(reference)).toContain(
+      "Screenshot: /api/references/ref/snapshots/full.png",
+    );
+    // A trailing slash of the caller does not double up.
+    expect(referenceBriefSection(reference, { baseUrl: "http://127.0.0.1:4322/" })).toContain(
+      "Screenshot: http://127.0.0.1:4322/api/references/ref/snapshots/full.png",
+    );
+    expect(
+      referenceBriefSection(reference, { baseUrl: "http://127.0.0.1:4322" }),
+    ).toContain("Screenshot: http://127.0.0.1:4322/api/references/ref/snapshots/full.png");
+    // Relative fixture paths and source URLs are not served paths: hands off.
+    expect(
+      referenceBriefSection(makeReference(null, "images/atelo.png"), {
+        baseUrl: "http://127.0.0.1:4322",
+      }),
+    ).toContain("Screenshot: images/atelo.png");
+    expect(
+      buildReferenceBrief({
+        references: [reference],
+        dna: HOUSE_DNA,
+        preferences: DNA_OFF,
+        baseUrl: "http://127.0.0.1:4322",
+      }).text,
+    ).toContain("http://127.0.0.1:4322/api/references/ref/snapshots/full.png");
+    // The image prompt travels with the same address.
+    const withRecipe = makeReference(null, "/api/references/ref/snapshots/full.png", {
+      imageRecipe: "editorial photograph of [SUBJECT], soft daylight",
+    });
+    expect(buildImagePrompt(withRecipe, { baseUrl: "http://127.0.0.1:4322" })).toBe(
+      "editorial photograph of [SUBJECT], soft daylight\n\n" +
+        "Use http://127.0.0.1:4322/api/references/ref/snapshots/full.png as a style reference. " +
+        "Match treatment, texture, palette and balance while adapting the subject to our project. " +
+        "Return the artwork asset only; keep interface text and controls in code.",
+    );
+  });
+
+  it("drops the composition filler of the image prompt when nothing was measured", () => {
+    const reference = makeReference(null, "images/bare.png", {
+      imageRecipe: "photograph of [SUBJECT], no text",
+    });
+    const prompt = buildImagePrompt(reference) ?? "";
+    expect(prompt).not.toContain("Composition:");
+    expect(prompt).not.toContain("Use the reference composition.");
+    expect(prompt.startsWith("photograph of [SUBJECT], no text\n\nUse images/bare.png")).toBe(true);
   });
 });

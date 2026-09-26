@@ -13,7 +13,12 @@ import {
 } from "./references-lifecycle.ts";
 import { REFERENCE_STYLE_CATALOG } from "./references-styles.ts";
 import type { Store } from "./store.ts";
-import type { Reference, ReferenceProvenance } from "./types.ts";
+import type {
+  Reference,
+  ReferenceProvenance,
+  ReferenceSnapshot,
+  ReferenceSnapshotKind,
+} from "./types.ts";
 
 // The manually stored reference (Taste Vault "Add reference"): an uploaded
 // screenshot becomes a ready reference with a snapshot and no analysis profile.
@@ -54,6 +59,55 @@ function tooLargeError(maxBytes: number): SenifyError {
       suggestion: "Das Bild verkleinern oder einen Ausschnitt hochladen.",
     },
   );
+}
+
+// Uploaded reference images are decoded for the card and the diff: absurd
+// dimensions are rejected before they reach memory-heavy code (captures may
+// be taller — fullpage shots run long; uploads stay within 8000 px).
+const MAX_REFERENCE_IMAGE_SIDE = 8000;
+
+function checkDimensions(
+  dimensions: { width: number; height: number },
+  field: "image" | "imageMobile",
+): void {
+  if (
+    dimensions.width < 1 ||
+    dimensions.height < 1 ||
+    dimensions.width > MAX_REFERENCE_IMAGE_SIDE ||
+    dimensions.height > MAX_REFERENCE_IMAGE_SIDE
+  ) {
+    throw new SenifyError(
+      "validation",
+      `Das Bild ist ${dimensions.width}×${dimensions.height} px — erlaubt sind 1 bis ${MAX_REFERENCE_IMAGE_SIDE} px je Seite`,
+      {
+        field,
+        suggestion: "Das Bild verkleinern oder einen Ausschnitt hochladen.",
+      },
+    );
+  }
+}
+
+// Card selection (E24 slice 3): the gallery shows a deliberate hero —
+// hero-desktop first, then the capture, then hero-mobile, never the motion
+// recording. Snapshots without bytes (no previewPath) cannot be shown.
+const CARD_SLOT_ORDER: ReferenceSnapshotKind[] = [
+  "hero-desktop",
+  "fullpage",
+  "hero-mobile",
+  "section",
+];
+
+export function selectCardSnapshot(
+  snapshots: readonly ReferenceSnapshot[],
+): ReferenceSnapshot | null {
+  const viewable = snapshots.filter(
+    (snapshot) => typeof snapshot.previewPath === "string",
+  );
+  for (const kind of CARD_SLOT_ORDER) {
+    const slot = viewable.find((snapshot) => snapshot.kind === kind);
+    if (slot !== undefined) return slot;
+  }
+  return viewable[0] ?? null;
 }
 
 function sniffImage(bytes: Buffer): DecodedReferenceImage["mime"] | undefined {
@@ -148,6 +202,7 @@ export async function createManualReference(
       suggestion: "Ein vollständiges PNG, JPEG oder WebP senden.",
     });
   }
+  checkDimensions(dimensions, "image");
   const mobile =
     input.imageMobile === undefined ? null : decodeReferenceImage(input.imageMobile);
   const mobileDimensions =
@@ -157,6 +212,9 @@ export async function createManualReference(
       field: "imageMobile",
       suggestion: "Ein vollständiges PNG, JPEG oder WebP senden.",
     });
+  }
+  if (mobile !== null && mobileDimensions !== undefined) {
+    checkDimensions(mobileDimensions, "imageMobile");
   }
   // Imported documents turn the reference into a documented one: the profile is
   // read out of them, so theme derivation and the redesign package work without
@@ -200,8 +258,8 @@ export async function createManualReference(
     ...(input.family === undefined ? {} : { family: input.family }),
     snapshots: persistReferenceSnapshots(context, reference.id, [
       {
-        breakpoint: "manual",
-        kind: "fullpage",
+        breakpoint: "desktop",
+        kind: "hero-desktop",
         bytes: image.bytes,
         width: dimensions.width,
         height: dimensions.height,
@@ -212,7 +270,7 @@ export async function createManualReference(
         : [
             {
               breakpoint: "mobile",
-              kind: "fullpage" as const,
+              kind: "hero-mobile" as const,
               bytes: mobile.bytes,
               width: mobileDimensions.width,
               height: mobileDimensions.height,

@@ -16,12 +16,16 @@
 // claim-and-run cycle, `startBakeWorker` is the interval wrapper the engine
 // boots with.
 
+import type { EngineEvents } from "./events.ts";
 import type { LifecycleContext } from "./lifecycle.ts";
 import { rebakeActiveRelease } from "./lifecycle.ts";
 import type { BakeJob } from "./types.ts";
 
 export type BakeWorkerOptions = {
   context: LifecycleContext;
+  // Live events (ticket 05): the worker announces the outcome so the program
+  // and the editor can show it without polling.
+  events?: EngineEvents;
   // How long a claimed job may run before another worker may take it over.
   leaseMs?: number;
   // First retry delay; doubles per attempt (1 s, 2 s, 4 s, …).
@@ -44,17 +48,33 @@ export async function runBakeJobOnce(options: BakeWorkerOptions): Promise<BakeJo
   if (job === null) return null;
   try {
     await rebakeActiveRelease(options.context, job.siteId);
-    return await options.context.store.completeBakeJob(job.id);
+    const done = await options.context.store.completeBakeJob(job.id);
+    options.events?.publish({
+      kind: "bake.done",
+      siteId: job.siteId,
+      action: job.reason,
+    });
+    return done;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const backoff =
       (options.baseBackoffMs ?? DEFAULT_BAKE_BACKOFF_MS) *
       2 ** Math.max(0, job.attempts - 1);
-    return await options.context.store.failBakeJob({
+    const failed = await options.context.store.failBakeJob({
       id: job.id,
       error: message,
       backoffMs: backoff,
     });
+    // A retry stays silent (it is queued again); only the terminal failure is
+    // announced.
+    if (failed.status === "failed") {
+      options.events?.publish({
+        kind: "bake.failed",
+        siteId: job.siteId,
+        action: job.reason,
+      });
+    }
+    return failed;
   }
 }
 

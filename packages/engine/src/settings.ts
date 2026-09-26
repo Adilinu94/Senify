@@ -84,6 +84,26 @@ export async function encryptImageApiKey(
   return encryptSecret(plaintext, key);
 }
 
+// Deploy settings (E14): resolves the stored Netlify token for the deploy
+// itself; null when unset. Never leaves the engine in plaintext elsewhere.
+export async function resolveNetlifyToken(store: Store, siteId: string): Promise<string | null> {
+  const stored = await store.getNetlifyTokenEncrypted(siteId);
+  if (stored === null) return null;
+  return decryptSecret(
+    stored,
+    keyFromSecret(await store.getOrCreateEngineSecret()),
+  );
+}
+
+export async function resolveVercelToken(store: Store, siteId: string): Promise<string | null> {
+  const stored = await store.getVercelTokenEncrypted(siteId);
+  if (stored === null) return null;
+  return decryptSecret(
+    stored,
+    keyFromSecret(await store.getOrCreateEngineSecret()),
+  );
+}
+
 // Resolves the stored custom API key for the provider; null when unset.
 export async function resolveCustomApiKey(store: Store): Promise<string | null> {
   const settings = await store.getImageSettings();

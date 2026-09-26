@@ -31,6 +31,17 @@ describe("schema helpers", () => {
     expect(jsonColumns("idempotency_keys").has("response")).toBe(true);
   });
 
+  it("knows the redesign proposal payload columns as JSONB", () => {
+    // Cards, basis, decision and apply result travel through a restore as JSON
+    // text, so every one of them must be in `jsonColumns` (ADR-0012).
+    expect(tableNames()).toContain("redesign_proposals");
+    const columns = jsonColumns("redesign_proposals");
+    expect(columns.has("cards")).toBe(true);
+    expect(columns.has("basis")).toBe(true);
+    expect(columns.has("decision")).toBe(true);
+    expect(columns.has("apply_result")).toBe(true);
+  });
+
   it("does not attribute one table's columns to another", () => {
     expect(jsonColumns("site_trash").size).toBe(0);
     expect(jsonColumns("pages").has("style_rules_json")).toBe(false);

@@ -177,7 +177,12 @@ export const ReferenceSnapshotInputSchema = Type.Object(
     breakpoint: Type.String({ maxLength: 40 }),
     width: Type.Integer({ minimum: 1, maximum: 8000 }),
     height: Type.Integer({ minimum: 1, maximum: 200000 }),
-    kind: Type.Union([Type.Literal("fullpage"), Type.Literal("section")]),
+    kind: Type.Union([
+      Type.Literal("hero-desktop"),
+      Type.Literal("hero-mobile"),
+      Type.Literal("fullpage"),
+      Type.Literal("section"),
+    ]),
     storageRef: Type.String({ minLength: 1, maxLength: 400 }),
     hash: Type.String({ minLength: 1, maxLength: 80 }),
     // Screenshot-Upload beim Snapshot-Fallback (blockierte Seite): ein
@@ -349,6 +354,22 @@ export function referenceDocumentsFrom(
   };
 }
 
+// A PATCH may carry a single document kind: the kinds it does not mention keep
+// their stored text, an explicit null clears one. Without this a per-kind edit
+// (update_reference_doc) would silently wipe the other two documents.
+export function mergeReferenceDocuments(
+  current: ReferenceDocuments,
+  input: ReferenceDocumentsBody,
+): ReferenceDocuments {
+  return {
+    design: input.design === undefined ? current.design : input.design,
+    guidelines:
+      input.guidelines === undefined ? current.guidelines : input.guidelines,
+    components:
+      input.components === undefined ? current.components : input.components,
+  };
+}
+
 // The edit of a collection: kind and external id are set at creation only.
 export const UpdateReferenceCollectionBodySchema = Type.Object(
   {
@@ -448,6 +469,42 @@ export const ReferenceBriefBodySchema = Type.Object(
   CLOSED,
 );
 export type ReferenceBriefBody = Static<typeof ReferenceBriefBodySchema>;
+
+// Visual diff reference ↔ result (E26 slice 2): which drafts to bake and
+// compare. pageId narrows to one page; without it all routed drafts compare.
+export const VisualDiffBodySchema = Type.Object(
+  {
+    siteId: Type.String({ minLength: 1 }),
+    pageId: Type.Optional(Type.String({ minLength: 1 })),
+  },
+  CLOSED,
+);
+export type VisualDiffBody = Static<typeof VisualDiffBodySchema>;
+
+// apply_redesign (E25 slice 2): executes the mechanical steps of the
+// redesign journey — duplicate or rebuild, theme patch, section skeleton —
+// through the canonical write paths. referenceIds come from plan_redesign.
+// siteId is optional in the body (the route param is authoritative); a
+// mismatching body value is rejected.
+export const ApplyRedesignBodySchema = Type.Object(
+  {
+    siteId: Type.Optional(Type.String({ minLength: 1 })),
+    referenceIds: Type.Optional(
+      Type.Array(Type.String({ minLength: 1 }), {
+        minItems: 1,
+        maxItems: 3,
+      }),
+    ),
+    // Set semantics (R13): apply a whole collection as the reference set.
+    // Mutually exclusive with referenceIds.
+    collectionId: Type.Optional(Type.String({ minLength: 1 })),
+    pageId: Type.Optional(Type.String({ minLength: 1 })),
+    withContent: Type.Optional(Type.Boolean()),
+    idempotencyKey: Type.Optional(IdempotencyKeySchema),
+  },
+  CLOSED,
+);
+export type ApplyRedesignBody = Static<typeof ApplyRedesignBodySchema>;
 
 export type ReferenceListFilters = {
   // A collection id, "none" for references without a collection.
