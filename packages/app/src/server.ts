@@ -72,6 +72,11 @@ export type AppServerOptions = {
   // proxied API calls when the browser sends none.
   operatorToken?: string;
   publicDir?: string;
+  // The built dashboard (from `pnpm build:app`) — when set, static files and
+  // the editor bundle come from here instead of from public/ + a runtime
+  // esbuild call. In production this is the artifact; in development this is
+  // omitted and the old flow stays (R1 / P0-4).
+  appDir?: string;
   port?: number;
 };
 
@@ -182,10 +187,45 @@ function serveStatic(
 }
 
 // The local program server: static dashboard, platform theme as CSS and a
-// same-origin proxy to the engine (no CORS, no token in the browser).
+// same-origin proxy to the engine (no CORS, no token in the browser). When
+// `appDir` points at a built dashboard (packages/app/dist), the server serves
+// it from disk instead of bundling at runtime; in development the appDir is
+// omitted and the public/ + esbuild flow stays.
 export function createAppServer(options: AppServerOptions): Promise<AppServer> {
   const publicDir = options.publicDir ?? PUBLIC_DIR;
+  const appDir = options.appDir;
   const themeCss = emitCss(resolveTheme(defaultTheme()));
+  const serveEditorBundle = (res: ServerResponse, url: string): void => {
+    if (appDir !== undefined) {
+      const bundlePath = join(appDir, url === "/editor.js" ? "editor.js" : normalize(url));
+      if (!bundlePath.startsWith(appDir) || !existsSync(bundlePath) || !statSync(bundlePath).isFile()) {
+        sendError(res, 404, `Unbekannte Datei "${url}"`, "Das dist-Verzeichnis ist unvollständig.");
+        return;
+      }
+      res.writeHead(200, {
+        "content-type": "text/javascript; charset=utf-8",
+        "cache-control": "no-store",
+      });
+      res.end(readFileSync(bundlePath));
+      return;
+    }
+    void loadEditorBundle()
+      .then((code) => {
+        res.writeHead(200, {
+          "content-type": "text/javascript; charset=utf-8",
+          "cache-control": "no-store",
+        });
+        res.end(code);
+      })
+      .catch((error: unknown) => {
+        sendError(
+          res,
+          502,
+          "Der Editor konnte nicht gebündelt werden",
+          error instanceof Error ? error.message : String(error),
+        );
+      });
+  };
   const server = createServer((req, res) => {
     const url = req.url ?? "/";
     if (url === "/theme.css") {
@@ -216,26 +256,7 @@ export function createAppServer(options: AppServerOptions): Promise<AppServer> {
       return;
     }
     if (url === "/editor.js") {
-      void loadEditorBundle()
-        .then((code) => {
-          res.writeHead(200, {
-            "content-type": "text/javascript; charset=utf-8",
-            "cache-control": "no-store",
-          });
-          res.end(code);
-        })
-        .catch((error: unknown) => {
-          sendError(
-            res,
-            502,
-            "Der Editor konnte nicht gebündelt werden",
-            error instanceof Error ? error.message : String(error),
-          );
-        });
-      return;
-    }
-    if (url.startsWith("/editor-fonts/")) {
-      serveStatic(EDITOR_FONT_DIR, url.slice("/editor-fonts".length), res);
+      serveEditorBundle(res, url);
       return;
     }
     // The theme webfonts (Sora, Inter): the editor frame's `/theme.css` names
@@ -266,6 +287,31 @@ export function createAppServer(options: AppServerOptions): Promise<AppServer> {
       }
       proxyRequest(options.engineOrigin, options.operatorToken, url, req, res);
       return;
+    }
+    if (url.startsWith("/editor-fonts/")) {
+      // Editor fonts ship next to the built editor bundle in dist/; without a
+      // build they come from the editor workspace.
+      const fontsRoot =
+        appDir !== undefined ? join(appDir, "editor-fonts") : EDITOR_FONT_DIR;
+      serveStatic(fontsRoot, url.slice("/editor-fonts".length), res);
+      return;
+    }
+    if (appDir !== undefined) {
+      // Built mode: the dashboard shell (index.html, app.js, css) comes from
+      // the artifact, everything else stays on public/.
+      const built = normalize(join(appDir, url.replace(/^\/+/, "")));
+      if (
+        built.startsWith(appDir) &&
+        existsSync(built) &&
+        statSync(built).isFile()
+      ) {
+        res.writeHead(200, {
+          "content-type": MIME_TYPES[extname(built).toLowerCase()] ?? "application/octet-stream",
+          "cache-control": "no-store",
+        });
+        res.end(readFileSync(built));
+        return;
+      }
     }
     serveStatic(publicDir, url, res);
   });

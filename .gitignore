@@ -49,5 +49,7 @@ packages/docs-portal/public/portal-config.json
 .scratch/**/motion-lauf*.json
 .scratch/**/live-probe*.json
 .scratch/framer-import/nachweis/
+# Build-Artefakte: werden bei jedem pnpm build neu erzeugt
+packages/app/dist/
 # Erzeugte Messläufe des UI-Audits: lokal, nicht ins Repo (Fahrplan P0-1)
 .scratch/ui-audit/*.json
