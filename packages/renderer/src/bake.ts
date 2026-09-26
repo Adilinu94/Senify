@@ -79,16 +79,33 @@ export type BakeInput = {
   styleRules?: readonly StyleRule[];
   profile?: "clean" | "standard" | "showcase";
   assets?: Record<string, AssetDelivery>;
+  // Imported foreign code (ADR-0010): the payloads the build delivers, keyed by
+  // payload id. The engine reads them from the store — code, integrity, bytes —
+  // and the renderer writes `assets/payloads/<id>.<hash>.js` and feeds the URL
+  // map into the island script. A node that names an id missing here keeps its
+  // poster and says so in the warnings.
+  payloads?: Record<string, PayloadDelivery>;
   fontPreloads?: { href: string }[];
   aeo?: boolean;
+  // The build's own date (YYYY-MM-DD) for `sitemap.xml` (E2): a rollback
+  // re-bakes with the restored release's date, so the output is reproducible.
+  siteDate?: string;
   // Binding source + prefetched collection lists per page id, resolved by the
   // engine (artifacts/23 §2–3); preview and build share this path.
   contexts?: Record<string, PageContext>;
 };
 
+export type PayloadDelivery = {
+  code: string;
+  integrity: string;
+  bytes: number;
+};
+
 export type BakeWarning = {
   code?:
     | "pin-excess"
+    | "payload-missing"
+    | "payload-over-budget"
     | "char-split-excess"
     | "reveal-too-long"
     | "unimplemented-preset"
@@ -108,6 +125,17 @@ export type BakeResult = {
   pages: { path: string; file: string }[];
   warnings: BakeWarning[];
   jsBytes: number;
+  // The payload manifest of this build (ADR-0010 §8): what was emitted, where
+  // it sits and which hash it carries. The release manifest and the import
+  // report read this; a payload that is not listed was not part of the build.
+  payloads: BakedPayload[];
+};
+
+export type BakedPayload = {
+  id: string;
+  url: string;
+  integrity: string;
+  bytes: number;
 };
 
 export type BakeOptions = {
@@ -121,6 +149,13 @@ export type BakeOptions = {
 
 export function jsonForHtml(value: unknown): string {
   return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
+// A payload id rides in a file name, so anything outside the id alphabet is
+// dropped: the name can never leave the payloads directory.
+function payloadFileName(id: string, integrity: string): string {
+  const safe = id.replace(/[^A-Za-z0-9_-]/g, "");
+  return `${safe}.${integrity.slice(0, 8)}.js`;
 }
 
 const rendererDir = dirname(fileURLToPath(import.meta.url));
@@ -355,6 +390,8 @@ export async function bakeSite(
   options: BakeOptions = {},
 ): Promise<BakeResult> {
   const warnings: BakeWarning[] = [...assertBakeable(input.pages)];
+  // One warning per payload id, not one per referencing node.
+  const missingPayloads = new Set<string>();
   const pagePaths: Record<string, string> = {};
   for (const page of input.pages) pagePaths[page.id] = page.path;
   const ctx = { pagePaths, assets: input.assets ?? {} };
@@ -367,6 +404,8 @@ export async function bakeSite(
   let anyMotion = false;
   let anyForm = false;
   const islandKinds = new Set<string>();
+  // Every payload id a page points at, whether or not this build delivers it.
+  const usedPayloadIds = new Set<string>();
   const expandedPages: BakePageInput[] = input.pages.map((page) => {
     const context = input.contexts?.[page.id];
     return {
@@ -419,6 +458,25 @@ export async function bakeSite(
           message: `Node "${node.id}" carries the webgl-scene preset but renders no 3D surface`,
           suggestion:
             'Use the media variant "3d-scene" or the hero variant "showcase-3d" for the scene.',
+        });
+      }
+    }
+    // A carrier whose payload this build does not deliver keeps its poster (or
+    // its plate) — say so instead of loading nothing quietly (ADR-0010 §7).
+    for (const node of Object.values(page.tree.nodes)) {
+      if (node.type !== "payload") continue;
+      const payloadId = node.props.payloadId;
+      if (typeof payloadId !== "string" || payloadId === "") continue;
+      usedPayloadIds.add(payloadId);
+      if (input.payloads?.[payloadId] === undefined && !missingPayloads.has(payloadId)) {
+        missingPayloads.add(payloadId);
+        warnings.push({
+          code: "payload-missing",
+          page: page.path,
+          nodeId: node.id,
+          message: `Node "${node.id}" references payload "${payloadId}", which this build does not deliver`,
+          suggestion:
+            "Add the payload to the site (POST /api/sites/:siteId/code-payloads) or rebuild the area with primitives.",
         });
       }
     }
@@ -478,6 +536,24 @@ export async function bakeSite(
         },
       );
     }
+  }
+
+  // The payload files of this build. The integrity prefix is part of the file
+  // name, so a changed payload is a changed URL and a changed build (ADR-0010
+  // §2) — no cache can serve the previous code.
+  const payloadUrls: Record<string, string> = {};
+  const bakedPayloads: BakedPayload[] = [];
+  for (const id of usedPayloadIds) {
+    const delivery = input.payloads?.[id];
+    if (delivery === undefined) continue;
+    const url = `/assets/payloads/${payloadFileName(id, delivery.integrity)}`;
+    payloadUrls[id] = url;
+    bakedPayloads.push({
+      id,
+      url,
+      integrity: delivery.integrity,
+      bytes: delivery.bytes,
+    });
   }
 
   const sectionsCss = overridesCss(input.pages);
@@ -543,8 +619,26 @@ export async function bakeSite(
     if (islandKinds.has("webgl-scene")) {
       writeFileSync(join(vendorDir, WEBGL_VENDOR_NAME), webglVendorCode());
     }
+    // The payloads (ADR-0010): written next to the other runtime files, only
+    // the ones a page actually points at. They are part of the build, never a
+    // foreign URL fetched at runtime.
+    if (bakedPayloads.length > 0) {
+      const payloadDir = join(outDir, "assets", "payloads");
+      mkdirSync(payloadDir, { recursive: true });
+      for (const entry of bakedPayloads) {
+        const delivery = input.payloads?.[entry.id];
+        if (delivery === undefined) continue;
+        writeFileSync(
+          join(payloadDir, payloadFileName(entry.id, delivery.integrity)),
+          delivery.code,
+        );
+      }
+    }
     if (islandKinds.size > 0) {
-      writeFileSync(join(outDir, "assets", "islands.js"), renderIslandsScript(islandKinds));
+      writeFileSync(
+        join(outDir, "assets", "islands.js"),
+        renderIslandsScript(islandKinds, { payloads: payloadUrls }),
+      );
     }
     // Progressive form submit (no logic drift): only pages with a form load it.
     if (anyForm) {
@@ -561,6 +655,7 @@ export async function bakeSite(
       pages: expandedPages.map((page) => ({ path: page.path, file: htmlFileName(page.path) })),
       warnings,
       jsBytes: jsBytesIn(outDir),
+      payloads: bakedPayloads,
     };
   } finally {
     if (!options.keepWorkDir) rmSync(stageDir, { recursive: true, force: true });
@@ -668,6 +763,7 @@ function writeAeoFiles(
     buildSitemap(
       baseUrl,
       pages.map((page) => page.path),
+      input.siteDate,
     ),
   );
   writeFileSync(join(outDir, "robots.txt"), buildRobots(baseUrl));

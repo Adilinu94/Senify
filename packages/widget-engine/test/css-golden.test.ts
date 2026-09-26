@@ -293,6 +293,17 @@ const EXPECTED: Record<string, string> = {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
   opacity: 0.5;
 }`,
+  payload: `[data-node-id="n1"] {
+  padding: 8px 16px;
+  gap: 12px 16px;
+  width: 320px;
+  font-size: 16px;
+  color: #111111;
+  border-width: 1px;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  opacity: 0.5;
+}`,
   collection: `[data-node-id="n1"] {
   padding: 8px 16px;
   gap: 12px 16px;
@@ -359,8 +370,8 @@ describe("only visible values", () => {
 
   it("reports the output size as a number", () => {
     const report = compileCssReport(overridesOnly);
-    expect(report.nodeCount).toBe(23);
-    expect(report.ruleCount).toBe(23);
+    expect(report.nodeCount).toBe(24);
+    expect(report.ruleCount).toBe(24);
     expect(report.bytes).toBe(measureCss(report.css));
     expect(report.bytes).toBeGreaterThan(0);
   });

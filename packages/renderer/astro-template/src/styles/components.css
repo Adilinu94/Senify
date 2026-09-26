@@ -24,3 +24,41 @@
     animation: none;
   }
 }
+
+/* Island payload (ADR-0010): the carrier of imported foreign code. Four states,
+   all of them visible — `pending` (the poster stands until the module loads),
+   `mounted` (the module owns the stage), `failed` (the module did not load: the
+   poster stands, or the plate when there is none) and `plate` (no payload at
+   all: a named hole instead of a silent one). The script sets the state; the
+   markup sets the start state, so a page without JS keeps its poster. */
+.w-payload--stage {
+  display: block;
+}
+
+.w-payload--plate {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  min-height: 6rem;
+  padding: 0.75rem 1rem;
+  border: 1px dashed currentColor;
+  opacity: 0.7;
+  text-align: center;
+  font: inherit;
+}
+
+.w-payload[data-payload-state="plate"] .w-payload--plate,
+.w-payload[data-payload-state="failed"] .w-payload--plate {
+  display: flex;
+}
+
+.w-payload--poster {
+  display: block;
+  max-width: 100%;
+}
+
+.w-payload[data-payload-state="mounted"] .w-payload--poster,
+.w-payload[data-payload-state="failed"] .w-payload--poster,
+.w-payload[data-payload-state="mounted"] .w-payload--plate {
+  display: none;
+}

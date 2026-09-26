@@ -449,6 +449,59 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
         root: true,
       };
 
+    // Imported foreign code (ADR-0010): the carrier renders its poster, the
+    // mount stage and the plate. The island script of the bake replaces the
+    // stage's content and flips `data-payload-state`; in the editor nothing
+    // loads (never any foreign code in the canvas), so poster or plate stands.
+    case "payload": {
+      const payloadId = text(props, "payloadId");
+      const poster = text(props, "poster");
+      const label = text(props, "label");
+      const alt = text(props, "alt");
+      const hasPayload = payloadId !== "";
+      const hasPoster = poster !== "";
+      return {
+        tag: "div",
+        classes: [primitiveClass("payload")],
+        attrs: {
+          "data-island": hasPayload ? "payload" : undefined,
+          "data-payload-id": hasPayload ? payloadId : undefined,
+          "data-payload-poster": hasPoster ? "1" : "0",
+          // Without a poster the plate *is* the rendering (nothing to fall
+          // back from); with one the poster stands until the module mounts.
+          "data-payload-state": !hasPayload || !hasPoster ? "plate" : "pending",
+          role: "group",
+          "aria-label": label !== "" ? label : alt !== "" ? alt : "Fremd-Code",
+        },
+        children: [
+          ...(hasPoster
+            ? [
+                {
+                  tag: "img",
+                  classes: [modifier("payload", "poster")],
+                  attrs: { "data-asset": poster, alt: alt !== "" ? alt : label },
+                },
+              ]
+            : []),
+          {
+            tag: "div",
+            classes: [modifier("payload", "stage")],
+            attrs: { "data-payload-stage": "" },
+          },
+          {
+            tag: "div",
+            classes: [modifier("payload", "plate")],
+            text: hasPayload
+              ? label !== ""
+                ? label
+                : "Fremd-Code"
+              : "Kein Payload hinterlegt — die Stelle bleibt leer",
+          },
+        ],
+        root: true,
+      };
+    }
+
     default:
       // Unknown or legacy section type: not part of the catalog. The caller
       // falls back to the section components.
@@ -573,6 +626,7 @@ export const PRIMITIVE_RESET: Readonly<Record<string, readonly string[]>> = {
   divider: ["border-width: 0;"],
   embed: ["display: block;", "max-width: 100%;", "border: 0;"],
   collection: ["display: grid;", "gap: 1rem;"],
+  payload: ["display: block;", "position: relative;"],
 };
 
 // The elements a primitive builds itself, spelled as the markup writes them.

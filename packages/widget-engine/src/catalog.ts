@@ -666,6 +666,25 @@ export const PRIMITIVES: readonly PrimitiveDefinition[] = [
     styleGroups: ["spacing", "typography", "color"],
   },
   {
+    type: "payload",
+    name: "Fremd-Code",
+    category: "advanced",
+    description:
+      "Träger für importierten Fremd-Code (ADR-0010). Läuft im Release als Island, im Editor nur als Poster oder Platte; die Innereien sind nicht editierbar.",
+    container: false,
+    allowedChildren: "none",
+    slots: {},
+    controls: [
+      // The payload id is the reference into `site_code_payloads`; the editor
+      // picks it, never types it (a free-text field would invent ids).
+      ctrl("payloadId", "Payload", "text", "string", "", { responsive: false }),
+      media("poster", "Poster"),
+      text("alt", "Alternativtext", ""),
+      text("label", "Bezeichnung", ""),
+    ],
+    styleGroups: ["spacing", "size", "border", "effects"],
+  },
+  {
     type: "root",
     name: "Wurzel",
     category: "advanced",

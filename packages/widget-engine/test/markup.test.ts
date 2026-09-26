@@ -41,9 +41,9 @@ describe("widget markup", () => {
         primitiveClass(definition.type),
       );
     }
-    // 23 foundation stones, and a legacy section type stays with the section
+    // 24 foundation stones, and a legacy section type stays with the section
     // render path instead of growing a second description.
-    expect(primitiveDefinitions().length).toBe(23);
+    expect(primitiveDefinitions().length).toBe(24);
     expect(describePrimitive("hero")).toBeUndefined();
     expect(isCatalogPrimitive("hero")).toBe(false);
     expect(isCatalogPrimitive("frame")).toBe(true);

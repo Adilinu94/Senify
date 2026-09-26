@@ -90,18 +90,39 @@ export function styleRulesCss(
   for (const page of pages) {
     for (const node of Object.values(page.tree.nodes)) {
       if (nodes.has(node.id)) continue;
-      const cssNode: CssNode = { id: node.id, primitive: node.type };
+      const cssNode: CssNode = { id: node.id, primitive: node.type, props: { ...node.props } };
       if (node.classes !== undefined && node.classes.length > 0) {
         cssNode.classIds = [...node.classes];
+      }
+      if (node.overrides !== undefined) {
+        cssNode.props = {
+          ...cssNode.props,
+          ...(node.overrides.tablet?.props === undefined
+            ? {}
+            : Object.fromEntries(
+                Object.entries(node.overrides.tablet.props).map(([key, value]) => [
+                  `${key}_tablet`,
+                  value,
+                ]),
+              )),
+          ...(node.overrides.mobile?.props === undefined
+            ? {}
+            : Object.fromEntries(
+                Object.entries(node.overrides.mobile.props).map(([key, value]) => [
+                  `${key}_mobile`,
+                  value,
+                ]),
+              )),
+        };
       }
       nodes.set(node.id, cssNode);
     }
   }
   return compileCss({
     nodes: [...nodes.values()],
-    classRules: remapScopedRules(pages, rules).map((rule) =>
-      styleRuleToClassRule(rule),
-    ),
+    classRules: remapScopedRules(pages, rules)
+      .filter((rule) => rule.origin?.source !== "framer-import")
+      .map((rule) => styleRuleToClassRule(rule)),
   });
 }
 

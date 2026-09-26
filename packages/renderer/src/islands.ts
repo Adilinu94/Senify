@@ -8,7 +8,8 @@ export type IslandKind =
   | "dismiss"
   | "consent"
   | "modal"
-  | "webgl-scene";
+  | "webgl-scene"
+  | "payload";
 
 export type Hydration =
   | { mode: "static" }
@@ -29,6 +30,13 @@ export function islandsForNode(node: Node): IslandKind[] {
   // `webgl-scene` spec switches it back to the static poster.
   if (webglSceneEnabled(node)) {
     add("webgl-scene");
+  }
+  // Imported foreign code (ADR-0010 §5): the carrier is a normal node of the
+  // `payload` primitive; a carrier without an id is not an island but an empty
+  // place — it renders its poster or its plate and nothing loads.
+  if (node.type === "payload") {
+    const payloadId = node.props.payloadId;
+    if (typeof payloadId === "string" && payloadId !== "") add("payload");
   }
   switch (node.type) {
     case "navbar":

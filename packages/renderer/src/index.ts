@@ -6,10 +6,14 @@ export {
   selfContainedHtml,
   type BakeInput,
   type BakeOptions,
+  type BakedPayload,
   type BakePageInput,
   type BakeResult,
   type BakeWarning,
+  type PayloadDelivery,
 } from "./bake.ts";
+// The renderer version the release manifest stamps (E2).
+export { RENDERER_VERSION } from "./version.ts";
 // The theme's webfont files (Sora, Inter). The bake copies them into every
 // build; the local program serves them for the editor frames.
 export { FONT_ASSETS_DIR } from "./bake.ts";

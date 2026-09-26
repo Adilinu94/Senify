@@ -125,8 +125,15 @@ export function buildLlmsTxt(
   return lines.join("\n");
 }
 
-export function buildSitemap(baseUrl: string, paths: string[]): string {
-  const today = new Date().toISOString().slice(0, 10);
+// `siteDate` pins the `<lastmod>` date to the build's own date (E2): a
+// rollback that restores an earlier release re-bakes with that release's date,
+// so the output stays byte-identical instead of carrying "today".
+export function buildSitemap(
+  baseUrl: string,
+  paths: string[],
+  siteDate?: string,
+): string {
+  const today = siteDate ?? new Date().toISOString().slice(0, 10);
   const urls = paths
     .map(
       (path) =>
