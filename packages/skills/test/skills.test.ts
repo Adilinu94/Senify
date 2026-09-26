@@ -14,6 +14,7 @@ describe("senify skill pack", () => {
         "images.md",
         "motion.md",
         "router.md",
+        "senify-referenz-redesign.md",
         "workflow.md",
       ]),
     );
@@ -50,6 +51,37 @@ describe("senify skill pack", () => {
     const router = skillFiles().find((file) => file.name === "router.md");
     expect(router?.content).toContain("generate_image");
     expect(router?.content).toContain("images.md");
+  });
+
+  it("keeps the reference redesign workflow executable and bounded", () => {
+    const redesign = skillFiles().find((file) => file.name === "senify-referenz-redesign.md");
+    expect(redesign).toBeDefined();
+    for (const tool of [
+      "search_references",
+      "get_reference",
+      "plan_redesign",
+      "create_redesign_proposal",
+      "get_redesign_proposal",
+      "get_page",
+      "get_section",
+      "apply_mutations",
+      "diff_reference",
+      "get_design_report",
+      "create_preview",
+      "submit_for_review",
+    ]) {
+      expect(redesign?.content).toContain(tool);
+    }
+    // The direction is a human decision: the skill must say so and must not
+    // hand the agent a way to confirm it.
+    expect(redesign?.content).toContain("Die Richtung selbst wählt **ein Mensch**");
+    expect(redesign?.content).toContain("kein** Bestätigungs-Werkzeug");
+    expect(redesign?.content).not.toContain("referenceIds: [chosenReferenceId]");
+    expect(redesign?.content).toContain("idempotencyKey");
+    expect(redesign?.content).toContain("## Fertig, wenn");
+    expect(redesign?.content).toContain("publish_release` erst nach ausdrücklicher menschlicher Freigabe");
+    const router = skillFiles().find((file) => file.name === "router.md");
+    expect(router?.content).toContain("senify-referenz-redesign.md");
   });
 
   it("keeps the master flow in stage order", () => {

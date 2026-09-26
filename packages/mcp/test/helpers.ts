@@ -7,6 +7,7 @@ import {
   type Db,
   type DbResult,
   type Engine,
+  type ReferenceDiffDeps,
   type Row,
 } from "@senify/engine";
 import { createRegistry } from "@senify/registry";
@@ -14,7 +15,9 @@ import { createRegistry } from "@senify/registry";
 export type McpTestEnv = {
   origin: string;
   token: string;
+  operatorToken: string;
   api: ApiHarness;
+  humanApi: ApiHarness;
   // The running engine: suites that need the worker (image jobs) run their own
   // claim-and-run cycle against this instance.
   engine: Engine;
@@ -41,7 +44,7 @@ function memoryDb(): { db: Db; close(): Promise<void> } {
   return { db, close: () => pool.end() };
 }
 
-export async function bootMcpEnv(): Promise<McpTestEnv> {
+export async function bootMcpEnv(options: { referenceDiffs?: ReferenceDiffDeps } = {}): Promise<McpTestEnv> {
   const database = memoryDb();
   // Temp data dir: releases, previews and uploaded assets stay out of the
   // user's home directory.
@@ -53,22 +56,34 @@ export async function bootMcpEnv(): Promise<McpTestEnv> {
     // Suites fire many calls per token; rate limits are covered by
     // engine/test/auth.test.ts with explicit tight limits.
     rateLimits: { perMinute: 10_000, burst: 10_000, destructivePerMinute: 10_000 },
+    ...(options.referenceDiffs === undefined
+      ? {}
+      : { referenceDiffs: options.referenceDiffs }),
   });
   const server = await engine.listen({ port: 0 });
-  const anon = createApiHarness(server.origin);
-  const created = await anon.request<{ secret: string }>({
-    method: "POST",
-    path: "/api/tokens",
-    body: { name: "mcp-tests", scopes: ["read", "write", "publish"] },
-  });
-  if (created.status !== 201) {
-    throw new Error(`Token bootstrap failed: ${JSON.stringify(created.body)}`);
-  }
-  const token = created.body.secret;
+  const token = (
+    await engine.store.createToken({
+      name: "mcp-tests",
+      kind: "agent",
+      scopes: ["read", "write", "publish"],
+      expiresAt: null,
+    })
+  ).secret;
+  const api = createApiHarness(server.origin, { token });
+  const humanToken = (
+    await engine.store.createToken({
+      name: "mcp-human",
+      kind: "human",
+      scopes: ["read", "write", "publish"],
+      expiresAt: null,
+    })
+  ).secret;
   return {
     origin: server.origin,
     token,
-    api: createApiHarness(server.origin, { token }),
+    operatorToken: humanToken,
+    api,
+    humanApi: createApiHarness(server.origin, { token: humanToken }),
     engine,
     async close() {
       await server.close();
@@ -83,7 +98,7 @@ export async function createToken(
   name: string,
   scopes: string[],
 ): Promise<string> {
-  const created = await env.api.request<{ secret: string }>({
+  const created = await env.humanApi.request<{ secret: string }>({
     method: "POST",
     path: "/api/tokens",
     body: { name, scopes },

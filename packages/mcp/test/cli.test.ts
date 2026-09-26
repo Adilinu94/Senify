@@ -1,6 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { createProgram } from "@senify/mcp";
-import { bootMcpEnv, type McpTestEnv } from "./helpers.ts";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createProgram, doctorExitCode, formatDoctor, runDoctor } from "@senify/mcp";
+import { bootMcpEnv, createSite, type McpTestEnv } from "./helpers.ts";
 
 function commandNames(program: ReturnType<typeof createProgram>): string[] {
   return program.commands.map((command) => command.name());
@@ -22,7 +25,17 @@ async function runCli(args: string[]): Promise<string[]> {
 describe("senify CLI skeleton", () => {
   it("exposes the skeleton commands", () => {
     const program = createProgram();
-    expect(commandNames(program)).toEqual(["start", "startup", "shortcut", "setup", "mcp", "tokens"]);
+    expect(commandNames(program)).toEqual([
+      "start",
+      "startup",
+      "shortcut",
+      "setup",
+      "deploy",
+      "import",
+      "doctor",
+      "mcp",
+      "tokens",
+    ]);
   });
 
   it("nests the mcp and tokens commands", () => {
@@ -50,11 +63,80 @@ describe("senify system integration CLI", () => {
   });
 });
 
+describe("senify doctor", () => {
+  let env: McpTestEnv;
+
+  beforeAll(async () => {
+    env = await bootMcpEnv();
+    await createSite(env, "Doctor");
+  });
+
+  afterAll(async () => {
+    await env.close();
+  });
+
+  it("reports per-capability status with fixes and honest unverified lines", async () => {
+    const home = mkdtempSync(join(tmpdir(), "senify-doctor-"));
+    try {
+      mkdirSync(join(home, ".senify"), { recursive: true });
+      writeFileSync(
+        join(home, ".senify", "program-token.json"),
+        JSON.stringify({ id: "program", secret: env.token }),
+      );
+      writeFileSync(
+        join(home, ".senify", "config.json"),
+        JSON.stringify({ databaseUrl: "postgres://example/senify" }),
+      );
+      const report = await runDoctor({
+        apiUrl: env.origin,
+        appUrl: "http://127.0.0.1:9",
+        home,
+      });
+      const byId = new Map(report.checks.map((check) => [check.id, check]));
+      expect(byId.get("engine")?.status).toBe("ok");
+      expect(byId.get("database")?.status).toBe("ok");
+      expect(byId.get("token")?.status).toBe("ok");
+      expect(byId.get("data")?.status).toBe("ok");
+      expect(byId.get("bake")?.status).toBe("ok");
+      // No MCP client and no dashboard in the temp home: honest warnings.
+      expect(byId.get("mcp")?.status).toBe("warn");
+      expect(byId.get("mcp")?.fix).toBe("senify setup");
+      expect(byId.get("dashboard")?.status).toBe("warn");
+      const lines = formatDoctor(report).join("\n");
+      expect(lines).toContain("✓ Engine");
+      expect(lines).toContain("→ senify setup");
+      expect(lines).toContain("ok ·");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  it("stays honest without a token: unverified instead of green", async () => {
+    const home = mkdtempSync(join(tmpdir(), "senify-doctor-empty-"));
+    try {
+      const report = await runDoctor({
+        apiUrl: env.origin,
+        appUrl: "http://127.0.0.1:9",
+        home,
+      });
+      const byId = new Map(report.checks.map((check) => [check.id, check]));
+      expect(byId.get("engine")?.status).toBe("ok");
+      expect(byId.get("token")?.status).toBe("warn");
+      expect(byId.get("database")?.status).toBe("unverified");
+      expect(byId.get("bake")?.status).toBe("unverified");
+      expect(doctorExitCode(report)).toBe(0);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  }, 30000);
+});
+
 describe("senify tokens CLI", () => {
   let env: McpTestEnv;
 
   beforeAll(async () => {
     env = await bootMcpEnv();
+    process.env.SENIFY_TOKEN = env.operatorToken;
   });
 
   afterAll(async () => {

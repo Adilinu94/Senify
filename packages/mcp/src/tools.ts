@@ -30,8 +30,18 @@ import { pageOutline, selectNodes, type PageSummaryInput } from "./outline.ts";
 
 export type ToolScope = "read" | "write" | "publish";
 
+// Elicitation (E4 slice 2): ask the client for a missing or ambiguous
+// parameter. The server wires this only when the client declared the
+// elicitation capability; declined or unsupported resolves to undefined and
+// the tool's own validation error stands.
+export type ElicitRequest = {
+  message: string;
+  fields: { name: string; description: string; required?: boolean }[];
+};
+
 export type ToolContext = {
   client: EngineClient;
+  elicit?: (request: ElicitRequest) => Promise<Record<string, unknown> | undefined>;
 };
 
 export type ToolDefinition = {
@@ -834,6 +844,34 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: "undo_batch",
+    title: "Undo batches",
+    description:
+      "Agent undo: reverts the newest mutation batches of a page server-side. Every apply_mutations call is one batch in the page's audit log (list it with the audit route or get_page); send baseDraftVersion from get_page plus either steps (default 1) or the exact batchIds of the newest remaining batches. Only the newest remaining batches can be undone — an older one would replay against a state that no longer exists. A stale baseDraftVersion is a conflict: reload the page and retry. Each undo is itself audited (undoBatch); to redo, re-apply the original mutations.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        pageId: { type: "string" },
+        baseDraftVersion: { type: "number" },
+        steps: { type: "number" },
+        batchIds: { type: "array", items: { type: "string" } },
+      },
+      ["pageId", "baseDraftVersion"],
+    ),
+    entity: (args) => `page:${String(args.pageId ?? "")}`,
+    handler: async (context, args) => {
+      const pageId = requireString(args, "pageId");
+      const steps = optionalNumber(args, "steps");
+      const batchIds = optionalStringArray(args, "batchIds");
+      const body: Record<string, unknown> = {
+        baseDraftVersion: requireNumber(args, "baseDraftVersion"),
+      };
+      if (steps !== undefined) body.steps = steps;
+      if (batchIds !== undefined) body.batchIds = batchIds;
+      return context.client.request("POST", `/api/pages/${pageId}/undo-batch`, body);
+    },
+  },
+  {
     name: "set_motion",
     title: "Set motion",
     description:
@@ -1295,7 +1333,7 @@ export const TOOLS: ToolDefinition[] = [
         });
       }
       const declared = styleDeclarations(styles, device);
-      const rules = await context.client.request<{ rules: StyleRuleResponse[] }>(
+      const rules = await context.client.request<{ rules: StyleRuleResponse[]; version: number }>(
         "GET",
         `/api/sites/${siteId}/style-rules`,
       );
@@ -1308,6 +1346,7 @@ export const TOOLS: ToolDefinition[] = [
           name: `scoped-${nodeId}`,
           nodeId,
           ...(state === undefined ? { styles: declared } : { states: { [state]: declared } }),
+          baseVersion: rules.version,
           author,
         });
       }
@@ -1317,6 +1356,7 @@ export const TOOLS: ToolDefinition[] = [
           : { ...(existing.states ?? {}), [state]: { ...(existing.states?.[state] ?? {}), ...declared } };
       return context.client.request("PATCH", `/api/sites/${siteId}/style-rules/${existing.id}`, {
         ...(state === undefined ? { styles: next } : { states: next }),
+        baseVersion: rules.version,
         author,
       });
     },
@@ -1335,6 +1375,7 @@ export const TOOLS: ToolDefinition[] = [
         description: { type: "string" },
         styles: { type: "object" },
         states: { type: "object" },
+        baseVersion: { type: "number" },
       },
       ["siteId", "styles"],
     ),
@@ -1351,6 +1392,7 @@ export const TOOLS: ToolDefinition[] = [
       }
       const description = optionalString(args, "description");
       const states = args.states;
+      const baseVersion = optionalNumber(args, "baseVersion");
       const scoped = nodeId !== undefined;
       const author = await context.client.tokenName();
       return context.client.request("POST", `/api/sites/${siteId}/style-rules`, {
@@ -1364,6 +1406,7 @@ export const TOOLS: ToolDefinition[] = [
           : {
               states: styleStates(requireRecord(args, "states")),
             }),
+        ...(baseVersion === undefined ? {} : { baseVersion }),
         author: { kind: "agent", id: author, label: author },
       });
     },
@@ -1390,6 +1433,66 @@ export const TOOLS: ToolDefinition[] = [
         ...(title === undefined ? {} : { title }),
         ...(path === undefined ? {} : { path }),
         ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+      });
+    },
+  },
+  {
+    name: "set_page_template",
+    title: "Set page template",
+    description:
+      'Marks a page as a layout or collection (entry) template, assigns a page\'s layout, or removes the mark. kind "layout" wraps pages that pick it via layoutId (the label shown in lists is the page title); kind "collection" renders the detail routes of collectionIds (priority decides among several templates); kind "none" removes the mark. layoutId alone only changes the layout choice.',
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        pageId: { type: "string" },
+        kind: { type: "string", enum: ["layout", "collection", "none"] },
+        collectionIds: { type: "array", items: { type: "string" } },
+        priority: { type: "number" },
+        layoutId: { type: "string" },
+      },
+      ["pageId"],
+    ),
+    entity: (args) => `page:${String(args.pageId ?? "")}`,
+    handler: async (context, args) => {
+      const pageId = requireString(args, "pageId");
+      const kind = optionalString(args, "kind");
+      const layoutId = optionalString(args, "layoutId");
+      const priority = optionalNumber(args, "priority");
+      const collectionIds = optionalStringArray(args, "collectionIds");
+      if (kind === undefined && layoutId === undefined) {
+        throw new SenifyError("validation", "Nothing to change", {
+          field: "kind",
+          suggestion:
+            'Pass kind ("layout" | "collection" | "none") and/or layoutId.',
+        });
+      }
+      if (kind === "collection" && (collectionIds?.length ?? 0) === 0) {
+        throw new SenifyError(
+          "validation",
+          "A collection template needs collectionIds",
+          {
+            field: "collectionIds",
+            suggestion: "List the collections the entry template renders.",
+          },
+        );
+      }
+      const template =
+        kind === undefined
+          ? undefined
+          : kind === "layout"
+            ? { kind: "layout" }
+            : kind === "collection"
+              ? {
+                  kind: "collection",
+                  collectionIds: collectionIds ?? [],
+                  ...(priority === undefined ? {} : { priority }),
+                }
+              : null;
+      const name = await context.client.tokenName();
+      return context.client.request("PUT", `/api/pages/${pageId}/template`, {
+        ...(template === undefined ? {} : { template }),
+        ...(layoutId === undefined ? {} : { layoutId }),
+        author: { kind: "agent", id: name, label: name },
       });
     },
   },
@@ -1463,7 +1566,7 @@ export const TOOLS: ToolDefinition[] = [
     name: "get_review_feedback",
     title: "Get review feedback",
     description:
-      "Reads a review item: status, thread (the operator's notes) and the structure diff. Call it after a submit to see whether changes were requested; newer feedback means new work.",
+      "Reads a review item: status, thread (the operator's notes), structure diff and immutable import reports. Call it after a submit to see whether changes were requested; newer feedback means new work.",
     scope: "read",
     inputSchema: objectSchema({ reviewId: { type: "string" } }, ["reviewId"]),
     entity: (args) => `review:${String(args.reviewId ?? "")}`,
@@ -1523,6 +1626,147 @@ export const TOOLS: ToolDefinition[] = [
         ...(note === undefined ? {} : { note }),
       });
     },
+  },
+  {
+    name: "list_releases",
+    title: "List releases",
+    description:
+      "Lists a site's releases (newest first) with the active release id. Each release carries its manifest: renderer version, build hash and the style registry snapshot it was baked with (rollback restores it).",
+    scope: "read",
+    inputSchema: objectSchema({ siteId: { type: "string" } }, ["siteId"]),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) =>
+      context.client.request(
+        "GET",
+        `/api/sites/${requireString(args, "siteId")}/releases`,
+      ),
+  },
+  {
+    name: "get_release",
+    title: "Get release",
+    description:
+      "Loads one release with its page revisions, theme snapshot and manifest (renderer version, build hash, restored-from).",
+    scope: "read",
+    inputSchema: objectSchema({ releaseId: { type: "string" } }, ["releaseId"]),
+    entity: (args) => `release:${String(args.releaseId ?? "")}`,
+    handler: async (context, args) =>
+      context.client.request(
+        "GET",
+        `/api/releases/${requireString(args, "releaseId")}`,
+      ),
+  },
+  {
+    name: "list_bake_jobs",
+    title: "List re-bake jobs",
+    description:
+      "Lists the durable re-bake jobs of a site (newest first): content changes enqueue them, a worker re-bakes the active release and records done/failed with attempts, next attempt time and the last error. Use it to check why a published content change is not live yet.",
+    scope: "read",
+    inputSchema: objectSchema({ siteId: { type: "string" } }, ["siteId"]),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) =>
+      context.client.request(
+        "GET",
+        `/api/sites/${requireString(args, "siteId")}/bake-jobs`,
+      ),
+  },
+  {
+    name: "deploy_site",
+    title: "Deploy site",
+    description:
+      'Delivers the active release\'s build. Provider "static" copies into a target directory (staging + swap, a failed deploy leaves the previous site untouched); provider "netlify" ships the build through the Netlify API and provider "vercel" through the Vercel deployments API (file list with SHA1, upload of missing files, poll until ready) — the target (site id / project id + token) sits in the deploy settings (set_deploy_settings). Returns the deployment record with file count and size; for netlify and vercel the target carries the live deploy URL. Needs the publish scope.',
+    scope: "publish",
+    inputSchema: objectSchema(
+      {
+        siteId: { type: "string" },
+        provider: { type: "string", enum: ["static", "netlify", "vercel"] },
+        targetDir: { type: "string" },
+      },
+      ["siteId"],
+    ),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
+      const provider = optionalString(args, "provider") ?? "static";
+      if (provider === "static") {
+        return context.client.request(
+          "POST",
+          `/api/sites/${siteId}/deployments`,
+          {
+            provider,
+            targetDir: requireString(args, "targetDir"),
+          },
+        );
+      }
+      return context.client.request("POST", `/api/sites/${siteId}/deployments`, {
+        provider,
+      });
+    },
+  },
+  {
+    name: "get_deploy_settings",
+    title: "Get deploy settings",
+    description:
+      "Reads the deploy settings of a site: the provider (static, netlify or vercel), the Netlify site id, the Vercel project id and whether tokens are stored (the tokens themselves never leave the engine).",
+    scope: "read",
+    inputSchema: objectSchema({ siteId: { type: "string" } }, ["siteId"]),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) =>
+      context.client.request(
+        "GET",
+        `/api/sites/${requireString(args, "siteId")}/deploy-settings`,
+      ),
+  },
+  {
+    name: "set_deploy_settings",
+    title: "Set deploy settings",
+    description:
+      "Writes the deploy settings of a site: provider (static|netlify|vercel), netlifySiteId + netlifyToken or vercelProjectId + vercelToken (a new token is encrypted engine-side and never returned; null clears it; omitting keeps it). The chosen provider needs both its id and its token before deploy_site can deliver. Read the settings with get_deploy_settings.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        siteId: { type: "string" },
+        provider: { type: "string", enum: ["static", "netlify", "vercel"] },
+        netlifySiteId: { type: ["string", "null"] },
+        netlifyToken: { type: ["string", "null"] },
+        vercelProjectId: { type: ["string", "null"] },
+        vercelToken: { type: ["string", "null"] },
+      },
+      ["siteId"],
+    ),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
+      const provider = optionalString(args, "provider");
+      const netlifySiteId = optionalNullableString(args, "netlifySiteId");
+      const netlifyToken = optionalNullableString(args, "netlifyToken");
+      const vercelProjectId = optionalNullableString(args, "vercelProjectId");
+      const vercelToken = optionalNullableString(args, "vercelToken");
+      return context.client.request(
+        "PUT",
+        `/api/sites/${siteId}/deploy-settings`,
+        {
+          ...(provider === undefined ? {} : { provider }),
+          ...(netlifySiteId === undefined ? {} : { netlifySiteId }),
+          ...(netlifyToken === undefined ? {} : { netlifyToken }),
+          ...(vercelProjectId === undefined ? {} : { vercelProjectId }),
+          ...(vercelToken === undefined ? {} : { vercelToken }),
+        },
+      );
+    },
+  },
+  {
+    name: "list_deployments",
+    title: "List deployments",
+    description:
+      "Lists a site's deployments (newest first) with status, target, file count and size. Use it to see where the site was delivered and whether the last deploy succeeded.",
+    scope: "read",
+    inputSchema: objectSchema({ siteId: { type: "string" } }, ["siteId"]),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) =>
+      context.client.request(
+        "GET",
+        `/api/sites/${requireString(args, "siteId")}/deployments`,
+      ),
   },
   {
     name: "restore_revision",
@@ -1640,17 +1884,18 @@ export const TOOLS: ToolDefinition[] = [
     name: "update_asset",
     title: "Update asset",
     description:
-      "Updates asset metadata (alt text, decorative flag, folder, tags). Mark purely decorative images as decorative so the alt-text check exempts them; pass null for altText or folderId to clear it.",
+      "Updates asset metadata (alt text, decorative flag, folder, tags). Mark purely decorative images as decorative so the alt-text check exempts them; pass null for altText or folderId to clear it. The asset must belong to siteId.",
     scope: "write",
     inputSchema: objectSchema(
       {
+        siteId: { type: "string" },
         assetId: { type: "string" },
         altText: { type: ["string", "null"] },
         decorative: { type: "boolean" },
         folderId: { type: ["string", "null"] },
         tags: { type: "array", items: { type: "string" } },
       },
-      ["assetId"],
+      ["siteId", "assetId"],
     ),
     entity: (args) => `asset:${String(args.assetId ?? "")}`,
     handler: async (context, args) => {
@@ -1670,7 +1915,8 @@ export const TOOLS: ToolDefinition[] = [
           suggestion: "Pass altText, decorative, folderId or tags.",
         });
       }
-      return context.client.request("PATCH", `/api/assets/${assetId}`, patch);
+      const siteId = requireString(args, "siteId");
+      return context.client.request("PATCH", `/api/sites/${siteId}/assets/${assetId}`, patch);
     },
   },
   {
@@ -1681,28 +1927,26 @@ export const TOOLS: ToolDefinition[] = [
     scope: "write",
     inputSchema: objectSchema(
       {
+        siteId: { type: "string" },
         assetId: { type: "string" },
         filePath: { type: "string" },
         altText: { type: "string" },
       },
-      ["assetId", "filePath"],
+      ["siteId", "assetId", "filePath"],
     ),
     entity: (args) => `asset:${String(args.assetId ?? "")}`,
     handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
       const assetId = requireString(args, "assetId");
       const filePath = requireString(args, "filePath");
-      const asset = await context.client.request<{ siteId: string }>(
-        "GET",
-        `/api/assets/${assetId}`,
-      );
       const result = await uploadLocalFile(context, {
-        siteId: asset.siteId,
+        siteId,
         filePath,
         extra: { replaceAssetId: assetId },
       });
       const altText = optionalString(args, "altText");
       if (altText === undefined) return result;
-      return context.client.request("PATCH", `/api/assets/${assetId}`, {
+      return context.client.request("PATCH", `/api/sites/${siteId}/assets/${assetId}`, {
         altText,
       });
     },
@@ -1711,13 +1955,17 @@ export const TOOLS: ToolDefinition[] = [
     name: "delete_asset",
     title: "Delete asset",
     description:
-      "Moves an asset to the trash (reversible). References to it are marked broken at submit and publish; restore it with restore_asset or delete it for good from the program.",
+      "Moves an asset to the trash (reversible). References to it are marked broken at submit and publish; restore it with restore_asset or delete it for good from the program. The asset must belong to siteId.",
     scope: "write",
-    inputSchema: objectSchema({ assetId: { type: "string" } }, ["assetId"]),
+    inputSchema: objectSchema({ siteId: { type: "string" }, assetId: { type: "string" } }, [
+      "siteId",
+      "assetId",
+    ]),
     entity: (args) => `asset:${String(args.assetId ?? "")}`,
     handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
       const assetId = requireString(args, "assetId");
-      await context.client.request("DELETE", `/api/assets/${assetId}`);
+      await context.client.request("DELETE", `/api/sites/${siteId}/assets/${assetId}`);
       return { trashed: assetId };
     },
   },
@@ -1725,14 +1973,17 @@ export const TOOLS: ToolDefinition[] = [
     name: "restore_asset",
     title: "Restore asset",
     description:
-      "Takes an asset out of the trash so references become valid again. The file was never deleted; only the record status changes.",
+      "Takes an asset out of the trash so references become valid again. The file was never deleted; only the record status changes. The asset must belong to siteId.",
     scope: "write",
-    inputSchema: objectSchema({ assetId: { type: "string" } }, ["assetId"]),
+    inputSchema: objectSchema({ siteId: { type: "string" }, assetId: { type: "string" } }, [
+      "siteId",
+      "assetId",
+    ]),
     entity: (args) => `asset:${String(args.assetId ?? "")}`,
     handler: async (context, args) =>
       context.client.request(
         "POST",
-        `/api/assets/${requireString(args, "assetId")}/restore`,
+        `/api/sites/${requireString(args, "siteId")}/assets/${requireString(args, "assetId")}/restore`,
       ),
   },
   {
@@ -2202,6 +2453,31 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: "search_references",
+    title: "Search references",
+    description:
+      "Volltextsuche über die Referenz-Bibliothek mit Gewichtungs-Ranking: die Treffermenge umfasst Name, Notiz, Vokabular, Familien, Sammlungsnamen UND die Original-Dokumente (design.md & Co.). Vault-first-Regel: erst hier suchen, dann neu analysieren — verhindert Dubletten und spart Capture-Läufe.",
+    scope: "read",
+    inputSchema: objectSchema({ q: { type: "string" } }, ["q"]),
+    handler: async (context, args) => {
+      const q = requireString(args, "q");
+      return context.client.request(
+        "GET",
+        `/api/references/search?q=${encodeURIComponent(q)}`,
+      );
+    },
+  },
+  {
+    name: "find_duplicate_references",
+    title: "Find duplicate references",
+    description:
+      "Findet Dubletten-Kandidaten der Bibliothek: gleiche Quell-URL (ohne Protokoll/Trailing-Slash) oder gleicher normalisierter Name. Rein lesend — löschen bleibt delete_reference, damit ein Fork mit anderer URL nie verloren geht. Vor analyze_reference laufen lassen, um Doppel-Analysen zu vermeiden.",
+    scope: "read",
+    inputSchema: objectSchema({}),
+    handler: async (context) =>
+      context.client.request("GET", "/api/references/duplicates"),
+  },
+  {
     name: "get_reference",
     title: "Get reference",
     description:
@@ -2353,7 +2629,7 @@ export const TOOLS: ToolDefinition[] = [
     name: "get_reference_brief",
     title: "Get reference brief",
     description:
-      "Baut den Design-Brief im Text des Vorbilds. referenceId liefert den Einzelbrief samt Bild-Prompt, referenceIds (bis 12) den Sammelbrief für den Vergleich, collectionId den Sammlungs- oder Stil-Brief samt Vokabular. Haus-DNA und Projekt-Notizen kommen aus den Einstellungen; status sagt, ob sie enthalten sind. Genau eine der drei Eingaben angeben.",
+      "Baut den Design-Brief. Jeder Referenz-Abschnitt trägt Reference, Screenshot (absolute URL), Aesthetic, Vocabulary, What to borrow, Composition, Image recipe und danach den gemessenen Profil-Block (Palette, Type, Spacing/Radius, Motion, Components, Constants, Never) samt Constraint-Zeilen der Schutzregeln. referenceId liefert den Einzelbrief samt Bild-Prompt, referenceIds (bis 12) den Sammelbrief für den Vergleich, collectionId den Sammlungs- oder Stil-Brief samt Vokabular. Haus-DNA und Projekt-Notizen kommen aus den Einstellungen; status sagt, ob sie enthalten sind. Genau eine der drei Eingaben angeben.",
     scope: "read",
     inputSchema: objectSchema({
       referenceId: { type: "string" },
@@ -2365,13 +2641,42 @@ export const TOOLS: ToolDefinition[] = [
         ? `reference:${String(args.referenceId ?? "")}`
         : `collection:${String(args.collectionId)}`,
     handler: async (context, args) => {
-      const referenceId = optionalString(args, "referenceId");
-      const collectionId = optionalString(args, "collectionId");
+      let referenceId = optionalString(args, "referenceId");
+      let collectionId = optionalString(args, "collectionId");
       const referenceIds =
         args.referenceIds === undefined ? undefined : requireArray(args, "referenceIds");
-      const given = [referenceId, collectionId, referenceIds].filter(
+      let given = [referenceId, collectionId, referenceIds].filter(
         (value) => value !== undefined,
       ).length;
+      // No source at all: ask the client which brief it wants (E4 slice 2).
+      // Declined or unsupported keeps the validation error below.
+      if (given === 0 && context.elicit !== undefined) {
+        const content = await context.elicit({
+          message:
+            "get_reference_brief needs exactly one source: a single reference (referenceId) or a collection (collectionId). Which one?",
+          fields: [
+            { name: "referenceId", description: "Single reference brief, e.g. ref_123." },
+            { name: "collectionId", description: "Collection or style brief, e.g. col_123." },
+          ],
+        });
+        if (content !== undefined) {
+          if (
+            typeof content.referenceId === "string" &&
+            content.referenceId !== ""
+          ) {
+            referenceId = content.referenceId;
+          }
+          if (
+            typeof content.collectionId === "string" &&
+            content.collectionId !== ""
+          ) {
+            collectionId = content.collectionId;
+          }
+          given = [referenceId, collectionId, referenceIds].filter(
+            (value) => value !== undefined,
+          ).length;
+        }
+      }
       if (given !== 1) {
         throw new SenifyError(
           "validation",
@@ -2429,6 +2734,775 @@ export const TOOLS: ToolDefinition[] = [
         )}`,
       );
     },
+  },
+  {
+    name: "create_redesign_proposal",
+    title: "Create redesign proposal",
+    description:
+      "Legt ein Redesign Proposal für eine Quellseite an: der Server leitet aus den Referenz-Profilen ein bis drei Direction Cards ab (Bild, Theme-Specimen, Begründung, Regeln, Warnungen) und aus Quellbaum und Registry den Sektions-Plan mit Medienbedarf. Nimmt nur referenceIds und einen stabilen idempotencyKey entgegen — Cards, Sektions-Plan, Assets und Entscheidungen kommen nie vom Agenten (ADR-0012, ADR-0013). Danach warten: die Richtung bestätigt ein Mensch im Programm. Mit get_redesign_proposal den Status lesen.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        pageId: { type: "string" },
+        referenceIds: { type: "array", items: { type: "string" } },
+        idempotencyKey: { type: "string" },
+      },
+      ["pageId", "referenceIds"],
+    ),
+    entity: (args) => `page:${String(args.pageId ?? "")}`,
+    handler: async (context, args) => {
+      const referenceIds = requireArray(args, "referenceIds").map((value) => {
+        if (typeof value !== "string" || value.trim() === "") {
+          throw new SenifyError("validation", '"referenceIds" must contain ids', {
+            field: "referenceIds",
+            suggestion: "Eine bis drei Referenz-ids aus plan_redesign angeben.",
+          });
+        }
+        return value;
+      });
+      return context.client.request(
+        "POST",
+        `/api/pages/${requireString(args, "pageId")}/redesign-proposals`,
+        {
+          referenceIds,
+          ...(optionalString(args, "idempotencyKey") === undefined
+            ? {}
+            : { idempotencyKey: optionalString(args, "idempotencyKey") }),
+        },
+      );
+    },
+  },
+  {
+    name: "get_redesign_proposal",
+    title: "Get redesign proposal",
+    description:
+      "Liest ein Redesign Proposal: Status, die angebotenen Direction Cards, ob die Planbasis noch aktuell ist (freshness), die Direction Decision des Menschen und das Apply-Ergebnis. Jede Card trägt sectionPlan: geplante registrierte Zieltypen und Varianten je Quell-Section, erhaltene Inhalte, Slots und Medienbedarf (reuse/select/upload/generate/avoid). Das ist die verbindliche Baugrundlage für get_page/get_section/apply_mutations — bestätigt wird aber nur Theme und Draft-Grundstruktur: applyResult.scope ist scaffold-theme und sectionPlanApplied ist false (ADR-0013).",
+    scope: "read",
+    inputSchema: objectSchema({ proposalId: { type: "string" } }, ["proposalId"]),
+    entity: (args) => `redesign-proposal:${String(args.proposalId ?? "")}`,
+    handler: async (context, args) =>
+      context.client.request(
+        "GET",
+        `/api/redesign-proposals/${requireString(args, "proposalId")}`,
+      ),
+  },
+  {
+    name: "apply_redesign",
+    title: "Apply redesign",
+    description:
+      "Autonomer Redesign-Weg: führt die mechanischen Schritte ohne menschliche Richtungswahl aus — ohne pageId wird die Site dupliziert, mit pageId wird der Draft dieser Seite bearbeitet. referenceIds (1-3) oder collectionId (Set-Semantik) wählen die Designrichtung. Schreibt den abgeleiteten Theme-Patch und seedet leere Seiten mit hero/content/cta; bestehende Sektionen bleiben und werden danach mit get_page/get_section/apply_mutations umgebaut. Nutze einen stabilen idempotencyKey, damit ein Retry dieselbe Draft-Site zurückgibt. Läuft nie am aktiven Release. Für den menschlichen Weg ist create_redesign_proposal die richtige Wahl (ADR-0012).",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        siteId: { type: "string" },
+        referenceIds: { type: "array", items: { type: "string" } },
+        collectionId: { type: "string" },
+        pageId: { type: "string" },
+        withContent: { type: "boolean" },
+        idempotencyKey: { type: "string" },
+      },
+      ["siteId"],
+    ),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
+      const collectionId = optionalString(args, "collectionId");
+      let referenceIds: string[] | undefined;
+      if (collectionId === undefined) {
+        referenceIds = requireArray(args, "referenceIds").map((value) => {
+          if (typeof value !== "string" || value.trim() === "") {
+            throw new SenifyError("validation", '"referenceIds" must contain ids', {
+              field: "referenceIds",
+              suggestion: "Bis zu drei Referenz-ids übergeben (aus plan_redesign) — oder eine collectionId.",
+            });
+          }
+          return value;
+        });
+      }
+      const pageId = optionalString(args, "pageId");
+      const withContent = optionalBoolean(args, "withContent");
+      const idempotencyKey = optionalString(args, "idempotencyKey");
+      return context.client.request("POST", `/api/sites/${siteId}/redesign`, {
+        ...(referenceIds === undefined ? {} : { referenceIds }),
+        ...(collectionId === undefined ? {} : { collectionId }),
+        ...(pageId === undefined ? {} : { pageId }),
+        ...(withContent === undefined ? {} : { withContent }),
+        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+      });
+    },
+  },
+  {
+    name: "import_design_system",
+    title: "Import design system",
+    description:
+      "Leitet aus dem design.md einer Referenz einen Theme-Entwurf für eine Site ab: den patch für update_theme (scales/fonts/motion), je Wert die Belegstelle mit Evidenzstufe (kein Wert ohne Quelle), die Lücken des Dokuments (gaps — dort bleibt das Theme unverändert), die Font-Zuordnung mit Lizenz-Hinweis und die Konflikte gegen das aktuelle Theme. reduced=true heißt: dünnes Dokument oder Profil ohne Laufzeitmessung. Ein Lese-Weg; geschrieben wird mit update_theme.",
+    scope: "read",
+    inputSchema: objectSchema(
+      {
+        referenceId: { type: "string" },
+        siteId: { type: "string" },
+      },
+      ["referenceId", "siteId"],
+    ),
+    entity: (args) => `reference:${String(args.referenceId ?? "")}`,
+    handler: async (context, args) => {
+      const referenceId = requireString(args, "referenceId");
+      const siteId = requireString(args, "siteId");
+      return context.client.request(
+        "GET",
+        `/api/references/${referenceId}/design-system?siteId=${encodeURIComponent(siteId)}`,
+      );
+    },
+  },
+  {
+    name: "get_design_report",
+    title: "Get design report",
+    description:
+      "Der Design-Score (0–100) einer Site mit acht Dimensionen (Typo, Spacing, Farbe, Hierarchie, Sektions-Varianz, Assets, Motion, A11y), der Schwelle des Site-Profils (green/hint/gate) und den benannten Slop-Findings S1–S12 mit Fundstelle und Vorschlag. Reproduzierbar: gleiche Eingabe, gleicher Score. Vor submit_for_review nutzen, um generische Seiten selbst nachzubessern.",
+    scope: "read",
+    inputSchema: objectSchema({ siteId: { type: "string" } }, ["siteId"]),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) =>
+      context.client.request(
+        "GET",
+        `/api/sites/${requireString(args, "siteId")}/design-report`,
+      ),
+  },
+  {
+    name: "diff_reference",
+    title: "Diff reference design",
+    description:
+      "Compares a reference against the current drafts: bakes the pages to a throwaway directory, captures them at the slot widths of the reference (hero-desktop, hero-mobile, fullpage) and diffs slot by slot. Returns the number per slot (changed pixels, ratio, bounds) plus the heatmap preview paths. Read-only in effect — no preview record, no review item. Use it to verify a redesign against its reference before submitting.",
+    scope: "read",
+    inputSchema: objectSchema(
+      {
+        referenceId: { type: "string" },
+        siteId: { type: "string" },
+        pageId: { type: "string" },
+      },
+      ["referenceId", "siteId"],
+    ),
+    entity: (args) => `reference:${String(args.referenceId ?? "")}`,
+    handler: async (context, args) => {
+      const referenceId = requireString(args, "referenceId");
+      const siteId = requireString(args, "siteId");
+      const pageId = optionalString(args, "pageId");
+      return context.client.request(
+        "POST",
+        `/api/references/${referenceId}/visual-diff`,
+        {
+          siteId,
+          ...(pageId === undefined ? {} : { pageId }),
+        },
+      );
+    },
+  },
+  {
+    name: "get_reference_docs",
+    title: "Get reference docs",
+    description:
+      "Liest die importierten Design-Dokumente einer Referenz: design (design.md), guidelines (design-guidelines.md), components (design-components.md) plus Name und Quell-URL. kind grenzt auf ein Dokument ein. Die Dokumente sind die Quelle des Profils; update_reference_doc schreibt sie, update_reference pflegt die Bibliotheksfelder.",
+    scope: "read",
+    inputSchema: objectSchema(
+      {
+        referenceId: { type: "string" },
+        kind: { type: "string", enum: ["design", "guidelines", "components"] },
+      },
+      ["referenceId"],
+    ),
+    entity: (args) => `reference:${String(args.referenceId ?? "")}`,
+    handler: async (context, args) => {
+      const referenceId = requireString(args, "referenceId");
+      const kind = optionalString(args, "kind");
+      const reference = (await context.client.request(
+        "GET",
+        `/api/references/${referenceId}`,
+      )) as {
+        name?: string;
+        sourceUrl?: string;
+        documents?: Record<string, string | null>;
+      };
+      const documents = reference.documents ?? {
+        design: null,
+        guidelines: null,
+        components: null,
+      };
+      return {
+        referenceId,
+        name: reference.name ?? null,
+        sourceUrl: reference.sourceUrl ?? null,
+        documents:
+          kind === undefined ? documents : { [kind]: documents[kind] ?? null },
+      };
+    },
+  },
+  {
+    name: "update_reference_doc",
+    title: "Update reference doc",
+    description:
+      "Schreibt genau ein Design-Dokument einer Referenz (design, guidelines oder components); die anderen Dokumente bleiben unberührt, content null löscht das Dokument. Der Text ist Markdown im Format der Referenz-Sammlung (Tabellen + sys.*-Block); das Profil wird davon nicht automatisch neu abgeleitet — dafür einen Import-Lauf (import_references) oder edit_reference_profile nutzen.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        referenceId: { type: "string" },
+        kind: { type: "string", enum: ["design", "guidelines", "components"] },
+        content: { type: ["string", "null"] },
+      },
+      ["referenceId", "kind", "content"],
+    ),
+    entity: (args) => `reference:${String(args.referenceId ?? "")}`,
+    handler: async (context, args) => {
+      const referenceId = requireString(args, "referenceId");
+      const kind = requireString(args, "kind");
+      if (!["design", "guidelines", "components"].includes(kind)) {
+        throw new SenifyError("validation", `Unknown document kind "${kind}"`, {
+          field: "kind",
+          suggestion: "Use design, guidelines or components.",
+        });
+      }
+      const content = optionalNullableString(args, "content");
+      if (content === undefined) {
+        throw new SenifyError("validation", 'Missing "content"', {
+          field: "content",
+          suggestion: "Pass the markdown text or null to clear the document.",
+        });
+      }
+      return context.client.request("PATCH", `/api/references/${referenceId}`, {
+        documents: { [kind]: content },
+      });
+    },
+  },
+  {
+    name: "create_manual_reference",
+    title: "Create manual reference",
+    description:
+      "Legt eine Referenz manuell an: name und image (Base64, PNG/JPEG/WebP bis 20 MB, mit oder ohne data:-Präfix) sind Pflicht; imageMobile ist der zweite Snapshot. sourceUrl, collectionId, note, vocabulary, imageRecipe, heroUsage, family, capturedAt und documents (design/guidelines/components) sind optional. Die Referenz ist sofort ready und trägt kein Analyseprofil; für den Import ganzer Ordner gibt es den CLI-Import.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        name: { type: "string" },
+        image: { type: "string" },
+        imageMobile: { type: "string" },
+        sourceUrl: { type: "string" },
+        collectionId: { type: ["string", "null"] },
+        note: { type: "string" },
+        vocabulary: { type: "array", items: { type: "string" } },
+        imageRecipe: { type: "string" },
+        heroUsage: { type: "string" },
+        family: { type: ["string", "null"] },
+        capturedAt: { type: "string" },
+        documents: { type: "object" },
+      },
+      ["name", "image"],
+    ),
+    entity: (args) => `reference:${String(args.name ?? "")}`,
+    handler: async (context, args) => {
+      const name = requireString(args, "name");
+      const image = requireString(args, "image");
+      const imageMobile = optionalString(args, "imageMobile");
+      const sourceUrl = optionalString(args, "sourceUrl");
+      const collectionId = optionalNullableString(args, "collectionId");
+      const note = optionalString(args, "note");
+      const vocabulary = optionalStringArray(args, "vocabulary");
+      const imageRecipe = optionalString(args, "imageRecipe");
+      const heroUsage = optionalString(args, "heroUsage");
+      const family = optionalNullableString(args, "family");
+      const capturedAt = optionalString(args, "capturedAt");
+      const documents =
+        args.documents === undefined ? undefined : requireRecord(args, "documents");
+      return context.client.request("POST", "/api/references/manual", {
+        name,
+        image,
+        ...(imageMobile === undefined ? {} : { imageMobile }),
+        ...(sourceUrl === undefined ? {} : { sourceUrl }),
+        ...(collectionId === undefined ? {} : { collectionId }),
+        ...(note === undefined ? {} : { note }),
+        ...(vocabulary === undefined ? {} : { vocabulary }),
+        ...(imageRecipe === undefined ? {} : { imageRecipe }),
+        ...(heroUsage === undefined ? {} : { heroUsage }),
+        ...(family === undefined ? {} : { family }),
+        ...(capturedAt === undefined ? {} : { capturedAt }),
+        ...(documents === undefined ? {} : { documents }),
+      });
+    },
+  },
+  {
+    name: "update_reference",
+    title: "Update reference",
+    description:
+      "Pflegt die Bibliotheksfelder einer Referenz: name, sourceUrl, collectionId, note, vocabulary, imageRecipe, heroUsage, family und documents. Nur die gesendeten Felder ändern sich; null leert ein Feld (collectionId löst die Zuordnung). Für ein einzelnes Dokument ist update_reference_doc der kürzere Weg.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        referenceId: { type: "string" },
+        name: { type: "string" },
+        sourceUrl: { type: "string" },
+        collectionId: { type: ["string", "null"] },
+        note: { type: ["string", "null"] },
+        vocabulary: { type: "array", items: { type: "string" } },
+        imageRecipe: { type: ["string", "null"] },
+        heroUsage: { type: ["string", "null"] },
+        family: { type: ["string", "null"] },
+        documents: { type: "object" },
+      },
+      ["referenceId"],
+    ),
+    entity: (args) => `reference:${String(args.referenceId ?? "")}`,
+    handler: async (context, args) => {
+      const referenceId = requireString(args, "referenceId");
+      const name = optionalString(args, "name");
+      const sourceUrl = optionalString(args, "sourceUrl");
+      const collectionId = optionalNullableString(args, "collectionId");
+      const note = optionalNullableString(args, "note");
+      const vocabulary = optionalStringArray(args, "vocabulary");
+      const imageRecipe = optionalNullableString(args, "imageRecipe");
+      const heroUsage = optionalNullableString(args, "heroUsage");
+      const family = optionalNullableString(args, "family");
+      const documents =
+        args.documents === undefined ? undefined : requireRecord(args, "documents");
+      const body: Record<string, unknown> = {};
+      if (name !== undefined) body.name = name;
+      if (sourceUrl !== undefined) body.sourceUrl = sourceUrl;
+      if (collectionId !== undefined) body.collectionId = collectionId;
+      if (note !== undefined) body.note = note;
+      if (vocabulary !== undefined) body.vocabulary = vocabulary;
+      if (imageRecipe !== undefined) body.imageRecipe = imageRecipe;
+      if (heroUsage !== undefined) body.heroUsage = heroUsage;
+      if (family !== undefined) body.family = family;
+      if (documents !== undefined) body.documents = documents;
+      if (Object.keys(body).length === 0) {
+        throw new SenifyError("validation", "Nothing to update", {
+          field: "referenceId",
+          suggestion: "Pass at least one library field or documents.",
+        });
+      }
+      return context.client.request("PATCH", `/api/references/${referenceId}`, body);
+    },
+  },
+  {
+    name: "delete_reference",
+    title: "Delete reference",
+    description:
+      "Löscht eine Referenz aus der Bibliothek. Ohne force nur, wenn sie keinem Projekt zugeordnet ist; force=true entfernt auch die Projekt-Zuordnungen. Snapshot-Dateien und Profil-Revisionen gehen mit.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        referenceId: { type: "string" },
+        force: { type: "boolean" },
+      },
+      ["referenceId"],
+    ),
+    entity: (args) => `reference:${String(args.referenceId ?? "")}`,
+    handler: async (context, args) => {
+      const referenceId = requireString(args, "referenceId");
+      const force = optionalBoolean(args, "force");
+      return context.client.request(
+        "DELETE",
+        `/api/references/${referenceId}${force === true ? "?force=1" : ""}`,
+      );
+    },
+  },
+  {
+    name: "edit_reference_profile",
+    title: "Edit reference profile",
+    description:
+      "Nachbearbeitung eines Referenz-Profils: vocabulary, families, rules (constants/never) und note überschreiben die Profilwerte, jede Änderung schreibt eine neue Profil-Revision (append-only, list_reference_revisions zeigt sie). Mindestens ein Feld senden.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        referenceId: { type: "string" },
+        note: { type: "string" },
+        vocabulary: { type: "array", items: { type: "string" } },
+        families: { type: "array", items: { type: "string" } },
+        rules: { type: "object" },
+      },
+      ["referenceId"],
+    ),
+    entity: (args) => `reference:${String(args.referenceId ?? "")}`,
+    handler: async (context, args) => {
+      const referenceId = requireString(args, "referenceId");
+      const note = optionalString(args, "note");
+      const vocabulary = optionalStringArray(args, "vocabulary");
+      const families = optionalStringArray(args, "families");
+      const rules = args.rules === undefined ? undefined : requireRecord(args, "rules");
+      if (
+        note === undefined &&
+        vocabulary === undefined &&
+        families === undefined &&
+        rules === undefined
+      ) {
+        throw new SenifyError("validation", "Nothing to edit", {
+          field: "referenceId",
+          suggestion: "Pass note, vocabulary, families or rules.",
+        });
+      }
+      return context.client.request("POST", `/api/references/${referenceId}/revisions`, {
+        ...(note === undefined ? {} : { note }),
+        ...(vocabulary === undefined ? {} : { vocabulary }),
+        ...(families === undefined ? {} : { families }),
+        ...(rules === undefined ? {} : { rules }),
+      });
+    },
+  },
+  {
+    name: "list_reference_revisions",
+    title: "List reference revisions",
+    description:
+      "Listet die Profil-Revisionen einer Referenz (append-only, neueste zuerst) mit Autor, Zeitpunkt und den geänderten Feldern. Revision 1 ist der Import-/Analyse-Stand.",
+    scope: "read",
+    inputSchema: objectSchema({ referenceId: { type: "string" } }, ["referenceId"]),
+    entity: (args) => `reference:${String(args.referenceId ?? "")}`,
+    handler: async (context, args) =>
+      context.client.request(
+        "GET",
+        `/api/references/${requireString(args, "referenceId")}/revisions`,
+      ),
+  },
+  {
+    name: "unassign_reference",
+    title: "Unassign reference",
+    description:
+      "Löst die Projekt-Zuordnung einer Referenz (die Referenz bleibt in der Bibliothek). Danach fehlt ihre Skala im abgeleiteten Theme-Entwurf; das aktive Release bleibt unberührt, bis ein Theme neu geschrieben wird.",
+    scope: "write",
+    inputSchema: objectSchema(
+      { siteId: { type: "string" }, referenceId: { type: "string" } },
+      ["siteId", "referenceId"],
+    ),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) =>
+      context.client.request(
+        "DELETE",
+        `/api/sites/${requireString(args, "siteId")}/references/${requireString(
+          args,
+          "referenceId",
+        )}`,
+      ),
+  },
+  {
+    name: "reference_tick",
+    title: "Reference tick",
+    description:
+      "Führt fällige Referenz-Jobs aus (Retry mit Backoff nach fehlgeschlagenen Captures, Fortschritt langer Läufe). limit begrenzt die Zahl der Jobs pro Aufruf (Default des Servers). Nicht idempotent: jeder Aufruf verarbeitet erneut fällige Jobs.",
+    scope: "write",
+    inputSchema: objectSchema({ limit: { type: "number" } }),
+    handler: async (context, args) => {
+      const limit = optionalNumber(args, "limit");
+      return context.client.request("POST", "/api/references/tick", {
+        ...(limit === undefined ? {} : { limit }),
+      });
+    },
+  },
+  {
+    name: "update_reference_collection",
+    title: "Update reference collection",
+    description:
+      "Ändert eine Sammlung der Referenz-Bibliothek: name, description, deployFor, vocabulary, risk, accent, imageStyle, recognize, examples, warning und position. Nur die gesendeten Felder ändern sich; warning null entfernt den Hinweis. kind und id sind fest.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        collectionId: { type: "string" },
+        name: { type: "string" },
+        description: { type: "string" },
+        deployFor: { type: "string" },
+        vocabulary: { type: "array", items: { type: "string" } },
+        risk: { type: "string" },
+        accent: { type: "string" },
+        imageStyle: { type: "string" },
+        recognize: { type: "array", items: { type: "string" } },
+        examples: { type: "array", items: { type: "object" } },
+        warning: { type: ["string", "null"] },
+        position: { type: "number" },
+      },
+      ["collectionId"],
+    ),
+    entity: (args) => `collection:${String(args.collectionId ?? "")}`,
+    handler: async (context, args) => {
+      const collectionId = requireString(args, "collectionId");
+      const name = optionalString(args, "name");
+      const description = optionalString(args, "description");
+      const deployFor = optionalString(args, "deployFor");
+      const vocabulary = optionalStringArray(args, "vocabulary");
+      const risk = optionalString(args, "risk");
+      const accent = optionalString(args, "accent");
+      const imageStyle = optionalString(args, "imageStyle");
+      const recognize = optionalStringArray(args, "recognize");
+      const examples =
+        args.examples === undefined ? undefined : requireArray(args, "examples");
+      const warning = optionalNullableString(args, "warning");
+      const position = optionalNumber(args, "position");
+      const body: Record<string, unknown> = {};
+      if (name !== undefined) body.name = name;
+      if (description !== undefined) body.description = description;
+      if (deployFor !== undefined) body.deployFor = deployFor;
+      if (vocabulary !== undefined) body.vocabulary = vocabulary;
+      if (risk !== undefined) body.risk = risk;
+      if (accent !== undefined) body.accent = accent;
+      if (imageStyle !== undefined) body.imageStyle = imageStyle;
+      if (recognize !== undefined) body.recognize = recognize;
+      if (examples !== undefined) body.examples = examples;
+      if (warning !== undefined) body.warning = warning;
+      if (position !== undefined) body.position = position;
+      if (Object.keys(body).length === 0) {
+        throw new SenifyError("validation", "Nothing to update", {
+          field: "collectionId",
+          suggestion: "Pass at least one collection field.",
+        });
+      }
+      return context.client.request(
+        "PATCH",
+        `/api/reference-collections/${collectionId}`,
+        body,
+      );
+    },
+  },
+  {
+    name: "delete_reference_collection",
+    title: "Delete reference collection",
+    description:
+      "Löscht eine Sammlung; ihre Referenzen bleiben und fallen auf „ohne Sammlung“ zurück (affectedReferences nennt die Zahl). Der Stil-Katalog kann so ebenfalls gelöscht werden.",
+    scope: "write",
+    inputSchema: objectSchema({ collectionId: { type: "string" } }, ["collectionId"]),
+    entity: (args) => `collection:${String(args.collectionId ?? "")}`,
+    handler: async (context, args) =>
+      context.client.request(
+        "DELETE",
+        `/api/reference-collections/${requireString(args, "collectionId")}`,
+      ),
+  },
+  {
+    name: "get_reference_settings",
+    title: "Get reference settings",
+    description:
+      "Liest die Haus-DNA (name, description, constants, never) und die Brief-Präferenzen (includeDna, overrides) der Referenz-Bibliothek. Die DNA steht unter jedem Brief und ist die prüfbare Grundlage für Design-Entscheidungen.",
+    scope: "read",
+    inputSchema: objectSchema({}),
+    handler: async (context) => {
+      const settings = (await context.client.request("GET", "/api/settings")) as {
+        referenceDna?: unknown;
+        referencePreferences?: unknown;
+      };
+      return {
+        dna: settings.referenceDna ?? null,
+        preferences: settings.referencePreferences ?? null,
+      };
+    },
+  },
+  {
+    name: "set_reference_settings",
+    title: "Set reference settings",
+    description:
+      "Schreibt die Haus-DNA und/oder die Brief-Präferenzen: dna (name, description, constants, never) und preferences (includeDna, overrides). Nur die gesendeten Felder ändern sich; die DNA-Einträge werden getrimmt, dedupliziert und leere fallen weg.",
+    scope: "write",
+    inputSchema: objectSchema({
+      dna: { type: "object" },
+      preferences: { type: "object" },
+    }),
+    handler: async (context, args) => {
+      const dna = args.dna === undefined ? undefined : requireRecord(args, "dna");
+      const preferences =
+        args.preferences === undefined ? undefined : requireRecord(args, "preferences");
+      if (dna === undefined && preferences === undefined) {
+        throw new SenifyError("validation", "Nothing to write", {
+          field: "dna",
+          suggestion: "Pass dna, preferences or both.",
+        });
+      }
+      return context.client.request("PUT", "/api/settings", {
+        ...(dna === undefined ? {} : { referenceDna: dna }),
+        ...(preferences === undefined ? {} : { referencePreferences: preferences }),
+      });
+    },
+  },
+  {
+    name: "get_design_contract",
+    title: "Get design contract",
+    description:
+      "Liest die Design-DNA eines Projekts (constants/never/vocabulary, Quelle references|manual). Die never-Regeln sind im Schreibpfad hart für Agenten-Tokens und eine Warnung für Menschen — lies sie, bevor du in das Projekt schreibst.",
+    scope: "read",
+    inputSchema: objectSchema({ siteId: { type: "string" } }, ["siteId"]),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) =>
+      context.client.request(
+        "GET",
+        `/api/sites/${requireString(args, "siteId")}/design-contract`,
+      ),
+  },
+  {
+    name: "set_design_contract",
+    title: "Set design contract",
+    description:
+      "Setzt eine manuelle Design-DNA für das Projekt (constants/never/vocabulary); ein leerer Body löscht die DNA. Die never-Regeln gelten im Schreibpfad: Agenten-Schreibvorgänge, die sie verletzen, werden blockiert. Eine aus Referenzen abgeleitete DNA wird erst überschrieben, wenn du sie manuell setzt.",
+    scope: "write",
+    inputSchema: objectSchema({
+      siteId: { type: "string" },
+      constants: { type: "array", items: { type: "string" } },
+      never: { type: "array", items: { type: "string" } },
+      vocabulary: { type: "array", items: { type: "string" } },
+    }, ["siteId"]),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
+      const constants = optionalStringArray(args, "constants");
+      const never = optionalStringArray(args, "never");
+      const vocabulary = optionalStringArray(args, "vocabulary");
+      const body =
+        constants === undefined && never === undefined && vocabulary === undefined
+          ? {}
+          : {
+              ...(constants === undefined ? {} : { constants }),
+              ...(never === undefined ? {} : { never }),
+              ...(vocabulary === undefined ? {} : { vocabulary }),
+            };
+      return context.client.request(
+        "PUT",
+        `/api/sites/${siteId}/design-contract`,
+        body,
+      );
+    },
+  },
+  {
+    name: "list_library_components",
+    title: "List library components",
+    description: "Lists reusable global component definitions with name, kind, version, fingerprint, tags, provenance, license and deprecation state.",
+    scope: "read",
+    inputSchema: objectSchema({}),
+    entity: () => "library:global",
+    handler: async (context) => context.client.request("GET", "/api/library-components"),
+  },
+  {
+    name: "get_library_component",
+    title: "Get library component",
+    description: "Reads one reusable component definition, including its NodeTree structure, variants through props, slots, fingerprint, provenance and license status.",
+    scope: "read",
+    inputSchema: objectSchema({ componentId: { type: "string" } }, ["componentId"]),
+    entity: (args) => `library:${String(args.componentId ?? "")}`,
+    handler: async (context, args) => context.client.request("GET", `/api/library-components/${requireString(args, "componentId")}`),
+  },
+  {
+    name: "promote_to_library",
+    title: "Promote component to library",
+    description: "Promotes a normalized component candidate into the global reusable library. Fingerprints deduplicate; imported foreign code with an unknown license is rejected by the engine policy.",
+    scope: "write",
+    inputSchema: objectSchema({ component: { type: "object" }, fingerprint: { type: "string" }, name: { type: "string" }, tags: { type: "array", items: { type: "string" } }, license: { type: "object" }, notes: { type: "string" } }, ["component", "fingerprint", "name"]),
+    entity: (args) => `library:${String(args.name ?? "")}`,
+    handler: async (context, args) => context.client.request("POST", "/api/library-components", { name: requireString(args, "name"), kind: "component", definition: requireRecord(args, "component"), fingerprint: requireString(args, "fingerprint"), tags: Array.isArray(args.tags) ? args.tags : [], ...(args.license === undefined ? {} : { license: args.license }), ...(args.notes === undefined ? {} : { notes: args.notes }), author: { kind: "human", id: "mcp", label: "MCP" } }),
+  },
+  {
+    name: "install_library_component",
+    title: "Install library component",
+    description: "Installs a reusable component into a site and optionally inserts a real component instance into a target page.",
+    scope: "write",
+    inputSchema: objectSchema({ siteId: { type: "string" }, componentId: { type: "string" }, pageId: { type: "string" }, parentNodeId: { type: "string" }, mode: { type: "string", enum: ["linked", "copied"] } }, ["siteId", "componentId"]),
+    entity: (args) => `site:${String(args.siteId ?? "")}:library:${String(args.componentId ?? "")}`,
+    handler: async (context, args) => context.client.request("POST", `/api/sites/${requireString(args, "siteId")}/library-installs`, { componentId: requireString(args, "componentId"), ...(args.pageId === undefined ? {} : { pageId: args.pageId }), ...(args.parentNodeId === undefined ? {} : { parentNodeId: args.parentNodeId }), ...(args.mode === undefined ? {} : { mode: args.mode }), author: { kind: "human", id: "mcp", label: "MCP" } }),
+  },
+  {
+    name: "uninstall_library_component",
+    title: "Uninstall library component",
+    description: "Detaches a site installation without data loss: installed instances become local definitions marked with their library provenance before the installation row is removed.",
+    scope: "write",
+    inputSchema: objectSchema({ siteId: { type: "string" }, installId: { type: "string" } }, ["siteId", "installId"]),
+    entity: (args) => `site:${String(args.siteId ?? "")}:library-install:${String(args.installId ?? "")}`,
+    handler: async (context, args) => context.client.request("DELETE", `/api/sites/${requireString(args, "siteId")}/library-installs/${requireString(args, "installId")}`, { author: { kind: "human", id: "mcp", label: "MCP" } }),
+  },
+  {
+    name: "update_library_instances",
+    title: "Update library instances",
+    description: "Moves a site installation to the current global component version. Existing instance override bags remain addressed by stable part ids.",
+    scope: "write",
+    inputSchema: objectSchema({ siteId: { type: "string" }, installId: { type: "string" } }, ["siteId", "installId"]),
+    entity: (args) => `site:${String(args.siteId ?? "")}:library-install:${String(args.installId ?? "")}`,
+    handler: async (context, args) => context.client.request("POST", `/api/sites/${requireString(args, "siteId")}/library-installs/${requireString(args, "installId")}/update`, { author: { kind: "human", id: "mcp", label: "MCP" } }),
+  },
+  {
+    name: "library_audit",
+    title: "Library audit",
+    description: "Reads the global library audit trail: creates, updates, installs, version updates and detaches with author and timestamp.",
+    scope: "read",
+    inputSchema: objectSchema({}),
+    entity: () => "library:audit",
+    handler: async (context) => context.client.request("GET", "/api/library-components/audit"),
+  },
+  {
+    name: "import_framer_page",
+    title: "Import Framer page",
+    description:
+      "Imports a Framer page (published URL, local mirror folder or raw SSR-HTML) into a site: capture → normalize → map → report. Default is a dry run (report only); write: true creates the page (or writes into pageId) as ONE revision, appends the style rules with their framer-import origin and optionally applies the theme font patch (applyTheme). Fonts are fetched and self-hosted (DSGVO); unreachable files surface as findings, never as silent drops.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        siteId: { type: "string" },
+        url: { type: "string" },
+        rootDir: { type: "string" },
+        html: { type: "string" },
+        baseUrl: { type: "string" },
+        pagePath: { type: "string" },
+        pageId: { type: "string" },
+        baseDraftVersion: { type: "number" },
+        write: { type: "boolean" },
+        applyTheme: { type: "boolean" },
+        assets: { type: "string", enum: ["upload", "skip"] },
+        fonts: { type: "string", enum: ["rewrite", "skip"] },
+        idempotencyKey: { type: "string" },
+      },
+      ["siteId"],
+    ),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
+      const url = optionalString(args, "url");
+      const rootDir = optionalString(args, "rootDir");
+      const html = optionalString(args, "html");
+      const baseUrl = optionalString(args, "baseUrl");
+      if (url === undefined && rootDir === undefined && html === undefined) {
+        throw new SenifyError("validation", "Die Import-Quelle ist leer", {
+          field: "source",
+          suggestion: "url (live), rootDir (Mirror-Ordner) oder html (Markup) angeben.",
+        });
+      }
+      const pagePath = optionalString(args, "pagePath");
+      const pageId = optionalString(args, "pageId");
+      const baseDraftVersion = optionalNumber(args, "baseDraftVersion");
+      const write = optionalBoolean(args, "write");
+      const applyTheme = optionalBoolean(args, "applyTheme");
+      const assets = optionalString(args, "assets");
+      const fonts = optionalString(args, "fonts");
+      const idempotencyKey = optionalString(args, "idempotencyKey");
+      return context.client.request(
+        "POST",
+        `/api/sites/${siteId}/imports/framer`,
+        {
+          source: {
+            ...(url === undefined ? {} : { url }),
+            ...(rootDir === undefined ? {} : { rootDir }),
+            ...(html === undefined ? {} : { html }),
+            ...(baseUrl === undefined ? {} : { baseUrl }),
+          },
+          ...(pagePath === undefined ? {} : { pagePath }),
+          ...(pageId === undefined ? {} : { pageId }),
+          ...(baseDraftVersion === undefined ? {} : { baseDraftVersion }),
+          ...(write === undefined ? {} : { write }),
+          ...(applyTheme === undefined ? {} : { applyTheme }),
+          ...(assets === undefined ? {} : { assets }),
+          ...(fonts === undefined ? {} : { fonts }),
+          ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+        },
+      );
+    },
+  },
+  {
+    name: "get_import_report",
+    title: "Get import report",
+    description:
+      "Reads one import job: status (queued/running/succeeded/failed) plus the full report when the run finished — score, node and declaration counts, assets (downloaded/deduped/failed, fonts), findings with evidence and the marquee candidates. The report is stored on the job, so polling does not re-run the import.",
+    scope: "read",
+    inputSchema: objectSchema({ jobId: { type: "string" } }, ["jobId"]),
+    entity: (args) => `import:${String(args.jobId ?? "")}`,
+    handler: async (context, args) =>
+      context.client.request(
+        "GET",
+        `/api/imports/${requireString(args, "jobId")}`,
+      ),
   },
 ];
 

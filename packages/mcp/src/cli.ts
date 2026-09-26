@@ -1,9 +1,9 @@
 import { Command } from "commander";
-import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { startProgram } from "@senify/app";
+import { startProgram, readProgramToken, programTokenPath } from "@senify/app";
 import {
   createShortcut,
   disableStartup,
@@ -23,6 +23,7 @@ import {
   selectTargets,
 } from "./clients.ts";
 import { DEFAULT_API_URL, resolveDatabaseUrl } from "./config.ts";
+import { doctorExitCode, formatDoctor, runDoctor } from "./doctor.ts";
 import { serveStdio } from "./server.ts";
 
 const SCOPES = ["read", "write", "publish"] as const;
@@ -46,10 +47,16 @@ function resolveApiUrl(options: ApiOption): string {
   return url.replace(/\/+$/, "");
 }
 
-// Token management is a local operator surface: the CLI talks to the engine
-// without a bearer token (the engine binds to loopback by default).
+// Token management requires a human operator token. The CLI first uses an
+// explicit environment token, then the token persisted by `senify start`.
 function operator(options: ApiOption): EngineClient {
-  return new EngineClient({ apiUrl: resolveApiUrl(options) });
+  const token = process.env.SENIFY_TOKEN ?? readProgramToken(programTokenPath())?.secret;
+  if (!token) {
+    throw new SenifyError("auth", "No operator token found", {
+      suggestion: "Start `senify start` once or set `SENIFY_TOKEN` to a human operator token.",
+    });
+  }
+  return new EngineClient({ apiUrl: resolveApiUrl(options), token });
 }
 
 function parseScopes(value: string): string[] {
@@ -86,6 +93,18 @@ function formatToken(token: TokenEntry): string {
   if (token.expiresAt !== null) parts.push(`expires=${token.expiresAt.slice(0, 10)}`);
   if (token.revokedAt !== null) parts.push("REVOKED");
   return parts.join("  ");
+}
+
+// The persisted operator token of the running installation; deploy needs the
+// publish scope, so the token-less operator surface is not enough.
+function programTokenSecret(): string | undefined {
+  return readProgramToken(programTokenPath())?.secret;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function copySkills(): string {
@@ -247,6 +266,159 @@ export function createProgram(): Command {
       console.log(
         `Check: token "${who.name}" (${who.scopes.join(", ")}) sees ${sites.sites.length} site(s) — arbeitsfähig ✓`,
       );
+    });
+
+  program
+    .command("deploy")
+    .description(
+      "Den aktiven Release in ein Zielverzeichnis deployen (statischer Deploy)",
+    )
+    .requiredOption("--site <siteId>", "Projekt-Id")
+    .requiredOption("--target <dir>", "Zielverzeichnis (absoluter Pfad)")
+    .option("--api <url>")
+    .action(async (options) => {
+      // Deploy braucht den publish-Scope: der CLI-Weg nutzt das Programm-Token
+      // der laufenden Installation (der Dashboard-Proxy tut dasselbe).
+      const secret = programTokenSecret();
+      if (secret === undefined) {
+        throw new SenifyError("validation", "Kein Programm-Token gefunden", {
+          suggestion:
+            "Starte das Programm einmal (senify start), damit ~/.senify/program-token.json entsteht.",
+        });
+      }
+      const client = new EngineClient({
+        apiUrl: resolveApiUrl(options),
+        token: secret,
+      });
+      const result = await client.request<{
+        deployment: {
+          id: string;
+          status: string;
+          target: string;
+          fileCount: number;
+          byteSize: number;
+          error: string | null;
+        };
+      }>("POST", `/api/sites/${String(options.site)}/deployments`, {
+        provider: "static",
+        targetDir: String(options.target),
+      });
+      const deployment = result.deployment;
+      if (deployment.status === "succeeded") {
+        console.log(
+          `Deploy ${deployment.id}: ${deployment.fileCount} Dateien (${formatBytes(deployment.byteSize)}) — ${deployment.target}`,
+        );
+      } else {
+        console.error(
+          `Deploy ${deployment.id} fehlgeschlagen: ${deployment.error ?? "unbekannt"}`,
+        );
+        process.exitCode = 1;
+      }
+    });
+
+  program
+    .command("import")
+    .description("Import-Werkzeuge (Framer)")
+    .command("framer")
+    .description(
+      "Eine Framer-Seite importieren: URL, lokaler Mirror-Ordner oder HTML-Datei. Ohne --write nur Dry-Run (Bericht).",
+    )
+    .argument("<quelle>", "URL, Mirror-Ordner oder HTML-Datei")
+    .requiredOption("--site <siteId>", "Projekt-Id")
+    .option("--page-path <path>", "Zielpfad der Seite", "/")
+    .option("--write", "Ergebnis als eine Revision schreiben (Default: Dry-Run)")
+    .option("--page-id <pageId>", "In diese bestehende Seite schreiben statt neue anzulegen")
+    .option("--base-draft-version <version>", "Aktuelle Draft-Version der Zielseite")
+    .option("--apply-theme", "Theme-Font-Patch mit übernehmen")
+    .option("--report", "Vollen Bericht als JSON ausgeben")
+    .option("--api <url>")
+    .action(async (quelle, options) => {
+      const secret = programTokenSecret();
+      if (secret === undefined) {
+        throw new SenifyError("validation", "Kein Programm-Token gefunden", {
+          suggestion:
+            "Starte das Programm einmal (senify start), damit ~/.senify/program-token.json entsteht.",
+        });
+      }
+      const client = new EngineClient({
+        apiUrl: resolveApiUrl(options),
+        token: secret,
+      });
+      const source = /^https?:\/\//i.test(quelle)
+        ? { url: quelle }
+        : readFileSync(quelle, "utf8").startsWith("<")
+          ? { html: readFileSync(quelle, "utf8") }
+          : { rootDir: quelle };
+      const write = options.write === true;
+      const body: Record<string, unknown> = {
+        source,
+        pagePath: String(options.pagePath),
+        write,
+        ...(options.pageId === undefined ? {} : { pageId: String(options.pageId) }),
+        ...(options.baseDraftVersion === undefined
+          ? {}
+          : { baseDraftVersion: Number.parseInt(String(options.baseDraftVersion), 10) }),
+        ...(options.applyTheme === true ? { applyTheme: true } : {}),
+      };
+      const answer = await client.request<{
+        job: { id: string; status: string; dryRun: boolean };
+        report: {
+          irHash: string;
+          score: number;
+          counts: { nodes: number; mapped: number; placeholders: number };
+          declarations: { total: number; carried: number; dropped: number };
+          assets: { downloaded: number; deduped: number; failed: number; fonts: number };
+          findings: { kind: string; severity: string; message: string }[];
+          marqueeCandidates: { nodeKey: string | null; reason: string }[];
+          steps: string[];
+          pageId: string | null;
+          newDraftVersion: number | null;
+        };
+      }>("POST", `/api/sites/${String(options.site)}/imports/framer`, body);
+      const report = answer.report;
+      if (options.report === true) {
+        console.log(JSON.stringify({ job: answer.job, report }, null, 2));
+        return;
+      }
+      console.log(
+        `Import ${answer.job.id} (${write ? "geschrieben" : "Dry-Run"}) — Score ${report.score}`,
+      );
+      console.log(
+        `Knoten: ${report.counts.mapped}/${report.counts.nodes} · Deklarationen: ${report.declarations.carried}/${report.declarations.total} (gedroppt ${report.declarations.dropped}) · Assets: ${report.assets.downloaded} geladen, ${report.assets.deduped} dedupliziert, ${report.assets.fonts} Fonts, ${report.assets.failed} fehlgeschlagen`,
+      );
+      console.log(`IR-Hash: ${report.irHash}`);
+      if (write) {
+        console.log(
+          `Seite: ${report.pageId ?? "-"} (Draft-Version ${report.newDraftVersion ?? "-"})`,
+        );
+      }
+      for (const finding of report.findings) {
+        console.log(`  [${finding.severity}] ${finding.kind}: ${finding.message}`);
+      }
+      for (const candidate of report.marqueeCandidates) {
+        console.log(`  [marquee] ${candidate.nodeKey ?? "-"}: ${candidate.reason}`);
+      }
+    });
+
+  program
+    .command("doctor")
+    .description(
+      "Status je Fähigkeit (Engine, Dashboard, Datenbank, Token, MCP, Daten, Bake) mit Fix-Befehl",
+    )
+    .option("--api <url>")
+    .option("--app <url>", "Dashboard-URL", "http://127.0.0.1:4322")
+    .option("--json", "Maschinenlesbar ausgeben")
+    .action(async (options) => {
+      const report = await runDoctor({
+        apiUrl: resolveApiUrl(options),
+        appUrl: String(options.app),
+      });
+      if (options.json === true) {
+        console.log(JSON.stringify(report, null, 2));
+      } else {
+        for (const line of formatDoctor(report)) console.log(line);
+      }
+      process.exitCode = doctorExitCode(report);
     });
 
   const mcp = program.command("mcp").description("MCP client integration");

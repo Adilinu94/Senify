@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { createMcpServer, EngineClient, type ToolContext } from "@senify/mcp";
 import { runImageJobOnce, type ImageProvider } from "@senify/engine";
 import {
@@ -24,6 +25,17 @@ function pngBytes(width: number, height: number): Buffer {
   return buffer;
 }
 
+// Same header with the complete 8-byte PNG signature: the reference library
+// sniffs the full magic (the media upload only reads the first four bytes).
+function referencePng(width: number, height: number): Buffer {
+  const buffer = Buffer.alloc(24);
+  buffer.writeUInt32BE(0x89504e47, 0);
+  buffer.writeUInt32BE(0x0d0a1a0a, 4);
+  buffer.writeUInt32BE(width, 16);
+  buffer.writeUInt32BE(height, 20);
+  return buffer;
+}
+
 const OPERATOR = { kind: "human", id: "operator", label: "Operator" } as const;
 
 type McpSession = {
@@ -39,6 +51,40 @@ async function connect(origin: string, token: string): Promise<McpSession> {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   const client = new Client({ name: "senify-tests", version: "0.0.0" });
+  await client.connect(clientTransport);
+  return {
+    client,
+    async close() {
+      await client.close();
+      await server.close();
+    },
+  };
+}
+
+// Elicitation-capable session (E4 slice 2): the client declares the form
+// capability and answers elicitation/create with the given handler.
+type ElicitAnswer =
+  | { action: "accept"; content: Record<string, string> }
+  | { action: "decline" };
+
+async function connectEliciting(
+  origin: string,
+  token: string,
+  answer: (message: string) => Promise<ElicitAnswer>,
+): Promise<McpSession> {
+  const context: ToolContext = {
+    client: new EngineClient({ apiUrl: origin, token }),
+  };
+  const server = createMcpServer({ context, onError: () => {} });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  const client = new Client(
+    { name: "senify-elicits", version: "0.0.0" },
+    { capabilities: { elicitation: { form: {} } } },
+  );
+  client.setRequestHandler(ElicitRequestSchema, async (request) =>
+    answer(request.params.message),
+  );
   await client.connect(clientTransport);
   return {
     client,
@@ -96,6 +142,7 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "search_docs",
       "read_docs",
       "apply_mutations",
+      "undo_batch",
       "set_motion",
       "clear_motion",
       "list_components",
@@ -107,12 +154,20 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "set_styles",
       "create_style_rule",
       "create_page",
+      "set_page_template",
       "update_theme",
       "create_preview",
       "submit_for_review",
       "get_review_feedback",
       "publish_release",
       "rollback_release",
+      "list_releases",
+      "get_release",
+      "list_bake_jobs",
+      "deploy_site",
+      "get_deploy_settings",
+      "set_deploy_settings",
+      "list_deployments",
       "restore_revision",
       "delete_page",
       "list_assets",
@@ -138,6 +193,8 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "list_submissions",
       "analyze_reference",
       "list_references",
+      "search_references",
+      "find_duplicate_references",
       "get_reference",
       "apply_reference",
       "list_reference_collections",
@@ -145,6 +202,36 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "assign_reference_to_collection",
       "get_reference_brief",
       "plan_redesign",
+      "create_redesign_proposal",
+      "get_redesign_proposal",
+      "apply_redesign",
+      "import_design_system",
+      "get_design_report",
+      "diff_reference",
+      "get_reference_docs",
+      "update_reference_doc",
+      "create_manual_reference",
+      "update_reference",
+      "delete_reference",
+      "edit_reference_profile",
+      "list_reference_revisions",
+      "unassign_reference",
+      "reference_tick",
+      "update_reference_collection",
+      "delete_reference_collection",
+      "get_reference_settings",
+      "set_reference_settings",
+      "get_design_contract",
+      "set_design_contract",
+      "list_library_components",
+      "get_library_component",
+      "promote_to_library",
+      "install_library_component",
+      "uninstall_library_component",
+      "update_library_instances",
+      "library_audit",
+      "import_framer_page",
+      "get_import_report",
     ]);
     for (const tool of listed.tools) {
       expect(tool.description?.length ?? 0).toBeGreaterThan(30);
@@ -173,6 +260,7 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     // Destructive only where state is removed or overwritten.
     expect(byName.get("delete_page")?.annotations?.destructiveHint).toBe(true);
     expect(byName.get("rollback_release")?.annotations?.destructiveHint).toBe(true);
+    expect(byName.get("undo_batch")?.annotations?.destructiveHint).toBe(true);
     expect(byName.get("create_page")?.annotations?.destructiveHint).toBe(false);
     expect(byName.get("upload_asset")?.annotations?.destructiveHint).toBe(false);
     // Open world only for the web capture.
@@ -322,6 +410,60 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     const staleError = stale.data.error as Json;
     expect(staleError.category).toBe("conflict");
     expect(String(staleError.suggestion).toLowerCase()).toContain("reload");
+  });
+
+  it("undoes a batch over the MCP client (E17 slice 2)", async () => {
+    const siteId = await createSite(env, "MCP Undo");
+    const created = await call(session, "create_page", { siteId, title: "Start" });
+    const pageId = created.data.id as string;
+    const rootNodeId = (created.data.draft as { rootNodeId: string }).rootNodeId;
+    await call(session, "apply_mutations", {
+      pageId,
+      baseDraftVersion: 1,
+      mutations: [
+        {
+          op: "insertNode",
+          parent: { nodeId: rootNodeId },
+          node: { type: "hero", props: { headline: "Vorher" } },
+        },
+      ],
+    });
+    const outline = await call(session, "get_page", { pageId });
+    const nodeId = (outline.data.sections as { id: string }[])[0]?.id as string;
+    const updated = await call(session, "apply_mutations", {
+      pageId,
+      baseDraftVersion: 2,
+      mutations: [
+        { op: "updateNodeProps", id: nodeId, patch: { headline: "Nachher" } },
+      ],
+    });
+    expect(updated.ok).toBe(true);
+    expect(updated.data.newDraftVersion).toBe(3);
+
+    const undone = await call(session, "undo_batch", {
+      pageId,
+      baseDraftVersion: 3,
+      steps: 1,
+    });
+    expect(undone.ok).toBe(true);
+    expect(undone.data.newDraftVersion).toBe(4);
+    const undoneBatches = undone.data.undone as { batchId: string; mutations: string[] }[];
+    expect(undoneBatches).toHaveLength(1);
+    expect(undoneBatches[0]?.batchId).toBe(updated.data.undoBatchId);
+    expect(undoneBatches[0]?.mutations).toEqual(["updateNodeProps"]);
+
+    const restored = await call(session, "get_page", { pageId });
+    const sections = restored.data.sections as { summary: string }[];
+    expect(sections[0]?.summary).toContain("headline: Vorher");
+
+    // The undo itself is audited; a stale precondition is a conflict.
+    const staleUndo = await call(session, "undo_batch", {
+      pageId,
+      baseDraftVersion: 3,
+      steps: 1,
+    });
+    expect(staleUndo.ok).toBe(false);
+    expect((staleUndo.data.error as Json).category).toBe("conflict");
   });
 
   it("describes widgets and writes styles over the MCP client (ticket 02 point 7)", async () => {
@@ -756,6 +898,25 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     };
     expect(release.pageRevisions).toHaveLength(1);
 
+    // Release manifest + re-bake visibility (E2/E12): list/get and the job list
+    // are readable tools.
+    const releases = await call(session, "list_releases", { siteId });
+    expect(releases.ok).toBe(true);
+    const listed = releases.data.releases as {
+      id: string;
+      manifest: { buildHash: string } | null;
+    }[];
+    expect(listed[0]?.id).toBe(release.id);
+    expect(listed[0]?.manifest?.buildHash).toMatch(/^[0-9a-f]{64}$/);
+    const fetched = await call(session, "get_release", { releaseId: release.id });
+    expect(fetched.ok).toBe(true);
+    expect(
+      (fetched.data.manifest as { rendererVersion: string }).rendererVersion,
+    ).toMatch(/^\d+\.\d+\.\d+$/);
+    const jobs = await call(session, "list_bake_jobs", { siteId });
+    expect(jobs.ok).toBe(true);
+    expect(Array.isArray(jobs.data.jobs)).toBe(true);
+
     const version = (await call(session, "get_page", { pageId })).data
       .draftVersion as number;
     await call(session, "apply_mutations", {
@@ -786,6 +947,7 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     expect(feedback.data.status).toBe("changes_requested");
     const thread = feedback.data.thread as { note: string }[];
     expect(thread.at(-1)?.note).toBe("Kürzer bitte");
+    expect(Array.isArray(feedback.data.importReports)).toBe(true);
 
     const version2 = (await call(session, "get_page", { pageId })).data
       .draftVersion as number;
@@ -815,6 +977,13 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     expect(rollback.ok).toBe(true);
     expect(
       (rollback.data.release as { basisReleaseId: string }).basisReleaseId,
+    ).toBe(release.id);
+    expect(
+      (
+        rollback.data.release as {
+          manifest: { restoredFrom?: string } | null;
+        }
+      ).manifest?.restoredFrom,
     ).toBe(release.id);
 
     const restored = await call(session, "restore_revision", {
@@ -849,6 +1018,7 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       const assetId = upload.asset.id;
 
       const updated = await call(session, "update_asset", {
+        siteId,
         assetId,
         altText: "Werkstatt innen",
         tags: ["hero"],
@@ -863,6 +1033,7 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       ).toEqual([assetId]);
 
       const replaced = await call(session, "replace_asset", {
+        siteId,
         assetId,
         filePath: replacementPath,
       });
@@ -871,7 +1042,7 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       expect(replacement.id).toBe(assetId);
       expect(replacement.height).toBe(400);
 
-      const trashed = await call(session, "delete_asset", { assetId });
+      const trashed = await call(session, "delete_asset", { siteId, assetId });
       expect(trashed.ok).toBe(true);
       const trashList = await call(session, "list_assets", {
         siteId,
@@ -881,7 +1052,7 @@ describe("mcp workflow (Prüfstelle 3)", () => {
         (trashList.data.assets as { id: string }[]).map((asset) => asset.id),
       ).toEqual([assetId]);
 
-      const restored = await call(session, "restore_asset", { assetId });
+      const restored = await call(session, "restore_asset", { siteId, assetId });
       expect(restored.ok).toBe(true);
       expect(restored.data.status).toBe("ready");
     } finally {
@@ -1156,6 +1327,139 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       rows[0]?.entryId,
     );
   }, 30000);
+
+  it("marks page templates and assigns layouts (O14)", async () => {
+    const siteId = await createSite(env, "Vorlagen-Workflow");
+    const layout = await call(session, "create_page", {
+      siteId,
+      title: "Rahmen",
+      path: "/rahmen",
+    });
+    expect(layout.ok).toBe(true);
+    const layoutId = layout.data.id as string;
+    const content = await call(session, "create_page", {
+      siteId,
+      title: "Inhalt",
+      path: "/inhalt",
+    });
+    expect(content.ok).toBe(true);
+    const contentId = content.data.id as string;
+
+    const marked = await call(session, "set_page_template", {
+      pageId: layoutId,
+      kind: "layout",
+    });
+    expect(marked.ok).toBe(true);
+    const markedPage = marked.data.page as {
+      template: { kind: string; label: string } | null;
+    };
+    expect(markedPage.template?.kind).toBe("layout");
+    // The label shown in lists is the page title (no stored label of its own).
+    expect(markedPage.template?.label).toBe("Rahmen");
+
+    const assigned = await call(session, "set_page_template", {
+      pageId: contentId,
+      layoutId,
+    });
+    expect(assigned.ok).toBe(true);
+    expect((assigned.data.page as { layoutId: string | null }).layoutId).toBe(
+      layoutId,
+    );
+
+    // Entry template with a real collection; the mark needs at least one id.
+    const collection = await env.api.request<{ id: string }>({
+      method: "POST",
+      path: `/api/sites/${siteId}/collections/from-fields`,
+      body: {
+        name: "Blog",
+        supports: ["search"],
+        fields: [
+          {
+            key: "headline",
+            label: "Überschrift",
+            type: "text",
+            description: "Titel des Beitrags.",
+          },
+        ],
+      },
+    });
+    expect(collection.status).toBe(201);
+    const entry = await call(session, "set_page_template", {
+      pageId: contentId,
+      kind: "collection",
+      collectionIds: [collection.body.id],
+    });
+    expect(entry.ok).toBe(true);
+    expect((entry.data.page as { template: { kind: string } }).template.kind).toBe(
+      "collection",
+    );
+    const missing = await call(session, "set_page_template", {
+      pageId: contentId,
+      kind: "collection",
+    });
+    expect(missing.ok).toBe(false);
+
+    // Removal keeps the page and drops only the mark.
+    const removed = await call(session, "set_page_template", {
+      pageId: layoutId,
+      kind: "none",
+    });
+    expect(removed.ok).toBe(true);
+    expect((removed.data.page as { template: unknown }).template).toBeNull();
+
+    const pages = await call(session, "list_pages", { siteId });
+    const listed = (
+      pages.data.pages as { id: string; layoutId: string | null }[]
+    ).find((page) => page.id === contentId);
+    expect(listed?.layoutId).toBe(layoutId);
+  }, 60000);
+
+  it("deploys the active release into a static target (E14)", async () => {
+    const siteId = await createSite(env, "Deploy-Workflow");
+    const created = await call(session, "create_page", { siteId, title: "Start" });
+    const pageId = created.data.id as string;
+    const rootNodeId = (created.data.draft as { rootNodeId: string }).rootNodeId;
+    const inserted = await call(session, "apply_mutations", {
+      pageId,
+      baseDraftVersion: 1,
+      mutations: [
+        {
+          op: "insertNode",
+          parent: { nodeId: rootNodeId },
+          node: { id: "hero-0001", type: "hero", props: { headline: "Deploy" } },
+        },
+      ],
+    });
+    expect(inserted.ok).toBe(true);
+    const published = await call(session, "publish_release", { siteId, note: "deploy" });
+    expect(published.ok).toBe(true);
+
+    const dir = mkdtempSync(join(tmpdir(), "senify-mcp-deploy-"));
+    try {
+      const deployed = await call(session, "deploy_site", { siteId, targetDir: dir });
+      expect(deployed.ok).toBe(true);
+      const deployment = deployed.data.deployment as {
+        id: string;
+        status: string;
+        fileCount: number;
+        byteSize: number;
+      };
+      expect(deployment.status).toBe("succeeded");
+      expect(deployment.fileCount).toBeGreaterThan(0);
+      expect(deployment.byteSize).toBeGreaterThan(0);
+      expect(existsSync(join(dir, "index.html"))).toBe(true);
+
+      const listed = await call(session, "list_deployments", { siteId });
+      expect(listed.ok).toBe(true);
+      expect((listed.data.deployments as { id: string }[])[0]?.id).toBe(
+        deployment.id,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(`${dir}.senify-staging`, { recursive: true, force: true });
+      rmSync(`${dir}.senify-previous`, { recursive: true, force: true });
+    }
+  }, 120000);
 
   it("runs the reference → profile → theme draft workflow", async () => {
     const siteId = await createSite(env, "Referenz-Workflow");
@@ -1485,7 +1789,10 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     expect(outline.map((entry) => [entry.type, entry.text["headline"]])).toEqual([
       ["hero", "Unsere Werkstatt"],
     ]);
-    expect((plan.data.steps as string[])[0]).toContain("duplicate_site");
+    // The package now hands out the human direction step, not the old manual
+    // duplicate/update_theme pair.
+    expect((plan.data.steps as string[])[0]).toContain("create_redesign_proposal");
+    expect((plan.data.steps as string[]).join(" ")).not.toContain("duplicate_site");
 
     // The copy brings the content and takes the derived theme.
     const copy = await call(session, "duplicate_site", {
@@ -1516,6 +1823,656 @@ describe("mcp workflow (Prüfstelle 3)", () => {
 
     const withoutReferences = await call(session, "plan_redesign", { pageId, referenceIds: [] });
     expect(withoutReferences.ok).toBe(false);
+  }, 60000);
+
+  it("applies a redesign over MCP (E25 slice 2)", async () => {
+    // A documented reference: the profile is read out of design.md, no capture.
+    const created = await call(session, "create_manual_reference", {
+      name: "Redesign-Vorbild",
+      image: referencePng(1200, 800).toString("base64"),
+      documents: {
+        design: [
+          "# Redesign-Vorbild",
+          "",
+          "## Colors",
+          "| Token | Value |",
+          "|---|---|",
+          "| brand | #7c5cff |",
+          "| bg | #141414 |",
+          "",
+          "## Typography",
+          "Font family: **Sora, Inter**",
+          "",
+          "| Style | Size | Weight |",
+          "|---|---|---|",
+          "| Body | 15px | 400 |",
+        ].join("\n"),
+      },
+    });
+    expect(created.ok).toBe(true);
+    const referenceId = (created.data.reference as { id: string }).id;
+
+    const siteId = await createSite(env, "Redesign-Ziel");
+    const page = await call(session, "create_page", { siteId, title: "Start" });
+    expect(page.ok).toBe(true);
+
+    const applied = await call(session, "apply_redesign", {
+      siteId,
+      referenceIds: [referenceId],
+    });
+    expect(applied.ok).toBe(true);
+    const result = applied.data as {
+      siteId: string;
+      duplicated: boolean;
+      themeVersion: number;
+      pages: { sections: { type: string }[] }[];
+      record: { referenceIds: string[]; verificationOk: boolean; steps: string[] };
+    };
+    expect(result.duplicated).toBe(true);
+    expect(result.siteId).not.toBe(siteId);
+    expect(result.record.referenceIds).toEqual([referenceId]);
+    expect(result.record.verificationOk).toBe(true);
+    expect(result.record.steps).toContain("update_theme (abgeleiteter Patch)");
+    const startPage = result.pages.find((entry) => entry.sections.length > 0);
+    expect(startPage?.sections.map((section) => section.type)).toEqual([
+      "hero",
+      "content",
+      "cta",
+    ]);
+
+    // The copy really carries the derived theme (hex is normalized).
+    const theme = await call(session, "get_theme", { siteId: result.siteId });
+    expect(theme.ok).toBe(true);
+    expect(
+      String((theme.data.theme as { scales: Record<string, unknown> }).scales["brand"]).toUpperCase(),
+    ).toBe("#7C5CFF");
+
+    // Validation errors keep their fields.
+    const missing = await call(session, "apply_redesign", { siteId });
+    expect(missing.ok).toBe(false);
+    expect((missing.data.error as { field?: string }).field).toBe("referenceIds");
+    const conflict = await call(session, "apply_redesign", {
+      siteId,
+      referenceIds: ["ref_ohne_profil"],
+    });
+    expect(conflict.ok).toBe(false);
+  }, 60000);
+
+  it("manages the reference library over MCP (E24 slice 4)", async () => {
+    // A manual reference with documents: the profile is read out of design.md,
+    // so no capture and no network are involved.
+    const created = await call(session, "create_manual_reference", {
+      name: "Handbuch Studio",
+      image: referencePng(1200, 800).toString("base64"),
+      sourceUrl: "https://handbuch.test",
+      documents: {
+        design: [
+          "# Handbuch Studio",
+          "",
+          "## Colors",
+          "| Token | Value |",
+          "|---|---|",
+          "| brand | #2f6f4e |",
+          "| bg | #f4f1ea |",
+          "",
+          "## Typography",
+          "Font family: **Inter, Sora**",
+          "",
+          "| Style | Size | Weight |",
+          "|---|---|---|",
+          "| Body | 17px | 400 |",
+          "| Display | 58px | 700 |",
+          "",
+          "## Shape",
+          "| Token | Radius |",
+          "|---|---|",
+          "| card | 12px |",
+          "",
+          "## Layout",
+          "Base spacing unit: 8px",
+        ].join("\n"),
+      },
+    });
+    expect(created.ok).toBe(true);
+    const referenceId = (created.data.reference as { id: string }).id;
+
+    const docs = await call(session, "get_reference_docs", { referenceId });
+    expect(docs.ok).toBe(true);
+    expect((docs.data.documents as { design: string }).design).toContain(
+      "# Handbuch Studio",
+    );
+    const designOnly = await call(session, "get_reference_docs", {
+      referenceId,
+      kind: "design",
+    });
+    expect(Object.keys(designOnly.data.documents as Json)).toEqual(["design"]);
+
+    // One document kind updates in place; the other kinds keep their text.
+    const guidelines = await call(session, "update_reference_doc", {
+      referenceId,
+      kind: "guidelines",
+      content: "## Do's\n- Use the 8px grid\n\n## Don'ts\n- Never use gradients",
+    });
+    expect(guidelines.ok).toBe(true);
+    const after = await call(session, "get_reference_docs", { referenceId });
+    expect((after.data.documents as { design: string }).design).toContain(
+      "# Handbuch Studio",
+    );
+    expect((after.data.documents as { guidelines: string }).guidelines).toContain(
+      "Never use gradients",
+    );
+
+    const updated = await call(session, "update_reference", {
+      referenceId,
+      name: "Handbuch Studio 2",
+      note: "Aus dem Ordner-Import",
+    });
+    expect(updated.ok).toBe(true);
+    expect((updated.data.reference as { name: string }).name).toBe(
+      "Handbuch Studio 2",
+    );
+
+    // The profile edit is append-only: a second revision appears.
+    const edited = await call(session, "edit_reference_profile", {
+      referenceId,
+      vocabulary: ["grid", "paper", "quiet"],
+    });
+    expect(edited.ok).toBe(true);
+    const revisions = await call(session, "list_reference_revisions", {
+      referenceId,
+    });
+    expect(
+      (revisions.data.revisions as unknown[]).length,
+    ).toBeGreaterThanOrEqual(2);
+
+    // House DNA and preferences are readable and writable.
+    const written = await call(session, "set_reference_settings", {
+      dna: {
+        name: "Haus",
+        description: "Ruhige Flaechen, ein Akzent.",
+        constants: ["8px-Raster"],
+        never: ["Gradienten"],
+      },
+    });
+    expect(written.ok).toBe(true);
+    const settings = await call(session, "get_reference_settings", {});
+    expect((settings.data.dna as { name: string }).name).toBe("Haus");
+    expect((settings.data.dna as { never: string[] }).never).toContain("Gradienten");
+
+    const collection = await call(session, "create_reference_collection", {
+      name: "Handbuecher",
+    });
+    const collectionId = (collection.data.collection as { id: string }).id;
+    const renamed = await call(session, "update_reference_collection", {
+      collectionId,
+      description: "Sammlung fuer Handbuecher",
+    });
+    expect(renamed.ok).toBe(true);
+    expect(
+      (renamed.data.collection as { description: string }).description,
+    ).toBe("Sammlung fuer Handbuecher");
+    const removedCollection = await call(session, "delete_reference_collection", {
+      collectionId,
+    });
+    expect(removedCollection.ok).toBe(true);
+
+    const siteId = await createSite(env, "Bibliothek");
+    const applied = await call(session, "apply_reference", { siteId, referenceId });
+    expect(applied.ok).toBe(true);
+    const unassigned = await call(session, "unassign_reference", {
+      siteId,
+      referenceId,
+    });
+    expect(unassigned.ok).toBe(true);
+    expect((unassigned.data as { removed: boolean }).removed).toBe(true);
+
+    const tick = await call(session, "reference_tick", {});
+    expect(tick.ok).toBe(true);
+
+    const deleted = await call(session, "delete_reference", {
+      referenceId,
+      force: true,
+    });
+    expect(deleted.ok).toBe(true);
+  }, 60000);
+
+  it("derives a theme draft out of design.md (E27)", async () => {
+    const siteId = await createSite(env, "Design-System");
+    const created = await call(session, "create_manual_reference", {
+      name: "System Studio",
+      image: referencePng(1200, 800).toString("base64"),
+      documents: {
+        design: [
+          "# System Studio",
+          "",
+          "## Colors",
+          "| Token | Value |",
+          "|---|---|",
+          "| brand | #2f6f4e |",
+          "| bg | #f4f1ea |",
+          "",
+          "## Typography",
+          "Font family: **Inter, Sora**",
+          "",
+          "| Style | Size | Weight |",
+          "|---|---|---|",
+          "| Body | 17px | 400 |",
+          "| Display | 58px | 700 |",
+          "",
+          "## Shape",
+          "| Token | Radius |",
+          "|---|---|",
+          "| card | 12px |",
+          "",
+          "## Layout",
+          "Base spacing unit: 8px",
+        ].join("\n"),
+      },
+    });
+    expect(created.ok).toBe(true);
+    const referenceId = (created.data.reference as { id: string }).id;
+
+    const imported = await call(session, "import_design_system", {
+      referenceId,
+      siteId,
+    });
+    expect(imported.ok).toBe(true);
+    const patch = imported.data.patch as {
+      scales: Record<string, unknown>;
+      fonts: { display?: { family: string }; body?: { family: string } };
+      motion: Record<string, unknown>;
+    };
+    expect(patch.scales["brand"]).toBe("#2F6F4E");
+    expect(patch.scales["typeBase"]).toBe(17);
+    expect(patch.scales["spacingBase"]).toBe(8);
+    expect(patch.scales["radiusBase"]).toBe("12px");
+    expect(patch.fonts.display?.family).toBe("Inter");
+    expect(patch.fonts.body?.family).toBe("Sora");
+
+    // Every value carries its evidence level and Belegstelle.
+    const evidence = imported.data.evidence as {
+      field: string;
+      value: string;
+      level: string;
+      source: string;
+    }[];
+    const brand = evidence.find((entry) => entry.field === "scales.brand");
+    expect(brand?.value).toBe("#2F6F4E");
+    expect(brand?.level).toBe("observed");
+    expect(brand?.source).toContain("design.md#colors");
+    expect(evidence.every((entry) => entry.source !== "")).toBe(true);
+
+    // The document covers color, type, shape and layout; motion is the gap.
+    const gaps = imported.data.gaps as { field: string }[];
+    expect(gaps.map((gap) => gap.field)).toContain("motion");
+    expect((imported.data.reference as { reduced: boolean }).reduced).toBe(false);
+
+    // Both families are open fonts, so no licence suggestion is needed.
+    const fonts = imported.data.fonts as {
+      slot: string;
+      family: string;
+      open: boolean | null;
+    }[];
+    expect(fonts.map((font) => [font.family, font.open])).toEqual([
+      ["Inter", true],
+      ["Sora", true],
+    ]);
+
+    // The draft differs from the current theme: the conflicts name both sides.
+    const conflicts = imported.data.conflicts as {
+      field: string;
+      current: string;
+      next: string;
+    }[];
+    const brandConflict = conflicts.find((entry) => entry.field === "scales.brand");
+    expect(brandConflict?.next).toBe("#2F6F4E");
+    expect(brandConflict?.current).not.toBe("#2F6F4E");
+    expect((imported.data.verification as { ok: boolean }).ok).toBe(true);
+  }, 60000);
+
+  it("scores a generic page as slop and stays reproducible (E26)", async () => {
+    const siteId = await createSite(env, "Slop-Test");
+    const created = await call(session, "create_page", {
+      siteId,
+      title: "Landing",
+    });
+    expect(created.ok).toBe(true);
+    const pageId = created.data.id as string;
+    const rootNodeId = (created.data.draft as { rootNodeId: string }).rootNodeId;
+    const inserted = await call(session, "apply_mutations", {
+      pageId,
+      baseDraftVersion: created.data.draftVersion as number,
+      mutations: [
+        {
+          op: "insertNode",
+          parent: { nodeId: rootNodeId },
+          node: { type: "hero", variant: "centered", props: { headline: "Willkommen" } },
+        },
+        { op: "insertNode", parent: { nodeId: rootNodeId }, node: { type: "features" } },
+        { op: "insertNode", parent: { nodeId: rootNodeId }, node: { type: "features" } },
+        { op: "insertNode", parent: { nodeId: rootNodeId }, node: { type: "features" } },
+        {
+          op: "insertNode",
+          parent: { nodeId: rootNodeId },
+          node: { type: "cta", props: { headline: "Jetzt starten" } },
+        },
+        { op: "insertNode", parent: { nodeId: rootNodeId }, node: { type: "testimonials" } },
+      ],
+    });
+    expect(inserted.ok).toBe(true);
+
+    const first = await call(session, "get_design_report", { siteId });
+    expect(first.ok).toBe(true);
+    const report = first.data as {
+      score: number;
+      verdict: string;
+      penalty: number;
+      dimensions: { max: number; score: number }[];
+      findings: { code: string; suggestion?: string }[];
+    };
+    const sum = report.dimensions.reduce(
+      (total, dimension) => total + dimension.score,
+      0,
+    );
+    expect(report.score).toBe(sum - report.penalty);
+    expect(report.dimensions.reduce((total, d) => total + d.max, 0)).toBe(100);
+    const codes = report.findings.map((finding) => finding.code);
+    expect(codes).toContain("S1-section-monotony");
+    expect(codes).toContain("S2-card-only");
+    expect(codes).toContain("S9-centred-slop");
+    // The generic combination falls through the standard threshold.
+    expect(report.score).toBeLessThan(60);
+    expect(report.verdict).toBe("gate");
+
+    // Reproducible: the same tree yields the same score.
+    const second = await call(session, "get_design_report", { siteId });
+    expect((second.data as { score: number }).score).toBe(report.score);
+  }, 60000);
+
+  it("wires diff_reference with validation (E26 slice 2)", async () => {
+    // Unknown references fail before any bake or capture runs.
+    const unknown = await call(session, "diff_reference", {
+      referenceId: "ref_gibt_es_nicht",
+      siteId: "site_gibt_es_nicht",
+    });
+    expect(unknown.ok).toBe(false);
+    const error = unknown.data.error as { category: string; field?: string };
+    expect(error.category).toBe("not_found");
+    expect(error.field).toBe("referenceId");
+
+    // Missing required parameters keep their validation error.
+    const missing = await call(session, "diff_reference", {
+      referenceId: "ref_gibt_es_nicht",
+    });
+    expect(missing.ok).toBe(false);
+    expect(
+      (missing.data.error as { field?: string }).field,
+    ).toBe("siteId");
+  });
+
+  it("serves the four journey prompts with argument validation (E4 slice 2)", async () => {
+    const listed = await session.client.listPrompts();
+    expect(listed.prompts.map((prompt) => prompt.name).sort()).toEqual([
+      "content-pflege",
+      "referenz-uebernehmen",
+      "review-und-release",
+      "site-aus-brief",
+    ]);
+    const got = await session.client.getPrompt({
+      name: "site-aus-brief",
+      arguments: { brief: "Landingpage für Tischlerei" },
+    });
+    expect(got.messages).toHaveLength(1);
+    const firstMessage = got.messages[0];
+    expect(firstMessage?.role).toBe("user");
+    const text = (
+      firstMessage?.content as { type: string; text: string } | undefined
+    )?.text;
+    expect(text).toContain("Landingpage für Tischlerei");
+    expect(text).toContain("apply_mutations");
+    const optional = await session.client.getPrompt({
+      name: "content-pflege",
+      arguments: { siteId: "site_x" },
+    });
+    expect(
+      (
+        optional.messages[0]?.content as
+          | { type: string; text: string }
+          | undefined
+      )?.text,
+    ).toContain("site_x");
+    await expect(
+      session.client.getPrompt({ name: "site-aus-brief" }),
+    ).rejects.toThrow(/brief/);
+    const redesignPrompt = await session.client.getPrompt({
+      name: "referenz-uebernehmen",
+      arguments: { siteId: "site_x", pageId: "page_x", referenceIds: "ref_x" },
+    });
+    const redesignText = (
+      redesignPrompt.messages[0]?.content as
+        | { type: string; text: string }
+        | undefined
+    )?.text ?? "";
+    for (const tool of [
+      "plan_redesign",
+      "create_redesign_proposal",
+      "get_redesign_proposal",
+      "get_page",
+      "get_section",
+      "apply_mutations",
+      "diff_reference",
+      "get_design_report",
+      "create_preview",
+      "submit_for_review",
+    ]) {
+      expect(redesignText).toContain(tool);
+    }
+    expect(redesignText).toContain("idempotencyKey");
+    // The human decides: the journey names the wait, not an agent-side apply.
+    expect(redesignText).toContain("there is no confirm tool");
+    expect(redesignText).toContain("publish_release");
+    await expect(
+      session.client.getPrompt({
+        name: "referenz-uebernehmen",
+        arguments: { siteId: "site_x" },
+      }),
+    ).rejects.toThrow(/pageId/);
+    await expect(
+      session.client.getPrompt({ name: "gibt-es-nicht" }),
+    ).rejects.toThrow();
+  });
+
+  it("serves docs pages and the site theme as resources (E4 slice 2)", async () => {
+    const listed = await session.client.listResources();
+    const uris = listed.resources.map((resource) => resource.uri);
+    expect(uris).toContain("senify://docs/reference/tools");
+    expect(uris).toContain("senify://docs/getting-started");
+    expect(
+      listed.resources.every(
+        (resource) => resource.mimeType === "text/markdown",
+      ),
+    ).toBe(true);
+
+    const read = await session.client.readResource({
+      uri: "senify://docs/reference/tools",
+    });
+    const markdown =
+      (read.contents[0] as { text?: string }).text ?? "";
+    expect(markdown).toContain("# Tools");
+    expect(markdown).toContain("get_theme");
+
+    const templates = await session.client.listResourceTemplates();
+    expect(
+      templates.resourceTemplates.map((template) => template.uriTemplate),
+    ).toContain("senify://theme/{siteId}");
+
+    const siteId = await createSite(env, "Ressourcen");
+    const theme = await session.client.readResource({
+      uri: `senify://theme/${siteId}`,
+    });
+    const payload = JSON.parse(
+      (theme.contents[0] as { text?: string }).text ?? "{}",
+    );
+    const viaTool = await call(session, "get_theme", { siteId });
+    expect(viaTool.ok).toBe(true);
+    expect(payload).toEqual(viaTool.data);
+
+    await expect(
+      session.client.readResource({ uri: "senify://docs/gibt-es-nicht" }),
+    ).rejects.toThrow();
+    await expect(
+      session.client.readResource({ uri: "senify://fremd/x" }),
+    ).rejects.toThrow();
+  });
+
+  it("elicits missing required parameters when the client supports it (E4 slice 2)", async () => {
+    const siteId = await createSite(env, "Elicitation");
+    let asked = 0;
+    const eliciting = await connectEliciting(
+      env.origin,
+      env.token,
+      async (message) => {
+        asked += 1;
+        expect(message).toContain("siteId");
+        return { action: "accept", content: { siteId } };
+      },
+    );
+    try {
+      const result = await eliciting.client.callTool({
+        name: "get_theme",
+        arguments: {},
+      });
+      expect(result.isError).toBeFalsy();
+      const data = JSON.parse(
+        (result.content as { type: string; text?: string }[])[0]?.text ??
+          "{}",
+      );
+      const viaTool = await call(session, "get_theme", { siteId });
+      expect(data).toEqual(viaTool.data);
+      expect(asked).toBe(1);
+    } finally {
+      await eliciting.close();
+    }
+  });
+
+  it("keeps the validation error when elicitation is declined (E4 slice 2)", async () => {
+    const eliciting = await connectEliciting(env.origin, env.token, async () => ({
+      action: "decline",
+    }));
+    try {
+      const result = await eliciting.client.callTool({
+        name: "get_theme",
+        arguments: {},
+      });
+      expect(result.isError).toBe(true);
+      const data = JSON.parse(
+        (result.content as { type: string; text?: string }[])[0]?.text ??
+          "{}",
+      );
+      expect(data.error.field).toBe("siteId");
+    } finally {
+      await eliciting.close();
+    }
+  });
+
+  it("elicits the brief source for get_reference_brief (E4 slice 2)", async () => {
+    const created = await call(session, "create_reference_collection", {
+      name: "Elicit-Sammlung",
+      vocabulary: ["klar", "ruhig"],
+    });
+    expect(created.ok).toBe(true);
+    const collectionId = (created.data.collection as { id: string }).id;
+    const messages: string[] = [];
+    const eliciting = await connectEliciting(
+      env.origin,
+      env.token,
+      async (message) => {
+        messages.push(message);
+        return { action: "accept", content: { collectionId } };
+      },
+    );
+    try {
+      const result = await eliciting.client.callTool({
+        name: "get_reference_brief",
+        arguments: {},
+      });
+      expect(result.isError).toBeFalsy();
+      const data = JSON.parse(
+        (result.content as { type: string; text?: string }[])[0]?.text ??
+          "{}",
+      ) as { brief: { text: string; collectionId: string } };
+      expect(data.brief.collectionId).toBe(collectionId);
+      expect(data.brief.text).toContain("Collection: Elicit-Sammlung");
+      expect(
+        messages.some((message) => message.includes("get_reference_brief")),
+      ).toBe(true);
+    } finally {
+      await eliciting.close();
+    }
+  });
+
+  it("reads and writes the design contract over MCP (E26 slice 3)", async () => {
+    const siteId = await createSite(env, "Dna-Mcp");
+    const set = await call(session, "set_design_contract", {
+      siteId,
+      never: ["Nie Gradienten ohne Funktion"],
+      constants: ["Immer 8px-Raster"],
+    });
+    expect(set.ok).toBe(true);
+    expect((set.data as { never: string[] }).never).toEqual([
+      "Nie Gradienten ohne Funktion",
+    ]);
+    const read = await call(session, "get_design_contract", { siteId });
+    expect(read.ok).toBe(true);
+    expect((read.data as { source: string }).source).toBe("manual");
+
+    // An agent write that violates the rule is blocked with the rule named.
+    const page = await call(session, "create_page", { siteId, title: "Start" });
+    expect(page.ok).toBe(true);
+    const blocked = await call(session, "apply_mutations", {
+      pageId: page.data.id,
+      baseDraftVersion: page.data.draftVersion,
+      mutations: [
+        {
+          op: "insertNode",
+          parent: { nodeId: (page.data.draft as { rootNodeId: string }).rootNodeId },
+          node: {
+            type: "hero",
+            props: { sub: "linear-gradient(90deg, #111, #222)" },
+          },
+        },
+      ],
+    });
+    expect(blocked.ok).toBe(false);
+    expect(String((blocked.data.error as { message?: string }).message)).toContain(
+      "Design-DNA verletzt",
+    );
+
+    // Clearing the contract frees the write path again.
+    const cleared = await call(session, "set_design_contract", { siteId });
+    expect(cleared.ok).toBe(true);
+    expect(cleared.data).toBeNull();
+  }, 60000);
+
+  it("searches the library and finds duplicates over MCP (E24, L42)", async () => {
+    const created = await call(session, "create_manual_reference", {
+      name: "Raster Werk",
+      image: referencePng(1200, 800).toString("base64"),
+      documents: {
+        design: "# Raster Werk\nStrenges Spaltenraster als Leitmotiv.",
+        guidelines: null,
+        components: null,
+      },
+    });
+    expect(created.ok).toBe(true);
+    const search = await call(session, "search_references", { q: "spaltenraster" });
+    expect(search.ok).toBe(true);
+    const hits = (search.data as { hits: { reference: { name: string } }[] }).hits;
+    expect(hits.some((hit) => hit.reference.name === "Raster Werk")).toBe(true);
+
+    const dupes = await call(session, "find_duplicate_references", {});
+    expect(dupes.ok).toBe(true);
+    expect(Array.isArray((dupes.data as { duplicates: unknown[] }).duplicates)).toBe(true);
   }, 60000);
 
   it("records every tool call in the server-side audit log", async () => {

@@ -35,3 +35,11 @@ export {
   type ToolScope,
 } from "./tools.ts";
 export { createMcpServer, serveStdio, type McpServerOptions } from "./server.ts";
+export {
+  doctorExitCode,
+  formatDoctor,
+  runDoctor,
+  type DoctorCheck,
+  type DoctorReport,
+  type DoctorStatus,
+} from "./doctor.ts";
