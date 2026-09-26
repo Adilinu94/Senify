@@ -8,6 +8,7 @@ output/
 Repos/
 # Referenzsammlung: fremde Screenshots und Analysen liegen lokal, nicht im Repo
 Referenzsites/
+.impeccable/
 .bake/
 .astro/
 packages/renderer/astro-template/src/generated/
@@ -33,3 +34,20 @@ packages/docs-portal/public/portal-config.json
 .scratch/refs/*.mjs
 .scratch/import-echt.json
 .scratch/voll-import-summary.json
+# Messbilder und erzeugte Beweislaeufe: lokal, nicht ins Repo (Entscheidung: Fahrplan P0-1)
+# Getrackte .scratch-Notizen (issues/, specs, *.md, *.mjs-Werkzeuge) bleiben unberuehrt.
+.scratch/**/aufnahmen/
+.scratch/**/aufnahmen-*/
+.scratch/**/visual-diffs/
+.scratch/**/*.png
+.scratch/**/*.webp
+.scratch/**/*.jpg
+.scratch/**/wave-payload.js
+.scratch/**/wave-payload.mjs
+.scratch/**/mess-lauf*.json
+.scratch/**/messlauf*.json
+.scratch/**/motion-lauf*.json
+.scratch/**/live-probe*.json
+.scratch/framer-import/nachweis/
+# Erzeugte Messläufe des UI-Audits: lokal, nicht ins Repo (Fahrplan P0-1)
+.scratch/ui-audit/*.json
