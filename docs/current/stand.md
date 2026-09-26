@@ -55,7 +55,7 @@ Jeder Eintrag hat eine Nummer, die `docs/fahrplan.md` und `docs/current/architek
 | R8 | MCP-Tools ohne `outputSchema`/`structuredContent` | offen | 106 Tools, 0/0 Treffer in `packages/mcp/src/*.ts` |
 | R9 | Klassen-Rename in der Style-Registry nicht enthalten | offen | `style-rules.test.ts` deckt Rename nicht ab |
 | R10 | Import-Assets außerhalb der DB-Transaktion | offen | `imports.ts` ohne `withTransaction`; ADR-0014 §5 |
-| R11 | Keine Coverage-Schwelle, kein PG-Service in CI | offen | `vitest.config.ts` ohne Coverage-Block, `verify.yml` ohne Service |
+| R11 | Keine Coverage-Schwelle, kein PG-Service in CI | **teilweise geschlossen 26.09.**: Coverage-Tor aktiv und lokal grün, PG-Job im Workflow; ein grüner PG-Lauf fehlt | `vitest.config.ts` `coverage`-Block mit `thresholds.perFile`, `verify.yml` Job `postgres-tests` und `coverage`, `scripts/verify-postgres.mjs`; Zahlen: `docs/current/qualitaet.md` |
 | R12 | God-Files als Änderungskosten | offen | `store.ts` 8672, `app.js` 6669, `http.ts` 5404, `tools.ts` 3515, `mount.ts` 3260 Zeilen |
 | R13 | Arbeitsbaum ungesichert: 230 Dateien seit dem letzten Commit | offen | `git status --short` am 25.09.2026 |
 

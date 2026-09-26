@@ -16,6 +16,8 @@
 | Import-Tor (isoliert) | `pnpm exec vitest run packages/framer-import/test/import-visual-gate-browser.test.ts` | **grün** |
 | Paritäts-Tor | `pnpm verify:parity` | in dieser Sitzung **nicht** ausgeführt (setzt installierten Chromium und Zeit voraus; CI fährt es) |
 | Route-Matrix | `pnpm route-matrix` | in dieser Sitzung **nicht** neu erzeugt; Datei nennt 171 Routen |
+| Coverage-Tor | `pnpm test:coverage` | **grün**, Exit 0 (26.09.2026) — 950 grün / 15 übersprungen / 0 rot in 98 Dateien (95 grün, 3 übersprungen), 0 Schwellenfehler. Zahlen unten |
+| Postgres-Lane | `pnpm test:postgres` | **Nachweis steht aus.** Das Tor ist gebaut und wird rot, wenn `TEST_DATABASE_URL` fehlt oder ein Fall überspringt; ein grüner Lauf gegen eine echte Postgres existiert nicht (kein CI-Lauf, lokal keine nutzbaren Zugangsdaten, `docker` fehlt) |
 
 **Nachlauf 26.09.2026 (nach P0-1, Basis `9f183c7`):** Typecheck grün (Exit 0), Lint grün (Exit 0), `git diff --check` grün, Gesamttests **1641 grün / 15 übersprungen / 1 rot** in 190 Dateien (317 s). Der eine rote Test (`packages/app/test/accessibility-browser.test.ts`, Timeout auf `.refs-search input` unter Volllast) ist im Isolierlauf **grün in 17,6 s** — dieselbe Lastflaky-Klasse wie die drei bekannten Fälle unten. Log: `.scratch/testlauf-26-09-p01.log`, `.scratch/a11y-isoliert.log`.
 
@@ -40,6 +42,28 @@
 
 Zusätzlich können Browser-Suiten über `browserSkip`/`!browserAvailable` überspringen, wenn Chromium fehlt. In `.github/workflows/verify.yml` wird Chromium installiert; die Paritäts- und Visual-Gates setzen `SENIFY_REQUIRE_BROWSER=1` und fallen dann **rot** statt still zu überspringen.
 
+## Coverage-Gate (eigener Lauf, 26.09.2026)
+
+Geführt über `pnpm test:coverage`, Provider v8, `perFile: true`. Der Lauf umfasst die Suites von `engine`, `editor` und `mcp`, nicht die schweren Browser-Suiten. Gemessen und geschützt sind die sechs in `docs/fahrplan.md` P1-2 genannten Pfade. Die Schwellen liegen jeweils knapp unter dem gemessenen Stand; gehoben wird nach einer Änderung, nicht vorher.
+
+| Gruppe und Datei | Statements | Branches | Functions | gesetzte Latte (st/br/fn/ln) |
+|---|---|---|---|---|
+| `engine/src/http.ts` | 91,12 | 71,95 | 93,57 | 80 / 68 / 88 / 80 |
+| `engine/src/store.ts` | 84,09 | 76,25 | 93,45 | 80 / 68 / 88 / 80 |
+| `engine/src/lifecycle.ts` | 89,79 | 74,14 | 100 | 80 / 68 / 88 / 80 |
+| `engine/src/forms.ts` | 84,09 | 73,60 | 100 | 80 / 68 / 88 / 80 |
+| `mcp/src/tools.ts` | 90,72 | 62,15 | 86,08 | 85 / 60 / 82 / 85 |
+| `editor/src/state/*` (15 Dateien) | 66,98 bis 100 | 56,75 bis 100 | 66,66 bis 100 | 60 / 52 / 62 / 60 |
+
+Die niedrigsten Werte je Gruppe sind der eigentliche Grund für die Latte: `editor/src/state/document.ts` mit 66,98 Statements und Functions, `editor/src/state/selection.ts` mit 56,75 Branches, `engine/src/http.ts` mit 71,95 Branches, `mcp/src/tools.ts` mit 62,15 Branches.
+
+**Zwei Grenzen dieses Tores, beide bewusst:**
+
+1. Es misst nur, was die Suite ohnehin berührt. Die in P1-2 Punkt 3 geforderten gezielten Fehlerpfade (`withIdempotency`-Catch, `releaseIdempotencyKey`, Transaktions-Rollback, `operatorOnly`-Ablehnung, `baseVersion`-409) haben weiterhin keine eigenen Tests. Eine hohe Zahl ist hier kein Beweis für Fehlerabdeckung.
+2. `packages/editor/src/state/browser.ts` ist aus der Messung genommen. Die Datei enthält nichts als `export *`-Zeilen, hat also keine eigenen Aussagen; ihre Prozentzahl misst nichts. Was sie durchreicht, steht einzeln in der Tabelle.
+
+**Zwei Fallen, die den Lauf zuerst gebrochen hatten** (festgehalten, damit niemand sie zweimal baut): ein eigenes `exclude`-Feld in `vitest.config.ts` **ersetzt** die Vitest-Standardwerte, und ohne `coverageConfigDefaults.exclude` stehen `dist/` (seit P0-4 echte Build-Artefakte) und `node_modules` in der Messung; die Report-Erzeugung bricht dann mit ENOENT in `coverage/.tmp` ab. Und: `pnpm exec vitest run --coverage` über den **gesamten** Bestand inklusive Browser-Suiten braucht über 400 s und erbt deren Lastflakes; das Tor läuft deshalb eingegrenzt.
+
 ## Flakes unter Volllast (dokumentiert, nicht behoben)
 
 In den Vollläufen vom 25.09. (drei Browser-Tests) und 26.09. (ein Browser-Test) waren Browser-Suiten unter Volllast rot. **Alle bestehen isoliert:**
@@ -63,17 +87,23 @@ Der Wiederholungslauf des Gesamtbestands war vollständig grün (1642/15/0). Urs
 
 ## CI-Stand
 
-`.github/workflows/verify.yml` fährt nacheinander:
+`.github/workflows/verify.yml` fährt **drei voneinander unabhängige Jobs**, damit jede Aussage einen eigenen grünen oder roten Balken hat:
+
+**Job `verify`** (nacheinander):
 
 1. `pnpm install --frozen-lockfile`
 2. Chromium-Installation mit Dependencies
-3. `pnpm verify` (Build, Lint, Tests)
+3. `pnpm verify` (Build, Lint über `packages` und `scripts`, Patch-Integrität, Tests)
 4. `pnpm test:visual`
 5. Upload der Diff-Artefakte bei Fehlschlag
 6. `pnpm verify:parity`
 7. `pnpm verify:import`
 
-**Fehlt (R11):** ein PostgreSQL-Service mit `TEST_DATABASE_URL`, ein echter Build-Schritt, ein Coverage-Gate, ein Docs-Portal-Build. `scripts/` liegt außerhalb von `eslint packages`.
+**Job `postgres-tests`:** Postgres-16-Service auf Port 5432, `TEST_DATABASE_URL` gesetzt, dann `pnpm test:postgres`. Das Skript wird rot, wenn die Variable fehlt, ein Fall überspringt oder kein Fall läuft. **Bisher kein Lauf** — der Job ist seit 26.09. im Workflow, sein erster grüner Nachweis steht mit dem nächsten Push aus.
+
+**Job `coverage`:** `pnpm test:coverage` mit den Schwellen aus `vitest.config.ts`, plus Upload der JSON-Zusammenfassung als Artefakt.
+
+**Fehlt weiterhin:** ein Docs-Portal-Build als eigener Schritt und die Prüfung von `eslint.config.mjs` selbst. **Nicht mehr fehlend:** der PostgreSQL-Service und das Coverage-Gate (beide seit 26.09. im Workflow, PG-Nachweis offen), der echte Build-Schritt (P0-4) und `scripts/` im Lint-Ziel (P1-3).
 
 ## Pflege-Regeln
 

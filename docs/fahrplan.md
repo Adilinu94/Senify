@@ -147,7 +147,9 @@ Bis hierher laufen alle Gates nur lokal. **P1 ist der Block, in dem Aussagen üb
 
 **Warum:** Die übersprungenen Tests sind die einzigen, die die Transaktionssemantik **wirklich** beweisen. Betroffen sind `transactions.test.ts` und `redesign-transaction.test.ts`; eine dritte Datei überspringt je nach Browser-Verfügbarkeit. Zahlen und Ursachen stehen in `docs/current/qualitaet.md` und werden hier bewusst nicht wiederholt. Ohne die Lane sind alle Transaktionsversprechen (ADR-0014, Persistenz, `persistBatch`) gegen ein In-Memory-Zweifelsystem belegt, das ROLLBACK ignoriert. `redesign-transaction.test.ts` sagt das im eigenen Kommentar.
 
-**Ready:** P0-3 (sonst wird die Lane für einen bekannten Fehler rot).
+**Ready:** P0-3 (sonst wird die Lane für einen bekannten Fehler rot). P0-3 ist seit 26.09. geschlossen (`d233971`).
+
+**Stand 26.09.2026 — umgesetzt, Nachweis steht aus.** Der Job existiert: `postgres-tests` in `.github/workflows/verify.yml` mit einem `services:`-Block (Postgres 16, Port 5432) und `TEST_DATABASE_URL` als Job-Umgebung. Geführt wird er über `pnpm test:postgres` (`scripts/verify-postgres.mjs`), das **rot** wird, wenn `TEST_DATABASE_URL` fehlt oder auch nur ein Fall überspringt — ein grünes Tor ohne Datenbank wäre kein Nachweis. Punkt 3 der Umsetzung ist bereits von `packages/engine/test/helpers.ts` erledigt: es baut pro Lauf ein eigenes Schema auf und hängt es beim Schließen ab. **Die Done-Bedingung ist nicht erfüllt:** ein grüner Lauf mit 0 übersprungenen Fällen existiert nicht. Es gibt keinen CI-Lauf seit dem Push, und lokal war keine erreichbare Postgres mit nutzbaren Zugangsdaten zu finden (Port 5432 belegt, Anmeldung abgelehnt; `docker` fehlt). R11 bleibt offen, bis ein Lauf da ist.
 
 **Umsetzung:**
 
@@ -177,6 +179,8 @@ CI: ein Job `postgres-tests` ist grün und meldet 0 übersprungen in diesen beid
 
 **Ready:** P1-1 (Coverage ohne die CI-Lane gibt ein trügerisches Gefühl).
 
+**Stand 26.09.2026 — Tor aktiv, Punkte 1, 2 und 4 erfüllt, Punkt 3 offen.** `vitest.config.ts` führt einen v8-Block mit `perFile: true`; eine Datei unter ihrer Schwelle macht das Tor rot, ein Durchschnitt kann nicht mehr retten. Geschützt sind exakt die in Punkt 2 genannten Pfade, in drei Gruppen mit jeweils eigener Latte. Der Lauf hängt an `pnpm test:coverage` und führt nur die Suites der geschützten Pfade (engine, editor, mcp) — die schweren Browser-Suiten sind bewusst draußen, weil ein Tor, das unter Playwright-Last fasst, abgeschaltet statt repariert wird. Gemessene Werte und die gesetzten Latten stehen in `docs/current/qualitaet.md`. Zwei Fallen sind im Konfigationskommentar festgehalten: ein eigenes `exclude`-Feld **ersetzt** die Vitest-Standardwerte (ohne `coverageConfigDefaults.exclude` landen `dist/` und `node_modules` in der Messung und die Report-Erzeugung bricht ab), und `packages/editor/src/state/browser.ts` ist als reine Re-Export-Datei ausgenommen, weil ihre Prozentzahl ohne eigene Aussagen nichts misst. **Punkt 3 ist nicht geleistet:** die gezielten Fehlerpfade (`withIdempotency`-Catch, `releaseIdempotencyKey`, Transaktions-Rollback, `operatorOnly`-Ablehnung, `baseVersion`-409) haben keine eigenen Tests; die vorhandenen Zahlen messen nur, was die Suite ohnehin berührt.
+
 **Umsetzung:**
 
 1. `vitest --coverage` mit Thresholds **pro Datei**, nicht global. Startniveau niedrig (z. B. 60 %) und nach oben gehen; keine globale 100 %.
@@ -203,11 +207,13 @@ pnpm verify                              # → Exit 0
 
 **Umsetzung:** `eslint packages scripts` plus `git diff --check` als eigenes Skript, eingehängt in `verify`.
 
-**Gate:** `pnpm lint` → Exit 0, inklusive `scripts/`.
+**Stand 26.09.2026 — erledigt.** `lint` = `eslint packages scripts`, `check:patch` = `git diff --check`, und `verify` = `build && lint && check:patch && test`. Die Skripte waren lint-fähig (`eslint.config.mjs` führte die Node-Globale für `scripts/**/*.mjs` schon), es fehlte nur das Ziel. Gate: `eslint scripts` für sich grün; `git diff --check` grün. **Nicht vom Tor erfasst:** `eslint.config.mjs` selbst liegt weiterhin außerhalb des Ziels — die Umsetzung im Fahrplan nennt es als Grund, aber nicht als Punkt, und eine Wurzel-Config ist kein `scripts/`-Pfad.
+
+**Gate:** `pnpm lint` → Exit 0, inklusive `scripts/`. Beim Lauf am 26.09. meldete `pnpm lint` sieben Fehler in `packages/engine/src/apply-redesign.ts` und `packages/engine/src/redesign-section-apply.ts`. Beide gehören nicht zu diesem Schritt: die erste Datei war uncommittet in Arbeit am Sektions-Executor (P2-1), die zweite noch ungetrackt. Der Stand von `master` war vor diesen Arbeiten lint-grün.
 
 ---
 
-**Gate P1 gesamt:** `.github/workflows/verify.yml` führt mindestens `verify`, `test:visual`, `verify:parity`, `verify:import`, **postgres-tests** und **coverage** — jeder Schritt einzeln sichtbar.
+**Gate P1 gesamt:** `.github/workflows/verify.yml` führt mindestens `verify`, `test:visual`, `verify:parity`, `verify:import`, **postgres-tests** und **coverage** — jeder Schritt einzeln sichtbar. **Stand 26.09.2026:** alle sechs sind im Workflow vorhanden, `coverage` als dritter eigener Job. Der Gesamt-Gate gilt erst mit einem grünen `postgres-tests`-Lauf als erreicht; der Nachweis fehlt (siehe P1-1).
 
 ---
 
@@ -407,7 +413,7 @@ Leitet von `stand.md` und `architektur.md` ab. **Status** ist der Stand, **Schri
 | R8 | MCP ohne `outputSchema` | offen | P3-3 |
 | R9 | Style-Registry-Klassen-Rename | offen | P3 (eigener Mini-Schritt, nach R12) |
 | R10 | Import-Assets außerhalb der Tx | offen | P3-5 |
-| R11 | Kein PG-Service, kein Coverage in CI | offen | P1-1, P1-2 |
+| R11 | Kein PG-Service, kein Coverage in CI | **teilweise geschlossen 26.09.2026**: PG-Service und Coverage-Job sind im Workflow, das Coverage-Tor ist lokal grün; der grüne PG-Lauf fehlt | P1-1 (Rest), P1-2 Punkt 3 |
 | R12 | God-Files | offen | P3-2 |
 | R13 | Arbeitsbaum ungesichert (230 Dateien) | **geschlossen 26.09.2026** (`6973cb1..67a2862`) | **P0-1** |
 
@@ -442,6 +448,7 @@ Ein Schritt gilt erst als fertig, wenn **alle** erfüllt sind:
 |---|---|
 | 25.09.2026 | Erste Fassung. Grundlage: eigene Gate-Läufe dieser Sitzung (typecheck, lint, Gesamttests, `test:visual` — Zahlen in `docs/current/qualitaet.md`, inkl. Nachläufe der drei Flakes) und Code-Prüfung aller `R`-Einträge an `Datei:Zeile`. |
 | 26.09.2026 | P0-1 abgeschlossen: Arbeitsbaum in zehn fachlichen Commits gesichert (`1e4645a…67a2862`), `git status` leer, R13 geschlossen. P0-2 war bereits am 25.09. erledigt; offen in P0 bleiben P0-3 und P0-4. |
+| 26.09.2026 | P1 gebaut: Postgres-Lane als eigener Job (`postgres-tests`) mit `pnpm test:postgres` als Tor, Coverage-Tor mit Pro-Datei-Schwellen (`pnpm test:coverage`), Lint-Ziel auf `scripts/` erweitert und `check:patch` in `verify` eingehängt. R11 auf teilweise geschlossen. Nicht geleistet: der grüne PG-Lauf (keine Zugangsdaten, kein CI-Lauf) und P1-2 Punkt 3 (eigene Fehlerpfad-Tests). Hinweis zur Reihenfolge: P0-3 und P0-4 wurden in einer parallel laufenden Sitzung committet (`d233971`, `4b24a1a`); deren Registerzeilen R6 und R1 sind dort noch nicht nachgezogen. |
 
 **Offene Felder bewusst nicht ausgefüllt:** Aufwandsschätzungen. Der Umbauplan hatte sie nicht, der Verbesserungsplan nannte nur Größenklassen ohne Bezug zum konkreten Code. Sobald P0-1 steht, sind Schätzungen anhand der tatsächlichen Diffs möglich — bis dahin wäre jede Zahl eine Erfindung.
 
