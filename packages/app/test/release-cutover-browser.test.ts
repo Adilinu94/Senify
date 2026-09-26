@@ -77,6 +77,20 @@ describe.skipIf(browserSkip)("release cutover (ticket 17)", () => {
         ],
       });
       expect(applied.status).toBe(200);
+      const themed = await fetch(`${running.dashboardUrl}/api/sites/${site.id}/theme`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          theme: {
+            scales: { typeBase: 18, typeRatio: 1.3 },
+            tokens: {
+              semantic: { "fg.base": { $ref: "color.brand-700" } },
+              modes: { light: { "fg.base": { $ref: "color.brand-700" } } },
+            },
+          },
+        }),
+      });
+      expect(themed.status).toBe(200);
 
       // The window must be wide enough for the whole editor shell: the canvas
       // stage fits the three design frames side by side at 100 % zoom (2598 px
@@ -117,6 +131,17 @@ describe.skipIf(browserSkip)("release cutover (ticket 17)", () => {
         tab
           .locator('.senify-canvas__frame[data-device="desktop"] .senify-canvas__iframe')
           .contentFrame();
+      const canvasTypeSize = await desktopFrame().locator("html").evaluate((element) => {
+        const target = element as unknown as {
+          ownerDocument: { defaultView: { getComputedStyle(node: never): { getPropertyValue(name: string): string } } };
+        };
+        return target.ownerDocument.defaultView
+          .getComputedStyle(element as never)
+          .getPropertyValue("--type-body-size")
+          .trim();
+      });
+      expect(canvasTypeSize).not.toBe("");
+      expect(canvasTypeSize).not.toBe("1rem");
       const canvasHero = desktopFrame().locator('[data-section="hero"]').first();
       await canvasHero.waitFor({ timeout: 30000 });
       const headline = canvasHero.locator("h1").first();

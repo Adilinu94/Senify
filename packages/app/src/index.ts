@@ -13,6 +13,12 @@ export {
   type StartupStatus,
 } from "./startup.ts";
 export {
+  ensureOperatorToken,
+  programTokenPath,
+  readProgramToken,
+  type ProgramTokenFile,
+} from "./operator-token.ts";
+export {
   createAppServer,
   type AppServer,
   type AppServerOptions,

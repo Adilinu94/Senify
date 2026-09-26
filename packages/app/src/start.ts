@@ -1,6 +1,3 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { SenifyError } from "@senify/core";
 import {
   createEngine,
@@ -10,12 +7,12 @@ import {
   startBakeWorker,
   startImageWorker,
   type Db,
-  type Store,
 } from "@senify/engine";
 import type { RateLimitConfig, ReferenceDeps, ReviewVisualDriver } from "@senify/engine";
 import { createRegistry } from "@senify/registry";
 import { openBrowser } from "./browser.ts";
 import { createAppServer } from "./server.ts";
+import { ensureOperatorToken, programTokenPath } from "./operator-token.ts";
 
 export const DEFAULT_ENGINE_PORT = 4321;
 export const DEFAULT_APP_PORT = 4322;
@@ -47,70 +44,6 @@ export type RunningProgram = {
   appPort: number;
   close(): Promise<void>;
 };
-
-function programTokenPath(): string {
-  return join(homedir(), ".senify", "program-token.json");
-}
-
-// The dashboard is the local operator surface. It reuses one persisted token
-// (name "Programm", kind "human") and heals itself when the token was revoked,
-// expired or still carries the pre-ticket-18 default kind "agent".
-async function ensureOperatorToken(
-  engineOrigin: string,
-  store: Store,
-  path: string,
-): Promise<string> {
-  try {
-    const saved = JSON.parse(readFileSync(path, "utf8")) as {
-      id?: string;
-      secret?: string;
-    };
-    if (typeof saved.secret === "string" && saved.secret !== "") {
-      const check = await fetch(`${engineOrigin}/api/whoami`, {
-        headers: { authorization: `Bearer ${saved.secret}` },
-      });
-      if (check.ok) {
-        const who = (await check.json()) as { kind?: string };
-        if (who.kind === "human") return saved.secret;
-        // A token from before ticket 18 carries the default kind "agent":
-        // heal it in place (the secret stays valid, no second token appears).
-        if (typeof saved.id === "string" && saved.id !== "") {
-          await store.updateTokenKind(saved.id, "human");
-          return saved.secret;
-        }
-      }
-    }
-  } catch {
-    // No usable saved token: create one below.
-  }
-  const created = await fetch(`${engineOrigin}/api/tokens`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      name: "Programm",
-      kind: "human",
-      scopes: ["read", "write", "publish"],
-    }),
-  });
-  if (!created.ok) {
-    throw new SenifyError(
-      "auth",
-      `Der Programm-Zugang konnte nicht angelegt werden (HTTP ${created.status})`,
-      { suggestion: "Prüfe, ob die Engine läuft, und starte das Programm erneut." },
-    );
-  }
-  const payload = (await created.json()) as {
-    token: { id: string };
-    secret: string;
-  };
-  try {
-    mkdirSync(join(homedir(), ".senify"), { recursive: true });
-    writeFileSync(path, `${JSON.stringify({ id: payload.token.id, secret: payload.secret }, null, 2)}\n`);
-  } catch {
-    // Without the file the token lives only for this run.
-  }
-  return payload.secret;
-}
 
 function connectDatabase(url: string): ReturnType<typeof createPgDb> {
   return createPgDb(url);
@@ -174,6 +107,7 @@ export async function startProgram(
       formSigner: engine.formSigner,
       ...(engine.formBaseUrl === undefined ? {} : { formBaseUrl: engine.formBaseUrl }),
     },
+    events: engine.events,
   });
   // The image worker (S2): durable generation jobs over the provider chain
   // (custom endpoint → image-use → ComfyUI, configurable in the settings).
@@ -187,11 +121,10 @@ export async function startProgram(
   });
   let appServer;
   try {
-    const operatorToken = await ensureOperatorToken(
-      engineServer.origin,
-      engine.store,
-      options.programTokenFile ?? programTokenPath(),
-    );
+    const operatorToken = await ensureOperatorToken({
+      store: engine.store,
+      path: options.programTokenFile ?? programTokenPath(),
+    });
     appServer = await createAppServer({
       engineOrigin: engineServer.origin,
       operatorToken,

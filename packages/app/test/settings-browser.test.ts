@@ -42,10 +42,21 @@ describe.skipIf(!browserAvailable)("restore from the settings view (T12)", () =>
 
       const context = await browser.newContext({ viewport: { width: 1400, height: 1000 } });
       const tab = await context.newPage();
-      tab.setDefaultTimeout(15000);
-      tab.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
-      await tab.goto(`${running.dashboardUrl}/#/settings`, { waitUntil: "domcontentloaded" });
-      await tab.waitForSelector(".backup-list");
+      tab.setDefaultTimeout(15000);       tab.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+       await tab.goto(`${running.dashboardUrl}/#/settings`, { waitUntil: "domcontentloaded" });
+       await tab.waitForSelector(".backup-list");
+       expect(await tab.evaluate(`document.documentElement.dataset.mode`)).toBe("light");
+       await tab.locator("#theme-toggle").click();        expect(await tab.evaluate(`document.documentElement.dataset.mode`)).toBe("dark");
+        await tab.reload({ waitUntil: "domcontentloaded" });
+        await tab.waitForSelector(".backup-list");
+        expect(await tab.evaluate(`document.documentElement.dataset.mode`)).toBe("dark");
+       await tab.locator("#theme-toggle").click();
+       const unlabelled = await tab.evaluate(`(() => [...document.querySelectorAll("input, select, textarea")].filter((field) => {
+         const id = field.getAttribute("id");
+         const explicit = id ? document.querySelector('label[for="' + CSS.escape(id) + '"]') : null;
+         return !explicit && !field.closest("label") && !field.getAttribute("aria-label") && !field.getAttribute("aria-labelledby");
+       }).map((field) => field.getAttribute("id")))()`);
+       expect(unlabelled).toEqual([]);
 
       const restore = tab.locator(".backup-list button", { hasText: "Wiederherstellen" }).first();
       await restore.click();

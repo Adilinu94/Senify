@@ -92,6 +92,30 @@ describe("program shell (Prüfstelle Programm)", () => {
     }
   }, 30000);
 
+  it("rejects cross-origin API requests before injecting the operator token", async () => {
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-app-origin-"));
+    const running = await startProgram({
+      db: database.db,
+      dataDir,
+      programTokenFile: join(dataDir, "program-token.json"),
+      enginePort: 0,
+      appPort: 0,
+      openBrowser: false,
+    });
+    try {
+      const response = await fetch(`${running.dashboardUrl}/api/sites`, {
+        headers: { origin: "https://evil.example", "sec-fetch-site": "cross-site" },
+      });
+      expect(response.status).toBe(403);
+      expect(await response.text()).toContain("lokalen Dashboard");
+    } finally {
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 30000);
+
   it("heals a pre-ticket-18 program token in place to kind human", async () => {
     const database = memoryDb({ reentrant: true });
     const dataDir = mkdtempSync(join(tmpdir(), "senify-app-heal-"));
@@ -136,7 +160,9 @@ describe("program shell (Prüfstelle Programm)", () => {
       expect(((await who.json()) as { kind: string }).kind).toBe("human");
 
       // The same token was healed, not replaced: exactly one "Programm" entry.
-      const listed = await fetch(`${second.engineOrigin}/api/tokens`);
+      const listed = await fetch(`${second.engineOrigin}/api/tokens`, {
+        headers: { authorization: `Bearer ${saved.secret}` },
+      });
       const body = (await listed.json()) as {
         tokens: { id: string; name: string }[];
       };
@@ -344,10 +370,12 @@ describe("program shell (Prüfstelle Programm)", () => {
       ).json()) as { snapshots: { previewPath?: string }[] };
       expect(detail.snapshots.map((shot) => shot.previewPath)).toContain(preview);
 
-      // The dashboard ships the slider markup that renders the images.
+      // The dashboard ships the markup that renders the image (the detail
+      // window); the analysis data itself stays out of it.
       const script = await (await fetch(`${running.dashboardUrl}/app.js`)).text();
       expect(script).toContain("snapshots/");
-      expect(script).toContain("snapshot-slider");
+      expect(script).toContain("refs-inspector");
+      expect(script).not.toContain("snapshot-slider");
     } finally {
       await running.close();
       await database.close();
@@ -574,7 +602,16 @@ describe("program shell (Prüfstelle Programm)", () => {
       };
       expect(brief.brief.text).toContain("Reference: ATELO - Interior Gallery");
       expect(brief.brief.text).toContain("What to borrow: Neue Notiz");
+      // Die Bildadresse im Brief zeigt auf das Dashboard, nicht auf den
+      // Engine-Port: nur dieser Ursprung schiebt den Operator-Token nach, ein
+      // reiner Engine-Link liefe im Browser in ein 401.
+      expect(brief.brief.text).toContain(
+        `Screenshot: ${running.dashboardUrl}/api/references/${reference.reference.id}/snapshots/`,
+      );
       expect(brief.imagePrompt).toContain("cream ground, bronze accent");
+      expect(brief.imagePrompt).toContain(
+        `Use ${running.dashboardUrl}/api/references/${reference.reference.id}/snapshots/`,
+      );
 
       const combined = await post("/api/references/brief", {
         referenceIds: [reference.reference.id],

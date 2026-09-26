@@ -9,6 +9,9 @@ const cmdkResults = document.getElementById("cmdk-results");
 const duplicateDialog = document.getElementById("duplicate-dialog");
 const duplicateForm = document.getElementById("duplicate-form");
 const duplicateName = document.getElementById("duplicate-name");
+const themeToggle = document.getElementById("theme-toggle");
+
+const MODE_STORAGE_KEY = "senify-mode";
 
 const MUTATION_LABELS = {
   insertNode: "Sektion eingefügt",
@@ -78,10 +81,63 @@ function toast(message, kind = "info") {
   setTimeout(() => node.remove(), kind === "error" ? 7000 : 4000);
 }
 
-function failed(error) {
-  const hint = error.suggestion ? ` — ${error.suggestion}` : "";
-  toast(`${error.message}${hint}`, "error");
+function friendlyError(error) {
+  const status = Number(error?.status ?? 0);
+  if (status === 429) return "Der Server ist gerade ausgelastet. Bitte in einen Moment erneut versuchen.";
+  if (status === 401 || status === 403) return "Diese Aktion ist für die aktuelle Sitzung nicht freigegeben.";
+  if (status >= 500) return "Der Server konnte die Anfrage nicht abschließen. Bitte erneut versuchen.";
+  return String(error?.message ?? "Unbekannter Fehler");
 }
+
+function failed(error) {
+  const hint = error?.suggestion ? ` — ${error.suggestion}` : "";
+  toast(`${friendlyError(error)}${hint}`, "error");
+}
+
+function settingField(label, control, help) {
+  const field = el("label", { class: "field" });
+  field.append(el("span", { class: "field__label", text: label }), control);
+  if (help !== undefined) field.append(el("span", { class: "field__help", text: help }));
+  return field;
+}
+
+function readMode() {
+  try {
+    return localStorage.getItem(MODE_STORAGE_KEY) === "dark" ? "dark" : "light";
+  } catch {
+    return "light";
+  }
+}
+
+function syncThemeToggle() {
+  if (!themeToggle) return;
+  const dark = document.documentElement.dataset.mode === "dark";
+  themeToggle.setAttribute("aria-pressed", String(dark));
+  themeToggle.setAttribute(
+    "aria-label",
+    dark ? "Dunkelmodus deaktivieren" : "Dunkelmodus aktivieren",
+  );
+  themeToggle.title = dark ? "Dunkelmodus deaktivieren" : "Dunkelmodus aktivieren";
+  themeToggle.querySelector("[data-theme-label]").textContent = dark ? "Hell" : "Dunkel";
+}
+
+function applyMode(mode, persist = true) {
+  const next = mode === "dark" ? "dark" : "light";
+  document.documentElement.dataset.mode = next;
+  if (persist) {
+    try {
+      localStorage.setItem(MODE_STORAGE_KEY, next);
+    } catch {
+      // Private Fenster dürfen die Einstellung nicht blockieren.
+    }
+  }
+  syncThemeToggle();
+}
+
+applyMode(readMode(), false);
+themeToggle?.addEventListener("click", () => {
+  applyMode(document.documentElement.dataset.mode === "dark" ? "light" : "dark");
+});
 
 function formatDate(value) {
   if (!value) return "—";
@@ -119,87 +175,6 @@ function snapshotImageURL(referenceId, snapshot) {
   return `/api/references/${referenceId}/snapshots/${name}`;
 }
 
-function breakpointLabel(breakpoint) {
-  const width = Number.parseInt(breakpoint, 10);
-  if (!Number.isFinite(width)) return String(breakpoint);
-  if (width >= 1200) return "Desktop";
-  if (width >= 700) return "Tablet";
-  return "Mobile";
-}
-
-// Detail stage: the captured breakpoints as a small slider. Keyboard (arrow
-// left/right) and mouse (buttons, breakpoint tabs) drive the same index.
-function refsSnapshotStage(reference, snapshots) {
-  const shots = [...snapshots].sort((a, b) => b.width - a.width);
-  let index = 0;
-  const image = el("img", { class: "snapshot-image", alt: "Snapshot" });
-  const meta = el("div", { class: "snapshot-meta" });
-  const tabs = el("div", { class: "snapshot-tabs" });
-  let loadToken = 0;
-  const show = (next) => {
-    index = (next + shots.length) % shots.length;
-    const shot = shots[index];
-    const token = (loadToken += 1);
-    refsImageSource(snapshotImageURL(reference.id, shot)).then(
-      (src) => {
-        if (token === loadToken) image.src = src;
-      },
-      () => {
-        if (token === loadToken) image.removeAttribute("src");
-      },
-    );
-    image.alt = `Snapshot ${breakpointLabel(shot.breakpoint)}`;
-    meta.textContent = `${breakpointLabel(shot.breakpoint)} · ${shot.width}×${shot.height} px · ${shot.kind === "section" ? "Section" : "Fullpage"}`;
-    [...tabs.children].forEach((tab, position) =>
-      tab.classList.toggle("active", position === index),
-    );
-  };
-  shots.forEach((shot, position) =>
-    tabs.append(
-      el("button", {
-        type: "button",
-        class: "refs-button quiet",
-        text: breakpointLabel(shot.breakpoint),
-        onclick: () => show(position),
-      }),
-    ),
-  );
-  show(0);
-  const slider = el(
-    "div",
-    { class: "snapshot-slider", tabindex: "0" },
-    el("div", { class: "snapshot-frame" }, image),
-    el(
-      "div",
-      { class: "snapshot-controls" },
-      el("button", {
-        type: "button",
-        class: "refs-button quiet",
-        text: "Zurück",
-        onclick: () => show(index - 1),
-      }),
-      tabs,
-      el("button", {
-        type: "button",
-        class: "refs-button quiet",
-        text: "Weiter",
-        onclick: () => show(index + 1),
-      }),
-    ),
-    meta,
-  );
-  slider.addEventListener("keydown", (event) => {
-    if (event.key === "ArrowLeft") {
-      show(index - 1);
-      event.preventDefault();
-    } else if (event.key === "ArrowRight") {
-      show(index + 1);
-      event.preventDefault();
-    }
-  });
-  return slider;
-}
-
 function activeTab(tab) {
   for (const link of document.querySelectorAll(".tabs a")) {
     link.classList.toggle("active", link.dataset.tab === tab);
@@ -215,6 +190,142 @@ function render(nodes) {
 
 /* Views */
 
+async function libraryView(componentId = null) {
+  activeTab("library");
+  const [{ components }, { sites }] = await Promise.all([
+    api("/api/library-components"),
+    api("/api/sites"),
+  ]);
+  const rawQuery = location.hash.split("?")[1] ?? "";
+  const query = (rawQuery.startsWith("q=") ? decodeURIComponent(rawQuery.slice(2).replace(/\+/g, " ")) : "").toLowerCase();
+  const visible = components.filter((component) =>
+    `${component.name} ${component.tags.join(" ")} ${component.fingerprint}`.toLowerCase().includes(query),
+  );
+  const select = el("select", { "aria-label": "Zielprojekt" });
+  select.append(el("option", { value: "", text: "Zielprojekt wählen …" }));
+  for (const site of sites) select.append(el("option", { value: site.id, text: site.name }));
+  const search = el("input", { type: "search", placeholder: "Bausteine durchsuchen …", "aria-label": "Bausteine durchsuchen" });
+  search.value = query;
+  search.addEventListener("input", () => {
+    const suffix = search.value.trim() === "" ? "" : `?q=${encodeURIComponent(search.value.trim())}`;
+    history.replaceState(null, "", `#/library${suffix}`);
+    void libraryView();
+  });
+  const installFor = async (component, mode = "linked") => {
+    if (select.value === "") {
+      toast("Zuerst ein Zielprojekt wählen");
+      return;
+    }
+    try {
+      await api(`/api/sites/${select.value}/library-installs`, {
+        method: "POST",
+        body: { componentId: component.id, mode, author: AUTHOR },
+      });
+      toast(`„${component.name}“ installiert`);
+      await libraryView(component.id);
+    } catch (error) {
+      failed(error);
+    }
+  };
+  const list = visible.length === 0
+    ? el("div", { class: "empty", text: "Noch keine Bausteine vorhanden." })
+    : el(
+        "div",
+        { class: "library-grid" },
+        visible.map((component) =>
+          el(
+            "article",
+            { class: "library-card" },
+            el(
+              "a",
+              { href: `#/library/${component.id}` },
+              el("h2", { text: component.name }),
+              el("p", { class: "muted", text: `${component.kind} · v${component.version} · ${component.fingerprint}` }),
+              el("div", { class: "library-tags" }, component.tags.map((tag) => el("span", { text: tag }))),
+            ),
+            el(
+              "div",
+              { class: "library-card-actions" },
+              el("button", { class: "primary", text: "Installieren", onclick: () => void installFor(component) }),
+              el("a", { href: `#/library/${component.id}`, text: "Details" }),
+            ),
+          ),
+        ),
+      );
+  const head = el("div", { class: "toolbar library-toolbar" },
+    el("h1", { text: componentId ? "Baustein" : "Bausteine" }),
+    el("div", { class: "spacer" }),
+    componentId ? el("a", { href: "#/library", text: "← Bibliothek" }) : null,
+    select);
+  const body = [head, el("div", { class: "library-search" }, search)];
+  if (componentId === null) {
+    body.push(list);
+  } else {
+    const component = components.find((entry) => entry.id === componentId);
+    if (component === undefined) {
+      body.push(el("div", { class: "empty", text: "Baustein nicht gefunden." }));
+    } else {
+      const installs = [];
+      for (const site of sites) {
+        const { installs: entries } = await api(`/api/sites/${site.id}/library-installs`);
+        const install = entries.find((entry) => entry.componentId === component.id);
+        if (install === undefined) continue;
+        installs.push(el("div", { class: "library-install" },
+          el("strong", { text: site.name }),
+          el("span", { class: "muted", text: `Pin v${install.installedVersion}` }),
+          el("button", { text: "Aktualisieren", onclick: async () => {
+            try {
+              await api(`/api/sites/${site.id}/library-installs/${install.id}/update`, { method: "POST", body: { author: AUTHOR } });
+              toast(`Installation in „${site.name}“ aktualisiert`);
+              await libraryView(component.id);
+            } catch (error) { failed(error); }
+          } }),
+          el("button", { class: "danger", text: "Detach", onclick: async () => {
+            try {
+              await api(`/api/sites/${site.id}/library-installs/${install.id}`, { method: "DELETE", body: { author: AUTHOR } });
+              toast("Installation gelöst, lokale Definition behalten");
+              await libraryView(component.id);
+            } catch (error) { failed(error); }
+          } })));
+      }
+      const definition = component.definition;
+      const nodeRows = Object.values(definition?.nodes ?? {}).map((node) => el("tr", {},
+        el("td", {}, el("code", { text: node.id })),
+        el("td", { text: node.type }),
+        el("td", { text: Object.entries(node.props ?? {}).map(([key, value]) => `${key}=${typeof value === "object" ? JSON.stringify(value) : String(value)}`).join(" · ") })));
+      body.push(el("div", { class: "library-detail" },
+        el("h2", { text: component.name }),
+        el("p", { class: "muted", text: component.notes || "Keine Notiz." }),
+        el("div", { class: "library-meta" },
+          el("span", { text: `Version ${component.version}` }),
+          el("span", { text: `Fingerprint ${component.fingerprint}` }),
+          el("span", { text: `Lizenz ${component.license.id} (${component.license.status})` }),
+          el("span", { text: `Herkunft ${component.provenance.kind}` })),
+        el("div", { class: "card-actions" },
+          el("button", { class: "primary", text: "Installieren", onclick: () => void installFor(component) }),
+          el("button", { text: "Notiz", onclick: async () => {
+            const notes = prompt("Notiz", component.notes ?? "");
+            if (notes === null) return;
+            try {
+              await api(`/api/library-components/${component.id}`, { method: "PATCH", body: { notes, author: AUTHOR } });
+              await libraryView(component.id);
+            } catch (error) { failed(error); }
+          } }),
+          el("button", { text: component.deprecatedAt ? "Reaktivieren" : "Deprecate", onclick: async () => {
+            try {
+              await api(`/api/library-components/${component.id}`, { method: "PATCH", body: { deprecated: component.deprecatedAt === null, author: AUTHOR } });
+              await libraryView(component.id);
+            } catch (error) { failed(error); }
+          } })),
+        el("h3", { text: "Struktur" }),
+        el("table", {}, el("thead", {}, el("tr", {}, el("th", { text: "ID" }), el("th", { text: "Typ" }), el("th", { text: "Props" }))), el("tbody", {}, nodeRows)),
+        el("h3", { text: "Installationen" }),
+        installs.length === 0 ? el("div", { class: "empty", text: "Noch in keinem Projekt installiert." }) : el("div", { class: "stack" }, installs)));
+    }
+  }
+  render(body);
+}
+
 async function projectsView() {
   const { sites } = await api("/api/sites");
   const releases = await Promise.all(
@@ -224,10 +335,26 @@ async function projectsView() {
         .catch(() => false),
     ),
   );
-  const cards = sites.map((site, index) =>
-    el(
+  const cards = sites.map((site, index) => {
+    const open = () => (location.hash = `#/projects/${site.id}/pages`);
+    return el(
       "article",
-      { class: "card" },
+      {
+        class: "card project-card",
+        role: "link",
+        tabindex: "0",
+        "aria-label": `Projekt ${site.name} öffnen`,
+        onclick: (event) => {
+          if (event.target.closest(".card-actions")) return;
+          open();
+        },
+        onkeydown: (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            open();
+          }
+        },
+      },
       el("div", { class: "card-thumb", text: initials(site.name) }),
       el(
         "div",
@@ -241,31 +368,15 @@ async function projectsView() {
         el("div", { class: "muted", text: `Geändert ${formatDate(site.updatedAt)}` }),
         el(
           "div",
-          { class: "card-actions" },
-          el("button", {
-            class: "primary",
-            text: "Öffnen",
-            onclick: () => (location.hash = `#/projects/${site.id}/pages`),
-          }),
-          el("button", {
-            class: "ghost",
-            text: "Umbenennen",
-            onclick: () => renameSite(site),
-          }),
-          el("button", {
-            class: "ghost",
-            text: "Duplizieren",
-            onclick: () => openDuplicate(site),
-          }),
-          el("button", {
-            class: "danger",
-            text: "Papierkorb",
-            onclick: () => trashSite(site),
-          }),
+          { class: "card-actions", onclick: (event) => event.stopPropagation() },
+          el("button", { class: "primary", text: "Öffnen", onclick: open }),
+          el("button", { class: "ghost", text: "Umbenennen", onclick: () => renameSite(site) }),
+          el("button", { class: "ghost", text: "Duplizieren", onclick: () => openDuplicate(site) }),
+          el("button", { class: "danger", text: "Papierkorb", onclick: () => trashSite(site) }),
         ),
       ),
-    ),
-  );
+    );
+  });
   render([
     el(
       "div",
@@ -484,17 +595,6 @@ async function deleteReference(reference) {
   } catch (error) {
     failed(error);
   }
-}
-
-function referenceTokenChip(token, withSwatch) {
-  return el(
-    "span",
-    { class: "token", title: token.where.join(" · ") },
-    withSwatch ? el("span", { class: "swatch", style: `background: ${token.value}` }) : undefined,
-    el("code", { text: token.value }),
-    el("span", { class: "tag", text: token.level }),
-    token.uses > 1 ? el("span", { class: "muted", text: `×${token.uses}` }) : undefined,
-  );
 }
 
 /* Referenzen-Bibliothek (T14): die Liste mit linker Leiste, Sammlungen,
@@ -928,7 +1028,7 @@ async function refsOpenComparison() {
         "div",
         {},
         el("div", { class: "refs-eyebrow", text: "Zusammen erkunden" }),
-        el("h2", { text: "Wähle deine Richtung." }),
+        el("h2", { text: "Referenzen vergleichen" }),
       ),
       el(
         "div",
@@ -976,6 +1076,49 @@ async function refsCopyCombined(ids) {
 }
 
 /* ------------------------------------------------------------ collections */
+
+function refsOpenCollectionPicker(collections) {
+  const dialog = el(
+    "dialog",
+    { class: "refs-dialog refs-collection-picker" },
+    el(
+      "div",
+      { class: "refs-dialog-head" },
+      el("h2", { text: "Weitere Sammlungen" }),
+      el("button", {
+        type: "button",
+        class: "refs-icon-button",
+        "aria-label": "Schließen",
+        html: REFS_ICON_CLOSE,
+        onclick: () => dialog.close(),
+      }),
+    ),
+    el(
+      "div",
+      { class: "refs-dialog-body refs-collection-picker-body" },
+      collections.map((collection) =>
+        el(
+          "button",
+          {
+            type: "button",
+            class: "refs-collection-picker-item",
+            onclick: () => {
+              dialog.close();
+              refsSetCollection(collection.id);
+            },
+          },
+          el("span", { class: "refs-dot", style: `--refs-dot:${refsHex(collection.accent)}` }),
+          el("span", { text: collection.name }),
+          el("span", { class: "refs-nav-count", text: String(collection.referenceCount ?? 0) }),
+        ),
+      ),
+    ),
+  );
+  document.body.append(dialog);
+  dialog.addEventListener("close", () => dialog.remove());
+  refsBindBackdropClose(dialog);
+  dialog.showModal();
+}
 
 function refsOpenCollectionDialog(collection) {
   if (!collection) return;
@@ -1591,7 +1734,7 @@ function refsBuildShell() {
     ),
   );
 
-  const titleText = el("span", { text: "Alle Referenzen" });
+  const titleText = el("h1", { text: "Alle Referenzen" });
   const countEl = el("span", { class: "refs-count", text: "0" });
   const description = el("p", {});
   const aboutButton = el(
@@ -1627,7 +1770,12 @@ function refsBuildShell() {
   const heading = el(
     "section",
     { class: "refs-heading" },
-    el("div", {}, el("h1", {}, titleText, countEl), description),
+    el(
+      "div",
+      {},
+      el("div", { class: "refs-heading-title" }, titleText, countEl),
+      description,
+    ),
     headingActions,
   );
 
@@ -1676,6 +1824,18 @@ function refsBuildShell() {
     "div",
     { class: "refs-hint" },
     el("span", { text: "Wähle bis zu 3 Referenzen zum Vergleichen" }),
+  );
+  const error = el(
+    "section",
+    { class: "refs-error", role: "alert", hidden: "hidden" },
+    el("strong", { text: "Bibliothek konnte nicht geladen werden" }),
+    el("span", { class: "refs-error__detail" }),
+    el("button", {
+      type: "button",
+      class: "refs-button",
+      text: "Erneut versuchen",
+      onclick: () => void refsRefresh(),
+    }),
   );
   const gallery = el("div", { class: "refs-gallery" });
   const empty = el(
@@ -1763,6 +1923,7 @@ function refsBuildShell() {
     description,
     aboutButton,
     hint,
+    error,
     progress,
     searchInput,
     sortSelect,
@@ -1813,12 +1974,15 @@ async function refsRefresh() {
   } catch (error) {
     // Ein kurzer Fehler (etwa ein erschoepftes Kontingent) darf die Ansicht
     // nicht leeren: die vorhandenen Karten bleiben stehen, nur eine Meldung.
+    refsDom.error.hidden = false;
+    refsDom.error.querySelector(".refs-error__detail").textContent = friendlyError(error);
     failed(error);
     return;
   } finally {
     refsPending = Math.max(0, refsPending - 1);
     if (refsPending === 0) root.classList.remove("refs-loading");
   }
+  refsDom.error.hidden = true;
   refsCollections = data.collections ?? [];
   refsStyleCatalog = data.styleCatalog ?? null;
   const counts = data.counts ?? {};
@@ -1863,8 +2027,21 @@ async function refsRefresh() {
       el("div", { class: "muted", style: "font-size: 11px; padding: 0 12px", text: "Noch keine Sammlungen." }),
     );
   } else {
+    const sortedCollections = [...personalCollections].sort(
+      (a, b) => (b.referenceCount ?? 0) - (a.referenceCount ?? 0),
+    );
+    const visibleCollections = sortedCollections.slice(0, 6);
+    const activeCollection = sortedCollections.find(
+      (collection) => !styleMode && refsState.collection === collection.id,
+    );
+    if (activeCollection && !visibleCollections.includes(activeCollection)) {
+      visibleCollections.push(activeCollection);
+    }
+    const remainingCollections = sortedCollections.filter(
+      (collection) => !visibleCollections.includes(collection),
+    );
     refsDom.collectionNav.replaceChildren(
-      ...personalCollections.map((collection) =>
+      ...visibleCollections.map((collection) =>
         refsNavItem({
           label: collection.name,
           count: collection.referenceCount ?? 0,
@@ -1873,6 +2050,14 @@ async function refsRefresh() {
           onClick: () => refsSetCollection(collection.id),
         }),
       ),
+      remainingCollections.length > 0
+        ? refsNavItem({
+            label: "Weitere …",
+            count: remainingCollections.length,
+            icon: REFS_ICON_LIBRARY,
+            onClick: () => refsOpenCollectionPicker(remainingCollections),
+          })
+        : null,
     );
   }
   refsDom.sidebarCount.textContent =
@@ -2090,10 +2275,10 @@ function refsCard(reference) {
     el(
       "div",
       {},
-      el("h2", { text: reference.name }),
+      el("p", { class: "refs-card-title", text: reference.name }),
       el(
-        "p",
-        {},
+        "div",
+        { class: "refs-card-collection" },
         el("span", {
           class: "refs-dot",
           style: `--refs-dot:${reference.collection ? refsHex(reference.collection.accent) : REFS_ACCENT_FALLBACK}`,
@@ -2107,9 +2292,15 @@ function refsCard(reference) {
 }
 
 function refsCardImage(reference) {
-  const snapshot = (reference.snapshots ?? []).find(
-    (shot) => shot.previewPath && shot.kind !== "motion",
-  );
+  // The engine marks the card snapshot (hero slot first); older payloads
+  // without it fall back to the first viewable shot, never motion.
+  const card =
+    reference.cardSnapshot && reference.cardSnapshot.previewPath
+      ? reference.cardSnapshot
+      : (reference.snapshots ?? []).find(
+          (shot) => shot.previewPath && shot.kind !== "motion",
+        );
+  const snapshot = card ?? null;
   const placeholder = () =>
     el("div", {
       class: "refs-card-placeholder",
@@ -2123,363 +2314,12 @@ function refsCardImage(reference) {
   );
 }
 
-// Aufklappbare Bausteine der Detailspalte (Rezept, Historie, Evidenz, Profil).
+// Aufklappbare Bausteine der Detailspalte (Rezept, Profil und Aktionen).
 function refsFold(title, body, open) {
   const details = el("details", { class: "refs-fold" });
   if (open) details.open = true;
   details.append(el("summary", { text: title }), el("div", { class: "refs-fold-body" }, body));
   return details;
-}
-
-function refsRevisionsFold(referenceId) {
-  const details = el("details", { class: "refs-fold" }, el("summary", { text: "Revisions-Historie" }));
-  const body = el("div", { class: "refs-fold-body" });
-  details.append(body);
-  let loaded = false;
-  details.addEventListener("toggle", async () => {
-    if (!details.open || loaded) return;
-    loaded = true;
-    body.replaceChildren(el("p", { class: "muted", text: "Lädt…" }));
-    try {
-      const data = await api(`/api/references/${referenceId}/revisions`);
-      const revisions = data.revisions ?? [];
-      if (revisions.length === 0) {
-        body.replaceChildren(el("p", { class: "muted", text: "Noch keine Profil-Revision." }));
-        return;
-      }
-      body.replaceChildren(
-        el(
-          "table",
-          {},
-          el(
-            "thead",
-            {},
-            el(
-              "tr",
-              {},
-              el("th", { text: "Revision" }),
-              el("th", { text: "Zeit" }),
-              el("th", { text: "Quelle" }),
-              el("th", { text: "Notiz" }),
-            ),
-          ),
-          el(
-            "tbody",
-            {},
-            revisions.map((revision) =>
-              el(
-                "tr",
-                {},
-                el("td", { text: String(revision.revision) }),
-                el("td", { text: formatDate(revision.createdAt) }),
-                el("td", {
-                  text: `${revision.author?.kind === "agent" ? "Agent" : "Mensch"} · ${revision.author?.label ?? "—"}`,
-                }),
-                el("td", { text: revision.note ?? "—" }),
-              ),
-            ),
-          ),
-        ),
-      );
-    } catch (error) {
-      body.replaceChildren(el("p", { class: "muted", text: error.message }));
-    }
-  });
-  return details;
-}
-
-function refsEvidenceFold(reference) {
-  const evidence = reference.evidence ?? [];
-  return refsFold(
-    `Evidenz (${evidence.length})`,
-    evidence.length === 0
-      ? el("p", { class: "muted", text: "Keine Evidenz erfasst." })
-      : el(
-          "ul",
-          {},
-          evidence.slice(0, 40).map((entry) =>
-            el(
-              "li",
-              {},
-              el("span", { class: "tag", text: entry.level }),
-              ` ${entry.claim}`,
-            ),
-          ),
-        ),
-  );
-}
-
-function refsProvenanceFold(reference) {
-  return refsFold(
-    "Provenienz",
-    el(
-      "div",
-      { class: "refs-fold-body" },
-      el(
-        "p",
-        {},
-        el("strong", { text: "Quelle: " }),
-        el("a", {
-          href: reference.sourceUrl,
-          target: "_blank",
-          rel: "noreferrer",
-          text: reference.sourceUrl,
-        }),
-      ),
-      el("p", {
-        class: "muted",
-        text: `Methode: ${reference.method === "snapshot" ? "Snapshot (reduziert)" : reference.method === "manual" ? "Manuell" : "Live-Capture"} · Stand: ${formatDate(reference.provenance?.capturedAt)} · Revision ${reference.revision}`,
-      }),
-      reference.failureReason
-        ? el("p", { class: "muted", text: `Fehler: ${reference.failureReason}` })
-        : undefined,
-      reference.usedInProjects.length > 0
-        ? el("p", {
-            class: "muted",
-            text: `In ${reference.usedInProjects.length} Projekt(en) verwendet.`,
-          })
-        : undefined,
-    ),
-  );
-}
-
-function refsProfileFolds(reference) {
-  const profile = reference.profile;
-  if (!profile) {
-    return [
-      el("div", {
-        class: "refs-fold",
-        style: "border-top: 1px solid #e5e1ec; margin-top: 24px; padding-top: 16px; font-size: 12px; color: #737d8c",
-        text: "Noch kein Profil: Die Analyse läuft oder ist fehlgeschlagen. Nutze „Aus Quelltext“ als Fallback.",
-      }),
-    ];
-  }
-  const folds = [refsProvenanceFold(reference)];
-  if (profile.tokens.color.length > 0) {
-    folds.push(
-      refsFold(
-        "Farben",
-        el(
-          "div",
-          { class: "chip-row" },
-          profile.tokens.color.slice(0, 24).map((token) => referenceTokenChip(token, true)),
-        ),
-      ),
-    );
-  }
-  if (profile.tokens.type.length > 0) {
-    folds.push(
-      refsFold(
-        "Typografie",
-        el(
-          "table",
-          {},
-          el(
-            "thead",
-            {},
-            el(
-              "tr",
-              {},
-              el("th", { text: "Rolle" }),
-              el("th", { text: "Größe" }),
-              el("th", { text: "Zeilenhöhe" }),
-              el("th", { text: "Gewicht" }),
-              el("th", { text: "Evidenz" }),
-            ),
-          ),
-          el(
-            "tbody",
-            {},
-            profile.tokens.type.slice(0, 14).map((step) =>
-              el(
-                "tr",
-                {},
-                el("td", { text: step.role }),
-                el("td", {}, el("code", { text: step.size })),
-                el("td", { text: step.lineHeight ?? "—" }),
-                el("td", { text: step.weight === null ? "—" : String(step.weight) }),
-                el("td", {}, el("span", { class: "tag", text: step.level })),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-  const scaleGroups = [
-    ["Schriftfamilien", profile.tokens.families],
-    ["Abstände", profile.tokens.space],
-    ["Radien", profile.tokens.radius],
-    ["Schatten", profile.tokens.shadow],
-  ].filter(([, tokens]) => tokens.length > 0);
-  if (scaleGroups.length > 0) {
-    folds.push(
-      refsFold(
-        "Skalen",
-        scaleGroups.map(([label, tokens]) =>
-          el(
-            "div",
-            { style: "margin-bottom: 0.75rem" },
-            el("div", { class: "muted", text: label }),
-            el(
-              "div",
-              { class: "chip-row" },
-              tokens.slice(0, 12).map((token) => referenceTokenChip(token, false)),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-  if (profile.motion.length > 0) {
-    folds.push(
-      refsFold(
-        "Motion",
-        el(
-          "table",
-          {},
-          el(
-            "thead",
-            {},
-            el(
-              "tr",
-              {},
-              el("th", { text: "Effekt" }),
-              el("th", { text: "Preset" }),
-              el("th", { text: "Trigger" }),
-              el("th", { text: "Evidenz" }),
-            ),
-          ),
-          el(
-            "tbody",
-            {},
-            profile.motion.slice(0, 12).map((recipe) =>
-              el(
-                "tr",
-                {},
-                el("td", { text: recipe.name }),
-                el("td", {}, el("code", { text: recipe.preset ?? "—" })),
-                el("td", { text: recipe.trigger }),
-                el("td", {}, el("span", { class: "tag", text: recipe.level })),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-  if (
-    profile.vocabulary.length > 0 ||
-    profile.rules.constants.length > 0 ||
-    profile.rules.never.length > 0
-  ) {
-    folds.push(
-      refsFold(
-        "Design-Sprache",
-        [
-          profile.vocabulary.length > 0
-            ? el(
-                "div",
-                { class: "chip-row", style: "margin-bottom: 0.6rem" },
-                profile.vocabulary.map((word) => el("span", { class: "tag", text: word })),
-              )
-            : undefined,
-          profile.rules.constants.length > 0
-            ? el("p", {}, el("strong", { text: "Konstanten: " }), profile.rules.constants.join(" · "))
-            : undefined,
-          profile.rules.never.length > 0
-            ? el("p", {}, el("strong", { text: "Nie: " }), profile.rules.never.join(" · "))
-            : undefined,
-        ],
-      ),
-    );
-  }
-  if (profile.guardrails.length > 0) {
-    folds.push(
-      refsFold(
-        "Schutzregeln",
-        el(
-          "ul",
-          {},
-          profile.guardrails.map((finding) =>
-            el(
-              "li",
-              {},
-              el("span", { class: "tag", text: finding.severity }),
-              ` ${finding.message} — ${finding.suggestion}`,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-  return folds;
-}
-
-// Projekt-Zuordnung im Referenz-Fenster: die Projektliste kommt erst beim
-// Aufklappen (ein Abruf weniger beim Oeffnen).
-function refsAssignPanel(reference) {
-  const details = el("details", { class: "refs-fold" }, el("summary", { text: "Projekt zuordnen" }));
-  const body = el("div", { class: "refs-fold-body" });
-  details.append(body);
-  let loaded = false;
-  details.addEventListener("toggle", async () => {
-    if (!details.open || loaded) return;
-    loaded = true;
-    body.replaceChildren(el("p", { class: "muted", text: "Lädt…" }));
-    try {
-      const data = await api("/api/sites");
-      body.replaceChildren(refsAssignBody(reference, data.sites ?? []));
-    } catch (error) {
-      body.replaceChildren(el("p", { class: "muted", text: error.message }));
-    }
-  });
-  return details;
-}
-
-function refsAssignBody(reference, sites) {
-  const scaleBoxes = ["color", "type", "motion", "rest"].map((scale) => {
-    const box = el("input", { type: "checkbox", "data-scale": scale });
-    box.checked = true;
-    return el("label", { class: "inline" }, box, scale);
-  });
-  return sites.length === 0
-    ? el("p", { class: "muted", text: "Noch keine Projekte." })
-    : el(
-        "div",
-        { class: "inline" },
-        el(
-          "select",
-          { "aria-label": "Projekt" },
-          ...sites.map((site) => el("option", { value: site.id, text: site.name })),
-        ),
-        ...scaleBoxes,
-        el("button", {
-          type: "button",
-          class: "refs-button primary",
-          text: "Zuordnen",
-          onclick: async (event) => {
-            const select = event.target.closest(".inline")?.querySelector("select");
-            const siteId = select ? select.value : "";
-            const scales = [...event.target.closest(".inline").querySelectorAll("[data-scale]")]
-              .filter((box) => box.checked)
-              .map((box) => box.dataset.scale);
-            if (scales.length === 0) {
-              refsToast("Mindestens eine Skala auswählen.");
-              return;
-            }
-            try {
-              await api(`/api/sites/${siteId}/references`, {
-                method: "POST",
-                body: { author: AUTHOR, referenceId: reference.id, scales },
-              });
-              refsToast("Referenz zugeordnet");
-            } catch (error) {
-              failed(error);
-            }
-          },
-        }),
-      );
 }
 
 /* Referenz-Fenster (Popup). Aufbau, Masse und Verhalten stammen aus dem Vorbild
@@ -2619,121 +2459,12 @@ function refsInspectorStep(delta) {
   if (target) void refsInspectorShow(target);
 }
 
-// Nachbearbeitung: alles, was das Vorbild nicht kennt und unsere Daten
-// mitbringen (Provenienz, Breakpoint-Aufnahmen, Bibliotheksfelder, Revisionen,
-// Evidenz, Profil, Projekt-Zuordnung, Loeschen). Es steht unterhalb der
-// Vorbild-Abschnitte, zugeklappt, und aendert deren Masse nicht.
-function refsInspectorExtras(reference) {
-  const referenceId = reference.id;
-  const nameEdit = el("input", { class: "refs-input", type: "text", maxlength: "120" });
-  nameEdit.value = reference.name;
-  const collectionEdit = refsInspectorCollectionSelect(reference);
-  const noteEdit = el("textarea", { class: "refs-input", rows: "3", maxlength: "1000" });
-  noteEdit.value = reference.note ?? "";
-  const vocabularyEdit = el("input", { class: "refs-input", type: "text" });
-  vocabularyEdit.value = (reference.vocabulary ?? []).join(", ");
-  const recipeEdit = el("textarea", { class: "refs-input", rows: "3", maxlength: "2000" });
-  recipeEdit.value = reference.imageRecipe ?? "";
-  const extras = [
-    refsProvenanceFold(reference),
-    refsFold(
-      "Bearbeiten",
-      el(
-        "div",
-        {},
-        el("label", { class: "refs-field-label", text: "Name" }),
-        nameEdit,
-        el("label", { class: "refs-field-label", text: "Sammlung" }),
-        collectionEdit,
-        el("label", { class: "refs-field-label", text: "Notiz" }),
-        noteEdit,
-        el("label", { class: "refs-field-label", text: "Vokabular (Komma-getrennt)" }),
-        vocabularyEdit,
-        el("label", { class: "refs-field-label", text: "Bildrezept" }),
-        recipeEdit,
-        el(
-          "div",
-          { class: "refs-row-actions" },
-          el("button", {
-            type: "button",
-            class: "refs-button primary",
-            text: "Speichern",
-            onclick: async () => {
-              const name = nameEdit.value.trim();
-              try {
-                await api(`/api/references/${referenceId}`, {
-                  method: "PATCH",
-                  body: {
-                    ...(name === "" ? {} : { name }),
-                    collectionId: collectionEdit.value === "" ? null : collectionEdit.value,
-                    note: noteEdit.value.trim(),
-                    vocabulary: refsSplit(vocabularyEdit.value),
-                    imageRecipe: recipeEdit.value.trim(),
-                  },
-                });
-                refsToast("Referenz gespeichert");
-                await refsInspectorShow(referenceId);
-              } catch (error) {
-                failed(error);
-              }
-            },
-          }),
-        ),
-      ),
-    ),
-    refsRevisionsFold(referenceId),
-    refsEvidenceFold(reference),
-  ];
-  const shots = (reference.snapshots ?? []).filter(
-    (shot) => shot.previewPath && shot.kind !== "motion",
-  );
-  if (shots.length > 1) {
-    extras.push(
-      refsFold(
-        `Aufnahmen (${shots.length})`,
-        el(
-          "div",
-          {},
-          refsSnapshotStage(reference, shots),
-          el("p", {
-            class: "snapshot-meta",
-            text: "Breakpoint-Vergleich. Pfeiltasten oder Klick wechseln das Bild.",
-          }),
-        ),
-      ),
-    );
-  }
-  // Motion-Aufnahme der Live-Analyse (T14): die Scrollfahrt als Video.
-  const motion = (reference.snapshots ?? []).find(
-    (shot) => shot.kind === "motion" && shot.previewPath,
-  );
-  if (motion) {
-    const seconds = ((motion.durationMs ?? 0) / 1000).toFixed(1);
-    extras.push(
-      refsFold(
-        `Motion-Aufnahme (${seconds} s)`,
-        el(
-          "div",
-          { class: "refs-motion" },
-          el("video", {
-            controls: "",
-            muted: "",
-            playsinline: "",
-            preload: "metadata",
-            src: motion.previewPath,
-          }),
-          el("p", {
-            class: "snapshot-meta",
-            text: "Scrollfahrt der Live-Aufnahme; die Bewegung ist eingefroren gemessen.",
-          }),
-        ),
-      ),
-    );
-  }
-  // `refsProfileFolds` beginnt mit der Provenienz (schon oben gezeigt).
-  extras.push(...refsProfileFolds(reference).slice(1));
-  extras.push(
-    refsAssignPanel(reference),
+// Aktionen des Fensters. Die Analyse-Daten (Profil, Aufnahmen, Evidenzen) bleiben
+// bewusst draussen: sie gehoeren dem Agenten und der API, nicht der Oberflaeche.
+function refsInspectorActions(reference) {
+  return el(
+    "div",
+    { class: "refs-inspector-extras" },
     el(
       "div",
       { class: "refs-row-actions" },
@@ -2745,17 +2476,6 @@ function refsInspectorExtras(reference) {
       }),
     ),
   );
-  return el("div", { class: "refs-inspector-extras" }, ...extras);
-}
-
-function refsInspectorCollectionSelect(reference) {
-  const select = el("select", { class: "refs-input", "aria-label": "Sammlung" });
-  select.append(el("option", { value: "", text: "Ohne Sammlung" }));
-  for (const item of refsCollections.filter((entry) => entry.kind === "collection")) {
-    select.append(el("option", { value: item.id, text: item.name }));
-  }
-  select.value = reference.collectionId ?? "";
-  return select;
 }
 
 /* Dokumente der importierten Referenzen (design.md, Guidelines, Komponenten).
@@ -3064,7 +2784,7 @@ async function refsInspectorShow(referenceId) {
     el(
       "div",
       { class: "refs-detail-section" },
-      el("h3", { text: "Die Idee zum Mitnehmen" }),
+      el("h3", { text: "Notiz" }),
       el("p", { text: note }),
     ),
     el(
@@ -3096,7 +2816,7 @@ async function refsInspectorShow(referenceId) {
         text: brief?.brief?.status ?? "Referenz-Brief.",
       }),
     ),
-    refsInspectorExtras(reference),
+    refsInspectorActions(reference),
   );
 
   const pages = [{ id: "overview", label: "Übersicht", page: overview }];
@@ -3346,10 +3066,10 @@ async function settingsView() {
             ? undefined
             : el("button", {
                 class: "danger",
-                text: "Widerrufen",
-                onclick: async () => {
-                  try {
-                    await api(`/api/tokens/${token.id}`, { method: "DELETE" });
+                text: "Widerrufen",                 onclick: async () => {
+                   if (!confirm(`Token „${token.name}“ wirklich widerrufen? Danach kann der Client nicht mehr zugreifen.`)) return;
+                   try {
+                     await api(`/api/tokens/${token.id}`, { method: "DELETE" });
                     toast("Token widerrufen");
                     await renderRoute();
                   } catch (error) {
@@ -3394,32 +3114,45 @@ async function settingsView() {
           ),
       el(
         "div",
-        { class: "inline", style: "margin-top: 0.9rem" },
-        el("input", { id: "token-name", type: "text", placeholder: "Name, z. B. Claude Code" }),
-        el("input", { id: "token-scopes", type: "text", value: "read,write" }),
-        el("button", {
-          class: "primary",
-          text: "Token anlegen",
-          onclick: async () => {
-            const name = document.getElementById("token-name").value.trim();
-            const scopes = document
-              .getElementById("token-scopes")
-              .value.split(",")
-              .map((entry) => entry.trim())
-              .filter(Boolean);
-            if (!name) {
-              toast("Bitte einen Namen angeben.", "error");
-              return;
-            }
-            try {
-              const created = await api("/api/tokens", { method: "POST", body: { name, scopes } });
-              toast(`Token angelegt — Secret (einmalig): ${created.secret}`);
-              await renderRoute();
-            } catch (error) {
-              failed(error);
-            }
-          },
-        }),
+        { class: "settings-grid settings-grid--two", style: "margin-top: 0.9rem" },
+        settingField(
+          "Name",
+          el("input", { id: "token-name", type: "text", placeholder: "z. B. Claude Code" }),
+          "Eine lesbare Bezeichnung für den Client.",
+        ),
+        settingField(
+          "Berechtigungen",
+          el("input", { id: "token-scopes", type: "text", value: "read,write" }),
+          "Kommagetrennt, zum Beispiel read,write.",
+        ),
+        el(
+          "div",
+          { class: "settings-actions" },
+          el("button", {
+            class: "primary",
+            text: "Token anlegen",
+            onclick: async () => {
+              const name = document.getElementById("token-name").value.trim();
+              const scopes = document
+                .getElementById("token-scopes")
+                .value.split(",")
+                .map((entry) => entry.trim())
+                .filter(Boolean);
+              if (!name) {
+                toast("Bitte einen Namen angeben.", "error");
+                document.getElementById("token-name").focus();
+                return;
+              }
+              try {
+                const created = await api("/api/tokens", { method: "POST", body: { name, scopes } });
+                toast(`Token angelegt — Secret (einmalig): ${created.secret}`);
+                await renderRoute();
+              } catch (error) {
+                failed(error);
+              }
+            },
+          }),
+        ),
       ),
     ),
     el(
@@ -3432,40 +3165,46 @@ async function settingsView() {
       }),
       el(
         "div",
-        { class: "inline" },
-        el("input", { id: "smtp-host", type: "text", placeholder: "smtp.example.com", value: settings.email.host }),
-        el("input", { id: "smtp-port", type: "number", placeholder: "587", value: String(settings.email.port) }),
-        el(
-          "select",
-          { id: "smtp-tls" },
-          ...["starttls", "tls", "none"].map((mode) =>
-            el("option", {
-              value: mode,
-              text: mode,
-              selected: mode === settings.email.tls ? "" : undefined,
-            }),
+        { class: "settings-grid" },
+        settingField("Server", el("input", { id: "smtp-host", type: "text", placeholder: "smtp.example.com", value: settings.email.host })),
+        settingField("Port", el("input", { id: "smtp-port", type: "number", placeholder: "587", value: String(settings.email.port) })),
+        settingField(
+          "Verschlüsselung",
+          el(
+            "select",
+            { id: "smtp-tls" },
+            ...["starttls", "tls", "none"].map((mode) =>
+              el("option", {
+                value: mode,
+                text: mode === "starttls" ? "STARTTLS" : mode.toUpperCase(),
+                selected: mode === settings.email.tls ? "" : undefined,
+              }),
+            ),
           ),
         ),
       ),
       el(
         "div",
-        { class: "inline" },
-        el("input", { id: "smtp-user", type: "text", placeholder: "Benutzer", value: settings.email.user }),
-        el("input", {
-          id: "smtp-password",
-          type: "password",
-          placeholder: settings.email.hasPassword
-            ? "Passwort gespeichert (leer lassen = unverändert)"
-            : "kein Passwort gespeichert",
-        }),
-        el("input", { id: "smtp-from", type: "text", placeholder: "Absender, z. B. formular@kunde.de", value: settings.email.from }),
+        { class: "settings-grid", style: "margin-top: 0.75rem" },
+        settingField("Benutzer", el("input", { id: "smtp-user", type: "text", placeholder: "Benutzer", value: settings.email.user })),
+        settingField(
+          "Passwort",
+          el("input", {
+            id: "smtp-password",
+            type: "password",
+            placeholder: settings.email.hasPassword
+              ? "gespeichert — leer lassen zum Beibehalten"
+              : "noch nicht gespeichert",
+          }),
+        ),
+        settingField("Absender", el("input", { id: "smtp-from", type: "text", placeholder: "Absender, z. B. formular@kunde.de", value: settings.email.from })),
       ),
       el(
         "div",
-        { class: "inline", style: "margin-top: 0.6rem" },
+        { class: "settings-actions", style: "margin-top: 0.9rem" },
         el("button", {
           class: "primary",
-          text: "Speichern",
+          text: "E-Mail-Einstellungen speichern",
           onclick: async () => {
             const value = (id) => document.getElementById(id).value;
             const password = value("smtp-password");
@@ -3490,7 +3229,10 @@ async function settingsView() {
             }
           },
         }),
-        el("input", { id: "smtp-test-to", type: "text", placeholder: "Testmail an …" }),
+        settingField(
+          "Testempfänger",
+          el("input", { id: "smtp-test-to", type: "text", placeholder: "name@example.de" }),
+        ),
         el("button", {
           class: "ghost",
           text: "Testmail senden",
@@ -3507,14 +3249,16 @@ async function settingsView() {
               result.textContent = response.ok
                 ? `Gesendet an ${response.to}.`
                 : `Fehler (${response.reason}): ${response.message}`;
+              result.dataset.tone = response.ok ? "success" : "error";
               if (!response.ok) toast(response.message, "error");
             } catch (error) {
-              result.textContent = "";
+              result.textContent = friendlyError(error);
+              result.dataset.tone = "error";
               failed(error);
             }
           },
         }),
-        el("span", { id: "smtp-test-result", class: "muted" }),
+        el("span", { id: "smtp-test-result", class: "settings-message", role: "status" }),
       ),
     ),
     el(
@@ -3527,73 +3271,89 @@ async function settingsView() {
       }),
       el(
         "div",
-        { class: "inline" },
-        el("label", { class: "muted", for: "image-provider" }, "Provider"),
-        el(
-          "select",
-          { id: "image-provider" },
-          ...["image-use", "comfyui", "custom", "off"].map((provider) =>
-            el("option", {
-              value: provider,
-              text: provider,
-              selected: provider === settings.image.provider ? "" : undefined,
-            }),
+        { class: "settings-grid" },
+        settingField(
+          "Provider",
+          el(
+            "select",
+            { id: "image-provider" },
+            ...["image-use", "comfyui", "custom", "off"].map((provider) =>
+              el("option", {
+                value: provider,
+                text: provider === "image-use" ? "Image Use" : provider === "off" ? "Aus" : provider,
+                selected: provider === settings.image.provider ? "" : undefined,
+              }),
+            ),
           ),
         ),
-        el("label", { class: "muted", for: "image-fallback" }, "Fallback"),
-        el(
-          "select",
-          { id: "image-fallback" },
-          ...["comfyui", "image-use", "custom", "none"].map((provider) =>
-            el("option", {
-              value: provider,
-              text: provider,
-              selected: provider === settings.image.fallbackProvider ? "" : undefined,
-            }),
+        settingField(
+          "Fallback",
+          el(
+            "select",
+            { id: "image-fallback" },
+            ...["comfyui", "image-use", "custom", "none"].map((provider) =>
+              el("option", {
+                value: provider,
+                text: provider === "none" ? "Kein Fallback" : provider === "image-use" ? "Image Use" : provider,
+                selected: provider === settings.image.fallbackProvider ? "" : undefined,
+              }),
+            ),
           ),
         ),
       ),
       el("h3", { text: "Custom-Endpoint (eigene API)" }),
       el(
         "div",
-        { class: "inline" },
-        el(
-          "select",
-          { id: "image-custom-format" },
-          ...["minimax", "openai"].map((format) =>
-            el("option", {
-              value: format,
-              text: format,
-              selected: format === settings.image.customFormat ? "" : undefined,
-            }),
+        { class: "settings-grid" },
+        settingField(
+          "Format",
+          el(
+            "select",
+            { id: "image-custom-format" },
+            ...["minimax", "openai"].map((format) =>
+              el("option", {
+                value: format,
+                text: format === "minimax" ? "MiniMax" : "OpenAI-kompatibel",
+                selected: format === settings.image.customFormat ? "" : undefined,
+              }),
+            ),
           ),
         ),
-        el("input", {
-          id: "image-custom-url",
-          type: "text",
-          placeholder: "https://api.minimax.io/v1",
-          value: settings.image.customBaseUrl,
-        }),
-        el("input", {
-          id: "image-custom-model",
-          type: "text",
-          placeholder: "image-01",
-          value: settings.image.customModel,
-        }),
+        settingField(
+          "Basis-URL",
+          el("input", {
+            id: "image-custom-url",
+            type: "text",
+            placeholder: "https://api.minimax.io/v1",
+            value: settings.image.customBaseUrl,
+          }),
+        ),
+        settingField(
+          "Modell",
+          el("input", {
+            id: "image-custom-model",
+            type: "text",
+            placeholder: "image-01",
+            value: settings.image.customModel,
+          }),
+        ),
       ),
       el(
         "div",
-        { class: "inline", style: "margin-top: 0.6rem" },
-        el("input", {
-          id: "image-custom-key",
-          type: "password",
-          placeholder: settings.image.hasCustomApiKey
-            ? "API-Key gespeichert (leer lassen = unverändert)"
-            : "kein API-Key gespeichert",
-        }),
+        { class: "settings-actions", style: "margin-top: 0.9rem" },
+        settingField(
+          "API-Key",
+          el("input", {
+            id: "image-custom-key",
+            type: "password",
+            placeholder: settings.image.hasCustomApiKey
+              ? "gespeichert — leer lassen zum Beibehalten"
+              : "noch nicht gespeichert",
+          }),
+        ),
         el("button", {
           class: "primary",
-          text: "Speichern",
+          text: "Bild-API-Einstellungen speichern",
           onclick: async () => {
             const value = (id) => document.getElementById(id).value;
             const key = value("image-custom-key");
@@ -3627,13 +3387,15 @@ async function settingsView() {
             try {
               const health = await api("/api/images/health");
               const custom = health.providers?.custom;
-              out.textContent = `custom: ${custom?.ok ? "bereit" : "nicht bereit"} – ${custom?.detail ?? "keine Antwort"}`;
+              out.textContent = `Custom: ${custom?.ok ? "bereit" : "nicht bereit"} – ${custom?.detail ?? "keine Antwort"}`;
+              out.dataset.tone = custom?.ok ? "success" : "error";
             } catch (error) {
-              out.textContent = String(error?.message ?? error);
+              out.textContent = friendlyError(error);
+              out.dataset.tone = "error";
             }
           },
         }),
-        el("span", { id: "image-health", class: "muted" }),
+        el("span", { id: "image-health", class: "settings-message", role: "status" }),
       ),
       el("p", {
         class: "muted",
@@ -3656,8 +3418,12 @@ async function settingsView() {
       }),
       el(
         "div",
-        { class: "inline" },
-        el("input", { id: "backup-dir", type: "text", placeholder: "Zielordner (leer = Standard)", value: settings.backup.targetDir }),
+        { class: "settings-actions" },
+        settingField(
+          "Zielordner",
+          el("input", { id: "backup-dir", type: "text", placeholder: "Standard verwenden", value: settings.backup.targetDir }),
+          "Leer lassen, um den Standardpfad zu verwenden.",
+        ),
         el("button", {
           class: "ghost",
           text: "Zielordner speichern",
@@ -3772,7 +3538,7 @@ async function settingsView() {
       ),
       el("button", {
         class: "primary",
-        text: "Speichern",
+        text: "Standard-Einstellungen speichern",
         onclick: async () => {
           try {
             await api("/api/settings", {
@@ -3812,6 +3578,7 @@ let selectedFormId = null;
 // The open SSE channel of the active canvas view (ticket 05): a route change
 // closes it before the next view subscribes, so streams do not stack up.
 let activeLiveStream = null;
+let activeToolbarMenuCleanup = null;
 
 // The entry preview stays open across re-renders of the article editor.
 let entryPreviewOpen = false;
@@ -3976,7 +3743,7 @@ async function projectView(siteId, tab) {
         referenceData.assignments.length === 0
           ? el("p", {
               class: "muted",
-              text: "Keine Referenz zugeordnet — im Referenzen-Tab einem Projekt zuordnen.",
+              text: "Noch keine Referenz für dieses Projekt hinterlegt.",
             })
           : el(
               "table",
@@ -4038,6 +3805,91 @@ async function projectView(siteId, tab) {
               ? "Round-Trip verifiziert: Anwenden ändert den Bake nicht ✓"
               : "Hinweis: Die Theme-Ableitung weicht vom Bake ab — Details im Referenzen-Tab.",
         }),
+      ),
+    );
+
+    // Deploy (E14): der aktive Release wandert als statische Dateien in ein
+    // Zielverzeichnis. Der erste Adapter ist lokal; die Historie zeigt Status
+    // und Ziel jedes Deploys.
+    const { deployments } = await api(`/api/sites/${siteId}/deployments`);
+    const targetInput = el("input", {
+      type: "text",
+      placeholder: "C:\\sites\\meine-seite",
+      style: "min-width: 22rem",
+    });
+    const deployButton = el("button", {
+      type: "button",
+      class: "primary",
+      text: "Jetzt deployen",
+    });
+    deployButton.addEventListener("click", async () => {
+      const targetDir = targetInput.value.trim();
+      if (targetDir === "") {
+        toast("Bitte ein Zielverzeichnis angeben", "error");
+        return;
+      }
+      deployButton.disabled = true;
+      try {
+        const result = await api(`/api/sites/${siteId}/deployments`, {
+          method: "POST",
+          body: { provider: "static", targetDir },
+        });
+        const deployment = result.deployment;
+        toast(
+          `Deployt: ${deployment.fileCount} Dateien (${Math.round(deployment.byteSize / 1024)} KB) → ${deployment.target}`,
+          "info",
+        );
+        await renderRoute();
+      } catch (error) {
+        failed(error);
+      } finally {
+        deployButton.disabled = false;
+      }
+    });
+    body.push(
+      el(
+        "div",
+        { class: "panel" },
+        el("h2", { text: "Deploy" }),
+        el("p", {
+          class: "muted",
+          text: "Liefert den aktiven Release als statische Dateien in ein Zielverzeichnis (lokal oder gemountet). Der Deploy läuft über eine Staging-Kopie; ein Fehler lässt den vorherigen Stand unangetastet.",
+        }),
+        el("div", { class: "row-actions" }, targetInput, deployButton),
+        deployments.length === 0
+          ? el("p", { class: "muted", text: "Noch kein Deploy." })
+          : el(
+              "table",
+              {},
+              el(
+                "thead",
+                {},
+                el(
+                  "tr",
+                  {},
+                  el("th", { text: "Zeit" }),
+                  el("th", { text: "Status" }),
+                  el("th", { text: "Ziel" }),
+                  el("th", { text: "Dateien" }),
+                  el("th", { text: "Fehler" }),
+                ),
+              ),
+              el(
+                "tbody",
+                {},
+                deployments.map((deployment) =>
+                  el(
+                    "tr",
+                    {},
+                    el("td", { text: formatDate(deployment.createdAt) }),
+                    el("td", { text: deployment.status }),
+                    el("td", {}, el("code", { text: deployment.target })),
+                    el("td", { text: String(deployment.fileCount) }),
+                    el("td", { text: deployment.error ?? "—" }),
+                  ),
+                ),
+              ),
+            ),
       ),
     );
   } else if (tab === "submissions") {
@@ -4211,13 +4063,190 @@ async function projectView(siteId, tab) {
         );
       }
     }
-  } else {
-    body.push(
-      el("div", {
-        class: "empty",
-        text: "Die Vorlagen-Verwaltung folgt mit dem Templates-Ticket.",
-      }),
-    );
+  } else if (tab === "templates") {
+    // Vorlagen (O14): Layout- und Entry-Vorlagen samt Layout-Zuordnung. Die
+    // Engine-Route ist die eine Quelle; hier wird nur markiert und zugewiesen.
+    const { collections } = await api(`/api/sites/${siteId}/collections`);
+    const layoutTemplates = pages.filter((page) => page.template?.kind === "layout");
+    const entryTemplates = pages.filter((page) => page.template?.kind === "collection");
+    const plainPages = pages.filter((page) => page.template === null);
+    const collectionName = (id) =>
+      collections.find((collection) => collection.id === id)?.name ?? id;
+    const setTemplate = async (pageId, body) => {
+      try {
+        await api(`/api/pages/${pageId}/template`, {
+          method: "PUT",
+          body: { ...body, author: AUTHOR },
+        });
+        toast("Vorlage aktualisiert");
+        await renderRoute();
+      } catch (error) {
+        failed(error);
+      }
+    };
+
+    body.push(el("h2", { text: "Vorlagen" }));
+    if (layoutTemplates.length + entryTemplates.length === 0) {
+      body.push(
+        el("div", {
+          class: "empty",
+          text: "Noch keine Vorlagen — markiere unten eine Seite als Layout- oder Entry-Vorlage.",
+        }),
+      );
+    } else {
+      body.push(
+        el(
+          "table",
+          {},
+          el(
+            "thead",
+            {},
+            el(
+              "tr",
+              {},
+              el("th", { text: "Pfad" }),
+              el("th", { text: "Titel" }),
+              el("th", { text: "Rolle" }),
+              el("th", { text: "Details" }),
+              el("th", {}),
+            ),
+          ),
+          el(
+            "tbody",
+            {},
+            [...layoutTemplates, ...entryTemplates].map((page) =>
+              el(
+                "tr",
+                {},
+                el("td", {}, el("code", { text: page.path })),
+                el("td", { text: page.title || "—" }),
+                el("td", { text: page.template?.kind === "layout" ? "Layout" : "Entry" }),
+                el("td", {
+                  text:
+                    page.template?.kind === "collection"
+                      ? page.template.collectionIds.map(collectionName).join(", ")
+                      : page.template?.label || "—",
+                }),
+                el(
+                  "td",
+                  {},
+                  el(
+                    "div",
+                    { class: "row-actions" },
+                    el("a", {
+                      href: `#/projects/${siteId}/pages/${page.id}`,
+                      text: "Öffnen",
+                    }),
+                    el("button", {
+                      type: "button",
+                      text: "Markierung entfernen",
+                      onclick: () => void setTemplate(page.id, { template: null }),
+                    }),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    body.push(el("h2", { text: "Seiten & Layouts" }));
+    if (plainPages.length === 0) {
+      body.push(el("div", { class: "empty", text: "Keine Seiten ohne Vorlage." }));
+    } else {
+      body.push(
+        el(
+          "table",
+          {},
+          el(
+            "thead",
+            {},
+            el(
+              "tr",
+              {},
+              el("th", { text: "Pfad" }),
+              el("th", { text: "Titel" }),
+              el("th", { text: "Layout" }),
+              el("th", { text: "Vorlage" }),
+              el("th", {}),
+            ),
+          ),
+          el(
+            "tbody",
+            {},
+            plainPages.map((page) => {
+              const layoutSelect = el("select", { "aria-label": "Layout dieser Vorlage" });
+              layoutSelect.append(el("option", { value: "", text: "— kein Layout —" }));
+              for (const template of layoutTemplates) {
+                const option = el("option", {
+                  value: template.id,
+                  text: template.title || template.path,
+                });
+                if (page.layoutId === template.id) option.selected = true;
+                layoutSelect.append(option);
+              }
+              layoutSelect.addEventListener("change", () => {
+                void setTemplate(page.id, {
+                  layoutId: layoutSelect.value === "" ? null : layoutSelect.value,
+                });
+              });
+              const collectionSelect = el("select", { "aria-label": "Sammlung dieser Vorlage" });
+              collectionSelect.append(
+                el("option", { value: "", text: "Sammlung wählen …" }),
+              );
+              for (const collection of collections) {
+                collectionSelect.append(
+                  el("option", { value: collection.id, text: collection.name }),
+                );
+              }
+              return el(
+                "tr",
+                {},
+                el("td", {}, el("code", { text: page.path })),
+                el("td", { text: page.title || "—" }),
+                el("td", {}, layoutSelect),
+                el(
+                  "td",
+                  {},
+                  el(
+                    "div",
+                    { class: "row-actions" },
+                    el("button", {
+                      type: "button",
+                      text: "Als Layout",
+                      // Der Anzeigename ist der Seitentitel (die Engine leitet
+                      // ihn beim Lesen ab).
+                      onclick: () =>
+                        void setTemplate(page.id, {
+                          template: { kind: "layout" },
+                        }),
+                    }),
+                    collectionSelect,
+                    el("button", {
+                      type: "button",
+                      text: "Als Entry",
+                      onclick: () => {
+                        if (collectionSelect.value === "") {
+                          toast("Bitte eine Sammlung wählen", "error");
+                          return;
+                        }
+                        void setTemplate(page.id, {
+                          template: {
+                            kind: "collection",
+                            collectionIds: [collectionSelect.value],
+                          },
+                        });
+                      },
+                    }),
+                  ),
+                ),
+              );
+            }),
+          ),
+        ),
+      );
+    }
   }
   render([...frame, ...body]);
 }
@@ -4529,7 +4558,7 @@ async function articleEditorView(siteId, entryId) {
       previewToggle,
       el("button", {
         class: "ghost",
-        text: "Speichern",
+        text: "Artikel speichern",
         onclick: async () => {
           try {
             await api(`/api/entries/${entryId}`, {
@@ -4637,6 +4666,93 @@ function reviewPanel(siteId, review) {
   );
 }
 
+function importReportBlock(report) {
+  const counts = report?.counts ?? {};
+  const assets = report?.assets ?? {};
+  const declarations = report?.declarations ?? {};
+  const motion = report?.motion ?? { measured: 0, mappedToPreset: 0, documented: 0 };
+  const findings = report?.findings ?? [];
+  const resolutions = report?.resolutions ?? [];
+  const candidates = report?.candidates ?? [];
+  const marquee = report?.marqueeCandidates ?? [];
+  const findingItems = findings.length > 0
+    ? el(
+        "ul",
+        { class: "framer-report-list" },
+        findings.map((finding) =>
+          el(
+            "li",
+            {},
+            el("span", { class: "tag", text: finding.severity ?? "info" }),
+            ` ${finding.kind}: ${finding.message}`,
+            el("p", { class: "muted", text: finding.evidence ?? "" }),
+            finding.suggestion ? el("p", { class: "muted", text: finding.suggestion }) : "",
+          ),
+        ),
+      )
+    : el("p", { class: "muted", text: "Keine Funde." });
+  const resolutionItems = resolutions.length > 0
+    ? el(
+        "ul",
+        { class: "framer-report-list" },
+        resolutions.map((resolution) =>
+          el(
+            "li",
+            {},
+            el("span", { class: "tag", text: resolution.kind }),
+            ` ${resolution.nodeKey}: ${resolution.reason}`,
+            el("p", { class: "muted", text: resolution.evidence ?? "" }),
+          ),
+        ),
+      )
+    : el("p", { class: "muted", text: "Keine Klasse-C-Fälle." });
+  const candidateItems = candidates.length > 0
+    ? el(
+        "ul",
+        { class: "framer-report-list" },
+        candidates.map((candidate) =>
+          el(
+            "li",
+            {},
+            el("strong", { text: candidate.label }),
+            ` · ${candidate.occurrences.length} Vorkommen · ${candidate.kind}`,
+            el("p", { class: "muted", text: `Fingerprint: ${candidate.fingerprint}` }),
+            el("p", { class: "muted", text: candidate.reason }),
+          ),
+        ),
+      )
+    : el("p", { class: "muted", text: "Keine wiederholten Strukturen erkannt." });
+  const marqueeItems = marquee.length > 0
+    ? el(
+        "ul",
+        { class: "framer-report-list" },
+        marquee.map((candidate) =>
+          el("li", {}, `${candidate.preset}: ${candidate.reason}`),
+        ),
+      )
+    : el("p", { class: "muted", text: "Keine Marquee-Kandidaten." });
+  return el(
+    "div",
+    { class: "framer-report" },
+    el("h3", { text: "Import-Bericht" }),
+    el(
+      "p",
+      { class: "framer-report-summary" },
+      `Score ${report?.score ?? 0}/100 · ${counts.mapped ?? 0}/${counts.nodes ?? 0} Knoten · ${counts.placeholders ?? 0} Platzhalter`,
+    ),
+    el(
+      "p",
+      { class: "muted" },
+      `Deklarationen: ${declarations.carried ?? 0}/${declarations.total ?? 0} übernommen, ${declarations.dropped ?? 0} verworfen. Assets: ${assets.downloaded ?? 0} geladen, ${assets.deduped ?? 0} dedupliziert, ${assets.failed ?? 0} fehlgeschlagen. Fonts: ${assets.fonts ?? 0}. Motion: ${motion.mappedToPreset}/${motion.measured} Presets, ${motion.documented} dokumentiert.`,
+    ),
+    refsFold(`Funde (${findings.length})`, findingItems, findings.length > 0),
+    refsFold("Klasse-C", resolutionItems, resolutions.length > 0),
+    refsFold(`Baustein-Kandidaten (${candidates.length})`, candidateItems, candidates.length > 0),
+    refsFold(`Marquee-Kandidaten (${marquee.length})`, marqueeItems, marquee.length > 0),
+    refsFold("Schritte", el("ol", {}, (report?.steps ?? []).map((step) => el("li", { text: step })))),
+  );
+}
+
 // Review-Details (T07): Struktur-Diff in Klartext, dann die Aufnahmen aus
 // review.visuals - Vorher/Nachher je Breakpoint, das Diff-Bild mit Quote und
 // die Motion-Aufnahme, wenn die Aenderung Bewegung beruehrt hat.
@@ -4669,6 +4785,7 @@ function reviewDetailBlocks(review) {
     });
     blocks.push(el("div", { class: "review-block" }, el("h3", { text: "Struktur-Diff" }), ...pages));
   }
+  for (const report of review.importReports ?? []) blocks.push(importReportBlock(report));
   blocks.push(reviewVisualsBlock(review));
   return blocks;
 }
@@ -4829,8 +4946,385 @@ function canvasModeOf(search) {
   return /(?:^|&)view=editor(?:&|$)/.test(String(search ?? "")) ? "editor" : "canvas";
 }
 
-function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCache, mediaCache, assetContext, siteProfile }) {
+function openFramerImportDialog({ siteId, pageId, session, onImported }) {
+  const dialog = el("dialog", { class: "refs-dialog framer-import-dialog", "data-role": "framer-import-dialog" });
+  const sourceSelect = el("select", { class: "refs-input", "data-role": "framer-source-mode" });
+  sourceSelect.append(
+    el("option", { value: "url", text: "Framer-URL" }),
+    el("option", { value: "html", text: "HTML-Datei" }),
+    el("option", { value: "mirror", text: "Lokaler Mirror" }),
+  );
+  const sourceInput = el("input", { class: "refs-input", type: "url", "data-role": "framer-source-input", placeholder: "https://…" });
+  const fileInput = el("input", { class: "refs-input", type: "file", accept: ".html,text/html" });
+  const pagePathInput = el("input", { class: "refs-input", type: "text", value: "/", placeholder: "/landingpage" });
+  const targetSelect = el("select", { class: "refs-input", "data-role": "framer-target" });
+  targetSelect.append(
+    el("option", { value: "new", text: "Neue Seite" }),
+    el("option", { value: "current", text: "Aktuelle Seite ersetzen" }),
+  );
+  const assetsSelect = el("select", { class: "refs-input" });
+  assetsSelect.append(
+    el("option", { value: "upload", text: "Hochladen" }),
+    el("option", { value: "skip", text: "Überspringen" }),
+  );
+  const fontsSelect = el("select", { class: "refs-input" });
+  fontsSelect.append(
+    el("option", { value: "rewrite", text: "Lokal umschreiben" }),
+    el("option", { value: "skip", text: "CDN beibehalten" }),
+  );
+  const themeCheck = el("input", { type: "checkbox" });
+  const errorEl = el("p", { class: "refs-form-error", role: "alert" });
+  const reportHost = el("div", { class: "framer-import-report-host", "data-role": "framer-import-report" });
+  let report = null;
+  const analyze = el("button", { type: "submit", class: "refs-button primary", text: "Analysieren" });
+  const apply = el("button", {
+    type: "button",
+    class: "refs-button primary",
+    text: "Übernehmen",
+    "data-action": "framer-import-apply",
+  });
+  apply.disabled = true;
+
+  const syncSource = () => {
+    const value = sourceSelect.value;
+    sourceInput.hidden = value !== "url" && value !== "mirror";
+    sourceInput.type = value === "mirror" ? "text" : "url";
+    sourceInput.placeholder = value === "mirror" ? "C:\\Pfad\\zum\\Mirror" : "https://…";
+    fileInput.hidden = value !== "html";
+  };
+  sourceSelect.addEventListener("change", syncSource);
+  syncSource();
+
+  const sourceValue = async () => {
+    if (sourceSelect.value === "html") {
+      const file = fileInput.files?.[0];
+      if (!file) throw new Error("Bitte eine HTML-Datei wählen.");
+      return { html: await file.text() };
+    }
+    const value = sourceInput.value.trim();
+    if (value === "") throw new Error("Bitte eine Importquelle angeben.");
+    return sourceSelect.value === "url" ? { url: value } : { rootDir: value };
+  };
+  const bodyFor = async (write) => ({
+    source: await sourceValue(),
+    ...(pagePathInput.value.trim() === "" ? {} : { pagePath: pagePathInput.value.trim() }),
+    ...(targetSelect.value === "current"
+      ? { pageId, baseDraftVersion: session.version }
+      : {}),
+    assets: assetsSelect.value,
+    fonts: fontsSelect.value,
+    applyTheme: themeCheck.checked,
+    write,
+    idempotencyKey: window.crypto.randomUUID(),
+  });
+  const submit = async (event) => {
+    event.preventDefault();
+    analyze.disabled = true;
+    errorEl.textContent = "";
+    analyze.textContent = "Analysiere …";
+    try {
+      const result = await api(`/api/sites/${siteId}/imports/framer`, {
+        method: "POST",
+        body: await bodyFor(false),
+      });
+      report = result.report;
+      reportHost.replaceChildren(importReportBlock(report));
+      apply.disabled = false;
+    } catch (error) {
+      errorEl.textContent = error.message;
+    } finally {
+      analyze.disabled = false;
+      analyze.textContent = "Neu analysieren";
+    }
+  };
+  apply.addEventListener("click", async () => {
+    if (report === null) return;
+    apply.disabled = true;
+    analyze.disabled = true;
+    errorEl.textContent = "";
+    apply.textContent = "Importiere …";
+    try {
+      await session.flush();
+      const result = await api(`/api/sites/${siteId}/imports/framer`, {
+        method: "POST",
+        body: await bodyFor(true),
+      });
+      dialog.close();
+      onImported(result.report);
+    } catch (error) {
+      errorEl.textContent = error.message;
+      apply.disabled = false;
+    } finally {
+      analyze.disabled = false;
+      apply.textContent = "Übernehmen";
+    }
+  });
+  const form = el(
+    "form",
+    { class: "framer-import-form", onsubmit: submit },
+    el("h2", { text: "Framer-Seite importieren" }),
+    el("label", {}, "Quelle", sourceSelect),
+    sourceInput,
+    fileInput,
+    el("label", {}, "Ziel", targetSelect),
+    el("label", {}, "Seitenpfad", pagePathInput),
+    el("div", { class: "inline" }, el("label", {}, "Assets", assetsSelect), el("label", {}, "Fonts", fontsSelect)),
+    el("label", { class: "inline" }, themeCheck, " Theme-Fonts übernehmen"),
+    el("div", { class: "framer-import-actions" }, analyze, apply),
+    errorEl,
+  );
+  dialog.append(form, reportHost);
+  document.body.append(dialog);
+  dialog.addEventListener("close", () => dialog.remove());
+  dialog.showModal();
+  sourceInput.focus();
+}
+
+// How a media need is presented. The wording stays short so a card with six
+// needs stays readable.
+function mediaLabel(treatment) {
+  if (treatment === "reuse") return "wiederverwenden";
+  if (treatment === "select") return "auswählen";
+  if (treatment === "upload") return "hochladen";
+  if (treatment === "generate") return "erzeugen";
+  if (treatment === "avoid") return "vermeiden";
+  return "manuell";
+}
+
+// The human direction step of a redesign (ADR-0012). The agent proposed the
+// cards; this is where a person actually chooses one. Nothing is preselected:
+// a click on a card only selects, the confirm button creates the draft.
+function openRedesignDirectionDialog(proposal) {
+  const cards = Array.isArray(proposal.cards) ? proposal.cards : [];
+  const errorEl = el("p", { class: "redesign-dialog__error", "data-role": "redesign-error", role: "alert" });
+  const confirmButton = el("button", {
+    type: "button",
+    class: "redesign-dialog__button primary",
+    "data-action": "redesign-confirm",
+    text: "Richtung als Draft übernehmen",
+  });
+  confirmButton.disabled = true;
+
+  const grid = el("fieldset", { class: "redesign-direction-grid" });
+  grid.append(el("legend", { class: "redesign-direction-legend", text: "Welche Richtung?" }));
+
+  let chosen = null;
+  const select = (directionId) => {
+    chosen = directionId;
+    for (const input of grid.querySelectorAll('input[type="radio"]')) {
+      input.checked = input.value === directionId;
+    }
+    confirmButton.disabled = false;
+    errorEl.textContent = "";
+  };
+
+  for (const card of cards) {
+    const specimen = card.theme?.specimen ?? {};
+    const image = el("img", {
+      class: "redesign-direction-shot",
+      src: `/api/redesign-proposals/${encodeURIComponent(proposal.id)}/cards/${encodeURIComponent(card.id)}/screenshot`,
+      alt: card.screenshot?.alt ?? `Vorschau ${card.reference?.name ?? ""}`,
+      loading: "lazy",
+    });
+    const swatches = el("div", { class: "redesign-specimen-swatches" });
+    for (const [name, value] of [
+      ["Marke", specimen.brand],
+      ["Neutral", specimen.neutralBase],
+    ]) {
+      if (typeof value !== "string" || value === "") continue;
+      swatches.append(
+        el("span", { class: "redesign-specimen-swatch", "data-role": name.toLowerCase() }, [
+          el("i", { style: `background:${value}` }),
+          el("span", { text: `${name}: ${value}` }),
+        ]),
+      );
+    }
+    const rules = el("div", { class: "redesign-direction-rules" });
+    for (const [label, values] of [
+      ["Grundsätze", card.rules?.constants],
+      ["Nicht übernehmen", card.rules?.never],
+    ]) {
+      const list = Array.isArray(values) ? values.filter((entry) => String(entry).trim() !== "") : [];
+      if (list.length === 0) continue;
+      rules.append(
+        el("p", { class: "redesign-direction-rules-line" }, [
+          el("strong", { text: `${label}: ` }),
+          el("span", { text: list.slice(0, 4).join(" · ") }),
+        ]),
+      );
+    }
+    const warnings = el("div", { class: "redesign-direction-warnings", "data-role": "redesign-warnings" });
+    for (const warning of Array.isArray(card.warnings) ? card.warnings : []) {
+      warnings.append(el("p", { text: String(warning) }));
+    }
+    const fonts = el("p", {
+      class: "redesign-direction-fonts",
+      text: `${specimen.displayFont ?? ""} / ${specimen.bodyFont ?? ""}`,
+    });
+    // ADR-0013: what this direction does to the page's own sections and which
+    // media it needs. The build scope is the agent's binding work order.
+    const plan = card.sectionPlan ?? null;
+    const summary = plan?.summary ?? {};
+    const scope = el("div", { class: "redesign-build-scope", "data-role": "redesign-build-scope" });
+    if (plan === null) {
+      scope.append(
+        el("p", { class: "redesign-direction-warnings", text: "Für diese Richtung liegt kein Sektions-Plan vor." }),
+      );
+    } else {
+      scope.append(
+        el("p", { class: "redesign-scope-summary" }, [
+          el("strong", { text: "Bauumfang: " }),
+          el("span", {
+            "data-role": "redesign-scope-counts",
+            text: `${summary.exact ?? 0} exakt · ${summary.fallback ?? 0} Vorgabe · ${summary.manual ?? 0} manuell`,
+          }),
+        ]),
+      );
+      const entryList = el("ul", { class: "redesign-scope-list" });
+      for (const entry of (plan.entries ?? []).slice(0, 8)) {
+        const target = entry.target?.type ?? entry.source?.type ?? "—";
+        const variant = entry.target?.variant ? ` / ${entry.target.variant}` : "";
+        entryList.append(
+          el("li", {
+            class: "redesign-scope-entry",
+            "data-role": "redesign-section-entry",
+            "data-status": entry.status ?? "manual",
+          }, [
+            el("span", { text: `${target}${variant}` }),
+            el("span", { class: "redesign-scope-status", text: entry.status ?? "manual" }),
+          ]),
+        );
+      }
+      if ((plan.entries ?? []).length > 8) {
+        entryList.append(
+          el("li", { class: "redesign-scope-more", text: `+ ${plan.entries.length - 8} weitere` }),
+        );
+      }
+      if (entryList.childElementCount > 0) scope.append(entryList);
+
+      const mediaList = el("ul", { class: "redesign-media-list" });
+      for (const need of (plan.media ?? []).slice(0, 6)) {
+        mediaList.append(
+          el("li", {
+            class: "redesign-media-need",
+            "data-role": "redesign-media-need",
+            "data-treatment": need.treatment ?? "manual",
+          }, [
+            el("span", { class: "redesign-media-treatment", text: mediaLabel(need.treatment) }),
+            el("span", { class: "redesign-media-reason", text: need.reason ?? "" }),
+          ]),
+        );
+      }
+      if (mediaList.childElementCount > 0) {
+        scope.append(
+          el("p", { class: "redesign-scope-subtitle", text: "Medienbedarf" }),
+          mediaList,
+        );
+      }
+    }
+    const radio = el("input", {
+      type: "radio",
+      name: "redesign-direction",
+      value: card.id,
+    });
+    radio.addEventListener("change", () => select(card.id));
+    grid.append(
+      el(
+        "label",
+        { class: "redesign-direction-card", "data-direction-card": card.id },
+        [image, el("h3", { text: card.reference?.name ?? "Richtung" }), radio, swatches, fonts, rules, scope, warnings],
+      ),
+    );
+  }
+
+  const staleNote = proposal.freshness?.current === false
+    ? el("p", { class: "redesign-dialog__stale", "data-role": "redesign-stale" }, [
+        el("strong", { text: "Plan veraltet. " }),
+        el("span", { text: (proposal.freshness.reasons ?? []).join(" ") }),
+      ])
+    : null;
+
+  const dialog = el(
+    "dialog",
+    {
+      class: "redesign-dialog",
+      "data-role": "redesign-dialog",
+      "aria-labelledby": "redesign-direction-title",
+    },
+    el("div", { class: "redesign-dialog__head" }, [
+      el("p", { class: "redesign-dialog__eyebrow", text: "Agentenvorschlag" }),
+      el("h2", { id: "redesign-direction-title", text: `Richtung für „${proposal.source?.title ?? "diese Seite"}“ wählen` }),
+      el("p", {
+        class: "redesign-dialog__hint",
+        "data-role": "redesign-readonly-note",
+        text: "Originalseite und veröffentlichtes Release bleiben unverändert. Es entsteht eine neue Draft-Seite.",
+      }),
+      el("p", {
+        class: "redesign-dialog__hint",
+        "data-role": "redesign-apply-scope",
+        text: "Bestätigt werden Theme und Draft-Grundstruktur. Der Sektions-Plan ist die verbindliche Arbeitsgrundlage für den Agenten.",
+      }),
+    ]),
+    staleNote,
+    grid,
+    el("div", { class: "redesign-dialog__actions" }, [
+      errorEl,
+      el("button", {
+        type: "button",
+        class: "redesign-dialog__button",
+        "data-action": "redesign-cancel",
+        text: "Abbrechen",
+        onclick: () => dialog.close(),
+      }),
+      confirmButton,
+    ]),
+  );
+  if (staleNote !== null) confirmButton.disabled = true;
+
+  confirmButton.addEventListener("click", async () => {
+    if (chosen === null) return;
+    confirmButton.disabled = true;
+    for (const input of grid.querySelectorAll('input[type="radio"]')) input.disabled = true;
+    errorEl.textContent = "";
+    confirmButton.textContent = "Wird angewendet …";
+    try {
+      const result = await api(`/api/redesign-proposals/${encodeURIComponent(proposal.id)}/confirm`, {
+        method: "POST",
+        body: { directionId: chosen, idempotencyKey: window.crypto.randomUUID() },
+      });
+      const applied = result.proposal?.applyResult;
+      if (result.proposal?.status === "failed") {
+        throw new Error(applied?.error?.message ?? "Die Richtung konnte nicht angewendet werden.");
+      }
+      dialog.close();
+      const siteId = applied?.siteId;
+      const pageId = applied?.pageId;
+      if (typeof siteId === "string" && typeof pageId === "string") {
+        location.hash = `#/projects/${siteId}/pages/${pageId}`;
+      } else {
+        toast("Richtung bestätigt.", "info");
+      }
+    } catch (error) {
+      // A stale plan keeps the dialog open: the operator has to plan again.
+      errorEl.textContent = error?.message ?? "Die Richtung konnte nicht angewendet werden.";
+      confirmButton.textContent = "Richtung als Draft übernehmen";
+      for (const input of grid.querySelectorAll('input[type="radio"]')) input.disabled = false;
+      if (error?.status === 409) confirmButton.disabled = true;
+    }
+  });
+
+  document.body.append(dialog);
+  dialog.addEventListener("close", () => {
+    dialog.remove();
+    document.querySelector('[data-action="redesign-inbox-open"]')?.focus();
+  });
+  refsBindBackdropClose(dialog);
+  dialog.showModal();
+}
+
+async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCache, mediaCache, libraryComponents, assetContext, siteProfile, siteTheme, siteThemeVersion, styleRules, styleRegistryVersion }) {
   const loaded = editor.loadDocument(page.draft);
+  loaded.document.styleRules = styleRules ?? [];
 
   // Drei Spalten: Ebenen-Explorer, Arbeitsflaeche (Canvas) und Inspektor
   // (Tickets 02/03). Alle drei lesen denselben Store — die Auswahl im Canvas
@@ -4842,6 +5336,42 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
   host.replaceChildren(explorerHost, canvasHost, inspectorHost);
 
   const statusEl = el("span", { class: "muted", "data-role": "canvas-status" });
+  const statusGroup = el(
+    "div",
+    { class: "toolbar__status", "aria-live": "polite", "aria-atomic": "true" },
+    statusEl,
+  );
+  // Re-Bake-Status (E12): Inhaltsaenderungen laufen als durabler Job; der
+  // Badge zeigt den letzten Stand, ohne dass jemand die Job-Route oeffnen muss.
+  const bakeBadge = el("span", {
+    class: "muted",
+    "data-role": "bake-status",
+  });
+  bakeBadge.hidden = true;
+  statusGroup.append(bakeBadge);
+  const showBake = (text, isError) => {
+    bakeBadge.textContent = text;
+    bakeBadge.hidden = false;
+    if (isError === true) bakeBadge.dataset.state = "error";
+    else delete bakeBadge.dataset.state;
+  };
+  const refreshBakeJobs = async () => {
+    try {
+      const result = await api(`/api/sites/${siteId}/bake-jobs`);
+      const job = (result.jobs ?? [])[0];
+      if (!job) return;
+      if (job.status === "queued" || job.status === "running") {
+        showBake("Inhalt wird neu gebaut …");
+      } else if (job.status === "failed") {
+        showBake(`Re-Bake fehlgeschlagen: ${job.lastError ?? "unbekannt"}`, true);
+      } else if (job.status === "done") {
+        showBake("Inhalt neu gebaut");
+      }
+    } catch {
+      // Der Status ist ein Hinweis, nie ein Blocker.
+    }
+  };
+  void refreshBakeJobs();
   const publishButton = el("button", {
     type: "button",
     class: "primary",
@@ -4850,7 +5380,7 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
   });
   const saveButton = el("button", {
     type: "button",
-    class: "primary",
+    class: "ghost",
     "data-action": "canvas-save",
     text: "Speichern",
   });
@@ -4919,6 +5449,7 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
     author: AUTHOR,
     request: transport,
     initialVersion: page.draftVersion,
+    styleRegistryVersion,
     storage,
   });
   const savedUi = session.ui();
@@ -4937,6 +5468,83 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
     if (state.unsupported.length > 0) {
       statusEl.textContent = `${statusEl.textContent} · nicht speicherbar: ${state.unsupported.join(", ")}`.trim();
     }
+    syncConflictDialog(editor.conflictDialogModel(state));
+  };
+
+  // Konflikt-Dialog (L17): Server-Stand vs. eigene Aenderungen mit beiden Wegen
+  // und ihren Folgen. Er oeffnet einmal je Konfliktlage; "Spaeter" schliesst
+  // ihn, die Toolbar-Knoepfe bleiben der direkte Weg.
+  const conflictDialog = el("dialog", {
+    class: "conflict-dialog",
+    "data-role": "conflict-dialog",
+  });
+  host.append(conflictDialog);
+  let conflictKey = null;
+  const closeConflictDialog = () => {
+    conflictKey = null;
+    if (conflictDialog.open) conflictDialog.close();
+  };
+  const reloadDraft = async () => {
+    try {
+      const fresh = await api(`/api/pages/${pageId}`);
+      session.replaceDocument(editor.loadDocument(fresh.draft).document, fresh.draftVersion);
+      // Der Server-Stand ersetzt das Dokument; die offenen eigenen Aenderungen
+      // sind damit verworfen (so steht es im Dialog).
+      session.discardPending();
+      setVersion(fresh.draftVersion);
+      statusEl.textContent = "Neu geladen";
+    } catch (error) {
+      failed(error);
+    }
+  };
+  const retrySave = async () => {
+    try {
+      const fresh = await api(`/api/pages/${pageId}`);
+      await session.retry(fresh.draftVersion);
+    } catch (error) {
+      failed(error);
+    }
+  };
+  const syncConflictDialog = (model) => {
+    if (model === null) {
+      closeConflictDialog();
+      return;
+    }
+    const key = `${model.expectedVersion}:${model.serverVersion ?? "?"}:${model.pending}`;
+    if (conflictDialog.open || key === conflictKey) return;
+    conflictKey = key;
+    const reload = el("button", {
+      type: "button",
+      class: "danger",
+      "data-action": "conflict-reload",
+      text: model.reloadLabel,
+    });
+    reload.addEventListener("click", () => {
+      closeConflictDialog();
+      void reloadDraft();
+    });
+    const retry = el("button", {
+      type: "button",
+      class: "primary",
+      "data-action": "conflict-retry",
+      text: model.retryLabel,
+    });
+    retry.addEventListener("click", () => {
+      closeConflictDialog();
+      void retrySave();
+    });
+    const later = el("button", {
+      type: "button",
+      "data-action": "conflict-later",
+      text: model.dismissLabel,
+    });
+    later.addEventListener("click", () => closeConflictDialog());
+    conflictDialog.replaceChildren(
+      el("h2", { text: model.title }),
+      el("p", { text: model.hint }),
+      el("div", { class: "conflict-dialog__actions" }, reload, retry, later),
+    );
+    conflictDialog.showModal();
   };
   session.subscribe(() => {
     const state = session.saveState();
@@ -4954,8 +5562,11 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
         assets: assetContext,
       }),
     }),
-    theme: editor.defaultTheme(),
-    frameStyles: ["/theme.css", "/editor-frame.css"],
+    theme: siteTheme ?? editor.defaultTheme(),
+    frameStyles: [
+      `/api/sites/${encodeURIComponent(siteId)}/theme.css?v=${encodeURIComponent(siteThemeVersion ?? 0)}`,
+      "/editor-frame.css",
+    ],
     zoom: savedUi.zoom,
     // Design/Live (Ticket 03 Punkt 6): live zeigt die echte Seite (M4 Stufe 1).
     mode: savedUi.mode,
@@ -4973,6 +5584,81 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
       statusEl.textContent = message ?? "";
     },
   });
+  const framerImportButton = el("button", {
+    type: "button",
+    class: "ghost",
+    text: "Seite importieren",
+    "data-action": "framer-import-open",
+  });
+  // Redesign-Inbox (ADR-0012): a non-modal hint that only appears while a
+  // proposal waits for a human. It never opens by itself — an agent run must
+  // not steal the editor's focus.
+  const redesignInbox = el("button", {
+    type: "button",
+    class: "ghost",
+    "data-action": "redesign-inbox-open",
+    "data-role": "redesign-inbox",
+    hidden: true,
+    text: "Richtungen",
+  });
+  let redesignProposals = [];
+  let redesignPoll = null;
+  // `window.` keeps the timers on the browser globals eslint already knows.
+  const stopRedesignPolling = () => {
+    if (redesignPoll !== null) window.clearInterval(redesignPoll);
+    redesignPoll = null;
+  };
+  const renderRedesignInbox = () => {
+    const open = redesignProposals.filter((entry) => entry.status === "proposed");
+    redesignInbox.hidden = open.length === 0;
+    if (open.length === 0) {
+      delete redesignInbox.dataset.count;
+      return;
+    }
+    redesignInbox.dataset.count = String(open.length);
+    redesignInbox.textContent = `${open.length} ${open.length === 1 ? "Richtung" : "Richtungen"}`;
+  };
+  const loadRedesignProposals = async () => {
+    try {
+      const listed = await api(`/api/pages/${pageId}/redesign-proposals`);
+      redesignProposals = Array.isArray(listed.proposals) ? listed.proposals : [];
+      renderRedesignInbox();
+    } catch {
+      // A missing inbox is never a blocker for editing.
+      redesignProposals = [];
+      renderRedesignInbox();
+    }
+  };
+  redesignInbox.addEventListener("click", () => {
+    const open = redesignProposals.filter((entry) => entry.status === "proposed");
+    const proposal = open[0];
+    if (proposal === undefined) return;
+    openRedesignDirectionDialog(proposal);
+  });
+  void loadRedesignProposals();
+  redesignPoll = window.setInterval(() => {
+    void loadRedesignProposals();
+  }, 12000);
+  framerImportButton.addEventListener("click", () => {
+    openFramerImportDialog({
+      siteId,
+      pageId,
+      session,
+      onImported: async (report) => {
+        if (report.pageId === pageId) {
+          const fresh = await api(`/api/pages/${pageId}`);
+          session.replaceDocument(editor.loadDocument(fresh.draft).document, fresh.draftVersion);
+          session.discardPending();
+          setVersion(fresh.draftVersion);
+          statusEl.textContent = "Framer-Import übernommen";
+        } else if (report.pageId !== null) {
+          location.hash = `#/projects/${siteId}/pages/${report.pageId}`;
+        }
+        toast("Framer-Import übernommen");
+      },
+    });
+  });
+
   // Die Session ist die eine Quelle (E5): wechselt der Inspektor das Geraet,
   // folgt die Arbeitsflaeche; der Canvas meldet seine Wechsel ueber `onState`.
   session.subscribe(() => {
@@ -5028,6 +5714,41 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
           }
           session.select(instanceId);
           statusEl.textContent = "Instanz eingefügt";
+        },
+      },
+      {
+        id: "library",
+        label: "Bibliothek",
+        empty: "Noch keine globalen Bausteine.",
+        items: () => (libraryComponents ?? []).map((component) => ({
+          id: component.id,
+          label: component.name,
+          hint: `${component.kind} · v${component.version} · ${component.license.status}`,
+        })),
+        onActivate: (id) => {
+          const component = (libraryComponents ?? []).find((entry) => entry.id === id);
+          if (component === undefined) return;
+          void (async () => {
+            try {
+              await api(`/api/sites/${siteId}/library-installs`, {
+                method: "POST",
+                body: {
+                  componentId: id,
+                  mode: "linked",
+                  pageId,
+                  parentNodeId: page.draft.rootNodeId,
+                  author: AUTHOR,
+                },
+              });
+              statusEl.textContent = `„${component.name}“ installiert`;
+              const fresh = await api(`/api/pages/${pageId}`);
+              session.replaceDocument(editor.loadDocument(fresh.draft).document, fresh.draftVersion);
+              session.discardPending();
+              setVersion(fresh.draftVersion);
+            } catch (error) {
+              failed(error);
+            }
+          })();
         },
       },
       {
@@ -5094,7 +5815,7 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
   const inspector = editor.createInspector({
     host: inspectorHost,
     store: session.store,
-    theme: editor.defaultTheme(),
+    theme: siteTheme ?? editor.defaultTheme(),
     profile: siteProfile ?? "standard",
     breakpoint: savedUi.device,
     onTabChange: (tab) => session.setTab(tab),
@@ -5190,6 +5911,82 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
     setFollowAgent(!followAgent);
     statusEl.textContent = followAgent ? "Agent-Vorschau an" : "Agent-Vorschau aus";
   });
+
+  // Sekundäre Editor-Aktionen liegen in einem echten Overflow-Menü. Die
+  // bestehenden data-action-Selektoren bleiben erhalten, damit Import, Follow
+  // und die Konfliktwege direkt addressierbar und testbar bleiben.
+  activeToolbarMenuCleanup?.();
+  const overflowMenuId = "canvas-toolbar-overflow";
+  const overflowButton = el("button", {
+    type: "button",
+    class: "toolbar-overflow__trigger",
+    "data-action": "canvas-overflow",
+    "aria-haspopup": "menu",
+    "aria-expanded": "false",
+    "aria-controls": overflowMenuId,
+    text: "Mehr",
+  });
+  const overflowMenu = el("div", {
+    class: "toolbar-overflow__menu",
+    id: overflowMenuId,
+    role: "menu",
+    "aria-label": "Weitere Editor-Aktionen",
+  });
+  const overflowHost = el("div", { class: "toolbar-overflow" }, overflowButton, overflowMenu);
+  overflowMenu.hidden = true;
+  for (const item of [framerImportButton, followButton, reloadButton, retryButton]) {
+    item.setAttribute("role", item === followButton ? "menuitemcheckbox" : "menuitem");
+    item.classList.add("toolbar-overflow__item");
+    overflowMenu.append(item);
+  }
+  const overflowItems = () =>
+    [...overflowMenu.querySelectorAll("button:not([hidden])")];
+  const setOverflowOpen = (open, restoreFocus = false) => {
+    overflowMenu.hidden = !open;
+    overflowButton.setAttribute("aria-expanded", String(open));
+    if (open) overflowItems()[0]?.focus();
+    else if (restoreFocus) overflowButton.focus();
+  };
+  overflowButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setOverflowOpen(overflowMenu.hidden);
+  });
+  overflowButton.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    setOverflowOpen(true);
+    const items = overflowItems();
+    (event.key === "ArrowUp" ? items[items.length - 1] : items[0])?.focus();
+  });
+  overflowMenu.addEventListener("click", () => setOverflowOpen(false));
+  overflowMenu.addEventListener("keydown", (event) => {
+    const items = overflowItems();
+    const current = items.indexOf(document.activeElement);
+    let next = -1;
+    if (event.key === "ArrowDown") next = (current + 1) % items.length;
+    else if (event.key === "ArrowUp") next = (current - 1 + items.length) % items.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = items.length - 1;
+    else if (event.key === "Escape") {
+      event.preventDefault();
+      setOverflowOpen(false, true);
+      return;
+    } else return;
+    event.preventDefault();
+    items[next]?.focus();
+  });
+  const closeOverflowOnOutsidePointer = (event) => {
+    if (!overflowHost.contains(event.target)) setOverflowOpen(false);
+  };
+  const cleanup = () => {
+    document.removeEventListener("pointerdown", closeOverflowOnOutsidePointer);
+    if (overflowButton.isConnected) setOverflowOpen(false);
+    if (activeToolbarMenuCleanup === cleanup) activeToolbarMenuCleanup = null;
+    // The redesign inbox only makes sense on the page it belongs to.
+    stopRedesignPolling();
+  };
+  activeToolbarMenuCleanup = cleanup;
+  document.addEventListener("pointerdown", closeOverflowOnOutsidePointer);
   // Wechselt auf die Seite, an der der Agent gerade arbeitet - nur ohne
   // offene lokale Aenderungen (sonst gingen sie beim Routenwechsel verloren).
   const followPage = (targetPageId) => {
@@ -5274,11 +6071,25 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
     if (isOwnEvent(payload)) return;
     logProtocol(payload);
   });
+  // Re-Bake (E12): der Worker meldet das Ergebnis; der Badge zeigt es direkt,
+  // ein Fehler zusaetzlich als Toast (die Job-Route traegt die Details).
+  live?.addEventListener("bake.done", (event) => {
+    const payload = parseEngineEvent(event);
+    logProtocol(payload);
+    showBake("Inhalt neu gebaut");
+  });
+  live?.addEventListener("bake.failed", (event) => {
+    const payload = parseEngineEvent(event);
+    logProtocol(payload);
+    showBake("Re-Bake fehlgeschlagen", true);
+    toast("Re-Bake fehlgeschlagen — Details in der Job-Liste", "error");
+  });
   // Beim Verlassen der Ansicht den Kanal schliessen (kein abgebrochener
   // Request, kein Leck beim Wechsel der Route).
   window.addEventListener("pagehide", () => {
     live?.close();
     if (activeLiveStream === live) activeLiveStream = null;
+    cleanup();
   });
 
   saveButton.addEventListener("click", () => {
@@ -5307,26 +6118,14 @@ function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCac
       publishButton.disabled = false;
     }
   });
-  reloadButton.addEventListener("click", async () => {
-    try {
-      const fresh = await api(`/api/pages/${pageId}`);
-      session.replaceDocument(editor.loadDocument(fresh.draft).document, fresh.draftVersion);
-      setVersion(fresh.draftVersion);
-      statusEl.textContent = "Neu geladen";
-    } catch (error) {
-      failed(error);
-    }
+  reloadButton.addEventListener("click", () => {
+    void reloadDraft();
   });
-  retryButton.addEventListener("click", async () => {
-    try {
-      const fresh = await api(`/api/pages/${pageId}`);
-      await session.retry(fresh.draftVersion);
-    } catch (error) {
-      failed(error);
-    }
+  retryButton.addEventListener("click", () => {
+    void retrySave();
   });
 
-  toolbar.append(statusEl, followButton, publishButton, saveButton, reloadButton, retryButton);
+  toolbar.append(statusGroup, redesignInbox, saveButton, publishButton, overflowHost);
   return { session, canvas, inspector, explorer, spotlight };
 }
 
@@ -5340,6 +6139,32 @@ async function pageView(siteId, pageId, initialSearch) {
     siteProfile = site.profile ?? "standard";
   } catch {
     // Kein Site-Kontext erreichbar: der Editor faellt auf `standard` zurueck.
+  }
+  let siteTheme = null;
+  let siteThemeVersion = 0;
+  try {
+    const themeResponse = await api(`/api/sites/${siteId}/theme`);
+    siteTheme = themeResponse.theme ?? null;
+    siteThemeVersion = Number.isInteger(themeResponse.version) ? themeResponse.version : 0;
+  } catch {
+    siteTheme = null;
+    siteThemeVersion = 0;
+  }
+  let siteStyleRules = [];
+  let styleRegistryVersion = 0;
+  let libraryComponents = [];
+  try {
+    const [rules, library] = await Promise.all([
+      api(`/api/sites/${siteId}/style-rules`),
+      api("/api/library-components"),
+    ]);
+    siteStyleRules = rules.rules ?? [];
+    styleRegistryVersion = Number.isInteger(rules.version) ? rules.version : 0;
+    libraryComponents = library.components ?? [];
+  } catch {
+    siteStyleRules = [];
+    styleRegistryVersion = 0;
+    libraryComponents = [];
   }
   let currentTree = page.draft;
   let editorInstance = null;
@@ -5433,8 +6258,13 @@ async function pageView(siteId, pageId, initialSearch) {
         editor,
         pagesCache,
         mediaCache,
+        libraryComponents,
         assetContext,
         siteProfile,
+        siteTheme,
+        siteThemeVersion,
+        styleRules: siteStyleRules,
+        styleRegistryVersion,
       });
     } else {
       host.replaceChildren(
@@ -5758,6 +6588,23 @@ document.addEventListener("keydown", (event) => {
 
 /* Router */
 
+function routeErrorView(error) {
+  const retry = el("button", {
+    type: "button",
+    class: "primary",
+    text: "Erneut versuchen",
+    onclick: () => void renderRoute(),
+  });
+  return el(
+    "section",
+    { class: "route-error", role: "alert" },
+    el("h1", { text: "Ansicht konnte nicht geladen werden" }),
+    el("p", { class: "route-error__detail", text: friendlyError(error) }),
+    el("p", { text: "Die Verbindung zum lokalen Senify-Dienst ist kurz nicht verfügbar oder die Route enthält ungültige Daten." }),
+    retry,
+  );
+}
+
 async function renderRoute() {
   const hash = location.hash || "#/";
   const question = hash.indexOf("?");
@@ -5794,6 +6641,10 @@ async function renderRoute() {
       await settingsView();
     } else if (route === "#/references") {
       await referencesView();
+    } else if (route === "#/library") {
+      await libraryView();
+    } else if (route.match(/^#\/library\/[^/]+$/)) {
+      await libraryView(route.split("/").pop());
     } else if (referenceMatch) {
       // Deep-Link auf eine Referenz: die Bibliothek steht, die Detailansicht
       // liegt als Fenster darueber. Die Adresse faellt danach auf die
@@ -5809,7 +6660,7 @@ async function renderRoute() {
     }
   } catch (error) {
     failed(error);
-    render([el("div", { class: "empty", text: "Ansicht konnte nicht geladen werden." })]);
+    render([routeErrorView(error)]);
   }
   if (refsTray) refsRenderTray();
 }

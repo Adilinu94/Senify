@@ -94,6 +94,20 @@ function sendError(
   res.end(body);
 }
 
+function trustedProxyRequest(req: IncomingMessage): boolean {
+  const fetchSite = req.headers["sec-fetch-site"];
+  if (fetchSite === "cross-site") return false;
+  const origin = req.headers.origin;
+  if (origin === undefined) return true;
+  const host = req.headers.host;
+  if (typeof host !== "string" || host === "") return false;
+  try {
+    return new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
 function proxyRequest(
   engineOrigin: string,
   operatorToken: string | undefined,
@@ -106,6 +120,15 @@ function proxyRequest(
     ...req.headers,
     host: target.host,
   };
+  // The engine sees its own host; the browser asked on the dashboard. Links the
+  // engine renders into answers (the screenshot URL of a reference brief) must
+  // point back at the dashboard, because only that origin injects the operator
+  // token — a bare engine URL would answer 401 in the browser.
+  const dashboardHost = req.headers.host;
+  if (typeof dashboardHost === "string" && dashboardHost !== "") {
+    headers["x-forwarded-host"] = dashboardHost;
+    headers["x-forwarded-proto"] = "http";
+  }
   if (operatorToken !== undefined && headers.authorization === undefined) {
     headers.authorization = `Bearer ${operatorToken}`;
   }
@@ -232,6 +255,15 @@ export function createAppServer(options: AppServerOptions): Promise<AppServer> {
       url.startsWith("/assets/") ||
       url.startsWith("/_astro/")
     ) {
+      if (!trustedProxyRequest(req)) {
+        sendError(
+          res,
+          403,
+          "Die Anfrage stammt nicht vom lokalen Dashboard",
+          "Öffne Senify direkt über die lokale Dashboard-Adresse.",
+        );
+        return;
+      }
       proxyRequest(options.engineOrigin, options.operatorToken, url, req, res);
       return;
     }

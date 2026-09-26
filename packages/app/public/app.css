@@ -158,6 +158,36 @@ kbd {
   flex: 1;
 }
 
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ui-space-1);
+  min-height: var(--ui-h-32);
+  padding: 0 var(--ui-space-3);
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-radius-pill);
+  background: var(--ui-surface-panel);
+  color: var(--ui-ink-muted);
+  font: inherit;
+  font-size: var(--ui-text-12);
+  cursor: pointer;
+  transition: background-color 120ms ease-out, color 120ms ease-out, border-color 120ms ease-out;
+}
+.theme-toggle:hover {
+  border-color: var(--ui-line-control);
+  background: var(--ui-surface-inset);
+  color: var(--ui-ink-strong);
+}
+.theme-toggle[aria-pressed="true"] {
+  border-color: var(--ui-signal-accent);
+  color: var(--ui-ink-strong);
+}
+.theme-toggle[aria-pressed="true"] [data-theme-icon] {
+  color: var(--ui-signal-accent);
+}
+.theme-toggle [data-theme-icon] { font-size: var(--ui-text-15); }
+
 .cmd-button {
   display: flex;
   align-items: center;
@@ -186,32 +216,6 @@ kbd {
 
 /* Umschalter zwischen dem bisherigen Editor (v1-Baum) und dem neuen Canvas
    (v2-Dokument) im Kopf der Seitenansicht (Phase 0). */
-.editor-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.15rem;
-  padding: 0.15rem;
-  border: 1px solid var(--line);
-  border-radius: 0.55rem;
-  background: var(--bg-base);
-}
-
-.editor-switch button {
-  font: inherit;
-  font-size: 0.85rem;
-  border: 0;
-  border-radius: 0.4rem;
-  padding: 0.3rem 0.7rem;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-
-.editor-switch button.active {
-  background: var(--accent);
-  color: var(--accent-ink);
-}
-
 /* Toolbar */
 
 .toolbar {
@@ -237,22 +241,83 @@ kbd {
   flex: 1;
 }
 
+.toolbar__status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+  min-width: 0;
+  color: var(--fg-muted);
+  font-size: var(--ui-text-11);
+  white-space: nowrap;
+}
+
+.toolbar-overflow {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.toolbar-overflow__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ui-space-1);
+}
+
+.toolbar-overflow__trigger::after {
+  content: "⌄";
+  font-size: 13px;
+  line-height: 1;
+  transform: translateY(-1px);
+}
+
+.toolbar-overflow__trigger[aria-expanded="true"]::after {
+  transform: rotate(180deg) translateY(1px);
+}
+
+.toolbar-overflow__menu {
+  position: absolute;
+  top: calc(100% + var(--ui-space-1));
+  right: 0;
+  z-index: 30;
+  display: grid;
+  min-width: 13.5rem;
+  padding: var(--ui-space-1);
+  border: 1px solid var(--ui-line-control);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-surface-raised);
+  box-shadow: var(--ui-shadow-dialog);
+}
+
+.toolbar-overflow__menu[hidden],
+.toolbar-overflow__item[hidden] {
+  display: none;
+}
+
+.toolbar-overflow__item {
+  justify-content: flex-start;
+  width: 100%;
+  border-color: transparent;
+  background: transparent;
+  text-align: left;
+}
+
+.toolbar-overflow__item:hover,
+.toolbar-overflow__item:focus-visible {
+  border-color: var(--ui-line);
+  background: var(--ui-surface-inset);
+}
+
+.toolbar-overflow__item[aria-pressed="true"] {
+  color: var(--ui-signal-accent);
+}
+
 /* Agent-Vorschau (Ticket 05): der Schalter der Live-Mitverfolgung zeigt
    seinen Zustand am Rand der Werkzeugleiste. */
 .toolbar button[data-action="canvas-follow"] {
-  font: inherit;
-  font-size: 0.9rem;
-  border-radius: 0.5rem;
-  padding: 0.4rem 0.85rem;
-  cursor: pointer;
-  border: 1px solid var(--line);
-  background: var(--bg-base);
-  color: var(--fg-base);
+  border-radius: var(--ui-radius-pill);
 }
 
 .toolbar button[data-action="canvas-follow"][aria-pressed="true"] {
-  border-color: var(--accent);
-  color: var(--accent);
+  color: var(--ui-signal-accent);
 }
 
 /* Buttons */
@@ -290,15 +355,6 @@ button.danger:hover {
 button:disabled {
   opacity: 0.5;
   cursor: default;
-}
-
-button.linkish {
-  border: none;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  padding: 0;
-  cursor: pointer;
 }
 
 /* Cards */
@@ -371,6 +427,19 @@ button.linkish {
   gap: 0.5rem;
   flex-wrap: wrap;
   margin-top: 0.35rem;
+}
+
+.project-card {
+  cursor: pointer;
+}
+
+.project-card:focus-visible {
+  outline: 3px solid var(--ui-focus);
+  outline-offset: 3px;
+}
+
+.project-card:hover .card-title {
+  color: var(--accent);
 }
 
 /* Tables & lists */
@@ -628,81 +697,6 @@ dialog.modal select,
   margin: 0.25rem 0 0.6rem;
 }
 
-.chip-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  align-items: center;
-}
-
-.token {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  border: 1px solid var(--line);
-  border-radius: 0.5rem;
-  padding: 0.25rem 0.5rem;
-}
-
-.swatch {
-  width: 1.1rem;
-  height: 1.1rem;
-  border-radius: 0.3rem;
-  border: 1px solid var(--line);
-  display: inline-block;
-  flex: none;
-}
-
-/* Reference snapshot slider (T14) */
-
-.snapshot-slider {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  outline: none;
-}
-
-.snapshot-slider:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 4px;
-}
-
-.snapshot-frame {
-  border: 1px solid var(--line);
-  border-radius: 0.6rem;
-  background: var(--bg-muted);
-  overflow: hidden;
-}
-
-.snapshot-image {
-  display: block;
-  width: 100%;
-  max-height: 32rem;
-  object-fit: contain;
-  object-position: top center;
-}
-
-.snapshot-controls {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.snapshot-tabs {
-  display: flex;
-  gap: 0.35rem;
-}
-
-.snapshot-tabs .ghost.active {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.snapshot-meta {
-  font-size: 0.85rem;
-}
-
 .loading {
   padding: 3rem;
   text-align: center;
@@ -788,6 +782,58 @@ dialog.modal select,
     height: 26rem;
   }
 }
+.library-toolbar select {
+  min-width: 13rem;
+  min-height: 2.25rem;
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-surface-panel);
+  color: var(--ui-ink);
+}
+.library-search { margin: 0 0 var(--ui-space-5); }
+.library-search input {
+  width: min(34rem, 100%);
+  min-height: 2.4rem;
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-surface-panel);
+  color: var(--ui-ink);
+  padding: 0 var(--ui-space-3);
+}
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: var(--ui-space-4);
+}
+.library-card,
+.library-detail {
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-surface-panel);
+  padding: var(--ui-space-4);
+}
+.library-card h2 { margin: 0; }
+.library-card p { margin: var(--ui-space-2) 0; }
+.library-card-actions { display: flex; align-items: center; gap: var(--ui-space-2); }
+.library-tags { display: flex; flex-wrap: wrap; gap: var(--ui-space-1); }
+.library-tags span {
+  border: 1px solid var(--ui-line);
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.75rem;
+  color: var(--ui-ink-muted);
+}
+.library-detail { overflow-x: auto; }
+.library-meta { display: flex; flex-wrap: wrap; gap: var(--ui-space-3); color: var(--ui-ink-muted); }
+.library-install {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-3);
+  border-bottom: 1px solid var(--ui-line);
+  padding: var(--ui-space-2) 0;
+}
+.library-install:last-child { border-bottom: 0; }
+
 @media (max-width: 1100px) {
   .editor-host.canvas-view {
     grid-template-columns: minmax(0, 1fr);
@@ -807,6 +853,49 @@ dialog.modal select,
   background: var(--ui-surface-panel);
 }
 
+.framer-import-dialog {
+  width: min(68rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+}
+.framer-import-form {
+  display: grid;
+  gap: 0.75rem;
+}
+.framer-import-form label {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--ui-ink-muted, var(--muted));
+}
+.framer-import-form label.inline {
+  display: flex;
+  align-items: center;
+}
+.framer-import-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+.framer-import-report-host:empty {
+  display: none;
+}
+.framer-report {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+.framer-report-summary {
+  font-weight: 700;
+}
+.framer-report-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding-left: 1.25rem;
+}
+.framer-report-list p {
+  margin: 0.2rem 0 0;
+}
+
 /* ============================================================ Referenzen (T14)
    Die Referenz-Bibliothek im Zuschnitt des Vorbilds (Taste Vault). Alles ist
    mit `refs-` vorbenannt und unter `.view.refs-view` angesiedelt, damit die
@@ -818,19 +907,24 @@ dialog.modal select,
   padding: 0;
 }
 
-/* Die Referenzen-Flaeche und alle ihre Dialoge teilen sich Farb- und
-   Schriftvariablen: die Dialoge haengen am Body, nicht in der Flaeche. */
-.refs-shell,
-.refs-dialog {
+/* Die Referenz-Komponenten werden nicht nur auf der Referenz-Flaeche
+   gerendert: der Knopf "Referenz-Einstellungen speichern" sitzt in den
+   Einstellungen, die Dialoge haengen am <body>. Ihre Variablen stehen
+   deshalb global — sonst bleiben sie dort undefiniert und der Knopf
+   verliert seine Flaeche (transparente Fuellung, 1,08:1). */
+:root {
   --refs-ink: var(--ui-ink);
   --refs-ground: var(--ui-surface-inset);
-  --refs-muted: var(--ui-ink-faint);
+  --refs-muted: var(--ui-ink-muted);
   --refs-line: var(--ui-line);
   --refs-accent: var(--ui-surface-emphasis);
   --refs-surface: var(--ui-surface-panel);
-  --refs-display: "Bahnschrift", "Arial Narrow", "Segoe UI", sans-serif;
-  /* Die Grundschrift des Vorbilds: auf Windows Segoe UI Variable. */
-  font-family: "Segoe UI Variable", "Segoe UI", Arial, sans-serif;
+  --refs-display: var(--ui-font-display);
+}
+
+.refs-shell,
+.refs-dialog {
+  font-family: var(--ui-font-body);
   color: var(--refs-ink);
 }
 
@@ -917,10 +1011,10 @@ dialog.modal select,
   background: transparent;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--ui-space-2);
   text-align: left;
-  border-radius: 6px;
-  padding: 10px 11px;
+  border-radius: var(--ui-radius-sm);
+  padding: var(--ui-space-2) var(--ui-space-3);
   margin-bottom: 3px;
   min-height: 37px;
   font: inherit;
@@ -942,10 +1036,17 @@ dialog.modal select,
 }
 
 .refs-nav-item .refs-nav-count {
-  font-size: 10px;
+  font-size: var(--ui-text-12);
   color: var(--ui-ink-faint);
   margin-left: auto;
   font-variant-numeric: tabular-nums;
+}
+
+/* Auf der aktiven Zeile traegt die Zahl die Tinte der Auswahl. Ohne diese
+   Zeile bleibt --ui-ink-faint auf der zweiten Flaeche stehen: 2,52:1 hell,
+   2,15:1 dunkel. */
+.refs-nav-item.active .refs-nav-count {
+  color: var(--ui-fill-select-ink);
 }
 
 .refs-nav-icon {
@@ -971,7 +1072,7 @@ dialog.modal select,
 }
 
 .refs-sidebar-footer {
-  font-size: 10px;
+  font-size: var(--ui-text-12);
   color: var(--ui-ink-faint);
   line-height: 1.6;
   margin-top: auto;
@@ -1023,35 +1124,43 @@ dialog.modal select,
   flex: 1;
 }
 
+.refs-heading-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ui-space-2);
+  flex-wrap: wrap;
+}
+
+/* Die Bibliothek ist Arbeitsflaeche, kein Marketingseite: die Schriftgroesse
+   der Seitenueberschrift des Portals, nicht 56 px. */
 .refs-heading h1 {
-  font-family: var(--refs-display);
-  font-size: 56px;
-  line-height: 1.06;
-  font-weight: 600;
-  font-stretch: semi-condensed;
-  letter-spacing: -2.3px;
+  font-family: var(--ui-font-display);
+  font-size: var(--ui-text-30);
+  line-height: var(--ui-lh-tight);
+  font-weight: var(--ui-weight-semibold);
+  letter-spacing: var(--ui-track-display);
   text-wrap: balance;
   margin: 0;
 }
 
 .refs-count {
   display: inline-block;
-  vertical-align: top;
-  margin: 7px 0 0 12px;
-  font-family: "Segoe UI", Arial, sans-serif;
-  font-size: 12px;
-  line-height: 1.4;
+  vertical-align: middle;
+  margin: 0;
+  font-family: var(--ui-font-body);
+  font-size: var(--ui-text-12);
+  line-height: var(--ui-lh-snug);
   letter-spacing: 0;
   background: var(--ui-surface-track);
-  color: var(--ui-ink-strong);
-  padding: 5px 9px;
-  border-radius: 20px;
-  font-weight: 600;
+  color: var(--ui-ink-muted);
+  padding: 2px var(--ui-space-2);
+  border-radius: var(--ui-radius-pill);
+  font-weight: var(--ui-weight-medium);
 }
 
 .refs-heading p {
   font-size: 13px;
-  color: var(--refs-muted);
+  color: var(--ui-ink-muted);
   margin-top: 13px;
   max-width: 620px;
   line-height: 1.6;
@@ -1133,7 +1242,7 @@ dialog.modal select,
   gap: 9px;
   white-space: nowrap;
   font-size: 11px;
-  color: var(--ui-ink-faint);
+  color: var(--ui-ink-muted);
 }
 
 .refs-sort select {
@@ -1151,13 +1260,30 @@ dialog.modal select,
   justify-content: flex-end;
   gap: 12px;
   font-size: 11px;
-  color: var(--ui-ink-faint);
+  color: var(--ui-ink-muted);
   margin: 0 0 16px;
 }
 
 /* Ladezustand beim Wechsel von Ansicht, Sammlung, Suche oder Sortierung: die
    bisherigen Karten bleiben mit reduzierter Deckkraft stehen, darueber laeuft
    ein schmaler Balken. Seine Hoehe ist immer reserviert, damit nichts springt. */
+.refs-error {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-3);
+  flex-wrap: wrap;
+  margin: 0 0 var(--ui-space-4);
+  padding: var(--ui-space-3) var(--ui-space-4);
+  border: 1px solid var(--ui-signal-danger);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-signal-danger-surface);
+  color: var(--ui-ink-strong);
+  font-size: var(--ui-text-12);
+}
+.refs-error__detail { color: var(--ui-signal-danger-ink); }
+.refs-error .refs-button { margin-left: auto; }
+.refs-error[hidden] { display: none; }
+
 .refs-progress {
   position: relative;
   height: 3px;
@@ -1220,10 +1346,10 @@ dialog.modal select,
   width: 100%;
   padding: 0;
   border: 1px solid var(--ui-line);
-  border-radius: 10px;
+  border-radius: var(--ui-radius-md);
   overflow: hidden;
   background: var(--ui-surface-track);
-  box-shadow: 0 3px 9px rgb(48 32 64 / 0.02);
+  box-shadow: 0 3px 9px color-mix(in srgb, var(--ui-ink-strong) 6%, transparent);
   position: relative;
   aspect-ratio: 1.46;
   cursor: pointer;
@@ -1253,22 +1379,22 @@ dialog.modal select,
 .refs-card-art:hover,
 .refs-card-art:focus-visible {
   border-color: var(--ui-line-strong);
-  box-shadow: 0 0 0 3px rgb(17 17 22 / 0.12);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-focus) 14%, transparent);
 }
 
 .refs-open-label {
   position: absolute;
-  right: 12px;
-  bottom: 12px;
+  right: var(--ui-space-3);
+  bottom: var(--ui-space-3);
   background: var(--ui-surface-panel);
   color: var(--ui-ink-strong);
   border: 1px solid var(--ui-line);
-  border-radius: 6px;
-  padding: 7px 10px;
-  font-size: 11px;
+  border-radius: var(--ui-radius-sm);
+  padding: var(--ui-space-1) var(--ui-space-2);
+  font-size: var(--ui-text-12);
   opacity: 0;
-  transform: translateY(4px);
-  transition: opacity 0.15s, transform 0.15s;
+  transform: translateY(var(--ui-space-1));
+  transition: opacity var(--ui-t-2), transform var(--ui-t-2);
 }
 
 .refs-card-art:hover .refs-open-label,
@@ -1279,22 +1405,22 @@ dialog.modal select,
 
 .refs-select {
   position: absolute;
-  top: 10px;
-  left: 10px;
+  top: var(--ui-space-2);
+  left: var(--ui-space-2);
   z-index: 1;
-  width: 25px;
-  height: 25px;
+  width: var(--ui-h-24);
+  height: var(--ui-h-24);
   border: 1px solid var(--ui-line);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 1px 4px rgb(0 0 0 / 0.05);
+  border-radius: var(--ui-radius-sm);
+  background: color-mix(in srgb, var(--ui-surface-panel) 96%, transparent);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--ui-ink-strong) 10%, transparent);
   display: grid;
   place-items: center;
   color: var(--ui-ink-ghost);
-  font-size: 17px;
+  font-size: var(--ui-text-17);
   line-height: 1;
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity var(--ui-t-2);
   cursor: pointer;
 }
 
@@ -1318,30 +1444,36 @@ dialog.modal select,
 
 .refs-card-meta {
   display: flex;
-  gap: 8px;
+  gap: var(--ui-space-2);
   align-items: flex-start;
   justify-content: space-between;
-  padding: 12px 1px 0;
+  padding: var(--ui-space-3) 0 0;
 }
 
-.refs-card-meta h2 {
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.4;
-  letter-spacing: -0.2px;
+/* Der Kartenname ist kein Abschnitt der Bibliothek, sondern ein Eintrag in
+   ihr — darum keine Ueberschrift. Sonst stehen 48 Geschwister-H2 unter der
+   einen Seite-H1. */
+.refs-card-title {
+  font-family: var(--ui-font-display);
+  font-size: var(--ui-text-13);
+  font-weight: var(--ui-weight-semibold);
+  line-height: var(--ui-lh-snug);
+  letter-spacing: var(--ui-track-display);
   margin: 0;
 }
 
-.refs-card-meta p {
-  font-size: 11px;
-  color: var(--ui-ink-faint);
-  margin: 5px 0 0;
+/* --ui-ink-faint liegt auf der Kartenflaeche bei 4,19:1 und damit unter
+   AA; die Meta-Stufe des Portals traegt 7,5:1. */
+.refs-card-collection {
+  font-size: var(--ui-text-12);
+  color: var(--ui-ink-muted);
+  margin-top: var(--ui-space-1);
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--ui-space-1);
 }
 
-.refs-card:hover .refs-card-meta h2 {
+.refs-card:hover .refs-card-title {
   color: var(--ui-ink-strong);
 }
 
@@ -1353,13 +1485,13 @@ dialog.modal select,
 
 .refs-page-footer {
   border-top: 1px solid var(--refs-line);
-  margin-top: 35px;
-  padding-top: 17px;
+  margin-top: var(--ui-space-8);
+  padding-top: var(--ui-space-4);
   display: flex;
   justify-content: space-between;
-  gap: 10px;
-  font-size: 10px;
-  color: var(--ui-ink-faint);
+  gap: var(--ui-space-2);
+  font-size: var(--ui-text-12);
+  color: var(--ui-ink-muted);
 }
 
 .refs-empty {
@@ -1380,7 +1512,7 @@ dialog.modal select,
 
 .refs-empty p {
   font-size: 13px;
-  color: var(--refs-muted);
+  color: var(--ui-ink-muted);
   margin-bottom: 18px;
 }
 
@@ -1414,7 +1546,7 @@ dialog.modal select,
   background: var(--refs-accent);
   color: var(--ui-ink-on-emphasis);
   border-color: var(--refs-accent);
-  box-shadow: 0 3px 8px rgb(17 17 22 / 0.1);
+  box-shadow: var(--ui-shadow-float);
 }
 
 .refs-button.primary:hover {
@@ -1452,13 +1584,13 @@ dialog.modal select,
    ueberschreiben. Hier stehen die Maße des Vorbilds verbindlich. */
 .refs-shell .refs-button,
 .refs-dialog .refs-button {
-  border-radius: 7px;
-  padding: 8px 13px;
-  min-height: 37px;
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 550;
-  line-height: 1.4;
+  border-radius: var(--ui-radius-sm);
+  padding: var(--ui-space-2) var(--ui-space-3);
+  min-height: var(--ui-h-36);
+  font-family: var(--ui-font-body);
+  font-size: var(--ui-text-12);
+  font-weight: var(--ui-weight-medium);
+  line-height: var(--ui-lh-snug);
 }
 
 .refs-shell .refs-button.primary,
@@ -1467,7 +1599,7 @@ dialog.modal select,
   background: var(--refs-accent);
   border-color: var(--refs-accent);
   color: var(--ui-ink-on-emphasis);
-  box-shadow: 0 3px 8px rgb(17 17 22 / 0.1);
+  box-shadow: var(--ui-shadow-float);
 }
 
 .refs-shell .refs-button.quiet,
@@ -1497,11 +1629,11 @@ dialog.modal select,
 
 .refs-dialog {
   border: 1px solid var(--ui-line);
-  border-radius: 13px;
+  border-radius: var(--ui-radius-lg);
   padding: 0;
   background: var(--ui-surface-raised);
   color: var(--ui-ink-strong);
-  box-shadow: 0 25px 100px rgb(17 17 22 / 0.21);
+  box-shadow: var(--ui-shadow-dialog);
   max-height: 94dvh;
   max-width: calc(100vw - 32px);
   width: 540px;
@@ -1530,8 +1662,8 @@ dialog.modal select,
 }
 
 .refs-dialog-head h2 {
-  font-family: var(--refs-display);
-  font-size: 22px;
+  font-family: var(--ui-font-display);
+  font-size: var(--ui-text-20);
   font-weight: 600;
   letter-spacing: -0.6px;
   margin: 0;
@@ -1571,9 +1703,9 @@ dialog.modal select,
 .refs-dialog-body textarea {
   width: 100%;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--ui-text-13);
   border: 1px solid var(--ui-line);
-  border-radius: 7px;
+  border-radius: var(--ui-radius-sm);
   background: var(--ui-surface-panel);
   color: inherit;
   padding: 10px 12px;
@@ -1586,8 +1718,8 @@ dialog.modal select,
 }
 
 .refs-field-help {
-  font-size: 11px;
-  color: var(--ui-ink-ghost);
+  font-size: var(--ui-text-12);
+  color: var(--ui-ink-muted);
   line-height: 1.6;
   margin: 8px 0 20px;
 }
@@ -1612,29 +1744,12 @@ dialog.modal select,
 }
 
 .refs-tags span {
-  font-size: 10px;
+  font-size: var(--ui-text-12);
   line-height: 1.5;
   background: var(--ui-surface-track);
   color: var(--ui-ink-muted);
   border-radius: 4px;
   padding: 5px 7px;
-}
-
-.refs-tags button.refs-chip {
-  font: inherit;
-  font-size: 10px;
-  line-height: 1.5;
-  background: var(--ui-surface-track);
-  color: var(--ui-ink-muted);
-  border: 0;
-  border-radius: 4px;
-  padding: 5px 7px;
-  cursor: pointer;
-}
-
-.refs-tags button.refs-chip:hover {
-  background: var(--ui-line);
-  color: var(--ui-ink-strong);
 }
 
 .refs-detail-section {
@@ -1642,7 +1757,7 @@ dialog.modal select,
 }
 
 .refs-detail-section h3 {
-  font-size: 11px;
+  font-size: var(--ui-text-12);
   font-weight: 600;
   margin-bottom: 10px;
 }
@@ -1700,7 +1815,7 @@ dialog.modal select,
   max-height: calc(94dvh - 113px);
   object-fit: contain;
   object-position: 50% 0%;
-  box-shadow: 0 4px 20px rgb(24 32 55 / 0.08);
+  box-shadow: var(--ui-shadow-float);
 }
 
 .refs-inspector-stage.zoomed {
@@ -1823,7 +1938,7 @@ dialog.modal select,
 }
 
 .refs-doc th {
-  font-size: 10px;
+  font-size: var(--ui-text-12);
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1883,8 +1998,8 @@ dialog.modal select,
 }
 
 .refs-inspector-panel h2 {
-  font-family: var(--refs-display);
-  font-size: 30px;
+  font-family: var(--ui-font-display);
+  font-size: var(--ui-text-30);
   font-weight: 600;
   letter-spacing: -1px;
   line-height: 1.15;
@@ -1932,7 +2047,7 @@ dialog.modal select,
 }
 
 .refs-preference-status {
-  font-size: 10px;
+  font-size: var(--ui-text-12);
   color: var(--ui-ink-faint);
   line-height: 1.6;
   margin: 0;
@@ -1970,7 +2085,7 @@ dialog.modal select,
   border: 1px solid var(--ui-line);
   border-radius: 12px;
   padding: 10px 12px;
-  box-shadow: 0 7px 35px rgb(32 40 61 / 0.11);
+  box-shadow: var(--ui-shadow-float);
   white-space: nowrap;
 }
 
@@ -2038,8 +2153,8 @@ dialog.modal select,
 .refs-compare-grid {
   display: grid;
   grid-template-columns: repeat(var(--refs-cols, 3), minmax(0, 1fr));
-  gap: 20px;
-  padding: 25px;
+  gap: var(--ui-space-5);
+  padding: var(--ui-space-6);
   background: var(--ui-surface-inset);
 }
 
@@ -2106,18 +2221,299 @@ dialog.modal select,
   max-width: 530px;
 }
 
-/* --------------------------------------------------------- style guide */
+/* --------------------------------------------- redesign directions (ADR-0012) */
+/* The human chooses one offered Direction Card. Namespaced on purpose: the
+   dialog is a state of the page view, not a workspace of its own. */
 
-.refs-style-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 24px;
+.redesign-dialog {
+  width: min(76rem, calc(100vw - 2rem));
+  max-height: min(88vh, 60rem);
+  padding: 0;
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-surface-panel);
+  color: var(--ui-ink);
+  overflow: hidden;
 }
+
+.redesign-dialog__head {
+  padding: var(--ui-space-5) var(--ui-space-6) var(--ui-space-3);
+  border-bottom: 1px solid var(--ui-line);
+}
+
+.redesign-dialog__eyebrow {
+  margin: 0;
+  font-size: var(--ui-text-11);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ui-ink-faint);
+}
+
+.redesign-dialog__head h2 {
+  margin: var(--ui-space-1) 0 0;
+  font-size: var(--ui-text-15);
+}
+
+.redesign-dialog__hint,
+.redesign-dialog__stale {
+  margin: var(--ui-space-2) 0 0;
+  font-size: var(--ui-text-12);
+  color: var(--ui-ink-soft);
+}
+
+.redesign-dialog__stale {
+  padding: var(--ui-space-3) var(--ui-space-6);
+  background: var(--ui-surface-inset);
+  border-bottom: 1px solid var(--ui-line);
+  color: var(--ui-ink-strong);
+}
+
+.redesign-direction-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: var(--ui-space-4);
+  margin: 0;
+  padding: var(--ui-space-5) var(--ui-space-6);
+  border: 0;
+  max-height: min(58vh, 40rem);
+  overflow-y: auto;
+  background: var(--ui-surface-inset);
+}
+
+.redesign-direction-legend {
+  padding: 0;
+  font-size: var(--ui-text-12);
+  color: var(--ui-ink-soft);
+}
+
+.redesign-direction-card {
+  display: grid;
+  gap: var(--ui-space-2);
+  align-content: start;
+  padding: var(--ui-space-3);
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-surface-panel);
+  cursor: pointer;
+}
+
+.redesign-direction-card:has(input:checked) {
+  border-color: var(--ui-signal-accent);
+  box-shadow: 0 0 0 1px var(--ui-signal-accent);
+}
+
+.redesign-direction-card:focus-within {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: 2px;
+}
+
+.redesign-direction-card h3 {
+  margin: 0;
+  font-size: var(--ui-text-13);
+  font-weight: 550;
+}
+
+.redesign-direction-shot {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-surface-inset);
+}
+
+.redesign-specimen-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-2);
+}
+
+.redesign-specimen-swatch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ui-space-1);
+  font-size: var(--ui-text-11);
+  color: var(--ui-ink-soft);
+}
+
+.redesign-specimen-swatch i {
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: var(--ui-radius-sm);
+  border: 1px solid var(--ui-line);
+}
+
+.redesign-direction-fonts,
+.redesign-direction-rules-line,
+.redesign-direction-warnings p {
+  margin: 0;
+  font-size: var(--ui-text-12);
+  line-height: 1.6;
+  color: var(--ui-ink-soft);
+}
+
+.redesign-direction-warnings p {
+  color: var(--ui-ink-faint);
+}
+
+.redesign-build-scope {
+  display: grid;
+  gap: var(--ui-space-2);
+  padding: var(--ui-space-2);
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-surface-inset);
+}
+
+.redesign-scope-summary,
+.redesign-scope-subtitle {
+  margin: 0;
+  font-size: var(--ui-text-12);
+  color: var(--ui-ink-soft);
+}
+
+.redesign-scope-list,
+.redesign-media-list {
+  display: grid;
+  gap: var(--ui-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.redesign-scope-entry,
+.redesign-media-need {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--ui-space-2);
+  font-size: var(--ui-text-12);
+  color: var(--ui-ink-soft);
+}
+
+.redesign-scope-status,
+.redesign-media-treatment {
+  flex: 0 0 auto;
+  font-size: var(--ui-text-12);
+  /* The scope box sits on the inset surface, where the faint ink does not
+     reach the contrast minimum; the soft ink does. */
+  color: var(--ui-ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.redesign-scope-entry[data-status="manual"] .redesign-scope-status,
+.redesign-media-need[data-treatment="avoid"] .redesign-media-treatment,
+.redesign-media-need[data-treatment="select"] .redesign-media-treatment,
+.redesign-media-need[data-treatment="manual"] .redesign-media-treatment {
+  color: var(--ui-ink-strong);
+}
+
+.redesign-media-reason {
+  text-align: right;
+}
+
+.redesign-scope-more {
+  font-size: var(--ui-text-12);
+  color: var(--ui-ink-soft);
+}
+
+.redesign-dialog__actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--ui-space-3);
+  padding: var(--ui-space-4) var(--ui-space-6);
+  border-top: 1px solid var(--ui-line);
+  background: var(--ui-surface-panel);
+}
+
+.redesign-dialog__error {
+  margin: 0 auto 0 0;
+  font-size: var(--ui-text-12);
+  color: var(--ui-ink-strong);
+}
+
+.redesign-dialog__error:empty {
+  display: none;
+}
+
+.redesign-dialog__button {
+  min-height: var(--ui-h-40);
+  padding: 0 var(--ui-space-4);
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--ui-text-13);
+  cursor: pointer;
+}
+
+.redesign-dialog__button.primary {
+  border-color: transparent;
+  background: var(--ui-surface-emphasis);
+  color: var(--ui-ink-on-emphasis);
+}
+
+.redesign-dialog__button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.refs-collection-picker {
+  width: min(32rem, calc(100vw - 2rem));
+}
+
+.refs-collection-picker-body {
+  display: grid;
+  gap: var(--ui-space-1);
+  padding: var(--ui-space-3);
+}
+
+.refs-collection-picker-item {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+  width: 100%;
+  min-height: var(--ui-h-40);
+  padding: var(--ui-space-2) var(--ui-space-3);
+  border: 1px solid transparent;
+  border-radius: var(--ui-radius-sm);
+  background: transparent;
+  color: var(--ui-ink-soft);
+  font: inherit;
+  text-align: left;
+}
+
+.refs-collection-picker-item:hover,
+.refs-collection-picker-item:focus-visible {
+  background: var(--ui-surface-inset);
+  border-color: var(--ui-line);
+  color: var(--ui-ink-strong);
+}
+
+.refs-collection-picker-item .refs-nav-count {
+  margin-left: auto;
+}
+
+.refs-collection-picker-item:focus-visible {
+  outline: 3px solid var(--ui-focus);
+  outline-offset: 2px;
+}
+
+.refs-collection-picker-item .refs-dot {
+  background: var(--refs-dot, var(--ui-ink-ghost));
+}
+
+/* --------------------------------------------------------- style guide */
 
 .refs-style-card {
   border: 1px solid var(--refs-line);
   background: var(--ui-surface-panel);
-  border-radius: 9px;
+  border-radius: var(--ui-radius-md);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -2136,15 +2532,15 @@ dialog.modal select,
 }
 
 .refs-style-preview strong {
-  font-family: var(--refs-display);
-  font-size: 30px;
+  font-family: var(--ui-font-display);
+  font-size: var(--ui-text-30);
   line-height: 1.02;
   letter-spacing: -1.2px;
   color: var(--refs-preview-ink, var(--ui-ink));
 }
 
 .refs-style-preview small {
-  font-size: 10px;
+  font-size: var(--ui-text-12);
   color: var(--ui-ink-faint);
 }
 
@@ -2159,7 +2555,7 @@ dialog.modal select,
 }
 
 .refs-style-copy p {
-  font-size: 11px;
+  font-size: var(--ui-text-12);
   color: var(--ui-ink-faint);
   line-height: 1.65;
   margin: 10px 0;
@@ -2171,9 +2567,9 @@ dialog.modal select,
 
 .refs-style-links {
   display: flex;
-  gap: 10px;
+  gap: var(--ui-space-2);
   flex-wrap: wrap;
-  font-size: 10px;
+  font-size: var(--ui-text-12);
   color: var(--ui-ink-strong);
   margin: 13px 0;
 }
@@ -2207,7 +2603,7 @@ dialog.modal select,
 .refs-toggle-row small {
   display: block;
   color: var(--ui-ink-faint);
-  font-size: 11px;
+  font-size: var(--ui-text-12);
   margin-top: 5px;
 }
 
@@ -2240,9 +2636,9 @@ dialog.modal select,
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: var(--ui-space-2);
   border: 1px dashed var(--ui-line);
-  border-radius: 9px;
+  border-radius: var(--ui-radius-md);
   background: var(--ui-surface-inset);
   padding: 25px;
   cursor: pointer;
@@ -2256,7 +2652,7 @@ dialog.modal select,
 }
 
 .refs-upload-zone > span:last-of-type {
-  font-size: 11px;
+  font-size: var(--ui-text-12);
   color: var(--ui-ink-faint);
 }
 
@@ -2267,7 +2663,7 @@ dialog.modal select,
 
 .refs-upload-zone input {
   width: 100%;
-  font-size: 11px;
+  font-size: var(--ui-text-12);
   margin-top: 8px;
   padding: 0;
   border: none;
@@ -2279,8 +2675,8 @@ dialog.modal select,
   width: 100%;
   max-height: 160px;
   object-fit: contain;
-  margin-top: 15px;
-  border-radius: 6px;
+  margin-top: var(--ui-space-4);
+  border-radius: var(--ui-radius-sm);
   background: var(--ui-surface-inset);
 }
 
@@ -2302,11 +2698,11 @@ dialog.modal select,
 
 .refs-modal-tabs button {
   font: inherit;
-  font-size: 12px;
+  font-size: var(--ui-text-12);
   border: 1px solid var(--refs-line);
   background: var(--ui-surface-panel);
   color: var(--refs-muted);
-  border-radius: 7px;
+  border-radius: var(--ui-radius-sm);
   padding: 7px 11px;
   cursor: pointer;
 }
@@ -2322,8 +2718,7 @@ dialog.modal select,
    Vier Umbruchpunkte wie im Vorbild: 1750 / 1190 / 1000 / 650 (plus 380). */
 
 @media (min-width: 1750px) {
-  .refs-gallery,
-  .refs-style-grid {
+  .refs-gallery {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
@@ -2337,8 +2732,7 @@ dialog.modal select,
     --refs-rail: 200px;
   }
 
-  .refs-gallery,
-  .refs-style-grid {
+  .refs-gallery {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -2418,7 +2812,7 @@ dialog.modal select,
   }
 
   .refs-count {
-    font-size: 10px;
+    font-size: var(--ui-text-12);
     margin: 4px 0 0 8px;
     padding: 4px 7px;
   }
@@ -2428,7 +2822,7 @@ dialog.modal select,
   }
 
   .refs-heading-actions .refs-button {
-    font-size: 10px;
+    font-size: var(--ui-text-12);
     white-space: normal;
     max-width: 85px;
     padding: 4px;
@@ -2462,8 +2856,7 @@ dialog.modal select,
     display: none;
   }
 
-  .refs-gallery,
-  .refs-style-grid {
+  .refs-gallery {
     gap: 22px 12px;
   }
 
@@ -2481,7 +2874,7 @@ dialog.modal select,
   }
 
   .refs-card-meta p {
-    font-size: 10px;
+    font-size: var(--ui-text-12);
   }
 
   .refs-card-arrow {
@@ -2497,7 +2890,7 @@ dialog.modal select,
   }
 
   .refs-hint {
-    font-size: 10px;
+    font-size: var(--ui-text-12);
   }
 
   .refs-page-footer {
@@ -2527,11 +2920,11 @@ dialog.modal select,
   }
 
   .refs-compare-tray > span {
-    font-size: 10px;
+    font-size: var(--ui-text-12);
   }
 
   .refs-compare-tray .refs-button {
-    font-size: 10px;
+    font-size: var(--ui-text-12);
     padding: 7px 8px;
   }
 
@@ -2554,11 +2947,11 @@ dialog.modal select,
   }
 
   .refs-dialog-label {
-    font-size: 10px;
+    font-size: var(--ui-text-12);
   }
 
   .refs-dialog-tools .refs-button {
-    font-size: 10px;
+    font-size: var(--ui-text-12);
     padding: 5px 8px;
   }
 
@@ -2706,7 +3099,6 @@ dialog.modal select,
 .refs-button:focus-visible,
 .refs-icon-button:focus-visible,
 .refs-select:focus-visible,
-.refs-chip:focus-visible,
 .refs-sidebar-add:focus-visible,
 .refs-mobile-nav select:focus-visible,
 .refs-sort select:focus-visible,
@@ -2736,7 +3128,7 @@ dialog.modal select,
 .refs-sidebar-footer,
 .refs-nav-item .refs-nav-count,
 .refs-nav-count {
-  color: var(--ui-ink-faint);
+  color: var(--ui-ink-muted);
 }
 
 /* Auf Fingergeraeten groessere Ziele. */
@@ -2907,8 +3299,7 @@ dialog.modal select,
   margin-top: 0.75rem;
 }
 
-.review-video video,
-.refs-motion video {
+.review-video video {
   width: 100%;
   max-width: 720px;
   border: 1px solid var(--line);
@@ -2919,5 +3310,317 @@ dialog.modal select,
 @media (prefers-reduced-motion: reduce) {
   .review-figure img {
     transition: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Gemeinsame Shell-Haut
+   --------------------------------------------------------------------------
+   Die Portal-Schale nutzt dieselben semantischen UI-Tokens wie die
+   Referenz- und Inspector-Flächen. Der Editor darf Tiefwasser bleiben,
+   aber Typografie, Maße, Radien, Zustände und Bewegung teilen sich eine
+   Quelle. Dadurch bleibt der Portalrahmen ruhig, ohne als alte App neben
+   dem neuen Editor zu stehen.
+   -------------------------------------------------------------------------- */
+
+:root {
+  --bg-base: var(--ui-surface-canvas);
+  --bg-muted: var(--ui-surface-panel);
+  --fg-base: var(--ui-ink);
+  --fg-muted: var(--ui-ink-muted);
+  --line: var(--ui-line);
+  --accent: var(--ui-signal-select);
+  --accent-ink: var(--ui-ink-on-emphasis);
+  --danger: var(--ui-signal-danger);
+  --font-body: var(--ui-font-body);
+  --font-display: var(--ui-font-display);
+  --font-mono: var(--ui-font-mono);
+  --radius-md: var(--ui-radius-md);
+}
+
+body {
+  background: var(--ui-surface-canvas);
+  color: var(--ui-ink);
+  font-family: var(--ui-font-body);
+  font-size: var(--ui-text-13);
+  line-height: var(--ui-lh-base);
+}
+
+.topbar {
+  min-height: var(--ui-h-48);
+  padding: 0 var(--ui-space-3);
+  gap: var(--ui-space-2);
+  background: var(--ui-surface-panel);
+  border-bottom-color: var(--ui-line);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--ui-ink-strong) 5%, transparent);
+}
+
+.brand {
+  gap: var(--ui-space-2);
+  color: var(--ui-ink-strong);
+  font-family: var(--ui-font-display);
+  font-size: var(--ui-text-13);
+  font-weight: var(--ui-weight-semibold);
+  letter-spacing: var(--ui-track-display);
+}
+
+.brand-mark {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--ui-radius-xs);
+  background: var(--ui-signal-accent);
+  color: var(--ui-ink-on-accent);
+  font-size: var(--ui-text-11);
+}
+
+.tabs {
+  gap: var(--ui-space-1);
+}
+
+.tabs a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--ui-h-32);
+  padding: 0 var(--ui-space-3);
+  border-radius: var(--ui-radius-pill);
+  color: var(--ui-ink-muted);
+  font-size: var(--ui-text-12);
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+
+.tabs a:hover {
+  background: var(--ui-fill-hover);
+  color: var(--ui-ink-strong);
+}
+
+.tabs a.active {
+  background: var(--ui-surface-emphasis);
+  color: var(--ui-ink-on-emphasis);
+  font-weight: var(--ui-weight-semibold);
+}
+
+.cmd-button {
+  min-height: var(--ui-h-32);
+  padding: 0 var(--ui-space-3);
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-radius-pill);
+  background: var(--ui-surface-inset);
+  color: var(--ui-ink-muted);
+  font-size: var(--ui-text-12);
+  transition: background-color 120ms ease-out, color 120ms ease-out, border-color 120ms ease-out;
+}
+
+.cmd-button:hover {
+  border-color: var(--ui-line-control);
+  background: var(--ui-surface-raised);
+  color: var(--ui-ink-strong);
+}
+
+.view {
+  padding: var(--ui-space-6) var(--ui-space-3) var(--ui-space-12);
+}
+.view > h1 {
+  margin-bottom: var(--ui-space-5);
+  color: var(--ui-ink-strong);
+  letter-spacing: var(--ui-track-display);
+}
+.panel {
+  background: var(--ui-surface-panel);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--ui-ink-strong) 3%, transparent);
+}
+
+.toolbar {
+  min-height: var(--ui-h-40);
+  gap: var(--ui-space-2);
+  margin-bottom: var(--ui-space-4);
+}
+
+.toolbar input[type="search"],
+.toolbar input[type="text"] {
+  min-height: var(--ui-h-32);
+  padding: 0 var(--ui-space-3);
+  border: 1px solid var(--ui-line-control);
+  border-radius: var(--ui-radius-pill);
+  background: var(--ui-surface-inset);
+  color: var(--ui-ink-strong);
+}
+
+button.primary,
+button.ghost,
+button.danger,
+.toolbar button {
+  min-height: var(--ui-h-32);
+  padding: 0 var(--ui-space-3);
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-radius-pill);
+  background: var(--ui-surface-panel);
+  color: var(--ui-ink);
+  font-size: var(--ui-text-12);
+  transition: background-color 120ms ease-out, border-color 120ms ease-out, color 120ms ease-out, transform 120ms ease-out;
+}
+
+button.primary {
+  border-color: var(--ui-signal-accent);
+  background: var(--ui-signal-accent);
+  color: var(--ui-ink-on-accent);
+  font-weight: var(--ui-weight-semibold);
+}
+
+button.danger {
+  border-color: color-mix(in srgb, var(--ui-signal-danger) 45%, var(--ui-line));
+  color: var(--ui-signal-danger-ink);
+}
+
+button.primary:hover,
+  button.ghost:hover,
+  button.danger:hover,
+  .toolbar button:hover,
+  .theme-toggle:hover {
+  filter: none;
+  background: var(--ui-surface-raised);
+  color: var(--ui-ink-strong);
+}
+
+button.primary:hover {
+  background: color-mix(in srgb, var(--ui-signal-accent) 92%, var(--ui-neutral-000));
+  color: var(--ui-ink-on-accent);
+}
+
+button:active,
+.cmd-button:active,
+.tabs a:active {
+  transform: scale(0.98);
+}
+
+.topbar a:focus-visible,
+.tabs a:focus-visible,
+.cmd-button:focus-visible,
+button:focus-visible,
+.toolbar input:focus-visible {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: 2px;
+}
+
+.card {
+  border-color: var(--ui-line);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-surface-panel);
+}
+
+.card:hover {
+  border-color: var(--ui-line-control);
+}
+
+.canvas-view__protocol {
+  border-color: var(--ui-line);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-surface-raised);
+  box-shadow: var(--ui-shadow-float);
+  color: var(--ui-ink);
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: 2px;
+}
+
+/* Settings: labels are part of the control, not an explanatory afterthought. */
+.field {
+  display: grid;
+  min-width: 0;
+  gap: var(--ui-space-1);
+  flex: 1 1 13rem;
+}
+.field__label {
+  color: var(--ui-ink-muted);
+  font-size: var(--ui-text-11);
+  font-weight: var(--ui-weight-semibold);
+}
+.field__help {
+  color: var(--ui-ink-faint);
+  font-size: var(--ui-text-10);
+  line-height: var(--ui-lh-snug);
+}
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--ui-space-3);
+  align-items: end;
+}
+.settings-grid--two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.settings-actions {
+  display: flex;
+  align-items: end;
+  gap: var(--ui-space-2);
+  flex-wrap: wrap;
+}
+.settings-actions .field {
+  flex: 1 1 16rem;
+}
+.settings-message {
+  min-height: 1.25rem;
+  color: var(--ui-ink-muted);
+  font-size: var(--ui-text-11);
+}
+.settings-message[data-tone="error"] {
+  color: var(--ui-signal-danger-ink);
+}
+.settings-message[data-tone="success"] {
+  color: var(--ui-ink-strong);
+}
+.panel table {
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-radius-sm);
+  overflow: hidden;
+}
+.panel th {
+  background: var(--ui-surface-inset);
+  color: var(--ui-ink-muted);
+}
+.panel tr:last-child td { border-bottom: 0; }
+
+.route-error {
+  display: grid;
+  justify-items: start;
+  gap: var(--ui-space-3);
+  max-width: 42rem;
+  margin: 8vh auto 0;
+  padding: var(--ui-space-6);
+  border: 1px solid var(--ui-signal-danger);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-surface-panel);
+  box-shadow: var(--ui-shadow-float);
+}
+.route-error h1,
+.route-error p { margin: 0; }
+.route-error p { color: var(--ui-ink-muted); }
+.route-error__detail { color: var(--ui-signal-danger-ink) !important; }
+
+@media (max-width: 1100px) {
+  .settings-grid,
+  .settings-grid--two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+@media (pointer: coarse) {
+  .tabs a,
+  .cmd-button,
+  button.primary,
+  button.ghost,
+  button.danger,
+  .toolbar button {
+    min-height: var(--ui-h-control);
   }
 }

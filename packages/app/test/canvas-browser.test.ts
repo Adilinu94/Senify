@@ -48,6 +48,9 @@ const HARNESS = `<!doctype html>
     const canvas = mountCanvas(document.getElementById("canvas-host"), {
       store,
       registry: createRegistry(),
+      // The product canvas keeps pseudo-state controls in the Inspector. This
+      // browser contract still exercises the opt-in diagnostic chrome.
+      debugChrome: true,
     });
     globalThis.__canvas = canvas;
     globalThis.__store = store;
@@ -143,6 +146,8 @@ describe.skipIf(!browserAvailable)("editor canvas in a real browser", () => {
       expect(await tab.locator(".senify-canvas__frame").count()).toBe(3);
       expect(await tab.locator(".senify-canvas__iframe").count()).toBe(3);
       expect(await tab.locator('[data-role="zoom"]').textContent()).toBe("50%");
+      // The opt-in diagnostic chrome is explicit in this harness.
+      expect(await tab.locator('[data-role="states"] .senify-canvas__button:visible').count()).toBe(5);
 
       const desktopFrame = tab
         .locator('.senify-canvas__frame[data-device="desktop"] .senify-canvas__iframe')

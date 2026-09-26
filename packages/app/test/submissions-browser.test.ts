@@ -177,11 +177,14 @@ describe.skipIf(!browserAvailable)("submissions view in the program (T11)", () =
 
       // The notification job is visible with recipient and retry state.
       await tab.waitForSelector('td:has-text("team@musterstudio.de")');
-      expect(await tab.locator('td:has-text("Wartet")').count()).toBeGreaterThan(0);
-
-      // The tick sends the due job; the view re-renders with the new status.
-      await tab.locator('button:has-text("Fällige Jobs jetzt senden")').click();
-      await tab.waitForSelector('td:has-text("Gesendet")', { timeout: 20000 });
+      expect(await tab.locator('td:has-text("Wartet")').count()).toBeGreaterThan(0);       // Der Tick sendet den fälligen Job; die Ansicht wird danach neu
+       // gerendert. Der explizite Enabled-Check und das größere Action-Fenster
+       // verhindern, dass ein noch laufender Route-Render den Klick verliert.
+       const sendDue = tab.locator('button:has-text("Fällige Jobs jetzt senden")');
+       await sendDue.waitFor({ state: "visible", timeout: 30000 });
+       expect(await sendDue.isEnabled()).toBe(true);
+       await sendDue.click({ timeout: 30000 });
+       await tab.waitForSelector('td:has-text("Gesendet")', { timeout: 30000 });
       expect(await tab.locator('td:has-text("Wartet")').count()).toBe(0);
 
       expect(errors).toEqual([]);

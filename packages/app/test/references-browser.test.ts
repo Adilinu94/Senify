@@ -169,10 +169,31 @@ describe.skipIf(!browserAvailable)("reference library in the program (T14)", () 
       const panel = tab.locator("#refs-inspector-panel");
       await tab.waitForSelector("#refs-inspector-panel .refs-detail-section");
       const panelText = (await panel.textContent()) ?? "";
-      expect(panelText).toContain("Die Idee zum Mitnehmen");
-      expect(panelText).toContain("Komposition & Platzierung");
-      expect(panelText).toContain("Design-Vokabular");
-      await expect.poll(async () => tab.locator(".refs-copy-brief").count()).toBe(1);
+       expect(panelText).toContain("Notiz");
+      expect(panelText).toContain("Komposition & Platzierung");       expect(panelText).toContain("Design-Vokabular");
+       expect(panelText).not.toContain("Projekt zuordnen");
+       expect(panelText).not.toContain("Evidenz");
+       expect(panelText).not.toContain("Revisions-Historie");        expect(panelText).not.toContain("Provenienz");
+        // Die Analyse-Daten des Agenten gehoeren nicht in die Oberflaeche: das
+        // Fenster ist Lektuere plus Aktionen, ohne Profil, Aufnahmen, Bearbeiten
+        // und Profil-Klappbereiche.
+        for (const absent of [
+          "Bearbeiten",
+          "Aufnahmen",
+          "Farben",
+          "Typografie",
+          "Skalen",
+          "Design-Sprache",
+          "Schutzregeln",
+          "Motion-Aufnahme",
+        ]) {
+          expect(panelText).not.toContain(absent);
+        }
+        expect(await panel.locator(".refs-fold").count()).toBe(0);
+        expect(
+          await panel.locator('.refs-button.danger:has-text("Referenz löschen")').count(),
+        ).toBe(1);
+        await expect.poll(async () => tab.locator(".refs-copy-brief").count()).toBe(1);
       await expect.poll(async () => tab.locator(".refs-detail-select").count()).toBe(1);
       expect(await tab.locator(".refs-copy-brief").textContent()).toContain("Design-Brief kopieren");
       expect(await tab.locator(".refs-detail-select").textContent()).toContain("Vergleich");
@@ -291,10 +312,9 @@ describe.skipIf(!browserAvailable)("reference documents in the program", () => {
       await tab.goto(`${running.dashboardUrl}/#/references`, { waitUntil: "domcontentloaded" });
       await tab.waitForSelector(".refs-card");
       await tab.locator('.refs-card:has-text("Import-Test Achilles") .refs-card-art').click();
-      await tab.waitForSelector(".refs-inspector[open]");
-
-      // Vier Reiter: Uebersicht plus die drei Dokumente des Imports.
-      const tabs = await tab.locator(".refs-doc-tab").allTextContents();
+      await tab.waitForSelector(".refs-inspector[open]");       // Vier Reiter: Uebersicht plus die drei Dokumente des Imports.
+       await tab.locator(".refs-doc-tab").first().waitFor({ state: "visible", timeout: 10000 });
+       const tabs = await tab.locator(".refs-doc-tab").allTextContents();
       expect(tabs).toEqual(["Übersicht", "Design.md", "Guidelines", "Komponenten"]);
       expect(await tab.locator(".refs-doc-tab[aria-selected='true']").textContent()).toBe(
         "Übersicht",
@@ -344,10 +364,9 @@ describe.skipIf(!browserAvailable)("reference documents in the program", () => {
 
       // Eine Referenz ohne Dokumente kennt keine Dokument-Reiter.
       await tab.keyboard.press("Escape");
-      await expect.poll(async () => tab.locator(".refs-inspector[open]").count()).toBe(0);
-      await tab.locator('.refs-card:has-text("Ohne Dokumente") .refs-card-art').click();
-      await tab.waitForSelector(".refs-inspector[open]");
-      expect(await tab.locator(".refs-doc-tab").count()).toBe(0);
+      await expect.poll(async () => tab.locator(".refs-inspector[open]").count()).toBe(0);       await tab.locator('.refs-card:has-text("Ohne Dokumente") .refs-card-art').click();
+       await tab.waitForSelector(".refs-inspector[open]");
+       await expect.poll(async () => tab.locator(".refs-doc-tab").count()).toBe(0);
       expect(await tab.locator(".refs-shot-switch").count()).toBe(0);
 
       expect(errors).toEqual([]);

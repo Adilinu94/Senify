@@ -115,9 +115,12 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       // E5 slice 1: the canvas is the one visible editor — no switch, no
       // `view` parameter needed. The inspector is part of the mount.
       expect(await tab.locator(".editor-switch").count()).toBe(0);
-      expect(await tab.locator(".senify-canvas__frame").count()).toBe(3);
-      expect(await tab.locator(".senify-canvas__iframe").count()).toBe(3);
-      expect(await tab.locator(".senify-inspector").count()).toBe(1);
+      expect(await tab.locator(".senify-canvas__frame").count()).toBe(3);       expect(await tab.locator(".senify-canvas__iframe").count()).toBe(3);
+       expect(await tab.locator(".senify-inspector").count()).toBe(1);
+       // Product chrome does not expose the old global pseudo-state/debug rail;
+       // the Inspector remains the product home for those controls.
+       expect(await tab.locator('[data-role="states"] .senify-canvas__button:visible').count()).toBe(0);
+       expect(await tab.locator('[data-role="scrub"]:visible').count()).toBe(0);
       await tab.screenshot({ path: join(shotDir, "02-canvas-frames.png") });
 
       const desktopFrame = () =>
@@ -726,13 +729,12 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       // (nicht gepatcht), die Release-Runtime wird frisch injiziert und der
       // Ring landet auf dem neuen Frame.
       await tab.locator('.senify-canvas__button[data-mode="live"]').click();
-      await expect.poll(async () => tab.locator(".senify-canvas__frame").count()).toBe(1);
-
-      // Scrub (Ticket 19, M6): der Regler faehrt die Scroll-Position der echten
-      // Seite an (Pin-/Scrub-Presets ohne Mausrad pruefbar), manuelles Scrollen
-      // fuehrt ihn zurueck; im Design-Modus ist er aus.
-      const scrub = tab.locator('.senify-canvas__footer input[data-action="scrub"]');
-      await expect.poll(async () => scrub.count()).toBe(1);
+      await expect.poll(async () => tab.locator(".senify-canvas__frame").count()).toBe(1);       // Scrub (Ticket 19, M6): der Regler faehrt die Scroll-Position der echten
+       // Seite an (Pin-/Scrub-Presets ohne Mausrad pruefbar), manuelles Scrollen
+       // fuehrt ihn zurueck; im Design-Modus ist er aus.
+       const scrub = tab.locator('.senify-canvas__footer input[data-action="scrub"]');
+       await expect.poll(async () => scrub.count()).toBe(1);
+       expect(await tab.locator('[data-role="scrub"]:visible').count()).toBe(1);
       expect(await scrub.isDisabled()).toBe(false);
       const scrollProbe = (): Promise<number> =>
         tab.evaluate(`(() => {
