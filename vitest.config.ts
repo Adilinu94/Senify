@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { coverageConfigDefaults, defineConfig } from "vitest/config";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { readFileSync } from "node:fs";
@@ -58,13 +58,19 @@ export default defineConfig({
         "packages/engine/src/store.ts",
         "packages/engine/src/lifecycle.ts",
         "packages/engine/src/forms.ts",
+        "packages/editor/src/state/**",
         "packages/mcp/src/tools.ts",
       ],
+      // Die eigenen Ausschluesse GELTEND NEBEN den Standardwerten: ein eigenes
+      // `exclude`-Feld ersetzt sie, und dann liegen ploetzlich dist/-Artefakte
+      // und node_modules in der Messung - seit P0-4 echte Build-Ausgaben. Das
+      // hat die Report-Erzeugung unterlaufen, nicht die Tests.
       exclude: [
         // Reine Weiterreichung ohne eigene Aussagen: browser.ts hat keine
         // eigenen Statements, ihre Prozentzahl misst nichts. Was sie
         // durchreicht, steht einzeln im Tor.
         "**/packages/editor/src/state/browser.ts",
+        ...coverageConfigDefaults.exclude,
       ],
       thresholds: {
         perFile: true,
