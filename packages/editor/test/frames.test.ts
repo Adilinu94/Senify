@@ -28,7 +28,7 @@ describe("frame manager", () => {
       "tablet",
       "mobile",
     ]);
-    expect(frames.map((frame) => frame.width)).toEqual([1440, 768, 390]);
+    expect(frames.map((frame) => frame.width)).toEqual([1440, 1024, 390]);
     expect(frames.every((frame) => frame.editable)).toBe(true);
     expect(frames.every((frame) => frame.scale === DESIGN_ZOOM_START)).toBe(true);
   });
@@ -108,10 +108,10 @@ describe("frame manager", () => {
 
   it("layouts the frames side by side in scaled footprints", () => {
     const placements = framePlacements(createFrameState());
-    expect(placements.map((placement) => placement.left)).toEqual([0, 752, 1168]);
+    expect(placements.map((placement) => placement.left)).toEqual([0, 752, 1296]);
     expect(placements.map((placement) => placement.scale)).toEqual([0.5, 0.5, 0.5]);
     const zoomed = framePlacements(setZoom(createFrameState(), 1));
-    expect(zoomed.map((placement) => placement.left)).toEqual([0, 1472, 2272]);
+    expect(zoomed.map((placement) => placement.left)).toEqual([0, 1472, 2528]);
   });
 });
 

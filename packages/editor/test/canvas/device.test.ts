@@ -23,8 +23,8 @@ describe("canvas device frames", () => {
       "tablet",
       "mobile",
     ]);
-    expect(frames.map((frame) => frame.width)).toEqual([1440, 768, 390]);
-    expect(frames.map((frame) => frame.height)).toEqual([900, 1024, 844]);
+    expect(frames.map((frame) => frame.width)).toEqual([1440, 1024, 390]);
+    expect(frames.map((frame) => frame.height)).toEqual([900, 768, 844]);
     // Only the narrower devices carry a media max width; desktop fills the stage.
     expect(frames.map((frame) => frame.mediaMaxWidth)).toEqual([null, 1024, 640]);
   });

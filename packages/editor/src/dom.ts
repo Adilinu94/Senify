@@ -41,6 +41,7 @@ export type DomElement = {
   value?: string;
   textContent: string | null;
   className: string;
+  hidden?: boolean;
   scrollLeft: number;
   scrollTop: number;
   // Scrolling geometry (the scrub slider, ticket 19 M6): a real element exposes

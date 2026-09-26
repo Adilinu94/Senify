@@ -68,6 +68,9 @@ export type CanvasOptions = {
   // Reports view changes (zoom, selection, mode, breakpoint, forced state) so
   // the session can persist them; the canvas itself stays storage-free.
   onState?: (state: CanvasState) => void;
+  // Pseudo-state buttons are a developer aid, not part of the product chrome.
+  // Tests and diagnostics can opt in explicitly without changing normal flows.
+  debugChrome?: boolean;
 };
 
 export type CanvasState = {
@@ -267,8 +270,13 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   }
 
   // ---------------------------------------------------------------- top bar
+  const debugChrome = options.debugChrome === true;
   const stateButtons: DomElement[] = [];
-  const stateGroup = create(doc, "div", "senify-canvas__group", { "data-role": "states" });
+  const stateGroup = create(doc, "div", "senify-canvas__group", {
+    "data-role": "states",
+    "aria-label": "Pseudo-Zustände",
+  });
+  stateGroup.hidden = !debugChrome;
   for (const value of PREVIEW_STATES) {
     const button = create(doc, "button", "senify-canvas__button", {
       type: "button",
@@ -282,12 +290,36 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     stateGroup.appendChild(button);
   }
 
-  const catalog = create(doc, "select", "senify-canvas__select", { "data-role": "catalog" });
+  const catalogLabel = create(doc, "label", "senify-canvas__catalog-label", {
+    for: "senify-canvas-catalog",
+  });
+  catalogLabel.textContent = "Baustein";
+  const catalog = create(doc, "select", "senify-canvas__select", {
+    id: "senify-canvas-catalog",
+    "data-role": "catalog",
+    "aria-label": "Baustein zum Einfügen",
+  });
+  const categoryNames: Record<string, string> = {
+    layout: "Layout",
+    basic: "Basis",
+    media: "Medien",
+    form: "Formular",
+    advanced: "Erweitert",
+  };
+  const grouped = new Map<string, DomElement>();
   for (const type of primitiveTypes()) {
     if (type === "root") continue;
+    const definition = getPrimitive(type);
+    const category = definition?.category ?? "basic";
+    let group = grouped.get(category);
+    if (group === undefined) {
+      group = create(doc, "optgroup", undefined, { label: categoryNames[category] ?? "Weitere" });
+      grouped.set(category, group);
+      catalog.appendChild(group);
+    }
     const option = create(doc, "option", undefined, { value: type });
-    option.textContent = getPrimitive(type)?.name ?? type;
-    catalog.appendChild(option);
+    option.textContent = definition?.name ?? type;
+    group.appendChild(option);
   }
   if (catalog.value === undefined || catalog.value === "") catalog.value = "divider";
 
@@ -379,6 +411,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   }
 
   const insertGroup = create(doc, "div", "senify-canvas__group");
+  insertGroup.appendChild(catalogLabel);
   insertGroup.appendChild(catalog);
   insertGroup.appendChild(insertAfter);
   insertGroup.appendChild(insertInto);
@@ -927,14 +960,16 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       if (mode === "design") button.removeAttribute("disabled");
       else button.setAttribute("disabled", "disabled");
     }
-    // The scrub slider is the live preview's counterpart (ticket 19, M6).
-    if (mode === "live") {
-      scrubInput.removeAttribute("disabled");
-      scrubGroup.setAttribute("data-active", "true");
-    } else {
-      scrubInput.setAttribute("disabled", "disabled");
-      scrubGroup.removeAttribute("data-active");
-    }
+  // Der Scrub ist ein bewusst optionales Live-Werkzeug. Im Design-Modus bleibt
+  // die DOM-Hülle für bestehende Integrationen erhalten, ist aber unsichtbar.
+  scrubGroup.hidden = mode !== "live" && !debugChrome;
+  if (mode === "live") {
+    scrubInput.removeAttribute("disabled");
+    scrubGroup.setAttribute("data-active", "true");
+  } else {
+    scrubInput.setAttribute("disabled", "disabled");
+    scrubGroup.removeAttribute("data-active");
+  }
     for (const entry of mounted) {
       const active = entry.device === breakpoint;
       entry.wrap.setAttribute("data-active", String(active));

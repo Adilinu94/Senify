@@ -56,7 +56,7 @@ export const EXPLORER_STYLES = `
   margin-left: auto;
   font-family: var(--ed-font-mono);
   font-size: var(--ed-text-10);
-  color: var(--ed-ink-faint);
+  color: var(--ed-ink-muted);
 }
 .senify-explorer__body {
   position: relative;

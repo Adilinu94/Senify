@@ -27,7 +27,9 @@ type DesignSize = { label: string; width: number; height: number };
 
 export const DESIGN_FRAMES: Record<FrameBreakpoint, DesignSize> = {
   desktop: { label: "Desktop", width: 1440, height: 900 },
-  tablet: { label: "Tablet", width: 768, height: 1024 },
+  // Tablet is 1024 everywhere (decision 23.09.) — same width the visual
+  // checks and the import gate measure at.
+  tablet: { label: "Tablet", width: 1024, height: 768 },
   mobile: { label: "Mobile", width: 390, height: 844 },
 };
 

@@ -52,7 +52,45 @@ export type SaveState = {
   // the loud channel for future ops the page route rejects.
   unsupported: string[];
   message?: string;
+  // Set while `status === "conflict"` (L17): the version the failed batch was
+  // based on and the version the server reported. `null` when the `409` carried
+  // no parseable version.
+  conflict?: { expectedVersion: number; serverVersion: number | null };
 };
+
+// The conflict dialog's data (L17): one pure model the shell renders — what
+// happened, and what each choice does. Kept here so the wording and the
+// numbers are testable without a DOM.
+export type ConflictDialogModel = {
+  title: string;
+  hint: string;
+  expectedVersion: number;
+  serverVersion: number | null;
+  pending: number;
+  reloadLabel: string;
+  retryLabel: string;
+  dismissLabel: string;
+};
+
+export function conflictDialogModel(
+  state: SaveState,
+): ConflictDialogModel | null {
+  if (state.status !== "conflict" || state.conflict === undefined) return null;
+  const server =
+    state.conflict.serverVersion === null
+      ? "unbekannter Version"
+      : `Version ${state.conflict.serverVersion}`;
+  return {
+    title: "Entwurf wurde inzwischen geändert",
+    hint: `Der Server steht auf ${server}, deine Änderungen basieren auf Version ${state.conflict.expectedVersion}. „Server laden“ verwirft deine offenen Änderungen; „Eigene senden“ wendet sie auf den Server-Stand an.`,
+    expectedVersion: state.conflict.expectedVersion,
+    serverVersion: state.conflict.serverVersion,
+    pending: state.pending,
+    reloadLabel: "Server laden (eigene Änderungen verwerfen)",
+    retryLabel: `Eigene Änderungen senden (${state.pending})`,
+    dismissLabel: "Später",
+  };
+}
 
 export type SaveListener = (state: SaveState) => void;
 
@@ -65,6 +103,7 @@ export type SavePipelineOptions = {
   // Rule ids the server already knows. An upsert of a known id becomes a PATCH
   // (create with the same id would duplicate the registry entry).
   knownRuleIds?: Iterable<string>;
+  styleRegistryVersion?: number;
   debounceMs?: number;
 };
 
@@ -77,6 +116,9 @@ export type SavePipeline = {
   flush(): Promise<void>;
   // After a reload the shell hands in the fresh draft version.
   acceptVersion(version: number): void;
+  // The conflict choice "load the server": the local batch is dropped instead
+  // of being resent later (the reload replaces the document anyway).
+  discardPending(): void;
   markRuleKnown(id: string): void;
   dispose(): void;
 };
@@ -357,6 +399,7 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
 
   let pending: Pending[] = [];
   let version = 1;
+  let styleRegistryVersion = options.styleRegistryVersion ?? 0;
   let status: SaveStatus = "idle";
   let message: string | undefined;
   let conflictVersion: number | undefined;
@@ -372,6 +415,14 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
     version,
     unsupported: [...unsupported],
     ...(message === undefined ? {} : { message }),
+    ...(status === "conflict"
+      ? {
+          conflict: {
+            expectedVersion: version,
+            serverVersion: conflictVersion ?? null,
+          },
+        }
+      : {}),
   });
 
   const emit = (): void => {
@@ -429,17 +480,18 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
 
   const siteRequestFor = (op: PendingSite): SaveRequest => {
     const base = `/api/sites/${siteId}/style-rules`;
+    const versionBody = { baseVersion: styleRegistryVersion, author };
     switch (op.kind) {
       case "upsert":
         return knownRuleIds.has(op.rule.id)
-          ? { method: "PATCH", path: `${base}/${op.rule.id}`, body: { ...rulePatch(op.rule), author } }
-          : { method: "POST", path: base, body: { ...transportRule(op.rule), author } };
+          ? { method: "PATCH", path: `${base}/${op.rule.id}`, body: { ...rulePatch(op.rule), ...versionBody } }
+          : { method: "POST", path: base, body: { ...transportRule(op.rule), ...versionBody } };
       case "delete":
-        return { method: "DELETE", path: `${base}/${op.id}`, body: { author } };
+        return { method: "DELETE", path: `${base}/${op.id}`, body: versionBody };
       case "reorder":
-        return { method: "POST", path: `${base}/${op.id}/reorder`, body: { index: op.index, author } };
+        return { method: "POST", path: `${base}/${op.id}/reorder`, body: { index: op.index, ...versionBody } };
       case "rename":
-        return { method: "PATCH", path: `${base}/${op.id}`, body: { name: op.name, author } };
+        return { method: "PATCH", path: `${base}/${op.id}`, body: { name: op.name, ...versionBody } };
     }
   };
 
@@ -493,10 +545,19 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
       const entry = siteOps[index];
       if (entry === undefined) continue;
       const response = await request(siteRequestFor(entry.op));
+      if (response.status === 409) {
+        pending = [...siteOps.slice(index), ...pending];
+        running = false;
+        setStatus("conflict", "Die Style-Registry wurde zwischenzeitlich geändert");
+        return;
+      }
       if (response.status >= 400) {
         failed = siteOps.slice(index).map((unsent) => ({ ...unsent }));
         break;
       }
+      const responseBody = response.body as { version?: unknown } | undefined;
+      styleRegistryVersion =
+        typeof responseBody?.version === "number" ? responseBody.version : styleRegistryVersion + 1;
       if (entry.op.kind === "upsert") knownRuleIds.add(entry.op.rule.id);
     }
 
@@ -528,6 +589,15 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
     emit();
   };
 
+  const discardPending = (): void => {
+    pending = [];
+    conflictVersion = undefined;
+    paused = false;
+    if (status === "conflict") status = "idle";
+    message = undefined;
+    emit();
+  };
+
   const dispose = (): void => {
     if (timer !== undefined) clearTimeout(timer);
     timer = undefined;
@@ -546,6 +616,7 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
     retry,
     flush,
     acceptVersion,
+    discardPending,
     markRuleKnown(id) {
       knownRuleIds.add(id);
     },

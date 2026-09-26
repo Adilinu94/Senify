@@ -104,8 +104,24 @@ export function createDropController(options: DropControllerOptions): DropContro
   const catalog = h(doc, "div", {
     className: "senify-canvas__catalog",
     data: { role: "catalog-strip" },
-    attributes: { "aria-label": "Bausteine zum Ziehen" },
+    attributes: { "aria-label": "Schnellzugriff: Bausteine zum Ziehen" },
   });
+  catalog.appendChild(
+    h(doc, "span", {
+      className: "senify-canvas__catalog-heading",
+      text: "Schnellzugriff",
+      attributes: { "aria-hidden": "true" },
+    }),
+  );
+  const quickPrimitives = new Set([
+    "section",
+    "heading",
+    "text",
+    "button",
+    "image",
+    "grid",
+    "divider",
+  ]);
 
   // Insert at a target (the same resolution the drag uses); the chips, the plus
   // points and the top bar buttons all funnel through here.
@@ -140,7 +156,7 @@ export function createDropController(options: DropControllerOptions): DropContro
   }
 
   for (const type of primitiveTypes()) {
-    if (type === "root") continue;
+    if (type === "root" || !quickPrimitives.has(type)) continue;
     const chip = h(doc, "button", {
       className: "senify-canvas__chip",
       text: getPrimitive(type)?.name ?? type,
@@ -254,19 +270,18 @@ export function createDropController(options: DropControllerOptions): DropContro
     const width = Math.max(8, rect.width * frame.scale);
     const height = Math.max(1, rect.height * frame.scale);
     const center = left + width / 2;
-    // Short nodes: the 18px plus points would cover the node's own middle and
-    // swallow the selection click (and the inline double-click), so they move
-    // fully outside the edge instead of sitting on it.
+    // Short nodes: the 24px plus targets move fully outside the edge so they
+    // never cover the node's own middle or swallow the selection click.
     const short = height < 36;
     const place = (button: DomElement, x: number, y: number): void => {
       button.style.left = `${x}px`;
       button.style.top = `${y}px`;
       button.setAttribute("data-state", "visible");
     };
-    place(plusTop, center, short ? top - 18 : top - 9);
-    place(plusBottom, center, short ? top + height : top + height - 9);
+    place(plusTop, center - 12, short ? top - 24 : top - 12);
+    place(plusBottom, center - 12, short ? top + height : top + height - 12);
     if (isContainer(store.document, nodeId)) {
-      place(plusInto, short ? left - 18 : center, top + height / 2 - 9);
+      place(plusInto, short ? left - 24 : center - 12, top + height / 2 - 12);
     } else plusInto.setAttribute("data-state", "hidden");
   }
 

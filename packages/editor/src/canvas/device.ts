@@ -92,7 +92,8 @@ export type FitOptions = { gap?: number; margin?: number };
 
 // The largest allowed zoom at which all frames fit into `availableWidth`.
 // Used when the window is narrower than the sheets, so nothing overflows and
-// the user still sees the whole page.
+// the user still sees the whole page. Rounds DOWN to three decimals — a
+// commercially rounded zoom can overshoot the available width by a few pixels.
 export function fitZoom(availableWidth: number, options: FitOptions = {}): number {
   const gap = options.gap ?? FRAME_GAP;
   const margin = options.margin ?? 0;
@@ -103,7 +104,9 @@ export function fitZoom(availableWidth: number, options: FitOptions = {}): numbe
   );
   const usable = availableWidth - gaps - margin * 2;
   if (natural <= 0 || usable <= 0) return ZOOM_MIN;
-  return clampZoom(usable / natural);
+  const raw = usable / natural;
+  if (raw >= ZOOM_MAX) return ZOOM_MAX;
+  return clampZoom(Math.floor(raw * 1000) / 1000);
 }
 
 export function frameSelector(device: CanvasDevice): string {

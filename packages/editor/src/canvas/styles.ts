@@ -67,6 +67,7 @@ export const CANVAS_STYLES = `
   padding: 0.1rem;
   border-radius: 0.3rem;
 }
+.senify-canvas__group[hidden] { display: none; }
 .senify-canvas__button {
   min-height: 1.9rem;
   padding: 0 0.55rem;
@@ -77,7 +78,23 @@ export const CANVAS_STYLES = `
   font: inherit;
   cursor: pointer;
 }
-.senify-canvas__select { min-height: 1.9rem; border: 0; background: transparent; font: inherit; }
+.senify-canvas__catalog-label {
+  color: var(--ed-ink-muted);
+  font-size: var(--ed-text-11);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.senify-canvas__select {
+  min-height: 1.9rem;
+  max-width: 12rem;
+  padding: 0 0.35rem;
+  border: 1px solid var(--ed-line-control);
+  border-radius: var(--ed-radius-sm);
+  background: var(--ed-surface-inset);
+  color: var(--ed-ink-strong);
+  font: inherit;
+  font-size: var(--ed-text-12);
+}
 .senify-canvas__zoom-label {
   min-width: 3.5rem;
   min-height: 1.9rem;
@@ -122,7 +139,15 @@ export const CANVAS_STYLES = `
 .senify-canvas__catalog {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.25rem;
+}
+.senify-canvas__catalog-heading {
+  margin-right: 0.2rem;
+  color: var(--ed-ink-muted);
+  font-size: var(--ed-text-11);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 .senify-canvas__chip {
   min-height: 28px;
@@ -200,22 +225,34 @@ export const CANVAS_STYLES = `
 .senify-canvas__dropline[data-state="rejected"] { background: var(--ed-signal-danger-ink); }
 .senify-canvas__plus {
   position: absolute;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: 0;
   border-radius: var(--ed-radius-full);
-  background: var(--ed-snap-line);
-  color: var(--ed-ink-on-lime);
+  background: transparent;
+  color: transparent;
   font: inherit;
-  font-size: 13px;
+  font-size: 0;
   line-height: 1;
   cursor: pointer;
   pointer-events: auto;
+}
+.senify-canvas__plus::before {
+  content: "+";
+  position: absolute;
+  inset: 3px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--ed-radius-full);
+  background: var(--ed-snap-line);
+  color: var(--ed-ink-on-lime);
+  font-size: 13px;
+  line-height: 1;
   box-shadow: 0 1px 2px rgb(1 20 32 / 0.35);
 }
 .senify-canvas__plus[data-state="hidden"] { display: none; }
-.senify-canvas__plus:hover { background: var(--ed-fill-accent-hover); }
+.senify-canvas__plus:hover::before { background: var(--ed-fill-accent-hover); }
 /* Das Marker-Portal (Ticket 16): Auswahl und Hover liegen als eigene Schicht
    ueber der Buehne, nie im Inhaltsrahmen — der Inhalt bleibt token-frei. Je
    Blatt eine Schicht, damit der Ring an der Blattkante abschneidet; die

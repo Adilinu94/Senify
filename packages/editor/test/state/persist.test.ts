@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  conflictDialogModel,
   createComponent,
   createSavePipeline,
   patchesToPending,
@@ -321,6 +322,18 @@ describe("save pipeline", () => {
     expect(conflictState.status).toBe("conflict");
     expect(conflictState.pending).toBe(1);
     expect(conflictState.message).toContain("current v4");
+    // The dialog model carries both sides (L17).
+    expect(conflictState.conflict).toEqual({
+      expectedVersion: 1,
+      serverVersion: 4,
+    });
+    const dialog = conflictDialogModel(conflictState);
+    expect(dialog?.serverVersion).toBe(4);
+    expect(dialog?.expectedVersion).toBe(1);
+    expect(dialog?.pending).toBe(1);
+    expect(dialog?.retryLabel).toContain("1");
+    expect(dialog?.reloadLabel).toContain("verwerfen");
+    expect(conflictDialogModel({ ...conflictState, status: "saved" })).toBeNull();
 
     // No autosave while the conflict stands.
     store.apply({ op: "setNodeProp", id: "head000001", key: "color", value: "#000000" });
@@ -334,6 +347,25 @@ describe("save pipeline", () => {
     expect(body.mutations).toHaveLength(2);
     expect(pipeline.state().status).toBe("saved");
     expect(pipeline.state().version).toBe(5);
+  });
+
+  it("discards the pending batch when the server is loaded (L17)", async () => {
+    const { store, pipeline, requests } = harness(() => ({
+      status: 409,
+      body: { error: { message: "Draft has changed (expected v1, current v4)" } },
+    }));
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 });
+    await pipeline.flush();
+    expect(pipeline.state().status).toBe("conflict");
+    pipeline.acceptVersion(4);
+    pipeline.discardPending();
+    const state = pipeline.state();
+    expect(state.pending).toBe(0);
+    expect(state.status).toBe("idle");
+    expect(state.conflict).toBeUndefined();
+    // Nothing is resent by a later flush.
+    await pipeline.flush();
+    expect(requests).toHaveLength(1);
   });
 
   it("accepts a fresh version after a reload", async () => {

@@ -17,7 +17,7 @@ import {
 // Vorlagen · Medien. All four are headless list models — the shell renders
 // them, the editor core decides what is in them.
 
-export type ExplorerTab = "layers" | "pages" | "templates" | "media";
+export type ExplorerTab = "layers" | "pages" | "templates" | "media" | "library";
 
 export type ExplorerTabSpec = {
   id: ExplorerTab;
@@ -29,6 +29,7 @@ export const EXPLORER_TABS: readonly ExplorerTabSpec[] = [
   { id: "pages", label: "Seiten" },
   { id: "templates", label: "Vorlagen" },
   { id: "media", label: "Medien" },
+  { id: "library", label: "Bibliothek" },
 ];
 
 export type LayerItem = {
@@ -117,6 +118,10 @@ export function editorNodeLabel(node: EditorNode, document?: EditorDocument): st
   if (node.primitive === COMPONENT_SLOT_PRIMITIVE) {
     const name = typeof node.props["name"] === "string" ? node.props["name"] : node.id;
     return `Slot · ${name}`;
+  }
+  if (node.primitive === "payload") {
+    const label = typeof node.props["label"] === "string" ? node.props["label"] : "Fremd-Code";
+    return label.includes("Platte") ? `Platte · ${label.replace(/^Platte · /, "")}` : `Island · ${label}`;
   }
   const name = getPrimitive(node.primitive)?.name ?? node.primitive;
   const snippet = editorNodeSnippet(node);

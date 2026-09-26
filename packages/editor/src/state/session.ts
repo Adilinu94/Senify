@@ -39,6 +39,7 @@ export type EditorSessionOptions = {
   author: Author;
   request: SaveTransport;
   initialVersion: number;
+  styleRegistryVersion?: number;
   knownRuleIds?: Iterable<string>;
   debounceMs?: number;
   storage?: SessionStorage;
@@ -79,6 +80,9 @@ export class EditorSession {
       author: options.author,
       request: options.request,
       ...(options.knownRuleIds === undefined ? {} : { knownRuleIds: options.knownRuleIds }),
+      ...(options.styleRegistryVersion === undefined
+        ? {}
+        : { styleRegistryVersion: options.styleRegistryVersion }),
       ...(options.debounceMs === undefined ? {} : { debounceMs: options.debounceMs }),
     });
     this.pipeline.acceptVersion(options.initialVersion);
@@ -164,6 +168,12 @@ export class EditorSession {
 
   acceptVersion(version: number): void {
     this.pipeline.acceptVersion(version);
+  }
+
+  // The conflict choice "load the server": the fresh document replaces the
+  // local one, so the pending batch is dropped instead of being resent.
+  discardPending(): void {
+    this.pipeline.discardPending();
   }
 
   /* ------------------------------------------------------------------- ui */
