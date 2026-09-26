@@ -503,6 +503,20 @@ async function withIdempotency(
       },
     );
   }
+  if (claim.state === "committed_unknown") {
+    // The write behind this key is committed and its response is gone. Running
+    // the operation again would create a second entity, and replaying is
+    // impossible, so the honest answer is a conflict that says what happened.
+    throw new SenifyError(
+      "conflict",
+      "This idempotency key was already applied, but its response was lost",
+      {
+        field: "idempotencyKey",
+        suggestion:
+          "Read the resource back instead of writing it again, or start over with a fresh key.",
+      },
+    );
+  }
   if (claim.state === "in_progress") {
     throw new SenifyError(
       "conflict",
@@ -513,8 +527,19 @@ async function withIdempotency(
       },
     );
   }
+  let result: RouteResult;
   try {
-    const result = await run();
+    result = await run();
+  } catch (error) {
+    // The attempt failed and left nothing durable behind: a failed attempt does
+    // not burn the key, so the caller may retry it (with a corrected body if the
+    // failure was validation).
+    await context.store
+      .releaseIdempotencyKey({ tokenId: auth.tokenId, route, key })
+      .catch(() => undefined);
+    throw error;
+  }
+  try {
     await context.store.completeIdempotencyKey({
       tokenId: auth.tokenId,
       route,
@@ -523,12 +548,20 @@ async function withIdempotency(
       body: result.body ?? null,
     });
     return result;
-  } catch (error) {
-    // A failed attempt does not burn the key: the caller may retry it.
+  } catch (completionError) {
+    // R6: the operation is committed and only its replay response is missing.
+    // Releasing the slot here is exactly what turned a retry into a second
+    // entity, so the claim stays and the key is recorded as committed with an
+    // unknown response. The caller keeps the real result they already earned;
+    // a retry hears "already applied" instead of writing a second time.
+    console.error("[engine] idempotency completion failed", completionError);
     await context.store
-      .releaseIdempotencyKey({ tokenId: auth.tokenId, route, key })
+      .markIdempotencyCommitted({ tokenId: auth.tokenId, route, key })
       .catch(() => undefined);
-    throw error;
+    return {
+      ...result,
+      headers: { ...result.headers, "idempotency-cached": "false" },
+    };
   }
 }
 

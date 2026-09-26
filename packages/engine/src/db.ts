@@ -778,6 +778,20 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idempotency_keys_created_idx
     ON idempotency_keys (created_at)`,
+  // A committed write whose response could not be stored (R6). The slot row
+  // above keeps its claim, and this marker records the one fact that matters
+  // for a retry: the operation already happened. It lives in its own table so
+  // the schema stays additive without ALTER statements (there is no migration
+  // tooling in v1, see the note on active_releases).
+  `CREATE TABLE IF NOT EXISTS idempotency_committed (
+    token_id text NOT NULL,
+    route text NOT NULL,
+    idempotency_key text NOT NULL,
+    created_at timestamptz NOT NULL,
+    PRIMARY KEY (token_id, route, idempotency_key)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idempotency_committed_created_idx
+    ON idempotency_committed (created_at)`,
 ];
 
 export async function ensureSchema(db: Db): Promise<void> {

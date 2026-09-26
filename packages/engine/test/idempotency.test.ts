@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createApiHarness } from "@senify/core/testing";
+import { type DbResult, type Row } from "@senify/engine";
 import {
   bootEngine,
   createTestSite,
@@ -335,6 +336,59 @@ describe("idempotency keys (ticket 18, slice 2)", () => {
         body: { title: "Laeuft", idempotencyKey: "busy-key" },
       });
       expect(takeover.status).toBe(201);
+    } finally {
+      await env.close();
+    }
+  });
+
+  it("answers a retry with a conflict when the write is committed but its response was lost (R6)", async () => {
+    // R6 is the only known true data-integrity fault in the earlier audit: a
+    // failure AFTER the write inside completeIdempotencyKey (or a slot that
+    // vanished beneath it) used to release the key, and a retry wrote a second
+    // entity. This test simulates exactly that half-state on the store (the
+    // marker row is written by withIdempotency's catch arm and cannot be
+    // reached through plain HTTP) and then proves over HTTP that a retry does
+    // not create a second entity.
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "CommittedUnknown");
+      const first = await env.api.request<PageResponse>({
+        method: "POST",
+        path: `/api/sites/${site.id}/pages`,
+        body: { title: "Einmal", idempotencyKey: "lost-response" },
+      });
+      expect(first.status).toBe(201);
+
+      const tokens = await env.engine.store.listTokens();
+      const token = tokens.find((entry) => entry.name === "engine-tests");
+      if (!token) throw new Error("Harness token missing");
+      const route = `POST /api/sites/${site.id}/pages`;
+      // The half-state: the slot is gone (completion failed after the write),
+      // and only the committed marker records that the write happened.
+      await env.db.query(
+        `DELETE FROM idempotency_keys WHERE token_id = $1 AND route = $2 AND idempotency_key = $3`,
+        [token.id, route, "lost-response"],
+      );
+      await env.engine.store.markIdempotencyCommitted({
+        tokenId: token.id,
+        route,
+        key: "lost-response",
+      });
+
+      const retried = await env.api.request<ErrorResponse>({
+        method: "POST",
+        path: `/api/sites/${site.id}/pages`,
+        body: { title: "Einmal", idempotencyKey: "lost-response" },
+      });
+      expect(retried.status).toBe(409);
+      expect(retried.body.error.field).toBe("idempotencyKey");
+      expect(retried.body.error.message).toMatch(/already applied/);
+
+      const pages = await env.api.request<{ pages: PageResponse[] }>({
+        method: "GET",
+        path: `/api/sites/${site.id}/pages`,
+      });
+      expect(pages.body.pages).toHaveLength(1);
     } finally {
       await env.close();
     }
