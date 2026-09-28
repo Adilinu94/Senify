@@ -36,15 +36,85 @@ export type McpServerOptions = {
   onError?: (message: string, error: unknown) => void;
 };
 
-function errorPayload(error: unknown): { error: Record<string, unknown> } {
+// The one error shape every tool speaks (Fahrplan P3-3 Punkt 2, R8).
+//
+// The field that matters is `retryable`. Before it, an agent faced a category
+// (`validation`, `guardrail`, `conflict`, `auth`, `not_found`) and had to guess
+// whether trying again could help - and the wrong guess is expensive in both
+// directions: retrying a validation burns a turn and changes nothing, while
+// NOT retrying a 429 leaves a job unfinished. So the answer is stated, per
+// category, once, from the engine's own five (see `ErrorCategory` in
+// `@senify/core`):
+//
+//   - `validation`  the request itself is wrong. A retry sends the same wrong
+//                   request. NOT retryable.
+//   - `guardrail`   the engine refused on purpose - a colour outside the
+//                   profile, a headline it will not ship. A retry with the same
+//                   values hits the same wall. NOT retryable: the caller has to
+//                   change something, and "try again" is not that.
+//   - `not_found`   the id does not exist. A retry could only help after the
+//                   caller created it, which makes the retry the caller's
+//                   decision, not this server's promise. NOT retryable.
+//   - `auth`        the token is missing, wrong or lacks the scope. A retry
+//                   with the same token fails identically. NOT retryable -
+//                   and saying so is the whole point: an agent that retries a
+//                   401 in a loop looks like an attack.
+//   - `conflict`    a stale `baseDraftVersion` or a claim someone else took. The
+//                   engine hands back what it has now, so reading and retrying
+//                   is exactly the right move. RETRYABLE.
+//
+// `rate_limit` is not one of the five: it arrives as an HTTP 429 with a
+// `Retry-After`, and the engine's error object already carries the status. It
+// is retryable by definition - waiting is the whole fix - so it is named here
+// rather than left to the caller to recognise.
+//
+// `attempt` travels with every error after the first, so a client can tell a
+// loop from a one-off without counting on its own.
+export type McpErrorPayload = {
+  category: string;
+  message: string;
+  field?: string;
+  suggestion?: string;
+  retryable: boolean;
+  // How many times this call has already failed with these arguments.
+  attempt?: number;
+  // Set when the engine sent one: its own advice, in milliseconds.
+  retryAfterMs?: number;
+  // Set on `internal`: the raw detail, so a bug report can carry it. Without
+  // it every internal error reads as "something went wrong".
+  detail?: unknown;
+};
+
+// `conflict` and `rate_limit` are the two answers "yes, try again". Everything
+// else means "change something first", and a retry is the wrong move.
+const RETRYABLE_CATEGORIES: ReadonlySet<string> = new Set(["conflict", "rate_limit"]);
+
+function errorPayload(error: unknown, attempt = 1): { error: McpErrorPayload } {
   if (error instanceof EngineApiError) {
-    return { error: { ...error.detail } };
+    // The engine's own error object already carries a category; the MCP layer
+    // adds only what a client needs to decide what to do next. Spreading
+    // `detail` keeps `message` and `field` where they were, so nothing that
+    // parsed the old shape breaks.
+    const detail = error.detail as Record<string, unknown>;
+    const category = typeof detail.category === "string" ? detail.category : "unknown";
+    return {
+      error: {
+        ...detail,
+        category,
+        message: typeof detail.message === "string" ? detail.message : error.message,
+        retryable: RETRYABLE_CATEGORIES.has(category),
+        ...(attempt > 1 ? { attempt } : {}),
+        ...(typeof detail.retryAfterMs === "number" ? { retryAfterMs: detail.retryAfterMs } : {}),
+      },
+    };
   }
   if (error instanceof SenifyError) {
     return {
       error: {
         category: error.category,
         message: error.message,
+        retryable: RETRYABLE_CATEGORIES.has(error.category),
+        ...(attempt > 1 ? { attempt } : {}),
         ...(error.field === undefined ? {} : { field: error.field }),
         ...(error.suggestion === undefined
           ? {}
@@ -56,6 +126,13 @@ function errorPayload(error: unknown): { error: Record<string, unknown> } {
     error: {
       category: "internal",
       message: error instanceof Error ? error.message : "Unknown MCP error",
+      // Not retryable on purpose - see the table above. A retry that hides a
+      // defect is how a defect ships.
+      retryable: false,
+      ...(attempt > 1 ? { attempt } : {}),
+      ...(error === null || error === undefined
+        ? {}
+        : { detail: error instanceof Error ? error.message : String(error) }),
     },
   };
 }
@@ -169,8 +246,8 @@ const REFERENCE_REDESIGN_WORKFLOW = [
   "plan_redesign on the source page with one to three candidates; it is read-only and returns a target per reference.",
   "create_redesign_proposal with the same pageId and the candidate reference ids. The server derives the Direction Cards and their section plan itself; you never send cards, section mappings, media or a decision. Pass a stable idempotencyKey.",
   "Stop here and wait: a human picks one Direction Card in the program. There is no confirm tool — an agent cannot decide the direction.",
-  "get_redesign_proposal: when the status is applied, applyResult names the new draft (siteId, pageId) and states scope scaffold-theme with sectionPlanApplied false — the confirm wrote theme and draft scaffold, not the sections. While it is proposed, keep working on the source page or ask the operator.",
-  "The confirmed card's sectionPlan is the binding build scope: per source section it names the registered target type, the target variant with its full preset, preserved content keys and the media needs. Rebuild exactly that plan with get_page → get_section → apply_mutations, keep content, and never copy reference media.",
+  "get_redesign_proposal: when the status is applied, applyResult names the new draft (siteId, pageId) and states what the run wrote. scope section-plan with sectionPlanApplied true means the confirm wrote the confirmed section plan itself — do not rebuild it by hand. scope scaffold-theme with sectionPlanApplied false means only theme and draft scaffold were written and the plan is still your handoff. While it is proposed, keep working on the source page or ask the operator.",
+  "applyResult.warnings lists every media need the run could not cover (select, upload, generate). Each one is still open work on the new draft — resolve it there, and never copy reference media.",
   "Per draft page: get_page → get_section → apply_mutations with baseDraftVersion. Keep content, change the design through registered sections and theme tokens.",
   "Verify with get_design_report and diff_reference, then create_preview and submit_for_review. After any change, repeat the checks.",
   "publish_release only after explicit human approval. Never copy reference copy, logos, photos or a 1:1 layout; never modify the active release during the redesign run.",
@@ -269,10 +346,9 @@ const PROMPTS: PromptDefinition[] = [
         "2. plan_redesign for pageId with one to three candidates. This step is read-only.",
         "3. create_redesign_proposal with the same pageId and the candidate ids plus a stable idempotencyKey. You send no cards, no section mapping and no decision — the server derives them.",
         "4. Wait for the human: they pick one Direction Card in the program. Poll get_redesign_proposal instead of guessing; there is no confirm tool.",
-        "5. When status is applied, take siteId and pageId from applyResult. applyResult.scope is scaffold-theme: the confirm wrote theme and draft scaffold, not the sections.",
-        "6. Rebuild the confirmed card's sectionPlan exactly: per page get_page → get_section → apply_mutations with baseDraftVersion. Keep content, change the design through registered sections and theme tokens; a variant change must materialise its full preset, and reference media are never copied.",
-        "7. get_design_report → diff_reference → create_preview. Fix findings and repeat the checks.",
-        "8. submit_for_review → get_review_feedback. Stop here unless the operator explicitly approves publish_release.",
+        "5. When status is applied, take siteId and pageId from applyResult. If applyResult.scope is section-plan and sectionPlanApplied is true, the confirm already wrote the confirmed section plan — do not rebuild it by hand. If it is scaffold-theme with sectionPlanApplied false, only theme and draft scaffold were written and the plan is still your handoff: rebuild it with get_page → get_section → apply_mutations with baseDraftVersion.",
+        "6. Whatever the scope, read applyResult.warnings: every media need the run could not cover (select, upload, generate) is still open work on the new draft. Resolve those there; reference media are never copied. Then get_design_report → diff_reference → create_preview, fix findings and repeat the checks.",
+        "7. submit_for_review → get_review_feedback. Stop here unless the operator explicitly approves publish_release.",
         "Ground rules: drafts first, tokens before literals, evidence over guessing, reference copy/assets/layout are not copied, and the active release stays untouched.",
       ].join("\n");
     },
@@ -381,6 +457,13 @@ function toolListing(): Tool[] {
     title: tool.title,
     description: tool.description,
     inputSchema: tool.inputSchema as Tool["inputSchema"],
+    // Only the tools that declare an output schema advertise it. The MCP spec
+    // ties `structuredContent` to this field, so a tool without one must not
+    // receive structured content - a client that sees both would have no way to
+    // tell whether the structure is guaranteed (P3-3, R8).
+    ...(tool.outputSchema === undefined
+      ? {}
+      : { outputSchema: tool.outputSchema as Tool["outputSchema"] }),
     annotations: {
       readOnlyHint: tool.scope === "read",
       destructiveHint: DESTRUCTIVE_TOOLS.has(tool.name),
@@ -388,6 +471,80 @@ function toolListing(): Tool[] {
       openWorldHint: OPEN_WORLD_TOOLS.has(tool.name),
     },
   }));
+}
+
+// The `structuredContent` a tool result carries, or `{}` when it must not carry
+// any (P3-3, R8).
+//
+// Two conditions, both necessary:
+//   1. the tool declares an `outputSchema` - otherwise the client has no
+//      promise to check the structure against;
+//   2. the value satisfies that schema - otherwise the structure and the text
+//      block would disagree, and the client would believe the structure.
+//
+// Failing condition 2 is not an error: the call succeeded, and the text block
+// still holds the truth. It is logged, because a schema that has drifted from
+// the code is a real defect that must not stay invisible - it is exactly the
+// drift that makes clients lose trust in the contract.
+function structuredFor(tool: ToolDefinition, result: unknown): {
+  structuredContent?: Record<string, unknown>;
+} {
+  if (tool.outputSchema === undefined) return {};
+  if (result === null || typeof result !== "object" || Array.isArray(result)) return {};
+  const value = result as Record<string, unknown>;
+  if (!satisfiesSchema(value, tool.outputSchema)) {
+    console.error(
+      `[mcp] "${tool.name}" returned a value that does not match its outputSchema - ` +
+        "structuredContent is omitted for this call.",
+    );
+    return {};
+  }
+  return { structuredContent: value };
+}
+
+// A deliberately small JSON Schema check: enough to keep the declared schemas
+// honest (type, required, nested objects and arrays), and nothing more. A full
+// validator would be a dependency and a second source of truth; the schemas
+// here are written to be checkable by this much.
+function satisfiesSchema(value: unknown, schema: Record<string, unknown>): boolean {
+  const expected = schema.type;
+  if (typeof expected === "string") {
+    if (expected === "object") {
+      if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+    } else if (expected === "array") {
+      if (!Array.isArray(value)) return false;
+    } else if (expected === "null") {
+      if (value !== null) return false;
+    } else if (expected === "string" && typeof value !== "string") {
+      return false;
+    } else if (expected === "number" && typeof value !== "number") {
+      return false;
+    } else if (expected === "boolean" && typeof value !== "boolean") {
+      return false;
+    }
+  }
+  if (Array.isArray(value)) {
+    const items = schema.items;
+    if (items !== null && typeof items === "object") {
+      const itemSchema = items as Record<string, unknown>;
+      return value.every((entry) => satisfiesSchema(entry, itemSchema));
+    }
+    return true;
+  }
+  if (value === null || typeof value !== "object") return true;
+  const record = value as Record<string, unknown>;
+  const required = Array.isArray(schema.required) ? schema.required : [];
+  for (const key of required) {
+    if (typeof key === "string" && !(key in record)) return false;
+  }
+  const properties = schema.properties;
+  if (properties === null || typeof properties !== "object") return true;
+  for (const [key, propertySchema] of Object.entries(properties as Record<string, unknown>)) {
+    if (!(key in record)) continue;
+    if (propertySchema === null || typeof propertySchema !== "object") continue;
+    if (!satisfiesSchema(record[key], propertySchema as Record<string, unknown>)) return false;
+  }
+  return true;
 }
 
 export function createMcpServer(options: McpServerOptions): Server {
@@ -404,6 +561,13 @@ export function createMcpServer(options: McpServerOptions): Server {
     ...options.context,
     elicit: createElicitor(server),
   };
+  // Failed attempts per (tool, arguments), so an error can say "this is the
+  // third time" and a client can tell a loop from a one-off (P3-3 Punkt 2).
+  // Bounded so a client that keeps failing on fresh arguments cannot grow the
+  // map without limit; the oldest entry is dropped, because the recent ones
+  // are the ones a retry decision depends on.
+  const attempts = new Map<string, number>();
+  const MAX_TRACKED_ATTEMPTS = 200;
 
   server.setRequestHandler(
     ListToolsRequestSchema,
@@ -595,6 +759,12 @@ export function createMcpServer(options: McpServerOptions): Server {
         await audit(options, tool, effective, "ok", startedAt, tool.entity?.(effective, result));
         return {
           content: [{ type: "text", text: JSON.stringify(result) }],
+          // The structured twin of the text above, for the tools that promise a
+          // shape (P3-3, R8). It is only sent when the tool declares an output
+          // schema AND the value actually satisfies it: a schema the code does
+          // not keep would teach the client to trust a promise that is not
+          // there, and the text block stays the fallback either way.
+          ...structuredFor(tool, result),
         };
       } catch (error) {
         await audit(
@@ -605,9 +775,25 @@ export function createMcpServer(options: McpServerOptions): Server {
           startedAt,
           tool.entity?.(effective, undefined),
         );
+        // How often this exact call has failed before. Keyed by the tool AND
+        // the arguments, so a second, different call does not inherit the
+        // first one's history: "this is attempt 3" has to mean "three times
+        // with these arguments", or a client would give up on a fresh call
+        // because an old one looped. The counter only ever grows, and only for
+        // calls that actually failed.
+        const signature = `${tool.name}:${JSON.stringify(effective)}`;
+        const attempt = (attempts.get(signature) ?? 0) + 1;
+        // Insert-then-trim: Map preserves insertion order, so the first key is
+        // the oldest. A client that fails on a thousand different arguments
+        // must not turn the error counter into a memory leak.
+        if (!attempts.has(signature) && attempts.size >= MAX_TRACKED_ATTEMPTS) {
+          const oldest = attempts.keys().next();
+          if (!oldest.done) attempts.delete(oldest.value);
+        }
+        attempts.set(signature, attempt);
         return {
           isError: true,
-          content: [{ type: "text", text: JSON.stringify(errorPayload(error)) }],
+          content: [{ type: "text", text: JSON.stringify(errorPayload(error, attempt)) }],
         };
       }
     },

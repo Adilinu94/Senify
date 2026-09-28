@@ -1,7 +1,7 @@
 # Aktueller Stand
 
-> Basis: Commit `67a2862` (26.09.2026) — Arbeitsbaum sauber; die früheren 230 uncommitteten Dateien stecken in den zehn P0-1-Commits seit `6973cb1`.
-> Stand: 26.09.2026. Messzahlen stehen ausschließlich in `docs/current/qualitaet.md`.
+> Basis: Commit `243166f` (26.09.2026) plus fachlich geprüfte Folgearbeiten. Der Arbeitsbaum ist noch **nicht gesichert**; `pnpm verify`, die separaten App-Gates, PostgreSQL, Coverage und `quality:check` sind auf diesem Diff grün. Details und Testresultate stehen ausschließlich in `docs/current/qualitaet.md`.
+> Stand: 28.09.2026. Messzahlen stehen ausschließlich in `docs/current/qualitaet.md` und werden von `pnpm quality:render` erzeugt, nicht von Hand gepflegt.
 > Geplante Arbeit und Reihenfolge: `docs/fahrplan.md`. Historisches: `docs/history/`.
 
 ## Lesehinweis
@@ -14,54 +14,54 @@ Statuswerte: `belegt` (Test + Code), `implementiert` (Code, Test deckt es nicht 
 
 | Bereich | Status | Beleg | Bekannte Grenze |
 |---|---|---|---|
-| JSON-first NodeTree und Renderer | belegt | `packages/editor`, `packages/widget-engine`, `packages/renderer` | Legacy-Editor `?view=editor` bleibt ausgeliefert (R5) |
+| JSON-first NodeTree und Renderer | belegt | `packages/editor`, `packages/widget-engine`, `packages/renderer` | Der Legacy-Editor ist **weg**: `mount.ts` (3 270 Zeilen) ist gelöscht, `?view=editor` leitet sichtbar auf den Canvas um (R5 geschlossen) |
 | Draft/Revision/Release | belegt | `packages/engine/src/store.ts`, `lifecycle.ts`, `release-manifest.test.ts` | Re-Bake erzeugt ein neues Release; finalisierte Releases werden nicht nachträglich mutiert (R7) |
-| Style-Registry | belegt | `store.ts` `#writeStyleRules`, `style-rules.test.ts:87-113` | **Optimistic Locking ist umgesetzt**: `style_rules_version` + `FOR UPDATE` + `baseVersion` → 409. Offen ist nur ein Klassen-Rename (R9) |
-| MCP-Fassade | belegt | `packages/mcp/src/tools.ts`, `docs/mcp-route-matrix.md` | 106 Tools, **0** `outputSchema`, **0** `structuredContent` (R8); Approval-Runtime und Pagination fehlen |
-| Referenz/Redesign | belegt | `redesign-proposals.ts`, `redesign-section-plan.ts`, `redesign-section-plan.test.ts`, `redesign-proposals.test.ts`, ADR-0012/0013/0014 | Apply ist atomar (R3), der **Sektions-Plan wird im Apply nie gelesen** (R3); kein Design-Record (R4), keine Proposal-TTL (R2) |
+| Style-Registry | belegt | `store.ts` `#writeStyleRules`, `style-rules.test.ts` | Optimistic Locking (`style_rules_version` + `FOR UPDATE` + `baseVersion` → 409) und der Klassen-Rename sind umgesetzt und getestet (R9 geschlossen) |
+| MCP-Fassade | teilweise | `packages/mcp/src/tools.ts`, `packages/mcp/src/server.ts`, `packages/manifest/src/`, `packages/engine/src/paging.ts` | `outputSchema`/`structuredContent` sind nur für ausgewählte lesende Werkzeuge deklariert. Engine-Paging-Helfer und einzelne paginierte HTTP-Routen existieren, aber MCP-Tools bieten Pagination noch nicht durchgängig an. Das neutrale Manifest wird vom Docs-Portal genutzt; Server und Routenmatrix sind noch nicht daraus abgeleitet (R8 offen) |
+| Referenz/Redesign | belegt | `redesign-proposals.ts`, `redesign-section-plan.ts`, `redesign-section-apply.ts`, vier Redesign-Suiten, ADR-0012/0013/0014 | Apply ist atomar, der Sektions-Plan wird ausgeführt (R3), Proposals veralten (R2), der Design-Record ist eingefroren (R4) und Medienbedarfe sind bedienbar (P2-2). Offen: automatische Medienbeschaffung — der Bedarf wird benannt und geschlossen, aber nicht selbst beschafft |
 | Asset-Zugriff | belegt | `media.ts` `copySiteAssets`/`purgeAsset`, `http.ts` unter `/api/sites/:siteId/assets/…` | Site-Guard erzwungen; `getAsset` bleibt bewusst ungeprüft |
 | Baustein-Bibliothek | teilweise | `packages/engine/src/library-*`, Bausteine-Workspace | Re-Attach, Similarity und mehrstelliger E2E-Nachweis fehlen |
 | Framer-Import | teilweise | `packages/framer-import`, `packages/engine/src/imports.ts` | `runImport()` nutzt bei URL statisches `fetch()` statt `captureBrowser()` |
-| Import-Transaktion | teilweise | `packages/engine/src/imports.ts`, `imports.test.ts` | DB-Commit ist atomar; **Assets liegen außerhalb der Transaktion** (R10) |
-| Token-Trust-Seam | belegt | `operator-token.ts`, `http.ts:1202`, `auth.test.ts`, `server.test.ts:108` | Token-Routen sind `operatorOnly`, Proxy prüft Herkunft; Agents behalten normale Write-Rechte innerhalb ihrer Scopes (R6) |
+| Import-Transaktion | belegt | `packages/engine/src/imports.ts`, `packages/engine/test/imports.test.ts` | DB-Commit ist atomar; neu hochgeladene Assets werden bei Commit-Fehler kompensiert. Bereits vorhandene Assets werden nicht entfernt (R10 geschlossen) |
+| Token-Trust-Seam | belegt | `operator-token.ts`, `http.ts:1202`, `auth.test.ts`, `server.test.ts:108` | Token-Routen sind `operatorOnly`, Proxy prüft Herkunft; Agents behalten normale Write-Rechte innerhalb ihrer Scopes |
 | Payload-Islands | belegt | `renderer/src/islands.ts`, `engine/src/code-payloads.ts`, ADR-0010 | generische Framer-Module, Poster-Pflicht und Lizenz-Promotion unvollständig |
-| Bündelung | teilweise | `app/src/server.ts:34` (esbuild), `tsconfig.json:19` (`noEmit: true`) | **Kein Produktionsbuild**: `build` = `typecheck`; Shell `app.js` ungebündelt (R1) |
+| Bündelung | belegt | `packages/app/build.mjs`, `packages/app/src/server.ts` (`appDir`), `scripts/verify-dist.mjs` | Build und Artefaktprüfung im vollständigen `pnpm verify` am 28.09.2026 bestanden |
 
 ## Was nach ADR-0014 wirklich im Code steht
 
 ADR-0014 ist nicht nur angenommen, der atomare Pfad ist implementiert und getestet:
 
-- `compileRedesign()` (`apply-redesign.ts:476`) liest und rechnet, `commitRedesignApply()` (`apply-redesign.ts:796`) schreibt die vorbereiteten Aussagen kontrollflussfrei.
-- `Store.applyRedesignPlan()` (`store.ts:1758`) führt Claim, Zielsite, Theme, Seeds und Audit in **einer** Transaktion aus; ein Rollback lässt keinen halben Zustand zurück.
-- Belegt durch `test/apply-redesign.test.ts` und `test/redesign-proposals.test.ts`; die echte PostgreSQL-Atomarität prüft `test/redesign-transaction.test.ts` (braucht `TEST_DATABASE_URL`, sonst Skip).
-- Asset-Seite erledigt: `copySiteAssets()` (`media.ts:777`), `purgeAsset()` mit Pflicht-`siteId` (`media.ts:917`), acht Routen unter `/api/sites/:siteId/assets/…`.
-- Tot danach: `Store.claimRedesignProposal()` (`store.ts:4797`) wird nirgends mehr aufgerufen; `finalizeRedesignProposal()` (`store.ts:4830`) lebt nur noch im Fehlerpfad von `runConfirmedApply`.
+- `compileRedesign()` und `commitRedesignApply()` bereiten den Plan vor und schreiben ihn kontrollflussfrei.
+- `Store.applyRedesignPlan()` führt Claim und fachliche Effekte in **einer** Transaktion aus; die Postgres-Lane prüft Rollback- und Apply-Verhalten.
+- Belege: `packages/engine/test/apply-redesign.test.ts`, `redesign-proposals.test.ts` und `redesign-transaction.test.ts` (letztere braucht `TEST_DATABASE_URL`, sonst Skip im normalen Lauf).
+- Asset-Kopie: `copySiteAssets()` und `purgeAsset()` mit Pflicht-`siteId`; Routen liegen unter `/api/sites/:siteId/assets/…`.
+- `finalizeRedesignProposal()` bleibt im Fehlerpfad von `runConfirmedApply`; weitere tote Pfade sind vor dem Entfernen anhand aktueller Aufrufer zu prüfen.
 
-**Nicht umgesetzt aus ADR-0014 (letzter Abschnitt):** die Ausführung des Sektions-Plans im Executor, der Design-Record an Review/Release, die Token-an-Site-Bindung und das Aufräumen verwaister Proposals.
+**Erledigte Ergänzungen gegenüber ADR-0014:** Der Sektions-Plan wird im Executor ausgeführt (P2-1/R3), Design-Records werden bei Review und Publish persistiert (P2-4/R4), und Proposals haben TTL/Sweep (P2-3/R2). Die Token-an-Site-Bindung ist weiterhin nicht Bestandteil des umgesetzten Vertrags; die bestehenden Scopes bleiben maßgeblich.
 
 ## Risiken und offene Übergänge
 
-Jeder Eintrag hat eine Nummer, die `docs/fahrplan.md` und `docs/current/architektur.md` übernehmen. Das ist der verbindliche Katalog.
+Jeder Eintrag hat eine Nummer, die `docs/fahrplan.md` und `docs/current/architektur.md` übernehmen. Das ist der verbindliche Katalog. Bereits geschlossene Schritte sind durch Code/Test belegt; die aktuellen Gates des Folge-Diffs stehen in `docs/current/qualitaet.md`.
 
 | Nr. | Risiko | Status | Beleg |
 |---|---|---|---|
-| R1 | Kein Produktionsbuild; `build` = `typecheck` | offen | `package.json:14-15`, `tsconfig.json:19`, `server.ts:34` |
-| R2 | Kein Aufräumen verwaister `proposed`-Proposals, keine TTL | offen | `db.ts:248-259` (kein `expires_at`), `redesign-proposals.ts` ohne Purge-Pfad |
-| R3 | Sektions-Plan wird im Apply nicht ausgeführt | offen | `sectionPlanApplied: false` in `redesign-proposals.ts:508`/`:547`; `rg sectionPlan apply-redesign.ts` → 0 Treffer |
-| R4 | Kein versionierter Design-Record an Draft/Review/Release | offen | `buildDesignReport` wird in `lifecycle.ts:269`/`:633` zur Laufzeit berechnet, nirgends persistiert |
-| R5 | Legacy-Editor `?view=editor` noch im Bundle und erreichbar | offen | `editor/src/index.ts:4`, `app.js:6385`, `app.js:4946` |
-| R6 | Idempotency-Completion-Fehler löscht den Claim nach vollzogenem Write | offen | `http.ts:517-533`: `completeIdempotencyKey` (L518) läuft im `try`, der `catch` (L529) ruft `releaseIdempotencyKey` |
-| R7 | Release-Manifest ohne Content-, Asset-, Payload-, Template-Snapshot | offen | `types.ts:170-182` |
-| R8 | MCP-Tools ohne `outputSchema`/`structuredContent` | offen | 106 Tools, 0/0 Treffer in `packages/mcp/src/*.ts` |
-| R9 | Klassen-Rename in der Style-Registry nicht enthalten | offen | `style-rules.test.ts` deckt Rename nicht ab |
-| R10 | Import-Assets außerhalb der DB-Transaktion | offen | `imports.ts` ohne `withTransaction`; ADR-0014 §5 |
-| R11 | Keine Coverage-Schwelle, kein PG-Service in CI | **teilweise geschlossen 26.09.**: Coverage-Tor aktiv und lokal grün, PG-Job im Workflow; ein grüner PG-Lauf fehlt | `vitest.config.ts` `coverage`-Block mit `thresholds.perFile`, `verify.yml` Job `postgres-tests` und `coverage`, `scripts/verify-postgres.mjs`; Zahlen: `docs/current/qualitaet.md` |
-| R12 | God-Files als Änderungskosten | offen | `store.ts` 8672, `app.js` 6669, `http.ts` 5404, `tools.ts` 3515, `mount.ts` 3260 Zeilen |
-| R13 | Arbeitsbaum ungesichert: 230 Dateien seit dem letzten Commit | offen | `git status --short` am 25.09.2026 |
+| R1 | Kein Produktionsbuild; `build` = `typecheck` | **Implementierung und aktuelles Build-/Artefakt-Gate geschlossen** | `packages/app/build.mjs` (esbuild-Bundle nach `packages/app/dist`), `package.json` (`build` + `verify:dist` in `verify`), `scripts/verify-dist.mjs`; `appDir` in `app/src/server.ts` liefert das Artefakt. Negativ geprüft: ohne `dist/` endet das Tor mit Exit 1 und nennt jeden fehlenden Grund |
+| R2 | Kein Aufräumen verwaister `proposed`-Proposals, keine TTL | **geschlossen 27.09.2026** | Spalte `expires_at` plus Sweep-Index in `db.ts`; `Store.expireStaleRedesignProposals()` (`store.ts`) altert unentschiedene Zeilen zu `expired`, aufgerufen aus `listRedesignProposals` und `getRedesignProposal`; `applyRedesignPlan` prüft die Frist **im Claim**, ein abgelaufener Vorschlag scheitert mit `conflict` und ohne halben Write. Test: `test/redesign-proposal-ttl.test.ts` (6 Fälle) |
+| R3 | Sektions-Plan wird im Apply nicht ausgeführt | **geschlossen 27.09.2026** | `compileRedesign` leitet aus `card.sectionPlan` die Ziel-Section-Writes ab (`apply-redesign.ts`, Plan-Zweig **vor** der Inhaltsprüfung), `rebuildPageTree` (`redesign-section-apply.ts`) baut sie, `commitRedesignApply` schreibt sie in derselben Transaktion. `sectionPlanApplied` ist ehrlich: `true` nur bei mindestens einem Write **und** null offenen Medienbedarfen. Test: `redesign-proposals.test.ts:372` (`sectionPlanApplied: true`, `scope: "section-plan"`) |
+| R4 | Kein versionierter Design-Record an Draft/Review/Release | **geschlossen 27.09.2026** | Tabelle `design_records` (`db.ts`) mit Stage, gemessenem Stand und dem eingefrorenen Report; `Store.createDesignRecord/listDesignRecords/getDesignRecord` (`store.ts`); `lifecycle.ts` schreibt einen Record beim Publish **und** beim Review; `ReleaseManifest` trägt `designRecordId`/`designScore`/`designVerdict`, der Content-Re-Bake reicht den Record des Basis-Releases weiter. `designStateVersion` (`design-report.ts`) ist der Stand-Fingerabdruck. Test: `test/design-record.test.ts` (6 Fälle) |
+| R5 | Legacy-Editor `?view=editor` noch im Bundle und erreichbar | **geschlossen 28.09.2026** | **Punkt 1:** `?view=editor` leitet sichtbar auf den Canvas um (Toast), der Parameter wird aus dem Hash entfernt. **Punkt 2:** `mountEditor`/`createStubRenderer` trugen `@deprecated`. **Punkt 3:** die Browser-Tests fuhren auf eine eigene Seite. **Punkt 4:** `packages/editor/src/mount.ts` (3 270 Zeilen) ist **gelöscht**, ebenso `legacy-editor.html` und die zwei Legacy-Browser-Tests. Der einzige Teil, den Live-Code noch brauchte, war der Typ `FrameRenderer` — er liegt jetzt in `frame-renderer.ts`, und `canvas.ts` sowie `react-renderer.tsx` importieren direkt von dort. `server.test.ts` prüft, dass der Bundle `mountEditor` nicht mehr enthält; die Suche ist verankert und gibt den Kontext aus, weil React selbst `...NodeIntoContainer` mitbringt |
+| R6 | Idempotency-Completion-Fehler löscht den Claim nach vollzogenem Write | **geschlossen 26.09.2026** (`d233971`) | `http.ts:531-541`: der `run()`-Fehler gibt den Key frei, der Completion-Fehler nicht; `completeIdempotencyKey` prüft das `UPDATE` per `RETURNING` und wirft bei 0 Zeilen; Zustand `committed_unknown` in `http.ts:506-519`. Beweis: `idempotency.test.ts:343` (Retry antwortet 409, kein zweiter Write) |
+| R7 | Release-Manifest ohne Content-, Asset-, Payload-, Template-Snapshot | **geschlossen 28.09.2026** | `ReleaseManifest` trägt Snapshots für `assets`, `components`, `payloads` und `entries` (`packages/engine/src/types.ts`). `buildReleaseSnapshots` (`lifecycle.ts`) sammelt verwendete Daten und meldet fehlende referenzierte Assets; `restoreSnapshotAssets` stellt verfügbare Bytes aus dem Basis-Release wieder her. Tests: `packages/engine/test/release-manifest.test.ts`. Grenze: fehlen Asset-Zeile und Release-Datei, verweigert der Publish-Guard den Vorgang mit 422, statt ein defektes Bild zu liefern. |
+| R8 | MCP-Tools ohne durchgängige Schema-/Pagination-Verträge | **Punkte 1 bis 5 erledigt 28.09.2026** | **Punkt 1:** `outputSchema` auf `ToolDefinition`, Schemata für 6 lesende Werkzeuge; `structuredFor` sendet `structuredContent` nur, wenn das Werkzeug ein Schema deklariert **und** der Wert es erfüllt. **Punkt 2:** `McpErrorPayload.retryable` je Kategorie (nur `conflict`/`rate_limit` sind wiederholbar) und begrenztes `attempt` je (Werkzeug, Argumente). **Punkt 3:** `packages/engine/src/paging.ts` — `limit` (Standard 50, Kappe 200) und `offset` auf Sites, Seiten, Assets, Einträge, Referenzzuweisungen, Releases, Bake-Jobs und Image-Jobs; die Kappe wird **abgelehnt, nicht gekürzt**, weil eine stille Kürzung eine andere Frage beantwortet als die gestellte. **Punkt 4:** `@senify/manifest` als neutrales Paket — `tools.ts` ist **generiert** (`pnpm manifest:render` aus `mcp/src/tools.ts`, 106 Werkzeuge), `types.ts` hält die Typen, `tools-index.ts` die Logik, `index.ts` den Join. **Punkt 5:** `docs-portal` importiert `@senify/manifest` statt `@senify/mcp/tools`; der Zyklus ist aufgelöst. Tests: `paging.test.ts` (9), `manifest.test.ts` (6), 2 in `workflow.test.ts`. **Rest:** die Schreibwerkzeuge tragen noch kein `outputSchema` |
+| R9 | Klassen-Rename in der Style-Registry nicht enthalten | **geschlossen 27.09.2026** | `Store.updateStyleRule` (`store.ts`) benennt eine Klassenregel um, lässt die `id` stehen und lässt den `selector` mitziehen; `ambient` geht nur über `selector`, `scoped` gar nicht. Test: `test/style-rules.test.ts` (5 Fälle: Rename mit Selektor, Namenskollision, ungültiger Name, Ambient, Scoped) |
+| R10 | Import-Assets außerhalb der gemeinsamen DB-Transaktion | **Kompensationsvertrag geschlossen 27.09.2026** | Neu erzeugte Uploads werden bei fehlgeschlagenem DB-Commit kompensiert; `packages/engine/test/imports.test.ts` erzwingt einen 409 nach dem Upload und prüft das Entfernen. Datei und DB bleiben getrennte Ressourcen; bereits vorhandene Assets werden nicht entfernt. `getAsset` bleibt absichtlich ungeprüft |
+| R11 | Keine Coverage-Schwelle, kein PG-Service in CI | **Implementierung und aktuelle lokale Gates geschlossen** | Coverage-Schwellen, Fehlerpfad-Tests und PG-Job sind vorhanden (`vitest.config.ts`, `test/error-paths.test.ts`, `verify.yml`); aktueller Laufstatus steht ausschließlich in `docs/current/qualitaet.md` |
+| R12 | God-Files als Änderungskosten | offen, **teilweise durch P3-1 entschärft** | `mount.ts` ist gelöscht. Die verbleibenden großen Module (`store.ts`, `app.js`, `http.ts`, `tools.ts`) sind noch nicht aufgeteilt. Die Zeilenzahlen im alten Fahrplan sind historische Messungen; vor dem Start von P3-2 sind sie neu zu messen. |
+| R13 | Arbeitsbaum ungesichert | Gate für den Folge-Diff grün, Sicherungs-Commit ausstehend; blockiert bis zur Sicherung neue Schritte nach DoR | `git status --short`; Änderungen sind in P0-1 fachlich geprüft |
 
 Zwei Risiken sind **keine** offenen Lücken, sondern bewusste Grenzen, die nicht als Fehler geführt werden:
 
-- **Postgres-Skip ohne `TEST_DATABASE_URL`** ist beabsichtigt (`ADR-0004`): Die CI-Lane fehlt, die Tests sind geschrieben. Das ist R11, kein Datenintegritätsfehler.
+- **Postgres-Skip ohne `TEST_DATABASE_URL`** ist im normalen lokalen Volltest beabsichtigt (`ADR-0004`); die separate CI-/lokale Pflicht-Lane wird durch `pnpm test:postgres` erzwungen (R11 geschlossen).
 - **`claimRedesignProposal` als tote Methode** ist die direkte Folge von ADR-0014 (Entscheid und Effekte in einem Commit), kein Versehen.
 
 ## Redesign-Workflow
@@ -76,11 +76,14 @@ Aktuell vorhanden:
 - `offerHash` ist ein Inhalts-Hash ohne Direction-ID; vor dem Confirm wird die gespeicherte Card neu gehasht → 409 bei Manipulation.
 - Menschliche Bestätigung als **ein** Kommando (`POST /api/redesign-proposals/:id/confirm`, `operatorOnly`, kein MCP-Werkzeug).
 - **Atomarer Apply** (ADR-0014): `compileRedesign` + `commitRedesignApply`; Claim und Effekte in einer Transaktion.
-- `applyResult` nennt den Umfang ehrlich: `scope: "scaffold-theme"`, `sectionPlanApplied: false`.
+- **Sektions-Plan wird ausgeführt** (P2-1, R3): `compileRedesign` leitet die Ziel-Section-Writes aus dem bestätigten Plan ab, `rebuildPageTree` baut die Knoten (bestehende Quelle wird am Ort umgeschrieben, eine leere Seite aus dem Plan neu aufgebaut), und `commitRedesignApply` schreibt sie in derselben Transaktion wie Theme und Claim. Kein zweiter, nicht-atomarer Schreibpfad.
+- `applyResult` nennt den Umfang ehrlich: `scope: "section-plan"` mit `sectionPlanApplied: true`, wenn der Plan geschrieben wurde und kein Medienbedarf offen ist; sonst `scope: "scaffold-theme"` mit `false`. Beide Felder kommen aus derselben Quelle und können sich nicht widersprechen.
+- **Proposal-TTL** (P2-3, R2): `expires_at` (7 Tage) wird bei der Erstellung gesetzt, der Sweep altert unentschiedene Vorschläge zu `expired`, und der Claim prüft die Frist selbst — ein Bestätigungsversuch danach scheitert mit `conflict` und ohne halben Write. Abgelaufene Zeilen werden markiert, nie gelöscht.
+- **Design-Record** (P2-4, R4): Publish und Review schreiben je einen eingefrorenen Report (`design_records`) mit dem Stand, auf dem er gemessen wurde. Das Release-Manifest zeigt auf den Record statt neu zu rechnen, ein Content-Re-Bake reicht ihn weiter. Zwei Publishes desselben Stands zeigen denselben Score; ein späterer Draft-Stand macht einen Record *veraltet*, nicht falsch.
 - `apply_redesign` bleibt als autonomer Legacy-Weg bestehen und liefert alle routbaren Zielseiten mit `seeded`.
 - Site-Theme wird im produktiven Canvas als Theme-Objekt und als `GET /api/sites/:siteId/theme.css` geladen.
 
-Noch nicht vorhanden (Ausführungsstände R2, R3, R4): Section-Writes über kanonische Mutationen im selben Commit, Design-Record, automatische Medienbeschaffung, Proposal-TTL.
+Noch nicht vorhanden: **automatische Medienbeschaffung**. Medienbedarfe sind adressierbar und können über `POST /api/redesign-proposals/:id/media-needs` geschlossen werden; `select`/`upload`/`generate` werden nicht automatisch ausgeführt. Der Import-Fehlerpfad kompensiert neu hochgeladene Assets nach fehlgeschlagenem DB-Commit (R10 geschlossen); Datei- und DB-Schreibvorgang bilden weiterhin keine gemeinsame Transaktion.
 
 ## Framer-Import S0 bis S9
 
@@ -100,8 +103,9 @@ Noch nicht vorhanden (Ausführungsstände R2, R3, R4): Section-Writes über kano
 
 ## Priorisierte offene Arbeit
 
-Verbindlich und priorisiert steht diese Liste in **`docs/fahrplan.md`** mit Gates und Definition of Done.
-Kurzfassung der Reihenfolge: **Arbeitsbaum sichern → Build-Echtheit → Sicherheits-/Integritäts-Reste → CI-Nachweis (PG + Coverage) → Sektions-Executor → Legacy-Editor → Manifest → MCP-Schemas → God-File-Aufteilung.**
+Verbindlich und priorisiert steht die Liste in **`docs/fahrplan.md`**. Der aktuelle Folge-Diff hat alle Baseline-Gates bestanden; vor den nächsten Schritten wird er nach P0-1 in fachlichen Commits gesichert.
+
+Danach verbleiben: die MCP-Verträge und Manifest-Konsumenten (R8), die Modulaufteilung der vier God-Files (R12) sowie die zwei CI-Verbesserungen aus P3-6.
 
 ## Bewusst vertagt
 

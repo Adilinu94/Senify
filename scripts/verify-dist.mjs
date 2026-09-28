@@ -30,16 +30,21 @@ for (const file of REQUIRED) {
 }
 
 // app.js muss ein echtes Bundle sein (nicht die Quelldatei, die Definitionen
-// importiert).
-const appJs = readFileSync(join(DIST_DIR, "app.js"), "utf8");
-if (!appJs.includes("function") && !appJs.includes("=>")) {
-  failures.push("app.js sieht nicht nach einem Bundle aus");
+// importiert). filePresent haelt den Grund lesbar: ein fehlendes Artefakt
+// soll als "fehlt" gemeldet werden, nicht als ENOENT-Stacktrace.
+if (filePresent("app.js")) {
+  const appJs = readFileSync(join(DIST_DIR, "app.js"), "utf8");
+  if (!appJs.includes("function") && !appJs.includes("=>")) {
+    failures.push("app.js sieht nicht nach einem Bundle aus");
+  }
 }
 // editor.js loest die @senify/editor/browser-Importe auf; ein Broken-Bundle
 // haette keine "document.createElement"-Rezepte mehr.
-const editorJs = readFileSync(join(DIST_DIR, "editor.js"), "utf8");
-if (!editorJs.includes("createElement")) {
-  failures.push("editor.js sieht nicht nach einem Bundle aus");
+if (filePresent("editor.js")) {
+  const editorJs = readFileSync(join(DIST_DIR, "editor.js"), "utf8");
+  if (!editorJs.includes("createElement")) {
+    failures.push("editor.js sieht nicht nach einem Bundle aus");
+  }
 }
 
 // Editor-Fonts: die inter-*.woff2 muessen kopiert sein, sonst greift der
@@ -48,9 +53,14 @@ const fontsDir = join(DIST_DIR, "editor-fonts");
 if (!existsSync(fontsDir)) {
   failures.push("editor-fonts/ fehlt");
 } else {
-  const size = statSync(joins(fontsDir, "Inter-Regular.woff2")).size;
-  if (size < 50_000) {
-    failures.push(`Inter-Regular.woff2 ist korrupt (${size} B)`);
+  const fontPath = join(fontsDir, "Inter-Regular.woff2");
+  if (!existsSync(fontPath)) {
+    failures.push("editor-fonts/Inter-Regular.woff2 fehlt");
+  } else {
+    const size = statSync(fontPath).size;
+    if (size < 50_000) {
+      failures.push(`Inter-Regular.woff2 ist korrupt (${size} B)`);
+    }
   }
 }
 
@@ -62,6 +72,8 @@ if (failures.length > 0) {
 }
 console.log(`verify-dist: ${DIST_DIR} enthaelt ${REQUIRED.length} Artefakte (Exit 0)`);
 
-function joins(...segments) {
-  return join(...segments);
+// Ob eine Datei im Artefaktverzeichnis existiert und eine Datei ist.
+function filePresent(relative) {
+  const path = join(DIST_DIR, relative);
+  return existsSync(path) && statSync(path).isFile();
 }

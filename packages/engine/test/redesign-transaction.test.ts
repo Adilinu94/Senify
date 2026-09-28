@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { compileRedesign, Store, type Db, type DbClient } from "@senify/engine";
+import type { ReferenceToken } from "../src/types.ts";
 import { createTestDatabase, createTestRegistry } from "./helpers.ts";
 
 // The redesign apply runs as one transaction (ADR-0014). These proofs need a
@@ -8,6 +9,79 @@ import { createTestDatabase, createTestRegistry } from "./helpers.ts";
 
 const hasRealPostgres = (process.env.TEST_DATABASE_URL ?? "").length > 0;
 
+// A real reference with a real profile.
+//
+// The three tests below pass `referenceIds` and once passed it EMPTY, which
+// `compileRedesign` refuses with "Es wurde keine Referenz angegeben". That was
+// not a database problem: the tests are about transaction atomicity, and they
+// happened to trip a validation that has nothing to do with it. The fix is a
+// reference that exists, not a relaxation of the check - an apply without a
+// direction is a real error the guard should keep catching.
+//
+// The reference goes through the store, not the HTTP route, because the route
+// would add an analysis pipeline this suite does not otherwise need.
+const PROVENANCE = {
+  url: "https://example.invalid/transaction",
+  capturedAt: "2026-01-01T00:00:00.000Z",
+  hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  method: "manual",
+  note: null,
+} as const;
+
+function token(value: string, role: string): ReferenceToken {
+  return { value, uses: 1, where: ["body"], role, level: "inferred" };
+}
+
+async function createReferenceWithProfile(store: Store): Promise<string> {
+  const reference = await store.createReference({
+    name: "Transaktions-Referenz",
+    sourceUrl: "https://example.invalid/transaction",
+    method: "manual",
+    provenance: { ...PROVENANCE },
+  });
+  await store.createReferenceProfileRevision({
+    referenceId: reference.id,
+    profile: {
+      tokens: {
+        color: [token("#123456", "primary"), token("#ffffff", "surface")],
+        type: [
+          {
+            role: "body",
+            size: "16px",
+            lineHeight: "1.5",
+            weight: 400,
+            uses: 1,
+            where: ["body"],
+            level: "inferred",
+          },
+        ],
+        families: [token("Inter", "body")],
+        space: [token("8px", "base")],
+        radius: [],
+        shadow: [],
+      },
+      breakpoints: [640, 1024],
+      customProperties: [],
+      motion: [],
+      surfaces: [],
+      libraries: [],
+      assets: [],
+      components: [],
+      families: ["body"],
+      vocabulary: [],
+      rules: { constants: [], never: [] },
+      styleBrief: "",
+      guardrails: [],
+      reduced: false,
+    },
+    evidence: [],
+    provenance: { ...PROVENANCE },
+    author: { kind: "human", id: "operator", label: "Operator" },
+    note: null,
+  });
+  return reference.id;
+}
+
 describe.skipIf(!hasRealPostgres)("redesign apply transactions (real Postgres)", () => {
   it("writes the duplicate, the pages and the theme together", async () => {
     const database = await createTestDatabase();
@@ -15,12 +89,13 @@ describe.skipIf(!hasRealPostgres)("redesign apply transactions (real Postgres)",
       const store = new Store(database.db);
       const site = await store.createSite({ name: "Atomar" });
       await store.createPage(site.id, { title: "Start", path: "/" });
+      const referenceId = await createReferenceWithProfile(store);
 
       const plan = await compileRedesign({
         store,
         registry: createTestRegistry(),
         siteId: site.id,
-        referenceIds: [],
+        referenceIds: [referenceId],
         withContent: true,
         author: { kind: "human", id: "operator", label: "Operator" },
       });
@@ -53,12 +128,13 @@ describe.skipIf(!hasRealPostgres)("redesign apply transactions (real Postgres)",
       const site = await store.createSite({ name: "Rollback" });
       await store.createPage(site.id, { title: "Start", path: "/" });
       const before = await store.listSiteSlugs();
+      const referenceId = await createReferenceWithProfile(store);
 
       const plan = await compileRedesign({
         store,
         registry: createTestRegistry(),
         siteId: site.id,
-        referenceIds: [],
+        referenceIds: [referenceId],
         withContent: true,
         author: { kind: "human", id: "operator", label: "Operator" },
       });
@@ -114,6 +190,7 @@ describe.skipIf(!hasRealPostgres)("redesign apply transactions (real Postgres)",
       const store = new Store(database.db);
       const site = await store.createSite({ name: "Claim" });
       const page = await store.createPage(site.id, { title: "Start", path: "/" });
+      const referenceId = await createReferenceWithProfile(store);
       const proposalId = "proposal-rollback";
       await store.createRedesignProposal({
         id: proposalId,
@@ -136,7 +213,7 @@ describe.skipIf(!hasRealPostgres)("redesign apply transactions (real Postgres)",
         store,
         registry: createTestRegistry(),
         siteId: site.id,
-        referenceIds: [],
+        referenceIds: [referenceId],
         withContent: true,
         author: { kind: "human", id: "operator", label: "Operator" },
       });

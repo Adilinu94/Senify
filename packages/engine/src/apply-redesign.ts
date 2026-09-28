@@ -4,6 +4,8 @@ import { applyMutations } from "./mutations/apply.ts";
 import type { Mutation } from "./mutations/contract.ts";
 import { newEntityId } from "./ids.ts";
 import { slugify, type NewAuditEntry } from "./store.ts";
+import type { DirectionSectionPlan, OpenMediaNeed } from "./redesign-proposal-contract.ts";
+import { categorizePlanMediaNeeds, rebuildPageTree } from "./redesign-section-apply.ts";
 import {
   deriveThemeDraft,
   verifyThemeRoundTrip,
@@ -53,6 +55,33 @@ export type RedesignPageResult = {
   warnings: string[];
 };
 
+// The prop keys the plan named as an open media need on a SOURCE asset.
+//
+// Only `role: "source-asset"` counts. A reference asset never reaches a node
+// prop in the first place - the plan marks it `avoid` or `generate` and the
+// rebuild writes nothing for it - so including those would drop a prop that
+// holds something else entirely.
+//
+// The path is `type.key` (`media.asset`), and the key after the first dot is
+// what the rebuild looks for on the node's own props. A deeper path
+// (`hero.items[0].cover`) is reduced to its FIRST step for the same reason the
+// rebuild works per node: a nested slot is reached through its parent, and the
+// parent is the node that carries the list.
+function sourceAssetPropKeys(plan: DirectionSectionPlan): Set<string> {
+  const keys = new Set<string>();
+  for (const need of plan.media) {
+    if (need.role !== "source-asset") continue;
+    // `avoid` and `reuse` are settled: the first never entered a prop, the
+    // second travels with the copied tree. Only an OPEN need means the slot
+    // has to be emptied.
+    if (need.treatment === "avoid" || need.treatment === "reuse") continue;
+    const dot = need.targetPath.indexOf(".");
+    if (dot < 0) continue;
+    keys.add(need.targetPath.slice(dot + 1).split(/[.[]/)[0]!);
+  }
+  return keys;
+}
+
 export type ApplyRedesignResult = {
   // The site the design landed on (the duplicate when no pageId was given).
   siteId: string;
@@ -60,6 +89,14 @@ export type ApplyRedesignResult = {
   duplicated: boolean;
   themeVersion: number;
   pages: RedesignPageResult[];
+  // Whether the run actually wrote the plan its card was carrying. `false` is
+  // the old ADR-0013 state ("scaffold + theme, sections are human work"); a
+  // rebuild only earns `true` when every plan entry it tried either found its
+  // registered target or was deliberately left as `manual` (Fahrplan P2-1,
+  // R3 - the field is a honesty statement, not a progress indicator).
+  sectionPlanApplied: boolean;
+  // The open media needs, as actionable work items (P2-2).
+  openMediaNeeds: OpenMediaNeed[];
   record: RedesignRecord;
   warnings: string[];
 };
@@ -104,6 +141,16 @@ export type RedesignCommitPlan = {
     path: string;
   }[];
   pages: RedesignPageResult[];
+  // Whether the run actually wrote the plan its card was carrying. `false` is
+  // the old ADR-0013 state ("scaffold + theme, sections are human work"); a
+  // rebuild only earns `true` when every plan entry it tried either found its
+  // registered target or was deliberately left as `manual` (Fahrplan P2-1,
+  // R3 - the field is a honesty statement, not a progress indicator).
+  sectionPlanApplied: boolean;
+  // The open media needs, as actionable work items (P2-2). A caller closes them
+  // with `resolveMediaNeeds`, which checks the asset ownership before anything
+  // is written.
+  openMediaNeeds: OpenMediaNeed[];
   // The design record and the seed batches, ready for the audit table.
   auditEntries: NewAuditEntry[];
   record: RedesignRecord;
@@ -201,6 +248,13 @@ export type ApplyRedesignInput = {
   // The confirmed direction of a redesign proposal: the run then writes the
   // stored patch instead of deriving one (ADR-0012).
   snapshot?: RedesignApplySnapshot;
+  // The section plan the card carries (ADR-0013). When present, the duplicate
+  // is seeded not with the generic hero/content/cta skeleton but with a
+  // rebuild of the source page's sections — target type, target variant and
+  // the source's preserved content keys. Sections without a ready target stay
+  // behind as `manual` and land in the warnings. Applying the plan here is
+  // what flips `sectionPlanApplied` to `true` (Fahrplan P2-1, R3).
+  sectionPlan?: DirectionSectionPlan;
   author: { kind: "human" | "agent"; id: string; label: string };
 };
 
@@ -322,6 +376,12 @@ export async function applyRedesign(
   //    sections of the source outline (same types, same variants, content
   //    text carried over). Pages of the duplicate already carry the source
   //    content — the skeleton only fills pages that are still empty.
+  //
+  //    The confirmed section plan is NOT executed here. This is the direct,
+  //    pre-ADR-0014 path that writes page by page; the plan runs in
+  //    `compileRedesign`, which prepares the writes for the one transaction
+  //    (P2-1, R3). Keeping the two apart is what stops a second, non-atomic
+  //    write path from existing beside the atomic one.
   const pages: RedesignPageResult[] = [];
   const drafts = await input.store.listPageDrafts(target.id);
   for (const page of drafts) {
@@ -452,6 +512,13 @@ export async function applyRedesign(
     duplicated,
     themeVersion,
     pages,
+    // The legacy path (no card, no plan) never claims the section rewrite it
+    // did not run: `false` is the honest marker (Fahrplan P2-1, R3).
+    sectionPlanApplied: input.sectionPlan !== undefined,
+    // A legacy run derives no section plan, so there is nothing to hand back as
+    // an open need. Saying so explicitly beats leaving it undefined: a client
+    // asking "what is left to do" gets an answer in both paths.
+    openMediaNeeds: [],
     record: {
       referenceIds: references.map((reference) => reference.id),
       references: references.map((reference) => ({
@@ -563,12 +630,20 @@ export async function compileRedesign(
   const pageWrites: RedesignCommitPlan["pageWrites"] = [];
   const copiedPages: RedesignCommitPlan["copiedPages"] = [];
   const auditEntries: NewAuditEntry[] = [];
+  // The rebuild writes the plan produces, kept apart from the skeleton writes
+  // so the commit can tell "the plan ran" from "the skeleton ran".
+  const sectionPlanWrites: RedesignCommitPlan["pageWrites"] = [];
+  const sectionPlanWarnings: string[] = [];
+  // The open media needs, as work items (P2-2). Collected across the pages
+  // because a plan names the page once but its media may sit on any of them, and
+  // the caller closing a need does not care which page it landed on.
+  const openMediaNeeds: OpenMediaNeed[] = [];
   const sourcePages = await input.store.listPageDrafts(input.siteId);
   for (const page of sourcePages) {
     if (page.template !== null) continue;
     // The copy gets its own page row, so the seed writes into the copy and the
     // source draft is never touched.
-    copiedPages.push({
+    const copy: RedesignCommitPlan["copiedPages"][number] = {
       sourcePageId: page.id,
       targetPageId: newEntityId(),
       path: page.path,
@@ -576,12 +651,73 @@ export async function compileRedesign(
       meta: page.meta,
       draft: page.draft,
       draftVersion: page.draftVersion,
-    });
+    };
+    copiedPages.push(copy);
     const rootNode = page.draft.nodes[page.draft.rootNodeId];
     const existing = rootNode?.children ?? [];
+
+    // P2-1 (R3): the plan is executed here, BEFORE the "does this page already
+    // have content?" question, because a plan that only ran on pages with
+    // content would never run at all on a fresh site - and the plan's own
+    // purpose is to decide what the page should contain. The rebuild is
+    // computed in the compile phase, where the source tree is still in hand, and
+    // handed to the commit as prepared data; the commit itself stays
+    // control-flow free (ADR-0014). A rebuild must never become a second write
+    // path running beside the transaction.
+    const plan = sectionPlanFor(input.sectionPlan, page.id);
+    if (plan !== null) {
+      const rebuilt = rebuildPageTree({
+        page: {
+          id: page.id,
+          path: page.path,
+          title: page.title,
+          draft: page.draft,
+          draftVersion: page.draftVersion,
+        },
+        plan,
+        registry: input.registry,
+        // Which prop keys hold a reference the plan already named as a need.
+        // The rebuild drops them so the slot is empty instead of pointing at an
+        // asset that is gone (P2-2). Derived from the plan, not from the tree:
+        // the plan is the record of what is missing, and the tree is what the
+        // source happened to have.
+        missingAssetPaths: sourceAssetPropKeys(plan),
+      });
+      if (rebuilt !== null) {
+        // The copy row is written with the source draft, so the rebuild must
+        // be a separate write against the copy's own id and version.
+        copy.draft = rebuilt.draft;
+        pages.push({
+          pageId: copy.targetPageId,
+          path: page.path,
+          title: page.title,
+          draftVersion: page.draftVersion,
+          seeded: true,
+          sections: rebuilt.sections,
+          warnings: rebuilt.warnings,
+        });
+        sectionPlanWrites.push({
+          pageId: copy.targetPageId,
+          expectedVersion: page.draftVersion,
+          draft: rebuilt.draft,
+          title: page.title,
+          path: page.path,
+        });
+        sectionPlanWarnings.push(...rebuilt.warnings);
+        // The media needs: `reuse` travels with the copied tree, `avoid`
+        // lands in no prop, everything else stays an open work item the caller
+        // can close (P2-2).
+        const media = categorizePlanMediaNeeds(plan, rebuilt.nodeIdMap);
+        sectionPlanWarnings.push(...media.warnings);
+        openMediaNeeds.push(...media.open);
+        steps.push(`rebuild ${page.path} (${rebuilt.sections.length} Sektionen aus dem Plan)`);
+        continue;
+      }
+    }
+
     if (existing.length > 0) {
       pages.push({
-        pageId: page.id,
+        pageId: copy.targetPageId,
         path: page.path,
         title: page.title,
         draftVersion: page.draftVersion,
@@ -709,6 +845,12 @@ export async function compileRedesign(
     draftVersionAfter: 0,
   });
   steps.push("design record (audit)");
+  // The plan's writes join the skeleton's: both are prepared data for the one
+  // transaction, not two write paths. `sectionPlanApplied` is then an honesty
+  // statement - it is true only if the run actually produced a rebuild write
+  // and no media need is left open (Fahrplan P2-1 Punkt 5).
+  pageWrites.push(...sectionPlanWrites);
+  warnings.push(...sectionPlanWarnings);
   return {
     targetSite: { id: targetSiteId, name: targetName, slug: targetSlug, profile: source.profile, withContent },
     themeId: targetThemeId,
@@ -718,6 +860,15 @@ export async function compileRedesign(
     themeVersion,
     pageWrites,
     pages,
+    // R3: the flag says what this run wrote, not what it could have written.
+    // A plan that was passed but never matched a page, or that leaves a media
+    // need open, stays `false` - the human then knows the handoff is still
+    // unfinished instead of trusting a green field.
+    sectionPlanApplied: sectionPlanWrites.length > 0 && openMediaNeeds.length === 0,
+    // The work items a caller can act on (P2-2). They travel with the plan
+    // rather than only through `warnings`, so a client does not have to parse
+    // German prose to learn that one image is still missing.
+    openMediaNeeds,
     auditEntries,
     record,
     warnings,
@@ -812,4 +963,17 @@ export async function commitRedesignApply(
     proposalClaim: input.proposalClaim,
     proposalFinalize: input.proposalFinalize,
   });
+}
+
+// --------------------------------------------------- section plan executor (P2-1, R3)
+
+// The plan names exactly one source page, so "does this page have a plan?" is a
+// single comparison. A run without a plan (the legacy apply_redesign path) has
+// none, and every page then falls through to the skeleton.
+function sectionPlanFor(
+  plan: DirectionSectionPlan | undefined,
+  pageId: string,
+): DirectionSectionPlan | null {
+  if (plan === undefined) return null;
+  return plan.source.pageId === pageId ? plan : null;
 }

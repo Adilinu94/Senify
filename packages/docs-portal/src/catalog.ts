@@ -1,5 +1,10 @@
 import type { ErrorCategory } from "@senify/core";
-import { TOOLS, type ToolScope } from "@senify/mcp/tools";
+// P3-3 Punkt 5: the manifest, not the MCP server. The documentation used to
+// import `@senify/mcp/tools` to describe the tools, which pulled the whole
+// server - client, handlers, audit wiring - into the docs build. The cycle was
+// hidden behind a lazy import, not broken. The facts about the tools are data
+// now, and data can be depended on from both sides.
+import { TOOL_MANIFEST, type ToolScope } from "@senify/manifest";
 import { createRegistry } from "@senify/registry";
 import type {
   PropSpec,
@@ -93,34 +98,25 @@ export type ToolDoc = {
   parameters: ToolParameterDoc[];
 };
 
-function typeLabel(schema: unknown): string {
-  if (typeof schema !== "object" || schema === null) return "any";
-  const record = schema as Record<string, unknown>;
-  if (Array.isArray(record.enum)) return record.enum.map(String).join(" | ");
-  const type = typeof record.type === "string" ? record.type : "any";
-  if (type === "array") return `array<${typeLabel(record.items)}>`;
-  return type;
-}
-
-function parametersFrom(schema: Record<string, unknown>): ToolParameterDoc[] {
-  const properties = (schema.properties ?? {}) as Record<string, unknown>;
-  const required = new Set(
-    Array.isArray(schema.required) ? schema.required.map(String) : [],
-  );
-  return Object.entries(properties).map(([name, property]) => ({
-    name,
-    type: typeLabel(property),
-    required: required.has(name),
-  }));
-}
+// P3-3 Punkt 5: the schema-reading helpers are GONE. They walked a live
+// TypeBox schema out of the MCP server, which is what made the documentation
+// depend on the thing it documents. The manifest carries the parameters as
+// plain data now, extracted by `pnpm manifest:render` from the same source -
+// so the docs render the same names and types without importing the server.
 
 export function toolCatalog(): ToolDoc[] {
-  return TOOLS.map((tool) => ({
+  return TOOL_MANIFEST.map((tool) => ({
     name: tool.name,
     title: tool.title,
     description: tool.description,
     scope: tool.scope,
-    parameters: parametersFrom(tool.inputSchema),
+    // The parameters come out of the manifest as plain data. They used to be
+    // read off the live TypeBox schema, which is why the docs needed the server.
+    parameters: tool.parameters.map((parameter) => ({
+      name: parameter.name,
+      type: parameter.type,
+      required: parameter.required,
+    })),
   }));
 }
 

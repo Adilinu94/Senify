@@ -121,11 +121,22 @@ describe.skipIf(browserSkip)("desktop accessibility and keyboard gates", () => {
       // Referenzen: Suchfeld und Karten sind in der Tab-Folge bedienbar.
       await tab.goto(`${running.dashboardUrl}/#/references`, { waitUntil: "domcontentloaded" });
       await tab.waitForSelector(".refs-search input");
+      await tab.waitForFunction(
+        '!document.querySelector(".refs-shell")?.classList.contains("refs-loading")',
+      );
       await tab.locator(".refs-search input").focus();
       await tab.keyboard.type("A11y");
       await expect.poll(async () => tab.locator(".refs-search input").inputValue()).toBe("A11y");
+      await tab.waitForFunction(
+        '!document.querySelector(".refs-shell")?.classList.contains("refs-loading")',
+      );
+      expect(await tab.evaluate("document.activeElement?.getAttribute('aria-label')")).toBe(
+        "Referenzen, Stile und Details suchen",
+      );
       await tab.keyboard.press("Tab");
-      expect(await tab.evaluate("document.activeElement?.tagName")).toBe("SELECT");
+      expect(await tab.evaluate("document.activeElement?.getAttribute('aria-label')")).toBe(
+        "Sortierung",
+      );
 
       // Editor: Overflow öffnet mit ArrowDown, fokussiert den ersten
       // Menüpunkt und gibt den Fokus mit Escape an den Auslöser zurück.

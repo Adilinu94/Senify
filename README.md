@@ -62,7 +62,7 @@ pnpm verify
 - Aktuelle Architektur: [`docs/current/architektur.md`](docs/current/architektur.md)
 - Test- und Gate-Stand: [`docs/current/qualitaet.md`](docs/current/qualitaet.md)
 - Entscheidungen: [`docs/adr/`](docs/adr/)
-- Historische Übergaben und abgelöste Pläne: [`HANDOFF.md`](HANDOFF.md), [`docs/umbauplan.md`](docs/umbauplan.md), [`docs/verbesserungsplan.md`](docs/verbesserungsplan.md)
+- Historische Übergaben und abgelöste Pläne: [`docs/history/`](docs/history/) — `HANDOFF.md`, `umbauplan.md`, `verbesserungsplan.md`, `analyse-2026-09-23.md`, `RESEARCH.md`
 
 ## Tests
 

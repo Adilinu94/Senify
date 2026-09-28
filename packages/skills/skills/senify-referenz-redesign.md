@@ -17,8 +17,10 @@ Die Richtung selbst wählt **ein Mensch**. Du schickst nie Cards, Theme-Patches 
 2. **Nur planen:** `plan_redesign` mit der Quell-`pageId` und den Kandidaten-IDs. Das Paket schreibt nichts. Vergleiche `targets[]` und nenne pro Richtung Theme-Patch, Regeln, Dokumentlage und Risiken.
 3. **Vorschlag anlegen:** `create_redesign_proposal` mit derselben `pageId`, den Kandidaten-IDs und einem stabilen `idempotencyKey`. Der Server leitet die Direction Cards selbst ab und speichert sie unveränderlich inklusive Bild, Theme-Specimen, Begründung, Regeln und Warnungen.
 4. **Warten:** Der Mensch wählt im Programm eine Richtung. Es gibt **kein** Bestätigungs-Werkzeug; ein Agent kann nicht entscheiden. Frage nach dem Stand mit `get_redesign_proposal`, statt zu raten.
-5. **Übergabe übernehmen:** Ist der Status `applied`, nimm `siteId` und `pageId` aus `applyResult`. `applyResult.scope` ist `scaffold-theme` und `sectionPlanApplied` ist `false`: bestätigt wurden Theme und Draft-Grundstruktur, **nicht** die Sections. Der Apply lief in einer Transaktion, entweder alles oder nichts.
-6. **Sektions-Plan umsetzen:** Der `sectionPlan` der bestätigten Card ist die verbindliche Baugrundlage. Pro Quell-Section nennt er Zieltyp, Zielvariante mit vollständigem Preset, erhaltene Inhaltsschlüssel und den Medienbedarf. Setze genau diesen Plan um: pro Seite `get_page`, dann `get_section` und `apply_mutations` mit aktuellem `baseDraftVersion`. Ein Variantenwechsel materialisiert das Preset vollständig; ein Variante allein zu setzen reicht nicht. Medien mit `reuse` weiterverwenden, `select`/`upload`/`generate` erledigen, `avoid` nie übernehmen.
+5. **Übergabe übernehmen:** Ist der Status `applied`, nimm `siteId` und `pageId` aus `applyResult`. Der Apply lief in einer Transaktion, entweder alles oder nichts. `applyResult` sagt dir, **was tatsächlich geschrieben wurde**:
+   - `scope: "section-plan"` und `sectionPlanApplied: true`: Der bestätigte Sektions-Plan ist bereits gebaut. **Baue ihn nicht noch einmal von Hand.**
+   - `scope: "scaffold-theme"` und `sectionPlanApplied: false`: Nur Theme und Draft-Grundstruktur stehen. Der Plan ist dann weiterhin dein Auftrag.
+6. **Offene Medienbedarfe erledigen:** In beiden Fällen listet `applyResult.warnings` jeden Medienbedarf, den der Lauf nicht decken konnte (`select`, `upload`, `generate`). Das ist deine Restarbeit am neuen Draft, kein Grund zum Überspringen. Medien mit `reuse` sind bereits übernommen, `avoid` bleibt bewusst leer. Die verbindliche Baugrundlage ist weiterhin der `sectionPlan` der bestätigten Card: pro Quell-Section Zieltyp, Zielvariante mit vollständigem Preset, erhaltene Inhaltsschlüssel. Wenn du eine Sektion von Hand nachziehst, materialisiere das Preset vollständig; eine Variante allein zu setzen reicht nicht.
 7. **Prüfen:** `get_design_report` und `diff_reference`. Billige harte Findings beheben, dann beide Prüfungen wiederholen.
 8. **Vorschau und Review:** `create_preview`; die signierte URL an den Menschen geben. `submit_for_review` erzeugt das Review mit Preview und Struktur-Diff, `get_review_feedback` liest den Stand.
 9. **Stoppen:** `publish_release` erst nach ausdrücklicher menschlicher Freigabe.
@@ -27,7 +29,7 @@ Die Richtung selbst wählt **ein Mensch**. Du schickst nie Cards, Theme-Patches 
 
 - Originalsite und aktives Release bleiben unangetastet.
 - Nur der Human-Programm-Proxy darf bestätigen; `apply_redesign` ohne Proposal bleibt der autonome Legacy-Weg.
-- Der Sektions-Plan ist Angebot und Arbeitsauftrag, kein ausgeführter Write: `commitRedesignApply` erzeugt Scaffold und Theme, `apply_mutations` baut die Sections.
+- Der Sektions-Plan ist seit P2-1 ein **ausgeführter** Write: `compileRedesign` leitet die Ziel-Section-Writes aus ihm ab, und `commitRedesignApply` schreibt sie in derselben Transaktion wie Theme und Claim. `sectionPlanApplied` sagt ehrlich, ob das gelungen ist.
 - Inhalte bleiben erhalten; das Design erbt das bestätigte Theme.
 - Keine Originaltexte, Logos, Fotos oder identischen Layouts übernehmen.
 - Tokens vor Literalen; die Registry ist Gesetz.

@@ -11,8 +11,8 @@
 - `docs/current/architektur.md` — aktuelle Seams und Datenflüsse.
 - `docs/current/qualitaet.md` — letzter verifizierter Test- und Gate-Stand.
 - `docs/adr/README.md` — angenommene Entscheidungen.
-- `docs/umbauplan.md` — geplante Arbeit und aktive Reihenfolge.
-- `HANDOFF.md`, `docs/verbesserungsplan.md`, `.scratch/**` — historische Übergaben, Research und Arbeitsmaterial, nicht automatisch kanonischer Truth.
+- `docs/fahrplan.md` — geplante Arbeit und aktive Reihenfolge.
+- `docs/history/**`, `.scratch/**` — historische Übergaben, Research und Arbeitsmaterial, nicht automatisch kanonischer Truth.
 
 ## Agenten-Anbindung (MCP)
 

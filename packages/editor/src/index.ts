@@ -1,7 +1,20 @@
 // T13 — Visueller Editor. The program shell (T12) only calls
 // `mountEditor(container, options)`; everything else is the editor's contract.
-
-export { mountEditor, createStubRenderer, type EditorInstance, type EditorOptions, type FrameRenderContext, type FrameRenderer } from "./mount.ts";
+//
+// P3-1 Punkt 4 (R5): `mountEditor` and `createStubRenderer` are GONE. The v1
+// editor was retired in three steps - the deep link redirected (P3-1 Punkt 1),
+// the exports were marked deprecated (Punkt 2), the browser tests moved to the
+// canvas (Punkt 3) - and this is Punkt 4: the module itself. `mount.ts` was the
+// last thing holding a 3 200-line legacy file in the build, and nothing in the
+// product path imported it.
+//
+// What stayed, and why:
+//   - `frame-renderer.ts`: the two-method contract the canvas and the React
+//     renderer both satisfy. It lived inside `mount.ts` and was the only part
+//     live code still imported from there.
+//   - the rest of this file: the canvas, the inspector, the explorer, the
+//     spotlight, the media form, the mutations client. None of it was legacy.
+export type { FrameRenderContext, FrameRenderer } from "./frame-renderer.ts";
 export {
   EDITOR_ICON_BASE_CSS,
   EDITOR_ICON_STYLES,

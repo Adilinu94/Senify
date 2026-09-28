@@ -1,5 +1,12 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  renameSync,
+  rmSync,
+} from "node:fs";
 import { dirname, join, normalize, resolve, sep } from "node:path";
 import { SenifyError } from "@senify/core";
 import { RENDERER_VERSION } from "@senify/renderer";
@@ -8,7 +15,9 @@ import type { StyleRule } from "@senify/widget-engine";
 import { bakePages } from "./bake.ts";
 import { hashBuildDir } from "./build-hash.ts";
 import { runChecks } from "./checks.ts";
-import { buildDesignReport } from "./design-report.ts";
+import { buildDesignReport, designStateVersion } from "./design-report.ts";
+import { collectAssetIds } from "./media.ts";
+import { resolveStoredFile } from "./storage.ts";
 import type { FormSigner } from "./forms.ts";
 import { newEntityId } from "./ids.ts";
 import { referenceAdherenceForSite } from "./references-lifecycle.ts";
@@ -22,10 +31,15 @@ import type { ImportReport } from "./imports-contract.ts";
 import type { Store } from "./store.ts";
 import type {
   CheckIssue,
+  Entry,
   Page,
   Preview,
   Release,
+  ReleaseAssetSnapshot,
+  ReleaseComponentSnapshot,
+  ReleaseEntrySnapshot,
   ReleasePageRevision,
+  ReleasePayloadSnapshot,
   ReviewItem,
   ReviewVisuals,
   Site,
@@ -172,6 +186,15 @@ export async function rebakeActiveRelease(
   const styleRules = await context.store.listStyleRules(siteId);
   const capturedAt = new Date().toISOString();
   const siteDate = capturedAt.slice(0, 10);
+  // P3-4 (R7): a content re-bake re-snapshots rather than inheriting. The
+  // pages are the same, but "the same" has to be checked, not assumed: a
+  // re-bake runs after a CMS sync, and an entry that became published in
+  // between belongs to THIS release. The base release's snapshots are the
+  // fallback only for a manifest written before this step existed.
+  const snapshots = await buildReleaseSnapshots(context, {
+    siteId,
+    pages: pages.map((page) => ({ draft: page.draft })),
+  });
   const release = await context.store.createRelease({
     siteId,
     pageRevisions,
@@ -183,6 +206,19 @@ export async function rebakeActiveRelease(
       buildHash: "",
       capturedAt,
       siteDate,
+      assets: snapshots.assets,
+      components: snapshots.components,
+      payloads: snapshots.payloads,
+      entries: snapshots.entries,
+      // P2-4 (R4): a content re-bake changes no content - the same draft, the
+      // same theme, the same design. It therefore carries the base release's
+      // design record forward instead of measuring again: re-measuring here
+      // would attach a second, equally valid record to a release that is
+      // materially the same one, and the manifest would stop being a statement
+      // about the release.
+      designRecordId: activeRelease.manifest?.designRecordId ?? null,
+      designScore: activeRelease.manifest?.designScore ?? null,
+      designVerdict: activeRelease.manifest?.designVerdict ?? null,
       rebakedFrom: activeRelease.id,
     },
     author,
@@ -282,6 +318,23 @@ export async function publishRelease(
       },
     );
   }
+  // P2-4 (R4): the report is frozen as a record before the release is built,
+  // so the release manifest and the review can point at this object instead of
+  // recomputing it later. A recomputation would let today's score rewrite what
+  // this release was.
+  const publishRecord = await context.store.createDesignRecord({
+    siteId: input.siteId,
+    stage: "publish",
+    draftVersion: designStateVersion({
+      pages: (await context.store.listPageDrafts(input.siteId)).map((page) => ({
+        id: page.id,
+        draftVersion: page.draftVersion,
+      })),
+      themeVersion: siteTheme.version,
+    }),
+    themeVersion: siteTheme.version,
+    report: designReport,
+  });
 
   const basisId = input.basisReleaseId ?? null;
   let pageRevisions: ReleasePageRevision[];
@@ -327,6 +380,19 @@ export async function publishRelease(
       );
       restoredFrom = basis.id;
       restoredSiteDate = basis.manifest.siteDate;
+      // P3-4 (R7): the rest of the manifest, restored the same way the style
+      // registry is. Without this the pages come back pointing at assets that
+      // were deleted after the release, or at different ones with the same
+      // name - a rollback that restores the styling of a site whose media
+      // moved on is not a rollback.
+      await restoreSnapshotAssets(context, {
+        siteId: input.siteId,
+        assets: basis.manifest.assets,
+        // The basis release's own build directory. Its copy of every asset is
+        // the only place the original bytes still exist once the library has
+        // replaced or deleted them.
+        basisBuildDir: releaseDir(context, basis.id),
+      });
     }
   } else {
     pageRevisions = [];
@@ -385,6 +451,19 @@ export async function publishRelease(
     throw hardFailure(preCheck.hard, "publish");
   }
 
+  // P3-4 (R7): what the release USED, frozen as values. Collected from the
+  // pages that are going INTO this release, so the snapshot is about this
+  // release and not about the site. The warnings ride along on the release's
+  // own warning list: an asset a page references but the library no longer has
+  // is a fact about this release, and hiding it would make the rollback look
+  // cleaner than the release was.
+  const snapshots = await buildReleaseSnapshots(context, {
+    siteId: input.siteId,
+    pages: await context.store
+      .listPageDrafts(input.siteId)
+      .then((list) => list.map((page) => ({ draft: page.draft }))),
+  });
+
   const release = await context.store.createRelease({
     siteId: input.siteId,
     pageRevisions,
@@ -396,6 +475,16 @@ export async function publishRelease(
       buildHash: hashBuildDir(baked.outDir),
       capturedAt,
       siteDate: bakedSiteDate,
+      assets: snapshots.assets,
+      components: snapshots.components,
+      payloads: snapshots.payloads,
+      entries: snapshots.entries,
+      // P2-4 (R4): the manifest points at the frozen record and repeats the
+      // three numbers that opened the gate. The record is the authority; these
+      // are what a reader of the manifest alone should see.
+      designRecordId: publishRecord.id,
+      designScore: designReport.score,
+      designVerdict: designReport.verdict,
       ...(restoredFrom === undefined ? {} : { restoredFrom }),
     },
     author: input.author,
@@ -642,6 +731,20 @@ export async function submitReview(
       suggestion: designReport.findings[0]?.suggestion ?? "get_design_report liefert die Findings.",
     });
   }
+  // P2-4 (R4): the review freezes its own measurement. Publish and review ask
+  // different questions of the same site at the same moment, so the review
+  // record is not a copy of the publish one - it is a second, separate
+  // measurement that stays true even after the draft moves on.
+  await context.store.createDesignRecord({
+    siteId: input.siteId,
+    stage: "review",
+    draftVersion: designStateVersion({
+      pages: allPages.map((page) => ({ id: page.id, draftVersion: page.draftVersion })),
+      themeVersion: siteTheme.version,
+    }),
+    themeVersion: siteTheme.version,
+    report: designReport,
+  });
 
   const baseByPage = await baseTreesFromActiveRelease(context, input.siteId);
   const diff = structureDiff({ baseByPage, pages: allPages });
@@ -845,4 +948,213 @@ export async function discardReview(
           },
         }),
   });
+}
+
+// What the release actually USED, frozen as values (Fahrplan P3-4, R7).
+//
+// The rule is "only what this release needs", not "everything in the site": a
+// rollback that restores an unused asset is a rollback that resurrects data
+// someone deleted on purpose. So every list starts from the release's own
+// pages and walks outward from there.
+//
+// A missing asset is not dropped. An id a page references but the library no
+// longer has is a broken page today, and a snapshot that quietly omitted it
+// would make the rollback look cleaner than the release was. It is reported
+// instead, so the release's own state stays visible.
+async function buildReleaseSnapshots(
+  context: LifecycleContext,
+  input: { siteId: string; pages: { draft: NodeTree }[] },
+): Promise<{
+  assets: ReleaseAssetSnapshot[];
+  components: ReleaseComponentSnapshot[];
+  payloads: ReleasePayloadSnapshot[];
+  entries: ReleaseEntrySnapshot[];
+  warnings: string[];
+}> {
+  const warnings: string[] = [];
+
+  // Assets: only the ids the release's pages reference.
+  const wantedAssets = collectAssetIds(input.pages);
+  const library = await context.store.listAssets(input.siteId, { status: "all" });
+  const assets: ReleaseAssetSnapshot[] = [];
+  for (const asset of library) {
+    if (!wantedAssets.has(asset.id)) continue;
+    assets.push({
+      id: asset.id,
+      siteId: asset.siteId,
+      filename: asset.filename,
+      mime: asset.mime,
+      kind: asset.kind,
+      byteSize: asset.byteSize,
+      width: asset.width,
+      height: asset.height,
+      hash: asset.hash,
+      altText: asset.altText,
+      decorative: asset.decorative,
+      folderId: asset.folderId,
+      tags: asset.tags,
+      storageRef: asset.storageRef,
+    });
+  }
+  for (const id of wantedAssets) {
+    if (assets.some((asset) => asset.id === id)) continue;
+    warnings.push(
+      `Release verweist auf Asset "${id}", das es in der Bibliothek nicht (mehr) gibt.`,
+    );
+  }
+
+  // Components: the ones the release's pages instantiate. The registry is
+  // global, so this is a narrow filter over what the pages use - a component
+  // installed later must not join a release that predates it.
+  const usedComponents = new Set<string>();
+  const usedPayloadCarriers = new Set<string>();
+  for (const page of input.pages) {
+    for (const node of Object.values(page.draft.nodes)) {
+      const props = node.props as Record<string, unknown>;
+      const componentId = props["componentId"] ?? props["componentSlug"];
+      if (typeof componentId === "string" && componentId !== "") {
+        usedComponents.add(componentId);
+      }
+      if (typeof props["payloadId"] === "string") {
+        usedPayloadCarriers.add(`${node.id}:${props["payloadId"]}`);
+      }
+    }
+  }
+  const components: ReleaseComponentSnapshot[] = [];
+  for (const component of await context.store.listLibraryComponents()) {
+    if (!usedComponents.has(component.id) && !usedComponents.has(component.slug)) continue;
+    components.push({
+      id: component.id,
+      slug: component.slug,
+      name: component.name,
+      kind: component.kind,
+      definition: component.definition,
+      fingerprint: component.fingerprint,
+      version: component.version,
+    });
+  }
+
+  // Payloads: frozen with their provenance, because ADR-0010 moves a payload
+  // between "proposal" and "published carrier" and a rollback has to restore
+  // which of the two it was.
+  const payloads: ReleasePayloadSnapshot[] = (
+    await context.store.listCodePayloads(input.siteId)
+  ).map((payload) => ({
+    id: payload.id,
+    name: payload.name,
+    kind: payload.kind,
+    bytes: payload.bytes,
+    integrity: payload.integrity,
+    version: payload.version,
+    provenance: payload.provenance,
+    license: payload.license,
+  }));
+
+  // Entries: the CMS content the release published, each with the version
+  // that was live. The store filters on `status`, so this asks for exactly the
+  // published ones - an entry that was edited but never published belongs to
+  // the NEXT release, and including it would publish text nobody reviewed.
+  //
+  // `activeVersionId` is the authority, not `publishedAt`: the version is what
+  // a rollback has to restore, and the timestamp is only there for reading.
+  // An entry with a published status and no active version is reported rather
+  // than skipped - a silent omission would make the rollback look complete
+  // while it is not.
+  const entries: ReleaseEntrySnapshot[] = [];
+  const published = await context.store
+    .listEntries({ siteId: input.siteId, status: "published" })
+    .catch(() => [] as Entry[]);
+  for (const entry of published) {
+    if (entry.activeVersionId === null) {
+      warnings.push(
+        `Eintrag "${entry.slug}" ist veröffentlicht, hat aber keine aktive Version.`,
+      );
+      continue;
+    }
+    entries.push({
+      id: entry.id,
+      collection: entry.collectionId,
+      path: entry.cells["path"] !== undefined ? String(entry.cells["path"]) : entry.slug,
+      slug: entry.slug,
+      revisionId: entry.activeVersionId,
+      title: entry.cells["title"] !== undefined ? String(entry.cells["title"]) : entry.slug,
+      publishedAt: entry.publishedAt ?? entry.updatedAt,
+    });
+  }
+
+  return { assets, components, payloads, entries, warnings };
+}
+
+// Puts the release's assets back the way the release found them (Fahrplan P3-4,
+// R7). The comparison is by CONTENT HASH, not by id or file name:
+//
+//   - same id, same hash: nothing to do. The overwhelmingly common case.
+//   - same id, different hash: the file was REPLACED after the release. The
+//     release's bytes are still in the release directory it was baked into, so
+//     the rollback copies them back and points the row at them. The pages were
+//     built against those bytes; restoring the row without restoring the file
+//     would show a picture the page never shipped with.
+//   - missing id, file gone: the row comes back from the snapshot, the bytes
+//     cannot. The publish guard then refuses the release, and that is the right
+//     outcome - a hash is a fingerprint, not a backup. Pretending otherwise
+//     would ship a broken image.
+//
+// What this deliberately does NOT do: restore an asset the release did not
+// reference. A rollback that resurrects unrelated media is a rollback that
+// undoes a deletion someone made on purpose.
+async function restoreSnapshotAssets(
+  context: LifecycleContext,
+  input: {
+    siteId: string;
+    assets: ReleaseAssetSnapshot[];
+    // The directory the basis release was baked into. The release's own copy of
+    // every asset is there, and it is the only place the original bytes still
+    // exist once the library has moved on.
+    basisBuildDir: string | null;
+  },
+): Promise<{ restored: string[]; unrecoverable: string[] }> {
+  const restored: string[] = [];
+  const unrecoverable: string[] = [];
+  for (const snapshot of input.assets) {
+    // A snapshot from before this step existed carries no assets; the list is
+    // empty and the rollback restores pages, theme and styling as before.
+    const existing = await context.store
+      .getAsset(snapshot.id)
+      .catch(() => null);
+    if (existing !== null && existing.hash === snapshot.hash) {
+      // Present and identical. Nothing to do - the common path, and the one
+      // that must stay cheap.
+      continue;
+    }
+    // The release's copy of the bytes, when it is still there. This is what
+    // makes a REPLACED asset recoverable: the library holds the new version, the
+    // release directory holds the one the pages were built against.
+    const releaseCopy =
+      input.basisBuildDir === null
+        ? null
+        : join(input.basisBuildDir, "assets", snapshot.id, snapshot.filename);
+    if (releaseCopy !== null && existsSync(releaseCopy)) {
+      const target = resolveStoredFile(context.dataDir, snapshot.storageRef);
+      if (target !== undefined) {
+        mkdirSync(dirname(target), { recursive: true });
+        copyFileSync(releaseCopy, target);
+      }
+    } else if (!existsSync(resolveStoredFile(context.dataDir, snapshot.storageRef) ?? "")) {
+      // Neither the library nor the release has these bytes. The row can come
+      // back; the page will bake to a missing image and the publish guard will
+      // say so.
+      unrecoverable.push(snapshot.id);
+    }
+    await context.store
+      .replaceAssetFromSnapshot(snapshot)
+      .then(() => {
+        restored.push(snapshot.id);
+      })
+      .catch(() => {
+        // The asset belonged to a DIFFERENT site, or its folder is gone. The
+        // page will bake to a broken image either way; the report says so.
+        unrecoverable.push(snapshot.id);
+      });
+  }
+  return { restored, unrecoverable };
 }

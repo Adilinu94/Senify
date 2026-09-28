@@ -165,8 +165,15 @@ export type ReleasePageRevision = {
 // The release manifest (E2): what a release was baked with, beyond the page
 // revisions and the theme snapshot. The style registry is captured so a
 // rollback restores it and the output stays reproducible for the same renderer
-// version; the build hash proves it. CMS entries and assets are deliberately
-// not frozen — the re-bake path refreshes them in place (documented).
+// version; the build hash proves it.
+//
+// P3-4 (R7) closes the gap that sentence used to excuse. `assets` and
+// `entries` were "deliberately not frozen", so a rollback restored the styling
+// of a site whose media library and content had moved on: the pages came back
+// pointing at assets that no longer exist, or at different ones. The snapshots
+// below are what the release NEEDED, captured at publish time as values, not as
+// references - a reference would be re-read on rollback and describe the present
+// instead of the past.
 export type ReleaseManifest = {
   styleRules: StyleRule[];
   rendererVersion: string;
@@ -175,10 +182,99 @@ export type ReleaseManifest = {
   // The date stamped into `sitemap.xml`; a rollback re-uses the restored
   // release's date, so the rebuilt output stays byte-identical.
   siteDate: string;
+  // Every asset the release's pages actually reference, frozen: id, file name,
+  // mime, size, hash and the storage path. The hash is what a deploy check
+  // compares, because a same-named file with different bytes is a changed
+  // asset. An asset deleted since the release is still listed - that is the
+  // whole point, and the rollback restores it from the snapshot rather than
+  // discovering its absence at bake time.
+  assets: ReleaseAssetSnapshot[];
+  // The library components the release's pages instantiate, frozen. A component
+  // that was upgraded or uninstalled afterwards would otherwise change a page
+  // that was supposed to stay as published.
+  components: ReleaseComponentSnapshot[];
+  // The code payloads the release bakes, frozen per payload. The island
+  // "promotion" flow in ADR-0010 means a live payload can move between a
+  // proposal and a published carrier; the snapshot records which state this
+  // release was built from, so a rollback restores the distinction.
+  payloads: ReleasePayloadSnapshot[];
+  // The CMS entries the release published, frozen with their published
+  // revision. "Published" is part of the snapshot on purpose: an entry that was
+  // edited but never published belongs to the NEXT release, not to this one.
+  entries: ReleaseEntrySnapshot[];
+  // The frozen design measurement this release was published against
+  // (Fahrplan P2-4, R4). A reference, not a copy: the report itself lives in
+  // `design_records` and stays readable after the draft has moved on, so the
+  // manifest never has to be rewritten to keep a promise about the past.
+  designRecordId: string | null;
+  // The score the release was published with, copied in so a reader of the
+  // manifest alone can see the number that opened the gate without a second
+  // lookup. The record above is the authority; this is the convenience.
+  designScore: number | null;
+  designVerdict: "green" | "hint" | "gate" | null;
   // A content re-bake creates a new release; the old release stays immutable.
   rebakedFrom?: string;
   // Rollback copies: the release this one was restored from.
   restoredFrom?: string;
+};
+
+// What a rollback needs to put a referenced asset back: the row's fields, plus
+// the storage path so the file can be found again. Deliberately small - the
+// manifest is read on every rollback, and a fat one is a fat backup.
+export type ReleaseAssetSnapshot = {
+  id: string;
+  siteId: string;
+  filename: string;
+  mime: string;
+  kind: string;
+  byteSize: number;
+  width: number | null;
+  height: number | null;
+  hash: string;
+  altText: string | null;
+  decorative: boolean;
+  folderId: string | null;
+  tags: string[];
+  storageRef: string;
+};
+
+export type ReleaseComponentSnapshot = {
+  id: string;
+  slug: string;
+  name: string;
+  kind: string;
+  // The definition as it was when this release shipped. An upgraded component
+  // must not silently change a published page.
+  definition: unknown;
+  fingerprint: string;
+  version: number;
+};
+
+export type ReleasePayloadSnapshot = {
+  id: string;
+  name: string;
+  kind: string;
+  bytes: number;
+  // The integrity hash the deploy check compares. A same-named payload with
+  // different bytes is a different payload.
+  integrity: string;
+  version: number;
+  // ADR-0010 distinguishes a proposal from a published carrier, and a rollback
+  // has to restore which of the two it was.
+  provenance: unknown;
+  license: unknown;
+};
+
+export type ReleaseEntrySnapshot = {
+  id: string;
+  collection: string;
+  path: string;
+  slug: string;
+  // The revision that was live at publish. Not "the current one" - a rollback
+  // that picked up a later draft entry would publish text nobody reviewed.
+  revisionId: string;
+  title: string;
+  publishedAt: string;
 };
 
 export type Release = {
@@ -272,13 +368,23 @@ export type ReviewComment = {
 // Redesign proposals (ADR-0012). `applying` is a durable claim: the human
 // decision is stored before the first effect, so a crash leaves a visible
 // "running or unfinished" state instead of a silently repeated apply.
-export type RedesignProposalStatus = "proposed" | "applying" | "applied" | "failed";
+// `expired` is the fourth end state a proposal can reach on its own: an
+// undecided proposal ages out (Fahrplan P2-3, R2). It is never deleted, because
+// "the human never chose" is a fact worth keeping, and an apply on an expired
+// proposal must fail with a conflict rather than half-write.
+export type RedesignProposalStatus =
+  | "proposed"
+  | "applying"
+  | "applied"
+  | "failed"
+  | "expired";
 
 export const REDESIGN_PROPOSAL_STATUSES: readonly RedesignProposalStatus[] = [
   "proposed",
   "applying",
   "applied",
   "failed",
+  "expired",
 ];
 
 export type GuardrailViolation = {

@@ -6,13 +6,13 @@ import { startProgram } from "@senify/app";
 import { browserAvailable, memoryDb } from "./support.ts";
 
 // The canvas wired into the editor page (rebuild Phase 0, fifth slice). Since
-// E5 slice 1 it is the one visible editor: the page mounts it directly (no
-// switch), the inspector is part of the mount, and the old editor stays
-// reachable as an explicit `?view=editor` deep link. This run drives the real
-// path in a browser: three device frames, a click selects, a widget inserts,
-// Undo takes it back, the inspector writes through the store, a save
-// round-trips through the engine, and the legacy editor still loads.
-// Skipped when Playwright is missing (same contract as the other browser tests).
+// E5 slice 1 it is the one visible editor, and since P3-1 Punkt 4 (R5) it is
+// the only one: the v1 editor and its module are gone, and `?view=editor`
+// redirects here with a visible hint. This run drives the real path in a
+// browser: three device frames, a click selects, a widget inserts, Undo takes
+// it back, the inspector writes through the store, a save round-trips through
+// the engine. Skipped when Playwright is missing (same contract as the other
+// browser tests).
 
 const author = { kind: "human", id: "programm", label: "Programm" };
 
@@ -367,9 +367,9 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       const save = tab.locator('[data-action="canvas-save"]');
       await expect.poll(async () => tab.locator("#page-version").textContent()).toMatch(/Draft v[3-9]/);
       await expect.poll(async () => save.isEnabled()).toBe(false);
-      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent()).toBe(
-        "Gespeichert",
-      );
+      await expect
+        .poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 })
+        .toBe("Gespeichert");
       await tab.screenshot({ path: join(shotDir, "05-canvas-saved.png") });
 
       // Round-trip: reload the canvas and the saved divider is still there.
@@ -550,7 +550,10 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
 
       await tab.locator('button[data-action="canvas-save"]').click();
       await expect
-        .poll(async () => (await tab.locator('[data-role="canvas-status"]').textContent()) ?? "")
+        .poll(
+          async () => (await tab.locator('[data-role="canvas-status"]').textContent()) ?? "",
+          { timeout: 20000 },
+        )
         .toContain("Gespeichert");
 
       // Varianten (Ticket 04): die Definition bekommt ein benanntes Overlay (per
@@ -591,8 +594,15 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
         .poll(async () => (await desktopFrame().locator("body").textContent()) ?? "")
         .toContain("Großer Hero");
       await tab.locator('button[data-action="canvas-save"]').click();
+      // The poll needs an explicit budget: the default 5 s is enough alone and
+      // too short when the whole suite runs in parallel and the local engine
+      // rate-limits the save. Without it this is the flake that shows up only
+      // in the full run, which is exactly where nobody can afford it.
       await expect
-        .poll(async () => (await tab.locator('[data-role="canvas-status"]').textContent()) ?? "")
+        .poll(
+          async () => (await tab.locator('[data-role="canvas-status"]').textContent()) ?? "",
+          { timeout: 20000 },
+        )
         .toContain("Gespeichert");
       await tab.screenshot({ path: join(shotDir, "14-komponente-variante.png") });
 
@@ -662,7 +672,10 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       await tab.screenshot({ path: join(shotDir, "15-komponente-variante-anlegen.png") });
       await tab.locator('button[data-action="canvas-save"]').click();
       await expect
-        .poll(async () => (await tab.locator('[data-role="canvas-status"]').textContent()) ?? "")
+        .poll(
+          async () => (await tab.locator('[data-role="canvas-status"]').textContent()) ?? "",
+          { timeout: 20000 },
+        )
         .toContain("Gespeichert");
 
       // Live-Mitverfolgung (Ticket 05): eine fremde Mutation (hier direkt über
@@ -853,11 +866,25 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
         .toBeGreaterThan(0);
       await tab.screenshot({ path: join(shotDir, "13-agent-vorschau.png") });
 
-      // The old editor stays reachable as an explicit deep link (strangler E2)
-      // and still lays out its frames.
+      // P3-1 (R5): the old editor is retired. `?view=editor` now redirects to
+      // the canvas and says so - the proof is that the canvas mounts anyway
+      // and the legacy markers are gone, not that the old editor still works.
       await tab.goto(`${pageUrl}?view=editor`, { waitUntil: "domcontentloaded" });
-      await tab.waitForSelector(".senify-editor", { timeout: 60000 });
-      expect(await tab.locator(".senify-editor__iframe").count()).toBe(3);
+      // The toast lives four seconds and then removes itself, so it is read
+      // while the page is still settling rather than after the canvas mounted.
+      // Waiting for the canvas first would miss it.
+      const legacyHint = await tab
+        .locator(".toast")
+        .filter({ hasText: "abgeloest" })
+        .first()
+        .textContent({ timeout: 15000 })
+        .catch(() => null);
+      expect(legacyHint).toMatch(/abgeloest/i);
+      await tab.waitForSelector(".senify-canvas", { timeout: 60000 });
+      expect(await tab.locator(".senify-editor").count()).toBe(0);
+      // And the parameter is cleaned out of the URL, so a reload does not
+      // show the hint again.
+      expect(tab.url()).not.toContain("view=editor");
       await tab.screenshot({ path: join(shotDir, "06-editor-again.png") });
 
       expect(consoleErrors).toEqual([]);

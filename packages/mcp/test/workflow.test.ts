@@ -243,6 +243,57 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     expect(readTool?.annotations?.readOnlyHint).toBe(true);
   });
 
+  // P3-3 (R8): the reading tools promise a shape, and the promise has to be
+  // kept. Two halves: the catalog declares `outputSchema`, and the result
+  // actually carries `structuredContent`. A schema the code does not keep is
+  // worse than none - the client stops parsing text and starts trusting a
+  // structure that may be wrong.
+  it("declares an output schema on the reading tools and sends structured content", async () => {
+    const listed = await session.client.listTools();
+    const byName = new Map(listed.tools.map((tool) => [tool.name, tool]));
+
+    // The tools that promise a shape. Only the reading ones: a write's result
+    // is a confirmation whose fields depend on which write it was.
+    for (const name of [
+      "list_sites",
+      "get_site",
+      "list_pages",
+      "get_page",
+      "list_assets",
+      "list_references",
+    ]) {
+      const schema = byName.get(name)?.outputSchema as
+        | { type?: string; required?: string[] }
+        | undefined;
+      expect(schema, `${name} has no outputSchema`).toBeDefined();
+      expect(schema?.type).toBe("object");
+      expect(Array.isArray(schema?.required)).toBe(true);
+      expect((schema?.required ?? []).length).toBeGreaterThan(0);
+    }
+
+    // And the result carries the structure the schema described.
+    const result = await session.client.callTool({ name: "list_sites", arguments: {} });
+    expect(result.isError).not.toBe(true);
+    const structured = result.structuredContent as
+      | { sites?: { id?: string }[] }
+      | undefined;
+    expect(structured, "list_sites sent no structuredContent").toBeDefined();
+    expect(Array.isArray(structured?.sites)).toBe(true);
+    for (const site of structured?.sites ?? []) {
+      // The very promise the schema makes: an addressable id per entry.
+      expect(typeof site.id).toBe("string");
+    }
+
+    // A tool WITHOUT a schema must not receive structure: a client could not
+    // tell whether the shape is guaranteed.
+    const withoutSchema = await session.client.callTool({
+      name: "whoami",
+      arguments: {},
+    });
+    expect(withoutSchema.isError).not.toBe(true);
+    expect(withoutSchema.structuredContent).toBeUndefined();
+  });
+
   it("sets the full annotation matrix (E4 slice 0)", async () => {
     const listed = await session.client.listTools();
     const byName = new Map(listed.tools.map((tool) => [tool.name, tool]));
@@ -843,9 +894,84 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       const error = page.data.error as Json;
       expect(error.category).toBe("auth");
       expect(String(error.suggestion)).toContain("write");
+      // A 401 is not retryable with the same token, and an agent that keeps
+      // trying looks like an attack. The payload says so instead of leaving the
+      // client to work it out (P3-3 Punkt 2).
+      expect(error.retryable).toBe(false);
     } finally {
       await reader.close();
     }
+  });
+
+  // P3-3 Punkt 2 (R8): every error answers the same question - "would the same
+  // call succeed if I tried again?" - and the answer comes from the category,
+  // not from the caller guessing. These four cases are the whole table.
+  it("stamps every error with retryable, and gets the answer right per category", async () => {
+    const siteId = await createSite(env, "Fehlerformen");
+
+    // `validation`: the request is wrong. Retrying sends the same wrong
+    // request.
+    const missing = await call(session, "get_site", {});
+    expect(missing.ok).toBe(false);
+    const validation = missing.data.error as Json;
+    expect(validation.category).toBe("validation");
+    expect(validation.retryable).toBe(false);
+
+    // `not_found`: the id does not exist. A retry could only help after the
+    // caller created it, which is the caller's decision, not a promise here.
+    const gone = await call(session, "get_site", { siteId: "gibt-es-nicht" });
+    expect(gone.ok).toBe(false);
+    const notFound = gone.data.error as Json;
+    expect(notFound.category).toBe("not_found");
+    expect(notFound.retryable).toBe(false);
+
+    // `conflict`: a stale baseDraftVersion. The engine hands back the current
+    // version, so reading and retrying is the right move. The mutation itself
+    // is a no-op on a fresh page (delete the root's only child that does not
+    // exist is refused), so what fails first is the VERSION check - which is
+    // exactly the case under test.
+    const created = await call(session, "create_page", { siteId, title: "Konflikt" });
+    expect(created.ok).toBe(true);
+    const page = created.data as { id: string };
+    const stale = await call(session, "apply_mutations", {
+      pageId: page.id,
+      baseDraftVersion: 999,
+      author: OPERATOR,
+      mutations: [{ op: "deleteNode", id: "gibt-es-nicht" }],
+    });
+    expect(stale.ok).toBe(false);
+    const conflict = stale.data.error as Json;
+    expect(conflict.category).toBe("conflict");
+    // The one category where "try again" is the answer.
+    expect(conflict.retryable).toBe(true);
+  });
+
+  it("counts attempts per call, so a loop is distinguishable from a one-off", async () => {
+    // The counter lives in the server, which serves every test in this file -
+    // so an earlier test that called the same thing already moved it. The
+    // assertion is therefore about the DIFFERENCE between two calls, not an
+    // absolute number: that is what a client actually relies on, and it is
+    // also the only form of this assertion that survives another test being
+    // added above.
+    //
+    // Each call gets its own argument, so the two signatures differ and the
+    // second must start from the first's value plus one.
+    const stamp = Date.now();
+    const first = await call(session, "get_site", { siteId: `fehlt-a-${stamp}` });
+    expect(first.ok).toBe(false);
+    const second = await call(session, "get_site", { siteId: `fehlt-a-${stamp}` });
+    expect(second.ok).toBe(false);
+    const firstAt = (first.data.error as Json).attempt;
+    const secondAt = (second.data.error as Json).attempt;
+    expect(firstAt).toBeUndefined();
+    expect(secondAt).toBe(2);
+
+    // A DIFFERENT call starts over: the counter belongs to (tool, arguments),
+    // not to the tool. Otherwise an old loop would make a fresh call look
+    // exhausted.
+    const other = await call(session, "get_site", { siteId: `fehlt-b-${stamp}` });
+    expect(other.ok).toBe(false);
+    expect((other.data.error as Json).attempt).toBeUndefined();
   });
 
   it("passes an idempotency key through create_page and reuses the first result", async () => {

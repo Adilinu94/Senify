@@ -50,6 +50,12 @@ export type ToolDefinition = {
   description: string;
   scope: ToolScope;
   inputSchema: Record<string, unknown>;
+  // The JSON Schema of what the handler returns (P3-3, R8). Only the reading
+  // tools carry one: a write's result is a confirmation whose shape depends on
+  // which write it was, and a wrong schema there would be a lie the client
+  // believes. The handler's return value must validate against it, otherwise
+  // `structuredContent` would disagree with the text the client already parses.
+  outputSchema?: Record<string, unknown>;
   entity?: (args: Record<string, unknown>, result: unknown) => string | undefined;
   handler: (
     context: ToolContext,
@@ -73,6 +79,111 @@ function objectSchema(
     properties,
     required,
     additionalProperties: false,
+  };
+}
+
+// The output schemas of the reading tools (P3-3, R8). They are written next to
+// the handler that produces the value, and the server refuses to send
+// `structuredContent` whose value does not validate - a schema the code does not
+// keep is worse than no schema, because the client stops checking.
+//
+// Only the fields a client actually branches on are required; everything else
+// is described but not demanded, so a later field addition does not break a
+// client that validated against the older schema.
+const SITE_SCHEMA = {
+  type: "object",
+  properties: {
+    id: { type: "string" },
+    name: { type: "string" },
+    slug: { type: "string" },
+    profile: { type: "string" },
+    themeId: { type: ["string", "null"] },
+    createdAt: { type: "string" },
+    updatedAt: { type: "string" },
+  },
+  required: ["id", "name", "slug", "profile"],
+  additionalProperties: true,
+} as const;
+
+const PAGE_SCHEMA = {
+  type: "object",
+  properties: {
+    id: { type: "string" },
+    siteId: { type: "string" },
+    path: { type: "string" },
+    title: { type: "string" },
+    draft: { type: "object" },
+    draftVersion: { type: "number" },
+  },
+  required: ["id", "siteId", "path", "title", "draftVersion"],
+  additionalProperties: true,
+} as const;
+
+const ASSET_SCHEMA = {
+  type: "object",
+  properties: {
+    id: { type: "string" },
+    siteId: { type: "string" },
+    filename: { type: "string" },
+    mime: { type: "string" },
+    byteSize: { type: "number" },
+    status: { type: "string" },
+  },
+  required: ["id", "siteId", "filename"],
+  additionalProperties: true,
+} as const;
+
+const REFERENCE_SCHEMA = {
+  type: "object",
+  properties: {
+    id: { type: "string" },
+    name: { type: "string" },
+    sourceUrl: { type: "string" },
+  },
+  required: ["id", "name"],
+  additionalProperties: true,
+} as const;
+
+// `get_page` returns an outline, not the page itself (see outline.ts). Its
+// `sections[].summary` is a human-readable one-liner, deliberately not a
+// structured value: a client that needs exact props calls `get_nodes`.
+const OUTLINE_SCHEMA = {
+  type: "object",
+  properties: {
+    pageId: { type: "string" },
+    path: { type: "string" },
+    title: { type: "string" },
+    draftVersion: { type: "number" },
+    sections: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          type: { type: "string" },
+          variant: { type: "string" },
+          hidden: { type: "boolean" },
+          summary: { type: "string" },
+        },
+        required: ["id", "type", "summary"],
+        additionalProperties: true,
+      },
+    },
+  },
+  required: ["pageId", "path", "title", "draftVersion", "sections"],
+  additionalProperties: true,
+} as const;
+
+// The list schemas. Each engine route names its own list field — `sites`,
+// `pages`, `assets` — so the key is a parameter rather than a guess. A generic
+// `items` would have been a schema the code does not keep, and the server would
+// (correctly) refuse to send the structure for every list tool.
+function listSchema(key: string, item: unknown): Record<string, unknown> {
+  return {
+    type: "object",
+    properties: { [key]: { type: "array", items: item } },
+    required: [key],
+    additionalProperties: true,
   };
 }
 
@@ -536,6 +647,7 @@ export const TOOLS: ToolDefinition[] = [
       "Lists all website projects with id, name, slug and profile. Start here to discover the siteId other tools need.",
     scope: "read",
     inputSchema: objectSchema({}),
+    outputSchema: listSchema("sites", SITE_SCHEMA),
     handler: async (context) => context.client.request("GET", "/api/sites"),
   },
   {
@@ -545,6 +657,7 @@ export const TOOLS: ToolDefinition[] = [
       "Loads one site with its profile and timestamps. Use it to confirm a siteId before writing.",
     scope: "read",
     inputSchema: objectSchema({ siteId: { type: "string" } }, ["siteId"]),
+    outputSchema: SITE_SCHEMA,
     entity: (args) => `site:${String(args.siteId ?? "")}`,
     handler: async (context, args) =>
       context.client.request("GET", `/api/sites/${requireString(args, "siteId")}`),
@@ -611,6 +724,7 @@ export const TOOLS: ToolDefinition[] = [
       "Lists the pages of a site with path, title and draftVersion. Use it to find the pageId for get_page and apply_mutations.",
     scope: "read",
     inputSchema: objectSchema({ siteId: { type: "string" } }, ["siteId"]),
+    outputSchema: listSchema("pages", PAGE_SCHEMA),
     entity: (args) => `site:${String(args.siteId ?? "")}`,
     handler: async (context, args) =>
       context.client.request(
@@ -625,6 +739,7 @@ export const TOOLS: ToolDefinition[] = [
       "Returns the outline of a page: top-level sections with id, type, variant and a short content summary plus the draftVersion needed for apply_mutations. Use get_nodes for full props.",
     scope: "read",
     inputSchema: objectSchema({ pageId: { type: "string" } }, ["pageId"]),
+    outputSchema: OUTLINE_SCHEMA,
     entity: (args) => `page:${String(args.pageId ?? "")}`,
     handler: async (context, args) =>
       pageOutline(await pageFor(context, requireString(args, "pageId"))),
@@ -1827,6 +1942,7 @@ export const TOOLS: ToolDefinition[] = [
       },
       ["siteId"],
     ),
+    outputSchema: listSchema("assets", ASSET_SCHEMA),
     entity: (args) => `site:${String(args.siteId ?? "")}`,
     handler: async (context, args) => {
       const siteId = requireString(args, "siteId");
@@ -2439,6 +2555,19 @@ export const TOOLS: ToolDefinition[] = [
       collection: { type: "string" },
       sort: { type: "string", enum: ["newest", "name"] },
     }),
+    outputSchema: {
+      type: "object",
+      properties: {
+        references: { type: "array", items: REFERENCE_SCHEMA },
+        // The collections carry their own counters, and the footer line is what
+        // a client shows as "showing N of M". Both are described, not required:
+        // a client that only needs the cards can ignore them.
+        collections: { type: "array", items: { type: "object" } },
+        total: { type: "number" },
+      },
+      required: ["references"],
+      additionalProperties: true,
+    },
     handler: async (context, args) => {
       const params = new URLSearchParams();
       for (const key of ["q", "family", "status", "collection", "sort"]) {

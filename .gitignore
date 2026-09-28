@@ -34,6 +34,25 @@ packages/docs-portal/public/portal-config.json
 .scratch/refs/*.mjs
 .scratch/import-echt.json
 .scratch/voll-import-summary.json
+# ---------------------------------------------------------------------------
+# .scratch-Hygiene (Fahrplan P3-6, 28.09.2026)
+#
+# Die Entscheidung: **Absicht wird getrackt, Beweisläufe nicht.** `.scratch/`
+# ist das Arbeitsmaterial dieses Projekts, und die Issues, Specs und
+# Research-Notizen darin sind die Begründung hinter dem Code — sie gehören ins
+# Repo, sonst kann niemand nachvollziehen, warum eine Entscheidung so und nicht
+# anders fiel.
+#
+# Was NICHT ins Repo kommt, ist alles, was ein Lauf erzeugt: Messbilder,
+# Logs, JSON-Messergebnisse, Prototyp-Builds, eingescannte Referenzfotos. Das
+# ist eine Größen- und Störungsfrage, keine Geheimnisfrage — und die Trennung
+# ist an den Mustern unten erkennbar, nicht an einem Ordner, den jemand
+# gelegentlich vergisst zu leeren.
+#
+# Geprüft am 28.09.2026: 228 getrackte Dateien (alle Text), 60+ ignorierte
+# Pfade. Damit ist die Mischung, die den Schritt aufgerufen hat, faktisch
+# aufgelöst — es stand nur nie als Regel dort.
+# ---------------------------------------------------------------------------
 # Messbilder und erzeugte Beweislaeufe: lokal, nicht ins Repo (Entscheidung: Fahrplan P0-1)
 # Getrackte .scratch-Notizen (issues/, specs, *.md, *.mjs-Werkzeuge) bleiben unberuehrt.
 .scratch/**/aufnahmen/
@@ -53,3 +72,6 @@ packages/docs-portal/public/portal-config.json
 packages/app/dist/
 # Erzeugte Messläufe des UI-Audits: lokal, nicht ins Repo (Fahrplan P0-1)
 .scratch/ui-audit/*.json
+# Lokaler Runtime-Store und nicht versionierte Testausgaben bleiben lokal.
+/data/
+/full.log

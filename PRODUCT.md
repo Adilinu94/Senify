@@ -77,8 +77,8 @@ offenes Ergebnis (Bake = lesbares HTML/CSS/JS, kein proprietäres Format).
 
 ## Evidence on Hand
 
-- `HANDOFF.md` (Stand, Entscheidungen, Fallen), `docs/verbesserungsplan.md` (Epics,
-  Lücken, Roadmap), `.scratch/editor-v2-rebuild/ui-plan.md` (Editor-Bauplan),
+- `docs/history/HANDOFF.md` (Stand, Entscheidungen, Fallen), `docs/history/verbesserungsplan.md`
+  (Epics, Lücken, Roadmap), `.scratch/editor-v2-rebuild/ui-plan.md` (Editor-Bauplan),
   `ui-aufgaben.md` (Aufgabenstand), `ui-design.md` (Werte und Nachweise).
 - `design-system/DESIGN-SYSTEM.md` + `senify.css` (Farbschicht, Kontrastnachweise),
   `farben-referenz-2026-09-22.md` (Messprotokoll), `pruef-kontrast.mjs` (Abnahme).

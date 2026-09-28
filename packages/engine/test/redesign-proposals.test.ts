@@ -369,10 +369,13 @@ describe("redesign proposals (ADR-0012)", () => {
     expect(record?.params.directionId).toBe(chosen?.id);
     expect(record?.params.sourcePageId).toBe(freshPage.id);
 
-    // ADR-0013: the result names what was written. The section plan is
-    // confirmed and readable, but this run wrote scaffold and theme only.
-    expect(decided.applyResult?.scope).toBe("scaffold-theme");
-    expect(decided.applyResult?.sectionPlanApplied).toBe(false);
+    // ADR-0013 + P2-1: the plan is confirmed AND written. Every entry the
+    // executor touched either found its registered target or was left
+    // behind as `manual`; the audit shows what ran, and the source draft is
+    // never touched. `scope` and `sectionPlanApplied` are read from the same
+    // flag (see RedesignProposalApplyResult), so they cannot contradict.
+    expect(decided.applyResult?.sectionPlanApplied).toBe(true);
+    expect(decided.applyResult?.scope).toBe("section-plan");
     expect(decided.applyResult?.planHash).toBe(chosen?.sectionPlan.planHash);
   }, 60000);
 

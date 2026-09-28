@@ -1,8 +1,11 @@
 import { copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
 import { SenifyError } from "@senify/core";
-import type { Author, Registry } from "@senify/section-sdk";
+import type { Author, PropValue, Registry } from "@senify/section-sdk";
 import { collectAssetIds } from "./media.ts";
+import type { Mutation } from "./mutations/contract.ts";
+import { applyMutations } from "./mutations/apply.ts";
+import { resolveMediaNeeds } from "./redesign-section-apply.ts";
 import { hardGuardrailsForTree } from "./guardrails.ts";
 import type { Asset } from "./types.ts";
 import { selectCardSnapshot } from "./references-library.ts";
@@ -17,6 +20,8 @@ import {
   verifyDirectionCardContentHash,
   type DirectionCard,
   type DirectionDecision,
+  type MediaNeedResolution,
+  type OpenMediaNeed,
   type RedesignProposal,
   type RedesignProposalApplyResult,
   type RedesignProposalBasis,
@@ -454,6 +459,21 @@ export async function confirmRedesignProposal(
       },
     );
   }
+  if (proposal.status === "expired") {
+    // Aged out (P2-3, R2). Refused here, next to the other refusals, so the
+    // human gets the reason before any work is prepared. The store's claim
+    // would refuse it too - this makes the failure early and explicit instead
+    // of a late conflict after a full compile.
+    throw new SenifyError(
+      "conflict",
+      "Diese Richtung ist abgelaufen, bevor jemand über sie entschieden hat",
+      {
+        field: "proposalId",
+        suggestion:
+          "Für die Seite neu planen. Die Quellseite hat sich seit diesem Vorschlag womöglich geändert.",
+      },
+    );
+  }
 
   const freshness = await proposalFreshness(context, proposal);
   if (!freshness.current) {
@@ -504,9 +524,15 @@ async function runConfirmedApply(
 ): Promise<RedesignProposalApplyResult> {
   const empty: RedesignProposalApplyResult = {
     status: "failed",
+    // Nothing was written, so the scope is the smaller one and the flag is
+    // false. A failed run must never look like a partial success.
     scope: "scaffold-theme",
     sectionPlanApplied: false,
     planHash: null,
+    // A failed run produces no needs to hand back. The empty list is the honest
+    // statement - not "nothing is missing" but "nothing was produced", which the
+    // `status` field already says.
+    openMediaNeeds: [],
     siteId: null,
     pageId: null,
     pagePath: null,
@@ -532,6 +558,12 @@ async function runConfirmedApply(
       sourceDraftVersion: input.proposal.source.draftVersion,
       sourceThemeVersion: input.proposal.source.themeVersion,
     },
+    // The confirmed direction's section plan: compileRedesign writes it onto
+    // the duplicate's copy of the source page (target type, target variant,
+    // preserved content) instead of seeding the generic skeleton (P2-1, R3).
+    // Sections without a registered target fall to `manual` warnings, so the
+    // apply does not claim what it did not run.
+    sectionPlan: input.card.sectionPlan,
     author: input.decision.author,
   };
   try {
@@ -541,11 +573,16 @@ async function runConfirmedApply(
     const handoff = pickHandoffPage(plan.pages, input.proposal.source.path);
     const applyResult: RedesignProposalApplyResult = {
       status: "applied",
-      // ADR-0013: this run wrote the draft scaffold and the confirmed theme.
-      // The section plan is confirmed but not executed here.
-      scope: "scaffold-theme",
-      sectionPlanApplied: false,
+      // The two fields are read from the same flag on purpose: a reader must
+      // never be able to see `scope: "section-plan"` next to
+      // `sectionPlanApplied: false` and have to guess which one to believe.
+      scope: plan.sectionPlanApplied ? "section-plan" : "scaffold-theme",
+      sectionPlanApplied: plan.sectionPlanApplied,
       planHash: input.card.sectionPlan.planHash,
+      // The work items, so a client can act on them without parsing the
+      // warnings (Fahrplan P2-2). The same list the plan produced - the apply
+      // resolved nothing, it only reported what stayed open.
+      openMediaNeeds: plan.openMediaNeeds,
       siteId: plan.targetSite.id,
       pageId: handoff?.pageId ?? null,
       pagePath: handoff?.path ?? null,
@@ -596,4 +633,180 @@ function pickHandoffPage(
   const same = routable.find((page) => page.path === sourcePath);
   if (same !== undefined) return same;
   return routable.find((page) => page.seeded) ?? routable[0] ?? null;
+}
+
+// Closing the media needs an apply left open (Fahrplan P2-2). This is what
+// makes the needs bedienbar: the caller names a need and an asset, and the slot
+// in the target draft stops being empty.
+//
+// Three things happen, in this order, and the order is the point:
+//   1. the needs come from the APPLY RESULT, not from the caller. A caller that
+//      invents a need id gets an error, and a caller that answers a need the
+//      apply never reported cannot smuggle a rewrite in.
+//   2. every named asset is checked against the TARGET site. A foreign id would
+//      render another site's media, and the check is here rather than at bake
+//      time so the draft is never briefly wrong.
+//   3. the writes go through `applyMutations`, the canonical path, with the
+//      current `baseDraftVersion`. A stale caller loses with a 409 instead of
+//      overwriting a concurrent edit.
+//
+// `manual` writes nothing and still counts as closed: the human decided the
+// slot stays empty, and the proposal's apply result records that so the
+// emptiness reads as a decision rather than a bug.
+export async function resolveRedesignMediaNeeds(
+  context: RedesignProposalContext,
+  input: {
+    proposalId: string;
+    resolutions: readonly { needId: string; resolution: MediaNeedResolution }[];
+    author: Author;
+  },
+): Promise<{
+  proposal: RedesignProposal;
+  closed: OpenMediaNeed[];
+  stillOpen: OpenMediaNeed[];
+  // The draft version AFTER the writes, so a caller chaining another edit does
+  // not have to re-read. The version BEFORE is what it sent as
+  // `baseDraftVersion` - and it already knows that, it read the page.
+  draftVersion: number;
+}> {
+  const proposal = await context.store.getRedesignProposal(input.proposalId);
+  const applied = proposal.applyResult;
+  if (applied === null || applied.status !== "applied") {
+    throw new SenifyError(
+      "conflict",
+      "Dieser Vorschlag hat keinen abgeschlossenen Apply; es gibt nichts zu schließen.",
+      { field: "proposalId" },
+    );
+  }
+  if (applied.siteId === null) {
+    throw new SenifyError("conflict", "Der Apply hat keine Zielsite hinterlassen.", {
+      field: "proposalId",
+    });
+  }
+
+  const { closed, stillOpen, rewrites } = await resolveMediaNeeds({
+    open: applied.openMediaNeeds,
+    resolutions: input.resolutions,
+    targetSiteId: applied.siteId,
+    assetBelongsToSite: async (assetId) => {
+      const asset = await context.store.getAsset(assetId);
+      return asset.siteId === applied.siteId && asset.status !== "trashed";
+    },
+  });
+
+  // A resolution that writes nothing needs no page; a `manual` on its own is a
+  // bookkeeping act, and saying so beats manufacturing an empty mutation batch.
+  let draftVersion = 0;
+  if (rewrites.length > 0) {
+    // Narrowed once, here: the null check above proved it, but TypeScript does
+    // not carry that narrowing into the closures below.
+    const targetSiteId = applied.siteId;
+    const pageId = applied.pageId;
+    if (pageId === null) {
+      throw new SenifyError("conflict", "Der Apply hat keine Zielseite hinterlassen.", {
+        field: "proposalId",
+      });
+    }
+    const page = await context.store.getPage(pageId);
+    // Group by node: one `updateNodeProps` per node beats one per need, and a
+    // caller closing three slots of the same section gets one version bump.
+    // The patch is a `PropValue` map, not `unknown`: the mutation contract
+    // types it as such, and a need that produced something outside the prop
+    // grammar would be a silent no-op the caller cannot see.
+    const byNode = new Map<string, Record<string, PropValue>>();
+    for (const rewrite of rewrites) {
+      const need = closed.find((entry) => entry.targetPath === rewrite.targetPath);
+      if (need === undefined) continue;
+      if (need.targetNodeId === "") continue;
+      const patch = byNode.get(need.targetNodeId) ?? {};
+      setPropPath(patch, need.targetPath, {
+        assetId: rewrite.assetId,
+        url: `/assets/${rewrite.assetId}/`,
+      });
+      byNode.set(need.targetNodeId, patch);
+    }
+    const mutations: Mutation[] = [...byNode.entries()].map(([id, patch]) => ({
+      op: "updateNodeProps",
+      id,
+      patch,
+    }));
+    if (mutations.length > 0) {
+      // The canonical path, in two halves that the engine already offers:
+      // `applyMutations` decides the new tree and the undo patches, and
+      // `persistBatch` writes it under a version check. Writing the draft
+      // directly would skip the integrity pass and the audit rows, and a media
+      // need closed outside the ledger is a change nobody can undo.
+      const outcome = applyMutations({
+        registry: context.registry,
+        tree: page.draft,
+        previousTitle: page.title,
+        previousPath: page.path,
+        mutations,
+      });
+      draftVersion = await context.store.persistBatch({
+        pageId,
+        expectedVersion: page.draftVersion,
+        draft: outcome.tree,
+        title: page.title,
+        path: page.path,
+        // One audit entry per applied mutation, each carrying the undo patch
+        // `applyMutations` computed. One entry for the whole batch would make
+        // the ledger claim a change it cannot take back.
+        entries: outcome.results.map((result) => ({
+          siteId: targetSiteId,
+          pageId,
+          batchId: `resolve-media-${input.proposalId}`,
+          opIndex: result.opIndex,
+          mutation: result.op,
+          params: { proposalId: input.proposalId },
+          author: input.author,
+          undoPatch: result.undoPatch,
+          draftVersionAfter: 0,
+        })),
+      });
+    }
+  }
+
+  // The proposal's stored apply result now names the closed needs, so the next
+  // `get_redesign_proposal` shows what is still missing without the caller
+  // having to keep its own list.
+  const updated = await context.store.recordMediaNeedResolutions({
+    proposalId: input.proposalId,
+    openMediaNeeds: stillOpen,
+  });
+  return { proposal: updated, closed, stillOpen, draftVersion };
+}
+
+// Writes one prop path ("items[0].cover") into a patch object, creating the
+// intermediate objects and arrays. The path comes from the plan, which derived
+// it by walking the source props - so it is well-formed for the shape that
+// section declares. A path whose root is not an object would throw here, and
+// that is the right moment: a need addressing a slot the section does not have.
+function setPropPath(target: Record<string, PropValue>, path: string, value: PropValue): void {
+  const steps = path.split(".");
+  let cursor: Record<string, PropValue> = target;
+  for (let index = 0; index < steps.length - 1; index += 1) {
+    const step = steps[index]!;
+    const nextKey = steps[index + 1]!;
+    if (cursor[step] === undefined) {
+      cursor[step] = /^\d+$/.test(nextKey) ? [] : {};
+    }
+    const next = cursor[step];
+    if (Array.isArray(next)) {
+      const at = Number(nextKey);
+      if (next[at] === undefined) next[at] = {};
+      cursor = next[at] as Record<string, PropValue>;
+      continue;
+    }
+    if (next === null || typeof next !== "object") {
+      throw new Error(`Medienpfad "${path}" läuft durch einen Wert statt durch einen Abschnitt.`);
+    }
+    cursor = next as Record<string, PropValue>;
+  }
+  const last = steps[steps.length - 1]!;
+  if (/^\d+$/.test(last) && Array.isArray(cursor)) {
+    cursor[Number(last)] = value;
+    return;
+  }
+  cursor[last] = value;
 }

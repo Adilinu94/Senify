@@ -120,9 +120,9 @@ importers:
       '@senify/core':
         specifier: workspace:*
         version: link:../core
-      '@senify/mcp':
+      '@senify/manifest':
         specifier: workspace:*
-        version: link:../mcp
+        version: link:../manifest
       '@senify/registry':
         specifier: workspace:*
         version: link:../registry
@@ -236,6 +236,8 @@ importers:
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
+
+  packages/manifest: {}
 
   packages/mcp:
     dependencies:

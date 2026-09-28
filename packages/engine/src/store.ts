@@ -8,6 +8,12 @@ import {
   type NodeTree,
 } from "@senify/section-sdk";
 import type { FormSnapshot } from "@senify/renderer";
+import type {
+  DesignRecord,
+  DesignRecordStage,
+  DesignReport,
+} from "./design-report.ts";
+import type { ReleaseAssetSnapshot } from "./types.ts";
 import {
   defaultTheme,
   emitCss,
@@ -710,10 +716,18 @@ type RedesignProposalRow = {
   decision: unknown;
   apply_result: unknown;
   created_at: unknown;
+  expires_at: unknown;
 };
 
 const REDESIGN_PROPOSAL_COLUMNS =
-  "id, source_page_id, status, cards, basis, decision, apply_result, created_at";
+  "id, source_page_id, status, cards, basis, decision, apply_result, created_at, expires_at";
+
+// How long a direction stays decidable (Fahrplan P2-3, R2). A proposal is
+// offered against a pinned draft and theme version, so a decision taken weeks
+// later would apply a plan to a source that has moved on. Seven days is long
+// enough for a human to come back to it and short enough that the inbox does
+// not fill with proposals nobody will ever read.
+const DEFAULT_PROPOSAL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function mapRedesignProposal(row: RedesignProposalRow): RedesignProposal {
   if (!isRedesignProposalStatus(row.status)) {
@@ -733,6 +747,34 @@ function mapRedesignProposal(row: RedesignProposalRow): RedesignProposal {
       row.apply_result === null || row.apply_result === undefined
         ? null
         : toJson<RedesignProposalApplyResult>(row.apply_result),
+    createdAt: toIso(row.created_at),
+    expiresAt: row.expires_at === null || row.expires_at === undefined
+      ? null
+      : toIso(row.expires_at),
+  };
+}
+
+type DesignRecordRow = {
+  id: string;
+  site_id: string;
+  stage: string;
+  draft_version: unknown;
+  theme_version: unknown;
+  report: unknown;
+  created_at: unknown;
+};
+
+function mapDesignRecord(row: DesignRecordRow): DesignRecord {
+  if (row.stage !== "publish" && row.stage !== "review") {
+    throw new Error(`Stored design record stage is invalid: ${row.stage}`);
+  }
+  return {
+    id: row.id,
+    siteId: row.site_id,
+    stage: row.stage,
+    draftVersion: toFiniteNumber(row.draft_version, "draft_version"),
+    themeVersion: toFiniteNumber(row.theme_version, "theme_version"),
+    report: toJson<DesignReport>(row.report),
     createdAt: toIso(row.created_at),
   };
 }
@@ -1800,8 +1842,8 @@ export class Store {
       // The decision is claimed inside the same transaction as its effects, so
       // a rollback removes both together.
       if (input.proposalClaim !== null) {
-        const locked = await tx.query<{ status: string }>(
-          `SELECT status FROM redesign_proposals WHERE id = $1 FOR UPDATE`,
+        const locked = await tx.query<{ status: string; expires_at: unknown }>(
+          `SELECT status, expires_at FROM redesign_proposals WHERE id = $1 FOR UPDATE`,
           [input.proposalClaim.proposalId],
         );
         const row = locked.rows[0];
@@ -1810,10 +1852,46 @@ export class Store {
             field: "proposalId",
           });
         }
+        if (row.status === "expired") {
+          // Aged out (P2-3, R2). Its own message, because "already decided"
+          // would be a lie: nobody decided this one, it simply ran out of time.
+          throw new SenifyError(
+            "conflict",
+            "This direction expired before anyone decided it",
+            {
+              field: "proposalId",
+              suggestion:
+                "Create a new proposal for the page. The source page may have changed since this one was derived.",
+            },
+          );
+        }
         if (row.status !== "proposed") {
           throw new SenifyError("conflict", "The direction was already decided", {
             field: "proposalId",
           });
+        }
+        // The deadline is checked here, inside the claim, not only in the list
+        // sweep: a confirm that arrives between two sweeps must still lose
+        // against its own expiry rather than write a plan nobody can take back.
+        if (row.expires_at !== null && row.expires_at !== undefined) {
+          const expiresAt = toIso(row.expires_at);
+          if (Date.parse(expiresAt) <= Date.parse(input.now)) {
+            // The row is still `proposed`, so move it to its end state in this
+            // transaction; the rollback removes it again if the apply fails.
+            await tx.query(
+              `UPDATE redesign_proposals SET status = 'expired' WHERE id = $1`,
+              [input.proposalClaim.proposalId],
+            );
+            throw new SenifyError(
+              "conflict",
+              "This direction expired before anyone decided it",
+              {
+                field: "proposalId",
+                suggestion:
+                  "Create a new proposal for the page. The source page may have changed since this one was derived.",
+              },
+            );
+          }
         }
         await tx.query(
           `UPDATE redesign_proposals SET status = 'applying', decision = $2 WHERE id = $1`,
@@ -3945,6 +4023,122 @@ export class Store {
     );
   }
 
+  // Design records (Fahrplan P2-4, R4). Written once, never updated: a
+  // measurement of the same site at a later moment is a new record, not a
+  // correction of the old one. That is what makes "this release was green" a
+  // fact about the release instead of a claim about the present.
+  async createDesignRecord(input: {
+    siteId: string;
+    stage: DesignRecordStage;
+    draftVersion: number;
+    themeVersion: number;
+    report: DesignReport;
+  }): Promise<DesignRecord> {
+    const id = newEntityId();
+    const createdAt = new Date().toISOString();
+    const result = await this.#db.query<DesignRecordRow>(
+      `INSERT INTO design_records
+        (id, site_id, stage, draft_version, theme_version, report, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, site_id, stage, draft_version, theme_version, report, created_at`,
+      [
+        id,
+        input.siteId,
+        input.stage,
+        input.draftVersion,
+        input.themeVersion,
+        toJsonParam(input.report),
+        createdAt,
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error("Design record insert returned no row");
+    return mapDesignRecord(row);
+  }
+
+  // The newest record per stage, newest first within a stage. `stages` filters
+  // the read; without it the caller gets every measurement the site ever had.
+  async listDesignRecords(
+    siteId: string,
+    options: { stage?: DesignRecordStage; limit?: number } = {},
+  ): Promise<DesignRecord[]> {
+    const limit = options.limit ?? 20;
+    const result =
+      options.stage === undefined
+        ? await this.#db.query<DesignRecordRow>(
+            `SELECT id, site_id, stage, draft_version, theme_version, report, created_at
+               FROM design_records WHERE site_id = $1
+              ORDER BY created_at DESC, id DESC LIMIT $2`,
+            [siteId, limit],
+          )
+        : await this.#db.query<DesignRecordRow>(
+            `SELECT id, site_id, stage, draft_version, theme_version, report, created_at
+               FROM design_records WHERE site_id = $1 AND stage = $2
+              ORDER BY created_at DESC, id DESC LIMIT $3`,
+            [siteId, options.stage, limit],
+          );
+    return result.rows.map(mapDesignRecord);
+  }
+
+  // Replaces the open media needs an apply left (Fahrplan P2-2). Only the
+  // `apply_result` column moves, and only its `openMediaNeeds` list: the
+  // proposal's status, decision, cards and the rest of the result are the
+  // record of what happened and must not shift when someone later closes a
+  // need. A closing is a follow-up act, not a rewrite of history.
+  async recordMediaNeedResolutions(input: {
+    proposalId: string;
+    openMediaNeeds: RedesignProposalApplyResult["openMediaNeeds"];
+  }): Promise<RedesignProposal> {
+    const result = await this.#db.query<{ apply_result: unknown }>(
+      `SELECT apply_result FROM redesign_proposals WHERE id = $1`,
+      [input.proposalId],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Redesign proposal "${input.proposalId}" does not exist`, {
+        field: "proposalId",
+      });
+    }
+    const current =
+      row.apply_result === null || row.apply_result === undefined
+        ? null
+        : toJson<RedesignProposalApplyResult>(row.apply_result);
+    if (current === null) {
+      throw new SenifyError("conflict", "Dieser Vorschlag hat kein Apply-Ergebnis.", {
+        field: "proposalId",
+      });
+    }
+    const next = { ...current, openMediaNeeds: input.openMediaNeeds };
+    // `sectionPlanApplied` deliberately stays as the apply left it. Closing the
+    // last need makes the run COMPLETE, not retroactive: a run that wrote no
+    // rebuild does not get to claim it did just because someone supplied the
+    // missing image afterwards. The client reads `openMediaNeeds` for "what is
+    // left", `sectionPlanApplied` for "what the run did".
+    const updated = await this.#db.query<RedesignProposalRow>(
+      `UPDATE redesign_proposals SET apply_result = $2 WHERE id = $1
+       RETURNING ${REDESIGN_PROPOSAL_COLUMNS}`,
+      [input.proposalId, toJsonParam(next)],
+    );
+    const stored = updated.rows[0];
+    if (!stored) throw new Error("Redesign proposal media-need update returned no row");
+    return mapRedesignProposal(stored);
+  }
+
+  async getDesignRecord(id: string): Promise<DesignRecord> {
+    const result = await this.#db.query<DesignRecordRow>(
+      `SELECT id, site_id, stage, draft_version, theme_version, report, created_at
+         FROM design_records WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new SenifyError("not_found", `Design record "${id}" does not exist`, {
+        field: "recordId",
+      });
+    }
+    return mapDesignRecord(row);
+  }
+
   async appendMcpAudit(input: {
     tokenId: string | null;
     client: string;
@@ -4816,20 +5010,28 @@ export class Store {
     sourcePageId: string;
     cards: DirectionCard[];
     basis: RedesignProposalBasis;
+    // How long the human has to decide. The proposal is offered against a
+    // pinned draft and theme version, so a decision made long after the fact
+    // would apply to a source that has moved on; the sweep below moves the row
+    // to `expired` instead of letting it linger and half-write (P2-3, R2).
+    ttlMs?: number;
   }): Promise<RedesignProposal> {
     const { id } = input;
-    const createdAt = new Date().toISOString();
+    const createdAt = new Date();
+    const ttl = input.ttlMs ?? DEFAULT_PROPOSAL_TTL_MS;
+    const expiresAt = new Date(createdAt.getTime() + ttl).toISOString();
     const result = await this.#db.query<RedesignProposalRow>(
       `INSERT INTO redesign_proposals
-        (id, source_page_id, status, cards, basis, decision, apply_result, created_at)
-       VALUES ($1, $2, 'proposed', $3, $4, NULL, NULL, $5)
+        (id, source_page_id, status, cards, basis, decision, apply_result, created_at, expires_at)
+       VALUES ($1, $2, 'proposed', $3, $4, NULL, NULL, $5, $6)
        RETURNING ${REDESIGN_PROPOSAL_COLUMNS}`,
       [
         id,
         input.sourcePageId,
         toJsonParam(input.cards),
         toJsonParam(input.basis),
-        createdAt,
+        createdAt.toISOString(),
+        expiresAt,
       ],
     );
     const row = result.rows[0];
@@ -4838,6 +5040,10 @@ export class Store {
   }
 
   async getRedesignProposal(id: string): Promise<RedesignProposal> {
+    // The sweep runs here too, so a single-proposal read cannot show a
+    // direction as still open when its deadline has passed. Reading the inbox
+    // and reading one proposal must not disagree about whether it is alive.
+    await this.expireStaleRedesignProposals();
     const result = await this.#db.query<RedesignProposalRow>(
       `SELECT ${REDESIGN_PROPOSAL_COLUMNS} FROM redesign_proposals WHERE id = $1`,
       [id],
@@ -4854,10 +5060,17 @@ export class Store {
 
   // The inbox of a source page: the open proposals first, then the finished
   // ones for the history. `status: null` asks for everything.
+  //
+  // The sweep runs first: an undecided proposal past its deadline is `expired`
+  // before anyone reads the list, so the inbox never offers a direction that
+  // can no longer be taken. A row created before the column existed has
+  // `expires_at` NULL and is deliberately left alone - ageing out rows we never
+  // gave a deadline would be a guess.
   async listRedesignProposals(
     sourcePageId: string,
     options: { status?: RedesignProposalStatus } = {},
   ): Promise<RedesignProposal[]> {
+    await this.expireStaleRedesignProposals();
     const openFirst =
       "ORDER BY CASE status WHEN 'proposed' THEN 0 WHEN 'applying' THEN 1 ELSE 2 END, created_at DESC, id DESC";
     const result =
@@ -4875,6 +5088,29 @@ export class Store {
     return result.rows.map(mapRedesignProposal);
   }
 
+  // Ages out the proposals nobody decided (Fahrplan P2-3, R2).
+  //
+  // Only `proposed` rows are touched. An `applying` row is a run in flight and
+  // an `applied`/`failed` row is history; moving either would destroy the fact
+  // that the human decided, or would race a transaction that is about to write
+  // its effects. The rows are marked `expired`, never deleted: "the human never
+  // chose this" is worth keeping, and a confirm against an expired proposal
+  // must fail loudly (see the claim below) instead of half-writing.
+  //
+  // Returns the ids it moved, so a caller can log or audit the sweep.
+  async expireStaleRedesignProposals(
+    now: string = new Date().toISOString(),
+  ): Promise<string[]> {
+    const result = await this.#db.query<{ id: string }>(
+      `UPDATE redesign_proposals
+          SET status = 'expired'
+        WHERE status = 'proposed' AND expires_at IS NOT NULL AND expires_at <= $1
+        RETURNING id`,
+      [now],
+    );
+    return result.rows.map((row) => row.id);
+  }
+
   // The human decision, stored before the first effect. Returns "claimed"
   // only for the caller that moved the row; a second confirm of the same
   // proposal loses and must not run the apply again.
@@ -4882,7 +5118,11 @@ export class Store {
     proposalId: string;
     directionId: string;
     decision: DirectionDecision;
-  }): Promise<{ state: "claimed" | "already_decided"; proposal: RedesignProposal }> {
+  }): Promise<
+    | { state: "claimed"; proposal: RedesignProposal }
+    | { state: "already_decided"; proposal: RedesignProposal }
+    | { state: "expired"; proposal: RedesignProposal }
+  > {
     return this.#db.withTransaction(async (tx) => {
       const locked = await tx.query<RedesignProposalRow>(
         `SELECT ${REDESIGN_PROPOSAL_COLUMNS} FROM redesign_proposals WHERE id = $1 FOR UPDATE`,
@@ -4895,6 +5135,12 @@ export class Store {
         });
       }
       const current = mapRedesignProposal(row);
+      if (current.status === "expired") {
+        // Aged out (P2-3, R2). A distinct state, not `already_decided`: the
+        // caller must answer "this direction can no longer be taken, create a
+        // new proposal" rather than replaying a decision that never happened.
+        return { state: "expired" as const, proposal: current };
+      }
       if (current.status !== "proposed") {
         return { state: "already_decided" as const, proposal: current };
       }
@@ -4971,6 +5217,63 @@ export class Store {
       variants: variants.get(asset.id) ?? [],
       blurhash: blurhashes.get(asset.id) ?? null,
     }));
+  }
+
+  // Restores one asset row from a release snapshot (Fahrplan P3-4, R7).
+  //
+  // An UPSERT by id, deliberately: the id is what the pages reference, and a
+  // rollback that handed out a new id would leave every page pointing at
+  // nothing. The hash goes along because the release's pages were built against
+  // those bytes, not against the id.
+  //
+  // `site_id` is taken from the snapshot, not from the caller: a rollback must
+  // not be able to move an asset between sites, and a snapshot of another site
+  // belongs to another site.
+  async replaceAssetFromSnapshot(snapshot: ReleaseAssetSnapshot): Promise<Asset> {
+    const now = new Date().toISOString();
+    const result = await this.#db.query<AssetRow>(
+      `INSERT INTO assets
+        (id, site_id, filename, mime, kind, byte_size, width, height, hash, alt_text, decorative, folder_id, tags, storage_ref, status, replaced_at, trashed_at, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'ready', NULL, NULL, $15, $15)
+       ON CONFLICT (id) DO UPDATE SET
+         filename = EXCLUDED.filename,
+         mime = EXCLUDED.mime,
+         kind = EXCLUDED.kind,
+         byte_size = EXCLUDED.byte_size,
+         width = EXCLUDED.width,
+         height = EXCLUDED.height,
+         hash = EXCLUDED.hash,
+         alt_text = EXCLUDED.alt_text,
+         decorative = EXCLUDED.decorative,
+         folder_id = EXCLUDED.folder_id,
+         tags = EXCLUDED.tags,
+         storage_ref = EXCLUDED.storage_ref,
+         status = 'ready',
+         trashed_at = NULL,
+         replaced_at = NULL,
+         updated_at = EXCLUDED.updated_at
+       RETURNING ${ASSET_COLUMNS}`,
+      [
+        snapshot.id,
+        snapshot.siteId,
+        snapshot.filename,
+        snapshot.mime,
+        snapshot.kind as AssetKind,
+        snapshot.byteSize,
+        snapshot.width,
+        snapshot.height,
+        snapshot.hash,
+        snapshot.altText,
+        snapshot.decorative,
+        snapshot.folderId,
+        toJsonParam(snapshot.tags),
+        snapshot.storageRef,
+        now,
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error("Asset snapshot restore returned no row");
+    return mapAsset(row);
   }
 
   async createAsset(input: {

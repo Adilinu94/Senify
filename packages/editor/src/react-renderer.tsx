@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import type { NodeTree, Registry } from "@senify/section-sdk";
 import { getPrimitive } from "@senify/widget-engine";
 import { SectionTree, type SectionContext } from "@senify/registry/components";
-import type { FrameRenderer } from "./mount.ts";
+import type { FrameRenderer } from "./frame-renderer.ts";
 import { isHiddenAt } from "./frames.ts";
 import type { FrameBreakpoint } from "./types.ts";
 import type { DomElement } from "./dom.ts";

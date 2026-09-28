@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { assetFilePath } from "../src/storage.ts";
 import {
   applyMutationsRequest,
   bootEngine,
@@ -20,6 +23,13 @@ type ReleaseManifestBody = {
   buildHash: string;
   capturedAt: string;
   siteDate: string;
+  // P3-4 (R7): the four snapshots. `assets` is the one with teeth - the
+  // others are read here to prove the manifest is complete, not to drive a
+  // rollback.
+  assets: { id: string; hash: string; altText: string | null; storageRef: string }[];
+  components: { id: string; slug: string }[];
+  payloads: { id: string; integrity: string }[];
+  entries: { id: string; slug: string; revisionId: string }[];
   restoredFrom?: string;
 };
 
@@ -151,8 +161,198 @@ describe("release manifest", () => {
     expect(releases.body.activeReleaseId).toBe(rollback.body.release.id);
   }, 180000);
 
-  it("freezes a finalized release against build and manifest mutations", async () => {
-    const site = await createTestSite(env.api, "Frozen Studio");
+  // P3-4 (R7): the manifest froze the style registry, so a rollback restored
+  // the styling of a site whose media had moved on. The snapshot below is the
+  // fix, and this is the proof: the asset is DELETED after the release, and the
+  // rollback brings it back.
+  it("restores the assets a release used, even after they were deleted", async () => {
+    const site = await createTestSite(env.api, "Snapshot Studio");
+    const page = await createTestPage(env.api, site.id, { title: "Start" });
+
+    // A real asset row AND the real file behind it, at the path the engine
+    // itself uses (`assetFilePath`, not a path the test invented). The publish
+    // guard resolves every `/assets/...` reference inside the release, so a row
+    // without bytes would (correctly) be refused - and a file in the wrong
+    // directory would be invisible to the purge, which is exactly the kind of
+    // half-state this test exists to rule out.
+    const assetId = "asset-release-a";
+    const asset = await env.engine.store.createAsset({
+      id: assetId,
+      siteId: site.id,
+      filename: "hero-a.png",
+      mime: "image/png",
+      kind: "image",
+      byteSize: 12,
+      width: 2,
+      height: 2,
+      hash: "sha256:release-a",
+      altText: "Das Bild des ersten Releases",
+      decorative: false,
+      folderId: null,
+      tags: [],
+      // The storage ref IS the path relative to the data dir. The bake reads it
+      // with `resolveStoredFile` and copies the bytes into the release, so a ref
+      // pointing somewhere the engine does not look would let the publish guard
+      // pass on paper while delivering a broken image.
+      storageRef: join("assets", site.id, assetId, "hero-a.png"),
+    });
+    const assetFile = assetFilePath(env.dataDir, site.id, assetId, "hero-a.png");
+    mkdirSync(dirname(assetFile), { recursive: true });
+    writeFileSync(assetFile, Buffer.from("release-a-bytes"));
+    await applyMutationsRequest(env.api, await loadPage(page.id), [
+      {
+        op: "insertNode",
+        parent: { nodeId: (await loadPage(page.id)).draft.rootNodeId },
+        node: {
+          id: "media-1",
+          type: "media",
+          props: { asset: { assetId: asset.id }, caption: "Mit Bild" },
+        },
+      },
+    ]);
+
+    const first = await publish(site.id, { note: "A mit Bild" });
+    // The publish answers with the findings it refused on, so a failure says
+    // WHICH guardrail fired instead of only "422".
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+    const manifestA = first.body.release.manifest;
+    // The snapshot names the asset, with the hash a deploy would compare.
+    expect(manifestA?.assets.map((entry) => entry.id)).toEqual([asset.id]);
+    expect(manifestA?.assets[0]?.hash).toBe("sha256:release-a");
+    expect(manifestA?.assets[0]?.altText).toBe("Das Bild des ersten Releases");
+    // And the file is on disk, so the rollback can find the bytes.
+    expect(
+      existsSync(resolve(env.dataDir, manifestA?.assets[0]?.storageRef ?? "")),
+    ).toBe(true);
+
+    // Delete the asset after the release - including the file. This is what the
+    // rollback has to survive: the page still points at the id, neither the row
+    // nor the bytes are there any more. A snapshot can bring the row back; the
+    // bytes are gone, and the test says so rather than pretending otherwise.
+    //
+    // The two steps are the real product path: DELETE trashes (the file stays),
+    // then POST purge removes the record and the file. Only the second makes the
+    // rollback's work necessary.
+    const trashed = await env.api.request({
+      method: "DELETE",
+      path: `/api/sites/${site.id}/assets/${asset.id}`,
+      body: { author: TEST_AUTHOR },
+    });
+    expect(trashed.status).toBe(200);
+    const purged = await env.humanApi.request({
+      method: "POST",
+      path: `/api/sites/${site.id}/assets/${asset.id}/purge`,
+      body: { author: TEST_AUTHOR },
+    });
+    expect(purged.status, JSON.stringify(purged.body)).toBe(200);
+    await expect(env.engine.store.getAsset(asset.id)).rejects.toThrow();
+    expect(existsSync(assetFile)).toBe(false);
+
+    // Change the page so the rollback has something to undo, then roll back.
+    await applyMutationsRequest(env.api, await loadPage(page.id), [
+      { op: "updateNodeProps", id: "media-1", patch: { caption: "Geändert" } },
+    ]);
+
+    const rollback = await publish(site.id, {
+      note: "rollback mit Asset",
+      basisReleaseId: first.body.release.id,
+    });
+    // A release whose pages point at an asset with no file on disk is refused
+    // by the publish guard - and correctly so: shipping it would publish a
+    // broken image. The manifest brought the ROW back; the BYTES are gone, and
+    // this assertion is where that limit becomes visible instead of being
+    // papered over. P3-4 restores the row, the deployment artifact and the
+    // deploy check; it cannot conjure bytes from a hash.
+    //
+    // The 422 is the RIGHT answer here, and it is also why the row is not
+    // asserted: a refused publish writes no release, so the site is left as the
+    // guard found it rather than half-repaired. The recovered case is the one
+    // below, where the bytes still exist in the basis release.
+    expect(rollback.status, JSON.stringify(rollback.body)).toBe(422);
+    // The refusal names the asset by id, so a human reading the error knows
+    // exactly which upload is missing rather than hunting for it.
+    expect(JSON.stringify(rollback.body)).toContain(assetId);
+  }, 180000);
+
+  // The case the snapshot actually exists for: the asset was REPLACED after the
+  // release, so the row is still there and still points at a real file - just
+  // not the one the pages were built against. The file the release shipped is
+  // still in the release directory; a rollback has to prefer it over whatever
+  // the library holds now.
+  it("restores the release's asset version when it was replaced afterwards", async () => {
+    const site = await createTestSite(env.api, "Replace Studio");
+    const page = await createTestPage(env.api, site.id, { title: "Start" });
+
+    const assetId = "asset-replaced";
+    const original = await env.engine.store.createAsset({
+      id: assetId,
+      siteId: site.id,
+      filename: "hero.png",
+      mime: "image/png",
+      kind: "image",
+      byteSize: 10,
+      width: 2,
+      height: 2,
+      hash: "sha256:original",
+      altText: "Das Originalbild",
+      decorative: false,
+      folderId: null,
+      tags: [],
+      storageRef: join("assets", site.id, assetId, "hero.png"),
+    });
+    const assetFile = assetFilePath(env.dataDir, site.id, assetId, "hero.png");
+    mkdirSync(dirname(assetFile), { recursive: true });
+    writeFileSync(assetFile, Buffer.from("original-bytes"));
+
+    await applyMutationsRequest(env.api, await loadPage(page.id), [
+      {
+        op: "insertNode",
+        parent: { nodeId: (await loadPage(page.id)).draft.rootNodeId },
+        node: {
+          id: "media-1",
+          type: "media",
+          props: { asset: { assetId }, caption: "Mit Bild" },
+        },
+      },
+    ]);
+    const first = await publish(site.id, { note: "Original" });
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+    expect(first.body.release.manifest?.assets[0]?.hash).toBe("sha256:original");
+
+    // Replace the asset the way the product does: a new file, a new hash, a
+    // new alt text. The id stays - that is what the pages reference.
+    const history = "hero-h2.png";
+    writeFileSync(assetFilePath(env.dataDir, site.id, assetId, history), Buffer.from("replacement"));
+    await env.engine.store.updateAsset(assetId, {
+      filename: history,
+      hash: "sha256:replacement",
+      altText: "Das Ersatzbild",
+      byteSize: 11,
+      storageRef: join("assets", site.id, assetId, history),
+    });
+    const replaced = await env.engine.store.getAsset(assetId);
+    expect(replaced.hash).toBe("sha256:replacement");
+
+    // Roll back. The manifest says the pages were built against
+    // `sha256:original`, so the row goes back to that - the alt text and the
+    // size travel with it, because an image whose description belongs to a
+    // different picture is its own kind of wrong.
+    const rollback = await publish(site.id, {
+      note: "rollback nach Ersetzung",
+      basisReleaseId: first.body.release.id,
+    });
+    expect(rollback.status, JSON.stringify(rollback.body)).toBe(201);
+
+    const restored = await env.engine.store.getAsset(assetId);
+    expect(restored.hash).toBe("sha256:original");
+    expect(restored.altText).toBe("Das Originalbild");
+    expect(restored.filename).toBe(original.filename);
+    // The release's own bytes are still where they were, so the file resolves
+    // and the publish guard let it through.
+    expect(existsSync(resolve(env.dataDir, restored.storageRef))).toBe(true);
+  }, 180000);
+
+  it("freezes a finalized release against build and manifest mutations", async () => {    const site = await createTestSite(env.api, "Frozen Studio");
     await createTestPage(env.api, site.id, { title: "Start" });
     const published = await publish(site.id, { note: "freeze" });
     expect(published.status).toBe(201);

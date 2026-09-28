@@ -62,8 +62,25 @@ describe("program shell (Prüfstelle Programm)", () => {
       const editor = await fetch(`${running.dashboardUrl}/editor.js`);
       expect(editor.status).toBe(200);
       const bundle = await editor.text();
-      expect(bundle).toContain("mountEditor");
+      expect(bundle).toContain("mountCanvas");
       expect(bundle).toContain("createRegistry");
+      // P3-1 Punkt 4 (R5): the v1 editor is gone from the bundle. The check is
+      // anchored and reports the surrounding text on failure, because
+      // "the string is still somewhere" is not actionable - a leftover comment,
+      // an error message or a React internal each need a different fix, and
+      // React's own DOM bundle contains `...NodeIntoContainer`, which a bare
+      // substring search would match.
+      const legacyAt = bundle.search(/\bmountEditor\b/);
+      expect(
+        legacyAt < 0
+          ? null
+          : bundle.slice(Math.max(0, legacyAt - 100), legacyAt + 100),
+      ).toBeNull();
+
+      // The retired editor's own page went with it: the last thing that pointed
+      // at the legacy module was the test that measured its panel geometry.
+      const legacy = await fetch(`${running.dashboardUrl}/legacy-editor.html`);
+      expect(legacy.status).toBe(404);
 
       // The dashboard acts as the local operator: writes go through the
       // proxy with the injected program token.

@@ -91,11 +91,15 @@ describe("panel edges belong to the new skin (Aufgabe 29)", () => {
     expect(EDITOR_STYLES).toContain(".senify-editor__split { display: none; }");
   });
 
-  it("wires the two edges in the running editor (mount.ts)", () => {
-    const mount = readFileSync(new URL("../../src/mount.ts", import.meta.url), "utf8");
-    expect(mount).toContain('splitHandle("inspector")');
-    expect(mount).toContain('splitHandle("explorer")');
-    expect(mount).toContain("senify-editor-panelbreiten");
+  // P3-1 Punkt 4 (R5): the two panel edges belonged to the retired v1 editor.
+  // The editor is gone, so there are no edges left to wire - and that is the
+  // assertion worth keeping. The old test read `mount.ts` as text and looked for
+  // `splitHandle("inspector")` in it; asserting on the ABSENCE of the file says
+  // the same thing about the product and fails if the module ever comes back.
+  it("has no legacy editor module left to carry the panel edges", () => {
+    expect(() =>
+      readFileSync(new URL("../../src/mount.ts", import.meta.url), "utf8"),
+    ).toThrow();
   });
 });
 
@@ -148,15 +152,18 @@ describe("symbols are drawn from the bundled set (Aufgabe 3)", () => {
     expect(EDITOR_ICON_BASE_CSS).toContain(".senify-editor .ic--14");
   });
 
-  it("replaced the placeholder glyphs in the running editor shell", () => {
-    const mount = readFileSync(
-      new URL("../../src/mount.ts", import.meta.url),
-      "utf8",
-    );
+  // The old assertion read `mount.ts` and looked for the placeholder glyphs.
+  // The file is gone, so the check moves to where the glyphs would reappear if
+  // someone reintroduced them: the bundled icon set itself. A placeholder glyph
+  // in `EDITOR_ICON_STYLES` would be drawn next to a mask rule that resolves to
+  // nothing, which is the exact failure this test was written for.
+  it("carries no placeholder glyphs in the bundled icon set", () => {
     for (const glyph of ["↺", "▾", "▸", "✎", "⧉", "⠿", "✕", "●", "◌", "‹", "−", "✓"]) {
-      expect(mount.includes(glyph), `placeholder glyph left: ${glyph}`).toBe(false);
+      expect(EDITOR_ICON_STYLES.includes(glyph), `placeholder glyph left: ${glyph}`).toBe(
+        false,
+      );
     }
-    // And it draws real icons instead (one helper, one library).
-    expect(mount).toContain("ic--");
+    // And the set is real icons, not text: one mask rule per name.
+    expect(EDITOR_ICON_STYLES).toContain("ic--");
   });
 });

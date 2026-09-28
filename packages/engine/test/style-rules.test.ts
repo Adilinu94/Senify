@@ -425,4 +425,187 @@ describe("style rule registry (site-wide)", () => {
       await env.close();
     }
   });
+
+  // R9: the class rename had an implementation but no test. A rename is the
+  // one write in the registry that changes what the rule *means* rather than
+  // how it looks, so it is exactly the kind of change that needs a proof: the
+  // id survives, the selector follows the name, the styles stay put, and the
+  // two kinds that must not be renamed say so instead of silently changing.
+  it("renames a class rule and carries the selector, id and styles along", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Rename");
+      const created = await env.api.request<StyleRuleResponse>({
+        method: "POST",
+        path: `/api/sites/${site.id}/style-rules`,
+        body: {
+          name: "hero-button",
+          styles: { background: "#cbff97", padding: 12 },
+          author: TEST_AUTHOR,
+        },
+      });
+      expect(created.status).toBe(201);
+      expect(created.body.selector).toBe(".hero-button");
+
+      const renamed = await env.api.request<StyleRuleResponse>({
+        method: "PATCH",
+        path: `/api/sites/${site.id}/style-rules/${created.body.id}`,
+        body: { name: "cta-primary", author: TEST_AUTHOR },
+      });
+      expect(renamed.status, JSON.stringify(renamed.body)).toBe(200);
+      // The id is the rule's identity and must not move; the selector is
+      // derived from the name and must follow, or the CSS keeps addressing the
+      // old class and the rename looks successful while changing nothing.
+      expect(renamed.body.id).toBe(created.body.id);
+      expect(renamed.body.name).toBe("cta-primary");
+      expect(renamed.body.selector).toBe(".cta-primary");
+      // A rename is not a restyle: the declarations travel unchanged.
+      expect(renamed.body.styles).toEqual({ background: "#cbff97", padding: 12 });
+
+      const reread = await env.api.request<StyleRuleResponse>({
+        method: "GET",
+        path: `/api/sites/${site.id}/style-rules/${created.body.id}`,
+      });
+      expect(reread.body.name).toBe("cta-primary");
+      expect(reread.body.selector).toBe(".cta-primary");
+    } finally {
+      await env.close();
+    }
+  });
+
+  it("refuses a rename onto a name that is already taken", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Kollision");
+      const first = await env.api.request<StyleRuleResponse>({
+        method: "POST",
+        path: `/api/sites/${site.id}/style-rules`,
+        body: { name: "alpha", author: TEST_AUTHOR },
+      });
+      const second = await env.api.request<StyleRuleResponse>({
+        method: "POST",
+        path: `/api/sites/${site.id}/style-rules`,
+        body: { name: "beta", author: TEST_AUTHOR },
+      });
+      expect(first.status).toBe(201);
+      expect(second.status).toBe(201);
+
+      // Two rules with one class would make the cascade order decide which one
+      // wins, silently and per element. The rename must lose instead.
+      const clash = await env.api.request<ErrorResponse>({
+        method: "PATCH",
+        path: `/api/sites/${site.id}/style-rules/${second.body.id}`,
+        body: { name: "alpha", author: TEST_AUTHOR },
+      });
+      expect(clash.status).toBe(409);
+      expect(clash.body.error.field).toBe("name");
+
+      const unchanged = await env.api.request<StyleRuleResponse>({
+        method: "GET",
+        path: `/api/sites/${site.id}/style-rules/${second.body.id}`,
+      });
+      expect(unchanged.body.name).toBe("beta");
+    } finally {
+      await env.close();
+    }
+  });
+
+  it("refuses to rename an invalid class name and leaves the rule alone", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Ungueltig");
+      const created = await env.api.request<StyleRuleResponse>({
+        method: "POST",
+        path: `/api/sites/${site.id}/style-rules`,
+        body: { name: "keep-me", author: TEST_AUTHOR },
+      });
+      expect(created.status).toBe(201);
+
+      // A name that is not a CSS class would produce a selector that matches
+      // nothing - the rule would exist and do nothing.
+      const bad = await env.api.request<ErrorResponse>({
+        method: "PATCH",
+        path: `/api/sites/${site.id}/style-rules/${created.body.id}`,
+        body: { name: "1nicht gültig", author: TEST_AUTHOR },
+      });
+      expect(bad.status).toBe(400);
+      expect(bad.body.error.field).toBe("name");
+
+      const unchanged = await env.api.request<StyleRuleResponse>({
+        method: "GET",
+        path: `/api/sites/${site.id}/style-rules/${created.body.id}`,
+      });
+      expect(unchanged.body.name).toBe("keep-me");
+      expect(unchanged.body.selector).toBe(".keep-me");
+    } finally {
+      await env.close();
+    }
+  });
+
+  it("renames an ambient rule through its selector and never through its name", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Ambient-Rename");
+      const created = await env.humanApi.request<StyleRuleResponse>({
+        method: "POST",
+        path: `/api/sites/${site.id}/style-rules`,
+        body: { name: "h1", kind: "ambient", selector: "h1 > span", author: TEST_AUTHOR },
+      });
+      expect(created.status).toBe(201);
+
+      // An ambient rule's name mirrors its selector; renaming the name alone
+      // would leave the CSS addressing the old selector under a new label.
+      const byName = await env.humanApi.request<ErrorResponse>({
+        method: "PATCH",
+        path: `/api/sites/${site.id}/style-rules/${created.body.id}`,
+        body: { name: "h2", author: TEST_AUTHOR },
+      });
+      expect(byName.status).toBe(400);
+      expect(byName.body.error.message).toMatch(/selector/);
+
+      const bySelector = await env.humanApi.request<StyleRuleResponse>({
+        method: "PATCH",
+        path: `/api/sites/${site.id}/style-rules/${created.body.id}`,
+        body: { selector: "h2 > span", author: TEST_AUTHOR },
+      });
+      expect(bySelector.status, JSON.stringify(bySelector.body)).toBe(200);
+      // Name and selector move together, or the registry describes a rule that
+      // does not exist.
+      expect(bySelector.body.name).toBe("h2 > span");
+      expect(bySelector.body.selector).toBe("h2 > span");
+    } finally {
+      await env.close();
+    }
+  });
+
+  it("refuses to rename a scoped rule, which belongs to its node", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Scoped-Rename");
+      const created = await env.api.request<StyleRuleResponse>({
+        method: "POST",
+        path: `/api/sites/${site.id}/style-rules`,
+        body: { name: "ignored", kind: "scoped", nodeId: "node-1", author: TEST_AUTHOR },
+      });
+      expect(created.status).toBe(201);
+
+      // A scoped rule is generated from its node. Renaming it by hand would
+      // break the link between node and styles - the next bake would drop it.
+      const denied = await env.api.request<ErrorResponse>({
+        method: "PATCH",
+        path: `/api/sites/${site.id}/style-rules/${created.body.id}`,
+        body: { name: "hand-made", author: TEST_AUTHOR },
+      });
+      expect(denied.status).toBe(400);
+      expect(denied.body.error.message).toMatch(/scoped/i);
+
+      const unchanged = await env.api.request<StyleRuleResponse>({
+        method: "GET",
+        path: `/api/sites/${site.id}/style-rules/${created.body.id}`,
+      });
+      expect(unchanged.body.name).toBe("__senify_scope_node-1");
+    } finally {
+      await env.close();
+    }
+  });
 });

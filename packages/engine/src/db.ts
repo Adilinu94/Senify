@@ -245,6 +245,12 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   // Cards and basis never change; `source_page_id` is the only redundant
   // scalar (the inbox lookup) and there is no foreign key, so a decision stays
   // readable after the source page is deleted.
+  // `expires_at` is the deadline of the human's decision (Fahrplan P2-3, R2).
+  // The sweep moves a `proposed` row past it to `expired`; NULL means "no
+  // deadline was ever given", which is how a row from before the column reads.
+  // Additive like every other column here: v1 has no migration tooling, so
+  // ensureSchema stays the single place that touches the shape. The comments
+  // live outside the SQL on purpose - the schema statements are sent as-is.
   `CREATE TABLE IF NOT EXISTS redesign_proposals (
     id text PRIMARY KEY,
     source_page_id text NOT NULL,
@@ -253,10 +259,38 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     basis jsonb NOT NULL,
     decision jsonb,
     apply_result jsonb,
-    created_at timestamptz NOT NULL
+    created_at timestamptz NOT NULL,
+    expires_at timestamptz
   )`,
   `CREATE INDEX IF NOT EXISTS redesign_proposals_source_idx
     ON redesign_proposals (source_page_id, status, created_at DESC, id DESC)`,
+  // The sweep's index: it looks for exactly the undecided rows past their
+  // deadline, so it must not scan the finished history. Deliberately NOT a
+  // partial index (`WHERE status = 'proposed'`): pg-mem silently mis-selects
+  // rows through a partial index in an UPDATE, and the sweep then finds
+  // nothing. A full index on the two columns it filters is cheap and correct on
+  // both engines.
+  `CREATE INDEX IF NOT EXISTS redesign_proposals_expiry_idx
+    ON redesign_proposals (status, expires_at)`,
+  // Design records (Fahrplan P2-4, R4). The report was computed at publish and
+  // at review and then thrown away, so the statement "this release was green"
+  // could not be reproduced: a later change of the score rewrote the history.
+  // A record freezes the report as an immutable object next to the thing it
+  // describes. `draft_version` pins the tree it was measured on, so a record
+  // can be recognised as stale instead of being silently trusted.
+  `CREATE TABLE IF NOT EXISTS design_records (
+    id text PRIMARY KEY,
+    site_id text NOT NULL,
+    -- 'publish' | 'review': the two moments that measure. Named, not free
+    -- text, because a record nobody can classify is a record nobody reads.
+    stage text NOT NULL,
+    draft_version integer NOT NULL,
+    theme_version integer NOT NULL,
+    report jsonb NOT NULL,
+    created_at timestamptz NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS design_records_site_idx
+    ON design_records (site_id, stage, created_at DESC, id DESC)`,
   `CREATE TABLE IF NOT EXISTS library_components (
     id text PRIMARY KEY,
     name text NOT NULL,

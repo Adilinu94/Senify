@@ -24,7 +24,7 @@ import type { Theme } from "@senify/tokens";
 import { createReactRenderer } from "../react-renderer.tsx";
 import type { FrameDescriptor } from "../frames.ts";
 import type { EditorMode, FrameBreakpoint } from "../types.ts";
-import type { FrameRenderer } from "../mount.ts";
+import type { FrameRenderer } from "../frame-renderer.ts";
 import { getDocument, type DomDocument, type DomElement, type DomEvent } from "../dom.ts";
 import { ensureCanvasStyles } from "./styles.ts";
 import { editorFontFaceCss } from "../ui/fonts.ts";

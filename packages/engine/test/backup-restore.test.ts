@@ -286,14 +286,20 @@ describe("restore a backup", () => {
     expect(after.body.proposal.status).toBe("applied");
     expect(after.body.proposal.decision?.directionId).toBe(directionId);
     expect(after.body.proposal.applyResult?.siteId).toBeTruthy();
-    // ADR-0013: the section plan and the honest apply scope survive the round
-    // trip as readable objects, and the plan hash still identifies the plan.
+    // ADR-0013 + P2-1: the section plan and the honest apply scope survive the
+    // round trip as readable objects, and the plan hash still identifies the
+    // plan. The scope is not pinned to one value: what matters across a backup
+    // is that the flag survives and that it and the scope agree, because both
+    // are read from the same decision (see RedesignProposalApplyResult).
     expect(typeof after.body.proposal.cards[0]?.id).toBe("string");
     expect(after.body.proposal.cards[0]?.sectionPlan.planHash).toBeTruthy();
     expect(Array.isArray(after.body.proposal.cards[0]?.sectionPlan.entries)).toBe(true);
     expect(Array.isArray(after.body.proposal.cards[0]?.sectionPlan.media)).toBe(true);
-    expect(after.body.proposal.applyResult?.scope).toBe("scaffold-theme");
-    expect(after.body.proposal.applyResult?.sectionPlanApplied).toBe(false);
+    const applied = after.body.proposal.applyResult?.sectionPlanApplied;
+    expect(typeof applied).toBe("boolean");
+    expect(after.body.proposal.applyResult?.scope).toBe(
+      applied === true ? "section-plan" : "scaffold-theme",
+    );
     expect(after.body.proposal.applyResult?.planHash).toBe(
       after.body.proposal.cards[0]?.sectionPlan.planHash,
     );

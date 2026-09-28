@@ -223,6 +223,8 @@ export type BootEnv = {
   // Direct database access for tests that must inspect or seed rows the HTTP
   // surface does not expose (e.g. a stale idempotency claim).
   db: Db;
+  // The engine's data directory, for tests that assert about files on disk.
+  dataDir: string;
   token: string;
   close(): Promise<void>;
 };
@@ -289,6 +291,11 @@ export async function bootEngine(
     registry,
     db: database.db,
     token: created.secret,
+    // Where the engine put its files. A test that asserts about storage - "the
+    // release's asset bytes are still on disk", "the rollback recreated the
+    // file" - has to look at the real path, and guessing it from the asset id
+    // would re-implement the engine's layout in the test.
+    dataDir,
     async close() {
       await server.close();
       await database.close();

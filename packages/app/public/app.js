@@ -4939,11 +4939,26 @@ async function reviewAction(siteId, reviewId, action) {
 // the engine's mutations path (`POST /api/pages/:pageId/editor-mutations`), so
 // the canvas owns no storage of its own.
 //
-// E5 Scheibe 1: der Umbau-Pfad ist der **eine sichtbare Editor**. Der alte
-// Elementor-nahe Editor bleibt waehrend des Stranglers (E2) als expliziter
-// Deep-Link `?view=editor` erreichbar, aber es gibt keinen Umschalter mehr.
-function canvasModeOf(search) {
-  return /(?:^|&)view=editor(?:&|$)/.test(String(search ?? "")) ? "editor" : "canvas";
+// E5 Scheibe 1: der Umbau-Pfad ist der **eine sichtbare Editor**.
+//
+// P3-1 Punkt 4 (R5): the v1 editor is gone - `mount.ts`, `mountEditor` and the
+// page that mounted it are all deleted. There is no mode to compute any more,
+// so there is no `canvasModeOf`: the page below mounts the canvas, and the only
+// thing left of the old deep link is the hint that says so. Keeping a function
+// that returns a constant would be a lie about there being a choice.
+//
+// `?view=editor` is no longer a second editing path but a **notice**: the
+// deep link lands on the canvas and says why. Someone with the old URL
+// bookmarked therefore does not end up in a surface nobody maintains, and the
+// parameter is cleaned out so a reload does not repeat the notice.
+//
+// Erkennt den alten Deep-Link, damit der Umstieg **sichtbar** ist: der
+// Hinweistext erscheint im Canvas, und der Parameter wird aus dem Hash
+// entfernt, damit ein Neuladen nicht erneut umgeleitet wird. Ohne das
+// Entfernen bliebe der Hinweis bei jedem Reload stehen und wuerde zum
+// Normalzustand.
+function legacyEditorDeepLink(search) {
+  return /(?:^|&)view=editor(?:&|$)/.test(String(search ?? ""));
 }
 
 function openFramerImportDialog({ siteId, pageId, session, onImported }) {
@@ -5296,9 +5311,34 @@ function openRedesignDirectionDialog(proposal) {
       if (result.proposal?.status === "failed") {
         throw new Error(applied?.error?.message ?? "Die Richtung konnte nicht angewendet werden.");
       }
-      dialog.close();
       const siteId = applied?.siteId;
       const pageId = applied?.pageId;
+      // P2-2: ein Apply, der Medienbedarfe offen laesst, ist nicht fertig. Der
+      // Dialog bleibt offen und zeigt die Bedarfe - der Mensch schliesst sie hier
+      // ab, statt sie in einem Toast zu verlieren. Erst ohne offene Bedarfe geht
+      // es weiter zur Draft-Seite.
+      const openNeeds = Array.isArray(applied?.openMediaNeeds) ? applied.openMediaNeeds : [];
+      if (openNeeds.length > 0) {
+        dialog.close();
+        openMediaNeedPanel({
+          proposalId: proposal.id,
+          siteId,
+          pageId,
+          needs: openNeeds,
+          onDone: (remaining) => {
+            if (remaining === 0) {
+              location.hash = `#/projects/${siteId}/pages/${pageId}`;
+            } else {
+              toast(
+                `${remaining} Medienbedarf${remaining === 1 ? "" : "e"} bleiben offen.`,
+                "info",
+              );
+            }
+          },
+        });
+        return;
+      }
+      dialog.close();
       if (typeof siteId === "string" && typeof pageId === "string") {
         location.hash = `#/projects/${siteId}/pages/${pageId}`;
       } else {
@@ -5320,6 +5360,261 @@ function openRedesignDirectionDialog(proposal) {
   });
   refsBindBackdropClose(dialog);
   dialog.showModal();
+}
+
+// P2-2: die Bedienung der offenen Medienbedarfe. Das Apply hat die Seite gebaut,
+// aber ein Bild fehlt noch - und genau hier wird das entschieden, nicht in einem
+// Toast, den niemand liest.
+//
+// Je Bedarf stehen vier Wege offen, und jeder beantwortet dieselbe Frage anders:
+//   - `select`   ein vorhandenes Asset der Zielsite waehlen (die Bibliothek des
+//                Releases, nicht die der Quelle)
+//   - `upload`   eine Datei aus dem Rechner hochladen
+//   - `generate` den mitgelieferten Prompt an die Provider-Kette geben
+//   - `manual`   bewusst offen lassen: der Slot bleibt leer, der Bedarf gilt als
+//                entschieden, und das wird auch so protokolliert
+//
+// Die Schluesselung laeuft in EINEM Aufruf: eine Bedarf-Id, die der Server nicht
+// kennt, ist ein Fehler und kein stiller Fortschritt. `onDone` bekommt die Zahl
+// derer, die wirklich noch offen sind - nicht die Zahl vor dem Schliessen, sonst
+// wuerde der Dialog eine Erledigung melden, die nicht stattgefunden hat.
+async function openMediaNeedPanel({ proposalId, siteId, pageId, needs, onDone }) {
+  const list = el("div", { class: "media-needs", "data-role": "media-needs" });
+  const errorEl = el("p", { class: "media-needs__error", "data-role": "media-needs-error" });
+  const doneButton = el("button", {
+    type: "button",
+    class: "btn",
+    "data-action": "media-needs-done",
+    text: "Fertig",
+  });
+
+  // Nur die Zielsite, und nur wenn es eine gibt: ein Bedarf ohne Site hat keine
+  // Bibliothek, aus der man waehlen koennte.
+  //
+  // Die Antwort ist `{ assets: [...] }`, NICHT das Array selbst - und der
+  // Unterschied ist der Grund fuer den `Array.isArray`: die Liste kommt aus
+  // einer Route, deren Form sich aendern darf, ohne dass dieser Dialog
+  // stillschweigt und ein leeres Panel zeigt. Lieber kein Auswahlfeld als ein
+  // geratenes.
+  let assets = [];
+  if (typeof siteId === "string") {
+    const antwort = await api(`/api/sites/${siteId}/assets?limit=200`).catch(() => null);
+    const liste = antwort?.assets;
+    assets = Array.isArray(liste) ? liste : [];
+  }
+
+  const dialog = el(
+    "dialog",
+    { class: "redesign-dialog media-needs-dialog", "data-role": "media-needs-dialog" },
+    el("div", { class: "redesign-dialog__head" }, [
+      el("p", { class: "redesign-dialog__eyebrow", text: "Medienbedarf" }),
+      el("h2", { text: `${needs.length} Bild${needs.length === 1 ? "" : "e"} fehlt noch` }),
+      el("p", {
+        class: "redesign-dialog__hint",
+        text: "Die Seite ist gebaut, aber diese Slots sind leer. Waehlen, laden, erzeugen - oder bewusst offen lassen.",
+      }),
+    ]),
+    list,
+    errorEl,
+    el("div", { class: "redesign-dialog__foot" }, [doneButton]),
+  );
+
+  const answers = new Map();
+  const pending = new Set(needs.map((need) => need.needId));
+
+  async function submit() {
+    if (answers.size === 0) {
+      onDone(pending.size);
+      dialog.close();
+      return;
+    }
+    doneButton.disabled = true;
+    errorEl.textContent = "";
+    try {
+      const result = await api(`/api/redesign-proposals/${encodeURIComponent(proposalId)}/media-needs`, {
+        method: "POST",
+        body: {
+          resolutions: [...answers.entries()].map(([needId, resolution]) => ({ needId, ...resolution })),
+          idempotencyKey: window.crypto.randomUUID(),
+        },
+      });
+      for (const need of result.stillOpen ?? []) pending.add(need.needId);
+      for (const need of result.closed ?? []) pending.delete(need.needId);
+      onDone(pending.size);
+      dialog.close();
+    } catch (error) {
+      errorEl.textContent = error?.message ?? "Die Medienbedarfe konnten nicht geschlossen werden.";
+      doneButton.disabled = false;
+    }
+  }
+
+  for (const need of needs) {
+    const select = el("select", { "data-role": "media-need-select", "data-need": need.needId });
+    select.append(el("option", { value: "", text: "— Asset wählen —" }));
+    for (const asset of assets) {
+      select.append(el("option", { value: asset.id, text: asset.filename }));
+    }
+
+    const fileInput = el("input", {
+      type: "file",
+      accept: "image/*",
+      "data-role": "media-need-file",
+      "data-need": need.needId,
+    });
+    fileInput.addEventListener("change", async () => {
+      const file = fileInput.files?.[0];
+      if (!file || typeof siteId !== "string") return;
+      // Hochgeladen wird in die ZIELsite, nicht in die Quelle - die Quellseite
+      // bleibt unangetastet, und das Asset landet dort, wo der Slot liegt.
+      const body = new FormData();
+      body.append("file", file);
+      errorEl.textContent = "Wird hochgeladen …";
+      try {
+        const uploaded = await api(`/api/sites/${siteId}/assets`, { method: "POST", body });
+        answers.set(need.needId, { treatment: "upload", assetId: uploaded.id });
+        errorEl.textContent = "";
+        row.dataset.state = "uploaded";
+      } catch (error) {
+        errorEl.textContent = error?.message ?? "Der Upload ist fehlgeschlagen.";
+      }
+    });
+
+    const manualButton = el("button", {
+      type: "button",
+      class: "btn btn--ghost",
+      "data-action": "media-need-manual",
+      text: "Bewusst offen lassen",
+    });
+    manualButton.addEventListener("click", () => {
+      answers.set(need.needId, { treatment: "manual" });
+      row.dataset.state = "manual";
+    });
+
+    const generateButton = el("button", {
+      type: "button",
+      class: "btn",
+      "data-action": "media-need-generate",
+      text: "Bild erzeugen",
+    });
+    generateButton.addEventListener("click", async () => {
+      if (typeof siteId !== "string") return;
+      generateButton.disabled = true;
+      errorEl.textContent = "Wird erzeugt …";
+      try {
+        // Der Prompt kommt aus dem Bedarf selbst. Die Engine nimmt ihn, wie er
+        // ist - eine "Verbesserung" hier wuerde das Vorbild kopieren, und genau
+        // das soll der Bedarf verhindern.
+        //
+        // Bildgenerierung ist ein JOB, kein synchroner Aufruf: die Route
+        // antwortet 202 mit einer Job-Id, und der Lauf macht die Arbeit
+        // asynchron. Deshalb wird hier gepollt statt geraten - ein Dialog, der
+        // eine Job-Id fuer ein fertiges Bild haelt, wuerde einen leeren Slot
+        // als geschlossen melden.
+        const queued = await api(`/api/sites/${siteId}/images/jobs`, {
+          method: "POST",
+          body: {
+            prompt: need.prompt ?? `${need.targetPath} für ${pageId ?? "die Seite"}`,
+            ...(need.decorative ? { decorative: true } : {}),
+            ...(need.alt === null ? {} : { altText: need.alt }),
+          },
+        });
+        const assetId = await waitForImageJob(siteId, queued.jobId, (text) => {
+          errorEl.textContent = text;
+        });
+        answers.set(need.needId, { treatment: "generate", assetId });
+        errorEl.textContent = "";
+        row.dataset.state = "generated";
+        generateButton.disabled = false;
+      } catch (error) {
+        errorEl.textContent = error?.message ?? "Die Bildgenerierung ist fehlgeschlagen.";
+        generateButton.disabled = false;
+      }
+    });
+
+    select.addEventListener("change", () => {
+      if (select.value === "") answers.delete(need.needId);
+      else answers.set(need.needId, { treatment: "select", assetId: select.value });
+      row.dataset.state = "selected";
+    });
+
+    const row = el(
+      "div",
+      {
+        class: "media-need",
+        "data-role": "media-need",
+        "data-need": need.needId,
+        "data-treatment": need.treatment,
+      },
+      [
+        el("p", { class: "media-need__title" }, [
+          el("code", { text: need.targetPath }),
+          el("span", { class: "media-need__reason", text: need.reason ?? "" }),
+        ]),
+        // A `generate` need carries the prompt. Showing it is the whole point:
+        // the human decides whether the prompt is acceptable BEFORE paying for
+        // the image.
+        need.prompt === null
+          ? null
+          : el("p", { class: "media-need__prompt", "data-role": "media-need-prompt" }, [
+              el("span", { class: "media-need__label", text: "Prompt" }),
+              el("span", { text: need.prompt }),
+            ]),
+        el("div", { class: "media-need__actions" }, [select, fileInput, generateButton, manualButton]),
+      ],
+    );
+    list.append(row);
+  }
+
+  doneButton.addEventListener("click", () => void submit());
+  document.body.append(dialog);
+  dialog.addEventListener("close", () => dialog.remove());
+  refsBindBackdropClose(dialog);
+  dialog.showModal();
+}
+
+// Wartet auf einen Bild-Job und liefert die Asset-Id (P2-2).
+//
+// Ein Job ist asynchron: die Route antwortet 202, der Lauf arbeitet weiter. Der
+// Dialog darf also nicht auf eine fertige Bilddatei warten, sondern auf einen
+// ENTSCHIEDENEN Zustand. Beendet wird gewartet bei `succeeded` (mit Asset), bei
+// `failed`/`canceled` (mit der Fehlermeldung des Laufs) und nach einer Frist.
+//
+// Die Statusnamen kommen aus dem Engine-Typ (`IMAGE_JOB_STATUSES`): `succeeded`
+// und `canceled`, nicht `done` und `cancelled`. Hier standen zuerst die
+// falschen - der Dialog wartete dann endlos auf einen Zustand, den es nicht
+// gibt, während der Job längst fertig war.
+//
+// Die Frist ist kein Optimismus: ein hängender Job darf einen Menschen nicht
+// ewig am Dialog festhalten. Nach Ablauf wird ein Fehler gemeldet und der Slot
+// bleibt offen - der Bedarf ist dann noch da und wird beim nächsten Versuch
+// neu erzeugt, statt still als geschlossen zu gelten.
+const BILDJOB_FRIST_MS = 120000;
+const BILDJOB_ABSTAND_MS = 1200;
+
+async function waitForImageJob(siteId, jobId, onStatus) {
+  const ende = Date.now() + BILDJOB_FRIST_MS;
+  let letzterText = "";
+  while (Date.now() < ende) {
+    const job = await api(`/api/images/jobs/${encodeURIComponent(jobId)}`);
+    if (job.status === "succeeded" && typeof job.assetId === "string") return job.assetId;
+    if (job.status === "failed" || job.status === "canceled") {
+      const gruende = Array.isArray(job.error) ? job.error : [];
+      const letzterFehler = gruende[gruende.length - 1]?.message;
+      throw new Error(letzterFehler ?? `Der Bild-Job endete mit „${job.status}“.`);
+    }
+    // Der Text wechselt nur, wenn sich etwas geaendert hat: ein Dialog, der
+    // im Sekundentakt dieselbe Zeile neu schreibt, ist unruhig und macht die
+    // tatsaechliche Wartezeit schwerer lesbar als noetig.
+    const text = `Wird erzeugt … (Versuch ${job.attempts ?? 1}/${job.maxAttempts ?? 1})`;
+    if (text !== letzterText) {
+      letzterText = text;
+      onStatus(text);
+    }
+    await new Promise((resolve) => setTimeout(resolve, BILDJOB_ABSTAND_MS));
+  }
+  throw new Error(
+    `Der Bild-Job hat nach ${Math.round(BILDJOB_FRIST_MS / 1000)} s kein Ergebnis geliefert.`,
+  );
 }
 
 async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCache, mediaCache, libraryComponents, assetContext, siteProfile, siteTheme, siteThemeVersion, styleRules, styleRegistryVersion }) {
@@ -6167,7 +6462,6 @@ async function pageView(siteId, pageId, initialSearch) {
     libraryComponents = [];
   }
   let currentTree = page.draft;
-  let editorInstance = null;
   let pagesCache = [];
   try {
     const listed = await api(`/api/sites/${siteId}/pages`);
@@ -6224,10 +6518,8 @@ async function pageView(siteId, pageId, initialSearch) {
   await refreshMedia();
 
   // Ein sichtbarer Editorpfad (E5 Scheibe 1): der Umbau-Canvas (`mountCanvas`,
-  // v2-Dokument) ist die Voreinstellung. Der bisherige Elementor-nahe Editor
-  // (`mountEditor`, v1-Baum) bleibt nur als Deep-Link `?view=editor` erreichbar
-  // (Strangler E2); einen Umschalter gibt es nicht mehr.
-  const mode = canvasModeOf(initialSearch);
+  // v2-Dokument) ist der Editor. Seit P3-1 Punkt 4 gibt es keinen zweiten
+  // mehr und keinen Modus zu berechnen - der Aufrufer pflegt den Canvas.
   const toolbar = el(
     "div",
     { class: "toolbar" },
@@ -6247,200 +6539,56 @@ async function pageView(siteId, pageId, initialSearch) {
     editor = null;
   }
 
-  if (mode === "canvas") {
-    if (editor) {
-      mountCanvasView({
-        pageId,
-        siteId,
-        page,
-        host,
-        toolbar,
-        editor,
-        pagesCache,
-        mediaCache,
-        libraryComponents,
-        assetContext,
-        siteProfile,
-        siteTheme,
-        siteThemeVersion,
-        styleRules: siteStyleRules,
-        styleRegistryVersion,
-      });
-    } else {
-      host.replaceChildren(
-        el("p", { class: "muted", text: "Das Editor-Bundle ist nicht verfügbar." }),
-      );
-    }
+  // P3-1 Punkt 4 (R5): the v1 editor is deleted, so `?view=editor` is no longer
+  // a second editing path but a **notice**: the deep link lands on the canvas
+  // and says why. The block sits before the mount, not after it, or the notice
+  // would never appear.
+  if (legacyEditorDeepLink(initialSearch)) {
+    // Der Parameter wird aus dem Hash entfernt, damit ein Reload den Hinweis
+    // nicht erneut zeigt - sonst wird er zum Normalzustand statt zur
+    // einmaligen Nachricht. Er steht **im Hash**, nicht in `location.search`:
+    // das Dashboard routet ueber `#/projects/…?view=editor`, und `location.search`
+    // ist bei diesem Routing leer.
+    const [path, search = ""] = String(location.hash).split("?");
+    const cleaned = search
+      .split("&")
+      .filter((part) => part !== "" && part !== "view=editor")
+      .join("&");
+    history.replaceState(
+      null,
+      "",
+      `${location.origin}${location.pathname}${location.search}${path}${cleaned === "" ? "" : `?${cleaned}`}`,
+    );
+    toast(
+      "Der alte Editor ist abgeloest — der Canvas ist jetzt der einzige Bearbeitungsweg.",
+      "info",
+    );
+  }
+
+  if (editor) {
+    mountCanvasView({
+      pageId,
+      siteId,
+      page,
+      host,
+      toolbar,
+      editor,
+      pagesCache,
+      mediaCache,
+      libraryComponents,
+      assetContext,
+      siteProfile,
+      siteTheme,
+      siteThemeVersion,
+      styleRules: siteStyleRules,
+      styleRegistryVersion,
+    });
     return;
   }
 
-  let refreshSeq = 0;
-  if (editor) {
-    try {
-      const session = new editor.MutationsSession({
-        transport: editor.createHttpTransport({
-          pageId,
-          baseUrl: location.origin,
-          onConflict: () => {
-            toast("Draft hat sich geändert — Seite wird neu geladen.", "error");
-            void renderRoute();
-          },
-        }),
-        initialVersion: page.draftVersion,
-        author: AUTHOR,
-        onVersion: (version) => {
-          const badge = document.getElementById("page-version");
-          if (badge) badge.textContent = `Draft v${version}`;
-          // Rapid edits fire refetches faster than they resolve; only the
-          // newest request may write the tree, or an older snapshot wins.
-          const seq = ++refreshSeq;
-          const load = (attempt) =>
-            api(`/api/pages/${pageId}`)
-              .then((fresh) => {
-                if (seq !== refreshSeq) return;
-                currentTree = fresh.draft;
-                editorInstance?.refresh();
-              })
-              .catch(() => {
-                // The local engine rate-limits bursts; a few short waits keep
-                // the canvas from freezing on a stale tree.
-                if (attempt < 3 && seq === refreshSeq) {
-                  setTimeout(() => void load(attempt + 1), 400 + attempt * 500);
-                }
-              });
-          void load(0);
-        },
-      });
-      // Bildgenerierung (Ticket 04): die Shell besitzt die HTTP-Aufrufe und das
-      // Polling; der Editor rendert Formular, Job-Karte und Health-Hinweis.
-      let imageJob = null;
-      let imageHealth = null;
-      let imageReferences = [];
-      let imageJobTimer = null;
-      const pollImageJob = () => {
-        if (imageJobTimer !== null) clearTimeout(imageJobTimer);
-        imageJobTimer = setTimeout(async () => {
-          if (imageJob === null) return;
-          try {
-            imageJob = await api(`/api/images/jobs/${imageJob.id}`);
-            editorInstance?.refresh();
-            if (imageJob.status === "queued" || imageJob.status === "running") {
-              pollImageJob();
-            } else if (imageJob.status === "succeeded") {
-              await refreshMedia();
-              editorInstance?.refresh();
-            }
-          } catch {
-            editorInstance?.refresh();
-          }
-        }, 3000);
-      };
-      const imageGeneration = {
-        health: () => imageHealth,
-        job: () => imageJob,
-        references: () => imageReferences,
-        start: async (request) => {
-          const created = await api(`/api/sites/${siteId}/images/jobs`, {
-            method: "POST",
-            body: request,
-          });
-          imageJob = {
-            id: created.jobId,
-            status: created.status ?? "queued",
-            providerUsed: created.provider ?? null,
-            assetId: null,
-            error: [],
-          };
-          pollImageJob();
-        },
-        cancel: async (jobId) => {
-          await api(`/api/images/jobs/${jobId}`, { method: "DELETE" });
-          imageJob = {
-            id: jobId,
-            status: "canceled",
-            providerUsed: imageJob?.providerUsed ?? null,
-            assetId: null,
-            error: [],
-          };
-          if (imageJobTimer !== null) clearTimeout(imageJobTimer);
-        },
-      };
-      void (async () => {
-        try {
-          imageHealth = await api("/api/images/health");
-        } catch {
-          imageHealth = null;
-        }
-        try {
-          const listed = await api("/api/references");
-          imageReferences = (listed.references ?? []).map((entry) => ({
-            id: entry.id,
-            name: entry.name,
-          }));
-        } catch {
-          imageReferences = [];
-        }
-        editorInstance?.refresh();
-      })();
-      editorInstance = editor.mountEditor(host, {
-        session,
-        registry: editor.createRegistry(),
-        tree: () => currentTree,
-        page: { pageId, title: page.title, path: page.path },
-        theme: editor.defaultTheme(),
-        renderer: editor.createReactRenderer({
-          context: () => ({
-            pagePaths: Object.fromEntries(
-              pagesCache.map((entry) => [entry.id, entry.path]),
-            ),
-            assets: assetContext,
-          }),
-        }),
-        frameStyles: ["/theme.css", "/editor-frame.css"],
-        pages: () => pagesCache,
-        media: () => mediaCache,
-        imageGeneration,
-        site: { profile: siteProfile },
-        onSiteProfile: async (profile) => {
-          const updated = await api(`/api/sites/${siteId}`, {
-            method: "PATCH",
-            body: { profile, author: AUTHOR },
-          });
-          siteProfile = updated.profile ?? profile;
-        },
-        ...(initialSearch ? { initialSearch } : {}),
-        onDeepLink: (search) => {
-          const base = `${location.origin}${location.pathname}${location.search}`;
-          // Der Alt-Pfad bleibt im Deep-Link erhalten (`?view=editor`), sonst
-          // faellt ein Reload auf den Canvas zurueck (E5 Scheibe 1).
-          const suffix = `?view=editor${search === "" ? "" : `&${search}`}`;
-          history.replaceState(
-            null,
-            "",
-            `${base}#/projects/${siteId}/pages/${pageId}${suffix}`,
-          );
-        },
-        onCommand: (command) => {
-          if (command.type === "open-page") {
-            location.hash = `#/projects/${siteId}/pages/${command.pageId}`;
-          } else if (command.type === "set-mode") {
-            editorInstance?.setMode(command.mode);
-          } else if (command.type === "open-media") {
-            editorInstance?.openTab("media");
-          } else if (command.type === "publish") {
-            location.hash = `#/projects/${siteId}/review`;
-          }
-        },
-      });
-      return;
-    } catch (error) {
-      toast(
-        `Editor konnte nicht starten (${error instanceof Error ? error.message : "unbekannter Fehler"}) — zeige den Aufbau.`,
-        "error",
-      );
-    }
-  }
-  // Fallback without the editor bundle: read-only outline.
+  // The editor bundle did not load. What is left is the raw structure, read
+  // only: enough to see what the page is made of, not enough to change it. The
+  // v1 editor used to be a second path here; there is no second path any more.
   const nodes = currentTree?.nodes ?? {};
   const root = nodes[currentTree?.rootNodeId] ?? { children: [] };
   function outline(nodeId) {

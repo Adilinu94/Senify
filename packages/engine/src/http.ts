@@ -5,6 +5,7 @@ import {
 import { createHash } from "node:crypto";
 import { SenifyError } from "@senify/core";
 import type { Registry } from "@senify/section-sdk";
+import { paginate, parsePaging } from "./paging.ts";
 import {
   AuthError,
   CreateTokenBodySchema,
@@ -248,8 +249,10 @@ import { applyRedesign } from "./apply-redesign.ts";
 import {
   ConfirmRedesignProposalBodySchema,
   CreateRedesignProposalBodySchema,
+  ResolveMediaNeedsBodySchema,
   type ConfirmRedesignProposalBody,
   type CreateRedesignProposalBody,
+  type ResolveMediaNeedsBody,
 } from "./redesign-proposal-contract.ts";
 import {
   confirmRedesignProposal,
@@ -257,6 +260,7 @@ import {
   getRedesignProposalView,
   listRedesignProposals,
   proposalCardScreenshot,
+  resolveRedesignMediaNeeds,
   type RedesignProposalContext,
 } from "./redesign-proposals.ts";
 import {
@@ -317,11 +321,13 @@ import type {
   ReferenceDna,
   ReferencePreferences,
   ReferenceSummary,
+  RedesignProposalStatus,
   ReviewStatus,
   TokenKind,
   TokenScope,
 } from "./types.ts";
-import { IMAGE_JOB_STATUSES, REVIEW_STATUSES } from "./types.ts";
+import { IMAGE_JOB_STATUSES, REDESIGN_PROPOSAL_STATUSES, REVIEW_STATUSES } from "./types.ts";
+import { isRedesignProposalStatus } from "./redesign-proposal-contract.ts";
 import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { extname } from "node:path";
 
@@ -1340,15 +1346,26 @@ const ROUTES: Route[] = [
     scope: "read",
     handler: async (context, _params, _req, url) => {
       const trash = url.searchParams.get("trash");
+      const paging = parsePaging(url.searchParams);
       if (trash === "1" || trash === "true") {
+        // Paging applies to the trash list too. It is a list like any other, and
+        // a site that was deleted a year ago does not make today's reading
+        // faster.
+        const all = await context.store.listTrashedSites();
+        const page = paginate(all, paging, all.length);
         return {
           status: 200,
-          body: { sites: await context.store.listTrashedSites() },
+          body: { sites: page.items, ...page, items: undefined },
         };
       }
+      const all = await context.store.listSites();
+      const page = paginate(all, paging, all.length);
       return {
         status: 200,
-        body: { sites: await context.store.listSites() },
+        // The list under its own name, plus the paging block. Both, not one or
+        // the other: a client that only wants rows reads `sites`, and a client
+        // that wants to keep reading reads `page`/`total`/`hasMore`.
+        body: { sites: page.items, ...page, items: undefined },
       };
     },
   },
@@ -1534,10 +1551,12 @@ const ROUTES: Route[] = [
     method: "GET",
     segments: ["api", "sites", ":siteId", "pages"],
     scope: "read",
-    handler: async (context, params) => {
+    handler: async (context, params, _req, url) => {
       const siteId = params.siteId;
       if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
-      return { status: 200, body: { pages: await context.store.listPages(siteId) } };
+      const all = await context.store.listPages(siteId);
+      const page = paginate(all, parsePaging(url.searchParams), all.length);
+      return { status: 200, body: { pages: page.items, ...page, items: undefined } };
     },
   },
   {
@@ -2027,12 +2046,20 @@ const ROUTES: Route[] = [
     method: "GET",
     segments: ["api", "sites", ":siteId", "releases"],
     scope: "read",
-    handler: async (context, params) => {
+    handler: async (context, params, _req, url) => {
       const siteId = requireParam(params, "siteId");
+      const all = await context.store.listReleases(siteId);
+      const page = paginate(all, parsePaging(url.searchParams), all.length);
       return {
         status: 200,
         body: {
-          releases: await context.store.listReleases(siteId),
+          releases: page.items,
+          ...page,
+          items: undefined,
+          // The active release is a POINTER, not part of the list, and it stays
+          // outside the paging: a caller asking for page 3 of the history still
+          // needs to know which one is live, or it could roll back to something
+          // that was already superseded.
           activeReleaseId: await context.store.getActiveReleaseId(siteId),
         },
       };
@@ -2045,11 +2072,13 @@ const ROUTES: Route[] = [
     method: "GET",
     segments: ["api", "sites", ":siteId", "bake-jobs"],
     scope: "read",
-    handler: async (context, params) => {
+    handler: async (context, params, _req, url) => {
       const siteId = requireParam(params, "siteId");
+      const all = await context.store.listBakeJobs(siteId);
+      const page = paginate(all, parsePaging(url.searchParams), all.length);
       return {
         status: 200,
-        body: { jobs: await context.store.listBakeJobs(siteId) },
+        body: { jobs: page.items, ...page, items: undefined },
       };
     },
   },
@@ -2526,15 +2555,19 @@ const ROUTES: Route[] = [
     scope: "read",
     handler: async (context, params, _req, url) => {
       const siteId = requireParam(params, "siteId");
+      const all = await queryAssets(
+        context.store,
+        siteId,
+        parseAssetListFilters(url.searchParams),
+      );
+      // `queryAssets` already understands `limit`; the paging block is built
+      // from the FILTERED list so `total` and `hasMore` describe what the filter
+      // matched, not the whole library. A caller that filtered to one folder and
+      // got `total: 4000` would stop paging and think it had seen everything.
+      const page = paginate(all, parsePaging(url.searchParams), all.length);
       return {
         status: 200,
-        body: {
-          assets: await queryAssets(
-            context.store,
-            siteId,
-            parseAssetListFilters(url.searchParams),
-          ),
-        },
+        body: { assets: page.items, ...page, items: undefined },
       };
     },
   },
@@ -3090,14 +3123,17 @@ const ROUTES: Route[] = [
     scope: "read",
     handler: async (context, params, _req, url) => {
       const siteId = requireParam(params, "siteId");
+      // Entries page like every other list. A collection with a few hundred
+      // rows is normal, and an agent that has to hold all of them to find the
+      // last one has no room left for the answer.
+      const all = await listEntries(context.store, {
+        siteId,
+        filters: parseEntryListFilters(url.searchParams),
+      });
+      const page = paginate(all, parsePaging(url.searchParams), all.length);
       return {
         status: 200,
-        body: {
-          entries: await listEntries(context.store, {
-            siteId,
-            filters: parseEntryListFilters(url.searchParams),
-          }),
-        },
+        body: { entries: page.items, ...page, items: undefined },
       };
     },
   },
@@ -4093,14 +4129,21 @@ const ROUTES: Route[] = [
     method: "GET",
     segments: ["api", "sites", ":siteId", "references"],
     scope: "read",
-    handler: async (context, params) => {
+    handler: async (context, params, _req, url) => {
       const siteId = requireParam(params, "siteId");
       const references = referenceContext(context);
       const { draft, verification } = await referenceThemeDraft(references, siteId);
+      // The assignments are a list like any other, so they page. The draft and
+      // the verification are NOT paged: they are the derived state of the whole
+      // set, and a page of them would describe nothing.
+      const assignments = await context.store.listReferenceAssignments(siteId);
+      const page = paginate(assignments, parsePaging(url.searchParams), assignments.length);
       return {
         status: 200,
         body: {
-          assignments: await context.store.listReferenceAssignments(siteId),
+          assignments: page.items,
+          ...page,
+          items: undefined,
           draft,
           verification,
           unchanged: await verifyReferenceApply(references, siteId),
@@ -4216,14 +4259,34 @@ const ROUTES: Route[] = [
     method: "GET",
     segments: ["api", "pages", ":pageId", "redesign-proposals"],
     scope: "read",
-    handler: async (context, params) => ({
-      status: 200,
-      body: {
-        proposals: await listRedesignProposals(redesignProposalContext(context), {
-          pageId: requireParam(params, "pageId"),
-        }),
-      },
-    }),
+    handler: async (context, params, req) => {
+      // `?status=` narrows the inbox. Without it the list is everything for
+      // the page, open and finished alike. The value is checked against the
+      // known statuses rather than passed through, so a typo answers 400
+      // instead of an empty list that reads like "nothing is open".
+      const requested = new URL(req.url ?? "/", "http://localhost").searchParams.get("status");
+      let status: RedesignProposalStatus | undefined;
+      if (requested !== null && requested !== "") {
+        if (!isRedesignProposalStatus(requested)) {
+          throw new SenifyError("validation", `Unknown proposal status "${requested}"`, {
+            field: "status",
+            suggestion: `One of: ${REDESIGN_PROPOSAL_STATUSES.join(", ")}.`,
+          });
+        }
+        // The guard above narrows `requested`; the explicit read keeps that
+        // narrowing visible to the type checker across the `let`.
+        status = requested as RedesignProposalStatus;
+      }
+      return {
+        status: 200,
+        body: {
+          proposals: await listRedesignProposals(redesignProposalContext(context), {
+            pageId: requireParam(params, "pageId"),
+            ...(status === undefined ? {} : { status }),
+          }),
+        },
+      };
+    },
   },
   {
     method: "GET",
@@ -4307,6 +4370,62 @@ const ROUTES: Route[] = [
             },
           );
           return { status: 200, body: confirmed };
+        },
+      );
+    },
+  },
+  // ------------------------------------------------ redesign media needs (P2-2)
+  {
+    // Closing the open media needs an apply left. A write, and a normal one: it
+    // goes through the draft's optimistic lock and the audit ledger like any
+    // other edit, so a need closed here is undoable like any other change.
+    method: "POST",
+    segments: ["api", "redesign-proposals", ":proposalId", "media-needs"],
+    scope: "write",
+    handler: async (context, params, req, url, auth) => {
+      const body = (await readJsonBody(req)) ?? {};
+      const input = parseBody<ResolveMediaNeedsBody>(
+        ResolveMediaNeedsBodySchema,
+        body,
+        "media need resolution",
+      );
+      return withIdempotency(
+        context,
+        auth,
+        req,
+        url,
+        input.idempotencyKey,
+        { ...input },
+        async () => {
+          const author = resolveAuthor(auth);
+          const resolved = await resolveRedesignMediaNeeds(
+            redesignProposalContext(context),
+            {
+              proposalId: requireParam(params, "proposalId"),
+              // The schema already discriminated the union: an entry that
+              // validated as `manual` has no `assetId`, and the other three
+              // have one. The engine re-checks the need id and the asset
+              // ownership, because a shape check cannot know either.
+              resolutions: input.resolutions.map((entry) =>
+                entry.treatment === "manual"
+                  ? { needId: entry.needId, resolution: { treatment: "manual" as const } }
+                  : {
+                      needId: entry.needId,
+                      resolution: { treatment: entry.treatment, assetId: entry.assetId },
+                    },
+              ),
+              author: { kind: "human" as const, id: author.id, label: author.label },
+            },
+          );
+          return {
+            status: 200,
+            body: {
+              proposal: resolved.proposal,
+              closed: resolved.closed,
+              stillOpen: resolved.stillOpen,
+              draftVersion: resolved.draftVersion,
+            },
+          };
         },
       );
     },
@@ -4623,13 +4742,17 @@ const ROUTES: Route[] = [
           suggestion: `Use one of: ${IMAGE_JOB_STATUSES.join(", ")}.`,
         });
       }
+      // Paging happens HERE, after the status filter, not in the store query.
+      // A job list grows without bound - every generation is a row - and it is
+      // the list an agent polls most often, so it is the one that most needs a
+      // page size. The store keeps its own ordering; this only cuts a window.
+      const all = await context.store.listImageJobs(siteId, {
+        ...(status === null ? {} : { status: status as ImageJobStatus }),
+      });
+      const page = paginate(all, parsePaging(url.searchParams), all.length);
       return {
         status: 200,
-        body: {
-          jobs: await context.store.listImageJobs(siteId, {
-            ...(status === null ? {} : { status: status as ImageJobStatus }),
-          }),
-        },
+        body: { jobs: page.items, ...page, items: undefined },
       };
     },
   },

@@ -1,6 +1,7 @@
 # Builder-Vergleich: Revyme, Plasmic, Silex, Frappe Builder
 
 **Stand:** 22.09.2026
+**Historisch:** Recherche zum damaligen Zeitpunkt. Die Verweise am Ende der Datei zeigen auf Pfade, die seit dem 27.09.2026 unter `docs/history/` liegen; sie beschreiben den Stand, aus dem heraus geschrieben wurde.
 **Zweck:** Recherche für die anstehende UI-Überarbeitung und für Feature-Übernahmen in Senify.
 **Auftrag (Nutzer):** „Welche Funktionen wären sinnvoll, dass wir diese übernehmen, was können wir von diesen lernen. Besonders die UI muss auch noch komplett überarbeitet werden. Schaue dir auch Screenshots an."
 

@@ -32,6 +32,13 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
       - name: Gate (Build, Lint, Tests)
         run: pnpm verify
+      # Der Artefakt-Nachweis (Fahrplan P0-4 Punkt 3, R1) laeuft als eigener
+      # Schritt, damit im Log sichtbar bleibt, dass `pnpm build` wirklich eine
+      # auslieferbare Shell erzeugt hat - nicht nur, dass der Arbeitsbaum
+      # typisiert. `verify` ruft dasselbe Skript bereits auf; der eigene Schritt
+      # macht es als Balken lesbar, falls jemand die Kette veraendert.
+      - name: Artefakt-Tor (packages/app/dist)
+        run: pnpm verify:dist
       - name: Visuelles PNG-Gate (Settings, Referenzen, Editor)
         run: pnpm test:visual
       - name: Visuelle Diff-Artefakte
@@ -102,6 +109,12 @@ jobs:
       # Playwright-Last des Laufers.
       - name: Tor (pro Datei, keine Durchschnittsrettung)
         run: pnpm test:coverage
+      # P3-6: the measured block in `docs/current/qualitaet.md` must be what
+      # THIS run measured. `--check` does not write - it compares and fails, so
+      # the run that disagrees with the document goes red instead of quietly
+      # rewriting the evidence. A human decides which of the two is right.
+      - name: Messwerte im Doku-Stand?
+        run: pnpm quality:check
       - name: Zusammenfassung als Artefakt
         if: always()
         uses: actions/upload-artifact@v4

@@ -1,6 +1,7 @@
 import { gradeContrast, resolveTokenRef, type Theme } from "@senify/tokens";
 import type { Node, NodeTree, PropValue } from "@senify/section-sdk";
 import type { CheckIssue, Page, Site, SiteProfile } from "./types.ts";
+import type { OpenMediaNeed } from "./redesign-proposal-contract.ts";
 import type { Store } from "./store.ts";
 
 // Design report (E26 slice 1): the measurable side of "no template slop". The
@@ -30,7 +31,34 @@ export type DesignReport = {
   findings: CheckIssue[];
   penalty: number;
   metrics: DesignMetrics;
+  // The media needs a redesign apply left open (Fahrplan P2-2 Punkt 5: every
+  // remaining need must be visible in the report). The same list the apply
+  // handed back, read from the proposals - so the report cannot say a page is
+  // finished while the apply result says an image is missing. They are work
+  // items here, not a sentence inside a finding: a client renders them.
+  openMediaNeeds: OpenMediaNeed[];
 };
+
+// A frozen design report (Fahrplan P2-4, R4). The report itself is
+// reproducible from a given tree; the record is what makes the *history* of a
+// measurement reproducible. A record is written once and never updated: a
+// later measurement of the same site is a new record, not a correction, so
+// "this release was green" stays a fact about that release.
+export type DesignRecord = {
+  id: string;
+  siteId: string;
+  stage: DesignRecordStage;
+  // The tree and theme the report was measured on. A record whose
+  // `draftVersion` no longer matches the live draft is stale, not wrong.
+  draftVersion: number;
+  themeVersion: number;
+  report: DesignReport;
+  createdAt: string;
+};
+
+// The two moments that measure. Both are written; neither is derived from the
+// other, because publish and review ask different questions of the same site.
+export type DesignRecordStage = "publish" | "review";
 
 export type DesignMetrics = {
   pages: number;
@@ -66,6 +94,27 @@ const THRESHOLDS: Readonly<Record<SiteProfile, { green: number; gate: number }>>
 
 function thresholdsFor(profile: SiteProfile): { green: number; gate: number } {
   return THRESHOLDS[profile] ?? { green: 80, gate: 60 };
+}
+
+// The site version a record is measured against (Fahrplan P2-4, R4). A site
+// has no single draft version, only one per page, so the measure is the sum of
+// the page versions plus the theme version. It is a fingerprint of "the state
+// the report was taken on", not a counter: it only has to change whenever any
+// part of the measured state changes, and stay the same when nothing does.
+// Sorting the ids keeps it stable - two pages renamed must not move it.
+export function designStateVersion(input: {
+  pages: { id: string; draftVersion: number }[];
+  themeVersion: number;
+}): number {
+  const ids = input.pages.map((page) => page.id).sort();
+  const byId = new Map(input.pages.map((page) => [page.id, page.draftVersion]));
+  const total = ids.reduce((sum, id) => sum + (byId.get(id) ?? 0), 0);
+  const material = `${ids.join("|")}#${total}#${input.themeVersion}`;
+  let hash = 0;
+  for (let index = 0; index < material.length; index += 1) {
+    hash = (hash * 31 + material.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash);
 }
 
 const CARD_TYPES: ReadonlySet<string> = new Set([
@@ -501,6 +550,35 @@ export async function buildDesignReport(input: {
   const pages = await input.store.listPageDrafts(input.siteId);
   const metrics = collectMetrics(pages, siteTheme.theme);
   const findings = slopFindings(metrics, pages);
+  // P2-2 Punkt 5: a design report that cannot see an open media need is a
+  // report that says a page is complete while it shows a hole. The needs are
+  // read from the redesign proposals that were applied against this site - the
+  // same list the apply handed back - so the report and the apply result can
+  // never disagree about what is missing.
+  //
+  // They enter as a named finding, not as a silent dimension: a missing image
+  // has to be VISIBLE in the verdict, and a finding that carries a severity is
+  // the one channel that reaches both the score and the report body.
+  const openNeeds = await openMediaNeedsFor(input.store, input.siteId);
+  if (openNeeds.length > 0) {
+    findings.push({
+      // The same shape every other finding has: a code a client can branch on,
+      // and a message that reads without the code. The label is not invented
+      // here - `CheckIssue` has no label, and adding one for a single finding
+      // would be a second vocabulary for the same thing.
+      code: "media-offen",
+      severity: "hard",
+      message:
+        openNeeds.length === 1
+          ? `Ein Medienbedarf ist offen: ${describeNeed(openNeeds[0]!)}.`
+          : `${openNeeds.length} Medienbedarfe sind offen: ` +
+            `${openNeeds.slice(0, 3).map((need) => describeNeed(need)).join(", ")}` +
+            `${openNeeds.length > 3 ? " …" : ""}.`,
+      suggestion:
+        "Bedienbar über `POST /api/redesign-proposals/:id/media-needs` " +
+        "(Asset wählen, hochladen, generieren oder `manual`).",
+    });
+  }
   const dimensions = dimensionsFor(metrics, findings);
   // Named findings also cost points directly: a dimension cannot go below zero,
   // so without this the stack (S1 + S2 + S9) would stop at the variance weight.
@@ -525,6 +603,49 @@ export async function buildDesignReport(input: {
     findings,
     penalty,
     metrics,
+    // The needs travel with the report, not only inside a finding message: a
+    // client renders the work items, it does not parse prose.
+    openMediaNeeds: openNeeds,
   };
+}
+
+// The open needs of every redesign proposal that was applied against this site
+// and has not been closed since. A proposal whose apply failed contributes
+// nothing - its needs were never realised, so reporting them would ask for work
+// on a run that does not exist.
+async function openMediaNeedsFor(
+  store: Store,
+  siteId: string,
+): Promise<OpenMediaNeed[]> {
+  const proposals = await store.listRedesignProposals(siteId);
+  const open: OpenMediaNeed[] = [];
+  for (const proposal of proposals) {
+    const applied = proposal.applyResult;
+    if (applied === null || applied.status !== "applied") continue;
+    if (applied.siteId !== siteId) continue;
+    open.push(...applied.openMediaNeeds);
+  }
+  // Two proposals of the same run would list the same need twice. The need id
+  // is unique inside a plan but not across two runs against the same page, and
+  // a report that says "two needs" when there is one is the kind of small lie
+  // that makes a number stop being trusted.
+  const seen = new Set<string>();
+  return open.filter((need) => {
+    const key = `${need.targetNodeId}:${need.targetPath}:${need.reason}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function describeNeed(need: OpenMediaNeed): string {
+  if (need.treatment === "generate") {
+    return need.prompt === null
+      ? `${need.targetPath} (Bild soll generiert werden)`
+      : `${need.targetPath} (Bild: „${need.prompt.slice(0, 60)}")`;
+  }
+  if (need.treatment === "select") return `${need.targetPath} (Asset auswählen)`;
+  if (need.treatment === "upload") return `${need.targetPath} (Bild hochladen)`;
+  return `${need.targetPath} (manuell zu setzen)`;
 }
 

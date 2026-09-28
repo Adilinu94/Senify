@@ -123,7 +123,10 @@ export function getDocument(): DomDocument | null {
 export function requireDocument(): DomDocument {
   const doc = getDocument();
   if (!doc) {
-    throw new Error("mountEditor needs a DOM (document) — run it in the browser");
+    // Named for the function that needs it, not for the one that used to: the
+    // editor is mounted in a browser, and a server-side caller gets this far
+    // only if it asked for a DOM-dependent entry point (P3-1 Punkt 4).
+    throw new Error("This editor entry point needs a DOM (document) — run it in the browser");
   }
   return doc;
 }

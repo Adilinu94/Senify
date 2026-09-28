@@ -26,7 +26,7 @@ Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/
 - `docs/fahrplan.md` ist für die priorisierte Reihenfolge der offenen Arbeit, ihre Gates und das Risiko-Register maßgeblich.
 - `docs/current/stand.md` ist für den aktuellen Umsetzungsstand maßgeblich.
 - `docs/current/qualitaet.md` ist für aktuelle Test- und Gate-Zahlen maßgeblich.
-- `docs/umbauplan.md` ist abgelöst durch `docs/fahrplan.md` und gilt als historischer Planungsstand.
+- `docs/history/umbauplan.md` ist abgelöst durch `docs/fahrplan.md` und gilt als historischer Planungsstand.
 - Historische oder geplante Dokumente werden nicht als aktueller Truth-Stand zitiert.
 - Testzahlen nicht manuell in mehrere Dokumente kopieren.
 - Jede Aussage `umgesetzt` oder `belegt` braucht einen Code- oder Testbeleg.

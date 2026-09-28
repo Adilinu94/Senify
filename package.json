@@ -22,7 +22,11 @@
     "test:visual": "node scripts/verify-visual.mjs",
     "lint": "eslint packages scripts",
     "check:patch": "git diff --check",
-    "verify": "pnpm build && pnpm lint && pnpm check:patch && pnpm test",
+    "verify:dist": "node scripts/verify-dist.mjs",
+    "quality:render": "node scripts/render-quality.mjs",
+    "quality:check": "node scripts/render-quality.mjs --check",
+    "manifest:render": "node scripts/render-manifest.mjs",
+    "verify": "pnpm build && pnpm verify:dist && pnpm lint && pnpm check:patch && pnpm test",
     "verify:parity": "node scripts/verify-parity.mjs",
     "verify:import": "pnpm exec vitest run packages/framer-import/test/import-visual-gate-browser.test.ts"
   },

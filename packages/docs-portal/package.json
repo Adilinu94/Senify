@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@senify/core": "workspace:*",
-    "@senify/mcp": "workspace:*",
+    "@senify/manifest": "workspace:*",
     "@senify/registry": "workspace:*",
     "@senify/section-sdk": "workspace:*",
     "@senify/tokens": "workspace:*",

@@ -1,8 +1,8 @@
 # Aktuelle Architektur
 
-> Dieses Dokument beschreibt den **Ist-Zustand** des Arbeitsbaums, nicht den Zielzustand.
+> Dieses Dokument beschreibt den Ist-Zustand des Arbeitsbaums, nicht den Zielzustand.
 > Zielarchitektur und Reihenfolge: `docs/fahrplan.md`. Umsetzungsstand: `docs/current/stand.md`.
-> Die Risiko-Nummern `R1`–`R13` sind mit `docs/current/stand.md` und `docs/fahrplan.md` identisch.
+> Die Risiko-Nummern `R1`–`R13` sind mit `docs/current/stand.md` und `docs/fahrplan.md` identisch. Der Folge-Diff wurde vollständig gegatet, ist aber noch nicht committet; Details und aktuelle Ergebnisse stehen in `docs/current/qualitaet.md`.
 
 ## Seams
 
@@ -11,11 +11,13 @@
 | `EditorDocument` | internes Editor-Dokument (v2-Tree mit Geräte-Suffixen, `states`, `motion`, `classes`) | `packages/editor/src/state/document.ts` |
 | `NodeTree` | Persistenz- und Bake-Vertrag | `packages/section-sdk/src/types.ts` |
 | `editor-bridge` | Adapter zwischen beiden Modellen, keine zweite Fachwahrheit | `packages/engine/src/mutations/editor-bridge.ts` |
-| `Store` | kapselt PostgreSQL-Schreibpfade, Transaktionen, Revisionen | `packages/engine/src/store.ts` |
+| `Store` | kapselt PostgreSQL-Schreibpfade, Transaktionen und Revisionen; Modulaufteilung ist R12 | `packages/engine/src/store.ts` |
 | `Renderer` | erzeugt aus NodeTree, Theme, Styles und Assets eine statische Site | `packages/renderer/src/bake.ts` |
-| MCP-Fassade | delegiert an Engine-Routen, kein zweiter Fachschreibpfad | `packages/mcp/src/tools.ts` |
+| MCP-Fassade | delegiert an Engine-Routen; neutrale Tool-Fakten liegen zusätzlich im Manifest-Paket | `packages/mcp/src/tools.ts`, `packages/manifest/src/` |
 
-**Bekannte Spannung (R5):** `NodeTree` ist die einzige Persistenzwahrheit, aber zwei Editor-Oberflächen rendern darauf — der Canvas (`editor/src/canvas/`) und der Legacy-Editor (`editor/src/mount.ts`, 3260 Zeilen, weiter in `editor/src/index.ts:4` exportiert und in `app.js:6385` gerufen). `?view=editor` ist der einzige erreichbare Einstieg.
+**R5 geschlossen:** `NodeTree` bleibt die Persistenzwahrheit; der Legacy-Editor `packages/editor/src/mount.ts` ist gelöscht. Der Canvas (`editor/src/canvas/`) ist aktiv. `FrameRenderer` liegt als gemeinsamer Typ in `packages/editor/src/frame-renderer.ts`; `?view=editor` wird sichtbar auf Canvas umgeleitet. Belege: `packages/app/test/server.test.ts`, `packages/app/test/canvas-view-browser.test.ts`.
+
+**MCP-Manifest und Paging:** `@senify/manifest` hält generierte Tool-Fakten und wird vom Docs-Portal importiert. `packages/engine/src/paging.ts` definiert das HTTP-Paging; mehrere Listenrouten in `http.ts` verwenden es. MCP-Tools und Routenmatrix lesen ihre Tool-Fakten derzeit noch direkt aus `packages/mcp/src/tools.ts`; MCP-Paging ist nicht durchgängig integriert (R8 teilweise offen).
 
 ## Referenz-Redesign
 
@@ -24,39 +26,48 @@ Referenzbibliothek
 → plan_redesign (read-only)
 → create_redesign_proposal (Direction Cards + Sektions-Plan serverseitig abgeleitet)
 → menschliche Direction Decision (POST /api/redesign-proposals/:id/confirm, operatorOnly)
-→ compileRedesign()  (liest, rechnet, vergibt jede Kennung vorab)
-→ commitRedesignApply() / Store.applyRedesignPlan()  (eine Transaktion)
-→ Draft mit bestätigtem Theme und Scaffold (scope "scaffold-theme")
-→ Sektions-Plan über get_page/get_section/apply_mutations umsetzen   ← heute Handarbeit (R3)
-→ get_design_report/diff_reference/create_preview
-→ submit_for_review/get_review_feedback
+→ compileRedesign() (liest, rechnet, vergibt jede Kennung vorab)
+→ commitRedesignApply() / Store.applyRedesignPlan() (eine Transaktion)
+→ Draft mit bestätigtem Theme, Scaffold und — sofern ausführbar — Sektions-Plan
+→ offene Medienbedarfe über die Media-Needs-Route auflösen (nicht automatisch beschaffen)
+→ get_design_report / diff_reference / create_preview
+→ submit_for_review / get_review_feedback
 ```
 
-### Was der Apply atomar schreibt (ADR-0014, belegt)
+### Was der Apply atomar schreibt (ADR-0014)
 
-`Store.applyRedesignPlan()` (`store.ts:1758`) führt in genau einer Transaktion aus:
+`Store.applyRedesignPlan()` führt Claim und fachliche Effekte in genau einer Transaktion aus:
 
-1. Proposal-Claim mit `FOR UPDATE` (`status = 'applying'`, `decision`), Ablehnung wenn nicht `proposed` (`store.ts:1806-1826`).
-2. Anlage der Zielsite und ihrer eigenen Theme-Zeile aus dem Plan.
+1. Proposal-Claim mit `FOR UPDATE` und gespeicherter menschlicher Direction Decision.
+2. Anlage der Zielsite und ihrer Theme-Zeile.
 3. Seed der Startseite, sofern der Plan eine vorsieht.
-4. Die kopierten Seiten samt Drafts in der Zielsite.
-5. `themeWrite` und `pageWrites` gegen die erwarteten Versionen.
-6. Audit-Einträge und den Proposal-Abschluss.
+4. Kopierte Seiten samt Drafts in der Zielsite.
+5. Vorbereitete Theme- und Page-Writes gegen erwartete Versionen.
+6. Audit-Einträge und Proposal-Abschluss.
 
-Der Commit ist bewusst kontrollflussfrei: jede Verzweigung und jede Kennung ist im Compile entschieden. Deshalb gibt es keinen dauerhaften `applying`-Zustand mehr — ein Absturz rollt Entscheidung und Effekte gemeinsam zurück, der Proposal bleibt `proposed` und ist erneut bestätigbar.
+Kontrollfluss, Ableitungen und Kennungen werden vor dem Commit im Compile-Schritt berechnet. Ein Transaktionsfehler rollt Claim und fachliche Effekte gemeinsam zurück. Belege: `packages/engine/test/apply-redesign.test.ts`, `redesign-proposals.test.ts`, `redesign-transaction.test.ts`; die Postgres-Tests brauchen `TEST_DATABASE_URL`, sonst werden sie im normalen Volltest übersprungen.
 
-Dateien liegen aus demselben Grund **vor** der Transaktion und werden bei einem Commit-Fehler über die im Plan bekannten Speicherpfade kompensiert (ADR-0014 §5): ein Rollback kann keine Datei löschen, eine Zeile ohne Datei wäre schlimmer als eine verwaiste Datei (der Bake überspringt sie still).
+Dateien werden außerhalb der DB-Transaktion vorbereitet und bei fehlgeschlagenem Commit kompensiert (ADR-0014 §5). Eine gemeinsame Transaktion für Dateisystem und Datenbank besteht nicht.
 
-### Asset-Kopie und Site-Guard (ADR-0014, belegt)
+### Sektions-Plan und Medienbedarf
 
-- `copySiteAssets()` (`media.ts:777`) vergibt **neue** Asset-IDs und **neue** Speicherpfade, kopiert Ordner, Bildleiter, Blurhash und Datei-Historie und schreibt die Draft-Verweise um.
-- `purgeAsset()` nimmt `siteId` als Pflichtargument (`media.ts:917`); `updateAsset` und die Lese-Route sind site-scoped.
-- `rewriteAssetIds` ersetzt nur **bekannte** Zuordnungen; unbekannte Verweise bleiben stehen, damit `broken-asset` ehrlich meldet statt zu verlieren.
-- Acht Routen liegen unter `/api/sites/:siteId/assets/…`; ein Ordner-`DELETE` ebenso. **Ausnahme mit Absicht:** `getAsset` bleibt ungeprüft, weil der Sektions-Plan die Zugehörigkeit selbst auswertet.
+- `compileRedesign()` leitet Ziel-Section-Writes aus dem bestätigten Plan ab; `rebuildPageTree()` baut Knoten, und der Commit schreibt sie atomar mit Theme und Claim.
+- `sectionPlanApplied` ist nur wahr, wenn mindestens ein Write vorliegt und kein Medienbedarf offen bleibt.
+- Medienbedarfe sind über `POST /api/redesign-proposals/:id/media-needs` adressierbar und werden über die kanonischen Mutationen mit Versionsprüfung/Audit aufgelöst. Automatische Beschaffung über `select`/`upload`/`generate` ist nicht vorhanden.
+- `avoid` bleibt absichtlich ohne Asset-Verweis; Site-Zugehörigkeit wird vor dem Schreiben geprüft.
+- Proposal-TTL: `expires_at` (sieben Tage), Sweep auf `expired`, Fristprüfung im Claim. Beleg: `packages/engine/test/redesign-proposal-ttl.test.ts`.
+- Design-Records werden bei Review und Publish persistiert; Manifest und Content-Re-Bake referenzieren den eingefrorenen Record. Beleg: `packages/engine/test/design-record.test.ts`.
 
-### Toter Pfad nach ADR-0014
+### Asset-Kopie und Site-Guard
 
-`Store.claimRedesignProposal()` (`store.ts:4797`) hat keinen Aufrufer mehr (`rg` über `packages/` → nur die Definition). `Store.finalizeRedesignProposal()` (`store.ts:4830`) wird nur im Fehlerpfad von `runConfirmedApply()` benutzt, wenn der Plan selbst nicht einmal aufgestellt werden konnte. Beide sind Kandidaten für eine spätere Bereinigung, **kein** Sicherheits- oder Datenproblem.
+- `copySiteAssets()` vergibt neue Asset-IDs und Speicherpfade, kopiert Ordner/Bildvarianten/Blurhash/Dateihistorie und schreibt Draft-Verweise um.
+- `purgeAsset()` verlangt `siteId`; `updateAsset` und die Lese-Route sind site-scoped.
+- `rewriteAssetIds` ersetzt bekannte Zuordnungen; unbekannte Referenzen bleiben sichtbar und können `broken-asset` auslösen.
+- Asset-Routen liegen unter `/api/sites/:siteId/assets/`; `getAsset` bleibt absichtlich ungeprüft, weil der Sektions-Plan die Zugehörigkeit selbst auswertet.
+
+### Verbliebene Redesign-Methoden
+
+`Store.finalizeRedesignProposal()` bleibt im Fehlerpfad von `runConfirmedApply()`. Weitere tote Pfade sind vor einer Bereinigung anhand aktueller Aufrufer zu prüfen; sie sind kein bekanntes Sicherheits- oder Datenproblem.
 
 ## Framer-Import
 
@@ -75,46 +86,34 @@ URL oder Mirror
 
 ### Aktuelle Grenzen
 
-- `runImport()` verwendet bei URLs `fetch()` und `captureHtml()`; `captureBrowser()` existiert und ist getestet, aber nicht der normale URL-Orchestrator.
+- `runImport()` verwendet für URLs `fetch()` und `captureHtml()`; `captureBrowser()` existiert und ist getestet, ist aber nicht der normale URL-Orchestrator.
 - Payloads werden im Hauptpfad nur für Mirror-Quellen extrahiert.
 - Der Import-Commit liefert bei gleichem Inhalt einen Receipt und verhindert doppelte DB-Schreibvorgänge auch mit neuem Idempotency-Key.
-- **Assets liegen außerhalb der DB-Transaktion (R10):** neu erzeugte Uploads werden bei einem fehlgeschlagenen Commit kompensiert, bereits vorhandene nicht.
+- Datei und DB bilden keine gemeinsame Transaktion. Neu erzeugte Uploads werden bei fehlgeschlagenem Commit kompensiert; der Fehlerpfad ist in `packages/engine/test/imports.test.ts` belegt. Bereits vorhandene Assets werden nicht entfernt. R10 ist mit diesem Kompensationsvertrag geschlossen.
 
 ## Schreibpfade
 
 | Pfad | Transaktionales Verhalten | Beleg |
 |---|---|---|
-| Page-Draft | `baseDraftVersion`, 409 bei Konflikt | `store.ts` `persistBatch` |
-| Draft + Revision + Audit | **eine** Transaktion | `persistBatch`, `transactions.test.ts` |
-| Style-Registry | Row-Lock + `style_rules_version` + `baseVersion` → 409 | `store.ts:2624-2657`, `style-rules.test.ts:87` |
-| Redesign-Apply | **eine** Transaktion (Claim + Effekte) | `store.ts:1758`, ADR-0014 |
+| Page-Draft | `baseDraftVersion`, 409 bei Konflikt | `store.ts`, `persistBatch` |
+| Draft + Revision + Audit | eine Transaktion | `persistBatch`, `transactions.test.ts` |
+| Style-Registry | Row-Lock + `style_rules_version` + `baseVersion` → 409 | `store.ts`, `style-rules.test.ts` |
+| Redesign-Apply | eine Transaktion (Claim + Effekte) | `store.ts`, `redesign-transaction.test.ts` |
 | Import (DB) | atomar mit Receipt | `imports.ts`, `imports.test.ts` |
-| Import (Dateien) | außerhalb der Transaktion (R10) | ADR-0014 §5 |
-| **Idempotency** | **Lücke (R6)** | `http.ts:517-533` |
+| Import (Dateien) | getrennte Ressource; neu erzeugte Uploads werden bei DB-Commit-Fehler kompensiert | `imports.ts`, `imports.test.ts` |
+| Idempotency | Completion-Fehler löscht nach Write keinen Claim | `http.ts`, `idempotency.test.ts`, `error-paths.test.ts` |
 
-### Die Idempotency-Lücke im Detail (R6)
+### Idempotency (R6, geschlossen)
 
-```ts
-try {
-  const result = await run();                          // hat bereits geschrieben
-  await completeIdempotencyKey({ ... });               // http.ts:518
-  return result;
-} catch (error) {
-  await releaseIdempotencyKey({ ... });                // http.ts:529 — DELETE
-  throw error;
-}
-```
+Der Fehler aus `run()` gibt den Key frei, weil kein erfolgreicher fachlicher Write feststeht. Ein Fehler in `completeIdempotencyKey` behält den Claim und markiert ihn; `completeIdempotencyKey` prüft `UPDATE ... RETURNING`, und der Claim-Pfad prüft den Marker. Ein Retry im Zustand `committed_unknown` antwortet mit 409 statt einen zweiten Write auszuführen. Der Zustand wird über die additive Tabelle `idempotency_committed` abgebildet. Belege: `packages/engine/test/idempotency.test.ts` und `error-paths.test.ts`.
 
-`completeIdempotencyKey` läuft **innerhalb** des `try`. Scheitert nur diese Zeile (Verbindungsabbruch, DB-Fehler) nach erfolgreichem `run()`, greift der `catch`, ruft `releaseIdempotencyKey()` — ein `DELETE` (`store.ts:3857-3861`) — und **löscht den Claim, obwohl die fachliche Änderung bereits geschrieben ist**. Ein Retry mit demselben Key erzeugt dann ein zweites Entity.
+## Releases (R7, geschlossen)
 
-Der bestehende Test `idempotency.test.ts:269` prüft den umgekehrten Fall (Fehler **in** `run()` → Key freigegeben). Genau dieser Testfall ist die Ursache der Lücke, nicht seine Lösung. Der Umbauplan §2.3 hat das Szenario beschrieben; die Umsetzung ist R6 im Fahrplan.
-
-## Releases
-
-- `page_revisions` speichert Tree, Titel und Pfad; Metadaten, Template und Layout-ID sind **nicht** als vollständiger Snapshot enthalten.
+- `page_revisions` speichert Tree, Titel und Pfad; nicht alle Metadaten eines Pages sind pauschal Teil des Revisions-Snapshots.
 - `releases` speichert `pageRevisions`, `themeSnapshot`, Manifest und Build-Referenz.
-- `ReleaseManifest` trägt heute genau: `styleRules`, `rendererVersion`, `buildHash`, `capturedAt`, `siteDate`, optional `rebakedFrom`/`restoredFrom` (`types.ts:170-182`). **Es fehlen (R7):** Content-, Asset-, Payload- und Template-Snapshot.
-- Finalisierte Releases werden gegen Build- und Manifest-Mutationen geschützt; ein Content-Re-Bake erzeugt ein neues Release und verändert den bisherigen Datensatz nicht.
+- `ReleaseManifest` enthält Renderer-/Build-Metadaten sowie Snapshot-Werte für `assets`, `components`, `payloads` und `entries` (`packages/engine/src/types.ts`). `buildReleaseSnapshots` sammelt die verwendeten Werte und meldet fehlende referenzierte Assets.
+- `restoreSnapshotAssets` stellt Zeilen und verfügbare Bytes aus dem Basis-Release wieder her. Fehlen sowohl Asset-Zeile als auch Release-Datei, wird der Vorgang mit 422 verweigert. Belege: `packages/engine/src/lifecycle.ts`, `packages/engine/test/release-manifest.test.ts`.
+- Finalisierte Releases bleiben unverändert; ein Content-Re-Bake erzeugt ein neues Release.
 - Der Aktivzeiger darf zwischen Releases wechseln; ältere Build-Verzeichnisse bleiben erhalten.
 
 ## Island-Payloads
@@ -122,34 +121,35 @@ Der bestehende Test `idempotency.test.ts:269` prüft den umgekehrten Fall (Fehle
 - `site_code_payloads` liegt neben dem NodeTree.
 - Der Canvas führt Payloads nicht aus, Preview und Release schon.
 - Bake-Dateien liegen unter `assets/payloads/`.
-- Budgets und Integrität stehen in `packages/engine/src/guardrails.ts`; Begründung in `docs/adr/0010-island-payload-fuer-importierten-fremd-code.md`.
+- Budgets und Integrität stehen in `packages/engine/src/guardrails.ts`; Begründung in ADR-0010.
 - Fremdcode mit unbekannter Lizenz darf laut ADR-0010 nicht in die globale Bibliothek promotet werden.
 
-## Bündelung und Auslieferung (R1)
+## Bündelung und Auslieferung (R1, Implementierung geschlossen)
 
 | Artefakt | Heute | Beleg |
 |---|---|---|
-| Editor-Bundle | bei Bedarf per **esbuild** gebündelt, `format: esm`, `write: false`, nicht minifiziert | `app/src/server.ts:34-51` |
-| Shell `app.js` | handgeschrieben, ungebündelt, per `<script type="module">` geladen | `app/public/app.js` (6669 Z.), `index.html:94` |
-| `pnpm build` | `tsc -p tsconfig.json` mit `noEmit: true` → **kein Artefakt** | `package.json:14`, `tsconfig.json:19` |
-| Paritäts-Tor | bäckt über `publishRelease` und liest `/api/releases/:id/files/…` — echter Release-Pfad, aber aus dem Arbeitsbaum | `scripts/verify-parity.mjs`, `release-cutover-browser.test.ts:245` |
+| Editor-Bundle | Build-time esbuild, `format: esm`; zur Laufzeit aus `dist`, im Entwicklungsweg on demand | `packages/app/build.mjs`, `packages/app/src/server.ts` |
+| Shell `app.js` | Build-time esbuild nach `packages/app/dist/app.js` | `packages/app/build.mjs`, `packages/app/public/app.js` |
+| `pnpm build` | `tsc --noEmit` plus rekursive Package-Builds; erzeugt App- und Docs-Portal-Artefakte | `package.json`, Workspace-Package-Skripte |
+| Artefakt-Tor | `scripts/verify-dist.mjs` läuft in `pnpm verify` und als eigener CI-Schritt | `package.json`, `.github/workflows/verify.yml` |
+| Paritäts-Tor | echter Release-Pfad, aber aus ungebündeltem Arbeitsbaum | `scripts/verify-parity.mjs` |
 
-Daraus folgt die präzise Aussage: Das Paritäts-Tor prüft einen **echten** Release aus **ungebündeltem** Quellcode. Es beweist nicht, dass ein Produktionsartefakt entsteht — weil keins entsteht.
+R1 ist durch Build und angeschlossenes Artefakt-Gate implementierungsseitig geschlossen. `pnpm verify` hat Build und Artefakt-Gate auf dem Folge-Diff am 28.09.2026 bestanden.
 
 ## Bekannte Übergänge (Risiko-Register)
 
 | Nr. | Übergang | Zustand | Beleg |
 |---|---|---|---|
-| R1 | Quelle → Artefakt | nicht vorhanden | `package.json:14`, `tsconfig.json:19` |
-| R2 | Proposal → Aufräumen | fehlt (kein `expires_at`) | `db.ts:248-259` |
-| R3 | Sektions-Plan → NodeTree | Handarbeit | `sectionPlanApplied: false` |
-| R4 | Design-Report → Draft/Review/Release | flüchtig | `lifecycle.ts:269`, `:633` |
-| R5 | Legacy-Editor → Canvas | zwei Pfade | `editor/src/index.ts:4`, `app.js:6385` |
-| R6 | Write → Idempotency-Abschluss | Lücke | `http.ts:517-533` |
-| R7 | Release → vollständiger Snapshot | unvollständig | `types.ts:170-182` |
-| R8 | MCP-Tool → Client-Schema | fehlt | 0 `outputSchema` |
-| R9 | Style-Registry → Klassen-Rename | fehlt | `style-rules.test.ts` |
-| R10 | Import → Dateien | außerhalb der Tx | ADR-0014 §5 |
-| R11 | Nachweis → CI | fehlt (PG, Coverage) | `verify.yml`, `vitest.config.ts` |
-| R12 | Änderung → Datei | God-Files | Zeilenzahlen in `stand.md` |
-| R13 | Arbeitsbaum → Commit | 230 Dateien offen | `git status --short` |
+| R1 | Quelle → Artefakt | Implementierung sowie aktueller Build-/Artefakt-Gate geschlossen | `package.json`, `scripts/verify-dist.mjs`, `verify.yml` |
+| R2 | Proposal → Aufräumen | geschlossen: TTL, Sweep und Claim-Prüfung | `db.ts`, `store.ts`, `redesign-proposal-ttl.test.ts` |
+| R3 | Sektions-Plan → NodeTree | geschlossen: Plan-Writes im atomaren Apply | `apply-redesign.ts`, `redesign-section-apply.ts`, `redesign-proposals.test.ts` |
+| R4 | Design-Report → Review/Release | geschlossen: versionierte Design-Records | `lifecycle.ts`, `design-record.test.ts` |
+| R5 | Legacy-Editor → Canvas | geschlossen: Legacy-Datei entfernt, Redirect sichtbar | `mount.ts` gelöscht, `frame-renderer.ts`, Canvas-/Server-Tests |
+| R6 | Write → Idempotency-Abschluss | geschlossen | `http.ts`, `idempotency.test.ts`, `error-paths.test.ts` |
+| R7 | Release → Snapshots | geschlossen: Assets, Components, Payloads und Entries; begrenzter Asset-Restore-Fehlerfall | `types.ts`, `lifecycle.ts`, `release-manifest.test.ts` |
+| R8 | MCP → Schema/Pagination/Manifest | teilweise: retryable, ausgewählte Output-Schemas, Docs-Manifest und Engine-Paging/HTTP-Routen vorhanden; MCP-Pagination sowie Manifest-Verwendung durch Server/Matrix offen | `mcp/src/tools.ts`, `mcp/src/server.ts`, `manifest/`, `engine/src/paging.ts` |
+| R9 | Style-Registry → Klassen-Rename | geschlossen | `style-rules.test.ts` |
+| R10 | Import → Dateien | Kompensation neuer Uploads nach Commit-Fehler belegt; keine gemeinsame Datei-/DB-Transaktion | `imports.ts`, `imports.test.ts` |
+| R11 | Nachweis → CI | Gates vorhanden und auf dem Folge-Diff lokal bestanden | `verify.yml`, `vitest.config.ts`, `test:postgres`, `error-paths.test.ts` |
+| R12 | Änderung → Datei | offen: verbleibende große Module nicht aufgeteilt | `store.ts`, `http.ts`, `app.js`, `mcp/src/tools.ts` |
+| R13 | Arbeitsbaum → Commit | Baseline-Gates grün; Sicherungs-Commit des Folge-Diffs ausstehend und blockiert neue Schritte nach DoR | `git status --short` |

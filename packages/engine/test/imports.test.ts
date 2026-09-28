@@ -506,6 +506,48 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
     }
   }, 60_000);
 
+  // R10 (P3-5): assets live outside the DB transaction, so a failing commit has
+  // to compensate. The import uploads files, THEN commits; if the second step
+  // fails, the first has already written rows and files. The compensation walks
+  // the ids this run created and purges them. Without it a failed import would
+  // leave asset rows pointing at files the site never adopted.
+  it("compensates uploaded assets when the commit fails", async () => {
+    const image = Buffer.from("engine-import-compensation", "utf8");
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "image/png" }).end(image);
+    });
+    await new Promise<void>((done) => server.listen(0, "127.0.0.1", () => done()));
+    const address = server.address();
+    const origin = `http://127.0.0.1:${typeof address === "object" && address !== null ? address.port : 0}`;
+    const html = framerHtml().replaceAll(
+      "https://framerusercontent.com/images/test.png",
+      `${origin}/test.png`,
+    );
+    try {
+      const before = await env.engine.store.listAssets(siteId, {});
+
+      // The page exists and the import targets it, but with a base version that
+      // is already stale - the commit must refuse while the uploads already
+      // happened. This is the exact shape the compensation exists for.
+      const target = await createTestPage(env.api, siteId, { title: "Kompensation", path: "/kompensation" });
+      const response = await runImport({
+        source: { html },
+        write: true,
+        pagePath: "/kompensation",
+        pageId: target.id,
+        baseDraftVersion: 999,
+        assets: "upload",
+      });
+      expect(response.status).toBe(409);
+
+      // The upload ran first, so the compensation had something to undo.
+      const after = await env.engine.store.listAssets(siteId, {});
+      expect(after.length).toBe(before.length);
+    } finally {
+      await new Promise<void>((done) => server.close(() => done()));
+    }
+  }, 60_000);
+
   it("keeps the site import history separate from the global queue", async () => {
     const response = await env.api.request<{ jobs: { id: string }[] }>({
       method: "GET",

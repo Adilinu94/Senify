@@ -175,10 +175,23 @@ describe.skipIf(!browserAvailable)("redesign direction cards in a real browser",
       const chosen = proposal.proposal.cards[1];
       await dialog.locator(`[data-direction-card="${chosen?.id ?? ""}"] input[type="radio"]`).check();
       await expect.poll(async () => confirm.isEnabled()).toBe(true);
+      const sourceHash = await tab.evaluate("location.hash");
       await confirm.click();
 
+      // The fixture deliberately creates media needs. Confirm opens the
+      // resolution panel first; explicitly leave each slot open, then the
+      // workflow may navigate to the new draft.
+      const needsDialog = tab.locator('[data-role="media-needs-dialog"]');
+      await needsDialog.waitFor({ timeout: 60000 });
+      const manualChoices = needsDialog.locator('[data-action="media-need-manual"]');
+      const mediaNeedCount = await manualChoices.count();
+      expect(mediaNeedCount).toBeGreaterThan(0);
+      for (let index = 0; index < mediaNeedCount; index += 1) {
+        await manualChoices.nth(index).click();
+      }
+      await needsDialog.locator('[data-action="media-needs-done"]').click();
+
       // The confirm runs through the human-only route and lands in the draft.
-      const sourceHash = await tab.evaluate("location.hash");
       await expect
         .poll(() => tab.evaluate("location.hash"), { timeout: 60000 })
         .not.toBe(sourceHash);

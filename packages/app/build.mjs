@@ -58,6 +58,9 @@ async function bundleEditor() {
 
 function copyStatics() {
   mkdirSync(DIST_DIR, { recursive: true });
+  // `legacy-editor.html` used to ship here (P3-1 Punkte 1-3). Punkt 4 removed
+  // it with `mount.ts` itself: the page existed only to mount the retired
+  // editor, and that module is gone.
   for (const file of ["index.html", "app.css", "ui.css"]) {
     copyFileSync(join(PUBLIC_DIR, file), join(DIST_DIR, file));
   }

@@ -215,6 +215,14 @@ function mediaNeeds(input: {
       if (asset !== null && asset.siteId === input.siteId && asset.status === "ready") {
         needs.set(path, {
           id: `media_${needs.size + 1}`,
+          // The SOURCE node id. The executor rewrites this node in place when
+          // the source section is still in the tree, so the id a caller gets
+          // here is the id it will find in the rebuilt draft. For a section
+          // that is rebuilt from scratch the executor mints a new id, and it
+          // rewrites the need's `targetNodeId` to match before returning it -
+          // a need that names a node nobody can find would be worse than no
+          // need at all (P2-2).
+          targetNodeId: node.id,
           targetPath,
           role: "source-asset",
           treatment: "reuse",
@@ -239,6 +247,7 @@ function mediaNeeds(input: {
             : "Asset ist nicht im Status „ready“.";
       needs.set(path, {
         id: `media_${needs.size + 1}`,
+        targetNodeId: node.id,
         targetPath,
         role: "source-asset",
         treatment: "select",
@@ -259,6 +268,11 @@ function mediaNeeds(input: {
     if (needs.has(path)) return;
     needs.set(path, {
       id: `media_${needs.size + 1}`,
+      // A reference asset has no node of its own - it is style evidence, not
+      // something in the draft. The empty id is honest: there is no slot to
+      // write into, and the executor skips these when it maps needs onto
+      // rebuilt nodes.
+      targetNodeId: "",
       targetPath: path,
       role: "reference-asset",
       treatment,

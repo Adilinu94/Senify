@@ -33,7 +33,12 @@ describe("docs catalog (single sources)", () => {
     expect(hero?.motionPresets.length).toBeGreaterThan(0);
   });
 
-  it("derives tool parameters from the JSON schemas", () => {
+  // P3-3 Punkt 4/5: the parameters no longer come from a live TypeBox schema
+  // read out of the MCP server - that dependency was the cycle. They come from
+  // the manifest, which `pnpm manifest:render` extracts from the same source.
+  // The assertion is unchanged, and that is the point: the docs must show what
+  // the tools take, however the answer is obtained.
+  it("derives tool parameters from the manifest", () => {
     const apply = toolCatalog().find((tool) => tool.name === "apply_mutations");
     expect(apply?.scope).toBe("write");
     expect(
