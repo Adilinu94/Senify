@@ -75,3 +75,5 @@ packages/app/dist/
 # Lokaler Runtime-Store und nicht versionierte Testausgaben bleiben lokal.
 /data/
 /full.log
+# Graphify-Karten sind abgeleitete lokale Analyseartefakte.
+/graphify-out/
