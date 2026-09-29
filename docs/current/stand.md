@@ -1,7 +1,7 @@
 # Aktueller Stand
 
-> Basis: Commit `243166f` (26.09.2026) plus fachlich geprüfte Folgearbeiten. Der Arbeitsbaum ist noch **nicht gesichert**; `pnpm verify`, die separaten App-Gates, PostgreSQL, Coverage und `quality:check` sind auf diesem Diff grün. Details und Testresultate stehen ausschließlich in `docs/current/qualitaet.md`.
-> Stand: 28.09.2026. Messzahlen stehen ausschließlich in `docs/current/qualitaet.md` und werden von `pnpm quality:render` erzeugt, nicht von Hand gepflegt.
+> Basis: Commit `aad9550` (29.09.2026); der geprüfte Folge-Diff ist gesichert. Eine reine Store-Mapper-Auslagerung ist der aktuelle uncommittete P3-2-Schritt; Typecheck, Lint, Volltest und Coverage sind dafür grün. Frühere App-/PostgreSQL-Gates stehen mit Datum in `docs/current/qualitaet.md`.
+> Stand: 29.09.2026. Messzahlen stehen ausschließlich in `docs/current/qualitaet.md` und werden von `pnpm quality:render` erzeugt, nicht von Hand gepflegt.
 > Geplante Arbeit und Reihenfolge: `docs/fahrplan.md`. Historisches: `docs/history/`.
 
 ## Lesehinweis
@@ -56,8 +56,8 @@ Jeder Eintrag hat eine Nummer, die `docs/fahrplan.md` und `docs/current/architek
 | R9 | Klassen-Rename in der Style-Registry nicht enthalten | **geschlossen 27.09.2026** | `Store.updateStyleRule` (`store.ts`) benennt eine Klassenregel um, lässt die `id` stehen und lässt den `selector` mitziehen; `ambient` geht nur über `selector`, `scoped` gar nicht. Test: `test/style-rules.test.ts` (5 Fälle: Rename mit Selektor, Namenskollision, ungültiger Name, Ambient, Scoped) |
 | R10 | Import-Assets außerhalb der gemeinsamen DB-Transaktion | **Kompensationsvertrag geschlossen 27.09.2026** | Neu erzeugte Uploads werden bei fehlgeschlagenem DB-Commit kompensiert; `packages/engine/test/imports.test.ts` erzwingt einen 409 nach dem Upload und prüft das Entfernen. Datei und DB bleiben getrennte Ressourcen; bereits vorhandene Assets werden nicht entfernt. `getAsset` bleibt absichtlich ungeprüft |
 | R11 | Keine Coverage-Schwelle, kein PG-Service in CI | **Implementierung und aktuelle lokale Gates geschlossen** | Coverage-Schwellen, Fehlerpfad-Tests und PG-Job sind vorhanden (`vitest.config.ts`, `test/error-paths.test.ts`, `verify.yml`); aktueller Laufstatus steht ausschließlich in `docs/current/qualitaet.md` |
-| R12 | God-Files als Änderungskosten | offen, **teilweise durch P3-1 entschärft** | `mount.ts` ist gelöscht. Die verbleibenden großen Module (`store.ts`, `app.js`, `http.ts`, `tools.ts`) sind noch nicht aufgeteilt. Die Zeilenzahlen im alten Fahrplan sind historische Messungen; vor dem Start von P3-2 sind sie neu zu messen. |
-| R13 | Arbeitsbaum ungesichert | Gate für den Folge-Diff grün, Sicherungs-Commit ausstehend; blockiert bis zur Sicherung neue Schritte nach DoR | `git status --short`; Änderungen sind in P0-1 fachlich geprüft |
+| R12 | God-Files als Änderungskosten | offen, **erste Store-Auslagerung umgesetzt** | `store-record-mappers.ts` enthält Asset-, Code-Payload-, Collection- und Entry-Mapper; `store-row-utils.ts` enthält DB-Konvertierungen. `Store`-Operationen sowie `http.ts`, `app.js` und MCP-Tools bleiben zu zerlegen (P3-2). |
+| R13 | Arbeitsbaum ungesichert | Vorheriger Folge-Diff ist gesichert; der aktuelle P3-2-Schritt bleibt bis Gate/Commit ungesichert | `git status --short`; aktive Änderungen sind auf Row-Mapper begrenzt |
 
 Zwei Risiken sind **keine** offenen Lücken, sondern bewusste Grenzen, die nicht als Fehler geführt werden:
 
@@ -103,7 +103,7 @@ Noch nicht vorhanden: **automatische Medienbeschaffung**. Medienbedarfe sind adr
 
 ## Priorisierte offene Arbeit
 
-Verbindlich und priorisiert steht die Liste in **`docs/fahrplan.md`**. Der aktuelle Folge-Diff hat alle Baseline-Gates bestanden; vor den nächsten Schritten wird er nach P0-1 in fachlichen Commits gesichert.
+Verbindlich und priorisiert steht die Liste in **`docs/fahrplan.md`**. Der vorherige Folge-Diff ist gesichert. P3-2 läuft mit der ersten reinen Modul-Auslagerung in `store.ts`; der nächste Schritt beginnt erst nach deren Commit.
 
 Danach verbleiben: die MCP-Verträge und Manifest-Konsumenten (R8), die Modulaufteilung der vier God-Files (R12) sowie die zwei CI-Verbesserungen aus P3-6.
 

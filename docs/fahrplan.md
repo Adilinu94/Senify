@@ -1,7 +1,7 @@
 # Fahrplan
 
 > **Dokumenttyp:** fortlaufender Umsetzungsplan mit Gates. Dieses Dokument begleitet die Umsetzung und wird bei jedem abgeschlossenen Schritt aktualisiert.
-> **Stand:** 28.09.2026 · **Basis:** Commit `243166f` plus verifizierte Folgearbeiten, noch uncommittet. Die Gesamt-Gates sind grün; P0-1 bleibt bis zur fachlichen Sicherung offen. Der aktuelle Ist-Abgleich steht in `docs/current/stand.md`, `docs/current/architektur.md` und `docs/current/qualitaet.md`. Historische Abschnitte bleiben als Verlauf erhalten und sind nicht automatisch der heutige Status.
+> **Stand:** 29.09.2026 · **Basis:** die geprüfte Folgearbeit ist in `2a0afde` und `aad9550` gesichert. Der erste Schritt von P3-2 (Store-Row-Mapping) ist aktuell in Arbeit; sein Gate ist grün, die Änderungen werden vor dem nächsten Schritt committet. Der Ist-Abgleich steht in `docs/current/stand.md`, `docs/current/architektur.md` und `docs/current/qualitaet.md`. Historische Abschnitte bleiben Verlauf und sind nicht automatisch der heutige Status.
 > **Nicht verbindlich hier:** Testzahlen (gehören nach `docs/current/qualitaet.md`), Fachbegriffe (`CONTEXT.md`), angenommene Entscheidungen (`docs/adr/`).
 > **Ersetzt:** `docs/history/umbauplan.md` (siehe `docs/README.md` für Vorrangregeln).
 
@@ -17,19 +17,19 @@
 
 ## Aktueller DoR-Blocker
 
-Der umfangreiche Folge-Diff wurde fachlich geprüft; der ursprüngliche A11y-Timingfehler wurde durch Synchronisation des Browser-Tests behoben. `pnpm verify`, Visual, Parity, Import, PostgreSQL, Coverage und `quality:check` sind für diesen Gesamtstand ausgeführt und grün. Die Definition of Ready für weitere Refactors bleibt **bis zur Sicherung des Folge-Diffs** unerfüllt: der Arbeitsbaum ist noch nicht sauber. Gate-Einzelheiten und Messwerte stehen ausschließlich in `docs/current/qualitaet.md`.
+Der zuvor geprüfte Folge-Diff ist in `2a0afde` und `aad9550` gesichert. Der aktuelle, eng begrenzte P3-2-Schritt extrahiert Store-Row-Mapping nach `store-record-mappers.ts` und `store-row-utils.ts`; Typecheck, Lint, Volltest und Coverage sind am 29.09.2026 grün. Der Arbeitsbaum bleibt bis zu diesem Schritt-Commit absichtlich geändert; der nächste Schritt startet erst danach. Frühere App-/DB-Gates und aktuelle Zahlen stehen ausschließlich in `docs/current/qualitaet.md`.
 
 ---
 
 ## Priorität 0 — Grundlage sichern und ehrlich machen
 
-### P0-1 · Arbeitsbaum in fachlichen Commits sichern — ursprünglicher Bestand historisch erledigt; Folge-Diff Gates grün, Sicherung offen
+### P0-1 · Arbeitsbaum in fachlichen Commits sichern — ursprünglicher Bestand historisch erledigt; Folge-Diff gesichert 29.09.2026
 
-Zehn fachliche Commits (`1e4645a…67a2862`) sicherten den ursprünglichen Bestand; `git status` war damals leer. Seitdem ist ein neuer, umfangreicher Folge-Diff entstanden. Die ursprüngliche Done-Aussage bleibt historisch wahr, aber der aktuelle DoR-Blocker ist erst nach fachlicher Prüfung, Gates und Sicherung des neuen Diff behoben.
+Zehn fachliche Commits (`1e4645a…67a2862`) sicherten den ursprünglichen Bestand. Der spätere geprüfte Folge-Diff ist ebenfalls gesichert (`2a0afde`, `aad9550`). Der neue uncommittete Store-Mapper-Schritt gehört zu P3-2 und muss dessen Gate und Commit durchlaufen, bevor ein weiterer Schritt beginnt.
 
-**Nächster Schritt:** den fachlich geprüften Folge-Diff sichern. Der lokale Runtime-Store `data/` und die leere lokale Ausgabe `full.log` sind als nicht versionierte Laufzeitdaten ignoriert; sie werden nicht übernommen. Die verifizierten Produkt-, Test- und Dokumentationsänderungen gehören zum Folge-Diff.
+Der lokale Runtime-Store `data/`, `full.log` sowie Graphify-Ausgaben sind ignoriert und werden nicht übernommen. Die Graphify-Semantik-Auswertung ist unvollständig; daraus wird kein Vollständigkeitsbeleg abgeleitet.
 
-**Gate:** `git diff --check`, `pnpm verify`, `pnpm test:visual`, `pnpm verify:parity`, `pnpm verify:import`, `pnpm test:postgres`, `pnpm test:coverage` und `pnpm quality:check` am 28.09.2026 grün. Danach Folge-Diff in fachlichen Commits sichern und `git status --short` leer prüfen.
+**Gate:** Für den gesicherten Folge-Diff liefen `pnpm verify`, `pnpm test:visual`, `pnpm verify:parity`, `pnpm verify:import`, `pnpm test:postgres`, `pnpm test:coverage` und `pnpm quality:check` am 28.09.2026 grün. Aktuelle P3-2-Gates sind unter P3-2 und in `docs/current/qualitaet.md` dokumentiert.
 
 ### P0-2 · Lintfehler der Postgres-Testdatei — historisch erledigt 25.09.2026
 
@@ -105,15 +105,15 @@ Versionierte Records werden bei Review und Publish gespeichert; Manifest und Re-
 
 `packages/editor/src/mount.ts`, `legacy-editor.html` und Legacy-Browser-Tests sind entfernt. Der Canvas-Redirect und Bundle-Ausschluss sind getestet; `FrameRenderer` liegt in `frame-renderer.ts`. Historische Umsetzungsschritte unten sind abgeschlossen, keine offene Löschaufgabe.
 
-### P3-2 · God-Files aufteilen (R12) — offen, vorerst durch DoR blockiert
+### P3-2 · God-Files aufteilen (R12) — in Arbeit, erster Store-Schritt
 
-**Ready:** aktueller Folge-Diff fachlich geprüft, gesichert und Gates grün; Scope pro einzelne Datei benannt.
+**Ready:** vorheriger Folge-Diff ist gesichert; Scope dieses Schritts ist auf die privaten Row-Typen, Mapper und Parser-Helfer des `Store` begrenzt. Keine öffentliche Store-API wird verändert.
 
-**Regel:** Ein Schritt pro Datei; reine Modulaufteilung, stabile äußere API, keine gleichzeitige Verhaltensänderung. Die früheren Zeilenzahlen sind historische Größen und müssen vor Start neu gemessen werden.
+**Umsetzung:** Asset-, Code-Payload-, Collection- und Entry-Row-Mapping liegt in `packages/engine/src/store-record-mappers.ts`; gemeinsam genutzte DB-Zeilen-Konvertierungen liegen in `store-row-utils.ts`. Der Store-Operationscode bleibt noch groß und wird in separaten Schritten behandelt.
 
-**Reihenfolge zur späteren Entscheidung:** `store.ts`, `http.ts`, `mcp/tools.ts`, `app.js`; `mount.ts` entfällt mit P3-1. Nicht mehrere große Module gleichzeitig aufteilen.
+**Reihenfolge:** `store.ts`, `http.ts`, `mcp/tools.ts`, `app.js`; `mount.ts` entfällt mit P3-1. Nicht mehrere große Module gleichzeitig aufteilen.
 
-**Gate je Schritt:** `pnpm typecheck && pnpm lint && pnpm test`, Assertions unverändert; bei geänderten Browser-/Build-Pfaden auch die passenden App-Gates.
+**Gate dieses Schritts:** `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:coverage`, `pnpm quality:render`, `pnpm quality:check` und `git diff --check` am 29.09.2026 grün; vorhandene Assertions unverändert. Vor einem weiteren Schritt: Änderungen fachlich committen und `git status --short` leer prüfen. Bei Browser-/Build-Pfaden zusätzlich die passenden App-Gates.
 
 ### P3-3 · MCP-Schema-first (R8) — Punkte 1 bis 5 erledigt 28.09.2026
 
@@ -166,7 +166,7 @@ Neu erzeugte Uploads werden nach fehlgeschlagenem DB-Commit kompensiert; negativ
 | R10 | Import-Asset-Kompensation unbelegt | **Kompensationsvertrag geschlossen**; eine gemeinsame Datei-/DB-Tx besteht nicht | P3-5 |
 | R11 | Kein PG-Service/Coverage/Fehlerpfade in CI | **Implementierung und aktuelle lokale Gates geschlossen**; CI-Jobs vorhanden | P1-1, P1-2 |
 | R12 | God-Files | **offen** | P3-2 |
-| R13 | Ursprünglicher Arbeitsbaum ungesichert | **Gate grün, Folge-Diff noch nicht committet**; blockiert bis zur Sicherung neue Schritte nach DoR | P0-1 / DoR |
+| R13 | Ursprünglicher Arbeitsbaum ungesichert | **Vorheriger Folge-Diff gesichert**; der aktuelle P3-2-Schritt bleibt bis Gate und Commit offen | P0-1 / P3-2 |
 
 ## Definition of Ready für neue Schritte
 
@@ -188,4 +188,5 @@ Neu erzeugte Uploads werden nach fehlgeschlagenem DB-Commit kompensiert; negativ
 
 | Datum | Änderung |
 |---|---|
+| 29.09.2026 | P0-1-Folge-Diff in `2a0afde`/`aad9550` gesichert. P3-2 begann mit einer reinen Store-Mapper-Auslagerung; Typprüfung, Lint, Volltest und Coverage bestanden. P3-2 bleibt offen, bis auch die weiteren Module zerlegt sind. |
 | 28.09.2026 | Folge-Diff fachlich geprüft und alle P0-Gates grün ausgeführt. A11y-Browser-Test gegen Debounce/Ladeablauf synchronisiert; vollständiges `pnpm verify`, Visual, Parity, Import, Coverage, PostgreSQL und `quality:check` bestanden. PostgreSQL lief isoliert lokal gegen 18.6, ohne den bestehenden Dienst anzutasten. `data/` und leeres `full.log` als lokale Laufzeit-/Testausgaben klassifiziert und ignoriert. Folge-Diff ist noch zu sichern; P3-2 startet erst nach sauberem Status. |

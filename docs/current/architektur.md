@@ -2,7 +2,7 @@
 
 > Dieses Dokument beschreibt den Ist-Zustand des Arbeitsbaums, nicht den Zielzustand.
 > Zielarchitektur und Reihenfolge: `docs/fahrplan.md`. Umsetzungsstand: `docs/current/stand.md`.
-> Die Risiko-Nummern `R1`–`R13` sind mit `docs/current/stand.md` und `docs/fahrplan.md` identisch. Der Folge-Diff wurde vollständig gegatet, ist aber noch nicht committet; Details und aktuelle Ergebnisse stehen in `docs/current/qualitaet.md`.
+> Die Risiko-Nummern `R1`–`R13` sind mit `docs/current/stand.md` und `docs/fahrplan.md` identisch. Der geprüfte Folge-Diff ist gesichert; der aktuelle P3-2-Mapper-Schritt ist gegatet und noch uncommittet. Details und aktuelle Ergebnisse stehen in `docs/current/qualitaet.md`.
 
 ## Seams
 
@@ -11,7 +11,7 @@
 | `EditorDocument` | internes Editor-Dokument (v2-Tree mit Geräte-Suffixen, `states`, `motion`, `classes`) | `packages/editor/src/state/document.ts` |
 | `NodeTree` | Persistenz- und Bake-Vertrag | `packages/section-sdk/src/types.ts` |
 | `editor-bridge` | Adapter zwischen beiden Modellen, keine zweite Fachwahrheit | `packages/engine/src/mutations/editor-bridge.ts` |
-| `Store` | kapselt PostgreSQL-Schreibpfade, Transaktionen und Revisionen; Modulaufteilung ist R12 | `packages/engine/src/store.ts` |
+| `Store` | kapselt PostgreSQL-Schreibpfade, Transaktionen und Revisionen; Mapper werden im Rahmen von R12 ausgelagert | `packages/engine/src/store.ts`, `store-record-mappers.ts`, `store-row-utils.ts` |
 | `Renderer` | erzeugt aus NodeTree, Theme, Styles und Assets eine statische Site | `packages/renderer/src/bake.ts` |
 | MCP-Fassade | delegiert an Engine-Routen; neutrale Tool-Fakten liegen zusätzlich im Manifest-Paket | `packages/mcp/src/tools.ts`, `packages/manifest/src/` |
 
@@ -151,5 +151,5 @@ R1 ist durch Build und angeschlossenes Artefakt-Gate implementierungsseitig gesc
 | R9 | Style-Registry → Klassen-Rename | geschlossen | `style-rules.test.ts` |
 | R10 | Import → Dateien | Kompensation neuer Uploads nach Commit-Fehler belegt; keine gemeinsame Datei-/DB-Transaktion | `imports.ts`, `imports.test.ts` |
 | R11 | Nachweis → CI | Gates vorhanden und auf dem Folge-Diff lokal bestanden | `verify.yml`, `vitest.config.ts`, `test:postgres`, `error-paths.test.ts` |
-| R12 | Änderung → Datei | offen: verbleibende große Module nicht aufgeteilt | `store.ts`, `http.ts`, `app.js`, `mcp/src/tools.ts` |
-| R13 | Arbeitsbaum → Commit | Baseline-Gates grün; Sicherungs-Commit des Folge-Diffs ausstehend und blockiert neue Schritte nach DoR | `git status --short` |
+| R12 | Änderung → Datei | teilweise: Store-Row-Mapping ausgelagert; große Store-Operationen und übrige Module offen | `store.ts`, `store-record-mappers.ts`, `http.ts`, `app.js`, `mcp/src/tools.ts` |
+| R13 | Arbeitsbaum → Commit | vorheriger Folge-Diff gesichert; aktiver Store-Mapper-Schritt noch uncommittet | `git status --short` |

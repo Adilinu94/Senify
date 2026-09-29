@@ -71,10 +71,6 @@ import {
 } from "./style-fence.ts";
 import type { GeneratedVariant } from "./variants.ts";
 import {
-  ASSET_KINDS,
-  ASSET_VARIANT_FORMATS,
-  ENTRY_STATUSES,
-  FIELD_TYPES,
   IMAGE_CUSTOM_FORMATS,
   IMAGE_FALLBACK_PROVIDERS,
   IMAGE_JOB_STATUSES,
@@ -82,7 +78,6 @@ import {
   REVIEW_STATUSES,
   SITE_PROFILES,
   SMTP_TLS_MODES,
-  SUPPORTS_FLAGS,
   type ApiToken,
   type Asset,
   type AssetFolder,
@@ -92,7 +87,6 @@ import {
   type AssetUpdate,
   type AssetUsage,
   type AssetVariant,
-  type AssetVariantFormat,
   type AuditEntry,
   type CellValue,
   type CodePayload,
@@ -185,6 +179,37 @@ import {
   type TokenScope,
 } from "./types.ts";
 
+import {
+  ASSET_COLUMNS,
+  CODE_PAYLOAD_COLUMNS,
+  COLLECTION_COLUMNS,
+  ENTRY_COLUMNS,
+  mapAsset,
+  mapAssetFolder,
+  mapAssetHistory,
+  mapAssetVariant,
+  mapCodePayload,
+  mapCollection,
+  mapEntry,
+  mapEntryVersion,
+  mapEntryRedirect,
+  type AssetRow,
+  type AssetFolderRow,
+  type AssetHistoryRow,
+  type AssetVariantRow,
+  type CodePayloadRow,
+  type CollectionRow,
+  type EntryRow,
+  type EntryVersionRow,
+  type EntryRedirectRow,
+} from "./store-record-mappers.ts";
+import {
+  toFiniteNumber,
+  toIso,
+  toJson,
+  toJsonParam,
+  toNullableIso,
+} from "./store-row-utils.ts";
 export function slugify(value: string): string {
   const slug = value
     .toLowerCase()
@@ -207,28 +232,6 @@ function isUniqueViolation(error: unknown): boolean {
   const message =
     typeof candidate.message === "string" ? candidate.message : "";
   return /(duplicate|unique|already exists)/i.test(message);
-}
-
-function toIso(value: unknown): string {
-  if (value instanceof Date) return value.toISOString();
-  return String(value);
-}
-
-function toFiniteNumber(value: unknown, field: string): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    throw new Error(`Stored value for "${field}" is not a number: ${String(value)}`);
-  }
-  return parsed;
-}
-
-function toJson<T>(value: unknown): T {
-  if (typeof value === "string") return JSON.parse(value) as T;
-  return value as T;
-}
-
-function toJsonParam(value: unknown): string {
-  return JSON.stringify(value);
 }
 
 type SiteRow = {
@@ -898,11 +901,6 @@ function mapReviewItem(row: ReviewRow): ReviewItem {
   };
 }
 
-function toNullableIso(value: unknown): string | null {
-  if (value === null || value === undefined) return null;
-  return toIso(value);
-}
-
 function mapToken(row: TokenRow): ApiToken {
   const scopes = toJson<unknown>(row.scopes);
   if (
@@ -939,339 +937,6 @@ function mapMcpAudit(row: McpAuditRow): McpAuditEntry {
     result: row.result === "error" ? "error" : "ok",
     entity: typeof row.entity === "string" ? row.entity : null,
     durationMs: toFiniteNumber(row.duration_ms, "duration_ms"),
-    createdAt: toIso(row.created_at),
-  };
-}
-
-type AssetRow = {
-  id: string;
-  site_id: string;
-  filename: string;
-  mime: string;
-  kind: string;
-  byte_size: unknown;
-  width: unknown;
-  height: unknown;
-  hash: string;
-  alt_text: unknown;
-  decorative: unknown;
-  folder_id: unknown;
-  tags: unknown;
-  storage_ref: string;
-  status: string;
-  replaced_at: unknown;
-  trashed_at: unknown;
-  created_at: unknown;
-  updated_at: unknown;
-};
-
-type AssetFolderRow = {
-  id: string;
-  site_id: string;
-  name: string;
-  parent_id: unknown;
-  created_at: unknown;
-};
-
-type AssetHistoryRow = {
-  id: string;
-  asset_id: string;
-  storage_ref: string;
-  mime: string;
-  byte_size: unknown;
-  created_at: unknown;
-};
-
-type AssetVariantRow = {
-  id: string;
-  asset_id: string;
-  width: unknown;
-  format: string;
-  storage_ref: string;
-  byte_size: unknown;
-  created_at: unknown;
-};
-
-function toNullableNumber(value: unknown): number | null {
-  if (value === null || value === undefined) return null;
-  return toFiniteNumber(value, "value");
-}
-
-function toNullableText(value: unknown): string | null {
-  return typeof value === "string" ? value : null;
-}
-
-function mapAsset(row: AssetRow): Asset {
-  const kind = row.kind;
-  if (!ASSET_KINDS.includes(kind as AssetKind)) {
-    throw new Error(`Stored asset kind is invalid: ${String(kind)}`);
-  }
-  const status: AssetStatus = row.status === "trashed" ? "trashed" : "ready";
-  return {
-    id: row.id,
-    siteId: row.site_id,
-    filename: row.filename,
-    mime: row.mime,
-    kind: kind as AssetKind,
-    byteSize: toFiniteNumber(row.byte_size, "byte_size"),
-    width: toNullableNumber(row.width),
-    height: toNullableNumber(row.height),
-    hash: row.hash,
-    altText: toNullableText(row.alt_text),
-    decorative: row.decorative === true || row.decorative === "true",
-    folderId: toNullableText(row.folder_id),
-    tags: toJson<string[]>(row.tags),
-    storageRef: row.storage_ref,
-    status,
-    // Derivatives come from separate tables; single-row mappers leave them
-    // empty and callers attach the loaded rows.
-    variants: [],
-    blurhash: null,
-    createdAt: toIso(row.created_at),
-    updatedAt: toIso(row.updated_at),
-    replacedAt: toNullableIso(row.replaced_at),
-    trashedAt: toNullableIso(row.trashed_at),
-  };
-}
-
-function mapAssetFolder(row: AssetFolderRow): AssetFolder {
-  return {
-    id: row.id,
-    siteId: row.site_id,
-    name: row.name,
-    parentId: toNullableText(row.parent_id),
-    createdAt: toIso(row.created_at),
-  };
-}
-
-function mapAssetHistory(row: AssetHistoryRow): AssetHistoryEntry {
-  return {
-    id: row.id,
-    assetId: row.asset_id,
-    storageRef: row.storage_ref,
-    mime: row.mime,
-    byteSize: toFiniteNumber(row.byte_size, "byte_size"),
-    createdAt: toIso(row.created_at),
-  };
-}
-
-function mapAssetVariant(row: AssetVariantRow): AssetVariant {
-  const format = row.format;
-  if (!ASSET_VARIANT_FORMATS.includes(format as AssetVariantFormat)) {
-    throw new Error(`Stored asset variant format is invalid: ${String(format)}`);
-  }
-  return {
-    id: row.id,
-    assetId: row.asset_id,
-    width: toFiniteNumber(row.width, "width"),
-    format: format as AssetVariantFormat,
-    storageRef: row.storage_ref,
-    byteSize: toFiniteNumber(row.byte_size, "byte_size"),
-    createdAt: toIso(row.created_at),
-  };
-}
-
-const ASSET_COLUMNS =
-  "id, site_id, filename, mime, kind, byte_size, width, height, hash, alt_text, decorative, folder_id, tags, storage_ref, status, replaced_at, trashed_at, created_at, updated_at";
-
-type CodePayloadRow = {
-  id: string;
-  site_id: string;
-  name: string;
-  kind: string;
-  bytes: unknown;
-  integrity: string;
-  version: unknown;
-  provenance: unknown;
-  license: unknown;
-  created_at: unknown;
-  updated_at: unknown;
-};
-
-// Metadata only: the bundle is code and is read explicitly through
-// `getCodePayloadBundle`, so a list never drags every payload into memory.
-const CODE_PAYLOAD_COLUMNS =
-  "id, site_id, name, kind, bytes, integrity, version, provenance, license, created_at, updated_at";
-
-function mapCodePayload(row: CodePayloadRow): CodePayload {
-  const kind = row.kind;
-  if (kind !== "module" && kind !== "webgl-scene") {
-    throw new Error(`Stored payload kind is invalid: ${String(kind)}`);
-  }
-  return {
-    id: row.id,
-    siteId: row.site_id,
-    name: row.name,
-    kind,
-    bytes: toFiniteNumber(row.bytes, "bytes"),
-    integrity: row.integrity,
-    version: toFiniteNumber(row.version, "version"),
-    provenance: toJson<CodePayloadProvenance>(row.provenance),
-    license: toJson<CodePayloadLicense>(row.license),
-    createdAt: toIso(row.created_at),
-    updatedAt: toIso(row.updated_at),
-  };
-}
-
-type CollectionRow = {
-  id: string;
-  site_id: string;
-  name: string;
-  slug: string;
-  fields: unknown;
-  title_field: string;
-  date_field: unknown;
-  url_pattern: unknown;
-  supports: unknown;
-  list_columns: unknown;
-  description: unknown;
-  deprecated_at: unknown;
-  created_at: unknown;
-  updated_at: unknown;
-};
-
-type EntryRow = {
-  id: string;
-  site_id: string;
-  collection_id: string;
-  slug: string;
-  status: string;
-  cells: unknown;
-  active_version_id: unknown;
-  version: unknown;
-  author: unknown;
-  published_at: unknown;
-  scheduled_at: unknown;
-  deleted_at: unknown;
-  created_at: unknown;
-  updated_at: unknown;
-};
-
-type EntryVersionRow = {
-  id: string;
-  entry_id: string;
-  site_id: string;
-  version_number: unknown;
-  cells: unknown;
-  slug: string;
-  status: string;
-  author: unknown;
-  created_at: unknown;
-};
-
-type EntryRedirectRow = {
-  id: string;
-  site_id: string;
-  collection_id: string;
-  from_path: string;
-  to_path: string;
-  created_at: unknown;
-};
-
-const COLLECTION_COLUMNS =
-  "id, site_id, name, slug, fields, title_field, date_field, url_pattern, supports, list_columns, description, deprecated_at, created_at, updated_at";
-const ENTRY_COLUMNS =
-  "id, site_id, collection_id, slug, status, cells, active_version_id, version, author, published_at, scheduled_at, deleted_at, created_at, updated_at";
-
-function assertEntryStatus(value: string): EntryStatus {
-  if (!(ENTRY_STATUSES as readonly string[]).includes(value)) {
-    throw new Error(`Stored entry status is invalid: ${value}`);
-  }
-  return value as EntryStatus;
-}
-
-function toFieldDefs(value: unknown): FieldDef[] {
-  const fields = toJson<unknown>(value);
-  if (!Array.isArray(fields)) {
-    throw new Error("Stored collection fields are not an array");
-  }
-  return fields.map((entry) => {
-    const field = entry as FieldDef;
-    if (
-      !field ||
-      typeof field !== "object" ||
-      typeof field.id !== "string" ||
-      typeof field.type !== "string" ||
-      !(FIELD_TYPES as readonly string[]).includes(field.type)
-    ) {
-      throw new Error("Stored collection field is invalid");
-    }
-    return field;
-  });
-}
-
-function toSupports(value: unknown): SupportsFlag[] {
-  const supports = toJson<unknown>(value);
-  if (
-    !Array.isArray(supports) ||
-    supports.some(
-      (flag) => !(SUPPORTS_FLAGS as readonly string[]).includes(String(flag)),
-    )
-  ) {
-    throw new Error(`Stored collection supports are invalid: ${String(value)}`);
-  }
-  return supports as SupportsFlag[];
-}
-
-function mapCollection(row: CollectionRow): Collection {
-  return {
-    id: row.id,
-    siteId: row.site_id,
-    name: row.name,
-    slug: row.slug,
-    fields: toFieldDefs(row.fields),
-    titleField: row.title_field,
-    dateField: toNullableText(row.date_field),
-    urlPattern: toNullableText(row.url_pattern),
-    supports: toSupports(row.supports),
-    listColumns: toJson<string[]>(row.list_columns),
-    description: toNullableText(row.description),
-    deprecatedAt: toNullableIso(row.deprecated_at),
-    createdAt: toIso(row.created_at),
-    updatedAt: toIso(row.updated_at),
-  };
-}
-
-function mapEntry(row: EntryRow): Entry {
-  return {
-    id: row.id,
-    siteId: row.site_id,
-    collectionId: row.collection_id,
-    slug: row.slug,
-    status: assertEntryStatus(row.status),
-    cells: toJson<Record<string, CellValue>>(row.cells),
-    activeVersionId: toNullableText(row.active_version_id),
-    version: toFiniteNumber(row.version, "version"),
-    author: toJson<Author>(row.author),
-    publishedAt: toNullableIso(row.published_at),
-    scheduledAt: toNullableIso(row.scheduled_at),
-    deletedAt: toNullableIso(row.deleted_at),
-    createdAt: toIso(row.created_at),
-    updatedAt: toIso(row.updated_at),
-  };
-}
-
-function mapEntryVersion(row: EntryVersionRow): EntryVersion {
-  return {
-    id: row.id,
-    entryId: row.entry_id,
-    siteId: row.site_id,
-    versionNumber: toFiniteNumber(row.version_number, "version_number"),
-    cells: toJson<Record<string, CellValue>>(row.cells),
-    slug: row.slug,
-    status: assertEntryStatus(row.status),
-    publishedBy: toJson<Author>(row.author),
-    createdAt: toIso(row.created_at),
-  };
-}
-
-function mapEntryRedirect(row: EntryRedirectRow): EntryRedirect {
-  return {
-    id: row.id,
-    siteId: row.site_id,
-    collectionId: row.collection_id,
-    fromPath: row.from_path,
-    toPath: row.to_path,
     createdAt: toIso(row.created_at),
   };
 }
