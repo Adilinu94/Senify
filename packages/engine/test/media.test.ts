@@ -273,6 +273,29 @@ describe("asset ownership (ADR-0014)", () => {
     expect(unchanged.status).toBe("ready");
   }, 60000);
 
+  it("serves assets with nosniff and sandboxes SVG so a script cannot run as a document", async () => {
+    const siteId = (await createTestSite(env.api, "Inhaltsschutz")).id;
+    const svg = (marker: string): Buffer =>
+      Buffer.from(
+        `<svg xmlns="http://www.w3.org/2000/svg"><!-- ${marker} --><script>alert(1)</script></svg>`,
+      );
+    const vector = await uploadAsset(siteId, "vektor.svg", svg("a"), "image/svg+xml");
+    // Browsers compare the MIME type case-insensitively; the upload check does not.
+    const shouted = await uploadAsset(siteId, "gross.svg", svg("b"), "image/SVG+XML");
+    const raster = await uploadAsset(siteId, "punkt.png", pngBytes(4, 4), "image/png");
+
+    for (const uploaded of [vector, shouted]) {
+      const response = await fetchAssetFile(uploaded.asset);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(response.headers.get("content-security-policy")).toBe("sandbox");
+    }
+    // Raster images cannot carry script; they only get nosniff.
+    const png = await fetchAssetFile(raster.asset);
+    expect(png.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(png.headers.get("content-security-policy")).toBeNull();
+  }, 60000);
+
   it("keeps the same operations working for the owning site", async () => {
     const siteId = (await createTestSite(env.api, "Eigentümerarbeit")).id;
     const uploaded = await uploadAsset(siteId, "bild.png", pngBytes(80, 60), "image/png");

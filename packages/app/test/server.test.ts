@@ -1,4 +1,5 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -126,6 +127,58 @@ describe("program shell (Prüfstelle Programm)", () => {
       });
       expect(response.status).toBe(403);
       expect(await response.text()).toContain("lokalen Dashboard");
+    } finally {
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  it("answers only to loopback Host headers (DNS rebinding)", async () => {
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-app-host-"));
+    const running = await startProgram({
+      db: database.db,
+      dataDir,
+      programTokenFile: join(dataDir, "program-token.json"),
+      enginePort: 0,
+      appPort: 0,
+      openBrowser: false,
+    });
+    try {
+      const port = new URL(running.dashboardUrl).port;
+      // fetch() would not let a test choose the Host header; a rebinding page
+      // reaches the port with its own name there and no Origin on a plain GET.
+      const statusFor = (host: string, path: string): Promise<number> =>
+        new Promise((resolve, reject) => {
+          const req = request(
+            { host: "127.0.0.1", port, path, headers: { host } },
+            (res) => {
+              res.resume();
+              resolve(res.statusCode ?? 0);
+            },
+          );
+          req.on("error", reject);
+          req.end();
+        });
+      for (const host of [
+        `evil.example:${port}`,
+        `localhost.evil.example:${port}`,
+        `127.0.0.1.evil.example:${port}`,
+        `0.0.0.0:${port}`,
+      ]) {
+        // The proxied API is the point (operator token); static files answer alike.
+        expect(await statusFor(host, "/api/sites")).toBe(403);
+        expect(await statusFor(host, "/")).toBe(403);
+      }
+      for (const host of [
+        `127.0.0.1:${port}`,
+        `localhost:${port}`,
+        `LOCALHOST:${port}`,
+        `[::1]:${port}`,
+      ]) {
+        expect(await statusFor(host, "/api/sites")).toBe(200);
+      }
     } finally {
       await running.close();
       await database.close();

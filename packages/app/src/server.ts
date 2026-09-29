@@ -99,6 +99,21 @@ function sendError(
   res.end(body);
 }
 
+// The dashboard answers only under its own loopback names. A DNS-rebinding
+// page reaches this port with its own hostname in `Host` (and, for a plain
+// GET, without an `Origin`), which the origin comparison in
+// `trustedProxyRequest` cannot tell from the dashboard itself - the proxy would
+// attach the operator token. Any port is fine; only the name matters.
+const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+function loopbackHost(host: string | undefined): boolean {
+  if (host === undefined) return false;
+  const hostname = host.startsWith("[")
+    ? host.slice(0, host.indexOf("]") + 1)
+    : (host.split(":", 1)[0] ?? "");
+  return LOOPBACK_HOSTNAMES.has(hostname.toLowerCase());
+}
+
 function trustedProxyRequest(req: IncomingMessage): boolean {
   const fetchSite = req.headers["sec-fetch-site"];
   if (fetchSite === "cross-site") return false;
@@ -227,6 +242,15 @@ export function createAppServer(options: AppServerOptions): Promise<AppServer> {
       });
   };
   const server = createServer((req, res) => {
+    if (!loopbackHost(req.headers.host)) {
+      sendError(
+        res,
+        403,
+        "Ungültiger Host-Header",
+        "Öffne Senify über http://127.0.0.1 oder http://localhost mit dem Port des Dashboards.",
+      );
+      return;
+    }
     const url = req.url ?? "/";
     if (url === "/theme.css") {
       res.writeHead(200, {

@@ -636,6 +636,8 @@ function sendFile(
   res.writeHead(200, {
     "content-type": contentType,
     "content-length": statSync(file.path).size,
+    // The declared type is the type: no MIME sniffing of stored or baked files.
+    "x-content-type-options": "nosniff",
     ...(file.headers ?? {}),
   });
   createReadStream(file.path).pipe(res);
@@ -2963,7 +2965,17 @@ const ROUTES: Route[] = [
         file: {
           path: file,
           contentType: asset.mime,
-          headers: { "cache-control": "public, max-age=0, must-revalidate" },
+          headers: {
+            "cache-control": "public, max-age=0, must-revalidate",
+            // An SVG can carry script; opened as a document on the dashboard
+            // origin it would run with the operator token. `sandbox` strips
+            // scripts and the origin from the document; <img> use is unaffected.
+            // The upload check accepts any `image/*` case-sensitively, browsers
+            // compare the type case-insensitively - so does this.
+            ...(asset.mime.toLowerCase().startsWith("image/svg+xml")
+              ? { "content-security-policy": "sandbox" }
+              : {}),
+          },
         },
       };
     },
