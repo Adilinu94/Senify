@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import sharp from "sharp";
 import { createApiHarness } from "@senify/core/testing";
@@ -1045,4 +1045,48 @@ describe("bake delivers referenced assets", () => {
       ),
     ).toBe(true);
   }, 90000);
+});
+
+describe("release files are served with their own type", () => {
+  it("names the media, font and script types a build can hold", async () => {
+    const site = await createTestSite(env.api, "Dateitypen");
+    const page = await createTestPage(env.api, site.id, { title: "Start", path: "/" });
+    await applyMutationsRequest(env.api, await loadPage(page.id), [
+      {
+        op: "insertNode",
+        parent: { nodeId: page.draft.rootNodeId },
+        node: { id: "hero-1", type: "hero", props: { headline: "Dateitypen" } },
+      },
+    ]);
+    const published = await env.api.request<{
+      release: { id: string; buildRef: string | null };
+    }>({
+      method: "POST",
+      path: `/api/sites/${site.id}/releases`,
+      body: { author: TEST_AUTHOR },
+    });
+    expect(published.status).toBe(201);
+    const { id, buildRef } = published.body.release;
+    expect(buildRef).not.toBeNull();
+
+    // Uploads may be any image/*, video/mp4, application/pdf or font/*; the
+    // bake copies them under their own file name, so the extension decides.
+    const expected: Record<string, string> = {
+      "logo.gif": "image/gif",
+      "clip.mp4": "video/mp4",
+      "flyer.pdf": "application/pdf",
+      "schrift.woff": "font/woff",
+      "schrift.ttf": "font/ttf",
+      "schrift.otf": "font/otf",
+      "modul.mjs": "text/javascript; charset=utf-8",
+      "app.js.map": "application/json; charset=utf-8",
+      "site.webmanifest": "application/manifest+json; charset=utf-8",
+    };
+    for (const [name, type] of Object.entries(expected)) {
+      writeFileSync(join(buildRef ?? "", name), "x");
+      const response = await fetch(`${env.server.origin}/api/releases/${id}/files/${name}`);
+      expect(response.status, name).toBe(200);
+      expect(response.headers.get("content-type"), name).toBe(type);
+    }
+  }, 120000);
 });
