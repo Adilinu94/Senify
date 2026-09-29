@@ -99,6 +99,10 @@ function sendError(
   res.end(body);
 }
 
+// Signed previews and published releases: whole baked sites, which can carry
+// imported foreign code (ADR-0010).
+const SITE_CONTENT_PATH = /^\/api\/(?:previews|releases)\/[^/?#]+\/files(?:[/?]|$)/;
+
 // The dashboard answers only under its own loopback names. A DNS-rebinding
 // page reaches this port with its own hostname in `Host` (and, for a plain
 // GET, without an `Origin`), which the origin comparison in
@@ -116,7 +120,12 @@ function loopbackHost(host: string | undefined): boolean {
 
 function trustedProxyRequest(req: IncomingMessage): boolean {
   const fetchSite = req.headers["sec-fetch-site"];
-  if (fetchSite === "cross-site") return false;
+  // Only the dashboard itself (or a typed address) may use the proxy.
+  // "same-site" is another port on this machine - site content served from the
+  // engine origin, say - and must not ride on the operator token either.
+  if (fetchSite !== undefined && fetchSite !== "same-origin" && fetchSite !== "none") {
+    return false;
+  }
   const origin = req.headers.origin;
   if (origin === undefined) return true;
   const host = req.headers.host;
@@ -290,6 +299,16 @@ export function createAppServer(options: AppServerOptions): Promise<AppServer> {
     const themeFont = /^\/assets\/(sora|inter)-\d{3}\.woff2$/.exec(url);
     if (themeFont) {
       serveStatic(THEME_FONT_DIR, url.slice("/assets".length), res);
+      return;
+    }
+    // Site content runs on the engine origin, where no proxy attaches the
+    // operator token - never under the dashboard's own origin (ADR-0015).
+    if (SITE_CONTENT_PATH.test(url)) {
+      res.writeHead(307, {
+        location: `${options.engineOrigin}${url}`,
+        "cache-control": "no-store",
+      });
+      res.end();
       return;
     }
     // `/api/`, `/assets/` and `/_astro/` belong to the engine: the asset store,

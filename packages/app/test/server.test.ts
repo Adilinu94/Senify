@@ -134,6 +134,73 @@ describe("program shell (Prüfstelle Programm)", () => {
     }
   }, 30000);
 
+  it("keeps the operator token away from same-site callers on other ports", async () => {
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-app-samesite-"));
+    const running = await startProgram({
+      db: database.db,
+      dataDir,
+      programTokenFile: join(dataDir, "program-token.json"),
+      enginePort: 0,
+      appPort: 0,
+      openBrowser: false,
+    });
+    try {
+      // Site content on the engine origin is same-site, not same-origin. A plain
+      // no-cors GET carries no Origin, so only Sec-Fetch-Site can tell it apart.
+      const call = (site: string) =>
+        fetch(`${running.dashboardUrl}/api/sites`, { headers: { "sec-fetch-site": site } });
+      expect((await call("same-site")).status).toBe(403);
+      expect((await call("cross-site")).status).toBe(403);
+      expect((await call("same-origin")).status).toBe(200);
+      expect((await call("none")).status).toBe(200);
+    } finally {
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  it("hands signed previews and releases to the engine origin instead of serving them", async () => {
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-app-content-"));
+    const running = await startProgram({
+      db: database.db,
+      dataDir,
+      programTokenFile: join(dataDir, "program-token.json"),
+      enginePort: 0,
+      appPort: 0,
+      openBrowser: false,
+    });
+    try {
+      // Site content can carry imported foreign code (ADR-0010). Under the
+      // dashboard origin the proxy would attach the operator token to it.
+      const paths = [
+        "/api/releases/abc/files/index.html",
+        "/api/releases/abc/files/",
+        "/api/releases/abc/files",
+        "/api/previews/xyz/files/index.html?token=a.b",
+      ];
+      for (const path of paths) {
+        const response = await fetch(`${running.dashboardUrl}${path}`, { redirect: "manual" });
+        expect(response.status, path).toBe(307);
+        expect(response.headers.get("location"), path).toBe(`${running.engineOrigin}${path}`);
+        expect(response.headers.get("cache-control")).toBe("no-store");
+      }
+      // Everything else under /api/ is still proxied.
+      const proxied = await fetch(`${running.dashboardUrl}/api/releases/abc`, { redirect: "manual" });
+      expect(proxied.status).not.toBe(307);
+      const lookalike = await fetch(`${running.dashboardUrl}/api/releases/abc/filesystem`, {
+        redirect: "manual",
+      });
+      expect(lookalike.status).not.toBe(307);
+    } finally {
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 30000);
+
   it("answers only to loopback Host headers (DNS rebinding)", async () => {
     const database = memoryDb();
     const dataDir = mkdtempSync(join(tmpdir(), "senify-app-host-"));

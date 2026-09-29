@@ -17,10 +17,11 @@
 | [ADR-0012](0012-persistente-redesign-proposals.md) | Persistente Redesign Proposals mit menschlicher Direction Decision | angenommen |
 | [ADR-0013](0013-direction-card-sektionsplan-als-handoff.md) | Direction Card mit Sektions-Plan und Medienbedarf als Handoff | angenommen |
 | [ADR-0014](0014-atomarer-redesign-apply.md) | Atomarer Redesign-Apply ohne Zwischenzustand | angenommen |
+| [ADR-0015](0015-site-inhalte-auf-eigener-origin.md) | Site-Inhalte auf der Engine-Origin, nie unter der Dashboard-Origin | vorgeschlagen |
 
 ## Nächste Nummer
 
-`ADR-0011` ist für die Entscheidung reserviert, ob und wann `EditorDocument` das interne kanonische Modell wird.
+Die nächste freie Nummer ist `ADR-0016`. `ADR-0011` ist für die Entscheidung reserviert, ob und wann `EditorDocument` das interne kanonische Modell wird.
 
 ## Regeln
 
