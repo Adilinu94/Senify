@@ -8,6 +8,7 @@
 // answers "nothing changed" with numbers, and the engine-side write path
 // (S3.1) uses the hash as its idempotency key.
 
+import { fetchPublic } from "@senify/core/net";
 import type { EditorDocument } from "@senify/editor/state";
 import type { StyleRule } from "@senify/widget-engine";
 import { captureFixture, captureHtml, type CaptureHtmlInput } from "./capture-html.ts";
@@ -49,13 +50,20 @@ export type ImportRun = {
   irHash: string;
 };
 
+const PAGE_TIMEOUT_MS = 30_000;
+const MAX_PAGE_BYTES = 20 * 1024 * 1024;
+
 /* --------------------------------------------------------------- main run */
 
 export async function runImport(input: RunImportInput): Promise<ImportRun> {
   let document: FramerIrDocument;
   let baseUrl = input.baseUrl;
   if (input.source.kind === "url") {
-    const response = await fetch(input.source.url);
+    // Public addresses only, with a time and size limit (ADR-0016).
+    const response = await fetchPublic(input.source.url, {
+      signal: AbortSignal.timeout(PAGE_TIMEOUT_MS),
+      maxBytes: MAX_PAGE_BYTES,
+    });
     if (!response.ok) {
       throw new Error(`Quelle nicht ladbar: ${response.status} ${input.source.url}`);
     }

@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -450,6 +450,45 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
       source: { html: framerHtml(), rootDir: mirrorDir },
     });
     expect(ambiguous.status).toBe(400);
+  }, 60_000);
+
+  it("does not reach a private address for the page or for its assets", async () => {
+    let hits = 0;
+    const server = createServer((_request, response) => {
+      hits += 1;
+      response.writeHead(200, { "content-type": "image/png" }).end("geheim");
+    });
+    await new Promise<void>((done) => server.listen(0, "127.0.0.1", () => done()));
+    const address = server.address();
+    const origin = `http://127.0.0.1:${typeof address === "object" && address !== null ? address.port : 0}`;
+    vi.stubEnv("SENIFY_ALLOW_PRIVATE_URLS", "");
+    try {
+      // The page itself lives on a private address.
+      const page = await runImport({ source: { url: `${origin}/seite` }, write: true });
+      expect(page.status).toBe(400);
+      expect(page.body.error?.message).toContain("public");
+
+      // A public-looking page whose assets point at a private address.
+      const html = framerHtml().replaceAll(
+        "https://framerusercontent.com/images/test.png",
+        `${origin}/test.png`,
+      );
+      const before = (await env.engine.store.listAssets(siteId, {})).length;
+      const assets = await runImport({
+        source: { html, baseUrl: origin },
+        write: true,
+        pagePath: "/ssrf-assets",
+        assets: "upload",
+      });
+      expect(assets.status, JSON.stringify(assets.body)).toBe(201);
+      expect(assets.body.report.assets.downloaded).toBe(0);
+      expect(assets.body.report.assets.failed).toBeGreaterThanOrEqual(1);
+      expect((await env.engine.store.listAssets(siteId, {})).length).toBe(before);
+      expect(hits).toBe(0);
+    } finally {
+      vi.unstubAllEnvs();
+      await new Promise<void>((done) => server.close(() => done()));
+    }
   }, 60_000);
 
   it("works from a mirror folder (offline mode)", async () => {

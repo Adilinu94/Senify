@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { createServer } from "node:http";
+import { describe, expect, it, vi } from "vitest";
 import {
   createFallbackCaptureDriver,
   createFirecrawlCaptureDriver,
@@ -209,5 +210,33 @@ describe("default capture providers (E12)", () => {
         (provider) => provider.name,
       ),
     ).toEqual(["playwright", "http"]);
+  });
+});
+
+describe("http snapshot driver without an injected fetch", () => {
+  it("reads a page over the real network path and refuses a private target on request", async () => {
+    let hits = 0;
+    const server = createServer((_request, response) => {
+      hits += 1;
+      response.writeHead(200, { "content-type": "text/html" }).end("<h1>Snapshot</h1>");
+    });
+    await new Promise<void>((done) => server.listen(0, "127.0.0.1", () => done()));
+    const address = server.address();
+    const url = `http://127.0.0.1:${typeof address === "object" && address !== null ? address.port : 0}/`;
+    try {
+      const driver = createHttpSnapshotCaptureDriver();
+      // The suite allows private targets (vitest.config.ts): the page is read.
+      expect((await driver({ url, breakpoints: [1440] })).markup).toContain("Snapshot");
+      expect(hits).toBe(1);
+
+      vi.stubEnv("SENIFY_ALLOW_PRIVATE_URLS", "");
+      await expect(driver({ url, breakpoints: [1440] })).rejects.toBeInstanceOf(
+        ReferenceCaptureError,
+      );
+      expect(hits).toBe(1);
+    } finally {
+      vi.unstubAllEnvs();
+      await new Promise<void>((done) => server.close(() => done()));
+    }
   });
 });
