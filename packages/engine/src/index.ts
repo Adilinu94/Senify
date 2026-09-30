@@ -22,6 +22,7 @@ import {
   RateLimiter,
   type RateLimitConfig,
 } from "./rate-limit.ts";
+import { ENGINE_SECRET_FILE } from "./secrets.ts";
 import { Store } from "./store.ts";
 
 export { bakePages, buildBakeInput, renderEntryPreview, type BakeBuild, type BakeOutcome } from "./bake.ts";
@@ -768,11 +769,11 @@ export function defaultDataDir(): string {
 
 export async function createEngine(options: EngineOptions): Promise<Engine> {
   await ensureSchema(options.db);
-  const store = new Store(options.db);
+  const dataDir = options.dataDir ?? defaultDataDir();
+  const store = new Store(options.db, { secretFile: join(dataDir, ENGINE_SECRET_FILE) });
   const locks = new PageLocks();
   const maintenance = new MaintenanceGate();
   const events = new EngineEvents();
-  const dataDir = options.dataDir ?? defaultDataDir();
   // The signer secret is persisted, so tokens stamped into static HTML keep
   // verifying after a restart.
   const formSigner = createFormSigner(await store.getOrCreateFormSecret());

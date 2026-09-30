@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { SenifyError } from "@senify/core";
+import { publishSecretFile, readSecretFile } from "./secrets.ts";
 import {
   PAGE_ROOT_TYPE,
   type Author,
@@ -1130,8 +1131,14 @@ function mapLibraryInstall(row: LibraryInstallRow): LibraryInstall {
 export class Store {
   readonly #db: Db;
 
-  constructor(db: Db) {
+  // Where the encryption key lives. Without it (a bare Store in a test) the key
+  // stays in the database, as before.
+  readonly #secretFile: string | undefined;
+  #engineSecret: Promise<string> | undefined;
+
+  constructor(db: Db, options: { secretFile?: string } = {}) {
     this.#db = db;
+    this.#secretFile = options.secretFile;
   }
 
   async createSite(input: CreateSiteInput): Promise<Site> {
@@ -7884,19 +7891,56 @@ export class Store {
     return next;
   }
 
-  // Persisted secret for encryption at rest, mirroring getOrCreateFormSecret.
-  async getOrCreateEngineSecret(): Promise<string> {
+  // Persisted secret for encryption at rest. It lives in a file outside the
+  // database (ADR-0017): the backup exports every table, and a key stored next
+  // to the ciphertext it protects would make the backup plaintext.
+  getOrCreateEngineSecret(): Promise<string> {
+    // One resolution per Store: the settings and the image worker ask at once.
+    this.#engineSecret ??= this.#resolveEngineSecret().catch((error: unknown) => {
+      this.#engineSecret = undefined;
+      throw error;
+    });
+    return this.#engineSecret;
+  }
+
+  async #resolveEngineSecret(): Promise<string> {
+    const file = this.#secretFile;
     const existing = await this.#db.query<{ secret: string }>(
       `SELECT secret FROM engine_secrets WHERE name = 'settings' LIMIT 1`,
     );
     const row = existing.rows[0];
-    if (row) return row.secret;
-    const secret = randomBytes(32).toString("base64url");
-    await this.#db.query(
-      `INSERT INTO engine_secrets (id, name, secret, created_at) VALUES ($1, 'settings', $2, $3)`,
-      [newEntityId(), secret, new Date().toISOString()],
-    );
-    return secret;
+    if (file === undefined) {
+      if (row) return row.secret;
+      const secret = randomBytes(32).toString("base64url");
+      await this.#db.query(
+        `INSERT INTO engine_secrets (id, name, secret, created_at) VALUES ($1, 'settings', $2, $3)`,
+        [newEntityId(), secret, new Date().toISOString()],
+      );
+      return secret;
+    }
+    const stored = readSecretFile(file);
+    if (stored !== undefined) {
+      // A row that differs is another key (an old backup on another machine):
+      // it stays, it is the only copy of what that backup's ciphertext needs.
+      if (row?.secret === stored) await this.#dropLegacySecret();
+      return stored;
+    }
+    // No file yet: an older install keeps its key in the database and moves it
+    // unchanged (its ciphertext stays readable); a fresh one issues a new key.
+    publishSecretFile(file, row?.secret ?? randomBytes(32).toString("base64url"));
+    const published = readSecretFile(file);
+    if (published === undefined) {
+      throw new SenifyError("conflict", `Die Schlüsseldatei ${file} ist nicht lesbar`, {
+        suggestion: "Rechte des Datenordners prüfen.",
+      });
+    }
+    // Only after the file reads back: the row is the only other copy.
+    if (row?.secret === published) await this.#dropLegacySecret();
+    return published;
+  }
+
+  async #dropLegacySecret(): Promise<void> {
+    await this.#db.query(`DELETE FROM engine_secrets WHERE name = 'settings'`);
   }
 
   // Raw table dump for backups; names come from the schema, never from input.
