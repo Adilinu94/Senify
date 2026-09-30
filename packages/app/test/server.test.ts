@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { createReentrantTestDb, createTestDb } from "@senify/core/testing";
 import type { Db, DbResult, Row } from "@senify/engine";
 import { startProgram } from "@senify/app";
+import { createAppServer } from "../src/server.ts";
 
 // pg-mem double, same shape as the engine and MCP test helpers use. The
 // reentrant variant tolerates the second schema boot of a restart.
@@ -200,6 +201,44 @@ describe("program shell (Prüfstelle Programm)", () => {
       rmSync(dataDir, { recursive: true, force: true });
     }
   }, 30000);
+
+  it("serves static files only from inside the public folder", async () => {
+    const root = mkdtempSync(join(tmpdir(), "senify-static-"));
+    mkdirSync(join(root, "pub"));
+    // Same name prefix as the public folder: a bare startsWith() would let it through.
+    mkdirSync(join(root, "pub-evil"));
+    writeFileSync(join(root, "pub", "ok.txt"), "drinnen");
+    writeFileSync(join(root, "pub-evil", "secret.txt"), "draussen");
+    const server = await createAppServer({
+      engineOrigin: "http://127.0.0.1:1",
+      publicDir: join(root, "pub"),
+      port: 0,
+    });
+    try {
+      const port = new URL(server.origin).port;
+      // A raw request: fetch() would resolve the dots before sending them.
+      const read = (path: string): Promise<{ status: number; body: string }> =>
+        new Promise((resolve, reject) => {
+          const req = request({ host: "127.0.0.1", port, path }, (res) => {
+            let body = "";
+            res.setEncoding("utf8");
+            res.on("data", (chunk: string) => (body += chunk));
+            res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+          });
+          req.on("error", reject);
+          req.end();
+        });
+      expect(await read("/ok.txt")).toMatchObject({ status: 200, body: "drinnen" });
+      for (const path of ["/../pub-evil/secret.txt", "/../../secret.txt", "//..//pub-evil/secret.txt"]) {
+        const answer = await read(path);
+        expect(answer.status, path).toBe(404);
+        expect(answer.body, path).not.toContain("draussen");
+      }
+    } finally {
+      await server.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 
   it("answers only to loopback Host headers (DNS rebinding)", async () => {
     const database = memoryDb();

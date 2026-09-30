@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { SenifyError } from "@senify/core";
 import type { Author, NodeTree } from "@senify/section-sdk";
 import {
@@ -529,8 +529,14 @@ function submissionSlug(title: string): string {
   return `${base}-${Date.now().toString(36)}${randomBytes(2).toString("hex")}`;
 }
 
-function ipHash(siteId: string, clientIp: string): string {
-  return createHash("sha256").update(`${siteId}:${clientIp}`).digest("hex").slice(0, 24);
+// A pseudonym of the visitor's address for the consent record. Keyed with the
+// engine secret, which stays out of backups (ADR-0017): a plain SHA-256 over an
+// IPv4 address can be reversed by trying all 2^32 inputs.
+function ipHash(secret: string, siteId: string, clientIp: string): string {
+  return createHmac("sha256", secret)
+    .update(`consent-ip:${siteId}:${clientIp}`)
+    .digest("hex")
+    .slice(0, 24);
 }
 
 function deriveTitle(
@@ -611,7 +617,11 @@ async function createSubmissionEntry(input: {
     values: input.values,
     statusValue: input.statusValue,
     now: input.now,
-    ipHashValue: ipHash(input.snapshot.siteId, input.clientIp),
+    ipHashValue: ipHash(
+      await input.store.getOrCreateEngineSecret(),
+      input.snapshot.siteId,
+      input.clientIp,
+    ),
   });
   const entry = await createEntry(input.store, {
     siteId: input.snapshot.siteId,
@@ -1169,8 +1179,9 @@ export async function listSubmissions(
 const CSV_DELIMITER = ";";
 
 function csvCell(value: string): string {
-  // A leading =+-@ would be run as a formula: neutralize it.
-  const guarded = /^[=+\-@]/.test(value) ? `'${value}` : value;
+  // A leading =+-@ - or a tab or carriage return, which Excel skips before it
+  // reads the formula - would be run as a formula: neutralize it.
+  const guarded = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
   if (guarded.includes(CSV_DELIMITER) || /["\r\n]/.test(guarded)) {
     return `"${guarded.replace(/"/g, '""')}"`;
   }

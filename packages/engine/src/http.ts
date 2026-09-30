@@ -2,8 +2,9 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { SenifyError } from "@senify/core";
+import { isPublicAddress } from "@senify/core/net";
 import type { Registry } from "@senify/section-sdk";
 import { paginate, parsePaging } from "./paging.ts";
 import {
@@ -869,13 +870,26 @@ async function readRawBody(
 
 const FORM_BODY_LIMIT_BYTES = 64 * 1024;
 
-function clientIpOf(req: IncomingMessage): string {
+// The address the rate limit counts. `X-Forwarded-For` is believed only from a
+// proxy on this machine or network: a client that reaches the engine directly
+// could write anything there and never hit the limit. A proxy appends the
+// address it saw, so the last entry is the one it vouches for; everything in
+// front of it came from the client.
+export function clientIpOf(req: Pick<IncomingMessage, "headers" | "socket">): string {
+  const peer = req.socket.remoteAddress ?? "unknown";
+  if (isPublicAddress(peer)) return peer;
   const forwarded = req.headers["x-forwarded-for"];
-  const first = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-  if (typeof first === "string" && first.trim() !== "") {
-    return first.split(",")[0]?.trim() ?? "unknown";
-  }
-  return req.socket.remoteAddress ?? "unknown";
+  const header = Array.isArray(forwarded) ? forwarded.join(",") : forwarded;
+  const last = header?.split(",").at(-1)?.trim();
+  return last !== undefined && last !== "" ? last : peer;
+}
+
+// Constant-time comparison of a presented token with the stored one.
+function sameToken(presented: string | null, expected: string): boolean {
+  if (presented === null) return false;
+  const a = Buffer.from(presented);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 function originOf(req: IncomingMessage): string | undefined {
@@ -5222,7 +5236,7 @@ async function servePreviewFile(
     sendError(res, error);
     return;
   }
-  if (url.searchParams.get("token") !== preview.token) {
+  if (!sameToken(url.searchParams.get("token"), preview.token)) {
     sendError(
       res,
       new AuthError(401, "Preview token is missing or invalid", {
@@ -5405,7 +5419,7 @@ async function currentBuildRoot(
   const previewId = url.searchParams.get("preview");
   if (previewId !== null) {
     const preview = await context.store.getPreview(previewId);
-    if (url.searchParams.get("token") !== preview.token) {
+    if (!sameToken(url.searchParams.get("token"), preview.token)) {
       throw new AuthError(401, "Preview token is missing or invalid", {
         suggestion: "Use the signed preview URL from the review item.",
       });

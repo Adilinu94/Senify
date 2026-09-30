@@ -6,7 +6,7 @@ import {
 } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
-import { extname, join, normalize } from "node:path";
+import { extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { defaultTheme, emitCss, resolveTheme } from "@senify/tokens";
@@ -198,8 +198,14 @@ function serveStatic(
 ): void {
   const raw = url.split("?")[0] ?? "/";
   const relative = raw === "/" ? "index.html" : raw.replace(/^\/+/, "");
-  const resolved = normalize(join(publicDir, relative));
-  if (!resolved.startsWith(publicDir) || !existsSync(resolved) || !statSync(resolved).isFile()) {
+  const resolved = resolve(normalize(join(publicDir, relative)));
+  // Inside the folder, not merely a path that starts with its name: the
+  // neighbour "public-evil" must not pass for "public".
+  if (
+    !resolved.startsWith(resolve(publicDir) + sep) ||
+    !existsSync(resolved) ||
+    !statSync(resolved).isFile()
+  ) {
     sendError(res, 404, `Unbekannte Datei "${raw}"`, "Prüfe die Adresse.");
     return;
   }
