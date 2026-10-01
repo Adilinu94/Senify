@@ -177,8 +177,14 @@ const head = current.slice(0, current.indexOf(BEGIN));
 const tail = current.slice(current.indexOf(END) + END.length);
 const next = `${head}${block}${tail}`;
 
+// The date line says when the block was written; it is not a measurement. A
+// check that compared it would go red every day after the block was rendered,
+// with every number unchanged.
+const undated = (text) =>
+  text.replace(/(\*\*Gemessen:\*\* )\d{4}-\d{2}-\d{2}/, "$1<Datum>");
+
 if (process.argv.includes("--check")) {
-  if (next === current) {
+  if (undated(next) === undated(current)) {
     console.log("qualitaet.md stimmt mit dem Lauf überein.");
     process.exit(0);
   }

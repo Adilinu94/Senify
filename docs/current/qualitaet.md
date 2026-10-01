@@ -42,18 +42,18 @@ Der aktuelle Lauf vom 29.09.2026: **1003 bestanden / 15 übersprungen / 0 fehlge
      Nicht von Hand editieren: dieser Block ist ein Messwert, und `pnpm quality:check`
      lässt den Lauf rot werden, sobald Dokument und Lauf auseinanderlaufen. -->
 
-**Gemessen:** 2026-09-29 · vitest coverage (v8)
+**Gemessen:** 2026-10-01 · vitest coverage (v8)
 
 | Pfad | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
-| `packages/engine/src/http.ts` | 91.17 | 72.07 | 93.60 | 91.17 |
-| `packages/engine/src/store.ts` | 84.38 | 76.76 | 93.52 | 84.38 |
+| `packages/engine/src/http.ts` | 91.27 | 72.85 | 93.63 | 91.27 |
+| `packages/engine/src/store.ts` | 84.40 | 77.03 | 93.56 | 84.40 |
 | `packages/engine/src/lifecycle.ts` | 87.01 | 74.19 | 100.00 | 87.01 |
-| `packages/engine/src/forms.ts` | 84.09 | 73.60 | 100.00 | 84.09 |
+| `packages/engine/src/forms.ts` | 84.20 | 73.60 | 100.00 | 84.20 |
 | `packages/mcp/src/tools.ts` | 91.01 | 62.37 | 87.01 | 91.01 |
 | `packages/editor/src/state/*` (14 Dateien) | 66.98 bis 100.00 | 56.75 bis 100.00 | 66.66 bis 100.00 | 66.98 bis 100.00 |
 
-**Über alle gemessenen Dateien:** Statements 87.45 · Branches 72.95 · Functions 90.96 · Lines 87.45
+**Über alle gemessenen Dateien:** Statements 87.48 · Branches 73.22 · Functions 90.99 · Lines 87.48
 
 <!-- messwerte:ende -->
 
