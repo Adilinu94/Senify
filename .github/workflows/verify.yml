@@ -82,6 +82,13 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Testsuite
+        # Das Repo liegt auf D:, das Standard-Temp auf C:. Astro verschiebt
+        # Dateien per rename() zwischen Stage und Zielordner, und das scheitert
+        # ueber Laufwerke hinweg (EXDEV). Das Temp-Verzeichnis des Laufers liegt
+        # auf demselben Laufwerk wie das Repo.
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
         run: pnpm test
 
   postgres-tests:
