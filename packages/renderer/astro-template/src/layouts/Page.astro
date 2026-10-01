@@ -84,7 +84,10 @@ const PRELOADER_SCRIPT =
     <meta property="og:title" content={page.title} />
     {page.description && <meta property="og:description" content={page.description} />}
     <meta property="og:url" content={`${site.baseUrl}${page.path}`} />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={site.name} />
     {page.ogImage && <meta property="og:image" content={page.ogImage} />}
+    <meta name="twitter:card" content={page.ogImage ? "summary_large_image" : "summary"} />
     <link rel="canonical" href={`${site.baseUrl}${page.path}`} />
     <link rel="stylesheet" href="/assets/theme.css" />
     {sectionsCss && <link rel="stylesheet" href="/assets/sections.css" />}

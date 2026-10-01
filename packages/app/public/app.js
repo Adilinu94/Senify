@@ -77,8 +77,28 @@ async function api(path, options = {}) {
 
 function toast(message, kind = "info") {
   const node = el("div", { class: `toast ${kind}`, text: message });
+  if (kind === "error") {
+    // Announced at once, and kept until it has been read and closed: a message
+    // that vanishes after seconds cannot be read by everyone. The same error
+    // twice (a failing background request) is shown once.
+    for (const shown of toasts.children) {
+      if (shown.classList.contains("error") && shown.firstChild?.textContent === message) return;
+    }
+    node.setAttribute("role", "alert");
+    node.append(
+      el("button", {
+        type: "button",
+        class: "toast__close",
+        "aria-label": "Meldung schließen",
+        text: "×",
+        onclick: () => node.remove(),
+      }),
+    );
+    toasts.append(node);
+    return;
+  }
   toasts.append(node);
-  setTimeout(() => node.remove(), kind === "error" ? 7000 : 4000);
+  setTimeout(() => node.remove(), 4000);
 }
 
 function friendlyError(error) {

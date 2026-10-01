@@ -1,12 +1,16 @@
 ---
 // Static not-found page: the bake emits it so a host serves it for unknown
 // paths (routes of drafts and trashed entries are never baked).
+import manifest from "../generated/manifest.json";
+
+const { site } = manifest;
 ---
-<html lang="de">
+<html lang={site.lang ?? "de"}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Seite nicht gefunden</title>
+    <meta name="robots" content="noindex" />
+    <title>Seite nicht gefunden | {site.name}</title>
     <link rel="stylesheet" href="/assets/theme.css" />
   </head>
   <body>

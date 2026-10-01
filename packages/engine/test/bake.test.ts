@@ -460,6 +460,22 @@ describe("blog bake (Prüfstelle 2)", () => {
     expect(live).not.toContain('http-equiv="refresh"');
   });
 
+  it("names the page for social previews and keeps the not-found page out of the index", async () => {
+    const home = await baked.read("index.html");
+    expect(home).toMatch(/<meta property="og:type" content="website"/);
+    expect(home).toMatch(/<meta property="og:site_name" content="Blog Site"/);
+    // No og:image on this page: the small card, not the large one.
+    expect(home).toMatch(/<meta name="twitter:card" content="summary"/);
+    expect(home).not.toContain("summary_large_image");
+
+    const notFound = await baked.read("404.html");
+    expect(notFound).toMatch(/<html lang="de"/);
+    expect(notFound).toMatch(/<meta name="robots" content="noindex"/);
+    expect(notFound).toContain("<title>Seite nicht gefunden | Blog Site</title>");
+    // Not a page of the sitemap either.
+    expect(await baked.read("sitemap.xml")).not.toContain("404");
+  });
+
   it("lists detail routes in sitemap, llms.txt and the .md twin", async () => {
     expect(await baked.exists("blog/neuer-slug.md")).toBe(true);
     const sitemap = await baked.read("sitemap.xml");
