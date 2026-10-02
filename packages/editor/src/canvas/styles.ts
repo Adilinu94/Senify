@@ -32,6 +32,7 @@ export const CANVAS_ICON_CSS = `
   -webkit-mask: var(--m) center / contain no-repeat;
   mask: var(--m) center / contain no-repeat;
 }
+.senify-canvas .ic--16 { width: 16px; height: 16px; }
 .senify-canvas .ic--14 { width: 14px; height: 14px; }
 .senify-canvas .ic--12 { width: 12px; height: 12px; }
 ${EDITOR_ICON_CSS}
@@ -54,7 +55,7 @@ export const CANVAS_STYLES = `
 .senify-canvas * { box-sizing: border-box; }
 .senify-canvas__topbar {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 0.4rem;
   min-height: 2.8rem;
@@ -68,6 +69,8 @@ export const CANVAS_STYLES = `
   border-radius: 0.3rem;
 }
 .senify-canvas__group[hidden] { display: none; }
+.senify-canvas__group[data-role="insert"] { margin-left: auto; }
+.senify-canvas__button { display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem; }
 .senify-canvas__button {
   min-height: 1.9rem;
   padding: 0 0.55rem;

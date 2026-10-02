@@ -5879,6 +5879,22 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       statusEl.textContent = message ?? "";
     },
   });
+  // Start im Einpassen-Zoom: alle drei Frames sind sofort sichtbar (Framer/Webflow).
+  // Ein bewusst gesetzter Zoom bleibt nach dem Neuladen erhalten; nur der
+  // Standardzoom (100 %) wird eingepasst. Der Fit läuft erst, wenn jeder Frame
+  // gerendert ist: ein Fit vor dem Laden der Iframes verlor in den
+  // Browser-Tests die Klick-Selektion (Ursache offen).
+  if (canvas.mode() === "design" && savedUi.zoom === 1) {
+    const fitWhenRendered = (attempt) => {
+      const frames = [...canvasHost.querySelectorAll(".senify-canvas__iframe")];
+      const rendered =
+        frames.length > 0 &&
+        frames.every((frame) => frame.contentDocument?.querySelector("[data-node-id]") != null);
+      if (rendered) canvas.fit();
+      else if (attempt < 100) setTimeout(() => fitWhenRendered(attempt + 1), 50);
+    };
+    fitWhenRendered(0);
+  }
   const framerImportButton = el("button", {
     type: "button",
     class: "ghost",
@@ -6765,6 +6781,8 @@ async function renderRoute() {
   // Ansichten würde ihn auf 1088px einengen, obwohl die Bühne 1440px zeigt.
   const isEditor = /^#\/projects\/[^/]+\/pages\/[^/]+$/.test(route);
   view.classList.toggle("editor-view", isEditor);
+  // Workspace-Modus: im Seiten-Editor ersetzt eine einzige Leiste die Portal-Leiste.
+  document.body.classList.toggle("is-editor", isEditor);
   refsRouteActive = isReferences;
   // Verlaesst die Route die Referenzen, schliesst das offene Fenster mit.
   if (!isReferences && refsInspector && refsInspector.dialog.open) {

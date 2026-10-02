@@ -323,11 +323,24 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   }
   if (catalog.value === undefined || catalog.value === "") catalog.value = "divider";
 
+  // Chrome-Buttons (Framer/Webflow-Stil): Phosphor-Maskensymbol, der volle
+  // deutsche Name bleibt als aria-label und Tooltip, optional ein Kurztext.
+  function setIcon(button: DomElement, icon: string, label: string, text?: string): void {
+    button.setAttribute("aria-label", label);
+    button.setAttribute("title", label);
+    button.appendChild(create(doc, "span", `ic ic--${icon} ic--16`, { "aria-hidden": "true" }));
+    if (text !== undefined) {
+      const caption = create(doc, "span", "senify-canvas__button-text");
+      caption.textContent = text;
+      button.appendChild(caption);
+    }
+  }
+
   const insertAfter = create(doc, "button", "senify-canvas__button", {
     type: "button",
     "data-action": "insert-after",
   });
-  insertAfter.textContent = "Danach einfügen";
+  setIcon(insertAfter, "plus", "Danach einfügen", "Danach");
   insertAfter.addEventListener("click", () => {
     if (typeof catalog.value === "string") insert(catalog.value, "after");
   });
@@ -335,7 +348,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     type: "button",
     "data-action": "insert-into",
   });
-  insertInto.textContent = "Hinein einfügen";
+  setIcon(insertInto, "plus", "Hinein einfügen", "Hinein");
   insertInto.addEventListener("click", () => {
     if (typeof catalog.value === "string") insert(catalog.value, "into");
   });
@@ -344,7 +357,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     type: "button",
     "data-action": "undo",
   });
-  undoButton.textContent = "Rückgängig";
+  setIcon(undoButton, "undo", "Rückgängig");
   undoButton.addEventListener("click", () => {
     if (store.undo()) message(null);
   });
@@ -352,7 +365,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     type: "button",
     "data-action": "redo",
   });
-  redoButton.textContent = "Wiederholen";
+  setIcon(redoButton, "redo", "Wiederholen");
   redoButton.addEventListener("click", () => {
     if (store.redo()) message(null);
   });
@@ -363,7 +376,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     type: "button",
     "data-action": "history",
   });
-  historyButton.textContent = "Verlauf";
+  setIcon(historyButton, "history", "Verlauf");
   historyButton.addEventListener("click", () => historyDialog.toggle());
 
   const zoomOut = create(doc, "button", "senify-canvas__button", {
@@ -386,7 +399,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     type: "button",
     "data-action": "zoom-fit",
   });
-  zoomFit.textContent = "Einpassen";
+  setIcon(zoomFit, "fit", "Einpassen");
   zoomFit.addEventListener("click", () => fit());
   const zoomLabel = create(doc, "button", "senify-canvas__zoom-label", {
     type: "button",
@@ -410,8 +423,28 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     modeGroup.appendChild(button);
   }
 
-  const insertGroup = create(doc, "div", "senify-canvas__group");
-  insertGroup.appendChild(catalogLabel);
+  // Geräte-Umschalter: wählt das aktive Breakpoint-Blatt (Design markiert es,
+  // Live rendert in dieser Breite).
+  const deviceGroup = create(doc, "div", "senify-canvas__group", { "data-role": "device" });
+  const deviceButtons = new Map<FrameBreakpoint, DomElement>();
+  const deviceSpecs: ReadonlyArray<readonly [FrameBreakpoint, string, string]> = [
+    ["desktop", "desktop", "Desktop"],
+    ["tablet", "tablet", "Tablet"],
+    ["mobile", "phone", "Mobil"],
+  ];
+  for (const [value, icon, label] of deviceSpecs) {
+    const button = create(doc, "button", "senify-canvas__button", {
+      type: "button",
+      "data-action": "device",
+      "data-device": value,
+    });
+    setIcon(button, icon, label);
+    button.addEventListener("click", () => setBreakpoint(value));
+    deviceButtons.set(value, button);
+    deviceGroup.appendChild(button);
+  }
+
+  const insertGroup = create(doc, "div", "senify-canvas__group", { "data-role": "insert" });
   insertGroup.appendChild(catalog);
   insertGroup.appendChild(insertAfter);
   insertGroup.appendChild(insertInto);
@@ -448,9 +481,10 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   scrubGroup.appendChild(scrubInput);
 
   topbar.appendChild(modeGroup);
+  topbar.appendChild(deviceGroup);
+  topbar.appendChild(historyGroup);
   topbar.appendChild(stateGroup);
   topbar.appendChild(insertGroup);
-  topbar.appendChild(historyGroup);
   footer.appendChild(status);
   footer.appendChild(scrubGroup);
   footer.appendChild(zoomGroup);
@@ -952,6 +986,10 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     }
     for (const [value, button] of modeButtons) {
       button.setAttribute("data-active", String(value === mode));
+    }
+    for (const [value, button] of deviceButtons) {
+      button.setAttribute("data-active", String(value === breakpoint));
+      button.setAttribute("aria-pressed", String(value === breakpoint));
     }
     // Zoom and forced states belong to the design mode; live is 100 % by
     // definition and shows the real page without editor chrome.

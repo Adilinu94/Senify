@@ -123,6 +123,10 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
        expect(await tab.locator('[data-role="scrub"]:visible').count()).toBe(0);
       await tab.screenshot({ path: join(shotDir, "02-canvas-frames.png") });
 
+      // Der Editor startet eingepasst (Start-Zoom), nicht bei 100 %.
+      await expect
+        .poll(async () => tab.locator('[data-role="zoom"]').textContent(), { timeout: 15000 })
+        .not.toBe("100%");
       const desktopFrame = () =>
         tab
           .locator('.senify-canvas__frame[data-device="desktop"] .senify-canvas__iframe')
@@ -418,6 +422,11 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
         .toBe("true");
 
       // Zoom footer (Ticket 03 Punkt 6): zoom-in, then Strg+0 resets to 100 %.
+      // Der Editor startet eingepasst; erst auf 100 % zurück, dann hineinzoomen.
+      await tab.keyboard.press("Control+0");
+      await expect
+        .poll(async () => tab.locator('[data-role="zoom"]').textContent())
+        .toBe("100%");
       await tab.locator('.senify-canvas__button[data-action="zoom-in"]').click();
       await expect
         .poll(async () => tab.locator('[data-role="zoom"]').textContent())
@@ -741,6 +750,9 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       // Seite bei einer fremden Aenderung neu — das Dokument wird ersetzt
       // (nicht gepatcht), die Release-Runtime wird frisch injiziert und der
       // Ring landet auf dem neuen Frame.
+      // Die Bühne füllt im Workspace-Modus die Fensterhöhe. Ein niedriger
+      // Viewport hält die Live-Seite scrollbar, sonst hat der Scrub keinen Weg.
+      await tab.setViewportSize({ width: 1600, height: 700 });
       await tab.locator('.senify-canvas__button[data-mode="live"]').click();
       await expect.poll(async () => tab.locator(".senify-canvas__frame").count()).toBe(1);       // Scrub (Ticket 19, M6): der Regler faehrt die Scroll-Position der echten
        // Seite an (Pin-/Scrub-Presets ohne Mausrad pruefbar), manuelles Scrollen

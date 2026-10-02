@@ -3709,3 +3709,52 @@ button:focus-visible,
     min-height: var(--ui-h-control);
   }
 }
+
+/* ---- Workspace-Modus (Framer/Webflow-Stil) ---------------------------------
+   Im Seiten-Editor ersetzt EINE 48px-Leiste die Portal-Leiste und den
+   Seitenkopf; Explorer, Canvas und Inspektor laufen bis an den Fensterrand.
+   Unter 1100px stapelt das Raster, dort scrollt die Seite wie bisher. */
+body.is-editor > .topbar {
+  display: none;
+}
+body.is-editor .view.editor-view {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+}
+body.is-editor .view.editor-view > .toolbar {
+  flex: none;
+  flex-wrap: nowrap;
+  gap: 0.5rem;
+  min-height: 3rem;
+  margin: 0;
+  padding: 0 0.75rem;
+  background: var(--ui-surface-panel);
+  border-bottom: 1px solid var(--ui-line);
+  color: var(--ui-ink);
+}
+body.is-editor .view.editor-view > .toolbar h1 {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--ui-ink-strong);
+}
+body.is-editor .view.editor-view > .toolbar code {
+  color: var(--ui-ink-muted);
+  font-size: 0.75rem;
+}
+@media (min-width: 1101px) {
+  body.is-editor {
+    overflow: hidden;
+  }
+  body.is-editor .view.editor-view {
+    height: 100vh;
+  }
+  body.is-editor .view.editor-view > .editor-host,
+  body.is-editor .view.editor-view > .editor-host.canvas-view {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 0;
+    gap: 0;
+  }
+}

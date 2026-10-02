@@ -267,7 +267,8 @@ describe("fonts and symbols are local and emoji-free", () => {
 
   it("draws symbols from one library and carries no emoji", () => {
     expect(EDITOR_ICON_SOURCE).toContain("Phosphor");
-    expect(Object.keys(EDITOR_ICONS).length).toBe(41);
+    // 41 aus dem Plan + 4 Chrome-Symbole (desktop, tablet, phone, history).
+    expect(Object.keys(EDITOR_ICONS).length).toBe(45);
     // Emoji guard over the generated symbol source (6.3).
     const emoji = /\p{Extended_Pictographic}/u;
     for (const [name, svg] of Object.entries(EDITOR_ICONS)) {
