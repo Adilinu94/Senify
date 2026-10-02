@@ -183,8 +183,26 @@ const next = `${head}${block}${tail}`;
 const undated = (text) =>
   text.replace(/(\*\*Gemessen:\*\* )\d{4}-\d{2}-\d{2}/, "$1<Datum>");
 
+// The total runs over every measured file, also those outside the protected
+// paths, and its branch figure moves by a hundredth between runs on identical
+// code (73.22, then 73.21 on CI). An exact match on that line would turn the
+// gate red at random. The rows of the protected files are stable and stay an
+// exact match; the total may differ by this much.
+const TOTAL_TOLERANCE = 0.05;
+const TOTAL_LINE =
+  /^\*\*Über alle gemessenen Dateien:\*\* Statements ([\d.]+) · Branches ([\d.]+) · Functions ([\d.]+) · Lines ([\d.]+)$/m;
+
+function sameMeasurement(left, right) {
+  const mask = (text) => undated(text).replace(TOTAL_LINE, "<Gesamtzeile>");
+  if (mask(left) !== mask(right)) return false;
+  const a = TOTAL_LINE.exec(left);
+  const b = TOTAL_LINE.exec(right);
+  if (a === null || b === null) return a === b;
+  return [1, 2, 3, 4].every((i) => Math.abs(Number(a[i]) - Number(b[i])) <= TOTAL_TOLERANCE);
+}
+
 if (process.argv.includes("--check")) {
-  if (undated(next) === undated(current)) {
+  if (sameMeasurement(next, current)) {
     console.log("qualitaet.md stimmt mit dem Lauf überein.");
     process.exit(0);
   }
