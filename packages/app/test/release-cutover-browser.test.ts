@@ -162,6 +162,15 @@ describe.skipIf(browserSkip)("release cutover (ticket 17)", () => {
       // A screenshot of an element inside the canvas only shows page pixels
       // while the frame is visible as a whole: at 100 % zoom and inside the
       // stage box. Both conditions are asserted instead of assumed.
+      // Der Editor startet eingepasst. Erst den Start-Fit abwarten, sonst
+      // ueberschreibt er den Reset, dann auf 100 % zuruecksetzen.
+      await tab
+        .locator('.canvas-view__stage[data-start-fit="done"], .canvas-view__stage[data-start-fit="skipped"]')
+        .waitFor({ state: "attached" });
+      await tab.locator('[data-role="zoom"]').click();
+      await expect
+        .poll(async () => tab.locator('[data-role="zoom"]').textContent())
+        .toBe("100%");
       const frameBox = await tab
         .locator('.senify-canvas__frame[data-device="desktop"]')
         .boundingBox();

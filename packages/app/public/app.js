@@ -5890,10 +5890,18 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       const rendered =
         frames.length > 0 &&
         frames.every((frame) => frame.contentDocument?.querySelector("[data-node-id]") != null);
-      if (rendered) canvas.fit();
-      else if (attempt < 100) setTimeout(() => fitWhenRendered(attempt + 1), 50);
+      if (rendered) {
+        canvas.fit();
+        canvasHost.dataset.startFit = "done";
+      } else if (attempt < 100) {
+        setTimeout(() => fitWhenRendered(attempt + 1), 50);
+      } else {
+        canvasHost.dataset.startFit = "skipped";
+      }
     };
     fitWhenRendered(0);
+  } else {
+    canvasHost.dataset.startFit = "skipped";
   }
   const framerImportButton = el("button", {
     type: "button",
