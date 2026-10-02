@@ -46,14 +46,14 @@ Der aktuelle Lauf vom 29.09.2026: **1003 bestanden / 15 übersprungen / 0 fehlge
 
 | Pfad | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
-| `packages/engine/src/http.ts` | 91.17 | 72.22 | 93.60 | 91.17 |
-| `packages/engine/src/store.ts` | 84.45 | 76.85 | 93.52 | 84.45 |
+| `packages/engine/src/http.ts` | 91.17 | 72.07 | 93.60 | 91.17 |
+| `packages/engine/src/store.ts` | 84.38 | 76.76 | 93.52 | 84.38 |
 | `packages/engine/src/lifecycle.ts` | 87.01 | 74.19 | 100.00 | 87.01 |
 | `packages/engine/src/forms.ts` | 84.09 | 73.60 | 100.00 | 84.09 |
-| `packages/mcp/src/tools.ts` | 91.31 | 62.95 | 87.12 | 91.31 |
+| `packages/mcp/src/tools.ts` | 91.01 | 62.37 | 87.01 | 91.01 |
 | `packages/editor/src/state/*` (14 Dateien) | 66.98 bis 100.00 | 56.75 bis 100.00 | 66.66 bis 100.00 | 66.98 bis 100.00 |
 
-**Über alle gemessenen Dateien:** Statements 87.54 · Branches 73.08 · Functions 90.98 · Lines 87.54
+**Über alle gemessenen Dateien:** Statements 87.45 · Branches 72.95 · Functions 90.96 · Lines 87.45
 
 <!-- messwerte:ende -->
 
