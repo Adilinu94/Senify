@@ -19,12 +19,15 @@
 // The block is regenerated, never merged: a merge would let prose and numbers
 // drift apart inside the same region, and the drift is what this is here to
 // prevent.
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const SUMMARY = join(ROOT, "coverage", "coverage-summary.json");
+// Der Stempel kommt aus demselben Aufruf wie die Summary (siehe `--stamp`).
+// Ohne ihn waere das Datum im Dokument eine zweite, unabhaengige Messung.
+const STAMP = join(ROOT, "coverage", "measured-at.txt");
 const TARGET = join(ROOT, "docs", "current", "qualitaet.md");
 
 // The markers have to survive a careless edit, so they are not markdown
@@ -79,6 +82,24 @@ function percent(value) {
   return typeof value === "number" ? value.toFixed(2) : "—";
 }
 
+// Das Datum gehoert zum Messwert, aber NICHT in den Vergleich.
+//
+// `--check` laeuft am Tag des Laufs und vergleicht eine eingecheckte
+// Messung. Nimmt man das Datum des Laufs, ist das Tor bei jedem Push rot,
+// auch wenn die Prozentzahlen exakt uebereinstimmen: das Dokument nennt den
+// Tag, an dem GEMESSEN wurde, der Check laeuft heute (so am 02.10.2026 im
+// Lauf 20 - die Zahlen passten, nur das Datum nicht). Genau die Sorte
+// Fehlalarm, die ein Tor abhaengig macht statt zu schuetzen.
+//
+// Deshalb wird das Datum nur beim Schreiben gesetzt (`quality:render`), aus
+// dem Stempel des Messlaufs. Beim Pruefen wird die vorhandene Zeile
+// unveraendert uebernommen. So bleibt "wann gemessen wurde" eine Angabe des
+// Laufs und nicht eine Bedingung, die jeder spaetere Lauf neu erfuellen muss.
+function measuredLine(stamp) {
+  const date = /^\d{4}-\d{2}-\d{2}/.test(stamp) ? stamp.slice(0, 10) : "unbekannt";
+  return `**Gemessen:** ${date} · vitest coverage (v8)`;
+}
+
 // The group rows report a RANGE, not an average. An average hides the file
 // that dragged the number down, and the lowest file in a group is the reason
 // the threshold sits where it does. Returns the four cells WITHOUT the file
@@ -108,7 +129,7 @@ function groupCells(summary, prefix) {
   };
 }
 
-function render(summary) {
+function render(summary, stamp) {
   const lines = [];
   lines.push(BEGIN);
   lines.push("");
@@ -118,7 +139,7 @@ function render(summary) {
     "     lässt den Lauf rot werden, sobald Dokument und Lauf auseinanderlaufen. -->",
   );
   lines.push("");
-  lines.push(`**Gemessen:** ${new Date().toISOString().slice(0, 10)} · vitest coverage (v8)`);
+  lines.push(measuredLine(stamp));
   lines.push("");
   lines.push("| Pfad | Statements | Branches | Functions | Lines |");
   lines.push("|---|---|---|---|---|");
@@ -160,7 +181,20 @@ function render(summary) {
   return lines.join("\n");
 }
 
-const block = render(readSummary());
+// --stamp: nur den Zeitpunkt des Messlaufs festhalten. Das ruft `test:coverage`
+// im selben Schritt auf, in dem die Summary entsteht, damit Datum und Zahlen
+// garantiert aus einem Lauf stammen. Ohne diese Kopplung waere das Datum eine
+// zweite, unabhaengige Messung.
+if (process.argv.includes("--stamp")) {
+  mkdirSync(dirname(STAMP), { recursive: true });
+  const now = new Date().toISOString();
+  writeFileSync(STAMP, `${now}\n`, "utf8");
+  console.log(`Messzeitpunkt gestempelt (${now.slice(0, 10)}).`);
+  process.exit(0);
+}
+
+const checking = process.argv.includes("--check");
+const summary = readSummary();
 const current = readFileSync(TARGET, "utf8");
 
 if (!current.includes(BEGIN) || !current.includes(END)) {
@@ -173,12 +207,27 @@ if (!current.includes(BEGIN) || !current.includes(END)) {
   process.exit(1);
 }
 
+// Beim Pruefen zaehlt nur, ob die Zahlen stimmen. Das Datum im Dokument
+// beschreibt, wann gemessen wurde, und wird unveraendert mitgenommen - sonst
+// waere jedes Tor rot, das nicht genau am Messtag laeuft. Beim Schreiben
+// kommt das Datum aus dem Stempel des Laufs, der die Summary erzeugt hat.
+const existingStamp = current.match(/^\*\*Gemessen:\*\* (\d{4}-\d{2}-\d{2})/m)?.[1] ?? "";
+const stamp = checking ? existingStamp : existsSync(STAMP) ? readFileSync(STAMP, "utf8").trim() : "";
+const block = render(summary, stamp);
+
 const head = current.slice(0, current.indexOf(BEGIN));
 const tail = current.slice(current.indexOf(END) + END.length);
 const next = `${head}${block}${tail}`;
 
-if (process.argv.includes("--check")) {
-  if (next === current) {
+if (checking) {
+  // Der Vergleich ignoriert die Zeilenenden. Das Dokument liegt auf Windows
+  // mit CRLF im Working Tree und auf Linux nach dem Checkout mit LF; der
+  // Generator schreibt immer LF. Ohne Normalisierung war der Block deshalb
+  // auf JEDER Maschine unterschiedlich und `quality:check` konnte nirgends
+  // gruen werden (so am 02.10.2026 im Lauf 20 gesehen: alle Prozentzahlen
+  // passten, jede Zeile unterschied sich nur an \r).
+  const normalise = (text) => text.replace(/\r\n/g, "\n");
+  if (normalise(next) === normalise(current)) {
     console.log("qualitaet.md stimmt mit dem Lauf überein.");
     process.exit(0);
   }
