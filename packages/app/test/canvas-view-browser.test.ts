@@ -779,6 +779,9 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
         if (frame && frame.contentDocument) frame.contentDocument.documentElement.scrollTop = 0;
       })()`);
       await expect.poll(async () => scrub.inputValue()).toBe("0");
+      // Der niedrige Viewport gilt nur fuer den Live-Scrub; die folgenden
+      // Schritte laufen wieder in der Standardhoehe.
+      await tab.setViewportSize({ width: 1600, height: 1000 });
 
       const liveProbe = (): Promise<string> =>
         tab.evaluate(`(() => {
@@ -868,12 +871,18 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       await expect
         .poll(async () => tab.evaluate("location.hash"), { timeout: 10000 })
         .toContain(createdPage.id);
-      await tab.locator('.senify-explorer__tab[data-tab="pages"]').click();
+      // Der Follow baut den Editor fuer die neue Seite neu auf; ein Klick kurz
+      // davor landet im alten Explorer und geht verloren. Klick und Pruefung
+      // deshalb gemeinsam wiederholen.
       await expect
-        .poll(async () =>
-          tab
-            .locator('.senify-explorer__tabitem', { hasText: "Agent-Seite" })
-            .count(),
+        .poll(
+          async () => {
+            await tab.locator('.senify-explorer__tab[data-tab="pages"]').click();
+            return tab
+              .locator('.senify-explorer__tabitem', { hasText: "Agent-Seite" })
+              .count();
+          },
+          { timeout: 15000, interval: 500 },
         )
         .toBeGreaterThan(0);
       await tab.screenshot({ path: join(shotDir, "13-agent-vorschau.png") });
