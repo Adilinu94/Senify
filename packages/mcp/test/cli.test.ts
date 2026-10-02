@@ -51,7 +51,11 @@ describe("senify CLI skeleton", () => {
   });
 });
 
-describe("senify system integration CLI", () => {
+// `startup --status` und `shortcut --status` gehen ueber startupPlan, das
+// absichtlich nur unter Windows rechnet (Autostartordner, COM-Verknuepfung).
+// Unter Linux liefert das SenifyError, unter Windows prueft der Test die
+// Ausgabe. Dieselbe Abgrenzung nutzt packages/app/test/startup.test.ts.
+describe.skipIf(process.platform !== "win32")("senify system integration CLI", () => {
   it("reports the status of launcher, startup entry and shortcut", async () => {
     const logs = await runCli(["startup", "--status"]);
     const output = logs.join("\n");
