@@ -437,14 +437,14 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
     const label = deepTextOf(node) ?? baseText?.content ?? "";
     if (hasElementChildren && isTextOnlyLink(node)) {
       props["label"] = label;
-      if (node.href !== null) props["link"] = { url: node.href, newTab: node.target === "_blank" };
+      if (node.href !== null) props["link"] = { url: node.href.trim(), newTab: node.target === "_blank" };
     } else if (hasElementChildren) {
       // A card/logo wrapper: the frame itself becomes the anchor, so the whole
       // block stays clickable and keeps its children.
       primitive = "frame";
       props["semantic"] = "div";
       if (node.href !== null) {
-        props["link"] = node.href;
+        props["link"] = node.href.trim();
         if (node.target === "_blank") props["newTab"] = true;
       }
       context.findings.push({
@@ -457,7 +457,7 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
       });
     } else {
       props["label"] = label;
-      if (node.href !== null) props["link"] = { url: node.href, newTab: node.target === "_blank" };
+      if (node.href !== null) props["link"] = { url: node.href.trim(), newTab: node.target === "_blank" };
     }
   } else if (primitive === "image") {
     const assetId = node.assetId ?? node.assetUrl;
@@ -612,28 +612,25 @@ function cssToStyle(visual: { [key: string]: string | undefined }): Record<strin
 // `<a href="./">Home</a>`). Only the inline tags the body primitive accepts
 // are generated; deeper structures flatten to their text.
 function inlineHtmlOf(node: IrNode, fallback: string): string {
-  const parts: string[] = [];
-  const walk = (child: IrNode): void => {
+  const render = (child: IrNode): string => {
     if (child.innerHtml !== undefined && child.innerHtml !== null) {
       const inner = sanitizeInlineHtml(child.innerHtml);
-      parts.push(
-        HEADING_TAGS.has(child.tag) || child.tag === "p" ? `<${child.tag}>${inner}</${child.tag}>` : inner,
-      );
-      return;
+      return HEADING_TAGS.has(child.tag) || child.tag === "p" ? `<${child.tag}>${inner}</${child.tag}>` : inner;
     }
-    const content = child.states[0]?.text?.content ?? child.children.map(walk).join("");
+    // `text.content` is only the element's OWN text: the capture sets "" for an
+    // element that just holds children (`<p><a>Home</a></p>`). So the children
+    // render into the element, in document order, and the own text goes first.
+    const inner = escapeHtml(child.states[0]?.text?.content ?? "") + child.children.map(render).join("");
     if (child.tag === "a" && child.href !== null) {
-      parts.push(`<a href="${escapeHtmlAttr(child.href)}">${escapeHtml(content)}</a>`);
-      return;
+      return `<a href="${escapeHtmlAttr(child.href.trim())}">${inner}</a>`;
     }
     if (HEADING_TAGS.has(child.tag) || child.tag === "p" || child.tag === "span" || child.tag === "strong" || child.tag === "em") {
-      parts.push(`<${child.tag}>${escapeHtml(content)}</${child.tag}>`);
-      return;
+      return `<${child.tag}>${inner}</${child.tag}>`;
     }
-    if (content !== "") parts.push(escapeHtml(content));
+    return inner;
   };
-  for (const child of node.children) walk(child);
-  return parts.length > 0 ? parts.join("") : escapeHtml(fallback);
+  const html = node.children.map(render).join("");
+  return html !== "" ? html : escapeHtml(fallback);
 }
 
 function escapeHtml(value: string): string {
