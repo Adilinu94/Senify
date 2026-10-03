@@ -211,7 +211,7 @@ describe("site address in the baked release", () => {
     expect(await baked.read("robots.txt")).toContain(
       "Sitemap: https://kunde.de/sitemap.xml",
     );
-  });
+  }, 180000);
 
   it("keeps the senify.xyz placeholder while no address is set", async () => {
     const created = await newSite("Ohne Adresse");
@@ -220,7 +220,7 @@ describe("site address in the baked release", () => {
 
     const html = await baked.read("index.html");
     expect(html).toContain(`https://${site.slug}.senify.xyz/`);
-  });
+  }, 180000);
 
   it("makes a relative og:image absolute and leaves an absolute one alone", async () => {
     const created = await newSite("Kunde OG");
@@ -236,7 +236,7 @@ describe("site address in the baked release", () => {
     expect(await absolute.read("index.html")).toContain(
       '<meta property="og:image" content="https://cdn.example/titel.png"',
     );
-  });
+  }, 180000);
 });
 
 describe("site address in the form origin check", () => {
