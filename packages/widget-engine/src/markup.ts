@@ -22,6 +22,7 @@ import type { CssNode } from "./css/compile.ts";
 import { PRIMITIVES, getPrimitive } from "./catalog.ts";
 import { CASCADE_LAYER } from "./css/cascade.ts";
 import type { Control, PrimitiveDefinition, PropValue } from "./types.ts";
+import { isSafeHref, sanitizeInlineHtml } from "./inline-html.ts";
 
 // ---------------------------------------------------------------------------
 // Element description
@@ -43,6 +44,10 @@ export type ElementSpec = {
   childrenSlot?: "children" | string;
   // Rendered last (after `children` and the slot content).
   text?: string;
+  // Sanitized inline markup that is the element's whole content (`body`). The
+  // string has already passed `sanitizeInlineHtml`; a renderer sets it as the
+  // element's inner HTML and renders nothing else into the element.
+  html?: string;
   // The element that carries `data-node-id` / `data-widget` for this node.
   root?: boolean;
 };
@@ -69,6 +74,22 @@ function value(props: Record<string, PropValue>, key: string): PropValue | undef
 function text(props: Record<string, PropValue>, key: string): string {
   const found = value(props, key);
   return typeof found === "string" ? found : typeof found === "number" ? String(found) : "";
+}
+
+// A link control holds a plain URL string (catalog controls) or the shared
+// `{ url, newTab }` link value (what imports and sections write). Both mean the
+// same; a `{ pageId }` link is resolved elsewhere and has no URL here.
+function linkOf(props: Record<string, PropValue>, key: string): { href: string; newTab: boolean } {
+  const found = value(props, key);
+  if (typeof found === "string") return { href: found.trim(), newTab: false };
+  if (typeof found === "object" && found !== null && !Array.isArray(found)) {
+    const record = found as Record<string, PropValue>;
+    return {
+      href: typeof record["url"] === "string" ? record["url"].trim() : "",
+      newTab: record["newTab"] === true,
+    };
+  }
+  return { href: "", newTab: false };
 }
 
 function flag(props: Record<string, PropValue>, key: string, fallback = false): boolean {
@@ -142,7 +163,18 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
       const semantic = choice(props, "semantic", "div");
       const tag = FRAME_TAGS.has(semantic) ? semantic : "div";
       const display = choice(props, "display", "block");
-      return containerRoot(tag, [primitiveClass("frame"), modifier("frame", display)]);
+      const classes = [primitiveClass("frame"), modifier("frame", display)];
+      // A linked frame is an anchor: the Framer card/logo wrapper shape. An
+      // unsafe target is not rendered as a link at all.
+      const target = linkOf(props, "link");
+      if (target.href !== "" && isSafeHref(target.href)) {
+        const newTab = flag(props, "newTab") || target.newTab;
+        return containerRoot("a", classes, {
+          href: target.href,
+          ...(newTab ? { target: "_blank", rel: "noopener noreferrer" } : {}),
+        });
+      }
+      return containerRoot(tag, classes);
     }
 
     case "section":
@@ -172,20 +204,19 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
       return { tag: "p", classes: [primitiveClass("text")], text: text(props, "text"), root: true };
 
     case "body": {
-      // The image of the body text is the plain text; the author's markup
-      // (Markdown/HTML) is carried in the same property but rendered as text
-      // until the sanitized rich-text path of the registry is wired in. Nothing
-      // is injected as HTML here.
+      // The author's inline markup is rendered through the allow-list
+      // sanitizer (`inline-html.ts`); plain text passes through unchanged.
       const dropCap = flag(props, "dropCap");
       return {
         tag: "div",
         classes: [primitiveClass("body"), ...(dropCap ? [modifier("body", "drop-cap")] : [])],
-        text: text(props, "html"),
+        html: sanitizeInlineHtml(text(props, "html")),
         root: true,
       };
     }
 
-    case "button":
+    case "button": {
+      const target = linkOf(props, "link");
       return {
         tag: "a",
         classes: [
@@ -193,17 +224,25 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
           modifier("button", choice(props, "variant", "solid")),
           modifier("button", choice(props, "size", "md")),
         ],
-        attrs: { href: text(props, "link") || "#" },
+        attrs: {
+          href: target.href !== "" && isSafeHref(target.href) ? target.href : "#",
+          ...(target.newTab ? { target: "_blank", rel: "noopener noreferrer" } : {}),
+        },
         text: text(props, "label"),
         root: true,
       };
+    }
 
     case "link": {
-      const newTab = flag(props, "newTab");
+      const target = linkOf(props, "link");
+      const newTab = flag(props, "newTab") || target.newTab;
       return {
         tag: "a",
         classes: [primitiveClass("link")],
-        attrs: { href: text(props, "link") || "#", ...(newTab ? { target: "_blank" } : {}) },
+        attrs: {
+          href: target.href !== "" && isSafeHref(target.href) ? target.href : "#",
+          ...(newTab ? { target: "_blank", rel: "noopener noreferrer" } : {}),
+        },
         text: text(props, "label"),
         root: true,
       };
@@ -518,7 +557,12 @@ export function describePrimitive(
 ): ElementSpec | undefined {
   const definition = getPrimitive(primitive);
   if (definition === undefined || definition.legacy === true) return undefined;
-  return describeOne(primitive, props);
+  const spec = describeOne(primitive, props);
+  // An anchor id (`#kontakt`) on the root element of any primitive.
+  const anchor = text(props, "anchorId");
+  return /^[A-Za-z][A-Za-z0-9_:.-]{0,127}$/.test(anchor)
+    ? { ...spec, attrs: { ...spec.attrs, id: anchor } }
+    : spec;
 }
 
 export function isCatalogPrimitive(primitive: string): boolean {

@@ -12,7 +12,7 @@ import type { EditorDocument } from "@senify/editor/state";
 import type { StyleRule } from "@senify/widget-engine";
 import { captureFixture, captureHtml, type CaptureHtmlInput } from "./capture-html.ts";
 import type { FramerIrDocument, IrFinding, IrNode } from "./ir.ts";
-import { normalize, type NormalizeResult } from "./normalize.ts";
+import { normalize, type NormalizeMode, type NormalizeResult } from "./normalize.ts";
 import { mapDocument, type MapperResult, type ThemePatch } from "./mapper.ts";
 import { buildFidelityReport, type FidelityReport } from "./fidelity.ts";
 import { importAssets, type AssetReport, type AssetUploader } from "./assets.ts";
@@ -36,6 +36,12 @@ export type RunImportInput = {
   baseUrl?: string;
   includeAssets?: boolean;
   includeFonts?: boolean;
+  // The page path the import lands on. It scopes the style rule ids and class
+  // names, so two pages of one site never share a rule.
+  pagePath?: string;
+  // `dna` (default) rewrites what the design DNA forbids; `fidelity` keeps the
+  // source's look and only consolidates.
+  mode?: NormalizeMode;
 };
 
 export type ImportRun = {
@@ -49,6 +55,52 @@ export type ImportRun = {
   irHash: string;
 };
 
+/* --------------------------------------------------- linked stylesheets */
+
+const CSS_MAX_SHEETS = 12;
+const CSS_MAX_BYTES = 4_000_000;
+const CSS_TIMEOUT_MS = 15_000;
+
+// Hosts a Framer site serves its stylesheets from, besides the page's own
+// origin. Nothing else is fetched on behalf of a page the user pointed at.
+function isFramerHost(hostname: string): boolean {
+  return /(^|\.)(framerusercontent\.com|framer\.website|framer\.app|framer\.ai|framer\.media)$/i.test(hostname);
+}
+
+// The `<link rel="stylesheet">` sheets of a live page: a URL import has no
+// export folder, so its class rules would otherwise never be read.
+export async function fetchLinkedCss(html: string, pageUrl: string): Promise<string> {
+  const origin = new URL(pageUrl).origin;
+  const hrefs: string[] = [];
+  for (const match of html.matchAll(/<link\b[^>]*>/gi)) {
+    const tag = match[0];
+    if (!/\brel\s*=\s*["']?stylesheet/i.test(tag)) continue;
+    const href = /\bhref\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(tag);
+    const value = href?.[1] ?? href?.[2];
+    if (value !== undefined && value !== "") hrefs.push(value.replace(/&amp;/g, "&"));
+  }
+  const sheets: string[] = [];
+  for (const href of hrefs.slice(0, CSS_MAX_SHEETS)) {
+    let target: URL;
+    try {
+      target = new URL(href, pageUrl);
+    } catch {
+      continue;
+    }
+    if (target.protocol !== "https:" && target.protocol !== "http:") continue;
+    if (target.origin !== origin && !isFramerHost(target.hostname)) continue;
+    try {
+      const response = await fetch(target, { signal: AbortSignal.timeout(CSS_TIMEOUT_MS) });
+      if (!response.ok) continue;
+      const text = await response.text();
+      if (text.length <= CSS_MAX_BYTES) sheets.push(text);
+    } catch {
+      continue;
+    }
+  }
+  return sheets.join("\n");
+}
+
 /* --------------------------------------------------------------- main run */
 
 export async function runImport(input: RunImportInput): Promise<ImportRun> {
@@ -60,15 +112,16 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
       throw new Error(`Quelle nicht ladbar: ${response.status} ${input.source.url}`);
     }
     const html = await response.text();
-    document = captureHtml({ html, url: input.source.url });
+    const css = await fetchLinkedCss(html, input.source.url);
+    document = captureHtml({ html, url: input.source.url, pagePath: input.pagePath ?? "/", css });
     if (baseUrl === undefined) baseUrl = new URL(input.source.url).origin;
   } else if (input.source.kind === "mirror") {
     // Offline mode (S2.4): the local mirror is the input, no network beyond
     // the asset downloads themselves (which resolve through baseUrl when
     // given, else fall back to the mirror's file layout).
-    document = captureFixture(input.source.rootDir, input.source.pagePath ?? "/");
+    document = captureFixture(input.source.rootDir, input.pagePath ?? input.source.pagePath ?? "/");
   } else {
-    const capture: CaptureHtmlInput = { html: input.source.html };
+    const capture: CaptureHtmlInput = { html: input.source.html, pagePath: input.pagePath ?? "/" };
     if (input.source.url !== undefined) capture.url = input.source.url;
     if (input.source.title !== undefined) capture.title = input.source.title;
     document = captureHtml(capture);
@@ -90,7 +143,7 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
   }
 
   const payloads = input.source.kind === "mirror" ? extractPayloads({ document, rootDir: input.source.rootDir }) : [];
-  const normalized = normalize(document);
+  const normalized = normalize(document, { mode: input.mode ?? "dna" });
   const mapped = mapDocument(document, normalized.rules);
   const motion = mapFramerMotion(document);
   for (const mapping of motion.mappings) {

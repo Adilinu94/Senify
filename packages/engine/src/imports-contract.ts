@@ -31,6 +31,14 @@ export const CreateImportBodySchema = Type.Object(
     fonts: Type.Optional(Type.Union([Type.Literal("rewrite"), Type.Literal("skip")])),
     // Theme: apply the derived font patch with update_theme on write.
     applyTheme: Type.Optional(Type.Boolean()),
+    // "dna" (default) rewrites what the design DNA forbids (gradients, shadows,
+    // radii, centered headings); "fidelity" keeps the source's look.
+    mode: Type.Optional(Type.Union([Type.Literal("dna"), Type.Literal("fidelity")])),
+    // The `irHash` the analysis (dry run) reported. A write whose source no
+    // longer produces this hash (the live site changed between "Analysieren"
+    // and "Übernehmen") is rejected instead of writing something the person
+    // never saw.
+    expectedIrHash: Type.Optional(Type.String()),
     // Write the imported document as one revision (S3.1). Absent = dry run.
     write: Type.Optional(Type.Boolean()),
     // Target page for `write: true`. Absent = a new page is created under
@@ -56,6 +64,11 @@ export const ImportReportSchema = Type.Object(
     // The idempotency fingerprint of the imported IR (plan S2.5): a second
     // run over an unchanged source produces the same hash.
     irHash: Type.String(),
+    // The page the path already holds, so "Übernehmen" can say what it would
+    // replace and send that draft version back as `baseDraftVersion`.
+    existingPage: Type.Optional(
+      Type.Object({ pageId: Type.String(), draftVersion: Type.Number(), title: Type.String() }),
+    ),
     score: Type.Number(),
     counts: Type.Object({
       nodes: Type.Number(),

@@ -422,6 +422,82 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
     expect(imported.length).toBeGreaterThan(0);
   }, 60_000);
 
+  // The style rule ids carry the page scope: two pages of one site never share
+  // a rule, and importing a page again replaces ITS rules instead of stacking
+  // them (the registry keeps the first rule per id, so stacked rules meant a
+  // change made in Framer never arrived and a second page lost its styling).
+  describe("style rules per page", () => {
+    const styled = (word: string, color: string): string =>
+      framerHtml().replace("Willkommen", word).replace("</head>", `<style>.framer-X{color:${color}}</style></head>`);
+
+    const importedRules = async (targetSiteId: string) => {
+      const rules = await env.api.request<{ rules: { id: string; origin: { source: string } }[] }>({
+        method: "GET",
+        path: `/api/sites/${targetSiteId}/style-rules`,
+      });
+      return rules.body.rules.filter((rule) => rule.origin?.source === "framer-import");
+    };
+
+    it("a second page keeps its own rules next to the first page's", async () => {
+      const own = await createTestSite(env.api, "Import Zwei Seiten");
+      const first = await runImport({ source: { html: styled("Eins", "#111") }, write: true, pagePath: "/eins", assets: "skip", fonts: "skip" }, own.id);
+      const afterFirst = await importedRules(own.id);
+      const second = await runImport({ source: { html: styled("Zwei", "#222") }, write: true, pagePath: "/zwei", assets: "skip", fonts: "skip" }, own.id);
+      expect(first.status, JSON.stringify(first.body)).toBe(201);
+      expect(second.status, JSON.stringify(second.body)).toBe(201);
+      const afterSecond = await importedRules(own.id);
+      expect(afterFirst.length).toBeGreaterThan(0);
+      expect(afterSecond.length).toBeGreaterThan(afterFirst.length);
+      expect(new Set(afterSecond.map((rule) => rule.id)).size).toBe(afterSecond.length);
+    }, 120_000);
+
+    it("importing a page again replaces its rules instead of stacking them", async () => {
+      const own = await createTestSite(env.api, "Import Re-Import");
+      await runImport({ source: { html: styled("Eins", "#111") }, write: true, pagePath: "/seite", assets: "skip", fonts: "skip", idempotencyKey: "re-1" }, own.id);
+      const once = await importedRules(own.id);
+      await runImport({ source: { html: styled("Eins", "#333") }, write: true, pagePath: "/seite", assets: "skip", fonts: "skip", idempotencyKey: "re-2" }, own.id);
+      const twice = await importedRules(own.id);
+      expect(twice.length).toBe(once.length);
+      expect(twice.map((rule) => rule.id).sort()).toEqual(once.map((rule) => rule.id).sort());
+    }, 120_000);
+  });
+
+  describe("write guards", () => {
+    it("rejects a write whose source changed since the analysis (expectedIrHash)", async () => {
+      const own = await createTestSite(env.api, "Import Hashwache");
+      const analysis = await runImport({ source: { html: framerHtml() }, pagePath: "/wache", assets: "skip", fonts: "skip" }, own.id);
+      expect(analysis.status, JSON.stringify(analysis.body)).toBe(201);
+      const changed = await runImport(
+        { source: { html: framerHtml().replace("Willkommen", "Geändert") }, write: true, pagePath: "/wache", assets: "skip", fonts: "skip", expectedIrHash: analysis.body.report.irHash },
+        own.id,
+      );
+      expect(changed.status).toBe(409);
+      const same = await runImport(
+        { source: { html: framerHtml() }, write: true, pagePath: "/wache", assets: "skip", fonts: "skip", expectedIrHash: analysis.body.report.irHash },
+        own.id,
+      );
+      expect(same.status, JSON.stringify(same.body)).toBe(201);
+    }, 120_000);
+
+    it("the dry run names the page the path already holds, and a stale base is rejected", async () => {
+      const own = await createTestSite(env.api, "Import Vorhanden");
+      const page = await createTestPage(env.api, own.id, { path: "/vorhanden", title: "Vorhanden" });
+      const analysis = await runImport({ source: { html: framerHtml() }, pagePath: "/vorhanden", assets: "skip", fonts: "skip" }, own.id);
+      const existing = (analysis.body.report as { existingPage?: { pageId: string; draftVersion: number } }).existingPage;
+      expect(existing?.pageId).toBe(page.id);
+      const stale = await runImport(
+        { source: { html: framerHtml() }, write: true, pagePath: "/vorhanden", assets: "skip", fonts: "skip", baseDraftVersion: (existing?.draftVersion ?? 1) + 5 },
+        own.id,
+      );
+      expect(stale.status).toBe(409);
+      const fresh = await runImport(
+        { source: { html: framerHtml() }, write: true, pagePath: "/vorhanden", assets: "skip", fonts: "skip", baseDraftVersion: existing?.draftVersion },
+        own.id,
+      );
+      expect(fresh.status, JSON.stringify(fresh.body)).toBe(201);
+    }, 120_000);
+  });
+
   it("the job protocol persists: GET /api/imports/:jobId returns job + report", async () => {
     const created = await runImport({ source: { html: framerHtml() } });
     const jobId = created.body.job.id;

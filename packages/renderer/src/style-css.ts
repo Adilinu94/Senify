@@ -30,18 +30,53 @@ function mediaQuery(maxWidth: number, body: string): string {
   return `@media (max-width: ${maxWidth - 0.02}px) {\n${body}\n}`;
 }
 
+// A node that states where it is shown (an explicit `hidden: false` on a
+// device) is a node with its own visibility per device: a copy that exists
+// only on mobile, or one hidden on tablet alone. The media queries of a
+// breakpoint override cascade downwards (a tablet query also covers mobile), so
+// "hidden on tablet only" cannot be written as one override. Each hidden
+// device gets its own exact width range instead.
+const DEVICE_RANGES = {
+  desktop: `(min-width: ${BREAKPOINTS.tablet}px)`,
+  tablet: `(min-width: ${BREAKPOINTS.mobile}px) and (max-width: ${BREAKPOINTS.tablet - 0.02}px)`,
+  mobile: `(max-width: ${BREAKPOINTS.mobile - 0.02}px)`,
+} as const;
+
+function hasExplicitVisibility(node: NodeTree["nodes"][string]): boolean {
+  return node.overrides?.tablet?.hidden === false || node.overrides?.mobile?.hidden === false;
+}
+
+function visibilityBlocks(node: NodeTree["nodes"][string]): string[] {
+  const desktopVisible = node.hidden !== true;
+  const visible = {
+    desktop: desktopVisible,
+    tablet: node.overrides?.tablet?.hidden === undefined ? desktopVisible : node.overrides.tablet.hidden === false,
+    mobile: node.overrides?.mobile?.hidden === undefined ? desktopVisible : node.overrides.mobile.hidden === false,
+  };
+  const blocks: string[] = [];
+  for (const device of ["desktop", "tablet", "mobile"] as const) {
+    if (visible[device]) continue;
+    blocks.push(
+      `@media ${DEVICE_RANGES[device]} {\n  [data-node-id="${node.id}"] {\n  display: none;\n  }\n}`,
+    );
+  }
+  return blocks;
+}
+
 export function overridesCss(pages: StyleCssPage[]): string {
   const blocks: string[] = [];
   for (const page of pages) {
     for (const node of Object.values(page.tree.nodes)) {
       const overrides = node.overrides;
       if (!overrides) continue;
+      const explicit = hasExplicitVisibility(node);
+      if (explicit) blocks.push(...visibilityBlocks(node));
       for (const breakpoint of ["tablet", "mobile"] as const) {
         const override = overrides[breakpoint];
         if (!override) continue;
         const vars = styleVarsFor(override.props ?? {}) ?? {};
         const lines: string[] = [];
-        if (override.hidden === true) lines.push("  display: none;");
+        if (override.hidden === true && !explicit) lines.push("  display: none;");
         for (const [name, value] of Object.entries(vars)) {
           lines.push(`  ${name}: ${value};`);
         }

@@ -16,9 +16,10 @@ import type {
   EditorDocument,
   EditorNode,
 } from "@senify/editor/state";
-import type { StyleRule } from "@senify/widget-engine";
+import { sanitizeInlineHtml, type StyleRule } from "@senify/widget-engine";
 import type {
   FramerIrDocument,
+  IrDevice,
   IrFinding,
   IrNode,
   IrState,
@@ -26,6 +27,12 @@ import type {
 import type { NormalizedStyleRule } from "./normalize.ts";
 
 /* ------------------------------------------------------------------ types */
+
+// A mapped node that is only visible on some devices. `EditorNode.hiddenDevices`
+// can say "additionally hidden on tablet/mobile" but not "hidden on desktop,
+// shown on mobile" (the Framer mobile-only copy), so the import carries the
+// full visible set and the engine turns it into the node's overrides.
+export type ImportDeviceVisibility = { visibleDevices?: readonly IrDevice[] };
 
 export type MapperResult = {
   document: EditorDocument;
@@ -163,33 +170,40 @@ function mergeStates(states: IrState[]): MergedState {
 
 /* --------------------------------------------------- sibling device merge */
 
-// The device signature of a duplicate: which breakpoints hide it. A variant
-// hidden at desktop+tablet is the mobile one, hidden at tablet only is the
-// desktop one, hidden at desktop only is the tablet one, no hash is the base.
-// The Framer ranges (≥1200 / 810–1199.98 / ≤809.98, measured in S0) map onto
-// Senify's devices directly.
-function deviceOfVariant(
-  hiddenAt: readonly string[],
-  breakpoints: IrBreakpointMap,
-): "desktop" | "tablet" | "mobile" {
-  if (hiddenAt.length === 0) return "desktop";
-  const hidesDesktop = hiddenAt.some((hash) => breakpointMin(hash, breakpoints) >= 1200);
-  const hidesTablet = hiddenAt.some((hash) => {
-    const min = breakpointMin(hash, breakpoints);
-    return min >= 810 && min < 1200;
-  });
-  const hidesMobile = hiddenAt.some((hash) => breakpointMin(hash, breakpoints) < 810);
-  if (hidesDesktop && hidesTablet) return "mobile";
-  if (hidesDesktop) return "tablet";
-  if (hidesTablet) return "desktop";
-  if (hidesMobile) return "desktop";
-  return "desktop";
-}
+const ALL_DEVICES: readonly IrDevice[] = ["desktop", "tablet", "mobile"];
 
 type IrBreakpointMap = Map<string, { minWidth: number; maxWidth: number | null }>;
 
-function breakpointMin(hash: string, breakpoints: IrBreakpointMap): number {
-  return breakpoints.get(hash)?.minWidth ?? 0;
+// The Framer ranges map onto Senify's devices by overlap: mobile below 810,
+// tablet 810–1199.98, desktop from 1200 (so `≥1440` and `1200–1439.98` are both
+// desktop). Measured in S0.
+function devicesOfRange(range: { minWidth: number; maxWidth: number | null }): IrDevice[] {
+  const high = range.maxWidth ?? Number.POSITIVE_INFINITY;
+  const spans: readonly (readonly [IrDevice, number, number])[] = [
+    ["mobile", 0, 810],
+    ["tablet", 810, 1200],
+    ["desktop", 1200, Number.POSITIVE_INFINITY],
+  ];
+  return spans.filter(([, from, to]) => range.minWidth < to && high >= from).map(([device]) => device);
+}
+
+// The devices a Framer duplicate is visible on. `hiddenAt` names the breakpoints
+// that hide the copy; the breakpoints its siblings mention (`universe`) are the
+// ones in play, so a copy is visible wherever one of those is NOT hidden. A hash
+// that is not a known breakpoint is ignored.
+function visibleDevicesOf(
+  hiddenAt: readonly string[],
+  universe: ReadonlySet<string>,
+  breakpoints: IrBreakpointMap,
+): IrDevice[] {
+  const visible = new Set<IrDevice>();
+  for (const hash of universe) {
+    if (hiddenAt.includes(hash)) continue;
+    const range = breakpoints.get(hash);
+    if (range === undefined) continue;
+    for (const device of devicesOfRange(range)) visible.add(device);
+  }
+  return ALL_DEVICES.filter((device) => visible.has(device));
 }
 
 // The signature that proves two SSR variants are the same element: the sorted
@@ -205,41 +219,109 @@ function baseSignature(node: IrNode): string {
   return `${module}|[${[...node.baseClasses].sort().join("|")}]`;
 }
 
-// Fold sibling duplicates into one node per signature: the base variant keeps
-// its state, the tablet/mobile duplicates contribute their visual values as
-// the device states of the same node. The duplicates' children move into the
-// base node's children, so the next recursion level sees them as siblings and
-// merges them the same way (the measured case: three `-container` wrappers
-// each holding one header variant).
-function mergeSiblingVariants(children: IrNode[], breakpoints: IrBreakpointMap): IrNode[] {
-  const out: IrNode[] = [];
-  const bySignature = new Map<string, IrNode>();
-  for (const child of children) {
-    const signature = baseSignature(child);
-    const isVariant = child.states.some((state) => state.hiddenAt.length > 0);
-    const existing = bySignature.get(signature);
-    if (existing === undefined) {
-      bySignature.set(signature, child);
-      continue;
-    }
-    if (!isVariant) {
-      // Two non-variant siblings with the same signature are genuinely
-      // repeated elements, not device copies. Keep both.
-      out.push(existing);
-      out.push(child);
-      bySignature.delete(signature);
-      continue;
-    }
-    // The duplicate folds into the existing node: its state becomes a device
-    // state, its children ride along for the next merge level.
-    const device = deviceOfVariant(child.states[0]?.hiddenAt ?? [], breakpoints);
-    const sourceState = child.states[0];
-    if (sourceState !== undefined) {
-      existing.states.push({ ...sourceState, device });
-    }
-    existing.children.push(...child.children);
+// Two device copies are the same element when the whole subtree has the same
+// shape AND the same content. Framer duplicates the full subtree per
+// breakpoint, but the inner nodes carry no marker of their own, so the shape
+// is the only proof. A copy with different text or links is a different
+// element for that device and must not be folded (its content would be lost).
+function sameShape(a: IrNode, b: IrNode): boolean {
+  if (a.tag !== b.tag || a.kind !== b.kind || a.children.length !== b.children.length) return false;
+  if ((a.states[0]?.text?.content ?? "") !== (b.states[0]?.text?.content ?? "")) return false;
+  if (a.href !== b.href || (a.assetUrl ?? null) !== (b.assetUrl ?? null)) return false;
+  if ((a.alt ?? null) !== (b.alt ?? null) || (a.innerHtml ?? null) !== (b.innerHtml ?? null)) return false;
+  if (a.svg !== b.svg) return false;
+  return a.children.every((child, index) => {
+    const other = b.children[index];
+    return other !== undefined && sameShape(child, other);
+  });
+}
+
+// The style a copy has on one device: its device state when the stylesheet
+// gave it one, else its base state.
+function stateFor(node: IrNode, device: IrDevice): IrState | undefined {
+  return node.states.find((state) => state.device === device) ?? node.states[0];
+}
+
+// Fold a parallel copy into the base subtree, level by level: each device the
+// copy is visible on becomes a device state of the matching base node.
+function foldDevices(base: IrNode, copy: IrNode, devices: readonly IrDevice[]): void {
+  for (const device of devices) {
+    if (device === "desktop") continue;
+    const source = stateFor(copy, device);
+    if (source === undefined) continue;
+    const next: IrState = { ...source, device, hiddenAt: [], variantHash: null };
+    const at = base.states.findIndex((state) => state.device === device);
+    if (at === -1) base.states.push(next);
+    else base.states[at] = next;
   }
-  out.push(...bySignature.values());
+  base.children.forEach((child, index) => {
+    const other = copy.children[index];
+    if (other !== undefined) foldDevices(child, other, devices);
+  });
+}
+
+function withVisibility(node: IrNode, visible: readonly IrDevice[]): IrNode {
+  if (visible.length < ALL_DEVICES.length) node.visibleOn = [...visible];
+  return node;
+}
+
+type VariantCopy = { node: IrNode; visible: IrDevice[] };
+
+function resolveGroup(group: VariantCopy[], stats: { merged: number }): IrNode[] {
+  if (group.length === 1) {
+    const only = group[0] as VariantCopy;
+    return [withVisibility(only.node, only.visible)];
+  }
+  const base = group.find((copy) => copy.visible.includes("desktop"));
+  if (base === undefined || !group.every((copy) => copy === base || sameShape(base.node, copy.node))) {
+    // Not provably the same element on every device: keep each copy and show
+    // it only where Framer showed it. Nothing is dropped, nothing doubles up.
+    return group.map((copy) => withVisibility(copy.node, copy.visible));
+  }
+  for (const copy of group) {
+    if (copy === base) continue;
+    foldDevices(base.node, copy.node, copy.visible);
+    stats.merged += 1;
+  }
+  const union = ALL_DEVICES.filter((device) => group.some((copy) => copy.visible.includes(device)));
+  return [withVisibility(base.node, union)];
+}
+
+// Fold the per-breakpoint duplicates among a node's children. Framer emits the
+// copies of one element next to each other, each one visible on a disjoint set
+// of devices. Consecutive variants with one signature and disjoint visibility
+// form a group; a group folds into one node when its copies are the same
+// element, else every copy stays and is shown on its own devices only.
+function mergeSiblingVariants(
+  children: IrNode[],
+  breakpoints: IrBreakpointMap,
+  stats: { merged: number },
+): IrNode[] {
+  const out: IrNode[] = [];
+  let group: VariantCopy[] = [];
+  const universe = new Set(children.flatMap((child) => child.states.flatMap((state) => state.hiddenAt)));
+  const flush = (): void => {
+    if (group.length === 0) return;
+    out.push(...resolveGroup(group, stats));
+    group = [];
+  };
+  for (const child of children) {
+    const hiddenAt = child.states.find((state) => state.hiddenAt.length > 0)?.hiddenAt ?? [];
+    if (hiddenAt.length === 0) {
+      flush();
+      out.push(child);
+      continue;
+    }
+    const visible = visibleDevicesOf(hiddenAt, universe, breakpoints);
+    const first = group[0];
+    const fits =
+      first !== undefined &&
+      baseSignature(first.node) === baseSignature(child) &&
+      group.every((copy) => copy.visible.every((device) => !visible.includes(device)));
+    if (!fits) flush();
+    group.push({ node: child, visible });
+  }
+  flush();
   return out;
 }
 
@@ -277,7 +359,9 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
   // The sibling device merge (S1.5): the capture keeps Framer's per-breakpoint
   // duplicates as separate nodes with `hiddenAt`; identical base signatures
   // fold into one node whose states carry the devices.
-  const siblings = mergeSiblingVariants(node.children, context.breakpoints);
+  const foldStats = { merged: 0 };
+  const siblings = mergeSiblingVariants(node.children, context.breakpoints, foldStats);
+  context.stats.mergedVariants += foldStats.merged;
   const merged = mergeStates(node.states);
   const id = newId(context.ids);
   // The primitive decision runs AFTER the sibling merge: the merged children
@@ -308,7 +392,13 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
   const baseText = merged.base.text;
   const hasElementChildren = siblings.length > 0;
   if (primitive === "heading" || primitive === "text") {
-    if (hasElementChildren) {
+    if (node.innerHtml !== undefined && node.innerHtml !== null) {
+      // Text mixed with inline elements (`Hallo <strong>x</strong> Welt`): the
+      // capture kept the inner markup, because the element scan alone drops
+      // the plain text between the children.
+      primitive = "body";
+      props["html"] = sanitizeInlineHtml(node.innerHtml);
+    } else if (hasElementChildren) {
       // A text element with element children (the RichText shape: <p><a>…</a></p>)
       // becomes a body with inline HTML — `text` accepts no children.
       primitive = "body";
@@ -347,10 +437,16 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
     const label = deepTextOf(node) ?? baseText?.content ?? "";
     if (hasElementChildren && isTextOnlyLink(node)) {
       props["label"] = label;
-      if (node.href !== null) props["link"] = { url: node.href, newTab: false };
+      if (node.href !== null) props["link"] = { url: node.href, newTab: node.target === "_blank" };
     } else if (hasElementChildren) {
+      // A card/logo wrapper: the frame itself becomes the anchor, so the whole
+      // block stays clickable and keeps its children.
       primitive = "frame";
       props["semantic"] = "div";
+      if (node.href !== null) {
+        props["link"] = node.href;
+        if (node.target === "_blank") props["newTab"] = true;
+      }
       context.findings.push({
         kind: "unsupported-declaration",
         nodeKey: node.key,
@@ -359,17 +455,22 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
         severity: "warn",
         suggestion: "Link-URL als Fund im Bericht behalten; bei Bedarf als eigenes link-Kind ergänzen.",
       });
-      if (node.href !== null) props["data-link-href"] = node.href;
     } else {
       props["label"] = label;
-      if (node.href !== null) props["link"] = { url: node.href, newTab: false };
+      if (node.href !== null) props["link"] = { url: node.href, newTab: node.target === "_blank" };
     }
   } else if (primitive === "image") {
     const assetId = node.assetId ?? node.assetUrl;
     if (assetId !== undefined && assetId !== null) props["asset"] = { assetId };
-    props["alt"] = "";
+    props["alt"] = node.alt ?? "";
   } else if (primitive === "frame") {
     props["semantic"] = node.tag === "header" || node.tag === "footer" || node.tag === "nav" || node.tag === "section" || node.tag === "main" ? node.tag : "div";
+  }
+  // An in-page anchor target (`#kontakt`): only the frame carries the control,
+  // so a link to an anchor on any other element stays a finding-free no-op
+  // rather than a broken prop.
+  if (primitive === "frame" && node.htmlId !== undefined && node.htmlId !== null) {
+    props["anchorId"] = node.htmlId;
   }
 
   if (primitive === "heading") {
@@ -455,12 +556,22 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
 
   context.stats.nodes += 1;
   context.nodeIdByIrKey[node.key] = id;
-  const editorNode: EditorNode = {
+  const visible = node.visibleOn;
+  const hiddenOnSmallDevices =
+    visible !== undefined && visible.includes("desktop")
+      ? (["tablet", "mobile"] as const).filter((device) => !visible.includes(device))
+      : [];
+  const editorNode: EditorNode & ImportDeviceVisibility = {
     id,
     primitive,
     props: props as EditorNode["props"],
     ...(context.classByNode.has(node.key) ? { classes: [context.classByNode.get(node.key) as string] } : {}),
     ...(children.length > 0 ? { children } : {}),
+    ...(hiddenOnSmallDevices.length > 0 ? { hiddenDevices: hiddenOnSmallDevices } : {}),
+    // Not visible on desktop (a mobile-only copy): hidden by default, shown
+    // again on the devices it belongs to when the engine writes the overrides.
+    ...(visible !== undefined && !visible.includes("desktop") ? { hidden: true } : {}),
+    ...(visible !== undefined ? { visibleDevices: visible } : {}),
   };
   return editorNode;
 }
@@ -503,6 +614,13 @@ function cssToStyle(visual: { [key: string]: string | undefined }): Record<strin
 function inlineHtmlOf(node: IrNode, fallback: string): string {
   const parts: string[] = [];
   const walk = (child: IrNode): void => {
+    if (child.innerHtml !== undefined && child.innerHtml !== null) {
+      const inner = sanitizeInlineHtml(child.innerHtml);
+      parts.push(
+        HEADING_TAGS.has(child.tag) || child.tag === "p" ? `<${child.tag}>${inner}</${child.tag}>` : inner,
+      );
+      return;
+    }
     const content = child.states[0]?.text?.content ?? child.children.map(walk).join("");
     if (child.tag === "a" && child.href !== null) {
       parts.push(`<a href="${escapeHtmlAttr(child.href)}">${escapeHtml(content)}</a>`);
@@ -644,7 +762,7 @@ export function mapDocument(
     primitive: "root",
     props: {
       title: page?.title ?? "Importierte Seite",
-      lang: "de",
+      lang: page?.lang ?? "de",
       ...(page === undefined
         ? {}
         : cssToStyle(page.root.states[0]?.visual ?? {})),
@@ -656,7 +774,10 @@ export function mapDocument(
 
   if (page !== undefined) {
     const children: string[] = [];
-    for (const child of page.root.children) {
+    const topFold = { merged: 0 };
+    const topLevel = mergeSiblingVariants(page.root.children, context.breakpoints, topFold);
+    context.stats.mergedVariants += topFold.merged;
+    for (const child of topLevel) {
       const mapped = mapNode(child, context);
       if (mapped === null) continue;
       context.nodes[mapped.id] = mapped;

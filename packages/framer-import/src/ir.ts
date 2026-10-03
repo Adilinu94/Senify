@@ -213,6 +213,19 @@ export type IrNode = {
   baseClasses: string[];
   tag: string;
   href: string | null;
+  // The anchor id, the image alt text, the link target and the inline markup
+  // of an element that mixes text with inline elements. All optional: an
+  // element without them stays exactly as before.
+  htmlId?: string | null;
+  // The SSR start state of an appear animation, taken out of the visual so it
+  // cannot hide the element for good (`opacity`, `transform`).
+  appearInitial?: Record<string, string>;
+  // Set by the sibling merge: the devices this element is visible on, when
+  // that is not all three. Never written by the capture.
+  visibleOn?: IrDevice[];
+  alt?: string | null;
+  target?: string | null;
+  innerHtml?: string | null;
   assetUrl?: string | null;
   assetId?: string | null;
   states: IrState[];
@@ -225,6 +238,10 @@ export type IrNode = {
 export type IrPage = {
   path: string;
   title: string | null;
+  // `<html lang>` and the page meta the head carries (SEO and sharing).
+  lang?: string;
+  description?: string;
+  meta?: { ogTitle?: string; ogDescription?: string; ogImage?: string };
   root: IrNode;
 };
 
@@ -526,6 +543,17 @@ function asIrNode(value: unknown): IrNode | undefined {
     baseClasses,
     tag: asString(value.tag) ?? "div",
     href: asString(value.href) ?? null,
+    ...(asString(value.htmlId) === undefined ? {} : { htmlId: asString(value.htmlId) ?? null }),
+    ...(asString(value.alt) === undefined ? {} : { alt: asString(value.alt) ?? null }),
+    ...(asString(value.target) === undefined ? {} : { target: asString(value.target) ?? null }),
+    ...(asString(value.innerHtml) === undefined ? {} : { innerHtml: asString(value.innerHtml) ?? null }),
+    ...(isRecord(value.appearInitial)
+      ? {
+          appearInitial: Object.fromEntries(
+            Object.entries(value.appearInitial).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+          ),
+        }
+      : {}),
     ...(asString(value.assetUrl) === undefined ? {} : { assetUrl: asString(value.assetUrl) ?? null }),
     ...(asString(value.assetId) === undefined ? {} : { assetId: asString(value.assetId) ?? null }),
     ...(isRecord(value.codeModule) && asString(value.codeModule.path) !== undefined
@@ -710,6 +738,17 @@ export function parseIr(raw: unknown):
       pages.push({
         path: asString(entry.path) ?? "/",
         title: asString(entry.title) ?? null,
+        ...(asString(entry.lang) === undefined ? {} : { lang: asString(entry.lang) ?? "" }),
+        ...(asString(entry.description) === undefined ? {} : { description: asString(entry.description) ?? "" }),
+        ...(isRecord(entry.meta)
+          ? {
+              meta: {
+                ...(asString(entry.meta.ogTitle) === undefined ? {} : { ogTitle: asString(entry.meta.ogTitle) ?? "" }),
+                ...(asString(entry.meta.ogDescription) === undefined ? {} : { ogDescription: asString(entry.meta.ogDescription) ?? "" }),
+                ...(asString(entry.meta.ogImage) === undefined ? {} : { ogImage: asString(entry.meta.ogImage) ?? "" }),
+              },
+            }
+          : {}),
         root,
       });
     }

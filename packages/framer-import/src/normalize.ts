@@ -15,6 +15,7 @@
 //    (`packages/engine/src/design-contract.ts`) so an import can never write
 //    what the publish gate would later block.
 
+import { createHash } from "node:crypto";
 import type {
   FramerIrDocument,
   IrFinding,
@@ -36,6 +37,24 @@ export type NormalizedStyleRule = {
 };
 
 export type NormalizedNode = IrNode;
+
+// `dna` rewrites what the design DNA forbids (the default, so an import can
+// never write what the publish gate would later block). `fidelity` keeps the
+// source's gradients, shadows, radii and alignment and only consolidates.
+export type NormalizeMode = "dna" | "fidelity";
+
+export type NormalizeOptions = { mode?: NormalizeMode };
+
+// Rule ids and class names are scoped to the page they came from: the
+// registry reads the first rule per id, and a class name is global CSS, so two
+// pages (or a re-import) must never share `fi-1` / `framer-1`. The scope is
+// the page path: the same page re-imported gets the same prefix and replaces
+// its own rules, another page gets another one.
+export function ruleScopeOf(pagePath: string): string {
+  return createHash("sha256").update(pagePath).digest("hex").slice(0, 6);
+}
+
+export const RULE_ID_PATTERN = /^fi-([0-9a-f]{6})-\d+$/;
 
 export type NormalizeResult = {
   document: FramerIrDocument;
@@ -91,7 +110,7 @@ function adjustVisual(
     // 1. Gradients → flat token color. The first color inside the gradient
     //    wins; the finding documents the loss.
     if (GRADIENT_RE.test(value)) {
-      const first = /(?:rgba?|hsla?|#[0-9a-fA-F]{3,8})/.exec(value)?.[0];
+      const first = /rgba?\([^)]*\)|hsla?\([^)]*\)|#[0-9a-fA-F]{3,8}\b/.exec(value)?.[0];
       if (first !== undefined) {
         out[property] = first;
         findings.push({
@@ -261,12 +280,15 @@ function declarationKey(declarations: Record<string, string>): string {
     .join(";");
 }
 
-export function normalize(document: FramerIrDocument): NormalizeResult {
+export function normalize(document: FramerIrDocument, options: NormalizeOptions = {}): NormalizeResult {
   const findings: IrFinding[] = [...document.findings];
   const nodeCount = countIrNodes(document.pages[0]?.root);
+  const scope = ruleScopeOf(document.pages[0]?.path ?? "/");
 
-  // 1. DNA pass over every node state.
-  for (const page of document.pages) walkDna(page.root, findings);
+  // 1. DNA pass over every node state (skipped in fidelity mode).
+  if ((options.mode ?? "dna") === "dna") {
+    for (const page of document.pages) walkDna(page.root, findings);
+  }
 
   // 2. Consolidation: walk the tree, collect each node's merged declaration
   //    set (visual + text inline), and fold identical sets into shared rules.
@@ -335,8 +357,8 @@ export function normalize(document: FramerIrDocument): NormalizeResult {
         continue;
       }
       const rule: NormalizedStyleRule = {
-        id: `fi-${ruleBySet.size + 1}`,
-        name: `framer-${ruleBySet.size + 1}`,
+        id: `fi-${scope}-${ruleBySet.size + 1}`,
+        name: `framer-${scope}-${ruleBySet.size + 1}`,
         declarations: merged,
         uses: 1,
         nodeKeys: [node.key],
