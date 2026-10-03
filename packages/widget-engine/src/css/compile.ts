@@ -155,7 +155,10 @@ export function inlineStyleFor(
   options: TranslateOptions = {},
 ): string {
   if (node.inline === undefined) return "";
-  return declarationsForValues(node.primitive, resolveAllForDevice(node.inline, device), options)
+  return declarationsForValues(node.primitive, resolveAllForDevice(node.inline, device), {
+    ...options,
+    includeDefaults: true,
+  })
     .map((declaration) => `${declaration.property}: ${declaration.value}`)
     .join("; ");
 }
@@ -292,8 +295,11 @@ function expandSources(
     mobile: { blocks: [], rules: [] },
   };
 
+  // State and class rules sit above the node's own values: a default value there
+  // overrides what is below, so it must not be dropped as redundant.
+  const layerOptions: CompileOptions = { ...options, includeDefaults: true };
   for (const source of sources) {
-    const per = declarationsPerDevice(source.primitive, source.values, options);
+    const per = declarationsPerDevice(source.primitive, source.values, layerOptions);
     const ruleFor = (
       media: string | null,
       declarations: Declaration[],

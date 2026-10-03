@@ -260,11 +260,42 @@ type ResolvedSpec = {
 // (`border-radius`). The alias keeps existing documents and free-form input
 // working while the table stays the one source for value formatting
 // (ADR-0005, ticket 10).
+const SPEC_BY_PROP = new Map<string, StylePropertySpec>(STYLE_PROPERTIES.map((e) => [e.prop, e]));
+const SPEC_BY_CSS = (() => {
+  const m = new Map<string, StylePropertySpec>();
+  for (const e of STYLE_PROPERTIES) {
+    const k = e.css ?? camelToKebab(e.prop);
+    if (!m.has(k)) m.set(k, e);
+  }
+  return m;
+})();
 export function stylePropertyFor(prop: string): StylePropertySpec | undefined {
-  return (
-    STYLE_PROPERTIES.find((entry) => entry.prop === prop) ??
-    STYLE_PROPERTIES.find((entry) => (entry.css ?? camelToKebab(entry.prop)) === prop)
+  return SPEC_BY_PROP.get(prop) ?? SPEC_BY_CSS.get(prop);
+}
+
+type Plan = {
+  mappings: readonly PropMapping[];
+  known: ReadonlySet<string>;
+  controlByKey: ReadonlyMap<string, { key: string }>;
+};
+const PLAN_CACHE = new Map<string, Plan>();
+function planFor(primitiveType: string | undefined, controls: readonly { key: string }[]): Plan {
+  const cacheKey = primitiveType ?? "\u0000";
+  const hit = PLAN_CACHE.get(cacheKey);
+  if (hit !== undefined) return hit;
+  const mappings = PROP_MAPPINGS.filter(
+    (m) =>
+      m.onlyPrimitives === undefined ||
+      (primitiveType !== undefined && m.onlyPrimitives.includes(primitiveType)),
   );
+  const known = new Set<string>();
+  for (const m of mappings) known.add(m.prop);
+  for (const spec of STYLE_PROPERTIES) known.add(spec.prop);
+  for (const c of controls) known.add(c.key);
+  for (const k of STRUCTURAL_PROP_KEYS) known.add(k);
+  const plan: Plan = { mappings, known, controlByKey: new Map(controls.map((c) => [c.key, c])) };
+  PLAN_CACHE.set(cacheKey, plan);
+  return plan;
 }
 
 // The table's canonical name for a base key. An unknown name stays untouched —
@@ -412,6 +443,7 @@ export function declarationsForValues(
 ): Declaration[] {
   const definition = primitiveType === undefined ? undefined : getPrimitive(primitiveType);
   const controls = definition?.controls ?? [];
+  const plan = planFor(primitiveType, controls);
   const declarations: Declaration[] = [];
   const emittedProps = new Set<string>();
   // One CSS property per rule: the first table entry that reaches it wins, so
@@ -439,16 +471,24 @@ export function declarationsForValues(
     const value = canonical[prop];
     if (value === undefined || value === null) return;
 
-    const control = controls.find((entry) => entry.key === prop);
+    const control = plan.controlByKey.get(prop) as (typeof controls)[number] | undefined;
     if (control?.condition && !isConditionSatisfied(control.condition, canonical)) return;
+    const lower =
+      baseline !== undefined && Object.prototype.hasOwnProperty.call(baseline, prop)
+        ? { value: baseline[prop] }
+        : undefined;
+    if (lower !== undefined && deepEqualProp(value, lower.value)) return;
+    // A value equal to the control default is only redundant when nothing below
+    // it set the property. Against a lower value it is an override: desktop
+    // flex and mobile block, tablet padding 1rem and mobile 0.
     if (
-      baseline !== undefined &&
-      Object.prototype.hasOwnProperty.call(baseline, prop) &&
-      deepEqualProp(value, baseline[prop])
+      lower === undefined &&
+      options.includeDefaults !== true &&
+      control &&
+      deepEqualProp(value, control.default)
     ) {
       return;
     }
-    if (options.includeDefaults !== true && control && deepEqualProp(value, control.default)) return;
 
     // A bare number takes the unit of the control that owns it (`column.width`
     // is percent, `icon.size` is px); a string brings its own unit.
@@ -464,13 +504,7 @@ export function declarationsForValues(
     declarations.push(...translated);
   };
 
-  for (const mapping of PROP_MAPPINGS) {
-    if (
-      mapping.onlyPrimitives !== undefined &&
-      (primitiveType === undefined || !mapping.onlyPrimitives.includes(primitiveType))
-    ) {
-      continue;
-    }
+  for (const mapping of plan.mappings) {
     emit(mapping.prop, {
       kind: mapping.kind,
       css: mapping.css ?? camelToKebab(mapping.prop),
@@ -497,24 +531,7 @@ export function declarationsForValues(
   // A catalog control key is *not* open space: `text`, `level`, `striped` and
   // friends are behavioural props of the widget, not CSS. They are excluded —
   // otherwise the open pass would emit `text: Hallo` into the stylesheet.
-  const known = new Set<string>();
-  for (const mapping of PROP_MAPPINGS) {
-    // A mapping that does not apply to this primitive is *not* known here:
-    // otherwise `display` on a heading or on an ambient rule would be swallowed
-    // instead of reaching the open pass (ADR-0005).
-    if (
-      mapping.onlyPrimitives !== undefined &&
-      (primitiveType === undefined || !mapping.onlyPrimitives.includes(primitiveType))
-    ) {
-      continue;
-    }
-    known.add(mapping.prop);
-  }
-  for (const spec of STYLE_PROPERTIES) known.add(spec.prop);
-  for (const control of controls) known.add(control.key);
-  // The structural props of the component model (`componentId`, `name`, the
-  // override bag) are JSON, never CSS — the open pass must not emit them.
-  for (const key of STRUCTURAL_PROP_KEYS) known.add(key);
+  const known = plan.known;
   const openKeys = Object.keys(canonical)
     .filter((key) => !known.has(key) && !emittedProps.has(key))
     .sort();
