@@ -66,11 +66,26 @@ export const EDITOR_CONTENT_FONT_FILES: readonly EditorFontFile[] = [
   { family: "Sora", weight: 700, file: "Sora-Bold.woff2" },
 ];
 
-// Every font file the editor carries on disk: chrome faces plus the content
-// face. Used to check that the bytes exist, not to generate @font-face rules.
+// JetBrains Mono, the monospace face of the dashboard (token prefixes, ids).
+// Without a bound face `--ui-font-mono` falls back to the system monospace -
+// Cascadia/Consolas on Windows, DejaVu Sans Mono on Linux - whose glyphs differ
+// in width. A table column sizes itself to its widest cell, so the same page was
+// 11px wider on Linux (measured on the Settings table, one code cell) and the
+// PNG gate compared two operating systems instead of two builds.
+//
+// Like Sora, the bytes ship on disk and in the dashboard's fonts.css but are
+// NOT injected into the frames.
+export const EDITOR_MONO_FONT_FILES: readonly EditorFontFile[] = [
+  { family: "JetBrains Mono", weight: 400, file: "JetBrainsMono-Regular.woff2" },
+];
+
+// Every font file the editor carries on disk: chrome faces, the content face
+// and the mono face. Used to check that the bytes exist, not to generate
+// @font-face rules.
 export const EDITOR_BUNDLED_FONT_FILES: readonly EditorFontFile[] = [
   ...EDITOR_FONT_FILES,
   ...EDITOR_CONTENT_FONT_FILES,
+  ...EDITOR_MONO_FONT_FILES,
 ];
 
 function quoteFamily(family: string): string {

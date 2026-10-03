@@ -42,7 +42,11 @@ function readList(name) {
   );
 }
 
-const files = [...readList("EDITOR_FONT_FILES"), ...readList("EDITOR_CONTENT_FONT_FILES")];
+const files = [
+  ...readList("EDITOR_FONT_FILES"),
+  ...readList("EDITOR_CONTENT_FONT_FILES"),
+  ...readList("EDITOR_MONO_FONT_FILES"),
+];
 if (files.length === 0) {
   throw new Error(`Keine Schriftdateien in ${EDITOR_FONTS} gefunden - nichts gebunden.`);
 }

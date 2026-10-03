@@ -81,3 +81,10 @@
   font-display: swap;
   src: url("/editor-fonts/Sora-Bold.woff2") format("woff2");
 }
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/editor-fonts/JetBrainsMono-Regular.woff2") format("woff2");
+}

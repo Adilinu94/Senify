@@ -35,16 +35,30 @@ describe.skipIf(browserSkip)("dashboard fonts", () => {
       await tab.evaluate("document.fonts.ready");
       const probe = (await tab.evaluate(`(() => {
         const link = document.querySelector('.tabs a:not(.active)');
+        const code = document.querySelector('.panel table code');
         const families = [...new Set([...document.fonts].map((f) => f.family))];
         return {
           families,
           interReady: document.fonts.check('12px Inter'),
           rendered: link ? getComputedStyle(link).fontFamily : "",
+          monoReady: document.fonts.check('12px "JetBrains Mono"'),
+          codeRendered: code ? getComputedStyle(code).fontFamily : "",
         };
-      })()`)) as { families: string[]; interReady: boolean; rendered: string };
+      })()`)) as {
+        families: string[];
+        interReady: boolean;
+        rendered: string;
+        monoReady: boolean;
+        codeRendered: string;
+      };
       expect(probe.families).toContain("Inter");
       expect(probe.interReady).toBe(true);
       expect(probe.rendered).toContain("Inter");
+      // Auch die Mono-Schrift ist gebunden: die Token-Zelle der Settings-Tabelle
+      // bestimmt mit ihrer Breite die Spaltenbreite (und die Maske des PNG-Gates).
+      expect(probe.families).toContain("JetBrains Mono");
+      expect(probe.monoReady).toBe(true);
+      expect(probe.codeRendered).toContain("JetBrains Mono");
     } finally {
       await browser.close();
       await running.close();

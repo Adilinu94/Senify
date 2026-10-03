@@ -43,6 +43,14 @@ h2 {
   font-size: 1.15rem;
 }
 
+/* <code> ohne eigene Regel nahm die Systemschrift des Browsers (Cascadia/Consolas
+   unter Windows, DejaVu Sans Mono unter Linux). Deren Zeichenbreiten
+   unterscheiden sich, und eine Tabellenspalte richtet sich nach ihrer
+   breitesten Zelle: die Settings-Tabelle war unter Linux 11px breiter. */
+code {
+  font-family: var(--font-mono);
+}
+
 kbd {
   font-family: var(--font-mono);
   font-size: 0.72rem;
@@ -1903,7 +1911,7 @@ dialog.modal select,
 }
 
 .refs-doc code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--ui-font-mono);
   font-size: 12px;
   background: var(--ui-surface-inset);
   padding: 1px 4px;

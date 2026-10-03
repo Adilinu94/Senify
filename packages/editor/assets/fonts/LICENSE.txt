@@ -1,5 +1,5 @@
-Bundled font files — Inter, Inter Display, Sora
-================================================
+Bundled font files — Inter, Inter Display, Sora, JetBrains Mono
+================================================================
 
 Files in this directory (all bundled locally, no network fetch at runtime):
 
@@ -17,6 +17,8 @@ Files in this directory (all bundled locally, no network fetch at runtime):
   Sora-SemiBold.woff2          Sora SemiBold          (weight 600)  content headings
   Sora-Bold.woff2              Sora Bold              (weight 700)  content emphasis
 
+  JetBrainsMono-Regular.woff2  JetBrains Mono Regular (weight 400)  dashboard monospace
+
 Inter and Inter Display come from the Inter project
 (https://github.com/rsms/inter) and are used by the editor chrome exactly as the
 binding design language prescribes (`.scratch/refs/precious-board/design-guidelines.md`:
@@ -27,12 +29,17 @@ Sora is the content face of the site theme (`packages/tokens/src/default-theme.t
 its frames, so the file is bundled here too. Both families are bundled locally
 so the editor never fetches a font over the network at runtime.
 
+JetBrains Mono (https://github.com/JetBrains/JetBrainsMono) is the dashboard's
+monospace face (token prefixes, ids). The file is the Latin subset from the
+@fontsource/jetbrains-mono package, version 5.3.0.
+
 License: SIL Open Font License, Version 1.1 (below).
 
 ---------------------------------------------------------------------------
 
 Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)
 Copyright 2019 The Sora Project Authors (https://github.com/sora-xor/sora-font)
+Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:
