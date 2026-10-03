@@ -122,6 +122,26 @@ describe("capture fidelity", () => {
   });
 });
 
+describe("pinned layers", () => {
+  it("keeps a fixed full-viewport overlay with its inset shorthand and background", () => {
+    const { nodes } = run(
+      page('<div style="position:fixed;inset:0;width:100%;height:100%;background:#000;z-index:0;pointer-events:none"></div><p>Inhalt</p>'),
+    );
+    const layer = nodes.find((node) => node.props["position"] === "fixed");
+    expect(layer).toBeDefined();
+    expect(layer?.props["top"]).toBe("0");
+    expect(layer?.props["right"]).toBe("0");
+    expect(layer?.props["bottom"]).toBe("0");
+    expect(layer?.props["left"]).toBe("0");
+    expect(JSON.stringify(layer?.props)).toContain("#000");
+  });
+
+  it("keeps a sticky element sticky", () => {
+    const { nodes } = run(page('<div style="position:sticky;top:20px"><span>Leiste</span></div>'));
+    expect(nodes.find((node) => node.props["position"] === "sticky")?.props["top"]).toBe("20px");
+  });
+});
+
 describe("page-scoped style rules", () => {
   it("gives two pages different rule ids and class names, and the same page the same ones", () => {
     const html = page('<div style="color:#111;padding:4px">a</div>');

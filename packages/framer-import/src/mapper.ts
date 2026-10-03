@@ -530,7 +530,12 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
     if (box.minHeight !== undefined) props["minHeight"] = box.minHeight;
     if (box.maxHeight !== undefined) props["maxHeight"] = box.maxHeight;
     if (box.aspectRatio !== undefined) props["aspectRatio"] = box.aspectRatio;
-    if (box.position === "absolute") props["position"] = "absolute";
+    // `fixed` and `sticky` are page-level positioning (a pinned overlay, a
+    // sticky header) and map like `absolute`; `relative`/`static` are the
+    // default flow and stay out of the props.
+    if (box.position === "absolute" || box.position === "fixed" || box.position === "sticky") {
+      props["position"] = box.position;
+    }
     if (box.inset !== undefined) {
       if (box.inset.top !== undefined) props["top"] = box.inset.top;
       if (box.inset.right !== undefined) props["right"] = box.inset.right;

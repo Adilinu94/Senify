@@ -42,9 +42,9 @@ const browserAvailable = (() => {
 
 // Pixel-difference ceilings (share of differing pixels) per breakpoint.
 const DIFF_CEILING: Record<string, Record<Breakpoint, number>> = {
-  "framer-easier-train-154753": { desktop: 0.4, tablet: 0.27, mobile: 0.46 },
-  "framer-fluffy-rectangle-418998": { desktop: 0.88, tablet: 1, mobile: 0.6 },
-  "framer-stupendous-football-158496": { desktop: 0.48, tablet: 0.3, mobile: 0.6 },
+  "framer-easier-train-154753": { desktop: 0.35, tablet: 0.22, mobile: 0.41 },
+  "framer-fluffy-rectangle-418998": { desktop: 0.74, tablet: 0.96, mobile: 0.5 },
+  "framer-stupendous-football-158496": { desktop: 0.42, tablet: 0.25, mobile: 0.55 },
 };
 
 const MIME: Record<string, string> = {

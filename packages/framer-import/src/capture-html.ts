@@ -315,6 +315,13 @@ function elementStyleToParts(
       case "left":
         box.inset = { ...box.inset, [property]: value };
         break;
+      case "inset": {
+        // `inset: 0` pins an overlay to all four edges. Expanded like a box
+        // shorthand (1–4 values: top, right, bottom, left).
+        const sides = expandBox(value);
+        box.inset = { ...box.inset, top: sides.top, right: sides.right, bottom: sides.bottom, left: sides.left };
+        break;
+      }
       case "z-index":
         box.zIndex = value;
         break;
