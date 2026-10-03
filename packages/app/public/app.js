@@ -28,6 +28,7 @@ const MUTATION_LABELS = {
   updatePageMeta: "Seiten-Meta geändert",
   update_theme: "Theme geändert",
   rename_site: "Projekt umbenannt",
+  update_site_base_url: "Öffentliche Adresse geändert",
   trash_site: "Projekt in den Papierkorb",
   restore_site: "Projekt wiederhergestellt",
   duplicate_site: "Projekt dupliziert",
@@ -3744,9 +3745,43 @@ async function projectView(siteId, tab) {
         { class: "panel" },
         el("p", {}, el("strong", { text: "Pfad-Präfix: " }), el("code", { text: site.slug })),
         el("p", {}, el("strong", { text: "Niveau: " }), site.profile),
+        el(
+          "div",
+          { class: "inline" },
+          el("label", { class: "muted", for: "site-base-url" }, "Öffentliche Adresse"),
+          el("input", {
+            id: "site-base-url",
+            type: "text",
+            value: site.baseUrl ?? "",
+            placeholder: "https://www.kunde.de",
+          }),
+          el("button", {
+            class: "primary",
+            text: "Adresse speichern",
+            onclick: async () => {
+              try {
+                await api(`/api/sites/${siteId}`, {
+                  method: "PATCH",
+                  body: {
+                    baseUrl: document.getElementById("site-base-url").value,
+                    author: AUTHOR,
+                  },
+                });
+                toast("Öffentliche Adresse gespeichert");
+                await renderRoute();
+              } catch (error) {
+                failed(error);
+              }
+            },
+          }),
+        ),
         el("p", {
           class: "muted",
-          text: "Name ändern, Stil-Referenz und Domain/Deploy folgen mit den nächsten Schritten.",
+          text: `Unter dieser Adresse öffnen Besucher die Seite. Sie steckt in canonical, Sitemap, og:url und der Formularprüfung. Leer lassen: Platzhalter ${site.slug}.senify.xyz.`,
+        }),
+        el("p", {
+          class: "muted",
+          text: "Name ändern, Stil-Referenz und Deploy folgen mit den nächsten Schritten.",
         }),
       ),
     );

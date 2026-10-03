@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { SenifyError } from "@senify/core";
 import { publishSecretFile, readSecretFile } from "./secrets.ts";
+import { normalizeSiteBaseUrl } from "./site-url.ts";
 import {
   PAGE_ROOT_TYPE,
   type Author,
@@ -241,6 +242,8 @@ type SiteRow = {
   slug: string;
   profile: string;
   theme_id: unknown;
+  // Only `getSite` selects it; list/rename/profile rows leave it out.
+  base_url?: unknown;
   created_at: unknown;
   updated_at: unknown;
 };
@@ -1241,7 +1244,7 @@ export class Store {
 
   async getSite(id: string): Promise<Site> {
     const result = await this.#db.query<SiteRow>(
-      `SELECT id, name, slug, profile, theme_id, created_at, updated_at
+      `SELECT id, name, slug, profile, theme_id, base_url, created_at, updated_at
        FROM sites WHERE id = $1`,
       [id],
     );
@@ -1254,7 +1257,24 @@ export class Store {
     }
     const site = mapSite(row);
     site.designContract = await this.readDesignContract(id);
+    if (typeof row.base_url === "string") site.baseUrl = row.base_url;
     return site;
+  }
+
+  // The public address: validated and reduced to its origin; blank or `null`
+  // clears it. Returns the full site so the caller sees the stored value.
+  async updateSiteBaseUrl(id: string, raw: string | null): Promise<Site> {
+    const baseUrl = raw === null ? null : normalizeSiteBaseUrl(raw);
+    const result = await this.#db.query<{ id: string }>(
+      `UPDATE sites SET base_url = $2, updated_at = $3 WHERE id = $1 RETURNING id`,
+      [id, baseUrl, new Date().toISOString()],
+    );
+    if (result.rows.length === 0) {
+      throw new SenifyError("not_found", `Site "${id}" does not exist`, {
+        field: "siteId",
+      });
+    }
+    return this.getSite(id);
   }
 
   // The design contract lives in its own column; absent means "no DNA yet".

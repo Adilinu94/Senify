@@ -10,13 +10,15 @@ export const SiteProfileSchema = Type.Union([
   Type.Literal("showcase"),
 ]);
 
-// `PATCH /api/sites/:siteId` carries a rename and/or a profile change (ticket
-// 20). At least one field has to be present; the handler rejects an empty
-// update instead of writing a silent no-op.
+// `PATCH /api/sites/:siteId` carries a rename, a profile change (ticket 20)
+// and/or the public address. At least one field has to be present; the handler
+// rejects an empty update instead of writing a silent no-op. `baseUrl` is
+// validated and normalized in the store; `null` or blank clears it.
 export const UpdateSiteBodySchema = Type.Object(
   {
     name: Type.Optional(Type.String({ minLength: 1 })),
     profile: Type.Optional(SiteProfileSchema),
+    baseUrl: Type.Optional(Type.Union([Type.String(), Type.Null()])),
     author: Type.Optional(AuthorSchema),
   },
   CLOSED,

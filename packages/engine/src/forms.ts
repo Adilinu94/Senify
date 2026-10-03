@@ -331,8 +331,10 @@ function hostOf(origin: string): string | undefined {
   }
 }
 
-function allowedOriginHosts(siteSlug: string): string[] {
+function allowedOriginHosts(siteSlug: string, siteBaseUrl?: string): string[] {
   const hosts = [`${siteSlug}.senify.xyz`];
+  const own = siteBaseUrl === undefined ? undefined : hostOf(siteBaseUrl);
+  if (own !== undefined) hosts.push(own);
   const configured = process.env.SENIFY_FORMS_ORIGINS;
   if (configured !== undefined) {
     for (const entry of configured.split(",")) {
@@ -353,6 +355,7 @@ export function assertAllowedOrigin(input: {
   origin: string | undefined;
   requestHost: string | undefined;
   siteSlug: string;
+  siteBaseUrl?: string;
 }): void {
   if (input.origin === undefined || input.origin.trim() === "") {
     throw new FormRejection(
@@ -371,7 +374,7 @@ export function assertAllowedOrigin(input: {
   const allowed =
     isLocalHost(host) ||
     (requestHost !== "" && host === requestHost) ||
-    allowedOriginHosts(input.siteSlug).includes(host);
+    allowedOriginHosts(input.siteSlug, input.siteBaseUrl).includes(host);
   if (!allowed) {
     throw new FormRejection(
       "origin",
@@ -685,6 +688,7 @@ export async function submitForm(input: FormSubmitInput): Promise<FormSubmitResu
     origin: input.origin,
     requestHost: input.requestHost,
     siteSlug: site.slug,
+    ...(site.baseUrl === undefined ? {} : { siteBaseUrl: site.baseUrl }),
   });
 
   // Honeypot: a bot fills every field, a person never sees it.

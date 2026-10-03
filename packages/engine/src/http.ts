@@ -1414,13 +1414,18 @@ const ROUTES: Route[] = [
         body,
         "site update",
       );
-      if (parsed.name === undefined && parsed.profile === undefined) {
+      if (
+        parsed.name === undefined &&
+        parsed.profile === undefined &&
+        parsed.baseUrl === undefined
+      ) {
         throw new SenifyError(
           "validation",
-          "Nothing to update: pass a name or a profile",
+          "Nothing to update: pass a name, a profile or a baseUrl",
           {
             field: "body",
-            suggestion: 'Send { "name": "…" } or { "profile": "clean|standard|showcase" }.',
+            suggestion:
+              'Send { "name": "…" }, { "profile": "clean|standard|showcase" } or { "baseUrl": "https://www.kunde.de" }.',
           },
         );
       }
@@ -1440,6 +1445,17 @@ const ROUTES: Route[] = [
           siteId,
           mutation: "update_site_profile",
           params: { profile: parsed.profile },
+          author: resolveAuthor(auth),
+        });
+      }
+      // Last, so the response carries the stored address next to the other
+      // changes of the same request.
+      if (parsed.baseUrl !== undefined) {
+        site = await context.store.updateSiteBaseUrl(siteId, parsed.baseUrl);
+        await context.store.recordSiteEvent({
+          siteId,
+          mutation: "update_site_base_url",
+          params: { baseUrl: site.baseUrl ?? null },
           author: resolveAuthor(auth),
         });
       }

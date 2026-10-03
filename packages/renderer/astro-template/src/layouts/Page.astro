@@ -55,6 +55,18 @@ const {
   vendor,
 } = Astro.props;
 const lang = site.lang ?? "de";
+// Crawlers and link previews fetch og:image without the page as context, so a
+// site-relative path is made absolute against the public address. The meta
+// value is free text, so one that cannot be resolved stays as written instead
+// of failing the bake.
+const ogImage = (() => {
+  if (!page.ogImage) return undefined;
+  try {
+    return new URL(page.ogImage, site.baseUrl).href;
+  } catch {
+    return page.ogImage;
+  }
+})();
 
 // FOUC guard (payload-spec.md §3): the render paths stamp
 // `data-motion-pending` on nodes whose preset hides them until the page script
@@ -86,8 +98,8 @@ const PRELOADER_SCRIPT =
     <meta property="og:url" content={`${site.baseUrl}${page.path}`} />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content={site.name} />
-    {page.ogImage && <meta property="og:image" content={page.ogImage} />}
-    <meta name="twitter:card" content={page.ogImage ? "summary_large_image" : "summary"} />
+    {ogImage && <meta property="og:image" content={ogImage} />}
+    <meta name="twitter:card" content={ogImage ? "summary_large_image" : "summary"} />
     <link rel="canonical" href={`${site.baseUrl}${page.path}`} />
     <link rel="stylesheet" href="/assets/theme.css" />
     {sectionsCss && <link rel="stylesheet" href="/assets/sections.css" />}

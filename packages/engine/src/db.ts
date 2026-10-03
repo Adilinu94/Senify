@@ -689,6 +689,9 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   // Design contract per site (E26, R9): the project's design DNA (constants/
   // never/vocabulary). Additive and nullable — sites without DNA read NULL.
   `ALTER TABLE sites ADD COLUMN IF NOT EXISTS design_contract jsonb`,
+  // Public address per site (origin only). Additive and nullable — sites
+  // without one keep the `<slug>.senify.xyz` placeholder.
+  `ALTER TABLE sites ADD COLUMN IF NOT EXISTS base_url text`,
   // Release manifest (E2): style registry snapshot, renderer version and build
   // hash travel with the release. Additive and nullable — releases from before
   // this column read as "no manifest" and keep working.
