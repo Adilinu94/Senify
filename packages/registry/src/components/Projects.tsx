@@ -64,6 +64,7 @@ export function Projects({ node, ctx }: SectionProps): React.JSX.Element {
                       asset={asset}
                       alt={typeof item.title === "string" ? item.title : ""}
                       sizes={imageSizes(node)}
+                      priority={index === 0 && ctx.priorityNodeId === node.id}
                       className="aspect-[16/9] w-full object-cover"
                       style={{ ...mediaStyle(node, "0px"), ...aspectStyle(node) }}
                     />

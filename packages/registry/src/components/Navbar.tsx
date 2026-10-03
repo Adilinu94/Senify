@@ -2,6 +2,7 @@ import {
   buttonStyle,
   contentWidthClass,
   cx,
+  isCurrentPage,
   linkStyle,
   resolveLink,
   SectionShell,
@@ -19,6 +20,7 @@ export function Navbar({ node, ctx }: SectionProps): React.JSX.Element {
     <SectionShell
       node={node}
       section="navbar"
+      role="banner"
       className={cx("border-b border-[var(--line)]", node.props.sticky === true && "sticky top-0 z-50")}
     >
       <nav
@@ -40,6 +42,7 @@ export function Navbar({ node, ctx }: SectionProps): React.JSX.Element {
                   href={target?.href ?? "#"}
                   target={target?.target}
                   rel={target?.rel}
+                  aria-current={isCurrentPage(target?.href, ctx) ? "page" : undefined}
                   data-broken-link={target?.broken ? "" : undefined}
                   style={linkStyle(node)}
                 >
@@ -76,6 +79,7 @@ export function Navbar({ node, ctx }: SectionProps): React.JSX.Element {
                   href={target?.href ?? "#"}
                   target={target?.target}
                   rel={target?.rel}
+                  aria-current={isCurrentPage(target?.href, ctx) ? "page" : undefined}
                   style={linkStyle(node)}
                 >
                   {typeof item.label === "string" ? item.label : ""}

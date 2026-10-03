@@ -52,6 +52,17 @@ function reactAttrs(
       if (asset.height !== null) attrs.height = asset.height;
     }
   }
+  // Loading hints for every image: the likely LCP image (picked by
+  // `SectionTree`) loads first, the rest lazily and off the main thread.
+  if (spec.tag === "img" && attrs.loading === undefined) {
+    if (spec.root === true && scope.ctx.priorityNodeId === scope.node.id) {
+      attrs.loading = "eager";
+      attrs.fetchPriority = "high";
+    } else {
+      attrs.loading = "lazy";
+      attrs.decoding = "async";
+    }
+  }
   const classes =
     spec.root === true
       ? [...(spec.classes ?? []), ...nodeRootClasses(scope.node)]

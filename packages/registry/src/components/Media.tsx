@@ -41,6 +41,7 @@ export function Media({ node, ctx }: SectionProps): React.JSX.Element {
             asset={asset}
             alt={caption !== "" ? caption : "Bild"}
             sizes={imageSizes(node)}
+            priority={ctx.priorityNodeId === node.id}
             style={{
               aspectRatio: aspect.replace("/", " / "),
               ...focalStyle(node.props.asset),

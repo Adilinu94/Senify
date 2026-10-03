@@ -60,6 +60,7 @@ export function Gallery({ node, ctx }: SectionProps): React.JSX.Element {
                         asset={asset}
                         alt={typeof item.caption === "string" && item.caption !== "" ? item.caption : `Bild ${index + 1}`}
                         sizes={imageSizes(node)}
+                        priority={index === 0 && ctx.priorityNodeId === node.id}
                         className="aspect-[4/3] w-full object-cover"
                         style={{ ...mediaStyle(node), ...aspectStyle(node) }}
                       />

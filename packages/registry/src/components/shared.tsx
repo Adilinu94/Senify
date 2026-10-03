@@ -8,6 +8,15 @@ export { styleValue } from "../style.ts";
 export type SectionContext = {
   pagePaths: Record<string, string>;
   assets: Record<string, AssetDelivery>;
+  // The path of the page being rendered ("/", "/kontakt"). Navigation marks the
+  // link that points here with aria-current="page". Absent in the editor canvas.
+  currentPath?: string;
+  // The document language, for the few strings the renderer adds itself (the
+  // skip link). Defaults to German, the language of the product.
+  lang?: string;
+  // The one image node worth loading eagerly with high priority: the likely
+  // LCP element. `SectionTree` sets it from the first screenful of the page.
+  priorityNodeId?: string;
 };
 
 export type AssetVariantFormat = "avif" | "webp";
@@ -213,6 +222,21 @@ export type LinkTarget = {
   broken?: boolean;
 };
 
+// "/kontakt/", "/kontakt?x=1" and "/kontakt#top" are the same page.
+function normalizePath(href: string): string {
+  const bare = href.split("#")[0]?.split("?")[0] ?? "";
+  return bare.length > 1 ? bare.replace(/\/+$/, "") : bare;
+}
+
+// True when an internal link points at the page being rendered. External
+// links, anchors and renders without a current path (the canvas) are never
+// "current".
+export function isCurrentPage(href: string | undefined, ctx: SectionContext): boolean {
+  if (href === undefined || ctx.currentPath === undefined) return false;
+  if (!href.startsWith("/") || href.startsWith("//")) return false;
+  return normalizePath(href) === normalizePath(ctx.currentPath);
+}
+
 export function resolveLink(
   link: unknown,
   ctx: SectionContext,
@@ -323,6 +347,7 @@ export function ResponsiveImage({
   className,
   style,
   loading = "lazy",
+  priority = false,
 }: {
   asset: ResolvedAsset;
   alt: string;
@@ -330,13 +355,23 @@ export function ResponsiveImage({
   className?: string;
   style?: React.CSSProperties;
   loading?: "lazy" | "eager";
+  // The likely LCP image: loaded eagerly and fetched first. Everything else
+  // stays lazy and decodes off the main thread.
+  priority?: boolean;
 }): React.JSX.Element {
+  const effectiveLoading = priority ? "eager" : loading;
+  const fetchPriority = priority ? "high" : undefined;
+  const decoding = priority ? undefined : "async";
   if (asset.variants.length === 0) {
     return (
       <img
         src={asset.src}
+        width={asset.width ?? undefined}
+        height={asset.height ?? undefined}
         alt={alt}
-        loading={loading}
+        loading={effectiveLoading}
+        fetchPriority={fetchPriority}
+        decoding={decoding}
         data-missing-asset={asset.missing ? "" : undefined}
         className={className}
         style={style}
@@ -356,7 +391,9 @@ export function ResponsiveImage({
         width={asset.width ?? undefined}
         height={asset.height ?? undefined}
         alt={alt}
-        loading={loading}
+        loading={effectiveLoading}
+        fetchPriority={fetchPriority}
+        decoding={decoding}
         data-missing-asset={asset.missing ? "" : undefined}
         data-blurhash={asset.blurhash ?? undefined}
         className={className}
@@ -407,15 +444,21 @@ export function SectionShell({
   className,
   children,
   style,
+  role,
 }: {
   node: Node;
   section: string;
   className?: string;
   children: ReactNode;
   style?: React.CSSProperties;
+  // A landmark role for sections that are page chrome (banner, contentinfo).
+  // The element stays a <section>: the canvas and its tests address sections by
+  // tag, and the role gives assistive technology the same structure.
+  role?: "banner" | "contentinfo";
 }): React.JSX.Element {
   return (
     <section
+      role={role}
       data-section={section}
       data-variant={node.variant}
       data-node-id={node.id}

@@ -68,16 +68,120 @@ export function getSectionComponent(type: string): ComponentType<SectionProps> |
   return SECTION_COMPONENTS[type];
 }
 
+// Page chrome that sits around the content: it opens or closes the page and is
+// not part of the main landmark.
+const HEAD_CHROME = new Set(["navbar", "banner"]);
+const TAIL_CHROME = new Set(["footer"]);
+// A cookie notice floats; it belongs to neither end.
+const FLOATING_CHROME = new Set(["cookie-note"]);
+
+// The root children that make up the main landmark: from the first node that
+// is not opening chrome to the last that is not closing chrome. Null when the
+// page has no content between its chrome.
+export function mainRange(
+  rootChildren: readonly string[],
+  nodes: Record<string, Node>,
+): { start: number; end: number } | null {
+  const types = rootChildren.map((id) => nodes[id]?.type ?? "");
+  let start = types.findIndex((type) => !HEAD_CHROME.has(type) && !FLOATING_CHROME.has(type));
+  if (start === -1) return null;
+  let end = types.length - 1;
+  while (end >= start && (TAIL_CHROME.has(types[end] ?? "") || FLOATING_CHROME.has(types[end] ?? ""))) {
+    end -= 1;
+  }
+  if (end < start) return null;
+  // Opening chrome after the first content node is content now: keep the range
+  // contiguous and let the head chrome stay outside.
+  start = Math.min(start, end);
+  return { start, end };
+}
+
+// How many content nodes from the top of the page count as the first screenful.
+const FIRST_SCREEN_NODES = 2;
+
+function carriesImage(node: Node): boolean {
+  const props = node.props as Record<string, unknown>;
+  const first = (value: unknown): unknown => (Array.isArray(value) ? value[0] : undefined);
+  const hasAsset = (value: unknown): boolean =>
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as Record<string, unknown>).assetId === "string";
+  switch (node.type) {
+    case "image":
+      return typeof props.asset === "string" && props.asset !== "";
+    case "media":
+      return node.variant !== "video" && node.variant !== "3d-scene" && hasAsset(props.asset);
+    case "gallery":
+      return hasAsset((first(props.items) as Record<string, unknown> | undefined)?.asset);
+    case "projects":
+      return hasAsset((first(props.items) as Record<string, unknown> | undefined)?.cover);
+    default:
+      return false;
+  }
+}
+
+// The likely LCP image: the first image in document order inside the first
+// screenful of content. Everything below the fold stays lazy.
+export function priorityImageNodeId(
+  rootChildren: readonly string[],
+  nodes: Record<string, Node>,
+): string | undefined {
+  const content = rootChildren.filter((id) => {
+    const type = nodes[id]?.type ?? "";
+    return !HEAD_CHROME.has(type) && !FLOATING_CHROME.has(type);
+  });
+  const find = (id: string, seen: Set<string>): string | undefined => {
+    const node = nodes[id];
+    if (node === undefined || seen.has(id)) return undefined;
+    seen.add(id);
+    if (carriesImage(node)) return id;
+    for (const childId of node.children ?? []) {
+      const hit = find(childId, seen);
+      if (hit !== undefined) return hit;
+    }
+    for (const ids of Object.values(node.slots ?? {})) {
+      for (const slotId of ids) {
+        const hit = find(slotId, seen);
+        if (hit !== undefined) return hit;
+      }
+    }
+    return undefined;
+  };
+  for (const id of content.slice(0, FIRST_SCREEN_NODES)) {
+    const hit = find(id, new Set());
+    if (hit !== undefined) return hit;
+  }
+  return undefined;
+}
+
+const SKIP_LINK_TEXT: Record<string, string> = {
+  de: "Zum Inhalt springen",
+  en: "Skip to content",
+};
+
 export function SectionTree({
   rootNodeId,
   nodes,
   ctx,
+  landmarks = false,
 }: {
   rootNodeId: string;
   nodes: Record<string, Node>;
   ctx: SectionContext;
+  // The baked page: wrap the content in <main id="main"> and put a skip link
+  // in front of the page. The editor canvas keeps the flat structure it edits.
+  landmarks?: boolean;
 }): ReactNode {
+  const rootForPriority = nodes[rootNodeId];
+  const priorityNodeId =
+    ctx.priorityNodeId ??
+    (rootForPriority === undefined
+      ? undefined
+      : priorityImageNodeId(rootForPriority.children ?? [], nodes));
+  const treeCtx: SectionContext =
+    priorityNodeId === undefined ? ctx : { ...ctx, priorityNodeId };
   const renderNode = (id: string): ReactNode => {
+
     const node = nodes[id];
     if (!node) return null;
     const slots: Record<string, ReactNode> = {};
@@ -98,13 +202,13 @@ export function SectionTree({
     // registry types) would lose their hook.
     const Component = SECTION_COMPONENTS[node.type];
     if (Component !== undefined) {
-      return <Component key={id} node={node} slots={slots} ctx={ctx} />;
+      return <Component key={id} node={node} slots={slots} ctx={treeCtx} />;
     }
     // A catalog primitive without a section twin renders from the one markup
     // description (`widget-engine/src/markup.ts`).
     if (describePrimitive(node.type, node.props as Record<string, PropValue>) !== undefined) {
       return (
-        <PrimitiveNode key={id} node={node} slots={slots} ctx={ctx}>
+        <PrimitiveNode key={id} node={node} slots={slots} ctx={treeCtx}>
           {(node.children ?? []).map((childId) => renderNode(childId))}
         </PrimitiveNode>
       );
@@ -120,5 +224,23 @@ export function SectionTree({
   };
   const root = nodes[rootNodeId];
   if (!root) return null;
-  return <>{(root.children ?? []).map((id) => renderNode(id))}</>;
+  const children = root.children ?? [];
+  const range = landmarks ? mainRange(children, nodes) : null;
+  if (range === null) return <>{children.map((id) => renderNode(id))}</>;
+  const skipText = SKIP_LINK_TEXT[(ctx.lang ?? "de").slice(0, 2).toLowerCase()] ?? SKIP_LINK_TEXT["en"];
+  return (
+    <>
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[10000] focus:rounded focus:bg-[var(--bg-base,#fff)] focus:px-4 focus:py-2 focus:text-[var(--fg-base,#000)] focus:shadow-lg focus:outline focus:outline-2"
+      >
+        {skipText}
+      </a>
+      {children.slice(0, range.start).map((id) => renderNode(id))}
+      <main id="main" tabIndex={-1} className="outline-none">
+        {children.slice(range.start, range.end + 1).map((id) => renderNode(id))}
+      </main>
+      {children.slice(range.end + 1).map((id) => renderNode(id))}
+    </>
+  );
 }

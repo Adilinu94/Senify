@@ -28,6 +28,7 @@ import type {
   Page,
   SubmissionRow,
 } from "./types.ts";
+import { publicHost } from "./public-url.ts";
 
 // Native forms (artifacts/26): spam protection is automatic, the endpoint only
 // trusts the frozen snapshot and every rejection names its cause.
@@ -332,7 +333,7 @@ function hostOf(origin: string): string | undefined {
 }
 
 function allowedOriginHosts(siteSlug: string): string[] {
-  const hosts = [`${siteSlug}.senify.xyz`];
+  const hosts = [...new Set([`${siteSlug}.senify.xyz`, publicHost(siteSlug)])];
   const configured = process.env.SENIFY_FORMS_ORIGINS;
   if (configured !== undefined) {
     for (const entry of configured.split(",")) {

@@ -47,6 +47,7 @@ import type {
 } from "./types.ts";
 import type { BakedPayload } from "@senify/renderer";
 import type { Store } from "./store.ts";
+import { publicBaseUrl } from "./public-url.ts";
 
 export type BakeOutcome = {
   outDir: string;
@@ -467,7 +468,7 @@ export async function bakePages(
   const result = await bakeSite(
     {
       siteName: input.site.name,
-      baseUrl: `https://${input.site.slug}.senify.xyz`,
+      baseUrl: publicBaseUrl(input.site.slug),
       pages: build.pages,
       contexts: build.contexts,
       themeCss: siteTheme.css,

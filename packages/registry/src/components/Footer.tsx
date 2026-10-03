@@ -21,6 +21,7 @@ export function Footer({ node, ctx }: SectionProps): React.JSX.Element {
     <SectionShell
       node={node}
       section="footer"
+      role="contentinfo"
       className="border-t border-[var(--line)]"
     >
       <div className={cx("mx-auto px-4 py-12", contentWidthClass(node))}>
