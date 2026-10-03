@@ -131,6 +131,26 @@ describe.skipIf(browserSkip)("release cutover (ticket 17)", () => {
         tab
           .locator('.senify-canvas__frame[data-device="desktop"] .senify-canvas__iframe')
           .contentFrame();
+
+      // 100 % zoom, stated before it is measured. The canvas starts at 0.5 and
+      // then `fit()`s the three design frames into the stage; at a 3600 px window
+      // that lands on 0.9462, and the hero came out 387 px wide against 409 px in
+      // the release (1440/1365 = 0.9479). The gate compares the canvas against
+      // the unscaled release, so both sides must render at the same scale -
+      // 387/409 is the whole 3.1 % this test reported on 02.10.2026, not a
+      // difference in rendering.
+      //
+      // The wait for `data-start-fit` is load-bearing, not decoration: the start
+      // fit polls up to 100 times (app.js, `fitWhenRendered`) and calls
+      // `canvas.fit()` whenever the iframes are ready. Resetting the zoom before
+      // that finishes gets overwritten a moment later, which is why resetting
+      // alone leaves the test measuring a scaled sheet again.
+      await tab
+        .locator('[data-start-fit="done"], [data-start-fit="skipped"]')
+        .waitFor({ state: "attached" });
+      await tab.locator('[data-action="zoom-reset"]').click();
+      await tab.waitForFunction('document.querySelector(".senify-canvas")?.getAttribute("data-zoom") === "1"');
+
       const canvasTypeSize = await desktopFrame().locator("html").evaluate((element) => {
         const target = element as unknown as {
           ownerDocument: { defaultView: { getComputedStyle(node: never): { getPropertyValue(name: string): string } } };
@@ -159,31 +179,57 @@ describe.skipIf(browserSkip)("release cutover (ticket 17)", () => {
           })`,
         );
 
+      // The canvas carries editor chrome OVER the sheet: the insert plus
+      // (`.senify-canvas__plus`) sits in the hero's top-left corner and is
+      // part of the tool, not of the page. Comparing it against the release
+      // measures that button instead of the rendering - it was the whole 3.2 %
+      // (measured 02.10.2026: dark pixels from x=0..1364 in the canvas shot
+      // against x=164..572 in the release shot, the text otherwise identical).
+      //
+      // Hiding it is the honest fix, not a wider tolerance: the release has no
+      // such button, and the gate compares what a visitor would see. It runs
+      // before the first screenshot, so both shots and the metrics see the
+      // same page.
+      await tab.addStyleTag({
+        content: ".senify-canvas__plus, .senify-canvas__overlay { visibility: hidden !important; }",
+      });
+
       // A screenshot of an element inside the canvas only shows page pixels
       // while the frame is visible as a whole: at 100 % zoom and inside the
       // stage box. Both conditions are asserted instead of assumed.
-      // Der Editor startet eingepasst. Erst den Start-Fit abwarten, sonst
-      // ueberschreibt er den Reset, dann auf 100 % zuruecksetzen.
-      await tab
-        .locator('.canvas-view__stage[data-start-fit="done"], .canvas-view__stage[data-start-fit="skipped"]')
-        .waitFor({ state: "attached" });
-      await tab.locator('[data-role="zoom"]').click();
-      await expect
-        .poll(async () => tab.locator('[data-role="zoom"]').textContent())
-        .toBe("100%");
+      //
+      // "Visible as a whole" means the hero sits inside the frame, not that
+      // the frame spans the window. Since Chrome v2 the stage scrolls
+      // horizontally and holds all three devices side by side, so the desktop
+      // frame can extend past the viewport (its right edge was at x=1726 in a
+      // 1440 px window). Asserting a window-relative width described a layout
+      // that no longer exists - it is what made this gate red after v2, at
+      // 1365 instead of 1440 px. What the screenshot actually needs is that
+      // the iframe covers the frame and the hero is completely inside it, so
+      // no edge of the page can be cropped away.
       const frameBox = await tab
         .locator('.senify-canvas__frame[data-device="desktop"]')
         .boundingBox();
-      const stageBox = await tab.locator(".canvas-view__stage").boundingBox();
+      const frameViewport = await tab
+        .locator('.senify-canvas__frame[data-device="desktop"] .senify-canvas__iframe')
+        .boundingBox();
       const heroBox = await canvasHero.boundingBox();
-      if (frameBox === null || stageBox === null || heroBox === null) {
+      if (frameBox === null || frameViewport === null || heroBox === null) {
         throw new Error("Canvas-Geometrie nicht messbar");
       }
-      expect(Math.round(frameBox.width)).toBe(1440);
-      expect(heroBox.x).toBeGreaterThanOrEqual(stageBox.x);
-      expect(heroBox.x + heroBox.width).toBeLessThanOrEqual(stageBox.x + stageBox.width);
-      expect(heroBox.y).toBeGreaterThanOrEqual(stageBox.y);
-      expect(heroBox.y + heroBox.height).toBeLessThanOrEqual(stageBox.y + stageBox.height);
+      // The iframe covers the frame: nothing of the sheet is cut off. Both
+      // sides are rounded because the box is scaled, and a fraction of a pixel
+      // must not fail the gate.
+      expect(Math.round(frameViewport.width)).toBe(Math.round(frameBox.width));
+      expect(Math.round(frameViewport.height)).toBe(Math.round(frameBox.height));
+      // And the hero is fully inside the frame, which is the actual
+      // precondition for "the screenshot shows the whole page".
+      const frameRight = frameBox.x + frameBox.width;
+      const frameBottom = frameBox.y + frameBox.height;
+      expect(Math.round(heroBox.x)).toBeGreaterThanOrEqual(Math.round(frameBox.x));
+      expect(Math.round(heroBox.x + heroBox.width)).toBeLessThanOrEqual(Math.round(frameRight));
+      expect(Math.round(heroBox.y)).toBeGreaterThanOrEqual(Math.round(frameBox.y));
+      expect(Math.round(heroBox.y + heroBox.height)).toBeLessThanOrEqual(Math.round(frameBottom));
 
       const measure = (scope: typeof canvasHero) =>
         scope.evaluate((element) => {
@@ -279,6 +325,36 @@ describe.skipIf(browserSkip)("release cutover (ticket 17)", () => {
         })()`,
       );
       const releaseMetrics = await measure(releaseHero as typeof canvasHero);
+      // Both documents must have resolved Sora before they are compared.
+      // `measure` only compares `font-family` as a string, which is equal even
+      // when the browser picked a fallback: on 02.10.2026 both reported
+      // `Sora, system-ui, sans-serif` at 700/48px while `document.fonts.check`
+      // said false for the canvas and true for the release.
+      const soraResolved = async (scope: typeof canvasHero) =>
+        scope.evaluate((element) => {
+          const node = element as unknown as {
+            ownerDocument: {
+              fonts: { check(spec: string): boolean };
+              querySelector(selector: string): unknown;
+              defaultView: { getComputedStyle(n: never): Record<string, string> };
+            };
+          };
+          const heading = node.ownerDocument.querySelector("h1") as unknown as {
+            ownerDocument: { defaultView: { getComputedStyle(n: never): Record<string, string> } };
+          } | null;
+          if (heading === null) return false;
+          const cs = node.ownerDocument.defaultView.getComputedStyle(heading as never);
+          return node.ownerDocument.fonts.check(`${cs.fontWeight} ${cs.fontSize} Sora`);
+        });
+      expect(
+        await soraResolved(canvasHero),
+        "Canvas: Sora ist nicht geladen, die Ueberschrift faellt auf eine Ersatzschrift zurueck",
+      ).toBe(true);
+      expect(
+        await soraResolved(releaseHero as typeof canvasHero),
+        "Release: Sora ist nicht geladen, die Ueberschrift faellt auf eine Ersatzschrift zurueck",
+      ).toBe(true);
+
       const releaseShot = join(shotDir, "cutover-release.png");
       const releaseHead = releaseTab.locator('[data-section="hero"] h1').first();
       const releaseHeadShot = join(shotDir, "cutover-release-head.png");

@@ -883,18 +883,6 @@ dialog.modal select,
   padding-top: 1rem;
   border-top: 1px solid var(--line);
 }
-.framer-report-warning {
-  margin: 0 0 8px;
-  padding: 8px 10px;
-  border-left: 3px solid var(--ui-signal-warning);
-  background: var(--ui-signal-warning-surface);
-  font-size: 13px;
-}
-
-.framer-confirm-replace {
-  margin: 4px 0;
-}
-
 .framer-report-summary {
   font-weight: 700;
 }
@@ -3480,7 +3468,12 @@ body {
   min-height: var(--ui-h-32);
   padding: 0 var(--ui-space-3);
   border-radius: var(--ui-radius-pill);
-  color: var(--ui-ink-muted);
+  /* Hauptnavigation, kein Nebentext: `muted` (12 px, 8:1) haengt am
+     Kantenum des geglaetteten Textes. Auf Ubuntu wertet axe das als
+     "color-contrast (serious)", obwohl die Ratio ueber AA liegt. Mit `ink`
+     ist der Wert nicht nur rechnerisch besser, sondern auch optisch eine
+     Navigation statt einer Fussnote. */
+  color: var(--ui-ink);
   font-size: var(--ui-text-12);
   transition: background-color 120ms ease-out, color 120ms ease-out;
 }

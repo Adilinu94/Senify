@@ -64,8 +64,10 @@ export default tseslint.config(
     },
   },
   {
-    // Gate-Skripte des Repos (Node, kein Browser).
-    files: ["scripts/**/*.mjs", "packages/*/build.mjs"],
+    // Gate-Skripte des Repos (Node, kein Browser). `build-*.mjs` sind die
+    // Hilfsskripte, die `build.mjs` aufruft (z. B. build-fonts.mjs): gleiche
+    // Laufzeit, gleiche Globals.
+    files: ["scripts/**/*.mjs", "packages/*/build.mjs", "packages/*/build-*.mjs"],
     languageOptions: {
       globals: {
         process: "readonly",

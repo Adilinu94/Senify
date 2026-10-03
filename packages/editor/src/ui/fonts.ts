@@ -1,17 +1,30 @@
 // Editor typography: the local font files and the @font-face rules that bind
-// them. This module is the one source for every font the editor bundles; the
+// them. This module is the one source for every font the editor injects; the
 // files themselves live in `packages/editor/assets/fonts/` (SIL OFL 1.1, see
 // `LICENSE.txt`) and are served under `/editor-fonts/*`, so the editor never
 // fetches a font over the network at runtime.
 //
-// Two roles, one directory and one route:
-//   * Tool / chrome face — Inter Display for headings, Inter for text
-//     (`--ed-font-display`, `--ed-font-body` in `tokens.ts`; the binding design
-//     language `.scratch/refs/precious-board/design-guidelines.md`).
-//   * Content face — Sora, the theme's display family
-//     (`packages/tokens/src/default-theme.ts`, `fonts.display`). The editor
-//     draws page content inside its frames, so the file is bundled here too and
-//     injected into every frame document; the theme only names the family.
+// ONE role: the tool / chrome face. Inter Display for headings, Inter for text
+// (`--ed-font-display`, `--ed-font-body` in `tokens.ts`; the binding design
+// language `.scratch/refs/precious-board/design-guidelines.md`).
+//
+// NOT the content face. Sora - the theme's display family - is deliberately
+// absent from the injected rules. The theme binds it itself:
+// `emitCss()` appends `fontFaceBlocks()` (packages/tokens/src/emit.ts), and
+// `defaultTheme().fonts.display.files` names the three files under
+// `/assets/sora-*.woff2`. `packages/app/src/server.ts` serves exactly that
+// pattern from `packages/renderer/assets/fonts`, locally, and the frame
+// already loads the theme (`frameStyles` in public/app.js).
+//
+// Binding Sora here as well gave the frame two @font-face blocks per weight
+// (six instead of three). The browser took the first one, and the headline
+// rendered with a fallback face: 387 px wide in the canvas against 409 px in
+// the release - the whole 3.1 % the parity gate reported on 02.10.2026.
+// The theme is the only source that knows which font a project actually uses,
+// so it stays the one that binds it; the editor only brings the tool's own
+// face. `EDITOR_CONTENT_FONT_FILES` still lists the bytes (the preview and
+// `plan-tokens.test.ts` check that they are on disk) - they simply are not
+// injected into the frames.
 //
 // `font-display: swap` is required: it lets the text render with the fallback
 // immediately and swaps in when the font is ready. Because the chrome uses
@@ -40,18 +53,21 @@ export const EDITOR_FONT_FILES: readonly EditorFontFile[] = [
 ];
 
 // Sora, the content display face of the site theme. The three weights are the
-// ones `defaultTheme().fonts.display.weights` names ([400, 600, 700]); without
-// the files the theme emits no @font-face (`fontFaceBlocks()` skips a weight
-// without a file) and content falls back to system-ui. Bundling them here makes
-// the theme's family name resolve locally.
+// ones `defaultTheme().fonts.display.weights` names ([400, 600, 700]).
+//
+// These bytes ship with the editor so the standalone preview and the
+// `keeps every bundled font file present on disk` check have them, but they
+// are NOT injected into the frames - see the note at the top of this file.
+// The theme binds Sora itself through `fontFaceBlocks()`, and that binding is
+// the one that must win: only the theme knows which face a project uses.
 export const EDITOR_CONTENT_FONT_FILES: readonly EditorFontFile[] = [
   { family: "Sora", weight: 400, file: "Sora-Regular.woff2" },
   { family: "Sora", weight: 600, file: "Sora-SemiBold.woff2" },
   { family: "Sora", weight: 700, file: "Sora-Bold.woff2" },
 ];
 
-// The single list the @font-face rules are generated from: chrome faces, then
-// the content face.
+// Every font file the editor carries on disk: chrome faces plus the content
+// face. Used to check that the bytes exist, not to generate @font-face rules.
 export const EDITOR_BUNDLED_FONT_FILES: readonly EditorFontFile[] = [
   ...EDITOR_FONT_FILES,
   ...EDITOR_CONTENT_FONT_FILES,
@@ -63,9 +79,15 @@ function quoteFamily(family: string): string {
 
 // The default base URL is the dashboard route that serves the files
 // (`packages/app/src/server.ts` proxies `/editor-fonts/*` to this directory).
+//
+// Only `EDITOR_FONT_FILES` - the tool's own face. Injecting the content face
+// here as well put two @font-face blocks per weight into the frame (six
+// instead of three) and the browser preferred the theme's, so the canvas
+// rendered its headline with a fallback: 387 px against 409 px in the
+// release, the 3.1 % the parity gate reported on 02.10.2026.
 export function editorFontFaceCss(baseUrl = "/editor-fonts"): string {
   const prefix = baseUrl.replace(/\/$/, "");
-  return EDITOR_BUNDLED_FONT_FILES.map(({ family, weight, file }) => {
+  return EDITOR_FONT_FILES.map(({ family, weight, file }) => {
     return [
       "@font-face {",
       `  font-family: ${quoteFamily(family)};`,
