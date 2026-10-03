@@ -883,6 +883,18 @@ dialog.modal select,
   padding-top: 1rem;
   border-top: 1px solid var(--line);
 }
+.framer-report-warning {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--ui-signal-warning);
+  background: var(--ui-signal-warning-surface);
+  font-size: 13px;
+}
+
+.framer-confirm-replace {
+  margin: 4px 0;
+}
+
 .framer-report-summary {
   font-weight: 700;
 }
