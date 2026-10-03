@@ -26,6 +26,7 @@ import {
   type IrFinding,
   type IrFontFace,
   type IrLayout,
+  type IrMotionSample,
   type IrNode,
   type IrNodeKind,
   type IrState,
@@ -781,9 +782,81 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
       fonts,
     },
     assets,
-    motion: [],
+    motion: readAppearMotion(html, root),
     findings,
   };
+}
+
+// Framer's SSR writes every appear/scroll-reveal effect into one JSON block
+// (`__framer__appearAnimationsContent`): per `data-framer-appear-id`, the start
+// state, the end state and a spring (`stiffness`, `damping`, `mass`, `delay`),
+// once as `default` and once per breakpoint hash (null = no effect there). The
+// start state is also written inline on the element, which the capture strips
+// from the visual (`appearInitial`), so the effect is read from here.
+type AppearState = { opacity?: number; x?: number; y?: number; scale?: number };
+type AppearTransition = { type?: string; stiffness?: number; damping?: number; mass?: number; delay?: number; duration?: number };
+
+function readAppearMotion(html: string, root: IrNode): IrMotionSample[] {
+  const block = /<script[^>]*id="__framer__appearAnimationsContent"[^>]*>([\s\S]*?)<\/script>/.exec(html)?.[1];
+  if (block === undefined) return [];
+  let entries: unknown;
+  try {
+    entries = JSON.parse(block);
+  } catch {
+    return [];
+  }
+  if (typeof entries !== "object" || entries === null) return [];
+  const byAppearId = new Map<string, IrNode>();
+  const index = (node: IrNode): void => {
+    if (node.appearId !== undefined && node.appearId !== null && !byAppearId.has(node.appearId)) {
+      byAppearId.set(node.appearId, node);
+    }
+    node.children.forEach(index);
+  };
+  index(root);
+  const samples: IrMotionSample[] = [];
+  for (const [appearId, byDevice] of Object.entries(entries as Record<string, unknown>)) {
+    const node = byAppearId.get(appearId);
+    const entry = (byDevice as Record<string, unknown> | null)?.["default"] as
+      | { initial?: AppearState; animate?: AppearState & { transition?: AppearTransition } }
+      | null
+      | undefined;
+    if (node === undefined || entry === null || entry === undefined) continue;
+    const from = entry.initial ?? {};
+    const to = entry.animate ?? {};
+    const transition = to.transition ?? {};
+    const params: IrMotionSample["params"] = {
+      fromOpacity: from.opacity ?? 1,
+      fromX: from.x ?? 0,
+      fromY: from.y ?? 0,
+      fromScale: from.scale ?? 1,
+      toOpacity: to.opacity ?? 1,
+      delay: Math.round((transition.delay ?? 0) * 1000),
+      duration: Math.round(springSettleSeconds(transition) * 1000),
+      ...(transition.type === undefined ? {} : { transition: transition.type }),
+    };
+    samples.push({
+      nodeKey: node.key,
+      library: "framer",
+      trigger: "appear",
+      params,
+      raw: JSON.stringify({ appearId, from, to }),
+    });
+  }
+  return samples;
+}
+
+// The time a spring needs to come to rest (2 % band): `4 / (ζ·ω0)` with
+// ω0 = √(stiffness/mass) and ζ = damping / (2·√(stiffness·mass)). A plain
+// `duration` transition is taken as it is. Clamped to a range a page can use.
+function springSettleSeconds(transition: AppearTransition): number {
+  if (transition.type !== "spring") return Math.min(Math.max(transition.duration ?? 0.4, 0.15), 1.6);
+  const stiffness = transition.stiffness ?? 100;
+  const damping = transition.damping ?? 10;
+  const mass = transition.mass ?? 1;
+  const omega = Math.sqrt(stiffness / mass);
+  const zeta = damping / (2 * Math.sqrt(stiffness * mass));
+  return Math.min(Math.max(4 / (zeta * omega), 0.15), 1.6);
 }
 
 function emptyRoot(): IrNode {
