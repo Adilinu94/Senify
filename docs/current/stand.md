@@ -21,7 +21,7 @@ Statuswerte: `belegt` (Test + Code), `implementiert` (Code, Test deckt es nicht 
 | Referenz/Redesign | belegt | `redesign-proposals.ts`, `redesign-section-plan.ts`, `redesign-section-apply.ts`, vier Redesign-Suiten, ADR-0012/0013/0014 | Apply ist atomar, der Sektions-Plan wird ausgeführt (R3), Proposals veralten (R2), der Design-Record ist eingefroren (R4) und Medienbedarfe sind bedienbar (P2-2). Offen: automatische Medienbeschaffung — der Bedarf wird benannt und geschlossen, aber nicht selbst beschafft |
 | Asset-Zugriff | belegt | `media.ts` `copySiteAssets`/`purgeAsset`, `http.ts` unter `/api/sites/:siteId/assets/…` | Site-Guard erzwungen; `getAsset` bleibt bewusst ungeprüft |
 | Baustein-Bibliothek | teilweise | `packages/engine/src/library-*`, Bausteine-Workspace | Re-Attach, Similarity und mehrstelliger E2E-Nachweis fehlen |
-| Framer-Import | teilweise | `packages/framer-import`, `packages/engine/src/imports.ts` | `runImport()` nutzt bei URL statisches `fetch()` statt `captureBrowser()` |
+| Framer-Import | teilweise | `packages/framer-import`, `packages/engine/src/imports.ts` | `runImport()` nutzt bei URL statisches `fetch()` (holt jetzt die verlinkten Stylesheets) statt `captureBrowser()`; Motion, Section-Erkennung, Mehrseiten-Crawl und Theme-Farben offen |
 | Import-Transaktion | belegt | `packages/engine/src/imports.ts`, `packages/engine/test/imports.test.ts` | DB-Commit ist atomar; neu hochgeladene Assets werden bei Commit-Fehler kompensiert. Bereits vorhandene Assets werden nicht entfernt (R10 geschlossen) |
 | Token-Trust-Seam | belegt | `operator-token.ts`, `http.ts:1202`, `auth.test.ts`, `server.test.ts:108` | Token-Routen sind `operatorOnly`, Proxy prüft Herkunft; Agents behalten normale Write-Rechte innerhalb ihrer Scopes |
 | Payload-Islands | belegt | `renderer/src/islands.ts`, `engine/src/code-payloads.ts`, ADR-0010 | generische Framer-Module, Poster-Pflicht und Lizenz-Promotion unvollständig |
@@ -95,7 +95,7 @@ Noch nicht vorhanden: **automatische Medienbeschaffung**. Medienbedarfe sind adr
 | S3 Import und Jobs | belegt | `imports.ts`, `imports-contract.ts`, Import-Routen, `imports.test.ts` | DB-Commit atomar mit Receipts; externe Assets kompensiert |
 | S3b Island-Payloads | teilweise | `code-payloads.ts`, Renderer-Tests | Mirror-Quellen und wenige Adapter, nicht generisch |
 | S4 Fremdcode | teilweise | Importdialog, Report, Review | generische Extraktion, Poster, Lizenz-Promotion offen |
-| S5 Visual Gate | belegt | `import-visual-gate-browser.test.ts` | kontrollierte Fixture, nicht alle echten Export-Fixtures |
+| S5 Visual Gate | teilweise | `import-visual-gate-browser.test.ts`, `import-fixture-gate-browser.test.ts` | Gate läuft jetzt auf den drei echten Export-Fixtures mit Ratchet-Grenzen (Pixeldifferenz, Texthöhe, Links); fluffy-rectangle liegt bei Tablet noch bei 97 % Differenz (Hero-Hintergrund fehlt) |
 | S6 Bibliotheksmodell | belegt | `library.ts`, Bibliotheksrouten, MCP-Tools | mehrstelliger Installations-/Update-Nachweis offen |
 | S7 Bibliotheks-UI | teilweise | Bausteine-Workspace, Explorer-Tab | vollständiger menschlicher E2E-Weg offen |
 | S8 Motion-Mapping | implementiert | `mapFramerMotion`, Motion-Report, ADR-0006 | eigene Framer-Motion-ADR und vollständiger Coverage-Nachweis offen |
@@ -114,3 +114,19 @@ Danach verbleiben: die MCP-Verträge und Manifest-Konsumenten (R8), die Modulauf
 - Localization, E-Commerce, Marketplace, Multiplayer
 - Dual-Dialect-Ausstieg aus PostgreSQL bis Phase 5 oder später (ADR-0004)
 - Mobile Responsiveness des Portals (Desktop-Werkzeug-Entscheidung 24.09., siehe `.scratch/editor-v2-rebuild/ui-audit-2026-09-24.md`)
+
+## Framer-Import: Stand der Treue (Oktober 2026)
+
+Gemessen auf den drei echten Exporten gegen das Original (Desktop, Tablet, Mobil):
+
+| Bereich | Stand |
+|---|---|
+| Klassen-CSS | kein 20-KB-Limit mehr; Selektoren werden einmal kompiliert; Pseudo-Zustände (`:hover`) fließen nicht mehr in den Basisstil, sondern werden als Fund gemeldet |
+| Geräte-Kopien | identische Kopien werden gefaltet; strukturell verschiedene bleiben und sind pro Gerät sichtbar (Bake schreibt exakte Breitenbereiche) |
+| Links, Alt, Anker, Sprache, SEO-Meta | werden übernommen (Frame mit `link`/`anchorId`, `body` mit sanitisiertem Inline-HTML) |
+| Regeln | IDs seitenbezogen (`fi-<scope>-n`); ein Re-Import ersetzt die eigenen Regeln der Seite statt sie zu stapeln |
+| Schutz | `expectedIrHash` und `baseDraftVersion` verhindern, dass „Übernehmen" etwas anderes schreibt als analysiert wurde; Dry-Run nennt `existingPage` |
+| Modus | `mode: "fidelity"` behält Verläufe, Schatten, Rundungen; Standard bleibt `dna` |
+| Widget-Engine | `var(--x, …)` in Funktionsargumenten wird nicht mehr zu `var(- - x …)` zerlegt |
+
+Offen: Motion (Appear-JSON, gemessene Hover- und Scroll-Effekte), Erkennung von Navbar/Hero/Footer als Sections, Mehrseiten-Crawl, Theme-Farben, Vorschau mit Screenshots im Dialog, Undo für den Import, Seitensprache beim Backen (kommt aus der Site-Einstellung).
