@@ -361,6 +361,7 @@ export function renderPageScript(options: { lenis: boolean }): string {
     var configs = Array.isArray(payload) ? payload : (payload.entries || []);
     var hasGsap = typeof window.gsap !== "undefined";${lenisBlock}
     if (hasGsap && window.ScrollTrigger) window.gsap.registerPlugin(window.ScrollTrigger);
+    if (hasGsap && window.SplitText) window.gsap.registerPlugin(window.SplitText);
     var pendingLeft = document.querySelectorAll("[data-motion-pending]").length;
     configs.forEach(function (config) {
       if (!config) return;
@@ -373,9 +374,17 @@ export function renderPageScript(options: { lenis: boolean }): string {
         if (policy === "fade" && config.hides) fadeIn(el);
         if (policy !== "off") return;
       }
-      runPreset(el, config);
+      try {
+        runPreset(el, config);
+      } catch (error) {
+        if (window.console) window.console.error("[senify] motion preset failed:", config.preset, error);
+      }
     });
     if (pendingLeft <= 0) releasePending();
+    // Positionen aus der Zeit vor den Webfonts neu berechnen.
+    if (hasGsap && window.ScrollTrigger && document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(function () { window.ScrollTrigger.refresh(); });
+    }
   });
   function fadeIn(el) {
     if (typeof el.animate !== "function") return;
@@ -388,6 +397,63 @@ export function renderPageScript(options: { lenis: boolean }): string {
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
+  }
+  function countFormat(raw) {
+    var s = "";
+    for (var i = 0; i < raw.length; i += 1) {
+      var c = raw.charAt(i);
+      if ("0123456789.,".indexOf(c) !== -1 || (c === "-" && s === "")) s += c;
+    }
+    var dots = s.split(".").length - 1;
+    var commas = s.split(",").length - 1;
+    var group = "";
+    var decimal = "";
+    if (dots > 0 && commas > 0) {
+      decimal = s.lastIndexOf(".") > s.lastIndexOf(",") ? "." : ",";
+      group = decimal === "." ? "," : ".";
+    } else if (dots + commas > 0) {
+      var sep = dots > 0 ? "." : ",";
+      var tail = s.length - s.lastIndexOf(sep) - 1;
+      if (dots + commas > 1) {
+        group = sep;
+      } else if (tail !== 3 || s.replace("-", "").indexOf(sep) === 1 && s.replace("-", "").charAt(0) === "0") {
+        decimal = sep;
+      } else {
+        // A lone separator with three digits behind it: the page language decides.
+        var localeGroup = ",";
+        try {
+          var parts = new Intl.NumberFormat(document.documentElement.lang || undefined).formatToParts(1000.5);
+          for (var p = 0; p < parts.length; p += 1) if (parts[p].type === "group") localeGroup = parts[p].value;
+        } catch (error) { /* keep the default */ }
+        if (sep === localeGroup) group = sep; else decimal = sep;
+      }
+    }
+    var normalized = s;
+    if (group) normalized = normalized.split(group).join("");
+    if (decimal) normalized = normalized.replace(decimal, ".");
+    return {
+      goal: Number.parseFloat(normalized) || 0,
+      decimals: decimal ? s.length - s.lastIndexOf(decimal) - 1 : 0,
+      group: group,
+      decimal: decimal
+    };
+  }
+  function countText(value, format) {
+    var text = value.toFixed(format.decimals);
+    var negative = text.charAt(0) === "-";
+    if (negative) text = text.slice(1);
+    var dot = text.indexOf(".");
+    var whole = dot === -1 ? text : text.slice(0, dot);
+    var fraction = dot === -1 ? "" : text.slice(dot + 1);
+    if (format.group) {
+      var grouped = "";
+      for (var i = 0; i < whole.length; i += 1) {
+        if (i > 0 && (whole.length - i) % 3 === 0) grouped += format.group;
+        grouped += whole.charAt(i);
+      }
+      whole = grouped;
+    }
+    return (negative ? "-" : "") + whole + (fraction ? format.decimal + fraction : "");
   }
   function triggerProps(config) {
     if (config.trigger === "load") return {};
@@ -416,6 +482,18 @@ export function renderPageScript(options: { lenis: boolean }): string {
         break;
       case "masked-headline": {
         var head = el.querySelector("h1, h2, h3") || el;
+        if (has.splittext) {
+          window.SplitText.create(head, {
+            type: "words",
+            mask: "words",
+            aria: "auto",
+            autoSplit: true,
+            onSplit: function (self) {
+              return gsap.from(self.words, Object.assign({ yPercent: 110, duration: duration, ease: ease, delay: delay, stagger: config.stagger || 0.06 }, triggerProps(config)));
+            }
+          });
+          break;
+        }
         var words = head.textContent.split(/\\s+/).filter(Boolean);
         head.innerHTML = words.map(function (w) {
           var safe = escapeHtml(w);
@@ -432,7 +510,7 @@ export function renderPageScript(options: { lenis: boolean }): string {
         break;
       case "parallax-subtle": {
         var factor = 0.1 + ((intensity - 1) / 9) * 0.2;
-        gsap.to(el, { y: function () { return -(el.offsetHeight * factor); }, ease: "none", scrollTrigger: { trigger: el, start: "top bottom", end: "bottom top", scrub: true } });
+        gsap.to(el, { y: function () { return -(el.offsetHeight * factor); }, ease: "none", scrollTrigger: { trigger: el, start: "top bottom", end: "bottom top", scrub: true, invalidateOnRefresh: true } });
         break;
       }
       case "scrub-pin":
@@ -443,7 +521,7 @@ export function renderPageScript(options: { lenis: boolean }): string {
         break;
       case "horizontal-pan": {
         var track = el.querySelector(".pan-track") || el;
-        gsap.to(track, { x: function () { return -(track.scrollWidth - window.innerWidth); }, ease: "none", scrollTrigger: { trigger: el, start: "top top", end: "+=150%", scrub: 1, pin: true } });
+        gsap.to(track, { x: function () { return -(track.scrollWidth - window.innerWidth); }, ease: "none", scrollTrigger: { trigger: el, start: "top top", end: "+=150%", scrub: 1, pin: true, invalidateOnRefresh: true } });
         break;
       }
       case "scroll-progress": {
@@ -459,13 +537,13 @@ export function renderPageScript(options: { lenis: boolean }): string {
         var targets = el.hasAttribute("data-count") ? [el] : Array.prototype.slice.call(el.querySelectorAll("[data-count]"));
         targets.forEach(function (target) {
           var raw = target.getAttribute("data-count") || "0";
-          var goal = Number.parseFloat(raw.replace(/[^0-9.,-]/g, "").replace(",", ".")) || 0;
-          var decimals = (raw.split(".")[1] || "").replace(/[^0-9]/g, "").length;
+          var format = countFormat(raw);
+          var goal = format.goal;
           var prefix = target.getAttribute("data-prefix") || "";
           var suffix = target.getAttribute("data-suffix") || "";
           var state = { value: 0 };
           var render = function () {
-            target.textContent = prefix + state.value.toFixed(decimals) + suffix;
+            target.textContent = prefix + countText(state.value, format) + suffix;
           };
           gsap.to(state, Object.assign({ value: goal, duration: Math.max(0.8, duration * 2), ease: ease, delay: delay, onUpdate: render }, triggerProps(config)));
           render();
@@ -474,6 +552,19 @@ export function renderPageScript(options: { lenis: boolean }): string {
       }
       case "char-split": {
         var source = el.querySelector("h1, h2, h3, p") || el;
+        if (has.splittext) {
+          window.SplitText.create(source, {
+            type: "chars,words",
+            aria: "auto",
+            autoSplit: true,
+            onSplit: function (self) {
+              // A word that is wider than its box overflows like plain text instead of breaking inside.
+              self.words.forEach(function (word) { word.style.whiteSpace = "nowrap"; });
+              return gsap.from(self.chars, Object.assign({ opacity: 0, y: 8, duration: 0.4, ease: ease, delay: delay, stagger: 0.02 }, triggerProps(config)));
+            }
+          });
+          break;
+        }
         var text = source.textContent;
         source.innerHTML = text.split("").map(function (ch) {
           return '<span style="display:inline-block">' + (ch === " " ? "&nbsp;" : escapeHtml(ch)) + "</span>";
