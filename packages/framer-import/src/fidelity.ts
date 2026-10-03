@@ -48,7 +48,9 @@ export function buildFidelityReport(
     "Quelle gelesen (SSR-HTML, drei statische Datenkanäle)",
     `Geräte-Varianten zusammengezogen (${mapped.stats.mergedVariants} Overrides)`,
     `Deklarationen konsolidiert (${normalized.stats.declarationSets} Sets → ${normalized.stats.rules} Regeln)`,
-    "DNA-Konformität erzwungen (Abweichungen als Funde dokumentiert)",
+    normalized.mode === "dna"
+      ? "DNA-Konformität erzwungen (Abweichungen als Funde dokumentiert)"
+      : "Originaltreue-Modus: Verläufe, Schatten, Rundungen und Ausrichtung der Quelle bleiben erhalten",
   ];
 
   const findings = mapped.findings;
@@ -69,16 +71,18 @@ export function buildFidelityReport(
   const placeholders = mapped.stats.placeholders;
 
   // The score: node coverage and declaration coverage weigh most, motion
-  // coverage third. Findings of severity `block` cost directly.
+  // coverage third, and only when the source HAS motion: a page without any
+  // measured motion is scored on the other two alone instead of being handed
+  // the motion points for free. Findings of severity `block` cost directly.
   const blockFindings = findings.filter((finding) => finding.severity === "block").length;
   const nodeRatio = nodes === 0 ? 0 : mappedNodes / nodes;
   const declarationRatio = carried + dropped === 0 ? 1 : carried / (carried + dropped);
-  const motionRatio =
-    document.motion.length === 0
-      ? 1
-      : Math.min(1, motion.mapped / document.motion.length);
-  const raw =
-    nodeRatio * 45 + declarationRatio * 35 + motionRatio * 20 - blockFindings * 5;
+  const hasMotion = document.motion.length > 0;
+  const motionRatio = hasMotion ? Math.min(1, motion.mapped / document.motion.length) : 0;
+  const weighted = hasMotion
+    ? nodeRatio * 45 + declarationRatio * 35 + motionRatio * 20
+    : (nodeRatio * 45 + declarationRatio * 35) * (100 / 80);
+  const raw = weighted - blockFindings * 5;
   const score = Math.max(0, Math.min(100, Math.round(raw)));
 
   return {

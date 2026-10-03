@@ -70,3 +70,17 @@ describe("Framer appear effects", () => {
     expect(captureHtml({ html: page({}, "<p>x</p>").replace(/<script[\s\S]*?<\/script>/, "") }).motion).toEqual([]);
   });
 });
+
+describe("fidelity report", () => {
+  it("does not hand out the motion points when the page has no motion", async () => {
+    const { normalize, mapDocument, buildFidelityReport } = await import("../src/index.ts");
+    const document = captureHtml({ html: page({}, "<p>x</p>").replace(/<script[\s\S]*?<\/script>/, "") });
+    const normalized = normalize(document, { mode: "fidelity" });
+    const mapped = mapDocument(document, normalized.rules);
+    const report = buildFidelityReport(document, normalized, mapped, mapFramerMotion(document));
+    expect(report.motion.measured).toBe(0);
+    expect(report.score).toBeLessThanOrEqual(100);
+    expect(report.steps.join("\n")).toContain("Originaltreue-Modus");
+    expect(report.steps.join("\n")).not.toContain("DNA-Konformität erzwungen");
+  });
+});

@@ -57,6 +57,8 @@ export function ruleScopeOf(pagePath: string): string {
 export const RULE_ID_PATTERN = /^fi-([0-9a-f]{6})-\d+$/;
 
 export type NormalizeResult = {
+  // The mode the normalization ran in, so the report can say what it did.
+  mode: NormalizeMode;
   document: FramerIrDocument;
   rules: NormalizedStyleRule[];
   findings: IrFinding[];
@@ -373,6 +375,7 @@ export function normalize(document: FramerIrDocument, options: NormalizeOptions 
 
   const declarationSets = rules.length;
   return {
+    mode: options.mode ?? "dna",
     document: { ...document, findings },
     rules,
     findings,
