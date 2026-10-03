@@ -193,6 +193,31 @@ if (process.argv.includes("--stamp")) {
   process.exit(0);
 }
 
+// Toleranz fuer den Vergleich der Prozentzahlen.
+//
+// Derselbe Commit liefert im selben Umfeld nicht jedes Mal denselben Branch-
+// Nenner: drei Laeufe hintereinander ergaben 3363/4610, 3364/4611 und
+// 3363/4610 Branches, und nur `engine/src/store.ts` wackelte (76.74 / 76.76 /
+// 76.74, je ein Branch mehr im Zaehler und im Nenner). Ein Vergleich auf zwei
+// Nachkommastellen ohne Spielraum macht das Tor dann zufaellig rot (Lauf 23,
+// 72.95 gegen 72.96) - ein Fehlalarm, kein Befund.
+//
+// 0.05 Prozentpunkte decken ein bis zwei wackelnde Branches ab. Ein echter
+// Rueckgang faellt weiter auf: ein neuer, ungedeckter Branch in store.ts
+// verschiebt dessen Quote um rund 0.06. Der Text ausserhalb der Zahlen muss
+// weiterhin exakt gleich sein.
+const TOLERANCE = 0.05;
+const PERCENT = /\d+\.\d{2}/g;
+function compareWithinTolerance(a, b) {
+  if (a === b) return "exact";
+  const left = a.match(PERCENT) ?? [];
+  const right = b.match(PERCENT) ?? [];
+  if (left.length !== right.length) return "different";
+  if (a.replace(PERCENT, "#") !== b.replace(PERCENT, "#")) return "different";
+  const within = left.every((value, i) => Math.abs(Number(value) - Number(right[i])) <= TOLERANCE + 1e-9);
+  return within ? "tolerated" : "different";
+}
+
 const checking = process.argv.includes("--check");
 const summary = readSummary();
 const current = readFileSync(TARGET, "utf8");
@@ -227,8 +252,13 @@ if (checking) {
   // gruen werden (so am 02.10.2026 im Lauf 20 gesehen: alle Prozentzahlen
   // passten, jede Zeile unterschied sich nur an \r).
   const normalise = (text) => text.replace(/\r\n/g, "\n");
-  if (normalise(next) === normalise(current)) {
-    console.log("qualitaet.md stimmt mit dem Lauf überein.");
+  const verdict = compareWithinTolerance(normalise(next), normalise(current));
+  if (verdict !== "different") {
+    console.log(
+      verdict === "exact"
+        ? "qualitaet.md stimmt mit dem Lauf überein."
+        : `qualitaet.md stimmt mit dem Lauf überein (Prozentzahlen innerhalb von ±${TOLERANCE}).`,
+    );
     process.exit(0);
   }
   console.error(
