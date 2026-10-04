@@ -20,10 +20,11 @@ permissions:
   contents: read
 
 # Ein neuer Push auf denselben Zweig bricht den veralteten Lauf ab (die Jobs
-# sind teuer: Browser, echte Postgres). Auf main laeuft jeder Stand zu Ende.
+# sind teuer: Browser, echte Postgres). Auf master (Standardzweig) laeuft jeder
+# Stand zu Ende.
 concurrency:
   group: verify-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 # Die Actions sind auf Commits gepinnt (der Kommentar nennt das Tag): ein
 # verschobenes Tag kann keinen fremden Code in den Lauf bringen. Aktualisieren
