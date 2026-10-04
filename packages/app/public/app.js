@@ -6837,9 +6837,11 @@ async function pageView(siteId, pageId, initialSearch) {
   // Ein sichtbarer Editorpfad (E5 Scheibe 1): der Umbau-Canvas (`mountCanvas`,
   // v2-Dokument) ist der Editor. Seit P3-1 Punkt 4 gibt es keinen zweiten
   // mehr und keinen Modus zu berechnen - der Aufrufer pflegt den Canvas.
+  // `data-senify-editor` macht die --ed-*-Tokens fuer die Workspace-Leiste verfuegbar
+  // (sie liegt ausserhalb des Editor-Wurzelelements).
   const toolbar = el(
     "div",
-    { class: "toolbar" },
+    { class: "toolbar", "data-senify-editor": "true" },
     el("a", { href: `#/projects/${siteId}/pages`, text: "← Seiten" }),
     el("h1", { text: page.title || page.path, style: "margin: 0" }),
     el("code", { text: page.path }),

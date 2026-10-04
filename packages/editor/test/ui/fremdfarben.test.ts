@@ -29,7 +29,7 @@ const NEW_CHROME: Record<string, string> = {
 };
 
 const HEX_ALLOWLIST = new Set(["#ffffff"]);
-const RGB_PREFIXES = ["rgb(154 201 226 /", "rgb(1 20 32 /", "rgb(1 40 60 /"];
+const RGB_PREFIXES = ["rgb(61 155 255 /", "rgb(255 255 255 /", "rgb(0 0 0 /", "rgb(11 11 11 /"];
 const LEGACY_PALETTE = [
   "#d004d4",
   "#e879f9",

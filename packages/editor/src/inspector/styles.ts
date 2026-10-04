@@ -227,7 +227,7 @@ export const INSPECTOR_STYLES = `
   height: var(--ed-hit-min); margin: 0; background: transparent; cursor: pointer;
 }
 .ed-slider input[type="range"]::-webkit-slider-runnable-track {
-  height: 4px; border-radius: 0; background: rgb(154 201 226 / 0.22);
+  height: 4px; border-radius: 0; background: rgb(255 255 255 / 0.22);
 }
 .ed-slider input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none;
@@ -241,18 +241,18 @@ export const INSPECTOR_STYLES = `
 }
 .ed-switch__track {
   position: relative; width: 32px; height: 18px; flex: none;
-  border-radius: var(--ed-radius-full); background: rgb(154 201 226 / 0.26);
+  border-radius: var(--ed-radius-full); background: rgb(255 255 255 / 0.26);
   transition: background-color var(--ed-t-1) var(--ed-ease-standard);
 }
 .ed-switch__knob {
   position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
   border-radius: var(--ed-radius-full); background: var(--ed-ink-strong);
-  box-shadow: inset 0 0 0 1px rgb(1 40 60 / 0.35);
+  box-shadow: inset 0 0 0 1px rgb(11 11 11 / 0.35);
   transition: transform var(--ed-t-2) var(--ed-ease-standard);
 }
 .ed-switch[aria-checked="true"] .ed-switch__track { background: var(--ed-signal-accent); }
 .ed-switch[aria-checked="true"] .ed-switch__knob { transform: translateX(14px); }
-.ed-switch:hover .ed-switch__track { background: rgb(154 201 226 / 0.34); }
+.ed-switch:hover .ed-switch__track { background: rgb(255 255 255 / 0.34); }
 .ed-switch[aria-checked="true"]:hover .ed-switch__track { background: var(--ed-fill-accent-hover); }
 .ed-switch:focus-visible .ed-switch__track { outline: 2px solid var(--ed-focus); outline-offset: 1px; }
 .ed-swatch {

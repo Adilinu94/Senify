@@ -222,7 +222,7 @@ export const CANVAS_STYLES = `
   position: absolute;
   height: 2px;
   background: var(--ed-snap-line);
-  box-shadow: 0 0 0 1px rgb(1 20 32 / 0.35);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.35);
 }
 .senify-canvas__dropline[data-state="hidden"] { display: none; }
 .senify-canvas__dropline[data-state="rejected"] { background: var(--ed-signal-danger-ink); }
@@ -252,7 +252,7 @@ export const CANVAS_STYLES = `
   color: var(--ed-ink-on-lime);
   font-size: 13px;
   line-height: 1;
-  box-shadow: 0 1px 2px rgb(1 20 32 / 0.35);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
 }
 .senify-canvas__plus[data-state="hidden"] { display: none; }
 .senify-canvas__plus:hover::before { background: var(--ed-fill-accent-hover); }
