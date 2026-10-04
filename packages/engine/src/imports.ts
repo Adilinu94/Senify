@@ -23,7 +23,7 @@ import {
   type MediaContext,
 } from "./media.ts";
 import { prepareCodePayload } from "./code-payloads.ts";
-import type { CodePayloadLicense, CodePayloadProvenance } from "./types.ts";
+import type { CodePayloadLicense, CodePayloadProvenance, PageMeta } from "./types.ts";
 import type { PreparedCodePayload, Store } from "./store.ts";
 import type { AuthorInput } from "./mutations/contract.ts";
 import type {
@@ -54,6 +54,20 @@ const MOBILE_SUFFIX = "_mobile";
 // The v2 → v1 direction of `migrateV1ToV2` (editor/state/migration.ts): the
 // page draft stays a section NodeTree, the root primitive maps onto
 // PAGE_ROOT_TYPE and the `_tablet`/`_mobile` prop suffixes become overrides.
+// The SEO head of the imported page. Only what the source states and the page
+// can hold: a description (the meta description, else the share description)
+// and a share image. An image that is not an absolute http(s) URL or a rooted
+// path is dropped rather than stored as a reference that resolves nowhere.
+export function pageMetaOf(page: { description?: string; meta?: { ogDescription?: string; ogImage?: string } } | undefined): PageMeta {
+  if (page === undefined) return {};
+  const description = (page.description ?? page.meta?.ogDescription ?? "").trim();
+  const image = (page.meta?.ogImage ?? "").trim();
+  return {
+    ...(description === "" ? {} : { description: description.slice(0, 500) }),
+    ...(/^(https?:\/\/|\/)/.test(image) ? { ogImage: image.slice(0, 2000) } : {}),
+  };
+}
+
 export function editorDocumentToNodeTree(document: {
   rootNodeId: string;
   nodes: Record<string, EditorNode & ImportDeviceVisibility>;
@@ -441,6 +455,7 @@ export async function runFramerImportJob(
       author: authorOf(input.author),
       target,
       draft: editorDocumentToNodeTree(run.mapped.document),
+      pageMeta: pageMetaOf(run.document.pages[0]),
       payloads: preparedPayloads,
       styleRules: run.mapped.rules,
       themePatch:
