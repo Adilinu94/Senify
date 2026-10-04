@@ -12,6 +12,7 @@
 | Patch-Prüfung | `git diff --check` | **Grün am 29.09.2026** |
 | Doku-Messwerte | `pnpm quality:render` + `pnpm quality:check` | **Grün am 29.09.2026**; gerenderte Werte stimmen mit dem Lauf überein |
 | Build, App-Gates und PostgreSQL | `pnpm verify`, `pnpm test:visual`, `pnpm verify:parity`, `pnpm verify:import`, `pnpm test:postgres` | **Grün am 28.09.2026** auf dem zuvor gesicherten Folge-Diff; für die reine Mapper-Auslagerung nicht erneut erforderlich |
+| CI auf dem PR-Branch | `.github/workflows/verify.yml` (Push und Pull Request) | **Alle 8 Läufe grün am 04.10.2026** auf `0386cf9` (verify, Windows, PostgreSQL, Coverage); der Visual-Test lief mit den Linux-Baselines von `master`. Davor war auf `6c35e3e` ein `verify`-Push-Lauf an einem Timeout in `accessibility-browser.test.ts` rot, der Pull-Request-Lauf desselben Codes grün, lokal 3 von 3 Läufen grün: als Timing-Flake gewertet, nicht als Befund |
 | Route-Matrix | `pnpm route-matrix` | Kommando nicht separat ausgeführt; `route-matrix.test.ts` ist Teil des Volltests |
 
 ## Volltest
@@ -32,7 +33,7 @@ Die Postgres-Fälle liefen separat gegen einen eigens initialisierten, lokalen P
 
 Geführt über `pnpm test:coverage`, v8-Provider und `perFile: true`. Der Lauf umfasst die Suites von `engine`, `editor` und `mcp`, nicht die schweren Browser-Suiten. Die Schwellen liegen in `vitest.config.ts`; nur dort ist die maßgebliche Konfiguration.
 
-Der aktuelle Lauf vom 29.09.2026: **1003 bestanden / 15 übersprungen / 0 fehlgeschlagen** in 103 Dateien, null Schwellenfehler. Die Übersicht unten wurde mit `pnpm quality:render` aktualisiert und anschließend durch `pnpm quality:check` bestätigt.
+Der aktuelle Lauf vom 04.10.2026 (lokal in der Sandbox, ohne Browser und ohne `TEST_DATABASE_URL`): **1053 bestanden / 18 übersprungen / 0 fehlgeschlagen** in 105 Dateien (101 bestanden, 4 mit Skips), null Schwellenfehler. Die Übersicht unten wurde mit `pnpm quality:render` aktualisiert und anschließend durch `pnpm quality:check` bestätigt.
 
 ### Gemessene Coverage der geschützten Pfade
 
@@ -63,7 +64,7 @@ Coverage misst nur, was die Suite ausführt, und ist kein Vollständigkeitsbewei
 
 ## Bekannte Grenzen
 
-- Der aktuelle Postgres-Lauf belegt sechs Transaktionsfälle auf PostgreSQL 18.6; die CI-Lane verwendet PostgreSQL 16.
+- Der aktuelle Postgres-Lauf belegt sechs Transaktionsfälle auf PostgreSQL 18.6; die CI-Lane verwendet PostgreSQL 18 (`postgres:18` in `.github/workflows/verify.yml`).
 - `pnpm test:visual`, `pnpm verify:parity` und `pnpm verify:import` sind für den zuvor gesicherten Folge-Diff am 28.09.2026 grün; sie wurden durch die reine Mapper-Auslagerung nicht berührt.
 - Die Visual-Baselines liegen unter `packages/app/test/visual-baselines/`; Aktualisierung ist ein expliziter Vorgang über `UPDATE_VISUAL_SNAPSHOTS=1`.
 - Das Import-Tor nutzt eine kontrollierte Fixture; nicht alle echten Export-Fixtures durchlaufen es vollständig.
@@ -71,15 +72,19 @@ Coverage misst nur, was die Suite ausführt, und ist kein Vollständigkeitsbewei
 
 ## CI-Stand
 
-`.github/workflows/verify.yml` enthält drei voneinander unabhängige Jobs:
+`.github/workflows/verify.yml` enthält vier voneinander unabhängige Jobs. Trigger sind `push` und `pull_request`; der Workflow hat nur `contents: read`, die Actions sind auf Commits gepinnt, und ein neuer Push bricht veraltete Läufe ab, außer auf `master`.
 
-**Job `verify`:** Installiert Chromium, führt `pnpm verify` (Build, Artefaktprüfung, Lint, Patch-Integrität, Tests), `pnpm test:visual`, `pnpm verify:parity` und `pnpm verify:import` aus.
+**Job `verify`:** Installiert Chromium, führt `pnpm verify` (Build, Artefaktprüfung, Lint einschließlich `eslint.config.mjs`, Patch-Integrität, Tests), den Docs-Portal-Build als eigenen Schritt, `pnpm test:visual`, `pnpm verify:parity` und `pnpm verify:import` aus.
 
-**Job `postgres-tests`:** Postgres-16-Service mit `TEST_DATABASE_URL`, dann `pnpm test:postgres`; der Job wird rot, wenn die Variable fehlt, Tests übersprungen werden oder kein Fall läuft.
+**Job `tests-windows`:** `pnpm test` unter Windows, mit TEMP/TMP auf dem Laufwerk des Repos (sonst scheitert Astros `rename()` mit EXDEV). Der Job ist seit dem 04.10.2026 blockierend (ohne `continue-on-error`).
+
+**Job `postgres-tests`:** Postgres-18-Service mit `TEST_DATABASE_URL`, dann `pnpm test:postgres`; der Job wird rot, wenn die Variable fehlt, Tests übersprungen werden oder kein Fall läuft.
 
 **Job `coverage`:** `pnpm test:coverage`, danach `pnpm quality:check` und Upload der JSON-Zusammenfassung.
 
-Offene CI-Verbesserungen: Docs-Portal-Build als eigener sichtbarer Schritt (aktuell durch rekursives `pnpm build` enthalten) und Linting der Root-Konfiguration `eslint.config.mjs`.
+Der Pull-Request-Lauf prüft den Merge mit dem **aktuellen** `master`. Bewegt sich `master` und ändert dabei die Coverage der geschützten Pfade, kann `pnpm quality:check` im Pull-Request-Lauf rot werden, obwohl der Push-Lauf desselben Commits grün ist. Dann `master` in den Zweig mergen, `pnpm test:coverage` und `pnpm quality:render` ausführen und den Block committen.
+
+Offene CI-Verbesserungen aus P3-6 gibt es nicht mehr.
 
 ## Pflege-Regeln
 

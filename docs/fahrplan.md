@@ -53,15 +53,15 @@ Kein Minify/Tree-Shake/Sourcemaps in diesem Schritt. ESM-Aufteilung und Dateigr�
 
 ### P1-1 · PostgreSQL-Lane in CI (R11, Teil 1) — erledigt 28.09.2026
 
-`.github/workflows/verify.yml` führt einen eigenen `postgres-tests`-Job mit Postgres 16 und `TEST_DATABASE_URL`. `pnpm test:postgres` wird rot, wenn ein Fall übersprungen wird oder keiner läuft. Der aktuelle Folge-Diff bestand die Lane lokal mit sechs Fällen gegen PostgreSQL 18.6, null übersprungen. Test-Fixture erstellt und entfernt ein eigenes Schema.
+`.github/workflows/verify.yml` führt einen eigenen `postgres-tests`-Job mit Postgres 18 und `TEST_DATABASE_URL`. `pnpm test:postgres` wird rot, wenn ein Fall übersprungen wird oder keiner läuft. Der aktuelle Folge-Diff bestand die Lane lokal mit sechs Fällen gegen PostgreSQL 18.6, null übersprungen. Test-Fixture erstellt und entfernt ein eigenes Schema.
 
 ### P1-2 · Coverage-Schwellen (R11, Teil 2) — erledigt 28.09.2026
 
 `vitest.config.ts` nutzt v8 und `perFile: true`; `pnpm test:coverage` prüft geschützte Pfade aus engine, editor und mcp. Gezielte Fehlerpfade: `error-paths.test.ts` (Idempotency-Release, Completion ohne Slot, Rollback), `auth.test.ts` (`operatorOnly`), `mutations.test.ts` (`baseVersion`-409) und `imports.test.ts` (Asset-Kompensation). Coverage bleibt ein Messwert der ausgeführten Tests und kein Vollständigkeitsbeweis. Zahlen ausschließlich in `docs/current/qualitaet.md`; das aktuelle Coverage-Gate ist grün.
 
-### P1-3 · Lint-Ziel erweitern — erledigt 26.09.2026, Root-Config offen
+### P1-3 · Lint-Ziel erweitern — erledigt 26.09.2026, Root-Config seit 04.10.2026 im Ziel
 
-`pnpm lint` führt `eslint packages scripts` aus; `pnpm check:patch` hängt in `verify`. `eslint.config.mjs` selbst ist noch nicht im Lint-Ziel. Der aktuelle Lint-Lauf ist grün; Root-Config-Linting bleibt für P3-6 offen.
+`pnpm lint` führt `eslint packages scripts eslint.config.mjs` aus; `pnpm check:patch` hängt in `verify`. Die Root-Konfiguration ist seit 04.10.2026 im Lint-Ziel (Beleg: Skript `lint` in `package.json`; der Lint-Lauf ist grün).
 
 **Gate P1:** Workflow enthält `verify`, `test:visual`, `verify:parity`, `verify:import`, `postgres-tests` und `coverage`. Der aktuelle Gesamt-Diff hat diese Lanes bestanden.
 
@@ -141,12 +141,12 @@ Snapshot-Werte für Assets, Components, Payloads und Entries sind enthalten. Ass
 
 Neu erzeugte Uploads werden nach fehlgeschlagenem DB-Commit kompensiert; negativer Fehlerpfad in `packages/engine/test/imports.test.ts`. Datei und DB sind keine gemeinsame Transaktion; dies bleibt eine dokumentierte Grenze.
 
-### P3-6 · Doku-Prozesse und `.scratch/`-Hygiene — teilweise erledigt
+### P3-6 · Doku-Prozesse und `.scratch/`-Hygiene — erledigt 04.10.2026
 
 - Coverage-Zahlenblock in `qualitaet.md` wird von `scripts/render-quality.mjs` erzeugt; CI führt `pnpm quality:check` aus.
 - Historische Dokumente liegen unter `docs/history/`.
 - `.scratch/`-Regel: Absicht und Werkzeuge bleiben getrackt; erzeugte Logs, Bilder und Messergebnisse werden ignoriert (`.gitignore`).
-- Offen: Docs-Portal-Build als eigener sichtbarer CI-Schritt (aktuell in rekursivem Build enthalten) und Linting von `eslint.config.mjs`.
+- Seit 04.10.2026: Docs-Portal-Build ist ein eigener sichtbarer Schritt im Job `verify` (`.github/workflows/verify.yml`), und `eslint.config.mjs` liegt im Lint-Ziel (`pnpm lint`).
 
 ---
 
@@ -188,5 +188,6 @@ Neu erzeugte Uploads werden nach fehlgeschlagenem DB-Commit kompensiert; negativ
 
 | Datum | Änderung |
 |---|---|
+| 04.10.2026 | PR-Branch `claude/hardening-2026-09-29` auf `master` (`15f3406`) gebracht, alle 8 CI-Läufe grün. P1-3 (Root-Config im Lint) und P3-6 (Docs-Portal-Build als eigener Schritt) erledigt; der Windows-Job ist blockierend. `docs/current/stand.md` führt Origin-Trennung, SSRF-Schutz, Schlüsseldatei und öffentliche Adresse je Projekt mit Code-/Testbelegen (ADR-0015 bis 0018, noch vorgeschlagen). |
 | 29.09.2026 | P0-1-Folge-Diff in `2a0afde`/`aad9550` gesichert. P3-2 begann mit einer reinen Store-Mapper-Auslagerung; Typprüfung, Lint, Volltest und Coverage bestanden. P3-2 bleibt offen, bis auch die weiteren Module zerlegt sind. |
 | 28.09.2026 | Folge-Diff fachlich geprüft und alle P0-Gates grün ausgeführt. A11y-Browser-Test gegen Debounce/Ladeablauf synchronisiert; vollständiges `pnpm verify`, Visual, Parity, Import, Coverage, PostgreSQL und `quality:check` bestanden. PostgreSQL lief isoliert lokal gegen 18.6, ohne den bestehenden Dienst anzutasten. `data/` und leeres `full.log` als lokale Laufzeit-/Testausgaben klassifiziert und ignoriert. Folge-Diff ist noch zu sichern; P3-2 startet erst nach sauberem Status. |
