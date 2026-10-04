@@ -183,22 +183,23 @@ const next = `${head}${block}${tail}`;
 const undated = (text) =>
   text.replace(/(\*\*Gemessen:\*\* )\d{4}-\d{2}-\d{2}/, "$1<Datum>");
 
-// The total runs over every measured file, also those outside the protected
-// paths, and its branch figure moves by a hundredth between runs on identical
-// code (73.22, then 73.21 on CI). An exact match on that line would turn the
-// gate red at random. The rows of the protected files are stable and stay an
-// exact match; the total may differ by this much.
-const TOTAL_TOLERANCE = 0.05;
-const TOTAL_LINE =
-  /^\*\*Über alle gemessenen Dateien:\*\* Statements ([\d.]+) · Branches ([\d.]+) · Functions ([\d.]+) · Lines ([\d.]+)$/m;
+// A run does not reproduce its figures to the hundredth: the total moved from
+// 73.22 to 73.21 on identical code, and `store.ts` branches measured 77.27 on a
+// local run and 77.25 on CI (Node 22 against 24). The block is rendered on one
+// machine and checked on another, so an exact match on any figure turns the gate
+// red at random. Text and layout still have to match exactly (a file that
+// disappears or a new row is a change); every figure may differ by this much.
+// The thresholds themselves are enforced per file by `vitest.config.ts`, not here.
+const TOLERANCE = 0.05;
+const FIGURE = /\d+\.\d+/g;
 
 function sameMeasurement(left, right) {
-  const mask = (text) => undated(text).replace(TOTAL_LINE, "<Gesamtzeile>");
-  if (mask(left) !== mask(right)) return false;
-  const a = TOTAL_LINE.exec(left);
-  const b = TOTAL_LINE.exec(right);
-  if (a === null || b === null) return a === b;
-  return [1, 2, 3, 4].every((i) => Math.abs(Number(a[i]) - Number(b[i])) <= TOTAL_TOLERANCE);
+  const a = undated(left);
+  const b = undated(right);
+  if (a.replace(FIGURE, "#") !== b.replace(FIGURE, "#")) return false;
+  const figures = (text) => (text.match(FIGURE) ?? []).map(Number);
+  const rightFigures = figures(b);
+  return figures(a).every((value, i) => Math.abs(value - rightFigures[i]) <= TOLERANCE);
 }
 
 if (process.argv.includes("--check")) {
