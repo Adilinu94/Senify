@@ -66,6 +66,13 @@ function reactAttrs(
 }
 
 function renderSpec(spec: ElementSpec, scope: RenderScope, key: string): ReactNode {
+  // `spec.html` is the one place markup is injected: `describePrimitive`
+  // produced it through the allow-list sanitizer, so it is inline text markup
+  // only (links, emphasis, line breaks) and nothing that can run or load.
+  if (spec.html !== undefined) {
+    const HtmlTag = spec.tag as ElementType;
+    return <HtmlTag key={key} {...reactAttrs(spec, scope)} dangerouslySetInnerHTML={{ __html: spec.html }} />;
+  }
   const parts: ReactNode[] = [];
   for (const [index, child] of (spec.children ?? []).entries()) {
     parts.push(renderSpec(child, scope, `${key}-${index}`));

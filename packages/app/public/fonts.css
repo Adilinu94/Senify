@@ -1,0 +1,90 @@
+/* Erzeugt von packages/app/build-fonts.mjs aus packages/editor/src/ui/fonts.ts.
+   Nicht von Hand editieren: das Dashboard bindet damit dieselben Familien,
+   die der Editor und das generierte Theme benutzen. Ohne diese Datei faellt
+   `Inter` auf system-ui zurueck und das PNG-Gate misst je Betriebssystem
+   ein anderes Bild. */
+
+@font-face {
+  font-family: Inter;
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/editor-fonts/Inter-Regular.woff2") format("woff2");
+}
+@font-face {
+  font-family: Inter;
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/editor-fonts/Inter-Medium.woff2") format("woff2");
+}
+@font-face {
+  font-family: Inter;
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/editor-fonts/Inter-SemiBold.woff2") format("woff2");
+}
+@font-face {
+  font-family: Inter;
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/editor-fonts/Inter-Bold.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter Display";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/editor-fonts/InterDisplay-Regular.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter Display";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/editor-fonts/InterDisplay-Medium.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter Display";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/editor-fonts/InterDisplay-SemiBold.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter Display";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/editor-fonts/InterDisplay-Bold.woff2") format("woff2");
+}
+@font-face {
+  font-family: Sora;
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/editor-fonts/Sora-Regular.woff2") format("woff2");
+}
+@font-face {
+  font-family: Sora;
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/editor-fonts/Sora-SemiBold.woff2") format("woff2");
+}
+@font-face {
+  font-family: Sora;
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/editor-fonts/Sora-Bold.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/editor-fonts/JetBrainsMono-Regular.woff2") format("woff2");
+}

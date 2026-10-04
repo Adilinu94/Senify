@@ -33,6 +33,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # Kein `version:` hier: pnpm/action-setup liest die Version aus
+      # `packageManager` in der package.json. Gibt man beides an, bricht die
+      # Aktion mit "Multiple versions of pnpm specified" ab, bevor ein Job
+      # richtig startet (so am 01.10.2026 gesehen).
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -123,7 +127,7 @@ jobs:
       # haengt es beim Schliessen wieder ab. Ein kaputter Aufbau loescht sein
       # Schema selbst, damit die Lane keine halben Tabellen hinterlaesst.
       # Die Lane selbst ist rot, wenn auch nur ein Fall uebersprungen wird.
-      - name: "Lane (Pflicht: 0 uebersprungen)"
+      - name: 'Lane (Pflicht: 0 uebersprungen)'
         run: pnpm test:postgres
 
   coverage:

@@ -172,7 +172,13 @@ describe.skipIf(browserSkip)("desktop visual snapshots", () => {
       openBrowser: false,
       rateLimits: { perMinute: 1200, burst: 400, destructivePerMinute: 200 },
     });
-    const browser = await chromium.launch({ headless: true });
+    // Festes Text-Rendering über Betriebssysteme hinweg: Graustufen-Antialiasing
+    // ohne Hinting bei sRGB. Ohne diese Flags unterscheiden sich die Baselines
+    // zwischen Windows und Linux in jedem Glyph (.scratch/senify-v1/research/19-approval-tooling.md).
+    const browser = await chromium.launch({
+      headless: true,
+      args: ["--disable-lcd-text", "--font-render-hinting=none", "--force-color-profile=srgb"],
+    });
     const update = process.env["UPDATE_VISUAL_SNAPSHOTS"] === "1";
     const errors: string[] = [];
     const mismatches: string[] = [];

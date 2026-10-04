@@ -279,7 +279,11 @@ function parseSequence(s: Scanner, terminator: string): string {
       s.skipSpaces();
       continue;
     }
-    if (isOperator(char) && !isDigit(s.peek(1))) {
+    // `-` opens an identifier when a name character follows directly
+    // (`--token-1f29`, `-webkit-box`): CSS requires whitespace around the
+    // arithmetic minus, so `a - b` is an operator and `--x` is a name. Reading
+    // `--x` as two operators wrote `var(- - x)`, which no browser accepts.
+    if (isOperator(char) && !isDigit(s.peek(1)) && !(char === "-" && isIdentStart(s.peek(1)))) {
       s.take();
       parts.push(char);
       s.skipSpaces();

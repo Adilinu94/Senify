@@ -26,12 +26,15 @@ import {
   type IrFinding,
   type IrFontFace,
   type IrLayout,
+  type IrMotionSample,
   type IrNode,
   type IrNodeKind,
   type IrState,
   type IrTextContent,
   type IrVisual,
 } from "./ir.ts";
+import { expandBox, parseDeclaration, splitDeclarations } from "./css-util.ts";
+import { devicesContaining } from "./devices.ts";
 
 /* ------------------------------------------------------------------ types */
 
@@ -43,6 +46,10 @@ export type CaptureHtmlInput = {
   url?: string | null;
   pagePath?: string;
   title?: string | null;
+  // Stylesheet text fetched from the live site's `<link rel="stylesheet">`
+  // tags. A URL import has no export folder, so without it every class-based
+  // style (most of a Framer page) would be missing.
+  css?: string;
 };
 
 /* ---------------------------------------------------------------- scanner */
@@ -56,7 +63,24 @@ type RawNode = {
   children: RawNode[];
   text: string | null;
   svg: string | null;
+  // The inner markup of an element that mixes text and inline elements (the
+  // RichText shape `Hallo <strong>x</strong> Welt`): the scan keeps elements
+  // only, so without this the plain text nodes between them are lost.
+  innerHtml: string | null;
 };
+
+// Elements whose content is never visible page content.
+const NON_VISUAL_TAGS: ReadonlySet<string> = new Set(["style", "script", "noscript", "template"]);
+
+const INLINE_TAGS: ReadonlySet<string> = new Set([
+  "a", "span", "strong", "em", "b", "i", "u", "s", "br", "code", "small", "sub", "sup", "mark", "del", "ins",
+]);
+
+function isInlineTree(node: RawNode): boolean {
+  return INLINE_TAGS.has(node.tag) && node.svg === null && node.children.every(isInlineTree);
+}
+
+const MAX_INNER_HTML = 20_000;
 
 const VOID_TAGS = new Set([
   "area",
@@ -146,7 +170,7 @@ function scanTag(
   const classes = (attrs["class"] ?? "").split(/\s+/).filter((entry) => entry !== "");
 
   if (selfClosing || VOID_TAGS.has(tag)) {
-    return { node: { tag, attrs, classes, children: [], text: null, svg: null }, next: gt + 1 };
+    return { node: { tag, attrs, classes, children: [], text: null, svg: null, innerHtml: null }, next: gt + 1 };
   }
 
   // `script`/`style` content is raw text, not markup.
@@ -154,7 +178,7 @@ function scanTag(
     const close = html.toLowerCase().indexOf(`</${tag}>`, gt + 1);
     const content = close === -1 ? html.slice(gt + 1, limit) : html.slice(gt + 1, close);
     return {
-      node: { tag, attrs, classes, children: [], text: content, svg: null },
+      node: { tag, attrs, classes, children: [], text: content, svg: null, innerHtml: null },
       next: close === -1 ? limit : close + tag.length + 3,
     };
   }
@@ -164,7 +188,7 @@ function scanTag(
     const close = html.toLowerCase().indexOf("</svg>", gt + 1);
     const content = close === -1 ? html.slice(lt, limit) : html.slice(lt, close + 6);
     return {
-      node: { tag, attrs, classes, children: [], text: null, svg: content },
+      node: { tag, attrs, classes, children: [], text: null, svg: content, innerHtml: null },
       next: close === -1 ? limit : close + 6,
     };
   }
@@ -173,8 +197,17 @@ function scanTag(
   const innerEnd = close === -1 ? limit : close;
   const children = scanNodes(html, gt + 1, innerEnd);
   const text = children.length === 0 ? extractText(html.slice(gt + 1, innerEnd)) : null;
+  // Only elements with their own text between the children carry content the
+  // child scan cannot see.
+  const innerHtml =
+    children.length > 0 &&
+    innerEnd - (gt + 1) <= MAX_INNER_HTML &&
+    children.every(isInlineTree) &&
+    extractText(html.slice(gt + 1, innerEnd)) !== extractText(children.map((child) => child.text ?? "").join(" "))
+      ? html.slice(gt + 1, innerEnd)
+      : null;
   return {
-    node: { tag, attrs, classes, children, text, svg: null },
+    node: { tag, attrs, classes, children, text, svg: null, innerHtml },
     next: close === -1 ? limit : html.indexOf(">", innerEnd) + 1,
   };
 }
@@ -228,14 +261,11 @@ const FRAMER_TEXT_PROPS: Readonly<Record<string, string>> = {
 function framerInlineToStyles(style: RawAttr["style"] | undefined): IrVisual {
   const out: IrVisual = {};
   if (style === undefined) return out;
-  for (const declaration of style.split(";")) {
-    const colon = declaration.indexOf(":");
-    if (colon <= 0) continue;
-    const property = declaration.slice(0, colon).trim();
-    const value = declaration.slice(colon + 1).trim();
-    if (property === "" || value === "") continue;
-    const mapped = FRAMER_TEXT_PROPS[property];
-    if (mapped !== undefined) out[mapped] = value;
+  for (const declaration of splitDeclarations(style)) {
+    const pair = parseDeclaration(declaration);
+    if (pair === null) continue;
+    const mapped = FRAMER_TEXT_PROPS[pair[0]];
+    if (mapped !== undefined) out[mapped] = pair[1];
   }
   return out;
 }
@@ -251,12 +281,16 @@ function elementStyleToParts(
   const layout: Partial<IrLayout> = {};
   const box: Partial<IrBox> = {};
   if (style === undefined) return { visual, layout, box };
-  for (const declaration of style.split(";")) {
-    const colon = declaration.indexOf(":");
-    if (colon <= 0) continue;
-    const property = declaration.slice(0, colon).trim();
-    const value = declaration.slice(colon + 1).trim();
-    if (property === "" || value === "" || property.startsWith("--")) continue;
+  for (const declaration of splitDeclarations(style)) {
+    const pair = parseDeclaration(declaration);
+    if (pair === null) continue;
+    const [property, value] = pair;
+    if (property.startsWith("--")) {
+      // Custom properties feed the cascade (`applyClassRules` resolves the
+      // `var()` calls and removes them); they are never a style of their own.
+      visual[property] = value;
+      continue;
+    }
     switch (property) {
       case "width":
         box.width = value;
@@ -288,6 +322,13 @@ function elementStyleToParts(
       case "left":
         box.inset = { ...box.inset, [property]: value };
         break;
+      case "inset": {
+        // `inset: 0` pins an overlay to all four edges. Expanded like a box
+        // shorthand (1–4 values: top, right, bottom, left).
+        const sides = expandBox(value);
+        box.inset = { ...box.inset, top: sides.top, right: sides.right, bottom: sides.bottom, left: sides.left };
+        break;
+      }
       case "z-index":
         box.zIndex = value;
         break;
@@ -301,11 +342,7 @@ function elementStyleToParts(
       case "padding-left": {
         const sides = layout.padding ?? {};
         if (property === "padding") {
-          const parts = value.split(/\s+/);
-          sides.top = parts[0] ?? "0";
-          sides.right = parts[1] ?? sides.top ?? "0";
-          sides.bottom = parts[2] ?? sides.top ?? "0";
-          sides.left = parts[3] ?? sides.right ?? "0";
+          Object.assign(sides, expandBox(value));
         } else {
           const side = property.replace("padding-", "") as keyof typeof sides;
           sides[side] = value;
@@ -383,6 +420,26 @@ function toIrNode(raw: RawNode, counter: { ordinal: number }, inheritedHidden: s
 
   const states: IrState[] = [];
   const { visual, layout, box } = elementStyleToParts(attrs["style"]);
+  // The SSR start state of an appear animation (`opacity:0.001;transform:…`)
+  // is not the element's look: Framer's script animates it away on load. Kept
+  // as a permanent style it hides the element for good, so it moves out of the
+  // visual and into `appearInitial`, where the motion mapping reads it.
+  const appearInitial: Record<string, string> = {};
+  // Framer writes the same kind of start state for appear effects
+  // (`data-framer-appear-id`), scroll reveals (`opacity:0;transform:translateY`)
+  // and tickers (`opacity:0` until measured). An element that stays at
+  // opacity ~0 for good is never the intended look in a static import.
+  const startOpacity = Number.parseFloat(visual["opacity"] ?? "");
+  const hasStartState =
+    attrs["data-framer-appear-id"] !== undefined || (Number.isFinite(startOpacity) && startOpacity <= 0.01);
+  if (hasStartState) {
+    for (const property of ["opacity", "transform", "will-change"]) {
+      const value = visual[property];
+      if (value === undefined) continue;
+      appearInitial[property] = value;
+      delete visual[property];
+    }
+  }
   const textInline: Record<string, string> = {};
   for (const [property, value] of Object.entries(framerInlineToStyles(attrs["style"]))) {
     if (value !== undefined) textInline[property] = value;
@@ -439,7 +496,14 @@ function toIrNode(raw: RawNode, counter: { ordinal: number }, inheritedHidden: s
       ? { assetUrl: attrs["data-framer-module-poster"] }
       : {}),
     states,
-    children: raw.children.map((child) => toIrNode(child, counter)),
+    children: raw.children
+      .filter((child) => !NON_VISUAL_TAGS.has(child.tag))
+      .map((child) => toIrNode(child, counter)),
+    ...(attrs["id"] !== undefined && attrs["id"] !== "" ? { htmlId: attrs["id"] } : {}),
+    ...(attrs["alt"] !== undefined ? { alt: attrs["alt"] } : {}),
+    ...(attrs["target"] !== undefined ? { target: attrs["target"] } : {}),
+    ...(raw.innerHtml !== null ? { innerHtml: raw.innerHtml } : {}),
+    ...(Object.keys(appearInitial).length > 0 ? { appearInitial } : {}),
     appearId: attrs["data-framer-appear-id"] ?? null,
     stylesPresetId: attrs["data-styles-preset"] ?? null,
     svg: raw.svg,
@@ -560,15 +624,19 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
     } else {
       const counter = { ordinal: 0 };
       const children = main.children
-        // Inline <style> inside the tree is read separately.
-        .filter((child) => child.tag !== "style")
+        // Inline <style>/<script> inside the tree is read separately and must
+        // never become page text.
+        .filter((child) => !NON_VISUAL_TAGS.has(child.tag))
         .map((child) => toIrNode(child, counter));
       root = {
         key: "root",
         kind: "frame",
         name: null,
         componentType: null,
-        baseClasses: [],
+        // The classes of `#main` itself (`framer-QDc12 framer-uhV7E …`): the
+        // preset rules are written as `.framer-uhV7E .framer-styles-preset-x`,
+        // so without them no descendant selector under the page ever matches.
+        baseClasses: main.classes.filter((name) => !name.startsWith("framer-v-") && name !== "ssr-variant"),
         tag: "root",
         href: null,
         states: [
@@ -680,8 +748,18 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
   // while the existing inline path only sees the style attribute. Read the
   // simple class rules before mapping so the browser gate measures the real
   // import rather than an unstyled document.
-  const cssText = readAllCss(html, input.rootDir);
-  if (cssText.length <= 20_000) applyClassRules(root, cssText);
+  const cssText = `${readAllCss(html, input.rootDir)}\n${input.css ?? ""}`;
+  const applied = applyClassRules(root, cssText);
+  if (applied.skippedPseudo > 0) {
+    findings.push({
+      kind: "unsupported-declaration",
+      nodeKey: null,
+      message: `${applied.skippedPseudo} Regeln mit Pseudo-Zustand (Hover, Fokus, ::before …) nicht übernommen.`,
+      evidence: ":hover / :focus / ::before",
+      severity: "info",
+      suggestion: "Zustände nach dem Import im Editor ergänzen; sie fließen nicht mehr in den Basisstil ein.",
+    });
+  }
 
   const pagePath = input.pagePath ?? "/";
   const pageCount = countNodes(root);
@@ -711,6 +789,7 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
       {
         path: pagePath,
         title: input.title ?? htmlTitle(html),
+        ...pageMeta(html),
         root,
       },
     ],
@@ -720,9 +799,81 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
       fonts,
     },
     assets,
-    motion: [],
+    motion: readAppearMotion(html, root),
     findings,
   };
+}
+
+// Framer's SSR writes every appear/scroll-reveal effect into one JSON block
+// (`__framer__appearAnimationsContent`): per `data-framer-appear-id`, the start
+// state, the end state and a spring (`stiffness`, `damping`, `mass`, `delay`),
+// once as `default` and once per breakpoint hash (null = no effect there). The
+// start state is also written inline on the element, which the capture strips
+// from the visual (`appearInitial`), so the effect is read from here.
+type AppearState = { opacity?: number; x?: number; y?: number; scale?: number };
+type AppearTransition = { type?: string; stiffness?: number; damping?: number; mass?: number; delay?: number; duration?: number };
+
+function readAppearMotion(html: string, root: IrNode): IrMotionSample[] {
+  const block = /<script[^>]*id="__framer__appearAnimationsContent"[^>]*>([\s\S]*?)<\/script>/.exec(html)?.[1];
+  if (block === undefined) return [];
+  let entries: unknown;
+  try {
+    entries = JSON.parse(block);
+  } catch {
+    return [];
+  }
+  if (typeof entries !== "object" || entries === null) return [];
+  const byAppearId = new Map<string, IrNode>();
+  const index = (node: IrNode): void => {
+    if (node.appearId !== undefined && node.appearId !== null && !byAppearId.has(node.appearId)) {
+      byAppearId.set(node.appearId, node);
+    }
+    node.children.forEach(index);
+  };
+  index(root);
+  const samples: IrMotionSample[] = [];
+  for (const [appearId, byDevice] of Object.entries(entries as Record<string, unknown>)) {
+    const node = byAppearId.get(appearId);
+    const entry = (byDevice as Record<string, unknown> | null)?.["default"] as
+      | { initial?: AppearState; animate?: AppearState & { transition?: AppearTransition } }
+      | null
+      | undefined;
+    if (node === undefined || entry === null || entry === undefined) continue;
+    const from = entry.initial ?? {};
+    const to = entry.animate ?? {};
+    const transition = to.transition ?? {};
+    const params: IrMotionSample["params"] = {
+      fromOpacity: from.opacity ?? 1,
+      fromX: from.x ?? 0,
+      fromY: from.y ?? 0,
+      fromScale: from.scale ?? 1,
+      toOpacity: to.opacity ?? 1,
+      delay: Math.round((transition.delay ?? 0) * 1000),
+      duration: Math.round(springSettleSeconds(transition) * 1000),
+      ...(transition.type === undefined ? {} : { transition: transition.type }),
+    };
+    samples.push({
+      nodeKey: node.key,
+      library: "framer",
+      trigger: "appear",
+      params,
+      raw: JSON.stringify({ appearId, from, to }),
+    });
+  }
+  return samples;
+}
+
+// The time a spring needs to come to rest (2 % band): `4 / (ζ·ω0)` with
+// ω0 = √(stiffness/mass) and ζ = damping / (2·√(stiffness·mass)). A plain
+// `duration` transition is taken as it is. Clamped to a range a page can use.
+function springSettleSeconds(transition: AppearTransition): number {
+  if (transition.type !== "spring") return Math.min(Math.max(transition.duration ?? 0.4, 0.15), 1.6);
+  const stiffness = transition.stiffness ?? 100;
+  const damping = transition.damping ?? 10;
+  const mass = transition.mass ?? 1;
+  const omega = Math.sqrt(stiffness / mass);
+  const zeta = damping / (2 * Math.sqrt(stiffness * mass));
+  return Math.min(Math.max(4 / (zeta * omega), 0.15), 1.6);
 }
 
 function emptyRoot(): IrNode {
@@ -750,6 +901,38 @@ function emptyRoot(): IrNode {
     stylesPresetId: null,
     svg: null,
   };
+}
+
+function metaContent(html: string, key: string): string | null {
+  for (const match of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const attrs = parseAttrs(match[0].slice(5).replace(/\/?>$/, ""));
+    if ((attrs["name"] ?? attrs["property"])?.toLowerCase() === key) {
+      const content = attrs["content"];
+      return content === undefined || content.trim() === "" ? null : content.trim();
+    }
+  }
+  return null;
+}
+
+function pageMeta(html: string): {
+  lang?: string;
+  description?: string;
+  meta?: { ogTitle?: string; ogDescription?: string; ogImage?: string };
+} {
+  const out: ReturnType<typeof pageMeta> = {};
+  const lang = /<html\b[^>]*\blang\s*=\s*["']?([A-Za-z]{2,3}(?:-[A-Za-z0-9]+)*)/i.exec(html)?.[1];
+  if (lang !== undefined) out.lang = lang;
+  const description = metaContent(html, "description");
+  if (description !== null) out.description = description;
+  const og: NonNullable<typeof out.meta> = {};
+  const ogTitle = metaContent(html, "og:title");
+  const ogDescription = metaContent(html, "og:description");
+  const ogImage = metaContent(html, "og:image");
+  if (ogTitle !== null) og.ogTitle = ogTitle;
+  if (ogDescription !== null) og.ogDescription = ogDescription;
+  if (ogImage !== null) og.ogImage = ogImage;
+  if (Object.keys(og).length > 0) out.meta = og;
+  return out;
 }
 
 function htmlTitle(html: string): string | null {
@@ -781,14 +964,52 @@ type ParsedCssMedia = { maxWidth: number | null; minWidth: number | null; rules:
 
 function parseDeclarations(body: string): Record<string, string> {
   const values: Record<string, string> = {};
-  for (const declaration of body.split(";")) {
-    const colon = declaration.indexOf(":");
-    if (colon <= 0) continue;
-    const property = declaration.slice(0, colon).trim();
-    const value = declaration.slice(colon + 1).trim();
-    if (property !== "" && value !== "" && !property.startsWith("--")) values[property] = value;
+  for (const declaration of splitDeclarations(body)) {
+    const pair = parseDeclaration(declaration);
+    if (pair !== null) values[pair[0]] = pair[1];
   }
   return values;
+}
+
+type Vars = Record<string, string>;
+
+// A `var(--name, fallback)` call; the fallback may hold one level of nested
+// parentheses (`var(--a, var(--b, 8px))`, `rgb(0 0 0)`).
+const VAR_CALL = /var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,((?:[^()]|\([^()]*\))*))?\)/g;
+
+// Resolve `var()` against the custom properties in force on an element. Framer
+// writes ALL typography through them (`--framer-font-size`, `--framer-text-color`
+// … set by a preset class or inline), so keeping `var(--framer-font-size, 16px)`
+// in a baked page that no longer defines them renders every text at the
+// fallback. The token variables (`--token-*`) stay as `var()`: the theme
+// mapping owns them.
+function resolveVars(value: string, vars: Vars, depth = 0): string {
+  if (depth > 6 || !value.includes("var(")) return value;
+  return value.replace(VAR_CALL, (whole: string, name: string, fallback: string | undefined) => {
+    if (name.startsWith("--token-")) return whole;
+    const found = vars[name];
+    if (found !== undefined) return resolveVars(found.trim(), vars, depth + 1);
+    if (fallback !== undefined) return resolveVars(fallback.trim(), vars, depth + 1);
+    return whole;
+  });
+}
+
+// A media prelude that only asks for widths: `(min-width: 810px) and
+// (max-width: 1199.98px)`. Anything else (prefers-color-scheme, orientation,
+// print …) is not a width range and must not leak into the device model.
+function mediaRange(prelude: string): { min: number | null; max: number | null } | null {
+  const query = prelude.replace(/^@media/i, "");
+  const rest = query
+    .replace(/\(\s*(?:min|max)-width\s*:\s*[0-9.]+px\s*\)/gi, "")
+    .replace(/\b(?:screen|all|and|only)\b/gi, "")
+    .trim();
+  if (rest !== "") return null;
+  const max = /max-width:\s*([0-9.]+)px/i.exec(query)?.[1];
+  const min = /min-width:\s*([0-9.]+)px/i.exec(query)?.[1];
+  return {
+    min: min === undefined ? null : Number.parseFloat(min),
+    max: max === undefined ? null : Number.parseFloat(max),
+  };
 }
 
 function parseCssRules(source: string): { rules: ParsedCssRule[]; media: ParsedCssMedia[] } {
@@ -808,13 +1029,10 @@ function parseCssRules(source: string): { rules: ParsedCssRule[]; media: ParsedC
     }
     const body = source.slice(brace + 1, end - 1);
     if (prelude.startsWith("@media")) {
-      const max = /max-width:\s*([0-9.]+)px/i.exec(prelude)?.[1];
-      const min = /min-width:\s*([0-9.]+)px/i.exec(prelude)?.[1];
-      media.push({
-        maxWidth: max === undefined ? null : Number.parseFloat(max),
-        minWidth: min === undefined ? null : Number.parseFloat(min),
-        rules: parseCssRules(body).rules,
-      });
+      const range = mediaRange(prelude);
+      if (range !== null) {
+        media.push({ minWidth: range.min, maxWidth: range.max, rules: parseCssRules(body).rules });
+      }
     } else if (!prelude.startsWith("@")) {
       for (const selector of prelude.split(",").map((entry) => entry.trim()).filter(Boolean)) {
         rules.push({ selector, values: parseDeclarations(body) });
@@ -825,69 +1043,176 @@ function parseCssRules(source: string): { rules: ParsedCssRule[]; media: ParsedC
   return { rules, media };
 }
 
-function selectorsFor(
-  node: IrNode,
+// A selector compiled once, so a 550 KB stylesheet costs one pass per rule
+// instead of one pass per rule and node.
+type CompiledRule = {
+  order: number;
+  values: Record<string, string>;
+  root: boolean;
+  tag: string;
+  classes: string[];
+  ancestors: string[][];
+};
+
+type RuleIndex = { byClass: Map<string, CompiledRule[]>; generic: CompiledRule[] };
+
+const classesIn = (compound: string): string[] =>
+  [...compound.matchAll(/\.([A-Za-z0-9_-]+)/g)].map((match) => match[1] ?? "");
+
+// Returns null for selectors that are not a plain structural match. State
+// selectors (`:hover`, `::before`, `:nth-child` …) set `pseudo`: applying them
+// to the base style would make a button permanently look hovered.
+function compileSelector(
   selector: string,
-  ancestorClasses: ReadonlySet<string>,
-): boolean {
-  if (node.tag === "root" && /^(?:body|html|#main)$/.test(selector)) return true;
-  const compounds = selector
+  order: number,
+  values: Record<string, string>,
+): { rule: CompiledRule | null; pseudo: boolean } {
+  if (/^(?:body|html|#main)$/.test(selector)) {
+    return { rule: { order, values, root: true, tag: "", classes: [], ancestors: [] }, pseudo: false };
+  }
+  const withoutNot = selector.replace(/:not\([^)]*\)/g, "");
+  if (/:/.test(withoutNot.replace(/\[[^\]]*\]/g, ""))) return { rule: null, pseudo: true };
+  const compounds = withoutNot
     .split(/\s*[>+~]\s*|\s+/)
     .map((part) => part.trim())
     .filter(Boolean);
   const target = compounds.pop();
-  if (target === undefined) return false;
-  const targetClasses = [...target.matchAll(/\.([A-Za-z0-9_-]+)/g)].map((match) => match[1] ?? "");
-  const targetTag = target.replace(/\.[A-Za-z0-9_-]+/g, "").replace(/::?[a-z-]+(?:\([^)]*\))?/g, "");
-  if (targetTag !== "" && targetTag !== "*" && targetTag !== node.tag) return false;
-  if (!targetClasses.every((name) => node.baseClasses.includes(name))) return false;
-  return compounds.every((compound) => {
-    const classes = [...compound.matchAll(/\.([A-Za-z0-9_-]+)/g)].map((match) => match[1] ?? "");
-    return classes.length === 0 || classes.some((name) => ancestorClasses.has(name));
-  });
+  if (target === undefined) return { rule: null, pseudo: false };
+  const tag = target.replace(/\.[A-Za-z0-9_-]+/g, "");
+  if (/[[#]/.test(tag)) return { rule: null, pseudo: false };
+  return {
+    rule: {
+      order,
+      values,
+      root: false,
+      tag,
+      classes: classesIn(target),
+      ancestors: compounds.map(classesIn),
+    },
+    pseudo: false,
+  };
 }
 
-function applyClassRules(node: IrNode, css: string): void {
+function buildIndex(rules: readonly ParsedCssRule[]): { index: RuleIndex; skippedPseudo: number } {
+  const index: RuleIndex = { byClass: new Map(), generic: [] };
+  let skippedPseudo = 0;
+  rules.forEach((entry, order) => {
+    const { rule, pseudo } = compileSelector(entry.selector, order, entry.values);
+    if (pseudo) skippedPseudo += 1;
+    if (rule === null) return;
+    const first = rule.classes[0];
+    if (first === undefined) {
+      index.generic.push(rule);
+      return;
+    }
+    const bucket = index.byClass.get(first);
+    if (bucket === undefined) index.byClass.set(first, [rule]);
+    else bucket.push(rule);
+  });
+  return { index, skippedPseudo };
+}
+
+function ruleMatches(node: IrNode, rule: CompiledRule, ancestorClasses: ReadonlySet<string>): boolean {
+  if (node.tag === "root") {
+    if (rule.root) return true;
+    // A class rule can target the page element itself (`.framer-QDc12{…}`).
+    return rule.classes.length > 0 && rule.ancestors.length === 0 && rule.classes.every((name) => node.baseClasses.includes(name));
+  }
+  if (rule.root) return false;
+  if (rule.tag !== "" && rule.tag !== "*" && rule.tag !== node.tag) return false;
+  if (!rule.classes.every((name) => node.baseClasses.includes(name))) return false;
+  return rule.ancestors.every(
+    (classes) => classes.length === 0 || classes.some((name) => ancestorClasses.has(name)),
+  );
+}
+
+// Matching rules in source order, which is the cascade order.
+function matchingRules(index: RuleIndex, node: IrNode, ancestorClasses: ReadonlySet<string>): CompiledRule[] {
+  const candidates = new Set<CompiledRule>(index.generic);
+  for (const name of node.baseClasses) {
+    for (const rule of index.byClass.get(name) ?? []) candidates.add(rule);
+  }
+  return [...candidates]
+    .filter((rule) => ruleMatches(node, rule, ancestorClasses))
+    .sort((a, b) => a.order - b.order);
+}
+
+// A query applies to the devices whose representative width it contains, so a
+// bare `(min-width: 810px)` reaches tablet and desktop, never mobile, and a
+// `(min-width: 1440px)` reaches desktop only (see `devices.ts`).
+const devicesOf = devicesContaining;
+
+function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
   const parsed = parseCssRules(css);
-  const visit = (current: IrNode, ancestorClasses: ReadonlySet<string>): void => {
-    const base = current.states[0];
-    if (base === undefined) return;
-    for (const rule of parsed.rules) {
-      if (!selectorsFor(current, rule.selector, ancestorClasses)) continue;
-      Object.assign(base.visual, rule.values);
-    }
+  const base = buildIndex(parsed.rules);
+  const mediaIndexes = parsed.media.map((entry) => {
+    const built = buildIndex(entry.rules);
+    return { devices: devicesOf(entry), index: built.index, skipped: built.skippedPseudo };
+  });
+  const skippedPseudo =
+    base.skippedPseudo + mediaIndexes.reduce((sum, entry) => sum + entry.skipped, 0);
+
+  const DEVICES: readonly IrDevice[] = ["desktop", "tablet", "mobile"];
+  type VarsByDevice = Record<IrDevice, Vars>;
+
+  const visit = (current: IrNode, ancestorClasses: ReadonlySet<string>, inherited: VarsByDevice): void => {
+    const baseState = current.states[0];
+    if (baseState === undefined) return;
+    // The cascade: stylesheet rules first, the element's own inline style wins.
+    const inline = { ...baseState.visual };
+    const baseline: Record<string, string> = {};
+    for (const rule of matchingRules(base.index, current, ancestorClasses)) Object.assign(baseline, rule.values);
     const byDevice = new Map<IrDevice, Record<string, string>>();
-    for (const media of parsed.media) {
-      const device: IrDevice = media.maxWidth === null
-        ? (media.minWidth !== null && media.minWidth <= 810 ? "mobile" : "desktop")
-        : media.maxWidth <= 809 ? "mobile"
-          : media.maxWidth <= 1199 ? "tablet"
-            : "desktop";
-      const values = byDevice.get(device) ?? {};
-      for (const rule of media.rules) {
-        if (selectorsFor(current, rule.selector, ancestorClasses)) Object.assign(values, rule.values);
+    for (const entry of mediaIndexes) {
+      const rules = matchingRules(entry.index, current, ancestorClasses);
+      if (rules.length === 0) continue;
+      for (const device of entry.devices) {
+        const values = byDevice.get(device) ?? {};
+        for (const rule of rules) Object.assign(values, rule.values);
+        byDevice.set(device, values);
       }
-      byDevice.set(device, values);
     }
-    for (const [device, values] of byDevice) {
-      if (Object.keys(values).length === 0) continue;
-      const existing = current.states.find((state) => state.device === device);
-      if (existing !== undefined) {
-        Object.assign(existing.visual, values);
-      } else {
-        current.states.push({
-          ...base,
-          device,
-          hiddenAt: [],
-          variantHash: null,
-          visual: { ...base.visual, ...values },
-        });
+    // Custom properties inherit, so each device carries its own chain; the
+    // values are resolved against the chain at THIS element.
+    const varsByDevice = {} as VarsByDevice;
+    const valuesByDevice = {} as Record<IrDevice, IrVisual>;
+    for (const device of DEVICES) {
+      const own: Vars = {};
+      const plain: IrVisual = {};
+      for (const [key, value] of Object.entries({ ...baseline, ...(byDevice.get(device) ?? {}), ...inline })) {
+        if (value === undefined) continue;
+        if (key.startsWith("--")) own[key] = value;
+        else plain[key] = value;
       }
+      const vars = { ...inherited[device], ...own };
+      varsByDevice[device] = vars;
+      valuesByDevice[device] = Object.fromEntries(
+        Object.entries(plain).flatMap(([key, value]) => (value === undefined ? [] : [[key, resolveVars(value, vars)]])),
+      );
+    }
+    baseState.visual = valuesByDevice.desktop;
+    // A device keeps its own state only where it differs from desktop. A device
+    // the queries do not touch still needs one when desktop changed: it keeps
+    // the values from before the query (a `min-width` rule never reaches mobile).
+    for (const device of ["tablet", "mobile"] as const) {
+      const values = valuesByDevice[device];
+      const differs = [...new Set([...Object.keys(values), ...Object.keys(baseState.visual)])].some(
+        (key) => values[key] !== baseState.visual[key],
+      );
+      if (!differs) continue;
+      current.states.push({
+        ...baseState,
+        device,
+        hiddenAt: [],
+        variantHash: null,
+        visual: values,
+      });
     }
     const classes = new Set([...ancestorClasses, ...current.baseClasses]);
-    for (const child of current.children) visit(child, classes);
+    for (const child of current.children) visit(child, classes, varsByDevice);
   };
-  visit(node, new Set());
+  visit(root, new Set(), { desktop: {}, tablet: {}, mobile: {} });
+  return { skippedPseudo };
 }
 
 function readLinkedCss(html: string, rootDir: string | undefined): string {
@@ -907,7 +1232,9 @@ function readTextPresets(
   html: string,
   linkedCss: string,
 ): { id: string; name: string | null; values: Record<string, string>; breakpoints: [] }[] {
-  const source = linkedCss !== "" ? linkedCss : html;
+  // Framer writes the presets either into the linked sheet or into inline
+  // style blocks; reading only one of them leaves the other half empty.
+  const source = `${html}\n${linkedCss}`;
   const out: { id: string; name: string | null; values: Record<string, string>; breakpoints: [] }[] = [];
   for (const match of source.matchAll(/\.framer-styles-preset-([a-z0-9]+)(?::not\(\.rich-text-wrapper\))?\s*\{([^}]*)\}/g)) {
     const id = match[1] ?? "";
@@ -915,13 +1242,11 @@ function readTextPresets(
     if (id === "") continue;
     if (out.some((entry) => entry.id === id)) continue;
     const values: Record<string, string> = {};
-    for (const declaration of body.split(";")) {
-      const colon = declaration.indexOf(":");
-      if (colon <= 0) continue;
-      const property = declaration.slice(0, colon).trim();
-      const value = declaration.slice(colon + 1).trim();
-      const mapped = FRAMER_TEXT_PROPS[property];
-      if (mapped !== undefined && value !== "") values[mapped] = value;
+    for (const declaration of splitDeclarations(body)) {
+      const pair = parseDeclaration(declaration);
+      if (pair === null) continue;
+      const mapped = FRAMER_TEXT_PROPS[pair[0]];
+      if (mapped !== undefined) values[mapped] = pair[1];
     }
     if (Object.keys(values).length > 0) out.push({ id, name: null, values, breakpoints: [] });
   }

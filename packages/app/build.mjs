@@ -1,8 +1,12 @@
 import { mkdirSync, copyFileSync, readdirSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { createRequire } from "node:module";
+
+const execFileAsync = promisify(execFile);
 
 // Build artifact for the dashboard shell (agentenglas). What the program was
 // serving ad-hoc from `public/app.js` and bundling at runtime for the editor
@@ -61,7 +65,11 @@ function copyStatics() {
   // `legacy-editor.html` used to ship here (P3-1 Punkte 1-3). Punkt 4 removed
   // it with `mount.ts` itself: the page existed only to mount the retired
   // editor, and that module is gone.
-  for (const file of ["index.html", "app.css", "ui.css"]) {
+  // `fonts.css` binds Inter/Sora for the dashboard shell itself. It is
+  // generated from the editor's own font list (build-fonts.mjs) so there is
+  // one source, and it ships next to `ui.css` because without it the shell
+  // falls back to system-ui and looks different on every operating system.
+  for (const file of ["index.html", "app.css", "ui.css", "fonts.css"]) {
     copyFileSync(join(PUBLIC_DIR, file), join(DIST_DIR, file));
   }
   // Editor fonts ship next to the editor bundle: the dashboard serves them
@@ -83,6 +91,9 @@ function copyStatics() {
 
 const start = Date.now();
 mkdirSync(DIST_DIR, { recursive: true });
+// Generate the dashboard's @font-face block before the bundling, so the file
+// that gets copied into dist/ is the fresh one.
+await execFileAsync(process.execPath, [fileURLToPath(new URL("build-fonts.mjs", import.meta.url))]);
 await Promise.all([bundleAppShell(), bundleEditor()]);
 copyStatics();
 console.log(`[app] build → ${resolve(DIST_DIR)} (${Date.now() - start} ms)`);

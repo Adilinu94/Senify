@@ -43,6 +43,14 @@ h2 {
   font-size: 1.15rem;
 }
 
+/* <code> ohne eigene Regel nahm die Systemschrift des Browsers (Cascadia/Consolas
+   unter Windows, DejaVu Sans Mono unter Linux). Deren Zeichenbreiten
+   unterscheiden sich, und eine Tabellenspalte richtet sich nach ihrer
+   breitesten Zelle: die Settings-Tabelle war unter Linux 11px breiter. */
+code {
+  font-family: var(--font-mono);
+}
+
 kbd {
   font-family: var(--font-mono);
   font-size: 0.72rem;
@@ -1923,7 +1931,7 @@ dialog.modal select,
 }
 
 .refs-doc code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--ui-font-mono);
   font-size: 12px;
   background: var(--ui-surface-inset);
   padding: 1px 4px;
@@ -3488,7 +3496,12 @@ body {
   min-height: var(--ui-h-32);
   padding: 0 var(--ui-space-3);
   border-radius: var(--ui-radius-pill);
-  color: var(--ui-ink-muted);
+  /* Hauptnavigation, kein Nebentext: `muted` (12 px, 8:1) haengt am
+     Kantenum des geglaetteten Textes. Auf Ubuntu wertet axe das als
+     "color-contrast (serious)", obwohl die Ratio ueber AA liegt. Mit `ink`
+     ist der Wert nicht nur rechnerisch besser, sondern auch optisch eine
+     Navigation statt einer Fussnote. */
+  color: var(--ui-ink);
   font-size: var(--ui-text-12);
   transition: background-color 120ms ease-out, color 120ms ease-out;
 }
@@ -3727,5 +3740,54 @@ button:focus-visible,
   button.danger,
   .toolbar button {
     min-height: var(--ui-h-control);
+  }
+}
+
+/* ---- Workspace-Modus (Framer/Webflow-Stil) ---------------------------------
+   Im Seiten-Editor ersetzt EINE 48px-Leiste die Portal-Leiste und den
+   Seitenkopf; Explorer, Canvas und Inspektor laufen bis an den Fensterrand.
+   Unter 1100px stapelt das Raster, dort scrollt die Seite wie bisher. */
+body.is-editor > .topbar {
+  display: none;
+}
+body.is-editor .view.editor-view {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+}
+body.is-editor .view.editor-view > .toolbar {
+  flex: none;
+  flex-wrap: nowrap;
+  gap: 0.5rem;
+  min-height: 3rem;
+  margin: 0;
+  padding: 0 0.75rem;
+  background: var(--ui-surface-panel);
+  border-bottom: 1px solid var(--ui-line);
+  color: var(--ui-ink);
+}
+body.is-editor .view.editor-view > .toolbar h1 {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--ui-ink-strong);
+}
+body.is-editor .view.editor-view > .toolbar code {
+  color: var(--ui-ink-muted);
+  font-size: 0.75rem;
+}
+@media (min-width: 1101px) {
+  body.is-editor {
+    overflow: hidden;
+  }
+  body.is-editor .view.editor-view {
+    height: 100vh;
+  }
+  body.is-editor .view.editor-view > .editor-host,
+  body.is-editor .view.editor-view > .editor-host.canvas-view {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 0;
+    gap: 0;
   }
 }

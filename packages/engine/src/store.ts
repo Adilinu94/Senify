@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { SenifyError } from "@senify/core";
 import { publishSecretFile, readSecretFile } from "./secrets.ts";
 import { normalizeSiteBaseUrl } from "./site-url.ts";
+import { RULE_ID_PATTERN } from "@senify/framer-import";
 import {
   PAGE_ROOT_TYPE,
   type Author,
@@ -6973,10 +6974,24 @@ export class Store {
           field: "siteId",
         });
       }
-      const currentRules =
+      const storedRules =
         styleRow.style_rules_json === null || styleRow.style_rules_json === undefined
           ? []
           : parseStyleRuleRegistry(toJson<unknown>(styleRow.style_rules_json));
+      // The rules of the page being imported again are replaced, never stacked:
+      // their ids carry the page scope (`fi-<scope>-<n>`), so a second import of
+      // the same page swaps its own rules and leaves every other page's alone.
+      // Stacking them would leave the registry holding the first version (it
+      // keeps the first rule per id), so a change made in Framer never arrived.
+      const importedScopes = new Set(
+        plan.styleRules
+          .map((rule) => RULE_ID_PATTERN.exec(rule.id)?.[1])
+          .filter((scope): scope is string => scope !== undefined),
+      );
+      const currentRules = storedRules.filter((rule) => {
+        const scope = RULE_ID_PATTERN.exec(rule.id)?.[1];
+        return scope === undefined || !importedScopes.has(scope);
+      });
       const importedRules = plan.styleRules.map((rule, index) => {
         const ordered: StyleRule = { ...rule, order: currentRules.length + index };
         this.#assertWritableRule(ordered, `styleRules[${index}]`);

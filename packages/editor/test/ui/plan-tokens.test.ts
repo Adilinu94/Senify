@@ -233,9 +233,12 @@ describe("prohibition rules (ui-design.md section 6)", () => {
 });
 
 describe("fonts and symbols are local and emoji-free", () => {
-  it("declares a swap font-face for every bundled file", () => {
+  it("declares a swap font-face for every chrome file", () => {
     expect(EDITOR_FONT_FACE_CSS).toContain("font-display: swap;");
-    for (const { file } of EDITOR_BUNDLED_FONT_FILES) {
+    // Only the tool's own face is injected. The content face (Sora) is bound
+    // by the theme itself - see `editorFontFaceCss` in src/ui/fonts.ts for why
+    // binding it twice broke the canvas/release parity.
+    for (const { file } of EDITOR_FONT_FILES) {
       expect(EDITOR_FONT_FACE_CSS).toContain(`/editor-fonts/${file}`);
     }
     // The chrome families are exactly the chrome tokens.
@@ -243,14 +246,16 @@ describe("fonts and symbols are local and emoji-free", () => {
     expect(EDITOR_TOKENS["--ed-font-body"]).toContain('"Inter"');
   });
 
-  it("bundles the content display face (Sora) with the three theme weights", () => {
-    // The theme names the family (`defaultTheme().fonts.display.family`); the
-    // bytes are bundled here so the editor frames never fetch over the network.
+  it("leaves the content face (Sora) to the theme, keeping the bytes on disk", () => {
+    // The bytes stay bundled so the standalone preview and the disk check
+    // below have them, but the injected rules must NOT mention Sora: the theme
+    // binds it through `fontFaceBlocks()`, and only the theme knows which
+    // face a project uses.
     expect(EDITOR_CONTENT_FONT_FILES.map((f) => f.family)).toEqual(["Sora", "Sora", "Sora"]);
     expect(EDITOR_CONTENT_FONT_FILES.map((f) => f.weight)).toEqual([400, 600, 700]);
+    expect(EDITOR_FONT_FACE_CSS).not.toContain("font-family: Sora;");
     for (const { file } of EDITOR_CONTENT_FONT_FILES) {
-      expect(EDITOR_FONT_FACE_CSS).toContain(`font-family: Sora;`);
-      expect(EDITOR_FONT_FACE_CSS).toContain(`/editor-fonts/${file}`);
+      expect(EDITOR_FONT_FACE_CSS).not.toContain(`/editor-fonts/${file}`);
     }
     // The chrome list stays Inter-only (no content face leaks into the tool set).
     expect(EDITOR_FONT_FILES.every((f) => f.family.startsWith("Inter"))).toBe(true);
@@ -267,7 +272,8 @@ describe("fonts and symbols are local and emoji-free", () => {
 
   it("draws symbols from one library and carries no emoji", () => {
     expect(EDITOR_ICON_SOURCE).toContain("Phosphor");
-    expect(Object.keys(EDITOR_ICONS).length).toBe(41);
+    // 41 aus dem Plan + 4 Chrome-Symbole (desktop, tablet, phone, history).
+    expect(Object.keys(EDITOR_ICONS).length).toBe(45);
     // Emoji guard over the generated symbol source (6.3).
     const emoji = /\p{Extended_Pictographic}/u;
     for (const [name, svg] of Object.entries(EDITOR_ICONS)) {

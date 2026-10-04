@@ -26,9 +26,37 @@ const numberParam = (sample: IrMotionSample, key: string): number | undefined =>
   return undefined;
 };
 
+// A Framer appear effect (start state, end state, spring) against the closed
+// registry. `fade-up` is the one entry preset that reveals with opacity plus a
+// vertical offset, so an effect maps onto it only when its movement IS vertical
+// (or absent: a plain fade). A horizontal slide, a scale-in or a rotation has
+// no preset; mapping it to `fade-up` would play a different animation than the
+// source, so it stays a documented finding instead.
+function appearPreset(sample: IrMotionSample): MotionSpec["preset"] | null {
+  const x = Math.abs(numberAny(sample, "fromX") ?? 0);
+  const y = numberAny(sample, "fromY") ?? 0;
+  const scale = numberAny(sample, "fromScale") ?? 1;
+  // `fade-up` rises from below. An element that starts ABOVE its place (the nav
+  // dropping in, a negative offset) would play the wrong way round.
+  if (x > 0 || scale !== 1 || y < 0) return null;
+  return "fade-up";
+}
+
+const numberAny = (sample: IrMotionSample, key: string): number | undefined => {
+  const value = sample.params[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+};
+
+// The vertical start offset of an appear effect as the 1–10 intensity of the
+// preset (about 10 px per step; Framer's 50 px reveal is a 5).
+function appearIntensity(sample: IrMotionSample): number {
+  const y = Math.abs(numberAny(sample, "fromY") ?? 0);
+  return Math.min(10, Math.max(1, Math.round(y / 10)));
+}
+
 function presetFor(sample: IrMotionSample): MotionSpec["preset"] | null {
   if (sample.trigger === "inview") return "scroll-reveal";
-  if (sample.trigger === "appear") return "fade-up";
+  if (sample.trigger === "appear") return sample.library === "framer" ? appearPreset(sample) : "fade-up";
   if (sample.trigger === "hover") return "hover-lift";
   if (sample.trigger === "scroll") {
     const delta = numberParam(sample, "delta");
@@ -51,6 +79,7 @@ function specFor(sample: IrMotionSample, preset: MotionSpec["preset"]): MotionSp
   };
   return {
     preset,
+    ...(sample.library === "framer" && sample.trigger === "appear" ? { intensity: appearIntensity(sample) } : {}),
     ...(delay === undefined ? {} : { delay: Math.round(delay) }),
     ...(Object.keys(tokens).length === 0 ? {} : { tokens }),
     trigger: sample.trigger === "inview" || sample.trigger === "scroll" ? "viewport" : sample.trigger === "hover" ? "hover" : "load",
@@ -66,7 +95,10 @@ export function mapFramerMotion(document: FramerIrDocument): MotionMappingResult
     if (preset === null) {
       findings.push({
         sample,
-        reason: `Sample ${sample.library}/${sample.trigger} wird durch die geschlossene Senify-Motion-Registry nicht abgebildet.`,
+        reason:
+          sample.library === "framer" && sample.trigger === "appear"
+            ? `Framer-Effekt (Start x ${numberAny(sample, "fromX") ?? 0}, y ${numberAny(sample, "fromY") ?? 0}, Skalierung ${numberAny(sample, "fromScale") ?? 1}) hat kein passendes Senify-Preset: nur Einblendungen von unten (ohne Seitwärtsbewegung oder Skalierung) sind abbildbar.`
+            : `Sample ${sample.library}/${sample.trigger} wird durch die geschlossene Senify-Motion-Registry nicht abgebildet.`,
       });
       return;
     }

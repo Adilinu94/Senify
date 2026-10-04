@@ -19,12 +19,15 @@
 // The block is regenerated, never merged: a merge would let prose and numbers
 // drift apart inside the same region, and the drift is what this is here to
 // prevent.
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const SUMMARY = join(ROOT, "coverage", "coverage-summary.json");
+// Der Stempel kommt aus demselben Aufruf wie die Summary (siehe `--stamp`).
+// Ohne ihn waere das Datum im Dokument eine zweite, unabhaengige Messung.
+const STAMP = join(ROOT, "coverage", "measured-at.txt");
 const TARGET = join(ROOT, "docs", "current", "qualitaet.md");
 
 // The markers have to survive a careless edit, so they are not markdown
@@ -79,6 +82,24 @@ function percent(value) {
   return typeof value === "number" ? value.toFixed(2) : "—";
 }
 
+// Das Datum gehoert zum Messwert, aber NICHT in den Vergleich.
+//
+// `--check` laeuft am Tag des Laufs und vergleicht eine eingecheckte
+// Messung. Nimmt man das Datum des Laufs, ist das Tor bei jedem Push rot,
+// auch wenn die Prozentzahlen exakt uebereinstimmen: das Dokument nennt den
+// Tag, an dem GEMESSEN wurde, der Check laeuft heute (so am 02.10.2026 im
+// Lauf 20 - die Zahlen passten, nur das Datum nicht). Genau die Sorte
+// Fehlalarm, die ein Tor abhaengig macht statt zu schuetzen.
+//
+// Deshalb wird das Datum nur beim Schreiben gesetzt (`quality:render`), aus
+// dem Stempel des Messlaufs. Beim Pruefen wird die vorhandene Zeile
+// unveraendert uebernommen. So bleibt "wann gemessen wurde" eine Angabe des
+// Laufs und nicht eine Bedingung, die jeder spaetere Lauf neu erfuellen muss.
+function measuredLine(stamp) {
+  const date = /^\d{4}-\d{2}-\d{2}/.test(stamp) ? stamp.slice(0, 10) : "unbekannt";
+  return `**Gemessen:** ${date} · vitest coverage (v8)`;
+}
+
 // The group rows report a RANGE, not an average. An average hides the file
 // that dragged the number down, and the lowest file in a group is the reason
 // the threshold sits where it does. Returns the four cells WITHOUT the file
@@ -108,7 +129,7 @@ function groupCells(summary, prefix) {
   };
 }
 
-function render(summary) {
+function render(summary, stamp) {
   const lines = [];
   lines.push(BEGIN);
   lines.push("");
@@ -118,7 +139,7 @@ function render(summary) {
     "     lässt den Lauf rot werden, sobald Dokument und Lauf auseinanderlaufen. -->",
   );
   lines.push("");
-  lines.push(`**Gemessen:** ${new Date().toISOString().slice(0, 10)} · vitest coverage (v8)`);
+  lines.push(measuredLine(stamp));
   lines.push("");
   lines.push("| Pfad | Statements | Branches | Functions | Lines |");
   lines.push("|---|---|---|---|---|");
@@ -160,7 +181,45 @@ function render(summary) {
   return lines.join("\n");
 }
 
-const block = render(readSummary());
+// --stamp: nur den Zeitpunkt des Messlaufs festhalten. Das ruft `test:coverage`
+// im selben Schritt auf, in dem die Summary entsteht, damit Datum und Zahlen
+// garantiert aus einem Lauf stammen. Ohne diese Kopplung waere das Datum eine
+// zweite, unabhaengige Messung.
+if (process.argv.includes("--stamp")) {
+  mkdirSync(dirname(STAMP), { recursive: true });
+  const now = new Date().toISOString();
+  writeFileSync(STAMP, `${now}\n`, "utf8");
+  console.log(`Messzeitpunkt gestempelt (${now.slice(0, 10)}).`);
+  process.exit(0);
+}
+
+// Toleranz fuer den Vergleich der Prozentzahlen.
+//
+// Derselbe Commit liefert im selben Umfeld nicht jedes Mal denselben Branch-
+// Nenner: drei Laeufe hintereinander ergaben 3363/4610, 3364/4611 und
+// 3363/4610 Branches, und nur `engine/src/store.ts` wackelte (76.74 / 76.76 /
+// 76.74, je ein Branch mehr im Zaehler und im Nenner). Ein Vergleich auf zwei
+// Nachkommastellen ohne Spielraum macht das Tor dann zufaellig rot (Lauf 23,
+// 72.95 gegen 72.96) - ein Fehlalarm, kein Befund.
+//
+// 0.05 Prozentpunkte decken ein bis zwei wackelnde Branches ab. Ein echter
+// Rueckgang faellt weiter auf: ein neuer, ungedeckter Branch in store.ts
+// verschiebt dessen Quote um rund 0.06. Der Text ausserhalb der Zahlen muss
+// weiterhin exakt gleich sein.
+const TOLERANCE = 0.05;
+const PERCENT = /\d+\.\d{2}/g;
+function compareWithinTolerance(a, b) {
+  if (a === b) return "exact";
+  const left = a.match(PERCENT) ?? [];
+  const right = b.match(PERCENT) ?? [];
+  if (left.length !== right.length) return "different";
+  if (a.replace(PERCENT, "#") !== b.replace(PERCENT, "#")) return "different";
+  const within = left.every((value, i) => Math.abs(Number(value) - Number(right[i])) <= TOLERANCE + 1e-9);
+  return within ? "tolerated" : "different";
+}
+
+const checking = process.argv.includes("--check");
+const summary = readSummary();
 const current = readFileSync(TARGET, "utf8");
 
 if (!current.includes(BEGIN) || !current.includes(END)) {
@@ -173,38 +232,33 @@ if (!current.includes(BEGIN) || !current.includes(END)) {
   process.exit(1);
 }
 
+// Beim Pruefen zaehlt nur, ob die Zahlen stimmen. Das Datum im Dokument
+// beschreibt, wann gemessen wurde, und wird unveraendert mitgenommen - sonst
+// waere jedes Tor rot, das nicht genau am Messtag laeuft. Beim Schreiben
+// kommt das Datum aus dem Stempel des Laufs, der die Summary erzeugt hat.
+const existingStamp = current.match(/^\*\*Gemessen:\*\* (\d{4}-\d{2}-\d{2})/m)?.[1] ?? "";
+const stamp = checking ? existingStamp : existsSync(STAMP) ? readFileSync(STAMP, "utf8").trim() : "";
+const block = render(summary, stamp);
+
 const head = current.slice(0, current.indexOf(BEGIN));
 const tail = current.slice(current.indexOf(END) + END.length);
 const next = `${head}${block}${tail}`;
 
-// The date line says when the block was written; it is not a measurement. A
-// check that compared it would go red every day after the block was rendered,
-// with every number unchanged.
-const undated = (text) =>
-  text.replace(/(\*\*Gemessen:\*\* )\d{4}-\d{2}-\d{2}/, "$1<Datum>");
-
-// A run does not reproduce its figures to the hundredth: the total moved from
-// 73.22 to 73.21 on identical code, and `store.ts` branches measured 77.27 on a
-// local run and 77.25 on CI (Node 22 against 24). The block is rendered on one
-// machine and checked on another, so an exact match on any figure turns the gate
-// red at random. Text and layout still have to match exactly (a file that
-// disappears or a new row is a change); every figure may differ by this much.
-// The thresholds themselves are enforced per file by `vitest.config.ts`, not here.
-const TOLERANCE = 0.05;
-const FIGURE = /\d+\.\d+/g;
-
-function sameMeasurement(left, right) {
-  const a = undated(left);
-  const b = undated(right);
-  if (a.replace(FIGURE, "#") !== b.replace(FIGURE, "#")) return false;
-  const figures = (text) => (text.match(FIGURE) ?? []).map(Number);
-  const rightFigures = figures(b);
-  return figures(a).every((value, i) => Math.abs(value - rightFigures[i]) <= TOLERANCE);
-}
-
-if (process.argv.includes("--check")) {
-  if (sameMeasurement(next, current)) {
-    console.log("qualitaet.md stimmt mit dem Lauf überein.");
+if (checking) {
+  // Der Vergleich ignoriert die Zeilenenden. Das Dokument liegt auf Windows
+  // mit CRLF im Working Tree und auf Linux nach dem Checkout mit LF; der
+  // Generator schreibt immer LF. Ohne Normalisierung war der Block deshalb
+  // auf JEDER Maschine unterschiedlich und `quality:check` konnte nirgends
+  // gruen werden (so am 02.10.2026 im Lauf 20 gesehen: alle Prozentzahlen
+  // passten, jede Zeile unterschied sich nur an \r).
+  const normalise = (text) => text.replace(/\r\n/g, "\n");
+  const verdict = compareWithinTolerance(normalise(next), normalise(current));
+  if (verdict !== "different") {
+    console.log(
+      verdict === "exact"
+        ? "qualitaet.md stimmt mit dem Lauf überein."
+        : `qualitaet.md stimmt mit dem Lauf überein (Prozentzahlen innerhalb von ±${TOLERANCE}).`,
+    );
     process.exit(0);
   }
   console.error(

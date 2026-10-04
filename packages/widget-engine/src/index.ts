@@ -3,6 +3,7 @@ export * from "./schema.ts";
 export * from "./controls.ts";
 export * from "./catalog.ts";
 export * from "./markup.ts";
+export * from "./inline-html.ts";
 export * from "./legacy.ts";
 export * from "./device.ts";
 export * from "./theme.ts";

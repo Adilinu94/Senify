@@ -34,9 +34,23 @@ export {
 
 export { captureHtml, captureFixture, type CaptureHtmlInput } from "./capture-html.ts";
 
-export { normalize, type NormalizeResult, type NormalizedStyleRule } from "./normalize.ts";
+export {
+  normalize,
+  ruleScopeOf,
+  RULE_ID_PATTERN,
+  type NormalizeMode,
+  type NormalizeOptions,
+  type NormalizeResult,
+  type NormalizedStyleRule,
+} from "./normalize.ts";
 
-export { mapDocument, themePatchOf, type MapperResult, type ThemePatch } from "./mapper.ts";
+export {
+  mapDocument,
+  themePatchOf,
+  type ImportDeviceVisibility,
+  type MapperResult,
+  type ThemePatch,
+} from "./mapper.ts";
 
 export { buildFidelityReport, type FidelityReport } from "./fidelity.ts";
 

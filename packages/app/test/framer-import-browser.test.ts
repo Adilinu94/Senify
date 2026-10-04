@@ -63,10 +63,13 @@ describe.skipIf(!browserAvailable)("Framer import dialog", () => {
       );
       expect(await tab.locator('[data-action="framer-import-apply"]').isEnabled()).toBe(true);
       await tab.locator('[data-action="framer-import-apply"]').click();
-      await expect.poll(async () => tab.locator('[data-role="framer-import-dialog"]').count()).toBe(0);
-      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent()).toContain(
-        "Import",
-      );
+      await expect.poll(
+        async () => tab.locator('[data-role="framer-import-dialog"]').count(),
+        { timeout: 20000 },
+      ).toBe(0);
+      // Der Erfolgs-Text in `canvas-status` ist flüchtig: jede Session-Emission
+      // schreibt ihn über `applyState` neu. Belastbar ist das Schreibergebnis,
+      // das unten über Draft-Version und Knoten-Inhalt belegt wird.
       const fresh = await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json() as {
         draftVersion: number;
         draft: { nodes: Record<string, { props?: Record<string, unknown> }> };

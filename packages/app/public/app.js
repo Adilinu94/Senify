@@ -4790,6 +4790,13 @@ function importReportBlock(report) {
     "div",
     { class: "framer-report" },
     el("h3", { text: "Import-Bericht" }),
+    report?.existingPage
+      ? el("p", {
+          class: "framer-report-warning",
+          "data-role": "framer-existing-page",
+          text: `Unter diesem Pfad liegt bereits „${report.existingPage.title}". Übernehmen ersetzt ihren gesamten Inhalt, auch spätere Änderungen im Editor.`,
+        })
+      : "",
     el(
       "p",
       { class: "framer-report-summary" },
@@ -5042,7 +5049,20 @@ function openFramerImportDialog({ siteId, pageId, session, onImported }) {
     el("option", { value: "rewrite", text: "Lokal umschreiben" }),
     el("option", { value: "skip", text: "CDN beibehalten" }),
   );
+  const modeSelect = el("select", { class: "refs-input", "data-role": "framer-mode" });
+  modeSelect.append(
+    el("option", { value: "fidelity", text: "Originalgetreu (Verläufe, Schatten, Rundungen bleiben)" }),
+    el("option", { value: "dna", text: "Design-DNA (verbotene Stilmittel werden umgeschrieben)" }),
+  );
   const themeCheck = el("input", { type: "checkbox" });
+  // Importing onto a path that already holds a page replaces its content. The
+  // analysis names that page; applying needs this explicit confirmation.
+  const replaceCheck = el("input", { type: "checkbox", "data-role": "framer-confirm-replace" });
+  const replaceRow = el("label", { class: "inline framer-confirm-replace", hidden: true }, replaceCheck, " Vorhandene Seite ersetzen");
+  const syncApply = () => {
+    apply.disabled = report === null || (report.existingPage !== undefined && !replaceCheck.checked);
+  };
+  replaceCheck.addEventListener("change", syncApply);
   const errorEl = el("p", { class: "refs-form-error", role: "alert" });
   const reportHost = el("div", { class: "framer-import-report-host", "data-role": "framer-import-report" });
   let report = null;
@@ -5084,6 +5104,17 @@ function openFramerImportDialog({ siteId, pageId, session, onImported }) {
     assets: assetsSelect.value,
     fonts: fontsSelect.value,
     applyTheme: themeCheck.checked,
+    mode: modeSelect.value,
+    // The write must be the thing that was analysed: same source hash, and the
+    // page it replaces still at the version the analysis saw.
+    ...(write && report !== null
+      ? {
+          expectedIrHash: report.irHash,
+          ...(targetSelect.value !== "current" && report.existingPage !== undefined
+            ? { baseDraftVersion: report.existingPage.draftVersion }
+            : {}),
+        }
+      : {}),
     write,
     idempotencyKey: window.crypto.randomUUID(),
   });
@@ -5099,7 +5130,9 @@ function openFramerImportDialog({ siteId, pageId, session, onImported }) {
       });
       report = result.report;
       reportHost.replaceChildren(importReportBlock(report));
-      apply.disabled = false;
+      replaceCheck.checked = false;
+      replaceRow.hidden = report.existingPage === undefined;
+      syncApply();
     } catch (error) {
       errorEl.textContent = error.message;
     } finally {
@@ -5139,7 +5172,9 @@ function openFramerImportDialog({ siteId, pageId, session, onImported }) {
     el("label", {}, "Ziel", targetSelect),
     el("label", {}, "Seitenpfad", pagePathInput),
     el("div", { class: "inline" }, el("label", {}, "Assets", assetsSelect), el("label", {}, "Fonts", fontsSelect)),
+    el("label", {}, "Modus", modeSelect),
     el("label", { class: "inline" }, themeCheck, " Theme-Fonts übernehmen"),
+    replaceRow,
     el("div", { class: "framer-import-actions" }, analyze, apply),
     errorEl,
   );
@@ -5934,6 +5969,30 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       statusEl.textContent = message ?? "";
     },
   });
+  // Start im Einpassen-Zoom: alle drei Frames sind sofort sichtbar (Framer/Webflow).
+  // Ein bewusst gesetzter Zoom bleibt nach dem Neuladen erhalten; nur der
+  // Standardzoom (100 %) wird eingepasst. Der Fit läuft erst, wenn jeder Frame
+  // gerendert ist: ein Fit vor dem Laden der Iframes verlor in den
+  // Browser-Tests die Klick-Selektion (Ursache offen).
+  if (canvas.mode() === "design" && savedUi.zoom === 1) {
+    const fitWhenRendered = (attempt) => {
+      const frames = [...canvasHost.querySelectorAll(".senify-canvas__iframe")];
+      const rendered =
+        frames.length > 0 &&
+        frames.every((frame) => frame.contentDocument?.querySelector("[data-node-id]") != null);
+      if (rendered) {
+        canvas.fit();
+        canvasHost.dataset.startFit = "done";
+      } else if (attempt < 100) {
+        setTimeout(() => fitWhenRendered(attempt + 1), 50);
+      } else {
+        canvasHost.dataset.startFit = "skipped";
+      }
+    };
+    fitWhenRendered(0);
+  } else {
+    canvasHost.dataset.startFit = "skipped";
+  }
   const framerImportButton = el("button", {
     type: "button",
     class: "ghost",
@@ -6820,6 +6879,8 @@ async function renderRoute() {
   // Ansichten würde ihn auf 1088px einengen, obwohl die Bühne 1440px zeigt.
   const isEditor = /^#\/projects\/[^/]+\/pages\/[^/]+$/.test(route);
   view.classList.toggle("editor-view", isEditor);
+  // Workspace-Modus: im Seiten-Editor ersetzt eine einzige Leiste die Portal-Leiste.
+  document.body.classList.toggle("is-editor", isEditor);
   refsRouteActive = isReferences;
   // Verlaesst die Route die Referenzen, schliesst das offene Fenster mit.
   if (!isReferences && refsInspector && refsInspector.dialog.open) {

@@ -53,6 +53,10 @@ The editor keeps its short names; this is the mapping to the vendored files:
 | `dot` | `circle.svg` |
 | `palette` | `palette.svg` |
 | `spark` | `sparkle.svg` |
+| `desktop` | `desktop.svg` |
+| `tablet` | `device-tablet.svg` |
+| `phone` | `device-mobile.svg` |
+| `history` | `clock-counter-clockwise.svg` |
 
 Regeneration: `packages/editor/src/ui/icons.ts` and the preview's icon block are
 generated from these SVGs; a vitest parity test (`packages/editor/test/ui/vorschau-paritaet.test.ts`)

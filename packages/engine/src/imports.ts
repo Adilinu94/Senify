@@ -12,6 +12,7 @@ import {
   marqueeCandidates,
   runImport as runFramerImport,
   type ImportSource as FramerImportSource,
+  type ImportDeviceVisibility,
   type ImportRun,
 } from "@senify/framer-import";
 import { newEntityId } from "./ids.ts";
@@ -55,7 +56,7 @@ const MOBILE_SUFFIX = "_mobile";
 // PAGE_ROOT_TYPE and the `_tablet`/`_mobile` prop suffixes become overrides.
 export function editorDocumentToNodeTree(document: {
   rootNodeId: string;
-  nodes: Record<string, EditorNode>;
+  nodes: Record<string, EditorNode & ImportDeviceVisibility>;
 }): NodeTree {
   const nodes: NodeTree["nodes"] = {};
   for (const [id, node] of Object.entries(document.nodes)) {
@@ -72,16 +73,27 @@ export function editorDocumentToNodeTree(document: {
       }
     }
     const overrides: NodeTree["nodes"][NodeId]["overrides"] = {};
-    if (Object.keys(tablet).length > 0 || node.hiddenDevices?.includes("tablet") === true) {
+    // `hidden` per device: true = hidden there, false = shown there although the
+    // node is hidden by default (a copy that exists only on tablet/mobile).
+    const hiddenOn = (device: "tablet" | "mobile"): boolean | undefined => {
+      if (node.hiddenDevices?.includes(device) === true) return true;
+      if (node.visibleDevices === undefined) return undefined;
+      // An explicit `false` marks the node as having its own visibility per
+      // device, which the bake writes as exact width ranges.
+      return !node.visibleDevices.includes(device);
+    };
+    const tabletHidden = hiddenOn("tablet");
+    const mobileHidden = hiddenOn("mobile");
+    if (Object.keys(tablet).length > 0 || tabletHidden !== undefined) {
       overrides.tablet = {
         ...(Object.keys(tablet).length > 0 ? { props: tablet } : {}),
-        ...(node.hiddenDevices?.includes("tablet") === true ? { hidden: true } : {}),
+        ...(tabletHidden !== undefined ? { hidden: tabletHidden } : {}),
       };
     }
-    if (Object.keys(mobile).length > 0 || node.hiddenDevices?.includes("mobile") === true) {
+    if (Object.keys(mobile).length > 0 || mobileHidden !== undefined) {
       overrides.mobile = {
         ...(Object.keys(mobile).length > 0 ? { props: mobile } : {}),
-        ...(node.hiddenDevices?.includes("mobile") === true ? { hidden: true } : {}),
+        ...(mobileHidden !== undefined ? { hidden: mobileHidden } : {}),
       };
     }
     const isRoot = id === document.rootNodeId;
@@ -247,6 +259,8 @@ export async function runFramerImportJob(
       ...(input.body.source.baseUrl !== undefined ? { baseUrl: input.body.source.baseUrl } : {}),
       includeAssets,
       includeFonts,
+      pagePath,
+      mode: input.body.mode ?? "dna",
     });
   } catch (error) {
     if (media !== undefined) {
@@ -348,15 +362,47 @@ export async function runFramerImportJob(
     steps: run.report.steps,
   };
 
+  // The page this path already holds (an import by path replaces its draft).
+  const existingTarget =
+    input.body.pageId === undefined
+      ? (await store.listPageDrafts(input.siteId)).find((page) => page.path === pagePath)
+      : undefined;
+
   if (dryRun) {
     const report: ImportReport = {
       ...reportBase,
+      ...(existingTarget === undefined
+        ? {}
+        : {
+            existingPage: {
+              pageId: existingTarget.id,
+              draftVersion: existingTarget.draftVersion,
+              title: existingTarget.title,
+            },
+          }),
       pageId: null,
       newDraftVersion: null,
       receiptId: null,
       replayed: false,
     };
     return { report, pageId: null, newDraftVersion: null };
+  }
+
+  if (input.body.expectedIrHash !== undefined && input.body.expectedIrHash !== run.irHash) {
+    throw new SenifyError("conflict", "Die Quelle hat sich seit der Analyse geändert", {
+      field: "expectedIrHash",
+      suggestion: "Analysiere die Seite erneut und prüfe den neuen Bericht, bevor du übernimmst.",
+    });
+  }
+  if (
+    existingTarget !== undefined &&
+    input.body.baseDraftVersion !== undefined &&
+    input.body.baseDraftVersion !== existingTarget.draftVersion
+  ) {
+    throw new SenifyError("conflict", "Die Zielseite wurde seit der Analyse im Editor geändert", {
+      field: "baseDraftVersion",
+      suggestion: "Analysiere erneut: der Import würde sonst die neueren Änderungen überschreiben.",
+    });
   }
 
   const keys = framerImportKeys({
@@ -367,10 +413,6 @@ export async function runFramerImportJob(
     fonts: input.body.fonts ?? "rewrite",
     applyTheme: input.body.applyTheme === true,
   });
-  const existingTarget =
-    input.body.pageId === undefined
-      ? (await store.listPageDrafts(input.siteId)).find((page) => page.path === pagePath)
-      : undefined;
   const target =
     input.body.pageId !== undefined
       ? (() => {

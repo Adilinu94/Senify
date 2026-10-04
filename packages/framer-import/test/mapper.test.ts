@@ -24,19 +24,38 @@ describe("mapDocument", () => {
     }
   });
 
-  it("merges the three header variants into one node with device values", () => {
+  it("keeps structurally different header variants, each visible on its own device only", () => {
     const document = captureFixture(join(FIXTURES, "framer-fluffy-rectangle-418998"));
     const normalized = normalize(document);
     const mapped = mapDocument(document, normalized.rules);
     // The S0 measurement: three <header> elements (desktop/tablet/phone) in
-    // ssr-variant wrappers. The merge must fold them so the document holds
-    // fewer header primitives than the capture found elements.
-    const headers = Object.values(mapped.document.nodes).filter(
-      (node) => node.primitive === "frame" && node.props["semantic"] === "header",
-    );
-    expect(headers.length).toBeGreaterThan(0);
-    expect(headers.length).toBeLessThan(3);
-    // Device overrides exist somewhere in the document.
+    // ssr-variant wrappers. Their markup differs per breakpoint (the phone
+    // header has another menu structure), so they cannot fold into one node
+    // without losing content. Each copy states where it is shown instead, so
+    // exactly one header is visible on every device.
+    type Shown = { visibleDevices?: string[]; hiddenDevices?: string[]; children?: string[] };
+    const nodes = mapped.document.nodes as Record<string, Shown & { primitive: string; props: Record<string, unknown> }>;
+    const shownOn = (node: Shown, device: string): boolean =>
+      (node.visibleDevices === undefined || node.visibleDevices.includes(device)) &&
+      node.hiddenDevices?.includes(device) !== true;
+    // A copy can be hidden by the container that wraps it, so visibility is the
+    // node's own flag AND every ancestor's.
+    const visibleHeaders = (device: string): number => {
+      let count = 0;
+      const walk = (id: string, visible: boolean): void => {
+        const node = nodes[id];
+        if (node === undefined) return;
+        const here = visible && shownOn(node, device);
+        if (here && node.primitive === "frame" && node.props["semantic"] === "header") count += 1;
+        for (const child of node.children ?? []) walk(child, here);
+      };
+      walk(mapped.document.rootNodeId, true);
+      return count;
+    };
+    const all = Object.values(nodes).filter((node) => node.primitive === "frame" && node.props["semantic"] === "header");
+    expect(all).toHaveLength(3);
+    for (const device of ["desktop", "tablet", "mobile"]) expect(visibleHeaders(device)).toBe(1);
+    // Identical copies elsewhere in the document do fold.
     expect(mapped.stats.mergedVariants).toBeGreaterThan(0);
   });
 
