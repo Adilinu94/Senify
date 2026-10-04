@@ -7,6 +7,7 @@
 
 import type { FramerIrDocument, IrFinding } from "./ir.ts";
 import { candidatesOf, resolutionsOf, type ImportCandidate, type ImportResolution } from "./library.ts";
+import { sectionCandidatesOf } from "./section-candidates.ts";
 import type { MapperResult } from "./mapper.ts";
 import type { NormalizeResult } from "./normalize.ts";
 import type { MotionMappingResult } from "./motion-mapping.ts";
@@ -106,7 +107,10 @@ export function buildFidelityReport(
       documented: motion.documented,
     },
     findings,
-    candidates: candidatesOf(mapped.document, document.pages[0]?.path ?? "/"),
+    candidates: [
+      ...candidatesOf(mapped.document, document.pages[0]?.path ?? "/"),
+      ...sectionCandidatesOf(mapped.document, document.pages[0]?.path ?? "/"),
+    ],
     resolutions: resolutionsOf(mapped.document, findings, document),
     score,
     steps,
