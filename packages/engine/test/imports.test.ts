@@ -453,12 +453,64 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
 
     it("importing a page again replaces its rules instead of stacking them", async () => {
       const own = await createTestSite(env.api, "Import Re-Import");
-      await runImport({ source: { html: styled("Eins", "#111") }, write: true, pagePath: "/seite", assets: "skip", fonts: "skip", idempotencyKey: "re-1" }, own.id);
+      const first = await runImport({ source: { html: styled("Eins", "#111") }, write: true, pagePath: "/seite", assets: "skip", fonts: "skip", idempotencyKey: "reimport-eins" }, own.id);
+      expect(first.status, JSON.stringify(first.body)).toBe(201);
       const once = await importedRules(own.id);
-      await runImport({ source: { html: styled("Eins", "#333") }, write: true, pagePath: "/seite", assets: "skip", fonts: "skip", idempotencyKey: "re-2" }, own.id);
+      const second = await runImport({ source: { html: styled("Eins", "#333") }, write: true, pagePath: "/seite", assets: "skip", fonts: "skip", idempotencyKey: "reimport-zwei" }, own.id);
+      expect(second.status, JSON.stringify(second.body)).toBe(201);
       const twice = await importedRules(own.id);
+      // A vacuous 0 == 0 would pass for a failed import: both runs must have
+      // written rules.
+      expect(once.length).toBeGreaterThan(0);
       expect(twice.length).toBe(once.length);
       expect(twice.map((rule) => rule.id).sort()).toEqual(once.map((rule) => rule.id).sort());
+    }, 120_000);
+  });
+
+  describe("page head and the way back", () => {
+    const withHead = (): string =>
+      framerHtml().replace(
+        "</head>",
+        '<meta name="description" content="Beschreibung der Seite"><meta property="og:image" content="https://example.com/og.png"></head>',
+      );
+
+    it("writes the source's description and share image to the page meta", async () => {
+      const own = await createTestSite(env.api, "Import SEO");
+      const written = await runImport({ source: { html: withHead() }, write: true, pagePath: "/seo", assets: "skip", fonts: "skip" }, own.id);
+      expect(written.status, JSON.stringify(written.body)).toBe(201);
+      const page = await env.api.request<{ meta: { description?: string; ogImage?: string } }>({
+        method: "GET",
+        path: `/api/pages/${written.body.report.pageId}`,
+      });
+      expect(page.body.meta.description).toBe("Beschreibung der Seite");
+      expect(page.body.meta.ogImage).toBe("https://example.com/og.png");
+    }, 120_000);
+
+    it("keeps the draft an import replaces as a revision, restorable with the existing restore", async () => {
+      const own = await createTestSite(env.api, "Import Rückweg");
+      const first = await runImport({ source: { html: framerHtml() }, write: true, pagePath: "/weg", assets: "skip", fonts: "skip", idempotencyKey: "rueckweg-eins" }, own.id);
+      expect(first.status, JSON.stringify(first.body)).toBe(201);
+      const pageId = first.body.report.pageId as string;
+      const before = await env.api.request<{ draft: unknown; draftVersion: number }>({ method: "GET", path: `/api/pages/${pageId}` });
+      const second = await runImport(
+        { source: { html: framerHtml().replace("Willkommen", "Ganz anders") }, write: true, pagePath: "/weg", assets: "skip", fonts: "skip", idempotencyKey: "rueckweg-zwei" },
+        own.id,
+      );
+      expect(second.status, JSON.stringify(second.body)).toBe(201);
+      const revisions = await env.api.request<{ revisions: { id: string; note: string | null }[] }>({
+        method: "GET",
+        path: `/api/pages/${pageId}/revisions`,
+      });
+      const kept = revisions.body.revisions.find((revision) => revision.note === "Vor dem Framer-Import");
+      expect(kept).toBeDefined();
+      const restored = await env.api.request<{ draft: unknown }>({
+        method: "POST",
+        path: `/api/pages/${pageId}/restore`,
+        body: { revisionId: kept?.id },
+      });
+      expect(restored.status, JSON.stringify(restored.body)).toBeLessThan(300);
+      const after = await env.api.request<{ draft: unknown }>({ method: "GET", path: `/api/pages/${pageId}` });
+      expect(JSON.stringify(after.body.draft)).toBe(JSON.stringify(before.body.draft));
     }, 120_000);
   });
 

@@ -984,6 +984,8 @@ export type FramerImportCommitPlan = {
     | { kind: "new"; path: string; title: string }
     | { kind: "page"; pageId: string; baseDraftVersion: number };
   draft: NodeTree;
+  // The SEO head the source stated; merged over the page's own meta.
+  pageMeta?: PageMeta;
   payloads: readonly PreparedCodePayload[];
   styleRules: readonly StyleRule[];
   themePatch: Record<string, unknown> | null;
@@ -6869,7 +6871,7 @@ export class Store {
             plan.siteId,
             plan.target.path,
             plan.target.title,
-            toJsonParam({}),
+            toJsonParam(plan.pageMeta ?? {}),
             toJsonParam(plan.draft),
             now,
           ],
@@ -6897,9 +6899,29 @@ export class Store {
         if (currentVersion !== plan.target.baseDraftVersion) {
           throw draftConflictError(plan.target.baseDraftVersion, currentVersion);
         }
+        // The import replaces the whole draft, so the draft it replaces is kept
+        // as a revision first: "Vorherige Version wiederherstellen" (the existing
+        // revision restore) is the way back.
+        await tx.query(
+          `INSERT INTO page_revisions
+            (id, page_id, site_id, tree, title, path, author, note, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [
+            newEntityId(),
+            current.id,
+            current.site_id,
+            toJsonParam(toJson<NodeTree>(current.draft)),
+            current.title,
+            current.path,
+            toJsonParam(plan.author),
+            "Vor dem Framer-Import",
+            now,
+          ],
+        );
+        const mergedMeta = { ...toJson<PageMeta>(current.meta ?? {}), ...(plan.pageMeta ?? {}) };
         const updated = await tx.query<PageRow>(
           `UPDATE pages
-              SET draft = $2, draft_version = draft_version + 1, updated_at = $3
+              SET draft = $2, meta = $5, draft_version = draft_version + 1, updated_at = $3
             WHERE id = $1 AND draft_version = $4
             RETURNING ${PAGE_WRITE_COLUMNS}`,
           [
@@ -6907,6 +6929,7 @@ export class Store {
             toJsonParam(plan.draft),
             now,
             plan.target.baseDraftVersion,
+            toJsonParam(mergedMeta),
           ],
         );
         const updatedPage = updated.rows[0];
