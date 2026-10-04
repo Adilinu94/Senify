@@ -221,11 +221,11 @@ function skinCss(): string {
   rule(" .senify-editor__eye:hover", "color: var(--ed-ink-strong);");
   rule(
     ' .senify-editor__row[data-drop="before"]',
-    "box-shadow: inset 0 2px 0 var(--ed-snap-line), inset 0 3px 0 rgb(1 20 32 / 0.35);",
+    "box-shadow: inset 0 2px 0 var(--ed-snap-line), inset 0 3px 0 rgb(0 0 0 / 0.35);",
   );
   rule(
     ' .senify-editor__row[data-drop="after"]',
-    "box-shadow: inset 0 -2px 0 var(--ed-snap-line), inset 0 -3px 0 rgb(1 20 32 / 0.35);",
+    "box-shadow: inset 0 -2px 0 var(--ed-snap-line), inset 0 -3px 0 rgb(0 0 0 / 0.35);",
   );
   rule(
     " .senify-editor__widget-icon",

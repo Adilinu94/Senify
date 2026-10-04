@@ -3410,8 +3410,8 @@ dialog.modal select,
    Gemeinsame Shell-Haut
    --------------------------------------------------------------------------
    Die Portal-Schale nutzt dieselben semantischen UI-Tokens wie die
-   Referenz- und Inspector-Flächen. Der Editor darf Tiefwasser bleiben,
-   aber Typografie, Maße, Radien, Zustände und Bewegung teilen sich eine
+   Referenz- und Inspector-Flächen. Der Editor ist Graphit (neutral, blauer
+   Akzent, Lime nur für Veröffentlichen), aber Typografie, Maße, Radien, Zustände und Bewegung teilen sich eine
    Quelle. Dadurch bleibt der Portalrahmen ruhig, ohne als alte App neben
    dem neuen Editor zu stehen.
    -------------------------------------------------------------------------- */
@@ -3743,14 +3743,27 @@ body.is-editor .view.editor-view > .toolbar {
   min-height: 3rem;
   margin: 0;
   padding: 0 0.75rem;
-  background: var(--ui-surface-panel);
-  border-bottom: 1px solid var(--ui-line);
-  color: var(--ui-ink);
+  background: var(--ed-surface-raised);
+  border-bottom: 1px solid var(--ed-line-hairline);
+  color: var(--ed-ink-base);
+  /* Im Editor ist die Leiste immer Graphit, unabhaengig vom Portal-Theme. Die
+     Portal-Knoepfe darin lesen deshalb dunkle Werte. */
+  color-scheme: dark;
+  --ui-surface-panel: var(--ed-surface-raised);
+  --ui-line: var(--ed-line-control);
+  --ui-ink: var(--ed-ink-base);
+  --ui-ink-strong: var(--ed-ink-strong);
+  --ui-ink-muted: var(--ed-ink-muted);
+  /* Die Legacy-Aliase sind auf :root aufgeloest und erreichen die Leiste sonst nicht. */
+  --fg-base: var(--ed-ink-base);
+  --fg-muted: var(--ed-ink-muted);
+  --line: var(--ed-line-control);
+  --accent: var(--ed-ink-base);
 }
 body.is-editor .view.editor-view > .toolbar h1 {
   font-size: 0.9375rem;
   font-weight: 600;
-  color: var(--ui-ink-strong);
+  color: var(--ed-ink-strong);
 }
 body.is-editor .view.editor-view > .toolbar code {
   color: var(--ui-ink-muted);

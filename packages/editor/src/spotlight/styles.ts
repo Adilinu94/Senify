@@ -17,7 +17,7 @@ export const SPOTLIGHT_STYLES = `
 .senify-spotlight__backdrop {
   position: absolute;
   inset: 0;
-  background: rgb(1 20 32 / 0.55);
+  background: rgb(0 0 0 / 0.55);
 }
 .senify-spotlight__dialog {
   position: relative;

@@ -32,60 +32,68 @@ export type EditorTokenSet = Readonly<Record<string, string>>;
 export const EDITOR_ROOT_ATTRIBUTE = "data-senify-editor";
 
 // ---------------------------------------------------------------------- Palette
-// Anker der Designsprache. Nie aendern ohne `.scratch/refs/precious-board/design.md`.
+// Anker der Designsprache: neutrales Graphit, EIN blauer Akzent, Lime nur fuer
+// "Veroeffentlichen" (Portal-Leiste). Die Slot-Namen `brand-*` bleiben aus
+// Kompatibilitaet, die Werte sind Graphit (vorher Tiefwasser). Referenz: Framer,
+// Farben aus dem Referenzbild gemessen (Leiste #0e0e0e, Buehne #232323).
+// Nie aendern ohne `.scratch/editor-v2-rebuild/ui-design.md` (Nachtrag "Graphit").
 export const EDITOR_PALETTE = {
-  "brand-900": "#01283c",
-  "brand-800": "#083247",
-  "brand-700": "#024364",
-  "brand-600": "#006092",
-  "brand-300": "#9ac9e2",
+  "brand-900": "#1f1f1f",
+  "brand-800": "#151515",
+  "brand-700": "#262626",
+  "brand-600": "#3a3a3a",
+  "brand-300": "#9b9b9b",
   lime: "#cbff97",
 } as const;
 
 // --------------------------------------------------------------------- Flaechen
 // Vier Stufen. Ebenen entstehen ueber die Lichtkante, nicht ueber Schatten.
 export const EDITOR_SURFACE = {
-  // Buehne um die Frames, dunkelster Grund (Tiefwasser 900).
-  canvas: "#01283c",
-  // Panel-Grund: Explorer, Inspektor, Statusleiste (Tiefwasser 800).
-  panel: "#083247",
-  // Gehobene Flaeche: Kopfleiste, Werkzeugleiste, Menue, Dialog (Tiefwasser 700).
-  raised: "#024364",
-  // Eingelassene Flaeche: Feld-Innenraum. mix(#01283c 60 %, #083247 40 %) = #042c40
-  inset: "#042c40",
+  // Buehne um die Frames (Graphit 900). Heller als die Panels, damit die Seite
+  // als Blatt auf ruhigem Grund steht, wie im Referenz-Editor.
+  canvas: "#1f1f1f",
+  // Panel-Grund: Explorer, Inspektor, Statusleiste (Graphit 800).
+  panel: "#151515",
+  // Gehobene Flaeche: Kopfleiste, Werkzeugleiste, Menue, Dialog (Graphit 700).
+  raised: "#262626",
+  // Eingelassene Flaeche: Feld-Innenraum. mix(#151515 65 %, #000000 35 %) = #0e0e0e
+  inset: "#0e0e0e",
 } as const;
 
 // ------------------------------------------------------------------------- Text
 export const EDITOR_INK = {
   strong: "#ffffff",
-  // mix(#ffffff 88 %, #9ac9e2 12 %) = #f3f9fc
-  base: "#f3f9fc",
-  // Tiefwasser 300. Sekundaertext, Nebentexte, Feld-Label.
-  muted: "#9ac9e2",
-  // mix(#9ac9e2 55 %, #083247 45 %) = #58859c. NUR Nicht-Text (Symbole, Trenner).
-  // Als Text 3,37:1 auf dem Panel und 2,64:1 auf gehobener Flaeche: unter 4,5.
-  faint: "#58859c",
-  // Text auf Lime (Hauptaktion): 13,35:1.
-  onLime: "#01283c",
+  // mix(#ffffff 88 %, #9b9b9b 12 %) = #f3f3f3
+  base: "#f3f3f3",
+  // Graphit 300. Sekundaertext, Nebentexte, Feld-Label. Reicht als Text auf Buehne,
+  // Panel, gehobener Flaeche und Feld (ab 4,5:1), auf einer Auswahlflaeche bewusst
+  // nicht (4.24:1): dort gilt `base` oder `strong`.
+  muted: "#9b9b9b",
+  // mix(#9b9b9b 55 %, #151515 45 %) = #5f5f5f. NUR Nicht-Text (Symbole, Trenner).
+  // Als Text 2.86:1 auf dem Panel und 2.37:1 auf gehobener Flaeche: unter 4,5.
+  faint: "#5f5f5f",
+  // Text auf dem Akzent (Hauptaktion): 6.87:1. Der Name bleibt aus Kompatibilitaet.
+  onLime: "#0b0b0b",
 } as const;
 
 // ------------------------------------------------------------- Kanten / Linien
 export const EDITOR_LINE = {
-  // mix(#ffffff 14 %, #083247 86 %) = #2b4f61. 1,54:1: rein dekorative Trennung
+  // mix(#ffffff 14 %, #151515 86 %) = #363636. 1.51:1: rein dekorative Trennung
   // ohne Bedeutung. Trifft nie die Anforderung 3:1 aus WCAG 1.4.11 und darf sie
   // auch nicht treffen muessen, weil sie nie die einzige Kennzeichnung ist.
-  hairline: "#2b4f61",
-  // mix(#9ac9e2 62 %, #083247 38 %) = #6390a7. 3,05:1 bis 4,44:1 je Flaeche:
+  hairline: "#363636",
+  // mix(#9b9b9b 70 %, #151515 30 %) = #737373. 3.19:1 bis 4.07:1 je Flaeche:
   // traegt die Kennzeichnung eines Feldes (WCAG 1.4.11, 3:1).
-  control: "#6390a7",
-  // Tiefwasser 300. Vollton-Kante fuer Zustand (Fokus, Auswahl, Aktiv).
-  strong: "#9ac9e2",
+  control: "#737373",
+  // Helle Vollton-Kante fuer neutrale Zustaende (Aktiv, Rahmen).
+  strong: "#c8c8c8",
 } as const;
 
 // --------------------------------------------------------------------- Signale
 export const EDITOR_SIGNAL = {
-  accent: "#cbff97",
-  select: "#9ac9e2",
+  // Der eine Akzent: Auswahl, Fokus, Hauptaktion, Einrastlinie. 5.28:1 bis 6.37:1.
+  accent: "#3d9bff",
+  select: "#3d9bff",
   // Theme-Wert `danger-vivid` (packages/tokens): Flaeche und Strich, 3,81:1 bis 5,54:1.
   danger: "#f87171",
   // Aufgehelltes Abzeichen desselben Rot fuer Text: 5,56:1 bis 8,08:1.
@@ -98,22 +106,22 @@ export const EDITOR_SIGNAL = {
 // -------------------------------------------------- Fuellungen (Zustandsflaechen)
 export const EDITOR_FILL = {
   hover: "rgb(255 255 255 / 0.06)",
-  select: "rgb(154 201 226 / 0.14)",
+  select: "rgb(61 155 255 / 0.16)",
   danger: "rgb(248 113 113 / 0.14)",
-  // Lime hebt sich um eine Stufe: mix(#cbff97 92 %, #ffffff 8 %) = #cfff9f
-  accentHover: "#cfff9f",
-  focusRing: "#cbff97",
-  focusRingOnAccent: "#01283c",
+  // Der Akzent hebt sich um eine Stufe: mix(#3d9bff 92 %, #ffffff 8 %) = #4da3ff
+  accentHover: "#4da3ff",
+  focusRing: "#3d9bff",
+  focusRingOnAccent: "#0b0b0b",
 } as const;
 
 // ------------------------------------------------------- Lichtkanten und Schatten
 export const EDITOR_ELEVATION = {
   edgeHairline: "inset 0 0 0 1px rgb(255 255 255 / 0.14)",
   edgeTop: "inset 0 1px 0 rgb(255 255 255 / 0.1)",
-  edgeSelect: "inset 0 0 0 1px rgb(154 201 226 / 0.55)",
+  edgeSelect: "inset 0 0 0 1px rgb(61 155 255 / 0.55)",
   shadowFloat:
-    "0 18px 44px -18px rgb(1 18 27 / 0.72), 0 2px 6px -2px rgb(1 18 27 / 0.5)",
-  shadowDialog: "0 28px 72px -24px rgb(1 18 27 / 0.8)",
+    "0 18px 44px -18px rgb(0 0 0 / 0.72), 0 2px 6px -2px rgb(0 0 0 / 0.5)",
+  shadowDialog: "0 28px 72px -24px rgb(0 0 0 / 0.8)",
   // Abdunklung hinter Dialogen. Wert aus dem Bestand (`packages/app/public/app.css`,
   // `.refs-dialog::backdrop`): #1720377a. Keine zweite Wahrheit.
   scrim: "rgb(23 32 55 / 0.48)",
@@ -188,16 +196,16 @@ export const EDITOR_METRIC = {
 export const EDITOR_CANVAS = {
   // Rasterschritt und Einrastschritt (4px-Takt).
   gridStep: "4px",
-  // Rasterhilfe, abgeleitet aus `--ed-signal-select` (Tiefwasser 300 bei 35%).
-  gridHelp: "rgb(154 201 226 / 0.35)",
-  // Einrastlinie, gleich `--ed-signal-accent` (Lime).
-  snapLine: "#cbff97",
+  // Rasterhilfe, abgeleitet aus `--ed-signal-select` (Akzent bei 35%).
+  gridHelp: "rgb(61 155 255 / 0.35)",
+  // Einrastlinie, gleich `--ed-signal-accent`.
+  snapLine: "#3d9bff",
   // Auswahlrechteck beim Aufziehen.
-  marquee: "rgb(154 201 226 / 0.16)",
+  marquee: "rgb(61 155 255 / 0.16)",
   // Aussenlinie der Doppelkante am Auswahlrahmen (`ui-design.md` § Auswahl und
-  // Griffe): feste Tiefwasser-Kante, damit eine der beiden Linien auf hellem
+  // Griffe): feste Graphit-Kante, damit eine der beiden Linien auf hellem
   // und dunklem Inhalt 3:1 erreicht.
-  selectionEdge: "rgb(1 40 60 / 0.55)",
+  selectionEdge: "rgb(11 11 11 / 0.55)",
   // Aussenband am Rahmen (Fehlerrot bei 12%).
   bandMargin: "rgb(248 113 113 / 0.12)",
   // Innenband am Rahmen (Erfolgsgruen bei 12%).
@@ -250,15 +258,15 @@ export const EDITOR_MOTION = {
 // ------------------------------------------------------------ Aufgeloeste Werte
 // Die Herleitung der Mischwerte, damit Test und Rechnung dieselbe Zahl sehen.
 export const EDITOR_RESOLVED = {
-  "ink-base": "mix(#ffffff 88%, #9ac9e2 12%)",
-  "ink-faint": "mix(#9ac9e2 55%, #083247 45%)",
-  "line-hairline": "mix(#ffffff 14%, #083247 86%)",
-  "line-control": "mix(#9ac9e2 62%, #083247 38%)",
-  "surface-inset": "mix(#01283c 60%, #083247 40%)",
-  selectOverPanel: "mix(#9ac9e2 14% over #083247)",
-  selectOverRaised: "mix(#9ac9e2 14% over #024364)",
-  hoverOverPanel: "mix(#ffffff 6% over #083247)",
-  hoverOverRaised: "mix(#ffffff 6% over #024364)",
+  "ink-base": "mix(#ffffff 88%, #9b9b9b 12%)",
+  "ink-faint": "mix(#9b9b9b 55%, #151515 45%)",
+  "line-hairline": "mix(#ffffff 14%, #151515 86%)",
+  "line-control": "mix(#9b9b9b 70%, #151515 30%)",
+  "surface-inset": "mix(#151515 65%, #000000 35%)",
+  selectOverPanel: "mix(#3d9bff 16% over #151515)",
+  selectOverRaised: "mix(#3d9bff 16% over #262626)",
+  hoverOverPanel: "mix(#ffffff 6% over #151515)",
+  hoverOverRaised: "mix(#ffffff 6% over #262626)",
 } as const;
 
 // ------------------------------------------------------------ Kontrast-Nachweise
@@ -279,28 +287,28 @@ export type ContrastProof = {
 };
 
 export const EDITOR_CONTRAST_PROOF: readonly ContrastProof[] = [
-  { foreground: EDITOR_INK.strong, background: EDITOR_SURFACE.panel, value: 13.48, min: 4.5, note: "Wert auf Panel" },
-  { foreground: EDITOR_INK.strong, background: EDITOR_SURFACE.raised, value: 10.56, min: 4.5, note: "Wert auf gehobener Flaeche" },
-  { foreground: EDITOR_INK.strong, background: EDITOR_SURFACE.inset, value: 14.59, min: 4.5, note: "Feldwert im Feld" },
-  { foreground: EDITOR_INK.strong, background: EDITOR_SURFACE.canvas, value: 15.33, min: 4.5, note: "Statusleiste" },
-  { foreground: EDITOR_INK.base, background: EDITOR_SURFACE.panel, value: 12.69, min: 4.5, note: "Grundtext" },
-  { foreground: EDITOR_INK.base, background: EDITOR_SURFACE.raised, value: 9.94, min: 4.5, note: "Menue-Text" },
-  { foreground: EDITOR_INK.muted, background: EDITOR_SURFACE.panel, value: 7.59, min: 4.5, note: "Sekundaertext" },
-  { foreground: EDITOR_INK.muted, background: EDITOR_SURFACE.raised, value: 5.94, min: 4.5, note: "Kuersel im Menue" },
-  { foreground: EDITOR_INK.muted, background: EDITOR_SURFACE.canvas, value: 8.63, min: 4.5, note: "Nebentext auf Buehne" },
-  { foreground: EDITOR_INK.onLime, background: EDITOR_SIGNAL.accent, value: 13.35, min: 4.5, note: "Text auf Lime" },
-  { foreground: EDITOR_SIGNAL.dangerInk, background: EDITOR_SURFACE.raised, value: 5.56, min: 4.5, note: "Loeschen im Menue" },
-  { foreground: EDITOR_SIGNAL.dangerInk, background: EDITOR_SURFACE.panel, value: 7.1, min: 4.5, note: "Fehlertext" },
-  { foreground: EDITOR_SIGNAL.success, background: EDITOR_SURFACE.panel, value: 7.74, min: 4.5, note: "Erfolgstext" },
-  { foreground: EDITOR_SIGNAL.warning, background: EDITOR_SURFACE.panel, value: 8.08, min: 4.5, note: "Hinweistext" },
-  { foreground: EDITOR_SIGNAL.accent, background: EDITOR_SURFACE.panel, value: 11.74, min: 3, note: "Fokusring auf Panel" },
-  { foreground: EDITOR_SIGNAL.accent, background: EDITOR_SURFACE.raised, value: 9.19, min: 3, note: "Fokusring auf Platte" },
-  { foreground: EDITOR_LINE.control, background: EDITOR_SURFACE.raised, value: 3.06, min: 3, note: "Feldkante, schwaechster Fall" },
-  { foreground: EDITOR_LINE.control, background: EDITOR_SURFACE.panel, value: 3.9, min: 3, note: "Feldkante" },
-  { foreground: EDITOR_LINE.strong, background: EDITOR_SURFACE.raised, value: 5.94, min: 3, note: "Auswahlrahmen" },
-  { foreground: EDITOR_SIGNAL.danger, background: EDITOR_SURFACE.raised, value: 3.82, min: 3, note: "Loeschstrich" },
-  { foreground: EDITOR_INK.faint, background: EDITOR_SURFACE.raised, value: 2.64, min: 0, note: "Nicht-Text, unter 3: nie alleinige Kennzeichnung" },
-  { foreground: EDITOR_LINE.hairline, background: EDITOR_SURFACE.panel, value: 1.54, min: 0, note: "Nur dekorative Trennung" },
+  { foreground: EDITOR_INK.strong, background: EDITOR_SURFACE.panel, value: 18.26, min: 4.5, note: "Wert auf Panel" },
+  { foreground: EDITOR_INK.strong, background: EDITOR_SURFACE.raised, value: 15.13, min: 4.5, note: "Wert auf gehobener Flaeche" },
+  { foreground: EDITOR_INK.strong, background: EDITOR_SURFACE.inset, value: 19.3, min: 4.5, note: "Feldwert im Feld" },
+  { foreground: EDITOR_INK.strong, background: EDITOR_SURFACE.canvas, value: 16.48, min: 4.5, note: "Statusleiste" },
+  { foreground: EDITOR_INK.base, background: EDITOR_SURFACE.panel, value: 16.46, min: 4.5, note: "Grundtext" },
+  { foreground: EDITOR_INK.base, background: EDITOR_SURFACE.raised, value: 13.64, min: 4.5, note: "Menue-Text" },
+  { foreground: EDITOR_INK.muted, background: EDITOR_SURFACE.panel, value: 6.57, min: 4.5, note: "Sekundaertext" },
+  { foreground: EDITOR_INK.muted, background: EDITOR_SURFACE.raised, value: 5.44, min: 4.5, note: "Kuersel im Menue" },
+  { foreground: EDITOR_INK.muted, background: EDITOR_SURFACE.canvas, value: 5.93, min: 4.5, note: "Nebentext auf Buehne" },
+  { foreground: EDITOR_INK.onLime, background: EDITOR_SIGNAL.accent, value: 6.87, min: 4.5, note: "Text auf Akzent" },
+  { foreground: EDITOR_SIGNAL.dangerInk, background: EDITOR_SURFACE.raised, value: 7.97, min: 4.5, note: "Loeschen im Menue" },
+  { foreground: EDITOR_SIGNAL.dangerInk, background: EDITOR_SURFACE.panel, value: 9.62, min: 4.5, note: "Fehlertext" },
+  { foreground: EDITOR_SIGNAL.success, background: EDITOR_SURFACE.panel, value: 10.48, min: 4.5, note: "Erfolgstext" },
+  { foreground: EDITOR_SIGNAL.warning, background: EDITOR_SURFACE.panel, value: 10.94, min: 4.5, note: "Hinweistext" },
+  { foreground: EDITOR_SIGNAL.accent, background: EDITOR_SURFACE.panel, value: 6.37, min: 3, note: "Fokusring auf Panel" },
+  { foreground: EDITOR_SIGNAL.accent, background: EDITOR_SURFACE.raised, value: 5.28, min: 3, note: "Fokusring auf Platte" },
+  { foreground: EDITOR_LINE.control, background: EDITOR_SURFACE.raised, value: 3.19, min: 3, note: "Feldkante, schwaechster Fall" },
+  { foreground: EDITOR_LINE.control, background: EDITOR_SURFACE.panel, value: 3.85, min: 3, note: "Feldkante" },
+  { foreground: EDITOR_LINE.strong, background: EDITOR_SURFACE.raised, value: 9.05, min: 3, note: "Auswahlrahmen" },
+  { foreground: EDITOR_SIGNAL.danger, background: EDITOR_SURFACE.raised, value: 5.47, min: 3, note: "Loeschstrich" },
+  { foreground: EDITOR_INK.faint, background: EDITOR_SURFACE.raised, value: 2.37, min: 0, note: "Nicht-Text, unter 3: nie alleinige Kennzeichnung" },
+  { foreground: EDITOR_LINE.hairline, background: EDITOR_SURFACE.panel, value: 1.51, min: 0, note: "Nur dekorative Trennung" },
 ];
 
 // ------------------------------------------------------------------ CSS-Ausgabe

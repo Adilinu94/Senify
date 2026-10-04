@@ -441,3 +441,40 @@ Stand nach der Schlussrunde: Die Punkte 1 bis 4 und 8 sind geschlossen; 5 bis 7 
    `.scratch/refs/precious-board/design.md`, dieselben Anker wie `tokens.ts`). Der alte Indigo
    `#4f46e5` steht als `LEGACY_INDIGO` bereit; gespeicherte Sites behalten ihren eigenen Theme-Schnappschuss,
    die Umstellung ist ein reiner Werttausch.
+
+---
+
+## Nachtrag 04.10.2026: Graphit (Schritt B)
+
+**Entscheidung (Nutzer):** Der Editor ist neutral-graphit wie Framer. Es gibt einen
+blauen Akzent für Auswahl, Fokus und Hauptaktionen. Lime bleibt der Aktion
+„Veröffentlichen“ vorbehalten (Portal-Leiste). Die Workspace-Leiste im Editor ist
+unabhängig vom Portal-Theme immer Graphit.
+
+Die Abschnitte 2.x und 8.x weiter oben beschreiben die **alte Tiefwasser-Palette** und
+sind in Hexwerten und Kontrastzahlen überholt. Maßgeblich ist ab jetzt
+`packages/editor/src/ui/tokens.ts` (Werte, Herleitung, Nachweistabelle).
+
+| Rolle | Wert | Bemerkung |
+|---|---|---|
+| Bühne (`canvas`, brand-900) | `#1f1f1f` | heller als die Panels (Referenz: Bühne `#232323`) |
+| Panel (`panel`, brand-800) | `#151515` | Explorer, Inspektor, Statusleiste |
+| Gehoben (`raised`, brand-700) | `#262626` | Leisten, Menüs, Dialoge |
+| Eingelassen (`inset`) | `#0e0e0e` | mix(Panel 65 %, `#000000` 35 %) |
+| Text stark / base / muted / faint | `#ffffff` / `#f3f3f3` / `#9b9b9b` / `#5f5f5f` | `faint` nur Nicht-Text |
+| Linie hairline / control / strong | `#363636` / `#737373` / `#c8c8c8` | `control` ≥ 3:1 auf allen Flächen |
+| Akzent und Auswahl | `#3d9bff` | Text darauf: `#0b0b0b`, 6,9:1 |
+| Lime | `#cbff97` | nur „Veröffentlichen“ |
+
+**Regeln, die inhaltlich gelten blieben** (nicht nur als Zahl):
+Text ≥ 4,5:1 und Kanten ≥ 3:1 auf allen vier Flächen. `muted` reicht auf einer
+Auswahlfläche bewusst **nicht** (4,24:1, Grenzfall), dort gilt `base` oder `strong`.
+`faint` bleibt unter 4,5:1 und ist nie Text. Die Palette wurde vor dem Schreiben
+gegen diese Regeln geprüft, die gepinnten Zahlen in Tokens, `contrast.test.ts` und
+`plan-tokens.test.ts` sind aus den neuen Werten neu berechnet.
+
+**Slot-Namen:** `--ed-brand-*`, `--ed-lime` und `--ed-ink-on-lime` behalten aus
+Kompatibilität ihre Namen. `--ed-ink-on-lime` ist faktisch „Text auf Akzent“.
+
+**Offen:** `--ed-font-mono` im Editor-Chrome nutzt weiter die Systemschrift; der
+Inspektor-Stil-Tab ist weiterhin eine flache CSS-Liste (nächster Schritt).
