@@ -34,6 +34,7 @@ import {
   type IrVisual,
 } from "./ir.ts";
 import { expandBox, parseDeclaration, splitDeclarations } from "./css-util.ts";
+import { devicesContaining } from "./devices.ts";
 
 /* ------------------------------------------------------------------ types */
 
@@ -1136,20 +1137,10 @@ function matchingRules(index: RuleIndex, node: IrNode, ancestorClasses: Readonly
     .sort((a, b) => a.order - b.order);
 }
 
-// The Framer ranges: mobile below 810, tablet 810–1199.98, desktop from 1200.
-// A query applies to every device whose range it overlaps, so a bare
-// `(min-width: 810px)` reaches tablet and desktop, never mobile.
-const DEVICE_SPANS: readonly (readonly [IrDevice, number, number])[] = [
-  ["mobile", 0, 810],
-  ["tablet", 810, 1200],
-  ["desktop", 1200, Number.POSITIVE_INFINITY],
-];
-
-function devicesOf(range: { minWidth: number | null; maxWidth: number | null }): IrDevice[] {
-  const low = range.minWidth ?? 0;
-  const high = range.maxWidth ?? Number.POSITIVE_INFINITY;
-  return DEVICE_SPANS.filter(([, from, to]) => low < to && high >= from).map(([device]) => device);
-}
+// A query applies to the devices whose representative width it contains, so a
+// bare `(min-width: 810px)` reaches tablet and desktop, never mobile, and a
+// `(min-width: 1440px)` reaches desktop only (see `devices.ts`).
+const devicesOf = devicesContaining;
 
 function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
   const parsed = parseCssRules(css);

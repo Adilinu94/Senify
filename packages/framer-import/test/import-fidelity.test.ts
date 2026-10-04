@@ -194,6 +194,35 @@ describe("page-scoped style rules", () => {
   });
 });
 
+describe("site-specific breakpoints", () => {
+  // easier-train: three layouts (>=1440, 810-1439.98, <810) instead of the usual
+  // 1200/810. Range overlap would let the first two both claim desktop.
+  const bp =
+    '<script type="application/json" id="__framer__breakpoints">[{"hash":"big","mediaQuery":"(min-width: 1440px)"},{"hash":"mid","mediaQuery":"(min-width: 810px) and (max-width: 1439.98px)"},{"hash":"small","mediaQuery":"(max-width: 809.98px)"}]</script>';
+  const copies = (a: string, b: string, c: string) =>
+    page(
+      `<div class="ssr-variant hidden-mid hidden-small"><p class="framer-X">${a}</p></div>` +
+        `<div class="ssr-variant hidden-big hidden-small"><p class="framer-X">${b}</p></div>` +
+        `<div class="ssr-variant hidden-big hidden-mid"><p class="framer-X">${c}</p></div>`,
+      "",
+      bp,
+    );
+
+  it("folds three identical layouts into one node, whatever the breakpoint widths are", () => {
+    const { nodes } = run(copies("1200+", "1200+", "1200+"));
+    expect(nodes.filter((node) => node.props["text"] === "1200+")).toHaveLength(1);
+  });
+
+  it("gives each differing layout the device whose width it contains", () => {
+    const { nodes } = run(copies("Gross", "Mittel", "Klein"));
+    const devicesOf = (text: string) =>
+      (nodes.find((node) => node.props["text"] === text) as { visibleDevices?: string[] } | undefined)?.visibleDevices;
+    expect(devicesOf("Gross")).toEqual(["desktop"]);
+    expect(devicesOf("Mittel")).toEqual(["tablet"]);
+    expect(devicesOf("Klein")).toEqual(["mobile"]);
+  });
+});
+
 describe("device copies", () => {
   const copies = (a: string, b: string, c: string) =>
     page(

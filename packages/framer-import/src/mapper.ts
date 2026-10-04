@@ -17,6 +17,7 @@ import type {
   EditorNode,
 } from "@senify/editor/state";
 import { sanitizeInlineHtml, type StyleRule } from "@senify/widget-engine";
+import { devicesContaining } from "./devices.ts";
 import type {
   FramerIrDocument,
   IrDevice,
@@ -174,19 +175,6 @@ const ALL_DEVICES: readonly IrDevice[] = ["desktop", "tablet", "mobile"];
 
 type IrBreakpointMap = Map<string, { minWidth: number; maxWidth: number | null }>;
 
-// The Framer ranges map onto Senify's devices by overlap: mobile below 810,
-// tablet 810–1199.98, desktop from 1200 (so `≥1440` and `1200–1439.98` are both
-// desktop). Measured in S0.
-function devicesOfRange(range: { minWidth: number; maxWidth: number | null }): IrDevice[] {
-  const high = range.maxWidth ?? Number.POSITIVE_INFINITY;
-  const spans: readonly (readonly [IrDevice, number, number])[] = [
-    ["mobile", 0, 810],
-    ["tablet", 810, 1200],
-    ["desktop", 1200, Number.POSITIVE_INFINITY],
-  ];
-  return spans.filter(([, from, to]) => range.minWidth < to && high >= from).map(([device]) => device);
-}
-
 // The devices a Framer duplicate is visible on. `hiddenAt` names the breakpoints
 // that hide the copy; the breakpoints its siblings mention (`universe`) are the
 // ones in play, so a copy is visible wherever one of those is NOT hidden. A hash
@@ -201,7 +189,7 @@ function visibleDevicesOf(
     if (hiddenAt.includes(hash)) continue;
     const range = breakpoints.get(hash);
     if (range === undefined) continue;
-    for (const device of devicesOfRange(range)) visible.add(device);
+    for (const device of devicesContaining(range)) visible.add(device);
   }
   return ALL_DEVICES.filter((device) => visible.has(device));
 }
