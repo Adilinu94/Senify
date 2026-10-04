@@ -55,6 +55,11 @@ jobs:
       # macht es als Balken lesbar, falls jemand die Kette veraendert.
       - name: Artefakt-Tor (packages/app/dist)
         run: pnpm verify:dist
+      # Fahrplan P3-6: der Docs-Portal-Build steckt im rekursiven `pnpm build`
+      # von `pnpm verify`. Der eigene Schritt macht ihn als Balken sichtbar
+      # (Astro-Build plus Pagefind-Index, rund 4 Sekunden).
+      - name: Docs-Portal-Build (Astro und Suchindex)
+        run: pnpm --filter @senify/docs-portal build
       - name: Visuelles PNG-Gate (Settings, Referenzen, Editor)
         run: pnpm test:visual
       - name: Visuelle Diff-Artefakte
@@ -71,13 +76,15 @@ jobs:
 
   # Entwickelt und betrieben wird unter Windows (start-senify.cmd, Pfade,
   # Dateirechte, der Start-Eintrag). Dieser Job faehrt die Testsuite dort.
-  # Er ist bewusst NICHT blockierend (continue-on-error), bis er einmal gruen
-  # gelaufen ist; danach die Zeile entfernen, damit er zum Tor wird. Ohne
-  # installierten Chromium ueberspringen die Browser-Suiten sich selbst.
+  # Er war bewusst nicht blockierend (continue-on-error), bis er einmal gruen
+  # gelaufen ist; das ist am 04.10.2026 mehrfach geschehen (Push- und
+  # Pull-Request-Laeufe der Staende 953d114, 6c35e3e und 0386cf9), die Zeile ist
+  # entfernt und der Job damit ein Tor. Faellt er kuenftig rot aus, ist das ein
+  # echter Befund. Ohne installierten Chromium ueberspringen die Browser-Suiten
+  # sich selbst.
   tests-windows:
-    name: Testsuite unter Windows (noch nicht blockierend)
+    name: Testsuite unter Windows
     runs-on: windows-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4

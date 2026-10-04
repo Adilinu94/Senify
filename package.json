@@ -20,7 +20,7 @@
     "test:coverage": "vitest run --coverage packages/engine/test packages/editor/test packages/mcp/test && node scripts/render-quality.mjs --stamp",
     "test:postgres": "node scripts/verify-postgres.mjs",
     "test:visual": "node scripts/verify-visual.mjs",
-    "lint": "eslint packages scripts",
+    "lint": "eslint packages scripts eslint.config.mjs",
     "check:patch": "git diff --check",
     "verify:dist": "node scripts/verify-dist.mjs",
     "quality:render": "node scripts/render-quality.mjs",
