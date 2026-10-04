@@ -373,7 +373,7 @@ ablesen, und wer sie schätzt, baut auf Sand.
 ```
 --ui-font-display   "Inter Display", "Inter", system-ui, sans-serif
 --ui-font-body      "Inter", system-ui, sans-serif
---ui-font-mono      ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace
+--ui-font-mono      "JetBrains Mono", ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace
 ```
 
 **Grade**
