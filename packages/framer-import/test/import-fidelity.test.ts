@@ -122,6 +122,28 @@ describe("capture fidelity", () => {
   });
 });
 
+describe("links inside paragraphs", () => {
+  it("keeps a link that is the only content of a paragraph", () => {
+    const { nodes } = run(
+      page(
+        '<div data-framer-component-type="RichTextContainer"><p class="framer-text"><a class="framer-text" href="tel:(408) 555-0382">(408) 555-0382</a></p></div>',
+      ),
+    );
+    const html = nodes.map((node) => String(node.props["html"] ?? "")).join("|");
+    expect(html).toContain('<a href="tel:(408) 555-0382">(408) 555-0382</a>');
+  });
+
+  it("keeps nested inline elements and a new-tab target", () => {
+    const { nodes } = run(
+      page(
+        '<div data-framer-component-type="RichTextContainer"><p class="framer-text"><span><a href="https://x.de" target="_blank"><strong>Fett</strong></a></span></p></div>',
+      ),
+    );
+    const html = nodes.map((node) => String(node.props["html"] ?? "")).join("|");
+    expect(html).toContain('<a href="https://x.de" target="_blank" rel="noopener noreferrer"><strong>Fett</strong></a>');
+  });
+});
+
 describe("typography through custom properties", () => {
   const preset = (css: string, body: string) => page(body, css);
 

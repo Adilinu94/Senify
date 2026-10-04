@@ -630,28 +630,35 @@ function cssToStyle(visual: { [key: string]: string | undefined }): Record<strin
 // `<a href="./">Home</a>`). Only the inline tags the body primitive accepts
 // are generated; deeper structures flatten to their text.
 function inlineHtmlOf(node: IrNode, fallback: string): string {
-  const parts: string[] = [];
-  const walk = (child: IrNode): void => {
-    if (child.innerHtml !== undefined && child.innerHtml !== null) {
-      const inner = sanitizeInlineHtml(child.innerHtml);
-      parts.push(
-        HEADING_TAGS.has(child.tag) || child.tag === "p" ? `<${child.tag}>${inner}</${child.tag}>` : inner,
-      );
-      return;
-    }
-    const content = child.states[0]?.text?.content ?? child.children.map(walk).join("");
-    if (child.tag === "a" && child.href !== null) {
-      parts.push(`<a href="${escapeHtmlAttr(child.href)}">${escapeHtml(content)}</a>`);
-      return;
-    }
-    if (HEADING_TAGS.has(child.tag) || child.tag === "p" || child.tag === "span" || child.tag === "strong" || child.tag === "em") {
-      parts.push(`<${child.tag}>${escapeHtml(content)}</${child.tag}>`);
-      return;
-    }
-    if (content !== "") parts.push(escapeHtml(content));
-  };
-  for (const child of node.children) walk(child);
-  return parts.length > 0 ? parts.join("") : escapeHtml(fallback);
+  const html = node.children.map(inlineOf).join("");
+  return html !== "" ? html : escapeHtml(fallback);
+}
+
+// One element as inline markup. Recursive and returning its HTML: an empty own
+// text (`<p><a>Tel</a></p>`: the paragraph has no text of its own) must fall
+// through to the children, never count as "has text", or the link inside the
+// paragraph is dropped together with its label.
+function inlineOf(child: IrNode): string {
+  if (child.innerHtml !== undefined && child.innerHtml !== null) {
+    const inner = sanitizeInlineHtml(child.innerHtml);
+    return HEADING_TAGS.has(child.tag) || child.tag === "p" ? `<${child.tag}>${inner}</${child.tag}>` : inner;
+  }
+  const own = child.states[0]?.text?.content ?? "";
+  const inner = own !== "" ? escapeHtml(own) : child.children.map(inlineOf).join("");
+  if (child.tag === "a" && child.href !== null) {
+    const newTab = child.target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : "";
+    return `<a href="${escapeHtmlAttr(child.href)}"${newTab}>${inner}</a>`;
+  }
+  if (
+    HEADING_TAGS.has(child.tag) ||
+    child.tag === "p" ||
+    child.tag === "span" ||
+    child.tag === "strong" ||
+    child.tag === "em"
+  ) {
+    return `<${child.tag}>${inner}</${child.tag}>`;
+  }
+  return inner;
 }
 
 function escapeHtml(value: string): string {

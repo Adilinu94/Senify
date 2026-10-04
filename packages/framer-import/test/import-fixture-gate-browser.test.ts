@@ -50,7 +50,7 @@ const browserAvailable = (() => {
 
 // Pixel-difference ceilings (share of differing pixels) per breakpoint.
 const DIFF_CEILING: Record<string, Record<Breakpoint, number>> = {
-  "framer-easier-train-154753": { desktop: 0.17, tablet: 0.24, mobile: 0.35 },
+  "framer-easier-train-154753": { desktop: 0.15, tablet: 0.24, mobile: 0.34 },
   "framer-fluffy-rectangle-418998": { desktop: 0.7, tablet: 0.4, mobile: 0.42 },
   "framer-stupendous-football-158496": { desktop: 0.35, tablet: 0.33, mobile: 0.52 },
 };
@@ -179,7 +179,8 @@ describe.skipIf(!browserAvailable && !BROWSER_REQUIRED)("S5 import gate on the r
           expect(now.textChars / was.textChars, context).toBeLessThan(1.6);
           // Content that must not disappear.
           expect(now.textChars / was.textChars, context).toBeGreaterThan(0.6);
-          expect(now.links / Math.max(was.links, 1), context).toBeGreaterThan(0.45);
+          // Every link survives (measured 0.98–1.0 on all three exports).
+          expect(now.links / Math.max(was.links, 1), context).toBeGreaterThan(0.9);
           expect(now.boxes / Math.max(was.boxes, 1), context).toBeGreaterThan(0.6);
           expect(diff.ratio, context).toBeLessThanOrEqual((ceilings as Record<Breakpoint, number>)[breakpoint]);
         }
