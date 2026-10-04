@@ -122,6 +122,47 @@ describe("capture fidelity", () => {
   });
 });
 
+describe("typography through custom properties", () => {
+  const preset = (css: string, body: string) => page(body, css);
+
+  it("resolves var() against the preset class so text keeps its size and colour", () => {
+    const { nodes } = run(
+      preset(
+        ".framer-P .framer-styles-preset-1{--framer-font-size:92px;--framer-text-color:#fff}.fx{font-size:var(--framer-font-size,16px);color:var(--framer-text-color,#000)}",
+        '<h1 class="framer-styles-preset-1 fx">Gross</h1>',
+      ).replace('id="main" data-framer-hydrate-v2', 'id="main" data-framer-hydrate-v2 class="framer-P"'),
+    );
+    const heading = nodes.find((node) => node.props["text"] === "Gross");
+    expect(heading?.props["fontSize"]).toBe("92px");
+    expect(heading?.props["color"]).toBe("#fff");
+  });
+
+  it("falls back to the var() default when nothing defines the property", () => {
+    const { nodes } = run(preset(".fx{font-size:var(--framer-font-size,18px)}", '<p class="fx">Klein</p>'));
+    expect(nodes.find((node) => node.props["text"] === "Klein")?.props["fontSize"]).toBe("18px");
+  });
+
+  it("keeps the theme token variables as var() for the theme mapping", () => {
+    const { nodes } = run(
+      preset(".fx{color:var(--token-1f29b48f-b9fc-4fd7-ae5c-31f85ed3bce9,#254139)}", '<p class="fx">Marke</p>'),
+    );
+    expect(String(nodes.find((node) => node.props["text"] === "Marke")?.props["color"])).toContain("--token-");
+  });
+
+  it("gives a lifted heading the typography of the heading, not the container's defaults", () => {
+    const { nodes } = run(
+      preset(
+        ".box{font-size:16px;color:#000}.hd{font-size:64px;color:#fff;line-height:1.1}",
+        '<div class="box" data-framer-component-type="RichTextContainer"><h2 class="hd">Titel</h2></div>',
+      ),
+    );
+    const heading = nodes.find((node) => node.primitive === "heading");
+    expect(heading?.props["text"]).toBe("Titel");
+    expect(heading?.props["fontSize"]).toBe("64px");
+    expect(heading?.props["color"]).toBe("#fff");
+  });
+});
+
 describe("pinned layers", () => {
   it("keeps a fixed full-viewport overlay with its inset shorthand and background", () => {
     const { nodes } = run(

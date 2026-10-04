@@ -95,7 +95,7 @@ Noch nicht vorhanden: **automatische Medienbeschaffung**. Medienbedarfe sind adr
 | S3 Import und Jobs | belegt | `imports.ts`, `imports-contract.ts`, Import-Routen, `imports.test.ts` | DB-Commit atomar mit Receipts; externe Assets kompensiert |
 | S3b Island-Payloads | teilweise | `code-payloads.ts`, Renderer-Tests | Mirror-Quellen und wenige Adapter, nicht generisch |
 | S4 Fremdcode | teilweise | Importdialog, Report, Review | generische Extraktion, Poster, Lizenz-Promotion offen |
-| S5 Visual Gate | teilweise | `import-visual-gate-browser.test.ts`, `import-fixture-gate-browser.test.ts` | Gate läuft jetzt auf den drei echten Export-Fixtures mit Ratchet-Grenzen (Pixeldifferenz, Texthöhe, Links); fluffy-rectangle liegt bei Tablet noch bei 97 % Differenz (Hero-Hintergrund fehlt) |
+| S5 Visual Gate | teilweise | `import-visual-gate-browser.test.ts`, `import-fixture-gate-browser.test.ts` | Gate läuft auf den drei echten Export-Fixtures mit Ratchet-Grenzen (Pixeldifferenz, Texthöhe, Links); Tablet wird bei 900 px gemessen, weil Senifys Tablet bei 1023,98 px endet und Framers bei 1199 px; fluffy-rectangle liegt bei Desktop noch bei 67 % Differenz |
 | S6 Bibliotheksmodell | belegt | `library.ts`, Bibliotheksrouten, MCP-Tools | mehrstelliger Installations-/Update-Nachweis offen |
 | S7 Bibliotheks-UI | teilweise | Bausteine-Workspace, Explorer-Tab | vollständiger menschlicher E2E-Weg offen |
 | S8 Motion-Mapping | implementiert | `mapFramerMotion`, Motion-Report, ADR-0006 | eigene Framer-Motion-ADR und vollständiger Coverage-Nachweis offen |
@@ -128,5 +128,6 @@ Gemessen auf den drei echten Exporten gegen das Original (Desktop, Tablet, Mobil
 | Schutz | `expectedIrHash` und `baseDraftVersion` verhindern, dass „Übernehmen" etwas anderes schreibt als analysiert wurde; Dry-Run nennt `existingPage` |
 | Modus | `mode: "fidelity"` behält Verläufe, Schatten, Rundungen; Standard bleibt `dna` |
 | Widget-Engine | `var(--x, …)` in Funktionsargumenten wird nicht mehr zu `var(- - x …)` zerlegt |
+| Typografie | Framers `--framer-*`-Variablen werden pro Gerät gegen die Preset-Klassen aufgelöst (Schriftgröße, Farbe, Familie); ein angehobenes Heading übernimmt die Typografie des Headings; `position: fixed/sticky` und `inset` bleiben erhalten |
 
-Offen: Motion (Appear-JSON, gemessene Hover- und Scroll-Effekte), Erkennung von Navbar/Hero/Footer als Sections, Mehrseiten-Crawl, Theme-Farben, Vorschau mit Screenshots im Dialog, Undo für den Import, Seitensprache beim Backen (kommt aus der Site-Einstellung).
+Offen: Breakpoints der Quelle (Framer 810/1200, Senify 640/1024: zwischen 1024 und 1199 px zeigt das Original das Tablet-Layout, der Import das Desktop-Layout), gemessene Hover- und Scroll-Effekte (die Appear-Effekte sind abgebildet), Erkennung von Navbar/Hero/Footer als Sections, Mehrseiten-Crawl, Theme-Farben, Vorschau mit Screenshots im Dialog, Undo für den Import, Seitensprache beim Backen (kommt aus der Site-Einstellung).

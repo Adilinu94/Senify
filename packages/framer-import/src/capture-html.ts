@@ -282,8 +282,14 @@ function elementStyleToParts(
   if (style === undefined) return { visual, layout, box };
   for (const declaration of splitDeclarations(style)) {
     const pair = parseDeclaration(declaration);
-    if (pair === null || pair[0].startsWith("--")) continue;
+    if (pair === null) continue;
     const [property, value] = pair;
+    if (property.startsWith("--")) {
+      // Custom properties feed the cascade (`applyClassRules` resolves the
+      // `var()` calls and removes them); they are never a style of their own.
+      visual[property] = value;
+      continue;
+    }
     switch (property) {
       case "width":
         box.width = value;
@@ -626,7 +632,10 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
         kind: "frame",
         name: null,
         componentType: null,
-        baseClasses: [],
+        // The classes of `#main` itself (`framer-QDc12 framer-uhV7E …`): the
+        // preset rules are written as `.framer-uhV7E .framer-styles-preset-x`,
+        // so without them no descendant selector under the page ever matches.
+        baseClasses: main.classes.filter((name) => !name.startsWith("framer-v-") && name !== "ssr-variant"),
         tag: "root",
         href: null,
         states: [
@@ -956,9 +965,32 @@ function parseDeclarations(body: string): Record<string, string> {
   const values: Record<string, string> = {};
   for (const declaration of splitDeclarations(body)) {
     const pair = parseDeclaration(declaration);
-    if (pair !== null && !pair[0].startsWith("--")) values[pair[0]] = pair[1];
+    if (pair !== null) values[pair[0]] = pair[1];
   }
   return values;
+}
+
+type Vars = Record<string, string>;
+
+// A `var(--name, fallback)` call; the fallback may hold one level of nested
+// parentheses (`var(--a, var(--b, 8px))`, `rgb(0 0 0)`).
+const VAR_CALL = /var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,((?:[^()]|\([^()]*\))*))?\)/g;
+
+// Resolve `var()` against the custom properties in force on an element. Framer
+// writes ALL typography through them (`--framer-font-size`, `--framer-text-color`
+// … set by a preset class or inline), so keeping `var(--framer-font-size, 16px)`
+// in a baked page that no longer defines them renders every text at the
+// fallback. The token variables (`--token-*`) stay as `var()`: the theme
+// mapping owns them.
+function resolveVars(value: string, vars: Vars, depth = 0): string {
+  if (depth > 6 || !value.includes("var(")) return value;
+  return value.replace(VAR_CALL, (whole: string, name: string, fallback: string | undefined) => {
+    if (name.startsWith("--token-")) return whole;
+    const found = vars[name];
+    if (found !== undefined) return resolveVars(found.trim(), vars, depth + 1);
+    if (fallback !== undefined) return resolveVars(fallback.trim(), vars, depth + 1);
+    return whole;
+  });
 }
 
 // A media prelude that only asks for widths: `(min-width: 810px) and
@@ -1080,7 +1112,11 @@ function buildIndex(rules: readonly ParsedCssRule[]): { index: RuleIndex; skippe
 }
 
 function ruleMatches(node: IrNode, rule: CompiledRule, ancestorClasses: ReadonlySet<string>): boolean {
-  if (node.tag === "root") return rule.root;
+  if (node.tag === "root") {
+    if (rule.root) return true;
+    // A class rule can target the page element itself (`.framer-QDc12{…}`).
+    return rule.classes.length > 0 && rule.ancestors.length === 0 && rule.classes.every((name) => node.baseClasses.includes(name));
+  }
   if (rule.root) return false;
   if (rule.tag !== "" && rule.tag !== "*" && rule.tag !== node.tag) return false;
   if (!rule.classes.every((name) => node.baseClasses.includes(name))) return false;
@@ -1125,7 +1161,10 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
   const skippedPseudo =
     base.skippedPseudo + mediaIndexes.reduce((sum, entry) => sum + entry.skipped, 0);
 
-  const visit = (current: IrNode, ancestorClasses: ReadonlySet<string>): void => {
+  const DEVICES: readonly IrDevice[] = ["desktop", "tablet", "mobile"];
+  type VarsByDevice = Record<IrDevice, Vars>;
+
+  const visit = (current: IrNode, ancestorClasses: ReadonlySet<string>, inherited: VarsByDevice): void => {
     const baseState = current.states[0];
     if (baseState === undefined) return;
     // The cascade: stylesheet rules first, the element's own inline style wins.
@@ -1142,17 +1181,30 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
         byDevice.set(device, values);
       }
     }
-    const effective = (device: IrDevice): IrVisual => ({
-      ...baseline,
-      ...(byDevice.get(device) ?? {}),
-      ...inline,
-    });
-    baseState.visual = effective("desktop");
+    // Custom properties inherit, so each device carries its own chain; the
+    // values are resolved against the chain at THIS element.
+    const varsByDevice = {} as VarsByDevice;
+    const valuesByDevice = {} as Record<IrDevice, IrVisual>;
+    for (const device of DEVICES) {
+      const own: Vars = {};
+      const plain: IrVisual = {};
+      for (const [key, value] of Object.entries({ ...baseline, ...(byDevice.get(device) ?? {}), ...inline })) {
+        if (value === undefined) continue;
+        if (key.startsWith("--")) own[key] = value;
+        else plain[key] = value;
+      }
+      const vars = { ...inherited[device], ...own };
+      varsByDevice[device] = vars;
+      valuesByDevice[device] = Object.fromEntries(
+        Object.entries(plain).flatMap(([key, value]) => (value === undefined ? [] : [[key, resolveVars(value, vars)]])),
+      );
+    }
+    baseState.visual = valuesByDevice.desktop;
     // A device keeps its own state only where it differs from desktop. A device
     // the queries do not touch still needs one when desktop changed: it keeps
     // the values from before the query (a `min-width` rule never reaches mobile).
     for (const device of ["tablet", "mobile"] as const) {
-      const values = effective(device);
+      const values = valuesByDevice[device];
       const differs = [...new Set([...Object.keys(values), ...Object.keys(baseState.visual)])].some(
         (key) => values[key] !== baseState.visual[key],
       );
@@ -1166,9 +1218,9 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
       });
     }
     const classes = new Set([...ancestorClasses, ...current.baseClasses]);
-    for (const child of current.children) visit(child, classes);
+    for (const child of current.children) visit(child, classes, varsByDevice);
   };
-  visit(root, new Set());
+  visit(root, new Set(), { desktop: {}, tablet: {}, mobile: {} });
   return { skippedPseudo };
 }
 

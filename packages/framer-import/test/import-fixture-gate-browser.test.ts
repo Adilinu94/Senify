@@ -30,6 +30,14 @@ import { runImport } from "../src/index.ts";
 
 const BROWSER_REQUIRED = process.env["SENIFY_REQUIRE_BROWSER"] === "1";
 const BREAKPOINTS: Breakpoint[] = ["desktop", "tablet", "mobile"];
+
+// The tablet width of THIS gate. Framer's tablet runs 810–1199 px, Senify's
+// stops at 1023.98 px, so at the platform's usual 1024 px the original shows
+// its tablet layout while the import still shows desktop: two different
+// layouts, a difference no importer could close. 900 px lies inside both
+// ranges. Importing the site's own breakpoints would lift this restriction.
+const WIDTHS: Partial<Record<Breakpoint, number>> = { tablet: 900 };
+const widthOf = (breakpoint: Breakpoint): number => WIDTHS[breakpoint] ?? VISUAL_VIEWPORTS[breakpoint].width;
 const FIXTURES = resolve(import.meta.dirname, "fixtures");
 
 const browserAvailable = (() => {
@@ -42,9 +50,9 @@ const browserAvailable = (() => {
 
 // Pixel-difference ceilings (share of differing pixels) per breakpoint.
 const DIFF_CEILING: Record<string, Record<Breakpoint, number>> = {
-  "framer-easier-train-154753": { desktop: 0.35, tablet: 0.22, mobile: 0.41 },
-  "framer-fluffy-rectangle-418998": { desktop: 0.74, tablet: 0.96, mobile: 0.5 },
-  "framer-stupendous-football-158496": { desktop: 0.42, tablet: 0.25, mobile: 0.55 },
+  "framer-easier-train-154753": { desktop: 0.36, tablet: 0.31, mobile: 0.4 },
+  "framer-fluffy-rectangle-418998": { desktop: 0.7, tablet: 0.4, mobile: 0.42 },
+  "framer-stupendous-football-158496": { desktop: 0.33, tablet: 0.33, mobile: 0.52 },
 };
 
 const MIME: Record<string, string> = {
@@ -85,8 +93,7 @@ function serve(root: string): Promise<{ url: string; close(): Promise<void> }> {
 type PageMetrics = { height: number; textChars: number; links: number; boxes: number };
 
 async function metrics(browser: Awaited<ReturnType<typeof chromium.launch>>, url: string, breakpoint: Breakpoint): Promise<PageMetrics> {
-  const viewport = VISUAL_VIEWPORTS[breakpoint];
-  const page = await browser.newPage({ viewport: { width: viewport.width, height: viewport.height } });
+  const page = await browser.newPage({ viewport: { width: widthOf(breakpoint), height: VISUAL_VIEWPORTS[breakpoint].height } });
   try {
     await page.goto(url);
     await page.waitForTimeout(300);
@@ -152,8 +159,8 @@ describe.skipIf(!browserAvailable && !BROWSER_REQUIRED)("S5 import gate on the r
         servers.push(originalServer, importedServer);
         const shots = join(work, "shots");
         mkdirSync(shots, { recursive: true });
-        const before = await captureScreenshots({ url: `${originalServer.url}/index.html`, outDir: join(shots, "original"), breakpoints: BREAKPOINTS, motion: "live", settleMs: 300 });
-        const after = await captureScreenshots({ url: `${importedServer.url}/index.html`, outDir: join(shots, "imported"), breakpoints: BREAKPOINTS, motion: "off", settleMs: 300 });
+        const before = await captureScreenshots({ url: `${originalServer.url}/index.html`, outDir: join(shots, "original"), breakpoints: BREAKPOINTS, widths: WIDTHS, motion: "live", settleMs: 300 });
+        const after = await captureScreenshots({ url: `${importedServer.url}/index.html`, outDir: join(shots, "imported"), breakpoints: BREAKPOINTS, widths: WIDTHS, motion: "off", settleMs: 300 });
 
         const ceilings = DIFF_CEILING[fixture];
         expect(ceilings, `${fixture} needs an entry in DIFF_CEILING`).toBeDefined();

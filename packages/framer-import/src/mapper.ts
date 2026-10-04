@@ -498,6 +498,31 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
     }
     if (Object.keys(diff).length > 0) context.stats.mergedVariants += 1;
   }
+
+  // A node whose text lives in a descendant (`<div RichTextContainer><h1>…`,
+  // a link around a paragraph) flattens that descendant into itself. The
+  // typography Framer put on the descendant (92 px, white) is what the page
+  // shows; the container only carries the 16 px / black defaults. Without this
+  // the lifted heading renders in the container's defaults.
+  const ownText = node.states[0]?.text?.content ?? "";
+  if (
+    (primitive === "heading" || primitive === "link" || primitive === "body" || primitive === "text") &&
+    ownText === "" &&
+    node.children.length > 0
+  ) {
+    const source = firstTextNode(node);
+    if (source !== null) {
+      const typography = mergeStates(source.states);
+      const sourceBase = cssToStyle(typographyOf(typography.base.visual));
+      Object.assign(props, sourceBase);
+      for (const [device, state] of [["tablet", typography.tablet], ["mobile", typography.mobile]] as const) {
+        if (state === null) continue;
+        for (const [property, value] of Object.entries(diffValues(sourceBase, cssToStyle(typographyOf(state.visual))))) {
+          props[`${property}_${device}`] = value;
+        }
+      }
+    }
+  }
   normalizeSpacingProps(props);
   // --- layout from the stack/grid hints
   const layout = merged.base.layout;
@@ -654,6 +679,24 @@ function escapeHtmlAttr(value: string): string {
 
 // The deepest text content of a node, through rich-text wrappers: an <a> whose
 // children are containers around text is still a text link.
+// The first descendant that carries its own text.
+function firstTextNode(node: IrNode): IrNode | null {
+  for (const child of node.children) {
+    if ((child.states[0]?.text?.content ?? "") !== "") return child;
+    const inner = firstTextNode(child);
+    if (inner !== null) return inner;
+  }
+  return null;
+}
+
+// Only the type properties of a visual: the layout of a flattened descendant
+// (width, margin, flex) belongs to the container, not to the text.
+const TYPOGRAPHY_PROPERTY = /^(font|color$|letter-spacing|line-height|text-(align|transform|decoration|indent|shadow)|word-|white-space)/;
+
+function typographyOf(visual: { [key: string]: string | undefined }): { [key: string]: string | undefined } {
+  return Object.fromEntries(Object.entries(visual).filter(([property]) => TYPOGRAPHY_PROPERTY.test(property)));
+}
+
 function deepTextOf(node: IrNode): string | null {
   const own = node.states[0]?.text?.content ?? null;
   if (own !== null && own !== "") return own;
