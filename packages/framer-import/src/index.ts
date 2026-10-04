@@ -54,6 +54,8 @@ export {
 
 export { buildFidelityReport, type FidelityReport } from "./fidelity.ts";
 
+export { sectionCandidatesOf } from "./section-candidates.ts";
+
 export {
   candidatesOf,
   fingerprintOf,
