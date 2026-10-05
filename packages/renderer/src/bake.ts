@@ -50,7 +50,7 @@ import {
   WEBGL_VENDOR_NAME,
   type MotionTokens,
 } from "./motion.ts";
-import { overridesCss, styleRulesCss } from "./style-css.ts";
+import { overridesCss, styleRulesReport } from "./style-css.ts";
 import { webglVendorCode } from "./webgl-vendor.ts";
 
 export type BakePageInput = {
@@ -113,7 +113,8 @@ export type BakeWarning = {
     | "scene-without-surface"
     | "invalid-jsonld"
     | "billing-silent"
-    | "children-unrendered";
+    | "children-unrendered"
+    | "css-value-dropped";
   page: string;
   nodeId?: string;
   message: string;
@@ -557,7 +558,24 @@ export async function bakeSite(
   }
 
   const sectionsCss = overridesCss(input.pages);
-  const siteRulesCss = styleRulesCss(input.pages, input.styleRules ?? []);
+  const siteRules = styleRulesReport(input.pages, input.styleRules ?? []);
+  const siteRulesCss = siteRules.css;
+  for (const drop of siteRules.diagnostics) {
+    const nodeId = /\[data-node-id="([^"]+)"\]/.exec(drop.selector)?.[1];
+    warnings.push({
+      code: "css-value-dropped",
+      // Style rules are site-wide, so the warning belongs to no single page.
+      page: "*",
+      ...(nodeId === undefined ? {} : { nodeId }),
+      message:
+        drop.reason === "unsafe-property"
+          ? `Style rule ${drop.selector}: "${drop.property}" is not a valid CSS property name and was dropped`
+          : drop.reason === "unsupported-shape"
+            ? `Style rule ${drop.selector}: "${drop.property}" holds an object, which CSS cannot take, and was dropped`
+            : `Style rule ${drop.selector}: the value of "${drop.property}" is not valid CSS and was dropped`,
+      suggestion: "Fix the value in the style panel; the browser would ignore it as well.",
+    });
+  }
   const stageDir = await stageTemplate(
     {
       site: { name: input.siteName, baseUrl: input.baseUrl, lang: "de" },

@@ -120,6 +120,8 @@ const PREVIEW_STATES: readonly (StateName | "none")[] = [
   "none",
   "hover",
   "focus",
+  "focus-visible",
+  "focus-within",
   "active",
   "disabled",
 ];

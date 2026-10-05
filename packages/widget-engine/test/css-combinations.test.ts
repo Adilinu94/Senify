@@ -38,13 +38,17 @@ const GOLDEN = `[data-node-id="card"] {
   }
 }
 
-[data-node-id="card"]:hover {
-  background-color: #00ff00;
+@media (hover: hover) {
+  [data-node-id="card"]:hover {
+    background-color: #00ff00;
+  }
 }
 
 @media (max-width: 639.98px) {
-  [data-node-id="card"]:hover {
-    background-color: #0000ff;
+  @media (hover: hover) {
+    [data-node-id="card"]:hover {
+      background-color: #0000ff;
+    }
   }
 }
 
@@ -52,8 +56,10 @@ const GOLDEN = `[data-node-id="card"] {
   background-color: #222222;
 }
 
-[data-node-id="card"].highlight:hover {
-  background-color: #222222;
+@media (hover: hover) {
+  [data-node-id="card"].highlight:hover {
+    background-color: #222222;
+  }
 }
 
 @media (max-width: 1023.98px) {
@@ -61,8 +67,10 @@ const GOLDEN = `[data-node-id="card"] {
     background-color: #333333;
   }
 
-  [data-node-id="card"].highlight:hover {
-    background-color: #333333;
+  @media (hover: hover) {
+    [data-node-id="card"].highlight:hover {
+      background-color: #333333;
+    }
   }
 }`;
 
@@ -111,8 +119,8 @@ describe("combination coverage", () => {
   it("lets the class win inside the combined rule (O1)", () => {
     // The class sets `background`; the state sets `background` too. The class
     // is the stronger stage, so the combined rule carries the class value.
-    expect(css).toContain(`[data-node-id="card"].highlight:hover {\n  background-color: #222222;`);
-    expect(css).not.toContain(`[data-node-id="card"].highlight:hover {\n  background-color: #00ff00;`);
+    expect(css).toContain(`[data-node-id="card"].highlight:hover {\n    background-color: #222222;`);
+    expect(css).not.toContain(`[data-node-id="card"].highlight:hover {\n    background-color: #00ff00;`);
   });
 
   it("writes no combined rule without a class", () => {
@@ -166,8 +174,10 @@ describe("compiled rules as data", () => {
     const report = compileCssReport(doc, { layer: null });
     const blockCount = (report.css.match(/\{/g) ?? []).length;
     // Each rule opens exactly one block, each media wrapper one more. Eight
-    // rules, three media wrappers: device tablet, state mobile, class tablet.
+    // rules; the wrappers are the device queries (tablet base, mobile state,
+    // tablet class) and the hover guard around every hover rule: state desktop,
+    // state mobile, class desktop, class tablet.
     expect(report.ruleCount).toBe(8);
-    expect(blockCount).toBe(report.ruleCount + 3);
+    expect(blockCount).toBe(report.ruleCount + 3 + 4);
   });
 });

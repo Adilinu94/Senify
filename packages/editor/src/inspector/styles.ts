@@ -163,7 +163,7 @@ export const INSPECTOR_STYLES = `
 
 /* --------------------------------------------------- states and open props */
 .senify-inspector__states {
-  display: flex; align-items: center; gap: 4px; padding: 6px 10px 2px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 6px 10px 2px;
 }
 .senify-inspector__state {
   min-height: 22px; padding: 0 8px; border: 0; border-radius: var(--ed-radius-sm);
