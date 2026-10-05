@@ -30,21 +30,21 @@ describe("Framer appear effects", () => {
       '<div data-framer-appear-id="none">Nichts</div>',
   );
 
-  it("reads one sample per element that has an effect, with delay in milliseconds", () => {
+  it("reads one sample per element that has an effect, with the delay in seconds", () => {
     const document = captureHtml({ html });
     expect(document.motion).toHaveLength(5);
     const up = document.motion[0];
     expect(up?.library).toBe("framer");
     expect(up?.trigger).toBe("appear");
     expect(up?.params["fromY"]).toBe(40);
-    expect(up?.params["delay"]).toBe(300);
+    expect(up?.params["delay"]).toBe(0.3);
   });
 
   it("settles a spring from its stiffness, damping and mass", () => {
     const document = captureHtml({ html });
     // ω0 = √160 ≈ 12.65, ζ = 30 / (2·√160) ≈ 1.19: 4 / (ζ·ω0) ≈ 0.27 s
-    expect(document.motion[0]?.params["duration"]).toBeGreaterThan(240);
-    expect(document.motion[0]?.params["duration"]).toBeLessThan(300);
+    expect(document.motion[0]?.params["duration"]).toBeGreaterThan(0.24);
+    expect(document.motion[0]?.params["duration"]).toBeLessThan(0.3);
   });
 
   it("maps a rise from below and a plain fade to fade-up, with the offset as intensity", () => {
@@ -53,7 +53,8 @@ describe("Framer appear effects", () => {
     expect(specs).toHaveLength(2);
     expect(specs.every((spec) => spec.preset === "fade-up" && spec.trigger === "load")).toBe(true);
     expect(specs[0]?.intensity).toBe(4);
-    expect(specs[0]?.delay).toBe(300);
+    // Seconds, as the runtime reads it (GSAP): 0.3 s, not 300.
+    expect(specs[0]?.delay).toBe(0.3);
     expect(specs[1]?.intensity).toBe(1);
   });
 

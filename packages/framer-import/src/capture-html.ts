@@ -849,8 +849,10 @@ function readAppearMotion(html: string, root: IrNode): IrMotionSample[] {
       fromY: from.y ?? 0,
       fromScale: from.scale ?? 1,
       toOpacity: to.opacity ?? 1,
-      delay: Math.round((transition.delay ?? 0) * 1000),
-      duration: Math.round(springSettleSeconds(transition) * 1000),
+      // Seconds, like GSAP and the MotionSpec: milliseconds here made the baked
+      // runtime wait 300 SECONDS and keep the element hidden meanwhile.
+      delay: Math.round((transition.delay ?? 0) * 100) / 100,
+      duration: Math.round(springSettleSeconds(transition) * 1000) / 1000,
       ...(transition.type === undefined ? {} : { transition: transition.type }),
     };
     samples.push({

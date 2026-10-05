@@ -80,7 +80,11 @@ function specFor(sample: IrMotionSample, preset: MotionSpec["preset"]): MotionSp
   return {
     preset,
     ...(sample.library === "framer" && sample.trigger === "appear" ? { intensity: appearIntensity(sample) } : {}),
-    ...(delay === undefined ? {} : { delay: Math.round(delay) }),
+    // Framer's delay is already in seconds with a fraction (0.3); rounding it to
+    // an integer would drop every sub-second delay.
+    ...(delay === undefined
+      ? {}
+      : { delay: sample.library === "framer" ? Math.round(delay * 100) / 100 : Math.round(delay) }),
     ...(Object.keys(tokens).length === 0 ? {} : { tokens }),
     trigger: sample.trigger === "inview" || sample.trigger === "scroll" ? "viewport" : sample.trigger === "hover" ? "hover" : "load",
     reducedMotion: "static",
