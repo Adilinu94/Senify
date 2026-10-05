@@ -94,6 +94,108 @@ function failed(error) {
   toast(`${friendlyError(error)}${hint}`, "error");
 }
 
+// In-app replacements for window.prompt / window.confirm. The native dialogs
+// look like a browser warning, cannot be styled, block the page and read as
+// "something went wrong" on a phone. These use the same <dialog class="modal">
+// as the rest of the dashboard: a title, a labelled field, a button that says
+// what it does. Enter confirms, Escape and a click on the backdrop cancel, the
+// focus returns to where it was. Both return a promise:
+//   askText    -> the entered text, or null when cancelled
+//   askConfirm -> true / false
+let dialogSequence = 0;
+
+function openAskDialog({
+  title,
+  message,
+  label,
+  value = "",
+  multiline = false,
+  required = false,
+  requiredMessage = "Bitte etwas eingeben.",
+  confirmLabel = "OK",
+  cancelLabel = "Abbrechen",
+  danger = false,
+}) {
+  return new Promise((resolve) => {
+    const id = `ask-dialog-${(dialogSequence += 1)}`;
+    const previousFocus = document.activeElement;
+    const wantsInput = label !== undefined;
+    const input = wantsInput
+      ? el(multiline ? "textarea" : "input", {
+          id: `${id}-input`,
+          ...(multiline ? { rows: "4" } : { type: "text", autocomplete: "off" }),
+        })
+      : null;
+    if (input) input.value = value;
+    const problem = el("p", { class: "ask-dialog__problem", role: "alert", hidden: "" });
+    const cancelButton = el("button", {
+      type: "button",
+      class: "ghost",
+      text: cancelLabel,
+      onclick: () => dialog.close("cancel"),
+    });
+    // The only submit button: Enter in the field confirms, never cancels.
+    const confirmButton = el("button", {
+      type: "submit",
+      value: "ok",
+      class: danger ? "danger" : "primary",
+      text: confirmLabel,
+    });
+    const form = el(
+      "form",
+      { method: "dialog" },
+      el("h2", { id: `${id}-title`, text: title }),
+      message === undefined ? null : el("p", { class: "muted", id: `${id}-message`, text: message }),
+      input ? el("label", { class: "muted", for: input.id, text: label }) : null,
+      input,
+      problem,
+      el("div", { class: "modal-actions" }, cancelButton, confirmButton),
+    );
+    const dialog = el(
+      "dialog",
+      {
+        class: "modal ask-dialog",
+        "aria-labelledby": `${id}-title`,
+        ...(message === undefined ? {} : { "aria-describedby": `${id}-message` }),
+        "data-role": "ask-dialog",
+      },
+      form,
+    );
+    form.addEventListener("submit", (event) => {
+      if (required && input && input.value.trim() === "") {
+        event.preventDefault();
+        problem.textContent = requiredMessage;
+        problem.hidden = false;
+        input.setAttribute("aria-invalid", "true");
+        input.focus();
+      }
+    });
+    // A click on the backdrop lands on the <dialog> itself, never on the form.
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) dialog.close("cancel");
+    });
+    dialog.addEventListener("close", () => {
+      const confirmed = dialog.returnValue !== "cancel" && dialog.returnValue !== "";
+      const answer = input ? (confirmed ? input.value.trim() : null) : confirmed;
+      dialog.remove();
+      if (previousFocus?.isConnected && typeof previousFocus.focus === "function") previousFocus.focus();
+      resolve(answer);
+    });
+    document.body.append(dialog);
+    dialog.showModal();
+    if (input) {
+      input.focus();
+      input.select();
+    } else {
+      // A destructive question starts on "Abbrechen": Enter must not delete.
+      (danger ? cancelButton : confirmButton).focus();
+    }
+  });
+}
+
+const askText = (options) => openAskDialog(options);
+const askConfirm = (options) => openAskDialog({ ...options, label: undefined });
+
 function settingField(label, control, help) {
   const field = el("label", { class: "field" });
   field.append(el("span", { class: "field__label", text: label }), control);
@@ -304,7 +406,13 @@ async function libraryView(componentId = null) {
         el("div", { class: "card-actions" },
           el("button", { class: "primary", text: "Installieren", onclick: () => void installFor(component) }),
           el("button", { text: "Notiz", onclick: async () => {
-            const notes = prompt("Notiz", component.notes ?? "");
+            const notes = await askText({
+              title: "Notiz zur Komponente",
+              label: "Notiz",
+              value: component.notes ?? "",
+              multiline: true,
+              confirmLabel: "Speichern",
+            });
             if (notes === null) return;
             try {
               await api(`/api/library-components/${component.id}`, { method: "PATCH", body: { notes, author: AUTHOR } });
@@ -393,7 +501,13 @@ async function projectsView() {
 }
 
 async function createSite() {
-  const name = prompt("Name des Projekts");
+  const name = await askText({
+    title: "Neues Projekt",
+    label: "Name des Projekts",
+    required: true,
+    requiredMessage: "Bitte einen Namen eingeben.",
+    confirmLabel: "Anlegen",
+  });
   if (!name) return;
   try {
     const site = await api("/api/sites", { method: "POST", body: { name } });
@@ -405,7 +519,14 @@ async function createSite() {
 }
 
 async function renameSite(site) {
-  const name = prompt("Neuer Name", site.name);
+  const name = await askText({
+    title: "Projekt umbenennen",
+    label: "Neuer Name",
+    value: site.name,
+    required: true,
+    requiredMessage: "Bitte einen Namen eingeben.",
+    confirmLabel: "Umbenennen",
+  });
   if (!name || name === site.name) return;
   try {
     await api(`/api/sites/${site.id}`, {
@@ -444,7 +565,12 @@ duplicateForm.addEventListener("submit", async (event) => {
 });
 
 async function trashSite(site) {
-  if (!confirm(`„${site.name}“ in den Papierkorb verschieben?`)) return;
+  const move = await askConfirm({
+    title: "In den Papierkorb verschieben?",
+    message: `„${site.name}“ wird in den Papierkorb verschoben.`,
+    confirmLabel: "Verschieben",
+  });
+  if (!move) return;
   try {
     await api(`/api/sites/${site.id}/trash`, {
       method: "POST",
@@ -518,13 +644,13 @@ async function trashView() {
                       class: "danger",
                       text: "Endgültig löschen",
                       onclick: async () => {
-                        if (
-                          !confirm(
-                            `„${site.name}“ endgültig löschen? Das kann nicht rückgängig gemacht werden.`,
-                          )
-                        ) {
-                          return;
-                        }
+                        const sure = await askConfirm({
+                          title: "Endgültig löschen?",
+                          message: `„${site.name}“ endgültig löschen? Das kann nicht rückgängig gemacht werden.`,
+                          confirmLabel: "Endgültig löschen",
+                          danger: true,
+                        });
+                        if (!sure) return;
                         try {
                           await api(`/api/sites/${site.id}`, { method: "DELETE" });
                           toast("Projekt endgültig gelöscht");
@@ -581,7 +707,13 @@ async function deleteReference(reference) {
     used > 0
       ? `„${reference.name}“ ist ${used} Projekt(en) zugeordnet. Trotzdem löschen?`
       : `„${reference.name}“ löschen?`;
-  if (!confirm(message)) return;
+  const sure = await askConfirm({
+    title: "Referenz löschen?",
+    message,
+    confirmLabel: "Löschen",
+    danger: true,
+  });
+  if (!sure) return;
   try {
     await api(`/api/references/${reference.id}${used > 0 ? "?force=1" : ""}`, {
       method: "DELETE",
@@ -1334,7 +1466,13 @@ async function refsDeleteCollection(collection) {
     count > 0
       ? `„${collection.name}“ löschen? ${count} Referenz(en) bleiben erhalten und werden keiner Sammlung mehr zugeordnet.`
       : `„${collection.name}“ löschen?`;
-  if (!confirm(message)) return;
+  const sure = await askConfirm({
+    title: "Sammlung löschen?",
+    message,
+    confirmLabel: "Löschen",
+    danger: true,
+  });
+  if (!sure) return;
   try {
     const result = await api(`/api/reference-collections/${collection.id}`, {
       method: "DELETE",
@@ -3067,7 +3205,13 @@ async function settingsView() {
             : el("button", {
                 class: "danger",
                 text: "Widerrufen",                 onclick: async () => {
-                   if (!confirm(`Token „${token.name}“ wirklich widerrufen? Danach kann der Client nicht mehr zugreifen.`)) return;
+                  const sure = await askConfirm({
+                    title: "Token widerrufen?",
+                    message: `Token „${token.name}“ wirklich widerrufen? Danach kann der Client nicht mehr zugreifen.`,
+                    confirmLabel: "Widerrufen",
+                    danger: true,
+                  });
+                  if (!sure) return;
                    try {
                      await api(`/api/tokens/${token.id}`, { method: "DELETE" });
                     toast("Token widerrufen");
@@ -4379,7 +4523,13 @@ async function articlesView(siteId) {
         class: "primary",
         text: "Neuer Artikel",
         onclick: async () => {
-          const title = prompt("Titel des Artikels");
+          const title = await askText({
+            title: "Neuer Artikel",
+            label: "Titel des Artikels",
+            required: true,
+            requiredMessage: "Bitte einen Titel eingeben.",
+            confirmLabel: "Anlegen",
+          });
           if (!title) return;
           try {
             const created = await api(`/api/sites/${siteId}/entries`, {
@@ -4927,7 +5077,23 @@ function reviewFigure(label, src, kind = "") {
 }
 
 async function reviewAction(siteId, reviewId, action) {
-  const comment = prompt("Kommentar (optional)") ?? "";
+  const labels = {
+    approve: ["Review freigeben", "Freigeben"],
+    "request-changes": ["Änderungen anfordern", "Anfordern"],
+    discard: ["Review verwerfen", "Verwerfen"],
+  };
+  const [reviewTitle, reviewConfirm] = labels[action] ?? ["Review aktualisieren", "Senden"];
+  // Cancelling now cancels the action. The native prompt answered "Abbrechen"
+  // with null, which the old `?? ""` turned into an empty comment — the review
+  // was approved, requested or discarded although the user backed out.
+  const comment = await askText({
+    title: reviewTitle,
+    label: "Kommentar (optional)",
+    multiline: true,
+    confirmLabel: reviewConfirm,
+    danger: action === "discard",
+  });
+  if (comment === null) return;
   try {
     await api(`/api/reviews/${reviewId}/${action}`, {
       method: "POST",
