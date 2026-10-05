@@ -1,7 +1,7 @@
 # Fahrplan
 
 > **Dokumenttyp:** fortlaufender Umsetzungsplan mit Gates. Dieses Dokument begleitet die Umsetzung und wird bei jedem abgeschlossenen Schritt aktualisiert.
-> **Stand:** 29.09.2026 · **Basis:** die geprüfte Folgearbeit ist in `2a0afde` und `aad9550` gesichert. Der erste Schritt von P3-2 (Store-Row-Mapping) ist aktuell in Arbeit; sein Gate ist grün, die Änderungen werden vor dem nächsten Schritt committet. Der Ist-Abgleich steht in `docs/current/stand.md`, `docs/current/architektur.md` und `docs/current/qualitaet.md`. Historische Abschnitte bleiben Verlauf und sind nicht automatisch der heutige Status.
+> **Stand:** 29.09.2026 · **Basis:** die geprüfte Folgearbeit ist in `2a0afde` und `aad9550` gesichert. Der erste Schritt von P3-2 (Store-Row-Mapping) ist als `0193fde` committet; sein Gate war grün. Der Ist-Abgleich steht in `docs/current/stand.md`, `docs/current/architektur.md` und `docs/current/qualitaet.md`. Historische Abschnitte bleiben Verlauf und sind nicht automatisch der heutige Status.
 > **Nicht verbindlich hier:** Testzahlen (gehören nach `docs/current/qualitaet.md`), Fachbegriffe (`CONTEXT.md`), angenommene Entscheidungen (`docs/adr/`).
 > **Ersetzt:** `docs/history/umbauplan.md` (siehe `docs/README.md` für Vorrangregeln).
 
@@ -15,9 +15,9 @@
 
 ---
 
-## Aktueller DoR-Blocker
+## Aktueller DoR-Stand
 
-Der zuvor geprüfte Folge-Diff ist in `2a0afde` und `aad9550` gesichert. Der aktuelle, eng begrenzte P3-2-Schritt extrahiert Store-Row-Mapping nach `store-record-mappers.ts` und `store-row-utils.ts`; Typecheck, Lint, Volltest und Coverage sind am 29.09.2026 grün. Der Arbeitsbaum bleibt bis zu diesem Schritt-Commit absichtlich geändert; der nächste Schritt startet erst danach. Frühere App-/DB-Gates und aktuelle Zahlen stehen ausschließlich in `docs/current/qualitaet.md`.
+Der frühere Blocker, ein uncommitteter Store-Mapper-Schritt, ist aufgehoben: Der geprüfte Folge-Diff ist in `2a0afde` und `aad9550` gesichert, der eng begrenzte erste P3-2-Schritt in `0193fde`. Er extrahiert Store-Row-Mapping nach `store-record-mappers.ts` und `store-row-utils.ts`; Typecheck, Lint, Volltest und Coverage waren am 29.09.2026 grün. Jeder weitere Schritt startet mit einem sauberen `git status --short` (siehe Definition of Ready). Frühere App-/DB-Gates und aktuelle Zahlen stehen ausschließlich in `docs/current/qualitaet.md`.
 
 ---
 
@@ -25,7 +25,7 @@ Der zuvor geprüfte Folge-Diff ist in `2a0afde` und `aad9550` gesichert. Der akt
 
 ### P0-1 · Arbeitsbaum in fachlichen Commits sichern — ursprünglicher Bestand historisch erledigt; Folge-Diff gesichert 29.09.2026
 
-Zehn fachliche Commits (`1e4645a…67a2862`) sicherten den ursprünglichen Bestand. Der spätere geprüfte Folge-Diff ist ebenfalls gesichert (`2a0afde`, `aad9550`). Der neue uncommittete Store-Mapper-Schritt gehört zu P3-2 und muss dessen Gate und Commit durchlaufen, bevor ein weiterer Schritt beginnt.
+Zehn fachliche Commits (`1e4645a…67a2862`) sicherten den ursprünglichen Bestand. Der spätere geprüfte Folge-Diff ist ebenfalls gesichert (`2a0afde`, `aad9550`). Der Store-Mapper-Schritt gehört zu P3-2 und ist als `0193fde` gesichert.
 
 Der lokale Runtime-Store `data/`, `full.log` sowie Graphify-Ausgaben sind ignoriert und werden nicht übernommen. Die Graphify-Semantik-Auswertung ist unvollständig; daraus wird kein Vollständigkeitsbeleg abgeleitet.
 
@@ -166,7 +166,7 @@ Neu erzeugte Uploads werden nach fehlgeschlagenem DB-Commit kompensiert; negativ
 | R10 | Import-Asset-Kompensation unbelegt | **Kompensationsvertrag geschlossen**; eine gemeinsame Datei-/DB-Tx besteht nicht | P3-5 |
 | R11 | Kein PG-Service/Coverage/Fehlerpfade in CI | **Implementierung und aktuelle lokale Gates geschlossen**; CI-Jobs vorhanden | P1-1, P1-2 |
 | R12 | God-Files | **offen** | P3-2 |
-| R13 | Ursprünglicher Arbeitsbaum ungesichert | **Vorheriger Folge-Diff gesichert**; der aktuelle P3-2-Schritt bleibt bis Gate und Commit offen | P0-1 / P3-2 |
+| R13 | Ursprünglicher Arbeitsbaum ungesichert | **geschlossen**: Folge-Diff in `2a0afde`/`aad9550`, erster P3-2-Schritt in `0193fde` gesichert | P0-1 / P3-2 |
 
 ## Definition of Ready für neue Schritte
 

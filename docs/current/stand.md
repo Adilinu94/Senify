@@ -1,6 +1,6 @@
 # Aktueller Stand
 
-> Basis: Commit `aad9550` (29.09.2026); der geprüfte Folge-Diff ist gesichert. Eine reine Store-Mapper-Auslagerung ist der aktuelle uncommittete P3-2-Schritt; Typecheck, Lint, Volltest und Coverage sind dafür grün. Frühere App-/PostgreSQL-Gates stehen mit Datum in `docs/current/qualitaet.md`.
+> Basis: Commit `aad9550` (29.09.2026); der geprüfte Folge-Diff ist gesichert. Die reine Store-Mapper-Auslagerung (erster P3-2-Schritt) ist als `0193fde` committet; Typecheck, Lint, Volltest und Coverage waren dafür grün. Frühere App-/PostgreSQL-Gates stehen mit Datum in `docs/current/qualitaet.md`.
 > Stand: 29.09.2026. Messzahlen stehen ausschließlich in `docs/current/qualitaet.md` und werden von `pnpm quality:render` erzeugt, nicht von Hand gepflegt.
 > Geplante Arbeit und Reihenfolge: `docs/fahrplan.md`. Historisches: `docs/history/`.
 
@@ -61,7 +61,7 @@ Jeder Eintrag hat eine Nummer, die `docs/fahrplan.md` und `docs/current/architek
 | R10 | Import-Assets außerhalb der gemeinsamen DB-Transaktion | **Kompensationsvertrag geschlossen 27.09.2026** | Neu erzeugte Uploads werden bei fehlgeschlagenem DB-Commit kompensiert; `packages/engine/test/imports.test.ts` erzwingt einen 409 nach dem Upload und prüft das Entfernen. Datei und DB bleiben getrennte Ressourcen; bereits vorhandene Assets werden nicht entfernt. `getAsset` bleibt absichtlich ungeprüft |
 | R11 | Keine Coverage-Schwelle, kein PG-Service in CI | **Implementierung und aktuelle lokale Gates geschlossen** | Coverage-Schwellen, Fehlerpfad-Tests und PG-Job sind vorhanden (`vitest.config.ts`, `test/error-paths.test.ts`, `verify.yml`); aktueller Laufstatus steht ausschließlich in `docs/current/qualitaet.md` |
 | R12 | God-Files als Änderungskosten | offen, **erste Store-Auslagerung umgesetzt** | `store-record-mappers.ts` enthält Asset-, Code-Payload-, Collection- und Entry-Mapper; `store-row-utils.ts` enthält DB-Konvertierungen. `Store`-Operationen sowie `http.ts`, `app.js` und MCP-Tools bleiben zu zerlegen (P3-2). |
-| R13 | Arbeitsbaum ungesichert | Vorheriger Folge-Diff ist gesichert; der aktuelle P3-2-Schritt bleibt bis Gate/Commit ungesichert | `git status --short`; aktive Änderungen sind auf Row-Mapper begrenzt |
+| R13 | Arbeitsbaum ungesichert | **geschlossen**: Folge-Diff in `2a0afde`/`aad9550`, erster P3-2-Schritt in `0193fde` gesichert | `git log` (`0193fde`, `aad9550`, `2a0afde`), `git status --short` |
 
 Zwei Risiken sind **keine** offenen Lücken, sondern bewusste Grenzen, die nicht als Fehler geführt werden:
 
