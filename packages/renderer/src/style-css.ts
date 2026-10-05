@@ -156,7 +156,15 @@ export function styleRulesCss(
   return compileCss({
     nodes: [...nodes.values()],
     classRules: remapScopedRules(pages, rules)
-      .filter((rule) => rule.origin?.source !== "framer-import")
+      .flatMap((rule) => {
+        if (rule.origin?.source !== "framer-import") return [rule];
+        // An imported rule's base declarations already live in its nodes' own
+        // props, so emitting them twice would only repeat them. Its `:hover` /
+        // `:focus` / `:active` / `:disabled` states exist nowhere else, so
+        // those alone are emitted (and win over the node's base by specificity).
+        const hasStates = Object.values(rule.states ?? {}).some((bag) => Object.keys(bag ?? {}).length > 0);
+        return hasStates ? [{ ...rule, styles: {}, contextStyles: {} }] : [];
+      })
       .map((rule) => styleRuleToClassRule(rule)),
   });
 }

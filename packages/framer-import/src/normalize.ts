@@ -19,6 +19,7 @@ import { createHash } from "node:crypto";
 import type {
   FramerIrDocument,
   IrFinding,
+  IrInteraction,
   IrNode,
   IrState,
   IrVisual,
@@ -30,6 +31,9 @@ export type NormalizedStyleRule = {
   id: string;
   name: string;
   declarations: Record<string, string>;
+  // The element's own `:hover` / `:focus` / `:active` / `:disabled` declarations
+  // (desktop only), carried as the rule's states.
+  states?: Partial<Record<IrInteraction, Record<string, string>>>;
   // How many nodes reference this rule after consolidation.
   uses: number;
   nodeKeys: string[];
@@ -350,8 +354,19 @@ export function normalize(document: FramerIrDocument, options: NormalizeOptions 
           droppedDeclarations += 1;
         }
       }
-      if (Object.keys(merged).length === 0) continue;
-      const key = declarationKey(merged);
+      const states: NonNullable<NormalizedStyleRule["states"]> = {};
+      if (state.device === "desktop" && state.interactions !== undefined) {
+        for (const [name, visual] of Object.entries(state.interactions) as [IrInteraction, IrVisual][]) {
+          const bag: Record<string, string> = {};
+          for (const [property, value] of Object.entries(visual)) {
+            if (value !== undefined && !property.startsWith("-webkit-") && !property.startsWith("-moz-")) bag[property] = value;
+          }
+          if (Object.keys(bag).length > 0) states[name] = bag;
+        }
+      }
+      const hasStates = Object.keys(states).length > 0;
+      if (Object.keys(merged).length === 0 && !hasStates) continue;
+      const key = declarationKey(merged) + (hasStates ? `|${JSON.stringify(states)}` : "");
       const existing = ruleBySet.get(key);
       if (existing !== undefined) {
         existing.uses += 1;
@@ -362,6 +377,7 @@ export function normalize(document: FramerIrDocument, options: NormalizeOptions 
         id: `fi-${scope}-${ruleBySet.size + 1}`,
         name: `framer-${scope}-${ruleBySet.size + 1}`,
         declarations: merged,
+        ...(hasStates ? { states } : {}),
         uses: 1,
         nodeKeys: [node.key],
         device: state.device,

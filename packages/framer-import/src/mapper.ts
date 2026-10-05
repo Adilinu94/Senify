@@ -762,6 +762,14 @@ export function themePatchOf(document: FramerIrDocument): ThemePatch {
 
 /* ------------------------------------------------------------------ rules */
 
+const camelStyles = (declarations: Record<string, string>): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(declarations).map(([name, value]) => {
+      const mapped = cssName(name);
+      return [mapped ?? name, value];
+    }),
+  );
+
 function styleRulesOf(normalized: NormalizedStyleRule[]): StyleRule[] {
   return normalized.map((rule, index) => ({
     id: rule.id,
@@ -769,12 +777,16 @@ function styleRulesOf(normalized: NormalizedStyleRule[]): StyleRule[] {
     kind: "class" as const,
     selector: `.${rule.name}`,
     order: index,
-    styles: Object.fromEntries(
-      Object.entries(rule.declarations).map(([name, value]) => {
-        const mapped = cssName(name);
-        return [mapped ?? name, value];
-      }),
-    ),
+    styles: camelStyles(rule.declarations),
+    // The element's `:hover` / `:focus` / `:active` / `:disabled` rules become the
+    // rule's own states, which the compiler writes after the base declarations.
+    ...(rule.states === undefined
+      ? {}
+      : {
+          states: Object.fromEntries(
+            Object.entries(rule.states).map(([name, declarations]) => [name, camelStyles(declarations)]),
+          ),
+        }),
     contextStyles: {},
     origin: { source: "framer-import", ordinal: index },
     authoredBy: "preset" as const,

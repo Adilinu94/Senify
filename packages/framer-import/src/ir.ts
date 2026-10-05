@@ -189,7 +189,13 @@ export type IrState = {
   layout: IrLayout | null;
   box: IrBox | null;
   text: IrTextContent | null;
+  // The element's own `:hover` / `:focus` / `:active` / `:disabled` rules from
+  // the stylesheet (desktop state only: Framer's states do not vary by width).
+  interactions?: Partial<Record<IrInteraction, IrVisual>>;
 };
+
+export type IrInteraction = "hover" | "focus" | "active" | "disabled";
+export const IR_INTERACTIONS: readonly IrInteraction[] = ["hover", "focus", "active", "disabled"];
 
 // One logical element. Per-device differences (B2/§4 point 5) arrive as
 // `states[]` entries — the mapper's device merge folds them into one node
@@ -497,7 +503,18 @@ function asIrState(value: unknown): IrState | undefined {
     layout: asIrLayout(value.layout),
     box: asIrBox(value.box),
     text: asIrText(value.text),
+    ...asInteractions(value.interactions),
   };
+}
+
+function asInteractions(value: unknown): { interactions?: Partial<Record<IrInteraction, IrVisual>> } {
+  if (!isRecord(value)) return {};
+  const out: Partial<Record<IrInteraction, IrVisual>> = {};
+  for (const name of IR_INTERACTIONS) {
+    const bag = value[name];
+    if (isRecord(bag)) out[name] = asIrVisual(bag);
+  }
+  return Object.keys(out).length > 0 ? { interactions: out } : {};
 }
 
 const IR_NODE_KINDS: readonly IrNodeKind[] = [

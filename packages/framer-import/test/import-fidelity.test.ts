@@ -77,14 +77,40 @@ describe("capture fidelity", () => {
     expect(nodes.find((node) => node.props["anchorId"] === "kontakt")?.primitive).toBe("frame");
   });
 
-  it("does not let a hover rule leak into the base style", () => {
-    const { nodes, document } = run(
-      page('<div class="btn">Go</div>', ".btn{background-color:#111}.btn:hover{background-color:#f00}"),
+  it("keeps a hover rule as the rule's hover state and out of the base style", () => {
+    const { nodes, mapped } = run(
+      page('<div class="btn">Go</div>', ".btn{background-color:#111}.btn:hover{background-color:#f00;color:#fff}"),
     );
     const colors = nodes.map((node) => String(node.props["backgroundColor"] ?? ""));
     expect(colors).toContain("#111");
     expect(colors).not.toContain("#f00");
+    const rule = mapped.rules.find((candidate) => candidate.styles["backgroundColor"] === "#111");
+    expect(rule?.states?.hover).toEqual({ backgroundColor: "#f00", color: "#fff" });
+  });
+
+  it("maps focus-visible to the focus state and :active to active", () => {
+    const { mapped } = run(
+      page('<a class="l" href="/x">L</a>', ".l{color:#111}.l:focus-visible{outline:2px solid #00f}.l:active{color:#999}"),
+    );
+    const rule = mapped.rules.find((candidate) => candidate.styles["color"] === "#111");
+    expect(rule?.states?.focus).toEqual({ outline: "2px solid #00f" });
+    expect(rule?.states?.active).toEqual({ color: "#999" });
+  });
+
+  it("reports a state of ANOTHER element (.card:hover .title) instead of applying it to this one", () => {
+    const { nodes, document } = run(
+      page('<div class="card"><p class="title">T</p></div>', ".card .title{color:#111}.card:hover .title{color:#f00}"),
+    );
+    expect(nodes.map((node) => String(node.props["color"] ?? ""))).not.toContain("#f00");
     expect(document.findings.some((finding) => finding.message.includes("Pseudo-Zustand"))).toBe(true);
+  });
+
+  it("resolves var() inside a hover state like in the base style", () => {
+    const { mapped } = run(
+      page('<div class="b">x</div>', ".b{--c:#123;background-color:#111}.b:hover{background-color:var(--c,#000)}"),
+    );
+    const rule = mapped.rules.find((candidate) => candidate.styles["backgroundColor"] === "#111");
+    expect(rule?.states?.hover).toEqual({ backgroundColor: "#123" });
   });
 
   it("applies class rules on a large stylesheet (no size limit)", () => {
@@ -119,6 +145,37 @@ describe("capture fidelity", () => {
       expect(node.props["opacity"]).toBeUndefined();
       expect(node.props["transform"]).toBeUndefined();
     }
+  });
+});
+
+describe("deeply nested var() fallbacks", () => {
+  it("resolves a three-level fallback chain down to the first defined property", () => {
+    const { nodes } = run(
+      page(
+        '<p class="t">Text</p>',
+        '.t{--framer-font-family:"Manrope",sans-serif;font-family:var(--framer-link-hover-font-family,var(--framer-link-font-family,var(--framer-font-family,"Inter",sans-serif)))}',
+      ),
+    );
+    expect(nodes.find((node) => node.props["text"] === "Text")?.props["fontFamily"]).toBe('"Manrope",sans-serif');
+  });
+
+  it("falls to the last literal fallback when nothing in the chain is defined", () => {
+    const { nodes } = run(
+      page('<p class="t">Text</p>', '.t{font-family:var(--a,var(--b,var(--c,"Inter",sans-serif)))}'),
+    );
+    expect(nodes.find((node) => node.props["text"] === "Text")?.props["fontFamily"]).toBe('"Inter",sans-serif');
+  });
+
+  it("keeps a quoted comma and parenthesis inside a fallback intact", () => {
+    const { nodes } = run(
+      page('<p class="t">Text</p>', '.t{font-family:var(--a,"Foo, (Bar)",serif)}'),
+    );
+    expect(nodes.find((node) => node.props["text"] === "Text")?.props["fontFamily"]).toBe('"Foo, (Bar)",serif');
+  });
+
+  it("does not touch an identifier that merely ends in var(", () => {
+    const { nodes } = run(page('<p class="t">Text</p>', ".t{content:\"invar(x)\";color:#111}"));
+    expect(nodes.find((node) => node.props["text"] === "Text")?.props["color"]).toBe("#111");
   });
 });
 

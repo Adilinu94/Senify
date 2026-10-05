@@ -25,6 +25,7 @@ import {
   type IrDevice,
   type IrFinding,
   type IrFontFace,
+  type IrInteraction,
   type IrLayout,
   type IrMotionSample,
   type IrNode,
@@ -33,7 +34,7 @@ import {
   type IrTextContent,
   type IrVisual,
 } from "./ir.ts";
-import { expandBox, parseDeclaration, splitDeclarations } from "./css-util.ts";
+import { expandBox, parseDeclaration, splitCommas, splitDeclarations } from "./css-util.ts";
 import { devicesContaining } from "./devices.ts";
 
 /* ------------------------------------------------------------------ types */
@@ -973,25 +974,78 @@ function parseDeclarations(body: string): Record<string, string> {
 
 type Vars = Record<string, string>;
 
-// A `var(--name, fallback)` call; the fallback may hold one level of nested
-// parentheses (`var(--a, var(--b, 8px))`, `rgb(0 0 0)`).
-const VAR_CALL = /var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,((?:[^()]|\([^()]*\))*))?\)/g;
-
 // Resolve `var()` against the custom properties in force on an element. Framer
 // writes ALL typography through them (`--framer-font-size`, `--framer-text-color`
 // … set by a preset class or inline), so keeping `var(--framer-font-size, 16px)`
 // in a baked page that no longer defines them renders every text at the
 // fallback. The token variables (`--token-*`) stay as `var()`: the theme
 // mapping owns them.
+//
+// A real scanner, not a regex: Framer nests fallbacks several levels deep
+// (`var(--link-hover-font-family, var(--link-font-family, var(--font-family,
+// "Inter", sans-serif)))`), and a pattern that handles one level leaves the
+// outer call, and with it the whole value, unresolved.
 function resolveVars(value: string, vars: Vars, depth = 0): string {
-  if (depth > 6 || !value.includes("var(")) return value;
-  return value.replace(VAR_CALL, (whole: string, name: string, fallback: string | undefined) => {
-    if (name.startsWith("--token-")) return whole;
-    const found = vars[name];
-    if (found !== undefined) return resolveVars(found.trim(), vars, depth + 1);
-    if (fallback !== undefined) return resolveVars(fallback.trim(), vars, depth + 1);
-    return whole;
-  });
+  if (depth > 8 || !value.includes("var(")) return value;
+  let out = "";
+  let cursor = 0;
+  while (cursor < value.length) {
+    const start = value.indexOf("var(", cursor);
+    if (start === -1) break;
+    // `var(` must start a token, not end another identifier (`invar(`).
+    if (start > 0 && /[A-Za-z0-9_-]/.test(value.charAt(start - 1))) {
+      out += value.slice(cursor, start + 4);
+      cursor = start + 4;
+      continue;
+    }
+    let depthParen = 1;
+    let end = start + 4;
+    let quote: string | null = null;
+    while (end < value.length && depthParen > 0) {
+      const char = value.charAt(end);
+      if (quote !== null) {
+        if (char === "\\") end += 1;
+        else if (char === quote) quote = null;
+      } else if (char === '"' || char === "'") quote = char;
+      else if (char === "(") depthParen += 1;
+      else if (char === ")") depthParen -= 1;
+      end += 1;
+    }
+    if (depthParen !== 0) break; // unbalanced: leave the rest untouched
+    const inner = value.slice(start + 4, end - 1);
+    const comma = splitCommas(inner);
+    const name = (comma[0] ?? "").trim();
+    // The fallback is everything after the FIRST top-level comma.
+    const firstComma = (() => {
+      let level = 0;
+      let q: string | null = null;
+      for (let index = 0; index < inner.length; index += 1) {
+        const char = inner.charAt(index);
+        if (q !== null) {
+          if (char === q) q = null;
+          continue;
+        }
+        if (char === '"' || char === "'") q = char;
+        else if (char === "(") level += 1;
+        else if (char === ")") level -= 1;
+        else if (char === "," && level === 0) return index;
+      }
+      return -1;
+    })();
+    const fallback = firstComma === -1 ? undefined : inner.slice(firstComma + 1).trim();
+    out += value.slice(cursor, start);
+    if (!name.startsWith("--") || name.startsWith("--token-")) {
+      out += value.slice(start, end);
+    } else if (vars[name] !== undefined) {
+      out += resolveVars((vars[name] as string).trim(), vars, depth + 1);
+    } else if (fallback !== undefined) {
+      out += resolveVars(fallback, vars, depth + 1);
+    } else {
+      out += value.slice(start, end);
+    }
+    cursor = end;
+  }
+  return out + value.slice(cursor);
 }
 
 // A media prelude that only asks for widths: `(min-width: 810px) and
@@ -1048,6 +1102,8 @@ function parseCssRules(source: string): { rules: ParsedCssRule[]; media: ParsedC
 type CompiledRule = {
   order: number;
   values: Record<string, string>;
+  // The interaction this rule styles (`.btn:hover`), absent for a base rule.
+  state?: IrInteraction;
   root: boolean;
   tag: string;
   classes: string[];
@@ -1062,11 +1118,23 @@ const classesIn = (compound: string): string[] =>
 // Returns null for selectors that are not a plain structural match. State
 // selectors (`:hover`, `::before`, `:nth-child` …) set `pseudo`: applying them
 // to the base style would make a button permanently look hovered.
+const STATE_SUFFIX = /^(.*?):(hover|focus-visible|focus|active|disabled)$/;
+
 function compileSelector(
   selector: string,
   order: number,
   values: Record<string, string>,
 ): { rule: CompiledRule | null; pseudo: boolean } {
+  // `.btn:hover` and friends: the same element in another state. Only when the
+  // state is the last thing on the target (`.card:hover .title` styles another
+  // element and stays a pseudo rule that is reported, not applied).
+  const state = STATE_SUFFIX.exec(selector.replace(/:not\([^)]*\)/g, ""));
+  if (state !== null && !/:/.test(state[1] ?? "")) {
+    const inner = compileSelector(state[1] ?? "", order, values);
+    if (inner.rule === null) return inner;
+    const name = state[2] === "focus-visible" ? "focus" : state[2];
+    return { rule: { ...inner.rule, state: name as IrInteraction }, pseudo: false };
+  }
   if (/^(?:body|html|#main)$/.test(selector)) {
     return { rule: { order, values, root: true, tag: "", classes: [], ancestors: [] }, pseudo: false };
   }
@@ -1137,6 +1205,9 @@ function matchingRules(index: RuleIndex, node: IrNode, ancestorClasses: Readonly
     .sort((a, b) => a.order - b.order);
 }
 
+// The base rules only: a `:hover` rule must never land in the base style.
+const baseOnly = (rules: CompiledRule[]): CompiledRule[] => rules.filter((rule) => rule.state === undefined);
+
 // A query applies to the devices whose representative width it contains, so a
 // bare `(min-width: 810px)` reaches tablet and desktop, never mobile, and a
 // `(min-width: 1440px)` reaches desktop only (see `devices.ts`).
@@ -1161,10 +1232,15 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
     // The cascade: stylesheet rules first, the element's own inline style wins.
     const inline = { ...baseState.visual };
     const baseline: Record<string, string> = {};
-    for (const rule of matchingRules(base.index, current, ancestorClasses)) Object.assign(baseline, rule.values);
+    const matched = matchingRules(base.index, current, ancestorClasses);
+    for (const rule of baseOnly(matched)) Object.assign(baseline, rule.values);
+    const interactionValues: Partial<Record<IrInteraction, Record<string, string>>> = {};
+    for (const rule of matched) {
+      if (rule.state !== undefined) interactionValues[rule.state] = { ...interactionValues[rule.state], ...rule.values };
+    }
     const byDevice = new Map<IrDevice, Record<string, string>>();
     for (const entry of mediaIndexes) {
-      const rules = matchingRules(entry.index, current, ancestorClasses);
+      const rules = baseOnly(matchingRules(entry.index, current, ancestorClasses));
       if (rules.length === 0) continue;
       for (const device of entry.devices) {
         const values = byDevice.get(device) ?? {};
@@ -1191,6 +1267,16 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
       );
     }
     baseState.visual = valuesByDevice.desktop;
+    // The element's own states, resolved against the same custom properties.
+    const interactions: Partial<Record<IrInteraction, IrVisual>> = {};
+    for (const [name, values] of Object.entries(interactionValues) as [IrInteraction, Record<string, string>][]) {
+      const resolved: IrVisual = {};
+      for (const [key, value] of Object.entries(values)) {
+        if (!key.startsWith("--")) resolved[key] = resolveVars(value, varsByDevice.desktop);
+      }
+      if (Object.keys(resolved).length > 0) interactions[name] = resolved;
+    }
+    if (Object.keys(interactions).length > 0) baseState.interactions = interactions;
     // A device keeps its own state only where it differs from desktop. A device
     // the queries do not touch still needs one when desktop changed: it keeps
     // the values from before the query (a `min-width` rule never reaches mobile).
