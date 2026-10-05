@@ -5007,12 +5007,22 @@ function reviewFigure(label, src, kind = "") {
   );
 }
 
+const REVIEW_ACTION_LABELS = {
+  approve: "Approve",
+  "request-changes": "Änderungen anfragen",
+  discard: "Verwerfen",
+};
+
 async function reviewAction(siteId, reviewId, action) {
-  const comment = (await askText("Kommentar (optional)")) ?? "";
+  // Abbrechen bricht die Aktion ab; nur die Bestätigung führt sie aus.
+  const comment = await askText("Kommentar (optional)", {
+    confirmLabel: REVIEW_ACTION_LABELS[action] ?? "OK",
+  });
+  if (comment === null) return;
   try {
     await api(`/api/reviews/${reviewId}/${action}`, {
       method: "POST",
-      body: comment === "" ? {} : { comment },
+      body: comment === "" ? {} : { note: comment },
     });
     toast("Review aktualisiert");
     await renderRoute();
