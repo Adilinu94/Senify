@@ -720,18 +720,66 @@ export function renderIslandsScript(
     });
   });`);
   }
+  if (kinds.has("consent") || kinds.has("embed-gate")) {
+    // One consent state for the whole site: the cookie notice writes it, gated
+    // embeds read it, "Cookie-Einstellungen" links (`[data-consent-reset]`)
+    // withdraw it. The choice is "accept" or "decline"; a dismissed notice
+    // without a choice counts as no consent.
+    blocks.push(`
+  var consentApi = window.senifyConsent = window.senifyConsent || {
+    get: function () { try { return window.localStorage.getItem("senify-consent"); } catch { return null; } },
+    set: function (choice) {
+      try { window.localStorage.setItem("senify-consent", choice); } catch { /* private mode: lasts for this page */ }
+      document.dispatchEvent(new CustomEvent("senify:consent", { detail: choice }));
+    },
+    clear: function () {
+      try { window.localStorage.removeItem("senify-consent"); } catch { /* ignore */ }
+      document.dispatchEvent(new CustomEvent("senify:consent", { detail: null }));
+    }
+  };
+  document.querySelectorAll("[data-consent-reset]").forEach(function (link) {
+    link.addEventListener("click", function (event) {
+      event.preventDefault();
+      consentApi.clear();
+      window.location.reload();
+    });
+  });`);
+  }
   if (kinds.has("consent")) {
     blocks.push(`
   document.querySelectorAll('[data-island="consent"]').forEach(function (dialog) {
-    try {
-      if (window.localStorage.getItem("senify-consent")) { dialog.style.display = "none"; return; }
-    } catch { /* private mode: keep showing */ }
+    if (consentApi.get()) { dialog.style.display = "none"; return; }
     dialog.querySelectorAll("[data-consent]").forEach(function (button) {
       button.addEventListener("click", function () {
-        try { window.localStorage.setItem("senify-consent", button.getAttribute("data-consent") || "dismissed"); } catch { /* ignore */ }
+        consentApi.set(button.getAttribute("data-consent") === "accept" ? "accept" : "decline");
         dialog.style.display = "none";
       });
     });
+  });`);
+  }
+  if (kinds.has("embed-gate")) {
+    blocks.push(`
+  function loadGatedFrame(frame) {
+    var src = frame.getAttribute("data-consent-src");
+    if (!src) return;
+    frame.removeAttribute("data-consent-src");
+    frame.setAttribute("src", src);
+    frame.style.removeProperty("display");
+    frame.hidden = false;
+    var placeholder = frame.nextElementSibling;
+    if (placeholder && placeholder.hasAttribute("data-consent-placeholder")) placeholder.remove();
+  }
+  function loadAllGatedFrames() {
+    document.querySelectorAll("iframe[data-consent-src]").forEach(loadGatedFrame);
+  }
+  document.querySelectorAll("iframe[data-consent-src]").forEach(function (frame) {
+    var placeholder = frame.nextElementSibling;
+    var button = placeholder && placeholder.querySelector("[data-consent-load]");
+    if (button) button.addEventListener("click", function () { loadGatedFrame(frame); });
+  });
+  if (consentApi.get() === "accept") loadAllGatedFrames();
+  document.addEventListener("senify:consent", function (event) {
+    if (event.detail === "accept") loadAllGatedFrames();
   });`);
   }
   if (kinds.has("modal")) {

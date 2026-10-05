@@ -17,6 +17,9 @@ export type SectionContext = {
   // The one image node worth loading eagerly with high priority: the likely
   // LCP element. `SectionTree` sets it from the first screenful of the page.
   priorityNodeId?: string;
+  // The baked page: external iframes wait for the visitor's consent (see
+  // ConsentGate). The editor canvas leaves this off and shows live content.
+  gateEmbeds?: boolean;
 };
 
 export type AssetVariantFormat = "avif" | "webp";

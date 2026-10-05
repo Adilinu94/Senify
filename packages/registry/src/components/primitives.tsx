@@ -14,6 +14,7 @@
 import type { ElementType, ReactNode } from "react";
 import type { Node, PropValue } from "@senify/section-sdk";
 import { describePrimitive, type ElementSpec, type MarkupAttrs } from "@senify/widget-engine";
+import { GatedIframe, needsConsent } from "./ConsentGate.tsx";
 import { motionPendingAttrs, nodeRootClasses, resolveAsset, type SectionContext } from "./shared.tsx";
 
 export type PrimitiveProps = {
@@ -96,10 +97,27 @@ function renderSpec(spec: ElementSpec, scope: RenderScope, key: string): ReactNo
     if (slotContent !== undefined) parts.push(slotContent);
   }
   if (spec.text !== undefined && spec.text !== "") parts.push(spec.text);
+  const attrs = reactAttrs(spec, scope);
+  // An external iframe (embed, video by URL) waits for the visitor's consent in
+  // the baked page; the editor canvas shows it live.
+  if (
+    spec.tag === "iframe" &&
+    typeof attrs.src === "string" &&
+    needsConsent(attrs.src, scope.ctx)
+  ) {
+    const { src, title, ...rest } = attrs as Record<string, unknown> & { src: string; title?: unknown };
+    return (
+      <GatedIframe
+        key={key}
+        src={src}
+        title={typeof title === "string" ? title : "Externer Inhalt"}
+        iframeProps={rest}
+      />
+    );
+  }
   const Tag = spec.tag as ElementType;
   // `key` is passed directly, never through the spread: React reads a `key`
   // inside a props object as a mistake and warns about it.
-  const attrs = reactAttrs(spec, scope);
   // Void elements (img, hr, input, iframe) never receive children here: the
   // description gives them none.
   return (

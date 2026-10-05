@@ -133,7 +133,7 @@ const PRELOADER_SCRIPT =
         <script is:inline set:html={PRELOADER_SCRIPT} />
       </>
     )}
-    <Section tree={page.tree} ctx={{ ...ctx, currentPath: page.path, lang }} />
+    <Section tree={page.tree} ctx={{ ...ctx, currentPath: page.path, lang, gateEmbeds: true }} />
     {styleRulesCss && <link rel="stylesheet" href="/assets/style-rules.css" />}
   </body>
 </html>
