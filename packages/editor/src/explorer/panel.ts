@@ -18,7 +18,7 @@ import {
   COMPONENT_SLOT_PRIMITIVE,
   getPrimitive,
 } from "@senify/widget-engine";
-import { requireDocument, getWindow, type DomDocument, type DomElement, type DomEvent } from "../dom.ts";
+import { requireDocument, type DomDocument, type DomElement, type DomEvent } from "../dom.ts";
 import { EDITOR_ROOT_ATTRIBUTE } from "../ui/tokens.ts";
 import { EditorStore } from "../state/store.ts";
 import { copyNode, pasteNode, wrapNode } from "../state/clipboard.ts";
@@ -70,10 +70,10 @@ export type ExplorerOptions = {
   store: EditorStore;
   tabs?: readonly ExplorerTabSource[];
   onMessage?: (message: string | null) => void;
-  // Asks for a name (variant creation, ticket 04). The shell passes the
-  // browser's prompt; a test double may leave it out, then the action reports
-  // instead of asking.
-  prompt?: (message: string, initial: string) => string | null;
+  // Asks for a name (variant creation, ticket 04). The shell passes its own
+  // dialog (it resolves with null on cancel); a test double may leave it out,
+  // then the action reports instead of asking.
+  prompt?: (message: string, initial: string) => Promise<string | null>;
 };
 
 export type ExplorerInstance = {
@@ -413,22 +413,25 @@ export function createExplorer(options: ExplorerOptions): ExplorerInstance {
           typeof componentId === "string"
             ? definitionVariantNames(options.store.document, componentId)
             : [];
-        const ask = options.prompt ?? getWindow()?.prompt;
+        const ask = options.prompt;
         if (ask === undefined) {
           report("Diese Umgebung fragt nicht nach einem Namen.");
           break;
         }
-        const input = ask("Name der Variante", suggestVariantName(declared));
-        if (input === null) break;
-        const saved = runComponentOp(
-          () => {
-            const changed = createVariantFromOverrides(options.store, id, input);
-            return changed ? input.trim() : null;
-          },
-          "Die Variante ließ sich nicht speichern.",
-        );
-        if (saved === null) break;
-        report(`Variante "${saved}" gespeichert - umbenennen im Inspektor der Komponente.`);
+        // The dialog answers later: the write happens with the answer, and a
+        // node that vanished meanwhile is reported by the op itself.
+        void ask("Name der Variante", suggestVariantName(declared)).then((input) => {
+          if (input === null) return;
+          const saved = runComponentOp(
+            () => {
+              const changed = createVariantFromOverrides(options.store, id, input);
+              return changed ? input.trim() : null;
+            },
+            "Die Variante ließ sich nicht speichern.",
+          );
+          if (saved === null) return;
+          report(`Variante "${saved}" gespeichert - umbenennen im Inspektor der Komponente.`);
+        });
         break;
       }
       case "component-insert": {

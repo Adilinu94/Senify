@@ -94,6 +94,85 @@ function failed(error) {
   toast(`${friendlyError(error)}${hint}`, "error");
 }
 
+// Eigene Rückfragen statt der nativen `prompt()`/`confirm()`: beschriftet,
+// gestaltbar, per Tastatur bedienbar und in einem Browser-Test erreichbar
+// (native Dialoge schließt Playwright unbemerkt). Beide bauen ein
+// `<dialog class="modal ask-dialog">`. Esc bricht ab, Enter im Textfeld
+// bestätigt, und `showModal()` gibt den Fokus beim Schließen an den Auslöser
+// zurück. `packages/app/test/native-dialogs.test.ts` hält fest, dass
+// `app.js` keine nativen Dialoge mehr aufruft.
+let askCounter = 0;
+function openAsk({ title, message, value, confirmLabel, danger }) {
+  return new Promise((resolve) => {
+    askCounter += 1;
+    const id = `ask-${askCounter}`;
+    const input =
+      value === undefined
+        ? undefined
+        : el("input", { type: "text", "aria-labelledby": `${id}-title` });
+    if (input) input.value = value;
+    const cancel = el("button", {
+      type: "button",
+      class: "ghost",
+      text: "Abbrechen",
+      onclick: () => dialog.close("cancel"),
+    });
+    const ok = el("button", {
+      type: "submit",
+      value: "ok",
+      class: danger ? "danger" : "primary",
+      text: confirmLabel,
+    });
+    const dialog = el(
+      "dialog",
+      {
+        class: "modal ask-dialog",
+        "aria-labelledby": `${id}-title`,
+        "aria-describedby": message === undefined ? undefined : `${id}-message`,
+      },
+      el(
+        "form",
+        { method: "dialog" },
+        el("h2", { id: `${id}-title`, text: title }),
+        message === undefined ? undefined : el("p", { id: `${id}-message`, text: message }),
+        input,
+        el("div", { class: "modal-actions" }, cancel, ok),
+      ),
+    );
+    dialog.addEventListener("close", () => {
+      const accepted = dialog.returnValue === "ok";
+      const answer = input === undefined ? undefined : input.value;
+      dialog.remove();
+      resolve({ accepted, answer });
+    });
+    document.body.append(dialog);
+    dialog.showModal();
+    // Ein Textfeld bekommt den Fokus; bei einer gefährlichen Rückfrage
+    // beginnt der Fokus auf „Abbrechen“, damit ein versehentliches Enter nichts
+    // zerstört.
+    if (input) {
+      input.focus();
+      input.select();
+    } else if (danger) cancel.focus();
+    else ok.focus();
+  });
+}
+
+// Fragt nach einem Text. Liefert den Text (auch leer) oder `null` bei Abbruch.
+async function askText(label, { value = "", confirmLabel = "OK" } = {}) {
+  const { accepted, answer } = await openAsk({ title: label, value, confirmLabel });
+  return accepted ? answer : null;
+}
+
+// Fragt ja oder nein. Liefert `true` nur bei Bestätigung.
+async function askConfirm(
+  message,
+  { confirmLabel = "OK", danger = false, title = "Bitte bestätigen" } = {},
+) {
+  const { accepted } = await openAsk({ title, message, confirmLabel, danger });
+  return accepted;
+}
+
 function settingField(label, control, help) {
   const field = el("label", { class: "field" });
   field.append(el("span", { class: "field__label", text: label }), control);
@@ -304,7 +383,7 @@ async function libraryView(componentId = null) {
         el("div", { class: "card-actions" },
           el("button", { class: "primary", text: "Installieren", onclick: () => void installFor(component) }),
           el("button", { text: "Notiz", onclick: async () => {
-            const notes = prompt("Notiz", component.notes ?? "");
+            const notes = await askText("Notiz", { value: component.notes ?? "", confirmLabel: "Speichern" });
             if (notes === null) return;
             try {
               await api(`/api/library-components/${component.id}`, { method: "PATCH", body: { notes, author: AUTHOR } });
@@ -393,7 +472,7 @@ async function projectsView() {
 }
 
 async function createSite() {
-  const name = prompt("Name des Projekts");
+  const name = await askText("Name des Projekts", { confirmLabel: "Anlegen" });
   if (!name) return;
   try {
     const site = await api("/api/sites", { method: "POST", body: { name } });
@@ -405,7 +484,7 @@ async function createSite() {
 }
 
 async function renameSite(site) {
-  const name = prompt("Neuer Name", site.name);
+  const name = await askText("Neuer Name", { value: site.name, confirmLabel: "Umbenennen" });
   if (!name || name === site.name) return;
   try {
     await api(`/api/sites/${site.id}`, {
@@ -444,7 +523,11 @@ duplicateForm.addEventListener("submit", async (event) => {
 });
 
 async function trashSite(site) {
-  if (!confirm(`„${site.name}“ in den Papierkorb verschieben?`)) return;
+  const confirmed = await askConfirm(`„${site.name}“ in den Papierkorb verschieben?`, {
+    confirmLabel: "In den Papierkorb",
+    danger: true,
+  });
+  if (!confirmed) return;
   try {
     await api(`/api/sites/${site.id}/trash`, {
       method: "POST",
@@ -518,13 +601,11 @@ async function trashView() {
                       class: "danger",
                       text: "Endgültig löschen",
                       onclick: async () => {
-                        if (
-                          !confirm(
-                            `„${site.name}“ endgültig löschen? Das kann nicht rückgängig gemacht werden.`,
-                          )
-                        ) {
-                          return;
-                        }
+                        const confirmed = await askConfirm(
+                          `„${site.name}“ endgültig löschen? Das kann nicht rückgängig gemacht werden.`,
+                          { confirmLabel: "Endgültig löschen", danger: true },
+                        );
+                        if (!confirmed) return;
                         try {
                           await api(`/api/sites/${site.id}`, { method: "DELETE" });
                           toast("Projekt endgültig gelöscht");
@@ -581,7 +662,7 @@ async function deleteReference(reference) {
     used > 0
       ? `„${reference.name}“ ist ${used} Projekt(en) zugeordnet. Trotzdem löschen?`
       : `„${reference.name}“ löschen?`;
-  if (!confirm(message)) return;
+  if (!(await askConfirm(message, { confirmLabel: "Löschen", danger: true }))) return;
   try {
     await api(`/api/references/${reference.id}${used > 0 ? "?force=1" : ""}`, {
       method: "DELETE",
@@ -1334,7 +1415,7 @@ async function refsDeleteCollection(collection) {
     count > 0
       ? `„${collection.name}“ löschen? ${count} Referenz(en) bleiben erhalten und werden keiner Sammlung mehr zugeordnet.`
       : `„${collection.name}“ löschen?`;
-  if (!confirm(message)) return;
+  if (!(await askConfirm(message, { confirmLabel: "Löschen", danger: true }))) return;
   try {
     const result = await api(`/api/reference-collections/${collection.id}`, {
       method: "DELETE",
@@ -3067,7 +3148,7 @@ async function settingsView() {
             : el("button", {
                 class: "danger",
                 text: "Widerrufen",                 onclick: async () => {
-                   if (!confirm(`Token „${token.name}“ wirklich widerrufen? Danach kann der Client nicht mehr zugreifen.`)) return;
+                   if (!(await askConfirm(`Token „${token.name}“ wirklich widerrufen? Danach kann der Client nicht mehr zugreifen.`, { confirmLabel: "Widerrufen", danger: true }))) return;
                    try {
                      await api(`/api/tokens/${token.id}`, { method: "DELETE" });
                     toast("Token widerrufen");
@@ -4379,7 +4460,7 @@ async function articlesView(siteId) {
         class: "primary",
         text: "Neuer Artikel",
         onclick: async () => {
-          const title = prompt("Titel des Artikels");
+          const title = await askText("Titel des Artikels", { confirmLabel: "Anlegen" });
           if (!title) return;
           try {
             const created = await api(`/api/sites/${siteId}/entries`, {
@@ -4927,7 +5008,7 @@ function reviewFigure(label, src, kind = "") {
 }
 
 async function reviewAction(siteId, reviewId, action) {
-  const comment = prompt("Kommentar (optional)") ?? "";
+  const comment = (await askText("Kommentar (optional)")) ?? "";
   try {
     await api(`/api/reviews/${reviewId}/${action}`, {
       method: "POST",
@@ -6028,6 +6109,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   const explorer = editor.createExplorer({
     host: explorerHost,
     store: session.store,
+    prompt: (message, initial) => askText(message, { value: initial, confirmLabel: "Speichern" }),
     tabs: [
       {
         id: "pages",
