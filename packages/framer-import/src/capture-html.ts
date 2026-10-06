@@ -14,7 +14,7 @@
 // The capture never invents values: what it cannot read becomes a finding.
 
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import {
   IR_VERSION,
@@ -36,6 +36,7 @@ import {
 } from "./ir.ts";
 import { expandBox, parseDeclaration, splitCommas, splitDeclarations } from "./css-util.ts";
 import { devicesContaining } from "./devices.ts";
+import { rewriteLinks } from "./link-paths.ts";
 
 /* ------------------------------------------------------------------ types */
 
@@ -46,6 +47,10 @@ export type CaptureHtmlInput = {
   rootDir?: string;
   url?: string | null;
   pagePath?: string;
+  // The page inside the SOURCE (its own path in the export or on the site):
+  // the base its relative links resolve against. `pagePath` is where the page
+  // lands in Senify. Absent: the path of `url`, else `/`.
+  sourcePath?: string;
   title?: string | null;
   // Stylesheet text fetched from the live site's `<link rel="stylesheet">`
   // tags. A URL import has no export folder, so without it every class-based
@@ -750,6 +755,13 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
   // simple class rules before mapping so the browser gate measures the real
   // import rather than an unstyled document.
   const cssText = `${readAllCss(html, input.rootDir)}\n${input.css ?? ""}`;
+  // Internal links become root-relative against THIS page's path, so they keep
+  // working when the pages are imported under their own paths.
+  rewriteLinks(
+    root,
+    input.sourcePath ?? (input.url === undefined || input.url === null ? "/" : pathOf(input.url)),
+    input.url === undefined || input.url === null ? null : originOf(input.url),
+  );
   const applied = applyClassRules(root, cssText);
   if (applied.skippedPseudo > 0) {
     findings.push({
@@ -1360,12 +1372,45 @@ function isLoopEntry(entry: unknown): boolean {
 }
 
 // The capture entry for a fixture folder (index.html + styles/).
-export function captureFixture(fixtureDir: string, pagePath = "/"): FramerIrDocument {
-  const html = readFileSync(join(fixtureDir, "index.html"), "utf8");
+// The HTML file of a page inside an export folder: `index.html` for the home
+// page, else `<path>/index.html` or `<path>.html` (the two shapes static
+// exports use).
+export function pageFileOf(fixtureDir: string, pagePath: string): string {
+  const trimmed = pagePath.replace(/^\/+|\/+$/g, "");
+  if (trimmed === "") return join(fixtureDir, "index.html");
+  for (const candidate of [join(fixtureDir, trimmed, "index.html"), join(fixtureDir, `${trimmed}.html`)]) {
+    if (existsSync(candidate)) return candidate;
+  }
+  throw new Error(`Für den Pfad ${pagePath} gibt es im Export keine HTML-Datei (${trimmed}/index.html oder ${trimmed}.html).`);
+}
+
+const pathOf = (url: string): string => {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return "/";
+  }
+};
+
+const originOf = (url: string): string | null => {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+};
+
+// `pagePath` is where the page lands in Senify, `sourcePath` which page of the
+// export is read (the home page unless said otherwise).
+export function captureFixture(fixtureDir: string, pagePath = "/", sourcePath = "/"): FramerIrDocument {
+  const file = pageFileOf(fixtureDir, sourcePath);
+  const html = readFileSync(file, "utf8");
   const document = captureHtml({
     html,
-    rootDir: dirname(resolve(join(fixtureDir, "index.html"))),
+    // Relative stylesheet links resolve against the page file's own folder.
+    rootDir: dirname(resolve(file)),
     pagePath,
+    sourcePath,
   });
   try {
     const manifest = JSON.parse(readFileSync(resolve(fixtureDir, "senify-modules.json"), "utf8")) as {

@@ -18,6 +18,7 @@ import { buildFidelityReport, type FidelityReport } from "./fidelity.ts";
 import { importAssets, type AssetReport, type AssetUploader } from "./assets.ts";
 import { extractPayloads, type ExtractedPayload } from "./payloads.ts";
 import { mapFramerMotion } from "./motion-mapping.ts";
+import { discoverPagePaths } from "./link-paths.ts";
 
 /* ------------------------------------------------------------------ types */
 
@@ -45,6 +46,9 @@ export type RunImportInput = {
 };
 
 export type ImportRun = {
+  // The other pages of the site this page links to (root-relative paths, first
+  // seen first). Candidates for a whole-site import; nothing is fetched here.
+  discoveredPages: string[];
   document: FramerIrDocument;
   normalized: NormalizeResult;
   mapped: MapperResult;
@@ -119,7 +123,9 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
     // Offline mode (S2.4): the local mirror is the input, no network beyond
     // the asset downloads themselves (which resolve through baseUrl when
     // given, else fall back to the mirror's file layout).
-    document = captureFixture(input.source.rootDir, input.pagePath ?? input.source.pagePath ?? "/");
+    // Target path and source page are two things: the page read from the export
+    // is `source.pagePath` (home by default), the path it lands on is `pagePath`.
+    document = captureFixture(input.source.rootDir, input.pagePath ?? "/", input.source.pagePath ?? "/");
   } else {
     const capture: CaptureHtmlInput = { html: input.source.html, pagePath: input.pagePath ?? "/" };
     if (input.source.url !== undefined) capture.url = input.source.url;
@@ -200,6 +206,10 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
     assets: assetReport,
     payloads,
     irHash: irHashOf(document),
+    discoveredPages: discoverPagePaths(
+      document.pages[0]?.root ?? ({ children: [], href: null } as never),
+      document.pages[0]?.path ?? "/",
+    ),
   };
 }
 

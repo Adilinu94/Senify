@@ -514,6 +514,36 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
     }, 120_000);
   });
 
+  describe("pages of one export folder", () => {
+    it("reports the linked pages and reads the page the source names under the path it lands on", async () => {
+      const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+      const { tmpdir } = await import("node:os");
+      const { join } = await import("node:path");
+      const root = mkdtempSync(join(tmpdir(), "senify-export-"));
+      const doc = (title: string, links: string): string =>
+        `<html lang="de"><head><title>${title}</title></head><body><div id="main" data-framer-hydrate-v2><h1>${title}</h1>${links}</div></body></html>`;
+      writeFileSync(join(root, "index.html"), doc("Startseite", '<a href="./about">A</a><a href="./kontakt">K</a>'));
+      writeFileSync(join(root, "about.html"), doc("Über uns", '<a href="./">Start</a>'));
+      try {
+        const own = await createTestSite(env.api, "Import Export-Ordner");
+        const home = await runImport({ source: { rootDir: root }, pagePath: "/start", assets: "skip", fonts: "skip" }, own.id);
+        expect(home.status, JSON.stringify(home.body)).toBe(201);
+        expect((home.body.report as { discoveredPages?: string[] }).discoveredPages).toEqual(["/about", "/kontakt"]);
+
+        const about = await runImport({ source: { rootDir: root, page: "/about" }, pagePath: "/ueber-uns", write: true, assets: "skip", fonts: "skip" }, own.id);
+        expect(about.status, JSON.stringify(about.body)).toBe(201);
+        const written = await env.api.request<{ title: string; path: string }>({ method: "GET", path: `/api/pages/${about.body.report.pageId}` });
+        expect(written.body.path).toBe("/ueber-uns");
+        expect(written.body.title).toBe("Über uns");
+
+        const missing = await runImport({ source: { rootDir: root, page: "/kontakt" }, pagePath: "/kontakt", assets: "skip", fonts: "skip" }, own.id);
+        expect(missing.status).toBeGreaterThanOrEqual(400);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }, 120_000);
+  });
+
   describe("write guards", () => {
     it("rejects a write whose source changed since the analysis (expectedIrHash)", async () => {
       const own = await createTestSite(env.api, "Import Hashwache");
