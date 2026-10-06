@@ -53,7 +53,7 @@ describe.skipIf(browserSkip)("question dialogs in the dashboard", () => {
       expect(await dialog.getByRole("heading").innerText()).toBe("Neues Projekt");
       // The field is named and has the focus.
       const field = dialog.getByLabel("Name des Projekts");
-      expect(await field.evaluate((node) => node === document.activeElement)).toBe(true);
+      expect(await tab.evaluate("document.activeElement?.id")).toBe(await field.getAttribute("id"));
 
       // An empty answer is refused in the dialog, which stays open.
       await dialog.getByRole("button", { name: "Anlegen" }).click();

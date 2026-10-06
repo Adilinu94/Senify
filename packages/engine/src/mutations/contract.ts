@@ -422,6 +422,16 @@ export const CreatePageBodySchema = Type.Object(
   {
     title: Type.Optional(Type.String({ minLength: 1 })),
     path: Type.Optional(Type.String({ minLength: 1 })),
+    // A start template (`page-starters.ts`): the new page comes with its
+    // sections instead of an empty root. Absent or "blank" keeps today's page.
+    starter: Type.Optional(
+      Type.Union([
+        Type.Literal("blank"),
+        Type.Literal("landing"),
+        Type.Literal("about"),
+        Type.Literal("contact"),
+      ]),
+    ),
     idempotencyKey: Type.Optional(IdempotencyKeySchema),
   },
   CLOSED,

@@ -3751,6 +3751,126 @@ function workspaceFrame(siteId, site, tab, live) {
   return [head, el("div", { class: "workspace-tabs" }, tabs)];
 }
 
+// "Neue Seite": title, optional path and a start template. The templates come
+// from the engine (`GET /api/page-starters`), so the dashboard never lists one
+// the server does not know. A page without a typed path gets one derived from
+// the title by the server.
+async function openNewPageDialog(siteId) {
+  let starters;
+  try {
+    starters = (await api("/api/page-starters")).starters;
+  } catch (error) {
+    failed(error);
+    return;
+  }
+  const previousFocus = document.activeElement;
+  const id = `new-page-${(dialogSequence += 1)}`;
+  const titleInput = el("input", { id: `${id}-title`, type: "text", autocomplete: "off", "data-role": "new-page-title" });
+  const pathInput = el("input", {
+    id: `${id}-path`,
+    type: "text",
+    autocomplete: "off",
+    placeholder: "Wird aus dem Titel erzeugt",
+    "data-role": "new-page-path",
+    "aria-describedby": `${id}-path-help`,
+  });
+  const problem = el("p", { class: "ask-dialog__problem", role: "alert", hidden: "" });
+  const group = el(
+    "div",
+    { role: "radiogroup", "aria-labelledby": `${id}-starter-label`, class: "starter-list" },
+    starters.map((starter, index) =>
+      el(
+        "label",
+        { class: "radio starter-option" },
+        el("input", {
+          type: "radio",
+          name: "starter",
+          value: starter.id,
+          ...(index === 0 ? { checked: "" } : {}),
+        }),
+        el(
+          "span",
+          {},
+          el("strong", { text: starter.label }),
+          el("span", { class: "muted", text: ` — ${starter.description}` }),
+        ),
+      ),
+    ),
+  );
+  const submitButton = el("button", { type: "submit", value: "ok", class: "primary", text: "Seite anlegen" });
+  const form = el(
+    "form",
+    { method: "dialog" },
+    el("h2", { id: `${id}-heading`, text: "Neue Seite" }),
+    el("label", { class: "muted", for: titleInput.id, text: "Titel" }),
+    titleInput,
+    el("label", { class: "muted", for: pathInput.id, text: "Adresse (optional)" }),
+    pathInput,
+    el("p", { class: "muted", id: `${id}-path-help`, text: "Zum Beispiel /ueber-uns. Leer lassen, dann wählen wir die Adresse passend zum Titel." }),
+    el("p", { class: "muted", id: `${id}-starter-label`, text: "Vorlage" }),
+    group,
+    problem,
+    el(
+      "div",
+      { class: "modal-actions" },
+      el("button", { type: "button", class: "ghost", text: "Abbrechen", onclick: () => dialog.close("cancel") }),
+      submitButton,
+    ),
+  );
+  const dialog = el("dialog", { class: "modal ask-dialog", "aria-labelledby": `${id}-heading`, "data-role": "new-page-dialog" }, form);
+  const close = () => {
+    dialog.remove();
+    if (previousFocus?.isConnected && typeof previousFocus.focus === "function") previousFocus.focus();
+  };
+  dialog.addEventListener("close", close);
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) dialog.close("cancel");
+  });
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    problem.hidden = true;
+    const starter = new FormData(form).get("starter") ?? "blank";
+    const title = titleInput.value.trim();
+    let path = pathInput.value.trim();
+    if (path !== "" && !path.startsWith("/")) path = `/${path}`;
+    submitButton.disabled = true;
+    submitButton.textContent = "Lege an …";
+    try {
+      const page = await api(`/api/sites/${siteId}/pages`, {
+        method: "POST",
+        body: {
+          starter,
+          ...(title === "" ? {} : { title }),
+          ...(path === "" ? {} : { path }),
+        },
+      });
+      dialog.close("ok");
+      if (page.starter && page.starter.applied === false) {
+        toast(`Seite angelegt, die Vorlage ließ sich nicht einsetzen: ${page.starter.reason}`, "error");
+      } else {
+        toast("Seite angelegt");
+      }
+      location.hash = `#/projects/${siteId}/pages/${page.id}`;
+    } catch (error) {
+      // The two answers a person can cause with the address field, in plain
+      // words; everything else keeps the general wording.
+      problem.textContent =
+        error?.status === 409
+          ? "Diese Adresse gehört schon zu einer anderen Seite. Bitte eine andere wählen."
+          : error?.status === 400 && path !== ""
+            ? "Die Adresse ist ungültig. Sie beginnt mit „/“ und enthält keine Leerzeichen, „?“ oder „#“."
+            : `${friendlyError(error)}${error?.suggestion ? ` — ${error.suggestion}` : ""}`;
+      problem.hidden = false;
+      pathInput.setAttribute("aria-invalid", String(error?.status === 409 || (error?.status === 400 && path !== "")));
+      submitButton.disabled = false;
+      submitButton.textContent = "Seite anlegen";
+    }
+  });
+  document.body.append(dialog);
+  dialog.showModal();
+  titleInput.focus();
+}
+
 async function projectView(siteId, tab) {
   const [site, { pages }, { releases }] = await Promise.all([
     api(`/api/sites/${siteId}`),
@@ -3762,9 +3882,20 @@ async function projectView(siteId, tab) {
   const body = [];
   if (tab === "pages") {
     body.push(
-      el("h2", { text: "Seiten" }),
+      el(
+        "div",
+        { class: "toolbar" },
+        el("h2", { text: "Seiten", style: "margin: 0" }),
+        el("div", { class: "spacer" }),
+        el("button", {
+          class: "primary",
+          text: "Neue Seite",
+          "data-action": "new-page",
+          onclick: () => void openNewPageDialog(siteId),
+        }),
+      ),
       pages.length === 0
-        ? el("div", { class: "empty", text: "Noch keine Seiten." })
+        ? el("div", { class: "empty", text: "Noch keine Seiten — lege die erste an, am schnellsten mit einer Vorlage." })
         : el(
             "table",
             {},
@@ -6741,6 +6872,11 @@ async function pageView(siteId, pageId, initialSearch) {
     }
   }
   await refreshMedia();
+  // Das Laden braucht mehrere Anfragen. Wer in der Zwischenzeit weitergeklickt
+  // hat, soll nicht von der zu spät fertigen Seite überschrieben werden: die
+  // Liste, die er gerade ansieht, wäre sonst mitten im Klick weg.
+  const stillHere = () => location.hash.startsWith(`#/projects/${siteId}/pages/${pageId}`);
+  if (!stillHere()) return;
 
   // Ein sichtbarer Editorpfad (E5 Scheibe 1): der Umbau-Canvas (`mountCanvas`,
   // v2-Dokument) ist der Editor. Seit P3-1 Punkt 4 gibt es keinen zweiten
@@ -6763,6 +6899,7 @@ async function pageView(siteId, pageId, initialSearch) {
   } catch {
     editor = null;
   }
+  if (!stillHere()) return;
 
   // P3-1 Punkt 4 (R5): the v1 editor is deleted, so `?view=editor` is no longer
   // a second editing path but a **notice**: the deep link lands on the canvas

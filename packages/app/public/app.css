@@ -687,6 +687,20 @@ dialog.ask-dialog {
   width: min(28rem, calc(100vw - 2rem));
 }
 
+.starter-list {
+  display: grid;
+  gap: 0.15rem;
+  margin: 0.25rem 0 0.4rem;
+}
+
+.starter-option {
+  align-items: flex-start;
+}
+
+.starter-option input {
+  margin-top: 0.3rem;
+}
+
 dialog.ask-dialog p {
   margin: 0 0 0.6rem;
   overflow-wrap: anywhere;
