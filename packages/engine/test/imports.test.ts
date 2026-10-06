@@ -537,10 +537,38 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
         expect(written.body.title).toBe("Über uns");
 
         const missing = await runImport({ source: { rootDir: root, page: "/kontakt" }, pagePath: "/kontakt", assets: "skip", fonts: "skip" }, own.id);
-        expect(missing.status).toBeGreaterThanOrEqual(400);
+        // A page the export does not hold is the caller's mistake: a 400, not a crash.
+        expect(missing.status).toBe(400);
       } finally {
         rmSync(root, { recursive: true, force: true });
       }
+    }, 120_000);
+  });
+
+  describe("brand colour in the theme", () => {
+    const branded = (): string =>
+      framerHtml().replace('<section class="hero-container">', '<section class="hero-container" style="background-color:#2f6fed">');
+
+    const brandOf = async (siteId: string): Promise<string | undefined> =>
+      (await env.api.request<{ theme: { scales?: { brand?: string } } }>({ method: "GET", path: `/api/sites/${siteId}/theme` })).body.theme.scales?.brand;
+
+    it("proposes the page's brand colour in the dry run and writes it only with applyTheme", async () => {
+      const own = await createTestSite(env.api, "Import Markenfarbe");
+      const brandBefore = await brandOf(own.id);
+      expect(brandBefore).not.toBe("#2f6fed");
+      const html = branded();
+
+      const analysis = await runImport({ source: { html }, pagePath: "/marke", assets: "skip", fonts: "skip", applyTheme: true }, own.id);
+      expect(analysis.status, JSON.stringify(analysis.body)).toBe(201);
+      expect(JSON.stringify(analysis.body.report.steps)).toContain("Markenfarbe #2f6fed");
+
+      const kept = await runImport({ source: { html }, write: true, pagePath: "/marke", assets: "skip", fonts: "skip", idempotencyKey: "marke-ohne-theme" }, own.id);
+      expect(kept.status, JSON.stringify(kept.body)).toBe(201);
+      expect(await brandOf(own.id)).toBe(brandBefore);
+
+      const applied = await runImport({ source: { html }, write: true, pagePath: "/marke-zwei", assets: "skip", fonts: "skip", applyTheme: true, idempotencyKey: "marke-mit-theme" }, own.id);
+      expect(applied.status, JSON.stringify(applied.body)).toBe(201);
+      expect(await brandOf(own.id)).toBe("#2f6fed");
     }, 120_000);
   });
 

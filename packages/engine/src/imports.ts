@@ -460,7 +460,8 @@ export async function runFramerImportJob(
       payloads: preparedPayloads,
       styleRules: run.mapped.rules,
       themePatch:
-        input.body.applyTheme === true && run.mapped.themePatch.fonts !== undefined
+        input.body.applyTheme === true &&
+        (run.mapped.themePatch.fonts !== undefined || run.mapped.themePatch.scales !== undefined)
           ? run.mapped.themePatch
           : null,
       report: reportBase,

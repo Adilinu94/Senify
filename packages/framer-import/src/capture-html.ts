@@ -15,6 +15,7 @@
 
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
+import { SenifyError } from "@senify/core";
 import { dirname, join, resolve } from "node:path";
 import {
   IR_VERSION,
@@ -1381,7 +1382,10 @@ export function pageFileOf(fixtureDir: string, pagePath: string): string {
   for (const candidate of [join(fixtureDir, trimmed, "index.html"), join(fixtureDir, `${trimmed}.html`)]) {
     if (existsSync(candidate)) return candidate;
   }
-  throw new Error(`Für den Pfad ${pagePath} gibt es im Export keine HTML-Datei (${trimmed}/index.html oder ${trimmed}.html).`);
+  throw new SenifyError("validation", `Für den Pfad ${pagePath} gibt es im Export keine HTML-Datei (${trimmed}/index.html oder ${trimmed}.html)`, {
+    field: "source.page",
+    suggestion: "Prüfe, ob die Seite im Export-Ordner als <pfad>/index.html oder <pfad>.html liegt.",
+  });
 }
 
 const pathOf = (url: string): string => {
