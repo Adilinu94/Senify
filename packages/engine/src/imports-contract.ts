@@ -71,6 +71,9 @@ export const ImportReportSchema = Type.Object(
     // The other pages of the site this page links to (root-relative paths), so
     // a whole site can be imported page by page. Nothing is fetched for them.
     discoveredPages: Type.Optional(Type.Array(Type.String())),
+    // Set when the write replaced an existing page: the revision holding the
+    // draft it replaced, restorable with `POST /api/pages/:pageId/restore`.
+    replacedRevisionId: Type.Optional(Type.String()),
     // The page the path already holds, so "Übernehmen" can say what it would
     // replace and send that draft version back as `baseDraftVersion`.
     existingPage: Type.Optional(

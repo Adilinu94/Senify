@@ -5172,31 +5172,64 @@ function openFramerImportDialog({ siteId, pageId, session, onImported }) {
         method: "POST",
         body: await bodyFor(true),
       });
-      if (!wantsMore) {
+      // A page the import replaced stays reachable: its old draft is a revision,
+      // and the way back is offered here, before the dialog closes.
+      const replacedRevisionId = result.report.replacedRevisionId;
+      if (!wantsMore && replacedRevisionId === undefined) {
         dialog.close();
         onImported(result.report);
         return;
       }
-      // The first page is written; the others follow one by one and the
-      // dialog stays open to say what happened to each.
-      apply.textContent = "Importiere weitere Seiten …";
-      const results = await importSitePages();
-      sitePagesHost.replaceChildren(
-        el("h3", { text: "Ergebnis der weiteren Seiten" }),
-        el(
-          "ul",
-          { class: "framer-site-list", "data-role": "framer-site-results" },
-          results.map((entry) =>
-            el("li", { "data-state": entry.state }, el("strong", { text: entry.path }), ` · ${entry.state}`, entry.detail === "" ? "" : el("span", { class: "muted", text: ` – ${entry.detail}` })),
+      let results = [];
+      if (wantsMore) {
+        // The first page is written; the others follow one by one and the
+        // dialog stays open to say what happened to each.
+        apply.textContent = "Importiere weitere Seiten …";
+        results = await importSitePages();
+      }
+      const summary = [];
+      if (replacedRevisionId !== undefined) {
+        summary.push(
+          el("h3", { text: "Seite ersetzt" }),
+          el("p", { class: "muted", text: "Der vorherige Inhalt der Seite ist als Version „Vor dem Framer-Import“ gesichert." }),
+        );
+      }
+      if (results.length > 0) {
+        summary.push(
+          el("h3", { text: "Ergebnis der weiteren Seiten" }),
+          el(
+            "ul",
+            { class: "framer-site-list", "data-role": "framer-site-results" },
+            results.map((entry) =>
+              el("li", { "data-state": entry.state }, el("strong", { text: entry.path }), ` · ${entry.state}`, entry.detail === "" ? "" : el("span", { class: "muted", text: ` – ${entry.detail}` })),
+            ),
           ),
-        ),
-      );
+        );
+      }
+      sitePagesHost.hidden = false;
+      sitePagesHost.replaceChildren(...summary);
       const close = el("button", { type: "button", class: "refs-button primary", text: "Schließen", "data-action": "framer-import-close" });
       close.addEventListener("click", () => {
         dialog.close();
         onImported(result.report);
       });
-      apply.replaceWith(close);
+      const actions = [close];
+      if (replacedRevisionId !== undefined) {
+        const undo = el("button", { type: "button", class: "refs-button", text: "Import rückgängig machen", "data-action": "framer-import-undo" });
+        undo.addEventListener("click", async () => {
+          undo.disabled = true;
+          errorEl.textContent = "";
+          try {
+            await api(`/api/pages/${result.report.pageId}/restore`, { method: "POST", body: { revisionId: replacedRevisionId } });
+            undo.textContent = "Rückgängig gemacht";
+          } catch (error) {
+            errorEl.textContent = error.message;
+            undo.disabled = false;
+          }
+        });
+        actions.unshift(undo);
+      }
+      apply.replaceWith(...actions);
     } catch (error) {
       errorEl.textContent = error.message;
       apply.disabled = false;

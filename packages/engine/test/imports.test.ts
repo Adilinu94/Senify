@@ -503,6 +503,9 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
       });
       const kept = revisions.body.revisions.find((revision) => revision.note === "Vor dem Framer-Import");
       expect(kept).toBeDefined();
+      // The report names it, so the dialog can offer the way back.
+      expect((second.body.report as { replacedRevisionId?: string }).replacedRevisionId).toBe(kept?.id);
+      expect((first.body.report as { replacedRevisionId?: string }).replacedRevisionId).toBeUndefined();
       const restored = await env.api.request<{ draft: unknown }>({
         method: "POST",
         path: `/api/pages/${pageId}/restore`,

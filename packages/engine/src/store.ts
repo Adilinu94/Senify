@@ -6786,6 +6786,7 @@ export class Store {
     });
 
     return this.#db.withTransaction(async (tx) => {
+      let replacedRevisionId: string | null = null;
       const receiptRows = await tx.query<ImportReceiptRow>(
         `SELECT id, site_id, job_id, content_key, request_fingerprint,
                 page_id, draft_version, result, created_at
@@ -6902,12 +6903,13 @@ export class Store {
         // The import replaces the whole draft, so the draft it replaces is kept
         // as a revision first: "Vorherige Version wiederherstellen" (the existing
         // revision restore) is the way back.
+        replacedRevisionId = newEntityId();
         await tx.query(
           `INSERT INTO page_revisions
             (id, page_id, site_id, tree, title, path, author, note, created_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
           [
-            newEntityId(),
+            replacedRevisionId,
             current.id,
             current.site_id,
             toJsonParam(toJson<NodeTree>(current.draft)),
@@ -7100,6 +7102,8 @@ export class Store {
         newDraftVersion: page.draftVersion,
         receiptId,
         replayed: false,
+        // The revision that holds the draft this import replaced: the way back.
+        ...(replacedRevisionId === null ? {} : { replacedRevisionId }),
       };
       const updatedJob = await tx.query<ImportJobRow>(
         `UPDATE import_jobs
