@@ -30,7 +30,7 @@ export const PAGE_STARTERS: readonly PageStarter[] = [
   {
     id: "blank",
     label: "Leer",
-    description: "Eine leere Seite — Sektionen fügen Sie selbst hinzu.",
+    description: "Eine leere Seite — Sektionen fügst du selbst hinzu.",
     defaultTitle: "Neue Seite",
     sections: [],
   },
@@ -75,7 +75,7 @@ export const PAGE_STARTERS: readonly PageStarter[] = [
   {
     id: "about",
     label: "Über uns",
-    description: "Ein Textabschnitt für Ihre Geschichte und drei Werte.",
+    description: "Ein Textabschnitt für deine Geschichte und drei Werte.",
     defaultTitle: "Über uns",
     sections: [
       {

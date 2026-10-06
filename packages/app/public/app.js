@@ -13,6 +13,21 @@ const themeToggle = document.getElementById("theme-toggle");
 
 const MODE_STORAGE_KEY = "senify-mode";
 
+// The technical keys stay in brackets: documentation, MCP tools and the editor
+// still call them clean / standard / showcase.
+const PROFILE_LABELS = {
+  clean: "Ruhig (clean) — wenig Bewegung, keine schweren Effekte",
+  standard: "Ausgewogen (standard) — sanfte Bewegung, sparsame Effekte",
+  showcase: "Auffällig (showcase) — alle Effekte, auch 3D",
+};
+
+const IMAGE_PROVIDER_LABELS = {
+  "image-use": "Image Use",
+  comfyui: "ComfyUI (auf diesem Rechner)",
+  custom: "Eigener Dienst",
+  off: "Aus",
+};
+
 const MUTATION_LABELS = {
   insertNode: "Sektion eingefügt",
   deleteNode: "Sektion entfernt",
@@ -3233,10 +3248,10 @@ async function settingsView() {
       el("h2", { text: "Agenten-Zugänge" }),
       el("p", {
         class: "muted",
-        text: "Scoped Tokens für MCP-Clients (Claude Code, Cursor, opencode). Clients verbindest du im Terminal mit `senify mcp configure`.",
+        text: "Zugangsschlüssel (Tokens) für KI-Werkzeuge wie Claude Code, Cursor oder opencode, die deine Projekte bearbeiten dürfen. Jeder Schlüssel hat nur die Rechte, die du ihm gibst. Ein Werkzeug verbindest du im Terminal mit `senify mcp configure`.",
       }),
       tokens.length === 0
-        ? el("p", { class: "muted", text: "Noch keine Tokens." })
+        ? el("p", { class: "muted", text: "Noch keine Zugangsschlüssel." })
         : el(
             "table",
             {},
@@ -3247,8 +3262,8 @@ async function settingsView() {
                 "tr",
                 {},
                 el("th", { text: "Name" }),
-                el("th", { text: "Scopes" }),
-                el("th", { text: "Prefix" }),
+                el("th", { text: "Rechte" }),
+                el("th", { text: "Kennung" }),
                 el("th", { text: "Letzte Nutzung" }),
                 el("th", { text: "Status" }),
                 el("th", {}),
@@ -3262,19 +3277,19 @@ async function settingsView() {
         settingField(
           "Name",
           el("input", { id: "token-name", type: "text", placeholder: "z. B. Claude Code" }),
-          "Eine lesbare Bezeichnung für den Client.",
+          "Woran du das Werkzeug erkennst, zum Beispiel sein Name.",
         ),
         settingField(
           "Berechtigungen",
           el("input", { id: "token-scopes", type: "text", value: "read,write" }),
-          "Kommagetrennt, zum Beispiel read,write.",
+          "read = ansehen, write = ändern, publish = veröffentlichen. Mehrere mit Komma trennen.",
         ),
         el(
           "div",
           { class: "settings-actions" },
           el("button", {
             class: "primary",
-            text: "Token anlegen",
+            text: "Zugangsschlüssel anlegen",
             onclick: async () => {
               const name = document.getElementById("token-name").value.trim();
               const scopes = document
@@ -3289,7 +3304,7 @@ async function settingsView() {
               }
               try {
                 const created = await api("/api/tokens", { method: "POST", body: { name, scopes } });
-                toast(`Token angelegt — Secret (einmalig): ${created.secret}`);
+                toast(`Zugangsschlüssel angelegt — Geheimnis (wird nur jetzt angezeigt): ${created.secret}`);
                 await renderRoute();
               } catch (error) {
                 failed(error);
@@ -3305,12 +3320,12 @@ async function settingsView() {
       el("h2", { text: "E-Mail" }),
       el("p", {
         class: "muted",
-        text: "SMTP-Postfach für Formular-Benachrichtigungen und Newsletter. Das Passwort wird verschlüsselt gespeichert und nie angezeigt.",
+        text: "Das Postfach, über das Senify Mails verschickt: Benachrichtigungen zu Formularen und Newsletter. Die Zugangsdaten bekommst du von deinem Mail-Anbieter (SMTP). Das Passwort wird verschlüsselt gespeichert und nie angezeigt.",
       }),
       el(
         "div",
         { class: "settings-grid" },
-        settingField("Server", el("input", { id: "smtp-host", type: "text", placeholder: "smtp.example.com", value: settings.email.host })),
+        settingField("Server", el("input", { id: "smtp-host", type: "text", placeholder: "smtp.example.com", value: settings.email.host }), "Der Postausgangsserver deines Mail-Anbieters."),
         settingField("Port", el("input", { id: "smtp-port", type: "number", placeholder: "587", value: String(settings.email.port) })),
         settingField(
           "Verschlüsselung",
@@ -3320,17 +3335,23 @@ async function settingsView() {
             ...["starttls", "tls", "none"].map((mode) =>
               el("option", {
                 value: mode,
-                text: mode === "starttls" ? "STARTTLS" : mode.toUpperCase(),
+                text:
+                  mode === "starttls"
+                    ? "Verschlüsselt, meist Port 587 (STARTTLS)"
+                    : mode === "tls"
+                      ? "Verschlüsselt, meist Port 465 (TLS)"
+                      : "Unverschlüsselt (nur im eigenen Netz)",
                 selected: mode === settings.email.tls ? "" : undefined,
               }),
             ),
           ),
+          "Im Zweifel die erste Auswahl; der Mail-Anbieter nennt den passenden Port.",
         ),
       ),
       el(
         "div",
         { class: "settings-grid", style: "margin-top: 0.75rem" },
-        settingField("Benutzer", el("input", { id: "smtp-user", type: "text", placeholder: "Benutzer", value: settings.email.user })),
+        settingField("Benutzer", el("input", { id: "smtp-user", type: "text", placeholder: "meist die E-Mail-Adresse", value: settings.email.user })),
         settingField(
           "Passwort",
           el("input", {
@@ -3341,7 +3362,7 @@ async function settingsView() {
               : "noch nicht gespeichert",
           }),
         ),
-        settingField("Absender", el("input", { id: "smtp-from", type: "text", placeholder: "Absender, z. B. formular@kunde.de", value: settings.email.from })),
+        settingField("Absender", el("input", { id: "smtp-from", type: "text", placeholder: "z. B. formular@kunde.de", value: settings.email.from }), "Diese Adresse sehen die Empfänger als Absender."),
       ),
       el(
         "div",
@@ -3411,41 +3432,41 @@ async function settingsView() {
       el("h2", { text: "Bildgenerierung" }),
       el("p", {
         class: "muted",
-        text: "Provider-Kette für generate_image: Der erste Provider springt ein; fällt er aus, übernimmt der Fallback, am Ende immer die lokale ComfyUI-Reserve. Der API-Key des Custom-Endpoints wird verschlüsselt gespeichert und nie angezeigt.",
+        text: "Woher Senify Bilder bekommt, wenn ein KI-Werkzeug oder du ein Bild erzeugen lässt. Zuerst fragt Senify den ersten Dienst; fällt er aus, übernimmt der zweite, zuletzt immer ComfyUI auf diesem Rechner. Der Schlüssel für einen eigenen Dienst wird verschlüsselt gespeichert und nie angezeigt.",
       }),
       el(
         "div",
         { class: "settings-grid" },
         settingField(
-          "Provider",
+          "Erster Dienst",
           el(
             "select",
             { id: "image-provider" },
             ...["image-use", "comfyui", "custom", "off"].map((provider) =>
               el("option", {
                 value: provider,
-                text: provider === "image-use" ? "Image Use" : provider === "off" ? "Aus" : provider,
+                text: IMAGE_PROVIDER_LABELS[provider] ?? provider,
                 selected: provider === settings.image.provider ? "" : undefined,
               }),
             ),
           ),
         ),
         settingField(
-          "Fallback",
+          "Zweiter Dienst (wenn der erste ausfällt)",
           el(
             "select",
             { id: "image-fallback" },
             ...["comfyui", "image-use", "custom", "none"].map((provider) =>
               el("option", {
                 value: provider,
-                text: provider === "none" ? "Kein Fallback" : provider === "image-use" ? "Image Use" : provider,
+                text: provider === "none" ? "Keiner" : (IMAGE_PROVIDER_LABELS[provider] ?? provider),
                 selected: provider === settings.image.fallbackProvider ? "" : undefined,
               }),
             ),
           ),
         ),
       ),
-      el("h3", { text: "Custom-Endpoint (eigene API)" }),
+      el("h3", { text: "Eigener Dienst (eigene Schnittstelle)" }),
       el(
         "div",
         { class: "settings-grid" },
@@ -3497,7 +3518,7 @@ async function settingsView() {
         ),
         el("button", {
           class: "primary",
-          text: "Bild-API-Einstellungen speichern",
+          text: "Bild-Einstellungen speichern",
           onclick: async () => {
             const value = (id) => document.getElementById(id).value;
             const key = value("image-custom-key");
@@ -3543,7 +3564,7 @@ async function settingsView() {
       ),
       el("p", {
         class: "muted",
-        text: "Formate: minimax (POST /image_generation, aspect_ratio) oder openai (POST /images/generations, size).",
+        text: "Das Format ist die Sprache, die dein Dienst spricht: MiniMax oder OpenAI-kompatibel. Welche zutrifft, steht in der Beschreibung des Dienstes.",
       }),
     ),
     el(
@@ -3650,24 +3671,24 @@ async function settingsView() {
       el("h2", { text: "Standardwerte" }),
       el("p", {
         class: "muted",
-        text: "Gelten für neue Projekte, das Standard-Layout und den Programmstart.",
+        text: "Gelten für neue Projekte und für den Programmstart. Was „Niveau“ bedeutet: wie viel Bewegung und Effekte eine Seite haben darf.",
       }),
       el(
         "div",
         { class: "inline" },
-        el("label", { class: "muted", for: "defaults-profile" }, "Standard-Niveau"),
+        el("label", { class: "muted", for: "defaults-profile" }, "Niveau für neue Projekte"),
         el(
           "select",
           { id: "defaults-profile" },
           ...["clean", "standard", "showcase"].map((profile) =>
             el("option", {
               value: profile,
-              text: profile,
+              text: PROFILE_LABELS[profile] ?? profile,
               selected: profile === settings.defaults.defaultProfile ? "" : undefined,
             }),
           ),
         ),
-        el("label", { class: "muted", for: "defaults-layout" }, "Standard-Layout"),
+        el("label", { class: "muted", for: "defaults-layout" }, "Layout für neue Seiten"),
         el("input", { id: "defaults-layout", type: "text", value: settings.defaults.defaultLayout }),
       ),
       el(
@@ -3678,7 +3699,7 @@ async function settingsView() {
           type: "checkbox",
           checked: settings.defaults.autostart ? "" : undefined,
         }),
-        " Autostart: beim `senify start` den Browser automatisch öffnen",
+        " Beim Start von Senify (`senify start`) den Browser automatisch öffnen",
       ),
       el("button", {
         class: "primary",
@@ -3997,11 +4018,11 @@ async function projectView(siteId, tab) {
       el(
         "div",
         { class: "panel" },
-        el("p", {}, el("strong", { text: "Pfad-Präfix: " }), el("code", { text: site.slug })),
-        el("p", {}, el("strong", { text: "Niveau: " }), site.profile),
+        el("p", {}, el("strong", { text: "Kurzname (steht in Adressen und Dateinamen): " }), el("code", { text: site.slug })),
+        el("p", {}, el("strong", { text: "Niveau (Bewegung und Effekte): " }), PROFILE_LABELS[site.profile] ?? site.profile),
         el("p", {
           class: "muted",
-          text: "Name ändern, Stil-Referenz und Domain/Deploy folgen mit den nächsten Schritten.",
+          text: "Den Namen änderst du in der Projektliste unter „Umbenennen“. Auslieferung und Deploy findest du weiter unten.",
         }),
       ),
     );
