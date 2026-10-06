@@ -187,6 +187,22 @@ function listSchema(key: string, item: unknown): Record<string, unknown> {
   };
 }
 
+// The engine cuts every list route to one page (default 50, cap 200). A list
+// tool therefore has to pass `limit` and `offset` on, or an agent that sees
+// `hasMore: true` has no way to ask for the next page. The values travel
+// unchanged: the engine validates them and refuses what is out of range.
+function pagingQuery(
+  args: Record<string, unknown>,
+  params: URLSearchParams = new URLSearchParams(),
+): string {
+  const limit = optionalNumber(args, "limit");
+  if (limit !== undefined) params.set("limit", String(limit));
+  const offset = optionalNumber(args, "offset");
+  if (offset !== undefined) params.set("offset", String(offset));
+  const query = params.toString();
+  return query === "" ? "" : `?${query}`;
+}
+
 function requireString(args: Record<string, unknown>, key: string): string {
   const value = args[key];
   if (typeof value !== "string" || value.trim() === "") {
@@ -644,11 +660,12 @@ export const TOOLS: ToolDefinition[] = [
     name: "list_sites",
     title: "List sites",
     description:
-      "Lists all website projects with id, name, slug and profile. Start here to discover the siteId other tools need.",
+      "Lists all website projects with id, name, slug and profile. Start here to discover the siteId other tools need. Paged: limit (1-200, default 50) and offset; follow hasMore.",
     scope: "read",
-    inputSchema: objectSchema({}),
+    inputSchema: objectSchema({ limit: { type: "number" }, offset: { type: "number" } }),
     outputSchema: listSchema("sites", SITE_SCHEMA),
-    handler: async (context) => context.client.request("GET", "/api/sites"),
+    handler: async (context, args) =>
+      context.client.request("GET", `/api/sites${pagingQuery(args)}`),
   },
   {
     name: "get_site",
@@ -721,15 +738,18 @@ export const TOOLS: ToolDefinition[] = [
     name: "list_pages",
     title: "List pages",
     description:
-      "Lists the pages of a site with path, title and draftVersion. Use it to find the pageId for get_page and apply_mutations.",
+      "Lists the pages of a site with path, title and draftVersion. Use it to find the pageId for get_page and apply_mutations. Paged: limit (1-200, default 50) and offset; follow hasMore.",
     scope: "read",
-    inputSchema: objectSchema({ siteId: { type: "string" } }, ["siteId"]),
+    inputSchema: objectSchema(
+      { siteId: { type: "string" }, limit: { type: "number" }, offset: { type: "number" } },
+      ["siteId"],
+    ),
     outputSchema: listSchema("pages", PAGE_SCHEMA),
     entity: (args) => `site:${String(args.siteId ?? "")}`,
     handler: async (context, args) =>
       context.client.request(
         "GET",
-        `/api/sites/${requireString(args, "siteId")}/pages`,
+        `/api/sites/${requireString(args, "siteId")}/pages${pagingQuery(args)}`,
       ),
   },
   {
@@ -1746,14 +1766,17 @@ export const TOOLS: ToolDefinition[] = [
     name: "list_releases",
     title: "List releases",
     description:
-      "Lists a site's releases (newest first) with the active release id. Each release carries its manifest: renderer version, build hash and the style registry snapshot it was baked with (rollback restores it).",
+      "Lists a site's releases (newest first) with the active release id. Each release carries its manifest: renderer version, build hash and the style registry snapshot it was baked with (rollback restores it). Paged: limit (1-200, default 50) and offset; follow hasMore.",
     scope: "read",
-    inputSchema: objectSchema({ siteId: { type: "string" } }, ["siteId"]),
+    inputSchema: objectSchema(
+      { siteId: { type: "string" }, limit: { type: "number" }, offset: { type: "number" } },
+      ["siteId"],
+    ),
     entity: (args) => `site:${String(args.siteId ?? "")}`,
     handler: async (context, args) =>
       context.client.request(
         "GET",
-        `/api/sites/${requireString(args, "siteId")}/releases`,
+        `/api/sites/${requireString(args, "siteId")}/releases${pagingQuery(args)}`,
       ),
   },
   {
@@ -1774,14 +1797,17 @@ export const TOOLS: ToolDefinition[] = [
     name: "list_bake_jobs",
     title: "List re-bake jobs",
     description:
-      "Lists the durable re-bake jobs of a site (newest first): content changes enqueue them, a worker re-bakes the active release and records done/failed with attempts, next attempt time and the last error. Use it to check why a published content change is not live yet.",
+      "Lists the durable re-bake jobs of a site (newest first): content changes enqueue them, a worker re-bakes the active release and records done/failed with attempts, next attempt time and the last error. Use it to check why a published content change is not live yet. Paged: limit (1-200, default 50) and offset; follow hasMore.",
     scope: "read",
-    inputSchema: objectSchema({ siteId: { type: "string" } }, ["siteId"]),
+    inputSchema: objectSchema(
+      { siteId: { type: "string" }, limit: { type: "number" }, offset: { type: "number" } },
+      ["siteId"],
+    ),
     entity: (args) => `site:${String(args.siteId ?? "")}`,
     handler: async (context, args) =>
       context.client.request(
         "GET",
-        `/api/sites/${requireString(args, "siteId")}/bake-jobs`,
+        `/api/sites/${requireString(args, "siteId")}/bake-jobs${pagingQuery(args)}`,
       ),
   },
   {
@@ -1924,7 +1950,7 @@ export const TOOLS: ToolDefinition[] = [
     name: "list_assets",
     title: "List assets",
     description:
-      "Lists the media library of a site with filters (folder, tag, alt=missing, minBytes, q) and sorting. Use alt=missing for the no-alt-text smart list and sort=replacedAt for recently replaced files.",
+      "Lists the media library of a site with filters (folder, tag, alt=missing, minBytes, q) and sorting. Use alt=missing for the no-alt-text smart list and sort=replacedAt for recently replaced files. Paged: limit (1-200, default 50) and offset; follow hasMore.",
     scope: "read",
     inputSchema: objectSchema(
       {
@@ -1939,6 +1965,8 @@ export const TOOLS: ToolDefinition[] = [
           enum: ["createdAt", "name", "size", "replacedAt"],
         },
         status: { type: "string", enum: ["ready", "trashed", "all"] },
+        limit: { type: "number" },
+        offset: { type: "number" },
       },
       ["siteId"],
     ),
@@ -1953,10 +1981,9 @@ export const TOOLS: ToolDefinition[] = [
       }
       const minBytes = optionalNumber(args, "minBytes");
       if (minBytes !== undefined) params.set("minBytes", String(minBytes));
-      const query = params.toString();
       return context.client.request(
         "GET",
-        `/api/sites/${siteId}/assets${query === "" ? "" : `?${query}`}`,
+        `/api/sites/${siteId}/assets${pagingQuery(args, params)}`,
       );
     },
   },
@@ -2174,7 +2201,7 @@ export const TOOLS: ToolDefinition[] = [
     name: "list_image_jobs",
     title: "List image jobs",
     description:
-      "Lists the image jobs of a site (newest first), optionally filtered by status. Use it to coordinate parallel generations.",
+      "Lists the image jobs of a site (newest first), optionally filtered by status. Use it to coordinate parallel generations. Paged: limit (1-200, default 50) and offset; follow hasMore.",
     scope: "read",
     inputSchema: objectSchema(
       {
@@ -2183,18 +2210,20 @@ export const TOOLS: ToolDefinition[] = [
           type: "string",
           enum: ["queued", "running", "succeeded", "failed", "canceled"],
         },
+        limit: { type: "number" },
+        offset: { type: "number" },
       },
       ["siteId"],
     ),
     entity: (args) => `site:${String(args.siteId ?? "")}`,
     handler: async (context, args) => {
       const siteId = requireString(args, "siteId");
+      const params = new URLSearchParams();
       const status = optionalString(args, "status");
-      const query =
-        status === undefined ? "" : `?status=${encodeURIComponent(status)}`;
+      if (status !== undefined) params.set("status", status);
       return context.client.request(
         "GET",
-        `/api/sites/${siteId}/images/jobs${query}`,
+        `/api/sites/${siteId}/images/jobs${pagingQuery(args, params)}`,
       );
     },
   },
@@ -2242,7 +2271,7 @@ export const TOOLS: ToolDefinition[] = [
     name: "list_entries",
     title: "List entries",
     description:
-      "Lists the entries of a site with filters (collectionId, status, q, trashed) and sorting (sort, dir). With q the hits come back ranked by weight (title, then slug, then body), not by the sort field.",
+      "Lists the entries of a site with filters (collectionId, status, q, trashed) and sorting (sort, dir). With q the hits come back ranked by weight (title, then slug, then body), not by the sort field. Paged: limit (1-200, default 50) and offset; follow hasMore.",
     scope: "read",
     inputSchema: objectSchema(
       {
@@ -2260,6 +2289,7 @@ export const TOOLS: ToolDefinition[] = [
         },
         dir: { type: "string", enum: ["asc", "desc"] },
         limit: { type: "number" },
+        offset: { type: "number" },
       },
       ["siteId"],
     ),
@@ -2273,12 +2303,9 @@ export const TOOLS: ToolDefinition[] = [
       }
       const trashed = optionalBoolean(args, "trashed");
       if (trashed !== undefined) params.set("trashed", String(trashed));
-      const limit = optionalNumber(args, "limit");
-      if (limit !== undefined) params.set("limit", String(limit));
-      const query = params.toString();
       return context.client.request(
         "GET",
-        `/api/sites/${siteId}/entries${query === "" ? "" : `?${query}`}`,
+        `/api/sites/${siteId}/entries${pagingQuery(args, params)}`,
       );
     },
   },

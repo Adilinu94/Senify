@@ -79,6 +79,13 @@ describe("Tool-Manifest (Fahrplan P3-3 Punkt 4, R8)", () => {
     expect(TOOLS_BY_NAME.get("create_page")?.routeExample).toBe(
       "POST /api/sites/{param}/pages",
     );
+    // A `${…}` right behind a path segment is the query string (limit, offset,
+    // filters), not a path parameter: it must not end up as `assets:param`.
+    expect(TOOLS_BY_NAME.get("list_assets")?.route).toBe("GET /api/sites/:param/assets");
+    expect(TOOLS_BY_NAME.get("list_entries")?.route).toBe("GET /api/sites/:param/entries");
+    expect(TOOLS_BY_NAME.get("list_image_jobs")?.route).toBe(
+      "GET /api/sites/:param/images/jobs",
+    );
 
     // Some tools read or write the STORE directly instead of going over HTTP -
     // `get_page` builds an outline from `pageFor(...)`, `upload_asset` reads a
@@ -105,7 +112,13 @@ describe("Tool-Manifest (Fahrplan P3-3 Punkt 4, R8)", () => {
     ]);
     // A tool with no parameters says so with an empty list, not with missing
     // rows - the docs render both the same way.
-    expect(TOOLS_BY_NAME.get("list_sites")?.parameters).toEqual([]);
+    expect(TOOLS_BY_NAME.get("whoami")?.parameters).toEqual([]);
+    // The paged lists take `limit` and `offset`, both optional: without them an
+    // agent could not get past the first page (see paging.test.ts in `mcp`).
+    expect(TOOLS_BY_NAME.get("list_sites")?.parameters).toEqual([
+      { name: "limit", type: "number", required: false },
+      { name: "offset", type: "number", required: false },
+    ]);
   });
 
   it("findet jedes Werkzeug über den Namen, auch nach den verbotenen", () => {
