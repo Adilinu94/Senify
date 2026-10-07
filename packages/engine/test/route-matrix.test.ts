@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { TOOL_MANIFEST } from "@senify/manifest";
 import {
-  buildRouteMatrix,
+  buildRouteMatrixFromManifest,
   type MatrixStatus,
 } from "../src/route-matrix.ts";
 
@@ -23,18 +24,14 @@ function documentedRows(markdown: string): { key: string; status: string }[] {
     });
 }
 
-describe("mcp route matrix (E4 slice 2)", () => {
+describe("mcp route matrix (E4 slice 2, P3-3 Punkt 8)", () => {
   it("covers every engine route with a conscious status", () => {
     const http = readFileSync(join(engineDir, "src", "http.ts"), "utf8");
-    const tools = readFileSync(
-      join(root, "packages", "mcp", "src", "tools.ts"),
-      "utf8",
-    );
     const server = readFileSync(
       join(root, "packages", "mcp", "src", "server.ts"),
       "utf8",
     );
-    const rows = buildRouteMatrix(http, tools, server);
+    const rows = buildRouteMatrixFromManifest(http, TOOL_MANIFEST, server);
     expect(rows.length).toBeGreaterThan(0);
     const markdown = readFileSync(
       join(root, "docs", "mcp-route-matrix.md"),

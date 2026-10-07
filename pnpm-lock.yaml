@@ -184,6 +184,9 @@ importers:
       '@senify/framer-import':
         specifier: workspace:*
         version: link:../framer-import
+      '@senify/manifest':
+        specifier: workspace:*
+        version: link:../manifest
       '@senify/renderer':
         specifier: workspace:*
         version: link:../renderer
@@ -269,6 +272,9 @@ importers:
       '@senify/engine':
         specifier: workspace:*
         version: link:../engine
+      '@senify/manifest':
+        specifier: workspace:*
+        version: link:../manifest
 
   packages/registry:
     dependencies:

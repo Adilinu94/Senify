@@ -1,8 +1,17 @@
-// MCP route matrix (E4 slice 2): every route in `http.ts` gets a conscious
-// status — Tool, Workflow-gebündelt or Operator. The matrix is generated
-// (`pnpm route-matrix`) into `docs/mcp-route-matrix.md` and verified by
+// MCP route matrix (E4 slice 2, P3-3 Punkt 8): every route in `http.ts` gets
+// a conscious status — Tool, Workflow-gebündelt or Operator. The matrix is
+// generated (`pnpm route-matrix`) from the engine ROUTES and the manifest
+// facts (`@senify/manifest`, themselves generated from `mcp/src/tools.ts`),
+// plus the server audit writer - and verified by
 // `packages/engine/test/route-matrix.test.ts`, so a new route without a
-// matrix row turns the suite red.
+// matrix row turns the suite red. Reading the manifest instead of parsing
+// `tools.ts` keeps one source of truth: a rename lands in both places,
+// and a query string (`limit`, `offset`) never reads as a path parameter.
+//
+// All three text inputs are CR-normalised first: the blobs carry CRLF, and a
+// parser that assumed LF silently produced one bogus tool for the whole file.
+
+import type { ToolFact } from "@senify/manifest";
 
 export type MatrixStatus = "Tool" | "Workflow-gebündelt" | "Operator";
 
@@ -89,19 +98,20 @@ function matchPath(route: PathSegment[], call: PathSegment[]): boolean {
 
 export function parseRoutes(httpSource: string): MatrixRoute[] {
   const routes: MatrixRoute[] = [];
+  const text = httpSource.replace(/\r\n/g, "\n");
   // No `{` anchor: entries may carry a comment between the brace and
   // `method` (e.g. above the events route). method+segments always sit on
   // adjacent lines inside ROUTES.
   const entry = /method:\s*"([A-Z]+)",\s*segments:\s*\[([^\]]*)\]/g;
   let found: RegExpExecArray | null;
-  while ((found = entry.exec(httpSource)) !== null) {
+  while ((found = entry.exec(text)) !== null) {
     const method = found[1] ?? "";
     const segments = [...(found[2] ?? "").matchAll(/"([^"]+)"/g)].map(
       (part) => part[1] ?? "",
     );
     // method/segments/scope/public sit at the head of the entry; the handler
     // body starts thousands of characters later.
-    const head = httpSource.slice(found.index, found.index + 800);
+    const head = text.slice(found.index, found.index + 800);
     const scope = /scope:\s*"(\w+)"/.exec(head)?.[1] ?? "read";
     const isPublic = /public:\s*true/.test(head.slice(0, 400));
     routes.push({
@@ -118,36 +128,37 @@ export function parseRoutes(httpSource: string): MatrixRoute[] {
 // paths are template literals that may nest ternaries with backticks.
 export function parseRequestCalls(source: string): { method: string; path: string }[] {
   const calls: { method: string; path: string }[] = [];
+  const text = source.replace(/\r\n/g, "\n");
   // Type arguments (`request<Page>`) are skipped: they never contain parens.
   const head = /\.request(?:<[^()]*>)?\(\s*"([A-Z]+)",\s*/g;
   let found: RegExpExecArray | null;
-  while ((found = head.exec(source)) !== null) {
+  while ((found = head.exec(text)) !== null) {
     const method = found[1] ?? "";
     let cursor = found.index + found[0].length;
-    const quote = source[cursor];
+    const quote = text[cursor];
     if (quote !== "`" && quote !== '"') continue;
     cursor += 1;
     let raw = "";
     if (quote === '"') {
-      while (cursor < source.length && source[cursor] !== '"') {
-        raw += source[cursor];
+      while (cursor < text.length && text[cursor] !== '"') {
+        raw += text[cursor];
         cursor += 1;
       }
     } else {
       let depth = 0;
-      while (cursor < source.length) {
-        if (source.startsWith("${", cursor)) {
+      while (cursor < text.length) {
+        if (text.startsWith("${", cursor)) {
           depth += 1;
           raw += "${";
           cursor += 2;
-        } else if (source[cursor] === "}" && depth > 0) {
+        } else if (text[cursor] === "}" && depth > 0) {
           depth -= 1;
           raw += "}";
           cursor += 1;
-        } else if (source[cursor] === "`" && depth === 0) {
+        } else if (text[cursor] === "`" && depth === 0) {
           break;
         } else {
-          raw += source[cursor];
+          raw += text[cursor];
           cursor += 1;
         }
       }
@@ -157,14 +168,41 @@ export function parseRequestCalls(source: string): { method: string; path: strin
   return calls;
 }
 
-// Split `tools.ts` into per-tool blocks at the array-element level.
+// Split `tools.ts` into per-tool blocks at the array-element level. Kept for
+// the manifest generator's cross-check, not for the matrix: the matrix reads
+// the manifest facts (`toolCallsFromManifest`), so a rename lands in both.
 export function parseToolCalls(toolsSource: string): Map<string, { method: string; path: string }[]> {
-  const blocks = toolsSource.split(/\n {2}\{\n {4}name: "/);
+  const text = toolsSource.replace(/\r\n/g, "\n");
+  const blocks = text.split(/\n {2}\{\n {4}name: "/);
   const byTool = new Map<string, { method: string; path: string }[]>();
   for (const block of blocks) {
     const name = /^([^"]+)"/.exec(block)?.[1];
     if (name === undefined) continue;
     byTool.set(name, parseRequestCalls(block));
+  }
+  return byTool;
+}
+
+// The same caller map, read from the manifest facts instead of parsed out of
+// `tools.ts`. Each fact lists EVERY route it calls (`routes`, `:param`
+// form) - a tool that calls three routes and declared only one would lose
+// two matrix rows. The route side of `matchPath` treats every `:segment` as
+// a wildcard, so a fact matches exactly the engine routes it names.
+export function toolCallsFromManifest(
+  facts: readonly Pick<ToolFact, "name" | "routes">[],
+): Map<string, { method: string; path: string }[]> {
+  const byTool = new Map<string, { method: string; path: string }[]>();
+  for (const fact of facts) {
+    const calls: { method: string; path: string }[] = [];
+    for (const route of fact.routes) {
+      const space = route.indexOf(" ");
+      if (space < 0) continue;
+      calls.push({
+        method: route.slice(0, space),
+        path: route.slice(space + 1),
+      });
+    }
+    if (calls.length > 0) byTool.set(fact.name, calls);
   }
   return byTool;
 }
@@ -256,9 +294,32 @@ export function buildRouteMatrix(
   toolsSource: string,
   serverSource: string,
 ): MatrixRow[] {
-  const routes = parseRoutes(httpSource);
-  const byTool = parseToolCalls(toolsSource);
-  const serverCalls = parseRequestCalls(serverSource);
+  return buildMatrix(
+    parseRoutes(httpSource),
+    parseToolCalls(toolsSource),
+    parseRequestCalls(serverSource),
+  );
+}
+
+// The entry the generator and the test use: same matrix, but the callers
+// come from the manifest facts instead of parsed `tools.ts` text.
+export function buildRouteMatrixFromManifest(
+  httpSource: string,
+  facts: readonly Pick<ToolFact, "name" | "routes">[],
+  serverSource: string,
+): MatrixRow[] {
+  return buildMatrix(
+    parseRoutes(httpSource),
+    toolCallsFromManifest(facts),
+    parseRequestCalls(serverSource),
+  );
+}
+
+function buildMatrix(
+  routes: MatrixRoute[],
+  byTool: Map<string, { method: string; path: string }[]>,
+  serverCalls: { method: string; path: string }[],
+): MatrixRow[] {
   const callers = new Map<string, Set<string>>();
   const remember = (key: string, tool: string): void => {
     const set = callers.get(key) ?? new Set<string>();
@@ -315,7 +376,7 @@ export function renderRouteMatrix(rows: MatrixRow[], stand: string): string {
   const lines = [
     "# MCP-Routen-Matrix",
     "",
-    `Stand: ${stand} — generiert mit \`pnpm route-matrix\` aus \`packages/engine/src/http.ts\` (ROUTES) und \`packages/mcp/src/tools.ts\` (+ Server-Audit). Bei neuer Route die Matrix neu erzeugen; \`packages/engine/test/route-matrix.test.ts\` prüft Vollständigkeit.`,
+    `Stand: ${stand} — generiert mit \`pnpm route-matrix\` aus \`packages/engine/src/http.ts\` (ROUTES) und \`@senify/manifest\` (+ Server-Audit). Bei neuer Route die Matrix neu erzeugen; \`packages/engine/test/route-matrix.test.ts\` prüft Vollständigkeit.`,
     "",
     "**Regel (E4):** Jede Route hat einen bewussten Status. **Tool** — ein MCP-Tool ruft sie direkt auf. **Workflow-gebündelt** — nur als Teil eines Mehr-Routen-Workflows erreichbar (Via-Spalte nennt das bündelnde Tool). **Operator** — UI/CLI/öffentlich, bewusst ohne Tool.",
     "",

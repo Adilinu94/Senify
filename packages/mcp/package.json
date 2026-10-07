@@ -21,6 +21,7 @@
     "commander": "^14.0.0"
   },
   "devDependencies": {
-    "@senify/engine": "workspace:*"
+    "@senify/engine": "workspace:*",
+    "@senify/manifest": "workspace:*"
   }
 }
