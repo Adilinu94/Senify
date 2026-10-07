@@ -17,7 +17,7 @@
 
 **R5 geschlossen:** `NodeTree` bleibt die Persistenzwahrheit; der Legacy-Editor `packages/editor/src/mount.ts` ist gelöscht. Der Canvas (`editor/src/canvas/`) ist aktiv. `FrameRenderer` liegt als gemeinsamer Typ in `packages/editor/src/frame-renderer.ts`; `?view=editor` wird sichtbar auf Canvas umgeleitet. Belege: `packages/app/test/server.test.ts`, `packages/app/test/canvas-view-browser.test.ts`.
 
-**MCP-Manifest und Paging:** `@senify/manifest` hält generierte Tool-Fakten und wird vom Docs-Portal importiert. `packages/engine/src/paging.ts` definiert das HTTP-Paging; mehrere Listenrouten in `http.ts` verwenden es. MCP-Tools und Routenmatrix lesen ihre Tool-Fakten derzeit noch direkt aus `packages/mcp/src/tools.ts`; MCP-Paging ist nicht durchgängig integriert (R8 teilweise offen).
+**MCP-Manifest und Paging:** `@senify/manifest` hält generierte Tool-Fakten (106 Werkzeuge) und wird vom Docs-Portal importiert. `packages/engine/src/paging.ts` definiert das HTTP-Paging; die paginierten MCP-Listenwerkzeuge bieten `limit`/`offset` mit `total`/`hasMore` an, und 12 Werkzeuge (6 lesend, 6 schreibend) deklarieren `outputSchema`. MCP-Tools und Routenmatrix lesen ihre Tool-Fakten derzeit noch direkt aus `packages/mcp/src/tools.ts` (R8 teilweise offen).
 
 ## Referenz-Redesign
 
@@ -147,7 +147,7 @@ R1 ist durch Build und angeschlossenes Artefakt-Gate implementierungsseitig gesc
 | R5 | Legacy-Editor → Canvas | geschlossen: Legacy-Datei entfernt, Redirect sichtbar | `mount.ts` gelöscht, `frame-renderer.ts`, Canvas-/Server-Tests |
 | R6 | Write → Idempotency-Abschluss | geschlossen | `http.ts`, `idempotency.test.ts`, `error-paths.test.ts` |
 | R7 | Release → Snapshots | geschlossen: Assets, Components, Payloads und Entries; begrenzter Asset-Restore-Fehlerfall | `types.ts`, `lifecycle.ts`, `release-manifest.test.ts` |
-| R8 | MCP → Schema/Pagination/Manifest | teilweise: retryable, ausgewählte Output-Schemas, Docs-Manifest und Engine-Paging/HTTP-Routen vorhanden; MCP-Pagination sowie Manifest-Verwendung durch Server/Matrix offen | `mcp/src/tools.ts`, `mcp/src/server.ts`, `manifest/`, `engine/src/paging.ts` |
+| R8 | MCP → Schema/Pagination/Manifest | teilweise: retryable, Output-Schemas (6 lesend + 6 schreibend), Docs-Manifest und Engine-Paging/HTTP-Routen sowie MCP-Pagination vorhanden; Manifest-Verwendung durch Server/Matrix offen | `mcp/src/tools.ts`, `mcp/src/server.ts`, `manifest/`, `engine/src/paging.ts` |
 | R9 | Style-Registry → Klassen-Rename | geschlossen | `style-rules.test.ts` |
 | R10 | Import → Dateien | Kompensation neuer Uploads nach Commit-Fehler belegt; keine gemeinsame Datei-/DB-Transaktion | `imports.ts`, `imports.test.ts` |
 | R11 | Nachweis → CI | Gates vorhanden und auf dem Folge-Diff lokal bestanden | `verify.yml`, `vitest.config.ts`, `test:postgres`, `error-paths.test.ts` |
