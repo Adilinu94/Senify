@@ -17,10 +17,14 @@
 | [ADR-0012](0012-persistente-redesign-proposals.md) | Persistente Redesign Proposals mit menschlicher Direction Decision | angenommen |
 | [ADR-0013](0013-direction-card-sektionsplan-als-handoff.md) | Direction Card mit Sektions-Plan und Medienbedarf als Handoff | angenommen |
 | [ADR-0014](0014-atomarer-redesign-apply.md) | Atomarer Redesign-Apply ohne Zwischenzustand | angenommen |
+| [ADR-0015](0015-site-inhalte-auf-eigener-origin.md) | Site-Inhalte auf der Engine-Origin, nie unter der Dashboard-Origin | vorgeschlagen |
+| [ADR-0016](0016-abrufe-fremder-urls-nur-oeffentlich.md) | Abrufe fremder URLs gehen nur an öffentliche Adressen | vorgeschlagen |
+| [ADR-0017](0017-schluessel-ausserhalb-der-datenbank.md) | Der Schlüssel für gespeicherte Zugangsdaten liegt außerhalb der Datenbank und des Backups | vorgeschlagen |
+| [ADR-0018](0018-oeffentliche-adresse-je-projekt.md) | Jedes Projekt trägt seine öffentliche Adresse | vorgeschlagen |
 
 ## Nächste Nummer
 
-`ADR-0011` ist für die Entscheidung reserviert, ob und wann `EditorDocument` das interne kanonische Modell wird.
+Die nächste freie Nummer ist `ADR-0019`. `ADR-0011` ist für die Entscheidung reserviert, ob und wann `EditorDocument` das interne kanonische Modell wird.
 
 ## Regeln
 

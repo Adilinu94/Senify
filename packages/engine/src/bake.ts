@@ -467,7 +467,7 @@ export async function bakePages(
   const result = await bakeSite(
     {
       siteName: input.site.name,
-      baseUrl: `https://${input.site.slug}.senify.xyz`,
+      baseUrl: input.site.baseUrl ?? `https://${input.site.slug}.senify.xyz`,
       pages: build.pages,
       contexts: build.contexts,
       themeCss: siteTheme.css,

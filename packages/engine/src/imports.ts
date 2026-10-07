@@ -136,7 +136,7 @@ function authorOf(auth: AuthorInput): Author {
   return { kind: auth.kind, id: auth.id, label: auth.label };
 }
 
-function sourceOf(body: CreateImportBody, pagePath: string): FramerImportSource {
+export function sourceOf(body: CreateImportBody): FramerImportSource {
   const source = body.source;
   const hasUrl = typeof source.url === "string" && source.url !== "";
   const hasRootDir = typeof source.rootDir === "string" && source.rootDir !== "";
@@ -159,7 +159,7 @@ function sourceOf(body: CreateImportBody, pagePath: string): FramerImportSource 
     return { kind: "url", url: source.url ?? "" };
   }
   if (hasRootDir) {
-    return { kind: "mirror", rootDir: source.rootDir ?? "", pagePath };
+    return { kind: "mirror", rootDir: source.rootDir ?? "", pagePath: source.page ?? "/" };
   }
   return {
     kind: "html",
@@ -233,7 +233,7 @@ export async function runFramerImportJob(
 ): Promise<ImportRunResult> {
   const dryRun = input.body.write !== true;
   const pagePath = input.body.pagePath ?? "/";
-  const source = sourceOf(input.body, pagePath);
+  const source = sourceOf(input.body);
   const includeAssets = !dryRun && input.body.assets !== "skip";
   const includeFonts = !dryRun && input.body.fonts !== "skip";
   const media = dryRun ? undefined : input.media;
@@ -327,6 +327,7 @@ export async function runFramerImportJob(
     jobId: input.jobId,
     dryRun,
     irHash: run.irHash,
+    ...(run.discoveredPages.length > 0 ? { discoveredPages: run.discoveredPages } : {}),
     score: run.report.score,
     counts: {
       nodes: run.report.counts.nodes,
@@ -459,7 +460,8 @@ export async function runFramerImportJob(
       payloads: preparedPayloads,
       styleRules: run.mapped.rules,
       themePatch:
-        input.body.applyTheme === true && run.mapped.themePatch.fonts !== undefined
+        input.body.applyTheme === true &&
+        (run.mapped.themePatch.fonts !== undefined || run.mapped.themePatch.scales !== undefined)
           ? run.mapped.themePatch
           : null,
       report: reportBase,

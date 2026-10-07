@@ -100,6 +100,9 @@ const SITE_SCHEMA = {
     slug: { type: "string" },
     profile: { type: "string" },
     themeId: { type: ["string", "null"] },
+    // Public origin visitors open the site under; absent until the operator
+    // sets it (then the `<slug>.senify.xyz` placeholder is baked).
+    baseUrl: { type: "string" },
     createdAt: { type: "string" },
     updatedAt: { type: "string" },
   },

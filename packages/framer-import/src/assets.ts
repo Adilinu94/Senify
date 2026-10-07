@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { extname, join, resolve } from "node:path";
 import { SenifyError } from "@senify/core";
+import { fetchPublic } from "@senify/core/net";
 import type { FramerIrDocument, IrAsset, IrFontFace, IrNode } from "./ir.ts";
 
 /* ------------------------------------------------------------------ types */
@@ -101,11 +102,18 @@ function filenameFor(url: string, fallbackKind: string): string {
 
 /* ------------------------------------------------------------- downloading */
 
+// A single asset is buffered whole before it reaches the upload check, so the
+// download itself has a ceiling (ADR-0016).
+const MAX_ASSET_BYTES = 200 * 1024 * 1024;
+
 async function fetchBytes(url: string, timeoutMs: number): Promise<Buffer> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { signal: controller.signal });
+    const response = await fetchPublic(url, {
+      signal: controller.signal,
+      maxBytes: MAX_ASSET_BYTES,
+    });
     if (!response.ok) {
       throw new SenifyError("not_found", `Download fehlgeschlagen: ${response.status} ${url}`, {
         field: "url",

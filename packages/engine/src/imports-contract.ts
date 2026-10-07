@@ -9,6 +9,10 @@ export const ImportSourceSchema = Type.Object(
   {
     url: Type.Optional(Type.String({ maxLength: 2048 })),
     rootDir: Type.Optional(Type.String({ maxLength: 1024 })),
+    // Which page of the export folder (`rootDir`) is read: `/about` reads
+    // `about/index.html` or `about.html`. Absent = the home page. The path the
+    // page lands on in Senify is the request's `pagePath`.
+    page: Type.Optional(Type.String({ maxLength: 512 })),
     html: Type.Optional(Type.String()),
     // The base for relative asset URLs; defaults to the URL origin.
     baseUrl: Type.Optional(Type.String({ maxLength: 2048 })),
@@ -64,6 +68,12 @@ export const ImportReportSchema = Type.Object(
     // The idempotency fingerprint of the imported IR (plan S2.5): a second
     // run over an unchanged source produces the same hash.
     irHash: Type.String(),
+    // The other pages of the site this page links to (root-relative paths), so
+    // a whole site can be imported page by page. Nothing is fetched for them.
+    discoveredPages: Type.Optional(Type.Array(Type.String())),
+    // Set when the write replaced an existing page: the revision holding the
+    // draft it replaced, restorable with `POST /api/pages/:pageId/restore`.
+    replacedRevisionId: Type.Optional(Type.String()),
     // The page the path already holds, so "Übernehmen" can say what it would
     // replace and send that draft version back as `baseDraftVersion`.
     existingPage: Type.Optional(

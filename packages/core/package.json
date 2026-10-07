@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./testing": "./src/testing/index.ts"
+    "./testing": "./src/testing/index.ts",
+    "./net": "./src/net.ts"
   },
   "dependencies": {
     "pg-mem": "^3.0.5"

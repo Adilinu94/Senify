@@ -40,9 +40,11 @@ const GROUPS: DocsGroup[] = [
 ];
 
 function parseFrontmatter(
-  raw: string,
+  source: string,
   file: string,
 ): { data: Record<string, string>; body: string } {
+  // A Windows checkout (git autocrlf) turns every line break into CRLF.
+  const raw = source.replaceAll("\r\n", "\n");
   const end = raw.startsWith("---\n") ? raw.indexOf("\n---\n", 4) : -1;
   if (end === -1) {
     throw new SenifyError("validation", `Guide "${file}" has no frontmatter`, {

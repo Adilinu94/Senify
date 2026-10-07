@@ -219,11 +219,15 @@ export function createProgram(): Command {
     .description("One-command agent onboarding: token, MCP config, skills")
     .option("--name <name>", "client name", "senify agent")
     .option("--scopes <scopes>", "comma-separated scopes", "read,write")
+    .option("--expires <expires>", 'expiry in days, e.g. 30d, or "never"', "90d")
     .option("--client <client>", "claude | cursor | opencode | all", "all")
     .option("--print", "dry-run: print the config instead of writing it")
     .option("--api <url>")
     .action(async (options) => {
       const apiUrl = resolveApiUrl(options);
+      // The secret lands in plain text in the agent client's config file (and
+      // sometimes in a project's .mcp.json), so it expires by default.
+      const expires = String(options.expires);
       const created = await operator(options).request<{
         token: TokenEntry;
         secret: string;
@@ -231,9 +235,13 @@ export function createProgram(): Command {
         name: String(options.name),
         kind: "agent",
         scopes: parseScopes(String(options.scopes)),
+        ...(expires === "never" ? {} : { expires }),
       });
       console.log(
         `Token "${created.token.name}" created (id ${created.token.id}, kind ${created.token.kind}, scopes ${created.token.scopes.join(",")}).`,
+      );
+      console.log(
+        `Expires: ${created.token.expiresAt === null ? "never" : created.token.expiresAt.slice(0, 10)}${created.token.expiresAt === null ? "" : " (renew with `senify setup`)"}`,
       );
       console.log(`Secret (shown once): ${created.secret}`);
 

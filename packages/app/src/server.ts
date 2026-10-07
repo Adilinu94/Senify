@@ -6,7 +6,7 @@ import {
 } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
-import { extname, join, normalize } from "node:path";
+import { extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { defaultTheme, emitCss, resolveTheme } from "@senify/tokens";
@@ -99,9 +99,33 @@ function sendError(
   res.end(body);
 }
 
+// Signed previews and published releases: whole baked sites, which can carry
+// imported foreign code (ADR-0010).
+const SITE_CONTENT_PATH = /^\/api\/(?:previews|releases)\/[^/?#]+\/files(?:[/?]|$)/;
+
+// The dashboard answers only under its own loopback names. A DNS-rebinding
+// page reaches this port with its own hostname in `Host` (and, for a plain
+// GET, without an `Origin`), which the origin comparison in
+// `trustedProxyRequest` cannot tell from the dashboard itself - the proxy would
+// attach the operator token. Any port is fine; only the name matters.
+const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+function loopbackHost(host: string | undefined): boolean {
+  if (host === undefined) return false;
+  const hostname = host.startsWith("[")
+    ? host.slice(0, host.indexOf("]") + 1)
+    : (host.split(":", 1)[0] ?? "");
+  return LOOPBACK_HOSTNAMES.has(hostname.toLowerCase());
+}
+
 function trustedProxyRequest(req: IncomingMessage): boolean {
   const fetchSite = req.headers["sec-fetch-site"];
-  if (fetchSite === "cross-site") return false;
+  // Only the dashboard itself (or a typed address) may use the proxy.
+  // "same-site" is another port on this machine - site content served from the
+  // engine origin, say - and must not ride on the operator token either.
+  if (fetchSite !== undefined && fetchSite !== "same-origin" && fetchSite !== "none") {
+    return false;
+  }
   const origin = req.headers.origin;
   if (origin === undefined) return true;
   const host = req.headers.host;
@@ -174,8 +198,14 @@ function serveStatic(
 ): void {
   const raw = url.split("?")[0] ?? "/";
   const relative = raw === "/" ? "index.html" : raw.replace(/^\/+/, "");
-  const resolved = normalize(join(publicDir, relative));
-  if (!resolved.startsWith(publicDir) || !existsSync(resolved) || !statSync(resolved).isFile()) {
+  const resolved = resolve(normalize(join(publicDir, relative)));
+  // Inside the folder, not merely a path that starts with its name: the
+  // neighbour "public-evil" must not pass for "public".
+  if (
+    !resolved.startsWith(resolve(publicDir) + sep) ||
+    !existsSync(resolved) ||
+    !statSync(resolved).isFile()
+  ) {
     sendError(res, 404, `Unbekannte Datei "${raw}"`, "Prüfe die Adresse.");
     return;
   }
@@ -227,6 +257,15 @@ export function createAppServer(options: AppServerOptions): Promise<AppServer> {
       });
   };
   const server = createServer((req, res) => {
+    if (!loopbackHost(req.headers.host)) {
+      sendError(
+        res,
+        403,
+        "Ungültiger Host-Header",
+        "Öffne Senify über http://127.0.0.1 oder http://localhost mit dem Port des Dashboards.",
+      );
+      return;
+    }
     const url = req.url ?? "/";
     if (url === "/theme.css") {
       res.writeHead(200, {
@@ -266,6 +305,16 @@ export function createAppServer(options: AppServerOptions): Promise<AppServer> {
     const themeFont = /^\/assets\/(sora|inter)-\d{3}\.woff2$/.exec(url);
     if (themeFont) {
       serveStatic(THEME_FONT_DIR, url.slice("/assets".length), res);
+      return;
+    }
+    // Site content runs on the engine origin, where no proxy attaches the
+    // operator token - never under the dashboard's own origin (ADR-0015).
+    if (SITE_CONTENT_PATH.test(url)) {
+      res.writeHead(307, {
+        location: `${options.engineOrigin}${url}`,
+        "cache-control": "no-store",
+      });
+      res.end();
       return;
     }
     // `/api/`, `/assets/` and `/_astro/` belong to the engine: the asset store,

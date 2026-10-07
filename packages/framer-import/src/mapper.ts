@@ -17,6 +17,7 @@ import type {
   EditorNode,
 } from "@senify/editor/state";
 import { sanitizeInlineHtml, type StyleRule } from "@senify/widget-engine";
+import { brandColorOf } from "./brand-color.ts";
 import { devicesContaining } from "./devices.ts";
 import type {
   FramerIrDocument,
@@ -743,6 +744,10 @@ export function themePatchOf(document: FramerIrDocument): ThemePatch {
     }
   }
   const patch: ThemePatch = {};
+  // The brand colour the page uses most: a proposal for the theme's one
+  // brand input (the whole ramp grows from it), only applied on request.
+  const brand = brandColorOf(document);
+  if (brand !== null) patch.scales = { brand: brand.hex };
   if (bodyFamily !== null) {
     patch.fonts = {
       body: { family: bodyFamily, fallback: ["system-ui", "sans-serif"], weights: bodyWeights },

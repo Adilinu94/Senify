@@ -28,6 +28,7 @@ const MUTATION_LABELS = {
   updatePageMeta: "Seiten-Meta geändert",
   update_theme: "Theme geändert",
   rename_site: "Projekt umbenannt",
+  update_site_base_url: "Öffentliche Adresse geändert",
   trash_site: "Projekt in den Papierkorb",
   restore_site: "Projekt wiederhergestellt",
   duplicate_site: "Projekt dupliziert",
@@ -77,8 +78,28 @@ async function api(path, options = {}) {
 
 function toast(message, kind = "info") {
   const node = el("div", { class: `toast ${kind}`, text: message });
+  if (kind === "error") {
+    // Announced at once, and kept until it has been read and closed: a message
+    // that vanishes after seconds cannot be read by everyone. The same error
+    // twice (a failing background request) is shown once.
+    for (const shown of toasts.children) {
+      if (shown.classList.contains("error") && shown.firstChild?.textContent === message) return;
+    }
+    node.setAttribute("role", "alert");
+    node.append(
+      el("button", {
+        type: "button",
+        class: "toast__close",
+        "aria-label": "Meldung schließen",
+        text: "×",
+        onclick: () => node.remove(),
+      }),
+    );
+    toasts.append(node);
+    return;
+  }
   toasts.append(node);
-  setTimeout(() => node.remove(), kind === "error" ? 7000 : 4000);
+  setTimeout(() => node.remove(), 4000);
 }
 
 function friendlyError(error) {
@@ -3724,9 +3745,43 @@ async function projectView(siteId, tab) {
         { class: "panel" },
         el("p", {}, el("strong", { text: "Pfad-Präfix: " }), el("code", { text: site.slug })),
         el("p", {}, el("strong", { text: "Niveau: " }), site.profile),
+        el(
+          "div",
+          { class: "inline" },
+          el("label", { class: "muted", for: "site-base-url" }, "Öffentliche Adresse"),
+          el("input", {
+            id: "site-base-url",
+            type: "text",
+            value: site.baseUrl ?? "",
+            placeholder: "https://www.kunde.de",
+          }),
+          el("button", {
+            class: "primary",
+            text: "Adresse speichern",
+            onclick: async () => {
+              try {
+                await api(`/api/sites/${siteId}`, {
+                  method: "PATCH",
+                  body: {
+                    baseUrl: document.getElementById("site-base-url").value,
+                    author: AUTHOR,
+                  },
+                });
+                toast("Öffentliche Adresse gespeichert");
+                await renderRoute();
+              } catch (error) {
+                failed(error);
+              }
+            },
+          }),
+        ),
         el("p", {
           class: "muted",
-          text: "Name ändern, Stil-Referenz und Domain/Deploy folgen mit den nächsten Schritten.",
+          text: `Unter dieser Adresse öffnen Besucher die Seite. Sie steckt in canonical, Sitemap, og:url und der Formularprüfung. Leer lassen: Platzhalter ${site.slug}.senify.xyz.`,
+        }),
+        el("p", {
+          class: "muted",
+          text: "Name ändern, Stil-Referenz und Deploy folgen mit den nächsten Schritten.",
         }),
       ),
     );
@@ -5008,6 +5063,120 @@ function openFramerImportDialog({ siteId, pageId, session, onImported }) {
     apply.disabled = report === null || (report.existingPage !== undefined && !replaceCheck.checked);
   };
   replaceCheck.addEventListener("change", syncApply);
+  // The other pages of the site the analysed page links to. Importing them is
+  // opt-in; each one is analysed and written on its own (own hash, own guard).
+  const sitePagesHost = el("div", { class: "framer-site-pages", "data-role": "framer-site-pages", hidden: true });
+  const siteReplaceCheck = el("input", { type: "checkbox", "data-role": "framer-site-replace" });
+  let sitePageChecks = [];
+  const renderSitePages = () => {
+    sitePageChecks = [];
+    const pages = report?.discoveredPages ?? [];
+    const canImportMore = pages.length > 0 && sourceSelect.value !== "html" && targetSelect.value !== "current";
+    sitePagesHost.hidden = !canImportMore;
+    if (!canImportMore) {
+      sitePagesHost.replaceChildren();
+      return;
+    }
+    const all = el("input", { type: "checkbox", "data-role": "framer-site-all" });
+    all.addEventListener("change", () => sitePageChecks.forEach((entry) => { entry.input.checked = all.checked; }));
+    const list = el("ul", { class: "framer-site-list" });
+    for (const path of pages) {
+      const input = el("input", { type: "checkbox", value: path, "data-role": "framer-site-page" });
+      sitePageChecks.push({ path, input });
+      list.append(el("li", {}, el("label", { class: "inline" }, input, ` ${path}`)));
+    }
+    sitePagesHost.replaceChildren(
+      el("h3", { text: `Weitere Seiten dieser Site (${pages.length})` }),
+      el("p", { class: "muted", text: "Jede Seite wird für sich analysiert und unter ihrem eigenen Pfad angelegt." }),
+      el("label", { class: "inline" }, all, " Alle auswählen"),
+      list,
+      el("label", { class: "inline" }, siteReplaceCheck, " Vorhandene Seiten unter diesen Pfaden ersetzen"),
+    );
+  };
+  const sourceForPath = (path) =>
+    sourceSelect.value === "url"
+      ? { url: new URL(path, sourceInput.value.trim()).href }
+      : { rootDir: sourceInput.value.trim(), page: path };
+  const importSitePages = async () => {
+    const results = [];
+    for (const { path, input } of sitePageChecks) {
+      if (!input.checked) continue;
+      const base = {
+        source: sourceForPath(path),
+        pagePath: path,
+        assets: assetsSelect.value,
+        fonts: fontsSelect.value,
+        applyTheme: false,
+        mode: modeSelect.value,
+      };
+      try {
+        const dry = await api(`/api/sites/${siteId}/imports/framer`, {
+          method: "POST",
+          body: { ...base, write: false, idempotencyKey: window.crypto.randomUUID() },
+        });
+        const existing = dry.report.existingPage;
+        if (existing !== undefined && !siteReplaceCheck.checked) {
+          results.push({ path, state: "übersprungen", detail: "Unter diesem Pfad liegt schon eine Seite." });
+          continue;
+        }
+        await api(`/api/sites/${siteId}/imports/framer`, {
+          method: "POST",
+          body: {
+            ...base,
+            write: true,
+            expectedIrHash: dry.report.irHash,
+            ...(existing === undefined ? {} : { baseDraftVersion: existing.draftVersion }),
+            idempotencyKey: window.crypto.randomUUID(),
+          },
+        });
+        results.push({ path, state: "importiert", detail: "" });
+      } catch (error) {
+        results.push({ path, state: "Fehler", detail: error.message });
+      }
+    }
+    return results;
+  };
+  // The preview: the source and the import side by side at the three widths.
+  // Needs a browser on the server, so it is asked for, never run by itself.
+  const previewHost = el("div", { class: "framer-preview", "data-role": "framer-preview", hidden: true });
+  const previewButton = el("button", { type: "button", class: "refs-button", text: "Vorschau", "data-action": "framer-import-preview", disabled: true });
+  const showPreview = async () => {
+    previewButton.disabled = true;
+    previewButton.textContent = "Vorschau wird erstellt …";
+    errorEl.textContent = "";
+    try {
+      const { source, pagePath, mode } = await bodyFor(false);
+      const result = await api(`/api/sites/${siteId}/imports/framer/preview`, {
+        method: "POST",
+        body: { source, pagePath, mode },
+      });
+      const rows = result.shots.map((shot) =>
+        el(
+          "div",
+          { class: "framer-preview-row", "data-breakpoint": shot.breakpoint },
+          el("p", { class: "muted", text: `${shot.breakpoint} · ${shot.width} px · Höhe ${shot.beforeHeight} → ${shot.afterHeight} px` }),
+          el(
+            "div",
+            { class: "framer-preview-pair" },
+            el("figure", {}, el("img", { src: shot.before, alt: `Original bei ${shot.width} px` }), el("figcaption", { text: "Original" })),
+            el("figure", {}, el("img", { src: shot.after, alt: `Import bei ${shot.width} px` }), el("figcaption", { text: "Import" })),
+          ),
+        ),
+      );
+      previewHost.hidden = false;
+      previewHost.replaceChildren(
+        el("h3", { text: "Vorschau" }),
+        el("p", { class: "muted", text: "Oben die Seite, wie sie ist; daneben das Ergebnis des Imports. Bilder und Schriften der Quelle können hier fehlen, wenn sie nur online erreichbar sind." }),
+        ...rows,
+      );
+    } catch (error) {
+      errorEl.textContent = error.message;
+    } finally {
+      previewButton.disabled = false;
+      previewButton.textContent = "Vorschau";
+    }
+  };
+  previewButton.addEventListener("click", showPreview);
   const errorEl = el("p", { class: "refs-form-error", role: "alert" });
   const reportHost = el("div", { class: "framer-import-report-host", "data-role": "framer-import-report" });
   let report = null;
@@ -5077,6 +5246,10 @@ function openFramerImportDialog({ siteId, pageId, session, onImported }) {
       reportHost.replaceChildren(importReportBlock(report));
       replaceCheck.checked = false;
       replaceRow.hidden = report.existingPage === undefined;
+      renderSitePages();
+      previewHost.hidden = true;
+      previewHost.replaceChildren();
+      previewButton.disabled = false;
       syncApply();
     } catch (error) {
       errorEl.textContent = error.message;
@@ -5093,12 +5266,69 @@ function openFramerImportDialog({ siteId, pageId, session, onImported }) {
     apply.textContent = "Importiere …";
     try {
       await session.flush();
+      const wantsMore = sitePageChecks.some((entry) => entry.input.checked);
       const result = await api(`/api/sites/${siteId}/imports/framer`, {
         method: "POST",
         body: await bodyFor(true),
       });
-      dialog.close();
-      onImported(result.report);
+      // A page the import replaced stays reachable: its old draft is a revision,
+      // and the way back is offered here, before the dialog closes.
+      const replacedRevisionId = result.report.replacedRevisionId;
+      if (!wantsMore && replacedRevisionId === undefined) {
+        dialog.close();
+        onImported(result.report);
+        return;
+      }
+      let results = [];
+      if (wantsMore) {
+        // The first page is written; the others follow one by one and the
+        // dialog stays open to say what happened to each.
+        apply.textContent = "Importiere weitere Seiten …";
+        results = await importSitePages();
+      }
+      const summary = [];
+      if (replacedRevisionId !== undefined) {
+        summary.push(
+          el("h3", { text: "Seite ersetzt" }),
+          el("p", { class: "muted", text: "Der vorherige Inhalt der Seite ist als Version „Vor dem Framer-Import“ gesichert." }),
+        );
+      }
+      if (results.length > 0) {
+        summary.push(
+          el("h3", { text: "Ergebnis der weiteren Seiten" }),
+          el(
+            "ul",
+            { class: "framer-site-list", "data-role": "framer-site-results" },
+            results.map((entry) =>
+              el("li", { "data-state": entry.state }, el("strong", { text: entry.path }), ` · ${entry.state}`, entry.detail === "" ? "" : el("span", { class: "muted", text: ` – ${entry.detail}` })),
+            ),
+          ),
+        );
+      }
+      sitePagesHost.hidden = false;
+      sitePagesHost.replaceChildren(...summary);
+      const close = el("button", { type: "button", class: "refs-button primary", text: "Schließen", "data-action": "framer-import-close" });
+      close.addEventListener("click", () => {
+        dialog.close();
+        onImported(result.report);
+      });
+      const actions = [close];
+      if (replacedRevisionId !== undefined) {
+        const undo = el("button", { type: "button", class: "refs-button", text: "Import rückgängig machen", "data-action": "framer-import-undo" });
+        undo.addEventListener("click", async () => {
+          undo.disabled = true;
+          errorEl.textContent = "";
+          try {
+            await api(`/api/pages/${result.report.pageId}/restore`, { method: "POST", body: { revisionId: replacedRevisionId } });
+            undo.textContent = "Rückgängig gemacht";
+          } catch (error) {
+            errorEl.textContent = error.message;
+            undo.disabled = false;
+          }
+        });
+        actions.unshift(undo);
+      }
+      apply.replaceWith(...actions);
     } catch (error) {
       errorEl.textContent = error.message;
       apply.disabled = false;
@@ -5120,7 +5350,9 @@ function openFramerImportDialog({ siteId, pageId, session, onImported }) {
     el("label", {}, "Modus", modeSelect),
     el("label", { class: "inline" }, themeCheck, " Theme-Fonts übernehmen"),
     replaceRow,
-    el("div", { class: "framer-import-actions" }, analyze, apply),
+    sitePagesHost,
+    previewHost,
+    el("div", { class: "framer-import-actions" }, analyze, previewButton, apply),
     errorEl,
   );
   dialog.append(form, reportHost);

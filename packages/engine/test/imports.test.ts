@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -503,6 +503,9 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
       });
       const kept = revisions.body.revisions.find((revision) => revision.note === "Vor dem Framer-Import");
       expect(kept).toBeDefined();
+      // The report names it, so the dialog can offer the way back.
+      expect((second.body.report as { replacedRevisionId?: string }).replacedRevisionId).toBe(kept?.id);
+      expect((first.body.report as { replacedRevisionId?: string }).replacedRevisionId).toBeUndefined();
       const restored = await env.api.request<{ draft: unknown }>({
         method: "POST",
         path: `/api/pages/${pageId}/restore`,
@@ -512,6 +515,111 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
       const after = await env.api.request<{ draft: unknown }>({ method: "GET", path: `/api/pages/${pageId}` });
       expect(JSON.stringify(after.body.draft)).toBe(JSON.stringify(before.body.draft));
     }, 120_000);
+  });
+
+  describe("pages of one export folder", () => {
+    it("reports the linked pages and reads the page the source names under the path it lands on", async () => {
+      const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+      const { tmpdir } = await import("node:os");
+      const { join } = await import("node:path");
+      const root = mkdtempSync(join(tmpdir(), "senify-export-"));
+      const doc = (title: string, links: string): string =>
+        `<html lang="de"><head><title>${title}</title></head><body><div id="main" data-framer-hydrate-v2><h1>${title}</h1>${links}</div></body></html>`;
+      writeFileSync(join(root, "index.html"), doc("Startseite", '<a href="./about">A</a><a href="./kontakt">K</a>'));
+      writeFileSync(join(root, "about.html"), doc("Über uns", '<a href="./">Start</a>'));
+      try {
+        const own = await createTestSite(env.api, "Import Export-Ordner");
+        const home = await runImport({ source: { rootDir: root }, pagePath: "/start", assets: "skip", fonts: "skip" }, own.id);
+        expect(home.status, JSON.stringify(home.body)).toBe(201);
+        expect((home.body.report as { discoveredPages?: string[] }).discoveredPages).toEqual(["/about", "/kontakt"]);
+
+        const about = await runImport({ source: { rootDir: root, page: "/about" }, pagePath: "/ueber-uns", write: true, assets: "skip", fonts: "skip" }, own.id);
+        expect(about.status, JSON.stringify(about.body)).toBe(201);
+        const written = await env.api.request<{ title: string; path: string }>({ method: "GET", path: `/api/pages/${about.body.report.pageId}` });
+        expect(written.body.path).toBe("/ueber-uns");
+        expect(written.body.title).toBe("Über uns");
+
+        const missing = await runImport({ source: { rootDir: root, page: "/kontakt" }, pagePath: "/kontakt", assets: "skip", fonts: "skip" }, own.id);
+        // A page the export does not hold is the caller's mistake: a 400, not a crash.
+        expect(missing.status).toBe(400);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }, 120_000);
+  });
+
+  describe("brand colour in the theme", () => {
+    const branded = (): string =>
+      framerHtml().replace('<section class="hero-container">', '<section class="hero-container" style="background-color:#2f6fed">');
+
+    const brandOf = async (siteId: string): Promise<string | undefined> =>
+      (await env.api.request<{ theme: { scales?: { brand?: string } } }>({ method: "GET", path: `/api/sites/${siteId}/theme` })).body.theme.scales?.brand;
+
+    it("proposes the page's brand colour in the dry run and writes it only with applyTheme", async () => {
+      const own = await createTestSite(env.api, "Import Markenfarbe");
+      const brandBefore = await brandOf(own.id);
+      expect(brandBefore).not.toBe("#2f6fed");
+      const html = branded();
+
+      const analysis = await runImport({ source: { html }, pagePath: "/marke", assets: "skip", fonts: "skip", applyTheme: true }, own.id);
+      expect(analysis.status, JSON.stringify(analysis.body)).toBe(201);
+      expect(JSON.stringify(analysis.body.report.steps)).toContain("Markenfarbe #2f6fed");
+
+      const kept = await runImport({ source: { html }, write: true, pagePath: "/marke", assets: "skip", fonts: "skip", idempotencyKey: "marke-ohne-theme" }, own.id);
+      expect(kept.status, JSON.stringify(kept.body)).toBe(201);
+      expect(await brandOf(own.id)).toBe(brandBefore);
+
+      const applied = await runImport({ source: { html }, write: true, pagePath: "/marke-zwei", assets: "skip", fonts: "skip", applyTheme: true, idempotencyKey: "marke-mit-theme" }, own.id);
+      expect(applied.status, JSON.stringify(applied.body)).toBe(201);
+      expect(await brandOf(own.id)).toBe("#2f6fed");
+    }, 120_000);
+  });
+
+  describe("preview", () => {
+    // The photographer is a double: it fetches both pages it is given, so the
+    // test proves the original and the baked import are both served.
+    const seen: { before?: string; after?: string }[] = [];
+    let previewEnv: BootEnv;
+    beforeAll(async () => {
+      previewEnv = await bootEngine({
+        importPreview: async ({ beforeUrl, afterUrl }) => {
+          const before = await (await fetch(beforeUrl)).text();
+          const after = await (await fetch(afterUrl)).text();
+          seen.push({ before, after });
+          return { shots: [{ breakpoint: "desktop", width: 1440, beforeHeight: 900, afterHeight: 950, before: "data:image/png;base64,AAAA", after: "data:image/png;base64,BBBB" }] };
+        },
+      });
+    });
+    afterAll(async () => {
+      await previewEnv.close();
+    });
+
+    it("serves the original and the baked import to the photographer and writes nothing", async () => {
+      const own = await createTestSite(previewEnv.api, "Import Vorschau");
+      const before = await previewEnv.api.request<{ pages?: unknown[] }>({ method: "GET", path: `/api/sites/${own.id}/pages` });
+      const result = await previewEnv.api.request<{ shots: { breakpoint: string; afterHeight: number }[] }>({
+        method: "POST",
+        path: `/api/sites/${own.id}/imports/framer/preview`,
+        body: { source: { html: framerHtml() }, pagePath: "/vorschau" },
+      });
+      expect(result.status, JSON.stringify(result.body)).toBe(200);
+      expect(result.body.shots[0]?.breakpoint).toBe("desktop");
+      expect(seen.at(-1)?.before).toContain("Willkommen");
+      expect(seen.at(-1)?.after).toContain("Willkommen");
+      expect(seen.at(-1)?.after).toContain("data-node-id");
+      const after = await previewEnv.api.request<{ pages?: unknown[] }>({ method: "GET", path: `/api/sites/${own.id}/pages` });
+      expect(JSON.stringify(after.body)).toBe(JSON.stringify(before.body));
+    }, 120_000);
+
+    it("rejects a request without exactly one source", async () => {
+      const own = await createTestSite(previewEnv.api, "Import Vorschau leer");
+      const result = await previewEnv.api.request({
+        method: "POST",
+        path: `/api/sites/${own.id}/imports/framer/preview`,
+        body: { source: {} },
+      });
+      expect(result.status).toBe(400);
+    }, 60_000);
   });
 
   describe("write guards", () => {
@@ -578,6 +686,45 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
       source: { html: framerHtml(), rootDir: mirrorDir },
     });
     expect(ambiguous.status).toBe(400);
+  }, 60_000);
+
+  it("does not reach a private address for the page or for its assets", async () => {
+    let hits = 0;
+    const server = createServer((_request, response) => {
+      hits += 1;
+      response.writeHead(200, { "content-type": "image/png" }).end("geheim");
+    });
+    await new Promise<void>((done) => server.listen(0, "127.0.0.1", () => done()));
+    const address = server.address();
+    const origin = `http://127.0.0.1:${typeof address === "object" && address !== null ? address.port : 0}`;
+    vi.stubEnv("SENIFY_ALLOW_PRIVATE_URLS", "");
+    try {
+      // The page itself lives on a private address.
+      const page = await runImport({ source: { url: `${origin}/seite` }, write: true });
+      expect(page.status).toBe(400);
+      expect(page.body.error?.message).toContain("public");
+
+      // A public-looking page whose assets point at a private address.
+      const html = framerHtml().replaceAll(
+        "https://framerusercontent.com/images/test.png",
+        `${origin}/test.png`,
+      );
+      const before = (await env.engine.store.listAssets(siteId, {})).length;
+      const assets = await runImport({
+        source: { html, baseUrl: origin },
+        write: true,
+        pagePath: "/ssrf-assets",
+        assets: "upload",
+      });
+      expect(assets.status, JSON.stringify(assets.body)).toBe(201);
+      expect(assets.body.report.assets.downloaded).toBe(0);
+      expect(assets.body.report.assets.failed).toBeGreaterThanOrEqual(1);
+      expect((await env.engine.store.listAssets(siteId, {})).length).toBe(before);
+      expect(hits).toBe(0);
+    } finally {
+      vi.unstubAllEnvs();
+      await new Promise<void>((done) => server.close(() => done()));
+    }
   }, 60_000);
 
   it("works from a mirror folder (offline mode)", async () => {

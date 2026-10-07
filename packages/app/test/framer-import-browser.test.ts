@@ -62,11 +62,20 @@ describe.skipIf(!browserAvailable)("Framer import dialog", () => {
         "Import-Bericht",
       );
       expect(await tab.locator('[data-action="framer-import-apply"]').isEnabled()).toBe(true);
+
+      // The preview: the source and the import side by side at three widths.
+      await tab.locator('[data-action="framer-import-preview"]').click();
+      await tab.waitForSelector('[data-role="framer-preview"] img', { timeout: 90000 });
+      expect(await tab.locator('[data-role="framer-preview"] .framer-preview-row').count()).toBe(3);
+      expect(await tab.locator('[data-role="framer-preview"] img').count()).toBe(6);
+      const sizes = await tab.locator('[data-role="framer-preview"] img').evaluateAll((images) =>
+        images.map((image) => (image as unknown as { naturalWidth: number }).naturalWidth),
+      );
+      expect(sizes.every((width) => width > 100)).toBe(true);
       await tab.locator('[data-action="framer-import-apply"]').click();
-      await expect.poll(
-        async () => tab.locator('[data-role="framer-import-dialog"]').count(),
-        { timeout: 20000 },
-      ).toBe(0);
+      // The page existed, so the import replaced its draft: the dialog stays
+      // open and offers the way back before it closes.
+      await tab.waitForSelector('[data-action="framer-import-undo"]', { timeout: 30000 });
       // Der Erfolgs-Text in `canvas-status` ist flüchtig: jede Session-Emission
       // schreibt ihn über `applyState` neu. Belastbar ist das Schreibergebnis,
       // das unten über Draft-Version und Knoten-Inhalt belegt wird.
@@ -76,6 +85,19 @@ describe.skipIf(!browserAvailable)("Framer import dialog", () => {
       };
       expect(fresh.draftVersion).toBe(page.draftVersion + 1);
       expect(Object.values(fresh.draft.nodes).some((node) => node.props?.text === "Import Dialog")).toBe(true);
+
+      // Undo: the replaced draft comes back from its revision.
+      await tab.locator('[data-action="framer-import-undo"]').click();
+      await expect.poll(async () => tab.locator('[data-action="framer-import-undo"]').textContent(), { timeout: 20000 }).toBe("Rückgängig gemacht");
+      const restored = await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json() as {
+        draft: { nodes: Record<string, { props?: Record<string, unknown> }> };
+      };
+      expect(Object.values(restored.draft.nodes).some((node) => node.props?.text === "Import Dialog")).toBe(false);
+      await tab.locator('[data-action="framer-import-close"]').click();
+      await expect.poll(
+        async () => tab.locator('[data-role="framer-import-dialog"]').count(),
+        { timeout: 20000 },
+      ).toBe(0);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();
