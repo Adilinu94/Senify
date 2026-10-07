@@ -115,7 +115,7 @@ Versionierte Records werden bei Review und Publish gespeichert; Manifest und Re-
 
 **Gate dieses Schritts:** `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:coverage`, `pnpm quality:render`, `pnpm quality:check` und `git diff --check` am 29.09.2026 grün; vorhandene Assertions unverändert. Vor einem weiteren Schritt: Änderungen fachlich committen und `git status --short` leer prüfen. Bei Browser-/Build-Pfaden zusätzlich die passenden App-Gates.
 
-### P3-3 · MCP-Schema-first (R8) — Punkte 1 bis 5 erledigt 28.09.2026
+### P3-3 · MCP-Schema-first (R8) — Punkte 1 bis 7 erledigt 07.10.2026
 
 **Punkt 1 — `outputSchema` für die lesenden Werkzeuge.** `outputSchema` auf `ToolDefinition`, Schemata für `list_sites`, `get_site`, `list_pages`, `get_page`, `list_assets`, `list_references`. `structuredFor` im Server sendet `structuredContent` nur, wenn das Werkzeug ein Schema deklariert **und** der Wert es erfüllt; ein nicht passender Wert wird protokolliert und **ohne** Struktur geschickt, damit der Textblock die Wahrheit bleibt. Beim Bauen fiel ein Fehler auf, den der Server korrekt fand: das erste Listenschema sah `{ items: [...] }` vor, die Routen liefern aber `{ sites: … }` mit eigenem Schlüssel. Ein Schema, das der Code nicht hält, ist schlimmer als keines.
 
@@ -131,7 +131,11 @@ Versionierte Records werden bei Review und Publish gespeichert; Manifest und Re-
 
 **Tests:** `paging.test.ts` (9 Fälle), `manifest.test.ts` (6), zwei in `mcp/test/workflow.test.ts`, `docs-portal` vollständig grün ohne MCP-Server.
 
-**Noch offen:** strukturierte `outputSchema` für relevante Schreibwerkzeuge, `limit`/`offset` samt Metadaten an paginierten MCP-Werkzeugen sowie die gemeinsame Manifest-Quelle für MCP-Server und Routenmatrix. Diese Restpunkte werden jetzt umgesetzt, damit Schreibantworten programmatisch nutzbar sind und Generator-/Drift-Tests die Konsumenten synchron halten.
+**Punkt 6 — MCP-Pagination (PR #2, `64a35ae`, 07.10.2026).** Die paginierten Listenwerkzeuge nehmen `limit`/`offset` und liefern `total`/`hasMore`; der Manifest-Generator behandelt den Query-String nicht als Pfadparameter (sonst würde `list_assets` als `assets:param` lesen). Beleg: `mcp/test/paging.test.ts`.
+
+**Punkt 7 — Schreib-`outputSchema` (PR #3, `e294b59`, 07.10.2026).** `create_site`, `create_page`, `create_preview`, `submit_for_review`, `publish_release`, `rollback_release` deklarieren ein Schema; `publish_release` und `rollback_release` teilen `RELEASE_RESULT_SCHEMA`, die neue Release-ID kommt als `structuredContent`. Beleg: `mcp/test/write-output.test.ts` (war vor dem Schema rot).
+
+**Noch offen:** die gemeinsame Manifest-Quelle für MCP-Server und Routenmatrix. Damit sind Schreibantworten programmatisch nutzbar, und Generator-/Drift-Tests halten die Konsumenten synchron.
 
 ### P3-4 · Release-Manifest (R7) — erledigt 28.09.2026
 
@@ -161,7 +165,7 @@ Neu erzeugte Uploads werden nach fehlgeschlagenem DB-Commit kompensiert; negativ
 | R5 | Legacy-Editor im Bundle | **geschlossen** | P3-1 |
 | R6 | Idempotency-Completion-Fehler | **geschlossen** | P0-3 |
 | R7 | Manifest ohne Snapshots | **geschlossen** | P3-4 |
-| R8 | MCP-Schemas, Pagination und Manifest-Konsumenten nicht durchgängig | **teilweise geschlossen**; Schreib-`outputSchema`, MCP-Page-Inputs/-Metadaten und Manifest-Nutzung durch Server/Routenmatrix offen | P3-3 |
+| R8 | MCP-Schemas, Pagination und Manifest-Konsumenten nicht durchgängig | **teilweise geschlossen**; gemeinsame Manifest-Nutzung durch Server/Routenmatrix offen | P3-3 |
 | R9 | Style-Registry-Klassen-Rename ohne Test | **geschlossen** | P3 (Mini-Schritt) |
 | R10 | Import-Asset-Kompensation unbelegt | **Kompensationsvertrag geschlossen**; eine gemeinsame Datei-/DB-Tx besteht nicht | P3-5 |
 | R11 | Kein PG-Service/Coverage/Fehlerpfade in CI | **Implementierung und aktuelle lokale Gates geschlossen**; CI-Jobs vorhanden | P1-1, P1-2 |
@@ -190,4 +194,5 @@ Neu erzeugte Uploads werden nach fehlgeschlagenem DB-Commit kompensiert; negativ
 |---|---|
 | 04.10.2026 | PR-Branch `claude/hardening-2026-09-29` auf `master` (`15f3406`) gebracht, alle 8 CI-Läufe grün. P1-3 (Root-Config im Lint) und P3-6 (Docs-Portal-Build als eigener Schritt) erledigt; der Windows-Job ist blockierend. `docs/current/stand.md` führt Origin-Trennung, SSRF-Schutz, Schlüsseldatei und öffentliche Adresse je Projekt mit Code-/Testbelegen (ADR-0015 bis 0018, noch vorgeschlagen). |
 | 29.09.2026 | P0-1-Folge-Diff in `2a0afde`/`aad9550` gesichert. P3-2 begann mit einer reinen Store-Mapper-Auslagerung; Typprüfung, Lint, Volltest und Coverage bestanden. P3-2 bleibt offen, bis auch die weiteren Module zerlegt sind. |
+| 07.10.2026 | PR #1 (Härtung, ADRs 0015–0018), PR #2 (MCP-Paging) und PR #3 (Schreib-`outputSchema`) gemergt; Dialoge als PR #4 offen. P3-3-Punkte 6+7 in Fahrplan und Stand nachgetragen; Messwerte-Block neu gerendert. |
 | 28.09.2026 | Folge-Diff fachlich geprüft und alle P0-Gates grün ausgeführt. A11y-Browser-Test gegen Debounce/Ladeablauf synchronisiert; vollständiges `pnpm verify`, Visual, Parity, Import, Coverage, PostgreSQL und `quality:check` bestanden. PostgreSQL lief isoliert lokal gegen 18.6, ohne den bestehenden Dienst anzutasten. `data/` und leeres `full.log` als lokale Laufzeit-/Testausgaben klassifiziert und ignoriert. Folge-Diff ist noch zu sichern; P3-2 startet erst nach sauberem Status. |

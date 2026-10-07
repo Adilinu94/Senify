@@ -1,6 +1,6 @@
 # Qualitäts- und Gate-Stand
 
-> Stand: **29.09.2026**. Die zuvor geprüfte Folgearbeit ist gesichert. Der aktuelle P3-2-Schritt ist eine reine Row-Mapper-Auslagerung; seine gezielten Gates sind ausgeführt. Frühere App-Gates sind mit ihrem tatsächlichen Datum gekennzeichnet.
+> Stand: **07.10.2026**. PR #1 (Härtung), PR #2 (MCP-Paging) und PR #3 (Schreib-`outputSchema`) sind gemergt; der Messwerte-Block ist auf dem gemergten Stand neu gerendert. Frühere App-Gates sind mit ihrem tatsächlichen Datum gekennzeichnet.
 > Aktueller Umsetzungsstand: `docs/current/stand.md`. Planung: `docs/fahrplan.md`.
 
 ## Aktuelle Gates
@@ -10,7 +10,7 @@
 | P3-2: Typecheck, Lint, Volltest | `pnpm typecheck`, `pnpm lint`, `pnpm test` | **Grün am 29.09.2026** nach Store-Mapper-Auslagerung |
 | P3-2: Coverage | `pnpm test:coverage` | **Grün am 29.09.2026**, keine Schwellenfehler; Messwerte siehe Coverage-Block |
 | Patch-Prüfung | `git diff --check` | **Grün am 29.09.2026** |
-| Doku-Messwerte | `pnpm quality:render` + `pnpm quality:check` | **Grün am 29.09.2026**; gerenderte Werte stimmen mit dem Lauf überein |
+| Doku-Messwerte | `pnpm quality:render` + `pnpm quality:check` | **Grün am 07.10.2026** auf dem gemergten Stand (PRs #1–#3); gerenderte Werte stimmen mit dem Lauf überein |
 | Build, App-Gates und PostgreSQL | `pnpm verify`, `pnpm test:visual`, `pnpm verify:parity`, `pnpm verify:import`, `pnpm test:postgres` | **Grün am 28.09.2026** auf dem zuvor gesicherten Folge-Diff; für die reine Mapper-Auslagerung nicht erneut erforderlich |
 | CI auf dem PR-Branch | `.github/workflows/verify.yml` (Push und Pull Request) | **Alle 8 Läufe grün am 04.10.2026** auf `0386cf9` (verify, Windows, PostgreSQL, Coverage); der Visual-Test lief mit den Linux-Baselines von `master`. Davor war auf `6c35e3e` ein `verify`-Push-Lauf an einem Timeout in `accessibility-browser.test.ts` rot, der Pull-Request-Lauf desselben Codes grün, lokal 3 von 3 Läufen grün: als Timing-Flake gewertet, nicht als Befund |
 | Route-Matrix | `pnpm route-matrix` | Kommando nicht separat ausgeführt; `route-matrix.test.ts` ist Teil des Volltests |
@@ -33,7 +33,7 @@ Die Postgres-Fälle liefen separat gegen einen eigens initialisierten, lokalen P
 
 Geführt über `pnpm test:coverage`, v8-Provider und `perFile: true`. Der Lauf umfasst die Suites von `engine`, `editor` und `mcp`, nicht die schweren Browser-Suiten. Die Schwellen liegen in `vitest.config.ts`; nur dort ist die maßgebliche Konfiguration.
 
-Der aktuelle Lauf vom 04.10.2026 (lokal in der Sandbox, ohne Browser und ohne `TEST_DATABASE_URL`): **1053 bestanden / 18 übersprungen / 0 fehlgeschlagen** in 105 Dateien (101 bestanden, 4 mit Skips), null Schwellenfehler. Die Übersicht unten wurde mit `pnpm quality:render` aktualisiert und anschließend durch `pnpm quality:check` bestätigt.
+Der aktuelle Lauf vom 07.10.2026 (lokal auf Windows, TEMP/TMP auf dem Laufwerk des Repos, ohne `TEST_DATABASE_URL`): **1066 bestanden / 15 übersprungen / 0 fehlgeschlagen** in 108 Dateien (105 bestanden, 3 mit Skips), null Schwellenfehler. Ein erster Lauf desselben Befehls hatte einen MCP-Client-Timeout als einzelnen Fehler; der Wiederholungslauf war vollständig grün (Flake, kein Befund). Die Übersicht unten wurde mit `pnpm quality:render` aktualisiert und anschließend durch `pnpm quality:check` bestätigt.
 
 ### Gemessene Coverage der geschützten Pfade
 
@@ -43,18 +43,18 @@ Der aktuelle Lauf vom 04.10.2026 (lokal in der Sandbox, ohne Browser und ohne `T
      Nicht von Hand editieren: dieser Block ist ein Messwert, und `pnpm quality:check`
      lässt den Lauf rot werden, sobald Dokument und Lauf auseinanderlaufen. -->
 
-**Gemessen:** 2026-10-04 · vitest coverage (v8)
+**Gemessen:** 2026-10-07 · vitest coverage (v8)
 
 | Pfad | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
-| `packages/engine/src/http.ts` | 91.29 | 73.06 | 93.63 | 91.29 |
-| `packages/engine/src/store.ts` | 84.50 | 77.15 | 93.58 | 84.50 |
-| `packages/engine/src/lifecycle.ts` | 87.01 | 74.19 | 100.00 | 87.01 |
+| `packages/engine/src/http.ts` | 91.34 | 73.03 | 93.66 | 91.34 |
+| `packages/engine/src/store.ts` | 85.07 | 77.43 | 93.58 | 85.07 |
+| `packages/engine/src/lifecycle.ts` | 87.01 | 74.60 | 100.00 | 87.01 |
 | `packages/engine/src/forms.ts` | 84.25 | 73.62 | 100.00 | 84.25 |
-| `packages/mcp/src/tools.ts` | 91.01 | 62.37 | 87.01 | 91.01 |
+| `packages/mcp/src/tools.ts` | 91.24 | 63.82 | 87.06 | 91.24 |
 | `packages/editor/src/state/*` (14 Dateien) | 66.98 bis 100.00 | 56.75 bis 100.00 | 66.66 bis 100.00 | 66.98 bis 100.00 |
 
-**Über alle gemessenen Dateien:** Statements 87.52 · Branches 73.31 · Functions 91.00 · Lines 87.52
+**Über alle gemessenen Dateien:** Statements 87.77 · Branches 73.61 · Functions 91.02 · Lines 87.77
 
 <!-- messwerte:ende -->
 
@@ -68,7 +68,8 @@ Coverage misst nur, was die Suite ausführt, und ist kein Vollständigkeitsbewei
 - `pnpm test:visual`, `pnpm verify:parity` und `pnpm verify:import` sind für den zuvor gesicherten Folge-Diff am 28.09.2026 grün; sie wurden durch die reine Mapper-Auslagerung nicht berührt.
 - Die Visual-Baselines liegen unter `packages/app/test/visual-baselines/`; Aktualisierung ist ein expliziter Vorgang über `UPDATE_VISUAL_SNAPSHOTS=1`.
 - Das Import-Tor nutzt eine kontrollierte Fixture; nicht alle echten Export-Fixtures durchlaufen es vollständig.
-- Paging ist in `packages/engine/src/paging.ts` für Sites, Seiten, Assets, Einträge, Referenzzuweisungen, Releases, Bake-Jobs und Image-Jobs eingebaut (`limit` Standard 50, Kappe 200, `offset` validiert). `outputSchema` tragen weiterhin nur die lesenden Werkzeuge; die Schreibwerkzeuge sind bewusst zurückgestellt. Beleg: `paging.test.ts` (9 Fälle).
+- Paging ist in `packages/engine/src/paging.ts` für Sites, Seiten, Assets, Einträge, Referenzzuweisungen, Releases, Bake-Jobs und Image-Jobs eingebaut (`limit` Standard 50, Kappe 200, `offset` validiert). `outputSchema` tragen die 6 lesenden Listenwerkzeuge und seit PR #3 auch `create_site`, `create_page`, `create_preview`, `submit_for_review`, `publish_release`, `rollback_release`. Beleg: `paging.test.ts`, `write-output.test.ts`.
+- GitHub Actions startet seit dem 07.10.2026 keine Jobs mehr („payments have failed or spending limit needs to be increased"); CI-Grün wird lokal ersetzt (Coverage-Lauf oben, gezielte Gates je Branch), bis die Abrechnung behoben ist.
 
 ## CI-Stand
 
