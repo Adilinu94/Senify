@@ -1,10 +1,10 @@
 # MCP-Routen-Matrix
 
-Stand: 2026-09-28 — generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und `packages/mcp/src/tools.ts` (+ Server-Audit). Bei neuer Route die Matrix neu erzeugen; `packages/engine/test/route-matrix.test.ts` prüft Vollständigkeit.
+Stand: 2026-10-07 — generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und `packages/mcp/src/tools.ts` (+ Server-Audit). Bei neuer Route die Matrix neu erzeugen; `packages/engine/test/route-matrix.test.ts` prüft Vollständigkeit.
 
 **Regel (E4):** Jede Route hat einen bewussten Status. **Tool** — ein MCP-Tool ruft sie direkt auf. **Workflow-gebündelt** — nur als Teil eines Mehr-Routen-Workflows erreichbar (Via-Spalte nennt das bündelnde Tool). **Operator** — UI/CLI/öffentlich, bewusst ohne Tool.
 
-**Zahlen:** 172 Routen — 92 Tool, 1 Workflow-gebündelt, 79 Operator.
+**Zahlen:** 173 Routen — 92 Tool, 1 Workflow-gebündelt, 80 Operator.
 
 | Methode | Route | Scope | Status | MCP-Tool(s) / Anmerkung |
 |---|---|---|---|---|
@@ -16,7 +16,7 @@ Stand: 2026-09-28 — generiert mit `pnpm route-matrix` aus `packages/engine/src
 | POST | `/api/sites/:siteId/trash` | publish | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/restore` | write | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/duplicate` | write | Tool | `duplicate_site` |
-| GET | `/api/sites/:siteId` | read | Tool | `get_site` |
+| GET | `/api/sites/:siteId` | read | Tool | `get_site`, `list_sites` |
 | DELETE | `/api/sites/:siteId` | publish | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/pages` | write | Tool | `create_page` |
 | GET | `/api/sites/:siteId/pages` | read | Tool | `list_pages` |
@@ -178,5 +178,6 @@ Stand: 2026-09-28 — generiert mit `pnpm route-matrix` aus `packages/engine/src
 | POST | `/api/backups` | write | Operator | UI/CLI |
 | POST | `/api/backups/:name/restore` | write | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/imports/framer` | write | Tool | `import_framer_page` |
+| POST | `/api/sites/:siteId/imports/framer/preview` | write | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/imports` | read | Operator | UI/CLI |
 | GET | `/api/imports/:jobId` | read | Tool | `get_import_report` |
