@@ -1,22 +1,22 @@
 # MCP-Routen-Matrix
 
-Stand: 2026-10-07 — generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und `packages/mcp/src/tools.ts` (+ Server-Audit). Bei neuer Route die Matrix neu erzeugen; `packages/engine/test/route-matrix.test.ts` prüft Vollständigkeit.
+Stand: 2026-10-07 — generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und `@senify/manifest` (+ Server-Audit). Bei neuer Route die Matrix neu erzeugen; `packages/engine/test/route-matrix.test.ts` prüft Vollständigkeit.
 
 **Regel (E4):** Jede Route hat einen bewussten Status. **Tool** — ein MCP-Tool ruft sie direkt auf. **Workflow-gebündelt** — nur als Teil eines Mehr-Routen-Workflows erreichbar (Via-Spalte nennt das bündelnde Tool). **Operator** — UI/CLI/öffentlich, bewusst ohne Tool.
 
-**Zahlen:** 173 Routen — 92 Tool, 1 Workflow-gebündelt, 80 Operator.
+**Zahlen:** 173 Routen — 90 Tool, 1 Workflow-gebündelt, 82 Operator.
 
 | Methode | Route | Scope | Status | MCP-Tool(s) / Anmerkung |
 |---|---|---|---|---|
 | GET | `/api/health` | read | Operator | CLI/Dashboard (`senify doctor`) |
 | GET | `/api/events` | read | Operator | SSE-Kanal (Editor/Dashboard) |
 | POST | `/api/sites` | write | Tool | `create_site` |
-| GET | `/api/sites` | read | Tool | `get_site`, `list_sites` |
+| GET | `/api/sites` | read | Tool | `list_sites` |
 | PATCH | `/api/sites/:siteId` | write | Tool | `duplicate_site` |
 | POST | `/api/sites/:siteId/trash` | publish | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/restore` | write | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/duplicate` | write | Tool | `duplicate_site` |
-| GET | `/api/sites/:siteId` | read | Tool | `get_site`, `list_sites` |
+| GET | `/api/sites/:siteId` | read | Tool | `get_site` |
 | DELETE | `/api/sites/:siteId` | publish | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/pages` | write | Tool | `create_page` |
 | GET | `/api/sites/:siteId/pages` | read | Tool | `list_pages` |
@@ -32,7 +32,7 @@ Stand: 2026-10-07 — generiert mit `pnpm route-matrix` aus `packages/engine/src
 | PATCH | `/api/sites/:siteId/style-rules/:ruleId` | write | Tool | `set_styles` |
 | POST | `/api/sites/:siteId/style-rules/:ruleId/reorder` | write | Operator | UI/CLI |
 | DELETE | `/api/sites/:siteId/style-rules/:ruleId` | publish | Operator | UI/CLI |
-| GET | `/api/pages/:pageId` | read | Tool | `import { readFileSync } from ` — via get_page/get_nodes (pageFor-Helper) |
+| GET | `/api/pages/:pageId` | read | Tool | via get_page/get_nodes (pageFor-Helper) |
 | DELETE | `/api/pages/:pageId` | publish | Tool | `delete_page` |
 | PUT | `/api/pages/:pageId/template` | write | Tool | `set_page_template` |
 | POST | `/api/pages/:pageId/mutations` | write | Tool | `apply_mutations`, `bump_component_version`, `clear_motion`, `set_component_override`, `set_component_variant`, `set_motion`, `update_component_instances` |
@@ -68,12 +68,12 @@ Stand: 2026-10-07 — generiert mit `pnpm route-matrix` aus `packages/engine/src
 | POST | `/api/reviews/:reviewId/approve` | publish | Operator | UI/CLI |
 | POST | `/api/reviews/:reviewId/request-changes` | write | Operator | UI/CLI |
 | POST | `/api/reviews/:reviewId/discard` | write | Operator | UI/CLI |
-| POST | `/api/sites/:siteId/assets/upload-url` | write | Tool | `import { readFileSync } from ` — via upload_asset (uploadLocalFile-Helper) |
+| POST | `/api/sites/:siteId/assets/upload-url` | write | Tool | via upload_asset (uploadLocalFile-Helper) |
 | PUT | `/api/assets/upload/:uploadId` | read | Workflow-gebündelt | Byte-Sink des Upload-Flows (via upload_asset, signierte URL) |
 | GET | `/api/sites/:siteId/assets` | read | Tool | `list_assets` |
-| GET | `/api/library-components` | read | Tool | `get_library_component`, `list_library_components` |
+| GET | `/api/library-components` | read | Tool | `list_library_components` |
 | POST | `/api/library-components` | write | Tool | `promote_to_library` |
-| GET | `/api/library-components/audit` | read | Tool | `get_library_component`, `library_audit` |
+| GET | `/api/library-components/audit` | read | Tool | `library_audit` |
 | GET | `/api/library-components/:componentId` | read | Tool | `get_library_component`, `library_audit` |
 | PATCH | `/api/library-components/:componentId` | write | Operator | UI/CLI |
 | DELETE | `/api/library-components/:componentId` | write | Operator | UI/CLI |
@@ -85,7 +85,7 @@ Stand: 2026-10-07 — generiert mit `pnpm route-matrix` aus `packages/engine/src
 | GET | `/api/sites/:siteId/code-payloads` | read | Operator | Import-Bericht/Editor |
 | GET | `/api/code-payloads/:payloadId` | read | Operator | Import-Bericht/Editor |
 | DELETE | `/api/code-payloads/:payloadId` | write | Operator | CLI/Editor (destruktiv, mit Audit) |
-| GET | `/api/sites/:siteId/assets/:assetId` | read | Tool | `list_assets` |
+| GET | `/api/sites/:siteId/assets/:assetId` | read | Operator | UI/CLI |
 | PATCH | `/api/sites/:siteId/assets/:assetId` | write | Tool | `replace_asset`, `update_asset` |
 | DELETE | `/api/sites/:siteId/assets/:assetId` | write | Tool | `delete_asset` |
 | POST | `/api/sites/:siteId/assets/:assetId/restore` | write | Tool | `restore_asset` |
@@ -108,7 +108,7 @@ Stand: 2026-10-07 — generiert mit `pnpm route-matrix` aus `packages/engine/src
 | POST | `/api/sites/:siteId/entries` | write | Tool | `create_entry` |
 | GET | `/api/sites/:siteId/entries` | read | Tool | `list_entries` |
 | POST | `/api/sites/:siteId/entries/search` | read | Tool | `search_entries` |
-| GET | `/api/sites/:siteId/entries/resolve` | read | Tool | `list_entries` |
+| GET | `/api/sites/:siteId/entries/resolve` | read | Operator | UI/CLI |
 | POST | `/api/entries/tick` | write | Operator | UI/CLI |
 | GET | `/api/entries/:entryId` | read | Tool | `get_entry` |
 | GET | `/api/entries/:entryId/preview` | read | Operator | UI/CLI |
@@ -133,13 +133,13 @@ Stand: 2026-10-07 — generiert mit `pnpm route-matrix` aus `packages/engine/src
 | POST | `/api/notifications/tick` | write | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/notifications` | read | Operator | UI/CLI |
 | POST | `/api/references` | write | Tool | `analyze_reference` |
-| GET | `/api/references/search` | read | Tool | `get_reference`, `get_reference_docs`, `list_references`, `search_references` |
-| GET | `/api/references/duplicates` | read | Tool | `find_duplicate_references`, `get_reference`, `get_reference_docs`, `list_references` |
-| GET | `/api/references` | read | Tool | `get_reference`, `get_reference_docs`, `list_references` |
+| GET | `/api/references/search` | read | Tool | `search_references` |
+| GET | `/api/references/duplicates` | read | Tool | `find_duplicate_references` |
+| GET | `/api/references` | read | Tool | `list_references` |
 | POST | `/api/references/manual` | write | Tool | `create_manual_reference` |
 | POST | `/api/references/brief` | read | Tool | `get_reference_brief` |
 | POST | `/api/references/tick` | write | Tool | `reference_tick` |
-| GET | `/api/references/:referenceId` | read | Tool | `find_duplicate_references`, `get_reference`, `get_reference_docs`, `list_references`, `search_references` |
+| GET | `/api/references/:referenceId` | read | Tool | `find_duplicate_references`, `get_reference`, `get_reference_docs`, `search_references` |
 | PATCH | `/api/references/:referenceId` | write | Tool | `assign_reference_to_collection`, `update_reference`, `update_reference_doc` |
 | GET | `/api/pages/:pageId/redesign-package` | read | Tool | `plan_redesign` |
 | GET | `/api/references/:referenceId/design-system` | read | Tool | `import_design_system` |

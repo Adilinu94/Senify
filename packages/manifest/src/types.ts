@@ -45,12 +45,17 @@ export type ToolFact = {
   group: ToolGroup;
   description: string;
   /** The engine route the tool calls, e.g. `GET /api/sites/:siteId/pages`.
-   *  `null` for a tool that needs no route. The route matrix is generated from
-   *  this field, which is why it is here and not in a hand-written table. */
+   *  `null` for a tool that needs no route. The first entry of `routes`,
+   *  kept for readers of the documentation. */
   route: string | null;
   /** The same route with `:param` written as `{param}` - what a reader of the
    *  documentation should type. */
   routeExample: string | null;
+  /** EVERY engine route the tool calls, in source order, `:param` form.
+   *  The route matrix matches callers per route from this list - a tool
+   *  that calls three routes and declared only one would lose two rows.
+   *  Empty for a tool that needs no route. */
+  routes: string[];
   /** Whether the tool changes state. Mirrors `scope`, but named for the
    *  question a reader of the manual asks: "what does this do to my site?". */
   writes: boolean;

@@ -6,9 +6,10 @@ import { TOOL_GROUP_ORDER, TOOL_MANIFEST, toolsByName } from "../src/index.ts";
 
 const TOOLS_BY_NAME = toolsByName(TOOL_MANIFEST);
 
-// The manifest is a promise: three places consume it (the server registers from
-// it, the docs render from it, the route matrix is generated from it), and a
-// promise nobody checks is a comment.
+// The manifest is a promise: the docs render from it, the route matrix is
+// generated from it, and the server mirrors its facts (checked live from
+// `TOOLS` in `mcp/test/manifest-mirror.test.ts`) - and a promise nobody
+// checks is a comment.
 //
 // The check has two halves, and the second is the one that matters:
 //
@@ -100,6 +101,36 @@ describe("Tool-Manifest (Fahrplan P3-3 Punkt 4, R8)", () => {
     // that does not exist.
     for (const fact of TOOL_MANIFEST) {
       if (fact.route === null) expect(fact.routeExample, fact.name).toBeNull();
+    }
+  });
+
+  it("listet jede gerufene Route, nicht nur die erste", () => {
+    // A tool with several `request` calls names all of them: the matrix
+    // matches callers per route, and a tool that called three routes but
+    // declared one would lose two rows.
+    expect(TOOLS_BY_NAME.get("set_styles")?.routes).toEqual([
+      "GET /api/sites/:param/style-rules",
+      "POST /api/sites/:param/style-rules",
+      "PATCH /api/sites/:param/style-rules/:param",
+    ]);
+    expect(TOOLS_BY_NAME.get("get_reference_brief")?.routes).toEqual([
+      "GET /api/reference-collections/:param/brief",
+      "GET /api/references/:param/brief",
+      "POST /api/references/brief",
+    ]);
+    // A tool that calls one route twice (two branches, same route) lists it
+    // once: the fact is the route, not the call count.
+    expect(TOOLS_BY_NAME.get("deploy_site")?.routes).toEqual([
+      "POST /api/sites/:param/deployments",
+    ]);
+    // No JavaScript survives normalisation: a nested template in the query
+    // string once baked `${query === "" …` into the documentation.
+    for (const fact of TOOL_MANIFEST) {
+      for (const route of fact.routes) {
+        expect(route, `${fact.name}: ${route}`).not.toContain("${");
+      }
+      if (fact.route === null) expect(fact.routes, fact.name).toEqual([]);
+      else expect(fact.routes[0], fact.name).toBe(fact.route);
     }
   });
 
