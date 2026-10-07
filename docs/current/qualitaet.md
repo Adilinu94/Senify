@@ -73,7 +73,7 @@ Coverage misst nur, was die Suite ausführt, und ist kein Vollständigkeitsbewei
 
 ## CI-Stand
 
-`.github/workflows/verify.yml` enthält vier voneinander unabhängige Jobs. Trigger sind `push` und `pull_request`; der Workflow hat nur `contents: read`, die Actions sind auf Commits gepinnt, und ein neuer Push bricht veraltete Läufe ab, außer auf `master`.
+`.github/workflows/verify.yml` enthält vier voneinander unabhängige Jobs. Trigger sind `pull_request` und `workflow_dispatch` (manuell); pro Push läuft nichts mehr, um Minuten zu sparen (07.10.2026). Der Workflow hat nur `contents: read`, die Actions sind auf Commits gepinnt, und ein neuer Push bricht veraltete Läufe ab.
 
 **Job `verify`:** Installiert Chromium, führt `pnpm verify` (Build, Artefaktprüfung, Lint einschließlich `eslint.config.mjs`, Patch-Integrität, Tests), den Docs-Portal-Build als eigenen Schritt, `pnpm test:visual`, `pnpm verify:parity` und `pnpm verify:import` aus.
 
