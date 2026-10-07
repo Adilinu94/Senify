@@ -12,6 +12,7 @@ import {
 import { join, resolve, sep } from "node:path";
 import { SenifyError } from "@senify/core";
 import { SCHEMA_STATEMENTS, tableNames, type Row } from "./db.ts";
+import { ENGINE_SECRET_FILE } from "./secrets.ts";
 import type { Store } from "./store.ts";
 
 // Backups (artifacts/27 §5): one timestamped folder per run with a manifest
@@ -64,6 +65,15 @@ export type RestoreResult = {
 
 const MANIFEST_FILE = "manifest.json";
 
+// Key material stays out of the backup (ADR-0017): a backup folder is meant to
+// travel (external drive, synced folder), and a key next to the ciphertext it
+// protects makes that ciphertext plaintext. `engine_secrets` is the legacy home
+// of the encryption key; the two files sit at the top of the data directory.
+// A restore on another machine therefore starts with a new key, and stored
+// passwords must be entered again.
+const EXCLUDED_TABLES = new Set(["engine_secrets"]);
+const EXCLUDED_ROOT_FILES = new Set([ENGINE_SECRET_FILE, "program-token.json"]);
+
 function sha256(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }
@@ -98,6 +108,7 @@ function copyDataDir(
   skip: string,
 ): { count: number; bytes: number } {
   const skipResolved = resolve(skip);
+  const sourceResolved = resolve(source);
   const stats = { count: 0, bytes: 0 };
   const walk = (from: string, to: string): void => {
     mkdirSync(to, { recursive: true });
@@ -105,6 +116,9 @@ function copyDataDir(
       const childFrom = join(from, entry.name);
       const resolved = resolve(childFrom);
       if (resolved === skipResolved || resolved.startsWith(skipResolved + sep)) {
+        continue;
+      }
+      if (resolve(from) === sourceResolved && EXCLUDED_ROOT_FILES.has(entry.name)) {
         continue;
       }
       const childTo = join(to, entry.name);
@@ -149,6 +163,7 @@ export async function createBackup(input: {
   const tables: Record<string, number> = {};
   const checksums: Record<string, string> = {};
   for (const name of tableNames()) {
+    if (EXCLUDED_TABLES.has(name)) continue;
     const rows = await input.store.dumpTable(name);
     const json = `${JSON.stringify(rows, null, 2)}\n`;
     const relative = `tables/${name}.json`;

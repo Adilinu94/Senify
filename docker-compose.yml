@@ -7,7 +7,9 @@ services:
       POSTGRES_PASSWORD: senify
       POSTGRES_DB: senify
     ports:
-      - "5433:5432"
+      # Nur dieser Rechner: ohne Adresse bindet Docker an alle Interfaces, und
+      # die Zugangsdaten unten sind die Entwicklungs-Vorgabe senify:senify.
+      - "127.0.0.1:5433:5432"
     volumes:
       - senify-pgdata:/var/lib/postgresql/data
     healthcheck:

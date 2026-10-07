@@ -7,7 +7,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   bootEngine,
@@ -472,4 +472,52 @@ describe("maintenance window during restore", () => {
     expect(result.status).toBe(200);
     expect(result.body.id).toBe(backup.id);
   });
+});
+
+// Every file below a folder, as relative paths with "/" separators.
+function filesBelow(root: string): string[] {
+  const found: string[] = [];
+  const visit = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) visit(path);
+      else found.push(relative(root, path).replaceAll("\\", "/"));
+    }
+  };
+  visit(root);
+  return found;
+}
+
+describe("a backup carries no key material", () => {
+  it("leaves the encryption key and the program token out and still keeps the rest", async () => {
+    const saved = await env.api.request({
+      method: "PUT",
+      path: "/api/settings",
+      body: { email: { host: "smtp.example", user: "mailer", password: "geheim-123", from: "a@b.de" } },
+    });
+    expect(saved.status).toBe(200);
+    const secret = await env.engine.store.getOrCreateEngineSecret();
+    writeFileSync(join(env.dataDir, "program-token.json"), '{"token":"sfy_operator_geheim"}');
+    writeFileSync(join(env.dataDir, "notizen.txt"), "bleibt im Backup");
+
+    const backup = await createBackup();
+    const files = filesBelow(backup.path);
+    expect(files).not.toContain("tables/engine_secrets.json");
+    expect(files).not.toContain("files/engine-secret.key");
+    expect(files).not.toContain("files/program-token.json");
+    expect(files).toContain("files/notizen.txt");
+    expect(files).toContain("tables/sites.json");
+    expect(backup.tables).not.toHaveProperty("engine_secrets");
+
+    // Nowhere in the backup: not the key, not the operator token.
+    for (const file of files) {
+      const text = readFileSync(join(backup.path, file), "utf8");
+      expect(text, file).not.toContain(secret);
+      expect(text, file).not.toContain("sfy_operator_geheim");
+    }
+    // The password is in the backup only as ciphertext.
+    const settings = readFileSync(join(backup.path, "tables/smtp_settings.json"), "utf8");
+    expect(settings).toContain("v1.");
+    expect(settings).not.toContain("geheim-123");
+  }, 60000);
 });

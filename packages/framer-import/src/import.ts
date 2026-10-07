@@ -8,6 +8,7 @@
 // answers "nothing changed" with numbers, and the engine-side write path
 // (S3.1) uses the hash as its idempotency key.
 
+import { fetchPublic } from "@senify/core/net";
 import type { EditorDocument } from "@senify/editor/state";
 import type { StyleRule } from "@senify/widget-engine";
 import { captureFixture, captureHtml, type CaptureHtmlInput } from "./capture-html.ts";
@@ -18,6 +19,7 @@ import { buildFidelityReport, type FidelityReport } from "./fidelity.ts";
 import { importAssets, type AssetReport, type AssetUploader } from "./assets.ts";
 import { extractPayloads, type ExtractedPayload } from "./payloads.ts";
 import { mapFramerMotion } from "./motion-mapping.ts";
+import { discoverPagePaths } from "./link-paths.ts";
 
 /* ------------------------------------------------------------------ types */
 
@@ -45,6 +47,9 @@ export type RunImportInput = {
 };
 
 export type ImportRun = {
+  // The other pages of the site this page links to (root-relative paths, first
+  // seen first). Candidates for a whole-site import; nothing is fetched here.
+  discoveredPages: string[];
   document: FramerIrDocument;
   normalized: NormalizeResult;
   mapped: MapperResult;
@@ -54,6 +59,9 @@ export type ImportRun = {
   // The idempotency fingerprint: identical sources hash identically (S2.5).
   irHash: string;
 };
+
+const PAGE_TIMEOUT_MS = 30_000;
+const MAX_PAGE_BYTES = 20 * 1024 * 1024;
 
 /* --------------------------------------------------- linked stylesheets */
 
@@ -90,7 +98,12 @@ export async function fetchLinkedCss(html: string, pageUrl: string): Promise<str
     if (target.protocol !== "https:" && target.protocol !== "http:") continue;
     if (target.origin !== origin && !isFramerHost(target.hostname)) continue;
     try {
-      const response = await fetch(target, { signal: AbortSignal.timeout(CSS_TIMEOUT_MS) });
+      // Same rule as the page itself (ADR-0016): only public addresses, DNS pinned,
+      // every redirect re-checked, size capped while reading.
+      const response = await fetchPublic(target.toString(), {
+        signal: AbortSignal.timeout(CSS_TIMEOUT_MS),
+        maxBytes: CSS_MAX_BYTES,
+      });
       if (!response.ok) continue;
       const text = await response.text();
       if (text.length <= CSS_MAX_BYTES) sheets.push(text);
@@ -107,7 +120,11 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
   let document: FramerIrDocument;
   let baseUrl = input.baseUrl;
   if (input.source.kind === "url") {
-    const response = await fetch(input.source.url);
+    // Public addresses only, with a time and size limit (ADR-0016).
+    const response = await fetchPublic(input.source.url, {
+      signal: AbortSignal.timeout(PAGE_TIMEOUT_MS),
+      maxBytes: MAX_PAGE_BYTES,
+    });
     if (!response.ok) {
       throw new Error(`Quelle nicht ladbar: ${response.status} ${input.source.url}`);
     }
@@ -119,7 +136,9 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
     // Offline mode (S2.4): the local mirror is the input, no network beyond
     // the asset downloads themselves (which resolve through baseUrl when
     // given, else fall back to the mirror's file layout).
-    document = captureFixture(input.source.rootDir, input.pagePath ?? input.source.pagePath ?? "/");
+    // Target path and source page are two things: the page read from the export
+    // is `source.pagePath` (home by default), the path it lands on is `pagePath`.
+    document = captureFixture(input.source.rootDir, input.pagePath ?? "/", input.source.pagePath ?? "/");
   } else {
     const capture: CaptureHtmlInput = { html: input.source.html, pagePath: input.pagePath ?? "/" };
     if (input.source.url !== undefined) capture.url = input.source.url;
@@ -200,6 +219,10 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
     assets: assetReport,
     payloads,
     irHash: irHashOf(document),
+    discoveredPages: discoverPagePaths(
+      document.pages[0]?.root ?? ({ children: [], href: null } as never),
+      document.pages[0]?.path ?? "/",
+    ),
   };
 }
 

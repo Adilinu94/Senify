@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SenifyError } from "@senify/core";
+import { assertPublicHttpUrl } from "@senify/core/net";
 import type { Author } from "@senify/section-sdk";
 import type { Theme } from "@senify/tokens";
 import {
@@ -446,6 +447,21 @@ async function captureFor(
         height: entry.height,
       })),
     };
+  }
+  // Every driver - browser, Firecrawl, plain HTTP - gets a public address only
+  // (ADR-0016), before anything is started or sent. Later requests of the page
+  // and its redirects are the browser's own; they reach the dashboard only as
+  // cross-site requests, which the proxy refuses.
+  try {
+    await assertPublicHttpUrl(reference.sourceUrl);
+  } catch (error) {
+    if (!(error instanceof SenifyError)) throw error;
+    throw new ReferenceCaptureError({
+      reason: "blocked",
+      message: error.message,
+      suggestion: error.suggestion ?? "Nur öffentliche http(s)-Adressen können analysiert werden.",
+      retryable: false,
+    });
   }
   const driver = context.deps?.capture ?? createPlaywrightCaptureDriver();
   return driver({ url: reference.sourceUrl, breakpoints: [...REFERENCE_BREAKPOINTS] });

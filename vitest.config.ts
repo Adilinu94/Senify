@@ -24,6 +24,11 @@ export default defineConfig({
   test: {
     include: ["packages/*/test/**/*.test.ts"],
     environment: "node",
+    // Viele Tests importieren von einem lokalen 127.0.0.1-Server. Produktiv
+    // weisen Import und Referenz-Analyse private Ziele ab (ADR-0016); der
+    // Betreiber-Schalter gilt hier fuer die ganze Suite, die Tests des Schutzes
+    // (packages/core/test/net.test.ts) schalten ihn selbst wieder aus.
+    env: { SENIFY_ALLOW_PRIVATE_URLS: "1" },
     // Die Suite mischt schwere Browser- und Engine-Tests mit schnellen
     // Unit-Tests. Mit vollem Parallelismus (alle Kerne) verhungern die
     // laengeren Tests (Playwright-Klicks, powershell-Spawn, MCP-Läufe) an

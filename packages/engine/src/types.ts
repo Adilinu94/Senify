@@ -27,6 +27,10 @@ export type Site = {
   // the write path, a warning for humans. Derived from the assigned references
   // or set by hand; absent when no references are assigned and nothing was set.
   designContract?: DesignContract;
+  // The public origin visitors open the site under (https, no path). Feeds
+  // canonical/og:url/sitemap/robots and the form origin check; absent means the
+  // `<slug>.senify.xyz` placeholder.
+  baseUrl?: string;
   createdAt: string;
   updatedAt: string;
 };

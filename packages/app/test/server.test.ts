@@ -1,10 +1,12 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createReentrantTestDb, createTestDb } from "@senify/core/testing";
 import type { Db, DbResult, Row } from "@senify/engine";
 import { startProgram } from "@senify/app";
+import { createAppServer } from "../src/server.ts";
 
 // pg-mem double, same shape as the engine and MCP test helpers use. The
 // reentrant variant tolerates the second schema boot of a restart.
@@ -126,6 +128,163 @@ describe("program shell (Prüfstelle Programm)", () => {
       });
       expect(response.status).toBe(403);
       expect(await response.text()).toContain("lokalen Dashboard");
+    } finally {
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  it("keeps the operator token away from same-site callers on other ports", async () => {
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-app-samesite-"));
+    const running = await startProgram({
+      db: database.db,
+      dataDir,
+      programTokenFile: join(dataDir, "program-token.json"),
+      enginePort: 0,
+      appPort: 0,
+      openBrowser: false,
+    });
+    try {
+      // Site content on the engine origin is same-site, not same-origin. A plain
+      // no-cors GET carries no Origin, so only Sec-Fetch-Site can tell it apart.
+      const call = (site: string) =>
+        fetch(`${running.dashboardUrl}/api/sites`, { headers: { "sec-fetch-site": site } });
+      expect((await call("same-site")).status).toBe(403);
+      expect((await call("cross-site")).status).toBe(403);
+      expect((await call("same-origin")).status).toBe(200);
+      expect((await call("none")).status).toBe(200);
+    } finally {
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  it("hands signed previews and releases to the engine origin instead of serving them", async () => {
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-app-content-"));
+    const running = await startProgram({
+      db: database.db,
+      dataDir,
+      programTokenFile: join(dataDir, "program-token.json"),
+      enginePort: 0,
+      appPort: 0,
+      openBrowser: false,
+    });
+    try {
+      // Site content can carry imported foreign code (ADR-0010). Under the
+      // dashboard origin the proxy would attach the operator token to it.
+      const paths = [
+        "/api/releases/abc/files/index.html",
+        "/api/releases/abc/files/",
+        "/api/releases/abc/files",
+        "/api/previews/xyz/files/index.html?token=a.b",
+      ];
+      for (const path of paths) {
+        const response = await fetch(`${running.dashboardUrl}${path}`, { redirect: "manual" });
+        expect(response.status, path).toBe(307);
+        expect(response.headers.get("location"), path).toBe(`${running.engineOrigin}${path}`);
+        expect(response.headers.get("cache-control")).toBe("no-store");
+      }
+      // Everything else under /api/ is still proxied.
+      const proxied = await fetch(`${running.dashboardUrl}/api/releases/abc`, { redirect: "manual" });
+      expect(proxied.status).not.toBe(307);
+      const lookalike = await fetch(`${running.dashboardUrl}/api/releases/abc/filesystem`, {
+        redirect: "manual",
+      });
+      expect(lookalike.status).not.toBe(307);
+    } finally {
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  it("serves static files only from inside the public folder", async () => {
+    const root = mkdtempSync(join(tmpdir(), "senify-static-"));
+    mkdirSync(join(root, "pub"));
+    // Same name prefix as the public folder: a bare startsWith() would let it through.
+    mkdirSync(join(root, "pub-evil"));
+    writeFileSync(join(root, "pub", "ok.txt"), "drinnen");
+    writeFileSync(join(root, "pub-evil", "secret.txt"), "draussen");
+    const server = await createAppServer({
+      engineOrigin: "http://127.0.0.1:1",
+      publicDir: join(root, "pub"),
+      port: 0,
+    });
+    try {
+      const port = new URL(server.origin).port;
+      // A raw request: fetch() would resolve the dots before sending them.
+      const read = (path: string): Promise<{ status: number; body: string }> =>
+        new Promise((resolve, reject) => {
+          const req = request({ host: "127.0.0.1", port, path }, (res) => {
+            let body = "";
+            res.setEncoding("utf8");
+            res.on("data", (chunk: string) => (body += chunk));
+            res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+          });
+          req.on("error", reject);
+          req.end();
+        });
+      expect(await read("/ok.txt")).toMatchObject({ status: 200, body: "drinnen" });
+      for (const path of ["/../pub-evil/secret.txt", "/../../secret.txt", "//..//pub-evil/secret.txt"]) {
+        const answer = await read(path);
+        expect(answer.status, path).toBe(404);
+        expect(answer.body, path).not.toContain("draussen");
+      }
+    } finally {
+      await server.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("answers only to loopback Host headers (DNS rebinding)", async () => {
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-app-host-"));
+    const running = await startProgram({
+      db: database.db,
+      dataDir,
+      programTokenFile: join(dataDir, "program-token.json"),
+      enginePort: 0,
+      appPort: 0,
+      openBrowser: false,
+    });
+    try {
+      const port = new URL(running.dashboardUrl).port;
+      // fetch() would not let a test choose the Host header; a rebinding page
+      // reaches the port with its own name there and no Origin on a plain GET.
+      const statusFor = (host: string, path: string): Promise<number> =>
+        new Promise((resolve, reject) => {
+          const req = request(
+            { host: "127.0.0.1", port, path, headers: { host } },
+            (res) => {
+              res.resume();
+              resolve(res.statusCode ?? 0);
+            },
+          );
+          req.on("error", reject);
+          req.end();
+        });
+      for (const host of [
+        `evil.example:${port}`,
+        `localhost.evil.example:${port}`,
+        `127.0.0.1.evil.example:${port}`,
+        `0.0.0.0:${port}`,
+      ]) {
+        // The proxied API is the point (operator token); static files answer alike.
+        expect(await statusFor(host, "/api/sites")).toBe(403);
+        expect(await statusFor(host, "/")).toBe(403);
+      }
+      for (const host of [
+        `127.0.0.1:${port}`,
+        `localhost:${port}`,
+        `LOCALHOST:${port}`,
+        `[::1]:${port}`,
+      ]) {
+        expect(await statusFor(host, "/api/sites")).toBe(200);
+      }
     } finally {
       await running.close();
       await database.close();

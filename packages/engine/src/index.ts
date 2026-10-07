@@ -11,6 +11,7 @@ import type { MailSender } from "./mailer.ts";
 import { PageLocks } from "./locks.ts";
 import { MaintenanceGate } from "./maintenance.ts";
 import type { ReviewVisualDriver } from "./review-visuals.ts";
+import type { ImportPreviewDriver } from "./import-preview.ts";
 import {
   DEFAULT_MAX_UPLOAD_BYTES,
   createUploadSigner,
@@ -22,6 +23,7 @@ import {
   RateLimiter,
   type RateLimitConfig,
 } from "./rate-limit.ts";
+import { ENGINE_SECRET_FILE } from "./secrets.ts";
 import { Store } from "./store.ts";
 
 export { bakePages, buildBakeInput, renderEntryPreview, type BakeBuild, type BakeOutcome } from "./bake.ts";
@@ -172,6 +174,14 @@ export {
   type ReviewVisualPage,
   type ReviewVisualRequest,
 } from "./review-visuals.ts";
+export {
+  createImportPreviewDriver,
+  previewFramerImport,
+  type ImportPreview,
+  type ImportPreviewDriver,
+  type ImportPreviewRequest,
+  type ImportPreviewShot,
+} from "./import-preview.ts";
 export {
   breakpointForWidth,
   diffableSnapshots,
@@ -735,6 +745,9 @@ export type EngineOptions = {
   // reference-against-draft comparison. Off unless injected (visual tests);
   // production lazily loads the analysis-worker harness.
   referenceDiffs?: ReferenceDiffDeps;
+  // Import preview: the photographer of the import dialog's preview. Default:
+  // the Playwright thumbnail capture; tests pass a double.
+  importPreview?: ImportPreviewDriver;
 };
 
 export type EngineServer = {
@@ -768,11 +781,11 @@ export function defaultDataDir(): string {
 
 export async function createEngine(options: EngineOptions): Promise<Engine> {
   await ensureSchema(options.db);
-  const store = new Store(options.db);
+  const dataDir = options.dataDir ?? defaultDataDir();
+  const store = new Store(options.db, { secretFile: join(dataDir, ENGINE_SECRET_FILE) });
   const locks = new PageLocks();
   const maintenance = new MaintenanceGate();
   const events = new EngineEvents();
-  const dataDir = options.dataDir ?? defaultDataDir();
   // The signer secret is persisted, so tokens stamped into static HTML keep
   // verifying after a restart.
   const formSigner = createFormSigner(await store.getOrCreateFormSecret());
@@ -802,6 +815,9 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
     ...(options.referenceDiffs === undefined
       ? {}
       : { referenceDiffs: options.referenceDiffs }),
+    ...(options.importPreview === undefined
+      ? {}
+      : { importPreview: options.importPreview }),
     ...(options.mailSender === undefined ? {} : { mailSender: options.mailSender }),
     ...(options.formsBaseUrl === undefined
       ? {}

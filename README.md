@@ -47,6 +47,8 @@ Senify ist ein lokales Programm, das Websites baut. Ein Agent (Claude Code, Curs
   pnpm senify setup
   ```
 
+  Der Agent-Token läuft nach 90 Tagen ab (`--expires 30d` ändert das, `--expires never` hebt es auf); danach genügt ein erneutes `setup`.
+
 ## Tests
 
 ```bash

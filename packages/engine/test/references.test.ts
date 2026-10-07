@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { defaultTheme } from "@senify/tokens";
@@ -378,6 +378,32 @@ describe("reference pipeline over the API (T14)", () => {
     expect(list.status).toBe(200);
     expect(list.body.references.map((entry) => entry.id)).toContain(reference.id);
     expect(list.body.references[0]?.usedInProjects).toEqual([]);
+  });
+
+  it("never hands a private address to a capture driver", async () => {
+    vi.stubEnv("SENIFY_ALLOW_PRIVATE_URLS", "");
+    try {
+      let started = 0;
+      const context: ReferenceContext = {
+        store: env.engine.store,
+        dataDir: env.engine.dataDir,
+        deps: {
+          capture: async () => {
+            started += 1;
+            return { markup: "<h1>nie</h1>" };
+          },
+        },
+      };
+      for (const url of ["http://127.0.0.1:4322/api/sites", "http://169.254.169.254/latest/"]) {
+        const result = await analyzeReference(context, { url, author: TEST_AUTHOR });
+        expect(result.reference.status, url).toBe("failed");
+        expect(result.reference.failureReason, url).toContain("blocked");
+        expect(result.job.lastError, url).toContain("SENIFY_ALLOW_PRIVATE_URLS");
+      }
+      expect(started).toBe(0);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("fails a blocked site with a clear cause and accepts the snapshot fallback", async () => {

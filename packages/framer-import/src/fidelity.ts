@@ -59,6 +59,12 @@ export function buildFidelityReport(
   if (dnaAdjustments > 0) {
     steps.push(`DNA-Anpassungen: ${dnaAdjustments} (Bericht führt jede mit Beleg)`);
   }
+  const brand = mapped.themePatch.scales?.brand;
+  if (brand !== undefined) {
+    steps.push(
+      `Markenfarbe ${brand} vorgeschlagen (die am häufigsten genutzte Farbe der Seite); sie ersetzt die Theme-Markenfarbe nur mit „Theme übernehmen"`,
+    );
+  }
 
   const totalDeclarations = normalized.rules.reduce(
     (sum, rule) => sum + Object.keys(rule.declarations).length,

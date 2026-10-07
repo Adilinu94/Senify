@@ -40,6 +40,21 @@ describe("curated guides", () => {
     }
   });
 
+  it("reads a guide with Windows line endings (git autocrlf on a Windows checkout)", () => {
+    const dir = guidesDir({ "test.md": validGuide.replaceAll("\n", "\r\n") });
+    try {
+      const pages = loadGuidePages(dir);
+      expect(pages).toHaveLength(1);
+      expect(pages[0]?.title).toBe("Test-Guide");
+      expect(pages[0]?.path).toBe("/guides/test");
+      expect(pages[0]?.order).toBe(3);
+      expect(pages[0]?.body).toContain("## Abschnitt");
+      expect(pages[0]?.body).not.toContain("\r");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("rejects guides without frontmatter and unknown groups", () => {
     const missing = guidesDir({ "broken.md": "# Kein Frontmatter\n" });
     const wrongGroup = guidesDir({
