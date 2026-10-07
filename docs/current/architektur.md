@@ -2,7 +2,7 @@
 
 > Dieses Dokument beschreibt den Ist-Zustand des Arbeitsbaums, nicht den Zielzustand.
 > Zielarchitektur und Reihenfolge: `docs/fahrplan.md`. Umsetzungsstand: `docs/current/stand.md`.
-> Die Risiko-Nummern `R1`–`R13` sind mit `docs/current/stand.md` und `docs/fahrplan.md` identisch. Der geprüfte Folge-Diff ist gesichert; der aktuelle P3-2-Mapper-Schritt ist gegatet und noch uncommittet. Details und aktuelle Ergebnisse stehen in `docs/current/qualitaet.md`.
+> Die Risiko-Nummern `R1`–`R13` sind mit `docs/current/stand.md` und `docs/fahrplan.md` identisch. Der geprüfte Folge-Diff ist gesichert; der P3-2-Mapper-Schritt ist gegatet und als `0193fde` committet. Details und aktuelle Ergebnisse stehen in `docs/current/qualitaet.md`.
 
 ## Seams
 
@@ -152,4 +152,4 @@ R1 ist durch Build und angeschlossenes Artefakt-Gate implementierungsseitig gesc
 | R10 | Import → Dateien | Kompensation neuer Uploads nach Commit-Fehler belegt; keine gemeinsame Datei-/DB-Transaktion | `imports.ts`, `imports.test.ts` |
 | R11 | Nachweis → CI | Gates vorhanden und auf dem Folge-Diff lokal bestanden | `verify.yml`, `vitest.config.ts`, `test:postgres`, `error-paths.test.ts` |
 | R12 | Änderung → Datei | teilweise: Store-Row-Mapping ausgelagert; große Store-Operationen und übrige Module offen | `store.ts`, `store-record-mappers.ts`, `http.ts`, `app.js`, `mcp/src/tools.ts` |
-| R13 | Arbeitsbaum → Commit | vorheriger Folge-Diff gesichert; aktiver Store-Mapper-Schritt noch uncommittet | `git status --short` |
+| R13 | Arbeitsbaum → Commit | Folge-Diff und Store-Mapper-Schritt gesichert (`2a0afde`, `aad9550`, `0193fde`) | `git status --short` |

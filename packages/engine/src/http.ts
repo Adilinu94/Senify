@@ -2,8 +2,9 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { SenifyError } from "@senify/core";
+import { isPublicAddress } from "@senify/core/net";
 import type { Registry } from "@senify/section-sdk";
 import { paginate, parsePaging } from "./paging.ts";
 import {
@@ -606,19 +607,28 @@ const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
+  ".webmanifest": "application/manifest+json; charset=utf-8",
   ".txt": "text/plain; charset=utf-8",
   ".xml": "application/xml; charset=utf-8",
   ".md": "text/markdown; charset=utf-8",
   ".svg": "image/svg+xml",
   ".png": "image/png",
+  ".gif": "image/gif",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
   ".webp": "image/webp",
   ".avif": "image/avif",
   ".woff2": "font/woff2",
+  ".woff": "font/woff",
+  ".ttf": "font/ttf",
+  ".otf": "font/otf",
   ".ico": "image/x-icon",
   ".webm": "video/webm",
+  ".mp4": "video/mp4",
+  ".pdf": "application/pdf",
 };
 
 function sendFile(
@@ -641,6 +651,16 @@ function sendFile(
   res.writeHead(200, {
     "content-type": contentType,
     "content-length": statSync(file.path).size,
+    // The declared type is the type: no MIME sniffing of stored or baked files.
+    "x-content-type-options": "nosniff",
+    // An SVG can carry script; opened as a document it would run in the origin
+    // that serves it. `sandbox` strips script and origin from the document;
+    // <img> and CSS use are unaffected. The upload check accepts any `image/*`
+    // case-sensitively, browsers compare the type case-insensitively - so
+    // does this.
+    ...(contentType.toLowerCase().startsWith("image/svg+xml")
+      ? { "content-security-policy": "sandbox" }
+      : {}),
     ...(file.headers ?? {}),
   });
   createReadStream(file.path).pipe(res);
@@ -855,13 +875,26 @@ async function readRawBody(
 
 const FORM_BODY_LIMIT_BYTES = 64 * 1024;
 
-function clientIpOf(req: IncomingMessage): string {
+// The address the rate limit counts. `X-Forwarded-For` is believed only from a
+// proxy on this machine or network: a client that reaches the engine directly
+// could write anything there and never hit the limit. A proxy appends the
+// address it saw, so the last entry is the one it vouches for; everything in
+// front of it came from the client.
+export function clientIpOf(req: Pick<IncomingMessage, "headers" | "socket">): string {
+  const peer = req.socket.remoteAddress ?? "unknown";
+  if (isPublicAddress(peer)) return peer;
   const forwarded = req.headers["x-forwarded-for"];
-  const first = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-  if (typeof first === "string" && first.trim() !== "") {
-    return first.split(",")[0]?.trim() ?? "unknown";
-  }
-  return req.socket.remoteAddress ?? "unknown";
+  const header = Array.isArray(forwarded) ? forwarded.join(",") : forwarded;
+  const last = header?.split(",").at(-1)?.trim();
+  return last !== undefined && last !== "" ? last : peer;
+}
+
+// Constant-time comparison of a presented token with the stored one.
+function sameToken(presented: string | null, expected: string): boolean {
+  if (presented === null) return false;
+  const a = Buffer.from(presented);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 function originOf(req: IncomingMessage): string | undefined {
@@ -1386,13 +1419,18 @@ const ROUTES: Route[] = [
         body,
         "site update",
       );
-      if (parsed.name === undefined && parsed.profile === undefined) {
+      if (
+        parsed.name === undefined &&
+        parsed.profile === undefined &&
+        parsed.baseUrl === undefined
+      ) {
         throw new SenifyError(
           "validation",
-          "Nothing to update: pass a name or a profile",
+          "Nothing to update: pass a name, a profile or a baseUrl",
           {
             field: "body",
-            suggestion: 'Send { "name": "…" } or { "profile": "clean|standard|showcase" }.',
+            suggestion:
+              'Send { "name": "…" }, { "profile": "clean|standard|showcase" } or { "baseUrl": "https://www.kunde.de" }.',
           },
         );
       }
@@ -1412,6 +1450,17 @@ const ROUTES: Route[] = [
           siteId,
           mutation: "update_site_profile",
           params: { profile: parsed.profile },
+          author: resolveAuthor(auth),
+        });
+      }
+      // Last, so the response carries the stored address next to the other
+      // changes of the same request.
+      if (parsed.baseUrl !== undefined) {
+        site = await context.store.updateSiteBaseUrl(siteId, parsed.baseUrl);
+        await context.store.recordSiteEvent({
+          siteId,
+          mutation: "update_site_base_url",
+          params: { baseUrl: site.baseUrl ?? null },
           author: resolveAuthor(auth),
         });
       }
@@ -5238,7 +5287,7 @@ async function servePreviewFile(
     sendError(res, error);
     return;
   }
-  if (url.searchParams.get("token") !== preview.token) {
+  if (!sameToken(url.searchParams.get("token"), preview.token)) {
     sendError(
       res,
       new AuthError(401, "Preview token is missing or invalid", {
@@ -5421,7 +5470,7 @@ async function currentBuildRoot(
   const previewId = url.searchParams.get("preview");
   if (previewId !== null) {
     const preview = await context.store.getPreview(previewId);
-    if (url.searchParams.get("token") !== preview.token) {
+    if (!sameToken(url.searchParams.get("token"), preview.token)) {
       throw new AuthError(401, "Preview token is missing or invalid", {
         suggestion: "Use the signed preview URL from the review item.",
       });

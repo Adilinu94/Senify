@@ -15,17 +15,31 @@ on:
   push:
   pull_request:
 
+# Der Workflow liest nur; er braucht kein Schreibrecht auf das Repo.
+permissions:
+  contents: read
+
+# Ein neuer Push auf denselben Zweig bricht den veralteten Lauf ab (die Jobs
+# sind teuer: Browser, echte Postgres). Auf master (Standardzweig) laeuft jeder
+# Stand zu Ende.
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+# Die Actions sind auf Commits gepinnt (der Kommentar nennt das Tag): ein
+# verschobenes Tag kann keinen fremden Code in den Lauf bringen. Aktualisieren
+# per Dependabot (`package-ecosystem: github-actions`) oder von Hand.
 jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # Kein `version:` hier: pnpm/action-setup liest die Version aus
       # `packageManager` in der package.json. Gibt man beides an, bricht die
       # Aktion mit "Multiple versions of pnpm specified" ab, bevor ein Job
       # richtig startet (so am 01.10.2026 gesehen).
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: pnpm
@@ -41,11 +55,16 @@ jobs:
       # macht es als Balken lesbar, falls jemand die Kette veraendert.
       - name: Artefakt-Tor (packages/app/dist)
         run: pnpm verify:dist
+      # Fahrplan P3-6: der Docs-Portal-Build steckt im rekursiven `pnpm build`
+      # von `pnpm verify`. Der eigene Schritt macht ihn als Balken sichtbar
+      # (Astro-Build plus Pagefind-Index, rund 4 Sekunden).
+      - name: Docs-Portal-Build (Astro und Suchindex)
+        run: pnpm --filter @senify/docs-portal build
       - name: Visuelles PNG-Gate (Settings, Referenzen, Editor)
         run: pnpm test:visual
       - name: Visuelle Diff-Artefakte
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: visual-diffs
           path: .scratch/editor-v2-rebuild/visual-diffs
@@ -55,12 +74,41 @@ jobs:
       - name: Import-Tor (Original vs. Senify)
         run: pnpm verify:import
 
+  # Entwickelt und betrieben wird unter Windows (start-senify.cmd, Pfade,
+  # Dateirechte, der Start-Eintrag). Dieser Job faehrt die Testsuite dort.
+  # Er war bewusst nicht blockierend (continue-on-error), bis er einmal gruen
+  # gelaufen ist; das ist am 04.10.2026 mehrfach geschehen (Push- und
+  # Pull-Request-Laeufe der Staende 953d114, 6c35e3e und 0386cf9), die Zeile ist
+  # entfernt und der Job damit ein Tor. Faellt er kuenftig rot aus, ist das ein
+  # echter Befund. Ohne installierten Chromium ueberspringen die Browser-Suiten
+  # sich selbst.
+  tests-windows:
+    name: Testsuite unter Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Testsuite
+        # Das Repo liegt auf D:, das Standard-Temp auf C:. Astro verschiebt
+        # Dateien per rename() zwischen Stage und Zielordner, und das scheitert
+        # ueber Laufwerke hinweg (EXDEV). Das Temp-Verzeichnis des Laufers liegt
+        # auf demselben Laufwerk wie das Repo.
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+        run: pnpm test
+
   postgres-tests:
     name: Transaktionsbeweise gegen echte Postgres
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: senify
           POSTGRES_PASSWORD: senify
@@ -75,9 +123,9 @@ jobs:
     env:
       TEST_DATABASE_URL: postgres://senify:senify@localhost:5432/senify
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: pnpm
@@ -94,9 +142,9 @@ jobs:
     name: Coverage-Tor der geschuetzten Pfade
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: pnpm
@@ -115,7 +163,7 @@ jobs:
         run: pnpm quality:check
       - name: Zusammenfassung als Artefakt
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-summary
           path: coverage/coverage-summary.json

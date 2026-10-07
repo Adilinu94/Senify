@@ -1,3 +1,4 @@
+import { fetchPublic } from "@senify/core/net";
 import {
   createPlaywrightCaptureDriver,
   ReferenceCaptureError,
@@ -252,6 +253,8 @@ export function createFirecrawlCaptureDriver(
 
 // -------------------------------------------------------------- http source
 
+const MAX_SNAPSHOT_BYTES = 20 * 1024 * 1024;
+
 export type HttpSnapshotOptions = {
   fetch?: typeof fetch;
   timeoutMs?: number;
@@ -263,7 +266,15 @@ export type HttpSnapshotOptions = {
 export function createHttpSnapshotCaptureDriver(
   options: HttpSnapshotOptions = {},
 ): ReferenceCaptureDriver {
-  const doFetch = options.fetch ?? fetch;
+  // Public addresses only, redirects included, with a size limit (ADR-0016).
+  const doFetch: typeof fetch =
+    options.fetch ??
+    ((input, init) =>
+      fetchPublic(String(input), {
+        maxBytes: MAX_SNAPSHOT_BYTES,
+        ...(init?.signal ? { signal: init.signal } : {}),
+        headers: Object.fromEntries(new Headers(init?.headers).entries()),
+      }));
   const timeoutMs = options.timeoutMs ?? 30_000;
   const userAgent =
     options.userAgent ??

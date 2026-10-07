@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { request as httpRequest } from "node:http";
@@ -24,6 +25,7 @@ import {
   TEST_AUTHOR,
   type BootEnv,
 } from "./helpers.ts";
+import { clientIpOf } from "../src/http.ts";
 
 // Prüfstelle 1: Forms & Submissions end-to-end against the real engine.
 
@@ -507,6 +509,31 @@ describe("form submission", () => {
     expect(notifications[0]?.status).toBe("queued");
   });
 
+  it("keys the consent IP hash with a secret the address alone cannot reproduce", async () => {
+    const collection = await env.engine.store.getCollection(contactCollectionId);
+    const hashField = collection.fields.find((field) => field.key === "consent_ip_hash")?.id ?? "";
+    const submitFrom = async (clientIp: string): Promise<string> => {
+      const result = await submitForm({
+        ...base(),
+        clientIp,
+        values: { name: "Anna", email: "anna@beispiel.de", nachricht: "Hallo" },
+        consent: true,
+        honeypot: "",
+      });
+      const entry = await env.engine.store.getEntry(result.entryId);
+      return String(entry.cells[hashField]);
+    };
+    const first = await submitFrom("203.0.113.7");
+    const again = await submitFrom("203.0.113.7");
+    const other = await submitFrom("203.0.113.8");
+    expect(again).toBe(first);
+    expect(other).not.toBe(first);
+    // A plain SHA-256 over "<site>:<ip>" can be reversed by trying all IPv4
+    // addresses; the keyed hash differs from it.
+    const plain = createHash("sha256").update(`${siteId}:203.0.113.7`).digest("hex").slice(0, 24);
+    expect(first).not.toBe(plain);
+  });
+
   it("rate limits per IP", async () => {
     const tight = new RateLimiter({ perMinute: 1, burst: 1, destructivePerMinute: 1 });
     const first = await submitForm({
@@ -831,6 +858,33 @@ describe("collection from form, submissions view and CSV", () => {
     );
   });
 
+  it("neutralizes every spreadsheet formula trigger, including tab and carriage return", () => {
+    const row = (value: string) => ({
+      entryId: "e",
+      slug: "s",
+      status: "published" as const,
+      createdAt: "2026-09-29T00:00:00.000Z",
+      submittedAt: null,
+      sourcePath: null,
+      values: [{ key: "a", label: "Wert", value }],
+    });
+    const triggers = ["=1+1", "+1", "-1", "@SUM(1)", "\t=1+1", "\r=1+1", "\r\n=1+1"];
+    const csv = buildSubmissionsCsv({
+      columns: [{ key: "a", label: "Wert" }],
+      rows: [...triggers, "normal", "a=b"].map(row),
+    });
+    const body = stripBom(csv).slice("Wert\r\n".length);
+    for (const trigger of triggers) {
+      // The guard puts an apostrophe in front; a cell with a line break is quoted as a whole.
+      const guarded = `'${trigger}`;
+      expect(body, JSON.stringify(trigger)).toContain(
+        /[\r\n]/.test(guarded) ? `"${guarded}"` : guarded,
+      );
+    }
+    expect(body).toContain("\r\nnormal\r\n");
+    expect(body).toContain("\r\na=b\r\n");
+  });
+
   it("lists submissions and exports CSV from the frozen snapshot columns", async () => {
     const view = await listSubmissions(env.engine.store, { formId: contactFormId });
     expect(view.source).toBe("form");
@@ -1055,4 +1109,33 @@ describe("publish hard checks", () => {
     });
     expect(dupBlocked.status).toBe(422);
   }, 60000);
+});
+
+describe("client address behind a proxy", () => {
+  const request = (remoteAddress: string, forwarded?: string | string[]) =>
+    ({
+      headers: forwarded === undefined ? {} : { "x-forwarded-for": forwarded },
+      socket: { remoteAddress },
+    }) as Parameters<typeof clientIpOf>[0];
+
+  it("does not believe X-Forwarded-For from a client that reaches the engine directly", () => {
+    // Anyone could write that header; believing it would let them dodge the rate limit.
+    expect(clientIpOf(request("93.184.216.34", "8.8.8.8"))).toBe("93.184.216.34");
+    expect(clientIpOf(request("2606:4700:4700::1111", "8.8.8.8"))).toBe("2606:4700:4700::1111");
+  });
+
+  it("takes the address a proxy on this machine or network vouches for", () => {
+    for (const proxy of ["127.0.0.1", "::1", "::ffff:127.0.0.1", "10.0.0.2", "172.18.0.3", "192.168.1.5"]) {
+      expect(clientIpOf(request(proxy, "93.184.216.34")), proxy).toBe("93.184.216.34");
+      // The client wrote the front of the list, the proxy appended the real address.
+      expect(clientIpOf(request(proxy, "8.8.8.8, 93.184.216.34")), proxy).toBe("93.184.216.34");
+      expect(clientIpOf(request(proxy, ["8.8.8.8", "93.184.216.34"])), proxy).toBe("93.184.216.34");
+    }
+  });
+
+  it("falls back to the peer without a usable header", () => {
+    expect(clientIpOf(request("127.0.0.1"))).toBe("127.0.0.1");
+    expect(clientIpOf(request("127.0.0.1", ""))).toBe("127.0.0.1");
+    expect(clientIpOf(request("127.0.0.1", " , "))).toBe("127.0.0.1");
+  });
 });

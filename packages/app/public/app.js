@@ -28,6 +28,7 @@ const MUTATION_LABELS = {
   updatePageMeta: "Seiten-Meta geändert",
   update_theme: "Theme geändert",
   rename_site: "Projekt umbenannt",
+  update_site_base_url: "Öffentliche Adresse geändert",
   trash_site: "Projekt in den Papierkorb",
   restore_site: "Projekt wiederhergestellt",
   duplicate_site: "Projekt dupliziert",
@@ -77,8 +78,28 @@ async function api(path, options = {}) {
 
 function toast(message, kind = "info") {
   const node = el("div", { class: `toast ${kind}`, text: message });
+  if (kind === "error") {
+    // Announced at once, and kept until it has been read and closed: a message
+    // that vanishes after seconds cannot be read by everyone. The same error
+    // twice (a failing background request) is shown once.
+    for (const shown of toasts.children) {
+      if (shown.classList.contains("error") && shown.firstChild?.textContent === message) return;
+    }
+    node.setAttribute("role", "alert");
+    node.append(
+      el("button", {
+        type: "button",
+        class: "toast__close",
+        "aria-label": "Meldung schließen",
+        text: "×",
+        onclick: () => node.remove(),
+      }),
+    );
+    toasts.append(node);
+    return;
+  }
   toasts.append(node);
-  setTimeout(() => node.remove(), kind === "error" ? 7000 : 4000);
+  setTimeout(() => node.remove(), 4000);
 }
 
 function friendlyError(error) {
@@ -3724,9 +3745,43 @@ async function projectView(siteId, tab) {
         { class: "panel" },
         el("p", {}, el("strong", { text: "Pfad-Präfix: " }), el("code", { text: site.slug })),
         el("p", {}, el("strong", { text: "Niveau: " }), site.profile),
+        el(
+          "div",
+          { class: "inline" },
+          el("label", { class: "muted", for: "site-base-url" }, "Öffentliche Adresse"),
+          el("input", {
+            id: "site-base-url",
+            type: "text",
+            value: site.baseUrl ?? "",
+            placeholder: "https://www.kunde.de",
+          }),
+          el("button", {
+            class: "primary",
+            text: "Adresse speichern",
+            onclick: async () => {
+              try {
+                await api(`/api/sites/${siteId}`, {
+                  method: "PATCH",
+                  body: {
+                    baseUrl: document.getElementById("site-base-url").value,
+                    author: AUTHOR,
+                  },
+                });
+                toast("Öffentliche Adresse gespeichert");
+                await renderRoute();
+              } catch (error) {
+                failed(error);
+              }
+            },
+          }),
+        ),
         el("p", {
           class: "muted",
-          text: "Name ändern, Stil-Referenz und Domain/Deploy folgen mit den nächsten Schritten.",
+          text: `Unter dieser Adresse öffnen Besucher die Seite. Sie steckt in canonical, Sitemap, og:url und der Formularprüfung. Leer lassen: Platzhalter ${site.slug}.senify.xyz.`,
+        }),
+        el("p", {
+          class: "muted",
+          text: "Name ändern, Stil-Referenz und Deploy folgen mit den nächsten Schritten.",
         }),
       ),
     );
