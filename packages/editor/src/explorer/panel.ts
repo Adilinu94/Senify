@@ -70,10 +70,10 @@ export type ExplorerOptions = {
   store: EditorStore;
   tabs?: readonly ExplorerTabSource[];
   onMessage?: (message: string | null) => void;
-  // Asks for a name (variant creation, ticket 04). The shell passes the
-  // browser's prompt; a test double may leave it out, then the action reports
-  // instead of asking.
-  prompt?: (message: string, initial: string) => string | null;
+  // Asks for a name (variant creation, ticket 04). The dashboard passes its own
+  // dialog (a promise); the browser's prompt (sync) is the fallback, and a test
+  // double may leave it out, then the action reports instead of asking.
+  prompt?: (message: string, initial: string) => string | null | Promise<string | null>;
 };
 
 export type ExplorerInstance = {
@@ -418,17 +418,23 @@ export function createExplorer(options: ExplorerOptions): ExplorerInstance {
           report("Diese Umgebung fragt nicht nach einem Namen.");
           break;
         }
-        const input = ask("Name der Variante", suggestVariantName(declared));
-        if (input === null) break;
-        const saved = runComponentOp(
-          () => {
-            const changed = createVariantFromOverrides(options.store, id, input);
-            return changed ? input.trim() : null;
-          },
-          "Die Variante ließ sich nicht speichern.",
-        );
-        if (saved === null) break;
-        report(`Variante "${saved}" gespeichert - umbenennen im Inspektor der Komponente.`);
+        const save = (input: string | null): void => {
+          if (input === null) return;
+          const saved = runComponentOp(
+            () => {
+              const changed = createVariantFromOverrides(options.store, id, input);
+              return changed ? input.trim() : null;
+            },
+            "Die Variante ließ sich nicht speichern.",
+          );
+          if (saved === null) return;
+          report(`Variante "${saved}" gespeichert - umbenennen im Inspektor der Komponente.`);
+        };
+        // A sync answer is used at once; a dialog answers later, and the write
+        // then runs against the document as it is by that time.
+        const answer = ask("Name der Variante", suggestVariantName(declared));
+        if (answer instanceof Promise) void answer.then(save);
+        else save(answer);
         break;
       }
       case "component-insert": {

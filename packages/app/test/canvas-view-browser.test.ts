@@ -643,7 +643,11 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       await expect
         .poll(async () => (await desktopFrame().locator("body").textContent()) ?? "")
         .toContain("Eigener Hero");
-      tab.once("dialog", (dialog) => dialog.accept("riesig"));
+      // The name is asked in the dashboard's own dialog, never a native prompt.
+      tab.on("dialog", (dialog) => {
+        consoleErrors.push(`native dialog: ${dialog.message()}`);
+        void dialog.dismiss();
+      });
       const variantInstanceAgain = tab.locator(".senify-explorer__item", {
         hasText: "Instanz · karte",
       });
@@ -653,6 +657,11 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       await tab
         .locator('.senify-explorer__menu-item[data-action="component-save-variant"]')
         .click();
+      const variantDialog = tab.locator('dialog[data-role="ask-dialog"]');
+      await variantDialog.waitFor();
+      expect(await variantDialog.getByRole("heading").innerText()).toBe("Name der Variante");
+      await variantDialog.getByLabel("Name").fill("riesig");
+      await variantDialog.getByRole("button", { name: "Speichern" }).click();
       // Die Extraktion laesst den sichtbaren Wert stehen (jetzt traegt ihn die
       // Variante), die Instanz hat keine eigenen Werte mehr.
       await expect

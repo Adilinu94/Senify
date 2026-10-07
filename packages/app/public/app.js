@@ -6346,6 +6346,17 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   const explorer = editor.createExplorer({
     host: explorerHost,
     store: session.store,
+    // The variant name is asked in the dashboard's own dialog, not in the
+    // browser's prompt.
+    prompt: (message, initial) =>
+      askText({
+        title: message,
+        label: "Name",
+        value: initial,
+        required: true,
+        requiredMessage: "Bitte einen Namen eingeben.",
+        confirmLabel: "Speichern",
+      }),
     tabs: [
       {
         id: "pages",
