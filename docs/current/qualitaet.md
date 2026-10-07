@@ -7,9 +7,10 @@
 
 | Gate | Kommando | Ergebnis |
 |---|---|---|
-| P3-2: Typecheck, Lint, Volltest | `pnpm typecheck`, `pnpm lint`, `pnpm test` | **Grün am 29.09.2026** nach Store-Mapper-Auslagerung |
-| P3-2: Coverage | `pnpm test:coverage` | **Grün am 29.09.2026**, keine Schwellenfehler; Messwerte siehe Coverage-Block |
-| Patch-Prüfung | `git diff --check` | **Grün am 29.09.2026** |
+| P3-2: Typecheck, Lint | `pnpm typecheck`, `pnpm lint` | **Grün am 07.10.2026** nach dem zweiten Store-Schritt (Form-, Referenz-, Job- und Settings-Mapper) |
+| P3-2: Volltest | `pnpm test` | **07.10.2026: alle Engine-, Editor- und MCP-Tests grün; zwei Browser-Tests rot, keiner durch die Auslagerung verursacht** (Einzelheiten unter „Volltest") |
+| P3-2: Coverage | `pnpm test:coverage` | **Grün am 07.10.2026**, keine Schwellenfehler; Messwerte siehe Coverage-Block |
+| Patch-Prüfung | `git diff --check` | **Grün am 07.10.2026** |
 | Doku-Messwerte | `pnpm quality:render` + `pnpm quality:check` | **Grün am 07.10.2026** auf dem gemergten Stand (PRs #1–#3); gerenderte Werte stimmen mit dem Lauf überein |
 | Build, App-Gates und PostgreSQL | `pnpm verify`, `pnpm test:visual`, `pnpm verify:parity`, `pnpm verify:import`, `pnpm test:postgres` | **Grün am 28.09.2026** auf dem zuvor gesicherten Folge-Diff; für die reine Mapper-Auslagerung nicht erneut erforderlich |
 | CI auf dem PR-Branch | `.github/workflows/verify.yml` (Push und Pull Request) | **Alle 8 Läufe grün am 04.10.2026** auf `0386cf9` (verify, Windows, PostgreSQL, Coverage); der Visual-Test lief mit den Linux-Baselines von `master`. Davor war auf `6c35e3e` ein `verify`-Push-Lauf an einem Timeout in `accessibility-browser.test.ts` rot, der Pull-Request-Lauf desselben Codes grün, lokal 3 von 3 Läufen grün: als Timing-Flake gewertet, nicht als Befund |
@@ -17,7 +18,9 @@
 
 ## Volltest
 
-`pnpm verify` lief am 28.09.2026 auf dem zuvor gesicherten Folge-Diff. Für den P3-2-Mapper-Schritt liefen am 29.09.2026 Typecheck, Lint und der vollständige Testbefehl separat; der reine Modulwechsel ändert keine Browser-, Build- oder Datenbankverträge.
+`pnpm verify` lief am 28.09.2026 auf dem zuvor gesicherten Folge-Diff. Für die P3-2-Mapper-Schritte liefen Typecheck, Lint und der vollständige Testbefehl separat; der reine Modulwechsel ändert keine Browser-, Build- oder Datenbankverträge.
+
+Beim zweiten Schritt (07.10.2026) waren im vollständigen Testbefehl zwei Browser-Tests rot. `release-cutover-browser.test.ts` scheitert an einem abgebrochenen `/api/events`-Stream (Chromium-Version der lokalen Umgebung) und tut das auch auf unverändertem `master`; die Filter-Korrektur liegt in PR #4. `accessibility-browser.test.ts` lief in die 30-Sekunden-Grenze von `locator.focus` (`.refs-search input`), während der Volltest parallel lief, und war einzeln auf demselben Stand grün: dieselbe Timing-Einordnung wie am 04.10.2026.
 
 | Kategorie | Anzahl | Bedeutung |
 |---|---:|---|
@@ -48,13 +51,13 @@ Der aktuelle Lauf vom 07.10.2026 (lokal auf Windows, TEMP/TMP auf dem Laufwerk d
 | Pfad | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
 | `packages/engine/src/http.ts` | 91.34 | 73.03 | 93.66 | 91.34 |
-| `packages/engine/src/store.ts` | 85.07 | 77.43 | 93.58 | 85.07 |
-| `packages/engine/src/lifecycle.ts` | 87.01 | 74.60 | 100.00 | 87.01 |
+| `packages/engine/src/store.ts` | 84.61 | 77.26 | 94.03 | 84.61 |
+| `packages/engine/src/lifecycle.ts` | 87.01 | 74.19 | 100.00 | 87.01 |
 | `packages/engine/src/forms.ts` | 84.25 | 73.62 | 100.00 | 84.25 |
 | `packages/mcp/src/tools.ts` | 91.24 | 63.82 | 87.06 | 91.24 |
 | `packages/editor/src/state/*` (14 Dateien) | 66.98 bis 100.00 | 56.75 bis 100.00 | 66.66 bis 100.00 | 66.98 bis 100.00 |
 
-**Über alle gemessenen Dateien:** Statements 87.77 · Branches 73.61 · Functions 91.02 · Lines 87.77
+**Über alle gemessenen Dateien:** Statements 87.69 · Branches 73.44 · Functions 91.07 · Lines 87.69
 
 <!-- messwerte:ende -->
 

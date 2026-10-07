@@ -11,7 +11,7 @@
 | `EditorDocument` | internes Editor-Dokument (v2-Tree mit Geräte-Suffixen, `states`, `motion`, `classes`) | `packages/editor/src/state/document.ts` |
 | `NodeTree` | Persistenz- und Bake-Vertrag | `packages/section-sdk/src/types.ts` |
 | `editor-bridge` | Adapter zwischen beiden Modellen, keine zweite Fachwahrheit | `packages/engine/src/mutations/editor-bridge.ts` |
-| `Store` | kapselt PostgreSQL-Schreibpfade, Transaktionen und Revisionen; Mapper werden im Rahmen von R12 ausgelagert | `packages/engine/src/store.ts`, `store-record-mappers.ts`, `store-row-utils.ts` |
+| `Store` | kapselt PostgreSQL-Schreibpfade, Transaktionen und Revisionen; Mapper werden im Rahmen von R12 ausgelagert | `packages/engine/src/store.ts`, `store-record-mappers.ts`, `store-form-mappers.ts`, `store-reference-mappers.ts`, `store-job-mappers.ts`, `store-settings-mappers.ts`, `store-row-utils.ts` |
 | `Renderer` | erzeugt aus NodeTree, Theme, Styles und Assets eine statische Site | `packages/renderer/src/bake.ts` |
 | MCP-Fassade | delegiert an Engine-Routen; neutrale Tool-Fakten liegen zusätzlich im Manifest-Paket | `packages/mcp/src/tools.ts`, `packages/manifest/src/` |
 

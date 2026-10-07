@@ -105,15 +105,19 @@ Versionierte Records werden bei Review und Publish gespeichert; Manifest und Re-
 
 `packages/editor/src/mount.ts`, `legacy-editor.html` und Legacy-Browser-Tests sind entfernt. Der Canvas-Redirect und Bundle-Ausschluss sind getestet; `FrameRenderer` liegt in `frame-renderer.ts`. Historische Umsetzungsschritte unten sind abgeschlossen, keine offene Löschaufgabe.
 
-### P3-2 · God-Files aufteilen (R12) — in Arbeit, erster Store-Schritt
+### P3-2 · God-Files aufteilen (R12) — in Arbeit, zwei Store-Schritte
 
 **Ready:** vorheriger Folge-Diff ist gesichert; Scope dieses Schritts ist auf die privaten Row-Typen, Mapper und Parser-Helfer des `Store` begrenzt. Keine öffentliche Store-API wird verändert.
 
 **Umsetzung:** Asset-, Code-Payload-, Collection- und Entry-Row-Mapping liegt in `packages/engine/src/store-record-mappers.ts`; gemeinsam genutzte DB-Zeilen-Konvertierungen liegen in `store-row-utils.ts`. Der Store-Operationscode bleibt noch groß und wird in separaten Schritten behandelt.
 
+**Zweiter Schritt (07.10.2026):** Die übrigen Row-Typen, Spaltenlisten und Mapper am Ende von `store.ts` (alles hinter dem Audit-Insert) liegen jetzt in vier Fach-Modulen: `store-form-mappers.ts` (Formular-Schnappschüsse, Benachrichtigungen, Newsletter-Token), `store-reference-mappers.ts` (Referenzen, Sammlungen, Einstellungen, Profile, Referenz-Jobs, Zuweisungen), `store-job-mappers.ts` (Import-, Bake- und Image-Jobs) und `store-settings-mappers.ts` (SMTP-, Engine- und Image-Einstellungen); `toBoolean` wanderte nach `store-row-utils.ts`. `store.ts` schrumpft von 8831 auf 8179 Zeilen. Die Verschiebung ist mechanisch: jede aus `store.ts` verschwundene Zeile steht unverändert in einem neuen Modul, `store.ts` gewinnt nur Import-Zeilen, die Store-API ist unverändert. Beleg: `pnpm typecheck` und `pnpm lint` grün, alle Engine-, Editor- und MCP-Tests grün (`pnpm test:coverage` Exit 0), vorhandene Assertions unverändert.
+
+**Was als Nächstes entschieden werden muss:** Die `Store`-Klasse hat noch rund 6900 Zeilen. Ein Schnitt nach Fachgebieten (Referenzen, Jobs, Einstellungen, Formulare, Seiten, Releases) verändert, wie der `Store` zusammengesetzt ist, und ist damit eine Designentscheidung, keine mechanische Verschiebung. Sie gehört vor dem nächsten Umsetzungsschritt entschieden und in einen ADR, nicht in einen Commit-Text.
+
 **Reihenfolge:** `store.ts`, `http.ts`, `mcp/tools.ts`, `app.js`; `mount.ts` entfällt mit P3-1. Nicht mehrere große Module gleichzeitig aufteilen.
 
-**Gate dieses Schritts:** `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:coverage`, `pnpm quality:render`, `pnpm quality:check` und `git diff --check` am 29.09.2026 grün; vorhandene Assertions unverändert. Vor einem weiteren Schritt: Änderungen fachlich committen und `git status --short` leer prüfen. Bei Browser-/Build-Pfaden zusätzlich die passenden App-Gates.
+**Gate des ersten Schritts:** `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:coverage`, `pnpm quality:render`, `pnpm quality:check` und `git diff --check` am 29.09.2026 grün; vorhandene Assertions unverändert. **Gate des zweiten Schritts (07.10.2026):** dieselben Kommandos; `pnpm test` hatte zwei rote Browser-Tests ohne Bezug zur Auslagerung (Einordnung in `docs/current/qualitaet.md`), alles andere grün. Vor einem weiteren Schritt: Änderungen fachlich committen und `git status --short` leer prüfen. Bei Browser-/Build-Pfaden zusätzlich die passenden App-Gates.
 
 ### P3-3 · MCP-Schema-first (R8) — geschlossen 07.10.2026
 
@@ -198,4 +202,5 @@ Neu erzeugte Uploads werden nach fehlgeschlagenem DB-Commit kompensiert; negativ
 | 29.09.2026 | P0-1-Folge-Diff in `2a0afde`/`aad9550` gesichert. P3-2 begann mit einer reinen Store-Mapper-Auslagerung; Typprüfung, Lint, Volltest und Coverage bestanden. P3-2 bleibt offen, bis auch die weiteren Module zerlegt sind. |
 | 07.10.2026 | PR #1 (Härtung, ADRs 0015–0018), PR #2 (MCP-Paging) und PR #3 (Schreib-`outputSchema`) gemergt; Dialoge als PR #4 offen. P3-3-Punkte 6+7 in Fahrplan und Stand nachgetragen; Messwerte-Block neu gerendert. |
 | 07.10.2026 | P3-3-Punkt 8 (Manifest-Quelle für Matrix und Server-Spiegel) umgesetzt, R8 geschlossen; nächster offener Block ist P3-2 (God-Files). |
+| 07.10.2026 | P3-2 zweiter Schritt: Row-Typen und Mapper des `store.ts`-Tails in vier Fach-Module ausgelagert (`store.ts` 8831 → 8179 Zeilen), Store-API unverändert. Zerlegung der `Store`-Klasse wartet auf eine Designentscheidung (ADR). |
 | 28.09.2026 | Folge-Diff fachlich geprüft und alle P0-Gates grün ausgeführt. A11y-Browser-Test gegen Debounce/Ladeablauf synchronisiert; vollständiges `pnpm verify`, Visual, Parity, Import, Coverage, PostgreSQL und `quality:check` bestanden. PostgreSQL lief isoliert lokal gegen 18.6, ohne den bestehenden Dienst anzutasten. `data/` und leeres `full.log` als lokale Laufzeit-/Testausgaben klassifiziert und ignoriert. Folge-Diff ist noch zu sichern; P3-2 startet erst nach sauberem Status. |
