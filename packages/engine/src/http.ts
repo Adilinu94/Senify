@@ -23,7 +23,8 @@ import type { EngineEvents } from "./events.ts";
 import { applyMutations } from "./mutations/apply.ts";
 import { designContractViolations, contractGate } from "./design-contract.ts";
 import { renderEntryPreview } from "./bake.ts";
-import { IMPORT_MAX_ATTEMPTS, runFramerImportJob } from "./imports.ts";
+import { IMPORT_MAX_ATTEMPTS, runFramerImportJob, sourceOf } from "./imports.ts";
+import { createImportPreviewDriver, previewFramerImport, type ImportPreviewDriver } from "./import-preview.ts";
 import {
   CreateImportBodySchema,
   type CreateImportBody,
@@ -47,7 +48,8 @@ import {
 } from "./mutations/editor-contract.ts";
 import { editorMutationsToSection } from "./mutations/editor-bridge.ts";
 import { parseUndoBatchBody, undoBatches } from "./undo-batch.ts";
-import { motionVendorFiles } from "@senify/renderer";
+import { motionVendorFiles, parseDurationMs } from "@senify/renderer";
+import { resolveTheme } from "@senify/tokens";
 import { draftConflictError } from "./paths.ts";
 import { RateLimiter, RateLimitError } from "./rate-limit.ts";
 import { hardGuardrailsForTree } from "./guardrails.ts";
@@ -362,6 +364,9 @@ export type EngineContext = {
   referenceDiffs?: ReferenceDiffDeps;
   // Review visuals (T07): the injected capture driver of a submit.
   visuals?: ReviewVisualDriver;
+  // The import preview: the injected photographer. Absent = the Playwright
+  // thumbnail capture of the analysis worker.
+  importPreview?: ImportPreviewDriver;
 };
 
 function referenceContext(context: EngineContext): ReferenceContext {
@@ -5091,6 +5096,36 @@ const ROUTES: Route[] = [
     },
   },
   // The job list of a site (the editor's import history).
+  {
+    // The preview of an import (nothing is written): the page next to the page
+    // the import makes of it, at the platform's three widths. It opens a
+    // browser and loads the source, so it is a write-scope call.
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "imports", "framer", "preview"],
+    scope: "write",
+    handler: async (context, params, req) => {
+      const siteId = requireParam(params, "siteId");
+      const parsed = parseBody<CreateImportBody>(CreateImportBodySchema, (await readJsonBody(req)) ?? {}, "import");
+      const site = await context.store.getSite(siteId);
+      const siteTheme = await context.store.getTheme(siteId);
+      const resolved = resolveTheme(siteTheme.theme);
+      const baseDuration = resolved.motion.duration.base;
+      const preview = await previewFramerImport({
+        source: sourceOf(parsed),
+        pagePath: parsed.pagePath ?? "/",
+        mode: parsed.mode ?? "dna",
+        themeCss: siteTheme.css,
+        motionTokens: {
+          ease: resolved.motion.ease,
+          baseDurationMs: baseDuration === undefined ? 300 : parseDurationMs(baseDuration),
+          baseStaggerMs: 80,
+        },
+        siteName: site.name,
+        driver: context.importPreview ?? createImportPreviewDriver(),
+      });
+      return { status: 200, body: preview };
+    },
+  },
   {
     // The site-scoped import history shown by the editor.
     method: "GET",

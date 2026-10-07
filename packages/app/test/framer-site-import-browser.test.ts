@@ -48,9 +48,14 @@ describe.skipIf(!browserAvailable)("Framer import dialog: whole site", () => {
         await tab.waitForSelector('[data-action="canvas-overflow"]', { timeout: 30000 });
         // The overflow menu can still be open from the last round: clicking its
         // button then would close it.
-        const menuOpen = await tab.locator('[data-action="framer-import-open"]').isVisible();
-        if (!menuOpen) await tab.locator('[data-action="canvas-overflow"]').click();
-        await tab.waitForSelector('[data-action="framer-import-open"]', { state: "visible" });
+        // The overflow menu may or may not still be open from the last round
+        // (and re-renders with the editor): open it until the entry shows.
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          if (await tab.locator('[data-action="framer-import-open"]').isVisible()) break;
+          await tab.locator('[data-action="canvas-overflow"]').dispatchEvent("click");
+          await tab.waitForTimeout(400);
+        }
+        await tab.waitForSelector('[data-action="framer-import-open"]', { state: "visible", timeout: 10000 });
         // The editor of a freshly imported page keeps re-rendering its toolbar,
         // so the button never counts as "stable"; the handler is what matters.
         await tab.locator('[data-action="framer-import-open"]').dispatchEvent("click");

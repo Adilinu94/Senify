@@ -13,6 +13,7 @@ import {
   type DbResult,
   type Engine,
   type EngineServer,
+  type ImportPreviewDriver,
   type MailSender,
   type Mutation,
   type RateLimitConfig,
@@ -236,6 +237,7 @@ export async function bootEngine(
     mailSender?: MailSender;
     reviewVisuals?: ReviewVisualDriver;
     referenceDiffs?: ReferenceDiffDeps;
+    importPreview?: ImportPreviewDriver;
   } = {},
 ): Promise<BootEnv> {
   const database = await createTestDatabase();
@@ -257,6 +259,9 @@ export async function bootEngine(
     ...(options.referenceDiffs === undefined
       ? {}
       : { referenceDiffs: options.referenceDiffs }),
+    ...(options.importPreview === undefined
+      ? {}
+      : { importPreview: options.importPreview }),
     // Suites fire hundreds of calls per token; rate-limit behaviour is
     // covered by auth.test.ts with explicit tight limits.
     rateLimits:

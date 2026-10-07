@@ -575,6 +575,53 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
     }, 120_000);
   });
 
+  describe("preview", () => {
+    // The photographer is a double: it fetches both pages it is given, so the
+    // test proves the original and the baked import are both served.
+    const seen: { before?: string; after?: string }[] = [];
+    let previewEnv: BootEnv;
+    beforeAll(async () => {
+      previewEnv = await bootEngine({
+        importPreview: async ({ beforeUrl, afterUrl }) => {
+          const before = await (await fetch(beforeUrl)).text();
+          const after = await (await fetch(afterUrl)).text();
+          seen.push({ before, after });
+          return { shots: [{ breakpoint: "desktop", width: 1440, beforeHeight: 900, afterHeight: 950, before: "data:image/png;base64,AAAA", after: "data:image/png;base64,BBBB" }] };
+        },
+      });
+    });
+    afterAll(async () => {
+      await previewEnv.close();
+    });
+
+    it("serves the original and the baked import to the photographer and writes nothing", async () => {
+      const own = await createTestSite(previewEnv.api, "Import Vorschau");
+      const before = await previewEnv.api.request<{ pages?: unknown[] }>({ method: "GET", path: `/api/sites/${own.id}/pages` });
+      const result = await previewEnv.api.request<{ shots: { breakpoint: string; afterHeight: number }[] }>({
+        method: "POST",
+        path: `/api/sites/${own.id}/imports/framer/preview`,
+        body: { source: { html: framerHtml() }, pagePath: "/vorschau" },
+      });
+      expect(result.status, JSON.stringify(result.body)).toBe(200);
+      expect(result.body.shots[0]?.breakpoint).toBe("desktop");
+      expect(seen.at(-1)?.before).toContain("Willkommen");
+      expect(seen.at(-1)?.after).toContain("Willkommen");
+      expect(seen.at(-1)?.after).toContain("data-node-id");
+      const after = await previewEnv.api.request<{ pages?: unknown[] }>({ method: "GET", path: `/api/sites/${own.id}/pages` });
+      expect(JSON.stringify(after.body)).toBe(JSON.stringify(before.body));
+    }, 120_000);
+
+    it("rejects a request without exactly one source", async () => {
+      const own = await createTestSite(previewEnv.api, "Import Vorschau leer");
+      const result = await previewEnv.api.request({
+        method: "POST",
+        path: `/api/sites/${own.id}/imports/framer/preview`,
+        body: { source: {} },
+      });
+      expect(result.status).toBe(400);
+    }, 60_000);
+  });
+
   describe("write guards", () => {
     it("rejects a write whose source changed since the analysis (expectedIrHash)", async () => {
       const own = await createTestSite(env.api, "Import Hashwache");

@@ -136,7 +136,7 @@ function authorOf(auth: AuthorInput): Author {
   return { kind: auth.kind, id: auth.id, label: auth.label };
 }
 
-function sourceOf(body: CreateImportBody): FramerImportSource {
+export function sourceOf(body: CreateImportBody): FramerImportSource {
   const source = body.source;
   const hasUrl = typeof source.url === "string" && source.url !== "";
   const hasRootDir = typeof source.rootDir === "string" && source.rootDir !== "";

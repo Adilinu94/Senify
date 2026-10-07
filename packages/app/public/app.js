@@ -5081,6 +5081,47 @@ function openFramerImportDialog({ siteId, pageId, session, onImported }) {
     }
     return results;
   };
+  // The preview: the source and the import side by side at the three widths.
+  // Needs a browser on the server, so it is asked for, never run by itself.
+  const previewHost = el("div", { class: "framer-preview", "data-role": "framer-preview", hidden: true });
+  const previewButton = el("button", { type: "button", class: "refs-button", text: "Vorschau", "data-action": "framer-import-preview", disabled: true });
+  const showPreview = async () => {
+    previewButton.disabled = true;
+    previewButton.textContent = "Vorschau wird erstellt …";
+    errorEl.textContent = "";
+    try {
+      const { source, pagePath, mode } = await bodyFor(false);
+      const result = await api(`/api/sites/${siteId}/imports/framer/preview`, {
+        method: "POST",
+        body: { source, pagePath, mode },
+      });
+      const rows = result.shots.map((shot) =>
+        el(
+          "div",
+          { class: "framer-preview-row", "data-breakpoint": shot.breakpoint },
+          el("p", { class: "muted", text: `${shot.breakpoint} · ${shot.width} px · Höhe ${shot.beforeHeight} → ${shot.afterHeight} px` }),
+          el(
+            "div",
+            { class: "framer-preview-pair" },
+            el("figure", {}, el("img", { src: shot.before, alt: `Original bei ${shot.width} px` }), el("figcaption", { text: "Original" })),
+            el("figure", {}, el("img", { src: shot.after, alt: `Import bei ${shot.width} px` }), el("figcaption", { text: "Import" })),
+          ),
+        ),
+      );
+      previewHost.hidden = false;
+      previewHost.replaceChildren(
+        el("h3", { text: "Vorschau" }),
+        el("p", { class: "muted", text: "Oben die Seite, wie sie ist; daneben das Ergebnis des Imports. Bilder und Schriften der Quelle können hier fehlen, wenn sie nur online erreichbar sind." }),
+        ...rows,
+      );
+    } catch (error) {
+      errorEl.textContent = error.message;
+    } finally {
+      previewButton.disabled = false;
+      previewButton.textContent = "Vorschau";
+    }
+  };
+  previewButton.addEventListener("click", showPreview);
   const errorEl = el("p", { class: "refs-form-error", role: "alert" });
   const reportHost = el("div", { class: "framer-import-report-host", "data-role": "framer-import-report" });
   let report = null;
@@ -5151,6 +5192,9 @@ function openFramerImportDialog({ siteId, pageId, session, onImported }) {
       replaceCheck.checked = false;
       replaceRow.hidden = report.existingPage === undefined;
       renderSitePages();
+      previewHost.hidden = true;
+      previewHost.replaceChildren();
+      previewButton.disabled = false;
       syncApply();
     } catch (error) {
       errorEl.textContent = error.message;
@@ -5252,7 +5296,8 @@ function openFramerImportDialog({ siteId, pageId, session, onImported }) {
     el("label", { class: "inline" }, themeCheck, " Theme-Fonts übernehmen"),
     replaceRow,
     sitePagesHost,
-    el("div", { class: "framer-import-actions" }, analyze, apply),
+    previewHost,
+    el("div", { class: "framer-import-actions" }, analyze, previewButton, apply),
     errorEl,
   );
   dialog.append(form, reportHost);

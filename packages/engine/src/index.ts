@@ -11,6 +11,7 @@ import type { MailSender } from "./mailer.ts";
 import { PageLocks } from "./locks.ts";
 import { MaintenanceGate } from "./maintenance.ts";
 import type { ReviewVisualDriver } from "./review-visuals.ts";
+import type { ImportPreviewDriver } from "./import-preview.ts";
 import {
   DEFAULT_MAX_UPLOAD_BYTES,
   createUploadSigner,
@@ -172,6 +173,14 @@ export {
   type ReviewVisualPage,
   type ReviewVisualRequest,
 } from "./review-visuals.ts";
+export {
+  createImportPreviewDriver,
+  previewFramerImport,
+  type ImportPreview,
+  type ImportPreviewDriver,
+  type ImportPreviewRequest,
+  type ImportPreviewShot,
+} from "./import-preview.ts";
 export {
   breakpointForWidth,
   diffableSnapshots,
@@ -735,6 +744,9 @@ export type EngineOptions = {
   // reference-against-draft comparison. Off unless injected (visual tests);
   // production lazily loads the analysis-worker harness.
   referenceDiffs?: ReferenceDiffDeps;
+  // Import preview: the photographer of the import dialog's preview. Default:
+  // the Playwright thumbnail capture; tests pass a double.
+  importPreview?: ImportPreviewDriver;
 };
 
 export type EngineServer = {
@@ -802,6 +814,9 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
     ...(options.referenceDiffs === undefined
       ? {}
       : { referenceDiffs: options.referenceDiffs }),
+    ...(options.importPreview === undefined
+      ? {}
+      : { importPreview: options.importPreview }),
     ...(options.mailSender === undefined ? {} : { mailSender: options.mailSender }),
     ...(options.formsBaseUrl === undefined
       ? {}

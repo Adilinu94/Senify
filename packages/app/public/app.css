@@ -903,6 +903,34 @@ dialog.modal select,
   margin: 4px 0;
 }
 
+.framer-preview {
+  margin: 8px 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.framer-preview-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.framer-preview-pair figure {
+  margin: 0;
+}
+
+.framer-preview-pair img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+}
+
+.framer-preview-pair figcaption {
+  margin-top: 2px;
+  font-size: 12px;
+}
+
 .framer-site-pages {
   margin: 8px 0;
   padding-top: 8px;

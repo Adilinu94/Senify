@@ -62,6 +62,16 @@ describe.skipIf(!browserAvailable)("Framer import dialog", () => {
         "Import-Bericht",
       );
       expect(await tab.locator('[data-action="framer-import-apply"]').isEnabled()).toBe(true);
+
+      // The preview: the source and the import side by side at three widths.
+      await tab.locator('[data-action="framer-import-preview"]').click();
+      await tab.waitForSelector('[data-role="framer-preview"] img', { timeout: 90000 });
+      expect(await tab.locator('[data-role="framer-preview"] .framer-preview-row').count()).toBe(3);
+      expect(await tab.locator('[data-role="framer-preview"] img').count()).toBe(6);
+      const sizes = await tab.locator('[data-role="framer-preview"] img').evaluateAll((images) =>
+        images.map((image) => (image as unknown as { naturalWidth: number }).naturalWidth),
+      );
+      expect(sizes.every((width) => width > 100)).toBe(true);
       await tab.locator('[data-action="framer-import-apply"]').click();
       // The page existed, so the import replaced its draft: the dialog stays
       // open and offers the way back before it closes.

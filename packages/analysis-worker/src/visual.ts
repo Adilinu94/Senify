@@ -187,6 +187,69 @@ export async function captureScreenshots(options: CaptureOptions): Promise<Visua
   return captures;
 }
 
+export type ThumbnailOptions = {
+  url: string;
+  breakpoints?: readonly Breakpoint[];
+  widths?: Partial<Record<Breakpoint, number>>;
+  settleMs?: number;
+  motion?: "off" | "live";
+  // Width of the picture in pixels and the tallest slice of the page it shows.
+  thumbWidth?: number;
+  maxPageHeight?: number;
+};
+
+export type Thumbnail = {
+  breakpoint: Breakpoint;
+  // The viewport width the page was laid out at and its full height there.
+  width: number;
+  pageHeight: number;
+  png: Buffer;
+};
+
+// A small picture of the top of a page at each breakpoint, for a preview next
+// to another page. The page is laid out at the real width; the browser scales
+// the picture down itself (`deviceScaleFactor` below 1), so no image library is
+// needed and a tall page costs no more than a short one.
+export async function captureThumbnails(options: ThumbnailOptions): Promise<Thumbnail[]> {
+  const { chromium } = await loadPlaywright();
+  const breakpoints = options.breakpoints ?? (Object.keys(VISUAL_VIEWPORTS) as Breakpoint[]);
+  const thumbWidth = options.thumbWidth ?? 480;
+  const maxPageHeight = options.maxPageHeight ?? 1800;
+  const browser = await chromium.launch({ headless: true });
+  const out: Thumbnail[] = [];
+  try {
+    for (const breakpoint of breakpoints) {
+      const viewport = VISUAL_VIEWPORTS[breakpoint];
+      const width = options.widths?.[breakpoint] ?? viewport.width;
+      const context = await browser.newContext({
+        viewport: { width, height: viewport.height },
+        deviceScaleFactor: Math.min(1, thumbWidth / width),
+        reducedMotion: "reduce",
+      });
+      const page = await context.newPage();
+      if (options.motion !== "live") {
+        await context.addInitScript(() => {
+          (globalThis as unknown as { __SENIFY_MOTION__?: string }).__SENIFY_MOTION__ = "off";
+        });
+      }
+      await page.goto(options.url, { waitUntil: "load" });
+      await settle(page, options.settleMs ?? 150);
+      const pageHeight = await page.evaluate(
+        () => (globalThis as unknown as BrowserSlice).document.documentElement.scrollHeight,
+      );
+      const png = await page.screenshot({
+        fullPage: true,
+        clip: { x: 0, y: 0, width, height: Math.min(pageHeight, maxPageHeight) },
+      });
+      out.push({ breakpoint, width, pageHeight, png });
+      await context.close();
+    }
+  } finally {
+    await browser.close();
+  }
+  return out;
+}
+
 // Per-pixel diff in a canvas: the changed pixels are painted magenta over a
 // faded copy of the "after" image, so a human sees the movement at a glance.
 export async function diffScreenshots(input: {
