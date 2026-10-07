@@ -52,6 +52,13 @@ import {
   type InspectorModel,
   type InspectorTabId,
 } from "./model.ts";
+import {
+  linkToText,
+  linesToText,
+  newRepeaterItem,
+  textToLines,
+  textToLink,
+} from "./section-fields.ts";
 import { ensureInspectorStyles } from "./styles.ts";
 
 export type InspectorOptions = {
@@ -167,8 +174,23 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     }
   }
 
-  function commitProp(nodeId: string, field: InspectorField, value: PropValue): void {
-    commitField(nodeId, field.key, field.commit, value);
+  // A field that is not responsive (section content, a few catalog controls) is
+  // written at the desktop level whatever device the panel shows: there is no
+  // device dot to find such a value again.
+  function commitProp(
+    nodeId: string,
+    field: InspectorField,
+    value: PropValue,
+    coalesce = true,
+  ): boolean {
+    return commitField(
+      nodeId,
+      field.key,
+      field.commit,
+      value,
+      field.responsive ? breakpoint : "desktop",
+      coalesce,
+    );
   }
 
   // One commit path for every target: node props (device-aware), the pseudo
@@ -179,7 +201,9 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     key: string,
     commit: InspectorCommit,
     value: PropValue,
-  ): void {
+    device: Device = breakpoint,
+    coalesce = true,
+  ): boolean {
     if (commit.kind === "state") {
       commitState(
         nodeId,
@@ -188,26 +212,26 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
         value,
         typingCoalesceKey(nodeId, key, breakpoint),
       );
-      return;
+      return true;
     }
     if (commit.kind === "override") {
       // The override bag carries device levels as suffix keys, exactly like a
       // plain node prop: the active breakpoint decides the key.
       commitOverride(nodeId, commit.partId, deviceKey(key, breakpoint), value);
-      return;
+      return true;
     }
     if (commit.kind === "variant") {
       toggleVariant(nodeId, key, value === true);
-      return;
+      return true;
     }
     if (commit.kind === "variant-rename") {
       renameVariantOf(nodeId, commit.name, value);
-      return;
+      return true;
     }
-    apply(
-      { op: "setNodeProp", id: nodeId, key, value, device: breakpoint },
+    return apply(
+      { op: "setNodeProp", id: nodeId, key, value, device },
       `Feld ${key}`,
-      typingCoalesceKey(nodeId, key, breakpoint),
+      coalesce ? typingCoalesceKey(nodeId, key, device) : undefined,
     );
   }
 
@@ -277,10 +301,15 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
   }
 
   function clearProp(nodeId: string, field: InspectorField): void {
-    clearField(nodeId, field.key, field.commit);
+    clearField(nodeId, field.key, field.commit, field.responsive ? breakpoint : "desktop");
   }
 
-  function clearField(nodeId: string, key: string, commit: InspectorCommit): void {
+  function clearField(
+    nodeId: string,
+    key: string,
+    commit: InspectorCommit,
+    device: Device = breakpoint,
+  ): void {
     if (commit.kind === "state") {
       commitState(nodeId, commit.state, key, null);
       return;
@@ -298,7 +327,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       return;
     }
     apply(
-      { op: "clearNodeProp", id: nodeId, key, device: breakpoint },
+      { op: "clearNodeProp", id: nodeId, key, device },
       `Override zurücksetzen · ${key}`,
     );
   }
@@ -514,15 +543,40 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
   }
 
   function renderText(nodeId: string, field: InspectorField, control: DomElement): void {
-    const wrap = h(doc, "div", { className: "ed-field" });
-    const tag = field.kind === "textarea" ? "textarea" : "input";
+    const multiline = field.kind === "textarea";
+    const wrap = h(doc, "div", { className: multiline ? "ed-field ed-field--multiline" : "ed-field" });
+    const tag = multiline ? "textarea" : "input";
     const input = h(doc, tag, { data: { control: field.kind } });
     if (tag === "input") {
       input.setAttribute("type", "text");
     }
     const ref = tokenRefOf(field.value);
-    input.value = ref !== null ? `{${ref}}` : typeof field.value === "string" ? field.value : "";
+    input.value =
+      field.shape === "link"
+        ? linkToText(field.value)
+        : field.shape === "lines"
+          ? linesToText(field.value)
+          : ref !== null
+            ? `{${ref}}`
+            : typeof field.value === "string"
+              ? field.value
+              : "";
+    if (field.shape === "link") {
+      input.setAttribute("placeholder", "/seite oder https://…");
+    }
     input.addEventListener("change", () => {
+      // Section content: a link is an address, a list of strings is one entry
+      // per line. An emptied link takes the value away instead of storing "".
+      if (field.shape === "link") {
+        const text = (input.value ?? "").trim();
+        if (text === "") clearProp(nodeId, field);
+        else if (!commitProp(nodeId, field, textToLink(text, field.value))) render();
+        return;
+      }
+      if (field.shape === "lines") {
+        commitProp(nodeId, field, textToLines(input.value ?? ""));
+        return;
+      }
       const next = (input.value ?? "").trim();
       // A variant name is a plain string, never a token reference.
       if (field.commit.kind === "variant-rename") {
@@ -842,6 +896,188 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     return currentModel?.motion ?? null;
   }
 
+  /* -------------------------------------------------------------- repeater */
+
+  // The entries of a list prop (features, questions, buttons, …). One block per
+  // entry with its fields, buttons to move and remove it, and one to add an
+  // entry. The whole list is written at once, so one edit is one undo step.
+  const openEntries = new Set<string>();
+
+  function entrySummary(entry: Record<string, PropValue>, children: readonly InspectorField[]): string {
+    for (const child of children) {
+      const value = entry[child.key];
+      if ((child.kind === "text" || child.kind === "textarea") && typeof value === "string" && value !== "") {
+        return value.length > 36 ? `${value.slice(0, 35)}…` : value;
+      }
+    }
+    return "Eintrag";
+  }
+
+  function isEntry(value: PropValue | undefined): value is Record<string, PropValue> {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function renderRepeater(nodeId: string, field: InspectorField, control: DomElement): void {
+    const entries: PropValue[] = Array.isArray(field.value) ? field.value : [];
+    const children = field.fields ?? [];
+    const wrap = h(doc, "div", {
+      className: "senify-repeater",
+      data: { role: "repeater", key: field.key },
+    });
+    // A refused write (a required text emptied, say) leaves the document as it
+    // was: draw the panel again so the field shows the stored value.
+    const write = (next: PropValue[]): void => {
+      // No burst folding here: adding, moving and removing an entry are each
+      // their own undo step.
+      if (!commitProp(nodeId, field, next, false)) render();
+    };
+    if (entries.length === 0) {
+      wrap.appendChild(
+        h(doc, "p", { className: "senify-repeater__empty", text: "Noch keine Einträge." }),
+      );
+    }
+    entries.forEach((entry, index) => {
+      const record = isEntry(entry) ? entry : {};
+      const entryKey = `${nodeId}:${field.key}:${index}`;
+      const expanded = openEntries.has(entryKey);
+      const item = h(doc, "div", {
+        className: "senify-repeater__item",
+        data: { index: String(index), open: String(expanded) },
+      });
+      const head = h(doc, "div", { className: "senify-repeater__head" });
+      const toggle = h(doc, "button", {
+        className: "senify-repeater__toggle",
+        text: `${index + 1}. ${entrySummary(record, children)}`,
+        attributes: { type: "button", "aria-expanded": String(expanded) },
+      });
+      toggle.addEventListener("click", () => {
+        if (expanded) openEntries.delete(entryKey);
+        else openEntries.add(entryKey);
+        render();
+      });
+      head.appendChild(toggle);
+      const action = (
+        name: string,
+        label: string,
+        text: string,
+        disabled: boolean,
+        run: () => void,
+      ): void => {
+        const button = h(doc, "button", {
+          className: "senify-repeater__action",
+          text,
+          data: { action: name },
+          attributes: { type: "button", "aria-label": `Eintrag ${index + 1} ${label}`, title: label },
+        });
+        if (disabled) button.setAttribute("disabled", "disabled");
+        button.addEventListener("click", run);
+        head.appendChild(button);
+      };
+      const swap = (from: number, to: number): void => {
+        const next = [...entries];
+        const moved = next.splice(from, 1);
+        next.splice(to, 0, ...moved);
+        // The open state follows the entry, not the position.
+        const wasOpen = openEntries.has(`${nodeId}:${field.key}:${from}`);
+        openEntries.delete(`${nodeId}:${field.key}:${from}`);
+        openEntries.delete(`${nodeId}:${field.key}:${to}`);
+        if (wasOpen) openEntries.add(`${nodeId}:${field.key}:${to}`);
+        write(next);
+      };
+      action("up", "nach oben", "↑", index === 0, () => swap(index, index - 1));
+      action("down", "nach unten", "↓", index === entries.length - 1, () => swap(index, index + 1));
+      action("remove", "entfernen", "×", field.minItems !== undefined && entries.length <= field.minItems, () => {
+        openEntries.delete(entryKey);
+        write(entries.filter((_, position) => position !== index));
+      });
+      item.appendChild(head);
+      if (expanded) {
+        const body = h(doc, "div", { className: "senify-repeater__body" });
+        for (const child of children) {
+          body.appendChild(
+            renderEntryField(child, record[child.key], (value) => {
+              const updated: Record<string, PropValue> = { ...record };
+              if (value === undefined) delete updated[child.key];
+              else updated[child.key] = value;
+              write(entries.map((other, position) => (position === index ? updated : other)));
+            }),
+          );
+        }
+        item.appendChild(body);
+      }
+      wrap.appendChild(item);
+    });
+    const full = field.maxItems !== undefined && entries.length >= field.maxItems;
+    const add = h(doc, "button", {
+      className: "senify-inspector__addbtn senify-repeater__add",
+      text: "+ Eintrag hinzufügen",
+      data: { action: "add-entry" },
+      attributes: { type: "button" },
+    });
+    if (full) add.setAttribute("disabled", "disabled");
+    add.addEventListener("click", () => {
+      openEntries.add(`${nodeId}:${field.key}:${entries.length}`);
+      write([...entries, newRepeaterItem(children)]);
+    });
+    wrap.appendChild(add);
+    control.appendChild(wrap);
+  }
+
+  // One property of one entry. `onChange(undefined)` takes the key out of the
+  // entry (an emptied optional field), anything else replaces its value.
+  function renderEntryField(
+    child: InspectorField,
+    current: PropValue | undefined,
+    onChange: (value: PropValue | undefined) => void,
+  ): DomElement {
+    const row = h(doc, "div", {
+      className: "senify-repeater__field",
+      data: { key: child.key, kind: child.kind },
+    });
+    const label = h(doc, "span", {
+      className: "senify-inspector__field-label",
+      text: child.required === true ? child.label : `${child.label} (optional)`,
+    });
+    row.appendChild(label);
+    const control = h(doc, "div", { className: "senify-inspector__field-control" });
+    const shown: InspectorField = { ...child, value: current };
+    if (child.kind === "switcher") {
+      renderSwitcher(shown, control, () => onChange(current !== true));
+    } else if (child.kind === "select") {
+      renderSelect(shown, control, (value) => onChange(value));
+    } else if (child.kind === "number") {
+      const wrap = h(doc, "div", { className: "ed-field" });
+      const input = h(doc, "input", { data: { control: "number" } });
+      input.setAttribute("type", "number");
+      input.value = typeof current === "number" ? String(current) : "";
+      input.addEventListener("change", () => {
+        const next = numberPart(input.value);
+        onChange(next === undefined ? (child.required === true ? (child.defaultValue ?? 0) : undefined) : next);
+      });
+      wrap.appendChild(input);
+      control.appendChild(wrap);
+    } else {
+      const multiline = child.kind === "textarea";
+      const wrap = h(doc, "div", { className: multiline ? "ed-field ed-field--multiline" : "ed-field" });
+      const input = h(doc, multiline ? "textarea" : "input", { data: { control: child.kind } });
+      if (!multiline) input.setAttribute("type", "text");
+      input.value = child.shape === "link" ? linkToText(current) : typeof current === "string" ? current : "";
+      if (child.shape === "link") input.setAttribute("placeholder", "/seite oder https://…");
+      input.addEventListener("change", () => {
+        const text = (input.value ?? "").trim();
+        if (child.shape === "link") {
+          onChange(text === "" ? (child.required === true ? { url: "/" } : undefined) : textToLink(text, current));
+          return;
+        }
+        onChange(text === "" && child.required !== true ? undefined : text);
+      });
+      wrap.appendChild(input);
+      control.appendChild(wrap);
+    }
+    row.appendChild(control);
+    return row;
+  }
+
   /* ------------------------------------------------------------- structure */
 
   function renderFieldRow(
@@ -920,12 +1156,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
         renderGaps(nodeId, field, control);
         break;
       case "repeater":
-        control.appendChild(
-          h(doc, "span", {
-            className: "senify-inspector__empty",
-            text: "Wiederholfeld folgt in Scheibe 2",
-          }),
-        );
+        renderRepeater(nodeId, field, control);
         break;
       case "media":
         renderText(nodeId, field, control);

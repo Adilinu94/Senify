@@ -52,7 +52,9 @@ import {
   editorOverrides,
 } from "../state/components.ts";
 import type { EditorDocument, EditorNode, StyleRule } from "../state/document.ts";
+import { sectionDefinitionFor } from "../state/sections.ts";
 import type { EditorTabId } from "../state/ui-state.ts";
+import { sectionContentGroups } from "./section-fields.ts";
 
 // The tab vocabulary lives in the session state (`state/ui-state.ts`) so the
 // shell can persist and restore it; the inspector is one projection of it.
@@ -125,6 +127,13 @@ export type InspectorField = {
   // property table. The style group orders the panel.
   source: "control" | "style";
   styleGroup: StyleGroup | undefined;
+  // Section content fields only. `shape` says how a stored value is shown as
+  // text: a link value ({ url } / { pageId }) or a list of plain strings (one per
+  // line). `required` marks a field the section schema does not let stay empty;
+  // `defaultValue` is what a new list entry starts with.
+  shape?: "link" | "lines";
+  required?: boolean;
+  defaultValue?: PropValue;
 };
 
 export type InspectorGroup = {
@@ -1178,6 +1187,18 @@ export function buildInspector(input: BuildInspectorInput): InspectorModel | nul
     controlToField(control, node, breakpoint, input.theme),
   );
   const controlKeys = new Set(controls.map((control) => canonical(control.key)));
+  // A section node (hero, features, …) has no catalog controls; its fields come
+  // from the section registry (`section-fields.ts`).
+  const section = definition?.legacy === true ? sectionDefinitionFor(node.primitive) : undefined;
+  const sectionGroups =
+    section === undefined
+      ? []
+      : sectionContentGroups(section, node, section.title, (field) =>
+          attachTokenOptions(field, input.theme, field.kind === "color" ? "color" : undefined),
+        );
+  for (const group of sectionGroups) {
+    for (const field of group.fields) controlKeys.add(canonical(field.key));
+  }
   const state = input.state ?? null;
   const styleGroups = styleFieldsFor(
     input.document,
@@ -1196,7 +1217,9 @@ export function buildInspector(input: BuildInspectorInput): InspectorModel | nul
       : null;
   const register = variantRegisterGroup(input.document, node);
   const content: InspectorGroup[] = [
-    { id: "content/main", label: definition?.name ?? node.primitive, fields: contentFields },
+    ...(sectionGroups.length > 0
+      ? sectionGroups
+      : [{ id: "content/main", label: definition?.name ?? node.primitive, fields: contentFields }]),
     // A component instance has no controls of its own; its Content tab shows
     // the variant toggles and the parts of the definition (overrides).
     ...(variants === null ? [] : [variants]),

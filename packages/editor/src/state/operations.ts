@@ -11,7 +11,6 @@
 
 import { SenifyError } from "@senify/core";
 import type { EditorMutation, EditorNodeSpec } from "@senify/engine/browser";
-import { bundledSections } from "@senify/registry";
 import {
   motionPreset,
   validatePropValues,
@@ -19,6 +18,7 @@ import {
   type PropValue,
   type SectionDefinition,
 } from "@senify/section-sdk";
+import { sectionDefinitionFor } from "./sections.ts";
 import {
   STATE_ORDER,
   assertValidCssClassName,
@@ -113,16 +113,12 @@ function requirePrimitive(primitive: string, field: string): PrimitiveDefinition
 // value grammar below: "Wir: bauen" is a perfectly good headline and a list is
 // no style value. The registry definition is the judge for these keys; every
 // other key of the node (a background, a padding) is a style value as before.
-const SECTION_DEFINITIONS: ReadonlyMap<string, SectionDefinition> = new Map(
-  bundledSections.map((section) => [section.type, section]),
-);
-
 function sectionContentProp(
   definition: PrimitiveDefinition,
   key: string,
 ): { section: SectionDefinition; label: string } | undefined {
   if (definition.legacy !== true) return undefined;
-  const section = SECTION_DEFINITIONS.get(definition.type);
+  const section = sectionDefinitionFor(definition.type);
   if (section === undefined) return undefined;
   const base = baseKeyOf(key);
   const spec = section.props.find((entry) => entry.key === base);

@@ -209,6 +209,33 @@ export const INSPECTOR_STYLES = `
 }
 .ed-field select { cursor: pointer; }
 .ed-field textarea { min-height: 3.2rem; resize: vertical; padding: 4px 0; }
+.ed-field--multiline { height: auto; align-items: stretch; padding-top: 2px; padding-bottom: 2px; }
+
+/* ----------------------------------------------------------- list editor */
+.senify-inspector__field[data-kind="repeater"] { grid-template-columns: minmax(0, 1fr); align-items: start; }
+.senify-inspector__field[data-kind="repeater"] .senify-inspector__field-control { display: block; }
+.senify-repeater { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+.senify-repeater__empty { margin: 0; color: var(--ed-ink-faint); font-size: var(--ed-text-11); }
+.senify-repeater__item { background: var(--ed-surface-inset); box-shadow: inset 0 0 0 1px var(--ed-line-control); }
+.senify-repeater__head { display: flex; align-items: center; gap: 2px; padding-right: 2px; }
+.senify-repeater__toggle {
+  flex: 1; min-width: 0; min-height: 28px; padding: 0 8px; border: 0; background: transparent;
+  color: var(--ed-ink-base); font: inherit; font-size: var(--ed-text-12); text-align: left;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;
+}
+.senify-repeater__toggle:hover { color: var(--ed-ink-strong); }
+.senify-repeater__toggle:focus-visible, .senify-repeater__action:focus-visible,
+.senify-repeater__add:focus-visible { outline: 2px solid var(--ed-focus); outline-offset: -1px; }
+.senify-repeater__action {
+  width: 24px; min-height: 24px; padding: 0; border: 0; border-radius: var(--ed-radius-sm);
+  background: transparent; color: var(--ed-ink-muted); font: inherit; font-size: var(--ed-text-12); cursor: pointer;
+}
+.senify-repeater__action:hover:not(:disabled) { background: var(--ed-fill-hover); color: var(--ed-ink-strong); }
+.senify-repeater__action:disabled { opacity: 0.35; cursor: default; }
+.senify-repeater__body { display: flex; flex-direction: column; gap: 6px; padding: 4px 8px 8px; }
+.senify-repeater__field { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); align-items: center; gap: var(--ed-space-2); }
+.senify-repeater__add { align-self: flex-start; }
+.senify-repeater__add:disabled { opacity: 0.4; cursor: default; }
 .ed-field input::placeholder { color: var(--ed-ink-faint); }
 .ed-field__unit { color: var(--ed-ink-muted); font-size: var(--ed-text-11); flex: none; }
 .ed-stepper { display: flex; flex-direction: column; gap: 1px; flex: none; }
