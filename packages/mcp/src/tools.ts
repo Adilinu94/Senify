@@ -50,10 +50,12 @@ export type ToolDefinition = {
   description: string;
   scope: ToolScope;
   inputSchema: Record<string, unknown>;
-  // The JSON Schema of what the handler returns (P3-3, R8). Only the reading
-  // tools carry one: a write's result is a confirmation whose shape depends on
-  // which write it was, and a wrong schema there would be a lie the client
-  // believes. The handler's return value must validate against it, otherwise
+  // The JSON Schema of what the handler returns (P3-3, R8). The reading tools
+  // carry one, and so do the writes whose result has a fixed shape a client
+  // needs (the new id of a site, page, preview, review or release). A write
+  // whose result is only a confirmation that depends on which write it was has
+  // none: a wrong schema there would be a lie the client believes. The
+  // handler's return value must validate against it, otherwise
   // `structuredContent` would disagree with the text the client already parses.
   outputSchema?: Record<string, unknown>;
   entity?: (args: Record<string, unknown>, result: unknown) => string | undefined;
@@ -144,6 +146,73 @@ const REFERENCE_SCHEMA = {
     sourceUrl: { type: "string" },
   },
   required: ["id", "name"],
+  additionalProperties: true,
+} as const;
+
+// The write results a client has to read the new id from (P3-3, R8). The shapes
+// are the engine's own: `create_site` and `create_page` answer with the entity,
+// the other three wrap it (`preview`, `review`, `release`) next to the checks
+// that ran. `token` on a preview is deliberately not described - the signed
+// `url` is what a client uses.
+const PREVIEW_SCHEMA = {
+  type: "object",
+  properties: {
+    id: { type: "string" },
+    siteId: { type: "string" },
+    status: { type: "string" },
+    expiresAt: { type: "string" },
+  },
+  required: ["id", "siteId", "status"],
+  additionalProperties: true,
+} as const;
+
+const REVIEW_SCHEMA = {
+  type: "object",
+  properties: {
+    id: { type: "string" },
+    siteId: { type: "string" },
+    previewId: { type: "string" },
+    status: { type: "string" },
+    thread: { type: "array" },
+    createdAt: { type: "string" },
+  },
+  required: ["id", "siteId", "status"],
+  additionalProperties: true,
+} as const;
+
+const RELEASE_SCHEMA = {
+  type: "object",
+  properties: {
+    id: { type: "string" },
+    siteId: { type: "string" },
+    buildRef: { type: "string" },
+    note: { type: ["string", "null"] },
+    basisReleaseId: { type: ["string", "null"] },
+    createdAt: { type: "string" },
+  },
+  required: ["id", "siteId", "buildRef"],
+  additionalProperties: true,
+} as const;
+
+// `hard` and `soft` are the violation lists of the publish checks; a review
+// submit additionally names the `stage`. Only the lists a client branches on are
+// described.
+const CHECKS_SCHEMA = {
+  type: "object",
+  properties: {
+    hard: { type: "array" },
+    soft: { type: "array" },
+  },
+  required: ["hard", "soft"],
+  additionalProperties: true,
+} as const;
+
+// Publishing and rolling back answer alike: a new release next to the checks
+// that ran, the rollback's `basisReleaseId` pointing at the release it restored.
+const RELEASE_RESULT_SCHEMA = {
+  type: "object",
+  properties: { release: RELEASE_SCHEMA, checks: CHECKS_SCHEMA },
+  required: ["release", "checks"],
   additionalProperties: true,
 } as const;
 
@@ -688,6 +757,7 @@ export const TOOLS: ToolDefinition[] = [
     description:
       "Legt ein Website-Projekt an: name ist Pflicht, slug und profile (clean|standard|showcase) sind optional. Für ein Redesign ist duplicate_site meist der bessere Start, weil es Inhalte und Theme mitbringt.",
     scope: "write",
+    outputSchema: SITE_SCHEMA,
     inputSchema: objectSchema(
       {
         name: { type: "string" },
@@ -1555,6 +1625,7 @@ export const TOOLS: ToolDefinition[] = [
     description:
       "Creates a page on a site and returns it with an empty node tree. The path defaults to a slug of the title; \"/\" is the home page. Pass an idempotencyKey to make a retry return the first result instead of creating a duplicate.",
     scope: "write",
+    outputSchema: PAGE_SCHEMA,
     inputSchema: objectSchema({
       siteId: { type: "string" },
       title: { type: "string" },
@@ -1663,6 +1734,12 @@ export const TOOLS: ToolDefinition[] = [
     description:
       "Builds a real draft build of the site and returns a signed preview URL (30 days). Use it to check your work visually before submitting for review.",
     scope: "write",
+    outputSchema: {
+      type: "object",
+      properties: { preview: PREVIEW_SCHEMA, url: { type: "string" } },
+      required: ["preview", "url"],
+      additionalProperties: true,
+    },
     inputSchema: objectSchema({ siteId: { type: "string" } }, ["siteId"]),
     entity: (args) => `site:${String(args.siteId ?? "")}`,
     handler: async (context, args) => {
@@ -1679,6 +1756,12 @@ export const TOOLS: ToolDefinition[] = [
     description:
       "Submits the current drafts for human review: builds a preview, computes the structure diff against the active release and creates a review item. Hard checks must pass — violations come back as a guardrail error instead of a review item.",
     scope: "write",
+    outputSchema: {
+      type: "object",
+      properties: { review: REVIEW_SCHEMA, preview: PREVIEW_SCHEMA, checks: CHECKS_SCHEMA },
+      required: ["review", "checks"],
+      additionalProperties: true,
+    },
     inputSchema: objectSchema(
       {
         siteId: { type: "string" },
@@ -1720,6 +1803,7 @@ export const TOOLS: ToolDefinition[] = [
     description:
       "Publishes the drafts as a release: runs the publish checks (hard gate), snapshots every page as a revision, bakes the release and makes it active. Needs the publish scope; unapproved releases stay theory.",
     scope: "publish",
+    outputSchema: RELEASE_RESULT_SCHEMA,
     inputSchema: objectSchema(
       {
         siteId: { type: "string" },
@@ -1744,6 +1828,7 @@ export const TOOLS: ToolDefinition[] = [
     description:
       "Creates a new release from an older release's state (basisReleaseId) and snaps theme plus drafts back to it. Nothing is overwritten — the history stays append-only.",
     scope: "publish",
+    outputSchema: RELEASE_RESULT_SCHEMA,
     inputSchema: objectSchema(
       {
         siteId: { type: "string" },
