@@ -11,7 +11,14 @@
 
 import { SenifyError } from "@senify/core";
 import type { EditorMutation, EditorNodeSpec } from "@senify/engine/browser";
-import { motionPreset, type MotionSpec, type PropValue } from "@senify/section-sdk";
+import { bundledSections } from "@senify/registry";
+import {
+  motionPreset,
+  validatePropValues,
+  type MotionSpec,
+  type PropValue,
+  type SectionDefinition,
+} from "@senify/section-sdk";
 import {
   STATE_ORDER,
   assertValidCssClassName,
@@ -100,6 +107,28 @@ function requirePrimitive(primitive: string, field: string): PrimitiveDefinition
   return twin === undefined ? definition : { ...definition, controls: twin };
 }
 
+// A legacy section node ("hero", "features", …) carries the section's own
+// props: a headline, a list of items, a link. Their shape lives in the section
+// registry, not in the primitive catalog, so they must not run through the CSS
+// value grammar below: "Wir: bauen" is a perfectly good headline and a list is
+// no style value. The registry definition is the judge for these keys; every
+// other key of the node (a background, a padding) is a style value as before.
+const SECTION_DEFINITIONS: ReadonlyMap<string, SectionDefinition> = new Map(
+  bundledSections.map((section) => [section.type, section]),
+);
+
+function sectionContentProp(
+  definition: PrimitiveDefinition,
+  key: string,
+): { section: SectionDefinition; label: string } | undefined {
+  if (definition.legacy !== true) return undefined;
+  const section = SECTION_DEFINITIONS.get(definition.type);
+  if (section === undefined) return undefined;
+  const base = baseKeyOf(key);
+  const spec = section.props.find((entry) => entry.key === base);
+  return spec === undefined ? undefined : { section, label: spec.label };
+}
+
 function knownProps(definition: PrimitiveDefinition): Set<string> {
   const keys = new Set(definition.controls.map((control) => control.key));
   for (const prop of translatableProperties(definition.type)) keys.add(prop);
@@ -118,6 +147,7 @@ function assertKnownProp(
 ): void {
   const base = baseKeyOf(key);
   if (knownProps(definition).has(base)) return;
+  if (sectionContentProp(definition, key) !== undefined) return;
   // The structural props of the component model (ids, versions, the override
   // bag, the slot rules) are JSON, not CSS - they never run through the style
   // grammar, neither as a control nor as an open property.
@@ -209,6 +239,24 @@ function assertPropValue(
 ): void {
   if (value === null) return;
   const base = baseKeyOf(key);
+  const content = sectionContentProp(definition, key);
+  if (content !== undefined) {
+    const issues = validatePropValues(content.section, { [base]: value });
+    if (issues.length > 0) {
+      const issue = issues[0];
+      throw new SenifyError(
+        "validation",
+        value === ""
+          ? `Das Feld „${content.label}“ darf nicht leer sein.`
+          : (issue?.message ?? `Ungültiger Wert für „${content.label}“.`),
+        {
+          field,
+          ...(issue?.suggestion === undefined ? {} : { suggestion: issue.suggestion }),
+        },
+      );
+    }
+    return;
+  }
   // The structural props of the component model carry JSON — the override bag
   // is a map of maps, the ids are opaque strings. The value grammar (ADR-0005)
   // describes style values and does not apply here.
