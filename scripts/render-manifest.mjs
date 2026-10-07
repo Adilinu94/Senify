@@ -215,6 +215,11 @@ function route(block) {
   if (gewaehlt === null) return { route: null, beispiel: null };
   const [, methode, pfad] = gewaehlt;
   const normalisiert = pfad
+    // A `${…}` directly behind a segment name or behind another interpolation
+    // is the query string (paging, filters), not a path parameter: it is not
+    // part of the route. Behind `/`, `=` or `?` it stays - there it is a
+    // path segment or a value, and `?q=:param` is a usable example.
+    .replace(/(?<=[A-Za-z0-9_}-])\$\{[^}]*\}/g, "")
     .replace(/\$\{[^}]*\}/g, ":param")
     .replace(/:[A-Za-z_][A-Za-z0-9_]*/g, ":param")
     // A repeated parameter (`:param/pages/:param`) is not a useful example; the
