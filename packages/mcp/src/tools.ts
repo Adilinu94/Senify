@@ -204,6 +204,15 @@ const CHECKS_SCHEMA = {
   additionalProperties: true,
 } as const;
 
+// Publishing and rolling back answer alike: a new release next to the checks
+// that ran, the rollback's `basisReleaseId` pointing at the release it restored.
+const RELEASE_RESULT_SCHEMA = {
+  type: "object",
+  properties: { release: RELEASE_SCHEMA, checks: CHECKS_SCHEMA },
+  required: ["release", "checks"],
+  additionalProperties: true,
+} as const;
+
 // `get_page` returns an outline, not the page itself (see outline.ts). Its
 // `sections[].summary` is a human-readable one-liner, deliberately not a
 // structured value: a client that needs exact props calls `get_nodes`.
@@ -1791,12 +1800,7 @@ export const TOOLS: ToolDefinition[] = [
     description:
       "Publishes the drafts as a release: runs the publish checks (hard gate), snapshots every page as a revision, bakes the release and makes it active. Needs the publish scope; unapproved releases stay theory.",
     scope: "publish",
-    outputSchema: {
-      type: "object",
-      properties: { release: RELEASE_SCHEMA, checks: CHECKS_SCHEMA },
-      required: ["release", "checks"],
-      additionalProperties: true,
-    },
+    outputSchema: RELEASE_RESULT_SCHEMA,
     inputSchema: objectSchema(
       {
         siteId: { type: "string" },
@@ -1821,6 +1825,7 @@ export const TOOLS: ToolDefinition[] = [
     description:
       "Creates a new release from an older release's state (basisReleaseId) and snaps theme plus drafts back to it. Nothing is overwritten — the history stays append-only.",
     scope: "publish",
+    outputSchema: RELEASE_RESULT_SCHEMA,
     inputSchema: objectSchema(
       {
         siteId: { type: "string" },

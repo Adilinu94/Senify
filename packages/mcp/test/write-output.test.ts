@@ -19,6 +19,7 @@ const WRITE_TOOLS_WITH_SCHEMA = [
   "create_preview",
   "submit_for_review",
   "publish_release",
+  "rollback_release",
 ] as const;
 
 async function connect(env: McpTestEnv): Promise<{ client: Client; close(): Promise<void> }> {
@@ -118,6 +119,21 @@ describe("Schreibwerkzeuge mit fester Antwortform schicken structuredContent", (
     const release = published.structured?.["release"] as Json;
     expect(typeof release["id"]).toBe("string");
     expect(release["siteId"]).toBe(siteId);
+
+    // Der Rollback antwortet wie die Veröffentlichung: ein neues Release, das
+    // auf das zurückgerollte zeigt.
+    const rolledBack = await call("rollback_release", {
+      siteId,
+      releaseId: release["id"],
+    });
+    expect(
+      rolledBack.structured,
+      "rollback_release schickte kein structuredContent",
+    ).toEqual(rolledBack.text);
+    const restored = rolledBack.structured?.["release"] as Json;
+    expect(typeof restored["id"]).toBe("string");
+    expect(restored["id"]).not.toBe(release["id"]);
+    expect(restored["basisReleaseId"]).toBe(release["id"]);
     // Vorschau, Review und Release backen echte Builds; das dauert länger als
     // das Standard-Zeitlimit von 5 s.
   }, 60_000);
