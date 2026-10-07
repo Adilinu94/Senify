@@ -12,16 +12,18 @@ name: verify
 # ersten: sie sollen als eigener gruener oder roter Balken sichtbar sein, nicht
 # als Zeile im Rollout eines anderen Jobs.
 on:
-  push:
+  # Minuten sparen (07.10.2026): kein Lauf pro Push mehr - das Gate zaehlt auf
+  # dem Pull Request, wo es vor dem Merge entscheidet. Wer einen Stand ohne PR
+  # pruefen will, startet den Workflow von Hand (`workflow_dispatch`).
   pull_request:
+  workflow_dispatch:
 
 # Der Workflow liest nur; er braucht kein Schreibrecht auf das Repo.
 permissions:
   contents: read
 
-# Ein neuer Push auf denselben Zweig bricht den veralteten Lauf ab (die Jobs
-# sind teuer: Browser, echte Postgres). Auf master (Standardzweig) laeuft jeder
-# Stand zu Ende.
+# Ein neuer Push auf denselben PR bricht den veralteten Lauf ab (die Jobs
+# sind teuer: Browser, echte Postgres).
 concurrency:
   group: verify-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
