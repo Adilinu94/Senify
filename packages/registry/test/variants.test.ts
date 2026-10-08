@@ -11,9 +11,6 @@ import { SECTION_COMPONENTS } from "../src/components/index.ts";
 // media, logo-cloud, marquee, collection-list and embed: their golden tree carries no
 // assets, items or URL, so a difference may only show with real content.
 const STILL_IDENTICAL: Record<string, string[][]> = {
-  banner: [["bar", "ribbon", "announcement"]],
-  navbar: [["default", "transparent", "centered"]],
-  footer: [["multi-column", "minimal", "cta-bar"]],
   media: [["image", "video"]],
   "services-process": [["steps", "cards", "timeline"]],
   "logo-cloud": [["grid", "wrap"]],
