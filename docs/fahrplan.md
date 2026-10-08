@@ -105,7 +105,7 @@ Versionierte Records werden bei Review und Publish gespeichert; Manifest und Re-
 
 `packages/editor/src/mount.ts`, `legacy-editor.html` und Legacy-Browser-Tests sind entfernt. Der Canvas-Redirect und Bundle-Ausschluss sind getestet; `FrameRenderer` liegt in `frame-renderer.ts`. Historische Umsetzungsschritte unten sind abgeschlossen, keine offene Löschaufgabe.
 
-### P3-2 · God-Files aufteilen (R12) — in Arbeit, zwei Store-Schritte
+### P3-2 · God-Files aufteilen (R12) — in Arbeit, zwei Mapper-Schritte und das erste Fach-Modul
 
 **Ready:** vorheriger Folge-Diff ist gesichert; Scope dieses Schritts ist auf die privaten Row-Typen, Mapper und Parser-Helfer des `Store` begrenzt. Keine öffentliche Store-API wird verändert.
 
@@ -113,7 +113,9 @@ Versionierte Records werden bei Review und Publish gespeichert; Manifest und Re-
 
 **Zweiter Schritt (07.10.2026):** Die übrigen Row-Typen, Spaltenlisten und Mapper am Ende von `store.ts` (alles hinter dem Audit-Insert) liegen jetzt in vier Fach-Modulen: `store-form-mappers.ts` (Formular-Schnappschüsse, Benachrichtigungen, Newsletter-Token), `store-reference-mappers.ts` (Referenzen, Sammlungen, Einstellungen, Profile, Referenz-Jobs, Zuweisungen), `store-job-mappers.ts` (Import-, Bake- und Image-Jobs) und `store-settings-mappers.ts` (SMTP-, Engine- und Image-Einstellungen); `toBoolean` wanderte nach `store-row-utils.ts`. `store.ts` schrumpft von 8831 auf 8179 Zeilen. Die Verschiebung ist mechanisch: jede aus `store.ts` verschwundene Zeile steht unverändert in einem neuen Modul, `store.ts` gewinnt nur Import-Zeilen, die Store-API ist unverändert. Beleg: `pnpm typecheck` und `pnpm lint` grün, alle Engine-, Editor- und MCP-Tests grün (`pnpm test:coverage` Exit 0), vorhandene Assertions unverändert.
 
-**Was als Nächstes entschieden werden muss:** Die `Store`-Klasse hat noch rund 6900 Zeilen. Ein Schnitt nach Fachgebieten (Referenzen, Jobs, Einstellungen, Formulare, Seiten, Releases) verändert, wie der `Store` zusammengesetzt ist, und ist damit eine Designentscheidung, keine mechanische Verschiebung. Sie gehört vor dem nächsten Umsetzungsschritt entschieden und in einen ADR, nicht in einen Commit-Text.
+**Entscheidung (08.10.2026, ADR-0019, vorgeschlagen):** Die `Store`-Klasse (rund 6 990 Zeilen, 252 Methoden) wird schrittweise zur dünnen Fassade über Fach-Module (`store-<fachgebiet>.ts`, Klasse `<Fachgebiet>Repository`). Adi wählte im Frage-Dialog Variante A (Fach-Module mit `Db`-Zugriff, `Store` delegiert) statt mehrerer Stores (B) oder Mixins (C). Transaktionen gehören dem Aufrufer; die drei fachübergreifenden (`applyRedesignPlan`, `duplicateSiteWithPlan`, `commitFramerImportPlan`) bleiben zuletzt am `Store`. Reihenfolge der Fachgebiete: Formulare, Einstellungen, danach Fachgebiete mit Einzeltransaktionen.
+
+**Dritter Schritt (08.10.2026), Formulare:** `packages/engine/src/store-forms.ts` (`FormsRepository`) enthält die sechs Formular-Operationen (`getOrCreateFormSecret`, `resolveFormId`, `saveFormSnapshot`, `getFormSnapshot`, `getFormSnapshotForForm`, `listFormSnapshots`) unverändert; `Store` hält eine Instanz und delegiert je Methode in einer Zeile, die öffentliche Signatur ist gleich geblieben (`SaveFormSnapshotInput` wird aus dem Modul wiederverwendet). `store.ts` schrumpft von 8177 auf 8098 Zeilen. Beleg: `packages/engine/test/store-forms.test.ts` (5 Fälle, vor dem Modul rot mit „Cannot find module '../src/store-forms.ts'", danach grün) prüft das Modul und die Gleichheit mit der Fassade; `forms.test.ts` läuft unverändert weiter.
 
 **Reihenfolge:** `store.ts`, `http.ts`, `mcp/tools.ts`, `app.js`; `mount.ts` entfällt mit P3-1. Nicht mehrere große Module gleichzeitig aufteilen.
 
@@ -203,4 +205,5 @@ Neu erzeugte Uploads werden nach fehlgeschlagenem DB-Commit kompensiert; negativ
 | 07.10.2026 | PR #1 (Härtung, ADRs 0015–0018), PR #2 (MCP-Paging) und PR #3 (Schreib-`outputSchema`) gemergt; Dialoge als PR #4 offen. P3-3-Punkte 6+7 in Fahrplan und Stand nachgetragen; Messwerte-Block neu gerendert. |
 | 07.10.2026 | P3-3-Punkt 8 (Manifest-Quelle für Matrix und Server-Spiegel) umgesetzt, R8 geschlossen; nächster offener Block ist P3-2 (God-Files). |
 | 07.10.2026 | P3-2 zweiter Schritt: Row-Typen und Mapper des `store.ts`-Tails in vier Fach-Module ausgelagert (`store.ts` 8831 → 8179 Zeilen), Store-API unverändert. Zerlegung der `Store`-Klasse wartet auf eine Designentscheidung (ADR). |
+| 08.10.2026 | ADR-0019 (Store als Fassade über Fach-Module, vorgeschlagen; Variante A von Adi gewählt). P3-2 dritter Schritt: Formular-Operationen in `store-forms.ts` (`FormsRepository`), `store.ts` 8177 → 8098 Zeilen, Store-API unverändert. |
 | 28.09.2026 | Folge-Diff fachlich geprüft und alle P0-Gates grün ausgeführt. A11y-Browser-Test gegen Debounce/Ladeablauf synchronisiert; vollständiges `pnpm verify`, Visual, Parity, Import, Coverage, PostgreSQL und `quality:check` bestanden. PostgreSQL lief isoliert lokal gegen 18.6, ohne den bestehenden Dienst anzutasten. `data/` und leeres `full.log` als lokale Laufzeit-/Testausgaben klassifiziert und ignoriert. Folge-Diff ist noch zu sichern; P3-2 startet erst nach sauberem Status. |

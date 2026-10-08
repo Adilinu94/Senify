@@ -7,11 +7,11 @@
 
 | Gate | Kommando | Ergebnis |
 |---|---|---|
-| P3-2: Typecheck, Lint | `pnpm typecheck`, `pnpm lint` | **Grün am 07.10.2026** nach dem zweiten Store-Schritt (Form-, Referenz-, Job- und Settings-Mapper) |
-| P3-2: Volltest | `pnpm test` | **07.10.2026: alle Engine-, Editor- und MCP-Tests grün; zwei Browser-Tests rot, keiner durch die Auslagerung verursacht** (Einzelheiten unter „Volltest") |
-| P3-2: Coverage | `pnpm test:coverage` | **Grün am 07.10.2026**, keine Schwellenfehler; Messwerte siehe Coverage-Block |
-| Patch-Prüfung | `git diff --check` | **Grün am 07.10.2026** |
-| Doku-Messwerte | `pnpm quality:render` + `pnpm quality:check` | **Grün am 07.10.2026** auf dem gemergten Stand (PRs #1–#3); gerenderte Werte stimmen mit dem Lauf überein |
+| P3-2: Typecheck, Lint | `pnpm typecheck`, `pnpm lint` | **Grün am 08.10.2026** nach dem dritten Store-Schritt (Formular-Modul `store-forms.ts`, ADR-0019) |
+| P3-2: Volltest | `pnpm test` | **08.10.2026: Exit 0, keine fehlgeschlagene Datei** (lokal, Node 22, ohne `TEST_DATABASE_URL`). Die beiden Browser-Tests, die am 07.10.2026 rot waren (`release-cutover-browser`, `accessibility-browser`), liefen in diesem Lauf grün; die Ursachen unter „Volltest“ sind damit nicht behoben, sondern traten nicht auf |
+| P3-2: Coverage | `pnpm test:coverage` | **Grün am 08.10.2026**, Exit 0, keine Schwellenfehler; Messwerte siehe Coverage-Block |
+| Patch-Prüfung | `git diff --check` | **Grün am 08.10.2026** |
+| Doku-Messwerte | `pnpm quality:render` + `pnpm quality:check` | **Grün am 08.10.2026** auf dem Stand des dritten P3-2-Schritts; gerenderte Werte stimmen mit dem Lauf überein |
 | Build, App-Gates und PostgreSQL | `pnpm verify`, `pnpm test:visual`, `pnpm verify:parity`, `pnpm verify:import`, `pnpm test:postgres` | **Grün am 28.09.2026** auf dem zuvor gesicherten Folge-Diff; für die reine Mapper-Auslagerung nicht erneut erforderlich |
 | CI auf dem PR-Branch | `.github/workflows/verify.yml` (Push und Pull Request) | **Alle 8 Läufe grün am 04.10.2026** auf `0386cf9` (verify, Windows, PostgreSQL, Coverage); der Visual-Test lief mit den Linux-Baselines von `master`. Davor war auf `6c35e3e` ein `verify`-Push-Lauf an einem Timeout in `accessibility-browser.test.ts` rot, der Pull-Request-Lauf desselben Codes grün, lokal 3 von 3 Läufen grün: als Timing-Flake gewertet, nicht als Befund |
 | Route-Matrix | `pnpm route-matrix` | Kommando nicht separat ausgeführt; `route-matrix.test.ts` ist Teil des Volltests |
@@ -46,18 +46,18 @@ Der aktuelle Lauf vom 07.10.2026 (lokal auf Windows, TEMP/TMP auf dem Laufwerk d
      Nicht von Hand editieren: dieser Block ist ein Messwert, und `pnpm quality:check`
      lässt den Lauf rot werden, sobald Dokument und Lauf auseinanderlaufen. -->
 
-**Gemessen:** 2026-10-07 · vitest coverage (v8)
+**Gemessen:** 2026-10-08 · vitest coverage (v8)
 
 | Pfad | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
 | `packages/engine/src/http.ts` | 91.34 | 73.03 | 93.66 | 91.34 |
-| `packages/engine/src/store.ts` | 84.61 | 77.26 | 94.03 | 84.61 |
+| `packages/engine/src/store.ts` | 84.56 | 77.28 | 94.03 | 84.56 |
 | `packages/engine/src/lifecycle.ts` | 87.01 | 74.19 | 100.00 | 87.01 |
 | `packages/engine/src/forms.ts` | 84.25 | 73.62 | 100.00 | 84.25 |
 | `packages/mcp/src/tools.ts` | 91.24 | 63.82 | 87.06 | 91.24 |
 | `packages/editor/src/state/*` (14 Dateien) | 66.98 bis 100.00 | 56.75 bis 100.00 | 66.66 bis 100.00 | 66.98 bis 100.00 |
 
-**Über alle gemessenen Dateien:** Statements 87.69 · Branches 73.44 · Functions 91.07 · Lines 87.69
+**Über alle gemessenen Dateien:** Statements 87.68 · Branches 73.44 · Functions 91.07 · Lines 87.68
 
 <!-- messwerte:ende -->
 
