@@ -2,11 +2,25 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash } from "node:crypto";
 import { SenifyError } from "@senify/core";
 import { isPublicAddress } from "@senify/core/net";
 import type { Registry } from "@senify/section-sdk";
 import { paginate, parsePaging } from "./paging.ts";
+import {
+  BUILD_ROOT_FILES,
+  buildRootFile,
+  servePreviewFile,
+  serveReleaseFile,
+} from "./http-build-files.ts";
+import {
+  CONTENT_TYPES,
+  sendError,
+  sendFile,
+  sendJson,
+  sendRedirect,
+  sendText,
+} from "./http-response.ts";
 import {
   AuthError,
   CreateTokenBodySchema,
@@ -52,7 +66,7 @@ import { parseUndoBatchBody, undoBatches } from "./undo-batch.ts";
 import { motionVendorFiles, parseDurationMs } from "@senify/renderer";
 import { resolveTheme } from "@senify/tokens";
 import { draftConflictError } from "./paths.ts";
-import { RateLimiter, RateLimitError } from "./rate-limit.ts";
+import { RateLimiter } from "./rate-limit.ts";
 import { hardGuardrailsForTree } from "./guardrails.ts";
 import {
   CreateStyleRuleBodySchema,
@@ -75,9 +89,6 @@ import {
   expirePreviews,
   publishRelease,
   requestChanges,
-  resolveBuildFile,
-  resolvePreviewFile,
-  resolveReleaseFile,
   restoreRevisionAsDraft,
   submitReview,
   type LifecycleContext,
@@ -101,7 +112,7 @@ import {
   type SmtpSettingsPatch,
 } from "./store.ts";
 import { backupStatus, createBackup, listBackups, restoreBackup } from "./backup.ts";
-import { MaintenanceError, type MaintenanceGate } from "./maintenance.ts";
+import type { MaintenanceGate } from "./maintenance.ts";
 import { reviewVisualFileNames, type ReviewVisualDriver } from "./review-visuals.ts";
 import { sendTestMail, smtpMailSender, type MailSender } from "./mailer.ts";
 import { createComfyImageProvider } from "./image-comfy.ts";
@@ -331,7 +342,7 @@ import type {
 } from "./types.ts";
 import { IMAGE_JOB_STATUSES, REDESIGN_PROPOSAL_STATUSES, REVIEW_STATUSES } from "./types.ts";
 import { isRedesignProposalStatus } from "./redesign-proposal-contract.ts";
-import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { extname } from "node:path";
 
 const BODY_LIMIT_BYTES = 1024 * 1024;
@@ -603,214 +614,6 @@ type RouteResult = {
   };
 };
 
-const CONTENT_TYPES: Record<string, string> = {
-  ".html": "text/html; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".mjs": "text/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".map": "application/json; charset=utf-8",
-  ".webmanifest": "application/manifest+json; charset=utf-8",
-  ".txt": "text/plain; charset=utf-8",
-  ".xml": "application/xml; charset=utf-8",
-  ".md": "text/markdown; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".gif": "image/gif",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".webp": "image/webp",
-  ".avif": "image/avif",
-  ".woff2": "font/woff2",
-  ".woff": "font/woff",
-  ".ttf": "font/ttf",
-  ".otf": "font/otf",
-  ".ico": "image/x-icon",
-  ".webm": "video/webm",
-  ".mp4": "video/mp4",
-  ".pdf": "application/pdf",
-};
-
-function sendFile(
-  res: ServerResponse,
-  file: {
-    path: string;
-    contentType?: string;
-    headers?: Record<string, string>;
-  },
-): void {
-  if (!existsSync(file.path) || !statSync(file.path).isFile()) {
-    res.writeHead(404);
-    res.end();
-    return;
-  }
-  const contentType =
-    file.contentType ??
-    CONTENT_TYPES[extname(file.path).toLowerCase()] ??
-    "application/octet-stream";
-  res.writeHead(200, {
-    "content-type": contentType,
-    "content-length": statSync(file.path).size,
-    // The declared type is the type: no MIME sniffing of stored or baked files.
-    "x-content-type-options": "nosniff",
-    // An SVG can carry script; opened as a document it would run in the origin
-    // that serves it. `sandbox` strips script and origin from the document;
-    // <img> and CSS use are unaffected. The upload check accepts any `image/*`
-    // case-sensitively, browsers compare the type case-insensitively - so
-    // does this.
-    ...(contentType.toLowerCase().startsWith("image/svg+xml")
-      ? { "content-security-policy": "sandbox" }
-      : {}),
-    ...(file.headers ?? {}),
-  });
-  createReadStream(file.path).pipe(res);
-}
-
-function statusFor(error: SenifyError): number {
-  switch (error.category) {
-    case "validation":
-      return 400;
-    case "guardrail":
-      return 422;
-    case "conflict":
-      return 409;
-    case "auth":
-      return 403;
-    case "not_found":
-      return 404;
-  }
-}
-
-function sendJson(
-  res: ServerResponse,
-  status: number,
-  body?: unknown,
-  headers: Record<string, string> = {},
-): void {
-  if (body === undefined) {
-    res.writeHead(status, headers);
-    res.end();
-    return;
-  }
-  const payload = JSON.stringify(body);
-  res.writeHead(status, {
-    "content-type": "application/json; charset=utf-8",
-    "content-length": Buffer.byteLength(payload),
-    ...headers,
-  });
-  res.end(payload);
-}
-
-function sendRedirect(res: ServerResponse, location: string): void {
-  res.writeHead(303, { location });
-  res.end();
-}
-
-function sendText(
-  res: ServerResponse,
-  status: number,
-  text: string,
-  contentType: string,
-  headers: Record<string, string> = {},
-): void {
-  res.writeHead(status, {
-    "content-type": contentType,
-    "content-length": Buffer.byteLength(text),
-    ...headers,
-  });
-  res.end(text);
-}
-
-function sendError(res: ServerResponse, error: unknown): void {
-  if (error instanceof RateLimitError) {
-    sendJson(
-      res,
-      429,
-      {
-        error: {
-          category: error.category,
-          message: error.message,
-          ...(error.suggestion !== undefined
-            ? { suggestion: error.suggestion }
-            : {}),
-        },
-      },
-      { "retry-after": String(error.retryAfterSeconds) },
-    );
-    return;
-  }
-  if (error instanceof MaintenanceError) {
-    sendJson(
-      res,
-      503,
-      {
-        error: {
-          category: error.category,
-          message: error.message,
-          ...(error.field !== undefined ? { field: error.field } : {}),
-          ...(error.suggestion !== undefined
-            ? { suggestion: error.suggestion }
-            : {}),
-        },
-      },
-      { "retry-after": "5" },
-    );
-    return;
-  }
-  if (error instanceof FormRejection) {
-    sendJson(
-      res,
-      error.status,
-      {
-        error: {
-          category: error.category,
-          reason: error.reason,
-          message: error.message,
-          ...(error.field !== undefined ? { field: error.field } : {}),
-          ...(error.suggestion !== undefined
-            ? { suggestion: error.suggestion }
-            : {}),
-        },
-      },
-    );
-    return;
-  }
-  if (error instanceof AuthError) {
-    sendJson(res, error.status, {
-      error: {
-        category: error.category,
-        message: error.message,
-        ...(error.field !== undefined ? { field: error.field } : {}),
-        ...(error.suggestion !== undefined
-          ? { suggestion: error.suggestion }
-          : {}),
-      },
-    });
-    return;
-  }
-  if (error instanceof SenifyError) {
-    sendJson(res, statusFor(error), {
-      error: {
-        category: error.category,
-        message: error.message,
-        ...(error.opIndex !== undefined ? { opIndex: error.opIndex } : {}),
-        ...(error.field !== undefined ? { field: error.field } : {}),
-        ...(error.suggestion !== undefined
-          ? { suggestion: error.suggestion }
-          : {}),
-      },
-    });
-    return;
-  }
-  console.error("[engine] unexpected error", error);
-  sendJson(res, 500, {
-    error: {
-      category: "internal",
-      message: "Internal engine error",
-    },
-  });
-}
-
 async function readJsonBody(
   req: IncomingMessage,
   limitBytes = BODY_LIMIT_BYTES,
@@ -887,14 +690,6 @@ export function clientIpOf(req: Pick<IncomingMessage, "headers" | "socket">): st
   const header = Array.isArray(forwarded) ? forwarded.join(",") : forwarded;
   const last = header?.split(",").at(-1)?.trim();
   return last !== undefined && last !== "" ? last : peer;
-}
-
-// Constant-time comparison of a presented token with the stored one.
-function sameToken(presented: string | null, expected: string): boolean {
-  if (presented === null) return false;
-  const a = Buffer.from(presented);
-  const b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 function originOf(req: IncomingMessage): string | undefined {
@@ -5271,257 +5066,6 @@ function limitParam(url: URL, fallback = 50): number {
   return value;
 }
 
-// Preview files are public-by-token: browsers open the signed URL directly,
-// so no bearer token is required — the token travels as a query parameter.
-async function servePreviewFile(
-  context: EngineContext,
-  res: ServerResponse,
-  previewId: string,
-  relativePath: string,
-  url: URL,
-): Promise<void> {
-  let preview;
-  try {
-    preview = await context.store.getPreview(previewId);
-  } catch (error) {
-    sendError(res, error);
-    return;
-  }
-  if (!sameToken(url.searchParams.get("token"), preview.token)) {
-    sendError(
-      res,
-      new AuthError(401, "Preview token is missing or invalid", {
-        suggestion: "Use the signed preview URL from the review item.",
-      }),
-    );
-    return;
-  }
-  if (preview.status !== "ready" || Date.parse(preview.expiresAt) <= Date.now()) {
-    if (preview.status === "ready") {
-      await context.store.markPreviewExpired(preview.id);
-    }
-    sendError(
-      res,
-      new SenifyError("not_found", "Preview is expired", {
-        suggestion: "Create a new preview.",
-      }),
-    );
-    return;
-  }
-  const file = previewFileTarget(preview.buildRef, relativePath, (path) =>
-    resolvePreviewFile(preview, path),
-  );
-  if (!file) {
-    sendError(
-      res,
-      new SenifyError("validation", "Invalid preview file path", {
-        field: "path",
-      }),
-    );
-    return;
-  }
-  // An HTML document links the build's own files root-absolute
-  // (/assets/theme.css, /_astro/…, page links). Nothing serves the build root
-  // next to the preview, so the document keeps all of them inside its own
-  // build — including for previews baked before the pages became self-contained.
-  if (extname(file).toLowerCase() === ".html") {
-    const html = readFileSync(file, "utf8");
-    sendText(
-      res,
-      200,
-      rewriteToBuildPrefix(html, `/api/previews/${preview.id}/files/`, preview.token),
-      CONTENT_TYPES[".html"] ?? "text/html; charset=utf-8",
-      { "cache-control": "no-store" },
-    );
-    return;
-  }
-  sendFile(res, { path: file });
-}
-
-// `/assets/theme.css` → `<prefix>assets/theme.css?token=…`: the leading slash
-// of every local URL is replaced and the preview token is carried into the
-// sub-resource request, because the signed preview serves every file by token.
-// Foreign URLs (http/https, protocol-relative) and fragment links stay as they
-// are.
-function rewriteToBuildPrefix(html: string, prefix: string, token: string): string {
-  const suffix = `token=${encodeURIComponent(token)}`;
-  const local = (value: string): string => {
-    if (!value.startsWith("/") || value.startsWith("//")) return value;
-    const hashIndex = value.indexOf("#");
-    const beforeHash = hashIndex >= 0 ? value.slice(0, hashIndex) : value;
-    const hash = hashIndex >= 0 ? value.slice(hashIndex) : "";
-    const queryIndex = beforeHash.indexOf("?");
-    const path = queryIndex >= 0 ? beforeHash.slice(0, queryIndex) : beforeHash;
-    const query = queryIndex >= 0 ? beforeHash.slice(queryIndex + 1) : "";
-    const merged = query === "" ? suffix : `${query}&${suffix}`;
-    return `${prefix}${path.slice(1)}?${merged}${hash}`;
-  };
-  return html.replace(
-    /\b(href|src|srcset)="([^"]*)"/g,
-    (match, attribute: string, value: string) => {
-      const rewritten =
-        attribute === "srcset"
-          ? value
-              .split(",")
-              .map((entry) => {
-                const [url, ...rest] = entry.trim().split(/\s+/);
-                return [local(url ?? ""), ...rest].join(" ");
-              })
-              .join(", ")
-          : local(value);
-      return rewritten === value ? match : `${attribute}="${rewritten}"`;
-    },
-  );
-}
-
-// The published site: releases have no token, a browser opens them directly
-// (`/api/releases/<id>/files/…`), and their pages link the build root files
-// (theme.css, _astro/*, islands.js) that `/assets/<file>` and `/_astro/<file>`
-// serve from the newest build.
-async function serveReleaseFile(
-  context: EngineContext,
-  res: ServerResponse,
-  releaseId: string,
-  relativePath: string,
-): Promise<void> {
-  let release;
-  try {
-    release = await context.store.getRelease(releaseId);
-  } catch (error) {
-    sendError(res, error);
-    return;
-  }
-  if (release.buildRef === null) {
-    sendError(
-      res,
-      new SenifyError("not_found", `Release "${releaseId}" has no build`, {
-        suggestion: "Publish the site first.",
-      }),
-    );
-    return;
-  }
-  const file = previewFileTarget(release.buildRef, relativePath, (path) =>
-    resolveReleaseFile(release, path),
-  );
-  if (!file) {
-    sendError(
-      res,
-      new SenifyError("validation", "Invalid release file path", {
-        field: "path",
-      }),
-    );
-    return;
-  }
-  sendFile(res, { path: file });
-}
-
-// A build is a directory tree: a request that ends in a folder (or at the build
-// root itself) answers with its index page.
-function previewFileTarget(
-  root: string,
-  relativePath: string,
-  resolveInBuild: (path: string) => string | undefined,
-): string | undefined {
-  const requested =
-    relativePath === "" || relativePath.endsWith("/")
-      ? `${relativePath}index.html`
-      : relativePath;
-  const file = resolveInBuild(requested);
-  if (file === undefined) return undefined;
-  if (existsSync(file) && statSync(file).isDirectory()) {
-    return resolveBuildFile(root, `${requested.replace(/\/+$/, "")}/index.html`);
-  }
-  return file;
-}
-
-// Root files of a bake. The baked pages link them as `/assets/theme.css`,
-// `/assets/islands.js` and `/_astro/<hash>.css`; the asset store keeps its own
-// `/assets/<id>/<file>` route (a different prefix depth, no collision).
-const BUILD_ROOT_FILES = new Set([
-  "theme.css",
-  "components.css",
-  "sections.css",
-  "islands.js",
-  "page.js",
-  "forms.js",
-  // The theme webfonts (Sora, Inter): the theme CSS references them as root
-  // files, the bake copies them next to it (ticket 17).
-  "sora-400.woff2",
-  "sora-600.woff2",
-  "sora-700.woff2",
-  "inter-400.woff2",
-  "inter-500.woff2",
-  "inter-600.woff2",
-]);
-
-// Which build serves those root paths? `?release=`/`?preview=` pick one
-// explicitly (the preview needs its token), otherwise the published state wins:
-// the active release of a site, and while nothing is published yet the newest
-// ready preview. The engine is a local, single-operator program.
-async function currentBuildRoot(
-  context: EngineContext,
-  url: URL,
-): Promise<string | undefined> {
-  const releaseId = url.searchParams.get("release");
-  if (releaseId !== null) {
-    const release = await context.store.getRelease(releaseId);
-    return release.buildRef ?? undefined;
-  }
-  const previewId = url.searchParams.get("preview");
-  if (previewId !== null) {
-    const preview = await context.store.getPreview(previewId);
-    if (!sameToken(url.searchParams.get("token"), preview.token)) {
-      throw new AuthError(401, "Preview token is missing or invalid", {
-        suggestion: "Use the signed preview URL from the review item.",
-      });
-    }
-    return preview.buildRef;
-  }
-  const sites = await context.store.listSites();
-  for (const site of sites) {
-    const activeId = await context.store.getActiveReleaseId(site.id);
-    if (activeId === null) continue;
-    const release = await context.store.getRelease(activeId);
-    if (release.buildRef !== null && existsSync(release.buildRef)) {
-      return release.buildRef;
-    }
-  }
-  let newest: { buildRef: string; createdAt: string } | undefined;
-  for (const site of sites) {
-    for (const preview of await context.store.listPreviews(site.id)) {
-      if (preview.status !== "ready") continue;
-      if (Date.parse(preview.expiresAt) <= Date.now()) continue;
-      if (newest === undefined || preview.createdAt > newest.createdAt) {
-        newest = preview;
-      }
-    }
-  }
-  return newest?.buildRef;
-}
-
-async function buildRootFile(
-  context: EngineContext,
-  url: URL,
-  relativePath: string,
-): Promise<{ status: number; file: { path: string; headers: Record<string, string> } }> {
-  const root = await currentBuildRoot(context, url);
-  if (root === undefined) {
-    throw new SenifyError("not_found", `Build file "${relativePath}" does not exist`, {
-      suggestion: "Publish a release or create a preview first.",
-    });
-  }
-  const file = resolveBuildFile(root, relativePath);
-  if (file === undefined || !existsSync(file) || !statSync(file).isFile()) {
-    throw new SenifyError("not_found", `Build file "${relativePath}" does not exist`, {
-      field: "filename",
-    });
-  }
-  // Revalidate: a new release replaces the file under the stable path.
-  return {
-    status: 200,
-    file: { path: file, headers: { "cache-control": "public, max-age=0, must-revalidate" } },
-  };
-}
 
 async function handleRequest(
   context: EngineContext,
