@@ -100,27 +100,107 @@ export const INSPECTOR_STYLES = `
   padding: var(--ed-space-4) 0;
   color: var(--ed-ink-muted);
 }
-.senify-inspector__group { margin-bottom: var(--ed-space-3); }
+/* Kategorie als Akkordeon: fetter Titel links, Indikator und Pfeil rechts, duenne
+   Trennlinie zwischen den Kategorien. */
+.senify-inspector__group {
+  margin: 0;
+  padding-bottom: var(--ed-space-2);
+  border-bottom: 1px solid var(--ed-line-hairline);
+}
 .senify-inspector__group-title {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--ed-space-2);
   width: 100%;
-  min-height: 28px;
+  min-height: 36px;
   padding: 0;
   border: 0;
+  background: transparent;
+  color: var(--ed-ink-strong);
+  font: inherit;
+  font-size: var(--ed-text-12);
+  font-weight: var(--ed-weight-semibold);
+  text-align: left;
+  cursor: pointer;
+}
+.senify-inspector__group-label { flex: 1 1 auto; }
+.senify-inspector__group-title:hover { color: var(--ed-ink-base); }
+.senify-inspector__group-title .ic { transition: transform var(--ed-t-1) var(--ed-ease-standard); }
+/* Offen zeigt der Pfeil nach oben, zu nach unten. */
+.senify-inspector__group[data-collapsed="false"] .senify-inspector__group-chevron { transform: rotate(180deg); }
+.senify-inspector__group-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--ed-radius-full);
+  background: var(--ed-signal-accent);
+}
+/* Segment-Gruppe (Richtung, Textausrichtung, Umbruch, Schriftschnitt). */
+.senify-inspector__segmented {
+  display: flex;
+  width: 100%;
+  border: 1px solid var(--ed-line-control);
+  border-radius: var(--ed-radius-sm);
+  overflow: hidden;
+}
+.senify-inspector__segmented button {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 28px;
+  padding: 0 var(--ed-space-1);
+  white-space: nowrap;
+  border: 0;
+  border-left: 1px solid var(--ed-line-hairline);
   background: transparent;
   color: var(--ed-ink-muted);
   font: inherit;
   font-size: var(--ed-text-11);
-  font-weight: var(--ed-weight-medium);
-  letter-spacing: var(--ed-track-micro);
-  text-transform: uppercase;
   cursor: pointer;
 }
-.senify-inspector__group-title:hover { color: var(--ed-ink-base); }
-.senify-inspector__group-title .ic { transition: transform var(--ed-t-1) var(--ed-ease-standard); }
-.senify-inspector__group[data-collapsed="true"] .senify-inspector__group-title .ic { transform: rotate(-90deg); }
+.senify-inspector__segmented button:first-child { border-left: 0; }
+.senify-inspector__segmented button:hover { background: var(--ed-fill-hover); color: var(--ed-ink-base); }
+.senify-inspector__segmented button[aria-pressed="true"] {
+  background: var(--ed-fill-select);
+  color: var(--ed-ink-strong);
+}
+/* Die Einheit sitzt im Zahlenfeld: Text rechts statt eigener Box. */
+.ed-field__unit { display: flex; flex: none; align-items: center; }
+.ed-field__unit select {
+  width: auto;
+  min-width: 0;
+  padding: 0 var(--ed-space-1);
+  border: 0;
+  background: transparent;
+  color: var(--ed-ink-muted);
+  font-size: var(--ed-text-11);
+  text-transform: uppercase;
+  appearance: none;
+  cursor: pointer;
+}
+.ed-field__unit select:hover { color: var(--ed-ink-base); }
+/* Die Schrittpfeile erscheinen nur beim Ueberfahren oder Fokussieren. */
+.ed-field .ed-stepper { opacity: 0; }
+.ed-field:hover .ed-stepper, .ed-field:focus-within .ed-stepper { opacity: 1; }
+.senify-inspector__more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ed-space-2);
+  width: 100%;
+  min-height: 32px;
+  margin-top: var(--ed-space-2);
+  border: 1px solid var(--ed-line-control);
+  border-radius: var(--ed-radius-sm);
+  background: transparent;
+  color: var(--ed-ink-muted);
+  font: inherit;
+  font-size: var(--ed-text-12);
+  cursor: pointer;
+}
+.senify-inspector__more:hover { color: var(--ed-ink-base); background: var(--ed-fill-hover); }
+.senify-inspector__more[data-expanded="true"] .senify-inspector__more-chevron { transform: rotate(180deg); }
 .senify-inspector__field {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) auto;
