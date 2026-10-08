@@ -67,6 +67,18 @@
    betroffenen Knoten. Die Runtime **zaehlt** mehrere Hiding-Presets herunter; Inline-Failsafe
    entfernt die Klasse nach 1600 ms; `<noscript>` macht sie sichtbar (einzige korrekte
    `!important`-Stelle). Ohne JS/bei Runtime-Fehler ist der Inhalt garantiert sichtbar.
+   **CSS-Einlauf oberhalb der Falz:** `fade-up`, `fade-up-deblur` und `scroll-reveal` (reine
+   Opacity-plus-Weg-Reveals) warten dort nicht auf das Skript. `cssEntryNodeIds`
+   (`registry/components/map.tsx`) waehlt die Knoten: die zulaessigen Reveals des ersten
+   Bildschirms (Kopf-Chrome plus die ersten zwei Inhalts-Sektionen, dieselbe Strecke wie das
+   LCP-Bild) und jeder zulaessige Knoten mit `trigger: "load"`. Sie tragen `data-motion-enter`
+   statt `data-motion-pending`, landen als `MotionCssEntry` (nicht als Payload-Entry) in
+   `motionConfigsForTree` und werden von `motionEntryCss` als Keyframes plus Regel je Knoten in
+   den Seitenkopf geschrieben (`backwards`-Fuellung, Reduced-Motion nach Policy). Eine Seite,
+   deren einzige Motion so einlaeuft, liefert kein Skript und keinen Failsafe. Der Editor
+   (Canvas, Live-Modus) uebergibt keine Auswahl und laesst jeden Reveal vom Skript laufen.
+   Messung (Chromium, Slow-4G + 4x CPU, Median): Hero-`fade-up` LCP 1100 -> 780 ms
+   (Seite ohne Motion: 520 ms); `masked-headline` bleibt beim Skript (ca. 1200 ms).
 4. **Motion-off (Freeze, siehe `freeze-spec.md`):** `window.__SENIFY_MOTION__ = "off"`
    (per `addInitScript` in Tests) laesst die Runtime sofort aussteigen und den Pending-Zaehler
    aufloesen — der Release rendert dann exakt den Baseline-Zustand wie der Canvas.

@@ -1,6 +1,7 @@
 export {
   SECTION_COMPONENTS,
   SectionTree,
+  cssEntryNodeIds,
   getSectionComponent,
   mainRange,
   priorityImageNodeId,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  MOTION_CSS_ENTRY_PRESETS,
   MOTION_CSS_PRESETS,
   MOTION_PRESETS,
   MOTION_PRESET_FLAGS,
@@ -7,6 +8,7 @@ import {
   MOTION_PROFILE_RULES,
   hasMotionFlag,
   motionCssEffect,
+  motionCssEntryPreset,
   motionPends,
   motionPreset,
   motionProfileViolations,
@@ -177,5 +179,29 @@ describe("motion preset registry", () => {
         { nodeId: "a", preset: "char-split", intensity: 9, enabled: false },
       ]),
     ).toEqual([]);
+  });
+});
+
+describe("CSS entry presets", () => {
+  it("accepts only the reveals that are opacity plus travel", () => {
+    expect(motionCssEntryPreset({ preset: "fade-up" })).toBe(true);
+    expect(motionCssEntryPreset({ preset: "fade-up-deblur", trigger: "load" })).toBe(true);
+    expect(motionCssEntryPreset({ preset: "scroll-reveal", trigger: "viewport" })).toBe(true);
+    // They rebuild the DOM or need a plugin: the page script keeps them.
+    for (const preset of ["masked-headline", "stagger-cascade", "char-split", "counter", "scrub-pin"]) {
+      expect(motionCssEntryPreset({ preset }), preset).toBe(false);
+    }
+  });
+
+  it("ignores disabled specs, hover triggers and a missing spec", () => {
+    expect(motionCssEntryPreset({ preset: "fade-up", enabled: false })).toBe(false);
+    expect(motionCssEntryPreset({ preset: "fade-up", trigger: "hover" })).toBe(false);
+    expect(motionCssEntryPreset(undefined)).toBe(false);
+  });
+
+  it("only lists presets that hide, so a CSS entry replaces a pending marker", () => {
+    for (const id of MOTION_CSS_ENTRY_PRESETS) {
+      expect(motionPends(id), id).toBe(true);
+    }
   });
 });

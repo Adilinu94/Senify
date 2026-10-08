@@ -16,7 +16,11 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { SenifyError } from "@senify/core";
 import { bundledSections } from "@senify/registry";
-import { getSectionComponent, type AssetDelivery } from "@senify/registry/components";
+import {
+  cssEntryNodeIds,
+  getSectionComponent,
+  type AssetDelivery,
+} from "@senify/registry/components";
 import {
   describePrimitive,
   isCatalogPrimitive,
@@ -43,6 +47,7 @@ import {
 import {
   motionConfigsForTree,
   motionDataFor,
+  motionEntryCss,
   pageEffectsForTree,
   pageTransitionCss,
   renderIslandsScript,
@@ -420,10 +425,17 @@ export async function bakeSite(
     };
   });
   for (const page of expandedPages) {
-    const { configs, warnings: motionWarnings } = motionConfigsForTree(
-      page.tree,
-      input.motionTokens,
+    // Reveals above the fold play as CSS (no wait for the page script): the
+    // registry decides which nodes, the markup is stamped from the same call.
+    const cssEntry = cssEntryNodeIds(
+      page.tree.nodes[page.tree.rootNodeId]?.children ?? [],
+      page.tree.nodes,
     );
+    const {
+      configs,
+      warnings: motionWarnings,
+      entries: motionEntries,
+    } = motionConfigsForTree(page.tree, input.motionTokens, { cssEntry });
     for (const warning of motionWarnings) {
       warnings.push({
         code: warning.code,
@@ -433,8 +445,15 @@ export async function bakeSite(
         suggestion: warning.suggestion,
       });
     }
-    const { transition, css: effectCss, preloader, warnings: effectWarnings } =
-      pageEffectsForTree(page.tree);
+    const {
+      transition,
+      css: effectsCss,
+      preloader,
+      warnings: effectWarnings,
+    } = pageEffectsForTree(page.tree);
+    const effectCss = [effectsCss, motionEntryCss(motionEntries)]
+      .filter((block) => block !== "")
+      .join("\n");
     for (const warning of effectWarnings) {
       warnings.push({
         code: warning.code,

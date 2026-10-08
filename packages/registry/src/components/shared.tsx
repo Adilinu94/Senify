@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import { motionCssEffect, motionPends, type Node, type PropValue } from "@senify/section-sdk";
 import { scopeNameFor } from "@senify/widget-engine";
 import { partVarsFor, styleValue } from "../style.ts";
@@ -20,7 +20,17 @@ export type SectionContext = {
   // The baked page: external iframes wait for the visitor's consent (see
   // ConsentGate). The editor canvas leaves this off and shows live content.
   gateEmbeds?: boolean;
+  // The baked page ships the CSS entry rules (`motionEntryCss` in the renderer):
+  // reveals above the fold are stamped `data-motion-enter` and play without the
+  // motion scripts. The editor canvas leaves this off — its live mode runs every
+  // reveal through the page script, and no entry rule exists there.
+  cssEntry?: boolean;
 };
+
+// The nodes that enter through CSS on this render (`cssEntryNodeIds`). The tree
+// root provides them, the section shell and the primitive root read them — a
+// context rather than a prop so the 30 section components stay as they are.
+export const MotionEntryContext = createContext<ReadonlySet<string> | undefined>(undefined);
 
 export type AssetVariantFormat = "avif" | "webp";
 
@@ -423,10 +433,18 @@ export function focalStyle(asset: unknown): React.CSSProperties | undefined {
 // attribute is inert there because the pending CSS lives only in the bake.
 // The pure-CSS effects (M6) stamp `data-motion="<preset>"` instead: the page
 // block targets it, one block per preset per page.
-export function motionPendingAttrs(node: Node): Record<string, string> {
+//
+// A reveal that enters through CSS (`entering`: the bake decided it is above the
+// fold) is not hidden by the marker at all: it gets `data-motion-enter` and the
+// page's entry rule animates it from the first paint, script or not.
+export function motionPendingAttrs(
+  node: Node,
+  entering?: ReadonlySet<string>,
+): Record<string, string> {
   const motion = node.motion;
   if (motion === undefined || motion.enabled === false) return {};
   if (motionCssEffect(motion.preset)) return { "data-motion": motion.preset };
+  if (entering?.has(node.id) === true) return { "data-motion-enter": motion.preset };
   return motionPends(motion.preset) ? { "data-motion-pending": "" } : {};
 }
 
@@ -459,13 +477,14 @@ export function SectionShell({
   // tag, and the role gives assistive technology the same structure.
   role?: "banner" | "contentinfo";
 }): React.JSX.Element {
+  const entering = useContext(MotionEntryContext);
   return (
     <section
       role={role}
       data-section={section}
       data-variant={node.variant}
       data-node-id={node.id}
-      {...motionPendingAttrs(node)}
+      {...motionPendingAttrs(node, entering)}
       className={cx(className, ...nodeRootClasses(node))}
       style={{ ...sectionStyle(node), ...style }}
     >

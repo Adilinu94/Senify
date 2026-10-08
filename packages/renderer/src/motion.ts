@@ -61,6 +61,22 @@ export type MotionData = {
   entries: MotionConfig[];
 };
 
+// A reveal the page plays as a CSS animation (`motionEntryCss`): above the fold
+// it must not wait for the page script. It carries what the keyframes need and
+// nothing else — no payload entry, no pending marker, no runtime.
+export type MotionCssEntry = {
+  nodeId: string;
+  preset: "fade-up" | "fade-up-deblur" | "scroll-reveal";
+  // Travel in px, 0 when the preset does not move.
+  travel: number;
+  blur: boolean;
+  durationMs: number;
+  delayMs: number;
+  // A CSS timing function; the preset default when the token has none.
+  ease: string;
+  reducedMotion: "static" | "fade" | "off";
+};
+
 export type MotionWarning = {
   code?:
     | "unimplemented-preset"
@@ -87,11 +103,21 @@ export function parseDurationMs(input: string): number {
   return match[2] === "s" ? value * 1000 : value;
 }
 
+export type MotionConfigOptions = {
+  // The nodes the bake plays through CSS (`cssEntryNodeIds` of the registry —
+  // the markup stamps the very same set). Their spec becomes a `MotionCssEntry`
+  // instead of a payload entry; the editor's live mode passes nothing and keeps
+  // every reveal in the page script.
+  cssEntry?: ReadonlySet<string>;
+};
+
 export function motionConfigsForTree(
   tree: NodeTree,
   tokens: MotionTokens,
-): { configs: MotionConfig[]; warnings: MotionWarning[] } {
+  options: MotionConfigOptions = {},
+): { configs: MotionConfig[]; warnings: MotionWarning[]; entries: MotionCssEntry[] } {
   const configs: MotionConfig[] = [];
+  const entries: MotionCssEntry[] = [];
   const warnings: MotionWarning[] = [];
   let pins = 0;
   let charSplits = 0;
@@ -140,6 +166,25 @@ export function motionConfigsForTree(
         suggestion: "Keep reveals under ~800 ms.",
       });
     }
+    if (
+      options.cssEntry?.has(node.id) === true &&
+      (motion.preset === "fade-up" ||
+        motion.preset === "fade-up-deblur" ||
+        motion.preset === "scroll-reveal")
+    ) {
+      entries.push({
+        nodeId: node.id,
+        preset: motion.preset,
+        // The same travel the script's `gsap.from` uses.
+        travel: motion.preset === "scroll-reveal" ? 16 : Math.round((8 + intensity * 3.2) * 10) / 10,
+        blur: motion.preset === "fade-up-deblur",
+        durationMs: Math.round(durationSeconds * 1000),
+        delayMs: Math.round((motion.delay ?? 0) * 1000),
+        ease: cssEase(motion.tokens?.ease ? tokens.ease[motion.tokens.ease] : undefined),
+        reducedMotion: motion.reducedMotion ?? "static",
+      });
+      continue;
+    }
     configs.push({
       nodeId: node.id,
       preset: motion.preset,
@@ -170,7 +215,63 @@ export function motionConfigsForTree(
       suggestion: "Signature splits lose impact when repeated — keep one per page.",
     });
   }
-  return { configs, warnings };
+  return { configs, warnings, entries };
+}
+
+// gsap's `power2.out` — the script's default — as the CSS curve it is.
+const DEFAULT_ENTRY_EASE = "cubic-bezier(0.215, 0.61, 0.355, 1)";
+
+// A theme ease token is written into a stylesheet: only a plain timing function
+// goes through, anything else (a stray token value) falls back to the default.
+function cssEase(token: string | undefined): string {
+  if (token === undefined) return DEFAULT_ENTRY_EASE;
+  const value = token.trim();
+  if (/^(ease|ease-in|ease-out|ease-in-out|linear)$/.test(value)) return value;
+  if (/^(cubic-bezier|linear)\([0-9eE.,+\-%\s]+\)$/.test(value)) return value;
+  return DEFAULT_ENTRY_EASE;
+}
+
+// The CSS of the reveals that play without the page script. Every rule keys on
+// `[data-node-id]`, the keyframes are shared per kind and carry the node's
+// travel through a custom property. `backwards` fill: the node waits in its
+// hidden state during the delay and is left alone afterwards — no held end
+// state that would fight a hover transform. Reduced motion follows the spec's
+// policy like the script does: `static` shows the node at rest, `fade` plays the
+// 400 ms opacity fade, `off` plays the full effect.
+export function motionEntryCss(entries: readonly MotionCssEntry[]): string {
+  if (entries.length === 0) return "";
+  const lines: string[] = [];
+  const kinds = new Set(entries.map((entry) => (entry.blur ? "deblur" : "move")));
+  if (kinds.has("move")) {
+    lines.push(
+      "@keyframes senify-enter{from{opacity:0;transform:translateY(var(--senify-enter-y,0px))}}",
+    );
+  }
+  if (kinds.has("deblur")) {
+    lines.push(
+      "@keyframes senify-enter-deblur{from{opacity:0;transform:translateY(var(--senify-enter-y,0px));filter:blur(8px)}}",
+    );
+  }
+  if (entries.some((entry) => entry.reducedMotion === "fade")) {
+    lines.push("@keyframes senify-enter-fade{from{opacity:0}}");
+  }
+  for (const entry of entries) {
+    const selector = `[data-node-id="${entry.nodeId}"]`;
+    const name = entry.blur ? "senify-enter-deblur" : "senify-enter";
+    lines.push(
+      `${selector}{--senify-enter-y:${entry.travel}px;animation:${name} ${entry.durationMs}ms ${entry.ease} ${entry.delayMs}ms backwards}`,
+    );
+    if (entry.reducedMotion === "static") {
+      lines.push(
+        `@media (prefers-reduced-motion:reduce){${selector}{animation:none}}`,
+      );
+    } else if (entry.reducedMotion === "fade") {
+      lines.push(
+        `@media (prefers-reduced-motion:reduce){${selector}{animation:senify-enter-fade 400ms ease-out backwards}}`,
+      );
+    }
+  }
+  return lines.join("\n");
 }
 
 // Page transitions (ticket 19, M6): a `document` preset opts the whole page

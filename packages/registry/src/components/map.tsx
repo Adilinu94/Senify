@@ -1,6 +1,7 @@
 import type { ComponentType, ReactNode } from "react";
-import type { Node, PropValue } from "@senify/section-sdk";
+import { motionCssEntryPreset, type Node, type PropValue } from "@senify/section-sdk";
 import { describePrimitive } from "@senify/widget-engine";
+import { MotionEntryContext } from "./shared.tsx";
 import { Navbar } from "./Navbar.tsx";
 import { Footer } from "./Footer.tsx";
 import { Hero } from "./Hero.tsx";
@@ -154,6 +155,46 @@ export function priorityImageNodeId(
   return undefined;
 }
 
+const CSS_ENTRY_ID = /^[A-Za-z0-9_.:-]+$/;
+
+// The nodes whose reveal the bake plays as a CSS animation instead of holding
+// them hidden for the page script (`motionCssEntryPreset`): the eligible nodes
+// of the first screenful — the opening chrome and the first content sections,
+// the same stretch `priorityImageNodeId` looks at — and every eligible node
+// with an explicit `load` trigger, which starts on load wherever it sits. The
+// renderer asks this function too, so the markup and the CSS rules agree.
+export function cssEntryNodeIds(
+  rootChildren: readonly string[],
+  nodes: Record<string, Node>,
+): Set<string> {
+  const entering = new Set<string>();
+  // The id lands in a stylesheet selector: only plain ids qualify, an odd one
+  // keeps the script path.
+  const eligible = (node: Node): boolean =>
+    CSS_ENTRY_ID.test(node.id) && motionCssEntryPreset(node.motion);
+  for (const node of Object.values(nodes)) {
+    if (node.motion?.trigger === "load" && eligible(node)) entering.add(node.id);
+  }
+  const typeOf = (id: string): string => nodes[id]?.type ?? "";
+  const opening = rootChildren.filter((id) => HEAD_CHROME.has(typeOf(id)));
+  const content = rootChildren.filter(
+    (id) => !HEAD_CHROME.has(typeOf(id)) && !FLOATING_CHROME.has(typeOf(id)),
+  );
+  const seen = new Set<string>();
+  const walk = (id: string): void => {
+    const node = nodes[id];
+    if (node === undefined || seen.has(id)) return;
+    seen.add(id);
+    if (eligible(node)) entering.add(id);
+    for (const childId of node.children ?? []) walk(childId);
+    for (const ids of Object.values(node.slots ?? {})) {
+      for (const slotId of ids) walk(slotId);
+    }
+  };
+  for (const id of [...opening, ...content.slice(0, FIRST_SCREEN_NODES)]) walk(id);
+  return entering;
+}
+
 const SKIP_LINK_TEXT: Record<string, string> = {
   de: "Zum Inhalt springen",
   en: "Skip to content",
@@ -180,6 +221,10 @@ export function SectionTree({
       : priorityImageNodeId(rootForPriority.children ?? [], nodes));
   const treeCtx: SectionContext =
     priorityNodeId === undefined ? ctx : { ...ctx, priorityNodeId };
+  const entering =
+    ctx.cssEntry === true && rootForPriority !== undefined
+      ? cssEntryNodeIds(rootForPriority.children ?? [], nodes)
+      : undefined;
   const renderNode = (id: string): ReactNode => {
 
     const node = nodes[id];
@@ -226,21 +271,28 @@ export function SectionTree({
   if (!root) return null;
   const children = root.children ?? [];
   const range = landmarks ? mainRange(children, nodes) : null;
-  if (range === null) return <>{children.map((id) => renderNode(id))}</>;
   const skipText = SKIP_LINK_TEXT[(ctx.lang ?? "de").slice(0, 2).toLowerCase()] ?? SKIP_LINK_TEXT["en"];
-  return (
-    <>
-      <a
-        href="#main"
-        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[10000] focus:rounded focus:bg-[var(--bg-base,#fff)] focus:px-4 focus:py-2 focus:text-[var(--fg-base,#000)] focus:shadow-lg focus:outline focus:outline-2"
-      >
-        {skipText}
-      </a>
-      {children.slice(0, range.start).map((id) => renderNode(id))}
-      <main id="main" tabIndex={-1} className="outline-none">
-        {children.slice(range.start, range.end + 1).map((id) => renderNode(id))}
-      </main>
-      {children.slice(range.end + 1).map((id) => renderNode(id))}
-    </>
+  const page: ReactNode =
+    range === null ? (
+      <>{children.map((id) => renderNode(id))}</>
+    ) : (
+      <>
+        <a
+          href="#main"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[10000] focus:rounded focus:bg-[var(--bg-base,#fff)] focus:px-4 focus:py-2 focus:text-[var(--fg-base,#000)] focus:shadow-lg focus:outline focus:outline-2"
+        >
+          {skipText}
+        </a>
+        {children.slice(0, range.start).map((id) => renderNode(id))}
+        <main id="main" tabIndex={-1} className="outline-none">
+          {children.slice(range.start, range.end + 1).map((id) => renderNode(id))}
+        </main>
+        {children.slice(range.end + 1).map((id) => renderNode(id))}
+      </>
+    );
+  return entering === undefined ? (
+    page
+  ) : (
+    <MotionEntryContext.Provider value={entering}>{page}</MotionEntryContext.Provider>
   );
 }

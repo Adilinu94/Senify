@@ -11,11 +11,17 @@
 // `describePrimitive` (widget-engine/markup.ts). Adding a foundation stone is a
 // catalog entry plus a description, never a new component.
 
-import type { ElementType, ReactNode } from "react";
+import { useContext, type ElementType, type ReactNode } from "react";
 import type { Node, PropValue } from "@senify/section-sdk";
 import { describePrimitive, type ElementSpec, type MarkupAttrs } from "@senify/widget-engine";
 import { GatedIframe, needsConsent } from "./ConsentGate.tsx";
-import { motionPendingAttrs, nodeRootClasses, resolveAsset, type SectionContext } from "./shared.tsx";
+import {
+  MotionEntryContext,
+  motionPendingAttrs,
+  nodeRootClasses,
+  resolveAsset,
+  type SectionContext,
+} from "./shared.tsx";
 
 export type PrimitiveProps = {
   node: Node;
@@ -29,6 +35,8 @@ type RenderScope = {
   children: ReactNode;
   slots: Record<string, ReactNode>;
   ctx: SectionContext;
+  // The nodes that enter through CSS on this render (`MotionEntryContext`).
+  entering?: ReadonlySet<string>;
 };
 
 function reactAttrs(
@@ -72,7 +80,7 @@ function reactAttrs(
   if (spec.root === true) {
     attrs["data-node-id"] = scope.node.id;
     attrs["data-widget"] = scope.node.type;
-    Object.assign(attrs, motionPendingAttrs(scope.node));
+    Object.assign(attrs, motionPendingAttrs(scope.node, scope.entering));
   }
   return attrs;
 }
@@ -130,6 +138,7 @@ function renderSpec(spec: ElementSpec, scope: RenderScope, key: string): ReactNo
 // `describePrimitive` answers `undefined` for a section type of the running
 // registry; the caller (`map.tsx`) then takes the section render path.
 export function PrimitiveNode({ node, children, slots, ctx }: PrimitiveProps): ReactNode {
+  const entering = useContext(MotionEntryContext);
   const described = describePrimitive(node.type, node.props as Record<string, PropValue>);
   if (described === undefined) return null;
   return renderSpec(
@@ -139,6 +148,7 @@ export function PrimitiveNode({ node, children, slots, ctx }: PrimitiveProps): R
       children: children ?? null,
       slots: slots ?? {},
       ctx,
+      ...(entering === undefined ? {} : { entering }),
     },
     node.id,
   );
