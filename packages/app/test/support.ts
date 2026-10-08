@@ -41,3 +41,21 @@ export const browserAvailable = (() => {
 // instead of skipping it silently.
 export const browserRequired = process.env["SENIFY_REQUIRE_BROWSER"] === "1";
 export const browserSkip = !browserAvailable && !browserRequired;
+
+// Die Kategorien des Inspektors sind Akkordeons und bauen ihren Inhalt nur, solange
+// sie offen sind. Diese Hilfe oeffnet eine Kategorie (z. B. "style/spacing"), falls
+// sie zu ist; ein Feld darin ist erst danach im DOM.
+type CategoryPage = {
+  locator(selector: string): {
+    waitFor(options?: { timeout?: number }): Promise<unknown>;
+    getAttribute(name: string): Promise<string | null>;
+    click(): Promise<unknown>;
+  };
+};
+export async function openInspectorCategory(page: CategoryPage, groupId: string): Promise<void> {
+  const head = page.locator(
+    `.senify-inspector__group[data-group="${groupId}"] .senify-inspector__group-title`,
+  );
+  await head.waitFor({ timeout: 30000 });
+  if ((await head.getAttribute("aria-expanded")) === "false") await head.click();
+}

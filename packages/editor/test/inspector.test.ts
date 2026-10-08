@@ -16,7 +16,7 @@ import { baseStore } from "./state/fixtures.ts";
 // overrides and the token/literal rule — no DOM needed.
 
 describe("buildInspector", () => {
-  it("builds the four tabs with the generated field family", () => {
+  it("builds the three tabs Allgemein, Stil, Interaktionen with the generated field family", () => {
     const store = baseStore();
     const model = buildInspector({
       document: store.document,
@@ -25,13 +25,16 @@ describe("buildInspector", () => {
       theme: defaultTheme(),
     });
     expect(model).not.toBeNull();
-    expect(model?.tabs.map((tab) => tab.id)).toEqual([
-      "content",
-      "style",
-      "interactions",
-      "advanced",
-    ]);
+    expect(model?.tabs.map((tab) => tab.id)).toEqual(["content", "style", "interactions"]);
+    expect(model?.tabs.map((tab) => tab.label)).toEqual(["Allgemein", "Stil", "Interaktionen"]);
     const content = model?.tabs.find((tab) => tab.id === "content");
+    // Allgemein: "Inhalt" (Text, Eyebrow) und "Einstellungen" (Ebene/Tag, ID, Sichtbarkeit).
+    expect(content?.groups.map((group) => group.label)).toEqual(["Inhalt", "Einstellungen"]);
+    const inhalt = content?.groups.find((group) => group.id === "content/main")?.fields.map((f) => f.key);
+    const einstellungen = content?.groups.find((group) => group.id === "content/settings")?.fields.map((f) => f.key);
+    expect(inhalt).toEqual(expect.arrayContaining(["text", "eyebrow"]));
+    expect(inhalt).not.toContain("level");
+    expect(einstellungen).toEqual(expect.arrayContaining(["level", "hidden_tablet", "id"]));
     const keys = content?.groups.flatMap((group) => group.fields.map((field) => field.key)) ?? [];
     expect(keys).toContain("text");
     expect(keys).toContain("level");
@@ -59,7 +62,8 @@ describe("buildInspector", () => {
       breakpoint: "desktop",
     });
     const content = divider?.tabs.find((tab) => tab.id === "content");
-    const fields = content?.groups.flatMap((group) => group.fields) ?? [];
+    // Nur die Gruppe "Inhalt": "Einstellungen" traegt zusaetzlich Sichtbarkeit und ID.
+    const fields = content?.groups.find((group) => group.id === "content/main")?.fields ?? [];
     expect(fields.map((field) => field.key)).toEqual(["spacing"]);
     expect(fields[0]?.kind).toBe("select");
     expect(fields[0]?.options?.map((option) => option.value)).toEqual([
@@ -70,6 +74,94 @@ describe("buildInspector", () => {
       "xl",
     ]);
     expect(fields[0]?.value).toBe("m");
+  });
+
+  it("orders the Style tab in the eight categories of the reference editor", () => {
+    const store = baseStore();
+    store.apply({
+      op: "insertNode",
+      parent: { nodeId: store.document.rootNodeId },
+      node: { primitive: "frame", id: "frame00001" },
+    });
+    const model = buildInspector({ document: store.document, nodeId: "frame00001", breakpoint: "desktop" });
+    const style = model?.tabs.find((tab) => tab.id === "style");
+    const order = [
+      "style/layout",
+      "style/spacing",
+      "style/size",
+      "style/position",
+      "style/typography",
+      "style/background",
+      "style/border",
+      "style/effects",
+    ];
+    const ids = (style?.groups ?? []).map((group) => group.id).filter((id) => order.includes(id));
+    // Reihenfolge wie im Referenz-Editor: eine Teilfolge von Layout ... Effekte.
+    expect(ids).toEqual(order.filter((id) => ids.includes(id)));
+    expect(ids).toEqual(expect.arrayContaining(["style/layout", "style/spacing", "style/size", "style/position"]));
+    const labels = Object.fromEntries((style?.groups ?? []).map((group) => [group.id, group.label]));
+    expect(labels["style/spacing"]).toBe("Abstände");
+    expect(labels["style/size"]).toBe("Größe");
+    expect(labels["style/position"]).toBe("Position");
+    // `gap` gehoert zum Layout, Ueberlauf zur Groesse, z-index zur Position.
+    const field = (group: string, key: string) => {
+      const g = style?.groups.find((entry) => entry.id === group);
+      return [...(g?.fields ?? []), ...(g?.more ?? [])].find((entry) => entry.key === key);
+    };
+    expect(field("style/layout", "gap")).toBeDefined();
+    expect(field("style/size", "overflow")).toBeDefined();
+    expect(field("style/position", "zIndex")).toBeDefined();
+  });
+
+  it("labels keyword options in German instead of the raw CSS values", () => {
+    const store = baseStore();
+    store.apply({
+      op: "insertNode",
+      parent: { nodeId: store.document.rootNodeId },
+      node: { primitive: "frame", id: "frame00003" },
+    });
+    const model = buildInspector({ document: store.document, nodeId: "frame00003", breakpoint: "desktop" });
+    const style = model?.tabs.find((tab) => tab.id === "style");
+    const field = (key: string) =>
+      style?.groups.flatMap((group) => [...group.fields, ...(group.more ?? [])]).find((entry) => entry.key === key);
+    expect(field("flexDirection")?.options?.map((option) => option.label)).toEqual([
+      "Zeile",
+      "Zeile umgekehrt",
+      "Spalte",
+      "Spalte umgekehrt",
+    ]);
+    expect(field("flexWrap")?.options?.map((option) => option.label)).toEqual(["Kein", "Umbruch", "Umgekehrt"]);
+    // Der Wert bleibt der CSS-Wert, nur die Beschriftung ist deutsch.
+    expect(field("flexDirection")?.options?.map((option) => option.value)).toEqual([
+      "row",
+      "row-reverse",
+      "column",
+      "column-reverse",
+    ]);
+    expect(field("position")?.options?.map((option) => option.label)).toEqual([
+      "Statisch",
+      "Relativ",
+      "Absolut",
+      "Fixiert",
+      "Klebend",
+    ]);
+  });
+
+  it("keeps rarely used style fields behind 'more' and the common ones in front", () => {
+    const store = baseStore();
+    store.apply({
+      op: "insertNode",
+      parent: { nodeId: store.document.rootNodeId },
+      node: { primitive: "frame", id: "frame00002" },
+    });
+    const model = buildInspector({ document: store.document, nodeId: "frame00002", breakpoint: "desktop" });
+    const size = model?.tabs.find((tab) => tab.id === "style")?.groups.find((group) => group.id === "style/size");
+    expect(size?.fields.map((f) => f.key)).toEqual(expect.arrayContaining(["width", "height"]));
+    expect(size?.fields.map((f) => f.key)).not.toContain("minWidth");
+    expect(size?.more?.map((f) => f.key)).toEqual(expect.arrayContaining(["minWidth", "maxWidth", "overflow"]));
+    const position = model?.tabs.find((tab) => tab.id === "style")?.groups.find((group) => group.id === "style/position");
+    expect(position?.fields.map((f) => f.key)).toEqual(expect.arrayContaining(["position", "zIndex"]));
+    expect(position?.more?.map((f) => f.key)).toEqual(expect.arrayContaining(["top", "left"]));
   });
 
   it("narrows the Style tab by the primitive style groups and keeps owned controls out", () => {
@@ -250,15 +342,17 @@ describe("buildInspector", () => {
     expect(preset?.options?.some((option) => option.label.includes("gesperrt"))).toBe(true);
   });
 
-  it("offers the structural flags in the Advanced tab", () => {
+  it("offers the structural flags in the Einstellungen group of the Allgemein tab", () => {
     const store = baseStore();
     const model = buildInspector({
       document: store.document,
       nodeId: "head000001",
       breakpoint: "desktop",
     });
-    const advanced = model?.tabs.find((tab) => tab.id === "advanced");
-    const fields = advanced?.groups.flatMap((group) => group.fields) ?? [];
+    // Den Tab "Erweitert" gibt es nicht mehr, seine Felder stehen unter "Einstellungen".
+    expect(model?.tabs.some((tab) => (tab.id as string) === "advanced")).toBe(false);
+    const general = model?.tabs.find((tab) => tab.id === "content");
+    const fields = general?.groups.find((group) => group.id === "content/settings")?.fields ?? [];
     expect(fields.map((field) => field.key)).toEqual(
       expect.arrayContaining(["hidden_tablet", "hidden_mobile", "locked", "id"]),
     );

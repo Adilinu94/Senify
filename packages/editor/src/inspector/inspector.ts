@@ -45,10 +45,12 @@ import {
   motionSpecFrom,
   numberPart,
   scopedRuleFor,
+  styleGroupIdOf,
   tokenRefOf,
   unitOfValue,
   type InspectorCommit,
   type InspectorField,
+  type InspectorGroup,
   type InspectorModel,
   type InspectorTabId,
 } from "./model.ts";
@@ -105,6 +107,25 @@ function h(doc: DomDocument, tag: string, spec: ElementSpec = {}): DomElement {
   return element;
 }
 
+// Wenige, klare Auswahlen erscheinen als Segment-Gruppe statt als Auswahlfeld. Je
+// Eintrag der Icon-Name; fehlt er, zeigt das Segment den (deutschen) Text.
+const SEGMENTED: Record<string, Record<string, string>> = {
+  flexDirection: {
+    row: "arrow-right",
+    "row-reverse": "arrow-left",
+    column: "arrow-down",
+    "column-reverse": "arrow-up",
+  },
+  textAlign: {
+    start: "align-left",
+    center: "align-center",
+    end: "align-right",
+    justify: "align-justify",
+  },
+  flexWrap: {},
+  fontStyle: {},
+};
+
 function icon(doc: DomDocument, name: string, size = 12, extra?: string): DomElement {
   return h(doc, "span", {
     className: `ic ic--${name} ic--${size}${extra === undefined ? "" : ` ${extra}`}`,
@@ -134,7 +155,21 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
   let breakpoint: Device = options.breakpoint ?? "desktop";
   let profile: MotionProfile = options.profile ?? "standard";
   let state: StateName | null = null;
-  const collapsed = new Set<string>();
+  // Zustand je Element (wie im Referenz-Editor): der gewaehlte Tab, die aufgeklappten
+  // Kategorien und "Mehr anzeigen" merken sich fuer jedes Element getrennt.
+  const tabByNode = new Map<string, InspectorTabId>();
+  const openByNode = new Map<string, Map<string, boolean>>();
+  const moreByNode = new Map<string, Map<string, boolean>>();
+  const stateOf = (store: Map<string, Map<string, boolean>>, nodeId: string): Map<string, boolean> => {
+    const found = store.get(nodeId);
+    if (found !== undefined) return found;
+    const created = new Map<string, boolean>();
+    store.set(nodeId, created);
+    return created;
+  };
+  // Ein Wert gilt als gesetzt, wenn das Element ihn selbst traegt (Stil-Felder).
+  const isSet = (field: InspectorField): boolean =>
+    field.source === "style" && field.value !== undefined && field.value !== null && field.value !== "";
   // One panel at a time, addressed by the field that owns it (a shared boolean
   // would open the panel under every token/colour field at once).
   let paletteKey: string | null = null;
@@ -404,10 +439,14 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     stepper.appendChild(down);
     wrap.appendChild(input);
     wrap.appendChild(stepper);
-    control.appendChild(wrap);
+    // Die Einheit steht im selben Feld rechts (wie im Referenz-Editor): ein Rahmen
+    // statt zwei. `data-control="unit"` bleibt, damit der Zugriff gleich bleibt.
     if (field.units !== undefined && field.units.length > 1) {
-      control.appendChild(renderUnitSelect(nodeId, field));
+      const unitBox = renderUnitSelect(nodeId, field);
+      unitBox.className = "ed-field__unit";
+      wrap.appendChild(unitBox);
     }
+    control.appendChild(wrap);
   }
 
   function renderUnitSelect(nodeId: string, field: InspectorField): DomElement {
@@ -494,9 +533,36 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     control: DomElement,
     onSelect: (value: string) => void,
   ): void {
+    const options = field.options ?? [];
+    const segments = SEGMENTED[field.key];
+    if (field.source === "style" && segments !== undefined && options.length > 0 && options.length <= 4) {
+      const group = h(doc, "div", {
+        className: "senify-inspector__segmented",
+        data: { control: "segmented" },
+        attributes: { role: "group", "aria-label": field.label },
+      });
+      for (const option of options) {
+        const pressed = option.value === field.value;
+        const button = h(doc, "button", {
+          data: { value: option.value },
+          attributes: {
+            type: "button",
+            title: option.label,
+            "aria-label": option.label,
+            "aria-pressed": String(pressed),
+          },
+        });
+        const iconName = segments[option.value];
+        if (iconName !== undefined) button.appendChild(icon(doc, iconName, 14));
+        else button.appendChild(h(doc, "span", { text: option.label }));
+        button.addEventListener("click", () => onSelect(option.value));
+        group.appendChild(button);
+      }
+      control.appendChild(group);
+      return;
+    }
     const wrap = h(doc, "div", { className: "ed-field" });
     const select = h(doc, "select", { data: { control: "select" } });
-    const options = field.options ?? [];
     const known = options.some((option) => option.value === field.value);
     if (!known && typeof field.value === "string") {
       select.appendChild(
@@ -1044,29 +1110,66 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     return row;
   }
 
-  function renderGroup(model: InspectorModel, groupId: string, label: string, fields: InspectorField[]): DomElement {
-    const isCollapsed = collapsed.has(groupId);
+  // Eine Kategorie als Akkordeon: fetter Titel, Indikator, Pfeil rechts. Der Inhalt
+  // wird nur gebaut, solange die Kategorie offen ist. Auf/Zu und "Mehr anzeigen"
+  // merken sich je Element.
+  function renderGroup(model: InspectorModel, input: InspectorGroup, defaultOpen: boolean): DomElement {
+    const groupId = input.id;
+    const explicit = stateOf(openByNode, model.nodeId);
+    const open = explicit.get(groupId) ?? defaultOpen;
     const group = h(doc, "div", {
       className: "senify-inspector__group",
-      data: { group: groupId, collapsed: String(isCollapsed) },
+      data: { group: groupId, collapsed: String(!open) },
     });
     const head = h(doc, "button", {
       className: "senify-inspector__group-title",
-      attributes: { type: "button", "aria-expanded": String(!isCollapsed) },
+      attributes: { type: "button", "aria-expanded": String(open) },
     });
-    head.appendChild(icon(doc, "down", 10));
-    head.appendChild(h(doc, "span", { text: label }));
+    head.appendChild(h(doc, "span", { className: "senify-inspector__group-label", text: input.label }));
+    const hasValue = [...input.fields, ...(input.more ?? [])].some(isSet);
+    if (hasValue) {
+      head.appendChild(
+        h(doc, "span", {
+          className: "senify-inspector__group-dot",
+          attributes: { title: "In dieser Kategorie sind Werte gesetzt", "aria-hidden": "true" },
+        }),
+      );
+    }
+    head.appendChild(icon(doc, "down", 12, "senify-inspector__group-chevron"));
     head.addEventListener("click", () => {
-      if (isCollapsed) collapsed.delete(groupId);
-      else collapsed.add(groupId);
+      explicit.set(groupId, !open);
       render();
     });
     group.appendChild(head);
-    if (!isCollapsed) {
-      for (const field of fields) {
-        if (field.hidden) continue;
-        group.appendChild(renderFieldRow(model, field, groupId));
+    if (!open) return group;
+    for (const field of input.fields) {
+      if (field.hidden) continue;
+      group.appendChild(renderFieldRow(model, field, groupId));
+    }
+    const more = input.more ?? [];
+    if (more.length > 0) {
+      const moreState = stateOf(moreByNode, model.nodeId);
+      // Hat ein seltenes Feld schon einen Wert, bleibt die Liste offen: sonst
+      // waere ein gesetzter Wert unsichtbar.
+      const showMore = moreState.get(groupId) ?? more.some(isSet);
+      if (showMore) {
+        for (const field of more) {
+          if (field.hidden) continue;
+          group.appendChild(renderFieldRow(model, field, groupId));
+        }
       }
+      const toggle = h(doc, "button", {
+        className: "senify-inspector__more",
+        data: { action: "more", expanded: String(showMore) },
+        attributes: { type: "button", "aria-expanded": String(showMore) },
+      });
+      toggle.appendChild(h(doc, "span", { text: showMore ? "Weniger anzeigen" : "Mehr anzeigen" }));
+      toggle.appendChild(icon(doc, "down", 12, "senify-inspector__more-chevron"));
+      toggle.addEventListener("click", () => {
+        moreState.set(groupId, !showMore);
+        render();
+      });
+      group.appendChild(toggle);
     }
     return group;
   }
@@ -1126,6 +1229,8 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       if (key === "" || raw === "") return;
       const commit: InspectorCommit =
         model.state === null ? { kind: "prop" } : { kind: "state", state: model.state };
+      // Die Kategorie der neuen Property aufklappen, sonst bliebe die Zeile unsichtbar.
+      stateOf(openByNode, model.nodeId).set(styleGroupIdOf(key), true);
       commitField(model.nodeId, key, commit, raw);
       name.value = "";
       value.value = "";
@@ -1151,9 +1256,13 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     if (tabId === "style") {
       body.appendChild(renderStateRow(model));
     }
+    // Beim ersten Oeffnen ist im Stil-Tab nur die erste Kategorie offen, in den
+    // anderen Tabs alle (sie sind kurz).
+    let index = 0;
     for (const group of tab.groups) {
       if (group.fields.length === 0) continue;
-      body.appendChild(renderGroup(model, group.id, group.label, group.fields));
+      body.appendChild(renderGroup(model, group, tabId !== "style" || index === 0));
+      index += 1;
     }
     if (tabId === "style") {
       body.appendChild(renderAddProperty(model));
@@ -1184,6 +1293,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       });
       button.addEventListener("click", () => {
         activeTab = tab.id;
+        if (lastNodeId !== null) tabByNode.set(lastNodeId, tab.id);
         options.onTabChange?.(tab.id);
         render();
       });
@@ -1200,6 +1310,8 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       lastNodeId = nodeId;
       paletteKey = null;
       tokenPanelKey = null;
+      // Jedes Element merkt sich seinen Tab; ein neues Element beginnt in "Allgemein".
+      if (nodeId !== null) activeTab = tabByNode.get(nodeId) ?? "content";
     }
     const model =
       nodeId === null
@@ -1213,6 +1325,8 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
             state,
           });
     currentModel = model;
+    // Ein frueher gespeicherter Tab "advanced" gibt es nicht mehr.
+    if (model !== null && !model.tabs.some((entry) => entry.id === activeTab)) activeTab = "content";
     root.textContent = "";
     const header = h(doc, "div", { className: "senify-inspector__header" });
     header.appendChild(
@@ -1253,6 +1367,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     tab: () => activeTab,
     setTab: (tab: InspectorTabId) => {
       activeTab = tab;
+      if (lastNodeId !== null) tabByNode.set(lastNodeId, tab);
       render();
     },
     profile: () => profile,
