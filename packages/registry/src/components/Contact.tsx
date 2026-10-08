@@ -1,5 +1,6 @@
 import {
   alignStyle,
+  cardStyle,
   contentWidthClass,
   cx,
   headingStyle,
@@ -14,6 +15,86 @@ export function Contact({ node, ctx }: SectionProps): React.JSX.Element {
   const fallbackFields = (
     Array.isArray(node.props.fields) ? node.props.fields : []
   ) as { kind?: unknown; label?: unknown; required?: unknown }[];
+  // `split` sets the details beside the form; `form` puts the form first in a
+  // single narrow column with the details as a line beneath; `info` leads with
+  // the details as tiles and lets the form follow.
+  const variant = node.variant === "form" || node.variant === "info" ? node.variant : "split";
+  const email = str(node.props.email);
+  const phone = str(node.props.phone);
+  const address = str(node.props.address);
+  const emailLink = <a href={`mailto:${email}`}>{email}</a>;
+  const phoneLink = <a href={`tel:${phone.replace(/[^+\d]/g, "")}`}>{phone}</a>;
+  const formBlock =
+    form !== undefined ? (
+      <FormFields form={form} ctx={ctx} />
+    ) : (
+      <StaticFormFields fields={fallbackFields} />
+    );
+  const heading =
+    str(node.props.title) !== "" ? (
+      <h2
+        className="font-[family-name:var(--font-display)] text-3xl font-bold"
+        style={{ ...headingStyle(node), ...alignStyle(node) }}
+      >
+        {str(node.props.title)}
+      </h2>
+    ) : null;
+  const intro =
+    str(node.props.intro) !== "" ? (
+      <p className="mt-3 text-lg text-[var(--fg-muted)]">{str(node.props.intro)}</p>
+    ) : null;
+
+  if (variant === "form") {
+    return (
+      <SectionShell node={node} section="contact">
+        <div className={cx("mx-auto px-4 py-16", contentWidthClass(node, "max-w-2xl"))}>
+          {heading}
+          {intro}
+          <div className="mt-8">{formBlock}</div>
+          {(email !== "" || phone !== "" || address !== "") && (
+            <address className="mt-10 flex flex-wrap gap-x-8 gap-y-2 border-t border-[var(--line)] pt-6 not-italic">
+              {email !== "" && emailLink}
+              {phone !== "" && phoneLink}
+              {address !== "" && <p>{address}</p>}
+            </address>
+          )}
+        </div>
+      </SectionShell>
+    );
+  }
+
+  if (variant === "info") {
+    const tiles: { label: string; content: React.JSX.Element }[] = [];
+    if (email !== "") tiles.push({ label: "E-Mail", content: emailLink });
+    if (phone !== "") tiles.push({ label: "Telefon", content: phoneLink });
+    if (address !== "") tiles.push({ label: "Adresse", content: <p>{address}</p> });
+    return (
+      <SectionShell node={node} section="contact">
+        <div className={cx("mx-auto px-4 py-16", contentWidthClass(node))}>
+          {heading}
+          {intro}
+          {tiles.length > 0 && (
+            <ul className="mt-8 grid gap-4 sm:grid-cols-3">
+              {tiles.map((tile) => (
+                <li
+                  key={tile.label}
+                  className="border"
+                  style={cardStyle(node, { background: "var(--bg-muted)" })}
+                >
+                  <p className="text-sm font-semibold uppercase tracking-widest text-[var(--fg-muted)]">
+                    {tile.label}
+                  </p>
+                  <div className="mt-2 break-words text-lg">{tile.content}</div>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="mx-auto mt-12 max-w-2xl">{formBlock}</div>
+        </div>
+      </SectionShell>
+    );
+  }
+
   return (
     <SectionShell node={node} section="contact">
       <div
@@ -23,34 +104,15 @@ export function Contact({ node, ctx }: SectionProps): React.JSX.Element {
         )}
       >
         <div>
-          {str(node.props.title) !== "" && (
-            <h2
-              className="font-[family-name:var(--font-display)] text-3xl font-bold"
-              style={{ ...headingStyle(node), ...alignStyle(node) }}
-            >
-              {str(node.props.title)}
-            </h2>
-          )}
-          {str(node.props.intro) !== "" && (
-            <p className="mt-3 text-lg text-[var(--fg-muted)]">{str(node.props.intro)}</p>
-          )}
+          {heading}
+          {intro}
           <address className="mt-6 flex flex-col gap-2 not-italic">
-            {str(node.props.email) !== "" && (
-              <a href={`mailto:${str(node.props.email)}`}>{str(node.props.email)}</a>
-            )}
-            {str(node.props.phone) !== "" && (
-              <a href={`tel:${str(node.props.phone).replace(/[^+\d]/g, "")}`}>
-                {str(node.props.phone)}
-              </a>
-            )}
-            {str(node.props.address) !== "" && <p>{str(node.props.address)}</p>}
+            {email !== "" && emailLink}
+            {phone !== "" && phoneLink}
+            {address !== "" && <p>{address}</p>}
           </address>
         </div>
-        {form !== undefined ? (
-          <FormFields form={form} ctx={ctx} />
-        ) : (
-          <StaticFormFields fields={fallbackFields} />
-        )}
+        {formBlock}
       </div>
     </SectionShell>
   );
