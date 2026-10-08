@@ -32,3 +32,12 @@ export function toBoolean(value: unknown): boolean {
   }
   return false;
 }
+
+export function isUniqueViolation(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; message?: unknown };
+  if (candidate.code === "23505") return true;
+  const message =
+    typeof candidate.message === "string" ? candidate.message : "";
+  return /(duplicate|unique|already exists)/i.test(message);
+}

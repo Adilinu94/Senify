@@ -42,8 +42,14 @@ dieselbe Datei, und ein Merge-Konflikt zwischen zwei Strängen ist dort wahrsche
    (`() => Promise<string>`), die auf die eine Auflösung des `Store` zeigt.
 6. Ein Schritt = ein Fachgebiet = ein Commit. Die bestehenden Tests sind der Beweis, dass sich nichts ändert; ein
    neuer Test für das Modul wird **vor** dem Code geschrieben und ist ohne ihn rot.
-7. Reihenfolge: Formulare (sechs Methoden, keine Transaktion), danach die Einstellungen (acht Methoden, ebenfalls
-   ohne Transaktion), danach die Fachgebiete mit Einzeltransaktionen. Die drei fachübergreifenden kommen zuletzt.
+7. Reihenfolge: Formulare (sechs Methoden, keine Transaktion), danach die vier Einzeilen-Einstellungen (SMTP,
+   Engine, Bild, Referenzen: acht Methoden, ebenfalls ohne Transaktion), danach die Fachgebiete mit
+   Einzeltransaktionen. Die drei fachübergreifenden kommen zuletzt. Die Deploy-Einstellungen (zwei Methoden, je
+   Projekt) rufen `getSite` und gehören damit zum Fachgebiet Sites; sie folgen mit diesem.
+8. Geteilte Hilfen, die ein Modul und `Store` brauchen, liegen in `store-row-utils.ts` (so wanderte
+   `isUniqueViolation` dorthin). Typen, die der `Store` öffentlich exportiert, ziehen mit ins Modul und werden von
+   `store.ts` re-exportiert, damit `index.ts` und jeder Aufrufer unverändert bleiben und das Modul den `Store`
+   nicht importieren muss.
 
 **Folgen.**
 
