@@ -1,4 +1,4 @@
-import type { NodeTree } from "@senify/section-sdk";
+import { PAGE_ROOT_TYPE, type NodeTree } from "@senify/section-sdk";
 import { styleVarsFor } from "@senify/registry";
 import {
   compileCss,
@@ -125,7 +125,14 @@ export function styleRulesCss(
   for (const page of pages) {
     for (const node of Object.values(page.tree.nodes)) {
       if (nodes.has(node.id)) continue;
-      const cssNode: CssNode = { id: node.id, primitive: node.type, props: { ...node.props } };
+      const props = { ...node.props };
+      // `title` and `lang` of the page root are page metadata, not styles; left
+      // in the props the compiler wrote them as declarations (`lang: de;`).
+      if (node.type === PAGE_ROOT_TYPE) {
+        delete props["title"];
+        delete props["lang"];
+      }
+      const cssNode: CssNode = { id: node.id, primitive: node.type, props };
       if (node.classes !== undefined && node.classes.length > 0) {
         cssNode.classIds = [...node.classes];
       }

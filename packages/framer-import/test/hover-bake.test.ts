@@ -32,6 +32,8 @@ describe("interaction states reach the baked page", () => {
       expect(css).toMatch(/\.framer-[0-9a-f]{6}-\d+:hover\s*\{[^}]*background-color:\s*#f00/);
       expect(css).toMatch(/\.framer-[0-9a-f]{6}-\d+:focus\s*\{[^}]*color:\s*(#0f0|#00ff00)/);
       expect(css.indexOf(":hover")).toBeGreaterThan(css.indexOf("background-color: #111"));
+      // The page root's title and language are metadata, never declarations.
+      expect(css).not.toMatch(/\[data-node-id="root"\]\s*\{[^}]*(lang|title)\s*:/);
     } finally {
       rmSync(out, { recursive: true, force: true });
     }
