@@ -12,13 +12,9 @@ import { SECTION_COMPONENTS } from "../src/components/index.ts";
 // assets, items or URL, so a difference may only show with real content.
 const STILL_IDENTICAL: Record<string, string[][]> = {
   media: [["image", "video"]],
-  "services-process": [["steps", "cards", "timeline"]],
   "logo-cloud": [["grid", "wrap"]],
   projects: [["cards", "list", "showcase"]],
   gallery: [["grid", "masonry"]],
-  timeline: [["vertical", "horizontal", "cards"]],
-  comparison: [["table", "cards"]],
-  "cookie-note": [["bar", "card"]],
   marquee: [["text", "logos", "images"]],
   "collection-list": [["cards", "grid", "list"]],
   embed: [["map", "iframe", "social"]],
