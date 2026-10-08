@@ -33,7 +33,7 @@ Die Postgres-Fälle liefen separat gegen einen eigens initialisierten, lokalen P
 
 Geführt über `pnpm test:coverage`, v8-Provider und `perFile: true`. Der Lauf umfasst die Suites von `engine`, `editor` und `mcp`, nicht die schweren Browser-Suiten. Die Schwellen liegen in `vitest.config.ts`; nur dort ist die maßgebliche Konfiguration.
 
-Der aktuelle Lauf vom 08.10.2026 (lokal auf Windows, TEMP/TMP/TMPDIR auf dem Laufwerk des Repos, ohne `TEST_DATABASE_URL`): **1068 bestanden / 15 übersprungen / 0 fehlgeschlagen** in 109 Dateien (106 bestanden, 3 mit Skips), null Schwellenfehler. Vor diesem Lauf stand ein Fehler in `packages/framer-import/test/capture-browser.test.ts`: der Fixture-Pfad wurde über `import.meta.url` + `pathname` gebaut, was Leerzeichen im Workspace-Pfad als `%20` codiert — der Fixture-Server antwortete 404, der Capture maß ein leeres Dokument. Die Auflösung über `fileURLToPath` behebt ihn. Die Übersicht unten wurde mit `pnpm quality:render` aktualisiert und anschließend durch `pnpm quality:check` bestätigt.
+Der aktuelle Lauf vom 08.10.2026 (lokal auf Windows, TEMP/TMP/TMPDIR auf dem Laufwerk des Repos, ohne `TEST_DATABASE_URL`): **1068 bestanden / 15 übersprungen / 0 fehlgeschlagen** in 109 Dateien (106 bestanden, 3 mit Skips), null Schwellenfehler. Die Coverage von `store.ts` liegt nach der P3-2-Extraktion der Style-Registry bei 85.66 — die delegierten Fassaden sind dünn und mitgetestet, die verschobenen 540 Zeilen stehen in `store-style-rules.ts`. Der Volllauf `pnpm test` war an diesem Tag auf der Maschine zeitweise rot, ohne dass ein Fehler im Code stand: drei Läufe mit Timeout ausschließlich in `framer-import/test/{golden,integrity}.test.ts` (Fixture-Kompilierung, easier-train) und `mcp/test/write-output.test.ts` (`create_preview`), jede dieser Dateien isoliert grün; das Fenster war die Last mehrerer paralleler Agent-Sessions auf derselben Maschine. Die Übersicht unten wurde mit `pnpm quality:render` aktualisiert und anschließend durch `pnpm quality:check` bestätigt.
 
 ### Gemessene Coverage der geschützten Pfade
 
@@ -47,14 +47,14 @@ Der aktuelle Lauf vom 08.10.2026 (lokal auf Windows, TEMP/TMP/TMPDIR auf dem Lau
 
 | Pfad | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
-| `packages/engine/src/http.ts` | 91.34 | 73.06 | 93.66 | 91.34 |
-| `packages/engine/src/store.ts` | 85.07 | 77.41 | 93.58 | 85.07 |
-| `packages/engine/src/lifecycle.ts` | 87.01 | 74.19 | 100.00 | 87.01 |
+| `packages/engine/src/http.ts` | 91.34 | 73.03 | 93.66 | 91.34 |
+| `packages/engine/src/store.ts` | 85.66 | 77.27 | 93.31 | 85.66 |
+| `packages/engine/src/lifecycle.ts` | 87.01 | 74.60 | 100.00 | 87.01 |
 | `packages/engine/src/forms.ts` | 84.25 | 73.62 | 100.00 | 84.25 |
 | `packages/mcp/src/tools.ts` | 91.24 | 63.82 | 87.06 | 91.24 |
 | `packages/editor/src/state/*` (14 Dateien) | 66.98 bis 100.00 | 56.75 bis 100.00 | 66.66 bis 100.00 | 66.98 bis 100.00 |
 
-**Über alle gemessenen Dateien:** Statements 87.77 · Branches 73.60 · Functions 91.02 · Lines 87.77
+**Über alle gemessenen Dateien:** Statements 88.02 · Branches 73.43 · Functions 90.90 · Lines 88.02
 
 <!-- messwerte:ende -->
 
