@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import http from "node:http";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { captureBrowser } from "@senify/framer-import";
 
@@ -26,8 +27,11 @@ const browserAvailable = (() => {
   }
 })();
 
+// `fileURLToPath` decodes the URL (a workspace path with a space becomes
+// `%20` in the pathname; readFileSync would then silently 404 and the
+// capture would measure an empty document).
 const FIXTURE = join(
-  new URL(".", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"),
+  fileURLToPath(new URL(".", import.meta.url)),
   "fixtures",
   "framer-stupendous-football-158496",
 );
