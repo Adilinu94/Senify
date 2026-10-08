@@ -99,6 +99,38 @@ describe.skipIf(!browserAvailable)("Framer import dialog: whole site", () => {
       await tab.waitForSelector('[data-role="framer-site-results"]', { timeout: 60000 });
       expect(await resultRows()).toEqual(["/about|übersprungen", "/kontakt|übersprungen"]);
       expect(await pagePaths()).toEqual(["/", "/about", "/kontakt", "/start-import"]);
+      expect(await tab.locator('[data-action="framer-site-undo"]').count()).toBe(0);
+      await tab.locator('[data-action="framer-import-close"]').dispatchEvent("click");
+      await expect.poll(async () => tab.locator('[data-role="framer-import-dialog"]').count(), { timeout: 20000 }).toBe(0);
+
+      // Third run, replacing is confirmed but the content is the same: the
+      // write is a no-op and says so (nothing was replaced, nothing to undo).
+      const runAll = async (): Promise<void> => {
+        await openDialog();
+        await tab.locator('[data-role="framer-confirm-replace"]').check();
+        await tab.locator('[data-role="framer-site-replace"]').check();
+        await tab.locator('[data-role="framer-site-all"]').check();
+        await tab.locator('[data-action="framer-import-apply"]').click();
+        await tab.waitForSelector('[data-role="framer-site-results"]', { timeout: 60000 });
+      };
+      await runAll();
+      expect(await resultRows()).toEqual(["/about|unverändert", "/kontakt|unverändert"]);
+      expect(await tab.locator('[data-action="framer-site-undo"]').count()).toBe(0);
+      await tab.locator('[data-action="framer-import-close"]').dispatchEvent("click");
+      await expect.poll(async () => tab.locator('[data-role="framer-import-dialog"]').count(), { timeout: 20000 }).toBe(0);
+
+      // Fourth run after the export changed: the pages are replaced, each
+      // replaced draft is a revision, and each row offers the way back.
+      writeFileSync(join(mirror, "about.html"), doc("Über uns neu", '<p><a href="./">Start</a></p>'), "utf8");
+      writeFileSync(join(mirror, "kontakt", "index.html"), doc("Kontakt neu", '<p><a href="../about">Über uns</a></p>'), "utf8");
+      await runAll();
+      expect(await resultRows()).toEqual(["/about|importiert", "/kontakt|importiert"]);
+      const undoButtons = tab.locator('[data-action="framer-site-undo"]');
+      expect(await undoButtons.count()).toBe(2);
+      await undoButtons.first().dispatchEvent("click");
+      await expect.poll(async () => undoButtons.first().textContent(), { timeout: 20000 }).toBe("Rückgängig gemacht");
+      expect(await undoButtons.nth(1).textContent()).toBe("Rückgängig");
+      expect(await pagePaths()).toEqual(["/", "/about", "/kontakt", "/start-import"]);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();

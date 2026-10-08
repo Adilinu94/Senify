@@ -5119,7 +5119,7 @@ function openFramerImportDialog({ siteId, pageId, session, onImported }) {
           results.push({ path, state: "übersprungen", detail: "Unter diesem Pfad liegt schon eine Seite." });
           continue;
         }
-        await api(`/api/sites/${siteId}/imports/framer`, {
+        const written = await api(`/api/sites/${siteId}/imports/framer`, {
           method: "POST",
           body: {
             ...base,
@@ -5129,7 +5129,17 @@ function openFramerImportDialog({ siteId, pageId, session, onImported }) {
             idempotencyKey: window.crypto.randomUUID(),
           },
         });
-        results.push({ path, state: "importiert", detail: "" });
+        // A replaced page keeps its old draft as a revision: the way back.
+        // The same content again is a no-op (the receipt of the first write
+        // answers): nothing was written, so there is nothing to undo.
+        results.push({
+          path,
+          state: written.report.replayed === true ? "unverändert" : "importiert",
+          detail: written.report.replayed === true ? "Gleicher Inhalt wie beim letzten Import." : "",
+          ...(written.report.replacedRevisionId === undefined
+            ? {}
+            : { pageId: written.report.pageId, revisionId: written.report.replacedRevisionId }),
+        });
       } catch (error) {
         results.push({ path, state: "Fehler", detail: error.message });
       }
@@ -5299,9 +5309,25 @@ function openFramerImportDialog({ siteId, pageId, session, onImported }) {
           el(
             "ul",
             { class: "framer-site-list", "data-role": "framer-site-results" },
-            results.map((entry) =>
-              el("li", { "data-state": entry.state }, el("strong", { text: entry.path }), ` · ${entry.state}`, entry.detail === "" ? "" : el("span", { class: "muted", text: ` – ${entry.detail}` })),
-            ),
+            results.map((entry) => {
+              const row = el("li", { "data-state": entry.state }, el("strong", { text: entry.path }), ` · ${entry.state}`, entry.detail === "" ? "" : el("span", { class: "muted", text: ` – ${entry.detail}` }));
+              if (entry.revisionId !== undefined) {
+                const back = el("button", { type: "button", class: "refs-button", text: "Rückgängig", "data-action": "framer-site-undo", "data-path": entry.path });
+                back.addEventListener("click", async () => {
+                  back.disabled = true;
+                  errorEl.textContent = "";
+                  try {
+                    await api(`/api/pages/${entry.pageId}/restore`, { method: "POST", body: { revisionId: entry.revisionId } });
+                    back.textContent = "Rückgängig gemacht";
+                  } catch (error) {
+                    errorEl.textContent = error.message;
+                    back.disabled = false;
+                  }
+                });
+                row.append(" ", back);
+              }
+              return row;
+            }),
           ),
         );
       }
