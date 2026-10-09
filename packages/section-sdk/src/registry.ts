@@ -108,6 +108,12 @@ export function validateDefinition(
   return issues;
 }
 
+// A per-type prop check: the issues of a node's props under `basePath`.
+export type PropValidator = (
+  props: Record<string, PropValue>,
+  basePath: string,
+) => ValidationIssue[];
+
 export class Registry {
   readonly #sections = new Map<string, SectionDefinition>();
   // Structural node types (the component model of ticket 04) are part of the
@@ -115,6 +121,14 @@ export class Registry {
   // so mutation validation accepts and checks them, while `list()` stays the
   // section catalog the editor and the agents see.
   readonly #structural = new Map<string, SectionDefinition>();
+  // Catalog primitives (the widget vocabulary of the canvas) are the second node
+  // vocabulary of the tree. Like the structural types they are reachable through
+  // `has`/`get` and absent from `list()`; unlike a section they bring their own
+  // prop check, because their style space is open (ADR-0005) and the closed prop
+  // list of a section would reject it. The check is injected by the caller so
+  // this package does not depend on the widget catalog.
+  readonly #primitives = new Map<string, PropValidator>();
+  readonly #primitiveDefinitions = new Map<string, SectionDefinition>();
 
   register(definition: SectionDefinition): void {
     this.#admit(definition, "Section");
@@ -126,6 +140,31 @@ export class Registry {
   registerStructural(definition: SectionDefinition): void {
     this.#admit(definition, "Structural type");
     this.#structural.set(definition.type, definition);
+  }
+
+  // Registers a catalog primitive: validated like a section at registration,
+  // checked per node by `validateProps` with the given function.
+  registerPrimitive(definition: SectionDefinition, validateProps: PropValidator): void {
+    this.#admit(definition, "Primitive");
+    this.#primitiveDefinitions.set(definition.type, definition);
+    this.#primitives.set(definition.type, validateProps);
+  }
+
+  isPrimitive(type: string): boolean {
+    return this.#primitives.has(type);
+  }
+
+  // The one prop check of a node: a catalog primitive runs through its own
+  // boundary, every other type through the closed prop list of its definition.
+  validateProps(
+    definition: SectionDefinition,
+    props: Record<string, PropValue>,
+    basePath = "props",
+  ): ValidationIssue[] {
+    const custom = this.#primitives.get(definition.type);
+    return custom === undefined
+      ? validatePropValues(definition, props, basePath)
+      : custom(props, basePath);
   }
 
   #admit(definition: SectionDefinition, label: string): void {
@@ -199,11 +238,18 @@ export class Registry {
   }
 
   has(type: string): boolean {
-    return this.#sections.has(type) || this.#structural.has(type);
+    return (
+      this.#sections.has(type) ||
+      this.#structural.has(type) ||
+      this.#primitiveDefinitions.has(type)
+    );
   }
 
   get(type: string): SectionDefinition {
-    const definition = this.#sections.get(type) ?? this.#structural.get(type);
+    const definition =
+      this.#sections.get(type) ??
+      this.#structural.get(type) ??
+      this.#primitiveDefinitions.get(type);
     if (!definition) {
       throw new SenifyError("not_found", `Unknown section type "${type}"`, {
         suggestion:

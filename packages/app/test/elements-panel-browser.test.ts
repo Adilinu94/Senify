@@ -113,6 +113,26 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
         targetPosition: { x: 40, y: 8 },
       });
       await expect.poll(dividerCount).toBe(2);
+      // Speichern (Strangler E2): ein Katalog-Baustein ohne Section-Zwilling wird
+      // eingefuegt, gespeichert und liegt danach im Baum der Engine. Der
+      // Speichern-Knopf zaehlt wieder auf null, nichts bleibt haengen.
+      await search.fill("");
+      await hero.click();
+      await expect.poll(() => tab.locator(`.senify-canvas[data-selected="${heroId}"]`).count()).toBe(1);
+      for (const type of ["heading", "frame"]) {
+        await tab.locator(`.senify-elements__tile[data-primitive="${type}"]`).click();
+      }
+      const saveButton = tab.locator('[data-action="canvas-save"]');
+      await expect.poll(async () => (await saveButton.textContent()) ?? "").toMatch(/Speichern \(\d+\)/);
+      await saveButton.click();
+      await expect.poll(async () => (await saveButton.textContent())?.trim()).toBe("Speichern");
+      expect(await tab.getByText("nicht speicherbar").count()).toBe(0);
+      const stored = (await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json()) as {
+        draft: { nodes: Record<string, { type: string }> };
+      };
+      const types = Object.values(stored.draft.nodes).map((node) => node.type);
+      expect(types).toContain("heading");
+      expect(types).toContain("frame");
       expect(errors).toEqual([]);
     } finally {
       await browser.close();

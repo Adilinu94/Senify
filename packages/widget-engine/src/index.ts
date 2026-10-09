@@ -10,3 +10,4 @@ export * from "./theme.ts";
 export * from "./mapping.ts";
 export * from "./bridge.ts";
 export * from "./css/index.ts";
+export * from "./prop-boundary.ts";

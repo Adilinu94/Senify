@@ -28,6 +28,7 @@ import { outletSection } from "./sections/outlet.ts";
 import { collectionListSection } from "./sections/collection-list.ts";
 import { cardSection } from "./sections/card.ts";
 import { structuralSections } from "./sections/structural.ts";
+import { registerCatalogPrimitives } from "./sections/primitives.ts";
 
 export { heroSection } from "./sections/hero.ts";
 export { renderMarkdown } from "./md.ts";export { navbarSection } from "./sections/navbar.ts";
@@ -108,6 +109,9 @@ export function createRegistry(): Registry {
   for (const section of structuralSections) {
     registry.registerStructural(section);
   }
+  // The widget catalog as the second node vocabulary (Strangler E2): last, so a
+  // section or structural type with the same name keeps its own definition.
+  registerCatalogPrimitives(registry);
   return registry;
 }
 
