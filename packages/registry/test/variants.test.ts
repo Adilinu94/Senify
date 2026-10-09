@@ -5,19 +5,22 @@ import { createRegistry } from "@senify/registry";
 import { SECTION_COMPONENTS } from "../src/components/index.ts";
 
 // A variant is why a user picks a section, so two variants of one section must
-// not render the same HTML. These sets still do (measured with each section's
-// golden tree). The list documents the gap and may only shrink: when a variant
-// becomes distinct, take it out here, and the test keeps it that way.
-// media, logo-cloud, marquee, collection-list and embed: their golden tree carries no
-// assets, items or URL, so a difference may only show with real content.
-const STILL_IDENTICAL: Record<string, string[][]> = {
-  media: [["image", "video"]],
-  "logo-cloud": [["grid", "wrap"]],
-  projects: [["cards", "list", "showcase"]],
-  gallery: [["grid", "masonry"]],
-  marquee: [["text", "logos", "images"]],
-  "collection-list": [["cards", "grid", "list"]],
-  embed: [["map", "iframe", "social"]],
+// not render the same HTML. Every section with more than one variant is
+// rendered once per variant from its golden tree and the outputs must differ.
+//
+// A few props are not part of a golden tree on purpose (it doubles as the
+// thumbnail source): a video address the author adds, and the items the engine
+// prefetches into a collection list. The test supplies them, because without
+// them the variants have nothing to show.
+const EXTRA_PROPS: Record<string, Record<string, unknown>> = {
+  media: { videoUrl: "https://cdn.example.test/film.mp4" },
+  "collection-list": {
+    itemTemplate: { variant: "text", styleProps: {} },
+    items: [
+      { variant: "text", props: { title: "Erster Artikel", text: "Kurzer Anreißer." } },
+      { variant: "text", props: { title: "Zweiter Artikel", text: "Noch ein Anreißer." } },
+    ],
+  },
 };
 
 function identicalGroups(type: string, variants: string[], props: Record<string, unknown>): string[][] {
@@ -42,11 +45,10 @@ describe("section variants", () => {
     .filter((section) => Object.keys(section.variants ?? {}).length > 1 && section.golden?.tree !== undefined);
 
   it.each(sections.map((section) => [section.type, section] as const))(
-    "%s: variants that render the same HTML are exactly the listed ones",
+    "%s: no two variants render the same HTML",
     (type, section) => {
-      const props = (section.golden?.tree.props ?? {}) as Record<string, unknown>;
-      const groups = identicalGroups(type, Object.keys(section.variants ?? {}), props);
-      expect(groups).toEqual(STILL_IDENTICAL[type] ?? []);
+      const props = { ...(section.golden?.tree.props ?? {}), ...(EXTRA_PROPS[type] ?? {}) } as Record<string, unknown>;
+      expect(identicalGroups(type, Object.keys(section.variants ?? {}), props)).toEqual([]);
     },
   );
 });

@@ -15,12 +15,25 @@ import {
   type SectionProps,
 } from "./shared.tsx";
 
+// Literal class strings, so the Tailwind source scan finds every one of them.
+function masonryColumns(node: SectionProps["node"]): string {
+  const value = str(node.props.columns);
+  if (value === "2") return "columns-2";
+  if (value === "4") return "columns-2 md:columns-4";
+  return "columns-2 md:columns-3";
+}
+
 export function Gallery({ node, ctx }: SectionProps): React.JSX.Element {
   const items = (Array.isArray(node.props.items) ? node.props.items : []) as {
     asset?: unknown;
     caption?: unknown;
   }[];
   const carousel = node.variant === "carousel";
+  // `masonry` flows the images into staggered columns and keeps each image's own
+  // proportions, so tall and wide pictures sit together without cropping. Rows
+  // have no gap property in a column layout, hence the bottom margin per item.
+  const masonry = node.variant === "masonry";
+  const gap = gapStyle(node)?.gap;
   return (
     <SectionShell node={node} section="gallery">
       <div className={cx("mx-auto px-4 py-16", contentWidthClass(node))}>
@@ -44,16 +57,21 @@ export function Gallery({ node, ctx }: SectionProps): React.JSX.Element {
             </div>
           )}
           <ul
-            className={cx(
-              "mt-8 grid gap-4 sm:grid-cols-2",
-              columnsClass(node, "md:grid-cols-3"),
-            )}
+            className={
+              masonry
+                ? cx("mt-8 gap-4", masonryColumns(node))
+                : cx("mt-8 grid gap-4 sm:grid-cols-2", columnsClass(node, "md:grid-cols-3"))
+            }
             style={gapStyle(node)}
           >
             {items.map((item, index) => {
               const asset = resolveAsset(item.asset, ctx);
               return (
-                <li key={index}>
+                <li
+                  key={index}
+                  className={masonry ? "mb-4 break-inside-avoid" : undefined}
+                  style={masonry && gap !== undefined ? { marginBottom: gap } : undefined}
+                >
                   <figure>
                     {asset && (
                       <ResponsiveImage
@@ -61,8 +79,8 @@ export function Gallery({ node, ctx }: SectionProps): React.JSX.Element {
                         alt={typeof item.caption === "string" && item.caption !== "" ? item.caption : `Bild ${index + 1}`}
                         sizes={imageSizes(node)}
                         priority={index === 0 && ctx.priorityNodeId === node.id}
-                        className="aspect-[4/3] w-full object-cover"
-                        style={{ ...mediaStyle(node), ...aspectStyle(node) }}
+                        className={masonry ? "h-auto w-full" : "aspect-[4/3] w-full object-cover"}
+                        style={masonry ? mediaStyle(node) : { ...mediaStyle(node), ...aspectStyle(node) }}
                       />
                     )}
                     {typeof item.caption === "string" && item.caption !== "" && (

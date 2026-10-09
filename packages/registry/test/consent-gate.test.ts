@@ -16,8 +16,8 @@ function render(children: Node[], ctx: Partial<SectionContext> = {}): string {
   );
 }
 
-const embed = (props: Record<string, unknown>): Node =>
-  ({ id: "emb00000", type: "embed", variant: "iframe", props: { title: "Karte", ...props }, children: [] }) as unknown as Node;
+const embed = (props: Record<string, unknown>, variant = "iframe"): Node =>
+  ({ id: "emb00000", type: "embed", variant, props: { title: "Karte", ...props }, children: [] }) as unknown as Node;
 
 const MAP = "https://www.google.com/maps/embed?pb=abc";
 
@@ -31,6 +31,13 @@ describe("external embeds wait for consent in the baked page", () => {
     expect(html).toContain("www.google.com");
     // Without JavaScript the visitor can still follow a plain link.
     expect(html).toContain(`href="${MAP}"`);
+  });
+
+  it.each(["map", "iframe", "social"])("keeps the %s variant behind the gate", (variant) => {
+    const html = render([embed({ url: MAP }, variant)], { gateEmbeds: true });
+    expect(html).toContain(`data-consent-src="${MAP}"`);
+    expect(html).not.toMatch(/<iframe[^>]* src=/);
+    expect(html).toContain("data-consent-placeholder");
   });
 
   it("hides the frame until it is loaded, whatever the stylesheet says", () => {
