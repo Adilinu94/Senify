@@ -274,8 +274,9 @@ describe("fonts and symbols are local and emoji-free", () => {
   it("draws symbols from one library and carries no emoji", () => {
     expect(EDITOR_ICON_SOURCE).toContain("Phosphor");
     // 41 aus dem Plan + 4 Chrome-Symbole (desktop, tablet, phone, history) + 8
-    // Inspektor-Symbole (Richtungspfeile, Textausrichtung).
-    expect(Object.keys(EDITOR_ICONS).length).toBe(53);
+    // Inspektor-Symbole (Richtungspfeile, Textausrichtung) + 18 Symbole fuer die
+    // Elemente-Kacheln (E4).
+    expect(Object.keys(EDITOR_ICONS).length).toBe(71);
     // Emoji guard over the generated symbol source (6.3).
     const emoji = /\p{Extended_Pictographic}/u;
     for (const [name, svg] of Object.entries(EDITOR_ICONS)) {
