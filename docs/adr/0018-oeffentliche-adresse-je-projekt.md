@@ -1,6 +1,6 @@
 # Jedes Projekt trägt seine öffentliche Adresse
 
-Status: vorgeschlagen · 03.10.2026
+Status: accepted · 09.10.2026 (von Adi bestätigt, Vorschlag vom 03.10.2026)
 Bezug: Review-Befund „canonical, Sitemap und og:url zeigen auf einen festen Platzhalter".
 
 **Problem.** `bakePages` setzte `baseUrl` hart auf `https://<slug>.senify.xyz`. Für ein Kundenprojekt auf

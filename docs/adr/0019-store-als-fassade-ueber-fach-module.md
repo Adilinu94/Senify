@@ -1,6 +1,6 @@
 # Der Store wird Fassade über Fach-Module
 
-Status: vorgeschlagen · 08.10.2026
+Status: accepted · 09.10.2026 (von Adi bestätigt, Vorschlag vom 08.10.2026; Umsetzung läuft schrittweise, Stand in `docs/fahrplan.md`, P3-2)
 Bezug: Risiko R12 (God-Files), Fahrplan P3-2. Variante A am 08.10.2026 von Adi im Frage-Dialog gewählt.
 
 **Problem.** Die Klasse `Store` (`packages/engine/src/store.ts`, Zeilen 1190–8177) hat 252 Methoden und rund

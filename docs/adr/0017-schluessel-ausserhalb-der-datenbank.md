@@ -1,6 +1,6 @@
 # Der Schlüssel für gespeicherte Zugangsdaten liegt außerhalb der Datenbank und des Backups
 
-Status: vorgeschlagen · 29.09.2026
+Status: accepted · 09.10.2026 (von Adi bestätigt, Vorschlag vom 29.09.2026)
 Bezug: T12 (Secrets at rest), Review-Befund „Backup ist faktisch Klartext".
 
 **Problem.** SMTP-Passwort und Deploy-Token stehen AES-256-GCM-verschlüsselt in der Datenbank. Der Schlüssel
