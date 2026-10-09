@@ -32,9 +32,12 @@ dieselbe Datei, und ein Merge-Konflikt zwischen zwei Strängen ist dort wahrsche
 3. Ein Modul kennt den `Store` nicht. Braucht es ein anderes Fachgebiet, bekommt es dessen Modul als
    Konstruktor-Abhängigkeit, nie den `Store`. Die Abhängigkeitsrichtung ist damit azyklisch und im Konstruktor
    sichtbar.
-4. **Transaktionen gehören dem Aufrufer, nicht dem Modul.** Eine Operation, die ein Modul in einer Transaktion
-   ausführen soll, nimmt einen `DbClient` entgegen (so wie `#readStyleRules(siteId, client = this.#db)` es heute
-   schon tut). Die drei fachübergreifenden Transaktionen bleiben vorerst als Methoden am `Store`, der sie aus den
+4. **Fachübergreifende Transaktionen gehören dem Aufrufer, nicht dem Modul.** Eine Transaktion, die in einer
+   einzigen Modul-Methode beginnt und endet und nur Tabellen dieses Fachgebiets berührt (z. B. `activateRelease`
+   und `finalizeRelease` im Releases-Modul), bleibt im Modul: `this.#db.withTransaction(...)` wandert mit der
+   Methode. Eine Operation, die ein Modul innerhalb einer fremden Transaktion ausführen soll, nimmt einen
+   `DbClient` entgegen (so wie `#readStyleRules(siteId, client = this.#db)` es heute schon tut). Die drei
+   fachübergreifenden Transaktionen bleiben vorerst als Methoden am `Store`, der sie aus den
    `DbClient`-Varianten der Module zusammensetzt. Sie werden erst angefasst, wenn die beteiligten Fachgebiete
    ausgelagert sind, und dann einzeln und mit dem Rollback-Test (`redesign-transaction.test.ts`,
    `transactions.test.ts`) als Beweis.
