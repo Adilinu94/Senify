@@ -219,4 +219,61 @@ describe("saving catalog primitives through the editor route", () => {
       await env.close();
     }
   });
+
+  it("publishes a page built from primitives and bakes their structure and text", async () => {
+    const env = await bootEngine();
+    try {
+      const page = await pageWith(env);
+      const rootId = page.draft.rootNodeId;
+      const textKey = getPrimitive("heading")?.controls.find((c) => c.valueType === "string")?.key ?? "";
+      expect(textKey).not.toBe("");
+      const frame = await insert(env, page, rootId, { primitive: "frame", props: {} });
+      expect(frame.status).toBe(200);
+      const frameId =
+        treeOf(await fresh(env, page.id)).nodes[rootId]?.children?.[0] ?? "";
+      const heading = await insert(
+        env,
+        { id: page.id, draftVersion: frame.body.newDraftVersion },
+        frameId,
+        { primitive: "heading", props: { [textKey]: "Hallo Baustein" } },
+      );
+      expect(heading.status).toBe(200);
+      const published = await env.api.request<{ release: { id: string } }>({
+        method: "POST",
+        path: `/api/sites/${page.siteId}/releases`,
+        body: { author: { kind: "human", id: "tester", label: "Tester" } },
+      });
+      expect(published.status).toBe(201);
+      const html = await (
+        await fetch(`${env.server.origin}/api/releases/${published.body.release.id}/files/index.html`)
+      ).text();
+      // The frame carries the heading as its child, both from the widget markup.
+      expect(html).toMatch(
+        /<div class="w-frame[^"]*"[^>]*data-widget="frame"><h2 class="w-heading[^"]*"[^>]*data-widget="heading">Hallo Baustein<\/h2><\/div>/,
+      );
+    } finally {
+      await env.close();
+    }
+  }, 120_000);
+
+  it("undoes an inserted primitive like any other batch", async () => {
+    const env = await bootEngine();
+    try {
+      const page = await pageWith(env);
+      const rootId = page.draft.rootNodeId;
+      const inserted = await insert(env, page, rootId, { primitive: "heading", props: {} });
+      expect(inserted.status).toBe(200);
+      expect(inserted.body.undoBatchId).toBeTruthy();
+      expect(treeOf(await fresh(env, page.id)).nodes[rootId]?.children).toHaveLength(1);
+      const undone = await env.api.request<ErrorResponse>({
+        method: "POST",
+        path: `/api/pages/${page.id}/undo-batch`,
+        body: { baseDraftVersion: inserted.body.newDraftVersion, steps: 1 },
+      });
+      expect(undone.status).toBe(200);
+      expect(treeOf(await fresh(env, page.id)).nodes[rootId]?.children ?? []).toHaveLength(0);
+    } finally {
+      await env.close();
+    }
+  });
 });
