@@ -1,8 +1,5 @@
-import { readFileSync } from "node:fs";
-import { basename, extname } from "node:path";
 import { SenifyError } from "@senify/core";
 import {
-  createRegistry,
   getPrimitive,
   isSectionPrimitiveTwin,
   PRIMITIVES,
@@ -13,20 +10,40 @@ import {
   type Control,
   type StyleGroup,
 } from "@senify/registry";
-import type { PropSpec, Registry, SectionDefinition } from "@senify/section-sdk";
 import {
   COMPONENT_DEFINITION_TYPE,
   COMPONENT_INSTANCE_TYPE,
-  COMPONENT_SLOT_TYPE,
-  componentDefinitions,
   componentDrift,
   definitionVariants,
   instanceVariants,
-  instanceVersion,
-  type NodeTree,
 } from "@senify/section-sdk";
 import type { EngineClient } from "./client.ts";
-import { pageOutline, selectNodes, type PageSummaryInput } from "./outline.ts";
+import { pageOutline, selectNodes } from "./outline.ts";
+import {
+  componentInstanceList,
+  componentName,
+  definitionVersion,
+  readOverrideBag,
+  walkComponent,
+} from "./tools-components.ts";
+import {
+  listSchema,
+  objectSchema,
+  optionalBoolean,
+  optionalNullableString,
+  optionalNumber,
+  optionalString,
+  optionalStringArray,
+  pageFor,
+  pagingQuery,
+  registry,
+  requireArray,
+  requireNumber,
+  requireRecord,
+  requireString,
+  sectionInfo,
+  uploadLocalFile,
+} from "./tools-support.ts";
 
 export type ToolScope = "read" | "write" | "publish";
 
@@ -64,25 +81,6 @@ export type ToolDefinition = {
     args: Record<string, unknown>,
   ) => Promise<unknown>;
 };
-
-let cachedRegistry: Registry | undefined;
-
-function registry(): Registry {
-  cachedRegistry ??= createRegistry();
-  return cachedRegistry;
-}
-
-function objectSchema(
-  properties: Record<string, unknown>,
-  required: string[] = [],
-): Record<string, unknown> {
-  return {
-    type: "object",
-    properties,
-    required,
-    additionalProperties: false,
-  };
-}
 
 // The output schemas of the reading tools (P3-3, R8). They are written next to
 // the handler that produces the value, and the server refuses to send
@@ -250,348 +248,6 @@ const OUTLINE_SCHEMA = {
 // `pages`, `assets` — so the key is a parameter rather than a guess. A generic
 // `items` would have been a schema the code does not keep, and the server would
 // (correctly) refuse to send the structure for every list tool.
-function listSchema(key: string, item: unknown): Record<string, unknown> {
-  return {
-    type: "object",
-    properties: { [key]: { type: "array", items: item } },
-    required: [key],
-    additionalProperties: true,
-  };
-}
-
-// The engine cuts every list route to one page (default 50, cap 200). A list
-// tool therefore has to pass `limit` and `offset` on, or an agent that sees
-// `hasMore: true` has no way to ask for the next page. The values travel
-// unchanged: the engine validates them and refuses what is out of range.
-function pagingQuery(
-  args: Record<string, unknown>,
-  params: URLSearchParams = new URLSearchParams(),
-): string {
-  const limit = optionalNumber(args, "limit");
-  if (limit !== undefined) params.set("limit", String(limit));
-  const offset = optionalNumber(args, "offset");
-  if (offset !== undefined) params.set("offset", String(offset));
-  const query = params.toString();
-  return query === "" ? "" : `?${query}`;
-}
-
-function requireString(args: Record<string, unknown>, key: string): string {
-  const value = args[key];
-  if (typeof value !== "string" || value.trim() === "") {
-    throw new SenifyError("validation", `Missing or invalid "${key}"`, {
-      field: key,
-      suggestion: `Pass "${key}" as a non-empty string.`,
-    });
-  }
-  return value;
-}
-
-function requireNumber(args: Record<string, unknown>, key: string): number {
-  const value = args[key];
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new SenifyError("validation", `Missing or invalid "${key}"`, {
-      field: key,
-      suggestion: `Pass "${key}" as a number.`,
-    });
-  }
-  return value;
-}
-
-function requireRecord(
-  args: Record<string, unknown>,
-  key: string,
-): Record<string, unknown> {
-  const value = args[key];
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new SenifyError("validation", `Missing or invalid "${key}"`, {
-      field: key,
-      suggestion: `Pass "${key}" as an object.`,
-    });
-  }
-  return value as Record<string, unknown>;
-}
-
-function requireArray(args: Record<string, unknown>, key: string): unknown[] {
-  const value = args[key];
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new SenifyError("validation", `Missing or invalid "${key}"`, {
-      field: key,
-      suggestion: `Pass "${key}" as a non-empty array.`,
-    });
-  }
-  return value;
-}
-
-function optionalString(
-  args: Record<string, unknown>,
-  key: string,
-): string | undefined {
-  const value = args[key];
-  if (value === undefined) return undefined;
-  if (typeof value !== "string") {
-    throw new SenifyError("validation", `"${key}" must be a string`, {
-      field: key,
-    });
-  }
-  return value;
-}
-
-function optionalBoolean(
-  args: Record<string, unknown>,
-  key: string,
-): boolean | undefined {
-  const value = args[key];
-  if (value === undefined) return undefined;
-  if (typeof value !== "boolean") {
-    throw new SenifyError("validation", `"${key}" must be a boolean`, {
-      field: key,
-    });
-  }
-  return value;
-}
-
-function optionalNumber(
-  args: Record<string, unknown>,
-  key: string,
-): number | undefined {
-  const value = args[key];
-  if (value === undefined) return undefined;
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new SenifyError("validation", `"${key}" must be a number`, {
-      field: key,
-    });
-  }
-  return value;
-}
-
-function optionalNullableString(
-  args: Record<string, unknown>,
-  key: string,
-): string | null | undefined {
-  const value = args[key];
-  if (value === undefined) return undefined;
-  if (value === null) return null;
-  if (typeof value !== "string") {
-    throw new SenifyError("validation", `"${key}" must be a string or null`, {
-      field: key,
-    });
-  }
-  return value;
-}
-
-function optionalStringArray(
-  args: Record<string, unknown>,
-  key: string,
-): string[] | undefined {
-  const value = args[key];
-  if (value === undefined) return undefined;
-  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
-    throw new SenifyError("validation", `"${key}" must be an array of strings`, {
-      field: key,
-    });
-  }
-  return value as string[];
-}
-
-const MIME_BY_EXTENSION: Record<string, string> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".webp": "image/webp",
-  ".avif": "image/avif",
-  ".gif": "image/gif",
-  ".svg": "image/svg+xml",
-  ".mp4": "video/mp4",
-  ".pdf": "application/pdf",
-};
-
-function readLocalFile(filePath: string): Buffer {
-  try {
-    return readFileSync(filePath);
-  } catch {
-    throw new SenifyError("not_found", `File "${filePath}" is not readable`, {
-      field: "filePath",
-      suggestion: "Pass an absolute path to an existing local file.",
-    });
-  }
-}
-
-function mimeForPath(filePath: string): string {
-  const extension = extname(filePath).toLowerCase();
-  const mime = MIME_BY_EXTENSION[extension];
-  if (mime === undefined) {
-    throw new SenifyError(
-      "validation",
-      `Unsupported file extension "${extension}"`,
-      {
-        field: "filePath",
-        suggestion: `Use one of: ${Object.keys(MIME_BY_EXTENSION).join(", ")}.`,
-      },
-    );
-  }
-  return mime;
-}
-
-// Signed upload, shared by upload_asset and replace_asset: ask the engine for a
-// URL, then PUT the raw bytes to it.
-async function uploadLocalFile(
-  context: ToolContext,
-  input: { siteId: string; filePath: string; extra: Record<string, unknown> },
-): Promise<unknown> {
-  const bytes = readLocalFile(input.filePath);
-  const mime = mimeForPath(input.filePath);
-  const ticket = await context.client.request<{ uploadId: string; url: string }>(
-    "POST",
-    `/api/sites/${input.siteId}/assets/upload-url`,
-    {
-      filename: basename(input.filePath),
-      mime,
-      byteSize: bytes.length,
-      ...input.extra,
-    },
-  );
-  return context.client.uploadBytes("PUT", ticket.url, bytes, mime);
-}
-
-function propInfo(spec: PropSpec): Record<string, unknown> {
-  return {
-    key: spec.key,
-    label: spec.label,
-    control: spec.control,
-    ...(spec.group === undefined ? {} : { group: spec.group }),
-    ...(spec.part === undefined ? {} : { part: spec.part }),
-    ...(spec.tokenGroup === undefined ? {} : { tokenGroup: spec.tokenGroup }),
-    ...(spec.options === undefined
-      ? {}
-      : { options: spec.options.map((option) => option.value) }),
-    ...(spec.min === undefined ? {} : { min: spec.min }),
-    ...(spec.max === undefined ? {} : { max: spec.max }),
-    ...(spec.step === undefined ? {} : { step: spec.step }),
-  };
-}
-
-function sectionInfo(definition: SectionDefinition): Record<string, unknown> {
-  return {
-    type: definition.type,
-    title: definition.title,
-    description: definition.description,
-    category: definition.category,
-    props: definition.props.map(propInfo),
-    styleProps: (definition.styleProps ?? []).map(propInfo),
-    variants: Object.entries(definition.variants ?? {}).map(([name, variant]) => ({
-      name,
-      label: variant.label,
-    })),
-    allowedChildren: definition.allowedChildren ?? "none",
-    motionPresets: definition.motionPresets ?? [],
-    ...(definition.slots === undefined ? {} : { slots: definition.slots }),
-    goldenVersion: definition.version,
-  };
-}
-
-async function pageFor(
-  context: ToolContext,
-  pageId: string,
-): Promise<PageSummaryInput> {
-  return context.client.request<PageSummaryInput>("GET", `/api/pages/${pageId}`);
-}
-
-/* ------------------------------------------------------- components (ticket 04)
- * A component lives as ordinary nodes in the page draft: `__component` is the
- * definition, `__component_instance` an instance, `__component_slot` a
- * placeholder. The tools read the draft (list/get) and write the instance's
- * override bag through the same mutation route the editor uses. */
-
-type ComponentWalk = {
-  parts: { id: string; type: string; props: Record<string, unknown> }[];
-  slots: { id: string; name: string }[];
-};
-
-// The declared parts and slot placeholders of a definition, in tree order.
-// Parts are the override keys; slot placeholders are structure, not parts.
-function walkComponent(tree: NodeTree, definitionId: string): ComponentWalk {
-  const parts: ComponentWalk["parts"] = [];
-  const slots: ComponentWalk["slots"] = [];
-  const rootChildId = tree.nodes[definitionId]?.children?.[0];
-  if (rootChildId === undefined) return { parts, slots };
-  const visit = (id: string): void => {
-    const node = tree.nodes[id];
-    if (node === undefined) return;
-    if (node.type === COMPONENT_SLOT_TYPE) {
-      slots.push({
-        id: node.id,
-        name: typeof node.props["name"] === "string" ? node.props["name"] : node.id,
-      });
-      return;
-    }
-    if (node.type === COMPONENT_DEFINITION_TYPE) return;
-    parts.push({
-      id: node.id,
-      type: node.type,
-      props: node.props as Record<string, unknown>,
-    });
-    for (const child of node.children ?? []) visit(child);
-    for (const list of Object.values(node.slots ?? {})) {
-      for (const child of list) visit(child);
-    }
-  };
-  visit(rootChildId);
-  return { parts, slots };
-}
-
-function readOverrideBag(value: unknown): Record<string, Record<string, unknown>> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return {};
-  const bag: Record<string, Record<string, unknown>> = {};
-  for (const [partId, props] of Object.entries(value)) {
-    if (props === null || typeof props !== "object" || Array.isArray(props)) continue;
-    bag[partId] = { ...(props as Record<string, unknown>) };
-  }
-  return bag;
-}
-
-// The version a definition carries (`props.version`, default 1) - the same
-// reading the editor and the bake use (section-sdk `ComponentDefinition`).
-function definitionVersion(tree: NodeTree, definitionId: string): number {
-  return (
-    componentDefinitions(tree).find((entry) => entry.id === definitionId)?.version ?? 1
-  );
-}
-
-// Every instance of one definition, with its pin, its active variants and its
-// current override bag. `outdated` marks the drift the update tool resolves.
-function componentInstanceList(
-  tree: NodeTree,
-  definitionId: string,
-): {
-  id: string;
-  componentVersion: number;
-  outdated: boolean;
-  variants: string[];
-  overrides: Record<string, Record<string, unknown>>;
-}[] {
-  const current = definitionVersion(tree, definitionId);
-  return Object.values(tree.nodes)
-    .filter(
-      (node) =>
-        node.type === COMPONENT_INSTANCE_TYPE &&
-        node.props["componentId"] === definitionId,
-    )
-    .map((node) => {
-      const pinned = instanceVersion(node);
-      return {
-        id: node.id,
-        componentVersion: pinned,
-        outdated: pinned !== current,
-        variants: instanceVariants(node),
-        overrides: readOverrideBag(node.props["overrides"]),
-      };
-    });
-}
-
-function componentName(tree: NodeTree, definitionId: string): string {
-  const value = tree.nodes[definitionId]?.props["name"];
-  return typeof value === "string" ? value : definitionId;
-}
 
 // The control of a widget as the agent reads it: what it is called, which
 // family it belongs to, the value type and the bounds that keep a write valid.
