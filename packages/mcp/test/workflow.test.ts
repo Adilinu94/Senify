@@ -16,6 +16,14 @@ import {
 
 type Json = Record<string, unknown>;
 
+// Der Engine-Bake gibt sich selbst 180 s (`packages/renderer/src/bake.ts`), der
+// MCP-Client trennt aber nach 60 s ohne Antwort. Aufrufe, die eine Seite
+// veroeffentlichen oder eine Vorschau backen, dürfen deshalb an der Testgrenze
+// nicht scheitern: das Limit muss mindestens das Budget dessen sein, was es
+// prueft, sonst misst der Test den Client statt die Engine. Auf einer ruhigen
+// Maschine liegt so ein Bake bei 1-3 s.
+const MCP_REQUEST_TIMEOUT_MS = 300_000;
+
 // Header-only PNG: the engine reads width/height from the IHDR chunk.
 function pngBytes(width: number, height: number): Buffer {
   const buffer = Buffer.alloc(24);
@@ -100,7 +108,11 @@ async function call(
   name: string,
   args: Json = {},
 ): Promise<{ ok: boolean; data: Json }> {
-  const result = await session.client.callTool({ name, arguments: args });
+  const result = await session.client.callTool(
+    { name, arguments: args },
+    undefined,
+    { timeout: MCP_REQUEST_TIMEOUT_MS },
+  );
   const first = (result.content as { type: string; text?: string }[])[0];
   return {
     ok: result.isError !== true,

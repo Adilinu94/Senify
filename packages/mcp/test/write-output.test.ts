@@ -13,6 +13,14 @@ import { bootMcpEnv, type McpTestEnv } from "./helpers.ts";
 
 type Json = Record<string, unknown>;
 
+// Der Engine-Bake gibt sich selbst 180 s (`packages/renderer/src/bake.ts`), der
+// MCP-Client trennt aber nach 60 s ohne Antwort. Ein Aufruf, der eine Seite
+// veroeffentlicht oder eine Vorschau backt, darf deshalb an der Testgrenze
+// nicht scheitern: das Limit muss mindestens das Budget dessen sein, was es
+// prueft, sonst misst der Test den Client statt die Engine. Auf einer ruhigen
+// Maschine liegt so ein Bake bei 1-3 s.
+const MCP_REQUEST_TIMEOUT_MS = 300_000;
+
 const WRITE_TOOLS_WITH_SCHEMA = [
   "create_site",
   "create_page",
@@ -51,7 +59,11 @@ describe("Schreibwerkzeuge mit fester Antwortform schicken structuredContent", (
     name: string,
     args: Json,
   ): Promise<{ structured: Json | undefined; text: Json }> {
-    const result = await session.client.callTool({ name, arguments: args });
+    const result = await session.client.callTool(
+      { name, arguments: args },
+      undefined,
+      { timeout: MCP_REQUEST_TIMEOUT_MS },
+    );
     expect(result.isError, `${name} schlug fehl`).not.toBe(true);
     const first = (result.content as { type: string; text?: string }[])[0];
     return {
