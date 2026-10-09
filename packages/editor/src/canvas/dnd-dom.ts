@@ -55,6 +55,9 @@ export type DropController = {
     position: InsertPosition,
     props?: Record<string, PropValue>,
   ): boolean;
+  // Macht ein Element zur Drag-Quelle fuer ein Primitiv (die Chips und das
+  // Elemente-Panel teilen sich diese eine Logik).
+  bindDragSource(element: DomElement, primitive: string): void;
   dragging(): boolean;
   destroy(): void;
 };
@@ -167,17 +170,21 @@ export function createDropController(options: DropControllerOptions): DropContro
       const selected = store.selection.focus ?? store.selection.selected[0] ?? null;
       if (selected !== null) insertAt(selected, type, "after");
     });
-    chip.addEventListener("dragstart", (event) => {
-      dragSource = { kind: "primitive", primitive: type };
+    bindDragSource(chip, type);
+    catalog.appendChild(chip);
+  }
+
+  function bindDragSource(element: DomElement, primitive: string): void {
+    element.addEventListener("dragstart", (event) => {
+      dragSource = { kind: "primitive", primitive };
       const transfer = (event as { dataTransfer?: { setData?: (format: string, value: string) => void; effectAllowed?: string } }).dataTransfer;
-      transfer?.setData?.("text/plain", type);
+      transfer?.setData?.("text/plain", primitive);
       if (transfer !== undefined) transfer.effectAllowed = "copy";
       root.setAttribute("data-drag", "true");
       hideLine();
       hidePluses();
     });
-    chip.addEventListener("dragend", () => endDrag());
-    catalog.appendChild(chip);
+    element.addEventListener("dragend", () => endDrag());
   }
 
   const root = overlay;
@@ -438,6 +445,7 @@ export function createDropController(options: DropControllerOptions): DropContro
     catalog,
     attachFrame,
     insertAt,
+    bindDragSource,
     dragging: () => dragSource !== null,
     destroy: () => {
       line.remove();

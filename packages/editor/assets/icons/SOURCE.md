@@ -65,6 +65,24 @@ The editor keeps its short names; this is the mapping to the vendored files:
 | `align-center` | `text-align-center.svg` |
 | `align-right` | `text-align-right.svg` |
 | `align-justify` | `text-align-justify.svg` |
+| `frame` | `frame-corners.svg` |
+| `columns` | `columns.svg` |
+| `rows` | `rows.svg` |
+| `heading` | `text-h.svg` |
+| `paragraph` | `paragraph.svg` |
+| `button` | `cursor-click.svg` |
+| `list` | `list-bullets.svg` |
+| `video` | `video.svg` |
+| `star` | `star.svg` |
+| `input` | `textbox.svg` |
+| `select` | `caret-circle-down.svg` |
+| `checkbox` | `check-square.svg` |
+| `send` | `paper-plane-tilt.svg` |
+| `table` | `table.svg` |
+| `accordion` | `list-dashes.svg` |
+| `divider` | `minus.svg` |
+| `code` | `code.svg` |
+| `collection` | `squares-four.svg` |
 
 Regeneration: `packages/editor/src/ui/icons.ts` and the preview's icon block are
 generated from these SVGs; a vitest parity test (`packages/editor/test/ui/vorschau-paritaet.test.ts`)

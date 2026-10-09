@@ -63,6 +63,9 @@ export type ExplorerTabSource = {
   items: () => ExplorerTabItem[];
   onActivate?: (id: string) => void;
   empty?: string;
+  // Eigener Body statt der Liste (Elemente-Panel, E4): liefert immer dasselbe
+  // Element, damit Suchtext und Fokus ein Neuzeichnen des Explorers ueberstehen.
+  element?: (doc: DomDocument) => DomElement;
 };
 
 export type ExplorerOptions = {
@@ -143,6 +146,8 @@ export function createExplorer(options: ExplorerOptions): ExplorerInstance {
   let renaming: { id: string; key: string } | null = null;
   let menu: { id: string; left: number; top: number } | null = null;
   let activeTab = "layers";
+  // Das eigene Body-Element eines Reiters, solange es im Body steht.
+  let customShown: DomElement | null = null;
   let unsubscribe: (() => void) | null = null;
   let dragId: string | null = null;
   let dropRow: DomElement | null = null;
@@ -895,15 +900,27 @@ export function createExplorer(options: ExplorerOptions): ExplorerInstance {
 
   function render(): void {
     renderTabs();
-    body.textContent = "";
     if (activeTab !== "layers") {
       const source = (options.tabs ?? []).find((tab) => tab.id === activeTab);
+      if (source?.element !== undefined) {
+        const custom = source.element(doc);
+        if (customShown !== custom) {
+          body.textContent = "";
+          body.appendChild(custom);
+          customShown = custom;
+        }
+        return;
+      }
+      customShown = null;
+      body.textContent = "";
       if (source !== undefined) {
         renderTabList(source);
         return;
       }
       activeTab = "layers";
     }
+    customShown = null;
+    body.textContent = "";
     const all = items();
     if (focusedId === null) focusedId = selectedId() ?? all[0]?.id ?? null;
     ensureVisible(focusedId ?? options.store.document.rootNodeId);

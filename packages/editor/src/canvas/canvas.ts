@@ -97,6 +97,9 @@ export type CanvasInstance = {
     position: InsertPosition,
     props?: Record<string, import("@senify/widget-engine").PropValue>,
   ): boolean;
+  // Macht ein Element ausserhalb des Canvas (Elemente-Panel) zur Drag-Quelle
+  // fuer ein Primitiv; der Drop laeuft ueber denselben Controller wie die Chips.
+  bindDragSource(element: DomElement, primitive: string): void;
   // The live-follow highlight (ticket 05): rings over remotely changed nodes.
   flashNodes(ids: string[]): void;
   undo(): boolean;
@@ -1279,6 +1282,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     breakpoint: () => breakpoint,
     select,
     insert,
+    bindDragSource: (element, primitive) => drop.bindDragSource(element, primitive),
     flashNodes(ids: string[]): void {
       // Live reloads on the next store change (point 4): the ring lands on the
       // fresh frame via `refresh`, where the copy map is current again.
