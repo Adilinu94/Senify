@@ -1,6 +1,6 @@
 # Qualitäts- und Gate-Stand
 
-> Stand: **07.10.2026**. PR #1 (Härtung), PR #2 (MCP-Paging) und PR #3 (Schreib-`outputSchema`) sind gemergt; der Messwerte-Block ist auf dem gemergten Stand neu gerendert. Frühere App-Gates sind mit ihrem tatsächlichen Datum gekennzeichnet.
+> Stand: **09.10.2026**. PR #1 (Härtung), PR #2 (MCP-Paging) und PR #3 (Schreib-`outputSchema`) sind gemergt; der Messwerte-Block ist auf dem aktuellen Stand neu gerendert. Frühere App-Gates sind mit ihrem tatsächlichen Datum gekennzeichnet.
 > Aktueller Umsetzungsstand: `docs/current/stand.md`. Planung: `docs/fahrplan.md`.
 
 ## Aktuelle Gates
@@ -33,7 +33,9 @@ Die Postgres-Fälle liefen separat gegen einen eigens initialisierten, lokalen P
 
 Geführt über `pnpm test:coverage`, v8-Provider und `perFile: true`. Der Lauf umfasst die Suites von `engine`, `editor` und `mcp`, nicht die schweren Browser-Suiten. Die Schwellen liegen in `vitest.config.ts`; nur dort ist die maßgebliche Konfiguration.
 
-Der aktuelle Lauf vom 08.10.2026 (lokal auf Windows, TEMP/TMP/TMPDIR auf dem Laufwerk des Repos, ohne `TEST_DATABASE_URL`): **1068 bestanden / 15 übersprungen / 0 fehlgeschlagen** in 109 Dateien (106 bestanden, 3 mit Skips), null Schwellenfehler. Nach den P3-2-Extraktionen liegt `store.ts` bei 85.66 und `http.ts` bei 93.13 — die verschobene Registry steht in `store-style-rules.ts`, die Bake-Auslieferung in `http-build-files.ts`, und beides ist über die Fassaden mitgetestet. Der Volllauf `pnpm test` war an diesem Tag auf der Maschine zeitweise rot, ohne dass ein Fehler im Code stand: Läufe mit Timeout ausschließlich in `framer-import/test/{golden,integrity}.test.ts` (Fixture-Kompilierung, easier-train) und `mcp/test/write-output.test.ts` (`create_preview`), jede dieser Dateien isoliert grün; das Fenster war die Last mehrerer paralleler Agent-Sessions auf derselben Maschine. Der Volllauf nach dem dritten Schritt war vollständig grün (1863 bestanden / 15 übersprungen / 0 fehlgeschlagen). Die Übersicht unten wurde mit `pnpm quality:render` aktualisiert und anschließend durch `pnpm quality:check` bestätigt.
+Der aktuelle Lauf vom 09.10.2026 (lokal auf Windows, TEMP/TMP/TMPDIR auf dem Laufwerk des Repos, ohne `TEST_DATABASE_URL`): **1068 bestanden / 15 übersprungen / 0 fehlgeschlagen** in 109 Dateien (106 bestanden, 3 mit Skips), null Schwellenfehler. Nach den P3-2-Extraktionen liegt `store.ts` bei 85.66 und `http.ts` bei 93.13 — die verschobene Registry steht in `store-style-rules.ts`, die Bake-Auslieferung in `http-build-files.ts`, und beides ist über die Fassaden mitgetestet. Die MCP-Werkzeugdatei `tools.ts` liegt nach der vierten Auslagerung bei 91.83. Ein Lauf am selben Tag war rot, ohne dass ein Fehler im Code stand: nachdem die zwei MCP-Client-Timeouts (siehe unten) behoben waren, flakte genau eine Publish-Bake-Datei (`design-record.test.ts`, vitest-60-s-Deckel); der Wiederholungslauf war vollständig grün, die Datei ist isoliert grün. Das Fenster war die Last mehrerer paralleler Agent-Sessions auf derselben Maschine. Die Übersicht unten wurde mit `pnpm quality:render` aktualisiert und anschließend durch `pnpm quality:check` bestätigt.
+
+**MCP-Client-Timeout (behoben 09.10.2026).** Die zwei Dauer-Flakes des Vortags lagen nicht im Code, sondern an einer Testgrenze, die kürzer war als das System, das sie prüft: der MCP-Client trennt nach dem SDK-Default von 60 s ohne Antwort, der Engine-Bake gibt sich aber selbst 180 s (`packages/renderer/src/bake.ts`). Unter Last lag ein Bake über 60 s, und `workflow.test.ts` sowie `write-output.test.ts` brachen mit `MCP error -32001: Request timed out` ab. Die Aufrufe, die eine Seite veröffentlichen oder eine Vorschau backen, setzen jetzt an der Aufrufstelle `timeout: 300_000`; beide Dateien sind seither grün. Weiterhin gilt: die Bake-Ausgabe wird in `.bake/tmp` (gitignored) gestaged und vor einem Lauf geräumt, weil sich sonst Restverzeichnisse ansammeln und die Läufe verlangsamen.
 
 ### Gemessene Coverage der geschützten Pfade
 
@@ -43,18 +45,18 @@ Der aktuelle Lauf vom 08.10.2026 (lokal auf Windows, TEMP/TMP/TMPDIR auf dem Lau
      Nicht von Hand editieren: dieser Block ist ein Messwert, und `pnpm quality:check`
      lässt den Lauf rot werden, sobald Dokument und Lauf auseinanderlaufen. -->
 
-**Gemessen:** 2026-10-08 · vitest coverage (v8)
+**Gemessen:** 2026-10-09 · vitest coverage (v8)
 
 | Pfad | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
 | `packages/engine/src/http.ts` | 93.13 | 74.02 | 94.20 | 93.13 |
-| `packages/engine/src/store.ts` | 85.66 | 77.27 | 93.31 | 85.66 |
-| `packages/engine/src/lifecycle.ts` | 87.01 | 74.60 | 100.00 | 87.01 |
+| `packages/engine/src/store.ts` | 85.66 | 77.23 | 93.31 | 85.66 |
+| `packages/engine/src/lifecycle.ts` | 87.01 | 74.19 | 100.00 | 87.01 |
 | `packages/engine/src/forms.ts` | 84.25 | 73.62 | 100.00 | 84.25 |
-| `packages/mcp/src/tools.ts` | 91.24 | 63.82 | 87.06 | 91.24 |
+| `packages/mcp/src/tools.ts` | 91.83 | 62.01 | 85.50 | 91.83 |
 | `packages/editor/src/state/*` (14 Dateien) | 66.98 bis 100.00 | 56.75 bis 100.00 | 66.66 bis 100.00 | 66.98 bis 100.00 |
 
-**Über alle gemessenen Dateien:** Statements 88.36 · Branches 73.65 · Functions 90.97 · Lines 88.36
+**Über alle gemessenen Dateien:** Statements 88.41 · Branches 73.61 · Functions 90.75 · Lines 88.41
 
 <!-- messwerte:ende -->
 

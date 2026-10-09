@@ -1,6 +1,6 @@
 # MCP-Routen-Matrix
 
-Stand: 2026-10-07 — generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und `@senify/manifest` (+ Server-Audit). Bei neuer Route die Matrix neu erzeugen; `packages/engine/test/route-matrix.test.ts` prüft Vollständigkeit.
+Stand: 2026-10-08 — generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und `@senify/manifest` (+ Server-Audit). Bei neuer Route die Matrix neu erzeugen; `packages/engine/test/route-matrix.test.ts` prüft Vollständigkeit.
 
 **Regel (E4):** Jede Route hat einen bewussten Status. **Tool** — ein MCP-Tool ruft sie direkt auf. **Workflow-gebündelt** — nur als Teil eines Mehr-Routen-Workflows erreichbar (Via-Spalte nennt das bündelnde Tool). **Operator** — UI/CLI/öffentlich, bewusst ohne Tool.
 
