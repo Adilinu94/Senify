@@ -47,8 +47,13 @@ dieselbe Datei, und ein Merge-Konflikt zwischen zwei Strängen ist dort wahrsche
    neuer Test für das Modul wird **vor** dem Code geschrieben und ist ohne ihn rot.
 7. Reihenfolge: Formulare (sechs Methoden, keine Transaktion), danach die vier Einzeilen-Einstellungen (SMTP,
    Engine, Bild, Referenzen: acht Methoden, ebenfalls ohne Transaktion), danach die Fachgebiete mit
-   Einzeltransaktionen. Die drei fachübergreifenden kommen zuletzt. Die Deploy-Einstellungen (zwei Methoden, je
-   Projekt) rufen `getSite` und gehören damit zum Fachgebiet Sites; sie folgen mit diesem.
+   Einzeltransaktionen. Die drei fachübergreifenden kommen zuletzt. Die Deploy-Einstellungen (vier Methoden, je
+   Projekt: `get`/`update` und die zwei Getter für die verschlüsselten Token) rufen `getSite`. Präzisierung am
+   10.10.2026 (Schritt 6): Sie warten nicht auf das Fachgebiet Sites, sondern ziehen mit den Deployments in
+   `DeployRepository` (`store-deploy.ts`). Solange es kein Sites-Modul gibt, bekommt das Modul die Existenzprüfung
+   als Funktion `(siteId) => Promise<unknown>` im Konstruktor, so wie es Punkt 5 für das Engine-Secret vorsieht; es
+   kennt den `Store` weiterhin nicht. Sobald Sites ein Modul ist, kann diese Funktion durch dessen Methode
+   ersetzt werden.
 8. Geteilte Hilfen, die ein Modul und `Store` brauchen, liegen in `store-row-utils.ts` (so wanderte
    `isUniqueViolation` dorthin). Typen, die der `Store` öffentlich exportiert, ziehen mit ins Modul und werden von
    `store.ts` re-exportiert, damit `index.ts` und jeder Aufrufer unverändert bleiben und das Modul den `Store`
