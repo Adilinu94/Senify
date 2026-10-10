@@ -95,7 +95,7 @@ describe("bake: reveals above the fold as CSS", () => {
     expect(baked.outDir).toBeTruthy();
   }, 240000);
 
-  it("ships no script, no pending marker and no failsafe for a page that only enters through CSS", async () => {
+  it("ships no payload, pending marker or failsafe for a page that only enters through CSS", async () => {
     if (!baked) throw new Error("bake missing");
     const html = await loadBakedSite(baked.outDir).read("nur-css/index.html");
     expect(html).toContain('data-motion-enter="fade-up"');
@@ -105,8 +105,21 @@ describe("bake: reveals above the fold as CSS", () => {
     expect(html).not.toContain("data-motion-pending");
     expect(html).not.toContain("[data-motion-pending]");
     expect(html).not.toContain("motion-data");
-    expect(html).not.toContain("/assets/page.js");
-    expect(html).not.toContain("<script");
+    expect(html).not.toContain("gsap.min.js");
+    // No script tag is linked: the smooth-scroll loader below is inline.
+    expect(html).not.toMatch(/<script[^>]* src=/);
+  }, 60000);
+
+  it("loads smooth scroll late on that page: after the content, after the load event", async () => {
+    if (!baked) throw new Error("bake missing");
+    const html = await loadBakedSite(baked.outDir).read("nur-css/index.html");
+    const loader = html.indexOf('lenis.src="/assets/vendor/lenis.min.js"');
+    expect(loader).toBeGreaterThan(-1);
+    expect(html).toContain('window.addEventListener("load"');
+    // An inline script in the head would wait for the stylesheets before it and
+    // hold back the parse of the content; the loader sits behind the content.
+    expect(loader).toBeGreaterThan(html.indexOf("</head>"));
+    expect(loader).toBeGreaterThan(html.indexOf('data-motion-enter="fade-up"'));
   }, 60000);
 
   it("splits a mixed page: CSS above the fold, pending marker and script below", async () => {
@@ -141,4 +154,57 @@ describe("bake: reveals above the fold as CSS", () => {
     expect(html).toContain("animation:senify-enter-fade 400ms ease-out backwards");
     expect(html).toMatch(/animation:senify-enter 300ms [^;}]+ 200ms backwards/);
   }, 60000);
+});
+
+// Smooth scroll is a site decision (profile). A page whose only motion is a CSS
+// entry still gets Lenis on a smooth profile, and stays script-free on `clean`.
+describe("bake: a page that only enters through CSS, per smooth-scroll profile", () => {
+  const dirs: string[] = [];
+  afterAll(() => {
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+  });
+  async function bakeOnly(profile: "standard" | "clean"): Promise<BakeResult> {
+    const result = await bakeSite(
+      {
+        siteName: "Musterstudio",
+        baseUrl: "https://beispiel.de",
+        pages: [
+          {
+            id: "p-only",
+            path: "/nur-css",
+            title: "Nur CSS",
+            tree: tree([{ type: "hero", motion: { preset: "fade-up", intensity: 6 } }, { type: "stats" }]),
+          },
+        ],
+        themeCss: emitCss(resolved),
+        motionTokens: { ease: resolved.motion.ease, baseDurationMs: 300, baseStaggerMs: 80 },
+        profile,
+      },
+      { outDir: join(mkdtempSync(join(tmpdir(), `senify-css-only-${profile}-`)), "dist") },
+    );
+    dirs.push(result.outDir);
+    return result;
+  }
+
+  it("standard: writes the page script and Lenis, and nothing of GSAP", async () => {
+    const site = loadBakedSite((await bakeOnly("standard")).outDir);
+    expect(await site.exists("assets/page.js")).toBe(true);
+    expect(await site.exists("assets/vendor/lenis.min.js")).toBe(true);
+    expect(await site.exists("assets/vendor/gsap.min.js")).toBe(false);
+    expect(await site.exists("assets/vendor/ScrollTrigger.min.js")).toBe(false);
+    expect(await site.exists("assets/vendor/SplitText.min.js")).toBe(false);
+    // The script has to cope without GSAP and without a payload on the page.
+    expect(await site.read("assets/page.js")).toContain("window.Lenis");
+    expect(await site.read("nur-css/index.html")).toContain('lenis.src="/assets/vendor/lenis.min.js"');
+  }, 240000);
+
+  it("clean: stays without any script and without runtime files", async () => {
+    const site = loadBakedSite((await bakeOnly("clean")).outDir);
+    expect(await site.exists("assets/page.js")).toBe(false);
+    expect(await site.exists("assets/vendor/lenis.min.js")).toBe(false);
+    const html = await site.read("nur-css/index.html");
+    expect(html).toContain('data-motion-enter="fade-up"');
+    expect(html).not.toContain("<script");
+    expect(html).not.toContain("lenis");
+  }, 240000);
 });

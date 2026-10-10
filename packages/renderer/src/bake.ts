@@ -408,6 +408,8 @@ export async function bakeSite(
 
   const manifestPages = [];
   let anyMotion = false;
+  // True when some page has only a CSS entry and still loads Lenis (see below).
+  let anyLenisOnly = false;
   let anyForm = false;
   const islandKinds = new Set<string>();
   // Every payload id a page points at, whether or not this build delivers it.
@@ -501,6 +503,13 @@ export async function bakeSite(
       }
     }
     if (configs.length > 0) anyMotion = true;
+    // A page whose only motion is a CSS entry has no payload, no pending marker
+    // and no failsafe, but smooth scroll is a site decision (profile): without
+    // this, one page of a site would scroll differently from the rest. It gets
+    // Lenis and the page script, nothing of GSAP.
+    const lenisOnly =
+      configs.length === 0 && motionEntries.length > 0 && input.profile !== "clean";
+    if (lenisOnly) anyLenisOnly = true;
     const hasForm = treeHasForms(page.tree);
     if (hasForm) anyForm = true;
     const { entities, warnings: jsonLdWarnings } = collectJsonLd(page.tree);
@@ -534,7 +543,7 @@ export async function bakeSite(
         needsSplitText: needsPlugin("splittext"),
         // Lenis is a site decision (profile): `clean` stays without smooth
         // scroll; the runtime is never initialized in reduced-motion mode.
-        hasLenis: configs.length > 0 && input.profile !== "clean",
+        hasLenis: (configs.length > 0 || lenisOnly) && input.profile !== "clean",
         hasPending: configs.some((config) => config.hides === true),
         islands: [...islands],
         hasForm,
@@ -639,15 +648,17 @@ export async function bakeSite(
       writeFileSync(join(outDir, "assets", "style-rules.css"), siteRulesCss);
     }
     const vendorDir = join(outDir, "assets", "vendor");
-    if (anyMotion || islandKinds.has("webgl-scene")) {
+    if (anyMotion || anyLenisOnly || islandKinds.has("webgl-scene")) {
       mkdirSync(vendorDir, { recursive: true });
     }
-    if (anyMotion) {
+    if (anyMotion || anyLenisOnly) {
       writeFileSync(
         join(outDir, "assets", "page.js"),
         renderPageScript({ lenis: input.profile !== "clean" }),
       );
+      // Only CSS-entry pages: Lenis is the one vendor file anything links.
       for (const file of motionVendorFiles()) {
+        if (!anyMotion && file.name !== "lenis.min.js") continue;
         copyFileSync(file.from, join(vendorDir, file.name));
       }
     }
