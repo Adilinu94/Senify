@@ -14,7 +14,7 @@ export const ctaSection: SectionDefinition = {
   version: 1,
   title: "Call to Action",
   description:
-    "Conversion block with headline and buttons that closes a page or section. Use once per page near the end. Variant 'split' puts text beside the buttons, 'banner-cta' is a full-width colored band.",
+    "Conversion block with headline and buttons that closes a page or section. Use once per page near the end. Variant 'split' puts text beside the buttons, 'banner-cta' sets the call in a bordered panel tinted with the accent color.",
   category: "content",
   props: [
     {
