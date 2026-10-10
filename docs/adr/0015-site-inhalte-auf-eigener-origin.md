@@ -1,6 +1,6 @@
 # Site-Inhalte laufen auf der Engine-Origin, nie unter der Dashboard-Origin
 
-Status: vorgeschlagen · 29.09.2026 (Umsetzung im Code, Browser-Gates `verify:parity` und `test:visual` stehen aus)
+Status: accepted · 09.10.2026 (von Adi bestätigt, Vorschlag vom 29.09.2026; Umsetzung im Code, der Stand der Browser-Gates `verify:parity` und `test:visual` steht ausschließlich in `docs/current/qualitaet.md`)
 Bezug: ADR-0010 (importierter Fremdcode als Island-Payload), Review-Befund „Fremdcode im Dashboard-Origin".
 
 **Problem.** Der Dashboard-Server (Port des Programms) hängt jeder `/api/`-Anfrage den Operator-Token

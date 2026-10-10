@@ -198,6 +198,7 @@ Neu erzeugte Uploads werden nach fehlgeschlagenem DB-Commit kompensiert; negativ
 
 | Datum | Änderung |
 |---|---|
+| 10.10.2026 | ADR-0015 bis ADR-0019 auf `accepted` gesetzt (Remote-Stand `06bca9a` vom 09.10.2026 lokal übernommen: Statuszeilen + neue ADR-0019 Store-Fassade, `docs/adr/README.md` nachgezogen). Coverage-Toleranz `±0,05` in `quality:check` bleibt. |
 | 04.10.2026 | PR-Branch `claude/hardening-2026-09-29` auf `master` (`15f3406`) gebracht, alle 8 CI-Läufe grün. P1-3 (Root-Config im Lint) und P3-6 (Docs-Portal-Build als eigener Schritt) erledigt; der Windows-Job ist blockierend. `docs/current/stand.md` führt Origin-Trennung, SSRF-Schutz, Schlüsseldatei und öffentliche Adresse je Projekt mit Code-/Testbelegen (ADR-0015 bis 0018, noch vorgeschlagen). |
 | 29.09.2026 | P0-1-Folge-Diff in `2a0afde`/`aad9550` gesichert. P3-2 begann mit einer reinen Store-Mapper-Auslagerung; Typprüfung, Lint, Volltest und Coverage bestanden. P3-2 bleibt offen, bis auch die weiteren Module zerlegt sind. |
 | 07.10.2026 | PR #1 (Härtung, ADRs 0015–0018), PR #2 (MCP-Paging) und PR #3 (Schreib-`outputSchema`) gemergt; Dialoge als PR #4 offen. P3-3-Punkte 6+7 in Fahrplan und Stand nachgetragen; Messwerte-Block neu gerendert. |

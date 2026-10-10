@@ -1,6 +1,6 @@
 # Abrufe fremder URLs gehen nur an öffentliche Adressen
 
-Status: vorgeschlagen · 29.09.2026
+Status: accepted · 09.10.2026 (von Adi bestätigt, Vorschlag vom 29.09.2026)
 Bezug: ADR-0015 (Site-Inhalte auf der Engine-Origin), ADR-0010 (Framer-Import).
 
 **Problem.** Import und Referenz-Analyse rufen Adressen ab, die ein Agent oder eine fremde Seite
