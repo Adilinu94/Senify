@@ -5,15 +5,16 @@ import { describe, expect, it } from "vitest";
 import { startProgram } from "@senify/app";
 import { browserAvailable, memoryDb } from "./support.ts";
 
-// Das Elemente-Panel (E4) im echten Editor: neuer Reiter im Explorer, Kacheln
-// in Kategorien, Suche, Einfuegen per Klick und per Ziehen. Beide Wege laufen
+// Das Elemente-Panel (E4/E5) im echten Editor: linke Spalte, Kacheln in
+// Kategorien, Suche, Einfuegen per Klick und per Ziehen, Panel-Wechsel mit der
+// Auswahl und die drei Wege zurueck. Beide Wege laufen
 // ueber denselben Controller wie die Schnellzugriff-Chips. Wie die anderen
 // Browsertests entfaellt der Lauf, wenn Playwright fehlt.
 
 const author = { kind: "human", id: "programm", label: "Programm" };
 
 describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
-  it("lists the tiles, searches, and inserts by click and by drag", async () => {
+  it("lists the tiles, inserts, and swaps with the settings on selection", async () => {
     const { chromium } = await import("playwright");
     const database = memoryDb();
     const dataDir = mkdtempSync(join(tmpdir(), "senify-elements-panel-"));
@@ -79,8 +80,13 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       await hero.waitFor({ timeout: 30000 });
       const dividerCount = (): Promise<number> => desktopFrame().locator('section[data-section="divider"]').count();
 
-      // Der neue Reiter: 22 Kacheln in fuenf Kategorien, alle Symbole gezeichnet.
-      await tab.locator('.senify-explorer__tab[data-tab="elements"]').click();
+      const elements = tab.locator(".canvas-view__elements");
+      const inspector = tab.locator(".canvas-view__inspector");
+
+      // Ohne Auswahl steht links das Elemente-Panel: 22 Kacheln in fuenf
+      // Kategorien, alle Symbole gezeichnet; der Inspektor ist weg (E5).
+      await expect.poll(() => elements.isVisible()).toBe(true);
+      expect(await inspector.isVisible()).toBe(false);
       expect(await tab.locator(".senify-elements__group").count()).toBe(5);
       expect(await tab.locator(".senify-elements__tile").count()).toBe(22);
       const iconBox = await tab.locator(".senify-elements__tile .ic").first().boundingBox();
@@ -93,37 +99,53 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       await search.press("Escape");
       await expect.poll(() => tab.locator(".senify-elements__tile").count()).toBe(22);
 
-      // Ohne Auswahl fuegt ein Klick nichts ein.
-      await tab.locator('.senify-elements__tile[data-primitive="divider"]').click();
-      expect(await dividerCount()).toBe(0);
-
-      // Mit Auswahl fuegt ein Klick hinter dem Knoten ein; Suchtext und Panel
-      // ueberstehen das Neuzeichnen des Explorers.
-      await hero.click();
-      await expect.poll(() => tab.locator(`.senify-canvas[data-selected="${heroId}"]`).count()).toBe(1);
+      // Ein Klick haengt das Element ans Ende der Seite; Suchtext und Panel
+      // ueberstehen das Neuzeichnen.
       await search.fill("divider");
       await tab.locator('.senify-elements__tile[data-primitive="divider"]').click();
       await expect.poll(dividerCount).toBe(1);
       expect(await search.inputValue()).toBe("divider");
-      expect(await tab.locator(".senify-elements__tile").count()).toBe(1);
+      await search.fill("");
+
+      // Panel-Wechsel: die Auswahl ersetzt die Elemente durch "<Name> bearbeiten".
+      await hero.click();
+      await expect.poll(() => tab.locator(`.senify-canvas[data-selected="${heroId}"]`).count()).toBe(1);
+      await expect.poll(() => inspector.isVisible()).toBe(true);
+      expect(await elements.isVisible()).toBe(false);
+      expect(await tab.locator(".senify-inspector__title").textContent()).toMatch(/ bearbeiten$/);
+
+      // Rueckweg 1: der Zurueck-Knopf.
+      await tab.locator(".senify-inspector__back").click();
+      await expect.poll(() => elements.isVisible()).toBe(true);
+      expect(await inspector.isVisible()).toBe(false);
+
+      // Rueckweg 2: Esc im Inspektor. In einem Eingabefeld gibt Esc nur das Feld frei.
+      await hero.click();
+      await expect.poll(() => inspector.isVisible()).toBe(true);
+      await tab.locator(".senify-inspector__back").focus();
+      await tab.keyboard.press("Escape");
+      await expect.poll(() => elements.isVisible()).toBe(true);
+
+      // Rueckweg 3: ein Leerklick im Canvas loest die Auswahl.
+      await hero.click();
+      await expect.poll(() => inspector.isVisible()).toBe(true);
+      // Ein Klick, der keinen Knoten trifft (der Seitenhintergrund im Frame).
+      await desktopFrame().locator("body").dispatchEvent("click");
+      await expect.poll(() => elements.isVisible()).toBe(true);
 
       // Ziehen setzt per Drag and Drop: die Kachel auf die untere Haelfte des Heros.
-      await tab.locator('.senify-explorer__tab[data-tab="elements"]').click();
       await tab.locator('.senify-elements__tile[data-primitive="divider"]').dragTo(hero, {
         targetPosition: { x: 40, y: 8 },
       });
       await expect.poll(dividerCount).toBe(2);
-      // Speichern (Strangler E2): ein Katalog-Baustein ohne Section-Zwilling wird
-      // eingefuegt, gespeichert und liegt danach im Baum der Engine. Der
+
+      // Speichern (Strangler E2): Katalog-Bausteine ohne Section-Zwilling werden
+      // eingefuegt, gespeichert und liegen danach im Baum der Engine. Der
       // Speichern-Knopf zaehlt wieder auf null, nichts bleibt haengen.
-      await search.fill("");
-      await hero.click();
-      await expect.poll(() => tab.locator(`.senify-canvas[data-selected="${heroId}"]`).count()).toBe(1);
       for (const type of ["heading", "frame"]) {
         await tab.locator(`.senify-elements__tile[data-primitive="${type}"]`).click();
       }
       const saveButton = tab.locator('[data-action="canvas-save"]');
-      await expect.poll(async () => (await saveButton.textContent()) ?? "").toMatch(/Speichern \(\d+\)/);
       await saveButton.click();
       await expect.poll(async () => (await saveButton.textContent())?.trim()).toBe("Speichern");
       expect(await tab.getByText("nicht speicherbar").count()).toBe(0);

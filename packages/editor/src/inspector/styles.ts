@@ -50,6 +50,21 @@ export const INSPECTOR_STYLES = `
   border-bottom: 1px solid var(--ed-line-hairline);
   background: var(--ed-surface-raised);
 }
+.senify-inspector__back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-left: calc(var(--ed-space-1) * -1);
+  border: 0;
+  border-radius: var(--ed-radius-sm);
+  background: transparent;
+  color: var(--ed-ink-muted);
+  cursor: pointer;
+}
+.senify-inspector__back:hover { background: var(--ed-fill-hover); color: var(--ed-ink-strong); }
+.senify-inspector__back:focus-visible { outline: 2px solid var(--ed-focus); outline-offset: -2px; }
 .senify-inspector__title {
   font-family: var(--ed-font-display);
   font-size: var(--ed-text-13);

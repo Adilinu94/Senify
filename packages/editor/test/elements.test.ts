@@ -102,7 +102,12 @@ function walk(root: FakeElement, test: (el: FakeElement) => boolean): FakeElemen
 }
 
 function mount() {
-  const doc = { createElement: (tag: string) => new FakeElement(tag) } as unknown as DomDocument;
+  // `querySelector` meldet die Styles als schon eingespeist: das Panel zieht sie
+  // beim Anlegen nach, im Test gibt es kein <head>.
+  const doc = {
+    createElement: (tag: string) => new FakeElement(tag),
+    querySelector: () => ({}),
+  } as unknown as DomDocument;
   const inserted: string[] = [];
   const bound: string[] = [];
   const panel = createElementsPanel(doc, {
