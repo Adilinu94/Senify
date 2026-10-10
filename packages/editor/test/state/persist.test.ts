@@ -189,6 +189,34 @@ describe("save pipeline", () => {
     expect(pipeline.state().unsupported).toEqual([]);
   });
 
+  it("persists a section variant switch as a setNodeMeta mutation", async () => {
+    const { store, pipeline, requests } = harness();
+    store.apply({
+      op: "insertNode",
+      parent: { nodeId: store.document.rootNodeId },
+      node: { primitive: "hero", id: "hero000001", props: { headline: "Hallo" } },
+    });
+    await pipeline.flush();
+    requests.length = 0;
+
+    store.apply({ op: "setNodeMeta", id: "hero000001", meta: { variant: "split" } });
+    await pipeline.flush();
+    expect(requests).toHaveLength(1);
+    const body = requests[0]?.body as { mutations: unknown[] };
+    expect(body.mutations).toEqual([
+      { op: "setNodeMeta", id: "hero000001", meta: { variant: "split" } },
+    ]);
+
+    // Undo goes back to the section default as `null`.
+    requests.length = 0;
+    store.undo();
+    await pipeline.flush();
+    expect((requests[0]?.body as { mutations: unknown[] }).mutations).toEqual([
+      { op: "setNodeMeta", id: "hero000001", meta: { variant: null } },
+    ]);
+    expect(pipeline.state().unsupported).toEqual([]);
+  });
+
   it("persists a motion spec as setMotion and its clear as clearMotion", async () => {    const { store, pipeline, requests } = harness();
     store.apply({
       op: "setMotion",

@@ -117,8 +117,10 @@ const RemoveClassSchema = Type.Object(
 );
 
 // Structural node fields the canvas patches directly (`setNodeFields` in the
-// editor document): the whole class list, hidden and locked. It mirrors the
-// section `updateNodeMeta` shape, so the bridge stays a field mapping.
+// editor document): the whole class list, hidden, locked and the section
+// variant. It mirrors the section `updateNodeMeta` shape, so the bridge stays a
+// field mapping. A variant switch changes the variant only: the section's props
+// keep their values (the variant preset is a start value for a fresh insert).
 const SetNodeMetaSchema = Type.Object(
   {
     op: Type.Literal("setNodeMeta"),
@@ -130,6 +132,7 @@ const SetNodeMetaSchema = Type.Object(
         ),
         hidden: Type.Optional(Type.Union([Type.Boolean(), Type.Null()])),
         locked: Type.Optional(Type.Union([Type.Boolean(), Type.Null()])),
+        variant: Type.Optional(Type.Union([Type.String({ minLength: 1 }), Type.Null()])),
       },
       CLOSED,
     ),

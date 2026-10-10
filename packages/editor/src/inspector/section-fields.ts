@@ -350,3 +350,21 @@ export function sectionContentGroups(
   }
   return [...groups.values()];
 }
+
+// The section's variants as one select at the top of the Content tab. The
+// switch writes the variant and nothing else: the section's props keep their
+// values (a variant preset only seeds a fresh insert). A section with fewer than
+// two variants has nothing to choose, so it gets no group. A node without a
+// variant renders the section's default, which is the golden tree's variant.
+export function sectionVariantGroup(
+  section: SectionDefinition,
+  node: EditorNode,
+): InspectorGroup | null {
+  const entries = Object.entries(section.variants ?? {});
+  if (entries.length < 2) return null;
+  const fallback = section.golden.tree.variant ?? entries[0]?.[0] ?? "";
+  const field = blankField("variant", "Variante", "select", node.variant ?? fallback);
+  field.commit = { kind: "section-variant" };
+  field.options = entries.map(([name, variant]) => ({ value: name, label: variant.label }));
+  return { id: "content/variant", label: "Variante", fields: [field] };
+}

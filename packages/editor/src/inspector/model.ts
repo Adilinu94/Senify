@@ -54,7 +54,7 @@ import {
 import type { EditorDocument, EditorNode, StyleRule } from "../state/document.ts";
 import { sectionDefinitionFor } from "../state/sections.ts";
 import type { EditorTabId } from "../state/ui-state.ts";
-import { sectionContentGroups } from "./section-fields.ts";
+import { sectionContentGroups, sectionVariantGroup } from "./section-fields.ts";
 
 // The tab vocabulary lives in the session state (`state/ui-state.ts`) so the
 // shell can persist and restore it; the inspector is one projection of it.
@@ -91,7 +91,9 @@ export type InspectorCommit =
   | { kind: "state"; state: StateName }
   | { kind: "override"; partId: string }
   | { kind: "variant" }
-  | { kind: "variant-rename"; name: string };
+  | { kind: "variant-rename"; name: string }
+  // The variant of a section node (hero: centered / split / …).
+  | { kind: "section-variant" };
 
 export type InspectorField = {
   key: string;
@@ -1199,6 +1201,7 @@ export function buildInspector(input: BuildInspectorInput): InspectorModel | nul
   for (const group of sectionGroups) {
     for (const field of group.fields) controlKeys.add(canonical(field.key));
   }
+  const sectionVariants = section === undefined ? null : sectionVariantGroup(section, node);
   const state = input.state ?? null;
   const styleGroups = styleFieldsFor(
     input.document,
@@ -1217,6 +1220,8 @@ export function buildInspector(input: BuildInspectorInput): InspectorModel | nul
       : null;
   const register = variantRegisterGroup(input.document, node);
   const content: InspectorGroup[] = [
+    // The layout comes first: pick the variant, then fill in the content.
+    ...(sectionVariants === null ? [] : [sectionVariants]),
     ...(sectionGroups.length > 0
       ? sectionGroups
       : [{ id: "content/main", label: definition?.name ?? node.primitive, fields: contentFields }]),

@@ -602,16 +602,38 @@ function applyRemoveClass(
   };
 }
 
-// The raw structural write: whole class list, hidden, locked. The canvas
-// patches these fields directly (assign/remove and deleteStyleRule build on
-// them), so this op is the transport form of a `setNodeFields` patch — it
-// validates nothing beyond the node's existence, exactly like the patch.
+// A section variant has to be one the section declares: the server refuses any
+// other name on save, so the store refuses it up front instead of at the save.
+function assertSectionVariant(primitive: string, variant: string, field: string): void {
+  const section = sectionDefinitionFor(primitive);
+  const names = Object.keys(section?.variants ?? {});
+  if (names.includes(variant)) return;
+  throw new SenifyError(
+    "validation",
+    section === undefined
+      ? `"${primitive}" has no variants`
+      : `Section "${primitive}" has no variant "${variant}"`,
+    {
+      field,
+      suggestion: names.length === 0 ? "Omit the variant." : `Use one of: ${names.join(", ")}.`,
+    },
+  );
+}
+
+// The raw structural write: whole class list, hidden, locked, section variant.
+// The canvas patches these fields directly (assign/remove and deleteStyleRule
+// build on them), so this op is the transport form of a `setNodeFields` patch —
+// it validates nothing beyond the node's existence, exactly like the patch,
+// except that a variant must be one the section declares.
 function applySetNodeMeta(
   document: EditorDocument,
   mutation: Extract<EditorMutation, { op: "setNodeMeta" }>,
 ): OperationResult {
   const node = requireNode(document, mutation.id, "id");
   const meta = mutation.meta;
+  if (typeof meta.variant === "string") {
+    assertSectionVariant(node.primitive, meta.variant, "meta.variant");
+  }
   const forward: DocumentPatch[] = [];
   const inverse: DocumentPatch[] = [];
   if (meta.classes !== undefined) {
@@ -640,6 +662,14 @@ function applySetNodeMeta(
       patch: "setNodeFields",
       id: node.id,
       fields: { locked: node.locked ?? null },
+    });
+  }
+  if (meta.variant !== undefined) {
+    forward.push({ patch: "setNodeFields", id: node.id, fields: { variant: meta.variant } });
+    inverse.push({
+      patch: "setNodeFields",
+      id: node.id,
+      fields: { variant: node.variant ?? null },
     });
   }
   return { forward, inverse, warnings: [] };

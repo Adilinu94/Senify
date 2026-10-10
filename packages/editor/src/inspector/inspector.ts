@@ -224,6 +224,16 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       toggleVariant(nodeId, key, value === true);
       return true;
     }
+    if (commit.kind === "section-variant") {
+      return apply(
+        {
+          op: "setNodeMeta",
+          id: nodeId,
+          meta: { variant: typeof value === "string" && value !== "" ? value : null },
+        },
+        "Variante ändern",
+      );
+    }
     if (commit.kind === "variant-rename") {
       renameVariantOf(nodeId, commit.name, value);
       return true;
@@ -320,6 +330,10 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     }
     if (commit.kind === "variant") {
       toggleVariant(nodeId, key, false);
+      return;
+    }
+    if (commit.kind === "section-variant") {
+      apply({ op: "setNodeMeta", id: nodeId, meta: { variant: null } }, "Variante zurücksetzen");
       return;
     }
     if (commit.kind === "variant-rename") {

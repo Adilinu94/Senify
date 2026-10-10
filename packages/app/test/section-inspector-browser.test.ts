@@ -156,4 +156,99 @@ describe.skipIf(!browserAvailable)("section content in the inspector", () => {
       rmSync(dataDir, { recursive: true, force: true });
     }
   }, 180000);
+
+  it("switches the variant of a section, saves it and takes it back with undo", async () => {
+    const { chromium } = await import("playwright");
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-section-variant-"));
+    const running = await startProgram({
+      db: database.db,
+      dataDir,
+      programTokenFile: join(dataDir, "program-token.json"),
+      enginePort: 0,
+      appPort: 0,
+      openBrowser: false,
+      rateLimits: { perMinute: 1200, burst: 400, destructivePerMinute: 200 },
+    });
+    const post = (path: string, body: unknown): Promise<Response> =>
+      fetch(`${running.dashboardUrl}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const browser = await chromium.launch({ headless: true });
+    const errors: string[] = [];
+    try {
+      const site = (await (await post("/api/sites", { name: "Variante" })).json()) as { id: string };
+      const page = (await (
+        await post(`/api/sites/${site.id}/pages`, { title: "Start", path: "/" })
+      ).json()) as { id: string; draftVersion: number; draft: { rootNodeId: string } };
+      const applied = await post(`/api/pages/${page.id}/mutations`, {
+        baseDraftVersion: page.draftVersion,
+        author,
+        mutations: [
+          {
+            op: "insertNode",
+            parent: { nodeId: page.draft.rootNodeId },
+            node: {
+              type: "features",
+              variant: "grid",
+              props: { title: "Das bieten wir", items: [{ title: "Erstens", text: "Schnell." }] },
+            },
+          },
+        ],
+      });
+      expect(applied.status).toBe(200);
+      const readPage = async () =>
+        (await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json()) as {
+          draft: {
+            rootNodeId: string;
+            nodes: Record<string, { children?: string[]; variant?: string }>;
+          };
+        };
+      const fresh = await readPage();
+      const sectionId = (fresh.draft.nodes[fresh.draft.rootNodeId]?.children ?? [])[0] ?? "";
+      expect(sectionId).not.toBe("");
+      const savedVariant = async (): Promise<string | undefined> =>
+        (await readPage()).draft.nodes[sectionId]?.variant;
+
+      const context = await browser.newContext({ viewport: { width: 1600, height: 1000 } });
+      const tab = await context.newPage();
+      tab.setDefaultTimeout(30000);
+      tab.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+      await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await tab.waitForSelector(".senify-canvas");
+      await tab.waitForSelector(".senify-explorer__item");
+      await tab.locator(`.senify-explorer__item[data-node="${sectionId}"]`).click();
+      const body = tab.locator('.senify-inspector__body[data-tab="content"]');
+      await body.locator('[data-key="variant"] select').waitFor();
+
+      // The select leads the Content tab and shows the stored variant.
+      expect(await body.locator('[data-key="variant"] .senify-inspector__field-label').innerText()).toBe("Variante");
+      const select = body.locator('[data-key="variant"] select');
+      expect(await select.inputValue()).toBe("grid");
+      expect(await select.locator("option").allTextContents()).toEqual(["Grid", "Alternating", "List"]);
+      expect(await savedVariant()).toBe("grid");
+
+      // Switching writes the variant and nothing else.
+      await select.selectOption("list");
+      await expect.poll(savedVariant, { timeout: 8000 }).toBe("list");
+      expect(
+        await body.locator('[data-key="title"] input').inputValue(),
+      ).toBe("Das bieten wir");
+
+      // Undo takes the switch back.
+      await tab.locator('.senify-canvas__button[data-action="undo"]').click();
+      await expect.poll(savedVariant, { timeout: 8000 }).toBe("grid");
+
+      expect(errors).toEqual([]);
+    } finally {
+      await browser.close();
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 180000);
 });

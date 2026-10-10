@@ -31,12 +31,68 @@ function contentOf(primitive: string, props: Record<string, unknown>) {
 
 describe("Content tab of a section", () => {
   it("lists the section's own props with German labels", () => {
-    const groups = contentOf("cta", { headline: "Los", sub: "Jetzt" });
+    const groups = contentOf("cta", { headline: "Los", sub: "Jetzt" }).filter(
+      (group) => group.id !== "content/variant",
+    );
     const fields = groups.flatMap((group) => group.fields);
     expect(fields.map((field) => field.key)).toEqual(["headline", "sub", "buttons"]);
     expect(fields.map((field) => field.label)).toEqual(["Überschrift", "Unterzeile", "Buttons"]);
     expect(fields[0]?.value).toBe("Los");
     expect(fields.every((field) => !field.responsive)).toBe(true);
+  });
+
+  it("offers the section's variants as a select at the top, named by the registry", () => {
+    const groups = contentOf("cta", { headline: "Los" });
+    expect(groups[0]?.id).toBe("content/variant");
+    expect(groups[0]?.label).toBe("Variante");
+    const field = groups[0]?.fields[0];
+    expect(field?.key).toBe("variant");
+    expect(field?.kind).toBe("select");
+    expect(field?.commit).toEqual({ kind: "section-variant" });
+    expect(field?.options).toEqual([
+      { value: "simple", label: "Simple" },
+      { value: "split", label: "Split" },
+      { value: "banner-cta", label: "Banner" },
+    ]);
+    // Not responsive, like the rest of the section content.
+    expect(field?.responsive).toBe(false);
+  });
+
+  it("shows the default variant until one is set, then the node's own", () => {
+    const valueOf = (variant: string | undefined) => {
+      const store = baseStore();
+      store.apply({
+        op: "insertNode",
+        parent: { nodeId: store.document.rootNodeId },
+        node: {
+          primitive: "cta",
+          id: "sect000001",
+          props: { headline: "Los" },
+          ...(variant === undefined ? {} : { variant }),
+        },
+      });
+      const model = buildInspector({
+        document: store.document,
+        nodeId: "sect000001",
+        breakpoint: "desktop",
+      });
+      const content = model?.tabs.find((entry) => entry.id === "content");
+      return content?.groups[0]?.fields[0]?.value;
+    };
+    // The golden tree's variant is the section's default.
+    expect(valueOf(undefined)).toBe("simple");
+    expect(valueOf("split")).toBe("split");
+  });
+
+  it("gives a node without a section definition no variant select", () => {
+    const store = baseStore();
+    const model = buildInspector({
+      document: store.document,
+      nodeId: "head000001",
+      breakpoint: "desktop",
+    });
+    const content = model?.tabs.find((entry) => entry.id === "content");
+    expect(content?.groups.some((group) => group.id === "content/variant")).toBe(false);
   });
 
   it("turns a list of objects into a repeater with typed entry fields", () => {
