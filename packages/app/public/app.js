@@ -301,13 +301,29 @@ function activeTab(tab) {
   }
 }
 
-function render(nodes) {
+// Stale-Render-Guard: jede Runde von renderRoute bekommt eine Nummer. Eine
+// Ansicht holt sich beim Start (vor dem ersten await) ihren Stand mit
+// routeScope() und übergibt ihn an render(). Wird sie erst fertig, nachdem schon
+// eine neuere Navigation gestartet ist, schreibt sie nicht mehr über die Bühne:
+// sonst überschreibt die langsame Antwort der alten Route die neue Ansicht.
+let routeGeneration = 0;
+
+function routeScope() {
+  const generation = routeGeneration;
+  return () => generation === routeGeneration;
+}
+
+// Liefert false, wenn die Ansicht veraltet ist und nichts geschrieben wurde.
+function render(nodes, current = () => true) {
+  if (!current()) return false;
   view.replaceChildren(...nodes);
+  return true;
 }
 
 /* Views */
 
 async function libraryView(componentId = null) {
+  const current = routeScope();
   activeTab("library");
   const [{ components }, { sites }] = await Promise.all([
     api("/api/library-components"),
@@ -446,10 +462,11 @@ async function libraryView(componentId = null) {
         installs.length === 0 ? el("div", { class: "empty", text: "Noch in keinem Projekt installiert." }) : el("div", { class: "stack" }, installs)));
     }
   }
-  render(body);
+  render(body, current);
 }
 
 async function projectsView() {
+  const current = routeScope();
   const { sites } = await api("/api/sites");
   const releases = await Promise.all(
     sites.map((site) =>
@@ -512,7 +529,7 @@ async function projectsView() {
     sites.length === 0
       ? el("div", { class: "empty", text: "Noch keine Projekte — lege das erste an." })
       : el("div", { class: "card-grid" }, cards),
-  ]);
+  ], current);
 }
 
 async function createSite() {
@@ -599,6 +616,7 @@ async function trashSite(site) {
 }
 
 async function trashView() {
+  const current = routeScope();
   const { sites } = await api("/api/sites?trash=1");
   render([
     el(
@@ -681,7 +699,7 @@ async function trashView() {
             ),
           ),
         ),
-  ]);
+  ], current);
 }
 
 const snapshotDialog = document.getElementById("snapshot-dialog");
@@ -2101,10 +2119,11 @@ function refsResetFilters() {
 }
 
 async function referencesView() {
+  const current = routeScope();
   activeTab("references");
   refsApplyAddress();
   const dom = refsBuildShell();
-  render([dom.root]);
+  if (!render([dom.root], current)) return;
   await refsRefresh();
   refsRenderTray();
 }
@@ -3197,6 +3216,7 @@ function backupRow(backup) {
 }
 
 async function settingsView() {
+  const current = routeScope();
   const { tokens } = await api("/api/tokens");
   const settings = await api("/api/settings");
   const backups = await api("/api/backups");
@@ -3724,7 +3744,7 @@ async function settingsView() {
         },
       }),
     ),
-  ]);
+  ], current);
 }
 
 const WORKSPACE_TABS = [
@@ -3893,11 +3913,13 @@ async function openNewPageDialog(siteId) {
 }
 
 async function projectView(siteId, tab) {
+  const current = routeScope();
   const [site, { pages }, { releases }] = await Promise.all([
     api(`/api/sites/${siteId}`),
     api(`/api/sites/${siteId}/pages`),
     api(`/api/sites/${siteId}/releases`),
   ]);
+  if (!current()) return;
   activeTab("projects");
   const frame = workspaceFrame(siteId, site, tab, releases.length > 0);
   const body = [];
@@ -4544,7 +4566,7 @@ async function projectView(siteId, tab) {
       );
     }
   }
-  render([...frame, ...body]);
+  render([...frame, ...body], current);
 }
 
 /* Artikel-Workspace */
@@ -4626,11 +4648,13 @@ function readCells(fields) {
 }
 
 async function articlesView(siteId) {
+  const current = routeScope();
   const [site, { releases }, { collections }] = await Promise.all([
     api(`/api/sites/${siteId}`),
     api(`/api/sites/${siteId}/releases`),
     api(`/api/sites/${siteId}/collections`),
   ]);
+  if (!current()) return;
   activeTab("projects");
   const frame = workspaceFrame(siteId, site, "articles", releases.length > 0);
   if (collections.length === 0) {
@@ -4640,7 +4664,7 @@ async function articlesView(siteId) {
         class: "empty",
         text: "Noch keine Sammlungen. Agenten legen sie an (create_collection) — oder ein Formular erzeugt sie per Klick.",
       }),
-    ]);
+    ], current);
     return;
   }
   if (!collections.some((collection) => collection.id === articlesCollectionId)) {
@@ -4746,12 +4770,14 @@ async function articlesView(siteId) {
             ),
           ),
         ),
-  ]);
+  ], current);
 }
 
 async function articleEditorView(siteId, entryId) {
+  const current = routeScope();
   const entry = await api(`/api/entries/${entryId}`);
   const collection = await api(`/api/collections/${entry.collectionId}`);
+  if (!current()) return;
   activeTab("projects");
   const fields = (collection.fields ?? []).filter((field) => field.deprecated !== true);
   const controls = fields.map((field) =>
@@ -4911,7 +4937,7 @@ async function articleEditorView(siteId, entryId) {
     ),
     controlsHost,
     previewPanel,
-  ]);
+  ], current);
 }
 
 function reviewPanel(siteId, review) {
@@ -6813,6 +6839,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
 }
 
 async function pageView(siteId, pageId, initialSearch) {
+  const current = routeScope();
   const page = await api(`/api/pages/${pageId}`);
   // Das Site-Profil (Ticket 20): der Editor zeigt es und validiert Profil-
   // Wechsel gegen das Dokument, bevor er den PATCH ausloest.
@@ -6923,7 +6950,9 @@ async function pageView(siteId, pageId, initialSearch) {
     el("span", { class: "muted", id: "page-version", text: `Draft v${page.draftVersion}` }),
   );
   const host = el("div", { class: "editor-host", id: "editor-host" });
-  render([toolbar, host]);
+  // Veraltet: die Navigation ging weiter, der Editor darf nicht mehr einhängen
+  // (Tastatur-Handler, Zeitgeber und Stores blieben sonst an einem losen Host).
+  if (!render([toolbar, host], current)) return;
 
   let editor = null;
   try {
@@ -7148,6 +7177,7 @@ function routeErrorView(error) {
 }
 
 async function renderRoute() {
+  const generation = (routeGeneration += 1);
   const hash = location.hash || "#/";
   const question = hash.indexOf("?");
   const route = question === -1 ? hash : hash.slice(0, question);
@@ -7194,7 +7224,7 @@ async function renderRoute() {
       // liegt als Fenster darueber. Die Adresse faellt danach auf die
       // Bibliothek zurueck, damit „Zurueck" das Fenster nicht schliesst.
       await referencesView();
-      await refsOpenInspector(referenceMatch[1], { replace: true });
+      if (generation === routeGeneration) await refsOpenInspector(referenceMatch[1], { replace: true });
     } else if (route === "#/trash") {
       activeTab("projects");
       await trashView();
@@ -7203,8 +7233,11 @@ async function renderRoute() {
       await projectsView();
     }
   } catch (error) {
-    failed(error);
-    render([routeErrorView(error)]);
+    // Ein Fehler der veralteten Route gehört nicht auf die Bühne der neuen.
+    if (generation === routeGeneration) {
+      failed(error);
+      render([routeErrorView(error)]);
+    }
   }
   if (refsTray) refsRenderTray();
 }
