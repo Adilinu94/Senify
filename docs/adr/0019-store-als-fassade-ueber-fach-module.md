@@ -40,7 +40,12 @@ dieselbe Datei, und ein Merge-Konflikt zwischen zwei Strängen ist dort wahrsche
    fachübergreifenden Transaktionen bleiben vorerst als Methoden am `Store`, der sie aus den
    `DbClient`-Varianten der Module zusammensetzt. Sie werden erst angefasst, wenn die beteiligten Fachgebiete
    ausgelagert sind, und dann einzeln und mit dem Rollback-Test (`redesign-transaction.test.ts`,
-   `transactions.test.ts`) als Beweis.
+   `transactions.test.ts`) als Beweis. Präzisierung am 10.10.2026 (Schritt 8): Eine Einzeltransaktion darf zusätzlich
+   die Fremdschlüssel-Spalte der abhängigen Tabelle bereinigen, solange sie keine Methode eines anderen Moduls
+   aufruft. `deleteReferenceCollection` (Referenz-Bibliothek, `store-reference-library.ts`) setzt dafür
+   `design_references.collection_id` auf `NULL` und löscht dann die Sammlung; die Abfrage steht unverändert im
+   Bibliotheks-Modul und bleibt dort, wenn das Referenz-Modul ausgelagert wird, weil beide Änderungen in einer
+   Transaktion liegen müssen.
 5. Das geteilte Engine-Secret wird nicht kopiert: ein Modul, das es braucht, bekommt eine Funktion
    (`() => Promise<string>`), die auf die eine Auflösung des `Store` zeigt.
 6. Ein Schritt = ein Fachgebiet = ein Commit. Die bestehenden Tests sind der Beweis, dass sich nichts ändert; ein
