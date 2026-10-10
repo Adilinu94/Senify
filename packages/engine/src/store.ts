@@ -1,6 +1,4 @@
 import { createHash, randomBytes } from "node:crypto";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { SenifyError } from "@senify/core";
 import { publishSecretFile, readSecretFile } from "./secrets.ts";
 import { normalizeSiteBaseUrl } from "./site-url.ts";
@@ -10,7 +8,6 @@ import {
   type Author,
   type NodeTree,
 } from "@senify/section-sdk";
-import type { FormSnapshot } from "@senify/renderer";
 import type {
   DesignRecord,
   DesignRecordStage,
@@ -205,6 +202,65 @@ import {
   toJsonParam,
   toNullableIso,
 } from "./store-row-utils.ts";
+import {
+  NOTIFICATION_COLUMNS,
+  type NewsletterTokenRow,
+  type NotificationRow,
+  mapNewsletterToken,
+  mapNotification,
+} from "./store-form-mappers.ts";
+import { FormsRepository, type SaveFormSnapshotInput } from "./store-forms.ts";
+import {
+  BAKE_JOB_COLUMNS,
+  type BakeJobRow,
+  IMAGE_JOB_COLUMNS,
+  IMPORT_JOB_COLUMNS,
+  type ImageJobRow,
+  type ImportJobRow,
+  type ImportReceiptRow,
+  mapBakeJob,
+  mapImageJob,
+  mapImportJob,
+  mapImportReceipt,
+} from "./store-job-mappers.ts";
+import {
+  REFERENCE_ASSIGNMENT_COLUMNS,
+  REFERENCE_COLLECTION_COLUMNS,
+  REFERENCE_COLUMNS,
+  REFERENCE_COLUMNS_WITH_DOCUMENTS,
+  REFERENCE_JOB_COLUMNS,
+  REFERENCE_PROFILE_COLUMNS,
+  REFERENCE_SETTINGS_COLUMNS,
+  type ReferenceAssignmentRow,
+  type ReferenceCollectionRow,
+  type ReferenceJobRow,
+  type ReferenceProfileRow,
+  type ReferenceRow,
+  type ReferenceSettingsRow,
+  defaultReferenceSettings,
+  mapReference,
+  mapReferenceAssignment,
+  mapReferenceCollection,
+  mapReferenceJob,
+  mapReferenceProfile,
+  mapReferenceSettings,
+  mapReferenceSummary,
+  referenceOrderBy,
+} from "./store-reference-mappers.ts";
+import {
+  ENGINE_SETTINGS_COLUMNS,
+  type EngineSettingsRow,
+  IMAGE_SETTINGS_COLUMNS,
+  type ImageSettingsRow,
+  SMTP_COLUMNS,
+  type SmtpRow,
+  defaultEngineSettings,
+  defaultImageSettings,
+  defaultSmtpSettings,
+  mapEngineSettings,
+  mapImageSettings,
+  mapSmtpSettings,
+} from "./store-settings-mappers.ts";
 export function slugify(value: string): string {
   const slug = value
     .toLowerCase()
@@ -960,11 +1016,13 @@ export class Store {
   // Store, because the site theme row belongs to the Store; everything else
   // the registry does, it does with its own handle on the database.
   readonly #styleRules: StyleRuleStore;
+  readonly #forms: FormsRepository;
 
   constructor(db: Db, options: { secretFile?: string } = {}) {
     this.#db = db;
     this.#secretFile = options.secretFile;
     this.#styleRules = new StyleRuleStore(db, (siteId) => this.getTheme(siteId));
+    this.#forms = new FormsRepository(db);
   }
 
   async createSite(input: CreateSiteInput): Promise<Site> {
@@ -5280,107 +5338,28 @@ export class Store {
 
   // ------------------------------------------------------------ forms (T11)
 
-  // The HMAC secret is generated once and lives in its own table so tokens
-  // baked into static HTML keep verifying across engine restarts.
-  async getOrCreateFormSecret(): Promise<string> {
-    const existing = await this.#db.query<{ secret: string }>(
-      `SELECT secret FROM form_settings ORDER BY created_at ASC LIMIT 1`,
-    );
-    const row = existing.rows[0];
-    if (row) return row.secret;
-    const secret = randomBytes(32).toString("base64url");
-    await this.#db.query(
-      `INSERT INTO form_settings (id, secret, created_at) VALUES ($1, $2, $3)`,
-      [newEntityId(), secret, new Date().toISOString()],
-    );
-    return secret;
+  getOrCreateFormSecret(): Promise<string> {
+    return this.#forms.getOrCreateFormSecret();
   }
 
-  // A form id is stable per site + page + node; a re-bake keeps it and only
-  // writes a new snapshot.
-  async resolveFormId(input: {
-    siteId: string;
-    pageId: string;
-    nodeId: string;
-  }): Promise<string> {
-    const existing = await this.#db.query<{ form_id: string }>(
-      `SELECT form_id FROM form_snapshots
-       WHERE site_id = $1 AND page_id = $2 AND node_id = $3
-       ORDER BY created_at DESC, id DESC LIMIT 1`,
-      [input.siteId, input.pageId, input.nodeId],
-    );
-    return existing.rows[0]?.form_id ?? newEntityId();
+  resolveFormId(input: { siteId: string; pageId: string; nodeId: string }): Promise<string> {
+    return this.#forms.resolveFormId(input);
   }
 
-  async saveFormSnapshot(input: {
-    id: string;
-    formId: string;
-    siteId: string;
-    pageId: string;
-    nodeId: string;
-    pagePath: string;
-    sectionType: string;
-    snapshot: FormSnapshot;
-  }): Promise<FormSnapshotRecord> {
-    const result = await this.#db.query<FormSnapshotRow>(
-      `INSERT INTO form_snapshots
-        (id, form_id, site_id, page_id, node_id, page_path, section_type, snapshot, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING id, form_id, site_id, page_id, node_id, page_path, section_type, snapshot, created_at`,
-      [
-        input.id,
-        input.formId,
-        input.siteId,
-        input.pageId,
-        input.nodeId,
-        input.pagePath,
-        input.sectionType,
-        toJsonParam(input.snapshot),
-        new Date().toISOString(),
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) throw new Error("Form snapshot insert returned no row");
-    return mapFormSnapshot(row);
+  saveFormSnapshot(input: SaveFormSnapshotInput): Promise<FormSnapshotRecord> {
+    return this.#forms.saveFormSnapshot(input);
   }
 
-  async getFormSnapshot(id: string): Promise<FormSnapshotRecord> {
-    const result = await this.#db.query<FormSnapshotRow>(
-      `SELECT id, form_id, site_id, page_id, node_id, page_path, section_type, snapshot, created_at
-       FROM form_snapshots WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Form snapshot "${id}" does not exist`, {
-        field: "formId",
-        suggestion: "Re-bake the site so a fresh token is stamped into the page.",
-      });
-    }
-    return mapFormSnapshot(row);
+  getFormSnapshot(id: string): Promise<FormSnapshotRecord> {
+    return this.#forms.getFormSnapshot(id);
   }
 
-  async getFormSnapshotForForm(
-    formId: string,
-  ): Promise<FormSnapshotRecord | undefined> {
-    const result = await this.#db.query<FormSnapshotRow>(
-      `SELECT id, form_id, site_id, page_id, node_id, page_path, section_type, snapshot, created_at
-       FROM form_snapshots WHERE form_id = $1
-       ORDER BY created_at DESC, id DESC LIMIT 1`,
-      [formId],
-    );
-    const row = result.rows[0];
-    return row ? mapFormSnapshot(row) : undefined;
+  getFormSnapshotForForm(formId: string): Promise<FormSnapshotRecord | undefined> {
+    return this.#forms.getFormSnapshotForForm(formId);
   }
 
-  async listFormSnapshots(siteId: string): Promise<FormSnapshotRecord[]> {
-    const result = await this.#db.query<FormSnapshotRow>(
-      `SELECT id, form_id, site_id, page_id, node_id, page_path, section_type, snapshot, created_at
-       FROM form_snapshots WHERE site_id = $1
-       ORDER BY created_at DESC, id DESC`,
-      [siteId],
-    );
-    return result.rows.map(mapFormSnapshot);
+  listFormSnapshots(siteId: string): Promise<FormSnapshotRecord[]> {
+    return this.#forms.listFormSnapshots(siteId);
   }
 
   async enqueueNotification(input: {
@@ -7432,709 +7411,3 @@ async function insertDumpRows(
   }
 }
 
-
-// -------------------------------------------------------------- forms (T11)
-
-const NOTIFICATION_COLUMNS =
-  "id, site_id, form_id, entry_id, kind, recipient, subject, body, status, attempts, next_attempt_at, last_error, created_at, updated_at, sent_at";
-
-type FormSnapshotRow = {
-  id: string;
-  form_id: string;
-  site_id: string;
-  page_id: string;
-  node_id: string;
-  page_path: string;
-  section_type: string;
-  snapshot: unknown;
-  created_at: unknown;
-};
-
-function mapFormSnapshot(row: FormSnapshotRow): FormSnapshotRecord {
-  return {
-    id: row.id,
-    formId: row.form_id,
-    siteId: row.site_id,
-    pageId: row.page_id,
-    nodeId: row.node_id,
-    pagePath: row.page_path,
-    sectionType: row.section_type,
-    snapshot: toJson<FormSnapshot>(row.snapshot),
-    createdAt: toIso(row.created_at),
-  };
-}
-
-type NotificationRow = {
-  id: string;
-  site_id: string;
-  form_id: unknown;
-  entry_id: unknown;
-  kind: string;
-  recipient: string;
-  subject: string;
-  body: string;
-  status: string;
-  attempts: unknown;
-  next_attempt_at: unknown;
-  last_error: unknown;
-  created_at: unknown;
-  updated_at: unknown;
-  sent_at: unknown;
-};
-
-function mapNotification(row: NotificationRow): NotificationMessage {
-  return {
-    id: row.id,
-    siteId: row.site_id,
-    formId: typeof row.form_id === "string" ? row.form_id : null,
-    entryId: typeof row.entry_id === "string" ? row.entry_id : null,
-    kind: row.kind,
-    recipient: row.recipient,
-    subject: row.subject,
-    body: row.body,
-    status: row.status as NotificationStatus,
-    attempts: toFiniteNumber(row.attempts, "attempts"),
-    nextAttemptAt: toIso(row.next_attempt_at),
-    lastError: typeof row.last_error === "string" ? row.last_error : null,
-    createdAt: toIso(row.created_at),
-    updatedAt: toIso(row.updated_at),
-    sentAt: row.sent_at === null || row.sent_at === undefined ? null : toIso(row.sent_at),
-  };
-}
-
-type NewsletterTokenRow = {
-  token: string;
-  site_id: string;
-  form_id: string;
-  entry_id: string;
-  email: string;
-  kind: string;
-  status: string;
-  expires_at: unknown;
-  created_at: unknown;
-  used_at: unknown;
-};
-
-function mapNewsletterToken(row: NewsletterTokenRow): NewsletterToken {
-  return {
-    token: row.token,
-    siteId: row.site_id,
-    formId: row.form_id,
-    entryId: row.entry_id,
-    email: row.email,
-    kind: row.kind as NewsletterTokenKind,
-    status: row.status,
-    expiresAt: row.expires_at === null || row.expires_at === undefined ? null : toIso(row.expires_at),
-    createdAt: toIso(row.created_at),
-    usedAt: row.used_at === null || row.used_at === undefined ? null : toIso(row.used_at),
-  };
-}
-
-// ------------------------------------------------------------ references (T14)
-
-const REFERENCE_COLUMNS =
-  "id, name, source_url, method, status, stage, progress, failure_reason, families, vocabulary, style_brief, snapshots, provenance, created_at, updated_at, collection_id, note, image_recipe, hero_usage, family, origin";
-
-// The documents are tens of kilobytes each: the card list never selects them,
-// only the detail view reads them along with the row.
-const REFERENCE_COLUMNS_WITH_DOCUMENTS = `${REFERENCE_COLUMNS}, documents`;
-
-const REFERENCE_COLLECTION_COLUMNS =
-  "id, name, description, deploy_for, vocabulary, risk, accent, image_style, recognize, examples, warning, kind, external_id, position, created_at, updated_at";
-
-const REFERENCE_SETTINGS_COLUMNS = "dna, include_dna, overrides, updated_at";
-
-function referenceOrderBy(sort: ReferenceListSort | undefined): string {
-  return sort === "name"
-    ? "lower(name) ASC, id ASC"
-    : "created_at DESC, id DESC";
-}
-
-const REFERENCE_PROFILE_COLUMNS =
-  "id, reference_id, revision, profile, evidence, provenance, author, note, created_at";
-
-const REFERENCE_JOB_COLUMNS =
-  "id, reference_id, status, stage, progress, attempts, max_attempts, next_attempt_at, last_error, created_at, updated_at, finished_at";
-
-const BAKE_JOB_COLUMNS =
-  "id, site_id, reason, paths, status, attempts, max_attempts, next_attempt_at, lease_until, last_error, created_at, updated_at, finished_at";
-
-const IMPORT_JOB_COLUMNS =
-  "id, site_id, source_kind, source_url, page_path, dry_run, status, stage, progress, attempts, max_attempts, next_attempt_at, last_error, created_at, updated_at, finished_at";
-
-const REFERENCE_ASSIGNMENT_COLUMNS =
-  "id, site_id, reference_id, scales, priority, created_at, updated_at";
-
-type ReferenceRow = {
-  id: string;
-  name: string;
-  source_url: string;
-  method: string;
-  status: string;
-  stage: string;
-  progress: unknown;
-  failure_reason: unknown;
-  families: unknown;
-  vocabulary: unknown;
-  style_brief: string;
-  snapshots: unknown;
-  provenance: unknown;
-  created_at: unknown;
-  updated_at: unknown;
-  collection_id: string | null;
-  note: unknown;
-  image_recipe: unknown;
-  hero_usage: unknown;
-  family: unknown;
-  origin: unknown;
-  // Only the detail view selects the column.
-  documents?: unknown;
-};
-
-function optionalText(value: unknown): string | null {
-  return typeof value === "string" && value !== "" ? value : null;
-}
-
-// Imported documents are a JSONB object with three optional texts; a row from
-// before the column exists reads as an empty object.
-function mapReferenceDocuments(value: unknown): ReferenceDocuments {
-  const parsed = toJson<Partial<Record<keyof ReferenceDocuments, unknown>>>(value);
-  return {
-    design: optionalText(parsed?.design),
-    guidelines: optionalText(parsed?.guidelines),
-    components: optionalText(parsed?.components),
-  };
-}
-
-// Rows written before the library fields existed carry neither a collection nor
-// an origin: they are analysed references.
-function mapReferenceSummary(
-  row: ReferenceRow,
-  revision: number,
-  usedInProjects: string[],
-  collection: ReferenceCollection | null = null,
-): ReferenceSummary {
-  const snapshots = toJson<ReferenceSnapshot[]>(row.snapshots);
-  return {
-    id: row.id,
-    name: row.name,
-    sourceUrl: row.source_url,
-    method: row.method as ReferenceMethod,
-    origin: row.origin === "manual" ? "manual" : "analysis",
-    status: row.status as ReferenceStatus,
-    stage: row.stage,
-    progress: toFiniteNumber(row.progress, "progress"),
-    failureReason: typeof row.failure_reason === "string" ? row.failure_reason : null,
-    families: toJson<string[]>(row.families),
-    vocabulary: toJson<string[]>(row.vocabulary),
-    styleBrief: row.style_brief,
-    snapshots,
-    cardSnapshot: selectCardSnapshot(snapshots),
-    provenance: toJson<ReferenceProvenance>(row.provenance),
-    collectionId: collection?.id ?? optionalText(row.collection_id),
-    collection,
-    note: optionalText(row.note),
-    imageRecipe: optionalText(row.image_recipe),
-    heroUsage: optionalText(row.hero_usage),
-    family: optionalText(row.family),
-    revision,
-    usedInProjects,
-    createdAt: toIso(row.created_at),
-    updatedAt: toIso(row.updated_at),
-  };
-}
-
-function mapReference(
-  row: ReferenceRow,
-  profileRevision: ReferenceProfileRevision | null,
-  usedInProjects: string[],
-  collection: ReferenceCollection | null = null,
-): Reference {
-  return {
-    ...mapReferenceSummary(row, profileRevision?.revision ?? 0, usedInProjects, collection),
-    documents: mapReferenceDocuments(row.documents),
-    profile: profileRevision?.profile ?? null,
-    evidence: profileRevision?.evidence ?? [],
-  };
-}
-
-type ReferenceCollectionRow = {
-  id: string;
-  name: string;
-  description: string;
-  deploy_for: string;
-  vocabulary: unknown;
-  risk: string;
-  accent: string;
-  image_style: string;
-  recognize: unknown;
-  examples: unknown;
-  warning: unknown;
-  kind: string;
-  external_id: unknown;
-  position: unknown;
-  created_at: unknown;
-  updated_at: unknown;
-};
-
-function mapReferenceCollection(
-  row: ReferenceCollectionRow,
-  referenceCount: number,
-): ReferenceCollection {
-  return {
-    id: row.id,
-    name: row.name,
-    description: row.description,
-    deployFor: row.deploy_for,
-    vocabulary: toJson<string[]>(row.vocabulary),
-    risk: row.risk,
-    accent: row.accent,
-    imageStyle: row.image_style,
-    recognize: toJson<string[]>(row.recognize),
-    examples: toJson<ReferenceCollectionExample[]>(row.examples),
-    warning: typeof row.warning === "string" && row.warning !== "" ? row.warning : null,
-    kind: row.kind === "style" ? "style" : "collection",
-    externalId: optionalText(row.external_id),
-    position: toFiniteNumber(row.position, "position"),
-    referenceCount,
-    createdAt: toIso(row.created_at),
-    updatedAt: toIso(row.updated_at),
-  };
-}
-
-type ReferenceSettingsRow = {
-  dna: unknown;
-  include_dna: unknown;
-  overrides: string;
-  updated_at: unknown;
-};
-
-function mapReferenceSettings(row: ReferenceSettingsRow): ReferenceSettings {
-  const dna = toJson<Partial<ReferenceDna>>(row.dna);
-  return {
-    dna: {
-      name: typeof dna.name === "string" ? dna.name : "",
-      description: typeof dna.description === "string" ? dna.description : "",
-      constants: Array.isArray(dna.constants) ? dna.constants : [],
-      never: Array.isArray(dna.never) ? dna.never : [],
-    },
-    preferences: {
-      includeDna: toBoolean(row.include_dna),
-      overrides: typeof row.overrides === "string" ? row.overrides : "",
-    },
-    updatedAt: toIso(row.updated_at),
-  };
-}
-
-function defaultReferenceSettings(): ReferenceSettings {
-  return {
-    dna: { name: "", description: "", constants: [], never: [] },
-    preferences: { includeDna: false, overrides: "" },
-    updatedAt: new Date().toISOString(),
-  };
-}
-
-type ReferenceProfileRow = {
-  id: string;
-  reference_id: string;
-  revision: unknown;
-  profile: unknown;
-  evidence: unknown;
-  provenance: unknown;
-  author: unknown;
-  note: unknown;
-  created_at: unknown;
-};
-
-function mapReferenceProfile(row: ReferenceProfileRow): ReferenceProfileRevision {
-  return {
-    id: row.id,
-    referenceId: row.reference_id,
-    revision: toFiniteNumber(row.revision, "revision"),
-    profile: toJson<ReferenceProfile>(row.profile),
-    evidence: toJson<ReferenceEvidence[]>(row.evidence),
-    provenance: toJson<ReferenceProvenance>(row.provenance),
-    author: toJson<ReferenceProfileRevision["author"]>(row.author),
-    note: typeof row.note === "string" ? row.note : null,
-    createdAt: toIso(row.created_at),
-  };
-}
-
-type ReferenceJobRow = {
-  id: string;
-  reference_id: string;
-  status: string;
-  stage: string;
-  progress: unknown;
-  attempts: unknown;
-  max_attempts: unknown;
-  next_attempt_at: unknown;
-  last_error: unknown;
-  created_at: unknown;
-  updated_at: unknown;
-  finished_at: unknown;
-};
-
-function mapReferenceJob(row: ReferenceJobRow): ReferenceJob {
-  return {
-    id: row.id,
-    referenceId: row.reference_id,
-    status: row.status as ReferenceJobStatus,
-    stage: row.stage,
-    progress: toFiniteNumber(row.progress, "progress"),
-    attempts: toFiniteNumber(row.attempts, "attempts"),
-    maxAttempts: toFiniteNumber(row.max_attempts, "max_attempts"),
-    nextAttemptAt: toIso(row.next_attempt_at),
-    lastError: typeof row.last_error === "string" ? row.last_error : null,
-    createdAt: toIso(row.created_at),
-    updatedAt: toIso(row.updated_at),
-    finishedAt:
-      row.finished_at === null || row.finished_at === undefined ? null : toIso(row.finished_at),
-  };
-}
-
-type ImportReceiptRow = {
-  id: string;
-  site_id: string;
-  job_id: string;
-  content_key: string;
-  request_fingerprint: string;
-  page_id: string;
-  draft_version: unknown;
-  result: unknown;
-  created_at: unknown;
-};
-
-function mapImportReceipt(row: ImportReceiptRow): ImportReceipt {
-  return {
-    id: row.id,
-    siteId: row.site_id,
-    jobId: row.job_id,
-    contentKey: row.content_key,
-    requestFingerprint: row.request_fingerprint,
-    pageId: row.page_id,
-    draftVersion: toFiniteNumber(row.draft_version, "draft_version"),
-    result: toJson<Record<string, unknown>>(row.result),
-    createdAt: toIso(row.created_at),
-  };
-}
-
-type ImportJobRow = {
-  id: string;
-  site_id: string;
-  source_kind: string;
-  source_url: unknown;
-  page_path: string;
-  dry_run: unknown;
-  status: string;
-  stage: string;
-  progress: unknown;
-  attempts: unknown;
-  max_attempts: unknown;
-  next_attempt_at: unknown;
-  last_error: unknown;
-  created_at: unknown;
-  updated_at: unknown;
-  finished_at: unknown;
-};
-
-function mapImportJob(row: ImportJobRow): ImportJob {
-  return {
-    id: row.id,
-    siteId: row.site_id,
-    sourceKind: row.source_kind as ImportJobSource["kind"],
-    sourceUrl: row.source_url === null || row.source_url === undefined ? null : String(row.source_url),
-    pagePath: row.page_path,
-    dryRun: row.dry_run === true,
-    status: row.status as ImportJobStatus,
-    stage: row.stage,
-    progress: toFiniteNumber(row.progress, "progress"),
-    attempts: toFiniteNumber(row.attempts, "attempts"),
-    maxAttempts: toFiniteNumber(row.max_attempts, "max_attempts"),
-    nextAttemptAt: toIso(row.next_attempt_at),
-    lastError: typeof row.last_error === "string" ? row.last_error : null,
-    createdAt: toIso(row.created_at),
-    updatedAt: toIso(row.updated_at),
-    finishedAt:
-      row.finished_at === null || row.finished_at === undefined ? null : toIso(row.finished_at),
-  };
-}
-
-type BakeJobRow = {
-  id: string;
-  site_id: string;
-  reason: string;
-  paths: unknown;
-  status: string;
-  attempts: unknown;
-  max_attempts: unknown;
-  next_attempt_at: unknown;
-  lease_until: unknown;
-  last_error: unknown;
-  created_at: unknown;
-  updated_at: unknown;
-  finished_at: unknown;
-};
-
-function mapBakeJob(row: BakeJobRow): BakeJob {
-  const paths = toJson<string[]>(row.paths);
-  return {
-    id: row.id,
-    siteId: row.site_id,
-    reason: row.reason,
-    paths: Array.isArray(paths) ? paths : [],
-    status: row.status as BakeJobStatus,
-    attempts: toFiniteNumber(row.attempts, "attempts"),
-    maxAttempts: toFiniteNumber(row.max_attempts, "max_attempts"),
-    nextAttemptAt: toIso(row.next_attempt_at),
-    leaseUntil:
-      row.lease_until === null || row.lease_until === undefined ? null : toIso(row.lease_until),
-    lastError: typeof row.last_error === "string" ? row.last_error : null,
-    createdAt: toIso(row.created_at),
-    updatedAt: toIso(row.updated_at),
-    finishedAt:
-      row.finished_at === null || row.finished_at === undefined ? null : toIso(row.finished_at),
-  };
-}
-
-type ReferenceAssignmentRow = {
-  id: string;
-  site_id: string;
-  reference_id: string;
-  scales: unknown;
-  priority: unknown;
-  created_at: unknown;
-  updated_at: unknown;
-};
-
-function mapReferenceAssignment(row: ReferenceAssignmentRow): ReferenceAssignment {
-  return {
-    id: row.id,
-    siteId: row.site_id,
-    referenceId: row.reference_id,
-    scales: toJson<ReferenceScale[]>(row.scales),
-    priority: toFiniteNumber(row.priority, "priority"),
-    createdAt: toIso(row.created_at),
-    updatedAt: toIso(row.updated_at),
-  };
-}
-
-// ------------------------------------------------------------ settings (T12)
-
-const SMTP_COLUMNS = "host, port, tls, username, password_encrypted, from_address";
-
-const ENGINE_SETTINGS_COLUMNS =
-  "default_profile, default_layout, autostart, backup_dir";
-
-function toBoolean(value: unknown): boolean {
-  if (value === true || value === 1) return true;
-  if (typeof value === "string") {
-    return value === "true" || value === "t" || value === "1";
-  }
-  return false;
-}
-
-type SmtpRow = {
-  host: string;
-  port: unknown;
-  tls: string;
-  username: string;
-  password_encrypted: unknown;
-  from_address: string;
-};
-
-function defaultSmtpSettings(): SmtpSettingsRecord {
-  return {
-    host: "",
-    port: 587,
-    tls: "starttls",
-    user: "",
-    from: "",
-    passwordEncrypted: null,
-  };
-}
-
-function mapSmtpSettings(row: SmtpRow): SmtpSettingsRecord {
-  const tls = SMTP_TLS_MODES.includes(row.tls as SmtpTlsMode)
-    ? (row.tls as SmtpTlsMode)
-    : "starttls";
-  return {
-    host: row.host,
-    port: toFiniteNumber(row.port, "port"),
-    tls,
-    user: row.username,
-    from: row.from_address,
-    passwordEncrypted:
-      typeof row.password_encrypted === "string" ? row.password_encrypted : null,
-  };
-}
-
-type EngineSettingsRow = {
-  default_profile: string;
-  default_layout: string;
-  autostart: unknown;
-  backup_dir: unknown;
-};
-
-function defaultEngineSettings(): EngineSettings {
-  return {
-    defaultProfile: "standard",
-    defaultLayout: "Standard",
-    autostart: false,
-    backupDir: null,
-  };
-}
-
-function mapEngineSettings(row: EngineSettingsRow): EngineSettings {
-  const profile = SITE_PROFILES.includes(row.default_profile as Site["profile"])
-    ? (row.default_profile as Site["profile"])
-    : "standard";
-  return {
-    defaultProfile: profile,
-    defaultLayout: row.default_layout,
-    autostart: toBoolean(row.autostart),
-    backupDir: typeof row.backup_dir === "string" ? row.backup_dir : null,
-  };
-}
-
-// ------------------------------------------------------------ images (S1)
-
-const IMAGE_SETTINGS_COLUMNS =
-  "provider, fallback_provider, cooldown_minutes, cli_path, base_url, diffusion_model, text_encoder, vae, default_steps, max_pixels, timeout_minutes, custom_base_url, custom_model, custom_format, custom_api_key_encrypted";
-
-type ImageSettingsRow = {
-  provider: string;
-  fallback_provider: string;
-  cooldown_minutes: unknown;
-  cli_path: string;
-  base_url: string;
-  diffusion_model: string;
-  text_encoder: string;
-  vae: string;
-  default_steps: unknown;
-  max_pixels: unknown;
-  timeout_minutes: unknown;
-  custom_base_url: string;
-  custom_model: string;
-  custom_format: string;
-  custom_api_key_encrypted: string | null;
-};
-
-export function defaultImageSettings(): ImageSettings {
-  return {
-    provider: "image-use",
-    fallbackProvider: "comfyui",
-    cooldownMinutes: 60,
-    // The CLI of the image-use skill installation; an empty stored value keeps
-    // this default, so a fresh installation works without setup.
-    cliPath: join(homedir(), ".agents", "skills", "image-use", "image-use"),
-    baseUrl: "http://127.0.0.1:8188",
-    diffusionModel: "qwen-image-2.1-Q4_K_M.gguf",
-    textEncoder: "qwen3vl_8b_int8_convrot.safetensors",
-    vae: "qwen_image_2.1_vae_bf16.safetensors",
-    defaultSteps: 40,
-    maxPixels: 1_048_576,
-    timeoutMinutes: 60,
-    // The custom endpoint (third path) defaults to MiniMax; the API key has to
-    // be stored before the provider can run.
-    customBaseUrl: "https://api.minimax.io/v1",
-    customModel: "image-01",
-    customFormat: "minimax",
-    customApiKeyEncrypted: null,
-  };
-}
-
-function positiveInteger(value: unknown, fallback: number): number {
-  const parsed = toFiniteNumber(value, "image");
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-function mapImageSettings(row: ImageSettingsRow): ImageSettings {
-  const defaults = defaultImageSettings();
-  const provider = IMAGE_PROVIDERS.includes(row.provider as ImageProviderName)
-    ? (row.provider as ImageProviderName)
-    : defaults.provider;
-  const fallbackProvider = IMAGE_FALLBACK_PROVIDERS.includes(
-    row.fallback_provider as ImageFallbackProvider,
-  )
-    ? (row.fallback_provider as ImageFallbackProvider)
-    : defaults.fallbackProvider;
-  const customFormat = IMAGE_CUSTOM_FORMATS.includes(
-    row.custom_format as ImageCustomFormat,
-  )
-    ? (row.custom_format as ImageCustomFormat)
-    : defaults.customFormat;
-  return {
-    provider,
-    fallbackProvider,
-    cooldownMinutes: positiveInteger(row.cooldown_minutes, defaults.cooldownMinutes),
-    cliPath: row.cli_path === "" ? defaults.cliPath : row.cli_path,
-    baseUrl: row.base_url === "" ? defaults.baseUrl : row.base_url,
-    diffusionModel: row.diffusion_model === "" ? defaults.diffusionModel : row.diffusion_model,
-    textEncoder: row.text_encoder === "" ? defaults.textEncoder : row.text_encoder,
-    vae: row.vae === "" ? defaults.vae : row.vae,
-    defaultSteps: positiveInteger(row.default_steps, defaults.defaultSteps),
-    maxPixels: positiveInteger(row.max_pixels, defaults.maxPixels),
-    timeoutMinutes: positiveInteger(row.timeout_minutes, defaults.timeoutMinutes),
-    customBaseUrl:
-      row.custom_base_url === "" ? defaults.customBaseUrl : row.custom_base_url,
-    customModel: row.custom_model === "" ? defaults.customModel : row.custom_model,
-    customFormat,
-    customApiKeyEncrypted:
-      typeof row.custom_api_key_encrypted === "string"
-        ? row.custom_api_key_encrypted
-        : null,
-  };
-}
-
-// ------------------------------------------------------ image jobs (S2)
-
-const IMAGE_JOB_COLUMNS =
-  "id, site_id, status, request, provider_used, attempts, max_attempts, lease_until, provider_job_id, asset_id, error, created_at, started_at, finished_at, updated_at";
-
-type ImageJobRow = {
-  id: string;
-  site_id: string;
-  status: string;
-  request: unknown;
-  provider_used: unknown;
-  attempts: unknown;
-  max_attempts: unknown;
-  lease_until: unknown;
-  provider_job_id: unknown;
-  asset_id: unknown;
-  error: unknown;
-  created_at: unknown;
-  started_at: unknown;
-  finished_at: unknown;
-  updated_at: unknown;
-};
-
-function timestampOrNull(value: unknown): string | null {
-  return typeof value === "string" ? new Date(value).toISOString() : null;
-}
-
-function mapImageJob(row: ImageJobRow): ImageJob {
-  const status = IMAGE_JOB_STATUSES.includes(row.status as ImageJobStatus)
-    ? (row.status as ImageJobStatus)
-    : "failed";
-  const attempts = toJson<ImageJobAttempt[]>(row.error);
-  return {
-    id: row.id,
-    siteId: row.site_id,
-    status,
-    request: toJson<ImageJobRequest>(row.request),
-    providerUsed: typeof row.provider_used === "string" ? row.provider_used : null,
-    attempts: toFiniteNumber(row.attempts, "attempts"),
-    maxAttempts: toFiniteNumber(row.max_attempts, "max_attempts"),
-    leaseUntil: timestampOrNull(row.lease_until),
-    providerJobId:
-      typeof row.provider_job_id === "string" ? row.provider_job_id : null,
-    assetId: typeof row.asset_id === "string" ? row.asset_id : null,
-    error: Array.isArray(attempts) ? attempts : [],
-    createdAt: new Date(String(row.created_at)).toISOString(),
-    startedAt: timestampOrNull(row.started_at),
-    finishedAt: timestampOrNull(row.finished_at),
-    updatedAt: new Date(String(row.updated_at)).toISOString(),
-  };
-}

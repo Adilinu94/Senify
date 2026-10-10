@@ -24,3 +24,11 @@ export function toNullableIso(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   return toIso(value);
 }
+
+export function toBoolean(value: unknown): boolean {
+  if (value === true || value === 1) return true;
+  if (typeof value === "string") {
+    return value === "true" || value === "t" || value === "1";
+  }
+  return false;
+}
