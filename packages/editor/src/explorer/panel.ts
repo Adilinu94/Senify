@@ -123,10 +123,10 @@ function messageOf(error: unknown): string {
 export function createExplorer(options: ExplorerOptions): ExplorerInstance {
   const doc = requireDocument();
   ensureExplorerStyles(doc);
-  const root = h(doc, "section", { className: "senify-explorer", attributes: { "aria-label": "Ebenen" } });
+  const root = h(doc, "section", { className: "senify-explorer", attributes: { "aria-label": "Struktur" } });
   root.setAttribute(EDITOR_ROOT_ATTRIBUTE, "true");
   const header = h(doc, "div", { className: "senify-explorer__header" });
-  header.appendChild(h(doc, "span", { className: "senify-explorer__title", text: "Ebenen" }));
+  header.appendChild(h(doc, "span", { className: "senify-explorer__title", text: "Struktur" }));
   const countEl = h(doc, "span", { className: "senify-explorer__count" });
   header.appendChild(countEl);
   root.appendChild(header);
@@ -836,7 +836,7 @@ export function createExplorer(options: ExplorerOptions): ExplorerInstance {
   function renderTabs(): void {
     tabRow.textContent = "";
     const entries = [
-      { id: "layers", label: "Ebenen" },
+      { id: "layers", label: "Struktur" },
       ...(options.tabs ?? []).map((tab) => ({ id: tab.id, label: tab.label })),
     ];
     for (const entry of entries) {
@@ -918,6 +918,18 @@ export function createExplorer(options: ExplorerOptions): ExplorerInstance {
     const menuEl = renderMenu();
     if (menuEl !== null) {
       body.appendChild(menuEl);
+      // Das Menue steht in Fensterkoordinaten (fixed). Am Rand, etwa im Panel
+      // rechts, wird es zurueck in den sichtbaren Bereich geschoben statt
+      // abgeschnitten.
+      const view = (doc as unknown as { defaultView?: { innerWidth: number; innerHeight: number } })
+        .defaultView;
+      const rect = menuEl.getBoundingClientRect?.();
+      if (view !== undefined && rect !== undefined && rect.width > 0) {
+        const maxLeft = view.innerWidth - rect.width - 8;
+        const maxTop = view.innerHeight - rect.height - 8;
+        if (rect.left > maxLeft) menuEl.style.left = `${Math.max(8, maxLeft)}px`;
+        if (rect.top > maxTop) menuEl.style.top = `${Math.max(8, maxTop)}px`;
+      }
       // Keyboard-first: the first entry takes the focus, Escape returns it to
       // the tree (closeMenu).
       menuEl.querySelector('[role="menuitem"]')?.focus?.();

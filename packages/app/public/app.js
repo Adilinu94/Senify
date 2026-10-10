@@ -5914,7 +5914,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   const loaded = editor.loadDocument(page.draft);
   loaded.document.styleRules = styleRules ?? [];
 
-  // Drei Spalten: Ebenen-Explorer, Arbeitsflaeche (Canvas) und Inspektor
+  // Drei Spalten: Elemente/Einstellungen, Arbeitsflaeche (Canvas) und Struktur
   // (Tickets 02/03). Alle drei lesen denselben Store — die Auswahl im Canvas
   // ist die Auswahl in beiden Panels, eine Aenderung erscheint ueberall.
   const explorerHost = el("aside", { class: "canvas-view__explorer" });

@@ -53,9 +53,9 @@ const media: MediaItem[] = [
 ];
 
 describe("explorer tabs", () => {
-  it("declares Ebenen · Seiten · Vorlagen · Medien · Bibliothek", () => {
+  it("declares Struktur · Seiten · Vorlagen · Medien · Bibliothek", () => {
     expect(EXPLORER_TABS.map((tab) => tab.label)).toEqual([
-      "Ebenen",
+      "Struktur",
       "Seiten",
       "Vorlagen",
       "Medien",
