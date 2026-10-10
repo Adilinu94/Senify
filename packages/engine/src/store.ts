@@ -49,9 +49,7 @@ import {
   type StyleRuleRow,
   type StyleRuleUpdatePatch,
 } from "./store-style-rules.ts";
-import { selectCardSnapshot } from "./references-library.ts";
 import { deriveDesignContract } from "./design-contract.ts";
-import { entryConflictError } from "./content-contract.ts";
 import { newEntityId, newNodeId } from "./ids.ts";
 import {
   assetStorageRef,
@@ -63,13 +61,8 @@ import { validateShape } from "./mutations/contract.ts";
 import { assertPagePathFormat, draftConflictError } from "./paths.ts";
 import type { GeneratedVariant } from "./variants.ts";
 import {
-  IMAGE_CUSTOM_FORMATS,
-  IMAGE_FALLBACK_PROVIDERS,
-  IMAGE_JOB_STATUSES,
-  IMAGE_PROVIDERS,
   REVIEW_STATUSES,
   SITE_PROFILES,
-  SMTP_TLS_MODES,
   type ApiToken,
   type Asset,
   type AssetFolder,
@@ -80,7 +73,6 @@ import {
   type AssetUsage,
   type AssetVariant,
   type AuditEntry,
-  type CellValue,
   type CodePayload,
   type CodePayloadKind,
   type CodePayloadLicense,
@@ -91,29 +83,21 @@ import {
   type ImportJobStatus,
   type ImportReceipt,
   type Deployment,
-  type DeploymentStatus,
-  type DeployProvider,
   type DeploySettings,
   type EngineSettings,
   type Entry,
   type EntryRedirect,
-  type EntryStatus,
   type EntryVersion,
   type FieldDef,
   type FormSnapshotRecord,
-  type ImageCustomFormat,
-  type ImageFallbackProvider,
   type ImageJob,
   type ImageJobAttempt,
   type ImageJobRequest,
   type ImageJobStatus,
-  type ImageProviderName,
   type ImageSettings,
   type McpAuditEntry,
   type NewsletterToken,
-  type NewsletterTokenKind,
   type NotificationMessage,
-  type NotificationStatus,
   type Page,
   type PageMeta,
   type PageRevision,
@@ -126,11 +110,8 @@ import {
   type Reference,
   type ReferenceAssignment,
   type BakeJob,
-  type BakeJobStatus,
   type ReferenceCollection,
-  type ReferenceCollectionExample,
   type ReferenceCollectionKind,
-  type ReferenceDna,
   type ReferenceDocuments,
   EMPTY_REFERENCE_DOCUMENTS,
   type ReferenceEvidence,
@@ -139,7 +120,6 @@ import {
   type ReferenceListSort,
   type ReferenceMethod,
   type ReferenceOrigin,
-  type ReferencePreferences,
   type ReferenceProfile,
   type ReferenceProfileRevision,
   type ReferenceProvenance,
@@ -149,7 +129,6 @@ import {
   type ReferenceStatus,
   type ReferenceSummary,
   type Release,
-  type ReleasePageRevision,
   type ReviewComment,
   type ReviewItem,
   type ReviewStatus,
@@ -163,7 +142,6 @@ import {
   type Site,
   type SiteTheme,
   type SmtpSettingsRecord,
-  type SmtpTlsMode,
   type StructureChange,
   type SupportsFlag,
   type TokenKind,
@@ -175,41 +153,66 @@ import {
   ASSET_COLUMNS,
   CODE_PAYLOAD_COLUMNS,
   COLLECTION_COLUMNS,
-  ENTRY_COLUMNS,
   mapAsset,
   mapAssetFolder,
   mapAssetHistory,
   mapAssetVariant,
   mapCodePayload,
   mapCollection,
-  mapEntry,
-  mapEntryVersion,
-  mapEntryRedirect,
   type AssetRow,
   type AssetFolderRow,
   type AssetHistoryRow,
   type AssetVariantRow,
   type CodePayloadRow,
   type CollectionRow,
-  type EntryRow,
-  type EntryVersionRow,
-  type EntryRedirectRow,
 } from "./store-record-mappers.ts";
 import {
   toFiniteNumber,
   toIso,
   toJson,
+  isUniqueViolation,
   toJsonParam,
   toNullableIso,
 } from "./store-row-utils.ts";
-import {
-  NOTIFICATION_COLUMNS,
-  type NewsletterTokenRow,
-  type NotificationRow,
-  mapNewsletterToken,
-  mapNotification,
-} from "./store-form-mappers.ts";
 import { FormsRepository, type SaveFormSnapshotInput } from "./store-forms.ts";
+import {
+  type CreateDeploymentInput,
+  DeployRepository,
+  type DeploySettingsPatch,
+  type FinishDeploymentInput,
+} from "./store-deploy.ts";
+import {
+  type CreateEntryInput,
+  type CreateEntryRedirectInput,
+  type CreateEntryVersionInput,
+  EntriesRepository,
+  type ListEntriesFilter,
+  type UpdateEntryRowInput,
+} from "./store-entries.ts";
+import {
+  type CreateReferenceCollectionInput,
+  ReferenceLibraryRepository,
+  type ReferenceCollectionPatch,
+} from "./store-reference-library.ts";
+import {
+  type CreateNewsletterTokenInput,
+  type EnqueueNotificationInput,
+  type MarkNotificationResultInput,
+  NotificationsRepository,
+} from "./store-notifications.ts";
+import {
+  type ActivateReleaseInput,
+  type CreateReleaseInput,
+  type FinalizeReleaseInput,
+  ReleasesRepository,
+} from "./store-releases.ts";
+import {
+  SettingsRepository,
+  type EngineSettingsPatch,
+  type ImageSettingsPatch,
+  type ReferenceSettingsPatch,
+  type SmtpSettingsPatch,
+} from "./store-settings.ts";
 import {
   BAKE_JOB_COLUMNS,
   type BakeJobRow,
@@ -225,42 +228,21 @@ import {
 } from "./store-job-mappers.ts";
 import {
   REFERENCE_ASSIGNMENT_COLUMNS,
-  REFERENCE_COLLECTION_COLUMNS,
   REFERENCE_COLUMNS,
   REFERENCE_COLUMNS_WITH_DOCUMENTS,
   REFERENCE_JOB_COLUMNS,
   REFERENCE_PROFILE_COLUMNS,
-  REFERENCE_SETTINGS_COLUMNS,
   type ReferenceAssignmentRow,
-  type ReferenceCollectionRow,
   type ReferenceJobRow,
   type ReferenceProfileRow,
   type ReferenceRow,
-  type ReferenceSettingsRow,
-  defaultReferenceSettings,
   mapReference,
   mapReferenceAssignment,
-  mapReferenceCollection,
   mapReferenceJob,
   mapReferenceProfile,
-  mapReferenceSettings,
   mapReferenceSummary,
   referenceOrderBy,
 } from "./store-reference-mappers.ts";
-import {
-  ENGINE_SETTINGS_COLUMNS,
-  type EngineSettingsRow,
-  IMAGE_SETTINGS_COLUMNS,
-  type ImageSettingsRow,
-  SMTP_COLUMNS,
-  type SmtpRow,
-  defaultEngineSettings,
-  defaultImageSettings,
-  defaultSmtpSettings,
-  mapEngineSettings,
-  mapImageSettings,
-  mapSmtpSettings,
-} from "./store-settings-mappers.ts";
 export function slugify(value: string): string {
   const slug = value
     .toLowerCase()
@@ -274,15 +256,6 @@ export function slugify(value: string): string {
     .replace(/^-+|-+$/g, "")
     .slice(0, 60);
   return slug || "page";
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const candidate = error as { code?: unknown; message?: unknown };
-  if (candidate.code === "23505") return true;
-  const message =
-    typeof candidate.message === "string" ? candidate.message : "";
-  return /(duplicate|unique|already exists)/i.test(message);
 }
 
 type SiteRow = {
@@ -524,19 +497,6 @@ type RevisionRow = {
   created_at: unknown;
 };
 
-type ReleaseRow = {
-  id: string;
-  site_id: string;
-  page_revisions: unknown;
-  theme_snapshot: unknown;
-  build_ref: unknown;
-  manifest: unknown;
-  author: unknown;
-  note: unknown;
-  basis_release_id: unknown;
-  created_at: unknown;
-};
-
 type PreviewRow = {
   id: string;
   site_id: string;
@@ -546,30 +506,6 @@ type PreviewRow = {
   created_by: unknown;
   created_at: unknown;
   expires_at: unknown;
-};
-
-type DeploymentRow = {
-  id: string;
-  site_id: string;
-  release_id: string;
-  provider: string;
-  status: string;
-  target: string;
-  file_count: unknown;
-  byte_size: unknown;
-  error: unknown;
-  author: unknown;
-  created_at: unknown;
-  finished_at: unknown;
-};
-
-type DeploySettingsRow = {
-  provider: string;
-  netlify_site_id: unknown;
-  netlify_token_encrypted: unknown;
-  vercel_project_id: unknown;
-  vercel_token_encrypted: unknown;
-  updated_at: unknown;
 };
 
 type ReviewRow = {
@@ -683,52 +619,6 @@ function mapRevision(row: RevisionRow): PageRevision {
 function toRevisionSummary(revision: PageRevision): RevisionSummary {
   const { tree, ...rest } = revision;
   return { ...rest, nodeCount: Object.keys(tree.nodes).length };
-}
-
-function mapRelease(row: ReleaseRow): Release {
-  return {
-    id: row.id,
-    siteId: row.site_id,
-    pageRevisions: toJson<ReleasePageRevision[]>(row.page_revisions),
-    themeSnapshot: toJson<unknown>(row.theme_snapshot),
-    buildRef: typeof row.build_ref === "string" ? row.build_ref : null,
-    manifest:
-      row.manifest === null || row.manifest === undefined
-        ? null
-        : toJson<ReleaseManifest>(row.manifest),
-    author: toJson<Author>(row.author),
-    note: typeof row.note === "string" ? row.note : null,
-    basisReleaseId:
-      typeof row.basis_release_id === "string" ? row.basis_release_id : null,
-    createdAt: toIso(row.created_at),
-  };
-}
-
-function mapDeployment(row: DeploymentRow): Deployment {
-  const status: DeploymentStatus =
-    row.status === "succeeded"
-      ? "succeeded"
-      : row.status === "failed"
-        ? "failed"
-        : "running";
-  return {
-    id: row.id,
-    siteId: row.site_id,
-    releaseId: row.release_id,
-    // One provider today; the seam widens when hosted adapters arrive.
-    provider: "static",
-    status,
-    target: row.target,
-    fileCount: Number(row.file_count ?? 0),
-    byteSize: Number(row.byte_size ?? 0),
-    error: typeof row.error === "string" ? row.error : null,
-    author: toJson<Author>(row.author),
-    createdAt: toIso(row.created_at),
-    finishedAt:
-      row.finished_at === null || row.finished_at === undefined
-        ? null
-        : toIso(row.finished_at),
-  };
 }
 
 function mapPreview(row: PreviewRow): Preview {
@@ -876,39 +766,7 @@ export type FramerImportCommitResult = {
   replayed: boolean;
 };
 
-export type SmtpSettingsPatch = {
-  host?: string;
-  port?: number;
-  tls?: SmtpTlsMode;
-  user?: string;
-  from?: string;
-  passwordEncrypted?: string | null;
-};
-
-export type EngineSettingsPatch = {
-  defaultProfile?: Site["profile"];
-  defaultLayout?: string;
-  autostart?: boolean;
-  backupDir?: string | null;
-};
-
-export type ImageSettingsPatch = {
-  provider?: ImageProviderName;
-  fallbackProvider?: ImageFallbackProvider;
-  cooldownMinutes?: number;
-  cliPath?: string;
-  baseUrl?: string;
-  diffusionModel?: string;
-  textEncoder?: string;
-  vae?: string;
-  defaultSteps?: number;
-  maxPixels?: number;
-  timeoutMinutes?: number;
-  customBaseUrl?: string;
-  customModel?: string;
-  customFormat?: ImageCustomFormat;
-  customApiKeyEncrypted?: string | null;
-};
+export type { EngineSettingsPatch, ImageSettingsPatch, SmtpSettingsPatch } from "./store-settings.ts";
 
 export type LibraryCreateInput = {
   id: string;
@@ -1007,22 +865,34 @@ function mapLibraryInstall(row: LibraryInstallRow): LibraryInstall {
 export class Store {
   readonly #db: Db;
 
-  // Where the encryption key lives. Without it (a bare Store in a test) the key
-  // stays in the database, as before.
-  readonly #secretFile: string | undefined;
-  #engineSecret: Promise<string> | undefined;
-
   // The style-rule registry (P3-2 extraction). It reads the theme through the
   // Store, because the site theme row belongs to the Store; everything else
   // the registry does, it does with its own handle on the database.
   readonly #styleRules: StyleRuleStore;
   readonly #forms: FormsRepository;
+  readonly #settings: SettingsRepository;
+  readonly #releases: ReleasesRepository;
+  readonly #deploy: DeployRepository;
+  readonly #notifications: NotificationsRepository;
+  readonly #referenceLibrary: ReferenceLibraryRepository;
+  readonly #entries: EntriesRepository;
+
+  // Where the encryption key lives. Without it (a bare Store in a test) the key
+  // stays in the database, as before.
+  readonly #secretFile: string | undefined;
+  #engineSecret: Promise<string> | undefined;
 
   constructor(db: Db, options: { secretFile?: string } = {}) {
     this.#db = db;
-    this.#secretFile = options.secretFile;
     this.#styleRules = new StyleRuleStore(db, (siteId) => this.getTheme(siteId));
     this.#forms = new FormsRepository(db);
+    this.#settings = new SettingsRepository(db);
+    this.#releases = new ReleasesRepository(db);
+    this.#deploy = new DeployRepository(db, (siteId) => this.getSite(siteId));
+    this.#notifications = new NotificationsRepository(db);
+    this.#referenceLibrary = new ReferenceLibraryRepository(db);
+    this.#entries = new EntriesRepository(db);
+    this.#secretFile = options.secretFile;
   }
 
   async createSite(input: CreateSiteInput): Promise<Site> {
@@ -3338,386 +3208,74 @@ export class Store {
     return result.rows.map(mapRevision).map(toRevisionSummary);
   }
 
-  async createRelease(input: {
-    siteId: string;
-    pageRevisions: ReleasePageRevision[];
-    themeSnapshot: unknown;
-    buildRef: string | null;
-    manifest?: ReleaseManifest | null;
-    author: Author;
-    note: string | null;
-    basisReleaseId: string | null;
-  }): Promise<Release> {
-    const id = newEntityId();
-    const createdAt = new Date().toISOString();
-    const manifest = input.manifest ?? null;
-    await this.#db.query(
-      `INSERT INTO releases
-        (id, site_id, page_revisions, theme_snapshot, build_ref, manifest, author, note, basis_release_id, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-      [
-        id,
-        input.siteId,
-        toJsonParam(input.pageRevisions),
-        toJsonParam(input.themeSnapshot),
-        input.buildRef,
-        manifest === null ? null : toJsonParam(manifest),
-        toJsonParam(input.author),
-        input.note,
-        input.basisReleaseId,
-        createdAt,
-      ],
-    );
-    return {
-      id,
-      siteId: input.siteId,
-      pageRevisions: input.pageRevisions,
-      themeSnapshot: input.themeSnapshot,
-      buildRef: input.buildRef,
-      manifest,
-      author: input.author,
-      note: input.note,
-      basisReleaseId: input.basisReleaseId,
-      createdAt,
-    };
+  createRelease(input: CreateReleaseInput): Promise<Release> {
+    return this.#releases.createRelease(input);
   }
 
-  // Atomic activation (E2): the build reference and the active-release row are
-  // written in one transaction. A crash before this call leaves the previous
-  // release serving and the new release inactive (harmless orphan); a crash
-  // after it never sees a half-activated release.
-  async activateRelease(input: {
-    siteId: string;
-    releaseId: string;
-    buildRef: string;
-  }): Promise<void> {
-    const now = new Date().toISOString();
-    await this.#db.withTransaction(async (tx) => {
-      const updated = await tx.query<{ id: string }>(
-        `UPDATE releases SET build_ref = $2
-         WHERE id = $1 AND build_ref IS NULL
-         RETURNING id`,
-        [input.releaseId, input.buildRef],
-      );
-      if (updated.rows.length === 0) {
-        throw new SenifyError("conflict", `Release "${input.releaseId}" is already finalized`, {
-          field: "releaseId",
-        });
-      }
-      await tx.query(
-        `INSERT INTO active_releases (site_id, release_id, updated_at)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (site_id) DO UPDATE
-           SET release_id = EXCLUDED.release_id, updated_at = EXCLUDED.updated_at`,
-        [input.siteId, input.releaseId, now],
-      );
-    });
+  activateRelease(input: ActivateReleaseInput): Promise<void> {
+    return this.#releases.activateRelease(input);
   }
 
-  async finalizeRelease(input: {
-    siteId: string;
-    releaseId: string;
-    buildRef: string;
-    manifest: ReleaseManifest;
-  }): Promise<void> {
-    const now = new Date().toISOString();
-    await this.#db.withTransaction(async (tx) => {
-      const updated = await tx.query<{ id: string }>(
-        `UPDATE releases SET build_ref = $2, manifest = $3
-         WHERE id = $1 AND build_ref IS NULL
-         RETURNING id`,
-        [input.releaseId, input.buildRef, toJsonParam(input.manifest)],
-      );
-      if (updated.rows.length === 0) {
-        throw new SenifyError("conflict", `Release "${input.releaseId}" is already finalized`, {
-          field: "releaseId",
-        });
-      }
-      await tx.query(
-        `INSERT INTO active_releases (site_id, release_id, updated_at)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (site_id) DO UPDATE
-           SET release_id = EXCLUDED.release_id, updated_at = EXCLUDED.updated_at`,
-        [input.siteId, input.releaseId, now],
-      );
-    });
+  finalizeRelease(input: FinalizeReleaseInput): Promise<void> {
+    return this.#releases.finalizeRelease(input);
   }
 
-  async updateReleaseManifest(id: string, manifest: ReleaseManifest): Promise<void> {
-    const result = await this.#db.query<{ id: string }>(
-      `UPDATE releases SET manifest = $2 WHERE id = $1 AND build_ref IS NULL RETURNING id`,
-      [id, toJsonParam(manifest)],
-    );
-    if (result.rows.length === 0) {
-      throw new SenifyError("conflict", `Release "${id}" is already finalized`, {
-        field: "releaseId",
-      });
-    }
+  updateReleaseManifest(id: string, manifest: ReleaseManifest): Promise<void> {
+    return this.#releases.updateReleaseManifest(id, manifest);
   }
 
-  async getRelease(id: string): Promise<Release> {
-    const result = await this.#db.query<ReleaseRow>(
-      `SELECT id, site_id, page_revisions, theme_snapshot, build_ref, manifest, author, note, basis_release_id, created_at
-       FROM releases WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Release "${id}" does not exist`, {
-        field: "releaseId",
-      });
-    }
-    return mapRelease(row);
+  getRelease(id: string): Promise<Release> {
+    return this.#releases.getRelease(id);
   }
 
-  async listReleases(siteId: string, limit = 50): Promise<Release[]> {
-    const result = await this.#db.query<ReleaseRow>(
-      `SELECT id, site_id, page_revisions, theme_snapshot, build_ref, manifest, author, note, basis_release_id, created_at
-       FROM releases WHERE site_id = $1
-       ORDER BY created_at DESC, id DESC LIMIT $2`,
-      [siteId, Math.max(1, Math.min(200, limit))],
-    );
-    return result.rows.map(mapRelease);
+  listReleases(siteId: string, limit = 50): Promise<Release[]> {
+    return this.#releases.listReleases(siteId, limit);
   }
 
-  async getActiveReleaseId(siteId: string): Promise<string | null> {
-    const result = await this.#db.query<{ release_id: string }>(
-      `SELECT release_id FROM active_releases WHERE site_id = $1`,
-      [siteId],
-    );
-    return result.rows[0]?.release_id ?? null;
+  getActiveReleaseId(siteId: string): Promise<string | null> {
+    return this.#releases.getActiveReleaseId(siteId);
   }
 
-  async attachReleaseBuild(id: string, buildRef: string): Promise<void> {
-    const result = await this.#db.query<{ id: string }>(
-      `UPDATE releases SET build_ref = $2 WHERE id = $1 AND build_ref IS NULL RETURNING id`,
-      [id, buildRef],
-    );
-    if (result.rows.length === 0) {
-      throw new SenifyError("conflict", `Release "${id}" is already finalized`, {
-        field: "releaseId",
-      });
-    }
+  attachReleaseBuild(id: string, buildRef: string): Promise<void> {
+    return this.#releases.attachReleaseBuild(id, buildRef);
   }
 
   // ------------------------------------------------------- deployments (E14)
 
-  async createDeployment(input: {
-    siteId: string;
-    releaseId: string;
-    provider: DeployProvider;
-    target: string;
-    author: Author;
-  }): Promise<Deployment> {
-    const id = newEntityId();
-    const createdAt = new Date().toISOString();
-    await this.#db.query(
-      `INSERT INTO deployments
-        (id, site_id, release_id, provider, status, target, file_count, byte_size, error, author, created_at, finished_at)
-       VALUES ($1, $2, $3, $4, 'running', $5, 0, 0, NULL, $6, $7, NULL)`,
-      [
-        id,
-        input.siteId,
-        input.releaseId,
-        input.provider,
-        input.target,
-        toJsonParam(input.author),
-        createdAt,
-      ],
-    );
-    return this.getDeployment(id);
+  createDeployment(input: CreateDeploymentInput): Promise<Deployment> {
+    return this.#deploy.createDeployment(input);
   }
 
-  async finishDeployment(input: {
-    id: string;
-    status: "succeeded" | "failed";
-    fileCount?: number;
-    byteSize?: number;
-    error?: string;
-  }): Promise<Deployment> {
-    const finishedAt = new Date().toISOString();
-    const updated = await this.#db.query<{ id: string }>(
-      `UPDATE deployments
-       SET status = $2, file_count = $3, byte_size = $4, error = $5, finished_at = $6
-       WHERE id = $1 RETURNING id`,
-      [
-        input.id,
-        input.status,
-        input.fileCount ?? 0,
-        input.byteSize ?? 0,
-        input.error ?? null,
-        finishedAt,
-      ],
-    );
-    if (updated.rows.length === 0) {
-      throw new SenifyError(
-        "not_found",
-        `Deployment "${input.id}" does not exist`,
-        { field: "deploymentId" },
-      );
-    }
-    return this.getDeployment(input.id);
+  finishDeployment(input: FinishDeploymentInput): Promise<Deployment> {
+    return this.#deploy.finishDeployment(input);
   }
 
-  async getDeployment(id: string): Promise<Deployment> {    const result = await this.#db.query<DeploymentRow>(
-      `SELECT id, site_id, release_id, provider, status, target, file_count, byte_size, error, author, created_at, finished_at
-       FROM deployments WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Deployment "${id}" does not exist`, {
-        field: "deploymentId",
-      });
-    }
-    return mapDeployment(row);
+  getDeployment(id: string): Promise<Deployment> {
+    return this.#deploy.getDeployment(id);
   }
 
-  async listDeployments(siteId: string, limit = 20): Promise<Deployment[]> {
-    const result = await this.#db.query<DeploymentRow>(
-      `SELECT id, site_id, release_id, provider, status, target, file_count, byte_size, error, author, created_at, finished_at
-       FROM deployments WHERE site_id = $1
-       ORDER BY created_at DESC, id DESC LIMIT $2`,
-      [siteId, Math.max(1, Math.min(100, limit))],
-    );
-    return result.rows.map(mapDeployment);
+  listDeployments(siteId: string, limit = 20): Promise<Deployment[]> {
+    return this.#deploy.listDeployments(siteId, limit);
   }
 
-  // ------------------------------------------------------- deploy settings (E14)
-
-  // The settings of a site, or the static defaults when nothing was stored.
-  async getDeploySettings(siteId: string): Promise<DeploySettings> {
-    await this.getSite(siteId);
-    const result = await this.#db.query<DeploySettingsRow>(
-      `SELECT provider, netlify_site_id, netlify_token_encrypted,
-              vercel_project_id, vercel_token_encrypted, updated_at
-       FROM deploy_settings WHERE site_id = $1`,
-      [siteId],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      return {
-        provider: "static",
-        netlifySiteId: null,
-        hasNetlifyToken: false,
-        vercelProjectId: null,
-        hasVercelToken: false,
-        updatedAt: "",
-      };
-    }
-    return {
-      provider: row.provider as DeployProvider,
-      netlifySiteId: typeof row.netlify_site_id === "string" ? row.netlify_site_id : null,
-      hasNetlifyToken: typeof row.netlify_token_encrypted === "string",
-      vercelProjectId: typeof row.vercel_project_id === "string" ? row.vercel_project_id : null,
-      hasVercelToken: typeof row.vercel_token_encrypted === "string",
-      updatedAt: toIso(row.updated_at),
-    };
+  getDeploySettings(siteId: string): Promise<DeploySettings> {
+    return this.#deploy.getDeploySettings(siteId);
   }
 
-  // Writes the hosted-provider target. A new token is encrypted; null clears
-  // it; omitting keeps it. The plaintext never persists and never returns.
-  async updateDeploySettings(
-    siteId: string,
-    patch: {
-      provider?: DeployProvider;
-      netlifySiteId?: string | null;
-      netlifyTokenEncrypted?: string | null;
-      vercelProjectId?: string | null;
-      vercelTokenEncrypted?: string | null;
-    },
-  ): Promise<DeploySettings> {
-    await this.getSite(siteId);
-    const now = new Date().toISOString();
-    const current = await this.getDeploySettings(siteId);
-    const row = (
-      await this.#db.query<DeploySettingsRow>(
-        `SELECT netlify_token_encrypted, vercel_token_encrypted FROM deploy_settings WHERE site_id = $1`,
-        [siteId],
-      )
-    ).rows[0];
-    const existingNetlifyToken =
-      typeof row?.netlify_token_encrypted === "string" ? row.netlify_token_encrypted : null;
-    const nextNetlifyToken =
-      patch.netlifyTokenEncrypted === undefined
-        ? existingNetlifyToken
-        : patch.netlifyTokenEncrypted;
-    const existingVercelToken =
-      typeof row?.vercel_token_encrypted === "string" ? row.vercel_token_encrypted : null;
-    const nextVercelToken =
-      patch.vercelTokenEncrypted === undefined
-        ? existingVercelToken
-        : patch.vercelTokenEncrypted;
-    const provider = patch.provider ?? current.provider;
-    const netlifySiteId =
-      patch.netlifySiteId === undefined ? current.netlifySiteId : patch.netlifySiteId;
-    const vercelProjectId =
-      patch.vercelProjectId === undefined ? current.vercelProjectId : patch.vercelProjectId;
-    if (provider === "netlify" && (netlifySiteId === null || nextNetlifyToken === null)) {
-      throw new SenifyError(
-        "validation",
-        'Netlify braucht eine site id und einen token (deploy settings)',
-        {
-          field: "netlifySiteId",
-          suggestion:
-            "PUT /api/sites/:siteId/deploy-settings mit provider netlify, netlifySiteId und netlifyToken setzen.",
-        },
-      );
-    }
-    if (provider === "vercel" && (vercelProjectId === null || nextVercelToken === null)) {
-      throw new SenifyError(
-        "validation",
-        "Vercel braucht eine project id und einen token (deploy settings)",
-        {
-          field: "vercelProjectId",
-          suggestion:
-            "PUT /api/sites/:siteId/deploy-settings mit provider vercel, vercelProjectId und vercelToken setzen.",
-        },
-      );
-    }
-    await this.#db.query(
-      `INSERT INTO deploy_settings (site_id, provider, netlify_site_id, netlify_token_encrypted, vercel_project_id, vercel_token_encrypted, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       ON CONFLICT (site_id) DO UPDATE SET
-         provider = $2, netlify_site_id = $3, netlify_token_encrypted = $4, vercel_project_id = $5, vercel_token_encrypted = $6, updated_at = $7`,
-      [siteId, provider, netlifySiteId, nextNetlifyToken, vercelProjectId, nextVercelToken, now],
-    );
-    return this.getDeploySettings(siteId);
+  updateDeploySettings(siteId: string, patch: DeploySettingsPatch): Promise<DeploySettings> {
+    return this.#deploy.updateDeploySettings(siteId, patch);
   }
 
-  // The encrypted token for the deploy itself; decryption happens in the
-  // settings layer (resolveNetlifyToken / resolveVercelToken), never in the store.
-  async getNetlifyTokenEncrypted(siteId: string): Promise<string | null> {
-    const row = (
-      await this.#db.query<DeploySettingsRow>(
-        `SELECT netlify_token_encrypted FROM deploy_settings WHERE site_id = $1`,
-        [siteId],
-      )
-    ).rows[0];
-    const stored =
-      typeof row?.netlify_token_encrypted === "string" ? row.netlify_token_encrypted : null;
-    return stored;
+  getNetlifyTokenEncrypted(siteId: string): Promise<string | null> {
+    return this.#deploy.getNetlifyTokenEncrypted(siteId);
   }
 
-  async getVercelTokenEncrypted(siteId: string): Promise<string | null> {
-    const row = (
-      await this.#db.query<DeploySettingsRow>(
-        `SELECT vercel_token_encrypted FROM deploy_settings WHERE site_id = $1`,
-        [siteId],
-      )
-    ).rows[0];
-    const stored =
-      typeof row?.vercel_token_encrypted === "string" ? row.vercel_token_encrypted : null;
-    return stored;
+  getVercelTokenEncrypted(siteId: string): Promise<string | null> {
+    return this.#deploy.getVercelTokenEncrypted(siteId);
   }
 
-  // Carries the live URL of a hosted deploy into the record's target field
-  // (static keeps its directory, netlify gets its deploy URL).
-  async updateDeploymentTarget(id: string, target: string): Promise<void> {
-    await this.#db.query(`UPDATE deployments SET target = $2 WHERE id = $1`, [
-      id,
-      target,
-    ]);
+  updateDeploymentTarget(id: string, target: string): Promise<void> {
+    return this.#deploy.updateDeploymentTarget(id, target);
   }
 
   // --------------------------------------------------------- re-bake jobs (E12)
@@ -4986,354 +4544,76 @@ export class Store {
 
   // ------------------------------------------------------------ entries (T09)
 
-  async listEntries(filter: {
-    siteId: string;
-    collectionId?: string;
-    status?: EntryStatus;
-    trashed?: boolean;
-    searchTokens?: readonly string[];
-    limit?: number;
-  }): Promise<Entry[]> {
-    const params: unknown[] = [filter.siteId];
-    let sql = `SELECT ${ENTRY_COLUMNS} FROM entries
-      WHERE site_id = $1 AND deleted_at IS ${filter.trashed === true ? "NOT NULL" : "NULL"}`;
-    if (filter.collectionId !== undefined) {
-      params.push(filter.collectionId);
-      sql += ` AND collection_id = $${params.length}`;
-    }
-    if (filter.status !== undefined) {
-      params.push(filter.status);
-      sql += ` AND status = $${params.length}`;
-    }
-    // Every query token must appear somewhere in the haystack; the ranking
-    // (title A / slug B / body C) happens on the loaded rows.
-    for (const token of filter.searchTokens ?? []) {
-      params.push(`%${token}%`);
-      sql += ` AND search_text LIKE $${params.length}`;
-    }
-    params.push(Math.max(1, Math.min(500, filter.limit ?? 200)));
-    sql += ` ORDER BY updated_at DESC, id DESC LIMIT $${params.length}`;
-    const result = await this.#db.query<EntryRow>(sql, params);
-    return result.rows.map(mapEntry);
+  listEntries(filter: ListEntriesFilter): Promise<Entry[]> {
+    return this.#entries.listEntries(filter);
   }
 
-  async getEntry(id: string): Promise<Entry> {
-    const result = await this.#db.query<EntryRow>(
-      `SELECT ${ENTRY_COLUMNS} FROM entries WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Entry "${id}" does not exist`, {
-        field: "entryId",
-        suggestion: "List the entries of the collection with list_entries.",
-      });
-    }
-    return mapEntry(row);
+  getEntry(id: string): Promise<Entry> {
+    return this.#entries.getEntry(id);
   }
 
-  // Slug uniqueness is checked in code (a trashed entry frees its slug again);
-  // the unique index would forbid that.
-  async findLiveEntryBySlug(
+  findLiveEntryBySlug(
     collectionId: string,
     slug: string,
     exceptId?: string,
   ): Promise<Entry | undefined> {
-    const params: unknown[] = [collectionId, slug];
-    let sql = `SELECT ${ENTRY_COLUMNS} FROM entries
-       WHERE collection_id = $1 AND slug = $2 AND deleted_at IS NULL`;
-    if (exceptId !== undefined) {
-      params.push(exceptId);
-      sql += ` AND id <> $${params.length}`;
-    }
-    sql += ` LIMIT 1`;
-    const result = await this.#db.query<EntryRow>(sql, params);
-    const row = result.rows[0];
-    return row ? mapEntry(row) : undefined;
+    return this.#entries.findLiveEntryBySlug(collectionId, slug, exceptId);
   }
 
-  // The live route follows the active version: a draft rename only breaks the
-  // published URL once the rename itself is published.
-  async findPublishedEntryBySlug(
-    collectionId: string,
-    slug: string,
-  ): Promise<Entry | undefined> {
-    const result = await this.#db.query<EntryRow>(
-      `SELECT e.id, e.site_id, e.collection_id, e.slug, e.status, e.cells,
-              e.active_version_id, e.version, e.author, e.published_at,
-              e.scheduled_at, e.deleted_at, e.created_at, e.updated_at
-       FROM entries e
-       LEFT JOIN entry_versions v ON v.id = e.active_version_id
-       WHERE e.collection_id = $1
-         AND e.deleted_at IS NULL
-         AND e.status = 'published'
-         AND (e.slug = $2 OR v.slug = $2)
-       ORDER BY e.updated_at DESC, e.id DESC LIMIT 1`,
-      [collectionId, slug],
-    );
-    const row = result.rows[0];
-    return row ? mapEntry(row) : undefined;
+  findPublishedEntryBySlug(collectionId: string, slug: string): Promise<Entry | undefined> {
+    return this.#entries.findPublishedEntryBySlug(collectionId, slug);
   }
 
-  async createEntry(input: {
-    id: string;
-    siteId: string;
-    collectionId: string;
-    slug: string;
-    status: EntryStatus;
-    cells: Record<string, CellValue>;
-    author: Author;
-    searchText: string;
-    publishedAt: string | null;
-    scheduledAt: string | null;
-  }): Promise<Entry> {
-    const now = new Date().toISOString();
-    const result = await this.#db.query<EntryRow>(
-      `INSERT INTO entries
-        (id, site_id, collection_id, slug, status, cells, active_version_id,
-         version, author, search_text, published_at, scheduled_at, deleted_at,
-         created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, NULL, 1, $7, $8, $9, $10, NULL, $11, $11)
-       RETURNING ${ENTRY_COLUMNS}`,
-      [
-        input.id,
-        input.siteId,
-        input.collectionId,
-        input.slug,
-        input.status,
-        toJsonParam(input.cells),
-        toJsonParam(input.author),
-        input.searchText,
-        input.publishedAt,
-        input.scheduledAt,
-        now,
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) throw new Error("Entry insert returned no row");
-    return mapEntry(row);
+  createEntry(input: CreateEntryInput): Promise<Entry> {
+    return this.#entries.createEntry(input);
   }
 
-  async updateEntryRow(input: {
-    entryId: string;
-    expectedVersion: number;
-    changes: {
-      slug: string;
-      status: EntryStatus;
-      cells: Record<string, CellValue>;
-      activeVersionId: string | null;
-      author: Author;
-      searchText: string;
-      publishedAt: string | null;
-      scheduledAt: string | null;
-      updatedAt: string;
-    };
-  }): Promise<number> {
-    const { changes } = input;
-    const result = await this.#db.query<{ version: unknown }>(
-      `UPDATE entries SET
-         slug = $3, status = $4, cells = $5, active_version_id = $6, author = $7,
-         search_text = $8, published_at = $9, scheduled_at = $10,
-         version = version + 1, updated_at = $11
-       WHERE id = $1 AND version = $2
-       RETURNING version`,
-      [
-        input.entryId,
-        input.expectedVersion,
-        changes.slug,
-        changes.status,
-        toJsonParam(changes.cells),
-        changes.activeVersionId,
-        toJsonParam(changes.author),
-        changes.searchText,
-        changes.publishedAt,
-        changes.scheduledAt,
-        changes.updatedAt,
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      const current = await this.#db.query<{ version: unknown }>(
-        `SELECT version FROM entries WHERE id = $1`,
-        [input.entryId],
-      );
-      const currentRow = current.rows[0];
-      if (!currentRow) {
-        throw new SenifyError("not_found", `Entry "${input.entryId}" does not exist`, {
-          field: "entryId",
-        });
-      }
-      throw entryConflictError(
-        input.expectedVersion,
-        toFiniteNumber(currentRow.version, "version"),
-      );
-    }
-    return toFiniteNumber(row.version, "version");
+  updateEntryRow(input: UpdateEntryRowInput): Promise<number> {
+    return this.#entries.updateEntryRow(input);
   }
 
-  // Trash and restore are state flips, not content writes: no version bump.
-  async setEntryDeleted(id: string, deletedAt: string | null): Promise<Entry> {
-    const result = await this.#db.query<EntryRow>(
-      `UPDATE entries SET deleted_at = $2, updated_at = $3
-       WHERE id = $1 RETURNING ${ENTRY_COLUMNS}`,
-      [id, deletedAt, new Date().toISOString()],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Entry "${id}" does not exist`, {
-        field: "entryId",
-      });
-    }
-    return mapEntry(row);
+  setEntryDeleted(id: string, deletedAt: string | null): Promise<Entry> {
+    return this.#entries.setEntryDeleted(id, deletedAt);
   }
 
-  async createEntryVersion(input: {
-    id: string;
-    entryId: string;
-    siteId: string;
-    versionNumber: number;
-    cells: Record<string, CellValue>;
-    slug: string;
-    status: EntryStatus;
-    author: Author;
-  }): Promise<EntryVersion> {
-    const createdAt = new Date().toISOString();
-    const result = await this.#db.query<EntryVersionRow>(
-      `INSERT INTO entry_versions
-        (id, entry_id, site_id, version_number, cells, slug, status, author, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING id, entry_id, site_id, version_number, cells, slug, status, author, created_at`,
-      [
-        input.id,
-        input.entryId,
-        input.siteId,
-        input.versionNumber,
-        toJsonParam(input.cells),
-        input.slug,
-        input.status,
-        toJsonParam(input.author),
-        createdAt,
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) throw new Error("Entry version insert returned no row");
-    return mapEntryVersion(row);
+  createEntryVersion(input: CreateEntryVersionInput): Promise<EntryVersion> {
+    return this.#entries.createEntryVersion(input);
   }
 
-  async getEntryVersion(id: string): Promise<EntryVersion> {
-    const result = await this.#db.query<EntryVersionRow>(
-      `SELECT id, entry_id, site_id, version_number, cells, slug, status, author, created_at
-       FROM entry_versions WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Entry version "${id}" does not exist`, {
-        field: "versionId",
-        suggestion: "Read the timeline with GET /api/entries/:id/versions.",
-      });
-    }
-    return mapEntryVersion(row);
+  getEntryVersion(id: string): Promise<EntryVersion> {
+    return this.#entries.getEntryVersion(id);
   }
 
-  async listEntryVersions(entryId: string, limit = 50): Promise<EntryVersion[]> {
-    const result = await this.#db.query<EntryVersionRow>(
-      `SELECT id, entry_id, site_id, version_number, cells, slug, status, author, created_at
-       FROM entry_versions WHERE entry_id = $1
-       ORDER BY version_number DESC, id DESC LIMIT $2`,
-      [entryId, Math.max(1, Math.min(200, limit))],
-    );
-    return result.rows.map(mapEntryVersion);
+  listEntryVersions(entryId: string, limit?: number): Promise<EntryVersion[]> {
+    return this.#entries.listEntryVersions(entryId, limit);
   }
 
-  async maxEntryVersionNumber(entryId: string): Promise<number> {
-    const result = await this.#db.query<{ max_version: unknown }>(
-      `SELECT COALESCE(MAX(version_number), 0) AS max_version
-       FROM entry_versions WHERE entry_id = $1`,
-      [entryId],
-    );
-    return toFiniteNumber(result.rows[0]?.max_version ?? 0, "max_version");
+  maxEntryVersionNumber(entryId: string): Promise<number> {
+    return this.#entries.maxEntryVersionNumber(entryId);
   }
 
-  async deleteEntryVersions(ids: readonly string[]): Promise<void> {
-    if (ids.length === 0) return;
-    const placeholders = ids.map((_, index) => `$${index + 1}`).join(", ");
-    await this.#db.query(
-      `DELETE FROM entry_versions WHERE id IN (${placeholders})`,
-      [...ids],
-    );
+  deleteEntryVersions(ids: readonly string[]): Promise<void> {
+    return this.#entries.deleteEntryVersions(ids);
   }
 
-  async deleteEntryRecord(id: string): Promise<void> {
-    const result = await this.#db.query<{ id: string }>(
-      `DELETE FROM entries WHERE id = $1 RETURNING id`,
-      [id],
-    );
-    if (result.rows.length === 0) {
-      throw new SenifyError("not_found", `Entry "${id}" does not exist`, {
-        field: "entryId",
-      });
-    }
+  deleteEntryRecord(id: string): Promise<void> {
+    return this.#entries.deleteEntryRecord(id);
   }
 
-  async createEntryRedirect(input: {
-    id: string;
-    siteId: string;
-    collectionId: string;
-    fromPath: string;
-    toPath: string;
-  }): Promise<EntryRedirect> {
-    const createdAt = new Date().toISOString();
-    const result = await this.#db.query<EntryRedirectRow>(
-      `INSERT INTO entry_redirects
-        (id, site_id, collection_id, from_path, to_path, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, site_id, collection_id, from_path, to_path, created_at`,
-      [
-        input.id,
-        input.siteId,
-        input.collectionId,
-        input.fromPath,
-        input.toPath,
-        createdAt,
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) throw new Error("Entry redirect insert returned no row");
-    return mapEntryRedirect(row);
+  createEntryRedirect(input: CreateEntryRedirectInput): Promise<EntryRedirect> {
+    return this.#entries.createEntryRedirect(input);
   }
 
-  async findEntryRedirect(
-    siteId: string,
-    fromPath: string,
-  ): Promise<EntryRedirect | undefined> {
-    const result = await this.#db.query<EntryRedirectRow>(
-      `SELECT id, site_id, collection_id, from_path, to_path, created_at
-       FROM entry_redirects WHERE site_id = $1 AND from_path = $2
-       ORDER BY created_at DESC, id DESC LIMIT 1`,
-      [siteId, fromPath],
-    );
-    const row = result.rows[0];
-    return row ? mapEntryRedirect(row) : undefined;
+  findEntryRedirect(siteId: string, fromPath: string): Promise<EntryRedirect | undefined> {
+    return this.#entries.findEntryRedirect(siteId, fromPath);
   }
 
-  async deleteEntryRedirect(siteId: string, fromPath: string): Promise<void> {
-    await this.#db.query(
-      `DELETE FROM entry_redirects WHERE site_id = $1 AND from_path = $2`,
-      [siteId, fromPath],
-    );
+  deleteEntryRedirect(siteId: string, fromPath: string): Promise<void> {
+    return this.#entries.deleteEntryRedirect(siteId, fromPath);
   }
 
-  // Every slug history row of a site: the bake turns them into static redirect
-  // files so an old detail path keeps pointing at the new one.
-  async listEntryRedirects(siteId: string): Promise<EntryRedirect[]> {
-    const result = await this.#db.query<EntryRedirectRow>(
-      `SELECT id, site_id, collection_id, from_path, to_path, created_at
-       FROM entry_redirects WHERE site_id = $1
-       ORDER BY created_at ASC, id ASC`,
-      [siteId],
-    );
-    return result.rows.map(mapEntryRedirect);
+  listEntryRedirects(siteId: string): Promise<EntryRedirect[]> {
+    return this.#entries.listEntryRedirects(siteId);
   }
 
   // ------------------------------------------------------------ forms (T11)
@@ -5362,171 +4642,36 @@ export class Store {
     return this.#forms.listFormSnapshots(siteId);
   }
 
-  async enqueueNotification(input: {
-    siteId: string;
-    formId: string | null;
-    entryId: string | null;
-    kind: string;
-    recipient: string;
-    subject: string;
-    body: string;
-    nextAttemptAt?: string;
-  }): Promise<NotificationMessage> {
-    const now = new Date().toISOString();
-    const result = await this.#db.query<NotificationRow>(
-      `INSERT INTO notification_outbox
-        (id, site_id, form_id, entry_id, kind, recipient, subject, body, status,
-         attempts, next_attempt_at, last_error, created_at, updated_at, sent_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'queued', 0, $9, NULL, $10, $10, NULL)
-       RETURNING ${NOTIFICATION_COLUMNS}`,
-      [
-        newEntityId(),
-        input.siteId,
-        input.formId,
-        input.entryId,
-        input.kind,
-        input.recipient,
-        input.subject,
-        input.body,
-        input.nextAttemptAt ?? now,
-        now,
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) throw new Error("Notification insert returned no row");
-    return mapNotification(row);
+  enqueueNotification(input: EnqueueNotificationInput): Promise<NotificationMessage> {
+    return this.#notifications.enqueueNotification(input);
   }
 
-  async getNotification(id: string): Promise<NotificationMessage> {
-    const result = await this.#db.query<NotificationRow>(
-      `SELECT ${NOTIFICATION_COLUMNS} FROM notification_outbox WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Notification "${id}" does not exist`, {
-        field: "notificationId",
-      });
-    }
-    return mapNotification(row);
+  getNotification(id: string): Promise<NotificationMessage> {
+    return this.#notifications.getNotification(id);
   }
 
-  async listNotifications(
-    siteId: string,
-    limit = 50,
-  ): Promise<NotificationMessage[]> {
-    const result = await this.#db.query<NotificationRow>(
-      `SELECT ${NOTIFICATION_COLUMNS} FROM notification_outbox
-       WHERE site_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2`,
-      [siteId, Math.max(1, Math.min(200, limit))],
-    );
-    return result.rows.map(mapNotification);
+  listNotifications(siteId: string, limit = 50): Promise<NotificationMessage[]> {
+    return this.#notifications.listNotifications(siteId, limit);
   }
 
-  // Jobs that are due: queued and past their next attempt time.
-  async listDueNotifications(
-    now: string,
-    limit = 50,
-  ): Promise<NotificationMessage[]> {
-    const result = await this.#db.query<NotificationRow>(
-      `SELECT ${NOTIFICATION_COLUMNS} FROM notification_outbox
-       WHERE status = 'queued' AND next_attempt_at <= $1
-       ORDER BY next_attempt_at ASC, created_at ASC, id ASC LIMIT $2`,
-      [now, Math.max(1, Math.min(200, limit))],
-    );
-    return result.rows.map(mapNotification);
+  listDueNotifications(now: string, limit = 50): Promise<NotificationMessage[]> {
+    return this.#notifications.listDueNotifications(now, limit);
   }
 
-  async markNotificationResult(input: {
-    id: string;
-    status: NotificationStatus;
-    attempts: number;
-    nextAttemptAt: string;
-    lastError: string | null;
-    sentAt: string | null;
-  }): Promise<NotificationMessage> {
-    const result = await this.#db.query<NotificationRow>(
-      `UPDATE notification_outbox SET
-         status = $2, attempts = $3, next_attempt_at = $4, last_error = $5,
-         sent_at = $6, updated_at = $7
-       WHERE id = $1 RETURNING ${NOTIFICATION_COLUMNS}`,
-      [
-        input.id,
-        input.status,
-        input.attempts,
-        input.nextAttemptAt,
-        input.lastError,
-        input.sentAt,
-        new Date().toISOString(),
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Notification "${input.id}" does not exist`, {
-        field: "notificationId",
-      });
-    }
-    return mapNotification(row);
+  markNotificationResult(input: MarkNotificationResultInput): Promise<NotificationMessage> {
+    return this.#notifications.markNotificationResult(input);
   }
 
-  async createNewsletterToken(input: {
-    siteId: string;
-    formId: string;
-    entryId: string;
-    email: string;
-    kind: NewsletterTokenKind;
-    expiresAt: string | null;
-  }): Promise<NewsletterToken> {
-    const token = randomBytes(24).toString("base64url");
-    const result = await this.#db.query<NewsletterTokenRow>(
-      `INSERT INTO newsletter_tokens
-        (token, site_id, form_id, entry_id, email, kind, status, expires_at, created_at, used_at)
-       VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, NULL)
-       RETURNING token, site_id, form_id, entry_id, email, kind, status, expires_at, created_at, used_at`,
-      [
-        token,
-        input.siteId,
-        input.formId,
-        input.entryId,
-        input.email,
-        input.kind,
-        input.expiresAt,
-        new Date().toISOString(),
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) throw new Error("Newsletter token insert returned no row");
-    return mapNewsletterToken(row);
+  createNewsletterToken(input: CreateNewsletterTokenInput): Promise<NewsletterToken> {
+    return this.#notifications.createNewsletterToken(input);
   }
 
-  async getNewsletterToken(token: string): Promise<NewsletterToken | undefined> {
-    const result = await this.#db.query<NewsletterTokenRow>(
-      `SELECT token, site_id, form_id, entry_id, email, kind, status, expires_at, created_at, used_at
-       FROM newsletter_tokens WHERE token = $1`,
-      [token],
-    );
-    const row = result.rows[0];
-    return row ? mapNewsletterToken(row) : undefined;
+  getNewsletterToken(token: string): Promise<NewsletterToken | undefined> {
+    return this.#notifications.getNewsletterToken(token);
   }
 
-  // Single use: the flip to used is idempotent (already-used tokens stay used).
-  async markNewsletterTokenUsed(
-    token: string,
-    status: string,
-  ): Promise<NewsletterToken> {
-    const result = await this.#db.query<NewsletterTokenRow>(
-      `UPDATE newsletter_tokens SET status = $2, used_at = COALESCE(used_at, $3)
-       WHERE token = $1
-       RETURNING token, site_id, form_id, entry_id, email, kind, status, expires_at, created_at, used_at`,
-      [token, status, new Date().toISOString()],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Newsletter token is unknown`, {
-        field: "token",
-      });
-    }
-    return mapNewsletterToken(row);
+  markNewsletterTokenUsed(token: string, status: string): Promise<NewsletterToken> {
+    return this.#notifications.markNewsletterTokenUsed(token, status);
   }
 
   // ------------------------------------------------------- references (T14)
@@ -5594,7 +4739,7 @@ export class Store {
     const collection =
       row.collection_id === null || row.collection_id === undefined
         ? null
-        : await this.#findReferenceCollection(row.collection_id);
+        : await this.#referenceLibrary.findReferenceCollection(row.collection_id);
     return mapReference(
       row,
       await this.getLatestReferenceProfile(id),
@@ -5619,7 +4764,7 @@ export class Store {
     const revisionByReference = new Map(
       revisions.rows.map((row) => [row.reference_id, toFiniteNumber(row.revision, "revision")]),
     );
-    const collections = await this.#referenceCollections();
+    const collections = await this.#referenceLibrary.referenceCollections();
     return result.rows.map((row) => {
       const revision = revisionByReference.get(row.id) ?? 0;
       const collection =
@@ -5664,7 +4809,7 @@ export class Store {
     const revisionByReference = new Map(
       revisions.rows.map((row) => [row.reference_id, toFiniteNumber(row.revision, "revision")]),
     );
-    const collections = await this.#referenceCollections();
+    const collections = await this.#referenceLibrary.referenceCollections();
     const hits: { reference: ReferenceSummary; documents: ReferenceDocuments; weight: number }[] = [];
     for (const row of rows.rows) {
       const revision = revisionByReference.get(row.id) ?? 0;
@@ -6592,396 +5737,52 @@ export class Store {
 
   // ------------------------------------------------ reference library (T14)
 
-  async createReferenceCollection(input: {
-    name: string;
-    description?: string;
-    deployFor?: string;
-    vocabulary?: string[];
-    risk?: string;
-    accent?: string;
-    imageStyle?: string;
-    recognize?: string[];
-    examples?: ReferenceCollectionExample[];
-    warning?: string | null;
-    kind?: ReferenceCollectionKind;
-    externalId?: string | null;
-    position?: number;
-  }): Promise<ReferenceCollection> {
-    const now = new Date().toISOString();
-    const id = newEntityId();
-    const result = await this.#db.query<ReferenceCollectionRow>(
-      `INSERT INTO reference_collections
-        (id, name, description, deploy_for, vocabulary, risk, accent, image_style,
-         recognize, examples, warning, kind, external_id, position, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)
-       RETURNING ${REFERENCE_COLLECTION_COLUMNS}`,
-      [
-        id,
-        input.name,
-        input.description ?? "",
-        input.deployFor ?? "",
-        toJsonParam(input.vocabulary ?? []),
-        input.risk ?? "",
-        input.accent ?? "",
-        input.imageStyle ?? "",
-        toJsonParam(input.recognize ?? []),
-        toJsonParam(input.examples ?? []),
-        input.warning ?? null,
-        input.kind ?? "collection",
-        input.externalId ?? null,
-        input.position ?? 0,
-        now,
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) throw new Error("Reference collection insert returned no row");
-    return mapReferenceCollection(row, 0);
+  createReferenceCollection(input: CreateReferenceCollectionInput): Promise<ReferenceCollection> {
+    return this.#referenceLibrary.createReferenceCollection(input);
   }
 
-  async getReferenceCollection(id: string): Promise<ReferenceCollection> {
-    const result = await this.#db.query<ReferenceCollectionRow>(
-      `SELECT ${REFERENCE_COLLECTION_COLUMNS} FROM reference_collections WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Collection "${id}" does not exist`, {
-        field: "collectionId",
-        suggestion:
-          "Load the collections with GET /api/reference-collections and use one of their ids.",
-      });
-    }
-    return mapReferenceCollection(row, await this.#referenceCollectionCount(id));
+  getReferenceCollection(id: string): Promise<ReferenceCollection> {
+    return this.#referenceLibrary.getReferenceCollection(id);
   }
 
-  async listReferenceCollections(
+  listReferenceCollections(
     options: { kind?: ReferenceCollectionKind } = {},
   ): Promise<ReferenceCollection[]> {
-    const result = await this.#db.query<ReferenceCollectionRow>(
-      `SELECT ${REFERENCE_COLLECTION_COLUMNS} FROM reference_collections
-       ${options.kind === undefined ? "" : "WHERE kind = $1"}
-       ORDER BY position ASC, name ASC, id ASC`,
-      options.kind === undefined ? [] : [options.kind],
-    );
-    const counts = await this.#referenceCollectionCounts();
-    return result.rows.map((row) =>
-      mapReferenceCollection(row, counts.get(row.id) ?? 0),
-    );
+    return this.#referenceLibrary.listReferenceCollections(options);
   }
 
-  async updateReferenceCollection(
-    id: string,
-    patch: {
-      name?: string;
-      description?: string;
-      deployFor?: string;
-      vocabulary?: string[];
-      risk?: string;
-      accent?: string;
-      imageStyle?: string;
-      recognize?: string[];
-      examples?: ReferenceCollectionExample[];
-      warning?: string | null;
-      position?: number;
-    },
-  ): Promise<ReferenceCollection> {
-    const current = await this.getReferenceCollection(id);
-    await this.#db.query(
-      `UPDATE reference_collections SET
-         name = $2, description = $3, deploy_for = $4, vocabulary = $5, risk = $6,
-         accent = $7, image_style = $8, recognize = $9, examples = $10, warning = $11,
-         position = $12, updated_at = $13
-       WHERE id = $1`,
-      [
-        id,
-        patch.name ?? current.name,
-        patch.description ?? current.description,
-        patch.deployFor ?? current.deployFor,
-        toJsonParam(patch.vocabulary ?? current.vocabulary),
-        patch.risk ?? current.risk,
-        patch.accent ?? current.accent,
-        patch.imageStyle ?? current.imageStyle,
-        toJsonParam(patch.recognize ?? current.recognize),
-        toJsonParam(patch.examples ?? current.examples),
-        patch.warning === undefined ? current.warning : patch.warning,
-        patch.position ?? current.position,
-        new Date().toISOString(),
-      ],
-    );
-    return this.getReferenceCollection(id);
+  updateReferenceCollection(id: string, patch: ReferenceCollectionPatch): Promise<ReferenceCollection> {
+    return this.#referenceLibrary.updateReferenceCollection(id, patch);
   }
 
-  // Deleting a collection never deletes references: they fall back to "without
-  // collection" and the caller reports how many were affected.
-  async deleteReferenceCollection(id: string): Promise<number> {
-    await this.getReferenceCollection(id);
-    return this.#db.withTransaction(async (tx) => {
-      const cleared = await tx.query<{ id: string }>(
-        `UPDATE design_references SET collection_id = NULL, updated_at = $2
-         WHERE collection_id = $1 RETURNING id`,
-        [id, new Date().toISOString()],
-      );
-      await tx.query(`DELETE FROM reference_collections WHERE id = $1`, [id]);
-      return cleared.rows.length;
-    });
-  }
-
-  async #findReferenceCollection(id: string): Promise<ReferenceCollection | null> {
-    const result = await this.#db.query<ReferenceCollectionRow>(
-      `SELECT ${REFERENCE_COLLECTION_COLUMNS} FROM reference_collections WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) return null;
-    return mapReferenceCollection(row, await this.#referenceCollectionCount(id));
-  }
-
-  async #referenceCollections(): Promise<Map<string, ReferenceCollection>> {
-    const collections = await this.listReferenceCollections();
-    return new Map(collections.map((collection) => [collection.id, collection]));
-  }
-
-  async #referenceCollectionCounts(): Promise<Map<string, number>> {
-    const result = await this.#db.query<{ collection_id: string; total: unknown }>(
-      `SELECT collection_id, COUNT(*) AS total FROM design_references
-       WHERE collection_id IS NOT NULL GROUP BY collection_id`,
-    );
-    return new Map(
-      result.rows.map((row) => [
-        row.collection_id,
-        toFiniteNumber(row.total, "total"),
-      ]),
-    );
-  }
-
-  async #referenceCollectionCount(id: string): Promise<number> {
-    const result = await this.#db.query<{ total: unknown }>(
-      `SELECT COUNT(*) AS total FROM design_references WHERE collection_id = $1`,
-      [id],
-    );
-    return toFiniteNumber(result.rows[0]?.total ?? 0, "total");
+  deleteReferenceCollection(id: string): Promise<number> {
+    return this.#referenceLibrary.deleteReferenceCollection(id);
   }
 
   // ---------------------------------------------------------- settings (T12)
 
-  async getSmtpSettings(): Promise<SmtpSettingsRecord> {
-    const existing = await this.#db.query<SmtpRow>(
-      `SELECT ${SMTP_COLUMNS} FROM smtp_settings WHERE id = 'smtp'`,
-    );
-    const row = existing.rows[0];
-    if (row) return mapSmtpSettings(row);
-    try {
-      await this.#db.query(
-        `INSERT INTO smtp_settings (id, host, port, tls, username, password_encrypted, from_address, updated_at)
-         VALUES ('smtp', '', 587, 'starttls', '', NULL, '', $1)`,
-        [new Date().toISOString()],
-      );
-    } catch (error) {
-      if (!isUniqueViolation(error)) throw error;
-    }
-    const created = await this.#db.query<SmtpRow>(
-      `SELECT ${SMTP_COLUMNS} FROM smtp_settings WHERE id = 'smtp'`,
-    );
-    const stored = created.rows[0];
-    return stored === undefined ? defaultSmtpSettings() : mapSmtpSettings(stored);
+  getSmtpSettings(): Promise<SmtpSettingsRecord> {
+    return this.#settings.getSmtpSettings();
   }
 
-  async updateSmtpSettings(patch: SmtpSettingsPatch): Promise<SmtpSettingsRecord> {
-    const current = await this.getSmtpSettings();
-    const next: SmtpSettingsRecord = {
-      host: patch.host === undefined ? current.host : patch.host,
-      port: patch.port === undefined ? current.port : patch.port,
-      tls: patch.tls === undefined ? current.tls : patch.tls,
-      user: patch.user === undefined ? current.user : patch.user,
-      from: patch.from === undefined ? current.from : patch.from,
-      passwordEncrypted:
-        patch.passwordEncrypted === undefined
-          ? current.passwordEncrypted
-          : patch.passwordEncrypted,
-    };
-    await this.#db.query(
-      `UPDATE smtp_settings SET host = $2, port = $3, tls = $4, username = $5,
-         password_encrypted = $6, from_address = $7, updated_at = $8 WHERE id = $1`,
-      [
-        "smtp",
-        next.host,
-        next.port,
-        next.tls,
-        next.user,
-        next.passwordEncrypted,
-        next.from,
-        new Date().toISOString(),
-      ],
-    );
-    return next;
+  updateSmtpSettings(patch: SmtpSettingsPatch): Promise<SmtpSettingsRecord> {
+    return this.#settings.updateSmtpSettings(patch);
   }
 
-  // Defaults for new projects and the program start (artifacts/27 §5).
-  async getEngineSettings(): Promise<EngineSettings> {
-    const existing = await this.#db.query<EngineSettingsRow>(
-      `SELECT ${ENGINE_SETTINGS_COLUMNS} FROM engine_settings WHERE id = 'engine'`,
-    );
-    const row = existing.rows[0];
-    if (row) return mapEngineSettings(row);
-    try {
-      await this.#db.query(
-        `INSERT INTO engine_settings (id, default_profile, default_layout, autostart, backup_dir, updated_at)
-         VALUES ('engine', 'standard', 'Standard', false, NULL, $1)`,
-        [new Date().toISOString()],
-      );
-    } catch (error) {
-      if (!isUniqueViolation(error)) throw error;
-    }
-    const created = await this.#db.query<EngineSettingsRow>(
-      `SELECT ${ENGINE_SETTINGS_COLUMNS} FROM engine_settings WHERE id = 'engine'`,
-    );
-    const stored = created.rows[0];
-    return stored === undefined ? defaultEngineSettings() : mapEngineSettings(stored);
+  getEngineSettings(): Promise<EngineSettings> {
+    return this.#settings.getEngineSettings();
   }
 
-  async updateEngineSettings(patch: EngineSettingsPatch): Promise<EngineSettings> {
-    const current = await this.getEngineSettings();
-    const next: EngineSettings = {
-      defaultProfile:
-        patch.defaultProfile === undefined
-          ? current.defaultProfile
-          : patch.defaultProfile,
-      defaultLayout:
-        patch.defaultLayout === undefined
-          ? current.defaultLayout
-          : patch.defaultLayout,
-      autostart:
-        patch.autostart === undefined ? current.autostart : patch.autostart,
-      backupDir:
-        patch.backupDir === undefined ? current.backupDir : patch.backupDir,
-    };
-    await this.#db.query(
-      `UPDATE engine_settings SET default_profile = $2, default_layout = $3,
-         autostart = $4, backup_dir = $5, updated_at = $6 WHERE id = $1`,
-      [
-        "engine",
-        next.defaultProfile,
-        next.defaultLayout,
-        next.autostart,
-        next.backupDir,
-        new Date().toISOString(),
-      ],
-    );
-    return next;
+  updateEngineSettings(patch: EngineSettingsPatch): Promise<EngineSettings> {
+    return this.#settings.updateEngineSettings(patch);
   }
 
-  // Image generation (S1, ADR-0008): one row with the provider chain, the
-  // ComfyUI connection and the model file names. The defaults resolve the
-  // image-use CLI from the skill installation of the operator.
-  async getImageSettings(): Promise<ImageSettings> {
-    const existing = await this.#db.query<ImageSettingsRow>(
-      `SELECT ${IMAGE_SETTINGS_COLUMNS} FROM image_settings WHERE id = 'image'`,
-    );
-    const row = existing.rows[0];
-    if (row) return mapImageSettings(row);
-    const defaults = defaultImageSettings();
-    try {
-      await this.#db.query(
-        `INSERT INTO image_settings (id, provider, fallback_provider, cooldown_minutes,
-           cli_path, base_url, diffusion_model, text_encoder, vae, default_steps,
-           max_pixels, timeout_minutes, custom_base_url, custom_model, custom_format,
-           custom_api_key_encrypted, updated_at)
-         VALUES ('image', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
-        [
-          defaults.provider,
-          defaults.fallbackProvider,
-          defaults.cooldownMinutes,
-          defaults.cliPath,
-          defaults.baseUrl,
-          defaults.diffusionModel,
-          defaults.textEncoder,
-          defaults.vae,
-          defaults.defaultSteps,
-          defaults.maxPixels,
-          defaults.timeoutMinutes,
-          defaults.customBaseUrl,
-          defaults.customModel,
-          defaults.customFormat,
-          defaults.customApiKeyEncrypted,
-          new Date().toISOString(),
-        ],
-      );
-    } catch (error) {
-      if (!isUniqueViolation(error)) throw error;
-    }
-    const created = await this.#db.query<ImageSettingsRow>(
-      `SELECT ${IMAGE_SETTINGS_COLUMNS} FROM image_settings WHERE id = 'image'`,
-    );
-    const stored = created.rows[0];
-    return stored === undefined ? defaults : mapImageSettings(stored);
+  getImageSettings(): Promise<ImageSettings> {
+    return this.#settings.getImageSettings();
   }
 
-  async updateImageSettings(patch: ImageSettingsPatch): Promise<ImageSettings> {
-    const current = await this.getImageSettings();
-    const next: ImageSettings = {
-      provider: patch.provider ?? current.provider,
-      fallbackProvider: patch.fallbackProvider ?? current.fallbackProvider,
-      cooldownMinutes: patch.cooldownMinutes ?? current.cooldownMinutes,
-      cliPath: patch.cliPath ?? current.cliPath,
-      baseUrl: patch.baseUrl ?? current.baseUrl,
-      diffusionModel: patch.diffusionModel ?? current.diffusionModel,
-      textEncoder: patch.textEncoder ?? current.textEncoder,
-      vae: patch.vae ?? current.vae,
-      defaultSteps: patch.defaultSteps ?? current.defaultSteps,
-      maxPixels: patch.maxPixels ?? current.maxPixels,
-      timeoutMinutes: patch.timeoutMinutes ?? current.timeoutMinutes,
-      customBaseUrl: patch.customBaseUrl ?? current.customBaseUrl,
-      customModel: patch.customModel ?? current.customModel,
-      customFormat: patch.customFormat ?? current.customFormat,
-      customApiKeyEncrypted:
-        patch.customApiKeyEncrypted === undefined
-          ? current.customApiKeyEncrypted
-          : patch.customApiKeyEncrypted,
-    };
-    if (!IMAGE_PROVIDERS.includes(next.provider)) {
-      throw new SenifyError("validation", `Unknown image provider "${next.provider}"`, {
-        field: "image.provider",
-        suggestion: `Choose one of: ${IMAGE_PROVIDERS.join(", ")}.`,
-      });
-    }
-    if (!IMAGE_FALLBACK_PROVIDERS.includes(next.fallbackProvider)) {
-      throw new SenifyError(
-        "validation",
-        `Unknown image fallback provider "${next.fallbackProvider}"`,
-        {
-          field: "image.fallbackProvider",
-          suggestion: `Choose one of: ${IMAGE_FALLBACK_PROVIDERS.join(", ")}.`,
-        },
-      );
-    }
-    await this.#db.query(
-      `UPDATE image_settings SET provider = $2, fallback_provider = $3,
-         cooldown_minutes = $4, cli_path = $5, base_url = $6, diffusion_model = $7,
-         text_encoder = $8, vae = $9, default_steps = $10, max_pixels = $11,
-         timeout_minutes = $12, custom_base_url = $13, custom_model = $14,
-         custom_format = $15, custom_api_key_encrypted = $16, updated_at = $17
-         WHERE id = $1`,
-      [
-        "image",
-        next.provider,
-        next.fallbackProvider,
-        next.cooldownMinutes,
-        next.cliPath,
-        next.baseUrl,
-        next.diffusionModel,
-        next.textEncoder,
-        next.vae,
-        next.defaultSteps,
-        next.maxPixels,
-        next.timeoutMinutes,
-        next.customBaseUrl,
-        next.customModel,
-        next.customFormat,
-        next.customApiKeyEncrypted,
-        new Date().toISOString(),
-      ],
-    );
-    return next;
+  updateImageSettings(patch: ImageSettingsPatch): Promise<ImageSettings> {
+    return this.#settings.updateImageSettings(patch);
   }
 
   // ------------------------------------------------------ image jobs (S2)
@@ -7217,60 +6018,12 @@ export class Store {
     );
   }
 
-  // House DNA and the preferences of the reference briefs (T14). They live in
-  // the engine so the surface and the MCP tools build the same brief.
-  async getReferenceSettings(): Promise<ReferenceSettings> {
-    const existing = await this.#db.query<ReferenceSettingsRow>(
-      `SELECT ${REFERENCE_SETTINGS_COLUMNS} FROM reference_settings WHERE id = 'references'`,
-    );
-    const row = existing.rows[0];
-    if (row) return mapReferenceSettings(row);
-    try {
-      await this.#db.query(
-        `INSERT INTO reference_settings (id, dna, include_dna, overrides, updated_at)
-         VALUES ('references', $1, false, '', $2)`,
-        [
-          toJsonParam({ name: "", description: "", constants: [], never: [] }),
-          new Date().toISOString(),
-        ],
-      );
-    } catch (error) {
-      if (!isUniqueViolation(error)) throw error;
-    }
-    const created = await this.#db.query<ReferenceSettingsRow>(
-      `SELECT ${REFERENCE_SETTINGS_COLUMNS} FROM reference_settings WHERE id = 'references'`,
-    );
-    const stored = created.rows[0];
-    return stored === undefined ? defaultReferenceSettings() : mapReferenceSettings(stored);
+  getReferenceSettings(): Promise<ReferenceSettings> {
+    return this.#settings.getReferenceSettings();
   }
 
-  async updateReferenceSettings(patch: {
-    dna?: ReferenceDna;
-    preferences?: Partial<ReferencePreferences>;
-  }): Promise<ReferenceSettings> {
-    const current = await this.getReferenceSettings();
-    const next: ReferenceSettings = {
-      dna: patch.dna ?? current.dna,
-      preferences: {
-        includeDna:
-          patch.preferences?.includeDna ?? current.preferences.includeDna,
-        overrides:
-          patch.preferences?.overrides ?? current.preferences.overrides,
-      },
-      updatedAt: new Date().toISOString(),
-    };
-    await this.#db.query(
-      `UPDATE reference_settings SET dna = $2, include_dna = $3, overrides = $4,
-         updated_at = $5 WHERE id = $1`,
-      [
-        "references",
-        toJsonParam(next.dna),
-        next.preferences.includeDna,
-        next.preferences.overrides,
-        next.updatedAt,
-      ],
-    );
-    return next;
+  updateReferenceSettings(patch: ReferenceSettingsPatch): Promise<ReferenceSettings> {
+    return this.#settings.updateReferenceSettings(patch);
   }
 
   // Persisted secret for encryption at rest. It lives in a file outside the
@@ -7410,4 +6163,3 @@ async function insertDumpRows(
     );
   }
 }
-
