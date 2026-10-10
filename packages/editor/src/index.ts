@@ -172,6 +172,18 @@ export {
   type ExplorerOptions,
 } from "./explorer/panel.ts";
 export {
+  createElementsPanel,
+  type ElementsPanel,
+  type ElementsPanelOptions,
+} from "./explorer/elements.ts";
+export {
+  buildElementGroups,
+  ELEMENT_ICONS,
+  ELEMENT_NOT_INSERTABLE,
+  type ElementGroup,
+  type ElementTile,
+} from "./explorer/elements-model.ts";
+export {
   DEFAULT_IMAGE_GENERATE_FORM,
   IMAGE_JOB_POLL_MS,
   IMAGE_SIZE_PRESETS,

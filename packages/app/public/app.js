@@ -6283,10 +6283,29 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   // Kontextmenue und Fokus-Rueckgabe. Die Site-Tabs (Ticket 03 Punkt 1)
   // speisen sich aus den Caches der Shell: Seiten wechseln, Medien als Bild
   // einfuegen; Vorlagen/Komponenten folgen mit ihrer Datenquelle (O14).
+  // Das Elemente-Panel (E4) wird einmal gebaut und bleibt ueber Neuzeichnen
+  // des Explorers erhalten (Suchtext, eingeklappte Kategorien). Klick fuegt
+  // hinter der Auswahl ein, Ziehen setzt per Drag and Drop - beides ueber den
+  // Controller des Canvas, wie die Schnellzugriff-Chips.
+  let elementsPanel = null;
   const explorer = editor.createExplorer({
     host: explorerHost,
     store: session.store,
     tabs: [
+      {
+        id: "elements",
+        label: "Elemente",
+        items: () => [],
+        element: (doc) => {
+          if (elementsPanel === null) {
+            elementsPanel = editor.createElementsPanel(doc, {
+              insert: (primitive) => canvas.insert(primitive, "after"),
+              bindDragSource: (element, primitive) => canvas.bindDragSource(element, primitive),
+            });
+          }
+          return elementsPanel.element;
+        },
+      },
       {
         id: "pages",
         label: "Seiten",
