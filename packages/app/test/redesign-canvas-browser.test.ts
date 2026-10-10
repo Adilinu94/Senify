@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { startProgram } from "@senify/app";
-import { browserAvailable, memoryDb } from "./support.ts";
+import { browserAvailable, memoryDb, openInspectorCategory } from "./support.ts";
 
 const author = { kind: "human", id: "programm", label: "Programm" };
 const referencePng = Buffer.from(
@@ -142,6 +142,8 @@ describe.skipIf(!browserAvailable)("reference redesign handoff in a real browser
       await heroItem.click();
       await expect.poll(async () => tab.locator(".senify-inspector").count()).toBe(1);
       await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
+      // Kategorien sind Akkordeons: "Hintergrund" erst oeffnen, falls sie zu ist.
+      await openInspectorCategory(tab, "style/background");
       const background = tab.locator('.senify-inspector__field[data-key="background"] input');
       await background.fill("#123456");
       const versionBeforeSave = target?.draftVersion ?? 0;

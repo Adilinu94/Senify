@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { startProgram } from "@senify/app";
-import { browserAvailable, memoryDb } from "./support.ts";
+import { browserAvailable, memoryDb, openInspectorCategory } from "./support.ts";
 
 // The canvas wired into the editor page (rebuild Phase 0, fifth slice). Since
 // E5 slice 1 it is the one visible editor, and since P3-1 Punkt 4 (R5) it is
@@ -155,21 +155,22 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       await expect.poll(dividerCount).toBe(1);
       await tab.screenshot({ path: join(shotDir, "04-canvas-insert.png") });
 
-      // The inspector (ticket 02, slice 1): four tabs, the generated field
+      // The inspector (ticket 02, slice 1): three tabs, the generated field
       // family and the store as the one source. The divider is a registered
       // section, so its `background` style prop round-trips through the real
       // save path; the change must reach the canvas without a reload.
       const dividerNode = desktopFrame().locator('section[data-section="divider"]').first();
       await dividerNode.click();
       await tab.waitForSelector(".senify-inspector", { timeout: 30000 });
-      expect(await tab.locator(".senify-inspector__tab").count()).toBe(4);
+      expect(await tab.locator(".senify-inspector__tab").count()).toBe(3);
       expect(await tab.locator(".senify-inspector__tab").allTextContents()).toEqual([
-        "Content",
-        "Style",
-        "Interactions",
-        "Advanced",
+        "Allgemein",
+        "Stil",
+        "Interaktionen",
       ]);
       await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
+      // Kategorien sind Akkordeons: "Hintergrund" erst oeffnen, falls sie zu ist.
+      await openInspectorCategory(tab, "style/background");
       const backgroundField = tab.locator(
         '.senify-inspector__field[data-key="background"] input',
       );
@@ -207,6 +208,7 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       // Token-Picker: das Panel oeffnet an einem Style-Feld mit Theme-Familie
       // und listet die Tokens (der Klick selbst schreibt `{ $token: … }` — die
       // Modell- und Transporttests decken den Wert ab).
+      await openInspectorCategory(tab, "style/spacing");
       const marginRow = tab.locator('.senify-inspector__field[data-key="margin"]');
       await marginRow.locator('[data-control="tokens"]').click();
       await tab.waitForSelector('[data-role="token-panel"]', { timeout: 10000 });

@@ -131,6 +131,9 @@ export type InspectorGroup = {
   id: string;
   label: string;
   fields: InspectorField[];
+  // Selten gebrauchte Felder der Kategorie; der Inspektor zeigt sie erst hinter
+  // "Mehr anzeigen" (oder sofort, wenn eines davon schon einen Wert hat).
+  more?: InspectorField[];
 };
 
 export type InspectorMotion = {
@@ -167,22 +170,135 @@ export type BuildInspectorInput = {
   state?: StateName | null;
 };
 
-export const INSPECTOR_TABS: readonly { id: InspectorTabId; label: string }[] = [
-  { id: "content", label: "Content" },
-  { id: "style", label: "Style" },
-  { id: "interactions", label: "Interactions" },
-  { id: "advanced", label: "Advanced" },
+// Drei Tabs wie im Referenz-Editor: Allgemein, Stil, Interaktionen. Der fruehere
+// Tab "Advanced" ist in "Allgemein" aufgegangen (Gruppe "Einstellungen"); die Id
+// "advanced" bleibt im Typ, damit ein frueher gespeicherter Tab gueltig bleibt.
+export type VisibleTabId = Exclude<InspectorTabId, "advanced">;
+export const INSPECTOR_TABS: readonly { id: VisibleTabId; label: string }[] = [
+  { id: "content", label: "Allgemein" },
+  { id: "style", label: "Stil" },
+  { id: "interactions", label: "Interaktionen" },
 ];
 
-const STYLE_GROUP_LABELS: Record<StyleGroup, string> = {
-  layout: "Layout",
-  spacing: "Abstand",
-  size: "Größe",
-  typography: "Typografie",
-  color: "Farbe",
-  border: "Rahmen",
-  effects: "Effekte",
+// Steuerelemente, die nicht den Inhalt, sondern das Verhalten des Elements
+// einstellen (HTML-Tag bzw. Ebene, Link, ID, Sprache). Sie stehen in der Gruppe
+// "Einstellungen" des Tabs "Allgemein". Eine kleine feste Liste statt einer
+// Angabe je Primitiv im Katalog: so bleibt der Katalog unveraendert.
+const SETTINGS_KEYS: ReadonlySet<string> = new Set([
+  "semantic",
+  "level",
+  "link",
+  "newTab",
+  "anchorId",
+  "lang",
+]);
+
+// Die acht Kategorien des Stil-Tabs in fester Reihenfolge (wie im Referenz-Editor).
+// Sie werden aus den sieben Stil-Gruppen der Widget-Engine abgeleitet: Position
+// und Hintergrund sind neu, der Ueberlauf gehoert zur Groesse, `gap` zum Layout.
+// Katalog und Engine bleiben dafuer unveraendert.
+export type StyleCategory =
+  | "layout"
+  | "spacing"
+  | "size"
+  | "position"
+  | "typography"
+  | "background"
+  | "border"
+  | "effects";
+
+const STYLE_CATEGORIES: readonly { id: StyleCategory; label: string }[] = [
+  { id: "layout", label: "Layout" },
+  { id: "spacing", label: "Abstände" },
+  { id: "size", label: "Größe" },
+  { id: "position", label: "Position" },
+  { id: "typography", label: "Typografie" },
+  { id: "background", label: "Hintergrund" },
+  { id: "border", label: "Rand" },
+  { id: "effects", label: "Effekte" },
+];
+
+const CATEGORY_BY_PROP: Record<string, StyleCategory> = {
+  gap: "layout",
+  overflow: "size",
+  overflowX: "size",
+  overflowY: "size",
+  position: "position",
+  inset: "position",
+  top: "position",
+  right: "position",
+  bottom: "position",
+  left: "position",
+  zIndex: "position",
 };
+
+const CATEGORY_BY_GROUP: Record<StyleGroup, StyleCategory> = {
+  layout: "layout",
+  spacing: "spacing",
+  size: "size",
+  typography: "typography",
+  color: "background",
+  border: "border",
+  effects: "effects",
+};
+
+function categoryOf(spec: { prop: string; group: StyleGroup }): StyleCategory {
+  return CATEGORY_BY_PROP[canonical(spec.prop)] ?? CATEGORY_BY_GROUP[spec.group];
+}
+
+// Die Kategorie (Gruppen-Id), in der das Feld einer Property steht. Eine unbekannte
+// Property landet bei den eigenen Properties. Der Inspektor oeffnet damit die
+// Kategorie einer frisch hinzugefuegten Property.
+export function styleGroupIdOf(prop: string): string {
+  const spec = STYLE_PROPERTIES.find((entry) => canonical(entry.prop) === canonical(prop));
+  return spec === undefined ? "style/custom" : `style/${categoryOf(spec)}`;
+}
+
+// Felder hinter "Mehr anzeigen". Die Grid-Felder sind nur bei einem Raster
+// Hauptfelder.
+const MORE_PROPS: ReadonlySet<string> = new Set([
+  "alignContent",
+  "placeItems",
+  "flexGrow",
+  "flexShrink",
+  "flexBasis",
+  "order",
+  "minWidth",
+  "maxWidth",
+  "minHeight",
+  "maxHeight",
+  "aspectRatio",
+  "overflow",
+  "overflowX",
+  "overflowY",
+  "inset",
+  "top",
+  "right",
+  "bottom",
+  "left",
+  "lineHeight",
+  "letterSpacing",
+  "textDecoration",
+  "textTransform",
+  "fontStyle",
+  "filter",
+  "backdropFilter",
+  "transition",
+  "transform",
+]);
+const GRID_PROPS: ReadonlySet<string> = new Set([
+  "gridTemplateColumns",
+  "gridTemplateRows",
+  "gridColumn",
+  "gridRow",
+  "gridAutoFlow",
+]);
+
+function isMoreProp(prop: string, definition: PrimitiveDefinition | undefined): boolean {
+  const key = canonical(prop);
+  if (GRID_PROPS.has(key)) return definition?.type !== "grid";
+  return MORE_PROPS.has(key);
+}
 
 // The select options of the keyword style properties (ui surface description,
 // ADR-0005). A keyword without an entry stays a free text field.
@@ -231,6 +347,61 @@ const KEYWORD_OPTIONS: Record<string, string[]> = {
   ],
   aspectRatio: ["auto", "16 / 9", "4 / 3", "1 / 1", "3 / 4"],
 };
+
+// Deutsche Beschriftungen der CSS-Schluesselwoerter (statt Rohwerten wie
+// `flex-start`). Gilt je Wert; `KEYWORD_LABEL_OVERRIDES` ueberschreibt ihn fuer eine
+// Property, wenn derselbe Wert dort etwas anderes meint (`start` ist beim Text
+// "Links", beim Raster "Anfang").
+const KEYWORD_LABELS: Record<string, string> = {
+  static: "Statisch",
+  relative: "Relativ",
+  absolute: "Absolut",
+  fixed: "Fixiert",
+  sticky: "Klebend",
+  visible: "Sichtbar",
+  hidden: "Versteckt",
+  clip: "Beschneiden",
+  auto: "Automatisch",
+  scroll: "Scrollen",
+  row: "Zeile",
+  "row-reverse": "Zeile umgekehrt",
+  column: "Spalte",
+  "column-reverse": "Spalte umgekehrt",
+  "flex-start": "Anfang",
+  "flex-end": "Ende",
+  start: "Anfang",
+  end: "Ende",
+  center: "Mitte",
+  "space-between": "Verteilt",
+  "space-around": "Rundherum",
+  "space-evenly": "Gleichmäßig",
+  stretch: "Strecken",
+  baseline: "Grundlinie",
+  justify: "Blocksatz",
+  none: "Keine",
+  underline: "Unterstrichen",
+  "line-through": "Durchgestrichen",
+  "underline line-through": "Unter- und durchgestrichen",
+  uppercase: "GROSS",
+  lowercase: "klein",
+  capitalize: "Anfangsbuchstaben",
+  normal: "Normal",
+  italic: "Kursiv",
+  oblique: "Schräg",
+  solid: "Durchgezogen",
+  dashed: "Gestrichelt",
+  dotted: "Gepunktet",
+  double: "Doppelt",
+  "row dense": "Zeile, dicht",
+  "column dense": "Spalte, dicht",
+};
+const KEYWORD_LABEL_OVERRIDES: Record<string, Record<string, string>> = {
+  textAlign: { start: "Links", center: "Mitte", end: "Rechts", justify: "Blocksatz" },
+  flexWrap: { nowrap: "Kein", wrap: "Umbruch", "wrap-reverse": "Umgekehrt" },
+};
+function keywordLabel(prop: string, value: string): string {
+  return KEYWORD_LABEL_OVERRIDES[prop]?.[value] ?? KEYWORD_LABELS[value] ?? value;
+}
 
 const COLOR_KINDS = new Set(["color"]);
 
@@ -297,7 +468,7 @@ function styleFieldsFor(
   const values: DeviceValueMap =
     state === null ? node.props : (scoped?.states?.[state] ?? {});
   const commit: InspectorCommit = state === null ? { kind: "prop" } : { kind: "state", state };
-  const collected = new Map<StyleGroup, InspectorField[]>();
+  const collected = new Map<StyleCategory, { primary: InspectorField[]; more: InspectorField[] }>();
   for (const spec of STYLE_PROPERTIES) {
     if (groups !== undefined && !groups.has(spec.group)) continue;
     // A property the primitive's own control owns stays in the Content tab.
@@ -326,7 +497,7 @@ function styleFieldsFor(
       units: spec.units === undefined ? undefined : [...spec.units],
       options:
         spec.kind === "keyword" && keywordOptions !== undefined
-          ? keywordOptions.map((option) => ({ value: option, label: option }))
+          ? keywordOptions.map((option) => ({ value: option, label: keywordLabel(spec.prop, option) }))
           : undefined,
       alpha: COLOR_KINDS.has(spec.kind),
       linkable: spec.kind === "spacing" || spec.kind === "gaps",
@@ -344,9 +515,10 @@ function styleFieldsFor(
       theme,
       field.kind === "color" ? "color" : tokenGroupForStyleProp(spec.prop),
     );
-    const list = collected.get(spec.group) ?? [];
-    list.push(field);
-    collected.set(spec.group, list);
+    const category = categoryOf(spec);
+    const bucket = collected.get(category) ?? { primary: [], more: [] };
+    (isMoreProp(spec.prop, definition) ? bucket.more : bucket.primary).push(field);
+    collected.set(category, bucket);
   }
   // The open property space (O13/ADR-0005): every value the node carries that
   // neither a catalog control nor the style table owns stays editable — the
@@ -386,11 +558,14 @@ function styleFieldsFor(
       styleGroup: undefined,
     });
   }
-  const groupsOut = [...collected.entries()].map(([group, fields]) => ({
-    id: `style/${group}`,
-    label: STYLE_GROUP_LABELS[group],
-    fields,
-  }));
+  const groupsOut: InspectorGroup[] = STYLE_CATEGORIES.flatMap(({ id, label }) => {
+    const bucket = collected.get(id);
+    if (bucket === undefined) return [];
+    // Sind alle Felder der Kategorie "selten", zeigt sie sie direkt.
+    const primary = bucket.primary.length === 0 ? bucket.more : bucket.primary;
+    const more = bucket.primary.length === 0 ? [] : bucket.more;
+    return [{ id: `style/${id}`, label, fields: primary, ...(more.length === 0 ? {} : { more }) }];
+  });
   if (custom.length > 0) {
     groupsOut.push({ id: "style/custom", label: "Eigene Properties", fields: custom });
   }
@@ -421,7 +596,7 @@ function fieldKindForStyle(kind: string): InspectorFieldKind {
 // case names; a missing entry falls back to the raw key.
 const STYLE_PROP_LABELS: Record<string, string> = {
   position: "Position",
-  inset: "Innenabstand (alle Seiten)",
+  inset: "Versatz (alle Seiten)",
   top: "Oben",
   right: "Rechts",
   bottom: "Unten",
@@ -1163,8 +1338,17 @@ export function buildInspector(input: BuildInspectorInput): InspectorModel | nul
       ? variantGroup(input.document, node)
       : null;
   const register = variantRegisterGroup(input.document, node);
+  const isSetting = (field: InspectorField): boolean => SETTINGS_KEYS.has(canonical(field.key));
+  const settingFields = contentFields.filter(isSetting);
   const content: InspectorGroup[] = [
-    { id: "content/main", label: definition?.name ?? node.primitive, fields: contentFields },
+    { id: "content/main", label: "Inhalt", fields: contentFields.filter((f) => !isSetting(f)) },
+    // Einstellungen: Tag/Link/ID des Elements plus Sichtbarkeit und Knoten-ID
+    // (frueher der Tab "Advanced").
+    {
+      id: "content/settings",
+      label: "Einstellungen",
+      fields: [...settingFields, ...advancedGroups(node).flatMap((group) => group.fields)],
+    },
     // A component instance has no controls of its own; its Content tab shows
     // the variant toggles and the parts of the definition (overrides).
     ...(variants === null ? [] : [variants]),
@@ -1174,16 +1358,14 @@ export function buildInspector(input: BuildInspectorInput): InspectorModel | nul
       ? overrideGroups(input.document, node, breakpoint, input.theme)
       : []),
   ];
-  const groupsFor = (id: InspectorTabId): InspectorGroup[] => {
+  const groupsFor = (id: VisibleTabId): InspectorGroup[] => {
     switch (id) {
       case "content":
         return content;
       case "style":
         return styleGroups;
       case "interactions":
-        return [{ id: "interactions/motion", label: "Motion", fields: motion.fields }];
-      case "advanced":
-        return advancedGroups(node);
+        return [{ id: "interactions/motion", label: "Bewegung", fields: motion.fields }];
     }
   };
   return {
