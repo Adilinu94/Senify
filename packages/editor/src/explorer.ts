@@ -13,7 +13,7 @@ import {
   editorOverrides,
 } from "./state/components.ts";
 
-// Explorer tabs (artifacts/24 §3): Ebenen · Seiten (+ Vorlagen-Abschnitt) ·
+// Explorer tabs (artifacts/24 §3): Struktur (the layer tree) · Seiten (+ Vorlagen-Abschnitt) ·
 // Vorlagen · Medien. All four are headless list models — the shell renders
 // them, the editor core decides what is in them.
 
@@ -25,7 +25,7 @@ export type ExplorerTabSpec = {
 };
 
 export const EXPLORER_TABS: readonly ExplorerTabSpec[] = [
-  { id: "layers", label: "Ebenen" },
+  { id: "layers", label: "Struktur" },
   { id: "pages", label: "Seiten" },
   { id: "templates", label: "Vorlagen" },
   { id: "media", label: "Medien" },

@@ -139,6 +139,21 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       });
       await expect.poll(dividerCount).toBe(2);
 
+      // Struktur (E6): die rechte Spalte heisst so, und ihr Kontextmenue bleibt am
+      // rechten Fensterrand ganz sichtbar statt abgeschnitten zu werden.
+      expect(await tab.locator(".senify-explorer__title").textContent()).toBe("Struktur");
+      await tab.locator(".senify-explorer__item").filter({ hasText: "hero" }).first().click({ button: "right" });
+      const menu = tab.locator('[data-role="context-menu"]');
+      await menu.waitFor({ timeout: 10000 });
+      const menuBox = await menu.boundingBox();
+      const viewport = tab.viewportSize();
+      expect((menuBox?.x ?? 0) + (menuBox?.width ?? 0)).toBeLessThanOrEqual(viewport?.width ?? 0);
+      expect((menuBox?.y ?? 0) + (menuBox?.height ?? 0)).toBeLessThanOrEqual(viewport?.height ?? 0);
+      await tab.keyboard.press("Escape");
+      // Der Rechtsklick hat den Knoten gewaehlt: zurueck zu den Elementen.
+      await tab.locator(".senify-inspector__back").click();
+      await expect.poll(() => elements.isVisible()).toBe(true);
+
       // Speichern (Strangler E2): Katalog-Bausteine ohne Section-Zwilling werden
       // eingefuegt, gespeichert und liegen danach im Baum der Engine. Der
       // Speichern-Knopf zaehlt wieder auf null, nichts bleibt haengen.
