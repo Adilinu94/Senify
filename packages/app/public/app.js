@@ -5919,9 +5919,13 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   // ist die Auswahl in beiden Panels, eine Aenderung erscheint ueberall.
   const explorerHost = el("aside", { class: "canvas-view__explorer" });
   const canvasHost = el("div", { class: "canvas-view__stage" });
-  const inspectorHost = el("aside", { class: "canvas-view__inspector" });
+  // Links wechseln sich Elemente und Einstellungen ab (E5), rechts bleibt der
+  // Explorer mit den Ebenen.
+  const elementsHost = el("div", { class: "canvas-view__elements" });
+  const inspectorHost = el("div", { class: "canvas-view__inspector" });
+  const sideHost = el("aside", { class: "canvas-view__side" }, elementsHost, inspectorHost);
   host.classList.add("canvas-view");
-  host.replaceChildren(explorerHost, canvasHost, inspectorHost);
+  host.replaceChildren(sideHost, canvasHost, explorerHost);
 
   const statusEl = el("span", { class: "muted", "data-role": "canvas-status" });
   const statusGroup = el(
@@ -6283,29 +6287,10 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   // Kontextmenue und Fokus-Rueckgabe. Die Site-Tabs (Ticket 03 Punkt 1)
   // speisen sich aus den Caches der Shell: Seiten wechseln, Medien als Bild
   // einfuegen; Vorlagen/Komponenten folgen mit ihrer Datenquelle (O14).
-  // Das Elemente-Panel (E4) wird einmal gebaut und bleibt ueber Neuzeichnen
-  // des Explorers erhalten (Suchtext, eingeklappte Kategorien). Klick fuegt
-  // hinter der Auswahl ein, Ziehen setzt per Drag and Drop - beides ueber den
-  // Controller des Canvas, wie die Schnellzugriff-Chips.
-  let elementsPanel = null;
   const explorer = editor.createExplorer({
     host: explorerHost,
     store: session.store,
     tabs: [
-      {
-        id: "elements",
-        label: "Elemente",
-        items: () => [],
-        element: (doc) => {
-          if (elementsPanel === null) {
-            elementsPanel = editor.createElementsPanel(doc, {
-              insert: (primitive) => canvas.insert(primitive, "after"),
-              bindDragSource: (element, primitive) => canvas.bindDragSource(element, primitive),
-            });
-          }
-          return elementsPanel.element;
-        },
-      },
       {
         id: "pages",
         label: "Seiten",
@@ -6461,11 +6446,35 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     },
   });
   inspector.setTab(savedUi.tab);
+
+  // Das Elemente-Panel (E4/E5): Kacheln, Suche, Klick und Ziehen. Es wird einmal
+  // gebaut und steht nur ohne Auswahl da; ein Klick haengt das Element ans Ende
+  // der Seite, Ziehen setzt es per Drag and Drop - beides ueber den Controller
+  // des Canvas, wie die Schnellzugriff-Chips.
+  const elementsPanel = editor.createElementsPanel(document, {
+    insert: (primitive) => canvas.insertAtEnd(primitive),
+    bindDragSource: (element, primitive) => canvas.bindDragSource(element, primitive),
+  });
+  elementsHost.replaceChildren(elementsPanel.element);
+
+  // Panel-Wechsel (E5): ist ein Element gewaehlt, ersetzen die Einstellungen die
+  // Elemente; ohne Auswahl (Esc im Inspektor, Zurueck-Knopf, Leerklick im Canvas)
+  // stehen wieder die Elemente da.
+  const syncSidePanel = () => {
+    const selection = session.store.selection;
+    const hasSelection = (selection.focus ?? selection.selected[0] ?? null) !== null;
+    sideHost.dataset.panel = hasSelection ? "settings" : "elements";
+    elementsHost.hidden = hasSelection;
+    inspectorHost.hidden = !hasSelection;
+  };
+  session.store.subscribe(syncSidePanel);
+
   // Die Auswahl aus der letzten Sitzung wiederherstellen, sofern der Knoten
   // noch existiert; `store.select` umgeht den Persistenz-Schreibpfad nicht.
   if (savedUi.selectedId && session.document.nodes[savedUi.selectedId]) {
     session.store.select(savedUi.selectedId);
   }
+  syncSidePanel();
 
   /* ------------------------------------------------------- Live-Mitverfolgung
    * Ticket 05: die Engine meldet Aenderungen ueber SSE (`GET /api/events`).

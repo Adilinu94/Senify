@@ -151,6 +151,19 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
   const root = h(doc, "section", { className: "senify-inspector" });
   root.setAttribute(EDITOR_ROOT_ATTRIBUTE, "true");
   root.setAttribute("aria-label", "Inspektor");
+  // Esc im Inspektor (E5): in einem Eingabefeld gibt es das Feld frei, sonst geht
+  // es zurueck zu den Elementen. Esc im Canvas bleibt "eine Ebene hoeher".
+  root.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || event.defaultPrevented === true) return;
+    const target = event.target as { tagName?: string; blur?: () => void } | null;
+    const tag = target?.tagName?.toLowerCase();
+    if (tag === "input" || tag === "textarea" || tag === "select") {
+      target?.blur?.();
+      return;
+    }
+    event.preventDefault?.();
+    options.store.clearSelection();
+  });
   let activeTab: InspectorTabId = "content";
   let breakpoint: Device = options.breakpoint ?? "desktop";
   let profile: MotionProfile = options.profile ?? "standard";
@@ -1329,10 +1342,25 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     if (model !== null && !model.tabs.some((entry) => entry.id === activeTab)) activeTab = "content";
     root.textContent = "";
     const header = h(doc, "div", { className: "senify-inspector__header" });
+    if (model !== null) {
+      // Zurueck zum Elemente-Panel (E5): die Auswahl loesen, die Shell zeigt dann
+      // wieder die Elemente an.
+      const back = h(doc, "button", {
+        className: "senify-inspector__back",
+        attributes: {
+          type: "button",
+          title: "Zurück zu den Elementen (Esc)",
+          "aria-label": "Zurück zu den Elementen",
+        },
+      });
+      back.appendChild(icon(doc, "arrow-left", 12));
+      back.addEventListener("click", () => options.store.clearSelection());
+      header.appendChild(back);
+    }
     header.appendChild(
       h(doc, "span", {
         className: "senify-inspector__title",
-        text: model === null ? "Inspektor" : model.title,
+        text: model === null ? "Inspektor" : `${model.title} bearbeiten`,
       }),
     );
     if (model !== null) {

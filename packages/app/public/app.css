@@ -742,7 +742,7 @@ dialog.modal select,
    der Canvas behaelt den Rest. */
 .editor-host.canvas-view {
   display: grid;
-  grid-template-columns: clamp(200px, 18vw, 360px) minmax(0, 1fr) clamp(260px, 22vw, 420px);
+  grid-template-columns: clamp(260px, 22vw, 420px) minmax(0, 1fr) clamp(200px, 18vw, 360px);
   gap: 0.75rem;
   height: clamp(30rem, calc(100vh - 12rem), 72rem);
 }
@@ -796,18 +796,32 @@ dialog.modal select,
   font-variant-numeric: tabular-nums;
 }
 .canvas-view__explorer,
-.canvas-view__inspector {
+.canvas-view__side {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
+/* Links wechseln sich Elemente und Einstellungen ab (E5); das jeweils andere
+   Panel ist hidden. */
+.canvas-view__side {
+  display: flex;
+  flex-direction: column;
+}
+.canvas-view__elements,
+.canvas-view__inspector {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+.canvas-view__elements[hidden],
+.canvas-view__inspector[hidden] { display: none; }
 @media (max-width: 1280px) {
   .editor-host.canvas-view {
-    grid-template-columns: clamp(200px, 22vw, 300px) minmax(0, 1fr);
+    grid-template-columns: clamp(220px, 26vw, 320px) minmax(0, 1fr);
   }
-  .canvas-view__inspector {
+  .canvas-view__explorer {
     grid-column: 1 / -1;
-    height: 26rem;
+    height: 20rem;
   }
 }
 .library-toolbar select {
@@ -869,7 +883,7 @@ dialog.modal select,
   }
   .canvas-view__stage { height: 36rem; }
   .canvas-view__explorer { height: 20rem; }
-  .canvas-view__inspector { height: 30rem; }
+  .canvas-view__side { height: 30rem; }
 }
 
 .entry-preview-frame {

@@ -97,6 +97,10 @@ export type CanvasInstance = {
     position: InsertPosition,
     props?: Record<string, import("@senify/widget-engine").PropValue>,
   ): boolean;
+  // Haengt ein Primitiv als letztes Kind der Seitenwurzel an. Der Weg des
+  // Elemente-Panels (E5): es steht nur ohne Auswahl da, also gibt es kein Ziel
+  // "hinter" einem Knoten.
+  insertAtEnd(primitive: string): boolean;
   // Macht ein Element ausserhalb des Canvas (Elemente-Panel) zur Drag-Quelle
   // fuer ein Primitiv; der Drop laeuft ueber denselben Controller wie die Chips.
   bindDragSource(element: DomElement, primitive: string): void;
@@ -1221,6 +1225,10 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     return drop.insertAt(target, primitive, position, props);
   }
 
+  function insertAtEnd(primitive: string): boolean {
+    return drop.insertAt(store.document.rootNodeId, primitive, "into");
+  }
+
   // The event names document nodes; a component instance renders as copies
   // with their own ids (and a definition part renders once per instance). The
   // copy map of the last render resolves both to the visible element.
@@ -1282,6 +1290,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     breakpoint: () => breakpoint,
     select,
     insert,
+    insertAtEnd,
     bindDragSource: (element, primitive) => drop.bindDragSource(element, primitive),
     flashNodes(ids: string[]): void {
       // Live reloads on the next store change (point 4): the ring lands on the

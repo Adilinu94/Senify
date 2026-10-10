@@ -1,10 +1,15 @@
 // Elemente-Panel (E4): Kacheln in einklappbaren Kategorien mit Suche. Ein
-// Klick fuegt hinter der Auswahl ein (`insert`, dieselbe Mutation wie die
-// Schnellzugriff-Chips), Ziehen setzt per Drag and Drop (`bindDragSource`).
-// Das Panel kennt weder Store noch Canvas, beides kommt als Funktion herein.
+// Klick haengt das Element ans Ende der Seite (`insert`), Ziehen setzt es per
+// Drag and Drop (`bindDragSource`); beides ergibt dieselbe `insertNode`-Mutation
+// wie die Schnellzugriff-Chips.
+// Das Panel kennt weder Store noch Canvas, beides kommt als Funktion herein. Es
+// steht in der linken Spalte und weicht dem Inspektor, sobald ein Element
+// gewaehlt ist (E5).
 
 import type { DomDocument, DomElement } from "../dom.ts";
+import { EDITOR_ROOT_ATTRIBUTE } from "../ui/tokens.ts";
 import { buildElementGroups, type ElementGroup } from "./elements-model.ts";
+import { ensureExplorerStyles } from "./styles.ts";
 
 export type ElementsPanelOptions = {
   insert: (primitive: string) => void;
@@ -41,17 +46,22 @@ function icon(doc: DomDocument, name: string, size: number): DomElement {
 }
 
 export function createElementsPanel(doc: DomDocument, options: ElementsPanelOptions): ElementsPanel {
-  const root = h(doc, "div", {
+  ensureExplorerStyles(doc);
+  const root = h(doc, "section", {
     className: "senify-elements",
-    attributes: { role: "region", "aria-label": "Elemente" },
+    attributes: { "aria-label": "Elemente" },
   });
+  root.setAttribute(EDITOR_ROOT_ATTRIBUTE, "true");
+  const body = h(doc, "div", { className: "senify-elements__body" });
   const input = h(doc, "input", {
     className: "senify-elements__search",
     attributes: { type: "search", placeholder: "Elemente suchen", "aria-label": "Elemente suchen" },
   });
   const groupsHost = h(doc, "div", { className: "senify-elements__groups" });
-  root.appendChild(input);
-  root.appendChild(groupsHost);
+  root.appendChild(h(doc, "div", { className: "senify-elements__header", text: "Elemente" }));
+  body.appendChild(input);
+  body.appendChild(groupsHost);
+  root.appendChild(body);
 
   // Eingeklappte Kategorien bleiben ueber Suchen hinweg gemerkt. Waehrend einer
   // Suche sind alle Treffer sichtbar.
