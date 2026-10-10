@@ -41,6 +41,29 @@ describe("styleRulesCss", () => {
     expect(styleRulesCss(page(), [])).toBe("");
   });
 
+  // The canvas compiles every node's open style props whether or not the site
+  // has a rule; the release has to as well, or a page changes its look when it
+  // is published.
+  it("compiles the open style props of nodes even without rules", () => {
+    const styled: { path: string; tree: NodeTree }[] = [
+      {
+        path: "/",
+        tree: {
+          rootNodeId: "root",
+          nodes: {
+            root: { id: "root", type: "page", props: {} },
+            "head-abc123": {
+              id: "head-abc123",
+              type: "heading",
+              props: { text: "Hallo", color: "#112233" },
+            },
+          },
+        },
+      },
+    ];
+    expect(styleRulesCss(styled, [])).toContain("#112233");
+  });
+
   it("emits every rule kind in the authored layer", () => {
     const rules: StyleRule[] = [
       createClassRule({ id: "r1", name: "accent", styles: { color: "#ff0000" } }),
