@@ -6,7 +6,6 @@ import {
   isComponentType,
   PAGE_ROOT_TYPE,
   readSlotSpec,
-  validatePropValues,
   type ComponentSlotSpec,
   type MotionSpec,
   type Node,
@@ -375,7 +374,7 @@ function buildNode(
     ...(preset as Record<string, PropValue>),
     ...(spec.props ?? {}),
   };
-  throwOnIssues(validatePropValues(definition, props, `${fieldPrefix}.props`));
+  throwOnIssues(state.registry.validateProps(definition, props, `${fieldPrefix}.props`));
   const id = spec.id ?? newNodeId();
   if (state.tree.nodes.has(id)) {
     throw new SenifyError(
@@ -626,7 +625,7 @@ function applyUpdateProps(
       next[key] = value;
     }
   }
-  throwOnIssues(validatePropValues(definition, next, "props"));
+  throwOnIssues(state.registry.validateProps(definition, next, "props"));
   const changedProps: Record<string, PropValue> = {};
   for (const [key, value] of Object.entries(mutation.patch)) {
     if (value !== null) changedProps[key] = value;
@@ -716,7 +715,7 @@ function applySetOverride(
     ...(current?.props ?? {}),
     ...(override.props ?? {}),
   };
-  throwOnIssues(validatePropValues(definition, mergedProps, "override.props"));
+  throwOnIssues(state.registry.validateProps(definition, mergedProps, "override.props"));
   warnLiteralValues(definition, override.props ?? {}, "override.props", state, state.currentOpIndex);
   const next: NodeOverride = {};
   if (Object.keys(mergedProps).length > 0) next.props = mergedProps;
@@ -1009,7 +1008,7 @@ function applyUpdateCollectionEntry(
     if (value === null) delete next[key];
     else next[key] = value;
   }
-  throwOnIssues(validatePropValues(definition, next, "patch"));
+  throwOnIssues(state.registry.validateProps(definition, next, "patch"));
   const changedProps: Record<string, PropValue> = {};
   for (const [key, value] of Object.entries(mutation.patch)) {
     if (value !== null) changedProps[key] = value;

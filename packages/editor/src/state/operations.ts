@@ -14,32 +14,28 @@ import type { EditorMutation, EditorNodeSpec } from "@senify/engine/browser";
 import { motionPreset, type MotionSpec, type PropValue } from "@senify/section-sdk";
 import {
   STATE_ORDER,
+  checkKnownProp,
+  checkPropValue,
+  checkSafeValue,
   assertValidCssClassName,
   baseKeyOf,
   camelToKebab,
   deviceKey,
-  formatSpacing,
   getPrimitive,
   inheritanceChain,
-  isRecord,
   isSafeCssProperty,
   isSafeRawCss,
   isValidCssSelector,
-  isComponentPrimitive,
-  matchesValueType,
   canonicalStyleRule,
-  parseCssValue,
   reservedContextIds,
   scopeNameFor,
   scopeSelectorFor,
   sectionTwinControls,
-  STRUCTURAL_PROP_KEYS,
   styleRuleErrors,
-  tokenRef,
-  translatableProperties,
   type Device,
   type DeviceValueMap,
   type PrimitiveDefinition,
+  type PropProblem,
   type StyleRule,
 } from "@senify/widget-engine";
 import {
@@ -100,94 +96,23 @@ function requirePrimitive(primitive: string, field: string): PrimitiveDefinition
   return twin === undefined ? definition : { ...definition, controls: twin };
 }
 
-function knownProps(definition: PrimitiveDefinition): Set<string> {
-  const keys = new Set(definition.controls.map((control) => control.key));
-  for (const prop of translatableProperties(definition.type)) keys.add(prop);
-  return keys;
+// The prop boundary (known keys, safe values) lives in widget-engine, so the
+// server's mutation path stands on the very same checks as this store. Here the
+// problem only gets its dotted `field` path.
+function raise(problem: PropProblem, field: string): never {
+  throw new SenifyError("validation", problem.message, {
+    field,
+    ...(problem.suggestion === undefined ? {} : { suggestion: problem.suggestion }),
+  });
 }
 
-// A property the catalog does not know is not an error any more: the style
-// space is open (ADR-0005). It only has to be a *safe* CSS property name —
-// `fontSzie` is a typo that emits nothing, `color:red` or `url(x)` would break
-// out of the declaration and is rejected. Behavioural catalog props stay gated
-// by `knownProps` (that is the typo protection for `text`, `level`, …).
 function assertKnownProp(
   definition: PrimitiveDefinition,
   key: string,
   field: string,
 ): void {
-  const base = baseKeyOf(key);
-  if (knownProps(definition).has(base)) return;
-  // The structural props of the component model (ids, versions, the override
-  // bag, the slot rules) are JSON, not CSS - they never run through the style
-  // grammar, neither as a control nor as an open property.
-  if (isComponentPrimitive(definition.type) && STRUCTURAL_PROPS.has(base)) return;
-  const property = camelToKebab(base);
-  if (!isSafeCssProperty(property)) {
-    throw new SenifyError(
-      "validation",
-      `Unsafe CSS property "${base}" for primitive "${definition.type}"`,
-      {
-        field,
-        suggestion:
-          "A style property is a plain CSS name (`border-radius`, `--brand`); it must not contain `:`, `;`, braces or spaces.",
-      },
-    );
-  }
-}
-
-// The value side of the open space (ADR-0005): strings run through the value
-// grammar, numbers must be finite, token references must be well-formed and a
-// spacing bag is formatted and then checked like any other value. This is the
-// loud half of the boundary — the compiler drops what it cannot trust.
-//
-// The structural props of the component model (ticket 04) are exempt: they
-// carry JSON, not style values. The list lives in widget-engine so the CSS
-// compiler's open pass uses the very same one.
-const STRUCTURAL_PROPS = new Set(STRUCTURAL_PROP_KEYS);
-
-function assertSafeValue(value: PropValue, field: string): void {
-  if (value === null) return;
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) {
-      throw new SenifyError("validation", "A numeric style value must be finite", { field });
-    }
-    return;
-  }
-  if (typeof value === "string") {
-    const parsed = parseCssValue(value);
-    if (!parsed.ok) {
-      throw new SenifyError(
-        "validation",
-        `Unsafe CSS value: ${parsed.problem}`,
-        {
-          field,
-          suggestion:
-            "Use a plain value (`16px`, `#fff`, `calc(50% - 4px)`) — no block breakouts, no foreign url schemes.",
-        },
-      );
-    }
-    return;
-  }
-  if (isRecord(value)) {
-    const ref = tokenRef(value);
-    if (ref !== undefined) {
-      if (!/^[a-zA-Z0-9._-]+$/.test(ref)) {
-        throw new SenifyError("validation", `Invalid token reference "${ref}"`, { field });
-      }
-      return;
-    }
-    const formatted = formatSpacing(value);
-    const parsed = formatted === undefined ? undefined : parseCssValue(formatted);
-    if (parsed === undefined || !parsed.ok) {
-      throw new SenifyError("validation", "Unsupported style value shape", {
-        field,
-        suggestion: "Use a number, a string, a token reference or a four-side bag.",
-      });
-    }
-    return;
-  }
-  throw new SenifyError("validation", "Unsupported style value", { field });
+  const problem = checkKnownProp(definition, key);
+  if (problem !== undefined) raise(problem, field);
 }
 
 function assertStyleDeclaration(key: string, value: PropValue, field: string): void {
@@ -198,7 +123,8 @@ function assertStyleDeclaration(key: string, value: PropValue, field: string): v
       suggestion: "Use a plain CSS property name (`border-radius`, `scroll-snap-type`).",
     });
   }
-  assertSafeValue(value, field);
+  const problem = checkSafeValue(value);
+  if (problem !== undefined) raise(problem, field);
 }
 
 function assertPropValue(
@@ -207,30 +133,9 @@ function assertPropValue(
   value: PropValue,
   field: string,
 ): void {
-  if (value === null) return;
-  const base = baseKeyOf(key);
-  // The structural props of the component model carry JSON — the override bag
-  // is a map of maps, the ids are opaque strings. The value grammar (ADR-0005)
-  // describes style values and does not apply here.
-  if (isComponentPrimitive(definition.type) && STRUCTURAL_PROPS.has(base)) return;
-  const control = definition.controls.find((entry) => entry.key === base);
-  if (control !== undefined) {
-    if (!matchesValueType(control.valueType, value)) {
-      throw new SenifyError(
-        "validation",
-        `Value for "${base}" must be a ${control.valueType}`,
-        { field, suggestion: `Expected the value type "${control.valueType}".` },
-      );
-    }
-    return;
-  }
-  // Not a catalog control: a style value. It runs through the same value
-  // grammar as a style rule — the node prop path is not a second, weaker door
-  // (ADR-0005).
-  assertSafeValue(value, field);
+  const problem = checkPropValue(definition, key, value);
+  if (problem !== undefined) raise(problem, field);
 }
-
-
 
 // The motion spec is the one authoring channel (ticket 19): the preset must be
 // in the registry, the dial stays 1-10 and the delay non-negative. The schema
