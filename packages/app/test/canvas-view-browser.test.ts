@@ -645,7 +645,11 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       await expect
         .poll(async () => (await desktopFrame().locator("body").textContent()) ?? "")
         .toContain("Eigener Hero");
-      tab.once("dialog", (dialog) => dialog.accept("riesig"));
+      const nativeDialogs: string[] = [];
+      tab.on("dialog", (dialog) => {
+        nativeDialogs.push(`${dialog.type()}: ${dialog.message()}`);
+        void dialog.dismiss();
+      });
       const variantInstanceAgain = tab.locator(".senify-explorer__item", {
         hasText: "Instanz · karte",
       });
@@ -655,6 +659,16 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       await tab
         .locator('.senify-explorer__menu-item[data-action="component-save-variant"]')
         .click();
+      // Der Name kommt aus dem eigenen Dialog, kein natives prompt(). Der
+      // Vorschlag ist die erste freie "Variante N": "groß" ist schon vergeben.
+      const variantDialog = tab.locator("dialog.ask-dialog[open]");
+      await variantDialog.waitFor();
+      expect(await tab.getByRole("dialog", { name: "Name der Variante" }).count()).toBe(1);
+      expect(await variantDialog.locator("input").inputValue()).toBe("Variante 2");
+      await variantDialog.locator("input").fill("riesig");
+      await variantDialog.getByRole("button", { name: "Speichern" }).click();
+      await variantDialog.waitFor({ state: "detached" });
+      expect(nativeDialogs).toEqual([]);
       // Die Extraktion laesst den sichtbaren Wert stehen (jetzt traegt ihn die
       // Variante), die Instanz hat keine eigenen Werte mehr.
       await expect

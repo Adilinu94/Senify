@@ -106,8 +106,14 @@ describe.skipIf(browserSkip)("release cutover (ticket 17)", () => {
         if (message.type() === "error") consoleErrors.push(`console: ${message.text()}`);
       });
       tab.on("pageerror", (error) => consoleErrors.push(`pageerror: ${error.message}`));
+      // Der SSE-Kanal bricht beim Neuladen ab (net::ERR_ABORTED). Ältere
+      // Chromium-Versionen melden das als fehlgeschlagenen Request, neuere
+      // nicht; ein abgebrochener Live-Stream ist kein Fehler.
+      const isAbortedEventStream = (request: { url(): string; failure(): { errorText: string } | null }): boolean =>
+        new URL(request.url()).pathname === "/api/events" &&
+        request.failure()?.errorText === "net::ERR_ABORTED";
       tab.on("requestfailed", (request) => {
-        if (!isFavicon(request.url())) {
+        if (!isFavicon(request.url()) && !isAbortedEventStream(request)) {
           failedRequests.push(`failed: ${request.url()}`);
         }
       });

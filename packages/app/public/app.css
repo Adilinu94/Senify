@@ -696,6 +696,16 @@ dialog.modal h2 {
   margin-bottom: 0.5rem;
 }
 
+/* Rückfragen (`askText`/`askConfirm`): schmaler als die Formular-Dialoge. */
+dialog.ask-dialog {
+  width: min(28rem, calc(100vw - 2rem));
+}
+
+dialog.ask-dialog p {
+  margin: 0 0 0.5rem;
+  color: var(--fg-muted);
+}
+
 .radio {
   display: flex;
   gap: 0.5rem;
