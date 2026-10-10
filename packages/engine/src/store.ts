@@ -52,7 +52,6 @@ import {
 } from "./redesign-proposal-contract.ts";
 import { generateToken } from "./auth.ts";
 import { deriveDesignContract } from "./design-contract.ts";
-import { entryConflictError } from "./content-contract.ts";
 import { newEntityId, newNodeId } from "./ids.ts";
 import {
   assetStorageRef,
@@ -82,7 +81,6 @@ import {
   type AssetUsage,
   type AssetVariant,
   type AuditEntry,
-  type CellValue,
   type CodePayload,
   type CodePayloadKind,
   type CodePayloadLicense,
@@ -97,7 +95,6 @@ import {
   type EngineSettings,
   type Entry,
   type EntryRedirect,
-  type EntryStatus,
   type EntryVersion,
   type FieldDef,
   type FormSnapshotRecord,
@@ -164,25 +161,18 @@ import {
   ASSET_COLUMNS,
   CODE_PAYLOAD_COLUMNS,
   COLLECTION_COLUMNS,
-  ENTRY_COLUMNS,
   mapAsset,
   mapAssetFolder,
   mapAssetHistory,
   mapAssetVariant,
   mapCodePayload,
   mapCollection,
-  mapEntry,
-  mapEntryVersion,
-  mapEntryRedirect,
   type AssetRow,
   type AssetFolderRow,
   type AssetHistoryRow,
   type AssetVariantRow,
   type CodePayloadRow,
   type CollectionRow,
-  type EntryRow,
-  type EntryVersionRow,
-  type EntryRedirectRow,
 } from "./store-record-mappers.ts";
 import {
   toFiniteNumber,
@@ -199,6 +189,14 @@ import {
   type FinishDeploymentInput,
 } from "./store-deploy.ts";
 import { FormsRepository, type SaveFormSnapshotInput } from "./store-forms.ts";
+import {
+  type CreateEntryInput,
+  type CreateEntryRedirectInput,
+  type CreateEntryVersionInput,
+  EntriesRepository,
+  type ListEntriesFilter,
+  type UpdateEntryRowInput,
+} from "./store-entries.ts";
 import {
   type CreateReferenceCollectionInput,
   ReferenceLibraryRepository,
@@ -1058,6 +1056,7 @@ export class Store {
   readonly #deploy: DeployRepository;
   readonly #notifications: NotificationsRepository;
   readonly #referenceLibrary: ReferenceLibraryRepository;
+  readonly #entries: EntriesRepository;
 
   // Where the encryption key lives. Without it (a bare Store in a test) the key
   // stays in the database, as before.
@@ -1072,6 +1071,7 @@ export class Store {
     this.#deploy = new DeployRepository(db, (siteId) => this.getSite(siteId));
     this.#notifications = new NotificationsRepository(db);
     this.#referenceLibrary = new ReferenceLibraryRepository(db);
+    this.#entries = new EntriesRepository(db);
     this.#secretFile = options.secretFile;
   }
 
@@ -5203,354 +5203,76 @@ export class Store {
 
   // ------------------------------------------------------------ entries (T09)
 
-  async listEntries(filter: {
-    siteId: string;
-    collectionId?: string;
-    status?: EntryStatus;
-    trashed?: boolean;
-    searchTokens?: readonly string[];
-    limit?: number;
-  }): Promise<Entry[]> {
-    const params: unknown[] = [filter.siteId];
-    let sql = `SELECT ${ENTRY_COLUMNS} FROM entries
-      WHERE site_id = $1 AND deleted_at IS ${filter.trashed === true ? "NOT NULL" : "NULL"}`;
-    if (filter.collectionId !== undefined) {
-      params.push(filter.collectionId);
-      sql += ` AND collection_id = $${params.length}`;
-    }
-    if (filter.status !== undefined) {
-      params.push(filter.status);
-      sql += ` AND status = $${params.length}`;
-    }
-    // Every query token must appear somewhere in the haystack; the ranking
-    // (title A / slug B / body C) happens on the loaded rows.
-    for (const token of filter.searchTokens ?? []) {
-      params.push(`%${token}%`);
-      sql += ` AND search_text LIKE $${params.length}`;
-    }
-    params.push(Math.max(1, Math.min(500, filter.limit ?? 200)));
-    sql += ` ORDER BY updated_at DESC, id DESC LIMIT $${params.length}`;
-    const result = await this.#db.query<EntryRow>(sql, params);
-    return result.rows.map(mapEntry);
+  listEntries(filter: ListEntriesFilter): Promise<Entry[]> {
+    return this.#entries.listEntries(filter);
   }
 
-  async getEntry(id: string): Promise<Entry> {
-    const result = await this.#db.query<EntryRow>(
-      `SELECT ${ENTRY_COLUMNS} FROM entries WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Entry "${id}" does not exist`, {
-        field: "entryId",
-        suggestion: "List the entries of the collection with list_entries.",
-      });
-    }
-    return mapEntry(row);
+  getEntry(id: string): Promise<Entry> {
+    return this.#entries.getEntry(id);
   }
 
-  // Slug uniqueness is checked in code (a trashed entry frees its slug again);
-  // the unique index would forbid that.
-  async findLiveEntryBySlug(
+  findLiveEntryBySlug(
     collectionId: string,
     slug: string,
     exceptId?: string,
   ): Promise<Entry | undefined> {
-    const params: unknown[] = [collectionId, slug];
-    let sql = `SELECT ${ENTRY_COLUMNS} FROM entries
-       WHERE collection_id = $1 AND slug = $2 AND deleted_at IS NULL`;
-    if (exceptId !== undefined) {
-      params.push(exceptId);
-      sql += ` AND id <> $${params.length}`;
-    }
-    sql += ` LIMIT 1`;
-    const result = await this.#db.query<EntryRow>(sql, params);
-    const row = result.rows[0];
-    return row ? mapEntry(row) : undefined;
+    return this.#entries.findLiveEntryBySlug(collectionId, slug, exceptId);
   }
 
-  // The live route follows the active version: a draft rename only breaks the
-  // published URL once the rename itself is published.
-  async findPublishedEntryBySlug(
-    collectionId: string,
-    slug: string,
-  ): Promise<Entry | undefined> {
-    const result = await this.#db.query<EntryRow>(
-      `SELECT e.id, e.site_id, e.collection_id, e.slug, e.status, e.cells,
-              e.active_version_id, e.version, e.author, e.published_at,
-              e.scheduled_at, e.deleted_at, e.created_at, e.updated_at
-       FROM entries e
-       LEFT JOIN entry_versions v ON v.id = e.active_version_id
-       WHERE e.collection_id = $1
-         AND e.deleted_at IS NULL
-         AND e.status = 'published'
-         AND (e.slug = $2 OR v.slug = $2)
-       ORDER BY e.updated_at DESC, e.id DESC LIMIT 1`,
-      [collectionId, slug],
-    );
-    const row = result.rows[0];
-    return row ? mapEntry(row) : undefined;
+  findPublishedEntryBySlug(collectionId: string, slug: string): Promise<Entry | undefined> {
+    return this.#entries.findPublishedEntryBySlug(collectionId, slug);
   }
 
-  async createEntry(input: {
-    id: string;
-    siteId: string;
-    collectionId: string;
-    slug: string;
-    status: EntryStatus;
-    cells: Record<string, CellValue>;
-    author: Author;
-    searchText: string;
-    publishedAt: string | null;
-    scheduledAt: string | null;
-  }): Promise<Entry> {
-    const now = new Date().toISOString();
-    const result = await this.#db.query<EntryRow>(
-      `INSERT INTO entries
-        (id, site_id, collection_id, slug, status, cells, active_version_id,
-         version, author, search_text, published_at, scheduled_at, deleted_at,
-         created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, NULL, 1, $7, $8, $9, $10, NULL, $11, $11)
-       RETURNING ${ENTRY_COLUMNS}`,
-      [
-        input.id,
-        input.siteId,
-        input.collectionId,
-        input.slug,
-        input.status,
-        toJsonParam(input.cells),
-        toJsonParam(input.author),
-        input.searchText,
-        input.publishedAt,
-        input.scheduledAt,
-        now,
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) throw new Error("Entry insert returned no row");
-    return mapEntry(row);
+  createEntry(input: CreateEntryInput): Promise<Entry> {
+    return this.#entries.createEntry(input);
   }
 
-  async updateEntryRow(input: {
-    entryId: string;
-    expectedVersion: number;
-    changes: {
-      slug: string;
-      status: EntryStatus;
-      cells: Record<string, CellValue>;
-      activeVersionId: string | null;
-      author: Author;
-      searchText: string;
-      publishedAt: string | null;
-      scheduledAt: string | null;
-      updatedAt: string;
-    };
-  }): Promise<number> {
-    const { changes } = input;
-    const result = await this.#db.query<{ version: unknown }>(
-      `UPDATE entries SET
-         slug = $3, status = $4, cells = $5, active_version_id = $6, author = $7,
-         search_text = $8, published_at = $9, scheduled_at = $10,
-         version = version + 1, updated_at = $11
-       WHERE id = $1 AND version = $2
-       RETURNING version`,
-      [
-        input.entryId,
-        input.expectedVersion,
-        changes.slug,
-        changes.status,
-        toJsonParam(changes.cells),
-        changes.activeVersionId,
-        toJsonParam(changes.author),
-        changes.searchText,
-        changes.publishedAt,
-        changes.scheduledAt,
-        changes.updatedAt,
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      const current = await this.#db.query<{ version: unknown }>(
-        `SELECT version FROM entries WHERE id = $1`,
-        [input.entryId],
-      );
-      const currentRow = current.rows[0];
-      if (!currentRow) {
-        throw new SenifyError("not_found", `Entry "${input.entryId}" does not exist`, {
-          field: "entryId",
-        });
-      }
-      throw entryConflictError(
-        input.expectedVersion,
-        toFiniteNumber(currentRow.version, "version"),
-      );
-    }
-    return toFiniteNumber(row.version, "version");
+  updateEntryRow(input: UpdateEntryRowInput): Promise<number> {
+    return this.#entries.updateEntryRow(input);
   }
 
-  // Trash and restore are state flips, not content writes: no version bump.
-  async setEntryDeleted(id: string, deletedAt: string | null): Promise<Entry> {
-    const result = await this.#db.query<EntryRow>(
-      `UPDATE entries SET deleted_at = $2, updated_at = $3
-       WHERE id = $1 RETURNING ${ENTRY_COLUMNS}`,
-      [id, deletedAt, new Date().toISOString()],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Entry "${id}" does not exist`, {
-        field: "entryId",
-      });
-    }
-    return mapEntry(row);
+  setEntryDeleted(id: string, deletedAt: string | null): Promise<Entry> {
+    return this.#entries.setEntryDeleted(id, deletedAt);
   }
 
-  async createEntryVersion(input: {
-    id: string;
-    entryId: string;
-    siteId: string;
-    versionNumber: number;
-    cells: Record<string, CellValue>;
-    slug: string;
-    status: EntryStatus;
-    author: Author;
-  }): Promise<EntryVersion> {
-    const createdAt = new Date().toISOString();
-    const result = await this.#db.query<EntryVersionRow>(
-      `INSERT INTO entry_versions
-        (id, entry_id, site_id, version_number, cells, slug, status, author, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING id, entry_id, site_id, version_number, cells, slug, status, author, created_at`,
-      [
-        input.id,
-        input.entryId,
-        input.siteId,
-        input.versionNumber,
-        toJsonParam(input.cells),
-        input.slug,
-        input.status,
-        toJsonParam(input.author),
-        createdAt,
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) throw new Error("Entry version insert returned no row");
-    return mapEntryVersion(row);
+  createEntryVersion(input: CreateEntryVersionInput): Promise<EntryVersion> {
+    return this.#entries.createEntryVersion(input);
   }
 
-  async getEntryVersion(id: string): Promise<EntryVersion> {
-    const result = await this.#db.query<EntryVersionRow>(
-      `SELECT id, entry_id, site_id, version_number, cells, slug, status, author, created_at
-       FROM entry_versions WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Entry version "${id}" does not exist`, {
-        field: "versionId",
-        suggestion: "Read the timeline with GET /api/entries/:id/versions.",
-      });
-    }
-    return mapEntryVersion(row);
+  getEntryVersion(id: string): Promise<EntryVersion> {
+    return this.#entries.getEntryVersion(id);
   }
 
-  async listEntryVersions(entryId: string, limit = 50): Promise<EntryVersion[]> {
-    const result = await this.#db.query<EntryVersionRow>(
-      `SELECT id, entry_id, site_id, version_number, cells, slug, status, author, created_at
-       FROM entry_versions WHERE entry_id = $1
-       ORDER BY version_number DESC, id DESC LIMIT $2`,
-      [entryId, Math.max(1, Math.min(200, limit))],
-    );
-    return result.rows.map(mapEntryVersion);
+  listEntryVersions(entryId: string, limit?: number): Promise<EntryVersion[]> {
+    return this.#entries.listEntryVersions(entryId, limit);
   }
 
-  async maxEntryVersionNumber(entryId: string): Promise<number> {
-    const result = await this.#db.query<{ max_version: unknown }>(
-      `SELECT COALESCE(MAX(version_number), 0) AS max_version
-       FROM entry_versions WHERE entry_id = $1`,
-      [entryId],
-    );
-    return toFiniteNumber(result.rows[0]?.max_version ?? 0, "max_version");
+  maxEntryVersionNumber(entryId: string): Promise<number> {
+    return this.#entries.maxEntryVersionNumber(entryId);
   }
 
-  async deleteEntryVersions(ids: readonly string[]): Promise<void> {
-    if (ids.length === 0) return;
-    const placeholders = ids.map((_, index) => `$${index + 1}`).join(", ");
-    await this.#db.query(
-      `DELETE FROM entry_versions WHERE id IN (${placeholders})`,
-      [...ids],
-    );
+  deleteEntryVersions(ids: readonly string[]): Promise<void> {
+    return this.#entries.deleteEntryVersions(ids);
   }
 
-  async deleteEntryRecord(id: string): Promise<void> {
-    const result = await this.#db.query<{ id: string }>(
-      `DELETE FROM entries WHERE id = $1 RETURNING id`,
-      [id],
-    );
-    if (result.rows.length === 0) {
-      throw new SenifyError("not_found", `Entry "${id}" does not exist`, {
-        field: "entryId",
-      });
-    }
+  deleteEntryRecord(id: string): Promise<void> {
+    return this.#entries.deleteEntryRecord(id);
   }
 
-  async createEntryRedirect(input: {
-    id: string;
-    siteId: string;
-    collectionId: string;
-    fromPath: string;
-    toPath: string;
-  }): Promise<EntryRedirect> {
-    const createdAt = new Date().toISOString();
-    const result = await this.#db.query<EntryRedirectRow>(
-      `INSERT INTO entry_redirects
-        (id, site_id, collection_id, from_path, to_path, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, site_id, collection_id, from_path, to_path, created_at`,
-      [
-        input.id,
-        input.siteId,
-        input.collectionId,
-        input.fromPath,
-        input.toPath,
-        createdAt,
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) throw new Error("Entry redirect insert returned no row");
-    return mapEntryRedirect(row);
+  createEntryRedirect(input: CreateEntryRedirectInput): Promise<EntryRedirect> {
+    return this.#entries.createEntryRedirect(input);
   }
 
-  async findEntryRedirect(
-    siteId: string,
-    fromPath: string,
-  ): Promise<EntryRedirect | undefined> {
-    const result = await this.#db.query<EntryRedirectRow>(
-      `SELECT id, site_id, collection_id, from_path, to_path, created_at
-       FROM entry_redirects WHERE site_id = $1 AND from_path = $2
-       ORDER BY created_at DESC, id DESC LIMIT 1`,
-      [siteId, fromPath],
-    );
-    const row = result.rows[0];
-    return row ? mapEntryRedirect(row) : undefined;
+  findEntryRedirect(siteId: string, fromPath: string): Promise<EntryRedirect | undefined> {
+    return this.#entries.findEntryRedirect(siteId, fromPath);
   }
 
-  async deleteEntryRedirect(siteId: string, fromPath: string): Promise<void> {
-    await this.#db.query(
-      `DELETE FROM entry_redirects WHERE site_id = $1 AND from_path = $2`,
-      [siteId, fromPath],
-    );
+  deleteEntryRedirect(siteId: string, fromPath: string): Promise<void> {
+    return this.#entries.deleteEntryRedirect(siteId, fromPath);
   }
 
-  // Every slug history row of a site: the bake turns them into static redirect
-  // files so an old detail path keeps pointing at the new one.
-  async listEntryRedirects(siteId: string): Promise<EntryRedirect[]> {
-    const result = await this.#db.query<EntryRedirectRow>(
-      `SELECT id, site_id, collection_id, from_path, to_path, created_at
-       FROM entry_redirects WHERE site_id = $1
-       ORDER BY created_at ASC, id ASC`,
-      [siteId],
-    );
-    return result.rows.map(mapEntryRedirect);
+  listEntryRedirects(siteId: string): Promise<EntryRedirect[]> {
+    return this.#entries.listEntryRedirects(siteId);
   }
 
   // ------------------------------------------------------------ forms (T11)
