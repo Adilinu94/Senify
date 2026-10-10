@@ -120,7 +120,6 @@ export function styleRulesCss(
   pages: readonly StyleCssPage[],
   rules: readonly StyleRule[],
 ): string {
-  if (rules.length === 0) return "";
   const nodes = new Map<string, CssNode>();
   for (const page of pages) {
     for (const node of Object.values(page.tree.nodes)) {

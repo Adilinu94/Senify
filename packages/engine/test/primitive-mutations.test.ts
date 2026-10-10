@@ -220,7 +220,7 @@ describe("saving catalog primitives through the editor route", () => {
     }
   });
 
-  it("publishes a page built from primitives and bakes their structure and text", async () => {
+  it("publishes a page built from primitives and bakes their structure, text and style", async () => {
     const env = await bootEngine();
     try {
       const page = await pageWith(env);
@@ -235,7 +235,7 @@ describe("saving catalog primitives through the editor route", () => {
         env,
         { id: page.id, draftVersion: frame.body.newDraftVersion },
         frameId,
-        { primitive: "heading", props: { [textKey]: "Hallo Baustein" } },
+        { primitive: "heading", props: { [textKey]: "Hallo Baustein", color: "#112233" } },
       );
       expect(heading.status).toBe(200);
       const published = await env.api.request<{ release: { id: string } }>({
@@ -251,6 +251,15 @@ describe("saving catalog primitives through the editor route", () => {
       expect(html).toMatch(
         /<div class="w-frame[^"]*"[^>]*data-widget="frame"><h2 class="w-heading[^"]*"[^>]*data-widget="heading">Hallo Baustein<\/h2><\/div>/,
       );
+      // The node's own style prop rides the site's rule sheet, with no rule needed.
+      const sheet = /href="([^"]*style-rules\.css)"/.exec(html)?.[1];
+      expect(sheet, "the baked page links the node style sheet").toBeDefined();
+      const css = await (
+        await fetch(
+          `${env.server.origin}/api/releases/${published.body.release.id}/files/${(sheet ?? "").replace(/^\//, "")}`,
+        )
+      ).text();
+      expect(css).toContain("#112233");
     } finally {
       await env.close();
     }
