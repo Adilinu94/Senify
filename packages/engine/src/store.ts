@@ -87,7 +87,6 @@ import {
   type Entry,
   type EntryRedirect,
   type EntryVersion,
-  type FieldDef,
   type FormSnapshotRecord,
   type ImageJob,
   type ImageSettings,
@@ -135,7 +134,6 @@ import {
   type Site,
   type SiteTheme,
   type SmtpSettingsRecord,
-  type SupportsFlag,
   type TokenKind,
   type TokenRecord,
   type TokenScope,
@@ -144,19 +142,16 @@ import {
 import {
   ASSET_COLUMNS,
   CODE_PAYLOAD_COLUMNS,
-  COLLECTION_COLUMNS,
   mapAsset,
   mapAssetFolder,
   mapAssetHistory,
   mapAssetVariant,
   mapCodePayload,
-  mapCollection,
   type AssetRow,
   type AssetFolderRow,
   type AssetHistoryRow,
   type AssetVariantRow,
   type CodePayloadRow,
-  type CollectionRow,
 } from "./store-record-mappers.ts";
 import {
   toFiniteNumber,
@@ -172,6 +167,12 @@ import {
   type EnqueueBakeJobInput,
   type FailBakeJobInput,
 } from "./store-bake-jobs.ts";
+import {
+  type CollectionUpdate,
+  CollectionsRepository,
+  type CreateCollectionInput,
+  type ListCollectionsOptions,
+} from "./store-collections.ts";
 import { FormsRepository, type SaveFormSnapshotInput } from "./store-forms.ts";
 import {
   type ClaimImageJobInput,
@@ -806,6 +807,7 @@ export class Store {
   readonly #bakeJobs: BakeJobsRepository;
   readonly #reviews: ReviewsRepository;
   readonly #imageJobs: ImageJobsRepository;
+  readonly #collections: CollectionsRepository;
 
   // Where the encryption key lives. Without it (a bare Store in a test) the key
   // stays in the database, as before.
@@ -825,6 +827,7 @@ export class Store {
     this.#bakeJobs = new BakeJobsRepository(db);
     this.#reviews = new ReviewsRepository(db);
     this.#imageJobs = new ImageJobsRepository(db);
+    this.#collections = new CollectionsRepository(db, (siteId) => this.getSite(siteId));
     this.#secretFile = options.secretFile;
   }
 
@@ -4015,154 +4018,24 @@ export class Store {
 
   // -------------------------------------------------------- collections (T09)
 
-  async listCollections(
-    siteId: string,
-    options: { includeDeprecated?: boolean } = {},
-  ): Promise<Collection[]> {
-    await this.getSite(siteId);
-    const result =
-      options.includeDeprecated === true
-        ? await this.#db.query<CollectionRow>(
-            `SELECT ${COLLECTION_COLUMNS} FROM collections WHERE site_id = $1
-             ORDER BY created_at ASC, id ASC`,
-            [siteId],
-          )
-        : await this.#db.query<CollectionRow>(
-            `SELECT ${COLLECTION_COLUMNS} FROM collections
-             WHERE site_id = $1 AND deprecated_at IS NULL
-             ORDER BY created_at ASC, id ASC`,
-            [siteId],
-          );
-    return result.rows.map(mapCollection);
+  listCollections(siteId: string, options?: ListCollectionsOptions): Promise<Collection[]> {
+    return this.#collections.listCollections(siteId, options);
   }
 
-  async getCollection(id: string): Promise<Collection> {
-    const result = await this.#db.query<CollectionRow>(
-      `SELECT ${COLLECTION_COLUMNS} FROM collections WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Collection "${id}" does not exist`, {
-        field: "collectionId",
-        suggestion: "List the collections of the site with list_collections.",
-      });
-    }
-    return mapCollection(row);
+  getCollection(id: string): Promise<Collection> {
+    return this.#collections.getCollection(id);
   }
 
-  async findCollectionBySlug(
-    siteId: string,
-    slug: string,
-  ): Promise<Collection | undefined> {
-    const result = await this.#db.query<CollectionRow>(
-      `SELECT ${COLLECTION_COLUMNS} FROM collections
-       WHERE site_id = $1 AND slug = $2`,
-      [siteId, slug],
-    );
-    const row = result.rows[0];
-    return row ? mapCollection(row) : undefined;
+  findCollectionBySlug(siteId: string, slug: string): Promise<Collection | undefined> {
+    return this.#collections.findCollectionBySlug(siteId, slug);
   }
 
-  async createCollection(input: {
-    id: string;
-    siteId: string;
-    name: string;
-    slug: string;
-    fields: FieldDef[];
-    titleField: string;
-    dateField: string | null;
-    urlPattern: string | null;
-    supports: SupportsFlag[];
-    listColumns: string[];
-    description: string | null;
-    deprecatedAt: string | null;
-  }): Promise<Collection> {
-    const now = new Date().toISOString();
-    try {
-      const result = await this.#db.query<CollectionRow>(
-        `INSERT INTO collections
-          (id, site_id, name, slug, fields, title_field, date_field, url_pattern,
-           supports, list_columns, description, deprecated_at, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
-         RETURNING ${COLLECTION_COLUMNS}`,
-        [
-          input.id,
-          input.siteId,
-          input.name,
-          input.slug,
-          toJsonParam(input.fields),
-          input.titleField,
-          input.dateField,
-          input.urlPattern,
-          toJsonParam(input.supports),
-          toJsonParam(input.listColumns),
-          input.description,
-          input.deprecatedAt,
-          now,
-        ],
-      );
-      const row = result.rows[0];
-      if (!row) throw new Error("Collection insert returned no row");
-      return mapCollection(row);
-    } catch (error) {
-      if (isUniqueViolation(error)) {
-        throw new SenifyError(
-          "conflict",
-          `Collection slug "${input.slug}" is already in use on this site`,
-          {
-            field: "slug",
-            suggestion: "Choose a different collection slug.",
-          },
-        );
-      }
-      throw error;
-    }
+  createCollection(input: CreateCollectionInput): Promise<Collection> {
+    return this.#collections.createCollection(input);
   }
 
-  async updateCollection(
-    id: string,
-    next: {
-      name: string;
-      fields: FieldDef[];
-      titleField: string;
-      dateField: string | null;
-      urlPattern: string | null;
-      supports: SupportsFlag[];
-      listColumns: string[];
-      description: string | null;
-      deprecatedAt: string | null;
-    },
-  ): Promise<Collection> {
-    const updatedAt = new Date().toISOString();
-    const result = await this.#db.query<CollectionRow>(
-      `UPDATE collections SET
-         name = $2, fields = $3, title_field = $4, date_field = $5,
-         url_pattern = $6, supports = $7, list_columns = $8, description = $9,
-         deprecated_at = $10, updated_at = $11
-       WHERE id = $1
-       RETURNING ${COLLECTION_COLUMNS}`,
-      [
-        id,
-        next.name,
-        toJsonParam(next.fields),
-        next.titleField,
-        next.dateField,
-        next.urlPattern,
-        toJsonParam(next.supports),
-        toJsonParam(next.listColumns),
-        next.description,
-        next.deprecatedAt,
-        updatedAt,
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Collection "${id}" does not exist`, {
-        field: "collectionId",
-      });
-    }
-    return mapCollection(row);
+  updateCollection(id: string, next: CollectionUpdate): Promise<Collection> {
+    return this.#collections.updateCollection(id, next);
   }
 
   // ------------------------------------------------------------ entries (T09)
