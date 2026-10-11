@@ -24,7 +24,8 @@ function pipelineFor(name: (typeof FIXTURE_NAMES)[number]) {
   return { document, normalized, mapped, report };
 }
 
-describe("golden pipeline over the three fixtures", () => {
+// Several full pipeline passes per test (~3.6 s alone) exceed vitest's 5 s default under full-suite load.
+describe("golden pipeline over the three fixtures", { timeout: 60_000 }, () => {
   for (const name of FIXTURE_NAMES) {
     it(`${name}: stable counts across two runs`, () => {
       const first = pipelineFor(name);

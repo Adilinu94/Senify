@@ -56,7 +56,8 @@ const result = spawnSync(
     ...SUITE,
     "--reporter=default",
     "--reporter=json",
-    `--outputFile.json=${reportFile}`,
+    // Quoted: with shell:true (Windows) a tmpdir containing spaces would split into two args.
+    `--outputFile.json="${reportFile}"`,
   ],
   { stdio: "inherit", shell: process.platform === "win32" },
 );

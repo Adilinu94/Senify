@@ -170,11 +170,36 @@ describe("senify tokens CLI", () => {
     expect(listOutput).not.toContain(secret ?? "snfy_");
 
     const id = listOutput.split(/\s+/)[0];
-    const revoked = await runCli(["tokens", "revoke", "--api", env.origin, "--", id ?? ""]);
+    const revoked = await runCli(["tokens", "revoke", id ?? "", "--api", env.origin]);
     expect(revoked.join("\n")).toContain(`Token ${id} revoked`);
 
     const afterRevoke = await runCli(["tokens", "list", "--api", env.origin]);
     expect(afterRevoke.join("\n")).toContain("REVOKED");
+  });
+
+  it("revokes a token whose id starts with a dash", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    try {
+      const revoked = await runCli(["tokens", "revoke", "-Xab_cd-ef1234", "--api", env.origin]);
+      expect(revoked.join("\n")).toContain("Token -Xab_cd-ef1234 revoked");
+      expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(`${env.origin}/api/tokens/-Xab_cd-ef1234`);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("rejects a mistyped option instead of sending it as token id", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    try {
+      await expect(
+        runCli(["tokens", "revoke", "--apii"]),
+      ).rejects.toThrow(/"--apii" is not a token id/);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   it("rejects unknown scopes before calling the engine", async () => {

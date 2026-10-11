@@ -1,6 +1,6 @@
 # Qualitäts- und Gate-Stand
 
-> Stand: **09.10.2026**. PR #1 (Härtung), PR #2 (MCP-Paging) und PR #3 (Schreib-`outputSchema`) sind gemergt; der Messwerte-Block ist auf dem aktuellen Stand neu gerendert. Frühere App-Gates sind mit ihrem tatsächlichen Datum gekennzeichnet.
+> Stand: **11.10.2026** (Gate-Zeile CLI `tokens revoke`); darunter 09.10.2026: PR #1 (Härtung), PR #2 (MCP-Paging) und PR #3 (Schreib-`outputSchema`) sind gemergt; der Messwerte-Block ist auf dem aktuellen Stand neu gerendert. Frühere App-Gates sind mit ihrem tatsächlichen Datum gekennzeichnet.
 > Aktueller Umsetzungsstand: `docs/current/stand.md`. Planung: `docs/fahrplan.md`.
 
 ## Aktuelle Gates
@@ -10,6 +10,7 @@
 | P3-2: Typecheck, Lint | `pnpm typecheck`, `pnpm lint` | **Grün am 10.10.2026** nach dem neunten Store-Schritt (Entries `store-entries.ts`, ADR-0019) |
 | P3-2: Volltest | `pnpm test` | **10.10.2026: Exit 0, keine fehlgeschlagene Datei** (lokal, Node 22, ohne `TEST_DATABASE_URL`). Die 28 browser-gebundenen Testdateien waren in diesem Lauf **übersprungen**, darunter `release-cutover-browser` und `accessibility-browser`: das vorinstallierte Chromium passt nicht zur Playwright-Version (`browserAvailable` ist falsch); keine dieser Dateien berührt Deployments oder Newsletter-Tokens; `submissions-browser` berührt die Notification-Outbox (die frühere Aussage, keine dieser Dateien berühre Notifications, war falsch); zwei berühren die Referenz-Sammlungen (`references-browser`, `visual-snapshot-browser`) und liefen nach dem achten Schritt einzeln grün; zwei berühren Entries (`entry-preview-browser`, `submissions-browser`) und liefen nach dem neunten Schritt einzeln grün (siehe unten). Die Zeile vom 08.10.2026 („beide Browser-Tests liefen grün“) war nicht belegt, die Läufe vom 08.10.2026 haben diese Dateien ebenfalls übersprungen. Einzelläufe mit nachgebautem Browser-Layout: siehe „Volltest“ |
 | P3-2: Coverage | `pnpm test:coverage` | **Grün am 10.10.2026**, Exit 0, keine Schwellenfehler; Messwerte siehe Coverage-Block |
+| CLI `tokens revoke` (Ids mit `-`), alle Gates | `pnpm typecheck`, `pnpm lint`, `pnpm verify`, `pnpm test:coverage`, `pnpm test:visual`, `pnpm verify:parity`, `pnpm verify:import`, `pnpm test:postgres`, `pnpm quality:render`/`quality:check`, `git diff --check` | **11.10.2026:** Typecheck, Lint, Coverage (1181/15/0, keine Schwellenfehler), Visual, Parity, Import, `quality:check` und `diff --check` grün. PostgreSQL grün (6/6, 0 übersprungen) gegen einen isolierten, lokalen 18er-Cluster (Port 55432, `fsync=off`, nach dem Lauf gestoppt; der Systemdienst blieb unberührt). Vorher war die Lane lokal immer rot: `scripts/verify-postgres.mjs` reichte den Report-Pfad mit `shell: true` unquotiert durch, und ein `TEMP` mit Leerzeichen (`G:\AI Agentur\…`) zerfiel in zwei Argumente; das ist behoben. `pnpm verify` (Build, dist, Lint, Volltest) lief dreimal und war jedes Mal rot, mit 19, 2 und 2 roten Tests (2119 bestanden, 15 übersprungen), immer durch Timeouts und jedes Mal in anderen Dateien (`forms`, `imports`, `media`, `references`, `workflow`, `golden`, `agent-style-gate`, `idempotency`, `capture`, `review-dialog-browser`, `release-cutover-browser`). Jede dieser Dateien war einzeln grün. Auf der Maschine liefen parallel weitere Sessions (16 Node-Prozesse). `golden.test.ts` und `capture.test.ts` (reine Fixture-Verarbeitung, einzeln bis 3,6 s gegen den 5-s-Default) haben jetzt `timeout: 60_000`. Ein vollständig grüner Volltest steht auf diesem Stand noch aus |
 | Patch-Prüfung | `git diff --check` | **Grün am 10.10.2026** |
 | Doku-Messwerte | `pnpm quality:render` + `pnpm quality:check` | **Grün am 10.10.2026** auf dem Stand des neunten P3-2-Schritts; gerenderte Werte stimmen mit dem Lauf überein |
 | Build, App-Gates und PostgreSQL | `pnpm verify`, `pnpm test:visual`, `pnpm verify:parity`, `pnpm verify:import`, `pnpm test:postgres` | **Grün am 28.09.2026** auf dem zuvor gesicherten Folge-Diff; für die reine Mapper-Auslagerung nicht erneut erforderlich |
@@ -58,14 +59,14 @@ Der aktuelle Lauf vom 09.10.2026 (lokal auf Windows, TEMP/TMP/TMPDIR auf dem Lau
 
 | Pfad | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
-| `packages/engine/src/http.ts` | 93.14 | 74.32 | 94.23 | 93.14 |
-| `packages/engine/src/store.ts` | 84.42 | 78.17 | 93.58 | 84.42 |
-| `packages/engine/src/lifecycle.ts` | 87.01 | 74.33 | 100.00 | 87.01 |
+| `packages/engine/src/http.ts` | 93.14 | 74.35 | 94.23 | 93.14 |
+| `packages/engine/src/store.ts` | 84.42 | 78.19 | 93.58 | 84.42 |
+| `packages/engine/src/lifecycle.ts` | 87.01 | 74.19 | 100.00 | 87.01 |
 | `packages/engine/src/forms.ts` | 84.25 | 73.62 | 100.00 | 84.25 |
 | `packages/mcp/src/tools.ts` | 91.85 | 62.01 | 85.50 | 91.85 |
 | `packages/editor/src/state/*` (15 Dateien) | 66.98 bis 100.00 | 56.75 bis 100.00 | 66.66 bis 100.00 | 66.98 bis 100.00 |
 
-**Über alle gemessenen Dateien:** Statements 88.41 · Branches 73.87 · Functions 90.76 · Lines 88.41
+**Über alle gemessenen Dateien:** Statements 88.41 · Branches 73.88 · Functions 90.76 · Lines 88.41
 
 <!-- messwerte:ende -->
 
