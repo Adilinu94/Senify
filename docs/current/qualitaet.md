@@ -54,18 +54,18 @@ Der aktuelle Lauf vom 09.10.2026 (lokal auf Windows, TEMP/TMP/TMPDIR auf dem Lau
      Nicht von Hand editieren: dieser Block ist ein Messwert, und `pnpm quality:check`
      lässt den Lauf rot werden, sobald Dokument und Lauf auseinanderlaufen. -->
 
-**Gemessen:** 2026-10-09 · vitest coverage (v8)
+**Gemessen:** 2026-10-11 · vitest coverage (v8)
 
 | Pfad | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
-| `packages/engine/src/http.ts` | 93.13 | 74.02 | 94.20 | 93.13 |
-| `packages/engine/src/store.ts` | 85.66 | 77.23 | 93.31 | 85.66 |
-| `packages/engine/src/lifecycle.ts` | 87.01 | 74.19 | 100.00 | 87.01 |
+| `packages/engine/src/http.ts` | 93.14 | 74.32 | 94.23 | 93.14 |
+| `packages/engine/src/store.ts` | 84.42 | 78.17 | 93.58 | 84.42 |
+| `packages/engine/src/lifecycle.ts` | 87.01 | 74.33 | 100.00 | 87.01 |
 | `packages/engine/src/forms.ts` | 84.25 | 73.62 | 100.00 | 84.25 |
-| `packages/mcp/src/tools.ts` | 91.83 | 62.01 | 85.50 | 91.83 |
-| `packages/editor/src/state/*` (14 Dateien) | 66.98 bis 100.00 | 56.75 bis 100.00 | 66.66 bis 100.00 | 66.98 bis 100.00 |
+| `packages/mcp/src/tools.ts` | 91.85 | 62.01 | 85.50 | 91.85 |
+| `packages/editor/src/state/*` (15 Dateien) | 66.98 bis 100.00 | 56.75 bis 100.00 | 66.66 bis 100.00 | 66.98 bis 100.00 |
 
-**Über alle gemessenen Dateien:** Statements 88.41 · Branches 73.61 · Functions 90.75 · Lines 88.41
+**Über alle gemessenen Dateien:** Statements 88.41 · Branches 73.87 · Functions 90.76 · Lines 88.41
 
 <!-- messwerte:ende -->
 
