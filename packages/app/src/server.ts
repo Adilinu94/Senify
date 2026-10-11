@@ -1,3 +1,4 @@
+import { listenReachable } from "@senify/core/net";
 import {
   createServer,
   request as httpRequest,
@@ -221,7 +222,7 @@ function serveStatic(
 // `appDir` points at a built dashboard (packages/app/dist), the server serves
 // it from disk instead of bundling at runtime; in development the appDir is
 // omitted and the public/ + esbuild flow stays.
-export function createAppServer(options: AppServerOptions): Promise<AppServer> {
+export async function createAppServer(options: AppServerOptions): Promise<AppServer> {
   const publicDir = options.publicDir ?? PUBLIC_DIR;
   const appDir = options.appDir;
   const themeCss = emitCss(resolveTheme(defaultTheme()));
@@ -364,19 +365,13 @@ export function createAppServer(options: AppServerOptions): Promise<AppServer> {
     }
     serveStatic(publicDir, url, res);
   });
-  return new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(options.port ?? 0, "127.0.0.1", () => {
-      const address = server.address();
-      const port = typeof address === "object" && address !== null ? address.port : 0;
-      resolve({
-        origin: `http://127.0.0.1:${port}`,
-        port,
-        close: () =>
-          new Promise<void>((resolveClose, rejectClose) => {
-            server.close((error) => (error ? rejectClose(error) : resolveClose()));
-          }),
-      });
-    });
-  });
+  const port = await listenReachable(server, options.port ?? 0, "127.0.0.1");
+  return {
+    origin: `http://127.0.0.1:${port}`,
+    port,
+    close: () =>
+      new Promise<void>((resolveClose, rejectClose) => {
+        server.close((error) => (error ? rejectClose(error) : resolveClose()));
+      }),
+  };
 }

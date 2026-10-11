@@ -1,3 +1,4 @@
+import { listenReachable } from "@senify/core/net";
 import { createServer } from "node:http";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -106,7 +107,7 @@ function serveDir(root: string): Promise<{ url: string; close(): Promise<void> }
     }
   });
   return new Promise((settle) => {
-    server.listen(0, "127.0.0.1", () => {
+    listenReachable(server, 0, "127.0.0.1").then(() => {
       const address = server.address();
       const port = typeof address === "object" && address !== null ? address.port : 0;
       settle({

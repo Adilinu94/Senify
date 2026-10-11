@@ -1,3 +1,4 @@
+import { listenReachable } from "@senify/core/net";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import http from "node:http";
@@ -70,7 +71,7 @@ function startServer(
 ): Promise<{ server: import("node:http").Server; origin: string }> {
   const server = http.createServer(handler);
   return new Promise((done) => {
-    server.listen(0, "127.0.0.1", () => {
+    listenReachable(server, 0, "127.0.0.1").then(() => {
       const address = server.address();
       const origin = `http://127.0.0.1:${typeof address === "object" && address !== null ? address.port : 0}`;
       done({ server, origin });

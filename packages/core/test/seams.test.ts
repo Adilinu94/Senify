@@ -1,3 +1,4 @@
+import { listenReachable } from "@senify/core/net";
 import { createServer, type Server } from "node:http";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -24,7 +25,7 @@ describe("seam 1 — engine api harness", () => {
       });
     });
     const port = await new Promise<number>((resolve) => {
-      server?.listen(0, () => {
+      void listenReachable(server!, 0, "127.0.0.1").then(() => {
         const address = server?.address();
         resolve(typeof address === "object" && address ? address.port : 0);
       });

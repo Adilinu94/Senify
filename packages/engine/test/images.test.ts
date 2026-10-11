@@ -1,3 +1,4 @@
+import { listenReachable } from "@senify/core/net";
 import {
   createServer,
   type Server,
@@ -98,7 +99,7 @@ async function startComfyStub(
     });
   });
   return new Promise((resolve) => {
-    server.listen(0, "127.0.0.1", () => {
+    listenReachable(server, 0, "127.0.0.1").then(() => {
       const address = server.address();
       const port = typeof address === "object" && address !== null ? address.port : 0;
       resolve({ server, baseUrl: `http://127.0.0.1:${port}` });

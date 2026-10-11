@@ -1,3 +1,4 @@
+import { listenReachable } from "@senify/core/net";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -175,7 +176,7 @@ function serveDir(root: string): Promise<LocalServer> {
     }
   });
   return new Promise((resolveServer) => {
-    server.listen(0, "127.0.0.1", () => {
+    listenReachable(server, 0, "127.0.0.1").then(() => {
       const address = server.address();
       const port = typeof address === "object" && address !== null ? address.port : 0;
       resolveServer({

@@ -1,3 +1,4 @@
+import { listenReachable } from "@senify/core/net";
 import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
@@ -836,18 +837,7 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
     async listen(listenOptions?: { port?: number; host?: string }): Promise<EngineServer> {
       const server = createServer(handler);
       const host = listenOptions?.host ?? "127.0.0.1";
-      const port = listenOptions?.port ?? 0;
-      await new Promise<void>((resolve, reject) => {
-        const onError = (error: unknown): void => reject(error);
-        server.once("error", onError);
-        server.listen(port, host, () => {
-          server.removeListener("error", onError);
-          resolve();
-        });
-      });
-      const address = server.address();
-      const actualPort =
-        typeof address === "object" && address !== null ? address.port : port;
+      const actualPort = await listenReachable(server, listenOptions?.port ?? 0, host);
       const originHost = host === "0.0.0.0" ? "127.0.0.1" : host;
       return {
         origin: `http://${originHost}:${actualPort}`,
