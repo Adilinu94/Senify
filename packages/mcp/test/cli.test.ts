@@ -170,7 +170,7 @@ describe("senify tokens CLI", () => {
     expect(listOutput).not.toContain(secret ?? "snfy_");
 
     const id = listOutput.split(/\s+/)[0];
-    const revoked = await runCli(["tokens", "revoke", id ?? "", "--api", env.origin]);
+    const revoked = await runCli(["tokens", "revoke", "--api", env.origin, "--", id ?? ""]);
     expect(revoked.join("\n")).toContain(`Token ${id} revoked`);
 
     const afterRevoke = await runCli(["tokens", "list", "--api", env.origin]);

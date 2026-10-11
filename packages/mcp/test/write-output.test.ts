@@ -148,5 +148,5 @@ describe("Schreibwerkzeuge mit fester Antwortform schicken structuredContent", (
     expect(restored["basisReleaseId"]).toBe(release["id"]);
     // Vorschau, Review und Release backen echte Builds; das dauert länger als
     // das Standard-Zeitlimit von 5 s.
-  }, 60_000);
+  }, MCP_REQUEST_TIMEOUT_MS);
 });
