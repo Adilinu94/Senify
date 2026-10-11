@@ -90,9 +90,6 @@ import {
   type FieldDef,
   type FormSnapshotRecord,
   type ImageJob,
-  type ImageJobAttempt,
-  type ImageJobRequest,
-  type ImageJobStatus,
   type ImageSettings,
   type McpAuditEntry,
   type NewsletterToken,
@@ -177,6 +174,16 @@ import {
 } from "./store-bake-jobs.ts";
 import { FormsRepository, type SaveFormSnapshotInput } from "./store-forms.ts";
 import {
+  type ClaimImageJobInput,
+  type EnqueueImageJobInput,
+  type FailImageJobInput,
+  type ImageJobResult,
+  ImageJobsRepository,
+  type ListImageJobsOptions,
+  type SetImageJobProviderInput,
+  type SetProviderCooldownInput,
+} from "./store-image-jobs.ts";
+import {
   type CreatePreviewInput,
   type CreateReviewItemInput,
   type ListReviewItemsOptions,
@@ -222,12 +229,9 @@ import {
   type SmtpSettingsPatch,
 } from "./store-settings.ts";
 import {
-  IMAGE_JOB_COLUMNS,
   IMPORT_JOB_COLUMNS,
-  type ImageJobRow,
   type ImportJobRow,
   type ImportReceiptRow,
-  mapImageJob,
   mapImportJob,
   mapImportReceipt,
 } from "./store-job-mappers.ts";
@@ -801,6 +805,7 @@ export class Store {
   readonly #entries: EntriesRepository;
   readonly #bakeJobs: BakeJobsRepository;
   readonly #reviews: ReviewsRepository;
+  readonly #imageJobs: ImageJobsRepository;
 
   // Where the encryption key lives. Without it (a bare Store in a test) the key
   // stays in the database, as before.
@@ -819,6 +824,7 @@ export class Store {
     this.#entries = new EntriesRepository(db);
     this.#bakeJobs = new BakeJobsRepository(db);
     this.#reviews = new ReviewsRepository(db);
+    this.#imageJobs = new ImageJobsRepository(db);
     this.#secretFile = options.secretFile;
   }
 
@@ -5404,235 +5410,48 @@ export class Store {
 
   // ------------------------------------------------------ image jobs (S2)
 
-  async enqueueImageJob(input: {
-    siteId: string;
-    request: ImageJobRequest;
-    maxAttempts?: number;
-    now?: string;
-  }): Promise<ImageJob> {
-    const now = input.now ?? new Date().toISOString();
-    const inserted = await this.#db.query<ImageJobRow>(
-      `INSERT INTO image_jobs
-        (id, site_id, status, request, provider_used, attempts, max_attempts,
-         lease_until, provider_job_id, asset_id, error, created_at, started_at,
-         finished_at, updated_at)
-       VALUES ($1, $2, 'queued', $3, NULL, 0, $4, NULL, NULL, NULL, $5, $6, NULL, NULL, $6)
-       RETURNING ${IMAGE_JOB_COLUMNS}`,
-      [
-        newEntityId(),
-        input.siteId,
-        toJsonParam(input.request),
-        input.maxAttempts ?? 3,
-        toJsonParam([]),
-        now,
-      ],
-    );
-    const row = inserted.rows[0];
-    if (!row) throw new Error("Image job insert returned no row");
-    return mapImageJob(row);
+  enqueueImageJob(input: EnqueueImageJobInput): Promise<ImageJob> {
+    return this.#imageJobs.enqueueImageJob(input);
   }
 
-  // Claim the oldest due job whose site has no live running job (the
-  // concurrency key: one generation per site at a time). The conditional
-  // update makes the claim atomic.
-  async claimImageJob(input: { now: string; leaseMs: number }): Promise<ImageJob | null> {
-    const running = await this.#db.query<{ site_id: string }>(
-      `SELECT DISTINCT site_id FROM image_jobs
-       WHERE status = 'running' AND lease_until IS NOT NULL AND lease_until > $1`,
-      [input.now],
-    );
-    const busy = new Set(running.rows.map((row) => row.site_id));
-    const due = await this.#db.query<ImageJobRow>(
-      `SELECT ${IMAGE_JOB_COLUMNS} FROM image_jobs
-       WHERE status = 'queued'
-       ORDER BY created_at ASC, id ASC LIMIT 50`,
-    );
-    const candidate = due.rows.map(mapImageJob).find((job) => !busy.has(job.siteId));
-    if (candidate === undefined) return null;
-    const leaseUntil = new Date(Date.parse(input.now) + input.leaseMs).toISOString();
-    const claimed = await this.#db.query<ImageJobRow>(
-      `UPDATE image_jobs SET status = 'running', attempts = attempts + 1,
-         lease_until = $2, started_at = COALESCE(started_at, $1), updated_at = $1
-       WHERE id = $3 AND status = 'queued'
-       RETURNING ${IMAGE_JOB_COLUMNS}`,
-      [input.now, leaseUntil, candidate.id],
-    );
-    const row = claimed.rows[0];
-    return row === undefined ? null : mapImageJob(row);
+  claimImageJob(input: ClaimImageJobInput): Promise<ImageJob | null> {
+    return this.#imageJobs.claimImageJob(input);
   }
 
-  // Records which provider is currently running (and its own job handle), so a
-  // crash can resume instead of submitting a second run.
-  async setImageJobProvider(input: {
-    id: string;
-    providerUsed: string;
-    providerJobId?: string | null;
-    now?: string;
-  }): Promise<ImageJob> {
-    const now = input.now ?? new Date().toISOString();
-    const updated = await this.#db.query<ImageJobRow>(
-      `UPDATE image_jobs SET provider_used = $2, provider_job_id = $3, updated_at = $4
-       WHERE id = $1 RETURNING ${IMAGE_JOB_COLUMNS}`,
-      [input.id, input.providerUsed, input.providerJobId ?? null, now],
-    );
-    const row = updated.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Image job "${input.id}" does not exist`, {
-        field: "jobId",
-      });
-    }
-    return mapImageJob(row);
+  setImageJobProvider(input: SetImageJobProviderInput): Promise<ImageJob> {
+    return this.#imageJobs.setImageJobProvider(input);
   }
 
-  async completeImageJob(
-    id: string,
-    result: { assetId: string; providerUsed: string; error: ImageJobAttempt[] },
-    now = new Date().toISOString(),
-  ): Promise<ImageJob> {
-    const updated = await this.#db.query<ImageJobRow>(
-      `UPDATE image_jobs SET status = 'succeeded', asset_id = $2, provider_used = $3,
-         error = $5, lease_until = NULL, provider_job_id = NULL,
-         finished_at = $4, updated_at = $4
-       WHERE id = $1 RETURNING ${IMAGE_JOB_COLUMNS}`,
-      [id, result.assetId, result.providerUsed, now, toJsonParam(result.error)],
-    );
-    const row = updated.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Image job "${id}" does not exist`, {
-        field: "jobId",
-      });
-    }
-    return mapImageJob(row);
+  completeImageJob(id: string, result: ImageJobResult, now?: string): Promise<ImageJob> {
+    return this.#imageJobs.completeImageJob(id, result, now);
   }
 
-  // The final state: the error column carries the whole provider history.
-  async failImageJob(input: {
-    id: string;
-    error: ImageJobAttempt[];
-    now?: string;
-  }): Promise<ImageJob> {
-    const now = input.now ?? new Date().toISOString();
-    const updated = await this.#db.query<ImageJobRow>(
-      `UPDATE image_jobs SET status = 'failed', error = $2, lease_until = NULL,
-         provider_job_id = NULL, finished_at = $3, updated_at = $3
-       WHERE id = $1 RETURNING ${IMAGE_JOB_COLUMNS}`,
-      [input.id, toJsonParam(input.error), now],
-    );
-    const row = updated.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Image job "${input.id}" does not exist`, {
-        field: "jobId",
-      });
-    }
-    return mapImageJob(row);
+  failImageJob(input: FailImageJobInput): Promise<ImageJob> {
+    return this.#imageJobs.failImageJob(input);
   }
 
-  // Cancel only a queued job; a running job needs the provider's interrupt
-  // (later slice) and answers with a conflict.
-  async cancelImageJob(id: string, now = new Date().toISOString()): Promise<ImageJob> {
-    const updated = await this.#db.query<ImageJobRow>(
-      `UPDATE image_jobs SET status = 'canceled', finished_at = $2, updated_at = $2
-       WHERE id = $1 AND status = 'queued' RETURNING ${IMAGE_JOB_COLUMNS}`,
-      [id, now],
-    );
-    const row = updated.rows[0];
-    if (row) return mapImageJob(row);
-    const current = await this.getImageJob(id);
-    throw new SenifyError(
-      "conflict",
-      `Image job "${id}" cannot be canceled (status: ${current.status})`,
-      {
-        field: "jobId",
-        suggestion: "Only a queued job can be canceled.",
-      },
-    );
+  cancelImageJob(id: string, now?: string): Promise<ImageJob> {
+    return this.#imageJobs.cancelImageJob(id, now);
   }
 
-  // Crash recovery: a running job whose lease expired goes back to the queue;
-  // a job that used up its attempts fails instead of looping forever.
-  async expireImageLeases(now: string): Promise<number> {
-    const requeued = await this.#db.query<{ id: string }>(
-      `UPDATE image_jobs SET status = 'queued', lease_until = NULL, updated_at = $1
-       WHERE status = 'running' AND (lease_until IS NULL OR lease_until <= $1)
-         AND attempts < max_attempts
-       RETURNING id`,
-      [now],
-    );
-    const failed = await this.#db.query<{ id: string }>(
-      `UPDATE image_jobs SET status = 'failed', lease_until = NULL,
-         provider_job_id = NULL, finished_at = $1, updated_at = $1
-       WHERE status = 'running' AND (lease_until IS NULL OR lease_until <= $1)
-         AND attempts >= max_attempts
-       RETURNING id`,
-      [now],
-    );
-    return requeued.rows.length + failed.rows.length;
+  expireImageLeases(now: string): Promise<number> {
+    return this.#imageJobs.expireImageLeases(now);
   }
 
-  async getImageJob(id: string): Promise<ImageJob> {
-    const result = await this.#db.query<ImageJobRow>(
-      `SELECT ${IMAGE_JOB_COLUMNS} FROM image_jobs WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Image job "${id}" does not exist`, {
-        field: "jobId",
-      });
-    }
-    return mapImageJob(row);
+  getImageJob(id: string): Promise<ImageJob> {
+    return this.#imageJobs.getImageJob(id);
   }
 
-  async listImageJobs(
-    siteId: string,
-    options: { status?: ImageJobStatus; limit?: number } = {},
-  ): Promise<ImageJob[]> {
-    const limit = Math.max(1, Math.min(100, options.limit ?? 20));
-    const result = options.status === undefined
-      ? await this.#db.query<ImageJobRow>(
-          `SELECT ${IMAGE_JOB_COLUMNS} FROM image_jobs
-           WHERE site_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2`,
-          [siteId, limit],
-        )
-      : await this.#db.query<ImageJobRow>(
-          `SELECT ${IMAGE_JOB_COLUMNS} FROM image_jobs
-           WHERE site_id = $1 AND status = $2 ORDER BY created_at DESC, id DESC LIMIT $3`,
-          [siteId, options.status, limit],
-        );
-    return result.rows.map(mapImageJob);
+  listImageJobs(siteId: string, options?: ListImageJobsOptions): Promise<ImageJob[]> {
+    return this.#imageJobs.listImageJobs(siteId, options);
   }
 
-  // Active provider cooldowns at `now`; the worker skips those providers.
-  async listProviderCooldowns(now: string): Promise<ProviderCooldown[]> {
-    const result = await this.#db.query<{
-      provider: string;
-      until: string;
-      reason: string;
-    }>(
-      `SELECT provider, until, reason FROM image_provider_cooldowns
-       WHERE until > $1 ORDER BY provider ASC`,
-      [now],
-    );
-    return result.rows.map((row) => ({
-      provider: row.provider,
-      until: new Date(row.until).toISOString(),
-      reason: row.reason,
-    }));
+  listProviderCooldowns(now: string): Promise<ProviderCooldown[]> {
+    return this.#imageJobs.listProviderCooldowns(now);
   }
 
-  async setProviderCooldown(input: {
-    provider: string;
-    until: string;
-    reason: string;
-    now?: string;
-  }): Promise<void> {
-    const now = input.now ?? new Date().toISOString();
-    await this.#db.query(
-      `INSERT INTO image_provider_cooldowns (provider, until, reason, updated_at)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (provider) DO UPDATE SET until = $2, reason = $3, updated_at = $4`,
-      [input.provider, input.until, input.reason, now],
-    );
+  setProviderCooldown(input: SetProviderCooldownInput): Promise<void> {
+    return this.#imageJobs.setProviderCooldown(input);
   }
 
   getReferenceSettings(): Promise<ReferenceSettings> {
