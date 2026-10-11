@@ -70,11 +70,13 @@ export function CollectionList({ node, ctx }: SectionProps): React.JSX.Element {
   const pageInfo = readPageInfo(node.props.pageInfo);
   const template = readTemplate(node.props.itemTemplate);
   const variant = node.variant ?? "cards";
+  // `list` stacks the entries, `grid` packs them as dense tiles (two across on a
+  // phone, four on a desktop), `cards` is the roomier three-across card layout.
   const listClass =
     variant === "list"
       ? "mt-10 flex flex-col gap-4"
       : variant === "grid"
-        ? cx("mt-10 grid gap-6", columnsClass(node, "md:grid-cols-3"))
+        ? cx("mt-10 grid grid-cols-2 gap-4", columnsClass(node, "md:grid-cols-4"))
         : cx("mt-10 grid gap-6", columnsClass(node, "sm:grid-cols-2 md:grid-cols-3"));
   const cardNode = (item: CardData): Node => ({
     id: `${node.id}:item`,

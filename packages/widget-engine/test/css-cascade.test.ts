@@ -70,8 +70,9 @@ describe("cascade decision", () => {
 
   it("lets the state rule override the base rule", () => {
     const css = compileCss(document);
+    // Hover sits inside the hover guard, so the block is one level deeper.
     expect(block(css, `[data-node-id="card"]:hover {`)).toBe(
-      `[data-node-id="card"]:hover {\n    color: #00ff00;\n  }`,
+      `[data-node-id="card"]:hover {\n      color: #00ff00;\n    }`,
     );
   });
 
@@ -99,8 +100,16 @@ describe("cascade decision", () => {
 // vier Zustands-Reiter; der Compiler muss dieselbe Reihenfolge tragen, sonst
 // gewinnt `disabled` gegen `active`, sobald beide am selben Knoten stehen.
 describe("pseudo states (O11)", () => {
-  it("orders the four states weak to strong, disabled last", () => {
-    expect([...STATE_ORDER]).toEqual(["hover", "focus", "active", "disabled"]);
+  it("orders the states weak to strong, disabled last", () => {
+    // `focus-visible` is a subset of `focus`, so it follows it and wins.
+    expect([...STATE_ORDER]).toEqual([
+      "hover",
+      "focus",
+      "focus-visible",
+      "focus-within",
+      "active",
+      "disabled",
+    ]);
     expect(stateSelector("card", "disabled")).toBe(`[data-node-id="card"]:disabled`);
   });
 

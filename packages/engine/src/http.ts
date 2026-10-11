@@ -342,6 +342,7 @@ import type {
 } from "./types.ts";
 import { IMAGE_JOB_STATUSES, REDESIGN_PROPOSAL_STATUSES, REVIEW_STATUSES } from "./types.ts";
 import { isRedesignProposalStatus } from "./redesign-proposal-contract.ts";
+import { PAGE_STARTERS, pageStarterById } from "./page-starters.ts";
 import { existsSync, statSync } from "node:fs";
 import { extname } from "node:path";
 
@@ -1382,9 +1383,43 @@ const ROUTES: Route[] = [
       if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
       const body = (await readJsonBody(req)) ?? {};
       const pageBody = parseBody<CreatePageBody>(CreatePageBodySchema, body, "page");
-      const { idempotencyKey, ...pageInput } = pageBody;
+      const { idempotencyKey, starter: starterId, ...pageInput } = pageBody;
       return withIdempotency(context, auth, req, url, idempotencyKey, pageBody, async () => {
-        const page = await context.store.createPage(siteId, pageInput);
+        const starter = starterId === undefined ? undefined : pageStarterById(starterId);
+        const created = await context.store.createPage(siteId, {
+          ...pageInput,
+          ...(pageInput.title === undefined && starter !== undefined
+            ? { title: starter.defaultTitle }
+            : {}),
+        });
+        let page = created;
+        let starterResult: { applied: boolean; reason?: string } | undefined;
+        if (starter !== undefined && starter.sections.length > 0) {
+          // The sections go in through the ordinary mutation path, so a start
+          // template is held to the same rules as any edit (registry schemas,
+          // guardrails, design fence). When the batch is refused the page stays
+          // what it was — an empty page — and the response says why.
+          try {
+            await applyMutationsToPage(
+              context,
+              created.id,
+              {
+                baseDraftVersion: created.draftVersion,
+                mutations: starter.sections.map((section) => ({
+                  op: "insertNode" as const,
+                  parent: { nodeId: created.draft.rootNodeId },
+                  node: section,
+                })),
+              },
+              auth,
+            );
+            page = await context.store.getPage(created.id);
+            starterResult = { applied: true };
+          } catch (error) {
+            if (!(error instanceof SenifyError)) throw error;
+            starterResult = { applied: false, reason: error.message };
+          }
+        }
         context.events.publish({
           kind: "page.created",
           siteId,
@@ -1392,9 +1427,27 @@ const ROUTES: Route[] = [
           action: "createPage",
           actor: resolveAuthor(auth),
         });
-        return { status: 201, body: page };
+        return { status: 201, body: starterResult === undefined ? page : { ...page, starter: starterResult } };
       });
     },
+  },
+  {
+    // The start templates the dashboard offers for a new page.
+    method: "GET",
+    segments: ["api", "page-starters"],
+    scope: "read",
+    handler: async () => ({
+      status: 200,
+      body: {
+        starters: PAGE_STARTERS.map((starter) => ({
+          id: starter.id,
+          label: starter.label,
+          description: starter.description,
+          defaultTitle: starter.defaultTitle,
+          sections: starter.sections.map((section) => section.type),
+        })),
+      },
+    }),
   },
   {
     method: "GET",

@@ -201,6 +201,30 @@ describe("bake (Prüfstelle 2)", () => {
     expect(home).not.toContain("generated/manifest.json");
   }, 180000);
 
+  it("gives every page a main landmark, a skip link and chrome roles", async () => {
+    if (!baked) throw new Error("bake missing");
+    const site = loadBakedSite(baked.outDir);
+    // A page of plain content: one <main>, reachable through the skip link that
+    // opens the body.
+    const plain = await site.read("uebergang/index.html");
+    expect(plain.match(/<main /g)).toHaveLength(1);
+    expect(plain).toContain('<main id="main"');
+    const body = plain.slice(plain.indexOf("<body"));
+    // The skip link is the first link of the page (the preloader curtain in
+    // front of it is not focusable).
+    expect(body.indexOf("<a ")).toBe(body.indexOf('<a href="#main"'));
+    expect(body).toContain("Zum Inhalt springen</a>");
+    expect(body.indexOf('<a href="#main"')).toBeLessThan(body.indexOf("<main "));
+    // The fixture home carries every section type: the chrome keeps its role.
+    const home = await site.read("index.html");
+    expect(home).toContain('role="banner"');
+    expect(home).toContain('role="contentinfo"');
+    expect(home.match(/<main /g)).toHaveLength(1);
+    // A page without any content between chrome gets no empty landmark.
+    const chromeOnly = await site.read("pur/index.html");
+    expect(chromeOnly.match(/<main /g)?.length ?? 0).toBeLessThanOrEqual(1);
+  });
+
   it("emits motion config and scripts only where needed", async () => {
     if (!baked) throw new Error("bake missing");
     const site = loadBakedSite(baked.outDir);

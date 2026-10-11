@@ -10,7 +10,7 @@ import {
   createScopedRule,
   type StyleRule,
 } from "@senify/widget-engine";
-import { bakeSite, styleRulesCss, type BakeResult } from "@senify/renderer";
+import { bakeSite, styleRulesCss, styleRulesReport, type BakeResult } from "@senify/renderer";
 
 // The release half of the one rule path (ADR-0005): the site registry is the
 // one source, the bake compiles it into `assets/style-rules.css` — class rules
@@ -88,6 +88,23 @@ describe("styleRulesCss", () => {
     expect(css).toContain('[data-node-id="hero-xyz789"] > .inner');
     // `rawCss` is the validated keyframes block.
     expect(css).toContain("@keyframes pulse");
+  });
+
+  it("reports a value it had to drop instead of staying silent", () => {
+    const report = styleRulesReport(page(), [
+      createClassRule({
+        id: "r1",
+        name: "accent",
+        styles: { color: "#ff0000", filter: "url(javascript:alert(1))" },
+      }),
+    ]);
+    expect(report.css).toContain("color: #ff0000");
+    expect(report.css).not.toContain("javascript");
+    expect(report.diagnostics).toEqual([
+      expect.objectContaining({ selector: ".accent", property: "filter", reason: "invalid-value" }),
+    ]);
+    // The old entry point keeps returning just the stylesheet.
+    expect(styleRulesCss(page(), [])).toBe("");
   });
 
   it("drops a scoped rule whose node is not part of any page", () => {
@@ -184,7 +201,11 @@ describe("bake with site style rules", () => {
           baseStaggerMs: 80,
         },
         styleRules: [
-          createClassRule({ id: "r1", name: "accent", styles: { color: "#ff0000" } }),
+          createClassRule({
+            id: "r1",
+            name: "accent",
+            styles: { color: "#ff0000", filter: "url(javascript:alert(1))" },
+          }),
           createAmbientRule({ id: "r2", selector: "h1", styles: { letterSpacing: "0.02em" } }),
         ],
         aeo: false,
@@ -194,6 +215,11 @@ describe("bake with site style rules", () => {
     const css = readFileSync(join(baked.outDir, "assets", "style-rules.css"), "utf8");
     expect(css).toContain(".accent");
     expect(css).toContain("h1");
+    // A value the compiler had to drop is reported, not swallowed.
+    expect(css).not.toContain("javascript");
+    expect(baked.warnings.filter((warning) => warning.code === "css-value-dropped")).toEqual([
+      expect.objectContaining({ page: "*", message: expect.stringContaining('"filter"') }),
+    ]);
     const html = readFileSync(join(baked.outDir, "index.html"), "utf8");
     // Linked after the widget base so the order inside the layer matches the
     // canvas frame (base first, authored rules last).

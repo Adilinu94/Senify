@@ -1,5 +1,6 @@
 import {
   alignStyle,
+  cardStyle,
   columnsClass,
   contentWidthClass,
   cx,
@@ -17,6 +18,7 @@ export function Stats({ node }: SectionProps): React.JSX.Element {
     prefix?: unknown;
     suffix?: unknown;
   }[];
+  const variant = node.variant === "grid" || node.variant === "counter" ? node.variant : "row";
   return (
     <SectionShell node={node} section="stats">
       <div className={cx("mx-auto px-4 py-12", contentWidthClass(node))}>
@@ -36,9 +38,24 @@ export function Stats({ node }: SectionProps): React.JSX.Element {
           style={gapStyle(node)}
         >
           {items.map((item, index) => (
-            <div key={index}>
+            <div
+              key={index}
+              // `grid` boxes every figure, `row` runs them side by side
+              // separated by hairlines, `counter` lets the numerals carry the
+              // section.
+              className={cx(
+                variant === "grid" && "border",
+                variant === "row" && "sm:border-l sm:border-[var(--line)] sm:first:border-l-0",
+              )}
+              style={variant === "grid" ? cardStyle(node) : undefined}
+            >
               <dd
-                className="font-[family-name:var(--font-display)] text-4xl font-bold md:text-5xl"
+                className={cx(
+                  "font-[family-name:var(--font-display)] font-bold",
+                  variant === "counter"
+                    ? "text-5xl tabular-nums md:text-7xl"
+                    : "text-4xl md:text-5xl",
+                )}
                 data-count={typeof item.value === "string" ? item.value : undefined}
                 data-prefix={typeof item.prefix === "string" ? item.prefix : undefined}
                 data-suffix={typeof item.suffix === "string" ? item.suffix : undefined}
@@ -47,7 +64,12 @@ export function Stats({ node }: SectionProps): React.JSX.Element {
                 {typeof item.value === "string" ? item.value : ""}
                 {typeof item.suffix === "string" ? item.suffix : ""}
               </dd>
-              <dt className="mt-2 text-[var(--fg-muted)]">
+              <dt
+                className={cx(
+                  "mt-2 text-[var(--fg-muted)]",
+                  variant === "counter" && "text-sm uppercase tracking-widest",
+                )}
+              >
                 {typeof item.label === "string" ? item.label : ""}
               </dt>
             </div>

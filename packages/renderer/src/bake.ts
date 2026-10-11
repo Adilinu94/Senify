@@ -16,7 +16,11 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { SenifyError } from "@senify/core";
 import { bundledSections } from "@senify/registry";
-import { getSectionComponent, type AssetDelivery } from "@senify/registry/components";
+import {
+  cssEntryNodeIds,
+  getSectionComponent,
+  type AssetDelivery,
+} from "@senify/registry/components";
 import {
   describePrimitive,
   isCatalogPrimitive,
@@ -43,6 +47,7 @@ import {
 import {
   motionConfigsForTree,
   motionDataFor,
+  motionEntryCss,
   pageEffectsForTree,
   pageTransitionCss,
   renderIslandsScript,
@@ -50,7 +55,7 @@ import {
   WEBGL_VENDOR_NAME,
   type MotionTokens,
 } from "./motion.ts";
-import { overridesCss, styleRulesCss } from "./style-css.ts";
+import { overridesCss, styleRulesReport } from "./style-css.ts";
 import { webglVendorCode } from "./webgl-vendor.ts";
 
 export type BakePageInput = {
@@ -113,7 +118,8 @@ export type BakeWarning = {
     | "scene-without-surface"
     | "invalid-jsonld"
     | "billing-silent"
-    | "children-unrendered";
+    | "children-unrendered"
+    | "css-value-dropped";
   page: string;
   nodeId?: string;
   message: string;
@@ -402,6 +408,8 @@ export async function bakeSite(
 
   const manifestPages = [];
   let anyMotion = false;
+  // True when some page has only a CSS entry and still loads Lenis (see below).
+  let anyLenisOnly = false;
   let anyForm = false;
   const islandKinds = new Set<string>();
   // Every payload id a page points at, whether or not this build delivers it.
@@ -419,10 +427,17 @@ export async function bakeSite(
     };
   });
   for (const page of expandedPages) {
-    const { configs, warnings: motionWarnings } = motionConfigsForTree(
-      page.tree,
-      input.motionTokens,
+    // Reveals above the fold play as CSS (no wait for the page script): the
+    // registry decides which nodes, the markup is stamped from the same call.
+    const cssEntry = cssEntryNodeIds(
+      page.tree.nodes[page.tree.rootNodeId]?.children ?? [],
+      page.tree.nodes,
     );
+    const {
+      configs,
+      warnings: motionWarnings,
+      entries: motionEntries,
+    } = motionConfigsForTree(page.tree, input.motionTokens, { cssEntry });
     for (const warning of motionWarnings) {
       warnings.push({
         code: warning.code,
@@ -432,8 +447,15 @@ export async function bakeSite(
         suggestion: warning.suggestion,
       });
     }
-    const { transition, css: effectCss, preloader, warnings: effectWarnings } =
-      pageEffectsForTree(page.tree);
+    const {
+      transition,
+      css: effectsCss,
+      preloader,
+      warnings: effectWarnings,
+    } = pageEffectsForTree(page.tree);
+    const effectCss = [effectsCss, motionEntryCss(motionEntries)]
+      .filter((block) => block !== "")
+      .join("\n");
     for (const warning of effectWarnings) {
       warnings.push({
         code: warning.code,
@@ -481,6 +503,13 @@ export async function bakeSite(
       }
     }
     if (configs.length > 0) anyMotion = true;
+    // A page whose only motion is a CSS entry has no payload, no pending marker
+    // and no failsafe, but smooth scroll is a site decision (profile): without
+    // this, one page of a site would scroll differently from the rest. It gets
+    // Lenis and the page script, nothing of GSAP.
+    const lenisOnly =
+      configs.length === 0 && motionEntries.length > 0 && input.profile !== "clean";
+    if (lenisOnly) anyLenisOnly = true;
     const hasForm = treeHasForms(page.tree);
     if (hasForm) anyForm = true;
     const { entities, warnings: jsonLdWarnings } = collectJsonLd(page.tree);
@@ -514,7 +543,7 @@ export async function bakeSite(
         needsSplitText: needsPlugin("splittext"),
         // Lenis is a site decision (profile): `clean` stays without smooth
         // scroll; the runtime is never initialized in reduced-motion mode.
-        hasLenis: configs.length > 0 && input.profile !== "clean",
+        hasLenis: (configs.length > 0 || lenisOnly) && input.profile !== "clean",
         hasPending: configs.some((config) => config.hides === true),
         islands: [...islands],
         hasForm,
@@ -557,7 +586,24 @@ export async function bakeSite(
   }
 
   const sectionsCss = overridesCss(input.pages);
-  const siteRulesCss = styleRulesCss(input.pages, input.styleRules ?? []);
+  const siteRules = styleRulesReport(input.pages, input.styleRules ?? []);
+  const siteRulesCss = siteRules.css;
+  for (const drop of siteRules.diagnostics) {
+    const nodeId = /\[data-node-id="([^"]+)"\]/.exec(drop.selector)?.[1];
+    warnings.push({
+      code: "css-value-dropped",
+      // Style rules are site-wide, so the warning belongs to no single page.
+      page: "*",
+      ...(nodeId === undefined ? {} : { nodeId }),
+      message:
+        drop.reason === "unsafe-property"
+          ? `Style rule ${drop.selector}: "${drop.property}" is not a valid CSS property name and was dropped`
+          : drop.reason === "unsupported-shape"
+            ? `Style rule ${drop.selector}: "${drop.property}" holds an object, which CSS cannot take, and was dropped`
+            : `Style rule ${drop.selector}: the value of "${drop.property}" is not valid CSS and was dropped`,
+      suggestion: "Fix the value in the style panel; the browser would ignore it as well.",
+    });
+  }
   const stageDir = await stageTemplate(
     {
       site: { name: input.siteName, baseUrl: input.baseUrl, lang: "de" },
@@ -602,15 +648,17 @@ export async function bakeSite(
       writeFileSync(join(outDir, "assets", "style-rules.css"), siteRulesCss);
     }
     const vendorDir = join(outDir, "assets", "vendor");
-    if (anyMotion || islandKinds.has("webgl-scene")) {
+    if (anyMotion || anyLenisOnly || islandKinds.has("webgl-scene")) {
       mkdirSync(vendorDir, { recursive: true });
     }
-    if (anyMotion) {
+    if (anyMotion || anyLenisOnly) {
       writeFileSync(
         join(outDir, "assets", "page.js"),
         renderPageScript({ lenis: input.profile !== "clean" }),
       );
+      // Only CSS-entry pages: Lenis is the one vendor file anything links.
       for (const file of motionVendorFiles()) {
+        if (!anyMotion && file.name !== "lenis.min.js") continue;
         copyFileSync(file.from, join(vendorDir, file.name));
       }
     }

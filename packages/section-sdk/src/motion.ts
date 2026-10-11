@@ -148,6 +148,22 @@ export function motionPends(id: string): boolean {
   return preset !== undefined && preset.runtime === "page" && preset.flags.includes("hides");
 }
 
+// Reveals that are nothing but "from hidden to rest": opacity plus a short
+// travel (and a blur for the deblur variant). Above the fold the bake plays them
+// as a plain CSS animation that starts with the first paint, so the headline is
+// not held back until the motion scripts have been fetched and run — the
+// pending marker would keep the likely LCP element at `opacity: 0` that long.
+// The presets that rebuild the DOM (word masks, character splits, staggered
+// children) stay with the page script.
+export const MOTION_CSS_ENTRY_PRESETS = ["fade-up", "fade-up-deblur", "scroll-reveal"] as const;
+
+export function motionCssEntryPreset(motion: MotionSpec | undefined): boolean {
+  if (motion === undefined || motion.enabled === false) return false;
+  // A hover trigger is not an entry: it keeps its own path.
+  if (motion.trigger === "hover") return false;
+  return (MOTION_CSS_ENTRY_PRESETS as readonly string[]).includes(motion.preset);
+}
+
 // The pure-CSS page effects (ticket 19, M6): their block is emitted once per
 // page (like the View Transition), the render paths stamp `data-motion="<id>"`
 // on the node so the selectors have something to hook. One intensity per preset

@@ -11,7 +11,14 @@
 
 import { SenifyError } from "@senify/core";
 import type { EditorMutation, EditorNodeSpec } from "@senify/engine/browser";
-import { motionPreset, type MotionSpec, type PropValue } from "@senify/section-sdk";
+import {
+  motionPreset,
+  validatePropValues,
+  type MotionSpec,
+  type PropValue,
+  type SectionDefinition,
+} from "@senify/section-sdk";
+import { sectionDefinitionFor } from "./sections.ts";
 import {
   STATE_ORDER,
   checkKnownProp,
@@ -106,15 +113,40 @@ function raise(problem: PropProblem, field: string): never {
   });
 }
 
+// A legacy section node ("hero", "features", …) carries the section's own
+// props: a headline, a list of items, a link. Their shape lives in the section
+// registry, not in the primitive catalog, so they must not run through the CSS
+// value grammar below: "Wir: bauen" is a perfectly good headline and a list is
+// no style value. The registry definition is the judge for these keys; every
+// other key of the node (a background, a padding) is a style value as before.
+function sectionContentProp(
+  definition: PrimitiveDefinition,
+  key: string,
+): { section: SectionDefinition; label: string } | undefined {
+  if (definition.legacy !== true) return undefined;
+  const section = sectionDefinitionFor(definition.type);
+  if (section === undefined) return undefined;
+  const base = baseKeyOf(key);
+  const spec = section.props.find((entry) => entry.key === base);
+  return spec === undefined ? undefined : { section, label: spec.label };
+}
+
 function assertKnownProp(
   definition: PrimitiveDefinition,
   key: string,
   field: string,
 ): void {
+  // A section's own content props belong to the registry, not the CSS grammar.
+  if (sectionContentProp(definition, key) !== undefined) return;
   const problem = checkKnownProp(definition, key);
   if (problem !== undefined) raise(problem, field);
 }
 
+// The value side of the open space (ADR-0005): strings run through the value
+// grammar, numbers must be finite, token references must be well-formed and a
+// spacing bag is formatted and then checked like any other value. This is the
+// loud half of the boundary — the compiler drops what it cannot trust.
+//
 function assertStyleDeclaration(key: string, value: PropValue, field: string): void {
   const property = camelToKebab(baseKeyOf(key));
   if (!isSafeCssProperty(property)) {
@@ -133,6 +165,28 @@ function assertPropValue(
   value: PropValue,
   field: string,
 ): void {
+  // A section's own content props are judged by the section registry: a clean
+  // empty text names its field, a broken list item carries the schema's words.
+  const content = sectionContentProp(definition, key);
+  if (content !== undefined) {
+    if (value === null) return;
+    const base = baseKeyOf(key);
+    const issues = validatePropValues(content.section, { [base]: value });
+    if (issues.length > 0) {
+      const issue = issues[0];
+      throw new SenifyError(
+        "validation",
+        value === ""
+          ? `Das Feld „${content.label}“ darf nicht leer sein.`
+          : (issue?.message ?? `Ungültiger Wert für „${content.label}“.`),
+        {
+          field,
+          ...(issue?.suggestion === undefined ? {} : { suggestion: issue.suggestion }),
+        },
+      );
+    }
+    return;
+  }
   const problem = checkPropValue(definition, key, value);
   if (problem !== undefined) raise(problem, field);
 }
@@ -463,16 +517,38 @@ function applyRemoveClass(
   };
 }
 
-// The raw structural write: whole class list, hidden, locked. The canvas
-// patches these fields directly (assign/remove and deleteStyleRule build on
-// them), so this op is the transport form of a `setNodeFields` patch — it
-// validates nothing beyond the node's existence, exactly like the patch.
+// A section variant has to be one the section declares: the server refuses any
+// other name on save, so the store refuses it up front instead of at the save.
+function assertSectionVariant(primitive: string, variant: string, field: string): void {
+  const section = sectionDefinitionFor(primitive);
+  const names = Object.keys(section?.variants ?? {});
+  if (names.includes(variant)) return;
+  throw new SenifyError(
+    "validation",
+    section === undefined
+      ? `"${primitive}" has no variants`
+      : `Section "${primitive}" has no variant "${variant}"`,
+    {
+      field,
+      suggestion: names.length === 0 ? "Omit the variant." : `Use one of: ${names.join(", ")}.`,
+    },
+  );
+}
+
+// The raw structural write: whole class list, hidden, locked, section variant.
+// The canvas patches these fields directly (assign/remove and deleteStyleRule
+// build on them), so this op is the transport form of a `setNodeFields` patch —
+// it validates nothing beyond the node's existence, exactly like the patch,
+// except that a variant must be one the section declares.
 function applySetNodeMeta(
   document: EditorDocument,
   mutation: Extract<EditorMutation, { op: "setNodeMeta" }>,
 ): OperationResult {
   const node = requireNode(document, mutation.id, "id");
   const meta = mutation.meta;
+  if (typeof meta.variant === "string") {
+    assertSectionVariant(node.primitive, meta.variant, "meta.variant");
+  }
   const forward: DocumentPatch[] = [];
   const inverse: DocumentPatch[] = [];
   if (meta.classes !== undefined) {
@@ -501,6 +577,14 @@ function applySetNodeMeta(
       patch: "setNodeFields",
       id: node.id,
       fields: { locked: node.locked ?? null },
+    });
+  }
+  if (meta.variant !== undefined) {
+    forward.push({ patch: "setNodeFields", id: node.id, fields: { variant: meta.variant } });
+    inverse.push({
+      patch: "setNodeFields",
+      id: node.id,
+      fields: { variant: node.variant ?? null },
     });
   }
   return { forward, inverse, warnings: [] };

@@ -450,8 +450,8 @@ describe("buildInspector", () => {
     store.apply({
       op: "setNodeProp",
       id: "head000001",
-      key: "textShadow",
-      value: "0 0 2px #000",
+      key: "textDecorationThickness",
+      value: "2px",
     });
     const model = buildInspector({
       document: store.document,
@@ -461,8 +461,8 @@ describe("buildInspector", () => {
     const custom = model?.tabs.find((tab) => tab.id === "style")?.groups.find(
       (group) => group.id === "style/custom",
     );
-    const field = custom?.fields.find((entry) => entry.key === "textShadow");
-    expect(field?.value).toBe("0 0 2px #000");
+    const field = custom?.fields.find((entry) => entry.key === "textDecorationThickness");
+    expect(field?.value).toBe("2px");
     expect(field?.kind).toBe("text");
     expect(field?.commit).toEqual({ kind: "prop" });
 

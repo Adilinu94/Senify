@@ -280,6 +280,78 @@ describe("POST /api/pages/:pageId/editor-mutations", () => {
     }
   });
 
+  it("maps a section variant switch onto updateNodeMeta, including the reset", () => {
+    expect(
+      editorMutationsToSection([
+        { op: "setNodeMeta", id: "n1", meta: { variant: "split" } },
+        { op: "setNodeMeta", id: "n1", meta: { variant: null, locked: true } },
+      ]),
+    ).toEqual([
+      { op: "updateNodeMeta", id: "n1", meta: { variant: "split" } },
+      { op: "updateNodeMeta", id: "n1", meta: { variant: null, locked: true } },
+    ]);
+  });
+
+  it("switches a section variant through the editor route, resets it and refuses an unknown one", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Canvas-Variante");
+      const page = await createTestPage(env.api, site.id, { title: "Start", path: "/" });
+      const rootId = page.draft.rootNodeId;
+      const inserted = await env.api.request<MutationsResponse>({
+        method: "POST",
+        path: `/api/pages/${page.id}/mutations`,
+        body: {
+          baseDraftVersion: page.draftVersion,
+          author: TEST_AUTHOR,
+          mutations: [
+            { op: "insertNode", parent: { nodeId: rootId }, node: { type: "hero", props: {} } },
+          ],
+        },
+      });
+      expect(inserted.status).toBe(200);
+      const read = async () => {
+        const response = await env.api.request<PageResponse>({
+          method: "GET",
+          path: `/api/pages/${page.id}`,
+        });
+        return response.body;
+      };
+      const withHero = await read();
+      const heroId = treeOf(withHero).nodes[rootId]?.children?.[0] ?? "";
+      expect(heroId).not.toBe("");
+      const send = (baseDraftVersion: number, variant: string | null) =>
+        env.api.request<MutationsResponse>({
+          method: "POST",
+          path: `/api/pages/${page.id}/editor-mutations`,
+          body: {
+            baseDraftVersion,
+            author: TEST_AUTHOR,
+            mutations: [{ op: "setNodeMeta", id: heroId, meta: { variant } }],
+          },
+        });
+
+      const switched = await send(withHero.draftVersion, "split");
+      expect(switched.status).toBe(200);
+      const afterSwitch = await read();
+      expect(treeOf(afterSwitch).nodes[heroId]?.variant).toBe("split");
+
+      // The server refuses a name the section does not declare, and names the field.
+      const refused = await send(afterSwitch.draftVersion, "nope");
+      expect(refused.status).toBe(400);
+      const error = (refused.body as unknown as { error: Record<string, unknown> }).error;
+      expect(error.category).toBe("validation");
+      expect(String(error.field)).toContain("meta.variant");
+      expect(treeOf(await read()).nodes[heroId]?.variant).toBe("split");
+
+      const reset = await send(afterSwitch.draftVersion, null);
+      expect(reset.status).toBe(200);
+      expect(treeOf(await read()).nodes[heroId]?.variant).toBeUndefined();
+    } finally {
+      await env.close();
+    }
+  });
+
   it("updates a base prop and a device override through the same route", async () => {
     const env = await bootEngine();
     try {

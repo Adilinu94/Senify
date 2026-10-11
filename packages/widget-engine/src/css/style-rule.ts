@@ -128,6 +128,8 @@ const StatesSchema = Type.Object(
   {
     hover: Type.Optional(DeviceValueMapSchema),
     focus: Type.Optional(DeviceValueMapSchema),
+    "focus-visible": Type.Optional(DeviceValueMapSchema),
+    "focus-within": Type.Optional(DeviceValueMapSchema),
     active: Type.Optional(DeviceValueMapSchema),
     disabled: Type.Optional(DeviceValueMapSchema),
   },
@@ -138,6 +140,8 @@ const StatePrioritiesSchema = Type.Object(
   {
     hover: Type.Optional(PriorityMapSchema),
     focus: Type.Optional(PriorityMapSchema),
+    "focus-visible": Type.Optional(PriorityMapSchema),
+    "focus-within": Type.Optional(PriorityMapSchema),
     active: Type.Optional(PriorityMapSchema),
     disabled: Type.Optional(PriorityMapSchema),
   },
@@ -370,7 +374,7 @@ function asOrigin(value: unknown): StyleRuleOrigin | undefined {
   return { source: value.source, ordinal: Math.trunc(value.ordinal) };
 }
 
-// Only the four known states survive a tolerant read; an unknown key is
+// Only the known states survive a tolerant read; an unknown key is
 // dropped rather than emitted as a broken pseudo class.
 function asStates(value: unknown): StyleRule["states"] | undefined {
   if (!isRecord(value)) return undefined;

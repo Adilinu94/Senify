@@ -52,7 +52,9 @@ import {
   editorOverrides,
 } from "../state/components.ts";
 import type { EditorDocument, EditorNode, StyleRule } from "../state/document.ts";
+import { sectionDefinitionFor } from "../state/sections.ts";
 import type { EditorTabId } from "../state/ui-state.ts";
+import { sectionContentGroups, sectionVariantGroup } from "./section-fields.ts";
 
 // The tab vocabulary lives in the session state (`state/ui-state.ts`) so the
 // shell can persist and restore it; the inspector is one projection of it.
@@ -89,7 +91,9 @@ export type InspectorCommit =
   | { kind: "state"; state: StateName }
   | { kind: "override"; partId: string }
   | { kind: "variant" }
-  | { kind: "variant-rename"; name: string };
+  | { kind: "variant-rename"; name: string }
+  // The variant of a section node (hero: centered / split / …).
+  | { kind: "section-variant" };
 
 export type InspectorField = {
   key: string;
@@ -125,6 +129,13 @@ export type InspectorField = {
   // property table. The style group orders the panel.
   source: "control" | "style";
   styleGroup: StyleGroup | undefined;
+  // Section content fields only. `shape` says how a stored value is shown as
+  // text: a link value ({ url } / { pageId }) or a list of plain strings (one per
+  // line). `required` marks a field the section schema does not let stay empty;
+  // `defaultValue` is what a new list entry starts with.
+  shape?: "link" | "lines";
+  required?: boolean;
+  defaultValue?: PropValue;
 };
 
 export type InspectorGroup = {
@@ -303,6 +314,18 @@ function isMoreProp(prop: string, definition: PrimitiveDefinition | undefined): 
 // The select options of the keyword style properties (ui surface description,
 // ADR-0005). A keyword without an entry stays a free text field.
 const KEYWORD_OPTIONS: Record<string, string[]> = {
+  display: ["block", "inline", "inline-block", "flex", "inline-flex", "grid", "contents", "none"],
+  visibility: ["visible", "hidden"],
+  alignSelf: ["auto", "stretch", "flex-start", "flex-end", "center", "baseline"],
+  justifyItems: ["stretch", "start", "end", "center"],
+  justifySelf: ["auto", "stretch", "start", "end", "center"],
+  objectFit: ["fill", "contain", "cover", "none", "scale-down"],
+  whiteSpace: ["normal", "nowrap", "pre", "pre-wrap", "pre-line"],
+  textOverflow: ["clip", "ellipsis"],
+  textWrap: ["wrap", "nowrap", "balance", "pretty"],
+  wordBreak: ["normal", "break-word", "break-all", "keep-all"],
+  cursor: ["auto", "default", "pointer", "text", "move", "grab", "not-allowed", "wait"],
+  pointerEvents: ["auto", "none"],
   position: ["static", "relative", "absolute", "fixed", "sticky"],
   overflow: ["visible", "hidden", "clip", "auto", "scroll"],
   overflowX: ["visible", "hidden", "clip", "auto", "scroll"],
@@ -620,6 +643,26 @@ const STYLE_PROP_LABELS: Record<string, string> = {
   gridColumn: "Spaltenbereich",
   gridRow: "Zeilenbereich",
   gridAutoFlow: "Rasterfluss",
+  display: "Darstellung",
+  visibility: "Sichtbarkeit",
+  alignSelf: "Eigene Ausrichtung",
+  justifyItems: "Zellen horizontal",
+  justifySelf: "Eigene Zellen-Ausrichtung",
+  gridAutoRows: "Automatische Zeilen",
+  gridAutoColumns: "Automatische Spalten",
+  scrollMarginTop: "Anker-Abstand oben",
+  objectFit: "Bild-Anpassung",
+  objectPosition: "Bild-Ausschnitt",
+  whiteSpace: "Leerraum",
+  textOverflow: "Textüberlauf",
+  textWrap: "Textumbruch",
+  wordBreak: "Wortumbruch",
+  textIndent: "Einzug",
+  textShadow: "Textschatten",
+  outline: "Kontur",
+  outlineOffset: "Konturabstand",
+  cursor: "Mauszeiger",
+  pointerEvents: "Zeigerereignisse",
   padding: "Innenabstand",
   margin: "Außenabstand",
   gap: "Abstand",
@@ -1321,6 +1364,19 @@ export function buildInspector(input: BuildInspectorInput): InspectorModel | nul
     controlToField(control, node, breakpoint, input.theme),
   );
   const controlKeys = new Set(controls.map((control) => canonical(control.key)));
+  // A section node (hero, features, …) has no catalog controls; its fields come
+  // from the section registry (`section-fields.ts`).
+  const section = definition?.legacy === true ? sectionDefinitionFor(node.primitive) : undefined;
+  const sectionGroups =
+    section === undefined
+      ? []
+      : sectionContentGroups(section, node, section.title, (field) =>
+          attachTokenOptions(field, input.theme, field.kind === "color" ? "color" : undefined),
+        );
+  for (const group of sectionGroups) {
+    for (const field of group.fields) controlKeys.add(canonical(field.key));
+  }
+  const sectionVariants = section === undefined ? null : sectionVariantGroup(section, node);
   const state = input.state ?? null;
   const styleGroups = styleFieldsFor(
     input.document,
@@ -1341,14 +1397,20 @@ export function buildInspector(input: BuildInspectorInput): InspectorModel | nul
   const isSetting = (field: InspectorField): boolean => SETTINGS_KEYS.has(canonical(field.key));
   const settingFields = contentFields.filter(isSetting);
   const content: InspectorGroup[] = [
-    { id: "content/main", label: "Inhalt", fields: contentFields.filter((f) => !isSetting(f)) },
-    // Einstellungen: Tag/Link/ID des Elements plus Sichtbarkeit und Knoten-ID
-    // (frueher der Tab "Advanced").
-    {
-      id: "content/settings",
-      label: "Einstellungen",
-      fields: [...settingFields, ...advancedGroups(node).flatMap((group) => group.fields)],
-    },
+    // The layout comes first: pick the variant, then fill in the content.
+    ...(sectionVariants === null ? [] : [sectionVariants]),
+    ...(sectionGroups.length > 0
+      ? sectionGroups
+      : [
+          { id: "content/main", label: "Inhalt", fields: contentFields.filter((f) => !isSetting(f)) },
+          // Einstellungen: Tag/Link/ID des Elements plus Sichtbarkeit und Knoten-ID
+          // (frueher der Tab "Advanced").
+          {
+            id: "content/settings",
+            label: "Einstellungen",
+            fields: [...settingFields, ...advancedGroups(node).flatMap((group) => group.fields)],
+          },
+        ]),
     // A component instance has no controls of its own; its Content tab shows
     // the variant toggles and the parts of the definition (overrides).
     ...(variants === null ? [] : [variants]),

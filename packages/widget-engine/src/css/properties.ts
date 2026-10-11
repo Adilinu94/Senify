@@ -69,6 +69,8 @@ export type StylePropertySpec = {
 // The order is the emission order: layout first, because display, position and
 // overflow are the ground the other declarations sit on.
 export const STYLE_PROPERTIES: readonly StylePropertySpec[] = [
+  { prop: "display", group: "layout", kind: "keyword" },
+  { prop: "visibility", group: "layout", kind: "keyword" },
   { prop: "position", group: "layout", kind: "keyword" },
   { prop: "inset", group: "layout", kind: "spacing", css: "inset" },
   { prop: "top", group: "layout", kind: "length", units: ["px", "rem", "em", "%", "vw", "vh"] },
@@ -85,6 +87,9 @@ export const STYLE_PROPERTIES: readonly StylePropertySpec[] = [
   { prop: "alignItems", group: "layout", kind: "keyword", css: "align-items" },
   { prop: "alignContent", group: "layout", kind: "keyword", css: "align-content" },
   { prop: "placeItems", group: "layout", kind: "keyword", css: "place-items" },
+  { prop: "alignSelf", group: "layout", kind: "keyword", css: "align-self" },
+  { prop: "justifyItems", group: "layout", kind: "keyword", css: "justify-items" },
+  { prop: "justifySelf", group: "layout", kind: "keyword", css: "justify-self" },
   { prop: "flexGrow", group: "layout", kind: "unitless", css: "flex-grow" },
   { prop: "flexShrink", group: "layout", kind: "unitless", css: "flex-shrink" },
   { prop: "flexBasis", group: "layout", kind: "length", css: "flex-basis", units: ["px", "rem", "em", "%"] },
@@ -94,6 +99,15 @@ export const STYLE_PROPERTIES: readonly StylePropertySpec[] = [
   { prop: "gridColumn", group: "layout", kind: "text", css: "grid-column" },
   { prop: "gridRow", group: "layout", kind: "text", css: "grid-row" },
   { prop: "gridAutoFlow", group: "layout", kind: "keyword", css: "grid-auto-flow" },
+  { prop: "gridAutoRows", group: "layout", kind: "text", css: "grid-auto-rows" },
+  { prop: "gridAutoColumns", group: "layout", kind: "text", css: "grid-auto-columns" },
+  {
+    prop: "scrollMarginTop",
+    group: "layout",
+    kind: "length",
+    css: "scroll-margin-top",
+    units: ["px", "rem", "em"],
+  },
 
   { prop: "padding", group: "spacing", kind: "spacing" },
   { prop: "margin", group: "spacing", kind: "spacing" },
@@ -106,6 +120,8 @@ export const STYLE_PROPERTIES: readonly StylePropertySpec[] = [
   { prop: "minHeight", group: "size", kind: "length", units: ["px", "rem", "em", "vh"] },
   { prop: "maxHeight", group: "size", kind: "length", units: ["px", "rem", "em", "vh"] },
   { prop: "aspectRatio", group: "size", kind: "keyword" },
+  { prop: "objectFit", group: "size", kind: "keyword", css: "object-fit" },
+  { prop: "objectPosition", group: "size", kind: "text", css: "object-position" },
 
   { prop: "fontFamily", group: "typography", kind: "text" },
   { prop: "fontSize", group: "typography", kind: "length", units: ["px", "rem", "em", "%", "vw"] },
@@ -116,6 +132,12 @@ export const STYLE_PROPERTIES: readonly StylePropertySpec[] = [
   { prop: "textDecoration", group: "typography", kind: "keyword" },
   { prop: "textTransform", group: "typography", kind: "keyword" },
   { prop: "fontStyle", group: "typography", kind: "keyword" },
+  { prop: "whiteSpace", group: "typography", kind: "keyword", css: "white-space" },
+  { prop: "textOverflow", group: "typography", kind: "keyword", css: "text-overflow" },
+  { prop: "textWrap", group: "typography", kind: "keyword", css: "text-wrap" },
+  { prop: "wordBreak", group: "typography", kind: "keyword", css: "word-break" },
+  { prop: "textIndent", group: "typography", kind: "length", css: "text-indent", units: ["px", "rem", "em"] },
+  { prop: "textShadow", group: "typography", kind: "text", css: "text-shadow" },
   { prop: "color", group: "typography", kind: "color" },
 
   { prop: "background", group: "color", kind: "color", css: "background-color" },
@@ -125,6 +147,8 @@ export const STYLE_PROPERTIES: readonly StylePropertySpec[] = [
   { prop: "borderStyle", group: "border", kind: "keyword" },
   { prop: "borderColor", group: "border", kind: "color" },
   { prop: "borderRadius", group: "border", kind: "radius", units: ["px", "rem", "%"] },
+  { prop: "outline", group: "border", kind: "text" },
+  { prop: "outlineOffset", group: "border", kind: "length", css: "outline-offset", units: ["px", "rem"] },
 
   { prop: "boxShadow", group: "effects", kind: "text" },
   { prop: "opacity", group: "effects", kind: "unitless" },
@@ -133,6 +157,8 @@ export const STYLE_PROPERTIES: readonly StylePropertySpec[] = [
   { prop: "mixBlendMode", group: "effects", kind: "keyword" },
   { prop: "transition", group: "effects", kind: "text" },
   { prop: "transform", group: "effects", kind: "text" },
+  { prop: "cursor", group: "effects", kind: "keyword" },
+  { prop: "pointerEvents", group: "effects", kind: "keyword", css: "pointer-events" },
 ];
 
 export type PropMapping = {
@@ -260,11 +286,42 @@ type ResolvedSpec = {
 // (`border-radius`). The alias keeps existing documents and free-form input
 // working while the table stays the one source for value formatting
 // (ADR-0005, ticket 10).
+const SPEC_BY_PROP = new Map<string, StylePropertySpec>(STYLE_PROPERTIES.map((e) => [e.prop, e]));
+const SPEC_BY_CSS = (() => {
+  const m = new Map<string, StylePropertySpec>();
+  for (const e of STYLE_PROPERTIES) {
+    const k = e.css ?? camelToKebab(e.prop);
+    if (!m.has(k)) m.set(k, e);
+  }
+  return m;
+})();
 export function stylePropertyFor(prop: string): StylePropertySpec | undefined {
-  return (
-    STYLE_PROPERTIES.find((entry) => entry.prop === prop) ??
-    STYLE_PROPERTIES.find((entry) => (entry.css ?? camelToKebab(entry.prop)) === prop)
+  return SPEC_BY_PROP.get(prop) ?? SPEC_BY_CSS.get(prop);
+}
+
+type Plan = {
+  mappings: readonly PropMapping[];
+  known: ReadonlySet<string>;
+  controlByKey: ReadonlyMap<string, { key: string }>;
+};
+const PLAN_CACHE = new Map<string, Plan>();
+function planFor(primitiveType: string | undefined, controls: readonly { key: string }[]): Plan {
+  const cacheKey = primitiveType ?? "\u0000";
+  const hit = PLAN_CACHE.get(cacheKey);
+  if (hit !== undefined) return hit;
+  const mappings = PROP_MAPPINGS.filter(
+    (m) =>
+      m.onlyPrimitives === undefined ||
+      (primitiveType !== undefined && m.onlyPrimitives.includes(primitiveType)),
   );
+  const known = new Set<string>();
+  for (const m of mappings) known.add(m.prop);
+  for (const spec of STYLE_PROPERTIES) known.add(spec.prop);
+  for (const c of controls) known.add(c.key);
+  for (const k of STRUCTURAL_PROP_KEYS) known.add(k);
+  const plan: Plan = { mappings, known, controlByKey: new Map(controls.map((c) => [c.key, c])) };
+  PLAN_CACHE.set(cacheKey, plan);
+  return plan;
 }
 
 // The table's canonical name for a base key. An unknown name stays untouched —
@@ -388,21 +445,104 @@ export type TranslateOptions = {
   // Resolves a theme token reference (`{ $token: "color.brand" }`) to its
   // concrete CSS value. Without it the compiler keeps `var(--…)`.
   resolveToken?: TokenResolver;
+  // Called for every value the compiler had to drop because it is not valid
+  // CSS. A dropped value is silent in the stylesheet — the browser would ignore
+  // it anyway — so this is the only place a caller learns that an edit, an
+  // import or an agent write did nothing.
+  onDrop?: (drop: DroppedValue) => void;
 };
 
-// A value of an open-space property as CSS text. Numbers stay bare (the table
-// is what knows about units), strings run through the value grammar, token
-// references resolve like everywhere else. Records are skipped: a free
-// property has no shape contract.
-function openValueText(value: PropValue, options: TranslateOptions): string | undefined {
-  if (typeof value === "number") return formatNumber(value);
+export type DropReason =
+  // The value failed the value grammar or has the wrong type for the property.
+  | "invalid-value"
+  // The property name of an open-space value is not a safe CSS property name.
+  | "unsafe-property"
+  // An open-space value that is an object: a free property has no shape contract.
+  | "unsupported-shape";
+
+export type DroppedValue = {
+  property: string;
+  reason: DropReason;
+  value: PropValue;
+};
+
+// CSS properties whose bare number is a plain number, not a length: a bare
+// `12` there stays `12`, everywhere else it means pixels. The list follows what
+// React treats as unitless; custom properties (`--x`) and zero are bare too.
+const UNITLESS_CSS_PROPERTIES: ReadonlySet<string> = new Set([
+  "animation-iteration-count",
+  "aspect-ratio",
+  "border-image-outset",
+  "border-image-slice",
+  "border-image-width",
+  "column-count",
+  "columns",
+  "fill-opacity",
+  "flex",
+  "flex-grow",
+  "flex-shrink",
+  "flood-opacity",
+  "font-weight",
+  "grid-area",
+  "grid-column",
+  "grid-column-end",
+  "grid-column-start",
+  "grid-row",
+  "grid-row-end",
+  "grid-row-start",
+  "initial-letter",
+  "line-clamp",
+  "line-height",
+  "opacity",
+  "order",
+  "orphans",
+  "scale",
+  "shape-image-threshold",
+  "stop-opacity",
+  "stroke-dasharray",
+  "stroke-dashoffset",
+  "stroke-miterlimit",
+  "stroke-opacity",
+  "stroke-width",
+  "tab-size",
+  "widows",
+  "z-index",
+  "zoom",
+  "-webkit-line-clamp",
+]);
+
+const BARE_NUMBER = /^-?(?:\d+\.?\d*|\.\d+)$/;
+
+// A bare number of an open-space property as CSS text: the unit `px` for a
+// length (`padding-top: 12` is invalid CSS and a browser drops the whole
+// declaration), no unit for the properties above, custom properties and zero.
+function bareNumberText(property: string, text: string): string {
+  if (Number(text) === 0) return "0";
+  if (property.startsWith("--") || UNITLESS_CSS_PROPERTIES.has(property)) return text;
+  return `${text}px`;
+}
+
+// A value of an open-space property as CSS text. Numbers (and strings that are
+// only a number) take `px` where the property is a length, strings run through
+// the value grammar, token references resolve like everywhere else. Records are
+// skipped: a free property has no shape contract.
+function openValueText(
+  property: string,
+  value: PropValue,
+  options: TranslateOptions,
+): { text: string } | { reason: DropReason } {
+  if (typeof value === "number") {
+    const text = formatNumber(value);
+    return text === "" ? { reason: "invalid-value" } : { text: bareNumberText(property, text) };
+  }
   if (typeof value === "string") {
     const parsed = parseCssValue(value);
-    return parsed.ok ? parsed.value : undefined;
+    if (!parsed.ok) return { reason: "invalid-value" };
+    return { text: BARE_NUMBER.test(parsed.value) ? bareNumberText(property, parsed.value) : parsed.value };
   }
   const ref = tokenRef(value);
-  if (ref !== undefined) return resolveTokenRef(ref, options.resolveToken);
-  return undefined;
+  if (ref !== undefined) return { text: resolveTokenRef(ref, options.resolveToken) };
+  return { reason: "unsupported-shape" };
 }
 
 export function declarationsForValues(
@@ -412,8 +552,17 @@ export function declarationsForValues(
 ): Declaration[] {
   const definition = primitiveType === undefined ? undefined : getPrimitive(primitiveType);
   const controls = definition?.controls ?? [];
+  const plan = planFor(primitiveType, controls);
   const declarations: Declaration[] = [];
   const emittedProps = new Set<string>();
+  // A property can be tried twice (a control mapping, then the style table);
+  // it is reported once.
+  const reported = new Set<string>();
+  const drop = (property: string, reason: DropReason, value: PropValue): void => {
+    if (options.onDrop === undefined || reported.has(property)) return;
+    reported.add(property);
+    options.onDrop({ property, reason, value });
+  };
   // One CSS property per rule: the first table entry that reaches it wins, so
   // `icon.size` keeps `width` and the generic `width` style property stays out.
   const emittedCss = new Set<string>();
@@ -439,24 +588,36 @@ export function declarationsForValues(
     const value = canonical[prop];
     if (value === undefined || value === null) return;
 
-    const control = controls.find((entry) => entry.key === prop);
+    const control = plan.controlByKey.get(prop) as (typeof controls)[number] | undefined;
     if (control?.condition && !isConditionSatisfied(control.condition, canonical)) return;
+    const lower =
+      baseline !== undefined && Object.prototype.hasOwnProperty.call(baseline, prop)
+        ? { value: baseline[prop] }
+        : undefined;
+    if (lower !== undefined && deepEqualProp(value, lower.value)) return;
+    // A value equal to the control default is only redundant when nothing below
+    // it set the property. Against a lower value it is an override: desktop
+    // flex and mobile block, tablet padding 1rem and mobile 0.
     if (
-      baseline !== undefined &&
-      Object.prototype.hasOwnProperty.call(baseline, prop) &&
-      deepEqualProp(value, baseline[prop])
+      lower === undefined &&
+      options.includeDefaults !== true &&
+      control &&
+      deepEqualProp(value, control.default)
     ) {
       return;
     }
-    if (options.includeDefaults !== true && control && deepEqualProp(value, control.default)) return;
 
     // A bare number takes the unit of the control that owns it (`column.width`
     // is percent, `icon.size` is px); a string brings its own unit.
     const units =
       control?.units !== undefined && control.units.length > 0 ? control.units : spec.units;
-    const translated = translate({ ...spec, units }, value, options).filter(
-      (declaration) => !emittedCss.has(declaration.property),
-    );
+    const produced = translate({ ...spec, units }, value, options);
+    // `ordered: false` and friends are a legitimate "nothing to write"; any
+    // other value that produced nothing is a value CSS cannot take.
+    if (produced.length === 0 && !(spec.kind === "switch" && value === false)) {
+      drop(prop, "invalid-value", value);
+    }
+    const translated = produced.filter((declaration) => !emittedCss.has(declaration.property));
     if (translated.length === 0) return;
 
     emittedProps.add(prop);
@@ -464,13 +625,7 @@ export function declarationsForValues(
     declarations.push(...translated);
   };
 
-  for (const mapping of PROP_MAPPINGS) {
-    if (
-      mapping.onlyPrimitives !== undefined &&
-      (primitiveType === undefined || !mapping.onlyPrimitives.includes(primitiveType))
-    ) {
-      continue;
-    }
+  for (const mapping of plan.mappings) {
     emit(mapping.prop, {
       kind: mapping.kind,
       css: mapping.css ?? camelToKebab(mapping.prop),
@@ -497,24 +652,7 @@ export function declarationsForValues(
   // A catalog control key is *not* open space: `text`, `level`, `striped` and
   // friends are behavioural props of the widget, not CSS. They are excluded —
   // otherwise the open pass would emit `text: Hallo` into the stylesheet.
-  const known = new Set<string>();
-  for (const mapping of PROP_MAPPINGS) {
-    // A mapping that does not apply to this primitive is *not* known here:
-    // otherwise `display` on a heading or on an ambient rule would be swallowed
-    // instead of reaching the open pass (ADR-0005).
-    if (
-      mapping.onlyPrimitives !== undefined &&
-      (primitiveType === undefined || !mapping.onlyPrimitives.includes(primitiveType))
-    ) {
-      continue;
-    }
-    known.add(mapping.prop);
-  }
-  for (const spec of STYLE_PROPERTIES) known.add(spec.prop);
-  for (const control of controls) known.add(control.key);
-  // The structural props of the component model (`componentId`, `name`, the
-  // override bag) are JSON, never CSS — the open pass must not emit them.
-  for (const key of STRUCTURAL_PROP_KEYS) known.add(key);
+  const known = plan.known;
   const openKeys = Object.keys(canonical)
     .filter((key) => !known.has(key) && !emittedProps.has(key))
     .sort();
@@ -531,11 +669,18 @@ export function declarationsForValues(
       continue;
     }
     const property = camelToKebab(key);
-    if (!isSafeCssProperty(property) || emittedCss.has(property)) continue;
-    const text = openValueText(value, options);
-    if (text === undefined) continue;
+    if (!isSafeCssProperty(property)) {
+      drop(key, "unsafe-property", value);
+      continue;
+    }
+    if (emittedCss.has(property)) continue;
+    const text = openValueText(property, value, options);
+    if ("reason" in text) {
+      drop(key, text.reason, value);
+      continue;
+    }
     emittedCss.add(property);
-    declarations.push({ property, value: text });
+    declarations.push({ property, value: text.text });
   }
 
   return declarations;

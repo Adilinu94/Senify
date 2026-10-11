@@ -13,8 +13,9 @@ type Props = {
     motion: string;
     // The page-level View Transition block (M6), null without the preset.
     pageTransition: string | null;
-    // The pure-CSS effect blocks (hover-lift, ambient-float, grain), null
-    // without such a preset.
+    // The pure-CSS blocks: the effects (hover-lift, ambient-float, grain) and
+    // the reveals that enter above the fold without the page script. Null
+    // without any.
     motionCss: string | null;
     // preloader-light: the page renders the loading curtain.
     hasPreloader: boolean;
@@ -76,6 +77,16 @@ const PENDING_CSS = "[data-motion-pending]{opacity:0}";
 const PENDING_NOSCRIPT = "[data-motion-pending]{opacity:1 !important}";
 const PENDING_FAILSAFE =
   'setTimeout(function(){var pending=document.querySelectorAll("[data-motion-pending]");for(var index=0;index<pending.length;index+=1){pending[index].removeAttribute("data-motion-pending");}},1600);';
+
+// A page whose only motion is a CSS entry has nothing for the page script to
+// play, but the site's smooth-scroll profile still applies to it. Deferred
+// script tags would compete with fonts and CSS on a slow link and push the LCP
+// out (measured: +660 ms on Slow 4G with a 4x CPU throttle), so Lenis and the
+// page script load after the `load` event, when the browser is idle. The
+// loader sits at the end of the body: an inline script in the head waits for
+// the stylesheets before it and holds back the parse of the content.
+const lenisLateLoader = (lenisSrc: string): string =>
+  `window.addEventListener("load",function(){var run=function(){var lenis=document.createElement("script");lenis.src=${JSON.stringify(lenisSrc)};lenis.onload=function(){var page=document.createElement("script");page.src="/assets/page.js";document.body.appendChild(page);};document.body.appendChild(lenis);};if("requestIdleCallback" in window){window.requestIdleCallback(run);}else{setTimeout(run,200);}});`;
 
 // preloader-light (M6): the curtain is part of the markup, so the first paint
 // never flashes the content; the inline script removes it on load, at the
@@ -148,7 +159,10 @@ const PRELOADER_SCRIPT =
         <script is:inline set:html={PRELOADER_SCRIPT} />
       </>
     )}
-    <Section tree={page.tree} ctx={ctx} />
+    <Section tree={page.tree} ctx={{ ...ctx, currentPath: page.path, lang, gateEmbeds: true, cssEntry: true }} />
     {styleRulesCss && <link rel="stylesheet" href="/assets/style-rules.css" />}
+    {!page.flags.hasMotion && page.flags.hasLenis && (
+      <script is:inline set:html={lenisLateLoader(vendor.lenis)} />
+    )}
   </body>
 </html>

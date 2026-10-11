@@ -35,6 +35,17 @@ describe("hydration dispatcher", () => {
     ).toEqual(["webgl-scene"]);
   });
 
+  it("links the consent gate exactly where a placeholder is rendered", () => {
+    const map = "https://www.google.com/maps/embed?pb=abc";
+    expect(islandsForNode(node("embed", { props: { url: map } }))).toEqual(["embed-gate"]);
+    expect(islandsForNode(node("embed", { props: { url: map, requireConsent: false } }))).toEqual([]);
+    expect(islandsForNode(node("embed", { props: { url: "/lokal" } }))).toEqual([]);
+    expect(
+      islandsForNode(node("video", { props: { provider: "youtube", url: "https://www.youtube.com/embed/x" } })),
+    ).toEqual(["embed-gate"]);
+    expect(islandsForNode(node("video", { props: { provider: "file", url: "https://cdn.example.com/a.mp4" } }))).toEqual([]);
+  });
+
   it("hangs the 3D island on the surface and honours the switch", () => {
     // A hero whose visual slot is filled lets the slot bring the surface.
     expect(

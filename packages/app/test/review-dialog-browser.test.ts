@@ -91,7 +91,7 @@ describe.skipIf(!browserAvailable)("Review-Aktionen mit Kommentar-Dialog", () =>
       // Abbrechen: kein Request, der Status bleibt.
       await discard.click();
       await dialog.waitFor();
-      expect(await tab.getByRole("dialog", { name: "Kommentar (optional)" }).count()).toBe(1);
+      expect(await tab.getByRole("dialog", { name: "Review verwerfen" }).count()).toBe(1);
       await dialog.getByRole("button", { name: "Abbrechen" }).click();
       await dialog.waitFor({ state: "detached" });
       // Der Abbruch hätte die Aktion sofort abgeschickt; eine kurze Frist
@@ -102,7 +102,7 @@ describe.skipIf(!browserAvailable)("Review-Aktionen mit Kommentar-Dialog", () =>
       // Bestätigen: die Aktion läuft, der Kommentar kommt an.
       await discard.click();
       await dialog.waitFor();
-      await dialog.locator("input").fill("Passt nicht");
+      await dialog.locator("textarea").fill("Passt nicht");
       await dialog.getByRole("button", { name: "Verwerfen" }).click();
       await dialog.waitFor({ state: "detached" });
       // Mit Abstand fragen: die API begrenzt auf 60 Anfragen pro Minute.

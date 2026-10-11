@@ -61,6 +61,22 @@ export type MotionData = {
   entries: MotionConfig[];
 };
 
+// A reveal the page plays as a CSS animation (`motionEntryCss`): above the fold
+// it must not wait for the page script. It carries what the keyframes need and
+// nothing else — no payload entry, no pending marker, no runtime.
+export type MotionCssEntry = {
+  nodeId: string;
+  preset: "fade-up" | "fade-up-deblur" | "scroll-reveal";
+  // Travel in px, 0 when the preset does not move.
+  travel: number;
+  blur: boolean;
+  durationMs: number;
+  delayMs: number;
+  // A CSS timing function; the preset default when the token has none.
+  ease: string;
+  reducedMotion: "static" | "fade" | "off";
+};
+
 export type MotionWarning = {
   code?:
     | "unimplemented-preset"
@@ -87,11 +103,21 @@ export function parseDurationMs(input: string): number {
   return match[2] === "s" ? value * 1000 : value;
 }
 
+export type MotionConfigOptions = {
+  // The nodes the bake plays through CSS (`cssEntryNodeIds` of the registry —
+  // the markup stamps the very same set). Their spec becomes a `MotionCssEntry`
+  // instead of a payload entry; the editor's live mode passes nothing and keeps
+  // every reveal in the page script.
+  cssEntry?: ReadonlySet<string>;
+};
+
 export function motionConfigsForTree(
   tree: NodeTree,
   tokens: MotionTokens,
-): { configs: MotionConfig[]; warnings: MotionWarning[] } {
+  options: MotionConfigOptions = {},
+): { configs: MotionConfig[]; warnings: MotionWarning[]; entries: MotionCssEntry[] } {
   const configs: MotionConfig[] = [];
+  const entries: MotionCssEntry[] = [];
   const warnings: MotionWarning[] = [];
   let pins = 0;
   let charSplits = 0;
@@ -140,6 +166,25 @@ export function motionConfigsForTree(
         suggestion: "Keep reveals under ~800 ms.",
       });
     }
+    if (
+      options.cssEntry?.has(node.id) === true &&
+      (motion.preset === "fade-up" ||
+        motion.preset === "fade-up-deblur" ||
+        motion.preset === "scroll-reveal")
+    ) {
+      entries.push({
+        nodeId: node.id,
+        preset: motion.preset,
+        // The same travel the script's `gsap.from` uses.
+        travel: motion.preset === "scroll-reveal" ? 16 : Math.round((8 + intensity * 3.2) * 10) / 10,
+        blur: motion.preset === "fade-up-deblur",
+        durationMs: Math.round(durationSeconds * 1000),
+        delayMs: Math.round((motion.delay ?? 0) * 1000),
+        ease: cssEase(motion.tokens?.ease ? tokens.ease[motion.tokens.ease] : undefined),
+        reducedMotion: motion.reducedMotion ?? "static",
+      });
+      continue;
+    }
     configs.push({
       nodeId: node.id,
       preset: motion.preset,
@@ -170,7 +215,63 @@ export function motionConfigsForTree(
       suggestion: "Signature splits lose impact when repeated — keep one per page.",
     });
   }
-  return { configs, warnings };
+  return { configs, warnings, entries };
+}
+
+// gsap's `power2.out` — the script's default — as the CSS curve it is.
+const DEFAULT_ENTRY_EASE = "cubic-bezier(0.215, 0.61, 0.355, 1)";
+
+// A theme ease token is written into a stylesheet: only a plain timing function
+// goes through, anything else (a stray token value) falls back to the default.
+function cssEase(token: string | undefined): string {
+  if (token === undefined) return DEFAULT_ENTRY_EASE;
+  const value = token.trim();
+  if (/^(ease|ease-in|ease-out|ease-in-out|linear)$/.test(value)) return value;
+  if (/^(cubic-bezier|linear)\([0-9eE.,+\-%\s]+\)$/.test(value)) return value;
+  return DEFAULT_ENTRY_EASE;
+}
+
+// The CSS of the reveals that play without the page script. Every rule keys on
+// `[data-node-id]`, the keyframes are shared per kind and carry the node's
+// travel through a custom property. `backwards` fill: the node waits in its
+// hidden state during the delay and is left alone afterwards — no held end
+// state that would fight a hover transform. Reduced motion follows the spec's
+// policy like the script does: `static` shows the node at rest, `fade` plays the
+// 400 ms opacity fade, `off` plays the full effect.
+export function motionEntryCss(entries: readonly MotionCssEntry[]): string {
+  if (entries.length === 0) return "";
+  const lines: string[] = [];
+  const kinds = new Set(entries.map((entry) => (entry.blur ? "deblur" : "move")));
+  if (kinds.has("move")) {
+    lines.push(
+      "@keyframes senify-enter{from{opacity:0;transform:translateY(var(--senify-enter-y,0px))}}",
+    );
+  }
+  if (kinds.has("deblur")) {
+    lines.push(
+      "@keyframes senify-enter-deblur{from{opacity:0;transform:translateY(var(--senify-enter-y,0px));filter:blur(8px)}}",
+    );
+  }
+  if (entries.some((entry) => entry.reducedMotion === "fade")) {
+    lines.push("@keyframes senify-enter-fade{from{opacity:0}}");
+  }
+  for (const entry of entries) {
+    const selector = `[data-node-id="${entry.nodeId}"]`;
+    const name = entry.blur ? "senify-enter-deblur" : "senify-enter";
+    lines.push(
+      `${selector}{--senify-enter-y:${entry.travel}px;animation:${name} ${entry.durationMs}ms ${entry.ease} ${entry.delayMs}ms backwards}`,
+    );
+    if (entry.reducedMotion === "static") {
+      lines.push(
+        `@media (prefers-reduced-motion:reduce){${selector}{animation:none}}`,
+      );
+    } else if (entry.reducedMotion === "fade") {
+      lines.push(
+        `@media (prefers-reduced-motion:reduce){${selector}{animation:senify-enter-fade 400ms ease-out backwards}}`,
+      );
+    }
+  }
+  return lines.join("\n");
 }
 
 // Page transitions (ticket 19, M6): a `document` preset opts the whole page
@@ -361,6 +462,7 @@ export function renderPageScript(options: { lenis: boolean }): string {
     var configs = Array.isArray(payload) ? payload : (payload.entries || []);
     var hasGsap = typeof window.gsap !== "undefined";${lenisBlock}
     if (hasGsap && window.ScrollTrigger) window.gsap.registerPlugin(window.ScrollTrigger);
+    if (hasGsap && window.SplitText) window.gsap.registerPlugin(window.SplitText);
     var pendingLeft = document.querySelectorAll("[data-motion-pending]").length;
     configs.forEach(function (config) {
       if (!config) return;
@@ -373,9 +475,17 @@ export function renderPageScript(options: { lenis: boolean }): string {
         if (policy === "fade" && config.hides) fadeIn(el);
         if (policy !== "off") return;
       }
-      runPreset(el, config);
+      try {
+        runPreset(el, config);
+      } catch (error) {
+        if (window.console) window.console.error("[senify] motion preset failed:", config.preset, error);
+      }
     });
     if (pendingLeft <= 0) releasePending();
+    // Positionen aus der Zeit vor den Webfonts neu berechnen.
+    if (hasGsap && window.ScrollTrigger && document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(function () { window.ScrollTrigger.refresh(); });
+    }
   });
   function fadeIn(el) {
     if (typeof el.animate !== "function") return;
@@ -388,6 +498,63 @@ export function renderPageScript(options: { lenis: boolean }): string {
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
+  }
+  function countFormat(raw) {
+    var s = "";
+    for (var i = 0; i < raw.length; i += 1) {
+      var c = raw.charAt(i);
+      if ("0123456789.,".indexOf(c) !== -1 || (c === "-" && s === "")) s += c;
+    }
+    var dots = s.split(".").length - 1;
+    var commas = s.split(",").length - 1;
+    var group = "";
+    var decimal = "";
+    if (dots > 0 && commas > 0) {
+      decimal = s.lastIndexOf(".") > s.lastIndexOf(",") ? "." : ",";
+      group = decimal === "." ? "," : ".";
+    } else if (dots + commas > 0) {
+      var sep = dots > 0 ? "." : ",";
+      var tail = s.length - s.lastIndexOf(sep) - 1;
+      if (dots + commas > 1) {
+        group = sep;
+      } else if (tail !== 3 || s.replace("-", "").indexOf(sep) === 1 && s.replace("-", "").charAt(0) === "0") {
+        decimal = sep;
+      } else {
+        // A lone separator with three digits behind it: the page language decides.
+        var localeGroup = ",";
+        try {
+          var parts = new Intl.NumberFormat(document.documentElement.lang || undefined).formatToParts(1000.5);
+          for (var p = 0; p < parts.length; p += 1) if (parts[p].type === "group") localeGroup = parts[p].value;
+        } catch (error) { /* keep the default */ }
+        if (sep === localeGroup) group = sep; else decimal = sep;
+      }
+    }
+    var normalized = s;
+    if (group) normalized = normalized.split(group).join("");
+    if (decimal) normalized = normalized.replace(decimal, ".");
+    return {
+      goal: Number.parseFloat(normalized) || 0,
+      decimals: decimal ? s.length - s.lastIndexOf(decimal) - 1 : 0,
+      group: group,
+      decimal: decimal
+    };
+  }
+  function countText(value, format) {
+    var text = value.toFixed(format.decimals);
+    var negative = text.charAt(0) === "-";
+    if (negative) text = text.slice(1);
+    var dot = text.indexOf(".");
+    var whole = dot === -1 ? text : text.slice(0, dot);
+    var fraction = dot === -1 ? "" : text.slice(dot + 1);
+    if (format.group) {
+      var grouped = "";
+      for (var i = 0; i < whole.length; i += 1) {
+        if (i > 0 && (whole.length - i) % 3 === 0) grouped += format.group;
+        grouped += whole.charAt(i);
+      }
+      whole = grouped;
+    }
+    return (negative ? "-" : "") + whole + (fraction ? format.decimal + fraction : "");
   }
   function triggerProps(config) {
     if (config.trigger === "load") return {};
@@ -416,6 +583,18 @@ export function renderPageScript(options: { lenis: boolean }): string {
         break;
       case "masked-headline": {
         var head = el.querySelector("h1, h2, h3") || el;
+        if (has.splittext) {
+          window.SplitText.create(head, {
+            type: "words",
+            mask: "words",
+            aria: "auto",
+            autoSplit: true,
+            onSplit: function (self) {
+              return gsap.from(self.words, Object.assign({ yPercent: 110, duration: duration, ease: ease, delay: delay, stagger: config.stagger || 0.06 }, triggerProps(config)));
+            }
+          });
+          break;
+        }
         var words = head.textContent.split(/\\s+/).filter(Boolean);
         head.innerHTML = words.map(function (w) {
           var safe = escapeHtml(w);
@@ -432,7 +611,7 @@ export function renderPageScript(options: { lenis: boolean }): string {
         break;
       case "parallax-subtle": {
         var factor = 0.1 + ((intensity - 1) / 9) * 0.2;
-        gsap.to(el, { y: function () { return -(el.offsetHeight * factor); }, ease: "none", scrollTrigger: { trigger: el, start: "top bottom", end: "bottom top", scrub: true } });
+        gsap.to(el, { y: function () { return -(el.offsetHeight * factor); }, ease: "none", scrollTrigger: { trigger: el, start: "top bottom", end: "bottom top", scrub: true, invalidateOnRefresh: true } });
         break;
       }
       case "scrub-pin":
@@ -443,7 +622,7 @@ export function renderPageScript(options: { lenis: boolean }): string {
         break;
       case "horizontal-pan": {
         var track = el.querySelector(".pan-track") || el;
-        gsap.to(track, { x: function () { return -(track.scrollWidth - window.innerWidth); }, ease: "none", scrollTrigger: { trigger: el, start: "top top", end: "+=150%", scrub: 1, pin: true } });
+        gsap.to(track, { x: function () { return -(track.scrollWidth - window.innerWidth); }, ease: "none", scrollTrigger: { trigger: el, start: "top top", end: "+=150%", scrub: 1, pin: true, invalidateOnRefresh: true } });
         break;
       }
       case "scroll-progress": {
@@ -459,13 +638,13 @@ export function renderPageScript(options: { lenis: boolean }): string {
         var targets = el.hasAttribute("data-count") ? [el] : Array.prototype.slice.call(el.querySelectorAll("[data-count]"));
         targets.forEach(function (target) {
           var raw = target.getAttribute("data-count") || "0";
-          var goal = Number.parseFloat(raw.replace(/[^0-9.,-]/g, "").replace(",", ".")) || 0;
-          var decimals = (raw.split(".")[1] || "").replace(/[^0-9]/g, "").length;
+          var format = countFormat(raw);
+          var goal = format.goal;
           var prefix = target.getAttribute("data-prefix") || "";
           var suffix = target.getAttribute("data-suffix") || "";
           var state = { value: 0 };
           var render = function () {
-            target.textContent = prefix + state.value.toFixed(decimals) + suffix;
+            target.textContent = prefix + countText(state.value, format) + suffix;
           };
           gsap.to(state, Object.assign({ value: goal, duration: Math.max(0.8, duration * 2), ease: ease, delay: delay, onUpdate: render }, triggerProps(config)));
           render();
@@ -474,6 +653,19 @@ export function renderPageScript(options: { lenis: boolean }): string {
       }
       case "char-split": {
         var source = el.querySelector("h1, h2, h3, p") || el;
+        if (has.splittext) {
+          window.SplitText.create(source, {
+            type: "chars,words",
+            aria: "auto",
+            autoSplit: true,
+            onSplit: function (self) {
+              // A word that is wider than its box overflows like plain text instead of breaking inside.
+              self.words.forEach(function (word) { word.style.whiteSpace = "nowrap"; });
+              return gsap.from(self.chars, Object.assign({ opacity: 0, y: 8, duration: 0.4, ease: ease, delay: delay, stagger: 0.02 }, triggerProps(config)));
+            }
+          });
+          break;
+        }
         var text = source.textContent;
         source.innerHTML = text.split("").map(function (ch) {
           return '<span style="display:inline-block">' + (ch === " " ? "&nbsp;" : escapeHtml(ch)) + "</span>";
@@ -629,18 +821,66 @@ export function renderIslandsScript(
     });
   });`);
   }
+  if (kinds.has("consent") || kinds.has("embed-gate")) {
+    // One consent state for the whole site: the cookie notice writes it, gated
+    // embeds read it, "Cookie-Einstellungen" links (`[data-consent-reset]`)
+    // withdraw it. The choice is "accept" or "decline"; a dismissed notice
+    // without a choice counts as no consent.
+    blocks.push(`
+  var consentApi = window.senifyConsent = window.senifyConsent || {
+    get: function () { try { return window.localStorage.getItem("senify-consent"); } catch { return null; } },
+    set: function (choice) {
+      try { window.localStorage.setItem("senify-consent", choice); } catch { /* private mode: lasts for this page */ }
+      document.dispatchEvent(new CustomEvent("senify:consent", { detail: choice }));
+    },
+    clear: function () {
+      try { window.localStorage.removeItem("senify-consent"); } catch { /* ignore */ }
+      document.dispatchEvent(new CustomEvent("senify:consent", { detail: null }));
+    }
+  };
+  document.querySelectorAll("[data-consent-reset]").forEach(function (link) {
+    link.addEventListener("click", function (event) {
+      event.preventDefault();
+      consentApi.clear();
+      window.location.reload();
+    });
+  });`);
+  }
   if (kinds.has("consent")) {
     blocks.push(`
   document.querySelectorAll('[data-island="consent"]').forEach(function (dialog) {
-    try {
-      if (window.localStorage.getItem("senify-consent")) { dialog.style.display = "none"; return; }
-    } catch { /* private mode: keep showing */ }
+    if (consentApi.get()) { dialog.style.display = "none"; return; }
     dialog.querySelectorAll("[data-consent]").forEach(function (button) {
       button.addEventListener("click", function () {
-        try { window.localStorage.setItem("senify-consent", button.getAttribute("data-consent") || "dismissed"); } catch { /* ignore */ }
+        consentApi.set(button.getAttribute("data-consent") === "accept" ? "accept" : "decline");
         dialog.style.display = "none";
       });
     });
+  });`);
+  }
+  if (kinds.has("embed-gate")) {
+    blocks.push(`
+  function loadGatedFrame(frame) {
+    var src = frame.getAttribute("data-consent-src");
+    if (!src) return;
+    frame.removeAttribute("data-consent-src");
+    frame.setAttribute("src", src);
+    frame.style.removeProperty("display");
+    frame.hidden = false;
+    var placeholder = frame.nextElementSibling;
+    if (placeholder && placeholder.hasAttribute("data-consent-placeholder")) placeholder.remove();
+  }
+  function loadAllGatedFrames() {
+    document.querySelectorAll("iframe[data-consent-src]").forEach(loadGatedFrame);
+  }
+  document.querySelectorAll("iframe[data-consent-src]").forEach(function (frame) {
+    var placeholder = frame.nextElementSibling;
+    var button = placeholder && placeholder.querySelector("[data-consent-load]");
+    if (button) button.addEventListener("click", function () { loadGatedFrame(frame); });
+  });
+  if (consentApi.get() === "accept") loadAllGatedFrames();
+  document.addEventListener("senify:consent", function (event) {
+    if (event.detail === "accept") loadAllGatedFrames();
   });`);
   }
   if (kinds.has("modal")) {

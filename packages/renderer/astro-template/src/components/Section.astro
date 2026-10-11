@@ -28,4 +28,4 @@ const usesCatalog = Object.values(nodes).some((node) =>
 ---
 
 {usesCatalog && <style is:inline set:html={PRIMITIVE_BASE_CSS} />}
-<SectionTree rootNodeId={tree.rootNodeId} nodes={nodes} ctx={ctx} />
+<SectionTree rootNodeId={tree.rootNodeId} nodes={nodes} ctx={ctx} landmarks />

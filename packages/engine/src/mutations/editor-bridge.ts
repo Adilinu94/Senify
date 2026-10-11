@@ -15,7 +15,7 @@
 // - structure ops keep the same meaning and only rename the node spec field
 //   (`primitive` -> `type`).
 // - `setNodeMeta` maps field by field onto `updateNodeMeta` (whole class list,
-//   hidden, locked). `assignClass` / `removeClass` use the diff form
+//   hidden, locked, variant). `assignClass` / `removeClass` use the diff form
 //   (`addClasses` / `removeClasses`), because the bridge is stateless and the
 //   caller does not send the surrounding list.
 // - `setMotion` / `clearMotion` map 1:1 onto the section motion ops; the spec
@@ -192,6 +192,7 @@ export function editorMutationToSection(mutation: EditorMutation): Mutation[] {
               : { classes: mutation.meta.classes === null ? null : [...mutation.meta.classes] }),
             ...(mutation.meta.hidden === undefined ? {} : { hidden: mutation.meta.hidden }),
             ...(mutation.meta.locked === undefined ? {} : { locked: mutation.meta.locked }),
+            ...(mutation.meta.variant === undefined ? {} : { variant: mutation.meta.variant }),
           },
         },
       ];

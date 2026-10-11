@@ -1,7 +1,10 @@
 export {
   SECTION_COMPONENTS,
   SectionTree,
+  cssEntryNodeIds,
   getSectionComponent,
+  mainRange,
+  priorityImageNodeId,
 } from "./map.tsx";
 export type {
   AssetDelivery,

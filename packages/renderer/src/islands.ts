@@ -7,6 +7,7 @@ export type IslandKind =
   | "billing"
   | "dismiss"
   | "consent"
+  | "embed-gate"
   | "modal"
   | "webgl-scene"
   | "payload";
@@ -14,6 +15,22 @@ export type IslandKind =
 export type Hydration =
   | { mode: "static" }
   | { mode: "island"; kinds: IslandKind[] };
+
+function isExternalUrl(value: unknown): boolean {
+  return typeof value === "string" && /^https?:\/\/[^/\s]+/i.test(value);
+}
+
+function gatesExternalFrame(node: Node): boolean {
+  const props = node.props as Record<string, unknown>;
+  if (node.type === "embed") {
+    return props.requireConsent !== false && isExternalUrl(props.url);
+  }
+  if (node.type === "video") {
+    const provider = typeof props.provider === "string" ? props.provider : "file";
+    return provider !== "file" && isExternalUrl(props.url);
+  }
+  return false;
+}
 
 export function islandsForNode(node: Node): IslandKind[] {
   const kinds: IslandKind[] = [];
@@ -38,6 +55,11 @@ export function islandsForNode(node: Node): IslandKind[] {
     const payloadId = node.props.payloadId;
     if (typeof payloadId === "string" && payloadId !== "") add("payload");
   }
+  // Third-party content waits for consent in the baked page (ConsentGate): an
+  // embed by URL, or a video that is an iframe of a provider. The editor and
+  // the bake read this one table, so the island is linked exactly where a
+  // placeholder is rendered.
+  if (gatesExternalFrame(node)) add("embed-gate");
   switch (node.type) {
     case "navbar":
       add("menu");

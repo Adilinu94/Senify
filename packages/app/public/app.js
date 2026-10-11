@@ -13,6 +13,21 @@ const themeToggle = document.getElementById("theme-toggle");
 
 const MODE_STORAGE_KEY = "senify-mode";
 
+// The technical keys stay in brackets: documentation, MCP tools and the editor
+// still call them clean / standard / showcase.
+const PROFILE_LABELS = {
+  clean: "Ruhig (clean) — wenig Bewegung, keine schweren Effekte",
+  standard: "Ausgewogen (standard) — sanfte Bewegung, sparsame Effekte",
+  showcase: "Auffällig (showcase) — alle Effekte, auch 3D",
+};
+
+const IMAGE_PROVIDER_LABELS = {
+  "image-use": "Image Use",
+  comfyui: "ComfyUI (auf diesem Rechner)",
+  custom: "Eigener Dienst",
+  off: "Aus",
+};
+
 const MUTATION_LABELS = {
   insertNode: "Sektion eingefügt",
   deleteNode: "Sektion entfernt",
@@ -115,84 +130,109 @@ function failed(error) {
   toast(`${friendlyError(error)}${hint}`, "error");
 }
 
-// Eigene Rückfragen statt der nativen `prompt()`/`confirm()`: beschriftet,
-// gestaltbar, per Tastatur bedienbar und in einem Browser-Test erreichbar
-// (native Dialoge schließt Playwright unbemerkt). Beide bauen ein
-// `<dialog class="modal ask-dialog">`. Esc bricht ab, Enter im Textfeld
-// bestätigt, und `showModal()` gibt den Fokus beim Schließen an den Auslöser
-// zurück. `packages/app/test/native-dialogs.test.ts` hält fest, dass
-// `app.js` keine nativen Dialoge mehr aufruft.
-let askCounter = 0;
-function openAsk({ title, message, value, confirmLabel, danger }) {
+// In-app replacements for window.prompt / window.confirm. The native dialogs
+// look like a browser warning, cannot be styled, block the page and read as
+// "something went wrong" on a phone. These use the same <dialog class="modal">
+// as the rest of the dashboard: a title, a labelled field, a button that says
+// what it does. Enter confirms, Escape and a click on the backdrop cancel, the
+// focus returns to where it was. Both return a promise:
+//   askText    -> the entered text, or null when cancelled
+//   askConfirm -> true / false
+// No native `prompt()`/`confirm()` anywhere: `native-dialogs.test.ts` guards
+// the threshold, `dialogs-browser.test.ts` drives them in a browser.
+let dialogSequence = 0;
+
+function openAskDialog({
+  title,
+  message,
+  label,
+  value = "",
+  multiline = false,
+  required = false,
+  requiredMessage = "Bitte etwas eingeben.",
+  confirmLabel = "OK",
+  cancelLabel = "Abbrechen",
+  danger = false,
+}) {
   return new Promise((resolve) => {
-    askCounter += 1;
-    const id = `ask-${askCounter}`;
-    const input =
-      value === undefined
-        ? undefined
-        : el("input", { type: "text", "aria-labelledby": `${id}-title` });
+    const id = `ask-dialog-${(dialogSequence += 1)}`;
+    const previousFocus = document.activeElement;
+    const wantsInput = label !== undefined;
+    const input = wantsInput
+      ? el(multiline ? "textarea" : "input", {
+          id: `${id}-input`,
+          ...(multiline ? { rows: "4" } : { type: "text", autocomplete: "off" }),
+        })
+      : null;
     if (input) input.value = value;
-    const cancel = el("button", {
+    const problem = el("p", { class: "ask-dialog__problem", role: "alert", hidden: "" });
+    const cancelButton = el("button", {
       type: "button",
       class: "ghost",
-      text: "Abbrechen",
+      text: cancelLabel,
       onclick: () => dialog.close("cancel"),
     });
-    const ok = el("button", {
+    // The only submit button: Enter in the field confirms, never cancels.
+    const confirmButton = el("button", {
       type: "submit",
       value: "ok",
       class: danger ? "danger" : "primary",
       text: confirmLabel,
     });
+    const form = el(
+      "form",
+      { method: "dialog" },
+      el("h2", { id: `${id}-title`, text: title }),
+      message === undefined ? null : el("p", { class: "muted", id: `${id}-message`, text: message }),
+      input ? el("label", { class: "muted", for: input.id, text: label }) : null,
+      input,
+      problem,
+      el("div", { class: "modal-actions" }, cancelButton, confirmButton),
+    );
     const dialog = el(
       "dialog",
       {
         class: "modal ask-dialog",
         "aria-labelledby": `${id}-title`,
-        "aria-describedby": message === undefined ? undefined : `${id}-message`,
+        ...(message === undefined ? {} : { "aria-describedby": `${id}-message` }),
+        "data-role": "ask-dialog",
       },
-      el(
-        "form",
-        { method: "dialog" },
-        el("h2", { id: `${id}-title`, text: title }),
-        message === undefined ? undefined : el("p", { id: `${id}-message`, text: message }),
-        input,
-        el("div", { class: "modal-actions" }, cancel, ok),
-      ),
+      form,
     );
+    form.addEventListener("submit", (event) => {
+      if (required && input && input.value.trim() === "") {
+        event.preventDefault();
+        problem.textContent = requiredMessage;
+        problem.hidden = false;
+        input.setAttribute("aria-invalid", "true");
+        input.focus();
+      }
+    });
+    // A click on the backdrop lands on the <dialog> itself, never on the form.
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) dialog.close("cancel");
+    });
     dialog.addEventListener("close", () => {
-      const accepted = dialog.returnValue === "ok";
-      const answer = input === undefined ? undefined : input.value;
+      const confirmed = dialog.returnValue !== "cancel" && dialog.returnValue !== "";
+      const answer = input ? (confirmed ? input.value.trim() : null) : confirmed;
       dialog.remove();
-      resolve({ accepted, answer });
+      if (previousFocus?.isConnected && typeof previousFocus.focus === "function") previousFocus.focus();
+      resolve(answer);
     });
     document.body.append(dialog);
     dialog.showModal();
-    // Ein Textfeld bekommt den Fokus; bei einer gefährlichen Rückfrage
-    // beginnt der Fokus auf „Abbrechen“, damit ein versehentliches Enter nichts
-    // zerstört.
     if (input) {
       input.focus();
       input.select();
-    } else if (danger) cancel.focus();
-    else ok.focus();
+    } else {
+      // A destructive question starts on "Abbrechen": Enter must not delete.
+      (danger ? cancelButton : confirmButton).focus();
+    }
   });
 }
 
-// Fragt nach einem Text. Liefert den Text (auch leer) oder `null` bei Abbruch.
-async function askText(label, { value = "", confirmLabel = "OK" } = {}) {
-  const { accepted, answer } = await openAsk({ title: label, value, confirmLabel });
-  return accepted ? answer : null;
-}
-
-// Fragt ja oder nein. Liefert `true` nur bei Bestätigung.
-async function askConfirm(
-  message,
-  { confirmLabel = "OK", danger = false, title = "Bitte bestätigen" } = {},
-) {
-  const { accepted } = await openAsk({ title, message, confirmLabel, danger });
-  return accepted;
-}
+const askText = (options) => openAskDialog(options);
+const askConfirm = (options) => openAskDialog({ ...options, label: undefined });
 
 function settingField(label, control, help) {
   const field = el("label", { class: "field" });
@@ -284,13 +324,29 @@ function activeTab(tab) {
   }
 }
 
-function render(nodes) {
+// Stale-Render-Guard: jede Runde von renderRoute bekommt eine Nummer. Eine
+// Ansicht holt sich beim Start (vor dem ersten await) ihren Stand mit
+// routeScope() und übergibt ihn an render(). Wird sie erst fertig, nachdem schon
+// eine neuere Navigation gestartet ist, schreibt sie nicht mehr über die Bühne:
+// sonst überschreibt die langsame Antwort der alten Route die neue Ansicht.
+let routeGeneration = 0;
+
+function routeScope() {
+  const generation = routeGeneration;
+  return () => generation === routeGeneration;
+}
+
+// Liefert false, wenn die Ansicht veraltet ist und nichts geschrieben wurde.
+function render(nodes, current = () => true) {
+  if (!current()) return false;
   view.replaceChildren(...nodes);
+  return true;
 }
 
 /* Views */
 
 async function libraryView(componentId = null) {
+  const current = routeScope();
   activeTab("library");
   const [{ components }, { sites }] = await Promise.all([
     api("/api/library-components"),
@@ -404,7 +460,13 @@ async function libraryView(componentId = null) {
         el("div", { class: "card-actions" },
           el("button", { class: "primary", text: "Installieren", onclick: () => void installFor(component) }),
           el("button", { text: "Notiz", onclick: async () => {
-            const notes = await askText("Notiz", { value: component.notes ?? "", confirmLabel: "Speichern" });
+            const notes = await askText({
+              title: "Notiz zur Komponente",
+              label: "Notiz",
+              value: component.notes ?? "",
+              multiline: true,
+              confirmLabel: "Speichern",
+            });
             if (notes === null) return;
             try {
               await api(`/api/library-components/${component.id}`, { method: "PATCH", body: { notes, author: AUTHOR } });
@@ -423,10 +485,11 @@ async function libraryView(componentId = null) {
         installs.length === 0 ? el("div", { class: "empty", text: "Noch in keinem Projekt installiert." }) : el("div", { class: "stack" }, installs)));
     }
   }
-  render(body);
+  render(body, current);
 }
 
 async function projectsView() {
+  const current = routeScope();
   const { sites } = await api("/api/sites");
   const releases = await Promise.all(
     sites.map((site) =>
@@ -489,11 +552,17 @@ async function projectsView() {
     sites.length === 0
       ? el("div", { class: "empty", text: "Noch keine Projekte — lege das erste an." })
       : el("div", { class: "card-grid" }, cards),
-  ]);
+  ], current);
 }
 
 async function createSite() {
-  const name = await askText("Name des Projekts", { confirmLabel: "Anlegen" });
+  const name = await askText({
+    title: "Neues Projekt",
+    label: "Name des Projekts",
+    required: true,
+    requiredMessage: "Bitte einen Namen eingeben.",
+    confirmLabel: "Anlegen",
+  });
   if (!name) return;
   try {
     const site = await api("/api/sites", { method: "POST", body: { name } });
@@ -505,7 +574,14 @@ async function createSite() {
 }
 
 async function renameSite(site) {
-  const name = await askText("Neuer Name", { value: site.name, confirmLabel: "Umbenennen" });
+  const name = await askText({
+    title: "Projekt umbenennen",
+    label: "Neuer Name",
+    value: site.name,
+    required: true,
+    requiredMessage: "Bitte einen Namen eingeben.",
+    confirmLabel: "Umbenennen",
+  });
   if (!name || name === site.name) return;
   try {
     await api(`/api/sites/${site.id}`, {
@@ -544,11 +620,13 @@ duplicateForm.addEventListener("submit", async (event) => {
 });
 
 async function trashSite(site) {
-  const confirmed = await askConfirm(`„${site.name}“ in den Papierkorb verschieben?`, {
-    confirmLabel: "In den Papierkorb",
+  const move = await askConfirm({
+    title: "In den Papierkorb verschieben?",
+    message: `„${site.name}“ wird in den Papierkorb verschoben.`,
+    confirmLabel: "Verschieben",
     danger: true,
   });
-  if (!confirmed) return;
+  if (!move) return;
   try {
     await api(`/api/sites/${site.id}/trash`, {
       method: "POST",
@@ -562,6 +640,7 @@ async function trashSite(site) {
 }
 
 async function trashView() {
+  const current = routeScope();
   const { sites } = await api("/api/sites?trash=1");
   render([
     el(
@@ -622,11 +701,13 @@ async function trashView() {
                       class: "danger",
                       text: "Endgültig löschen",
                       onclick: async () => {
-                        const confirmed = await askConfirm(
-                          `„${site.name}“ endgültig löschen? Das kann nicht rückgängig gemacht werden.`,
-                          { confirmLabel: "Endgültig löschen", danger: true },
-                        );
-                        if (!confirmed) return;
+                        const sure = await askConfirm({
+                          title: "Endgültig löschen?",
+                          message: `„${site.name}“ endgültig löschen? Das kann nicht rückgängig gemacht werden.`,
+                          confirmLabel: "Endgültig löschen",
+                          danger: true,
+                        });
+                        if (!sure) return;
                         try {
                           await api(`/api/sites/${site.id}`, { method: "DELETE" });
                           toast("Projekt endgültig gelöscht");
@@ -642,7 +723,7 @@ async function trashView() {
             ),
           ),
         ),
-  ]);
+  ], current);
 }
 
 const snapshotDialog = document.getElementById("snapshot-dialog");
@@ -683,7 +764,13 @@ async function deleteReference(reference) {
     used > 0
       ? `„${reference.name}“ ist ${used} Projekt(en) zugeordnet. Trotzdem löschen?`
       : `„${reference.name}“ löschen?`;
-  if (!(await askConfirm(message, { confirmLabel: "Löschen", danger: true }))) return;
+  const sure = await askConfirm({
+    title: "Referenz löschen?",
+    message,
+    confirmLabel: "Löschen",
+    danger: true,
+  });
+  if (!sure) return;
   try {
     await api(`/api/references/${reference.id}${used > 0 ? "?force=1" : ""}`, {
       method: "DELETE",
@@ -1436,7 +1523,13 @@ async function refsDeleteCollection(collection) {
     count > 0
       ? `„${collection.name}“ löschen? ${count} Referenz(en) bleiben erhalten und werden keiner Sammlung mehr zugeordnet.`
       : `„${collection.name}“ löschen?`;
-  if (!(await askConfirm(message, { confirmLabel: "Löschen", danger: true }))) return;
+  const sure = await askConfirm({
+    title: "Sammlung löschen?",
+    message,
+    confirmLabel: "Löschen",
+    danger: true,
+  });
+  if (!sure) return;
   try {
     const result = await api(`/api/reference-collections/${collection.id}`, {
       method: "DELETE",
@@ -2050,10 +2143,11 @@ function refsResetFilters() {
 }
 
 async function referencesView() {
+  const current = routeScope();
   activeTab("references");
   refsApplyAddress();
   const dom = refsBuildShell();
-  render([dom.root]);
+  if (!render([dom.root], current)) return;
   await refsRefresh();
   refsRenderTray();
 }
@@ -3146,6 +3240,7 @@ function backupRow(backup) {
 }
 
 async function settingsView() {
+  const current = routeScope();
   const { tokens } = await api("/api/tokens");
   const settings = await api("/api/settings");
   const backups = await api("/api/backups");
@@ -3169,7 +3264,13 @@ async function settingsView() {
             : el("button", {
                 class: "danger",
                 text: "Widerrufen",                 onclick: async () => {
-                   if (!(await askConfirm(`Token „${token.name}“ wirklich widerrufen? Danach kann der Client nicht mehr zugreifen.`, { confirmLabel: "Widerrufen", danger: true }))) return;
+                  const sure = await askConfirm({
+                    title: "Token widerrufen?",
+                    message: `Token „${token.name}“ wirklich widerrufen? Danach kann der Client nicht mehr zugreifen.`,
+                    confirmLabel: "Widerrufen",
+                    danger: true,
+                  });
+                  if (!sure) return;
                    try {
                      await api(`/api/tokens/${token.id}`, { method: "DELETE" });
                     toast("Token widerrufen");
@@ -3191,10 +3292,10 @@ async function settingsView() {
       el("h2", { text: "Agenten-Zugänge" }),
       el("p", {
         class: "muted",
-        text: "Scoped Tokens für MCP-Clients (Claude Code, Cursor, opencode). Clients verbindest du im Terminal mit `senify mcp configure`.",
+        text: "Zugangsschlüssel (Tokens) für KI-Werkzeuge wie Claude Code, Cursor oder opencode, die deine Projekte bearbeiten dürfen. Jeder Schlüssel hat nur die Rechte, die du ihm gibst. Ein Werkzeug verbindest du im Terminal mit `senify mcp configure`.",
       }),
       tokens.length === 0
-        ? el("p", { class: "muted", text: "Noch keine Tokens." })
+        ? el("p", { class: "muted", text: "Noch keine Zugangsschlüssel." })
         : el(
             "table",
             {},
@@ -3205,8 +3306,8 @@ async function settingsView() {
                 "tr",
                 {},
                 el("th", { text: "Name" }),
-                el("th", { text: "Scopes" }),
-                el("th", { text: "Prefix" }),
+                el("th", { text: "Rechte" }),
+                el("th", { text: "Kennung" }),
                 el("th", { text: "Letzte Nutzung" }),
                 el("th", { text: "Status" }),
                 el("th", {}),
@@ -3220,19 +3321,19 @@ async function settingsView() {
         settingField(
           "Name",
           el("input", { id: "token-name", type: "text", placeholder: "z. B. Claude Code" }),
-          "Eine lesbare Bezeichnung für den Client.",
+          "Woran du das Werkzeug erkennst, zum Beispiel sein Name.",
         ),
         settingField(
           "Berechtigungen",
           el("input", { id: "token-scopes", type: "text", value: "read,write" }),
-          "Kommagetrennt, zum Beispiel read,write.",
+          "read = ansehen, write = ändern, publish = veröffentlichen. Mehrere mit Komma trennen.",
         ),
         el(
           "div",
           { class: "settings-actions" },
           el("button", {
             class: "primary",
-            text: "Token anlegen",
+            text: "Zugangsschlüssel anlegen",
             onclick: async () => {
               const name = document.getElementById("token-name").value.trim();
               const scopes = document
@@ -3247,7 +3348,7 @@ async function settingsView() {
               }
               try {
                 const created = await api("/api/tokens", { method: "POST", body: { name, scopes } });
-                toast(`Token angelegt — Secret (einmalig): ${created.secret}`);
+                toast(`Zugangsschlüssel angelegt — Geheimnis (wird nur jetzt angezeigt): ${created.secret}`);
                 await renderRoute();
               } catch (error) {
                 failed(error);
@@ -3263,12 +3364,12 @@ async function settingsView() {
       el("h2", { text: "E-Mail" }),
       el("p", {
         class: "muted",
-        text: "SMTP-Postfach für Formular-Benachrichtigungen und Newsletter. Das Passwort wird verschlüsselt gespeichert und nie angezeigt.",
+        text: "Das Postfach, über das Senify Mails verschickt: Benachrichtigungen zu Formularen und Newsletter. Die Zugangsdaten bekommst du von deinem Mail-Anbieter (SMTP). Das Passwort wird verschlüsselt gespeichert und nie angezeigt.",
       }),
       el(
         "div",
         { class: "settings-grid" },
-        settingField("Server", el("input", { id: "smtp-host", type: "text", placeholder: "smtp.example.com", value: settings.email.host })),
+        settingField("Server", el("input", { id: "smtp-host", type: "text", placeholder: "smtp.example.com", value: settings.email.host }), "Der Postausgangsserver deines Mail-Anbieters."),
         settingField("Port", el("input", { id: "smtp-port", type: "number", placeholder: "587", value: String(settings.email.port) })),
         settingField(
           "Verschlüsselung",
@@ -3278,17 +3379,23 @@ async function settingsView() {
             ...["starttls", "tls", "none"].map((mode) =>
               el("option", {
                 value: mode,
-                text: mode === "starttls" ? "STARTTLS" : mode.toUpperCase(),
+                text:
+                  mode === "starttls"
+                    ? "Verschlüsselt, meist Port 587 (STARTTLS)"
+                    : mode === "tls"
+                      ? "Verschlüsselt, meist Port 465 (TLS)"
+                      : "Unverschlüsselt (nur im eigenen Netz)",
                 selected: mode === settings.email.tls ? "" : undefined,
               }),
             ),
           ),
+          "Im Zweifel die erste Auswahl; der Mail-Anbieter nennt den passenden Port.",
         ),
       ),
       el(
         "div",
         { class: "settings-grid", style: "margin-top: 0.75rem" },
-        settingField("Benutzer", el("input", { id: "smtp-user", type: "text", placeholder: "Benutzer", value: settings.email.user })),
+        settingField("Benutzer", el("input", { id: "smtp-user", type: "text", placeholder: "meist die E-Mail-Adresse", value: settings.email.user })),
         settingField(
           "Passwort",
           el("input", {
@@ -3299,7 +3406,7 @@ async function settingsView() {
               : "noch nicht gespeichert",
           }),
         ),
-        settingField("Absender", el("input", { id: "smtp-from", type: "text", placeholder: "Absender, z. B. formular@kunde.de", value: settings.email.from })),
+        settingField("Absender", el("input", { id: "smtp-from", type: "text", placeholder: "z. B. formular@kunde.de", value: settings.email.from }), "Diese Adresse sehen die Empfänger als Absender."),
       ),
       el(
         "div",
@@ -3369,41 +3476,41 @@ async function settingsView() {
       el("h2", { text: "Bildgenerierung" }),
       el("p", {
         class: "muted",
-        text: "Provider-Kette für generate_image: Der erste Provider springt ein; fällt er aus, übernimmt der Fallback, am Ende immer die lokale ComfyUI-Reserve. Der API-Key des Custom-Endpoints wird verschlüsselt gespeichert und nie angezeigt.",
+        text: "Woher Senify Bilder bekommt, wenn ein KI-Werkzeug oder du ein Bild erzeugen lässt. Zuerst fragt Senify den ersten Dienst; fällt er aus, übernimmt der zweite, zuletzt immer ComfyUI auf diesem Rechner. Der Schlüssel für einen eigenen Dienst wird verschlüsselt gespeichert und nie angezeigt.",
       }),
       el(
         "div",
         { class: "settings-grid" },
         settingField(
-          "Provider",
+          "Erster Dienst",
           el(
             "select",
             { id: "image-provider" },
             ...["image-use", "comfyui", "custom", "off"].map((provider) =>
               el("option", {
                 value: provider,
-                text: provider === "image-use" ? "Image Use" : provider === "off" ? "Aus" : provider,
+                text: IMAGE_PROVIDER_LABELS[provider] ?? provider,
                 selected: provider === settings.image.provider ? "" : undefined,
               }),
             ),
           ),
         ),
         settingField(
-          "Fallback",
+          "Zweiter Dienst (wenn der erste ausfällt)",
           el(
             "select",
             { id: "image-fallback" },
             ...["comfyui", "image-use", "custom", "none"].map((provider) =>
               el("option", {
                 value: provider,
-                text: provider === "none" ? "Kein Fallback" : provider === "image-use" ? "Image Use" : provider,
+                text: provider === "none" ? "Keiner" : (IMAGE_PROVIDER_LABELS[provider] ?? provider),
                 selected: provider === settings.image.fallbackProvider ? "" : undefined,
               }),
             ),
           ),
         ),
       ),
-      el("h3", { text: "Custom-Endpoint (eigene API)" }),
+      el("h3", { text: "Eigener Dienst (eigene Schnittstelle)" }),
       el(
         "div",
         { class: "settings-grid" },
@@ -3455,7 +3562,7 @@ async function settingsView() {
         ),
         el("button", {
           class: "primary",
-          text: "Bild-API-Einstellungen speichern",
+          text: "Bild-Einstellungen speichern",
           onclick: async () => {
             const value = (id) => document.getElementById(id).value;
             const key = value("image-custom-key");
@@ -3501,7 +3608,7 @@ async function settingsView() {
       ),
       el("p", {
         class: "muted",
-        text: "Formate: minimax (POST /image_generation, aspect_ratio) oder openai (POST /images/generations, size).",
+        text: "Das Format ist die Sprache, die dein Dienst spricht: MiniMax oder OpenAI-kompatibel. Welche zutrifft, steht in der Beschreibung des Dienstes.",
       }),
     ),
     el(
@@ -3608,24 +3715,24 @@ async function settingsView() {
       el("h2", { text: "Standardwerte" }),
       el("p", {
         class: "muted",
-        text: "Gelten für neue Projekte, das Standard-Layout und den Programmstart.",
+        text: "Gelten für neue Projekte und für den Programmstart. Was „Niveau“ bedeutet: wie viel Bewegung und Effekte eine Seite haben darf.",
       }),
       el(
         "div",
         { class: "inline" },
-        el("label", { class: "muted", for: "defaults-profile" }, "Standard-Niveau"),
+        el("label", { class: "muted", for: "defaults-profile" }, "Niveau für neue Projekte"),
         el(
           "select",
           { id: "defaults-profile" },
           ...["clean", "standard", "showcase"].map((profile) =>
             el("option", {
               value: profile,
-              text: profile,
+              text: PROFILE_LABELS[profile] ?? profile,
               selected: profile === settings.defaults.defaultProfile ? "" : undefined,
             }),
           ),
         ),
-        el("label", { class: "muted", for: "defaults-layout" }, "Standard-Layout"),
+        el("label", { class: "muted", for: "defaults-layout" }, "Layout für neue Seiten"),
         el("input", { id: "defaults-layout", type: "text", value: settings.defaults.defaultLayout }),
       ),
       el(
@@ -3636,7 +3743,7 @@ async function settingsView() {
           type: "checkbox",
           checked: settings.defaults.autostart ? "" : undefined,
         }),
-        " Autostart: beim `senify start` den Browser automatisch öffnen",
+        " Beim Start von Senify (`senify start`) den Browser automatisch öffnen",
       ),
       el("button", {
         class: "primary",
@@ -3661,7 +3768,7 @@ async function settingsView() {
         },
       }),
     ),
-  ]);
+  ], current);
 }
 
 const WORKSPACE_TABS = [
@@ -3709,20 +3816,153 @@ function workspaceFrame(siteId, site, tab, live) {
   return [head, el("div", { class: "workspace-tabs" }, tabs)];
 }
 
+// "Neue Seite": title, optional path and a start template. The templates come
+// from the engine (`GET /api/page-starters`), so the dashboard never lists one
+// the server does not know. A page without a typed path gets one derived from
+// the title by the server.
+async function openNewPageDialog(siteId) {
+  let starters;
+  try {
+    starters = (await api("/api/page-starters")).starters;
+  } catch (error) {
+    failed(error);
+    return;
+  }
+  const previousFocus = document.activeElement;
+  const id = `new-page-${(dialogSequence += 1)}`;
+  const titleInput = el("input", { id: `${id}-title`, type: "text", autocomplete: "off", "data-role": "new-page-title" });
+  const pathInput = el("input", {
+    id: `${id}-path`,
+    type: "text",
+    autocomplete: "off",
+    placeholder: "Wird aus dem Titel erzeugt",
+    "data-role": "new-page-path",
+    "aria-describedby": `${id}-path-help`,
+  });
+  const problem = el("p", { class: "ask-dialog__problem", role: "alert", hidden: "" });
+  const group = el(
+    "div",
+    { role: "radiogroup", "aria-labelledby": `${id}-starter-label`, class: "starter-list" },
+    starters.map((starter, index) =>
+      el(
+        "label",
+        { class: "radio starter-option" },
+        el("input", {
+          type: "radio",
+          name: "starter",
+          value: starter.id,
+          ...(index === 0 ? { checked: "" } : {}),
+        }),
+        el(
+          "span",
+          {},
+          el("strong", { text: starter.label }),
+          el("span", { class: "muted", text: ` — ${starter.description}` }),
+        ),
+      ),
+    ),
+  );
+  const submitButton = el("button", { type: "submit", value: "ok", class: "primary", text: "Seite anlegen" });
+  const form = el(
+    "form",
+    { method: "dialog" },
+    el("h2", { id: `${id}-heading`, text: "Neue Seite" }),
+    el("label", { class: "muted", for: titleInput.id, text: "Titel" }),
+    titleInput,
+    el("label", { class: "muted", for: pathInput.id, text: "Adresse (optional)" }),
+    pathInput,
+    el("p", { class: "muted", id: `${id}-path-help`, text: "Zum Beispiel /ueber-uns. Leer lassen, dann wählen wir die Adresse passend zum Titel." }),
+    el("p", { class: "muted", id: `${id}-starter-label`, text: "Vorlage" }),
+    group,
+    problem,
+    el(
+      "div",
+      { class: "modal-actions" },
+      el("button", { type: "button", class: "ghost", text: "Abbrechen", onclick: () => dialog.close("cancel") }),
+      submitButton,
+    ),
+  );
+  const dialog = el("dialog", { class: "modal ask-dialog", "aria-labelledby": `${id}-heading`, "data-role": "new-page-dialog" }, form);
+  const close = () => {
+    dialog.remove();
+    if (previousFocus?.isConnected && typeof previousFocus.focus === "function") previousFocus.focus();
+  };
+  dialog.addEventListener("close", close);
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) dialog.close("cancel");
+  });
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    problem.hidden = true;
+    const starter = new FormData(form).get("starter") ?? "blank";
+    const title = titleInput.value.trim();
+    let path = pathInput.value.trim();
+    if (path !== "" && !path.startsWith("/")) path = `/${path}`;
+    submitButton.disabled = true;
+    submitButton.textContent = "Lege an …";
+    try {
+      const page = await api(`/api/sites/${siteId}/pages`, {
+        method: "POST",
+        body: {
+          starter,
+          ...(title === "" ? {} : { title }),
+          ...(path === "" ? {} : { path }),
+        },
+      });
+      dialog.close("ok");
+      if (page.starter && page.starter.applied === false) {
+        toast(`Seite angelegt, die Vorlage ließ sich nicht einsetzen: ${page.starter.reason}`, "error");
+      } else {
+        toast("Seite angelegt");
+      }
+      location.hash = `#/projects/${siteId}/pages/${page.id}`;
+    } catch (error) {
+      // The two answers a person can cause with the address field, in plain
+      // words; everything else keeps the general wording.
+      problem.textContent =
+        error?.status === 409
+          ? "Diese Adresse gehört schon zu einer anderen Seite. Bitte eine andere wählen."
+          : error?.status === 400 && path !== ""
+            ? "Die Adresse ist ungültig. Sie beginnt mit „/“ und enthält keine Leerzeichen, „?“ oder „#“."
+            : `${friendlyError(error)}${error?.suggestion ? ` — ${error.suggestion}` : ""}`;
+      problem.hidden = false;
+      pathInput.setAttribute("aria-invalid", String(error?.status === 409 || (error?.status === 400 && path !== "")));
+      submitButton.disabled = false;
+      submitButton.textContent = "Seite anlegen";
+    }
+  });
+  document.body.append(dialog);
+  dialog.showModal();
+  titleInput.focus();
+}
+
 async function projectView(siteId, tab) {
+  const current = routeScope();
   const [site, { pages }, { releases }] = await Promise.all([
     api(`/api/sites/${siteId}`),
     api(`/api/sites/${siteId}/pages`),
     api(`/api/sites/${siteId}/releases`),
   ]);
+  if (!current()) return;
   activeTab("projects");
   const frame = workspaceFrame(siteId, site, tab, releases.length > 0);
   const body = [];
   if (tab === "pages") {
     body.push(
-      el("h2", { text: "Seiten" }),
+      el(
+        "div",
+        { class: "toolbar" },
+        el("h2", { text: "Seiten", style: "margin: 0" }),
+        el("div", { class: "spacer" }),
+        el("button", {
+          class: "primary",
+          text: "Neue Seite",
+          "data-action": "new-page",
+          onclick: () => void openNewPageDialog(siteId),
+        }),
+      ),
       pages.length === 0
-        ? el("div", { class: "empty", text: "Noch keine Seiten." })
+        ? el("div", { class: "empty", text: "Noch keine Seiten — lege die erste an, am schnellsten mit einer Vorlage." })
         : el(
             "table",
             {},
@@ -3824,8 +4064,12 @@ async function projectView(siteId, tab) {
       el(
         "div",
         { class: "panel" },
-        el("p", {}, el("strong", { text: "Pfad-Präfix: " }), el("code", { text: site.slug })),
-        el("p", {}, el("strong", { text: "Niveau: " }), site.profile),
+        el("p", {}, el("strong", { text: "Kurzname (steht in Adressen und Dateinamen): " }), el("code", { text: site.slug })),
+        el("p", {}, el("strong", { text: "Niveau (Bewegung und Effekte): " }), PROFILE_LABELS[site.profile] ?? site.profile),
+        el("p", {
+          class: "muted",
+          text: "Den Namen änderst du in der Projektliste unter „Umbenennen“. Auslieferung und Deploy findest du weiter unten.",
+        }),
         el(
           "div",
           { class: "inline" },
@@ -3859,10 +4103,6 @@ async function projectView(siteId, tab) {
         el("p", {
           class: "muted",
           text: `Unter dieser Adresse öffnen Besucher die Seite. Sie steckt in canonical, Sitemap, og:url und der Formularprüfung. Leer lassen: Platzhalter ${site.slug}.senify.xyz.`,
-        }),
-        el("p", {
-          class: "muted",
-          text: "Name ändern, Stil-Referenz und Deploy folgen mit den nächsten Schritten.",
         }),
       ),
     );
@@ -4384,7 +4624,7 @@ async function projectView(siteId, tab) {
       );
     }
   }
-  render([...frame, ...body]);
+  render([...frame, ...body], current);
 }
 
 /* Artikel-Workspace */
@@ -4466,11 +4706,13 @@ function readCells(fields) {
 }
 
 async function articlesView(siteId) {
+  const current = routeScope();
   const [site, { releases }, { collections }] = await Promise.all([
     api(`/api/sites/${siteId}`),
     api(`/api/sites/${siteId}/releases`),
     api(`/api/sites/${siteId}/collections`),
   ]);
+  if (!current()) return;
   activeTab("projects");
   const frame = workspaceFrame(siteId, site, "articles", releases.length > 0);
   if (collections.length === 0) {
@@ -4480,7 +4722,7 @@ async function articlesView(siteId) {
         class: "empty",
         text: "Noch keine Sammlungen. Agenten legen sie an (create_collection) — oder ein Formular erzeugt sie per Klick.",
       }),
-    ]);
+    ], current);
     return;
   }
   if (!collections.some((collection) => collection.id === articlesCollectionId)) {
@@ -4515,7 +4757,13 @@ async function articlesView(siteId) {
         class: "primary",
         text: "Neuer Artikel",
         onclick: async () => {
-          const title = await askText("Titel des Artikels", { confirmLabel: "Anlegen" });
+          const title = await askText({
+            title: "Neuer Artikel",
+            label: "Titel des Artikels",
+            required: true,
+            requiredMessage: "Bitte einen Titel eingeben.",
+            confirmLabel: "Anlegen",
+          });
           if (!title) return;
           try {
             const created = await api(`/api/sites/${siteId}/entries`, {
@@ -4580,12 +4828,14 @@ async function articlesView(siteId) {
             ),
           ),
         ),
-  ]);
+  ], current);
 }
 
 async function articleEditorView(siteId, entryId) {
+  const current = routeScope();
   const entry = await api(`/api/entries/${entryId}`);
   const collection = await api(`/api/collections/${entry.collectionId}`);
+  if (!current()) return;
   activeTab("projects");
   const fields = (collection.fields ?? []).filter((field) => field.deprecated !== true);
   const controls = fields.map((field) =>
@@ -4745,7 +4995,7 @@ async function articleEditorView(siteId, entryId) {
     ),
     controlsHost,
     previewPanel,
-  ]);
+  ], current);
 }
 
 function reviewPanel(siteId, review) {
@@ -5062,16 +5312,22 @@ function reviewFigure(label, src, kind = "") {
   );
 }
 
-const REVIEW_ACTION_LABELS = {
-  approve: "Approve",
-  "request-changes": "Änderungen anfragen",
-  discard: "Verwerfen",
-};
-
 async function reviewAction(siteId, reviewId, action) {
-  // Abbrechen bricht die Aktion ab; nur die Bestätigung führt sie aus.
-  const comment = await askText("Kommentar (optional)", {
-    confirmLabel: REVIEW_ACTION_LABELS[action] ?? "OK",
+  const labels = {
+    approve: ["Review freigeben", "Freigeben"],
+    "request-changes": ["Änderungen anfordern", "Anfordern"],
+    discard: ["Review verwerfen", "Verwerfen"],
+  };
+  const [reviewTitle, reviewConfirm] = labels[action] ?? ["Review aktualisieren", "Senden"];
+  // Cancelling now cancels the action. The native prompt answered "Abbrechen"
+  // with null, which the old `?? ""` turned into an empty comment — the review
+  // was approved, requested or discarded although the user backed out.
+  const comment = await askText({
+    title: reviewTitle,
+    label: "Kommentar (optional)",
+    multiline: true,
+    confirmLabel: reviewConfirm,
+    danger: action === "discard",
   });
   if (comment === null) return;
   try {
@@ -6381,7 +6637,17 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   const explorer = editor.createExplorer({
     host: explorerHost,
     store: session.store,
-    prompt: (message, initial) => askText(message, { value: initial, confirmLabel: "Speichern" }),
+    // The variant name is asked in the dashboard's own dialog, not in the
+    // browser's prompt.
+    prompt: (message, initial) =>
+      askText({
+        title: message,
+        label: "Name",
+        value: initial,
+        required: true,
+        requiredMessage: "Bitte einen Namen eingeben.",
+        confirmLabel: "Speichern",
+      }),
     tabs: [
       {
         id: "pages",
@@ -6862,6 +7128,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
 }
 
 async function pageView(siteId, pageId, initialSearch) {
+  const current = routeScope();
   const page = await api(`/api/pages/${pageId}`);
   // Das Site-Profil (Ticket 20): der Editor zeigt es und validiert Profil-
   // Wechsel gegen das Dokument, bevor er den PATCH ausloest.
@@ -6953,6 +7220,11 @@ async function pageView(siteId, pageId, initialSearch) {
     }
   }
   await refreshMedia();
+  // Das Laden braucht mehrere Anfragen. Wer in der Zwischenzeit weitergeklickt
+  // hat, soll nicht von der zu spät fertigen Seite überschrieben werden: die
+  // Liste, die er gerade ansieht, wäre sonst mitten im Klick weg.
+  const stillHere = () => location.hash.startsWith(`#/projects/${siteId}/pages/${pageId}`);
+  if (!stillHere()) return;
 
   // Ein sichtbarer Editorpfad (E5 Scheibe 1): der Umbau-Canvas (`mountCanvas`,
   // v2-Dokument) ist der Editor. Seit P3-1 Punkt 4 gibt es keinen zweiten
@@ -6969,7 +7241,9 @@ async function pageView(siteId, pageId, initialSearch) {
     el("span", { class: "muted", id: "page-version", text: `Draft v${page.draftVersion}` }),
   );
   const host = el("div", { class: "editor-host", id: "editor-host" });
-  render([toolbar, host]);
+  // Veraltet: die Navigation ging weiter, der Editor darf nicht mehr einhängen
+  // (Tastatur-Handler, Zeitgeber und Stores blieben sonst an einem losen Host).
+  if (!render([toolbar, host], current)) return;
 
   let editor = null;
   try {
@@ -6977,6 +7251,7 @@ async function pageView(siteId, pageId, initialSearch) {
   } catch {
     editor = null;
   }
+  if (!stillHere()) return;
 
   // P3-1 Punkt 4 (R5): the v1 editor is deleted, so `?view=editor` is no longer
   // a second editing path but a **notice**: the deep link lands on the canvas
@@ -7193,6 +7468,7 @@ function routeErrorView(error) {
 }
 
 async function renderRoute() {
+  const generation = (routeGeneration += 1);
   const hash = location.hash || "#/";
   const question = hash.indexOf("?");
   const route = question === -1 ? hash : hash.slice(0, question);
@@ -7239,7 +7515,7 @@ async function renderRoute() {
       // liegt als Fenster darueber. Die Adresse faellt danach auf die
       // Bibliothek zurueck, damit „Zurueck" das Fenster nicht schliesst.
       await referencesView();
-      await refsOpenInspector(referenceMatch[1], { replace: true });
+      if (generation === routeGeneration) await refsOpenInspector(referenceMatch[1], { replace: true });
     } else if (route === "#/trash") {
       activeTab("projects");
       await trashView();
@@ -7248,8 +7524,11 @@ async function renderRoute() {
       await projectsView();
     }
   } catch (error) {
-    failed(error);
-    render([routeErrorView(error)]);
+    // Ein Fehler der veralteten Route gehört nicht auf die Bühne der neuen.
+    if (generation === routeGeneration) {
+      failed(error);
+      render([routeErrorView(error)]);
+    }
   }
   if (refsTray) refsRenderTray();
 }

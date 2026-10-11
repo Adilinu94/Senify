@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import { LinkValueSchema, type SectionDefinition } from "@senify/section-sdk";
-import { linkPart, sectionStyleProps, textProp, thumbs } from "../shared.ts";
+import { linkPart, linkProp, sectionStyleProps, textProp, thumbs } from "../shared.ts";
 
 export const footerSection: SectionDefinition = {
   type: "footer",
@@ -28,6 +28,9 @@ export const footerSection: SectionDefinition = {
       ),
     },
     textProp("legal", "Legal note", "Content"),
+    textProp("ctaHeadline", "CTA strip: headline", "Actions"),
+    textProp("ctaLabel", "CTA strip: button label", "Actions"),
+    linkProp("ctaLink", "CTA strip: button link", "Actions"),
     {
       key: "social",
       control: "list",
@@ -71,6 +74,9 @@ export const footerSection: SectionDefinition = {
           },
         ],
         legal: "© 2026 Musterstudio. Alle Rechte vorbehalten.",
+        ctaHeadline: "Bereit für Ihr nächstes Projekt?",
+        ctaLabel: "Gespräch vereinbaren",
+        ctaLink: { url: "/kontakt" },
         social: [
           { label: "Instagram", link: { url: "https://instagram.com/musterstudio" } },
           { label: "LinkedIn", link: { url: "https://linkedin.com/company/musterstudio" } },

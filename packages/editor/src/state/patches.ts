@@ -35,6 +35,8 @@ export type DocumentPatch =
         hidden?: boolean | null;
         hiddenDevices?: HiddenDevice[] | null;
         locked?: boolean | null;
+        // The section variant; `null` returns the node to the section's default.
+        variant?: string | null;
       };
     }
   | { patch: "setNodeMotion"; id: NodeId; spec: MotionSpec | null }
@@ -137,6 +139,10 @@ export function applyDocumentPatch(
       if (fields.locked !== undefined) {
         if (fields.locked === null) delete node.locked;
         else node.locked = fields.locked;
+      }
+      if (fields.variant !== undefined) {
+        if (fields.variant === null) delete node.variant;
+        else node.variant = fields.variant;
       }
       return;
     }

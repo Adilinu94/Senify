@@ -11,10 +11,17 @@
 // `describePrimitive` (widget-engine/markup.ts). Adding a foundation stone is a
 // catalog entry plus a description, never a new component.
 
-import type { ElementType, ReactNode } from "react";
+import { useContext, type ElementType, type ReactNode } from "react";
 import type { Node, PropValue } from "@senify/section-sdk";
 import { describePrimitive, type ElementSpec, type MarkupAttrs } from "@senify/widget-engine";
-import { motionPendingAttrs, nodeRootClasses, resolveAsset, type SectionContext } from "./shared.tsx";
+import { GatedIframe, needsConsent } from "./ConsentGate.tsx";
+import {
+  MotionEntryContext,
+  motionPendingAttrs,
+  nodeRootClasses,
+  resolveAsset,
+  type SectionContext,
+} from "./shared.tsx";
 
 export type PrimitiveProps = {
   node: Node;
@@ -28,6 +35,8 @@ type RenderScope = {
   children: ReactNode;
   slots: Record<string, ReactNode>;
   ctx: SectionContext;
+  // The nodes that enter through CSS on this render (`MotionEntryContext`).
+  entering?: ReadonlySet<string>;
 };
 
 function reactAttrs(
@@ -52,6 +61,17 @@ function reactAttrs(
       if (asset.height !== null) attrs.height = asset.height;
     }
   }
+  // Loading hints for every image: the likely LCP image (picked by
+  // `SectionTree`) loads first, the rest lazily and off the main thread.
+  if (spec.tag === "img" && attrs.loading === undefined) {
+    if (spec.root === true && scope.ctx.priorityNodeId === scope.node.id) {
+      attrs.loading = "eager";
+      attrs.fetchPriority = "high";
+    } else {
+      attrs.loading = "lazy";
+      attrs.decoding = "async";
+    }
+  }
   const classes =
     spec.root === true
       ? [...(spec.classes ?? []), ...nodeRootClasses(scope.node)]
@@ -60,7 +80,7 @@ function reactAttrs(
   if (spec.root === true) {
     attrs["data-node-id"] = scope.node.id;
     attrs["data-widget"] = scope.node.type;
-    Object.assign(attrs, motionPendingAttrs(scope.node));
+    Object.assign(attrs, motionPendingAttrs(scope.node, scope.entering));
   }
   return attrs;
 }
@@ -85,10 +105,27 @@ function renderSpec(spec: ElementSpec, scope: RenderScope, key: string): ReactNo
     if (slotContent !== undefined) parts.push(slotContent);
   }
   if (spec.text !== undefined && spec.text !== "") parts.push(spec.text);
+  const attrs = reactAttrs(spec, scope);
+  // An external iframe (embed, video by URL) waits for the visitor's consent in
+  // the baked page; the editor canvas shows it live.
+  if (
+    spec.tag === "iframe" &&
+    typeof attrs.src === "string" &&
+    needsConsent(attrs.src, scope.ctx)
+  ) {
+    const { src, title, ...rest } = attrs as Record<string, unknown> & { src: string; title?: unknown };
+    return (
+      <GatedIframe
+        key={key}
+        src={src}
+        title={typeof title === "string" ? title : "Externer Inhalt"}
+        iframeProps={rest}
+      />
+    );
+  }
   const Tag = spec.tag as ElementType;
   // `key` is passed directly, never through the spread: React reads a `key`
   // inside a props object as a mistake and warns about it.
-  const attrs = reactAttrs(spec, scope);
   // Void elements (img, hr, input, iframe) never receive children here: the
   // description gives them none.
   return (
@@ -101,6 +138,7 @@ function renderSpec(spec: ElementSpec, scope: RenderScope, key: string): ReactNo
 // `describePrimitive` answers `undefined` for a section type of the running
 // registry; the caller (`map.tsx`) then takes the section render path.
 export function PrimitiveNode({ node, children, slots, ctx }: PrimitiveProps): ReactNode {
+  const entering = useContext(MotionEntryContext);
   const described = describePrimitive(node.type, node.props as Record<string, PropValue>);
   if (described === undefined) return null;
   return renderSpec(
@@ -110,6 +148,7 @@ export function PrimitiveNode({ node, children, slots, ctx }: PrimitiveProps): R
       children: children ?? null,
       slots: slots ?? {},
       ctx,
+      ...(entering === undefined ? {} : { entering }),
     },
     node.id,
   );

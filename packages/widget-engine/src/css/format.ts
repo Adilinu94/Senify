@@ -41,8 +41,19 @@ export function resolveTokenRef(
 }
 
 // `borderTopWidth` -> `border-top-width`.
-export function camelToKebab(name: string): string {
+const KEBAB_CACHE = new Map<string, string>();
+function camelToKebabUncached(name: string): string {
   return name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+}
+export function camelToKebab(value: string): string {
+  let cached = KEBAB_CACHE.get(value);
+  if (cached === undefined) {
+    cached = camelToKebabUncached(value);
+    // Open-CSS names are user input: keep the cache bounded.
+    if (KEBAB_CACHE.size >= 4096) KEBAB_CACHE.clear();
+    KEBAB_CACHE.set(value, cached);
+  }
+  return cached;
 }
 
 // A string that already carries its own unit, function call or keyword

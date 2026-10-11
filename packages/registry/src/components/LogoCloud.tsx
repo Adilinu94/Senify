@@ -19,16 +19,29 @@ export function LogoCloud({ node, ctx }: SectionProps): React.JSX.Element {
     alt?: unknown;
   }[];
   const marquee = node.variant === "marquee";
+  // `grid` sets every logo in an equal, framed tile so rows line up; `wrap`
+  // (and a section without a variant) keeps the loose centred flow.
+  const grid = node.variant === "grid";
   const list = (hidden: boolean): React.JSX.Element => (
     <ul
       aria-hidden={hidden || undefined}
-      className={marquee && !hidden ? "marquee-track" : cx(!marquee && "flex flex-wrap items-center justify-center gap-8")}
+      className={
+        marquee && !hidden
+          ? "marquee-track"
+          : cx(
+              grid && "grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4",
+              !marquee && !grid && "flex flex-wrap items-center justify-center gap-8",
+            )
+      }
       style={marquee ? undefined : gapStyle(node)}
     >
       {logos.map((logo, index) => {
         const asset = resolveAsset(logo.asset, ctx);
         return (
-          <li key={index}>
+          <li
+            key={index}
+            className={grid ? "flex items-center justify-center border border-[var(--line)] px-6 py-8" : undefined}
+          >
             {asset ? (
               <ResponsiveImage
                 asset={asset}

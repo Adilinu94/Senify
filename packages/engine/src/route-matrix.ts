@@ -214,6 +214,7 @@ type Override = { status: MatrixStatus; note: string };
 // MCP audit writer.
 const OVERRIDES: Record<string, Override> = {
   "GET /api/health": { status: "Operator", note: "CLI/Dashboard (`senify doctor`)" },
+  "GET /api/page-starters": { status: "Operator", note: "Dashboard (Startvorlagen für „Neue Seite“)" },
   "GET /api/events": { status: "Operator", note: "SSE-Kanal (Editor/Dashboard)" },
   "POST /api/mcp/audit": {
     status: "Tool",

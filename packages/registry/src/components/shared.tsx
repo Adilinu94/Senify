@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import { motionCssEffect, motionPends, type Node, type PropValue } from "@senify/section-sdk";
 import { scopeNameFor } from "@senify/widget-engine";
 import { partVarsFor, styleValue } from "../style.ts";
@@ -8,7 +8,29 @@ export { styleValue } from "../style.ts";
 export type SectionContext = {
   pagePaths: Record<string, string>;
   assets: Record<string, AssetDelivery>;
+  // The path of the page being rendered ("/", "/kontakt"). Navigation marks the
+  // link that points here with aria-current="page". Absent in the editor canvas.
+  currentPath?: string;
+  // The document language, for the few strings the renderer adds itself (the
+  // skip link). Defaults to German, the language of the product.
+  lang?: string;
+  // The one image node worth loading eagerly with high priority: the likely
+  // LCP element. `SectionTree` sets it from the first screenful of the page.
+  priorityNodeId?: string;
+  // The baked page: external iframes wait for the visitor's consent (see
+  // ConsentGate). The editor canvas leaves this off and shows live content.
+  gateEmbeds?: boolean;
+  // The baked page ships the CSS entry rules (`motionEntryCss` in the renderer):
+  // reveals above the fold are stamped `data-motion-enter` and play without the
+  // motion scripts. The editor canvas leaves this off — its live mode runs every
+  // reveal through the page script, and no entry rule exists there.
+  cssEntry?: boolean;
 };
+
+// The nodes that enter through CSS on this render (`cssEntryNodeIds`). The tree
+// root provides them, the section shell and the primitive root read them — a
+// context rather than a prop so the 30 section components stay as they are.
+export const MotionEntryContext = createContext<ReadonlySet<string> | undefined>(undefined);
 
 export type AssetVariantFormat = "avif" | "webp";
 
@@ -213,6 +235,21 @@ export type LinkTarget = {
   broken?: boolean;
 };
 
+// "/kontakt/", "/kontakt?x=1" and "/kontakt#top" are the same page.
+function normalizePath(href: string): string {
+  const bare = href.split("#")[0]?.split("?")[0] ?? "";
+  return bare.length > 1 ? bare.replace(/\/+$/, "") : bare;
+}
+
+// True when an internal link points at the page being rendered. External
+// links, anchors and renders without a current path (the canvas) are never
+// "current".
+export function isCurrentPage(href: string | undefined, ctx: SectionContext): boolean {
+  if (href === undefined || ctx.currentPath === undefined) return false;
+  if (!href.startsWith("/") || href.startsWith("//")) return false;
+  return normalizePath(href) === normalizePath(ctx.currentPath);
+}
+
 export function resolveLink(
   link: unknown,
   ctx: SectionContext,
@@ -323,6 +360,7 @@ export function ResponsiveImage({
   className,
   style,
   loading = "lazy",
+  priority = false,
 }: {
   asset: ResolvedAsset;
   alt: string;
@@ -330,13 +368,23 @@ export function ResponsiveImage({
   className?: string;
   style?: React.CSSProperties;
   loading?: "lazy" | "eager";
+  // The likely LCP image: loaded eagerly and fetched first. Everything else
+  // stays lazy and decodes off the main thread.
+  priority?: boolean;
 }): React.JSX.Element {
+  const effectiveLoading = priority ? "eager" : loading;
+  const fetchPriority = priority ? "high" : undefined;
+  const decoding = priority ? undefined : "async";
   if (asset.variants.length === 0) {
     return (
       <img
         src={asset.src}
+        width={asset.width ?? undefined}
+        height={asset.height ?? undefined}
         alt={alt}
-        loading={loading}
+        loading={effectiveLoading}
+        fetchPriority={fetchPriority}
+        decoding={decoding}
         data-missing-asset={asset.missing ? "" : undefined}
         className={className}
         style={style}
@@ -356,7 +404,9 @@ export function ResponsiveImage({
         width={asset.width ?? undefined}
         height={asset.height ?? undefined}
         alt={alt}
-        loading={loading}
+        loading={effectiveLoading}
+        fetchPriority={fetchPriority}
+        decoding={decoding}
         data-missing-asset={asset.missing ? "" : undefined}
         data-blurhash={asset.blurhash ?? undefined}
         className={className}
@@ -383,10 +433,18 @@ export function focalStyle(asset: unknown): React.CSSProperties | undefined {
 // attribute is inert there because the pending CSS lives only in the bake.
 // The pure-CSS effects (M6) stamp `data-motion="<preset>"` instead: the page
 // block targets it, one block per preset per page.
-export function motionPendingAttrs(node: Node): Record<string, string> {
+//
+// A reveal that enters through CSS (`entering`: the bake decided it is above the
+// fold) is not hidden by the marker at all: it gets `data-motion-enter` and the
+// page's entry rule animates it from the first paint, script or not.
+export function motionPendingAttrs(
+  node: Node,
+  entering?: ReadonlySet<string>,
+): Record<string, string> {
   const motion = node.motion;
   if (motion === undefined || motion.enabled === false) return {};
   if (motionCssEffect(motion.preset)) return { "data-motion": motion.preset };
+  if (entering?.has(node.id) === true) return { "data-motion-enter": motion.preset };
   return motionPends(motion.preset) ? { "data-motion-pending": "" } : {};
 }
 
@@ -407,19 +465,26 @@ export function SectionShell({
   className,
   children,
   style,
+  role,
 }: {
   node: Node;
   section: string;
   className?: string;
   children: ReactNode;
   style?: React.CSSProperties;
+  // A landmark role for sections that are page chrome (banner, contentinfo).
+  // The element stays a <section>: the canvas and its tests address sections by
+  // tag, and the role gives assistive technology the same structure.
+  role?: "banner" | "contentinfo";
 }): React.JSX.Element {
+  const entering = useContext(MotionEntryContext);
   return (
     <section
+      role={role}
       data-section={section}
       data-variant={node.variant}
       data-node-id={node.id}
-      {...motionPendingAttrs(node)}
+      {...motionPendingAttrs(node, entering)}
       className={cx(className, ...nodeRootClasses(node))}
       style={{ ...sectionStyle(node), ...style }}
     >

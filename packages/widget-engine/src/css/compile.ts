@@ -15,6 +15,7 @@ import {
 } from "../device.ts";
 import {
   CASCADE_LAYER,
+  HOVER_GUARD,
   STATE_ORDER,
   classSelector,
   globalClassSelector,
@@ -26,7 +27,12 @@ import {
   type MediaDevice,
   type StateName,
 } from "./cascade.ts";
-import { declarationsForValues, type Declaration, type TranslateOptions } from "./properties.ts";
+import {
+  declarationsForValues,
+  type Declaration,
+  type DroppedValue,
+  type TranslateOptions,
+} from "./properties.ts";
 import { isSafeRawCss, normalizeRawCss } from "./value-grammar.ts";
 
 export type CssNode = {
@@ -108,8 +114,16 @@ export type CompiledRule = {
   declarations: Declaration[];
 };
 
+// A value the compiler dropped because it is not valid CSS, with the selector
+// of the rule it would have been part of. The stylesheet stays silent about it
+// (the browser would ignore the declaration too), this list does not.
+export type CssDiagnostic = DroppedValue & { selector: string };
+
 export type CssReport = {
   css: string;
+  // Dropped values, in the order the compiler met them, once per selector,
+  // property and reason.
+  diagnostics: CssDiagnostic[];
   bytes: number;
   characters: number;
   ruleCount: number;
@@ -155,7 +169,10 @@ export function inlineStyleFor(
   options: TranslateOptions = {},
 ): string {
   if (node.inline === undefined) return "";
-  return declarationsForValues(node.primitive, resolveAllForDevice(node.inline, device), options)
+  return declarationsForValues(node.primitive, resolveAllForDevice(node.inline, device), {
+    ...options,
+    includeDefaults: true,
+  })
     .map((declaration) => `${declaration.property}: ${declaration.value}`)
     .join("; ");
 }
@@ -282,18 +299,55 @@ export function overlayDeviceValues(strong: DeviceValueMap, weak: DeviceValueMap
 function expandSources(
   sources: readonly ValueSource[],
   options: CompileOptions,
+  scope: { selector: string },
 ): { blocks: string[]; rules: CompiledRule[]; ruleCount: number; declarationCount: number } {
   const blocks: string[] = [];
   const rules: CompiledRule[] = [];
   let ruleCount = 0;
   let declarationCount = 0;
-  const buckets: Record<MediaDevice, { blocks: string[]; rules: CompiledRule[] }> = {
-    tablet: { blocks: [], rules: [] },
-    mobile: { blocks: [], rules: [] },
+
+  // A rule waiting for its block. Hover rules are written inside the hover
+  // guard, and neighbours in the same layer share one guard; everything else
+  // keeps the plain block. The order of the layer is never changed — a hover
+  // rule stays between the rules it was emitted between.
+  type Pending = { hover: boolean; selector: string; declarations: Declaration[] };
+  const renderLayer = (pending: readonly Pending[], indent: number): string[] => {
+    const out: string[] = [];
+    let run: string[] = [];
+    const flushRun = (): void => {
+      if (run.length === 0) return;
+      out.push(writeMedia(HOVER_GUARD, run, indent));
+      run = [];
+    };
+    for (const entry of pending) {
+      if (entry.hover) {
+        run.push(writeBlock(entry.selector, entry.declarations, indent + 1));
+        continue;
+      }
+      flushRun();
+      out.push(writeBlock(entry.selector, entry.declarations, indent));
+    }
+    flushRun();
+    return out;
   };
 
+  let desktopRun: Pending[] = [];
+  const flushDesktop = (): void => {
+    if (desktopRun.length === 0) return;
+    blocks.push(...renderLayer(desktopRun, 0));
+    desktopRun = [];
+  };
+  const buckets: Record<MediaDevice, { pending: Pending[]; rules: CompiledRule[] }> = {
+    tablet: { pending: [], rules: [] },
+    mobile: { pending: [], rules: [] },
+  };
+
+  // State and class rules sit above the node's own values: a default value there
+  // overrides what is below, so it must not be dropped as redundant.
+  const layerOptions: CompileOptions = { ...options, includeDefaults: true };
   for (const source of sources) {
-    const per = declarationsPerDevice(source.primitive, source.values, options);
+    scope.selector = source.selector;
+    const per = declarationsPerDevice(source.primitive, source.values, layerOptions);
     const ruleFor = (
       media: string | null,
       declarations: Declaration[],
@@ -306,13 +360,16 @@ function expandSources(
       ...(source.context === undefined ? {} : { context: source.context }),
       declarations,
     });
+    const hover = source.state === "hover";
 
     // A custom condition nests the device blocks inside its at-rule: the two
-    // conditions are independent, so they may not be merged with `and`.
+    // conditions are independent, so they may not be merged with `and`. A hover
+    // rule nests inside the condition the same way.
     if (source.context !== undefined) {
+      const depth = hover ? 2 : 1;
       const inner: string[] = [];
       if (per.desktop.length > 0) {
-        inner.push(writeBlock(source.selector, per.desktop, 1));
+        inner.push(writeBlock(source.selector, per.desktop, depth));
         rules.push(ruleFor(null, per.desktop));
         ruleCount += 1;
         declarationCount += per.desktop.length;
@@ -321,18 +378,23 @@ function expandSources(
         const declarations = per[device];
         if (declarations.length === 0) continue;
         inner.push(
-          writeMedia(mediaQueryFor(device), [writeBlock(source.selector, declarations, 2)], 1),
+          writeMedia(mediaQueryFor(device), [writeBlock(source.selector, declarations, depth + 1)], depth),
         );
         rules.push(ruleFor(mediaQueryFor(device), declarations));
         ruleCount += 1;
         declarationCount += declarations.length;
       }
-      if (inner.length > 0) blocks.push(writeMedia(source.context, inner, 0));
+      if (inner.length > 0) {
+        flushDesktop();
+        blocks.push(
+          writeMedia(source.context, hover ? [writeMedia(HOVER_GUARD, inner, 1)] : inner, 0),
+        );
+      }
       continue;
     }
 
     if (per.desktop.length > 0) {
-      blocks.push(writeBlock(source.selector, per.desktop, 0));
+      desktopRun.push({ hover, selector: source.selector, declarations: per.desktop });
       rules.push(ruleFor(null, per.desktop));
       ruleCount += 1;
       declarationCount += per.desktop.length;
@@ -341,17 +403,18 @@ function expandSources(
       const declarations = per[device];
       if (declarations.length === 0) continue;
       const bucket = buckets[device];
-      bucket.blocks.push(writeBlock(source.selector, declarations, 1));
+      bucket.pending.push({ hover, selector: source.selector, declarations });
       bucket.rules.push(ruleFor(mediaQueryFor(device), declarations));
       ruleCount += 1;
       declarationCount += declarations.length;
     }
   }
+  flushDesktop();
 
   for (const device of ["tablet", "mobile"] as const) {
     const bucket = buckets[device];
-    if (bucket.blocks.length === 0) continue;
-    blocks.push(writeMedia(mediaQueryFor(device), bucket.blocks, 0));
+    if (bucket.pending.length === 0) continue;
+    blocks.push(writeMedia(mediaQueryFor(device), renderLayer(bucket.pending, 1), 0));
     rules.push(...bucket.rules);
   }
 
@@ -359,14 +422,31 @@ function expandSources(
 }
 
 type BuildResult = {
+  diagnostics: CssDiagnostic[];
   blocks: string[];
   rules: CompiledRule[];
   ruleCount: number;
   declarationCount: number;
 };
 
-function build(document: CssDocument, options: CompileOptions): BuildResult {
+function build(document: CssDocument, compileOptions: CompileOptions): BuildResult {
   const flat = flattenNodes(document.nodes);
+  // Dropped values are collected on the way: one shared callback, the scope
+  // tells it which selector the value belonged to. No allocation per node.
+  const diagnostics: CssDiagnostic[] = [];
+  const seen = new Set<string>();
+  const scope = { selector: "" };
+  const options: CompileOptions = {
+    ...compileOptions,
+    onDrop: (drop) => {
+      const key = `${scope.selector}\u0000${drop.property}\u0000${drop.reason}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        diagnostics.push({ ...drop, selector: scope.selector });
+      }
+      compileOptions.onDrop?.(drop);
+    },
+  };
   const selectorFor = options.selectorFor ?? defaultSelectorFor;
   const blocks: string[] = [];
   const rules: CompiledRule[] = [];
@@ -382,9 +462,10 @@ function build(document: CssDocument, options: CompileOptions): BuildResult {
 
   // 1 — base values (desktop).
   for (const node of flat) {
+    scope.selector = selectorFor(node.id);
     const declarations = declarationsForNode(node, "desktop", options);
     if (declarations.length === 0) continue;
-    const selector = selectorFor(node.id);
+    const selector = scope.selector;
     push(
       {
         media: null,
@@ -405,6 +486,7 @@ function build(document: CssDocument, options: CompileOptions): BuildResult {
     const query = mediaQueryFor(device);
     for (const node of flat) {
       if (node.props === undefined) continue;
+      scope.selector = selectorFor(node.id);
       const resolved = resolveAllForDevice(node.props, device);
       const baseline = resolveAllForDevice(node.props, previousDevice(device));
       const declarations = declarationsForValues(node.primitive, resolved, {
@@ -449,7 +531,7 @@ function build(document: CssDocument, options: CompileOptions): BuildResult {
       });
     }
   }
-  const stateStage = expandSources(stateSources, options);
+  const stateStage = expandSources(stateSources, options, scope);
   blocks.push(...stateStage.blocks);
   rules.push(...stateStage.rules);
   ruleCount += stateStage.ruleCount;
@@ -611,7 +693,7 @@ function build(document: CssDocument, options: CompileOptions): BuildResult {
     }
   }
 
-  const classStage = expandSources(classSources, options);
+  const classStage = expandSources(classSources, options, scope);
   blocks.push(...classStage.blocks);
   rules.push(...classStage.rules);
   ruleCount += classStage.ruleCount;
@@ -624,7 +706,7 @@ function build(document: CssDocument, options: CompileOptions): BuildResult {
     blocks.push(normalizeRawCss(rule.rawCss));
   }
 
-  return { blocks, rules, ruleCount, declarationCount };
+  return { diagnostics, blocks, rules, ruleCount, declarationCount };
 }
 
 export function compileCssReport(document: CssDocument, options: CompileOptions = {}): CssReport {
@@ -635,6 +717,7 @@ export function compileCssReport(document: CssDocument, options: CompileOptions 
     built.blocks.length === 0 ? "" : layer === null ? body : `@layer ${layer} {\n${indentText(body, 1)}\n}`;
   return {
     css,
+    diagnostics: built.diagnostics,
     bytes: measureCss(css),
     characters: css.length,
     ruleCount: built.ruleCount,

@@ -1,10 +1,11 @@
 import { PAGE_ROOT_TYPE, type NodeTree } from "@senify/section-sdk";
 import { styleVarsFor } from "@senify/registry";
 import {
-  compileCss,
+  compileCssReport,
   scopeNameFor,
   scopeSelectorFor,
   styleRuleToClassRule,
+  type CssDiagnostic,
   type CssNode,
   type StyleRule,
 } from "@senify/widget-engine";
@@ -120,6 +121,17 @@ export function styleRulesCss(
   pages: readonly StyleCssPage[],
   rules: readonly StyleRule[],
 ): string {
+  return styleRulesReport(pages, rules).css;
+}
+
+// The same compile as `styleRulesCss`, with the values the compiler had to drop
+// (an invalid keyword, an unsafe property name, an object where a value belongs).
+// The bake turns them into warnings, so a rule that silently did nothing is
+// visible in the release report.
+export function styleRulesReport(
+  pages: readonly StyleCssPage[],
+  rules: readonly StyleRule[],
+): { css: string; diagnostics: CssDiagnostic[] } {
   const nodes = new Map<string, CssNode>();
   for (const page of pages) {
     for (const node of Object.values(page.tree.nodes)) {
@@ -159,7 +171,7 @@ export function styleRulesCss(
       nodes.set(node.id, cssNode);
     }
   }
-  return compileCss({
+  const report = compileCssReport({
     nodes: [...nodes.values()],
     classRules: remapScopedRules(pages, rules)
       .flatMap((rule) => {
@@ -173,6 +185,7 @@ export function styleRulesCss(
       })
       .map((rule) => styleRuleToClassRule(rule)),
   });
+  return { css: report.css, diagnostics: report.diagnostics };
 }
 
 // A scoped rule is owned by exactly one node and generated (`createScopedRule`),

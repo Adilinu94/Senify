@@ -635,20 +635,21 @@ function inlineHtmlOf(node: IrNode, fallback: string): string {
   return html !== "" ? html : escapeHtml(fallback);
 }
 
-// One element as inline markup. Recursive and returning its HTML: an empty own
-// text (`<p><a>Tel</a></p>`: the paragraph has no text of its own) must fall
-// through to the children, never count as "has text", or the link inside the
-// paragraph is dropped together with its label.
+// One element as inline markup. Recursive and returning its HTML: `text.content`
+// is only the element's OWN text (the capture stores "" or whitespace for an
+// element that just holds children, e.g. `<p><a>Tel</a></p>`). So the children
+// always render into the element, in document order, and the own text goes
+// first — an either/or would drop the children whenever the element carries
+// whitespace of its own (regression: navigation and mail links vanished).
 function inlineOf(child: IrNode): string {
   if (child.innerHtml !== undefined && child.innerHtml !== null) {
     const inner = sanitizeInlineHtml(child.innerHtml);
     return HEADING_TAGS.has(child.tag) || child.tag === "p" ? `<${child.tag}>${inner}</${child.tag}>` : inner;
   }
-  const own = child.states[0]?.text?.content ?? "";
-  const inner = own !== "" ? escapeHtml(own) : child.children.map(inlineOf).join("");
+  const inner = escapeHtml(child.states[0]?.text?.content ?? "") + child.children.map(inlineOf).join("");
   if (child.tag === "a" && child.href !== null) {
     const newTab = child.target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : "";
-    return `<a href="${escapeHtmlAttr(child.href)}"${newTab}>${inner}</a>`;
+    return `<a href="${escapeHtmlAttr(child.href.trim())}"${newTab}>${inner}</a>`;
   }
   if (
     HEADING_TAGS.has(child.tag) ||

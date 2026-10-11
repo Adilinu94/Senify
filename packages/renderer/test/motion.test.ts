@@ -7,6 +7,7 @@ import {
   motionConfigsForTree,
   motionDataFor,
   motionEffectCss,
+  motionEntryCss,
   pageEffectsForTree,
   pageTransitionCss,
   parseDurationMs,
@@ -369,5 +370,87 @@ describe("pure-CSS effects and the preloader (document presets)", () => {
     expect(motionEffectCss("ambient-float", 1)).toContain("senify-float 19s");
     expect(motionEffectCss("grain", 1)).toContain("senify-grain 7s");
     expect(motionEffectCss("fade-up", 5)).toBe("");
+  });
+});
+
+describe("reveals above the fold as CSS", () => {
+  it("turns the nodes the registry picked into entries instead of payload configs", () => {
+    const tree = treeWithMotion([
+      { id: "a", preset: "fade-up", intensity: 6 },
+      { id: "b", preset: "fade-up-deblur", intensity: 1 },
+      { id: "c", preset: "scroll-reveal" },
+      { id: "d", preset: "fade-up" },
+      { id: "e", preset: "masked-headline" },
+    ]);
+    const { configs, entries, warnings } = motionConfigsForTree(tree, TOKENS, {
+      cssEntry: new Set(["a", "b", "c", "e"]),
+    });
+    expect(warnings).toEqual([]);
+    // `d` was not picked, `e` is a preset the script has to run.
+    expect(configs.map((config) => config.nodeId)).toEqual(["d", "e"]);
+    expect(entries.map((entry) => entry.nodeId)).toEqual(["a", "b", "c"]);
+    // The travel is the script's: 8 + intensity * 3.2, 16 for scroll-reveal.
+    expect(entries[0]).toMatchObject({ travel: 27.2, blur: false, durationMs: 300, delayMs: 0 });
+    expect(entries[0]?.ease).toBe("cubic-bezier(0.22, 1, 0.36, 1)");
+    expect(entries[1]).toMatchObject({ travel: 11.2, blur: true });
+    expect(entries[2]).toMatchObject({ travel: 16, blur: false });
+  });
+
+  it("keeps every reveal in the payload when nothing is picked (the editor's live mode)", () => {
+    const tree = treeWithMotion([{ id: "a", preset: "fade-up" }]);
+    const { configs, entries } = motionConfigsForTree(tree, TOKENS);
+    expect(configs).toHaveLength(1);
+    expect(entries).toEqual([]);
+  });
+
+  it("still warns about a reveal that runs too long", () => {
+    const tree = treeWithMotion([{ id: "a", preset: "fade-up" }]);
+    const node = tree.nodes.a;
+    if (node?.motion === undefined) throw new Error("fixture lost its motion");
+    node.motion = { ...node.motion, tokens: { ease: "snappy", durationScale: 4, stagger: 1 } };
+    const { warnings, entries } = motionConfigsForTree(tree, TOKENS, { cssEntry: new Set(["a"]) });
+    expect(entries).toHaveLength(1);
+    expect(warnings.map((warning) => warning.code)).toEqual(["reveal-too-long"]);
+  });
+
+  it("writes one keyframe per kind and one rule per node, with the reduced-motion policy", () => {
+    const base = { durationMs: 600, delayMs: 120, ease: "ease-out", blur: false } as const;
+    const css = motionEntryCss([
+      { nodeId: "a", preset: "fade-up", travel: 27.2, reducedMotion: "static", ...base },
+      { nodeId: "b", preset: "fade-up", travel: 11.2, reducedMotion: "fade", ...base },
+      { nodeId: "c", preset: "fade-up", travel: 8, reducedMotion: "off", ...base },
+      { nodeId: "d", preset: "fade-up-deblur", travel: 8, reducedMotion: "static", ...base, blur: true },
+    ]);
+    expect(css.match(/@keyframes senify-enter\{/g)).toHaveLength(1);
+    expect(css.match(/@keyframes senify-enter-deblur\{/g)).toHaveLength(1);
+    expect(css).toContain("filter:blur(8px)");
+    expect(css).toContain(
+      '[data-node-id="a"]{--senify-enter-y:27.2px;animation:senify-enter 600ms ease-out 120ms backwards}',
+    );
+    // static: at rest under reduced motion; fade: the 400 ms opacity fade; off: untouched.
+    expect(css).toContain('@media (prefers-reduced-motion:reduce){[data-node-id="a"]{animation:none}}');
+    expect(css).toContain(
+      '@media (prefers-reduced-motion:reduce){[data-node-id="b"]{animation:senify-enter-fade 400ms ease-out backwards}}',
+    );
+    expect(css).toContain("@keyframes senify-enter-fade{from{opacity:0}}");
+    expect(css).not.toContain('[data-node-id="c"]{animation');
+    expect(css).toContain('[data-node-id="d"]{--senify-enter-y:8px;animation:senify-enter-deblur');
+    expect(motionEntryCss([])).toBe("");
+  });
+
+  it("lets only a plain timing function into the stylesheet", () => {
+    const entry = (token: string) => {
+      const tree = treeWithMotion([{ id: "a", preset: "fade-up" }]);
+      return motionConfigsForTree(
+        tree,
+        { ...TOKENS, ease: { snappy: token } },
+        { cssEntry: new Set(["a"]) },
+      ).entries[0]?.ease;
+    };
+    expect(entry("cubic-bezier(0.4, 0, 0.2, 1)")).toBe("cubic-bezier(0.4, 0, 0.2, 1)");
+    expect(entry("linear(0, 0.5 40%, 1)")).toBe("linear(0, 0.5 40%, 1)");
+    // A value that is no timing function (or tries to leave the declaration) falls back.
+    expect(entry("ease; } body { display: none")).toBe("cubic-bezier(0.215, 0.61, 0.355, 1)");
+    expect(entry("url(javascript:alert(1))")).toBe("cubic-bezier(0.215, 0.61, 0.355, 1)");
   });
 });

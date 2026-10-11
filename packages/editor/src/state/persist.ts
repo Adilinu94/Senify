@@ -285,6 +285,7 @@ export function patchesToPending(patches: readonly DocumentPatch[]): {
           ...(patch.fields.classes === undefined ? {} : { classes: patch.fields.classes }),
           ...(patch.fields.hidden === undefined ? {} : { hidden: patch.fields.hidden }),
           ...(patch.fields.locked === undefined ? {} : { locked: patch.fields.locked }),
+          ...(patch.fields.variant === undefined ? {} : { variant: patch.fields.variant }),
         };
         if (Object.keys(meta).length > 0) {
           pending.push({

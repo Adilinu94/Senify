@@ -47,7 +47,7 @@ describe.skipIf(!browserAvailable)("eigene Dialoge statt prompt() und confirm()"
       await newButton.click();
       await dialog.waitFor();
       expect(await dialog.getAttribute("aria-labelledby")).not.toBeNull();
-      expect(await tab.getByRole("dialog", { name: "Name des Projekts" }).count()).toBe(1);
+      expect(await tab.getByRole("dialog", { name: "Neues Projekt" }).count()).toBe(1);
       expect(await tab.evaluate("document.activeElement?.tagName")).toBe("INPUT");
       const axe = await new AxeBuilder({ page: tab })
         .include("dialog.ask-dialog")
@@ -92,7 +92,7 @@ describe.skipIf(!browserAvailable)("eigene Dialoge statt prompt() und confirm()"
 
       await renamed.getByRole("button", { name: "Papierkorb" }).click();
       await dialog.waitFor();
-      await dialog.getByRole("button", { name: "In den Papierkorb" }).click();
+      await dialog.getByRole("button", { name: "Verschieben" }).click();
       await dialog.waitFor({ state: "detached" });
       await tab.waitForSelector(".empty");
 

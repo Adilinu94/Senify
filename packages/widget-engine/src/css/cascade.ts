@@ -35,17 +35,42 @@ export type CascadeStage = (typeof CASCADE_ORDER)[number];
 // Decision O11 (17.09.): four pseudo states. `disabled` is not a transient
 // interaction like the other three — it is a form state — but it belongs to the
 // same stage, and it emits last so it wins against `active` when both are set.
-export type StateName = "hover" | "focus" | "active" | "disabled";
+//
+// `focus-visible` and `focus-within` joined later: a focus ring that only shows
+// for keyboard users (`:focus` also fires on every mouse click) and a wrapper
+// that reacts to a focused descendant (form fields, cards with a link).
+export type StateName =
+  | "hover"
+  | "focus"
+  | "focus-visible"
+  | "focus-within"
+  | "active"
+  | "disabled";
 
-// Emission order of the pseudo states, weak to strong.
-export const STATE_ORDER: readonly StateName[] = ["hover", "focus", "active", "disabled"];
+// Emission order of the pseudo states, weak to strong. `focus-visible` is a
+// subset of `focus`, so it sits after it and wins when both are set.
+export const STATE_ORDER: readonly StateName[] = [
+  "hover",
+  "focus",
+  "focus-visible",
+  "focus-within",
+  "active",
+  "disabled",
+];
 
 const STATE_PSEUDO_CLASS: Record<StateName, string> = {
   hover: ":hover",
   focus: ":focus",
+  "focus-visible": ":focus-visible",
+  "focus-within": ":focus-within",
   active: ":active",
   disabled: ":disabled",
 };
+
+// Hover only exists where a pointer can hover. Touch browsers keep `:hover`
+// "stuck" on the last tapped element, so the compiler wraps hover rules in this
+// media query and a phone never shows a hover state after a tap.
+export const HOVER_GUARD = "@media (hover: hover)";
 
 // The media queries reuse the breakpoints of the existing inventory instead of
 // inventing new ones. The one definition lives in `BREAKPOINTS`

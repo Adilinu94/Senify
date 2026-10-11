@@ -147,7 +147,7 @@ describe.skipIf(!browserAvailable)("editor canvas in a real browser", () => {
       expect(await tab.locator(".senify-canvas__iframe").count()).toBe(3);
       expect(await tab.locator('[data-role="zoom"]').textContent()).toBe("50%");
       // The opt-in diagnostic chrome is explicit in this harness.
-      expect(await tab.locator('[data-role="states"] .senify-canvas__button:visible').count()).toBe(5);
+      expect(await tab.locator('[data-role="states"] .senify-canvas__button:visible').count()).toBe(7);
 
       const desktopFrame = tab
         .locator('.senify-canvas__frame[data-device="desktop"] .senify-canvas__iframe')

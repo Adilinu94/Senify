@@ -334,10 +334,18 @@ function styleValue(property: string, value: unknown): unknown {
   });
 }
 
-const STATE_NAMES: readonly StyleState[] = ["hover", "focus", "active", "disabled"];
+const STATE_NAMES: readonly StyleState[] = [
+  "hover",
+  "focus",
+  "focus-visible",
+  "focus-within",
+  "active",
+  "disabled",
+];
 
-// The four pseudo states of O11, as the style routes spell them.
-type StyleState = "hover" | "focus" | "active" | "disabled";
+// The pseudo states of O11 (plus the two focus refinements), as the style
+// routes spell them.
+type StyleState = "hover" | "focus" | "focus-visible" | "focus-within" | "active" | "disabled";
 
 function requireDevice(args: Record<string, unknown>): "tablet" | "mobile" | undefined {
   const value = optionalString(args, "device");

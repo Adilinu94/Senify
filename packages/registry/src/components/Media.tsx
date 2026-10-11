@@ -22,8 +22,11 @@ export function Media({ node, ctx }: SectionProps): React.JSX.Element {
     <SectionShell node={node} section="media">
       <figure className={cx("mx-auto px-4 py-8", contentWidthClass(node))}>
         {node.variant === "video" && safeVideo !== "" ? (
+          // The image doubles as the poster, so the player shows the chosen
+          // still instead of a black frame until the visitor presses play.
           <video
             src={safeVideo}
+            poster={asset && !asset.missing ? asset.src : undefined}
             controls
             playsInline
             preload="metadata"
@@ -41,6 +44,7 @@ export function Media({ node, ctx }: SectionProps): React.JSX.Element {
             asset={asset}
             alt={caption !== "" ? caption : "Bild"}
             sizes={imageSizes(node)}
+            priority={ctx.priorityNodeId === node.id}
             style={{
               aspectRatio: aspect.replace("/", " / "),
               ...focalStyle(node.props.asset),
