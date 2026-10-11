@@ -9,8 +9,7 @@ const FIXTURES = join(fileURLToPath(new URL("./fixtures", import.meta.url)));
 // real Framer SSR-HTML — the fixtures are trimmed exports (decision 23.09.),
 // so the tests run offline and deterministic.
 
-// Parses all three real fixtures; vitest's 5 s default is too tight under full-suite load.
-describe("captureHtml", { timeout: 60_000 }, () => {
+describe("captureHtml", () => {
   it("reads the appear, breakpoint and handover channels from the fluffy fixture", () => {
     const document = captureFixture(join(FIXTURES, "framer-fluffy-rectangle-418998"));
     expect(document.ir).toBe(1);
