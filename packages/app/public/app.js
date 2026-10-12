@@ -86,6 +86,8 @@ async function api(path, options = {}) {
     const failure = new Error(error.message ?? `HTTP ${response.status}`);
     failure.suggestion = error.suggestion;
     failure.status = response.status;
+    failure.category = error.category;
+    failure.field = error.field;
     throw failure;
   }
   return data;
@@ -117,17 +119,76 @@ function toast(message, kind = "info") {
   setTimeout(() => node.remove(), 4000);
 }
 
+// Die Engine antwortet auf Englisch (MCP und Agenten lesen dieselben Texte).
+// Hier stehen die Meldungen, die im Dashboard tatsächlich auftauchen, als
+// deutsche Sätze; alles andere bekommt unten einen deutschen Vorspann, und der
+// technische Originaltext bleibt als Detail sichtbar.
+const ENGINE_MESSAGES = [
+  [/^Site name is required$/, () => "Bitte einen Projektnamen eingeben."],
+  [/^Token name is required$/, () => "Bitte einen Namen für den Zugang eingeben."],
+  [/^Site slug "(.+)" is already in use$/, (m) => `Die Adresse „${m[1]}“ ist schon vergeben. Bitte einen anderen Namen wählen.`],
+  [/^Page path "(.+)" is already in use( on this site)?$/, (m) => `Die Seitenadresse „${m[1]}“ gehört schon einer anderen Seite.`],
+  [/^Invalid page path "(.*)"$/, (m) => `Die Seitenadresse „${m[1]}“ ist ungültig.`],
+  [/^Style class "(.+)" already exists$/, (m) => `Die Style-Klasse „${m[1]}“ gibt es schon.`],
+  [/^Invalid style rule: (.+)$/, (m) => `Die Style-Regel ist ungültig: ${m[1]}`],
+  [/^Site "(.+)" is already in the trash$/, () => "Das Projekt liegt schon im Papierkorb."],
+  [/^Release "(.+)" is already finalized$/, () => "Diese Veröffentlichung ist bereits abgeschlossen."],
+  [/^Site has no active release to deploy$/, () => "Das Projekt hat noch keine aktive Veröffentlichung, die ausgeliefert werden könnte."],
+  [/^The build is empty$/, () => "Der Build ist leer — es gibt noch nichts zu veröffentlichen."],
+  [/^Library component is still installed$/, () => "Der Baustein ist noch in einem Projekt installiert und lässt sich nicht löschen."],
+  [/^There is nothing to undo on this page$/, () => "Auf dieser Seite gibt es nichts rückgängig zu machen."],
+  [/^The direction was already decided$/, () => "Über diese Richtung ist bereits entschieden."],
+  [/^The page root cannot be deleted$/, () => "Die Wurzel einer Seite lässt sich nicht löschen."],
+  [/^The page root cannot be moved$/, () => "Die Wurzel einer Seite lässt sich nicht verschieben."],
+  [/^The page root cannot be wrapped$/, () => "Die Wurzel einer Seite lässt sich nicht umhüllen."],
+  [/^Uploaded file is empty$/, () => "Die hochgeladene Datei ist leer."],
+  [/^Upload URL is expired$/, () => "Der Upload-Link ist abgelaufen. Bitte die Datei erneut hochladen."],
+  [/^Request body must be valid JSON$/, () => "Die Anfrage war kein gültiges JSON."],
+  [/^Missing (.+)$/, (m) => `Es fehlt eine Angabe (${m[1]}).`],
+];
+
+// Übersetzt eine Engine-Meldung, wenn die Tabelle sie kennt; sonst null.
+function translateEngineMessage(message) {
+  for (const [pattern, build] of ENGINE_MESSAGES) {
+    const match = pattern.exec(message);
+    if (match) return build(match);
+  }
+  return null;
+}
+
+// Deutscher Vorspann für Meldungen, die die Tabelle nicht kennt: der
+// technische Originaltext bleibt dahinter lesbar.
+const STATUS_LEAD = {
+  400: "Die Eingabe wurde abgelehnt",
+  404: "Nicht gefunden",
+  409: "Das kollidiert mit dem aktuellen Stand",
+  422: "Das widerspricht einer Qualitätsregel",
+};
+
 function friendlyError(error) {
   const status = Number(error?.status ?? 0);
   if (status === 429) return "Der Server ist gerade ausgelastet. Bitte in einen Moment erneut versuchen.";
   if (status === 401 || status === 403) return "Diese Aktion ist für die aktuelle Sitzung nicht freigegeben.";
   if (status >= 500) return "Der Server konnte die Anfrage nicht abschließen. Bitte erneut versuchen.";
-  return String(error?.message ?? "Unbekannter Fehler");
+  const message = String(error?.message ?? "Unbekannter Fehler");
+  const translated = translateEngineMessage(message);
+  if (translated) return translated;
+  const lead = STATUS_LEAD[status];
+  // Texte, die schon Deutsch sind (die Engine mischt beides), bleiben wie sie sind.
+  const german = /[äöüÄÖÜß]|\b(der|die|das|nicht|keine|wurde|bitte)\b/i.test(message);
+  return lead && !german ? `${lead}: ${message}` : message;
+}
+
+// Der englische Vorschlag der Engine gehört nur dazu, wenn die Meldung
+// nicht schon als vollständiger deutscher Satz dasteht.
+function errorHint(error) {
+  if (!error?.suggestion) return "";
+  if (translateEngineMessage(String(error?.message ?? ""))) return "";
+  return ` — ${error.suggestion}`;
 }
 
 function failed(error) {
-  const hint = error?.suggestion ? ` — ${error.suggestion}` : "";
-  toast(`${friendlyError(error)}${hint}`, "error");
+  toast(`${friendlyError(error)}${errorHint(error)}`, "error");
 }
 
 // In-app replacements for window.prompt / window.confirm. The native dialogs
@@ -3924,7 +3985,7 @@ async function openNewPageDialog(siteId) {
           ? "Diese Adresse gehört schon zu einer anderen Seite. Bitte eine andere wählen."
           : error?.status === 400 && path !== ""
             ? "Die Adresse ist ungültig. Sie beginnt mit „/“ und enthält keine Leerzeichen, „?“ oder „#“."
-            : `${friendlyError(error)}${error?.suggestion ? ` — ${error.suggestion}` : ""}`;
+            : `${friendlyError(error)}${errorHint(error)}`;
       problem.hidden = false;
       pathInput.setAttribute("aria-invalid", String(error?.status === 409 || (error?.status === 400 && path !== "")));
       submitButton.disabled = false;
