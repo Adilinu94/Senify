@@ -354,6 +354,14 @@ function htmlFilesIn(outDir: string): string[] {
 // those files are inlined into the document: stylesheets as `<style>`, local
 // scripts as `<script>`. Foreign URLs (CDNs, media) stay as they are, and a
 // link to a missing or empty file is dropped instead of costing a 404.
+// A stylesheet travels inside an HTML raw-text element here, so `</style` would
+// end it early. `<\/` reads the same inside a CSS string and is a dead token
+// anywhere else. The value grammar already refuses `<`; this is the second wall,
+// for CSS that did not come through it.
+function escapeStyleText(css: string): string {
+  return css.replace(/<\//g, "<\\/");
+}
+
 export function selfContainedHtml(
   html: string,
   outDir: string,
@@ -365,7 +373,7 @@ export function selfContainedHtml(
       const href = tag.match(/href="([^"]+)"/)?.[1] ?? "";
       if (/^(https?:)?\/\//.test(href)) return tag;
       const css = readBakedFile(outDir, href);
-      return css === undefined || css.trim() === "" ? "" : `<style>${css}</style>`;
+      return css === undefined || css.trim() === "" ? "" : `<style>${escapeStyleText(css)}</style>`;
     },
   );
   return withoutLinks.replace(
