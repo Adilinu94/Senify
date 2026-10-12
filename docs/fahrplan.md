@@ -1,7 +1,7 @@
 # Fahrplan
 
 > **Dokumenttyp:** fortlaufender Umsetzungsplan mit Gates. Dieses Dokument begleitet die Umsetzung und wird bei jedem abgeschlossenen Schritt aktualisiert.
-> **Stand:** 29.09.2026 · **Basis:** die geprüfte Folgearbeit ist in `2a0afde` und `aad9550` gesichert. Der erste Schritt von P3-2 (Store-Row-Mapping) ist als `0193fde` committet; sein Gate war grün. Der Ist-Abgleich steht in `docs/current/stand.md`, `docs/current/architektur.md` und `docs/current/qualitaet.md`. Historische Abschnitte bleiben Verlauf und sind nicht automatisch der heutige Status.
+> **Stand:** 12.10.2026 · **Basis:** Master `13d2fb1` (Merge PR #8); der Verlauf steht unter „Arbeitsstand dieses Dokuments". Der Ist-Abgleich steht in `docs/current/stand.md`, `docs/current/architektur.md` und `docs/current/qualitaet.md`. Historische Abschnitte bleiben Verlauf und sind nicht automatisch der heutige Status.
 > **Nicht verbindlich hier:** Testzahlen (gehören nach `docs/current/qualitaet.md`), Fachbegriffe (`CONTEXT.md`), angenommene Entscheidungen (`docs/adr/`).
 > **Ersetzt:** `docs/history/umbauplan.md` (siehe `docs/README.md` für Vorrangregeln).
 

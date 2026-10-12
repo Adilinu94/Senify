@@ -86,7 +86,7 @@ Coverage misst nur, was die Suite ausführt, und ist kein Vollständigkeitsbewei
 - Die Visual-Baselines liegen unter `packages/app/test/visual-baselines/`; Aktualisierung ist ein expliziter Vorgang über `UPDATE_VISUAL_SNAPSHOTS=1`.
 - Das Import-Tor nutzt eine kontrollierte Fixture; nicht alle echten Export-Fixtures durchlaufen es vollständig.
 - Paging ist in `packages/engine/src/paging.ts` für Sites, Seiten, Assets, Einträge, Referenzzuweisungen, Releases, Bake-Jobs und Image-Jobs eingebaut (`limit` Standard 50, Kappe 200, `offset` validiert). `outputSchema` tragen die 6 lesenden Listenwerkzeuge und seit PR #3 auch `create_site`, `create_page`, `create_preview`, `submit_for_review`, `publish_release`, `rollback_release`. Beleg: `paging.test.ts`, `write-output.test.ts`.
-- GitHub Actions startet seit dem 07.10.2026 keine Jobs mehr („payments have failed or spending limit needs to be increased"); CI-Grün wird lokal ersetzt (Coverage-Lauf oben, gezielte Gates je Branch), bis die Abrechnung behoben ist.
+- GitHub Actions läuft seit dem 12.10.2026 wieder (Repo öffentlich, siehe Gate-Zeile „CI wieder aktiv" oben); die Sperre vom 07.10.2026 („payments have failed or spending limit needs to be increased") ist damit behoben. Maßgeblich ist der Linux-CI-Lauf; lokale Windows-Gates ergänzen ihn.
 
 ## CI-Stand
 

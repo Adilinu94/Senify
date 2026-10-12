@@ -1,6 +1,6 @@
 # Aktueller Stand
 
-> Basis: Master nach PR #1 (Härtung), #2 (MCP-Paging), #3 (Schreib-`outputSchema`) und #5 (P3-3-Doku) — Stand 07.10.2026. Die Dialoge (PR #4) stehen als offener PR. Frühere App-/PostgreSQL-Gates stehen mit Datum in `docs/current/qualitaet.md`.
+> Basis: Master `13d2fb1` (Merge PR #8, 12.10.2026); gemergt sind u. a. PR #1 (Härtung), #2 (MCP-Paging), #3 (Schreib-`outputSchema`), #4 (Dialoge) und #5 (P3-3-Doku). Die Inhalte dieser Seite sind zuletzt am 07.10.2026 abgeglichen; spätere Änderungen stehen unter „Arbeitsstand dieses Dokuments" in `docs/fahrplan.md`. Frühere App-/PostgreSQL-Gates stehen mit Datum in `docs/current/qualitaet.md`.
 > Stand: 07.10.2026. Messzahlen stehen ausschließlich in `docs/current/qualitaet.md` und werden von `pnpm quality:render` erzeugt, nicht von Hand gepflegt.
 > Geplante Arbeit und Reihenfolge: `docs/fahrplan.md`. Historisches: `docs/history/`.
 
@@ -109,7 +109,7 @@ Noch nicht vorhanden: **automatische Medienbeschaffung**. Medienbedarfe sind adr
 
 Verbindlich und priorisiert steht die Liste in **`docs/fahrplan.md`**. Der vorherige Folge-Diff ist gesichert. P3-2 läuft nach ADR-0019 (Fach-Module mit dünner Fassade): umgesetzt sind Mapper/Row-Typen, Audit/Style-Registry, HTTP-Antwort/Bake-Auslieferung, MCP-Maschinerie sowie die Fach-Module Formulare, Einstellungen, Releases, Deployments, Notifications, Referenz-Bibliothek und Entries; als Nächstes folgen die weiteren Fachgebiete mit Einzeltransaktionen.
 
-Danach verbleiben: die MCP-Verträge und Manifest-Konsumenten (R8), die Modulaufteilung der vier God-Files (R12) sowie die zwei CI-Verbesserungen aus P3-6.
+Danach verbleibt die Modulaufteilung der vier God-Files (R12); R8 (MCP-Verträge) ist seit 07.10.2026 und P3-6 (CI-Verbesserungen) seit 04.10.2026 geschlossen, siehe `docs/fahrplan.md`.
 
 ## Bewusst vertagt
 
