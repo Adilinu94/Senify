@@ -1,3 +1,4 @@
+import { listenReachable } from "@senify/core/net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -47,7 +48,7 @@ beforeAll(async () => {
     response.end(body);
   });
   await new Promise<void>((done) => {
-    server.listen(0, "127.0.0.1", () => {
+    listenReachable(server, 0, "127.0.0.1").then(() => {
       const address = server.address();
       origin = `http://127.0.0.1:${typeof address === "object" && address !== null ? address.port : 0}`;
       done();

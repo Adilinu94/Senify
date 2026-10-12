@@ -1,3 +1,4 @@
+import { listenReachable } from "@senify/core/net";
 import { createServer } from "node:http";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -220,7 +221,7 @@ describe("http snapshot driver without an injected fetch", () => {
       hits += 1;
       response.writeHead(200, { "content-type": "text/html" }).end("<h1>Snapshot</h1>");
     });
-    await new Promise<void>((done) => server.listen(0, "127.0.0.1", () => done()));
+    await new Promise<void>((done) => listenReachable(server, 0, "127.0.0.1").then(() => done()));
     const address = server.address();
     const url = `http://127.0.0.1:${typeof address === "object" && address !== null ? address.port : 0}/`;
     try {

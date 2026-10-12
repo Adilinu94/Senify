@@ -1,3 +1,4 @@
+import { listenReachable } from "@senify/core/net";
 import {
   createReadStream,
   existsSync,
@@ -206,15 +207,7 @@ export async function serveCaptureDir(dir: string): Promise<{ origin: string; cl
     });
     createReadStream(resolved).pipe(res);
   });
-  await new Promise<void>((resolveListen, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      server.removeListener("error", reject);
-      resolveListen();
-    });
-  });
-  const address = server.address();
-  const port = typeof address === "object" && address !== null ? address.port : 0;
+  const port = await listenReachable(server, 0, "127.0.0.1");
   return {
     origin: `http://127.0.0.1:${port}`,
     close: () =>

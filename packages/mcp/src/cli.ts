@@ -533,8 +533,17 @@ export function createProgram(): Command {
   tokens
     .command("revoke <id>")
     .description("Revoke a token immediately")
+    // Entity ids may start with "-" (ids.ts alphabet); without this commander rejects them as unknown options.
+    .allowUnknownOption()
     .option("--api <url>")
     .action(async (id: string, options) => {
+      // allowUnknownOption lets a mistyped flag land here; token ids are newEntityId() (14 chars).
+      if (!/^[0-9A-Za-z_-]{14}$/.test(id)) {
+        throw new SenifyError("validation", `"${id}" is not a token id`, {
+          field: "id",
+          suggestion: "Copy the id from `senify tokens list`; check option spelling (e.g. --api).",
+        });
+      }
       await operator(options).request("DELETE", `/api/tokens/${id}`);
       console.log(`Token ${id} revoked — it stops working immediately.`);
     });

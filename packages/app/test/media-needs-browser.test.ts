@@ -1,3 +1,4 @@
+import { listenReachable } from "@senify/core/net";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -69,7 +70,7 @@ async function startImageEndpoint(): Promise<{ origin: string; close: () => Prom
       response.end(JSON.stringify({ data: [{ b64_json: PNG_1PX.toString("base64") }] }));
     });
   });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await new Promise<void>((resolve) => listenReachable(server, 0, "127.0.0.1").then(() => resolve()));
   const address = server.address();
   const port = typeof address === "object" && address !== null ? address.port : 0;
   return {

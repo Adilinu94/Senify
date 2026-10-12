@@ -61,7 +61,6 @@ import { validateShape } from "./mutations/contract.ts";
 import { assertPagePathFormat, draftConflictError } from "./paths.ts";
 import type { GeneratedVariant } from "./variants.ts";
 import {
-  REVIEW_STATUSES,
   SITE_PROFILES,
   type ApiToken,
   type Asset,
@@ -88,12 +87,8 @@ import {
   type Entry,
   type EntryRedirect,
   type EntryVersion,
-  type FieldDef,
   type FormSnapshotRecord,
   type ImageJob,
-  type ImageJobAttempt,
-  type ImageJobRequest,
-  type ImageJobStatus,
   type ImageSettings,
   type McpAuditEntry,
   type NewsletterToken,
@@ -104,7 +99,6 @@ import {
   type PageSummary,
   type PageTemplate,
   type Preview,
-  type PreviewStatus,
   type ProviderCooldown,
   type ReleaseManifest,
   type Reference,
@@ -129,9 +123,7 @@ import {
   type ReferenceStatus,
   type ReferenceSummary,
   type Release,
-  type ReviewComment,
   type ReviewItem,
-  type ReviewStatus,
   type RevisionSummary,
   type DesignContract,
   type LibraryAuditEntry,
@@ -142,8 +134,6 @@ import {
   type Site,
   type SiteTheme,
   type SmtpSettingsRecord,
-  type StructureChange,
-  type SupportsFlag,
   type TokenKind,
   type TokenRecord,
   type TokenScope,
@@ -152,19 +142,16 @@ import {
 import {
   ASSET_COLUMNS,
   CODE_PAYLOAD_COLUMNS,
-  COLLECTION_COLUMNS,
   mapAsset,
   mapAssetFolder,
   mapAssetHistory,
   mapAssetVariant,
   mapCodePayload,
-  mapCollection,
   type AssetRow,
   type AssetFolderRow,
   type AssetHistoryRow,
   type AssetVariantRow,
   type CodePayloadRow,
-  type CollectionRow,
 } from "./store-record-mappers.ts";
 import {
   toFiniteNumber,
@@ -174,7 +161,36 @@ import {
   toJsonParam,
   toNullableIso,
 } from "./store-row-utils.ts";
+import {
+  BakeJobsRepository,
+  type ClaimBakeJobInput,
+  type EnqueueBakeJobInput,
+  type FailBakeJobInput,
+} from "./store-bake-jobs.ts";
+import {
+  type CollectionUpdate,
+  CollectionsRepository,
+  type CreateCollectionInput,
+  type ListCollectionsOptions,
+} from "./store-collections.ts";
 import { FormsRepository, type SaveFormSnapshotInput } from "./store-forms.ts";
+import {
+  type ClaimImageJobInput,
+  type EnqueueImageJobInput,
+  type FailImageJobInput,
+  type ImageJobResult,
+  ImageJobsRepository,
+  type ListImageJobsOptions,
+  type SetImageJobProviderInput,
+  type SetProviderCooldownInput,
+} from "./store-image-jobs.ts";
+import {
+  type CreatePreviewInput,
+  type CreateReviewItemInput,
+  type ListReviewItemsOptions,
+  type ReviewItemPatch,
+  ReviewsRepository,
+} from "./store-reviews.ts";
 import {
   type CreateDeploymentInput,
   DeployRepository,
@@ -214,15 +230,9 @@ import {
   type SmtpSettingsPatch,
 } from "./store-settings.ts";
 import {
-  BAKE_JOB_COLUMNS,
-  type BakeJobRow,
-  IMAGE_JOB_COLUMNS,
   IMPORT_JOB_COLUMNS,
-  type ImageJobRow,
   type ImportJobRow,
   type ImportReceiptRow,
-  mapBakeJob,
-  mapImageJob,
   mapImportJob,
   mapImportReceipt,
 } from "./store-job-mappers.ts";
@@ -497,36 +507,6 @@ type RevisionRow = {
   created_at: unknown;
 };
 
-type PreviewRow = {
-  id: string;
-  site_id: string;
-  build_ref: string;
-  token: string;
-  status: string;
-  created_by: unknown;
-  created_at: unknown;
-  expires_at: unknown;
-};
-
-type ReviewRow = {
-  id: string;
-  site_id: string;
-  preview_id: unknown;
-  base_state: unknown;
-  pages: unknown;
-  author: unknown;
-  status: string;
-  structure_diff: unknown;
-  guardrails: unknown;
-  thread: unknown;
-  visuals: unknown;
-  import_reports: unknown;
-  release_id: unknown;
-  created_at: unknown;
-  resolved_at: unknown;
-};
-
-const REVIEW_STATUS_VALUES: readonly ReviewStatus[] = REVIEW_STATUSES;
 
 type RedesignProposalRow = {
   id: string;
@@ -619,58 +599,6 @@ function mapRevision(row: RevisionRow): PageRevision {
 function toRevisionSummary(revision: PageRevision): RevisionSummary {
   const { tree, ...rest } = revision;
   return { ...rest, nodeCount: Object.keys(tree.nodes).length };
-}
-
-function mapPreview(row: PreviewRow): Preview {
-  const status: PreviewStatus =
-    row.status === "failed"
-      ? "failed"
-      : row.status === "expired"
-        ? "expired"
-        : "ready";
-  return {
-    id: row.id,
-    siteId: row.site_id,
-    buildRef: row.build_ref,
-    token: row.token,
-    status,
-    createdBy: toJson<Author>(row.created_by),
-    createdAt: toIso(row.created_at),
-    expiresAt: toIso(row.expires_at),
-  };
-}
-
-function mapReviewItem(row: ReviewRow): ReviewItem {
-  const status = row.status as ReviewStatus;
-  if (!REVIEW_STATUS_VALUES.includes(status)) {
-    throw new Error(`Stored review status is invalid: ${row.status}`);
-  }
-  return {
-    id: row.id,
-    siteId: row.site_id,
-    previewId: typeof row.preview_id === "string" ? row.preview_id : null,
-    baseState: toJson<ReviewItem["baseState"]>(row.base_state),
-    pages: toJson<string[]>(row.pages),
-    author: toJson<Author>(row.author),
-    status,
-    structureDiff: toJson<StructureChange[]>(row.structure_diff),
-    guardrails: toJson<ReviewItem["guardrails"]>(row.guardrails),
-    thread: toJson<ReviewComment[]>(row.thread),
-    importReports:
-      row.import_reports === null || row.import_reports === undefined
-        ? []
-        : toJson<ReviewItem["importReports"]>(row.import_reports),
-    visuals:
-      row.visuals === null || row.visuals === undefined
-        ? null
-        : toJson<ReviewItem["visuals"]>(row.visuals),
-    releaseId: typeof row.release_id === "string" ? row.release_id : null,
-    createdAt: toIso(row.created_at),
-    resolvedAt:
-      row.resolved_at === null || row.resolved_at === undefined
-        ? null
-        : toIso(row.resolved_at),
-  };
 }
 
 function mapToken(row: TokenRow): ApiToken {
@@ -876,6 +804,10 @@ export class Store {
   readonly #notifications: NotificationsRepository;
   readonly #referenceLibrary: ReferenceLibraryRepository;
   readonly #entries: EntriesRepository;
+  readonly #bakeJobs: BakeJobsRepository;
+  readonly #reviews: ReviewsRepository;
+  readonly #imageJobs: ImageJobsRepository;
+  readonly #collections: CollectionsRepository;
 
   // Where the encryption key lives. Without it (a bare Store in a test) the key
   // stays in the database, as before.
@@ -892,6 +824,10 @@ export class Store {
     this.#notifications = new NotificationsRepository(db);
     this.#referenceLibrary = new ReferenceLibraryRepository(db);
     this.#entries = new EntriesRepository(db);
+    this.#bakeJobs = new BakeJobsRepository(db);
+    this.#reviews = new ReviewsRepository(db);
+    this.#imageJobs = new ImageJobsRepository(db);
+    this.#collections = new CollectionsRepository(db, (siteId) => this.getSite(siteId));
     this.#secretFile = options.secretFile;
   }
 
@@ -3280,374 +3216,64 @@ export class Store {
 
   // --------------------------------------------------------- re-bake jobs (E12)
 
-  // Enqueue with dedup: a queued job for the same site absorbs the new request
-  // (paths merged, reason appended) instead of stacking a second one. A running
-  // job does not absorb — the new job waits in the queue behind it.
-  async enqueueBakeJob(input: {
-    siteId: string;
-    reason: string;
-    paths?: readonly string[];
-    maxAttempts?: number;
-    now?: string;
-  }): Promise<BakeJob> {
-    const now = input.now ?? new Date().toISOString();
-    const paths = [...new Set(input.paths ?? [])].sort();
-    const existing = await this.#db.query<BakeJobRow>(
-      `SELECT ${BAKE_JOB_COLUMNS} FROM bake_jobs
-       WHERE site_id = $1 AND status = 'queued'
-       ORDER BY created_at ASC, id ASC LIMIT 1`,
-      [input.siteId],
-    );
-    const row = existing.rows[0];
-    if (row !== undefined) {
-      const current = mapBakeJob(row);
-      const merged = [...new Set([...current.paths, ...paths])].sort();
-      const reason = current.reason.includes(input.reason)
-        ? current.reason
-        : `${current.reason}, ${input.reason}`;
-      const updated = await this.#db.query<BakeJobRow>(
-        `UPDATE bake_jobs SET reason = $2, paths = $3, updated_at = $4
-         WHERE id = $1 RETURNING ${BAKE_JOB_COLUMNS}`,
-        [current.id, reason, toJsonParam(merged), now],
-      );
-      const updatedRow = updated.rows[0];
-      if (!updatedRow) throw new Error("Bake job update returned no row");
-      return mapBakeJob(updatedRow);
-    }
-    const inserted = await this.#db.query<BakeJobRow>(
-      `INSERT INTO bake_jobs
-        (id, site_id, reason, paths, status, attempts, max_attempts,
-         next_attempt_at, lease_until, last_error, created_at, updated_at, finished_at)
-       VALUES ($1, $2, $3, $4, 'queued', 0, $5, $6, NULL, NULL, $6, $6, NULL)
-       RETURNING ${BAKE_JOB_COLUMNS}`,
-      [
-        newEntityId(),
-        input.siteId,
-        input.reason,
-        toJsonParam(paths),
-        input.maxAttempts ?? 3,
-        now,
-      ],
-    );
-    const insertedRow = inserted.rows[0];
-    if (!insertedRow) throw new Error("Bake job insert returned no row");
-    return mapBakeJob(insertedRow);
+  enqueueBakeJob(input: EnqueueBakeJobInput): Promise<BakeJob> {
+    return this.#bakeJobs.enqueueBakeJob(input);
   }
 
-  // Claim the oldest due job whose site has no live running job (the
-  // concurrency key). The conditional update makes the claim atomic: a second
-  // worker that races gets no row.
-  async claimBakeJob(input: { now: string; leaseMs: number }): Promise<BakeJob | null> {
-    const running = await this.#db.query<{ site_id: string }>(
-      `SELECT DISTINCT site_id FROM bake_jobs
-       WHERE status = 'running' AND lease_until IS NOT NULL AND lease_until > $1`,
-      [input.now],
-    );
-    const busy = new Set(running.rows.map((row) => row.site_id));
-    const due = await this.#db.query<BakeJobRow>(
-      `SELECT ${BAKE_JOB_COLUMNS} FROM bake_jobs
-       WHERE status = 'queued' AND next_attempt_at <= $1
-       ORDER BY next_attempt_at ASC, created_at ASC, id ASC LIMIT 50`,
-      [input.now],
-    );
-    const candidate = due.rows.map(mapBakeJob).find((job) => !busy.has(job.siteId));
-    if (candidate === undefined) return null;
-    const leaseUntil = new Date(Date.parse(input.now) + input.leaseMs).toISOString();
-    const claimed = await this.#db.query<BakeJobRow>(
-      `UPDATE bake_jobs SET status = 'running', attempts = attempts + 1,
-         lease_until = $2, updated_at = $1
-       WHERE id = $3 AND status = 'queued'
-       RETURNING ${BAKE_JOB_COLUMNS}`,
-      [input.now, leaseUntil, candidate.id],
-    );
-    const row = claimed.rows[0];
-    return row === undefined ? null : mapBakeJob(row);
+  claimBakeJob(input: ClaimBakeJobInput): Promise<BakeJob | null> {
+    return this.#bakeJobs.claimBakeJob(input);
   }
 
-  async completeBakeJob(id: string, now = new Date().toISOString()): Promise<BakeJob> {
-    const result = await this.#db.query<BakeJobRow>(
-      `UPDATE bake_jobs SET status = 'done', lease_until = NULL,
-         last_error = NULL, finished_at = $2, updated_at = $2
-       WHERE id = $1 RETURNING ${BAKE_JOB_COLUMNS}`,
-      [id, now],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Bake job "${id}" does not exist`, {
-        field: "jobId",
-      });
-    }
-    return mapBakeJob(row);
+  completeBakeJob(id: string, now?: string): Promise<BakeJob> {
+    return this.#bakeJobs.completeBakeJob(id, now);
   }
 
-  // A failed attempt: back to the queue with the next attempt time, or the
-  // final state when the attempts are used up.
-  async failBakeJob(input: {
-    id: string;
-    error: string;
-    backoffMs: number;
-    now?: string;
-  }): Promise<BakeJob> {
-    const now = input.now ?? new Date().toISOString();
-    const current = await this.#db.query<BakeJobRow>(
-      `SELECT ${BAKE_JOB_COLUMNS} FROM bake_jobs WHERE id = $1`,
-      [input.id],
-    );
-    const row = current.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Bake job "${input.id}" does not exist`, {
-        field: "jobId",
-      });
-    }
-    const job = mapBakeJob(row);
-    const exhausted = job.attempts >= job.maxAttempts;
-    const nextAttemptAt = exhausted
-      ? job.nextAttemptAt
-      : new Date(Date.parse(now) + Math.max(0, input.backoffMs)).toISOString();
-    const updated = await this.#db.query<BakeJobRow>(
-      `UPDATE bake_jobs SET status = $2, lease_until = NULL, last_error = $3,
-         next_attempt_at = $4, finished_at = $5, updated_at = $6
-       WHERE id = $1 RETURNING ${BAKE_JOB_COLUMNS}`,
-      [
-        input.id,
-        exhausted ? "failed" : "queued",
-        input.error,
-        nextAttemptAt,
-        exhausted ? now : null,
-        now,
-      ],
-    );
-    const updatedRow = updated.rows[0];
-    if (!updatedRow) throw new Error("Bake job update returned no row");
-    return mapBakeJob(updatedRow);
+  failBakeJob(input: FailBakeJobInput): Promise<BakeJob> {
+    return this.#bakeJobs.failBakeJob(input);
   }
 
-  // Crash recovery: a running job whose lease expired goes back to the queue.
-  async expireBakeLeases(now: string): Promise<number> {
-    const result = await this.#db.query<{ id: string }>(
-      `UPDATE bake_jobs SET status = 'queued', lease_until = NULL, updated_at = $1
-       WHERE status = 'running' AND (lease_until IS NULL OR lease_until <= $1)
-       RETURNING id`,
-      [now],
-    );
-    return result.rows.length;
+  expireBakeLeases(now: string): Promise<number> {
+    return this.#bakeJobs.expireBakeLeases(now);
   }
 
-  async getBakeJob(id: string): Promise<BakeJob> {
-    const result = await this.#db.query<BakeJobRow>(
-      `SELECT ${BAKE_JOB_COLUMNS} FROM bake_jobs WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Bake job "${id}" does not exist`, {
-        field: "jobId",
-      });
-    }
-    return mapBakeJob(row);
+  getBakeJob(id: string): Promise<BakeJob> {
+    return this.#bakeJobs.getBakeJob(id);
   }
 
-  async listBakeJobs(siteId: string, limit = 20): Promise<BakeJob[]> {
-    const result = await this.#db.query<BakeJobRow>(
-      `SELECT ${BAKE_JOB_COLUMNS} FROM bake_jobs
-       WHERE site_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2`,
-      [siteId, Math.max(1, Math.min(100, limit))],
-    );
-    return result.rows.map(mapBakeJob);
+  listBakeJobs(siteId: string, limit?: number): Promise<BakeJob[]> {
+    return this.#bakeJobs.listBakeJobs(siteId, limit);
   }
 
-  async createPreview(input: {
-    siteId: string;
-    buildRef: string;
-    token: string;
-    createdBy: Author;
-    expiresAt: string;
-  }): Promise<Preview> {
-    const id = newEntityId();
-    const createdAt = new Date().toISOString();
-    await this.#db.query(
-      `INSERT INTO previews
-        (id, site_id, build_ref, token, status, created_by, created_at, expires_at)
-       VALUES ($1, $2, $3, $4, 'ready', $5, $6, $7)`,
-      [
-        id,
-        input.siteId,
-        input.buildRef,
-        input.token,
-        toJsonParam(input.createdBy),
-        createdAt,
-        input.expiresAt,
-      ],
-    );
-    return {
-      id,
-      siteId: input.siteId,
-      buildRef: input.buildRef,
-      token: input.token,
-      status: "ready",
-      createdBy: input.createdBy,
-      createdAt,
-      expiresAt: input.expiresAt,
-    };
+  createPreview(input: CreatePreviewInput): Promise<Preview> {
+    return this.#reviews.createPreview(input);
   }
 
-  async getPreview(id: string): Promise<Preview> {
-    const result = await this.#db.query<PreviewRow>(
-      `SELECT id, site_id, build_ref, token, status, created_by, created_at, expires_at
-       FROM previews WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Preview "${id}" does not exist`, {
-        field: "previewId",
-      });
-    }
-    return mapPreview(row);
+  getPreview(id: string): Promise<Preview> {
+    return this.#reviews.getPreview(id);
   }
 
-  async listPreviews(siteId: string, limit = 50): Promise<Preview[]> {
-    const result = await this.#db.query<PreviewRow>(
-      `SELECT id, site_id, build_ref, token, status, created_by, created_at, expires_at
-       FROM previews WHERE site_id = $1
-       ORDER BY created_at DESC, id DESC LIMIT $2`,
-      [siteId, Math.max(1, Math.min(200, limit))],
-    );
-    return result.rows.map(mapPreview);
+  listPreviews(siteId: string, limit?: number): Promise<Preview[]> {
+    return this.#reviews.listPreviews(siteId, limit);
   }
 
-  async markPreviewExpired(id: string): Promise<void> {
-    await this.#db.query(
-      `UPDATE previews SET status = 'expired' WHERE id = $1 AND status <> 'expired'`,
-      [id],
-    );
+  markPreviewExpired(id: string): Promise<void> {
+    return this.#reviews.markPreviewExpired(id);
   }
 
-  async createReviewItem(input: {
-    siteId: string;
-    previewId: string | null;
-    baseState: ReviewItem["baseState"];
-    pages: string[];
-    author: Author;
-    structureDiff: StructureChange[];
-    guardrails: ReviewItem["guardrails"];
-    importReports?: ReviewItem["importReports"];
-    note: string | null;
-  }): Promise<ReviewItem> {
-    const id = newEntityId();
-    const createdAt = new Date().toISOString();
-    const thread: ReviewComment[] = input.note
-      ? [{ at: createdAt, author: input.author, note: input.note }]
-      : [];
-    const status: ReviewStatus = "submitted";
-    await this.#db.query(
-      `INSERT INTO review_items
-        (id, site_id, preview_id, base_state, pages, author, status, structure_diff, guardrails, thread, visuals, import_reports, release_id, created_at, resolved_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, $11, NULL, $12, NULL)`,
-      [
-        id,
-        input.siteId,
-        input.previewId,
-        toJsonParam(input.baseState),
-        toJsonParam(input.pages),
-        toJsonParam(input.author),
-        status,
-        toJsonParam(input.structureDiff),
-        toJsonParam(input.guardrails),
-        toJsonParam(thread),
-        toJsonParam(input.importReports ?? []),
-        createdAt,
-      ],
-    );
-    return {
-      id,
-      siteId: input.siteId,
-      previewId: input.previewId,
-      baseState: input.baseState,
-      pages: input.pages,
-      author: input.author,
-      status,
-      structureDiff: input.structureDiff,
-      guardrails: input.guardrails,
-      thread,
-      importReports: input.importReports ?? [],
-      visuals: null,
-      releaseId: null,
-      createdAt,
-      resolvedAt: null,
-    };
+  createReviewItem(input: CreateReviewItemInput): Promise<ReviewItem> {
+    return this.#reviews.createReviewItem(input);
   }
 
-  async getReviewItem(id: string): Promise<ReviewItem> {
-    const result = await this.#db.query<ReviewRow>(
-      `SELECT id, site_id, preview_id, base_state, pages, author, status, structure_diff, guardrails, thread, visuals, import_reports, release_id, created_at, resolved_at
-       FROM review_items WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Review item "${id}" does not exist`, {
-        field: "reviewId",
-      });
-    }
-    return mapReviewItem(row);
+  getReviewItem(id: string): Promise<ReviewItem> {
+    return this.#reviews.getReviewItem(id);
   }
 
-  async listReviewItems(
-    siteId: string,
-    options: { status?: ReviewStatus; limit?: number } = {},
-  ): Promise<ReviewItem[]> {
-    const limit = Math.max(1, Math.min(200, options.limit ?? 50));
-    const result = options.status
-      ? await this.#db.query<ReviewRow>(
-          `SELECT id, site_id, preview_id, base_state, pages, author, status, structure_diff, guardrails, thread, visuals, import_reports, release_id, created_at, resolved_at
-           FROM review_items WHERE site_id = $1 AND status = $2
-           ORDER BY created_at DESC, id DESC LIMIT $3`,
-          [siteId, options.status, limit],
-        )
-      : await this.#db.query<ReviewRow>(
-          `SELECT id, site_id, preview_id, base_state, pages, author, status, structure_diff, guardrails, thread, visuals, import_reports, release_id, created_at, resolved_at
-           FROM review_items WHERE site_id = $1
-           ORDER BY created_at DESC, id DESC LIMIT $2`,
-          [siteId, limit],
-        );
-    return result.rows.map(mapReviewItem);
+  listReviewItems(siteId: string, options?: ListReviewItemsOptions): Promise<ReviewItem[]> {
+    return this.#reviews.listReviewItems(siteId, options);
   }
 
-  async updateReviewItem(
-    id: string,
-    patch: {
-      status?: ReviewStatus;
-      comment?: ReviewComment;
-      releaseId?: string | null;
-      resolvedAt?: string | null;
-      visuals?: ReviewItem["visuals"];
-    },
-  ): Promise<ReviewItem> {
-    const current = await this.getReviewItem(id);
-    const thread = patch.comment
-      ? [...current.thread, patch.comment]
-      : current.thread;
-    const status = patch.status ?? current.status;
-    const releaseId =
-      patch.releaseId === undefined ? current.releaseId : patch.releaseId;
-    const resolvedAt =
-      patch.resolvedAt === undefined ? current.resolvedAt : patch.resolvedAt;
-    const visuals = patch.visuals === undefined ? current.visuals : patch.visuals;
-    await this.#db.query(
-      `UPDATE review_items
-       SET status = $2, thread = $3, release_id = $4, resolved_at = $5, visuals = $6
-       WHERE id = $1`,
-      [id, status, toJsonParam(thread), releaseId, resolvedAt, toJsonParam(visuals)],
-    );
-    return {
-      ...current,
-      status,
-      thread,
-      releaseId,
-      resolvedAt,
-      visuals,
-    };
+  updateReviewItem(id: string, patch: ReviewItemPatch): Promise<ReviewItem> {
+    return this.#reviews.updateReviewItem(id, patch);
   }
 
   // -------------------------------------------------- redesign proposals (ADR-0012)
@@ -4392,154 +4018,24 @@ export class Store {
 
   // -------------------------------------------------------- collections (T09)
 
-  async listCollections(
-    siteId: string,
-    options: { includeDeprecated?: boolean } = {},
-  ): Promise<Collection[]> {
-    await this.getSite(siteId);
-    const result =
-      options.includeDeprecated === true
-        ? await this.#db.query<CollectionRow>(
-            `SELECT ${COLLECTION_COLUMNS} FROM collections WHERE site_id = $1
-             ORDER BY created_at ASC, id ASC`,
-            [siteId],
-          )
-        : await this.#db.query<CollectionRow>(
-            `SELECT ${COLLECTION_COLUMNS} FROM collections
-             WHERE site_id = $1 AND deprecated_at IS NULL
-             ORDER BY created_at ASC, id ASC`,
-            [siteId],
-          );
-    return result.rows.map(mapCollection);
+  listCollections(siteId: string, options?: ListCollectionsOptions): Promise<Collection[]> {
+    return this.#collections.listCollections(siteId, options);
   }
 
-  async getCollection(id: string): Promise<Collection> {
-    const result = await this.#db.query<CollectionRow>(
-      `SELECT ${COLLECTION_COLUMNS} FROM collections WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Collection "${id}" does not exist`, {
-        field: "collectionId",
-        suggestion: "List the collections of the site with list_collections.",
-      });
-    }
-    return mapCollection(row);
+  getCollection(id: string): Promise<Collection> {
+    return this.#collections.getCollection(id);
   }
 
-  async findCollectionBySlug(
-    siteId: string,
-    slug: string,
-  ): Promise<Collection | undefined> {
-    const result = await this.#db.query<CollectionRow>(
-      `SELECT ${COLLECTION_COLUMNS} FROM collections
-       WHERE site_id = $1 AND slug = $2`,
-      [siteId, slug],
-    );
-    const row = result.rows[0];
-    return row ? mapCollection(row) : undefined;
+  findCollectionBySlug(siteId: string, slug: string): Promise<Collection | undefined> {
+    return this.#collections.findCollectionBySlug(siteId, slug);
   }
 
-  async createCollection(input: {
-    id: string;
-    siteId: string;
-    name: string;
-    slug: string;
-    fields: FieldDef[];
-    titleField: string;
-    dateField: string | null;
-    urlPattern: string | null;
-    supports: SupportsFlag[];
-    listColumns: string[];
-    description: string | null;
-    deprecatedAt: string | null;
-  }): Promise<Collection> {
-    const now = new Date().toISOString();
-    try {
-      const result = await this.#db.query<CollectionRow>(
-        `INSERT INTO collections
-          (id, site_id, name, slug, fields, title_field, date_field, url_pattern,
-           supports, list_columns, description, deprecated_at, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
-         RETURNING ${COLLECTION_COLUMNS}`,
-        [
-          input.id,
-          input.siteId,
-          input.name,
-          input.slug,
-          toJsonParam(input.fields),
-          input.titleField,
-          input.dateField,
-          input.urlPattern,
-          toJsonParam(input.supports),
-          toJsonParam(input.listColumns),
-          input.description,
-          input.deprecatedAt,
-          now,
-        ],
-      );
-      const row = result.rows[0];
-      if (!row) throw new Error("Collection insert returned no row");
-      return mapCollection(row);
-    } catch (error) {
-      if (isUniqueViolation(error)) {
-        throw new SenifyError(
-          "conflict",
-          `Collection slug "${input.slug}" is already in use on this site`,
-          {
-            field: "slug",
-            suggestion: "Choose a different collection slug.",
-          },
-        );
-      }
-      throw error;
-    }
+  createCollection(input: CreateCollectionInput): Promise<Collection> {
+    return this.#collections.createCollection(input);
   }
 
-  async updateCollection(
-    id: string,
-    next: {
-      name: string;
-      fields: FieldDef[];
-      titleField: string;
-      dateField: string | null;
-      urlPattern: string | null;
-      supports: SupportsFlag[];
-      listColumns: string[];
-      description: string | null;
-      deprecatedAt: string | null;
-    },
-  ): Promise<Collection> {
-    const updatedAt = new Date().toISOString();
-    const result = await this.#db.query<CollectionRow>(
-      `UPDATE collections SET
-         name = $2, fields = $3, title_field = $4, date_field = $5,
-         url_pattern = $6, supports = $7, list_columns = $8, description = $9,
-         deprecated_at = $10, updated_at = $11
-       WHERE id = $1
-       RETURNING ${COLLECTION_COLUMNS}`,
-      [
-        id,
-        next.name,
-        toJsonParam(next.fields),
-        next.titleField,
-        next.dateField,
-        next.urlPattern,
-        toJsonParam(next.supports),
-        toJsonParam(next.listColumns),
-        next.description,
-        next.deprecatedAt,
-        updatedAt,
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Collection "${id}" does not exist`, {
-        field: "collectionId",
-      });
-    }
-    return mapCollection(row);
+  updateCollection(id: string, next: CollectionUpdate): Promise<Collection> {
+    return this.#collections.updateCollection(id, next);
   }
 
   // ------------------------------------------------------------ entries (T09)
@@ -5787,235 +5283,48 @@ export class Store {
 
   // ------------------------------------------------------ image jobs (S2)
 
-  async enqueueImageJob(input: {
-    siteId: string;
-    request: ImageJobRequest;
-    maxAttempts?: number;
-    now?: string;
-  }): Promise<ImageJob> {
-    const now = input.now ?? new Date().toISOString();
-    const inserted = await this.#db.query<ImageJobRow>(
-      `INSERT INTO image_jobs
-        (id, site_id, status, request, provider_used, attempts, max_attempts,
-         lease_until, provider_job_id, asset_id, error, created_at, started_at,
-         finished_at, updated_at)
-       VALUES ($1, $2, 'queued', $3, NULL, 0, $4, NULL, NULL, NULL, $5, $6, NULL, NULL, $6)
-       RETURNING ${IMAGE_JOB_COLUMNS}`,
-      [
-        newEntityId(),
-        input.siteId,
-        toJsonParam(input.request),
-        input.maxAttempts ?? 3,
-        toJsonParam([]),
-        now,
-      ],
-    );
-    const row = inserted.rows[0];
-    if (!row) throw new Error("Image job insert returned no row");
-    return mapImageJob(row);
+  enqueueImageJob(input: EnqueueImageJobInput): Promise<ImageJob> {
+    return this.#imageJobs.enqueueImageJob(input);
   }
 
-  // Claim the oldest due job whose site has no live running job (the
-  // concurrency key: one generation per site at a time). The conditional
-  // update makes the claim atomic.
-  async claimImageJob(input: { now: string; leaseMs: number }): Promise<ImageJob | null> {
-    const running = await this.#db.query<{ site_id: string }>(
-      `SELECT DISTINCT site_id FROM image_jobs
-       WHERE status = 'running' AND lease_until IS NOT NULL AND lease_until > $1`,
-      [input.now],
-    );
-    const busy = new Set(running.rows.map((row) => row.site_id));
-    const due = await this.#db.query<ImageJobRow>(
-      `SELECT ${IMAGE_JOB_COLUMNS} FROM image_jobs
-       WHERE status = 'queued'
-       ORDER BY created_at ASC, id ASC LIMIT 50`,
-    );
-    const candidate = due.rows.map(mapImageJob).find((job) => !busy.has(job.siteId));
-    if (candidate === undefined) return null;
-    const leaseUntil = new Date(Date.parse(input.now) + input.leaseMs).toISOString();
-    const claimed = await this.#db.query<ImageJobRow>(
-      `UPDATE image_jobs SET status = 'running', attempts = attempts + 1,
-         lease_until = $2, started_at = COALESCE(started_at, $1), updated_at = $1
-       WHERE id = $3 AND status = 'queued'
-       RETURNING ${IMAGE_JOB_COLUMNS}`,
-      [input.now, leaseUntil, candidate.id],
-    );
-    const row = claimed.rows[0];
-    return row === undefined ? null : mapImageJob(row);
+  claimImageJob(input: ClaimImageJobInput): Promise<ImageJob | null> {
+    return this.#imageJobs.claimImageJob(input);
   }
 
-  // Records which provider is currently running (and its own job handle), so a
-  // crash can resume instead of submitting a second run.
-  async setImageJobProvider(input: {
-    id: string;
-    providerUsed: string;
-    providerJobId?: string | null;
-    now?: string;
-  }): Promise<ImageJob> {
-    const now = input.now ?? new Date().toISOString();
-    const updated = await this.#db.query<ImageJobRow>(
-      `UPDATE image_jobs SET provider_used = $2, provider_job_id = $3, updated_at = $4
-       WHERE id = $1 RETURNING ${IMAGE_JOB_COLUMNS}`,
-      [input.id, input.providerUsed, input.providerJobId ?? null, now],
-    );
-    const row = updated.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Image job "${input.id}" does not exist`, {
-        field: "jobId",
-      });
-    }
-    return mapImageJob(row);
+  setImageJobProvider(input: SetImageJobProviderInput): Promise<ImageJob> {
+    return this.#imageJobs.setImageJobProvider(input);
   }
 
-  async completeImageJob(
-    id: string,
-    result: { assetId: string; providerUsed: string; error: ImageJobAttempt[] },
-    now = new Date().toISOString(),
-  ): Promise<ImageJob> {
-    const updated = await this.#db.query<ImageJobRow>(
-      `UPDATE image_jobs SET status = 'succeeded', asset_id = $2, provider_used = $3,
-         error = $5, lease_until = NULL, provider_job_id = NULL,
-         finished_at = $4, updated_at = $4
-       WHERE id = $1 RETURNING ${IMAGE_JOB_COLUMNS}`,
-      [id, result.assetId, result.providerUsed, now, toJsonParam(result.error)],
-    );
-    const row = updated.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Image job "${id}" does not exist`, {
-        field: "jobId",
-      });
-    }
-    return mapImageJob(row);
+  completeImageJob(id: string, result: ImageJobResult, now?: string): Promise<ImageJob> {
+    return this.#imageJobs.completeImageJob(id, result, now);
   }
 
-  // The final state: the error column carries the whole provider history.
-  async failImageJob(input: {
-    id: string;
-    error: ImageJobAttempt[];
-    now?: string;
-  }): Promise<ImageJob> {
-    const now = input.now ?? new Date().toISOString();
-    const updated = await this.#db.query<ImageJobRow>(
-      `UPDATE image_jobs SET status = 'failed', error = $2, lease_until = NULL,
-         provider_job_id = NULL, finished_at = $3, updated_at = $3
-       WHERE id = $1 RETURNING ${IMAGE_JOB_COLUMNS}`,
-      [input.id, toJsonParam(input.error), now],
-    );
-    const row = updated.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Image job "${input.id}" does not exist`, {
-        field: "jobId",
-      });
-    }
-    return mapImageJob(row);
+  failImageJob(input: FailImageJobInput): Promise<ImageJob> {
+    return this.#imageJobs.failImageJob(input);
   }
 
-  // Cancel only a queued job; a running job needs the provider's interrupt
-  // (later slice) and answers with a conflict.
-  async cancelImageJob(id: string, now = new Date().toISOString()): Promise<ImageJob> {
-    const updated = await this.#db.query<ImageJobRow>(
-      `UPDATE image_jobs SET status = 'canceled', finished_at = $2, updated_at = $2
-       WHERE id = $1 AND status = 'queued' RETURNING ${IMAGE_JOB_COLUMNS}`,
-      [id, now],
-    );
-    const row = updated.rows[0];
-    if (row) return mapImageJob(row);
-    const current = await this.getImageJob(id);
-    throw new SenifyError(
-      "conflict",
-      `Image job "${id}" cannot be canceled (status: ${current.status})`,
-      {
-        field: "jobId",
-        suggestion: "Only a queued job can be canceled.",
-      },
-    );
+  cancelImageJob(id: string, now?: string): Promise<ImageJob> {
+    return this.#imageJobs.cancelImageJob(id, now);
   }
 
-  // Crash recovery: a running job whose lease expired goes back to the queue;
-  // a job that used up its attempts fails instead of looping forever.
-  async expireImageLeases(now: string): Promise<number> {
-    const requeued = await this.#db.query<{ id: string }>(
-      `UPDATE image_jobs SET status = 'queued', lease_until = NULL, updated_at = $1
-       WHERE status = 'running' AND (lease_until IS NULL OR lease_until <= $1)
-         AND attempts < max_attempts
-       RETURNING id`,
-      [now],
-    );
-    const failed = await this.#db.query<{ id: string }>(
-      `UPDATE image_jobs SET status = 'failed', lease_until = NULL,
-         provider_job_id = NULL, finished_at = $1, updated_at = $1
-       WHERE status = 'running' AND (lease_until IS NULL OR lease_until <= $1)
-         AND attempts >= max_attempts
-       RETURNING id`,
-      [now],
-    );
-    return requeued.rows.length + failed.rows.length;
+  expireImageLeases(now: string): Promise<number> {
+    return this.#imageJobs.expireImageLeases(now);
   }
 
-  async getImageJob(id: string): Promise<ImageJob> {
-    const result = await this.#db.query<ImageJobRow>(
-      `SELECT ${IMAGE_JOB_COLUMNS} FROM image_jobs WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Image job "${id}" does not exist`, {
-        field: "jobId",
-      });
-    }
-    return mapImageJob(row);
+  getImageJob(id: string): Promise<ImageJob> {
+    return this.#imageJobs.getImageJob(id);
   }
 
-  async listImageJobs(
-    siteId: string,
-    options: { status?: ImageJobStatus; limit?: number } = {},
-  ): Promise<ImageJob[]> {
-    const limit = Math.max(1, Math.min(100, options.limit ?? 20));
-    const result = options.status === undefined
-      ? await this.#db.query<ImageJobRow>(
-          `SELECT ${IMAGE_JOB_COLUMNS} FROM image_jobs
-           WHERE site_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2`,
-          [siteId, limit],
-        )
-      : await this.#db.query<ImageJobRow>(
-          `SELECT ${IMAGE_JOB_COLUMNS} FROM image_jobs
-           WHERE site_id = $1 AND status = $2 ORDER BY created_at DESC, id DESC LIMIT $3`,
-          [siteId, options.status, limit],
-        );
-    return result.rows.map(mapImageJob);
+  listImageJobs(siteId: string, options?: ListImageJobsOptions): Promise<ImageJob[]> {
+    return this.#imageJobs.listImageJobs(siteId, options);
   }
 
-  // Active provider cooldowns at `now`; the worker skips those providers.
-  async listProviderCooldowns(now: string): Promise<ProviderCooldown[]> {
-    const result = await this.#db.query<{
-      provider: string;
-      until: string;
-      reason: string;
-    }>(
-      `SELECT provider, until, reason FROM image_provider_cooldowns
-       WHERE until > $1 ORDER BY provider ASC`,
-      [now],
-    );
-    return result.rows.map((row) => ({
-      provider: row.provider,
-      until: new Date(row.until).toISOString(),
-      reason: row.reason,
-    }));
+  listProviderCooldowns(now: string): Promise<ProviderCooldown[]> {
+    return this.#imageJobs.listProviderCooldowns(now);
   }
 
-  async setProviderCooldown(input: {
-    provider: string;
-    until: string;
-    reason: string;
-    now?: string;
-  }): Promise<void> {
-    const now = input.now ?? new Date().toISOString();
-    await this.#db.query(
-      `INSERT INTO image_provider_cooldowns (provider, until, reason, updated_at)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (provider) DO UPDATE SET until = $2, reason = $3, updated_at = $4`,
-      [input.provider, input.until, input.reason, now],
-    );
+  setProviderCooldown(input: SetProviderCooldownInput): Promise<void> {
+    return this.#imageJobs.setProviderCooldown(input);
   }
 
   getReferenceSettings(): Promise<ReferenceSettings> {
