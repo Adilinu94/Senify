@@ -47,6 +47,8 @@ const reportFile = join(
   `senify-postgres-lane-${process.pid}-${Date.now()}.json`,
 );
 
+const useShell = process.platform === "win32";
+
 const result = spawnSync(
   "pnpm",
   [
@@ -56,10 +58,11 @@ const result = spawnSync(
     ...SUITE,
     "--reporter=default",
     "--reporter=json",
-    // Quoted: with shell:true (Windows) a tmpdir containing spaces would split into two args.
-    `--outputFile.json="${reportFile}"`,
+    // Quoted only with shell:true (Windows), where a tmpdir containing spaces would
+    // split into two args. Without a shell the quotes would end up in the file name.
+    `--outputFile.json=${useShell ? `"${reportFile}"` : reportFile}`,
   ],
-  { stdio: "inherit", shell: process.platform === "win32" },
+  { stdio: "inherit", shell: useShell },
 );
 
 const verdict = readVerdict(reportFile);
