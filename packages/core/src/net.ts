@@ -1,7 +1,7 @@
 import { lookup } from "node:dns/promises";
 import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
-import { isIP, type LookupFunction } from "node:net";
+import { isIP, type LookupFunction, type Server } from "node:net";
 import { pipeline, Readable, Transform } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import { SenifyError } from "./errors.ts";
@@ -260,4 +260,40 @@ export async function fetchPublic(
     return toResponse(incoming, options.maxBytes);
   }
   throw refusal(`Too many redirects (more than ${MAX_REDIRECTS})`);
+}
+
+// Ports that fetch and Chromium refuse to connect to (WHATWG Fetch "bad port").
+// Windows hands out ephemeral ports from 1024 when the dynamic range is widened,
+// so `listen(0)` can land on one and the server is unreachable for its own clients.
+const FETCH_BLOCKED_PORTS = new Set([
+  1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87, 95,
+  101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 137, 139, 143, 161,
+  179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532, 540, 548, 554, 556, 563,
+  587, 601, 636, 989, 990, 993, 995, 1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060,
+  5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080,
+]);
+
+export function isFetchBlockedPort(port: number): boolean {
+  return FETCH_BLOCKED_PORTS.has(port);
+}
+
+// Bind `server`; for port 0 re-bind until the OS picks a port fetch can reach.
+export async function listenReachable(
+  server: Server,
+  port: number,
+  host: string,
+): Promise<number> {
+  for (;;) {
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(port, host, () => {
+        server.removeListener("error", reject);
+        resolve();
+      });
+    });
+    const address = server.address();
+    const bound = typeof address === "object" && address !== null ? address.port : port;
+    if (port !== 0 || !isFetchBlockedPort(bound)) return bound;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 }

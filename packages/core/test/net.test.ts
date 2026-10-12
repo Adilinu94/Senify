@@ -1,7 +1,13 @@
 import { createServer, type Server } from "node:http";
 import { gzipSync } from "node:zlib";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { assertPublicHttpUrl, fetchPublic, isPublicAddress } from "@senify/core/net";
+import {
+  assertPublicHttpUrl,
+  fetchPublic,
+  isFetchBlockedPort,
+  isPublicAddress,
+  listenReachable,
+} from "@senify/core/net";
 
 // The suite runs with SENIFY_ALLOW_PRIVATE_URLS=1 (vitest.config.ts) because
 // many tests import from a local server. These tests switch it off on purpose.
@@ -146,7 +152,7 @@ describe("fetchPublic", () => {
         response.writeHead(404).end("weg");
       }
     });
-    await new Promise<void>((done) => server.listen(0, "127.0.0.1", () => done()));
+    await new Promise<void>((done) => listenReachable(server, 0, "127.0.0.1").then(() => done()));
     const address = server.address();
     origin = `http://127.0.0.1:${typeof address === "object" && address !== null ? address.port : 0}`;
   });
@@ -202,5 +208,42 @@ describe("fetchPublic", () => {
     const controller = new AbortController();
     controller.abort();
     await expect(fetchPublic(`${origin}/final`, { signal: controller.signal })).rejects.toThrow();
+  });
+});
+
+describe("listenReachable", () => {
+  it("knows the fetch-blocked ports", () => {
+    expect(isFetchBlockedPort(6000)).toBe(true);
+    expect(isFetchBlockedPort(6667)).toBe(true);
+    expect(isFetchBlockedPort(8080)).toBe(false);
+  });
+
+  it("re-binds port 0 until the OS picks a reachable port", async () => {
+    // A stand-in for an OS whose ephemeral range starts at 1024 (Windows here).
+    const ports = [6000, 6667, 50123];
+    let listening = 0;
+    const server = {
+      once: vi.fn(),
+      removeListener: vi.fn(),
+      listen: vi.fn((_port: number, _host: string, cb: () => void) => {
+        listening += 1;
+        cb();
+      }),
+      address: () => ({ port: ports[listening - 1] ?? 0 }),
+      close: vi.fn((cb: () => void) => cb()),
+    } as unknown as Parameters<typeof listenReachable>[0];
+    expect(await listenReachable(server, 0, "127.0.0.1")).toBe(50123);
+    expect(server.close).toHaveBeenCalledTimes(2);
+  });
+
+  it("binds a real socket that fetch can reach", async () => {
+    const real = createServer((_req, res) => res.end("ok"));
+    const port = await listenReachable(real, 0, "127.0.0.1");
+    try {
+      expect(isFetchBlockedPort(port)).toBe(false);
+      expect(await (await fetch(`http://127.0.0.1:${port}/`)).text()).toBe("ok");
+    } finally {
+      await new Promise<void>((resolve) => real.close(() => resolve()));
+    }
   });
 });

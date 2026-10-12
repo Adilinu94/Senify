@@ -35,6 +35,10 @@ export default defineConfig({
     // ihren Timeouts, obwohl sie solo schnell sind. Vier Worker halten die
     // Last unter der Kernzahl; CI kann via --pool-threads uebersteuern.
     poolOptions: { threads: { maxThreads: 4, minThreads: 1 } },
+    // vitest's 5 s default is tighter than the full suite under load: tests that take
+    // 1-4 s alone (fixture pipelines, engine round trips) failed at random per run
+    // (qualitaet.md, 11.10.2026). Heavy tests keep their own explicit limits.
+    testTimeout: 30_000,
     // Coverage-Gate (Fahrplan P1-2, R11). Die gemessenen Zahlen stehen in
     // docs/current/qualitaet.md, nicht hier - dieser Block ist das Tor, nicht
     // die Messung. Bewusst NUR die Pfade, in denen Fehler am teuersten sind:

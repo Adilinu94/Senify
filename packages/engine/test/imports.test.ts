@@ -1,3 +1,4 @@
+import { listenReachable } from "@senify/core/net";
 import { createServer } from "node:http";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -694,7 +695,7 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
       hits += 1;
       response.writeHead(200, { "content-type": "image/png" }).end("geheim");
     });
-    await new Promise<void>((done) => server.listen(0, "127.0.0.1", () => done()));
+    await new Promise<void>((done) => listenReachable(server, 0, "127.0.0.1").then(() => done()));
     const address = server.address();
     const origin = `http://127.0.0.1:${typeof address === "object" && address !== null ? address.port : 0}`;
     vi.stubEnv("SENIFY_ALLOW_PRIVATE_URLS", "");
@@ -748,7 +749,7 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
       }
       response.writeHead(200, { "content-type": "image/png" }).end(image);
     });
-    await new Promise<void>((done) => server.listen(0, "127.0.0.1", () => done()));
+    await new Promise<void>((done) => listenReachable(server, 0, "127.0.0.1").then(() => done()));
     const address = server.address();
     const origin = `http://127.0.0.1:${typeof address === "object" && address !== null ? address.port : 0}`;
     const html = framerHtml()
@@ -791,7 +792,7 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
     const server = createServer((_request, response) => {
       response.writeHead(200, { "content-type": "image/png" }).end(image);
     });
-    await new Promise<void>((done) => server.listen(0, "127.0.0.1", () => done()));
+    await new Promise<void>((done) => listenReachable(server, 0, "127.0.0.1").then(() => done()));
     const address = server.address();
     const origin = `http://127.0.0.1:${typeof address === "object" && address !== null ? address.port : 0}`;
     const html = framerHtml().replaceAll(

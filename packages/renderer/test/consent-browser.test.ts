@@ -1,3 +1,4 @@
+import { listenReachable } from "@senify/core/net";
 import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
@@ -63,7 +64,7 @@ function serve(root: string): Promise<{ server: Server; origin: string }> {
       response.setHeader("content-type", MIME[extname(file)] ?? "application/octet-stream");
       response.end(readFileSync(file));
     });
-    server.listen(0, "127.0.0.1", () => {
+    listenReachable(server, 0, "127.0.0.1").then(() => {
       const address = server.address();
       const port = typeof address === "object" && address !== null ? address.port : 0;
       resolveServer({ server, origin: `http://127.0.0.1:${port}` });

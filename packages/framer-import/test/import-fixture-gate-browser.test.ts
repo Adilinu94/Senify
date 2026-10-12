@@ -1,3 +1,4 @@
+import { listenReachable } from "@senify/core/net";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -99,7 +100,7 @@ function serve(root: string): Promise<{ url: string; close(): Promise<void> }> {
     response.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream" }).end(body);
   });
   return new Promise((done) =>
-    server.listen(0, "127.0.0.1", () => {
+    listenReachable(server, 0, "127.0.0.1").then(() => {
       const port = (server.address() as { port: number }).port;
       done({ url: `http://127.0.0.1:${port}`, close: () => new Promise<void>((end) => server.close(() => end())) });
     }),
