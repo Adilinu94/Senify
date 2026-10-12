@@ -145,9 +145,11 @@ function compareSnapshot(snapshot: Snapshot, actualBuffer: Buffer): string | nul
   );
   const ratio = changedPixels / (actual.width * actual.height);
   if (ratio <= maxDiffPixelRatio) return null;
-  writeArtifact(`${snapshot.key}-expected.png`, readFileSync(expectedPath));
-  writeArtifact(`${snapshot.key}-actual.png`, actualBuffer);
-  writeArtifact(`${snapshot.key}-diff.png`, PNG.sync.write(diff));
+  // Named like the baseline, so an actual from CI can replace it directly.
+  const stem = `${snapshot.viewport.label}-${snapshot.key}-${snapshot.mode}`;
+  writeArtifact(`${stem}-expected.png`, readFileSync(expectedPath));
+  writeArtifact(`${stem}-actual.png`, actualBuffer);
+  writeArtifact(`${stem}-diff.png`, PNG.sync.write(diff));
   return `${(ratio * 100).toFixed(3)} % geänderte Pixel (${changedPixels})`;
 }
 
@@ -264,7 +266,7 @@ describe.skipIf(browserSkip)("desktop visual snapshots", () => {
               writeFileSync(baselinePath(snapshot), actual);
             } else {
               const mismatch = compareSnapshot(snapshot, actual);
-              if (mismatch !== null) mismatches.push(`${snapshot.key}: ${mismatch}`);
+              if (mismatch !== null) mismatches.push(`${snapshot.viewport.label}-${snapshot.key}-${snapshot.mode}: ${mismatch}`);
             }
           }
         }
