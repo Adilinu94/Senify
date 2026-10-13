@@ -1,10 +1,10 @@
-// Drag-and-drop DOM (ticket 12): catalog chips, drop line, plus points.
+// Drag-and-drop DOM (ticket 12): drop line, plus points.
 //
 // The decisions live in `dnd.ts` (pure); this module is the DOM half. Two
 // sources, one overlay:
 //
-// - the **catalog strip** under the canvas top bar (draggable chips; a click
-//   inserts like the top bar buttons),
+// - an **outside source** (a tile of the elements panel: `bindDragSource` makes
+//   any element a drag source for a primitive),
 // - an **existing node** in a frame (pointer drag: mousedown + 4 px, then the
 //   pointer moves; the whole drag is one undo through `dragCoalesceKey`).
 //
@@ -14,7 +14,6 @@
 // none` except the plus buttons.
 
 import type { PropValue } from "@senify/widget-engine";
-import { getPrimitive, primitiveTypes } from "@senify/widget-engine";
 import type { DomDocument, DomElement, DomEvent } from "../dom.ts";
 import type { EditorStore } from "../state/store.ts";
 import { dragCoalesceKey } from "../state/store.ts";
@@ -47,7 +46,6 @@ export type DropControllerOptions = {
 };
 
 export type DropController = {
-  catalog: DomElement;
   attachFrame(frame: DropFrame): void;
   insertAt(
     targetId: string,
@@ -104,30 +102,8 @@ export function createDropController(options: DropControllerOptions): DropContro
   let dragSource: DropSource | null = null;
   let hoverNodeId: string | null = null;
 
-  const catalog = h(doc, "div", {
-    className: "senify-canvas__catalog",
-    data: { role: "catalog-strip" },
-    attributes: { "aria-label": "Schnellzugriff: Bausteine zum Ziehen" },
-  });
-  catalog.appendChild(
-    h(doc, "span", {
-      className: "senify-canvas__catalog-heading",
-      text: "Schnellzugriff",
-      attributes: { "aria-hidden": "true" },
-    }),
-  );
-  const quickPrimitives = new Set([
-    "section",
-    "heading",
-    "text",
-    "button",
-    "image",
-    "grid",
-    "divider",
-  ]);
-
-  // Insert at a target (the same resolution the drag uses); the chips, the plus
-  // points and the top bar buttons all funnel through here.
+  // Insert at a target (the same resolution the drag uses); the plus points, the
+  // top bar buttons and the elements panel all funnel through here.
   function insertAt(
     targetId: string,
     primitive: string,
@@ -156,22 +132,6 @@ export function createDropController(options: DropControllerOptions): DropContro
     );
     options.onMessage(null);
     return true;
-  }
-
-  for (const type of primitiveTypes()) {
-    if (type === "root" || !quickPrimitives.has(type)) continue;
-    const chip = h(doc, "button", {
-      className: "senify-canvas__chip",
-      text: getPrimitive(type)?.name ?? type,
-      data: { primitive: type },
-      attributes: { type: "button", draggable: "true", title: `${type} — ziehen oder klicken` },
-    });
-    chip.addEventListener("click", () => {
-      const selected = store.selection.focus ?? store.selection.selected[0] ?? null;
-      if (selected !== null) insertAt(selected, type, "after");
-    });
-    bindDragSource(chip, type);
-    catalog.appendChild(chip);
   }
 
   function bindDragSource(element: DomElement, primitive: string): void {
@@ -442,7 +402,6 @@ export function createDropController(options: DropControllerOptions): DropContro
   }
 
   return {
-    catalog,
     attachFrame,
     insertAt,
     bindDragSource,
@@ -452,7 +411,6 @@ export function createDropController(options: DropControllerOptions): DropContro
       plusTop.remove();
       plusBottom.remove();
       plusInto.remove();
-      catalog.remove();
     },
   };
 }

@@ -92,6 +92,10 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       const iconBox = await tab.locator(".senify-elements__tile .ic").first().boundingBox();
       expect(iconBox?.width).toBe(20);
 
+      // Der Schnellzugriff-Streifen unter der Werkzeugleiste ist weg: das
+      // Elemente-Panel ist die eine Quelle fuer Bausteine (E7).
+      expect(await tab.locator(".senify-canvas__catalog, .senify-canvas__chip").count()).toBe(0);
+
       // Suche: ein Treffer, Esc leert sie.
       const search = tab.locator(".senify-elements__search");
       await search.fill("divider");

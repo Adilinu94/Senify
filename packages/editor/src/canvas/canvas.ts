@@ -220,21 +220,19 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   root.setAttribute(EDITOR_ROOT_ATTRIBUTE, "true");
   applyEditorSkin(root, EDITOR_SKIN_DEFAULT);
   const topbar = create(doc, "div", "senify-canvas__topbar");
-  const catalogStripHost = create(doc, "div", "senify-canvas__cataloghost");
   const stage = create(doc, "div", "senify-canvas__stage");
   const overlay = create(doc, "div", "senify-canvas__overlay", { "data-role": "overlay" });
   const footer = create(doc, "div", "senify-canvas__footer");
   const status = create(doc, "span", "senify-canvas__status", { "data-role": "status" });
   root.appendChild(topbar);
-  root.appendChild(catalogStripHost);
   root.appendChild(stage);
   root.appendChild(footer);
   stage.appendChild(overlay);
   host.appendChild(root);
 
-  // Drag and drop (ticket 12): the catalog strip lives in `catalogStripHost`,
-  // the drop line and the plus points in the stage overlay — never in the
-  // content frame.
+  // Drag and drop (ticket 12): the drop line and the plus points live in the
+  // stage overlay — never in the content frame. The drag sources are the
+  // elements panel tiles (`bindDragSource`).
   const drop = createDropController({
     doc,
     stage,
@@ -251,7 +249,6 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     catalogValue: () => (typeof catalog.value === "string" ? catalog.value : ""),
     onMessage: (value) => message(value),
   });
-  catalogStripHost.appendChild(drop.catalog);
 
   // The marker portal (ticket 16): selection and hover chrome over the stage,
   // never in the content frame. One layer per sheet clips the ring at the
