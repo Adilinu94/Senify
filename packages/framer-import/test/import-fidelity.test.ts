@@ -345,3 +345,52 @@ describe("device copies", () => {
     expect(mobile?.hidden).toBe(true);
   });
 });
+
+describe("variant-scoped rules", () => {
+  // Framer writes the rules of a component's phone variant under the variant's
+  // class: `.framer-C.framer-v-phone{…}` on the root and
+  // `.framer-C.framer-v-phone .framer-kid{…}` on its parts. The capture drops the
+  // `framer-v-*` class from the node, so these rules never matched: the phone copy
+  // kept the desktop layout (image beside the text, a two-column list) and a
+  // service card came out 450 px too short at 390 px.
+  const css =
+    ".framer-C{flex-flow:row;width:100%}.framer-C .framer-kid{flex-flow:row;gap:4px}" +
+    ".framer-C.framer-v-phone{flex-direction:column;width:350px}" +
+    ".framer-C.framer-v-phone .framer-kid{flex-direction:column;gap:12px}";
+  const breakpoints =
+    '<script type="application/json" id="__framer__breakpoints">[{"hash":"d","mediaQuery":"(min-width: 810px)"},{"hash":"m","mediaQuery":"(max-width: 809.98px)"}]</script>';
+  // The two copies differ in shape (the phone one has a second paragraph), so they
+  // stay two nodes, each shown on its own devices.
+  const html = page(
+    '<div class="ssr-variant hidden-m"><div class="framer-C framer-v-desk"><div class="framer-kid"><p>a</p></div></div></div>' +
+      '<div class="ssr-variant hidden-d"><div class="framer-C framer-v-phone"><div class="framer-kid"><p>a</p><p>b</p></div></div></div>',
+    css,
+    breakpoints,
+  );
+  const rootOn = (device: string) => {
+    const { mapped } = run(html);
+    const all = Object.values(mapped.document.nodes) as { props: Record<string, unknown>; children?: string[]; visibleDevices?: string[] }[];
+    const root = all.find((node) => node.visibleDevices?.includes(device) === true);
+    const kid = root?.children?.[0] === undefined ? undefined : (mapped.document.nodes[root.children[0]] as { props: Record<string, unknown> });
+    return { root: root?.props, kid: kid?.props };
+  };
+
+  it("applies the rules under the phone variant's class to the phone copy", () => {
+    const { root, kid } = rootOn("mobile");
+    // Framer's base rule is the shorthand `flex-flow:row`, the variant's the
+    // longhand `flex-direction:column`: the longhand has to win, so the shorthand
+    // is read as its two longhands instead of staying a property of its own.
+    expect(root?.["flexFlow"]).toBeUndefined();
+    expect(root?.["flexDirection"]).toBe("column");
+    expect(root?.["width"]).toBe("350px");
+    expect(kid?.["flexDirection"]).toBe("column");
+    expect(kid?.["gap"]).toEqual({ row: "12px", column: "12px" });
+  });
+
+  it("keeps those rules away from the desktop copy", () => {
+    const { root, kid } = rootOn("desktop");
+    expect(root?.["flexDirection"]).toBe("row");
+    expect(root?.["width"]).toBe("100%");
+    expect(kid?.["flexDirection"]).toBe("row");
+  });
+});

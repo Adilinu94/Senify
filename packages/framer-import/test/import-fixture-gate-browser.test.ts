@@ -51,10 +51,8 @@ const browserAvailable = (() => {
 
 // Pixel-difference ceilings (share of differing pixels) per breakpoint.
 const DIFF_CEILING: Record<string, Record<Breakpoint, number>> = {
-  "framer-easier-train-154753": { desktop: 0.17, tablet: 0.26, mobile: 0.37 },
-  // mobile 0.42 -> 0.43 (13.10.2026): since the phone breakpoint is read correctly (5210773)
-  // the measured value is 0.424. The page-height gap behind it is still open, see docs/current/stand.md.
-  "framer-fluffy-rectangle-418998": { desktop: 0.7, tablet: 0.4, mobile: 0.43 },
+  "framer-easier-train-154753": { desktop: 0.17, tablet: 0.23, mobile: 0.32 },
+  "framer-fluffy-rectangle-418998": { desktop: 0.7, tablet: 0.38, mobile: 0.39 },
   "framer-stupendous-football-158496": { desktop: 0.35, tablet: 0.33, mobile: 0.52 },
 };
 

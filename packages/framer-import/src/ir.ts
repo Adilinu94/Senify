@@ -217,6 +217,11 @@ export type IrNode = {
   // The intersection of the base class tokens across variants — the merge
   // anchor that proves two SSR variants are the same element (befund §4/5).
   baseClasses: string[];
+  // The element's own `framer-v-<hash>` classes. They stay out of `baseClasses`
+  // (the merge anchor must be equal across variants) but Framer scopes the rules
+  // of a variant under them (`.framer-C.framer-v-<hash> .framer-part{…}`), so the
+  // stylesheet match needs them. Read by the capture only.
+  variantClasses?: string[];
   tag: string;
   href: string | null;
   // The anchor id, the image alt text, the link target and the inline markup
@@ -558,6 +563,9 @@ function asIrNode(value: unknown): IrNode | undefined {
     name: asString(value.name) ?? null,
     componentType: asString(value.componentType) ?? null,
     baseClasses,
+    ...(Array.isArray(value.variantClasses)
+      ? { variantClasses: value.variantClasses.filter((entry): entry is string => typeof entry === "string") }
+      : {}),
     tag: asString(value.tag) ?? "div",
     href: asString(value.href) ?? null,
     ...(asString(value.htmlId) === undefined ? {} : { htmlId: asString(value.htmlId) ?? null }),

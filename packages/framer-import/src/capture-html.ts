@@ -496,6 +496,7 @@ function toIrNode(raw: RawNode, counter: { ordinal: number }, inheritedHidden: s
         }
       : {}),
     baseClasses: classes,
+    ...(variantHashes.length > 0 ? { variantClasses: variantHashes.map((hash) => `framer-v-${hash}`) } : {}),
     tag: raw.tag,
     href: attrs["href"] ?? null,
     ...(raw.attrs["src"] !== undefined ? { assetUrl: raw.attrs["src"] } : {}),
@@ -978,11 +979,31 @@ function readAllCss(html: string, rootDir: string | undefined): string {
 type ParsedCssRule = { selector: string; values: Record<string, string> };
 type ParsedCssMedia = { maxWidth: number | null; minWidth: number | null; rules: ParsedCssRule[] };
 
+// `flex-flow` is the shorthand of `flex-direction` and `flex-wrap`. As a property
+// of its own it sits beside the longhand a variant sets (`flex-direction:column`
+// over a base `flex-flow:row`) and nothing says which of the two wins, so the
+// phone copy of a card kept its row. Read as the two longhands, the later
+// declaration replaces the earlier one like in the browser.
+const FLOW_DIRECTION = /^(?:row|column)(?:-reverse)?$/;
+const FLOW_WRAP = /^(?:nowrap|wrap|wrap-reverse)$/;
+
+function expandFlexFlow(value: string): [string, string][] | null {
+  const important = /\s*!important\s*$/i.exec(value)?.[0] ?? "";
+  const tokens = value.slice(0, value.length - important.length).trim().split(/\s+/);
+  if (tokens.length > 2 || tokens.some((token) => !FLOW_DIRECTION.test(token) && !FLOW_WRAP.test(token))) return null;
+  const direction = tokens.find((token) => FLOW_DIRECTION.test(token)) ?? "row";
+  const wrap = tokens.find((token) => FLOW_WRAP.test(token)) ?? "nowrap";
+  return [["flex-direction", `${direction}${important}`], ["flex-wrap", `${wrap}${important}`]];
+}
+
 function parseDeclarations(body: string): Record<string, string> {
   const values: Record<string, string> = {};
   for (const declaration of splitDeclarations(body)) {
     const pair = parseDeclaration(declaration);
-    if (pair !== null) values[pair[0]] = pair[1];
+    if (pair === null) continue;
+    for (const [property, value] of (pair[0] === "flex-flow" ? expandFlexFlow(pair[1]) : null) ?? [pair]) {
+      values[property] = value;
+    }
   }
   return values;
 }
@@ -1199,6 +1220,9 @@ function buildIndex(rules: readonly ParsedCssRule[]): { index: RuleIndex; skippe
   return { index, skippedPseudo };
 }
 
+// Every class of the element a rule can name: the shared ones and its variant's.
+const classesOf = (node: IrNode): string[] => [...node.baseClasses, ...(node.variantClasses ?? [])];
+
 function ruleMatches(node: IrNode, rule: CompiledRule, ancestorClasses: ReadonlySet<string>): boolean {
   if (node.tag === "root") {
     if (rule.root) return true;
@@ -1207,16 +1231,18 @@ function ruleMatches(node: IrNode, rule: CompiledRule, ancestorClasses: Readonly
   }
   if (rule.root) return false;
   if (rule.tag !== "" && rule.tag !== "*" && rule.tag !== node.tag) return false;
-  if (!rule.classes.every((name) => node.baseClasses.includes(name))) return false;
-  return rule.ancestors.every(
-    (classes) => classes.length === 0 || classes.some((name) => ancestorClasses.has(name)),
-  );
+  const own = classesOf(node);
+  if (!rule.classes.every((name) => own.includes(name))) return false;
+  // Every class of an ancestor compound must be on the way down: the rule of a
+  // phone variant, `.framer-C.framer-v-phone .framer-part`, reaches the parts of
+  // the phone copy only, not those of the desktop copy of the same component.
+  return rule.ancestors.every((classes) => classes.every((name) => ancestorClasses.has(name)));
 }
 
 // Matching rules in source order, which is the cascade order.
 function matchingRules(index: RuleIndex, node: IrNode, ancestorClasses: ReadonlySet<string>): CompiledRule[] {
   const candidates = new Set<CompiledRule>(index.generic);
-  for (const name of node.baseClasses) {
+  for (const name of classesOf(node)) {
     for (const rule of index.byClass.get(name) ?? []) candidates.add(rule);
   }
   return [...candidates]
@@ -1339,7 +1365,7 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
         visual: values,
       });
     }
-    const classes = new Set([...ancestorClasses, ...current.baseClasses]);
+    const classes = new Set([...ancestorClasses, ...classesOf(current)]);
     for (const child of current.children) visit(child, classes, varsByDevice);
   };
   visit(root, new Set(), { desktop: {}, tablet: {}, mobile: {} });
