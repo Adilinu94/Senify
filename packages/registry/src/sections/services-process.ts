@@ -27,9 +27,9 @@ export const servicesProcessSection: SectionDefinition = {
     },
   ],
   variants: {
-    steps: { label: "Steps", preset: {} },
-    cards: { label: "Cards", preset: {} },
-    timeline: { label: "Timeline", preset: {} },
+    steps: { label: "Schritte", preset: {} },
+    cards: { label: "Karten", preset: {} },
+    timeline: { label: "Zeitstrahl", preset: {} },
   },
   styleProps: [
     ...sectionStyleProps(),

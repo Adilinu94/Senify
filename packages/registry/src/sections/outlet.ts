@@ -13,7 +13,7 @@ export const outletSection: SectionDefinition = {
   ],
   variants: {
     inline: { label: "Im Fluss", preset: {} },
-    boxed: { label: "Boxed", preset: {} },
+    boxed: { label: "Umrahmt", preset: {} },
   },
   styleProps: sectionStyleProps(),
   allowedChildren: "none",

@@ -50,8 +50,8 @@ describe("Content tab of a section", () => {
     expect(field?.kind).toBe("select");
     expect(field?.commit).toEqual({ kind: "section-variant" });
     expect(field?.options).toEqual([
-      { value: "simple", label: "Simple" },
-      { value: "split", label: "Split" },
+      { value: "simple", label: "Schlicht" },
+      { value: "split", label: "Geteilt" },
       { value: "banner-cta", label: "Banner" },
     ]);
     // Not responsive, like the rest of the section content.

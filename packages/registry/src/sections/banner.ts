@@ -19,9 +19,9 @@ export const bannerSection: SectionDefinition = {
     },
   ],
   variants: {
-    bar: { label: "Bar", preset: { dismissible: true } },
-    ribbon: { label: "Ribbon", preset: { dismissible: false } },
-    announcement: { label: "Announcement", preset: { dismissible: true } },
+    bar: { label: "Leiste", preset: { dismissible: true } },
+    ribbon: { label: "Band", preset: { dismissible: false } },
+    announcement: { label: "Ankündigung", preset: { dismissible: true } },
   },
   styleProps: [...sectionStyleProps()],
   allowedChildren: "none",

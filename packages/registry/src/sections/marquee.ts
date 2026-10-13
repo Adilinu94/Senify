@@ -52,7 +52,7 @@ export const marqueeSection: SectionDefinition = {
   variants: {
     text: { label: "Text", preset: { speed: 4, direction: "left" } },
     logos: { label: "Logos", preset: { speed: 5, direction: "left" } },
-    images: { label: "Images", preset: { speed: 5, direction: "right" } },
+    images: { label: "Bilder", preset: { speed: 5, direction: "right" } },
   },
   styleProps: [...sectionStyleProps(), ...mediaPart()],
   allowedChildren: "none",

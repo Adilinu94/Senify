@@ -24,9 +24,9 @@ export const dividerSection: SectionDefinition = {
     },
   ],
   variants: {
-    line: { label: "Line", preset: { spacing: "m" } },
-    space: { label: "Space", preset: { spacing: "xl" } },
-    dots: { label: "Dots", preset: { spacing: "l" } },
+    line: { label: "Linie", preset: { spacing: "m" } },
+    space: { label: "Abstand", preset: { spacing: "xl" } },
+    dots: { label: "Punkte", preset: { spacing: "l" } },
   },
   styleProps: [
     ...sectionStyleProps(),
