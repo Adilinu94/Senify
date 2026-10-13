@@ -8,11 +8,7 @@ import {
   type Author,
   type NodeTree,
 } from "@senify/section-sdk";
-import type {
-  DesignRecord,
-  DesignRecordStage,
-  DesignReport,
-} from "./design-report.ts";
+import type { DesignRecord } from "./design-report.ts";
 import type { ReleaseAssetSnapshot } from "./types.ts";
 import {
   defaultTheme,
@@ -154,6 +150,7 @@ import {
   type CodePayloadRow,
 } from "./store-record-mappers.ts";
 import {
+  assertDraftShape,
   toFiniteNumber,
   toIso,
   toJson,
@@ -173,6 +170,11 @@ import {
   type CreateCollectionInput,
   type ListCollectionsOptions,
 } from "./store-collections.ts";
+import {
+  type CreateDesignRecordInput,
+  DesignRecordsRepository,
+  type ListDesignRecordsOptions,
+} from "./store-design-records.ts";
 import { FormsRepository, type SaveFormSnapshotInput } from "./store-forms.ts";
 import {
   IdempotencyRepository,
@@ -212,6 +214,8 @@ import {
   type ListEntriesFilter,
   type UpdateEntryRowInput,
 } from "./store-entries.ts";
+import { type AppendMcpAuditInput, McpAuditRepository } from "./store-mcp-audit.ts";
+import { type CreateRevisionInput, RevisionsRepository } from "./store-revisions.ts";
 import {
   type CreateReferenceCollectionInput,
   ReferenceLibraryRepository,
@@ -372,18 +376,6 @@ function mapSite(row: SiteRow): Site {
   };
 }
 
-function assertDraftShape(draft: unknown): asserts draft is NodeTree {
-  if (
-    !draft ||
-    typeof draft !== "object" ||
-    typeof (draft as { rootNodeId?: unknown }).rootNodeId !== "string" ||
-    typeof (draft as { nodes?: unknown }).nodes !== "object" ||
-    (draft as { nodes?: unknown }).nodes === null
-  ) {
-    throw new Error("Stored page draft has an invalid shape");
-  }
-}
-
 function mapPageTemplate(row: {
   title?: string;
   template_kind?: unknown;
@@ -466,31 +458,7 @@ type TokenRow = {
 
 type TokenRecordRow = TokenRow & { token_hash: string };
 
-type McpAuditRow = {
-  id: string;
-  token_id: unknown;
-  client: string;
-  tool: string;
-  args: unknown;
-  result: string;
-  entity: unknown;
-  duration_ms: unknown;
-  created_at: unknown;
-};
-
 export type { IdempotencyClaim } from "./store-idempotency.ts";
-
-type RevisionRow = {
-  id: string;
-  page_id: string;
-  site_id: string;
-  tree: unknown;
-  title: string;
-  path: string;
-  author: unknown;
-  note: unknown;
-  created_at: unknown;
-};
 
 
 type RedesignProposalRow = {
@@ -540,52 +508,6 @@ function mapRedesignProposal(row: RedesignProposalRow): RedesignProposal {
   };
 }
 
-type DesignRecordRow = {
-  id: string;
-  site_id: string;
-  stage: string;
-  draft_version: unknown;
-  theme_version: unknown;
-  report: unknown;
-  created_at: unknown;
-};
-
-function mapDesignRecord(row: DesignRecordRow): DesignRecord {
-  if (row.stage !== "publish" && row.stage !== "review") {
-    throw new Error(`Stored design record stage is invalid: ${row.stage}`);
-  }
-  return {
-    id: row.id,
-    siteId: row.site_id,
-    stage: row.stage,
-    draftVersion: toFiniteNumber(row.draft_version, "draft_version"),
-    themeVersion: toFiniteNumber(row.theme_version, "theme_version"),
-    report: toJson<DesignReport>(row.report),
-    createdAt: toIso(row.created_at),
-  };
-}
-
-function mapRevision(row: RevisionRow): PageRevision {
-  const tree = toJson<unknown>(row.tree);
-  assertDraftShape(tree);
-  return {
-    id: row.id,
-    pageId: row.page_id,
-    siteId: row.site_id,
-    title: row.title,
-    path: row.path,
-    tree,
-    author: toJson<Author>(row.author),
-    note: typeof row.note === "string" ? row.note : null,
-    createdAt: toIso(row.created_at),
-  };
-}
-
-function toRevisionSummary(revision: PageRevision): RevisionSummary {
-  const { tree, ...rest } = revision;
-  return { ...rest, nodeCount: Object.keys(tree.nodes).length };
-}
-
 function mapToken(row: TokenRow): ApiToken {
   const scopes = toJson<unknown>(row.scopes);
   if (
@@ -609,20 +531,6 @@ function mapToken(row: TokenRow): ApiToken {
     expiresAt: toNullableIso(row.expires_at),
     lastUsedAt: toNullableIso(row.last_used_at),
     revokedAt: toNullableIso(row.revoked_at),
-  };
-}
-
-function mapMcpAudit(row: McpAuditRow): McpAuditEntry {
-  return {
-    id: row.id,
-    tokenId: typeof row.token_id === "string" ? row.token_id : null,
-    client: row.client,
-    tool: row.tool,
-    args: toJson<Record<string, unknown>>(row.args),
-    result: row.result === "error" ? "error" : "ok",
-    entity: typeof row.entity === "string" ? row.entity : null,
-    durationMs: toFiniteNumber(row.duration_ms, "duration_ms"),
-    createdAt: toIso(row.created_at),
   };
 }
 
@@ -794,6 +702,9 @@ export class Store {
   readonly #imageJobs: ImageJobsRepository;
   readonly #collections: CollectionsRepository;
   readonly #idempotency: IdempotencyRepository;
+  readonly #designRecords: DesignRecordsRepository;
+  readonly #mcpAudit: McpAuditRepository;
+  readonly #revisions: RevisionsRepository;
 
   // Where the encryption key lives. Without it (a bare Store in a test) the key
   // stays in the database, as before.
@@ -815,6 +726,9 @@ export class Store {
     this.#imageJobs = new ImageJobsRepository(db);
     this.#collections = new CollectionsRepository(db, (siteId) => this.getSite(siteId));
     this.#idempotency = new IdempotencyRepository(db);
+    this.#designRecords = new DesignRecordsRepository(db);
+    this.#mcpAudit = new McpAuditRepository(db);
+    this.#revisions = new RevisionsRepository(db);
     this.#secretFile = options.secretFile;
   }
 
@@ -2749,61 +2663,15 @@ export class Store {
     return this.#idempotency.releaseIdempotencyKey(input);
   }
 
-  // Design records (Fahrplan P2-4, R4). Written once, never updated: a
-  // measurement of the same site at a later moment is a new record, not a
-  // correction of the old one. That is what makes "this release was green" a
-  // fact about the release instead of a claim about the present.
-  async createDesignRecord(input: {
-    siteId: string;
-    stage: DesignRecordStage;
-    draftVersion: number;
-    themeVersion: number;
-    report: DesignReport;
-  }): Promise<DesignRecord> {
-    const id = newEntityId();
-    const createdAt = new Date().toISOString();
-    const result = await this.#db.query<DesignRecordRow>(
-      `INSERT INTO design_records
-        (id, site_id, stage, draft_version, theme_version, report, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, site_id, stage, draft_version, theme_version, report, created_at`,
-      [
-        id,
-        input.siteId,
-        input.stage,
-        input.draftVersion,
-        input.themeVersion,
-        toJsonParam(input.report),
-        createdAt,
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) throw new Error("Design record insert returned no row");
-    return mapDesignRecord(row);
+  createDesignRecord(input: CreateDesignRecordInput): Promise<DesignRecord> {
+    return this.#designRecords.createDesignRecord(input);
   }
 
-  // The newest record per stage, newest first within a stage. `stages` filters
-  // the read; without it the caller gets every measurement the site ever had.
-  async listDesignRecords(
+  listDesignRecords(
     siteId: string,
-    options: { stage?: DesignRecordStage; limit?: number } = {},
+    options: ListDesignRecordsOptions = {},
   ): Promise<DesignRecord[]> {
-    const limit = options.limit ?? 20;
-    const result =
-      options.stage === undefined
-        ? await this.#db.query<DesignRecordRow>(
-            `SELECT id, site_id, stage, draft_version, theme_version, report, created_at
-               FROM design_records WHERE site_id = $1
-              ORDER BY created_at DESC, id DESC LIMIT $2`,
-            [siteId, limit],
-          )
-        : await this.#db.query<DesignRecordRow>(
-            `SELECT id, site_id, stage, draft_version, theme_version, report, created_at
-               FROM design_records WHERE site_id = $1 AND stage = $2
-              ORDER BY created_at DESC, id DESC LIMIT $3`,
-            [siteId, options.stage, limit],
-          );
-    return result.rows.map(mapDesignRecord);
+    return this.#designRecords.listDesignRecords(siteId, options);
   }
 
   // Replaces the open media needs an apply left (Fahrplan P2-2). Only the
@@ -2850,124 +2718,28 @@ export class Store {
     return mapRedesignProposal(stored);
   }
 
-  async getDesignRecord(id: string): Promise<DesignRecord> {
-    const result = await this.#db.query<DesignRecordRow>(
-      `SELECT id, site_id, stage, draft_version, theme_version, report, created_at
-         FROM design_records WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Design record "${id}" does not exist`, {
-        field: "recordId",
-      });
-    }
-    return mapDesignRecord(row);
+  getDesignRecord(id: string): Promise<DesignRecord> {
+    return this.#designRecords.getDesignRecord(id);
   }
 
-  async appendMcpAudit(input: {
-    tokenId: string | null;
-    client: string;
-    tool: string;
-    args: Record<string, unknown>;
-    result: "ok" | "error";
-    entity: string | null;
-    durationMs: number;
-  }): Promise<McpAuditEntry> {
-    const id = newEntityId();
-    const createdAt = new Date().toISOString();
-    await this.#db.query(
-      `INSERT INTO mcp_audit_entries
-        (id, token_id, client, tool, args, result, entity, duration_ms, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [
-        id,
-        input.tokenId,
-        input.client,
-        input.tool,
-        toJsonParam(input.args),
-        input.result,
-        input.entity,
-        input.durationMs,
-        createdAt,
-      ],
-    );
-    return { id, ...input, createdAt };
+  appendMcpAudit(input: AppendMcpAuditInput): Promise<McpAuditEntry> {
+    return this.#mcpAudit.appendMcpAudit(input);
   }
 
-  async listMcpAudit(limit = 50): Promise<McpAuditEntry[]> {
-    const result = await this.#db.query<McpAuditRow>(
-      `SELECT id, token_id, client, tool, args, result, entity, duration_ms, created_at
-       FROM mcp_audit_entries
-       ORDER BY created_at DESC, id DESC LIMIT $1`,
-      [Math.max(1, Math.min(500, limit))],
-    );
-    return result.rows.map(mapMcpAudit);
+  listMcpAudit(limit = 50): Promise<McpAuditEntry[]> {
+    return this.#mcpAudit.listMcpAudit(limit);
   }
 
-  async createRevision(input: {
-    pageId: string;
-    siteId: string;
-    title: string;
-    path: string;
-    tree: NodeTree;
-    author: Author;
-    note: string | null;
-  }): Promise<PageRevision> {
-    const id = newEntityId();
-    const createdAt = new Date().toISOString();
-    await this.#db.query(
-      `INSERT INTO page_revisions
-        (id, page_id, site_id, tree, title, path, author, note, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [
-        id,
-        input.pageId,
-        input.siteId,
-        toJsonParam(input.tree),
-        input.title,
-        input.path,
-        toJsonParam(input.author),
-        input.note,
-        createdAt,
-      ],
-    );
-    return {
-      id,
-      pageId: input.pageId,
-      siteId: input.siteId,
-      title: input.title,
-      path: input.path,
-      tree: input.tree,
-      author: input.author,
-      note: input.note,
-      createdAt,
-    };
+  createRevision(input: CreateRevisionInput): Promise<PageRevision> {
+    return this.#revisions.createRevision(input);
   }
 
-  async getRevision(id: string): Promise<PageRevision> {
-    const result = await this.#db.query<RevisionRow>(
-      `SELECT id, page_id, site_id, tree, title, path, author, note, created_at
-       FROM page_revisions WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Revision "${id}" does not exist`, {
-        field: "revisionId",
-      });
-    }
-    return mapRevision(row);
+  getRevision(id: string): Promise<PageRevision> {
+    return this.#revisions.getRevision(id);
   }
 
-  async listRevisions(pageId: string, limit = 50): Promise<RevisionSummary[]> {
-    const result = await this.#db.query<RevisionRow>(
-      `SELECT id, page_id, site_id, tree, title, path, author, note, created_at
-       FROM page_revisions WHERE page_id = $1
-       ORDER BY created_at DESC, id DESC LIMIT $2`,
-      [pageId, Math.max(1, Math.min(200, limit))],
-    );
-    return result.rows.map(mapRevision).map(toRevisionSummary);
+  listRevisions(pageId: string, limit = 50): Promise<RevisionSummary[]> {
+    return this.#revisions.listRevisions(pageId, limit);
   }
 
   createRelease(input: CreateReleaseInput): Promise<Release> {
