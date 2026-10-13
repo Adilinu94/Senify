@@ -119,6 +119,23 @@ describe("capture fidelity", () => {
     expect(nodes.map((node) => node.props["backgroundColor"])).toContain("#abc");
   });
 
+  it("reads Framer's phone range with a unitless zero, `(max-width:809px) and (min-width:0)`", () => {
+    const { document } = run(page('<div class="m">x</div>', ".m{color:red}@media (max-width:809px) and (min-width:0){.m{color:blue}}"));
+    const states = document.pages[0]?.root.children.find((node) => node.baseClasses.includes("m"))?.states ?? [];
+    const colorOf = (device: string) => states.find((state) => state.device === device)?.visual["color"];
+    expect(colorOf("desktop")).toBe("red");
+    expect(colorOf("mobile")).toBe("blue");
+  });
+
+  it("lets `!important` beat the inline style on its devices and drops the marker from the value", () => {
+    const { document } = run(page('<div class="w" style="display:flex">x</div>', "@media (min-width:810px){.w{display:none!important}}"));
+    const states = document.pages[0]?.root.children.find((node) => node.baseClasses.includes("w"))?.states ?? [];
+    const displayOf = (device: string) => states.find((state) => state.device === device)?.visual["display"];
+    expect(displayOf("desktop")).toBe("none");
+    // The query does not reach mobile: the element keeps its inline `flex`.
+    expect(displayOf("mobile")).toBe("flex");
+  });
+
   it("applies a min-width query to tablet and desktop, never to mobile", () => {
     const { document } = run(page('<div class="m">x</div>', ".m{color:red}@media (min-width:810px){.m{color:blue}}"));
     const states = document.pages[0]?.root.children.find((node) => node.baseClasses.includes("m"))?.states ?? [];

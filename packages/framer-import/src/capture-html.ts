@@ -1066,15 +1066,19 @@ function resolveVars(value: string, vars: Vars, depth = 0): string {
 // A media prelude that only asks for widths: `(min-width: 810px) and
 // (max-width: 1199.98px)`. Anything else (prefers-color-scheme, orientation,
 // print …) is not a width range and must not leak into the device model.
+//
+// The unit is optional: Framer writes its phone range as `(max-width:809px) and
+// (min-width:0)`, and a unitless zero is valid CSS. Rejecting it dropped every
+// phone rule (all phone text sizes) from the import.
 function mediaRange(prelude: string): { min: number | null; max: number | null } | null {
   const query = prelude.replace(/^@media/i, "");
   const rest = query
-    .replace(/\(\s*(?:min|max)-width\s*:\s*[0-9.]+px\s*\)/gi, "")
+    .replace(/\(\s*(?:min|max)-width\s*:\s*[0-9.]+(?:px)?\s*\)/gi, "")
     .replace(/\b(?:screen|all|and|only)\b/gi, "")
     .trim();
   if (rest !== "") return null;
-  const max = /max-width:\s*([0-9.]+)px/i.exec(query)?.[1];
-  const min = /min-width:\s*([0-9.]+)px/i.exec(query)?.[1];
+  const max = /max-width:\s*([0-9.]+)(?:px)?/i.exec(query)?.[1];
+  const min = /min-width:\s*([0-9.]+)(?:px)?/i.exec(query)?.[1];
   return {
     min: min === undefined ? null : Number.parseFloat(min),
     max: max === undefined ? null : Number.parseFloat(max),
@@ -1228,6 +1232,32 @@ const baseOnly = (rules: CompiledRule[]): CompiledRule[] => rules.filter((rule) 
 // `(min-width: 1440px)` reaches desktop only (see `devices.ts`).
 const devicesOf = devicesContaining;
 
+const IMPORTANT = /\s*!important\s*$/i;
+
+// The cascade of one device: class rules in source order, then the element's own
+// inline style. A declaration marked `!important` beats every normal one, the
+// inline style included, and the marker does not travel on: Framer hides the
+// copies of other breakpoints with `.hidden-x{display:none!important}` over an
+// inline `display:contents`. Carried as `none!important`, the value could not be
+// overridden by the device that shows the element (`display_mobile: flex`), so
+// mobile-only layers stayed hidden.
+function cascade(classValues: readonly Record<string, string>[], inline: IrVisual): IrVisual {
+  const out: IrVisual = {};
+  const important = new Set<string>();
+  for (const values of classValues) {
+    for (const [key, raw] of Object.entries(values)) {
+      const marked = IMPORTANT.test(raw);
+      if (important.has(key) && !marked) continue;
+      out[key] = raw.replace(IMPORTANT, "");
+      if (marked) important.add(key);
+    }
+  }
+  for (const [key, value] of Object.entries(inline)) {
+    if (!important.has(key)) out[key] = value;
+  }
+  return out;
+}
+
 function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
   const parsed = parseCssRules(css);
   const base = buildIndex(parsed.rules);
@@ -1270,7 +1300,7 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
     for (const device of DEVICES) {
       const own: Vars = {};
       const plain: IrVisual = {};
-      for (const [key, value] of Object.entries({ ...baseline, ...(byDevice.get(device) ?? {}), ...inline })) {
+      for (const [key, value] of Object.entries(cascade([baseline, byDevice.get(device) ?? {}], inline))) {
         if (value === undefined) continue;
         if (key.startsWith("--")) own[key] = value;
         else plain[key] = value;
