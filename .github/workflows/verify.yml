@@ -33,7 +33,7 @@ concurrency:
 # per Dependabot (`package-ecosystem: github-actions`) oder von Hand.
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # Kein `version:` hier: pnpm/action-setup liest die Version aus
@@ -107,7 +107,7 @@ jobs:
 
   postgres-tests:
     name: Transaktionsbeweise gegen echte Postgres
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:18
@@ -142,7 +142,7 @@ jobs:
 
   coverage:
     name: Coverage-Tor der geschuetzten Pfade
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
