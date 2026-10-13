@@ -111,7 +111,8 @@ describe.skipIf(!browserAvailable && !BROWSER_REQUIRED)("consent gate (browser)"
       // 2. One click loads exactly one frame.
       await page.locator("[data-consent-load]").first().click();
       await page.waitForFunction("document.querySelectorAll('iframe[src]').length === 1");
-      expect(thirdParty).toEqual([MAP_A]);
+      // The `src` attribute is set before the request reaches the route handler.
+      await expect.poll(() => thirdParty).toEqual([MAP_A]);
       expect(await page.locator("[data-consent-placeholder]").count()).toBe(1);
 
       // 3. Declining changes nothing for the remaining frame.
@@ -126,7 +127,7 @@ describe.skipIf(!browserAvailable && !BROWSER_REQUIRED)("consent gate (browser)"
       expect(await page.locator('[data-island="consent"]').isVisible()).toBe(true);
       await page.locator('[data-consent="accept"]').click();
       await page.waitForFunction("document.querySelectorAll('iframe[src]').length === 2");
-      expect(thirdParty).toContain(MAP_B);
+      await expect.poll(() => thirdParty).toContain(MAP_B);
       expect(await page.locator("[data-consent-placeholder]").count()).toBe(0);
 
       // 5. The choice sticks: the next view loads at once and the notice stays away.

@@ -147,6 +147,17 @@ describe("saving catalog primitives through the editor route", () => {
       expect(breakout.status).toBeGreaterThanOrEqual(400);
       expect(breakout.status).toBeLessThan(500);
       expect(breakout.body.error?.category).toBe("validation");
+      // A string value must not carry a way out of the <style> element: the
+      // boundary refuses it before it is stored.
+      for (const value of ['"</style><script>x</script>"', "'a</STYLE>b'", '"<!--"']) {
+        const closing = await insert(env, page, rootId, {
+          primitive: "heading",
+          props: { fontFamily: value },
+        });
+        expect(closing.status, value).toBeGreaterThanOrEqual(400);
+        expect(closing.status).toBeLessThan(500);
+        expect(closing.body.error?.category).toBe("validation");
+      }
       const unsafeName = await insert(env, page, rootId, {
         primitive: "heading",
         props: { "color:red;x": "1" },
