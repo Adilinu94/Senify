@@ -52,7 +52,7 @@ Quellen: `artifacts/26`, Spec „Forms (Verträge)", `research/24` §5.4 (Jobs/R
 **Offen (Teil 2):**
 - CSV-Export der Einsendungsansicht (Spalten aus dem Snapshot) — erledigt in Teil 2 (Engine-Route + Tests).
 - Ansicht der Einsendungen und Job-Retry im Programm (gehört zur Programm-Shell T12).
-- Volle E2E-Bake-Prüfung „Absenden ohne JS → Danke-Seite" gegen den gebackenen Zustand (aktuell über den Endpoint geprüft).
+- Volle E2E-Bake-Prüfung „Absenden ohne JS → Danke-Seite" gegen den gebackenen Zustand (aktuell über den Endpoint geprüft) — erledigt 13.10.2026: `forms.test.ts` liest das gebackene `<form>` aus dem Release-Ordner, sendet es wie ein Browser ohne JavaScript ab (Hidden-Felder wie gebacken, Honeypot leer, Pflicht-Checkbox mit eigenem Wert), erwartet 303 auf `/danke?gesendet=1`, findet die gebackene Danke-Seite im Release und zählt genau einen neuen Eintrag.
 
 ### Auftrag Teil 2 (Engine-only, für die ausführende Session)
 
