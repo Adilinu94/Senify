@@ -65,6 +65,10 @@ describe("css value grammar rejects the bypasses of a denylist", () => {
     ["rgb(0 0 0) !important", "important in a value"],
     ["\u0000red", "control character"],
     ["<script>", "angle brackets"],
+    ["\"</style><script>alert(1)</script>\"", "a quoted string that closes the style element"],
+    ["'a</STYLE>b'", "an upper-case closing tag inside a string"],
+    ["\"\\3c /style>\"", "a hex-escaped < inside a string"],
+    ["\"<!--\"", "an HTML comment opener inside a string"],
     ["red blue;", "trailing semicolon"],
     ["var(--x);", "trailing semicolon after a function"],
     ["url(data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=)x", "trailing junk"],
@@ -75,6 +79,11 @@ describe("css value grammar rejects the bypasses of a denylist", () => {
     const parsed = parseCssValue(value);
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.problem.length).toBeGreaterThan(0);
+  });
+
+  it("keeps accepting a plain string without an angle bracket", () => {
+    expect(isSafeCssValue("\"Hallo Welt\"")).toBe(true);
+    expect(isSafeCssValue("'a > b'")).toBe(true);
   });
 
   it("rejects an unknown function", () => {
