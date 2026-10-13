@@ -13,7 +13,11 @@ import {
 // showed an empty tab, because the section's props live in the section registry
 // and not in the primitive catalog.
 
-function contentOf(primitive: string, props: Record<string, unknown>) {
+function contentOf(
+  primitive: string,
+  props: Record<string, unknown>,
+  assets?: { id: string; name: string; kind: string }[],
+) {
   const store = baseStore();
   store.apply({
     op: "insertNode",
@@ -24,6 +28,7 @@ function contentOf(primitive: string, props: Record<string, unknown>) {
     document: store.document,
     nodeId: "sect000001",
     breakpoint: "desktop",
+    ...(assets === undefined ? {} : { assets }),
   });
   const tab = model?.tabs.find((entry) => entry.id === "content");
   return tab?.groups ?? [];
@@ -158,5 +163,50 @@ describe("value and text round trips", () => {
   it("shows a list of strings one per line", () => {
     expect(linesToText(["a", "b"])).toBe("a\nb");
     expect(textToLines(" a \n\n b ")).toEqual(["a", "b"]);
+  });
+  describe("an image prop (asset)", () => {
+    const library = [
+      { id: "ast-bild-eins", name: "Titelbild.jpg", kind: "image" },
+      { id: "ast-film", name: "Clip.mp4", kind: "video" },
+      { id: "ast-bild-zwei", name: "Team.png", kind: "image" },
+      { id: "ast-pdf", name: "Preise.pdf", kind: "document" },
+    ];
+    const imageField = (props: Record<string, unknown>, assets = library) =>
+      contentOf("media", props, assets)
+        .flatMap((group) => group.fields)
+        .find((field) => field.key === "asset");
+
+    it("is a select over the site's pictures, with \"no image\" first", () => {
+      const field = imageField({ asset: { assetId: "ast-bild-zwei" } });
+      expect(field?.kind).toBe("select");
+      expect(field?.shape).toBe("asset");
+      expect(field?.label).toBe("Image");
+      expect(field?.value).toBe("ast-bild-zwei");
+      // Videos and documents are not pictures.
+      expect(field?.options).toEqual([
+        { value: "", label: "Kein Bild" },
+        { value: "ast-bild-eins", label: "Titelbild.jpg" },
+        { value: "ast-bild-zwei", label: "Team.png" },
+      ]);
+    });
+
+    it("shows an empty value while no image is set, and still offers \"no image\" without a library", () => {
+      expect(imageField({})?.value).toBe("");
+      expect(imageField({}, [])?.options).toEqual([{ value: "", label: "Kein Bild" }]);
+    });
+
+    it("keeps a picture that left the library as the current value", () => {
+      const field = imageField({ asset: { assetId: "ast-geloescht" } });
+      expect(field?.value).toBe("ast-geloescht");
+      expect(field?.options?.some((option) => option.value === "ast-geloescht")).toBe(false);
+    });
+
+    it("exists on the card cover too", () => {
+      const field = contentOf("card", { title: "Karte", cover: { assetId: "ast-bild-eins" } }, library)
+        .flatMap((group) => group.fields)
+        .find((entry) => entry.key === "cover");
+      expect(field?.shape).toBe("asset");
+      expect(field?.value).toBe("ast-bild-eins");
+    });
   });
 });

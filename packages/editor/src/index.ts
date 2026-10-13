@@ -101,6 +101,7 @@ export {
   tokenRefOf,
   unitOfValue,
   type BuildInspectorInput,
+  type InspectorAsset,
   type InspectorCommit,
   type InspectorField,
   type InspectorFieldKind,

@@ -6853,6 +6853,8 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     theme: siteTheme ?? editor.defaultTheme(),
     profile: siteProfile ?? "standard",
     breakpoint: savedUi.device,
+    // Die Mediathek der Site: Bild-Eigenschaften der Sektionen wählen daraus.
+    assets: () => mediaCache,
     onTabChange: (tab) => session.setTab(tab),
     onBreakpointChange: (device) => session.setDevice(device),
     // Der Zustand des Style-Tabs ist die Vorschau (Ticket 02 Punkt 5): der

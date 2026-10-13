@@ -1,7 +1,7 @@
 import type { Choice, PropValue } from "@senify/widget-engine";
 import { isPropHidden, type PropSpec, type SectionDefinition } from "@senify/section-sdk";
 import type { EditorNode } from "../state/document.ts";
-import type { InspectorField, InspectorFieldKind, InspectorGroup } from "./model.ts";
+import type { InspectorAsset, InspectorField, InspectorFieldKind, InspectorGroup } from "./model.ts";
 
 // The Content tab of a section node (hero, features, faq, …).
 //
@@ -12,9 +12,11 @@ import type { InspectorField, InspectorFieldKind, InspectorGroup } from "./model
 // device dots.
 //
 // What is covered: text, long text, number, switch, choice, colour, link, a
-// list of strings (one per line) and a list of objects (the repeater). What is
-// not (yet): images (`asset`), token scales, slots and free JSON — those props
-// keep their value, they just have no field.
+// list of strings (one per line), a list of objects (the repeater) and an image
+// (`asset`, picked from the site's media library). The registry has no section
+// prop with a token scale, a slot or free JSON as its control, so nothing is
+// left without a field; a prop of such a kind would keep its value and simply
+// have none.
 
 type Json = {
   type?: string;
@@ -262,7 +264,28 @@ export function newRepeaterItem(fields: readonly InspectorField[]): Record<strin
 
 // -------------------------------------------------------------- the fields
 
-function fieldFor(spec: PropSpec, node: EditorNode): InspectorField | undefined {
+// The id an image prop currently points at ("" without an image).
+export function assetIdOf(value: PropValue | undefined): string {
+  return isRecord(value) && typeof value["assetId"] === "string" ? value["assetId"] : "";
+}
+
+// The media library as the options of an image prop. Only pictures are offered
+// (the registry's image props are pictures; a video keeps its own address prop),
+// and "no image" comes first so the prop can be emptied again.
+export function assetOptions(assets: readonly InspectorAsset[]): Choice[] {
+  return [
+    { value: "", label: "Kein Bild" },
+    ...assets
+      .filter((asset) => asset.kind === "image")
+      .map((asset) => ({ value: asset.id, label: asset.name })),
+  ];
+}
+
+function fieldFor(
+  spec: PropSpec,
+  node: EditorNode,
+  assets: readonly InspectorAsset[],
+): InspectorField | undefined {
   const value = node.props[spec.key];
   const label = labelForKey(spec.key, spec.label);
   const schema = asJson(spec.schema);
@@ -299,6 +322,13 @@ function fieldFor(spec: PropSpec, node: EditorNode): InspectorField | undefined 
       field = blankField(spec.key, label, "url", value);
       field.shape = "link";
       break;
+    case "asset":
+      // Shown as the id in a select; a pick writes `{ assetId }`. A picture that
+      // is no longer in the library stays selectable as "(unbekannt)".
+      field = blankField(spec.key, label, "select", assetIdOf(value));
+      field.shape = "asset";
+      field.options = assetOptions(assets);
+      break;
     case "list": {
       if (schema === undefined) break;
       const children = itemFields(schema);
@@ -329,10 +359,11 @@ export function sectionContentGroups(
   node: EditorNode,
   title: string,
   attach: (field: InspectorField) => void,
+  assets: readonly InspectorAsset[] = [],
 ): InspectorGroup[] {
   const groups = new Map<string, InspectorGroup>();
   for (const spec of section.props) {
-    const field = fieldFor(spec, node);
+    const field = fieldFor(spec, node, assets);
     if (field === undefined) continue;
     attach(field);
     const name = spec.group ?? "Content";
