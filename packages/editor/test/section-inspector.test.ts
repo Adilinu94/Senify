@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { buildInspector } from "@senify/editor";
+import { bundledSections } from "@senify/registry";
+import type { EditorNode } from "../src/state/document.ts";
 import { baseStore } from "./state/fixtures.ts";
+import type { InspectorField } from "../src/inspector/model.ts";
 import {
+  hasPropLabel,
   linkToText,
   linesToText,
   newRepeaterItem,
+  sectionContentGroups,
   textToLines,
   textToLink,
 } from "../src/inspector/section-fields.ts";
@@ -180,7 +185,7 @@ describe("value and text round trips", () => {
       const field = imageField({ asset: { assetId: "ast-bild-zwei" } });
       expect(field?.kind).toBe("select");
       expect(field?.shape).toBe("asset");
-      expect(field?.label).toBe("Image");
+      expect(field?.label).toBe("Bild");
       expect(field?.value).toBe("ast-bild-zwei");
       // Videos and documents are not pictures.
       expect(field?.options).toEqual([
@@ -208,5 +213,79 @@ describe("value and text round trips", () => {
       expect(field?.shape).toBe("asset");
       expect(field?.value).toBe("ast-bild-eins");
     });
+  });
+});
+
+// The registry describes its props in English, the editor speaks German: every
+// key a section offers (and every field of a list entry) needs a German name in
+// the editor, or one the registry already writes in German. A new prop without
+// either shows up here instead of reaching the inspector in English.
+describe("German names of section props", () => {
+  const WRITTEN_IN_GERMAN_BY_THE_REGISTRY = new Set([
+    "emptyText",
+    "excludeCurrent",
+    "filterField",
+    "filterOp",
+    "filterValue",
+    "hint",
+    "orderByDirection",
+    "orderByField",
+    "pagination",
+    "paramName",
+    "cover",
+  ]);
+
+  it("covers every prop and every list-entry field of every registry section", () => {
+    const missing: string[] = [];
+    const visit = (section: string, field: InspectorField) => {
+      if (!hasPropLabel(field.key) && !WRITTEN_IN_GERMAN_BY_THE_REGISTRY.has(field.key)) {
+        missing.push(`${section}: ${field.key} (${field.label})`);
+      }
+      for (const inner of field.fields ?? []) visit(section, inner);
+    };
+    for (const section of bundledSections) {
+      const node = { id: "n", primitive: section.type, props: {} } as unknown as EditorNode;
+      const groups = sectionContentGroups(section, node, section.title, () => {});
+      for (const field of groups.flatMap((group) => group.fields)) visit(section.type, field);
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it("names the form field kinds and the marquee direction in German", () => {
+    const contact = contentOf("contact", {});
+    const fields = contact.flatMap((group) => group.fields).find((field) => field.key === "fields");
+    const kind = fields?.fields?.find((field) => field.key === "kind");
+    expect(kind?.label).toBe("Art");
+    expect(kind?.options?.map((option) => option.label)).toEqual([
+      "Text",
+      "E-Mail",
+      "Telefon",
+      "Mehrzeiliger Text",
+      "Auswahlliste",
+      "Optionsfelder",
+      "Kontrollkästchen",
+      "Datum",
+      "Zahl",
+    ]);
+    const marquee = contentOf("marquee", {})
+      .flatMap((group) => group.fields)
+      .find((field) => field.key === "direction");
+    expect(marquee?.label).toBe("Richtung");
+    expect(marquee?.options?.map((option) => option.label)).toEqual(["Links", "Rechts"]);
+  });
+
+  it("labels the privacy and notification props of a form in German", () => {
+    const labels = contentOf("newsletter", {})
+      .flatMap((group) => group.fields)
+      .map((field) => field.label);
+    expect(labels).toEqual(
+      expect.arrayContaining([
+        "Datenschutzseite",
+        "Danke-Seite",
+        "Honeypot-Feld",
+        "Empfänger der Benachrichtigung",
+        "Datenschutzhinweis",
+      ]),
+    );
   });
 });

@@ -44,8 +44,8 @@ export const marqueeSection: SectionDefinition = {
       label: "Direction",
       group: "Settings",
       options: [
-        { value: "left", label: "Left" },
-        { value: "right", label: "Right" },
+        { value: "left", label: "Links" },
+        { value: "right", label: "Rechts" },
       ],
     },
   ],

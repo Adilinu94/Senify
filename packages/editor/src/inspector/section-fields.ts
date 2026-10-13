@@ -77,6 +77,71 @@ const PROP_LABELS: Record<string, string> = {
   placeholder: "Platzhalter",
   key: "Schlüssel",
   kind: "Art",
+  // Props and list-entry fields of the remaining sections (contact, newsletter,
+  // pricing, footer, cookie note, marquee, …): every key a section offers has a
+  // German name here, so no English registry label reaches the inspector.
+  acceptLabel: "Text „Akzeptieren“",
+  declineLabel: "Text „Ablehnen“",
+  policyLink: "Link zur Datenschutzerklärung",
+  buttonLabel: "Button-Text",
+  billingNote: "Hinweis zur Abrechnung",
+  billingToggle: "Umschalter Monat/Jahr",
+  consentPage: "Datenschutzseite",
+  successPage: "Danke-Seite",
+  successMessage: "Erfolgsmeldung im Formular",
+  honeypotKey: "Honeypot-Feld",
+  notifyEmail: "Empfänger der Benachrichtigung",
+  targetCollectionId: "Collection für Einträge",
+  collectionId: "Collection",
+  endpoint: "Externe Endpunkt-URL",
+  note: "Datenschutzhinweis",
+  legal: "Rechtlicher Hinweis",
+  ctaHeadline: "Überschrift des CTA-Streifens",
+  ctas: "Buttons",
+  logo: "Logo-Text",
+  logos: "Logos",
+  links: "Links",
+  social: "Social-Media-Links",
+  members: "Mitglieder",
+  plans: "Tarife",
+  rows: "Zeilen",
+  steps: "Schritte",
+  header: "Kopfzeile",
+  heading: "Überschrift",
+  values: "Werte",
+  nr: "Nr.",
+  tag: "Kategorie",
+  address: "Adresse",
+  phone: "Telefon",
+  aspect: "Seitenverhältnis",
+  asset: "Bild",
+  videoUrl: "Video-Adresse",
+  scene: "3D-Szene",
+  direction: "Richtung",
+  speed: "Geschwindigkeit",
+  spacing: "Abstand",
+  sticky: "Beim Scrollen fixiert",
+  dismissible: "Schließbar",
+  limit: "Maximale Anzahl",
+  required: "Pflichtfeld",
+  options: "Optionen",
+  validation: "Prüfung",
+  pattern: "Muster",
+  min: "Minimum",
+  max: "Maximum",
+};
+
+// Choice values of list-entry fields (a form field's kind): the technical word
+// becomes the German name. Other values keep the humanized key.
+const OPTION_LABELS: Record<string, string> = {
+  email: "E-Mail",
+  phone: "Telefon",
+  textarea: "Mehrzeiliger Text",
+  select: "Auswahlliste",
+  radios: "Optionsfelder",
+  checkbox: "Kontrollkästchen",
+  date: "Datum",
+  number: "Zahl",
 };
 
 const GROUP_LABELS: Record<string, string> = {
@@ -106,6 +171,12 @@ export function humanizeKey(key: string): string {
     .replace(/[_-]+/g, " ")
     .trim();
   return spaced === "" ? key : `${spaced.charAt(0).toUpperCase()}${spaced.slice(1)}`;
+}
+
+// Whether the editor itself carries a German name for a prop key (the registry
+// label is the fallback for everything else).
+export function hasPropLabel(key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(PROP_LABELS, key);
 }
 
 export function labelForKey(key: string, fallback?: string): string {
@@ -169,7 +240,7 @@ function literalOptions(schema: Json): Choice[] | undefined {
     if (typeof branch.const !== "string") return undefined;
     values.push(branch.const);
   }
-  return values.map((value) => ({ value, label: humanizeKey(value) }));
+  return values.map((value) => ({ value, label: OPTION_LABELS[value] ?? humanizeKey(value) }));
 }
 
 function blankField(
