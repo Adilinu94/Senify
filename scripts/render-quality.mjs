@@ -252,6 +252,7 @@ if (checking) {
   // gruen werden (so am 02.10.2026 im Lauf 20 gesehen: alle Prozentzahlen
   // passten, jede Zeile unterschied sich nur an \r).
   const normalise = (text) => text.replace(/\r\n/g, "\n");
+  console.log(`::error title=Messwerte-Block (CI)::${block.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A")}`);
   const verdict = compareWithinTolerance(normalise(next), normalise(current));
   if (verdict !== "different") {
     console.log(
