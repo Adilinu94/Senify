@@ -9,6 +9,8 @@ type Props = {
     title: string;
     description?: string;
     ogImage?: string;
+    // The language of the page root, when it is a valid tag; the site default applies otherwise.
+    lang?: string;
     tree: { rootNodeId: string; nodes: Record<string, unknown> };
     motion: string;
     // The page-level View Transition block (M6), null without the preset.
@@ -55,7 +57,7 @@ const {
   fontPreloads,
   vendor,
 } = Astro.props;
-const lang = site.lang ?? "de";
+const lang = page.lang ?? site.lang ?? "de";
 // Crawlers and link previews fetch og:image without the page as context, so a
 // site-relative path is made absolute against the public address. The meta
 // value is free text, so one that cannot be resolved stays as written instead
