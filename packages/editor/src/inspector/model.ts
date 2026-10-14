@@ -115,6 +115,9 @@ export type InspectorField = {
   step: number | undefined;
   units: Unit[] | undefined;
   options: Choice[] | undefined;
+  // Select fields only: a preview file per option value (the variant choice of a
+  // section). A field with previews is shown as tiles instead of a drop-down.
+  thumbnails?: Record<string, string>;
   alpha: boolean;
   linkable: boolean;
   fields: InspectorField[] | undefined;

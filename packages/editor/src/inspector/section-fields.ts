@@ -1,6 +1,7 @@
 import type { Choice, PropValue } from "@senify/widget-engine";
 import { isPropHidden, type PropSpec, type SectionDefinition } from "@senify/section-sdk";
 import type { EditorNode } from "../state/document.ts";
+import { SECTION_NOT_INSERTABLE, sectionThumbnailFile } from "../state/sections.ts";
 import type { InspectorAsset, InspectorField, InspectorFieldKind, InspectorGroup } from "./model.ts";
 
 // The Content tab of a section node (hero, features, faq, …).
@@ -468,5 +469,14 @@ export function sectionVariantGroup(
   const field = blankField("variant", "Variante", "select", node.variant ?? fallback);
   field.commit = { kind: "section-variant" };
   field.options = entries.map(([name, variant]) => ({ value: name, label: variant.label }));
+  // Each variant brings its preview (the same files the elements panel shows), so
+  // the choice is made by looking at the layouts, not by reading their names. The
+  // template and loop sections have no preview files (the panel does not offer
+  // them); their variants stay a plain select.
+  if (!SECTION_NOT_INSERTABLE.has(section.type)) {
+    field.thumbnails = Object.fromEntries(
+      entries.map(([name]) => [name, sectionThumbnailFile(section.type, name)]),
+    );
+  }
   return { id: "content/variant", label: "Variante", fields: [field] };
 }
