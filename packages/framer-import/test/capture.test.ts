@@ -96,6 +96,24 @@ describe("captureHtml", () => {
   });
 });
 
+describe("captureHtml runtime-only attribute rules", () => {
+  // Framer's CSS holds `[data-framer-component-text-autosized] *{white-space:pre}`;
+  // the attribute only exists once Framer's script has run, so in an export the
+  // rule matches no element. An image has no text and no `white-space` rule of
+  // its own: if one shows up, the rule leaked onto every node.
+  it("does not apply the autosized-text rule to nodes that never carry the attribute", () => {
+    for (const fixture of ["framer-easier-train-154753", "framer-fluffy-rectangle-418998", "framer-stupendous-football-158496"]) {
+      const root = captureFixture(join(FIXTURES, fixture)).pages[0]?.root;
+      expect(root, fixture).toBeDefined();
+      if (root === undefined) continue;
+      const images = allNodes(root).filter((node) => node.kind === "image");
+      expect(images.length, fixture).toBeGreaterThan(0);
+      const leaked = images.filter((node) => node.states[0]?.visual["white-space"] !== undefined);
+      expect(leaked.length, fixture).toBe(0);
+    }
+  });
+});
+
 describe("captureHtml device states", () => {
   it("reads the ssr-variant wrappers as separate states of one element", () => {
     // The measured merge anchor (befund §4/5): three <header> with the same
