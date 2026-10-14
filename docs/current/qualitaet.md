@@ -89,13 +89,13 @@ Der aktuelle Lauf vom 09.10.2026 (lokal auf Windows, TEMP/TMP/TMPDIR auf dem Lau
 | Pfad | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
 | `packages/engine/src/http.ts` | 93.14 | 74.56 | 94.23 | 93.14 |
-| `packages/engine/src/store.ts` | 85.23 | 80.16 | 93.77 | 85.23 |
+| `packages/engine/src/store.ts` | 85.62 | 80.78 | 94.92 | 85.62 |
 | `packages/engine/src/lifecycle.ts` | 87.01 | 74.46 | 100.00 | 87.01 |
 | `packages/engine/src/forms.ts` | 84.25 | 73.62 | 100.00 | 84.25 |
 | `packages/mcp/src/tools.ts` | 91.85 | 62.01 | 85.50 | 91.85 |
 | `packages/editor/src/state/*` (15 Dateien) | 66.98 bis 100.00 | 56.75 bis 100.00 | 66.66 bis 100.00 | 66.98 bis 100.00 |
 
-**Über alle gemessenen Dateien:** Statements 88.81 · Branches 74.14 · Functions 90.79 · Lines 88.81
+**Über alle gemessenen Dateien:** Statements 88.91 · Branches 74.29 · Functions 91.11 · Lines 88.91
 
 <!-- messwerte:ende -->
 
