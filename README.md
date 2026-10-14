@@ -66,7 +66,7 @@ pnpm verify
 - Entscheidungen: [`docs/adr/`](docs/adr/)
 - Historische Übergaben und abgelöste Pläne: [`docs/history/`](docs/history/) — `HANDOFF.md`, `umbauplan.md`, `verbesserungsplan.md`, `analyse-2026-09-23.md`, `RESEARCH.md`
 
-## Tests
+## Weitere Tests (Parität, Postgres)
 
 Das Paritäts-Tor (Canvas vs. ausgeliefertes Release) läuft als eigener
 blockierender Schritt und verlangt einen installierten Chromium:

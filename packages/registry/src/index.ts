@@ -28,6 +28,7 @@ import { outletSection } from "./sections/outlet.ts";
 import { collectionListSection } from "./sections/collection-list.ts";
 import { cardSection } from "./sections/card.ts";
 import { structuralSections } from "./sections/structural.ts";
+import { registerLegacyName } from "@senify/widget-engine";
 import { registerCatalogPrimitives } from "./sections/primitives.ts";
 
 export { heroSection } from "./sections/hero.ts";
@@ -112,6 +113,9 @@ export function createRegistry(): Registry {
   // The widget catalog as the second node vocabulary (Strangler E2): last, so a
   // section or structural type with the same name keeps its own definition.
   registerCatalogPrimitives(registry);
+  // The editor meets a running section as a legacy stand-in; name it by the
+  // section's title ("Hero"), not by its type ("hero").
+  for (const definition of registry.list()) registerLegacyName(definition.type, definition.title);
   return registry;
 }
 

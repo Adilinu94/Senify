@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createRegistry } from "@senify/registry";
 import { defaultTheme } from "@senify/tokens";
 import { createScopedRule } from "@senify/widget-engine";
 import { buildInspector, motionSpecFrom, numberPart, tokenRefOf, unitOfValue } from "@senify/editor";
@@ -74,6 +75,19 @@ describe("buildInspector", () => {
       "xl",
     ]);
     expect(fields[0]?.value).toBe("m");
+  });
+
+  // A running section is named by its title: "Hero bearbeiten", not "hero bearbeiten".
+  it("titles a running section by its registry title", () => {
+    createRegistry();
+    const store = baseStore();
+    store.apply({
+      op: "insertNode",
+      parent: { nodeId: store.document.rootNodeId },
+      node: { primitive: "hero", id: "hero000001" },
+    });
+    const model = buildInspector({ document: store.document, nodeId: "hero000001", breakpoint: "desktop" });
+    expect(model?.title).toBe("Hero");
   });
 
   it("orders the Style tab in the eight categories of the reference editor", () => {

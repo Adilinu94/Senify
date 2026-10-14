@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { PAGE_ROOT_TYPE, type NodeTree } from "@senify/section-sdk";
 import { bakePages, validateTreeIntegrity } from "@senify/engine";
 import {
@@ -737,6 +737,32 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
     expect(response.status).toBe(201);
     expect(response.body.report.counts.mapped).toBeGreaterThan(0);
     expect(response.body.job.sourceKind).toBe("mirror");
+  }, 60_000);
+
+  it("refuses a mirror folder outside SENIFY_IMPORT_ROOTS before a job exists", async () => {
+    const elsewhere = mkdtempSync(join(tmpdir(), "senify-import-elsewhere-"));
+    const jobsBefore = (await env.engine.store.listImportJobsForSite(siteId)).length;
+    try {
+      vi.stubEnv("SENIFY_IMPORT_ROOTS", elsewhere);
+      const refused = await runImport({
+        source: { rootDir: mirrorDir },
+        write: true,
+        pagePath: "/mirror-refused",
+      });
+      expect(refused.status).toBe(400);
+      expect(refused.body.error.message).toContain("außerhalb der erlaubten Wurzeln");
+      expect((await env.engine.store.listImportJobsForSite(siteId)).length).toBe(jobsBefore);
+
+      vi.stubEnv("SENIFY_IMPORT_ROOTS", `${elsewhere}${delimiter}${tmpdir()}`);
+      const allowed = await runImport({
+        source: { rootDir: mirrorDir },
+        pagePath: "/mirror-allowed",
+      });
+      expect(allowed.status).toBe(201);
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
   }, 60_000);
 
   it("uploads assets and rewrites fonts through the engine media pipeline", async () => {

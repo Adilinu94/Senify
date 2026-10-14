@@ -133,11 +133,21 @@ export const STRUCTURAL_PROP_KEYS: readonly string[] = [
   "max",
 ];
 
+// The display name of a running section. The registry knows it (its `title`;
+// `@senify/registry` depends on this package, not the other way round), so
+// `createRegistry()` hands it over here; until it does, the stand-in is named
+// like its type.
+const NAMES = new Map<string, string>();
+
+export function registerLegacyName(type: string, name: string): void {
+  if (LEGACY.has(type)) NAMES.set(type, name);
+}
+
 export function legacyPrimitive(type: string): PrimitiveDefinition | undefined {
   if (!LEGACY.has(type)) return undefined;
   return {
     type,
-    name: type,
+    name: NAMES.get(type) ?? type,
     category: "advanced",
     description:
       `Bestehende Section "${type}" (Altbestand): der Canvas zeigt sie über die bestehende Renderer-Brücke, ihre Bausteine werden in Phase 4 zu Visual Components.`,

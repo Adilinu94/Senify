@@ -38,7 +38,7 @@ import type { EngineEvents } from "./events.ts";
 import { applyMutations } from "./mutations/apply.ts";
 import { designContractViolations, contractGate } from "./design-contract.ts";
 import { renderEntryPreview } from "./bake.ts";
-import { IMPORT_MAX_ATTEMPTS, runFramerImportJob, sourceOf } from "./imports.ts";
+import { assertImportRootAllowed, IMPORT_MAX_ATTEMPTS, runFramerImportJob, sourceOf } from "./imports.ts";
 import { createImportPreviewDriver, previewFramerImport, type ImportPreviewDriver } from "./import-preview.ts";
 import {
   CreateImportBodySchema,
@@ -4903,6 +4903,9 @@ const ROUTES: Route[] = [
       const body = (await readJsonBody(req)) ?? {};
       const parsed = parseBody<CreateImportBody>(CreateImportBodySchema, body, "import");
       const { idempotencyKey, ...importInput } = parsed;
+      if (importInput.source.rootDir !== undefined && importInput.source.rootDir !== "") {
+        assertImportRootAllowed(importInput.source.rootDir);
+      }
       return withIdempotency(context, auth, req, url, idempotencyKey, parsed, async () => {
         const author = resolveAuthor(auth);
         const dryRun = importInput.write !== true;
