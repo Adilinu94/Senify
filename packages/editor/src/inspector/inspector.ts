@@ -38,6 +38,7 @@ import {
   variantsOf,
 } from "../state/components.ts";
 import { newNodeId } from "../state/ids.ts";
+import { DEFAULT_SECTION_THUMBNAIL_BASE } from "../state/sections.ts";
 import { EditorStore, typingCoalesceKey } from "../state/store.ts";
 import { EDITOR_ROOT_ATTRIBUTE } from "../ui/tokens.ts";
 import {
@@ -80,6 +81,8 @@ export type InspectorOptions = {
   // The site's media library, read when a panel is built (it changes while the
   // editor is open). Section image props pick from it.
   assets?: () => readonly InspectorAsset[];
+  // Ordner der Vorschaubilder der Sektions-Varianten, Schraegstrich am Ende.
+  thumbnailBase?: string;
 };
 
 export type InspectorInstance = {
@@ -158,6 +161,7 @@ function messageOf(error: unknown): string {
 
 export function createInspector(options: InspectorOptions): InspectorInstance {
   const doc = requireDocument();
+  const thumbnailBase = options.thumbnailBase ?? DEFAULT_SECTION_THUMBNAIL_BASE;
   ensureInspectorStyles(doc);
   const root = h(doc, "section", { className: "senify-inspector" });
   root.setAttribute(EDITOR_ROOT_ATTRIBUTE, "true");
@@ -588,6 +592,68 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     control.appendChild(button);
   }
 
+  // The variant of a section as tiles with a preview each. One choice out of
+  // many: a radio group, the stored variant is the checked one. A variant the
+  // section does not declare (an old document) shows as a note, not as a tile.
+  function renderVariantTiles(
+    field: InspectorField,
+    options: readonly { value: string; label: string }[],
+    thumbnails: Readonly<Record<string, string>>,
+    control: DomElement,
+    onSelect: (value: string) => void,
+  ): void {
+    const group = h(doc, "div", {
+      className: "senify-inspector__variants",
+      data: { control: "variant-tiles" },
+      attributes: { role: "radiogroup", "aria-label": field.label },
+    });
+    const known = options.some((option) => option.value === field.value);
+    if (!known && typeof field.value === "string") {
+      group.appendChild(
+        h(doc, "span", {
+          className: "senify-inspector__variant-unknown",
+          text: `${field.value} (unbekannt)`,
+        }),
+      );
+    }
+    for (const option of options) {
+      const checked = option.value === field.value;
+      const tile = h(doc, "button", {
+        className: "senify-inspector__variant",
+        data: { value: option.value },
+        attributes: {
+          type: "button",
+          role: "radio",
+          "aria-checked": String(checked),
+          title: option.label,
+        },
+      });
+      const picture = h(doc, "span", { className: "senify-inspector__variant-thumb" });
+      const file = thumbnails[option.value];
+      if (file !== undefined) {
+        const image = h(doc, "img", {
+          attributes: {
+            src: `${thumbnailBase}${file}`,
+            alt: "",
+            loading: "lazy",
+            draggable: "false",
+          },
+        });
+        image.addEventListener("error", () => picture.setAttribute("data-missing", "true"));
+        picture.appendChild(image);
+      }
+      tile.appendChild(picture);
+      tile.appendChild(
+        h(doc, "span", { className: "senify-inspector__variant-label", text: option.label }),
+      );
+      tile.addEventListener("click", () => {
+        if (!checked) onSelect(option.value);
+      });
+      group.appendChild(tile);
+    }
+    control.appendChild(group);
+  }
+
   function renderSelect(
     field: InspectorField,
     control: DomElement,
@@ -619,6 +685,11 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
         group.appendChild(button);
       }
       control.appendChild(group);
+      return;
+    }
+    const thumbnails = field.thumbnails;
+    if (thumbnails !== undefined && options.length > 0) {
+      renderVariantTiles(field, options, thumbnails, control, onSelect);
       return;
     }
     const wrap = h(doc, "div", { className: "ed-field" });
@@ -1185,7 +1256,12 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     const nodeId = model.nodeId;
     const row = h(doc, "div", {
       className: "senify-inspector__field",
-      data: { key: field.key, kind: field.kind, group: groupId },
+      data: {
+        key: field.key,
+        kind: field.kind,
+        group: groupId,
+        ...(field.thumbnails === undefined ? {} : { previews: "true" }),
+      },
     });
     row.appendChild(
       h(doc, "span", { className: "senify-inspector__field-label", text: field.label }),

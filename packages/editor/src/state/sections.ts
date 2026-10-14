@@ -27,6 +27,16 @@ export const SECTION_NOT_INSERTABLE: ReadonlySet<string> = new Set([
   "card",
 ]);
 
+// Das Vorschaubild einer Variante: eine Datei je Sektion und Variante, vom
+// Skript `pnpm thumbnails:generate` aus dem Golden-Tree erzeugt. Der Ordner, aus
+// dem die App sie ausliefert, ist der Standard fuer Elemente-Panel, Spotlight und
+// die Variantenwahl im Inspektor.
+export const DEFAULT_SECTION_THUMBNAIL_BASE = "/editor-section-thumbnails/";
+
+export function sectionThumbnailFile(type: string, variant: string): string {
+  return `${type}-${variant}.png`;
+}
+
 // The variant a fresh section starts with: the golden tree's own, else the
 // first one the section declares.
 export function defaultSectionVariant(definition: SectionDefinition): string {

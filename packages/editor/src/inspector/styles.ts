@@ -180,6 +180,65 @@ export const INSPECTOR_STYLES = `
   background: var(--ed-fill-select);
   color: var(--ed-ink-strong);
 }
+/* Variantenwahl einer Sektion: Kacheln mit Vorschau ueber die ganze Breite. Die
+   Gruppe heisst schon "Variante"; das Feldlabel bleibt nur fuer Screenreader. */
+.senify-inspector__field[data-previews="true"] { grid-template-columns: minmax(0, 1fr); align-items: start; }
+.senify-inspector__field[data-previews="true"] .senify-inspector__field-control { display: block; }
+.senify-inspector__field[data-previews="true"] .senify-inspector__field-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.senify-inspector__variants {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--ed-space-1);
+  width: 100%;
+}
+.senify-inspector__variant {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ed-space-1);
+  min-width: 0;
+  padding: var(--ed-space-1);
+  border: 1px solid var(--ed-line-control);
+  border-radius: var(--ed-radius-md);
+  background: transparent;
+  color: var(--ed-ink-base);
+  font: inherit;
+  font-size: var(--ed-text-11);
+  text-align: left;
+  cursor: pointer;
+}
+.senify-inspector__variant:hover { background: var(--ed-fill-hover); color: var(--ed-ink-strong); }
+.senify-inspector__variant:focus-visible { outline: 2px solid var(--ed-focus); outline-offset: -2px; }
+.senify-inspector__variant[aria-checked="true"] {
+  background: var(--ed-fill-select);
+  border-color: var(--ed-focus);
+  color: var(--ed-ink-strong);
+}
+.senify-inspector__variant-thumb {
+  display: block;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: var(--ed-radius-sm);
+  background: var(--ed-surface-inset);
+}
+.senify-inspector__variant-thumb img { display: block; width: 100%; height: 100%; object-fit: contain; object-position: center; }
+.senify-inspector__variant-thumb[data-missing="true"] img { visibility: hidden; }
+.senify-inspector__variant-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.senify-inspector__variant-unknown {
+  grid-column: 1 / -1;
+  color: var(--ed-ink-muted);
+  font-size: var(--ed-text-11);
+}
 /* Die Einheit sitzt im Zahlenfeld: Text rechts statt eigener Box. */
 .ed-field__unit { display: flex; flex: none; align-items: center; }
 .ed-field__unit select {

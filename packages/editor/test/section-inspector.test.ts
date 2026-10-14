@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 import { buildInspector } from "@senify/editor";
 import { bundledSections } from "@senify/registry";
 import type { EditorNode } from "../src/state/document.ts";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { baseStore } from "./state/fixtures.ts";
 import type { InspectorField } from "../src/inspector/model.ts";
+import { SECTION_NOT_INSERTABLE } from "../src/state/sections.ts";
 import {
   hasPropLabel,
+  sectionVariantGroup,
   linkToText,
   linesToText,
   newRepeaterItem,
@@ -66,6 +70,35 @@ describe("Content tab of a section", () => {
     ]);
     // Not responsive, like the rest of the section content.
     expect(field?.responsive).toBe(false);
+  });
+
+  it("hands every variant of an insertable section a preview file that exists", () => {
+    const dir = fileURLToPath(new URL("../assets/section-thumbnails/", import.meta.url));
+    const node: EditorNode = {
+      id: "sect000001",
+      primitive: "cta",
+      props: {},
+    } as unknown as EditorNode;
+    let checked = 0;
+    for (const section of bundledSections) {
+      const group = sectionVariantGroup(section, { ...node, primitive: section.type });
+      if (group === null) continue;
+      const field = group.fields[0];
+      if (SECTION_NOT_INSERTABLE.has(section.type)) {
+        // Templates and loops are not offered in the panel, so no previews exist.
+        expect(field?.thumbnails, section.type).toBeUndefined();
+        continue;
+      }
+      expect(Object.keys(field?.thumbnails ?? {}), section.type).toEqual(
+        (field?.options ?? []).map((option) => option.value),
+      );
+      for (const [variant, file] of Object.entries(field?.thumbnails ?? {})) {
+        expect(file, `${section.type}/${variant}`).toBe(`${section.type}-${variant}.png`);
+        expect(existsSync(`${dir}${file}`), `${section.type}/${variant}`).toBe(true);
+        checked += 1;
+      }
+    }
+    expect(checked).toBeGreaterThan(40);
   });
 
   it("shows the default variant until one is set, then the node's own", () => {

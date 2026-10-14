@@ -11,6 +11,7 @@
 // eine Kachel mit Vorschaubild). Ohne `insertSection` gibt es nur die Bausteine.
 
 import type { DomDocument, DomElement } from "../dom.ts";
+import { DEFAULT_SECTION_THUMBNAIL_BASE } from "../state/sections.ts";
 import { EDITOR_ROOT_ATTRIBUTE } from "../ui/tokens.ts";
 import { buildElementGroups, type ElementGroup } from "./elements-model.ts";
 import { buildSectionGroups, type SectionGroup } from "./sections-model.ts";
@@ -38,7 +39,7 @@ export type ElementsPanel = {
   tab(): ElementsPanelTab;
 };
 
-export const DEFAULT_SECTION_THUMBNAIL_BASE = "/editor-section-thumbnails/";
+export { DEFAULT_SECTION_THUMBNAIL_BASE };
 
 type Spec = {
   className?: string;
