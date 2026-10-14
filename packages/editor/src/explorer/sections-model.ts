@@ -13,12 +13,13 @@ import {
   SECTION_NOT_INSERTABLE,
   defaultSectionVariant,
   sectionInsertSpec,
+  sectionThumbnailFile,
   type SectionInsertSpec,
 } from "../state/sections.ts";
 
 // Die Einfuege-Daten leben im State (`state/sections.ts`), weil auch der Canvas
 // sie braucht; das Panel zeigt sie hier unter seinem Namen an.
-export { SECTION_NOT_INSERTABLE, sectionInsertSpec, type SectionInsertSpec };
+export { SECTION_NOT_INSERTABLE, sectionInsertSpec, sectionThumbnailFile, type SectionInsertSpec };
 
 // Der deutsche Name und die eine Zeile dazu. Die Registry beschreibt ihre
 // Sektionen fuer Agenten auf Englisch; die Kachel spricht Deutsch. Der Test
@@ -91,12 +92,6 @@ export type SectionGroup = {
   name: string;
   sections: SectionTile[];
 };
-
-// Das Vorschaubild einer Variante: eine Datei je Sektion und Variante, vom
-// Skript `pnpm thumbnails:generate` aus dem Golden-Tree erzeugt.
-export function sectionThumbnailFile(type: string, variant: string): string {
-  return `${type}-${variant}.png`;
-}
 
 function insertableSections(): SectionDefinition[] {
   return bundledSections.filter((section) => !SECTION_NOT_INSERTABLE.has(section.type));

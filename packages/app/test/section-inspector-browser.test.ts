@@ -223,18 +223,45 @@ describe.skipIf(!browserAvailable)("section content in the inspector", () => {
       await tab.waitForSelector(".senify-explorer__item");
       await tab.locator(`.senify-explorer__item[data-node="${sectionId}"]`).click();
       const body = tab.locator('.senify-inspector__body[data-tab="content"]');
-      await body.locator('[data-key="variant"] select').waitFor();
+      await body.locator('[data-key="variant"] [role="radiogroup"]').waitFor();
 
-      // The select leads the Content tab and shows the stored variant.
+      // The choice leads the Content tab as tiles with a preview each and shows the
+      // stored variant as the checked one.
       expect(await body.locator('[data-key="variant"] .senify-inspector__field-label').innerText()).toBe("Variante");
-      const select = body.locator('[data-key="variant"] select');
-      expect(await select.inputValue()).toBe("grid");
-      expect(await select.locator("option").allTextContents()).toEqual(["Raster", "Wechselnd", "Liste"]);
+      const tiles = body.locator('[data-key="variant"] [role="radio"]');
+      expect(await tiles.locator(".senify-inspector__variant-label").allTextContents()).toEqual([
+        "Raster",
+        "Wechselnd",
+        "Liste",
+      ]);
+      expect([
+        await tiles.nth(0).getAttribute("aria-checked"),
+        await tiles.nth(1).getAttribute("aria-checked"),
+        await tiles.nth(2).getAttribute("aria-checked"),
+      ]).toEqual(["true", "false", "false"]);
       expect(await savedVariant()).toBe("grid");
 
+      // Every tile shows its preview picture: the file is served and decodes.
+      const pictures = tiles.locator("img");
+      expect(await pictures.count()).toBe(3);
+      await expect
+        .poll(
+          () =>
+            pictures.evaluateAll((all) =>
+              all.every((img) => (img as unknown as { naturalWidth: number }).naturalWidth > 0),
+            ),
+          { timeout: 8000 },
+        )
+        .toBe(true);
+
       // Switching writes the variant and nothing else.
-      await select.selectOption("list");
+      await body.locator('[data-key="variant"] [data-value="list"]').click();
       await expect.poll(savedVariant, { timeout: 8000 }).toBe("list");
+      expect(
+        await body
+          .locator('[data-key="variant"] [data-value="list"]')
+          .getAttribute("aria-checked"),
+      ).toBe("true");
       expect(
         await body.locator('[data-key="title"] input').inputValue(),
       ).toBe("Das bieten wir");
