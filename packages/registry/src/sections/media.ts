@@ -27,9 +27,9 @@ export const mediaSection: SectionDefinition = {
     textProp("scene", "3D scene preset"),
   ],
   variants: {
-    image: { label: "Image", preset: { aspect: "16/9" } },
+    image: { label: "Bild", preset: { aspect: "16/9" } },
     video: { label: "Video", preset: { aspect: "16/9" } },
-    "3d-scene": { label: "3D scene", preset: { aspect: "21/9" } },
+    "3d-scene": { label: "3D-Szene", preset: { aspect: "21/9" } },
   },
   styleProps: [...sectionStyleProps(), ...mediaPart()],
   allowedChildren: "none",

@@ -67,9 +67,9 @@ export const contactSection: SectionDefinition = {
     textProp("note", "Privacy note", "Form"),
   ],
   variants: {
-    split: { label: "Split", preset: {} },
-    form: { label: "Form", preset: {} },
-    info: { label: "Info", preset: {} },
+    split: { label: "Geteilt", preset: {} },
+    form: { label: "Nur Formular", preset: {} },
+    info: { label: "Nur Kontaktdaten", preset: {} },
   },
   styleProps: [
     ...sectionStyleProps(),

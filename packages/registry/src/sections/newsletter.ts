@@ -23,9 +23,9 @@ export const newsletterSection: SectionDefinition = {
     textProp("endpoint", "External endpoint URL", "Settings", 1),
   ],
   variants: {
-    boxed: { label: "Boxed", preset: {} },
-    inline: { label: "Inline", preset: {} },
-    split: { label: "Split", preset: {} },
+    boxed: { label: "Umrahmt", preset: {} },
+    inline: { label: "In einer Zeile", preset: {} },
+    split: { label: "Geteilt", preset: {} },
   },
   styleProps: [
     ...sectionStyleProps(),

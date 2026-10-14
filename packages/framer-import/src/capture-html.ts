@@ -1160,11 +1160,20 @@ const classesIn = (compound: string): string[] =>
 // to the base style would make a button permanently look hovered.
 const STATE_SUFFIX = /^(.*?):(hover|focus-visible|focus|active|disabled)$/;
 
+// Framer's script sets `data-framer-component-text-autosized` on auto-sized text
+// at RUNTIME; an export carries no element with it, so `[data-framer-component-
+// text-autosized] *{white-space:pre}` matches nothing on the page. Its attribute
+// compound has no class, so it dropped out of the ancestor check below and the
+// rule reached every node: all text got `white-space: pre`, lost its line breaks
+// and the imported page came out 10-20 % shorter than the original.
+const RUNTIME_ONLY_ATTRIBUTE = /\[data-framer-component-text-autosized\b/;
+
 function compileSelector(
   selector: string,
   order: number,
   values: Record<string, string>,
 ): { rule: CompiledRule | null; pseudo: boolean } {
+  if (RUNTIME_ONLY_ATTRIBUTE.test(selector)) return { rule: null, pseudo: false };
   // `.btn:hover` and friends: the same element in another state. Only when the
   // state is the last thing on the target (`.card:hover .title` styles another
   // element and stays a pseudo rule that is reported, not applied).

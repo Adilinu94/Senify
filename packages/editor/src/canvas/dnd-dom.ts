@@ -18,6 +18,7 @@ import { getPrimitive, primitiveTypes } from "@senify/widget-engine";
 import type { DomDocument, DomElement, DomEvent } from "../dom.ts";
 import type { EditorStore } from "../state/store.ts";
 import { dragCoalesceKey } from "../state/store.ts";
+import { sectionInsertSpec } from "../state/sections.ts";
 import { type InsertPosition } from "./insert.ts";
 import {
   dropPositionFor,
@@ -58,6 +59,15 @@ export type DropController = {
   // Macht ein Element zur Drag-Quelle fuer ein Primitiv (die Chips und das
   // Elemente-Panel teilen sich diese eine Logik).
   bindDragSource(element: DomElement, primitive: string): void;
+  // Inserts a registry section (with the variant's preset) at a target.
+  insertSectionAt(
+    targetId: string,
+    type: string,
+    variant: string,
+    position: InsertPosition,
+  ): boolean;
+  // The same for a section tile: dragging it drops the section.
+  bindSectionDragSource(element: DomElement, type: string, variant: string): void;
   dragging(): boolean;
   destroy(): void;
 };
@@ -158,6 +168,43 @@ export function createDropController(options: DropControllerOptions): DropContro
     return true;
   }
 
+  // A section lands as one node: type, variant and the golden example's props.
+  function insertSectionAt(
+    targetId: string,
+    type: string,
+    variant: string,
+    position: InsertPosition,
+  ): boolean {
+    const spec = sectionInsertSpec(type, variant);
+    if (spec === undefined) {
+      options.onMessage(`Die Sektion „${type}“ lässt sich so nicht einfügen.`);
+      return false;
+    }
+    return placeSection(resolveDrop(store.document, { kind: "section", type, variant }, targetId, position), spec);
+  }
+
+  function placeSection(
+    resolution: DropResolution,
+    spec: NonNullable<ReturnType<typeof sectionInsertSpec>>,
+  ): boolean {
+    if (resolution.kind === "reject") {
+      options.onMessage(resolution.reason);
+      return false;
+    }
+    if (resolution.kind !== "insert") return false;
+    store.apply(
+      {
+        op: "insertNode",
+        parent: resolution.parent,
+        index: resolution.index,
+        node: { primitive: spec.primitive, props: spec.props, variant: spec.variant },
+      },
+      { label: "Sektion einfügen" },
+    );
+    options.onMessage(null);
+    return true;
+  }
+
   for (const type of primitiveTypes()) {
     if (type === "root" || !quickPrimitives.has(type)) continue;
     const chip = h(doc, "button", {
@@ -179,6 +226,19 @@ export function createDropController(options: DropControllerOptions): DropContro
       dragSource = { kind: "primitive", primitive };
       const transfer = (event as { dataTransfer?: { setData?: (format: string, value: string) => void; effectAllowed?: string } }).dataTransfer;
       transfer?.setData?.("text/plain", primitive);
+      if (transfer !== undefined) transfer.effectAllowed = "copy";
+      root.setAttribute("data-drag", "true");
+      hideLine();
+      hidePluses();
+    });
+    element.addEventListener("dragend", () => endDrag());
+  }
+
+  function bindSectionDragSource(element: DomElement, type: string, variant: string): void {
+    element.addEventListener("dragstart", (event) => {
+      dragSource = { kind: "section", type, variant };
+      const transfer = (event as { dataTransfer?: { setData?: (format: string, value: string) => void; effectAllowed?: string } }).dataTransfer;
+      transfer?.setData?.("text/plain", `${type}:${variant}`);
       if (transfer !== undefined) transfer.effectAllowed = "copy";
       root.setAttribute("data-drag", "true");
       hideLine();
@@ -306,6 +366,10 @@ export function createDropController(options: DropControllerOptions): DropContro
     }
     if (resolution.kind === "none") return false;
     if (resolution.kind === "insert") {
+      if (source.kind === "section") {
+        const spec = sectionInsertSpec(source.type, source.variant);
+        return spec !== undefined && placeSection(resolution, spec);
+      }
       if (source.kind !== "primitive") return false;
       store.apply(
         {
@@ -446,6 +510,8 @@ export function createDropController(options: DropControllerOptions): DropContro
     attachFrame,
     insertAt,
     bindDragSource,
+    insertSectionAt,
+    bindSectionDragSource,
     dragging: () => dragSource !== null,
     destroy: () => {
       line.remove();

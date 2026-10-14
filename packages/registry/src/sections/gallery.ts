@@ -25,9 +25,9 @@ export const gallerySection: SectionDefinition = {
     },
   ],
   variants: {
-    grid: { label: "Grid", preset: {} },
-    masonry: { label: "Masonry", preset: {} },
-    carousel: { label: "Carousel", preset: {} },
+    grid: { label: "Raster", preset: {} },
+    masonry: { label: "Versetzte Spalten", preset: {} },
+    carousel: { label: "Karussell", preset: {} },
   },
   styleProps: [
     ...sectionStyleProps(),

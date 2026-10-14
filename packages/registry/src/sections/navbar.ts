@@ -33,9 +33,9 @@ export const navbarSection: SectionDefinition = {
     },
   ],
   variants: {
-    default: { label: "Default", preset: { sticky: true } },
+    default: { label: "Standard", preset: { sticky: true } },
     transparent: { label: "Transparent", preset: { sticky: true } },
-    centered: { label: "Centered", preset: { sticky: false } },
+    centered: { label: "Zentriert", preset: { sticky: false } },
   },
   styleProps: [...sectionStyleProps(), ...buttonPart(), ...linkPart()],
   allowedChildren: "none",

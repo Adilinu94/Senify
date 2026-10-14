@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import { getPrimitive, primitiveTypes } from "@senify/widget-engine";
 import {
   buildElementGroups,
+  buildSectionGroups,
   createElementsPanel,
   ELEMENT_ICONS,
   ELEMENT_NOT_INSERTABLE,
+  listSectionVariants,
 } from "@senify/editor";
 import type { DomDocument, DomElement } from "../src/dom.ts";
 import { EDITOR_ICONS } from "../src/ui/icons.ts";
@@ -170,5 +172,97 @@ describe("elements panel (E4)", () => {
     expect(gridOf("layout").hidden).toBe(true);
     heads()[0]?.fire("click");
     expect(gridOf("layout").hidden).toBe(false);
+  });
+});
+
+// Reiter „Sektionen“: dieselbe Panel-Huelle, andere Kacheln.
+function mountWithSections() {
+  const doc = {
+    createElement: (tag: string) => new FakeElement(tag),
+    querySelector: () => ({}),
+  } as unknown as DomDocument;
+  const insertedPrimitives: string[] = [];
+  const insertedSections: [string, string][] = [];
+  const boundSections: [string, string][] = [];
+  const panel = createElementsPanel(doc, {
+    insert: (primitive) => insertedPrimitives.push(primitive),
+    bindDragSource: () => {},
+    insertSection: (type, variant) => insertedSections.push([type, variant]),
+    bindSectionDragSource: (_element: DomElement, type, variant) => boundSections.push([type, variant]),
+    thumbnailBase: "/vorschau/",
+  });
+  const root = panel.element as unknown as FakeElement;
+  const variants = () => walk(root, (el) => el.className === "senify-elements__variant");
+  const tabs = () => walk(root, (el) => el.className === "senify-elements__tab");
+  const input = walk(root, (el) => el.className === "senify-elements__search")[0] as FakeElement;
+  return { panel, root, variants, tabs, input, insertedPrimitives, insertedSections, boundSections };
+}
+
+describe("elements panel, sections tab", () => {
+  it("has no tabs and no section tiles without the section functions", () => {
+    const { root, tiles } = mount();
+    expect(walk(root, (el) => el.className === "senify-elements__tab")).toEqual([]);
+    expect(tiles().length).toBe(22);
+  });
+
+  it("starts on the building blocks and offers the sections as a second tab", () => {
+    const { panel, tabs, variants } = mountWithSections();
+    expect(tabs().map((tab) => tab.textContent)).toEqual(["Bausteine", "Sektionen"]);
+    expect(tabs().map((tab) => tab.attrs["aria-selected"])).toEqual(["true", "false"]);
+    expect(panel.tab()).toBe("elements");
+    expect(variants()).toEqual([]);
+    tabs()[1]?.fire("click");
+    expect(panel.tab()).toBe("sections");
+    expect(tabs().map((tab) => tab.attrs["aria-selected"])).toEqual(["false", "true"]);
+    expect(variants().length).toBe(listSectionVariants().length);
+  });
+
+  it("shows one tile per variant with its preview image and German label", () => {
+    const { panel, variants } = mountWithSections();
+    panel.showTab("sections");
+    const split = variants().find(
+      (tile) => tile.attrs["data-section"] === "hero" && tile.attrs["data-variant"] === "split",
+    ) as FakeElement;
+    expect(split.attrs.draggable).toBe("true");
+    const image = walk(split, (el) => el.tagName === "img")[0] as FakeElement;
+    expect(image.attrs.src).toBe("/vorschau/hero-split.png");
+    expect(image.attrs.loading).toBe("lazy");
+    const label = walk(split, (el) => el.className === "senify-elements__label")[0] as FakeElement;
+    expect(label.textContent).toBe("Geteilt");
+    // A missing preview hides the picture and keeps the tile with its name.
+    const frame = walk(split, (el) => el.className === "senify-elements__thumb")[0] as FakeElement;
+    image.fire("error");
+    expect(frame.attrs["data-missing"]).toBe("true");
+  });
+
+  it("inserts the clicked variant and binds every tile as a drag source", () => {
+    const { panel, variants, insertedSections, insertedPrimitives, boundSections } = mountWithSections();
+    panel.showTab("sections");
+    expect(boundSections.length).toBe(listSectionVariants().length);
+    expect(boundSections).toContainEqual(["pricing", "comparison"]);
+    const tile = variants().find(
+      (entry) => entry.attrs["data-section"] === "pricing" && entry.attrs["data-variant"] === "comparison",
+    ) as FakeElement;
+    tile.fire("click");
+    expect(insertedSections).toEqual([["pricing", "comparison"]]);
+    expect(insertedPrimitives).toEqual([]);
+  });
+
+  it("searches within the sections and says so when nothing matches", () => {
+    const { panel, variants, root, input } = mountWithSections();
+    panel.showTab("sections");
+    panel.search("preise");
+    expect(new Set(variants().map((tile) => tile.attrs["data-section"]))).toEqual(new Set(["pricing"]));
+    expect(variants().length).toBe(3);
+    expect(input.attrs.placeholder).toBe("Sektionen suchen");
+    panel.search("gibt-es-nicht");
+    expect(variants()).toEqual([]);
+    expect(walk(root, (el) => el.className === "senify-elements__empty")[0]?.textContent).toBe(
+      "Keine Sektionen gefunden.",
+    );
+    panel.search("");
+    panel.showTab("elements");
+    expect(input.attrs.placeholder).toBe("Elemente suchen");
+    expect(buildSectionGroups().length).toBeGreaterThan(0);
   });
 });

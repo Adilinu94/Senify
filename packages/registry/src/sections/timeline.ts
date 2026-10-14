@@ -26,9 +26,9 @@ export const timelineSection: SectionDefinition = {
     },
   ],
   variants: {
-    vertical: { label: "Vertical", preset: {} },
+    vertical: { label: "Vertikal", preset: {} },
     horizontal: { label: "Horizontal", preset: {} },
-    cards: { label: "Cards", preset: {} },
+    cards: { label: "Karten", preset: {} },
   },
   styleProps: [
     ...sectionStyleProps(),
