@@ -496,6 +496,7 @@ function toIrNode(raw: RawNode, counter: { ordinal: number }, inheritedHidden: s
         }
       : {}),
     baseClasses: classes,
+    ...(variantHashes.length > 0 ? { variantClasses: variantHashes.map((hash) => `framer-v-${hash}`) } : {}),
     tag: raw.tag,
     href: attrs["href"] ?? null,
     ...(raw.attrs["src"] !== undefined ? { assetUrl: raw.attrs["src"] } : {}),
@@ -978,11 +979,31 @@ function readAllCss(html: string, rootDir: string | undefined): string {
 type ParsedCssRule = { selector: string; values: Record<string, string> };
 type ParsedCssMedia = { maxWidth: number | null; minWidth: number | null; rules: ParsedCssRule[] };
 
+// `flex-flow` is the shorthand of `flex-direction` and `flex-wrap`. As a property
+// of its own it sits beside the longhand a variant sets (`flex-direction:column`
+// over a base `flex-flow:row`) and nothing says which of the two wins, so the
+// phone copy of a card kept its row. Read as the two longhands, the later
+// declaration replaces the earlier one like in the browser.
+const FLOW_DIRECTION = /^(?:row|column)(?:-reverse)?$/;
+const FLOW_WRAP = /^(?:nowrap|wrap|wrap-reverse)$/;
+
+function expandFlexFlow(value: string): [string, string][] | null {
+  const important = /\s*!important\s*$/i.exec(value)?.[0] ?? "";
+  const tokens = value.slice(0, value.length - important.length).trim().split(/\s+/);
+  if (tokens.length > 2 || tokens.some((token) => !FLOW_DIRECTION.test(token) && !FLOW_WRAP.test(token))) return null;
+  const direction = tokens.find((token) => FLOW_DIRECTION.test(token)) ?? "row";
+  const wrap = tokens.find((token) => FLOW_WRAP.test(token)) ?? "nowrap";
+  return [["flex-direction", `${direction}${important}`], ["flex-wrap", `${wrap}${important}`]];
+}
+
 function parseDeclarations(body: string): Record<string, string> {
   const values: Record<string, string> = {};
   for (const declaration of splitDeclarations(body)) {
     const pair = parseDeclaration(declaration);
-    if (pair !== null) values[pair[0]] = pair[1];
+    if (pair === null) continue;
+    for (const [property, value] of (pair[0] === "flex-flow" ? expandFlexFlow(pair[1]) : null) ?? [pair]) {
+      values[property] = value;
+    }
   }
   return values;
 }
@@ -1066,15 +1087,19 @@ function resolveVars(value: string, vars: Vars, depth = 0): string {
 // A media prelude that only asks for widths: `(min-width: 810px) and
 // (max-width: 1199.98px)`. Anything else (prefers-color-scheme, orientation,
 // print …) is not a width range and must not leak into the device model.
+//
+// The unit is optional: Framer writes its phone range as `(max-width:809px) and
+// (min-width:0)`, and a unitless zero is valid CSS. Rejecting it dropped every
+// phone rule (all phone text sizes) from the import.
 function mediaRange(prelude: string): { min: number | null; max: number | null } | null {
   const query = prelude.replace(/^@media/i, "");
   const rest = query
-    .replace(/\(\s*(?:min|max)-width\s*:\s*[0-9.]+px\s*\)/gi, "")
+    .replace(/\(\s*(?:min|max)-width\s*:\s*[0-9.]+(?:px)?\s*\)/gi, "")
     .replace(/\b(?:screen|all|and|only)\b/gi, "")
     .trim();
   if (rest !== "") return null;
-  const max = /max-width:\s*([0-9.]+)px/i.exec(query)?.[1];
-  const min = /min-width:\s*([0-9.]+)px/i.exec(query)?.[1];
+  const max = /max-width:\s*([0-9.]+)(?:px)?/i.exec(query)?.[1];
+  const min = /min-width:\s*([0-9.]+)(?:px)?/i.exec(query)?.[1];
   return {
     min: min === undefined ? null : Number.parseFloat(min),
     max: max === undefined ? null : Number.parseFloat(max),
@@ -1135,11 +1160,20 @@ const classesIn = (compound: string): string[] =>
 // to the base style would make a button permanently look hovered.
 const STATE_SUFFIX = /^(.*?):(hover|focus-visible|focus|active|disabled)$/;
 
+// Framer's script sets `data-framer-component-text-autosized` on auto-sized text
+// at RUNTIME; an export carries no element with it, so `[data-framer-component-
+// text-autosized] *{white-space:pre}` matches nothing on the page. Its attribute
+// compound has no class, so it dropped out of the ancestor check below and the
+// rule reached every node: all text got `white-space: pre`, lost its line breaks
+// and the imported page came out 10-20 % shorter than the original.
+const RUNTIME_ONLY_ATTRIBUTE = /\[data-framer-component-text-autosized\b/;
+
 function compileSelector(
   selector: string,
   order: number,
   values: Record<string, string>,
 ): { rule: CompiledRule | null; pseudo: boolean } {
+  if (RUNTIME_ONLY_ATTRIBUTE.test(selector)) return { rule: null, pseudo: false };
   // `.btn:hover` and friends: the same element in another state. Only when the
   // state is the last thing on the target (`.card:hover .title` styles another
   // element and stays a pseudo rule that is reported, not applied).
@@ -1195,6 +1229,9 @@ function buildIndex(rules: readonly ParsedCssRule[]): { index: RuleIndex; skippe
   return { index, skippedPseudo };
 }
 
+// Every class of the element a rule can name: the shared ones and its variant's.
+const classesOf = (node: IrNode): string[] => [...node.baseClasses, ...(node.variantClasses ?? [])];
+
 function ruleMatches(node: IrNode, rule: CompiledRule, ancestorClasses: ReadonlySet<string>): boolean {
   if (node.tag === "root") {
     if (rule.root) return true;
@@ -1203,16 +1240,18 @@ function ruleMatches(node: IrNode, rule: CompiledRule, ancestorClasses: Readonly
   }
   if (rule.root) return false;
   if (rule.tag !== "" && rule.tag !== "*" && rule.tag !== node.tag) return false;
-  if (!rule.classes.every((name) => node.baseClasses.includes(name))) return false;
-  return rule.ancestors.every(
-    (classes) => classes.length === 0 || classes.some((name) => ancestorClasses.has(name)),
-  );
+  const own = classesOf(node);
+  if (!rule.classes.every((name) => own.includes(name))) return false;
+  // Every class of an ancestor compound must be on the way down: the rule of a
+  // phone variant, `.framer-C.framer-v-phone .framer-part`, reaches the parts of
+  // the phone copy only, not those of the desktop copy of the same component.
+  return rule.ancestors.every((classes) => classes.every((name) => ancestorClasses.has(name)));
 }
 
 // Matching rules in source order, which is the cascade order.
 function matchingRules(index: RuleIndex, node: IrNode, ancestorClasses: ReadonlySet<string>): CompiledRule[] {
   const candidates = new Set<CompiledRule>(index.generic);
-  for (const name of node.baseClasses) {
+  for (const name of classesOf(node)) {
     for (const rule of index.byClass.get(name) ?? []) candidates.add(rule);
   }
   return [...candidates]
@@ -1227,6 +1266,32 @@ const baseOnly = (rules: CompiledRule[]): CompiledRule[] => rules.filter((rule) 
 // bare `(min-width: 810px)` reaches tablet and desktop, never mobile, and a
 // `(min-width: 1440px)` reaches desktop only (see `devices.ts`).
 const devicesOf = devicesContaining;
+
+const IMPORTANT = /\s*!important\s*$/i;
+
+// The cascade of one device: class rules in source order, then the element's own
+// inline style. A declaration marked `!important` beats every normal one, the
+// inline style included, and the marker does not travel on: Framer hides the
+// copies of other breakpoints with `.hidden-x{display:none!important}` over an
+// inline `display:contents`. Carried as `none!important`, the value could not be
+// overridden by the device that shows the element (`display_mobile: flex`), so
+// mobile-only layers stayed hidden.
+function cascade(classValues: readonly Record<string, string>[], inline: IrVisual): IrVisual {
+  const out: IrVisual = {};
+  const important = new Set<string>();
+  for (const values of classValues) {
+    for (const [key, raw] of Object.entries(values)) {
+      const marked = IMPORTANT.test(raw);
+      if (important.has(key) && !marked) continue;
+      out[key] = raw.replace(IMPORTANT, "");
+      if (marked) important.add(key);
+    }
+  }
+  for (const [key, value] of Object.entries(inline)) {
+    if (!important.has(key)) out[key] = value;
+  }
+  return out;
+}
 
 function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
   const parsed = parseCssRules(css);
@@ -1270,7 +1335,7 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
     for (const device of DEVICES) {
       const own: Vars = {};
       const plain: IrVisual = {};
-      for (const [key, value] of Object.entries({ ...baseline, ...(byDevice.get(device) ?? {}), ...inline })) {
+      for (const [key, value] of Object.entries(cascade([baseline, byDevice.get(device) ?? {}], inline))) {
         if (value === undefined) continue;
         if (key.startsWith("--")) own[key] = value;
         else plain[key] = value;
@@ -1309,7 +1374,7 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
         visual: values,
       });
     }
-    const classes = new Set([...ancestorClasses, ...current.baseClasses]);
+    const classes = new Set([...ancestorClasses, ...classesOf(current)]);
     for (const child of current.children) visit(child, classes, varsByDevice);
   };
   visit(root, new Set(), { desktop: {}, tablet: {}, mobile: {} });

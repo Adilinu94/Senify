@@ -354,6 +354,13 @@ function parseValue(s: Scanner): string {
 export function parseCssValue(raw: string): CssValueResult {
   const normalized = normalizeCssText(raw);
   if (normalized === "") return { ok: false, problem: "empty value" };
+  // `<` is how a value leaves its <style> element: `</style>` ends it, `<!--`
+  // opens an HTML comment. A quoted string is otherwise free-form, so the check
+  // runs on the normalized text - `\3c` has already become `<` by now - and no
+  // value form needs the character (`isSafeRawCss` makes the same cut).
+  if (normalized.includes("<")) {
+    return { ok: false, problem: 'a value must not contain "<" (it could close the style element)' };
+  }
   try {
     return { ok: true, value: parseValue(new Scanner(normalized)) };
   } catch (error) {

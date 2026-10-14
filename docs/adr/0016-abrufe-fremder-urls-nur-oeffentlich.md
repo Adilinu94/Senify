@@ -30,8 +30,12 @@ lädt):
 - `captureBrowser` (framer-import) nimmt bewusst `file://` für den Offline-Mirror und ist nur aus
   Bibliothek und Tests erreichbar, nicht aus einer Agent-Route.
 - Der Import aus `rootDir` bleibt für Agenten offen: er ist der Kern-Workflow für lokale Mirror-Ordner
-  (ADR-0010) und bricht nicht aus dem Ordner aus (Module laufen über `safeModulePath`). **Offen:** eine
-  Allowlist `SENIFY_IMPORT_ROOTS`, wenn der Betreiber Agenten auf bestimmte Wurzeln beschränken will.
+  (ADR-0010) und bricht nicht aus dem Ordner aus (Module laufen über `safeModulePath`). **Umgesetzt
+  (13.10.2026):** Mit `SENIFY_IMPORT_ROOTS` (absolute Ordner, getrennt durch den Pfadtrenner der Plattform) beschränkt der
+  Betreiber Agenten auf bestimmte Wurzeln. `source.rootDir` muss dann eine Wurzel sein oder darunter liegen; Symlinks werden
+  auf beiden Seiten aufgelöst. Ungesetzt oder leer bleibt der Ordner offen. Die Prüfung `assertImportRootAllowed`
+  (`packages/engine/src/imports.ts`) sitzt in `sourceOf` (Vorschau und Job-Lauf) und früh im Import-Handler, damit ein
+  abgelehnter Ordner keinen Job anlegt.
 - Weiterleitungen und Sub-Requests innerhalb des Browsers der Referenz-Analyse sind Sache des Browsers. Sie
   erreichen das Dashboard nur als `cross-site`, und das lehnt der Proxy ab (ADR-0015); die Engine verlangt
   dort einen Bearer.

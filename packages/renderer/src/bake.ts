@@ -58,6 +58,19 @@ import {
 import { overridesCss, styleRulesReport } from "./style-css.ts";
 import { webglVendorCode } from "./webgl-vendor.ts";
 
+// The page root carries the page language (the inspector's "Sprache" field, and
+// what the Framer import takes from the source `<html lang>`). It sets `<html
+// lang>` of that page; a value that is no language tag is ignored so a stray
+// string cannot reach the attribute, and the site default applies instead.
+const LANG_TAG = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/;
+
+function pageLang(tree: NodeTree): string | undefined {
+  const value = tree.nodes[tree.rootNodeId]?.props["lang"];
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return LANG_TAG.test(trimmed) ? trimmed : undefined;
+}
+
 export type BakePageInput = {
   id: string;
   path: string;
@@ -354,6 +367,14 @@ function htmlFilesIn(outDir: string): string[] {
 // those files are inlined into the document: stylesheets as `<style>`, local
 // scripts as `<script>`. Foreign URLs (CDNs, media) stay as they are, and a
 // link to a missing or empty file is dropped instead of costing a 404.
+// A stylesheet travels inside an HTML raw-text element here, so `</style` would
+// end it early. `<\/` reads the same inside a CSS string and is a dead token
+// anywhere else. The value grammar already refuses `<`; this is the second wall,
+// for CSS that did not come through it.
+function escapeStyleText(css: string): string {
+  return css.replace(/<\//g, "<\\/");
+}
+
 export function selfContainedHtml(
   html: string,
   outDir: string,
@@ -365,7 +386,7 @@ export function selfContainedHtml(
       const href = tag.match(/href="([^"]+)"/)?.[1] ?? "";
       if (/^(https?:)?\/\//.test(href)) return tag;
       const css = readBakedFile(outDir, href);
-      return css === undefined || css.trim() === "" ? "" : `<style>${css}</style>`;
+      return css === undefined || css.trim() === "" ? "" : `<style>${escapeStyleText(css)}</style>`;
     },
   );
   return withoutLinks.replace(
@@ -523,6 +544,7 @@ export async function bakeSite(
       title: page.title,
       description: page.description ?? "",
       ogImage: page.ogImage ?? "",
+      lang: pageLang(page.tree),
       tree: page.tree,
       motion: jsonForHtml(motionDataFor(configs)),
       // The page-level View Transition block (M6): null unless a node carries

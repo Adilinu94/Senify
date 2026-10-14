@@ -1,3 +1,5 @@
+import type { NodeTree } from "@senify/section-sdk";
+
 export function toIso(value: unknown): string {
   if (value instanceof Date) return value.toISOString();
   return String(value);
@@ -40,4 +42,16 @@ export function isUniqueViolation(error: unknown): boolean {
   const message =
     typeof candidate.message === "string" ? candidate.message : "";
   return /(duplicate|unique|already exists)/i.test(message);
+}
+
+export function assertDraftShape(draft: unknown): asserts draft is NodeTree {
+  if (
+    !draft ||
+    typeof draft !== "object" ||
+    typeof (draft as { rootNodeId?: unknown }).rootNodeId !== "string" ||
+    typeof (draft as { nodes?: unknown }).nodes !== "object" ||
+    (draft as { nodes?: unknown }).nodes === null
+  ) {
+    throw new Error("Stored page draft has an invalid shape");
+  }
 }
