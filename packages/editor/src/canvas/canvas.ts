@@ -15,7 +15,6 @@
 import type { MotionProfile, NodeTree, Registry } from "@senify/section-sdk";
 import {
   getPrimitive,
-  primitiveTypes,
   themeTokenResolver,
   type StateName,
   type TokenResolver,
@@ -81,6 +80,14 @@ export type CanvasState = {
   breakpoint: FrameBreakpoint;
 };
 
+// Where the next insert goes once a plus point has been clicked; `label` reads
+// "hinter Hero" / "vor Hero" / "in Rahmen" for the elements panel's hint.
+export type ArmedTarget = {
+  nodeId: string;
+  position: InsertPosition;
+  label: string;
+};
+
 export type CanvasInstance = {
   element: DomElement;
   refresh(): void;
@@ -97,10 +104,17 @@ export type CanvasInstance = {
     position: InsertPosition,
     props?: Record<string, import("@senify/widget-engine").PropValue>,
   ): boolean;
-  // Haengt ein Primitiv als letztes Kind der Seitenwurzel an. Der Weg des
-  // Elemente-Panels (E5): es steht nur ohne Auswahl da, also gibt es kein Ziel
-  // "hinter" einem Knoten.
-  insertAtEnd(primitive: string): boolean;
+  // Fuegt ein Primitiv am gemerkten Ziel ein (siehe `armedTarget`), sonst als
+  // letztes Kind der Seitenwurzel. Der Weg des Elemente-Panels (E5/E7): es steht
+  // nur ohne Auswahl da, also gibt es kein Ziel "hinter" einem Knoten, es sei
+  // denn ein Plus-Punkt hat eins gemerkt.
+  insertAtTarget(primitive: string): boolean;
+  // Das Ziel des naechsten Einfuegens, gemerkt durch einen Klick auf einen
+  // Plus-Punkt im Canvas (E7). Es faellt weg, sobald etwas gewaehlt wird, der
+  // Knoten verschwindet oder eingefuegt wurde.
+  armedTarget(): ArmedTarget | null;
+  onArmedChange(listener: (target: ArmedTarget | null) => void): () => void;
+  clearArmed(): void;
   // Macht ein Element ausserhalb des Canvas (Elemente-Panel) zur Drag-Quelle
   // fuer ein Primitiv; der Drop laeuft ueber denselben Controller wie die Chips.
   bindDragSource(element: DomElement, primitive: string): void;
@@ -246,7 +260,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
         wrap: entry.wrap,
         scale: entry.frame.scale,
       })),
-    catalogValue: () => (typeof catalog.value === "string" ? catalog.value : ""),
+    onPlus: (nodeId, position) => arm(nodeId, position),
     onMessage: (value) => message(value),
   });
 
@@ -296,39 +310,6 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     stateGroup.appendChild(button);
   }
 
-  const catalogLabel = create(doc, "label", "senify-canvas__catalog-label", {
-    for: "senify-canvas-catalog",
-  });
-  catalogLabel.textContent = "Baustein";
-  const catalog = create(doc, "select", "senify-canvas__select", {
-    id: "senify-canvas-catalog",
-    "data-role": "catalog",
-    "aria-label": "Baustein zum Einfügen",
-  });
-  const categoryNames: Record<string, string> = {
-    layout: "Layout",
-    basic: "Basis",
-    media: "Medien",
-    form: "Formular",
-    advanced: "Erweitert",
-  };
-  const grouped = new Map<string, DomElement>();
-  for (const type of primitiveTypes()) {
-    if (type === "root") continue;
-    const definition = getPrimitive(type);
-    const category = definition?.category ?? "basic";
-    let group = grouped.get(category);
-    if (group === undefined) {
-      group = create(doc, "optgroup", undefined, { label: categoryNames[category] ?? "Weitere" });
-      grouped.set(category, group);
-      catalog.appendChild(group);
-    }
-    const option = create(doc, "option", undefined, { value: type });
-    option.textContent = definition?.name ?? type;
-    group.appendChild(option);
-  }
-  if (catalog.value === undefined || catalog.value === "") catalog.value = "divider";
-
   // Chrome-Buttons (Framer/Webflow-Stil): Phosphor-Maskensymbol, der volle
   // deutsche Name bleibt als aria-label und Tooltip, optional ein Kurztext.
   function setIcon(button: DomElement, icon: string, label: string, text?: string): void {
@@ -341,23 +322,6 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       button.appendChild(caption);
     }
   }
-
-  const insertAfter = create(doc, "button", "senify-canvas__button", {
-    type: "button",
-    "data-action": "insert-after",
-  });
-  setIcon(insertAfter, "plus", "Danach einfügen", "Danach");
-  insertAfter.addEventListener("click", () => {
-    if (typeof catalog.value === "string") insert(catalog.value, "after");
-  });
-  const insertInto = create(doc, "button", "senify-canvas__button", {
-    type: "button",
-    "data-action": "insert-into",
-  });
-  setIcon(insertInto, "plus", "Hinein einfügen", "Hinein");
-  insertInto.addEventListener("click", () => {
-    if (typeof catalog.value === "string") insert(catalog.value, "into");
-  });
 
   const undoButton = create(doc, "button", "senify-canvas__button", {
     type: "button",
@@ -450,10 +414,6 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     deviceGroup.appendChild(button);
   }
 
-  const insertGroup = create(doc, "div", "senify-canvas__group", { "data-role": "insert" });
-  insertGroup.appendChild(catalog);
-  insertGroup.appendChild(insertAfter);
-  insertGroup.appendChild(insertInto);
   const historyGroup = create(doc, "div", "senify-canvas__group");
   historyGroup.appendChild(undoButton);
   historyGroup.appendChild(redoButton);
@@ -490,7 +450,6 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   topbar.appendChild(deviceGroup);
   topbar.appendChild(historyGroup);
   topbar.appendChild(stateGroup);
-  topbar.appendChild(insertGroup);
   footer.appendChild(status);
   footer.appendChild(scrubGroup);
   footer.appendChild(zoomGroup);
@@ -1228,6 +1187,37 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     return drop.insertAt(store.document.rootNodeId, primitive, "into");
   }
 
+  // The target a plus point armed (E7): the elements panel supplies the element,
+  // this is where it goes. The selection is cleared first - the panel shows
+  // without one - so the arming itself does not trip the "selected: disarm" rule.
+  let armed: ArmedTarget | null = null;
+  const armedListeners = new Set<(target: ArmedTarget | null) => void>();
+  function setArmed(next: ArmedTarget | null): void {
+    armed = next;
+    for (const listener of [...armedListeners]) listener(next);
+  }
+  function arm(nodeId: string, position: InsertPosition): void {
+    const node = store.document.nodes[nodeId];
+    if (node === undefined) return;
+    store.clearSelection();
+    const where = position === "before" ? "vor" : position === "after" ? "hinter" : "in";
+    setArmed({
+      nodeId,
+      position,
+      label: `${where} ${getPrimitive(node.primitive)?.name ?? node.primitive}`,
+    });
+  }
+  function clearArmed(): void {
+    if (armed !== null) setArmed(null);
+  }
+  function insertAtTarget(primitive: string): boolean {
+    if (armed === null) return insertAtEnd(primitive);
+    const target = armed;
+    const inserted = drop.insertAt(target.nodeId, primitive, target.position);
+    clearArmed();
+    return inserted;
+  }
+
   // The event names document nodes; a component instance renders as copies
   // with their own ids (and a definition part renders once per instance). The
   // copy map of the last render resolves both to the visible element.
@@ -1242,6 +1232,9 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   }
 
   const unsubscribe = store.subscribe(() => {
+    if (armed !== null && (selectedId() !== null || store.document.nodes[armed.nodeId] === undefined)) {
+      clearArmed();
+    }
     // Live is the real page (M4 Stufe 1): a remote change reloads the preview
     // (point 4) instead of patching the tree, so the release runtime rebinds to
     // the fresh DOM. Design keeps the store patch, which preserves the caret.
@@ -1289,7 +1282,15 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     breakpoint: () => breakpoint,
     select,
     insert,
-    insertAtEnd,
+    insertAtTarget,
+    armedTarget: () => armed,
+    onArmedChange: (listener) => {
+      armedListeners.add(listener);
+      return () => {
+        armedListeners.delete(listener);
+      };
+    },
+    clearArmed,
     bindDragSource: (element, primitive) => drop.bindDragSource(element, primitive),
     flashNodes(ids: string[]): void {
       // Live reloads on the next store change (point 4): the ring lands on the

@@ -102,6 +102,7 @@ describe.skipIf(!browserAvailable)("save conflict dialog", () => {
         .poll(async () => tab.locator('.senify-canvas__plus[data-position="after"]').count())
         .toBe(1);
       await tab.locator('.senify-canvas__plus[data-position="after"]').click();
+      await tab.locator('.senify-elements__tile[data-primitive="divider"]').click();
 
       // Der Autosave laeuft in den 409; der Dialog nennt beide Seiten.
       const dialog = tab.locator('dialog[data-role="conflict-dialog"]');

@@ -41,7 +41,9 @@ export type DropControllerOptions = {
   overlay: DomElement;
   store: EditorStore;
   frames: () => DropFrame[];
-  catalogValue: () => string;
+  // A plus point was clicked: the target for the next insert. The source of the
+  // element is not the controller's business (the elements panel supplies it).
+  onPlus: (nodeId: string, position: DropPosition) => void;
   onMessage: (message: string | null) => void;
 };
 
@@ -174,7 +176,7 @@ export function createDropController(options: DropControllerOptions): DropContro
     button.addEventListener("click", (event) => {
       event.stopPropagation?.();
       if (hoverNodeId === null) return;
-      insertAt(hoverNodeId, options.catalogValue(), position);
+      options.onPlus(hoverNodeId, position);
       hidePluses();
     });
     return button;

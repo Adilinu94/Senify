@@ -6867,14 +6867,17 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   inspector.setTab(savedUi.tab);
 
   // Das Elemente-Panel (E4/E5): Kacheln, Suche, Klick und Ziehen. Es wird einmal
-  // gebaut und steht nur ohne Auswahl da; ein Klick haengt das Element ans Ende
-  // der Seite, Ziehen setzt es per Drag and Drop - beides ueber den Controller
-  // des Canvas, wie die Schnellzugriff-Chips.
+  // gebaut und steht nur ohne Auswahl da; ein Klick fuegt das Element am Ziel
+  // eines Plus-Punkts ein (sonst am Ende der Seite), Ziehen setzt es per Drag and
+  // Drop - beides ueber den Controller des Canvas.
   const elementsPanel = editor.createElementsPanel(document, {
-    insert: (primitive) => canvas.insertAtEnd(primitive),
+    insert: (primitive) => canvas.insertAtTarget(primitive),
     bindDragSource: (element, primitive) => canvas.bindDragSource(element, primitive),
+    cancelTarget: () => canvas.clearArmed(),
   });
   elementsHost.replaceChildren(elementsPanel.element);
+  // Ein Klick auf einen Plus-Punkt im Canvas merkt ein Ziel; das Panel zeigt es.
+  canvas.onArmedChange((target) => elementsPanel.setTarget(target === null ? null : target.label));
 
   // Panel-Wechsel (E5): ist ein Element gewaehlt, ersetzen die Einstellungen die
   // Elemente; ohne Auswahl (Esc im Inspektor, Zurueck-Knopf, Leerklick im Canvas)

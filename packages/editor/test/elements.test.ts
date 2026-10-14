@@ -110,15 +110,22 @@ function mount() {
   } as unknown as DomDocument;
   const inserted: string[] = [];
   const bound: string[] = [];
+  let cancelled = 0;
   const panel = createElementsPanel(doc, {
     insert: (primitive) => inserted.push(primitive),
     bindDragSource: (_element: DomElement, primitive) => bound.push(primitive),
+    cancelTarget: () => {
+      cancelled += 1;
+    },
   });
   const root = panel.element as unknown as FakeElement;
   const tiles = () => walk(root, (el) => el.className === "senify-elements__tile");
   const heads = () => walk(root, (el) => el.className === "senify-elements__head");
   const input = walk(root, (el) => el.className === "senify-elements__search")[0] as FakeElement;
-  return { panel, root, tiles, heads, input, inserted, bound };
+  const target = () => walk(root, (el) => el.className === "senify-elements__target")[0] as FakeElement;
+  const targetCancel = () =>
+    walk(root, (el) => el.className === "senify-elements__target-cancel")[0] as FakeElement;
+  return { panel, root, tiles, heads, input, inserted, bound, target, targetCancel, cancelled: () => cancelled };
 }
 
 describe("elements panel (E4)", () => {
@@ -170,5 +177,18 @@ describe("elements panel (E4)", () => {
     expect(gridOf("layout").hidden).toBe(true);
     heads()[0]?.fire("click");
     expect(gridOf("layout").hidden).toBe(false);
+  });
+
+  it("shows where the next element goes once a plus point armed a target", () => {
+    const { panel, target, targetCancel, cancelled } = mount();
+    expect(target().hidden).toBe(true);
+    panel.setTarget("hinter Hero");
+    expect(target().hidden).toBe(false);
+    const text = walk(target(), (el) => el.className === "senify-elements__target-text")[0];
+    expect(text?.textContent).toBe("Einfügen hinter Hero");
+    targetCancel().fire("click");
+    expect(cancelled()).toBe(1);
+    panel.setTarget(null);
+    expect(target().hidden).toBe(true);
   });
 });

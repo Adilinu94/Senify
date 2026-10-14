@@ -69,7 +69,6 @@ export const CANVAS_STYLES = `
   border-radius: 0.3rem;
 }
 .senify-canvas__group[hidden] { display: none; }
-.senify-canvas__group[data-role="insert"] { margin-left: auto; }
 .senify-canvas__button { display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem; }
 .senify-canvas__button {
   min-height: 1.9rem;
@@ -80,23 +79,6 @@ export const CANVAS_STYLES = `
   color: inherit;
   font: inherit;
   cursor: pointer;
-}
-.senify-canvas__catalog-label {
-  color: var(--ed-ink-muted);
-  font-size: var(--ed-text-11);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.senify-canvas__select {
-  min-height: 1.9rem;
-  max-width: 12rem;
-  padding: 0 0.35rem;
-  border: 1px solid var(--ed-line-control);
-  border-radius: var(--ed-radius-sm);
-  background: var(--ed-surface-inset);
-  color: var(--ed-ink-strong);
-  font: inherit;
-  font-size: var(--ed-text-12);
 }
 .senify-canvas__zoom-label {
   min-width: 3.5rem;
@@ -135,7 +117,6 @@ export const CANVAS_STYLES = `
   padding: 0 0.5rem;
 }
 .senify-canvas__button:focus-visible,
-.senify-canvas__select:focus-visible,
 .senify-canvas__plus:focus-visible {
   outline: 2px solid var(--ed-focus);
   outline-offset: 1px;

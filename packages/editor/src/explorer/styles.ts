@@ -270,6 +270,38 @@ export const EXPLORER_STYLES = `
   padding: var(--ed-space-2);
 }
 .senify-elements__groups { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.senify-elements__target {
+  display: flex;
+  align-items: center;
+  gap: var(--ed-space-2);
+  padding: var(--ed-space-1) var(--ed-space-2);
+  border-radius: var(--ed-radius-sm);
+  background: var(--ed-fill-select);
+  color: var(--ed-ink-strong);
+  font-size: var(--ed-text-12);
+}
+.senify-elements__target[hidden] { display: none; }
+.senify-elements__target-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.senify-elements__target-cancel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: var(--ed-radius-sm);
+  background: transparent;
+  color: var(--ed-ink-muted);
+  cursor: pointer;
+}
+.senify-elements__target-cancel:hover { background: var(--ed-fill-hover); color: var(--ed-ink-strong); }
+.senify-elements__target-cancel:focus-visible { outline: 2px solid var(--ed-focus); outline-offset: -2px; }
 .senify-elements__search {
   box-sizing: border-box;
   width: 100%;

@@ -111,6 +111,37 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       expect(await search.inputValue()).toBe("divider");
       await search.fill("");
 
+      // Ein Plus-Punkt im Canvas merkt das Ziel: das Panel zeigt "Einfuegen vor
+      // ...", die naechste Kachel fuegt genau dort ein (hier vor dem Hero), und
+      // das Ziel ist danach wieder weg.
+      const sectionOrder = (): Promise<(string | null)[]> =>
+        desktopFrame().locator("section[data-section]").evaluateAll((nodes) =>
+          nodes.map((node) => (node as unknown as { getAttribute(name: string): string | null }).getAttribute("data-section")),
+        );
+      await expect.poll(sectionOrder).toEqual(["hero", "divider"]);
+      await hero.hover();
+      await tab.locator('.senify-canvas__plus[data-position="before"]').click();
+      const hint = tab.locator(".senify-elements__target");
+      await expect.poll(() => hint.isVisible()).toBe(true);
+      expect(await hint.textContent()).toMatch(/Einfügen vor /);
+      await tab.locator('.senify-elements__tile[data-primitive="divider"]').click();
+      await expect.poll(sectionOrder).toEqual(["divider", "hero", "divider"]);
+      expect(await hint.isVisible()).toBe(false);
+
+      // Das Kreuz im Hinweis verwirft das Ziel; die naechste Kachel haengt dann
+      // wieder ans Ende der Seite.
+      await hero.hover();
+      await tab.locator('.senify-canvas__plus[data-position="after"]').click();
+      await expect.poll(() => hint.isVisible()).toBe(true);
+      await tab.locator(".senify-elements__target-cancel").click();
+      await expect.poll(() => hint.isVisible()).toBe(false);
+      await tab.locator('.senify-elements__tile[data-primitive="divider"]').click();
+      await expect.poll(sectionOrder).toEqual(["divider", "hero", "divider", "divider"]);
+      // Zurueck auf den Ausgangsstand, damit der Rest des Tests unveraendert gilt.
+      await tab.locator('.senify-canvas__button[data-action="undo"]').click();
+      await tab.locator('.senify-canvas__button[data-action="undo"]').click();
+      await expect.poll(sectionOrder).toEqual(["hero", "divider"]);
+
       // Panel-Wechsel: die Auswahl ersetzt die Elemente durch "<Name> bearbeiten".
       await hero.click();
       await expect.poll(() => tab.locator(`.senify-canvas[data-selected="${heroId}"]`).count()).toBe(1);
