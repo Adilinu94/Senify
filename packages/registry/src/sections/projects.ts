@@ -33,9 +33,9 @@ export const projectsSection: SectionDefinition = {
     },
   ],
   variants: {
-    cards: { label: "Cards", preset: {} },
-    list: { label: "List", preset: {} },
-    showcase: { label: "Showcase", preset: {} },
+    cards: { label: "Karten", preset: {} },
+    list: { label: "Liste", preset: {} },
+    showcase: { label: "Schaufenster", preset: {} },
   },
   styleProps: [
     ...sectionStyleProps(),

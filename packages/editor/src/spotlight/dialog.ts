@@ -161,6 +161,14 @@ export function createSpotlightDialog(options: SpotlightDialogOptions): Spotligh
           "aria-selected": String(active),
         },
       });
+      if (item.thumbnail !== undefined) {
+        const image = h(doc, "img", {
+          className: "senify-spotlight__thumb",
+          attributes: { src: item.thumbnail, alt: "", loading: "lazy", draggable: "false" },
+        });
+        image.addEventListener("error", () => image.setAttribute("data-missing", "true"));
+        row.appendChild(image);
+      }
       row.appendChild(h(doc, "span", { className: "senify-spotlight__label", text: item.label }));
       row.appendChild(
         h(doc, "span", { className: "senify-spotlight__description", text: item.description }),

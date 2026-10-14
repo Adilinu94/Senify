@@ -27,9 +27,9 @@ export const testimonialsSection: SectionDefinition = {
     },
   ],
   variants: {
-    cards: { label: "Cards", preset: {} },
-    slider: { label: "Slider", preset: {} },
-    spotlight: { label: "Spotlight", preset: {} },
+    cards: { label: "Karten", preset: {} },
+    slider: { label: "Schieber", preset: {} },
+    spotlight: { label: "Im Fokus", preset: {} },
   },
   styleProps: [
     ...sectionStyleProps(),

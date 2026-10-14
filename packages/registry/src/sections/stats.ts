@@ -27,9 +27,9 @@ export const statsSection: SectionDefinition = {
     },
   ],
   variants: {
-    row: { label: "Row", preset: {} },
-    grid: { label: "Grid", preset: {} },
-    counter: { label: "Counter", preset: {} },
+    row: { label: "Reihe", preset: {} },
+    grid: { label: "Raster", preset: {} },
+    counter: { label: "Zähler", preset: {} },
   },
   styleProps: [
     ...sectionStyleProps(),

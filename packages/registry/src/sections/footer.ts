@@ -45,9 +45,9 @@ export const footerSection: SectionDefinition = {
     },
   ],
   variants: {
-    "multi-column": { label: "Multi-column", preset: {} },
+    "multi-column": { label: "Mehrspaltig", preset: {} },
     minimal: { label: "Minimal", preset: {} },
-    "cta-bar": { label: "CTA bar", preset: {} },
+    "cta-bar": { label: "Mit CTA-Leiste", preset: {} },
   },
   styleProps: [...sectionStyleProps(), ...linkPart()],
   allowedChildren: "none",
