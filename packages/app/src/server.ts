@@ -20,6 +20,12 @@ const PUBLIC_DIR = fileURLToPath(new URL("../public", import.meta.url));
 const EDITOR_FONT_DIR = fileURLToPath(
   new URL("../../editor/assets/fonts", import.meta.url),
 );
+// The previews of the section variants (the "Sektionen" tab of the elements
+// panel and the spotlight) live with the editor too and are served under
+// `/editor-section-thumbnails/*`; `pnpm thumbnails:generate` writes them.
+const EDITOR_SECTION_THUMBNAIL_DIR = fileURLToPath(
+  new URL("../../editor/assets/section-thumbnails", import.meta.url),
+);
 // The theme webfonts (Sora, Inter) live with the deliverable they ship in
 // (`@senify/renderer`); the program serves them under `/assets/<file>.woff2`,
 // the path the emitted theme CSS names.
@@ -344,6 +350,14 @@ export async function createAppServer(options: AppServerOptions): Promise<AppSer
       const fontsRoot =
         appDir !== undefined ? join(appDir, "editor-fonts") : EDITOR_FONT_DIR;
       serveStatic(fontsRoot, url.slice("/editor-fonts".length), res);
+      return;
+    }
+    if (url.startsWith("/editor-section-thumbnails/")) {
+      const thumbnailRoot =
+        appDir !== undefined
+          ? join(appDir, "editor-section-thumbnails")
+          : EDITOR_SECTION_THUMBNAIL_DIR;
+      serveStatic(thumbnailRoot, url.slice("/editor-section-thumbnails".length), res);
       return;
     }
     if (appDir !== undefined) {

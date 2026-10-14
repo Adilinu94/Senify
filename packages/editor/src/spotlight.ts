@@ -7,7 +7,7 @@ export type SpotlightKind = "page" | "section" | "action";
 
 export type SpotlightCommand =
   | { type: "open-page"; pageId: string }
-  | { type: "insert-section"; sectionType: string }
+  | { type: "insert-section"; sectionType: string; variant?: string }
   | { type: "insert-primitive"; primitive: string }
   | { type: "set-mode"; mode: "design" | "live" }
   | { type: "open-media" }
@@ -121,6 +121,17 @@ export type EditorSpotlightInput = {
     description: string;
     category: string;
   }[];
+  // Eine Zeile je Variante einer Registry-Sektion (`listSectionVariants`); ohne
+  // sie bietet die Spotlight nur Bausteine an.
+  sections?: readonly {
+    type: string;
+    name: string;
+    description: string;
+    category: string;
+    variant: { key: string; label: string; thumbnail: string };
+  }[];
+  // Ordner der Vorschaubilder, Schraegstrich am Ende.
+  thumbnailBase?: string;
   currentPageId?: string | null;
 };
 
@@ -150,13 +161,24 @@ export function buildEditorSpotlightIndex(input: EditorSpotlightInput): Spotligh
       keywords: [primitive.type, primitive.category],
       command: { type: "insert-primitive", primitive: primitive.type },
     }));
+  const base = input.thumbnailBase ?? "/editor-section-thumbnails/";
+  const sections: SpotlightItem[] = (input.sections ?? []).map((entry) => ({
+    id: `section:${entry.type}:${entry.variant.key}`,
+    kind: "section",
+    label: `${entry.name} · ${entry.variant.label}`,
+    description: entry.description,
+    group: "Sektionen",
+    thumbnail: `${base}${entry.variant.thumbnail}`,
+    keywords: [entry.type, entry.category, entry.variant.key, entry.name, entry.variant.label],
+    command: { type: "insert-section", sectionType: entry.type, variant: entry.variant.key },
+  }));
   const current = input.currentPageId ?? null;
   const ordered = [...pages].sort((a, b) => {
     const aActive = a.command.type === "open-page" && a.command.pageId === current;
     const bActive = b.command.type === "open-page" && b.command.pageId === current;
     return Number(bActive) - Number(aActive);
   });
-  return [...ordered, ...primitives, ...SPOTLIGHT_ACTIONS];
+  return [...ordered, ...primitives, ...sections, ...SPOTLIGHT_ACTIONS];
 }
 
 function haystack(item: SpotlightItem): string {

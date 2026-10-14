@@ -64,6 +64,15 @@ if (!existsSync(fontsDir)) {
   }
 }
 
+// Vorschaubilder der Sektions-Varianten (Reiter "Sektionen", Spotlight): ohne
+// sie zeigen die Kacheln nur ihre Namen.
+const thumbnailsDir = join(DIST_DIR, "editor-section-thumbnails");
+if (!existsSync(thumbnailsDir)) {
+  failures.push("editor-section-thumbnails/ fehlt");
+} else if (!existsSync(join(thumbnailsDir, "hero-centered.png"))) {
+  failures.push("editor-section-thumbnails/hero-centered.png fehlt");
+}
+
 if (failures.length > 0) {
   for (const failure of failures) {
     console.error(`verify-dist: ${failure}`);

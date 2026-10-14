@@ -69,6 +69,16 @@ export const SPOTLIGHT_STYLES = `
   background: var(--ed-fill-select);
   color: var(--ed-ink-strong);
 }
+.senify-spotlight__row:has(.senify-spotlight__thumb) { align-items: center; }
+.senify-spotlight__thumb {
+  flex: 0 0 auto;
+  width: 64px;
+  height: 36px;
+  border-radius: var(--ed-radius-sm);
+  background: var(--ed-surface-inset);
+  object-fit: contain;
+}
+.senify-spotlight__thumb[data-missing="true"] { visibility: hidden; }
 .senify-spotlight__label { font-size: var(--ed-text-12); }
 .senify-spotlight__description {
   min-width: 0;

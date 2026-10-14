@@ -87,6 +87,20 @@ function copyStatics() {
     // Editor fonts are optional (they ship in @senify/editor). Skip silently
     // when missing — dev mode keeps serving them from the editor workspace.
   }
+  // The previews of the section variants ship next to the bundle the same way;
+  // the dashboard serves them under /editor-section-thumbnails/*.
+  const thumbnailsSrc = fileURLToPath(
+    new URL("../editor/assets/section-thumbnails", import.meta.url),
+  );
+  const thumbnailsDest = join(DIST_DIR, "editor-section-thumbnails");
+  try {
+    mkdirSync(thumbnailsDest, { recursive: true });
+    for (const file of readdirSync(thumbnailsSrc)) {
+      copyFileSync(join(thumbnailsSrc, file), join(thumbnailsDest, file));
+    }
+  } catch {
+    // Without the generated previews the tiles show their names only.
+  }
 }
 
 const start = Date.now();

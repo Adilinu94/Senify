@@ -174,9 +174,24 @@ export {
 } from "./explorer/panel.ts";
 export {
   createElementsPanel,
+  DEFAULT_SECTION_THUMBNAIL_BASE,
   type ElementsPanel,
   type ElementsPanelOptions,
+  type ElementsPanelTab,
 } from "./explorer/elements.ts";
+export {
+  buildSectionGroups,
+  listSectionVariants,
+  SECTION_GROUP_NAMES,
+  SECTION_INFO,
+  SECTION_NOT_INSERTABLE,
+  sectionInsertSpec,
+  sectionThumbnailFile,
+  type SectionGroup,
+  type SectionInsertSpec,
+  type SectionTile,
+  type SectionVariantTile,
+} from "./explorer/sections-model.ts";
 export {
   buildElementGroups,
   ELEMENT_ICONS,

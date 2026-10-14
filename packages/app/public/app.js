@@ -6822,6 +6822,8 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
         category: definition?.category ?? "",
       };
     }),
+    // Jede Variante jeder Registry-Sektion: einfügen mit Vorschaubild.
+    sections: editor.listSectionVariants(),
     currentPageId: pageId,
   });
   const spotlight = editor.createSpotlightDialog({
@@ -6831,6 +6833,9 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
         location.hash = `#/projects/${siteId}/pages/${command.pageId}`;
       } else if (command.type === "insert-primitive") {
         canvas.insert(command.primitive, "after");
+      } else if (command.type === "insert-section") {
+        const variant = command.variant ?? editor.sectionInsertSpec(command.sectionType)?.variant;
+        if (variant !== undefined) canvas.insertSection(command.sectionType, variant);
       } else if (command.type === "publish") {
         location.hash = `#/projects/${siteId}/review`;
       } else if (command.type === "set-mode") {
@@ -6875,6 +6880,10 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   const elementsPanel = editor.createElementsPanel(document, {
     insert: (primitive) => canvas.insertAtEnd(primitive),
     bindDragSource: (element, primitive) => canvas.bindDragSource(element, primitive),
+    // Reiter „Sektionen“: eine Kachel je Variante, Klick oder Ziehen setzt sie.
+    insertSection: (type, variant) => canvas.insertSection(type, variant),
+    bindSectionDragSource: (element, type, variant) =>
+      canvas.bindSectionDragSource(element, type, variant),
   });
   elementsHost.replaceChildren(elementsPanel.element);
 
