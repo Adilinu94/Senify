@@ -128,12 +128,8 @@ import {
 import {
   ASSET_COLUMNS,
   mapAsset,
-  mapAssetFolder,
-  mapAssetHistory,
   mapAssetVariant,
   type AssetRow,
-  type AssetFolderRow,
-  type AssetHistoryRow,
   type AssetVariantRow,
 } from "./store-record-mappers.ts";
 import {
@@ -169,6 +165,11 @@ import {
   ImportJobsRepository,
   type UpdateImportJobInput,
 } from "./store-import-jobs.ts";
+import {
+  AssetFoldersRepository,
+  type CreateAssetFolderInput,
+  type CreateAssetHistoryInput,
+} from "./store-asset-folders.ts";
 import {
   IdempotencyRepository,
   type ClaimIdempotencyKeyInput,
@@ -663,6 +664,7 @@ export class Store {
   readonly #revisions: RevisionsRepository;
   readonly #redesignProposals: RedesignProposalsRepository;
   readonly #importJobs: ImportJobsRepository;
+  readonly #assetFolders: AssetFoldersRepository;
 
   // Where the encryption key lives. Without it (a bare Store in a test) the key
   // stays in the database, as before.
@@ -690,6 +692,11 @@ export class Store {
     this.#revisions = new RevisionsRepository(db);
     this.#redesignProposals = new RedesignProposalsRepository(db);
     this.#importJobs = new ImportJobsRepository(db, (siteId) => this.getSite(siteId));
+    this.#assetFolders = new AssetFoldersRepository(
+      db,
+      (siteId) => this.getSite(siteId),
+      (assetId) => this.getAsset(assetId),
+    );
     this.#secretFile = options.secretFile;
   }
 
@@ -3194,124 +3201,36 @@ export class Store {
     return this.#codePayloads.deleteCodePayload(id);
   }
 
-  async createAssetFolder(input: {
-    id: string;
-    siteId: string;
-    name: string;
-    parentId: string | null;
-  }): Promise<AssetFolder> {
-    const createdAt = new Date().toISOString();
-    const result = await this.#db.query<AssetFolderRow>(
-      `INSERT INTO asset_folders (id, site_id, name, parent_id, created_at)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, site_id, name, parent_id, created_at`,
-      [input.id, input.siteId, input.name, input.parentId, createdAt],
-    );
-    const row = result.rows[0];
-    if (!row) throw new Error("Asset folder insert returned no row");
-    return mapAssetFolder(row);
+  createAssetFolder(input: CreateAssetFolderInput): Promise<AssetFolder> {
+    return this.#assetFolders.createAssetFolder(input);
   }
 
-  async getAssetFolder(id: string): Promise<AssetFolder> {
-    const result = await this.#db.query<AssetFolderRow>(
-      `SELECT id, site_id, name, parent_id, created_at
-       FROM asset_folders WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Asset folder "${id}" does not exist`, {
-        field: "folderId",
-      });
-    }
-    return mapAssetFolder(row);
+  getAssetFolder(id: string): Promise<AssetFolder> {
+    return this.#assetFolders.getAssetFolder(id);
   }
 
-  async listAssetFolders(siteId: string): Promise<AssetFolder[]> {
-    await this.getSite(siteId);
-    const result = await this.#db.query<AssetFolderRow>(
-      `SELECT id, site_id, name, parent_id, created_at
-       FROM asset_folders WHERE site_id = $1 ORDER BY created_at ASC, id ASC`,
-      [siteId],
-    );
-    return result.rows.map(mapAssetFolder);
+  listAssetFolders(siteId: string): Promise<AssetFolder[]> {
+    return this.#assetFolders.listAssetFolders(siteId);
   }
 
-  // Deleting a folder never deletes content: assets and subfolders fall back
-  // to "Ohne Ordner" (root), matching the library contract.
-  async deleteAssetFolder(id: string): Promise<void> {
-    await this.getAssetFolder(id);
-    await this.#db.withTransaction(async (tx) => {
-      await tx.query(`UPDATE assets SET folder_id = NULL WHERE folder_id = $1`, [id]);
-      await tx.query(
-        `UPDATE asset_folders SET parent_id = NULL WHERE parent_id = $1`,
-        [id],
-      );
-      await tx.query(`DELETE FROM asset_folders WHERE id = $1`, [id]);
-    });
+  deleteAssetFolder(id: string): Promise<void> {
+    return this.#assetFolders.deleteAssetFolder(id);
   }
 
-  async createAssetHistory(input: {
-    id: string;
-    assetId: string;
-    storageRef: string;
-    mime: string;
-    byteSize: number;
-  }): Promise<AssetHistoryEntry> {
-    const createdAt = new Date().toISOString();
-    const result = await this.#db.query<AssetHistoryRow>(
-      `INSERT INTO asset_history (id, asset_id, storage_ref, mime, byte_size, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, asset_id, storage_ref, mime, byte_size, created_at`,
-      [
-        input.id,
-        input.assetId,
-        input.storageRef,
-        input.mime,
-        input.byteSize,
-        createdAt,
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) throw new Error("Asset history insert returned no row");
-    return mapAssetHistory(row);
+  createAssetHistory(input: CreateAssetHistoryInput): Promise<AssetHistoryEntry> {
+    return this.#assetFolders.createAssetHistory(input);
   }
 
-  async getAssetHistory(id: string): Promise<AssetHistoryEntry> {
-    const result = await this.#db.query<AssetHistoryRow>(
-      `SELECT id, asset_id, storage_ref, mime, byte_size, created_at
-       FROM asset_history WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError(
-        "not_found",
-        `History entry "${id}" does not exist`,
-        {
-          field: "historyId",
-          suggestion: "Read the file history with `GET /api/assets/:assetId/history`.",
-        },
-      );
-    }
-    return mapAssetHistory(row);
+  getAssetHistory(id: string): Promise<AssetHistoryEntry> {
+    return this.#assetFolders.getAssetHistory(id);
   }
 
-  async listAssetHistory(assetId: string): Promise<AssetHistoryEntry[]> {
-    await this.getAsset(assetId);
-    const result = await this.#db.query<AssetHistoryRow>(
-      `SELECT id, asset_id, storage_ref, mime, byte_size, created_at
-       FROM asset_history WHERE asset_id = $1
-       ORDER BY created_at DESC, id DESC`,
-      [assetId],
-    );
-    return result.rows.map(mapAssetHistory);
+  listAssetHistory(assetId: string): Promise<AssetHistoryEntry[]> {
+    return this.#assetFolders.listAssetHistory(assetId);
   }
 
-  async deleteAssetHistory(assetId: string): Promise<void> {
-    await this.#db.query(`DELETE FROM asset_history WHERE asset_id = $1`, [
-      assetId,
-    ]);
+  deleteAssetHistory(assetId: string): Promise<void> {
+    return this.#assetFolders.deleteAssetHistory(assetId);
   }
 
   // -------------------------------------------------------- collections (T09)
