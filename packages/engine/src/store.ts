@@ -66,8 +66,6 @@ import {
   type CodePayloadProvenance,
   type Collection,
   type ImportJob,
-  type ImportJobSource,
-  type ImportJobStatus,
   type ImportReceipt,
   type Deployment,
   type DeploySettings,
@@ -166,6 +164,11 @@ import {
   type ListDesignRecordsOptions,
 } from "./store-design-records.ts";
 import { FormsRepository, type SaveFormSnapshotInput } from "./store-forms.ts";
+import {
+  type CreateImportJobInput,
+  ImportJobsRepository,
+  type UpdateImportJobInput,
+} from "./store-import-jobs.ts";
 import {
   IdempotencyRepository,
   type ClaimIdempotencyKeyInput,
@@ -659,6 +662,7 @@ export class Store {
   readonly #mcpAudit: McpAuditRepository;
   readonly #revisions: RevisionsRepository;
   readonly #redesignProposals: RedesignProposalsRepository;
+  readonly #importJobs: ImportJobsRepository;
 
   // Where the encryption key lives. Without it (a bare Store in a test) the key
   // stays in the database, as before.
@@ -685,6 +689,7 @@ export class Store {
     this.#mcpAudit = new McpAuditRepository(db);
     this.#revisions = new RevisionsRepository(db);
     this.#redesignProposals = new RedesignProposalsRepository(db);
+    this.#importJobs = new ImportJobsRepository(db, (siteId) => this.getSite(siteId));
     this.#secretFile = options.secretFile;
   }
 
@@ -3914,146 +3919,36 @@ export class Store {
 
   // ------------------------------------------------- import jobs (plan S3.2)
 
-  async createImportJob(input: {
-    siteId: string;
-    source: ImportJobSource;
-    pagePath: string;
-    dryRun: boolean;
-    maxAttempts: number;
-    // The import request body, kept for a retry after a crash.
-    payload?: Record<string, unknown> | null;
-  }): Promise<ImportJob> {
-    await this.getSite(input.siteId);
-    const now = new Date().toISOString();
-    const result = await this.#db.query<ImportJobRow>(
-      `INSERT INTO import_jobs
-        (id, site_id, source_kind, source_url, page_path, dry_run, status, stage,
-         progress, attempts, max_attempts, next_attempt_at, last_error,
-         created_at, updated_at, finished_at, payload, result)
-       VALUES ($1, $2, $3, $4, $5, $6, 'queued', 'queued', 0, 0, $7, $8, NULL, $8, $8, NULL, $9, NULL)
-       RETURNING ${IMPORT_JOB_COLUMNS}`,
-      [
-        newEntityId(),
-        input.siteId,
-        input.source.kind,
-        input.source.url,
-        input.pagePath,
-        input.dryRun,
-        input.maxAttempts,
-        now,
-        input.payload === undefined || input.payload === null
-          ? null
-          : toJsonParam(input.payload),
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) throw new Error("Import job insert returned no row");
-    return mapImportJob(row);
+  createImportJob(input: CreateImportJobInput): Promise<ImportJob> {
+    return this.#importJobs.createImportJob(input);
   }
 
-  async getImportJob(id: string): Promise<ImportJob> {
-    const result = await this.#db.query<ImportJobRow>(
-      `SELECT ${IMPORT_JOB_COLUMNS} FROM import_jobs WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Import job "${id}" does not exist`, {
-        field: "jobId",
-      });
-    }
-    return mapImportJob(row);
+  getImportJob(id: string): Promise<ImportJob> {
+    return this.#importJobs.getImportJob(id);
   }
 
   getImportJobPayload(id: string): Promise<Record<string, unknown> | null> {
-    return this.getImportJobPayloadAsync(id);
+    return this.#importJobs.getImportJobPayload(id);
   }
 
-  private async getImportJobPayloadAsync(id: string): Promise<Record<string, unknown> | null> {
-    const result = await this.#db.query<{ payload: unknown }>(
-      `SELECT payload FROM import_jobs WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row || row.payload === null || row.payload === undefined) return null;
-    return toJson<Record<string, unknown>>(row.payload);
+  listDueImportJobs(now: string, limit = 20): Promise<ImportJob[]> {
+    return this.#importJobs.listDueImportJobs(now, limit);
   }
 
-  // Due jobs: queued and past their next attempt time (the claim pattern of
-  // `listDueReferenceJobs`, plan S3.2).
-  async listDueImportJobs(now: string, limit = 20): Promise<ImportJob[]> {
-    const result = await this.#db.query<ImportJobRow>(
-      `SELECT ${IMPORT_JOB_COLUMNS} FROM import_jobs
-       WHERE status = 'queued' AND next_attempt_at <= $1
-       ORDER BY next_attempt_at ASC, created_at ASC, id ASC LIMIT $2`,
-      [now, Math.max(1, Math.min(100, limit))],
-    );
-    return result.rows.map(mapImportJob);
+  listImportJobsForSite(siteId: string, limit = 50): Promise<ImportJob[]> {
+    return this.#importJobs.listImportJobsForSite(siteId, limit);
   }
 
-  async listImportJobsForSite(siteId: string, limit = 50): Promise<ImportJob[]> {
-    await this.getSite(siteId);
-    const result = await this.#db.query<ImportJobRow>(
-      `SELECT ${IMPORT_JOB_COLUMNS} FROM import_jobs
-       WHERE site_id = $1
-       ORDER BY created_at DESC, id DESC LIMIT $2`,
-      [siteId, Math.max(1, Math.min(100, limit))],
-    );
-    return result.rows.map(mapImportJob);
+  updateImportJob(input: UpdateImportJobInput): Promise<ImportJob> {
+    return this.#importJobs.updateImportJob(input);
   }
 
-  async updateImportJob(input: {
-    id: string;
-    status: ImportJobStatus;
-    stage: string;
-    progress: number;
-    attempts: number;
-    nextAttemptAt: string;
-    lastError: string | null;
-    finishedAt: string | null;
-  }): Promise<ImportJob> {
-    const result = await this.#db.query<ImportJobRow>(
-      `UPDATE import_jobs SET
-         status = $2, stage = $3, progress = $4, attempts = $5,
-         next_attempt_at = $6, last_error = $7, finished_at = $8, updated_at = $9
-       WHERE id = $1 RETURNING ${IMPORT_JOB_COLUMNS}`,
-      [
-        input.id,
-        input.status,
-        input.stage,
-        input.progress,
-        input.attempts,
-        input.nextAttemptAt,
-        input.lastError,
-        input.finishedAt,
-        new Date().toISOString(),
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Import job "${input.id}" does not exist`, {
-        field: "jobId",
-      });
-    }
-    return mapImportJob(row);
+  getImportJobResult(id: string): Promise<Record<string, unknown> | null> {
+    return this.#importJobs.getImportJobResult(id);
   }
 
-  // The report of a finished run (poll answer, plan S3.3).
-  async getImportJobResult(id: string): Promise<Record<string, unknown> | null> {
-    const result = await this.#db.query<{ result: unknown }>(
-      `SELECT result FROM import_jobs WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row || row.result === null || row.result === undefined) return null;
-    return toJson<Record<string, unknown>>(row.result);
-  }
-
-  async setImportJobResult(id: string, result: Record<string, unknown>): Promise<void> {
-    await this.#db.query(
-      `UPDATE import_jobs SET result = $2, updated_at = $3 WHERE id = $1`,
-      [id, toJsonParam(result), new Date().toISOString()],
-    );
+  setImportJobResult(id: string, result: Record<string, unknown>): Promise<void> {
+    return this.#importJobs.setImportJobResult(id, result);
   }
 
   async commitFramerImportPlan(plan: FramerImportCommitPlan): Promise<FramerImportCommitResult> {
