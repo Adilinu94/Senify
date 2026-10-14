@@ -28,9 +28,9 @@ export const featuresSection: SectionDefinition = {
     },
   ],
   variants: {
-    grid: { label: "Grid", preset: {} },
-    alternating: { label: "Alternating", preset: {} },
-    list: { label: "List", preset: {} },
+    grid: { label: "Raster", preset: {} },
+    alternating: { label: "Wechselnd", preset: {} },
+    list: { label: "Liste", preset: {} },
   },
   styleProps: [
     ...sectionStyleProps(),

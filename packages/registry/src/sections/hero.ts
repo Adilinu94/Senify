@@ -33,9 +33,9 @@ export const heroSection: SectionDefinition = {
     },
   ],
   variants: {
-    centered: { label: "Centered", preset: {} },
-    split: { label: "Split", preset: {} },
-    "showcase-3d": { label: "Showcase 3D", preset: {} },
+    centered: { label: "Zentriert", preset: {} },
+    split: { label: "Geteilt", preset: {} },
+    "showcase-3d": { label: "3D-Bühne", preset: {} },
   },
   styleProps: [
     ...sectionStyleProps(),

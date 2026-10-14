@@ -24,9 +24,9 @@ export const embedSection: SectionDefinition = {
     textProp("title", "Title"),
   ],
   variants: {
-    map: { label: "Map", preset: { aspect: "4/3" } },
-    iframe: { label: "Iframe", preset: { aspect: "16/9" } },
-    social: { label: "Social", preset: { aspect: "1/1" } },
+    map: { label: "Karte", preset: { aspect: "4/3" } },
+    iframe: { label: "iFrame", preset: { aspect: "16/9" } },
+    social: { label: "Social Media", preset: { aspect: "1/1" } },
   },
   styleProps: [...sectionStyleProps(), ...mediaPart()],
   allowedChildren: "none",

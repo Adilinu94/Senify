@@ -34,8 +34,8 @@ export const comparisonSection: SectionDefinition = {
     },
   ],
   variants: {
-    table: { label: "Table", preset: {} },
-    cards: { label: "Cards", preset: {} },
+    table: { label: "Tabelle", preset: {} },
+    cards: { label: "Karten", preset: {} },
   },
   styleProps: [...sectionStyleProps(), ...headingPart()],
   allowedChildren: "none",

@@ -48,6 +48,7 @@ import {
   styleGroupIdOf,
   tokenRefOf,
   unitOfValue,
+  type InspectorAsset,
   type InspectorCommit,
   type InspectorField,
   type InspectorGroup,
@@ -76,6 +77,9 @@ export type InspectorOptions = {
   // The pseudo state the Style tab edits — the canvas forces it for the
   // preview (ticket 02 point 5).
   onStateChange?: (state: StateName | null) => void;
+  // The site's media library, read when a panel is built (it changes while the
+  // editor is open). Section image props pick from it.
+  assets?: () => readonly InspectorAsset[];
 };
 
 export type InspectorInstance = {
@@ -1236,6 +1240,13 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
             if (preset !== "") commitMotion(nodeId, preset, field, value);
             return;
           }
+          // An image prop: "no image" takes the value away, a pick writes the
+          // reference (the previous focal point belonged to the previous image).
+          if (field.shape === "asset") {
+            if (value === "") clearProp(nodeId, field);
+            else if (!commitProp(nodeId, field, { assetId: value }, false)) render();
+            return;
+          }
           commitProp(nodeId, field, value);
         });
         break;
@@ -1581,6 +1592,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
             ...(options.theme === undefined ? {} : { theme: options.theme }),
             profile,
             state,
+            ...(options.assets === undefined ? {} : { assets: options.assets() }),
           });
     currentModel = model;
     // Ein frueher gespeicherter Tab "advanced" gibt es nicht mehr.

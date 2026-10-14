@@ -415,6 +415,28 @@ describe("section components", () => {
     expect(html).toContain('data-widget="text"');
   });
 
+  it("renders a video frame without React's unknown-property warning and keeps fullscreen", () => {
+    const errors: unknown[][] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => {
+      errors.push(args);
+    };
+    let html = "";
+    try {
+      html = render({
+        root: { id: "root", type: "page", props: {}, children: ["v"] },
+        v: { id: "v", type: "video", props: { provider: "youtube", url: "https://www.youtube.com/embed/x" } },
+      });
+    } finally {
+      console.error = original;
+    }
+    expect(html).toContain("<iframe");
+    expect(html.toLowerCase()).toContain("allowfullscreen=\"\"");
+    expect(errors.map((args) => String(args[0]))).not.toContainEqual(
+      expect.stringContaining("Invalid DOM property"),
+    );
+  });
+
   it("keeps the section component where both vocabularies use the same name", () => {
     // "divider" and "embed" are catalog primitives *and* running sections. The
     // strangler decision (E2 in `.scratch/editor-v2-rebuild/map.md`) leaves the

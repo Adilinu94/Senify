@@ -13,6 +13,7 @@ import {
   EXPLORER_TABS,
   filterMedia,
   layerLabel,
+  searchSpotlight,
   type MediaItem,
 } from "@senify/editor";
 import {
@@ -324,5 +325,30 @@ describe("editor spotlight index (v2)", () => {
     const heading = index.find((item) => item.id === "primitive:heading");
     expect(heading?.command).toEqual({ type: "insert-primitive", primitive: "heading" });
     expect(heading?.group).toBe("Bausteine");
+  });
+
+  it("indexes every section variant with its preview and an insert command", () => {
+    const index = buildEditorSpotlightIndex({
+      pages: [],
+      primitives: [],
+      sections: [
+        {
+          type: "pricing",
+          name: "Preise",
+          description: "Tarife und Preisvergleich.",
+          category: "commerce",
+          variant: { key: "comparison", label: "Vergleich", thumbnail: "pricing-comparison.png" },
+        },
+      ],
+      thumbnailBase: "/vorschau/",
+    });
+    const item = index.find((entry) => entry.id === "section:pricing:comparison");
+    expect(item?.label).toBe("Preise · Vergleich");
+    expect(item?.group).toBe("Sektionen");
+    expect(item?.thumbnail).toBe("/vorschau/pricing-comparison.png");
+    expect(item?.command).toEqual({ type: "insert-section", sectionType: "pricing", variant: "comparison" });
+    expect(searchSpotlight(index, "preise vergleich").map((entry) => entry.id)).toContain(
+      "section:pricing:comparison",
+    );
   });
 });

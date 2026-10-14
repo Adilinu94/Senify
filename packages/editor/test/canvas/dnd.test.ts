@@ -56,6 +56,42 @@ describe("resolve insert drop", () => {
   });
 });
 
+describe("resolve section drop", () => {
+  it("lands a registry section on the page level like a catalog drop would", () => {
+    const store = baseStore();
+    const root = store.document.rootNodeId;
+    const into = resolveDrop(store.document, { kind: "section", type: "hero", variant: "split" }, root, "into");
+    expect(into.kind).toBe("insert");
+    if (into.kind === "insert") {
+      expect(into.parent).toEqual({ nodeId: root });
+      expect(into.index).toBe(2);
+    }
+    const before = resolveDrop(
+      store.document,
+      { kind: "section", type: "pricing", variant: "comparison" },
+      "btn0000001",
+      "before",
+    );
+    expect(before.kind).toBe("insert");
+    if (before.kind === "insert") {
+      expect(before.parent).toEqual({ nodeId: root });
+      expect(before.index).toBe(1);
+    }
+  });
+
+  it("refuses a section inside a leaf with the catalog's own reason", () => {
+    const store = baseStore();
+    const resolution = resolveDrop(
+      store.document,
+      { kind: "section", type: "faq", variant: "accordion" },
+      "head000001",
+      "into",
+    );
+    expect(resolution.kind).toBe("reject");
+    if (resolution.kind === "reject") expect(resolution.reason).toMatch(/nimmt keine Kinder auf/);
+  });
+});
+
 describe("resolve move drop", () => {
   it("moves a node beside a sibling", () => {
     const store = baseStore();

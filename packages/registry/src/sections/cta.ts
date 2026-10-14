@@ -28,8 +28,8 @@ export const ctaSection: SectionDefinition = {
     buttonsProp(),
   ],
   variants: {
-    simple: { label: "Simple", preset: {} },
-    split: { label: "Split", preset: {} },
+    simple: { label: "Schlicht", preset: {} },
+    split: { label: "Geteilt", preset: {} },
     "banner-cta": { label: "Banner", preset: {} },
   },
   styleProps: [

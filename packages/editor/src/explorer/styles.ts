@@ -336,6 +336,68 @@ export const EXPLORER_STYLES = `
   white-space: nowrap;
 }
 .senify-elements__empty { padding: var(--ed-space-3); color: var(--ed-ink-muted); font-size: var(--ed-text-12); }
+.senify-elements__tabs {
+  display: flex;
+  gap: var(--ed-space-1);
+  padding: var(--ed-space-2) var(--ed-space-2) 0;
+}
+.senify-elements__tab {
+  flex: 1 1 0;
+  min-height: 28px;
+  border: 1px solid var(--ed-line-hairline);
+  border-radius: var(--ed-radius-sm);
+  background: transparent;
+  color: var(--ed-ink-muted);
+  font: inherit;
+  font-size: var(--ed-text-12);
+  cursor: pointer;
+}
+.senify-elements__tab:hover { background: var(--ed-fill-hover); color: var(--ed-ink-strong); }
+.senify-elements__tab[aria-selected="true"] {
+  background: var(--ed-fill-hover);
+  color: var(--ed-ink-strong);
+  font-weight: var(--ed-weight-semibold);
+  box-shadow: inset 0 0 0 1px var(--ed-signal-select);
+}
+.senify-elements__tab:focus-visible { outline: 2px solid var(--ed-focus); outline-offset: -2px; }
+.senify-elements__sections { display: flex; flex-direction: column; gap: var(--ed-space-2); padding: var(--ed-space-1) 0 var(--ed-space-2); }
+.senify-elements__sections[hidden] { display: none; }
+.senify-elements__section-name {
+  padding: 0 var(--ed-space-1) var(--ed-space-1);
+  color: var(--ed-ink-strong);
+  font-size: var(--ed-text-11);
+  font-weight: var(--ed-weight-semibold);
+}
+.senify-elements__variants {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--ed-space-1);
+}
+.senify-elements__variant {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ed-space-1);
+  padding: var(--ed-space-1);
+  border: 1px solid var(--ed-line-hairline);
+  border-radius: var(--ed-radius-md);
+  background: transparent;
+  color: var(--ed-ink-base);
+  font: inherit;
+  font-size: var(--ed-text-11);
+  text-align: left;
+  cursor: grab;
+}
+.senify-elements__variant:hover { background: var(--ed-fill-hover); color: var(--ed-ink-strong); }
+.senify-elements__variant:focus-visible { outline: 2px solid var(--ed-focus); outline-offset: -2px; }
+.senify-elements__thumb {
+  display: block;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: var(--ed-radius-sm);
+  background: var(--ed-surface-inset);
+}
+.senify-elements__thumb img { display: block; width: 100%; height: 100%; object-fit: contain; object-position: center; }
+.senify-elements__thumb[data-missing="true"] img { visibility: hidden; }
 .senify-explorer__tabhint {
   margin-left: auto;
   overflow: hidden;
