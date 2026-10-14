@@ -58,6 +58,19 @@ import {
 import { overridesCss, styleRulesReport } from "./style-css.ts";
 import { webglVendorCode } from "./webgl-vendor.ts";
 
+// The page root carries the page language (the inspector's "Sprache" field, and
+// what the Framer import takes from the source `<html lang>`). It sets `<html
+// lang>` of that page; a value that is no language tag is ignored so a stray
+// string cannot reach the attribute, and the site default applies instead.
+const LANG_TAG = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/;
+
+function pageLang(tree: NodeTree): string | undefined {
+  const value = tree.nodes[tree.rootNodeId]?.props["lang"];
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return LANG_TAG.test(trimmed) ? trimmed : undefined;
+}
+
 export type BakePageInput = {
   id: string;
   path: string;
@@ -531,6 +544,7 @@ export async function bakeSite(
       title: page.title,
       description: page.description ?? "",
       ogImage: page.ogImage ?? "",
+      lang: pageLang(page.tree),
       tree: page.tree,
       motion: jsonForHtml(motionDataFor(configs)),
       // The page-level View Transition block (M6): null unless a node carries
