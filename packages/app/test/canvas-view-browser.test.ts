@@ -94,6 +94,12 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
         ) {
           return;
         }
+        // Wechselt die Seite die Adresse (z. B. `?view=editor`), bricht der Browser
+        // noch laufende Schriftanfragen ab. Eine wirklich fehlende Schrift bleibt
+        // sichtbar: sie kommt als `http 404` durch den response-Handler unten.
+        if (request.url().endsWith(".woff2") && request.failure()?.errorText === "net::ERR_ABORTED") {
+          return;
+        }
         failedRequests.push(`failed: ${request.url()} (${request.failure()?.errorText ?? "?"})`);
       });
       tab.on("response", (response) => {
