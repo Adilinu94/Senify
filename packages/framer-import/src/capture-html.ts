@@ -203,7 +203,11 @@ function scanTag(
   const close = findClosing(html, gt + 1, tag, limit);
   const innerEnd = close === -1 ? limit : close;
   const children = scanNodes(html, gt + 1, innerEnd);
-  const text = children.length === 0 ? extractText(html.slice(gt + 1, innerEnd)) : null;
+  const inner = html.slice(gt + 1, innerEnd);
+  // A `<span> </span>` between words holds the space the words wrap at; the
+  // trimmed text would be empty and the words would run together.
+  const spaceOnly = tag === "span" && /^\s+$/.test(decodeEntities(inner.replace(/<[^>]*>/g, "")));
+  const text = children.length === 0 ? (spaceOnly ? " " : extractText(inner)) : null;
   // Only elements with their own text between the children carry content the
   // child scan cannot see.
   const innerHtml =
@@ -406,7 +410,20 @@ function rawHasDirectText(node: RawNode): boolean {
   return node.text !== null && node.text !== "" && node.children.length === 0;
 }
 
-function toIrNode(raw: RawNode, counter: { ordinal: number }, inheritedHidden: string[] = []): IrNode {
+// The attributes a stylesheet's selectors ask about (`[data-framer-component-type=Text]`):
+// the capture keeps those on the node so the class rules can be matched for real.
+function attributeNamesIn(css: string): Set<string> {
+  const names = new Set<string>();
+  for (const match of css.matchAll(/\[\s*([A-Za-z_][\w:.-]*)\s*(?:[~|^$*]?=|\])/g)) names.add(match[1] ?? "");
+  return names;
+}
+
+// What Framer's appear script animates from: not the element's look.
+const START_STATE_PROPERTIES = ["opacity", "transform", "will-change"] as const;
+
+type Counter = { ordinal: number; attrNames?: ReadonlySet<string> };
+
+function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []): IrNode {
   counter.ordinal += 1;
   const attrs = raw.attrs;
   // The `ssr-variant` wrapper (measured in S0) is Framer's per-breakpoint
@@ -424,6 +441,8 @@ function toIrNode(raw: RawNode, counter: { ordinal: number }, inheritedHidden: s
     .filter((entry) => entry.startsWith("framer-v-"))
     .map((entry) => entry.slice("framer-v-".length));
   const kind = kindFor(raw);
+  const named = Object.entries(attrs).filter(([name]) => counter.attrNames?.has(name) === true);
+  const selectorAttrs = named.length > 0 ? Object.fromEntries(named) : undefined;
 
   const states: IrState[] = [];
   const { visual, layout, box } = elementStyleToParts(attrs["style"]);
@@ -440,7 +459,7 @@ function toIrNode(raw: RawNode, counter: { ordinal: number }, inheritedHidden: s
   const hasStartState =
     attrs["data-framer-appear-id"] !== undefined || (Number.isFinite(startOpacity) && startOpacity <= 0.01);
   if (hasStartState) {
-    for (const property of ["opacity", "transform", "will-change"]) {
+    for (const property of START_STATE_PROPERTIES) {
       const value = visual[property];
       if (value === undefined) continue;
       appearInitial[property] = value;
@@ -497,6 +516,7 @@ function toIrNode(raw: RawNode, counter: { ordinal: number }, inheritedHidden: s
       : {}),
     baseClasses: classes,
     ...(variantHashes.length > 0 ? { variantClasses: variantHashes.map((hash) => `framer-v-${hash}`) } : {}),
+    ...(selectorAttrs === undefined ? {} : { attrs: selectorAttrs }),
     tag: raw.tag,
     href: attrs["href"] ?? null,
     ...(raw.attrs["src"] !== undefined ? { assetUrl: raw.attrs["src"] } : {}),
@@ -611,6 +631,9 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
     });
   }
 
+  const cssText = `${readAllCss(html, input.rootDir)}\n${input.css ?? ""}`;
+  const attrNames = attributeNamesIn(cssText);
+
   // --- the element tree under #main
   const mainStart = html.indexOf('<div id="main"');
   let root: IrNode;
@@ -630,7 +653,7 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
     if (main === undefined) {
       root = emptyRoot();
     } else {
-      const counter = { ordinal: 0 };
+      const counter: Counter = { ordinal: 0, attrNames };
       const children = main.children
         // Inline <style>/<script> inside the tree is read separately and must
         // never become page text.
@@ -756,7 +779,6 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
   // while the existing inline path only sees the style attribute. Read the
   // simple class rules before mapping so the browser gate measures the real
   // import rather than an unstyled document.
-  const cssText = `${readAllCss(html, input.rootDir)}\n${input.css ?? ""}`;
   // Internal links become root-relative against THIS page's path, so they keep
   // working when the pages are imported under their own paths.
   rewriteLinks(
@@ -976,7 +998,9 @@ function readAllCss(html: string, rootDir: string | undefined): string {
   return `${inline}\n${readLinkedCss(html, rootDir)}`;
 }
 
-type ParsedCssRule = { selector: string; values: Record<string, string> };
+// `order` is the rule's position in the whole sheet, media blocks included: the
+// cascade needs it to tell which of two equally specific rules comes later.
+type ParsedCssRule = { selector: string; values: Record<string, string>; order: number };
 type ParsedCssMedia = { maxWidth: number | null; minWidth: number | null; rules: ParsedCssRule[] };
 
 // `flex-flow` is the shorthand of `flex-direction` and `flex-wrap`. As a property
@@ -1106,7 +1130,10 @@ function mediaRange(prelude: string): { min: number | null; max: number | null }
   };
 }
 
-function parseCssRules(source: string): { rules: ParsedCssRule[]; media: ParsedCssMedia[] } {
+function parseCssRules(
+  source: string,
+  counter: { next: number } = { next: 0 },
+): { rules: ParsedCssRule[]; media: ParsedCssMedia[] } {
   const rules: ParsedCssRule[] = [];
   const media: ParsedCssMedia[] = [];
   let cursor = 0;
@@ -1125,11 +1152,13 @@ function parseCssRules(source: string): { rules: ParsedCssRule[]; media: ParsedC
     if (prelude.startsWith("@media")) {
       const range = mediaRange(prelude);
       if (range !== null) {
-        media.push({ minWidth: range.min, maxWidth: range.max, rules: parseCssRules(body).rules });
+        media.push({ minWidth: range.min, maxWidth: range.max, rules: parseCssRules(body, counter).rules });
       }
     } else if (!prelude.startsWith("@")) {
-      for (const selector of prelude.split(",").map((entry) => entry.trim()).filter(Boolean)) {
-        rules.push({ selector, values: parseDeclarations(body) });
+      const values = parseDeclarations(body);
+      for (const selector of splitCommas(prelude).map((entry) => entry.trim()).filter(Boolean)) {
+        rules.push({ selector, values, order: counter.next });
+        counter.next += 1;
       }
     }
     cursor = end;
@@ -1137,75 +1166,146 @@ function parseCssRules(source: string): { rules: ParsedCssRule[]; media: ParsedC
   return { rules, media };
 }
 
+// An attribute condition of a selector: `[data-x]` (op "") or `[data-x=y]` (op "=").
+// Other operators (`^=`, `*=` …) are not read: a rule that needs one is left out.
+type AttrCondition = { name: string; op: "" | "="; value: string };
+// What a compound selector asks of an element besides its tag.
+type Simple = { classes: string[]; attrs: AttrCondition[] };
+type Compound = Simple & { tag: string; not: Simple[] };
+
 // A selector compiled once, so a 550 KB stylesheet costs one pass per rule
 // instead of one pass per rule and node.
 type CompiledRule = {
   order: number;
+  // CSS specificity in one number (ids, then classes and attributes, then types).
+  // The more specific rule wins whatever its place in the sheet; at equal
+  // specificity the later one does.
+  specificity: number;
   values: Record<string, string>;
   // The interaction this rule styles (`.btn:hover`), absent for a base rule.
   state?: IrInteraction;
   root: boolean;
-  tag: string;
-  classes: string[];
-  ancestors: string[][];
+  target: Compound;
+  ancestors: Compound[];
 };
 
 type RuleIndex = { byClass: Map<string, CompiledRule[]>; generic: CompiledRule[] };
 
-const classesIn = (compound: string): string[] =>
-  [...compound.matchAll(/\.([A-Za-z0-9_-]+)/g)].map((match) => match[1] ?? "");
+const NO_COMPOUND: Compound = { tag: "", classes: [], attrs: [], not: [] };
+const ATTRIBUTE = /^\[\s*([A-Za-z_][\w:.-]*)\s*(?:(=)\s*(?:"([^"]*)"|'([^']*)'|([^\]\s]*))\s*)?\]$/;
+
+// `.a[data-x=y]#id` → classes and attribute conditions; null for anything else.
+function parseSimple(text: string): Simple | null {
+  const classes: string[] = [];
+  const attrs: AttrCondition[] = [];
+  let index = 0;
+  while (index < text.length) {
+    const char = text.charAt(index);
+    if (char === ".") {
+      const match = /^\.([A-Za-z0-9_-]+)/.exec(text.slice(index));
+      if (match === null) return null;
+      classes.push(match[1] ?? "");
+      index += match[0].length;
+    } else if (char === "#") {
+      const match = /^#([A-Za-z0-9_-]+)/.exec(text.slice(index));
+      if (match === null) return null;
+      attrs.push({ name: "id", op: "=", value: match[1] ?? "" });
+      index += match[0].length;
+    } else if (char === "[") {
+      let close = index + 1;
+      let quote: string | null = null;
+      while (close < text.length && (quote !== null || text.charAt(close) !== "]")) {
+        const here = text.charAt(close);
+        if (quote !== null) {
+          if (here === quote) quote = null;
+        } else if (here === '"' || here === "'") quote = here;
+        close += 1;
+      }
+      const match = ATTRIBUTE.exec(text.slice(index, close + 1));
+      if (match === null) return null;
+      attrs.push({
+        name: match[1] ?? "",
+        op: match[2] === "=" ? "=" : "",
+        value: match[3] ?? match[4] ?? match[5] ?? "",
+      });
+      index = close + 1;
+    } else {
+      return null;
+    }
+  }
+  return { classes, attrs };
+}
+
+// `a.framer-text[data-x]:not(.y)` → tag, classes, attributes and the simple
+// `:not()` groups. A `:not()` with anything else inside (`:not(:disabled)`) is
+// dropped, which reads it as true: a static page has no disabled element.
+function parseCompound(text: string): Compound | null {
+  const tag = /^(?:\*|[A-Za-z][A-Za-z0-9-]*)/.exec(text)?.[0] ?? "";
+  const not: Simple[] = [];
+  const rest = text.slice(tag.length).replace(/:not\(([^)]*)\)/g, (_all, inner: string) => {
+    const simple = parseSimple(inner.trim());
+    if (simple !== null) not.push(simple);
+    return "";
+  });
+  const simple = parseSimple(rest);
+  return simple === null ? null : { tag, ...simple, not };
+}
+
+// Specificity as the CSS cascade counts it: `:not(x)` counts as `x`, pseudo
+// elements as types, every other pseudo class like a class.
+function specificityOf(selector: string): number {
+  let ids = 0;
+  let classes = 0;
+  let types = 0;
+  const rest = selector
+    .replace(/:not\(([^)]*)\)/g, "$1")
+    .replace(/\[[^\]]*\]/g, () => ((classes += 1), " "))
+    .replace(/#[A-Za-z0-9_-]+/g, () => ((ids += 1), " "))
+    .replace(/\.[A-Za-z0-9_-]+/g, () => ((classes += 1), " "))
+    .replace(/::[A-Za-z-]+(?:\([^)]*\))?/g, () => ((types += 1), " "))
+    .replace(/:[A-Za-z-]+(?:\([^)]*\))?/g, () => ((classes += 1), " "));
+  for (const part of rest.split(/[\s>+~]+/)) if (/^[A-Za-z]/.test(part)) types += 1;
+  return ids * 1_000_000 + classes * 1_000 + types;
+}
 
 // Returns null for selectors that are not a plain structural match. State
 // selectors (`:hover`, `::before`, `:nth-child` …) set `pseudo`: applying them
 // to the base style would make a button permanently look hovered.
 const STATE_SUFFIX = /^(.*?):(hover|focus-visible|focus|active|disabled)$/;
 
-// Framer's script sets `data-framer-component-text-autosized` on auto-sized text
-// at RUNTIME; an export carries no element with it, so `[data-framer-component-
-// text-autosized] *{white-space:pre}` matches nothing on the page. Its attribute
-// compound has no class, so it dropped out of the ancestor check below and the
-// rule reached every node: all text got `white-space: pre`, lost its line breaks
-// and the imported page came out 10-20 % shorter than the original.
-const RUNTIME_ONLY_ATTRIBUTE = /\[data-framer-component-text-autosized\b/;
-
 function compileSelector(
   selector: string,
   order: number,
   values: Record<string, string>,
 ): { rule: CompiledRule | null; pseudo: boolean } {
-  if (RUNTIME_ONLY_ATTRIBUTE.test(selector)) return { rule: null, pseudo: false };
+  const withoutNot = selector.replace(/:not\([^)]*\)/g, "");
   // `.btn:hover` and friends: the same element in another state. Only when the
   // state is the last thing on the target (`.card:hover .title` styles another
   // element and stays a pseudo rule that is reported, not applied).
-  const state = STATE_SUFFIX.exec(selector.replace(/:not\([^)]*\)/g, ""));
-  if (state !== null && !/:/.test(state[1] ?? "")) {
-    const inner = compileSelector(state[1] ?? "", order, values);
+  const state = STATE_SUFFIX.exec(withoutNot);
+  if (state !== null && !/:/.test(state[1] ?? "") && selector.endsWith(`:${state[2]}`)) {
+    const inner = compileSelector(selector.slice(0, selector.length - (state[2] ?? "").length - 1), order, values);
     if (inner.rule === null) return inner;
     const name = state[2] === "focus-visible" ? "focus" : state[2];
     return { rule: { ...inner.rule, state: name as IrInteraction }, pseudo: false };
   }
   if (/^(?:body|html|#main)$/.test(selector)) {
-    return { rule: { order, values, root: true, tag: "", classes: [], ancestors: [] }, pseudo: false };
+    return {
+      rule: { order, specificity: specificityOf(selector), values, root: true, target: NO_COMPOUND, ancestors: [] },
+      pseudo: false,
+    };
   }
-  const withoutNot = selector.replace(/:not\([^)]*\)/g, "");
   if (/:/.test(withoutNot.replace(/\[[^\]]*\]/g, ""))) return { rule: null, pseudo: true };
-  const compounds = withoutNot
-    .split(/\s*[>+~]\s*|\s+/)
-    .map((part) => part.trim())
-    .filter(Boolean);
+  const compounds: Compound[] = [];
+  for (const part of selector.split(/\s*[>+~]\s*|\s+/).map((entry) => entry.trim()).filter(Boolean)) {
+    const compound = parseCompound(part);
+    if (compound === null) return { rule: null, pseudo: false };
+    compounds.push(compound);
+  }
   const target = compounds.pop();
   if (target === undefined) return { rule: null, pseudo: false };
-  const tag = target.replace(/\.[A-Za-z0-9_-]+/g, "");
-  if (/[[#]/.test(tag)) return { rule: null, pseudo: false };
   return {
-    rule: {
-      order,
-      values,
-      root: false,
-      tag,
-      classes: classesIn(target),
-      ancestors: compounds.map(classesIn),
-    },
+    rule: { order, specificity: specificityOf(selector), values, root: false, target, ancestors: compounds },
     pseudo: false,
   };
 }
@@ -1213,51 +1313,92 @@ function compileSelector(
 function buildIndex(rules: readonly ParsedCssRule[]): { index: RuleIndex; skippedPseudo: number } {
   const index: RuleIndex = { byClass: new Map(), generic: [] };
   let skippedPseudo = 0;
-  rules.forEach((entry, order) => {
-    const { rule, pseudo } = compileSelector(entry.selector, order, entry.values);
+  for (const entry of rules) {
+    const { rule, pseudo } = compileSelector(entry.selector, entry.order, entry.values);
     if (pseudo) skippedPseudo += 1;
-    if (rule === null) return;
-    const first = rule.classes[0];
+    if (rule === null) continue;
+    const first = rule.target.classes[0];
     if (first === undefined) {
       index.generic.push(rule);
-      return;
+      continue;
     }
     const bucket = index.byClass.get(first);
     if (bucket === undefined) index.byClass.set(first, [rule]);
     else bucket.push(rule);
-  });
+  }
   return { index, skippedPseudo };
 }
 
 // Every class of the element a rule can name: the shared ones and its variant's.
 const classesOf = (node: IrNode): string[] => [...node.baseClasses, ...(node.variantClasses ?? [])];
 
-function ruleMatches(node: IrNode, rule: CompiledRule, ancestorClasses: ReadonlySet<string>): boolean {
+// What an element offers to selectors, as strings: its tag, its classes and its
+// attributes (`[name]` and `[name=value]`). The set of an element's ancestors
+// is the union of theirs.
+function tokensOf(node: IrNode): string[] {
+  // The root node stands for the page element, `<div id="main">`.
+  const isRoot = node.tag === "root";
+  const tokens = [`tag:${isRoot ? "div" : node.tag}`, ...classesOf(node).map((name) => `.${name}`)];
+  const attrs: Record<string, string> = {
+    ...(node.attrs ?? {}),
+    ...(isRoot ? { id: "main" } : node.htmlId ? { id: node.htmlId } : {}),
+  };
+  for (const [name, value] of Object.entries(attrs)) tokens.push(`[${name}]`, `[${name}=${value}]`);
+  return tokens;
+}
+
+const conditionToken = (condition: AttrCondition): string =>
+  condition.op === "=" ? `[${condition.name}=${condition.value}]` : `[${condition.name}]`;
+
+const simpleHolds = (simple: Simple, tokens: ReadonlySet<string>): boolean =>
+  simple.classes.every((name) => tokens.has(`.${name}`)) &&
+  simple.attrs.every((condition) => tokens.has(conditionToken(condition)));
+
+const tagHolds = (compound: Compound, tokens: ReadonlySet<string>): boolean =>
+  compound.tag === "" || compound.tag === "*" || tokens.has(`tag:${compound.tag.toLowerCase()}`);
+
+function ruleMatches(
+  node: IrNode,
+  rule: CompiledRule,
+  own: ReadonlySet<string>,
+  ancestors: ReadonlySet<string>,
+): boolean {
   if (node.tag === "root") {
     if (rule.root) return true;
     // A class rule can target the page element itself (`.framer-QDc12{…}`).
-    return rule.classes.length > 0 && rule.ancestors.length === 0 && rule.classes.every((name) => node.baseClasses.includes(name));
+    return (
+      rule.target.classes.length > 0 &&
+      rule.ancestors.length === 0 &&
+      rule.target.classes.every((name) => node.baseClasses.includes(name))
+    );
   }
   if (rule.root) return false;
-  if (rule.tag !== "" && rule.tag !== "*" && rule.tag !== node.tag) return false;
-  const own = classesOf(node);
-  if (!rule.classes.every((name) => own.includes(name))) return false;
-  // Every class of an ancestor compound must be on the way down: the rule of a
-  // phone variant, `.framer-C.framer-v-phone .framer-part`, reaches the parts of
-  // the phone copy only, not those of the desktop copy of the same component.
-  return rule.ancestors.every((classes) => classes.every((name) => ancestorClasses.has(name)));
+  const { target } = rule;
+  if (!tagHolds(target, own) || !simpleHolds(target, own)) return false;
+  if (target.not.some((excluded) => simpleHolds(excluded, own))) return false;
+  // Every class, attribute and tag of an ancestor compound must be on the way
+  // down. The rule of a phone variant, `.framer-C.framer-v-phone .framer-part`,
+  // reaches the parts of the phone copy only; `[data-x=y] div` the divs below an
+  // element with that attribute, not every div of the page.
+  return rule.ancestors.every((compound) => tagHolds(compound, ancestors) && simpleHolds(compound, ancestors));
 }
 
-// Matching rules in source order, which is the cascade order.
-function matchingRules(index: RuleIndex, node: IrNode, ancestorClasses: ReadonlySet<string>): CompiledRule[] {
+// The rules that apply to an element, in no particular order: the caller sorts
+// them with the ones of the other sheets it merges (`bySpecificity`).
+function matchingRules(
+  index: RuleIndex,
+  node: IrNode,
+  own: ReadonlySet<string>,
+  ancestors: ReadonlySet<string>,
+): CompiledRule[] {
   const candidates = new Set<CompiledRule>(index.generic);
   for (const name of classesOf(node)) {
     for (const rule of index.byClass.get(name) ?? []) candidates.add(rule);
   }
-  return [...candidates]
-    .filter((rule) => ruleMatches(node, rule, ancestorClasses))
-    .sort((a, b) => a.order - b.order);
+  return [...candidates].filter((rule) => ruleMatches(node, rule, own, ancestors));
 }
+
+const bySpecificity = (a: CompiledRule, b: CompiledRule): number => a.specificity - b.specificity || a.order - b.order;
 
 // The base rules only: a `:hover` rule must never land in the base style.
 const baseOnly = (rules: CompiledRule[]): CompiledRule[] => rules.filter((rule) => rule.state === undefined);
@@ -1306,28 +1447,23 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
   const DEVICES: readonly IrDevice[] = ["desktop", "tablet", "mobile"];
   type VarsByDevice = Record<IrDevice, Vars>;
 
-  const visit = (current: IrNode, ancestorClasses: ReadonlySet<string>, inherited: VarsByDevice): void => {
+  const visit = (current: IrNode, ancestors: ReadonlySet<string>, inherited: VarsByDevice): void => {
     const baseState = current.states[0];
     if (baseState === undefined) return;
     // The cascade: stylesheet rules first, the element's own inline style wins.
     const inline = { ...baseState.visual };
-    const baseline: Record<string, string> = {};
-    const matched = matchingRules(base.index, current, ancestorClasses);
-    for (const rule of baseOnly(matched)) Object.assign(baseline, rule.values);
+    const ownTokens = new Set(tokensOf(current));
+    const appears = current.attrs?.["data-framer-appear-id"] !== undefined;
+    const matched = matchingRules(base.index, current, ownTokens, ancestors);
     const interactionValues: Partial<Record<IrInteraction, Record<string, string>>> = {};
-    for (const rule of matched) {
+    for (const rule of matched.filter((entry) => entry.state !== undefined).sort(bySpecificity)) {
       if (rule.state !== undefined) interactionValues[rule.state] = { ...interactionValues[rule.state], ...rule.values };
     }
-    const byDevice = new Map<IrDevice, Record<string, string>>();
-    for (const entry of mediaIndexes) {
-      const rules = baseOnly(matchingRules(entry.index, current, ancestorClasses));
-      if (rules.length === 0) continue;
-      for (const device of entry.devices) {
-        const values = byDevice.get(device) ?? {};
-        for (const rule of rules) Object.assign(values, rule.values);
-        byDevice.set(device, values);
-      }
-    }
+    const baseRules = baseOnly(matched);
+    const mediaRules = mediaIndexes.map((entry) => ({
+      devices: entry.devices,
+      rules: baseOnly(matchingRules(entry.index, current, ownTokens, ancestors)),
+    }));
     // Custom properties inherit, so each device carries its own chain; the
     // values are resolved against the chain at THIS element.
     const varsByDevice = {} as VarsByDevice;
@@ -1335,10 +1471,24 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
     for (const device of DEVICES) {
       const own: Vars = {};
       const plain: IrVisual = {};
-      for (const [key, value] of Object.entries(cascade([baseline, byDevice.get(device) ?? {}], inline))) {
+      // One list per device: the base rules and those of the queries that reach
+      // it, ordered the way the browser orders them (specificity, then position).
+      const rules = [...baseRules, ...mediaRules.filter((entry) => entry.devices.includes(device)).flatMap((entry) => entry.rules)];
+      rules.sort(bySpecificity);
+      for (const [key, value] of Object.entries(cascade(rules.map((rule) => rule.values), inline))) {
         if (value === undefined) continue;
         if (key.startsWith("--")) own[key] = value;
         else plain[key] = value;
+      }
+      // `[data-framer-appear-id]{opacity:0.001}`: the same start state the inline
+      // style carries, only written in the sheet. It goes to `appearInitial` too.
+      if (appears) {
+        for (const property of START_STATE_PROPERTIES) {
+          const value = plain[property];
+          if (value === undefined) continue;
+          delete plain[property];
+          current.appearInitial = { ...current.appearInitial, [property]: value };
+        }
       }
       const vars = { ...inherited[device], ...own };
       varsByDevice[device] = vars;
@@ -1374,10 +1524,11 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
         visual: values,
       });
     }
-    const classes = new Set([...ancestorClasses, ...classesOf(current)]);
-    for (const child of current.children) visit(child, classes, varsByDevice);
+    const offered = new Set([...ancestors, ...ownTokens]);
+    for (const child of current.children) visit(child, offered, varsByDevice);
   };
-  visit(root, new Set(), { desktop: {}, tablet: {}, mobile: {} });
+  // Above the page element sit `html` and `body`; the page element is `#main`.
+  visit(root, new Set(["tag:html", "tag:body"]), { desktop: {}, tablet: {}, mobile: {} });
   return { skippedPseudo };
 }
 
