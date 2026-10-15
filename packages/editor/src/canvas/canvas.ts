@@ -115,6 +115,12 @@ export type CanvasInstance = {
   armedTarget(): ArmedTarget | null;
   onArmedChange(listener: (target: ArmedTarget | null) => void): () => void;
   clearArmed(): void;
+  // Setzt eine Registry-Sektion (Typ plus Variante) auf die Seitenebene: hinter
+  // den Bereich, in dem die Auswahl liegt, ohne Auswahl ans Ende der Seite.
+  // Die Auswahl bleibt, wie sie war.
+  insertSection(type: string, variant: string): boolean;
+  // Macht eine Sektions-Kachel ausserhalb des Canvas zur Drag-Quelle.
+  bindSectionDragSource(element: DomElement, type: string, variant: string): void;
   // Macht ein Element ausserhalb des Canvas (Elemente-Panel) zur Drag-Quelle
   // fuer ein Primitiv; der Drop laeuft ueber denselben Controller wie die Chips.
   bindDragSource(element: DomElement, primitive: string): void;
@@ -1218,6 +1224,31 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     return inserted;
   }
 
+  // A section belongs on the page level: behind the top-level block the
+  // selection sits in (a section inserted "after" a heading would end up inside
+  // that heading's frame), at the end of the page without a selection.
+  function insertSection(type: string, variant: string): boolean {
+    // A plus point armed a target (E7): it wins, like it does for a building block.
+    if (armed !== null) {
+      const target = armed;
+      const inserted = drop.insertSectionAt(target.nodeId, type, variant, target.position);
+      clearArmed();
+      return inserted;
+    }
+    const rootId = store.document.rootNodeId;
+    let anchor = selectedId();
+    if (anchor === null || anchor === rootId) {
+      return drop.insertSectionAt(rootId, type, variant, "into");
+    }
+    for (;;) {
+      const located = locateParent(store.document, anchor);
+      if (located === undefined) return drop.insertSectionAt(rootId, type, variant, "into");
+      if (located.parent.nodeId === rootId) break;
+      anchor = located.parent.nodeId;
+    }
+    return drop.insertSectionAt(anchor, type, variant, "after");
+  }
+
   // The event names document nodes; a component instance renders as copies
   // with their own ids (and a definition part renders once per instance). The
   // copy map of the last render resolves both to the visible element.
@@ -1291,6 +1322,9 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       };
     },
     clearArmed,
+    insertSection,
+    bindSectionDragSource: (element, type, variant) =>
+      drop.bindSectionDragSource(element, type, variant),
     bindDragSource: (element, primitive) => drop.bindDragSource(element, primitive),
     flashNodes(ids: string[]): void {
       // Live reloads on the next store change (point 4): the ring lands on the

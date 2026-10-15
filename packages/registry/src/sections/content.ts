@@ -14,9 +14,9 @@ export const contentSection: SectionDefinition = {
     { key: "body", control: "richtext", label: "Body", group: "Content" },
   ],
   variants: {
-    prose: { label: "Prose", preset: {} },
-    columns: { label: "Columns", preset: {} },
-    highlight: { label: "Highlight", preset: {} },
+    prose: { label: "Fließtext", preset: {} },
+    columns: { label: "Spalten", preset: {} },
+    highlight: { label: "Hervorgehoben", preset: {} },
   },
   styleProps: [...sectionStyleProps(), ...headingPart()],
   allowedChildren: "none",

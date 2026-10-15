@@ -80,9 +80,9 @@ export const collectionListSection: SectionDefinition = {
     { key: "emptyText", control: "text", label: "Leerer Zustand", group: "Content" },
   ],
   variants: {
-    cards: { label: "Cards", preset: {} },
-    grid: { label: "Grid", preset: {} },
-    list: { label: "List", preset: {} },
+    cards: { label: "Karten", preset: {} },
+    grid: { label: "Raster", preset: {} },
+    list: { label: "Liste", preset: {} },
   },
   styleProps: [
     ...sectionStyleProps(),

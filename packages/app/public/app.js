@@ -6822,6 +6822,8 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
         category: definition?.category ?? "",
       };
     }),
+    // Jede Variante jeder Registry-Sektion: einfügen mit Vorschaubild.
+    sections: editor.listSectionVariants(),
     currentPageId: pageId,
   });
   const spotlight = editor.createSpotlightDialog({
@@ -6831,6 +6833,9 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
         location.hash = `#/projects/${siteId}/pages/${command.pageId}`;
       } else if (command.type === "insert-primitive") {
         canvas.insert(command.primitive, "after");
+      } else if (command.type === "insert-section") {
+        const variant = command.variant ?? editor.sectionInsertSpec(command.sectionType)?.variant;
+        if (variant !== undefined) canvas.insertSection(command.sectionType, variant);
       } else if (command.type === "publish") {
         location.hash = `#/projects/${siteId}/review`;
       } else if (command.type === "set-mode") {
@@ -6853,6 +6858,8 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     theme: siteTheme ?? editor.defaultTheme(),
     profile: siteProfile ?? "standard",
     breakpoint: savedUi.device,
+    // Die Mediathek der Site: Bild-Eigenschaften der Sektionen wählen daraus.
+    assets: () => mediaCache,
     onTabChange: (tab) => session.setTab(tab),
     onBreakpointChange: (device) => session.setDevice(device),
     // Der Zustand des Style-Tabs ist die Vorschau (Ticket 02 Punkt 5): der
@@ -6874,6 +6881,10 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     insert: (primitive) => canvas.insertAtTarget(primitive),
     bindDragSource: (element, primitive) => canvas.bindDragSource(element, primitive),
     cancelTarget: () => canvas.clearArmed(),
+    // Reiter „Sektionen“: eine Kachel je Variante, Klick oder Ziehen setzt sie.
+    insertSection: (type, variant) => canvas.insertSection(type, variant),
+    bindSectionDragSource: (element, type, variant) =>
+      canvas.bindSectionDragSource(element, type, variant),
   });
   elementsHost.replaceChildren(elementsPanel.element);
   // Ein Klick auf einen Plus-Punkt im Canvas merkt ein Ziel; das Panel zeigt es.

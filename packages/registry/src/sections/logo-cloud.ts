@@ -25,9 +25,9 @@ export const logoCloudSection: SectionDefinition = {
     },
   ],
   variants: {
-    grid: { label: "Grid", preset: {} },
-    wrap: { label: "Wrap", preset: {} },
-    marquee: { label: "Marquee", preset: {} },
+    grid: { label: "Raster", preset: {} },
+    wrap: { label: "Umbrechend", preset: {} },
+    marquee: { label: "Laufband", preset: {} },
   },
   styleProps: [
     ...sectionStyleProps(),

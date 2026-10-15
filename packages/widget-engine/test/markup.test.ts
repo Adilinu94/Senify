@@ -141,6 +141,20 @@ describe("widget markup", () => {
     expect(spec("embed", { url: "https://e/x", title: "Karte" }).tag).toBe("iframe");
   });
 
+  it("spells the fullscreen permission of frames the way React knows it", () => {
+    // `allowFullscreen` (small s) is no DOM property to React: it warns in the
+    // canvas and drops the attribute. The one spelling React accepts is
+    // `allowFullScreen`.
+    const frames = [
+      spec("embed", { url: "https://e/x" }),
+      spec("video", { provider: "youtube", url: "https://y/x" }),
+    ];
+    for (const frame of frames) {
+      expect(frame.attrs?.allowFullScreen).toBe(true);
+      expect(frame.attrs).not.toHaveProperty("allowFullscreen");
+    }
+  });
+
   it("takes the widget defaults out of the catalog, and only the ones that reach CSS", () => {
     const grid = cssDefaultValuesOf("grid");
     expect(grid.columns).toBe(3);

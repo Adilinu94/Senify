@@ -115,6 +115,9 @@ export type InspectorField = {
   step: number | undefined;
   units: Unit[] | undefined;
   options: Choice[] | undefined;
+  // Select fields only: a preview file per option value (the variant choice of a
+  // section). A field with previews is shown as tiles instead of a drop-down.
+  thumbnails?: Record<string, string>;
   alpha: boolean;
   linkable: boolean;
   fields: InspectorField[] | undefined;
@@ -133,7 +136,7 @@ export type InspectorField = {
   // text: a link value ({ url } / { pageId }) or a list of plain strings (one per
   // line). `required` marks a field the section schema does not let stay empty;
   // `defaultValue` is what a new list entry starts with.
-  shape?: "link" | "lines";
+  shape?: "link" | "lines" | "asset";
   required?: boolean;
   defaultValue?: PropValue;
 };
@@ -172,6 +175,10 @@ export type InspectorModel = {
   state: StateName | null;
 };
 
+// A file of the site's media library as the inspector offers it for an image
+// prop: the id the section stores, the name a person recognises.
+export type InspectorAsset = { id: string; name: string; kind: string };
+
 export type BuildInspectorInput = {
   document: EditorDocument;
   nodeId: string;
@@ -179,6 +186,8 @@ export type BuildInspectorInput = {
   theme?: Theme;
   profile?: MotionProfile;
   state?: StateName | null;
+  // The site's media library; section image props pick from it.
+  assets?: readonly InspectorAsset[];
 };
 
 // Drei Tabs wie im Referenz-Editor: Allgemein, Stil, Interaktionen. Der fruehere
@@ -1370,8 +1379,13 @@ export function buildInspector(input: BuildInspectorInput): InspectorModel | nul
   const sectionGroups =
     section === undefined
       ? []
-      : sectionContentGroups(section, node, section.title, (field) =>
-          attachTokenOptions(field, input.theme, field.kind === "color" ? "color" : undefined),
+      : sectionContentGroups(
+          section,
+          node,
+          section.title,
+          (field) =>
+            attachTokenOptions(field, input.theme, field.kind === "color" ? "color" : undefined),
+          input.assets ?? [],
         );
   for (const group of sectionGroups) {
     for (const field of group.fields) controlKeys.add(canonical(field.key));

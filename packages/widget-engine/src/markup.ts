@@ -274,7 +274,7 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
         return root("iframe", [primitiveClass("video"), modifier("video", provider)], {
           src: url,
           title: "Video",
-          allowFullscreen: true,
+          allowFullScreen: true,
         });
       }
       const poster = text(props, "poster");
@@ -476,7 +476,7 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
           src: text(props, "url"),
           title: text(props, "title") || "Einbettung",
           loading: "lazy",
-          allowFullscreen: true,
+          allowFullScreen: true,
         },
       );
 

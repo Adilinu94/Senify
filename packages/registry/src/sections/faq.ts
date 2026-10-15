@@ -25,9 +25,9 @@ export const faqSection: SectionDefinition = {
     },
   ],
   variants: {
-    accordion: { label: "Accordion", preset: {} },
-    "two-col": { label: "Two columns", preset: {} },
-    "sticky-heading": { label: "Sticky heading", preset: {} },
+    accordion: { label: "Aufklappbar", preset: {} },
+    "two-col": { label: "Zwei Spalten", preset: {} },
+    "sticky-heading": { label: "Feste Überschrift", preset: {} },
   },
   styleProps: [
     ...sectionStyleProps(),

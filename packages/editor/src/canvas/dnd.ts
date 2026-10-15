@@ -27,6 +27,8 @@ export type DropPosition = "before" | "after" | "into";
 
 export type DropSource =
   | { kind: "primitive"; primitive: string }
+  // A registry section (hero, pricing, …) with the variant the tile carries.
+  | { kind: "section"; type: string; variant: string }
   | { kind: "node"; id: NodeId };
 
 export type DropResolution =
@@ -146,7 +148,13 @@ export function resolveDrop(
   targetId: NodeId,
   position: DropPosition,
 ): DropResolution {
-  return source.kind === "primitive"
-    ? resolveInsertDrop(document, targetId, position, source.primitive)
-    : resolveMoveDrop(document, source.id, targetId, position);
+  if (source.kind === "node") return resolveMoveDrop(document, source.id, targetId, position);
+  // A section resolves like a primitive of the same name: `getPrimitive` answers
+  // for the registry's section types, so the same child rules apply.
+  return resolveInsertDrop(
+    document,
+    targetId,
+    position,
+    source.kind === "primitive" ? source.primitive : source.type,
+  );
 }

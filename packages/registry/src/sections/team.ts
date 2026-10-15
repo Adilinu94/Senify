@@ -26,9 +26,9 @@ export const teamSection: SectionDefinition = {
     },
   ],
   variants: {
-    grid: { label: "Grid", preset: {} },
-    cards: { label: "Cards", preset: {} },
-    compact: { label: "Compact", preset: {} },
+    grid: { label: "Raster", preset: {} },
+    cards: { label: "Karten", preset: {} },
+    compact: { label: "Kompakt", preset: {} },
   },
   styleProps: [
     ...sectionStyleProps(),

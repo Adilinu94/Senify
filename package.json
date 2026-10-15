@@ -11,6 +11,7 @@
     "start": "tsx packages/mcp/src/cli.ts start",
     "senify": "tsx packages/mcp/src/cli.ts",
     "route-matrix": "tsx packages/engine/scripts/route-matrix.ts",
+    "thumbnails:generate": "tsx packages/editor/scripts/generate-section-thumbnails.ts",
     "build": "pnpm typecheck && pnpm -r build",
     "build:app": "pnpm --filter @senify/app build",
     "build:docs": "pnpm --filter @senify/docs-portal build",

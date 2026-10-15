@@ -212,4 +212,200 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       await database.close();
     }
   }, 180000);
+
+  it("inserts a section variant from the Sektionen tab by click, drag and spotlight", async () => {
+    const { chromium } = await import("playwright");
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-sections-panel-"));
+    const running = await startProgram({
+      db: database.db,
+      dataDir,
+      programTokenFile: join(dataDir, "program-token.json"),
+      enginePort: 0,
+      appPort: 0,
+      openBrowser: false,
+      rateLimits: { perMinute: 1200, burst: 400, destructivePerMinute: 200 },
+    });
+    const post = (path: string, body: unknown): Promise<Response> =>
+      fetch(`${running.dashboardUrl}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const site = (await (await post("/api/sites", { name: "Sektionen-Panel" })).json()) as { id: string };
+      const page = (await (
+        await post(`/api/sites/${site.id}/pages`, { title: "Start", path: "/" })
+      ).json()) as { id: string; draftVersion: number; draft: { rootNodeId: string } };
+      const applied = await post(`/api/pages/${page.id}/mutations`, {
+        baseDraftVersion: page.draftVersion,
+        author,
+        mutations: [
+          {
+            op: "insertNode",
+            parent: { nodeId: page.draft.rootNodeId },
+            node: { type: "hero", props: { headline: "Sektionen-Pruefung" } },
+          },
+        ],
+      });
+      expect(applied.status).toBe(200);
+      type Draft = {
+        rootNodeId: string;
+        nodes: Record<string, { type: string; variant?: string; children?: string[] }>;
+      };
+      // The page tree as the engine stores it: type and variant in page order.
+      const stored = async (): Promise<{ type: string; variant: string | undefined }[]> => {
+        const fresh = (await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json()) as {
+          draft: Draft;
+        };
+        return (fresh.draft.nodes[fresh.draft.rootNodeId]?.children ?? []).map((id) => ({
+          type: fresh.draft.nodes[id]?.type ?? "",
+          variant: fresh.draft.nodes[id]?.variant,
+        }));
+      };
+      const heroId = await (async () => {
+        const fresh = (await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json()) as {
+          draft: Draft;
+        };
+        return (fresh.draft.nodes[fresh.draft.rootNodeId]?.children ?? [])[0] ?? "";
+      })();
+      expect(heroId).not.toBe("");
+
+      const context = await browser.newContext({ viewport: { width: 1600, height: 1000 } });
+      const tab = await context.newPage();
+      tab.setDefaultTimeout(30000);
+      const errors: string[] = [];
+      tab.on("pageerror", (error) => errors.push(error.message));
+      const failedRequests: string[] = [];
+      tab.on("response", (response) => {
+        if (response.url().includes("/editor-section-thumbnails/") && response.status() !== 200) {
+          failedRequests.push(`${response.status()} ${response.url()}`);
+        }
+      });
+
+      const pageUrl = `${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`;
+      let mounted = false;
+      for (let attempt = 0; attempt < 3 && !mounted; attempt += 1) {
+        await tab.goto(pageUrl, { waitUntil: "domcontentloaded" });
+        mounted = await tab
+          .waitForSelector(".senify-canvas", { timeout: 30000 })
+          .then(() => true)
+          .catch(() => false);
+      }
+      expect(mounted).toBe(true);
+      const desktopFrame = () =>
+        tab.locator('.senify-canvas__frame[data-device="desktop"] .senify-canvas__iframe').contentFrame();
+      const hero = desktopFrame().locator(`[data-node-id="${heroId}"]`).first();
+      await hero.waitFor({ timeout: 30000 });
+      const saveButton = tab.locator('[data-action="canvas-save"]');
+      const save = async (): Promise<void> => {
+        await saveButton.click();
+        await expect.poll(async () => (await saveButton.textContent())?.trim()).toBe("Speichern");
+      };
+
+      // The second tab lists every variant of every insertable section, with a
+      // preview that the dashboard really serves (no 404, a decoded image).
+      await tab.locator('.senify-elements__tab[data-tab="sections"]').click();
+      const tiles = tab.locator(".senify-elements__variant");
+      await expect.poll(() => tiles.count()).toBe(73);
+      const firstImage = tab.locator(".senify-elements__variant img").first();
+      await expect
+        .poll(() => firstImage.evaluate((img) => (img as unknown as { naturalWidth: number }).naturalWidth))
+        .toBeGreaterThan(0);
+
+      // Search finds the section by its German name; the German labels name the variants.
+      const search = tab.locator(".senify-elements__search");
+      await search.fill("preise");
+      await expect.poll(() => tiles.count()).toBe(3);
+      expect(await tab.locator(".senify-elements__variant .senify-elements__label").allTextContents()).toEqual([
+        "Drei Tarife",
+        "Vergleich",
+        "Schlicht",
+      ]);
+
+      // A click puts the variant at the end of the page, with the golden example's content.
+      await tab.locator('.senify-elements__variant[data-section="pricing"][data-variant="comparison"]').click();
+      await expect
+        .poll(() => desktopFrame().locator('section[data-section="pricing"]').count())
+        .toBe(1);
+      expect(await desktopFrame().locator('section[data-section="pricing"]').first().getAttribute("data-variant")).toBe(
+        "comparison",
+      );
+      await save();
+      expect(await stored()).toEqual([
+        { type: "hero", variant: undefined },
+        { type: "pricing", variant: "comparison" },
+      ]);
+
+      // Drag drops a variant onto the lower half of the hero: it lands behind it.
+      await search.fill("");
+      // The canvas is zoomed to fit, so the box on screen is smaller than the node:
+      // aim at the last few pixels of what is drawn.
+      const heroHeight = (await hero.boundingBox())?.height ?? 0;
+      expect(heroHeight).toBeGreaterThan(20);
+      await tab.locator('.senify-elements__variant[data-section="faq"][data-variant="two-col"]').dragTo(hero, {
+        targetPosition: { x: 40, y: Math.max(1, heroHeight - 8) },
+      });
+      await expect
+        .poll(() => desktopFrame().locator('section[data-section="faq"]').count())
+        .toBe(1);
+      await save();
+      expect((await stored()).map((entry) => entry.type)).toEqual(["hero", "faq", "pricing"]);
+      expect((await stored())[1]?.variant).toBe("two-col");
+
+      // A plus point arms a target, and a section tile honours it like a building
+      // block does: the variant lands before the hero, not at the end of the page.
+      // The undo afterwards leaves the rest of the flow as it was.
+      const order = (): Promise<(string | null)[]> =>
+        desktopFrame().locator("section[data-section]").evaluateAll((nodes) =>
+          nodes.map((node) => (node as unknown as { getAttribute(name: string): string | null }).getAttribute("data-section")),
+        );
+      await expect.poll(order).toEqual(["hero", "faq", "pricing"]);
+      await hero.hover();
+      await tab.locator('.senify-canvas__plus[data-position="before"]').click();
+      await tab.locator('.senify-elements__tab[data-tab="sections"]').click();
+      await expect.poll(() => tab.locator(".senify-elements__target").isVisible()).toBe(true);
+      await tab.locator('.senify-elements__variant[data-section="pricing"][data-variant="comparison"]').click();
+      await expect.poll(order).toEqual(["pricing", "hero", "faq", "pricing"]);
+      expect(await tab.locator(".senify-elements__target").isVisible()).toBe(false);
+      await tab.locator('.senify-canvas__button[data-action="undo"]').click();
+      await expect.poll(order).toEqual(["hero", "faq", "pricing"]);
+
+      // Spotlight: with the hero selected the section lands behind the hero, not at the end.
+      // The hero is picked in the structure column, so the keyboard stays in the editor shell.
+      await tab.locator(".senify-explorer__item").filter({ hasText: "hero" }).first().click();
+      await expect.poll(() => tab.locator(`.senify-canvas[data-selected="${heroId}"]`).count()).toBe(1);
+      await tab.keyboard.press("Control+k");
+      const input = tab.locator('[data-role="spotlight-input"]');
+      await input.fill("kundenstimmen spotlight");
+      const row = tab.locator('.senify-spotlight__row[data-id="section:testimonials:spotlight"]');
+      await row.waitFor();
+      expect(await row.locator("img.senify-spotlight__thumb").count()).toBe(1);
+      await input.press("Enter");
+      await expect
+        .poll(() => desktopFrame().locator('section[data-section="testimonials"]').count())
+        .toBe(1);
+      await save();
+      expect((await stored()).map((entry) => `${entry.type}/${entry.variant ?? ""}`)).toEqual([
+        "hero/",
+        "testimonials/spotlight",
+        "faq/two-col",
+        "pricing/comparison",
+      ]);
+
+      // One undo takes the last insert away again.
+      await tab.keyboard.press("Control+z");
+      await expect
+        .poll(() => desktopFrame().locator('section[data-section="testimonials"]').count())
+        .toBe(0);
+
+      expect(failedRequests).toEqual([]);
+      expect(errors).toEqual([]);
+    } finally {
+      await browser.close();
+      await running.close();
+      await database.close();
+    }
+  }, 240000);
 });

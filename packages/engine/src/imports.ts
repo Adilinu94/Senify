@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { realpathSync } from "node:fs";
+import { delimiter, isAbsolute, relative, resolve, sep } from "node:path";
 import { SenifyError } from "@senify/core";
 import {
   PAGE_ROOT_TYPE,
@@ -136,6 +138,39 @@ function authorOf(auth: AuthorInput): Author {
   return { kind: auth.kind, id: auth.id, label: auth.label };
 }
 
+function realPathOrResolved(path: string): string {
+  try {
+    return realpathSync(resolve(path));
+  } catch {
+    return resolve(path);
+  }
+}
+
+// ADR-0016: `SENIFY_IMPORT_ROOTS` is the operator's optional allowlist for the
+// mirror folder an agent may import from (`rootDir`). Unset or empty keeps the
+// folder open; otherwise it lists absolute folders separated by the platform
+// path delimiter and `rootDir` must be one of them or lie below one. Symlinks
+// are resolved on both sides, so a link inside a root cannot lead out of it.
+export function assertImportRootAllowed(rootDir: string): void {
+  const roots = (process.env.SENIFY_IMPORT_ROOTS ?? "")
+    .split(delimiter)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "");
+  if (roots.length === 0) return;
+  const target = realPathOrResolved(rootDir);
+  const allowed = roots.some((root) => {
+    const rel = relative(realPathOrResolved(root), target);
+    return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+  });
+  if (!allowed) {
+    throw new SenifyError("validation", "Der Import-Ordner liegt außerhalb der erlaubten Wurzeln", {
+      field: "source.rootDir",
+      suggestion:
+        "Einen Ordner unterhalb von SENIFY_IMPORT_ROOTS angeben. Der Betreiber ergänzt die Wurzel beim Start des Programms.",
+    });
+  }
+}
+
 export function sourceOf(body: CreateImportBody): FramerImportSource {
   const source = body.source;
   const hasUrl = typeof source.url === "string" && source.url !== "";
@@ -159,6 +194,7 @@ export function sourceOf(body: CreateImportBody): FramerImportSource {
     return { kind: "url", url: source.url ?? "" };
   }
   if (hasRootDir) {
+    assertImportRootAllowed(source.rootDir ?? "");
     return { kind: "mirror", rootDir: source.rootDir ?? "", pagePath: source.page ?? "/" };
   }
   return {

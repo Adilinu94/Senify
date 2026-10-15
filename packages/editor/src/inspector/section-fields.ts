@@ -1,7 +1,8 @@
 import type { Choice, PropValue } from "@senify/widget-engine";
 import { isPropHidden, type PropSpec, type SectionDefinition } from "@senify/section-sdk";
 import type { EditorNode } from "../state/document.ts";
-import type { InspectorField, InspectorFieldKind, InspectorGroup } from "./model.ts";
+import { SECTION_NOT_INSERTABLE, sectionThumbnailFile } from "../state/sections.ts";
+import type { InspectorAsset, InspectorField, InspectorFieldKind, InspectorGroup } from "./model.ts";
 
 // The Content tab of a section node (hero, features, faq, …).
 //
@@ -12,9 +13,11 @@ import type { InspectorField, InspectorFieldKind, InspectorGroup } from "./model
 // device dots.
 //
 // What is covered: text, long text, number, switch, choice, colour, link, a
-// list of strings (one per line) and a list of objects (the repeater). What is
-// not (yet): images (`asset`), token scales, slots and free JSON — those props
-// keep their value, they just have no field.
+// list of strings (one per line), a list of objects (the repeater) and an image
+// (`asset`, picked from the site's media library). The registry has no section
+// prop with a token scale, a slot or free JSON as its control, so nothing is
+// left without a field; a prop of such a kind would keep its value and simply
+// have none.
 
 type Json = {
   type?: string;
@@ -75,6 +78,71 @@ const PROP_LABELS: Record<string, string> = {
   placeholder: "Platzhalter",
   key: "Schlüssel",
   kind: "Art",
+  // Props and list-entry fields of the remaining sections (contact, newsletter,
+  // pricing, footer, cookie note, marquee, …): every key a section offers has a
+  // German name here, so no English registry label reaches the inspector.
+  acceptLabel: "Text „Akzeptieren“",
+  declineLabel: "Text „Ablehnen“",
+  policyLink: "Link zur Datenschutzerklärung",
+  buttonLabel: "Button-Text",
+  billingNote: "Hinweis zur Abrechnung",
+  billingToggle: "Umschalter Monat/Jahr",
+  consentPage: "Datenschutzseite",
+  successPage: "Danke-Seite",
+  successMessage: "Erfolgsmeldung im Formular",
+  honeypotKey: "Honeypot-Feld",
+  notifyEmail: "Empfänger der Benachrichtigung",
+  targetCollectionId: "Collection für Einträge",
+  collectionId: "Collection",
+  endpoint: "Externe Endpunkt-URL",
+  note: "Datenschutzhinweis",
+  legal: "Rechtlicher Hinweis",
+  ctaHeadline: "Überschrift des CTA-Streifens",
+  ctas: "Buttons",
+  logo: "Logo-Text",
+  logos: "Logos",
+  links: "Links",
+  social: "Social-Media-Links",
+  members: "Mitglieder",
+  plans: "Tarife",
+  rows: "Zeilen",
+  steps: "Schritte",
+  header: "Kopfzeile",
+  heading: "Überschrift",
+  values: "Werte",
+  nr: "Nr.",
+  tag: "Kategorie",
+  address: "Adresse",
+  phone: "Telefon",
+  aspect: "Seitenverhältnis",
+  asset: "Bild",
+  videoUrl: "Video-Adresse",
+  scene: "3D-Szene",
+  direction: "Richtung",
+  speed: "Geschwindigkeit",
+  spacing: "Abstand",
+  sticky: "Beim Scrollen fixiert",
+  dismissible: "Schließbar",
+  limit: "Maximale Anzahl",
+  required: "Pflichtfeld",
+  options: "Optionen",
+  validation: "Prüfung",
+  pattern: "Muster",
+  min: "Minimum",
+  max: "Maximum",
+};
+
+// Choice values of list-entry fields (a form field's kind): the technical word
+// becomes the German name. Other values keep the humanized key.
+const OPTION_LABELS: Record<string, string> = {
+  email: "E-Mail",
+  phone: "Telefon",
+  textarea: "Mehrzeiliger Text",
+  select: "Auswahlliste",
+  radios: "Optionsfelder",
+  checkbox: "Kontrollkästchen",
+  date: "Datum",
+  number: "Zahl",
 };
 
 const GROUP_LABELS: Record<string, string> = {
@@ -104,6 +172,12 @@ export function humanizeKey(key: string): string {
     .replace(/[_-]+/g, " ")
     .trim();
   return spaced === "" ? key : `${spaced.charAt(0).toUpperCase()}${spaced.slice(1)}`;
+}
+
+// Whether the editor itself carries a German name for a prop key (the registry
+// label is the fallback for everything else).
+export function hasPropLabel(key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(PROP_LABELS, key);
 }
 
 export function labelForKey(key: string, fallback?: string): string {
@@ -167,7 +241,7 @@ function literalOptions(schema: Json): Choice[] | undefined {
     if (typeof branch.const !== "string") return undefined;
     values.push(branch.const);
   }
-  return values.map((value) => ({ value, label: humanizeKey(value) }));
+  return values.map((value) => ({ value, label: OPTION_LABELS[value] ?? humanizeKey(value) }));
 }
 
 function blankField(
@@ -262,7 +336,28 @@ export function newRepeaterItem(fields: readonly InspectorField[]): Record<strin
 
 // -------------------------------------------------------------- the fields
 
-function fieldFor(spec: PropSpec, node: EditorNode): InspectorField | undefined {
+// The id an image prop currently points at ("" without an image).
+export function assetIdOf(value: PropValue | undefined): string {
+  return isRecord(value) && typeof value["assetId"] === "string" ? value["assetId"] : "";
+}
+
+// The media library as the options of an image prop. Only pictures are offered
+// (the registry's image props are pictures; a video keeps its own address prop),
+// and "no image" comes first so the prop can be emptied again.
+export function assetOptions(assets: readonly InspectorAsset[]): Choice[] {
+  return [
+    { value: "", label: "Kein Bild" },
+    ...assets
+      .filter((asset) => asset.kind === "image")
+      .map((asset) => ({ value: asset.id, label: asset.name })),
+  ];
+}
+
+function fieldFor(
+  spec: PropSpec,
+  node: EditorNode,
+  assets: readonly InspectorAsset[],
+): InspectorField | undefined {
   const value = node.props[spec.key];
   const label = labelForKey(spec.key, spec.label);
   const schema = asJson(spec.schema);
@@ -299,6 +394,13 @@ function fieldFor(spec: PropSpec, node: EditorNode): InspectorField | undefined 
       field = blankField(spec.key, label, "url", value);
       field.shape = "link";
       break;
+    case "asset":
+      // Shown as the id in a select; a pick writes `{ assetId }`. A picture that
+      // is no longer in the library stays selectable as "(unbekannt)".
+      field = blankField(spec.key, label, "select", assetIdOf(value));
+      field.shape = "asset";
+      field.options = assetOptions(assets);
+      break;
     case "list": {
       if (schema === undefined) break;
       const children = itemFields(schema);
@@ -329,10 +431,11 @@ export function sectionContentGroups(
   node: EditorNode,
   title: string,
   attach: (field: InspectorField) => void,
+  assets: readonly InspectorAsset[] = [],
 ): InspectorGroup[] {
   const groups = new Map<string, InspectorGroup>();
   for (const spec of section.props) {
-    const field = fieldFor(spec, node);
+    const field = fieldFor(spec, node, assets);
     if (field === undefined) continue;
     attach(field);
     const name = spec.group ?? "Content";
@@ -366,5 +469,14 @@ export function sectionVariantGroup(
   const field = blankField("variant", "Variante", "select", node.variant ?? fallback);
   field.commit = { kind: "section-variant" };
   field.options = entries.map(([name, variant]) => ({ value: name, label: variant.label }));
+  // Each variant brings its preview (the same files the elements panel shows), so
+  // the choice is made by looking at the layouts, not by reading their names. The
+  // template and loop sections have no preview files (the panel does not offer
+  // them); their variants stay a plain select.
+  if (!SECTION_NOT_INSERTABLE.has(section.type)) {
+    field.thumbnails = Object.fromEntries(
+      entries.map(([name]) => [name, sectionThumbnailFile(section.type, name)]),
+    );
+  }
   return { id: "content/variant", label: "Variante", fields: [field] };
 }

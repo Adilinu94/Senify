@@ -15,8 +15,8 @@ export const cookieNoteSection: SectionDefinition = {
     linkProp("policyLink", "Privacy policy link"),
   ],
   variants: {
-    bar: { label: "Bar", preset: {} },
-    card: { label: "Card", preset: {} },
+    bar: { label: "Leiste", preset: {} },
+    card: { label: "Karte", preset: {} },
   },
   styleProps: [...sectionStyleProps(), ...buttonPart()],
   allowedChildren: "none",

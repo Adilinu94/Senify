@@ -45,9 +45,9 @@ export const pricingSection: SectionDefinition = {
     },
   ],
   variants: {
-    "plans-3": { label: "Three plans", preset: { billingToggle: true } },
-    comparison: { label: "Comparison", preset: { billingToggle: true } },
-    simple: { label: "Simple", preset: { billingToggle: false } },
+    "plans-3": { label: "Drei Tarife", preset: { billingToggle: true } },
+    comparison: { label: "Vergleich", preset: { billingToggle: true } },
+    simple: { label: "Schlicht", preset: { billingToggle: false } },
   },
   styleProps: [
     ...sectionStyleProps(),

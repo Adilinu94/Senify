@@ -118,6 +118,7 @@ let contactCollectionId = "";
 let newsletterCollectionId = "";
 let contactFormId = "";
 let contactToken = "";
+let bakedDir = "";
 let contactSnapshotId = "";
 let newsletterFormId = "";
 let newsletterSnapshotId = "";
@@ -333,6 +334,7 @@ describe("form bake and snapshot", () => {
     const buildRef = published.body.release.buildRef ?? "";
     expect(buildRef).not.toBe("");
 
+    bakedDir = buildRef;
     const html = readFileSync(join(buildRef, "index.html"), "utf8");
     const form = extractForm(html);
     expect(form.action).toContain("/api/forms/");
@@ -627,6 +629,87 @@ describe("public endpoint (progressive submit)", () => {
     const parsed = JSON.parse(json.body);
     expect(parsed.ok).toBe(true);
     expect(parsed.message).toContain("Danke");
+  }, 60000);
+
+  // Ticket 11: the baked page is the only input. Read its <form>, fill it the
+  // way a browser without JavaScript does (hidden fields as baked, honeypot
+  // empty, the checkbox with its own value), post it, follow the redirect into
+  // the baked files.
+  it("submits the baked form without JavaScript and lands on the baked thank-you page", async () => {
+    expect(bakedDir).not.toBe("");
+    const html = readFileSync(join(bakedDir, "index.html"), "utf8");
+    const formMarkup = html.match(
+      /<form\b[^>]*action="[^"]*\/api\/forms\/[^"]*\/submit"[^>]*>([\s\S]*?)<\/form>/,
+    );
+    expect(formMarkup).not.toBeNull();
+    const openTag = formMarkup?.[0].match(/^<form\b[^>]*>/)?.[0] ?? "";
+    expect(openTag.toLowerCase()).toMatch(/method="post"/);
+    const action = openTag.match(/action="([^"]*)"/)?.[1] ?? "";
+    expect(action.startsWith("/api/forms/")).toBe(true);
+    const formId = action.split("/")[3] ?? "";
+    const honeypotKey =
+      (await env.engine.store.getFormSnapshotForForm(formId))?.snapshot.honeypotKey ?? "";
+    expect(honeypotKey).not.toBe("");
+
+    const typed: Record<string, string> = {
+      name: "E2E ohne JS",
+      email: "e2e-ohne-js@b.de",
+      nachricht: "Aus dem gebackenen Formular",
+    };
+    const fields = new URLSearchParams();
+    const controls = formMarkup?.[1]?.match(/<(?:input|textarea)\b[^>]*>/g) ?? [];
+    for (const control of controls) {
+      const name = control.match(/\bname="([^"]*)"/)?.[1];
+      if (name === undefined || name === "") continue;
+      const type = control.match(/\btype="([^"]*)"/)?.[1]?.toLowerCase() ?? "text";
+      const value = control.match(/\bvalue="([^"]*)"/)?.[1];
+      if (type === "hidden") {
+        fields.append(name, value ?? "");
+      } else if (name === honeypotKey) {
+        fields.append(name, "");
+      } else if (type === "checkbox") {
+        if (/\brequired\b/.test(control)) fields.append(name, value ?? "on");
+      } else if (type === "submit" || type === "button") {
+        continue;
+      } else {
+        const filled = typed[name];
+        if (filled === undefined) {
+          expect.fail(`Gebackenes Feld ohne Testwert: ${name}`);
+        }
+        fields.append(name, filled);
+      }
+    }
+    expect(fields.has("form_token")).toBe(true);
+    expect(fields.get(honeypotKey)).toBe("");
+
+    const before = await env.api.request<{ entries: { slug: string }[] }>({
+      method: "GET",
+      path: `/api/sites/${siteId}/entries?collectionId=${contactCollectionId}`,
+    });
+    await new Promise((resolve) => setTimeout(resolve, MIN_FILL_MS + 250));
+    const response = await rawRequest(env.server.origin, action, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        origin: env.server.origin,
+      },
+      body: fields.toString(),
+    });
+    expect(response.status).toBe(303);
+    const location = response.headers.location;
+    expect(location).toBe("/danke?gesendet=1");
+
+    const thanks = readFileSync(
+      join(bakedDir, ...new URL(location ?? "/", "http://baked.invalid").pathname.split("/").filter(Boolean), "index.html"),
+      "utf8",
+    );
+    expect(thanks).toMatch(/<title>[^<]*Danke/);
+
+    const after = await env.api.request<{ entries: { slug: string }[] }>({
+      method: "GET",
+      path: `/api/sites/${siteId}/entries?collectionId=${contactCollectionId}`,
+    });
+    expect(after.body.entries.length).toBe(before.body.entries.length + 1);
   }, 60000);
 });
 
