@@ -114,6 +114,21 @@ describe("captureHtml runtime-only attribute rules", () => {
   });
 });
 
+describe("captureHtml attribute ancestors", () => {
+  // Framer's CSS holds `[data-framer-component-type=DeprecatedRichText] div{margin:0;padding:0}`.
+  // No element of the export has that component type, so in the browser the rule
+  // matches nothing. The class matcher ignored the attribute compound and the
+  // reset reached every `div`: this frame lost its `padding:160px 0`.
+  it("keeps a frame's padding when a reset rule needs an attribute no element carries", () => {
+    const root = captureFixture(join(FIXTURES, "framer-fluffy-rectangle-418998")).pages[0]?.root;
+    expect(root).toBeDefined();
+    if (root === undefined) return;
+    const frame = allNodes(root).find((node) => node.baseClasses.includes("framer-1sigarf"));
+    expect(frame).toBeDefined();
+    expect(frame?.states.find((state) => state.device === "desktop")?.visual.padding).toBe("160px 0");
+  });
+});
+
 describe("captureHtml device states", () => {
   it("reads the ssr-variant wrappers as separate states of one element", () => {
     // The measured merge anchor (befund §4/5): three <header> with the same

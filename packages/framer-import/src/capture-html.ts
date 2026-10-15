@@ -764,7 +764,7 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
     input.sourcePath ?? (input.url === undefined || input.url === null ? "/" : pathOf(input.url)),
     input.url === undefined || input.url === null ? null : originOf(input.url),
   );
-  const applied = applyClassRules(root, cssText);
+  const applied = applyClassRules(root, cssText, attributeTokens(html));
   if (applied.skippedPseudo > 0) {
     findings.push({
       kind: "unsupported-declaration",
@@ -1168,10 +1168,47 @@ const STATE_SUFFIX = /^(.*?):(hover|focus-visible|focus|active|disabled)$/;
 // and the imported page came out 10-20 % shorter than the original.
 const RUNTIME_ONLY_ATTRIBUTE = /\[data-framer-component-text-autosized\b/;
 
+// `name` and `name=value` of every attribute on any element of the page.
+function attributeTokens(html: string): Set<string> {
+  const tokens = new Set<string>();
+  const markup = html.replace(/<(style|script)\b[\s\S]*?<\/\1>/gi, "");
+  for (const tag of markup.matchAll(/<[a-zA-Z][^>]*>/g)) {
+    for (const attribute of tag[0].matchAll(/\s([a-zA-Z_:][-\w:.]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g)) {
+      tokens.add(attribute[1] ?? "");
+      const value = attribute[2] ?? attribute[3] ?? attribute[4];
+      if (value !== undefined) tokens.add(`${attribute[1] ?? ""}=${value}`);
+    }
+  }
+  return tokens;
+}
+
+// A compound like `[data-framer-component-type=Text]` can only match when some
+// element carries that attribute (and value). Only `[name]` and `[name=value]`
+// are judged; other operators count as satisfiable.
+function needsMissingAttribute(compound: string, present: ReadonlySet<string>): boolean {
+  for (const condition of compound.matchAll(/\[\s*([^\]=~|^$*\s]+)\s*(?:(~=|\|=|\^=|\$=|\*=|=)\s*(?:"([^"]*)"|'([^']*)'|([^\]\s]+))\s*)?\]/g)) {
+    const name = condition[1] ?? "";
+    const operator = condition[2];
+    const value = condition[3] ?? condition[4] ?? condition[5] ?? "";
+    // `Text` stays: the exports have no `Text` component, so these rules match
+    // nothing in the browser, but the importer takes a heading's per-letter spans
+    // their font ONLY from them (the browser inherits it from the heading). They go
+    // once the mapper inherits typography from the parent.
+    if (name === "data-framer-component-type" && value === "Text") continue;
+    if (operator === undefined) {
+      if (!present.has(name)) return true;
+    } else if (operator === "=") {
+      if (!present.has(`${name}=${value}`)) return true;
+    }
+  }
+  return false;
+}
+
 function compileSelector(
   selector: string,
   order: number,
   values: Record<string, string>,
+  present: ReadonlySet<string>,
 ): { rule: CompiledRule | null; pseudo: boolean } {
   if (RUNTIME_ONLY_ATTRIBUTE.test(selector)) return { rule: null, pseudo: false };
   // `.btn:hover` and friends: the same element in another state. Only when the
@@ -1179,7 +1216,7 @@ function compileSelector(
   // element and stays a pseudo rule that is reported, not applied).
   const state = STATE_SUFFIX.exec(selector.replace(/:not\([^)]*\)/g, ""));
   if (state !== null && !/:/.test(state[1] ?? "")) {
-    const inner = compileSelector(state[1] ?? "", order, values);
+    const inner = compileSelector(state[1] ?? "", order, values, present);
     if (inner.rule === null) return inner;
     const name = state[2] === "focus-visible" ? "focus" : state[2];
     return { rule: { ...inner.rule, state: name as IrInteraction }, pseudo: false };
@@ -1197,6 +1234,11 @@ function compileSelector(
   if (target === undefined) return { rule: null, pseudo: false };
   const tag = target.replace(/\.[A-Za-z0-9_-]+/g, "");
   if (/[[#]/.test(tag)) return { rule: null, pseudo: false };
+  // The class matcher below ignores attribute compounds on ancestors; a rule that
+  // needs an attribute no element has (`[data-framer-component-type=Text] div`,
+  // `...=DeprecatedRichText] div{margin:0;padding:0}`) matches nothing in the
+  // browser, but here it reached every `div` and wiped its padding.
+  if (compounds.some((compound) => needsMissingAttribute(compound, present))) return { rule: null, pseudo: false };
   return {
     rule: {
       order,
@@ -1210,11 +1252,14 @@ function compileSelector(
   };
 }
 
-function buildIndex(rules: readonly ParsedCssRule[]): { index: RuleIndex; skippedPseudo: number } {
+function buildIndex(
+  rules: readonly ParsedCssRule[],
+  present: ReadonlySet<string>,
+): { index: RuleIndex; skippedPseudo: number } {
   const index: RuleIndex = { byClass: new Map(), generic: [] };
   let skippedPseudo = 0;
   rules.forEach((entry, order) => {
-    const { rule, pseudo } = compileSelector(entry.selector, order, entry.values);
+    const { rule, pseudo } = compileSelector(entry.selector, order, entry.values, present);
     if (pseudo) skippedPseudo += 1;
     if (rule === null) return;
     const first = rule.classes[0];
@@ -1293,11 +1338,11 @@ function cascade(classValues: readonly Record<string, string>[], inline: IrVisua
   return out;
 }
 
-function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
+function applyClassRules(root: IrNode, css: string, present: ReadonlySet<string>): { skippedPseudo: number } {
   const parsed = parseCssRules(css);
-  const base = buildIndex(parsed.rules);
+  const base = buildIndex(parsed.rules, present);
   const mediaIndexes = parsed.media.map((entry) => {
-    const built = buildIndex(entry.rules);
+    const built = buildIndex(entry.rules, present);
     return { devices: devicesOf(entry), index: built.index, skipped: built.skippedPseudo };
   });
   const skippedPseudo =
