@@ -18,6 +18,7 @@ import type {
 } from "@senify/editor/state";
 import { sanitizeInlineHtml, type StyleRule } from "@senify/widget-engine";
 import { brandColorOf } from "./brand-color.ts";
+import { neutralBaseOf, typeBaseOf } from "./theme-scales.ts";
 import { devicesContaining } from "./devices.ts";
 import type {
   FramerIrDocument,
@@ -51,7 +52,7 @@ export type MapperResult = {
 
 // Exactly the branches `update_theme` accepts (`packages/tokens/src/schema.ts`).
 export type ThemePatch = {
-  scales?: { brand?: string };
+  scales?: { brand?: string; neutralBase?: string; typeBase?: number };
   fonts?: {
     display?: { family: string; fallback: string[]; weights: number[] };
     body?: { family: string; fallback: string[]; weights: number[] };
@@ -760,9 +761,19 @@ export function themePatchOf(document: FramerIrDocument): ThemePatch {
   }
   const patch: ThemePatch = {};
   // The brand colour the page uses most: a proposal for the theme's one
-  // brand input (the whole ramp grows from it), only applied on request.
+  // brand input (the whole ramp grows from it), only applied on request. The
+  // tint of its greys and its body text size are proposals for two more
+  // inputs, read off the page the same way (`theme-scales.ts`).
   const brand = brandColorOf(document);
-  if (brand !== null) patch.scales = { brand: brand.hex };
+  const neutral = neutralBaseOf(document);
+  const body = typeBaseOf(document);
+  if (brand !== null || neutral !== null || body !== null) {
+    patch.scales = {
+      ...(brand === null ? {} : { brand: brand.hex }),
+      ...(neutral === null ? {} : { neutralBase: neutral.hex }),
+      ...(body === null ? {} : { typeBase: body.px }),
+    };
+  }
   if (bodyFamily !== null) {
     patch.fonts = {
       body: { family: bodyFamily, fallback: ["system-ui", "sans-serif"], weights: bodyWeights },
