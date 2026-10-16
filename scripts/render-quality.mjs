@@ -261,6 +261,9 @@ if (checking) {
     );
     process.exit(0);
   }
+  const scratchStamp = existsSync(STAMP) ? readFileSync(STAMP, "utf8").trim() : "";
+  const scratchBlock = render(summary, scratchStamp).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+  console.log(`::error title=Messwerte-Block (CI)::${scratchBlock}`);
   console.error(
     "qualitaet.md weicht vom Lauf ab.\n" +
       "Entweder hat sich der Code geändert (dann `pnpm quality:render`) oder der\n" +
