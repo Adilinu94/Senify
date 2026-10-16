@@ -176,6 +176,21 @@ describe("capture fidelity", () => {
   });
 });
 
+describe("elements that are hidden on purpose", () => {
+  it("keeps a plain `opacity:0` as the look: a closed menu, a collapsed answer", () => {
+    // The phone header of stupendous-football lists its links with
+    // `style="opacity:0"`: the menu is closed. Read as a start state, the links
+    // showed above the hero. Only an appear id or a moving transform marks a
+    // start state (see the reveals above); `transform:none` moves nothing.
+    const { nodes } = run(
+      page('<div style="opacity:0"><p>Menue</p></div><div style="opacity:0;transform:none"><p>Antwort</p></div><div style="opacity:0;transform:translateY(40px)"><p>Reveal</p></div>'),
+    );
+    const hidden = nodes.filter((node) => node.props["opacity"] === "0");
+    expect(hidden).toHaveLength(2);
+    expect(nodes.some((node) => String(node.props["transform"] ?? "").includes("translate"))).toBe(false);
+  });
+});
+
 describe("deeply nested var() fallbacks", () => {
   it("resolves a three-level fallback chain down to the first defined property", () => {
     const { nodes } = run(
