@@ -175,9 +175,9 @@ jobs:
           path: coverage/coverage-summary.json
           if-no-files-found: ignore
 
-  # SCRATCH, nie mergen: Messlauf Schrift bei fluffy-rectangle.
+  # SCRATCH, nie mergen: Messlauf Layout bei fluffy-rectangle.
   probe:
-    name: Messlauf fluffy-Schrift
+    name: Messlauf fluffy-Layout
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -192,8 +192,8 @@ jobs:
         env:
           SENIFY_REQUIRE_BROWSER: "1"
           PROBE_OUT: ${{ runner.temp }}/probe.txt
-        run: pnpm exec vitest run packages/framer-import/test/scratch-fluffy-font-probe.test.ts
+        run: pnpm exec vitest run packages/framer-import/test/scratch-fluffy-layout-probe.test.ts
       - name: Ergebnis als Annotation
         if: always()
         run: |
-          node -e 'const fs=require("fs");const f=process.env.RUNNER_TEMP+"/probe.txt";const t=fs.existsSync(f)?fs.readFileSync(f,"utf8"):"keine Ausgabedatei";console.log("::error title=fluffy-font-probe::"+t.replace(/%/g,"%25").replace(/\r/g,"%0D").replace(/\n/g,"%0A"))'
+          node -e 'const fs=require("fs");const f=process.env.RUNNER_TEMP+"/probe.txt";const t=fs.existsSync(f)?fs.readFileSync(f,"utf8"):"keine Ausgabedatei";console.log("::error title=fluffy-layout-probe::"+t.replace(/%/g,"%25").replace(/\r/g,"%0D").replace(/\n/g,"%0A"))'
