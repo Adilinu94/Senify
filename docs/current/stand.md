@@ -14,6 +14,7 @@ Statuswerte: `belegt` (Test + Code), `implementiert` (Code, Test deckt es nicht 
 
 | Bereich | Status | Beleg | Bekannte Grenze |
 |---|---|---|---|
+| Editor E7 Teil 1+2 | belegt | `packages/editor/src/canvas/canvas.ts` (Plus-Punkte merken ein Einfügeziel), `packages/editor/src/explorer/elements.ts` (Zielhinweis und Verwerfen), `packages/app/test/elements-panel-browser.test.ts`, `packages/editor/test/elements.test.ts` | Der Schnellzugriff in der Canvas-Leiste entfällt. Bausteine und Sektionen kommen aus dem Elemente-Panel; ein gemerktes Plus-Ziel hat Vorrang, ohne Ziel gilt das bisherige Einfügen. Keine weitere Editor-Umgestaltung. Die Editor-Baselines stammen aus dem geprüften Linux-CI-Lauf `38906346257` |
 | JSON-first NodeTree und Renderer | belegt | `packages/editor`, `packages/widget-engine`, `packages/renderer` | Der Legacy-Editor ist **weg**: `mount.ts` (3 270 Zeilen) ist gelöscht, `?view=editor` leitet sichtbar auf den Canvas um (R5 geschlossen) |
 | Draft/Revision/Release | belegt | `packages/engine/src/store.ts`, `lifecycle.ts`, `release-manifest.test.ts` | Re-Bake erzeugt ein neues Release; finalisierte Releases werden nicht nachträglich mutiert (R7) |
 | Style-Registry | belegt | `store-style-rules.ts` (`StyleRuleStore`) mit Fassade in `store.ts`, `style-rules.test.ts` | Optimistic Locking (`style_rules_version` + `FOR UPDATE` + `baseVersion` → 409) und der Klassen-Rename sind umgesetzt und getestet (R9 geschlossen) |
