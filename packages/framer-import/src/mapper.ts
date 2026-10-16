@@ -18,6 +18,7 @@ import type {
 } from "@senify/editor/state";
 import { sanitizeInlineHtml, type StyleRule } from "@senify/widget-engine";
 import { brandColorOf } from "./brand-color.ts";
+import { neutralBaseOf, typeBaseOf } from "./theme-scales.ts";
 import { devicesContaining } from "./devices.ts";
 import type {
   FramerIrDocument,
@@ -51,7 +52,7 @@ export type MapperResult = {
 
 // Exactly the branches `update_theme` accepts (`packages/tokens/src/schema.ts`).
 export type ThemePatch = {
-  scales?: { brand?: string };
+  scales?: { brand?: string; neutralBase?: string; typeBase?: number };
   fonts?: {
     display?: { family: string; fallback: string[]; weights: number[] };
     body?: { family: string; fallback: string[]; weights: number[] };
@@ -492,21 +493,31 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
   // a link around a paragraph) flattens that descendant into itself. The
   // typography Framer put on the descendant (92 px, white) is what the page
   // shows; the container only carries the 16 px / black defaults. Without this
-  // the lifted heading renders in the container's defaults.
+  // the lifted heading renders in the container's defaults. Type properties are
+  // inherited, so the text shows what the elements on the way down set: a
+  // heading split into one span per letter keeps the size of its `h1`, which
+  // the spans only inherit. An inline element that wraps only a part of its
+  // parent's content (a word in `white-space:nowrap`) is left out: the baked
+  // `html` carries no styles, so its values would reach the rest of the text.
   const ownText = node.states[0]?.text?.content ?? "";
   if (
     (primitive === "heading" || primitive === "link" || primitive === "body" || primitive === "text") &&
     ownText === "" &&
     node.children.length > 0
   ) {
-    const source = firstTextNode(node);
-    if (source !== null) {
-      const typography = mergeStates(source.states);
-      const sourceBase = cssToStyle(typographyOf(typography.base.visual));
+    const path = firstTextPath(node);
+    if (path !== null) {
+      const merged = path
+        .filter((member, index) => index === 0 || !INLINE_TAGS.has(member.tag) || path[index - 1]?.children.length === 1)
+        .map((member) => mergeStates(member.states));
+      const sourceBase = cssToStyle(Object.assign({}, ...merged.map((entry) => typographyOf(entry.base.visual))));
       Object.assign(props, sourceBase);
-      for (const [device, state] of [["tablet", typography.tablet], ["mobile", typography.mobile]] as const) {
-        if (state === null) continue;
-        for (const [property, value] of Object.entries(diffValues(sourceBase, cssToStyle(typographyOf(state.visual))))) {
+      for (const device of ["tablet", "mobile"] as const) {
+        if (merged.every((entry) => entry[device] === null)) continue;
+        const effective = cssToStyle(
+          Object.assign({}, ...merged.map((entry) => typographyOf((entry[device] ?? entry.base).visual))),
+        );
+        for (const [property, value] of Object.entries(diffValues(sourceBase, effective))) {
           props[`${property}_${device}`] = value;
         }
       }
@@ -676,12 +687,16 @@ function escapeHtmlAttr(value: string): string {
 
 // The deepest text content of a node, through rich-text wrappers: an <a> whose
 // children are containers around text is still a text link.
-// The first descendant that carries its own text.
-function firstTextNode(node: IrNode): IrNode | null {
+// Elements that wrap a stretch of text inside a block.
+const INLINE_TAGS = new Set(["span", "a", "strong", "b", "em", "i", "u", "s", "small", "mark", "sub", "sup", "code"]);
+
+// The first descendant that carries its own text, with the elements on the way
+// down to it (the child of `node` first, the text element last).
+function firstTextPath(node: IrNode): IrNode[] | null {
   for (const child of node.children) {
-    if ((child.states[0]?.text?.content ?? "") !== "") return child;
-    const inner = firstTextNode(child);
-    if (inner !== null) return inner;
+    if ((child.states[0]?.text?.content ?? "") !== "") return [child];
+    const inner = firstTextPath(child);
+    if (inner !== null) return [child, ...inner];
   }
   return null;
 }
@@ -746,9 +761,19 @@ export function themePatchOf(document: FramerIrDocument): ThemePatch {
   }
   const patch: ThemePatch = {};
   // The brand colour the page uses most: a proposal for the theme's one
-  // brand input (the whole ramp grows from it), only applied on request.
+  // brand input (the whole ramp grows from it), only applied on request. The
+  // tint of its greys and its body text size are proposals for two more
+  // inputs, read off the page the same way (`theme-scales.ts`).
   const brand = brandColorOf(document);
-  if (brand !== null) patch.scales = { brand: brand.hex };
+  const neutral = neutralBaseOf(document);
+  const body = typeBaseOf(document);
+  if (brand !== null || neutral !== null || body !== null) {
+    patch.scales = {
+      ...(brand === null ? {} : { brand: brand.hex }),
+      ...(neutral === null ? {} : { neutralBase: neutral.hex }),
+      ...(body === null ? {} : { typeBase: body.px }),
+    };
+  }
   if (bodyFamily !== null) {
     patch.fonts = {
       body: { family: bodyFamily, fallback: ["system-ui", "sans-serif"], weights: bodyWeights },
