@@ -606,11 +606,31 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
   return editorNode;
 }
 
+// The values of a CSS shorthand, split on the spaces between them. A space inside
+// a function (`clamp(16px, 4vw, 32px)`, `calc(100% - 20px)`) belongs to that value.
+function splitShorthand(value: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const char of value.trim()) {
+    if (char === "(") depth += 1;
+    else if (char === ")" && depth > 0) depth -= 1;
+    if (/\s/.test(char) && depth === 0) {
+      if (current !== "") parts.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  if (current !== "") parts.push(current);
+  return parts;
+}
+
 function normalizeSpacingProps(props: Record<string, unknown>): void {
   for (const key of ["gap", "gap_tablet", "gap_mobile"]) {
     const value = props[key];
     if (typeof value !== "string") continue;
-    const parts = value.trim().split(/\s+/);
+    const parts = splitShorthand(value);
     const row = parts[0] ?? "0px";
     const column = parts.length === 1 ? row : (parts[1] ?? row);
     props[key] = { row, column };
@@ -618,7 +638,7 @@ function normalizeSpacingProps(props: Record<string, unknown>): void {
   for (const key of ["padding", "margin", "padding_tablet", "margin_tablet", "padding_mobile", "margin_mobile"]) {
     const value = props[key];
     if (typeof value !== "string") continue;
-    const parts = value.trim().split(/\s+/);
+    const parts = splitShorthand(value);
     const top = parts[0] ?? "0px";
     const right = parts.length === 1 ? top : (parts[1] ?? top);
     const bottom = parts.length === 1 ? top : (parts[2] ?? top);
