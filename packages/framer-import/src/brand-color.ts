@@ -14,7 +14,7 @@ import type { FramerIrDocument, IrNode } from "./ir.ts";
 
 // How much a use counts: a filled surface carries the brand more than a
 // hairline.
-const WEIGHTS: Readonly<Record<string, number>> = {
+export const WEIGHTS: Readonly<Record<string, number>> = {
   "background-color": 3,
   background: 3,
   fill: 2,
@@ -27,7 +27,7 @@ const WEIGHTS: Readonly<Record<string, number>> = {
 // A literal colour out of a value: a hex, an rgb(), or the first literal in the
 // fallback of `var(--token-x, #254139)`. Several colours (a gradient) are not
 // one brand colour.
-function literalColor(value: string): string | null {
+export function literalColor(value: string): string | null {
   const text = value.trim();
   if (/gradient\(/i.test(text)) return null;
   const match = /#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)/.exec(text);
@@ -39,7 +39,7 @@ function literalColor(value: string): string | null {
 // lightness window only has to keep out black and white, since the near-white
 // creams already fail the chroma floor and a bright lime accent (0.91) is a
 // brand colour.
-const MIN_CHROMA = 0.03;
+export const MIN_CHROMA = 0.03;
 const MIN_LIGHTNESS = 0.25;
 const MAX_LIGHTNESS = 0.96;
 
