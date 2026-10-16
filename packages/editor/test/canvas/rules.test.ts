@@ -45,6 +45,32 @@ function document(): EditorDocument {
   };
 }
 
+describe("frame rules with a site breakpoint pair", () => {
+  const own = { tablet: 1200, mobile: 810 };
+
+  it("compiles the frame's media queries with the same numbers the bake uses", () => {
+    const { authored } = canvasFrameRules(document(), { breakpoints: own });
+    expect(authored).toContain(mediaQueryFor("tablet", own));
+    expect(authored).toContain("@media (max-width: 1199.98px)");
+    expect(authored).not.toContain("1023.98");
+    // The frame stylesheet and the compiler agree for any document.
+    expect(authored).toBe(compileCss(toCssDocument(document()), { breakpoints: own }));
+  });
+
+  it("carries the pair into the forced state preview", () => {
+    const { chrome } = canvasFrameRules(document(), { forcedState: "hover", breakpoints: own });
+    expect(chrome).toContain("@media (max-width: 1199.98px)");
+    expect(chrome).not.toContain("1023.98");
+  });
+
+  it("keeps the platform default without a pair", () => {
+    expect(canvasFrameRules(document()).authored).toBe(
+      canvasFrameRules(document(), {}).authored,
+    );
+    expect(canvasFrameRules(document()).authored).toContain("@media (max-width: 1023.98px)");
+  });
+});
+
 describe("frame rules", () => {
   it("wraps the generated rules in the one cascade layer", () => {
     const { authored } = canvasFrameRules(document());

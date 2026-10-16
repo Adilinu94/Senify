@@ -32,13 +32,22 @@ import { runImport } from "../src/index.ts";
 const BROWSER_REQUIRED = process.env["SENIFY_REQUIRE_BROWSER"] === "1";
 const BREAKPOINTS: Breakpoint[] = ["desktop", "tablet", "mobile"];
 
-// The tablet width of THIS gate. Framer's tablet runs 810–1199 px, Senify's
-// stops at 1023.98 px, so at the platform's usual 1024 px the original shows
-// its tablet layout while the import still shows desktop: two different
-// layouts, a difference no importer could close. 900 px lies inside both
-// ranges. Importing the site's own breakpoints would lift this restriction.
+// The tablet width of the main measurement. 900 px lies inside Framer's tablet
+// range (810–1199 or 810–1439) AND inside Senify's default one (640–1023), so
+// both sides showed the same layout even while the import broke at the
+// platform's 1024 / 640. The ceilings below were set at this width and keep
+// their meaning.
 const WIDTHS: Partial<Record<Breakpoint, number>> = { tablet: 900 };
 const widthOf = (breakpoint: Breakpoint): number => WIDTHS[breakpoint] ?? VISUAL_VIEWPORTS[breakpoint].width;
+
+// The second tablet measurement: the platform's own tablet width. Since the
+// import carries the source's breakpoints over to the site (ADR-0020) and the
+// bake uses them, the import switches to its tablet layout where the original
+// does, so 1024 px shows Framer's tablet layout on both sides. Before, the
+// import still showed desktop there (it broke at 1023.98) and no importer could
+// close a difference between two different layouts. This width has its own
+// ratchet, `DIFF_CEILING_PLATFORM_TABLET`.
+const PLATFORM_TABLET_WIDTH = VISUAL_VIEWPORTS.tablet.width;
 const FIXTURES = resolve(import.meta.dirname, "fixtures");
 
 const browserAvailable = (() => {
@@ -54,6 +63,14 @@ const DIFF_CEILING: Record<string, Record<Breakpoint, number>> = {
   "framer-easier-train-154753": { desktop: 0.13, tablet: 0.14, mobile: 0.23 },
   "framer-fluffy-rectangle-418998": { desktop: 0.66, tablet: 0.27, mobile: 0.15 },
   "framer-stupendous-football-158496": { desktop: 0.19, tablet: 0.22, mobile: 0.36 },
+};
+
+// The same ratchet at the platform's tablet width (1024 px), per fixture. Lower
+// it whenever the importer gets better, never raise it.
+const DIFF_CEILING_PLATFORM_TABLET: Record<string, number> = {
+  "framer-easier-train-154753": 0.16,
+  "framer-fluffy-rectangle-418998": 0.34,
+  "framer-stupendous-football-158496": 0.25,
 };
 
 const MIME: Record<string, string> = {
@@ -109,8 +126,13 @@ function serve(root: string): Promise<{ url: string; close(): Promise<void> }> {
 
 type PageMetrics = { height: number; textChars: number; links: number; boxes: number };
 
-async function metrics(browser: Awaited<ReturnType<typeof chromium.launch>>, url: string, breakpoint: Breakpoint): Promise<PageMetrics> {
-  const page = await browser.newPage({ viewport: { width: widthOf(breakpoint), height: VISUAL_VIEWPORTS[breakpoint].height } });
+async function metrics(
+  browser: Awaited<ReturnType<typeof chromium.launch>>,
+  url: string,
+  breakpoint: Breakpoint,
+  width: number = widthOf(breakpoint),
+): Promise<PageMetrics> {
+  const page = await browser.newPage({ viewport: { width, height: VISUAL_VIEWPORTS[breakpoint].height } });
   try {
     await page.goto(url);
     await page.waitForTimeout(2500);
@@ -163,6 +185,7 @@ describe.skipIf(!browserAvailable && !BROWSER_REQUIRED)("S5 import gate on the r
           {
             siteName: fixture,
             baseUrl: "https://gate.local",
+            ...(run.breakpoints === null ? {} : { breakpoints: run.breakpoints }),
             pages: [{ id: "page", path: "/", title: fixture, tree: editorDocumentToNodeTree(run.mapped.document) }],
             themeCss: emitCss(resolved),
             styleRules: run.mapped.rules,
@@ -204,6 +227,26 @@ describe.skipIf(!browserAvailable && !BROWSER_REQUIRED)("S5 import gate on the r
           expect(now.boxes / Math.max(was.boxes, 1), context).toBeGreaterThan(0.6);
           expect(diff.ratio, context).toBeLessThanOrEqual((ceilings as Record<Breakpoint, number>)[breakpoint]);
         }
+
+        // The platform's own tablet width: only meaningful because the bake
+        // used the source's breakpoints.
+        const wideWidths = { tablet: PLATFORM_TABLET_WIDTH };
+        const wideBefore = await captureScreenshots({ url: `${originalServer.url}/index.html`, outDir: join(shots, "original-wide"), breakpoints: ["tablet"], widths: wideWidths, motion: "live", settleMs: 300 });
+        const wideAfter = await captureScreenshots({ url: `${importedServer.url}/index.html`, outDir: join(shots, "imported-wide"), breakpoints: ["tablet"], widths: wideWidths, motion: "off", settleMs: 2500 });
+        const wa = wideBefore.find((shot) => shot.breakpoint === "tablet");
+        const wb = wideAfter.find((shot) => shot.breakpoint === "tablet");
+        expect(wa !== undefined && wb !== undefined).toBe(true);
+        const wideDiff = await diffScreenshots({ before: (wa as { path: string }).path, after: (wb as { path: string }).path, outDir: join(shots, "diff"), name: "tablet-platform", threshold: 24 });
+        const wideWas = await metrics(browser, `${originalServer.url}/index.html`, "tablet", PLATFORM_TABLET_WIDTH);
+        const wideNow = await metrics(browser, `${importedServer.url}/index.html`, "tablet", PLATFORM_TABLET_WIDTH);
+        lines.push(`tablet@${PLATFORM_TABLET_WIDTH}: diff ${(wideDiff.ratio * 100).toFixed(1)}% height ${wideWas.height}->${wideNow.height} text ${wideWas.textChars}->${wideNow.textChars} links ${wideWas.links}->${wideNow.links} boxes ${wideWas.boxes}->${wideNow.boxes}`);
+        const wideContext = `${fixture} @tablet ${PLATFORM_TABLET_WIDTH}px\n${lines.join("\n")}`;
+        expect(wideNow.height / wideWas.height, wideContext).toBeLessThan(1.6);
+        expect(wideNow.textChars / wideWas.textChars, wideContext).toBeLessThan(1.6);
+        expect(wideNow.textChars / wideWas.textChars, wideContext).toBeGreaterThan(0.6);
+        expect(wideNow.links / Math.max(wideWas.links, 1), wideContext).toBeGreaterThan(0.9);
+        expect(wideNow.boxes / Math.max(wideWas.boxes, 1), wideContext).toBeGreaterThan(0.6);
+        expect(wideDiff.ratio, wideContext).toBeLessThanOrEqual(DIFF_CEILING_PLATFORM_TABLET[fixture] ?? 0);
         console.log(`\n${fixture}\n${lines.join("\n")}`);
       } finally {
         await browser.close();

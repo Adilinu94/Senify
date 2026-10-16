@@ -58,6 +58,9 @@ _Avoid_: Animations-Config, Keyframes
 **Breakpoint-Override**: Eine responsive Anpassung eines Nodes für Tablet oder Mobile.
 _Avoid_: Responsive-Variante, Media-Query
 
+**Breakpoints (Site)**: Das Paar aus Tablet- und Mobile-Schwelle in Pixeln, ab dem ein Breakpoint-Override greift. Gilt für die ganze Site; ohne eigenen Eintrag der Standard 1024/640 (ADR-0020).
+_Avoid_: Umbruchpunkt, Media-Query-Breite
+
 **Style-Prop**: Ein Stil-Regler einer Section (z. B. Hintergrund, Abstand, Radius), dessen Wert eine Token-Referenz oder ein freier Wert ist.
 _Avoid_: Stilfeld, CSS-Property, Style-Attribut
 

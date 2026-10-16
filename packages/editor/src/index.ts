@@ -58,6 +58,7 @@ export {
   clampZoom,
   createFrameState,
   DESIGN_FRAMES,
+  designFramesFor,
   DESIGN_ZOOM_START,
   effectiveProps,
   framePlacements,

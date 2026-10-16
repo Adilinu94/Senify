@@ -7,6 +7,7 @@ import {
 import type { FormSnapshot } from "@senify/renderer";
 import type { Theme } from "@senify/tokens";
 import type { StyleRule } from "@senify/widget-engine";
+import type { Breakpoints } from "@senify/widget-engine/breakpoints";
 import type { PatchOp } from "./mutations/contract.ts";
 import type { ImportReport } from "./imports-contract.ts";
 
@@ -31,6 +32,10 @@ export type Site = {
   // canonical/og:url/sitemap/robots and the form origin check; absent means the
   // `<slug>.senify.xyz` placeholder.
   baseUrl?: string;
+  // The site's own breakpoint pair (ADR-0020): below `tablet` the tablet layout
+  // applies, below `mobile` the mobile one. Absent means the platform default
+  // (1024 / 640). Read by the bake, the preview and the editor frames alike.
+  breakpoints?: Breakpoints;
   createdAt: string;
   updatedAt: string;
 };

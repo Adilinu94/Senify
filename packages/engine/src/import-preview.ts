@@ -4,8 +4,10 @@ import { join } from "node:path";
 import { SenifyError } from "@senify/core";
 import { pageFileOf, runImport as runFramerImport, type ImportSource as FramerImportSource } from "@senify/framer-import";
 import { bakeSite } from "@senify/renderer";
+import type { Breakpoints } from "@senify/widget-engine/breakpoints";
 import { editorDocumentToNodeTree } from "./imports.ts";
 import { serveCaptureDir } from "./review-visuals.ts";
+import { planImportBreakpoints } from "./site-breakpoints.ts";
 
 // The preview of an import: the page as it is, next to the page as the import
 // makes it, at the three widths the platform designs for. Nothing is written:
@@ -34,9 +36,12 @@ export type ImportPreviewRequest = {
 
 export type ImportPreviewDriver = (request: ImportPreviewRequest) => Promise<ImportPreview>;
 
-// Tablet at 900 px, inside Framer's tablet range (810–1199) AND Senify's
-// (below 1024); at 1024 the original shows its tablet layout while Senify still
-// shows desktop, and the picture would compare two different layouts.
+// Tablet at 900 px, inside Framer's tablet range (810–1199, or 810–1439) AND
+// Senify's default one (640–1023). The import carries the source's breakpoints
+// to a site that has none (ADR-0020), so 1024 would show the same layout on
+// both sides there too — but a site that keeps its own pair would still show
+// desktop at 1024 next to the original's tablet. 900 is inside every pair the
+// import can end up with, so the picture never compares two different layouts.
 const PREVIEW_WIDTHS = { tablet: 900 } as const;
 
 // The production driver: the thumbnail capture of the analysis worker, loaded
@@ -81,6 +86,10 @@ export type PreviewInput = {
   themeCss: string;
   motionTokens: { ease: Record<string, string>; baseDurationMs: number; baseStaggerMs: number };
   siteName: string;
+  // What the site already has, so the preview bakes with the pair the write
+  // would leave in force (`planImportBreakpoints`): its own pair, and whether it
+  // holds pages other than the one the import writes. Absent: an empty site.
+  site?: { breakpoints?: Breakpoints; otherPages: boolean };
   driver: ImportPreviewDriver;
 };
 
@@ -108,7 +117,12 @@ export async function previewFramerImport(input: PreviewInput): Promise<ImportPr
     }
 
     const run = await runFramerImport({ source: input.source, pagePath: input.pagePath, mode: input.mode });
-    return await bakeAndShoot(input, run.mapped.document, run.mapped.rules, beforeUrl, work, closers);
+    const plan = planImportBreakpoints({
+      derived: run.breakpoints,
+      site: input.site?.breakpoints,
+      otherPages: input.site?.otherPages ?? false,
+    });
+    return await bakeAndShoot(input, run.mapped.document, run.mapped.rules, plan?.effective ?? input.site?.breakpoints, beforeUrl, work, closers);
   } finally {
     for (const close of closers.reverse()) await close().catch(() => undefined);
     rmSync(work, { recursive: true, force: true });
@@ -119,6 +133,7 @@ async function bakeAndShoot(
   input: PreviewInput,
   document: Parameters<typeof editorDocumentToNodeTree>[0],
   rules: Parameters<typeof bakeSite>[0]["styleRules"],
+  breakpoints: Breakpoints | undefined,
   beforeUrl: string,
   work: string,
   closers: (() => Promise<void>)[],
@@ -128,6 +143,7 @@ async function bakeAndShoot(
     {
       siteName: input.siteName,
       baseUrl: "https://preview.local",
+      ...(breakpoints === undefined ? {} : { breakpoints }),
       pages: [{ id: "preview", path: "/", title: input.siteName, tree: editorDocumentToNodeTree(document) }],
       themeCss: input.themeCss,
       ...(rules === undefined ? {} : { styleRules: rules }),

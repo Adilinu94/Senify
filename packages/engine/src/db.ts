@@ -692,6 +692,9 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   // Public address per site (origin only). Additive and nullable — sites
   // without one keep the `<slug>.senify.xyz` placeholder.
   `ALTER TABLE sites ADD COLUMN IF NOT EXISTS base_url text`,
+  // Breakpoint pair per site (ADR-0020): `{ "tablet": n, "mobile": n }`. Additive
+  // and nullable — sites without one keep the platform default (1024 / 640).
+  `ALTER TABLE sites ADD COLUMN IF NOT EXISTS breakpoints_json jsonb`,
   // Release manifest (E2): style registry snapshot, renderer version and build
   // hash travel with the release. Additive and nullable — releases from before
   // this column read as "no manifest" and keep working.

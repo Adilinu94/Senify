@@ -1,85 +1,103 @@
-# Breakpoints je Site einstellbar machen
+# Breakpoints je Site einstellbar
 
-Status: proposed · 14.10.2026 (Entwurf, nicht entschieden; es gibt keinen Code und keine Schema-Änderung dazu)
-Bezug: offener Punkt „Breakpoints pro Site“ aus `docs/current/stand.md`.
+Status: accepted · 16.10.2026 (von Adi bestätigt: Geltung „Ganze Website“, Grenzen „Mit Schutzgrenzen“, Einbau unter der Bedingung, dass der Framer-Import dadurch besser läuft; die Bedingung ist gemessen, siehe unten)
+Bezug: offener Punkt „Breakpoints pro Site“ aus `docs/current/stand.md`, Entwurf vom 14.10.2026.
 
-Dieser Text ist eine Entscheidungsvorlage. Er hält fest, was heute gilt, welche Wege es gibt und was jeder Weg
-kostet. Angenommen ist erst, was Adi unten bei „Zu entscheiden“ bestätigt. Bis dahin gilt der Ist-Zustand.
+**Problem.** Senify kannte genau zwei Schwellen, `tablet: 1024` und `mobile: 640`. Ein Kundendesign, das bei 900 oder
+768 Pixeln umbricht, ließ sich nur annähern. Beim Framer-Import wog das schwerer: Framer-Seiten brechen bei 1200
+oder 810 um, der Import musste die Bereiche der Quelle auf die Senify-Zahlen quetschen. Zwischen 1024 und 1199 px
+zeigte das Original das Tablet-Layout, der Import das Desktop-Layout.
 
-**Ist-Zustand (belegt im Code).**
+**Entscheidung.**
 
-- Es gibt genau eine Definition: `BREAKPOINTS = { tablet: 1024, mobile: 640 }` in
-  `packages/widget-engine/src/breakpoints.ts`. `@senify/renderer/breakpoints` und `@senify/editor/frames` lesen
-  sie von dort.
-- Der CSS-Compiler schreibt daraus die Media-Queries: `@media (max-width: <Wert − 0,02>px)` je Gerät
-  (`packages/widget-engine/src/css/cascade.ts`, `packages/renderer/src/style-css.ts`). Für „nur auf Tablet
-  ausgeblendet“ entstehen eigene Breitenbereiche (`DEVICE_RANGES`).
-- Der Editor zeigt drei Blätter: Desktop 1440, Tablet 1024, Mobile 390 (`DESIGN_FRAMES` in
-  `packages/editor/src/frames.ts`). Die Rahmen richten sich über `mediaMaxWidthFor` nach denselben Zahlen wie
-  die gebackene Seite.
-- Ein Breakpoint-Override hängt am Knoten unter dem festen Schlüssel `tablet` oder `mobile`
-  (`Node.overrides` in `packages/section-sdk/src/types.ts`). Der Schlüssel nennt das Gerät, nicht die Breite.
-- Mit den festen Zahlen rechnen außerdem die Visual-Gates (`REVIEW_VISUAL_BREAKPOINTS`), der Import-Gate
-  (misst bei 1024) und die Referenz-Aufnahmen (`REFERENCE_BREAKPOINTS`: 1440, 810, 390). Die beiden letzten
-  Listen sind Messbreiten, keine Seitenbreakpoints; sie müssten nur dann mit, wenn Gates „die Breakpoints der
-  Site“ prüfen sollen.
+1. `Site.breakpoints` ist optional und trägt ein Paar `{ tablet, mobile }` in ganzen Pixeln. Ohne Eintrag gelten
+   weiter `BREAKPOINTS = { tablet: 1024, mobile: 640 }`; bestehende Projekte bauen byte-gleich wie vorher. Die
+   Zahlen stehen als Standard weiter genau einmal in `packages/widget-engine/src/breakpoints.ts`.
+2. Das Paar gilt für die ganze Website, nicht je Seite. Gemeinsame Sektionen (Navigation, Footer) müssen bei jeder
+   Breite stimmen; Seiten, die an verschiedenen Stellen umbrechen, würden das Problem nur verschieben.
+3. Schutzgrenzen (`BREAKPOINT_LIMITS`, geprüft von `checkBreakpoints`): Tablet 641–1600 px, Mobile 320–900 px,
+   mindestens 120 px Abstand. Ganze Zahlen. Die Grenzen sind eine Bremse gegen Tippfehler, keine Designregel.
+   **Abweichung von der Vorlage:** Der Entwurf nannte Tablet ≤ 1439 und Mobile ≤ 767. Framers übliche Breiten
+   (810 Tablet, 1200 oder 1440 Desktop) wären damit nicht abbildbar gewesen, und genau dafür ist die Funktion
+   da. Die Obergrenzen sind deshalb auf 1600 und 900 geweitet; Mindestabstand und Untergrenzen blieben.
+4. Die Media-Queries heißen `@media (max-width: <Schwelle − 0,02>px)`. Der Tablet-Override gilt darunter und
+   kaskadiert nach unten in Mobile. Die Overrides am Knoten behalten die festen Schlüssel `overrides.tablet` und
+   `overrides.mobile`: Wer die Schwelle verschiebt, ändert, ab wann ein Override greift, nicht was in ihm steht.
+   Es gibt keine Datenmigration der Knoten.
+5. Alles, was eine Media-Query schreibt, nimmt das Paar als Option und fällt auf den Standard zurück
+   (`resolveBreakpoints`): Compiler (`widget-engine/css`), Bake, Stilregeln, Motion-Daten und die versteckten
+   Geräte (`packages/renderer`). Preview, Release und Export laufen über denselben Bake und lesen das Paar aus
+   der Site (`packages/engine/src/bake.ts`).
+6. Der Editor leitet die Blattbreiten aus dem Paar ab (`designFramesFor`, `packages/editor/src/frames.ts`):
+   Desktop `max(1440, Tablet)`, Tablet `min(max(1024, Mobile), Tablet − 1)`, Mobile `min(390, Mobile − 1)`. Die
+   Blätter sind echte iframes, ihre Media-Queries antworten auf die Blattbreite. **Sichtbare Folge:** Mit dem
+   Standardpaar ist das Tablet-Blatt 1023 statt 1024 px breit. Bei 1024 px liegt die Seite genau auf der
+   Schwelle und zeigte das Desktop-Layout; das Tablet-Blatt zeigte also bisher nicht das, was sein Name sagt.
+   Das war ein Fehler und ist damit behoben.
+7. Gesetzt wird das Paar im Dashboard unter Projekt-Einstellungen („Breakpoints“, mit Zurücksetzen auf den
+   Standard) und über `PATCH /api/sites/:siteId` mit `{ "breakpoints": { "tablet": …, "mobile": … } }`; `null`
+   löscht es. Die Änderung steht in der Projekt-Aktivität (`update_site_breakpoints`). Agenten lesen es in
+   `get_site`; ändern ist Sache des Betreibers (wie bei ADR-0018). Fehler kommen im Dashboard auf Deutsch.
+8. Datenbank: neue Spalte `sites.breakpoints_json jsonb`, nullable und additiv (`ADD COLUMN IF NOT EXISTS`, wie
+   `sites.base_url` in ADR-0018). Ein ungültiger gespeicherter Wert liest sich als „kein Eintrag“, der Bau
+   bricht deshalb nicht ab. `duplicate_site` kopiert das Paar mit.
+9. Eine Änderung der Schwellen macht die gebackenen Seiten der Site ungültig; sie werden neu gebacken. Eine
+   veröffentlichte Seite ändert sich erst mit dem nächsten Release.
 
-**Problem.** Die Zahlen 1024 und 640 passen nicht zu jedem Entwurf. Ein Kundendesign mit Umbruch bei 900 oder
-768 Pixeln lässt sich heute nur annähern: Entweder bricht die Seite zu früh oder zu spät um, oder der Autor
-baut Ausnahmen über freie Style-Regeln. Gewünscht ist, die beiden Schwellen je Site festzulegen.
+**Framer-Import.**
 
-**Gewählter Weg (Vorschlag, nicht verbindlich): zwei Zahlen je Site.**
+- `siteBreakpointsOf` (`packages/framer-import/src/site-breakpoints.ts`) liest die Bereiche aus
+  `__framer__breakpoints`: Die Untergrenzen sind die Schwellen, eine Obergrenze plus 0,02 ebenfalls. Mobile ist
+  die kleinste, Tablet die zweitkleinste Grenze. Besteht das Paar `checkBreakpoints` nicht, gibt es keines
+  (`null`), und der Import verhält sich wie vorher.
+- Der Plan (`planImportBreakpoints`, `packages/engine/src/site-breakpoints.ts`) setzt das Paar **nur** auf einer
+  Site ohne eigenes Paar und ohne weitere Seiten (`set`). Es wird in derselben Transaktion geschrieben wie der
+  übrige Import-Commit (`commitFramerImportPlan`, Audit-Eintrag `update_site_breakpoints` mit
+  `source: "framer-import"`). Ist das Paar gleich dem der Site oder dem Standard, bleibt alles (`unchanged`).
+  Sonst bleibt das Paar der Site, und der Bericht trägt einen Warnhinweis (`kept`, Grund `site-pair` oder
+  `other-pages`): Ein Import darf die Darstellung vorhandener Seiten nicht still verändern. Ein Replay setzt das
+  Paar nie erneut.
+- Preview und Commit entscheiden mit demselben Plan. Die Vorschau backt mit dem Paar, das der Commit setzen
+  würde.
 
-1. `Site` bekommt ein optionales Feld `breakpoints` mit `{ tablet: number, mobile: number }`. Ohne Eintrag
-   gelten 1024 und 640; bestehende Projekte ändern sich nicht.
-2. Die Zahlen werden geprüft: ganze Pixel, `mobile < tablet`, Mindestabstand (Vorschlag 120 px), Bereich
-   (Vorschlag mobil 320–767, Tablet 641–1439). Die Grenzen sind eine Bremse gegen Tippfehler, keine
-   Designregel.
-3. Es gibt einen Auflöser `resolveBreakpoints(site)` mit den Standardwerten als Rückfall. Er ersetzt den
-   direkten Import von `BREAKPOINTS` im Compiler, im Renderer-Bau und im Editor. `BREAKPOINTS` bleibt als
-   Standard bestehen; die Zahlen existieren weiter genau einmal, nur nicht mehr als einzige Wahrheit.
-4. Die Overrides behalten ihre Schlüssel `tablet` und `mobile`. Wer die Schwelle verschiebt, ändert, ab wann
-   ein Override greift, nicht was in ihm steht. Es entsteht keine Datenmigration der Knoten.
-5. Der Editor zeigt die Blätter in der Breite der Site-Schwellen (Tablet-Blatt = Tablet-Schwelle, Mobile-Blatt
-   = Mobile-Schwelle bleibt ein Telefon-Maß, Vorschlag 390 oder die Schwelle, wenn sie kleiner ist). Die
-   Wahl der Blattgröße ist ein eigener kleiner Punkt unten.
-6. Gesetzt wird es im Dashboard unter Projekt-Einstellungen und über `PATCH /api/sites/:siteId`, in der
-   Projekt-Aktivität als eigener Eintrag. Agenten lesen die Werte in `get_site`; ändern ist Sache des Betreibers
-   (wie bei ADR-0018).
+**Belegt (Bedingung „Import läuft besser“).** Gemessen mit `import-fixture-gate-browser.test.ts` (Pixelabstand
+gegen die Original-Aufnahme, Standardpaar gegen Paar der Site), 15.10.2026:
 
-**Folgen.**
+| Fixture | bei 1024 px | andere Breiten |
+|---|---|---|
+| easier-train | 24,8 % → 12,8 % | 1200 px: 30,3 → 16,0 · 720 px: 28,4 → 27,8 |
+| fluffy-rectangle | 68,3 % → 30,4 % | 720 px: 41,5 → 38,3 |
+| stupendous-football | 45,5 % → 21,0 % | 720 px: 49,6 → 37,1 |
 
-- Jeder Bau einer Site muss ihre Werte kennen: Compiler, Preview, Release, Redesign-Apply und Export. Ein Pfad, der
-  weiter das feste `BREAKPOINTS` liest, backt andere Media-Queries als der Editor zeigt. Das ist der Hauptfehler,
-  den ein Test abdecken muss (Preview und Bake mit abweichenden Werten, gleiche Breiten im Frame).
-- Eine Änderung der Schwellen macht alle gebackenen Seiten der Site ungültig. Die Seiten werden neu gebacken;
-  eine veröffentlichte Seite ändert sich erst mit dem nächsten Release.
-- Die Visual-Baselines und `verify:parity` prüfen weiter mit den Standardwerten. Eine Site mit eigenen
-  Schwellen hat keine eigene Baseline; das ist gewollt, weil die Gates das Produkt prüfen, nicht eine Site.
-- Das Widget-Laufzeit-Skript im Browser (`packages/renderer/src/browser-entry.ts`) darf keine festen Zahlen
-  mehr voraussetzen, sobald es Breakpoints kennt. Heute liest es sie nicht; das ist vor der Umsetzung zu prüfen.
-- Datenbank: eine neue nullable Spalte, additiv wie `sites.base_url` in ADR-0018. Die Schema-Seite gehört zum
-  Datenbank-Strang und wird dort entschieden; dieser Entwurf legt sie nicht an.
+Keine gemessene Breite wurde schlechter. Der Gate behält seine Messung bei 900 px mit den alten Obergrenzen und
+bekommt eine zweite bei 1024 px mit eigener Ratsche (`DIFF_CEILING_PLATFORM_TABLET`).
 
-**Verworfen (Vorschlag).**
+**Folgen und Grenzen.**
+
+- **Registry-Sektionen folgen dem Paar nicht.** Ihre Raster brechen bei festen Breiten (zum Beispiel
+  `GRID_IMAGE_SECTIONS` bei 640 und 768 px in `packages/registry/src/components/shared.tsx`), und
+  `PRIMITIVE_BASE_CSS` ist geräteunabhängig. Auf einer Site mit eigenem Paar bleibt das Verhalten dieser
+  Sektionen also bei den festen Breiten; nur Overrides und Sichtbarkeit am Knoten folgen dem Paar. Wer das
+  ändern will, braucht eine eigene Entscheidung (Sektion liest das Paar aus dem Theme oder wechselt auf
+  Container-Queries).
+- Die Gates prüfen das Produkt, nicht eine Site: `VISUAL_VIEWPORTS` (Tablet 1024) im `analysis-worker`,
+  `REVIEW_VISUAL_BREAKPOINTS` und die Visual-Baselines bleiben bei den Standardmaßen. Dass ihr Tablet bei 1024
+  auf der Schwelle liegt (derselbe Randfall wie beim alten Editor-Blatt), ist ein Befund für später, kein Teil
+  dieser Änderung.
+- Das Laufzeit-Skript im Browser (`browser-entry.ts`) liest keine festen Breiten; Motion-Daten tragen das Paar
+  seit dieser Änderung mit.
+- Die 12 Editor-Visual-Baselines können durch das 1023-px-Tablet-Blatt abweichen; sie werden nur dann
+  aktualisiert, wenn der Gate es verlangt.
+
+**Verworfen.**
 
 - Eine freie Liste benannter Breakpoints (mehr als drei Geräte). Die Overrides tragen feste Schlüssel, das Canvas
-  drei feste Blätter; das Modell, der Compiler, die Kaskade nach unten und der Editor müssten mit. Für zwei
-  einstellbare Schwellen ist das zu viel Umbau.
-- Breakpoints je Seite statt je Site. Eine Site mit Seiten, die an verschiedenen Stellen umbrechen, hat in der
-  Regel ein Navigations- und Footer-Problem: gemeinsame Sektionen müssten bei jeder Breite stimmen.
-- Container-Queries statt Media-Queries. Das wäre ein anderer, größerer Weg (Sektion reagiert auf ihren
-  Platz, nicht auf das Fenster) und gehört in eine eigene Entscheidung.
+  drei feste Blätter; Modell, Compiler, Kaskade und Editor müssten mit.
+- Breakpoints je Seite statt je Site (siehe Entscheidung 2).
+- Container-Queries statt Media-Queries. Anderer, größerer Weg, eigene Entscheidung.
 - Pixelwerte in den Overrides statt Gerätenamen. Das bricht jede bestehende Seite.
+- Das Paar beim Import immer überschreiben. Eine bestehende Site mit anderen Seiten würde sich still verändern.
 
-**Zu entscheiden (Adi).**
-
-1. Wird das gebraucht, und wenn ja, von wem: ein konkretes Kundenprojekt, oder ein „könnte nützlich sein“?
-   Ohne konkreten Anlass bleibt der Status quo (feste Zahlen) die einfachere Wahl.
-2. Je Site (dieser Vorschlag) oder je Seite?
-3. Standardwerte und Grenzen aus Punkt 2 des Vorschlags: passen 120 px Mindestabstand und die genannten
-   Bereiche?
-4. Blattgröße im Editor: Tablet-Blatt in Breite der Tablet-Schwelle, Mobile-Blatt als 390-Pixel-Telefon?
-
-**Offen.** Ein Test, der alle Pfade findet, die `BREAKPOINTS` noch direkt lesen, bevor umgestellt wird. Ob die
-Gates (`REVIEW_VISUAL_BREAKPOINTS`) die Schwellen der Site übernehmen sollen oder bei den Standardmaßen bleiben.
+**Offen.** Registry-Sektionen auf das Paar umstellen (siehe Folgen). Die Schwelle der Gates bei 1024 px
+(Randfall) prüfen. Ob die Site-Duplikation das Paar kopieren soll, ist entschieden (ja); ob ein Redesign-Apply es
+verändern darf, ist nicht vorgesehen.

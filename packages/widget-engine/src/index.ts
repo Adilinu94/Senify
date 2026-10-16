@@ -11,3 +11,12 @@ export * from "./mapping.ts";
 export * from "./bridge.ts";
 export * from "./css/index.ts";
 export * from "./prop-boundary.ts";
+export {
+  BREAKPOINT_LIMITS,
+  DEFAULT_BREAKPOINTS,
+  checkBreakpoints,
+  isDefaultBreakpoints,
+  resolveBreakpoints,
+  type Breakpoints,
+  type BreakpointsCheck,
+} from "./breakpoints.ts";

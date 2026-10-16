@@ -22,7 +22,7 @@
 | [ADR-0017](0017-schluessel-ausserhalb-der-datenbank.md) | Der Schlüssel für gespeicherte Zugangsdaten liegt außerhalb der Datenbank und des Backups | angenommen |
 | [ADR-0018](0018-oeffentliche-adresse-je-projekt.md) | Jedes Projekt trägt seine öffentliche Adresse | angenommen |
 | [ADR-0019](0019-store-als-fassade-ueber-fach-module.md) | Der Store wird Fassade über Fach-Module | angenommen |
-| [ADR-0020](0020-breakpoints-je-site.md) | Breakpoints je Site einstellbar machen | vorgeschlagen (Entwurf) |
+| [ADR-0020](0020-breakpoints-je-site.md) | Breakpoints je Site einstellbar | angenommen |
 
 ## Nächste Nummer
 

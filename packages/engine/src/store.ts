@@ -1,6 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { SenifyError } from "@senify/core";
 import { publishSecretFile, readSecretFile } from "./secrets.ts";
+import type { Breakpoints } from "@senify/widget-engine/breakpoints";
+import { normalizeSiteBreakpoints, readStoredBreakpoints } from "./site-breakpoints.ts";
 import { normalizeSiteBaseUrl } from "./site-url.ts";
 import { RULE_ID_PATTERN } from "@senify/framer-import";
 import {
@@ -290,6 +292,7 @@ type SiteRow = {
   theme_id: unknown;
   // Only `getSite` selects it; list/rename/profile rows leave it out.
   base_url?: unknown;
+  breakpoints_json?: unknown;
   created_at: unknown;
   updated_at: unknown;
 };
@@ -530,6 +533,9 @@ export type FramerImportCommitPlan = {
   payloads: readonly PreparedCodePayload[];
   styleRules: readonly StyleRule[];
   themePatch: Record<string, unknown> | null;
+  // The breakpoint pair of the source (ADR-0020) when the import is to set it
+  // for the site; `null` leaves the site's pair as it is.
+  breakpoints?: Breakpoints | null;
   report: Omit<
     ImportReport,
     "pageId" | "newDraftVersion" | "receiptId" | "replayed"
@@ -800,7 +806,7 @@ export class Store {
 
   async getSite(id: string): Promise<Site> {
     const result = await this.#db.query<SiteRow>(
-      `SELECT id, name, slug, profile, theme_id, base_url, created_at, updated_at
+      `SELECT id, name, slug, profile, theme_id, base_url, breakpoints_json, created_at, updated_at
        FROM sites WHERE id = $1`,
       [id],
     );
@@ -814,7 +820,25 @@ export class Store {
     const site = mapSite(row);
     site.designContract = await this.readDesignContract(id);
     if (typeof row.base_url === "string") site.baseUrl = row.base_url;
+    const breakpoints = readStoredBreakpoints(row.breakpoints_json);
+    if (breakpoints !== undefined) site.breakpoints = breakpoints;
     return site;
+  }
+
+  // The breakpoint pair (ADR-0020): validated against the guard rails; `null`
+  // clears it back to the platform default. Returns the full site.
+  async updateSiteBreakpoints(id: string, raw: unknown): Promise<Site> {
+    const breakpoints = normalizeSiteBreakpoints(raw);
+    const result = await this.#db.query<{ id: string }>(
+      `UPDATE sites SET breakpoints_json = $2, updated_at = $3 WHERE id = $1 RETURNING id`,
+      [id, breakpoints === null ? null : toJsonParam(breakpoints), new Date().toISOString()],
+    );
+    if (result.rows.length === 0) {
+      throw new SenifyError("not_found", `Site "${id}" does not exist`, {
+        field: "siteId",
+      });
+    }
+    return this.getSite(id);
   }
 
   // The public address: validated and reduced to its origin; blank or `null`
@@ -1432,9 +1456,17 @@ export class Store {
     const collectionIds = new Map<string, string>();
     await this.#db.withTransaction(async (tx) => {
       await tx.query(
-        `INSERT INTO sites (id, name, slug, profile, theme_id, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, NULL, $5, $5)`,
-        [siteId, name, slug, source.profile, now],
+        `INSERT INTO sites (id, name, slug, profile, theme_id, breakpoints_json, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, NULL, $5, $6, $6)`,
+        [
+          siteId,
+          name,
+          slug,
+          source.profile,
+          // The copy keeps the pair: its pages were laid out for these numbers.
+          source.breakpoints === undefined ? null : toJsonParam(source.breakpoints),
+          now,
+        ],
       );
       if (themeRow) {
         const themeId = newEntityId();
@@ -4102,6 +4134,14 @@ export class Store {
         );
       }
 
+      if (plan.breakpoints !== undefined && plan.breakpoints !== null) {
+        await tx.query(`UPDATE sites SET breakpoints_json = $2, updated_at = $3 WHERE id = $1`, [
+          plan.siteId,
+          toJsonParam(plan.breakpoints),
+          now,
+        ]);
+      }
+
       if (plan.themePatch !== null) {
         const themeRows = await tx.query<ThemeRow>(
           `SELECT id, site_id, name, definition, version, created_at, updated_at
@@ -4182,6 +4222,19 @@ export class Store {
           opIndex: auditEntries.length,
           mutation: "update_theme",
           params: { patch: plan.themePatch, import: true },
+          author: plan.author,
+          undoPatch: [],
+          draftVersionAfter: 0,
+        });
+      }
+      if (plan.breakpoints !== undefined && plan.breakpoints !== null) {
+        auditEntries.push({
+          siteId: plan.siteId,
+          pageId: null,
+          batchId,
+          opIndex: auditEntries.length,
+          mutation: "update_site_breakpoints",
+          params: { breakpoints: plan.breakpoints, source: "framer-import" },
           author: plan.author,
           undoPatch: [],
           draftVersionAfter: 0,
