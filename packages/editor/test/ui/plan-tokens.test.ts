@@ -115,7 +115,7 @@ const EXPECTED_TOKENS: Record<string, string> = {
   "--ed-band-padding": "rgb(74 222 128 / 0.12)",
   "--ed-font-display": '"Inter Display", "Inter", system-ui, sans-serif',
   "--ed-font-body": '"Inter", system-ui, sans-serif',
-  "--ed-font-mono": 'ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace',
+  "--ed-font-mono": '"JetBrains Mono", ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace',
   "--ed-text-10": "10px",
   "--ed-text-11": "11px",
   "--ed-text-12": "12px",

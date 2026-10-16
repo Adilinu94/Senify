@@ -218,7 +218,7 @@ export const EDITOR_CANVAS = {
 export const EDITOR_TYPE = {
   fontDisplay: '"Inter Display", "Inter", system-ui, sans-serif',
   fontBody: '"Inter", system-ui, sans-serif',
-  fontMono: 'ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace',
+  fontMono: '"JetBrains Mono", ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace',
   size10: "10px",
   size11: "11px",
   size12: "12px",
