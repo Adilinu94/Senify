@@ -33,6 +33,7 @@ concurrency:
 # per Dependabot (`package-ecosystem: github-actions`) oder von Hand.
 jobs:
   verify:
+    if: false
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -86,6 +87,7 @@ jobs:
   # sich selbst.
   tests-windows:
     name: Testsuite unter Windows
+    if: false
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -107,6 +109,7 @@ jobs:
 
   postgres-tests:
     name: Transaktionsbeweise gegen echte Postgres
+    if: false
     runs-on: ubuntu-24.04
     services:
       postgres:
@@ -142,6 +145,7 @@ jobs:
 
   coverage:
     name: Coverage-Tor der geschuetzten Pfade
+    if: false
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -170,3 +174,26 @@ jobs:
           name: coverage-summary
           path: coverage/coverage-summary.json
           if-no-files-found: ignore
+
+  # SCRATCH, nie mergen: Messlauf Schrift bei fluffy-rectangle.
+  probe:
+    name: Messlauf fluffy-Schrift
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Messlauf
+        env:
+          SENIFY_REQUIRE_BROWSER: "1"
+          PROBE_OUT: ${{ runner.temp }}/probe.txt
+        run: pnpm exec vitest run packages/framer-import/test/scratch-fluffy-font-probe.test.ts
+      - name: Ergebnis als Annotation
+        if: always()
+        run: |
+          node -e 'const fs=require("fs");const f=process.env.RUNNER_TEMP+"/probe.txt";const t=fs.existsSync(f)?fs.readFileSync(f,"utf8"):"keine Ausgabedatei";console.log("::error title=fluffy-font-probe::"+t.replace(/%/g,"%25").replace(/\r/g,"%0D").replace(/\n/g,"%0A"))'
