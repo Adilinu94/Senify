@@ -495,3 +495,37 @@ describe("which rules the stylesheet really matches", () => {
     expect(boxOf(html, css, "aus").padding).not.toBe("20px");
   });
 });
+
+describe("spacing values that hold a function", () => {
+  // The frame that holds the text `label`: its padding and gap as the mapper sets them.
+  const spacingOf = (css: string) => {
+    const { mapped } = run(page('<div class="framer-box"><p>x</p></div>', css));
+    const all = Object.values(mapped.document.nodes) as { id: string; props: Record<string, unknown>; children?: string[] }[];
+    const text = all.find((node) => node.props["text"] === "x");
+    const box = all.find((node) => text !== undefined && node.children?.includes(text.id));
+    return { padding: box?.props["padding"], gap: box?.props["gap"] };
+  };
+
+  // A shorthand splits on the spaces between its values, not on the spaces inside
+  // a `clamp(16px, 4vw, 32px)` or a `calc(100% - 20px)`.
+  it("keeps clamp() and calc() whole inside a padding shorthand", () => {
+    const { padding } = spacingOf(".framer-box{padding:clamp(16px, 4vw, 32px) 8px calc(100% - 20px) 4px}");
+    expect(padding).toEqual({
+      top: "clamp(16px, 4vw, 32px)",
+      right: "8px",
+      bottom: "calc(100% - 20px)",
+      left: "4px",
+    });
+  });
+
+  it("keeps a function whole inside a gap shorthand", () => {
+    const { gap } = spacingOf(".framer-box{display:flex;gap:calc(1px + 2px) 8px}");
+    expect(gap).toEqual({ row: "calc(1px + 2px)", column: "8px" });
+  });
+
+  it("still splits plain shorthands as before", () => {
+    const { padding, gap } = spacingOf(".framer-box{display:flex;padding:1px 2px;gap:3px}");
+    expect(padding).toEqual({ top: "1px", right: "2px", bottom: "1px", left: "2px" });
+    expect(gap).toEqual({ row: "3px", column: "3px" });
+  });
+});
