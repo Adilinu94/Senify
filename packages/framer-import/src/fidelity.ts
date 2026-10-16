@@ -65,6 +65,18 @@ export function buildFidelityReport(
       `Markenfarbe ${brand} vorgeschlagen (die am häufigsten genutzte Farbe der Seite); sie ersetzt die Theme-Markenfarbe nur mit „Theme übernehmen"`,
     );
   }
+  const neutral = mapped.themePatch.scales?.neutralBase;
+  if (neutral !== undefined) {
+    steps.push(
+      `Neutral-Tönung ${neutral} vorgeschlagen (Mittel der Grautöne der Seite ohne Schwarz und Weiß); sie ersetzt die Theme-Neutrale nur mit „Theme übernehmen"`,
+    );
+  }
+  const typeBase = mapped.themePatch.scales?.typeBase;
+  if (typeBase !== undefined) {
+    steps.push(
+      `Fließtextgröße ${typeBase} px vorgeschlagen (die Größe, in der die meisten Zeichen der Seite stehen); sie ersetzt die Theme-Basisgröße nur mit „Theme übernehmen"`,
+    );
+  }
 
   const totalDeclarations = normalized.rules.reduce(
     (sum, rule) => sum + Object.keys(rule.declarations).length,

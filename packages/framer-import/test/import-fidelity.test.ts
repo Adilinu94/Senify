@@ -56,6 +56,17 @@ describe("capture fidelity", () => {
     expect(nodes.find((node) => node.primitive === "image")?.props["alt"]).toBe("Logo Acme");
   });
 
+  it("keeps the spaces of a text whose words sit in separate spans", () => {
+    // Framer's word-by-word reveal puts every word and every space in a span of
+    // its own. Without the space spans the words run together and the text can
+    // no longer wrap.
+    const { nodes } = run(
+      page('<div data-framer-component-type="RichTextContainer"><p><span>Wir</span><span> </span><span>sind</span></p></div>'),
+    );
+    const body = nodes.find((node) => String(node.props["html"] ?? "").includes("Wir"));
+    expect(String(body?.props["html"])).toContain("<span>Wir</span><span> </span><span>sind</span>");
+  });
+
   it("keeps the text between inline elements", () => {
     const { nodes } = run(page('<div data-framer-component-type="RichTextContainer"><p>Hallo <strong>fett</strong> Welt</p></div>'));
     const html = nodes.map((node) => String(node.props["html"] ?? "")).join("|");
@@ -257,6 +268,28 @@ describe("typography through custom properties", () => {
     expect(heading?.props["fontSize"]).toBe("64px");
     expect(heading?.props["color"]).toBe("#fff");
   });
+
+  it("keeps what the text inherits when the words of a heading sit in spans", () => {
+    // Framer splits a heading into one span per word or letter. The spans carry
+    // no rule of their own; their size and colour come down from the `h1`. The
+    // lifted heading must take the inherited values, not the empty ones of the
+    // first span.
+    const { nodes } = run(
+      preset(
+        ".hd{font-size:64px;color:#fff;font-weight:500}.in{letter-spacing:-2px}",
+        '<div data-framer-component-type="RichTextContainer"><h1 class="hd"><span style="white-space:nowrap"><span class="in" style="display:inline-block">A</span><span>b</span></span> <span style="white-space:nowrap"><span>c</span></span></h1></div>',
+      ),
+    );
+    const lifted = nodes.find((node) => String(node.props["html"] ?? "").includes("<h1"));
+    expect(lifted).toBeDefined();
+    expect(lifted?.props["fontSize"]).toBe("64px");
+    expect(lifted?.props["color"]).toBe("#fff");
+    expect(lifted?.props["fontWeight"]).toBe("500");
+    // What only a part of the text sets stays out: the nowrap of one word would
+    // keep the whole heading from wrapping, a letter's spacing is the letter's.
+    expect(lifted?.props["whiteSpace"]).not.toBe("nowrap");
+    expect(lifted?.props["letterSpacing"]).toBeUndefined();
+  });
 });
 
 describe("pinned layers", () => {
@@ -392,5 +425,107 @@ describe("variant-scoped rules", () => {
     expect(root?.["flexDirection"]).toBe("row");
     expect(root?.["width"]).toBe("100%");
     expect(kid?.["flexDirection"]).toBe("row");
+  });
+});
+
+describe("which rules the stylesheet really matches", () => {
+  // The frame that holds the text `label`, with its padding and white-space.
+  const boxOf = (html: string, css: string, label: string) => {
+    const { mapped } = run(page(html, css));
+    const all = Object.values(mapped.document.nodes) as { id: string; props: Record<string, unknown>; children?: string[] }[];
+    const text = all.find((node) => node.props["text"] === label);
+    const box = all.find((node) => text !== undefined && node.children?.includes(text.id));
+    const padding = box?.props["padding"] as { top?: string } | undefined;
+    return { padding: padding?.top, whiteSpace: box?.props["whiteSpace"] };
+  };
+
+  it("keeps a class rule's padding when a rule scoped to an attribute elsewhere says `padding:0`", () => {
+    // Framer's rich-text reset `[data-framer-component-type=DeprecatedRichText] div`
+    // reaches the divs inside that component only. Read as a rule for every div it
+    // came later in the sheet than the class rules and wiped the padding of the
+    // page's containers (the hero of fluffy-rectangle lost 320 px).
+    const css = ".framer-box{padding:20px}[data-framer-component-type=DeprecatedRichText] div{margin:0;padding:0}";
+    const html = '<div class="framer-box"><p>draussen</p></div><div data-framer-component-type="DeprecatedRichText"><div><p>drinnen</p></div></div>';
+    expect(boxOf(html, css, "draussen").padding).toBe("20px");
+    expect(boxOf(html, css, "drinnen").padding).toBe("0");
+  });
+
+  it("applies `white-space:pre` only below an auto-sized text, not to every element", () => {
+    const css = "[data-framer-component-text-autosized] *{white-space:pre}";
+    const html = '<div class="framer-box"><p>frei</p></div><div data-framer-component-text-autosized="true"><div class="framer-box"><p>fest</p></div></div>';
+    expect(boxOf(html, css, "frei").whiteSpace).not.toBe("pre");
+    expect(boxOf(html, css, "fest").whiteSpace).toBe("pre");
+  });
+
+  it("lets the more specific rule win although a less specific one comes later", () => {
+    const css = ".framer-wrap .framer-box{padding:20px}div{padding:0}";
+    const html = '<div class="framer-wrap"><div class="framer-box"><p>x</p></div></div>';
+    expect(boxOf(html, css, "x").padding).toBe("20px");
+  });
+
+  it("lets a later rule of the same specificity win", () => {
+    const css = ".framer-box{padding:20px}.framer-box{padding:8px}";
+    expect(boxOf('<div class="framer-box"><p>x</p></div>', css, "x").padding).toBe("8px");
+  });
+
+  it("skips a rule whose `:not()` excludes the element", () => {
+    const css = ".framer-box:not(.framer-skip){padding:20px}";
+    const html = '<div class="framer-box"><p>an</p></div><div class="framer-box framer-skip"><p>aus</p></div>';
+    expect(boxOf(html, css, "an").padding).toBe("20px");
+    expect(boxOf(html, css, "aus").padding).not.toBe("20px");
+  });
+
+  it("keeps the appear start state of a stylesheet rule out of the look", () => {
+    // `[data-framer-appear-id]{opacity:0.001}` is the state before Framer's
+    // script animates the element in. Like the inline `opacity:0.001` it must not
+    // stay as the element's look, or the whole page imports almost invisible.
+    const css = ".framer-box{padding:20px}[data-framer-appear-id]{opacity:0.001}";
+    const html = '<div class="framer-box" data-framer-appear-id="a"><p>erscheint</p></div>';
+    const { document, mapped } = run(page(html, css));
+    const framed = Object.values(mapped.document.nodes).filter((node) => node.props["opacity"] !== undefined);
+    expect(framed).toEqual([]);
+    const appearing = document.pages[0]?.root.children[0];
+    expect(appearing?.appearInitial?.["opacity"]).toBe("0.001");
+  });
+
+  it("reads an attribute on the element itself", () => {
+    const css = '.framer-box[data-x="on"]{padding:20px}';
+    const html = '<div class="framer-box" data-x="on"><p>an</p></div><div class="framer-box" data-x="off"><p>aus</p></div>';
+    expect(boxOf(html, css, "an").padding).toBe("20px");
+    expect(boxOf(html, css, "aus").padding).not.toBe("20px");
+  });
+});
+
+describe("spacing values that hold a function", () => {
+  // The frame that holds the text `label`: its padding and gap as the mapper sets them.
+  const spacingOf = (css: string) => {
+    const { mapped } = run(page('<div class="framer-box"><p>x</p></div>', css));
+    const all = Object.values(mapped.document.nodes) as { id: string; props: Record<string, unknown>; children?: string[] }[];
+    const text = all.find((node) => node.props["text"] === "x");
+    const box = all.find((node) => text !== undefined && node.children?.includes(text.id));
+    return { padding: box?.props["padding"], gap: box?.props["gap"] };
+  };
+
+  // A shorthand splits on the spaces between its values, not on the spaces inside
+  // a `clamp(16px, 4vw, 32px)` or a `calc(100% - 20px)`.
+  it("keeps clamp() and calc() whole inside a padding shorthand", () => {
+    const { padding } = spacingOf(".framer-box{padding:clamp(16px, 4vw, 32px) 8px calc(100% - 20px) 4px}");
+    expect(padding).toEqual({
+      top: "clamp(16px, 4vw, 32px)",
+      right: "8px",
+      bottom: "calc(100% - 20px)",
+      left: "4px",
+    });
+  });
+
+  it("keeps a function whole inside a gap shorthand", () => {
+    const { gap } = spacingOf(".framer-box{display:flex;gap:calc(1px + 2px) 8px}");
+    expect(gap).toEqual({ row: "calc(1px + 2px)", column: "8px" });
+  });
+
+  it("still splits plain shorthands as before", () => {
+    const { padding, gap } = spacingOf(".framer-box{display:flex;padding:1px 2px;gap:3px}");
+    expect(padding).toEqual({ top: "1px", right: "2px", bottom: "1px", left: "2px" });
+    expect(gap).toEqual({ row: "3px", column: "3px" });
   });
 });

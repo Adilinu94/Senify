@@ -56,6 +56,7 @@ export { buildFidelityReport, type FidelityReport } from "./fidelity.ts";
 
 export { sectionCandidatesOf } from "./section-candidates.ts";
 export { brandColorOf } from "./brand-color.ts";
+export { neutralBaseOf, typeBaseOf } from "./theme-scales.ts";
 export { discoverPagePaths, pagePathOf, resolveHref, rewriteLinks } from "./link-paths.ts";
 export { pageFileOf } from "./capture-html.ts";
 

@@ -33,7 +33,8 @@ export const CreateImportBodySchema = Type.Object(
     // @font-face sources to local paths (default), "skip" keeps the CDN URLs
     // and reports them.
     fonts: Type.Optional(Type.Union([Type.Literal("rewrite"), Type.Literal("skip")])),
-    // Theme: apply the derived font patch with update_theme on write.
+    // Theme: apply the derived theme patch (fonts, brand colour, neutral tint,
+    // body text size) with update_theme on write.
     applyTheme: Type.Optional(Type.Boolean()),
     // "dna" (default) rewrites what the design DNA forbids (gradients, shadows,
     // radii, centered headings); "fidelity" keeps the source's look.

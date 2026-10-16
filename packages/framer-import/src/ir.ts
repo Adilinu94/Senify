@@ -222,6 +222,10 @@ export type IrNode = {
   // of a variant under them (`.framer-C.framer-v-<hash> .framer-part{…}`), so the
   // stylesheet match needs them. Read by the capture only.
   variantClasses?: string[];
+  // The attributes the page's selectors ask about (`data-framer-component-type`
+  // …), so a rule scoped to one reaches the elements that carry it and no others.
+  // Read by the capture only.
+  attrs?: Record<string, string>;
   tag: string;
   href: string | null;
   // The anchor id, the image alt text, the link target and the inline markup
@@ -565,6 +569,9 @@ function asIrNode(value: unknown): IrNode | undefined {
     baseClasses,
     ...(Array.isArray(value.variantClasses)
       ? { variantClasses: value.variantClasses.filter((entry): entry is string => typeof entry === "string") }
+      : {}),
+    ...(isRecord(value.attrs)
+      ? { attrs: Object.fromEntries(Object.entries(value.attrs).filter((entry): entry is [string, string] => typeof entry[1] === "string")) }
       : {}),
     tag: asString(value.tag) ?? "div",
     href: asString(value.href) ?? null,

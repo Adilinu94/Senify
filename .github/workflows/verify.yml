@@ -12,9 +12,15 @@ name: verify
 # ersten: sie sollen als eigener gruener oder roter Balken sichtbar sein, nicht
 # als Zeile im Rollout eines anderen Jobs.
 on:
-  # Minuten sparen (07.10.2026): kein Lauf pro Push mehr - das Gate zaehlt auf
-  # dem Pull Request, wo es vor dem Merge entscheidet. Wer einen Stand ohne PR
-  # pruefen will, startet den Workflow von Hand (`workflow_dispatch`).
+  # Minuten sparen (07.10.2026): kein Lauf pro Push auf beliebige Branches -
+  # das Gate zaehlt auf dem Pull Request, wo es vor dem Merge entscheidet.
+  # Ausnahme (16.10.2026): Pushes auf master laufen mit, damit ein roter
+  # master (Direkt-Push oder Merge-Stand) nicht unbemerkt bleibt. Wer einen
+  # anderen Stand ohne PR pruefen will, startet den Workflow von Hand
+  # (`workflow_dispatch`).
+  push:
+    branches:
+      - master
   pull_request:
   workflow_dispatch:
 

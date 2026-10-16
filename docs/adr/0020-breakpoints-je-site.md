@@ -61,15 +61,19 @@ zeigte das Original das Tablet-Layout, der Import das Desktop-Layout.
   würde.
 
 **Belegt (Bedingung „Import läuft besser“).** Gemessen mit `import-fixture-gate-browser.test.ts` (Pixelabstand
-gegen die Original-Aufnahme, Standardpaar gegen Paar der Site), 15.10.2026:
+gegen die Original-Aufnahme, Standardpaar gegen Paar der Site), 16.10.2026 auf dem Stand mit der neuen
+Selektor-Engine des Imports (`master` `7f85d8b`; auf dem Stand davor lagen die Zahlen höher, die Richtung war
+dieselbe):
 
-| Fixture | bei 1024 px | andere Breiten |
-|---|---|---|
-| easier-train | 24,8 % → 12,8 % | 1200 px: 30,3 → 16,0 · 720 px: 28,4 → 27,8 |
-| fluffy-rectangle | 68,3 % → 30,4 % | 720 px: 41,5 → 38,3 |
-| stupendous-football | 45,5 % → 21,0 % | 720 px: 49,6 → 37,1 |
+| Fixture (Paar der Site) | bei 1024 px | bei 1200 px | bei 720 px |
+|---|---|---|---|
+| easier-train (1440 / 810) | 24,1 % → 12,1 % | 29,8 → 15,4 | 27,9 → 28,0 |
+| fluffy-rectangle (1200 / 810) | 56,8 % → 29,5 % | 12,2 → 12,2 | 42,3 → 39,2 |
+| stupendous-football (1200 / 810) | 43,6 % → 16,4 % | 15,0 → 15,0 | 48,9 → 33,5 |
 
-Keine gemessene Breite wurde schlechter. Der Gate behält seine Messung bei 900 px mit den alten Obergrenzen und
+Bei 1024 und 1200 px wird kein Wert schlechter, bei 720 px liegt easier-train mit +0,1 Punkten im Rauschen.
+Wo beide Paare dasselbe Layout wählen (1200 px bei fluffy-rectangle und stupendous-football: beide Desktop),
+bleibt das Bild gleich. Der Gate behält seine Messung bei 900 px mit den alten Obergrenzen und
 bekommt eine zweite bei 1024 px mit eigener Ratsche (`DIFF_CEILING_PLATFORM_TABLET`).
 
 **Folgen und Grenzen.**
