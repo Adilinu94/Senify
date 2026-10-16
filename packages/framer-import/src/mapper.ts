@@ -711,10 +711,11 @@ function escapeHtmlAttr(value: string): string {
 const INLINE_TAGS = new Set(["span", "a", "strong", "b", "em", "i", "u", "s", "small", "mark", "sub", "sup", "code"]);
 
 // The first descendant that carries its own text, with the elements on the way
-// down to it (the child of `node` first, the text element last).
+// down to it (the child of `node` first, the text element last). A paragraph
+// that mixes text with `<br>` or inline elements keeps its text as inner markup.
 function firstTextPath(node: IrNode): IrNode[] | null {
   for (const child of node.children) {
-    if ((child.states[0]?.text?.content ?? "") !== "") return [child];
+    if ((child.states[0]?.text?.content ?? "") !== "" || (child.innerHtml ?? "") !== "") return [child];
     const inner = firstTextPath(child);
     if (inner !== null) return [child, ...inner];
   }

@@ -1492,6 +1492,19 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
       }
       const vars = { ...inherited[device], ...own };
       varsByDevice[device] = vars;
+      // Framer keeps a border as custom properties and draws it with
+      // `[data-border=true]:after`, a pseudo rule that is not applied. The
+      // element carries the border itself, with the widths of each side.
+      const borderStyle = vars["--border-style"];
+      if (current.attrs?.["data-border"] === "true" && borderStyle !== undefined && borderStyle !== "none") {
+        for (const side of ["top", "right", "bottom", "left"]) {
+          const width = vars[`--border-${side}-width`];
+          if (width !== undefined) plain[`border-${side}-width`] = width;
+        }
+        plain["border-style"] = borderStyle;
+        const color = vars["--border-color"];
+        if (color !== undefined) plain["border-color"] = color;
+      }
       valuesByDevice[device] = Object.fromEntries(
         Object.entries(plain).flatMap(([key, value]) => (value === undefined ? [] : [[key, resolveVars(value, vars)]])),
       );

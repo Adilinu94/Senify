@@ -290,6 +290,23 @@ describe("typography through custom properties", () => {
     expect(lifted?.props["whiteSpace"]).not.toBe("nowrap");
     expect(lifted?.props["letterSpacing"]).toBeUndefined();
   });
+
+  it("lifts the typography of a paragraph that mixes text and line breaks", () => {
+    // `<p>Zeile<br>Zeile</p>` holds no text node of its own: the capture keeps it
+    // as inner markup. Its size and colour must still reach the lifted body,
+    // or the hero paragraph of fluffy-rectangle renders in 16 px black on black.
+    const { nodes } = run(
+      preset(
+        ".lead{font-size:24px;color:#f8f8f8;font-weight:600}",
+        '<div data-framer-component-type="RichTextContainer"><p class="lead">Erste Zeile<br>Zweite Zeile</p></div>',
+      ),
+    );
+    const lifted = nodes.find((node) => String(node.props["html"] ?? "").includes("Erste Zeile"));
+    expect(lifted).toBeDefined();
+    expect(lifted?.props["fontSize"]).toBe("24px");
+    expect(lifted?.props["color"]).toBe("#f8f8f8");
+    expect(lifted?.props["fontWeight"]).toBe("600");
+  });
 });
 
 describe("pinned layers", () => {
@@ -486,6 +503,30 @@ describe("which rules the stylesheet really matches", () => {
     expect(framed).toEqual([]);
     const appearing = document.pages[0]?.root.children[0];
     expect(appearing?.appearInitial?.["opacity"]).toBe("0.001");
+  });
+
+  it("turns Framer's border variables into a border on the element that says `data-border`", () => {
+    // Framer keeps a border as custom properties and draws it with
+    // `[data-border=true]:after`. That pseudo rule is not applied, so without
+    // this the divider lines of the reference cards (fluffy-rectangle) were gone.
+    const css =
+      ".framer-card{--border-top-width:1px;--border-left-width:1px;--border-right-width:0px;--border-bottom-width:0px;--border-color:#262626;--border-style:solid;padding:20px}" +
+      "[data-border=true]:after{content:'';border-width:var(--border-top-width,0) var(--border-right-width,0) var(--border-bottom-width,0) var(--border-left-width,0);border-color:var(--border-color,none);border-style:var(--border-style,none)}";
+    const html = '<div class="framer-card" data-border="true"><p>Karte</p></div><div class="framer-card"><p>ohne</p></div>';
+    const { mapped } = run(page(html, css));
+    const all = Object.values(mapped.document.nodes) as { id: string; props: Record<string, unknown>; children?: string[] }[];
+    const framed = (label: string) => {
+      const text = all.find((node) => node.props["text"] === label || String(node.props["html"] ?? "").includes(label));
+      return all.find((node) => text !== undefined && node.children?.includes(text.id))?.props;
+    };
+    const card = framed("Karte");
+    expect(card?.["borderTopWidth"]).toBe("1px");
+    expect(card?.["borderLeftWidth"]).toBe("1px");
+    expect(card?.["borderRightWidth"]).toBe("0px");
+    expect(card?.["borderStyle"]).toBe("solid");
+    expect(card?.["borderColor"]).toBe("#262626");
+    // Without `data-border` the variables draw nothing.
+    expect(framed("ohne")?.["borderTopWidth"]).toBeUndefined();
   });
 
   it("reads an attribute on the element itself", () => {
