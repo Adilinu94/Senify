@@ -26,7 +26,7 @@ const MIME: Record<string, string> = { ".html": "text/html; charset=utf-8", ".cs
 
 type Sec = { i: number; label: string; text: string; top: number; h: number; imgs: number };
 type Img = { src: string; lazy: string; ok: boolean; nw: number; nh: number; w: number; h: number };
-type Snap = { total: number; path: string; boxH: number; gap: number; sections: Sec[]; imgSummary: Record<string, number>; topImgs: Img[]; media: Record<string, number> };
+type Snap = { total: number; raw: string[]; path: string; boxH: number; gap: number; sections: Sec[]; imgSummary: Record<string, number>; topImgs: Img[]; media: Record<string, number> };
 type Browser = Awaited<ReturnType<typeof chromium.launch>>;
 
 function settled(html: string): string {
@@ -71,13 +71,14 @@ async function capture(browser: Browser, url: string, bp: Breakpoint): Promise<{
   }
 }
 
-const sec = (s: Sec | undefined): string => (s ? `${s.label} «${s.text}» img${s.imgs}` : "-");
+const sec = (s: Sec | undefined): string => (s ? `${s.label} «${s.text}» sichtbareBilder${s.imgs}` : "-");
 const imgLine = (x: Img): string => `h${x.h} (${x.w}x${x.h}, natuerlich ${x.nw}x${x.nh}, ${x.ok ? "geladen" : "LEER"}${x.lazy ? ", " + x.lazy : ""}) …${x.src}`;
 
 function report(bp: Breakpoint, o: { pre: Snap; post: Snap }, i: { pre: Snap; post: Snap }, lines: string[]): void {
   lines.push(``, `== ${bp} (${widthOf(bp)} px)`);
   lines.push(`Gesamthoehe vor/nach Scrollen: Original ${o.pre.total}/${o.post.total}; Import ${i.pre.total}/${i.post.total}`);
   lines.push(`Container Original: ${o.pre.path} (h ${o.pre.boxH}, Luecke ${o.pre.gap}); Import: ${i.pre.path} (h ${i.pre.boxH}, Luecke ${i.pre.gap})`);
+  lines.push(`Kinder des Containers (roh) Original: ${o.pre.raw.join(" ; ")}`, `Kinder des Containers (roh) Import: ${i.pre.raw.join(" ; ")}`);
   lines.push(`Abschnitte vor Scrollen (Index | h Original | h Import | Differenz | Original | Import):`);
   const n = Math.max(o.pre.sections.length, i.pre.sections.length);
   for (let k = 0; k < n; k++) {

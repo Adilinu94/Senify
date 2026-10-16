@@ -11,7 +11,17 @@ export const SNAP = `(() => {
     return (el.tagName.toLowerCase() + id + cls + (fn ? "[" + fn + "]" : "")).slice(0, 46);
   };
   const snippet = (el) => (el.textContent || "").replace(/\\s+/g, " ").trim().slice(0, 30);
-  const kidsOf = (el) => [...el.children].filter((c) => SKIP.indexOf(c.tagName) < 0 && H(c) > 0);
+  const flat = (el, out) => {
+    for (const c of el.children) {
+      if (SKIP.indexOf(c.tagName) >= 0) continue;
+      const d = getComputedStyle(c).display;
+      if (d === "contents") flat(c, out); else if (d !== "none" && H(c) > 0) out.push(c);
+    }
+    return out;
+  };
+  const kidsOf = (el) => flat(el, []);
+  const vis = (el) => [...el.querySelectorAll("img")].filter((i) => H(i) > 0).length;
+  const rawOf = (b) => [...b.children].slice(0, 8).map((c) => { const cs = getComputedStyle(c); return label(c) + " display=" + cs.display + " pos=" + cs.position + " h=" + H(c); });
   let box = document.body;
   const path = [];
   for (let d = 0; d < 14; d++) {
@@ -21,8 +31,9 @@ export const SNAP = `(() => {
     if (big.length === 1) box = big[0]; else break;
   }
   const kids = kidsOf(box);
+  const raw = rawOf(box);
   const boxTop = T(box);
-  const sections = kids.map((c, i) => ({ i, label: label(c), text: snippet(c), top: T(c) - boxTop, h: H(c), imgs: c.querySelectorAll("img").length }));
+  const sections = kids.map((c, i) => ({ i, label: label(c), text: snippet(c), top: T(c) - boxTop, h: H(c), imgs: vis(c) }));
   const sumH = sections.reduce((a, s) => a + s.h, 0);
   const imgs = [...document.images];
   const info = imgs.map((im) => {
@@ -30,8 +41,8 @@ export const SNAP = `(() => {
     return { src: (im.currentSrc || im.src || "").slice(-40), lazy: im.getAttribute("loading") || "", ok: im.complete && im.naturalWidth > 0, nw: im.naturalWidth, nh: im.naturalHeight, w: Math.round(r.width), h: Math.round(r.height) };
   });
   return JSON.stringify({
-    total, path: path.join(" > "), boxH: H(box), gap: H(box) - sumH, sections,
-    imgSummary: { count: info.length, loaded: info.filter((i) => i.ok).length, broken: info.filter((i) => !i.ok).length, lazy: info.filter((i) => i.lazy === "lazy").length, zeroH: info.filter((i) => i.h === 0).length, sumH: info.reduce((a, i) => a + i.h, 0) },
+    total, raw, path: path.join(" > "), boxH: H(box), gap: H(box) - sumH, sections,
+    imgSummary: { count: info.length, visible: info.filter((i) => i.h > 0).length, loaded: info.filter((i) => i.ok).length, broken: info.filter((i) => !i.ok).length, lazy: info.filter((i) => i.lazy === "lazy").length, zeroH: info.filter((i) => i.h === 0).length, sumH: info.reduce((a, i) => a + i.h, 0) },
     topImgs: [...info].sort((a, b) => b.h - a.h).slice(0, 6),
     media: { video: document.querySelectorAll("video").length, iframe: document.querySelectorAll("iframe").length, canvas: document.querySelectorAll("canvas").length, svg: document.querySelectorAll("svg").length },
   });
