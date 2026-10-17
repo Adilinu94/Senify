@@ -11,14 +11,21 @@ export const SiteProfileSchema = Type.Union([
 ]);
 
 // `PATCH /api/sites/:siteId` carries a rename, a profile change (ticket 20)
-// and/or the public address. At least one field has to be present; the handler
-// rejects an empty update instead of writing a silent no-op. `baseUrl` is
-// validated and normalized in the store; `null` or blank clears it.
+// the public address and/or the breakpoint pair. At least one field has to be
+// present; the handler rejects an empty update instead of writing a silent
+// no-op. `baseUrl` is validated and normalized in the store; `null` or blank
+// clears it. `breakpoints` (ADR-0020) is a `{ tablet, mobile }` pair checked
+// against the guard rails in the store; `null` returns to the platform default.
+// The numbers are checked there, not by this schema, so one message names the
+// rule that failed.
 export const UpdateSiteBodySchema = Type.Object(
   {
     name: Type.Optional(Type.String({ minLength: 1 })),
     profile: Type.Optional(SiteProfileSchema),
     baseUrl: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+    breakpoints: Type.Optional(
+      Type.Union([Type.Object({ tablet: Type.Number(), mobile: Type.Number() }, CLOSED), Type.Null()]),
+    ),
     author: Type.Optional(AuthorSchema),
   },
   CLOSED,

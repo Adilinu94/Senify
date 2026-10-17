@@ -1218,15 +1218,16 @@ const ROUTES: Route[] = [
       if (
         parsed.name === undefined &&
         parsed.profile === undefined &&
-        parsed.baseUrl === undefined
+        parsed.baseUrl === undefined &&
+        parsed.breakpoints === undefined
       ) {
         throw new SenifyError(
           "validation",
-          "Nothing to update: pass a name, a profile or a baseUrl",
+          "Nothing to update: pass a name, a profile, a baseUrl or breakpoints",
           {
             field: "body",
             suggestion:
-              'Send { "name": "…" }, { "profile": "clean|standard|showcase" } or { "baseUrl": "https://www.kunde.de" }.',
+              'Send { "name": "…" }, { "profile": "clean|standard|showcase" }, { "baseUrl": "https://www.kunde.de" } or { "breakpoints": { "tablet": 1024, "mobile": 640 } }.',
           },
         );
       }
@@ -1257,6 +1258,15 @@ const ROUTES: Route[] = [
           siteId,
           mutation: "update_site_base_url",
           params: { baseUrl: site.baseUrl ?? null },
+          author: resolveAuthor(auth),
+        });
+      }
+      if (parsed.breakpoints !== undefined) {
+        site = await context.store.updateSiteBreakpoints(siteId, parsed.breakpoints);
+        await context.store.recordSiteEvent({
+          siteId,
+          mutation: "update_site_breakpoints",
+          params: { breakpoints: site.breakpoints ?? null },
           author: resolveAuthor(auth),
         });
       }
@@ -5011,6 +5021,12 @@ const ROUTES: Route[] = [
       const siteTheme = await context.store.getTheme(siteId);
       const resolved = resolveTheme(siteTheme.theme);
       const baseDuration = resolved.motion.duration.base;
+      // The write would set the source's breakpoints only on a site without a
+      // pair and without other pages; the preview bakes with what it would leave.
+      const targetPath = parsed.pagePath ?? "/";
+      const otherPages = (await context.store.listPageDrafts(siteId)).some((page) =>
+        parsed.pageId === undefined ? page.path !== targetPath : page.id !== parsed.pageId,
+      );
       const preview = await previewFramerImport({
         source: sourceOf(parsed),
         pagePath: parsed.pagePath ?? "/",
@@ -5022,6 +5038,7 @@ const ROUTES: Route[] = [
           baseStaggerMs: 80,
         },
         siteName: site.name,
+        site: { ...(site.breakpoints === undefined ? {} : { breakpoints: site.breakpoints }), otherPages },
         driver: context.importPreview ?? createImportPreviewDriver(),
       });
       return { status: 200, body: preview };

@@ -68,6 +68,8 @@ export {
   type ImportResolution,
 } from "./library.ts";
 
+export { siteBreakpointsOf } from "./site-breakpoints.ts";
+
 export { mapFramerMotion } from "./motion-mapping.ts";
 export type { MotionMapping, MotionMappingResult } from "./motion-mapping.ts";
 

@@ -34,6 +34,7 @@ import {
   type TranslateOptions,
 } from "./properties.ts";
 import { isSafeRawCss, normalizeRawCss } from "./value-grammar.ts";
+import type { Breakpoints } from "../breakpoints.ts";
 
 export type CssNode = {
   id: string;
@@ -92,6 +93,9 @@ export type CompileOptions = TranslateOptions & {
   // unanchored `.cls` loses against `[data-node-id]:hover` on specificity
   // alone.
   classEmission?: "global" | "regional";
+  // The width pair the device media queries are written for (ADR-0020). Left
+  // out, the platform default (tablet 1024, mobile 640) applies.
+  breakpoints?: Breakpoints;
 };
 
 export function defaultSelectorFor(nodeId: string): string {
@@ -236,14 +240,16 @@ export function deviceExpandedBlocks(
   primitive: string,
   values: DeviceValueMap,
   selector: string,
-  options: TranslateOptions = {},
+  options: TranslateOptions & { breakpoints?: Breakpoints } = {},
 ): string[] {
   const per = declarationsPerDevice(primitive, values, options);
   const blocks: string[] = [];
   if (per.desktop.length > 0) blocks.push(writeBlock(selector, per.desktop, 0));
   for (const device of ["tablet", "mobile"] as const) {
     if (per[device].length === 0) continue;
-    blocks.push(writeMedia(mediaQueryFor(device), [writeBlock(selector, per[device], 1)], 0));
+    blocks.push(
+      writeMedia(mediaQueryFor(device, options.breakpoints), [writeBlock(selector, per[device], 1)], 0),
+    );
   }
   return blocks;
 }
@@ -378,9 +384,13 @@ function expandSources(
         const declarations = per[device];
         if (declarations.length === 0) continue;
         inner.push(
-          writeMedia(mediaQueryFor(device), [writeBlock(source.selector, declarations, depth + 1)], depth),
+          writeMedia(
+            mediaQueryFor(device, options.breakpoints),
+            [writeBlock(source.selector, declarations, depth + 1)],
+            depth,
+          ),
         );
-        rules.push(ruleFor(mediaQueryFor(device), declarations));
+        rules.push(ruleFor(mediaQueryFor(device, options.breakpoints), declarations));
         ruleCount += 1;
         declarationCount += declarations.length;
       }
@@ -404,7 +414,7 @@ function expandSources(
       if (declarations.length === 0) continue;
       const bucket = buckets[device];
       bucket.pending.push({ hover, selector: source.selector, declarations });
-      bucket.rules.push(ruleFor(mediaQueryFor(device), declarations));
+      bucket.rules.push(ruleFor(mediaQueryFor(device, options.breakpoints), declarations));
       ruleCount += 1;
       declarationCount += declarations.length;
     }
@@ -414,7 +424,7 @@ function expandSources(
   for (const device of ["tablet", "mobile"] as const) {
     const bucket = buckets[device];
     if (bucket.pending.length === 0) continue;
-    blocks.push(writeMedia(mediaQueryFor(device), renderLayer(bucket.pending, 1), 0));
+    blocks.push(writeMedia(mediaQueryFor(device, options.breakpoints), renderLayer(bucket.pending, 1), 0));
     rules.push(...bucket.rules);
   }
 
@@ -483,7 +493,7 @@ function build(document: CssDocument, compileOptions: CompileOptions): BuildResu
   // stylesheet, so a reset (dropped suffix key) simply inherits again.
   for (const device of ["tablet", "mobile"] as const) {
     const deviceBlocks: string[] = [];
-    const query = mediaQueryFor(device);
+    const query = mediaQueryFor(device, compileOptions.breakpoints);
     for (const node of flat) {
       if (node.props === undefined) continue;
       scope.selector = selectorFor(node.id);

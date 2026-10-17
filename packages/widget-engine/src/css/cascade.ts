@@ -22,7 +22,7 @@
 // longer decides the order — the stage does. That is the merger: one layer,
 // one fixed stage list, no per-kind layers.
 
-import { BREAKPOINTS } from "../breakpoints.ts";
+import { BREAKPOINTS, DEFAULT_BREAKPOINTS, type Breakpoints } from "../breakpoints.ts";
 
 export const CASCADE_LAYER = "user-authored";
 
@@ -91,13 +91,14 @@ export type MediaDevice = keyof typeof DEVICE_BREAKPOINTS;
 // already caught by the media query.
 export const MEDIA_QUERY_OFFSET = 0.02;
 
-export function mediaMaxWidth(device: MediaDevice): number {
-  const max = DEVICE_BREAKPOINTS[device];
+// The pair is the site's own (ADR-0020) or, left out, the platform default.
+export function mediaMaxWidth(device: MediaDevice, breakpoints: Breakpoints = DEFAULT_BREAKPOINTS): number {
+  const max = breakpoints[device];
   return Math.round((max - MEDIA_QUERY_OFFSET) * 100) / 100;
 }
 
-export function mediaQueryFor(device: MediaDevice): string {
-  return `@media (max-width: ${mediaMaxWidth(device)}px)`;
+export function mediaQueryFor(device: MediaDevice, breakpoints: Breakpoints = DEFAULT_BREAKPOINTS): string {
+  return `@media (max-width: ${mediaMaxWidth(device, breakpoints)}px)`;
 }
 
 function escapeAttributeValue(value: string): string {

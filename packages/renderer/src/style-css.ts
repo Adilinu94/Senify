@@ -2,10 +2,12 @@ import { PAGE_ROOT_TYPE, type NodeTree } from "@senify/section-sdk";
 import { styleVarsFor } from "@senify/registry";
 import {
   compileCssReport,
+  resolveBreakpoints,
   scopeNameFor,
   scopeSelectorFor,
   styleRuleToClassRule,
   type CssDiagnostic,
+  type Breakpoints,
   type CssNode,
   type StyleRule,
 } from "@senify/widget-engine";
@@ -14,7 +16,9 @@ import { BREAKPOINTS } from "./breakpoints.ts";
 // Breakpoint overrides cannot travel inline: they become a generated
 // stylesheet keyed by data-node-id. The same numbers serve the editor
 // frames (T13) and the bake. The numbers themselves live in `breakpoints.ts`
-// so the canvas can read them without the registry.
+// so the canvas can read them without the registry. A site may carry its own
+// pair (ADR-0020): the functions below take it as an option and fall back to
+// the platform default, so a site without an entry bakes exactly as before.
 export { BREAKPOINTS };
 
 export type StyleCssPage = {
@@ -37,17 +41,20 @@ function mediaQuery(maxWidth: number, body: string): string {
 // breakpoint override cascade downwards (a tablet query also covers mobile), so
 // "hidden on tablet only" cannot be written as one override. Each hidden
 // device gets its own exact width range instead.
-const DEVICE_RANGES = {
-  desktop: `(min-width: ${BREAKPOINTS.tablet}px)`,
-  tablet: `(min-width: ${BREAKPOINTS.mobile}px) and (max-width: ${BREAKPOINTS.tablet - 0.02}px)`,
-  mobile: `(max-width: ${BREAKPOINTS.mobile - 0.02}px)`,
-} as const;
+function deviceRanges(breakpoints: Breakpoints): Record<"desktop" | "tablet" | "mobile", string> {
+  return {
+    desktop: `(min-width: ${breakpoints.tablet}px)`,
+    tablet: `(min-width: ${breakpoints.mobile}px) and (max-width: ${breakpoints.tablet - 0.02}px)`,
+    mobile: `(max-width: ${breakpoints.mobile - 0.02}px)`,
+  };
+}
 
 function hasExplicitVisibility(node: NodeTree["nodes"][string]): boolean {
   return node.overrides?.tablet?.hidden === false || node.overrides?.mobile?.hidden === false;
 }
 
-function visibilityBlocks(node: NodeTree["nodes"][string]): string[] {
+function visibilityBlocks(node: NodeTree["nodes"][string], breakpoints: Breakpoints): string[] {
+  const ranges = deviceRanges(breakpoints);
   const desktopVisible = node.hidden !== true;
   const visible = {
     desktop: desktopVisible,
@@ -58,20 +65,21 @@ function visibilityBlocks(node: NodeTree["nodes"][string]): string[] {
   for (const device of ["desktop", "tablet", "mobile"] as const) {
     if (visible[device]) continue;
     blocks.push(
-      `@media ${DEVICE_RANGES[device]} {\n  [data-node-id="${node.id}"] {\n  display: none;\n  }\n}`,
+      `@media ${ranges[device]} {\n  [data-node-id="${node.id}"] {\n  display: none;\n  }\n}`,
     );
   }
   return blocks;
 }
 
-export function overridesCss(pages: StyleCssPage[]): string {
+export function overridesCss(pages: StyleCssPage[], siteBreakpoints?: Breakpoints | null): string {
+  const breakpoints = resolveBreakpoints(siteBreakpoints);
   const blocks: string[] = [];
   for (const page of pages) {
     for (const node of Object.values(page.tree.nodes)) {
       const overrides = node.overrides;
       if (!overrides) continue;
       const explicit = hasExplicitVisibility(node);
-      if (explicit) blocks.push(...visibilityBlocks(node));
+      if (explicit) blocks.push(...visibilityBlocks(node, breakpoints));
       for (const breakpoint of ["tablet", "mobile"] as const) {
         const override = overrides[breakpoint];
         if (!override) continue;
@@ -84,7 +92,7 @@ export function overridesCss(pages: StyleCssPage[]): string {
         if (lines.length === 0) continue;
         blocks.push(
           mediaQuery(
-            BREAKPOINTS[breakpoint],
+            breakpoints[breakpoint],
             `  [data-node-id="${node.id}"] {\n${lines.join("\n")}\n  }`,
           ),
         );
@@ -120,8 +128,9 @@ export function overridesCss(pages: StyleCssPage[]): string {
 export function styleRulesCss(
   pages: readonly StyleCssPage[],
   rules: readonly StyleRule[],
+  siteBreakpoints?: Breakpoints | null,
 ): string {
-  return styleRulesReport(pages, rules).css;
+  return styleRulesReport(pages, rules, siteBreakpoints).css;
 }
 
 // The same compile as `styleRulesCss`, with the values the compiler had to drop
@@ -131,6 +140,7 @@ export function styleRulesCss(
 export function styleRulesReport(
   pages: readonly StyleCssPage[],
   rules: readonly StyleRule[],
+  siteBreakpoints?: Breakpoints | null,
 ): { css: string; diagnostics: CssDiagnostic[] } {
   const nodes = new Map<string, CssNode>();
   for (const page of pages) {
@@ -171,20 +181,21 @@ export function styleRulesReport(
       nodes.set(node.id, cssNode);
     }
   }
-  const report = compileCssReport({
-    nodes: [...nodes.values()],
-    classRules: remapScopedRules(pages, rules)
-      .flatMap((rule) => {
-        if (rule.origin?.source !== "framer-import") return [rule];
-        // An imported rule's base declarations already live in its nodes' own
-        // props, so emitting them twice would only repeat them. Its `:hover` /
-        // `:focus` / `:active` / `:disabled` states exist nowhere else, so
-        // those alone are emitted (and win over the node's base by specificity).
-        const hasStates = Object.values(rule.states ?? {}).some((bag) => Object.keys(bag ?? {}).length > 0);
-        return hasStates ? [{ ...rule, styles: {}, contextStyles: {} }] : [];
-      })
-      .map((rule) => styleRuleToClassRule(rule)),
-  });
+  const classRules = remapScopedRules(pages, rules)
+    .flatMap((rule) => {
+      if (rule.origin?.source !== "framer-import") return [rule];
+      // An imported rule's base declarations already live in its nodes' own
+      // props, so emitting them twice would only repeat them. Its `:hover` /
+      // `:focus` / `:active` / `:disabled` states exist nowhere else, so
+      // those alone are emitted (and win over the node's base by specificity).
+      const hasStates = Object.values(rule.states ?? {}).some((bag) => Object.keys(bag ?? {}).length > 0);
+      return hasStates ? [{ ...rule, styles: {}, contextStyles: {} }] : [];
+    })
+    .map((rule) => styleRuleToClassRule(rule));
+  const report = compileCssReport(
+    { nodes: [...nodes.values()], classRules },
+    { breakpoints: resolveBreakpoints(siteBreakpoints) },
+  );
   return { css: report.css, diagnostics: report.diagnostics };
 }
 

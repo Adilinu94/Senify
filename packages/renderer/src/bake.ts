@@ -24,6 +24,7 @@ import {
 import {
   describePrimitive,
   isCatalogPrimitive,
+  type Breakpoints,
   type StyleRule,
 } from "@senify/widget-engine";
 import type { NodeTree, SectionDefinition } from "@senify/section-sdk";
@@ -88,6 +89,11 @@ export type BakePageInput = {
 export type BakeInput = {
   siteName: string;
   baseUrl: string;
+  // The site's own breakpoint pair (ADR-0020, `sites.breakpoints_json`). Absent:
+  // the platform default (1024 / 640). It decides every media query of the
+  // bake (overrides, style rules, the motion payload), so the page breaks where
+  // the editor frames show it.
+  breakpoints?: Breakpoints | null;
   pages: BakePageInput[];
   themeCss: string;
   motionTokens: MotionTokens;
@@ -546,7 +552,7 @@ export async function bakeSite(
       ogImage: page.ogImage ?? "",
       lang: pageLang(page.tree),
       tree: page.tree,
-      motion: jsonForHtml(motionDataFor(configs)),
+      motion: jsonForHtml(motionDataFor(configs, input.breakpoints)),
       // The page-level View Transition block (M6): null unless a node carries
       // a `document` preset; the template inlines it into the head.
       pageTransition: transition === null ? null : pageTransitionCss(transition),
@@ -607,8 +613,8 @@ export async function bakeSite(
     });
   }
 
-  const sectionsCss = overridesCss(input.pages);
-  const siteRules = styleRulesReport(input.pages, input.styleRules ?? []);
+  const sectionsCss = overridesCss(input.pages, input.breakpoints);
+  const siteRules = styleRulesReport(input.pages, input.styleRules ?? [], input.breakpoints);
   const siteRulesCss = siteRules.css;
   for (const drop of siteRules.diagnostics) {
     const nodeId = /\[data-node-id="([^"]+)"\]/.exec(drop.selector)?.[1];
