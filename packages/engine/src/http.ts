@@ -327,7 +327,7 @@ import {
   type UploadSigner,
   type UploadUrlBody,
 } from "./media.ts";
-import { resolveStoredFile, storedFileName } from "./storage.ts";
+import { removeSiteFiles, resolveStoredFile, storedFileName } from "./storage.ts";
 import { buildThemeReport } from "./theme-report.ts";
 import type {
   ImageJobRequest,
@@ -1370,7 +1370,8 @@ const ROUTES: Route[] = [
     handler: async (context, params) => {
       const siteId = params.siteId;
       if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
-      await context.store.deleteSite(siteId);
+      const removed = await context.store.deleteSite(siteId);
+      removeSiteFiles(context.dataDir, siteId, removed.buildRefs);
       return { status: 204 };
     },
   },
