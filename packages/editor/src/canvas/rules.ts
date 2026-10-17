@@ -42,6 +42,7 @@ import {
 import { toCssDocument, type EditorDocument } from "../state/document.ts";
 import { editorOverrides } from "../state/components.ts";
 import { activeVariantProps } from "@senify/section-sdk";
+import type { Breakpoints } from "@senify/widget-engine/breakpoints";
 import { canvasNodeTreeWithCopies } from "./adapter.ts";
 
 export type FrameRulesOptions = {
@@ -52,6 +53,9 @@ export type FrameRulesOptions = {
   // Live mode shows the real page (M4 Stufe 1): the editor chrome — markers,
   // the pointer cursor, the forced state — stays out of the frame.
   chrome?: boolean;
+  // The site's own breakpoint pair (ADR-0020). The frame compiles its media
+  // queries with the same numbers the bake does; absent, the platform default.
+  breakpoints?: Breakpoints;
 };
 
 export type FrameRules = {
@@ -170,12 +174,10 @@ export function canvasFrameRules(
   options: FrameRulesOptions = {},
 ): FrameRules {
   const cssDocument = withComponentCopies(toCssDocument(document), document);
-  const authored = compileCss(
-    cssDocument,
-    options.resolveToken === undefined
-      ? {}
-      : { resolveToken: options.resolveToken },
-  );
+  const authored = compileCss(cssDocument, {
+    ...(options.resolveToken === undefined ? {} : { resolveToken: options.resolveToken }),
+    ...(options.breakpoints === undefined ? {} : { breakpoints: options.breakpoints }),
+  });
   const chromeParts: string[] = [];
   const forced = options.forcedState ?? null;
   if (options.chrome ?? true) {
@@ -184,6 +186,7 @@ export function canvasFrameRules(
         ...(options.resolveToken === undefined
           ? {}
           : { resolveToken: options.resolveToken }),
+        ...(options.breakpoints === undefined ? {} : { breakpoints: options.breakpoints }),
       });
       if (forcedCss.trim() !== "") chromeParts.push(forcedCss);
     }

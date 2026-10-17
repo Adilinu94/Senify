@@ -11,6 +11,7 @@
 import { fetchPublic } from "@senify/core/net";
 import type { EditorDocument } from "@senify/editor/state";
 import type { StyleRule } from "@senify/widget-engine";
+import type { Breakpoints } from "@senify/widget-engine/breakpoints";
 import { captureFixture, captureHtml, type CaptureHtmlInput } from "./capture-html.ts";
 import type { FramerIrDocument, IrFinding, IrNode } from "./ir.ts";
 import { normalize, type NormalizeMode, type NormalizeResult } from "./normalize.ts";
@@ -20,6 +21,7 @@ import { importAssets, type AssetReport, type AssetUploader } from "./assets.ts"
 import { extractPayloads, type ExtractedPayload } from "./payloads.ts";
 import { mapFramerMotion } from "./motion-mapping.ts";
 import { discoverPagePaths } from "./link-paths.ts";
+import { siteBreakpointsOf } from "./site-breakpoints.ts";
 
 /* ------------------------------------------------------------------ types */
 
@@ -56,6 +58,10 @@ export type ImportRun = {
   report: FidelityReport;
   assets: AssetReport | null;
   payloads: ExtractedPayload[];
+  // The source's own breakpoint pair (ADR-0020), or null when it gives none
+  // Senify can carry. The baked page only switches layouts where the original
+  // does when the site uses it.
+  breakpoints: Breakpoints | null;
   // The idempotency fingerprint: identical sources hash identically (S2.5).
   irHash: string;
 };
@@ -218,6 +224,7 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
     report,
     assets: assetReport,
     payloads,
+    breakpoints: siteBreakpointsOf(document.breakpoints),
     irHash: irHashOf(document),
     discoveredPages: discoverPagePaths(
       document.pages[0]?.root ?? ({ children: [], href: null } as never),

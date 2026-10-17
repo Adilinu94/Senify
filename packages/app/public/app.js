@@ -44,6 +44,7 @@ const MUTATION_LABELS = {
   update_theme: "Theme geändert",
   rename_site: "Projekt umbenannt",
   update_site_base_url: "Öffentliche Adresse geändert",
+  update_site_breakpoints: "Umbruchpunkte geändert",
   trash_site: "Projekt in den Papierkorb",
   restore_site: "Projekt wiederhergestellt",
   duplicate_site: "Projekt dupliziert",
@@ -144,6 +145,11 @@ const ENGINE_MESSAGES = [
   [/^Uploaded file is empty$/, () => "Die hochgeladene Datei ist leer."],
   [/^Upload URL is expired$/, () => "Der Upload-Link ist abgelaufen. Bitte die Datei erneut hochladen."],
   [/^Request body must be valid JSON$/, () => "Die Anfrage war kein gültiges JSON."],
+  [/^Breakpoints must be an object with tablet and mobile\.$/, () => "Bitte beide Werte angeben: Tablet und Handy."],
+  [/^Breakpoints tablet and mobile must be whole numbers of pixels\.$/, () => "Tablet und Handy brauchen ganze Pixelwerte, zum Beispiel 1024 und 640."],
+  [/^The tablet breakpoint must lie between (\d+) and (\d+) px\.$/, (m) => `Der Tablet-Wert muss zwischen ${m[1]} und ${m[2]} Pixel liegen.`],
+  [/^The mobile breakpoint must lie between (\d+) and (\d+) px\.$/, (m) => `Der Handy-Wert muss zwischen ${m[1]} und ${m[2]} Pixel liegen.`],
+  [/^The tablet breakpoint must be at least (\d+) px larger than the mobile breakpoint\.$/, (m) => `Der Tablet-Wert muss mindestens ${m[1]} Pixel größer sein als der Handy-Wert.`],
   [/^Missing (.+)$/, (m) => `Es fehlt eine Angabe (${m[1]}).`],
 ];
 
@@ -3997,6 +4003,79 @@ async function openNewPageDialog(siteId) {
   titleInput.focus();
 }
 
+// Die Standardwerte der Plattform (Spiegel von `DEFAULT_BREAKPOINTS` im
+// Widget-Engine; ein Test hält beide gleich). Sie stehen nur als Hinweis im
+// Feld: gespeichert wird, was eingetragen ist, und die Engine prüft die Grenzen.
+const BREAKPOINT_DEFAULTS = { tablet: 1024, mobile: 640 };
+
+// Umbruchpunkte der Website (ADR-0020): ab welcher Breite das Tablet- und das
+// Handy-Layout gelten. Sie wirken auf die ganze Website: Editor-Blätter,
+// Vorschau und Veröffentlichung rechnen mit denselben zwei Zahlen.
+function breakpointsPanel(siteId, site) {
+  const own = site.breakpoints ?? null;
+  const field = (id, label, value, placeholder) =>
+    el(
+      "div",
+      { class: "inline" },
+      el("label", { class: "muted", for: id }, label),
+      el("input", { id, type: "number", min: "1", step: "1", inputmode: "numeric", value: value === null ? "" : String(value), placeholder: String(placeholder) }),
+      el("span", { class: "muted", text: "Pixel" }),
+    );
+  const read = (id) => {
+    const text = document.getElementById(id).value.trim();
+    return text === "" ? null : Number(text);
+  };
+  const save = async (breakpoints, done) => {
+    try {
+      await api(`/api/sites/${siteId}`, { method: "PATCH", body: { breakpoints, author: AUTHOR } });
+      toast(done);
+      await renderRoute();
+    } catch (error) {
+      failed(error);
+    }
+  };
+  return el(
+    "div",
+    { class: "panel", "data-panel": "breakpoints" },
+    el("h2", { text: "Umbruchpunkte (Breakpoints)" }),
+    el("p", {
+      class: "muted",
+      text: "Ab welcher Breite die Seite auf Tablet und auf Handy umbaut. Das gilt für die ganze Website: für die Blätter im Editor, die Vorschau und die Veröffentlichung.",
+    }),
+    field("site-breakpoint-tablet", "Tablet-Layout unter", own?.tablet ?? null, BREAKPOINT_DEFAULTS.tablet),
+    field("site-breakpoint-mobile", "Handy-Layout unter", own?.mobile ?? null, BREAKPOINT_DEFAULTS.mobile),
+    el(
+      "div",
+      { class: "inline" },
+      el("button", {
+        class: "primary",
+        text: "Umbruchpunkte speichern",
+        onclick: () => {
+          const tablet = read("site-breakpoint-tablet");
+          const mobile = read("site-breakpoint-mobile");
+          // Beide leer heißt: zurück auf den Standard der Plattform.
+          if (tablet === null && mobile === null) return save(null, "Umbruchpunkte auf den Standard gesetzt");
+          // Ein leeres Feld nimmt den Standardwert, damit man nur eine Zahl ändern muss.
+          return save(
+            { tablet: tablet ?? BREAKPOINT_DEFAULTS.tablet, mobile: mobile ?? BREAKPOINT_DEFAULTS.mobile },
+            "Umbruchpunkte gespeichert",
+          );
+        },
+      }),
+      el("button", {
+        text: "Auf Standard zurücksetzen",
+        // `el` setzt jedes Attribut als Text: `disabled: false` wäre noch gesperrt.
+        disabled: own === null ? "" : undefined,
+        onclick: () => save(null, "Umbruchpunkte auf den Standard gesetzt"),
+      }),
+    ),
+    el("p", {
+      class: "muted",
+      text: `Leer lassen heißt: Standard (Tablet unter ${BREAKPOINT_DEFAULTS.tablet}, Handy unter ${BREAKPOINT_DEFAULTS.mobile} Pixel). Neue Werte erscheinen im Editor nach dem Neuladen und auf der veröffentlichten Seite mit der nächsten Veröffentlichung.`,
+    }),
+  );
+}
+
 async function projectView(siteId, tab) {
   const current = routeScope();
   const [site, { pages }, { releases }] = await Promise.all([
@@ -4166,6 +4245,7 @@ async function projectView(siteId, tab) {
           text: `Unter dieser Adresse öffnen Besucher die Seite. Sie steckt in canonical, Sitemap, og:url und der Formularprüfung. Leer lassen: Platzhalter ${site.slug}.senify.xyz.`,
         }),
       ),
+      breakpointsPanel(siteId, site),
     );
     const [referenceData, { references: allReferences }] = await Promise.all([
       api(`/api/sites/${siteId}/references`),
@@ -6318,7 +6398,7 @@ async function waitForImageJob(siteId, jobId, onStatus) {
   );
 }
 
-async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCache, mediaCache, libraryComponents, assetContext, siteProfile, siteTheme, siteThemeVersion, styleRules, styleRegistryVersion }) {
+async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCache, mediaCache, libraryComponents, assetContext, siteProfile, siteBreakpoints, siteTheme, siteThemeVersion, styleRules, styleRegistryVersion }) {
   const loaded = editor.loadDocument(page.draft);
   loaded.document.styleRules = styleRules ?? [];
 
@@ -6571,6 +6651,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     // Design/Live (Ticket 03 Punkt 6): live zeigt die echte Seite (M4 Stufe 1).
     mode: savedUi.mode,
     breakpoint: savedUi.device,
+    breakpoints: siteBreakpoints,
     profile: siteProfile ?? "standard",
     onState: (state) => {
       session.patchUi({
@@ -7208,9 +7289,13 @@ async function pageView(siteId, pageId, initialSearch) {
   // Das Site-Profil (Ticket 20): der Editor zeigt es und validiert Profil-
   // Wechsel gegen das Dokument, bevor er den PATCH ausloest.
   let siteProfile = "standard";
+  // Die eigenen Breakpoints der Site (ADR-0020); ohne Eintrag gelten 1024/640.
+  // Die Blätter des Canvas und die Regeln darin richten sich danach.
+  let siteBreakpoints = null;
   try {
     const site = await api(`/api/sites/${siteId}`);
     siteProfile = site.profile ?? "standard";
+    siteBreakpoints = site.breakpoints ?? null;
   } catch {
     // Kein Site-Kontext erreichbar: der Editor faellt auf `standard` zurueck.
   }
@@ -7367,6 +7452,7 @@ async function pageView(siteId, pageId, initialSearch) {
       libraryComponents,
       assetContext,
       siteProfile,
+      siteBreakpoints,
       siteTheme,
       siteThemeVersion,
       styleRules: siteStyleRules,

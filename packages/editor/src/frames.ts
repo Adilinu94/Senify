@@ -1,5 +1,5 @@
 import { SenifyError } from "@senify/core";
-import { BREAKPOINTS } from "@senify/renderer/breakpoints";
+import { resolveBreakpoints, type Breakpoints } from "@senify/widget-engine/breakpoints";
 import type { Node, NodeTree, PropValue } from "@senify/section-sdk";
 import {
   isOverrideBreakpoint,
@@ -25,13 +25,39 @@ export const FRAME_GAP = 32;
 
 type DesignSize = { label: string; width: number; height: number };
 
-export const DESIGN_FRAMES: Record<FrameBreakpoint, DesignSize> = {
-  desktop: { label: "Desktop", width: 1440, height: 900 },
-  // Tablet is 1024 everywhere (decision 23.09.) — same width the visual
-  // checks and the import gate measure at.
-  tablet: { label: "Tablet", width: 1024, height: 768 },
-  mobile: { label: "Mobile", width: 390, height: 844 },
-};
+// The sheets are real iframes, so the media queries inside them answer to the
+// sheet's own width. A sheet therefore has to lie inside the range its device
+// owns, and that range comes from the site's breakpoint pair (ADR-0020):
+//
+//   - mobile owns widths below `mobile`; the phone width 390 when it fits, else
+//     the widest width the range still holds,
+//   - tablet owns `mobile` up to `tablet` (exclusive, the query reads
+//     `max-width: tablet - 0.02`); the usual 1024 when it lies inside, else the
+//     nearest width that does,
+//   - desktop owns everything from `tablet` up; 1440, or the tablet number when
+//     the site's tablet range reaches beyond it.
+//
+// With the platform default (1024 / 640) that is 1440 / 1023 / 390. The tablet
+// sheet used to be 1024 wide, where the tablet query is already off, so the
+// sheet showed the desktop layout.
+const PHONE_WIDTH = 390;
+const TABLET_WIDTH = 1024;
+const DESKTOP_WIDTH = 1440;
+
+export function designFramesFor(
+  site?: Breakpoints | null,
+): Record<FrameBreakpoint, DesignSize> {
+  const breakpoints = resolveBreakpoints(site);
+  const tablet = Math.min(Math.max(TABLET_WIDTH, breakpoints.mobile), breakpoints.tablet - 1);
+  return {
+    desktop: { label: "Desktop", width: Math.max(DESKTOP_WIDTH, breakpoints.tablet), height: 900 },
+    tablet: { label: "Tablet", width: tablet, height: 768 },
+    mobile: { label: "Mobile", width: Math.min(PHONE_WIDTH, breakpoints.mobile - 1), height: 844 },
+  };
+}
+
+// The sheets of a site without its own pair.
+export const DESIGN_FRAMES: Record<FrameBreakpoint, DesignSize> = designFramesFor();
 
 export type FrameView = {
   zoom: number;
@@ -74,15 +100,22 @@ export function clampZoom(zoom: number): number {
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(zoom * 1000) / 1000));
 }
 
-// The CSS `max-width` that applies inside a frame. Reused from the renderer so
-// the editor frames and the baked stylesheet agree on the boundaries.
-export function mediaMaxWidthFor(breakpoint: FrameBreakpoint): number | null {
+// The CSS `max-width` that applies inside a frame. Read from the same pair the
+// bake uses (the site's own, else the platform default), so the editor frames
+// and the baked stylesheet agree on the boundaries.
+export function mediaMaxWidthFor(
+  breakpoint: FrameBreakpoint,
+  site?: Breakpoints | null,
+): number | null {
   if (breakpoint === "desktop") return null;
-  return BREAKPOINTS[breakpoint];
+  return resolveBreakpoints(site)[breakpoint];
 }
 
-export function mediaQueryFor(breakpoint: FrameBreakpoint): string | null {
-  const max = mediaMaxWidthFor(breakpoint);
+export function mediaQueryFor(
+  breakpoint: FrameBreakpoint,
+  site?: Breakpoints | null,
+): string | null {
+  const max = mediaMaxWidthFor(breakpoint, site);
   if (max === null) return null;
   return `@media (max-width: ${max - 0.02}px)`;
 }
@@ -91,8 +124,12 @@ export function activeView(state: FrameState): FrameView {
   return state.mode === "design" ? state.design : state.live;
 }
 
-export function framesForState(state: FrameState): FrameDescriptor[] {
+export function framesForState(
+  state: FrameState,
+  site?: Breakpoints | null,
+): FrameDescriptor[] {
   const view = activeView(state);
+  const sizes = designFramesFor(site);
   if (state.mode === "live") {
     return [
       {
@@ -105,13 +142,13 @@ export function framesForState(state: FrameState): FrameDescriptor[] {
         // The live sheet sizes with the stage, but the responsive rules of the
         // chosen breakpoint still apply (M4 Stufe 1: the "real page" renders
         // like the release at that device width).
-        mediaMaxWidth: mediaMaxWidthFor(state.activeBreakpoint),
+        mediaMaxWidth: mediaMaxWidthFor(state.activeBreakpoint, site),
         editable: true,
       },
     ];
   }
   return FRAME_BREAKPOINTS.map((breakpoint) => {
-    const size = DESIGN_FRAMES[breakpoint];
+    const size = sizes[breakpoint];
     return {
       breakpoint,
       label: size.label,
@@ -119,7 +156,7 @@ export function framesForState(state: FrameState): FrameDescriptor[] {
       width: size.width,
       height: size.height,
       scale: view.zoom,
-      mediaMaxWidth: mediaMaxWidthFor(breakpoint),
+      mediaMaxWidth: mediaMaxWidthFor(breakpoint, site),
       editable: true,
     };
   });
@@ -177,13 +214,14 @@ export type FramePlacement = {
 // so the pan area never overlaps.
 export function framePlacements(
   state: FrameState,
-  options?: { gap?: number },
+  options?: { gap?: number; breakpoints?: Breakpoints | null },
 ): FramePlacement[] {
   const gap = options?.gap ?? FRAME_GAP;
+  const desktop = designFramesFor(options?.breakpoints).desktop;
   let left = 0;
-  return framesForState(state).map((frame) => {
-    const width = frame.width ?? DESIGN_FRAMES.desktop.width;
-    const height = frame.height ?? DESIGN_FRAMES.desktop.height;
+  return framesForState(state, options?.breakpoints).map((frame) => {
+    const width = frame.width ?? desktop.width;
+    const height = frame.height ?? desktop.height;
     const placement: FramePlacement = {
       breakpoint: frame.breakpoint,
       left,

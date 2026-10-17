@@ -1,6 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { SenifyError } from "@senify/core";
 import { publishSecretFile, readSecretFile } from "./secrets.ts";
+import type { Breakpoints } from "@senify/widget-engine/breakpoints";
+import { normalizeSiteBreakpoints, readStoredBreakpoints } from "./site-breakpoints.ts";
 import { normalizeSiteBaseUrl } from "./site-url.ts";
 import { RULE_ID_PATTERN } from "@senify/framer-import";
 import {
@@ -26,7 +28,7 @@ import {
 } from "@senify/widget-engine";
 import type { Db, DbClient, Row } from "./db.ts";
 import type { ImportReport } from "./imports-contract.ts";
-import { jsonColumns, tableNames } from "./db.ts";
+import { jsonColumns, SITE_SCOPED_TABLES, tableNames } from "./db.ts";
 import type { RedesignProposal } from "./redesign-proposal-contract.ts";
 import { generateToken } from "./auth.ts";
 import { buildAuditInsert, type NewAuditEntry } from "./store-audit.ts";
@@ -54,11 +56,9 @@ import {
   type Asset,
   type AssetFolder,
   type AssetHistoryEntry,
-  type AssetKind,
   type AssetStatus,
   type AssetUpdate,
   type AssetUsage,
-  type AssetVariant,
   type AuditEntry,
   type CodePayload,
   type CodePayloadKind,
@@ -117,9 +117,7 @@ import {
 import {
   ASSET_COLUMNS,
   mapAsset,
-  mapAssetVariant,
   type AssetRow,
-  type AssetVariantRow,
 } from "./store-record-mappers.ts";
 import {
   assertDraftShape,
@@ -159,6 +157,7 @@ import {
   type CreateAssetFolderInput,
   type CreateAssetHistoryInput,
 } from "./store-asset-folders.ts";
+import { AssetsRepository, type CreateAssetInput } from "./store-assets.ts";
 import {
   IdempotencyRepository,
   type ClaimIdempotencyKeyInput,
@@ -274,6 +273,7 @@ type SiteRow = {
   theme_id: unknown;
   // Only `getSite` selects it; list/rename/profile rows leave it out.
   base_url?: unknown;
+  breakpoints_json?: unknown;
   created_at: unknown;
   updated_at: unknown;
 };
@@ -514,6 +514,9 @@ export type FramerImportCommitPlan = {
   payloads: readonly PreparedCodePayload[];
   styleRules: readonly StyleRule[];
   themePatch: Record<string, unknown> | null;
+  // The breakpoint pair of the source (ADR-0020) when the import is to set it
+  // for the site; `null` leaves the site's pair as it is.
+  breakpoints?: Breakpoints | null;
   report: Omit<
     ImportReport,
     "pageId" | "newDraftVersion" | "receiptId" | "replayed"
@@ -649,6 +652,7 @@ export class Store {
   readonly #redesignProposals: RedesignProposalsRepository;
   readonly #importJobs: ImportJobsRepository;
   readonly #assetFolders: AssetFoldersRepository;
+  readonly #assets: AssetsRepository;
   readonly #references: ReferencesRepository;
 
   // Where the encryption key lives. Without it (a bare Store in a test) the key
@@ -683,6 +687,7 @@ export class Store {
       (siteId) => this.getSite(siteId),
       (assetId) => this.getAsset(assetId),
     );
+    this.#assets = new AssetsRepository(db, (siteId) => this.getSite(siteId));
     this.#secretFile = options.secretFile;
   }
 
@@ -786,7 +791,7 @@ export class Store {
 
   async getSite(id: string): Promise<Site> {
     const result = await this.#db.query<SiteRow>(
-      `SELECT id, name, slug, profile, theme_id, base_url, created_at, updated_at
+      `SELECT id, name, slug, profile, theme_id, base_url, breakpoints_json, created_at, updated_at
        FROM sites WHERE id = $1`,
       [id],
     );
@@ -800,7 +805,25 @@ export class Store {
     const site = mapSite(row);
     site.designContract = await this.readDesignContract(id);
     if (typeof row.base_url === "string") site.baseUrl = row.base_url;
+    const breakpoints = readStoredBreakpoints(row.breakpoints_json);
+    if (breakpoints !== undefined) site.breakpoints = breakpoints;
     return site;
+  }
+
+  // The breakpoint pair (ADR-0020): validated against the guard rails; `null`
+  // clears it back to the platform default. Returns the full site.
+  async updateSiteBreakpoints(id: string, raw: unknown): Promise<Site> {
+    const breakpoints = normalizeSiteBreakpoints(raw);
+    const result = await this.#db.query<{ id: string }>(
+      `UPDATE sites SET breakpoints_json = $2, updated_at = $3 WHERE id = $1 RETURNING id`,
+      [id, breakpoints === null ? null : toJsonParam(breakpoints), new Date().toISOString()],
+    );
+    if (result.rows.length === 0) {
+      throw new SenifyError("not_found", `Site "${id}" does not exist`, {
+        field: "siteId",
+      });
+    }
+    return this.getSite(id);
   }
 
   // The public address: validated and reduced to its origin; blank or `null`
@@ -910,16 +933,38 @@ export class Store {
     return value;
   }
 
-  async deleteSite(id: string): Promise<void> {
-    const result = await this.#db.query<{ id: string }>(
-      `DELETE FROM sites WHERE id = $1 RETURNING id`,
-      [id],
-    );
-    if (result.rows.length === 0) {
-      throw new SenifyError("not_found", `Site "${id}" does not exist`, {
-        field: "siteId",
-      });
-    }
+  // Deletes a site and everything that belongs to it, in one transaction. The
+  // foreign-key tables follow `sites` by cascade; the tables with a bare
+  // `site_id` (SITE_SCOPED_TABLES) are cleared here. Returns the build
+  // directories of the site's releases and previews so the caller can remove the
+  // files - the store does not know the data directory.
+  async deleteSite(id: string): Promise<{ buildRefs: string[] }> {
+    return this.#db.withTransaction(async (tx) => {
+      const releases = await tx.query<{ build_ref: string | null }>(
+        `SELECT build_ref FROM releases WHERE site_id = $1`,
+        [id],
+      );
+      const previews = await tx.query<{ build_ref: string | null }>(
+        `SELECT build_ref FROM previews WHERE site_id = $1`,
+        [id],
+      );
+      const result = await tx.query<{ id: string }>(
+        `DELETE FROM sites WHERE id = $1 RETURNING id`,
+        [id],
+      );
+      if (result.rows.length === 0) {
+        throw new SenifyError("not_found", `Site "${id}" does not exist`, {
+          field: "siteId",
+        });
+      }
+      for (const table of SITE_SCOPED_TABLES) {
+        await tx.query(`DELETE FROM ${table} WHERE site_id = $1`, [id]);
+      }
+      const buildRefs = [...releases.rows, ...previews.rows]
+        .map((row) => row.build_ref)
+        .filter((ref): ref is string => typeof ref === "string" && ref !== "");
+      return { buildRefs: [...new Set(buildRefs)] };
+    });
   }
 
   async renameSite(id: string, name: string): Promise<Site> {
@@ -1418,9 +1463,17 @@ export class Store {
     const collectionIds = new Map<string, string>();
     await this.#db.withTransaction(async (tx) => {
       await tx.query(
-        `INSERT INTO sites (id, name, slug, profile, theme_id, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, NULL, $5, $5)`,
-        [siteId, name, slug, source.profile, now],
+        `INSERT INTO sites (id, name, slug, profile, theme_id, breakpoints_json, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, NULL, $5, $6, $6)`,
+        [
+          siteId,
+          name,
+          slug,
+          source.profile,
+          // The copy keeps the pair: its pages were laid out for these numbers.
+          source.breakpoints === undefined ? null : toJsonParam(source.breakpoints),
+          now,
+        ],
       );
       if (themeRow) {
         const themeId = newEntityId();
@@ -2816,173 +2869,16 @@ export class Store {
     return this.#redesignProposals.finalizeRedesignProposal(input);
   }
 
-  // Loads encoded variants and blur hashes for a set of assets in two queries
-  // and merges them onto the mapped rows (single fetch per read path).
-  async #attachDerivatives(assets: Asset[]): Promise<Asset[]> {
-    if (assets.length === 0) return assets;
-    const ids = assets.map((asset) => asset.id);
-    const placeholders = ids.map((_, index) => `$${index + 1}`).join(", ");
-    const [variantRows, blurhashRows] = await Promise.all([
-      this.#db.query<AssetVariantRow>(
-        `SELECT id, asset_id, width, format, storage_ref, byte_size, created_at
-         FROM asset_variants WHERE asset_id IN (${placeholders})
-         ORDER BY asset_id ASC, width ASC, format ASC, id ASC`,
-        ids,
-      ),
-      this.#db.query<{ asset_id: string; value: string }>(
-        `SELECT asset_id, value FROM asset_blurhash
-         WHERE asset_id IN (${placeholders})`,
-        ids,
-      ),
-    ]);
-    const variants = new Map<string, AssetVariant[]>();
-    for (const row of variantRows.rows) {
-      const list = variants.get(row.asset_id) ?? [];
-      list.push(mapAssetVariant(row));
-      variants.set(row.asset_id, list);
-    }
-    const blurhashes = new Map(
-      blurhashRows.rows.map((row) => [row.asset_id, row.value]),
-    );
-    return assets.map((asset) => ({
-      ...asset,
-      variants: variants.get(asset.id) ?? [],
-      blurhash: blurhashes.get(asset.id) ?? null,
-    }));
+  replaceAssetFromSnapshot(snapshot: ReleaseAssetSnapshot): Promise<Asset> {
+    return this.#assets.replaceAssetFromSnapshot(snapshot);
   }
 
-  // Restores one asset row from a release snapshot (Fahrplan P3-4, R7).
-  //
-  // An UPSERT by id, deliberately: the id is what the pages reference, and a
-  // rollback that handed out a new id would leave every page pointing at
-  // nothing. The hash goes along because the release's pages were built against
-  // those bytes, not against the id.
-  //
-  // `site_id` is taken from the snapshot, not from the caller: a rollback must
-  // not be able to move an asset between sites, and a snapshot of another site
-  // belongs to another site.
-  async replaceAssetFromSnapshot(snapshot: ReleaseAssetSnapshot): Promise<Asset> {
-    const now = new Date().toISOString();
-    const result = await this.#db.query<AssetRow>(
-      `INSERT INTO assets
-        (id, site_id, filename, mime, kind, byte_size, width, height, hash, alt_text, decorative, folder_id, tags, storage_ref, status, replaced_at, trashed_at, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'ready', NULL, NULL, $15, $15)
-       ON CONFLICT (id) DO UPDATE SET
-         filename = EXCLUDED.filename,
-         mime = EXCLUDED.mime,
-         kind = EXCLUDED.kind,
-         byte_size = EXCLUDED.byte_size,
-         width = EXCLUDED.width,
-         height = EXCLUDED.height,
-         hash = EXCLUDED.hash,
-         alt_text = EXCLUDED.alt_text,
-         decorative = EXCLUDED.decorative,
-         folder_id = EXCLUDED.folder_id,
-         tags = EXCLUDED.tags,
-         storage_ref = EXCLUDED.storage_ref,
-         status = 'ready',
-         trashed_at = NULL,
-         replaced_at = NULL,
-         updated_at = EXCLUDED.updated_at
-       RETURNING ${ASSET_COLUMNS}`,
-      [
-        snapshot.id,
-        snapshot.siteId,
-        snapshot.filename,
-        snapshot.mime,
-        snapshot.kind as AssetKind,
-        snapshot.byteSize,
-        snapshot.width,
-        snapshot.height,
-        snapshot.hash,
-        snapshot.altText,
-        snapshot.decorative,
-        snapshot.folderId,
-        toJsonParam(snapshot.tags),
-        snapshot.storageRef,
-        now,
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) throw new Error("Asset snapshot restore returned no row");
-    return mapAsset(row);
+  createAsset(input: CreateAssetInput): Promise<Asset> {
+    return this.#assets.createAsset(input);
   }
 
-  async createAsset(input: {
-    id: string;
-    siteId: string;
-    filename: string;
-    mime: string;
-    kind: AssetKind;
-    byteSize: number;
-    width: number | null;
-    height: number | null;
-    hash: string;
-    altText: string | null;
-    decorative: boolean;
-    folderId: string | null;
-    tags: string[];
-    storageRef: string;
-  }): Promise<Asset> {
-    const now = new Date().toISOString();
-    const result = await this.#db.query<AssetRow>(
-      `INSERT INTO assets
-        (id, site_id, filename, mime, kind, byte_size, width, height, hash, alt_text, decorative, folder_id, tags, storage_ref, status, replaced_at, trashed_at, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'ready', NULL, NULL, $15, $15)
-       RETURNING ${ASSET_COLUMNS}`,
-      [
-        input.id,
-        input.siteId,
-        input.filename,
-        input.mime,
-        input.kind,
-        input.byteSize,
-        input.width,
-        input.height,
-        input.hash,
-        input.altText,
-        input.decorative,
-        input.folderId,
-        toJsonParam(input.tags),
-        input.storageRef,
-        now,
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) throw new Error("Asset insert returned no row");
-    return mapAsset(row);
-  }
-
-  async getAsset(id: string): Promise<Asset> {
-    const result = await this.#db.query<AssetRow>(
-      `SELECT ${ASSET_COLUMNS} FROM assets WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Asset "${id}" does not exist`, {
-        field: "assetId",
-        suggestion: "List the library with `list_assets` or check the id.",
-      });
-    }
-    const asset = mapAsset(row);
-    const [withDerivatives = asset] = await this.#attachDerivatives([asset]);
-    return withDerivatives;
-  }
-
-  // An asset belongs to exactly one site (ADR-0014). This guard is the one
-  // place that enforces it, so an id from another site can never be read,
-  // changed or destroyed. `getAsset` stays unscoped on purpose: the redesign
-  // plan loads a draft's assets first and then checks the ownership itself.
-  async #getAssetInSite(assetId: string, siteId: string): Promise<Asset> {
-    const asset = await this.getAsset(assetId);
-    if (asset.siteId !== siteId) {
-      throw new SenifyError("validation", `Asset "${assetId}" belongs to another site`, {
-        field: "assetId",
-        suggestion: "Use an asset of this site.",
-      });
-    }
-    return asset;
+  getAsset(id: string): Promise<Asset> {
+    return this.#assets.getAsset(id);
   }
 
   async #getAssetFolderInSite(folderId: string, siteId: string): Promise<AssetFolder> {
@@ -2998,171 +2894,44 @@ export class Store {
   }
 
   // Public, site-scoped entry points for the access paths (ADR-0014).
-  async getAssetOfSite(assetId: string, siteId: string): Promise<Asset> {
-    return this.#getAssetInSite(assetId, siteId);
+  getAssetOfSite(assetId: string, siteId: string): Promise<Asset> {
+    return this.#assets.getAssetOfSite(assetId, siteId);
   }
 
   async getAssetFolderOfSite(folderId: string, siteId: string): Promise<AssetFolder> {
     return this.#getAssetFolderInSite(folderId, siteId);
   }
 
-  // Dedupe only looks at live assets: re-uploading the same bytes after a trash
-  // must create a fresh, usable record.
-  async findAssetByHash(siteId: string, hash: string): Promise<Asset | undefined> {
-    const result = await this.#db.query<AssetRow>(
-      `SELECT ${ASSET_COLUMNS} FROM assets
-       WHERE site_id = $1 AND hash = $2 AND status = 'ready'
-       ORDER BY created_at ASC, id ASC LIMIT 1`,
-      [siteId, hash],
-    );
-    const row = result.rows[0];
-    return row ? (await this.#attachDerivatives([mapAsset(row)]))[0] : undefined;
+  findAssetByHash(siteId: string, hash: string): Promise<Asset | undefined> {
+    return this.#assets.findAssetByHash(siteId, hash);
   }
 
-  async listAssets(
-    siteId: string,
-    options: { status?: AssetStatus | "all" } = {},
-  ): Promise<Asset[]> {
-    const status = options.status ?? "ready";
-    await this.getSite(siteId);
-    const result =
-      status === "all"
-        ? await this.#db.query<AssetRow>(
-            `SELECT ${ASSET_COLUMNS} FROM assets WHERE site_id = $1
-             ORDER BY created_at DESC, id DESC`,
-            [siteId],
-          )
-        : await this.#db.query<AssetRow>(
-            `SELECT ${ASSET_COLUMNS} FROM assets WHERE site_id = $1 AND status = $2
-             ORDER BY created_at DESC, id DESC`,
-            [siteId, status],
-          );
-    return this.#attachDerivatives(result.rows.map(mapAsset));
+  listAssets(siteId: string, options?: { status?: AssetStatus | "all" }): Promise<Asset[]> {
+    return this.#assets.listAssets(siteId, options);
   }
 
-  async updateAsset(id: string, patch: AssetUpdate): Promise<Asset> {
-    const current = await this.getAsset(id);
-    const next = {
-      filename: patch.filename ?? current.filename,
-      mime: patch.mime ?? current.mime,
-      kind: patch.kind ?? current.kind,
-      byteSize: patch.byteSize ?? current.byteSize,
-      width: patch.width === undefined ? current.width : patch.width,
-      height: patch.height === undefined ? current.height : patch.height,
-      hash: patch.hash ?? current.hash,
-      altText: patch.altText === undefined ? current.altText : patch.altText,
-      decorative:
-        patch.decorative === undefined ? current.decorative : patch.decorative,
-      folderId: patch.folderId === undefined ? current.folderId : patch.folderId,
-      tags: patch.tags ?? current.tags,
-      storageRef: patch.storageRef ?? current.storageRef,
-      status: patch.status ?? current.status,
-      replacedAt:
-        patch.replacedAt === undefined ? current.replacedAt : patch.replacedAt,
-      trashedAt:
-        patch.trashedAt === undefined ? current.trashedAt : patch.trashedAt,
-      updatedAt: patch.updatedAt ?? new Date().toISOString(),
-    };
-    await this.#db.query(
-      `UPDATE assets SET
-         filename = $2, mime = $3, kind = $4, byte_size = $5, width = $6, height = $7,
-         hash = $8, alt_text = $9, decorative = $10, folder_id = $11, tags = $12,
-         storage_ref = $13, status = $14, replaced_at = $15, trashed_at = $16, updated_at = $17
-       WHERE id = $1`,
-      [
-        id,
-        next.filename,
-        next.mime,
-        next.kind,
-        next.byteSize,
-        next.width,
-        next.height,
-        next.hash,
-        next.altText,
-        next.decorative,
-        next.folderId,
-        toJsonParam(next.tags),
-        next.storageRef,
-        next.status,
-        next.replacedAt,
-        next.trashedAt,
-        next.updatedAt,
-      ],
-    );
-    return { ...current, ...next };
+  updateAsset(id: string, patch: AssetUpdate): Promise<Asset> {
+    return this.#assets.updateAsset(id, patch);
   }
 
-  async deleteAssetRecord(id: string): Promise<void> {
-    const result = await this.#db.query<{ id: string }>(
-      `DELETE FROM assets WHERE id = $1 RETURNING id`,
-      [id],
-    );
-    if (result.rows.length === 0) {
-      throw new SenifyError("not_found", `Asset "${id}" does not exist`, {
-        field: "assetId",
-      });
-    }
+  deleteAssetRecord(id: string): Promise<void> {
+    return this.#assets.deleteAssetRecord(id);
   }
 
-  // Replaces ladder and blur hash atomically: callers regenerate both after an
-  // upload or replace, so stale rows never survive a dimension change.
-  async replaceAssetDerivatives(
+  replaceAssetDerivatives(
     assetId: string,
     variants: readonly GeneratedVariant[],
     blurhash: string | null,
   ): Promise<void> {
-    const now = new Date().toISOString();
-    await this.#db.withTransaction(async (tx) => {
-      await tx.query(`DELETE FROM asset_variants WHERE asset_id = $1`, [assetId]);
-      await tx.query(`DELETE FROM asset_blurhash WHERE asset_id = $1`, [assetId]);
-      for (const variant of variants) {
-        await tx.query(
-          `INSERT INTO asset_variants
-            (id, asset_id, width, format, storage_ref, byte_size, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [
-            newEntityId(),
-            assetId,
-            variant.width,
-            variant.format,
-            variant.storageRef,
-            variant.byteSize,
-            now,
-          ],
-        );
-      }
-      if (blurhash !== null) {
-        await tx.query(
-          `INSERT INTO asset_blurhash (asset_id, value, created_at) VALUES ($1, $2, $3)`,
-          [assetId, blurhash, now],
-        );
-      }
-    });
+    return this.#assets.replaceAssetDerivatives(assetId, variants, blurhash);
   }
 
-  async deleteAssetDerivatives(assetId: string): Promise<void> {
-    await this.#db.withTransaction(async (tx) => {
-      await tx.query(`DELETE FROM asset_variants WHERE asset_id = $1`, [assetId]);
-      await tx.query(`DELETE FROM asset_blurhash WHERE asset_id = $1`, [assetId]);
-    });
+  deleteAssetDerivatives(assetId: string): Promise<void> {
+    return this.#assets.deleteAssetDerivatives(assetId);
   }
 
-  // The check pipeline needs status + decorative for every asset of a site;
-  // ids that are absent are "missing" for the caller.
-  async assetUsageMap(siteId: string): Promise<Map<string, AssetUsage>> {
-    const result = await this.#db.query<{
-      id: string;
-      status: string;
-      decorative: unknown;
-    }>(`SELECT id, status, decorative FROM assets WHERE site_id = $1`, [siteId]);
-    const map = new Map<string, AssetUsage>();
-    for (const row of result.rows) {
-      map.set(row.id, {
-        status: row.status === "trashed" ? "trashed" : "ready",
-        decorative: row.decorative === true || row.decorative === "true",
-      });
-    }
-    return map;
+  assetUsageMap(siteId: string): Promise<Map<string, AssetUsage>> {
+    return this.#assets.assetUsageMap(siteId);
   }
 
   // --- imported foreign code (ADR-0010) -----------------------------------
@@ -3707,6 +3476,14 @@ export class Store {
         );
       }
 
+      if (plan.breakpoints !== undefined && plan.breakpoints !== null) {
+        await tx.query(`UPDATE sites SET breakpoints_json = $2, updated_at = $3 WHERE id = $1`, [
+          plan.siteId,
+          toJsonParam(plan.breakpoints),
+          now,
+        ]);
+      }
+
       if (plan.themePatch !== null) {
         const themeRows = await tx.query<ThemeRow>(
           `SELECT id, site_id, name, definition, version, created_at, updated_at
@@ -3787,6 +3564,19 @@ export class Store {
           opIndex: auditEntries.length,
           mutation: "update_theme",
           params: { patch: plan.themePatch, import: true },
+          author: plan.author,
+          undoPatch: [],
+          draftVersionAfter: 0,
+        });
+      }
+      if (plan.breakpoints !== undefined && plan.breakpoints !== null) {
+        auditEntries.push({
+          siteId: plan.siteId,
+          pageId: null,
+          batchId,
+          opIndex: auditEntries.length,
+          mutation: "update_site_breakpoints",
+          params: { breakpoints: plan.breakpoints, source: "framer-import" },
           author: plan.author,
           undoPatch: [],
           draftVersionAfter: 0,

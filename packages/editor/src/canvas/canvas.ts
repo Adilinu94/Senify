@@ -20,6 +20,7 @@ import {
   type TokenResolver,
 } from "@senify/widget-engine";
 import type { Theme } from "@senify/tokens";
+import type { Breakpoints } from "@senify/widget-engine/breakpoints";
 import { createReactRenderer } from "../react-renderer.tsx";
 import type { FrameDescriptor } from "../frames.ts";
 import type { EditorMode, FrameBreakpoint } from "../types.ts";
@@ -60,6 +61,10 @@ export type CanvasOptions = {
   // The breakpoint the live frame renders at; in design it is the frame the
   // editor marks as active (dimming, activation).
   breakpoint?: FrameBreakpoint;
+  // The site's own breakpoint pair (ADR-0020): the sheets get the width of the
+  // range their device owns and the rules compile with the same numbers the
+  // bake uses. Absent: the platform default (1024 / 640).
+  breakpoints?: Breakpoints | null;
   // The site profile decides the Lenis switch of the live runtime (F6/F7).
   profile?: MotionProfile;
   motionVendorBase?: string;
@@ -214,6 +219,9 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     (options.theme === undefined ? undefined : themeTokenResolver(options.theme));
   ensureCanvasStyles(doc);
 
+  // The site's breakpoint pair; fixed for the life of this canvas (the page
+  // reloads the editor when the pair changes in the project settings).
+  const siteBreakpoints: Breakpoints | undefined = options.breakpoints ?? undefined;
   let zoom = options.zoom ?? 0.5;
   let previewState: StateName | null = options.previewState ?? null;
   let mode: EditorMode = options.mode ?? "design";
@@ -479,7 +487,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     }
     let left = 0;
     for (const entry of mounted) {
-      const frame = canvasFrames(zoom).find((spec) => spec.device === entry.device);
+      const frame = canvasFrames(zoom, { breakpoints: siteBreakpoints }).find((spec) => spec.device === entry.device);
       if (frame === undefined || frame.width === null || frame.height === null) continue;
       entry.wrap.style.left = `${left}px`;
       entry.wrap.style.top = "0px";
@@ -512,6 +520,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   function frameRules(): FrameRules {
     return canvasFrameRules(store.document, {
       forcedState: previewState,
+      ...(siteBreakpoints === undefined ? {} : { breakpoints: siteBreakpoints }),
       ...(mode === "live" ? { chrome: false } : {}),
       ...(resolveToken === undefined ? {} : { resolveToken }),
     });
@@ -936,7 +945,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     cancelDeferred();
     for (const entry of mounted) entry.wrap.remove();
     mounted.length = 0;
-    for (const spec of canvasFrames(zoom, { mode, breakpoint })) mountFrame(spec);
+    for (const spec of canvasFrames(zoom, { mode, breakpoint, breakpoints: siteBreakpoints })) mountFrame(spec);
     applyFrameLayout();
     updateChrome();
   }
@@ -1153,7 +1162,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
 
   function fit(): void {
     const width = rectOf(stage).width || rectOf(root).width;
-    if (width > 0) setZoom(fitZoom(width, { margin: 24 }));
+    if (width > 0) setZoom(fitZoom(width, { margin: 24, breakpoints: siteBreakpoints }));
     else applyFrameLayout();
   }
 
@@ -1285,11 +1294,11 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
 
   const onResize = (): void => {
     const width = rectOf(stage).width;
-    const needed = canvasFrames(zoom).reduce(
+    const needed = canvasFrames(zoom, { breakpoints: siteBreakpoints }).reduce(
       (sum, spec) => sum + (spec.width ?? 0) * spec.scale,
       0,
     );
-    if (width > 0 && needed > width) setZoom(fitZoom(width, { margin: 24 }));
+    if (width > 0 && needed > width) setZoom(fitZoom(width, { margin: 24, breakpoints: siteBreakpoints }));
   };
   const global = globalThis as {
     addEventListener?: (type: string, handler: () => void) => void;
@@ -1297,7 +1306,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   };
   global.addEventListener?.("resize", onResize);
 
-  for (const spec of canvasFrames(zoom, { mode, breakpoint })) mountFrame(spec);
+  for (const spec of canvasFrames(zoom, { mode, breakpoint, breakpoints: siteBreakpoints })) mountFrame(spec);
   applyFrameLayout();
   updateChrome();
 

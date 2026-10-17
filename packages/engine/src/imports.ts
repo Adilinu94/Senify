@@ -25,6 +25,8 @@ import {
   type MediaContext,
 } from "./media.ts";
 import { prepareCodePayload } from "./code-payloads.ts";
+import { planImportBreakpoints, type ImportBreakpointsPlan } from "./site-breakpoints.ts";
+import { DEFAULT_BREAKPOINTS } from "@senify/widget-engine/breakpoints";
 import type { CodePayloadLicense, CodePayloadProvenance, PageMeta } from "./types.ts";
 import type { PreparedCodePayload, Store } from "./store.ts";
 import type { AuthorInput } from "./mutations/contract.ts";
@@ -255,6 +257,45 @@ function stableJson(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 
+/* ------------------------------------------------------ breakpoints */
+
+// The report line for what the import did with the source's breakpoints.
+function breakpointsFinding(plan: ImportBreakpointsPlan, site: { tablet: number; mobile: number }): ImportReport["findings"][number] {
+  const { tablet, mobile } = plan.derived;
+  const source = `Tablet unter ${tablet}, Handy unter ${mobile} Pixel`;
+  const base = { kind: "breakpoints", nodeKey: null, evidence: "__framer__breakpoints" } as const;
+  if (plan.outcome === "set") {
+    return {
+      ...base,
+      severity: "info",
+      message: `Die Umbruchpunkte der Quelle (${source}) gelten jetzt für die ganze Website.`,
+      suggestion: "Ändern oder zurücksetzen kannst du sie in den Projekt-Einstellungen unter „Umbruchpunkte“.",
+    };
+  }
+  if (plan.outcome === "unchanged") {
+    return {
+      ...base,
+      severity: "info",
+      message: `Die Quelle bricht bei denselben Umbruchpunkten um wie die Website (${source}).`,
+      suggestion: "Nichts zu tun.",
+    };
+  }
+  const own = `Tablet unter ${site.tablet}, Handy unter ${site.mobile} Pixel`;
+  return plan.reason === "other-pages"
+    ? {
+        ...base,
+        severity: "warn",
+        message: `Die Quelle bricht bei ${source} um. Die Website hat schon andere Seiten, die für ${own} gebaut sind, und bleibt dabei. Die importierte Seite wechselt ihr Layout deshalb an anderen Breiten als das Original.`,
+        suggestion: "Wenn die ganze Website der Quelle folgen soll: Umbruchpunkte in den Projekt-Einstellungen angleichen und die anderen Seiten prüfen.",
+      }
+    : {
+        ...base,
+        severity: "warn",
+        message: `Die Quelle bricht bei ${source} um, die Website bei ${own}. Die importierte Seite wechselt ihr Layout deshalb an anderen Breiten als das Original.`,
+        suggestion: "Wenn die ganze Website der Quelle folgen soll: Umbruchpunkte in den Projekt-Einstellungen angleichen.",
+      };
+}
+
 /* ------------------------------------------------------------ main run */
 
 export async function runFramerImportJob(
@@ -355,6 +396,18 @@ export async function runFramerImportJob(
     }
   }
 
+  // The pages the site holds, once: the plan for the breakpoints and the target
+  // of this write both read them.
+  const sitePages = await store.listPageDrafts(input.siteId);
+  const site = await store.getSite(input.siteId);
+  const breakpointsPlan = planImportBreakpoints({
+    derived: run.breakpoints,
+    site: site.breakpoints,
+    otherPages: sitePages.some((page) =>
+      input.body.pageId === undefined ? page.path !== pagePath : page.id !== input.body.pageId,
+    ),
+  });
+
   const marquee = marqueeCandidates(run.document);
   const reportBase: Omit<
     ImportReport,
@@ -382,14 +435,29 @@ export async function runFramerImportJob(
       fonts: run.assets?.fonts.length ?? 0,
     },
     motion: run.report.motion,
-    findings: run.report.findings.map((finding) => ({
-      kind: finding.kind,
-      nodeKey: finding.nodeKey,
-      message: finding.message,
-      evidence: finding.evidence,
-      severity: finding.severity,
-      suggestion: finding.suggestion,
-    })),
+    ...(breakpointsPlan === null
+      ? {}
+      : {
+          breakpoints: {
+            tablet: breakpointsPlan.derived.tablet,
+            mobile: breakpointsPlan.derived.mobile,
+            outcome: breakpointsPlan.outcome,
+            reason: breakpointsPlan.reason,
+          },
+        }),
+    findings: [
+      ...run.report.findings.map((finding) => ({
+        kind: finding.kind,
+        nodeKey: finding.nodeKey,
+        message: finding.message,
+        evidence: finding.evidence,
+        severity: finding.severity,
+        suggestion: finding.suggestion,
+      })),
+      ...(breakpointsPlan === null
+        ? []
+        : [breakpointsFinding(breakpointsPlan, site.breakpoints ?? DEFAULT_BREAKPOINTS)]),
+    ],
     marqueeCandidates: marquee.map((candidate) => ({
       nodeKey: candidate.nodeKey,
       preset: candidate.preset,
@@ -416,7 +484,7 @@ export async function runFramerImportJob(
   // The page this path already holds (an import by path replaces its draft).
   const existingTarget =
     input.body.pageId === undefined
-      ? (await store.listPageDrafts(input.siteId)).find((page) => page.path === pagePath)
+      ? sitePages.find((page) => page.path === pagePath)
       : undefined;
 
   if (dryRun) {
@@ -500,6 +568,10 @@ export async function runFramerImportJob(
         (run.mapped.themePatch.fonts !== undefined || run.mapped.themePatch.scales !== undefined)
           ? run.mapped.themePatch
           : null,
+      // The source's breakpoints are taken over only where nothing else was laid
+      // out for the default (`planImportBreakpoints`); the commit writes them in
+      // the same transaction as the page, so a failed import sets nothing.
+      breakpoints: breakpointsPlan?.outcome === "set" ? breakpointsPlan.derived : null,
       report: reportBase,
     });
     return {
