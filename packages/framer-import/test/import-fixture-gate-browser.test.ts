@@ -73,7 +73,8 @@ const DIFF_CEILING: Record<string, Record<Breakpoint, number>> = {
   "framer-easier-train-154753": { desktop: 0.12, tablet: 0.14, mobile: 0.21 },
   // mobile 0.15 -> 0.19 (15.10.2026): CI measured 16.7 % here, the local run 14.0 %.
   // mobile 0.19 -> 0.15 (17.10.2026): 9.0 % locally with the same fonts on both sides.
-  "framer-fluffy-rectangle-418998": { desktop: 0.13, tablet: 0.17, mobile: 0.15 },
+  // desktop 0.13 -> 0.04, tablet 0.17 -> 0.07, mobile 0.15 -> 0.11 (17.10.2026): CI measured 2.0 %, 4.2 % and 9.0 % with `--framer-aspect-ratio-supported` read as `auto`.
+  "framer-fluffy-rectangle-418998": { desktop: 0.04, tablet: 0.07, mobile: 0.11 },
   // desktop 0.11 -> 0.12, tablet 0.13 -> 0.15, mobile 0.24 -> 0.33 (17.10.2026): CI measured 11.1 %, 13.7 % and 30.7 % on master 58b882d; the 17.10. ceilings came from a local run.
   "framer-stupendous-football-158496": { desktop: 0.12, tablet: 0.15, mobile: 0.33 },
 };
@@ -82,7 +83,8 @@ const DIFF_CEILING: Record<string, Record<Breakpoint, number>> = {
 // it whenever the importer gets better, never raise it.
 const DIFF_CEILING_PLATFORM_TABLET: Record<string, number> = {
   "framer-easier-train-154753": 0.16,
-  "framer-fluffy-rectangle-418998": 0.34,
+  // 0.34 -> 0.06 (17.10.2026): CI measured 3.9 % (21.9 % before the aspect-ratio fix).
+  "framer-fluffy-rectangle-418998": 0.06,
   "framer-stupendous-football-158496": 0.25,
 };
 
