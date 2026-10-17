@@ -549,6 +549,41 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
     }, 120_000);
   });
 
+  describe("neutral tint and body size in the theme", () => {
+    const tinted = (): string =>
+      framerHtml().replace(
+        '<section class="hero-container">',
+        `<section class="hero-container" style="background-color:#f9f4e9"><p style="font-size:17px;color:#5a554b">${"Ein langer Absatz in der Fließtextgröße der Seite. ".repeat(20)}</p>`,
+      );
+
+    const scalesOf = async (siteId: string): Promise<{ neutralBase?: string; typeBase?: number }> =>
+      (await env.api.request<{ theme: { scales?: { neutralBase?: string; typeBase?: number } } }>({ method: "GET", path: `/api/sites/${siteId}/theme` })).body.theme.scales ?? {};
+
+    it("proposes both in the dry run and writes them only with applyTheme", async () => {
+      const own = await createTestSite(env.api, "Import Neutrale");
+      const before = await scalesOf(own.id);
+      const html = tinted();
+
+      const analysis = await runImport({ source: { html }, pagePath: "/neutral", assets: "skip", fonts: "skip", applyTheme: true }, own.id);
+      expect(analysis.status, JSON.stringify(analysis.body)).toBe(201);
+      const steps = JSON.stringify(analysis.body.report.steps);
+      expect(steps).toContain("Neutral-Tönung #");
+      expect(steps).toContain("Fließtextgröße 17 px");
+      expect(await scalesOf(own.id)).toEqual(before);
+
+      const kept = await runImport({ source: { html }, write: true, pagePath: "/neutral-eins", assets: "skip", fonts: "skip", idempotencyKey: "neutral-ohne-theme" }, own.id);
+      expect(kept.status, JSON.stringify(kept.body)).toBe(201);
+      expect(await scalesOf(own.id)).toEqual(before);
+
+      const applied = await runImport({ source: { html }, write: true, pagePath: "/neutral-zwei", assets: "skip", fonts: "skip", applyTheme: true, idempotencyKey: "neutral-mit-theme" }, own.id);
+      expect(applied.status, JSON.stringify(applied.body)).toBe(201);
+      const after = await scalesOf(own.id);
+      expect(after.typeBase).toBe(17);
+      expect(after.neutralBase).toMatch(/^#[0-9a-f]{6}$/);
+      expect(after.neutralBase).not.toBe(before.neutralBase);
+    }, 120_000);
+  });
+
   describe("brand colour in the theme", () => {
     const branded = (): string =>
       framerHtml().replace('<section class="hero-container">', '<section class="hero-container" style="background-color:#2f6fed">');

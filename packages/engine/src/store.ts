@@ -54,11 +54,9 @@ import {
   type Asset,
   type AssetFolder,
   type AssetHistoryEntry,
-  type AssetKind,
   type AssetStatus,
   type AssetUpdate,
   type AssetUsage,
-  type AssetVariant,
   type AuditEntry,
   type CodePayload,
   type CodePayloadKind,
@@ -92,21 +90,10 @@ import {
   type BakeJob,
   type ReferenceCollection,
   type ReferenceCollectionKind,
-  type ReferenceDocuments,
-  EMPTY_REFERENCE_DOCUMENTS,
-  type ReferenceEvidence,
   type ReferenceJob,
-  type ReferenceJobStatus,
   type ReferenceListSort,
-  type ReferenceMethod,
-  type ReferenceOrigin,
-  type ReferenceProfile,
   type ReferenceProfileRevision,
-  type ReferenceProvenance,
-  type ReferenceScale,
   type ReferenceSettings,
-  type ReferenceSnapshot,
-  type ReferenceStatus,
   type ReferenceSummary,
   type Release,
   type ReviewItem,
@@ -128,9 +115,7 @@ import {
 import {
   ASSET_COLUMNS,
   mapAsset,
-  mapAssetVariant,
   type AssetRow,
-  type AssetVariantRow,
 } from "./store-record-mappers.ts";
 import {
   assertDraftShape,
@@ -170,6 +155,7 @@ import {
   type CreateAssetFolderInput,
   type CreateAssetHistoryInput,
 } from "./store-asset-folders.ts";
+import { AssetsRepository, type CreateAssetInput } from "./store-assets.ts";
 import {
   IdempotencyRepository,
   type ClaimIdempotencyKeyInput,
@@ -225,6 +211,18 @@ import {
   type ReferenceCollectionPatch,
 } from "./store-reference-library.ts";
 import {
+  ReferencesRepository,
+  type CreateReferenceInput,
+  type CreateReferenceJobInput,
+  type CreateReferenceProfileRevisionInput,
+  type DeleteReferenceAssignmentInput,
+  type ReferenceDuplicate,
+  type ReferencePatch,
+  type ReferenceSearchHit,
+  type UpdateReferenceJobInput,
+  type UpsertReferenceAssignmentInput,
+} from "./store-references.ts";
+import {
   type CreateNewsletterTokenInput,
   type EnqueueNotificationInput,
   type MarkNotificationResultInput,
@@ -250,23 +248,6 @@ import {
   mapImportJob,
   mapImportReceipt,
 } from "./store-job-mappers.ts";
-import {
-  REFERENCE_ASSIGNMENT_COLUMNS,
-  REFERENCE_COLUMNS,
-  REFERENCE_COLUMNS_WITH_DOCUMENTS,
-  REFERENCE_JOB_COLUMNS,
-  REFERENCE_PROFILE_COLUMNS,
-  type ReferenceAssignmentRow,
-  type ReferenceJobRow,
-  type ReferenceProfileRow,
-  type ReferenceRow,
-  mapReference,
-  mapReferenceAssignment,
-  mapReferenceJob,
-  mapReferenceProfile,
-  mapReferenceSummary,
-  referenceOrderBy,
-} from "./store-reference-mappers.ts";
 export function slugify(value: string): string {
   const slug = value
     .toLowerCase()
@@ -665,6 +646,8 @@ export class Store {
   readonly #redesignProposals: RedesignProposalsRepository;
   readonly #importJobs: ImportJobsRepository;
   readonly #assetFolders: AssetFoldersRepository;
+  readonly #assets: AssetsRepository;
+  readonly #references: ReferencesRepository;
 
   // Where the encryption key lives. Without it (a bare Store in a test) the key
   // stays in the database, as before.
@@ -680,6 +663,7 @@ export class Store {
     this.#deploy = new DeployRepository(db, (siteId) => this.getSite(siteId));
     this.#notifications = new NotificationsRepository(db);
     this.#referenceLibrary = new ReferenceLibraryRepository(db);
+    this.#references = new ReferencesRepository(db, this.#referenceLibrary);
     this.#entries = new EntriesRepository(db);
     this.#bakeJobs = new BakeJobsRepository(db);
     this.#reviews = new ReviewsRepository(db);
@@ -697,6 +681,7 @@ export class Store {
       (siteId) => this.getSite(siteId),
       (assetId) => this.getAsset(assetId),
     );
+    this.#assets = new AssetsRepository(db, (siteId) => this.getSite(siteId));
     this.#secretFile = options.secretFile;
   }
 
@@ -2852,173 +2837,16 @@ export class Store {
     return this.#redesignProposals.finalizeRedesignProposal(input);
   }
 
-  // Loads encoded variants and blur hashes for a set of assets in two queries
-  // and merges them onto the mapped rows (single fetch per read path).
-  async #attachDerivatives(assets: Asset[]): Promise<Asset[]> {
-    if (assets.length === 0) return assets;
-    const ids = assets.map((asset) => asset.id);
-    const placeholders = ids.map((_, index) => `$${index + 1}`).join(", ");
-    const [variantRows, blurhashRows] = await Promise.all([
-      this.#db.query<AssetVariantRow>(
-        `SELECT id, asset_id, width, format, storage_ref, byte_size, created_at
-         FROM asset_variants WHERE asset_id IN (${placeholders})
-         ORDER BY asset_id ASC, width ASC, format ASC, id ASC`,
-        ids,
-      ),
-      this.#db.query<{ asset_id: string; value: string }>(
-        `SELECT asset_id, value FROM asset_blurhash
-         WHERE asset_id IN (${placeholders})`,
-        ids,
-      ),
-    ]);
-    const variants = new Map<string, AssetVariant[]>();
-    for (const row of variantRows.rows) {
-      const list = variants.get(row.asset_id) ?? [];
-      list.push(mapAssetVariant(row));
-      variants.set(row.asset_id, list);
-    }
-    const blurhashes = new Map(
-      blurhashRows.rows.map((row) => [row.asset_id, row.value]),
-    );
-    return assets.map((asset) => ({
-      ...asset,
-      variants: variants.get(asset.id) ?? [],
-      blurhash: blurhashes.get(asset.id) ?? null,
-    }));
+  replaceAssetFromSnapshot(snapshot: ReleaseAssetSnapshot): Promise<Asset> {
+    return this.#assets.replaceAssetFromSnapshot(snapshot);
   }
 
-  // Restores one asset row from a release snapshot (Fahrplan P3-4, R7).
-  //
-  // An UPSERT by id, deliberately: the id is what the pages reference, and a
-  // rollback that handed out a new id would leave every page pointing at
-  // nothing. The hash goes along because the release's pages were built against
-  // those bytes, not against the id.
-  //
-  // `site_id` is taken from the snapshot, not from the caller: a rollback must
-  // not be able to move an asset between sites, and a snapshot of another site
-  // belongs to another site.
-  async replaceAssetFromSnapshot(snapshot: ReleaseAssetSnapshot): Promise<Asset> {
-    const now = new Date().toISOString();
-    const result = await this.#db.query<AssetRow>(
-      `INSERT INTO assets
-        (id, site_id, filename, mime, kind, byte_size, width, height, hash, alt_text, decorative, folder_id, tags, storage_ref, status, replaced_at, trashed_at, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'ready', NULL, NULL, $15, $15)
-       ON CONFLICT (id) DO UPDATE SET
-         filename = EXCLUDED.filename,
-         mime = EXCLUDED.mime,
-         kind = EXCLUDED.kind,
-         byte_size = EXCLUDED.byte_size,
-         width = EXCLUDED.width,
-         height = EXCLUDED.height,
-         hash = EXCLUDED.hash,
-         alt_text = EXCLUDED.alt_text,
-         decorative = EXCLUDED.decorative,
-         folder_id = EXCLUDED.folder_id,
-         tags = EXCLUDED.tags,
-         storage_ref = EXCLUDED.storage_ref,
-         status = 'ready',
-         trashed_at = NULL,
-         replaced_at = NULL,
-         updated_at = EXCLUDED.updated_at
-       RETURNING ${ASSET_COLUMNS}`,
-      [
-        snapshot.id,
-        snapshot.siteId,
-        snapshot.filename,
-        snapshot.mime,
-        snapshot.kind as AssetKind,
-        snapshot.byteSize,
-        snapshot.width,
-        snapshot.height,
-        snapshot.hash,
-        snapshot.altText,
-        snapshot.decorative,
-        snapshot.folderId,
-        toJsonParam(snapshot.tags),
-        snapshot.storageRef,
-        now,
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) throw new Error("Asset snapshot restore returned no row");
-    return mapAsset(row);
+  createAsset(input: CreateAssetInput): Promise<Asset> {
+    return this.#assets.createAsset(input);
   }
 
-  async createAsset(input: {
-    id: string;
-    siteId: string;
-    filename: string;
-    mime: string;
-    kind: AssetKind;
-    byteSize: number;
-    width: number | null;
-    height: number | null;
-    hash: string;
-    altText: string | null;
-    decorative: boolean;
-    folderId: string | null;
-    tags: string[];
-    storageRef: string;
-  }): Promise<Asset> {
-    const now = new Date().toISOString();
-    const result = await this.#db.query<AssetRow>(
-      `INSERT INTO assets
-        (id, site_id, filename, mime, kind, byte_size, width, height, hash, alt_text, decorative, folder_id, tags, storage_ref, status, replaced_at, trashed_at, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'ready', NULL, NULL, $15, $15)
-       RETURNING ${ASSET_COLUMNS}`,
-      [
-        input.id,
-        input.siteId,
-        input.filename,
-        input.mime,
-        input.kind,
-        input.byteSize,
-        input.width,
-        input.height,
-        input.hash,
-        input.altText,
-        input.decorative,
-        input.folderId,
-        toJsonParam(input.tags),
-        input.storageRef,
-        now,
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) throw new Error("Asset insert returned no row");
-    return mapAsset(row);
-  }
-
-  async getAsset(id: string): Promise<Asset> {
-    const result = await this.#db.query<AssetRow>(
-      `SELECT ${ASSET_COLUMNS} FROM assets WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Asset "${id}" does not exist`, {
-        field: "assetId",
-        suggestion: "List the library with `list_assets` or check the id.",
-      });
-    }
-    const asset = mapAsset(row);
-    const [withDerivatives = asset] = await this.#attachDerivatives([asset]);
-    return withDerivatives;
-  }
-
-  // An asset belongs to exactly one site (ADR-0014). This guard is the one
-  // place that enforces it, so an id from another site can never be read,
-  // changed or destroyed. `getAsset` stays unscoped on purpose: the redesign
-  // plan loads a draft's assets first and then checks the ownership itself.
-  async #getAssetInSite(assetId: string, siteId: string): Promise<Asset> {
-    const asset = await this.getAsset(assetId);
-    if (asset.siteId !== siteId) {
-      throw new SenifyError("validation", `Asset "${assetId}" belongs to another site`, {
-        field: "assetId",
-        suggestion: "Use an asset of this site.",
-      });
-    }
-    return asset;
+  getAsset(id: string): Promise<Asset> {
+    return this.#assets.getAsset(id);
   }
 
   async #getAssetFolderInSite(folderId: string, siteId: string): Promise<AssetFolder> {
@@ -3034,171 +2862,44 @@ export class Store {
   }
 
   // Public, site-scoped entry points for the access paths (ADR-0014).
-  async getAssetOfSite(assetId: string, siteId: string): Promise<Asset> {
-    return this.#getAssetInSite(assetId, siteId);
+  getAssetOfSite(assetId: string, siteId: string): Promise<Asset> {
+    return this.#assets.getAssetOfSite(assetId, siteId);
   }
 
   async getAssetFolderOfSite(folderId: string, siteId: string): Promise<AssetFolder> {
     return this.#getAssetFolderInSite(folderId, siteId);
   }
 
-  // Dedupe only looks at live assets: re-uploading the same bytes after a trash
-  // must create a fresh, usable record.
-  async findAssetByHash(siteId: string, hash: string): Promise<Asset | undefined> {
-    const result = await this.#db.query<AssetRow>(
-      `SELECT ${ASSET_COLUMNS} FROM assets
-       WHERE site_id = $1 AND hash = $2 AND status = 'ready'
-       ORDER BY created_at ASC, id ASC LIMIT 1`,
-      [siteId, hash],
-    );
-    const row = result.rows[0];
-    return row ? (await this.#attachDerivatives([mapAsset(row)]))[0] : undefined;
+  findAssetByHash(siteId: string, hash: string): Promise<Asset | undefined> {
+    return this.#assets.findAssetByHash(siteId, hash);
   }
 
-  async listAssets(
-    siteId: string,
-    options: { status?: AssetStatus | "all" } = {},
-  ): Promise<Asset[]> {
-    const status = options.status ?? "ready";
-    await this.getSite(siteId);
-    const result =
-      status === "all"
-        ? await this.#db.query<AssetRow>(
-            `SELECT ${ASSET_COLUMNS} FROM assets WHERE site_id = $1
-             ORDER BY created_at DESC, id DESC`,
-            [siteId],
-          )
-        : await this.#db.query<AssetRow>(
-            `SELECT ${ASSET_COLUMNS} FROM assets WHERE site_id = $1 AND status = $2
-             ORDER BY created_at DESC, id DESC`,
-            [siteId, status],
-          );
-    return this.#attachDerivatives(result.rows.map(mapAsset));
+  listAssets(siteId: string, options?: { status?: AssetStatus | "all" }): Promise<Asset[]> {
+    return this.#assets.listAssets(siteId, options);
   }
 
-  async updateAsset(id: string, patch: AssetUpdate): Promise<Asset> {
-    const current = await this.getAsset(id);
-    const next = {
-      filename: patch.filename ?? current.filename,
-      mime: patch.mime ?? current.mime,
-      kind: patch.kind ?? current.kind,
-      byteSize: patch.byteSize ?? current.byteSize,
-      width: patch.width === undefined ? current.width : patch.width,
-      height: patch.height === undefined ? current.height : patch.height,
-      hash: patch.hash ?? current.hash,
-      altText: patch.altText === undefined ? current.altText : patch.altText,
-      decorative:
-        patch.decorative === undefined ? current.decorative : patch.decorative,
-      folderId: patch.folderId === undefined ? current.folderId : patch.folderId,
-      tags: patch.tags ?? current.tags,
-      storageRef: patch.storageRef ?? current.storageRef,
-      status: patch.status ?? current.status,
-      replacedAt:
-        patch.replacedAt === undefined ? current.replacedAt : patch.replacedAt,
-      trashedAt:
-        patch.trashedAt === undefined ? current.trashedAt : patch.trashedAt,
-      updatedAt: patch.updatedAt ?? new Date().toISOString(),
-    };
-    await this.#db.query(
-      `UPDATE assets SET
-         filename = $2, mime = $3, kind = $4, byte_size = $5, width = $6, height = $7,
-         hash = $8, alt_text = $9, decorative = $10, folder_id = $11, tags = $12,
-         storage_ref = $13, status = $14, replaced_at = $15, trashed_at = $16, updated_at = $17
-       WHERE id = $1`,
-      [
-        id,
-        next.filename,
-        next.mime,
-        next.kind,
-        next.byteSize,
-        next.width,
-        next.height,
-        next.hash,
-        next.altText,
-        next.decorative,
-        next.folderId,
-        toJsonParam(next.tags),
-        next.storageRef,
-        next.status,
-        next.replacedAt,
-        next.trashedAt,
-        next.updatedAt,
-      ],
-    );
-    return { ...current, ...next };
+  updateAsset(id: string, patch: AssetUpdate): Promise<Asset> {
+    return this.#assets.updateAsset(id, patch);
   }
 
-  async deleteAssetRecord(id: string): Promise<void> {
-    const result = await this.#db.query<{ id: string }>(
-      `DELETE FROM assets WHERE id = $1 RETURNING id`,
-      [id],
-    );
-    if (result.rows.length === 0) {
-      throw new SenifyError("not_found", `Asset "${id}" does not exist`, {
-        field: "assetId",
-      });
-    }
+  deleteAssetRecord(id: string): Promise<void> {
+    return this.#assets.deleteAssetRecord(id);
   }
 
-  // Replaces ladder and blur hash atomically: callers regenerate both after an
-  // upload or replace, so stale rows never survive a dimension change.
-  async replaceAssetDerivatives(
+  replaceAssetDerivatives(
     assetId: string,
     variants: readonly GeneratedVariant[],
     blurhash: string | null,
   ): Promise<void> {
-    const now = new Date().toISOString();
-    await this.#db.withTransaction(async (tx) => {
-      await tx.query(`DELETE FROM asset_variants WHERE asset_id = $1`, [assetId]);
-      await tx.query(`DELETE FROM asset_blurhash WHERE asset_id = $1`, [assetId]);
-      for (const variant of variants) {
-        await tx.query(
-          `INSERT INTO asset_variants
-            (id, asset_id, width, format, storage_ref, byte_size, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [
-            newEntityId(),
-            assetId,
-            variant.width,
-            variant.format,
-            variant.storageRef,
-            variant.byteSize,
-            now,
-          ],
-        );
-      }
-      if (blurhash !== null) {
-        await tx.query(
-          `INSERT INTO asset_blurhash (asset_id, value, created_at) VALUES ($1, $2, $3)`,
-          [assetId, blurhash, now],
-        );
-      }
-    });
+    return this.#assets.replaceAssetDerivatives(assetId, variants, blurhash);
   }
 
-  async deleteAssetDerivatives(assetId: string): Promise<void> {
-    await this.#db.withTransaction(async (tx) => {
-      await tx.query(`DELETE FROM asset_variants WHERE asset_id = $1`, [assetId]);
-      await tx.query(`DELETE FROM asset_blurhash WHERE asset_id = $1`, [assetId]);
-    });
+  deleteAssetDerivatives(assetId: string): Promise<void> {
+    return this.#assets.deleteAssetDerivatives(assetId);
   }
 
-  // The check pipeline needs status + decorative for every asset of a site;
-  // ids that are absent are "missing" for the caller.
-  async assetUsageMap(siteId: string): Promise<Map<string, AssetUsage>> {
-    const result = await this.#db.query<{
-      id: string;
-      status: string;
-      decorative: unknown;
-    }>(`SELECT id, status, decorative FROM assets WHERE site_id = $1`, [siteId]);
-    const map = new Map<string, AssetUsage>();
-    for (const row of result.rows) {
-      map.set(row.id, {
-        status: row.status === "trashed" ? "trashed" : "ready",
-        decorative: row.decorative === true || row.decorative === "true",
-      });
-    }
-    return map;
+  assetUsageMap(siteId: string): Promise<Map<string, AssetUsage>> {
+    return this.#assets.assetUsageMap(siteId);
   }
 
   // --- imported foreign code (ADR-0010) -----------------------------------
@@ -3411,451 +3112,70 @@ export class Store {
 
   // ------------------------------------------------------- references (T14)
 
-  async createReference(input: {
-    name: string;
-    sourceUrl: string;
-    method: ReferenceMethod;
-    provenance: ReferenceProvenance;
-    origin?: ReferenceOrigin;
-    collectionId?: string | null;
-    note?: string | null;
-    imageRecipe?: string | null;
-    heroUsage?: string | null;
-    family?: string | null;
-    documents?: ReferenceDocuments;
-    // Manually stored references are ready on arrival: there is no pipeline.
-    status?: ReferenceStatus;
-    stage?: string;
-    progress?: number;
-  }): Promise<Reference> {
-    const now = new Date().toISOString();
-    const id = newEntityId();
-    await this.#db.query(
-      `INSERT INTO design_references
-        (id, name, source_url, method, status, stage, progress, failure_reason,
-         families, vocabulary, style_brief, snapshots, provenance, created_at, updated_at,
-         collection_id, note, image_recipe, hero_usage, family, origin, documents)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, NULL,
-         '[]', '[]', '', '[]', $8, $9, $9, $10, $11, $12, $13, NULL, $14, $15)`,
-      [
-        id,
-        input.name,
-        input.sourceUrl,
-        input.method,
-        input.status ?? "analyzing",
-        input.stage ?? "governance",
-        input.progress ?? 0,
-        toJsonParam(input.provenance),
-        now,
-        input.collectionId ?? null,
-        input.note ?? null,
-        input.imageRecipe ?? null,
-        input.heroUsage ?? null,
-        input.origin ?? "analysis",
-        toJsonParam(input.documents ?? {}),
-      ],
-    );
-    return this.getReference(id);
+  createReference(input: CreateReferenceInput): Promise<Reference> {
+    return this.#references.createReference(input);
   }
 
-  async getReference(id: string): Promise<Reference> {
-    const result = await this.#db.query<ReferenceRow>(
-      `SELECT ${REFERENCE_COLUMNS_WITH_DOCUMENTS} FROM design_references WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Reference "${id}" does not exist`, {
-        field: "referenceId",
-        suggestion: "Use list_references to find an existing reference id.",
-      });
-    }
-    const usage = await this.#referenceUsage();
-    const collection =
-      row.collection_id === null || row.collection_id === undefined
-        ? null
-        : await this.#referenceLibrary.findReferenceCollection(row.collection_id);
-    return mapReference(
-      row,
-      await this.getLatestReferenceProfile(id),
-      usage.get(id) ?? [],
-      collection,
-    );
+  getReference(id: string): Promise<Reference> {
+    return this.#references.getReference(id);
   }
 
-  // The card list of the library: newest first by default, "Name A-Z" optional.
-  async listReferences(
-    options: { sort?: ReferenceListSort } = {},
-  ): Promise<ReferenceSummary[]> {
-    const result = await this.#db.query<ReferenceRow>(
-      `SELECT ${REFERENCE_COLUMNS} FROM design_references
-       ORDER BY ${referenceOrderBy(options.sort)}`,
-    );
-    const usage = await this.#referenceUsage();
-    const revisions = await this.#db.query<{ reference_id: string; revision: unknown }>(
-      `SELECT reference_id, MAX(revision) AS revision FROM reference_profiles
-       GROUP BY reference_id`,
-    );
-    const revisionByReference = new Map(
-      revisions.rows.map((row) => [row.reference_id, toFiniteNumber(row.revision, "revision")]),
-    );
-    const collections = await this.#referenceLibrary.referenceCollections();
-    return result.rows.map((row) => {
-      const revision = revisionByReference.get(row.id) ?? 0;
-      const collection =
-        row.collection_id === null || row.collection_id === undefined
-          ? null
-          : (collections.get(row.collection_id) ?? null);
-      return mapReferenceSummary(row, revision, usage.get(row.id) ?? [], collection);
-    });
+  listReferences(options?: { sort?: ReferenceListSort }): Promise<ReferenceSummary[]> {
+    return this.#references.listReferences(options);
   }
 
-  // Ready reference ids of a collection, oldest first (the collection's order
-  // is the set's order — the first entry leads the redesign).
-  async listReferenceIdsByCollection(collectionId: string): Promise<string[]> {
-    const result = await this.#db.query<{ id: string }>(
-      `SELECT id FROM design_references
-       WHERE collection_id = $1 AND status = 'ready'
-       ORDER BY created_at ASC, id ASC`,
-      [collectionId],
-    );
-    return result.rows.map((row) => row.id);
+  listReferenceIdsByCollection(collectionId: string): Promise<string[]> {
+    return this.#references.listReferenceIdsByCollection(collectionId);
   }
 
-  // FTS over the library (E24, L42 vault-first): every query token must hit
-  // the searchable haystack — name, note, vocabulary, families, collection
-  // name AND the verbatim documents (design.md & Co.). The weight ranking is
-  // title A / vocabulary+note B / documents C, done on the loaded rows.
-  async searchReferences(searchTokens: readonly string[]): Promise<
-    { reference: ReferenceSummary; documents: ReferenceDocuments; weight: number }[]
-  > {
-    const tokens = searchTokens
-      .map((token) => token.trim().toLowerCase())
-      .filter((token) => token !== "");
-    if (tokens.length === 0) return [];
-    const rows = await this.#db.query<ReferenceRow & { documents: unknown }>(
-      `SELECT ${REFERENCE_COLUMNS_WITH_DOCUMENTS} FROM design_references`,
-    );
-    const usage = await this.#referenceUsage();
-    const revisions = await this.#db.query<{ reference_id: string; revision: unknown }>(
-      `SELECT reference_id, MAX(revision) AS revision FROM reference_profiles
-       GROUP BY reference_id`,
-    );
-    const revisionByReference = new Map(
-      revisions.rows.map((row) => [row.reference_id, toFiniteNumber(row.revision, "revision")]),
-    );
-    const collections = await this.#referenceLibrary.referenceCollections();
-    const hits: { reference: ReferenceSummary; documents: ReferenceDocuments; weight: number }[] = [];
-    for (const row of rows.rows) {
-      const revision = revisionByReference.get(row.id) ?? 0;
-      const collection =
-        row.collection_id === null || row.collection_id === undefined
-          ? null
-          : (collections.get(row.collection_id) ?? null);
-      const documents = toJson<ReferenceDocuments>(row.documents ?? EMPTY_REFERENCE_DOCUMENTS);
-      const haystacks = {
-        a: [row.name].join(" ").toLowerCase(),
-        b: [
-          row.note ?? "",
-          ...(toJson<string[]>(row.vocabulary) ?? []),
-          ...(toJson<string[]>(row.families) ?? []),
-          row.family ?? "",
-          collection?.name ?? "",
-        ]
-          .join(" ")
-          .toLowerCase(),
-        c: [documents.design ?? "", documents.guidelines ?? "", documents.components ?? ""]
-          .join(" ")
-          .toLowerCase(),
-      };
-      let weight = 0;
-      let all = true;
-      for (const token of tokens) {
-        if (haystacks.a.includes(token)) weight += 4;
-        else if (haystacks.b.includes(token)) weight += 2;
-        else if (haystacks.c.includes(token)) weight += 1;
-        else {
-          all = false;
-          break;
-        }
-      }
-      if (!all) continue;
-      hits.push({
-        reference: mapReferenceSummary(row, revision, usage.get(row.id) ?? [], collection),
-        documents,
-        weight,
-      });
-    }
-    hits.sort(
-      (left, right) =>
-        right.weight - left.weight ||
-        left.reference.name.localeCompare(right.reference.name),
-    );
-    return hits;
+  searchReferences(searchTokens: readonly string[]): Promise<ReferenceSearchHit[]> {
+    return this.#references.searchReferences(searchTokens);
   }
 
-  // Dedupe candidates (E24, L42): two references are near-duplicates when
-  // their source urls match (ignoring trailing slash / protocol) or their
-  // names normalise to the same string. The newer entry is the duplicate of
-  // the older one (the list is newest-first, so the *later* row wins the
-  // duplicate role). Document hashes stay out — the same design.md on two
-  // urls is a fork, not a duplicate.
-  async findDuplicateReferences(): Promise<
-    { reference: ReferenceSummary; duplicateOf: ReferenceSummary; reason: string }[]
-  > {
-    const all = (await this.listReferences()).slice().reverse();
-    const byUrlKey = new Map<string, ReferenceSummary>();
-    const byNameKey = new Map<string, ReferenceSummary>();
-    const duplicates: { reference: ReferenceSummary; duplicateOf: ReferenceSummary; reason: string }[] = [];
-    for (const reference of all) {
-      const urlKey = (reference.sourceUrl ?? "")
-        .toLowerCase()
-        .replace(/^https?:\/\//, "")
-        .replace(/\/+$/, "");
-      const nameKey = reference.name.toLowerCase().replace(/\s+/g, " ").trim();
-      if (urlKey !== "") {
-        const existing = byUrlKey.get(urlKey);
-        if (existing) {
-          duplicates.push({ reference, duplicateOf: existing, reason: "sourceUrl" });
-          continue;
-        }
-        byUrlKey.set(urlKey, reference);
-      }
-      const existingByName = byNameKey.get(nameKey);
-      if (existingByName) {
-        duplicates.push({ reference, duplicateOf: existingByName, reason: "name" });
-        continue;
-      }
-      byNameKey.set(nameKey, reference);
-    }
-    return duplicates;
+  findDuplicateReferences(): Promise<ReferenceDuplicate[]> {
+    return this.#references.findDuplicateReferences();
   }
 
-  async updateReference(
-    id: string,
-    patch: {
-      name?: string;
-      sourceUrl?: string;
-      status?: ReferenceStatus;
-      stage?: string;
-      progress?: number;
-      failureReason?: string | null;
-      families?: string[];
-      vocabulary?: string[];
-      styleBrief?: string;
-      snapshots?: ReferenceSnapshot[];
-      provenance?: ReferenceProvenance;
-      origin?: ReferenceOrigin;
-      collectionId?: string | null;
-      note?: string | null;
-      imageRecipe?: string | null;
-      heroUsage?: string | null;
-      family?: string | null;
-      documents?: ReferenceDocuments;
-    },
-  ): Promise<Reference> {
-    const current = await this.getReference(id);
-    await this.#db.query(
-      `UPDATE design_references SET
-         status = $2, stage = $3, progress = $4, failure_reason = $5,
-         families = $6, vocabulary = $7, style_brief = $8, snapshots = $9, updated_at = $10,
-         provenance = $11, name = $12, collection_id = $13, note = $14, image_recipe = $15,
-         hero_usage = $16, family = $17, origin = $18, documents = $19, source_url = $20
-       WHERE id = $1`,
-      [
-        id,
-        patch.status ?? current.status,
-        patch.stage ?? current.stage,
-        patch.progress ?? current.progress,
-        patch.failureReason === undefined ? current.failureReason : patch.failureReason,
-        toJsonParam(patch.families ?? current.families),
-        toJsonParam(patch.vocabulary ?? current.vocabulary),
-        patch.styleBrief ?? current.styleBrief,
-        toJsonParam(patch.snapshots ?? current.snapshots),
-        new Date().toISOString(),
-        toJsonParam(patch.provenance ?? current.provenance),
-        patch.name ?? current.name,
-        patch.collectionId === undefined ? current.collectionId : patch.collectionId,
-        patch.note === undefined ? current.note : patch.note,
-        patch.imageRecipe === undefined ? current.imageRecipe : patch.imageRecipe,
-        patch.heroUsage === undefined ? current.heroUsage : patch.heroUsage,
-        patch.family === undefined ? current.family : patch.family,
-        patch.origin ?? current.origin,
-        toJsonParam(patch.documents ?? current.documents),
-        patch.sourceUrl ?? current.sourceUrl,
-      ],
-    );
-    return this.getReference(id);
+  updateReference(id: string, patch: ReferencePatch): Promise<Reference> {
+    return this.#references.updateReference(id, patch);
   }
 
-  async deleteReference(id: string): Promise<void> {
-    await this.getReference(id);
-    await this.#db.withTransaction(async (tx) => {
-      await tx.query(`DELETE FROM reference_profiles WHERE reference_id = $1`, [id]);
-      await tx.query(`DELETE FROM reference_jobs WHERE reference_id = $1`, [id]);
-      await tx.query(`DELETE FROM reference_assignments WHERE reference_id = $1`, [id]);
-      await tx.query(`DELETE FROM design_references WHERE id = $1`, [id]);
-    });
+  deleteReference(id: string): Promise<void> {
+    return this.#references.deleteReference(id);
   }
 
-  async createReferenceProfileRevision(input: {
-    referenceId: string;
-    profile: ReferenceProfile;
-    evidence: ReferenceEvidence[];
-    provenance: ReferenceProvenance;
-    author: Author;
-    note: string | null;
-  }): Promise<ReferenceProfileRevision> {
-    await this.getReference(input.referenceId);
-    const next = await this.#db.query<{ revision: unknown }>(
-      `SELECT COALESCE(MAX(revision), 0) + 1 AS revision FROM reference_profiles
-       WHERE reference_id = $1`,
-      [input.referenceId],
-    );
-    const revision = toFiniteNumber(next.rows[0]?.revision ?? 1, "revision");
-    const result = await this.#db.query<ReferenceProfileRow>(
-      `INSERT INTO reference_profiles
-        (id, reference_id, revision, profile, evidence, provenance, author, note, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING ${REFERENCE_PROFILE_COLUMNS}`,
-      [
-        newEntityId(),
-        input.referenceId,
-        revision,
-        toJsonParam(input.profile),
-        toJsonParam(input.evidence),
-        toJsonParam(input.provenance),
-        toJsonParam(input.author),
-        input.note,
-        new Date().toISOString(),
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) throw new Error("Reference profile insert returned no row");
-    return mapReferenceProfile(row);
+  createReferenceProfileRevision(
+    input: CreateReferenceProfileRevisionInput,
+  ): Promise<ReferenceProfileRevision> {
+    return this.#references.createReferenceProfileRevision(input);
   }
 
-  async getLatestReferenceProfile(
-    referenceId: string,
-  ): Promise<ReferenceProfileRevision | null> {
-    const result = await this.#db.query<ReferenceProfileRow>(
-      `SELECT ${REFERENCE_PROFILE_COLUMNS} FROM reference_profiles
-       WHERE reference_id = $1 ORDER BY revision DESC, id DESC LIMIT 1`,
-      [referenceId],
-    );
-    const row = result.rows[0];
-    return row ? mapReferenceProfile(row) : null;
+  getLatestReferenceProfile(referenceId: string): Promise<ReferenceProfileRevision | null> {
+    return this.#references.getLatestReferenceProfile(referenceId);
   }
 
-  async listReferenceProfileRevisions(
-    referenceId: string,
-  ): Promise<ReferenceProfileRevision[]> {
-    const result = await this.#db.query<ReferenceProfileRow>(
-      `SELECT ${REFERENCE_PROFILE_COLUMNS} FROM reference_profiles
-       WHERE reference_id = $1 ORDER BY revision DESC, id DESC`,
-      [referenceId],
-    );
-    return result.rows.map(mapReferenceProfile);
+  listReferenceProfileRevisions(referenceId: string): Promise<ReferenceProfileRevision[]> {
+    return this.#references.listReferenceProfileRevisions(referenceId);
   }
 
-  async createReferenceJob(input: {
-    referenceId: string;
-    maxAttempts: number;
-    // Analysis input that must survive a retry (e.g. the snapshot fallback).
-    payload?: Record<string, unknown> | null;
-  }): Promise<ReferenceJob> {
-    const now = new Date().toISOString();
-    const result = await this.#db.query<ReferenceJobRow>(
-      `INSERT INTO reference_jobs
-        (id, reference_id, status, stage, progress, attempts, max_attempts,
-         next_attempt_at, last_error, created_at, updated_at, finished_at, payload)
-       VALUES ($1, $2, 'queued', 'queued', 0, 0, $3, $4, NULL, $4, $4, NULL, $5)
-       RETURNING ${REFERENCE_JOB_COLUMNS}`,
-      [
-        newEntityId(),
-        input.referenceId,
-        input.maxAttempts,
-        now,
-        input.payload === undefined || input.payload === null
-          ? null
-          : toJsonParam(input.payload),
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) throw new Error("Reference job insert returned no row");
-    return mapReferenceJob(row);
+  createReferenceJob(input: CreateReferenceJobInput): Promise<ReferenceJob> {
+    return this.#references.createReferenceJob(input);
   }
 
-  // The stored analysis input (snapshot fallback) for a queued job.
-  async getReferenceJobPayload(id: string): Promise<Record<string, unknown> | null> {
-    const result = await this.#db.query<{ payload: unknown }>(
-      `SELECT payload FROM reference_jobs WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row || row.payload === null || row.payload === undefined) return null;
-    return toJson<Record<string, unknown>>(row.payload);
+  getReferenceJobPayload(id: string): Promise<Record<string, unknown> | null> {
+    return this.#references.getReferenceJobPayload(id);
   }
 
-  async getReferenceJob(id: string): Promise<ReferenceJob> {
-    const result = await this.#db.query<ReferenceJobRow>(
-      `SELECT ${REFERENCE_JOB_COLUMNS} FROM reference_jobs WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Reference job "${id}" does not exist`, {
-        field: "jobId",
-      });
-    }
-    return mapReferenceJob(row);
+  getReferenceJob(id: string): Promise<ReferenceJob> {
+    return this.#references.getReferenceJob(id);
   }
 
-  // Jobs that are due: queued and past their next attempt time.
-  async listDueReferenceJobs(now: string, limit = 20): Promise<ReferenceJob[]> {
-    const result = await this.#db.query<ReferenceJobRow>(
-      `SELECT ${REFERENCE_JOB_COLUMNS} FROM reference_jobs
-       WHERE status = 'queued' AND next_attempt_at <= $1
-       ORDER BY next_attempt_at ASC, created_at ASC, id ASC LIMIT $2`,
-      [now, Math.max(1, Math.min(100, limit))],
-    );
-    return result.rows.map(mapReferenceJob);
+  listDueReferenceJobs(now: string, limit?: number): Promise<ReferenceJob[]> {
+    return this.#references.listDueReferenceJobs(now, limit);
   }
 
-  async updateReferenceJob(input: {
-    id: string;
-    status: ReferenceJobStatus;
-    stage: string;
-    progress: number;
-    attempts: number;
-    nextAttemptAt: string;
-    lastError: string | null;
-    finishedAt: string | null;
-  }): Promise<ReferenceJob> {
-    const result = await this.#db.query<ReferenceJobRow>(
-      `UPDATE reference_jobs SET
-         status = $2, stage = $3, progress = $4, attempts = $5,
-         next_attempt_at = $6, last_error = $7, finished_at = $8, updated_at = $9
-       WHERE id = $1 RETURNING ${REFERENCE_JOB_COLUMNS}`,
-      [
-        input.id,
-        input.status,
-        input.stage,
-        input.progress,
-        input.attempts,
-        input.nextAttemptAt,
-        input.lastError,
-        input.finishedAt,
-        new Date().toISOString(),
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Reference job "${input.id}" does not exist`, {
-        field: "jobId",
-      });
-    }
-    return mapReferenceJob(row);
+  updateReferenceJob(input: UpdateReferenceJobInput): Promise<ReferenceJob> {
+    return this.#references.updateReferenceJob(input);
   }
 
   // ------------------------------------------------- import jobs (plan S3.2)
@@ -4278,86 +3598,20 @@ export class Store {
     return row === undefined ? null : mapImportJob(row);
   }
 
-  async upsertReferenceAssignment(input: {
-    siteId: string;
-    referenceId: string;
-    scales: ReferenceScale[];
-    priority: number;
-  }): Promise<ReferenceAssignment> {
-    await this.getReference(input.referenceId);
-    const now = new Date().toISOString();
-    try {
-      const result = await this.#db.query<ReferenceAssignmentRow>(
-        `INSERT INTO reference_assignments
-          (id, site_id, reference_id, scales, priority, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $6)
-         RETURNING ${REFERENCE_ASSIGNMENT_COLUMNS}`,
-        [
-          newEntityId(),
-          input.siteId,
-          input.referenceId,
-          toJsonParam(input.scales),
-          input.priority,
-          now,
-        ],
-      );
-      const row = result.rows[0];
-      if (!row) throw new Error("Reference assignment insert returned no row");
-      return mapReferenceAssignment(row);
-    } catch (error) {
-      if (!isUniqueViolation(error)) throw error;
-      const result = await this.#db.query<ReferenceAssignmentRow>(
-        `UPDATE reference_assignments SET scales = $3, priority = $4, updated_at = $5
-         WHERE site_id = $1 AND reference_id = $2
-         RETURNING ${REFERENCE_ASSIGNMENT_COLUMNS}`,
-        [input.siteId, input.referenceId, toJsonParam(input.scales), input.priority, now],
-      );
-      const row = result.rows[0];
-      if (!row) throw error;
-      return mapReferenceAssignment(row);
-    }
+  upsertReferenceAssignment(input: UpsertReferenceAssignmentInput): Promise<ReferenceAssignment> {
+    return this.#references.upsertReferenceAssignment(input);
   }
 
-  async listReferenceAssignments(siteId: string): Promise<ReferenceAssignment[]> {
-    const result = await this.#db.query<ReferenceAssignmentRow>(
-      `SELECT ${REFERENCE_ASSIGNMENT_COLUMNS} FROM reference_assignments
-       WHERE site_id = $1 ORDER BY priority ASC, created_at ASC, id ASC`,
-      [siteId],
-    );
-    return result.rows.map(mapReferenceAssignment);
+  listReferenceAssignments(siteId: string): Promise<ReferenceAssignment[]> {
+    return this.#references.listReferenceAssignments(siteId);
   }
 
-  async deleteReferenceAssignment(input: {
-    siteId: string;
-    referenceId: string;
-  }): Promise<boolean> {
-    const result = await this.#db.query<{ id: string }>(
-      `DELETE FROM reference_assignments WHERE site_id = $1 AND reference_id = $2 RETURNING id`,
-      [input.siteId, input.referenceId],
-    );
-    return result.rows.length > 0;
+  deleteReferenceAssignment(input: DeleteReferenceAssignmentInput): Promise<boolean> {
+    return this.#references.deleteReferenceAssignment(input);
   }
 
-  async countReferenceAssignments(referenceId: string): Promise<number> {
-    const result = await this.#db.query<{ total: unknown }>(
-      `SELECT COUNT(*) AS total FROM reference_assignments WHERE reference_id = $1`,
-      [referenceId],
-    );
-    return toFiniteNumber(result.rows[0]?.total ?? 0, "total");
-  }
-
-  async #referenceUsage(): Promise<Map<string, string[]>> {
-    const result = await this.#db.query<{ reference_id: string; site_id: string }>(
-      `SELECT reference_id, site_id FROM reference_assignments
-       ORDER BY site_id ASC`,
-    );
-    const usage = new Map<string, string[]>();
-    for (const row of result.rows) {
-      const sites = usage.get(row.reference_id) ?? [];
-      sites.push(row.site_id);
-      usage.set(row.reference_id, sites);
-    }
-    return usage;
+  countReferenceAssignments(referenceId: string): Promise<number> {
+    return this.#references.countReferenceAssignments(referenceId);
   }
 
   // ------------------------------------------------ reference library (T14)
