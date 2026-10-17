@@ -69,7 +69,6 @@ export const CANVAS_STYLES = `
   border-radius: 0.3rem;
 }
 .senify-canvas__group[hidden] { display: none; }
-.senify-canvas__group[data-role="insert"] { margin-left: auto; }
 .senify-canvas__button { display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem; }
 .senify-canvas__button {
   min-height: 1.9rem;
@@ -80,23 +79,6 @@ export const CANVAS_STYLES = `
   color: inherit;
   font: inherit;
   cursor: pointer;
-}
-.senify-canvas__catalog-label {
-  color: var(--ed-ink-muted);
-  font-size: var(--ed-text-11);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.senify-canvas__select {
-  min-height: 1.9rem;
-  max-width: 12rem;
-  padding: 0 0.35rem;
-  border: 1px solid var(--ed-line-control);
-  border-radius: var(--ed-radius-sm);
-  background: var(--ed-surface-inset);
-  color: var(--ed-ink-strong);
-  font: inherit;
-  font-size: var(--ed-text-12);
 }
 .senify-canvas__zoom-label {
   min-width: 3.5rem;
@@ -134,41 +116,7 @@ export const CANVAS_STYLES = `
   min-height: 2.2rem;
   padding: 0 0.5rem;
 }
-/* Der Katalog-Streifen (Ticket 12): Chips zum Ziehen, Klick fuegt ein.
-   Ganzzahlige Hoehen (28px Chip, 5px Fuss): der Rahmen darunter muss auf einem
-   ganzen Pixel sitzen, sonst rastert die Arbeitsflaeche die Schriften auf
-   halben Pixeln und das Paritaets-Tor (Phase 1) misst Glaettungsunterschiede. */
-.senify-canvas__cataloghost { padding: 0 0.5rem 5px; }
-.senify-canvas__catalog {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.25rem;
-}
-.senify-canvas__catalog-heading {
-  margin-right: 0.2rem;
-  color: var(--ed-ink-muted);
-  font-size: var(--ed-text-11);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.senify-canvas__chip {
-  min-height: 28px;
-  padding: 0 0.5rem;
-  border: 0;
-  border-radius: 0.25rem;
-  background: var(--ed-surface-inset);
-  box-shadow: inset 0 0 0 1px var(--ed-line-control);
-  color: var(--ed-ink-base);
-  font: inherit;
-  font-size: var(--ed-text-11);
-  cursor: grab;
-}
-.senify-canvas__chip:hover { background: var(--ed-fill-hover); color: var(--ed-ink-strong); }
-.senify-canvas__chip:active { cursor: grabbing; }
 .senify-canvas__button:focus-visible,
-.senify-canvas__chip:focus-visible,
-.senify-canvas__select:focus-visible,
 .senify-canvas__plus:focus-visible {
   outline: 2px solid var(--ed-focus);
   outline-offset: 1px;

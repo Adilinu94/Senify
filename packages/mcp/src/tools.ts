@@ -101,6 +101,14 @@ const SITE_SCHEMA = {
     // Public origin visitors open the site under; absent until the operator
     // sets it (then the `<slug>.senify.xyz` placeholder is baked).
     baseUrl: { type: "string" },
+    // The site's own breakpoint pair (ADR-0020): below `tablet` px the tablet
+    // layout applies, below `mobile` px the mobile one. Absent: the platform
+    // default (1024 / 640). Agents read it; the operator sets it.
+    breakpoints: {
+      type: "object",
+      properties: { tablet: { type: "number" }, mobile: { type: "number" } },
+      required: ["tablet", "mobile"],
+    },
     createdAt: { type: "string" },
     updatedAt: { type: "string" },
   },

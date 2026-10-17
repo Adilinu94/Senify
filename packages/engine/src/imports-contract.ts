@@ -80,6 +80,18 @@ export const ImportReportSchema = Type.Object(
     existingPage: Type.Optional(
       Type.Object({ pageId: Type.String(), draftVersion: Type.Number(), title: Type.String() }),
     ),
+    // The source's own breakpoint pair and what the import did with it
+    // (ADR-0020): `set` took it over for the site, `unchanged` the site already
+    // breaks there, `kept` the site keeps its own numbers (named in `reason`).
+    // Absent: the source gives no pair Senify can carry.
+    breakpoints: Type.Optional(
+      Type.Object({
+        tablet: Type.Number(),
+        mobile: Type.Number(),
+        outcome: Type.Union([Type.Literal("set"), Type.Literal("unchanged"), Type.Literal("kept")]),
+        reason: Type.Union([Type.Literal("site-pair"), Type.Literal("other-pages"), Type.Null()]),
+      }),
+    ),
     score: Type.Number(),
     counts: Type.Object({
       nodes: Type.Number(),

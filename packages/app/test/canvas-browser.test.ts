@@ -327,9 +327,12 @@ describe.skipIf(!browserAvailable)("editor canvas in a real browser", () => {
         .toBeNull();
       await expect.poll(sectionBackground).toBe("rgba(0, 0, 0, 0)");
 
-      // Insert from the catalog lands behind the selection; Undo takes it back.
-      await tab.selectOption('.senify-canvas__select', "divider");
-      await tab.locator('.senify-canvas__button[data-action="insert-after"]').click();
+      // Insert lands behind the selection; Undo takes it back. The toolbar has no
+      // insert buttons any more (the elements panel and the plus points feed the
+      // canvas); the standalone canvas is driven through its instance.
+      const insertAfter = (): Promise<unknown> =>
+        tab.evaluate(() => (globalThis as { __canvas?: { insert(p: string, pos: string): boolean } }).__canvas?.insert("divider", "after"));
+      await insertAfter();
       await expect
         .poll(async () => desktopFrame.locator('section[data-section="divider"]').count())
         .toBe(2);
@@ -343,11 +346,11 @@ describe.skipIf(!browserAvailable)("editor canvas in a real browser", () => {
       // The history sheet (ticket 03 point 5): time and action per row, a click
       // jumps to that state through the undo/redo gate. Two changes in a row
       // (a new change after an undo drops the redo future — HistoryStack).
-      await tab.locator('.senify-canvas__button[data-action="insert-after"]').click();
+      await insertAfter();
       await expect
         .poll(async () => desktopFrame.locator('section[data-section="divider"]').count())
         .toBe(2);
-      await tab.locator('.senify-canvas__button[data-action="insert-after"]').click();
+      await insertAfter();
       await expect
         .poll(async () => desktopFrame.locator('section[data-section="divider"]').count())
         .toBe(3);

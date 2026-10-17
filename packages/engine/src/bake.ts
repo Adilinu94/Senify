@@ -468,6 +468,9 @@ export async function bakePages(
     {
       siteName: input.site.name,
       baseUrl: input.site.baseUrl ?? `https://${input.site.slug}.senify.xyz`,
+      // The site's own breakpoint pair (ADR-0020); every bake path goes through
+      // here, so preview, release, rollback and export share it.
+      ...(input.site.breakpoints === undefined ? {} : { breakpoints: input.site.breakpoints }),
       pages: build.pages,
       contexts: build.contexts,
       themeCss: siteTheme.css,

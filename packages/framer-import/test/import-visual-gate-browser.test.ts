@@ -196,6 +196,9 @@ async function bakeImport(rootDir: string, outDir: string): Promise<void> {
     {
       siteName: "Import Gate",
       baseUrl: "https://import-gate.local",
+      // The source's own breakpoints, as the import hands them to the site
+      // (ADR-0020): the baked page breaks where the original does.
+      ...(run.breakpoints === null ? {} : { breakpoints: run.breakpoints }),
       pages: [{ id: "import", path: "/", title: "Import Gate", tree }],
       themeCss: `${emitCss(resolved)}\nhtml,body{font-family:Inter,Arial,sans-serif;line-height:normal;color:#101828;background:#f8fafc}`,
        styleRules: run.mapped.rules,

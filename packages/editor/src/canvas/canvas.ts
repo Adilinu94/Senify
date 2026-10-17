@@ -15,12 +15,12 @@
 import type { MotionProfile, NodeTree, Registry } from "@senify/section-sdk";
 import {
   getPrimitive,
-  primitiveTypes,
   themeTokenResolver,
   type StateName,
   type TokenResolver,
 } from "@senify/widget-engine";
 import type { Theme } from "@senify/tokens";
+import type { Breakpoints } from "@senify/widget-engine/breakpoints";
 import { createReactRenderer } from "../react-renderer.tsx";
 import type { FrameDescriptor } from "../frames.ts";
 import type { EditorMode, FrameBreakpoint } from "../types.ts";
@@ -61,6 +61,10 @@ export type CanvasOptions = {
   // The breakpoint the live frame renders at; in design it is the frame the
   // editor marks as active (dimming, activation).
   breakpoint?: FrameBreakpoint;
+  // The site's own breakpoint pair (ADR-0020): the sheets get the width of the
+  // range their device owns and the rules compile with the same numbers the
+  // bake uses. Absent: the platform default (1024 / 640).
+  breakpoints?: Breakpoints | null;
   // The site profile decides the Lenis switch of the live runtime (F6/F7).
   profile?: MotionProfile;
   motionVendorBase?: string;
@@ -81,6 +85,14 @@ export type CanvasState = {
   breakpoint: FrameBreakpoint;
 };
 
+// Where the next insert goes once a plus point has been clicked; `label` reads
+// "hinter Hero" / "vor Hero" / "in Rahmen" for the elements panel's hint.
+export type ArmedTarget = {
+  nodeId: string;
+  position: InsertPosition;
+  label: string;
+};
+
 export type CanvasInstance = {
   element: DomElement;
   refresh(): void;
@@ -97,10 +109,17 @@ export type CanvasInstance = {
     position: InsertPosition,
     props?: Record<string, import("@senify/widget-engine").PropValue>,
   ): boolean;
-  // Haengt ein Primitiv als letztes Kind der Seitenwurzel an. Der Weg des
-  // Elemente-Panels (E5): es steht nur ohne Auswahl da, also gibt es kein Ziel
-  // "hinter" einem Knoten.
-  insertAtEnd(primitive: string): boolean;
+  // Fuegt ein Primitiv am gemerkten Ziel ein (siehe `armedTarget`), sonst als
+  // letztes Kind der Seitenwurzel. Der Weg des Elemente-Panels (E5/E7): es steht
+  // nur ohne Auswahl da, also gibt es kein Ziel "hinter" einem Knoten, es sei
+  // denn ein Plus-Punkt hat eins gemerkt.
+  insertAtTarget(primitive: string): boolean;
+  // Das Ziel des naechsten Einfuegens, gemerkt durch einen Klick auf einen
+  // Plus-Punkt im Canvas (E7). Es faellt weg, sobald etwas gewaehlt wird, der
+  // Knoten verschwindet oder eingefuegt wurde.
+  armedTarget(): ArmedTarget | null;
+  onArmedChange(listener: (target: ArmedTarget | null) => void): () => void;
+  clearArmed(): void;
   // Setzt eine Registry-Sektion (Typ plus Variante) auf die Seitenebene: hinter
   // den Bereich, in dem die Auswahl liegt, ohne Auswahl ans Ende der Seite.
   // Die Auswahl bleibt, wie sie war.
@@ -200,6 +219,9 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     (options.theme === undefined ? undefined : themeTokenResolver(options.theme));
   ensureCanvasStyles(doc);
 
+  // The site's breakpoint pair; fixed for the life of this canvas (the page
+  // reloads the editor when the pair changes in the project settings).
+  const siteBreakpoints: Breakpoints | undefined = options.breakpoints ?? undefined;
   let zoom = options.zoom ?? 0.5;
   let previewState: StateName | null = options.previewState ?? null;
   let mode: EditorMode = options.mode ?? "design";
@@ -226,21 +248,19 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   root.setAttribute(EDITOR_ROOT_ATTRIBUTE, "true");
   applyEditorSkin(root, EDITOR_SKIN_DEFAULT);
   const topbar = create(doc, "div", "senify-canvas__topbar");
-  const catalogStripHost = create(doc, "div", "senify-canvas__cataloghost");
   const stage = create(doc, "div", "senify-canvas__stage");
   const overlay = create(doc, "div", "senify-canvas__overlay", { "data-role": "overlay" });
   const footer = create(doc, "div", "senify-canvas__footer");
   const status = create(doc, "span", "senify-canvas__status", { "data-role": "status" });
   root.appendChild(topbar);
-  root.appendChild(catalogStripHost);
   root.appendChild(stage);
   root.appendChild(footer);
   stage.appendChild(overlay);
   host.appendChild(root);
 
-  // Drag and drop (ticket 12): the catalog strip lives in `catalogStripHost`,
-  // the drop line and the plus points in the stage overlay — never in the
-  // content frame.
+  // Drag and drop (ticket 12): the drop line and the plus points live in the
+  // stage overlay — never in the content frame. The drag sources are the
+  // elements panel tiles (`bindDragSource`).
   const drop = createDropController({
     doc,
     stage,
@@ -254,10 +274,9 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
         wrap: entry.wrap,
         scale: entry.frame.scale,
       })),
-    catalogValue: () => (typeof catalog.value === "string" ? catalog.value : ""),
+    onPlus: (nodeId, position) => arm(nodeId, position),
     onMessage: (value) => message(value),
   });
-  catalogStripHost.appendChild(drop.catalog);
 
   // The marker portal (ticket 16): selection and hover chrome over the stage,
   // never in the content frame. One layer per sheet clips the ring at the
@@ -305,39 +324,6 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     stateGroup.appendChild(button);
   }
 
-  const catalogLabel = create(doc, "label", "senify-canvas__catalog-label", {
-    for: "senify-canvas-catalog",
-  });
-  catalogLabel.textContent = "Baustein";
-  const catalog = create(doc, "select", "senify-canvas__select", {
-    id: "senify-canvas-catalog",
-    "data-role": "catalog",
-    "aria-label": "Baustein zum Einfügen",
-  });
-  const categoryNames: Record<string, string> = {
-    layout: "Layout",
-    basic: "Basis",
-    media: "Medien",
-    form: "Formular",
-    advanced: "Erweitert",
-  };
-  const grouped = new Map<string, DomElement>();
-  for (const type of primitiveTypes()) {
-    if (type === "root") continue;
-    const definition = getPrimitive(type);
-    const category = definition?.category ?? "basic";
-    let group = grouped.get(category);
-    if (group === undefined) {
-      group = create(doc, "optgroup", undefined, { label: categoryNames[category] ?? "Weitere" });
-      grouped.set(category, group);
-      catalog.appendChild(group);
-    }
-    const option = create(doc, "option", undefined, { value: type });
-    option.textContent = definition?.name ?? type;
-    group.appendChild(option);
-  }
-  if (catalog.value === undefined || catalog.value === "") catalog.value = "divider";
-
   // Chrome-Buttons (Framer/Webflow-Stil): Phosphor-Maskensymbol, der volle
   // deutsche Name bleibt als aria-label und Tooltip, optional ein Kurztext.
   function setIcon(button: DomElement, icon: string, label: string, text?: string): void {
@@ -350,23 +336,6 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       button.appendChild(caption);
     }
   }
-
-  const insertAfter = create(doc, "button", "senify-canvas__button", {
-    type: "button",
-    "data-action": "insert-after",
-  });
-  setIcon(insertAfter, "plus", "Danach einfügen", "Danach");
-  insertAfter.addEventListener("click", () => {
-    if (typeof catalog.value === "string") insert(catalog.value, "after");
-  });
-  const insertInto = create(doc, "button", "senify-canvas__button", {
-    type: "button",
-    "data-action": "insert-into",
-  });
-  setIcon(insertInto, "plus", "Hinein einfügen", "Hinein");
-  insertInto.addEventListener("click", () => {
-    if (typeof catalog.value === "string") insert(catalog.value, "into");
-  });
 
   const undoButton = create(doc, "button", "senify-canvas__button", {
     type: "button",
@@ -459,10 +428,6 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     deviceGroup.appendChild(button);
   }
 
-  const insertGroup = create(doc, "div", "senify-canvas__group", { "data-role": "insert" });
-  insertGroup.appendChild(catalog);
-  insertGroup.appendChild(insertAfter);
-  insertGroup.appendChild(insertInto);
   const historyGroup = create(doc, "div", "senify-canvas__group");
   historyGroup.appendChild(undoButton);
   historyGroup.appendChild(redoButton);
@@ -499,7 +464,6 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   topbar.appendChild(deviceGroup);
   topbar.appendChild(historyGroup);
   topbar.appendChild(stateGroup);
-  topbar.appendChild(insertGroup);
   footer.appendChild(status);
   footer.appendChild(scrubGroup);
   footer.appendChild(zoomGroup);
@@ -523,7 +487,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     }
     let left = 0;
     for (const entry of mounted) {
-      const frame = canvasFrames(zoom).find((spec) => spec.device === entry.device);
+      const frame = canvasFrames(zoom, { breakpoints: siteBreakpoints }).find((spec) => spec.device === entry.device);
       if (frame === undefined || frame.width === null || frame.height === null) continue;
       entry.wrap.style.left = `${left}px`;
       entry.wrap.style.top = "0px";
@@ -556,6 +520,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   function frameRules(): FrameRules {
     return canvasFrameRules(store.document, {
       forcedState: previewState,
+      ...(siteBreakpoints === undefined ? {} : { breakpoints: siteBreakpoints }),
       ...(mode === "live" ? { chrome: false } : {}),
       ...(resolveToken === undefined ? {} : { resolveToken }),
     });
@@ -980,7 +945,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     cancelDeferred();
     for (const entry of mounted) entry.wrap.remove();
     mounted.length = 0;
-    for (const spec of canvasFrames(zoom, { mode, breakpoint })) mountFrame(spec);
+    for (const spec of canvasFrames(zoom, { mode, breakpoint, breakpoints: siteBreakpoints })) mountFrame(spec);
     applyFrameLayout();
     updateChrome();
   }
@@ -1197,7 +1162,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
 
   function fit(): void {
     const width = rectOf(stage).width || rectOf(root).width;
-    if (width > 0) setZoom(fitZoom(width, { margin: 24 }));
+    if (width > 0) setZoom(fitZoom(width, { margin: 24, breakpoints: siteBreakpoints }));
     else applyFrameLayout();
   }
 
@@ -1237,10 +1202,48 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     return drop.insertAt(store.document.rootNodeId, primitive, "into");
   }
 
+  // The target a plus point armed (E7): the elements panel supplies the element,
+  // this is where it goes. The selection is cleared first - the panel shows
+  // without one - so the arming itself does not trip the "selected: disarm" rule.
+  let armed: ArmedTarget | null = null;
+  const armedListeners = new Set<(target: ArmedTarget | null) => void>();
+  function setArmed(next: ArmedTarget | null): void {
+    armed = next;
+    for (const listener of [...armedListeners]) listener(next);
+  }
+  function arm(nodeId: string, position: InsertPosition): void {
+    const node = store.document.nodes[nodeId];
+    if (node === undefined) return;
+    store.clearSelection();
+    const where = position === "before" ? "vor" : position === "after" ? "hinter" : "in";
+    setArmed({
+      nodeId,
+      position,
+      label: `${where} ${getPrimitive(node.primitive)?.name ?? node.primitive}`,
+    });
+  }
+  function clearArmed(): void {
+    if (armed !== null) setArmed(null);
+  }
+  function insertAtTarget(primitive: string): boolean {
+    if (armed === null) return insertAtEnd(primitive);
+    const target = armed;
+    const inserted = drop.insertAt(target.nodeId, primitive, target.position);
+    clearArmed();
+    return inserted;
+  }
+
   // A section belongs on the page level: behind the top-level block the
   // selection sits in (a section inserted "after" a heading would end up inside
   // that heading's frame), at the end of the page without a selection.
   function insertSection(type: string, variant: string): boolean {
+    // A plus point armed a target (E7): it wins, like it does for a building block.
+    if (armed !== null) {
+      const target = armed;
+      const inserted = drop.insertSectionAt(target.nodeId, type, variant, target.position);
+      clearArmed();
+      return inserted;
+    }
     const rootId = store.document.rootNodeId;
     let anchor = selectedId();
     if (anchor === null || anchor === rootId) {
@@ -1269,6 +1272,9 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   }
 
   const unsubscribe = store.subscribe(() => {
+    if (armed !== null && (selectedId() !== null || store.document.nodes[armed.nodeId] === undefined)) {
+      clearArmed();
+    }
     // Live is the real page (M4 Stufe 1): a remote change reloads the preview
     // (point 4) instead of patching the tree, so the release runtime rebinds to
     // the fresh DOM. Design keeps the store patch, which preserves the caret.
@@ -1288,11 +1294,11 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
 
   const onResize = (): void => {
     const width = rectOf(stage).width;
-    const needed = canvasFrames(zoom).reduce(
+    const needed = canvasFrames(zoom, { breakpoints: siteBreakpoints }).reduce(
       (sum, spec) => sum + (spec.width ?? 0) * spec.scale,
       0,
     );
-    if (width > 0 && needed > width) setZoom(fitZoom(width, { margin: 24 }));
+    if (width > 0 && needed > width) setZoom(fitZoom(width, { margin: 24, breakpoints: siteBreakpoints }));
   };
   const global = globalThis as {
     addEventListener?: (type: string, handler: () => void) => void;
@@ -1300,7 +1306,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   };
   global.addEventListener?.("resize", onResize);
 
-  for (const spec of canvasFrames(zoom, { mode, breakpoint })) mountFrame(spec);
+  for (const spec of canvasFrames(zoom, { mode, breakpoint, breakpoints: siteBreakpoints })) mountFrame(spec);
   applyFrameLayout();
   updateChrome();
 
@@ -1316,7 +1322,15 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     breakpoint: () => breakpoint,
     select,
     insert,
-    insertAtEnd,
+    insertAtTarget,
+    armedTarget: () => armed,
+    onArmedChange: (listener) => {
+      armedListeners.add(listener);
+      return () => {
+        armedListeners.delete(listener);
+      };
+    },
+    clearArmed,
     insertSection,
     bindSectionDragSource: (element, type, variant) =>
       drop.bindSectionDragSource(element, type, variant),

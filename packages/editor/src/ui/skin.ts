@@ -668,19 +668,6 @@ function canvasSkinCss(): string {
     ].join("\n"),
   );
   rule(
-    " .senify-canvas__select",
-    [
-      "min-height: var(--ed-h-field);",
-      "padding: 0 var(--ed-space-2);",
-      "border: 0;",
-      "border-radius: var(--ed-radius-0);",
-      "background: var(--ed-surface-inset);",
-      "box-shadow: inset 0 0 0 1px var(--ed-line-control);",
-      "color: var(--ed-ink-strong);",
-      "font-size: var(--ed-text-12);",
-    ].join("\n"),
-  );
-  rule(
     " .senify-canvas__zoom-label",
     "color: var(--ed-ink-base);\nfont-family: var(--ed-font-mono);\nfont-size: var(--ed-text-12);\nfont-variant-numeric: tabular-nums;",
   );

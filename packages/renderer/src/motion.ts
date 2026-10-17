@@ -1,5 +1,5 @@
 import { motionCssEffect, motionPreset, type NodeTree } from "@senify/section-sdk";
-import { mediaMaxWidth } from "@senify/widget-engine";
+import { mediaMaxWidth, type Breakpoints } from "@senify/widget-engine";
 
 export const PAGE_SCRIPT_PRESETS = [
   "fade-up",
@@ -403,12 +403,15 @@ export function pageTransitionCss(transition: PageTransition): string {
 // The v2 envelope the bake writes into `<script id="motion-data">`. The
 // breakpoint queries come from the widget engine's one definition
 // (`mediaMaxWidth`), so the payload and the compiled CSS never drift.
-export function motionDataFor(configs: readonly MotionConfig[]): MotionData {
+export function motionDataFor(
+  configs: readonly MotionConfig[],
+  siteBreakpoints?: Breakpoints | null,
+): MotionData {
   return {
     v: 2,
     breakpoints: {
-      tablet: `(max-width: ${mediaMaxWidth("tablet")}px)`,
-      mobile: `(max-width: ${mediaMaxWidth("mobile")}px)`,
+      tablet: `(max-width: ${mediaMaxWidth("tablet", siteBreakpoints ?? undefined)}px)`,
+      mobile: `(max-width: ${mediaMaxWidth("mobile", siteBreakpoints ?? undefined)}px)`,
     },
     entries: [...configs],
   };
