@@ -92,6 +92,10 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       const iconBox = await tab.locator(".senify-elements__tile .ic").first().boundingBox();
       expect(iconBox?.width).toBe(20);
 
+      // Der Schnellzugriff-Streifen unter der Werkzeugleiste ist weg: das
+      // Elemente-Panel ist die eine Quelle fuer Bausteine (E7).
+      expect(await tab.locator(".senify-canvas__catalog, .senify-canvas__chip").count()).toBe(0);
+
       // Suche: ein Treffer, Esc leert sie.
       const search = tab.locator(".senify-elements__search");
       await search.fill("divider");
@@ -106,6 +110,37 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       await expect.poll(dividerCount).toBe(1);
       expect(await search.inputValue()).toBe("divider");
       await search.fill("");
+
+      // Ein Plus-Punkt im Canvas merkt das Ziel: das Panel zeigt "Einfuegen vor
+      // ...", die naechste Kachel fuegt genau dort ein (hier vor dem Hero), und
+      // das Ziel ist danach wieder weg.
+      const sectionOrder = (): Promise<(string | null)[]> =>
+        desktopFrame().locator("section[data-section]").evaluateAll((nodes) =>
+          nodes.map((node) => (node as unknown as { getAttribute(name: string): string | null }).getAttribute("data-section")),
+        );
+      await expect.poll(sectionOrder).toEqual(["hero", "divider"]);
+      await hero.hover();
+      await tab.locator('.senify-canvas__plus[data-position="before"]').click();
+      const hint = tab.locator(".senify-elements__target");
+      await expect.poll(() => hint.isVisible()).toBe(true);
+      expect(await hint.textContent()).toMatch(/Einfügen vor /);
+      await tab.locator('.senify-elements__tile[data-primitive="divider"]').click();
+      await expect.poll(sectionOrder).toEqual(["divider", "hero", "divider"]);
+      expect(await hint.isVisible()).toBe(false);
+
+      // Das Kreuz im Hinweis verwirft das Ziel; die naechste Kachel haengt dann
+      // wieder ans Ende der Seite.
+      await hero.hover();
+      await tab.locator('.senify-canvas__plus[data-position="after"]').click();
+      await expect.poll(() => hint.isVisible()).toBe(true);
+      await tab.locator(".senify-elements__target-cancel").click();
+      await expect.poll(() => hint.isVisible()).toBe(false);
+      await tab.locator('.senify-elements__tile[data-primitive="divider"]').click();
+      await expect.poll(sectionOrder).toEqual(["divider", "hero", "divider", "divider"]);
+      // Zurueck auf den Ausgangsstand, damit der Rest des Tests unveraendert gilt.
+      await tab.locator('.senify-canvas__button[data-action="undo"]').click();
+      await tab.locator('.senify-canvas__button[data-action="undo"]').click();
+      await expect.poll(sectionOrder).toEqual(["hero", "divider"]);
 
       // Panel-Wechsel: die Auswahl ersetzt die Elemente durch "<Name> bearbeiten".
       await hero.click();
@@ -324,6 +359,24 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       await save();
       expect((await stored()).map((entry) => entry.type)).toEqual(["hero", "faq", "pricing"]);
       expect((await stored())[1]?.variant).toBe("two-col");
+
+      // A plus point arms a target, and a section tile honours it like a building
+      // block does: the variant lands before the hero, not at the end of the page.
+      // The undo afterwards leaves the rest of the flow as it was.
+      const order = (): Promise<(string | null)[]> =>
+        desktopFrame().locator("section[data-section]").evaluateAll((nodes) =>
+          nodes.map((node) => (node as unknown as { getAttribute(name: string): string | null }).getAttribute("data-section")),
+        );
+      await expect.poll(order).toEqual(["hero", "faq", "pricing"]);
+      await hero.hover();
+      await tab.locator('.senify-canvas__plus[data-position="before"]').click();
+      await tab.locator('.senify-elements__tab[data-tab="sections"]').click();
+      await expect.poll(() => tab.locator(".senify-elements__target").isVisible()).toBe(true);
+      await tab.locator('.senify-elements__variant[data-section="pricing"][data-variant="comparison"]').click();
+      await expect.poll(order).toEqual(["pricing", "hero", "faq", "pricing"]);
+      expect(await tab.locator(".senify-elements__target").isVisible()).toBe(false);
+      await tab.locator('.senify-canvas__button[data-action="undo"]').click();
+      await expect.poll(order).toEqual(["hero", "faq", "pricing"]);
 
       // Spotlight: with the hero selected the section lands behind the hero, not at the end.
       // The hero is picked in the structure column, so the keyboard stays in the editor shell.

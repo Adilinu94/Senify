@@ -1,7 +1,7 @@
 // Elemente-Panel (E4): Kacheln in einklappbaren Kategorien mit Suche. Ein
-// Klick haengt das Element ans Ende der Seite (`insert`), Ziehen setzt es per
-// Drag and Drop (`bindDragSource`); beides ergibt dieselbe `insertNode`-Mutation
-// wie die Schnellzugriff-Chips.
+// Klick fuegt das Element ein (`insert`: am Ziel eines Plus-Punkts, sonst am Ende
+// der Seite), Ziehen setzt es per Drag and Drop (`bindDragSource`); beides
+// ergibt dieselbe `insertNode`-Mutation.
 // Das Panel kennt weder Store noch Canvas, beides kommt als Funktion herein. Es
 // steht in der linken Spalte und weicht dem Inspektor, sobald ein Element
 // gewaehlt ist (E5).
@@ -20,6 +20,8 @@ import { ensureExplorerStyles } from "./styles.ts";
 export type ElementsPanelOptions = {
   insert: (primitive: string) => void;
   bindDragSource: (element: DomElement, primitive: string) => void;
+  // Verwirft das gemerkte Ziel (das Kreuz im Hinweis).
+  cancelTarget: () => void;
   // Sektionen einfuegen: ein Klick auf eine Variante setzt sie, Ziehen setzt sie
   // per Drag and Drop. Fehlt `insertSection`, zeigt das Panel nur Bausteine.
   insertSection?: (type: string, variant: string) => void;
@@ -34,6 +36,9 @@ export type ElementsPanel = {
   element: DomElement;
   // Setzt den Suchtext (wie eine Eingabe im Feld).
   search(query: string): void;
+  // Zeigt, wohin das naechste Element geht ("hinter Hero"), nachdem ein
+  // Plus-Punkt im Canvas ein Ziel gemerkt hat; `null` blendet den Hinweis aus.
+  setTarget(label: string | null): void;
   // Wechselt den Reiter; ohne Sektions-Funktionen bleibt es bei den Bausteinen.
   showTab(tab: ElementsPanelTab): void;
   tab(): ElementsPanelTab;
@@ -72,6 +77,20 @@ export function createElementsPanel(doc: DomDocument, options: ElementsPanelOpti
   });
   root.setAttribute(EDITOR_ROOT_ATTRIBUTE, "true");
   const body = h(doc, "div", { className: "senify-elements__body" });
+  const target = h(doc, "div", {
+    className: "senify-elements__target",
+    attributes: { role: "status" },
+  });
+  target.hidden = true;
+  const targetText = h(doc, "span", { className: "senify-elements__target-text" });
+  const targetCancel = h(doc, "button", {
+    className: "senify-elements__target-cancel",
+    attributes: { type: "button", title: "Ziel verwerfen", "aria-label": "Ziel verwerfen" },
+  });
+  targetCancel.appendChild(icon(doc, "close", 10));
+  targetCancel.addEventListener("click", () => options.cancelTarget());
+  target.appendChild(targetText);
+  target.appendChild(targetCancel);
   const input = h(doc, "input", {
     className: "senify-elements__search",
     attributes: { type: "search", placeholder: "Elemente suchen", "aria-label": "Elemente suchen" },
@@ -103,6 +122,7 @@ export function createElementsPanel(doc: DomDocument, options: ElementsPanelOpti
     }
     root.appendChild(tabs);
   }
+  body.appendChild(target);
   body.appendChild(input);
   body.appendChild(groupsHost);
   root.appendChild(body);
@@ -297,6 +317,11 @@ export function createElementsPanel(doc: DomDocument, options: ElementsPanelOpti
     search("");
   });
 
+  function setTarget(label: string | null): void {
+    target.hidden = label === null;
+    targetText.textContent = label === null ? "" : `Einfügen ${label}`;
+  }
+
   renderGroups();
-  return { element: root, search, showTab, tab: () => tab };
+  return { element: root, search, setTarget, showTab, tab: () => tab };
 }

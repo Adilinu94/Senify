@@ -148,10 +148,16 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
         .toBe(1);
       await tab.screenshot({ path: join(shotDir, "03-canvas-selected.png") });
 
-      // Insert a widget behind the selection, then Undo takes it back and Redo
+      // Insert a widget behind the hero: a plus point arms the target, the next
+      // tile in the elements panel inserts there. Undo takes it back and Redo
       // puts it in again.
-      await tab.selectOption('.senify-canvas__select', "divider");
-      await tab.locator('.senify-canvas__button[data-action="insert-after"]').click();
+      const heroNode = desktopFrame().locator(`[data-node-id="${heroId}"]`).first();
+      await heroNode.hover();
+      await expect
+        .poll(async () => tab.locator('.senify-canvas__plus[data-position="after"]').count())
+        .toBe(1);
+      await tab.locator('.senify-canvas__plus[data-position="after"]').click();
+      await tab.locator('.senify-elements__tile[data-primitive="divider"]').click();
       const dividerCount = (): Promise<number> =>
         desktopFrame().locator('section[data-section="divider"]').count();
       await expect.poll(dividerCount).toBe(1);
@@ -160,6 +166,12 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       await tab.locator('.senify-canvas__button[data-action="redo"]').click();
       await expect.poll(dividerCount).toBe(1);
       await tab.screenshot({ path: join(shotDir, "04-canvas-insert.png") });
+      // Arming the plus point cleared the selection; the inspector steps below
+      // work on the hero again.
+      await heroNode.click();
+      await expect
+        .poll(async () => tab.locator(`.senify-canvas[data-selected="${heroId}"]`).count())
+        .toBe(1);
 
       // The inspector (ticket 02, slice 1): three tabs, the generated field
       // family and the store as the one source. The divider is a registered
@@ -345,16 +357,23 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       await tab.screenshot({ path: join(shotDir, "04d-spotlight.png") });
 
       // Plus points (ticket 12): hovering a node shows the insert points in the
-      // editor overlay; a click inserts the catalog selection — the same
-      // mutation as the top bar button.
+      // editor overlay; a click arms the target and the next tile in the elements
+      // panel inserts there - the same mutation as a drop.
       const heroSection = desktopFrame().locator('section[data-section="hero"]').first();
       await heroSection.hover();
       await expect
         .poll(async () => tab.locator('.senify-canvas__plus[data-position="after"]').count())
         .toBe(1);
       await tab.locator('.senify-canvas__plus[data-position="after"]').click();
+      await tab.locator('.senify-elements__tile[data-primitive="divider"]').click();
       await expect.poll(dividerCount).toBe(3);
       await tab.screenshot({ path: join(shotDir, "04e-pluspunkte.png") });
+      // Arming the plus point cleared the selection again; the rest of the flow
+      // (reorder, save, reload with the selection restored) works on the hero.
+      await heroSection.click();
+      await expect
+        .poll(async () => tab.locator(`.senify-canvas[data-selected="${heroId}"]`).count())
+        .toBe(1);
 
       // Reorder (ticket 12): dragging an existing node moves it with `moveNode`
       // — one undo step, the frame follows the document order.
