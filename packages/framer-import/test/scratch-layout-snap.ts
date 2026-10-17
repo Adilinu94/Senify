@@ -119,3 +119,45 @@ export const replaceScript = (dataUri: string): string => `(async () => {
   await new Promise((r) => setTimeout(r, 600));
   return document.images.length;
 })()`;
+
+// ---- Lauf 5: Projektkarte Element fuer Element, richtiges (innerstes) main ----
+export const CARD = `(() => {
+  ${HELPERS}
+  const OH = (el) => el.offsetHeight;
+  const proj = document.querySelector("#projects");
+  if (!proj) return JSON.stringify({ err: "kein #projects", rows: [], head: "" });
+  const pcs = getComputedStyle(proj);
+  const cards = [...proj.querySelectorAll("a")].filter((a) => OH(a) > 0);
+  const head = "projects: display=" + pcs.display + " gtr=" + pcs.gridTemplateRows + " gtc=" + String(pcs.gridTemplateColumns).slice(0, 40) + " rowGap=" + pcs.rowGap + " h=" + OH(proj) + " | Karten (offsetHeight): " + cards.map(OH).join(",") + " (n=" + cards.length + ")";
+  const px = (v) => (!v || v === "0px" || v === "normal" || v === "auto" || v === "none") ? "" : v;
+  const rows = [];
+  const walk = (el, d) => {
+    if (d > 6) return;
+    const cs = getComputedStyle(el);
+    const own = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+    const parts = ["h=" + OH(el), "w=" + el.offsetWidth, "disp=" + cs.display];
+    if (String(cs.display).indexOf("flex") >= 0) parts.push("fd=" + cs.flexDirection, "ai=" + cs.alignItems, "jc=" + cs.justifyContent);
+    if (px(cs.rowGap)) parts.push("gap=" + cs.rowGap + "/" + cs.columnGap);
+    const pad = [cs.paddingTop, cs.paddingBottom].map(px).join("/");
+    if (pad !== "/") parts.push("pad=" + pad);
+    const mar = [cs.marginTop, cs.marginBottom].map(px).join("/");
+    if (mar !== "/") parts.push("mar=" + mar);
+    if (px(cs.minHeight)) parts.push("minH=" + cs.minHeight);
+    if (own) parts.push("fs=" + cs.fontSize, "lh=" + cs.lineHeight, "text=" + snippet(el));
+    rows.push("  ".repeat(d) + label(el) + " " + parts.join(" "));
+    for (const c of flat(el, [])) walk(c, d + 1);
+  };
+  if (cards[0]) walk(cards[0], 0);
+  return JSON.stringify({ head, rows });
+})()`;
+
+export const MAIN2 = `(() => {
+  ${HELPERS}
+  const OH = (el) => el.offsetHeight;
+  const mains = [...document.querySelectorAll("main")];
+  const main = mains[mains.length - 1];
+  if (!main) return JSON.stringify({ err: "kein main" });
+  const info = (c) => ({ label: label(c), text: snippet(c), h: OH(c), kids: flat(c, []).length });
+  const kids = flat(main, []);
+  return JSON.stringify({ n: mains.length, mainH: OH(main), l1: kids.map(info), l2: kids.map((k) => flat(k, []).slice(0, 8).map(info)) });
+})()`;

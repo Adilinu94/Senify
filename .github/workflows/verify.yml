@@ -192,7 +192,7 @@ jobs:
         env:
           SENIFY_REQUIRE_BROWSER: "1"
           PROBE_OUT: ${{ runner.temp }}/probe.txt
-        run: pnpm exec vitest run packages/framer-import/test/scratch-fluffy-layout2-probe.test.ts
+        run: pnpm exec vitest run packages/framer-import/test/scratch-fluffy-layout3-probe.test.ts
       - name: Ergebnis als Annotation
         if: always()
         run: |
