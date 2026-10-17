@@ -176,6 +176,21 @@ describe("capture fidelity", () => {
   });
 });
 
+describe("elements that are hidden on purpose", () => {
+  it("keeps a plain `opacity:0` as the look: a closed menu, a collapsed answer", () => {
+    // The phone header of stupendous-football lists its links with
+    // `style="opacity:0"`: the menu is closed. Read as a start state, the links
+    // showed above the hero. Only an appear id or a moving transform marks a
+    // start state (see the reveals above); `transform:none` moves nothing.
+    const { nodes } = run(
+      page('<div style="opacity:0"><p>Menue</p></div><div style="opacity:0;transform:none"><p>Antwort</p></div><div style="opacity:0;transform:translateY(40px)"><p>Reveal</p></div>'),
+    );
+    const hidden = nodes.filter((node) => node.props["opacity"] === "0");
+    expect(hidden).toHaveLength(2);
+    expect(nodes.some((node) => String(node.props["transform"] ?? "").includes("translate"))).toBe(false);
+  });
+});
+
 describe("deeply nested var() fallbacks", () => {
   it("resolves a three-level fallback chain down to the first defined property", () => {
     const { nodes } = run(
@@ -289,6 +304,23 @@ describe("typography through custom properties", () => {
     // keep the whole heading from wrapping, a letter's spacing is the letter's.
     expect(lifted?.props["whiteSpace"]).not.toBe("nowrap");
     expect(lifted?.props["letterSpacing"]).toBeUndefined();
+  });
+
+  it("lifts the typography of a paragraph that mixes text and line breaks", () => {
+    // `<p>Zeile<br>Zeile</p>` holds no text node of its own: the capture keeps it
+    // as inner markup. Its size and colour must still reach the lifted body,
+    // or the hero paragraph of fluffy-rectangle renders in 16 px black on black.
+    const { nodes } = run(
+      preset(
+        ".lead{font-size:24px;color:#f8f8f8;font-weight:600}",
+        '<div data-framer-component-type="RichTextContainer"><p class="lead">Erste Zeile<br>Zweite Zeile</p></div>',
+      ),
+    );
+    const lifted = nodes.find((node) => String(node.props["html"] ?? "").includes("Erste Zeile"));
+    expect(lifted).toBeDefined();
+    expect(lifted?.props["fontSize"]).toBe("24px");
+    expect(lifted?.props["color"]).toBe("#f8f8f8");
+    expect(lifted?.props["fontWeight"]).toBe("600");
   });
 });
 
@@ -486,6 +518,30 @@ describe("which rules the stylesheet really matches", () => {
     expect(framed).toEqual([]);
     const appearing = document.pages[0]?.root.children[0];
     expect(appearing?.appearInitial?.["opacity"]).toBe("0.001");
+  });
+
+  it("turns Framer's border variables into a border on the element that says `data-border`", () => {
+    // Framer keeps a border as custom properties and draws it with
+    // `[data-border=true]:after`. That pseudo rule is not applied, so without
+    // this the divider lines of the reference cards (fluffy-rectangle) were gone.
+    const css =
+      ".framer-card{--border-top-width:1px;--border-left-width:1px;--border-right-width:0px;--border-bottom-width:0px;--border-color:#262626;--border-style:solid;padding:20px}" +
+      "[data-border=true]:after{content:'';border-width:var(--border-top-width,0) var(--border-right-width,0) var(--border-bottom-width,0) var(--border-left-width,0);border-color:var(--border-color,none);border-style:var(--border-style,none)}";
+    const html = '<div class="framer-card" data-border="true"><p>Karte</p></div><div class="framer-card"><p>ohne</p></div>';
+    const { mapped } = run(page(html, css));
+    const all = Object.values(mapped.document.nodes) as { id: string; props: Record<string, unknown>; children?: string[] }[];
+    const framed = (label: string) => {
+      const text = all.find((node) => node.props["text"] === label || String(node.props["html"] ?? "").includes(label));
+      return all.find((node) => text !== undefined && node.children?.includes(text.id))?.props;
+    };
+    const card = framed("Karte");
+    expect(card?.["borderTopWidth"]).toBe("1px");
+    expect(card?.["borderLeftWidth"]).toBe("1px");
+    expect(card?.["borderRightWidth"]).toBe("0px");
+    expect(card?.["borderStyle"]).toBe("solid");
+    expect(card?.["borderColor"]).toBe("#262626");
+    // Without `data-border` the variables draw nothing.
+    expect(framed("ohne")?.["borderTopWidth"]).toBeUndefined();
   });
 
   it("reads an attribute on the element itself", () => {

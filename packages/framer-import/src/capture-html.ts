@@ -452,12 +452,14 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
   // visual and into `appearInitial`, where the motion mapping reads it.
   const appearInitial: Record<string, string> = {};
   // Framer writes the same kind of start state for appear effects
-  // (`data-framer-appear-id`), scroll reveals (`opacity:0;transform:translateY`)
-  // and tickers (`opacity:0` until measured). An element that stays at
-  // opacity ~0 for good is never the intended look in a static import.
+  // (`data-framer-appear-id`) and for scroll reveals (`opacity:0` together with
+  // a `translate` that moves the element in). Those are never the intended look
+  // in a static import. A plain `opacity:0` is: the closed menu of a phone
+  // header, a collapsed FAQ answer, a hover overlay stay hidden as designed.
   const startOpacity = Number.parseFloat(visual["opacity"] ?? "");
+  const movesIn = visual["transform"] !== undefined && visual["transform"].trim() !== "none";
   const hasStartState =
-    attrs["data-framer-appear-id"] !== undefined || (Number.isFinite(startOpacity) && startOpacity <= 0.01);
+    attrs["data-framer-appear-id"] !== undefined || (Number.isFinite(startOpacity) && startOpacity <= 0.01 && movesIn);
   if (hasStartState) {
     for (const property of START_STATE_PROPERTIES) {
       const value = visual[property];
@@ -1492,6 +1494,19 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
       }
       const vars = { ...inherited[device], ...own };
       varsByDevice[device] = vars;
+      // Framer keeps a border as custom properties and draws it with
+      // `[data-border=true]:after`, a pseudo rule that is not applied. The
+      // element carries the border itself, with the widths of each side.
+      const borderStyle = vars["--border-style"];
+      if (current.attrs?.["data-border"] === "true" && borderStyle !== undefined && borderStyle !== "none") {
+        for (const side of ["top", "right", "bottom", "left"]) {
+          const width = vars[`--border-${side}-width`];
+          if (width !== undefined) plain[`border-${side}-width`] = width;
+        }
+        plain["border-style"] = borderStyle;
+        const color = vars["--border-color"];
+        if (color !== undefined) plain["border-color"] = color;
+      }
       valuesByDevice[device] = Object.fromEntries(
         Object.entries(plain).flatMap(([key, value]) => (value === undefined ? [] : [[key, resolveVars(value, vars)]])),
       );
