@@ -505,6 +505,24 @@ describe("which rules the stylesheet really matches", () => {
     return { padding: padding?.top, whiteSpace: box?.props["whiteSpace"] };
   };
 
+  it("reads `@supports (aspect-ratio:1)` as satisfied, so the aspect ratio sizes the box instead of the fallback height", () => {
+    // Framer writes `height:var(--framer-aspect-ratio-supported,438px)` and
+    // defines the variable only inside `@supports (aspect-ratio:1){body{…:auto}}`.
+    // Without that block the fallback 438 px stood for the height and a team
+    // photo came out 73 px taller than the ratio makes it. The `not` form stays out.
+    const { document } = run(
+      page(
+        '<div class="a">x</div>',
+        "@supports (aspect-ratio:1){body{--framer-aspect-ratio-supported:auto}}" +
+          "@supports not (aspect-ratio:1){.a{width:1px}}" +
+          ".a{aspect-ratio:.96;height:var(--framer-aspect-ratio-supported,438px)}",
+      ),
+    );
+    const state = document.pages[0]?.root.children.find((node) => node.baseClasses.includes("a"))?.states[0];
+    expect(state?.visual["height"]).toBe("auto");
+    expect(state?.visual["width"]).toBeUndefined();
+  });
+
   it("keeps a class rule's padding when a rule scoped to an attribute elsewhere says `padding:0`", () => {
     // Framer's rich-text reset `[data-framer-component-type=DeprecatedRichText] div`
     // reaches the divs inside that component only. Read as a rule for every div it

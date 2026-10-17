@@ -1176,6 +1176,13 @@ function parseCssRules(
       if (range !== null) {
         media.push({ minWidth: range.min, maxWidth: range.max, rules: parseCssRules(body, counter).rules });
       }
+    } else if (/^@supports\s*\(\s*aspect-ratio\s*:\s*1\s*\)$/.test(prelude)) {
+      // Framer defines `--framer-aspect-ratio-supported:auto` only in here and
+      // sizes boxes with `height:var(--framer-aspect-ratio-supported,438px)`.
+      // The import targets browsers that know `aspect-ratio`, so the block holds.
+      const inner = parseCssRules(body, counter);
+      rules.push(...inner.rules);
+      media.push(...inner.media);
     } else if (!prelude.startsWith("@")) {
       const values = parseDeclarations(body);
       for (const selector of splitCommas(prelude).map((entry) => entry.trim()).filter(Boolean)) {
