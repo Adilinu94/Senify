@@ -261,6 +261,7 @@ if (checking) {
     );
     process.exit(0);
   }
+  console.log("<<<BLOCK\n" + block + "\nBLOCK>>>");
   console.error(
     "qualitaet.md weicht vom Lauf ab.\n" +
       "Entweder hat sich der Code geändert (dann `pnpm quality:render`) oder der\n" +
