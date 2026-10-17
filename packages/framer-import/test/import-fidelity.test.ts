@@ -619,3 +619,31 @@ describe("spacing values that hold a function", () => {
     expect(gap).toEqual({ row: "3px", column: "3px" });
   });
 });
+
+describe("aspect ratio through --framer-aspect-ratio-supported", () => {
+  const box = (css: string) => {
+    const { nodes, mapped } = run(page('<div class="ph"><p>x</p></div>', css));
+    return { frame: nodes.find((node) => node.primitive === "frame"), rules: JSON.stringify(mapped.rules) };
+  };
+
+  it("lets the aspect-ratio decide the height instead of the pixel fallback", () => {
+    // Framer defines the property on `body` inside `@supports (aspect-ratio:1)`;
+    // the baked page never sees that block, so the fallback must not win.
+    const { frame } = box(".ph{aspect-ratio:1.60924;height:var(--framer-aspect-ratio-supported,345px);width:100%;flex:none}");
+    expect(frame?.props["height"]).toBe("auto");
+    expect(frame?.props["aspectRatio"]).toBe("1.60924");
+  });
+
+  it("does the same for the fallback of a narrower breakpoint", () => {
+    const { rules } = box(
+      ".ph{aspect-ratio:1.60924;height:var(--framer-aspect-ratio-supported,345px);width:100%}@media (max-width:1199px){.ph{height:var(--framer-aspect-ratio-supported,478px)}}",
+    );
+    expect(rules).not.toContain("345px");
+    expect(rules).not.toContain("478px");
+  });
+
+  it("keeps a value the page defines itself", () => {
+    const { frame } = box(".ph{--framer-aspect-ratio-supported:300px;height:var(--framer-aspect-ratio-supported,345px);width:100%}");
+    expect(frame?.props["height"]).toBe("300px");
+  });
+});
