@@ -1563,7 +1563,12 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
     for (const child of current.children) visit(child, offered, varsByDevice);
   };
   // Above the page element sit `html` and `body`; the page element is `#main`.
-  visit(root, new Set(["tag:html", "tag:body"]), { desktop: {}, tablet: {}, mobile: {} });
+  // Framer defines `--framer-aspect-ratio-supported: auto` on `body` inside
+  // `@supports (aspect-ratio: 1)`, a block the sheet reader does not enter.
+  // Left undefined, `height: var(--framer-aspect-ratio-supported, 345px)` falls
+  // back to the pixel value and the `aspect-ratio` beside it never applies.
+  const seed = (): Vars => ({ "--framer-aspect-ratio-supported": "auto" });
+  visit(root, new Set(["tag:html", "tag:body"]), { desktop: seed(), tablet: seed(), mobile: seed() });
   return { skippedPseudo };
 }
 
