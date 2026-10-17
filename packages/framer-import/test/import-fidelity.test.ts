@@ -157,6 +157,20 @@ describe("capture fidelity", () => {
     expect(colorOf("mobile")).toBe("red");
   });
 
+  it("says the desktop value again for mobile when only the tablet range changes it", () => {
+    // Framer's tablet query stops at 1199 px, so a phone keeps the desktop value.
+    // Senify's tablet override is a `max-width` rule that mobile inherits, so
+    // without a `_mobile` value the phone would show the tablet's colour (the
+    // hero kept the tablet's 800 px minimum height and ended 44 px short).
+    const { nodes } = run(
+      page('<div class="m">x</div>', ".m{color:red}@media (min-width:810px) and (max-width:1199.98px){.m{color:blue}}"),
+    );
+    const node = nodes.find((candidate) => candidate.props["text"] === "x");
+    expect(node?.props["color"]).toBe("red");
+    expect(node?.props["color_tablet"]).toBe("blue");
+    expect(node?.props["color_mobile"]).toBe("red");
+  });
+
   it("flattens an rgba gradient to a valid color", () => {
     const { normalized } = {
       normalized: normalize(
@@ -457,6 +471,26 @@ describe("variant-scoped rules", () => {
     expect(root?.["flexDirection"]).toBe("row");
     expect(root?.["width"]).toBe("100%");
     expect(kid?.["flexDirection"]).toBe("row");
+  });
+
+  it("lets the phone variant's `justify-content` win over the base rule's `place-content`", () => {
+    // Framer's base rule is the shorthand `place-content:center`, the phone
+    // variant's the longhand `justify-content:flex-start`. Kept as two
+    // properties the compiled CSS puts the shorthand last and it wins: the
+    // phone header's content was centred in a 64 px bar and ran out at the top.
+    const phone = page(
+      '<div class="ssr-variant hidden-d"><div class="framer-C framer-v-phone"><p>a</p><p>b</p></div></div>' +
+        '<div class="ssr-variant hidden-m"><div class="framer-C framer-v-desk"><p>a</p></div></div>',
+      ".framer-C{place-content:center;align-items:center}.framer-C.framer-v-phone{justify-content:flex-start}",
+      breakpoints,
+    );
+    const { mapped } = run(phone);
+    const all = Object.values(mapped.document.nodes) as { props: Record<string, unknown>; visibleDevices?: string[] }[];
+    const on = (device: string) => all.find((node) => node.visibleDevices?.includes(device) === true)?.props;
+    expect(on("mobile")?.["placeContent"]).toBeUndefined();
+    expect(on("mobile")?.["justifyContent"]).toBe("flex-start");
+    expect(on("mobile")?.["alignContent"]).toBe("center");
+    expect(on("desktop")?.["justifyContent"]).toBe("center");
   });
 });
 

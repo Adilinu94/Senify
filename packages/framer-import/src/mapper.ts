@@ -315,6 +315,15 @@ function mergeSiblingVariants(
   return out;
 }
 
+// What mobile has to say beyond the base and the tablet overrides it inherits.
+function mobileOverrides(
+  base: Record<string, string>,
+  tablet: Record<string, string>,
+  mobile: Record<string, string>,
+): Record<string, string> {
+  return diffValues({ ...base, ...tablet }, mobile);
+}
+
 // The value diff between two states: only the properties that differ become
 // device overrides. Equal values inherit from the base (the device model).
 function diffValues(
@@ -474,20 +483,16 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
   const baseVisual = cssToStyle(merged.base.visual);
   for (const [property, value] of Object.entries(baseVisual)) props[property] = value;
   normalizeSpacingProps(props);
-  if (merged.tablet !== null) {
-    const diff = diffValues(baseVisual, cssToStyle(merged.tablet.visual));
-    for (const [property, value] of Object.entries(diff)) {
-      if (value !== undefined) props[`${property}_tablet`] = value;
-    }
-    if (Object.keys(diff).length > 0) context.stats.mergedVariants += 1;
-  }
-  if (merged.mobile !== null) {
-    const diff = diffValues(baseVisual, cssToStyle(merged.mobile.visual));
-    for (const [property, value] of Object.entries(diff)) {
-      if (value !== undefined) props[`${property}_mobile`] = value;
-    }
-    if (Object.keys(diff).length > 0) context.stats.mergedVariants += 1;
-  }
+  const tabletDiff = merged.tablet === null ? {} : diffValues(baseVisual, cssToStyle(merged.tablet.visual));
+  for (const [property, value] of Object.entries(tabletDiff)) props[`${property}_tablet`] = value;
+  if (Object.keys(tabletDiff).length > 0) context.stats.mergedVariants += 1;
+  // Mobile is stated against what it inherits: Senify's tablet values are
+  // `max-width` rules that mobile falls under too, while Framer's tablet query
+  // stops above the phone. A phone that equals desktop has no state of its own,
+  // yet still has to say the desktop value again where the tablet changed it.
+  const mobileDiff = mobileOverrides(baseVisual, tabletDiff, merged.mobile === null ? baseVisual : cssToStyle(merged.mobile.visual));
+  for (const [property, value] of Object.entries(mobileDiff)) props[`${property}_mobile`] = value;
+  if (merged.mobile !== null && Object.keys(mobileDiff).length > 0) context.stats.mergedVariants += 1;
 
   // A node whose text lives in a descendant (`<div RichTextContainer><h1>…`,
   // a link around a paragraph) flattens that descendant into itself. The
@@ -512,14 +517,12 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
         .map((member) => mergeStates(member.states));
       const sourceBase = cssToStyle(Object.assign({}, ...merged.map((entry) => typographyOf(entry.base.visual))));
       Object.assign(props, sourceBase);
-      for (const device of ["tablet", "mobile"] as const) {
-        if (merged.every((entry) => entry[device] === null)) continue;
-        const effective = cssToStyle(
-          Object.assign({}, ...merged.map((entry) => typographyOf((entry[device] ?? entry.base).visual))),
-        );
-        for (const [property, value] of Object.entries(diffValues(sourceBase, effective))) {
-          props[`${property}_${device}`] = value;
-        }
+      const effectiveOn = (device: "tablet" | "mobile"): Record<string, string> =>
+        cssToStyle(Object.assign({}, ...merged.map((entry) => typographyOf((entry[device] ?? entry.base).visual))));
+      const tabletType = diffValues(sourceBase, effectiveOn("tablet"));
+      for (const [property, value] of Object.entries(tabletType)) props[`${property}_tablet`] = value;
+      for (const [property, value] of Object.entries(mobileOverrides(sourceBase, tabletType, effectiveOn("mobile")))) {
+        props[`${property}_mobile`] = value;
       }
     }
   }

@@ -113,6 +113,12 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       await expect.poll(() => inspector.isVisible()).toBe(true);
       expect(await elements.isVisible()).toBe(false);
       expect(await tab.locator(".senify-inspector__title").textContent()).toMatch(/ bearbeiten$/);
+      // The node id in the header is set in the mono face: the editor chrome names
+      // JetBrains Mono first, so the loaded face is the one that is drawn.
+      const idFont = await tab.locator(".senify-inspector__id").evaluate(
+        (node) => (globalThis as unknown as { getComputedStyle(n: unknown): { fontFamily: string } }).getComputedStyle(node).fontFamily,
+      );
+      expect(idFont.split(",")[0]?.replace(/"/g, "").trim()).toBe("JetBrains Mono");
 
       // Rueckweg 1: der Zurueck-Knopf.
       await tab.locator(".senify-inspector__back").click();

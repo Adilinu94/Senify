@@ -840,6 +840,37 @@ export async function ensureSchema(db: Db): Promise<void> {
   }
 }
 
+// The tables that carry a `site_id` without a foreign key to `sites`: the
+// database does not cascade them, so `Store.deleteSite` clears each one itself.
+// A table added with a `site_id` column has to be in this list (or reference
+// `sites` with ON DELETE CASCADE) - `site-delete.test.ts` compares the list with
+// the schema and fails otherwise, because a forgotten table keeps a deleted
+// site's content, tokens and e-mail addresses.
+export const SITE_SCOPED_TABLES: readonly string[] = [
+  "site_trash",
+  "audit_entries",
+  "page_revisions",
+  "releases",
+  "active_releases",
+  "previews",
+  "deployments",
+  "deploy_settings",
+  "review_items",
+  "assets",
+  "site_code_payloads",
+  "design_records",
+  "import_jobs",
+  "asset_folders",
+  "entry_versions",
+  "entry_redirects",
+  "form_snapshots",
+  "notification_outbox",
+  "newsletter_tokens",
+  "bake_jobs",
+  "reference_assignments",
+  "image_jobs",
+];
+
 // The tables the schema owns, derived from the CREATE statements so backups and
 // migration-free reads never drift from the source of truth.
 export function tableNames(): string[] {

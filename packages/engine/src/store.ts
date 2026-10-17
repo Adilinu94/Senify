@@ -28,7 +28,7 @@ import {
 } from "@senify/widget-engine";
 import type { Db, DbClient, Row } from "./db.ts";
 import type { ImportReport } from "./imports-contract.ts";
-import { jsonColumns, tableNames } from "./db.ts";
+import { jsonColumns, SITE_SCOPED_TABLES, tableNames } from "./db.ts";
 import type { RedesignProposal } from "./redesign-proposal-contract.ts";
 import { generateToken } from "./auth.ts";
 import { buildAuditInsert, type NewAuditEntry } from "./store-audit.ts";
@@ -933,16 +933,38 @@ export class Store {
     return value;
   }
 
-  async deleteSite(id: string): Promise<void> {
-    const result = await this.#db.query<{ id: string }>(
-      `DELETE FROM sites WHERE id = $1 RETURNING id`,
-      [id],
-    );
-    if (result.rows.length === 0) {
-      throw new SenifyError("not_found", `Site "${id}" does not exist`, {
-        field: "siteId",
-      });
-    }
+  // Deletes a site and everything that belongs to it, in one transaction. The
+  // foreign-key tables follow `sites` by cascade; the tables with a bare
+  // `site_id` (SITE_SCOPED_TABLES) are cleared here. Returns the build
+  // directories of the site's releases and previews so the caller can remove the
+  // files - the store does not know the data directory.
+  async deleteSite(id: string): Promise<{ buildRefs: string[] }> {
+    return this.#db.withTransaction(async (tx) => {
+      const releases = await tx.query<{ build_ref: string | null }>(
+        `SELECT build_ref FROM releases WHERE site_id = $1`,
+        [id],
+      );
+      const previews = await tx.query<{ build_ref: string | null }>(
+        `SELECT build_ref FROM previews WHERE site_id = $1`,
+        [id],
+      );
+      const result = await tx.query<{ id: string }>(
+        `DELETE FROM sites WHERE id = $1 RETURNING id`,
+        [id],
+      );
+      if (result.rows.length === 0) {
+        throw new SenifyError("not_found", `Site "${id}" does not exist`, {
+          field: "siteId",
+        });
+      }
+      for (const table of SITE_SCOPED_TABLES) {
+        await tx.query(`DELETE FROM ${table} WHERE site_id = $1`, [id]);
+      }
+      const buildRefs = [...releases.rows, ...previews.rows]
+        .map((row) => row.build_ref)
+        .filter((ref): ref is string => typeof ref === "string" && ref !== "");
+      return { buildRefs: [...new Set(buildRefs)] };
+    });
   }
 
   async renameSite(id: string, name: string): Promise<Site> {

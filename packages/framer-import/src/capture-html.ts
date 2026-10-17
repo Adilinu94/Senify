@@ -1022,12 +1022,32 @@ function expandFlexFlow(value: string): [string, string][] | null {
   return [["flex-direction", `${direction}${important}`], ["flex-wrap", `${wrap}${important}`]];
 }
 
+// `place-content:<align> [<justify>]` has the same problem: Framer's base rule
+// writes the shorthand, a variant writes `justify-content` alone, and the
+// compiled CSS puts the shorthand after the longhand, so the base value won and
+// the phone header's content ran out at the top of its 64 px bar. One value
+// stands for both axes.
+function expandPlaceContent(value: string): [string, string][] | null {
+  const important = /\s*!important\s*$/i.exec(value)?.[0] ?? "";
+  const bare = value.slice(0, value.length - important.length).trim();
+  if (/[()]|\b(?:safe|unsafe|first|last|baseline)\b/.test(bare)) return null;
+  const tokens = bare.split(/\s+/);
+  if (tokens.length > 2) return null;
+  return [["align-content", `${tokens[0]}${important}`], ["justify-content", `${tokens[1] ?? tokens[0]}${important}`]];
+}
+
+function expandShorthand(property: string, value: string): [string, string][] | null {
+  if (property === "flex-flow") return expandFlexFlow(value);
+  if (property === "place-content") return expandPlaceContent(value);
+  return null;
+}
+
 function parseDeclarations(body: string): Record<string, string> {
   const values: Record<string, string> = {};
   for (const declaration of splitDeclarations(body)) {
     const pair = parseDeclaration(declaration);
     if (pair === null) continue;
-    for (const [property, value] of (pair[0] === "flex-flow" ? expandFlexFlow(pair[1]) : null) ?? [pair]) {
+    for (const [property, value] of expandShorthand(pair[0], pair[1]) ?? [pair]) {
       values[property] = value;
     }
   }

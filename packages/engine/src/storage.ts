@@ -124,3 +124,21 @@ export function resolveStoredFile(
   if (target === root || !target.startsWith(root + sep)) return undefined;
   return target;
 }
+
+// Removes what a deleted site left on disk: its asset folder and the build
+// directories of its releases and previews. A build reference that does not
+// resolve inside the data directory is skipped - a corrupted row must never make
+// a delete reach outside it.
+export function removeSiteFiles(
+  dataDir: string,
+  siteId: string,
+  buildRefs: readonly string[],
+): void {
+  rmSync(join(dataDir, "assets", siteId), { recursive: true, force: true });
+  const root = resolve(dataDir);
+  for (const ref of buildRefs) {
+    const target = resolve(ref);
+    if (target === root || !target.startsWith(root + sep)) continue;
+    rmSync(target, { recursive: true, force: true });
+  }
+}
