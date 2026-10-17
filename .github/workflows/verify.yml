@@ -192,8 +192,8 @@ jobs:
         env:
           SENIFY_REQUIRE_BROWSER: "1"
           PROBE_OUT: ${{ runner.temp }}/probe.txt
-        run: pnpm exec vitest run packages/framer-import/test/scratch-fluffy-layout-probe.test.ts
+        run: pnpm exec vitest run packages/framer-import/test/scratch-fluffy-layout2-probe.test.ts
       - name: Ergebnis als Annotation
         if: always()
         run: |
-          node -e 'const fs=require("fs");const f=process.env.RUNNER_TEMP+"/probe.txt";const t=fs.existsSync(f)?fs.readFileSync(f,"utf8"):"keine Ausgabedatei";console.log("::error title=fluffy-layout-probe::"+t.replace(/%/g,"%25").replace(/\r/g,"%0D").replace(/\n/g,"%0A"))'
+          node -e 'const fs=require("fs");const f=process.env.RUNNER_TEMP+"/probe.txt";const t=fs.existsSync(f)?fs.readFileSync(f,"utf8"):"keine Ausgabedatei";const esc=(x)=>x.replace(/%/g,"%25").replace(/\r/g,"%0D").replace(/\n/g,"%0A");const N=2800;const n=Math.ceil(t.length/N);for(let i=0;i<Math.min(n,10);i++)console.log("::error title=fluffy-probe-"+(i+1)+"of"+n+"::"+esc(t.slice(i*N,(i+1)*N)))'
