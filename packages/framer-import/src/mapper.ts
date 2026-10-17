@@ -315,6 +315,15 @@ function mergeSiblingVariants(
   return out;
 }
 
+// What mobile has to say beyond the base and the tablet overrides it inherits.
+function mobileOverrides(
+  base: Record<string, string>,
+  tablet: Record<string, string>,
+  mobile: Record<string, string>,
+): Record<string, string> {
+  return diffValues({ ...base, ...tablet }, mobile);
+}
+
 // The value diff between two states: only the properties that differ become
 // device overrides. Equal values inherit from the base (the device model).
 function diffValues(
@@ -474,20 +483,16 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
   const baseVisual = cssToStyle(merged.base.visual);
   for (const [property, value] of Object.entries(baseVisual)) props[property] = value;
   normalizeSpacingProps(props);
-  if (merged.tablet !== null) {
-    const diff = diffValues(baseVisual, cssToStyle(merged.tablet.visual));
-    for (const [property, value] of Object.entries(diff)) {
-      if (value !== undefined) props[`${property}_tablet`] = value;
-    }
-    if (Object.keys(diff).length > 0) context.stats.mergedVariants += 1;
-  }
-  if (merged.mobile !== null) {
-    const diff = diffValues(baseVisual, cssToStyle(merged.mobile.visual));
-    for (const [property, value] of Object.entries(diff)) {
-      if (value !== undefined) props[`${property}_mobile`] = value;
-    }
-    if (Object.keys(diff).length > 0) context.stats.mergedVariants += 1;
-  }
+  const tabletDiff = merged.tablet === null ? {} : diffValues(baseVisual, cssToStyle(merged.tablet.visual));
+  for (const [property, value] of Object.entries(tabletDiff)) props[`${property}_tablet`] = value;
+  if (Object.keys(tabletDiff).length > 0) context.stats.mergedVariants += 1;
+  // Mobile is stated against what it inherits: Senify's tablet values are
+  // `max-width` rules that mobile falls under too, while Framer's tablet query
+  // stops above the phone. A phone that equals desktop has no state of its own,
+  // yet still has to say the desktop value again where the tablet changed it.
+  const mobileDiff = mobileOverrides(baseVisual, tabletDiff, merged.mobile === null ? baseVisual : cssToStyle(merged.mobile.visual));
+  for (const [property, value] of Object.entries(mobileDiff)) props[`${property}_mobile`] = value;
+  if (merged.mobile !== null && Object.keys(mobileDiff).length > 0) context.stats.mergedVariants += 1;
 
   // A node whose text lives in a descendant (`<div RichTextContainer><h1>…`,
   // a link around a paragraph) flattens that descendant into itself. The
@@ -512,14 +517,12 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
         .map((member) => mergeStates(member.states));
       const sourceBase = cssToStyle(Object.assign({}, ...merged.map((entry) => typographyOf(entry.base.visual))));
       Object.assign(props, sourceBase);
-      for (const device of ["tablet", "mobile"] as const) {
-        if (merged.every((entry) => entry[device] === null)) continue;
-        const effective = cssToStyle(
-          Object.assign({}, ...merged.map((entry) => typographyOf((entry[device] ?? entry.base).visual))),
-        );
-        for (const [property, value] of Object.entries(diffValues(sourceBase, effective))) {
-          props[`${property}_${device}`] = value;
-        }
+      const effectiveOn = (device: "tablet" | "mobile"): Record<string, string> =>
+        cssToStyle(Object.assign({}, ...merged.map((entry) => typographyOf((entry[device] ?? entry.base).visual))));
+      const tabletType = diffValues(sourceBase, effectiveOn("tablet"));
+      for (const [property, value] of Object.entries(tabletType)) props[`${property}_tablet`] = value;
+      for (const [property, value] of Object.entries(mobileOverrides(sourceBase, tabletType, effectiveOn("mobile")))) {
+        props[`${property}_mobile`] = value;
       }
     }
   }
@@ -606,11 +609,31 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
   return editorNode;
 }
 
+// The values of a CSS shorthand, split on the spaces between them. A space inside
+// a function (`clamp(16px, 4vw, 32px)`, `calc(100% - 20px)`) belongs to that value.
+function splitShorthand(value: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const char of value.trim()) {
+    if (char === "(") depth += 1;
+    else if (char === ")" && depth > 0) depth -= 1;
+    if (/\s/.test(char) && depth === 0) {
+      if (current !== "") parts.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  if (current !== "") parts.push(current);
+  return parts;
+}
+
 function normalizeSpacingProps(props: Record<string, unknown>): void {
   for (const key of ["gap", "gap_tablet", "gap_mobile"]) {
     const value = props[key];
     if (typeof value !== "string") continue;
-    const parts = value.trim().split(/\s+/);
+    const parts = splitShorthand(value);
     const row = parts[0] ?? "0px";
     const column = parts.length === 1 ? row : (parts[1] ?? row);
     props[key] = { row, column };
@@ -618,7 +641,7 @@ function normalizeSpacingProps(props: Record<string, unknown>): void {
   for (const key of ["padding", "margin", "padding_tablet", "margin_tablet", "padding_mobile", "margin_mobile"]) {
     const value = props[key];
     if (typeof value !== "string") continue;
-    const parts = value.trim().split(/\s+/);
+    const parts = splitShorthand(value);
     const top = parts[0] ?? "0px";
     const right = parts.length === 1 ? top : (parts[1] ?? top);
     const bottom = parts.length === 1 ? top : (parts[2] ?? top);
@@ -691,10 +714,11 @@ function escapeHtmlAttr(value: string): string {
 const INLINE_TAGS = new Set(["span", "a", "strong", "b", "em", "i", "u", "s", "small", "mark", "sub", "sup", "code"]);
 
 // The first descendant that carries its own text, with the elements on the way
-// down to it (the child of `node` first, the text element last).
+// down to it (the child of `node` first, the text element last). A paragraph
+// that mixes text with `<br>` or inline elements keeps its text as inner markup.
 function firstTextPath(node: IrNode): IrNode[] | null {
   for (const child of node.children) {
-    if ((child.states[0]?.text?.content ?? "") !== "") return [child];
+    if ((child.states[0]?.text?.content ?? "") !== "" || (child.innerHtml ?? "") !== "") return [child];
     const inner = firstTextPath(child);
     if (inner !== null) return [child, ...inner];
   }

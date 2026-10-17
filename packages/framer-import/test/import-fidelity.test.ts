@@ -157,6 +157,20 @@ describe("capture fidelity", () => {
     expect(colorOf("mobile")).toBe("red");
   });
 
+  it("says the desktop value again for mobile when only the tablet range changes it", () => {
+    // Framer's tablet query stops at 1199 px, so a phone keeps the desktop value.
+    // Senify's tablet override is a `max-width` rule that mobile inherits, so
+    // without a `_mobile` value the phone would show the tablet's colour (the
+    // hero kept the tablet's 800 px minimum height and ended 44 px short).
+    const { nodes } = run(
+      page('<div class="m">x</div>', ".m{color:red}@media (min-width:810px) and (max-width:1199.98px){.m{color:blue}}"),
+    );
+    const node = nodes.find((candidate) => candidate.props["text"] === "x");
+    expect(node?.props["color"]).toBe("red");
+    expect(node?.props["color_tablet"]).toBe("blue");
+    expect(node?.props["color_mobile"]).toBe("red");
+  });
+
   it("flattens an rgba gradient to a valid color", () => {
     const { normalized } = {
       normalized: normalize(
@@ -173,6 +187,21 @@ describe("capture fidelity", () => {
       expect(node.props["opacity"]).toBeUndefined();
       expect(node.props["transform"]).toBeUndefined();
     }
+  });
+});
+
+describe("elements that are hidden on purpose", () => {
+  it("keeps a plain `opacity:0` as the look: a closed menu, a collapsed answer", () => {
+    // The phone header of stupendous-football lists its links with
+    // `style="opacity:0"`: the menu is closed. Read as a start state, the links
+    // showed above the hero. Only an appear id or a moving transform marks a
+    // start state (see the reveals above); `transform:none` moves nothing.
+    const { nodes } = run(
+      page('<div style="opacity:0"><p>Menue</p></div><div style="opacity:0;transform:none"><p>Antwort</p></div><div style="opacity:0;transform:translateY(40px)"><p>Reveal</p></div>'),
+    );
+    const hidden = nodes.filter((node) => node.props["opacity"] === "0");
+    expect(hidden).toHaveLength(2);
+    expect(nodes.some((node) => String(node.props["transform"] ?? "").includes("translate"))).toBe(false);
   });
 });
 
@@ -289,6 +318,23 @@ describe("typography through custom properties", () => {
     // keep the whole heading from wrapping, a letter's spacing is the letter's.
     expect(lifted?.props["whiteSpace"]).not.toBe("nowrap");
     expect(lifted?.props["letterSpacing"]).toBeUndefined();
+  });
+
+  it("lifts the typography of a paragraph that mixes text and line breaks", () => {
+    // `<p>Zeile<br>Zeile</p>` holds no text node of its own: the capture keeps it
+    // as inner markup. Its size and colour must still reach the lifted body,
+    // or the hero paragraph of fluffy-rectangle renders in 16 px black on black.
+    const { nodes } = run(
+      preset(
+        ".lead{font-size:24px;color:#f8f8f8;font-weight:600}",
+        '<div data-framer-component-type="RichTextContainer"><p class="lead">Erste Zeile<br>Zweite Zeile</p></div>',
+      ),
+    );
+    const lifted = nodes.find((node) => String(node.props["html"] ?? "").includes("Erste Zeile"));
+    expect(lifted).toBeDefined();
+    expect(lifted?.props["fontSize"]).toBe("24px");
+    expect(lifted?.props["color"]).toBe("#f8f8f8");
+    expect(lifted?.props["fontWeight"]).toBe("600");
   });
 });
 
@@ -426,6 +472,26 @@ describe("variant-scoped rules", () => {
     expect(root?.["width"]).toBe("100%");
     expect(kid?.["flexDirection"]).toBe("row");
   });
+
+  it("lets the phone variant's `justify-content` win over the base rule's `place-content`", () => {
+    // Framer's base rule is the shorthand `place-content:center`, the phone
+    // variant's the longhand `justify-content:flex-start`. Kept as two
+    // properties the compiled CSS puts the shorthand last and it wins: the
+    // phone header's content was centred in a 64 px bar and ran out at the top.
+    const phone = page(
+      '<div class="ssr-variant hidden-d"><div class="framer-C framer-v-phone"><p>a</p><p>b</p></div></div>' +
+        '<div class="ssr-variant hidden-m"><div class="framer-C framer-v-desk"><p>a</p></div></div>',
+      ".framer-C{place-content:center;align-items:center}.framer-C.framer-v-phone{justify-content:flex-start}",
+      breakpoints,
+    );
+    const { mapped } = run(phone);
+    const all = Object.values(mapped.document.nodes) as { props: Record<string, unknown>; visibleDevices?: string[] }[];
+    const on = (device: string) => all.find((node) => node.visibleDevices?.includes(device) === true)?.props;
+    expect(on("mobile")?.["placeContent"]).toBeUndefined();
+    expect(on("mobile")?.["justifyContent"]).toBe("flex-start");
+    expect(on("mobile")?.["alignContent"]).toBe("center");
+    expect(on("desktop")?.["justifyContent"]).toBe("center");
+  });
 });
 
 describe("which rules the stylesheet really matches", () => {
@@ -488,10 +554,96 @@ describe("which rules the stylesheet really matches", () => {
     expect(appearing?.appearInitial?.["opacity"]).toBe("0.001");
   });
 
+  it("turns Framer's border variables into a border on the element that says `data-border`", () => {
+    // Framer keeps a border as custom properties and draws it with
+    // `[data-border=true]:after`. That pseudo rule is not applied, so without
+    // this the divider lines of the reference cards (fluffy-rectangle) were gone.
+    const css =
+      ".framer-card{--border-top-width:1px;--border-left-width:1px;--border-right-width:0px;--border-bottom-width:0px;--border-color:#262626;--border-style:solid;padding:20px}" +
+      "[data-border=true]:after{content:'';border-width:var(--border-top-width,0) var(--border-right-width,0) var(--border-bottom-width,0) var(--border-left-width,0);border-color:var(--border-color,none);border-style:var(--border-style,none)}";
+    const html = '<div class="framer-card" data-border="true"><p>Karte</p></div><div class="framer-card"><p>ohne</p></div>';
+    const { mapped } = run(page(html, css));
+    const all = Object.values(mapped.document.nodes) as { id: string; props: Record<string, unknown>; children?: string[] }[];
+    const framed = (label: string) => {
+      const text = all.find((node) => node.props["text"] === label || String(node.props["html"] ?? "").includes(label));
+      return all.find((node) => text !== undefined && node.children?.includes(text.id))?.props;
+    };
+    const card = framed("Karte");
+    expect(card?.["borderTopWidth"]).toBe("1px");
+    expect(card?.["borderLeftWidth"]).toBe("1px");
+    expect(card?.["borderRightWidth"]).toBe("0px");
+    expect(card?.["borderStyle"]).toBe("solid");
+    expect(card?.["borderColor"]).toBe("#262626");
+    // Without `data-border` the variables draw nothing.
+    expect(framed("ohne")?.["borderTopWidth"]).toBeUndefined();
+  });
+
   it("reads an attribute on the element itself", () => {
     const css = '.framer-box[data-x="on"]{padding:20px}';
     const html = '<div class="framer-box" data-x="on"><p>an</p></div><div class="framer-box" data-x="off"><p>aus</p></div>';
     expect(boxOf(html, css, "an").padding).toBe("20px");
     expect(boxOf(html, css, "aus").padding).not.toBe("20px");
+  });
+});
+
+describe("spacing values that hold a function", () => {
+  // The frame that holds the text `label`: its padding and gap as the mapper sets them.
+  const spacingOf = (css: string) => {
+    const { mapped } = run(page('<div class="framer-box"><p>x</p></div>', css));
+    const all = Object.values(mapped.document.nodes) as { id: string; props: Record<string, unknown>; children?: string[] }[];
+    const text = all.find((node) => node.props["text"] === "x");
+    const box = all.find((node) => text !== undefined && node.children?.includes(text.id));
+    return { padding: box?.props["padding"], gap: box?.props["gap"] };
+  };
+
+  // A shorthand splits on the spaces between its values, not on the spaces inside
+  // a `clamp(16px, 4vw, 32px)` or a `calc(100% - 20px)`.
+  it("keeps clamp() and calc() whole inside a padding shorthand", () => {
+    const { padding } = spacingOf(".framer-box{padding:clamp(16px, 4vw, 32px) 8px calc(100% - 20px) 4px}");
+    expect(padding).toEqual({
+      top: "clamp(16px, 4vw, 32px)",
+      right: "8px",
+      bottom: "calc(100% - 20px)",
+      left: "4px",
+    });
+  });
+
+  it("keeps a function whole inside a gap shorthand", () => {
+    const { gap } = spacingOf(".framer-box{display:flex;gap:calc(1px + 2px) 8px}");
+    expect(gap).toEqual({ row: "calc(1px + 2px)", column: "8px" });
+  });
+
+  it("still splits plain shorthands as before", () => {
+    const { padding, gap } = spacingOf(".framer-box{display:flex;padding:1px 2px;gap:3px}");
+    expect(padding).toEqual({ top: "1px", right: "2px", bottom: "1px", left: "2px" });
+    expect(gap).toEqual({ row: "3px", column: "3px" });
+  });
+});
+
+describe("aspect ratio through --framer-aspect-ratio-supported", () => {
+  const box = (css: string) => {
+    const { nodes, mapped } = run(page('<div class="ph"><p>x</p></div>', css));
+    return { frame: nodes.find((node) => node.primitive === "frame"), rules: JSON.stringify(mapped.rules) };
+  };
+
+  it("lets the aspect-ratio decide the height instead of the pixel fallback", () => {
+    // Framer defines the property on `body` inside `@supports (aspect-ratio:1)`;
+    // the baked page never sees that block, so the fallback must not win.
+    const { frame } = box(".ph{aspect-ratio:1.60924;height:var(--framer-aspect-ratio-supported,345px);width:100%;flex:none}");
+    expect(frame?.props["height"]).toBe("auto");
+    expect(frame?.props["aspectRatio"]).toBe("1.60924");
+  });
+
+  it("does the same for the fallback of a narrower breakpoint", () => {
+    const { rules } = box(
+      ".ph{aspect-ratio:1.60924;height:var(--framer-aspect-ratio-supported,345px);width:100%}@media (max-width:1199px){.ph{height:var(--framer-aspect-ratio-supported,478px)}}",
+    );
+    expect(rules).not.toContain("345px");
+    expect(rules).not.toContain("478px");
+  });
+
+  it("keeps a value the page defines itself", () => {
+    const { frame } = box(".ph{--framer-aspect-ratio-supported:300px;height:var(--framer-aspect-ratio-supported,345px);width:100%}");
+    expect(frame?.props["height"]).toBe("300px");
   });
 });

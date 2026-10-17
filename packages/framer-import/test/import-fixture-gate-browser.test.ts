@@ -28,6 +28,16 @@ import { runImport } from "../src/index.ts";
 // Both sides are compared in their settled state: scripts are removed from the
 // original and the appear start states neutralised, because the import maps
 // motion separately and a static screenshot must not depend on a script.
+//
+// Both sides also use the same fonts. The original declares `Inter` as a web
+// font; where the file cannot be loaded the family name still shadows an
+// installed Inter and the page falls back to Framer's `Inter Placeholder` (Arial
+// at an adjusted size), where it can be loaded the page shows Inter. The import
+// carries no font files yet (task 2.3b) and shows the installed one. Compared
+// like that, a heading wraps in one page and not in the other and the numbers
+// follow the machine (Football on mobile: 29.5 % against 17.5 % with the same
+// fonts). So the original loses its file-based faces and the import gets
+// Framer's own `local()` placeholder faces.
 
 const BROWSER_REQUIRED = process.env["SENIFY_REQUIRE_BROWSER"] === "1";
 const BREAKPOINTS: Breakpoint[] = ["desktop", "tablet", "mobile"];
@@ -51,10 +61,11 @@ const browserAvailable = (() => {
 
 // Pixel-difference ceilings (share of differing pixels) per breakpoint.
 const DIFF_CEILING: Record<string, Record<Breakpoint, number>> = {
-  "framer-easier-train-154753": { desktop: 0.13, tablet: 0.14, mobile: 0.21 },
-  // mobile 0.15 -> 0.19 (15.10.2026): CI measures 16.7 % here, the local run 14.0 %.
-  "framer-fluffy-rectangle-418998": { desktop: 0.2, tablet: 0.26, mobile: 0.19 },
-  "framer-stupendous-football-158496": { desktop: 0.13, tablet: 0.16, mobile: 0.33 },
+  "framer-easier-train-154753": { desktop: 0.12, tablet: 0.14, mobile: 0.21 },
+  // mobile 0.15 -> 0.19 (15.10.2026): CI measured 16.7 % here, the local run 14.0 %.
+  // mobile 0.19 -> 0.15 (17.10.2026): 9.0 % locally with the same fonts on both sides.
+  "framer-fluffy-rectangle-418998": { desktop: 0.13, tablet: 0.17, mobile: 0.15 },
+  "framer-stupendous-football-158496": { desktop: 0.11, tablet: 0.13, mobile: 0.24 },
 };
 
 const MIME: Record<string, string> = {
@@ -81,6 +92,11 @@ function settled(html: string): string {
     return `style="${next}"`;
   });
 }
+
+const FONT_FACE = /@font-face\s*\{[^}]*\}/g;
+const hasFontFile = (face: string): boolean => /url\(/.test(face);
+const withoutFontFiles = (css: string): string => css.replace(FONT_FACE, (face) => (hasFontFile(face) ? "" : face));
+const localFontFaces = (css: string): string => (css.match(FONT_FACE) ?? []).filter((face) => !hasFontFile(face)).join("\n");
 
 function serve(root: string): Promise<{ url: string; close(): Promise<void> }> {
   const server = createServer((request, response) => {
@@ -156,7 +172,14 @@ describe.skipIf(!browserAvailable && !BROWSER_REQUIRED)("S5 import gate on the r
             "</head>",
             "<style>[data-framer-appear-id],[style*='opacity:0.001'],[style*='opacity: 0.001']{opacity:1!important;transform:none!important}</style></head>",
           );
-        writeFileSync(join(original, "index.html"), html);
+        writeFileSync(join(original, "index.html"), withoutFontFiles(html));
+        const stylesDir = join(original, "styles");
+        if (existsSync(stylesDir)) {
+          for (const sheet of readdirSync(stylesDir).filter((name) => name.endsWith(".css"))) {
+            const path = join(stylesDir, sheet);
+            writeFileSync(path, withoutFontFiles(readFileSync(path, "utf8")));
+          }
+        }
 
         const run = await runImport({ source: { kind: "mirror", rootDir: join(FIXTURES, fixture) }, mode: "fidelity" });
         const resolved = resolveTheme(defaultTheme());
@@ -171,6 +194,11 @@ describe.skipIf(!browserAvailable && !BROWSER_REQUIRED)("S5 import gate on the r
             aeo: false,
           },
           { outDir: imported, selfContained: true },
+        );
+        const importedHtml = join(imported, "index.html");
+        writeFileSync(
+          importedHtml,
+          readFileSync(importedHtml, "utf8").replace("</head>", `<style>${localFontFaces(html)}</style></head>`),
         );
 
         const [originalServer, importedServer] = await Promise.all([serve(original), serve(imported)]);
