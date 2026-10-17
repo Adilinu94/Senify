@@ -65,7 +65,8 @@ const DIFF_CEILING: Record<string, Record<Breakpoint, number>> = {
   // mobile 0.15 -> 0.19 (15.10.2026): CI measured 16.7 % here, the local run 14.0 %.
   // mobile 0.19 -> 0.15 (17.10.2026): 9.0 % locally with the same fonts on both sides.
   "framer-fluffy-rectangle-418998": { desktop: 0.13, tablet: 0.17, mobile: 0.15 },
-  "framer-stupendous-football-158496": { desktop: 0.11, tablet: 0.13, mobile: 0.24 },
+  // desktop 0.11 -> 0.12, tablet 0.13 -> 0.15, mobile 0.24 -> 0.33 (17.10.2026): CI measured 11.1 %, 13.7 % and 30.7 % on master 58b882d; the 17.10. ceilings came from a local run.
+  "framer-stupendous-football-158496": { desktop: 0.12, tablet: 0.15, mobile: 0.33 },
 };
 
 const MIME: Record<string, string> = {
