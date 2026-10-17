@@ -29,15 +29,15 @@ import { runImport } from "../src/index.ts";
 // original and the appear start states neutralised, because the import maps
 // motion separately and a static screenshot must not depend on a script.
 //
-// Both sides also use the same fonts. The original declares `Inter` as a web
-// font; where the file cannot be loaded the family name still shadows an
-// installed Inter and the page falls back to Framer's `Inter Placeholder` (Arial
-// at an adjusted size), where it can be loaded the page shows Inter. The import
-// carries no font files yet (task 2.3b) and shows the installed one. Compared
-// like that, a heading wraps in one page and not in the other and the numbers
-// follow the machine (Football on mobile: 29.5 % against 17.5 % with the same
-// fonts). So the original loses its file-based faces and the import gets
-// Framer's own `local()` placeholder faces.
+// Both sides also draw the same glyphs. The original declares `Inter` as a web
+// font from Framer's CDN; where the file cannot be loaded (sandbox, offline) the
+// page falls back to a system font, where it can (CI) it shows Inter. The bake
+// carries its own Inter files and always shows Inter. Compared like that, a
+// heading wraps in one page and not in the other and the numbers follow the
+// machine (Football on mobile: 30.7 % in the CI, 17.4 % with the same font).
+// So the original loses its CDN faces and gets the very Inter files of the
+// bake, and the import gets Framer's `local()` placeholder faces the original
+// keeps for `Inter Tight`.
 
 const BROWSER_REQUIRED = process.env["SENIFY_REQUIRE_BROWSER"] === "1";
 const BREAKPOINTS: Breakpoint[] = ["desktop", "tablet", "mobile"];
@@ -70,20 +70,20 @@ const browserAvailable = (() => {
 
 // Pixel-difference ceilings (share of differing pixels) per breakpoint.
 const DIFF_CEILING: Record<string, Record<Breakpoint, number>> = {
-  "framer-easier-train-154753": { desktop: 0.12, tablet: 0.14, mobile: 0.21 },
-  // mobile 0.15 -> 0.19 (15.10.2026): CI measured 16.7 % here, the local run 14.0 %.
-  // mobile 0.19 -> 0.15 (17.10.2026): 9.0 % locally with the same fonts on both sides.
-  "framer-fluffy-rectangle-418998": { desktop: 0.13, tablet: 0.17, mobile: 0.15 },
-  // desktop 0.11 -> 0.12, tablet 0.13 -> 0.15, mobile 0.24 -> 0.33 (17.10.2026): CI measured 11.1 %, 13.7 % and 30.7 % on master 58b882d; the 17.10. ceilings came from a local run.
-  "framer-stupendous-football-158496": { desktop: 0.12, tablet: 0.15, mobile: 0.33 },
+  // 17.10.2026: both sides draw the same Inter file, so the numbers no longer follow
+  // the machine (identical with and without a system Inter). Measured 8.5 / 9.9 / 14.0 %,
+  // 2.0 / 4.2 / 9.0 % and 6.9 / 8.8 / 17.4 %; the ceilings sit 3 to 4 points above.
+  "framer-easier-train-154753": { desktop: 0.12, tablet: 0.13, mobile: 0.18 },
+  "framer-fluffy-rectangle-418998": { desktop: 0.06, tablet: 0.08, mobile: 0.12 },
+  "framer-stupendous-football-158496": { desktop: 0.1, tablet: 0.12, mobile: 0.21 },
 };
 
 // The same ratchet at the platform's tablet width (1024 px), per fixture. Lower
-// it whenever the importer gets better, never raise it.
+// it whenever the importer gets better, never raise it. Measured 9.9 / 3.9 / 10.3 %.
 const DIFF_CEILING_PLATFORM_TABLET: Record<string, number> = {
-  "framer-easier-train-154753": 0.16,
-  "framer-fluffy-rectangle-418998": 0.34,
-  "framer-stupendous-football-158496": 0.25,
+  "framer-easier-train-154753": 0.13,
+  "framer-fluffy-rectangle-418998": 0.08,
+  "framer-stupendous-football-158496": 0.14,
 };
 
 const MIME: Record<string, string> = {
@@ -224,6 +224,15 @@ describe.skipIf(!browserAvailable && !BROWSER_REQUIRED)("S5 import gate on the r
           importedHtml,
           readFileSync(importedHtml, "utf8").replace("</head>", `<style>${localFontFaces(html)}</style></head>`),
         );
+
+        const fontDir = join(original, "gate-fonts");
+        mkdirSync(fontDir, { recursive: true });
+        const interFaces = [400, 500, 600].map((weight) => {
+          cpSync(join(imported, "assets", `inter-${weight}.woff2`), join(fontDir, `inter-${weight}.woff2`));
+          return `@font-face{font-family:Inter;font-style:normal;font-weight:${weight};src:url(gate-fonts/inter-${weight}.woff2) format("woff2")}`;
+        });
+        const originalHtml = join(original, "index.html");
+        writeFileSync(originalHtml, readFileSync(originalHtml, "utf8").replace("</head>", `<style>${interFaces.join("")}</style></head>`));
 
         const [originalServer, importedServer] = await Promise.all([serve(original), serve(imported)]);
         servers.push(originalServer, importedServer);
