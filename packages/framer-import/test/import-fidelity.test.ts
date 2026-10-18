@@ -637,3 +637,28 @@ describe("spacing values that hold a function", () => {
     expect(gap).toEqual({ row: "3px", column: "3px" });
   });
 });
+
+describe("the element's inline style beats class rules on every device", () => {
+  // Framer writes `style="width:100%"` on a component instance and a variant rule
+  // `.inst.v{width:628px}` for the same element; the browser lets the inline value win.
+  const frameOf = (css: string, style = "width:100%") =>
+    run(page(`<div class="inst v" style="${style}"><p>x</p></div>`, css)).nodes.find((node) => node.primitive === "frame");
+
+  it("keeps the inline width where a class rule on the same element sets another", () => {
+    const frame = frameOf(".inst.v{width:628px;align-items:flex-start}");
+    expect(frame?.props["width"]).toBe("100%");
+  });
+
+  it("does not turn a class width into a tablet or phone override", () => {
+    const frame = frameOf("@media (max-width:1199.98px){.inst.v{width:628px}}@media (max-width:809.98px){.inst.v{width:300px}}");
+    expect(frame?.props["width"]).toBe("100%");
+    expect(frame?.props["width_tablet"]).toBeUndefined();
+    expect(frame?.props["width_mobile"]).toBeUndefined();
+  });
+
+  it("still lets a class rule set what the inline style leaves open", () => {
+    const frame = frameOf(".inst.v{height:200px}");
+    expect(frame?.props["width"]).toBe("100%");
+    expect(frame?.props["height"]).toBe("200px");
+  });
+});

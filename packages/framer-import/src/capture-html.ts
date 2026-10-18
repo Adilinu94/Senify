@@ -1446,6 +1446,53 @@ const IMPORTANT = /\s*!important\s*$/i;
 // inline `display:contents`. Carried as `none!important`, the value could not be
 // overridden by the device that shows the element (`display_mobile: flex`), so
 // mobile-only layers stayed hidden.
+// The properties the element's own `style` attribute sets that the capture keeps
+// as box or layout values (`width`, `height`, `min-*`, `max-*`, `aspect-ratio`,
+// `position`, the insets, `z-index`, `gap`, `padding`) and not in the visual bag.
+// They never reach `cascade` as inline values, yet an inline declaration beats
+// every normal class rule on every device. Without this a variant rule such as
+// `.framer-8ygNP.framer-v-ieqm35.framer-fmxu4b{width:628px}` overrode the
+// element's inline `width:100%` for tablet and phone, and the text inside kept
+// its desktop width instead of wrapping.
+const SIDES = ["top", "right", "bottom", "left"] as const;
+
+function inlineOwnedProperties(state: IrState): Set<string> {
+  const owned = new Set<string>();
+  const box = state.box;
+  if (box !== null) {
+    const named: [string, string | undefined][] = [
+      ["width", box.width],
+      ["height", box.height],
+      ["min-width", box.minWidth],
+      ["max-width", box.maxWidth],
+      ["min-height", box.minHeight],
+      ["max-height", box.maxHeight],
+      ["aspect-ratio", box.aspectRatio],
+      ["position", box.position],
+      ["z-index", box.zIndex],
+    ];
+    for (const [name, value] of named) if (value !== undefined) owned.add(name);
+    for (const side of SIDES) if (box.inset?.[side] !== undefined) owned.add(side);
+    if (SIDES.every((side) => owned.has(side))) owned.add("inset");
+  }
+  const layout = state.layout;
+  if (layout !== null) {
+    if (layout.gap !== undefined) for (const name of ["gap", "row-gap", "column-gap"]) owned.add(name);
+    const padding = layout.padding;
+    if (padding !== undefined) {
+      for (const side of SIDES) if (padding[side] !== undefined) owned.add(`padding-${side}`);
+      if (SIDES.every((side) => padding[side] !== undefined)) owned.add("padding");
+    }
+  }
+  return owned;
+}
+
+// A class rule loses to the element's inline declaration unless it is `!important`.
+function withoutOwned(values: Record<string, string>, owned: ReadonlySet<string>): Record<string, string> {
+  if (owned.size === 0) return values;
+  return Object.fromEntries(Object.entries(values).filter(([key, raw]) => !owned.has(key) || IMPORTANT.test(raw)));
+}
+
 function cascade(classValues: readonly Record<string, string>[], inline: IrVisual): IrVisual {
   const out: IrVisual = {};
   const important = new Set<string>();
@@ -1481,6 +1528,7 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
     if (baseState === undefined) return;
     // The cascade: stylesheet rules first, the element's own inline style wins.
     const inline = { ...baseState.visual };
+    const owned = inlineOwnedProperties(baseState);
     const ownTokens = new Set(tokensOf(current));
     const appears = current.attrs?.["data-framer-appear-id"] !== undefined;
     const matched = matchingRules(base.index, current, ownTokens, ancestors);
@@ -1504,7 +1552,7 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
       // it, ordered the way the browser orders them (specificity, then position).
       const rules = [...baseRules, ...mediaRules.filter((entry) => entry.devices.includes(device)).flatMap((entry) => entry.rules)];
       rules.sort(bySpecificity);
-      for (const [key, value] of Object.entries(cascade(rules.map((rule) => rule.values), inline))) {
+      for (const [key, value] of Object.entries(cascade(rules.map((rule) => withoutOwned(rule.values, owned)), inline))) {
         if (value === undefined) continue;
         if (key.startsWith("--")) own[key] = value;
         else plain[key] = value;
