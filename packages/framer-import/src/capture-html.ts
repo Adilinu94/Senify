@@ -1446,18 +1446,20 @@ const IMPORTANT = /\s*!important\s*$/i;
 // inline `display:contents`. Carried as `none!important`, the value could not be
 // overridden by the device that shows the element (`display_mobile: flex`), so
 // mobile-only layers stayed hidden.
-// The properties the element's own `style` attribute sets that the capture keeps
-// as box or layout values (`width`, `height`, `min-*`, `max-*`, `aspect-ratio`,
-// `position`, the insets, `z-index`, `gap`, `padding`) and not in the visual bag.
+// The values the element's own `style` attribute sets that the capture keeps as
+// box or layout values (`width`, `height`, `min-*`, `max-*`, `aspect-ratio`,
+// `position`, the insets, `z-index`, `gap`, `padding`), by CSS property name.
 // They never reach `cascade` as inline values, yet an inline declaration beats
-// every normal class rule on every device. Without this a variant rule such as
+// every normal class rule, on every device. Without them a variant rule such as
 // `.framer-8ygNP.framer-v-ieqm35.framer-fmxu4b{width:628px}` overrode the
 // element's inline `width:100%` for tablet and phone, and the text inside kept
-// its desktop width instead of wrapping.
+// its desktop width instead of wrapping. The inline value takes the class
+// value's place (and not just removes it): the merge of the device copies reads
+// the per-device values from the visual bag, the box of a copy is not carried.
 const SIDES = ["top", "right", "bottom", "left"] as const;
 
-function inlineOwnedProperties(state: IrState): Set<string> {
-  const owned = new Set<string>();
+function inlineOwnedValues(state: IrState): Record<string, string> {
+  const owned: Record<string, string> = {};
   const box = state.box;
   if (box !== null) {
     const named: [string, string | undefined][] = [
@@ -1471,26 +1473,25 @@ function inlineOwnedProperties(state: IrState): Set<string> {
       ["position", box.position],
       ["z-index", box.zIndex],
     ];
-    for (const [name, value] of named) if (value !== undefined) owned.add(name);
-    for (const side of SIDES) if (box.inset?.[side] !== undefined) owned.add(side);
-    if (SIDES.every((side) => owned.has(side))) owned.add("inset");
+    for (const [name, value] of named) if (value !== undefined) owned[name] = value;
+    const inset = box.inset ?? {};
+    for (const side of SIDES) {
+      const value = inset[side];
+      if (value !== undefined) owned[side] = value;
+    }
+    if (SIDES.every((side) => inset[side] !== undefined)) owned["inset"] = SIDES.map((side) => inset[side]).join(" ");
   }
   const layout = state.layout;
   if (layout !== null) {
-    if (layout.gap !== undefined) for (const name of ["gap", "row-gap", "column-gap"]) owned.add(name);
-    const padding = layout.padding;
-    if (padding !== undefined) {
-      for (const side of SIDES) if (padding[side] !== undefined) owned.add(`padding-${side}`);
-      if (SIDES.every((side) => padding[side] !== undefined)) owned.add("padding");
+    if (layout.gap !== undefined) for (const name of ["gap", "row-gap", "column-gap"]) owned[name] = layout.gap;
+    const padding = layout.padding ?? {};
+    for (const side of SIDES) {
+      const value = padding[side];
+      if (value !== undefined) owned[`padding-${side}`] = value;
     }
+    if (SIDES.every((side) => padding[side] !== undefined)) owned["padding"] = SIDES.map((side) => padding[side]).join(" ");
   }
   return owned;
-}
-
-// A class rule loses to the element's inline declaration unless it is `!important`.
-function withoutOwned(values: Record<string, string>, owned: ReadonlySet<string>): Record<string, string> {
-  if (owned.size === 0) return values;
-  return Object.fromEntries(Object.entries(values).filter(([key, raw]) => !owned.has(key) || IMPORTANT.test(raw)));
 }
 
 function cascade(classValues: readonly Record<string, string>[], inline: IrVisual): IrVisual {
@@ -1528,7 +1529,7 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
     if (baseState === undefined) return;
     // The cascade: stylesheet rules first, the element's own inline style wins.
     const inline = { ...baseState.visual };
-    const owned = inlineOwnedProperties(baseState);
+    const ownedValues = inlineOwnedValues(baseState);
     const ownTokens = new Set(tokensOf(current));
     const appears = current.attrs?.["data-framer-appear-id"] !== undefined;
     const matched = matchingRules(base.index, current, ownTokens, ancestors);
@@ -1541,6 +1542,16 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
       devices: entry.devices,
       rules: baseOnly(matchingRules(entry.index, current, ownTokens, ancestors)),
     }));
+    // The element's own inline value wins over a class rule that sets the same
+    // property, on every device. It is fed to all devices alike, so a device the
+    // rule does not reach keeps the same value and no override appears.
+    const clash: IrVisual = {};
+    for (const rule of [...baseRules, ...mediaRules.flatMap((entry) => entry.rules)]) {
+      for (const key of Object.keys(rule.values)) {
+        const own = ownedValues[key];
+        if (own !== undefined) clash[key] = own;
+      }
+    }
     // Custom properties inherit, so each device carries its own chain; the
     // values are resolved against the chain at THIS element.
     const varsByDevice = {} as VarsByDevice;
@@ -1552,7 +1563,7 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
       // it, ordered the way the browser orders them (specificity, then position).
       const rules = [...baseRules, ...mediaRules.filter((entry) => entry.devices.includes(device)).flatMap((entry) => entry.rules)];
       rules.sort(bySpecificity);
-      for (const [key, value] of Object.entries(cascade(rules.map((rule) => withoutOwned(rule.values, owned)), inline))) {
+      for (const [key, value] of Object.entries(cascade(rules.map((rule) => rule.values), { ...inline, ...clash }))) {
         if (value === undefined) continue;
         if (key.startsWith("--")) own[key] = value;
         else plain[key] = value;
