@@ -51,6 +51,13 @@ describe("capture fidelity", () => {
     expect(frame?.children?.length).toBeGreaterThan(0);
   });
 
+  it("reports a linked wrapper as an info: the target and the children are kept", () => {
+    const { mapped } = run(page('<a href="/projekt"><div><span>Karte</span></div></a>'));
+    const finding = mapped.findings.find((entry) => entry.message.startsWith("Link-Wrapper"));
+    expect(finding?.severity).toBe("info");
+    expect(finding?.message).toContain("/projekt");
+  });
+
   it("keeps image alt text", () => {
     const { nodes } = run(page('<img src="a.png" alt="Logo Acme" width="100" height="50">'));
     expect(nodes.find((node) => node.primitive === "image")?.props["alt"]).toBe("Logo Acme");

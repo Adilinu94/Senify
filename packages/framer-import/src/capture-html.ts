@@ -1663,8 +1663,10 @@ const originOf = (url: string): string | null => {
 };
 
 // `pagePath` is where the page lands in Senify, `sourcePath` which page of the
-// export is read (the home page unless said otherwise).
-export function captureFixture(fixtureDir: string, pagePath = "/", sourcePath = "/"): FramerIrDocument {
+// export is read (the home page unless said otherwise). `origin` is the site the
+// export came from: a scraped export writes its own links as absolute URLs, and
+// only with the origin can they be told from links to other sites.
+export function captureFixture(fixtureDir: string, pagePath = "/", sourcePath = "/", origin?: string): FramerIrDocument {
   const file = pageFileOf(fixtureDir, sourcePath);
   const html = readFileSync(file, "utf8");
   const document = captureHtml({
@@ -1673,6 +1675,7 @@ export function captureFixture(fixtureDir: string, pagePath = "/", sourcePath = 
     rootDir: dirname(resolve(file)),
     pagePath,
     sourcePath,
+    ...(origin !== undefined ? { url: origin } : {}),
   });
   try {
     const manifest = JSON.parse(readFileSync(resolve(fixtureDir, "senify-modules.json"), "utf8")) as {
