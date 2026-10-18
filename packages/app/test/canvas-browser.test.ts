@@ -346,6 +346,9 @@ describe.skipIf(!browserAvailable)("editor canvas in a real browser", () => {
       // The history sheet (ticket 03 point 5): time and action per row, a click
       // jumps to that state through the undo/redo gate. Two changes in a row
       // (a new change after an undo drops the redo future — HistoryStack).
+      // The undo took the inserted divider and, with it, the selection (an insert
+      // selects what it inserted): the next insert needs a target again.
+      await desktopFrame.locator('[data-node-id="div000001"]').click();
       await insertAfter();
       await expect
         .poll(async () => desktopFrame.locator('section[data-section="divider"]').count())

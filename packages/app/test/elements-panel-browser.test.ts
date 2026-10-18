@@ -82,6 +82,12 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
 
       const elements = tab.locator(".canvas-view__elements");
       const inspector = tab.locator(".canvas-view__inspector");
+      // Ein eingefuegtes Element ist gewaehlt, die Einstellungen ersetzen das
+      // Panel; der Zurueck-Pfeil bringt die Elemente wieder.
+      const backToElements = async (): Promise<void> => {
+        await tab.locator(".senify-inspector__back").click();
+        await expect.poll(() => elements.isVisible()).toBe(true);
+      };
 
       // Ohne Auswahl steht links das Elemente-Panel: 22 Kacheln in fuenf
       // Kategorien, alle Symbole gezeichnet; der Inspektor ist weg (E5).
@@ -103,11 +109,16 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       await search.press("Escape");
       await expect.poll(() => tab.locator(".senify-elements__tile").count()).toBe(22);
 
-      // Ein Klick haengt das Element ans Ende der Seite; Suchtext und Panel
+      // Ein Klick haengt das Element ans Ende der Seite und waehlt es aus (wie in
+      // Elementor): die Einstellungen ersetzen das Panel. Suchtext und Panel
       // ueberstehen das Neuzeichnen.
       await search.fill("divider");
       await tab.locator('.senify-elements__tile[data-primitive="divider"]').click();
       await expect.poll(dividerCount).toBe(1);
+      await expect.poll(() => inspector.isVisible()).toBe(true);
+      expect(await elements.isVisible()).toBe(false);
+      expect(await tab.locator(".senify-inspector__title").textContent()).toMatch(/ bearbeiten$/);
+      await backToElements();
       expect(await search.inputValue()).toBe("divider");
       await search.fill("");
 
@@ -126,6 +137,7 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       expect(await hint.textContent()).toMatch(/Einfügen vor /);
       await tab.locator('.senify-elements__tile[data-primitive="divider"]').click();
       await expect.poll(sectionOrder).toEqual(["divider", "hero", "divider"]);
+      await backToElements();
       expect(await hint.isVisible()).toBe(false);
 
       // Das Kreuz im Hinweis verwirft das Ziel; die naechste Kachel haengt dann
@@ -137,6 +149,7 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       await expect.poll(() => hint.isVisible()).toBe(false);
       await tab.locator('.senify-elements__tile[data-primitive="divider"]').click();
       await expect.poll(sectionOrder).toEqual(["divider", "hero", "divider", "divider"]);
+      await backToElements();
       // Zurueck auf den Ausgangsstand, damit der Rest des Tests unveraendert gilt.
       await tab.locator('.senify-canvas__button[data-action="undo"]').click();
       await tab.locator('.senify-canvas__button[data-action="undo"]').click();
@@ -179,6 +192,9 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
         targetPosition: { x: 40, y: 8 },
       });
       await expect.poll(dividerCount).toBe(2);
+      // Auch ein abgelegtes Element ist danach gewaehlt: die Einstellungen stehen da.
+      await expect.poll(() => inspector.isVisible()).toBe(true);
+      expect(await elements.isVisible()).toBe(false);
 
       // Struktur (E6): die rechte Spalte heisst so, und ihr Kontextmenue bleibt am
       // rechten Fensterrand ganz sichtbar statt abgeschnitten zu werden.
@@ -200,6 +216,7 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       // Speichern-Knopf zaehlt wieder auf null, nichts bleibt haengen.
       for (const type of ["heading", "frame"]) {
         await tab.locator(`.senify-elements__tile[data-primitive="${type}"]`).click();
+        await backToElements();
       }
       const saveButton = tab.locator('[data-action="canvas-save"]');
       await saveButton.click();
@@ -309,6 +326,12 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
         await saveButton.click();
         await expect.poll(async () => (await saveButton.textContent())?.trim()).toBe("Speichern");
       };
+      // An inserted section is selected and its settings replace the panel: the
+      // back arrow brings the tiles (and the open tab) back for the next insert.
+      const backToElements = async (): Promise<void> => {
+        await tab.locator(".senify-inspector__back").click();
+        await expect.poll(() => tab.locator(".canvas-view__elements").isVisible()).toBe(true);
+      };
 
       // The second tab lists every variant of every insertable section, with a
       // preview that the dashboard really serves (no 404, a decoded image).
@@ -345,6 +368,7 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       ]);
 
       // Drag drops a variant onto the lower half of the hero: it lands behind it.
+      await backToElements();
       await search.fill("");
       // The canvas is zoomed to fit, so the box on screen is smaller than the node:
       // aim at the last few pixels of what is drawn.
@@ -374,6 +398,7 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       await expect.poll(() => tab.locator(".senify-elements__target").isVisible()).toBe(true);
       await tab.locator('.senify-elements__variant[data-section="pricing"][data-variant="comparison"]').click();
       await expect.poll(order).toEqual(["pricing", "hero", "faq", "pricing"]);
+      await backToElements();
       expect(await tab.locator(".senify-elements__target").isVisible()).toBe(false);
       await tab.locator('.senify-canvas__button[data-action="undo"]').click();
       await expect.poll(order).toEqual(["hero", "faq", "pricing"]);
