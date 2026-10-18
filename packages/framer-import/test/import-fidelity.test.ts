@@ -67,6 +67,35 @@ describe("capture fidelity", () => {
     expect(String(body?.props["html"])).toContain("<span>Wir</span><span> </span><span>sind</span>");
   });
 
+  it("keeps React's fragment markers out of the text of a paragraph with a link", () => {
+    // Framer's server markup wraps a link in `<!--$-->…<!--/$-->`. Taken as part of the
+    // inner markup they came out as the visible text `<!--$-->` (the footer credit of
+    // easier-train, which then wrapped into a second line).
+    const { nodes } = run(
+      page(
+        '<div data-framer-component-type="RichTextContainer"><p>Reserved by <!--$--><a href="https://x.com/n" target="_blank">Nivrit</a><!--/$--></p></div>',
+      ),
+    );
+    const html = nodes.map((node) => String(node.props["html"] ?? "")).join("|");
+    expect(html).toContain("Reserved by");
+    expect(html).toContain(">Nivrit</a>");
+    expect(html).not.toContain("<!--");
+    expect(html).not.toContain("&lt;!--");
+  });
+
+  it("keeps an empty line between two paragraphs", () => {
+    // Framer writes a blank line as a paragraph that holds only a `<br>`. Without the
+    // `<br>` the paragraph is empty, has no height, and the text after it moved up by
+    // one line (easier-train: 25 px on every page below the first text).
+    const { nodes } = run(
+      page(
+        '<div data-framer-component-type="RichTextContainer"><p>Erster</p><p><br class="framer-text trailing-break"></p><p>Dritter</p></div>',
+      ),
+    );
+    const body = nodes.find((node) => String(node.props["html"] ?? "").includes("Erster"));
+    expect(String(body?.props["html"])).toBe("<p>Erster</p><p><br></p><p>Dritter</p>");
+  });
+
   it("keeps the text between inline elements", () => {
     const { nodes } = run(page('<div data-framer-component-type="RichTextContainer"><p>Hallo <strong>fett</strong> Welt</p></div>'));
     const html = nodes.map((node) => String(node.props["html"] ?? "")).join("|");
@@ -169,6 +198,63 @@ describe("capture fidelity", () => {
     expect(node?.props["color"]).toBe("red");
     expect(node?.props["color_tablet"]).toBe("blue");
     expect(node?.props["color_mobile"]).toBe("red");
+  });
+
+  it("takes back a value that only the tablet range sets, for the phone", () => {
+    // `max-width:80%` exists in Framer's tablet range only: desktop and phone never
+    // set it, so there is no desktop value to say again. Without a `_mobile` value the
+    // phone kept the tablet's 80 % (a paragraph on easier-train was 280 px wide
+    // instead of 350 px and wrapped into one more line).
+    const { nodes } = run(
+      page('<div class="m">x</div>', ".m{width:100%}@media (min-width:810px) and (max-width:1199.98px){.m{max-width:80%}}"),
+    );
+    const node = nodes.find((candidate) => candidate.props["text"] === "x");
+    expect(node?.props["maxWidth"]).toBeUndefined();
+    expect(node?.props["maxWidth_tablet"]).toBe("80%");
+    expect(node?.props["maxWidth_mobile"]).toBe("unset");
+  });
+
+  it("lets an inline width beat the width a device variant's rule sets", () => {
+    // Framer's footer copy for the phone has `width:350px` in the sheet and
+    // `style="width:100%"` on the element; the inline style wins in the browser.
+    // The capture keeps the inline width in `box`, apart from the rules' values in
+    // `visual`, so the rules' widths came back as `width_tablet` / `width_mobile`:
+    // the footer was 40 px too narrow on the phone and its credit line wrapped.
+    const { nodes } = run(
+      page(
+        '<div class="f" style="width:100%">x</div>',
+        ".f{width:810px}@media (max-width:809.98px){.f{width:350px}}@media (min-width:810px) and (max-width:1199.98px){.f{width:600px}}",
+      ),
+    );
+    const node = nodes.find((candidate) => candidate.props["text"] === "x");
+    expect(node?.props["width"]).toBe("100%");
+    expect(node?.props["width_tablet"]).toBeUndefined();
+    expect(node?.props["width_mobile"]).toBeUndefined();
+  });
+
+  it("lets an `!important` rule beat the inline width on its device", () => {
+    const { nodes } = run(
+      page('<div class="f" style="width:100%">x</div>', "@media (max-width:809.98px){.f{width:350px!important}}"),
+    );
+    const node = nodes.find((candidate) => candidate.props["text"] === "x");
+    expect(node?.props["width"]).toBe("100%");
+    expect(node?.props["width_mobile"]).toBe("350px");
+  });
+
+  it("keeps the line clamp of a text that is cut after two lines", () => {
+    // Framer clamps a card subtitle with `display:-webkit-box` plus
+    // `-webkit-line-clamp:2` and `-webkit-box-orient:vertical`. Only `display` came
+    // through, so the import showed all three lines (easier-train blog cards: 28 px
+    // too high each, the page 107 px too high on the phone).
+    const { nodes } = run(
+      page(
+        '<div class="m">x</div>',
+        ".m{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:clip}",
+      ),
+    );
+    const node = nodes.find((candidate) => candidate.props["text"] === "x");
+    expect(node?.props["WebkitLineClamp"]).toBe("2");
+    expect(node?.props["WebkitBoxOrient"]).toBe("vertical");
   });
 
   it("flattens an rgba gradient to a valid color", () => {
@@ -601,6 +687,54 @@ describe("which rules the stylesheet really matches", () => {
     const html = '<div class="framer-box" data-x="on"><p>an</p></div><div class="framer-box" data-x="off"><p>aus</p></div>';
     expect(boxOf(html, css, "an").padding).toBe("20px");
     expect(boxOf(html, css, "aus").padding).not.toBe("20px");
+  });
+});
+
+describe("form controls", () => {
+  // A form field has no children, so the import used to turn it into an empty
+  // frame: the line the browser draws inside every field (27 px on the easier-train
+  // contact form) was gone and the page below the form moved up by that much per field.
+  // A field now carries what it shows as text, in the typography of the field.
+  const texts = (html: string): string[] =>
+    run(page(html))
+      .nodes.map((node) => String(node.props["text"] ?? ""))
+      .filter((text) => text !== "");
+
+  it("shows the placeholder of a text field", () => {
+    expect(texts('<div><input type="text" name="Name" placeholder="Jane Smith" class="framer-form-input" value></div>')).toEqual(["Jane Smith"]);
+  });
+
+  it("shows the value of a field before its placeholder", () => {
+    expect(texts('<div><input type="email" placeholder="you@x.de" value="a@b.de"></div>')).toEqual(["a@b.de"]);
+  });
+
+  it("shows the selected option of a select, not the whole option list", () => {
+    const html =
+      '<div><select name="Services"><option value disabled selected>Select…</option><option value="a">General Dentistry</option><option value="b">Orthodontics</option></select></div>';
+    expect(texts(html)).toEqual(["Select…"]);
+  });
+
+  it("shows the first option of a select that selects none", () => {
+    expect(texts("<div><select><option>Erste</option><option>Zweite</option></select></div>")).toEqual(["Erste"]);
+  });
+
+  it("shows the format hint of a date and a time field, not their placeholder attribute", () => {
+    expect(texts('<div><input type="date" placeholder="(123) 123-1331"></div>')).toEqual(["mm/dd/yyyy"]);
+    expect(texts('<div><input type="time" placeholder="(123) 123-1331"></div>')).toEqual(["--:-- --"]);
+  });
+
+  it("shows the placeholder of a textarea", () => {
+    expect(texts('<div><textarea placeholder="Nachricht"></textarea></div>')).toEqual(["Nachricht"]);
+  });
+
+  it("leaves a hidden spam-trap field without text", () => {
+    const trap =
+      '<input type="text" name="website" tabindex="-1" aria-hidden="true" style="position:absolute;transform:scale(0)" value>';
+    expect(texts(`<div>${trap}</div>`)).toEqual([]);
+  });
+
+  it("leaves a checkbox, a button and a hidden field alone", () => {
+    expect(texts('<div><input type="checkbox" placeholder="x"><input type="hidden" value="geheim"></div>')).toEqual([]);
   });
 });
 

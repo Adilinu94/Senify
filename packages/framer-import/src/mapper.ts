@@ -94,6 +94,10 @@ const CSS_TO_STYLE: Readonly<Record<string, string>> = {
   "white-space": "whiteSpace",
   "text-overflow": "textOverflow",
   cursor: "cursor",
+  // The pair that cuts a text after N lines. The generic rule below skips a name
+  // with a leading dash; only these two are carried, not every vendor prefix.
+  "-webkit-line-clamp": "WebkitLineClamp",
+  "-webkit-box-orient": "WebkitBoxOrient",
 };
 
 function cssName(name: string): string | undefined {
@@ -321,7 +325,13 @@ function mobileOverrides(
   tablet: Record<string, string>,
   mobile: Record<string, string>,
 ): Record<string, string> {
-  return diffValues({ ...base, ...tablet }, mobile);
+  const out = diffValues({ ...base, ...tablet }, mobile);
+  // A property only the tablet sets, which the phone does not set either, has no
+  // value to say again: `unset` takes the tablet's value back.
+  for (const property of Object.keys(tablet)) {
+    if (mobile[property] === undefined) out[property] = "unset";
+  }
+  return out;
 }
 
 // The value diff between two states: only the properties that differ become
@@ -680,6 +690,8 @@ function inlineOf(child: IrNode): string {
     const inner = sanitizeInlineHtml(child.innerHtml);
     return HEADING_TAGS.has(child.tag) || child.tag === "p" ? `<${child.tag}>${inner}</${child.tag}>` : inner;
   }
+  // A line break is the whole content of the blank line between two paragraphs.
+  if (child.tag === "br") return "<br>";
   const inner = escapeHtml(child.states[0]?.text?.content ?? "") + child.children.map(inlineOf).join("");
   if (child.tag === "a" && child.href !== null) {
     const newTab = child.target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : "";

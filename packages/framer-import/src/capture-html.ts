@@ -177,7 +177,8 @@ function scanTag(
   const classes = (attrs["class"] ?? "").split(/\s+/).filter((entry) => entry !== "");
 
   if (selfClosing || VOID_TAGS.has(tag)) {
-    return { node: { tag, attrs, classes, children: [], text: null, svg: null, innerHtml: null }, next: gt + 1 };
+    const text = tag === "input" ? inputText(attrs) : null;
+    return { node: { tag, attrs, classes, children: [], text, svg: null, innerHtml: null }, next: gt + 1 };
   }
 
   // `script`/`style` content is raw text, not markup.
@@ -204,10 +205,16 @@ function scanTag(
   const innerEnd = close === -1 ? limit : close;
   const children = scanNodes(html, gt + 1, innerEnd);
   const inner = html.slice(gt + 1, innerEnd);
+  const next = close === -1 ? limit : html.indexOf(">", innerEnd) + 1;
+  // A select shows one option, not the list: the options would stack as text.
+  if (tag === "select") {
+    return { node: { tag, attrs, classes, children: [], text: selectedOptionLabel(children), svg: null, innerHtml: null }, next };
+  }
   // A `<span> </span>` between words holds the space the words wrap at; the
   // trimmed text would be empty and the words would run together.
   const spaceOnly = tag === "span" && /^\s+$/.test(decodeEntities(inner.replace(/<[^>]*>/g, "")));
-  const text = children.length === 0 ? (spaceOnly ? " " : extractText(inner)) : null;
+  const ownText = children.length === 0 ? (spaceOnly ? " " : extractText(inner)) : null;
+  const text = tag === "textarea" && ownText === "" ? (attrs["placeholder"] ?? "") : ownText;
   // Only elements with their own text between the children carry content the
   // child scan cannot see.
   const innerHtml =
@@ -215,12 +222,36 @@ function scanTag(
     innerEnd - (gt + 1) <= MAX_INNER_HTML &&
     children.every(isInlineTree) &&
     extractText(html.slice(gt + 1, innerEnd)) !== extractText(children.map((child) => child.text ?? "").join(" "))
-      ? html.slice(gt + 1, innerEnd)
+      ? // React's fragment markers (`<!--$-->`) are no content: the sanitizer would
+        // escape them into visible text.
+        html.slice(gt + 1, innerEnd).replace(/<!--[\s\S]*?-->/g, "")
       : null;
-  return {
-    node: { tag, attrs, classes, children, text, svg: null, innerHtml },
-    next: close === -1 ? limit : html.indexOf(">", innerEnd) + 1,
-  };
+  return { node: { tag, attrs, classes, children, text, svg: null, innerHtml }, next };
+}
+
+// What a form field draws inside itself. A field has no children, so without
+// this it became an empty frame and lost the line the browser gives it: the
+// content below a form moved up by the height of every field.
+const TEXT_INPUT_TYPES: ReadonlySet<string> = new Set(["text", "tel", "email", "url", "search", "number"]);
+// The hint Chromium draws in an empty date or time field (en-US).
+const FORMAT_HINTS: Readonly<Record<string, string>> = { date: "mm/dd/yyyy", time: "--:-- --" };
+
+function inputText(attrs: RawAttr): string | null {
+  // Spam-trap fields are hidden on purpose.
+  if (attrs["aria-hidden"] === "true") return null;
+  const type = (attrs["type"] ?? "text").toLowerCase();
+  const value = attrs["value"] ?? "";
+  if (value !== "" && (TEXT_INPUT_TYPES.has(type) || FORMAT_HINTS[type] !== undefined)) return value;
+  // The `placeholder` of a date field is not what Chromium shows there.
+  if (FORMAT_HINTS[type] !== undefined) return FORMAT_HINTS[type] ?? null;
+  return TEXT_INPUT_TYPES.has(type) ? (attrs["placeholder"] ?? "") : null;
+}
+
+function selectedOptionLabel(nodes: RawNode[]): string {
+  const options = (list: RawNode[]): RawNode[] =>
+    list.flatMap((node) => (node.tag === "option" ? [node] : options(node.children)));
+  const all = options(nodes);
+  return (all.find((option) => option.attrs["selected"] !== undefined) ?? all[0])?.text ?? "";
 }
 
 function findClosing(html: string, from: number, tag: string, limit: number): number {
@@ -1439,6 +1470,17 @@ const devicesOf = devicesContaining;
 
 const IMPORTANT = /\s*!important\s*$/i;
 
+// The inline sizes `elementStyleToParts` keeps in `box` (key), under their CSS name.
+const INLINE_BOX_PROPERTIES: Readonly<Record<string, string>> = {
+  width: "width",
+  height: "height",
+  minWidth: "min-width",
+  maxWidth: "max-width",
+  minHeight: "min-height",
+  maxHeight: "max-height",
+  aspectRatio: "aspect-ratio",
+};
+
 // The cascade of one device: class rules in source order, then the element's own
 // inline style. A declaration marked `!important` beats every normal one, the
 // inline style included, and the marker does not travel on: Framer hides the
@@ -1480,7 +1522,18 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
     const baseState = current.states[0];
     if (baseState === undefined) return;
     // The cascade: stylesheet rules first, the element's own inline style wins.
-    const inline = { ...baseState.visual };
+    // An inline `width` or `height` lives in `box`, not in the visual, and beats
+    // the sheet's rules all the same (the phone footer: `width:350px` in the sheet,
+    // `style="width:100%"` on the element). It joins the cascade here, so the value
+    // each device state carries is the one the browser shows. The mapper merges
+    // the copies of the breakpoints through these states and never reads the box
+    // of any but the first.
+    const inlineBox: IrVisual = {};
+    for (const [key, name] of Object.entries(INLINE_BOX_PROPERTIES)) {
+      const value = (baseState.box as Record<string, string | undefined> | null)?.[key];
+      if (value !== undefined && baseState.visual[name] === undefined) inlineBox[name] = value;
+    }
+    const inline = { ...baseState.visual, ...inlineBox };
     const ownTokens = new Set(tokensOf(current));
     const appears = current.attrs?.["data-framer-appear-id"] !== undefined;
     const matched = matchingRules(base.index, current, ownTokens, ancestors);
