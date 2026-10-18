@@ -74,11 +74,8 @@ async function waitForStableUi(tab: import("playwright").Page, snapshot: Snapsho
   }
   if (snapshot.name.startsWith("editor")) {
     await tab.waitForSelector(".senify-canvas", { timeout: 30000 });
-    const frameCount = snapshot.name === "editor-live" ? 1 : 3;
-    await tab.waitForFunction(
-      `(count) => document.querySelectorAll(".senify-canvas__frame").length === count`,
-      frameCount,
-    );
+    // One frame, in design and in live.
+    await tab.waitForFunction('document.querySelectorAll(".senify-canvas__frame").length === 1');
     await tab.waitForSelector(".senify-canvas__iframe", { timeout: 30000 });
   }
   await tab.waitForTimeout(250);

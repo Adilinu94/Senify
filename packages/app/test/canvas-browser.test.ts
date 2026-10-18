@@ -140,11 +140,11 @@ describe.skipIf(!browserAvailable)("editor canvas in a real browser", () => {
           };
         });
 
-      // Canvas loads: the shell, three device frames at the start zoom.
+      // Canvas loads: the shell, one device frame at the start zoom.
       await tab.waitForSelector(".senify-canvas");
       expect(await tab.locator(".senify-canvas").count()).toBe(1);
-      expect(await tab.locator(".senify-canvas__frame").count()).toBe(3);
-      expect(await tab.locator(".senify-canvas__iframe").count()).toBe(3);
+      expect(await tab.locator(".senify-canvas__frame").count()).toBe(1);
+      expect(await tab.locator(".senify-canvas__iframe").count()).toBe(1);
       expect(await tab.locator('[data-role="zoom"]').textContent()).toBe("50%");
       // The opt-in diagnostic chrome is explicit in this harness.
       expect(await tab.locator('[data-role="states"] .senify-canvas__button:visible').count()).toBe(7);
@@ -256,12 +256,12 @@ describe.skipIf(!browserAvailable)("editor canvas in a real browser", () => {
       await expect
         .poll(async () => tab.locator(".senify-canvas__select-ring:visible").count())
         .toBeGreaterThan(0);
-      // One ring per sheet, four 24x24 handles at the active one, the size
-      // pair as text — all in the editor DOM, not in the frame.
-      expect(await tab.locator(".senify-canvas__select-ring:visible").count()).toBe(3);
+      // One ring, four 24x24 handles, the size pair as text — all in the editor
+      // DOM, not in the frame.
+      expect(await tab.locator(".senify-canvas__select-ring:visible").count()).toBe(1);
       await expect
         .poll(async () => tab.locator(".senify-canvas__handle:visible").count())
-        .toBe(12);
+        .toBe(4);
       expect(await tab.locator(".senify-canvas__select-size:visible").first().textContent()).toMatch(
         /^\d+ × \d+$/,
       );

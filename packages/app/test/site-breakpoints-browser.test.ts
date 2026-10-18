@@ -124,10 +124,16 @@ describe.skipIf(!browserAvailable)("site breakpoints in the dashboard and the ca
         waitUntil: "domcontentloaded",
       });
       await tab.waitForSelector(".senify-canvas");
-      await tab.waitForFunction(
-        `document.querySelectorAll(".senify-canvas__iframe").length === 3 && [...document.querySelectorAll(".senify-canvas__iframe")].every((frame) => frame.contentDocument?.querySelector("[data-node-id]"))`,
-      );
+      // Der Editor zeigt ein Blatt: der Geräte-Umschalter wechselt es, erst dann ist
+      // das Blatt des Geräts gerendert.
+      const showDevice = async (device: string): Promise<void> => {
+        await tab.locator(`.senify-canvas__button[data-action="device"][data-device="${device}"]`).click();
+        await tab.waitForFunction(
+          `document.querySelectorAll(".senify-canvas__iframe").length === 1 && document.querySelector(".senify-canvas__frame")?.getAttribute("data-device") === "${device}" && [...document.querySelectorAll(".senify-canvas__iframe")].every((frame) => frame.contentDocument?.querySelector("[data-node-id]"))`,
+        );
+      };
       const probe = async (device: string): Promise<{ width: number; tablet: boolean; mobile: boolean; label: string }> => {
+        await showDevice(device);
         const handle = await tab.locator(`.senify-canvas__frame[data-device="${device}"] iframe`).elementHandle();
         const frame = await handle?.contentFrame();
         if (frame === null || frame === undefined) throw new Error(`no frame for ${device}`);
@@ -159,9 +165,7 @@ describe.skipIf(!browserAvailable)("site breakpoints in the dashboard and the ca
         waitUntil: "domcontentloaded",
       });
       await tab.waitForSelector(".senify-canvas");
-      await tab.waitForFunction(
-        `document.querySelectorAll(".senify-canvas__iframe").length === 3 && [...document.querySelectorAll(".senify-canvas__iframe")].every((frame) => frame.contentDocument?.querySelector("[data-node-id]"))`,
-      );
+      await showDevice("tablet");
       const standardTablet = await tab
         .locator('.senify-canvas__frame[data-device="tablet"] iframe')
         .evaluate((frame) => (frame as unknown as { contentWindow: { innerWidth: number } }).contentWindow.innerWidth);
