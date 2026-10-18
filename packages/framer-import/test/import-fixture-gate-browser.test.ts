@@ -74,7 +74,9 @@ const DIFF_CEILING: Record<string, Record<Breakpoint, number>> = {
   // the machine (identical with and without a system Inter). Measured 8.5 / 9.9 / 14.0 %,
   // 2.0 / 4.2 / 9.0 % and 6.9 / 8.8 / 17.4 %; the ceilings sit 3 to 4 points above.
   "framer-easier-train-154753": { desktop: 0.12, tablet: 0.13, mobile: 0.18 },
-  "framer-fluffy-rectangle-418998": { desktop: 0.06, tablet: 0.08, mobile: 0.12 },
+  // tablet 0.08 -> 0.06 and mobile 0.12 -> 0.08 (18.10.2026): an inline value now beats a class rule
+  // on every device. CI measured 1.9 / 2.3 / 4.3 % for fluffy-rectangle (before 2.0 / 4.2 / 9.0 %).
+  "framer-fluffy-rectangle-418998": { desktop: 0.06, tablet: 0.06, mobile: 0.08 },
   "framer-stupendous-football-158496": { desktop: 0.1, tablet: 0.12, mobile: 0.21 },
 };
 
@@ -82,8 +84,9 @@ const DIFF_CEILING: Record<string, Record<Breakpoint, number>> = {
 // it whenever the importer gets better, never raise it. Measured 9.9 / 3.9 / 10.3 %.
 const DIFF_CEILING_PLATFORM_TABLET: Record<string, number> = {
   "framer-easier-train-154753": 0.13,
-  "framer-fluffy-rectangle-418998": 0.08,
-  "framer-stupendous-football-158496": 0.14,
+  // fluffy-rectangle 0.08 -> 0.06 (measured 1.9 %), stupendous-football 0.14 -> 0.11 (measured 7.7 %), 18.10.2026.
+  "framer-fluffy-rectangle-418998": 0.06,
+  "framer-stupendous-football-158496": 0.11,
 };
 
 const MIME: Record<string, string> = {
