@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { startProgram } from "@senify/app";
-import { browserAvailable, memoryDb, openInspectorCategory } from "./support.ts";
+import { browserAvailable, memoryDb, openInspectorCategory, runSpotlightCommand } from "./support.ts";
 
 // The canvas wired into the editor page (rebuild Phase 0, fifth slice). Since
 // E5 slice 1 it is the one visible editor, and since P3-1 Punkt 4 (R5) it is
@@ -476,7 +476,7 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       // Design/Live (Ticket 03 Punkt 6 + M4 Stufe 1): live shows the real page
       // — one frame at 100 %, native scroll, the release runtime injected (the
       // same contract the bake writes; Lenis follows the site profile).
-      await tab.locator('.senify-canvas__button[data-mode="live"]').click();
+      await runSpotlightCommand(tab, "Live-Modus");
       await expect.poll(async () => tab.locator(".senify-canvas__frame").count()).toBe(1);
       await expect
         .poll(async () =>
@@ -500,7 +500,7 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
 
       // Back in design: the sheet returns, the chrome is back. The rest of the
       // flow works on the desktop sheet, so the device switch goes back to it.
-      await tab.locator('.senify-canvas__button[data-mode="design"]').click();
+      await runSpotlightCommand(tab, "Design-Modus");
       await expect.poll(async () => tab.locator(".senify-canvas__frame").count()).toBe(1);
       await tab.locator('.senify-canvas__button[data-action="device"][data-device="desktop"]').click();
       await expect
@@ -810,7 +810,7 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       // Die Bühne füllt im Workspace-Modus die Fensterhöhe. Ein niedriger
       // Viewport hält die Live-Seite scrollbar, sonst hat der Scrub keinen Weg.
       await tab.setViewportSize({ width: 1600, height: 700 });
-      await tab.locator('.senify-canvas__button[data-mode="live"]').click();
+      await runSpotlightCommand(tab, "Live-Modus");
       await expect.poll(async () => tab.locator(".senify-canvas__frame").count()).toBe(1);       // Scrub (Ticket 19, M6): der Regler faehrt die Scroll-Position der echten
        // Seite an (Pin-/Scrub-Presets ohne Mausrad pruefbar), manuelles Scrollen
        // fuehrt ihn zurueck; im Design-Modus ist er aus.
@@ -905,7 +905,7 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
         .toBeGreaterThan(0);
       await expect.poll(liveProbe, { timeout: 10000 }).toBe("frisch");
       await tab.screenshot({ path: join(shotDir, "12-live-vorschau-follow.png") });
-      await tab.locator('.senify-canvas__button[data-mode="design"]').click();
+      await runSpotlightCommand(tab, "Design-Modus");
       await expect.poll(async () => tab.locator(".senify-canvas__frame").count()).toBe(1);
       // Der Scrub gehoert zum Live-Modus (M6): im Design ist er aus.
       await expect.poll(async () => scrub.isDisabled()).toBe(true);

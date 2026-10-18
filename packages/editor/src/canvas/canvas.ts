@@ -400,22 +400,12 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   });
   zoomLabel.addEventListener("click", () => setZoom(1));
 
-  // Design/Live (Ticket 03 Punkt 6): live shows the real page (M4 Stufe 1).
-  const modeGroup = create(doc, "div", "senify-canvas__group", { "data-role": "mode" });
-  const modeButtons = new Map<EditorMode, DomElement>();
-  for (const value of ["design", "live"] as const) {
-    const button = create(doc, "button", "senify-canvas__button", {
-      type: "button",
-      "data-mode": value,
-    });
-    button.textContent = value === "design" ? "Design" : "Live";
-    button.addEventListener("click", () => setMode(value));
-    modeButtons.set(value, button);
-    modeGroup.appendChild(button);
-  }
+  // Design/Live (Ticket 03 Punkt 6): live shows the real page (M4 Stufe 1). The
+  // toolbar has no switch for it any more (E7 Teil 3); `setMode` and the
+  // spotlight commands stay as the way in until the preview (E8) takes over.
 
-  // Geräte-Umschalter: wählt das aktive Breakpoint-Blatt (Design markiert es,
-  // Live rendert in dieser Breite).
+  // Geräte-Umschalter: wählt das aktive Breakpoint-Blatt (Design zeigt dessen
+  // Blattgröße, Live rendert in dieser Breite).
   const deviceGroup = create(doc, "div", "senify-canvas__group", { "data-role": "device" });
   const deviceButtons = new Map<FrameBreakpoint, DomElement>();
   const deviceSpecs: ReadonlyArray<readonly [FrameBreakpoint, string, string]> = [
@@ -467,7 +457,6 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   scrubGroup.appendChild(scrubLabel);
   scrubGroup.appendChild(scrubInput);
 
-  topbar.appendChild(modeGroup);
   topbar.appendChild(deviceGroup);
   topbar.appendChild(historyGroup);
   topbar.appendChild(stateGroup);
@@ -971,9 +960,6 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
         "data-active",
         String((value === "none" ? null : value) === previewState),
       );
-    }
-    for (const [value, button] of modeButtons) {
-      button.setAttribute("data-active", String(value === mode));
     }
     for (const [value, button] of deviceButtons) {
       button.setAttribute("data-active", String(value === breakpoint));
