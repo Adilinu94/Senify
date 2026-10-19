@@ -71,19 +71,20 @@ const browserAvailable = (() => {
 // Pixel-difference ceilings (share of differing pixels) per breakpoint.
 const DIFF_CEILING: Record<string, Record<Breakpoint, number>> = {
   // 17.10.2026: both sides draw the same Inter file, so the numbers no longer follow
-  // the machine (identical with and without a system Inter). Measured 8.5 / 9.9 / 14.0 %,
-  // 2.0 / 4.2 / 9.0 % and 6.9 / 8.8 / 17.4 %; the ceilings sit 3 to 4 points above.
-  "framer-easier-train-154753": { desktop: 0.12, tablet: 0.13, mobile: 0.18 },
-  "framer-fluffy-rectangle-418998": { desktop: 0.06, tablet: 0.08, mobile: 0.12 },
-  "framer-stupendous-football-158496": { desktop: 0.1, tablet: 0.12, mobile: 0.21 },
+  // the machine (identical with and without a system Inter). 19.10.2026: measured
+  // 4.6 / 6.1 / 7.8 %, 1.9 / 2.3 / 4.2 % and 0.9 / 1.5 / 2.8 %; the ceilings sit
+  // 3 to 4 points above.
+  "framer-easier-train-154753": { desktop: 0.08, tablet: 0.1, mobile: 0.11 },
+  "framer-fluffy-rectangle-418998": { desktop: 0.05, tablet: 0.05, mobile: 0.07 },
+  "framer-stupendous-football-158496": { desktop: 0.04, tablet: 0.05, mobile: 0.06 },
 };
 
 // The same ratchet at the platform's tablet width (1024 px), per fixture. Lower
-// it whenever the importer gets better, never raise it. Measured 9.9 / 3.9 / 10.3 %.
+// it whenever the importer gets better, never raise it. Measured 5.5 / 2.1 / 1.4 %.
 const DIFF_CEILING_PLATFORM_TABLET: Record<string, number> = {
-  "framer-easier-train-154753": 0.13,
-  "framer-fluffy-rectangle-418998": 0.08,
-  "framer-stupendous-football-158496": 0.14,
+  "framer-easier-train-154753": 0.09,
+  "framer-fluffy-rectangle-418998": 0.05,
+  "framer-stupendous-football-158496": 0.05,
 };
 
 const MIME: Record<string, string> = {
