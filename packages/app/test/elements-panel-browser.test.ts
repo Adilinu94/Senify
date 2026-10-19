@@ -195,6 +195,17 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       // Auch ein abgelegtes Element ist danach gewaehlt: die Einstellungen stehen da.
       await expect.poll(() => inspector.isVisible()).toBe(true);
       expect(await elements.isVisible()).toBe(false);
+      // Der Undo nimmt das abgelegte Element weg. Die Auswahl zeigte darauf und
+      // muss mit verschwinden: sonst bliebe das Panel im Einstellungs-Modus
+      // stehen, ohne Weg zurueck zu den Elementen.
+      await tab.locator('.senify-canvas__button[data-action="undo"]').click();
+      await expect.poll(dividerCount).toBe(1);
+      await expect.poll(() => elements.isVisible()).toBe(true);
+      expect(await inspector.isVisible()).toBe(false);
+      await tab.locator('.senify-elements__tile[data-primitive="divider"]').dragTo(hero, {
+        targetPosition: { x: 40, y: 8 },
+      });
+      await expect.poll(dividerCount).toBe(2);
 
       // Struktur (E6): die rechte Spalte heisst so, und ihr Kontextmenue bleibt am
       // rechten Fensterrand ganz sichtbar statt abgeschnitten zu werden.
