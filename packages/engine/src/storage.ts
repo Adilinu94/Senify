@@ -125,20 +125,33 @@ export function resolveStoredFile(
   return target;
 }
 
-// Removes what a deleted site left on disk: its asset folder and the build
-// directories of its releases and previews. A build reference that does not
-// resolve inside the data directory is skipped - a corrupted row must never make
-// a delete reach outside it.
+export type SiteFileRef = {
+  kind: "releases" | "previews" | "reviews" | "redesign-proposals";
+  id: string;
+  storedPath?: string;
+};
+
+// Entity IDs use the IDs alphabet, never path syntax. Only direct children of
+// the owned storage roots may be removed. A build must
+// match its own row ID, not merely point somewhere inside dataDir: a corrupted
+// reference must not remove the asset root or another site's build.
 export function removeSiteFiles(
   dataDir: string,
   siteId: string,
-  buildRefs: readonly string[],
+  fileRefs: readonly SiteFileRef[],
 ): void {
-  rmSync(join(dataDir, "assets", siteId), { recursive: true, force: true });
   const root = resolve(dataDir);
-  for (const ref of buildRefs) {
-    const target = resolve(ref);
-    if (target === root || !target.startsWith(root + sep)) continue;
-    rmSync(target, { recursive: true, force: true });
+  const assets = join(root, "assets");
+  const siteAssets = resolve(assets, siteId);
+  if (/^[A-Za-z0-9_-]+$/.test(siteId) && dirname(siteAssets) === assets) {
+    rmSync(siteAssets, { recursive: true, force: true });
+  }
+  for (const file of fileRefs) {
+    if (!/^[A-Za-z0-9_-]+$/.test(file.id)) continue;
+    const files = join(root, file.kind);
+    const expected = resolve(files, file.id);
+    if (dirname(expected) !== files) continue;
+    if (file.storedPath !== undefined && resolve(file.storedPath) !== expected) continue;
+    rmSync(expected, { recursive: true, force: true });
   }
 }
