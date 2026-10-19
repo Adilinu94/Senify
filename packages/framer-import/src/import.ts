@@ -141,10 +141,11 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
   } else if (input.source.kind === "mirror") {
     // Offline mode (S2.4): the local mirror is the input, no network beyond
     // the asset downloads themselves (which resolve through baseUrl when
-    // given, else fall back to the mirror's file layout).
+    // given, else fall back to the mirror's file layout). The same baseUrl is
+    // the site's origin for the page's own absolute links.
     // Target path and source page are two things: the page read from the export
     // is `source.pagePath` (home by default), the path it lands on is `pagePath`.
-    document = captureFixture(input.source.rootDir, input.pagePath ?? "/", input.source.pagePath ?? "/");
+    document = captureFixture(input.source.rootDir, input.pagePath ?? "/", input.source.pagePath ?? "/", baseUrl);
   } else {
     const capture: CaptureHtmlInput = { html: input.source.html, pagePath: input.pagePath ?? "/" };
     if (input.source.url !== undefined) capture.url = input.source.url;

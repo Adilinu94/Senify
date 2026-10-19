@@ -112,4 +112,35 @@ describe("a page inside an export folder", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("makes a scraped export's absolute same-origin links root-relative when the origin is given", async () => {
+    const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { captureFixture } = await import("../src/index.ts");
+    const root = mkdtempSync(join(tmpdir(), "senify-site-"));
+    try {
+      const body = '<a href="https://shop.test/about">About</a><a href="https://other.test/x">Extern</a>';
+      writeFileSync(
+        join(root, "index.html"),
+        `<html lang="de"><head><title>Start</title></head><body><div id="main" data-framer-hydrate-v2>${body}</div></body></html>`,
+      );
+      const hrefsOf = (document: ReturnType<typeof captureHtml>): string[] => {
+        const found: string[] = [];
+        const walk = (node: IrNode): void => {
+          if (node.href !== null) found.push(node.href);
+          node.children.forEach(walk);
+        };
+        walk(rootOf(document));
+        return found;
+      };
+      // Without an origin the page cannot tell its own site from another one.
+      expect(hrefsOf(captureFixture(root))).toEqual(["https://shop.test/about", "https://other.test/x"]);
+      const withOrigin = captureFixture(root, "/", "/", "https://shop.test");
+      expect(hrefsOf(withOrigin)).toEqual(["/about", "https://other.test/x"]);
+      expect(discoverPagePaths(rootOf(withOrigin), "/")).toEqual(["/about"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
