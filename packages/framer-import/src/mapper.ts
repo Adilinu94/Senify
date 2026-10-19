@@ -490,17 +490,25 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
   }
 
   // --- style values with device merge
-  const baseVisual = cssToStyle(merged.base.visual);
+  // The gap an element writes in its own style attribute sits in `layout`, not in the
+  // visual; it joins the style here so each device copy brings its own (the phone's
+  // Ticker is 40 px apart, the desktop's 70 px).
+  const styleOf = (state: IrState): Record<string, string> => {
+    const style = cssToStyle(state.visual);
+    if (state.layout?.gap !== undefined) style["gap"] = state.layout.gap;
+    return style;
+  };
+  const baseVisual = styleOf(merged.base);
   for (const [property, value] of Object.entries(baseVisual)) props[property] = value;
   normalizeSpacingProps(props);
-  const tabletDiff = merged.tablet === null ? {} : diffValues(baseVisual, cssToStyle(merged.tablet.visual));
+  const tabletDiff = merged.tablet === null ? {} : diffValues(baseVisual, styleOf(merged.tablet));
   for (const [property, value] of Object.entries(tabletDiff)) props[`${property}_tablet`] = value;
   if (Object.keys(tabletDiff).length > 0) context.stats.mergedVariants += 1;
   // Mobile is stated against what it inherits: Senify's tablet values are
   // `max-width` rules that mobile falls under too, while Framer's tablet query
   // stops above the phone. A phone that equals desktop has no state of its own,
   // yet still has to say the desktop value again where the tablet changed it.
-  const mobileDiff = mobileOverrides(baseVisual, tabletDiff, merged.mobile === null ? baseVisual : cssToStyle(merged.mobile.visual));
+  const mobileDiff = mobileOverrides(baseVisual, tabletDiff, merged.mobile === null ? baseVisual : styleOf(merged.mobile));
   for (const [property, value] of Object.entries(mobileDiff)) props[`${property}_mobile`] = value;
   if (merged.mobile !== null && Object.keys(mobileDiff).length > 0) context.stats.mergedVariants += 1;
 
@@ -547,7 +555,6 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
       props["display"] = "flex";
       props["flexDirection"] = layout.direction === "horizontal" ? "row" : "column";
     }
-    if (layout.gap !== undefined) props["gap"] = layout.gap;
     if (layout.padding !== undefined) {
       props["padding"] = {
         top: layout.padding.top ?? "0px",
@@ -639,16 +646,21 @@ function splitShorthand(value: string): string[] {
   return parts;
 }
 
+// `gap: 8px` or `gap: 8px 16px`: one value per axis, the way the style table reads it.
+function splitGap(value: string): { row: string; column: string } {
+  const parts = splitShorthand(value);
+  const row = parts[0] ?? "0px";
+  return { row, column: parts.length === 1 ? row : (parts[1] ?? row) };
+}
+
 function normalizeSpacingProps(props: Record<string, unknown>): void {
   for (const key of ["gap", "gap_tablet", "gap_mobile"]) {
     const value = props[key];
     if (typeof value !== "string") continue;
-    const parts = splitShorthand(value);
-    const row = parts[0] ?? "0px";
-    const column = parts.length === 1 ? row : (parts[1] ?? row);
-    props[key] = { row, column };
+    props[key] = splitGap(value);
   }
-  for (const key of ["padding", "margin", "padding_tablet", "margin_tablet", "padding_mobile", "margin_mobile"]) {
+  // `inset` is a spacing too: one value per side, like `padding`.
+  for (const key of ["padding", "margin", "inset", "padding_tablet", "margin_tablet", "inset_tablet", "padding_mobile", "margin_mobile", "inset_mobile"]) {
     const value = props[key];
     if (typeof value !== "string") continue;
     const parts = splitShorthand(value);
@@ -660,11 +672,15 @@ function normalizeSpacingProps(props: Record<string, unknown>): void {
   }
 }
 
+// The style table reads `background` as a colour. A gradient or an image written in the
+// shorthand (the dark overlay on a card photo) is a background image.
+const BACKGROUND_IMAGE = /(?:linear|radial|conic)-gradient\(|url\(/i;
+
 function cssToStyle(visual: { [key: string]: string | undefined }): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [name, entry] of Object.entries(visual)) {
     if (entry === undefined) continue;
-    const mapped = cssName(name);
+    const mapped = name === "background" && BACKGROUND_IMAGE.test(entry) ? "backgroundImage" : cssName(name);
     if (mapped !== undefined && entry !== "") out[mapped] = entry;
   }
   return out;
