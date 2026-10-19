@@ -1147,7 +1147,13 @@ function resolveVars(value: string, vars: Vars, depth = 0): string {
     })();
     const fallback = firstComma === -1 ? undefined : inner.slice(firstComma + 1).trim();
     out += value.slice(cursor, start);
-    if (!name.startsWith("--") || name.startsWith("--token-")) {
+    if (name.startsWith("--token-")) {
+      // The token stays a `var()`, but its fallback is the value the page
+      // defines for it: Framer keeps the fallback from when the element was last
+      // written, and Senify does not define the token, so a stale one would stand.
+      const defined = vars[name];
+      out += defined !== undefined && fallback !== undefined ? `var(${name}, ${defined})` : value.slice(start, end);
+    } else if (!name.startsWith("--")) {
       out += value.slice(start, end);
     } else if (vars[name] !== undefined) {
       out += resolveVars((vars[name] as string).trim(), vars, depth + 1);
@@ -1505,6 +1511,20 @@ function cascade(classValues: readonly Record<string, string>[], inline: IrVisua
   return out;
 }
 
+// The first definition of each `--token-*` in the page's styles: what the
+// browser resolves `var(--token-x, fallback)` to. A value that is itself a
+// `var()` is left out, it has no colour of its own to write.
+function tokenDefinitions(css: string): Vars {
+  const tokens: Vars = {};
+  for (const match of css.matchAll(/(--token-[a-f0-9-]{36}):\s*([^;}]+)/g)) {
+    const name = match[1] ?? "";
+    const value = (match[2] ?? "").trim();
+    if (name === "" || value === "" || value.includes("var(") || tokens[name] !== undefined) continue;
+    tokens[name] = value;
+  }
+  return tokens;
+}
+
 function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
   const parsed = parseCssRules(css);
   const base = buildIndex(parsed.rules);
@@ -1623,7 +1643,8 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
     for (const child of current.children) visit(child, offered, varsByDevice);
   };
   // Above the page element sit `html` and `body`; the page element is `#main`.
-  visit(root, new Set(["tag:html", "tag:body"]), { desktop: {}, tablet: {}, mobile: {} });
+  const tokens = tokenDefinitions(css);
+  visit(root, new Set(["tag:html", "tag:body"]), { desktop: tokens, tablet: tokens, mobile: tokens });
   return { skippedPseudo };
 }
 
