@@ -51,6 +51,13 @@ describe("capture fidelity", () => {
     expect(frame?.children?.length).toBeGreaterThan(0);
   });
 
+  it("reports a linked wrapper as an info: the target and the children are kept", () => {
+    const { mapped } = run(page('<a href="/projekt"><div><span>Karte</span></div></a>'));
+    const finding = mapped.findings.find((entry) => entry.message.startsWith("Link-Wrapper"));
+    expect(finding?.severity).toBe("info");
+    expect(finding?.message).toContain("/projekt");
+  });
+
   it("keeps image alt text", () => {
     const { nodes } = run(page('<img src="a.png" alt="Logo Acme" width="100" height="50">'));
     expect(nodes.find((node) => node.primitive === "image")?.props["alt"]).toBe("Logo Acme");
@@ -65,6 +72,35 @@ describe("capture fidelity", () => {
     );
     const body = nodes.find((node) => String(node.props["html"] ?? "").includes("Wir"));
     expect(String(body?.props["html"])).toContain("<span>Wir</span><span> </span><span>sind</span>");
+  });
+
+  it("keeps React's fragment markers out of the text of a paragraph with a link", () => {
+    // Framer's server markup wraps a link in `<!--$-->…<!--/$-->`. Taken as part of the
+    // inner markup they came out as the visible text `<!--$-->` (the footer credit of
+    // easier-train, which then wrapped into a second line).
+    const { nodes } = run(
+      page(
+        '<div data-framer-component-type="RichTextContainer"><p>Reserved by <!--$--><a href="https://x.com/n" target="_blank">Nivrit</a><!--/$--></p></div>',
+      ),
+    );
+    const html = nodes.map((node) => String(node.props["html"] ?? "")).join("|");
+    expect(html).toContain("Reserved by");
+    expect(html).toContain(">Nivrit</a>");
+    expect(html).not.toContain("<!--");
+    expect(html).not.toContain("&lt;!--");
+  });
+
+  it("keeps an empty line between two paragraphs", () => {
+    // Framer writes a blank line as a paragraph that holds only a `<br>`. Without the
+    // `<br>` the paragraph is empty, has no height, and the text after it moved up by
+    // one line (easier-train: 25 px on every page below the first text).
+    const { nodes } = run(
+      page(
+        '<div data-framer-component-type="RichTextContainer"><p>Erster</p><p><br class="framer-text trailing-break"></p><p>Dritter</p></div>',
+      ),
+    );
+    const body = nodes.find((node) => String(node.props["html"] ?? "").includes("Erster"));
+    expect(String(body?.props["html"])).toBe("<p>Erster</p><p><br></p><p>Dritter</p>");
   });
 
   it("keeps the text between inline elements", () => {
@@ -171,6 +207,63 @@ describe("capture fidelity", () => {
     expect(node?.props["color_mobile"]).toBe("red");
   });
 
+  it("takes back a value that only the tablet range sets, for the phone", () => {
+    // `max-width:80%` exists in Framer's tablet range only: desktop and phone never
+    // set it, so there is no desktop value to say again. Without a `_mobile` value the
+    // phone kept the tablet's 80 % (a paragraph on easier-train was 280 px wide
+    // instead of 350 px and wrapped into one more line).
+    const { nodes } = run(
+      page('<div class="m">x</div>', ".m{width:100%}@media (min-width:810px) and (max-width:1199.98px){.m{max-width:80%}}"),
+    );
+    const node = nodes.find((candidate) => candidate.props["text"] === "x");
+    expect(node?.props["maxWidth"]).toBeUndefined();
+    expect(node?.props["maxWidth_tablet"]).toBe("80%");
+    expect(node?.props["maxWidth_mobile"]).toBe("unset");
+  });
+
+  it("lets an inline width beat the width a device variant's rule sets", () => {
+    // Framer's footer copy for the phone has `width:350px` in the sheet and
+    // `style="width:100%"` on the element; the inline style wins in the browser.
+    // The capture keeps the inline width in `box`, apart from the rules' values in
+    // `visual`, so the rules' widths came back as `width_tablet` / `width_mobile`:
+    // the footer was 40 px too narrow on the phone and its credit line wrapped.
+    const { nodes } = run(
+      page(
+        '<div class="f" style="width:100%">x</div>',
+        ".f{width:810px}@media (max-width:809.98px){.f{width:350px}}@media (min-width:810px) and (max-width:1199.98px){.f{width:600px}}",
+      ),
+    );
+    const node = nodes.find((candidate) => candidate.props["text"] === "x");
+    expect(node?.props["width"]).toBe("100%");
+    expect(node?.props["width_tablet"]).toBeUndefined();
+    expect(node?.props["width_mobile"]).toBeUndefined();
+  });
+
+  it("lets an `!important` rule beat the inline width on its device", () => {
+    const { nodes } = run(
+      page('<div class="f" style="width:100%">x</div>', "@media (max-width:809.98px){.f{width:350px!important}}"),
+    );
+    const node = nodes.find((candidate) => candidate.props["text"] === "x");
+    expect(node?.props["width"]).toBe("100%");
+    expect(node?.props["width_mobile"]).toBe("350px");
+  });
+
+  it("keeps the line clamp of a text that is cut after two lines", () => {
+    // Framer clamps a card subtitle with `display:-webkit-box` plus
+    // `-webkit-line-clamp:2` and `-webkit-box-orient:vertical`. Only `display` came
+    // through, so the import showed all three lines (easier-train blog cards: 28 px
+    // too high each, the page 107 px too high on the phone).
+    const { nodes } = run(
+      page(
+        '<div class="m">x</div>',
+        ".m{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:clip}",
+      ),
+    );
+    const node = nodes.find((candidate) => candidate.props["text"] === "x");
+    expect(node?.props["WebkitLineClamp"]).toBe("2");
+    expect(node?.props["WebkitBoxOrient"]).toBe("vertical");
+  });
+
   it("flattens an rgba gradient to a valid color", () => {
     const { normalized } = {
       normalized: normalize(
@@ -179,6 +272,18 @@ describe("capture fidelity", () => {
     };
     const colors = normalized.rules.map((rule) => rule.declarations["background"] ?? "").filter(Boolean);
     expect(colors).toContain("rgba(0,0,0,0.5)");
+  });
+
+  it("keeps the gradient of a `background` shorthand as a background image", () => {
+    // The blog cards of stupendous-football darken their photo with an overlay
+    // `style="background:linear-gradient(…)"`. The style table reads `background` as a colour,
+    // so the gradient was dropped and the white card text stood on white.
+    const gradient = "linear-gradient(180deg, rgba(37, 65, 57, 0) 0%, rgba(37, 65, 57, 0.7) 74%)";
+    const { nodes } = run(page(`<div style="position:absolute;background:${gradient}"></div><div style="background:#ff0000"></div>`));
+    const overlay = nodes.find((node) => node.props["position"] === "absolute");
+    expect(overlay?.props["backgroundImage"]).toBe(gradient);
+    expect(overlay?.props["background"]).toBeUndefined();
+    expect(nodes.some((node) => node.props["background"] === "#ff0000")).toBe(true);
   });
 
   it("strips the SSR start state of reveals instead of hiding the element", () => {
@@ -202,6 +307,24 @@ describe("elements that are hidden on purpose", () => {
     const hidden = nodes.filter((node) => node.props["opacity"] === "0");
     expect(hidden).toHaveLength(2);
     expect(nodes.some((node) => String(node.props["transform"] ?? "").includes("translate"))).toBe(false);
+  });
+
+  // Framer's Ticker (a marquee of logos or figures) is server-rendered with
+  // `opacity:0` and shown by a script once it has measured itself. Taken as the
+  // look, the whole strip stayed invisible: the figures of fluffy-rectangle, the
+  // logo strips of the other two exports.
+  const TICKER =
+    "display:flex;width:100%;height:100%;max-width:100%;max-height:100%;place-items:center;margin:0;padding:0px;list-style-type:none;text-indent:none;opacity:0";
+
+  it("shows a ticker: its `opacity:0` is the state before the script runs", () => {
+    const { nodes } = run(page(`<section style="${TICKER}"><ul style="display:flex"><li><p>95%</p></li></ul></section>`));
+    expect(nodes.some((node) => node.props["opacity"] === "0")).toBe(false);
+    expect(nodes.some((node) => node.props["text"] === "95%" || String(node.props["html"] ?? "").includes("95%"))).toBe(true);
+  });
+
+  it("keeps a section that is not a ticker hidden", () => {
+    const { nodes } = run(page('<section style="opacity:0"><p>Zu</p></section>'));
+    expect(nodes.some((node) => node.props["opacity"] === "0")).toBe(true);
   });
 });
 
@@ -285,6 +408,23 @@ describe("typography through custom properties", () => {
     expect(String(nodes.find((node) => node.props["text"] === "Marke")?.props["color"])).toContain("--token-");
   });
 
+  it("falls back to the value the page itself gives a theme token, not to the fallback of each use", () => {
+    // Framer writes `body{--token-…:#d7ff6f}` and, in every style that uses the token,
+    // the colour it had when the style was saved (`rgb(130, 255, 31)`). The page shows the
+    // token's value; the import has no such variable, so each use fell back on its own
+    // older colour (fluffy-rectangle: a button in the green of an earlier palette).
+    const { nodes } = run(
+      preset(
+        "body{--token-11111111-2222-3333-4444-555555555555:#d7ff6f}.fx{color:var(--token-11111111-2222-3333-4444-555555555555,rgb(130, 255, 31))}",
+        '<p class="fx">Marke</p>',
+      ),
+    );
+    const color = String(nodes.find((node) => node.props["text"] === "Marke")?.props["color"]);
+    expect(color).toContain("--token-11111111-2222-3333-4444-555555555555");
+    expect(color).toContain("#d7ff6f");
+    expect(color).not.toContain("130, 255, 31");
+  });
+
   it("gives a lifted heading the typography of the heading, not the container's defaults", () => {
     const { nodes } = run(
       preset(
@@ -352,6 +492,16 @@ describe("pinned layers", () => {
     expect(JSON.stringify(layer?.props)).toContain("#000");
   });
 
+  it("pins a layer to the edges that the `inset` of a stylesheet rule names", () => {
+    // Framer's Ticker sits in `.framer-x-container{position:absolute;inset:0}`. The rule's
+    // `inset` stayed a plain string, which the style table does not read (it wants one value
+    // per side), so the layer was not stretched: it took the width of its content (1939 px
+    // on a 1440 px page) and a ticker lost its 100 px height.
+    const { nodes } = run(page('<div class="framer-pin"><p>x</p></div>', ".framer-pin{position:absolute;inset:0}"));
+    const layer = nodes.find((node) => node.props["position"] === "absolute");
+    expect(layer?.props["inset"]).toEqual({ top: "0", right: "0", bottom: "0", left: "0" });
+  });
+
   it("keeps a sticky element sticky", () => {
     const { nodes } = run(page('<div style="position:sticky;top:20px"><span>Leiste</span></div>'));
     expect(nodes.find((node) => node.props["position"] === "sticky")?.props["top"]).toBe("20px");
@@ -411,6 +561,26 @@ describe("device copies", () => {
   it("folds identical copies into one node", () => {
     const { nodes } = run(copies("Gleich", "Gleich", "Gleich"));
     expect(nodes.filter((node) => node.props["text"] === "Gleich")).toHaveLength(1);
+  });
+
+  it("keeps the gap of a copy that differs only in its own style attribute", () => {
+    // The two Tickers of fluffy-rectangle are one list at 70 px on the desktop and one at
+    // 40 px on the phone. The copies fold into one node; the phone's gap has to ride along
+    // as `gap_mobile`, or the phone shows the desktop's 70 px.
+    const list = (gap: string) => `<ul style="display:flex;gap:${gap}"><li><p>Eins</p></li><li><p>Zwei</p></li></ul>`;
+    const { nodes } = run(
+      page(
+        `<div class="ssr-variant hidden-d hidden-t">${list("40px")}</div>` +
+          `<div class="ssr-variant hidden-d hidden-m">${list("70px")}</div>` +
+          `<div class="ssr-variant hidden-t hidden-m">${list("70px")}</div>`,
+        "",
+        '<script type="application/json" id="__framer__breakpoints">[{"hash":"d","mediaQuery":"(min-width: 1200px)"},{"hash":"t","mediaQuery":"(min-width: 810px) and (max-width: 1199.98px)"},{"hash":"m","mediaQuery":"(max-width: 809.98px)"}]</script>',
+      ),
+    );
+    const lists = nodes.filter((node) => node.props["display"] === "flex");
+    expect(lists).toHaveLength(1);
+    expect(lists[0]?.props["gap"]).toEqual({ row: "70px", column: "70px" });
+    expect(lists[0]?.props["gap_mobile"]).toEqual({ row: "40px", column: "40px" });
   });
 
   it("keeps a copy with different content and shows it on its own device only", () => {
@@ -604,6 +774,54 @@ describe("which rules the stylesheet really matches", () => {
   });
 });
 
+describe("form controls", () => {
+  // A form field has no children, so the import used to turn it into an empty
+  // frame: the line the browser draws inside every field (27 px on the easier-train
+  // contact form) was gone and the page below the form moved up by that much per field.
+  // A field now carries what it shows as text, in the typography of the field.
+  const texts = (html: string): string[] =>
+    run(page(html))
+      .nodes.map((node) => String(node.props["text"] ?? ""))
+      .filter((text) => text !== "");
+
+  it("shows the placeholder of a text field", () => {
+    expect(texts('<div><input type="text" name="Name" placeholder="Jane Smith" class="framer-form-input" value></div>')).toEqual(["Jane Smith"]);
+  });
+
+  it("shows the value of a field before its placeholder", () => {
+    expect(texts('<div><input type="email" placeholder="you@x.de" value="a@b.de"></div>')).toEqual(["a@b.de"]);
+  });
+
+  it("shows the selected option of a select, not the whole option list", () => {
+    const html =
+      '<div><select name="Services"><option value disabled selected>Select…</option><option value="a">General Dentistry</option><option value="b">Orthodontics</option></select></div>';
+    expect(texts(html)).toEqual(["Select…"]);
+  });
+
+  it("shows the first option of a select that selects none", () => {
+    expect(texts("<div><select><option>Erste</option><option>Zweite</option></select></div>")).toEqual(["Erste"]);
+  });
+
+  it("shows the format hint of a date and a time field, not their placeholder attribute", () => {
+    expect(texts('<div><input type="date" placeholder="(123) 123-1331"></div>')).toEqual(["mm/dd/yyyy"]);
+    expect(texts('<div><input type="time" placeholder="(123) 123-1331"></div>')).toEqual(["--:-- --"]);
+  });
+
+  it("shows the placeholder of a textarea", () => {
+    expect(texts('<div><textarea placeholder="Nachricht"></textarea></div>')).toEqual(["Nachricht"]);
+  });
+
+  it("leaves a hidden spam-trap field without text", () => {
+    const trap =
+      '<input type="text" name="website" tabindex="-1" aria-hidden="true" style="position:absolute;transform:scale(0)" value>';
+    expect(texts(`<div>${trap}</div>`)).toEqual([]);
+  });
+
+  it("leaves a checkbox, a button and a hidden field alone", () => {
+    expect(texts('<div><input type="checkbox" placeholder="x"><input type="hidden" value="geheim"></div>')).toEqual([]);
+  });
+});
+
 describe("spacing values that hold a function", () => {
   // The frame that holds the text `label`: its padding and gap as the mapper sets them.
   const spacingOf = (css: string) => {
@@ -631,9 +849,59 @@ describe("spacing values that hold a function", () => {
     expect(gap).toEqual({ row: "calc(1px + 2px)", column: "8px" });
   });
 
+  it("reads the gap an element carries in its own style attribute", () => {
+    // The gap of a Ticker's list is `style="…;gap:70px"`. Taken from the inline style it
+    // stayed a plain string and the style table dropped it: the figures of fluffy-rectangle
+    // stood 70 px closer together than in the original.
+    const { nodes } = run(page('<ul style="display:flex;gap:70px;flex-direction:row"><li><p>a</p></li><li><p>b</p></li></ul>'));
+    const list = nodes.find((node) => node.props["display"] === "flex");
+    expect(list?.props["gap"]).toEqual({ row: "70px", column: "70px" });
+  });
+
   it("still splits plain shorthands as before", () => {
     const { padding, gap } = spacingOf(".framer-box{display:flex;padding:1px 2px;gap:3px}");
     expect(padding).toEqual({ top: "1px", right: "2px", bottom: "1px", left: "2px" });
     expect(gap).toEqual({ row: "3px", column: "3px" });
+  });
+});
+
+describe("spaces in a text set in `white-space: pre`", () => {
+  // Framer sets most of its texts in `white-space: pre` or `pre-wrap`. There a trailing
+  // space and a double space are drawn as written, and the author's own spaces count:
+  // the hero line "Hey, ich bin " of fluffy-rectangle is 22 px wider than "Hey, ich bin",
+  // "Meine  Referenzen" has a gap of two spaces. The capture collapsed every run of
+  // spaces and cut the ends, so those texts came out narrower than the original.
+  const shown = (body: string, css: string): string => {
+    const { nodes } = run(page(body, css));
+    return nodes.map((node) => String(node.props["text"] ?? node.props["html"] ?? "")).join("|");
+  };
+  const inherited = (text: string, whiteSpace: string): string =>
+    shown(`<div class="framer-a" data-framer-component-type="RichTextContainer"><p class="framer-text">${text}</p></div>`, `.framer-a{white-space:${whiteSpace}}`);
+
+  it("keeps a trailing space when the white-space of the parent is `pre`", () => {
+    expect(inherited("Hey, ich bin ", "pre")).toMatch(/Hey, ich bin (?:<|\||$)/);
+  });
+
+  it("keeps a double space inside the text", () => {
+    expect(inherited("Meine  Referenzen", "pre")).toContain("Meine  Referenzen");
+  });
+
+  it("keeps a leading space", () => {
+    expect(inherited(" Mein Service", "pre")).toMatch(/(?:^|[>|]) Mein Service/);
+  });
+
+  it("keeps the spaces when the paragraph itself sets `pre-wrap`", () => {
+    const text = shown(
+      '<div data-framer-component-type="RichTextContainer"><p class="framer-text">Direkter Kontakt. </p></div>',
+      "p.framer-text{white-space:pre-wrap}",
+    );
+    expect(text).toMatch(/Direkter Kontakt\. (?:<|\||$)/);
+  });
+
+  it("still collapses the spaces of a text set in normal white-space", () => {
+    const text = inherited("Hey,  ich bin ", "normal");
+    expect(text).toContain("Hey, ich bin");
+    expect(text).not.toContain("Hey,  ich");
+    expect(text).not.toMatch(/ich bin (?:<|\|)/);
   });
 });

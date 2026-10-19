@@ -11,6 +11,7 @@ import {
   type NodeTree,
 } from "@senify/section-sdk";
 import type { DesignRecord } from "./design-report.ts";
+import type { SiteFileRef } from "./storage.ts";
 import type { ReleaseAssetSnapshot } from "./types.ts";
 import {
   defaultTheme,
@@ -935,35 +936,58 @@ export class Store {
 
   // Deletes a site and everything that belongs to it, in one transaction. The
   // foreign-key tables follow `sites` by cascade; the tables with a bare
-  // `site_id` (SITE_SCOPED_TABLES) are cleared here. Returns the build
-  // directories of the site's releases and previews so the caller can remove the
-  // files - the store does not know the data directory.
-  async deleteSite(id: string): Promise<{ buildRefs: string[] }> {
+  // `site_id` (SITE_SCOPED_TABLES) are cleared here. Indirect ownership is
+  // resolved before the parents disappear; disk cleanup runs after commit.
+  //
+  // The returned file references name the rows whose directories the caller has
+  // to remove. They carry the row ID, not a stored path: a build path that
+  // disagrees with its own row is not followed, so a corrupted row cannot make
+  // a delete reach another site's files.
+  async deleteSite(id: string): Promise<{ fileRefs: SiteFileRef[] }> {
     return this.#db.withTransaction(async (tx) => {
-      const releases = await tx.query<{ build_ref: string | null }>(
-        `SELECT build_ref FROM releases WHERE site_id = $1`,
-        [id],
+      const site = await tx.query<{ id: string }>(
+        `SELECT id FROM sites WHERE id = $1 FOR UPDATE`, [id],
       );
-      const previews = await tx.query<{ build_ref: string | null }>(
-        `SELECT build_ref FROM previews WHERE site_id = $1`,
-        [id],
-      );
-      const result = await tx.query<{ id: string }>(
-        `DELETE FROM sites WHERE id = $1 RETURNING id`,
-        [id],
-      );
-      if (result.rows.length === 0) {
-        throw new SenifyError("not_found", `Site "${id}" does not exist`, {
-          field: "siteId",
-        });
+      if (site.rows.length === 0) {
+        throw new SenifyError("not_found", `Site "${id}" does not exist`, { field: "siteId" });
       }
+      const releases = await tx.query<{ id: string; build_ref: string | null }>(
+        `SELECT id, build_ref FROM releases WHERE site_id = $1`,
+        [id],
+      );
+      const previews = await tx.query<{ id: string; build_ref: string | null }>(
+        `SELECT id, build_ref FROM previews WHERE site_id = $1`,
+        [id],
+      );
+      const reviews = await tx.query<{ id: string }>(`SELECT id FROM review_items WHERE site_id = $1`, [id]);
+      // basis.source retains Site ownership even after the source Page was
+      // deleted. The scalar lookup also covers older proposals without it.
+      const proposals = await tx.query<{ id: string }>(
+        `DELETE FROM redesign_proposals
+         WHERE basis->'source'->>'siteId' = $1
+            OR source_page_id IN (SELECT id FROM pages WHERE site_id = $1)
+         RETURNING id`, [id],
+      );
+      for (const table of ["asset_history", "asset_variants", "asset_blurhash"]) {
+        await tx.query(`DELETE FROM ${table} WHERE asset_id IN (SELECT id FROM assets WHERE site_id = $1)`, [id]);
+      }
+      await tx.query(`DELETE FROM sites WHERE id = $1`, [id]);
       for (const table of SITE_SCOPED_TABLES) {
         await tx.query(`DELETE FROM ${table} WHERE site_id = $1`, [id]);
       }
-      const buildRefs = [...releases.rows, ...previews.rows]
-        .map((row) => row.build_ref)
-        .filter((ref): ref is string => typeof ref === "string" && ref !== "");
-      return { buildRefs: [...new Set(buildRefs)] };
+      const fileRefs: SiteFileRef[] = [];
+      for (const [kind, rows] of [["releases", releases.rows], ["previews", previews.rows]] as const) {
+        for (const row of rows) {
+          fileRefs.push({
+            kind,
+            id: row.id,
+            ...(row.build_ref ? { storedPath: row.build_ref } : {}),
+          });
+        }
+      }
+      fileRefs.push(...reviews.rows.map((row) => ({ kind: "reviews" as const, id: row.id })));
+      fileRefs.push(...proposals.rows.map((row) => ({ kind: "redesign-proposals" as const, id: row.id })));
+      return { fileRefs };
     });
   }
 

@@ -1381,7 +1381,7 @@ const ROUTES: Route[] = [
       const siteId = params.siteId;
       if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
       const removed = await context.store.deleteSite(siteId);
-      removeSiteFiles(context.dataDir, siteId, removed.buildRefs);
+      removeSiteFiles(context.dataDir, siteId, removed.fileRefs);
       return { status: 204 };
     },
   },

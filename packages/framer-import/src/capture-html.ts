@@ -74,6 +74,9 @@ type RawNode = {
   // RichText shape `Hallo <strong>x</strong> Welt`): the scan keeps elements
   // only, so without this the plain text nodes between them are lost.
   innerHtml: string | null;
+  // The text of a leaf as written, with its spaces. `text` is collapsed; the cascade
+  // takes this one back where the element is set in `white-space: pre`.
+  spacedText?: string;
 };
 
 // Elements whose content is never visible page content.
@@ -177,7 +180,8 @@ function scanTag(
   const classes = (attrs["class"] ?? "").split(/\s+/).filter((entry) => entry !== "");
 
   if (selfClosing || VOID_TAGS.has(tag)) {
-    return { node: { tag, attrs, classes, children: [], text: null, svg: null, innerHtml: null }, next: gt + 1 };
+    const text = tag === "input" ? inputText(attrs) : null;
+    return { node: { tag, attrs, classes, children: [], text, svg: null, innerHtml: null }, next: gt + 1 };
   }
 
   // `script`/`style` content is raw text, not markup.
@@ -204,10 +208,17 @@ function scanTag(
   const innerEnd = close === -1 ? limit : close;
   const children = scanNodes(html, gt + 1, innerEnd);
   const inner = html.slice(gt + 1, innerEnd);
+  const next = close === -1 ? limit : html.indexOf(">", innerEnd) + 1;
+  // A select shows one option, not the list: the options would stack as text.
+  if (tag === "select") {
+    return { node: { tag, attrs, classes, children: [], text: selectedOptionLabel(children), svg: null, innerHtml: null }, next };
+  }
   // A `<span> </span>` between words holds the space the words wrap at; the
   // trimmed text would be empty and the words would run together.
   const spaceOnly = tag === "span" && /^\s+$/.test(decodeEntities(inner.replace(/<[^>]*>/g, "")));
-  const text = children.length === 0 ? (spaceOnly ? " " : extractText(inner)) : null;
+  const ownText = children.length === 0 ? (spaceOnly ? " " : extractText(inner)) : null;
+  const text = tag === "textarea" && ownText === "" ? (attrs["placeholder"] ?? "") : ownText;
+  const spaced = children.length === 0 && !spaceOnly ? decodeEntities(inner.replace(/<[^>]*>/g, "")) : null;
   // Only elements with their own text between the children carry content the
   // child scan cannot see.
   const innerHtml =
@@ -215,12 +226,37 @@ function scanTag(
     innerEnd - (gt + 1) <= MAX_INNER_HTML &&
     children.every(isInlineTree) &&
     extractText(html.slice(gt + 1, innerEnd)) !== extractText(children.map((child) => child.text ?? "").join(" "))
-      ? html.slice(gt + 1, innerEnd)
+      ? // React's fragment markers (`<!--$-->`) are no content: the sanitizer would
+        // escape them into visible text.
+        html.slice(gt + 1, innerEnd).replace(/<!--[\s\S]*?-->/g, "")
       : null;
-  return {
-    node: { tag, attrs, classes, children, text, svg: null, innerHtml },
-    next: close === -1 ? limit : html.indexOf(">", innerEnd) + 1,
-  };
+  const withSpaces = spaced !== null && spaced !== text && spaced.trim() !== "" ? { spacedText: spaced } : {};
+  return { node: { tag, attrs, classes, children, text, svg: null, innerHtml, ...withSpaces }, next };
+}
+
+// What a form field draws inside itself. A field has no children, so without
+// this it became an empty frame and lost the line the browser gives it: the
+// content below a form moved up by the height of every field.
+const TEXT_INPUT_TYPES: ReadonlySet<string> = new Set(["text", "tel", "email", "url", "search", "number"]);
+// The hint Chromium draws in an empty date or time field (en-US).
+const FORMAT_HINTS: Readonly<Record<string, string>> = { date: "mm/dd/yyyy", time: "--:-- --" };
+
+function inputText(attrs: RawAttr): string | null {
+  // Spam-trap fields are hidden on purpose.
+  if (attrs["aria-hidden"] === "true") return null;
+  const type = (attrs["type"] ?? "text").toLowerCase();
+  const value = attrs["value"] ?? "";
+  if (value !== "" && (TEXT_INPUT_TYPES.has(type) || FORMAT_HINTS[type] !== undefined)) return value;
+  // The `placeholder` of a date field is not what Chromium shows there.
+  if (FORMAT_HINTS[type] !== undefined) return FORMAT_HINTS[type] ?? null;
+  return TEXT_INPUT_TYPES.has(type) ? (attrs["placeholder"] ?? "") : null;
+}
+
+function selectedOptionLabel(nodes: RawNode[]): string {
+  const options = (list: RawNode[]): RawNode[] =>
+    list.flatMap((node) => (node.tag === "option" ? [node] : options(node.children)));
+  const all = options(nodes);
+  return (all.find((option) => option.attrs["selected"] !== undefined) ?? all[0])?.text ?? "";
 }
 
 function findClosing(html: string, from: number, tag: string, limit: number): number {
@@ -423,6 +459,14 @@ const START_STATE_PROPERTIES = ["opacity", "transform", "will-change"] as const;
 
 type Counter = { ordinal: number; attrNames?: ReadonlySet<string> };
 
+// A text in `white-space: pre`, `pre-wrap` or `break-spaces` is drawn with every space the
+// author typed: "Hey, ich bin " is 22 px wider than "Hey, ich bin" on fluffy-rectangle, and
+// "Meine  Referenzen" has two spaces between the words. The scan collapses spaces, so it
+// keeps the text as written next to it; the cascade, which knows the white-space of the
+// element (its own rule or the one it inherits), decides which of the two counts.
+const SPACED_TEXT = new WeakMap<IrNode, string>();
+const KEEPS_SPACES = /^(?:pre|pre-wrap|break-spaces)$/;
+
 function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []): IrNode {
   counter.ordinal += 1;
   const attrs = raw.attrs;
@@ -467,6 +511,11 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
       appearInitial[property] = value;
       delete visual[property];
     }
+  }
+  // A Ticker (marquee) is written with `opacity:0` and shown by Framer's script once it
+  // has measured itself: the opacity is the state before the script, not the look.
+  if (raw.tag === "section" && visual["opacity"] === "0" && visual["list-style-type"] === "none" && visual["place-items"] === "center") {
+    delete visual["opacity"];
   }
   const textInline: Record<string, string> = {};
   for (const [property, value] of Object.entries(framerInlineToStyles(attrs["style"]))) {
@@ -538,6 +587,7 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
     stylesPresetId: attrs["data-styles-preset"] ?? null,
     svg: raw.svg,
   };
+  if (raw.spacedText !== undefined) SPACED_TEXT.set(node, raw.spacedText);
   return node;
 }
 
@@ -1116,7 +1166,12 @@ function resolveVars(value: string, vars: Vars, depth = 0): string {
     })();
     const fallback = firstComma === -1 ? undefined : inner.slice(firstComma + 1).trim();
     out += value.slice(cursor, start);
-    if (!name.startsWith("--") || name.startsWith("--token-")) {
+    if (name.startsWith("--token-")) {
+      // A theme token stays a variable (the theme can take it over), but its fallback is
+      // the value the page gives the token, not the colour the style had when it was saved.
+      const known = vars[name];
+      out += known === undefined ? value.slice(start, end) : `var(${name},${resolveVars(known.trim(), vars, depth + 1)})`;
+    } else if (!name.startsWith("--")) {
       out += value.slice(start, end);
     } else if (vars[name] !== undefined) {
       out += resolveVars((vars[name] as string).trim(), vars, depth + 1);
@@ -1439,6 +1494,17 @@ const devicesOf = devicesContaining;
 
 const IMPORTANT = /\s*!important\s*$/i;
 
+// The inline sizes `elementStyleToParts` keeps in `box` (key), under their CSS name.
+const INLINE_BOX_PROPERTIES: Readonly<Record<string, string>> = {
+  width: "width",
+  height: "height",
+  minWidth: "min-width",
+  maxWidth: "max-width",
+  minHeight: "min-height",
+  maxHeight: "max-height",
+  aspectRatio: "aspect-ratio",
+};
+
 // The cascade of one device: class rules in source order, then the element's own
 // inline style. A declaration marked `!important` beats every normal one, the
 // inline style included, and the marker does not travel on: Framer hides the
@@ -1476,11 +1542,22 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
   const DEVICES: readonly IrDevice[] = ["desktop", "tablet", "mobile"];
   type VarsByDevice = Record<IrDevice, Vars>;
 
-  const visit = (current: IrNode, ancestors: ReadonlySet<string>, inherited: VarsByDevice): void => {
+  const visit = (current: IrNode, ancestors: ReadonlySet<string>, inherited: VarsByDevice, inheritedWhiteSpace?: string): void => {
     const baseState = current.states[0];
     if (baseState === undefined) return;
     // The cascade: stylesheet rules first, the element's own inline style wins.
-    const inline = { ...baseState.visual };
+    // An inline `width` or `height` lives in `box`, not in the visual, and beats
+    // the sheet's rules all the same (the phone footer: `width:350px` in the sheet,
+    // `style="width:100%"` on the element). It joins the cascade here, so the value
+    // each device state carries is the one the browser shows. The mapper merges
+    // the copies of the breakpoints through these states and never reads the box
+    // of any but the first.
+    const inlineBox: IrVisual = {};
+    for (const [key, name] of Object.entries(INLINE_BOX_PROPERTIES)) {
+      const value = (baseState.box as Record<string, string | undefined> | null)?.[key];
+      if (value !== undefined && baseState.visual[name] === undefined) inlineBox[name] = value;
+    }
+    const inline = { ...baseState.visual, ...inlineBox };
     const ownTokens = new Set(tokensOf(current));
     const appears = current.attrs?.["data-framer-appear-id"] !== undefined;
     const matched = matchingRules(base.index, current, ownTokens, ancestors);
@@ -1539,6 +1616,11 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
       );
     }
     baseState.visual = valuesByDevice.desktop;
+    const whiteSpace = valuesByDevice.desktop["white-space"] ?? inheritedWhiteSpace;
+    const spacedText = SPACED_TEXT.get(current);
+    if (spacedText !== undefined && baseState.text !== null && whiteSpace !== undefined && KEEPS_SPACES.test(whiteSpace)) {
+      baseState.text = { ...baseState.text, content: spacedText };
+    }
     // The element's own states, resolved against the same custom properties.
     const interactions: Partial<Record<IrInteraction, IrVisual>> = {};
     for (const [name, values] of Object.entries(interactionValues) as [IrInteraction, Record<string, string>][]) {
@@ -1567,7 +1649,7 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
       });
     }
     const offered = new Set([...ancestors, ...ownTokens]);
-    for (const child of current.children) visit(child, offered, varsByDevice);
+    for (const child of current.children) visit(child, offered, varsByDevice, whiteSpace);
   };
   // Above the page element sit `html` and `body`; the page element is `#main`.
   visit(root, new Set(["tag:html", "tag:body"]), { desktop: {}, tablet: {}, mobile: {} });
@@ -1663,8 +1745,10 @@ const originOf = (url: string): string | null => {
 };
 
 // `pagePath` is where the page lands in Senify, `sourcePath` which page of the
-// export is read (the home page unless said otherwise).
-export function captureFixture(fixtureDir: string, pagePath = "/", sourcePath = "/"): FramerIrDocument {
+// export is read (the home page unless said otherwise). `origin` is the site the
+// export came from: a scraped export writes its own links as absolute URLs, and
+// only with the origin can they be told from links to other sites.
+export function captureFixture(fixtureDir: string, pagePath = "/", sourcePath = "/", origin?: string): FramerIrDocument {
   const file = pageFileOf(fixtureDir, sourcePath);
   const html = readFileSync(file, "utf8");
   const document = captureHtml({
@@ -1673,6 +1757,7 @@ export function captureFixture(fixtureDir: string, pagePath = "/", sourcePath = 
     rootDir: dirname(resolve(file)),
     pagePath,
     sourcePath,
+    ...(origin !== undefined ? { url: origin } : {}),
   });
   try {
     const manifest = JSON.parse(readFileSync(resolve(fixtureDir, "senify-modules.json"), "utf8")) as {
