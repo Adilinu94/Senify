@@ -771,3 +771,26 @@ describe("spacing values that hold a function", () => {
     expect(gap).toEqual({ row: "3px", column: "3px" });
   });
 });
+
+describe("button background reset", () => {
+  // Framer's button reset is `[data-reset=button]{background:0 0}`, the minified
+  // shorthand that clears the background. Senify's style table reads the prop
+  // `background` as a colour, so `0 0` came out as `background-color: 0 0`: an
+  // invalid value that replaced the button's own colour (easier-train Submit).
+  const RESET = '[data-reset="button"]{border-width:0;padding:0;background:0 0}';
+  const lime = "rgb(209, 252, 113)";
+
+  it("keeps the button's own colour next to the reset", () => {
+    const { nodes, mapped } = run(
+      page(`<button data-reset="button" style="background-color:${lime};opacity:0.5"><p>Go</p></button>`, RESET),
+    );
+    const out = JSON.stringify([nodes, mapped.rules]);
+    expect(out).toContain(lime);
+    expect(out).not.toContain('"background":"0 0"');
+  });
+
+  it("does not turn the reset alone into a background", () => {
+    const { nodes, mapped } = run(page('<button data-reset="button"><p>Go</p></button>', RESET));
+    expect(JSON.stringify([nodes, mapped.rules])).not.toMatch(/"background(Color)?":"0 0"/);
+  });
+});

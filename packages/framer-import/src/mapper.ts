@@ -660,10 +660,19 @@ function normalizeSpacingProps(props: Record<string, unknown>): void {
   }
 }
 
+// Framer's button reset is `[data-reset=button]{background:0 0}`, the minified
+// shorthand that clears the background. Senify's style table reads the prop
+// `background` as a colour, so `0 0` came out as `background-color: 0 0`: an
+// invalid value that replaced the button's own colour. A reset carries nothing
+// to import, no background is the default.
+const BACKGROUND_RESETS: ReadonlySet<string> = new Set(["0 0", "none", "initial", "0 0 transparent"]);
+const isBackgroundReset = (name: string, value: string): boolean =>
+  name === "background" && BACKGROUND_RESETS.has(value.trim().toLowerCase());
+
 function cssToStyle(visual: { [key: string]: string | undefined }): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [name, entry] of Object.entries(visual)) {
-    if (entry === undefined) continue;
+    if (entry === undefined || isBackgroundReset(name, entry)) continue;
     const mapped = cssName(name);
     if (mapped !== undefined && entry !== "") out[mapped] = entry;
   }
@@ -831,10 +840,12 @@ export function themePatchOf(document: FramerIrDocument): ThemePatch {
 
 const camelStyles = (declarations: Record<string, string>): Record<string, string> =>
   Object.fromEntries(
-    Object.entries(declarations).map(([name, value]) => {
-      const mapped = cssName(name);
-      return [mapped ?? name, value];
-    }),
+    Object.entries(declarations)
+      .filter(([name, value]) => !isBackgroundReset(name, value))
+      .map(([name, value]) => {
+        const mapped = cssName(name);
+        return [mapped ?? name, value];
+      }),
   );
 
 function styleRulesOf(normalized: NormalizedStyleRule[]): StyleRule[] {
