@@ -1,8 +1,8 @@
 // Die Postgres-Lane als blockierender Schritt (Fahrplan P1-1, R11): fuehrt die
-// beiden Testdateien aus, die Transaktionssemantik NUR gegen eine echte
+// Testdateien aus, die Transaktionssemantik NUR gegen eine echte
 // Datenbank beweisen, und faellt rot, wenn auch nur ein Fall uebersprungen wird.
 //
-// Warum ein eigenes Tor und nicht einfach `pnpm test`: beide Dateien uebersprin-
+// Warum ein eigenes Tor und nicht einfach `pnpm test`: die Tx-Dateien uebersprin-
 // gen still, wenn TEST_DATABASE_URL fehlt (pg-mem ignoriert ROLLBACK, ein
 // Atomaritaets-test darauf waehre ein falscher Beweis). Ein Tor, das bei
 // fehlender Datenbank gruen bleibt, beweist nichts - deshalb ist die Umgebungs-
@@ -22,6 +22,8 @@ import { fileURLToPath } from "node:url";
 const SUITE = [
   "packages/engine/test/transactions.test.ts",
   "packages/engine/test/redesign-transaction.test.ts",
+  "packages/engine/test/site-delete-transaction.test.ts",
+  "packages/engine/test/site-delete.test.ts",
 ];
 
 if ((process.env.TEST_DATABASE_URL ?? "").length === 0) {

@@ -45,7 +45,8 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     UNIQUE (site_id, path)
   )`,
   // Audit is append-only history and intentionally has no foreign keys:
-  // entries survive page/site deletes so the activity log stays complete.
+  // entries survive page deletes so the activity log stays complete. Permanent
+  // Site deletion explicitly removes its history along with all Site data.
   // page_id is nullable: site-level operations (e.g. update_theme) have no page.
   `CREATE TABLE IF NOT EXISTS audit_entries (
     id text PRIMARY KEY,
@@ -244,7 +245,8 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   // were derived from, the human decision and the apply result in one row.
   // Cards and basis never change; `source_page_id` is the only redundant
   // scalar (the inbox lookup) and there is no foreign key, so a decision stays
-  // readable after the source page is deleted.
+  // readable after the source page is deleted. Permanent Site deletion uses
+  // basis.source.siteId to remove the decision and its frozen screenshots.
   // `expires_at` is the deadline of the human's decision (Fahrplan P2-3, R2).
   // The sweep moves a `proposed` row past it to `expired`; NULL means "no
   // deadline was ever given", which is how a row from before the column reads.
