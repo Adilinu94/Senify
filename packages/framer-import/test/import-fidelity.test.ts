@@ -771,3 +771,72 @@ describe("spacing values that hold a function", () => {
     expect(gap).toEqual({ row: "3px", column: "3px" });
   });
 });
+
+describe("values the compiler takes only in its own shape", () => {
+  const withPosition = (css: string, attrs = "") => {
+    const { nodes } = run(page(`<div class="framer-layer"${attrs}><p>x</p></div>`, css));
+    return nodes.find((node) => node.props["position"] === "absolute");
+  };
+
+  // The style table has no `inset`, and the compiler dropped it as text, so an
+  // overlay pinned with `inset:0` collapsed to a point.
+  it("turns `inset` of a stylesheet rule into the four sides", () => {
+    const layer = withPosition(".framer-layer{position:absolute;inset:0}");
+    expect(layer?.props).toMatchObject({ top: "0", right: "0", bottom: "0", left: "0" });
+    expect(layer?.props["inset"]).toBeUndefined();
+  });
+
+  it("reads one to four values of `inset` like a box shorthand", () => {
+    const layer = withPosition(".framer-layer{position:absolute;inset:10px 20px 30px}");
+    expect(layer?.props).toMatchObject({ top: "10px", right: "20px", bottom: "30px", left: "20px" });
+  });
+
+  it("keeps a side the element names itself over the `inset` of its class", () => {
+    const layer = withPosition(".framer-layer{position:absolute;inset:0}", ' style="top:5px"');
+    expect(layer?.props).toMatchObject({ top: "5px", right: "0", bottom: "0", left: "0" });
+  });
+
+  it("keeps the inline `gap` of an element as a row/column pair", () => {
+    const { nodes } = run(page('<div style="display:flex;gap:70px"><p>a</p><p>b</p></div>'));
+    const flex = nodes.find((node) => node.props["display"] === "flex");
+    expect(flex?.props["gap"]).toEqual({ row: "70px", column: "70px" });
+  });
+
+  // `background:linear-gradient(…)` is how Framer writes an overlay. The style
+  // table's `background` is the colour, so the gradient compiled to
+  // `background-color: linear-gradient(…)`, which no browser draws.
+  it("puts a gradient in the `background` shorthand into the background image", () => {
+    const gradient = "linear-gradient(180deg, rgba(37, 65, 57, 0) 0%, rgba(37, 65, 57, 0.7) 74%)";
+    const { nodes } = run(page(`<div style="background:${gradient}"><p>x</p></div>`));
+    const overlay = nodes.find((node) => node.props["backgroundImage"] !== undefined);
+    expect(overlay?.props["backgroundImage"]).toBe(gradient);
+    expect(overlay?.props["background"]).toBeUndefined();
+  });
+
+  it("keeps a plain colour in the `background` shorthand as the colour", () => {
+    const { nodes } = run(page('<div style="background:#ff0000"><p>x</p></div>'));
+    const box = nodes.find((node) => node.props["background"] !== undefined);
+    expect(box?.props["background"]).toBe("#ff0000");
+    expect(box?.props["backgroundImage"]).toBeUndefined();
+  });
+});
+
+describe("Framer's Ticker", () => {
+  const tickerStyle =
+    "display:flex;width:100%;height:100%;place-items:center;margin:0;padding:0px;list-style-type:none;text-indent:none;opacity:0;overflow:hidden";
+
+  // The Ticker's `<section>` is written at `opacity:0` and shown by Framer's
+  // script; the export has no script, so the written state left it invisible.
+  it("shows the section of a Ticker, which the export writes at opacity 0", () => {
+    const { nodes } = run(page(`<section style="${tickerStyle}"><ul><li><p>Logo</p></li></ul></section>`));
+    const section = nodes.find((node) => node.props["semantic"] === "section");
+    expect(section).toBeDefined();
+    expect(section?.props["opacity"]).toBeUndefined();
+  });
+
+  it("leaves any other element written at opacity 0 alone", () => {
+    const { nodes } = run(page('<div style="display:flex;opacity:0"><p>versteckt</p></div>'));
+    const box = nodes.find((node) => node.props["display"] === "flex");
+    expect(box?.props["opacity"]).toBe("0");
+  });
+});

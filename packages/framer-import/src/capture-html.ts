@@ -396,8 +396,17 @@ function elementStyleToParts(
         visual[property] = value;
     }
   }
+  // Framer's Ticker (a marquee of logos, reviews, figures) writes its `<section>`
+  // at `opacity:0` and shows it once its script has measured the items. The
+  // export keeps the written state and nothing plays it away, so every ticker
+  // came out invisible. The section is the one that also says `list-style-type`
+  // and `text-indent`; those two give the Ticker away. Its items belong on the
+  // page, so the written state is not part of the look.
+  if (visual["opacity"] === "0" && TICKER_STYLE_RES.every((pattern) => pattern.test(style))) delete visual["opacity"];
   return { visual, layout, box };
 }
+
+const TICKER_STYLE_RES: readonly RegExp[] = [/list-style-type:\s*none/, /text-indent:\s*none/];
 
 /* ------------------------------------------------------------ device maps */
 

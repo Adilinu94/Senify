@@ -111,6 +111,17 @@ function cssName(name: string): string | undefined {
   return undefined;
 }
 
+// Framer writes an overlay as the `background` shorthand (`background:linear-gradient(…)`).
+// The style table's `background` is the colour alone (it compiles to `background-color`),
+// so an image layer in it came out as `background-color: linear-gradient(…)`, which no
+// browser draws. A shorthand that starts with an image layer is the image.
+const IMAGE_LAYER_RE = /^(?:repeating-)?(?:linear|radial|conic)-gradient\(|^url\(|^image-set\(/i;
+
+function styleNameOf(name: string, value: string): string | undefined {
+  if (name === "background" && IMAGE_LAYER_RE.test(value.trim())) return "backgroundImage";
+  return cssName(name);
+}
+
 /* --------------------------------------------------------------- mapping */
 
 const HEADING_TAGS = new Set(["h1", "h2", "h3", "h4", "h5", "h6"]);
@@ -556,6 +567,9 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
         left: layout.padding.left ?? "0px",
       };
     }
+    // The inline `gap` of the element comes in as text here, after the pass above:
+    // left as text the compiler dropped it (it takes a row/column pair).
+    normalizeSpacingProps(props);
   }
 
   // --- absolute positioning
@@ -639,7 +653,32 @@ function splitShorthand(value: string): string[] {
   return parts;
 }
 
+// `inset: 0` pins an overlay to all four edges. The style table has no `inset` of
+// its own (the compiler takes it as a four-sided value and dropped the text), so
+// it becomes the four sides, in the order of the other box shorthands. A side the
+// element already names itself (`top`, `left`, …) keeps its value.
+const INSET_SIDES = ["top", "right", "bottom", "left"] as const;
+
+function expandInsetProps(props: Record<string, unknown>): void {
+  for (const suffix of ["", "_tablet", "_mobile"]) {
+    const value = props[`inset${suffix}`];
+    if (typeof value !== "string") continue;
+    delete props[`inset${suffix}`];
+    const parts = splitShorthand(value);
+    if (parts.length === 0 || parts.length > 4) continue;
+    const top = parts[0] as string;
+    const right = parts[1] ?? top;
+    const bottom = parts[2] ?? top;
+    const left = parts[3] ?? right;
+    const sides = { top, right, bottom, left };
+    for (const side of INSET_SIDES) {
+      if (props[`${side}${suffix}`] === undefined) props[`${side}${suffix}`] = sides[side];
+    }
+  }
+}
+
 function normalizeSpacingProps(props: Record<string, unknown>): void {
+  expandInsetProps(props);
   for (const key of ["gap", "gap_tablet", "gap_mobile"]) {
     const value = props[key];
     if (typeof value !== "string") continue;
@@ -664,7 +703,7 @@ function cssToStyle(visual: { [key: string]: string | undefined }): Record<strin
   const out: Record<string, string> = {};
   for (const [name, entry] of Object.entries(visual)) {
     if (entry === undefined) continue;
-    const mapped = cssName(name);
+    const mapped = styleNameOf(name, entry);
     if (mapped !== undefined && entry !== "") out[mapped] = entry;
   }
   return out;
@@ -832,7 +871,7 @@ export function themePatchOf(document: FramerIrDocument): ThemePatch {
 const camelStyles = (declarations: Record<string, string>): Record<string, string> =>
   Object.fromEntries(
     Object.entries(declarations).map(([name, value]) => {
-      const mapped = cssName(name);
+      const mapped = styleNameOf(name, value);
       return [mapped ?? name, value];
     }),
   );
