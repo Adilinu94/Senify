@@ -3908,6 +3908,21 @@ body.is-editor .view.editor-view > .toolbar code {
   color: var(--ui-ink-muted);
   font-size: 0.75rem;
 }
+/* Geraete und Verlauf des Canvas stehen in dieser Leiste (E8): ohne eigene Flaeche. */
+body.is-editor .view.editor-view > .toolbar > .senify-canvas__topbar {
+  min-height: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+/* Die Knoepfe darin behalten ihre Canvas-Optik statt der Pillenform von `.toolbar button`.
+   Die Spezifitaet bleibt unter den Hover-/Aktiv-Regeln des Skins. */
+.senify-canvas__topbar .senify-canvas__button {
+  border: 0;
+  background: transparent;
+  font-size: inherit;
+}
 @media (min-width: 1101px) {
   body.is-editor {
     overflow: hidden;
