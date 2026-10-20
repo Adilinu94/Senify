@@ -6669,6 +6669,25 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   });
   // Geräte und Verlauf stehen in der Workspace-Leiste, direkt hinter dem Pfad.
   toolbar.insertBefore(canvas.toolbar, toolbar.querySelector(".spacer"));
+  // Die beiden Seitenpanels lassen sich zuklappen (E8): Elemente und
+  // Einstellungen links, Struktur rechts. Der Zustand gilt für diese Sitzung.
+  const panelToggle = (attribute, label) => {
+    const button = el("button", {
+      type: "button",
+      class: "ghost",
+      "data-panel-toggle": attribute,
+      "aria-pressed": "true",
+      text: label,
+    });
+    button.addEventListener("click", () => {
+      const open = host.getAttribute(`data-${attribute}`) === "closed";
+      host.setAttribute(`data-${attribute}`, open ? "open" : "closed");
+      button.setAttribute("aria-pressed", String(open));
+    });
+    return button;
+  };
+  toolbar.insertBefore(panelToggle("side", "Elemente"), canvas.toolbar);
+  toolbar.insertBefore(panelToggle("explorer", "Struktur"), toolbar.querySelector("#page-version"));
   // Start im Einpassen-Zoom: der Frame ist sofort ganz sichtbar (Framer/Webflow).
   // Ein bewusst gesetzter Zoom bleibt nach dem Neuladen erhalten; nur der
   // Standardzoom (100 %) wird eingepasst. Der Fit läuft erst, wenn jeder Frame

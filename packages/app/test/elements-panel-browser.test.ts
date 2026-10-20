@@ -156,7 +156,7 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       await expect.poll(sectionOrder).toEqual(["hero", "divider"]);
 
       // Panel-Wechsel: die Auswahl ersetzt die Elemente durch "<Name> bearbeiten".
-      await hero.click();
+      await hero.click({ position: { x: 8, y: 8 } });
       await expect.poll(() => tab.locator(`.senify-canvas[data-selected="${heroId}"]`).count()).toBe(1);
       await expect.poll(() => inspector.isVisible()).toBe(true);
       expect(await elements.isVisible()).toBe(false);
@@ -174,14 +174,14 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       expect(await inspector.isVisible()).toBe(false);
 
       // Rueckweg 2: Esc im Inspektor. In einem Eingabefeld gibt Esc nur das Feld frei.
-      await hero.click();
+      await hero.click({ position: { x: 8, y: 8 } });
       await expect.poll(() => inspector.isVisible()).toBe(true);
       await tab.locator(".senify-inspector__back").focus();
       await tab.keyboard.press("Escape");
       await expect.poll(() => elements.isVisible()).toBe(true);
 
       // Rueckweg 3: ein Leerklick im Canvas loest die Auswahl.
-      await hero.click();
+      await hero.click({ position: { x: 8, y: 8 } });
       await expect.poll(() => inspector.isVisible()).toBe(true);
       // Ein Klick, der keinen Knoten trifft (der Seitenhintergrund im Frame).
       await desktopFrame().locator("body").dispatchEvent("click");

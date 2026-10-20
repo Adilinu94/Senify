@@ -792,8 +792,10 @@ dialog.modal select,
    (Explorer 264px/200-360, Inspektor 320px/260-420) und scrollen fuer sich;
    der Canvas behaelt den Rest. */
 .editor-host.canvas-view {
+  --canvas-side: clamp(260px, 22vw, 420px);
+  --canvas-explorer: clamp(200px, 18vw, 360px);
   display: grid;
-  grid-template-columns: clamp(260px, 22vw, 420px) minmax(0, 1fr) clamp(200px, 18vw, 360px);
+  grid-template-columns: var(--canvas-side) minmax(0, 1fr) var(--canvas-explorer);
   gap: 0.75rem;
   height: clamp(30rem, calc(100vh - 12rem), 72rem);
 }
@@ -868,12 +870,25 @@ dialog.modal select,
 .canvas-view__inspector[hidden] { display: none; }
 @media (max-width: 1280px) {
   .editor-host.canvas-view {
-    grid-template-columns: clamp(220px, 26vw, 320px) minmax(0, 1fr);
+    --canvas-side: clamp(220px, 26vw, 320px);
+    grid-template-columns: var(--canvas-side) minmax(0, 1fr);
   }
   .canvas-view__explorer {
     grid-column: 1 / -1;
     height: 20rem;
   }
+  .editor-host.canvas-view[data-explorer="closed"] > .canvas-view__explorer {
+    display: none;
+  }
+}
+/* Die Schalter in der Workspace-Leiste (E8) klappen die Seitenpanels zu: die
+   Spalte schrumpft auf 0, das Grid behaelt seine Plaetze; unsichtbar heisst
+   auch ohne Fokus und ohne Eintrag im Zugriffsbaum. */
+.editor-host.canvas-view[data-side="closed"] { --canvas-side: 0px; }
+.editor-host.canvas-view[data-explorer="closed"] { --canvas-explorer: 0px; }
+.editor-host.canvas-view[data-side="closed"] > .canvas-view__side,
+.editor-host.canvas-view[data-explorer="closed"] > .canvas-view__explorer {
+  visibility: hidden;
 }
 .library-toolbar select {
   min-width: 13rem;
@@ -3907,6 +3922,10 @@ body.is-editor .view.editor-view > .toolbar h1 {
 body.is-editor .view.editor-view > .toolbar code {
   color: var(--ui-ink-muted);
   font-size: 0.75rem;
+}
+/* Ein offenes Panel zeigt sein Schalter mit der eingelassenen Flaeche. */
+body.is-editor .view.editor-view > .toolbar > button[data-panel-toggle][aria-pressed="true"] {
+  background: var(--ed-surface-inset);
 }
 /* Geraete und Verlauf des Canvas stehen in dieser Leiste (E8): ohne eigene Flaeche. */
 body.is-editor .view.editor-view > .toolbar > .senify-canvas__topbar {
