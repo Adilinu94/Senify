@@ -221,6 +221,13 @@ export async function importAssets(input: ImportAssetsInput): Promise<AssetResul
       rewrittenFonts.push(rewritten);
       continue;
     }
+    // The report names the FACE, not the file: one variable font serves
+    // several weights (Manrope 600 and 700 share a file), and the theme
+    // writes one `@font-face` per weight. A report that lists the file only
+    // once would leave the weight without a file.
+    const faceFiles: string[] = [];
+    let faceHash = "";
+    let faceBytes = 0;
     for (const src of font.src) {
       const key = `${font.family}|${font.unicodeRange ?? ""}|${src}`;
       let entry = fontByHash.get(key);
@@ -239,15 +246,6 @@ export async function importAssets(input: ImportAssetsInput): Promise<AssetResul
               : { url: writeMirrorFile(input.outDir, filename, data), assetId: null };
             const localUrl = typeof uploaded === "string" ? uploaded : uploaded.url;
             entry = { hash, bytes: data.length, files: [localUrl] };
-            report.fonts.push({
-              family: font.family,
-              weight: font.weight,
-              style: font.style,
-              unicodeRange: font.unicodeRange,
-              files: [localUrl],
-              hash,
-              bytes: data.length,
-            });
           }
           fontByHash.set(key, entry);
         } catch (error) {
@@ -268,7 +266,23 @@ export async function importAssets(input: ImportAssetsInput): Promise<AssetResul
       }
       if (entry !== undefined) {
         rewritten.src.push(...entry.files.filter((file) => !rewritten.src.includes(file)));
+        for (const file of entry.files) {
+          if (!faceFiles.includes(file)) faceFiles.push(file);
+        }
+        faceHash = entry.hash;
+        faceBytes = entry.bytes;
       }
+    }
+    if (faceFiles.length > 0) {
+      report.fonts.push({
+        family: font.family,
+        weight: font.weight,
+        style: font.style,
+        unicodeRange: font.unicodeRange,
+        files: faceFiles,
+        hash: faceHash,
+        bytes: faceBytes,
+      });
     }
     rewrittenFonts.push(rewritten);
   }
