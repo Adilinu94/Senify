@@ -164,13 +164,35 @@ function decodeEntities(value: string): string {
     .replace(/&#39;/g, "'");
 }
 
+// The end of a tag is the `>` OUTSIDE an attribute value. A value may hold a
+// `>` — Framer writes its graphics as `src="data:image/svg+xml,<svg …>"` — and
+// a naive search would cut the tag there: the value would lose its closing
+// quote, the attribute would read as empty, and the image would arrive
+// without a source.
+function findTagEnd(html: string, start: number, limit: number): number {
+  let quote: string | null = null;
+  for (let index = start; index < limit; index += 1) {
+    const char = html.charAt(index);
+    if (quote !== null) {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === ">") return index;
+  }
+  return -1;
+}
+
 function scanTag(
   html: string,
   start: number,
   limit: number,
 ): { node: RawNode; next: number } | undefined {
   const lt = html.indexOf("<", start);
-  const gt = html.indexOf(">", lt);
+  const gt = findTagEnd(html, lt + 1, limit);
   if (gt === -1 || gt >= limit) return undefined;
   const openTag = html.slice(lt + 1, gt);
   const selfClosing = openTag.endsWith("/");
@@ -221,11 +243,19 @@ function scanTag(
   const spaced = children.length === 0 && !spaceOnly ? decodeEntities(inner.replace(/<[^>]*>/g, "")) : null;
   // Only elements with their own text between the children carry content the
   // child scan cannot see.
+  //
+  // The comparison must not invent a separator: the children's texts are
+  // joined WITHOUT one, because the child scan does not see the whitespace
+  // between two inline elements either. Framer writes its headings as
+  // `<span>Everything</span> <span>I</span>` — the space is a bare text node
+  // between the spans. Joined with a space, both sides read the same and the
+  // raw inner markup was thrown away; the mapper then rebuilt it from the
+  // children and the words ran together ("EverythingIknow.").
   const innerHtml =
     children.length > 0 &&
     innerEnd - (gt + 1) <= MAX_INNER_HTML &&
     children.every(isInlineTree) &&
-    extractText(html.slice(gt + 1, innerEnd)) !== extractText(children.map((child) => child.text ?? "").join(" "))
+    extractText(html.slice(gt + 1, innerEnd)) !== extractText(children.map((child) => child.text ?? "").join(""))
       ? // React's fragment markers (`<!--$-->`) are no content: the sanitizer would
         // escape them into visible text.
         html.slice(gt + 1, innerEnd).replace(/<!--[\s\S]*?-->/g, "")
@@ -269,14 +299,14 @@ function findClosing(html: string, from: number, tag: string, limit: number): nu
     if (html.startsWith(needle, open) && html.charAt(open + needle.length).match(/[\s>]/)) {
       depth -= 1;
       if (depth === 0) return open;
-      const gt = html.indexOf(">", open);
+      const gt = findTagEnd(html, open + 1, limit);
       i = gt === -1 ? limit : gt + 1;
       continue;
     }
     if (html.startsWith(`<${tag}`, open) && html.charAt(open + tag.length + 1).match(/[\s>]/)) {
       depth += 1;
     }
-    const gt = html.indexOf(">", open);
+    const gt = findTagEnd(html, open + 1, limit);
     i = gt === -1 ? limit : gt + 1;
   }
   return -1;
@@ -284,6 +314,26 @@ function findClosing(html: string, from: number, tag: string, limit: number): nu
 
 function extractText(raw: string): string {
   return decodeEntities(raw.replace(/<[^>]*>/g, "")).replace(/\s+/g, " ").trim();
+}
+
+// The style values that carry a graphic as a data URL. The report names the
+// place, not the picture: the address is cut short.
+function dataUrlValuesOf(root: IrNode): string[] {
+  const found: string[] = [];
+  const visit = (node: IrNode): void => {
+    for (const state of node.states) {
+      for (const [property, value] of Object.entries(state.visual)) {
+        if (typeof value !== "string") continue;
+        const at = value.search(/url\(\s*['"]?data:/i);
+        if (at === -1) continue;
+        const start = value.indexOf("data:", at);
+        found.push(`${property}=…${value.slice(start, start + 40)}…`);
+      }
+    }
+    for (const child of node.children) visit(child);
+  };
+  visit(root);
+  return found;
 }
 
 /* -------------------------------------------------------------- css reads */
@@ -303,6 +353,15 @@ const FRAMER_TEXT_PROPS: Readonly<Record<string, string>> = {
   "--framer-text-decoration": "textDecoration",
   "--framer-text-transform": "textTransform",
   "--framer-font-style": "fontStyle",
+  // The look around the text: the colour that fills it, the stroke around
+  // it, the background behind a marked word and the radius of that
+  // background. Without them a highlighted word loses its marker.
+  "--framer-text-fill-color": "WebkitTextFillColor",
+  "--framer-text-stroke-color": "WebkitTextStrokeColor",
+  "--framer-text-stroke-width": "WebkitTextStrokeWidth",
+  "--framer-text-background-color": "backgroundColor",
+  "--framer-text-background-radius": "borderRadius",
+  "--framer-text-background-padding": "padding",
 };
 
 function framerInlineToStyles(style: RawAttr["style"] | undefined): IrVisual {
@@ -850,9 +909,26 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
     });
   }
 
+  // A graphic in a style value, carried as a data URL, cannot become a style
+  // value: ADR-0005 keeps `data:image/svg+xml` out of CSS values, because SVG
+  // can carry a script. The value is therefore dropped by the compiler — and
+  // the report says so, with the place it came from. A picture in a `src` does
+  // not come here: it becomes an asset.
+  const dataUrlValues = dataUrlValuesOf(root);
+  if (dataUrlValues.length > 0) {
+    findings.push({
+      kind: "unsupported-declaration",
+      nodeKey: null,
+      message: `${dataUrlValues.length} Grafik(en) als Data-URL in einem Stilausdruck wurden nicht übernommen.`,
+      evidence: dataUrlValues.slice(0, 3).join(", "),
+      severity: "warn",
+      suggestion:
+        "Ein Data-URL im Stilausdruck ist aus Sicherheitsgründen nicht zugelassen (ADR-0005). Die Grafik im Editor als Bild einsetzen.",
+    });
+  }
+
   const pagePath = input.pagePath ?? "/";
-  const pageCount = countNodes(root);
-  if (pageCount > 1) {
+  const pageCount = countNodes(root);  if (pageCount > 1) {
     // The devices arrive as SSR variant duplicates; the mapper merges them.
     findings.push({
       kind: "breakpoint-collapse",

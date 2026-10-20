@@ -24,7 +24,21 @@ describe("what the compiler drops from an import", () => {
           run.mapped.rules,
           run.breakpoints ?? undefined,
         );
-        expect(report.diagnostics.map((drop) => `${drop.property}=${String(drop.value)}`)).toEqual([]);
+        // A graphic as a data URL in a style value is not a defect of the
+        // import: ADR-0005 keeps `data:image/svg+xml` out of CSS values,
+        // because SVG can carry a script. The compiler drops such a value by
+        // design — the import reports it, so the loss is visible instead of
+        // silent. Every other drop is a failure.
+        const documented = report.diagnostics.filter((drop) =>
+          /data:image\/svg\+xml/i.test(String(drop.value)),
+        );
+        expect(report.diagnostics.length - documented.length).toBe(0);
+        if (documented.length > 0) {
+          const reported = run.report.findings.filter((finding) =>
+            finding.message.includes("Data-URL"),
+          );
+          expect(reported.length).toBeGreaterThan(0);
+        }
 
         // A gradient or url() in `background` compiles to `background-color`, which
         // is invalid CSS the compiler does not report.

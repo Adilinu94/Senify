@@ -16,6 +16,7 @@ import { extname, join, resolve } from "node:path";
 import { SenifyError } from "@senify/core";
 import { fetchPublic } from "@senify/core/net";
 import type { FramerIrDocument, IrAsset, IrFontFace, IrNode } from "./ir.ts";
+import { dataUrlMime, decodeDataUrl, sanitizeSvg } from "./svg.ts";
 
 /* ------------------------------------------------------------------ types */
 
@@ -89,11 +90,27 @@ const MIME_BY_EXT: Readonly<Record<string, string>> = {
 };
 
 function mimeForUrl(url: string): string {
+  const dataMime = dataUrlMime(url);
+  if (dataMime !== null) return dataMime;
   const clean = url.split(/[?#]/)[0] ?? url;
   return MIME_BY_EXT[extname(clean).toLowerCase()] ?? "application/octet-stream";
 }
 
+const EXT_BY_MIME: Readonly<Record<string, string>> = {
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/gif": ".gif",
+  "image/webp": ".webp",
+  "image/avif": ".avif",
+  "image/svg+xml": ".svg",
+};
+
 function filenameFor(url: string, fallbackKind: string): string {
+  // A data URL has no name: the media type gives the extension.
+  const dataMime = dataUrlMime(url);
+  if (dataMime !== null) {
+    return `import-${fallbackKind}${EXT_BY_MIME[dataMime] ?? ""}`;
+  }
   const clean = url.split(/[?#]/)[0] ?? url;
   const base = clean.split("/").pop() ?? "asset";
   const safe = base.replace(/[^A-Za-z0-9._-]/g, "-").slice(-120);
@@ -168,6 +185,22 @@ export async function importAssets(input: ImportAssetsInput): Promise<AssetResul
   const urlToAsset = new Map<string, AssetDownload>();
   for (const asset of includeAssets ? document.assets : []) {
     if (urlToAsset.has(asset.url)) continue;
+    // A data URL that is not a picture never becomes an asset: the media
+    // library serves what it holds under the site's own address, and a
+    // document (HTML) served there would run in the site's origin.
+    const dataMime = dataUrlMime(asset.url);
+    if (dataMime !== null && !dataMime.startsWith("image/")) {
+      report.failed += 1;
+      document.findings.push({
+        kind: "asset-blocked",
+        nodeKey: null,
+        message: `Data-URL mit dem Typ "${dataMime}" wurde nicht übernommen.`,
+        evidence: asset.url.slice(0, 80),
+        severity: "warn",
+        suggestion: "Nur Bilder werden aus einer Data-URL übernommen.",
+      });
+      continue;
+    }
     urlToAsset.set(asset.url, await downloadAsset(asset, input, timeoutMs, byHash, report));
   }
 
@@ -256,6 +289,44 @@ export async function importAssets(input: ImportAssetsInput): Promise<AssetResul
   return { document: result, report };
 }
 
+// The delivery map of a run that did NOT upload its assets: every asset keeps
+// the address it has in the source, so a preview shows the same picture the
+// source page shows. The keys are the ids the mapper wrote into the nodes
+// (`node.assetId ?? node.assetUrl`), so a lookup by id finds the address.
+//
+// An uploaded asset is left out on purpose: the engine builds its delivery
+// from the asset store, with the dimensions and the encoded ladder.
+export function sourceAssetDeliveries(
+  document: FramerIrDocument,
+  baseUrl?: string,
+): Record<string, string> {
+  const deliveries: Record<string, string> = {};
+  const visit = (node: IrNode): void => {
+    if (node.assetId === undefined || node.assetId === null) {
+      const url = node.assetUrl;
+      if (url !== undefined && url !== null && url !== "") {
+        deliveries[url] = deliveryUrl(url, baseUrl);
+      }
+    }
+    for (const child of node.children) visit(child);
+  };
+  for (const page of document.pages) visit(page.root);
+  return deliveries;
+}
+
+// The address a preview loads. A relative address without a base stays as it
+// is: a delivery map is a description, not a download — it must not fail the
+// run it describes.
+function deliveryUrl(url: string, baseUrl: string | undefined): string {
+  if (/^https?:\/\//i.test(url)) return url;
+  if (baseUrl === undefined) return url;
+  try {
+    return new URL(url, baseUrl).toString();
+  } catch {
+    return url;
+  }
+}
+
 /* ---------------------------------------------------------------- helpers */
 
 function applyAssetUrls(
@@ -288,9 +359,16 @@ async function downloadAsset(
   byHash: Map<string, AssetDownload>,
   report: AssetReport,
 ): Promise<AssetDownload> {
-  const absolute = absoluteUrl(asset.url, input.baseUrl);
+  // A data URL carries its bytes in the address: it is decoded, never
+  // fetched. There is no host to reach, so the address check does not apply.
+  const dataContent = decodeDataUrl(asset.url);
+  const absolute = dataContent === null ? absoluteUrl(asset.url, input.baseUrl) : asset.url;
   try {
-    const data = await fetchBytes(absolute, timeoutMs);
+    const raw = dataContent === null ? await fetchBytes(absolute, timeoutMs) : dataContent.bytes;
+    const mime = dataContent === null ? mimeForUrl(asset.url) : dataContent.mime;
+    // An SVG can carry a script. It becomes an asset only cleaned up: the
+    // file may be opened directly from the media library.
+    const data = mime === "image/svg+xml" ? Buffer.from(sanitizeSvg(raw.toString("utf8")), "utf8") : raw;
     const hash = sha256(data);
     const existing = byHash.get(hash);
     if (existing !== undefined) {
@@ -298,7 +376,6 @@ async function downloadAsset(
       return existing;
     }
     const filename = filenameFor(asset.url, asset.kind);
-    const mime = mimeForUrl(asset.url);
     const uploaded = input.uploader !== undefined
       ? await input.uploader({ filename, mime, data, alt: asset.alt })
       : { url: writeMirrorFile(input.outDir, filename, data), assetId: null };
