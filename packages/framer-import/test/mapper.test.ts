@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { captureFixture, fontFamilyName, normalize, mapDocument } from "@senify/framer-import";
+import { captureFixture, captureHtml, fontFamilyName, normalize, mapDocument } from "@senify/framer-import";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -147,6 +147,122 @@ describe("mapDocument", () => {
     const normalized = normalize(document);
     const mapped = mapDocument(document, normalized.rules);
     expect(mapped.findings.some((finding) => finding.kind === "smooth-scroll")).toBe(true);
+  });
+
+  it("points the source's families at the theme's font slots", () => {
+    // A page must not name a family the site does not have: without a
+    // `@font-face` the browser falls back to the system font, and every text
+    // of the imported page looks different from the source. The families point
+    // at the theme's slots instead; the theme patch puts the source's own
+    // fonts into them.
+    const document = captureFixture(join(FIXTURES, "framer-fluffy-rectangle-418998"));
+    const normalized = normalize(document);
+    const mapped = mapDocument(document, normalized.rules);
+    const werte = new Set<string>();
+    for (const node of Object.values(mapped.document.nodes)) {
+      for (const [schluessel, wert] of Object.entries(node.props)) {
+        if (!schluessel.startsWith("fontFamily")) continue;
+        werte.add(String(wert));
+      }
+    }
+    for (const regel of mapped.rules) {
+      const wert = regel.styles["fontFamily"];
+      if (wert !== undefined) werte.add(String(wert));
+    }
+    expect(werte.size).toBeGreaterThan(0);
+    for (const wert of werte) {
+      // Either a theme slot or a family that exists everywhere (a generic
+      // one) — but never a family of the source that the site does not have.
+      if (wert.startsWith("var(--font-")) continue;
+      expect(wert).not.toMatch(/Inter|Manrope|Figtree/);
+    }
+    expect([...werte].some((wert) => wert === "var(--font-body)")).toBe(true);
+  });
+
+  it("keeps a monospace family on the theme's mono slot", () => {
+    // The normalize already reports a monospace family as one that is mapped
+    // to the theme's font. The mapping has to be true, not just reported.
+    const document = captureFixture(join(FIXTURES, "framer-fluffy-rectangle-418998"));
+    const normalized = normalize(document);
+    const mapped = mapDocument(document, normalized.rules);
+    const slots = new Set<string>();
+    for (const node of Object.values(mapped.document.nodes)) {
+      for (const [schluessel, wert] of Object.entries(node.props)) {
+        if (!schluessel.startsWith("fontFamily")) continue;
+        if (/mono|code|courier/i.test(String(wert))) slots.add(String(wert));
+      }
+    }
+    // The fixture has no monospace text — then there is nothing to map. If it
+    // has one, it must land on the mono slot.
+    for (const slot of slots) expect(slot).toBe("var(--font-mono)");
+  });
+
+  it("keeps the text of an inline tag inline", () => {
+    // The `text` primitive renders a `<p>` — a block. The source's text often
+    // sits in a `<span>`, and as a paragraph it breaks the line where the
+    // source did not: the testimonial of the Earn template is three inline
+    // spans in one paragraph, and as three paragraphs it takes five lines
+    // instead of four (the whole page grew by the height of the block).
+    const html =
+      `<html lang="en"><head><title>t</title></head><body><div id="main" data-framer-hydrate-v2>` +
+      `<div style="white-space:pre-wrap"><span>Ein </span><span>Absatz</span></div>` +
+      `</div></body></html>`;
+    const document = captureHtml({ html });
+    const normalized = normalize(document);
+    const mapped = mapDocument(document, normalized.rules);
+    const texte = Object.values(mapped.document.nodes).filter(
+      (node) => node.primitive === "text" && typeof node.props["text"] === "string",
+    );
+    expect(texte.length).toBe(2);
+    for (const node of texte) expect(node.props["display"]).toBe("inline");
+  });
+
+  it("keeps the display of the source when it names one", () => {
+    // The source's own cascade decides — only the browser's default for the
+    // tag is filled in.
+    const html =
+      `<html lang="en"><head><title>t</title></head><body><div id="main" data-framer-hydrate-v2>` +
+      `<div><span style="display:block">Ein Absatz</span></div>` +
+      `</div></body></html>`;
+    const document = captureHtml({ html });
+    const normalized = normalize(document);
+    const mapped = mapDocument(document, normalized.rules);
+    const text = Object.values(mapped.document.nodes).find((node) => node.primitive === "text");
+    expect(text?.props["display"]).toBe("block");
+  });
+
+  it("keeps the source's families in the fidelity mode", () => {
+    // "Originalgetreu" keeps the page the source's page: its fonts stay
+    // named. The theme patch ("Theme-Fonts übernehmen") then supplies exactly
+    // those files. In the DNA mode the page joins the site's typography
+    // instead (the slots).
+    const document = captureFixture(join(FIXTURES, "framer-fluffy-rectangle-418998"));
+    const normalized = normalize(document, { mode: "fidelity" });
+    const mapped = mapDocument(document, normalized.rules, { mode: "fidelity" });
+    const werte = new Set<string>();
+    for (const node of Object.values(mapped.document.nodes)) {
+      for (const [schluessel, wert] of Object.entries(node.props)) {
+        if (!schluessel.startsWith("fontFamily")) continue;
+        werte.add(String(wert));
+      }
+    }
+    for (const regel of mapped.rules) {
+      const wert = regel.styles["fontFamily"];
+      if (wert !== undefined) werte.add(String(wert));
+    }
+    expect([...werte].some((wert) => wert.startsWith("var(--font-"))).toBe(false);
+    // The finding belongs to the DNA mode only — in fidelity mode nothing was
+    // mapped.
+    expect(mapped.findings.some((finding) => finding.kind === "font-mapping")).toBe(false);
+  });
+
+  it("reports the font mapping as a finding", () => {
+    const document = captureFixture(join(FIXTURES, "framer-fluffy-rectangle-418998"));
+    const normalized = normalize(document);
+    const mapped = mapDocument(document, normalized.rules);
+    const befund = mapped.findings.find((finding) => finding.kind === "font-mapping");
+    expect(befund).toBeDefined();
+    expect(befund?.severity).toBe("info");
   });
 
   it("keeps every node id unique and children consistent", () => {

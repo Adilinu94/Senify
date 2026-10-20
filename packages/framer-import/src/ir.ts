@@ -103,10 +103,12 @@ export const IR_FINDING_KINDS = [
   // smooth-scroll — Lenis/SmoothScroll detected; profile concern, not dropped.
   // loop-animation — an endless CSS/WAAPI loop the presets cannot express 1:1.
   // font-subset — a `@font-face` subset the DSGVO task (S2.3b) will rewrite.
+  // font-mapping — the source's families point at the theme's font slots.
   "dna-adjustment",
   "smooth-scroll",
   "loop-animation",
   "font-subset",
+  "font-mapping",
 ] as const;
 
 export type IrFindingKind = (typeof IR_FINDING_KINDS)[number];

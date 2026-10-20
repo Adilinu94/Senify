@@ -608,6 +608,17 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
       delete visual[property];
     }
   }
+  // A scroll reveal or a variant writes `will-change:transform` into the
+  // inline style and puts the state BEFORE the animation there: the resting
+  // look is in the class rules. Measured on the source page (the Earn
+  // template): 47 of the 57 inline transforms with that marker are gone at
+  // runtime. Kept as a permanent style, the testimonial quote stays scaled
+  // to 60 % (672 px instead of 1125 px) for good.
+  if (!hasStartState && movesIn && (visual["will-change"] ?? "").includes("transform")) {
+    appearInitial["transform"] = visual["transform"] as string;
+    delete visual["transform"];
+    delete visual["will-change"];
+  }
   // A Ticker (marquee) is written with `opacity:0` and shown by Framer's script once it
   // has measured itself: the opacity is the state before the script, not the look.
   if (raw.tag === "section" && visual["opacity"] === "0" && visual["list-style-type"] === "none" && visual["place-items"] === "center") {

@@ -141,6 +141,14 @@ export function openFramerImportDialog({ siteId, pageId, session, onImported }) 
     el("option", { value: "dna", text: "Design-DNA (verbotene Stilmittel werden umgeschrieben)" }),
   );
   const themeCheck = el("input", { type: "checkbox" });
+  // "Originalgetreu" keeps the fonts of the source on the page — they only
+  // render when the theme carries them. The choice is therefore offered with
+  // that mode (and can still be taken back).
+  const syncThemeFonts = () => {
+    themeCheck.checked = modeSelect.value === "fidelity";
+  };
+  modeSelect.addEventListener("change", syncThemeFonts);
+  syncThemeFonts();
   // Importing onto a path that already holds a page replaces its content. The
   // analysis names that page; applying needs this explicit confirmation.
   const replaceCheck = el("input", { type: "checkbox", "data-role": "framer-confirm-replace" });

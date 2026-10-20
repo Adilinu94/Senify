@@ -194,7 +194,13 @@ describe.skipIf(!browserAvailable && !BROWSER_REQUIRED)("S5 import gate on the r
           .replace(/<script[\s\S]*?<\/script>/g, "")
           .replace(
             "</head>",
-            "<style>[data-framer-appear-id],[style*='opacity:0.001'],[style*='opacity: 0.001']{opacity:1!important;transform:none!important}</style></head>",
+            // The baseline must show the page at rest, like the import does.
+            // Framer writes the state BEFORE its animation into the inline
+            // style (`will-change:transform` plus the start transform) and
+            // takes it away again when the animation runs; the appear-id
+            // elements also start invisible. Both are normalized here — the
+            // transform goes, the opacity stays where the page shows it.
+            "<style>[data-framer-appear-id],[style*='opacity:0.001'],[style*='opacity: 0.001']{opacity:1!important;transform:none!important}[style*='will-change:transform']{transform:none!important}</style></head>",
           );
         writeFileSync(join(original, "index.html"), withoutFontFiles(html));
         const stylesDir = join(original, "styles");
