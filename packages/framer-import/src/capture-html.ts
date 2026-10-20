@@ -1624,16 +1624,28 @@ function cascade(classValues: readonly Record<string, string>[], inline: IrVisua
   return out;
 }
 
-// The first definition of each `--token-*` in the page's styles: what the
+// The name of a Framer theme token: `--token-` plus a UUID. Only these are
+// theme tokens; every other custom property keeps its name.
+const TOKEN_NAME = /^--token-[a-f0-9-]{36}$/;
+
+// The definitions of the `--token-*` variables in a list of rules: what the
 // browser resolves `var(--token-x, fallback)` to. A value that is itself a
 // `var()` is left out, it has no colour of its own to write.
-function tokenDefinitions(css: string): Vars {
+//
+// `beiGleichstand` decides which of two definitions wins: in the base CSS the
+// first one (the page's own order), among the definitions of a media block
+// the last one (the cascade: the later declaration wins at the same
+// specificity).
+function tokenDefinitionsOf(rules: readonly ParsedCssRule[], beiGleichstand: "erste" | "letzte"): Vars {
   const tokens: Vars = {};
-  for (const match of css.matchAll(/(--token-[a-f0-9-]{36}):\s*([^;}]+)/g)) {
-    const name = match[1] ?? "";
-    const value = (match[2] ?? "").trim();
-    if (name === "" || value === "" || value.includes("var(") || tokens[name] !== undefined) continue;
-    tokens[name] = value;
+  for (const rule of rules) {
+    for (const [name, value] of Object.entries(rule.values)) {
+      if (!TOKEN_NAME.test(name)) continue;
+      const clean = (value ?? "").trim();
+      if (clean === "" || clean.includes("var(")) continue;
+      if (beiGleichstand === "erste" && tokens[name] !== undefined) continue;
+      tokens[name] = clean;
+    }
   }
   return tokens;
 }
@@ -1654,7 +1666,18 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
   // resolves `var(--token-x, fallback)` to. The inherited chain does not carry
   // them (Framer defines the token on `body`, the element that uses it sits
   // deeper), so they are read from the page's CSS directly.
-  const tokens = tokenDefinitions(css);
+  //
+  // A definition in a media block is the one the browser shows at that width,
+  // so it stands for the base definition on the devices the block reaches.
+  const baseTokens = tokenDefinitionsOf(parsed.rules, "erste");
+  const tokensByDevice = {} as VarsByDevice;
+  for (const device of DEVICES) {
+    const mediaTokens = tokenDefinitionsOf(
+      parsed.media.filter((entry) => devicesOf(entry).includes(device)).flatMap((entry) => entry.rules),
+      "letzte",
+    );
+    tokensByDevice[device] = { ...baseTokens, ...mediaTokens };
+  }
 
   const visit = (current: IrNode, ancestors: ReadonlySet<string>, inherited: VarsByDevice, inheritedWhiteSpace?: string): void => {
     const baseState = current.states[0];
@@ -1726,7 +1749,7 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
         if (color !== undefined) plain["border-color"] = color;
       }
       valuesByDevice[device] = Object.fromEntries(
-        Object.entries(plain).flatMap(([key, value]) => (value === undefined ? [] : [[key, resolveVars(value, vars, 0, tokens)]])),
+        Object.entries(plain).flatMap(([key, value]) => (value === undefined ? [] : [[key, resolveVars(value, vars, 0, tokensByDevice[device])]])),
       );
     }
     baseState.visual = valuesByDevice.desktop;
@@ -1740,7 +1763,7 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
     for (const [name, values] of Object.entries(interactionValues) as [IrInteraction, Record<string, string>][]) {
       const resolved: IrVisual = {};
       for (const [key, value] of Object.entries(values)) {
-        if (!key.startsWith("--")) resolved[key] = resolveVars(value, varsByDevice.desktop, 0, tokens);
+        if (!key.startsWith("--")) resolved[key] = resolveVars(value, varsByDevice.desktop, 0, tokensByDevice.desktop);
       }
       if (Object.keys(resolved).length > 0) interactions[name] = resolved;
     }
@@ -1766,7 +1789,7 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
     for (const child of current.children) visit(child, offered, varsByDevice, whiteSpace);
   };
   // Above the page element sit `html` and `body`; the page element is `#main`.
-  visit(root, new Set(["tag:html", "tag:body"]), { desktop: tokens, tablet: tokens, mobile: tokens });
+  visit(root, new Set(["tag:html", "tag:body"]), tokensByDevice);
   return { skippedPseudo };
 }
 
