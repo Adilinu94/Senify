@@ -1,12 +1,8 @@
-import {
-  type IncomingMessage,
-  type ServerResponse,
+import type {
+  IncomingMessage,
+  ServerResponse,
 } from "node:http";
-import { createHash } from "node:crypto";
 import { SenifyError } from "@senify/core";
-import { isPublicAddress } from "@senify/core/net";
-import type { Registry } from "@senify/section-sdk";
-import { paginate, parsePaging } from "./paging.ts";
 import {
   BUILD_ROOT_FILES,
   buildRootFile,
@@ -33,104 +29,44 @@ import {
   type McpAuditBody,
 } from "./auth.ts";
 import { newEntityId } from "./ids.ts";
-import { PageLocks } from "./locks.ts";
-import type { EngineEvents } from "./events.ts";
-import { applyMutations } from "./mutations/apply.ts";
-import { designContractViolations, contractGate } from "./design-contract.ts";
 import { renderEntryPreview } from "./bake.ts";
-import { assertImportRootAllowed, IMPORT_MAX_ATTEMPTS, runFramerImportJob, sourceOf } from "./imports.ts";
-import { createImportPreviewDriver, previewFramerImport, type ImportPreviewDriver } from "./import-preview.ts";
 import {
-  CreateImportBodySchema,
-  type CreateImportBody,
-} from "./imports-contract.ts";
-import {
-  AuthorSchema,
-  CreatePageBodySchema,
-  CreateSiteBodySchema,
   parseApplyMutationsBody,
   parseBody,
-  UpdateThemeBodySchema,
   type ApplyMutationsBody,
-  type AuthorInput,
-  type CreatePageBody,
-  type CreateSiteBody,
-  type UpdateThemeBody,
 } from "./mutations/contract.ts";
-import {
-  parseApplyEditorMutationsBody,
-  type ApplyEditorMutationsBody,
-} from "./mutations/editor-contract.ts";
-import { editorMutationsToSection } from "./mutations/editor-bridge.ts";
+import { parseApplyEditorMutationsBody } from "./mutations/editor-contract.ts";
 import { parseUndoBatchBody, undoBatches } from "./undo-batch.ts";
-import { motionVendorFiles, parseDurationMs } from "@senify/renderer";
-import { resolveTheme } from "@senify/tokens";
-import { draftConflictError } from "./paths.ts";
-import { RateLimiter } from "./rate-limit.ts";
-import { hardGuardrailsForTree } from "./guardrails.ts";
-import {
-  CreateStyleRuleBodySchema,
-  DuplicateSiteBodySchema,
-  ReorderStyleRuleBodySchema,
-  SiteEventBodySchema,
-  UpdateSiteBodySchema,
-  UpdateStyleRuleBodySchema,
-  type CreateStyleRuleBody,
-  type DuplicateSiteBody,
-  type UpdateSiteBody,
-  type ReorderStyleRuleBody,
-  type SiteEventBody,
-  type UpdateStyleRuleBody,
-} from "./site-contract.ts";
+import { motionVendorFiles } from "@senify/renderer";
 import {
   approveReview,
-  createPreview,
   discardReview,
-  expirePreviews,
-  publishRelease,
   requestChanges,
   restoreRevisionAsDraft,
-  submitReview,
-  type LifecycleContext,
 } from "./lifecycle.ts";
 import {
-  CreatePreviewBodySchema,
-  PublishReleaseBodySchema,
   RestoreRevisionBodySchema,
   ReviewActionBodySchema,
-  SubmitReviewBodySchema,
-  type CreatePreviewBody,
-  type PublishReleaseBody,
   type RestoreRevisionBody,
   type ReviewActionBody,
-  type SubmitReviewBody,
 } from "./lifecycle-contract.ts";
 import {
-  Store,
   type EngineSettingsPatch,
   type ImageSettingsPatch,
   type SmtpSettingsPatch,
 } from "./store.ts";
 import { backupStatus, createBackup, listBackups, restoreBackup } from "./backup.ts";
-import type { MaintenanceGate } from "./maintenance.ts";
-import { reviewVisualFileNames, type ReviewVisualDriver } from "./review-visuals.ts";
-import { sendTestMail, smtpMailSender, type MailSender } from "./mailer.ts";
+import { reviewVisualFileNames } from "./review-visuals.ts";
+import { sendTestMail, smtpMailSender } from "./mailer.ts";
 import { createComfyImageProvider } from "./image-comfy.ts";
 import { createImageCustomProvider } from "./image-custom.ts";
 import { createImageUseProvider } from "./image-use-provider.ts";
-import { validateImageRequest } from "./image-provider.ts";
-import {
-  CreateImageJobBodySchema,
-  type CreateImageJobBody,
-} from "./images-contract.ts";
 import {
   encryptImageApiKey,
   encryptSmtpPassword,
-  imageView,
   referenceSettingsPatch,
   resolveCustomApiKey,
   resolveSmtpConfig,
-  smtpView,
 } from "./settings.ts";
 import {
   TestMailBodySchema,
@@ -141,35 +77,21 @@ import {
 import {
   buildSubmissionsCsv,
   confirmNewsletter,
-  createCollectionFromForm,
   FormRejection,
-  listSiteForms,
   listSubmissions,
-  planCollectionFromForm,
   submitForm,
   tickNotifications,
   unsubscribeNewsletter,
-  type FormSigner,
 } from "./forms.ts";
 import {
-  FormCollectionCreateBodySchema,
-  FormCollectionPlanBodySchema,
   FormTickBodySchema,
-  type FormCollectionCreateBody,
-  type FormCollectionPlanBody,
   type FormTickBody,
 } from "./forms-contract.ts";
 import {
-  createCollection,
-  createCollectionFromFields,
-  createEntry,
-  listEntries,
   publishEntry,
   purgeEntry,
-  resolveEntryPath,
   restoreEntryFromTrash,
   restoreEntryVersionAsDraft,
-  searchEntries,
   tickScheduledEntries,
   trashEntry,
   unpublishEntry,
@@ -177,24 +99,16 @@ import {
   updateEntry,
 } from "./content.ts";
 import {
-  CreateCollectionBodySchema,
-  CreateEntryBodySchema,
   EntryActionBodySchema,
   EntryPreviewBodySchema,
   EntryTickBodySchema,
-  FromFieldsBodySchema,
   PublishEntryBodySchema,
-  SearchEntriesBodySchema,
   UpdateCollectionBodySchema,
   UpdateEntryBodySchema,
-  parseEntryListFilters,
-  type CreateCollectionBody,
-  type CreateEntryBody,
   type EntryActionBody,
   type EntryPreviewBody,
   type EntryTickBody,
   type PublishEntryBody,
-  type SearchEntriesBody,
   type UpdateCollectionBody,
   type UpdateEntryBody,
 } from "./content-contract.ts";
@@ -204,31 +118,13 @@ import {
 } from "./templates-contract.ts";
 import { putPageTemplate } from "./templates.ts";
 import {
-  CreateDeploymentBodySchema,
-  UpdateDeploySettingsBodySchema,
-  type CreateDeploymentBody,
-  type UpdateDeploySettingsBody,
-} from "./deploy-contract.ts";
-import {
-  UpdateDesignContractBodySchema,
-  type UpdateDesignContractBody,
-} from "./design-contract-schema.ts";
-import { deployActiveRelease } from "./deploy.ts";
-import {
   analyzeReference,
-  applyReference,
   deleteReference,
   editReferenceProfile,
-  referenceThemeDraft,
-  removeReferenceAssignment,
   runDueReferenceJobs,
-  verifyReferenceApply,
-  type ReferenceContext,
-  type ReferenceDeps,
 } from "./references-lifecycle.ts";
 import {
   AnalyzeReferenceBodySchema,
-  ApplyReferenceBodySchema,
   CreateReferenceCollectionBodySchema,
   EditReferenceProfileBodySchema,
   MANUAL_REFERENCE_BODY_LIMIT_BYTES,
@@ -241,25 +137,17 @@ import {
   UpdateReferenceBodySchema,
   UpdateReferenceCollectionBodySchema,
   VisualDiffBodySchema,
-  ApplyRedesignBodySchema,
   type AnalyzeReferenceBody,
-  type ApplyReferenceBody,
-  type ApplyRedesignBody,
   type CreateReferenceCollectionBody,
   type EditReferenceProfileBody,
   type ManualReferenceBody,
   type ReferenceBriefBody,
   type ReferenceTickBody,
-  type ReferenceListFilters,
   type UpdateReferenceBody,
   type UpdateReferenceCollectionBody,
   type VisualDiffBody,
 } from "./references-contract.ts";
-import {
-  diffReferenceAgainstDraft,
-  type ReferenceDiffDeps,
-} from "./reference-visual-diff.ts";
-import { applyRedesign } from "./apply-redesign.ts";
+import { diffReferenceAgainstDraft } from "./reference-visual-diff.ts";
 import {
   ConfirmRedesignProposalBodySchema,
   CreateRedesignProposalBodySchema,
@@ -275,19 +163,11 @@ import {
   listRedesignProposals,
   proposalCardScreenshot,
   resolveRedesignMediaNeeds,
-  type RedesignProposalContext,
 } from "./redesign-proposals.ts";
 import {
-  CreateCodePayloadBodySchema,
-  type CreateCodePayloadBody,
-} from "./code-payloads-contract.ts";
-import { createCodePayload } from "./code-payloads.ts";
-import {
   CreateLibraryComponentBodySchema,
-  InstallLibraryComponentBodySchema,
   UpdateLibraryComponentBodySchema,
   type CreateLibraryComponentBody,
-  type InstallLibraryComponentBody,
   type UpdateLibraryComponentBody,
 } from "./library-contract.ts";
 import {
@@ -297,756 +177,84 @@ import {
 } from "./references-library.ts";
 import { buildRedesignPackage } from "./redesign-package.ts";
 import { buildDesignSystemImport } from "./design-system-import.ts";
-import { buildDesignReport } from "./design-report.ts";
 import {
   buildCollectionBrief,
   buildImagePrompt,
   buildReferenceBrief,
 } from "./references-brief.ts";
-import {
-  applyAssetPatch,
-  bulkAssets,
-  collectAssetIds,
-  commitUpload,
-  copySiteAssets,
-  createAssetFolder,
-  createUploadTicket,
-  parseAssetListFilters,
-  purgeAsset,
-  queryAssets,
-  restoreAssetHistory,
-  rewriteAssetRefs,
-  AssetPatchBodySchema,
-  BulkAssetsBodySchema,
-  CreateAssetFolderBodySchema,
-  UploadUrlBodySchema,
-  type AssetPatchBody,
-  type BulkAssetsBody,
-  type CreateAssetFolderBody,
-  type MediaContext,
-  type UploadSigner,
-  type UploadUrlBody,
-} from "./media.ts";
-import { removeSiteFiles, resolveStoredFile, storedFileName } from "./storage.ts";
-import { buildThemeReport } from "./theme-report.ts";
+import { commitUpload } from "./media.ts";
+import { resolveStoredFile, storedFileName } from "./storage.ts";
 import type {
-  ImageJobRequest,
-  ImageJobStatus,
-  ReferenceDna,
-  ReferencePreferences,
-  ReferenceSummary,
   RedesignProposalStatus,
-  ReviewStatus,
-  TokenKind,
   TokenScope,
 } from "./types.ts";
-import { IMAGE_JOB_STATUSES, REDESIGN_PROPOSAL_STATUSES, REVIEW_STATUSES } from "./types.ts";
+import { REDESIGN_PROPOSAL_STATUSES } from "./types.ts";
 import { isRedesignProposalStatus } from "./redesign-proposal-contract.ts";
-import { PAGE_STARTERS, pageStarterById } from "./page-starters.ts";
+import { PAGE_STARTERS } from "./page-starters.ts";
 import { existsSync, statSync } from "node:fs";
 import { extname } from "node:path";
-
-const BODY_LIMIT_BYTES = 1024 * 1024;
-
-export type EngineContext = {
-  store: Store;
-  registry: Registry;
-  locks: PageLocks;
-  rateLimiter: RateLimiter;
-  // Live events (ticket 05): the in-process bus behind GET /api/events. Write
-  // handlers publish, the SSE route subscribes.
-  events: EngineEvents;
-  // Maintenance window (T12 restore): blocks requests while it runs.
-  maintenance: MaintenanceGate;
-  dataDir: string;
-  maxUploadBytes: number;
-  uploadSigner: UploadSigner;
-  // Forms (T11): the token signer and a per-IP limiter for the public endpoint.
-  formSigner: FormSigner;
-  formRateLimiter: RateLimiter;
-  formBaseUrl?: string;
-  // Settings (T12): the mail sender used for test mails and the outbox. Tests
-  // inject a double so no run ever talks to a real SMTP server.
-  mailSender?: MailSender;
-  // References (T14): the injected capture/analyzer dependencies. Without them
-  // the live Playwright path and the heuristic analyzer are used.
-  referenceDeps?: ReferenceDeps;
-  // Reference visual diff (E26 slice 2): capture + differ of the
-  // reference-against-draft comparison. Off unless injected (visual tests);
-  // production lazily loads the analysis-worker harness.
-  referenceDiffs?: ReferenceDiffDeps;
-  // Review visuals (T07): the injected capture driver of a submit.
-  visuals?: ReviewVisualDriver;
-  // The import preview: the injected photographer. Absent = the Playwright
-  // thumbnail capture of the analysis worker.
-  importPreview?: ImportPreviewDriver;
-};
-
-function referenceContext(context: EngineContext): ReferenceContext {
-  return {
-    store: context.store,
-    dataDir: context.dataDir,
-    ...(context.referenceDeps === undefined ? {} : { deps: context.referenceDeps }),
-  };
-}
-
-function redesignProposalContext(context: EngineContext): RedesignProposalContext {
-  return {
-    store: context.store,
-    registry: context.registry,
-    dataDir: context.dataDir,
-  };
-}
-
-function lifecycleContext(context: EngineContext): LifecycleContext {
-  return {
-    store: context.store,
-    dataDir: context.dataDir,
-    formSigner: context.formSigner,
-    formBaseUrl: context.formBaseUrl,
-    ...(context.visuals === undefined ? {} : { visuals: context.visuals }),
-  };
-}
-
-function mediaContext(context: EngineContext): MediaContext {
-  return {
-    store: context.store,
-    dataDir: context.dataDir,
-    maxUploadBytes: context.maxUploadBytes,
-  };
-}
+import type { AuthInfo, EngineContext, Route, RouteParams } from "./http-contract.ts";
+import {
+  referenceContext,
+  redesignProposalContext,
+  lifecycleContext,
+  mediaContext,
+  settingsView,
+  resolveAuthor,
+  withIdempotency,
+  readJsonBody,
+  readRawBody,
+  clientIpOf,
+  originOf,
+  refererPath,
+  requestHostOf,
+  publicBaseUrlOf,
+  wantsJson,
+  readSubmitBody,
+  applyMutationsToPage,
+  applyEditorMutationsToPage,
+  filterReferences,
+  requireParam,
+  limitParam,
+} from "./http-route-support.ts";
+import { siteRoutes } from "./http-routes-sites.ts";
+export { clientIpOf } from "./http-route-support.ts";
+export type { EngineContext } from "./http-contract.ts";
 
 // The settings view the app reads: SMTP without the password, the defaults, the
 // backup target (T12), the reference preferences (T14) and the image generation
 // (S1).
-async function settingsView(
-  context: EngineContext,
-): Promise<{
-  email: ReturnType<typeof smtpView>;
-  defaults: { defaultProfile: string; defaultLayout: string; autostart: boolean };
-  backup: { targetDir: string };
-  referenceDna: ReferenceDna;
-  referencePreferences: ReferencePreferences;
-  image: ReturnType<typeof imageView>;
-}> {
-  const [email, settings, status, references, image] = await Promise.all([
-    context.store.getSmtpSettings(),
-    context.store.getEngineSettings(),
-    backupStatus({ store: context.store, dataDir: context.dataDir }),
-    context.store.getReferenceSettings(),
-    context.store.getImageSettings(),
-  ]);
-  return {
-    email: smtpView(email),
-    defaults: {
-      defaultProfile: settings.defaultProfile,
-      defaultLayout: settings.defaultLayout,
-      autostart: settings.autostart,
-    },
-    backup: { targetDir: status.targetDir },
-    referenceDna: references.dna,
-    referencePreferences: references.preferences,
-    image: imageView(image),
-  };
-}
-
-type AuthInfo = {
-  tokenId: string;
-  tokenName: string;
-  kind: TokenKind;
-  scopes: TokenScope[];
-};
-
 // The audited author is always the token, never the request body (ticket 18):
 // a direct API call cannot claim a foreign identity or a different kind. The
 // body's `author` stays a suggestion that the server overrides here.
-function resolveAuthor(auth: AuthInfo | undefined): AuthorInput {
-  if (!auth) {
-    throw new AuthError(401, "Missing bearer token", {
-      suggestion: "Author-bearing routes require a token; the token is the identity.",
-    });
-  }
-  return { kind: auth.kind, id: auth.tokenName, label: auth.tokenName };
-}
-
 // Deterministic JSON for the idempotency fingerprint: object keys are sorted
 // recursively, so two requests that differ only in key order are the same.
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  if (value !== null && typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .filter(([, entry]) => entry !== undefined)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-    return `{${entries
-      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
-}
-
 // Idempotent create (ticket 18, slice 2): the request claims a slot keyed by
 // (token, route, key) before it runs. A retry replays the stored response, a
 // concurrent duplicate is rejected as in-flight, and a failed attempt releases
 // the slot so the same key may be retried (with a corrected body if needed).
-async function withIdempotency(
-  context: EngineContext,
-  auth: AuthInfo | undefined,
-  req: IncomingMessage,
-  url: URL,
-  key: string | undefined,
-  body: Record<string, unknown>,
-  run: () => Promise<RouteResult>,
-): Promise<RouteResult> {
-  if (key === undefined || auth === undefined) return run();
-  const route = `${req.method ?? "POST"} ${url.pathname}`;
-  const { idempotencyKey: _ignored, ...fingerprintBody } = body;
-  const fingerprint = createHash("sha256")
-    .update(stableJson(fingerprintBody))
-    .digest("hex");
-  const claim = await context.store.claimIdempotencyKey({
-    tokenId: auth.tokenId,
-    route,
-    key,
-    fingerprint,
-  });
-  if (claim.state === "replay") {
-    return {
-      status: claim.status,
-      body: claim.body,
-      headers: { "idempotency-replayed": "true" },
-    };
-  }
-  if (claim.state === "mismatch") {
-    throw new SenifyError(
-      "conflict",
-      "This idempotency key was already used with a different request",
-      {
-        field: "idempotencyKey",
-        suggestion:
-          "Use a fresh key for a different request, or resend the original body.",
-      },
-    );
-  }
-  if (claim.state === "committed_unknown") {
-    // The write behind this key is committed and its response is gone. Running
-    // the operation again would create a second entity, and replaying is
-    // impossible, so the honest answer is a conflict that says what happened.
-    throw new SenifyError(
-      "conflict",
-      "This idempotency key was already applied, but its response was lost",
-      {
-        field: "idempotencyKey",
-        suggestion:
-          "Read the resource back instead of writing it again, or start over with a fresh key.",
-      },
-    );
-  }
-  if (claim.state === "in_progress") {
-    throw new SenifyError(
-      "conflict",
-      "A request with this idempotency key is still in progress",
-      {
-        field: "idempotencyKey",
-        suggestion: "Retry in a moment; the first attempt has not finished yet.",
-      },
-    );
-  }
-  let result: RouteResult;
-  try {
-    result = await run();
-  } catch (error) {
-    // The attempt failed and left nothing durable behind: a failed attempt does
-    // not burn the key, so the caller may retry it (with a corrected body if the
-    // failure was validation).
-    await context.store
-      .releaseIdempotencyKey({ tokenId: auth.tokenId, route, key })
-      .catch(() => undefined);
-    throw error;
-  }
-  try {
-    await context.store.completeIdempotencyKey({
-      tokenId: auth.tokenId,
-      route,
-      key,
-      status: result.status,
-      body: result.body ?? null,
-    });
-    return result;
-  } catch (completionError) {
-    // R6: the operation is committed and only its replay response is missing.
-    // Releasing the slot here is exactly what turned a retry into a second
-    // entity, so the claim stays and the key is recorded as committed with an
-    // unknown response. The caller keeps the real result they already earned;
-    // a retry hears "already applied" instead of writing a second time.
-    console.error("[engine] idempotency completion failed", completionError);
-    await context.store
-      .markIdempotencyCommitted({ tokenId: auth.tokenId, route, key })
-      .catch(() => undefined);
-    return {
-      ...result,
-      headers: { ...result.headers, "idempotency-cached": "false" },
-    };
-  }
-}
-
-type RouteResult = {
-  status: number;
-  body?: unknown;
-  headers?: Record<string, string>;
-  // Server-Sent Events (ticket 05): the handler returns an opener instead of a
-  // body; the dispatcher writes the headers and keeps the response open until
-  // the client disconnects (the opener returns its cleanup).
-  stream?: {
-    contentType: string;
-    open: (res: ServerResponse) => () => void;
-  };
-  // Plain-text response (CSV export).
-  text?: {
-    contentType: string;
-    body: string;
-  };
-  // 303 to a page: the no-JavaScript path after a form submit or newsletter
-  // confirmation.
-  redirect?: string;
-  file?: {
-    path: string;
-    contentType?: string;
-    headers?: Record<string, string>;
-  };
-};
-
-async function readJsonBody(
-  req: IncomingMessage,
-  limitBytes = BODY_LIMIT_BYTES,
-): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of req) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
-    size += buffer.length;
-    if (size > limitBytes) {
-      throw new SenifyError(
-        "validation",
-        limitBytes === BODY_LIMIT_BYTES
-          ? "Request body exceeds 1 MB"
-          : `Request body exceeds ${Math.floor(limitBytes / (1024 * 1024))} MB`,
-        {
-          suggestion:
-            limitBytes === BODY_LIMIT_BYTES
-              ? "Split large batches into smaller mutation requests."
-              : "Ein kleineres Bild senden (Obergrenze 20 MB).",
-        },
-      );
-    }
-    chunks.push(buffer);
-  }
-  if (chunks.length === 0) return undefined;
-  const text = Buffer.concat(chunks).toString("utf8");
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    throw new SenifyError("validation", "Request body must be valid JSON", {
-      suggestion: "Send a JSON object with the documented fields.",
-    });
-  }
-}
-
 // Upload bodies are raw bytes, not JSON: they get their own cap instead of the
 // 1 MB JSON limit.
-async function readRawBody(
-  req: IncomingMessage,
-  limitBytes: number,
-): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of req) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
-    size += buffer.length;
-    if (size > limitBytes) {
-      throw new SenifyError(
-        "validation",
-        `File exceeds the upload limit of ${limitBytes} bytes`,
-        {
-          field: "file",
-          suggestion: "Shrink the file or raise the engine limit (maxUploadBytes).",
-        },
-      );
-    }
-    chunks.push(buffer);
-  }
-  return Buffer.concat(chunks);
-}
-
-const FORM_BODY_LIMIT_BYTES = 64 * 1024;
-
 // The address the rate limit counts. `X-Forwarded-For` is believed only from a
 // proxy on this machine or network: a client that reaches the engine directly
 // could write anything there and never hit the limit. A proxy appends the
 // address it saw, so the last entry is the one it vouches for; everything in
 // front of it came from the client.
-export function clientIpOf(req: Pick<IncomingMessage, "headers" | "socket">): string {
-  const peer = req.socket.remoteAddress ?? "unknown";
-  if (isPublicAddress(peer)) return peer;
-  const forwarded = req.headers["x-forwarded-for"];
-  const header = Array.isArray(forwarded) ? forwarded.join(",") : forwarded;
-  const last = header?.split(",").at(-1)?.trim();
-  return last !== undefined && last !== "" ? last : peer;
-}
-
-function originOf(req: IncomingMessage): string | undefined {
-  const origin = req.headers.origin;
-  if (typeof origin === "string" && origin !== "") return origin;
-  const referer = req.headers.referer;
-  if (typeof referer === "string" && referer !== "") {
-    try {
-      return new URL(referer).origin;
-    } catch {
-      return undefined;
-    }
-  }
-  return undefined;
-}
-
-function refererPath(req: IncomingMessage): string | undefined {
-  const referer = req.headers.referer;
-  if (typeof referer !== "string") return undefined;
-  try {
-    return new URL(referer).pathname;
-  } catch {
-    return undefined;
-  }
-}
-
-function requestHostOf(req: IncomingMessage): string | undefined {
-  const host = req.headers.host;
-  return typeof host === "string" && host !== "" ? host : undefined;
-}
-
 // Absolute base of the request: the briefs print the snapshot of a reference,
 // and an assistant outside the program can only open that image with the host
 // it was served from (`/api/...` alone says nothing about the machine). Behind
 // the dashboard the proxy forwards the origin the browser asked on, and that is
 // the address worth printing: it injects the operator token, the engine port
 // would answer 401 in a browser window.
-function publicBaseUrlOf(req: IncomingMessage): string | undefined {
-  const forwardedHost = req.headers["x-forwarded-host"];
-  const host =
-    typeof forwardedHost === "string" && forwardedHost.trim() !== ""
-      ? (forwardedHost.split(",")[0]?.trim() ?? undefined)
-      : requestHostOf(req);
-  if (host === undefined) return undefined;
-  const forwarded = req.headers["x-forwarded-proto"];
-  const proto =
-    typeof forwarded === "string" && forwarded.trim() !== ""
-      ? (forwarded.split(",")[0]?.trim() ?? "http")
-      : "http";
-  return `${proto}://${host}`;
-}
-
 // The JS path asks for JSON; the plain browser POST does not.
-function wantsJson(req: IncomingMessage): boolean {
-  return String(req.headers.accept ?? "").includes("application/json");
-}
-
-async function readTextBody(
-  req: IncomingMessage,
-  limitBytes: number,
-): Promise<string> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of req) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
-    size += buffer.length;
-    if (size > limitBytes) {
-      throw new FormRejection("body_cap", "Einsendung überschreitet das Größenlimit", {
-        suggestion: `Höchstens ${Math.floor(limitBytes / 1024)} KB senden.`,
-      });
-    }
-    chunks.push(buffer);
-  }
-  return Buffer.concat(chunks).toString("utf8");
-}
-
-function parseFormEncoded(text: string): Record<string, string | string[]> {
-  const params = new URLSearchParams(text);
-  const values: Record<string, string | string[]> = {};
-  for (const [key, value] of params.entries()) {
-    const existing = values[key];
-    if (existing === undefined) values[key] = value;
-    else if (Array.isArray(existing)) existing.push(value);
-    else values[key] = [existing, value];
-  }
-  return values;
-}
-
-type ParsedSubmit = {
-  token: string;
-  values: Record<string, string | string[]>;
-  consent: boolean;
-  honeypot: string;
-};
-
 // One endpoint, two encodings: the browser posts urlencoded, the JS island
 // posts the same FormData (also urlencoded) and agents may post JSON.
-async function readSubmitBody(req: IncomingMessage): Promise<ParsedSubmit> {
-  const text = await readTextBody(req, FORM_BODY_LIMIT_BYTES);
-  const contentType = String(req.headers["content-type"] ?? "");
-  if (contentType.includes("application/x-www-form-urlencoded")) {
-    const raw = parseFormEncoded(text);
-    const token = typeof raw.form_token === "string" ? raw.form_token : "";
-    const consentValue = raw.consent;
-    const consent =
-      consentValue === "true" || consentValue === "on" || consentValue === "1";
-    const honeypot =
-      typeof raw.company === "string" ? raw.company : "";
-    const values = { ...raw };
-    delete values.form_token;
-    delete values.consent;
-    return { token, values, consent, honeypot };
-  }
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = (text === "" ? {} : JSON.parse(text)) as Record<string, unknown>;
-  } catch {
-    throw new SenifyError("validation", "Request body must be valid JSON", {
-      suggestion: "Send a JSON object with token and values.",
-    });
-  }
-  const token =
-    typeof parsed.token === "string"
-      ? parsed.token
-      : typeof parsed.form_token === "string"
-        ? parsed.form_token
-        : "";
-  const values =
-    parsed.values && typeof parsed.values === "object" && !Array.isArray(parsed.values)
-      ? (parsed.values as Record<string, string | string[]>)
-      : {};
-  const honeypot = typeof parsed.honeypot === "string" ? parsed.honeypot : "";
-  return { token, values, consent: parsed.consent === true, honeypot };
-}
-
-async function applyMutationsToPage(
-  context: EngineContext,
-  pageId: string,
-  input: ApplyMutationsBody,
-  auth: AuthInfo | undefined,
-): Promise<RouteResult["body"]> {
-  return context.locks.run(pageId, async () => {
-    const page = await context.store.getPage(pageId);
-    if (input.baseDraftVersion !== page.draftVersion) {
-      throw draftConflictError(input.baseDraftVersion, page.draftVersion);
-    }
-    const outcome = applyMutations({
-      registry: context.registry,
-      tree: page.draft,
-      mutations: input.mutations,
-      previousTitle: page.title,
-      previousPath: page.path,
-    });
-    // Hard guardrails block the whole batch: nothing is written on a violation.
-    // The site profile is part of the gate (ticket 21): intensity cap, preset
-    // classes, pin budget.
-    const site = await context.store.getSite(page.siteId);
-    const guardrails = hardGuardrailsForTree(outcome.tree, site.profile);
-    if (guardrails.length > 0) {
-      const first = guardrails[0];
-      if (first) {
-        throw new SenifyError("guardrail", first.message, {
-          field: first.field,
-          suggestion: first.suggestion,
-        });
-      }
-    }
-    // Design-DNA fence (E26, R9): the project's `never` rules are hard for
-    // agent tokens and a warning for humans. A manual contract applies to
-    // both; the author kind decides the gate.
-    const dnaWarnings: string[] = [];
-    if (site.designContract !== undefined && site.designContract.never.length > 0) {
-      const violations = designContractViolations(outcome.tree, site.designContract);
-      const authorKind = auth?.kind ?? "agent";
-      const gate = contractGate(violations, authorKind);
-      if (gate.error !== undefined) throw gate.error;
-      dnaWarnings.push(...gate.warnings);
-    }
-    // No-op batches (every undo patch empty) change nothing: no version
-    // bump, no audit — same response contract as dry_run (undoBatchId null).
-    const touched = outcome.results.some(
-      (result) => result.undoPatch.length > 0,
-    );
-    if (input.dry_run === true || !touched) {
-      if (outcome.page.path !== page.path) {
-        try {
-          await context.store.assertPathFree(
-            page.siteId,
-            page.id,
-            outcome.page.path,
-          );
-        } catch (error) {
-          if (error instanceof SenifyError) {
-            throw withPathOpIndex(error, pathOpIndex(input));
-          }
-          throw error;
-        }
-      }
-      return {
-        newDraftVersion: page.draftVersion,
-        undoBatchId: null,
-        warnings: [...outcome.warnings, ...dnaWarnings.map((message) => ({ field: "design-dna", message, suggestion: "" }))],
-        results: outcome.results,
-      };
-    }
-    const batchId = newEntityId();
-    // The token is the identity for the whole batch; the body author is only
-    // a suggestion and never reaches the audit log (ticket 18).
-    const author = resolveAuthor(auth);
-    let newVersion: number;
-    try {
-      newVersion = await context.store.persistBatch({
-        pageId: page.id,
-        expectedVersion: page.draftVersion,
-        draft: outcome.tree,
-        title: outcome.page.title,
-        path: outcome.page.path,
-        entries: outcome.results.map((result) => {
-          const source = input.mutations[result.opIndex];
-          if (!source) {
-            throw new Error("Internal error: result without source mutation");
-          }
-          return {
-            siteId: page.siteId,
-            pageId: page.id,
-            batchId,
-            opIndex: result.opIndex,
-            mutation: result.op,
-            params: { ...source } as Record<string, unknown>,
-            author,
-            undoPatch: result.undoPatch,
-            draftVersionAfter: 0,
-          };
-        }),
-      });
-    } catch (error) {
-      if (error instanceof SenifyError) {
-        throw withPathOpIndex(error, pathOpIndex(input));
-      }
-      throw error;
-    }
-    // Live follow (ticket 05): the write is durable, the event tells the
-    // program and the open editor what changed (page, nodes, actor).
-    context.events.publish({
-      kind: "draft.changed",
-      siteId: page.siteId,
-      pageId: page.id,
-      nodeIds: touchedNodeIds(input),
-      action: input.mutations[0]?.op ?? "batch",
-      actor: author,
-    });
-    return {
-      newDraftVersion: newVersion,
-      undoBatchId: batchId,
-      warnings: [...outcome.warnings, ...dnaWarnings.map((message) => ({ field: "design-dna", message, suggestion: "" }))],
-      results: outcome.results,
-    };
-  });
-}
-
 // The canvas persists its v2 editor ops through the same write path: they are
 // translated into the section vocabulary and handed to `applyMutationsToPage`,
 // so the conflict check, the hard guardrails, the version bump, the audit log
 // and the optimistic locking are all shared with the section mutations route.
-async function applyEditorMutationsToPage(
-  context: EngineContext,
-  pageId: string,
-  input: ApplyEditorMutationsBody,
-  auth: AuthInfo | undefined,
-): Promise<RouteResult["body"]> {
-  // The author is resolved from the token inside `applyMutationsToPage`; the
-  // section envelope carries no author on this path.
-  const sectionBody: ApplyMutationsBody = {
-    baseDraftVersion: input.baseDraftVersion,
-    ...(input.dry_run === undefined ? {} : { dry_run: input.dry_run }),
-    mutations: editorMutationsToSection(input.mutations),
-  };
-  return applyMutationsToPage(context, pageId, sectionBody, auth);
-}
-
-function pathOpIndex(input: ApplyMutationsBody): number | undefined {
-  let found: number | undefined;
-  input.mutations.forEach((mutation, index) => {
-    if (mutation.op === "updatePageMeta" && mutation.path !== undefined) {
-      found = index;
-    }
-  });
-  return found;
-}
-
 // The node ids a batch touched, for the live highlight in the editor. Every
 // mutation names its target under a different key; missing ids are fine.
-function touchedNodeIds(input: ApplyMutationsBody): string[] {
-  const ids = new Set<string>();
-  for (const mutation of input.mutations) {
-    const record = mutation as Record<string, unknown>;
-    if (typeof record.id === "string") ids.add(record.id);
-    const node = record.node;
-    if (node !== null && typeof node === "object") {
-      const nodeId = (node as Record<string, unknown>).id;
-      if (typeof nodeId === "string") ids.add(nodeId);
-    }
-    for (const key of ["parent", "target"] as const) {
-      const ref = record[key];
-      if (ref !== null && typeof ref === "object") {
-        const nodeId = (ref as Record<string, unknown>).nodeId;
-        if (typeof nodeId === "string") ids.add(nodeId);
-      }
-    }
-  }
-  return [...ids];
-}
-
-function withPathOpIndex(
-  error: SenifyError,
-  opIndex: number | undefined,
-): SenifyError {
-  if (
-    opIndex === undefined ||
-    error.opIndex !== undefined ||
-    error.field !== "path"
-  ) {
-    return error;
-  }
-  return new SenifyError(error.category, error.message, {
-    field: `mutations[${opIndex}].path`,
-    suggestion: error.suggestion,
-    opIndex,
-  });
-}
-
-type RouteParams = Record<string, string>;
-
-type Route = {
-  method: string;
-  segments: string[];
-  public?: boolean;
-  // Token management is an operator capability, not a public bootstrap.
-  operatorOnly?: boolean;
-  scope?: TokenScope;
-  destructive?: boolean;
-  // Ausgelieferte Dateien (Bilder einer Referenz) laufen nicht in die
-  // Drosselung: eine Uebersicht laedt leicht mehr als 60 Bilder je Minute.
-  rateLimit?: boolean;
-  // Health and the restore itself stay reachable during a maintenance window;
-  // the restore acquires the gate from its handler.
-  maintenanceExempt?: boolean;
-  handler: (
-    context: EngineContext,
-    params: RouteParams,
-    req: IncomingMessage,
-    url: URL,
-    auth: AuthInfo | undefined,
-  ) => Promise<RouteResult>;
-};
-
 async function authenticate(
   context: EngineContext,
   req: IncomingMessage,
@@ -1122,13 +330,6 @@ function matchRoute(route: Route, method: string, segments: string[]): RoutePara
   return params;
 }
 
-function styleVersionHeaders(version: number): Record<string, string> {
-  return {
-    etag: `"style-v${version}"`,
-    "x-senify-style-version": String(version),
-  };
-}
-
 const ROUTES: Route[] = [
   {
     method: "GET",
@@ -1163,285 +364,7 @@ const ROUTES: Route[] = [
       };
     },
   },
-  {
-    method: "POST",
-    segments: ["api", "sites"],
-    scope: "write",
-    handler: async (context, _params, req) => {
-      const body = (await readJsonBody(req)) ?? {};
-      const siteBody = parseBody<CreateSiteBody>(CreateSiteBodySchema, body, "site");
-      const site = await context.store.createSite(siteBody);
-      return { status: 201, body: site };
-    },
-  },
-  {
-    method: "GET",
-    segments: ["api", "sites"],
-    scope: "read",
-    handler: async (context, _params, _req, url) => {
-      const trash = url.searchParams.get("trash");
-      const paging = parsePaging(url.searchParams);
-      if (trash === "1" || trash === "true") {
-        // Paging applies to the trash list too. It is a list like any other, and
-        // a site that was deleted a year ago does not make today's reading
-        // faster.
-        const all = await context.store.listTrashedSites();
-        const page = paginate(all, paging, all.length);
-        return {
-          status: 200,
-          body: { sites: page.items, ...page, items: undefined },
-        };
-      }
-      const all = await context.store.listSites();
-      const page = paginate(all, paging, all.length);
-      return {
-        status: 200,
-        // The list under its own name, plus the paging block. Both, not one or
-        // the other: a client that only wants rows reads `sites`, and a client
-        // that wants to keep reading reads `page`/`total`/`hasMore`.
-        body: { sites: page.items, ...page, items: undefined },
-      };
-    },
-  },
-  {
-    method: "PATCH",
-    segments: ["api", "sites", ":siteId"],
-    scope: "write",
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const parsed = parseBody<UpdateSiteBody>(
-        UpdateSiteBodySchema,
-        body,
-        "site update",
-      );
-      if (
-        parsed.name === undefined &&
-        parsed.profile === undefined &&
-        parsed.baseUrl === undefined &&
-        parsed.breakpoints === undefined
-      ) {
-        throw new SenifyError(
-          "validation",
-          "Nothing to update: pass a name, a profile, a baseUrl or breakpoints",
-          {
-            field: "body",
-            suggestion:
-              'Send { "name": "…" }, { "profile": "clean|standard|showcase" }, { "baseUrl": "https://www.kunde.de" } or { "breakpoints": { "tablet": 1024, "mobile": 640 } }.',
-          },
-        );
-      }
-      let site = await context.store.getSite(siteId);
-      if (parsed.name !== undefined) {
-        site = await context.store.renameSite(siteId, parsed.name);
-        await context.store.recordSiteEvent({
-          siteId,
-          mutation: "rename_site",
-          params: { name: parsed.name },
-          author: resolveAuthor(auth),
-        });
-      }
-      if (parsed.profile !== undefined) {
-        site = await context.store.updateSiteProfile(siteId, parsed.profile);
-        await context.store.recordSiteEvent({
-          siteId,
-          mutation: "update_site_profile",
-          params: { profile: parsed.profile },
-          author: resolveAuthor(auth),
-        });
-      }
-      // Last, so the response carries the stored address next to the other
-      // changes of the same request.
-      if (parsed.baseUrl !== undefined) {
-        site = await context.store.updateSiteBaseUrl(siteId, parsed.baseUrl);
-        await context.store.recordSiteEvent({
-          siteId,
-          mutation: "update_site_base_url",
-          params: { baseUrl: site.baseUrl ?? null },
-          author: resolveAuthor(auth),
-        });
-      }
-      if (parsed.breakpoints !== undefined) {
-        site = await context.store.updateSiteBreakpoints(siteId, parsed.breakpoints);
-        await context.store.recordSiteEvent({
-          siteId,
-          mutation: "update_site_breakpoints",
-          params: { breakpoints: site.breakpoints ?? null },
-          author: resolveAuthor(auth),
-        });
-      }
-      return { status: 200, body: site };
-    },
-  },
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "trash"],
-    scope: "publish",
-    destructive: true,
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      // The body stays validated (closed shape); the token is the identity.
-      parseBody<SiteEventBody>(SiteEventBodySchema, body, "site trash");
-      const site = await context.store.trashSite(siteId);
-      await context.store.recordSiteEvent({
-        siteId,
-        mutation: "trash_site",
-        params: {},
-        author: resolveAuthor(auth),
-      });
-      return { status: 200, body: site };
-    },
-  },
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "restore"],
-    scope: "write",
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      // The body stays validated (closed shape); the token is the identity.
-      parseBody<SiteEventBody>(SiteEventBodySchema, body, "site restore");
-      const site = await context.store.restoreSite(siteId);
-      await context.store.recordSiteEvent({
-        siteId,
-        mutation: "restore_site",
-        params: {},
-        author: resolveAuthor(auth),
-      });
-      return { status: 200, body: site };
-    },
-  },
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "duplicate"],
-    scope: "write",
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const parsed = parseBody<DuplicateSiteBody>(
-        DuplicateSiteBodySchema,
-        body,
-        "site duplicate",
-      );
-      const author = resolveAuthor(auth);
-      const sourcePages = await context.store.listPageDrafts(siteId);
-      const needed = collectAssetIds(sourcePages);
-      const { site, pageIds } = await context.store.duplicateSiteWithPlan(siteId, {
-        withContent: parsed.withContent ?? false,
-        author,
-      });
-      // The copy gets its own media (ADR-0014): without this the drafts would
-      // point at the source's assets, the copy could not be published, and a
-      // purge of the copy would delete the source's files.
-      const copy = await copySiteAssets(mediaContext(context), {
-        sourceSiteId: siteId,
-        targetSiteId: site.id,
-        assetIds: needed,
-        now: new Date().toISOString(),
-      });
-      for (const [sourcePageId, targetPageId] of pageIds) {
-        const page = sourcePages.find((candidate) => candidate.id === sourcePageId);
-        if (page === undefined) continue;
-        const draft = rewriteAssetRefs(page.draft, copy.idMap);
-        await context.store.replacePageDraft(targetPageId, draft);
-      }
-      if (copy.assets > 0 || copy.folders > 0 || copy.skipped.length > 0) {
-        await context.store.recordSiteEvent({
-          siteId: site.id,
-          mutation: "duplicate_site_assets",
-          params: {
-            sourceSiteId: siteId,
-            assets: copy.assets,
-            folders: copy.folders,
-            skipped: copy.skipped.length,
-          },
-          author,
-        });
-      }
-      return { status: 201, body: site };
-    },
-  },
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId"],
-    scope: "read",
-    handler: async (context, params) => {
-      const siteId = params.siteId;
-      if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
-      return { status: 200, body: await context.store.getSite(siteId) };
-    },
-  },
-  {
-    method: "DELETE",
-    segments: ["api", "sites", ":siteId"],
-    scope: "publish",
-    destructive: true,
-    handler: async (context, params) => {
-      const siteId = params.siteId;
-      if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
-      const removed = await context.store.deleteSite(siteId);
-      removeSiteFiles(context.dataDir, siteId, removed.fileRefs);
-      return { status: 204 };
-    },
-  },
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "pages"],
-    scope: "write",
-    handler: async (context, params, req, url, auth) => {
-      const siteId = params.siteId;
-      if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
-      const body = (await readJsonBody(req)) ?? {};
-      const pageBody = parseBody<CreatePageBody>(CreatePageBodySchema, body, "page");
-      const { idempotencyKey, starter: starterId, ...pageInput } = pageBody;
-      return withIdempotency(context, auth, req, url, idempotencyKey, pageBody, async () => {
-        const starter = starterId === undefined ? undefined : pageStarterById(starterId);
-        const created = await context.store.createPage(siteId, {
-          ...pageInput,
-          ...(pageInput.title === undefined && starter !== undefined
-            ? { title: starter.defaultTitle }
-            : {}),
-        });
-        let page = created;
-        let starterResult: { applied: boolean; reason?: string } | undefined;
-        if (starter !== undefined && starter.sections.length > 0) {
-          // The sections go in through the ordinary mutation path, so a start
-          // template is held to the same rules as any edit (registry schemas,
-          // guardrails, design fence). When the batch is refused the page stays
-          // what it was — an empty page — and the response says why.
-          try {
-            await applyMutationsToPage(
-              context,
-              created.id,
-              {
-                baseDraftVersion: created.draftVersion,
-                mutations: starter.sections.map((section) => ({
-                  op: "insertNode" as const,
-                  parent: { nodeId: created.draft.rootNodeId },
-                  node: section,
-                })),
-              },
-              auth,
-            );
-            page = await context.store.getPage(created.id);
-            starterResult = { applied: true };
-          } catch (error) {
-            if (!(error instanceof SenifyError)) throw error;
-            starterResult = { applied: false, reason: error.message };
-          }
-        }
-        context.events.publish({
-          kind: "page.created",
-          siteId,
-          pageId: page.id,
-          action: "createPage",
-          actor: resolveAuthor(auth),
-        });
-        return { status: 201, body: starterResult === undefined ? page : { ...page, starter: starterResult } };
-      });
-    },
-  },
+  ...siteRoutes,
   {
     // The start templates the dashboard offers for a new page.
     method: "GET",
@@ -1458,95 +381,6 @@ const ROUTES: Route[] = [
           sections: starter.sections.map((section) => section.type),
         })),
       },
-    }),
-  },
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "pages"],
-    scope: "read",
-    handler: async (context, params, _req, url) => {
-      const siteId = params.siteId;
-      if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
-      const all = await context.store.listPages(siteId);
-      const page = paginate(all, parsePaging(url.searchParams), all.length);
-      return { status: 200, body: { pages: page.items, ...page, items: undefined } };
-    },
-  },
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "theme"],
-    scope: "read",
-    handler: async (context, params) => {
-      const siteId = params.siteId;
-      if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
-      return { status: 200, body: await context.store.getTheme(siteId) };
-    },
-  },
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "theme.css"],
-    scope: "read",
-    handler: async (context, params) => {
-      const siteId = params.siteId;
-      if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
-      const stored = await context.store.getTheme(siteId);
-      return {
-        status: 200,
-        text: { contentType: "text/css; charset=utf-8", body: stored.css },
-        headers: {
-          "cache-control": "no-store",
-          "x-senify-theme-version": String(stored.version),
-        },
-      };
-    },
-  },
-  {
-    method: "PUT",
-    segments: ["api", "sites", ":siteId", "theme"],
-    scope: "write",
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = params.siteId;
-      if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
-      const body = (await readJsonBody(req)) ?? {};
-      const themeBody = parseBody<UpdateThemeBody>(UpdateThemeBodySchema, body, "theme update");
-      const updated = await context.store.updateTheme(
-        siteId,
-        themeBody.theme,
-        resolveAuthor(auth),
-      );
-      return { status: 200, body: updated };
-    },
-  },
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "theme", "report"],
-    scope: "read",
-    handler: async (context, params) => {
-      const siteId = params.siteId;
-      if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
-      return {
-        status: 200,
-        body: await buildThemeReport({
-          store: context.store,
-          registry: context.registry,
-          siteId,
-        }),
-      };
-    },
-  },
-  {
-    // Design report (E26): the reproducible 0-100 score with its eight
-    // dimensions and the named slop findings (S1-S12). A read; the gate
-    // stages stay in the release checks.
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "design-report"],
-    scope: "read",
-    handler: async (context, params) => ({
-      status: 200,
-      body: await buildDesignReport({
-        store: context.store,
-        siteId: requireParam(params, "siteId"),
-      }),
     }),
   },
   // The self-hosted motion runtime for the editor's play preview (ticket 19,
@@ -1575,108 +409,6 @@ const ROUTES: Route[] = [
   // Style rules (Phase 2): site-wide, so they hang off the site like the theme
 // does. Reads are open to any token, writes need `write`, deletion needs
 // `publish` (same ladder the other destructive site resources use).
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "style-rules"],
-    scope: "read",
-    handler: async (context, params) => {
-      const siteId = requireParam(params, "siteId");
-      const registry = await context.store.getStyleRegistry(siteId);
-      return { status: 200, body: registry, headers: styleVersionHeaders(registry.version) };
-    },
-  },
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "style-rules"],
-    scope: "write",
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const parsed = parseBody<CreateStyleRuleBody>(
-        CreateStyleRuleBodySchema,
-        body,
-        "style rule",
-      );
-      const { author: _suggestion, ...input } = parsed;
-      const rule = await context.store.createStyleRule(siteId, input, resolveAuthor(auth));
-      const version = (await context.store.getStyleRegistry(siteId)).version;
-      return { status: 201, body: rule, headers: styleVersionHeaders(version) };
-    },
-  },
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "style-rules", ":ruleId"],
-    scope: "read",
-    handler: async (context, params) => {
-      const siteId = requireParam(params, "siteId");
-      const ruleId = requireParam(params, "ruleId");
-      return { status: 200, body: await context.store.getStyleRule(siteId, ruleId) };
-    },
-  },
-  {
-    method: "PATCH",
-    segments: ["api", "sites", ":siteId", "style-rules", ":ruleId"],
-    scope: "write",
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const ruleId = requireParam(params, "ruleId");
-      const body = (await readJsonBody(req)) ?? {};
-      const parsed = parseBody<UpdateStyleRuleBody>(
-        UpdateStyleRuleBodySchema,
-        body,
-        "style rule update",
-      );
-      const { author: _suggestion, ...patch } = parsed;
-      const rule = await context.store.updateStyleRule(siteId, ruleId, patch, resolveAuthor(auth));
-      const version = (await context.store.getStyleRegistry(siteId)).version;
-      return { status: 200, body: rule, headers: styleVersionHeaders(version) };
-    },
-  },
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "style-rules", ":ruleId", "reorder"],
-    scope: "write",
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const ruleId = requireParam(params, "ruleId");
-      const body = (await readJsonBody(req)) ?? {};
-      const parsed = parseBody<ReorderStyleRuleBody>(
-        ReorderStyleRuleBodySchema,
-        body,
-        "style rule reorder",
-      );
-      const rules = await context.store.reorderStyleRule(
-        siteId,
-        ruleId,
-        parsed.index,
-        resolveAuthor(auth),
-        parsed.baseVersion,
-      );
-      const version = (await context.store.getStyleRegistry(siteId)).version;
-      return { status: 200, body: { rules }, headers: styleVersionHeaders(version) };
-    },
-  },
-  {
-    method: "DELETE",
-    segments: ["api", "sites", ":siteId", "style-rules", ":ruleId"],
-    scope: "publish",
-    destructive: true,
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const ruleId = requireParam(params, "ruleId");
-      const body = (await readJsonBody(req)) ?? {};
-      // The body stays validated (closed shape); the token is the identity.
-      const parsed = parseBody<SiteEventBody>(SiteEventBodySchema, body, "style rule delete");
-      await context.store.deleteStyleRule(
-        siteId,
-        ruleId,
-        resolveAuthor(auth),
-        parsed.baseVersion,
-      );
-      const version = (await context.store.getStyleRegistry(siteId)).version;
-      return { status: 204, headers: styleVersionHeaders(version) };
-    },
-  },
   {
     method: "GET",
     segments: ["api", "pages", ":pageId"],
@@ -1788,27 +520,6 @@ const ROUTES: Route[] = [
       return {
         status: 200,
         body: { entries: await context.store.listAudit(pageId, limit) },
-      };
-    },
-  },
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "audit"],
-    scope: "read",
-    handler: async (context, params, _req, url) => {
-      const siteId = requireParam(params, "siteId");
-      await context.store.getSite(siteId);
-      const rawLimit = url.searchParams.get("limit");
-      const limit = rawLimit === null ? 50 : Number.parseInt(rawLimit, 10);
-      if (!Number.isInteger(limit)) {
-        throw new SenifyError("validation", "Audit limit must be an integer", {
-          field: "limit",
-        });
-      }
-      // Site-wide activity log: pages, themes, assets and content writes.
-      return {
-        status: 200,
-        body: { entries: await context.store.listSiteAudit(siteId, limit) },
       };
     },
   },
@@ -1929,219 +640,6 @@ const ROUTES: Route[] = [
     },
   },
   {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "releases"],
-    scope: "publish",
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<PublishReleaseBody>(
-        PublishReleaseBodySchema,
-        body,
-        "release",
-      );
-      const result = await publishRelease(lifecycleContext(context), {
-        siteId,
-        author: resolveAuthor(auth),
-        note: input.note ?? null,
-        basisReleaseId: input.basisReleaseId ?? null,
-      });
-      context.events.publish({
-        kind: "release.published",
-        siteId,
-        action: "publishRelease",
-        actor: resolveAuthor(auth),
-      });
-      return { status: 201, body: result };
-    },
-  },
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "releases"],
-    scope: "read",
-    handler: async (context, params, _req, url) => {
-      const siteId = requireParam(params, "siteId");
-      const all = await context.store.listReleases(siteId);
-      const page = paginate(all, parsePaging(url.searchParams), all.length);
-      return {
-        status: 200,
-        body: {
-          releases: page.items,
-          ...page,
-          items: undefined,
-          // The active release is a POINTER, not part of the list, and it stays
-          // outside the paging: a caller asking for page 3 of the history still
-          // needs to know which one is live, or it could roll back to something
-          // that was already superseded.
-          activeReleaseId: await context.store.getActiveReleaseId(siteId),
-        },
-      };
-    },
-  },
-  {
-    // Re-bake jobs (E12 slice 1): the durable outbox behind content changes.
-    // The status is the read side of the worker — queued, running, done, failed
-    // with attempts, next attempt time and the last error.
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "bake-jobs"],
-    scope: "read",
-    handler: async (context, params, _req, url) => {
-      const siteId = requireParam(params, "siteId");
-      const all = await context.store.listBakeJobs(siteId);
-      const page = paginate(all, parsePaging(url.searchParams), all.length);
-      return {
-        status: 200,
-        body: { jobs: page.items, ...page, items: undefined },
-      };
-    },
-  },
-  {
-    // Deploy (E14): delivers the active release's build to the target. The
-    // first adapter is a static directory; the outcome is recorded.
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "deployments"],
-    scope: "publish",
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<CreateDeploymentBody>(
-        CreateDeploymentBodySchema,
-        body,
-        "deployment",
-      );
-      const provider = input.provider ?? "static";
-      if (provider === "static" && input.targetDir === undefined) {
-        throw new SenifyError("validation", 'Static deploys need a "targetDir"', {
-          field: "targetDir",
-          suggestion: 'Send { "provider": "static", "targetDir": "C:\\\\sites\\\\seite" }.',
-        });
-      }
-      const deployment = await deployActiveRelease(context.store, {
-        siteId,
-        provider,
-        targetDir: input.targetDir ?? "",
-        author: resolveAuthor(auth),
-      });
-      context.events.publish({
-        kind: "deploy.finished",
-        siteId,
-        action: deployment.status,
-        actor: resolveAuthor(auth),
-      });
-      return { status: 201, body: { deployment } };
-    },
-  },
-  {
-    // Deploy settings (E14): where a hosted provider delivers. The token is
-    // encrypted at rest; the view only says whether one exists.
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "deploy-settings"],
-    scope: "read",
-    handler: async (context, params) => ({
-      status: 200,
-      body: await context.store.getDeploySettings(requireParam(params, "siteId")),
-    }),
-  },
-  {
-    method: "PUT",
-    segments: ["api", "sites", ":siteId", "deploy-settings"],
-    scope: "write",
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<UpdateDeploySettingsBody>(
-        UpdateDeploySettingsBodySchema,
-        body,
-        "deploy settings",
-      );
-      const patch: Parameters<Store["updateDeploySettings"]>[1] = {};
-      if (input.provider !== undefined) patch.provider = input.provider;
-      if (input.netlifySiteId !== undefined) patch.netlifySiteId = input.netlifySiteId;
-      if (input.netlifyToken !== undefined) {
-        patch.netlifyTokenEncrypted =
-          input.netlifyToken === null
-            ? null
-            : await encryptImageApiKey(context.store, input.netlifyToken);
-      }
-      if (input.vercelProjectId !== undefined) patch.vercelProjectId = input.vercelProjectId;
-      if (input.vercelToken !== undefined) {
-        patch.vercelTokenEncrypted =
-          input.vercelToken === null
-            ? null
-            : await encryptImageApiKey(context.store, input.vercelToken);
-      }
-      const settings = await context.store.updateDeploySettings(siteId, patch);
-      await context.store.recordSiteEvent({
-        siteId,
-        mutation: "update_deploy_settings",
-        params: {
-          provider: settings.provider,
-          netlifySiteId: settings.netlifySiteId,
-          vercelProjectId: settings.vercelProjectId,
-          tokenChanged:
-            input.netlifyToken !== undefined || input.vercelToken !== undefined,
-        },
-        author: resolveAuthor(auth),
-      });
-      return { status: 200, body: settings };
-    },
-  },
-  {
-    // Design contract (E26, R9): the project's design DNA. GET returns the
-    // contract or null; PUT sets a manual one (null clears it).
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "design-contract"],
-    scope: "read",
-    handler: async (context, params) => ({
-      status: 200,
-      body: await context.store.getDesignContract(requireParam(params, "siteId")),
-    }),
-  },
-  {
-    method: "PUT",
-    segments: ["api", "sites", ":siteId", "design-contract"],
-    scope: "write",
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<UpdateDesignContractBody>(
-        UpdateDesignContractBodySchema,
-        body,
-        "design contract",
-      );
-      const contract = await context.store.updateDesignContract(
-        siteId,
-        input.constants === undefined && input.never === undefined && input.vocabulary === undefined
-          ? null
-          : {
-              constants: input.constants ?? [],
-              never: input.never ?? [],
-              vocabulary: input.vocabulary ?? [],
-            },
-      );
-      await context.store.recordSiteEvent({
-        siteId,
-        mutation: "update_design_contract",
-        params: { manual: contract !== null },
-        author: resolveAuthor(auth),
-      });
-      return { status: 200, body: contract };
-    },
-  },
-  {
-    // The deploy history of a site (newest first).
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "deployments"],
-    scope: "read",
-    handler: async (context, params) => {
-      const siteId = requireParam(params, "siteId");
-      return {
-        status: 200,
-        body: { deployments: await context.store.listDeployments(siteId) },
-      };
-    },
-  },
-  {
     method: "GET",
     segments: ["api", "releases", ":releaseId"],
     scope: "read",
@@ -2191,101 +689,6 @@ const ROUTES: Route[] = [
           revisionId: input.revisionId,
           author: resolveAuthor(auth),
         }),
-      };
-    },
-  },
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "previews"],
-    scope: "write",
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<CreatePreviewBody>(
-        CreatePreviewBodySchema,
-        body,
-        "preview",
-      );
-      const preview = await createPreview(lifecycleContext(context), {
-        siteId,
-        author: resolveAuthor(auth),
-        ttlDays: input.ttlDays,
-      });
-      return {
-        status: 201,
-        body: {
-          preview,
-          url: `/api/previews/${preview.id}/files/index.html?token=${preview.token}`,
-        },
-      };
-    },
-  },
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "previews"],
-    scope: "read",
-    handler: async (context, params) => {
-      const siteId = requireParam(params, "siteId");
-      const expired = await expirePreviews(lifecycleContext(context), siteId);
-      return {
-        status: 200,
-        body: {
-          previews: await context.store.listPreviews(siteId),
-          expired,
-        },
-      };
-    },
-  },
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "reviews"],
-    scope: "write",
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<SubmitReviewBody>(
-        SubmitReviewBodySchema,
-        body,
-        "review",
-      );
-      const result = await submitReview(lifecycleContext(context), {
-        siteId,
-        author: resolveAuthor(auth),
-        note: input.note ?? null,
-        pageIds: input.pageIds,
-      });
-      return {
-        status: 201,
-        body: {
-          review: result.review,
-          preview: result.preview,
-          checks: result.checks,
-        },
-      };
-    },
-  },
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "reviews"],
-    scope: "read",
-    handler: async (context, params, _req, url) => {
-      const siteId = requireParam(params, "siteId");
-      const statusParam = url.searchParams.get("status");
-      if (statusParam !== null && !REVIEW_STATUSES.includes(statusParam as ReviewStatus)) {
-        throw new SenifyError("validation", `Unknown review status "${statusParam}"`, {
-          field: "status",
-          suggestion: `Use one of: ${REVIEW_STATUSES.join(", ")}.`,
-        });
-      }
-      return {
-        status: 200,
-        body: {
-          reviews: await context.store.listReviewItems(siteId, {
-            ...(statusParam === null
-              ? {}
-              : { status: statusParam as ReviewStatus }),
-          }),
-        },
       };
     },
   },
@@ -2399,36 +802,6 @@ const ROUTES: Route[] = [
     },
   },
   {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "assets", "upload-url"],
-    scope: "write",
-    handler: async (context, params, req, url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<UploadUrlBody>(
-        UploadUrlBodySchema,
-        body,
-        "upload request",
-      );
-      const { idempotencyKey, ...uploadInput } = input;
-      return withIdempotency(context, auth, req, url, idempotencyKey, input, async () => {
-        const { uploadId, ticket } = await createUploadTicket(mediaContext(context), {
-          siteId,
-          body: uploadInput,
-        });
-        const token = context.uploadSigner.sign(ticket);
-        return {
-          status: 201,
-          body: {
-            uploadId,
-            url: `/api/assets/upload/${uploadId}?token=${encodeURIComponent(token)}`,
-            expiresAt: ticket.expiresAt,
-          },
-        };
-      });
-    },
-  },
-  {
     method: "PUT",
     segments: ["api", "assets", "upload", ":uploadId"],
     public: true,
@@ -2460,28 +833,6 @@ const ROUTES: Route[] = [
         action: "uploadAsset",
       });
       return { status: 201, body: upload };
-    },
-  },
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "assets"],
-    scope: "read",
-    handler: async (context, params, _req, url) => {
-      const siteId = requireParam(params, "siteId");
-      const all = await queryAssets(
-        context.store,
-        siteId,
-        parseAssetListFilters(url.searchParams),
-      );
-      // `queryAssets` already understands `limit`; the paging block is built
-      // from the FILTERED list so `total` and `hasMore` describe what the filter
-      // matched, not the whole library. A caller that filtered to one folder and
-      // got `total: 4000` would stop paging and think it had seen everything.
-      const page = paginate(all, parsePaging(url.searchParams), all.length);
-      return {
-        status: 200,
-        body: { assets: page.items, ...page, items: undefined },
-      };
     },
   },
   {
@@ -2541,73 +892,9 @@ const ROUTES: Route[] = [
     destructive: true,
     handler: async (context, params) => ({ status: 200, body: await context.store.deleteLibraryComponent(requireParam(params, "componentId")) }),
   },
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "library-installs"],
-    scope: "read",
-    handler: async (context, params) => ({ status: 200, body: { installs: await context.store.listLibraryInstalls(requireParam(params, "siteId")) } }),
-  },
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "library-installs"],
-    scope: "write",
-    handler: async (context, params, req) => {
-      const body = parseBody<InstallLibraryComponentBody>(InstallLibraryComponentBodySchema, (await readJsonBody(req)) ?? {}, "library install");
-      return { status: 201, body: await context.store.installLibraryComponent({ id: newEntityId(), siteId: requireParam(params, "siteId"), ...body, mode: body.mode ?? "linked" }) };
-    },
-  },
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "library-installs", ":installId", "update"],
-    scope: "write",
-    handler: async (context, params, req) => {
-      const body = ((await readJsonBody(req)) ?? {}) as Record<string, unknown>;
-      const author = parseBody<{ kind: "human" | "agent"; id: string; label: string }>(AuthorSchema, body.author, "library install update");
-      return { status: 200, body: await context.store.updateLibraryInstall(requireParam(params, "installId"), author) };
-    },
-  },
-  {
-    method: "DELETE",
-    segments: ["api", "sites", ":siteId", "library-installs", ":installId"],
-    scope: "write",
-    destructive: true,
-    handler: async (context, params, req) => {
-      const body = ((await readJsonBody(req)) ?? {}) as Record<string, unknown>;
-      const author = parseBody<{ kind: "human" | "agent"; id: string; label: string }>(AuthorSchema, body.author, "library detach");
-      return { status: 200, body: await context.store.deleteLibraryInstall(requireParam(params, "installId"), author) };
-    },
-  },
   // Imported foreign code (ADR-0010): a payload is a site's code package with
   // its provenance. Writing one is an audited write (MCP needs the write
   // scope); reading the metadata is enough for the report and the editor.
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "code-payloads"],
-    scope: "write",
-    handler: async (context, params, req) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const parsed = parseBody<CreateCodePayloadBody>(
-        CreateCodePayloadBodySchema,
-        body,
-        "code payload",
-      );
-      const payload = await createCodePayload(context.store, { siteId, body: parsed });
-      return { status: 201, body: payload };
-    },
-  },
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "code-payloads"],
-    scope: "read",
-    handler: async (context, params) => {
-      const siteId = requireParam(params, "siteId");
-      return {
-        status: 200,
-        body: { payloads: await context.store.listCodePayloads(siteId) },
-      };
-    },
-  },
   {
     method: "GET",
     segments: ["api", "code-payloads", ":payloadId"],
@@ -2626,186 +913,6 @@ const ROUTES: Route[] = [
       status: 200,
       body: await context.store.deleteCodePayload(requireParam(params, "payloadId")),
     }),
-  },
-  {
-    // Asset access is site-scoped (ADR-0014): a token is not bound to a site,
-    // so the site comes from the path and the loaded asset carries its own.
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "assets", ":assetId"],
-    scope: "read",
-    handler: async (context, params) => ({
-      status: 200,
-      body: await context.store.getAssetOfSite(
-        requireParam(params, "assetId"),
-        requireParam(params, "siteId"),
-      ),
-    }),
-  },
-  {
-    method: "PATCH",
-    segments: ["api", "sites", ":siteId", "assets", ":assetId"],
-    scope: "write",
-    handler: async (context, params, req) => {
-      const siteId = requireParam(params, "siteId");
-      const assetId = requireParam(params, "assetId");
-      const body = (await readJsonBody(req)) ?? {};
-      const patch = parseBody<AssetPatchBody>(
-        AssetPatchBodySchema,
-        body,
-        "asset update",
-      );
-      return {
-        status: 200,
-        body: await applyAssetPatch(context.store, { siteId, assetId }, patch),
-      };
-    },
-  },
-  {
-    method: "DELETE",
-    segments: ["api", "sites", ":siteId", "assets", ":assetId"],
-    scope: "write",
-    handler: async (context, params) => {
-      const siteId = requireParam(params, "siteId");
-      const assetId = requireParam(params, "assetId");
-      // Soft delete: files stay on disk, the record flips to "trashed".
-      await context.store.getAssetOfSite(assetId, siteId);
-      return {
-        status: 200,
-        body: await context.store.updateAsset(assetId, {
-          status: "trashed",
-          trashedAt: new Date().toISOString(),
-        }),
-      };
-    },
-  },
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "assets", ":assetId", "restore"],
-    scope: "write",
-    handler: async (context, params) => {
-      const siteId = requireParam(params, "siteId");
-      const assetId = requireParam(params, "assetId");
-      await context.store.getAssetOfSite(assetId, siteId);
-      return {
-        status: 200,
-        body: await context.store.updateAsset(assetId, {
-          status: "ready",
-          trashedAt: null,
-        }),
-      };
-    },
-  },
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "assets", ":assetId", "purge"],
-    scope: "publish",
-    destructive: true,
-    handler: async (context, params) => {
-      const siteId = requireParam(params, "siteId");
-      const assetId = requireParam(params, "assetId");
-      const asset = await purgeAsset(mediaContext(context), { siteId, assetId });
-      return { status: 200, body: { purged: asset.id } };
-    },
-  },
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "assets", ":assetId", "history"],
-    scope: "read",
-    handler: async (context, params) => {
-      const siteId = requireParam(params, "siteId");
-      const assetId = requireParam(params, "assetId");
-      await context.store.getAssetOfSite(assetId, siteId);
-      return {
-        status: 200,
-        body: { history: await context.store.listAssetHistory(assetId) },
-      };
-    },
-  },
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "assets", ":assetId", "restore-history", ":historyId"],
-    scope: "write",
-    handler: async (context, params) => ({
-      status: 200,
-      body: await restoreAssetHistory(mediaContext(context), {
-        siteId: requireParam(params, "siteId"),
-        assetId: requireParam(params, "assetId"),
-        historyId: requireParam(params, "historyId"),
-      }),
-    }),
-  },
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "assets", "bulk"],
-    scope: "write",
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<BulkAssetsBody>(
-        BulkAssetsBodySchema,
-        body,
-        "asset bulk request",
-      );
-      // Bulk is a write route; permanent deletes still need the publish scope.
-      const allowPurge = auth?.scopes.includes("publish") === true;
-      return {
-        status: 200,
-        body: await bulkAssets(mediaContext(context), {
-          siteId,
-          body: input,
-          allowPurge,
-        }),
-      };
-    },
-  },
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "asset-folders"],
-    scope: "write",
-    handler: async (context, params, req) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<CreateAssetFolderBody>(
-        CreateAssetFolderBodySchema,
-        body,
-        "asset folder",
-      );
-      return {
-        status: 201,
-        body: await createAssetFolder(mediaContext(context), {
-          siteId,
-          name: input.name,
-          parentId: input.parentId ?? null,
-        }),
-      };
-    },
-  },
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "asset-folders"],
-    scope: "read",
-    handler: async (context, params) => ({
-      status: 200,
-      body: {
-        folders: await context.store.listAssetFolders(
-          requireParam(params, "siteId"),
-        ),
-      },
-    }),
-  },
-  {
-    method: "DELETE",
-    segments: ["api", "sites", ":siteId", "asset-folders", ":folderId"],
-    scope: "write",
-    handler: async (context, params) => {
-      const folderId = requireParam(params, "folderId");
-      await context.store.getAssetFolderOfSite(
-        folderId,
-        requireParam(params, "siteId"),
-      );
-      await context.store.deleteAssetFolder(folderId);
-      return { status: 204 };
-    },
   },
   {
     // Root files of a bake: the baked pages link `/assets/theme.css`,
@@ -2922,61 +1029,6 @@ const ROUTES: Route[] = [
   },
   // ------------------------------------------------------- content core (T09)
   {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "collections"],
-    scope: "write",
-    handler: async (context, params, req) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<CreateCollectionBody>(
-        CreateCollectionBodySchema,
-        body,
-        "collection",
-      );
-      return {
-        status: 201,
-        body: await createCollection(context.store, { siteId, body: input }),
-      };
-    },
-  },
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "collections", "from-fields"],
-    scope: "write",
-    handler: async (context, params, req) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<CreateCollectionBody>(
-        FromFieldsBodySchema,
-        body,
-        "collection from fields",
-      );
-      return {
-        status: 201,
-        body: await createCollectionFromFields(context.store, {
-          siteId,
-          body: input,
-        }),
-      };
-    },
-  },
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "collections"],
-    scope: "read",
-    handler: async (context, params, _req, url) => {
-      const siteId = requireParam(params, "siteId");
-      return {
-        status: 200,
-        body: {
-          collections: await context.store.listCollections(siteId, {
-            includeDeprecated: url.searchParams.get("includeDeprecated") === "true",
-          }),
-        },
-      };
-    },
-  },
-  {
     method: "GET",
     segments: ["api", "collections", ":collectionId"],
     scope: "read",
@@ -3005,93 +1057,6 @@ const ROUTES: Route[] = [
           collectionId,
           body: input,
         }),
-      };
-    },
-  },
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "entries"],
-    scope: "write",
-    handler: async (context, params, req, url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<CreateEntryBody>(
-        CreateEntryBodySchema,
-        body,
-        "entry",
-      );
-      const { idempotencyKey, ...entryInput } = input;
-      return withIdempotency(context, auth, req, url, idempotencyKey, input, async () => ({
-        status: 201,
-        body: await createEntry(context.store, {
-          siteId,
-          body: { ...entryInput, author: resolveAuthor(auth) },
-        }),
-      }));
-    },
-  },
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "entries"],
-    scope: "read",
-    handler: async (context, params, _req, url) => {
-      const siteId = requireParam(params, "siteId");
-      // Entries page like every other list. A collection with a few hundred
-      // rows is normal, and an agent that has to hold all of them to find the
-      // last one has no room left for the answer.
-      const all = await listEntries(context.store, {
-        siteId,
-        filters: parseEntryListFilters(url.searchParams),
-      });
-      const page = paginate(all, parsePaging(url.searchParams), all.length);
-      return {
-        status: 200,
-        body: { entries: page.items, ...page, items: undefined },
-      };
-    },
-  },
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "entries", "search"],
-    scope: "read",
-    handler: async (context, params, req) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<SearchEntriesBody>(
-        SearchEntriesBodySchema,
-        body,
-        "entry search",
-      );
-      return {
-        status: 200,
-        body: await searchEntries(context.store, {
-          siteId,
-          q: input.q,
-          ...(input.collectionId === undefined
-            ? {}
-            : { collectionId: input.collectionId }),
-          ...(input.status === undefined ? {} : { status: input.status }),
-          ...(input.limit === undefined ? {} : { limit: input.limit }),
-        }),
-      };
-    },
-  },
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "entries", "resolve"],
-    scope: "read",
-    handler: async (context, params, _req, url) => {
-      const siteId = requireParam(params, "siteId");
-      const path = url.searchParams.get("path");
-      if (path === null || path.trim() === "") {
-        throw new SenifyError("validation", "Query parameter \"path\" is missing", {
-          field: "path",
-          suggestion: "Resolve a path, e.g. ?path=/blog/mein-beitrag.",
-        });
-      }
-      return {
-        status: 200,
-        body: await resolveEntryPath(context.store, { siteId, path }),
       };
     },
   },
@@ -3375,17 +1340,6 @@ const ROUTES: Route[] = [
     },
   },
   {
-    // The program's form overview: latest snapshot per form, for the
-    // submissions view (fields, target collection, source page).
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "forms"],
-    scope: "read",
-    handler: async (context, params) => ({
-      status: 200,
-      body: { forms: await listSiteForms(context.store, requireParam(params, "siteId")) },
-    }),
-  },
-  {
     method: "GET",
     segments: ["api", "forms", ":formId", "submissions"],
     scope: "read",
@@ -3420,69 +1374,6 @@ const ROUTES: Route[] = [
         headers: {
           "content-disposition": `attachment; filename="submissions-${formId}.csv"`,
         },
-      };
-    },
-  },
-  {
-    // Entry-based view for the program; the same rows the entry tools expose.
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "submissions"],
-    scope: "read",
-    handler: async (context, params, _req, url) => {
-      const siteId = requireParam(params, "siteId");
-      const collectionId = url.searchParams.get("collectionId") ?? undefined;
-      const view = await listSubmissions(context.store, {
-        siteId,
-        ...(collectionId === undefined ? {} : { collectionId }),
-        limit: limitParam(url, 200),
-      });
-      return {
-        status: 200,
-        body: { source: view.source, columns: view.columns, rows: view.rows },
-      };
-    },
-  },
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "forms", "collection-plan"],
-    scope: "write",
-    handler: async (context, params, req) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<FormCollectionPlanBody>(
-        FormCollectionPlanBodySchema,
-        body,
-        "form collection plan",
-      );
-      return {
-        status: 200,
-        body: await planCollectionFromForm(context.store, {
-          siteId,
-          formId: input.formId,
-        }),
-      };
-    },
-  },
-  {
-    // One click: creates the target collection with fields + status template.
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "forms", "collection"],
-    scope: "write",
-    handler: async (context, params, req) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<FormCollectionCreateBody>(
-        FormCollectionCreateBodySchema,
-        body,
-        "form collection",
-      );
-      return {
-        status: 201,
-        body: await createCollectionFromForm(context.store, {
-          siteId,
-          formId: input.formId,
-          ...(input.name === undefined ? {} : { name: input.name }),
-        }),
       };
     },
   },
@@ -3532,20 +1423,6 @@ const ROUTES: Route[] = [
         }),
       };
     },
-  },
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "notifications"],
-    scope: "read",
-    handler: async (context, params, _req, url) => ({
-      status: 200,
-      body: {
-        notifications: await context.store.listNotifications(
-          requireParam(params, "siteId"),
-          limitParam(url, 50),
-        ),
-      },
-    }),
   },
   {
     // analyze_reference: URL → analysis job → profile (artifacts/28 §1).
@@ -4037,103 +1914,6 @@ const ROUTES: Route[] = [
       };
     },
   },
-  {
-    // Project assignment of references + the derived theme draft (T14 reuse).
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "references"],
-    scope: "read",
-    handler: async (context, params, _req, url) => {
-      const siteId = requireParam(params, "siteId");
-      const references = referenceContext(context);
-      const { draft, verification } = await referenceThemeDraft(references, siteId);
-      // The assignments are a list like any other, so they page. The draft and
-      // the verification are NOT paged: they are the derived state of the whole
-      // set, and a page of them would describe nothing.
-      const assignments = await context.store.listReferenceAssignments(siteId);
-      const page = paginate(assignments, parsePaging(url.searchParams), assignments.length);
-      return {
-        status: 200,
-        body: {
-          assignments: page.items,
-          ...page,
-          items: undefined,
-          draft,
-          verification,
-          unchanged: await verifyReferenceApply(references, siteId),
-        },
-      };
-    },
-  },
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "references"],
-    scope: "write",
-    handler: async (context, params, req, _url, auth) => {
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<ApplyReferenceBody>(
-        ApplyReferenceBodySchema,
-        body,
-        "reference assignment",
-      );
-      const result = await applyReference(referenceContext(context), {
-        siteId: requireParam(params, "siteId"),
-        referenceId: input.referenceId,
-        author: resolveAuthor(auth),
-        ...(input.scales === undefined ? {} : { scales: input.scales }),
-      });
-      return { status: 201, body: result };
-    },
-  },
-  {
-    method: "DELETE",
-    segments: ["api", "sites", ":siteId", "references", ":referenceId"],
-    scope: "write",
-    destructive: true,
-    handler: async (context, params) => ({
-      status: 200,
-      body: await removeReferenceAssignment(referenceContext(context), {
-        siteId: requireParam(params, "siteId"),
-        referenceId: requireParam(params, "referenceId"),
-      }),
-    }),
-  },
-  {
-    // apply_redesign (E25 slice 2): the mechanical steps of the redesign
-    // journey — duplicate (or rebuild one page), theme patch, section
-    // skeleton — through the canonical write paths. Never the active release:
-    // the duplicate is a new site, the rebuild runs against the draft.
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "redesign"],
-    scope: "write",
-    handler: async (context, params, req, url, auth) => {
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<ApplyRedesignBody>(
-        ApplyRedesignBodySchema,
-        body,
-        "apply redesign",
-      );
-      const siteId = requireParam(params, "siteId");
-      if (input.siteId !== undefined && input.siteId !== siteId) {
-        throw new SenifyError("validation", "The body siteId does not match the route", {
-          field: "siteId",
-          suggestion: "Use the siteId from the route path.",
-        });
-      }
-      return withIdempotency(context, auth, req, url, input.idempotencyKey, { ...input }, async () => {
-        const result = await applyRedesign({
-          store: context.store,
-          registry: context.registry,
-          siteId,
-          ...(input.referenceIds === undefined ? {} : { referenceIds: input.referenceIds }),
-          ...(input.collectionId === undefined ? {} : { collectionId: input.collectionId }),
-          ...(input.pageId === undefined ? {} : { pageId: input.pageId }),
-          ...(input.withContent === undefined ? {} : { withContent: input.withContent }),
-          author: resolveAuthor(auth),
-        });
-        return { status: 201, body: result };
-      });
-    },
-  },
   // ----------------------------------------------- redesign proposals (ADR-0012)
   // The human direction step. The agent proposes and reads; only a human
   // operator confirms, and the confirm is one command (decision + apply).
@@ -4555,121 +2335,6 @@ const ROUTES: Route[] = [
     },
   },
   {
-    // Starts a durable image job (S2): the worker walks the provider chain and
-    // commits the result through the media pipeline.
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "images", "jobs"],
-    scope: "write",
-    handler: async (context, params, req, url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      await context.store.getSite(siteId);
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<CreateImageJobBody>(
-        CreateImageJobBodySchema,
-        body,
-        "image job",
-      );
-      const settings = await context.store.getImageSettings();
-      const provider = input.provider ?? settings.provider;
-      if (provider === "off") {
-        throw new SenifyError(
-          "validation",
-          "Bildgenerierung ist in den Einstellungen deaktiviert (provider: off)",
-          {
-            field: "image.provider",
-            suggestion: "Den Provider in den Einstellungen aktivieren.",
-          },
-        );
-      }
-      let prompt = input.prompt?.trim() ?? "";
-      if (prompt === "" && input.referenceId !== undefined) {
-        const reference = await context.store.getReference(input.referenceId);
-        const built = buildImagePrompt(reference);
-        if (built === null) {
-          throw new SenifyError(
-            "validation",
-            `Referenz "${input.referenceId}" hat kein Bildrezept`,
-            {
-              field: "referenceId",
-              suggestion:
-                "get_reference_brief liefert imagePrompt, sobald ein Rezept hinterlegt ist.",
-            },
-          );
-        }
-        prompt = built;
-      }
-      if (prompt === "") {
-        throw new SenifyError("validation", "prompt oder referenceId ist nötig", {
-          field: "prompt",
-          suggestion: "Einen Prompt senden oder eine Referenz mit Bildrezept angeben.",
-        });
-      }
-      const request: ImageJobRequest = {
-        prompt,
-        width: input.width ?? 1024,
-        height: input.height ?? 1024,
-        steps: input.steps ?? settings.defaultSteps,
-        ...(input.seed === undefined ? {} : { seed: input.seed }),
-        filename:
-          input.filename?.trim() ?? `senify-bild-${newEntityId().slice(0, 8)}.png`,
-        altText: input.altText?.trim() ?? null,
-        decorative: input.decorative ?? false,
-        folderId: input.folderId ?? null,
-        tags: input.tags ?? [],
-        provider,
-        ...(input.referenceId === undefined
-          ? {}
-          : { referenceId: input.referenceId }),
-      };
-      validateImageRequest(provider, request, settings.maxPixels);
-      return withIdempotency(
-        context,
-        auth,
-        req,
-        url,
-        input.idempotencyKey,
-        input,
-        async () => {
-          const job = await context.store.enqueueImageJob({ siteId, request });
-          return {
-            status: 202,
-            body: { jobId: job.id, status: job.status, provider },
-          };
-        },
-      );
-    },
-  },
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "images", "jobs"],
-    scope: "read",
-    handler: async (context, params, _req, url) => {
-      const siteId = requireParam(params, "siteId");
-      const status = url.searchParams.get("status");
-      if (
-        status !== null &&
-        !IMAGE_JOB_STATUSES.includes(status as ImageJobStatus)
-      ) {
-        throw new SenifyError("validation", `Unknown image job status "${status}"`, {
-          field: "status",
-          suggestion: `Use one of: ${IMAGE_JOB_STATUSES.join(", ")}.`,
-        });
-      }
-      // Paging happens HERE, after the status filter, not in the store query.
-      // A job list grows without bound - every generation is a row - and it is
-      // the list an agent polls most often, so it is the one that most needs a
-      // page size. The store keeps its own ordering; this only cuts a window.
-      const all = await context.store.listImageJobs(siteId, {
-        ...(status === null ? {} : { status: status as ImageJobStatus }),
-      });
-      const page = paginate(all, parsePaging(url.searchParams), all.length);
-      return {
-        status: 200,
-        body: { jobs: page.items, ...page, items: undefined },
-      };
-    },
-  },
-  {
     method: "GET",
     segments: ["api", "images", "jobs", ":jobId"],
     scope: "read",
@@ -4905,158 +2570,7 @@ const ROUTES: Route[] = [
   // created first (so a crashed run leaves its record), then the import runs
   // inline — local sources are fast, the durable job keeps the report for
   // clients that poll instead of re-running.
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "imports", "framer"],
-    scope: "write",
-    handler: async (context, params, req, url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const parsed = parseBody<CreateImportBody>(CreateImportBodySchema, body, "import");
-      const { idempotencyKey, ...importInput } = parsed;
-      if (importInput.source.rootDir !== undefined && importInput.source.rootDir !== "") {
-        assertImportRootAllowed(importInput.source.rootDir);
-      }
-      return withIdempotency(context, auth, req, url, idempotencyKey, parsed, async () => {
-        const author = resolveAuthor(auth);
-        const dryRun = importInput.write !== true;
-        const pagePath = importInput.pagePath ?? "/";
-        const job = await context.store.createImportJob({
-          siteId,
-          source: {
-            kind: importInput.source.url !== undefined
-              ? "url"
-              : importInput.source.rootDir !== undefined
-                ? "mirror"
-                : "html",
-            url: importInput.source.url ?? null,
-            rootDir: importInput.source.rootDir ?? null,
-            html: importInput.source.html ?? null,
-            baseUrl: importInput.source.baseUrl ?? null,
-          },
-          pagePath,
-          dryRun,
-          maxAttempts: IMPORT_MAX_ATTEMPTS,
-          payload: importInput as Record<string, unknown>,
-        });
-        try {
-          await context.store.updateImportJob({
-            id: job.id,
-            status: "running",
-            stage: "capture",
-            progress: 10,
-            attempts: job.attempts + 1,
-            nextAttemptAt: job.nextAttemptAt,
-            lastError: null,
-            finishedAt: null,
-          });
-          const result = await runFramerImportJob(context.store, {
-            siteId,
-            jobId: job.id,
-            body: importInput,
-            author,
-            media: mediaContext(context),
-          });
-          if (importInput.write !== true) {
-            await context.store.updateImportJob({
-              id: job.id,
-              status: "succeeded",
-              stage: "done",
-              progress: 100,
-              attempts: job.attempts + 1,
-              nextAttemptAt: job.nextAttemptAt,
-              lastError: null,
-              finishedAt: new Date().toISOString(),
-            });
-            await context.store.setImportJobResult(
-              job.id,
-              result.report as unknown as Record<string, unknown>,
-            );
-          }
-          // Re-read: the answer carries the final job state, not the
-          // queued snapshot from the insert.
-          const finished = await context.store.getImportJob(job.id);
-          if (importInput.write === true && !result.report.replayed) {
-            context.events.publish({
-              kind: "page.created",
-              siteId,
-              pageId: result.report.pageId ?? undefined,
-              action: "importFramer",
-              actor: author,
-            });
-          }
-          return { status: 201, body: { job: finished, report: result.report } };
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500);
-          await context.store
-            .updateImportJob({
-              id: job.id,
-              status: "failed",
-              stage: "failed",
-              progress: job.progress,
-              attempts: job.attempts + 1,
-              nextAttemptAt: job.nextAttemptAt,
-              lastError: message,
-              finishedAt: new Date().toISOString(),
-            })
-            .catch(() => undefined);
-          throw error;
-        }
-      });
-    },
-  },
   // The job list of a site (the editor's import history).
-  {
-    // The preview of an import (nothing is written): the page next to the page
-    // the import makes of it, at the platform's three widths. It opens a
-    // browser and loads the source, so it is a write-scope call.
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "imports", "framer", "preview"],
-    scope: "write",
-    handler: async (context, params, req) => {
-      const siteId = requireParam(params, "siteId");
-      const parsed = parseBody<CreateImportBody>(CreateImportBodySchema, (await readJsonBody(req)) ?? {}, "import");
-      const site = await context.store.getSite(siteId);
-      const siteTheme = await context.store.getTheme(siteId);
-      const resolved = resolveTheme(siteTheme.theme);
-      const baseDuration = resolved.motion.duration.base;
-      // The write would set the source's breakpoints only on a site without a
-      // pair and without other pages; the preview bakes with what it would leave.
-      const targetPath = parsed.pagePath ?? "/";
-      const otherPages = (await context.store.listPageDrafts(siteId)).some((page) =>
-        parsed.pageId === undefined ? page.path !== targetPath : page.id !== parsed.pageId,
-      );
-      const preview = await previewFramerImport({
-        source: sourceOf(parsed),
-        pagePath: parsed.pagePath ?? "/",
-        mode: parsed.mode ?? "dna",
-        themeCss: siteTheme.css,
-        motionTokens: {
-          ease: resolved.motion.ease,
-          baseDurationMs: baseDuration === undefined ? 300 : parseDurationMs(baseDuration),
-          baseStaggerMs: 80,
-        },
-        siteName: site.name,
-        site: { ...(site.breakpoints === undefined ? {} : { breakpoints: site.breakpoints }), otherPages },
-        driver: context.importPreview ?? createImportPreviewDriver(),
-      });
-      return { status: 200, body: preview };
-    },
-  },
-  {
-    // The site-scoped import history shown by the editor.
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "imports"],
-    scope: "read",
-    handler: async (context, params) => {
-      const siteId = requireParam(params, "siteId");
-      return {
-        status: 200,
-        body: { jobs: await context.store.listImportJobsForSite(siteId, 100) },
-      };
-    },
-  },
   {
     // The poll answer: the job record plus its report when the run finished.
     method: "GET",
@@ -5073,73 +2587,6 @@ const ROUTES: Route[] = [
     },
   },
 ];
-
-// The list filters of the reference library: collection, family, status and the
-// search over title, family, note, vocabulary and collection name (app.js:17).
-function filterReferences(
-  references: ReferenceSummary[],
-  filters: ReferenceListFilters,
-): ReferenceSummary[] {
-  let result = references;
-  if (filters.collection === "none") {
-    result = result.filter((reference) => reference.collectionId === null);
-  } else if (filters.collection !== undefined) {
-    result = result.filter(
-      (reference) => reference.collectionId === filters.collection,
-    );
-  }
-  const family = filters.family;
-  if (family !== undefined) {
-    // The library family of the card counts as well as the analysed taxonomy.
-    result = result.filter(
-      (reference) =>
-        reference.family === family || reference.families.includes(family),
-    );
-  }
-  const status = filters.status;
-  if (status !== undefined) {
-    result = result.filter((reference) => reference.status === status);
-  }
-  const query = filters.query?.toLowerCase();
-  if (query !== undefined) {
-    result = result.filter((reference) =>
-      [
-        reference.name,
-        reference.sourceUrl,
-        reference.family ?? "",
-        reference.note ?? "",
-        ...reference.families,
-        ...reference.vocabulary,
-        reference.collection?.name ?? "",
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(query),
-    );
-  }
-  return result;
-}
-
-function requireParam(params: RouteParams, key: string): string {
-  const value = params[key];
-  if (!value) {
-    throw new SenifyError("validation", `Missing ${key}`, { field: key });
-  }
-  return value;
-}
-
-function limitParam(url: URL, fallback = 50): number {
-  const raw = url.searchParams.get("limit");
-  if (raw === null) return fallback;
-  const value = Number.parseInt(raw, 10);
-  if (!Number.isInteger(value) || value < 1 || value > 500) {
-    throw new SenifyError("validation", "limit must be an integer between 1 and 500", {
-      field: "limit",
-    });
-  }
-  return value;
-}
-
 
 async function handleRequest(
   context: EngineContext,

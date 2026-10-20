@@ -64,6 +64,9 @@ export default defineConfig({
       reportsDirectory: "coverage",
       include: [
         "packages/engine/src/http.ts",
+        // Alle HTTP-Fachmodule (ADR-0019): `http-route-support.ts` und
+        // `http-routes-sites.ts` sind aus der geteilten HTTP-Schicht, der
+        // Glob nimmt sie mit - und kuenftige dazu.
         "packages/engine/src/http-*.ts",
         "packages/engine/src/store.ts",
         "packages/engine/src/store-*.ts",
@@ -81,11 +84,18 @@ export default defineConfig({
         // eigenen Statements, ihre Prozentzahl misst nichts. Was sie
         // durchreicht, steht einzeln im Tor.
         "**/packages/editor/src/state/browser.ts",
+        // http-contract.ts haelt nur Typen (Kontext, Route, Antwort): es gibt
+        // keine ausfuehrbare Aussage, die man messen koennte - 0 % waeren eine
+        // Zahl ohne Bedeutung. Der Vertrag selbst ist Typ fuer Typ (ADR-0019).
+        "**/packages/engine/src/http-contract.ts",
         ...coverageConfigDefaults.exclude,
       ],
       thresholds: {
         perFile: true,
-        "packages/engine/src/{http,store,lifecycle,forms}.ts": {
+        // Die HTTP-Schicht ist in vier Module geteilt (ADR-0019); das Tor
+        // haengt an allen vier, sonst wuerde der umgezogene Code ungeschuetzt
+        // mitarbeiten.
+        "packages/engine/src/{http,http-route-support,http-routes-sites,store,lifecycle,forms}.ts": {
           statements: 80,
           branches: 68,
           functions: 88,
