@@ -774,6 +774,39 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
     expect(response.body.job.sourceKind).toBe("mirror");
   }, 60_000);
 
+  it("nimmt die Medien aus dem Mirror-Ordner (relative URL, ohne Netz und ohne baseUrl)", async () => {
+    // Der Mirror ist eine Kopie der Seite: das Bild liegt im Ordner, die Seite
+    // zeigt mit einem relativen Pfad darauf. Der Import holt es von dort.
+    const root = mkdtempSync(join(tmpdir(), "senify-import-mirror-media-"));
+    mkdirSync(join(root, "assets"), { recursive: true });
+    writeFileSync(join(root, "assets", "bild.png"), Buffer.from("PNG-fake-mirror-", "utf8"));
+    writeFileSync(
+      join(root, "index.html"),
+      `<html lang="de"><head><title>Mirror</title></head><body><div id="main" data-framer-hydrate-v2"><img src="assets/bild.png" alt="Bild"/></div></body></html>`,
+      "utf8",
+    );
+    const own = await createTestSite(env.api, "Import Mirror-Medien");
+    try {
+      const before = (await env.engine.store.listAssets(own.id, {})).length;
+      const response = await runImport(
+        {
+          source: { rootDir: root },
+          write: true,
+          pagePath: "/mirror-medien",
+          assets: "upload",
+          fonts: "skip",
+        },
+        own.id,
+      );
+      expect(response.status, JSON.stringify(response.body)).toBe(201);
+      expect(response.body.report.assets.downloaded).toBe(1);
+      expect(response.body.report.assets.failed).toBe(0);
+      expect((await env.engine.store.listAssets(own.id, {})).length).toBe(before + 1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
   it("refuses a mirror folder outside SENIFY_IMPORT_ROOTS before a job exists", async () => {
     const elsewhere = mkdtempSync(join(tmpdir(), "senify-import-elsewhere-"));
     const jobsBefore = (await env.engine.store.listImportJobsForSite(siteId)).length;

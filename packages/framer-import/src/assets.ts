@@ -11,8 +11,8 @@
 // storage (FontRef.files + bake delivery) is the S3 integration.
 
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { extname, join, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { SenifyError } from "@senify/core";
 import { fetchPublic } from "@senify/core/net";
 import type { FramerIrDocument, IrAsset, IrFontFace, IrNode } from "./ir.ts";
@@ -133,6 +133,13 @@ export type ImportAssetsInput = {
   // The base of the source page: relative URLs resolve against it. Absent =
   // every asset URL is already absolute (the Framer CDN case).
   baseUrl?: string;
+  // The folder the source files live in (mirror mode). A relative asset URL
+  // names a file of that copy and is read from there before the network is
+  // asked: the mirror is the source of truth for what the page showed.
+  localRoot?: string;
+  // The folder of the imported page inside `localRoot`. A relative URL of the
+  // page points into that folder first, then into `localRoot`.
+  localPageDir?: string;
   // Upload into the engine media pipeline when given; otherwise files are
   // written to `outDir` (offline mirror mode).
   uploader?: AssetUploader;
@@ -186,7 +193,7 @@ export async function importAssets(input: ImportAssetsInput): Promise<AssetResul
       let entry = fontByHash.get(key);
       if (entry === undefined) {
         try {
-          const data = await fetchBytes(absoluteUrl(src, input.baseUrl), timeoutMs);
+          const data = await fontBytes(src, input, timeoutMs);
           const hash = sha256(data);
           const cached = fontByHashByContent(fontByHash, hash);
           if (cached !== undefined) {
@@ -288,9 +295,16 @@ async function downloadAsset(
   byHash: Map<string, AssetDownload>,
   report: AssetReport,
 ): Promise<AssetDownload> {
-  const absolute = absoluteUrl(asset.url, input.baseUrl);
+  // The mirror's own file wins over the network: the local copy is what the
+  // page pointed at.
+  const local = readLocalAsset(asset.url, input);
+  // Without a local file the URL has to be resolvable, and a relative URL
+  // needs the address of the original site. The error stands outside the try:
+  // a source that cannot be resolved stops the import instead of quietly
+  // importing a page without its images.
+  const absolute = local === null ? absoluteUrl(asset.url, input.baseUrl) : asset.url;
   try {
-    const data = await fetchBytes(absolute, timeoutMs);
+    const data = local ?? (await fetchBytes(absolute, timeoutMs));
     const hash = sha256(data);
     const existing = byHash.get(hash);
     if (existing !== undefined) {
@@ -331,6 +345,75 @@ function absoluteUrl(url: string, baseUrl: string | undefined): string {
     );
   }
   return new URL(url, baseUrl).toString();
+}
+
+/* ------------------------------------------------------------ mirror files */
+
+// A mirror is a copy of the site on disk: the page's HTML plus the files it
+// points at. A relative URL in such a page names a file of that copy, so the
+// copy is read before the network is asked - the mirror is the source of
+// truth for what the page showed, and the import works without the address of
+// the original site.
+//
+// The mirror may only deliver its own files (ADR-0016): a path that leaves the
+// mirror folder is refused, and so is a link that points out of it.
+function readLocalAsset(url: string, input: ImportAssetsInput): Buffer | null {
+  const root = input.localRoot;
+  if (root === undefined) return null;
+  // Absolute URLs (http, https, data) name no file of the mirror.
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url) || url.startsWith("//")) return null;
+  const clean = (url.split(/[?#]/)[0] ?? "").trim();
+  if (clean === "") return null;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(clean);
+  } catch {
+    return null;
+  }
+  const fromRoot = decoded.replace(/^\/+/, "");
+  if (fromRoot === "") return null;
+
+  const rootReal = realPathOf(root);
+  if (rootReal === null) return null;
+
+  // A path without a leading slash belongs to the page's own folder first (the
+  // page's relatives), a root-relative path belongs to the mirror root.
+  const candidates: string[] = [];
+  if (!decoded.startsWith("/") && input.localPageDir !== undefined) {
+    candidates.push(resolve(input.localPageDir, decoded));
+  }
+  candidates.push(resolve(rootReal, fromRoot));
+
+  for (const candidate of candidates) {
+    if (!isInside(rootReal, candidate)) continue;
+    if (!existsSync(candidate) || !statSync(candidate).isFile()) continue;
+    const real = realPathOf(candidate);
+    if (real === null || !isInside(rootReal, real)) continue;
+    return readFileSync(real);
+  }
+  return null;
+}
+
+function realPathOf(path: string): string | null {
+  try {
+    return realpathSync(path);
+  } catch {
+    return null;
+  }
+}
+
+// A font file of the mirror is read from disk; only a file that is not there
+// goes to the network.
+async function fontBytes(url: string, input: ImportAssetsInput, timeoutMs: number): Promise<Buffer> {
+  const local = readLocalAsset(url, input);
+  if (local !== null) return local;
+  return fetchBytes(absoluteUrl(url, input.baseUrl), timeoutMs);
+}
+
+// `inside` means: the path lies in the folder or is the folder itself.
+function isInside(root: string, path: string): boolean {
+  const rel = relative(root, path);
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
 function sha256(data: Buffer): string {
