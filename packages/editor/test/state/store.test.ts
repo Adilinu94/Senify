@@ -78,6 +78,32 @@ describe("store write gate", () => {
   });
 });
 
+describe("the selection names only nodes that exist", () => {
+  it("drops the selection when the undo removes the selected node", () => {
+    const store = baseStore();
+    store.select("head000001");
+    expect(store.selection.selected).toEqual(["head000001"]);
+
+    // The undo of the insert that brought the node in removes it again.
+    store.undo();
+    store.undo();
+
+    expect(store.document.nodes["head000001"]).toBeUndefined();
+    expect(store.selection.selected).toEqual([]);
+    expect(store.selection.focus).toBeNull();
+  });
+
+  it("keeps a selection whose nodes are still there", () => {
+    const store = baseStore();
+    store.select("head000001");
+
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "Neu" });
+
+    expect(store.selection.selected).toEqual(["head000001"]);
+    expect(store.selection.focus).toBe("head000001");
+  });
+});
+
 describe("coalescing", () => {
   it("folds a typing burst into one undo entry", () => {
     const store = baseStore();

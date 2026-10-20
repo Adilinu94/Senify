@@ -15,7 +15,7 @@
 
 import type { PropValue } from "@senify/widget-engine";
 import type { DomDocument, DomElement, DomEvent } from "../dom.ts";
-import type { EditorStore } from "../state/store.ts";
+import type { ApplyOutcome, EditorStore } from "../state/store.ts";
 import { dragCoalesceKey } from "../state/store.ts";
 import { sectionInsertSpec } from "../state/sections.ts";
 import { type InsertPosition } from "./insert.ts";
@@ -114,6 +114,16 @@ export function createDropController(options: DropControllerOptions): DropContro
   let dragSource: DropSource | null = null;
   let hoverNodeId: string | null = null;
 
+  // What was just inserted is selected, so the settings open at once (the way
+  // Elementor behaves). Every insert path - click, plus point, section, drop -
+  // ends here; a refused or empty insert leaves the selection alone.
+  function selectInserted(outcome: ApplyOutcome): void {
+    const insert = outcome.patches.find((patch) => patch.patch === "insertNodes");
+    if (insert === undefined || insert.patch !== "insertNodes") return;
+    const id = insert.nodes[0]?.id;
+    if (id !== undefined) store.select(id);
+  }
+
   // Insert at a target (the same resolution the drag uses); the plus points, the
   // top bar buttons and the elements panel all funnel through here.
   function insertAt(
@@ -133,7 +143,7 @@ export function createDropController(options: DropControllerOptions): DropContro
       return false;
     }
     if (resolution.kind !== "insert") return false;
-    store.apply(
+    const outcome = store.apply(
       {
         op: "insertNode",
         parent: resolution.parent,
@@ -142,6 +152,7 @@ export function createDropController(options: DropControllerOptions): DropContro
       },
       { label: "Baustein einfügen" },
     );
+    selectInserted(outcome);
     options.onMessage(null);
     return true;
   }
@@ -170,7 +181,7 @@ export function createDropController(options: DropControllerOptions): DropContro
       return false;
     }
     if (resolution.kind !== "insert") return false;
-    store.apply(
+    const outcome = store.apply(
       {
         op: "insertNode",
         parent: resolution.parent,
@@ -179,6 +190,7 @@ export function createDropController(options: DropControllerOptions): DropContro
       },
       { label: "Sektion einfügen" },
     );
+    selectInserted(outcome);
     options.onMessage(null);
     return true;
   }
@@ -333,7 +345,7 @@ export function createDropController(options: DropControllerOptions): DropContro
         return spec !== undefined && placeSection(resolution, spec);
       }
       if (source.kind !== "primitive") return false;
-      store.apply(
+      const outcome = store.apply(
         {
           op: "insertNode",
           parent: resolution.parent,
@@ -342,6 +354,7 @@ export function createDropController(options: DropControllerOptions): DropContro
         },
         { label: "Baustein einfügen" },
       );
+      selectInserted(outcome);
       options.onMessage(null);
       return true;
     }
