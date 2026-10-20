@@ -57,4 +57,35 @@ describe("what names a start state", () => {
     expect(node?.appearInitial).toBeUndefined();
     expect(node?.states[0]?.visual.opacity).toBe("0.5");
   });
+
+  it("leaves a scroll reveal where it stands", () => {
+    // A scroll reveal carries `will-change: transform` and an opacity above
+    // 0.01. No channel names it, so the capture cannot tell it from a design.
+    // The rule that would catch it (`will-change: transform` plus a moving
+    // transform) was measured on the site and brought no gain: the pixel
+    // difference rose from 4.24 % to 4.27 % and the page stayed 147 px too
+    // short. The state therefore stays where it is, and the loss is named in
+    // the report instead of being guessed away.
+    const document = captureHtml({
+      html: page(
+        `<div style="will-change:transform;opacity:0.6;transform:translateY(132px) scale(0.6)">x</div>`,
+      ),
+    });
+    const node = nodeWithTag(document.pages[0]?.root as IrNode, "div");
+    expect(node?.appearInitial).toBeUndefined();
+    expect(node?.states[0]?.visual.opacity).toBe("0.6");
+    expect(node?.states[0]?.visual.transform).toBe("translateY(132px) scale(0.6)");
+  });
+
+  it("keeps a shifted element that carries no will-change", () => {
+    // A centring transform is a design, not a start state. Measured on the
+    // site: the three hover offsets and the two centring transforms carry no
+    // `will-change`, so no rule touches them.
+    const document = captureHtml({
+      html: page(`<div style="transform:translate(-50%, -50%)">x</div>`),
+    });
+    const node = nodeWithTag(document.pages[0]?.root as IrNode, "div");
+    expect(node?.appearInitial).toBeUndefined();
+    expect(node?.states[0]?.visual.transform).toBe("translate(-50%, -50%)");
+  });
 });
