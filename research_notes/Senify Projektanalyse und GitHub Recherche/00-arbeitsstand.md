@@ -4,8 +4,12 @@
 > ist erfolgt (siehe `reports/senify-projektanalyse-2026-10.md`, Abschnitt 6.1, und den
 > Abschnitt „Umsetzung“ in jeder Fachanalyse). Der Rahmen unten beschreibt die
 > **Analysephase**; er ist seitdem nicht mehr die Arbeitsgrundlage, sondern der Nachweis, worauf
-> die Befunde beruhen. Die Umsetzung ist auf `master` `53621ce` entstanden, also nach den
-> Upstream-PRs #57, #63, #64, #65 und #66 — die keine der genannten Fundstellen berührt haben.
+> die Befunde beruhen. Die Umsetzung entstand danach auf dem Branch
+> `claude/projektanalyse-umsetzung-2026-10-20` (PR #71, gemergt als `5258f34`), aufgebaut auf
+> `origin/master` und mit den Upstream-Ständen dazwischen (PRs #57, #63–#69). Diese PRs haben
+> **keine** der genannten Fundstellen berührt; wo sie dieselben Dateien anfassten
+> (`docs/current/stand.md`, `docs/fahrplan.md`, `vitest.config.ts`, `packages/renderer/src/bake.ts`),
+> wurden beide Seiten zusammengeführt.
 
 ## Ziel und Rahmen
 
