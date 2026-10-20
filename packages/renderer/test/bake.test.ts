@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { loadBakedSite } from "@senify/core/testing";
 import { bundledSections } from "@senify/registry";
 import type { GoldenNode, Node, NodeTree } from "@senify/section-sdk";
@@ -173,6 +173,23 @@ afterAll(() => {
 });
 
 describe("bake (Prüfstelle 2)", () => {
+  it("bakes into a relative output folder", async () => {
+    // Astro löst `--outDir` gegen sein eigenes Root auf, also gegen das
+    // Stage-Verzeichnis: mit einem relativen Pfad landeten die Seiten in
+    // einem zweiten Ordner, der Aufrufer fand nur die Assets und keine Seite
+    // — ohne Fehlermeldung. Der Ausgabeordner ist deshalb absolut.
+    const root = mkdtempSync(join(tmpdir(), "senify-bake-rel-"));
+    const outDir = relative(process.cwd(), join(root, "dist"));
+    try {
+      const result = await bakeSite(fixtureInput(false), { outDir, selfContained: true });
+      expect(result.outDir).toBe(resolve(outDir));
+      const site = loadBakedSite(result.outDir);
+      expect(await site.exists("index.html")).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 180_000);
+
   it("builds the fixture release as a static site", async () => {
     baked = await bakeSite(fixtureInput(), {
       outDir: join(mkdtempSync(join(tmpdir(), "senify-bake-")), "dist"),
