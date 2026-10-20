@@ -150,7 +150,7 @@ Coverage misst nur, was die Suite ausführt, und ist kein Vollständigkeitsbewei
 
 **Job `secrets`:** `gitleaks` (Version gepinnt, Prüfsumme verglichen) über die volle Historie (`fetch-depth: 0`). Ausnahmen mit Grund je Eintrag in `.gitleaks.toml`.
 
-**Job `dependencies`:** `osv-scanner` gegen das Lockfile, über den revidierbaren Workflow von Google (auf einen Commit gepinnt). Ausnahmen mit Grund und **Ablaufdatum** in `osv-scanner.toml`; abgelaufene Ausnahmen meldet der Scanner wieder.
+**Job `dependencies`:** `osv-scanner` (2.7.0) gegen das Lockfile. Das Binary kommt aus dem Release mit fester Version, die Prüfsumme wird gegen `osv-scanner_SHA256SUMS` verglichen. Der Weg über den revidierbaren Workflow von Google ist **nicht gangbar**: er brachte den ganzen Lauf in einen `startup_failure` (Gegenprobe: ohne den Job startet der Lauf, mit dem Fremd-Workflow nicht). Ausnahmen mit Grund und **Ablaufdatum** in `osv-scanner.toml`; abgelaufene Ausnahmen meldet der Scanner wieder.
 
 **Job `postgres-tests`:** Postgres-18-Service mit `TEST_DATABASE_URL`, dann `pnpm test:postgres`; der Job wird rot, wenn die Variable fehlt, Tests übersprungen werden oder kein Fall läuft.
 

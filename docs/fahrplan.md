@@ -70,7 +70,7 @@ Kein Minify/Tree-Shake/Sourcemaps in diesem Schritt. ESM-Aufteilung und Dateigr�
 Drei Scans, die die CI vorher nicht hatte, alle drei mit Ausnahmelisten, die je einen Grund tragen:
 
 - **Geheimnisse:** `gitleaks` (8.30.1, Version gepinnt, Prüfsumme verglichen) über die volle Historie (`fetch-depth: 0`). Ausnahmen in `.gitleaks.toml`.
-- **Abhängigkeitslücken:** `osv-scanner` (revidierbarer Workflow, auf einen Commit gepinnt) gegen das Lockfile. Ausnahmen in `osv-scanner.toml` mit **Ablaufdatum** — eine Ausnahme ohne Frist ist eine Ausnahme auf unbestimmte Zeit.
+- **Abhängigkeitslücken:** `osv-scanner` (2.7.0, Binary aus dem Release mit fester Version, Prüfsumme aus `osv-scanner_SHA256SUMS` verglichen) gegen das Lockfile. Der Weg über den revidierbaren Fremd-Workflow von Google ist nicht gangbar — er brachte den ganzen Lauf in einen `startup_failure`. Ausnahmen in `osv-scanner.toml` mit **Ablaufdatum** — eine Ausnahme ohne Frist ist eine Ausnahme auf unbestimmte Zeit.
 - **Paketregeln:** `dependency-cruiser` mit den Regeln aus ADR-0019 und P3-3 (`.dependency-cruiser.js`). `pnpm deps:check` hängt in `pnpm verify` und hat einen eigenen CI-Schritt.
 
 **Offen und terminiert:** `vitest`/`tinypool` (GHSA-82fw-gwwq-j7x9, GHSA-5gmw-xhrv-c9v3, GHSA-85c8-ppgw-ccpr) und `http-cache-semantics` (GHSA-ch52-4w7c-c8xp, ohne gepatchte Version) sind bis **30.11.2026** ausgenommen. Der vitest-4-Wechsel ist ein Major-Update des Test-Runners und braucht einen eigenen Schritt mit dem vollen Gate.
