@@ -387,6 +387,8 @@ OpenAPI-Dokument ohne Anlass.
 ### 6.1 Umsetzungsstand vom 20.10.2026
 
 Der Plan ist abgearbeitet. Jede Zeile nennt, was tatsächlich gemacht wurde und wie es belegt ist.
+Jede Aussage ist **zusätzlich am Endstand gegengeprüft** (Anhang D): der Fix wurde zurückgenommen,
+und das Tor muss dann rot werden — 15 Proben, alle mit dem gemessenen Fehlerbild.
 
 | # | Stand | Was |
 |---|---|---|
@@ -398,11 +400,11 @@ Der Plan ist abgearbeitet. Jede Zeile nennt, was tatsächlich gemacht wurde und 
 | 6 | **erledigt** | `scripts/render-manifest.mjs --check` vergleicht die generierte Datei mit dem Generator (zeilenendunabhängig), `pnpm manifest:check` ruft das, ein Test in `packages/manifest/test/manifest.test.ts` ruft es im normalen Lauf, die CI hat einen eigenen Schritt. |
 | 7 | **erledigt** | `.dependency-cruiser.js` mit sieben Regeln (Paketkanten aus ADR-0019/P3-3, keine verbotene Basis-Abhängigkeit, kein neuer Zyklus zwischen Paketen). `pnpm deps:check` hängt an `pnpm verify` und an der CI. Gegenprobe: ein temporärer Zyklus über Paketgrenzen wurde vom Tor gemeldet, nach dem Entfernen nicht mehr. |
 | 8 | **erledigt** | `gitleaks` und `osv-scanner` als eigene CI-Jobs, beide mit gepinnter Version und **geprüfter Prüfsumme**. Der `osv-scanner` holt sein Binary aus dem Release und vergleicht es gegen `osv-scanner_SHA256SUMS`; der Weg über den revidierbaren Fremd-Workflow von Google brachte den **ganzen Lauf** in einen `startup_failure` — belegt durch eine Gegenprobe: ohne den Job startete der Lauf, mit dem Fremd-Workflow nicht. **Belege:** der gitleaks-Job meldet **keinen** Fund — der Historien-Scan ist lokal nachgefahren (`no leaks found`); die Ausnahmen in `.gitleaks.toml` tragen je einen Grund und unterscheiden drei Sorten: absichtliche Beispielschlüssel in **getrackten** Dateien (zwei Idempotency-Keys im Redesign-Test, der SMTP-Testschlüssel — **Gegenprobe**: ohne diese Ausnahme meldet der Historien-Scan 3 Funde), lokales Arbeitsmaterial, das nie committet wird (`.scratch/refs/nick/`, `.tmp/`, `.bake-tmp/`, `graphify-out/`, `packages/renderer/.bake/` — steht in der `.gitignore`) und zwei Fehlalarme der generischen Regel in getrackten Notizen (Prosa und ein Bezeichner, kein Schlüssel). Auch der Arbeitsbaum-Scan meldet mit dieser Liste nichts. Der OSV-Scan meldet **ohne** Ausnahmeliste 5 Funde in 3 Paketen (`vitest`/`@vitest/mocker` 3.2.7, `tinypool` 1.1.1, `http-cache-semantics` 4.2.0) — die vier Advisory-IDs dazu sind mit Ablaufdatum 30.11.2026 ausgenommen, mit der Ausnahmeliste meldet der Scanner `No issues found` (lokal und im CI-Job). Die Lücken der ersten Messung (16) sind mit den Overrides (`devalue`, `sharp`, `smol-toml`, `source-map-js`, `hono`) und dem SDK-Update (`@modelcontextprotocol/sdk` 1.30.0 → 1.32.1) geschlossen. |
-| 9 | **erledigt** | `spawn` statt `spawnSync` (`packages/renderer/src/bake.ts`). Der Bake blockiert die Event-Loop nicht mehr: während eines Re-Bakes antworten Dashboard, Editor und MCP wieder. |
+| 9 | **erledigt** | `spawn` statt `spawnSync` (`packages/renderer/src/bake.ts`). Der Bake blockiert die Event-Loop nicht mehr: während eines Re-Bakes antworten Dashboard, Editor und MCP wieder. **Belegt:** `packages/renderer/test/bake.test.ts` zählt die Runden eines 10-ms-Timers **während** des Builds — mit dem blockierenden Aufruf zählt der Timer null, mit `spawn` läuft er (Gegenprobe, Anhang D, Probe 6). |
 | 10 | **anders gelöst** | Die Eigenschaft „jede Engine-Operation erzeugt eine Pending-Liste“ ist als **Wörterbuch-Test** implementiert, nicht als Zufalls-Eigenschaft: `packages/editor/test/state/persist-vocabulary.test.ts` fährt alle 19 Operationen des Engine-Vokabulars durch den Store und die Pipeline. Das ist **stärker** als ein Generator: das Vokabular ist eine geschlossene Liste, ein Zufallsgenerator könnte eine Operation auslassen. Eine zweite Eigenschaft (Patch → Mutation → Patch) prüft dieselben 19 Operationen auf einen stabilen Zustand. **`fast-check` wurde deshalb nicht eingeführt** — es hätte die Abhängigkeit gebracht, ohne einen Fall zu finden, den die erschöpfende Prüfung nicht findet. |
 | 11 | **erledigt, mit adoption** | Der Spike war positiv: PGlite (PostgreSQL nach WebAssembly, im Prozess) legt das Schema der Engine an und rollt eine Transaktion echt zurück. Übernommen: `createTransactionDatabase()` in `packages/engine/test/helpers.ts` nimmt das konfigurierte PostgreSQL, sonst PGlite. Die 16 zuvor übersprungenen Transaktionsfälle laufen damit im **normalen** Testlauf, nicht nur in der CI-Lane mit Postgres-Dienst. |
 | 12 | **erledigt, weggelassen** | `ipaddr.js` wurde über einen Korpus von 42 Adressen gegen die Hand-Klassifikation geprüft: **4 Unterschiede**, davon zwei zu *locker* (die Benchmarking-Range 198.18/15 und das veraltete Site-Local `fec0::1` kennt die Bibliothek nicht) und einer zu *strenger* (6to4). Die Bibliothek ersetzt damit einen Teil der Hand-Logik, aber die Policy (welche Bereiche öffentlich sind) bleibt handzuschreiben — und die harten Teile des Moduls (DNS-Auflösung, Pinning, Redirect-Prüfung, Byte-Grenze) bleiben ohnehin. **Verdikt: weglassen**, die Hand-Klassifikation bleibt. |
-| 13 | **entschieden und umgesetzt** | ADR-0022 (20.10.2026) erweitert ADR-0016 auf den Browserpfad: jeder Request des Referenz- und des Import-Captures läuft durch dieselbe Adressprüfung (`isAllowedBrowserUrl` in `@senify/core/net`, Playwright-Route auf `**/*`). `file:` bleibt für den Offline-Mirror erlaubt. |
+| 13 | **entschieden und umgesetzt** | ADR-0022 (20.10.2026) erweitert ADR-0016 auf den Browserpfad: jeder Request des Referenz- und des Import-Captures läuft durch dieselbe Adressprüfung (`isAllowedBrowserUrl` in `@senify/core/net`, Playwright-Route auf `**/*`). `file:` bleibt für den Offline-Mirror erlaubt. **Belegt:** `packages/core/test/net.test.ts` (die Funktion), `packages/engine/test/references-browser-guard.test.ts` und `packages/framer-import/test/capture-browser.test.ts` (die Verdrahtung — beide zählen die Anfragen eines Servers auf `127.0.0.1`; ohne die Route wäre die Zahl nicht null). Gegenprobe: nimmt man die Playwright-Route aus dem Modul, erreicht der Browser den Server und der Test ist rot. |
 | 14 | **nicht begonnen, mit Begründung** | Die Analyse nannte den Merge „mechanisch“ — das hält der Blick auf den Code nicht. Von den vier Queues haben **nur zwei** (Bake, Bild) eine Lease; die Import- und die Referenz-Jobs kennen keinen Lease-Claim, sondern ein `listDue`-Muster. Die Semantik unterscheidet sich weiter: der Bake-Job zählt bei einem Fehler mit Backoff auf, der Bild-Job geht sofort in `failed`; der Bake-Job kennt `next_attempt_at`, der Bild-Job nicht. Eine gemeinsame Repository-Klasse bräuchte fünf bis sechs Stellschrauben (Tabelle, Spalten, Reihenfolge, Zusatzfilter, Zusatzklausel) und würde das SQL aus Strings zusammenbauen — lesbarer wird es dadurch nicht, und es widerspricht ADR-0019 (ein Fachmodul je Fachgebiet). Die eigentliche Begründung des Merge („erst vereinheitlichen, **dann** über eine fremde Queue entscheiden“) verliert ihren Grund, weil dieselbe Analyse zum Ergebnis kommt, dass eine fremde Queue weniger Integration und nicht mehr Funktion bringt. **Befund dokumentiert, nicht umgesetzt.** |
 | 15 | **erledigt, mit Verdikt** | Der MCP-SDK steht auf **v1.32.1** (npm, MIT, veröffentlicht 05.10.2026). v2 existiert nur im Git-Repository (`v2.3.1`), **nicht** auf npm — ein Produktiv-Abhängigkeit darauf wäre eine Git- oder Prerelease-Referenz. Die genutzte API ist klein (`Server`, `StdioServerTransport`, wenige Typen), ein späterer Wechsel ist eingegrenzt. Der Lizenzwechsel des Projekts (MIT → Apache-2.0 für neue Beiträge) betrifft die veröffentlichte v1 nicht. |
 
@@ -511,3 +513,36 @@ testseitigen Flakes.
 | `…/06-github-repositories.md` | Fachanalyse 6 — 21 Kandidaten, Nutzen, Urteil |
 | `…/autosave-probe.mts` | die sechs ausgeführten Gegenproben (Review-Sonde, kein Regressionstest) |
 | `reports/senify-projektanalyse-2026-10.md` | dieser Bericht |
+
+---
+
+## Anhang D — Gegenproben auf dem Endstand
+
+Jede Aussage „umgesetzt" aus 6.1 ist am Endstand (nach dem Merge, `master` `7a57c26`) gegengeprüft:
+der Fix wurde zurückgenommen, und das Tor muss dann rot werden. Ohne diese Gegenprobe ist ein
+grüner Test nur ein grüner Test — er beweist, dass die Assertion stimmt, nicht dass der Fix
+trägt. Die Proben liefen in einem eigenen Arbeitsverzeichnis (`git worktree`), damit der
+Arbeitsbaum des Repos unberührt blieb.
+
+| # | Zurückgenommen | Tor, das rot werden muss | Gemessen |
+|---|---|---|---|
+| 1 | `setNodeHiddenDevices` aus `PAGE_OPS` | das Wörterbuch-Tor | `expected [ 'setNodeHiddenDevices' ] to deeply equal []` |
+| 2 | `pending = [...batch, ...pending]` → `pending = batch` (4 Stellen) | die Save-Pipeline | 2 Tests rot, `expected 1 to be 2` |
+| 3 | `currentVersion` aus dem Konfliktfehler der Engine | der Registry-Test | `expected undefined to be 1` |
+| 4 | die Playwright-Route im Referenz-Capture | `references-browser-guard.test.ts` | `promise resolved ... instead of rejecting` — der Browser erreicht den Server |
+| 5 | die Playwright-Route im Import-Capture | `capture-browser.test.ts` | `promise resolved ... instead of rejecting` |
+| 6 | `spawn` → `spawnSync` im Bake | der Event-Loop-Test | `expected 0 to be greater than 5` — der Timer feuert nullmal |
+| 7 | `buildInto` (Laufwerksvergleich) | der Bake | 16 von 18 Tests rot: `EXDEV: cross-device link not permitted` |
+| 8 | eine zwanzigste Operation in der Engine-Liste | das Wörterbuch-Tor | 18 gegen 19 Operationen |
+| 9 | `createTransactionDatabase()` liefert nichts | die Transaktionsfälle | 3 Fälle fallen aus, statt übersprungen zu werden |
+| 10 | die Schwelle der Store-Fachmodule auf 100 % | das Coverage-Tor | je Datei `does not meet ... threshold (100%)` |
+| 11 | eine Zeile der erzeugten Manifestdatei | `pnpm manifest:check` | `weicht vom Generator ab` |
+| 12 | eine Laufzeitkante `framer-import → engine` | `pnpm deps:check` | `no-new-package-cycle` |
+| 13 | die Ausnahme für die Testdaten in `.gitleaks.toml` | der gitleaks-Scan | 3 Funde (zwei Idempotency-Keys, der SMTP-Testschlüssel) |
+| 14 | Playwright 1.64 statt 1.63 | die Pixel-Tore | vier Browser-Tests melden Unterschiede (im CI gemessen) |
+| 15 | der Fremd-Workflow statt des eigenen Jobs | der CI-Lauf | `startup_failure` — der ganze Lauf startet nicht |
+
+**Zwei Aussagen haben beim Nachprüfen einen Test bekommen, den es vorher nicht gab:** die
+Verdrahtung des Browser-Guards (Proben 4 und 5 — vorher war nur die Funktion getestet, nicht die
+Verdrahtung) und die Blockade der Event-Loop (Probe 6 — die Behauptung stand ohne Test da).
+Beide Tests sind mit der jeweiligen Gegenprobe entstanden und laufen im normalen Volltest mit.

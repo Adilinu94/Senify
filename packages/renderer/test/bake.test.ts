@@ -173,6 +173,25 @@ afterAll(() => {
 });
 
 describe("bake (Prüfstelle 2)", () => {
+  it("keeps the event loop free while the build runs", async () => {
+    // The bake happens while the dashboard serves requests. With `spawnSync`
+    // the process stood still for the whole build (up to three minutes): the
+    // dashboard, the editor and the MCP tools were silent. The timer counts
+    // how often the loop got a turn - a blocking build gives it none.
+    let ticks = 0;
+    const timer = setInterval(() => {
+      ticks += 1;
+    }, 10);
+    try {
+      await bakeSite(fixtureInput(false), {
+        outDir: join(mkdtempSync(join(tmpdir(), "senify-bake-loop-")), "dist"),
+        selfContained: true,
+      });
+    } finally {
+      clearInterval(timer);
+    }
+    expect(ticks).toBeGreaterThan(5);
+  }, 180_000);
   it("bakes into a relative output folder", async () => {
     // Astro löst `--outDir` gegen sein eigenes Root auf, also gegen das
     // Stage-Verzeichnis: mit einem relativen Pfad landeten die Seiten in

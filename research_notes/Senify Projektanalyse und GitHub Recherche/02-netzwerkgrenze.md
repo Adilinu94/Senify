@@ -254,5 +254,11 @@ Browser direkt mit dem Ziel spricht und nicht über den Proxy.
   die Prüfung, eine nicht-öffentliche Adresse wird mit `abort("blockedbyclient")` abgewiesen.
 - `packages/core/test/net.test.ts`: vier neue Fälle (interne Ziele, browser-eigene Schemata,
   `file:`, Betreiber-Schalter).
-- **ADR-0022** (`docs/adr/0021-der-browser-holt-nur-oeffentliche-adressen.md`) hält die
+- **Die Verdrahtung ist getestet, nicht nur behauptet** (20.10.2026, nach dem Merge): ein Test
+  zählt die Anfragen eines Servers auf `127.0.0.1` — ohne die Route wäre die Zahl nicht null.
+  `packages/engine/test/references-browser-guard.test.ts` (Referenz-Capture) und
+  `packages/framer-import/test/capture-browser.test.ts` (Import-Capture). Gegenprobe: nimmt man
+  die Playwright-Route aus dem jeweiligen Modul, erreicht der Browser den Server und der Test
+  ist rot (`promise resolved ... instead of rejecting`).
+- **ADR-0022** (`docs/adr/0022-der-browser-holt-nur-oeffentliche-adressen.md`) hält die
   Entscheidung fest, ADR-0016 bleibt für den Node-Pfad unverändert.
