@@ -368,6 +368,25 @@ describe("section components", () => {
     expect(html).not.toContain("data-section");
   });
 
+  it("draws the graphic of an icon from its own markup and sanitizes it", () => {
+    const html = render({
+      root: { id: "root", type: "page", props: {}, children: ["i"] },
+      i: {
+        id: "i",
+        type: "icon",
+        props: {
+          svg: '<svg viewBox="0 0 32 32"><path d="M0 0L32 32" fill="red" onclick="x()"/><script>x()</script></svg>',
+        },
+      },
+    });
+    expect(html).toMatch(/<svg [^>]*class="w-icon __senify_scope_i"/);
+    expect(html).toContain('viewBox="0 0 32 32"');
+    expect(html).toContain('<path d="M0 0L32 32" fill="red"></path></svg>');
+    expect(html).not.toContain("<circle");
+    expect(html).not.toContain("onclick");
+    expect(html).not.toContain("<script");
+  });
+
   // Ticket 21: the compiler anchors `class` rules as `[data-node-id].name` and
   // `scoped` rules as `[data-node-id].__senify_scope_<id>` (ADR-0005). Both
   // selector forms need the class attribute on the element that carries

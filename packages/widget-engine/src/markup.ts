@@ -23,6 +23,7 @@ import { PRIMITIVES, getPrimitive } from "./catalog.ts";
 import { CASCADE_LAYER } from "./css/cascade.ts";
 import type { Control, PrimitiveDefinition, PropValue } from "./types.ts";
 import { isSafeHref, sanitizeInlineHtml } from "./inline-html.ts";
+import { sanitizeSvgMarkup } from "./svg-markup.ts";
 
 // ---------------------------------------------------------------------------
 // Element description
@@ -312,6 +313,26 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
         typeof value(props, "strokeWidth") === "number"
           ? (value(props, "strokeWidth") as number)
           : 1.5;
+      // A graphic of its own (an import's logo, a pasted pictogram) is drawn as
+      // it brings its fills and strokes: the line defaults below would put a
+      // stroke around a filled shape. The markup passes the allow-list
+      // sanitizer (`svg-markup.ts`) before it reaches the element.
+      const graphic = sanitizeSvgMarkup(text(props, "svg"));
+      if (graphic !== undefined) {
+        return {
+          tag: "svg",
+          classes: [primitiveClass("icon")],
+          attrs: {
+            ...graphic.attrs,
+            width: size,
+            height: size,
+            "data-name": text(props, "name") || "symbol",
+            "aria-hidden": "true",
+          },
+          html: graphic.html,
+          root: true,
+        };
+      }
       return {
         tag: "svg",
         classes: [primitiveClass("icon")],
