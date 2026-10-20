@@ -518,7 +518,8 @@ testseitigen Flakes.
 
 ## Anhang D — Gegenproben auf dem Endstand
 
-Jede Aussage „umgesetzt" aus 6.1 ist am Endstand (nach dem Merge, `master` `7a57c26`) gegengeprüft:
+Jede Aussage „umgesetzt" aus 6.1 ist am Endstand gegengeprüft (nach den Merges von #71 und #72,
+`master` `7a57c26`; der Bake auf dem späteren `db187da` nach #74):
 der Fix wurde zurückgenommen, und das Tor muss dann rot werden. Ohne diese Gegenprobe ist ein
 grüner Test nur ein grüner Test — er beweist, dass die Assertion stimmt, nicht dass der Fix
 trägt. Die Proben liefen in einem eigenen Arbeitsverzeichnis (`git worktree`), damit der

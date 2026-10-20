@@ -5,7 +5,8 @@
 > Abschnitt „Umsetzung“ in jeder Fachanalyse). Der Rahmen unten beschreibt die
 > **Analysephase**; er ist seitdem nicht mehr die Arbeitsgrundlage, sondern der Nachweis, worauf
 > die Befunde beruhen. Die Umsetzung entstand danach auf dem Branch
-> `claude/projektanalyse-umsetzung-2026-10-20` (PR #71, gemergt als `5258f34`), aufgebaut auf
+> `claude/projektanalyse-umsetzung-2026-10-20` (PR #71, gemergt als `5258f34`; die Nacharbeiten in
+> PR #72 und #76), aufgebaut auf
 > `origin/master` und mit den Upstream-Ständen dazwischen (PRs #57, #63–#69). Diese PRs haben
 > **keine** der genannten Fundstellen berührt; wo sie dieselben Dateien anfassten
 > (`docs/current/stand.md`, `docs/fahrplan.md`, `vitest.config.ts`, `packages/renderer/src/bake.ts`),
