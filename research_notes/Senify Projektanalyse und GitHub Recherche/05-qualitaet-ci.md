@@ -255,7 +255,10 @@ stillschweigend).
   `packages/engine/test/helpers.ts` nimmt das konfigurierte PostgreSQL, sonst PGlite. Der Preis
   ist der Boot des WASM-Instanz (rund fünf Sekunden je Testdatei).
 - **Geheimnis- und Lückenscan in der CI:** `gitleaks` (gepinnt, Prüfsumme verglichen, volle
-  Historie) und `osv-scanner` (revidierbarer Workflow, gepinnt) als eigene Jobs, mit
-  Ausnahmelisten, die je einen Grund tragen (`osv-scanner.toml` zusätzlich mit Ablaufdatum).
+  Historie) und `osv-scanner` (Binary aus dem Release mit fester Version, Prüfsumme aus
+  `osv-scanner_SHA256SUMS` verglichen) als eigene Jobs, mit Ausnahmelisten, die je einen Grund
+  tragen (`osv-scanner.toml` zusätzlich mit Ablaufdatum). Der Weg über den revidierbaren
+  Fremd-Workflow von Google ist **nicht gangbar**: er brachte den ganzen Lauf in einen
+  `startup_failure` — Gegenprobe: ohne den Job startet der Lauf, mit dem Fremd-Workflow nicht.
 - **Paketregeln in der CI:** `pnpm deps:check` (dependency-cruiser) hängt an `pnpm verify` und
   hat einen eigenen CI-Schritt.

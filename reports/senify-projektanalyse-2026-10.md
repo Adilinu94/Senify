@@ -69,11 +69,14 @@ beiden Ständen betrafen `packages/framer-import`, `packages/widget-engine/src/b
 `packages/renderer/src/{bake,style-css,motion}.ts`, `packages/engine/src/import-preview.ts` und
 `packages/editor/src/canvas/*` — **keine** der in diesem Bericht genannten Fundstellen.
 
-**Der Umsetzungsstand (6.1) gilt auf einem anderen Stand.** Die Umsetzung ist auf `master`
-`53621ce` entstanden, also nach den PRs #57, #63, #64, #65 und #66 (Framer-Import-Korrekturen,
-Editor-Toolbar, Token-Fallbacks). Diese PRs haben **keine** der in diesem Bericht genannten
-Fundstellen berührt; die Analyse-Basis `5ac1a84` bleibt die Grundlage der Befunde, der
-Umsetzungsstand nennt den späteren Stand.
+**Der Umsetzungsstand (6.1) gilt auf einem anderen Stand.** Die Analyse-Basis `5ac1a84` bleibt die
+Grundlage der Befunde. Die Umsetzung entstand danach auf dem Branch
+`claude/projektanalyse-umsetzung-2026-10-20` (PR #71), aufgebaut auf `origin/master` und mit den
+Upstream-Ständen dazwischen (PRs #57, #63–#69: Framer-Import-Korrekturen, Editor-Toolbar,
+Token-Fallbacks, HTTP-Fachmodule nach ADR-0019, Bild-Assets aus der Quelle). Diese PRs haben
+**keine** der in diesem Bericht genannten Fundstellen berührt; wo sie dieselben Dateien anfassten
+(`docs/current/stand.md`, `docs/fahrplan.md`, `vitest.config.ts`, `packages/renderer/src/bake.ts`),
+wurden beide Seiten zusammengeführt.
 
 ### 2.2 Was ich durchgeführt habe
 
@@ -388,13 +391,13 @@ Der Plan ist abgearbeitet. Jede Zeile nennt, was tatsächlich gemacht wurde und 
 | # | Stand | Was |
 |---|---|---|
 | 1 | **erledigt** | `"setNodeHiddenDevices"` in `PAGE_OPS` (`packages/editor/src/state/persist.ts:151`). Der Test geht über die **Pipeline** (Store → `flush()` → Request-Body), nicht über die Übersetzungsfunktion. Ohne die Zeile ist `packages/editor/test/state/persist-vocabulary.test.ts` rot — gegengeprüft. |
-| 2 | **erledigt** | `pending = [...batch, ...pending]` an beiden Stellen (`persist.ts`, Seite 409 und Seite ≥ 400). Zwei Tests: eine Änderung während eines fehlschlagenden und während eines konfligierenden Requests. Ohne die Änderung sind beide rot — gegengeprüft. |
-| 3 | **erledigt** | Die Engine meldet die aktuelle Registry-Version im Konfliktfehler (`currentVersion` in `SenifyErrorDetails`, `store-style-rules.ts:722`), der Client übernimmt sie und sendet sie beim Wiederholen (`persist.ts`, `retry()`). Vorher schickte der Wiederholungsweg die **Seiten**version als Registry-Version — der Konflikt war nicht auflösbar. Zusätzlich: der Ablehnungsfall (Transport lehnt ab) und der verbrauchte Debounce. |
+| 2 | **erledigt** | `pending = [...batch, ...pending]` an **allen vier** Stellen, an denen die Warteschlange fortgeschrieben wird (`packages/editor/src/state/persist.ts:576`, `:611`, `:620`, `:628`). Zwei Tests: eine Änderung während eines fehlschlagenden und während eines konfligierenden Requests. Ohne die Änderung sind beide rot — gegengeprüft. |
+| 3 | **erledigt** | Die Engine meldet die aktuelle Registry-Version im Konfliktfehler (`currentVersion` in `SenifyErrorDetails`, `packages/engine/src/store-style-rules.ts:726-729`), der Client übernimmt sie (`readCurrentVersion`, `persist.ts:369`) und sendet sie beim Wiederholen (`persist.ts`, `retry()`). Vorher schickte der Wiederholungsweg die **Seiten**version als Registry-Version — der Konflikt war nicht auflösbar. Zusätzlich: der Ablehnungsfall (Transport lehnt ab) und der verbrauchte Debounce. |
 | 4 | **überholt** | Die Ursache lag nicht im Temp-Verzeichnis, sondern im Bake: Astro verschob die gebauten Dateien per `rename()` aus dem Stage-Ordner (im Repo) in den Zielordner (im Temp), und ein `rename()` über Laufwerke scheitert mit `EXDEV`. Der Bake baut jetzt neben der Stage und kopiert das Ergebnis (`packages/renderer/src/bake.ts`, `buildInto`). Ein Umgebungsskript hätte den Fehler nur in dieser einen Umgebung verdeckt. |
 | 5 | **erledigt** | Die Coverage-Liste misst jetzt auch `packages/engine/src/store-*.ts` und `http-*.ts` — 33 Dateien, rund 7 000 Zeilen, die vorher ungemessen waren. Drei schwach gemessene Dateien haben eigene Schwellen, damit die Gruppen-Schwelle nicht auf das niedrigste File fällt. |
 | 6 | **erledigt** | `scripts/render-manifest.mjs --check` vergleicht die generierte Datei mit dem Generator (zeilenendunabhängig), `pnpm manifest:check` ruft das, ein Test in `packages/manifest/test/manifest.test.ts` ruft es im normalen Lauf, die CI hat einen eigenen Schritt. |
 | 7 | **erledigt** | `.dependency-cruiser.js` mit sieben Regeln (Paketkanten aus ADR-0019/P3-3, keine verbotene Basis-Abhängigkeit, kein neuer Zyklus zwischen Paketen). `pnpm deps:check` hängt an `pnpm verify` und an der CI. Gegenprobe: ein temporärer Zyklus über Paketgrenzen wurde vom Tor gemeldet, nach dem Entfernen nicht mehr. |
-| 8 | **erledigt** | `gitleaks` (Version gepinnt, Prüfsumme verglichen, volle Historie) und `osv-scanner` (revidierbarer Workflow, gepinnt) als eigene CI-Jobs. Die Ausnahmen liegen in `.gitleaks.toml` und `osv-scanner.toml` mit Grund und Ablaufdatum. Beide Werkzeuge wurden **lokal** gegen dieses Repo gefahren: gitleaks meldete 63 Funde (davon 60 im lokalen Referenzmaterial, einer im SMTP-Testschlüssel) — die Ausnahmeliste trägt je einen Grund; osv-scanner meldete 16 Lücken, 12 davon sind mit den Overrides (`devalue`, `sharp`, `smol-toml`, `source-map-js`) und dem SDK-Update (`@modelcontextprotocol/sdk` 1.30.0 → 1.32.1) geschlossen, die restlichen vier (vitest/tinypool/http-cache-semantics) sind mit Ablaufdatum ausgenommen. |
+| 8 | **erledigt** | `gitleaks` und `osv-scanner` als eigene CI-Jobs, beide mit gepinnter Version und **geprüfter Prüfsumme**. Der `osv-scanner` holt sein Binary aus dem Release und vergleicht es gegen `osv-scanner_SHA256SUMS`; der Weg über den revidierbaren Fremd-Workflow von Google brachte den **ganzen Lauf** in einen `startup_failure` — belegt durch eine Gegenprobe: ohne den Job startete der Lauf, mit dem Fremd-Workflow nicht. **Belege:** der gitleaks-Job meldet **keinen** Fund — der Historien-Scan ist lokal nachgefahren (`no leaks found`); die Ausnahmen in `.gitleaks.toml` tragen je einen Grund und unterscheiden drei Sorten: absichtliche Beispielschlüssel in **getrackten** Dateien (zwei Idempotency-Keys im Redesign-Test, der SMTP-Testschlüssel — **Gegenprobe**: ohne diese Ausnahme meldet der Historien-Scan 3 Funde), lokales Arbeitsmaterial, das nie committet wird (`.scratch/refs/nick/`, `.tmp/`, `.bake-tmp/`, `graphify-out/`, `packages/renderer/.bake/` — steht in der `.gitignore`) und zwei Fehlalarme der generischen Regel in getrackten Notizen (Prosa und ein Bezeichner, kein Schlüssel). Auch der Arbeitsbaum-Scan meldet mit dieser Liste nichts. Der OSV-Scan meldet **ohne** Ausnahmeliste 5 Funde in 3 Paketen (`vitest`/`@vitest/mocker` 3.2.7, `tinypool` 1.1.1, `http-cache-semantics` 4.2.0) — die vier Advisory-IDs dazu sind mit Ablaufdatum 30.11.2026 ausgenommen, mit der Ausnahmeliste meldet der Scanner `No issues found` (lokal und im CI-Job). Die Lücken der ersten Messung (16) sind mit den Overrides (`devalue`, `sharp`, `smol-toml`, `source-map-js`, `hono`) und dem SDK-Update (`@modelcontextprotocol/sdk` 1.30.0 → 1.32.1) geschlossen. |
 | 9 | **erledigt** | `spawn` statt `spawnSync` (`packages/renderer/src/bake.ts`). Der Bake blockiert die Event-Loop nicht mehr: während eines Re-Bakes antworten Dashboard, Editor und MCP wieder. |
 | 10 | **anders gelöst** | Die Eigenschaft „jede Engine-Operation erzeugt eine Pending-Liste“ ist als **Wörterbuch-Test** implementiert, nicht als Zufalls-Eigenschaft: `packages/editor/test/state/persist-vocabulary.test.ts` fährt alle 19 Operationen des Engine-Vokabulars durch den Store und die Pipeline. Das ist **stärker** als ein Generator: das Vokabular ist eine geschlossene Liste, ein Zufallsgenerator könnte eine Operation auslassen. Eine zweite Eigenschaft (Patch → Mutation → Patch) prüft dieselben 19 Operationen auf einen stabilen Zustand. **`fast-check` wurde deshalb nicht eingeführt** — es hätte die Abhängigkeit gebracht, ohne einen Fall zu finden, den die erschöpfende Prüfung nicht findet. |
 | 11 | **erledigt, mit adoption** | Der Spike war positiv: PGlite (PostgreSQL nach WebAssembly, im Prozess) legt das Schema der Engine an und rollt eine Transaktion echt zurück. Übernommen: `createTransactionDatabase()` in `packages/engine/test/helpers.ts` nimmt das konfigurierte PostgreSQL, sonst PGlite. Die 16 zuvor übersprungenen Transaktionsfälle laufen damit im **normalen** Testlauf, nicht nur in der CI-Lane mit Postgres-Dienst. |
@@ -409,6 +412,23 @@ ihn braucht (jetzt DevDependency); der Test der Docs-Portals zog den MCP-Server 
 Docs-Build (die Kante, die P3-3 Punkt 4 aufgelöst hatte, hielt der Test fest — jetzt kommt die Zahl
 der Werkzeuge aus dem Manifest); `.tmp/` und `.bake-tmp/` lagen als ungetrackte Artefakte im
 Arbeitsbaum und stehen jetzt in `.gitignore`.
+
+**Was erst der CI-Lauf zeigte** (drei Befunde, die lokal unsichtbar waren — der lokale Lauf ist
+Windows, der CI-Lauf Linux, und die Auflösung des Lockfiles ist plattformabhängig):
+
+- **Playwright musste zurück auf 1.63.0.** Die Aktualisierung der Abhängigkeiten zog Playwright
+  von 1.63 auf 1.64.1, und damit ändert sich der Browser, mit dem die **Bildreferenzen**
+  aufgenommen wurden: `release-cutover-browser`, `widget-slice-browser`,
+  `import-visual-gate-browser` und `import-fixture-gate-browser` vergleichen Pixel und melden
+  Unterschiede. Die Referenzen werden ohnehin nur aus einem Linux-Lauf der CI neu aufgenommen
+  (so im Fahrplan festgehalten), deshalb steht Playwright wieder auf 1.63.0.
+- **Zwei Playwright-Versionen im Baum ergeben zwei `Page`-Typen.** `@axe-core/playwright` löst
+  seinen Peer gegen die **neueste** passende Version auf (`playwright-core` 1.64.1), die
+  Browser-Tests benutzen den Typ aus dem `playwright`-Paket (1.63.0) — der Typecheck bricht mit
+  `TS2739` ab (`getByRef`, `webmcp` fehlen). `playwright-core` ist deshalb auf 1.63.0 gepinnt.
+- **`hono` 4.13.8 (GHSA-5r4p-p66f-jhc7, Mittel)** stand im Lockfile, obwohl 4.13.11 die
+  gepatchte Version ist — der lokale Scan hatte es nicht gesehen, weil das Lockfile dort noch
+  737 statt 763 Pakete auflöste. Ein Override wie bei den anderen drei.
 
 ---
 

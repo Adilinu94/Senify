@@ -232,7 +232,9 @@ auseinander.
   (`readRestoreManifest`, `readRestoreTables`, `readRestoreFiles`, Zeilen 451-453).
 - Vor dem Ersetzen wird eine **Sicherheitskopie** des Ist-Zustands erstellt (Zeile 455-464) — mit
   Namenskollisionsschleife, damit sie nie im Ordner landet, den sie schützen soll.
-- Der Ordner läuft über `runExclusive` (`http.ts:4894`), der Wartungsgate sperrt währenddessen
+- Der Ordner läuft über `runExclusive` (`maintenance.ts:51`, gerufen in `http.ts:2559` — die
+  HTTP-Schicht wurde am 20.10.2026 nach ADR-0019 in Fachmodule geteilt, vorher stand der Aufruf
+  in `http.ts:4894`), der Wartungsgate sperrt währenddessen
   alle anderen Anfragen (`maintenance.ts:35-47`, `51-67`). Die Sperre wird **vor** dem Warten
   gesetzt, damit kein neuer Request dazwischenrutscht; der exklusive Vorgang selbst hält keinen
   Slot und kann nicht auf sich selbst warten (Kommentar `maintenance.ts:6-7`).
