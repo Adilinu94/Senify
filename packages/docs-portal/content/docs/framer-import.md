@@ -15,7 +15,7 @@ Bilder und Schriften in der Mediathek ab. Danach bearbeitest du die Seite im Edi
 
    | Feld | Voreinstellung | Alternative |
    |---|---|---|
-   | Quelle | Framer-URL | HTML-Datei, Lokaler Mirror (Ordner auf dem Server) |
+   | Quelle | Framer-URL | HTML-Datei, Lokaler Mirror (Ordner auf dem Server; dazu optional die Adresse der Originalseite) |
    | Ziel | Neue Seite | Aktuelle Seite ersetzen (verlangt eine Bestätigung) |
    | Assets | Hochladen | Überspringen |
    | Fonts | Lokal umschreiben | CDN beibehalten |
@@ -50,9 +50,11 @@ Mit „Weitere Seiten dieser Site“ bietet der Bericht die Seiten an, auf die d
 - **Selektoren.** Nicht ausgewertet werden `:not()` an Vorfahren, Geschwister-Kombinatoren (`+`, `~`), `:first-child`
   und `:nth-*`, `@container` und Attribut-Operatoren außer `=`.
 - **Lokale Quellen und Medien.** Der Import liest Medien nie aus dem Mirror-Ordner, er lädt sie über eine Basis-URL
-  von der Live-Adresse. Ohne Basis-URL bricht „Assets: Hochladen“ bei relativen Medien-URLs ab (Meldung
-  „Relative Asset-URL ohne baseUrl nicht auflösbar“). Der Dialog schickt für „Lokaler Mirror“ keine Basis-URL mit.
-  Mit „Assets: Überspringen“ läuft der Import durch, die Bilder haben dann keine Quelle.
+  von der Live-Adresse. Für „Lokaler Mirror“ bietet der Dialog dazu das Feld „Adresse der Originalseite“ an
+  (z. B. `https://beispiel.de`). Ohne sie bricht „Assets: Hochladen“ bei relativen Medien-URLs ab (Meldung
+  „Relative Asset-URL ohne baseUrl nicht auflösbar“), und ein gescrapter Mirror, dessen Links absolut geschrieben
+  sind, zeigt keine weiteren Seiten der Site an. Mit „Assets: Überspringen“ läuft der Import durch, die Bilder haben
+  dann keine Quelle.
 - **Qualität ist an drei gespeicherten Exporten gemessen**, nicht an jeder beliebigen Seite. Die Zahlen stehen in
   `docs/current/qualitaet.md`.
 

@@ -5521,6 +5521,15 @@ function openFramerImportDialog({ siteId, pageId, session, onImported }) {
   );
   const sourceInput = el("input", { class: "refs-input", type: "url", "data-role": "framer-source-input", placeholder: "https://…" });
   const fileInput = el("input", { class: "refs-input", type: "file", accept: ".html,text/html" });
+  // A scraped mirror writes its own links and media as absolute URLs: only with
+  // the address of the original site can the import tell them from other sites.
+  const baseUrlInput = el("input", {
+    class: "refs-input",
+    type: "url",
+    "data-role": "framer-base-url",
+    placeholder: "Adresse der Originalseite, z. B. https://beispiel.de (optional)",
+  });
+  const mirrorBase = () => (baseUrlInput.value.trim() === "" ? {} : { baseUrl: baseUrlInput.value.trim() });
   const pagePathInput = el("input", { class: "refs-input", type: "text", value: "/", placeholder: "/landingpage" });
   const targetSelect = el("select", { class: "refs-input", "data-role": "framer-target" });
   targetSelect.append(
@@ -5584,7 +5593,7 @@ function openFramerImportDialog({ siteId, pageId, session, onImported }) {
   const sourceForPath = (path) =>
     sourceSelect.value === "url"
       ? { url: new URL(path, sourceInput.value.trim()).href }
-      : { rootDir: sourceInput.value.trim(), page: path };
+      : { rootDir: sourceInput.value.trim(), page: path, ...mirrorBase() };
   const importSitePages = async () => {
     const results = [];
     for (const { path, input } of sitePageChecks) {
@@ -5693,6 +5702,7 @@ function openFramerImportDialog({ siteId, pageId, session, onImported }) {
     sourceInput.type = value === "mirror" ? "text" : "url";
     sourceInput.placeholder = value === "mirror" ? "C:\\Pfad\\zum\\Mirror" : "https://…";
     fileInput.hidden = value !== "html";
+    baseUrlInput.hidden = value !== "mirror";
   };
   sourceSelect.addEventListener("change", syncSource);
   syncSource();
@@ -5705,7 +5715,7 @@ function openFramerImportDialog({ siteId, pageId, session, onImported }) {
     }
     const value = sourceInput.value.trim();
     if (value === "") throw new Error("Bitte eine Importquelle angeben.");
-    return sourceSelect.value === "url" ? { url: value } : { rootDir: value };
+    return sourceSelect.value === "url" ? { url: value } : { rootDir: value, ...mirrorBase() };
   };
   const bodyFor = async (write) => ({
     source: await sourceValue(),
@@ -5857,6 +5867,7 @@ function openFramerImportDialog({ siteId, pageId, session, onImported }) {
     el("h2", { text: "Framer-Seite importieren" }),
     el("label", {}, "Quelle", sourceSelect),
     sourceInput,
+    baseUrlInput,
     fileInput,
     el("label", {}, "Ziel", targetSelect),
     el("label", {}, "Seitenpfad", pagePathInput),
