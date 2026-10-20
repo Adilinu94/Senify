@@ -22,7 +22,7 @@ import {
   type PageContext,
   type PayloadDelivery,
 } from "@senify/renderer";
-import { resolveTheme } from "@senify/tokens";
+import { resolveTheme, type ResolvedTheme } from "@senify/tokens";
 import type { NodeTree } from "@senify/section-sdk";
 import { prefetchLists } from "./lists.ts";
 import { toBindingEntry } from "./lists.ts";
@@ -77,13 +77,40 @@ type DeliveredAsset = {
 
 // Only the assets a page actually references are delivered; the URL map
 // resolves `assetRef`s in the sections (missing assets stay marked).
+// The font files of the theme: the `@font-face` rules of the bake point at
+// them, so they belong to the release.
+function themeFontFiles(resolved: ResolvedTheme): string[] {
+  const fonts = [resolved.fonts.display, resolved.fonts.body, resolved.fonts.mono];
+  const files: string[] = [];
+  for (const font of fonts) {
+    for (const file of Object.values(font?.files ?? {})) {
+      if (!files.includes(file)) files.push(file);
+    }
+  }
+  return files;
+}
+
+// The asset id of a delivery path: `/assets/<id>/<file>`. The theme's font
+// files are named that way once the import put them in the media library.
+function assetIdOfPath(path: string): string | undefined {
+  return /^\/assets\/([^/]+)\//.exec(path)?.[1];
+}
+
 async function collectDeliverableAssets(input: {
   store: Store;
   site: Site;
   trees: NodeTree[];
   dataDir: string;
+  // The font files of the theme. They belong to the release even when no node
+  // names them: the theme's `@font-face` rules point at them, and a missing
+  // file means the page falls back to a system font.
+  fontFiles?: readonly string[];
 }): Promise<DeliveredAsset[]> {
   const referenced = collectAssetIds(input.trees.map((draft) => ({ draft })));
+  for (const file of input.fontFiles ?? []) {
+    const assetId = assetIdOfPath(file);
+    if (assetId !== undefined) referenced.add(assetId);
+  }
   if (referenced.size === 0) return [];
   const delivered: DeliveredAsset[] = [];
   const assets = await input.store.listAssets(input.site.id, { status: "ready" });
@@ -444,6 +471,7 @@ export async function bakePages(
     site: input.site,
     trees: build.trees,
     dataDir: input.dataDir,
+    fontFiles: themeFontFiles(resolved),
   });
   const payloads = await collectDeliverablePayloads({
     store,

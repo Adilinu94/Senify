@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { PAGE_ROOT_TYPE, type NodeTree } from "@senify/section-sdk";
-import { bakePages, validateTreeIntegrity } from "@senify/engine";
+import { bakePages, fontFilesOf, validateTreeIntegrity } from "@senify/engine";
 import {
   bootEngine,
   createTestPage,
@@ -584,8 +584,65 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
     }, 120_000);
   });
 
-  describe("brand colour in the theme", () => {
-    const branded = (): string =>
+  describe("the fonts of the theme patch", () => {
+    // The patch names the fonts of the source; the files come from the import.
+    // Without them the theme keeps its old files under the new name: the page
+    // asks for "Manrope" and gets the shapes of the theme's own font.
+    it("names the file of every weight the theme writes", () => {
+      const patch = fontFilesOf(
+        {
+          fonts: {
+            display: { family: "Manrope", fallback: ["system-ui", "sans-serif"], weights: [600, 700] },
+          },
+        },
+        [
+          {
+            family: "'Manrope'",
+            weight: 600,
+            style: "normal",
+            unicodeRange: "U+0000-00FF",
+            files: ["/assets/a/manrope-latin.woff2"],
+            hash: "h1",
+            bytes: 10,
+          },
+          {
+            family: "Manrope",
+            weight: 700,
+            style: "normal",
+            unicodeRange: "U+0000-00FF",
+            files: ["/assets/a/manrope-latin.woff2"],
+            hash: "h1",
+            bytes: 10,
+          },
+          {
+            family: "Manrope",
+            weight: 600,
+            style: "normal",
+            unicodeRange: "U+0460-052F",
+            files: ["/assets/b/manrope-cyrillic.woff2"],
+            hash: "h2",
+            bytes: 10,
+          },
+        ],
+      );
+      // The latin subset — the one that carries the text of the page — and
+      // every weight, even when one file serves several of them.
+      expect(patch.fonts?.display?.files).toEqual({
+        "600": "/assets/a/manrope-latin.woff2",
+        "700": "/assets/a/manrope-latin.woff2",
+      });
+    });
+
+    it("leaves a font without an imported file alone", () => {
+      const patch = fontFilesOf(
+        { fonts: { body: { family: "Figtree", fallback: ["sans-serif"], weights: [500] } } },
+        [],
+      );
+      expect(patch.fonts?.body?.files).toBeUndefined();
+    });
+  });
+
+  describe("brand colour in the theme", () => {    const branded = (): string =>
       framerHtml().replace('<section class="hero-container">', '<section class="hero-container" style="background-color:#2f6fed">');
 
     const brandOf = async (siteId: string): Promise<string | undefined> =>

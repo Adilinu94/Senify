@@ -49,6 +49,7 @@ export {
 } from "./code-payloads-contract.ts";
 export {
   editorDocumentToNodeTree,
+  fontFilesOf,
   framerImportKeys,
   runFramerImportJob,
   IMPORT_MAX_ATTEMPTS,
