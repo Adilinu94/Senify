@@ -141,6 +141,27 @@ describe("widget markup", () => {
     expect(spec("embed", { url: "https://e/x", title: "Karte" }).tag).toBe("iframe");
   });
 
+  it("reads an asset that names itself by its id", () => {
+    // The asset prop has two forms and both name the same picture: the plain
+    // id (the media library of the editor writes it) and the shared
+    // `{ assetId }` form (imports and the section components write it). The
+    // catalog allows both. Without the second form an imported picture
+    // arrived without a source: `data-asset` never appeared, so the delivery
+    // lookup never ran and the image stayed empty.
+    expect(spec("image", { asset: { assetId: "img1" }, alt: "Haus" }).attrs).toMatchObject({
+      src: "/assets/img1",
+      alt: "Haus",
+      "data-asset": "img1",
+    });
+    expect(spec("image", { asset: { assetId: "img1" } }).attrs?.src).toBe("/assets/img1");
+  });
+
+  it("reads the poster of a payload, which is an asset too", () => {
+    const payload = spec("payload", { payloadId: "p1", poster: { assetId: "bild1" } });
+    const poster = payload.children?.find((child) => child.tag === "img");
+    expect(poster?.attrs?.["data-asset"]).toBe("bild1");
+  });
+
   it("spells the fullscreen permission of frames the way React knows it", () => {
     // `allowFullscreen` (small s) is no DOM property to React: it warns in the
     // canvas and drops the attribute. The one spelling React accepts is
