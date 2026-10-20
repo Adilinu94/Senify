@@ -12,7 +12,8 @@ import { fetchPublic } from "@senify/core/net";
 import type { EditorDocument } from "@senify/editor/state";
 import type { StyleRule } from "@senify/widget-engine";
 import type { Breakpoints } from "@senify/widget-engine/breakpoints";
-import { captureFixture, captureHtml, type CaptureHtmlInput } from "./capture-html.ts";
+import { dirname, resolve } from "node:path";
+import { captureFixture, captureHtml, pageFileOf, type CaptureHtmlInput } from "./capture-html.ts";
 import type { FramerIrDocument, IrFinding, IrNode } from "./ir.ts";
 import { normalize, type NormalizeMode, type NormalizeResult } from "./normalize.ts";
 import { mapDocument, type MapperResult, type ThemePatch } from "./mapper.ts";
@@ -122,6 +123,13 @@ export async function fetchLinkedCss(html: string, pageUrl: string): Promise<str
 
 /* --------------------------------------------------------------- main run */
 
+// The folder of the mirror and the folder of the imported page inside it: a
+// relative asset URL points into the page's own folder first, then into the
+// mirror root.
+function mirrorFolders(rootDir: string, pagePath: string): { root: string; pageDir: string } {
+  return { root: rootDir, pageDir: dirname(resolve(pageFileOf(rootDir, pagePath))) };
+}
+
 export async function runImport(input: RunImportInput): Promise<ImportRun> {
   let document: FramerIrDocument;
   let baseUrl = input.baseUrl;
@@ -156,9 +164,14 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
   // Assets (S2.3/S2.3b) — the DSGVO font rewrite happens here.
   let assetReport: AssetReport | null = null;
   if (input.uploader !== undefined || input.outDir !== undefined) {
+    // A mirror knows its own files: a relative asset URL is read from the
+    // mirror folder (the page's own folder first), so the import works
+    // without the address of the original site.
+    const local = input.source.kind === "mirror" ? mirrorFolders(input.source.rootDir, input.source.pagePath ?? "/") : null;
     const assets = await importAssets({
       document,
       ...(baseUrl !== undefined ? { baseUrl } : {}),
+      ...(local !== null ? { localRoot: local.root, localPageDir: local.pageDir } : {}),
       ...(input.uploader !== undefined ? { uploader: input.uploader } : {}),
       ...(input.outDir !== undefined ? { outDir: input.outDir } : {}),
       ...(input.includeAssets !== undefined ? { includeAssets: input.includeAssets } : {}),
