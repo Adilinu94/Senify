@@ -169,10 +169,20 @@ function decodeEntities(value: string): string {
 // a naive search would cut the tag there: the value would lose its closing
 // quote, the attribute would read as empty, and the image would arrive
 // without a source.
+//
+// The scan runs over the tag only, with the regex engine and not a character
+// loop: a tag of an export can be long, and the loop would walk it byte by
+// byte in JavaScript.
+const TAG_SPECIAL = /["'>]/g;
+
 function findTagEnd(html: string, start: number, limit: number): number {
+  TAG_SPECIAL.lastIndex = start;
   let quote: string | null = null;
-  for (let index = start; index < limit; index += 1) {
-    const char = html.charAt(index);
+  let match: RegExpExecArray | null;
+  while ((match = TAG_SPECIAL.exec(html)) !== null) {
+    const at = match.index;
+    if (at >= limit) return -1;
+    const char = match[0];
     if (quote !== null) {
       if (char === quote) quote = null;
       continue;
@@ -181,7 +191,7 @@ function findTagEnd(html: string, start: number, limit: number): number {
       quote = char;
       continue;
     }
-    if (char === ">") return index;
+    return at;
   }
   return -1;
 }
