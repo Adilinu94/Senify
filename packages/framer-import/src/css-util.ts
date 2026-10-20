@@ -71,3 +71,8 @@ export function expandBox(value: string): { top: string; right: string; bottom: 
   const left = parts[3] ?? right;
   return { top, right, bottom, left };
 }
+
+// The marker the capture puts on a visual whose border Framer draws as an
+// overlay inside the box (`[data-border=true]:after`). The mapper consumes it
+// (`overlayBorderToShadow`): it never reaches the compiler.
+export const BORDER_OVERLAY = "border-overlay";

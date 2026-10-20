@@ -665,10 +665,12 @@ describe("which rules the stylesheet really matches", () => {
     expect(appearing?.appearInitial?.["opacity"]).toBe("0.001");
   });
 
-  it("turns Framer's border variables into a border on the element that says `data-border`", () => {
+  it("draws Framer's border variables on the element that says `data-border` as an inner border", () => {
     // Framer keeps a border as custom properties and draws it with
     // `[data-border=true]:after`. That pseudo rule is not applied, so without
     // this the divider lines of the reference cards (fluffy-rectangle) were gone.
+    // The pseudo element lies inside the box and takes no room, so the border is
+    // an inner shadow, not a border that would make a content-sized box taller.
     const css =
       ".framer-card{--border-top-width:1px;--border-left-width:1px;--border-right-width:0px;--border-bottom-width:0px;--border-color:#262626;--border-style:solid;padding:20px}" +
       "[data-border=true]:after{content:'';border-width:var(--border-top-width,0) var(--border-right-width,0) var(--border-bottom-width,0) var(--border-left-width,0);border-color:var(--border-color,none);border-style:var(--border-style,none)}";
@@ -680,13 +682,59 @@ describe("which rules the stylesheet really matches", () => {
       return all.find((node) => text !== undefined && node.children?.includes(text.id))?.props;
     };
     const card = framed("Karte");
-    expect(card?.["borderTopWidth"]).toBe("1px");
-    expect(card?.["borderLeftWidth"]).toBe("1px");
-    expect(card?.["borderRightWidth"]).toBe("0px");
-    expect(card?.["borderStyle"]).toBe("solid");
-    expect(card?.["borderColor"]).toBe("#262626");
+    // Top and left only; the sides of width 0 draw nothing.
+    expect(card?.["boxShadow"]).toBe("inset 0 1px 0 0 #262626, inset 1px 0 0 0 #262626");
+    // No border of its own: it would add its width to the box.
+    expect(card?.["borderTopWidth"]).toBeUndefined();
+    expect(card?.["borderLeftWidth"]).toBeUndefined();
+    expect(card?.["borderStyle"]).toBeUndefined();
+    expect(card?.["borderColor"]).toBeUndefined();
+    expect(card?.["borderOverlay"]).toBeUndefined();
     // Without `data-border` the variables draw nothing.
+    expect(framed("ohne")?.["boxShadow"]).toBeUndefined();
     expect(framed("ohne")?.["borderTopWidth"]).toBeUndefined();
+  });
+
+  describe("border overlay", () => {
+    const overlay = (variables: string, extra = "") =>
+      `.framer-card{${variables};padding:20px;${extra}}` +
+      "[data-border=true]:after{content:'';border-width:var(--border-top-width,0) var(--border-right-width,0) var(--border-bottom-width,0) var(--border-left-width,0)}";
+    const cardOf = (css: string, mode: "fidelity" | "dna" = "fidelity") => {
+      const html = page('<div class="framer-card" data-border="true"><p>Karte</p></div>', css);
+      const document = captureHtml({ html });
+      const mapped = mapDocument(document, normalize(document, { mode }).rules);
+      const all = Object.values(mapped.document.nodes) as { id: string; props: Record<string, unknown>; children?: string[] }[];
+      const text = all.find((node) => String(node.props["html"] ?? node.props["text"] ?? "").includes("Karte"));
+      return all.find((node) => text !== undefined && node.children?.includes(text.id))?.props;
+    };
+    const vars = (top: string, bottom: string, style = "solid") =>
+      `--border-top-width:${top};--border-right-width:0px;--border-bottom-width:${bottom};--border-left-width:0px;--border-color:#c9cbc5;--border-style:${style}`;
+
+    it("draws a divider above and below as two inner bands", () => {
+      expect(cardOf(overlay(vars("1px", "2px")))?.["boxShadow"]).toBe("inset 0 1px 0 0 #c9cbc5, inset 0 -2px 0 0 #c9cbc5");
+    });
+
+    it("puts the border in front of a shadow the element has of its own", () => {
+      const card = cardOf(overlay(vars("0px", "1px"), "box-shadow:0 2px 4px #000"));
+      expect(card?.["boxShadow"]).toBe("0 2px 4px #000, inset 0 -1px 0 0 #c9cbc5");
+    });
+
+    it("keeps the border in the DNA mode, which removes every shadow of the source", () => {
+      expect(cardOf(overlay(vars("1px", "0px")), "dna")?.["boxShadow"]).toBe("inset 0 1px 0 0 #c9cbc5");
+    });
+
+    it("keeps a dashed border a real border: a shadow cannot draw it", () => {
+      const card = cardOf(overlay(vars("1px", "1px", "dashed")));
+      expect(card?.["boxShadow"]).toBeUndefined();
+      expect(card?.["borderStyle"]).toBe("dashed");
+      expect(card?.["borderTopWidth"]).toBe("1px");
+    });
+
+    it("draws nothing for a border of width 0 on every side", () => {
+      const card = cardOf(overlay(vars("0px", "0px")));
+      expect(card?.["boxShadow"]).toBeUndefined();
+      expect(card?.["borderStyle"]).toBeUndefined();
+    });
   });
 
   it("reads an attribute on the element itself", () => {

@@ -35,7 +35,7 @@ import {
   type IrTextContent,
   type IrVisual,
 } from "./ir.ts";
-import { expandBox, parseDeclaration, splitCommas, splitDeclarations } from "./css-util.ts";
+import { BORDER_OVERLAY, expandBox, parseDeclaration, splitCommas, splitDeclarations } from "./css-util.ts";
 import { devicesContaining } from "./devices.ts";
 import { rewriteLinks } from "./link-paths.ts";
 
@@ -1614,6 +1614,14 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
       // Framer keeps a border as custom properties and draws it with
       // `[data-border=true]:after`, a pseudo rule that is not applied. The
       // element carries the border itself, with the widths of each side.
+      //
+      // Framer's pseudo element lies INSIDE the box (`position:absolute`, 100% by
+      // 100%, `box-sizing:border-box`) and takes no room, while a border on the
+      // element itself adds its width to a content-sized box: every bordered row of
+      // a list came out 1 to 2 px taller and the page below drifted by up to 14 px
+      // (easier-train). A solid border is therefore marked (`border-overlay`), and
+      // the mapper draws it as an inner shadow, which has the same geometry; any
+      // other style stays a real border.
       const borderStyle = vars["--border-style"];
       if (current.attrs?.["data-border"] === "true" && borderStyle !== undefined && borderStyle !== "none") {
         for (const side of ["top", "right", "bottom", "left"]) {
@@ -1623,6 +1631,7 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
         plain["border-style"] = borderStyle;
         const color = vars["--border-color"];
         if (color !== undefined) plain["border-color"] = color;
+        if (borderStyle.trim() === "solid") plain[BORDER_OVERLAY] = "solid";
       }
       valuesByDevice[device] = Object.fromEntries(
         Object.entries(plain).flatMap(([key, value]) => (value === undefined ? [] : [[key, resolveVars(value, vars)]])),

@@ -20,6 +20,7 @@ import { sanitizeInlineHtml, type StyleRule } from "@senify/widget-engine";
 import { brandColorOf } from "./brand-color.ts";
 import { neutralBaseOf, typeBaseOf } from "./theme-scales.ts";
 import { devicesContaining } from "./devices.ts";
+import { BORDER_OVERLAY } from "./css-util.ts";
 import type {
   FramerIrDocument,
   IrDevice,
@@ -740,9 +741,49 @@ function normalizeSpacingProps(props: Record<string, unknown>): void {
   }
 }
 
-function cssToStyle(visual: { [key: string]: string | undefined }): Record<string, string> {
+// Framer draws a border as an overlay INSIDE the box (`[data-border=true]:after`,
+// absolute, 100% by 100%, `box-sizing:border-box`): it takes no room. A border on
+// the element itself adds its width to a content-sized box, so every bordered row
+// came out 1 to 2 px taller. An inner shadow has the geometry of the overlay (it
+// lies inside the padding box and follows the radius), one band per side with its
+// own width. It is made here, after the DNA pass, because that pass removes every
+// `box-shadow` of the source and a border is what it keeps. A shadow the element
+// has of its own stays, in front.
+const OVERLAY_SIDES = [
+  ["top", (width: string) => `0 ${width} 0 0`],
+  ["right", (width: string) => `${negated(width)} 0 0 0`],
+  ["bottom", (width: string) => `0 ${negated(width)} 0 0`],
+  ["left", (width: string) => `${width} 0 0 0`],
+] as const;
+const NO_WIDTH = /^0(?:\.0+)?(?:px|em|rem)?$/;
+
+function negated(width: string): string {
+  return /^\d*\.?\d+px$/.test(width) ? `-${width}` : `calc(-1 * ${width})`;
+}
+
+function overlayBorderToShadow(visual: { [key: string]: string | undefined }): { [key: string]: string | undefined } {
+  if (visual[BORDER_OVERLAY] === undefined) return visual;
+  const out = { ...visual };
+  delete out[BORDER_OVERLAY];
+  const color = out["border-color"] ?? "currentColor";
+  const bands: string[] = [];
+  for (const [side, offsets] of OVERLAY_SIDES) {
+    const width = out[`border-${side}-width`]?.trim();
+    delete out[`border-${side}-width`];
+    if (width === undefined || width === "" || NO_WIDTH.test(width)) continue;
+    bands.push(`inset ${offsets(width)} ${color}`);
+  }
+  delete out["border-style"];
+  delete out["border-color"];
+  if (bands.length === 0) return out;
+  const own = out["box-shadow"]?.trim();
+  out["box-shadow"] = [...(own === undefined || own === "" || own === "none" ? [] : [own]), ...bands].join(", ");
+  return out;
+}
+
+function cssToStyle(source: { [key: string]: string | undefined }): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const [name, entry] of Object.entries(visual)) {
+  for (const [name, entry] of Object.entries(overlayBorderToShadow(source))) {
     if (entry === undefined) continue;
     const mapped = styleNameOf(name, entry);
     if (mapped !== undefined && entry !== "") out[mapped] = entry;

@@ -73,23 +73,23 @@ const DIFF_CEILING: Record<string, Record<Breakpoint, number>> = {
   // 17.10.2026: both sides draw the same Inter file, so the numbers no longer follow
   // the machine (identical with and without a system Inter). 19.10.2026: `inset`,
   // `gap` and gradients reach the compiler in the shape it takes, and the Ticker is
-  // shown. 20.10.2026: the paragraph spacing of a rich text arrives (fluffy-rectangle,
-  // texts 8 px or more off: desktop 3 -> 0, tablet 52 -> 3, phone 60 -> 48), and
-  // the original is settled by the importer's own rule (no blur left on the text
-  // effects, no closed menu opened). Measured 4.0 / 5.6 / 6.9 %, 2.1 / 2.2 / 4.3 % and
-  // 0.9 / 1.5 / 2.9 %; the ceilings sit 3 to 4 points above (football-stupendous stays:
-  // nothing moved there).
-  "framer-easier-train-154753": { desktop: 0.07, tablet: 0.09, mobile: 0.1 },
-  "framer-fluffy-rectangle-418998": { desktop: 0.05, tablet: 0.05, mobile: 0.075 },
-  "framer-stupendous-football-158496": { desktop: 0.05, tablet: 0.05, mobile: 0.07 },
+  // shown. 20.10.2026: the paragraph spacing of a rich text arrives, the original is
+  // settled by the importer's own rule (no blur left on the text effects, no closed
+  // menu opened), and Framer's border, an overlay inside the box, is drawn as an inner
+  // shadow instead of a border that made every content-sized box 1 to 2 px taller
+  // (the page drifted by up to 14 px). Measured 2.2 / 2.7 / 3.9 %, 0.7 / 0.7 / 1.3 %
+  // and 0.1 / 0.3 / 0.4 %; the ceilings sit 3 to 4 points above.
+  "framer-easier-train-154753": { desktop: 0.05, tablet: 0.06, mobile: 0.07 },
+  "framer-fluffy-rectangle-418998": { desktop: 0.04, tablet: 0.04, mobile: 0.05 },
+  "framer-stupendous-football-158496": { desktop: 0.04, tablet: 0.04, mobile: 0.05 },
 };
 
 // The same ratchet at the platform's tablet width (1024 px), per fixture. Lower
-// it whenever the importer gets better, never raise it. Measured 5.0 / 1.9 / 1.3 %.
+// it whenever the importer gets better, never raise it. Measured 2.3 / 0.5 / 0.2 %.
 const DIFF_CEILING_PLATFORM_TABLET: Record<string, number> = {
-  "framer-easier-train-154753": 0.08,
-  "framer-fluffy-rectangle-418998": 0.05,
-  "framer-stupendous-football-158496": 0.05,
+  "framer-easier-train-154753": 0.05,
+  "framer-fluffy-rectangle-418998": 0.04,
+  "framer-stupendous-football-158496": 0.04,
 };
 
 const MIME: Record<string, string> = {
