@@ -111,6 +111,9 @@ describe("style rule registry (site-wide)", () => {
       });
       expect(stale.status).toBe(409);
       expect(stale.body.error.field).toBe("baseVersion");
+      // The conflict names the version the server is on: without it the
+      // client cannot resend its write, and the retry never ends.
+      expect(stale.body.error.currentVersion).toBe(1);
 
       const after = await env.api.request<{ rules: StyleRuleResponse[]; version: number }>({
         method: "GET",

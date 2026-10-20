@@ -84,6 +84,12 @@ _Avoid_: Version, Bundle, Deployment
 **Mutation**: Eine benannte, typisierte Schreiboperation; die einzige öffentliche Schreib-API für Editor, MCP und Agenten.
 _Avoid_: Patch, Edit, Änderung
 
+**Zwei Sperren**: Die Draft-Version einer Page und die Version der Style-Registry sind **zwei**
+unabhängige optimistic Locks. Ein Konflikt benennt immer eine davon, und der Wiederholungsweg
+sendet gegen die Version des betroffenen Locks - die Seitenversion sagt nichts über die Registry
+und umgekehrt.
+_Avoid_: Version, Konflikt, Sperre (ohne zu sagen, welche)
+
 ### Referenzen
 
 **Referenz**: Ein Vorbild in der Bibliothek, aus dem ein Projekt Stil-Skalen ableitet (analysiert per URL oder als Import abgelegt).

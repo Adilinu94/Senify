@@ -29,6 +29,7 @@ export function draftConflictError(
       field: "baseDraftVersion",
       suggestion:
         "Reload the page, re-apply mutations against the current draft version, then retry.",
+      currentVersion: current,
     },
   );
 }

@@ -15,7 +15,11 @@ import { baseStore } from "./fixtures.ts";
 
 const AUTHOR: Author = { kind: "human", id: "tester", label: "Tester" };
 
-type Scripted = (request: SaveRequest) => SaveResponse | undefined;
+// The script answers a request. It may return a promise: a test that needs a
+// request to hang (a change that arrives while the request is in flight) hands
+// in a gate it opens itself. It may also throw - the transport contract
+// allows a rejection.
+type Scripted = (request: SaveRequest) => SaveResponse | undefined | Promise<SaveResponse | undefined>;
 
 function harness(script: Scripted = () => ({ status: 200, body: { newDraftVersion: 2 } })) {
   const store = baseStore();
@@ -27,7 +31,8 @@ function harness(script: Scripted = () => ({ status: 200, body: { newDraftVersio
     author: AUTHOR,
     request: async (request) => {
       requests.push(request);
-      return script(request) ?? { status: 200, body: { newDraftVersion: 2 } };
+      const answer = await script(request);
+      return answer ?? { status: 200, body: { newDraftVersion: 2 } };
     },
     debounceMs: 5,
   });
@@ -354,6 +359,7 @@ describe("save pipeline", () => {
     expect(conflictState.conflict).toEqual({
       expectedVersion: 1,
       serverVersion: 4,
+      scope: "page",
     });
     const dialog = conflictDialogModel(conflictState);
     expect(dialog?.serverVersion).toBe(4);
@@ -419,6 +425,160 @@ describe("save pipeline", () => {
     expect(pipeline.state().status).toBe("error");
     expect(pipeline.state().message).toBe("Boom");
     expect(pipeline.state().pending).toBe(1);
+  });
+});
+
+describe("the pipeline does not lose a change", () => {
+  // A gate the test opens itself: the request stays in flight until then, so
+  // a change can be made while it runs.
+  function gate(): { promise: Promise<SaveResponse>; open: (response: SaveResponse) => void } {
+    let open!: (response: SaveResponse) => void;
+    const promise = new Promise<SaveResponse>((resolve) => {
+      open = resolve;
+    });
+    return { promise, open };
+  }
+
+  it("keeps a change that arrives while a failing request is in flight", async () => {
+    const held = gate();
+    const { store, pipeline } = harness(() => held.promise);
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 });
+    const flushed = pipeline.flush();
+    store.apply({ op: "setNodeProp", id: "head000001", key: "color", value: "#123456" });
+    held.open({ status: 500, body: { error: { message: "Boom" } } });
+    await flushed;
+
+    // Both the batch that failed and the change that arrived meanwhile are
+    // still queued. Before the fix the second one was overwritten.
+    expect(pipeline.state().pending).toBe(2);
+    expect(pipeline.state().status).toBe("error");
+  });
+
+  it("keeps a change that arrives while a conflicting request is in flight", async () => {
+    const held = gate();
+    const { store, pipeline } = harness(() => held.promise);
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 });
+    const flushed = pipeline.flush();
+    store.apply({ op: "setNodeProp", id: "head000001", key: "color", value: "#123456" });
+    held.open({
+      status: 409,
+      body: { error: { message: "Draft has changed (expected v1, current v4)" } },
+    });
+    await flushed;
+
+    expect(pipeline.state().pending).toBe(2);
+    expect(pipeline.state().status).toBe("conflict");
+  });
+
+  it("saves a change that arrived during the request without another user action", async () => {
+    const held = gate();
+    const { store, pipeline, requests } = harness(() => held.promise);
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 });
+    const flushed = pipeline.flush();
+    store.apply({ op: "setNodeProp", id: "head000001", key: "color", value: "#123456" });
+
+    // The debounce elapses while the request is still in flight. Its timer
+    // fires, `flush()` returns because a request is running, and the timer is
+    // consumed: the change waits for a timer that nobody sets again.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(requests).toHaveLength(1);
+    expect(pipeline.state().pending).toBe(1);
+
+    held.open({ status: 200, body: { newDraftVersion: 3 } });
+    await flushed;
+
+    // The autosave promise holds: the change gets a timer of its own.
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(requests).toHaveLength(2);
+    expect(pipeline.state().status).toBe("saved");
+    expect(pipeline.state().pending).toBe(0);
+    const body = requests[1]?.body as { mutations: { op: string; key: string }[] };
+    expect(body.mutations[0]?.key).toBe("color");
+  });
+
+  it("keeps the batch and recovers when the transport rejects", async () => {
+    let attempt = 0;
+    const { store, pipeline, requests } = harness(() => {
+      attempt += 1;
+      if (attempt === 1) throw new Error("network down");
+      return { status: 200, body: { newDraftVersion: 5 } };
+    });
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 });
+    await pipeline.flush();
+    expect(pipeline.state().status).toBe("error");
+    expect(pipeline.state().message).toBe("network down");
+    expect(pipeline.state().pending).toBe(1);
+
+    // The pipeline is not stuck: a rejecting transport used to leave it on
+    // "saving" forever, and every later flush returned without sending.
+    await pipeline.flush();
+    expect(requests).toHaveLength(2);
+    expect(pipeline.state().status).toBe("saved");
+    expect(pipeline.state().pending).toBe(0);
+  });
+
+  it("does not queue the saved page batch again when a registry write fails", async () => {
+    // The page batch went out; the registry write did not. Only the registry
+    // write belongs back into the queue - the page batch would be written a
+    // second time, and an insert would insert twice.
+    const { store, pipeline, requests } = harness((request) => {
+      if (request.path.includes("/style-rules")) throw new Error("registry down");
+      return { status: 200, body: { newDraftVersion: 3 } };
+    });
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 });
+    store.apply({ op: "upsertStyleRule", rule: rule("r-cta", "cta", { color: "#fff" }) });
+    await pipeline.flush();
+
+    expect(pipeline.state().status).toBe("error");
+    expect(pipeline.state().message).toBe("registry down");
+    // The page mutation is saved, the registry op is queued: one, not two.
+    expect(pipeline.state().pending).toBe(1);
+    expect(requests).toHaveLength(2);
+  });
+});
+
+describe("the style registry conflict has a working retry", () => {
+  it("resends against the registry version the server reported", async () => {
+    let conflict = true;
+    const { store, pipeline, requests } = harness((request) => {
+      if (!request.path.includes("/style-rules")) return undefined;
+      if (conflict) {
+        conflict = false;
+        return {
+          status: 409,
+          body: {
+            error: {
+              message: "Die Style-Registry wurde zwischenzeitlich geändert",
+              currentVersion: 7,
+            },
+          },
+        };
+      }
+      return { status: 200, body: { version: 8 } };
+    });
+    store.apply({ op: "upsertStyleRule", rule: rule("r-cta", "cta", { color: "#fff" }) });
+    await pipeline.flush();
+
+    const state = pipeline.state();
+    expect(state.status).toBe("conflict");
+    expect(state.pending).toBe(1);
+    // The registry has its own lock; the dialog has to name it.
+    expect(state.conflict).toEqual({
+      expectedVersion: 0,
+      serverVersion: 7,
+      scope: "registry",
+    });
+    const dialog = conflictDialogModel(state);
+    expect(dialog?.title).toContain("Style-Registry");
+    expect(dialog?.serverVersion).toBe(7);
+
+    // The retry sends the registry version, not the page version: the page
+    // version says nothing about the registry lock.
+    await pipeline.retry();
+    expect(pipeline.state().status).toBe("saved");
+    const body = requests[1]?.body as { baseVersion: number };
+    expect(body.baseVersion).toBe(7);
+    expect(pipeline.state().styleRegistryVersion).toBe(8);
   });
 });
 

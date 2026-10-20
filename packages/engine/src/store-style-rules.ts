@@ -720,9 +720,13 @@ export class StyleRuleStore {
       }
       const version = toFiniteNumber(current.style_rules_version ?? 0, "style_rules_version");
       if (event.baseVersion !== undefined && event.baseVersion !== version) {
+        // The current version travels with the error: the client can only
+        // resend its write against the registry state the server is on, and a
+        // version in the message text is not something a client can rely on.
         throw new SenifyError("conflict", "Die Style-Registry wurde zwischenzeitlich geändert", {
           field: "baseVersion",
           suggestion: "Lade die Style-Registry neu und sende den Write erneut.",
+          currentVersion: version,
         });
       }
       const nextVersion = version + 1;
