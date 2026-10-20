@@ -91,6 +91,7 @@ export const pageRoutes: Route[] = [
     }),
   },
 
+  // ------------------------------------------------------- content core (T09)
   {
     method: "GET",
     segments: ["api", "pages", ":pageId"],
