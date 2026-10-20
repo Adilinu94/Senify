@@ -841,9 +841,68 @@ describe("Framer's Ticker", () => {
     expect(section?.props["opacity"]).toBeUndefined();
   });
 
+  // The export has no movement to read, so the strip stands still. The report
+  // says so, and says what to do about it.
+  it("reports the Ticker as a standing strip", () => {
+    const { document } = run(page(`<section style="${tickerStyle}"><ul><li><p>Logo</p></li></ul></section>`));
+    const finding = document.findings.find((entry) => entry.message.includes("Ticker"));
+    expect(finding).toMatchObject({ kind: "loop-animation", severity: "info" });
+    expect(finding?.message).toContain("1 Ticker");
+    expect(finding?.suggestion).toContain("Marquee-Section");
+  });
+
+  it("reports no Ticker for a page without one", () => {
+    const { document } = run(page('<div style="display:flex;opacity:0"><p>versteckt</p></div>'));
+    expect(document.findings.some((entry) => entry.message.includes("Ticker"))).toBe(false);
+  });
+
   it("leaves any other element written at opacity 0 alone", () => {
     const { nodes } = run(page('<div style="display:flex;opacity:0"><p>versteckt</p></div>'));
     const box = nodes.find((node) => node.props["display"] === "flex");
     expect(box?.props["opacity"]).toBe("0");
+  });
+});
+
+// Framer separates the paragraphs of one rich text with a margin-top on every
+// block but the first. The baked `html` carries no styles, so the spacing
+// travels as the row gap of the body (a column).
+describe("paragraph spacing of a rich text", () => {
+  const spacing =
+    "p.framer-text:not(:first-child){margin-top:var(--framer-paragraph-spacing,0)}" +
+    ".framer-styles-preset-x:not(.rich-text-wrapper){--framer-paragraph-spacing:40px}";
+  const container = (paragraphs: string): string =>
+    `<div data-framer-component-type="RichTextContainer" style="display:flex;flex-direction:column;--framer-paragraph-spacing:0px">${paragraphs}</div>`;
+  const text = (content: string): string => `<p class="framer-text framer-styles-preset-x">${content}</p>`;
+  const bodies = (html: string, css = spacing) => run(page(html, css)).nodes.filter((node) => node.primitive === "body");
+
+  it("keeps the spacing between two paragraphs as the gap of the body", () => {
+    const [body] = bodies(container(text("Erster") + text("Zweiter")));
+    expect(body?.props["html"]).toBe("<p>Erster</p><p>Zweiter</p>");
+    expect(body?.props["gap"]).toEqual({ row: "40px", column: "40px" });
+  });
+
+  it("gives a text of one paragraph no gap: the first block has no margin", () => {
+    const [body] = bodies(container(text("Allein")));
+    expect(body?.props["gap"]).toBeUndefined();
+  });
+
+  it("gives a text whose spacing is 0 no gap", () => {
+    const css = spacing.replace("--framer-paragraph-spacing:40px", "--framer-paragraph-spacing:0px");
+    const [body] = bodies(container(text("Erster") + text("Zweiter")), css);
+    expect(body?.props["gap"]).toBeUndefined();
+  });
+
+  it("states the spacing of the phone for itself", () => {
+    const css = `${spacing}@media(max-width: 809px){.framer-styles-preset-x:not(.rich-text-wrapper){--framer-paragraph-spacing:12px}}`;
+    const [body] = bodies(container(text("Erster") + text("Zweiter")), css);
+    expect(body?.props["gap"]).toEqual({ row: "40px", column: "40px" });
+    expect(body?.props["gap_mobile"]).toEqual({ row: "12px", column: "12px" });
+    expect(body?.props["gap_tablet"]).toBeUndefined();
+  });
+
+  it("makes the container a column where the capture did not say so", () => {
+    const html = `<div data-framer-component-type="RichTextContainer">${text("Erster")}${text("Zweiter")}</div>`;
+    const [body] = bodies(html);
+    expect(body?.props).toMatchObject({ display: "flex", flexDirection: "column" });
   });
 });

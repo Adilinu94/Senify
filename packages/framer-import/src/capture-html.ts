@@ -408,6 +408,21 @@ function elementStyleToParts(
 
 const TICKER_STYLE_RES: readonly RegExp[] = [/list-style-type:\s*none/, /text-indent:\s*none/];
 
+// How many Tickers the page holds (the copies of the breakpoints included).
+// What is imported is the strip as the export wrote it: the movement is done
+// by Framer's script at run time, there is no animation in the export to read.
+// The `marquee` motion preset is a CSS preset of the Marquee section's own
+// markup and does nothing on a frame, so the strip stands still and the report
+// says so.
+function tickerCountOf(html: string): number {
+  let count = 0;
+  for (const match of html.matchAll(/<section\b[^>]*?\sstyle="([^"]*)"/g)) {
+    const style = match[1] ?? "";
+    if (/(?:^|;)\s*opacity:\s*0\s*(?:;|$)/.test(style) && TICKER_STYLE_RES.every((pattern) => pattern.test(style))) count += 1;
+  }
+  return count;
+}
+
 /* ------------------------------------------------------------ device maps */
 
 // The breakpoint hash → Senify device mapping (decision 23.09.: 1024 tablet).
@@ -784,6 +799,19 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
       evidence: "SmoothScroll_Prod / lenis im Markup",
       severity: "warn",
       suggestion: "Profil-Zuordnung prüfen: Scroll-Steuerung wird nicht 1:1 übernommen.",
+    });
+  }
+
+  // --- Framer's Ticker: kept as a standing strip, said so in the report
+  const tickers = tickerCountOf(html);
+  if (tickers > 0) {
+    findings.push({
+      kind: "loop-animation",
+      nodeKey: null,
+      message: `${tickers} Ticker (Laufband, Geräte-Kopien eingerechnet) als stehende Leiste übernommen — die Bewegung erzeugt Framers Skript zur Laufzeit, der Export enthält nur die Elemente.`,
+      evidence: "<section style=\"… list-style-type:none; text-indent:none; opacity:0 …\">",
+      severity: "info",
+      suggestion: "Soll die Leiste laufen, im Editor die Marquee-Section einsetzen; das marquee-Preset wirkt nur auf deren eigenem Markup.",
     });
   }
 

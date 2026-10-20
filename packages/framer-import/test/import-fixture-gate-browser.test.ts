@@ -73,19 +73,22 @@ const DIFF_CEILING: Record<string, Record<Breakpoint, number>> = {
   // 17.10.2026: both sides draw the same Inter file, so the numbers no longer follow
   // the machine (identical with and without a system Inter). 19.10.2026: `inset`,
   // `gap` and gradients reach the compiler in the shape it takes, and the Ticker is
-  // shown. Measured 4.6 / 6.1 / 7.8 %, 2.1 / 2.7 / 4.6 % and 0.9 / 1.5 / 2.9 %; the
-  // ceilings sit 3 to 4 points above (fluffy-rectangle stays: the shown Ticker moved
-  // it by 0.1 to 0.4 points, its content is back, the pixels are a moving marquee).
-  "framer-easier-train-154753": { desktop: 0.08, tablet: 0.1, mobile: 0.11 },
-  "framer-fluffy-rectangle-418998": { desktop: 0.06, tablet: 0.06, mobile: 0.08 },
+  // shown. 20.10.2026: the paragraph spacing of a rich text arrives (fluffy-rectangle,
+  // texts 8 px or more off: desktop 3 -> 0, tablet 52 -> 3, phone 60 -> 48), and
+  // the original is settled by the importer's own rule (no blur left on the text
+  // effects, no closed menu opened). Measured 4.0 / 5.6 / 6.9 %, 2.1 / 2.2 / 4.3 % and
+  // 0.9 / 1.5 / 2.9 %; the ceilings sit 3 to 4 points above (football-stupendous stays:
+  // nothing moved there).
+  "framer-easier-train-154753": { desktop: 0.07, tablet: 0.09, mobile: 0.1 },
+  "framer-fluffy-rectangle-418998": { desktop: 0.05, tablet: 0.05, mobile: 0.075 },
   "framer-stupendous-football-158496": { desktop: 0.05, tablet: 0.05, mobile: 0.07 },
 };
 
 // The same ratchet at the platform's tablet width (1024 px), per fixture. Lower
-// it whenever the importer gets better, never raise it. Measured 5.5 / 2.3 / 1.4 %.
+// it whenever the importer gets better, never raise it. Measured 5.0 / 1.9 / 1.3 %.
 const DIFF_CEILING_PLATFORM_TABLET: Record<string, number> = {
-  "framer-easier-train-154753": 0.09,
-  "framer-fluffy-rectangle-418998": 0.06,
+  "framer-easier-train-154753": 0.08,
+  "framer-fluffy-rectangle-418998": 0.05,
   "framer-stupendous-football-158496": 0.05,
 };
 
@@ -98,19 +101,34 @@ const MIME: Record<string, string> = {
   ".woff2": "font/woff2",
 };
 
-// The original, settled: Framer writes the start state of every reveal inline
-// (`opacity:0.001`, `opacity:0`, `transform:translateY(40px)`) and its script
-// plays it away. Without the script those elements stay invisible, which would
-// make the ORIGINAL look emptier than the page really is. Same rule as the
-// importer applies to the import.
+// The original, settled: Framer writes the start state of a reveal inline
+// (`opacity:0.001`, `opacity:0`, `transform:translateY(40px)`, a text effect's
+// `filter:blur(10px)`) and its script plays it away. Without the script those
+// elements stay invisible (or blurred), which would make the ORIGINAL look
+// emptier than the page really is. Exactly the elements the importer reads as a
+// start state are settled (`hasStartState` in `capture-html.ts`): an appear
+// element, an element hidden together with a movement that brings it in, and the
+// Ticker's section. A plain `opacity:0` is the design (the closed menu of a phone
+// header, a collapsed answer) and stays, as it does in the import. Settling every
+// `opacity:0`, as this did until 20.10.2026, opened the closed phone menu in the
+// original only.
+const OPENING_TAG = /<[a-z][a-z0-9-]*(?:\s+[^\s"'<>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'<>]+))?)*\s*\/?>/gi;
+
 function settled(html: string): string {
-  return html.replace(/style="([^"]*)"/g, (whole: string, style: string) => {
+  return html.replace(OPENING_TAG, (tag: string) => {
+    const style = /\sstyle="([^"]*)"/.exec(tag)?.[1];
+    if (style === undefined) return tag;
     const opacity = /(?:^|;)\s*opacity\s*:\s*([0-9.]+)/.exec(style)?.[1];
-    if (opacity === undefined || Number(opacity) > 0.01) return whole;
+    if (opacity === undefined || Number(opacity) > 0.01) return tag;
+    const appears = /\sdata-framer-appear-id=/.test(tag);
+    const movesIn = /(?:^|;)\s*transform\s*:\s*(?!none\b)[^;]+/.test(style);
+    const ticker = /list-style-type:\s*none/.test(style) && /text-indent:\s*none/.test(style);
+    if (!appears && !movesIn && !ticker) return tag;
     const next = style
       .replace(/(^|;)\s*opacity\s*:\s*[0-9.]+/, "$1opacity:1")
-      .replace(/(^|;)\s*transform\s*:[^;]*/, "$1");
-    return `style="${next}"`;
+      .replace(/(^|;)\s*transform\s*:[^;]*/, "$1")
+      .replace(/(^|;)\s*(?:-webkit-)?filter\s*:\s*blur\([^;]*/g, "$1");
+    return tag.replace(style, () => next);
   });
 }
 
