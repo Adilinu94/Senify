@@ -586,6 +586,11 @@ export const EDITOR_SKIN_STYLES = skinCss();
 // and the same skin name, so the very same `--ed-*` vocabulary paints it.
 const CANVAS_SCOPE = `.senify-canvas[${EDITOR_ROOT_ATTRIBUTE}][${EDITOR_SKIN_ATTRIBUTE}="${EDITOR_SKIN_TIEFWASSER}"]`;
 
+// The toolbar can sit outside the canvas root (E8: the workspace bar). It then
+// carries the marker and the skin name itself, and the rules for its groups and
+// buttons apply under this scope too.
+const TOOLBAR_SCOPE = `.senify-canvas__topbar[${EDITOR_ROOT_ATTRIBUTE}][${EDITOR_SKIN_ATTRIBUTE}="${EDITOR_SKIN_TIEFWASSER}"]`;
+
 // The canvas view's chrome, expressed in the tokens of `tokens.ts` alone (no
 // hex, no second palette). The sheet with the page content is untouched: the
 // frame keeps its neutral white in the structural sheet, and the content lives
@@ -594,7 +599,10 @@ const CANVAS_SCOPE = `.senify-canvas[${EDITOR_ROOT_ATTRIBUTE}][${EDITOR_SKIN_ATT
 function canvasSkinCss(): string {
   const blocks: string[] = [];
   const rule = (selector: string, body: string): void => {
-    blocks.push(`${CANVAS_SCOPE}${selector} {\n${body}\n}`);
+    const scopes = /\.senify-canvas__(?:group|button)\b/.test(selector)
+      ? [CANVAS_SCOPE, TOOLBAR_SCOPE]
+      : [CANVAS_SCOPE];
+    blocks.push(`${scopes.map((scope) => `${scope}${selector}`).join(",\n")} {\n${body}\n}`);
   };
   // --------------------------------------------------------------- Grundfläche
   rule(

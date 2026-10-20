@@ -82,6 +82,10 @@ export type CanvasOptions = {
   // Pseudo-state buttons are a developer aid, not part of the product chrome.
   // Tests and diagnostics can opt in explicitly without changing normal flows.
   debugChrome?: boolean;
+  // Where the toolbar (devices, history) lives: inside the canvas (default), or
+  // "external" - the canvas builds it but does not attach it, and the caller
+  // places `CanvasInstance.toolbar` (E8: the workspace bar).
+  toolbar?: "inside" | "external";
 };
 
 export type CanvasState = {
@@ -102,6 +106,9 @@ export type ArmedTarget = {
 
 export type CanvasInstance = {
   element: DomElement;
+  // The toolbar element: inside `element`, or free for the caller to place when
+  // the canvas was mounted with `toolbar: "external"`.
+  toolbar: DomElement;
   refresh(): void;
   setZoom(zoom: number): void;
   fit(): void;
@@ -259,7 +266,13 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   const overlay = create(doc, "div", "senify-canvas__overlay", { "data-role": "overlay" });
   const footer = create(doc, "div", "senify-canvas__footer");
   const status = create(doc, "span", "senify-canvas__status", { "data-role": "status" });
-  root.appendChild(topbar);
+  if ((options.toolbar ?? "inside") === "inside") {
+    root.appendChild(topbar);
+  } else {
+    // Outside the canvas root the toolbar needs the marker and the skin itself.
+    topbar.setAttribute(EDITOR_ROOT_ATTRIBUTE, "true");
+    applyEditorSkin(topbar, EDITOR_SKIN_DEFAULT);
+  }
   root.appendChild(stage);
   root.appendChild(footer);
   stage.appendChild(overlay);
@@ -1260,6 +1273,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
 
   return {
     element: root,
+    toolbar: topbar,
     refresh,
     setZoom,
     fit,
@@ -1304,6 +1318,8 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       historyDialog.destroy();
       renderer.destroy();
       root.remove();
+      // An external toolbar sits outside `root`; it goes with the canvas.
+      topbar.remove();
     },
   };
 }

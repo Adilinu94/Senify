@@ -71,6 +71,10 @@ function fakeDocument(): { doc: DomDocument; styles: FakeStyle[] } {
 describe("canvas skin is the editor skin, scoped to the canvas root", () => {
   const scope = `.senify-canvas[data-senify-editor][data-editor-skin="tiefwasser"]`;
 
+  // The toolbar can sit outside the canvas root (E8: the workspace bar) and then
+  // carries marker and skin name itself; that scope reaches groups and buttons only.
+  const toolbarScope = `.senify-canvas__topbar[data-senify-editor][data-editor-skin="tiefwasser"]`;
+
   it("scopes every rule to the canvas marker and the skin name", () => {
     const openingLines = EDITOR_CANVAS_SKIN_STYLES.split("\n").filter((line) => line.includes("{"));
     expect(openingLines.length).toBeGreaterThan(10);
@@ -79,9 +83,21 @@ describe("canvas skin is the editor skin, scoped to the canvas root", () => {
       for (const part of selectorPart.split(",")) {
         const trimmed = part.trim();
         if (trimmed === "") continue;
+        if (trimmed.startsWith(toolbarScope)) {
+          expect(
+            trimmed.slice(toolbarScope.length),
+            `toolbar scope reaches beyond groups and buttons: ${trimmed}`,
+          ).toMatch(/^ \.senify-canvas__(?:group|button)\b/);
+          continue;
+        }
         expect(trimmed.startsWith(scope), `unscoped selector: ${trimmed}`).toBe(true);
       }
     }
+  });
+
+  it("styles the toolbar's buttons and groups when it sits outside the canvas", () => {
+    expect(EDITOR_CANVAS_SKIN_STYLES).toContain(`${toolbarScope} .senify-canvas__button {`);
+    expect(EDITOR_CANVAS_SKIN_STYLES).toContain(`${toolbarScope} .senify-canvas__group {`);
   });
 
   it("speaks tokens only and never the legacy palette", () => {

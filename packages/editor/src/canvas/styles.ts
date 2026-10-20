@@ -22,7 +22,10 @@ import { editorBaseCss } from "../ui/base.ts";
 import { EDITOR_CANVAS_SKIN_STYLES } from "../ui/skin.ts";
 import { EDITOR_ROOT_ATTRIBUTE, editorTokensCss } from "../ui/tokens.ts";
 
+// The toolbar can sit outside the canvas (E8: the workspace bar), so its icons
+// are styled by their own ancestor too.
 export const CANVAS_ICON_CSS = `
+.senify-canvas__topbar .ic,
 .senify-canvas .ic {
   display: inline-block;
   width: 18px;
@@ -32,8 +35,11 @@ export const CANVAS_ICON_CSS = `
   -webkit-mask: var(--m) center / contain no-repeat;
   mask: var(--m) center / contain no-repeat;
 }
+.senify-canvas__topbar .ic--16,
 .senify-canvas .ic--16 { width: 16px; height: 16px; }
+.senify-canvas__topbar .ic--14,
 .senify-canvas .ic--14 { width: 14px; height: 14px; }
+.senify-canvas__topbar .ic--12,
 .senify-canvas .ic--12 { width: 12px; height: 12px; }
 ${EDITOR_ICON_CSS}
 `.trim();

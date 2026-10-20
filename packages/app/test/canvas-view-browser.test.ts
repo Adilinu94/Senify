@@ -128,6 +128,14 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
        // the Inspector remains the product home for those controls.
        expect(await tab.locator('[data-role="states"] .senify-canvas__button:visible').count()).toBe(0);
        expect(await tab.locator('[data-role="scrub"]:visible').count()).toBe(0);
+      // E8: Geraete und Verlauf stehen in der Workspace-Leiste, nicht im Canvas.
+      expect(await tab.locator(".toolbar > .senify-canvas__topbar").count()).toBe(1);
+      expect(await tab.locator(".senify-canvas .senify-canvas__topbar").count()).toBe(0);
+      expect(
+        await tab
+          .locator('.toolbar > .senify-canvas__topbar .senify-canvas__button[data-action="device"]')
+          .count(),
+      ).toBe(3);
       await tab.screenshot({ path: join(shotDir, "02-canvas-frames.png") });
 
       // Der Editor startet eingepasst (Start-Zoom), nicht bei 100 %.

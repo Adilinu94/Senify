@@ -6664,8 +6664,12 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     onMessage: (message) => {
       statusEl.textContent = message ?? "";
     },
+    // E8: Geräte und Verlauf stehen in der Workspace-Leiste, nicht im Canvas.
+    toolbar: "external",
   });
-  // Start im Einpassen-Zoom: alle drei Frames sind sofort sichtbar (Framer/Webflow).
+  // Geräte und Verlauf stehen in der Workspace-Leiste, direkt hinter dem Pfad.
+  toolbar.insertBefore(canvas.toolbar, toolbar.querySelector(".spacer"));
+  // Start im Einpassen-Zoom: der Frame ist sofort ganz sichtbar (Framer/Webflow).
   // Ein bewusst gesetzter Zoom bleibt nach dem Neuladen erhalten; nur der
   // Standardzoom (100 %) wird eingepasst. Der Fit läuft erst, wenn jeder Frame
   // gerendert ist: ein Fit vor dem Laden der Iframes verlor in den
