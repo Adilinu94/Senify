@@ -35,7 +35,14 @@ import { EditorStore, typingCoalesceKey } from "../state/store.ts";
 import { copyNode, pasteNode } from "../state/clipboard.ts";
 import { sanitizeInlineText } from "../inline-text.ts";
 import { createHistoryDialog } from "../history/dialog.ts";
-import { canvasFrames, fitZoom, ZOOM_MAX, ZOOM_MIN, type CanvasFrameSpec } from "./device.ts";
+import {
+  canvasFrames,
+  canvasStageWidth,
+  fitZoom,
+  ZOOM_MAX,
+  ZOOM_MIN,
+  type CanvasFrameSpec,
+} from "./device.ts";
 import { scrubOffset, scrubProgress } from "./scrub.ts";
 import { canvasFrameRules, type FrameRules } from "./rules.ts";
 import { createMarkerOverlay, type OverlayFrame } from "./overlay.ts";
@@ -393,22 +400,12 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   });
   zoomLabel.addEventListener("click", () => setZoom(1));
 
-  // Design/Live (Ticket 03 Punkt 6): live shows the real page (M4 Stufe 1).
-  const modeGroup = create(doc, "div", "senify-canvas__group", { "data-role": "mode" });
-  const modeButtons = new Map<EditorMode, DomElement>();
-  for (const value of ["design", "live"] as const) {
-    const button = create(doc, "button", "senify-canvas__button", {
-      type: "button",
-      "data-mode": value,
-    });
-    button.textContent = value === "design" ? "Design" : "Live";
-    button.addEventListener("click", () => setMode(value));
-    modeButtons.set(value, button);
-    modeGroup.appendChild(button);
-  }
+  // Design/Live (Ticket 03 Punkt 6): live shows the real page (M4 Stufe 1). The
+  // toolbar has no switch for it any more (E7 Teil 3); `setMode` and the
+  // spotlight commands stay as the way in until the preview (E8) takes over.
 
-  // Geräte-Umschalter: wählt das aktive Breakpoint-Blatt (Design markiert es,
-  // Live rendert in dieser Breite).
+  // Geräte-Umschalter: wählt das aktive Breakpoint-Blatt (Design zeigt dessen
+  // Blattgröße, Live rendert in dieser Breite).
   const deviceGroup = create(doc, "div", "senify-canvas__group", { "data-role": "device" });
   const deviceButtons = new Map<FrameBreakpoint, DomElement>();
   const deviceSpecs: ReadonlyArray<readonly [FrameBreakpoint, string, string]> = [
@@ -460,7 +457,6 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   scrubGroup.appendChild(scrubLabel);
   scrubGroup.appendChild(scrubInput);
 
-  topbar.appendChild(modeGroup);
   topbar.appendChild(deviceGroup);
   topbar.appendChild(historyGroup);
   topbar.appendChild(stateGroup);
@@ -485,10 +481,12 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       zoomLabel.textContent = "100 %";
       return;
     }
-    let left = 0;
     for (const entry of mounted) {
-      const frame = canvasFrames(zoom, { breakpoints: siteBreakpoints }).find((spec) => spec.device === entry.device);
+      const [frame] = canvasFrames(zoom, { breakpoint: entry.device, breakpoints: siteBreakpoints });
       if (frame === undefined || frame.width === null || frame.height === null) continue;
+      // The one sheet sits in the middle of the stage (a narrow device would
+      // otherwise hug the left edge).
+      const left = Math.max(0, Math.round((rectOf(stage).width - frame.width * frame.scale) / 2));
       entry.wrap.style.left = `${left}px`;
       entry.wrap.style.top = "0px";
       entry.wrap.style.width = `${frame.width}px`;
@@ -499,7 +497,6 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       entry.frame = { ...entry.frame, scale: frame.scale };
       // The label sits in the scaled sheet; the counter-scale keeps it legible.
       entry.frameLabel.style.transform = `scale(${1 / frame.scale})`;
-      left += frame.width * frame.scale + 32;
     }
     root.setAttribute("data-zoom", String(zoom));
     zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
@@ -937,12 +934,12 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     };
   }
 
-  // One frame in live mode (the active breakpoint, real size), three sheets in
-  // design. Switching rebuilds the frames: the live frame starts from the
-  // baseline state, and the design frames drop any runtime the live mode wrote.
+  // One frame, for the active breakpoint: real size in live mode, the sheet size
+  // in design. A switch of the mode or the device rebuilds the frame: the live
+  // frame starts from the baseline state, and the design frame drops any
+  // runtime the live mode wrote.
   function rebuildFrames(): void {
     finishInline();
-    cancelDeferred();
     for (const entry of mounted) entry.wrap.remove();
     mounted.length = 0;
     for (const spec of canvasFrames(zoom, { mode, breakpoint, breakpoints: siteBreakpoints })) mountFrame(spec);
@@ -963,9 +960,6 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
         "data-active",
         String((value === "none" ? null : value) === previewState),
       );
-    }
-    for (const [value, button] of modeButtons) {
-      button.setAttribute("data-active", String(value === mode));
     }
     for (const [value, button] of deviceButtons) {
       button.setAttribute("data-active", String(value === breakpoint));
@@ -1068,46 +1062,6 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     if (mode === "live") injectLiveMotion(entry);
   }
 
-  // The sheets beside the active breakpoint follow one frame later (ticket 05,
-  // point 7): the insert path writes the sheet the user works on, the dimmed
-  // sheets catch up in the next frame. A pending render is replaced by the
-  // newer one, never queued twice.
-  let deferredRender: { tree: NodeTree; rules: FrameRules } | null = null;
-  let deferredHandle: number | null = null;
-
-  function flushDeferred(): void {
-    deferredHandle = null;
-    const pending = deferredRender;
-    deferredRender = null;
-    if (pending === null) return;
-    for (const entry of mounted) {
-      if (entry.device === breakpoint) continue;
-      renderEntry(entry, pending.tree, pending.rules);
-    }
-  }
-
-  function scheduleDeferred(tree: NodeTree, rules: FrameRules): void {
-    deferredRender = { tree, rules };
-    if (deferredHandle !== null) return;
-    const raf = (globalThis as { requestAnimationFrame?: (cb: () => void) => number })
-      .requestAnimationFrame;
-    if (typeof raf === "function") {
-      deferredHandle = raf(() => flushDeferred());
-      return;
-    }
-    deferredHandle = setTimeout(() => flushDeferred(), 0) as unknown as number;
-  }
-
-  function cancelDeferred(): void {
-    deferredRender = null;
-    if (deferredHandle === null) return;
-    const caf = (globalThis as { cancelAnimationFrame?: (handle: number) => void })
-      .cancelAnimationFrame;
-    if (typeof caf === "function") caf(deferredHandle);
-    else clearTimeout(deferredHandle as unknown as ReturnType<typeof setTimeout>);
-    deferredHandle = null;
-  }
-
   function refresh(): void {
     const expanded = canvasNodeTreeWithCopies(store.document);
     const tree = expanded.tree;
@@ -1116,16 +1070,10 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     copyOrigins = expanded.origins;
     // One compiler run for all sheets (ticket 05, point 7).
     const rules = frameRules();
-    let deferred = false;
     for (const entry of mounted) {
       if (entry.body === null) continue;
-      if (entry.device === breakpoint) {
-        renderEntry(entry, tree, rules);
-      } else {
-        deferred = true;
-      }
+      renderEntry(entry, tree, rules);
     }
-    if (deferred) scheduleDeferred(tree, rules);
     // The live preview reloaded (point 4): the ring for the remote change lands
     // on the fresh frame, where the copy map is current again.
     if (mode === "live" && pendingFlash !== null) {
@@ -1154,15 +1102,14 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   function setBreakpoint(device: FrameBreakpoint): void {
     if (breakpoint === device) return;
     breakpoint = device;
-    // Design only re-marks the sheets; live re-renders at the new width.
-    if (mode === "live") rebuildFrames();
-    else updateChrome();
+    // The one frame is rebuilt at the new device's width.
+    rebuildFrames();
     options.onState?.(stateOf());
   }
 
   function fit(): void {
     const width = rectOf(stage).width || rectOf(root).width;
-    if (width > 0) setZoom(fitZoom(width, { margin: 24, breakpoints: siteBreakpoints }));
+    if (width > 0) setZoom(fitZoom(width, { margin: 24, breakpoint, breakpoints: siteBreakpoints }));
     else applyFrameLayout();
   }
 
@@ -1294,11 +1241,12 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
 
   const onResize = (): void => {
     const width = rectOf(stage).width;
-    const needed = canvasFrames(zoom, { breakpoints: siteBreakpoints }).reduce(
-      (sum, spec) => sum + (spec.width ?? 0) * spec.scale,
-      0,
-    );
-    if (width > 0 && needed > width) setZoom(fitZoom(width, { margin: 24, breakpoints: siteBreakpoints }));
+    const needed = canvasStageWidth(zoom, { breakpoint, breakpoints: siteBreakpoints });
+    if (width > 0 && needed > width) {
+      setZoom(fitZoom(width, { margin: 24, breakpoint, breakpoints: siteBreakpoints }));
+    } else {
+      applyFrameLayout();
+    }
   };
   const global = globalThis as {
     addEventListener?: (type: string, handler: () => void) => void;
@@ -1349,7 +1297,6 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     state: stateOf,
     destroy(): void {
       unsubscribe();
-      cancelDeferred();
       doc.removeEventListener("keydown", onKeydown);
       global.removeEventListener?.("resize", onResize);
       drop.destroy();

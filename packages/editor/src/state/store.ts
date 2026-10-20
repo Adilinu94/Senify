@@ -39,6 +39,7 @@ import {
   collapseNode,
   expandNode,
   expandToReveal,
+  pruneSelection,
   selectChildren as selectChildrenState,
   selectOne,
   selectParent as selectParentState,
@@ -211,6 +212,16 @@ export class EditorStore {
     return { changed: true, patches: result.forward, warnings: result.warnings };
   }
 
+  // The selection may not name a node that the document does not hold any
+  // more. Undo and redo move the document to another state, and that state
+  // may not contain the selected node: the undo of an insert removes the node
+  // that was inserted, and an insert selects what it inserted. The selection
+  // would then point at nothing, and the inspector would show an empty panel
+  // without a way back to the elements.
+  #pruneSelection(): void {
+    this.#selection = pruneSelection(this.#selection, this.#document);
+  }
+
   // Runs the operation, turning any semantic error into an op-indexed one.
   #run(mutation: EditorMutation): OperationResult {
     try {
@@ -288,6 +299,7 @@ export class EditorStore {
       this.#document,
       entry.undoPatch as unknown as DocumentPatch[],
     );
+    this.#pruneSelection();
     this.#emit();
     this.#onAction?.({ type: "undo", entry });
     return true;
@@ -300,6 +312,7 @@ export class EditorStore {
       this.#document,
       entry.mutations as unknown as DocumentPatch[],
     );
+    this.#pruneSelection();
     this.#emit();
     this.#onAction?.({ type: "redo", entry });
     return true;

@@ -66,6 +66,33 @@ export function clearSelection(selection: SelectionState): SelectionState {
   return { ...selection, selected: [], anchor: null, focus: null };
 }
 
+// Drops every selected id that the document no longer holds. A change can
+// remove the node that was selected: deleting it, or undoing the insert that
+// brought it in. The selection would then name a node that does not exist, and
+// the inspector would show an empty panel instead of the elements.
+export function pruneSelection(
+  selection: SelectionState,
+  document: EditorDocument,
+): SelectionState {
+  const alive = selection.selected.filter((id) => document.nodes[id] !== undefined);
+  if (alive.length === selection.selected.length) {
+    // The anchor and the focus may still point at a node that is gone, even
+    // when the selected list is untouched (a focus outside the selection).
+    const anchor = selection.anchor !== null && document.nodes[selection.anchor] !== undefined
+      ? selection.anchor
+      : null;
+    const focus = selection.focus !== null && document.nodes[selection.focus] !== undefined
+      ? selection.focus
+      : null;
+    if (anchor === selection.anchor && focus === selection.focus) return selection;
+    return { ...selection, anchor, focus };
+  }
+  const kept = new Set(alive);
+  const anchor = selection.anchor !== null && kept.has(selection.anchor) ? selection.anchor : null;
+  const focus = selection.focus !== null && kept.has(selection.focus) ? selection.focus : null;
+  return { ...selection, selected: alive, anchor, focus };
+}
+
 export function selectMany(
   selection: SelectionState,
   ids: readonly NodeId[],
