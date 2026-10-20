@@ -945,3 +945,47 @@ describe("spaces in a text set in `white-space: pre`", () => {
     expect(text).not.toMatch(/ich bin (?:<|\|)/);
   });
 });
+
+// Framer separates the paragraphs of one rich text with a margin-top on every
+// block but the first. The baked `html` carries no styles, so the spacing
+// travels as the row gap of the body (a column).
+describe("paragraph spacing of a rich text", () => {
+  const spacing =
+    "p.framer-text:not(:first-child){margin-top:var(--framer-paragraph-spacing,0)}" +
+    ".framer-styles-preset-x:not(.rich-text-wrapper){--framer-paragraph-spacing:40px}";
+  const container = (paragraphs: string): string =>
+    `<div data-framer-component-type="RichTextContainer" style="display:flex;flex-direction:column;--framer-paragraph-spacing:0px">${paragraphs}</div>`;
+  const text = (content: string): string => `<p class="framer-text framer-styles-preset-x">${content}</p>`;
+  const bodies = (html: string, css = spacing) => run(page(html, css)).nodes.filter((node) => node.primitive === "body");
+
+  it("keeps the spacing between two paragraphs as the gap of the body", () => {
+    const [body] = bodies(container(text("Erster") + text("Zweiter")));
+    expect(body?.props["html"]).toBe("<p>Erster</p><p>Zweiter</p>");
+    expect(body?.props["gap"]).toEqual({ row: "40px", column: "40px" });
+  });
+
+  it("gives a text of one paragraph no gap: the first block has no margin", () => {
+    const [body] = bodies(container(text("Allein")));
+    expect(body?.props["gap"]).toBeUndefined();
+  });
+
+  it("gives a text whose spacing is 0 no gap", () => {
+    const css = spacing.replace("--framer-paragraph-spacing:40px", "--framer-paragraph-spacing:0px");
+    const [body] = bodies(container(text("Erster") + text("Zweiter")), css);
+    expect(body?.props["gap"]).toBeUndefined();
+  });
+
+  it("states the spacing of the phone for itself", () => {
+    const css = `${spacing}@media(max-width: 809px){.framer-styles-preset-x:not(.rich-text-wrapper){--framer-paragraph-spacing:12px}}`;
+    const [body] = bodies(container(text("Erster") + text("Zweiter")), css);
+    expect(body?.props["gap"]).toEqual({ row: "40px", column: "40px" });
+    expect(body?.props["gap_mobile"]).toEqual({ row: "12px", column: "12px" });
+    expect(body?.props["gap_tablet"]).toBeUndefined();
+  });
+
+  it("makes the container a column where the capture did not say so", () => {
+    const html = `<div data-framer-component-type="RichTextContainer">${text("Erster")}${text("Zweiter")}</div>`;
+    const [body] = bodies(html);
+    expect(body?.props).toMatchObject({ display: "flex", flexDirection: "column" });
+  });
+});

@@ -337,6 +337,43 @@ function mergeSiblingVariants(
   return out;
 }
 
+// The paragraphs of one rich text. Framer separates them with
+// `margin-top: var(--framer-paragraph-spacing)` on every block but the first
+// (`p.framer-text:not(:first-child)`), a value each device may state for itself
+// (20 px in the hero text of the fluffy-rectangle export). The baked `html` is
+// markup without styles, so the margin of the single paragraphs cannot travel
+// with it; the body is a column anyway, and a row gap between its blocks is the
+// same picture. One gap for the whole text: the one before the second block,
+// which every later paragraph of the same text shares in Framer's exports.
+const BLOCK_TEXT_TAGS = new Set([...HEADING_TAGS, "p", "ul", "ol", "blockquote"]);
+const NO_SPACING = /^0(?:\.0+)?(?:px|em|rem|%)?$/;
+
+function paragraphGapOn(blocks: readonly IrNode[], device: IrDevice): string {
+  const second = blocks[1];
+  const value = second === undefined ? undefined : stateFor(second, device)?.visual["margin-top"]?.trim();
+  // A value that is still a `var()` (a custom property nothing defines) says nothing.
+  return value === undefined || value === "" || value.includes("var(") || NO_SPACING.test(value) ? "0px" : value;
+}
+
+function applyParagraphSpacing(props: Record<string, unknown>, siblings: readonly IrNode[]): void {
+  const blocks = siblings.filter((child) => BLOCK_TEXT_TAGS.has(child.tag));
+  if (blocks.length < 2 || props["gap"] !== undefined) return;
+  const desktop = paragraphGapOn(blocks, "desktop");
+  const tablet = paragraphGapOn(blocks, "tablet");
+  const mobile = paragraphGapOn(blocks, "mobile");
+  if ([desktop, tablet, mobile].every((value) => value === "0px")) return;
+  // The gap belongs to a column: the container is one in Framer's exports, and
+  // is made one here where the capture did not say so.
+  if (props["display"] === undefined) props["display"] = "flex";
+  if (props["flexDirection"] === undefined) props["flexDirection"] = "column";
+  props["gap"] = desktop;
+  const tabletDiff = diffValues({ gap: desktop }, { gap: tablet });
+  for (const [property, value] of Object.entries(tabletDiff)) props[`${property}_tablet`] = value;
+  for (const [property, value] of Object.entries(mobileOverrides({ gap: desktop }, tabletDiff, { gap: mobile }))) {
+    props[`${property}_mobile`] = value;
+  }
+}
+
 // What mobile has to say beyond the base and the tablet overrides it inherits.
 function mobileOverrides(
   base: Record<string, string>,
@@ -581,6 +618,10 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
         left: layout.padding.left ?? "0px",
       };
     }
+  }
+  if (primitive === "body" && hasElementChildren) {
+    applyParagraphSpacing(props, siblings);
+    normalizeSpacingProps(props);
   }
 
   // --- absolute positioning
