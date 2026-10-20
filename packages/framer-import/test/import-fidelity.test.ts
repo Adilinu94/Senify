@@ -954,3 +954,35 @@ describe("paragraph spacing of a rich text", () => {
     expect(body?.props).toMatchObject({ display: "flex", flexDirection: "column" });
   });
 });
+
+// Framer writes the wrap of a text as `text-wrap: var(--framer-text-wrap-override,
+// var(--framer-text-wrap))` on every text element and defines the variable only
+// where the lines are to be balanced. The balanced lines break a heading in
+// another place than the plain wrap does.
+describe("text wrap of a rich text", () => {
+  const wrap = "h3.framer-text{text-wrap:var(--framer-text-wrap-override,var(--framer-text-wrap))}";
+  const headingOf = (css: string) => {
+    const html = '<div class="framer-box" data-framer-component-type="RichTextContainer"><h3 class="framer-text">Titel</h3></div>';
+    return run(page(html, css + wrap)).nodes.find((node) => node.primitive === "heading");
+  };
+
+  it("keeps balanced lines on the heading lifted out of its container", () => {
+    expect(headingOf(".framer-box{--framer-text-wrap:balance}")?.props["textWrap"]).toBe("balance");
+  });
+
+  it("leaves out a wrap nothing defines instead of writing the unresolved variable", () => {
+    expect(headingOf(".framer-box{padding:0}")?.props["textWrap"]).toBeUndefined();
+  });
+
+  it("does not write the unresolved variable on a text that stands alone", () => {
+    const { nodes } = run(page('<p class="framer-text">Allein</p>', "p.framer-text{text-wrap:var(--framer-text-wrap-override,var(--framer-text-wrap))}"));
+    const text = nodes.find((node) => node.primitive === "text" || node.primitive === "body");
+    expect(text).toBeDefined();
+    expect(JSON.stringify(text?.props)).not.toContain("var(--framer-text-wrap");
+  });
+
+  it("reads the override that switches the wrap off as no value", () => {
+    const heading = headingOf(".framer-box{--framer-text-wrap:balance;--framer-text-wrap-override:none}");
+    expect(heading?.props["textWrap"]).toBeUndefined();
+  });
+});

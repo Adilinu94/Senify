@@ -860,7 +860,7 @@ function firstTextPath(node: IrNode): IrNode[] | null {
 
 // Only the type properties of a visual: the layout of a flattened descendant
 // (width, margin, flex) belongs to the container, not to the text.
-const TYPOGRAPHY_PROPERTY = /^(font|color$|letter-spacing|line-height|text-(align|transform|decoration|indent|shadow)|word-|white-space)/;
+const TYPOGRAPHY_PROPERTY = /^(font|color$|letter-spacing|line-height|text-(align|transform|decoration|indent|shadow|wrap)|word-|white-space)/;
 
 function typographyOf(visual: { [key: string]: string | undefined }): { [key: string]: string | undefined } {
   return Object.fromEntries(Object.entries(visual).filter(([property]) => TYPOGRAPHY_PROPERTY.test(property)));

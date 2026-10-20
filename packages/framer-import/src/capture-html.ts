@@ -1124,6 +1124,21 @@ function parseDeclarations(body: string): Record<string, string> {
 
 type Vars = Record<string, string>;
 
+// A declaration that says nothing. Framer writes the wrap of a text as
+// `text-wrap: var(--framer-text-wrap-override, var(--framer-text-wrap))` on every
+// text element and defines the variable only where it wants balanced lines; where
+// nothing defines it the call stays in the value, and a declaration whose
+// variable is missing is invalid at computed-value time: it takes the inherited
+// value, as if it were not written. Kept as text, it only reached the compiler as
+// `text-wrap: var(--framer-text-wrap)`. `text-wrap: none` is the override's off
+// state and not a value of the property, which says the same.
+const UNSET_FRAMER_VAR = /^var\(\s*--framer-[\w-]+\s*\)$/;
+
+function isUnsetValue(property: string, value: string): boolean {
+  const trimmed = value.trim();
+  return UNSET_FRAMER_VAR.test(trimmed) || (property === "text-wrap" && trimmed === "none");
+}
+
 // Resolve `var()` against the custom properties in force on an element. Framer
 // writes ALL typography through them (`--framer-font-size`, `--framer-text-color`
 // … set by a preset class or inline), so keeping `var(--framer-font-size, 16px)`
@@ -1634,7 +1649,11 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
         if (borderStyle.trim() === "solid") plain[BORDER_OVERLAY] = "solid";
       }
       valuesByDevice[device] = Object.fromEntries(
-        Object.entries(plain).flatMap(([key, value]) => (value === undefined ? [] : [[key, resolveVars(value, vars)]])),
+        Object.entries(plain).flatMap(([key, value]) => {
+          if (value === undefined) return [];
+          const resolved = resolveVars(value, vars);
+          return isUnsetValue(key, resolved) ? [] : [[key, resolved]];
+        }),
       );
     }
     baseState.visual = valuesByDevice.desktop;
