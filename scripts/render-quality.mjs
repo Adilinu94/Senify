@@ -58,6 +58,8 @@ function readSummary() {
 // with extra steps.
 const PROTECTED = [
   "packages/engine/src/http.ts",
+  "packages/engine/src/http-route-support.ts",
+  "packages/engine/src/http-routes-sites.ts",
   "packages/engine/src/store.ts",
   "packages/engine/src/lifecycle.ts",
   "packages/engine/src/forms.ts",

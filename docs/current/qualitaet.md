@@ -107,18 +107,20 @@ Der aktuelle Lauf vom 09.10.2026 (lokal auf Windows, TEMP/TMP/TMPDIR auf dem Lau
      Nicht von Hand editieren: dieser Block ist ein Messwert, und `pnpm quality:check`
      lässt den Lauf rot werden, sobald Dokument und Lauf auseinanderlaufen. -->
 
-**Gemessen:** 2026-10-19 · vitest coverage (v8)
+**Gemessen:** 2026-10-20 · vitest coverage (v8)
 
 | Pfad | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
-| `packages/engine/src/http.ts` | 93.14 | 74.74 | 94.23 | 93.14 |
-| `packages/engine/src/store.ts` | 84.60 | 81.65 | 95.27 | 84.60 |
+| `packages/engine/src/http.ts` | 92.86 | 73.20 | 92.38 | 92.86 |
+| `packages/engine/src/http-route-support.ts` | 85.44 | 76.50 | 100.00 | 85.44 |
+| `packages/engine/src/http-routes-sites.ts` | 96.38 | 76.27 | 94.73 | 96.38 |
+| `packages/engine/src/store.ts` | 84.60 | 81.68 | 95.27 | 84.60 |
 | `packages/engine/src/lifecycle.ts` | 87.01 | 74.46 | 100.00 | 87.01 |
 | `packages/engine/src/forms.ts` | 84.25 | 73.62 | 100.00 | 84.25 |
 | `packages/mcp/src/tools.ts` | 91.86 | 62.01 | 85.50 | 91.86 |
 | `packages/editor/src/state/*` (15 Dateien) | 66.98 bis 100.00 | 60.00 bis 100.00 | 66.66 bis 100.00 | 66.98 bis 100.00 |
 
-**Über alle gemessenen Dateien:** Statements 88.85 · Branches 74.26 · Functions 91.22 · Lines 88.85
+**Über alle gemessenen Dateien:** Statements 88.88 · Branches 74.32 · Functions 91.22 · Lines 88.88
 
 <!-- messwerte:ende -->
 
