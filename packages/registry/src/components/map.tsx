@@ -109,7 +109,9 @@ function carriesImage(node: Node): boolean {
     typeof (value as Record<string, unknown>).assetId === "string";
   switch (node.type) {
     case "image":
-      return typeof props.asset === "string" && props.asset !== "";
+      // The image prop carries the plain id or the `{ assetId }` form; both
+      // name an image, so both can be the LCP candidate.
+      return typeof props.asset === "string" ? props.asset !== "" : hasAsset(props.asset);
     case "media":
       return node.variant !== "video" && node.variant !== "3d-scene" && hasAsset(props.asset);
     case "gallery":

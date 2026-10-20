@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SenifyError } from "@senify/core";
-import { pageFileOf, runImport as runFramerImport, type ImportSource as FramerImportSource } from "@senify/framer-import";
+import { pageFileOf, runImport as runFramerImport, sourceAssetDeliveries, type ImportSource as FramerImportSource } from "@senify/framer-import";
 import { bakeSite } from "@senify/renderer";
 import type { Breakpoints } from "@senify/widget-engine/breakpoints";
 import { editorDocumentToNodeTree } from "./imports.ts";
@@ -122,7 +122,13 @@ export async function previewFramerImport(input: PreviewInput): Promise<ImportPr
       site: input.site?.breakpoints,
       otherPages: input.site?.otherPages ?? false,
     });
-    return await bakeAndShoot(input, run.mapped.document, run.mapped.rules, plan?.effective ?? input.site?.breakpoints, beforeUrl, work, closers);
+    // The preview shows the page the import makes of the source. Without the
+    // assets the pictures would stay empty and the preview would judge a page
+    // the product never builds: the written import uploads its assets and the
+    // bake delivers them, the preview has no asset store and keeps the
+    // addresses of the source.
+    const assets = sourceAssetDeliveries(run.document, beforeUrl);
+    return await bakeAndShoot(input, run.mapped.document, run.mapped.rules, plan?.effective ?? input.site?.breakpoints, beforeUrl, work, closers, assets);
   } finally {
     for (const close of closers.reverse()) await close().catch(() => undefined);
     rmSync(work, { recursive: true, force: true });
@@ -137,6 +143,7 @@ async function bakeAndShoot(
   beforeUrl: string,
   work: string,
   closers: (() => Promise<void>)[],
+  assets: Record<string, string>,
 ): Promise<ImportPreview> {
   const out = join(work, "baked");
   await bakeSite(
@@ -147,6 +154,7 @@ async function bakeAndShoot(
       pages: [{ id: "preview", path: "/", title: input.siteName, tree: editorDocumentToNodeTree(document) }],
       themeCss: input.themeCss,
       ...(rules === undefined ? {} : { styleRules: rules }),
+      assets,
       motionTokens: input.motionTokens,
       aeo: false,
     },
