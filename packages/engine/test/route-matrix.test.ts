@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { TOOL_MANIFEST } from "@senify/manifest";
@@ -10,6 +10,16 @@ import {
 
 const engineDir = dirname(dirname(fileURLToPath(import.meta.url)));
 const root = dirname(dirname(engineDir));
+
+// Die Routen liegen in der Tabelle in `http.ts` und in den Modulen
+// `http-routes-*.ts` (ADR-0019) - alle werden gelesen.
+const srcDir = join(engineDir, "src");
+const routeFiles = [
+  join(srcDir, "http.ts"),
+  ...readdirSync(srcDir)
+    .filter((name) => name.startsWith("http-routes-") && name.endsWith(".ts"))
+    .map((name) => join(srcDir, name)),
+];
 
 function documentedRows(markdown: string): { key: string; status: string }[] {
   return markdown
@@ -26,7 +36,7 @@ function documentedRows(markdown: string): { key: string; status: string }[] {
 
 describe("mcp route matrix (E4 slice 2, P3-3 Punkt 8)", () => {
   it("covers every engine route with a conscious status", () => {
-    const http = readFileSync(join(engineDir, "src", "http.ts"), "utf8");
+    const http = routeFiles.map((file) => readFileSync(file, "utf8")).join("\n");
     const server = readFileSync(
       join(root, "packages", "mcp", "src", "server.ts"),
       "utf8",
