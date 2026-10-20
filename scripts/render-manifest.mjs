@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -515,13 +515,36 @@ const kopf = `// The tool manifest (Fahrplan P3-3 Punkt 4, R8) - GENERATED, do n
 // ${faktoren.length} Werkzeuge.
 import type { ToolFact } from "./types.ts";`;
 
-writeFileSync(
-  MANIFEST,
-  `${kopf}
+// The repository keeps CRLF in the working tree on Windows and LF in the
+// index. The generator writes the line endings the file already has, so
+// regenerating never turns into a whole-file diff. The CHECK compares
+// normalised, because the line endings are the repository's business, not the
+// generator's.
+const vorhanden = existsSync(MANIFEST) ? readFileSync(MANIFEST, "utf8") : "";
+const zeilenenden = vorhanden.includes("\r\n") ? "\r\n" : "\n";
+
+const ausgabe = `${kopf}
 export const TOOL_MANIFEST: ToolFact[] = [
 ${koerper}
 ];
-`,
-  "utf8",
-);
+`.split("\n").join(zeilenenden);
+
+// `--check` compares instead of writing: it is the mode the CI and the test
+// use. A generated file nobody checks is a file that drifts silently - the
+// manifest would name a tool that no longer exists, and the client cannot
+// tell that from a working call.
+if (process.argv.includes("--check")) {
+  const normalisieren = (text) => text.replace(/\r\n/g, "\n");
+  if (normalisieren(vorhanden) === normalisieren(ausgabe)) {
+    console.log(`manifest: unveraendert (${faktoren.length} Werkzeuge)`);
+    process.exit(0);
+  }
+  console.error(
+    `manifest: ${MANIFEST} weicht vom Generator ab.\n` +
+      "Neu erzeugen: pnpm manifest:render",
+  );
+  process.exit(1);
+}
+
+writeFileSync(MANIFEST, ausgabe, "utf8");
 console.log(`manifest: ${faktoren.length} Werkzeuge geschrieben (${MANIFEST})`);

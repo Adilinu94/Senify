@@ -77,3 +77,7 @@ packages/app/dist/
 /full.log
 # Graphify-Karten sind abgeleitete lokale Analyseartefakte.
 /graphify-out/
+# Lokale Laufzeitartefakte: Testprotokolle und Bake-Caches (Analyse 03, Befund B6).
+# Sie entstehen bei jedem Lauf und gehoeren nicht ins Repo.
+/.tmp/
+/.bake-tmp/

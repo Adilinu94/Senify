@@ -3,15 +3,21 @@ import { SenifyError } from "@senify/core";
 import { ensureSchema, Store } from "@senify/engine";
 import type { ReleaseAssetSnapshot } from "../src/types.ts";
 import { AssetsRepository, type CreateAssetInput } from "../src/store-assets.ts";
-import { createTestDatabase } from "./helpers.ts";
+import {
+  createTestDatabase,
+  createTransactionDatabase,
+  realPostgresAvailable,
+  type TestDatabase,
+} from "./helpers.ts";
 
 // ADR 0019: the asset records of a site (rows, derivatives, usage) live in `AssetsRepository`;
 // `Store` only delegates. The site existence check comes in as a function, because sites stay
 // on the Store; the folder guard (`getAssetFolderOfSite`) and the cross-domain copy stay there too.
 
 // The in-memory stand-in (pg-mem) does not roll a failed transaction back, so the atomicity case
-// below is a real-Postgres proof, gated like `transactions.test.ts`.
-const hasRealPostgres = (process.env.TEST_DATABASE_URL ?? "").length > 0;
+// below is a real-Postgres proof: PGlite (real PostgreSQL, in the process) or the configured
+// PostgreSQL.
+const hasRealPostgres = await realPostgresAvailable();
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -19,8 +25,9 @@ afterEach(async () => {
   for (const step of cleanup.splice(0)) await step();
 });
 
-async function fixture() {
-  const database = await createTestDatabase();
+async function fixture(kind: "memory" | "transaction" = "memory") {
+  const database: TestDatabase =
+    kind === "transaction" ? await createTransactionDatabase() : await createTestDatabase();
   await ensureSchema(database.db);
   cleanup.push(() => database.close());
   const store = new Store(database.db);
@@ -267,7 +274,7 @@ describe("AssetsRepository: derivatives", () => {
   });
 
   it.skipIf(!hasRealPostgres)("keeps the old derivatives when a new variant cannot be stored (one transaction)", async () => {
-    const { repo, site } = await fixture();
+    const { repo, site } = await fixture("transaction");
     await repo.createAsset(asset(site.id, "a1"));
     await repo.replaceAssetDerivatives("a1", ladder, "hash-one");
     const broken = [ladder[0]!, { ...ladder[1]!, byteSize: null as unknown as number }];

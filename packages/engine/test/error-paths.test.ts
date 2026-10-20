@@ -226,8 +226,11 @@ describe("Fehlerpfad: Transaktions-Rollback", () => {
     // Reihenfolgebehauptung (pg-mem ignoriert ROLLBACK, siehe helpers.ts:200),
     // gegen echtes Postgres ein Nachweis. Der Test laeuft in BEIDEN Faellen
     // und sagt selbst, welchen Wert er gerade hat.
-    const env = await bootEngine();
-    const real = (process.env.TEST_DATABASE_URL ?? "").length > 0;
+    //
+    // PGlite ist echtes PostgreSQL im Prozess: der Test kann also die
+    // Atomaritaet beweisen, ohne auf eine CI-Lane mit Postgres-Dienst zu
+    // warten. Die Lane mit echtem Postgres bleibt zusaetzlich bestehen.
+    const env = await bootEngine({ transactional: true });
     try {
       const site = await createTestSite(env.api, "Rollback");
       const first = await env.api.request<PageResponse>({
@@ -261,15 +264,9 @@ describe("Fehlerpfad: Transaktions-Rollback", () => {
       });
       expect(reloaded.status).toBe(200);
 
-      if (real) {
-        // Gegen echtes Postgres: der ROLLBACK hat gewirkt.
-        expect(reloaded.body.title).toBe("Vorher");
-      } else {
-        // Gegen pg-mem: ROLLBACK wird ignoriert. Dieser Lauf beweist die
-        // Reihenfolge, NICHT die Atomaritaet - der Nachweis ist die
-        // Postgres-Lane (Fahrplan P1-1).
-        expect(["Vorher", "Geaendert"]).toContain(reloaded.body.title);
-      }
+      // Der ROLLBACK hat gewirkt: das ist ein Nachweis, keine Reihenfolge-
+      // behauptung. Gegen pg-mem waere das nicht pruefbar.
+      expect(reloaded.body.title).toBe("Vorher");
     } finally {
       await env.close();
     }
@@ -278,7 +275,7 @@ describe("Fehlerpfad: Transaktions-Rollback", () => {
   it("schreibt bei einem Fehler in der Mitte keine zweite Seite", async () => {
     // Der Redesign-Fall aus P2-1: mehrere Seiten-Writes in einer Transaktion.
     // Ein Fehler auf der zweiten Seite darf die erste nicht stehen lassen.
-    const env = await bootEngine();
+    const env = await bootEngine({ transactional: true });
     try {
       const site = await createTestSite(env.api, "Seiten-Rollback");
       const before = await env.api.request<{ pages: PageResponse[] }>({
@@ -314,19 +311,10 @@ describe("Fehlerpfad: Transaktions-Rollback", () => {
       });
       const created = after.body.pages.filter((page) => page.id === "rollback-page");
 
-      const real = (process.env.TEST_DATABASE_URL ?? "").length > 0;
-      if (real) {
-        // Echter Nachweis: der ROLLBACK hat die Seite entfernt.
-        expect(created).toHaveLength(0);
-        expect(after.body.pages).toHaveLength(countBefore);
-      } else {
-        // pg-mem fuehrt ROLLBACK nicht aus; die Zeile bleibt. Genau darum ist
-        // die Postgres-Lane Pflicht und nicht Kuerzel.
-        console.warn(
-          "[engine tests] Rollback-Test lief gegen pg-mem - Atomaritaet ist hier NICHT bewiesen (Fahrplan P1-1).",
-        );
-        expect(after.body.pages.length).toBeGreaterThanOrEqual(countBefore);
-      }
+      // Echter Nachweis: der ROLLBACK hat die Seite entfernt. Gegen pg-mem
+      // waere das nicht pruefbar - der Lauf gegen PGlite ist es.
+      expect(created).toHaveLength(0);
+      expect(after.body.pages).toHaveLength(countBefore);
     } finally {
       await env.close();
     }
