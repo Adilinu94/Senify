@@ -1258,14 +1258,24 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     if (width > 0 && needed > width) {
       setZoom(fitZoom(width, { margin: 24, breakpoint, breakpoints: siteBreakpoints }));
     } else {
+      // The frame may have moved: the ring and the handles are measured again.
       applyFrameLayout();
+      updateChrome();
     }
   };
   const global = globalThis as {
     addEventListener?: (type: string, handler: () => void) => void;
     removeEventListener?: (type: string, handler: () => void) => void;
+    ResizeObserver?: new (callback: () => void) => {
+      observe(target: unknown): void;
+      disconnect(): void;
+    };
   };
   global.addEventListener?.("resize", onResize);
+  // The stage also changes without a window resize: when a side panel opens or
+  // closes (E8), the frame is fitted and centred again.
+  const stageObserver = global.ResizeObserver ? new global.ResizeObserver(onResize) : null;
+  stageObserver?.observe(stage);
 
   for (const spec of canvasFrames(zoom, { mode, breakpoint, breakpoints: siteBreakpoints })) mountFrame(spec);
   applyFrameLayout();
@@ -1313,6 +1323,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       unsubscribe();
       doc.removeEventListener("keydown", onKeydown);
       global.removeEventListener?.("resize", onResize);
+      stageObserver?.disconnect();
       drop.destroy();
       markers.destroy();
       historyDialog.destroy();
