@@ -1,0 +1,29 @@
+# gitleaks-Konfiguration (Analyse 06, Kandidat 3).
+#
+# Der Scan laeuft in der CI als eigener Job (`.github/workflows/verify.yml`).
+# Er prueft die Historie, nicht nur den Stand: ein Geheimnis, das einmal
+# committet wurde, ist mit einem spaeteren Loeschen nicht aus der Welt.
+#
+# Jede Ausnahme traegt ihren Grund. Eine Ausnahme ohne Grund ist eine, die
+# beim naechsten Umbau niemand mehr nachvollziehen kann - und dann steht sie
+# irgendwann im Weg, ohne dass jemand weiss, warum.
+
+title = "Senify"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Testdaten: Idempotency-Keys im Redesign-Test und der SMTP-Testschluessel"
+paths = [
+  '''packages/engine/test/redesign-proposals\.test\.ts''',
+  '''packages/engine/test/fixtures/smtp/.*''',
+]
+
+[[allowlists]]
+description = "Lokales Referenzmaterial des Autors (Messungen und Skripte). Enthaelt Vorschau-Token des LOKALEN Programms, keine Zugangsdaten eines fremden Dienstes; die Pfade stehen seit 13.10.2026 in der .gitignore."
+paths = [
+  '''^\.scratch/refs/nick/.*''',
+  '''^\.scratch/editor-v2-rebuild/ledger\.md''',
+  '''^\.scratch/senify-v1/research/.*''',
+]

@@ -11,7 +11,7 @@
     "senify": "./src/cli.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@senify/app": "workspace:*",
     "@senify/core": "workspace:*",
     "@senify/docs-portal": "workspace:*",

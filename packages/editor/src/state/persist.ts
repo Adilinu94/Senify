@@ -48,14 +48,22 @@ export type SaveState = {
   status: SaveStatus;
   pending: number;
   version: number;
+  // The style registry carries a second optimistic lock, independent of the
+  // page draft. Both numbers live in the state, because a conflict can come
+  // from either side and the two are not interchangeable.
+  styleRegistryVersion: number;
   // Op names the transport cannot persist. Empty today; the field stays as
   // the loud channel for future ops the page route rejects.
   unsupported: string[];
   message?: string;
   // Set while `status === "conflict"` (L17): the version the failed batch was
   // based on and the version the server reported. `null` when the `409` carried
-  // no parseable version.
-  conflict?: { expectedVersion: number; serverVersion: number | null };
+  // no parseable version. `scope` says which lock the numbers belong to.
+  conflict?: {
+    expectedVersion: number;
+    serverVersion: number | null;
+    scope: "page" | "registry";
+  };
 };
 
 // The conflict dialog's data (L17): one pure model the shell renders — what
@@ -80,9 +88,17 @@ export function conflictDialogModel(
     state.conflict.serverVersion === null
       ? "unbekannter Version"
       : `Version ${state.conflict.serverVersion}`;
+  // Two locks, two situations: the page draft and the site-wide style
+  // registry are versioned separately, and the wording has to name the one
+  // that actually collided.
+  const registry = state.conflict.scope === "registry";
   return {
-    title: "Entwurf wurde inzwischen geändert",
-    hint: `Der Server steht auf ${server}, deine Änderungen basieren auf Version ${state.conflict.expectedVersion}. „Server laden“ verwirft deine offenen Änderungen; „Eigene senden“ wendet sie auf den Server-Stand an.`,
+    title: registry
+      ? "Style-Registry wurde inzwischen geändert"
+      : "Entwurf wurde inzwischen geändert",
+    hint: registry
+      ? `Die Style-Registry steht auf ${server}, deine Änderungen basieren auf Version ${state.conflict.expectedVersion}. „Server laden“ verwirft deine offenen Änderungen; „Eigene senden“ wendet sie auf den Server-Stand an.`
+      : `Der Server steht auf ${server}, deine Änderungen basieren auf Version ${state.conflict.expectedVersion}. „Server laden“ verwirft deine offenen Änderungen; „Eigene senden“ wendet sie auf den Server-Stand an.`,
     expectedVersion: state.conflict.expectedVersion,
     serverVersion: state.conflict.serverVersion,
     pending: state.pending,
@@ -124,10 +140,15 @@ export type SavePipeline = {
 };
 
 // Ops the page route can persist today — the full editor vocabulary.
+// The list is checked against the engine's `EDITOR_MUTATION_OPS` by
+// `packages/editor/test/state/persist.test.ts`: an op the engine can persist
+// but this list does not know is dropped before the request is built, and the
+// user only sees the change vanish on the next reload.
 const PAGE_OPS = new Set<string>([
   "setNodeProp",
   "clearNodeProp",
   "setNodeMeta",
+  "setNodeHiddenDevices",
   "setMotion",
   "clearMotion",
   "assignClass",
@@ -333,11 +354,34 @@ function readVersion(body: unknown): number | undefined {
 // The `409` envelope carries the current version in its message
 // ("expected v3, current v7"); the field is not part of the error shape.
 function readConflictVersion(body: unknown): number | undefined {
+  const current = readCurrentVersion(body);
+  if (current !== undefined) return current;
   if (typeof body !== "object" || body === null) return undefined;
   const error = (body as { error?: { message?: unknown } }).error;
   if (typeof error?.message !== "string") return undefined;
   const match = /current v(\d+)/.exec(error.message);
   return match?.[1] === undefined ? undefined : Number(match[1]);
+}
+
+// The current version a `409` reports, when the server sends one. The engine
+// puts it into the error body (`error.currentVersion`), because a version in
+// a message text is a version nobody can rely on.
+function readCurrentVersion(body: unknown): number | undefined {
+  if (typeof body !== "object" || body === null) return undefined;
+  const error = (body as { error?: { currentVersion?: unknown } }).error;
+  const value = error?.currentVersion;
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+// The message of a rejected transport. `fetch` fails with a `TypeError`, the
+// shell's transport with an object that carries a message.
+function messageOfError(error: unknown): string {
+  if (typeof error === "object" && error !== null) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message !== "") return message;
+  }
+  if (typeof error === "string" && error !== "") return error;
+  return "Save failed";
 }
 
 function messageOf(body: unknown, fallback: string): string {
@@ -401,6 +445,10 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
   let pending: Pending[] = [];
   let version = 1;
   let styleRegistryVersion = options.styleRegistryVersion ?? 0;
+  // The registry version the server reported when it refused a write. It is
+  // the retry target for a registry conflict — the page version is a different
+  // lock and must not be sent as the registry's `baseVersion`.
+  let styleConflictVersion: number | undefined;
   let status: SaveStatus = "idle";
   let message: string | undefined;
   let conflictVersion: number | undefined;
@@ -414,14 +462,23 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
     status,
     pending: pending.length,
     version,
+    styleRegistryVersion,
     unsupported: [...unsupported],
     ...(message === undefined ? {} : { message }),
     ...(status === "conflict"
       ? {
-          conflict: {
-            expectedVersion: version,
-            serverVersion: conflictVersion ?? null,
-          },
+          conflict:
+            styleConflictVersion !== undefined
+              ? {
+                  expectedVersion: styleRegistryVersion,
+                  serverVersion: styleConflictVersion,
+                  scope: "registry" as const,
+                }
+              : {
+                  expectedVersion: version,
+                  serverVersion: conflictVersion ?? null,
+                  scope: "page" as const,
+                },
         }
       : {}),
   });
@@ -507,7 +564,33 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
     pending = [];
     setStatus("saving");
 
-    let failed: Pending[] = [];
+    let sent = false;
+    try {
+      sent = await sendBatch(batch);
+    } catch (error) {
+      // A transport that rejects (network error, DNS failure, aborted fetch)
+      // must not take the pipeline down with it: the batch goes back into the
+      // queue and the status says what happened. `running` is reset in the
+      // `finally` below, otherwise every later flush would return early and
+      // the pipeline would be stuck on "saving" forever.
+      pending = [...batch, ...pending];
+      setStatus("error", messageOfError(error));
+    } finally {
+      running = false;
+    }
+    // A change that arrived while the request was in flight has no timer of
+    // its own: the debounce timer was consumed by the running request. It
+    // gets one here, otherwise the autosave promise does not hold for it.
+    if (sent && !paused && pending.length > 0) schedule();
+  }
+
+  // Sends one batch. Returns true when everything went through; a conflict or
+  // an error returns false and leaves the unsent entries in `pending`.
+  //
+  // Every request is caught on its own: a rejection of the LAST registry write
+  // must not put the page batch back into the queue - that part is already
+  // saved, and sending it twice would write the change twice.
+  async function sendBatch(batch: Pending[]): Promise<boolean> {
     const pageMutations = batch
       .filter((entry): entry is Extract<Pending, { kind: "page" }> => entry.kind === "page")
       .map((entry) => entry.mutation);
@@ -516,27 +599,35 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
     );
 
     if (pageMutations.length > 0) {
-      const response = await request({
-        method: "POST",
-        path: `/api/pages/${pageId}/editor-mutations`,
-        body: { baseDraftVersion: version, author, mutations: pageMutations },
-      });
+      let response: SaveResponse;
+      try {
+        response = await request({
+          method: "POST",
+          path: `/api/pages/${pageId}/editor-mutations`,
+          body: { baseDraftVersion: version, author, mutations: pageMutations },
+        });
+      } catch (error) {
+        // Nothing went out: the whole batch goes back.
+        pending = [...batch, ...pending];
+        setStatus("error", messageOfError(error));
+        return false;
+      }
       if (response.status === 409) {
         conflictVersion = readConflictVersion(response.body);
         paused = true;
-        pending = batch;
-        running = false;
+        // The batch goes back in front of what arrived meanwhile: it is older,
+        // and the order of the mutations is the order of the edits.
+        pending = [...batch, ...pending];
         setStatus(
           "conflict",
           `Draft has changed (expected v${version}, current v${conflictVersion ?? "?"})`,
         );
-        return;
+        return false;
       }
       if (response.status >= 400) {
-        pending = batch;
-        running = false;
+        pending = [...batch, ...pending];
         setStatus("error", messageOf(response.body, `Save failed (${response.status})`));
-        return;
+        return false;
       }
       const next = readVersion(response.body);
       if (next !== undefined) version = next;
@@ -545,16 +636,29 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
     for (let index = 0; index < siteOps.length; index += 1) {
       const entry = siteOps[index];
       if (entry === undefined) continue;
-      const response = await request(siteRequestFor(entry.op));
-      if (response.status === 409) {
+      let response: SaveResponse;
+      try {
+        response = await request(siteRequestFor(entry.op));
+      } catch (error) {
+        // The page batch is saved; only the registry writes from here on go
+        // back into the queue.
         pending = [...siteOps.slice(index), ...pending];
-        running = false;
+        setStatus("error", messageOfError(error));
+        return false;
+      }
+      if (response.status === 409) {
+        // The registry has its own lock. The server reports the version it is
+        // on; the retry sends against that one, not against the page version.
+        styleConflictVersion = readCurrentVersion(response.body);
+        pending = [...siteOps.slice(index), ...pending];
         setStatus("conflict", "Die Style-Registry wurde zwischenzeitlich geändert");
-        return;
+        return false;
       }
       if (response.status >= 400) {
-        failed = siteOps.slice(index).map((unsent) => ({ ...unsent }));
-        break;
+        const failed = siteOps.slice(index).map((unsent) => ({ ...unsent }));
+        pending = [...failed, ...pending];
+        setStatus("error", "A style rule could not be saved");
+        return false;
       }
       const responseBody = response.body as { version?: unknown } | undefined;
       styleRegistryVersion =
@@ -562,16 +666,21 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
       if (entry.op.kind === "upsert") knownRuleIds.add(entry.op.rule.id);
     }
 
-    pending = [...failed, ...pending];
-    running = false;
-    if (failed.length > 0) {
-      setStatus("error", "A style rule could not be saved");
-      return;
-    }
     setStatus(pending.length > 0 ? "idle" : "saved");
+    return true;
   }
 
   const retry = async (nextVersion?: number): Promise<void> => {
+    // Two locks, two retries. A registry conflict is resolved against the
+    // registry version the server reported; the page version says nothing
+    // about it.
+    if (styleConflictVersion !== undefined) {
+      styleRegistryVersion = styleConflictVersion;
+      styleConflictVersion = undefined;
+      paused = false;
+      await flush();
+      return;
+    }
     const target = nextVersion ?? conflictVersion;
     if (target !== undefined) version = target;
     if (conflictVersion === undefined && nextVersion === undefined && status === "conflict") {
@@ -593,6 +702,7 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
   const discardPending = (): void => {
     pending = [];
     conflictVersion = undefined;
+    styleConflictVersion = undefined;
     paused = false;
     if (status === "conflict") status = "idle";
     message = undefined;

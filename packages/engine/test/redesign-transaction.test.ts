@@ -1,13 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { compileRedesign, Store, type Db, type DbClient } from "@senify/engine";
 import type { ReferenceToken } from "../src/types.ts";
-import { createTestDatabase, createTestRegistry } from "./helpers.ts";
+import {
+  createTransactionDatabase,
+  createTestRegistry,
+  realPostgresAvailable,
+} from "./helpers.ts";
 
 // The redesign apply runs as one transaction (ADR-0014). These proofs need a
 // real database: the pg-mem test double ignores ROLLBACK, so an atomicity test
-// on it would pass without proving anything.
+// on it would pass without proving anything. A configured PostgreSQL is used
+// if there is one; otherwise PGlite - real PostgreSQL compiled to WebAssembly,
+// in the process - proves the same thing without a server.
 
-const hasRealPostgres = (process.env.TEST_DATABASE_URL ?? "").length > 0;
+const hasRealPostgres = await realPostgresAvailable();
 
 // A real reference with a real profile.
 //
@@ -84,7 +90,7 @@ async function createReferenceWithProfile(store: Store): Promise<string> {
 
 describe.skipIf(!hasRealPostgres)("redesign apply transactions (real Postgres)", () => {
   it("writes the duplicate, the pages and the theme together", async () => {
-    const database = await createTestDatabase();
+    const database = await createTransactionDatabase();
     try {
       const store = new Store(database.db);
       const site = await store.createSite({ name: "Atomar" });
@@ -122,7 +128,7 @@ describe.skipIf(!hasRealPostgres)("redesign apply transactions (real Postgres)",
   });
 
   it("writes nothing at all when the middle of the run fails", async () => {
-    const database = await createTestDatabase();
+    const database = await createTransactionDatabase();
     try {
       const store = new Store(database.db);
       const site = await store.createSite({ name: "Rollback" });
@@ -185,7 +191,7 @@ describe.skipIf(!hasRealPostgres)("redesign apply transactions (real Postgres)",
   });
 
   it("leaves a proposal confirmable when the run fails", async () => {
-    const database = await createTestDatabase();
+    const database = await createTransactionDatabase();
     try {
       const store = new Store(database.db);
       const site = await store.createSite({ name: "Claim" });

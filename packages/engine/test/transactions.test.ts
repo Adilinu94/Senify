@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { ensureSchema, Store, type Db, type DbClient } from "@senify/engine";
-import { createTestDatabase, createTestRegistry } from "./helpers.ts";
+import { createTransactionDatabase, createTestRegistry, realPostgresAvailable } from "./helpers.ts";
 import { applyMutations } from "@senify/engine";
 
-const hasRealPostgres = (process.env.TEST_DATABASE_URL ?? "").length > 0;
+// The proofs need a real database: the pg-mem test double ignores ROLLBACK,
+// so an atomicity test on it would pass without proving anything. A
+// configured PostgreSQL is used if there is one; otherwise PGlite - real
+// PostgreSQL compiled to WebAssembly, in the process - proves the same thing
+// without a server.
+const hasRealPostgres = await realPostgresAvailable();
 
 describe.skipIf(!hasRealPostgres)("persistBatch transactions (real Postgres)", () => {
   it("rolls back the page write when an audit insert fails", async () => {
-    const database = await createTestDatabase();
+    const database = await createTransactionDatabase();
     try {
       const store = new Store(database.db);
       const site = await store.createSite({ name: "Tx Site" });
@@ -63,7 +68,7 @@ describe.skipIf(!hasRealPostgres)("persistBatch transactions (real Postgres)", (
   });
 
   it("persists page and audit atomically on success", async () => {
-    const database = await createTestDatabase();
+    const database = await createTransactionDatabase();
     try {
       const store = new Store(database.db);
       const site = await store.createSite({ name: "Tx Site 2" });
@@ -100,7 +105,7 @@ describe.skipIf(!hasRealPostgres)("persistBatch transactions (real Postgres)", (
 
 describe("applyMutations purity", () => {
   it("never mutates its input tree", async () => {
-    const database = await createTestDatabase();
+    const database = await createTransactionDatabase();
     try {
       await ensureSchema(database.db);
       const registry = createTestRegistry();

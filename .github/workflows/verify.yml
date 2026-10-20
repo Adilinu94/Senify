@@ -56,6 +56,15 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
       - name: Gate (Build, Lint, Tests)
         run: pnpm verify
+      # Die Paketregeln (ADR-0019, P3-3) als eigener Schritt: sie sind ein
+      # eigener Nachweis mit eigenem Balken, und sie laufen auch dann, wenn
+      # jemand den `verify`-Schritt veraendert.
+      - name: Paketregeln (keine verbotene Kante, kein neuer Zyklus)
+        run: pnpm deps:check
+      # Das Manifest darf nicht veralten: die Datei ist generiert, und eine
+      # generierte Datei ohne Tor driftet still.
+      - name: Manifest entspricht dem Generator
+        run: pnpm manifest:check
       # Der Artefakt-Nachweis (Fahrplan P0-4 Punkt 3, R1) laeuft als eigener
       # Schritt, damit im Log sichtbar bleibt, dass `pnpm build` wirklich eine
       # auslieferbare Shell erzeugt hat - nicht nur, dass der Arbeitsbaum
@@ -102,14 +111,81 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Testsuite
-        # Das Repo liegt auf D:, das Standard-Temp auf C:. Astro verschiebt
-        # Dateien per rename() zwischen Stage und Zielordner, und das scheitert
-        # ueber Laufwerke hinweg (EXDEV). Das Temp-Verzeichnis des Laufers liegt
-        # auf demselben Laufwerk wie das Repo.
-        env:
-          TEMP: ${{ runner.temp }}
-          TMP: ${{ runner.temp }}
+        # Das Repo liegt auf D:, das Standard-Temp auf C:. Das war einmal ein
+        # Problem: Astro verschob die gebauten Dateien per rename() aus dem
+        # Stage-Ordner (im Repo) in den Zielordner (im Temp), und ein rename()
+        # ueber Laufwerke hinweg scheitert mit EXDEV. Das ist jetzt im Code
+        # geloest (packages/renderer/src/bake.ts: der Bake baut neben der
+        # Stage und kopiert das Ergebnis), nicht mehr im Runner.
         run: pnpm test
+
+  # Geheimnis-Scan (Analyse 06, Kandidat 3). Der Job ist absichtlich eigens:
+  # ein versehentlich committeter Operator-Token waere ein Vollzugriff auf das
+  # lokale Programm, und das ist eine andere Frage als " baut der Code".
+  #
+  # gitleaks laeuft als Binary, nicht als Action: die Action verlangt ab v2
+  # eine Lizenz fuer Organisationen, und das Repo soll ohne Geheimnis-Key
+  # laufen. Die Version ist gepinnt und die Pruefsumme wird verglichen.
+  #
+  # `fetch-depth: 0` ist noetig: der Scan geht die Historie durch, und ein
+  # flacher Checkout sieht nur den letzten Commit.
+  secrets:
+    name: Geheimnis-Scan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks holen und Pruefsumme vergleichen
+        run: |
+          set -euo pipefail
+          version=8.30.1
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${version}"
+          curl -sSfL "$base/gitleaks_${version}_linux_x64.tar.gz" -o "gitleaks_${version}_linux_x64.tar.gz"
+          curl -sSfL "$base/gitleaks_${version}_checksums.txt" -o checksums.txt
+          # Die Pruefsummendatei nennt den Originalnamen - der Abgleich
+          # funktioniert nur, wenn die Datei unter diesem Namen liegt.
+          grep "gitleaks_${version}_linux_x64.tar.gz" checksums.txt | sha256sum -c -
+          tar -xzf "gitleaks_${version}_linux_x64.tar.gz" gitleaks
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+      - name: Suche nach Geheimnissen
+        # Die Ausnahmen stehen in .gitleaks.toml und tragen je einen Grund.
+        run: gitleaks detect --source . --redact --no-banner --exit-code 1
+
+  # Abhaengigkeits-Scan (Analyse 06, Kandidat 4). OSV-Scanner liest das
+  # Lockfile und fragt die OSV-Datenbank ab - die Datenbasis, die auch
+  # transitive Pakete kennt, die im Modulbaum gar nicht landen.
+  #
+  # Das Binary kommt aus dem Release mit fester Version, und die Pruefsumme
+  # wird verglichen - wie beim gitleaks-Schritt. Der Weg ueber den
+  # revidierbaren Workflow von Google ist nicht gangbar: er brachte den
+  # ganzen Lauf in einen "startup_failure", und der eigene Job braucht
+  # ausserdem keine Berechtigungen fuer fremde Workflows.
+  #
+  # Die Ausnahmen stehen in osv-scanner.toml und tragen je einen Grund und ein
+  # Ablaufdatum: laeuft die Ausnahme ab, meldet der Scanner den Fund wieder.
+  dependencies:
+    name: Bekannte Schwachstellen in den Abhaengigkeiten
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: osv-scanner holen und Pruefsumme vergleichen
+        run: |
+          set -euo pipefail
+          version=2.7.0
+          base="https://github.com/google/osv-scanner/releases/download/v${version}"
+          curl -sSfL "$base/osv-scanner_linux_amd64" -o osv-scanner_linux_amd64
+          curl -sSfL "$base/osv-scanner_SHA256SUMS" -o SHA256SUMS
+          # Die Pruefsummendatei nennt den Originalnamen - der Abgleich
+          # funktioniert nur, wenn die Datei unter diesem Namen liegt.
+          grep "osv-scanner_linux_amd64" SHA256SUMS | sha256sum -c -
+          chmod +x osv-scanner_linux_amd64
+          sudo install -m 0755 osv-scanner_linux_amd64 /usr/local/bin/osv-scanner
+      - name: Bekannte Schwachstellen suchen
+        # Der Scanner liest die Ausnahmen aus osv-scanner.toml neben dem
+        # Lockfile und beendet sich mit 1, wenn er etwas findet, das nicht
+        # ausgenommen ist.
+        run: osv-scanner --recursive --lockfile pnpm-lock.yaml
 
   postgres-tests:
     name: Transaktionsbeweise gegen echte Postgres

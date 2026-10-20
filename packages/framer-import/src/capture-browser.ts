@@ -19,6 +19,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SenifyError } from "@senify/core";
+import { isAllowedBrowserUrl } from "@senify/core/net";
 import { captureHtml, type CaptureHtmlInput } from "./capture-html.ts";
 import type { FramerIrDocument, IrMotionSample } from "./ir.ts";
 
@@ -206,6 +207,19 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
   const browser = await chromium.launch({ headless: true });
   try {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    // Every request the page makes - the navigation, its redirects, every
+    // sub-resource - passes the address check of ADR-0016. Without it a
+    // public page could point the browser at a metadata service or at a
+    // service in the LAN (ADR-0022). `file:` stays allowed: the offline
+    // mirror reads it on purpose.
+    await context.route("**/*", async (route) => {
+      const target = route.request().url();
+      if (await isAllowedBrowserUrl(target, { allowFile: true })) {
+        await route.continue();
+        return;
+      }
+      await route.abort("blockedbyclient");
+    });
     await context.addInitScript({
       content:
         `${motionSource}\n${tokensSource}\n${SCROLL_SENSOR}\n;` +

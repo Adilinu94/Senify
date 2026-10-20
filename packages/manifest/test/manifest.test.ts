@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { TOOL_GROUP_ORDER, TOOL_MANIFEST, toolsByName } from "../src/index.ts";
@@ -160,5 +161,20 @@ describe("Tool-Manifest (Fahrplan P3-3 Punkt 4, R8)", () => {
     expect(TOOLS_BY_NAME.get("constructor")).toBeUndefined();
     expect(TOOLS_BY_NAME.get("__proto__")).toBeUndefined();
     expect(TOOLS_BY_NAME.get("list_sites")?.name).toBe("list_sites");
+  });
+
+  it("matches the generator that wrote it", () => {
+    // The manifest file is GENERATED. A generator without a gate drifts
+    // silently: the manifest then names a tool that no longer exists, and a
+    // client cannot tell that from a working call. The generator checks
+    // itself (`--check`); this test calls that check, so it runs in the
+    // ordinary test run and not only in a CI nobody watches.
+    expect(() =>
+      execFileSync(
+        process.execPath,
+        [join(root, "scripts", "render-manifest.mjs"), "--check"],
+        { cwd: root, stdio: "pipe" },
+      ),
+    ).not.toThrow();
   });
 });

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { TOOLS } from "@senify/mcp";
+// P3-3 Punkt 5: der Katalog haelt die Zahl der Werkzeuge - und die Zahl
+// kommt aus dem Manifest, nicht aus dem MCP-Server. Ein Test, der den Server
+// einbezieht, haelt die letzte Kante des Zyklus, den das Manifest-Paket
+// aufgeloest hat. Der Server spiegelt das Manifest (mcp/test/manifest-mirror).
+import { TOOL_MANIFEST } from "@senify/manifest";
 import { EXPECTED_SECTION_TYPES } from "@senify/registry";
 import {
   ERROR_GUIDES,
@@ -14,7 +18,7 @@ describe("docs catalog (single sources)", () => {
     expect(sections.map((section) => section.type)).toEqual([
       ...EXPECTED_SECTION_TYPES,
     ]);
-    expect(toolCatalog()).toHaveLength(TOOLS.length);
+    expect(toolCatalog()).toHaveLength(TOOL_MANIFEST.length);
     expect(errorCatalog().map((error) => error.category)).toEqual([
       "validation",
       "guardrail",

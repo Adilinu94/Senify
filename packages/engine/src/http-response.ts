@@ -211,6 +211,9 @@ export function sendError(res: ServerResponse, error: unknown): void {
         message: error.message,
         ...(error.opIndex !== undefined ? { opIndex: error.opIndex } : {}),
         ...(error.field !== undefined ? { field: error.field } : {}),
+        ...(error.currentVersion !== undefined
+          ? { currentVersion: error.currentVersion }
+          : {}),
         ...(error.suggestion !== undefined
           ? { suggestion: error.suggestion }
           : {}),

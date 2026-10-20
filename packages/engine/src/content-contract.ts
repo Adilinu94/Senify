@@ -359,6 +359,7 @@ export function entryConflictError(
     {
       field: "baseVersion",
       suggestion: "Reload the entry, then retry the write with the new baseVersion.",
+      currentVersion: current,
     },
   );
 }

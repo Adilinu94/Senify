@@ -64,6 +64,13 @@ const PROTECTED = [
   "packages/engine/src/lifecycle.ts",
   "packages/engine/src/forms.ts",
   "packages/mcp/src/tools.ts",
+  // Die ausgelagerten Fachmodule der Engine (ADR-0019, P3-2) und die
+  // HTTP-Helfer: sie sind seit 20.10.2026 im Coverage-Tor, und eine Zahl, die
+  // niemand sieht, ist keine Zahl. Die Zeile nennt den BEREICH der Gruppe,
+  // nicht einen Mittelwert - die niedrigste Datei ist der Grund, wo die
+  // Schwelle steht.
+  "packages/engine/src/store-*.ts",
+  "packages/engine/src/http-*.ts",
   // The editor's state folder is measured as a group, the way the Fahrplan
   // states it. One row, and the row says which files it covers - a table that
   // named fifteen rows nobody read was worse than one honest row.
@@ -146,6 +153,19 @@ function render(summary, stamp) {
   lines.push("| Pfad | Statements | Branches | Functions | Lines |");
   lines.push("|---|---|---|---|---|");
   for (const path of PROTECTED) {
+    if (path.includes("*")) {
+      // A group of files: the row reports the RANGE of the group, not an
+      // average. The lowest file in the group is the reason the threshold
+      // sits where it does.
+      const cells = groupCells(summary, path.replace(/\*.*$/, ""));
+      lines.push(
+        cells === null
+          ? `| \`${path}\` | nicht gemessen | nicht gemessen | nicht gemessen | nicht gemessen |`
+          : `| \`${path}\` (${cells.count} Dateien) | ${cells.statements} | ${cells.branches} | ` +
+            `${cells.functions} | ${cells.lines} |`,
+      );
+      continue;
+    }
     if (path.endsWith("/")) {
       const cells = groupCells(summary, path);
       lines.push(

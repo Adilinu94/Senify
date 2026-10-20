@@ -64,10 +64,12 @@ export default defineConfig({
       reportsDirectory: "coverage",
       include: [
         "packages/engine/src/http.ts",
-        "packages/engine/src/http-contract.ts",
-        "packages/engine/src/http-route-support.ts",
-        "packages/engine/src/http-routes-sites.ts",
+        // Alle HTTP-Fachmodule (ADR-0019): `http-route-support.ts` und
+        // `http-routes-sites.ts` sind aus der geteilten HTTP-Schicht, der
+        // Glob nimmt sie mit - und kuenftige dazu.
+        "packages/engine/src/http-*.ts",
         "packages/engine/src/store.ts",
+        "packages/engine/src/store-*.ts",
         "packages/engine/src/lifecycle.ts",
         "packages/engine/src/forms.ts",
         "packages/editor/src/state/**",
@@ -98,6 +100,48 @@ export default defineConfig({
           branches: 68,
           functions: 88,
           lines: 80,
+        },
+        // Die ausgelagerten Fachmodule der Engine (ADR-0019, P3-2) und die
+        // HTTP-Helfer sind jetzt im Tor. Sie waren vorher nicht gemessen -
+        // rund 7 000 Zeilen, die niemandem einen Rueckschritt melden konnten.
+        //
+        // Die Schwellen liegen knapp unter der NIEDRIGSTEN Datei der Gruppe
+        // (Stand 20.10.2026: 89.51 Statements, 75 Branches, 90 Functions).
+        // Drei Dateien sind deutlich schwaecher gemessen und stehen deshalb in
+        // eigenen Gruppen: `store-settings-mappers.ts` (39 Branches),
+        // `store-style-rules.ts` (79 Branches, aber 95 Functions) und
+        // `http-build-files.ts` (57 Statements). Eine gemeinsame Schwelle
+        // fuer alle waere die niedrigste von allen - und damit ein Tor, das
+        // nichts mehr sichert.
+        "packages/engine/src/store-{asset-folders,assets,audit,bake-jobs,code-payloads,collections,deploy,design-records,entries,form-mappers,forms,idempotency,image-jobs,import-jobs,job-mappers,mcp-audit,notifications,record-mappers,redesign-proposals,reference-library,reference-mappers,references,releases,revisions,row-utils}.ts": {
+          statements: 85,
+          branches: 70,
+          functions: 85,
+          lines: 85,
+        },
+        "packages/engine/src/http-response.ts": {
+          statements: 85,
+          branches: 70,
+          functions: 85,
+          lines: 85,
+        },
+        "packages/engine/src/store-settings-mappers.ts": {
+          statements: 76,
+          branches: 35,
+          functions: 66,
+          lines: 76,
+        },
+        "packages/engine/src/store-style-rules.ts": {
+          statements: 75,
+          branches: 74,
+          functions: 90,
+          lines: 75,
+        },
+        "packages/engine/src/http-build-files.ts": {
+          statements: 53,
+          branches: 44,
+          functions: 70,
+          lines: 53,
         },
         "packages/editor/src/state/**/*.ts": {
           statements: 60,

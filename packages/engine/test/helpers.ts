@@ -10,6 +10,7 @@ import {
   createPgDb,
   ensureSchema,
   type Db,
+  type DbClient,
   type DbResult,
   type Engine,
   type EngineServer,
@@ -213,6 +214,73 @@ export async function createTestDatabase(): Promise<TestDatabase> {
   };
 }
 
+/* -------------------------------------------------------------- PGlite */
+
+// A real PostgreSQL in the process.
+//
+// PGlite is PostgreSQL compiled to WebAssembly: the same engine, without a
+// server, without a port, without a container. The transaction proofs need it
+// because pg-mem ignores ROLLBACK - an atomicity proof on pg-mem would pass
+// without proving anything.
+//
+// The price is the boot of the WASM instance (about five seconds) per test
+// file. That is what it costs to have the proofs run in the ORDINARY test
+// run and not only in the CI lane that starts a Postgres service.
+export async function createPgliteDatabase(): Promise<TestDatabase> {
+  const { PGlite } = await import("@electric-sql/pglite");
+  const pglite = new PGlite();
+  await pglite.waitReady;
+  const db: Db = {
+    query: async <R extends Row>(
+      text: string,
+      params?: readonly unknown[],
+    ): Promise<DbResult<R>> => {
+      const result = await pglite.query<R>(text, params as unknown[] | undefined);
+      return { rows: result.rows as R[] };
+    },
+    withTransaction: async <T>(task: (client: DbClient) => Promise<T>): Promise<T> => {
+      return pglite.transaction(async (tx) => {
+        const client: DbClient = {
+          query: async <R extends Row>(
+            text: string,
+            params?: readonly unknown[],
+          ): Promise<DbResult<R>> => {
+            const result = await tx.query<R>(text, params as unknown[] | undefined);
+            return { rows: result.rows as R[] };
+          },
+        };
+        return task(client);
+      });
+    },
+  };
+  await ensureSchema(db);
+  return {
+    db,
+    async close() {
+      await pglite.close();
+    },
+  };
+}
+
+// The database for the proofs that need real transactions: the configured
+// PostgreSQL if there is one, otherwise PGlite in the process.
+export async function createTransactionDatabase(): Promise<TestDatabase> {
+  if ((process.env.TEST_DATABASE_URL ?? "").length > 0) return createTestDatabase();
+  return createPgliteDatabase();
+}
+
+// Whether the transaction proofs can run at all. The import is the cheap part;
+// booting the WASM instance happens later, in the test that needs it.
+export async function realPostgresAvailable(): Promise<boolean> {
+  if ((process.env.TEST_DATABASE_URL ?? "").length > 0) return true;
+  try {
+    await import("@electric-sql/pglite");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export type BootEnv = {
   engine: Engine;
   server: EngineServer;
@@ -238,9 +306,15 @@ export async function bootEngine(
     reviewVisuals?: ReviewVisualDriver;
     referenceDiffs?: ReferenceDiffDeps;
     importPreview?: ImportPreviewDriver;
+    // A database that really rolls back: PGlite in the process, or the
+    // configured PostgreSQL. Tests that prove atomicity need it - pg-mem
+    // ignores ROLLBACK, so such a proof would be a claim, not a proof.
+    transactional?: boolean;
   } = {},
 ): Promise<BootEnv> {
-  const database = await createTestDatabase();
+  const database = options.transactional === true
+    ? await createTransactionDatabase()
+    : await createTestDatabase();
   const registry = createTestRegistry();
   const dataDir = mkdtempSync(join(tmpdir(), "senify-engine-"));
   const engine = await createEngine({
@@ -384,6 +458,9 @@ export type ErrorResponse = {
     opIndex?: number;
     field?: string;
     suggestion?: string;
+    // The version the server is on, when it refuses a write because the
+    // client's base version is stale.
+    currentVersion?: number;
   };
 };
 

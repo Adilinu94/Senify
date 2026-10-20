@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   assertPublicHttpUrl,
   fetchPublic,
+  isAllowedBrowserUrl,
   isFetchBlockedPort,
   isPublicAddress,
   listenReachable,
@@ -112,6 +113,57 @@ describe("assertPublicHttpUrl", () => {
     await expect(assertPublicHttpUrl("file:///etc/passwd")).rejects.toMatchObject({
       category: "validation",
     });
+    vi.unstubAllEnvs();
+  });
+});
+
+describe("isAllowedBrowserUrl", () => {
+  // The browser follows what the page points at: a redirect, a sub-resource, a
+  // `fetch()` from the page's script. Each of those has to pass the same
+  // address check as the Node path, or a public page can point the browser at
+  // a metadata service or at a service in the LAN (ADR-0022).
+  it("refuses internal targets", async () => {
+    strict();
+    for (const url of [
+      "http://127.0.0.1:4322/api/sites",
+      "http://[::1]/",
+      "http://[::ffff:127.0.0.1]/",
+      "http://169.254.169.254/latest/meta-data/",
+      "http://10.0.0.5/",
+      "http://192.168.1.1/",
+      "http://localhost:1/",
+      "http://2130706433/",
+      "ftp://example.com/",
+      "not a url",
+    ]) {
+      expect(await isAllowedBrowserUrl(url), url).toBe(false);
+    }
+    vi.unstubAllEnvs();
+  });
+
+  it("accepts the browser's own schemes and a public address", async () => {
+    strict();
+    expect(await isAllowedBrowserUrl("data:text/html,<h1>Hallo</h1>")).toBe(true);
+    expect(await isAllowedBrowserUrl("blob:https://example.com/1234")).toBe(true);
+    expect(await isAllowedBrowserUrl("about:blank")).toBe(true);
+    expect(await isAllowedBrowserUrl("https://8.8.8.8/x")).toBe(true);
+    vi.unstubAllEnvs();
+  });
+
+  it("allows the offline mirror's file URLs only when it is asked to", async () => {
+    strict();
+    expect(await isAllowedBrowserUrl("file:///C:/mirror/index.html")).toBe(false);
+    expect(
+      await isAllowedBrowserUrl("file:///C:/mirror/index.html", { allowFile: true }),
+    ).toBe(true);
+    vi.unstubAllEnvs();
+  });
+
+  it("follows the operator switch", async () => {
+    vi.stubEnv("SENIFY_ALLOW_PRIVATE_URLS", "1");
+    expect(await isAllowedBrowserUrl("http://127.0.0.1:4322/")).toBe(true);
+    // The switch lifts the address check, not the scheme check.
+    expect(await isAllowedBrowserUrl("ftp://127.0.0.1/")).toBe(false);
     vi.unstubAllEnvs();
   });
 });

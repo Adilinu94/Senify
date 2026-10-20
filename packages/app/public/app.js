@@ -320,11 +320,15 @@ function syncThemeToggle() {
   if (!themeToggle) return;
   const dark = document.documentElement.dataset.mode === "dark";
   themeToggle.setAttribute("aria-pressed", String(dark));
+  // Der zugaengliche Name muss den sichtbaren Text als GANZES Wort enthalten
+  // (WCAG 2.5.3, axe-Regel `label-content-name-mismatch`). "Dunkel" ist ein
+  // Teil von "Dunkelmodus" und damit kein eigenes Wort - der Name beginnt
+  // deshalb mit dem Wort, das der Schalter zeigt.
   themeToggle.setAttribute(
     "aria-label",
-    dark ? "Dunkelmodus deaktivieren" : "Dunkelmodus aktivieren",
+    dark ? "Hell: Dunkelmodus deaktivieren" : "Dunkel: Dunkelmodus aktivieren",
   );
-  themeToggle.title = dark ? "Dunkelmodus deaktivieren" : "Dunkelmodus aktivieren";
+  themeToggle.title = dark ? "Hell: Dunkelmodus deaktivieren" : "Dunkel: Dunkelmodus aktivieren";
   themeToggle.querySelector("[data-theme-label]").textContent = dark ? "Hell" : "Dunkel";
 }
 

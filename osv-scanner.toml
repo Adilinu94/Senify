@@ -1,0 +1,33 @@
+# Ausnahmen des OSV-Scans (Analyse 06, Kandidat 4).
+#
+# Der Scanner meldet jede bekannte Schwachstelle in der Aufloesung - auch
+# transitive, die im Modulbaum gar nicht landen. Ohne Ausnahmeliste wird der
+# Schritt nach einem Monat ignoriert, und ein ignorierter Schritt ist schlimmer
+# als ein fehlender.
+#
+# Jede Ausnahme nennt ihren Grund und ein Datum: `ignoreUntil` laesst die
+# Ausnahme ablaufen, dann meldet der Scanner den Fund wieder. Eine Ausnahme
+# ohne Ablaufdatum ist eine Ausnahme auf unbestimmte Zeit.
+#
+# Die Datei heisst `osv-scanner.toml` (ohne Punkt) und liegt im Ordner, der
+# gescannt wird - der Scanner sucht sie neben dem Lockfile.
+
+[[IgnoredVulns]]
+id = "GHSA-82fw-gwwq-j7x9"
+ignoreUntil = 2026-11-30T00:00:00Z
+reason = "vitest 3.2.7 / @vitest/mocker: die Advisory betrifft den Test-Runner, nicht den Produktivcode. Der Sprung auf vitest 4.1.11 ist ein Major-Update des Test-Runners und braucht einen eigenen Schritt mit dem vollen Gate (Suite, Coverage, Browser). Wiedervorlage: 30.11.2026."
+
+[[IgnoredVulns]]
+id = "GHSA-5gmw-xhrv-c9v3"
+ignoreUntil = 2026-11-30T00:00:00Z
+reason = "tinypool 1.1.1: der Worker-Pool von vitest, transitiv. Haengt an derselben vitest-4-Entscheidung (siehe GHSA-82fw-gwwq-j7x9). Wiedervorlage: 30.11.2026."
+
+[[IgnoredVulns]]
+id = "GHSA-85c8-ppgw-ccpr"
+ignoreUntil = 2026-11-30T00:00:00Z
+reason = "tinypool 1.1.1: der Worker-Pool von vitest, transitiv. Haengt an derselben vitest-4-Entscheidung (siehe GHSA-82fw-gwwq-j7x9). Wiedervorlage: 30.11.2026."
+
+[[IgnoredVulns]]
+id = "GHSA-ch52-4w7c-c8xp"
+ignoreUntil = 2026-11-30T00:00:00Z
+reason = "http-cache-semantics 4.2.0: transitiv ueber express (statischer Dateihandler). Es gibt keine gepatchte Version; der Empfehlung nachzugehen hiesse, express zu ersetzen. Die betroffene Cache-Poisoning-Route ist im Dashboard-Proxy nicht erreichbar (nur GET auf eigene Routen). Wiedervorlage: 30.11.2026."
