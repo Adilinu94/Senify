@@ -29,8 +29,6 @@ describe("Cmd+K spotlight", () => {
     expect(hero?.command).toEqual({ type: "insert-section", sectionType: "hero" });
     expect(index.length).toBe(pages.length + registry.list().length + SPOTLIGHT_ACTIONS.length);
     expect(SPOTLIGHT_ACTIONS.map((action) => action.command.type)).toEqual([
-      "set-mode",
-      "set-mode",
       "open-media",
       "publish",
     ]);

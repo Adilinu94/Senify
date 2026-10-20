@@ -209,6 +209,8 @@ export const CANVAS_STYLES = `
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
 }
 .senify-canvas__plus[data-state="hidden"] { display: none; }
+/* The preview (live) shows the page, not the editing aids. */
+.senify-canvas[data-mode="live"] .senify-canvas__plus { display: none; }
 .senify-canvas__plus:hover::before { background: var(--ed-fill-accent-hover); }
 /* Das Marker-Portal (Ticket 16): Auswahl und Hover liegen als eigene Schicht
    ueber der Buehne, nie im Inhaltsrahmen — der Inhalt bleibt token-frei. Je

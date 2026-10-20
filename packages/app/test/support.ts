@@ -1,5 +1,4 @@
 import { existsSync } from "node:fs";
-import { expect } from "vitest";
 import { createTestDb } from "@senify/core/testing";
 import type { Db, DbResult, Row } from "@senify/engine";
 
@@ -53,25 +52,6 @@ type CategoryPage = {
     click(): Promise<unknown>;
   };
 };
-// Der Live-Modus hat keinen Schalter in der Werkzeugleiste mehr (E7 Teil 3); die
-// Spotlight-Befehle "Live-Modus" und "Design-Modus" sind der Weg dorthin. Diese
-// Hilfe fuehrt einen solchen Befehl aus: Strg+K, suchen, die erste Zeile bestaetigen.
-type SpotlightPage = {
-  keyboard: { press(key: string): Promise<unknown> };
-  waitForSelector(selector: string, options?: { timeout?: number }): Promise<unknown>;
-  fill(selector: string, value: string): Promise<unknown>;
-  locator(selector: string): { first(): { textContent(): Promise<string | null> } };
-};
-export async function runSpotlightCommand(page: SpotlightPage, label: string): Promise<void> {
-  await page.keyboard.press("Control+k");
-  await page.waitForSelector('.senify-spotlight[data-open="true"]', { timeout: 30000 });
-  await page.fill(".senify-spotlight__input", label);
-  await expect
-    .poll(async () => page.locator(".senify-spotlight__row").first().textContent())
-    .toContain(label);
-  await page.keyboard.press("Enter");
-}
-
 export async function openInspectorCategory(page: CategoryPage, groupId: string): Promise<void> {
   const head = page.locator(
     `.senify-inspector__group[data-group="${groupId}"] .senify-inspector__group-title`,
