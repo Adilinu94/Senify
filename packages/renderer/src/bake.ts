@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import {
   copyFileSync,
   cpSync,
@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, sep } from "node:path";
+import { dirname, join, parse, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { SenifyError } from "@senify/core";
@@ -653,7 +653,7 @@ export async function bakeSite(
   );
   try {
     const outDir = options.outDir ?? join(tmpdir(), `senify-bake-${Date.now()}`);
-    runAstroBuild(stageDir, outDir);
+    await buildInto(stageDir, outDir);
     mkdirSync(join(outDir, "assets"), { recursive: true });
     // The theme's webfonts (Sora, Inter): copied into every build so the
     // release renders the very faces the editor previews. The theme CSS
@@ -775,26 +775,83 @@ function rewriteTailwindSource(stageDir: string): void {
   );
 }
 
-function runAstroBuild(stageDir: string, outDir: string): void {
-  const result = spawnSync(
-    process.execPath,
-    [astroBin(), "build", "--root", stageDir, "--outDir", outDir],
-    {
-      cwd: stageDir,
-      env: {
-        ...process.env,
-        ASTRO_TELEMETRY_DISABLED: "1",
-        FORCE_COLOR: "0",
+// The Astro build moves its prerendered assets with a rename from the stage
+// directory into the output directory. A rename across volumes fails on
+// Windows (`EXDEV: cross-device link not permitted`), and the stage has to
+// live inside the workspace (so Astro resolves the workspace packages) while
+// the output may live on another drive - a temp directory, a data directory.
+//
+// So the build writes next to the stage and the result is copied to the
+// target. On one volume the copy is skipped and the build writes straight to
+// the target, as before.
+async function buildInto(stageDir: string, outDir: string): Promise<void> {
+  const stageRoot = parse(stageDir).root.toLowerCase();
+  const outRoot = parse(outDir).root.toLowerCase();
+  if (stageRoot === outRoot) {
+    await runAstroBuild(stageDir, outDir);
+    return;
+  }
+  const buildDir = join(dirname(stageDir), `out-${Date.now()}-${Math.floor(Math.random() * 0xffff)}`);
+  try {
+    await runAstroBuild(stageDir, buildDir);
+    cpSync(buildDir, outDir, { recursive: true });
+  } finally {
+    rmSync(buildDir, { recursive: true, force: true });
+  }
+}
+
+// The Astro build runs as a child process. It must not block the event loop:
+// a bake happens while the dashboard serves requests, and with `spawnSync`
+// the dashboard, the editor and the MCP tools were all silent for the whole
+// build (up to three minutes). `spawn` keeps the process responsive and
+// lets the same timeout kill a build that hangs.
+async function runAstroBuild(stageDir: string, outDir: string): Promise<void> {
+  const result = await new Promise<{
+    code: number | null;
+    signal: NodeJS.Signals | null;
+    stdout: string;
+    stderr: string;
+    error?: Error;
+  }>((resolve) => {
+    const child = spawn(
+      process.execPath,
+      [astroBin(), "build", "--root", stageDir, "--outDir", outDir],
+      {
+        cwd: stageDir,
+        env: {
+          ...process.env,
+          ASTRO_TELEMETRY_DISABLED: "1",
+          FORCE_COLOR: "0",
+        },
       },
-      encoding: "utf8",
-      timeout: 180000,
-    },
-  );
-  if (result.status !== 0) {
-    const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`.slice(-2000);
-    const cause = result.error ? ` (${(result.error as Error).message})` : "";
+    );
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr?.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+    }, 180000);
+    child.on("error", (error: Error) => {
+      clearTimeout(timer);
+      resolve({ code: null, signal: null, stdout, stderr, error });
+    });
+    child.on("close", (code, signal) => {
+      clearTimeout(timer);
+      resolve({ code, signal, stdout, stderr });
+    });
+  });
+  if (result.code !== 0) {
+    const output = `${result.stdout}\n${result.stderr}`.slice(-2000);
+    const cause = result.error ? ` (${result.error.message})` : "";
     throw new Error(
-      `Astro build failed (exit ${result.status ?? "signal"}${cause}):\n${output}`,
+      `Astro build failed (exit ${result.code ?? result.signal ?? "signal"}${cause}):\n${output}`,
     );
   }
 }
