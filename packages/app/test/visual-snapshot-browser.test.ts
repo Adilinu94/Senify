@@ -5,7 +5,7 @@ import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 import { describe, expect, it } from "vitest";
 import { startProgram } from "@senify/app";
-import { browserAvailable, browserSkip, memoryDb } from "./support.ts";
+import { browserAvailable, browserSkip, memoryDb, runSpotlightCommand } from "./support.ts";
 
 // Dauerhaftes PNG-Gate. Die versionierten Baselines liegen unter
 // packages/app/test/visual-baselines; bei einer Abweichung entstehen im
@@ -74,11 +74,8 @@ async function waitForStableUi(tab: import("playwright").Page, snapshot: Snapsho
   }
   if (snapshot.name.startsWith("editor")) {
     await tab.waitForSelector(".senify-canvas", { timeout: 30000 });
-    const frameCount = snapshot.name === "editor-live" ? 1 : 3;
-    await tab.waitForFunction(
-      `(count) => document.querySelectorAll(".senify-canvas__frame").length === count`,
-      frameCount,
-    );
+    // One frame, in design and in live.
+    await tab.waitForFunction('document.querySelectorAll(".senify-canvas__frame").length === 1');
     await tab.waitForSelector(".senify-canvas__iframe", { timeout: 30000 });
   }
   await tab.waitForTimeout(250);
@@ -252,8 +249,12 @@ describe.skipIf(browserSkip)("desktop visual snapshots", () => {
                 await tab.locator('[data-action="canvas-overflow"]').click();
                 await tab.locator(".toolbar-overflow__menu").waitFor({ state: "visible" });
               } else if (snapshot.name === "editor-live") {
-                await tab.locator('.senify-canvas__button[data-mode="live"]').click();
-                await tab.waitForFunction('document.querySelectorAll(".senify-canvas__frame").length === 1');
+                // Strg+K gilt erst, wenn der Editor samt Spotlight steht.
+                await tab.waitForSelector(".senify-canvas__frame");
+                await tab.waitForSelector(".senify-spotlight", { state: "attached" });
+                await runSpotlightCommand(tab, "Live-Modus");
+                await tab.waitForSelector('.senify-canvas[data-mode="live"]');
+                await tab.waitForSelector('.senify-spotlight[data-open="true"]', { state: "detached" });
               }
             } else {
               const hash = snapshot.name === "settings" ? "#/settings" : "#/references";

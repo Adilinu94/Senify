@@ -634,14 +634,14 @@ function canvasSkinCss(): string {
       "background: var(--ed-surface-inset);",
     ].join("\n"),
   );
-  // Geschichtete Werkzeuggruppen: nur Moduswahl und Geraete sind ein
-  // Segment, Verlauf und Einfuegen stehen frei, getrennt durch eine Haarlinie.
+  // Geschichtete Werkzeuggruppen: nur die Geraete sind ein Segment, Verlauf und
+  // Einfuegen stehen frei, getrennt durch eine Haarlinie.
   rule(
-    ' .senify-canvas__group[data-role="device"] + .senify-canvas__group| .senify-canvas__group[data-role="mode"] + .senify-canvas__group',
+    ' .senify-canvas__group[data-role="device"] + .senify-canvas__group',
     "margin-left: var(--ed-space-1);",
   );
   rule(
-    ' .senify-canvas__group:not([data-role="mode"]):not([data-role="device"])',
+    ' .senify-canvas__group:not([data-role="device"])',
     "background: transparent;",
   );
   rule(

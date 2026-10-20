@@ -74,6 +74,9 @@ type RawNode = {
   // RichText shape `Hallo <strong>x</strong> Welt`): the scan keeps elements
   // only, so without this the plain text nodes between them are lost.
   innerHtml: string | null;
+  // The text of a leaf as written, with its spaces. `text` is collapsed; the cascade
+  // takes this one back where the element is set in `white-space: pre`.
+  spacedText?: string;
 };
 
 // Elements whose content is never visible page content.
@@ -215,6 +218,7 @@ function scanTag(
   const spaceOnly = tag === "span" && /^\s+$/.test(decodeEntities(inner.replace(/<[^>]*>/g, "")));
   const ownText = children.length === 0 ? (spaceOnly ? " " : extractText(inner)) : null;
   const text = tag === "textarea" && ownText === "" ? (attrs["placeholder"] ?? "") : ownText;
+  const spaced = children.length === 0 && !spaceOnly ? decodeEntities(inner.replace(/<[^>]*>/g, "")) : null;
   // Only elements with their own text between the children carry content the
   // child scan cannot see.
   const innerHtml =
@@ -226,7 +230,8 @@ function scanTag(
         // escape them into visible text.
         html.slice(gt + 1, innerEnd).replace(/<!--[\s\S]*?-->/g, "")
       : null;
-  return { node: { tag, attrs, classes, children, text, svg: null, innerHtml }, next };
+  const withSpaces = spaced !== null && spaced !== text && spaced.trim() !== "" ? { spacedText: spaced } : {};
+  return { node: { tag, attrs, classes, children, text, svg: null, innerHtml, ...withSpaces }, next };
 }
 
 // What a form field draws inside itself. A field has no children, so without
@@ -454,6 +459,14 @@ const START_STATE_PROPERTIES = ["opacity", "transform", "will-change"] as const;
 
 type Counter = { ordinal: number; attrNames?: ReadonlySet<string> };
 
+// A text in `white-space: pre`, `pre-wrap` or `break-spaces` is drawn with every space the
+// author typed: "Hey, ich bin " is 22 px wider than "Hey, ich bin" on fluffy-rectangle, and
+// "Meine  Referenzen" has two spaces between the words. The scan collapses spaces, so it
+// keeps the text as written next to it; the cascade, which knows the white-space of the
+// element (its own rule or the one it inherits), decides which of the two counts.
+const SPACED_TEXT = new WeakMap<IrNode, string>();
+const KEEPS_SPACES = /^(?:pre|pre-wrap|break-spaces)$/;
+
 function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []): IrNode {
   counter.ordinal += 1;
   const attrs = raw.attrs;
@@ -498,6 +511,11 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
       appearInitial[property] = value;
       delete visual[property];
     }
+  }
+  // A Ticker (marquee) is written with `opacity:0` and shown by Framer's script once it
+  // has measured itself: the opacity is the state before the script, not the look.
+  if (raw.tag === "section" && visual["opacity"] === "0" && visual["list-style-type"] === "none" && visual["place-items"] === "center") {
+    delete visual["opacity"];
   }
   const textInline: Record<string, string> = {};
   for (const [property, value] of Object.entries(framerInlineToStyles(attrs["style"]))) {
@@ -569,6 +587,7 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
     stylesPresetId: attrs["data-styles-preset"] ?? null,
     svg: raw.svg,
   };
+  if (raw.spacedText !== undefined) SPACED_TEXT.set(node, raw.spacedText);
   return node;
 }
 
@@ -1098,7 +1117,7 @@ type Vars = Record<string, string>;
 // (`var(--link-hover-font-family, var(--link-font-family, var(--font-family,
 // "Inter", sans-serif)))`), and a pattern that handles one level leaves the
 // outer call, and with it the whole value, unresolved.
-function resolveVars(value: string, vars: Vars, depth = 0): string {
+function resolveVars(value: string, vars: Vars, depth = 0, tokens: Vars = {}): string {
   if (depth > 8 || !value.includes("var(")) return value;
   let out = "";
   let cursor = 0;
@@ -1148,11 +1167,19 @@ function resolveVars(value: string, vars: Vars, depth = 0): string {
     const fallback = firstComma === -1 ? undefined : inner.slice(firstComma + 1).trim();
     out += value.slice(cursor, start);
     if (name.startsWith("--token-")) {
-      // The token stays a `var()`, but its fallback is the value the page
-      // defines for it: Framer keeps the fallback from when the element was last
-      // written, and Senify does not define the token, so a stale one would stand.
-      const defined = vars[name];
-      out += defined !== undefined && fallback !== undefined ? `var(${name}, ${defined})` : value.slice(start, end);
+      // A theme token stays a variable (the theme can take it over), but its
+      // fallback is the value the page gives the token, not the colour the
+      // style had when it was saved.
+      //
+      // The page's own definition of the token is the source. The inherited
+      // chain does not carry it: Framer defines the token on `body`, and the
+      // element that uses it sits deeper, so the chain alone leaves the stale
+      // fallback standing (fluffy-rectangle: a button in the green of an older
+      // palette). `tokenDefinitions` reads the definitions from the page's CSS.
+      const known = vars[name] ?? tokens[name];
+      out += known === undefined
+        ? value.slice(start, end)
+        : `var(${name},${resolveVars(known.trim(), vars, depth + 1, tokens)})`;
     } else if (!name.startsWith("--")) {
       out += value.slice(start, end);
     } else if (vars[name] !== undefined) {
@@ -1537,8 +1564,13 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
 
   const DEVICES: readonly IrDevice[] = ["desktop", "tablet", "mobile"];
   type VarsByDevice = Record<IrDevice, Vars>;
+  // The page's own definitions of the `--token-*` variables: what the browser
+  // resolves `var(--token-x, fallback)` to. The inherited chain does not carry
+  // them (Framer defines the token on `body`, the element that uses it sits
+  // deeper), so they are read from the page's CSS directly.
+  const tokens = tokenDefinitions(css);
 
-  const visit = (current: IrNode, ancestors: ReadonlySet<string>, inherited: VarsByDevice): void => {
+  const visit = (current: IrNode, ancestors: ReadonlySet<string>, inherited: VarsByDevice, inheritedWhiteSpace?: string): void => {
     const baseState = current.states[0];
     if (baseState === undefined) return;
     // The cascade: stylesheet rules first, the element's own inline style wins.
@@ -1608,16 +1640,21 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
         if (color !== undefined) plain["border-color"] = color;
       }
       valuesByDevice[device] = Object.fromEntries(
-        Object.entries(plain).flatMap(([key, value]) => (value === undefined ? [] : [[key, resolveVars(value, vars)]])),
+        Object.entries(plain).flatMap(([key, value]) => (value === undefined ? [] : [[key, resolveVars(value, vars, 0, tokens)]])),
       );
     }
     baseState.visual = valuesByDevice.desktop;
+    const whiteSpace = valuesByDevice.desktop["white-space"] ?? inheritedWhiteSpace;
+    const spacedText = SPACED_TEXT.get(current);
+    if (spacedText !== undefined && baseState.text !== null && whiteSpace !== undefined && KEEPS_SPACES.test(whiteSpace)) {
+      baseState.text = { ...baseState.text, content: spacedText };
+    }
     // The element's own states, resolved against the same custom properties.
     const interactions: Partial<Record<IrInteraction, IrVisual>> = {};
     for (const [name, values] of Object.entries(interactionValues) as [IrInteraction, Record<string, string>][]) {
       const resolved: IrVisual = {};
       for (const [key, value] of Object.entries(values)) {
-        if (!key.startsWith("--")) resolved[key] = resolveVars(value, varsByDevice.desktop);
+        if (!key.startsWith("--")) resolved[key] = resolveVars(value, varsByDevice.desktop, 0, tokens);
       }
       if (Object.keys(resolved).length > 0) interactions[name] = resolved;
     }
@@ -1640,10 +1677,9 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
       });
     }
     const offered = new Set([...ancestors, ...ownTokens]);
-    for (const child of current.children) visit(child, offered, varsByDevice);
+    for (const child of current.children) visit(child, offered, varsByDevice, whiteSpace);
   };
   // Above the page element sit `html` and `body`; the page element is `#main`.
-  const tokens = tokenDefinitions(css);
   visit(root, new Set(["tag:html", "tag:body"]), { desktop: tokens, tablet: tokens, mobile: tokens });
   return { skippedPseudo };
 }

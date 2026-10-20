@@ -47,7 +47,7 @@ export const SPOTLIGHT_ACTIONS: readonly SpotlightItem[] = [
     id: "action:mode-design",
     kind: "action",
     label: "Design-Modus",
-    description: "Drei Breakpoint-Frames",
+    description: "Ein Frame im Blattmaß des Geräts",
     group: "Aktionen",
     thumbnail: undefined,
     keywords: ["design", "breakpoints", "frames"],
