@@ -23,10 +23,11 @@
 | [ADR-0018](0018-oeffentliche-adresse-je-projekt.md) | Jedes Projekt trägt seine öffentliche Adresse | angenommen |
 | [ADR-0019](0019-store-als-fassade-ueber-fach-module.md) | Der Store wird Fassade über Fach-Module | angenommen |
 | [ADR-0020](0020-breakpoints-je-site.md) | Breakpoints je Site einstellbar | angenommen |
+| [ADR-0021](0021-framer-import-medien-aus-der-quelle.md) | Framer-Import: Medien aus der Quelle, Bildgenerierung nur auf Zuruf | angenommen |
 
 ## Nächste Nummer
 
-Die nächste freie Nummer ist `ADR-0021`. `ADR-0011` ist für die Entscheidung reserviert, ob und wann `EditorDocument` das interne kanonische Modell wird.
+Die nächste freie Nummer ist `ADR-0022`. `ADR-0011` ist für die Entscheidung reserviert, ob und wann `EditorDocument` das interne kanonische Modell wird.
 
 ## Regeln
 

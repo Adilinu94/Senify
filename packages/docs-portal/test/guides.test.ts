@@ -75,6 +75,7 @@ describe("curated guides", () => {
       "/changelog",
       "/getting-started",
       "/guides/assets",
+      "/guides/framer-import",
       "/guides/motion",
       "/guides/redesign-aus-referenzen",
       "/guides/site-aus-brief",

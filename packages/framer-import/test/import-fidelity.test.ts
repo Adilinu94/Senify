@@ -865,6 +865,51 @@ describe("spacing values that hold a function", () => {
   });
 });
 
+describe("token fallbacks", () => {
+  // Framer keeps the fallback of `var(--token-x, fallback)` from when the
+  // element was last written, so it can be stale: fluffy's CTA carries
+  // `rgb(130, 255, 31)` for a token the page defines as `#d7ff6f`. The browser
+  // shows the token; Senify does not define it, so the fallback stood and the
+  // button came out in another green.
+  const TOKEN = "--token-d98a4c00-7e0c-42c7-87be-9d10760cb03b";
+  const defined = `:root{${TOKEN}:#d7ff6f}`;
+  const props = (body: string, css: string): string => JSON.stringify(run(page(body, css)).nodes.map((node) => node.props));
+  it("writes the token's own value as the fallback when the page defines it", () => {
+    const out = props(`<div style="background-color:var(${TOKEN}, rgb(130, 255, 31));width:50px"></div>`, defined);
+    expect(out).toContain(`var(${TOKEN},#d7ff6f)`);
+    expect(out).not.toContain("130, 255, 31");
+  });
+  it("keeps the fallback when the page does not define the token", () => {
+    const out = props(`<div style="background-color:var(${TOKEN}, rgb(130, 255, 31));width:50px"></div>`, "");
+    expect(out).toContain(`var(${TOKEN}, rgb(130, 255, 31))`);
+  });
+  it("leaves a token without fallback alone", () => {
+    const out = props(`<div style="background-color:var(${TOKEN});width:50px"></div>`, defined);
+    expect(out).toContain(`var(${TOKEN},#d7ff6f)`);
+  });
+});
+
+describe("button background reset", () => {
+  // Framer's button reset is `[data-reset=button]{background:0 0}`, the minified
+  // shorthand that clears the background. Senify's style table reads the prop
+  // `background` as a colour, so `0 0` came out as `background-color: 0 0`: an
+  // invalid value that replaced the button's own colour (easier-train Submit).
+  const RESET = '[data-reset="button"]{border-width:0;padding:0;background:0 0}';
+  const lime = "rgb(209, 252, 113)";
+  it("keeps the button's own colour next to the reset", () => {
+    const { nodes, mapped } = run(
+      page(`<button data-reset="button" style="background-color:${lime};opacity:0.5"><p>Go</p></button>`, RESET),
+    );
+    const out = JSON.stringify([nodes, mapped.rules]);
+    expect(out).toContain(lime);
+    expect(out).not.toContain('"background":"0 0"');
+  });
+  it("does not turn the reset alone into a background", () => {
+    const { nodes, mapped } = run(page('<button data-reset="button"><p>Go</p></button>', RESET));
+    expect(JSON.stringify([nodes, mapped.rules])).not.toMatch(/"background(Color)?":"0 0"/);
+  });
+});
+
 describe("spaces in a text set in `white-space: pre`", () => {
   // Framer sets most of its texts in `white-space: pre` or `pre-wrap`. There a trailing
   // space and a double space are drawn as written, and the author's own spaces count:
@@ -877,19 +922,15 @@ describe("spaces in a text set in `white-space: pre`", () => {
   };
   const inherited = (text: string, whiteSpace: string): string =>
     shown(`<div class="framer-a" data-framer-component-type="RichTextContainer"><p class="framer-text">${text}</p></div>`, `.framer-a{white-space:${whiteSpace}}`);
-
   it("keeps a trailing space when the white-space of the parent is `pre`", () => {
     expect(inherited("Hey, ich bin ", "pre")).toMatch(/Hey, ich bin (?:<|\||$)/);
   });
-
   it("keeps a double space inside the text", () => {
     expect(inherited("Meine  Referenzen", "pre")).toContain("Meine  Referenzen");
   });
-
   it("keeps a leading space", () => {
     expect(inherited(" Mein Service", "pre")).toMatch(/(?:^|[>|]) Mein Service/);
   });
-
   it("keeps the spaces when the paragraph itself sets `pre-wrap`", () => {
     const text = shown(
       '<div data-framer-component-type="RichTextContainer"><p class="framer-text">Direkter Kontakt. </p></div>',
@@ -897,7 +938,6 @@ describe("spaces in a text set in `white-space: pre`", () => {
     );
     expect(text).toMatch(/Direkter Kontakt\. (?:<|\||$)/);
   });
-
   it("still collapses the spaces of a text set in normal white-space", () => {
     const text = inherited("Hey,  ich bin ", "normal");
     expect(text).toContain("Hey, ich bin");
