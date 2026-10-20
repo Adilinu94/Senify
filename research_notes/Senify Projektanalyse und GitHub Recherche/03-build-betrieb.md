@@ -283,14 +283,17 @@ Ein sauberer Arbeitsbaum ist damit lokal **nicht herstellbar**, ohne die Ordner 
 
 - **B1 (Bake blockiert die Event-Loop):** `spawn` statt `spawnSync` in
   `packages/renderer/src/bake.ts`. Der Build läuft als Kindprozess, `running` blockiert nichts
-  mehr; ein hängender Build wird nach 180 Sekunden beendet.
+  mehr; ein hängender Build wird nach 180 Sekunden beendet. **Belegt:** ein Test in
+  `packages/renderer/test/bake.test.ts` zählt die Runden eines 10-ms-Timers **während** des
+  Builds — mit dem blockierenden Aufruf zählt der Timer null (Gegenprobe: Anhang D, Probe 6).
 - **B2 (EXDEV):** die Ursache war nicht das Temp-Verzeichnis, sondern der Bake: Astro verschiebt
   die gebauten Dateien per `rename()` aus dem Stage-Ordner (im Workspace) in den Zielordner (im
   Temp), und ein `rename()` über Laufwerke scheitert mit `EXDEV`. `buildInto()` baut jetzt neben
   der Stage und kopiert das Ergebnis ins Ziel (`packages/renderer/src/bake.ts`). Auf einem
   Laufwerk entfällt die Kopie. **Das war ein Produktivfehler**, nicht nur ein Testproblem: ein
   Benutzer mit Repo und Datenordner auf verschiedenen Laufwerken hätte denselben Fehler im
-  Release-Bake bekommen.
+  Release-Bake bekommen. **Belegt:** ohne `buildInto` fallen 16 von 18 Bake-Tests mit genau
+  diesem `EXDEV` um (Gegenprobe: Anhang D, Probe 7).
 - **B6 (`.tmp/`, `.bake-tmp/`):** beide stehen jetzt in `.gitignore`.
 - **Der geplante Umweg entfällt:** Das Skript „Temp auf dem Repo-Laufwerk“ (Maßnahme 4 des
   Berichts) wäre eine Scheinlösung gewesen — es hätte den Fehler in dieser einen Umgebung
