@@ -254,5 +254,5 @@ Browser direkt mit dem Ziel spricht und nicht über den Proxy.
   die Prüfung, eine nicht-öffentliche Adresse wird mit `abort("blockedbyclient")` abgewiesen.
 - `packages/core/test/net.test.ts`: vier neue Fälle (interne Ziele, browser-eigene Schemata,
   `file:`, Betreiber-Schalter).
-- **ADR-0021** (`docs/adr/0021-der-browser-holt-nur-oeffentliche-adressen.md`) hält die
+- **ADR-0022** (`docs/adr/0021-der-browser-holt-nur-oeffentliche-adressen.md`) hält die
   Entscheidung fest, ADR-0016 bleibt für den Node-Pfad unverändert.

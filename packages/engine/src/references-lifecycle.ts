@@ -548,7 +548,7 @@ export function createPlaywrightCaptureDriver(
       // sub-resource, a `fetch()` from the page's script. Each of those
       // requests passes the same address check as the Node path, so a public
       // page cannot point the browser at a metadata service or at a service in
-      // the LAN (ADR-0021).
+      // the LAN (ADR-0022).
       await context.route("**/*", async (route) => {
         const target = route.request().url();
         if (await isAllowedBrowserUrl(target)) {

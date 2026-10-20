@@ -210,7 +210,7 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
     // Every request the page makes - the navigation, its redirects, every
     // sub-resource - passes the address check of ADR-0016. Without it a
     // public page could point the browser at a metadata service or at a
-    // service in the LAN (ADR-0021). `file:` stays allowed: the offline
+    // service in the LAN (ADR-0022). `file:` stays allowed: the offline
     // mirror reads it on purpose.
     await context.route("**/*", async (route) => {
       const target = route.request().url();

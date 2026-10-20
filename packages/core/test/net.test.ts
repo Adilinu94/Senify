@@ -121,7 +121,7 @@ describe("isAllowedBrowserUrl", () => {
   // The browser follows what the page points at: a redirect, a sub-resource, a
   // `fetch()` from the page's script. Each of those has to pass the same
   // address check as the Node path, or a public page can point the browser at
-  // a metadata service or at a service in the LAN (ADR-0021).
+  // a metadata service or at a service in the LAN (ADR-0022).
   it("refuses internal targets", async () => {
     strict();
     for (const url of [

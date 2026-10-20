@@ -1,6 +1,8 @@
 # Der Browser holt nur öffentliche Adressen
 
-Status: angenommen · 19.10.2026 (Vorschlag aus der Projektanalyse, Umsetzung im selben Schritt)
+Status: angenommen · 20.10.2026 (Vorschlag aus der Projektanalyse vom 19.10.2026; die Entscheidung
+über die Reichweite wurde am 20.10.2026 an Adi gestellt und mit „Kümmere dich um alle Punkte" an
+die Umsetzung gebunden)
 Bezug: ADR-0016 (Abrufe fremder URLs nur an öffentliche Adressen), ADR-0015 (Site-Inhalte auf der
 Engine-Origin).
 
