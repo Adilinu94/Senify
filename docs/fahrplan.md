@@ -55,13 +55,25 @@ Kein Minify/Tree-Shake/Sourcemaps in diesem Schritt. ESM-Aufteilung und Dateigr�
 
 `.github/workflows/verify.yml` führt einen eigenen `postgres-tests`-Job mit Postgres 18 und `TEST_DATABASE_URL`. `pnpm test:postgres` wird rot, wenn ein Fall übersprungen wird oder keiner läuft. Der aktuelle Folge-Diff bestand die Lane lokal mit sechs Fällen gegen PostgreSQL 18.6, null übersprungen. Test-Fixture erstellt und entfernt ein eigenes Schema.
 
-### P1-2 · Coverage-Schwellen (R11, Teil 2) — erledigt 28.09.2026
+### P1-2 · Coverage-Schwellen (R11, Teil 2) — erledigt 28.09.2026, erweitert 20.10.2026
 
 `vitest.config.ts` nutzt v8 und `perFile: true`; `pnpm test:coverage` prüft geschützte Pfade aus engine, editor und mcp. Gezielte Fehlerpfade: `error-paths.test.ts` (Idempotency-Release, Completion ohne Slot, Rollback), `auth.test.ts` (`operatorOnly`), `mutations.test.ts` (`baseVersion`-409) und `imports.test.ts` (Asset-Kompensation). Coverage bleibt ein Messwert der ausgeführten Tests und kein Vollständigkeitsbeweis. Zahlen ausschließlich in `docs/current/qualitaet.md`; das aktuelle Coverage-Gate ist grün.
+
+**Erweiterung 20.10.2026:** Das Tor misst jetzt auch die 33 ausgelagerten Fachmodule der Engine (`packages/engine/src/store-*.ts` und `http-*.ts`) — rund 7 000 Zeilen, die vorher ungemessen waren, obwohl der Store-Fachausbau (ADR-0019) genau dort lag. Drei schwach gemessene Dateien (`store-settings-mappers.ts` mit 39 Branches, `store-style-rules.ts`, `http-build-files.ts` mit 57 Statements) haben eigene Schwellen: eine gemeinsame Schwelle für alle würde die niedrigste der Gruppe sein und damit nichts mehr sichern. `scripts/render-quality.mjs` zeigt die Gruppen als Zeile mit **Bereich**, nicht als Mittelwert.
 
 ### P1-3 · Lint-Ziel erweitern — erledigt 26.09.2026, Root-Config seit 04.10.2026 im Ziel
 
 `pnpm lint` führt `eslint packages scripts eslint.config.mjs` aus; `pnpm check:patch` hängt in `verify`. Die Root-Konfiguration ist seit 04.10.2026 im Lint-Ziel (Beleg: Skript `lint` in `package.json`; der Lint-Lauf ist grün).
+
+### P1-4 · Scans in der CI — erledigt 20.10.2026
+
+Drei Scans, die die CI vorher nicht hatte, alle drei mit Ausnahmelisten, die je einen Grund tragen:
+
+- **Geheimnisse:** `gitleaks` (8.30.1, Version gepinnt, Prüfsumme verglichen) über die volle Historie (`fetch-depth: 0`). Ausnahmen in `.gitleaks.toml`.
+- **Abhängigkeitslücken:** `osv-scanner` (revidierbarer Workflow, auf einen Commit gepinnt) gegen das Lockfile. Ausnahmen in `osv-scanner.toml` mit **Ablaufdatum** — eine Ausnahme ohne Frist ist eine Ausnahme auf unbestimmte Zeit.
+- **Paketregeln:** `dependency-cruiser` mit den Regeln aus ADR-0019 und P3-3 (`.dependency-cruiser.js`). `pnpm deps:check` hängt in `pnpm verify` und hat einen eigenen CI-Schritt.
+
+**Offen und terminiert:** `vitest`/`tinypool` (GHSA-82fw-gwwq-j7x9, GHSA-5gmw-xhrv-c9v3, GHSA-85c8-ppgw-ccpr) und `http-cache-semantics` (GHSA-ch52-4w7c-c8xp, ohne gepatchte Version) sind bis **30.11.2026** ausgenommen. Der vitest-4-Wechsel ist ein Major-Update des Test-Runners und braucht einen eigenen Schritt mit dem vollen Gate.
 
 **Gate P1:** Workflow enthält `verify`, `test:visual`, `verify:parity`, `verify:import`, `postgres-tests` und `coverage`. Der aktuelle Gesamt-Diff hat diese Lanes bestanden.
 
@@ -211,9 +223,12 @@ Neu erzeugte Uploads werden nach fehlgeschlagenem DB-Commit kompensiert; negativ
 | R8 | MCP-Schemas, Pagination und Manifest-Konsumenten nicht durchgängig | **geschlossen** (Punkt 8: Matrix aus Manifest, Server-Spiegel-Test) | P3-3 |
 | R9 | Style-Registry-Klassen-Rename ohne Test | **geschlossen** | P3 (Mini-Schritt) |
 | R10 | Import-Asset-Kompensation unbelegt | **Kompensationsvertrag geschlossen**; eine gemeinsame Datei-/DB-Tx besteht nicht | P3-5 |
-| R11 | Kein PG-Service/Coverage/Fehlerpfade in CI | **Implementierung und aktuelle lokale Gates geschlossen**; CI-Jobs vorhanden | P1-1, P1-2 |
+| R11 | Kein PG-Service/Coverage/Fehlerpfade in CI | **Implementierung und aktuelle lokale Gates geschlossen**; CI-Jobs vorhanden; Coverage misst seit 20.10.2026 auch die Fachmodule der Engine | P1-1, P1-2, P1-4 |
 | R12 | God-Files | **offen** | P3-2 |
 | R13 | Ursprünglicher Arbeitsbaum ungesichert | **geschlossen**: Folge-Diff in `2a0afde`/`aad9550`, erster P3-2-Schritt in `0193fde` gesichert | P0-1 / P3-2 |
+| R14 | Bekannte Lücken im Test-Runner (`vitest`/`tinypool`) und in `http-cache-semantics` sind bis 30.11.2026 ausgenommen | **offen, terminiert**: der OSV-Scan meldet sie, die Ausnahme läuft ab. Beheben: vitest auf 4.1.11 (Major-Update des Test-Runners, eigener Schritt mit vollem Gate) und `http-cache-semantics` hat keine gepatchte Version | P1-4 |
+| R15 | Der Editor verwirft eine Operation, die die Engine kann (Befund D aus der Projektanalyse vom 19.10.2026) | **geschlossen 20.10.2026**: Wörterbuch-Tor über alle 19 Operationen des Engine-Vokabulars (`packages/editor/test/state/persist-vocabulary.test.ts`) | — |
+| R16 | Vier Job-Queues (Bake, Bild, Import, Referenz) duplizieren Lease-, Backoff- und Dedupe-Muster | **bewusst nicht vereinheitlicht (20.10.2026)**: nur zwei der vier Queues haben eine Lease; Import- und Referenz-Jobs laufen über `listDue`, und die Fehlersemantik unterscheidet sich. Eine gemeinsame Repository-Klasse müsste das SQL aus Strings bauen und würde ADR-0019 (ein Fachmodul je Fachgebiet) widersprechen. Der Grund für den Merge („erst vereinheitlichen, dann über eine fremde Queue entscheiden“) entfällt, weil eine fremde Queue weniger Integration und nicht mehr Funktion bringt | — |
 
 ## Definition of Ready für neue Schritte
 

@@ -1,12 +1,13 @@
 # Qualitäts- und Gate-Stand
 
-> Stand: **19.10.2026** (Framer-Import-Zeile „Leerzeichen in `pre`-Text, Ticker, `inset`, Inline-`gap`, Verlauf, Token-Wert“, lokal auf `master` `5ac1a84` plus der Änderung); darunter 18.10.2026 (Zeile „Formularfelder, Tablet-Wert ohne Gegenstück, Zeilenbegrenzung, leere Absätze, Fragment-Marker“, PR #51); darunter 17.10.2026 (Framer-Import-Zeile „`place-content`, Tablet-Werte im Handy, `@supports`, Schrift im Gate“, lokal auf `master` `0692eb7` plus der Änderung; darunter die Zeilen „Breakpoints je Site“, Basis `master` `58b882d`); darunter 16.10.2026 (Zeile „Absätze, Rahmen, Sichtbarkeit“, lokal auf `19c8ee0` plus der Änderung); darunter 15.10.2026 (Zeile „Selektor-Engine“, lokal auf `6c54b3a` plus der Änderung); darunter 14.10.2026 (Läufe auf `review/css-compiler-motion-fixes`, siehe die folgenden Gate-Zeilen); darunter 13.10.2026 (vor dem Reiter „Sektionen“); darunter 12.10.2026 (derselbe Branch vor den Inspektor-, Label- und `allowFullScreen`-Änderungen); darunter 11.10.2026 (Gate-Zeile CLI `tokens revoke`) und 09.10.2026: PR #1 (Härtung), PR #2 (MCP-Paging) und PR #3 (Schreib-`outputSchema`) sind gemergt; der Messwerte-Block ist auf dem aktuellen Stand neu gerendert. Frühere App-Gates sind mit ihrem tatsächlichen Datum gekennzeichnet.
+> Stand: **20.10.2026** (Projektanalyse vom 19.10.2026: Save-Pipeline, Browser-Netzwerkgrenze ADR-0021, Bake ohne Event-Loop-Blockade, Coverage-Tor über die Fachmodule, Paketregeln und Scans in der CI, Transaktionsbeweise mit PGlite); darunter 19.10.2026 (Framer-Import-Zeile „Leerzeichen in `pre`-Text, Ticker, `inset`, Inline-`gap`, Verlauf, Token-Wert“, lokal auf `master` `5ac1a84` plus der Änderung); darunter 18.10.2026 (Zeile „Formularfelder, Tablet-Wert ohne Gegenstück, Zeilenbegrenzung, leere Absätze, Fragment-Marker“, PR #51); darunter 17.10.2026 (Framer-Import-Zeile „`place-content`, Tablet-Werte im Handy, `@supports`, Schrift im Gate“, lokal auf `master` `0692eb7` plus der Änderung; darunter die Zeilen „Breakpoints je Site“, Basis `master` `58b882d`); darunter 16.10.2026 (Zeile „Absätze, Rahmen, Sichtbarkeit“, lokal auf `19c8ee0` plus der Änderung); darunter 15.10.2026 (Zeile „Selektor-Engine“, lokal auf `6c54b3a` plus der Änderung); darunter 14.10.2026 (Läufe auf `review/css-compiler-motion-fixes`, siehe die folgenden Gate-Zeilen); darunter 13.10.2026 (vor dem Reiter „Sektionen“); darunter 12.10.2026 (derselbe Branch vor den Inspektor-, Label- und `allowFullScreen`-Änderungen); darunter 11.10.2026 (Gate-Zeile CLI `tokens revoke`) und 09.10.2026: PR #1 (Härtung), PR #2 (MCP-Paging) und PR #3 (Schreib-`outputSchema`) sind gemergt; der Messwerte-Block ist auf dem aktuellen Stand neu gerendert. Frühere App-Gates sind mit ihrem tatsächlichen Datum gekennzeichnet.
 > Aktueller Umsetzungsstand: `docs/current/stand.md`. Planung: `docs/fahrplan.md`.
 
 ## Aktuelle Gates
 
 | Gate | Kommando | Ergebnis |
 |---|---|---|
+| Projektanalyse vom 19.10.2026: Härtung (Save-Pipeline, Browser-Grenze, Bake, Gates, PGlite) | `pnpm typecheck`, `pnpm lint`, `pnpm deps:check`, `pnpm manifest:check`, `git diff --check`, `pnpm test`, `pnpm test:coverage`, `pnpm quality:render`/`quality:check`, `pnpm test:visual`, `pnpm verify:parity`, `pnpm verify:import`, `pnpm test:postgres` | **Grün am 20.10.2026** (lokal Windows, Node 24.15.0, Repo auf `G:`, Temp auf `C:` — die EXDEV-Ursache liegt jetzt im Code, nicht in der Umgebung; Chromium 1248 passend zu Playwright 1.64 installiert). Volltest **2537 bestanden, 11 übersprungen, 0 fehlgeschlagen** in 280 Dateien (277 grün, 3 mit Skips), 613 s. Coverage **142 Dateien grün, 3 mit Skips** (145), keine Schwellenfehler, 307 s — das Tor misst seit dem 20.10.2026 auch die 33 ausgelagerten Fachmodule der Engine. `deps:check` (Paketregeln), `manifest:check` (Drift-Tor), `quality:check` grün. Visual-Tor, Paritäts-Tor und Import-Tor je 1 Test grün. Postgres-Lane **15 Fälle gegen echtes PostgreSQL, 0 übersprungen** (PostgreSQL 18.6 auf Port 55438, `fsync=off`; der Cluster wurde nach dem Lauf beendet). Die 16 zuvor übersprungenen Transaktionsfälle laufen seit dem 20.10.2026 im normalen Volltest mit (PGlite). Ein Fehlschlag war zunächst zu sehen und wurde behoben: der Theme-Schalter verletzte WCAG 2.5.3 (sein sichtbarer Text „Dunkel“ war kein eigenes Wort im `aria-label`) — der neuere axe-core (4.14) prüft die Regel strenger. Nicht gelaufen: `pnpm build`/`verify:dist` (der Build-Teil von `pnpm verify` lief im Volltest-Schritt mit), `pnpm quality:check` gegen einen Linux-Lauf (maßgeblich ist der CI-Lauf des Merge-Commits) |
 | Framer-Import: Adresse der Originalseite im Dialog „Lokaler Mirror“ | `pnpm typecheck`, `pnpm lint`, `pnpm exec vitest run packages/docs-portal packages/framer-import packages/engine/test/imports.test.ts packages/app/test/framer-mirror-base-url-browser.test.ts packages/app/test/framer-site-import-browser.test.ts packages/app/test/framer-import-browser.test.ts` (mit `SENIFY_REQUIRE_BROWSER=1`), `git diff --check` | **Grün am 20.10.2026** (lokal Linux, Node 22, auf `master` `c9b311c` plus der Änderung; Chromium 1194 über einen privaten `PLAYWRIGHT_BROWSERS_PATH` im erwarteten 1243-Layout): Typecheck, Lint und `diff --check` Exit 0; **37 Dateien, 305 Tests bestanden, 0 übersprungen**, darunter die drei Dialog-Browsertests. Der neue Test `framer-mirror-base-url-browser.test.ts` war vor der Änderung rot (das Feld `framer-base-url` fehlte) und prüft: ohne Adresse bietet die Analyse bei absoluten Links keine weiteren Seiten an, mit `https://original.test` genau `/about` (nicht die fremde Site), und Analyse, Trockenlauf und Schreiben der Seite senden `source.baseUrl`. Nicht lokal gelaufen: `pnpm verify`, Visual, Parity, Windows, PostgreSQL, Coverage (laufen in der CI des PR) |
 | Probelauf mit einem echten Framer-Export | `runImport({ source: { kind: "mirror", rootDir }, mode: "fidelity" })` über ein Wegwerf-Skript mit `tsx` (nicht eingecheckt, lokal Node 22) auf dem entpackten Export „Datains – Framer Website Template“ (261 Dateien, 17,8 MB, `index.html` 299 731 Bytes, 56 `<img>`); einmal ohne Medienschritt, einmal mit `outDir` | **Am 19.10.2026**: Ohne Medienschritt Lauf in 633 ms. 715 Elemente gelesen, 310 Knoten (309 abgebildet, 0 Platzhalter, 406 übersprungen: Gerätekopien), davon 28 Bilder, 208 Frames, 43 Texte, 21 Überschriften und 9 Icons; Breakpoint-Paar Tablet 1200 / Mobil 810 px; 7046 Deklarationen: 4017 übernommen, 3029 verworfen, 0 tokenisiert; Motion: 2 gemessen, 2 auf Presets; 58 Schriftschnitte (56 mit Quelle) in Inter und Inter Tight; weitere Seiten `/product`, `/pricing` und `/contact`; Framer-Code (Klasse C) 0; Bericht-Score 59; 18 Befunde: 14 `unsupported-declaration` (darunter Link-Wrapper als Frame), 2 `smooth-scroll`, 1 `font-subset`, 1 `breakpoint-collapse`. Mit `outDir` bricht der Lauf ab: „Relative Asset-URL ohne baseUrl nicht auflösbar: assets/images/uT8M7CCX8HnKcRuhHPRy1fgaiI.webp“ (siehe `docs/current/stand.md`, Zeile „Mirror-Quelle und Medien“). Nicht gelaufen: Vorschau und Pixelvergleich (kein Chromium in der Sandbox), Import über den Dialog, Schreibimport in die Engine, Aufnahme des Exports als Fixture ins Gate (er liegt nicht im Repo) |
 | Doku zum Framer-Import | `pnpm exec astro build` in `packages/docs-portal`, `pnpm exec vitest run packages/docs-portal`, `pnpm exec eslint packages/docs-portal/test/guides.test.ts`, `git diff --check` | **Grün am 19.10.2026** (lokal Node 22): Das Portal baut 40 Seiten, darunter `/guides/framer-import`; `packages/docs-portal` 9 Dateien / 38 Tests (`guides.test.ts` führt den neuen Pfad); ESLint ohne Befund. Nicht lokal gelaufen: `pnpm verify` (läuft in der CI des PR) |
@@ -107,18 +108,20 @@ Der aktuelle Lauf vom 09.10.2026 (lokal auf Windows, TEMP/TMP/TMPDIR auf dem Lau
      Nicht von Hand editieren: dieser Block ist ein Messwert, und `pnpm quality:check`
      lässt den Lauf rot werden, sobald Dokument und Lauf auseinanderlaufen. -->
 
-**Gemessen:** 2026-10-19 · vitest coverage (v8)
+**Gemessen:** 2026-10-20 · vitest coverage (v8)
 
 | Pfad | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
 | `packages/engine/src/http.ts` | 93.14 | 74.74 | 94.23 | 93.14 |
-| `packages/engine/src/store.ts` | 84.60 | 81.65 | 95.27 | 84.60 |
-| `packages/engine/src/lifecycle.ts` | 87.01 | 74.46 | 100.00 | 87.01 |
+| `packages/engine/src/store.ts` | 84.67 | 81.99 | 95.27 | 84.67 |
+| `packages/engine/src/lifecycle.ts` | 87.01 | 74.19 | 100.00 | 87.01 |
 | `packages/engine/src/forms.ts` | 84.25 | 73.62 | 100.00 | 84.25 |
 | `packages/mcp/src/tools.ts` | 91.86 | 62.01 | 85.50 | 91.86 |
+| `packages/engine/src/store-*.ts` (29 Dateien) | 79.36 bis 100.00 | 39.13 bis 100.00 | 71.42 bis 100.00 | 79.36 bis 100.00 |
+| `packages/engine/src/http-*.ts` (2 Dateien) | 58.79 bis 91.54 | 54.34 bis 77.27 | 75.00 bis 100.00 | 58.79 bis 91.54 |
 | `packages/editor/src/state/*` (15 Dateien) | 66.98 bis 100.00 | 60.00 bis 100.00 | 66.66 bis 100.00 | 66.98 bis 100.00 |
 
-**Über alle gemessenen Dateien:** Statements 88.85 · Branches 74.26 · Functions 91.22 · Lines 88.85
+**Über alle gemessenen Dateien:** Statements 90.13 · Branches 77.93 · Functions 92.96 · Lines 90.13
 
 <!-- messwerte:ende -->
 
@@ -128,7 +131,7 @@ Coverage misst nur, was die Suite ausführt, und ist kein Vollständigkeitsbewei
 
 ## Bekannte Grenzen
 
-- Der aktuelle Postgres-Lauf belegt sechs Transaktionsfälle auf PostgreSQL 18.6; die CI-Lane verwendet PostgreSQL 18 (`postgres:18` in `.github/workflows/verify.yml`).
+- Der aktuelle Postgres-Lauf belegt sechs Transaktionsfälle auf PostgreSQL 18.6; die CI-Lane verwendet PostgreSQL 18 (`postgres:18` in `.github/workflows/verify.yml`). Seit dem 20.10.2026 belegt der **normale** Volltest dieselben Beweise ohne Postgres-Dienst: PGlite ist echtes PostgreSQL nach WebAssembly, im Prozess (`createTransactionDatabase()` in `packages/engine/test/helpers.ts`). Die 16 zuvor übersprungenen Fälle laufen dadurch in jedem Lauf mit.
 - `pnpm test:visual`, `pnpm verify:parity` und `pnpm verify:import` sind für den zuvor gesicherten Folge-Diff am 28.09.2026 grün; sie wurden durch die reine Mapper-Auslagerung nicht berührt.
 - Die Visual-Baselines liegen unter `packages/app/test/visual-baselines/`; Aktualisierung ist ein expliziter Vorgang über `UPDATE_VISUAL_SNAPSHOTS=1`.
 - Das Import-Tor nutzt eine kontrollierte Fixture; nicht alle echten Export-Fixtures durchlaufen es vollständig.
@@ -137,11 +140,15 @@ Coverage misst nur, was die Suite ausführt, und ist kein Vollständigkeitsbewei
 
 ## CI-Stand
 
-`.github/workflows/verify.yml` enthält vier voneinander unabhängige Jobs. Trigger sind `pull_request`, `push` auf `master` und `workflow_dispatch` (manuell); auf anderen Branches läuft pro Push nichts, um Minuten zu sparen (07.10.2026). Der Push-Trigger auf `master` kam am 16.10.2026 dazu, damit ein roter master nicht unbemerkt bleibt. Der Workflow hat nur `contents: read`, die Actions sind auf Commits gepinnt, und ein neuer Push bricht veraltete Läufe ab.
+`.github/workflows/verify.yml` enthält **sechs** voneinander unabhängige Jobs. Trigger sind `pull_request`, `push` auf `master` und `workflow_dispatch` (manuell); auf anderen Branches läuft pro Push nichts, um Minuten zu sparen (07.10.2026). Der Push-Trigger auf `master` kam am 16.10.2026 dazu, damit ein roter master nicht unbemerkt bleibt. Der Workflow hat nur `contents: read`, die Actions sind auf Commits gepinnt, und ein neuer Push bricht veraltete Läufe ab.
 
-**Job `verify`:** Installiert Chromium, führt `pnpm verify` (Build, Artefaktprüfung, Lint einschließlich `eslint.config.mjs`, Patch-Integrität, Tests), den Docs-Portal-Build als eigenen Schritt, `pnpm test:visual`, `pnpm verify:parity` und `pnpm verify:import` aus.
+**Job `verify`:** Installiert Chromium, führt `pnpm verify` (Build, Artefaktprüfung, Lint einschließlich `eslint.config.mjs`, Paketregeln, Patch-Integrität, Tests), die Paketregeln (`pnpm deps:check`) und das Manifest-Tor (`pnpm manifest:check`) als eigene Schritte, dann den Docs-Portal-Build, `pnpm test:visual`, `pnpm verify:parity` und `pnpm verify:import`.
 
-**Job `tests-windows`:** `pnpm test` unter Windows, mit TEMP/TMP auf dem Laufwerk des Repos (sonst scheitert Astros `rename()` mit EXDEV). Der Job ist seit dem 04.10.2026 blockierend (ohne `continue-on-error`).
+**Job `tests-windows`:** `pnpm test` unter Windows. Der Job ist seit dem 04.10.2026 blockierend (ohne `continue-on-error`). Das TEMP-Verzeichnis des Laufers wird **nicht** mehr umgelegt: die Ursache des EXDEV-Fehlers lag im Bake (Astro verschiebt die gebauten Dateien per `rename()` aus dem Stage-Ordner in den Zielordner) und ist seit dem 20.10.2026 im Code behoben (`buildInto()` in `packages/renderer/src/bake.ts`).
+
+**Job `secrets`:** `gitleaks` (Version gepinnt, Prüfsumme verglichen) über die volle Historie (`fetch-depth: 0`). Ausnahmen mit Grund je Eintrag in `.gitleaks.toml`.
+
+**Job `dependencies`:** `osv-scanner` gegen das Lockfile, über den revidierbaren Workflow von Google (auf einen Commit gepinnt). Ausnahmen mit Grund und **Ablaufdatum** in `osv-scanner.toml`; abgelaufene Ausnahmen meldet der Scanner wieder.
 
 **Job `postgres-tests`:** Postgres-18-Service mit `TEST_DATABASE_URL`, dann `pnpm test:postgres`; der Job wird rot, wenn die Variable fehlt, Tests übersprungen werden oder kein Fall läuft.
 
