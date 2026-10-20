@@ -372,11 +372,12 @@ async function downloadAsset(
   // The mirror's own file wins over the network: the local copy is what the
   // page pointed at.
   const local = dataContent === null ? readLocalAsset(asset.url, input) : null;
-  // Without a local file the URL has to be resolvable, and a relative URL
-  // needs the address of the original site. The error stands outside the try:
-  // a source that cannot be resolved stops the import instead of quietly
-  // importing a page without its images.
-  const absolute = local === null ? absoluteUrl(asset.url, input.baseUrl) : asset.url;
+  // Without a local file and without a data URL the address has to be
+  // resolvable, and a relative URL needs the address of the original site.
+  // The error stands outside the try: a source that cannot be resolved stops
+  // the import instead of quietly importing a page without its images.
+  const absolute =
+    local !== null || dataContent !== null ? asset.url : absoluteUrl(asset.url, input.baseUrl);
   try {
     const raw = dataContent !== null ? dataContent.bytes : local ?? (await fetchBytes(absolute, timeoutMs));
     const mime = dataContent === null ? mimeForUrl(asset.url) : dataContent.mime;
