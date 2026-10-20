@@ -255,8 +255,9 @@ function isSafeUrl(url: string): boolean {
     return !lower.startsWith("//");
   }
   if (lower.startsWith("https://")) return true;
-  if (lower.startsWith("data:image/")) return true;
-  return false;
+  // ADR-0005: only raster images may travel as a data URL. An SVG can carry a
+  // script, so it is excluded — it becomes an asset (cleaned up) instead.
+  return /^data:image\/(png|jpeg|jpg|gif|webp|avif)[;,]/.test(lower);
 }
 
 // A bare `(` group, used inside `calc((100% - 20px) / 2)`.

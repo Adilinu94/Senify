@@ -142,6 +142,10 @@ export const STYLE_PROPERTIES: readonly StylePropertySpec[] = [
 
   { prop: "background", group: "color", kind: "color", css: "background-color" },
   { prop: "backgroundImage", group: "color", kind: "text" },
+  // A mask draws the shape of an icon (the X logo of the source): the value
+  // names the graphic, which the import brings as an asset.
+  { prop: "mask", group: "layout", kind: "text" },
+  { prop: "WebkitMask", group: "layout", kind: "text", css: "-webkit-mask" },
 
   { prop: "borderWidth", group: "border", kind: "length", units: ["px", "rem"] },
   { prop: "borderStyle", group: "border", kind: "keyword" },

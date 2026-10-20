@@ -72,6 +72,10 @@ describe("css value grammar rejects the bypasses of a denylist", () => {
     ["red blue;", "trailing semicolon"],
     ["var(--x);", "trailing semicolon after a function"],
     ["url(data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=)x", "trailing junk"],
+    // ADR-0005: only raster images travel as a data URL. An SVG can carry a
+    // script — it becomes an asset (cleaned up) instead of a style value.
+    ["url(data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=)", "SVG data URL"],
+    ["url(data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'/>)", "SVG data URL"],
   ];
 
   it.each(rejected)("rejects %s (%s)", (value) => {
@@ -171,7 +175,7 @@ describe("css value grammar lets ordinary CSS through", () => {
     "url(#filter-id)",
     "url(https://cdn.example/a.avif)",
     "url('https://cdn.example/a.avif')",
-    "url(data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=)",
+    "url(data:image/png;base64,iVBORw0KGgo=)",
     // strings and lists
     "\"Helvetica Neue\", Arial, sans-serif",
     "'Open Sans', system-ui",

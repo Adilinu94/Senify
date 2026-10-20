@@ -113,6 +113,7 @@ const CSS_TO_STYLE: Readonly<Record<string, string>> = {
   "-webkit-text-decoration-color": "WebkitTextDecorationColor",
   "-webkit-box-decoration-break": "WebkitBoxDecorationBreak",
   "-webkit-mask": "WebkitMask",
+  "mask": "mask",
   "-webkit-font-smoothing": "WebkitFontSmoothing",
   "-webkit-font-feature-settings": "WebkitFontFeatureSettings",
   "-moz-font-feature-settings": "MozFontFeatureSettings",

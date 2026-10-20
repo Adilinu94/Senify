@@ -346,6 +346,67 @@ function dataUrlValuesOf(root: IrNode): string[] {
   return found;
 }
 
+// The data URLs a style value carries. A graphic in a value (the mask of the
+// X logo, a background) becomes an asset: ADR-0005 keeps
+// `data:image/svg+xml` out of style values, because an SVG can carry a
+// script. Uploaded, the SVG is cleaned up and the value names the asset.
+function dataUrlsInValues(root: IrNode): string[] {
+  const found: string[] = [];
+  const visit = (node: IrNode): void => {
+    for (const state of node.states) {
+      for (const value of Object.values(state.visual)) {
+        if (typeof value !== "string") continue;
+        for (const url of dataUrlsOf(value)) {
+          if (!found.includes(url)) found.push(url);
+        }
+      }
+    }
+    for (const child of node.children) visit(child);
+  };
+  visit(root);
+  return found;
+}
+
+// The data URLs one CSS value carries. A quoted URL ends at the closing
+// quote — the inner quotes of the SVG are escaped, so they do not end it —
+// an unquoted one at the parenthesis. The SVG of a mask holds spaces
+// (`viewBox="0 0 24 24"`), so a scan for the closing delimiter is the only
+// way to get the whole address.
+function dataUrlsOf(value: string): string[] {
+  const found: string[] = [];
+  const muster = /url\(/gi;
+  let treffer: RegExpExecArray | null;
+  while ((treffer = muster.exec(value)) !== null) {
+    let index = treffer.index + treffer[0].length;
+    while (index < value.length && /\s/.test(value.charAt(index))) index += 1;
+    // The address may stand in quotes: `url("data:…")`.
+    let quote = "";
+    const erstes = value.charAt(index);
+    if (erstes === '"' || erstes === "'") {
+      quote = erstes;
+      index += 1;
+    }
+    if (!value.startsWith("data:", index)) continue;
+    let end = index;
+    if (quote !== "") {
+      while (end < value.length) {
+        if (value.charAt(end) === "\\") {
+          end += 2;
+          continue;
+        }
+        if (value.charAt(end) === quote) break;
+        end += 1;
+      }
+    } else {
+      end = value.indexOf(")", index);
+      if (end === -1) end = value.length;
+    }
+    if (end > index) found.push(value.slice(index, end));
+    muster.lastIndex = end + 1;
+  }
+  return found;
+}
+
 /* -------------------------------------------------------------- css reads */
 
 /* ------------------------------------------------- framer value decoding */
@@ -959,10 +1020,15 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
 
   // A graphic in a style value, carried as a data URL, cannot become a style
   // value: ADR-0005 keeps `data:image/svg+xml` out of CSS values, because SVG
-  // can carry a script. The value is therefore dropped by the compiler — and
-  // the report says so, with the place it came from. A picture in a `src` does
-  // not come here: it becomes an asset.
+  // can carry a script. The graphic becomes an asset instead — the asset
+  // pipeline cleans the SVG up and the value names the asset. What is left
+  // over (a data URL the pipeline could not turn into an asset) is reported.
   const dataUrlValues = dataUrlValuesOf(root);
+  const wertAssets = dataUrlsInValues(root);
+  for (const url of wertAssets) {
+    if (assets.some((asset) => asset.url === url)) continue;
+    assets.push({ url, kind: "image", hash: null, alt: null, width: null, height: null });
+  }
   if (dataUrlValues.length > 0) {
     findings.push({
       kind: "unsupported-declaration",
