@@ -54,8 +54,11 @@ export type MapperResult = {
 export type ThemePatch = {
   scales?: { brand?: string; neutralBase?: string; typeBase?: number };
   fonts?: {
-    display?: { family: string; fallback: string[]; weights: number[] };
-    body?: { family: string; fallback: string[]; weights: number[] };
+    // `files` maps a weight to the imported font file. Without it the theme
+    // keeps its old files under the new name: the page would ask for
+    // "Manrope" and get Sora's shapes.
+    display?: { family: string; fallback: string[]; weights: number[]; files?: Record<string, string> };
+    body?: { family: string; fallback: string[]; weights: number[]; files?: Record<string, string> };
   };
 };
 
@@ -807,6 +810,14 @@ function isTextOnlyLink(node: IrNode): boolean {
 
 /* ------------------------------------------------------------ theme patch */
 
+// The name of a font family as the CSS writes it. `'Manrope'` and `Manrope`
+// are the same family — the quotes belong to the CSS, not to the name. The
+// theme writes the name into a `@font-face`, where a leftover quote would
+// become part of the family and no font would match it.
+export function fontFamilyName(family: string): string {
+  return family.trim().replace(/^['"]/, "").replace(/['"]$/, "").trim();
+}
+
 export function themePatchOf(document: FramerIrDocument): ThemePatch {
   // The dominant font family of the `@font-face` list becomes the body font;
   // the heaviest weight family becomes the display font. This is a *patch* —
@@ -814,14 +825,15 @@ export function themePatchOf(document: FramerIrDocument): ThemePatch {
   const families = new Map<string, Set<number>>();
   for (const font of document.styles.fonts) {
     if (font.src.length === 0) continue;
-    const weights = families.get(font.family) ?? new Set<number>();
+    const family = fontFamilyName(font.family);
+    const weights = families.get(family) ?? new Set<number>();
     if (font.weight !== null) weights.add(font.weight);
-    families.set(font.family, weights);
+    families.set(family, weights);
   }
   let bodyFamily: string | null = null;
   let bodyWeights: number[] = [];
   let displayFamily: string | null = null;
-  let displayMax = 0;
+  let displayWeights: number[] = [];
   for (const [family, weights] of families) {
     const sorted = [...weights].sort((a, b) => a - b);
     if (sorted.length === 0) continue;
@@ -830,9 +842,13 @@ export function themePatchOf(document: FramerIrDocument): ThemePatch {
       bodyWeights = sorted;
     }
     const max = sorted[sorted.length - 1] ?? 0;
-    if (max > displayMax) {
-      displayMax = max;
+    if (displayFamily === null || max > (displayWeights[displayWeights.length - 1] ?? 0)) {
       displayFamily = family;
+      // Every weight of the display family, not only the heaviest: the theme
+      // writes one `@font-face` per weight, and a page that uses the family
+      // at 700 would otherwise get the 800 face (and the browser would
+      // synthesise the rest).
+      displayWeights = sorted;
     }
   }
   const patch: ThemePatch = {};
@@ -858,7 +874,7 @@ export function themePatchOf(document: FramerIrDocument): ThemePatch {
             display: {
               family: displayFamily,
               fallback: ["system-ui", "sans-serif"],
-              weights: [displayMax],
+              weights: displayWeights,
             },
           }
         : {}),

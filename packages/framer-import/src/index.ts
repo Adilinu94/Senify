@@ -46,6 +46,7 @@ export {
 
 export {
   mapDocument,
+  fontFamilyName,
   themePatchOf,
   type ImportDeviceVisibility,
   type MapperResult,

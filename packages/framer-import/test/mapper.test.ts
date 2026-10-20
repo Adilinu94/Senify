@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { captureFixture, normalize, mapDocument } from "@senify/framer-import";
+import { captureFixture, fontFamilyName, normalize, mapDocument } from "@senify/framer-import";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -105,6 +105,41 @@ describe("mapDocument", () => {
     expect(mapped.themePatch.fonts).toBeDefined();
     expect(mapped.themePatch.fonts?.body?.family).toBe("Inter");
     expect(mapped.themePatch.fonts?.body?.weights.length).toBeGreaterThan(0);
+  });
+
+  it("names a font family the way the CSS writes it", () => {
+    // `'Manrope'` and `Manrope` are the same family — the quotes belong to
+    // the CSS. A patch that treats them as two families loses the weights of
+    // the quoted one, and the theme would write a family with a quote in it,
+    // which no font matches.
+    const document = captureFixture(join(FIXTURES, "framer-fluffy-rectangle-418998"));
+    const normalized = normalize(document);
+    const mapped = mapDocument(document, normalized.rules);
+    const families = [mapped.themePatch.fonts?.body?.family, mapped.themePatch.fonts?.display?.family]
+      .filter((family): family is string => family !== undefined);
+    for (const family of families) {
+      expect(family).not.toMatch(/['"]/);
+      expect(family.trim()).toBe(family);
+    }
+  });
+
+  it("gives the display font every weight of its family", () => {
+    // The theme writes one `@font-face` per weight. A display font with only
+    // the heaviest weight would answer a heading at 700 with the 800 face,
+    // and the browser would synthesise the rest.
+    const document = captureFixture(join(FIXTURES, "framer-fluffy-rectangle-418998"));
+    const normalized = normalize(document);
+    const mapped = mapDocument(document, normalized.rules);
+    const display = mapped.themePatch.fonts?.display;
+    if (display === undefined) return;
+    const weights = new Set<number>();
+    for (const font of document.styles.fonts) {
+      if (font.src.length === 0 || font.weight === null) continue;
+      if (fontFamilyName(font.family) !== display.family) continue;
+      weights.add(font.weight);
+    }
+    if (weights.size === 0) return;
+    expect([...display.weights].sort((a, b) => a - b)).toEqual([...weights].sort((a, b) => a - b));
   });
 
   it("reports smooth-scroll findings through (S1.6)", () => {

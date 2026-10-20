@@ -13,9 +13,12 @@ import type { EditorNode } from "@senify/editor/state";
 import {
   marqueeCandidates,
   runImport as runFramerImport,
+  type AssetReport,
+  fontFamilyName,
   type ImportSource as FramerImportSource,
   type ImportDeviceVisibility,
   type ImportRun,
+  type ThemePatch,
 } from "@senify/framer-import";
 import { newEntityId } from "./ids.ts";
 import {
@@ -255,6 +258,60 @@ function stableJson(value: unknown): string {
       .join(",")}}`;
   }
   return JSON.stringify(value) ?? "null";
+}
+
+/* ---------------------------------------------------------- theme fonts */
+
+// The theme patch names the fonts of the source. The files come from the
+// import's asset report: without them the theme keeps its old files under the
+// new name, and the page would ask for "Manrope" and get Sora's shapes.
+type PatchFont = {
+  family: string;
+  fallback: string[];
+  weights: number[];
+  files?: Record<string, string>;
+};
+
+export function fontFilesOf(patch: ThemePatch, fonts: AssetReport["fonts"]): ThemePatch {
+  if (patch.fonts === undefined) return patch;
+  const withFiles = (role: PatchFont): PatchFont => {
+    const files: Record<string, string> = {};
+    for (const weight of role.weights) {
+      const file = fontFileFor(fonts, role.family, weight);
+      if (file !== undefined) files[String(weight)] = file;
+    }
+    return Object.keys(files).length === 0 ? role : { ...role, files };
+  };
+  const display = patch.fonts.display;
+  const body = patch.fonts.body;
+  return {
+    ...patch,
+    fonts: {
+      ...(display === undefined ? {} : { display: withFiles(display) }),
+      ...(body === undefined ? {} : { body: withFiles(body) }),
+    },
+  };
+}
+
+// The file of a weight: the subset that carries the basic latin text. The
+// source serves its fonts in subsets (six files per weight for Manrope), and
+// the theme names one file per weight — the one with the latin glyphs is the
+// one that counts.
+function fontFileFor(
+  fonts: AssetReport["fonts"],
+  family: string,
+  weight: number,
+): string | undefined {
+  const wanted = fontFamilyName(family);
+  const faces = fonts.filter(
+    (font) => fontFamilyName(font.family) === wanted && font.weight === weight,
+  );
+  if (faces.length === 0) return undefined;
+  const latin = faces.find(
+    (font) => font.unicodeRange !== null && font.unicodeRange.includes("U+0000-00FF"),
+  );
+  const chosen = latin ?? faces.find((font) => font.unicodeRange === null) ?? faces[0];
+  return chosen?.files[0];
 }
 
 /* ------------------------------------------------------ breakpoints */
@@ -566,7 +623,7 @@ export async function runFramerImportJob(
       themePatch:
         input.body.applyTheme === true &&
         (run.mapped.themePatch.fonts !== undefined || run.mapped.themePatch.scales !== undefined)
-          ? run.mapped.themePatch
+          ? fontFilesOf(run.mapped.themePatch, run.assets?.fonts ?? [])
           : null,
       // The source's breakpoints are taken over only where nothing else was laid
       // out for the default (`planImportBreakpoints`); the commit writes them in
