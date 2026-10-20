@@ -74,6 +74,9 @@ type RawNode = {
   // RichText shape `Hallo <strong>x</strong> Welt`): the scan keeps elements
   // only, so without this the plain text nodes between them are lost.
   innerHtml: string | null;
+  // The text of a leaf as written, with its spaces. `text` is collapsed; the cascade
+  // takes this one back where the element is set in `white-space: pre`.
+  spacedText?: string;
 };
 
 // Elements whose content is never visible page content.
@@ -215,6 +218,7 @@ function scanTag(
   const spaceOnly = tag === "span" && /^\s+$/.test(decodeEntities(inner.replace(/<[^>]*>/g, "")));
   const ownText = children.length === 0 ? (spaceOnly ? " " : extractText(inner)) : null;
   const text = tag === "textarea" && ownText === "" ? (attrs["placeholder"] ?? "") : ownText;
+  const spaced = children.length === 0 && !spaceOnly ? decodeEntities(inner.replace(/<[^>]*>/g, "")) : null;
   // Only elements with their own text between the children carry content the
   // child scan cannot see.
   const innerHtml =
@@ -226,7 +230,8 @@ function scanTag(
         // escape them into visible text.
         html.slice(gt + 1, innerEnd).replace(/<!--[\s\S]*?-->/g, "")
       : null;
-  return { node: { tag, attrs, classes, children, text, svg: null, innerHtml }, next };
+  const withSpaces = spaced !== null && spaced !== text && spaced.trim() !== "" ? { spacedText: spaced } : {};
+  return { node: { tag, attrs, classes, children, text, svg: null, innerHtml, ...withSpaces }, next };
 }
 
 // What a form field draws inside itself. A field has no children, so without
@@ -454,6 +459,14 @@ const START_STATE_PROPERTIES = ["opacity", "transform", "will-change"] as const;
 
 type Counter = { ordinal: number; attrNames?: ReadonlySet<string> };
 
+// A text in `white-space: pre`, `pre-wrap` or `break-spaces` is drawn with every space the
+// author typed: "Hey, ich bin " is 22 px wider than "Hey, ich bin" on fluffy-rectangle, and
+// "Meine  Referenzen" has two spaces between the words. The scan collapses spaces, so it
+// keeps the text as written next to it; the cascade, which knows the white-space of the
+// element (its own rule or the one it inherits), decides which of the two counts.
+const SPACED_TEXT = new WeakMap<IrNode, string>();
+const KEEPS_SPACES = /^(?:pre|pre-wrap|break-spaces)$/;
+
 function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []): IrNode {
   counter.ordinal += 1;
   const attrs = raw.attrs;
@@ -498,6 +511,11 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
       appearInitial[property] = value;
       delete visual[property];
     }
+  }
+  // A Ticker (marquee) is written with `opacity:0` and shown by Framer's script once it
+  // has measured itself: the opacity is the state before the script, not the look.
+  if (raw.tag === "section" && visual["opacity"] === "0" && visual["list-style-type"] === "none" && visual["place-items"] === "center") {
+    delete visual["opacity"];
   }
   const textInline: Record<string, string> = {};
   for (const [property, value] of Object.entries(framerInlineToStyles(attrs["style"]))) {
@@ -569,6 +587,7 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
     stylesPresetId: attrs["data-styles-preset"] ?? null,
     svg: raw.svg,
   };
+  if (raw.spacedText !== undefined) SPACED_TEXT.set(node, raw.spacedText);
   return node;
 }
 
@@ -1147,7 +1166,12 @@ function resolveVars(value: string, vars: Vars, depth = 0): string {
     })();
     const fallback = firstComma === -1 ? undefined : inner.slice(firstComma + 1).trim();
     out += value.slice(cursor, start);
-    if (!name.startsWith("--") || name.startsWith("--token-")) {
+    if (name.startsWith("--token-")) {
+      // A theme token stays a variable (the theme can take it over), but its fallback is
+      // the value the page gives the token, not the colour the style had when it was saved.
+      const known = vars[name];
+      out += known === undefined ? value.slice(start, end) : `var(${name},${resolveVars(known.trim(), vars, depth + 1)})`;
+    } else if (!name.startsWith("--")) {
       out += value.slice(start, end);
     } else if (vars[name] !== undefined) {
       out += resolveVars((vars[name] as string).trim(), vars, depth + 1);
@@ -1518,7 +1542,7 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
   const DEVICES: readonly IrDevice[] = ["desktop", "tablet", "mobile"];
   type VarsByDevice = Record<IrDevice, Vars>;
 
-  const visit = (current: IrNode, ancestors: ReadonlySet<string>, inherited: VarsByDevice): void => {
+  const visit = (current: IrNode, ancestors: ReadonlySet<string>, inherited: VarsByDevice, inheritedWhiteSpace?: string): void => {
     const baseState = current.states[0];
     if (baseState === undefined) return;
     // The cascade: stylesheet rules first, the element's own inline style wins.
@@ -1592,6 +1616,11 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
       );
     }
     baseState.visual = valuesByDevice.desktop;
+    const whiteSpace = valuesByDevice.desktop["white-space"] ?? inheritedWhiteSpace;
+    const spacedText = SPACED_TEXT.get(current);
+    if (spacedText !== undefined && baseState.text !== null && whiteSpace !== undefined && KEEPS_SPACES.test(whiteSpace)) {
+      baseState.text = { ...baseState.text, content: spacedText };
+    }
     // The element's own states, resolved against the same custom properties.
     const interactions: Partial<Record<IrInteraction, IrVisual>> = {};
     for (const [name, values] of Object.entries(interactionValues) as [IrInteraction, Record<string, string>][]) {
@@ -1620,7 +1649,7 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
       });
     }
     const offered = new Set([...ancestors, ...ownTokens]);
-    for (const child of current.children) visit(child, offered, varsByDevice);
+    for (const child of current.children) visit(child, offered, varsByDevice, whiteSpace);
   };
   // Above the page element sit `html` and `body`; the page element is `#main`.
   visit(root, new Set(["tag:html", "tag:body"]), { desktop: {}, tablet: {}, mobile: {} });
@@ -1716,8 +1745,10 @@ const originOf = (url: string): string | null => {
 };
 
 // `pagePath` is where the page lands in Senify, `sourcePath` which page of the
-// export is read (the home page unless said otherwise).
-export function captureFixture(fixtureDir: string, pagePath = "/", sourcePath = "/"): FramerIrDocument {
+// export is read (the home page unless said otherwise). `origin` is the site the
+// export came from: a scraped export writes its own links as absolute URLs, and
+// only with the origin can they be told from links to other sites.
+export function captureFixture(fixtureDir: string, pagePath = "/", sourcePath = "/", origin?: string): FramerIrDocument {
   const file = pageFileOf(fixtureDir, sourcePath);
   const html = readFileSync(file, "utf8");
   const document = captureHtml({
@@ -1726,6 +1757,7 @@ export function captureFixture(fixtureDir: string, pagePath = "/", sourcePath = 
     rootDir: dirname(resolve(file)),
     pagePath,
     sourcePath,
+    ...(origin !== undefined ? { url: origin } : {}),
   });
   try {
     const manifest = JSON.parse(readFileSync(resolve(fixtureDir, "senify-modules.json"), "utf8")) as {
