@@ -136,6 +136,34 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
           .locator('.toolbar > .senify-canvas__topbar .senify-canvas__button[data-action="device"]')
           .count(),
       ).toBe(3);
+      // E8: Elemente und Struktur lassen sich zuklappen; die Buehne waechst.
+      const sideToggle = tab.locator('button[data-panel-toggle="side"]');
+      const explorerToggle = tab.locator('button[data-panel-toggle="explorer"]');
+      const stageWidth = async (): Promise<number> =>
+        (await tab.locator(".canvas-view__stage").boundingBox())?.width ?? 0;
+      const withPanels = await stageWidth();
+      expect(await tab.locator(".canvas-view__side").isVisible()).toBe(true);
+      expect(await tab.locator(".canvas-view__explorer").isVisible()).toBe(true);
+      expect(await sideToggle.getAttribute("aria-pressed")).toBe("true");
+      await sideToggle.click();
+      await explorerToggle.click();
+      await expect.poll(async () => tab.locator(".canvas-view__side").isVisible()).toBe(false);
+      await expect.poll(async () => tab.locator(".canvas-view__explorer").isVisible()).toBe(false);
+      expect(await sideToggle.getAttribute("aria-pressed")).toBe("false");
+      expect(await explorerToggle.getAttribute("aria-pressed")).toBe("false");
+      await expect.poll(stageWidth).toBeGreaterThan(withPanels + 300);
+      // The frame still sits inside the stage (fitted or centred again).
+      const inside = await tab.evaluate(`(() => {
+        const frame = document.querySelector(".senify-canvas__frame").getBoundingClientRect();
+        const stage = document.querySelector(".canvas-view__stage").getBoundingClientRect();
+        return frame.left >= stage.left - 1 && frame.right <= stage.right + 1;
+      })()`);
+      expect(inside).toBe(true);
+      await sideToggle.click();
+      await explorerToggle.click();
+      await expect.poll(async () => tab.locator(".canvas-view__side").isVisible()).toBe(true);
+      await expect.poll(async () => tab.locator(".canvas-view__explorer").isVisible()).toBe(true);
+      await expect.poll(stageWidth).toBe(withPanels);
       await tab.screenshot({ path: join(shotDir, "02-canvas-frames.png") });
 
       // Der Editor startet eingepasst (Start-Zoom), nicht bei 100 %.
@@ -150,8 +178,13 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
         timeout: 30000,
       });
 
-      // A click selects the hero: stage marker and the store agree.
-      await desktopFrame().locator(`[data-node-id="${heroId}"]`).first().click();
+      // A click selects the hero: stage marker and the store agree. The click lands
+      // at the corner: in the middle, the plus points of the node under the pointer
+      // can sit right under it.
+      await desktopFrame()
+        .locator(`[data-node-id="${heroId}"]`)
+        .first()
+        .click({ position: { x: 8, y: 8 } });
       await expect
         .poll(async () => tab.locator(`.senify-canvas[data-selected="${heroId}"]`).count())
         .toBe(1);
@@ -177,7 +210,7 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       await tab.screenshot({ path: join(shotDir, "04-canvas-insert.png") });
       // Arming the plus point cleared the selection; the inspector steps below
       // work on the hero again.
-      await heroNode.click();
+      await heroNode.click({ position: { x: 8, y: 8 } });
       await expect
         .poll(async () => tab.locator(`.senify-canvas[data-selected="${heroId}"]`).count())
         .toBe(1);

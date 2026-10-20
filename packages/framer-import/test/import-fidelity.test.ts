@@ -865,6 +865,30 @@ describe("spacing values that hold a function", () => {
   });
 });
 
+describe("token fallbacks", () => {
+  // Framer keeps the fallback of `var(--token-x, fallback)` from when the
+  // element was last written, so it can be stale: fluffy's CTA carries
+  // `rgb(130, 255, 31)` for a token the page defines as `#d7ff6f`. The browser
+  // shows the token; Senify does not define it, so the fallback stood and the
+  // button came out in another green.
+  const TOKEN = "--token-d98a4c00-7e0c-42c7-87be-9d10760cb03b";
+  const defined = `:root{${TOKEN}:#d7ff6f}`;
+  const props = (body: string, css: string): string => JSON.stringify(run(page(body, css)).nodes.map((node) => node.props));
+  it("writes the token's own value as the fallback when the page defines it", () => {
+    const out = props(`<div style="background-color:var(${TOKEN}, rgb(130, 255, 31));width:50px"></div>`, defined);
+    expect(out).toContain(`var(${TOKEN},#d7ff6f)`);
+    expect(out).not.toContain("130, 255, 31");
+  });
+  it("keeps the fallback when the page does not define the token", () => {
+    const out = props(`<div style="background-color:var(${TOKEN}, rgb(130, 255, 31));width:50px"></div>`, "");
+    expect(out).toContain(`var(${TOKEN}, rgb(130, 255, 31))`);
+  });
+  it("leaves a token without fallback alone", () => {
+    const out = props(`<div style="background-color:var(${TOKEN});width:50px"></div>`, defined);
+    expect(out).toContain(`var(${TOKEN},#d7ff6f)`);
+  });
+});
+
 describe("button background reset", () => {
   // Framer's button reset is `[data-reset=button]{background:0 0}`, the minified
   // shorthand that clears the background. Senify's style table reads the prop

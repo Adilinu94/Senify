@@ -1117,7 +1117,7 @@ type Vars = Record<string, string>;
 // (`var(--link-hover-font-family, var(--link-font-family, var(--font-family,
 // "Inter", sans-serif)))`), and a pattern that handles one level leaves the
 // outer call, and with it the whole value, unresolved.
-function resolveVars(value: string, vars: Vars, depth = 0): string {
+function resolveVars(value: string, vars: Vars, depth = 0, tokens: Vars = {}): string {
   if (depth > 8 || !value.includes("var(")) return value;
   let out = "";
   let cursor = 0;
@@ -1167,10 +1167,19 @@ function resolveVars(value: string, vars: Vars, depth = 0): string {
     const fallback = firstComma === -1 ? undefined : inner.slice(firstComma + 1).trim();
     out += value.slice(cursor, start);
     if (name.startsWith("--token-")) {
-      // A theme token stays a variable (the theme can take it over), but its fallback is
-      // the value the page gives the token, not the colour the style had when it was saved.
-      const known = vars[name];
-      out += known === undefined ? value.slice(start, end) : `var(${name},${resolveVars(known.trim(), vars, depth + 1)})`;
+      // A theme token stays a variable (the theme can take it over), but its
+      // fallback is the value the page gives the token, not the colour the
+      // style had when it was saved.
+      //
+      // The page's own definition of the token is the source. The inherited
+      // chain does not carry it: Framer defines the token on `body`, and the
+      // element that uses it sits deeper, so the chain alone leaves the stale
+      // fallback standing (fluffy-rectangle: a button in the green of an older
+      // palette). `tokenDefinitions` reads the definitions from the page's CSS.
+      const known = vars[name] ?? tokens[name];
+      out += known === undefined
+        ? value.slice(start, end)
+        : `var(${name},${resolveVars(known.trim(), vars, depth + 1, tokens)})`;
     } else if (!name.startsWith("--")) {
       out += value.slice(start, end);
     } else if (vars[name] !== undefined) {
@@ -1529,6 +1538,20 @@ function cascade(classValues: readonly Record<string, string>[], inline: IrVisua
   return out;
 }
 
+// The first definition of each `--token-*` in the page's styles: what the
+// browser resolves `var(--token-x, fallback)` to. A value that is itself a
+// `var()` is left out, it has no colour of its own to write.
+function tokenDefinitions(css: string): Vars {
+  const tokens: Vars = {};
+  for (const match of css.matchAll(/(--token-[a-f0-9-]{36}):\s*([^;}]+)/g)) {
+    const name = match[1] ?? "";
+    const value = (match[2] ?? "").trim();
+    if (name === "" || value === "" || value.includes("var(") || tokens[name] !== undefined) continue;
+    tokens[name] = value;
+  }
+  return tokens;
+}
+
 function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
   const parsed = parseCssRules(css);
   const base = buildIndex(parsed.rules);
@@ -1541,6 +1564,11 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
 
   const DEVICES: readonly IrDevice[] = ["desktop", "tablet", "mobile"];
   type VarsByDevice = Record<IrDevice, Vars>;
+  // The page's own definitions of the `--token-*` variables: what the browser
+  // resolves `var(--token-x, fallback)` to. The inherited chain does not carry
+  // them (Framer defines the token on `body`, the element that uses it sits
+  // deeper), so they are read from the page's CSS directly.
+  const tokens = tokenDefinitions(css);
 
   const visit = (current: IrNode, ancestors: ReadonlySet<string>, inherited: VarsByDevice, inheritedWhiteSpace?: string): void => {
     const baseState = current.states[0];
@@ -1612,7 +1640,7 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
         if (color !== undefined) plain["border-color"] = color;
       }
       valuesByDevice[device] = Object.fromEntries(
-        Object.entries(plain).flatMap(([key, value]) => (value === undefined ? [] : [[key, resolveVars(value, vars)]])),
+        Object.entries(plain).flatMap(([key, value]) => (value === undefined ? [] : [[key, resolveVars(value, vars, 0, tokens)]])),
       );
     }
     baseState.visual = valuesByDevice.desktop;
@@ -1626,7 +1654,7 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
     for (const [name, values] of Object.entries(interactionValues) as [IrInteraction, Record<string, string>][]) {
       const resolved: IrVisual = {};
       for (const [key, value] of Object.entries(values)) {
-        if (!key.startsWith("--")) resolved[key] = resolveVars(value, varsByDevice.desktop);
+        if (!key.startsWith("--")) resolved[key] = resolveVars(value, varsByDevice.desktop, 0, tokens);
       }
       if (Object.keys(resolved).length > 0) interactions[name] = resolved;
     }
@@ -1652,7 +1680,7 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
     for (const child of current.children) visit(child, offered, varsByDevice, whiteSpace);
   };
   // Above the page element sit `html` and `body`; the page element is `#main`.
-  visit(root, new Set(["tag:html", "tag:body"]), { desktop: {}, tablet: {}, mobile: {} });
+  visit(root, new Set(["tag:html", "tag:body"]), { desktop: tokens, tablet: tokens, mobile: tokens });
   return { skippedPseudo };
 }
 
