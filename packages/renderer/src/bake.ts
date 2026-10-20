@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, parse, relative, sep } from "node:path";
+import { dirname, join, parse, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { SenifyError } from "@senify/core";
@@ -652,7 +652,13 @@ export async function bakeSite(
     input.themeCss,
   );
   try {
-    const outDir = options.outDir ?? join(tmpdir(), `senify-bake-${Date.now()}`);
+    // The output folder is absolute from here on. A relative path would make
+    // the volume comparison of `buildInto` wrong (a relative path has no
+    // root), the build would land in a second folder and be copied instead
+    // of written - and the copy put the pages where the caller did not look
+    // for them: the build returned without an error and without a page.
+    // The build itself does not block the event loop (see `runAstroBuild`).
+    const outDir = resolve(options.outDir ?? join(tmpdir(), `senify-bake-${Date.now()}`));
     await buildInto(stageDir, outDir);
     mkdirSync(join(outDir, "assets"), { recursive: true });
     // The theme's webfonts (Sora, Inter): copied into every build so the

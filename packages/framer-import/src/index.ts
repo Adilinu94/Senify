@@ -82,6 +82,7 @@ export {
 export {
   importAssets,
   readMirrorFile,
+  sourceAssetDeliveries,
   type AssetDownload,
   type AssetReport,
   type AssetResult,

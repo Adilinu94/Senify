@@ -98,6 +98,21 @@ const CSS_TO_STYLE: Readonly<Record<string, string>> = {
   // with a leading dash; only these two are carried, not every vendor prefix.
   "-webkit-line-clamp": "WebkitLineClamp",
   "-webkit-box-orient": "WebkitBoxOrient",
+  // The vendor forms that carry the look. The generic rule below skips every
+  // name with a leading dash, so without this list the colour that fills a
+  // text, the stroke around it, the colour of its underline and the way its
+  // background breaks at a line end would all be lost.
+  "-webkit-text-fill-color": "WebkitTextFillColor",
+  "-webkit-text-stroke-color": "WebkitTextStrokeColor",
+  "-webkit-text-stroke-width": "WebkitTextStrokeWidth",
+  "-webkit-text-decoration-line": "WebkitTextDecorationLine",
+  "-webkit-text-decoration-style": "WebkitTextDecorationStyle",
+  "-webkit-text-decoration-color": "WebkitTextDecorationColor",
+  "-webkit-box-decoration-break": "WebkitBoxDecorationBreak",
+  "-webkit-mask": "WebkitMask",
+  "-webkit-font-smoothing": "WebkitFontSmoothing",
+  "-webkit-font-feature-settings": "WebkitFontFeatureSettings",
+  "-moz-font-feature-settings": "MozFontFeatureSettings",
 };
 
 function cssName(name: string): string | undefined {
