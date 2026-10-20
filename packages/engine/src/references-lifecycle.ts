@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SenifyError } from "@senify/core";
-import { assertPublicHttpUrl } from "@senify/core/net";
+import { assertPublicHttpUrl, isAllowedBrowserUrl } from "@senify/core/net";
 import type { Author } from "@senify/section-sdk";
 import type { Theme } from "@senify/tokens";
 import {
@@ -544,6 +544,19 @@ export function createPlaywrightCaptureDriver(
           ? {}
           : { recordVideo: { dir: videoDir, size: MOTION_VIDEO_SIZE } }),
       });
+      // The browser follows what the page points at: a redirect, a
+      // sub-resource, a `fetch()` from the page's script. Each of those
+      // requests passes the same address check as the Node path, so a public
+      // page cannot point the browser at a metadata service or at a service in
+      // the LAN (ADR-0021).
+      await context.route("**/*", async (route) => {
+        const target = route.request().url();
+        if (await isAllowedBrowserUrl(target)) {
+          await route.continue();
+          return;
+        }
+        await route.abort("blockedbyclient");
+      });
       const page = await context.newPage();
       const response = await page.goto(input.url, {
         waitUntil: "domcontentloaded",
@@ -702,6 +715,14 @@ type PlaywrightLike = {
   chromium: {
     launch(options?: { headless?: boolean }): Promise<{
       newContext(options: { viewport: { width: number; height: number } }): Promise<{
+        route(
+          pattern: string,
+          handler: (route: {
+            request(): { url(): string };
+            continue(): Promise<void>;
+            abort(reason?: string): Promise<void>;
+          }) => Promise<void>,
+        ): Promise<void>;
         newPage(): Promise<{
           goto(
             url: string,

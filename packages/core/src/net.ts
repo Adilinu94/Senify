@@ -144,6 +144,41 @@ export async function assertPublicHttpUrl(raw: string): Promise<URL> {
   return (await publicTarget(raw)).url;
 }
 
+/* ------------------------------------------------------------------ browser */
+
+// The browser paths (reference capture, import capture) fetch the page in a
+// real browser - and a browser follows what the page points at: a redirect, a
+// sub-resource, a `fetch()` from the page's script. The Node path checks
+// every hop; the browser path has to check them too, or a public page can
+// point the browser at a cloud metadata service or at a service in the LAN,
+// and the answer ends up in the analysed page.
+//
+// The check is the same one the Node path uses, with one difference: the
+// browser's own schemes (`data:`, `blob:`, `about:`) never leave the
+// process, and the offline mirror of the import deliberately reads `file:`.
+export async function isAllowedBrowserUrl(
+  raw: string,
+  options: { allowFile?: boolean } = {},
+): Promise<boolean> {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (url.protocol === "data:" || url.protocol === "blob:" || url.protocol === "about:") {
+    return true;
+  }
+  if (options.allowFile === true && url.protocol === "file:") return true;
+  if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+  try {
+    await publicTarget(raw);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /* --------------------------------------------------------------------- fetch */
 
 function get(
