@@ -3,6 +3,7 @@ import { captureHtml } from "../src/capture-html.ts";
 import { importAssets, sourceAssetDeliveries } from "../src/assets.ts";
 import { decodeDataUrl, sanitizeSvg } from "../src/svg.ts";
 import { mapDocument, normalize } from "../src/index.ts";
+import type { IrNode } from "../src/ir.ts";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,8 +12,8 @@ const page = (body: string, css = "", head = ""): string =>
   `<html lang="en"><head><title>t</title>${head}<style>${css}</style></head><body><div id="main" data-framer-hydrate-v2>${body}</div></body></html>`;
 
 // The node with the given tag, wherever it sits in the tree.
-function nodeWithTag(root: { children: any[] }, tag: string): any {
-  for (const child of root.children ?? []) {
+function nodeWithTag(root: IrNode, tag: string): IrNode | undefined {
+  for (const child of root.children) {
     if (child.tag === tag) return child;
     const found = nodeWithTag(child, tag);
     if (found !== undefined) return found;
@@ -41,15 +42,15 @@ describe("a tag whose attribute value holds a `>`", () => {
       ),
     });
     const values: string[] = [];
-    const collect = (node: any): void => {
-      for (const state of node.states ?? []) {
-        for (const value of Object.values(state.visual ?? {})) {
+    const collect = (node: IrNode): void => {
+      for (const state of node.states) {
+        for (const value of Object.values(state.visual)) {
           if (typeof value === "string") values.push(value);
         }
       }
-      for (const child of node.children ?? []) collect(child);
+      for (const child of node.children) collect(child);
     };
-    collect(document.pages[0]?.root as never);
+    collect(document.pages[0]?.root as IrNode);
     expect(values.some((value) => value.includes("data:image/svg+xml"))).toBe(true);
   });
 });

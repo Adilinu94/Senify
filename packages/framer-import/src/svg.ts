@@ -52,10 +52,6 @@ const FORBIDDEN_ELEMENTS = ["script", "foreignobject", "iframe", "object", "embe
 
 const EVENT_HANDLER = /\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi;
 
-// A reference that leaves the file: any scheme, a protocol-relative address
-// or an absolute path to another document.
-const EXTERNAL_REFERENCE = /^\s*(?:[a-z][a-z0-9+.-]*:|\/\/|\/)/i;
-
 export function sanitizeSvg(markup: string): string {
   let out = markup;
   // The elements with their content.
