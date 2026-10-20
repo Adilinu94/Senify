@@ -34,6 +34,8 @@ beforeAll(async () => {
   served.set("/assets/a.woff2", fakeFont(400));
   served.set("/assets/b.woff2", fakeFont(600));
   served.set("/assets/a-duplicate.woff2", fakeFont(400)); // same bytes as a
+  // One file for two weights (a variable font).
+  served.set("/assets/variable.woff2", fakeFont(600));
   served.set("/images/hero.png", fakeImage("hero"));
   served.set("/images/hero-copy.png", fakeImage("hero")); // same bytes
   server = createServer((request, response) => {
@@ -168,6 +170,39 @@ describe("importAssets", () => {
     // The local file exists and holds the right bytes.
     const path = regular?.src[0] ?? "";
     expect(readFileSync(path).equals(fakeFont(400))).toBe(true);
+  });
+
+  it("names every weight of a font that shares one file", async () => {
+    // A variable font serves several weights from one file (Manrope 600 and
+    // 700 share it). The theme writes one `@font-face` per weight, so the
+    // report has to name the weight even when the file is already there.
+    const document = irDocument();
+    document.styles.fonts = [
+      {
+        family: "Manrope",
+        weight: 600,
+        style: "normal",
+        src: [`${origin}/assets/variable.woff2`],
+        unicodeRange: "U+0000-00FF",
+      },
+      {
+        family: "Manrope",
+        weight: 700,
+        style: "normal",
+        src: [`${origin}/assets/variable.woff2`],
+        unicodeRange: "U+0000-00FF",
+      },
+    ];
+    const outDir = mkdtempSync(join(tmpdir(), "senify-assets-"));
+    try {
+      const result = await importAssets({ document, outDir });
+      expect(result.report.fonts).toHaveLength(2);
+      expect(result.report.fonts.map((font) => font.weight).sort()).toEqual([600, 700]);
+      // One file for both weights: the second face reuses it.
+      expect(result.report.fonts[0]?.files[0]).toBe(result.report.fonts[1]?.files[0]);
+    } finally {
+      rmSync(outDir, { recursive: true, force: true });
+    }
   });
 
   it("routes bytes through the uploader and returns its URLs", async () => {
