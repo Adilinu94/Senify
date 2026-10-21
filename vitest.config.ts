@@ -146,7 +146,7 @@ export default defineConfig({
         // `http-build-files.ts` (57 Statements). Eine gemeinsame Schwelle
         // fuer alle waere die niedrigste von allen - und damit ein Tor, das
         // nichts mehr sichert.
-        "packages/engine/src/store-{asset-folders,assets,audit,bake-jobs,code-payloads,collections,deploy,design-records,entries,form-mappers,forms,idempotency,image-jobs,import-jobs,job-mappers,library,mcp-audit,notifications,record-mappers,redesign-proposals,reference-library,reference-mappers,references,releases,revisions,row-utils}.ts": {
+        "packages/engine/src/store-{asset-folders,assets,audit,bake-jobs,code-payloads,collections,deploy,design-records,entries,form-mappers,forms,idempotency,image-jobs,import-jobs,job-mappers,library,mcp-audit,notifications,page-mappers,pages,record-mappers,redesign-proposals,reference-library,reference-mappers,references,releases,revisions,row-utils,token-mappers,tokens}.ts": {
           statements: 85,
           branches: 70,
           functions: 85,
