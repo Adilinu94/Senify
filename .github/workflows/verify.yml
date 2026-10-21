@@ -40,6 +40,16 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-24.04
+    # Pflicht-Browser: ohne diese Variable ueberspringen sich die
+    # Browser-Suiten still, wenn Chromium fehlt oder nicht zur Playwright-
+    # Version passt. Ein gruener Lauf, in dem die Browser-Tore nie
+    # gelaufen sind, ist kein Nachweis - der Job soll an der fehlenden
+    # Version rot werden, nicht gruen ohne Test.
+    #
+    # Der Windows-Job setzt sie bewusst NICHT: dort ist kein Chromium
+    # installiert, und die Browser-Suiten laufen im Linux-Job.
+    env:
+      SENIFY_REQUIRE_BROWSER: "1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # Kein `version:` hier: pnpm/action-setup liest die Version aus
@@ -65,6 +75,11 @@ jobs:
       # generierte Datei ohne Tor driftet still.
       - name: Manifest entspricht dem Generator
         run: pnpm manifest:check
+      # Dasselbe gilt fuer die Route-Matrix: sie wird aus den Routen der
+      # Engine und dem Manifest erzeugt. Ohne Tor zeigt sie den Stand eines
+      # Moduls, das es nicht mehr gibt.
+      - name: Routen-Matrix entspricht dem Generator
+        run: pnpm route-matrix:check
       # Der Artefakt-Nachweis (Fahrplan P0-4 Punkt 3, R1) laeuft als eigener
       # Schritt, damit im Log sichtbar bleibt, dass `pnpm build` wirklich eine
       # auslieferbare Shell erzeugt hat - nicht nur, dass der Arbeitsbaum
@@ -225,6 +240,16 @@ jobs:
   coverage:
     name: Coverage-Tor der geschuetzten Pfade
     runs-on: ubuntu-24.04
+    # Die Messung laeuft mit derselben Worker-Zahl wie die lokale Messung
+    # (`VITEST_MAX_FORKS=2`, `VITEST_MIN_FORKS=1`). Ohne diese Festlegung
+    # haengt die Zahl von der Zahl der Kerne des Runners ab: die Tests
+    # laufen in anderer Verteilung, die Nebenlaeufe im Code (zwei Schreiber
+    # auf dieselbe Zeile) fallen je nach Verteilung aus oder nicht. Der
+    # Messwert im Doku-Stand waere dann vom Zufall des Runners abhaengig und
+    # nicht mehr mit dem Lauf vergleichbar.
+    env:
+      VITEST_MAX_FORKS: 2
+      VITEST_MIN_FORKS: 1
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4

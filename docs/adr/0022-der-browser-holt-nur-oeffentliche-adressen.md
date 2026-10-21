@@ -54,3 +54,56 @@ Schalter nennen, kein abgebrochener Request.
 
 **Verwandt.** ADR-0016 bleibt für den Node-Pfad unverändert; dieses ADR ergänzt es um den Browser und
 schließt die Lücke, die es dort offenließ.
+
+---
+
+## Nachtrag (20.10.2026, aus der Prüfung am Endstand)
+
+Die Entscheidung bleibt, ihre Reichweite war unvollständig. Beim Nachprüfen aller Zusagen aus der
+Projektanalyse zeigte sich: **es gibt einen dritten Browserpfad**, der in Punkt 2 nicht genannt war.
+
+Der Analyse-Worker (`packages/analysis-worker/src/visual.ts`) startet den Browser für die
+Vorschau-Bilder, den Review-Vergleich und das Bewegungs-Video. Er war **ungeschützt**. Über ihn
+läuft unter anderem die Import-Vorschau: sie fotografiert die Seite des Benutzers
+(`beforeUrl`) — und die Adresse, die der Browser dort öffnet, ist die des Benutzers. Bisher schützte
+nur der Node-Pfad (`runFramerImport`, das die Adresse vorher prüft), also die **Reihenfolge** der
+Aufrufe: wer den Browser zuerst aufrief, wäre ungeprüft gegangen (Fachanalyse 3, B5-Umfeld; der
+Punkt stand als offener Befund in Abschnitt 4 des Berichts).
+
+**Ergänzung der Entscheidung:**
+
+1. Auch der Analyse-Worker registriert die Playwright-Route auf `**/*` — in allen drei
+   Browserkontexten (`captureScreenshots`, `captureThumbnails`, `recordMotion`). Die Prüfung sitzt
+   damit **am Browser**, nicht an der Aufrufstelle: die Reihenfolge der Aufrufe entscheidet nicht
+   mehr, ob geprüft wird.
+2. Die Produkt-eigenen Server sind ausgenommen: der Vorschau-Server und der Offline-Mirror laufen
+   auf der Schleife, und der Browser muss sie erreichen. Sie stehen deshalb in einer Liste
+   (`allowOrigins`), die der Aufrufer übergibt — ein Adressvergleich über den Origin, keine
+   Musterregel. Ohne diese Liste gäbe es keine Vorschau.
+3. `file:` ist **nicht** mehr pauschal erlaubt, sondern pro Aufnahme: nur eine Aufnahme eines
+   lokalen Ordners (der Offline-Mirror) setzt `allowFile`. Eine **entfernte** Seite darf den
+   Browser nicht auf eine lokale Datei zeigen und das Bild davon in die Analyse bringen.
+   Der Import-Capture (`capture-browser.ts`) behält sein `allowFile: true`, weil seine Quelle per
+   Definition lokal ist.
+4. `isAllowedBrowserUrl` kennt die Ausnahme über `allowOrigins`; die Liste ist eine Angabe des
+   Aufrufers und steht damit an der Stelle, die sie geprueft.
+
+**Was das ändert.** Der Import-Vorschau funktioniert unverändert, und der Browser kann eine
+Benutzeradresse jetzt auch dann nicht erreichen, wenn der Node-Pfad vorher ausfällt. Die
+Belege: `packages/analysis-worker/test/visual-guard.test.ts` (der Server zählt seine Anfragen —
+ohne die Route ist die Zahl nicht null) und `packages/engine/test/import-preview-browser.test.ts`
+(ohne die Ausnahmeliste wird der eigene Vorschau-Server blockiert: `ERR_BLOCKED_BY_CLIENT`).
+
+**Nachtrag vom 21.10.2026 — der Abbruch sagt, was passiert ist.** Ein abgewiesener Request endete
+als rohe `ERR_BLOCKED_BY_CLIENT` — für den Leser ein Support-Fall ohne Aussage (Fachanalyse 2,
+3.4). Der Wächter merkt sich jetzt die erste abgewiesene Adresse; scheitert die Navigation
+daran, meldet der Pfad das mit `blockedAddressError` („Die Seite lädt eine Ressource von einer
+nicht öffentlichen Adresse (…) — die Aufnahme wurde abgebrochen.“) und mit dem Hinweis auf den
+Betreiber-Schalter. Das gilt für alle drei Browserpfade.
+
+**Bewusst nicht geändert.** Ein abgewiesener **Sub-Resource** bricht die Aufnahme nicht ab: die
+Seite lädt unvollständig, das Bild zeigt die fehlende Ressource. Das ist der Preis aus Punkt 2
+dieses ADR („eine unvollständige Seite analysiert schlecht, eine vollständige Seite aus dem LAN
+ist ein Datenleck“). Die Aufnahme könnte die abgewiesenen Ressourcen zusätzlich melden; das
+wäre eine Änderung am Ergebnisformat und an der Anzeige und bleibt offen.
+

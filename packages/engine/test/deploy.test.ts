@@ -272,6 +272,79 @@ describe("deploy (netlify, E14)", () => {
     }
   }, 120000);
 
+  it("ends a provider request that never answers on its own deadline", async () => {
+    // The poll loop has a deadline of its own, but it is only looked at
+    // *between* two requests: a connection that hangs would hold the deploy
+    // forever. Every request therefore carries its own signal (Fachanalyse 3,
+    // B4). The double below answers after two seconds if it gets no signal -
+    // that is the counter-probe: without the deadline the deploy would go
+    // through instead of ending.
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Netlify-Timeout");
+      const page = await createTestPage(env.api, site.id, { title: "Start", path: "/" });
+      await applyMutationsRequest(env.api, await loadPage(env, page.id), [
+        {
+          op: "insertNode",
+          parent: { nodeId: page.draft.rootNodeId },
+          node: { id: "hero-1", type: "hero", props: { headline: "Timeout" } },
+        },
+      ]);
+      await publish(env, site.id);
+      await env.api.request({
+        method: "PUT",
+        path: `/api/sites/${site.id}/deploy-settings`,
+        body: {
+          provider: "netlify",
+          netlifySiteId: "net-site-123",
+          netlifyToken: "nfp_test_token",
+        },
+      });
+
+      const fetchImpl = (async (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ): Promise<Response> => {
+        const url = String(input);
+        const signal = init?.signal ?? null;
+        const json = (body: unknown): Response =>
+          new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        if (signal === null) {
+          // Without a deadline the request would hang forever. The double
+          // answers after two seconds instead - that is the counter-probe:
+          // the deploy would go through instead of ending.
+          await new Promise((done) => setTimeout(done, 2_000));
+          return url.endsWith("/deploys")
+            ? json({ id: "deploy-1", required: [] })
+            : json({ state: "ready", deploy_url: "https://net-site-123.netlify.app" });
+        }
+        // A request that hangs: only the deadline ends it.
+        return await new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => {
+            reject(signal.reason ?? new Error("aborted"));
+          });
+        });
+      }) as typeof fetch;
+
+      const deployment = await deployActiveRelease(env.engine.store, {
+        siteId: site.id,
+        provider: "netlify",
+        targetDir: "",
+        author: TEST_AUTHOR,
+        fetchImpl,
+        pollMs: 1,
+        requestTimeoutMs: 50,
+      });
+      expect(deployment.status).toBe("failed");
+      expect(deployment.error).toContain("did not answer");
+    } finally {
+      await env.close();
+    }
+  }, 60000);
+
   it("fails with a clear auth error on a rejected token", async () => {
     const env = await bootEngine();
     try {

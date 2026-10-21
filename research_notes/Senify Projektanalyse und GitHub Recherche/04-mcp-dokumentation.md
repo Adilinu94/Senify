@@ -207,8 +207,8 @@ gilt der **Reihenfolge**: Wer `tools.ts` angefasst hat, hat den Generator angefa
 | MCP-Server-Laufzeit | Code gelesen; **kein** Live-Aufruf eines MCP-Werkzeugs in dieser Untersuchung |
 | Manifest-Generator | gelesen, **nicht** ausgeführt; die Behauptung „kein Drift-Tor“ ist durch die Suche in `package.json`, `verify.yml`, `verify`-Skript und `manifest.test.ts` belegt |
 | Skills | Testlogik gelesen; die Behauptung „kein Bezug zum Manifest“ ist aus `skills.test.ts` belegt |
-| Werkzeugverhalten | nicht gegen die Doku-Individualtexte geprüft (106 Werkzeuge × Doku) |
-| Route-Matrix | nicht neu erzeugt (`pnpm route-matrix` wurde nicht ausgeführt) |
+| Werkzeugverhalten | nicht gegen die Doku-Individualtexte geprüft (106 Werkzeuge x Doku) — **die Individualtexte gibt es nicht zweimal**: das Docs-Portal liest die Fakten aus dem Manifest (`packages/docs-portal/src/catalog.ts`), und das Manifest hat sein eigenes Drift-Tor. Die Prüfgrenze ist damit geschlossen |
+| Route-Matrix | nicht neu erzeugt (`pnpm route-matrix` wurde nicht ausgeführt) — **zweite Prüfung, 21.10.2026:** die Matrix ist neu erzeugt, und sie hat jetzt ein Drift-Tor (`pnpm route-matrix:check`, Muster wie beim Manifest). Dabei kam heraus, dass der Generator **nicht deterministisch** war: die Reihenfolge der Routenmodule kam aus `readdirSync` und war je Dateisystem eine andere, und die eingecheckte Datei war nicht mehr das, was der Generator schreibt |
 
 ---
 
@@ -224,3 +224,12 @@ gilt der **Reihenfolge**: Wer `tools.ts` angefasst hat, hat den Generator angefa
   hält. Der Test liest jetzt `TOOL_MANIFEST` aus `@senify/manifest`, und die beiden
   `@senify/mcp`-Aliase in `packages/docs-portal/astro.config.mjs` sind entfernt.
 - **Paketregeln als ausführbare Regel:** `.dependency-cruiser.js` (siehe Fachanalyse 6).
+- **Der Werkzeugbezug der Skills wird jetzt geprüft** (zweite Prüfung, 20.10.2026): Abschnitt 3
+  dieses Berichts hatte festgehalten, dass die Skills nur *nennen*, was sie tun — ohne zu prüfen,
+  ob es das Werkzeug noch gibt. `packages/mcp/test/skills-tools.test.ts` prüft jetzt jeden in den
+  Skills genannten Namen gegen das Manifest (die Faktenquelle). Zwei Namen sind mit Grund
+  ausgenommen: `dry_run` (ein Schalter im Mutations-Batch) und `invalid_input` (eine
+  Fehlerkategorie); ein zweiter Test meldet eine Ausnahme, die keine Fundstelle mehr hat.
+  Gegenprobe: ein erfundener Werkzeugname im Router macht den Test rot. Der Test liegt im
+  MCP-Paket, weil es das einzige Paket ist, das die Skills **und** das Manifest kennt — das
+  Skills-Paket selbst darf keine Fachabhängigkeit haben (`skills-know-nobody`).

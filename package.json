@@ -11,6 +11,7 @@
     "start": "tsx packages/mcp/src/cli.ts start",
     "senify": "tsx packages/mcp/src/cli.ts",
     "route-matrix": "tsx packages/engine/scripts/route-matrix.ts",
+    "route-matrix:check": "tsx packages/engine/scripts/route-matrix.ts --check",
     "thumbnails:generate": "tsx packages/editor/scripts/generate-section-thumbnails.ts",
     "build": "pnpm typecheck && pnpm -r build",
     "build:app": "pnpm --filter @senify/app build",
@@ -65,8 +66,8 @@
       "playwright-core": "1.63.0",
       "sharp": "0.35.5",
       "smol-toml": "1.9.0",
-      "source-map-js": "1.2.2",
-      "vite": "8.3.3"
+      "vite": "8.3.3",
+      "source-map-js": "1.2.2"
     }
   },
   "packageManager": "pnpm@10.33.2"

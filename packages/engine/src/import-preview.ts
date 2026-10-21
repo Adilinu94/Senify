@@ -32,6 +32,13 @@ export type ImportPreviewRequest = {
   beforeUrl: string;
   // Where the baked import can be seen.
   afterUrl: string;
+  // The servers the product started for this preview: the offline mirror (if
+  // the source is a folder) and the baked page. They run on the loopback
+  // interface, and the browser has to reach them - they are the only private
+  // addresses the capture may open. The URL of the *source* is not on the
+  // list: it is the user's, and it has to pass the same check as every other
+  // address (ADR-0022).
+  allowOrigins: string[];
 };
 
 export type ImportPreviewDriver = (request: ImportPreviewRequest) => Promise<ImportPreview>;
@@ -48,7 +55,7 @@ const PREVIEW_WIDTHS = { tablet: 900 } as const;
 // lazily so an engine without a browser still boots; the preview then fails
 // with the clear message instead.
 export function createImportPreviewDriver(): ImportPreviewDriver {
-  return async ({ beforeUrl, afterUrl }) => {
+  return async ({ beforeUrl, afterUrl, allowOrigins }) => {
     const harness = await import("@senify/analysis-worker").catch(() => {
       throw new SenifyError("not_found", "Die Vorschau braucht @senify/analysis-worker (Playwright)", {
         field: "preview",
@@ -58,8 +65,8 @@ export function createImportPreviewDriver(): ImportPreviewDriver {
     // The original plays its own motion; the import is shown settled, and the
     // baked page keeps its motion targets hidden until its runtime releases
     // them, so it gets the longer wait.
-    const before = await harness.captureThumbnails({ url: beforeUrl, widths: PREVIEW_WIDTHS, motion: "live", settleMs: 1200 });
-    const after = await harness.captureThumbnails({ url: afterUrl, widths: PREVIEW_WIDTHS, motion: "off", settleMs: 2500 });
+    const before = await harness.captureThumbnails({ url: beforeUrl, widths: PREVIEW_WIDTHS, motion: "live", settleMs: 1200, browser: { allowOrigins } });
+    const after = await harness.captureThumbnails({ url: afterUrl, widths: PREVIEW_WIDTHS, motion: "off", settleMs: 2500, browser: { allowOrigins } });
     const shots: ImportPreviewShot[] = [];
     for (const shotBefore of before) {
       const shotAfter = after.find((candidate) => candidate.breakpoint === shotBefore.breakpoint);
@@ -97,6 +104,9 @@ export type PreviewInput = {
 export async function previewFramerImport(input: PreviewInput): Promise<ImportPreview> {
   const work = mkdtempSync(join(tmpdir(), "senify-import-preview-"));
   const closers: (() => Promise<void>)[] = [];
+  // The servers this preview starts itself. The browser may reach them - they
+  // run on the loopback interface - and nothing else private.
+  const allowOrigins: string[] = [];
   try {
     let beforeUrl: string;
     if (input.source.kind === "url") {
@@ -105,6 +115,7 @@ export async function previewFramerImport(input: PreviewInput): Promise<ImportPr
       // The export folder, served, so the original renders with its own files.
       const server = await serveCaptureDir(input.source.rootDir);
       closers.push(server.close);
+      allowOrigins.push(server.origin);
       const file = pageFileOf(input.source.rootDir, input.source.pagePath ?? "/");
       beforeUrl = `${server.origin}/${file.slice(input.source.rootDir.replace(/[/\\]+$/, "").length + 1).replace(/\\/g, "/")}`;
     } else {
@@ -113,6 +124,7 @@ export async function previewFramerImport(input: PreviewInput): Promise<ImportPr
       writeFileSync(join(folder, "index.html"), input.source.html, "utf8");
       const server = await serveCaptureDir(folder);
       closers.push(server.close);
+      allowOrigins.push(server.origin);
       beforeUrl = `${server.origin}/index.html`;
     }
 
@@ -128,7 +140,7 @@ export async function previewFramerImport(input: PreviewInput): Promise<ImportPr
     // bake delivers them, the preview has no asset store and keeps the
     // addresses of the source.
     const assets = sourceAssetDeliveries(run.document, beforeUrl);
-    return await bakeAndShoot(input, run.mapped.document, run.mapped.rules, plan?.effective ?? input.site?.breakpoints, beforeUrl, work, closers, assets);
+    return await bakeAndShoot(input, run.mapped.document, run.mapped.rules, plan?.effective ?? input.site?.breakpoints, beforeUrl, work, closers, assets, allowOrigins);
   } finally {
     for (const close of closers.reverse()) await close().catch(() => undefined);
     rmSync(work, { recursive: true, force: true });
@@ -144,6 +156,7 @@ async function bakeAndShoot(
   work: string,
   closers: (() => Promise<void>)[],
   assets: Record<string, string>,
+  allowOrigins: string[],
 ): Promise<ImportPreview> {
   const out = join(work, "baked");
   await bakeSite(
@@ -162,5 +175,6 @@ async function bakeAndShoot(
   );
   const server = await serveCaptureDir(out);
   closers.push(server.close);
-  return input.driver({ beforeUrl, afterUrl: `${server.origin}/index.html` });
+  allowOrigins.push(server.origin);
+  return input.driver({ beforeUrl, afterUrl: `${server.origin}/index.html`, allowOrigins });
 }

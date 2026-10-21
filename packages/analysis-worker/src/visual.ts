@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { SenifyError } from "@senify/core";
+import { blockedAddressError, isAllowedBrowserUrl } from "@senify/core/net";
 
 // The Playwright harness the visual checks were waiting for (T07/T14): freeze
 // the motion, settle the scroll, capture full-page screenshots per breakpoint,
@@ -44,6 +45,8 @@ export type CaptureOptions = {
   // `window.__SENIFY_MOTION__` before load, so the page script never starts and
   // the capture compares the baseline. "live" leaves the runtime running.
   motion?: "off" | "live";
+  // The browser policy: which addresses the capture may reach.
+  browser?: BrowserPolicy;
 };
 
 export type DiffReport = {
@@ -77,6 +80,68 @@ async function loadPlaywright(): Promise<{
         suggestion: "npx playwright install chromium",
       },
     );
+  }
+}
+
+// The browser policy of a capture: which addresses the browser may reach.
+//
+// `allowOrigins` names the servers the product itself started: the preview
+// server and the offline mirror. They run on the loopback interface and the
+// browser has to reach them - otherwise there is no preview. Every other
+// address has to pass the public check, so a user-supplied URL cannot point
+// the browser at a private service - no matter in which order the calls
+// happen.
+//
+// `file:` is off by default: a REMOTE page must not be able to point the
+// browser at a local file and have the capture show it. Only a capture of a
+// local folder (the offline mirror) sets it.
+export type BrowserPolicy = {
+  allowOrigins?: readonly string[];
+  allowFile?: boolean;
+};
+
+// Every request the browser makes - the navigation, its redirects, every
+// sub-resource, every `fetch()` from the page's script - passes the same
+// address check as the Node path (ADR-0022). Without it a public page could
+// point the browser at a cloud metadata service or at a service in the LAN,
+// and the answer would end up in the capture.
+//
+// The check sits HERE, at the browser, and not at the call site: a caller
+// that forgets it (or that calls the capture in a different order) would
+// otherwise open the door without noticing.
+//
+// The guard reports the first address it refused. The navigation then fails
+// with a message that says why (Fachanalyse 2, 3.4) instead of a raw
+// `ERR_BLOCKED_BY_CLIENT`.
+async function guardBrowser(
+  context: import("playwright").BrowserContext,
+  policy: BrowserPolicy | undefined,
+): Promise<{ blocked: () => string | undefined }> {
+  let blocked: string | undefined;
+  await context.route("**/*", async (route) => {
+    const target = route.request().url();
+    if (await isAllowedBrowserUrl(target, policy)) {
+      await route.continue();
+      return;
+    }
+    blocked = target;
+    await route.abort("blockedbyclient");
+  });
+  return { blocked: () => blocked };
+}
+
+// The navigation, with the guard's reason if it refused the address.
+async function openPage(
+  page: import("playwright").Page,
+  url: string,
+  guard: { blocked: () => string | undefined },
+): Promise<void> {
+  try {
+    await page.goto(url, { waitUntil: "load" });
+  } catch (error) {
+    const target = guard.blocked();
+    if (target !== undefined) throw blockedAddressError(target);
+    throw error;
   }
 }
 
@@ -160,13 +225,14 @@ export async function captureScreenshots(options: CaptureOptions): Promise<Visua
         viewport: { width, height: viewport.height },
         reducedMotion: "reduce",
       });
+      const guard = await guardBrowser(context, options.browser);
       const page = await context.newPage();
       if (options.motion !== "live") {
         await context.addInitScript(() => {
           (globalThis as unknown as { __SENIFY_MOTION__?: string }).__SENIFY_MOTION__ = "off";
         });
       }
-      await page.goto(options.url, { waitUntil: "load" });
+      await openPage(page, options.url, guard);
       await settle(page, options.settleMs ?? 150);
       const path = join(options.outDir, `${breakpoint}.png`);
       await page.screenshot({ path, fullPage: true });
@@ -196,6 +262,8 @@ export type ThumbnailOptions = {
   // Width of the picture in pixels and the tallest slice of the page it shows.
   thumbWidth?: number;
   maxPageHeight?: number;
+  // The browser policy: which addresses the capture may reach.
+  browser?: BrowserPolicy;
 };
 
 export type Thumbnail = {
@@ -226,13 +294,14 @@ export async function captureThumbnails(options: ThumbnailOptions): Promise<Thum
         deviceScaleFactor: Math.min(1, thumbWidth / width),
         reducedMotion: "reduce",
       });
+      const guard = await guardBrowser(context, options.browser);
       const page = await context.newPage();
       if (options.motion !== "live") {
         await context.addInitScript(() => {
           (globalThis as unknown as { __SENIFY_MOTION__?: string }).__SENIFY_MOTION__ = "off";
         });
       }
-      await page.goto(options.url, { waitUntil: "load" });
+      await openPage(page, options.url, guard);
       await settle(page, options.settleMs ?? 150);
       const pageHeight = await page.evaluate(
         () => (globalThis as unknown as BrowserSlice).document.documentElement.scrollHeight,
@@ -381,6 +450,8 @@ export async function recordMotion(input: {
   name?: string;
   durationMs?: number;
   viewport?: { width: number; height: number };
+  // The browser policy: which addresses the capture may reach.
+  browser?: BrowserPolicy;
 }): Promise<MotionCapture> {
   const { chromium } = await loadPlaywright();
   const durationMs = input.durationMs ?? 4000;
@@ -392,8 +463,9 @@ export async function recordMotion(input: {
       viewport,
       recordVideo: { dir: input.outDir, size: viewport },
     });
+    const guard = await guardBrowser(context, input.browser);
     const page = await context.newPage();
-    await page.goto(input.url, { waitUntil: "load" });
+    await openPage(page, input.url, guard);
     const steps = 24;
     const stepMs = Math.max(60, Math.floor(durationMs / steps));
     for (let index = 0; index < steps; index += 1) {
