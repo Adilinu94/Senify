@@ -525,9 +525,14 @@ Renderer machte daraus **30 ms statt 1400 ms**.
 | Appear 1,4 s, Theme-Basis 600 ms (relativer Skalenwert) | 1400 ms | **1400 ms** |
 | Spring (stiffness 160, damping 30) | Settle-Zeit ~270 ms | **240–300 ms** |
 
-Belege: `packages/framer-import/test/motion-bake-timing.test.ts` (4 Fälle,
-gegen die alte Annahme **alle vier rot**), `motion-mapping.test.ts` (Gegenprobe:
+Belege: `motion-bake-timing.test.ts` (4 Fälle, gegen die alte Annahme **alle vier rot**), `motion-mapping.test.ts` (Gegenprobe:
 7 von 10 rot mit `durationUnit: "ms"` fest verdrahtet).
+
+**Hinweis zur Reihenfolge der Arbeit:** Dieses Gate misst den **Preset-Pfad** —
+dorthin gehört `durationScale`. Seit Schritt 4b spielt eine Seite **mit**
+Appear-Kanal ihre Einblendung über die kompilierten Keyframes; das Preset wird
+dort nicht mehr gesetzt („ein Element, eine Animation", siehe 4b). Der Test baut
+seinen Baum deshalb von Hand, damit er die Zeit misst und nicht den Pfad.
 
 ### Schritt 4b · Die Appear-Spec zu CSS kompilieren — **umgesetzt 21.10.2026**
 
@@ -563,6 +568,17 @@ Breakpoint-Varianten über `contextStyles`. Ein `rawCss`-Block ist genau **ein**
 `@keyframes` — eine Regel mit mehreren Varianten wird deshalb zu mehreren
 Regeln, alle an denselben Knoten gehängt.
 
+**Ein Element, eine Animation.** Dabei kam ein Fehler heraus, der beim Bauen
+sofort sichtbar wurde: Ein Knoten konnte **zwei** Bewegungsquellen bekommen —
+das Preset (was der Editor zeigt, vom Seitenskript gespielt) **und** die
+kompilierte Appear-Regel. Beide starten ihre eigene Animation auf demselben
+Element; das Preset mit `gsap.from` und einem eigenen Versatz, die Keyframes mit
+dem Startzustand der Quelle. Sie streiten um `opacity` und `transform`, und wer
+zuletzt startet, gewinnt — auf einer Seite mit Kanal lief also die **falsche**
+der beiden. Die Regel ist jetzt: die kompilierte Appear-Regel besitzt die
+Einblendung, ein Preset wird nur gesetzt, wo es keine Appear-Regel gibt
+(`import.ts`). Beleg: `motion-owner.test.ts` (3 Fälle, gegenprobt).
+
 **Eine zweite Lücke, die dabei sichtbar wurde:** `style-css.ts` warf importierte
 Regeln ohne `:hover`/`:focus` weg („die Basis steht schon in den Knoten-Props").
 Für eine Keyframe-Regel stimmt das nicht — dort steht die `animation`-Deklaration
@@ -578,10 +594,12 @@ auch ohne States.
 | `both`-Fill | **vorhanden** |
 | Startzustand als Inline-Stil am Element | **nicht vorhanden** |
 | Klasse am Knoten | **vorhanden** |
+| Genau **eine** Animation je Knoten (kein Preset zusätzlich) | **belegt** (`motion-owner.test.ts`, Gegenprobe rot) |
 
 Belege: `packages/framer-import/test/appear-css.test.ts` (15 Fälle),
 `appear-bake.test.ts` (3 Fälle, gebackenes CSS), `appear-bake.test.ts` Fall 2
-(mutationsfest: mit zurückgeschriebenem Startzustand rot).
+(mutationsfest: mit zurückgeschriebenem Startzustand rot), `motion-owner.test.ts`
+(3 Fälle).
 
 **Was dieser Schritt nicht löst** (steht in §9): der Spring-Überschwung ist
 angenähert (`ease-out` bzw. eine Overshoot-Kurve), nicht exakt; Scroll-Trigger
@@ -809,6 +827,14 @@ Payload mit `license: unknown` **darf nicht** in die globale Baustein-Bibliothek
 werden kann; und der Publish-Weg nennt die Herkunft, bevor veröffentlicht wird.
 
 ## 9. Was dieser Plan nicht verspricht
+
+**Ein Element, eine Animation — was das praktisch heißt.** Seit dem Import
+besitzt die kompilierte Appear-Regel die Einblendung eines Knotens; ein Preset
+wird dort nicht mehr gesetzt. Der Editor zeigt für solche Knoten **kein
+Preset** in der Motion-Auswahl — die Bewegung steckt in der CSS-Regel. Das ist
+eine bewusste Entscheidung: zwei Quellen auf einem Element ergaben zwei
+Animationen, und die falsche gewann. Wer die Einblendung im Editor ändern will,
+ändert die Regel (Dauer, Verzögerung) oder löscht sie und setzt ein Preset.
 - **Keine Bearbeitbarkeit des Payload-Inneren.** Das ist die Preisangabe zur 1:1-Zusage und steht in
   ADR-0010. Wer die Animation im Editor ändern will, muss sie neu bauen.
 - **Kein Framer-CMS als Datenquelle.** Der Inhalt kommt als gerendertes HTML mit, nicht als Sammlung.
