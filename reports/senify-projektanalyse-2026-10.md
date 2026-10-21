@@ -440,9 +440,10 @@ Nach dem Merge wurde der ganze Bericht noch einmal gegen den Code geprüft — m
 die erste Runde nicht gestellt hatte: **hat jeder Befund aus den sechs Fachanalysen eine
 Entscheidung?** Eine umgesetzte mit Beleg oder eine bewusst offene mit Begründung.
 
-Die Antwort war: **nein.** Fünf Befunde aus Abschnitt 4 (Priorität 4) hatten nur einen Vorschlag und
-keine Entscheidung — sie waren weder umgesetzt noch begründet offen. Sie sind in dieser Runde
-abgearbeitet:
+Die Antwort war: **nein.** Sieben Befunde hatten nur einen Vorschlag und keine Entscheidung — sie
+waren weder umgesetzt noch begründet offen. Sechs davon standen in Abschnitt 4 (Priorität 4), zwei
+in den Fachanalysen selbst (2, Abschnitt 3.4 — der Hinweis für den Benutzer; 5, Abschnitt 5 —
+der Vorschlag zum Adresswächter). Sie sind in dieser Runde abgearbeitet:
 
 | Befund | Umsetzung | Beleg |
 |---|---|---|
@@ -451,12 +452,14 @@ abgearbeitet:
 | Browser-Suiten übersprungen sich still | Der CI-Job `verify` setzt jetzt `SENIFY_REQUIRE_BROWSER=1`. Vorher konnte ein Lauf grün sein, in dem die Browser-Tore nie gelaufen sind | Nachgemessen: ohne die Variable wird die Suite übersprungen (`1 skipped`), mit ihr läuft sie und wird rot (`Executable doesn't exist`). Der Windows-Job setzt sie bewusst nicht — dort ist kein Chromium installiert |
 | Die Skills prüften nicht, ob die genannten Werkzeuge noch existieren | `packages/mcp/test/skills-tools.test.ts` prüft jeden in den Skills genannten Namen gegen das Manifest. Zwei Namen sind ausgenommen, mit Grund: `dry_run` (ein Schalter im Mutations-Batch) und `invalid_input` (eine Fehlerkategorie) | Gegenprobe: ein erfundener Werkzeugname im Router macht den Test rot (`Unbekannte Werkzeugnamen in den Skills: get_erfundenes_werkzeug (router.md)`) |
 | Die Restore-Grenze war nicht dokumentiert | Eigene Zeile „Restore (Wiederherstellung)“ in `docs/current/stand.md`: die Tabellen werden in **einer** Transaktion ersetzt, die Dateien danach — zwei Schreibvorgänge, eine Einheit. Das ist die **zweite** solche Grenze nach dem Import (R10) | `packages/engine/src/backup.ts` (`replaceTables`, `restoreDataDir`), `packages/engine/src/maintenance.ts` (`runExclusive`) |
+| Der Abbruch des Wächters war eine rohe `ERR_BLOCKED_BY_CLIENT` (Fachanalyse 2, 3.4) | Der Wächter merkt sich die erste abgewiesene Adresse; scheitert die Navigation daran, meldet der Pfad es mit Klartext und dem Hinweis auf den Betreiber-Schalter. Für alle drei Browserpfade | Gegenprobe: ohne die Erklärung kommt die rohe Meldung — `expected [Function] to throw error matching /nicht öffentlichen Adresse/ but got 'page.goto: net::ERR_BLOCKED_BY_CLIENT…'` |
+| Die globale Abschaltung des Adresswächters in der Testsuite (Fachanalyse 5, Abschnitt 5) | **bleibt, bewusst** — ohne sie könnte die Hälfte der Suite keinen lokalen Server ansprechen. Der dort vorgeschlagene Helfer ist **nicht gebaut**: er fiele nur um, wenn ein Test das Stubbing vergisst, aber den Helfer kennt; der realistische Fehler (ein Test, der das falsche Verhalten behauptet) ist mit einem Helfer nicht zu fangen, und der normale Fall wird von selbst rot | Dokumentiert in `docs/current/stand.md` (Zeile „Abrufe fremder URLs (SSRF-Schutz)“) und in Fachanalyse 5, Abschnitt 5 |
 
 **Was dabei auffiel.** Zwei der fünf Punkte waren keine Kleinigkeiten: der ungeschützte dritte
 Browserpfad und der stille Skip in der CI. Beide waren Zusagen des Berichts, die keine Tests hatten —
 genau die Lücke, die die erste Runde bei der Browser-Verdrahtung und bei der Event-Loop gefunden
 hatte. Die Methode hat sich also bewährt: **eine Aussage ohne Test ist eine Behauptung.** Sie ist in
-Anhang D als Proben 16 bis 20 festgehalten.
+Anhang D als Proben 16 bis 21 festgehalten.
 
 **Der Browserpfad war die dritte Lücke derselben Art.** ADR-0022 nannte zwei Browserpfade; der
 dritte kam erst durch die Nachprüfung hinzu. Die Entscheidung selbst (der Browser holt nur
@@ -577,6 +580,7 @@ Arbeitsbaum des Repos unberührt blieb.
 | 18 | die Ausnahmeliste der eigenen Server in der Import-Vorschau | `import-preview-browser.test.ts` | `page.goto: net::ERR_BLOCKED_BY_CLIENT at http://127.0.0.1:…` — der eigene Vorschau-Server wird blockiert |
 | 19 | ein erfundener Werkzeugname in `router.md` | `skills-tools.test.ts` | `Unbekannte Werkzeugnamen in den Skills: get_erfundenes_werkzeug (router.md)` |
 | 20 | `SENIFY_REQUIRE_BROWSER=1` | eine Browser-Suite ohne Chromium | ohne die Variable `1 skipped` (still), mit ihr ein Fehler (`Executable doesn't exist`) — der Befund war das stille Überspringen, nicht der Fehler |
+| 21 | die Erklärung des Wächters (`blockedAddressError`) | `visual-guard.test.ts` | `expected [Function] to throw error matching /nicht öffentlichen Adresse/ but got 'page.goto: net::ERR_BLOCKED_BY_CLIENT…'` |
 
 **Zwei Aussagen haben beim Nachprüfen einen Test bekommen, den es vorher nicht gab:** die
 Verdrahtung des Browser-Guards (Proben 4 und 5 — vorher war nur die Funktion getestet, nicht die
