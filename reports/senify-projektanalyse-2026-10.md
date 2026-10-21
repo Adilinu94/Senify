@@ -465,6 +465,13 @@ Anhang D als Proben 16 bis 21 festgehalten.
 dritte kam erst durch die Nachprüfung hinzu. Die Entscheidung selbst (der Browser holt nur
 öffentliche Adressen) galt schon — sie war nur unvollständig umgesetzt.
 
+**Ein Nebenbefund aus dem CI-Lauf.** Der Lauf von PR #90 wurde einmal rot: `new-page-browser.test.ts`
+lief in einen Klick-Timeout (`locator.click: Timeout 15000ms exceeded`). Die Frist dieses Tests war
+15 s, die der anderen Browser-Tests, die den Editor öffnen, sind 30 s — dieselbe Höhe wie in
+`accessibility-browser.test.ts`, `canvas-view-browser.test.ts` und `redesign-canvas-browser.test.ts`.
+Der Test wurde im wiederholten Lauf grün, die Schicht war also zu eng angesetzt, nicht der Test
+falsch. Die Frist ist jetzt 30 s.
+
 ---
 
 ## 7 — Was ich ausdrücklich **nicht** behaupte
