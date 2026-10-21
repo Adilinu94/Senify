@@ -301,3 +301,17 @@ describe("importAssets", () => {
     await expect(importAssets({ document, outDir })).rejects.toThrow(/baseUrl/);
   });
 });
+
+describe("importAssets reports a medium it cannot load", () => {
+  it("records an asset-blocked finding for an image that cannot be downloaded", async () => {
+    const document = irDocument();
+    document.assets = [{ url: `${origin}/images/not-there.png`, kind: "image", hash: null, alt: null, width: null, height: null }];
+    const outDir = mkdtempSync(join(tmpdir(), "senify-assets-"));
+    const result = await importAssets({ document, outDir });
+    rmSync(outDir, { recursive: true, force: true });
+    expect(result.report.failed).toBe(1);
+    const finding = result.document.findings.find((entry) => entry.kind === "asset-blocked");
+    expect(finding?.evidence).toBe(`${origin}/images/not-there.png`);
+    expect(finding?.severity).toBe("warn");
+  });
+});

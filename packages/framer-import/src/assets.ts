@@ -208,7 +208,7 @@ export async function importAssets(input: ImportAssetsInput): Promise<AssetResul
       });
       continue;
     }
-    urlToAsset.set(asset.url, await downloadAsset(asset, input, timeoutMs, byHash, report));
+    urlToAsset.set(asset.url, await downloadAsset(asset, input, timeoutMs, byHash, report, document.findings));
   }
 
   // --- fonts (DSGVO 2.3b): download, dedupe by hash + unicode-range,
@@ -379,6 +379,7 @@ async function downloadAsset(
   timeoutMs: number,
   byHash: Map<string, AssetDownload>,
   report: AssetReport,
+  findings: FramerIrDocument["findings"],
 ): Promise<AssetDownload> {
   // A data URL carries its bytes in the address: it is decoded, never
   // fetched. There is no host to reach, so the address check does not apply.
@@ -421,8 +422,21 @@ async function downloadAsset(
     byHash.set(hash, download);
     report.downloads.push(download);
     return download;
-  } catch {
+  } catch (error) {
+    // The count alone was a silent loss: the report names the file, like it
+    // does for a font.
     report.failed += 1;
+    findings.push({
+      kind: "asset-blocked",
+      nodeKey: null,
+      message: `Datei konnte nicht geladen werden: ${asset.url}`,
+      evidence: asset.url,
+      severity: "warn",
+      suggestion:
+        error instanceof SenifyError
+          ? (error.suggestion ?? "Quelle prüfen.")
+          : "Quelle prüfen: die Datei ist möglicherweise offline oder geschützt.",
+    });
     return { url: asset.url, hash: "", bytes: 0, localUrl: null, mime: mimeForUrl(asset.url), assetId: null };
   }
 }
