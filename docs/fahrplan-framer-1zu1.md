@@ -36,31 +36,54 @@ Mechanismus (Island-Payload) — **er wird vom Import aber nur bei Mirror-Quelle
 
 ## 3. Was heute wirklich da ist
 
-### 3.1 Was gebaut ist (Code-Beleg)
+### 3.1 Jede Behauptung mit Datei und Zeile (am 21.10.2026 gegengeprüft)
 
-| Baustein | Zustand | Beleg |
+Weil dieser Plan behauptet „das ist schon gebaut" und „das fehlt", hier jede Stelle mit Datei und
+Zeile — nicht als Zusammenfassung, sondern nachprüfbar.
+
+**Gebaut und einsatzfähig:**
+
+| Baustein | Datei:Zeile | Was dort steht |
 |---|---|---|
-| Island-Payload (Fremd-Code neben dem Baum) | **gebaut** | `packages/engine/src/code-payloads.ts`, `packages/renderer/src/islands.ts` (`IslandKind` enthält `payload`) |
-| Payload-Träger-Knoten | **gebaut** | `packages/widget-engine/src/catalog.ts`, Tests in `code-payloads.test.ts` |
-| Payload-Bundling beim Import | **gebaut, aber nur Mirror** | `packages/framer-import/src/payloads.ts`, `import.ts:184` |
-| three.js-Bündelung zur Bake-Zeit | **gebaut** | `packages/renderer/src/webgl-vendor.ts` |
-| Lenis (Smooth-Scroll) | **gebaut** | `packages/renderer/src/bake.ts` (`lenis.min.js` im Vendor-Bündel) |
-| GSAP + ScrollTrigger + SplitText | **gebaut** | `packages/renderer/src/bake.ts:231-236` |
-| Motion-Presets | **gebaut, aber eng** | `packages/framer-import/src/motion-mapping.ts` |
+| Island-Payload (Fremd-Code neben dem Baum) | `packages/engine/src/code-payloads.ts` | Ablage eines Code-Pakets mit `bytes` und `integrity` aus dem Bundle |
+| Payload als Island-Art | `packages/renderer/src/islands.ts:13` | `IslandKind` enthält `"payload"` |
+| Payload wird als Island bedient | `packages/renderer/src/islands.ts:54` | `if (node.type === "payload")` |
+| Payload-Träger-Knoten | `packages/widget-engine/src/catalog.ts` | Primitiv mit `payloadId`, `poster` |
+| Payload-Bündelung zur Import-Zeit | `packages/framer-import/src/payloads.ts:95` | esbuild mit `stdin` und `resolveDir` |
+| three.js zur Bake-Zeit | `packages/renderer/src/webgl-vendor.ts` | eigenes Bundle |
+| Lenis (Smooth-Scroll) | `packages/renderer/src/bake.ts` | `lenis.min.js` im Vendor-Bündel |
+| GSAP + ScrollTrigger + SplitText | `packages/renderer/src/bake.ts:231-236` | drei Vendor-Dateien |
 
-### 3.2 Was fehlt
+**Gebaut, aber mit Lücke:**
 
-| Lücke | Beleg |
+| Datei:Zeile | Was dort steht | Lücke |
+|---|---|---|
+| `packages/framer-import/src/import.ts:184` | `input.source.kind === "mirror" ? extractPayloads(...) : []` | Der URL-Import bekommt **nie** Payloads |
+| `packages/framer-import/src/motion-mapping.ts:77` | `durationScale: Math.max(0.1, duration / 300)` | Einheit falsch (Sekunden gegen Millisekunden) |
+| `packages/framer-import/src/motion-mapping.ts:35-43` | `appearPreset`: nur `x=0`, `scale=1`, `y>=0` | 3D-Kippung, Seitwärts, Skalierung fallen weg |
+| `packages/renderer/src/motion.ts:157` | `(durationScale ?? 1) * baseDurationMs / 1000` | macht aus `0.1` → 30 ms |
+| `packages/framer-import/src/normalize.ts:352` | `if (property.startsWith("-webkit-") …)` → `delete` | 4121 von 7602 Deklarationen bei last-studio |
+
+**Nicht gebaut — und der Beleg, dass es fehlt:**
+
+| Was | Beleg |
 |---|---|
-| URL-Import bringt **keine** Payloads mit | `import.ts:184` — nur `kind === "mirror"` |
-| Framer-Runtime selbst wird nie mitgenommen | kein Pfad im Import liest `script_main.*.mjs` |
-| Zeitmaßstab der Presets um Faktor ~47 falsch | gemessen: `animation: 30ms` statt 1400 ms (`motion-mapping.ts`, `renderer/src/motion.ts:157`) |
-| Nur Einblendungen von unten abbildbar | `motion-mapping.ts:35-43` (`x=0`, `scale=1`, `y>=0`) |
-| Vier von zehn Seiten: Animation ganz verloren | gemessen: `appearId` vorhanden, `appearAnimationsContent` fehlt |
-| Hover als *Bewegung*, Scroll-Trigger | kommen nicht aus dem SSR |
+| Der Weg vom URL zum Mirror | `import.ts:31` kennt `{ kind: "mirror" }` als **Eingabe**. Niemand erzeugt sie aus einer URL; der Mirror muss heute von Hand bereitliegen. |
+| Appear-Spec → CSS-Keyframes | Keine Datei im Repo erzeugt aus `appearAnimationsContent` ein `@keyframes`. |
+| Framer-Runtime als Payload | `payloads.ts` bündelt nur die in `data-framer-module` genannten Module. `script_main.*.mjs` wird nie gelesen (im Code geprüft). |
+| Hover als *Bewegung*, Scroll-Trigger | kommen nicht aus dem SSR; kein Pfad im Import liest sie. |
+
+### 3.2 Die Lücken in Kurzform
+
+| Lücke | Folge |
+|---|---|
+| URL-Import bringt keine Payloads mit | Kein Original-Code bei einem normalen Import |
+| Framer-Runtime wird nie mitgenommen | Lenis/three.js/GSAP der Quelle fehlen |
+| Zeitmaßstab um Faktor ~47 falsch | Einblendung dauert 30 ms statt 1400 ms |
+| Nur Einblendungen von unten abbildbar | 3D, Seitwärts, Skalierung bleiben Befund |
+| Vier von zehn Seiten: Animation ganz verloren | `appearId` da, `appearAnimationsContent` fehlt |
 
 ### 3.3 Der wichtigste gemessene Befund
-
 An der Earn-Seite: **Lenis 10×, three.js 6×, `data-framer-appear-id` 11×, GSAP 0×, ScrollTrigger 0×.**
 Das bestätigt die S0-Messung aus ADR-0010: **Framer nutzt seine eigene Runtime, nicht GSAP.**
 „GSAP übernehmen" heißt also in Wahrheit: **die Framer-Runtime übernehmen.** GSAP und Lenis sind
@@ -68,7 +91,35 @@ in Senify vorhanden, aber sie sind nicht das, was die Quelle antreibt.
 
 ## 4. Werkzeuge und Quellen, die helfen — geprüft am 21.10.2026
 
-### 4.1 Unframer / Framer MCP — **am 21.10.2026 selbst getestet**
+### 4.0 Was hier „geprüft" heißt — und was nicht
+
+Damit niemand eine Behauptung für eine Messung hält, ist jeder Eintrag mit einem **Prüfgrad**
+versehen:
+
+| Grad | Bedeutung |
+|---|---|
+| **A · ausgeführt** | Ich habe das Werkzeug auf diesem Rechner installiert/geklont, gegen echte Framer-Seiten laufen lassen und die Ausgabe gelesen. |
+| **B · Code gelesen** | Ich habe den Quelltext gelesen (nicht nur die README) und kann die Aussage an einer Datei festmachen. |
+| **C · nur Beschreibung** | Nur die Projektbeschreibung/Store-Seite gelesen. **Nicht** belegt. |
+
+**Übersicht:**
+
+| Werkzeug | Grad | Was genau gemacht |
+|---|---|---|
+| Framer MCP | **A** | 23 Werkzeuge aufgelistet, `getProjectXml`, `getNodeXml` (3 Seiten), `getCMSCollections`, `exportReactComponents` selbst aufgerufen |
+| Niranjan266/unframer | **A** | geklont, `npm install`, zwei Seiten exportiert (`donutshop`, `wedge`), beide verifiziert; `src/appear.ts`, `reveal.ts`, `verify.ts` gelesen |
+| danbenba/FramerExport | **B** | geklont, `src/` gelesen (`capture.ts`, `snapshot.ts`); **nicht** ausgeführt |
+| remorses/unframer | **A** (nur MCP-Teil) | Über den MCP-Endpunkt `exportReactComponents` aufgerufen → Abo-Fehler. Die CLI selbst **nicht** ausgeführt |
+| SingleFile, monolith | **C** | nur Beschreibung/Zahlen. **Nicht** ausgeführt |
+| Full Site Export | **C** | nur die Marketplace-Beschreibung gelesen. **Nicht** ausgeführt |
+| rakshith48/framer-to-cloudflare | **B** | README gelesen, nicht ausgeführt |
+| 6 weitere Klein-Repos | **C** | nur Suche/API-Metadaten, siehe §4.7 |
+
+**Was das für den Plan heißt:** Die zwei tragenden Aussagen (Animations-Kompilierung funktioniert;
+Ganzseiten-Export schwächer als unserer) sind **Grad A**. Alles andere ist Vorarbeit, die vor dem
+Bau auf Grad A gehoben werden muss — das steht in den Gates der Schritte.
+
+### 4.1 Unframer / Framer MCP — **Grad A, am 21.10.2026 selbst getestet**
 
 Der Zugang wurde geprüft (Endpunkt antwortet, Server `Framer MCP 1.8.0`, 23 Werkzeuge).
 Getestet am Projekt `sustained-shares-680007` (drei Seiten: `/`, `/contact`, `/404`).
@@ -118,18 +169,27 @@ der SSR-Weg, weil es Namen, Stapel-Layout und Tokens kennt. Es ist **kein** Lief
 Zeitsteuerung und **kein** Ersatz für die Original-Runtime. Es braucht außerdem Zugang zum
 **Framer-Projekt** (Plugin), nicht nur zur veröffentlichten Seite.
 
-### 4.2 FramerExport / F-EXPORT (MIT, Open Source)
+### 4.2 FramerExport / F-EXPORT (MIT, Open Source) — **Grad B, Code gelesen**
 
-- **Was es ist:** `npm i -g framer-export`. Lädt die Seite in einem Headless-Browser, **wartet auf
-  Hydration**, nimmt das gerenderte Ergebnis auf, lädt jedes Asset, schreibt CDN-URLs auf relative
-  Pfade um, entfernt Plattform-Badges und Tracker, legt einen `serve.js` dazu.
-- **Was es löst:** **Genau unsere Lücke.** Es liefert das, was im SSR fehlt: die Sterne, die
-  Scroll-Effekte, den hydratisierten Zustand — als lokale Dateien. Und es macht daraus einen
-  **Mirror**, also eine Quelle, für die unser Payload-Extraktor bereits gebaut ist.
-- **Lizenz:** MIT (`package.json`, `LICENSE` im Tarball). Unkritisch.
-- **Grenzen:** Es ist ein Mirror, kein Struktur-Import. Die Seite ist danach eine Black Box aus
-  HTML/CSS/JS — bearbeitbar nur dort, wo unser Struktur-Import greift.
+npm `framer-export@5.0.2`, MIT, Repo `danbenba/FramerExport` (67 ★, letzter Push 2026-09-15).
+**Geklont und `src/` gelesen, aber nicht ausgeführt.**
+
+- **Was es ist:** `npm i -g framer-export`. Lädt die Seite in einem Headless-Browser (Puppeteer),
+  nimmt das gerenderte Ergebnis auf, lädt jedes Asset, schreibt CDN-URLs auf relative Pfade um,
+  entfernt Plattform-Badges und Tracker, legt einen `serve.js` dazu. Kennt 25 Plattformen und
+  erkennt sie an der URL.
+- **Was es löst:** **Genau unsere Lücke beim Mirror.** Es liefert das, was im SSR fehlt: die
+  Sterne, den hydratisierten Zustand, alle Assets — als lokale Dateien. Und es macht daraus einen
+  **Mirror**, also eine Quelle, für die unser Payload-Extraktor bereits gebaut ist (`import.ts:184`).
+- **Belegte Grenze (im Code geprüft):** Es hat **keine Animations-Kompilierung.** Die einzigen
+  `@keyframes` in `src/` gehören zur eigenen Bedienoberfläche (`src/ui/page.ts`:
+  `screen-enter`, `dialog-enter`), nicht zu den exportierten Seiten. Es sucht weder
+  `framer/appear` noch `appearAnimations` noch `keyframes` in den Zielseiten.
+  **Folge:** Ein Mirror daraus enthält den Startzustand, aber keine Animation — die Animation
+  müsste aus dem Mirror **nachträglich** kompiliert werden (§4.5, Schritt 4b).
+- **Lizenz:** MIT (`package.json` und Registry bestätigen es).
 - **Aufwand:** klein. Ein CLI-Aufruf.
+- **Offen (Grad B → A):** Ein echter Lauf gegen eine Framer-Seite fehlt. Vor dem Bau nachholen.
 
 ### 4.3 Full Site Export (Framer-Marketplace-Plugin, kostenpflichtig)
 
@@ -215,6 +275,26 @@ sie dieselben Fallen benennen, in die unser Import läuft):
 und die Logik in unseren Capture einbauen — MIT erlaubt das ausdrücklich, auch ohne
 Quellenangabe. Das ist keine Abhängigkeit von einem 1-Stern-Projekt, sondern eine übernommene
 Idee mit belegter Wirkung.
+
+### 4.5b Die geprüften Klein-Repos (Grad C — nur Metadaten, nicht ausgeführt)
+
+Vollständigkeit halber, damit die Suche nachvollziehbar ist. **Keines davon wurde ausgeführt**;
+sie sind hier, weil sie in der Suche auftauchten und ein zweites Mal geprüft werden müssten,
+falls die tragenden Kandidaten ausfallen.
+
+| Repo | ★ | Lizenz | letzter Push | Was die Beschreibung sagt | Warum nicht gewählt |
+|---|---|---|---|---|---|
+| `Ostavnow/Exporter-Framer` | 0 | — | 2026-08-21 | „Export site framer" | keine Beschreibung, keine Lizenz |
+| `Shakunth/framer-exporter-cli` | 0 | — | 2026-10-21 | „Framer to React Agent: Clone, Own & Edit Any Published Site" | keine Lizenz, keine Belege |
+| `shafanaura/framer-to-html` | 2 | — | 2026-08-07 | (leer) | keine Beschreibung, keine Lizenz |
+| `kiteprize/framer-to-html` | 0 | — | 2025-07-07 | (leer) | ein Jahr alt, keine Lizenz |
+| `onunbeai/framer-to-html-kodety-skill` | 0 | — | 2026-10-02 | Skill für Claude Code/Codex, „Pixel Perfect" | keine Lizenz |
+| `zaynors/framer-export` | 3 | — | 2026-07-01 | (leer) | keine Beschreibung |
+| `zumuuser/framer-clone-portal` | 1 | — | 2026-07-28 | „Export Framer sites to GitHub" | keine Lizenz |
+| `michalporada/framer-marketplace-scraper-py` | 1 | — | 2026-01-13 | scrapt den Marketplace, nicht Seiten | falsches Ziel |
+
+**Muster:** Fast alle tragen **keine Lizenz** und **keine Beschreibung**. Für eine Übernahme
+scheiden sie damit aus, egal wie gut sie wären — man weiß nicht, was man darf.
 
 ### 4.6 Der Vergleich in einer Tabelle
 
@@ -332,8 +412,24 @@ Geräte-Kopie (gemessen), und ihre Struktur nennt Komponenten beim Namen.
 - Die Island lädt sie **nur in Preview und Release**, nie im Canvas (ADR-0010 Punkt 8).
 - Poster für den Editor: aus der Quelle, Pflichtfeld.
 
+**Die Budgets sind bereits beschlossen** (ADR-0010 Punkt 6, dort per Messung nachgezogen) — sie
+gelten auch hier und sind **kein** offener Punkt:
+
+| Grenze | Wert | Woher |
+|---|---|---|
+| Payload-Knoten je Seite | 1 (`clean`) / 3 (`standard`) / 8 (`showcase`) | `packages/engine/src/guardrails.ts` |
+| eine Payload | ≤ 3 MB unkomprimiert | ADR-0010, gemessen am WaveBackground-Modul (2,78 MB) |
+| Seitenbudget | ≤ 8 MB zusätzliche JS-Bytes | ADR-0010 |
+| `webgl-scene` + `payload` | teilen sich **einen** Zähler „schwere Fläche" | ADR-0010 |
+
+**Das ist der kritische Punkt für die 1:1-Zusage:** Ein echtes Framer-Bündel (`script_main` +
+Chunks) liegt bei **~212 KB für eine typische Seite** (in §4.2 bei `framer-export` gemessen: „the
+React + Motion bundle … 212 KB on a typical page"). Das passt in 3 MB. Aber eine Seite mit
+**mehreren** 3D-Szenen kann die 8-MB-Grenze reißen — dann greift der Rückfall (Poster → Platte),
+und die 1:1-Zusage gilt für diese Seite **nicht**. Der Bericht muss das vorher sagen.
+
 **Gate:** Eine Seite mit Lenis/three.js (Earn) zeigt im Release denselben Scroll-Effekt wie das
-Original; der Editor zeigt das Poster. Ein Test, der ohne den Schritt rot ist.
+Original; der Editor zeigt das Poster; die Payload-Größe steht im Bericht.
 
 ### Schritt 3 · Die Naht zwischen Struktur und Payload
 
@@ -396,6 +492,15 @@ ankommt, ohne dass der Bericht es sagt.
 - **Seitenübergänge:** bleiben laut Unframer nicht erhalten. Für uns: eigene Entscheidung nötig.
 - **Lizenz:** Framer-Templates haben eigene Bedingungen. ADR-0010 verlangt ein sichtbares
   Lizenzfeld; „unknown" darf nicht in die globale Bibliothek.
+
+**Dazu zwei Punkte, die ADR-0010 ausdrücklich als offen führt und die dieser Plan nicht löst:**
+
+- **CSP-Header im Deploy.** Ein Payload ist ausführbarer Code. Ohne Content-Security-Policy kann
+  eine fremde Seite Code einschleusen, der im selben Kontext läuft. ADR-0010 nennt CSP als offen;
+  solange sie fehlt, ist jeder Payload ein **bewusstes** Risiko. Das ist bei E1 („ja") mitgedacht,
+  aber nicht erledigt.
+- **Lizenzfrage für kommerzielle Kundenarbeiten.** Bei dir privat unkritisch (E3). Sobald eine
+  Seite an Dritte geht, gilt wieder die Nachweispflicht aus ADR-0010.
 
 **Gate:** Ein Satz je Punkt, mit Beleg. Kein Bau.
 
@@ -509,8 +614,45 @@ angekommen — mit einer ehrlich genannten Bearbeitbarkeitsquote.
 Für die Bewegung braucht es einen **neuen Messweg**: einen Bildvergleich **über die Zeit**
 (Frames bei 0, 200, 700, 1400 ms), nicht nur einen Stand. Den gibt es heute nicht.
 
-## 9. Was dieser Plan nicht verspricht
+## 8.5 Lizenzen: was „nur für mich" praktisch bedeutet
 
+Deine Entscheidung (E3) ist: **private Nutzung, kein Weitergeben.** Das ist eine klare Linie, hat
+aber drei praktische Folgen, die im Code stehen müssen — sonst wird die Linie später unbemerkt
+überschritten.
+
+### 8.5.1 Was privat unkritisch ist
+
+| Fall | Bewertung |
+|---|---|
+| Eine fremde Framer-Seite für dich importieren und ansehen | unkritisch (wie „Seite im Browser speichern") |
+| MIT-Code als Vorlage lesen und Logik nachbauen | ausdrücklich erlaubt, auch ohne Quellenangabe |
+| CC0 (`monolith`) | keine Bedingungen |
+| `unframer` ohne Lizenzfeld | Grauzone, privat vertretbar — aber nicht weitergeben |
+
+### 8.5.2 Wo die Linie überschritten würde — und was das technisch bedeutet
+
+| Handlung | Warum sie die Linie überschreitet |
+|---|---|
+| Eine importierte Seite **veröffentlichen** (`publish_release`) | Die Seite geht an Dritte; fremdes Template-Material wird öffentlich |
+| Eine importierte Seite in die **globale Baustein-Bibliothek** heben | Andere Projekte erben den fremden Code (ADR-0010 verbietet das für `license: unknown` ausdrücklich) |
+| Eine Seite an einen **Kunden** ausliefern | Kommerzielle Nutzung fremden Template-Materials |
+
+**Die Regel steht in ADR-0010, aber der Code setzt sie noch nicht um.** ADR-0010 Punkt 4 sagt: Ein
+Payload mit `license: unknown` **darf nicht** in die globale Baustein-Bibliothek. Eine Suche in
+`packages/engine/src/code-payloads.ts` nach `unknown` oder `library` findet **keine** solche Sperre
+(21.10.2026 geprüft). Die Regel ist heute also eine Absicht, kein Tor.
+
+**Was fehlt — und das gehört in Schritt 7:**
+
+1. Eine **Sperre** für „Payload mit `unknown` → Bibliothek" (ADR-0010 verlangt sie, der Code hat sie
+   nicht).
+2. Eine sichtbare **Warnung beim Veröffentlichen** einer Seite, die fremden Code oder ein fremdes
+   Template trägt. Heute läuft der Publish durch.
+
+**Gate:** Ein Test, dass ein Payload mit `license: unknown` **nicht** in die Bibliothek gehoben
+werden kann; und der Publish-Weg nennt die Herkunft, bevor veröffentlicht wird.
+
+## 9. Was dieser Plan nicht verspricht
 - **Keine Bearbeitbarkeit des Payload-Inneren.** Das ist die Preisangabe zur 1:1-Zusage und steht in
   ADR-0010. Wer die Animation im Editor ändern will, muss sie neu bauen.
 - **Kein Framer-CMS als Datenquelle.** Der Inhalt kommt als gerendertes HTML mit, nicht als Sammlung.
