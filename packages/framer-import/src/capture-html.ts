@@ -1213,6 +1213,40 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
     });
   }
 
+  // A page can carry `data-framer-appear-id` without the appear channel: the
+  // server HTML marks the elements Framer animates, but the JSON that says HOW
+  // is missing. Measured on donutshop (unframer's own export): 51 marked
+  // elements, no channel, no inline start state — the source has an animation
+  // the SSR never describes. Before this finding those 51 elements moved from
+  // "not captured" to "not mentioned", which is the silent failure U5 b names.
+  const appearSpecs = readAppearSpecs(html);
+  // No channel: the inline start state is still half the effect. Derived
+  // reveals carry an ASSUMED duration, which the finding below states.
+  const derived = deriveAppearFromStartState(html, root);
+  const allSpecs = appearSpecs.length > 0 ? appearSpecs : derived;
+  const markedIds: string[] = [];
+  const collectMarked = (node: IrNode): void => {
+    if (node.appearId !== null) markedIds.push(node.appearId);
+    node.children.forEach(collectMarked);
+  };
+  collectMarked(root);
+  if (markedIds.length > 0 && appearSpecs.length === 0) {
+    findings.push({
+      kind: "unsupported-declaration",
+      nodeKey: null,
+      message:
+        derived.length > 0
+          ? `${markedIds.length} Element(e) tragen eine Framer-Appear-id ohne Appear-Kanal. Aus dem Startzustand im Inline-Stil sind ${derived.length} Einblendung(en) abgeleitet — die Bewegung stimmt, die Dauer ist eine Annahme (${DERIVED_DURATION} s), weil die Quelle sie nicht nennt.`
+          : `${markedIds.length} Element(e) tragen eine Framer-Appear-id, aber die Seite liefert weder einen Appear-Kanal noch einen lesbaren Startzustand — die Einblendung wird nicht nachgebaut.`,
+      evidence: markedIds.slice(0, 3).join(", "),
+      severity: derived.length > 0 ? "info" : "warn",
+      suggestion:
+        derived.length > 0
+          ? "Die Dauer im Editor prüfen und an die Quelle angleichen; die Bewegung (Versatz, Skalierung, Drehung) stammt aus dem Startzustand."
+          : "Den Effekt im Editor von Hand setzen oder die Seite über einen Mirror importieren, der den Kanal enthält. Die Elemente selbst bleiben sichtbar.",
+    });
+  }
+
   const pagePath = input.pagePath ?? "/";
   const pageCount = countNodes(root);  if (pageCount > 1) {
     // The devices arrive as SSR variant duplicates; the mapper merges them.
@@ -1251,7 +1285,7 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
     },
     assets,
     motion: readAppearMotion(html, root),
-    appear: readAppearSpecs(html),
+    appear: allSpecs,
     findings,
   };
 }
@@ -1298,6 +1332,86 @@ function readAppearSpecs(html: string): IrAppearSpec[] {
     if (Object.keys(variants).length === 0) continue;
     specs.push({ appearId, variants });
   }
+  return specs;
+}
+
+// A page without the appear channel still writes the state BEFORE the effect
+// into the inline style (`opacity:0.001; transform:scale(1.2) rotate(10deg)`).
+// That start state is half of the effect: the other half is always the element
+// at rest. Derived this way the motion is real (the same transform the browser
+// would animate from), but the TIMING is not in the page — the channel that
+// carries it is missing. `DERIVED_DURATION` is stated as an assumption in the
+// finding rather than passed off as measured.
+const DERIVED_DURATION = 0.6;
+
+function deriveAppearFromStartState(html: string, root: IrNode): IrAppearSpec[] {
+  // Only when the channel is absent: with a channel, its values are the truth.
+  if (/<script[^>]*id="__framer__appearAnimationsContent"/.test(html)) return [];
+  const parseState = (declarations: Record<string, string>): IrAppearState | undefined => {
+    const opacity = Number.parseFloat(declarations["opacity"] ?? "");
+    const transform = declarations["transform"] ?? "";
+    const state: IrAppearState = {};
+    if (Number.isFinite(opacity)) state.opacity = opacity;
+    const numbers = (name: string): number[] =>
+      [...transform.matchAll(new RegExp(`${name}\\(([^)]*)\\)`, "g"))]
+        .map((match) => Number.parseFloat(match[1] ?? ""))
+        .filter((value) => Number.isFinite(value));
+    const translateX = numbers("translateX")[0];
+    const translateY = numbers("translateY")[0];
+    const scale = numbers("scale")[0];
+    const rotate = numbers("rotate")[0];
+    const rotateX = numbers("rotateX")[0];
+    const rotateY = numbers("rotateY")[0];
+    const perspective = numbers("perspective")[0];
+    if (translateX !== undefined && translateX !== 0) state.x = translateX;
+    if (translateY !== undefined && translateY !== 0) state.y = translateY;
+    if (scale !== undefined && scale !== 1) state.scale = scale;
+    if (rotate !== undefined && rotate !== 0) state.rotate = rotate;
+    if (rotateX !== undefined && rotateX !== 0) state.rotateX = rotateX;
+    if (rotateY !== undefined && rotateY !== 0) state.rotateY = rotateY;
+    if (perspective !== undefined && perspective !== 0) state.transformPerspective = perspective;
+    return Object.keys(state).length === 0 ? undefined : state;
+  };
+  const specs: IrAppearSpec[] = [];
+  const walk = (node: IrNode): void => {
+    if (node.appearId !== null && node.appearInitial !== undefined) {
+      const initial = parseState(node.appearInitial);
+      // A reveal is "invisible AND moved in": the element starts at an offset,
+      // a scale or a tilt and settles into its place. A plain `opacity:0` with
+      // no transform is a DESIGNED hidden state — the closed phone menu, a
+      // collapsed FAQ answer, an overlay waiting for hover. The capture already
+      // keeps those as the look; deriving an animation from them would fade a
+      // closed menu open on every page load.
+      const moves = initial !== undefined && Object.keys(initial).some((key) => key !== "opacity");
+      if (initial !== undefined && (initial.opacity ?? 1) <= 0.01 && moves) {
+        specs.push({
+          appearId: node.appearId,
+          variants: {
+            default: {
+              initial,
+              animate: {
+                opacity: 1,
+                x: 0,
+                y: 0,
+                scale: 1,
+                rotate: 0,
+                rotateX: 0,
+                rotateY: 0,
+                skewX: 0,
+                skewY: 0,
+                ...(initial.transformPerspective === undefined
+                  ? {}
+                  : { transformPerspective: initial.transformPerspective }),
+                transition: { type: "duration", duration: DERIVED_DURATION },
+              },
+            },
+          },
+        });
+      }
+    }
+    node.children.forEach(walk);
+  };
+  walk(root);
   return specs;
 }
 
