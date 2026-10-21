@@ -67,7 +67,7 @@
 | Doku-Messwerte | `pnpm quality:render` + `pnpm quality:check` | **Grün am 10.10.2026** auf dem Stand des neunten P3-2-Schritts; gerenderte Werte stimmen mit dem Lauf überein |
 | Build, App-Gates und PostgreSQL | `pnpm verify`, `pnpm test:visual`, `pnpm verify:parity`, `pnpm verify:import`, `pnpm test:postgres` | **Grün am 28.09.2026** auf dem zuvor gesicherten Folge-Diff; für die reine Mapper-Auslagerung nicht erneut erforderlich |
 | CI auf dem PR-Branch | `.github/workflows/verify.yml` (Push und Pull Request) | **Alle 8 Läufe grün am 04.10.2026** auf `0386cf9` (verify, Windows, PostgreSQL, Coverage); der Visual-Test lief mit den Linux-Baselines von `master`. Davor war auf `6c35e3e` ein `verify`-Push-Lauf an einem Timeout in `accessibility-browser.test.ts` rot, der Pull-Request-Lauf desselben Codes grün, lokal 3 von 3 Läufen grün: als Timing-Flake gewertet, nicht als Befund |
-| Route-Matrix | `pnpm route-matrix` | Kommando nicht separat ausgeführt; `route-matrix.test.ts` ist Teil des Volltests |
+| Route-Matrix | `pnpm route-matrix`, `pnpm route-matrix:check` | Das Kommando wurde ausgeführt und die Matrix neu erzeugt (21.10.2026). `route-matrix.test.ts` ist Teil des Volltests und prüft **Vollständigkeit und Drift**: der Test ruft den Generator mit `--check` auf, der CI hat einen eigenen Schritt. Der Generator war bis dahin nicht deterministisch (die Reihenfolge kam aus `readdirSync`) und die Datei im Repo war nicht mehr das, was er schreibt |
 
 ## Volltest
 
