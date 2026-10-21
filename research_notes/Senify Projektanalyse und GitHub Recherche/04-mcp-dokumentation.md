@@ -224,3 +224,12 @@ gilt der **Reihenfolge**: Wer `tools.ts` angefasst hat, hat den Generator angefa
   hält. Der Test liest jetzt `TOOL_MANIFEST` aus `@senify/manifest`, und die beiden
   `@senify/mcp`-Aliase in `packages/docs-portal/astro.config.mjs` sind entfernt.
 - **Paketregeln als ausführbare Regel:** `.dependency-cruiser.js` (siehe Fachanalyse 6).
+- **Der Werkzeugbezug der Skills wird jetzt geprüft** (zweite Prüfung, 20.10.2026): Abschnitt 3
+  dieses Berichts hatte festgehalten, dass die Skills nur *nennen*, was sie tun — ohne zu prüfen,
+  ob es das Werkzeug noch gibt. `packages/mcp/test/skills-tools.test.ts` prüft jetzt jeden in den
+  Skills genannten Namen gegen das Manifest (die Faktenquelle). Zwei Namen sind mit Grund
+  ausgenommen: `dry_run` (ein Schalter im Mutations-Batch) und `invalid_input` (eine
+  Fehlerkategorie); ein zweiter Test meldet eine Ausnahme, die keine Fundstelle mehr hat.
+  Gegenprobe: ein erfundener Werkzeugname im Router macht den Test rot. Der Test liegt im
+  MCP-Paket, weil es das einzige Paket ist, das die Skills **und** das Manifest kennt — das
+  Skills-Paket selbst darf keine Fachabhängigkeit haben (`skills-know-nobody`).

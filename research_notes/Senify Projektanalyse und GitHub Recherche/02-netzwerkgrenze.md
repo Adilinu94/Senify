@@ -260,5 +260,16 @@ Browser direkt mit dem Ziel spricht und nicht über den Proxy.
   `packages/framer-import/test/capture-browser.test.ts` (Import-Capture). Gegenprobe: nimmt man
   die Playwright-Route aus dem jeweiligen Modul, erreicht der Browser den Server und der Test
   ist rot (`promise resolved ... instead of rejecting`).
+- **Es gab einen dritten Browserpfad, und er war ungeschützt** (zweite Prüfung, 20.10.2026):
+  der Analyse-Worker (`packages/analysis-worker/src/visual.ts`) startet den Browser für die
+  Vorschau-Bilder, den Review-Vergleich und das Bewegungs-Video — ohne jede Adressprüfung. Über
+  ihn läuft die Import-Vorschau, die die Seite **des Benutzers** fotografiert; geschützt war dort
+  nur der Node-Pfad, und der lief vorher. Die Prüfung sitzt jetzt am Browser, in allen drei
+  Kontexten, mit einer Ausnahme für die Server, die das Produkt selbst startet (Vorschau-Server,
+  Offline-Mirror — sie laufen auf der Schleife, und ohne sie gäbe es keine Vorschau).
+  Belege: `packages/analysis-worker/test/visual-guard.test.ts` (ohne die Route erreicht der
+  Browser den privaten Server) und `packages/engine/test/import-preview-browser.test.ts` (ohne
+  die Ausnahmeliste wird der eigene Vorschau-Server blockiert: `ERR_BLOCKED_BY_CLIENT`).
+  ADR-0022 hat einen datierten Nachtrag.
 - **ADR-0022** (`docs/adr/0022-der-browser-holt-nur-oeffentliche-adressen.md`) hält die
   Entscheidung fest, ADR-0016 bleibt für den Node-Pfad unverändert.

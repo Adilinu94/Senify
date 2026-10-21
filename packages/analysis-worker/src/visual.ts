@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { SenifyError } from "@senify/core";
+import { isAllowedBrowserUrl } from "@senify/core/net";
 
 // The Playwright harness the visual checks were waiting for (T07/T14): freeze
 // the motion, settle the scroll, capture full-page screenshots per breakpoint,
@@ -44,6 +45,8 @@ export type CaptureOptions = {
   // `window.__SENIFY_MOTION__` before load, so the page script never starts and
   // the capture compares the baseline. "live" leaves the runtime running.
   motion?: "off" | "live";
+  // The browser policy: which addresses the capture may reach.
+  browser?: BrowserPolicy;
 };
 
 export type DiffReport = {
@@ -78,6 +81,46 @@ async function loadPlaywright(): Promise<{
       },
     );
   }
+}
+
+// The browser policy of a capture: which addresses the browser may reach.
+//
+// `allowOrigins` names the servers the product itself started: the preview
+// server and the offline mirror. They run on the loopback interface and the
+// browser has to reach them - otherwise there is no preview. Every other
+// address has to pass the public check, so a user-supplied URL cannot point
+// the browser at a private service - no matter in which order the calls
+// happen.
+//
+// `file:` is off by default: a REMOTE page must not be able to point the
+// browser at a local file and have the capture show it. Only a capture of a
+// local folder (the offline mirror) sets it.
+export type BrowserPolicy = {
+  allowOrigins?: readonly string[];
+  allowFile?: boolean;
+};
+
+// Every request the browser makes - the navigation, its redirects, every
+// sub-resource, every `fetch()` from the page's script - passes the same
+// address check as the Node path (ADR-0022). Without it a public page could
+// point the browser at a cloud metadata service or at a service in the LAN,
+// and the answer would end up in the capture.
+//
+// The check sits HERE, at the browser, and not at the call site: a caller
+// that forgets it (or that calls the capture in a different order) would
+// otherwise open the door without noticing.
+async function guardBrowser(
+  context: import("playwright").BrowserContext,
+  policy: BrowserPolicy | undefined,
+): Promise<void> {
+  await context.route("**/*", async (route) => {
+    const target = route.request().url();
+    if (await isAllowedBrowserUrl(target, policy)) {
+      await route.continue();
+      return;
+    }
+    await route.abort("blockedbyclient");
+  });
 }
 
 // Freezing motion makes two captures of the same state comparable; the scroll
@@ -160,6 +203,7 @@ export async function captureScreenshots(options: CaptureOptions): Promise<Visua
         viewport: { width, height: viewport.height },
         reducedMotion: "reduce",
       });
+      await guardBrowser(context, options.browser);
       const page = await context.newPage();
       if (options.motion !== "live") {
         await context.addInitScript(() => {
@@ -196,6 +240,8 @@ export type ThumbnailOptions = {
   // Width of the picture in pixels and the tallest slice of the page it shows.
   thumbWidth?: number;
   maxPageHeight?: number;
+  // The browser policy: which addresses the capture may reach.
+  browser?: BrowserPolicy;
 };
 
 export type Thumbnail = {
@@ -226,6 +272,7 @@ export async function captureThumbnails(options: ThumbnailOptions): Promise<Thum
         deviceScaleFactor: Math.min(1, thumbWidth / width),
         reducedMotion: "reduce",
       });
+      await guardBrowser(context, options.browser);
       const page = await context.newPage();
       if (options.motion !== "live") {
         await context.addInitScript(() => {
@@ -381,6 +428,8 @@ export async function recordMotion(input: {
   name?: string;
   durationMs?: number;
   viewport?: { width: number; height: number };
+  // The browser policy: which addresses the capture may reach.
+  browser?: BrowserPolicy;
 }): Promise<MotionCapture> {
   const { chromium } = await loadPlaywright();
   const durationMs = input.durationMs ?? 4000;
@@ -392,6 +441,7 @@ export async function recordMotion(input: {
       viewport,
       recordVideo: { dir: input.outDir, size: viewport },
     });
+    await guardBrowser(context, input.browser);
     const page = await context.newPage();
     await page.goto(input.url, { waitUntil: "load" });
     const steps = 24;
