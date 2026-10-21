@@ -540,17 +540,56 @@ Belege: `packages/framer-import/test/appear-css.test.ts` (15 Fälle),
 angenähert (`ease-out` bzw. eine Overshoot-Kurve), nicht exakt; Scroll-Trigger
 und Hover-*Bewegung* brauchen weiter den Payload (Schritt 2).
 
-### Schritt 5 · Die verbliebenen Animationen abdecken
+### Schritt 5 · Die verbliebenen Animationen abdecken — **Punkt 1 umgesetzt 21.10.2026**
 
 **Ziel:** Was der Payload nicht trägt, wird wenigstens benannt oder nachgebaut.
 
-- **Fehlender `appearAnimationsContent`** (4 von 11 Seiten): aus dem Startzustand am Element
-  ableiten — oder einen Befund erzeugen, statt still nichts zu tun.
-- **3D-Kippung** (`rotateX/rotateY`): als Preset ergänzen oder dem Payload überlassen.
-- **Hover als Bewegung**, **Scroll-Trigger**: nur über den Payload, nicht über Presets.
+**Punkt 1 — Fehlender Appear-Kanal (4 von 11 Seiten): umgesetzt.**
+Gemessen an der Live-Seite `https://donutshop.framer.website/`: 51 Elemente tragen
+eine `data-framer-appear-id`, **kein** Appear-Kanal — aber **39** davon tragen
+ihren Startzustand im Inline-Stil (`opacity:0.001; transform:perspective(1200px)
+scale(1.2) rotate(10deg)`).
+
+Der Import leitet die Einblendung daraus ab (`deriveAppearFromStartState` in
+`capture-html.ts`): Startzustand aus dem Inline-Stil, Endzustand ist die Ruhe
+(Identität). Das ist die **Bewegung** der Quelle, nicht eine Erfindung — derselbe
+Transform, den der Browser animieren würde.
+
+**Was dabei ehrlich benannt wird:** die **Dauer** steht nicht in der Seite (der
+Kanal, der sie trägt, fehlt). Sie ist eine Annahme (`0.6 s`) und der Bericht sagt
+das mit Schwere `info` und dem Vorschlag, sie im Editor zu prüfen. Ohne Startzustand
+bleibt es bei einer `warn`-Meldung — nie bei stiller Untätigkeit.
+
+**Eine Grenze, die der Test aufgedeckt hat:** Ein `opacity:0` **ohne** Transform
+ist kein Reveal, sondern ein gestalteter Zustand (das geschlossene Handy-Menü,
+eine zugeklappte FAQ-Antwort). Daraus eine Einblendung zu machen, würde das Menü
+bei jedem Seitenaufruf aufblenden. Das Kriterium ist deshalb „unsichtbar **und**
+bewegt", genau wie im Capture.
+
+**Gate (ausgeführt):**
+
+| Prüfung | Ergebnis |
+|---|---|
+| Live donutshop, abgeleitete Effekte | **39** (vorher 0) |
+| Meldung im Bericht | `info`, nennt die Annahme und die Zahl |
+| Seite ohne Kanal **und** ohne Startzustand | `warn`, kein stiller Fall |
+| `opacity:0` ohne Transform | **nicht** abgeleitet |
+| Seite mit Kanal | keine Ableitung, Kanalwerte gewinnen |
+
+Belege: `packages/framer-import/test/appear-derived.test.ts` (6 Fälle).
+
+**Punkt 2 — 3D-Kippung (`rotateX/rotateY`): umgesetzt** durch Schritt 4b, nicht
+als Preset. Die Keyframes tragen `rotateX`/`rotateY` in Motion's Transform-Reihenfolge;
+ein Preset hätte nur einen Winkel erlaubt. Beleg: `appear-css.test.ts`,
+`appear-bake.test.ts` (Fall 1 prüft `rotateX(-25deg)` im gebackenen CSS).
+
+**Punkt 3 — Hover als Bewegung, Scroll-Trigger: offen, gehört zu Schritt 2.**
+Diese Information ist im SSR nicht enthalten; sie kommt nur mit der Framer-Runtime
+(Payload). Der Bericht nennt heute, was nicht ankam.
 
 **Gate:** Keine Seite hat mehr eine Animation, die **weder** als Preset **noch** als Payload
-ankommt, ohne dass der Bericht es sagt.
+ankommt, ohne dass der Bericht es sagt. — **für Punkt 1 und 2 erfüllt**; für Punkt 3
+bleibt es offen, bis Schritt 2 steht.
 
 ### Schritt 6 · Die Grenze der Werkzeuge festhalten
 

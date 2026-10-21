@@ -57,6 +57,11 @@ Mit „Weitere Seiten dieser Site“ bietet der Bericht die Seiten an, auf die d
   Container hält im Server-HTML nur fünf leere `display:contents`-Platzhalter, die Sterne selbst entstehen im Browser.
   An ihrer Stelle bleibt der leere Rahmen stehen, und der Bericht nennt die Stelle. Wer sie braucht, legt ein Bild
   dorthin oder braucht eine zweite Quelle (Unframer-MCP, Projektstruktur statt gerendertem HTML).
+- **Seiten ohne Appear-Kanal.** Manche Framer-Seiten markieren ihre Elemente (`data-framer-appear-id`), liefern aber
+  das JSON nicht, das die Animation beschreibt. Der Import leitet die Einblendung dann aus dem **Startzustand** ab, der
+  noch im Stil steht — Bewegung, Skalierung und Drehung stimmen. **Die Dauer ist eine Annahme (0,6 s)**, weil die Quelle
+  sie nicht nennt; der Bericht sagt das. Ein `opacity:0` **ohne** Bewegung wird nicht als Einblendung gedeutet (das wäre
+  ein geschlossenes Menü, das bei jedem Aufruf aufblendet).
 - **Icons über `<use href>`** ohne Sprite erscheinen als Ring, weil Framer das Sprite per Skript einfügt. Liegt das
   Sprite im Server-HTML (der Regelfall), löst der Import es auf: gemessen an der Earn-Vorlage tragen alle 16 SVGs ihre
   Zeichnung. Ein Sprite, das die Quelle selbst nicht mitliefert, bleibt ein Ring.
