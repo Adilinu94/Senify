@@ -2008,11 +2008,33 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
       const vars = { ...inherited[device], ...own };
       varsByDevice[device] = vars;
       // Framer keeps a border as custom properties and draws it with
-      // `[data-border=true]:after`, a pseudo rule that is not applied. The
-      // element carries the border itself, with the widths of each side.
+      // `[data-border=true]:after` — an overlay pinned to the element
+      // (`position:absolute; inset:0; pointer-events:none`). Measured on the
+      // Earn template: the source element has `border-style:none` and 108 px,
+      // its `::after` carries the 1 px at the bottom.
+      //
+      // A real border adds to the box, and its `border-style` applies to all
+      // four sides: a border that exists only at the bottom made the element
+      // 1 px taller and the whole page 1 px taller with it. An inset shadow
+      // draws in the same place as the overlay without touching the layout.
       const borderStyle = vars["--border-style"];
-      if (current.attrs?.["data-border"] === "true" && borderStyle !== undefined && borderStyle !== "none") {
-        for (const side of ["top", "right", "bottom", "left"]) {
+      if (current.attrs?.["data-border"] === "true" && borderStyle === "solid") {
+        const color = vars["--border-color"];
+        const shadows: string[] = [];
+        for (const side of ["top", "right", "bottom", "left"] as const) {
+          const width = vars[`--border-${side}-width`] ?? "0px";
+          if (!(Number.parseFloat(width) > 0)) continue;
+          const offsetX = side === "left" ? width : side === "right" ? `-${width}` : "0px";
+          const offsetY = side === "top" ? width : side === "bottom" ? `-${width}` : "0px";
+          shadows.push(`inset ${offsetX} ${offsetY} 0 0`);
+        }
+        if (shadows.length > 0 && color !== undefined) {
+          plain["box-shadow"] = `${shadows.join(",")} ${color}`;
+        }
+      } else if (current.attrs?.["data-border"] === "true" && borderStyle !== undefined && borderStyle !== "none") {
+        // A style that is not a plain line (dashed, dotted) has no inset
+        // shadow form; it keeps the element's own border.
+        for (const side of ["top", "right", "bottom", "left"] as const) {
           const width = vars[`--border-${side}-width`];
           if (width !== undefined) plain[`border-${side}-width`] = width;
         }
