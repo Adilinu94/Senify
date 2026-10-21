@@ -271,5 +271,19 @@ Browser direkt mit dem Ziel spricht und nicht über den Proxy.
   Browser den privaten Server) und `packages/engine/test/import-preview-browser.test.ts` (ohne
   die Ausnahmeliste wird der eigene Vorschau-Server blockiert: `ERR_BLOCKED_BY_CLIENT`).
   ADR-0022 hat einen datierten Nachtrag.
+- **Der Abbruch sagt, was passiert ist** (Abschnitt 3.4 dieser Analyse, zweite Prüfung am
+  21.10.2026): ein abgewiesener Request endete als rohe `ERR_BLOCKED_BY_CLIENT` — ein
+  Support-Fall ohne Aussage. Der Wächter merkt sich jetzt die erste abgewiesene Adresse, und
+  die Navigation schlägt mit `blockedAddressError` fehl: „Die Seite lädt eine Ressource von
+  einer nicht öffentlichen Adresse (…) — die Aufnahme wurde abgebrochen.“, mit dem Hinweis auf
+  den Betreiber-Schalter. Das gilt für alle drei Browserpfade (Analyse-Worker, Referenz-Capture,
+  Import-Capture). Gegenprobe: ohne diese Erklärung kommt die rohe Meldung und der Test ist rot
+  (`expected [Function] to throw error matching /nicht öffentlichen Adresse/ but got
+  'page.goto: net::ERR_BLOCKED_BY_CLIENT…'`).
+  **Bewusst offen:** ein abgewiesener *Sub-Resource* bricht die Aufnahme nicht ab — die Seite
+  lädt unvollständig. Das ist der in ADR-0022 festgehaltene Preis („eine unvollständige Seite
+  analysiert schlecht, eine vollständige Seite aus dem LAN ist ein Datenleck“), und die fehlende
+  Ressource ist im Bild zu sehen. Die Aufnahme könnte das zusätzlich melden; das wäre eine
+  Änderung am Ergebnisformat und an der Anzeige und ist nicht Teil dieser Runde.
 - **ADR-0022** (`docs/adr/0022-der-browser-holt-nur-oeffentliche-adressen.md`) hält die
   Entscheidung fest, ADR-0016 bleibt für den Node-Pfad unverändert.

@@ -65,7 +65,7 @@ describe.skipIf(!browserAvailable)("the visual harness guards the browser", () =
           outDir,
           breakpoints: ["desktop"],
         }),
-      ).rejects.toThrow();
+      ).rejects.toThrow(/nicht öffentlichen Adresse/);
       expect(server.hits()).toBe(0);
     } finally {
       vi.unstubAllEnvs();
