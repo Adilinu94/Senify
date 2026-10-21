@@ -143,6 +143,49 @@ function scanNodes(html: string, start: number, end: number): RawNode[] {
   return nodes;
 }
 
+// The properties a transition names: `background-size 2s ease, color .4s`.
+function transitionPropertiesOf(transition: string): string[] {
+  const namen: string[] = [];
+  for (const teil of transition.split(",")) {
+    const eigenschaft = (teil.trim().split(/\s+/)[0] ?? "").toLowerCase();
+    if (eigenschaft !== "" && !namen.includes(eigenschaft)) namen.push(eigenschaft);
+  }
+  return namen;
+}
+
+// The start state of an effect is no look, and the inner markup keeps the raw
+// declarations of the source. The words of a heading would come with
+// `opacity:0.001` and stay invisible for good — the same rule the visual
+// follows (see `toIrNode`).
+function ohneStartzustaende(markup: string): string {
+  return markup.replace(/style=("([^"]*)"|'([^']*)')/g, (treffer, _ganz, doppelt, einfach) => {
+    const roh = doppelt ?? einfach ?? "";
+    const deklarationen = splitDeclarations(roh);
+    const werte = new Map<string, string>();
+    for (const deklaration of deklarationen) {
+      const paar = parseDeclaration(deklaration);
+      if (paar !== null) werte.set(paar[0].toLowerCase(), paar[1]);
+    }
+    const opacity = Number.parseFloat(werte.get("opacity") ?? "");
+    const transform = (werte.get("transform") ?? "").trim();
+    const startzustand =
+      (Number.isFinite(opacity) && opacity <= 0.01 && transform !== "" && transform !== "none") ||
+      ((werte.get("will-change") ?? "").includes("transform") && transform !== "" && transform !== "none");
+    const uebergangen = werte.has("transition") ? transitionPropertiesOf(werte.get("transition") ?? "") : [];
+    const behalten = deklarationen.filter((deklaration) => {
+      const paar = parseDeclaration(deklaration);
+      if (paar === null) return deklaration.trim() !== "";
+      const name = paar[0].toLowerCase();
+      if (startzustand && (name === "opacity" || name === "transform" || name === "will-change")) return false;
+      if (name === "transition" || uebergangen.includes(name)) return false;
+      return true;
+    });
+    if (behalten.length === deklarationen.length) return treffer;
+    const wert = behalten.join(";");
+    return doppelt !== undefined ? `style="${wert}"` : `style='${wert}'`;
+  });
+}
+
 function parseAttrs(raw: string): RawAttr {
   const attrs: RawAttr = {};
   const re = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)(?:\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
@@ -268,7 +311,7 @@ function scanTag(
     extractText(html.slice(gt + 1, innerEnd)) !== extractText(children.map((child) => child.text ?? "").join(""))
       ? // React's fragment markers (`<!--$-->`) are no content: the sanitizer would
         // escape them into visible text.
-        html.slice(gt + 1, innerEnd).replace(/<!--[\s\S]*?-->/g, "")
+        ohneStartzustaende(html.slice(gt + 1, innerEnd).replace(/<!--[\s\S]*?-->/g, ""))
       : null;
   const withSpaces = spaced !== null && spaced !== text && spaced.trim() !== "" ? { spacedText: spaced } : {};
   return { node: { tag, attrs, classes, children, text, svg: null, innerHtml, ...withSpaces }, next };
@@ -680,6 +723,19 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
     delete visual["transform"];
     delete visual["will-change"];
   }
+  // The same convention for an effect that animates a property instead of
+  // moving the element: Framer writes the state BEFORE the effect inline. The
+  // marked word of the testimonial carries `background-size:0% 100%` and a
+  // transition on it — the highlight grows to the full width when the block
+  // appears. Kept as a permanent style, the word would stay unmarked for good.
+  // The resting look comes from the class rules (or the initial value).
+  const transition = visual["transition"];
+  if (transition !== undefined) {
+    for (const property of transitionPropertiesOf(transition)) {
+      delete visual[property];
+    }
+    delete visual["transition"];
+  }
   // A Ticker (marquee) is written with `opacity:0` and shown by Framer's script once it
   // has measured itself: the opacity is the state before the script, not the look.
   if (raw.tag === "section" && visual["opacity"] === "0" && visual["list-style-type"] === "none" && visual["place-items"] === "center") {
@@ -738,6 +794,7 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
     ...(selectorAttrs === undefined ? {} : { attrs: selectorAttrs }),
     tag: raw.tag,
     href: attrs["href"] ?? null,
+    ...(attrs["style"] !== undefined && attrs["style"] !== "" ? { inlineStyle: attrs["style"] } : {}),
     ...(raw.attrs["src"] !== undefined ? { assetUrl: raw.attrs["src"] } : {}),
     ...(attrs["data-framer-module-poster"] !== undefined
       ? { assetUrl: attrs["data-framer-module-poster"] }

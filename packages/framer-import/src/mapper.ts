@@ -20,6 +20,7 @@ import { sanitizeInlineHtml, sanitizeSvgMarkup, type StyleRule } from "@senify/w
 import { brandColorOf } from "./brand-color.ts";
 import { neutralBaseOf, typeBaseOf } from "./theme-scales.ts";
 import { devicesContaining } from "./devices.ts";
+import { parseDeclaration, splitDeclarations } from "./css-util.ts";
 import type {
   FramerIrDocument,
   IrDevice,
@@ -417,6 +418,8 @@ type MapContext = {
   // family the site does not have falls back to the system font, so the page
   // points at the slot instead.
   fontSlots: Map<string, string>;
+  // The mode decides the fonts of the page (see `mapDocument`).
+  mode: NormalizeMode;
   stats: { nodes: number; mergedVariants: number; placeholders: number };
   findings: IrFinding[];
 };
@@ -468,7 +471,7 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
       // A text element with element children (the RichText shape: <p><a>…</a></p>)
       // becomes a body with inline HTML — `text` accepts no children.
       primitive = "body";
-      props["html"] = inlineHtmlOf(node, merged.base.text?.content ?? "");
+      props["html"] = inlineHtmlOf(node, merged.base.text?.content ?? "", context);
     } else {
       props["text"] = baseText?.content ?? "";
       if (HEADING_TAGS.has(node.tag)) props["level"] = node.tag;
@@ -500,7 +503,7 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
         if (props[property] === undefined) props[property] = value;
       }
     } else if (hasElementChildren) {
-      props["html"] = inlineHtmlOf(node, baseText?.content ?? "");
+      props["html"] = inlineHtmlOf(node, baseText?.content ?? "", context);
     } else {
       props["html"] = baseText?.content ?? "";
     }
@@ -791,8 +794,8 @@ function cssToStyle(visual: { [key: string]: string | undefined }): Record<strin
 // back as inline markup (the RichText shape `<p><a>Home</a></p>` →
 // `<a href="./">Home</a>`). Only the inline tags the body primitive accepts
 // are generated; deeper structures flatten to their text.
-function inlineHtmlOf(node: IrNode, fallback: string): string {
-  const html = node.children.map(inlineOf).join("");
+function inlineHtmlOf(node: IrNode, fallback: string, context: MapContext): string {
+  const html = node.children.map((child) => inlineOf(child, context, true)).join("");
   return html !== "" ? html : escapeHtml(fallback);
 }
 
@@ -802,17 +805,20 @@ function inlineHtmlOf(node: IrNode, fallback: string): string {
 // always render into the element, in document order, and the own text goes
 // first — an either/or would drop the children whenever the element carries
 // whitespace of its own (regression: navigation and mail links vanished).
-function inlineOf(child: IrNode): string {
+function inlineOf(child: IrNode, context: MapContext, mitTypografie: boolean): string {
   if (child.innerHtml !== undefined && child.innerHtml !== null) {
     const inner = sanitizeInlineHtml(child.innerHtml);
     return HEADING_TAGS.has(child.tag) || child.tag === "p" ? `<${child.tag}>${inner}</${child.tag}>` : inner;
   }
   // A line break is the whole content of the blank line between two paragraphs.
   if (child.tag === "br") return "<br>";
-  const inner = escapeHtml(child.states[0]?.text?.content ?? "") + child.children.map(inlineOf).join("");
+  const inner =
+    escapeHtml(child.states[0]?.text?.content ?? "") +
+    child.children.map((c) => inlineOf(c, context, false)).join("");
+  const stil = styleAttributeOf(child, context, mitTypografie);
   if (child.tag === "a" && child.href !== null) {
     const newTab = child.target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : "";
-    return `<a href="${escapeHtmlAttr(child.href.trim())}"${newTab}>${inner}</a>`;
+    return `<a href="${escapeHtmlAttr(child.href.trim())}"${newTab}${stil}>${inner}</a>`;
   }
   if (
     HEADING_TAGS.has(child.tag) ||
@@ -821,9 +827,128 @@ function inlineOf(child: IrNode): string {
     child.tag === "strong" ||
     child.tag === "em"
   ) {
-    return `<${child.tag}>${inner}</${child.tag}>`;
+    return `<${child.tag}${stil}>${inner}</${child.tag}>`;
   }
   return inner;
+}
+
+// The properties that carry the typography of a text. They belong to the props
+// of the page: those know the device variants and the resolved colors of the
+// source. An inline declaration would be a stiff value that the device rules
+// of the page could no longer correct.
+const TYPOGRAFIE: ReadonlySet<string> = new Set([
+  "font-family",
+  "font-size",
+  "font-weight",
+  "font-style",
+  "font-variant",
+  "line-height",
+  "letter-spacing",
+  "text-align",
+  "text-indent",
+  "text-transform",
+  "text-decoration",
+  "color",
+]);
+
+// The measures of the text — the ones that have no home in the props of the
+// page when the text sits inside a rich text body (the heading of the footer
+// of the Earn template). The family and the color stay with the props: they
+// carry the theme's slots and the resolved colors of the source, and an
+// inline `var(--token-…)` would name the theme's color, not the source's.
+const MESSWERT: ReadonlySet<string> = new Set([
+  "font-size",
+  "font-weight",
+  "font-style",
+  "line-height",
+  "letter-spacing",
+]);
+
+// The look of an inline element travels with it — but only where the props of
+// the page cannot carry it: a child of a rich text body (the heading of the
+// footer of the Earn template lives there). Everywhere else the props own the
+// look, and they know the device variants and the resolved colors of the
+// source; an inline declaration would be a stiff value that the device rules
+// of the page could no longer correct.
+//
+// Two kinds of declarations travel:
+//  - the source's own declarations of the `style` attribute. The properties a
+//    `transition` names are left out: Framer writes the state BEFORE an effect
+//    into the inline style (the same convention as the appear start state), the
+//    resting look comes from the class rules.
+//  - the typography of the element — but only where every device says the same
+//    (otherwise the device rules of the page own it).
+function styleAttributeOf(child: IrNode, context: MapContext, mitTypografie: boolean): string {
+  const parsed = (typeof child.inlineStyle === "string" ? splitDeclarations(child.inlineStyle) : [])
+    .map((declaration) => parseDeclaration(declaration))
+    .filter((pair): pair is [string, string] => pair !== null);
+  const uebergangen = transitionPropertiesOf(parsed);
+  // The start state of an appear effect is no look: the capture took it out of
+  // the visual (`appearInitial`), and it must not come back through the door
+  // of the inline style — the element would stay invisible for good.
+  const startzustand = Object.keys(child.appearInitial ?? {});
+  const teile: string[] = [];
+  for (const [name, wert] of parsed) {
+    // The `--framer-*` variables carry the typography — they travel below, in
+    // the text's own inline styles, and not as raw variables.
+    if (name.startsWith("--")) continue;
+    if (name === "transition") continue;
+    if (uebergangen.has(name.toLowerCase())) continue;
+    if (startzustand.includes(name.toLowerCase())) continue;
+    if (TYPOGRAFIE.has(name.toLowerCase())) continue;
+    teile.push(`${name}:${wert}`);
+  }
+  if (mitTypografie && context.mode === "fidelity" && typografieGleich(child)) {
+    const inline = child.states[0]?.text?.inline ?? {};
+    for (const [name, wert] of Object.entries(inline)) {
+      if (typeof wert !== "string" || wert === "") continue;
+      const css = cssPropertyNameOf(name);
+      if (css === undefined || !MESSWERT.has(css)) continue;
+      teile.push(`${css}:${wert}`);
+    }
+  }
+  if (teile.length === 0) return "";
+  return ` style="${escapeHtmlAttr(teile.join(";"))}"`;
+}
+
+// The typography of the element, and whether every device says the same. A
+// value that differs per device belongs to the device rules of the page.
+function typografieGleich(child: IrNode): boolean {
+  const base = child.states[0]?.text?.inline ?? {};
+  return child.states.every((state) => {
+    const inline = state.text?.inline ?? {};
+    const namen = new Set([...Object.keys(base), ...Object.keys(inline)]);
+    for (const name of namen) {
+      if ((base[name] ?? "") !== (inline[name] ?? "")) return false;
+    }
+    return true;
+  });
+}
+
+// The properties a transition names: `background-size 2s ease, color .4s`.
+function transitionPropertiesOf(parsed: [string, string][]): Set<string> {
+  const namen = new Set<string>();
+  for (const [name, wert] of parsed) {
+    if (name !== "transition") continue;
+    for (const teil of wert.split(",")) {
+      const eigenschaft = (teil.trim().split(/\s+/)[0] ?? "").toLowerCase();
+      if (eigenschaft !== "") namen.add(eigenschaft);
+    }
+  }
+  return namen;
+}
+
+// The style name of the capture (`fontSize`) as a CSS property (`font-size`).
+// The vendor prefixes keep their leading dash (`WebkitTextFillColor` ->
+// `-webkit-text-fill-color`).
+function cssPropertyNameOf(name: string): string | undefined {
+  if (/^[A-Z]/.test(name)) {
+    const prefix = name.slice(0, 1).toLowerCase();
+    const rest = name.slice(1).replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+    return `-${prefix}${rest}`;
+  }
+  if (!/^[a-z][a-zA-Z0-9]*$/.test(name)) return undefined;
+  return name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
 }
 
 function escapeHtml(value: string): string {
@@ -1105,6 +1230,7 @@ export function mapDocument(
       document.breakpoints.map((entry) => [entry.id, { minWidth: entry.minWidth, maxWidth: entry.maxWidth }]),
     ),
     fontSlots: slots,
+    mode: options.mode ?? "dna",
     stats: { nodes: 0, mergedVariants: 0, placeholders: 0 },
     nodeIdByIrKey: {},
     findings: [...document.findings],

@@ -243,6 +243,11 @@ export type IrNode = {
   alt?: string | null;
   target?: string | null;
   innerHtml?: string | null;
+  // The `style` attribute of the source, as written. The visual holds the
+  // resolved cascade; this holds the source's own declarations — they are
+  // what travels with an inline element (the marker behind a word of the
+  // testimonial), because the cascade of the import cannot know them.
+  inlineStyle?: string | null;
   assetUrl?: string | null;
   assetId?: string | null;
   states: IrState[];

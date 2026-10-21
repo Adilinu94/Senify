@@ -32,6 +32,52 @@ describe("sanitizeInlineHtml", () => {
   });
 });
 
+describe("sanitizeInlineHtml mit einem style-Attribut", () => {
+  it("behaelt eine Deklaration, die die Grammatik besteht", () => {
+    expect(
+      sanitizeInlineHtml('<span style="background-color:rgb(255, 249, 189);padding:0px 2px">Wort</span>'),
+    ).toBe('<span style="background-color:rgb(255, 249, 189);padding:0px 2px">Wort</span>');
+  });
+
+  it("wirft die einzelne Deklaration weg, die die Grammatik verletzt", () => {
+    // `expression` ist kein Wert der Grammatik, `color` darf bleiben.
+    expect(sanitizeInlineHtml('<span style="color:red;width:expression(alert(1))">Wort</span>')).toBe(
+      '<span style="color:red">Wort</span>',
+    );
+  });
+
+  it("nimmt eine Property mit, die es nicht kennt (ADR-0005: offenes CSS)", () => {
+    // Die Grammatik zählt die erlaubten Wert-Formen auf, nicht die bekannten
+    // Property-Namen — eine Property, die es nicht gibt, ist kein Angriff.
+    expect(sanitizeInlineHtml('<span style="color:red;evil-property:1">Wort</span>')).toBe(
+      '<span style="color:red;evil-property:1">Wort</span>',
+    );
+  });
+
+  it("lässt nichts zu, was eine Ressource laedt", () => {
+    expect(sanitizeInlineHtml('<span style="background-image:url(https://x.de/a.png)">W</span>')).toBe(
+      "<span>W</span>",
+    );
+    expect(sanitizeInlineHtml('<span style="background-image:var(--x, url(https://x.de/a.png))">W</span>')).toBe(
+      "<span>W</span>",
+    );
+  });
+
+  it("haelt eine eigene Variable (die Theme-Farben kommen als Variable)", () => {
+    expect(sanitizeInlineHtml('<span style="color:var(--token-abc, rgb(0, 0, 0))">W</span>')).toBe(
+      '<span style="color:var(--token-abc, rgb(0, 0, 0))">W</span>',
+    );
+  });
+
+  it("haelt eine Semikolon-Liste in einem Wert", () => {
+    expect(sanitizeInlineHtml(`<span style='font-family:"a;b", sans-serif'>W</span>`)).toContain("font-family:");
+  });
+
+  it("baut das Attribut ohne Style weg, wenn nichts uebrig bleibt", () => {
+    expect(sanitizeInlineHtml('<span style="background-image:url(https://x.de/a.png)">W</span>')).not.toContain("style=");
+  });
+});
+
 describe("isSafeHref", () => {
   it("allows relative references, anchors and the four plain schemes", () => {
     for (const href of ["/a", "./a", "#kontakt", "https://x.de", "mailto:a@b.de", "tel:+49"]) {

@@ -3,9 +3,12 @@
 //
 // An allow-list tokenizer, not a regex scrub: every tag outside the list is
 // dropped (its text stays), `script`/`style` content is dropped with the tag,
-// attributes are rebuilt from scratch (only `href`, `target`, `rel` on `a`),
-// and any `<` or bare `&` that is not part of an allowed construct is escaped.
-// Nothing in the output can start a script or load a resource.
+// attributes are rebuilt from scratch (only `href`, `target`, `rel` on `a`,
+// and a `style` whose declarations pass the value grammar), and any `<` or
+// bare `&` that is not part of an allowed construct is escaped. Nothing in the
+// output can start a script or load a resource.
+
+import { isSafeCssProperty, isSafeCssValue } from "./css/value-grammar.ts";
 
 const ALLOWED_TAGS: ReadonlySet<string> = new Set([
   "p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote", "pre",
@@ -55,14 +58,77 @@ function attributeOf(raw: string, name: string): string | undefined {
 }
 
 function openTag(name: string, rawAttrs: string): string {
-  if (name !== "a") return `<${name}>`;
-  const href = attributeOf(rawAttrs, "href");
-  const parts = ["a"];
-  if (href !== undefined && isSafeHref(href)) parts.push(`href="${escapeAttr(href.trim())}"`);
-  if (attributeOf(rawAttrs, "target")?.toLowerCase() === "_blank") {
-    parts.push('target="_blank"', 'rel="noopener noreferrer"');
+  const parts: string[] = [name];
+  if (name === "a") {
+    const href = attributeOf(rawAttrs, "href");
+    if (href !== undefined && isSafeHref(href)) parts.push(`href="${escapeAttr(href.trim())}"`);
+    if (attributeOf(rawAttrs, "target")?.toLowerCase() === "_blank") {
+      parts.push('target="_blank"', 'rel="noopener noreferrer"');
+    }
   }
+  const style = safeStyleAttribute(attributeOf(rawAttrs, "style"));
+  if (style !== undefined) parts.push(`style="${escapeAttr(style)}"`);
   return `<${parts.join(" ")}>`;
+}
+
+// A style attribute is CSS, so it goes through the same grammar as every
+// other value (ADR-0005): the property name follows the ADR's pattern, the
+// value passes the value grammar, and nothing may load a resource — the
+// promise this module makes. A declaration that fails is dropped; the rest
+// of the attribute stays. Every declaration that survives is checked on its
+// own, so what is emitted is what was checked.
+//
+// The source uses it for the look of a single word inside a flowing text
+// (the marked word of the testimonial). Without it, the word loses its
+// background and the text reads different from the source.
+function safeStyleAttribute(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  const erlaubt: string[] = [];
+  for (const deklaration of splitDeclarations(raw)) {
+    const trimmed = deklaration.trim();
+    if (trimmed === "") continue;
+    const colon = trimmed.indexOf(":");
+    if (colon <= 0) continue;
+    const name = trimmed.slice(0, colon).trim();
+    const wert = trimmed.slice(colon + 1).trim();
+    if (name === "" || wert === "") continue;
+    if (!isSafeCssProperty(name)) continue;
+    // A value that loads a resource breaks the promise of this module — the
+    // grammar allows a `url()` with an https address.
+    if (/url\s*\(/i.test(wert)) continue;
+    if (!isSafeCssValue(wert)) continue;
+    erlaubt.push(`${name}:${wert}`);
+  }
+  if (erlaubt.length === 0) return undefined;
+  return erlaubt.join(";");
+}
+
+// The declarations of a style attribute. A `;` inside a string does not end
+// a declaration (`content: "a;b"`).
+function splitDeclarations(raw: string): string[] {
+  const out: string[] = [];
+  let current = "";
+  let quote = "";
+  for (const char of raw) {
+    if (quote !== "") {
+      current += char;
+      if (char === quote) quote = "";
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      current += char;
+      continue;
+    }
+    if (char === ";") {
+      out.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  out.push(current);
+  return out;
 }
 
 export function sanitizeInlineHtml(input: string): string {
