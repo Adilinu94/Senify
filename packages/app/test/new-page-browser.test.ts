@@ -51,7 +51,13 @@ describe.skipIf(browserSkip)("new page with a start template", () => {
 
       const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
       const tab = await context.newPage();
-      tab.setDefaultTimeout(15000);
+      // 30 s wie in den anderen Browser-Tests, die den Editor öffnen
+      // (accessibility, canvas-view, redesign-canvas): dieser Test startet
+      // das ganze Programm, lädt das Dashboard und öffnet danach den Editor.
+      // Mit 15 s lief er auf einem belasteten CI-Runner in einen Klick-Timeout
+      // („locator.click: Timeout 15000ms exceeded“) - die Schicht war zu eng
+      // angesetzt, nicht der Test falsch.
+      tab.setDefaultTimeout(30000);
       tab.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
       await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages`, {
         waitUntil: "domcontentloaded",
