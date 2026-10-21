@@ -348,7 +348,9 @@ Bearbeitbarkeit, und der Editor zeigt statt des Payloads sein Poster.
 ### 5.1 Warum diese Reihenfolge
 
 1. **Erst den Code-Weg bauen**, nicht den Struktur-Weg weiter polieren. Der Struktur-Weg ist bei
-   4 von 11 Seiten brauchbar; der Code-Weg ist bei **jeder** Seite 1:1, weil er die Originaldateien
+   **3 von 7** fremden Seiten brauchbar (korrigiert am 21.10.2026, siehe Schritt 3: die frühere
+   Zahl „4 von 11" stammte aus einer Messung, die auf die kürzere Bildhöhe schnitt und Fehler
+   verdeckte); der Code-Weg ist bei **jeder** Seite 1:1, weil er die Originaldateien
    ausführt. Die 1:1-Zusage hängt am Code-Weg.
 2. **Dann die Projekt-Schnittstelle als zweite Strukturquelle.** Sie ist dort stärker, wo der
    SSR-Weg rät (Stapel, Komponenten, Tokens). Sie ersetzt ihn nicht: nicht jeder Kunde gibt
@@ -402,6 +404,51 @@ Payload auf einer Seite, die heute 0 hat (`donutshop`). Ein Testfall, der ohne d
 
 **Gate:** Eine Seite, die über MCP importiert wurde, hat **keine** Knoten mit doppelter
 Geräte-Kopie (gemessen), und ihre Struktur nennt Komponenten beim Namen.
+
+### Schritt 3 · Den Messapparat härten — **umgesetzt 21.10.2026**
+
+**Ziel:** Die Messung darf einen Fehler nicht verstecken.
+
+**Was falsch war:** Der Blindtest schnitt beide Screenshots auf die **kürzere**
+Höhe (`Math.min(a.height, b.height)`). Eine Seite, die 8000 px zu lang war, wurde
+damit auf den gemeinsamen Teil verglichen — der Fehler verschwand aus der Zahl.
+Genau dieser Fehler stand in den dokumentierten Werten.
+
+**Was jetzt gilt:** Der **höhere** Rahmen ist das Maß, und der Streifen, den das
+kürzere Bild nicht erreicht, zählt als Unterschied — dieselbe Regel, die
+`diffScreenshots` schon benutzt. Das ist als Test festgehalten
+(`packages/analysis-worker/test/visual.test.ts`, „compares images of different
+heights against the taller canvas").
+
+**Der Blindtest ist jetzt ein Skript im Repo** (`packages/framer-import/scripts/blindtest.ts`),
+kein Wegwerf-Skript in einem Temp-Ordner: acht fremde Framer-Seiten, Import →
+Backen → Pixel-Differenz bei 1440 / 900 / 390 px, mit Höhenvergleich.
+
+**Die korrigierte Messung (21.10.2026, Desktop / Tablet / Mobil):**
+
+| Seite | Pixel-Differenz | Höhe Import − Quelle | Urteil |
+|---|---|---|---|
+| wedge | 0,46 / 0,69 / 0,86 % | **0 / 0 / 0 px** | brauchbar |
+| meeko | 0,40 / 0,64 / 1,09 % | **0 / 0 / 0 px** | brauchbar |
+| refined | 1,69 / 2,42 / 5,77 % | −18 / −18 / −36 px | brauchbar |
+| unifiersofjapan | 21,01 / 24,04 / 26,73 % | +780 / −615 / +182 px | nicht brauchbar |
+| notes | 27,96 / 34,25 / 36,65 % | −242 / −241 / −503 px | nicht brauchbar |
+| donutshop | 45,28 / 44,36 / 44,52 % | **+1857 / −1641 / −1864 px** | nicht brauchbar |
+| last-studio | 80,21 / 78,66 / 83,74 % | **+8024 / −3701 / −5123 px** | nicht brauchbar |
+
+**Die Zahl, die vorher falsch dokumentiert war:** `notes` stand mit **0,59 %** in
+diesem Plan. Mit der korrekten Höhenregel sind es **27,96 %** — die Seite ist
+242 px zu kurz, und die alte Messung schnitt genau diesen Streifen ab. `wedge`
+und `meeko` bleiben bei ihrem Wert, weil ihre Höhe exakt stimmt; das ist der
+Gegenbeweis, dass die neue Regel nicht einfach alles schlechter macht.
+
+**Ergebnis: 3 von 7 Seiten sind brauchbar** (statt der vorher dokumentierten
+„4 von 11"). Die Abweichung ist nicht die neue Regel, sondern die alte, die
+Fehler verdeckt hat. `receivio` ist inzwischen 404 und fällt aus der Gruppe.
+
+**Gate:** Ein Test belegt, dass eine zu kurze Seite nicht als „gleich" durchgeht
+(`visual.test.ts`, Höhenfall); der Blindtest läuft als Skript und nennt Höhe und
+Pixel nebeneinander.
 
 ### Schritt 2 · Die Framer-Runtime als Payload mitnehmen
 
@@ -544,7 +591,8 @@ und Hover-*Bewegung* brauchen weiter den Payload (Schritt 2).
 
 **Ziel:** Was der Payload nicht trägt, wird wenigstens benannt oder nachgebaut.
 
-**Punkt 1 — Fehlender Appear-Kanal (4 von 11 Seiten): umgesetzt.**
+**Punkt 1 — Fehlender Appear-Kanal: umgesetzt.** (Die frühere Zahl „4 von 11"
+stammte aus der Messung, die auf die kürzere Bildhöhe schnitt; siehe Schritt 3.)
 Gemessen an der Live-Seite `https://donutshop.framer.website/`: 51 Elemente tragen
 eine `data-framer-appear-id`, **kein** Appear-Kanal — aber **39** davon tragen
 ihren Startzustand im Inline-Stil (`opacity:0.001; transform:perspective(1200px)
