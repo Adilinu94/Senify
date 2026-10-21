@@ -27,7 +27,8 @@
 | `02520ed` | Aktuellen `master` `d14880e` übernommen, damit die PR-CI starten kann. Konflikt nur in der Qualitätsdokumentation: beide Nachträge erhalten. Überzählige EOF-Leerzeilen in einer Upstream-Testdatei entfernt, keine inhaltliche Änderung. Upstream-Produktarbeit bleibt erhalten. |
 | `ca0d3ff` | Library-Uninstall am vollständigen erwarteten Detach-Draft, Draft-Version, Titel/Pfad und Audit geprüft. Zusätzliche Einzelgegenprobe 31 erkennt abgetrennte Root-Kinder; anschließend bytegenau wiederhergestellt und Baseline grün. |
 | Linux-Lauf `39628036316` | Alle unveränderten Coverage-Schwellen bestehen. Verify einschließlich Pflicht-Browser, Visual, Parity, Import, Windows, echte PostgreSQL-Lane und beide Scans bestehen. Nur der bisherige Doku-Messblock war rot. Der neue Block wurde aus dem Linux-Artefakt erzeugt; `pnpm quality:check` ist damit exakt grün. Quelle/Hash und Laufzahlen: `docs/current/qualitaet.md`. |
-| Zweiter Basisabgleich nach `31000b2` | Während des Doku-Abschlusses gingen PR #98 und #99 nach `master` (`328bfdc`). Ein Konflikt im Messblock verhinderte die PR-CI. Beide Produkt-Auslagerungen und Doku-Nachträge werden erhalten; der Messblock bleibt bis zur neuen Linux-Messung als alter Artefaktstand gekennzeichnet. Upstream ergänzt `store-library.ts` in der bestehenden Coverage-Gruppe, ohne Schwellen zu senken. Die Upgrade-Änderung selbst bleibt unverändert. |
+| Zweiter Basisabgleich `08ef71d` | Während des Doku-Abschlusses gingen PR #98 und #99 nach `master` (`328bfdc`). Ein Konflikt im Messblock verhinderte die PR-CI. Beide Produkt-Auslagerungen und Doku-Nachträge erhalten. Upstream ergänzt `store-library.ts` in der bestehenden Coverage-Gruppe, ohne Schwellen zu senken. Die Upgrade-Änderung selbst bleibt unverändert. |
+| Linux-Lauf `39640839148` | Beide Basis-Auslagerungen integriert, vollständiges lokales Verify mit Pflicht-Chromium und fünf CI-Jobs grün. Sämtliche Coverage-Schwellen einschließlich Library bestehen; nur der ältere Messblock war rot. Neue Linux-Summary unverändert übernommen, Generator und exakter Abgleich grün. Der nächste reine Doku-Push braucht die endgültig vollständig grüne CI. |
 
 **Nicht abschließend erklärt:** Ein experimenteller Thread-Pool beendete den
 Windows-Volltest nativ mit `0xC0000005`. Der Fehler ist nicht auf eine konkrete
@@ -225,7 +226,9 @@ Coverage-Gruppendatei und die neuen Upstream-Tests bleiben erhalten. Kein
 handgemischter Messblock, keine verlorenen Markdown-/Doku-Änderungen und keine
 neue Produktänderung durch die Integration. Typecheck, Lint, Paketregeln und
 gezielte Integrationssuiten grün; beide generierten Dokumente ohne Drift.
-Der vollständige neue CI-Nachweis und sein Coverage-Artefakt sind ausstehend.
+Vollständiges lokales Verify und alle produktprüfenden CI-Schritte bestehen auf
+`08ef71d`. Der reine Messblock-Drift wurde ausschließlich aus der zugehörigen
+Linux-Summary behoben; der Doku-Folge-Push braucht noch den vollständigen grünen Lauf.
 
 ## Grenzen und offene Arbeit
 
