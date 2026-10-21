@@ -83,6 +83,17 @@ export class PagesRepository {
     return result.rows.map((row) => toSummary(row));
   }
 
+  // Die Pfade aller Seiten einer Site - gebraucht von der Redesign-Berechnung
+  // (apply-redesign.ts), um neue Pfade kollisionsfrei zu waehlen. Bewusst ohne
+  // Existenzpruefung der Site: der Aufrufer hat sie im selben Lauf schon.
+  async listPagePaths(siteId: string): Promise<string[]> {
+    const result = await this.#db.query<{ path: string }>(
+      `SELECT path FROM pages WHERE site_id = $1`,
+      [siteId],
+    );
+    return result.rows.map((row) => row.path);
+  }
+
   async listPageDrafts(siteId: string): Promise<Page[]> {
     await this.#host.getSite(siteId);
     const result = await this.#db.query<PageRow>(
