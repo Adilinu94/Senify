@@ -177,6 +177,7 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       expect(await tab.locator(".canvas-view__explorer").isVisible()).toBe(false);
       expect(await sideToggle.isDisabled()).toBe(true);
       expect(await explorerToggle.isDisabled()).toBe(true);
+      expect(await tab.locator('button[data-action="page-panel"]').isDisabled()).toBe(true);
       // The preview shows the page, not the editing aids: no plus point on hover.
       await tab.locator(".senify-canvas__frame .senify-canvas__iframe").hover({ position: { x: 40, y: 40 } });
       expect(await tab.locator(".senify-canvas__plus:visible").count()).toBe(0);
@@ -186,9 +187,16 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       expect(await tab.locator(".canvas-view__side").isVisible()).toBe(true);
       expect(await tab.locator(".canvas-view__explorer").isVisible()).toBe(false);
       expect(await sideToggle.isDisabled()).toBe(false);
+      expect(await tab.locator('button[data-action="page-panel"]').isDisabled()).toBe(false);
       expect(await explorerToggle.getAttribute("aria-pressed")).toBe("false");
-      await explorerToggle.click();
+      // E8: "Seite" oeffnet das rechte Panel (es ist zu) und zeigt den Tab "Seiten".
+      await tab.locator('button[data-action="page-panel"]').click();
       await expect.poll(async () => tab.locator(".canvas-view__explorer").isVisible()).toBe(true);
+      expect(await explorerToggle.getAttribute("aria-pressed")).toBe("true");
+      expect(await tab.locator('.senify-explorer__tab[data-tab="pages"]').getAttribute("data-active")).toBe("true");
+      // Back to the layers: the rest of the flow works on the tree.
+      await tab.locator('.senify-explorer__tab[data-tab="layers"]').click();
+      expect(await tab.locator('.senify-explorer__tab[data-tab="layers"]').getAttribute("data-active")).toBe("true");
       await tab.screenshot({ path: join(shotDir, "02-canvas-frames.png") });
 
       // Der Editor startet eingepasst (Start-Zoom), nicht bei 100 %.

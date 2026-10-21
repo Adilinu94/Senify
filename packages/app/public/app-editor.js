@@ -378,6 +378,19 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   toolbar.insertBefore(panelToggle("side", "Elemente"), canvas.toolbar);
   toolbar.insertBefore(panelToggle("explorer", "Struktur"), toolbar.querySelector("#page-version"));
 
+  // „Seite“ (E8): öffnet das rechte Panel und zeigt dort die Seiten der Site.
+  const pageButton = el("button", {
+    type: "button",
+    class: "ghost",
+    "data-action": "page-panel",
+    text: "Seite",
+  });
+  pageButton.addEventListener("click", () => {
+    setPanelOpen("explorer", true);
+    explorer.setTab("pages");
+  });
+  toolbar.insertBefore(pageButton, panelToggles.explorer);
+
   // Vorschau (E8): der Live-Modus des Canvas bei zugeklappten Panels. Beim
   // Zurückkehren (Knopf oder Esc) stehen die Panels wieder so wie vorher.
   let panelsBeforePreview = null;
@@ -399,9 +412,11 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
         setPanelOpen(attribute, false);
         panelToggles[attribute].disabled = true;
       }
+      pageButton.disabled = true;
       canvas.setMode("live");
     } else {
       canvas.setMode("design");
+      pageButton.disabled = false;
       for (const attribute of ["side", "explorer"]) {
         panelToggles[attribute].disabled = false;
         setPanelOpen(attribute, panelsBeforePreview[attribute]);
