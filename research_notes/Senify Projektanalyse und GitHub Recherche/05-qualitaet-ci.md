@@ -269,6 +269,10 @@ stillschweigend).
   die Suite läuft dann und wird rot, statt grün zu sein ohne Test. Nachgemessen: ohne die
   Variable `1 skipped`, mit ihr ein Fehler (`Executable doesn't exist`). Der Windows-Job setzt sie
   bewusst nicht - dort ist kein Chromium installiert, die Browser-Tore laufen im Linux-Job.
+  **Lokal** gibt es jetzt `pnpm browser:check`: das Skript sagt in einer Sekunde, ob Chromium
+  da ist und zur Playwright-Version passt, und es endet rot mit dem Installationshinweis, wenn
+  nicht. Damit beantwortet sich die Frage "laufen die Browser-Suiten bei mir?" vor dem Lauf
+  statt hinterher in der Zusammenfassung ("skipped").
 - **Die globale Abschaltung des Adresswächters bleibt** (zweite Prüfung, 21.10.2026): sie ist eine
   bewusste, dokumentierte Abwägung — ohne sie könnte die Hälfte der Suite keinen lokalen Server
   ansprechen. Der Vorschlag aus Abschnitt 5 (ein Helfer, der fehlschlägt, wenn ein Test den
