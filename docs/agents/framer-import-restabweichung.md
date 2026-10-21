@@ -47,6 +47,20 @@ Schrift oder Farbe.
    Framer-Code-Komponente füllt fünf leere `display:contents`-Platzhalter erst
    im Browser). Der Import lässt an ihrer Stelle den leeren Rahmen stehen.
 
+4. **Ein Subpixel-Rest im Fußzeilentext bei 1280 px.** Die Quelle skaliert das
+   `viewBox` (Höhe/Breite = 169/1058,22 = 0,15970); die Formel setzt
+   `line-height:0,8` auf `19,9391 %` der Breite = 0,15951. Bei 1280 px ist der
+   Footer dadurch **0,22 px** kürzer. Bei 1440, 1100, 1024, 810, 768, 600 und
+   480 px ist die Höhe exakt gleich; der Rest liegt unter einem Pixel und
+   wurde bewusst nicht mit einer Näherung überdeckt.
+
+## Zwischenbreiten
+
+Über sieben weitere Breiten gemessen (1280, 1100, 1024, 810, 768, 600, 480 px):
+**0,90 – 2,12 %** Pixel-Differenz, die Seitenhöhe bis auf den 0,22-px-Rest oben
+überall exakt gleich. Der Import bricht also an denselben Stellen um wie die
+Quelle.
+
 ## Was das für die Abnahme heißt
 
 Die Seite ist auf allen drei Breiten **exakt gleich hoch** und die Textboxen
