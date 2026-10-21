@@ -3,7 +3,7 @@
 **Stand:** 19.10.2026 · **Basis:** `master` `5ac1a84` (Merge PR #55) · **Analysierte Gegenprobe:** `19c8ee0` (PR #39)
 **Umfang:** alle 15 Workspace-Pakete, sieben Fachbereiche, sechs Fachanalysen
 **Anwendungscode:** zur Analysezeit unverändert. Kein Commit, kein Pull, kein Push.
-**Umsetzung:** 20. und 21.10.2026 — Abschnitte 6.1 und 6.2, PRs #71, #72, #76, #83 und #85
+**Umsetzung:** 20. und 21.10.2026 — Abschnitte 6.1–6.3; PRs #71, #72, #76, #83, #85, #88, #90, #91 und #92 gemergt. Vitest-4-Abschluss in PR #96 (Draft, nicht gemergt).
 
 > **Was dieses Dokument ist.** Eine Untersuchung mit dem Nachweis ihrer Umsetzung. Jede Aussage
 > ist mit Datei und Zeile belegt; jede Prüfgrenze ist ausgewiesen. Die **Belegformate**
@@ -12,6 +12,13 @@
 >
 > **Verbindliche Dokumente bleiben `docs/fahrplan.md`, `docs/current/*` und `docs/adr/`.** Dieser
 > Bericht ist ein Vorschlag und ändert keine bestehende Entscheidung.
+
+> **Leserichtung:** Abschnitte 1–5, der ursprüngliche Maßnahmenplan in 6 sowie
+> Abschnitt 7 und Anhänge A/B beschreiben den Analysezeitpunkt 19.10.2026.
+> Spätere Code-/Laufbelege und Entscheidungen stehen in 6.1–6.3 und Anhang D.
+> „Nicht geprüft“ in der ursprünglichen Analyse ist deshalb nicht automatisch
+> eine offene Umsetzungslücke. Aktuelle Messzahlen stehen nur in
+> `docs/current/qualitaet.md`.
 
 ---
 
@@ -218,9 +225,10 @@ Dashboard, kein Speichern, keine MCP-Antwort, kein Worker-Tick.
 **Behebung:** `spawnSync` → `spawn` (asynchron). `bakeSite` ist bereits `async`; die Funktion
 `runAstroBuild` ist die einzige Stelle.
 
-**Der Bake ist auch die Ursache der testseitigen Flakes.** Die beiden 90-Sekunden-Timeouts des
-korrigierten Volltests sind Review-Tests mit Bake; ihre grünen Nachbarn brauchen 12,3 s, 15,3 s
-und 23,8 s (Anhang A). Die Marge ist dünn, und der Grund ist der synchrone Bake.
+**Plausible Lastursache, kein isolierter Timeout-Beweis:** Die beiden 90-Sekunden-
+Timeouts des korrigierten Volltests sind Review-Tests mit Bake; ihre grünen Nachbarn
+brauchen 12,3 s, 15,3 s und 23,8 s (Anhang A). Der synchrone Bake blockiert den
+Event-Loop, aber seine Ursächlichkeit für jeden einzelnen Timeout wurde nicht isoliert.
 
 → Fachanalyse 3, B1
 
@@ -357,7 +365,9 @@ der Punkt gehört aber in die Akte.
 
 ## 6 — Maßnahmenplan
 
-Jede Zeile nennt den Beleg und das Gate, das sie braucht. **Kein Schritt ist hier gestartet.**
+Jede Zeile nennt den ursprünglichen Beleg und das benötigte Gate.
+**Historischer Plan vom 19.10.2026:** Damals war kein Umsetzungsschritt gestartet;
+die Entscheidungen und Abschlüsse folgen in 6.1–6.3.
 
 | # | Maßnahme | Bereich | Aufwand | Beleg | Gate aus `docs/fahrplan.md` |
 |---|---|---|---|---|---|
@@ -390,6 +400,10 @@ OpenAPI-Dokument ohne Anlass.
 Der Plan ist abgearbeitet. Jede Zeile nennt, was tatsächlich gemacht wurde und wie es belegt ist.
 Jede Aussage ist **zusätzlich am Endstand gegengeprüft** (Anhang D): der Fix wurde zurückgenommen,
 und das Tor muss dann rot werden — 15 Proben, alle mit dem gemessenen Fehlerbild.
+
+Die Tabelle ist der Umsetzungsstand vom 20.10.2026. Die darin noch offenen
+Runner-/Pool-Ausnahmen wurden am 21.10.2026 durch PR #96 entfernt (6.3);
+die separate Cache-Ausnahme bleibt befristet offen.
 
 | # | Stand | Was |
 |---|---|---|
@@ -441,12 +455,10 @@ Nach dem Merge wurde der ganze Bericht noch einmal gegen den Code geprüft — m
 die erste Runde nicht gestellt hatte: **hat jeder Befund aus den sechs Fachanalysen eine
 Entscheidung?** Eine umgesetzte mit Beleg oder eine bewusst offene mit Begründung.
 
-Die Antwort war: **nein.** Neun Befunde hatten nur einen Vorschlag und keine Entscheidung — sie
-waren weder umgesetzt noch begründet offen. Sechs davon standen in Abschnitt 4 (Priorität 4), zwei
-in den Fachanalysen selbst (2, Abschnitt 3.4 — der Hinweis für den Benutzer; 5, Abschnitt 5 —
-der Vorschlag zum Adresswächter), einer in den Prüfgrenzen von Fachanalyse 4 (die generierte
-Route-Matrix ohne Drift-Tor) und einer in Fachanalyse 3 (B3, die kürzere Bake-Lease). Sie sind in
-dieser Runde abgearbeitet:
+Die Antwort war: **nein.** Die folgende Tabelle disponiert neun Befunde, die
+zuvor weder umgesetzt noch begründet offen waren. Sie umfasst die Vorschläge
+aus Abschnitt 4, den Benutzerhinweis und die Test-Abwägung zum Adresswächter,
+das Route-Matrix-Tor und die kürzere Bake-Lease. Sie sind in dieser Runde abgearbeitet:
 
 | Befund | Umsetzung | Beleg |
 |---|---|---|
@@ -460,11 +472,11 @@ dieser Runde abgearbeitet:
 | Die generierte Route-Matrix hatte **kein Drift-Tor**, und ihr Generator war nicht deterministisch (Fachanalyse 4, Prüfgrenzen) | `pnpm route-matrix:check` vergleicht die Datei mit dem Generator (Muster wie beim Manifest), der Generator sortiert die Routenmodule — die Reihenfolge kam aus `readdirSync` und war je Dateisystem eine andere. Der Test `route-matrix.test.ts` ruft den Check im normalen Testlauf, die CI hat einen eigenen Schritt. Die Datei im Repo war nicht mehr das, was der Generator schreibt: sie ist neu erzeugt | Gegenprobe: eine geänderte Überschrift macht den Check rot (`weicht vom Generator ab`, Exit 1); die Originaldatei ist grün |
 | **B3: Die Bake-Lease (60 s) war kürzer als der Bake-Timeout (180 s)** (Fachanalyse 3) | Die Lease existiert, damit ein *abgestürbter* Prozess seine Arbeit nicht verliert — das trägt nur, wenn sie die Arbeit überdauert. Die Lease ist jetzt der Build-Frist plus fünf Minuten (Muster des Bild-Workers). Der Build-Timeout ist eine benannte, exportierte Konstante (`BAKE_BUILD_TIMEOUT_MS`), damit die Lease ihn nicht doppelt festhält | `packages/engine/test/job-leases.test.ts`: die Bake-Lease ist länger als der Build, die Bild-Lease länger als das Job-Timeout. Gegenprobe: mit der alten Lease von 60 s ist der Test rot (`expected 60000 to be greater than 180000`) |
 
-**Was dabei auffiel.** Zwei der fünf Punkte waren keine Kleinigkeiten: der ungeschützte dritte
+**Was dabei auffiel.** Zwei der neun Punkte waren keine Kleinigkeiten: der ungeschützte dritte
 Browserpfad und der stille Skip in der CI. Beide waren Zusagen des Berichts, die keine Tests hatten —
 genau die Lücke, die die erste Runde bei der Browser-Verdrahtung und bei der Event-Loop gefunden
 hatte. Die Methode hat sich also bewährt: **eine Aussage ohne Test ist eine Behauptung.** Sie ist in
-Anhang D als Proben 16 bis 21 festgehalten.
+Anhang D als Proben 16 bis 23 festgehalten.
 
 **Der Browserpfad war die dritte Lücke derselben Art.** ADR-0022 nannte zwei Browserpfade; der
 dritte kam erst durch die Nachprüfung hinzu. Die Entscheidung selbst (der Browser holt nur
@@ -474,8 +486,48 @@ dritte kam erst durch die Nachprüfung hinzu. Die Entscheidung selbst (der Brows
 lief in einen Klick-Timeout (`locator.click: Timeout 15000ms exceeded`). Die Frist dieses Tests war
 15 s, die der anderen Browser-Tests, die den Editor öffnen, sind 30 s — dieselbe Höhe wie in
 `accessibility-browser.test.ts`, `canvas-view-browser.test.ts` und `redesign-canvas-browser.test.ts`.
-Der Test wurde im wiederholten Lauf grün, die Schicht war also zu eng angesetzt, nicht der Test
-falsch. Die Frist ist jetzt 30 s.
+Der Test wurde im wiederholten Lauf grün; die Frist ist jetzt 30 s.
+Ein erfolgreicher Wiederholungslauf beweist allein nicht die Ursache des Timeouts.
+Gemessen sind der Klick-Timeout, die abweichende Frist und der spätere grüne Lauf;
+eine isolierte Ursachenanalyse war dies nicht.
+
+### 6.3 Vitest 4 — Coverage-Lücken geschlossen, Verträge gegengeprüft
+
+Der eigene Major-Upgrade-Schritt liegt in **PR #96, Draft und ungemergt**.
+`package.json` und `pnpm-lock.yaml` führen Runner und V8-Provider 4.1.11.
+`vitest.config.ts` behält `forks` bei und begrenzt mit `maxWorkers`;
+die Coverage-CI nutzt `VITEST_MAX_WORKERS=2`. Die Root-Konfiguration wird jetzt
+vom normalen Typecheck geprüft (`tsconfig.json`). Eine fehlerhafte Migration
+mit `maxThreads` wurde rot reproduziert, die korrekte Begrenzung im Prozess-Harness
+gemessen. Ein experimenteller Thread-Pool stürzte unter Windows nativ ab;
+seine Ursache ist nicht isoliert, der bestehende Prozess-Pool besteht.
+
+Das AST-basierte V8-Remapping machte im ersten Linux-Lauf Schwellenverletzungen
+sichtbar. Sie sind durch gezielte Mapper-, Dokument-, HTTP-, Formular-, Lifecycle-
+und MCP-Vertragstests geschlossen — **ohne neue Produktfixes und ohne geänderte
+Schwellen, Includes oder Ausschlüsse**. Die neuen MCP-Tests verwenden echten
+HTTP-Client und echte Engine, prüfen gespeicherte Werte und Secret-Entschlüsselung
+statt konstruierter Antwort-Stubs. Revision-Ownership, Library-Versionen und
+Missing-Route-Fälle wurden in der Abschlussprüfung nachgeschärft.
+
+**Gegenproben 24–31:** Jede konkrete Produktregression wurde einzeln im isolierten
+Gegenproben-Worktree ausgeführt und von einer Assertion erkannt. Danach sind alle
+Produktmutationen zurückgenommen; die unveränderte Baseline ist grün.
+Exakte Mutationen, Fehlerbilder, Testpfade, Review-Runden und Grenzen stehen in
+`research_notes/Senify Projektanalyse und GitHub Recherche/07-vitest4-abschluss.md`.
+
+**Gate-Stand:** Upstream `d14880e` ist in `02520ed` integriert. Linux-CI
+`39628036316` besteht in Verify mit Pflicht-Browser, Visual, Parity, Import,
+Windows, PostgreSQL und beiden Scans; auch sämtliche unveränderten Coverage-
+Schwellen bestehen. Nur der alte Doku-Messblock war rot. Er wurde ausschließlich
+aus dem Linux-CI-Artefakt erzeugt, `quality:check` ist damit exakt grün.
+Der finale CI-Lauf nach dem Doku-Push steht noch aus; aktuelle Messzahlen und
+Artefaktprovenienz ausschließlich in `docs/current/qualitaet.md`.
+
+**R14 nicht pauschal geschlossen:** Die drei Ausnahmen für Runner/Pool sind
+entfernt und der OSV-Job besteht ohne sie. `http-cache-semantics` 4.2.0 bleibt
+mit `GHSA-ch52-4w7c-c8xp` bis 30.11.2026 ausgenommen. Die übrigen bewusst
+offenen Produktgrenzen und die begründeten Nicht-Adoptionen bleiben bestehen.
 
 ---
 
@@ -513,7 +565,7 @@ falsch. Die Frist ist jetzt 30 s.
 | `vitest run packages/renderer/test/widget-bake.test.ts` | `%TEMP%` auf `G:` | 1 Datei grün / 2 Tests grün; 48,93 s |
 | `pnpm test` (2) | `%TEMP%` auf `G:` | **4 Dateien rot / 268 grün / 3 übersprungen (275)**, 732,87 s |
 
-**Die vier roten Dateien des zweiten Laufs — alle unter Last, keine Funktionsfehler:**
+**Die vier roten Dateien des zweiten Laufs — beobachtete Timeouts, Ursachen nicht je Fall isoliert:**
 
 | Datei | Fehler | Einordnung |
 |---|---|---|
@@ -526,9 +578,10 @@ falsch. Die Frist ist jetzt 30 s.
 Bake**. Im grünen Lauf brauchen die Nachbarn desselben Zyklus 12,3 s, 15,3 s und 23,8 s
 (`submits a review with preview, diff and checks`, `runs request changes → fix → approve →
 release`, `rolls back to an older release as a new release`). Unter Last derselben Suite
-überschreiten sie die 90 s. Die Marge ist also dünn — und der Grund ist der **synchrone Bake**
-(Befund 4.4). Der Bake ist nicht nur ein Betriebsproblem, er ist auch die Ursache der
-testseitigen Flakes.
+überschritten die roten Fälle die 90 s. Der **synchrone Bake** (Befund 4.4)
+ist eine plausible Lastursache; seine Event-Loop-Blockade ist gegengeprüft.
+Die Ursache jedes einzelnen Timeouts ist damit aber nicht nachgewiesen.
+Wiederholungserfolg allein macht einen Fehler nicht zu einem belegten Flake.
 
 **Beide Läufe liefen** ohne `TEST_DATABASE_URL` (also gegen `pg-mem`) und ohne gesetztes
 `SENIFY_REQUIRE_BROWSER` (Browser-Suiten, die keinen Browser finden, überspringen sich still).
@@ -556,6 +609,7 @@ testseitigen Flakes.
 | `…/04-mcp-dokumentation.md` | Fachanalyse 4 — MCP-Vertrag, Manifest, Dokumentation |
 | `…/05-qualitaet-ci.md` | Fachanalyse 5 — Qualität, Coverage-Tor, CI |
 | `…/06-github-repositories.md` | Fachanalyse 6 — 21 Kandidaten, Nutzen, Urteil |
+| `…/07-vitest4-abschluss.md` | Upgrade, Vertragsprüfung, Einzelgegenproben 24–31, Deep Review und Grenzen |
 | `…/autosave-probe.mts` | die sechs ausgeführten Gegenproben (Review-Sonde, kein Regressionstest) |
 | `reports/senify-projektanalyse-2026-10.md` | dieser Bericht |
 
@@ -595,6 +649,14 @@ Arbeitsbaum des Repos unberührt blieb.
 | 21 | die Erklärung des Wächters (`blockedAddressError`) | `visual-guard.test.ts` | `expected [Function] to throw error matching /nicht öffentlichen Adresse/ but got 'page.goto: net::ERR_BLOCKED_BY_CLIENT…'` |
 | 22 | eine Zeile der generierten Route-Matrix | `pnpm route-matrix:check` | `docs/mcp-route-matrix.md weicht vom Generator ab` (Exit 1) |
 | 23 | die Bake-Lease zurück auf 60 s | `job-leases.test.ts` | `expected 60000 to be greater than 180000` |
+| 24 | Feldvalidierung des Record-Mappers umgehen | `store-record-mappers.test.ts` | Ungültige Feldlisten/-definitionen werfen nicht mehr; Einzelbeleg in `07-vitest4-abschluss.md` |
+| 25 | Slot-Maximum aufrunden statt abrunden | `editor/test/state/document.test.ts` | Ungültig erweiterte Slot-Belegung; Einzelbeleg in `07-vitest4-abschluss.md` |
+| 26 | explizite Preview-Tokenprüfung deaktivieren | `http-build-files.test.ts` | Falscher Token liefert die Datei mit 200 statt Ablehnung |
+| 27 | eingefrorene Formular-Feldregeln nicht prüfen | `forms-contracts.test.ts` | Ungültige Einsendung wird tatsächlich gespeichert statt abgewiesen |
+| 28 | fremde Revision annehmen | `lifecycle-contracts.test.ts` | Unerlaubte Revision wird ohne den Guard tatsächlich als Page zurückgegeben |
+| 29 | explizites Image-Key-Löschen ignorieren | `http-route-contracts.test.ts` | Gespeicherter Ciphertext bleibt statt `null` stehen |
+| 30 | MCP-Motion `enabled: false` verlieren | `tool-contracts.test.ts` | Tatsächliche gespeicherte Motion verliert den expliziten False-Wert |
+| 31 | beim Library-Uninstall Root-Kinder abtrennen | `tool-contracts.test.ts` | Gesamter gespeicherter Draft weicht vom erwarteten reinen Metadaten-Detach ab; die Überschrift allein hätte die Regression nicht erkannt |
 
 **Zwei Aussagen haben beim Nachprüfen einen Test bekommen, den es vorher nicht gab:** die
 Verdrahtung des Browser-Guards (Proben 4 und 5 — vorher war nur die Funktion getestet, nicht die
@@ -607,3 +669,11 @@ Tests dazu sind nicht aus dem Nichts entstanden, sondern aus der Gegenprobe: der
 geschrieben, weil die Zusage sonst eine Behauptung geblieben wäre. Probe 20 ist keine Gegenprobe
 im Code, sondern eine Messung des Zustands **vor** der Änderung (stilles Überspringen) und **nach**
 ihr (lauter Fehler).
+
+**Upgrade-Nachtrag:** Proben 24–30 liefen am 21.10.2026 einzeln auf `abff882`
+mit den nachgeschärften Tests aus `c2b2b71`; Probe 31 folgt auf derselben isolierten
+Basis mit der letzten Uninstall-Nachschärfung. Jede Produktmutation war ausschließlich
+im Gegenproben-Worktree aktiv, wurde im `finally` zurückgenommen und anschließend
+durch eine grüne Baseline kontrolliert. Der dauerhafte Beleg mit exakten
+Mutationsankern und entscheidenden Assertions steht in
+`research_notes/Senify Projektanalyse und GitHub Recherche/07-vitest4-abschluss.md`.

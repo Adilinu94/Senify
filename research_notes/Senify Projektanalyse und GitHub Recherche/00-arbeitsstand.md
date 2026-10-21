@@ -1,5 +1,13 @@
 # Arbeitsstand der Projektanalyse
 
+> **Abschlussnachtrag 21.10.2026:** Die Maßnahmen und Nachprüfungen sind in
+> `reports/senify-projektanalyse-2026-10.md`, Abschnitte 6.1–6.3, disponiert.
+> Nach PR #85 folgten die Nacharbeiten in #88, #90, #91 und #92 (gemergt).
+> PR #96 ergänzt Vitest 4 und die Gegenproben 24–31, bleibt Draft und ungemergt.
+> Dauerhafter Upgrade-/Review-Beleg: `07-vitest4-abschluss.md`; aktueller Gate-Stand
+> ausschließlich `docs/current/qualitaet.md`. Der Rahmen und die offene Liste
+> weiter unten beschreiben die ursprüngliche Analyse, nicht noch offene Umsetzung.
+
 > **Stand 20.10.2026:** Die Untersuchung ist abgeschlossen und die daraus folgende Umsetzung
 > ist erfolgt (siehe `reports/senify-projektanalyse-2026-10.md`, Abschnitt 6.1, und den
 > Abschnitt „Umsetzung“ in jeder Fachanalyse). Der Rahmen unten beschreibt die
@@ -66,13 +74,14 @@ Die Analyse gilt ausschließlich für den lokalen Stand.
 6. **Gegenprobe**, dieselbe Datei mit `%TEMP%` auf `G:`: grün, 2 Tests, 48,93 s. Damit ist der
    erste Lauf als Umgebungs-, nicht als Codebefund belegt.
 7. **Volltest (2), 19.10.2026, `%TEMP%` auf `G:`:** 4 Dateien rot / 268 grün / 3 übersprungen
-   (275), 732,87 s. Die vier roten Dateien sind **alle** unter Last und **keine** Funktionsfehler:
+   (275), 732,87 s. Beobachtet wurden vier Timeouts unter Last; Funktionsfehler
+   wurden damit nicht ausgeschlossen:
    ein Lade-Timeout beim Modul-Import (`mcp/test/write-output.test.ts`), ein
    Playwright-Matcher-Timeout (`app/test/release-cutover-browser.test.ts` — im Repo als bekannter
    Flake dokumentiert) und zwei `Test timed out in 90000ms` in Review-Tests mit Bake
-   (`engine/test/design-record.test.ts`, `engine/test/lifecycle.test.ts`). Der Bake ist die
-   gemeinsame Ursache: Im grünen Lauf brauchen die Nachbarn 12,3 / 15,3 / 23,8 s, unter Last
-   überschreiten sie 90 s.
+   (`engine/test/design-record.test.ts`, `engine/test/lifecycle.test.ts`). Der synchrone
+   Bake ist eine plausible Lastursache, nicht die isoliert nachgewiesene Ursache
+   aller vier Fehler. Die grünen Nachbarn brauchten 12,3 / 15,3 / 23,8 s.
 8. Sechs Autosave-Gegenproben ausgeführt (`autosave-probe.mts`, Node 24.15.0): fünf
    Fehlerkategorien bestätigt, eine als latent eingestuft.
 9. GitHub-API-Abfrage für 21 Repositories (Lizenz, Sterne, letzter Push, offene Issues, letzte
@@ -116,4 +125,5 @@ gestartet** — die Umsetzung braucht die DoR des Fahrplans (sauberer Arbeitsbau
 | `04-mcp-dokumentation.md` | Fachanalyse 4 — MCP-Vertrag, Manifest, Dokumentation |
 | `05-qualitaet-ci.md` | Fachanalyse 5 — Qualität, Coverage-Tor, CI |
 | `06-github-repositories.md` | Fachanalyse 6 — 21 Kandidaten, Nutzen, Urteil |
+| `07-vitest4-abschluss.md` | Vitest-4-Verträge, Einzelgegenproben 24–31, iterative Review-Runden und Grenzen |
 | `autosave-probe.mts` | die sechs ausgeführten Gegenproben (Review-Sonde, kein Regressionstest) |
