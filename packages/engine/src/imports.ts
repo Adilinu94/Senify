@@ -21,6 +21,8 @@ import {
   type ThemePatch,
 } from "@senify/framer-import";
 import { newEntityId } from "./ids.ts";
+import { resolveTheme } from "@senify/tokens";
+import { parseDurationMs } from "@senify/renderer";
 import {
   createUploadTicket,
   commitUpload,
@@ -400,6 +402,13 @@ export async function runFramerImportJob(
       };
 
   let run: ImportRun;
+  // The theme the page lands in: `durationScale` of every imported motion spec
+  // is relative to its base duration. Reading it here keeps the written page and
+  // the preview on the same number — the preview route resolves the same theme.
+  const siteTheme = await store.getTheme(input.siteId);
+  const resolvedTheme = resolveTheme(siteTheme.theme);
+  const baseDuration = resolvedTheme.motion.duration.base;
+  const baseDurationMs = baseDuration === undefined ? 300 : parseDurationMs(baseDuration);
   try {
     run = await runFramerImport({
       source,
@@ -409,6 +418,7 @@ export async function runFramerImportJob(
       includeFonts,
       pagePath,
       mode: input.body.mode ?? "dna",
+      baseDurationMs,
     });
   } catch (error) {
     if (media !== undefined) {

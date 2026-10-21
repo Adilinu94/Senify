@@ -47,6 +47,10 @@ export type RunImportInput = {
   // `dna` (default) rewrites what the design DNA forbids; `fidelity` keeps the
   // source's look and only consolidates.
   mode?: NormalizeMode;
+  // The base duration of the theme the page lands in, in milliseconds.
+  // `durationScale` is relative to it, so without it the source's absolute
+  // seconds cannot become the right scale. Absent = the default theme's 300.
+  baseDurationMs?: number;
 };
 
 export type ImportRun = {
@@ -184,7 +188,10 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
   const payloads = input.source.kind === "mirror" ? extractPayloads({ document, rootDir: input.source.rootDir }) : [];
   const normalized = normalize(document, { mode: input.mode ?? "dna" });
   const mapped = mapDocument(document, normalized.rules, { mode: input.mode ?? "dna" });
-  const motion = mapFramerMotion(document);
+  const motion = mapFramerMotion(
+    document,
+    input.baseDurationMs === undefined ? {} : { baseDurationMs: input.baseDurationMs },
+  );
   for (const mapping of motion.mappings) {
     const editorNodeId = mapping.nodeKey === null ? undefined : mapped.nodeIdByIrKey[mapping.nodeKey];
     if (editorNodeId === undefined) continue;

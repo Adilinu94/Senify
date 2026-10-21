@@ -20,6 +20,10 @@ import { dirname, join, resolve } from "node:path";
 import {
   IR_VERSION,
   type FramerIrDocument,
+  type IrAppearSpec,
+  type IrAppearState,
+  type IrAppearTransition,
+  type IrAppearVariant,
   type IrAsset,
   type IrBox,
   type IrBreakpoint,
@@ -1247,6 +1251,7 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
     },
     assets,
     motion: readAppearMotion(html, root),
+    appear: readAppearSpecs(html),
     findings,
   };
 }
@@ -1259,6 +1264,42 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
 // from the visual (`appearInitial`), so the effect is read from here.
 type AppearState = { opacity?: number; x?: number; y?: number; scale?: number };
 type AppearTransition = { type?: string; stiffness?: number; damping?: number; mass?: number; delay?: number; duration?: number };
+
+// The full appear spec, keyed by appear id: what the CSS compiler needs beyond
+// the reduced samples (every breakpoint variant, rotate/skew, the raw spring).
+function readAppearSpecs(html: string): IrAppearSpec[] {
+  const block = /<script[^>]*id="__framer__appearAnimationsContent"[^>]*>([\s\S]*?)<\/script>/.exec(html)?.[1];
+  if (block === undefined) return [];
+  let entries: unknown;
+  try {
+    entries = JSON.parse(block);
+  } catch {
+    return [];
+  }
+  if (typeof entries !== "object" || entries === null) return [];
+  const specs: IrAppearSpec[] = [];
+  for (const [appearId, byDevice] of Object.entries(entries as Record<string, unknown>)) {
+    if (typeof byDevice !== "object" || byDevice === null) continue;
+    const variants: Record<string, IrAppearVariant | null> = {};
+    for (const [hash, variant] of Object.entries(byDevice as Record<string, unknown>)) {
+      if (typeof variant !== "object" || variant === null) {
+        variants[hash] = null;
+        continue;
+      }
+      const entry = variant as {
+        initial?: IrAppearState;
+        animate?: (IrAppearState & { transition?: IrAppearTransition }) | null;
+      };
+      variants[hash] = {
+        ...(entry.initial === undefined ? {} : { initial: entry.initial }),
+        ...(entry.animate === undefined ? {} : { animate: entry.animate }),
+      };
+    }
+    if (Object.keys(variants).length === 0) continue;
+    specs.push({ appearId, variants });
+  }
+  return specs;
+}
 
 function readAppearMotion(html: string, root: IrNode): IrMotionSample[] {
   const block = /<script[^>]*id="__framer__appearAnimationsContent"[^>]*>([\s\S]*?)<\/script>/.exec(html)?.[1];
@@ -1299,6 +1340,10 @@ function readAppearMotion(html: string, root: IrNode): IrMotionSample[] {
       // runtime wait 300 SECONDS and keep the element hidden meanwhile.
       delay: Math.round((transition.delay ?? 0) * 100) / 100,
       duration: Math.round(springSettleSeconds(transition) * 1000) / 1000,
+      // The unit is part of the sample, not a guess in the mapper: this channel
+      // speaks Framer's seconds, the WAAPI probe speaks milliseconds. A mapper
+      // that assumes one of them bakes the other wrong by a factor of 1000.
+      durationUnit: "s",
       ...(transition.type === undefined ? {} : { transition: transition.type }),
     };
     samples.push({

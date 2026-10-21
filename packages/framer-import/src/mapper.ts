@@ -16,11 +16,13 @@ import type {
   EditorDocument,
   EditorNode,
 } from "@senify/editor/state";
-import { sanitizeInlineHtml, sanitizeSvgMarkup, type StyleRule } from "@senify/widget-engine";
+import { sanitizeInlineHtml, sanitizeSvgMarkup, type DeviceValueMap, type StyleRule } from "@senify/widget-engine";
 import { brandColorOf } from "./brand-color.ts";
 import { neutralBaseOf, typeBaseOf } from "./theme-scales.ts";
 import { devicesContaining } from "./devices.ts";
 import { parseDeclaration, splitDeclarations } from "./css-util.ts";
+import { compileAppearRules, type CompileAppearResult, type CompiledAppearRule } from "./appear-css.ts";
+import { ruleScopeOf, type NormalizedStyleRule, type NormalizeMode } from "./normalize.ts";
 import type {
   FramerIrDocument,
   IrDevice,
@@ -28,7 +30,6 @@ import type {
   IrNode,
   IrState,
 } from "./ir.ts";
-import type { NormalizedStyleRule, NormalizeMode } from "./normalize.ts";
 
 /* ------------------------------------------------------------------ types */
 
@@ -1310,17 +1311,141 @@ export function mapDocument(
   }
 
   const rules = styleRulesOf(normalized, context.fontSlots);
+  // The appear channel compiled to keyframes (step 4b). It runs after the nodes
+  // exist because a rule needs the mapped node id, and it appends to the page's
+  // rules so the bake compiles it through the ordinary style path.
+  const appearRun = appearRulesOf(document, context);
+  const appearStyleRules: StyleRule[] = [];
+  for (const rule of appearRun.rules) {
+    const appearId = rule.appearIds[0];
+    if (appearId === undefined) continue;
+    const nodeId = appearNodeIdOf(document, context, appearId);
+    if (nodeId === undefined) continue;
+    const node = context.nodes[nodeId];
+    if (node === undefined) continue;
+    const built = appearStyleRulesOf(rule, rules.length + appearStyleRules.length, context.fontSlots);
+    appearStyleRules.push(...built);
+    node.classes = [...(node.classes ?? []), ...built.map((entry) => entry.name)];
+  }
+  if (appearStyleRules.length > 0) {
+    context.findings.push({
+      kind: "unsupported-declaration",
+      nodeKey: null,
+      message: `Der Appear-Kanal ist als CSS-Animation abgebildet (${appearRun.compiled} Effekte, ${appearStyleRules.length} Regeln).`,
+      evidence: appearRun.rules.map((rule) => rule.name).join(", "),
+      severity: "info",
+      suggestion: "Diese Effekte laufen ohne Framer-Runtime; Bewegung und Dauer stammen aus dem Kanal.",
+    });
+  }
+  for (const finding of appearRun.findings) {
+    context.findings.push({
+      kind: "unsupported-declaration",
+      nodeKey: null,
+      message: finding.reason,
+      evidence: finding.appearId,
+      severity: "warn",
+      suggestion: "Ohne Endzustand im Kanal bleibt nur der Startzustand — der Effekt wird nicht nachgebaut.",
+    });
+  }
   return {
     document: {
       version: 2,
       rootNodeId: "root",
       nodes: context.nodes,
-      styleRules: rules,
+      styleRules: [...rules, ...appearStyleRules],
     },
-    rules,
+    rules: [...rules, ...appearStyleRules],
     themePatch: themePatchOf(document),
     findings: context.findings,
     stats: context.stats,
     nodeIdByIrKey: { ...context.nodeIdByIrKey },
   };
+}
+
+// The appear id → mapped node id, read from the IR key the node was built from.
+function appearNodeIdOf(
+  document: FramerIrDocument,
+  context: MapContext,
+  appearId: string,
+): string | undefined {
+  const node = findNodeByAppearId(document.pages[0]?.root, appearId);
+  if (node === undefined) return undefined;
+  return context.nodeIdByIrKey[node.key];
+}
+
+function findNodeByAppearId(node: IrNode | undefined, appearId: string): IrNode | undefined {
+  if (node === undefined) return undefined;
+  if (node.appearId === appearId) return node;
+  for (const child of node.children) {
+    const found = findNodeByAppearId(child, appearId);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+// Compile the appear channel for the page it belongs to.
+function appearRulesOf(document: FramerIrDocument, context: MapContext): CompileAppearResult {
+  const specs = document.appear ?? [];
+  if (specs.length === 0) return { rules: [], findings: [], compiled: 0 };
+  const nodeIdByAppearId = new Map<string, string>();
+  const index = (node: IrNode | undefined): void => {
+    if (node === undefined) return;
+    if (node.appearId !== null) {
+      const mapped = context.nodeIdByIrKey[node.key];
+      if (mapped !== undefined) nodeIdByAppearId.set(node.appearId, mapped);
+    }
+    for (const child of node.children) index(child);
+  };
+  index(document.pages[0]?.root);
+  return compileAppearRules({
+    specs,
+    breakpoints: document.breakpoints,
+    nodeIdByAppearId,
+    scope: ruleScopeOf(document.pages[0]?.path ?? "/"),
+  });
+}
+
+// One compiled appear rule as style rules the bake understands. `rawCss` may
+// carry exactly ONE `@keyframes` block (`isSafeRawCss`), so a rule with several
+// breakpoint variants becomes several style rules: the first carries the base
+// declaration (and its keyframes), each further one carries one context and its
+// own keyframes. All of them are assigned to the same node.
+function appearStyleRulesOf(
+  rule: CompiledAppearRule,
+  startOrder: number,
+  slots: ReadonlyMap<string, string>,
+): StyleRule[] {
+  const out: StyleRule[] = [];
+  const contexts = Object.entries(rule.contexts);
+  const total = 1 + contexts.length;
+  for (let index = 0; index < total; index += 1) {
+    const isBase = index === 0;
+    const contextEntry = contexts[index - 1];
+    const name = isBase ? rule.name : `${rule.name}-${index}`;
+    const keyframes = rule.keyframes[index] ?? rule.keyframes[0];
+    // The base rule carries the default declaration; every further rule carries
+    // exactly one breakpoint's declaration as its context.
+    const declarations: Record<string, string> = isBase
+      ? rule.animation
+      : (contextEntry?.[1] ?? {});
+    const styles = slotStyles(isBase ? declarations : {}, slots);
+    const contextStyles: Record<string, DeviceValueMap> = {};
+    if (!isBase && contextEntry !== undefined) {
+      contextStyles[contextEntry[0]] = slotStyles(contextEntry[1], slots);
+    }
+    const built: StyleRule = {
+      id: isBase ? rule.id : `${rule.id}-${index}`,
+      name,
+      kind: "class",
+      selector: `.${name}`,
+      order: startOrder + index,
+      styles,
+      contextStyles,
+      origin: { source: "framer-import", ordinal: startOrder + index },
+      authoredBy: "preset",
+    };
+    if (keyframes !== undefined) built.rawCss = keyframes;
+    out.push(built);
+  }
+  return out;
 }

@@ -128,7 +128,14 @@ export async function previewFramerImport(input: PreviewInput): Promise<ImportPr
       beforeUrl = `${server.origin}/index.html`;
     }
 
-    const run = await runFramerImport({ source: input.source, pagePath: input.pagePath, mode: input.mode });
+    const run = await runFramerImport({
+      source: input.source,
+      pagePath: input.pagePath,
+      mode: input.mode,
+      // Same base the write uses: the preview must not show a timing the
+      // written page does not have.
+      baseDurationMs: input.motionTokens.baseDurationMs,
+    });
     const plan = planImportBreakpoints({
       derived: run.breakpoints,
       site: input.site?.breakpoints,

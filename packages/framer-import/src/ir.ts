@@ -280,7 +280,53 @@ export type FramerIrDocument = {
   };
   assets: IrAsset[];
   motion: IrMotionSample[];
+  // The appear spec exactly as the source wrote it (`__framer__appearAnimationsContent`),
+  // kept beside the reduced `motion` samples. The samples carry what a closed
+  // Senify preset can express; this carries what CSS keyframes can — every
+  // start/end state, per breakpoint variant, with its spring. The mapper turns
+  // it into `@keyframes` (the compile step of the 1:1 plan): without it, an
+  // effect that has no preset is lost with a finding even though the browser
+  // could replay it exactly.
+  appear?: IrAppearSpec[];
   findings: IrFinding[];
+};
+
+// One entry of the appear channel: an element (`appearId`), its variants per
+// breakpoint hash (`default` plus one entry per hash, `null` = no effect there),
+// each with the state before and after the animation.
+export type IrAppearState = {
+  opacity?: number;
+  x?: number;
+  y?: number;
+  z?: number;
+  scale?: number;
+  rotate?: number;
+  rotateX?: number;
+  rotateY?: number;
+  skewX?: number;
+  skewY?: number;
+  transformPerspective?: number;
+};
+
+export type IrAppearTransition = {
+  type?: string;
+  stiffness?: number;
+  damping?: number;
+  mass?: number;
+  delay?: number;
+  duration?: number;
+};
+
+export type IrAppearVariant = {
+  initial?: IrAppearState;
+  animate?: (IrAppearState & { transition?: IrAppearTransition }) | null;
+};
+
+export type IrAppearSpec = {
+  appearId: string;
+  // `default` plus every breakpoint hash. A `null` variant means "no effect on
+  // that breakpoint".
+  variants: Record<string, IrAppearVariant | null>;
 };
 
 /* ------------------------------------------------------------------ schema */
@@ -812,6 +858,9 @@ export function parseIr(raw: unknown):
   const motion = Array.isArray(raw.motion)
     ? raw.motion.map(asIrMotionSample).filter((entry): entry is IrMotionSample => entry !== undefined)
     : [];
+  const appear = Array.isArray(raw.appear)
+    ? raw.appear.map(asIrAppearSpec).filter((entry): entry is IrAppearSpec => entry !== undefined)
+    : [];
   const findings = Array.isArray(raw.findings)
     ? raw.findings.map(asIrFinding).filter((entry): entry is IrFinding => entry !== undefined)
     : [];
@@ -832,7 +881,58 @@ export function parseIr(raw: unknown):
       styles: { colors, textPresets, fonts },
       assets,
       motion,
+      ...(appear.length === 0 ? {} : { appear }),
       findings,
     },
   };
+}
+
+// An appear spec survives a round trip through JSON: only the numeric fields it
+// knows are taken, a variant that is not an object is `null` (="no effect here").
+function asIrAppearState(value: unknown): IrAppearState | undefined {
+  if (!isRecord(value)) return undefined;
+  const state: IrAppearState = {};
+  for (const key of [
+    "opacity",
+    "x",
+    "y",
+    "z",
+    "scale",
+    "rotate",
+    "rotateX",
+    "rotateY",
+    "skewX",
+    "skewY",
+    "transformPerspective",
+  ] as const) {
+    const number = value[key];
+    if (typeof number === "number" && Number.isFinite(number)) state[key] = number;
+  }
+  return state;
+}
+
+function asIrAppearSpec(value: unknown): IrAppearSpec | undefined {
+  if (!isRecord(value)) return undefined;
+  const appearId = asString(value.appearId);
+  if (appearId === undefined || appearId === "") return undefined;
+  if (!isRecord(value.variants)) return undefined;
+  const variants: Record<string, IrAppearVariant | null> = {};
+  for (const [hash, variant] of Object.entries(value.variants)) {
+    if (!isRecord(variant)) {
+      variants[hash] = null;
+      continue;
+    }
+    const initial = asIrAppearState(variant.initial);
+    const animateRaw = variant.animate;
+    const animate = isRecord(animateRaw) ? asIrAppearState(animateRaw) : undefined;
+    const transitionRaw = isRecord(animateRaw) ? animateRaw.transition : undefined;
+    const transition = isRecord(transitionRaw) ? (transitionRaw as IrAppearTransition) : undefined;
+    variants[hash] = {
+      ...(initial === undefined ? {} : { initial }),
+      ...(animate === undefined
+        ? {}
+        : { animate: { ...animate, ...(transition === undefined ? {} : { transition }) } }),
+    };
+  }
+  return Object.keys(variants).length === 0 ? undefined : { appearId, variants };
 }
