@@ -165,6 +165,16 @@ async function commitThroughMedia(
 
 // One claim-and-run cycle. Returns the job it ran (done or failed), or `null`
 // when nothing was due.
+// The lease of a claimed image job: how long another worker has to wait
+// before it may take the job over. It exists so that a CRASHED process does
+// not lose its work - which means it has to outlive the work itself. The
+// job timeout is `timeoutMinutes`; five minutes of margin, so the lease is
+// never the shorter one (Fachanalyse 3, B3 - dort war es der Bake, der die
+// kürzere Lease hatte).
+export function imageLeaseMs(settings: { timeoutMinutes: number }): number {
+  return (settings.timeoutMinutes + 5) * 60_000;
+}
+
 export async function runImageJobOnce(
   options: ImageWorkerOptions,
 ): Promise<ImageJob | null> {
@@ -174,7 +184,7 @@ export async function runImageJobOnce(
   await options.context.store.expireImageLeases(now);
   const job = await options.context.store.claimImageJob({
     now,
-    leaseMs: options.leaseMs ?? (settings.timeoutMinutes + 5) * 60_000,
+    leaseMs: options.leaseMs ?? imageLeaseMs(settings),
   });
   if (job === null) return null;
   return runImageJob(options, job, settings, nowDate);

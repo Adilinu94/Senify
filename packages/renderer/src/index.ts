@@ -1,4 +1,5 @@
 export {
+  BAKE_BUILD_TIMEOUT_MS,
   bakeSite,
   inlineBakedAssets,
   jsonForHtml,

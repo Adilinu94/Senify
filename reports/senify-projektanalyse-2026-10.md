@@ -441,11 +441,12 @@ Nach dem Merge wurde der ganze Bericht noch einmal gegen den Code geprüft — m
 die erste Runde nicht gestellt hatte: **hat jeder Befund aus den sechs Fachanalysen eine
 Entscheidung?** Eine umgesetzte mit Beleg oder eine bewusst offene mit Begründung.
 
-Die Antwort war: **nein.** Acht Befunde hatten nur einen Vorschlag und keine Entscheidung — sie
+Die Antwort war: **nein.** Neun Befunde hatten nur einen Vorschlag und keine Entscheidung — sie
 waren weder umgesetzt noch begründet offen. Sechs davon standen in Abschnitt 4 (Priorität 4), zwei
 in den Fachanalysen selbst (2, Abschnitt 3.4 — der Hinweis für den Benutzer; 5, Abschnitt 5 —
 der Vorschlag zum Adresswächter), einer in den Prüfgrenzen von Fachanalyse 4 (die generierte
-Route-Matrix ohne Drift-Tor). Sie sind in dieser Runde abgearbeitet:
+Route-Matrix ohne Drift-Tor) und einer in Fachanalyse 3 (B3, die kürzere Bake-Lease). Sie sind in
+dieser Runde abgearbeitet:
 
 | Befund | Umsetzung | Beleg |
 |---|---|---|
@@ -457,6 +458,7 @@ Route-Matrix ohne Drift-Tor). Sie sind in dieser Runde abgearbeitet:
 | Der Abbruch des Wächters war eine rohe `ERR_BLOCKED_BY_CLIENT` (Fachanalyse 2, 3.4) | Der Wächter merkt sich die erste abgewiesene Adresse; scheitert die Navigation daran, meldet der Pfad es mit Klartext und dem Hinweis auf den Betreiber-Schalter. Für alle drei Browserpfade | Gegenprobe: ohne die Erklärung kommt die rohe Meldung — `expected [Function] to throw error matching /nicht öffentlichen Adresse/ but got 'page.goto: net::ERR_BLOCKED_BY_CLIENT…'` |
 | Die globale Abschaltung des Adresswächters in der Testsuite (Fachanalyse 5, Abschnitt 5) | **bleibt, bewusst** — ohne sie könnte die Hälfte der Suite keinen lokalen Server ansprechen. Der dort vorgeschlagene Helfer ist **nicht gebaut**: er fiele nur um, wenn ein Test das Stubbing vergisst, aber den Helfer kennt; der realistische Fehler (ein Test, der das falsche Verhalten behauptet) ist mit einem Helfer nicht zu fangen, und der normale Fall wird von selbst rot | Dokumentiert in `docs/current/stand.md` (Zeile „Abrufe fremder URLs (SSRF-Schutz)“) und in Fachanalyse 5, Abschnitt 5 |
 | Die generierte Route-Matrix hatte **kein Drift-Tor**, und ihr Generator war nicht deterministisch (Fachanalyse 4, Prüfgrenzen) | `pnpm route-matrix:check` vergleicht die Datei mit dem Generator (Muster wie beim Manifest), der Generator sortiert die Routenmodule — die Reihenfolge kam aus `readdirSync` und war je Dateisystem eine andere. Der Test `route-matrix.test.ts` ruft den Check im normalen Testlauf, die CI hat einen eigenen Schritt. Die Datei im Repo war nicht mehr das, was der Generator schreibt: sie ist neu erzeugt | Gegenprobe: eine geänderte Überschrift macht den Check rot (`weicht vom Generator ab`, Exit 1); die Originaldatei ist grün |
+| **B3: Die Bake-Lease (60 s) war kürzer als der Bake-Timeout (180 s)** (Fachanalyse 3) | Die Lease existiert, damit ein *abgestürbter* Prozess seine Arbeit nicht verliert — das trägt nur, wenn sie die Arbeit überdauert. Die Lease ist jetzt der Build-Frist plus fünf Minuten (Muster des Bild-Workers). Der Build-Timeout ist eine benannte, exportierte Konstante (`BAKE_BUILD_TIMEOUT_MS`), damit die Lease ihn nicht doppelt festhält | `packages/engine/test/job-leases.test.ts`: die Bake-Lease ist länger als der Build, die Bild-Lease länger als das Job-Timeout. Gegenprobe: mit der alten Lease von 60 s ist der Test rot (`expected 60000 to be greater than 180000`) |
 
 **Was dabei auffiel.** Zwei der fünf Punkte waren keine Kleinigkeiten: der ungeschützte dritte
 Browserpfad und der stille Skip in der CI. Beide waren Zusagen des Berichts, die keine Tests hatten —
@@ -592,6 +594,7 @@ Arbeitsbaum des Repos unberührt blieb.
 | 20 | `SENIFY_REQUIRE_BROWSER=1` | eine Browser-Suite ohne Chromium | ohne die Variable `1 skipped` (still), mit ihr ein Fehler (`Executable doesn't exist`) — der Befund war das stille Überspringen, nicht der Fehler |
 | 21 | die Erklärung des Wächters (`blockedAddressError`) | `visual-guard.test.ts` | `expected [Function] to throw error matching /nicht öffentlichen Adresse/ but got 'page.goto: net::ERR_BLOCKED_BY_CLIENT…'` |
 | 22 | eine Zeile der generierten Route-Matrix | `pnpm route-matrix:check` | `docs/mcp-route-matrix.md weicht vom Generator ab` (Exit 1) |
+| 23 | die Bake-Lease zurück auf 60 s | `job-leases.test.ts` | `expected 60000 to be greater than 180000` |
 
 **Zwei Aussagen haben beim Nachprüfen einen Test bekommen, den es vorher nicht gab:** die
 Verdrahtung des Browser-Guards (Proben 4 und 5 — vorher war nur die Funktion getestet, nicht die
