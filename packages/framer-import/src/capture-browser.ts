@@ -19,7 +19,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SenifyError } from "@senify/core";
-import { isAllowedBrowserUrl } from "@senify/core/net";
+import { blockedAddressError, isAllowedBrowserUrl } from "@senify/core/net";
 import { captureHtml, type CaptureHtmlInput } from "./capture-html.ts";
 import type { FramerIrDocument, IrMotionSample } from "./ir.ts";
 
@@ -212,12 +212,18 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
     // public page could point the browser at a metadata service or at a
     // service in the LAN (ADR-0022). `file:` stays allowed: the offline
     // mirror reads it on purpose.
+    //
+    // The guard remembers the first address it refused: if the navigation
+    // itself was blocked, the failure says so and does not read as a raw
+    // `ERR_BLOCKED_BY_CLIENT` (Fachanalyse 2, 3.4).
+    let blockedAddress: string | undefined;
     await context.route("**/*", async (route) => {
       const target = route.request().url();
       if (await isAllowedBrowserUrl(target, { allowFile: true })) {
         await route.continue();
         return;
       }
+      blockedAddress = target;
       await route.abort("blockedbyclient");
     });
     await context.addInitScript({
@@ -238,7 +244,12 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
       // counts the page's CSS animations in `document.getAnimations()`.
       await page.addStyleTag({ content: FREEZE_CSS }).catch(() => undefined);
     }
-    await page.goto(input.url, { waitUntil: "load", timeout: 90_000 });
+    try {
+      await page.goto(input.url, { waitUntil: "load", timeout: 90_000 });
+    } catch (error) {
+      if (blockedAddress !== undefined) throw blockedAddressError(blockedAddress);
+      throw error;
+    }
     if (input.motion !== "live") {
       // The style tag must exist inside the document; inject once more after
       // load in case the first attempt ran before navigation finished.

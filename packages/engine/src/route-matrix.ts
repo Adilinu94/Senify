@@ -368,7 +368,12 @@ function escapeCell(value: string): string {
   return value.replace(/\|/g, "\\|");
 }
 
-export function renderRouteMatrix(rows: MatrixRow[], stand: string): string {
+// The matrix is generated - and generated files are only as good as their
+// gate. The date is deliberately NOT in the file: a date changes every day,
+// so a byte-exact comparison would fail every day, and a comparison that
+// ignores the date is a comparison with a hole. The git history of the file
+// says when it was generated.
+export function renderRouteMatrix(rows: MatrixRow[]): string {
   const counts = {
     Tool: rows.filter((row) => row.status === "Tool").length,
     gebuendelt: rows.filter((row) => row.status === "Workflow-gebündelt").length,
@@ -377,7 +382,7 @@ export function renderRouteMatrix(rows: MatrixRow[], stand: string): string {
   const lines = [
     "# MCP-Routen-Matrix",
     "",
-    `Stand: ${stand} — generiert mit \`pnpm route-matrix\` aus \`packages/engine/src/http.ts\` (ROUTES) und \`@senify/manifest\` (+ Server-Audit). Bei neuer Route die Matrix neu erzeugen; \`packages/engine/test/route-matrix.test.ts\` prüft Vollständigkeit.`,
+    `Generiert mit \`pnpm route-matrix\` aus \`packages/engine/src/http.ts\` (ROUTES) und \`@senify/manifest\` (+ Server-Audit). Bei neuer Route die Matrix neu erzeugen; \`packages/engine/test/route-matrix.test.ts\` prüft Vollständigkeit und Drift.`,
     "",
     "**Regel (E4):** Jede Route hat einen bewussten Status. **Tool** — ein MCP-Tool ruft sie direkt auf. **Workflow-gebündelt** — nur als Teil eines Mehr-Routen-Workflows erreichbar (Via-Spalte nennt das bündelnde Tool). **Operator** — UI/CLI/öffentlich, bewusst ohne Tool.",
     "",

@@ -2,12 +2,13 @@
 
 **Stand:** 19.10.2026 · **Basis:** `master` `5ac1a84` (Merge PR #55) · **Analysierte Gegenprobe:** `19c8ee0` (PR #39)
 **Umfang:** alle 15 Workspace-Pakete, sieben Fachbereiche, sechs Fachanalysen
-**Anwendungscode:** unverändert. Kein Commit, kein Pull, kein Push.
+**Anwendungscode:** zur Analysezeit unverändert. Kein Commit, kein Pull, kein Push.
+**Umsetzung:** 20. und 21.10.2026 — Abschnitte 6.1 und 6.2, PRs #71, #72, #76, #83 und #85
 
-> **Was dieses Dokument ist.** Eine Untersuchung, kein Umsetzungsbericht. Jede Aussage ist mit
-> Datei und Zeile belegt; jede Prüfgrenze ist ausgewiesen. Die **Belegformate** unterscheiden
-> sich: *bestätigt* (reproduziert), *Codebefund* (im Code gelesen, nicht ausgeführt), *offen*
-> (nicht geprüft oder eine Entscheidung liegt bei Adi).
+> **Was dieses Dokument ist.** Eine Untersuchung mit dem Nachweis ihrer Umsetzung. Jede Aussage
+> ist mit Datei und Zeile belegt; jede Prüfgrenze ist ausgewiesen. Die **Belegformate**
+> unterscheiden sich: *bestätigt* (reproduziert), *Codebefund* (im Code gelesen, nicht ausgeführt),
+> *offen* (nicht geprüft oder eine Entscheidung liegt bei Adi).
 >
 > **Verbindliche Dokumente bleiben `docs/fahrplan.md`, `docs/current/*` und `docs/adr/`.** Dieser
 > Bericht ist ein Vorschlag und ändert keine bestehende Entscheidung.
@@ -440,9 +441,12 @@ Nach dem Merge wurde der ganze Bericht noch einmal gegen den Code geprüft — m
 die erste Runde nicht gestellt hatte: **hat jeder Befund aus den sechs Fachanalysen eine
 Entscheidung?** Eine umgesetzte mit Beleg oder eine bewusst offene mit Begründung.
 
-Die Antwort war: **nein.** Fünf Befunde aus Abschnitt 4 (Priorität 4) hatten nur einen Vorschlag und
-keine Entscheidung — sie waren weder umgesetzt noch begründet offen. Sie sind in dieser Runde
-abgearbeitet:
+Die Antwort war: **nein.** Neun Befunde hatten nur einen Vorschlag und keine Entscheidung — sie
+waren weder umgesetzt noch begründet offen. Sechs davon standen in Abschnitt 4 (Priorität 4), zwei
+in den Fachanalysen selbst (2, Abschnitt 3.4 — der Hinweis für den Benutzer; 5, Abschnitt 5 —
+der Vorschlag zum Adresswächter), einer in den Prüfgrenzen von Fachanalyse 4 (die generierte
+Route-Matrix ohne Drift-Tor) und einer in Fachanalyse 3 (B3, die kürzere Bake-Lease). Sie sind in
+dieser Runde abgearbeitet:
 
 | Befund | Umsetzung | Beleg |
 |---|---|---|
@@ -451,16 +455,27 @@ abgearbeitet:
 | Browser-Suiten übersprungen sich still | Der CI-Job `verify` setzt jetzt `SENIFY_REQUIRE_BROWSER=1`. Vorher konnte ein Lauf grün sein, in dem die Browser-Tore nie gelaufen sind | Nachgemessen: ohne die Variable wird die Suite übersprungen (`1 skipped`), mit ihr läuft sie und wird rot (`Executable doesn't exist`). Der Windows-Job setzt sie bewusst nicht — dort ist kein Chromium installiert |
 | Die Skills prüften nicht, ob die genannten Werkzeuge noch existieren | `packages/mcp/test/skills-tools.test.ts` prüft jeden in den Skills genannten Namen gegen das Manifest. Zwei Namen sind ausgenommen, mit Grund: `dry_run` (ein Schalter im Mutations-Batch) und `invalid_input` (eine Fehlerkategorie) | Gegenprobe: ein erfundener Werkzeugname im Router macht den Test rot (`Unbekannte Werkzeugnamen in den Skills: get_erfundenes_werkzeug (router.md)`) |
 | Die Restore-Grenze war nicht dokumentiert | Eigene Zeile „Restore (Wiederherstellung)“ in `docs/current/stand.md`: die Tabellen werden in **einer** Transaktion ersetzt, die Dateien danach — zwei Schreibvorgänge, eine Einheit. Das ist die **zweite** solche Grenze nach dem Import (R10) | `packages/engine/src/backup.ts` (`replaceTables`, `restoreDataDir`), `packages/engine/src/maintenance.ts` (`runExclusive`) |
+| Der Abbruch des Wächters war eine rohe `ERR_BLOCKED_BY_CLIENT` (Fachanalyse 2, 3.4) | Der Wächter merkt sich die erste abgewiesene Adresse; scheitert die Navigation daran, meldet der Pfad es mit Klartext und dem Hinweis auf den Betreiber-Schalter. Für alle drei Browserpfade | Gegenprobe: ohne die Erklärung kommt die rohe Meldung — `expected [Function] to throw error matching /nicht öffentlichen Adresse/ but got 'page.goto: net::ERR_BLOCKED_BY_CLIENT…'` |
+| Die globale Abschaltung des Adresswächters in der Testsuite (Fachanalyse 5, Abschnitt 5) | **bleibt, bewusst** — ohne sie könnte die Hälfte der Suite keinen lokalen Server ansprechen. Der dort vorgeschlagene Helfer ist **nicht gebaut**: er fiele nur um, wenn ein Test das Stubbing vergisst, aber den Helfer kennt; der realistische Fehler (ein Test, der das falsche Verhalten behauptet) ist mit einem Helfer nicht zu fangen, und der normale Fall wird von selbst rot | Dokumentiert in `docs/current/stand.md` (Zeile „Abrufe fremder URLs (SSRF-Schutz)“) und in Fachanalyse 5, Abschnitt 5 |
+| Die generierte Route-Matrix hatte **kein Drift-Tor**, und ihr Generator war nicht deterministisch (Fachanalyse 4, Prüfgrenzen) | `pnpm route-matrix:check` vergleicht die Datei mit dem Generator (Muster wie beim Manifest), der Generator sortiert die Routenmodule — die Reihenfolge kam aus `readdirSync` und war je Dateisystem eine andere. Der Test `route-matrix.test.ts` ruft den Check im normalen Testlauf, die CI hat einen eigenen Schritt. Die Datei im Repo war nicht mehr das, was der Generator schreibt: sie ist neu erzeugt | Gegenprobe: eine geänderte Überschrift macht den Check rot (`weicht vom Generator ab`, Exit 1); die Originaldatei ist grün |
+| **B3: Die Bake-Lease (60 s) war kürzer als der Bake-Timeout (180 s)** (Fachanalyse 3) | Die Lease existiert, damit ein *abgestürbter* Prozess seine Arbeit nicht verliert — das trägt nur, wenn sie die Arbeit überdauert. Die Lease ist jetzt der Build-Frist plus fünf Minuten (Muster des Bild-Workers). Der Build-Timeout ist eine benannte, exportierte Konstante (`BAKE_BUILD_TIMEOUT_MS`), damit die Lease ihn nicht doppelt festhält | `packages/engine/test/job-leases.test.ts`: die Bake-Lease ist länger als der Build, die Bild-Lease länger als das Job-Timeout. Gegenprobe: mit der alten Lease von 60 s ist der Test rot (`expected 60000 to be greater than 180000`) |
 
 **Was dabei auffiel.** Zwei der fünf Punkte waren keine Kleinigkeiten: der ungeschützte dritte
 Browserpfad und der stille Skip in der CI. Beide waren Zusagen des Berichts, die keine Tests hatten —
 genau die Lücke, die die erste Runde bei der Browser-Verdrahtung und bei der Event-Loop gefunden
 hatte. Die Methode hat sich also bewährt: **eine Aussage ohne Test ist eine Behauptung.** Sie ist in
-Anhang D als Proben 16 bis 20 festgehalten.
+Anhang D als Proben 16 bis 21 festgehalten.
 
 **Der Browserpfad war die dritte Lücke derselben Art.** ADR-0022 nannte zwei Browserpfade; der
 dritte kam erst durch die Nachprüfung hinzu. Die Entscheidung selbst (der Browser holt nur
 öffentliche Adressen) galt schon — sie war nur unvollständig umgesetzt.
+
+**Ein Nebenbefund aus dem CI-Lauf.** Der Lauf von PR #90 wurde einmal rot: `new-page-browser.test.ts`
+lief in einen Klick-Timeout (`locator.click: Timeout 15000ms exceeded`). Die Frist dieses Tests war
+15 s, die der anderen Browser-Tests, die den Editor öffnen, sind 30 s — dieselbe Höhe wie in
+`accessibility-browser.test.ts`, `canvas-view-browser.test.ts` und `redesign-canvas-browser.test.ts`.
+Der Test wurde im wiederholten Lauf grün, die Schicht war also zu eng angesetzt, nicht der Test
+falsch. Die Frist ist jetzt 30 s.
 
 ---
 
@@ -577,6 +592,9 @@ Arbeitsbaum des Repos unberührt blieb.
 | 18 | die Ausnahmeliste der eigenen Server in der Import-Vorschau | `import-preview-browser.test.ts` | `page.goto: net::ERR_BLOCKED_BY_CLIENT at http://127.0.0.1:…` — der eigene Vorschau-Server wird blockiert |
 | 19 | ein erfundener Werkzeugname in `router.md` | `skills-tools.test.ts` | `Unbekannte Werkzeugnamen in den Skills: get_erfundenes_werkzeug (router.md)` |
 | 20 | `SENIFY_REQUIRE_BROWSER=1` | eine Browser-Suite ohne Chromium | ohne die Variable `1 skipped` (still), mit ihr ein Fehler (`Executable doesn't exist`) — der Befund war das stille Überspringen, nicht der Fehler |
+| 21 | die Erklärung des Wächters (`blockedAddressError`) | `visual-guard.test.ts` | `expected [Function] to throw error matching /nicht öffentlichen Adresse/ but got 'page.goto: net::ERR_BLOCKED_BY_CLIENT…'` |
+| 22 | eine Zeile der generierten Route-Matrix | `pnpm route-matrix:check` | `docs/mcp-route-matrix.md weicht vom Generator ab` (Exit 1) |
+| 23 | die Bake-Lease zurück auf 60 s | `job-leases.test.ts` | `expected 60000 to be greater than 180000` |
 
 **Zwei Aussagen haben beim Nachprüfen einen Test bekommen, den es vorher nicht gab:** die
 Verdrahtung des Browser-Guards (Proben 4 und 5 — vorher war nur die Funktion getestet, nicht die

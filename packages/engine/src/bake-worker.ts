@@ -16,6 +16,7 @@
 // claim-and-run cycle, `startBakeWorker` is the interval wrapper the engine
 // boots with.
 
+import { BAKE_BUILD_TIMEOUT_MS } from "@senify/renderer";
 import type { EngineEvents } from "./events.ts";
 import type { LifecycleContext } from "./lifecycle.ts";
 import { rebakeActiveRelease } from "./lifecycle.ts";
@@ -33,7 +34,14 @@ export type BakeWorkerOptions = {
   now?: () => Date;
 };
 
-export const DEFAULT_BAKE_LEASE_MS = 60_000;
+// The lease of a claimed job: how long another worker has to wait before it
+// may take the job over. It exists so that a CRASHED process does not lose
+// its work - which means it has to outlive the work itself. The build has a
+// hard deadline of three minutes (BAKE_BUILD_TIMEOUT_MS); a lease of one
+// minute expired while the build was still running, and a second engine
+// could claim the same job (Fachanalyse 3, B3). Five minutes of margin, like
+// the image worker.
+export const DEFAULT_BAKE_LEASE_MS = BAKE_BUILD_TIMEOUT_MS + 5 * 60_000;
 export const DEFAULT_BAKE_BACKOFF_MS = 1_000;
 
 // One claim-and-run cycle. Returns the job it ran (done or failed/queued for a

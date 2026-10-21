@@ -94,3 +94,16 @@ Belege: `packages/analysis-worker/test/visual-guard.test.ts` (der Server zählt 
 ohne die Route ist die Zahl nicht null) und `packages/engine/test/import-preview-browser.test.ts`
 (ohne die Ausnahmeliste wird der eigene Vorschau-Server blockiert: `ERR_BLOCKED_BY_CLIENT`).
 
+**Nachtrag vom 21.10.2026 — der Abbruch sagt, was passiert ist.** Ein abgewiesener Request endete
+als rohe `ERR_BLOCKED_BY_CLIENT` — für den Leser ein Support-Fall ohne Aussage (Fachanalyse 2,
+3.4). Der Wächter merkt sich jetzt die erste abgewiesene Adresse; scheitert die Navigation
+daran, meldet der Pfad das mit `blockedAddressError` („Die Seite lädt eine Ressource von einer
+nicht öffentlichen Adresse (…) — die Aufnahme wurde abgebrochen.“) und mit dem Hinweis auf den
+Betreiber-Schalter. Das gilt für alle drei Browserpfade.
+
+**Bewusst nicht geändert.** Ein abgewiesener **Sub-Resource** bricht die Aufnahme nicht ab: die
+Seite lädt unvollständig, das Bild zeigt die fehlende Ressource. Das ist der Preis aus Punkt 2
+dieses ADR („eine unvollständige Seite analysiert schlecht, eine vollständige Seite aus dem LAN
+ist ein Datenleck“). Die Aufnahme könnte die abgewiesenen Ressourcen zusätzlich melden; das
+wäre eine Änderung am Ergebnisformat und an der Anzeige und bleibt offen.
+

@@ -558,6 +558,9 @@ export const siteRoutes: Route[] = [
     }),
   },
 
+  // Style rules (Phase 2): site-wide, so they hang off the site like the theme
+// does. Reads are open to any token, writes need `write`, deletion needs
+// `publish` (same ladder the other destructive site resources use).
   {
     method: "GET",
     segments: ["api", "sites", ":siteId", "style-rules"],

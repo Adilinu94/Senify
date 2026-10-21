@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -62,5 +63,20 @@ describe("mcp route matrix (E4 slice 2, P3-3 Punkt 8)", () => {
     }
     // No stale rows: the document matches the sources exactly.
     expect(documented.size).toBe(rows.length);
+  });
+
+  it("is what the generator writes - the matrix does not drift", () => {
+    // The matrix is generated. A generated file nobody checks drifts
+    // silently: the table would keep the routes of a module that has since
+    // moved, and a reader cannot tell that from a correct table. The check
+    // compares the file with the generator's output (the CI step runs the
+    // same one); this test makes it run in the ordinary test run too.
+    expect(() =>
+      execFileSync(
+        process.execPath,
+        [join(engineDir, "scripts", "route-matrix.ts"), "--check"],
+        { cwd: root, stdio: "pipe" },
+      ),
+    ).not.toThrow();
   });
 });

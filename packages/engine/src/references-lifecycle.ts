@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SenifyError } from "@senify/core";
-import { assertPublicHttpUrl, isAllowedBrowserUrl } from "@senify/core/net";
+import { assertPublicHttpUrl, blockedAddressError, isAllowedBrowserUrl } from "@senify/core/net";
 import type { Author } from "@senify/section-sdk";
 import type { Theme } from "@senify/tokens";
 import {
@@ -549,19 +549,31 @@ export function createPlaywrightCaptureDriver(
       // requests passes the same address check as the Node path, so a public
       // page cannot point the browser at a metadata service or at a service in
       // the LAN (ADR-0022).
+      //
+      // The guard remembers the first address it refused: if the navigation
+      // itself was blocked, the failure must say so and not read as a raw
+      // `ERR_BLOCKED_BY_CLIENT` (Fachanalyse 2, 3.4).
+      let blockedAddress: string | undefined;
       await context.route("**/*", async (route) => {
         const target = route.request().url();
         if (await isAllowedBrowserUrl(target)) {
           await route.continue();
           return;
         }
+        blockedAddress = target;
         await route.abort("blockedbyclient");
       });
       const page = await context.newPage();
-      const response = await page.goto(input.url, {
-        waitUntil: "domcontentloaded",
-        timeout: 45_000,
-      });
+      let response: Awaited<ReturnType<typeof page.goto>>;
+      try {
+        response = await page.goto(input.url, {
+          waitUntil: "domcontentloaded",
+          timeout: 45_000,
+        });
+      } catch (error) {
+        if (blockedAddress !== undefined) throw blockedAddressError(blockedAddress);
+        throw error;
+      }
       const status = response?.status() ?? 0;
       if (status === 403 || status === 429 || status === 503) {
         throw new ReferenceCaptureError({

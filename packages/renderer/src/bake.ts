@@ -811,6 +811,12 @@ async function buildInto(stageDir: string, outDir: string): Promise<void> {
 // the dashboard, the editor and the MCP tools were all silent for the whole
 // build (up to three minutes). `spawn` keeps the process responsive and
 // lets the same timeout kill a build that hangs.
+// The build gets a hard deadline: a hanging Astro build is killed instead of
+// holding the process. The constant is named and exported because the queue
+// needs it: the lease of a claimed bake job has to outlive the build, or a
+// second worker may take over a job that is still running (Fachanalyse 3, B3).
+export const BAKE_BUILD_TIMEOUT_MS = 180_000;
+
 async function runAstroBuild(stageDir: string, outDir: string): Promise<void> {
   const result = await new Promise<{
     code: number | null;
@@ -843,7 +849,7 @@ async function runAstroBuild(stageDir: string, outDir: string): Promise<void> {
     });
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
-    }, 180000);
+    }, BAKE_BUILD_TIMEOUT_MS);
     child.on("error", (error: Error) => {
       clearTimeout(timer);
       resolve({ code: null, signal: null, stdout, stderr, error });

@@ -295,6 +295,15 @@ Ein sauberer Arbeitsbaum ist damit lokal **nicht herstellbar**, ohne die Ordner 
   Release-Bake bekommen. **Belegt:** ohne `buildInto` fallen 16 von 18 Bake-Tests mit genau
   diesem `EXDEV` um (Gegenprobe: Anhang D, Probe 7).
 - **B6 (`.tmp/`, `.bake-tmp/`):** beide stehen jetzt in `.gitignore`.
+- **B3 (die Bake-Lease war kürzer als der Bake)** — zweite Prüfung, 21.10.2026: die Lease
+  existiert, damit ein *abgestürbter* Prozess seine Arbeit nicht verliert; das trägt nur, wenn
+  sie die Arbeit überdauert. Die Lease (60 s) war kürzer als der Bake-Timeout (180 s) — der
+  Schutz lief zuerst ab. Die Lease ist jetzt die Build-Frist plus fünf Minuten (Muster des
+  Bild-Workers), und der Build-Timeout ist eine benannte, exportierte Konstante
+  (`BAKE_BUILD_TIMEOUT_MS`), damit die Lease ihn nicht doppelt festhält. Beleg:
+  `packages/engine/test/job-leases.test.ts` — die Bake-Lease ist länger als der Build, die
+  Bild-Lease länger als das Job-Timeout. Gegenprobe: mit der alten Lease von 60 s ist der Test
+  rot (`expected 60000 to be greater than 180000`, Anhang D, Probe 23).
 - **B4 (die Deploy-Frist war keine harte Frist)** — zweite Prüfung, 20.10.2026: die Pollschleife
   hat eine Frist, aber sie wird nur *zwischen* zwei Anfragen geprüft; eine hängende Verbindung hätte
   den Deploy endlos festgehalten. Jede Anfrage an Netlify und Vercel trägt jetzt ihr Signal

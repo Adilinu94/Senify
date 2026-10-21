@@ -146,6 +146,23 @@ export async function assertPublicHttpUrl(raw: string): Promise<URL> {
 
 /* ------------------------------------------------------------------ browser */
 
+// The address guard stopped a request. The capture must say THAT - a raw
+// `ERR_BLOCKED_BY_CLIENT` leaves the reader with a technical string and no
+// answer to the only question they have (Fachanalyse 2, 3.4: "ein stilles
+// Blockieren fuehrt zu 'die Referenz ist leer' und damit zu einem
+// Support-Fall ohne Aussage").
+export function blockedAddressError(target: string): SenifyError {
+  return new SenifyError(
+    "validation",
+    `Die Seite lädt eine Ressource von einer nicht öffentlichen Adresse (${target}) — die Aufnahme wurde abgebrochen.`,
+    {
+      field: "url",
+      suggestion:
+        "Nur öffentliche http(s)-Adressen sind erlaubt. Für eine lokale Quelle startet der Betreiber das Programm mit SENIFY_ALLOW_PRIVATE_URLS=1.",
+    },
+  );
+}
+
 // The browser paths (reference capture, import capture) fetch the page in a
 // real browser - and a browser follows what the page points at: a redirect, a
 // sub-resource, a `fetch()` from the page's script. The Node path checks

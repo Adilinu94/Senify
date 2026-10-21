@@ -72,6 +72,9 @@ export function mediaContext(context: EngineContext): MediaContext {
   };
 }
 
+// The settings view the app reads: SMTP without the password, the defaults, the
+// backup target (T12), the reference preferences (T14) and the image generation
+// (S1).
 export async function settingsView(
   context: EngineContext,
 ): Promise<{
@@ -103,6 +106,9 @@ export async function settingsView(
   };
 }
 
+// The audited author is always the token, never the request body (ticket 18):
+// a direct API call cannot claim a foreign identity or a different kind. The
+// body's `author` stays a suggestion that the server overrides here.
 export function resolveAuthor(auth: AuthInfo | undefined): AuthorInput {
   if (!auth) {
     throw new AuthError(401, "Missing bearer token", {
@@ -112,6 +118,8 @@ export function resolveAuthor(auth: AuthInfo | undefined): AuthorInput {
   return { kind: auth.kind, id: auth.tokenName, label: auth.tokenName };
 }
 
+// Deterministic JSON for the idempotency fingerprint: object keys are sorted
+// recursively, so two requests that differ only in key order are the same.
 export function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
   if (value !== null && typeof value === "object") {
@@ -125,6 +133,10 @@ export function stableJson(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 
+// Idempotent create (ticket 18, slice 2): the request claims a slot keyed by
+// (token, route, key) before it runs. A retry replays the stored response, a
+// concurrent duplicate is rejected as in-flight, and a failed attempt releases
+// the slot so the same key may be retried (with a corrected body if needed).
 export async function withIdempotency(
   context: EngineContext,
   auth: AuthInfo | undefined,
@@ -262,6 +274,8 @@ export async function readJsonBody(
   }
 }
 
+// Upload bodies are raw bytes, not JSON: they get their own cap instead of the
+// 1 MB JSON limit.
 export async function readRawBody(
   req: IncomingMessage,
   limitBytes: number,
@@ -288,6 +302,11 @@ export async function readRawBody(
 
 export const FORM_BODY_LIMIT_BYTES = 64 * 1024;
 
+// The address the rate limit counts. `X-Forwarded-For` is believed only from a
+// proxy on this machine or network: a client that reaches the engine directly
+// could write anything there and never hit the limit. A proxy appends the
+// address it saw, so the last entry is the one it vouches for; everything in
+// front of it came from the client.
 export function clientIpOf(req: Pick<IncomingMessage, "headers" | "socket">): string {
   const peer = req.socket.remoteAddress ?? "unknown";
   if (isPublicAddress(peer)) return peer;
@@ -326,6 +345,12 @@ export function requestHostOf(req: IncomingMessage): string | undefined {
   return typeof host === "string" && host !== "" ? host : undefined;
 }
 
+// Absolute base of the request: the briefs print the snapshot of a reference,
+// and an assistant outside the program can only open that image with the host
+// it was served from (`/api/...` alone says nothing about the machine). Behind
+// the dashboard the proxy forwards the origin the browser asked on, and that is
+// the address worth printing: it injects the operator token, the engine port
+// would answer 401 in a browser window.
 export function publicBaseUrlOf(req: IncomingMessage): string | undefined {
   const forwardedHost = req.headers["x-forwarded-host"];
   const host =
@@ -341,6 +366,7 @@ export function publicBaseUrlOf(req: IncomingMessage): string | undefined {
   return `${proto}://${host}`;
 }
 
+// The JS path asks for JSON; the plain browser POST does not.
 export function wantsJson(req: IncomingMessage): boolean {
   return String(req.headers.accept ?? "").includes("application/json");
 }
@@ -383,6 +409,8 @@ export type ParsedSubmit = {
   honeypot: string;
 };
 
+// One endpoint, two encodings: the browser posts urlencoded, the JS island
+// posts the same FormData (also urlencoded) and agents may post JSON.
 export async function readSubmitBody(req: IncomingMessage): Promise<ParsedSubmit> {
   const text = await readTextBody(req, FORM_BODY_LIMIT_BYTES);
   const contentType = String(req.headers["content-type"] ?? "");
@@ -546,6 +574,10 @@ export async function applyMutationsToPage(
   });
 }
 
+// The canvas persists its v2 editor ops through the same write path: they are
+// translated into the section vocabulary and handed to `applyMutationsToPage`,
+// so the conflict check, the hard guardrails, the version bump, the audit log
+// and the optimistic locking are all shared with the section mutations route.
 export async function applyEditorMutationsToPage(
   context: EngineContext,
   pageId: string,
@@ -572,6 +604,8 @@ export function pathOpIndex(input: ApplyMutationsBody): number | undefined {
   return found;
 }
 
+// The node ids a batch touched, for the live highlight in the editor. Every
+// mutation names its target under a different key; missing ids are fine.
 export function touchedNodeIds(input: ApplyMutationsBody): string[] {
   const ids = new Set<string>();
   for (const mutation of input.mutations) {
