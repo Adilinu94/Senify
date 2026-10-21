@@ -87,8 +87,7 @@ export {
   startBakeWorker,
   type BakeWorker,
   type BakeWorkerOptions,
-} from "./bake-worker.ts";
-export { deployActiveRelease, type DeployInput } from "./deploy.ts";
+} from "./bake-worker.ts";export { deployActiveRelease, type DeployInput } from "./deploy.ts";
 export {
   CreateDeploymentBodySchema,
   UpdateDeploySettingsBodySchema,
@@ -690,6 +689,7 @@ export {
 export {
   defaultImageProviders,
   providerChain,
+  imageLeaseMs,
   runImageJobOnce,
   SHORT_COOLDOWN_MINUTES,
   startImageWorker,
