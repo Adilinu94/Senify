@@ -6,11 +6,18 @@
 > **Analysephase**; er ist seitdem nicht mehr die Arbeitsgrundlage, sondern der Nachweis, worauf
 > die Befunde beruhen. Die Umsetzung entstand danach auf dem Branch
 > `claude/projektanalyse-umsetzung-2026-10-20` (PR #71, gemergt als `5258f34`; die Nacharbeiten in
-> PR #72 und #76), aufgebaut auf
+> PR #72, #76, #83 und #85), aufgebaut auf
 > `origin/master` und mit den Upstream-Ständen dazwischen (PRs #57, #63–#69). Diese PRs haben
 > **keine** der genannten Fundstellen berührt; wo sie dieselben Dateien anfassten
 > (`docs/current/stand.md`, `docs/fahrplan.md`, `vitest.config.ts`, `packages/renderer/src/bake.ts`),
 > wurden beide Seiten zusammengeführt.
+>
+> **Zweite Prüfung (21.10.2026, PR #85):** Die Umsetzung wurde am Endstand noch einmal
+> gegen den Code geprüft — mit der Frage, ob **jeder** Befund aus Abschnitt 4 des Berichts eine
+> belegte Entscheidung hat. Fünf hatten nur einen Vorschlag und keine Entscheidung; sie sind jetzt
+> abgearbeitet (Bericht, Abschnitt 6.2). Dabei kamen zwei Lücken derselben Art heraus, die beide
+> keine Kleinigkeiten waren: ein **ungeschützter dritter Browserpfad** und ein **stilles
+> Überspringen** der Browser-Suiten in der CI.
 
 ## Ziel und Rahmen
 
