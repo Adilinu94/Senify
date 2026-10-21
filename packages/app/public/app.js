@@ -44,9 +44,7 @@ function cmdkItems() {
   })();
 }
 
-
 let cmdkState = { items: [], filtered: [], selected: 0 };
-
 
 function renderCmdk() {
   cmdkResults.replaceChildren(
@@ -66,7 +64,6 @@ function renderCmdk() {
     ),
   );
 }
-
 
 async function openCmdk() {
   cmdk.showModal();
@@ -131,7 +128,6 @@ document.addEventListener("keydown", (event) => {
 
 /* Router */
 
-
 function routeErrorView(error) {
   const retry = el("button", {
     type: "button",
@@ -148,7 +144,6 @@ function routeErrorView(error) {
     retry,
   );
 }
-
 
 export async function renderRoute() {
   const generation = nextRouteGeneration();

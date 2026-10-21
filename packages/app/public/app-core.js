@@ -2,39 +2,26 @@
 // sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt
 // ESLint.
 
-
 export const view = document.getElementById("view");
-
 const toasts = document.getElementById("toasts");
-
 export const cmdk = document.getElementById("cmdk");
-
 export const cmdkInput = document.getElementById("cmdk-input");
-
 export const cmdkResults = document.getElementById("cmdk-results");
-
 export const duplicateDialog = document.getElementById("duplicate-dialog");
-
 export const duplicateForm = document.getElementById("duplicate-form");
-
 export const duplicateName = document.getElementById("duplicate-name");
-
 const themeToggle = document.getElementById("theme-toggle");
-
 
 const MODE_STORAGE_KEY = "senify-mode";
 
 // The technical keys stay in brackets: documentation, MCP tools and the editor
 // still call them clean / standard / showcase.
 
-// The technical keys stay in brackets: documentation, MCP tools and the editor
-// still call them clean / standard / showcase.
 export const PROFILE_LABELS = {
   clean: "Ruhig (clean) — wenig Bewegung, keine schweren Effekte",
   standard: "Ausgewogen (standard) — sanfte Bewegung, sparsame Effekte",
   showcase: "Auffällig (showcase) — alle Effekte, auch 3D",
 };
-
 
 export const IMAGE_PROVIDER_LABELS = {
   "image-use": "Image Use",
@@ -42,7 +29,6 @@ export const IMAGE_PROVIDER_LABELS = {
   custom: "Eigener Dienst",
   off: "Aus",
 };
-
 
 export const MUTATION_LABELS = {
   insertNode: "Sektion eingefügt",
@@ -68,9 +54,7 @@ export const MUTATION_LABELS = {
 
 // The dashboard writes as the human operator; agents use their own tokens.
 
-// The dashboard writes as the human operator; agents use their own tokens.
 export const AUTHOR = { kind: "human", id: "programm", label: "Programm" };
-
 
 export function el(tag, props = {}, ...children) {
   const node = document.createElement(tag);
@@ -87,7 +71,6 @@ export function el(tag, props = {}, ...children) {
   }
   return node;
 }
-
 
 export async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -113,7 +96,6 @@ export async function api(path, options = {}) {
   }
   return data;
 }
-
 
 export function toast(message, kind = "info") {
   const node = el("div", { class: `toast ${kind}`, text: message });
@@ -146,10 +128,6 @@ export function toast(message, kind = "info") {
 // deutsche Sätze; alles andere bekommt unten einen deutschen Vorspann, und der
 // technische Originaltext bleibt als Detail sichtbar.
 
-// Die Engine antwortet auf Englisch (MCP und Agenten lesen dieselben Texte).
-// Hier stehen die Meldungen, die im Dashboard tatsächlich auftauchen, als
-// deutsche Sätze; alles andere bekommt unten einen deutschen Vorspann, und der
-// technische Originaltext bleibt als Detail sichtbar.
 const ENGINE_MESSAGES = [
   [/^Site name is required$/, () => "Bitte einen Projektnamen eingeben."],
   [/^Token name is required$/, () => "Bitte einen Namen für den Zugang eingeben."],
@@ -181,7 +159,6 @@ const ENGINE_MESSAGES = [
 
 // Übersetzt eine Engine-Meldung, wenn die Tabelle sie kennt; sonst null.
 
-// Übersetzt eine Engine-Meldung, wenn die Tabelle sie kennt; sonst null.
 function translateEngineMessage(message) {
   for (const [pattern, build] of ENGINE_MESSAGES) {
     const match = pattern.exec(message);
@@ -193,15 +170,12 @@ function translateEngineMessage(message) {
 // Deutscher Vorspann für Meldungen, die die Tabelle nicht kennt: der
 // technische Originaltext bleibt dahinter lesbar.
 
-// Deutscher Vorspann für Meldungen, die die Tabelle nicht kennt: der
-// technische Originaltext bleibt dahinter lesbar.
 const STATUS_LEAD = {
   400: "Die Eingabe wurde abgelehnt",
   404: "Nicht gefunden",
   409: "Das kollidiert mit dem aktuellen Stand",
   422: "Das widerspricht einer Qualitätsregel",
 };
-
 
 export function friendlyError(error) {
   const status = Number(error?.status ?? 0);
@@ -220,14 +194,11 @@ export function friendlyError(error) {
 // Der englische Vorschlag der Engine gehört nur dazu, wenn die Meldung
 // nicht schon als vollständiger deutscher Satz dasteht.
 
-// Der englische Vorschlag der Engine gehört nur dazu, wenn die Meldung
-// nicht schon als vollständiger deutscher Satz dasteht.
 export function errorHint(error) {
   if (!error?.suggestion) return "";
   if (translateEngineMessage(String(error?.message ?? ""))) return "";
   return ` — ${error.suggestion}`;
 }
-
 
 export function failed(error) {
   toast(`${friendlyError(error)}${errorHint(error)}`, "error");
@@ -244,27 +215,13 @@ export function failed(error) {
 // No native `prompt()`/`confirm()` anywhere: `native-dialogs.test.ts` guards
 // the threshold, `dialogs-browser.test.ts` drives them in a browser.
 
-// In-app replacements for window.prompt / window.confirm. The native dialogs
-// look like a browser warning, cannot be styled, block the page and read as
-// "something went wrong" on a phone. These use the same <dialog class="modal">
-// as the rest of the dashboard: a title, a labelled field, a button that says
-// what it does. Enter confirms, Escape and a click on the backdrop cancel, the
-// focus returns to where it was. Both return a promise:
-//   askText    -> the entered text, or null when cancelled
-//   askConfirm -> true / false
-// No native `prompt()`/`confirm()` anywhere: `native-dialogs.test.ts` guards
-// the threshold, `dialogs-browser.test.ts` drives them in a browser.
 let dialogSequence = 0;
-
-// Jeder Dialog bekommt eine eigene Nummer: zwei Dialoge mit derselben Nummer
-// teilen sich ihre Kennung, und der zweite waere nicht mehr auffindbar.
 
 // Jeder Dialog bekommt eine eigene Nummer: zwei Dialoge mit derselben Nummer
 // teilen sich ihre Kennung, und der zweite waere nicht mehr auffindbar.
 export function nextDialogId(prefix) {
   return `${prefix}-${(dialogSequence += 1)}`;
 }
-
 
 function openAskDialog({
   title,
@@ -355,11 +312,8 @@ function openAskDialog({
   });
 }
 
-
 export const askText = (options) => openAskDialog(options);
-
 export const askConfirm = (options) => openAskDialog({ ...options, label: undefined });
-
 
 export function settingField(label, control, help) {
   const field = el("label", { class: "field" });
@@ -368,7 +322,6 @@ export function settingField(label, control, help) {
   return field;
 }
 
-
 function readMode() {
   try {
     return localStorage.getItem(MODE_STORAGE_KEY) === "dark" ? "dark" : "light";
@@ -376,7 +329,6 @@ function readMode() {
     return "light";
   }
 }
-
 
 function syncThemeToggle() {
   if (!themeToggle) return;
@@ -393,7 +345,6 @@ function syncThemeToggle() {
   themeToggle.title = dark ? "Hell: Dunkelmodus deaktivieren" : "Dunkel: Dunkelmodus aktivieren";
   themeToggle.querySelector("[data-theme-label]").textContent = dark ? "Hell" : "Dunkel";
 }
-
 
 function applyMode(mode, persist = true) {
   const next = mode === "dark" ? "dark" : "light";
@@ -413,19 +364,16 @@ themeToggle?.addEventListener("click", () => {
   applyMode(document.documentElement.dataset.mode === "dark" ? "light" : "dark");
 });
 
-
 export function formatDate(value) {
   if (!value) return "—";
   return new Date(value).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" });
 }
-
 
 export function notificationStatus(status) {
   if (status === "sent") return "Gesendet";
   if (status === "failed") return "Fehlgeschlagen";
   return "Wartet";
 }
-
 
 export function formatBytes(value) {
   if (!value) return "0 B";
@@ -439,7 +387,6 @@ export function formatBytes(value) {
   return `${size.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
 
-
 export function initials(name) {
   return name.trim().slice(0, 2).toUpperCase();
 }
@@ -448,15 +395,11 @@ export function initials(name) {
 // path comes from the engine, the fallback reconstructs it from the storage
 // ref (both use posix separators).
 
-// References (T14): a stored snapshot arrives as a served PNG. The preview
-// path comes from the engine, the fallback reconstructs it from the storage
-// ref (both use posix separators).
 export function snapshotImageURL(referenceId, snapshot) {
   if (snapshot.previewPath) return snapshot.previewPath;
   const name = String(snapshot.storageRef).split("/").pop();
   return `/api/references/${referenceId}/snapshots/${name}`;
 }
-
 
 export function activeTab(tab) {
   for (const link of document.querySelectorAll(".tabs a")) {
@@ -473,15 +416,7 @@ export function activeTab(tab) {
 // eine neuere Navigation gestartet ist, schreibt sie nicht mehr über die Bühne:
 // sonst überschreibt die langsame Antwort der alten Route die neue Ansicht.
 
-// Stale-Render-Guard: jede Runde von renderRoute bekommt eine Nummer. Eine
-// Ansicht holt sich beim Start (vor dem ersten await) ihren Stand mit
-// routeScope() und übergibt ihn an render(). Wird sie erst fertig, nachdem schon
-// eine neuere Navigation gestartet ist, schreibt sie nicht mehr über die Bühne:
-// sonst überschreibt die langsame Antwort der alten Route die neue Ansicht.
 let routeGeneration = 0;
-
-// Jeder Routenwechsel erhaelt eine Nummer: eine Antwort, die zu einer
-// aelteren Route gehoert, erkennt daran, dass sie nicht mehr aktuell ist.
 
 // Jeder Routenwechsel erhaelt eine Nummer: eine Antwort, die zu einer
 // aelteren Route gehoert, erkennt daran, dass sie nicht mehr aktuell ist.
@@ -490,11 +425,9 @@ export function nextRouteGeneration() {
   return routeGeneration;
 }
 
-
 export function currentRouteGeneration() {
   return routeGeneration;
 }
-
 
 export function routeScope() {
   const generation = currentRouteGeneration();
@@ -503,7 +436,6 @@ export function routeScope() {
 
 // Liefert false, wenn die Ansicht veraltet ist und nichts geschrieben wurde.
 
-// Liefert false, wenn die Ansicht veraltet ist und nichts geschrieben wurde.
 export function render(nodes, current = () => true) {
   if (!current()) return false;
   view.replaceChildren(...nodes);

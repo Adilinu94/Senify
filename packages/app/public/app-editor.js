@@ -1,13 +1,15 @@
 // Der Seiten-Editor und die Buehne. Die Bloecke standen in `app.js` und
 // sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt
 // ESLint.
+
 import { AUTHOR, MUTATION_LABELS, api, askText, el, failed, render, routeScope, toast } from "./app-core.js";
 import { openFramerImportDialog, openRedesignDirectionDialog } from "./app-import.js";
+
 // The open SSE channel of the active canvas view (ticket 05): a route change
 // closes it before the next view subscribes, so streams do not stack up.
 let activeLiveStream = null;
 let activeToolbarMenuCleanup = null;
-// The entry preview stays open across re-renders of the article editor.
+
 // The new canvas view (rebuild Phase 0, fifth slice). It reads the very page
 // draft of the running engine (`GET /api/pages/:pageId`) and lifts it to the v2
 // editor document with the existing migration; changes are written back through
@@ -35,6 +37,7 @@ let activeToolbarMenuCleanup = null;
 function legacyEditorDeepLink(search) {
   return /(?:^|&)view=editor(?:&|$)/.test(String(search ?? ""));
 }
+
 // Wartet auf einen Bild-Job und liefert die Asset-Id (P2-2).
 //
 // Ein Job ist asynchron: die Route antwortet 202, der Lauf arbeitet weiter. Der
@@ -53,6 +56,7 @@ function legacyEditorDeepLink(search) {
 // neu erzeugt, statt still als geschlossen zu gelten.
 const BILDJOB_FRIST_MS = 120000;
 const BILDJOB_ABSTAND_MS = 1200;
+
 export async function waitForImageJob(siteId, jobId, onStatus) {
   const ende = Date.now() + BILDJOB_FRIST_MS;
   let letzterText = "";
@@ -78,9 +82,11 @@ export async function waitForImageJob(siteId, jobId, onStatus) {
     `Der Bild-Job hat nach ${Math.round(BILDJOB_FRIST_MS / 1000)} s kein Ergebnis geliefert.`,
   );
 }
+
 async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCache, mediaCache, libraryComponents, assetContext, siteProfile, siteBreakpoints, siteTheme, siteThemeVersion, styleRules, styleRegistryVersion }) {
   const loaded = editor.loadDocument(page.draft);
   loaded.document.styleRules = styleRules ?? [];
+
   // Drei Spalten: Elemente/Einstellungen, Arbeitsflaeche (Canvas) und Struktur
   // (Tickets 02/03). Alle drei lesen denselben Store — die Auswahl im Canvas
   // ist die Auswahl in beiden Panels, eine Aenderung erscheint ueberall.
@@ -93,6 +99,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   const sideHost = el("aside", { class: "canvas-view__side" }, elementsHost, inspectorHost);
   host.classList.add("canvas-view");
   host.replaceChildren(sideHost, canvasHost, explorerHost);
+
   const statusEl = el("span", { class: "muted", "data-role": "canvas-status" });
   const statusGroup = el(
     "div",
@@ -156,10 +163,12 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   });
   reloadButton.hidden = true;
   retryButton.hidden = true;
+
   const setVersion = (version) => {
     const badge = document.getElementById("page-version");
     if (badge) badge.textContent = `Draft v${version}`;
   };
+
   // The save pipeline owns batching, version tracking and conflict handling;
   // the transport is the same `api` helper the rest of the shell uses, so a
   // `409` keeps its status.
@@ -177,6 +186,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       };
     }
   };
+
   // Ein Session-Kern (E5 Scheibe 1): Dokument + Auswahl + History + Server-
   // version + Pending in einem Objekt. Canvas und Inspektor sind Projektionen
   // derselben Session; der Ansichtszustand (Geraet, Tab, Zoom, Auswahl)
@@ -208,6 +218,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     storage,
   });
   const savedUi = session.ui();
+
   const applyState = (state) => {
     saveButton.disabled = state.pending === 0;
     saveButton.textContent = state.pending > 0 ? `Speichern (${state.pending})` : "Speichern";
@@ -224,6 +235,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     }
     syncConflictDialog(editor.conflictDialogModel(state));
   };
+
   // Konflikt-Dialog (L17): Server-Stand vs. eigene Aenderungen mit beiden Wegen
   // und ihren Folgen. Er oeffnet einmal je Konfliktlage; "Spaeter" schliesst
   // ihn, die Toolbar-Knoepfe bleiben der direkte Weg.
@@ -305,6 +317,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     applyState(state);
   });
   applyState(session.saveState());
+
   const canvas = editor.mountCanvas(canvasHost, {
     store: session.store,
     registry: editor.createRegistry(),
@@ -458,6 +471,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       },
     });
   });
+
   // Die Session ist die eine Quelle (E5): wechselt der Inspektor das Geraet,
   // folgt die Arbeitsflaeche; der Canvas meldet seine Wechsel ueber `onState`.
   session.subscribe(() => {
@@ -465,6 +479,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     canvas.setMode(ui.mode);
     canvas.setBreakpoint(ui.device);
   });
+
   // Der Ebenen-Explorer (Ticket 03 Scheibe 1): Tree mit Tastatur,
   // Kontextmenue und Fokus-Rueckgabe. Die Site-Tabs (Ticket 03 Punkt 1)
   // speisen sich aus den Caches der Shell: Seiten wechseln, Medien als Bild
@@ -581,6 +596,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       if (message !== null) statusEl.textContent = message;
     },
   });
+
   // Die Spotlight (Cmd+K, Ticket 03 Scheibe 1): Bausteine, Seiten und
   // Aktionen ueber die bestehende Suchlogik; `insert-primitive` fuegt am
   // ausgewaehlten Knoten ein.
@@ -622,6 +638,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       spotlight.open();
     }
   });
+
   // Der Inspektor (Ticket 02 Scheibe 1): Tabs Content/Style/Interactions/
   // Advanced, Feld-Familie aus der Vorschau, Token<->Literal.
   const inspector = editor.createInspector({
@@ -644,6 +661,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     },
   });
   inspector.setTab(savedUi.tab);
+
   // Das Elemente-Panel (E4/E5): Kacheln, Suche, Klick und Ziehen. Es wird einmal
   // gebaut und steht nur ohne Auswahl da; ein Klick fuegt das Element am Ziel
   // eines Plus-Punkts ein (sonst am Ende der Seite), Ziehen setzt es per Drag and
@@ -660,6 +678,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   elementsHost.replaceChildren(elementsPanel.element);
   // Ein Klick auf einen Plus-Punkt im Canvas merkt ein Ziel; das Panel zeigt es.
   canvas.onArmedChange((target) => elementsPanel.setTarget(target === null ? null : target.label));
+
   // Panel-Wechsel (E5): ist ein Element gewaehlt, ersetzen die Einstellungen die
   // Elemente; ohne Auswahl (Esc im Inspektor, Zurueck-Knopf, Leerklick im Canvas)
   // stehen wieder die Elemente da.
@@ -671,12 +690,14 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     inspectorHost.hidden = !hasSelection;
   };
   session.store.subscribe(syncSidePanel);
+
   // Die Auswahl aus der letzten Sitzung wiederherstellen, sofern der Knoten
   // noch existiert; `store.select` umgeht den Persistenz-Schreibpfad nicht.
   if (savedUi.selectedId && session.document.nodes[savedUi.selectedId]) {
     session.store.select(savedUi.selectedId);
   }
   syncSidePanel();
+
   /* ------------------------------------------------------- Live-Mitverfolgung
    * Ticket 05: die Engine meldet Aenderungen ueber SSE (`GET /api/events`).
    * Der Editor laedt die offene Seite nach (Store-Patch statt Voll-Neuladen),
@@ -752,6 +773,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     setFollowAgent(!followAgent);
     statusEl.textContent = followAgent ? "Agent-Vorschau an" : "Agent-Vorschau aus";
   });
+
   // Sekundäre Editor-Aktionen liegen in einem echten Overflow-Menü. Die
   // bestehenden data-action-Selektoren bleiben erhalten, damit Import, Follow
   // und die Konfliktwege direkt addressierbar und testbar bleiben.
@@ -931,6 +953,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     if (activeLiveStream === live) activeLiveStream = null;
     cleanup();
   });
+
   saveButton.addEventListener("click", () => {
     void session.flush();
   });
@@ -963,9 +986,11 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   retryButton.addEventListener("click", () => {
     void retrySave();
   });
+
   toolbar.append(statusGroup, redesignInbox, saveButton, publishButton, overflowHost);
   return { session, canvas, inspector, explorer, spotlight };
 }
+
 export async function pageView(siteId, pageId, initialSearch) {
   const current = routeScope();
   const page = await api(`/api/pages/${pageId}`);
@@ -1068,6 +1093,7 @@ export async function pageView(siteId, pageId, initialSearch) {
   // Liste, die er gerade ansieht, wäre sonst mitten im Klick weg.
   const stillHere = () => location.hash.startsWith(`#/projects/${siteId}/pages/${pageId}`);
   if (!stillHere()) return;
+
   // Ein sichtbarer Editorpfad (E5 Scheibe 1): der Umbau-Canvas (`mountCanvas`,
   // v2-Dokument) ist der Editor. Seit P3-1 Punkt 4 gibt es keinen zweiten
   // mehr und keinen Modus zu berechnen - der Aufrufer pflegt den Canvas.
@@ -1086,6 +1112,7 @@ export async function pageView(siteId, pageId, initialSearch) {
   // Veraltet: die Navigation ging weiter, der Editor darf nicht mehr einhängen
   // (Tastatur-Handler, Zeitgeber und Stores blieben sonst an einem losen Host).
   if (!render([toolbar, host], current)) return;
+
   let editor = null;
   try {
     editor = await import("/editor.js");
@@ -1093,6 +1120,7 @@ export async function pageView(siteId, pageId, initialSearch) {
     editor = null;
   }
   if (!stillHere()) return;
+
   // P3-1 Punkt 4 (R5): the v1 editor is deleted, so `?view=editor` is no longer
   // a second editing path but a **notice**: the deep link lands on the canvas
   // and says why. The block sits before the mount, not after it, or the notice
@@ -1118,6 +1146,7 @@ export async function pageView(siteId, pageId, initialSearch) {
       "info",
     );
   }
+
   if (editor) {
     mountCanvasView({
       pageId,
@@ -1139,6 +1168,7 @@ export async function pageView(siteId, pageId, initialSearch) {
     });
     return;
   }
+
   // The editor bundle did not load. What is left is the raw structure, read
   // only: enough to see what the page is made of, not enough to change it. The
   // v1 editor used to be a second path here; there is no second path any more.
@@ -1167,4 +1197,5 @@ export async function pageView(siteId, pageId, initialSearch) {
     ),
   );
 }
+
 /* Command palette */

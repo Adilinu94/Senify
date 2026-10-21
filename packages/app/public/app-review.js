@@ -60,7 +60,6 @@ export function reviewPanel(siteId, review) {
   );
 }
 
-
 // Review-Details (T07): Struktur-Diff in Klartext, dann die Aufnahmen aus
 // review.visuals - Vorher/Nachher je Breakpoint, das Diff-Bild mit Quote und
 // die Motion-Aufnahme, wenn die Aenderung Bewegung beruehrt hat.
@@ -98,13 +97,11 @@ function reviewDetailBlocks(review) {
   return blocks;
 }
 
-
 const REVIEW_BREAKPOINTS = [
   ["desktop", "Desktop"],
   ["tablet", "Tablet"],
   ["mobile", "Mobil"],
 ];
-
 
 function reviewStatusLabel(status) {
   return (
@@ -117,11 +114,9 @@ function reviewStatusLabel(status) {
   );
 }
 
-
 function reviewChangeLabel(change) {
   return { added: "neu", removed: "entfernt", changed: "geändert" }[change] ?? change;
 }
-
 
 function reviewFieldLabel(field) {
   return (
@@ -134,7 +129,6 @@ function reviewFieldLabel(field) {
     }[field] ?? field
   );
 }
-
 
 function reviewVisualsBlock(review) {
   const visuals = review.visuals;
@@ -223,7 +217,6 @@ function reviewVisualsBlock(review) {
   return node;
 }
 
-
 function reviewFigure(label, src, kind = "") {
   return el(
     "figure",
@@ -232,7 +225,6 @@ function reviewFigure(label, src, kind = "") {
     el("img", { src, alt: label, loading: "lazy" }),
   );
 }
-
 
 async function reviewAction(siteId, reviewId, action) {
   const labels = {
@@ -263,28 +255,3 @@ async function reviewAction(siteId, reviewId, action) {
     failed(error);
   }
 }
-
-// The new canvas view (rebuild Phase 0, fifth slice). It reads the very page
-// draft of the running engine (`GET /api/pages/:pageId`) and lifts it to the v2
-// editor document with the existing migration; changes are written back through
-// the engine's mutations path (`POST /api/pages/:pageId/editor-mutations`), so
-// the canvas owns no storage of its own.
-//
-// E5 Scheibe 1: der Umbau-Pfad ist der **eine sichtbare Editor**.
-//
-// P3-1 Punkt 4 (R5): the v1 editor is gone - `mount.ts`, `mountEditor` and the
-// page that mounted it are all deleted. There is no mode to compute any more,
-// so there is no `canvasModeOf`: the page below mounts the canvas, and the only
-// thing left of the old deep link is the hint that says so. Keeping a function
-// that returns a constant would be a lie about there being a choice.
-//
-// `?view=editor` is no longer a second editing path but a **notice**: the
-// deep link lands on the canvas and says why. Someone with the old URL
-// bookmarked therefore does not end up in a surface nobody maintains, and the
-// parameter is cleaned out so a reload does not repeat the notice.
-//
-// Erkennt den alten Deep-Link, damit der Umstieg **sichtbar** ist: der
-// Hinweistext erscheint im Canvas, und der Parameter wird aus dem Hash
-// entfernt, damit ein Neuladen nicht erneut umgeleitet wird. Ohne das
-// Entfernen bliebe der Hinweis bei jedem Reload stehen und wuerde zum
-// Normalzustand.
