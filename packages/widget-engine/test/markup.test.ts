@@ -129,6 +129,30 @@ describe("widget markup", () => {
     expect(icon.attrs?.["aria-hidden"]).toBe("true");
   });
 
+  it("draws the graphic of an icon that carries its own markup", () => {
+    const icon = spec("icon", {
+      name: "logo",
+      size: 40,
+      svg: '<svg viewBox="0 0 32 32" fill="none"><path d="M0 0L32 32" fill="red" onclick="x()"/><script>x()</script></svg>',
+    });
+    // The graphic brings its own fills and strokes: no ring, and none of the
+    // line defaults that would put a stroke around a filled shape.
+    expect(icon.children).toBeUndefined();
+    expect(icon.html).toBe('<path d="M0 0L32 32" fill="red"></path>');
+    expect(icon.attrs).toMatchObject({ viewBox: "0 0 32 32", fill: "none", width: 40, height: 40, "data-name": "logo" });
+    expect(icon.attrs?.stroke).toBeUndefined();
+    expect(icon.attrs?.strokeWidth).toBeUndefined();
+  });
+
+  it("keeps the ring for an icon without usable markup", () => {
+    for (const svg of [undefined, "", "kein svg", "<div></div>"]) {
+      const icon = spec("icon", svg === undefined ? {} : { svg });
+      expect(icon.html).toBeUndefined();
+      expect(icon.children?.[0]?.tag).toBe("circle");
+      expect(icon.attrs?.stroke).toBe("currentColor");
+    }
+  });
+
   it("keeps the media and embed addresses on the element", () => {
     expect(spec("image", { asset: "img1", alt: "Haus" }).attrs).toMatchObject({
       src: "/assets/img1",

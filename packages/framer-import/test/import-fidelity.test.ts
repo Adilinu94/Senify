@@ -989,3 +989,74 @@ describe("paragraph spacing of a rich text", () => {
     expect(body?.props).toMatchObject({ display: "flex", flexDirection: "column" });
   });
 });
+
+describe("svg graphics", () => {
+  // Framer keeps the drawings of its SVG layers in one hidden container behind
+  // `#main`; the layer itself is an `<svg>` with a `<use>` that points there.
+  const withSprite = (body: string, symbols: string): string =>
+    page(body).replace("</body>", `<div id="svg-templates" aria-hidden="true">\n${symbols}\n</div></body>`);
+  const layer = (id: string): string =>
+    `<div data-framer-component-type="SVG" style="width:32px;height:32px"><svg style="width:100%;height:100%;" viewBox="0 0 32 32"><use href="#${id}"/></svg></div>`;
+  const icons = (nodes: ReturnType<typeof run>["nodes"]) => nodes.filter((node) => node.primitive === "icon");
+
+  it("draws the symbol that a layer points at", () => {
+    const { nodes } = run(
+      withSprite(layer("svgA"), '<svg viewBox="0 0 32 32" id="svgA"><path d="M0 0L32 32" fill="var(--token-a1, rgb(1, 2, 3))"/></svg>'),
+    );
+    expect(icons(nodes)).toHaveLength(1);
+    expect(icons(nodes)[0]?.props["svg"]).toBe(
+      '<svg style="width:100%;height:100%;" viewBox="0 0 32 32"><svg viewBox="0 0 32 32" id="svgA"><path d="M0 0L32 32" fill="var(--token-a1, rgb(1, 2, 3))"/></svg></svg>',
+    );
+  });
+
+  it("draws a symbol that several layers share at each of them", () => {
+    const { nodes } = run(
+      withSprite(
+        `${layer("svgA")}${layer("svgB")}${layer("svgA")}`,
+        '<svg viewBox="0 0 8 8" id="svgA"><path d="M1 1"/></svg>\n<svg viewBox="0 0 9 9" id="svgB"><path d="M2 2"/></svg>',
+      ),
+    );
+    expect(icons(nodes).map((node) => /<path d="([^"]*)"/.exec(String(node.props["svg"]))?.[1])).toEqual(["M1 1", "M2 2", "M1 1"]);
+  });
+
+  it("keeps the markup of an svg that carries its drawing itself", () => {
+    const { nodes } = run(page('<svg viewBox="0 0 24 24"><path d="M3 3L9 9" fill="red"/></svg>'));
+    expect(icons(nodes)[0]?.props["svg"]).toBe('<svg viewBox="0 0 24 24"><path d="M3 3L9 9" fill="red"/></svg>');
+  });
+
+  // The other way Framer draws an SVG layer: the markup sits unescaped in the style
+  // attribute of an empty `div` (`background-image:url('data:image/svg+xml,<svg …>')`),
+  // and the `>` of its `<svg …>` is not the end of the tag.
+  const drawn =
+    "<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><path d=%22M0 0L32 32%22 fill=%22red%22/></svg>";
+  const drawnLayer = `<div data-framer-component-type="SVG" style="image-rendering:pixelated;flex-shrink:0;background-size:100% 100%;background-image:url('data:image/svg+xml,${drawn}')"></div>`;
+
+  it("reads the whole style attribute of a layer that carries its drawing in a data URL", () => {
+    const { nodes } = run(page(`<div class="outer">${drawnLayer}<p>danach</p></div>`));
+    // No element grows out of the markup inside the attribute: the layer, its
+    // parent and the paragraph.
+    expect(nodes.map((node) => node.primitive).sort()).toEqual(["frame", "frame", "text"]);
+    const layerNode = nodes.find((node) => node.props["backgroundSize"] !== undefined);
+    expect(layerNode?.props["backgroundSize"]).toBe("100% 100%");
+  });
+
+  it("draws the data URL of a layer as the background of a frame", () => {
+    const { nodes } = run(page(drawnLayer));
+    // A frame, not an icon: an icon would draw its ring over the picture.
+    expect(icons(nodes)).toHaveLength(0);
+    const layerNode = nodes.find((node) => node.props["backgroundImage"] !== undefined);
+    // The browser reads `%3C` and `%3E` as the characters, and the style grammar
+    // lets them through where it refuses a `<` in a value.
+    expect(layerNode?.primitive).toBe("frame");
+    expect(layerNode?.props["backgroundImage"]).toBe(
+      "url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Cpath d=%22M0 0L32 32%22 fill=%22red%22/%3E%3C/svg%3E')",
+    );
+  });
+
+  it("keeps the ring where the page does not hold the symbol", () => {
+    // The football export points at ids that its container does not carry.
+    const { nodes } = run(withSprite(layer("svgGone"), '<svg viewBox="0 0 8 8" id="svgA"><path d="M1 1"/></svg>'));
+    expect(icons(nodes)).toHaveLength(1);
+    expect(icons(nodes)[0]?.props["svg"]).toBeUndefined();
+  });
+});

@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { chromium } from "playwright";
 import { createImportPreviewDriver, previewFramerImport } from "@senify/engine";
 
@@ -18,6 +18,11 @@ const browserAvailable = (() => {
 describe.skipIf(!browserAvailable && process.env["SENIFY_REQUIRE_BROWSER"] !== "1")("import preview with a real browser", () => {
   it("returns a small picture of the original and of the import at each width", async () => {
     const root = mkdtempSync(join(tmpdir(), "senify-preview-"));
+    // The switch of the operator is off. The preview still works: the two
+    // servers it starts itself are on the list of allowed addresses
+    // (ADR-0022). Without that list the browser would be refused its own
+    // preview server - that is the counter-probe for the wiring.
+    vi.stubEnv("SENIFY_ALLOW_PRIVATE_URLS", "");
     try {
       writeFileSync(
         join(root, "index.html"),
@@ -45,6 +50,7 @@ describe.skipIf(!browserAvailable && process.env["SENIFY_REQUIRE_BROWSER"] !== "
         expect(shot.after.length).toBeLessThan(900_000);
       }
     } finally {
+      vi.unstubAllEnvs();
       rmSync(root, { recursive: true, force: true });
     }
   }, 180_000);

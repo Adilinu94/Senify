@@ -83,7 +83,12 @@ export default {
     // ist damit kein Zyklus im laufenden Programm - nur in der Lesebarkeit.
     tsPreCompilationDeps: false,
     doNotFollow: { path: "node_modules" },
-    exclude: { path: "(^|/)node_modules/" },
+    // Build-Artefakte sind kein Quelltext: der Bake legt seinen Stage-Ordner
+    // unter `packages/renderer/.bake/` an, und der Scanner wuerde ihn mit
+    //gehen - mitten im Testlauf ein transienter Fehler, weil die Datei
+    // waehrend des Scans wieder verschwindet. Die Artefakte stehen in
+    // `.gitignore`; der Scanner soll dasselbe gelten lassen.
+    exclude: { path: "(^|/)node_modules/|(^|/)\\.bake/|(^|/)\\.astro/|(^|/)dist/" },
     reporterOptions: {
       dot: { collapsePattern: "node_modules/(@[^/]+/[^/]+|[^/]+)" },
     },

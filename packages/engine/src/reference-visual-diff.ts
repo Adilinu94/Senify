@@ -136,6 +136,9 @@ export async function diffReferenceDesign(
           outDir: join(workRoot, "after"),
           breakpoints: [breakpoint],
           widths: { [breakpoint]: snapshot.width },
+          // The server this diff started itself: the only private address the
+          // browser may open (ADR-0022).
+          browser: { allowOrigins: [server.origin] },
         });
         const after = captures[0];
         if (after === undefined) continue;

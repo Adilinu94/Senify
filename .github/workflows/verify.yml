@@ -40,6 +40,16 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-24.04
+    # Pflicht-Browser: ohne diese Variable ueberspringen sich die
+    # Browser-Suiten still, wenn Chromium fehlt oder nicht zur Playwright-
+    # Version passt. Ein gruener Lauf, in dem die Browser-Tore nie
+    # gelaufen sind, ist kein Nachweis - der Job soll an der fehlenden
+    # Version rot werden, nicht gruen ohne Test.
+    #
+    # Der Windows-Job setzt sie bewusst NICHT: dort ist kein Chromium
+    # installiert, und die Browser-Suiten laufen im Linux-Job.
+    env:
+      SENIFY_REQUIRE_BROWSER: "1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # Kein `version:` hier: pnpm/action-setup liest die Version aus

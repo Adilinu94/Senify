@@ -16,7 +16,7 @@ import type {
   EditorDocument,
   EditorNode,
 } from "@senify/editor/state";
-import { sanitizeInlineHtml, type StyleRule } from "@senify/widget-engine";
+import { sanitizeInlineHtml, sanitizeSvgMarkup, type StyleRule } from "@senify/widget-engine";
 import { brandColorOf } from "./brand-color.ts";
 import { neutralBaseOf, typeBaseOf } from "./theme-scales.ts";
 import { devicesContaining } from "./devices.ts";
@@ -155,10 +155,11 @@ function primitiveFor(node: IrNode, siblings: IrNode[]): string {
       return richItems ? "frame" : "list";
     }
     case "svg":
-      // The `icon` primitive takes a registry name, not free SVG markup. A
-      // bare SVG maps to `icon` with a finding (S2 loads the markup as an
-      // asset); an SVG wrapped in layout blocks degrades to a frame.
-      return siblings.length > 0 ? "frame" : "icon";
+      // An `<svg>` tag is an icon, which draws the markup it carries. A layer that
+      // is not one (Framer's `div` of an SVG layer, empty, with its drawing in a
+      // background image) is a frame: an icon would draw its ring over the
+      // picture. An SVG wrapped in layout blocks is a frame as well.
+      return siblings.length > 0 || node.tag !== "svg" ? "frame" : "icon";
     case "placeholder":
       return "payload";
     case "embed":
@@ -527,6 +528,11 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
     const assetId = node.assetId ?? node.assetUrl;
     if (assetId !== undefined && assetId !== null) props["asset"] = { assetId };
     props["alt"] = node.alt ?? "";
+  } else if (primitive === "icon") {
+    // The layer's own drawing. Where the capture found none (a `<use>` into a
+    // container that lacks the id) the sanitizer has nothing to draw, so the icon
+    // keeps its ring instead of an empty box.
+    if (node.svg !== null && sanitizeSvgMarkup(node.svg) !== undefined) props["svg"] = node.svg;
   } else if (primitive === "frame") {
     props["semantic"] = node.tag === "header" || node.tag === "footer" || node.tag === "nav" || node.tag === "section" || node.tag === "main" ? node.tag : "div";
   }
@@ -744,12 +750,20 @@ const BACKGROUND_RESETS: ReadonlySet<string> = new Set(["0 0", "none", "initial"
 const isBackgroundReset = (name: string, value: string): boolean =>
   name === "background" && BACKGROUND_RESETS.has(value.trim().toLowerCase());
 
+// An SVG layer's drawing sits in a data URL with its markup unescaped
+// (`url('data:image/svg+xml,<svg …>')`). The value grammar refuses `<` and `>` in a value
+// (a `<` could close the <style> element); a data URL reads `%3C` and `%3E` as the same
+// characters, so the markup goes through in that spelling.
+function escapedDataUrlMarkup(value: string): string {
+  return value.includes("data:image/svg+xml") ? value.replace(/</g, "%3C").replace(/>/g, "%3E") : value;
+}
+
 function cssToStyle(visual: { [key: string]: string | undefined }): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [name, entry] of Object.entries(visual)) {
     if (entry === undefined || isBackgroundReset(name, entry)) continue;
     const mapped = name === "background" && BACKGROUND_IMAGE.test(entry) ? "backgroundImage" : cssName(name);
-    if (mapped !== undefined && entry !== "") out[mapped] = entry;
+    if (mapped !== undefined && entry !== "") out[mapped] = mapped === "backgroundImage" ? escapedDataUrlMarkup(entry) : entry;
   }
   return out;
 }
