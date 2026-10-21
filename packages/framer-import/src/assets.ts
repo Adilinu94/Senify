@@ -302,7 +302,7 @@ export async function importAssets(input: ImportAssetsInput): Promise<AssetResul
     ...document,
     pages: document.pages.map((page) => ({
       ...page,
-      root: applyAssetUrls(page.root, urlToAsset),
+      root: applyAssetUrls(applyValueAssets(page.root, urlToAsset), urlToAsset),
     })),
     styles: { ...document.styles, fonts: rewrittenFonts },
     assets,
@@ -363,6 +363,41 @@ function applyAssetUrls(
   };
 }
 
+// A graphic in a style value (the mask of the X logo) becomes an asset: the
+// value names the uploaded file instead of the data URL. ADR-0005 keeps
+// `data:image/svg+xml` out of style values — an SVG can carry a script — and
+// the asset is the cleaned-up file.
+function applyValueAssets(
+  node: IrNode,
+  urlToAsset: Map<string, AssetDownload>,
+): IrNode {
+  const visit = (current: IrNode): IrNode => ({
+    ...current,
+    states: current.states.map((state) => ({
+      ...state,
+      visual: Object.fromEntries(
+        Object.entries(state.visual).map(([property, value]) => [
+          property,
+          typeof value === "string" ? valueWithAsset(value, urlToAsset) : value,
+        ]),
+      ),
+    })),
+    children: current.children.map(visit),
+  });
+  return visit(node);
+}
+
+function valueWithAsset(value: string, urlToAsset: Map<string, AssetDownload>): string {
+  if (!/url\(\s*['"]?data:/i.test(value)) return value;
+  let result = value;
+  for (const [url, download] of urlToAsset) {
+    if (download.localUrl === null || download.localUrl === undefined) continue;
+    if (!result.includes(url)) continue;
+    result = result.split(url).join(download.localUrl);
+  }
+  return result;
+}
+
 function fontByHashByContent(
   fontByHash: Map<string, { hash: string; bytes: number; files: string[] }>,
   hash: string,
@@ -396,8 +431,12 @@ async function downloadAsset(
     const raw = dataContent !== null ? dataContent.bytes : local ?? (await fetchBytes(absolute, timeoutMs));
     const mime = dataContent === null ? mimeForUrl(asset.url) : dataContent.mime;
     // An SVG can carry a script. It becomes an asset only cleaned up: the
-    // file may be opened directly from the media library.
-    const data = mime === "image/svg+xml" ? Buffer.from(sanitizeSvg(raw.toString("utf8")), "utf8") : raw;
+    // file may be opened directly from the media library. A data URL in a
+    // CSS value carries the CSS escapes of the source (`\"` for a quote) —
+    // they belong to the style, not to the file.
+    const data = mime === "image/svg+xml"
+      ? Buffer.from(sanitizeSvg(unescapeCss(raw.toString("utf8"))), "utf8")
+      : raw;
     const hash = sha256(data);
     const existing = byHash.get(hash);
     if (existing !== undefined) {
@@ -427,8 +466,13 @@ async function downloadAsset(
   }
 }
 
-function absoluteUrl(url: string, baseUrl: string | undefined): string {
-  if (/^https?:\/\//i.test(url)) return url;
+// The CSS escapes of a value: a quote inside a `url("…")` stands as `\"` in
+// the style. The file the URL points to carries the plain character.
+function unescapeCss(value: string): string {
+  return value.replace(/\\(["'\\])/g, "$1");
+}
+
+function absoluteUrl(url: string, baseUrl: string | undefined): string {  if (/^https?:\/\//i.test(url)) return url;
   if (baseUrl === undefined) {
     throw new SenifyError(
       "validation",

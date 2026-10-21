@@ -183,7 +183,7 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
 
   const payloads = input.source.kind === "mirror" ? extractPayloads({ document, rootDir: input.source.rootDir }) : [];
   const normalized = normalize(document, { mode: input.mode ?? "dna" });
-  const mapped = mapDocument(document, normalized.rules);
+  const mapped = mapDocument(document, normalized.rules, { mode: input.mode ?? "dna" });
   const motion = mapFramerMotion(document);
   for (const mapping of motion.mappings) {
     const editorNodeId = mapping.nodeKey === null ? undefined : mapped.nodeIdByIrKey[mapping.nodeKey];

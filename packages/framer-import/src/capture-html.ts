@@ -63,6 +63,21 @@ export type CaptureHtmlInput = {
 
 type RawAttr = Record<string, string>;
 
+// Framer's "fit text": the words of a text stand at their layout size inside an
+// `<svg><foreignObject>`, and the `viewBox` scales the whole thing down to the
+// box. Measured on the Earn template, the footer name carries `font-size:211px`
+// and `line-height:80%` in a `viewBox` 1058.22 wide, so a visitor sees 19.94 %
+// of the box width. Read as a graphic, the words would be a picture the editor
+// cannot reach; read as text, they stay editable. What the browser shows is a
+// ratio, so the ratio is what travels.
+type RawFitText = {
+  text: string;
+  // The width of the viewBox the text was laid out against.
+  viewBoxWidth: number;
+  // The `--framer-*` declarations of the inner text, in Senify style names.
+  inline: IrVisual;
+};
+
 type RawNode = {
   tag: string;
   attrs: RawAttr;
@@ -70,6 +85,7 @@ type RawNode = {
   children: RawNode[];
   text: string | null;
   svg: string | null;
+  fitText?: RawFitText;
   // The inner markup of an element that mixes text and inline elements (the
   // RichText shape `Hallo <strong>x</strong> Welt`): the scan keeps elements
   // only, so without this the plain text nodes between them are lost.
@@ -141,6 +157,49 @@ function scanNodes(html: string, start: number, end: number): RawNode[] {
     i = parsed.next;
   }
   return nodes;
+}
+
+// The properties a transition names: `background-size 2s ease, color .4s`.
+function transitionPropertiesOf(transition: string): string[] {
+  const namen: string[] = [];
+  for (const teil of transition.split(",")) {
+    const eigenschaft = (teil.trim().split(/\s+/)[0] ?? "").toLowerCase();
+    if (eigenschaft !== "" && !namen.includes(eigenschaft)) namen.push(eigenschaft);
+  }
+  return namen;
+}
+
+// The start state of an effect is no look, and the inner markup keeps the raw
+// declarations of the source. The words of a heading would come with
+// `opacity:0.001` and stay invisible for good — the same rule the visual
+// follows (see `toIrNode`).
+function ohneStartzustaende(markup: string): string {
+  return markup.replace(/style=("([^"]*)"|'([^']*)')/g, (treffer, _ganz, doppelt, einfach) => {
+    const roh = doppelt ?? einfach ?? "";
+    const deklarationen = splitDeclarations(roh);
+    const werte = new Map<string, string>();
+    for (const deklaration of deklarationen) {
+      const paar = parseDeclaration(deklaration);
+      if (paar !== null) werte.set(paar[0].toLowerCase(), paar[1]);
+    }
+    const opacity = Number.parseFloat(werte.get("opacity") ?? "");
+    const transform = (werte.get("transform") ?? "").trim();
+    const startzustand =
+      (Number.isFinite(opacity) && opacity <= 0.01 && transform !== "" && transform !== "none") ||
+      ((werte.get("will-change") ?? "").includes("transform") && transform !== "" && transform !== "none");
+    const uebergangen = werte.has("transition") ? transitionPropertiesOf(werte.get("transition") ?? "") : [];
+    const behalten = deklarationen.filter((deklaration) => {
+      const paar = parseDeclaration(deklaration);
+      if (paar === null) return deklaration.trim() !== "";
+      const name = paar[0].toLowerCase();
+      if (startzustand && (name === "opacity" || name === "transform" || name === "will-change")) return false;
+      if (name === "transition" || uebergangen.includes(name)) return false;
+      return true;
+    });
+    if (behalten.length === deklarationen.length) return treffer;
+    const wert = behalten.join(";");
+    return doppelt !== undefined ? `style="${wert}"` : `style='${wert}'`;
+  });
 }
 
 function parseAttrs(raw: string): RawAttr {
@@ -230,8 +289,11 @@ function scanTag(
   if (tag === "svg") {
     const close = html.toLowerCase().indexOf("</svg>", gt + 1);
     const content = close === -1 ? html.slice(lt, limit) : html.slice(lt, close + 6);
+    // A "fit text" carries its words as real text, only scaled by the viewBox:
+    // read as a graphic they would be a picture the editor cannot reach.
+    const fitText = fitTextOf(content, attrs);
     return {
-      node: { tag, attrs, classes, children: [], text: null, svg: content, innerHtml: null },
+      node: { tag, attrs, classes, children: [], text: fitText?.text ?? null, svg: fitText === undefined ? content : null, innerHtml: null, ...(fitText === undefined ? {} : { fitText }) },
       next: close === -1 ? limit : close + 6,
     };
   }
@@ -268,7 +330,7 @@ function scanTag(
     extractText(html.slice(gt + 1, innerEnd)) !== extractText(children.map((child) => child.text ?? "").join(""))
       ? // React's fragment markers (`<!--$-->`) are no content: the sanitizer would
         // escape them into visible text.
-        html.slice(gt + 1, innerEnd).replace(/<!--[\s\S]*?-->/g, "")
+        ohneStartzustaende(html.slice(gt + 1, innerEnd).replace(/<!--[\s\S]*?-->/g, ""))
       : null;
   const withSpaces = spaced !== null && spaced !== text && spaced.trim() !== "" ? { spacedText: spaced } : {};
   return { node: { tag, attrs, classes, children, text, svg: null, innerHtml, ...withSpaces }, next };
@@ -326,6 +388,47 @@ function extractText(raw: string): string {
   return decodeEntities(raw.replace(/<[^>]*>/g, "")).replace(/\s+/g, " ").trim();
 }
 
+// The text of a "fit text" as a Senify style set: the size the source laid the
+// words out at, expressed as a share of the box it is scaled into.
+//
+// The `<svg>` of the source is `width:100%; height:auto` around a `viewBox`, so
+// the box a visitor sees is the width of the container. The words inside carry
+// `font-size:211px` against a viewBox 1058.22 wide: 19.94 % of the container
+// width, on every device (measured at 1440, 900 and 390 px). A `cqw` value is
+// exactly that share — the container has to be a size container, which the
+// mapper sets. A hard `px` value would freeze the size of one width; a `vw`
+// value would follow the window instead of the box and drift as soon as the
+// text sits in a column.
+function fitTextStyles(fit: RawFitText): Record<string, string> {
+  const out: Record<string, string> = {};
+  const size = Number.parseFloat(fit.inline["fontSize"] ?? "");
+  if (!Number.isFinite(size) || size <= 0) return out;
+  const share = (size / fit.viewBoxWidth) * 100;
+  // Four decimals keep the pixel at every width of the page: 0.0001 % of a
+  // 1280 px box is 0.0013 px.
+  out["font-size"] = `${Math.round(share * 10000) / 10000}cqw`;
+  // The source sets the height of a line as a share of the size (`80%`); the
+  // style table reads `line-height` as a factor, which is the same number.
+  const lineHeight = (fit.inline["lineHeight"] ?? "").trim();
+  const factor = /^([\d.]+)%$/.exec(lineHeight);
+  if (factor !== null) out["line-height"] = String(Number.parseFloat(factor[1] ?? "") / 100);
+  else if (/^[\d.]+$/.test(lineHeight)) out["line-height"] = lineHeight;
+  const KEBAB: Readonly<Record<string, string>> = {
+    fontWeight: "font-weight",
+    fontStyle: "font-style",
+    letterSpacing: "letter-spacing",
+    textAlign: "text-align",
+    color: "color",
+    fontFamily: "font-family",
+  };
+  for (const [name, css] of Object.entries(KEBAB)) {
+    const value = fit.inline[name];
+    if (value !== undefined && value !== "") out[css] = value;
+  }
+  return out;
+}
+
+
 // The style values that carry a graphic as a data URL. The report names the
 // place, not the picture: the address is cut short.
 function dataUrlValuesOf(root: IrNode): string[] {
@@ -343,6 +446,67 @@ function dataUrlValuesOf(root: IrNode): string[] {
     for (const child of node.children) visit(child);
   };
   visit(root);
+  return found;
+}
+
+// The data URLs a style value carries. A graphic in a value (the mask of the
+// X logo, a background) becomes an asset: ADR-0005 keeps
+// `data:image/svg+xml` out of style values, because an SVG can carry a
+// script. Uploaded, the SVG is cleaned up and the value names the asset.
+function dataUrlsInValues(root: IrNode): string[] {
+  const found: string[] = [];
+  const visit = (node: IrNode): void => {
+    for (const state of node.states) {
+      for (const value of Object.values(state.visual)) {
+        if (typeof value !== "string") continue;
+        for (const url of dataUrlsOf(value)) {
+          if (!found.includes(url)) found.push(url);
+        }
+      }
+    }
+    for (const child of node.children) visit(child);
+  };
+  visit(root);
+  return found;
+}
+
+// The data URLs one CSS value carries. A quoted URL ends at the closing
+// quote — the inner quotes of the SVG are escaped, so they do not end it —
+// an unquoted one at the parenthesis. The SVG of a mask holds spaces
+// (`viewBox="0 0 24 24"`), so a scan for the closing delimiter is the only
+// way to get the whole address.
+function dataUrlsOf(value: string): string[] {
+  const found: string[] = [];
+  const muster = /url\(/gi;
+  let treffer: RegExpExecArray | null;
+  while ((treffer = muster.exec(value)) !== null) {
+    let index = treffer.index + treffer[0].length;
+    while (index < value.length && /\s/.test(value.charAt(index))) index += 1;
+    // The address may stand in quotes: `url("data:…")`.
+    let quote = "";
+    const erstes = value.charAt(index);
+    if (erstes === '"' || erstes === "'") {
+      quote = erstes;
+      index += 1;
+    }
+    if (!value.startsWith("data:", index)) continue;
+    let end = index;
+    if (quote !== "") {
+      while (end < value.length) {
+        if (value.charAt(end) === "\\") {
+          end += 2;
+          continue;
+        }
+        if (value.charAt(end) === quote) break;
+        end += 1;
+      }
+    } else {
+      end = value.indexOf(")", index);
+      if (end === -1) end = value.length;
+    }
+    if (end > index) found.push(value.slice(index, end));
+    muster.lastIndex = end + 1;
+  }
   return found;
 }
 
@@ -555,6 +719,38 @@ function withSymbols(svg: string, symbols: ReadonlyMap<string, string>): string 
   return svg.replace(USE_OF_SYMBOL, (use, id: string) => symbols.get(id) ?? use);
 }
 
+// Framer's "fit text" draws the words at their layout size and lets the
+// `viewBox` of the `<svg>` scale them down. The Earn footer name carries
+// `font-size:211px` in a box 1058.22 wide, so a visitor sees 19.94 % of the box
+// width. The text is real text, not a graphic: it stays editable, and the
+// ratio is what travels.
+const FOREIGN_OBJECT = /<foreignObject\b[^>]*>([\s\S]*?)<\/foreignObject>/i;
+const FIT_TEXT_MARKER = /framer-fit-text/;
+
+function fitTextOf(svg: string, attrs: RawAttr): RawFitText | undefined {
+  if (!FIT_TEXT_MARKER.test(svg)) return undefined;
+  const inner = FOREIGN_OBJECT.exec(svg)?.[1];
+  if (inner === undefined) return undefined;
+  const content = extractText(inner);
+  if (content === "") return undefined;
+  const box = (attrs["viewbox"] ?? "").trim().split(/[\s,]+/).map(Number);
+  const boxWidth = box[2];
+  if (box.length !== 4 || boxWidth === undefined || !Number.isFinite(boxWidth) || boxWidth <= 0) return undefined;
+  // The innermost element that carries the text style is the `<p>`; the
+  // `foreignObject` itself only carries the overflow.
+  let inline: IrVisual = {};
+  for (const match of [...inner.matchAll(/<([a-zA-Z][\w:-]*)([^>]*)>/g)].reverse()) {
+    const mapped = framerInlineToStyles(parseAttrs(match[2] ?? "")["style"]);
+    if (mapped["fontSize"] !== undefined) {
+      inline = mapped;
+      break;
+    }
+  }
+  if (inline["fontSize"] === undefined) return undefined;
+  return { text: content, viewBoxWidth: boxWidth, inline };
+}
+
+
 // A text in `white-space: pre`, `pre-wrap` or `break-spaces` is drawn with every space the
 // author typed: "Hey, ich bin " is 22 px wider than "Hey, ich bin" on fluffy-rectangle, and
 // "Meine  Referenzen" has two spaces between the words. The scan collapses spaces, so it
@@ -580,7 +776,7 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
   const variantHashes = raw.classes
     .filter((entry) => entry.startsWith("framer-v-"))
     .map((entry) => entry.slice("framer-v-".length));
-  const kind = kindFor(raw);
+  const kind = raw.fitText === undefined ? kindFor(raw) : "fit-text";
   const named = Object.entries(attrs).filter(([name]) => counter.attrNames?.has(name) === true);
   const selectorAttrs = named.length > 0 ? Object.fromEntries(named) : undefined;
 
@@ -608,6 +804,30 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
       delete visual[property];
     }
   }
+  // A scroll reveal or a variant writes `will-change:transform` into the
+  // inline style and puts the state BEFORE the animation there: the resting
+  // look is in the class rules. Measured on the source page (the Earn
+  // template): 47 of the 57 inline transforms with that marker are gone at
+  // runtime. Kept as a permanent style, the testimonial quote stays scaled
+  // to 60 % (672 px instead of 1125 px) for good.
+  if (!hasStartState && movesIn && (visual["will-change"] ?? "").includes("transform")) {
+    appearInitial["transform"] = visual["transform"] as string;
+    delete visual["transform"];
+    delete visual["will-change"];
+  }
+  // The same convention for an effect that animates a property instead of
+  // moving the element: Framer writes the state BEFORE the effect inline. The
+  // marked word of the testimonial carries `background-size:0% 100%` and a
+  // transition on it — the highlight grows to the full width when the block
+  // appears. Kept as a permanent style, the word would stay unmarked for good.
+  // The resting look comes from the class rules (or the initial value).
+  const transition = visual["transition"];
+  if (transition !== undefined) {
+    for (const property of transitionPropertiesOf(transition)) {
+      delete visual[property];
+    }
+    delete visual["transition"];
+  }
   // A Ticker (marquee) is written with `opacity:0` and shown by Framer's script once it
   // has measured itself: the opacity is the state before the script, not the look.
   if (raw.tag === "section" && visual["opacity"] === "0" && visual["list-style-type"] === "none" && visual["place-items"] === "center") {
@@ -616,6 +836,25 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
   const textInline: Record<string, string> = {};
   for (const [property, value] of Object.entries(framerInlineToStyles(attrs["style"]))) {
     if (value !== undefined) textInline[property] = value;
+  }
+  if (raw.fitText !== undefined) {
+    for (const [property, value] of Object.entries(fitTextStyles(raw.fitText))) {
+      visual[property] = value;
+    }
+    // The fit text does not wrap — its `viewBox` was measured against one line
+    // of words — and the text sits on the middle of the box.
+    visual["white-space"] = "nowrap";
+    // The source's `<svg>` is a flex box; as a text the words have to centre in
+    // the full width, which `text-align` only does in a block box.
+    visual["display"] = "block";
+  }
+  // The share above is read against the width of the box the text sits in, and
+  // a container query measures its nearest ANCESTOR container — never the
+  // element that declares the unit. Measured: on the element itself the browser
+  // resolves 19.9391cqw to 287 px (the window), on the parent to 255.22 px,
+  // which is what the source shows. The parent gets the container, not the text.
+  if (raw.children.some((child) => child.fitText !== undefined)) {
+    visual["container-type"] = "inline-size";
   }
   const text: IrTextContent | null =
     raw.text !== null && raw.text !== ""
@@ -666,6 +905,7 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
     ...(selectorAttrs === undefined ? {} : { attrs: selectorAttrs }),
     tag: raw.tag,
     href: attrs["href"] ?? null,
+    ...(attrs["style"] !== undefined && attrs["style"] !== "" ? { inlineStyle: attrs["style"] } : {}),
     ...(raw.attrs["src"] !== undefined ? { assetUrl: raw.attrs["src"] } : {}),
     ...(attrs["data-framer-module-poster"] !== undefined
       ? { assetUrl: attrs["data-framer-module-poster"] }
@@ -948,10 +1188,15 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
 
   // A graphic in a style value, carried as a data URL, cannot become a style
   // value: ADR-0005 keeps `data:image/svg+xml` out of CSS values, because SVG
-  // can carry a script. The value is therefore dropped by the compiler — and
-  // the report says so, with the place it came from. A picture in a `src` does
-  // not come here: it becomes an asset.
+  // can carry a script. The graphic becomes an asset instead — the asset
+  // pipeline cleans the SVG up and the value names the asset. What is left
+  // over (a data URL the pipeline could not turn into an asset) is reported.
   const dataUrlValues = dataUrlValuesOf(root);
+  const wertAssets = dataUrlsInValues(root);
+  for (const url of wertAssets) {
+    if (assets.some((asset) => asset.url === url)) continue;
+    assets.push({ url, kind: "image", hash: null, alt: null, width: null, height: null });
+  }
   if (dataUrlValues.length > 0) {
     findings.push({
       kind: "unsupported-declaration",
@@ -1763,11 +2008,33 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
       const vars = { ...inherited[device], ...own };
       varsByDevice[device] = vars;
       // Framer keeps a border as custom properties and draws it with
-      // `[data-border=true]:after`, a pseudo rule that is not applied. The
-      // element carries the border itself, with the widths of each side.
+      // `[data-border=true]:after` — an overlay pinned to the element
+      // (`position:absolute; inset:0; pointer-events:none`). Measured on the
+      // Earn template: the source element has `border-style:none` and 108 px,
+      // its `::after` carries the 1 px at the bottom.
+      //
+      // A real border adds to the box, and its `border-style` applies to all
+      // four sides: a border that exists only at the bottom made the element
+      // 1 px taller and the whole page 1 px taller with it. An inset shadow
+      // draws in the same place as the overlay without touching the layout.
       const borderStyle = vars["--border-style"];
-      if (current.attrs?.["data-border"] === "true" && borderStyle !== undefined && borderStyle !== "none") {
-        for (const side of ["top", "right", "bottom", "left"]) {
+      if (current.attrs?.["data-border"] === "true" && borderStyle === "solid") {
+        const color = vars["--border-color"];
+        const shadows: string[] = [];
+        for (const side of ["top", "right", "bottom", "left"] as const) {
+          const width = vars[`--border-${side}-width`] ?? "0px";
+          if (!(Number.parseFloat(width) > 0)) continue;
+          const offsetX = side === "left" ? width : side === "right" ? `-${width}` : "0px";
+          const offsetY = side === "top" ? width : side === "bottom" ? `-${width}` : "0px";
+          shadows.push(`inset ${offsetX} ${offsetY} 0 0`);
+        }
+        if (shadows.length > 0 && color !== undefined) {
+          plain["box-shadow"] = `${shadows.join(",")} ${color}`;
+        }
+      } else if (current.attrs?.["data-border"] === "true" && borderStyle !== undefined && borderStyle !== "none") {
+        // A style that is not a plain line (dashed, dotted) has no inset
+        // shadow form; it keeps the element's own border.
+        for (const side of ["top", "right", "bottom", "left"] as const) {
           const width = vars[`--border-${side}-width`];
           if (width !== undefined) plain[`border-${side}-width`] = width;
         }

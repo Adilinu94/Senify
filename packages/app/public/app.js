@@ -140,7 +140,7 @@ function routeErrorView(error) {
     { class: "route-error", role: "alert" },
     el("h1", { text: "Ansicht konnte nicht geladen werden" }),
     el("p", { class: "route-error__detail", text: friendlyError(error) }),
-    el("p", { text: "Die Verbindung zum lokalen Senify-Dienst ist kurz nicht verfügbar oder die Route enthält ungültige Daten." }),
+    el("p", { text: "Die Verbindung zum lokalen Senify-Dienst ist kurz nicht verf├╝gbar oder die Route enth├ñlt ung├╝ltige Daten." }),
     retry,
   );
 }
@@ -154,8 +154,8 @@ export async function renderRoute() {
   const referenceMatch = route.match(/^#\/references\/([^/]+)$/);
   const isReferences = route === "#/references" || referenceMatch !== null;
   view.classList.toggle("refs-view", isReferences);
-  // Der Seiten-Editor ist eine Arbeitsfläche: die 68rem-Spalte der übrigen
-  // Ansichten würde ihn auf 1088px einengen, obwohl die Bühne 1440px zeigt.
+  // Der Seiten-Editor ist eine Arbeitsfl├ñche: die 68rem-Spalte der ├╝brigen
+  // Ansichten w├╝rde ihn auf 1088px einengen, obwohl die B├╝hne 1440px zeigt.
   const isEditor = /^#\/projects\/[^/]+\/pages\/[^/]+$/.test(route);
   view.classList.toggle("editor-view", isEditor);
   // Workspace-Modus: im Seiten-Editor ersetzt eine einzige Leiste die Portal-Leiste.
@@ -191,7 +191,7 @@ export async function renderRoute() {
     } else if (referenceMatch) {
       // Deep-Link auf eine Referenz: die Bibliothek steht, die Detailansicht
       // liegt als Fenster darueber. Die Adresse faellt danach auf die
-      // Bibliothek zurueck, damit „Zurueck" das Fenster nicht schliesst.
+      // Bibliothek zurueck, damit ΓÇ₧Zurueck" das Fenster nicht schliesst.
       await referencesView();
       if (generation === currentRouteGeneration()) await refsOpenInspector(referenceMatch[1], { replace: true });
     } else if (route === "#/trash") {
@@ -202,7 +202,7 @@ export async function renderRoute() {
       await projectsView();
     }
   } catch (error) {
-    // Ein Fehler der veralteten Route gehört nicht auf die Bühne der neuen.
+    // Ein Fehler der veralteten Route geh├╢rt nicht auf die B├╝hne der neuen.
     if (generation === currentRouteGeneration()) {
       failed(error);
       render([routeErrorView(error)]);

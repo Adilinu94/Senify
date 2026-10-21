@@ -58,23 +58,29 @@ describe("what names a start state", () => {
     expect(node?.states[0]?.visual.opacity).toBe("0.5");
   });
 
-  it("leaves a scroll reveal where it stands", () => {
-    // A scroll reveal carries `will-change: transform` and an opacity above
-    // 0.01. No channel names it, so the capture cannot tell it from a design.
-    // The rule that would catch it (`will-change: transform` plus a moving
-    // transform) was measured on the site and brought no gain: the pixel
-    // difference rose from 4.24 % to 4.27 % and the page stayed 147 px too
-    // short. The state therefore stays where it is, and the loss is named in
-    // the report instead of being guessed away.
+  it("takes the start state of a scroll reveal", () => {
+    // A scroll reveal carries `will-change: transform` and a transform that
+    // moves the element in. Framer's script takes that transform away again
+    // when the element appears (measured on the Earn template: 47 of the 57
+    // inline transforms with that marker are gone at runtime; the resting
+    // transform is the one the class rules name).
+    //
+    // The earlier reading kept the state, because the measurement compared
+    // the source in its start state (the appear animation had not run) with
+    // the import at rest — both wrong, and the two errors did not cancel.
+    // With the measurement corrected (scroll through the page, let the
+    // animations run), the rule is worth 11 points on the desktop: the
+    // testimonial quote was scaled to 60 % for good (672 px instead of
+    // 1125 px) and the section below it sat 189 px too low.
     const document = captureHtml({
       html: page(
         `<div style="will-change:transform;opacity:0.6;transform:translateY(132px) scale(0.6)">x</div>`,
       ),
     });
     const node = nodeWithTag(document.pages[0]?.root as IrNode, "div");
-    expect(node?.appearInitial).toBeUndefined();
+    expect(node?.appearInitial).toEqual({ transform: "translateY(132px) scale(0.6)" });
     expect(node?.states[0]?.visual.opacity).toBe("0.6");
-    expect(node?.states[0]?.visual.transform).toBe("translateY(132px) scale(0.6)");
+    expect(node?.states[0]?.visual.transform).toBeUndefined();
   });
 
   it("keeps a shifted element that carries no will-change", () => {

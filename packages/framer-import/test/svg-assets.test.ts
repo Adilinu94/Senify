@@ -55,6 +55,55 @@ describe("a tag whose attribute value holds a `>`", () => {
   });
 });
 
+describe("a graphic in a style value", () => {
+  // The X logo of the source is a frame with a mask: the graphic stands in the
+  // value as a data URL. ADR-0005 keeps `data:image/svg+xml` out of style
+  // values (an SVG can carry a script), so the graphic becomes an asset —
+  // cleaned up — and the value names it.
+  it("makes the graphic of a mask an asset and names it in the value", async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M0 0 L24 24"/></svg>';
+    // In the style the inner quotes of the SVG are escaped (`\"`) — the CSS
+    // escape, not the character. The rule stands in a style sheet, as in the
+    // source.
+    const escaped = svg.replace(/"/g, '\\"');
+    const html = page(
+      `<div class="maske">x</div>`,
+      `.maske{mask:url("data:image/svg+xml,${escaped}")}`,
+    );
+    const document = captureHtml({ html });
+    const work = mkdtempSync(join(tmpdir(), "senify-mask-"));
+    try {
+      const uploaded: { filename: string; data: Buffer }[] = [];
+      const { document: mitAssets } = await importAssets({
+        document,
+        uploader: async (input) => {
+          uploaded.push({ filename: input.filename, data: input.data });
+          return { assetId: "up-1", url: "/assets/up-1/import-image.svg" };
+        },
+      });
+      // The graphic was uploaded — and the file carries the plain markup.
+      expect(uploaded.length).toBe(1);
+      expect(uploaded[0]?.filename).toBe("import-image.svg");
+      expect(uploaded[0]?.data.toString("utf8")).toContain("<path");
+      // The value names the asset, the data URL is gone.
+      const werte: string[] = [];
+      const sammle = (node: IrNode): void => {
+        for (const state of node.states) {
+          for (const wert of Object.values(state.visual)) {
+            if (typeof wert === "string") werte.push(wert);
+          }
+        }
+        for (const kind of node.children) sammle(kind);
+      };
+      sammle(mitAssets.pages[0]?.root as IrNode);
+      expect(werte.some((wert) => wert.includes("data:image/svg+xml"))).toBe(false);
+      expect(werte.some((wert) => wert.includes("/assets/up-1/import-image.svg"))).toBe(true);
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("the spaces between inline elements", () => {
   // Framer writes a heading as one span per word, with the space as a bare
   // text node BETWEEN the spans. The child scan does not see that space, so

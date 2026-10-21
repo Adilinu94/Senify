@@ -103,10 +103,12 @@ export const IR_FINDING_KINDS = [
   // smooth-scroll — Lenis/SmoothScroll detected; profile concern, not dropped.
   // loop-animation — an endless CSS/WAAPI loop the presets cannot express 1:1.
   // font-subset — a `@font-face` subset the DSGVO task (S2.3b) will rewrite.
+  // font-mapping — the source's families point at the theme's font slots.
   "dna-adjustment",
   "smooth-scroll",
   "loop-animation",
   "font-subset",
+  "font-mapping",
 ] as const;
 
 export type IrFindingKind = (typeof IR_FINDING_KINDS)[number];
@@ -125,6 +127,7 @@ export type IrNodeKind =
   | "frame"
   | "text"
   | "rich-text"
+  | "fit-text"
   | "svg"
   | "image"
   | "video"
@@ -241,6 +244,11 @@ export type IrNode = {
   alt?: string | null;
   target?: string | null;
   innerHtml?: string | null;
+  // The `style` attribute of the source, as written. The visual holds the
+  // resolved cascade; this holds the source's own declarations — they are
+  // what travels with an inline element (the marker behind a word of the
+  // testimonial), because the cascade of the import cannot know them.
+  inlineStyle?: string | null;
   assetUrl?: string | null;
   assetId?: string | null;
   states: IrState[];
@@ -530,6 +538,7 @@ const IR_NODE_KINDS: readonly IrNodeKind[] = [
   "frame",
   "text",
   "rich-text",
+  "fit-text",
   "svg",
   "image",
   "video",
