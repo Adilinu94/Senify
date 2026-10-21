@@ -75,7 +75,7 @@ Drei Scans, die die CI vorher nicht hatte, alle drei mit Ausnahmelisten, die je 
 
 **Offen und terminiert:** `vitest`/`tinypool` (GHSA-82fw-gwwq-j7x9, GHSA-5gmw-xhrv-c9v3, GHSA-85c8-ppgw-ccpr) und `http-cache-semantics` (GHSA-ch52-4w7c-c8xp, ohne gepatchte Version) sind bis **30.11.2026** ausgenommen. Der vitest-4-Wechsel ist ein Major-Update des Test-Runners und braucht einen eigenen Schritt mit dem vollen Gate.
 
-**Gate P1:** Workflow enthält `verify`, `test:visual`, `verify:parity`, `verify:import`, `postgres-tests` und `coverage`. Der aktuelle Gesamt-Diff hat diese Lanes bestanden.
+**Gate P1:** Workflow enthält `verify`, `test:visual`, `verify:parity`, `verify:import`, `postgres-tests` und `coverage`. Der aktuelle Gesamt-Diff hat diese Lanes bestanden. Dazu die beiden Drift-Tore der generierten Dokumente: `manifest:check` (Manifest) und `route-matrix:check` (Routen-Matrix) — beide als eigene Schritte, beide zusätzlich im normalen Testlauf.
 
 ---
 
@@ -254,6 +254,7 @@ Der Import wurde am 20.10.2026 an einer veröffentlichten Seite gemessen (`https
 | R16 | Vier Job-Queues (Bake, Bild, Import, Referenz) duplizieren Lease-, Backoff- und Dedupe-Muster | **bewusst nicht vereinheitlicht (20.10.2026)**: nur zwei der vier Queues haben eine Lease; Import- und Referenz-Jobs laufen über `listDue`, und die Fehlersemantik unterscheidet sich. Eine gemeinsame Repository-Klasse müsste das SQL aus Strings bauen und würde ADR-0019 (ein Fachmodul je Fachgebiet) widersprechen. Der Grund für den Merge („erst vereinheitlichen, dann über eine fremde Queue entscheiden“) entfällt, weil eine fremde Queue weniger Integration und nicht mehr Funktion bringt | — |
 | R17 | Ein dritter Browserpfad (der Analyse-Worker) war ungeschützt: über ihn fotografiert die Import-Vorschau die Seite des Benutzers, und nur der Node-Pfad prüfte die Adresse (Befund aus der zweiten Prüfung, 20.10.2026) | **geschlossen 20.10.2026**: die Adressprüfung sitzt jetzt am Browser, in allen drei Kontexten des Analyse-Workers; die Server, die das Produkt selbst startet, stehen in einer Ausnahmeliste (`allowOrigins`). ADR-0022 hat einen datierten Nachtrag, Belege: `packages/analysis-worker/test/visual-guard.test.ts` und `packages/engine/test/import-preview-browser.test.ts` | — |
 | R18 | Die Browser-Suiten übersprungen sich in der CI **still**, wenn Chromium fehlt oder nicht zur Playwright-Version passt — ein grüner Lauf, in dem die Browser-Tore nie gelaufen sind | **geschlossen 20.10.2026**: der CI-Job `verify` setzt `SENIFY_REQUIRE_BROWSER=1`; die Suite läuft dann und wird rot, statt grün zu sein ohne Test (nachgemessen: ohne die Variable `1 skipped`, mit ihr ein Fehler) | — |
+| R19 | Die generierte Route-Matrix (`docs/mcp-route-matrix.md`) hatte **kein Drift-Tor**, und ihr Generator war nicht deterministisch — die Reihenfolge der Routenmodule kam aus `readdirSync` und war je Dateisystem eine andere. Die eingecheckte Datei war nicht mehr das, was der Generator schreibt | **geschlossen 21.10.2026**: `pnpm route-matrix:check` vergleicht die Datei mit dem Generator (Muster wie beim Manifest), der Generator sortiert die Module, der Test `route-matrix.test.ts` ruft den Check im normalen Testlauf, die CI hat einen eigenen Schritt. Die Datei ist neu erzeugt | — |
 
 ## Definition of Ready für neue Schritte
 

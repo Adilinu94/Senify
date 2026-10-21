@@ -75,6 +75,11 @@ jobs:
       # generierte Datei ohne Tor driftet still.
       - name: Manifest entspricht dem Generator
         run: pnpm manifest:check
+      # Dasselbe gilt fuer die Route-Matrix: sie wird aus den Routen der
+      # Engine und dem Manifest erzeugt. Ohne Tor zeigt sie den Stand eines
+      # Moduls, das es nicht mehr gibt.
+      - name: Routen-Matrix entspricht dem Generator
+        run: pnpm route-matrix:check
       # Der Artefakt-Nachweis (Fahrplan P0-4 Punkt 3, R1) laeuft als eigener
       # Schritt, damit im Log sichtbar bleibt, dass `pnpm build` wirklich eine
       # auslieferbare Shell erzeugt hat - nicht nur, dass der Arbeitsbaum
