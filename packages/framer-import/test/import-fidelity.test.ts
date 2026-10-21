@@ -742,10 +742,19 @@ describe("which rules the stylesheet really matches", () => {
     expect(appearing?.appearInitial?.["opacity"]).toBe("0.001");
   });
 
-  it("turns Framer's border variables into a border on the element that says `data-border`", () => {
+  it("draws Framer's border variables as an inset shadow on the element that says `data-border`", () => {
     // Framer keeps a border as custom properties and draws it with
-    // `[data-border=true]:after`. That pseudo rule is not applied, so without
-    // this the divider lines of the reference cards (fluffy-rectangle) were gone.
+    // `[data-border=true]:after` — an overlay pinned to the element (measured
+    // on the Earn template: the element itself has `border-style:none`, its
+    // `::after` carries the 1 px at the bottom). That pseudo rule is not
+    // applied, so without this the divider lines of the reference cards
+    // (fluffy-rectangle) were gone.
+    //
+    // A real border is not the same thing: it adds to the box, so a border that
+    // exists only at the bottom made the element — and the page — 1 px taller
+    // (measured on the Earn template: 5289 → 5290 px). An inset shadow draws in
+    // the same place as the overlay without touching the layout. Measured on
+    // the Earn template: 5290 → 5289 px, pixel diff 1,79 → 0,98 %.
     const css =
       ".framer-card{--border-top-width:1px;--border-left-width:1px;--border-right-width:0px;--border-bottom-width:0px;--border-color:#262626;--border-style:solid;padding:20px}" +
       "[data-border=true]:after{content:'';border-width:var(--border-top-width,0) var(--border-right-width,0) var(--border-bottom-width,0) var(--border-left-width,0);border-color:var(--border-color,none);border-style:var(--border-style,none)}";
@@ -757,13 +766,13 @@ describe("which rules the stylesheet really matches", () => {
       return all.find((node) => text !== undefined && node.children?.includes(text.id))?.props;
     };
     const card = framed("Karte");
-    expect(card?.["borderTopWidth"]).toBe("1px");
-    expect(card?.["borderLeftWidth"]).toBe("1px");
-    expect(card?.["borderRightWidth"]).toBe("0px");
-    expect(card?.["borderStyle"]).toBe("solid");
-    expect(card?.["borderColor"]).toBe("#262626");
+    // Two edges, one shadow each; the sides without a border draw nothing.
+    expect(card?.["boxShadow"]).toBe("inset 0px 1px 0 0,inset 1px 0px 0 0 #262626");
+    // No real border: it would add its width to the box.
+    expect(card?.["borderTopWidth"]).toBeUndefined();
+    expect(card?.["borderStyle"]).toBeUndefined();
     // Without `data-border` the variables draw nothing.
-    expect(framed("ohne")?.["borderTopWidth"]).toBeUndefined();
+    expect(framed("ohne")?.["boxShadow"]).toBeUndefined();
   });
 
   it("reads an attribute on the element itself", () => {

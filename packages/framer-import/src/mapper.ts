@@ -20,6 +20,7 @@ import { sanitizeInlineHtml, sanitizeSvgMarkup, type StyleRule } from "@senify/w
 import { brandColorOf } from "./brand-color.ts";
 import { neutralBaseOf, typeBaseOf } from "./theme-scales.ts";
 import { devicesContaining } from "./devices.ts";
+import { parseDeclaration, splitDeclarations } from "./css-util.ts";
 import type {
   FramerIrDocument,
   IrDevice,
@@ -27,7 +28,7 @@ import type {
   IrNode,
   IrState,
 } from "./ir.ts";
-import type { NormalizedStyleRule } from "./normalize.ts";
+import type { NormalizedStyleRule, NormalizeMode } from "./normalize.ts";
 
 /* ------------------------------------------------------------------ types */
 
@@ -113,6 +114,7 @@ const CSS_TO_STYLE: Readonly<Record<string, string>> = {
   "-webkit-text-decoration-color": "WebkitTextDecorationColor",
   "-webkit-box-decoration-break": "WebkitBoxDecorationBreak",
   "-webkit-mask": "WebkitMask",
+  "mask": "mask",
   "-webkit-font-smoothing": "WebkitFontSmoothing",
   "-webkit-font-feature-settings": "WebkitFontFeatureSettings",
   "-moz-font-feature-settings": "MozFontFeatureSettings",
@@ -138,6 +140,11 @@ function primitiveFor(node: IrNode, siblings: IrNode[]): string {
     case "text":
       return HEADING_TAGS.has(node.tag) ? "heading" : "text";
     case "rich-text":
+      return "body";
+    case "fit-text":
+      // A "fit text" is text: the words the visitor reads, only scaled by the
+      // box they sit in. As an icon it would be a picture the editor cannot
+      // reach, as a body it keeps its text and its typography.
       return "body";
     case "image":
       return "image";
@@ -200,23 +207,56 @@ const ALL_DEVICES: readonly IrDevice[] = ["desktop", "tablet", "mobile"];
 
 type IrBreakpointMap = Map<string, { minWidth: number; maxWidth: number | null }>;
 
-// The devices a Framer duplicate is visible on. `hiddenAt` names the breakpoints
-// that hide the copy; the breakpoints its siblings mention (`universe`) are the
-// ones in play, so a copy is visible wherever one of those is NOT hidden. A hash
-// that is not a known breakpoint is ignored.
+// The devices a Framer duplicate is visible on. `hiddenAt` names the
+// breakpoints that hide the copy. A copy is visible on the devices that
+// remain — and the device it is visible on is the one its OWN hidden list
+// leaves open.
+//
+// The earlier reading took the universe of the siblings and asked which
+// breakpoints the copy does not hide; that counted a breakpoint the copy
+// never mentioned (the mobile hash of a sibling) as evidence for its
+// visibility. Measured on the Earn template: the second testimonial copy
+// hides itself on tablet and desktop (`1yjwnyq`, `72rtr7`) — the universe
+// method called it visible on mobile AND desktop, so the desktop showed the
+// quote twice and the section grew by the height of the hidden copy.
 function visibleDevicesOf(
   hiddenAt: readonly string[],
   universe: ReadonlySet<string>,
   breakpoints: IrBreakpointMap,
 ): IrDevice[] {
-  const visible = new Set<IrDevice>();
-  for (const hash of universe) {
-    if (hiddenAt.includes(hash)) continue;
+  // The breakpoints in play are the ones the copy names together with the
+  // ones its siblings name: between them they cover every device.
+  const relevant = new Set<string>([...hiddenAt, ...universe]);
+  // A device the copy hides stays hidden. Which device is left is decided by
+  // the copy's own list: the breakpoint it does not hide is the one it shows
+  // on. The sibling universe only names the devices that exist at all.
+  const eigene = [...hiddenAt].filter((hash) => breakpoints.has(hash));
+  if (eigene.length === 0) {
+    // No known breakpoint in the copy's own list: fall back to the universe.
+    const visible = new Set<IrDevice>();
+    for (const hash of relevant) {
+      if (hiddenAt.includes(hash)) continue;
+      const range = breakpoints.get(hash);
+      if (range === undefined) continue;
+      for (const device of devicesContaining(range)) visible.add(device);
+    }
+    return ALL_DEVICES.filter((device) => visible.has(device));
+  }
+  // The copy names the devices it hides. Every device it does not hide is
+  // one it shows on — the siblings' hashes tell which devices exist.
+  const verfuegbar = new Set<IrDevice>();
+  for (const hash of relevant) {
     const range = breakpoints.get(hash);
     if (range === undefined) continue;
-    for (const device of devicesContaining(range)) visible.add(device);
+    for (const device of devicesContaining(range)) verfuegbar.add(device);
   }
-  return ALL_DEVICES.filter((device) => visible.has(device));
+  const versteckt = new Set<IrDevice>();
+  for (const hash of eigene) {
+    const range = breakpoints.get(hash);
+    if (range === undefined) continue;
+    for (const device of devicesContaining(range)) versteckt.add(device);
+  }
+  return ALL_DEVICES.filter((device) => verfuegbar.has(device) && !versteckt.has(device));
 }
 
 // The signature that proves two SSR variants are the same element: the sorted
@@ -379,6 +419,12 @@ type MapContext = {
   classByNode: Map<string, string>;
   nodeIdByIrKey: Record<string, string>;
   breakpoints: IrBreakpointMap;
+  // The source's families -> the theme's slots. A `font-family` that names a
+  // family the site does not have falls back to the system font, so the page
+  // points at the slot instead.
+  fontSlots: Map<string, string>;
+  // The mode decides the fonts of the page (see `mapDocument`).
+  mode: NormalizeMode;
   stats: { nodes: number; mergedVariants: number; placeholders: number };
   findings: IrFinding[];
 };
@@ -430,10 +476,19 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
       // A text element with element children (the RichText shape: <p><a>…</a></p>)
       // becomes a body with inline HTML — `text` accepts no children.
       primitive = "body";
-      props["html"] = inlineHtmlOf(node, merged.base.text?.content ?? "");
+      props["html"] = inlineHtmlOf(node, merged.base.text?.content ?? "", context);
     } else {
       props["text"] = baseText?.content ?? "";
       if (HEADING_TAGS.has(node.tag)) props["level"] = node.tag;
+    }
+    // The `text` primitive renders a `<p>` — a block. The source's text often
+    // sits in a `<span>` (inline), and the paragraph then breaks the line
+    // where the source did not: the testimonial of the Earn template is three
+    // inline spans in one paragraph, and as three paragraphs it takes five
+    // lines instead of four. The source's own cascade decides — only the
+    // browser's default for the tag is filled in.
+    if (primitive === "text" && INLINE_TAGS.has(node.tag) && props["display"] === undefined) {
+      props["display"] = "inline";
     }
   } else if (primitive === "body") {
     // A RichTextContainer with exactly one heading child is a heading, not a
@@ -453,7 +508,7 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
         if (props[property] === undefined) props[property] = value;
       }
     } else if (hasElementChildren) {
-      props["html"] = inlineHtmlOf(node, baseText?.content ?? "");
+      props["html"] = inlineHtmlOf(node, baseText?.content ?? "", context);
     } else {
       props["html"] = baseText?.content ?? "";
     }
@@ -520,6 +575,9 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
   const styleOf = (state: IrState): Record<string, string> => {
     const style = cssToStyle(state.visual);
     if (state.layout?.gap !== undefined) style["gap"] = state.layout.gap;
+    if (style["fontFamily"] !== undefined) {
+      style["fontFamily"] = themeFontOf(style["fontFamily"], context.fontSlots);
+    }
     return style;
   };
   const baseVisual = styleOf(merged.base);
@@ -557,10 +615,20 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
       const merged = path
         .filter((member, index) => index === 0 || !INLINE_TAGS.has(member.tag) || path[index - 1]?.children.length === 1)
         .map((member) => mergeStates(member.states));
-      const sourceBase = cssToStyle(Object.assign({}, ...merged.map((entry) => typographyOf(entry.base.visual))));
+      // The lifted typography points at the theme's slots too (the family the
+      // source wrote belongs to the source, the site knows the slots).
+      const withSlot = (values: Record<string, string>): Record<string, string> => {
+        if (values["fontFamily"] === undefined) return values;
+        return { ...values, fontFamily: themeFontOf(values["fontFamily"], context.fontSlots) };
+      };
+      const sourceBase = withSlot(
+        cssToStyle(Object.assign({}, ...merged.map((entry) => typographyOf(entry.base.visual)))),
+      );
       Object.assign(props, sourceBase);
       const effectiveOn = (device: "tablet" | "mobile"): Record<string, string> =>
-        cssToStyle(Object.assign({}, ...merged.map((entry) => typographyOf((entry[device] ?? entry.base).visual))));
+        withSlot(
+          cssToStyle(Object.assign({}, ...merged.map((entry) => typographyOf((entry[device] ?? entry.base).visual)))),
+        );
       const tabletType = diffValues(sourceBase, effectiveOn("tablet"));
       for (const [property, value] of Object.entries(tabletType)) props[`${property}_tablet`] = value;
       for (const [property, value] of Object.entries(mobileOverrides(sourceBase, tabletType, effectiveOn("mobile")))) {
@@ -731,8 +799,8 @@ function cssToStyle(visual: { [key: string]: string | undefined }): Record<strin
 // back as inline markup (the RichText shape `<p><a>Home</a></p>` →
 // `<a href="./">Home</a>`). Only the inline tags the body primitive accepts
 // are generated; deeper structures flatten to their text.
-function inlineHtmlOf(node: IrNode, fallback: string): string {
-  const html = node.children.map(inlineOf).join("");
+function inlineHtmlOf(node: IrNode, fallback: string, context: MapContext): string {
+  const html = node.children.map((child) => inlineOf(child, context, true)).join("");
   return html !== "" ? html : escapeHtml(fallback);
 }
 
@@ -742,17 +810,20 @@ function inlineHtmlOf(node: IrNode, fallback: string): string {
 // always render into the element, in document order, and the own text goes
 // first — an either/or would drop the children whenever the element carries
 // whitespace of its own (regression: navigation and mail links vanished).
-function inlineOf(child: IrNode): string {
+function inlineOf(child: IrNode, context: MapContext, mitTypografie: boolean): string {
   if (child.innerHtml !== undefined && child.innerHtml !== null) {
     const inner = sanitizeInlineHtml(child.innerHtml);
     return HEADING_TAGS.has(child.tag) || child.tag === "p" ? `<${child.tag}>${inner}</${child.tag}>` : inner;
   }
   // A line break is the whole content of the blank line between two paragraphs.
   if (child.tag === "br") return "<br>";
-  const inner = escapeHtml(child.states[0]?.text?.content ?? "") + child.children.map(inlineOf).join("");
+  const inner =
+    escapeHtml(child.states[0]?.text?.content ?? "") +
+    child.children.map((c) => inlineOf(c, context, false)).join("");
+  const stil = styleAttributeOf(child, context, mitTypografie);
   if (child.tag === "a" && child.href !== null) {
     const newTab = child.target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : "";
-    return `<a href="${escapeHtmlAttr(child.href.trim())}"${newTab}>${inner}</a>`;
+    return `<a href="${escapeHtmlAttr(child.href.trim())}"${newTab}${stil}>${inner}</a>`;
   }
   if (
     HEADING_TAGS.has(child.tag) ||
@@ -761,9 +832,128 @@ function inlineOf(child: IrNode): string {
     child.tag === "strong" ||
     child.tag === "em"
   ) {
-    return `<${child.tag}>${inner}</${child.tag}>`;
+    return `<${child.tag}${stil}>${inner}</${child.tag}>`;
   }
   return inner;
+}
+
+// The properties that carry the typography of a text. They belong to the props
+// of the page: those know the device variants and the resolved colors of the
+// source. An inline declaration would be a stiff value that the device rules
+// of the page could no longer correct.
+const TYPOGRAFIE: ReadonlySet<string> = new Set([
+  "font-family",
+  "font-size",
+  "font-weight",
+  "font-style",
+  "font-variant",
+  "line-height",
+  "letter-spacing",
+  "text-align",
+  "text-indent",
+  "text-transform",
+  "text-decoration",
+  "color",
+]);
+
+// The measures of the text — the ones that have no home in the props of the
+// page when the text sits inside a rich text body (the heading of the footer
+// of the Earn template). The family and the color stay with the props: they
+// carry the theme's slots and the resolved colors of the source, and an
+// inline `var(--token-…)` would name the theme's color, not the source's.
+const MESSWERT: ReadonlySet<string> = new Set([
+  "font-size",
+  "font-weight",
+  "font-style",
+  "line-height",
+  "letter-spacing",
+]);
+
+// The look of an inline element travels with it — but only where the props of
+// the page cannot carry it: a child of a rich text body (the heading of the
+// footer of the Earn template lives there). Everywhere else the props own the
+// look, and they know the device variants and the resolved colors of the
+// source; an inline declaration would be a stiff value that the device rules
+// of the page could no longer correct.
+//
+// Two kinds of declarations travel:
+//  - the source's own declarations of the `style` attribute. The properties a
+//    `transition` names are left out: Framer writes the state BEFORE an effect
+//    into the inline style (the same convention as the appear start state), the
+//    resting look comes from the class rules.
+//  - the typography of the element — but only where every device says the same
+//    (otherwise the device rules of the page own it).
+function styleAttributeOf(child: IrNode, context: MapContext, mitTypografie: boolean): string {
+  const parsed = (typeof child.inlineStyle === "string" ? splitDeclarations(child.inlineStyle) : [])
+    .map((declaration) => parseDeclaration(declaration))
+    .filter((pair): pair is [string, string] => pair !== null);
+  const uebergangen = transitionPropertiesOf(parsed);
+  // The start state of an appear effect is no look: the capture took it out of
+  // the visual (`appearInitial`), and it must not come back through the door
+  // of the inline style — the element would stay invisible for good.
+  const startzustand = Object.keys(child.appearInitial ?? {});
+  const teile: string[] = [];
+  for (const [name, wert] of parsed) {
+    // The `--framer-*` variables carry the typography — they travel below, in
+    // the text's own inline styles, and not as raw variables.
+    if (name.startsWith("--")) continue;
+    if (name === "transition") continue;
+    if (uebergangen.has(name.toLowerCase())) continue;
+    if (startzustand.includes(name.toLowerCase())) continue;
+    if (TYPOGRAFIE.has(name.toLowerCase())) continue;
+    teile.push(`${name}:${wert}`);
+  }
+  if (mitTypografie && context.mode === "fidelity" && typografieGleich(child)) {
+    const inline = child.states[0]?.text?.inline ?? {};
+    for (const [name, wert] of Object.entries(inline)) {
+      if (typeof wert !== "string" || wert === "") continue;
+      const css = cssPropertyNameOf(name);
+      if (css === undefined || !MESSWERT.has(css)) continue;
+      teile.push(`${css}:${wert}`);
+    }
+  }
+  if (teile.length === 0) return "";
+  return ` style="${escapeHtmlAttr(teile.join(";"))}"`;
+}
+
+// The typography of the element, and whether every device says the same. A
+// value that differs per device belongs to the device rules of the page.
+function typografieGleich(child: IrNode): boolean {
+  const base = child.states[0]?.text?.inline ?? {};
+  return child.states.every((state) => {
+    const inline = state.text?.inline ?? {};
+    const namen = new Set([...Object.keys(base), ...Object.keys(inline)]);
+    for (const name of namen) {
+      if ((base[name] ?? "") !== (inline[name] ?? "")) return false;
+    }
+    return true;
+  });
+}
+
+// The properties a transition names: `background-size 2s ease, color .4s`.
+function transitionPropertiesOf(parsed: [string, string][]): Set<string> {
+  const namen = new Set<string>();
+  for (const [name, wert] of parsed) {
+    if (name !== "transition") continue;
+    for (const teil of wert.split(",")) {
+      const eigenschaft = (teil.trim().split(/\s+/)[0] ?? "").toLowerCase();
+      if (eigenschaft !== "") namen.add(eigenschaft);
+    }
+  }
+  return namen;
+}
+
+// The style name of the capture (`fontSize`) as a CSS property (`font-size`).
+// The vendor prefixes keep their leading dash (`WebkitTextFillColor` ->
+// `-webkit-text-fill-color`).
+function cssPropertyNameOf(name: string): string | undefined {
+  if (/^[A-Z]/.test(name)) {
+    const prefix = name.slice(0, 1).toLowerCase();
+    const rest = name.slice(1).replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+    return `-${prefix}${rest}`;
+  }
+  if (!/^[a-z][a-zA-Z0-9]*$/.test(name)) return undefined;
+  return name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
 }
 
 function escapeHtml(value: string): string {
@@ -779,8 +969,14 @@ function escapeHtmlAttr(value: string): string {
 
 // The deepest text content of a node, through rich-text wrappers: an <a> whose
 // children are containers around text is still a text link.
-// Elements that wrap a stretch of text inside a block.
-const INLINE_TAGS = new Set(["span", "a", "strong", "b", "em", "i", "u", "s", "small", "mark", "sub", "sup", "code"]);
+// Elements that wrap a stretch of text inside a block. They are also the tags
+// the browser lays out inline — their text must not become a paragraph, or the
+// line breaks where the source did not break it.
+const INLINE_TAGS = new Set([
+  "a", "abbr", "b", "bdi", "bdo", "cite", "code", "data", "dfn", "em", "i", "kbd",
+  "mark", "q", "rp", "rt", "ruby", "s", "samp", "small", "span", "strong", "sub",
+  "sup", "time", "u", "var", "wbr",
+]);
 
 // The first descendant that carries its own text, with the elements on the way
 // down to it (the child of `node` first, the text element last). A paragraph
@@ -832,14 +1028,40 @@ export function fontFamilyName(family: string): string {
   return family.trim().replace(/^['"]/, "").replace(/['"]$/, "").trim();
 }
 
-export function themePatchOf(document: FramerIrDocument): ThemePatch {
-  // The dominant font family of the `@font-face` list becomes the body font;
-  // the heaviest weight family becomes the display font. This is a *patch* —
-  // update_theme merges it over the current theme.
+// The theme's typography slots. A page must not name a font the site does not
+// have: a family without a `@font-face` falls back to the system font, and
+// every text of the imported page would look different from the source. The
+// source's families therefore point at the theme's slots, and the theme patch
+// ("Theme-Fonts übernehmen") puts the source's own fonts into those slots.
+const FONT_SLOTS = {
+  display: "var(--font-display)",
+  body: "var(--font-body)",
+  mono: "var(--font-mono)",
+} as const;
+
+function isMonoFamily(family: string): boolean {
+  return /mono|courier|consolas/i.test(family);
+}
+
+// The source's own typography, read off its `@font-face` list: which family
+// plays which role, and which theme slot stands for it. The family with the
+// most weights is the body font, the one with the heaviest weight the display
+// font — the same reading the theme patch uses, so page and theme agree.
+type SourceFonts = {
+  bodyFamily: string | null;
+  bodyWeights: number[];
+  displayFamily: string | null;
+  displayWeights: number[];
+  // The family (lower case) -> the theme slot it stands for.
+  slots: Map<string, string>;
+};
+
+function sourceFontsOf(document: FramerIrDocument): SourceFonts {
   const families = new Map<string, Set<number>>();
   for (const font of document.styles.fonts) {
     if (font.src.length === 0) continue;
     const family = fontFamilyName(font.family);
+    if (family === "") continue;
     const weights = families.get(family) ?? new Set<number>();
     if (font.weight !== null) weights.add(font.weight);
     families.set(family, weights);
@@ -850,6 +1072,9 @@ export function themePatchOf(document: FramerIrDocument): ThemePatch {
   let displayWeights: number[] = [];
   for (const [family, weights] of families) {
     const sorted = [...weights].sort((a, b) => a - b);
+    // A family without weights is Framer's metric-compatible placeholder
+    // (`"Manrope Placeholder"`): it stands in for the real family while it
+    // loads and never carries a text of its own.
     if (sorted.length === 0) continue;
     if (bodyFamily === null || sorted.length > bodyWeights.length) {
       bodyFamily = family;
@@ -865,6 +1090,44 @@ export function themePatchOf(document: FramerIrDocument): ThemePatch {
       displayWeights = sorted;
     }
   }
+  const slots = new Map<string, string>();
+  for (const [family, weights] of families) {
+    if (weights.size === 0) continue;
+    const name = family.toLowerCase();
+    if (family === bodyFamily) {
+      slots.set(name, FONT_SLOTS.body);
+      continue;
+    }
+    if (family === displayFamily) {
+      slots.set(name, FONT_SLOTS.display);
+      continue;
+    }
+    if (isMonoFamily(family)) {
+      slots.set(name, FONT_SLOTS.mono);
+      continue;
+    }
+    // A third family (the source has one): the theme knows three slots, and
+    // the body font is the one a text of that family can live with.
+    slots.set(name, FONT_SLOTS.body);
+  }
+  return { bodyFamily, bodyWeights, displayFamily, displayWeights, slots };
+}
+
+// The first family of the stack decides: Framer writes
+// `"Manrope", "Manrope Placeholder", sans-serif`, where the placeholder is the
+// metric-compatible stand-in and the real family stands in front of it.
+function themeFontOf(value: string, slots: ReadonlyMap<string, string>): string {
+  const first = value.split(",")[0]?.trim() ?? "";
+  if (first === "") return value;
+  const name = fontFamilyName(first).toLowerCase();
+  return slots.get(name) ?? value;
+}
+
+export function themePatchOf(document: FramerIrDocument): ThemePatch {
+  // The dominant font family of the `@font-face` list becomes the body font;
+  // the heaviest weight family becomes the display font. This is a *patch* —
+  // update_theme merges it over the current theme.
+  const { bodyFamily, bodyWeights, displayFamily, displayWeights } = sourceFontsOf(document);
   const patch: ThemePatch = {};
   // The brand colour the page uses most: a proposal for the theme's one
   // brand input (the whole ramp grows from it), only applied on request. The
@@ -909,21 +1172,38 @@ const camelStyles = (declarations: Record<string, string>): Record<string, strin
       }),
   );
 
-function styleRulesOf(normalized: NormalizedStyleRule[]): StyleRule[] {
+// The class rules carry most of the page's typography (the source writes the
+// font on the class, not on the element). They point at the theme's slots for
+// the same reason the node's own props do.
+function slotStyles(
+  declarations: Record<string, string>,
+  slots: ReadonlyMap<string, string>,
+): Record<string, string> {
+  const out = camelStyles(declarations);
+  if (out["fontFamily"] !== undefined && slots.size > 0) {
+    out["fontFamily"] = themeFontOf(out["fontFamily"], slots);
+  }
+  return out;
+}
+
+function styleRulesOf(
+  normalized: NormalizedStyleRule[],
+  slots: ReadonlyMap<string, string>,
+): StyleRule[] {
   return normalized.map((rule, index) => ({
     id: rule.id,
     name: rule.name,
     kind: "class" as const,
     selector: `.${rule.name}`,
     order: index,
-    styles: camelStyles(rule.declarations),
+    styles: slotStyles(rule.declarations, slots),
     // The element's `:hover` / `:focus` / `:active` / `:disabled` rules become the
     // rule's own states, which the compiler writes after the base declarations.
     ...(rule.states === undefined
       ? {}
       : {
           states: Object.fromEntries(
-            Object.entries(rule.states).map(([name, declarations]) => [name, camelStyles(declarations)]),
+            Object.entries(rule.states).map(([name, declarations]) => [name, slotStyles(declarations, slots)]),
           ),
         }),
     contextStyles: {},
@@ -937,7 +1217,16 @@ function styleRulesOf(normalized: NormalizedStyleRule[]): StyleRule[] {
 export function mapDocument(
   document: FramerIrDocument,
   normalized: NormalizedStyleRule[],
+  options: { mode?: NormalizeMode } = {},
 ): MapperResult {
+  // The mode decides what the page's fonts say:
+  //  - fidelity: the source's own families. The page is the source's page, and
+  //    the theme patch ("Theme-Fonts übernehmen") puts the matching files into
+  //    the theme — the page then draws the source's fonts.
+  //  - dna: the theme's slots. The page joins the site's typography, and a
+  //    family the site does not have can no longer fall back to a system
+  //    font (which would draw every text differently from the source).
+  const slots = (options.mode ?? "dna") === "dna" ? sourceFontsOf(document).slots : new Map<string, string>();
   const context: MapContext = {
     ids: { next: 0 },
     nodes: {},
@@ -945,21 +1234,47 @@ export function mapDocument(
     breakpoints: new Map(
       document.breakpoints.map((entry) => [entry.id, { minWidth: entry.minWidth, maxWidth: entry.maxWidth }]),
     ),
+    fontSlots: slots,
+    mode: options.mode ?? "dna",
     stats: { nodes: 0, mergedVariants: 0, placeholders: 0 },
     nodeIdByIrKey: {},
     findings: [...document.findings],
   };
 
+  // In the DNA mode the page names the theme's slots, not the source's
+  // families: a family the site does not have falls back to the system font,
+  // and the imported page would look different from the source in every text.
+  // The theme patch puts the source's own fonts into those slots ("Theme-Fonts
+  // übernehmen"). In the fidelity mode the page keeps the source's families —
+  // the theme patch then supplies exactly those.
+  if (slots.size > 0) {
+    const belegt = [...slots.entries()]
+      .map(([familie, slot]) => `${familie} → ${slot}`)
+      .join(", ");
+    context.findings.push({
+      kind: "font-mapping",
+      nodeKey: null,
+      message:
+        "Die Schriften der Quelle zeigen auf die Theme-Slots; das Theme nimmt sie mit „Theme-Fonts übernehmen“ an.",
+      evidence: belegt,
+      severity: "info",
+      suggestion:
+        "Ohne übernommene Theme-Schriften rendert die Seite in der Systemschrift; der Import weist sie deshalb den Slots zu.",
+    });
+  }
+
   const page = document.pages[0];
+  const rootProps = page === undefined ? {} : cssToStyle(page.root.states[0]?.visual ?? {});
+  if (rootProps["fontFamily"] !== undefined) {
+    rootProps["fontFamily"] = themeFontOf(rootProps["fontFamily"], context.fontSlots);
+  }
   const root: EditorNode = {
     id: "root",
     primitive: "root",
     props: {
       title: page?.title ?? "Importierte Seite",
       lang: page?.lang ?? "de",
-      ...(page === undefined
-        ? {}
-        : cssToStyle(page.root.states[0]?.visual ?? {})),
+      ...rootProps,
     },
     children: [],
   };
@@ -994,14 +1309,15 @@ export function mapDocument(
     });
   }
 
+  const rules = styleRulesOf(normalized, context.fontSlots);
   return {
     document: {
       version: 2,
       rootNodeId: "root",
       nodes: context.nodes,
-      styleRules: styleRulesOf(normalized),
+      styleRules: rules,
     },
-    rules: styleRulesOf(normalized),
+    rules,
     themePatch: themePatchOf(document),
     findings: context.findings,
     stats: context.stats,

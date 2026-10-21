@@ -865,6 +865,35 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
           const doc = frame && frame.contentDocument;
           return doc ? Math.round(doc.documentElement.scrollTop) : -1;
         })()`);
+      // Der Scrub braucht einen Weg: `scrollHeight - clientHeight` muss groesser
+      // als null sein. Ob eine Seite mit einem einzigen Abschnitt bei 700px
+      // ueberlaeuft, haengt an Schriftgroesse und Layout - mit dem Zufall der
+      // Laufzeit ist das kein Test des Scrub, sondern einer der Seitenhoehe.
+      // Deshalb wird der Weg hier hergestellt, wenn er fehlt, und die Messung
+      // belegt ihn: ein Scrub ohne Weg kann nicht fahren, und ein Test, der das
+      // verschweigt, ist gruen aus dem falschen Grund.
+      await tab.evaluate(`(() => {
+        const frame = document.querySelector('.senify-canvas__frame iframe');
+        const doc = frame && frame.contentDocument;
+        if (!doc) return;
+        const root = doc.documentElement;
+        if ((root.scrollHeight ?? 0) - (root.clientHeight ?? 0) > 0) return;
+        const spacer = doc.createElement("div");
+        spacer.id = "senify-scroll-weg";
+        spacer.style.height = "2000px";
+        doc.body.appendChild(spacer);
+      })()`);
+      await expect
+        .poll(async () =>
+          tab.evaluate(`(() => {
+            const frame = document.querySelector('.senify-canvas__frame iframe');
+            const doc = frame && frame.contentDocument;
+            if (!doc) return -1;
+            const root = doc.documentElement;
+            return Math.max(0, (root.scrollHeight ?? 0) - (root.clientHeight ?? 0));
+          })()`),
+        )
+        .toBeGreaterThan(0);
       await tab.evaluate(`(() => {
         const input = document.querySelector('.senify-canvas__footer input[data-action="scrub"]');
         if (!input) return;
