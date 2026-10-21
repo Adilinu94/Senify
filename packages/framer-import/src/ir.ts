@@ -127,6 +127,7 @@ export type IrNodeKind =
   | "frame"
   | "text"
   | "rich-text"
+  | "fit-text"
   | "svg"
   | "image"
   | "video"
@@ -537,6 +538,7 @@ const IR_NODE_KINDS: readonly IrNodeKind[] = [
   "frame",
   "text",
   "rich-text",
+  "fit-text",
   "svg",
   "image",
   "video",

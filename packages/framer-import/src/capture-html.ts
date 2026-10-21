@@ -63,6 +63,21 @@ export type CaptureHtmlInput = {
 
 type RawAttr = Record<string, string>;
 
+// Framer's "fit text": the words of a text stand at their layout size inside an
+// `<svg><foreignObject>`, and the `viewBox` scales the whole thing down to the
+// box. Measured on the Earn template, the footer name carries `font-size:211px`
+// and `line-height:80%` in a `viewBox` 1058.22 wide, so a visitor sees 19.94 %
+// of the box width. Read as a graphic, the words would be a picture the editor
+// cannot reach; read as text, they stay editable. What the browser shows is a
+// ratio, so the ratio is what travels.
+type RawFitText = {
+  text: string;
+  // The width of the viewBox the text was laid out against.
+  viewBoxWidth: number;
+  // The `--framer-*` declarations of the inner text, in Senify style names.
+  inline: IrVisual;
+};
+
 type RawNode = {
   tag: string;
   attrs: RawAttr;
@@ -70,6 +85,7 @@ type RawNode = {
   children: RawNode[];
   text: string | null;
   svg: string | null;
+  fitText?: RawFitText;
   // The inner markup of an element that mixes text and inline elements (the
   // RichText shape `Hallo <strong>x</strong> Welt`): the scan keeps elements
   // only, so without this the plain text nodes between them are lost.
@@ -273,8 +289,11 @@ function scanTag(
   if (tag === "svg") {
     const close = html.toLowerCase().indexOf("</svg>", gt + 1);
     const content = close === -1 ? html.slice(lt, limit) : html.slice(lt, close + 6);
+    // A "fit text" carries its words as real text, only scaled by the viewBox:
+    // read as a graphic they would be a picture the editor cannot reach.
+    const fitText = fitTextOf(content, attrs);
     return {
-      node: { tag, attrs, classes, children: [], text: null, svg: content, innerHtml: null },
+      node: { tag, attrs, classes, children: [], text: fitText?.text ?? null, svg: fitText === undefined ? content : null, innerHtml: null, ...(fitText === undefined ? {} : { fitText }) },
       next: close === -1 ? limit : close + 6,
     };
   }
@@ -368,6 +387,47 @@ function findClosing(html: string, from: number, tag: string, limit: number): nu
 function extractText(raw: string): string {
   return decodeEntities(raw.replace(/<[^>]*>/g, "")).replace(/\s+/g, " ").trim();
 }
+
+// The text of a "fit text" as a Senify style set: the size the source laid the
+// words out at, expressed as a share of the box it is scaled into.
+//
+// The `<svg>` of the source is `width:100%; height:auto` around a `viewBox`, so
+// the box a visitor sees is the width of the container. The words inside carry
+// `font-size:211px` against a viewBox 1058.22 wide: 19.94 % of the container
+// width, on every device (measured at 1440, 900 and 390 px). A `cqw` value is
+// exactly that share — the container has to be a size container, which the
+// mapper sets. A hard `px` value would freeze the size of one width; a `vw`
+// value would follow the window instead of the box and drift as soon as the
+// text sits in a column.
+function fitTextStyles(fit: RawFitText): Record<string, string> {
+  const out: Record<string, string> = {};
+  const size = Number.parseFloat(fit.inline["fontSize"] ?? "");
+  if (!Number.isFinite(size) || size <= 0) return out;
+  const share = (size / fit.viewBoxWidth) * 100;
+  // Four decimals keep the pixel at every width of the page: 0.0001 % of a
+  // 1280 px box is 0.0013 px.
+  out["font-size"] = `${Math.round(share * 10000) / 10000}cqw`;
+  // The source sets the height of a line as a share of the size (`80%`); the
+  // style table reads `line-height` as a factor, which is the same number.
+  const lineHeight = (fit.inline["lineHeight"] ?? "").trim();
+  const factor = /^([\d.]+)%$/.exec(lineHeight);
+  if (factor !== null) out["line-height"] = String(Number.parseFloat(factor[1] ?? "") / 100);
+  else if (/^[\d.]+$/.test(lineHeight)) out["line-height"] = lineHeight;
+  const KEBAB: Readonly<Record<string, string>> = {
+    fontWeight: "font-weight",
+    fontStyle: "font-style",
+    letterSpacing: "letter-spacing",
+    textAlign: "text-align",
+    color: "color",
+    fontFamily: "font-family",
+  };
+  for (const [name, css] of Object.entries(KEBAB)) {
+    const value = fit.inline[name];
+    if (value !== undefined && value !== "") out[css] = value;
+  }
+  return out;
+}
+
 
 // The style values that carry a graphic as a data URL. The report names the
 // place, not the picture: the address is cut short.
@@ -659,6 +719,38 @@ function withSymbols(svg: string, symbols: ReadonlyMap<string, string>): string 
   return svg.replace(USE_OF_SYMBOL, (use, id: string) => symbols.get(id) ?? use);
 }
 
+// Framer's "fit text" draws the words at their layout size and lets the
+// `viewBox` of the `<svg>` scale them down. The Earn footer name carries
+// `font-size:211px` in a box 1058.22 wide, so a visitor sees 19.94 % of the box
+// width. The text is real text, not a graphic: it stays editable, and the
+// ratio is what travels.
+const FOREIGN_OBJECT = /<foreignObject\b[^>]*>([\s\S]*?)<\/foreignObject>/i;
+const FIT_TEXT_MARKER = /framer-fit-text/;
+
+function fitTextOf(svg: string, attrs: RawAttr): RawFitText | undefined {
+  if (!FIT_TEXT_MARKER.test(svg)) return undefined;
+  const inner = FOREIGN_OBJECT.exec(svg)?.[1];
+  if (inner === undefined) return undefined;
+  const content = extractText(inner);
+  if (content === "") return undefined;
+  const box = (attrs["viewbox"] ?? "").trim().split(/[\s,]+/).map(Number);
+  const boxWidth = box[2];
+  if (box.length !== 4 || boxWidth === undefined || !Number.isFinite(boxWidth) || boxWidth <= 0) return undefined;
+  // The innermost element that carries the text style is the `<p>`; the
+  // `foreignObject` itself only carries the overflow.
+  let inline: IrVisual = {};
+  for (const match of [...inner.matchAll(/<([a-zA-Z][\w:-]*)([^>]*)>/g)].reverse()) {
+    const mapped = framerInlineToStyles(parseAttrs(match[2] ?? "")["style"]);
+    if (mapped["fontSize"] !== undefined) {
+      inline = mapped;
+      break;
+    }
+  }
+  if (inline["fontSize"] === undefined) return undefined;
+  return { text: content, viewBoxWidth: boxWidth, inline };
+}
+
+
 // A text in `white-space: pre`, `pre-wrap` or `break-spaces` is drawn with every space the
 // author typed: "Hey, ich bin " is 22 px wider than "Hey, ich bin" on fluffy-rectangle, and
 // "Meine  Referenzen" has two spaces between the words. The scan collapses spaces, so it
@@ -684,7 +776,7 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
   const variantHashes = raw.classes
     .filter((entry) => entry.startsWith("framer-v-"))
     .map((entry) => entry.slice("framer-v-".length));
-  const kind = kindFor(raw);
+  const kind = raw.fitText === undefined ? kindFor(raw) : "fit-text";
   const named = Object.entries(attrs).filter(([name]) => counter.attrNames?.has(name) === true);
   const selectorAttrs = named.length > 0 ? Object.fromEntries(named) : undefined;
 
@@ -744,6 +836,25 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
   const textInline: Record<string, string> = {};
   for (const [property, value] of Object.entries(framerInlineToStyles(attrs["style"]))) {
     if (value !== undefined) textInline[property] = value;
+  }
+  if (raw.fitText !== undefined) {
+    for (const [property, value] of Object.entries(fitTextStyles(raw.fitText))) {
+      visual[property] = value;
+    }
+    // The fit text does not wrap — its `viewBox` was measured against one line
+    // of words — and the text sits on the middle of the box.
+    visual["white-space"] = "nowrap";
+    // The source's `<svg>` is a flex box; as a text the words have to centre in
+    // the full width, which `text-align` only does in a block box.
+    visual["display"] = "block";
+  }
+  // The share above is read against the width of the box the text sits in, and
+  // a container query measures its nearest ANCESTOR container — never the
+  // element that declares the unit. Measured: on the element itself the browser
+  // resolves 19.9391cqw to 287 px (the window), on the parent to 255.22 px,
+  // which is what the source shows. The parent gets the container, not the text.
+  if (raw.children.some((child) => child.fitText !== undefined)) {
+    visual["container-type"] = "inline-size";
   }
   const text: IrTextContent | null =
     raw.text !== null && raw.text !== ""

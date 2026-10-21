@@ -141,6 +141,11 @@ function primitiveFor(node: IrNode, siblings: IrNode[]): string {
       return HEADING_TAGS.has(node.tag) ? "heading" : "text";
     case "rich-text":
       return "body";
+    case "fit-text":
+      // A "fit text" is text: the words the visitor reads, only scaled by the
+      // box they sit in. As an icon it would be a picture the editor cannot
+      // reach, as a body it keeps its text and its typography.
+      return "body";
     case "image":
       return "image";
     case "video":
