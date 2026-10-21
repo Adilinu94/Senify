@@ -121,6 +121,56 @@ sind Präfix-Dubletten), ist **nicht gemessen**.
 Skript Bilder unterschiedlicher Höhe verglich. Ein Messfehler sieht aus wie ein
 Import-Fehler. Das kostet Vertrauen und Zeit.
 
+### U5 · Animationen: nur ein Bruchteil kommt an, und der falsche Zeitmaßstab
+
+**Gemessen an zehn fremden Seiten** (`report.motion` = gefunden / auf Preset
+abgebildet / nur Befund):
+
+| Seite | gefunden | auf Preset | nur Befund |
+|---|---|---|---|
+| wedge | 7 | 7 | 0 |
+| notes-template | 6 | 6 | 0 |
+| refined | 5 | 5 | 0 |
+| unifiersofjapan | 5 | 4 | 1 |
+| receivio | 17 | 14 | 3 |
+| wynn-template | 14 | 13 | 1 |
+| last-studio | **0** | 0 | 0 |
+| meeko-template | **0** | 0 | 0 |
+| donutshop | **0** | 0 | 0 |
+| atlas-studio | **0** | 0 | 0 |
+
+Vier Ursachen, jede mit Beleg:
+
+**(a) Der Zeitmaßstab ist um Faktor ~47 falsch.** Die Quelle animiert
+`duration: 1.4` (Sekunden, gemessen im Roh-Sample von `wedge`). Der Mapper
+rechnet `1.4 / 300` und klemmt auf `0.1` (`motion-mapping.ts`); der Renderer
+multipliziert mit `baseDurationMs = 300`. Ergebnis im gebackenen CSS:
+`animation: 30ms` — statt 1400 ms. Im Browser bestätigt (`dauerMs: 30`).
+Die Einblendung ist damit ein Blitz, keine Bewegung.
+
+**(b) Vier Seiten haben Elemente mit `data-framer-appear-id`, aber keinen
+`appearAnimationsContent`-Kanal.** Bei `donutshop` sind das **51 Elemente**,
+bei `last-studio`, `meeko-template` und `atlas-studio` je eines. Der Startzustand
+wird korrekt entfernt (0 Knoten mit `opacity <= 0.01` im Aussehen), aber es wird
+**keine Animation angelegt** — die Elemente erscheinen einfach. Das ist eine
+stille Lücke: nichts ist kaputt, aber der Effekt fehlt.
+
+**(c) Nur Einblendungen von unten sind abbildbar.** `appearPreset` akzeptiert
+nur `x = 0`, `scale = 1`, `y >= 0`. Alles andere (seitlich, Skalierung,
+Rotation) bleibt Befund. Gemessen sind das 5 von 54 Samples (9 %). Die
+`raw`-Daten der Quelle enthalten mehr, als das Preset nutzt: `rotateX: 12`,
+`rotateY: 12`, `transformPerspective: 1200` — eine 3D-Kippung, die verloren geht.
+
+**(d) Hover und Scroll-Trigger kommen nicht aus dem SSR.** Die Seiten haben
+50–51 `:hover`-Vorkommen und bis zu 131 `will-change: transform`. Der Import
+liest Hover nur als *Stilzustand* (was funktioniert), nicht als *Bewegung*.
+Scroll-Effekte (`data-framer-scroll`) gibt es im SSR-HTML dieser Seiten nicht —
+sie entstehen wie die Sterne erst im Browser.
+
+**Nicht geprüft:** Ob die abgebildeten Einblendungen (nach Fix (a)) im Bake
+tatsächlich so aussehen wie in der Quelle. Dafür braucht es einen
+Bild-Vergleich über die Zeit, nicht nur einen Stand.
+
 ## 4. Der Plan
 
 Jeder Schritt hat ein Gate. Ein Schritt gilt erst als fertig, wenn sein Gate
@@ -180,7 +230,24 @@ der ohne den Fix rot ist.
 
 **Gate:** Eine Zahl statt einer Vermutung; danach entscheiden, ob gebaut wird.
 
-### Schritt 5 · Die Grenze der SSR-Quelle schließen (Produktentscheidung)
+### Schritt 5 · Animationen auf den richtigen Zeitmaßstab bringen
+
+**Ziel:** Eine Einblendung von 1,4 s dauert 1,4 s, nicht 30 ms.
+
+- **Ursache (a)** ist belegt und klein: Der Mapper rechnet Sekunden gegen
+  Millisekunden (`duration / 300`). Die Einheit muss stimmen — `duration` kommt
+  in Sekunden, `baseDurationMs` in Millisekunden.
+- **Ursache (b)** ist der größere Hebel: Fehlt der `appearAnimationsContent`-
+  Kanal, liegt der Startzustand trotzdem am Element. Aus ihm lässt sich die
+  Bewegung ableiten (Start-Transform, Start-Deckkraft) — oder es wird
+  wenigstens ein Befund, statt still nichts zu tun.
+- **Ursache (d)**: Hover als Bewegung ist ein eigenes Vorhaben; hier nur
+  entscheiden, ob es im Umfang ist.
+
+**Gate:** Im gebackenen CSS steht die Dauer der Quelle (1,4 s → 1400 ms), und
+`donutshop` hat Motion-Samples statt 0. Ein Testfall, der ohne den Fix rot ist.
+
+### Schritt 6 · Die Grenze der SSR-Quelle schließen (Produktentscheidung)
 
 **Ziel:** Inhalte, die erst im Browser entstehen (U2), kommen mit.
 
@@ -197,7 +264,7 @@ Zwei Wege, beide teuer:
 **Gate:** Eine Entscheidung mit Begründung als ADR, **bevor** gebaut wird. Kein
 Code in diesem Schritt.
 
-### Schritt 6 · Den Editor-Weg durchgängig belegen
+### Schritt 7 · Den Editor-Weg durchgängig belegen
 
 **Ziel:** Nicht nur „das Dokument ist gültig", sondern „ein Mensch kann es
 bearbeiten".
@@ -210,7 +277,7 @@ bearbeiten".
 
 **Gate:** Elf Seiten, je ein Bearbeitungsfall grün.
 
-### Schritt 7 · Die Anleitung auf den Stand bringen
+### Schritt 8 · Die Anleitung auf den Stand bringen
 
 **Ziel:** Wer importiert, weiß vorher, was geht.
 
@@ -224,16 +291,21 @@ bearbeiten".
 ## 5. Reihenfolge und Abhängigkeiten
 
 ```
-Schritt 2 (Faltung)  ──►  Schritt 6 (Editor)
 Schritt 3 (Messung)  ──►  (alle Messungen)
-Schritt 4 (Präfixe)  ── unabhängig
-Schritt 5 (Quelle)   ── Entscheidung, dann eigener Strang
-Schritt 7 (Doku)     ── nach 2, 3, 6
+Schritt 2 (Faltung)  ──►  Schritt 7 (Editor)
+Schritt 5 (Zeitmaßstab) ── unabhängig, klein
+Schritt 4 (Präfixe)   ── unabhängig
+Schritt 6 (Quelle)    ── Entscheidung, dann eigener Strang
+Schritt 8 (Doku)      ── nach 2, 3, 5, 7
 ```
 
 **Schritt 3 zuerst bauen, dann 2.** Die Ursache ist belegt (U1), aber ohne eine
 Messung, die nicht abbricht, lässt sich der Erfolg von Schritt 2 nicht prüfen —
 zwei der elf Seiten sind heute nicht messbar.
+
+**Schritt 5 (a) ist der kleinste Hebel im ganzen Plan:** eine Einheit
+(`duration / 300` statt `duration * 1000`). Er ist unabhängig und kann sofort
+gemacht werden.
 
 ## 6. Woran wir Erfolg messen
 
