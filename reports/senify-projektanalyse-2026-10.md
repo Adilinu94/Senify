@@ -2,12 +2,13 @@
 
 **Stand:** 19.10.2026 · **Basis:** `master` `5ac1a84` (Merge PR #55) · **Analysierte Gegenprobe:** `19c8ee0` (PR #39)
 **Umfang:** alle 15 Workspace-Pakete, sieben Fachbereiche, sechs Fachanalysen
-**Anwendungscode:** unverändert. Kein Commit, kein Pull, kein Push.
+**Anwendungscode:** zur Analysezeit unverändert. Kein Commit, kein Pull, kein Push.
+**Umsetzung:** 20. und 21.10.2026 — Abschnitte 6.1 und 6.2, PRs #71, #72, #76, #83 und #85
 
-> **Was dieses Dokument ist.** Eine Untersuchung, kein Umsetzungsbericht. Jede Aussage ist mit
-> Datei und Zeile belegt; jede Prüfgrenze ist ausgewiesen. Die **Belegformate** unterscheiden
-> sich: *bestätigt* (reproduziert), *Codebefund* (im Code gelesen, nicht ausgeführt), *offen*
-> (nicht geprüft oder eine Entscheidung liegt bei Adi).
+> **Was dieses Dokument ist.** Eine Untersuchung mit dem Nachweis ihrer Umsetzung. Jede Aussage
+> ist mit Datei und Zeile belegt; jede Prüfgrenze ist ausgewiesen. Die **Belegformate**
+> unterscheiden sich: *bestätigt* (reproduziert), *Codebefund* (im Code gelesen, nicht ausgeführt),
+> *offen* (nicht geprüft oder eine Entscheidung liegt bei Adi).
 >
 > **Verbindliche Dokumente bleiben `docs/fahrplan.md`, `docs/current/*` und `docs/adr/`.** Dieser
 > Bericht ist ein Vorschlag und ändert keine bestehende Entscheidung.
