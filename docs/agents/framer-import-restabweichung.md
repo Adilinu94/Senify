@@ -45,6 +45,16 @@ Ein geänderter Text (`"Neuer Name"`) schlägt durch, die Größenregel bleibt
 erhalten, und `validateDocument` meldet **0 Befunde**. Der Text lässt sich im
 Editor also ändern wie jeder andere Text — die Skalierung folgt der Box.
 
+## Icons
+
+Im gebackenen Ergebnis tragen **alle 16 sichtbaren SVGs ihre Zeichnung**
+(`<path>`/`<g>`/`<circle>`), und **kein einziges** hält noch einen
+`<use href="#…">`-Verweis. Die Quelle hat an derselben Stelle 16 SVGs, davon 8
+mit `<use>` auf das Sprite `#3403169090`; der Capture löst jeden Verweis in die
+Zeichnung auf (`symbolsOf`/`withSymbols`), der Mapper gibt sie als `svg`-Prop
+weiter. Die acht `data-name="symbol"`-Wrapper sind damit kein Fallback, sondern
+nur der Name des Wrappers.
+
 ## Die verbleibenden Ursachen
 
 1. **Kanten-Antialiasing.** pixelmatch zählt jeden Pixel, dessen Farbe um mehr
