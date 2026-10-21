@@ -28,6 +28,23 @@ Abweichung (1750: Produktkarten, 700: Hero-Karte, 4300: CTA) wurden Ausschnitte
 beider Seiten gerendert und verglichen: kein sichtbarer Unterschied in Layout,
 Schrift oder Farbe.
 
+## Bearbeitbarkeit
+
+Der Fußzeilentext ist ein echter `body`-Knoten, kein Bild:
+
+| Eigenschaft | Wert |
+|---|---|
+| `primitive` | `body` |
+| `html` | `"Alex Rivera"` |
+| `fontSize` | `19.9391cqw` |
+| `lineHeight` | `0.8` |
+| `fontWeight` | `600` |
+| `fontFamily` | `"Manrope", "Manrope Placeholder", sans-serif` |
+
+Ein geänderter Text (`"Neuer Name"`) schlägt durch, die Größenregel bleibt
+erhalten, und `validateDocument` meldet **0 Befunde**. Der Text lässt sich im
+Editor also ändern wie jeder andere Text — die Skalierung folgt der Box.
+
 ## Die verbleibenden Ursachen
 
 1. **Kanten-Antialiasing.** pixelmatch zählt jeden Pixel, dessen Farbe um mehr
