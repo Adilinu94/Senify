@@ -92,37 +92,45 @@ export default defineConfig({
       ],
       thresholds: {
         perFile: true,
-        // Die HTTP-Schicht ist in sechs Module geteilt (ADR-0019); das Tor
+        // Die HTTP-Schicht ist in neun Module geteilt (ADR-0019); das Tor
         // haengt an allen, sonst wuerde der umgezogene Code ungeschuetzt
         // mitarbeiten. Die Schwellen liegen knapp unter dem gemessenen Stand
         // vom 20.10.2026:
-        //   http.ts                   89,97 / 70,67 / 87,27 / 89,97
-        //   http-route-support.ts     85,44 / 76,50 / 100   / 85,44
+        //   http.ts                   96,09 / 87,01 / 100   / 96,09
+        //   http-route-support.ts     85,44 / 76,63 / 100   / 85,44
         //   http-routes-sites.ts      96,38 / 76,27 / 94,73 / 96,38
         //   http-routes-references.ts 95,74 / 80,64 / 100   / 95,74
-        //   http-routes-pages.ts      97,34 / 67,08 / 96,29 / 97,34
-        "packages/engine/src/{http-route-support,http-routes-sites,http-routes-references,store,lifecycle,forms}.ts": {
+        //   http-routes-content.ts    94,52 / 73,46 / 94,11 / 94,52
+        "packages/engine/src/{http,http-route-support,http-routes-sites,http-routes-references,http-routes-content,store,lifecycle,forms}.ts": {
           statements: 80,
           branches: 68,
           functions: 88,
           lines: 80,
         },
-        // Der Dispatcher allein liegt bei den Funktionen unter der Gruppe
-        // (87,27 %): die Handler der Routen sind in die Module gewandert,
-        // der Rest bleibt streng.
-        "packages/engine/src/http.ts": {
-          statements: 80,
-          branches: 68,
-          functions: 87,
-          lines: 80,
-        },
-        // Die Seiten-Routen liegen bei den Branches unter der Gruppe
-        // (67,08 %).
+        // Drei Route-Module sind deutlich schwaecher gemessen und stehen
+        // deshalb in eigenen Gruppen; eine gemeinsame Schwelle fuer alle
+        // waere die niedrigste von allen - und damit ein Tor, das nichts mehr
+        // sichert (Stand 20.10.2026):
+        //   http-routes-pages.ts  97,34 / 67,08 / 96,29 / 97,34
+        //   http-routes-media.ts  85,66 / 64,00 / 75,00 / 85,66
+        //   http-routes-ops.ts    86,15 / 58,88 / 88,88 / 86,15
         "packages/engine/src/http-routes-pages.ts": {
-          statements: 80,
-          branches: 67,
+          statements: 96,
+          branches: 66,
+          functions: 95,
+          lines: 96,
+        },
+        "packages/engine/src/http-routes-media.ts": {
+          statements: 85,
+          branches: 63,
+          functions: 74,
+          lines: 85,
+        },
+        "packages/engine/src/http-routes-ops.ts": {
+          statements: 85,
+          branches: 58,
           functions: 88,
-          lines: 80,
+          lines: 85,
         },
         // Die ausgelagerten Fachmodule der Engine (ADR-0019, P3-2) und die
         // HTTP-Helfer sind jetzt im Tor. Sie waren vorher nicht gemessen -
