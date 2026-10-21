@@ -326,6 +326,29 @@ describe("elements that are hidden on purpose", () => {
     const { nodes } = run(page('<section style="opacity:0"><p>Zu</p></section>'));
     expect(nodes.some((node) => node.props["opacity"] === "0")).toBe(true);
   });
+
+  // The export holds the strip, not its movement: Framer's script moves it at run
+  // time, and the `marquee` preset is the CSS of the Marquee section's own markup
+  // (`.marquee-track`), which a frame does not carry. So the strip stands still, and
+  // the report says so and says what to do about it.
+  it("reports the Ticker as a standing strip", () => {
+    const { document } = run(page(`<section style="${TICKER}"><ul><li><p>Logo</p></li></ul></section>`));
+    const finding = document.findings.find((entry) => entry.message.includes("Ticker"));
+    expect(finding).toMatchObject({ kind: "loop-animation", severity: "info" });
+    expect(finding?.message).toContain("1 Ticker");
+    expect(finding?.suggestion).toContain("Marquee-Section");
+  });
+
+  it("counts every Ticker of the page", () => {
+    const strip = `<section style="${TICKER}"><ul><li><p>Logo</p></li></ul></section>`;
+    const { document } = run(page(strip + strip));
+    expect(document.findings.find((entry) => entry.message.includes("Ticker"))?.message).toContain("2 Ticker");
+  });
+
+  it("reports no Ticker for a page without one", () => {
+    const { document } = run(page('<section style="opacity:0"><p>Zu</p></section>'));
+    expect(document.findings.some((entry) => entry.message.includes("Ticker"))).toBe(false);
+  });
 });
 
 describe("deeply nested var() fallbacks", () => {
