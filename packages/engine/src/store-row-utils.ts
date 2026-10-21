@@ -55,3 +55,21 @@ export function assertDraftShape(draft: unknown): asserts draft is NodeTree {
     throw new Error("Stored page draft has an invalid shape");
   }
 }
+
+// A readable handle from a name: German umlauts spelled out, everything else
+// folded to ASCII, no leading or trailing dash. `Store` uses it for site and
+// page slugs, the library module for component slugs - one rule, not two.
+export function slugify(value: string): string {
+  const slug = value
+    .toLowerCase()
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+  return slug || "page";
+}
