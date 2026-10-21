@@ -45,7 +45,20 @@ Mit „Weitere Seiten dieser Site“ bietet der Bericht die Seiten an, auf die d
 ## Grenzen
 
 - **Framer-Code und Shader** werden zu einem sichtbaren Platzhalter mit Befund. Echte Übernahme gibt es nicht.
-- **Icons über `<use href>`** ohne Sprite erscheinen als Ring, weil Framer das Sprite per Skript einfügt.
+- **Inhalte, die erst im Browser entstehen, fehlen.** Der Import liest das Server-HTML. Was eine Framer-Code-Komponente
+  erst beim Laden erzeugt, ist darin nicht enthalten — gemessen an der Earn-Vorlage: die fünf Bewertungssterne. Ihr
+  Container hält im Server-HTML nur fünf leere `display:contents`-Platzhalter, die Sterne selbst entstehen im Browser.
+  An ihrer Stelle bleibt der leere Rahmen stehen, und der Bericht nennt die Stelle. Wer sie braucht, legt ein Bild
+  dorthin oder braucht eine zweite Quelle (Unframer-MCP, Projektstruktur statt gerendertem HTML).
+- **Icons über `<use href>`** ohne Sprite erscheinen als Ring, weil Framer das Sprite per Skript einfügt. Liegt das
+  Sprite im Server-HTML (der Regelfall), löst der Import es auf: gemessen an der Earn-Vorlage tragen alle 16 SVGs ihre
+  Zeichnung. Ein Sprite, das die Quelle selbst nicht mitliefert, bleibt ein Ring.
+- **Der „Made in Framer"-Badge** ist ein `position:fixed`-Widget, das Framer in seine veröffentlichte Seite setzt. Er
+  ist Werbung des Baukastens, nicht Inhalt der Website, und wird bewusst nicht importiert. Im Pixel-Vergleich gegen das
+  Original zählt er als Abweichung.
+- **Ein Rahmen, den Framer nur an einer Seite zeichnet, wird ein Inset-Schatten.** Framer zeichnet ihn als Overlay
+  (`::after`); ein echter Rahmen würde die Box um seine Breite vergrößern und die Seite verschieben. Gestrichelte und
+  gepunktete Rahmen behalten den echten Rahmen, weil ein Schatten keine Strichart hat.
 - **`<select>`-Felder** zeigen ihre Optionen als Liste.
 - **Selektoren.** Nicht ausgewertet werden `:not()` an Vorfahren, Geschwister-Kombinatoren (`+`, `~`), `:first-child`
   und `:nth-*`, `@container` und Attribut-Operatoren außer `=`.
