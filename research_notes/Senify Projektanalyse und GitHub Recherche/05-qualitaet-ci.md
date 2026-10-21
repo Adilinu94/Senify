@@ -301,3 +301,7 @@ Includes oder Ausschlüsse zu ändern. Einzelgegenproben und iterative Review-Be
 in `docs/current/qualitaet.md`; historische Zahlen oben sind nicht der heutige Stand.
 Die drei Runner-/Pool-Ausnahmen sind entfernt, nur die befristete Ausnahme für
 `http-cache-semantics` bleibt. Kein Merge von PR #96.
+
+CI `39643730891` auf `cd1108f` bestätigt den Upgrade-Abschluss vollständig,
+einschließlich Doku-Drift-Gate. Die Library-Auslagerung aus Upstream ist erhalten;
+die zusätzliche Datei liegt ohne gesenkte Schwellen in der bestehenden Gruppe.

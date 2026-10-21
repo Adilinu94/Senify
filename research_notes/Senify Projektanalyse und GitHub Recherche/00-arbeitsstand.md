@@ -4,6 +4,8 @@
 > `reports/senify-projektanalyse-2026-10.md`, Abschnitte 6.1–6.3, disponiert.
 > Nach PR #85 folgten die Nacharbeiten in #88, #90, #91 und #92 (gemergt).
 > PR #96 ergänzt Vitest 4 und die Gegenproben 24–31, bleibt Draft und ungemergt.
+> Upgrade-Abschluss im Arbeitsbranch: CI `39643730891` auf `cd1108f` vollständig
+> grün, einschließlich Coverage- und Doku-Abgleich; Basis bis `328bfdc` integriert.
 > Dauerhafter Upgrade-/Review-Beleg: `07-vitest4-abschluss.md`; aktueller Gate-Stand
 > ausschließlich `docs/current/qualitaet.md`. Der Rahmen und die offene Liste
 > weiter unten beschreiben die ursprüngliche Analyse, nicht noch offene Umsetzung.

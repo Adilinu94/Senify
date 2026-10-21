@@ -492,6 +492,9 @@ Werkzeuge, die eine Lücke schließen, sind meist billiger als die Lücke.
 entfernt PR #96 die drei Runner-/Pool-Ausnahmen durch Vitest 4.1.11; der Linux-OSV-Job
 besteht ohne sie. Nur `http-cache-semantics` bleibt bis 30.11.2026 ausgenommen.
 Aktuelle Gates: `docs/current/qualitaet.md`; Upgrade-Beleg: `07-vitest4-abschluss.md`.
+Der Upgrade-Abschluss ist durch den vollständig grünen Lauf `39643730891` auf
+`cd1108f` bestätigt. PR #96 bleibt Draft und ungemergt; die Nicht-Adoptionen und
+der terminierte R14-Rest werden dadurch nicht umgedeutet.
 
 | Kandidat | Urteil jetzt | Was |
 |---|---|---|

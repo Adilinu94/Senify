@@ -505,7 +505,7 @@ seine Ursache ist nicht isoliert, der bestehende Prozess-Pool besteht.
 Das AST-basierte V8-Remapping machte im ersten Linux-Lauf Schwellenverletzungen
 sichtbar. Sie sind durch gezielte Mapper-, Dokument-, HTTP-, Formular-, Lifecycle-
 und MCP-Vertragstests geschlossen — **ohne neue Produktfixes und ohne geänderte
-Schwellen, Includes oder Ausschlüsse**. Die neuen MCP-Tests verwenden echten
+Schwellen, Includes oder Ausschlüsse durch das Upgrade**. Die neuen MCP-Tests verwenden echten
 HTTP-Client und echte Engine, prüfen gespeicherte Werte und Secret-Entschlüsselung
 statt konstruierter Antwort-Stubs. Revision-Ownership, Library-Versionen und
 Missing-Route-Fälle wurden in der Abschlussprüfung nachgeschärft.
@@ -516,13 +516,16 @@ Produktmutationen zurückgenommen; die unveränderte Baseline ist grün.
 Exakte Mutationen, Fehlerbilder, Testpfade, Review-Runden und Grenzen stehen in
 `research_notes/Senify Projektanalyse und GitHub Recherche/07-vitest4-abschluss.md`.
 
-**Gate-Stand:** Upstream `d14880e` ist in `02520ed` integriert. Linux-CI
-`39628036316` besteht in Verify mit Pflicht-Browser, Visual, Parity, Import,
-Windows, PostgreSQL und beiden Scans; auch sämtliche unveränderten Coverage-
-Schwellen bestehen. Nur der alte Doku-Messblock war rot. Er wurde ausschließlich
-aus dem Linux-CI-Artefakt erzeugt, `quality:check` ist damit exakt grün.
-Der finale CI-Lauf nach dem Doku-Push steht noch aus; aktuelle Messzahlen und
-Artefaktprovenienz ausschließlich in `docs/current/qualitaet.md`.
+**Gate-Stand:** Upstream bis `328bfdc` ist in `08ef71d` integriert, einschließlich
+Library- und Markdown-Auslagerung aus PR #98/#99. Die zusätzliche Library-Datei
+bleibt in der bestehenden Coverage-Gruppe, ohne Schwellen zu senken.
+[Linux-CI `39643730891`](https://github.com/Adilinu94/Senify/actions/runs/39643730891)
+auf `cd1108f` besteht vollständig: Verify mit Pflicht-Browser, Visual, Parity,
+Import, Windows, PostgreSQL, beide Scans sowie Coverage-Schwellen und Doku-Abgleich.
+Der vorherige reine Messblock-Drift ist ausschließlich aus dem Linux-Artefakt
+korrigiert; das Artefakt des grünen Bestätigungslaufs ist bytegenau identisch.
+Aktuelle Messzahlen und Artefaktprovenienz ausschließlich in
+`docs/current/qualitaet.md`. Upgrade-Abschluss im Arbeitsbranch, kein Merge nach `master`.
 
 **R14 nicht pauschal geschlossen:** Die drei Ausnahmen für Runner/Pool sind
 entfernt und der OSV-Job besteht ohne sie. `http-cache-semantics` 4.2.0 bleibt

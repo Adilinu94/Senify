@@ -3,7 +3,8 @@
 > **Stand: 21.10.2026, PR #96, noch nicht gemergt.** Dies ist der dauerhafte
 > Prüfbeleg für den Upgrade-Schritt. Aktuelle Laufzahlen und der generierte
 > Linux-Coverage-Messblock stehen ausschließlich in `docs/current/qualitaet.md`.
-> Die letzte CI nach dem Doku-Push ist noch ausstehend.
+> CI `39643730891` auf `cd1108f` ist vollständig grün; Upgrade-Abschluss im
+> Arbeitsbranch, kein Merge nach `master` freigegeben.
 
 ## Definition of Ready und Umfang
 
@@ -28,7 +29,8 @@
 | `ca0d3ff` | Library-Uninstall am vollständigen erwarteten Detach-Draft, Draft-Version, Titel/Pfad und Audit geprüft. Zusätzliche Einzelgegenprobe 31 erkennt abgetrennte Root-Kinder; anschließend bytegenau wiederhergestellt und Baseline grün. |
 | Linux-Lauf `39628036316` | Alle unveränderten Coverage-Schwellen bestehen. Verify einschließlich Pflicht-Browser, Visual, Parity, Import, Windows, echte PostgreSQL-Lane und beide Scans bestehen. Nur der bisherige Doku-Messblock war rot. Der neue Block wurde aus dem Linux-Artefakt erzeugt; `pnpm quality:check` ist damit exakt grün. Quelle/Hash und Laufzahlen: `docs/current/qualitaet.md`. |
 | Zweiter Basisabgleich `08ef71d` | Während des Doku-Abschlusses gingen PR #98 und #99 nach `master` (`328bfdc`). Ein Konflikt im Messblock verhinderte die PR-CI. Beide Produkt-Auslagerungen und Doku-Nachträge erhalten. Upstream ergänzt `store-library.ts` in der bestehenden Coverage-Gruppe, ohne Schwellen zu senken. Die Upgrade-Änderung selbst bleibt unverändert. |
-| Linux-Lauf `39640839148` | Beide Basis-Auslagerungen integriert, vollständiges lokales Verify mit Pflicht-Chromium und fünf CI-Jobs grün. Sämtliche Coverage-Schwellen einschließlich Library bestehen; nur der ältere Messblock war rot. Neue Linux-Summary unverändert übernommen, Generator und exakter Abgleich grün. Der nächste reine Doku-Push braucht die endgültig vollständig grüne CI. |
+| Linux-Lauf `39640839148` | Beide Basis-Auslagerungen integriert, vollständiges lokales Verify mit Pflicht-Chromium und fünf CI-Jobs grün. Sämtliche Coverage-Schwellen einschließlich Library bestehen; nur der ältere Messblock war rot. Neue Linux-Summary unverändert übernommen, Generator und exakter Abgleich grün. Der Doku-Folge-Push ist durch den vollständig grünen Lauf `39643730891` bestätigt. |
+| Abschlusslauf `39643730891` auf `cd1108f` | Alle sechs CI-Jobs vollständig grün, einschließlich Coverage-Schwellen und Doku-Abgleich. Linux-Summary bytegenau identisch mit der bereits gerenderten Quelle. Aktuelle Messzahlen und Artefakt-Hash ausschließlich in `docs/current/qualitaet.md`; PR bleibt Draft und ungemergt. |
 
 **Nicht abschließend erklärt:** Ein experimenteller Thread-Pool beendete den
 Windows-Volltest nativ mit `0xC0000005`. Der Fehler ist nicht auf eine konkrete
@@ -93,6 +95,15 @@ Produktdatei wiederherstellen, am Schluss dieselben sieben Testdateien gemeinsam
 ohne Mutationen ausführen. Kein produktiver Arbeitsbaum ist dafür ein zulässiges
 Mutationsziel.
 
+**Historischer Mutationsanker:** Probe 31 wurde vor PR #98 auf `abff882` mit der
+weiter nachgeschärften Testdatei ausgeführt; deshalb ist `store.ts` oben korrekt.
+Seit dem zweiten Basisabgleich liegt derselbe Detach-Code in
+`packages/engine/src/store-library.ts`, Methode `LibraryRepository.deleteLibraryInstall`
+(`structuredClone(page.draft)` vor `let changed = false`). Für die exakte alte
+Gegenprobe die dokumentierte Basis verwenden; für eine neue Probe den aktuellen
+Modulpfad verwenden. Die alte Gegenprobe wird nicht als neuer Mutationslauf nach
+der Auslagerung ausgegeben; den integrierten Vertrag belegt die grüne CI.
+
 Lokale Rohbelege (nicht versionierte Laufartefakte):
 `node_modules/.cache/vitest4-probe-24.json` bis `vitest4-probe-30.json`,
 `vitest4-counterproof-results.json`, `run-vitest4-probes.mjs` und
@@ -155,7 +166,7 @@ Neue Doku-Befunde:
 Der stale Messblock wurde bereits vor dieser Runde als CI-Blocker erkannt;
 seine Korrektur aus dem Linux-Artefakt ist kein neuer Produktbefund.
 Keine neue Produktregression aus der vollständigen Runde. Die Abschlussrunde
-nach den Doku-Korrekturen steht noch aus.
+nach den Doku-Korrekturen stand damals noch aus und ist in Runde 5 dokumentiert.
 
 ### Runde 3 — alle 14 Blickwinkel, Belege gegen den Code
 
@@ -205,18 +216,24 @@ keine ungefragte Einrichtung eines Bots. Keine neue Produktregression.
 | 13 · Qualität bestehender Belege | Missing-Route-Fixture, Secret-Entschlüsselung, Library-Version und vollständiger Detach-Draft gegen tatsächlichen Code geprüft; Testpfade existieren, Gegenproben scheitern an Assertions statt Imports. |
 | 14 · Konsistenz | Probe-Nummern, datierte Stände, R14-Rest, PR-Draft-/Nicht-Merge-Grenze und Linux-Quelle abgestimmt. Aktuelle Messzahlen nur im Qualitätsdokument; Artefakt dort hashgeprüft und `quality:check` exakt grün. |
 
-**Ergebnis:** fünf dokumentierte Runden im Upgrade-Abschluss; Runde 5 ist die
+**Zwischenstand nach Runde 5:** fünf dokumentierte Runden im Upgrade-Abschluss; Runde 5 ist die
 erste vollständige Runde ohne neue Befunde. Davor vier Testaussage-Lücken,
 fünf Dokumentationslücken, zwei weitere Prüflücken samt DB-Begriffsgrenze und
 eine falsche Pflegebehauptung korrigiert. Keine zusätzliche Produktregression
 oder Ship-Stopper in diesem Abschlussumfang. Das ist keine Zusage, dass Senify
-insgesamt fehlerfrei ist. Die finale CI muss den gepushten Abschlussstand prüfen.
+insgesamt fehlerfrei ist. Die CI `39643730891` hat den gepushten Abschlussstand
+vollständig geprüft.
 
 **Graphify-Gate:** `graphify update .` nach der letzten Teständerung mit Exit 0
 ausgeführt (`node_modules/.cache/graphify-vitest4-close.log`). Das aktualisiert
 den Codegraphen AST-basiert, nicht die semantischen Doku-Knoten. Der Lauf meldet
 Dateien ohne modellierte Symbole und geänderte Community-Namen; der Graph ist
 eine Navigationshilfe, kein Vollständigkeitsbeweis für diesen Review.
+
+Nach dem zweiten Basisabgleich erneut AST-basiert mit Exit 0 aktualisiert:
+`node_modules/.cache/graphify-vitest4-second-integration.log`. Die späteren
+Statusnachträge ändern keinen Code; semantische Doku-Knoten sind weiterhin
+kein aktueller Beleg für den CI-Status.
 
 **Review des zweiten Basisabgleichs:** Geänderter Merge-Umfang nach `328bfdc`
 erneut auf Verträge, Ressourcen, Konfiguration und Belegkonsistenz geprüft.
@@ -228,7 +245,40 @@ neue Produktänderung durch die Integration. Typecheck, Lint, Paketregeln und
 gezielte Integrationssuiten grün; beide generierten Dokumente ohne Drift.
 Vollständiges lokales Verify und alle produktprüfenden CI-Schritte bestehen auf
 `08ef71d`. Der reine Messblock-Drift wurde ausschließlich aus der zugehörigen
-Linux-Summary behoben; der Doku-Folge-Push braucht noch den vollständigen grünen Lauf.
+Linux-Summary behoben; der Doku-Folge-Push ist in `39643730891` vollständig grün.
+
+### Runde 6 — Abschlussstatus und Reproduzierbarkeit nach Upstream
+
+**Ein neuer LOW-Doku-Befund (Blickwinkel 13/14):** Der historische Anker der
+Probe 31 blieb richtig, brauchte nach PR #98 aber einen ausdrücklich aktuellen
+Reproduktionspfad. Oben sind Basis und heutiges Library-Modul getrennt; kein
+neuer Mutationslauf behauptet. Außerdem die planmäßigen Ausstehend-Vermerke
+durch den tatsächlichen CI-Beleg ersetzt und historische Gates als Verlauf
+gekennzeichnet. Keine neue Produktregression.
+
+Definition of Ready für diesen Statusabschluss: sauberer Arbeitsbranch, grüner
+Lauf `39643730891`, beide Linux-Artefakte vorhanden und bytegenau identisch,
+unveränderte Coverage-Konfiguration gegenüber integriertem Upstream. Gate:
+`quality:check`, `manifest:check`, `route-matrix:check` und Diff-Prüfung; der
+reine Doku-Folge-Push wird zusätzlich vollständig in der PR-CI geprüft.
+
+### Runde 7 — alle 14 Blickwinkel am Abschlussdelta, keine neuen Befunde
+
+Abschlussdelta: ausschließlich Statusdokumentation und historische/current
+Belegtrennung; Produkt-, Test- und Konfigurationsstand bleiben unverändert.
+Dateien/Items/Kategorien (1–3) gegen PR-Diff und Belegregister abgeglichen;
+Cleanup/Client-Server/Plattformen/Fehler/Zustände/UX (4–9) gegen den unveränderten,
+vollständig grünen Verify-, Browser-, Windows- und PostgreSQL-Stand geprüft.
+Konfiguration/Secrets/Daten (10–12): kompletter Workflow und Coverage-Vertrag
+gelesen, identischer Coverage-Block zu `328bfdc`, keine neue Ausnahme, echte
+DB-Lane von `pg-mem`-Verträgen getrennt. Bestehende Belege/Konsistenz (13–14):
+aktueller Library-Anker, Linux-Artefakthash, Gate-Zahlen, Querverweise,
+R14-Rest und Draft-/Nicht-Merge-Grenze abgestimmt. Keine weiteren Befunde am
+Abschlussdelta und kein Ship-Stopper; keine Behauptung allgemeiner Fehlerfreiheit.
+
+Der zusätzliche Status-Commit ändert keinen Produkt-/Test-/Coverage-Code.
+Sein abschließender CI-Status wird im PR verifiziert, statt einen endlosen
+Folge-Commit nur für die eigene Commit-ID zu erzeugen.
 
 ## Grenzen und offene Arbeit
 
@@ -241,5 +291,6 @@ Linux-Summary behoben; der Doku-Folge-Push braucht noch den vollständigen grün
   vom Runner unter Node 24 ausgeführt; die Jobs bestehen. Kein ungeprüftes Action-
   Upgrade in diesem Runner-Schritt. Manuelle Wiedervorlage bei der nächsten
   Action-Pflege; im Repo ist kein Dependabot-Workflow konfiguriert.
-- Der finale CI-Lauf nach dem Abschluss-Push ist vor dem Abschluss erforderlich.
-  Die vollständige leere Review-Runde ist oben belegt. PR #96 wird nicht gemergt.
+- Der Upgrade-Abschluss ist im Arbeitsbranch belegt, nicht nach `master` gemergt.
+  Die vollständig leere Review-Runde ist oben belegt. Offene Produktarbeit aus
+  dem Fahrplan bleibt außerhalb dieses Runner-Schritts.
