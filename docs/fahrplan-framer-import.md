@@ -123,6 +123,12 @@ Import-Fehler. Das kostet Vertrauen und Zeit.
 
 ### U5 · Animationen: nur ein Bruchteil kommt an, und der falsche Zeitmaßstab
 
+> **Stand 21.10.2026: dieser Abschnitt ist der Befund, nicht mehr der Zustand.**
+> (a) und (b) sind geschlossen, (c) ist überholt. Die Belege stehen in
+> `docs/fahrplan-framer-1zu1.md` (Schritt 4, 4b, 5) und in `docs/current/stand.md`.
+> Der Abschnitt bleibt als Beweis stehen, warum die Arbeit nötig war — die Zahlen
+> sind die Messung vom Anfang, nicht der heutige Stand.
+
 **Gemessen an zehn fremden Seiten** (`report.motion` = gefunden / auf Preset
 abgebildet / nur Befund):
 
@@ -230,22 +236,26 @@ der ohne den Fix rot ist.
 
 **Gate:** Eine Zahl statt einer Vermutung; danach entscheiden, ob gebaut wird.
 
-### Schritt 5 · Animationen auf den richtigen Zeitmaßstab bringen
+### Schritt 5 · Animationen auf den richtigen Zeitmaßstab bringen — **umgesetzt 21.10.2026**
 
 **Ziel:** Eine Einblendung von 1,4 s dauert 1,4 s, nicht 30 ms.
 
-- **Ursache (a)** ist belegt und klein: Der Mapper rechnet Sekunden gegen
-  Millisekunden (`duration / 300`). Die Einheit muss stimmen — `duration` kommt
-  in Sekunden, `baseDurationMs` in Millisekunden.
-- **Ursache (b)** ist der größere Hebel: Fehlt der `appearAnimationsContent`-
-  Kanal, liegt der Startzustand trotzdem am Element. Aus ihm lässt sich die
-  Bewegung ableiten (Start-Transform, Start-Deckkraft) — oder es wird
-  wenigstens ein Befund, statt still nichts zu tun.
-- **Ursache (d)**: Hover als Bewegung ist ein eigenes Vorhaben; hier nur
-  entscheiden, ob es im Umfang ist.
+**Erledigt, mit Beleg** (Details in `docs/fahrplan-framer-1zu1.md`, Schritt 4 und 4b):
 
-**Gate:** Im gebackenen CSS steht die Dauer der Quelle (1,4 s → 1400 ms), und
-`donutshop` hat Motion-Samples statt 0. Ein Testfall, der ohne den Fix rot ist.
+- **Ursache (a)** — behoben. Die Einheit ist Teil des Samples (`durationUnit`);
+  `durationScale` wird gegen die echte Basis-Dauer des Themes gerechnet. Im
+  gebackenen CSS: **1400 ms**. Beleg: `motion-bake-timing.test.ts`.
+- **Ursache (b)** — behoben. Fehlt der Kanal, wird die Einblendung aus dem
+  Startzustand **abgeleitet** (Bewegung stimmt), und die Dauer ist eine genannte
+  Annahme im Bericht; ohne Startzustand bleibt eine Warnung. `donutshop`:
+  **39 abgeleitete Effekte** statt 0. Beleg: `appear-derived.test.ts`.
+- **Ursache (c)** ist überholt: Effekte ohne Preset werden jetzt zu CSS kompiliert
+  und laufen im Release. Beleg: `appear-bake.test.ts`.
+- **Ursache (d)** — Hover als Bewegung und Scroll-Trigger bleiben offen; sie
+  brauchen die Framer-Runtime als Payload (`docs/fahrplan-framer-1zu1.md`, Schritt 2).
+
+**Gate (erfüllt):** Im gebackenen CSS steht die Dauer der Quelle (1,4 s → 1400 ms),
+und `donutshop` hat Effekte statt 0. Beide Tests sind ohne den Fix rot.
 
 ### Schritt 6 · Die Grenze der SSR-Quelle schließen (Produktentscheidung)
 
