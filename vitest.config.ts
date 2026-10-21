@@ -33,8 +33,10 @@ export default defineConfig({
     // Unit-Tests. Mit vollem Parallelismus (alle Kerne) verhungern die
     // laengeren Tests (Playwright-Klicks, powershell-Spawn, MCP-Läufe) an
     // ihren Timeouts, obwohl sie solo schnell sind. Vier Worker halten die
-    // Last unter der Kernzahl; CI kann via --pool-threads uebersteuern.
-    poolOptions: { threads: { maxThreads: 4, minThreads: 1 } },
+    // Last unter der Kernzahl; CI kann via VITEST_MAX_WORKERS uebersteuern.
+    // Vitest 4: maxWorkers ersetzt die alten Pool-Optionen; minWorkers entfällt.
+    pool: "forks",
+    maxWorkers: 4,
     // vitest's 5 s default is tighter than the full suite under load: tests that take
     // 1-4 s alone (fixture pipelines, engine round trips) failed at random per run
     // (qualitaet.md, 11.10.2026). Heavy tests keep their own explicit limits.

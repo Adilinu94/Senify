@@ -11,21 +11,10 @@
 #
 # Die Datei heisst `osv-scanner.toml` (ohne Punkt) und liegt im Ordner, der
 # gescannt wird - der Scanner sucht sie neben dem Lockfile.
-
-[[IgnoredVulns]]
-id = "GHSA-82fw-gwwq-j7x9"
-ignoreUntil = 2026-11-30T00:00:00Z
-reason = "vitest 3.2.7 / @vitest/mocker: die Advisory betrifft den Test-Runner, nicht den Produktivcode. Der Sprung auf vitest 4.1.11 ist ein Major-Update des Test-Runners und braucht einen eigenen Schritt mit dem vollen Gate (Suite, Coverage, Browser). Wiedervorlage: 30.11.2026."
-
-[[IgnoredVulns]]
-id = "GHSA-5gmw-xhrv-c9v3"
-ignoreUntil = 2026-11-30T00:00:00Z
-reason = "tinypool 1.1.1: der Worker-Pool von vitest, transitiv. Haengt an derselben vitest-4-Entscheidung (siehe GHSA-82fw-gwwq-j7x9). Wiedervorlage: 30.11.2026."
-
-[[IgnoredVulns]]
-id = "GHSA-85c8-ppgw-ccpr"
-ignoreUntil = 2026-11-30T00:00:00Z
-reason = "tinypool 1.1.1: der Worker-Pool von vitest, transitiv. Haengt an derselben vitest-4-Entscheidung (siehe GHSA-82fw-gwwq-j7x9). Wiedervorlage: 30.11.2026."
+#
+# 21.10.2026: Die drei Ausnahmen fuer `vitest`/`@vitest/mocker` und `tinypool`
+# sind ueberfluessig - der Test-Runner steht auf 4.1.11, der Scanner meldet
+# diese Funde nicht mehr. Es bleibt eine Ausnahme (http-cache-semantics).
 
 [[IgnoredVulns]]
 id = "GHSA-ch52-4w7c-c8xp"
