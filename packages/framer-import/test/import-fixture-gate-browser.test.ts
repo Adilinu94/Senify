@@ -73,8 +73,10 @@ const DIFF_CEILING: Record<string, Record<Breakpoint, number>> = {
   // 17.10.2026: both sides draw the same Inter file, so the numbers no longer follow
   // the machine (identical with and without a system Inter). 19.10.2026: measured
   // 4.6 / 6.1 / 7.8 %, 1.9 / 2.3 / 4.2 % and 0.9 / 1.5 / 2.8 %; the ceilings sit
-  // 3 to 4 points above.
-  "framer-easier-train-154753": { desktop: 0.08, tablet: 0.1, mobile: 0.11 },
+  // 3 to 4 points above. 21.10.2026: the original is settled by the importer's own
+  // rule (no closed menu opened); easier-train measured 4.4 / 5.9 / 7.3 %, so its
+  // tablet ceiling comes down by a point; the others did not move.
+  "framer-easier-train-154753": { desktop: 0.08, tablet: 0.09, mobile: 0.11 },
   "framer-fluffy-rectangle-418998": { desktop: 0.05, tablet: 0.05, mobile: 0.07 },
   "framer-stupendous-football-158496": { desktop: 0.04, tablet: 0.05, mobile: 0.06 },
 };
@@ -96,19 +98,32 @@ const MIME: Record<string, string> = {
   ".woff2": "font/woff2",
 };
 
-// The original, settled: Framer writes the start state of every reveal inline
+// The original, settled: Framer writes the start state of a reveal inline
 // (`opacity:0.001`, `opacity:0`, `transform:translateY(40px)`) and its script
 // plays it away. Without the script those elements stay invisible, which would
-// make the ORIGINAL look emptier than the page really is. Same rule as the
-// importer applies to the import.
+// make the ORIGINAL look emptier than the page really is. Exactly the elements
+// the importer reads as a start state are settled (`hasStartState` and the Ticker
+// rule in `capture-html.ts`): an appear element, an element hidden together with
+// a movement that brings it in, and the Ticker's section. A plain `opacity:0` is
+// the design (the closed menu of a phone header, a collapsed answer) and stays, as
+// it does in the import. Settling every `opacity:0`, as this did until 21.10.2026,
+// also showed in the original what the design keeps closed.
+const OPENING_TAG = /<[a-z][a-z0-9-]*(?:\s+[^\s"'<>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'<>]+))?)*\s*\/?>/gi;
+
 function settled(html: string): string {
-  return html.replace(/style="([^"]*)"/g, (whole: string, style: string) => {
+  return html.replace(OPENING_TAG, (tag: string) => {
+    const style = /\sstyle="([^"]*)"/.exec(tag)?.[1];
+    if (style === undefined) return tag;
     const opacity = /(?:^|;)\s*opacity\s*:\s*([0-9.]+)/.exec(style)?.[1];
-    if (opacity === undefined || Number(opacity) > 0.01) return whole;
+    if (opacity === undefined || Number(opacity) > 0.01) return tag;
+    const appears = /\sdata-framer-appear-id=/.test(tag);
+    const movesIn = /(?:^|;)\s*transform\s*:\s*(?!none\b)[^;]+/.test(style);
+    const ticker = /^<section\b/.test(tag) && /list-style-type:\s*none/.test(style) && /place-items:\s*center/.test(style);
+    if (!appears && !movesIn && !ticker) return tag;
     const next = style
       .replace(/(^|;)\s*opacity\s*:\s*[0-9.]+/, "$1opacity:1")
       .replace(/(^|;)\s*transform\s*:[^;]*/, "$1");
-    return `style="${next}"`;
+    return tag.replace(style, () => next);
   });
 }
 

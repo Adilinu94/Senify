@@ -531,6 +531,8 @@ type Counter = {
   attrNames?: ReadonlySet<string>;
   // The drawings of the page's SVG layers by id (`symbolsOf`).
   symbols: ReadonlyMap<string, string>;
+  // The Tickers met on the way, the copies of the breakpoints included.
+  tickers: number;
 };
 
 // Framer draws an SVG layer as `<svg><use href="#id"/></svg>` and keeps the drawings in
@@ -612,6 +614,7 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
   // has measured itself: the opacity is the state before the script, not the look.
   if (raw.tag === "section" && visual["opacity"] === "0" && visual["list-style-type"] === "none" && visual["place-items"] === "center") {
     delete visual["opacity"];
+    counter.tickers += 1;
   }
   const textInline: Record<string, string> = {};
   for (const [property, value] of Object.entries(framerInlineToStyles(attrs["style"]))) {
@@ -785,6 +788,7 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
   // --- the element tree under #main
   const mainStart = html.indexOf('<div id="main"');
   let root: IrNode;
+  let tickers = 0;
   if (mainStart === -1) {
     root = emptyRoot();
     findings.push({
@@ -801,12 +805,13 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
     if (main === undefined) {
       root = emptyRoot();
     } else {
-      const counter: Counter = { ordinal: 0, attrNames, symbols: symbolsOf(html) };
+      const counter: Counter = { ordinal: 0, attrNames, symbols: symbolsOf(html), tickers: 0 };
       const children = main.children
         // Inline <style>/<script> inside the tree is read separately and must
         // never become page text.
         .filter((child) => !NON_VISUAL_TAGS.has(child.tag))
         .map((child) => toIrNode(child, counter));
+      tickers = counter.tickers;
       root = {
         key: "root",
         kind: "frame",
@@ -890,6 +895,21 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
       evidence: "SmoothScroll_Prod / lenis im Markup",
       severity: "warn",
       suggestion: "Profil-Zuordnung prüfen: Scroll-Steuerung wird nicht 1:1 übernommen.",
+    });
+  }
+
+  // --- Framer's Ticker: kept as the strip it is, said so in the report. The movement is
+  // done by Framer's script at run time; the export holds the elements only, and the
+  // `marquee` preset is the CSS of the Marquee section's own markup (`.marquee-track`),
+  // which a frame does not carry.
+  if (tickers > 0) {
+    findings.push({
+      kind: "loop-animation",
+      nodeKey: null,
+      message: `${tickers} Ticker (Laufband, Geräte-Kopien eingerechnet) als stehende Leiste übernommen — die Bewegung erzeugt Framers Skript zur Laufzeit, der Export enthält nur die Elemente.`,
+      evidence: "<section style=\"… list-style-type:none; place-items:center; opacity:0 …\">",
+      severity: "info",
+      suggestion: "Soll die Leiste laufen, im Editor die Marquee-Section einsetzen; das marquee-Preset wirkt nur auf deren eigenem Markup.",
     });
   }
 
