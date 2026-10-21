@@ -30,7 +30,6 @@ import type { Db, DbClient, Row } from "./db.ts";
 import type { ImportReport } from "./imports-contract.ts";
 import { jsonColumns, SITE_SCOPED_TABLES, tableNames } from "./db.ts";
 import type { RedesignProposal } from "./redesign-proposal-contract.ts";
-import { generateToken } from "./auth.ts";
 import { buildAuditInsert, type NewAuditEntry } from "./store-audit.ts";
 import {
   StyleRuleStore,
@@ -109,7 +108,6 @@ import {
   type SmtpSettingsRecord,
   type TokenKind,
   type TokenRecord,
-  type TokenScope,
 } from "./types.ts";
 
 import {
@@ -118,6 +116,7 @@ import {
   type AssetRow,
 } from "./store-record-mappers.ts";
 import { PagesRepository, type CreatePageInput } from "./store-pages.ts";
+import { TokensRepository, type CreateTokenInput } from "./store-tokens.ts";
 import {
   PAGE_WRITE_COLUMNS,
   type PageRow,
@@ -130,7 +129,6 @@ import {
   toJson,
   isUniqueViolation,
   toJsonParam,
-  toNullableIso,
 } from "./store-row-utils.ts";
 import {
   LibraryRepository,
@@ -318,48 +316,6 @@ function mapSite(row: SiteRow): Site {
   };
 }
 
-type TokenRow = {
-  id: string;
-  name: string;
-  kind: unknown;
-  scopes: unknown;
-  token_prefix: string;
-  created_at: unknown;
-  expires_at: unknown;
-  last_used_at: unknown;
-  revoked_at: unknown;
-};
-
-type TokenRecordRow = TokenRow & { token_hash: string };
-
-export type { IdempotencyClaim } from "./store-idempotency.ts";
-
-function mapToken(row: TokenRow): ApiToken {
-  const scopes = toJson<unknown>(row.scopes);
-  if (
-    !Array.isArray(scopes) ||
-    scopes.some(
-      (scope) => scope !== "read" && scope !== "write" && scope !== "publish",
-    )
-  ) {
-    throw new Error(`Stored token scopes are invalid: ${String(row.scopes)}`);
-  }
-  if (row.kind !== "human" && row.kind !== "agent") {
-    throw new Error(`Stored token kind is invalid: ${String(row.kind)}`);
-  }
-  return {
-    id: row.id,
-    name: row.name,
-    kind: row.kind,
-    scopes: scopes as TokenScope[],
-    prefix: row.token_prefix,
-    createdAt: toIso(row.created_at),
-    expiresAt: toNullableIso(row.expires_at),
-    lastUsedAt: toNullableIso(row.last_used_at),
-    revokedAt: toNullableIso(row.revoked_at),
-  };
-}
-
 export type CreateSiteInput = {
   name: string;
   slug?: string;
@@ -454,6 +410,7 @@ export class Store {
   readonly #assets: AssetsRepository;
   readonly #library: LibraryRepository;
   readonly #pages: PagesRepository;
+  readonly #tokens: TokensRepository;
   readonly #references: ReferencesRepository;
 
   // Where the encryption key lives. Without it (a bare Store in a test) the key
@@ -489,6 +446,7 @@ export class Store {
       (assetId) => this.getAsset(assetId),
     );
     this.#assets = new AssetsRepository(db, (siteId) => this.getSite(siteId));
+    this.#tokens = new TokensRepository(db);
     this.#pages = new PagesRepository(db, {
       getSite: (siteId) => this.getSite(siteId),
     });
@@ -1896,114 +1854,36 @@ export class Store {
     return this.#pages.listSiteAudit(siteId, limit);
   }
 
-  async createToken(input: {
-    name: string;
-    scopes: TokenScope[];
-    expiresAt: string | null;
-    kind?: TokenKind;
-  }): Promise<{ token: ApiToken; secret: string }> {
-    const name = input.name.trim();
-    if (!name) {
-      throw new SenifyError("validation", "Token name is required", {
-        field: "name",
-        suggestion: "Give the client a name, e.g. \"Claude Code\".",
-      });
-    }
-    const scopes = [...new Set(input.scopes)];
-    if (scopes.length === 0) {
-      throw new SenifyError("validation", "A token needs at least one scope", {
-        field: "scopes",
-        suggestion: 'Use one or more of "read", "write", "publish".',
-      });
-    }
-    // Default "agent": a token created by hand is an integration, not the
-    // program's own operator identity (ticket 18).
-    const kind: TokenKind = input.kind ?? "agent";
-    const generated = generateToken();
-    const id = newEntityId();
-    await this.#db.query(
-      `INSERT INTO api_tokens
-        (id, name, kind, scopes, token_hash, token_prefix, created_at, expires_at, last_used_at, revoked_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL)`,
-      [
-        id,
-        name,
-        kind,
-        toJsonParam(scopes),
-        generated.hash,
-        generated.prefix,
-        new Date().toISOString(),
-        input.expiresAt,
-      ],
-    );
-    return { token: await this.getToken(id), secret: generated.secret };
+  // Die API-Tokens liegen in `store-tokens.ts` (P3-2). Sie haben keine Naht:
+  // die Tabelle gehoert dem Modul allein, es braucht nur die Datenbank.
+  createToken(input: CreateTokenInput): Promise<{ token: ApiToken; secret: string }> {
+    return this.#tokens.createToken(input);
   }
 
-  async getToken(id: string): Promise<ApiToken> {
-    const result = await this.#db.query<TokenRow>(
-      `SELECT id, name, kind, scopes, token_prefix, created_at, expires_at, last_used_at, revoked_at
-       FROM api_tokens WHERE id = $1`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new SenifyError("not_found", `Token "${id}" does not exist`, {
-        field: "tokenId",
-        suggestion: "List tokens with `senify tokens list`.",
-      });
-    }
-    return mapToken(row);
+  getToken(id: string): Promise<ApiToken> {
+    return this.#tokens.getToken(id);
   }
 
-  async listTokens(): Promise<ApiToken[]> {
-    const result = await this.#db.query<TokenRow>(
-      `SELECT id, name, kind, scopes, token_prefix, created_at, expires_at, last_used_at, revoked_at
-       FROM api_tokens ORDER BY created_at DESC, id DESC`,
-    );
-    return result.rows.map(mapToken);
+  listTokens(): Promise<ApiToken[]> {
+    return this.#tokens.listTokens();
   }
 
-  async findTokenByHash(tokenHash: string): Promise<TokenRecord | undefined> {
-    const result = await this.#db.query<TokenRecordRow>(
-      `SELECT id, name, kind, scopes, token_hash, token_prefix, created_at, expires_at, last_used_at, revoked_at
-       FROM api_tokens WHERE token_hash = $1`,
-      [tokenHash],
-    );
-    const row = result.rows[0];
-    if (!row) return undefined;
-    return { ...mapToken(row), tokenHash: row.token_hash };
+  findTokenByHash(tokenHash: string): Promise<TokenRecord | undefined> {
+    return this.#tokens.findTokenByHash(tokenHash);
   }
 
-  async revokeToken(id: string): Promise<void> {
-    const revoked = await this.#db.query<{ id: string }>(
-      `UPDATE api_tokens SET revoked_at = $2
-       WHERE id = $1 AND revoked_at IS NULL RETURNING id`,
-      [id, new Date().toISOString()],
-    );
-    if (revoked.rows.length > 0) return;
-    // Unknown ids surface as not_found; revoking twice stays idempotent.
-    await this.getToken(id);
+  revokeToken(id: string): Promise<void> {
+    return this.#tokens.revokeToken(id);
   }
 
-  async touchToken(id: string): Promise<void> {
-    await this.#db.query(
-      `UPDATE api_tokens SET last_used_at = $2 WHERE id = $1`,
-      [id, new Date().toISOString()],
-    );
+  touchToken(id: string): Promise<void> {
+    return this.#tokens.touchToken(id);
   }
 
-  // Self-healing for the program's own token (ticket 18): an installation from
-  // before the `kind` column carries "agent" by default; the operator heals
-  // its token to "human" on the next start instead of recreating it.
-  async updateTokenKind(id: string, kind: TokenKind): Promise<void> {
-    const updated = await this.#db.query<{ id: string }>(
-      `UPDATE api_tokens SET kind = $2
-       WHERE id = $1 AND kind <> $2 RETURNING id`,
-      [id, kind],
-    );
-    if (updated.rows.length > 0) return;
-    await this.getToken(id);
+  updateTokenKind(id: string, kind: TokenKind): Promise<void> {
+    return this.#tokens.updateTokenKind(id, kind);
   }
+
 
   // ------------------------------------------------------- idempotency keys
 
