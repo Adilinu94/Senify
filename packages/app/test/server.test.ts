@@ -8,10 +8,30 @@ import type { Db, DbResult, Row } from "@senify/engine";
 import { startProgram } from "@senify/app";
 import { createAppServer } from "../src/server.ts";
 
+// The dashboard shell lives in several modules (`app.js` and the `app-*.js`);
+// the check follows the imports the browser follows, so it does not hang on
+// one file.
+async function dashboardQuellen(dashboardUrl: string): Promise<string> {
+  const besucht = new Set<string>();
+  const teile: string[] = [];
+  const hole = async (pfad: string): Promise<void> => {
+    if (besucht.has(pfad)) return;
+    besucht.add(pfad);
+    const antwort = await fetch(`${dashboardUrl}${pfad}`);
+    if (antwort.status !== 200) return;
+    const text = await antwort.text();
+    teile.push(text);
+    for (const treffer of text.matchAll(/from "\.\/([^"]+\.js)"/g)) {
+      await hole(`/${treffer[1] ?? ""}`);
+    }
+  };
+  await hole("/app.js");
+  return teile.join("\n");
+}
+
 // pg-mem double, same shape as the engine and MCP test helpers use. The
 // reentrant variant tolerates the second schema boot of a restart.
-function memoryDb(options: { reentrant?: boolean } = {}): {
-  db: Db;
+function memoryDb(options: { reentrant?: boolean } = {}): {  db: Db;
   close(): Promise<void>;
 } {
   const memory =
@@ -548,7 +568,7 @@ describe("program shell (Prüfstelle Programm)", () => {
 
       // The dashboard ships the markup that renders the image (the detail
       // window); the analysis data itself stays out of it.
-      const script = await (await fetch(`${running.dashboardUrl}/app.js`)).text();
+      const script = await dashboardQuellen(running.dashboardUrl);
       expect(script).toContain("snapshots/");
       expect(script).toContain("refs-inspector");
       expect(script).not.toContain("snapshot-slider");
@@ -856,7 +876,7 @@ describe("program shell (Prüfstelle Programm)", () => {
       openBrowser: false,
     });
     try {
-      const script = await (await fetch(`${running.dashboardUrl}/app.js`)).text();
+      const script = await dashboardQuellen(running.dashboardUrl);
       for (const marker of [
         "refs-shell",
         "refs-sidebar",

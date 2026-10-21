@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -9,7 +9,11 @@ import { describe, expect, it } from "vitest";
 // `<dialog class="modal">`. Dieser Test hält die Schwelle fest: er meldet jede
 // Zeile, die einen nativen Dialog wieder aufruft.
 
-const appJs = fileURLToPath(new URL("../public/app.js", import.meta.url));
+const publicDir = fileURLToPath(new URL("../public", import.meta.url));
+
+// Die Oberflaeche liegt in mehreren Modulen (`app.js` und die `app-*.js`);
+// der Wächter liest alle, damit ein Modul nicht durchrutscht.
+const module = readdirSync(publicDir).filter((name) => name.endsWith(".js"));
 
 function nativeDialogCalls(source: string): string[] {
   const hits: string[] = [];
@@ -24,8 +28,13 @@ function nativeDialogCalls(source: string): string[] {
 }
 
 describe("keine nativen Browser-Dialoge im Dashboard", () => {
-  it("app.js ruft weder prompt() noch confirm() noch alert() auf", () => {
-    expect(nativeDialogCalls(readFileSync(appJs, "utf8"))).toEqual([]);
+  it("kein Modul ruft prompt() oder confirm() oder alert() auf", () => {
+    const funde: string[] = [];
+    for (const name of module) {
+      const quelle = readFileSync(`${publicDir}/${name}`, "utf8");
+      funde.push(...nativeDialogCalls(quelle).map((fund) => `${name}: ${fund}`));
+    }
+    expect(funde).toEqual([]);
   });
 
   it("der Wächter erkennt einen nativen Aufruf (Gegenprobe)", () => {
