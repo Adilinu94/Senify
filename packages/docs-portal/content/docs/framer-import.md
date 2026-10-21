@@ -49,12 +49,14 @@ Mit „Weitere Seiten dieser Site“ bietet der Bericht die Seiten an, auf die d
 - **`<select>`-Felder** zeigen ihre Optionen als Liste.
 - **Selektoren.** Nicht ausgewertet werden `:not()` an Vorfahren, Geschwister-Kombinatoren (`+`, `~`), `:first-child`
   und `:nth-*`, `@container` und Attribut-Operatoren außer `=`.
-- **Lokale Quellen und Medien.** Der Import liest Medien nie aus dem Mirror-Ordner, er lädt sie über eine Basis-URL
-  von der Live-Adresse. Für „Lokaler Mirror“ bietet der Dialog dazu das Feld „Adresse der Originalseite“ an
-  (z. B. `https://beispiel.de`). Ohne sie bricht „Assets: Hochladen“ bei relativen Medien-URLs ab (Meldung
-  „Relative Asset-URL ohne baseUrl nicht auflösbar“), und ein gescrapter Mirror, dessen Links absolut geschrieben
-  sind, zeigt keine weiteren Seiten der Site an. Mit „Assets: Überspringen“ läuft der Import durch, die Bilder haben
-  dann keine Quelle.
+- **Lokale Quellen und Medien.** Bei „Lokaler Mirror“ liest der Import relative Medien-URLs aus dem Mirror-Ordner
+  (zuerst relativ zum Ordner der Seite, dann zur Wurzel) und fragt das Netz nur, wenn die Datei dort fehlt. Absolute
+  Adressen, etwa Schriftschnitte von `fonts.gstatic.com`, lädt er weiter aus dem Netz; was sich nicht laden lässt,
+  steht als Befund `asset-blocked` im Bericht. Für den Rest bietet der Dialog das Feld „Adresse der Originalseite“
+  an (z. B. `https://beispiel.de`): Fehlt eine relative Datei im Ordner und ist keine Adresse angegeben, bricht
+  „Assets: Hochladen“ ab (Meldung „Relative Asset-URL ohne baseUrl nicht auflösbar“), und ein gescrapter Mirror,
+  dessen Links absolut geschrieben sind, zeigt keine weiteren Seiten der Site an. Mit „Assets: Überspringen“ läuft
+  der Import durch, die Bilder haben dann keine Quelle.
 - **Qualität ist an drei gespeicherten Exporten gemessen**, nicht an jeder beliebigen Seite. Die Zahlen stehen in
   `docs/current/qualitaet.md`.
 

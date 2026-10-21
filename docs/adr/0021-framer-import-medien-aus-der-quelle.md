@@ -21,6 +21,7 @@ fehlt, blockiert ist oder schlecht passt.
 
 - Für die Entscheidung ist nichts zu bauen: Der Importpfad und die Bildgenerierung bestehen schon.
 - Die Anleitung `packages/docs-portal/content/docs/framer-import.md` nennt die Regel.
-- Offen bleibt eine Lücke im Medienpfad, die mit dieser Entscheidung nichts zu tun hat: Ein Mirror-Import liest die
-  Medien nicht aus dem Mirror-Ordner, sondern lädt sie über eine Basis-URL nach (`docs/current/stand.md`, Zeile
-  „Mirror-Quelle und Medien“).
+- Ein Mirror-Import liest relative Medien-URLs aus dem Mirror-Ordner (`readLocalAsset` in
+  `packages/framer-import/src/assets.ts`, seit dem 20.10.2026); `docs/current/stand.md`, Zeile „Mirror-Quelle und
+  Medien“. Ein Medium, das sich nicht laden lässt, steht im Bericht als `asset-blocked` (Zeile „Fehlgeschlagene
+  Medien“).
