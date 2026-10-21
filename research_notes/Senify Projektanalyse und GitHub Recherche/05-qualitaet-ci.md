@@ -262,3 +262,22 @@ stillschweigend).
   `startup_failure` — Gegenprobe: ohne den Job startet der Lauf, mit dem Fremd-Workflow nicht.
 - **Paketregeln in der CI:** `pnpm deps:check` (dependency-cruiser) hängt an `pnpm verify` und
   hat einen eigenen CI-Schritt.
+- **Browser-Suiten überspringen sich nicht mehr still** (zweite Prüfung, 20.10.2026): die
+  Browser-Suiten tragen `describe.skipIf(!browserAvailable)`. Fehlt Chromium oder passt es nicht
+  zur Playwright-Version, verschwanden sie **ohne** Fehlermeldung — ein grüner Lauf, in dem die
+  Browser-Tore nie gelaufen sind. Der CI-Job `verify` setzt jetzt `SENIFY_REQUIRE_BROWSER=1`;
+  die Suite läuft dann und wird rot, statt grün zu sein ohne Test. Nachgemessen: ohne die
+  Variable `1 skipped`, mit ihr ein Fehler (`Executable doesn't exist`). Der Windows-Job setzt sie
+  bewusst nicht - dort ist kein Chromium installiert, die Browser-Tore laufen im Linux-Job.
+- **Die globale Abschaltung des Adresswächters bleibt** (zweite Prüfung, 21.10.2026): sie ist eine
+  bewusste, dokumentierte Abwägung — ohne sie könnte die Hälfte der Suite keinen lokalen Server
+  ansprechen. Der Vorschlag aus Abschnitt 5 (ein Helfer, der fehlschlägt, wenn ein Test den
+  Wächter prüfen will, aber mit gesetzter Variable startet) ist **nicht gebaut**, und das ist eine
+  Entscheidung, keine Faulheit: der Helfer würde nur den Fall fangen, in dem ein Test das
+  Stubbing vergisst, aber den Helfer kennt — wer den Helfer kennt, kennt auch das Stubbing. Der
+  realistische Fehler (ein Test, der das *falsche* Verhalten behauptet) ist mit einem Helfer
+  nicht zu fangen. Und der normale Fall fängt sich selbst: ein Test, der den Wächter prüft und
+  das Stubbing vergisst, läuft mit abgeschaltetem Wächter und wird **rot** — er prüft dann eine
+  öffentliche Adresse und die Behauptung „wird abgewiesen" stimmt nicht mehr. Der Preis bleibt
+  also: ein *bewusst* falsch behaupteter Test bleibt grün. Das ist dokumentiert, nicht behoben —
+  die geschlossene Lücke ist die, die man beim Bauen des Tests sieht.

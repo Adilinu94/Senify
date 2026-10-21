@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import http from "node:http";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { captureBrowser } from "@senify/framer-import";
 
 // The browser capture (plan S2.1/S2.2) against local servers, so the whole
@@ -106,6 +106,27 @@ afterAll(async () => {
 });
 
 describe.skipIf(!browserAvailable)("captureBrowser", () => {
+  it("never reaches a server on a private address", async () => {
+    // ADR-0022: the browser follows what the page points at - a redirect, a
+    // sub-resource, a fetch() from the page's script. Every one of those
+    // requests passes the same address check as the node path. The server
+    // below counts its requests: if the guard does not hold, the counter is
+    // not zero.
+    let hits = 0;
+    const { server, origin } = await startServer((_request, response) => {
+      hits += 1;
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end("<html></html>");
+    });
+    vi.stubEnv("SENIFY_ALLOW_PRIVATE_URLS", "");
+    try {
+      await expect(captureBrowser({ url: `${origin}/`, settleMs: 200 })).rejects.toThrow();
+      expect(hits).toBe(0);
+    } finally {
+      vi.unstubAllEnvs();
+      await new Promise<void>((done) => server.close(() => done()));
+    }
+  }, 60_000);
   it("captures the SSR-HTML through the static capture and marks the source as browser", async () => {
     const result = await captureBrowser({ url: `${fixtureOrigin}/`, settleMs: 200 });
     expect(result.document.source.kind).toBe("browser");

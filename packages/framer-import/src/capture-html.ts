@@ -526,7 +526,34 @@ function attributeNamesIn(css: string): Set<string> {
 // What Framer's appear script animates from: not the element's look.
 const START_STATE_PROPERTIES = ["opacity", "transform", "will-change"] as const;
 
-type Counter = { ordinal: number; attrNames?: ReadonlySet<string> };
+type Counter = {
+  ordinal: number;
+  attrNames?: ReadonlySet<string>;
+  // The drawings of the page's SVG layers by id (`symbolsOf`).
+  symbols: ReadonlyMap<string, string>;
+};
+
+// Framer draws an SVG layer as `<svg><use href="#id"/></svg>` and keeps the drawings in
+// one hidden container behind `#main` (`<div id="svg-templates">`, an `<svg id>` per
+// drawing). The capture puts the drawing where the layer points at it, so the layer
+// carries its own markup. A page whose container does not hold the id (the football
+// export points at ids it does not carry) keeps the `<use>` as it is.
+function symbolsOf(html: string): Map<string, string> {
+  const symbols = new Map<string, string>();
+  const start = html.indexOf('<div id="svg-templates"');
+  if (start === -1) return symbols;
+  for (const child of scanNodes(html, start, html.length)[0]?.children ?? []) {
+    const id = child.attrs["id"];
+    if (child.tag === "svg" && child.svg !== null && id !== undefined && id !== "") symbols.set(id, child.svg);
+  }
+  return symbols;
+}
+
+const USE_OF_SYMBOL = /<use\b[^>]*?\bhref="#([^"]+)"[^>]*?(?:\/>|>\s*<\/use>)/g;
+
+function withSymbols(svg: string, symbols: ReadonlyMap<string, string>): string {
+  return svg.replace(USE_OF_SYMBOL, (use, id: string) => symbols.get(id) ?? use);
+}
 
 // A text in `white-space: pre`, `pre-wrap` or `break-spaces` is drawn with every space the
 // author typed: "Hey, ich bin " is 22 px wider than "Hey, ich bin" on fluffy-rectangle, and
@@ -654,7 +681,7 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
     ...(Object.keys(appearInitial).length > 0 ? { appearInitial } : {}),
     appearId: attrs["data-framer-appear-id"] ?? null,
     stylesPresetId: attrs["data-styles-preset"] ?? null,
-    svg: raw.svg,
+    svg: raw.svg === null ? null : withSymbols(raw.svg, counter.symbols),
   };
   if (raw.spacedText !== undefined) SPACED_TEXT.set(node, raw.spacedText);
   return node;
@@ -774,7 +801,7 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
     if (main === undefined) {
       root = emptyRoot();
     } else {
-      const counter: Counter = { ordinal: 0, attrNames };
+      const counter: Counter = { ordinal: 0, attrNames, symbols: symbolsOf(html) };
       const children = main.children
         // Inline <style>/<script> inside the tree is read separately and must
         // never become page text.

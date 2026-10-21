@@ -146,6 +146,23 @@ export async function assertPublicHttpUrl(raw: string): Promise<URL> {
 
 /* ------------------------------------------------------------------ browser */
 
+// The address guard stopped a request. The capture must say THAT - a raw
+// `ERR_BLOCKED_BY_CLIENT` leaves the reader with a technical string and no
+// answer to the only question they have (Fachanalyse 2, 3.4: "ein stilles
+// Blockieren fuehrt zu 'die Referenz ist leer' und damit zu einem
+// Support-Fall ohne Aussage").
+export function blockedAddressError(target: string): SenifyError {
+  return new SenifyError(
+    "validation",
+    `Die Seite lädt eine Ressource von einer nicht öffentlichen Adresse (${target}) — die Aufnahme wurde abgebrochen.`,
+    {
+      field: "url",
+      suggestion:
+        "Nur öffentliche http(s)-Adressen sind erlaubt. Für eine lokale Quelle startet der Betreiber das Programm mit SENIFY_ALLOW_PRIVATE_URLS=1.",
+    },
+  );
+}
+
 // The browser paths (reference capture, import capture) fetch the page in a
 // real browser - and a browser follows what the page points at: a redirect, a
 // sub-resource, a `fetch()` from the page's script. The Node path checks
@@ -156,9 +173,16 @@ export async function assertPublicHttpUrl(raw: string): Promise<URL> {
 // The check is the same one the Node path uses, with one difference: the
 // browser's own schemes (`data:`, `blob:`, `about:`) never leave the
 // process, and the offline mirror of the import deliberately reads `file:`.
+//
+// `allowOrigins` names the servers the product itself started - the preview
+// server, the offline mirror. They run on the loopback interface and the
+// browser has to reach them; without them there is no preview. Every other
+// address has to pass the public check, so a user-supplied URL cannot point
+// the browser at a private service - no matter in which order the calls
+// happen.
 export async function isAllowedBrowserUrl(
   raw: string,
-  options: { allowFile?: boolean } = {},
+  options: { allowFile?: boolean; allowOrigins?: readonly string[] } = {},
 ): Promise<boolean> {
   let url: URL;
   try {
@@ -171,6 +195,7 @@ export async function isAllowedBrowserUrl(
   }
   if (options.allowFile === true && url.protocol === "file:") return true;
   if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+  if (options.allowOrigins?.some((origin) => origin === url.origin)) return true;
   try {
     await publicTarget(raw);
     return true;

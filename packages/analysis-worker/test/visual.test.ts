@@ -50,6 +50,7 @@ describe.skipIf(!browserAvailable)("visual harness", () => {
     try {
       const captures = await captureScreenshots({
         url: `file:///${file.replace(/\\/g, "/")}`,
+        browser: { allowFile: true },
         outDir,
         breakpoints: ["desktop", "mobile"],
       });
@@ -76,6 +77,7 @@ describe.skipIf(!browserAvailable)("visual harness", () => {
       const afterShots = join(root, "after");
       await captureScreenshots({
         url: `file:///${file.replace(/\\/g, "/")}`,
+        browser: { allowFile: true },
         outDir: beforeShots,
         breakpoints: ["desktop"],
       });
@@ -91,6 +93,7 @@ describe.skipIf(!browserAvailable)("visual harness", () => {
 
       await captureScreenshots({
         url: `file:///${changed.replace(/\\/g, "/")}`,
+        browser: { allowFile: true },
         outDir: afterShots,
         breakpoints: ["desktop"],
       });
@@ -115,6 +118,7 @@ describe.skipIf(!browserAvailable)("visual harness", () => {
     try {
       const video = await recordMotion({
         url: `file:///${file.replace(/\\/g, "/")}`,
+        browser: { allowFile: true },
         outDir,
         durationMs: 1500,
       });
@@ -149,9 +153,10 @@ if (window.__SENIFY_MOTION__ !== "off") {
     const outDir = join(root, "diffs");
     try {
       const url = `file:///${file.replace(/\\/g, "/")}`;
-      await captureScreenshots({ url, outDir: frozen, breakpoints: ["desktop"] });
+      await captureScreenshots({ url, browser: { allowFile: true }, outDir: frozen, breakpoints: ["desktop"] });
       await captureScreenshots({
         url,
+        browser: { allowFile: true },
         outDir: live,
         breakpoints: ["desktop"],
         motion: "live",

@@ -33,6 +33,9 @@ export type DeployInput = {
   fetchImpl?: typeof fetch;
   // Poll interval override for tests (default 2 s).
   pollMs?: number;
+  // Deadline per request (default 30 s) - the second test seam, next to the
+  // fetch: a request that never answers must end on its own.
+  requestTimeoutMs?: number;
 };
 
 // Netlify file-digest deploy (docs.netlify.com/api-and-cli-guides): the
@@ -41,6 +44,50 @@ export type DeployInput = {
 const NETLIFY_API = "https://api.netlify.com/api/v1";
 const NETLIFY_POLL_MS = 2_000;
 const NETLIFY_POLL_TIMEOUT_MS = 10 * 60 * 1_000;
+
+// The deadline of a single request. The poll loop above has a deadline of
+// its own, but it is only checked *between* two requests: a connection that
+// hangs would hold the deploy forever, and the loop would never get to look
+// at its clock. Every request therefore carries its own signal
+// (Fachanalyse 3, B4).
+const REQUEST_TIMEOUT_MS = 30_000;
+
+// A timeout is not a validation error, but the categories of `SenifyError`
+// have no "upstream did not answer" yet. It is reported like the other
+// provider failures - with a message that says what happened.
+function requestFailed(error: unknown, provider: string, timeoutMs: number): Error {
+  const name =
+    typeof error === "object" && error !== null && "name" in error
+      ? String((error as { name: unknown }).name)
+      : "";
+  if (name === "TimeoutError" || name === "AbortError") {
+    const span = timeoutMs >= 1_000 ? `${Math.round(timeoutMs / 1_000)} s` : `${timeoutMs} ms`;
+    return new SenifyError(
+      "validation",
+      `${provider} did not answer within ${span}`,
+      {
+        field: "provider",
+        suggestion: "The provider's API was unreachable or too slow. Try the deploy again.",
+      },
+    );
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+// One request to a provider, with its deadline.
+async function providerFetch(
+  fetchImpl: typeof fetch,
+  url: string,
+  init: RequestInit,
+  provider: string,
+  timeoutMs: number,
+): Promise<Response> {
+  try {
+    return await fetchImpl(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (error) {
+    throw requestFailed(error, provider, timeoutMs);
+  }
+}
 
 function measureTree(dir: string): { files: number; bytes: number } {
   let files = 0;
@@ -190,24 +237,31 @@ async function netlifyRequest(
   path: string,
   body?: { json?: unknown; raw?: Buffer; contentType?: string },
   fetchImpl: typeof fetch = fetch,
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
 ): Promise<{ status: number; json: unknown }> {
-  const response = await fetchImpl(`${NETLIFY_API}${path}`, {
-    method,
-    headers: {
-      authorization: `Bearer ${token}`,
-      "user-agent": "Senify (local engine)",
+  const response = await providerFetch(
+    fetchImpl,
+    `${NETLIFY_API}${path}`,
+    {
+      method,
+      headers: {
+        authorization: `Bearer ${token}`,
+        "user-agent": "Senify (local engine)",
+        ...(body?.json !== undefined
+          ? { "content-type": "application/json" }
+          : body?.raw !== undefined
+            ? { "content-type": body.contentType ?? "application/octet-stream" }
+            : {}),
+      },
       ...(body?.json !== undefined
-        ? { "content-type": "application/json" }
+        ? { body: JSON.stringify(body.json) }
         : body?.raw !== undefined
-          ? { "content-type": body.contentType ?? "application/octet-stream" }
+          ? { body: body.raw }
           : {}),
     },
-    ...(body?.json !== undefined
-      ? { body: JSON.stringify(body.json) }
-      : body?.raw !== undefined
-        ? { body: body.raw }
-        : {}),
-  });
+    "Netlify",
+    timeoutMs,
+  );
   const text = await response.text();
   let json: unknown = null;
   if (text !== "") {
@@ -314,6 +368,7 @@ async function deployToNetlify(
       `/sites/${settings.netlifySiteId}/deploys`,
       { json: { files: digest } },
       input.fetchImpl,
+      input.requestTimeoutMs,
     );
     if (created.status !== 200 && created.status !== 201) {
       throw netlifyError(created.status, created.json, "create deploy");
@@ -336,6 +391,7 @@ async function deployToNetlify(
         `/deploys/${deployId}/files${file.path}`,
         { raw: file.bytes },
         input.fetchImpl,
+        input.requestTimeoutMs,
       );
       if (uploaded.status >= 400) {
         throw netlifyError(uploaded.status, uploaded.json, `upload ${file.path}`);
@@ -347,7 +403,7 @@ async function deployToNetlify(
     let url = "";
     while (Date.now() < deadline) {
       await pause(input.pollMs ?? NETLIFY_POLL_MS);
-      const poll = await netlifyRequest(token, "GET", `/deploys/${deployId}`, undefined, input.fetchImpl);
+      const poll = await netlifyRequest(token, "GET", `/deploys/${deployId}`, undefined, input.fetchImpl, input.requestTimeoutMs);
       if (poll.status >= 400) {
         throw netlifyError(poll.status, poll.json, "poll deploy");
       }
@@ -403,24 +459,31 @@ async function vercelRequest(
   path: string,
   body?: { json?: unknown; raw?: Buffer },
   fetchImpl: typeof fetch = fetch,
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
 ): Promise<{ status: number; json: unknown }> {
-  const response = await fetchImpl(`${VERCEL_API}${path}`, {
-    method,
-    headers: {
-      authorization: `Bearer ${token}`,
-      "user-agent": "Senify (local engine)",
+  const response = await providerFetch(
+    fetchImpl,
+    `${VERCEL_API}${path}`,
+    {
+      method,
+      headers: {
+        authorization: `Bearer ${token}`,
+        "user-agent": "Senify (local engine)",
+        ...(body?.json !== undefined
+          ? { "content-type": "application/json" }
+          : body?.raw !== undefined
+            ? { "content-type": "application/octet-stream" }
+            : {}),
+      },
       ...(body?.json !== undefined
-        ? { "content-type": "application/json" }
+        ? { body: JSON.stringify(body.json) }
         : body?.raw !== undefined
-          ? { "content-type": "application/octet-stream" }
+          ? { body: body.raw }
           : {}),
     },
-    ...(body?.json !== undefined
-      ? { body: JSON.stringify(body.json) }
-      : body?.raw !== undefined
-        ? { body: body.raw }
-        : {}),
-  });
+    "Vercel",
+    timeoutMs,
+  );
   const text = await response.text();
   let json: unknown = null;
   if (text !== "") {
@@ -530,6 +593,7 @@ async function deployToVercel(
         },
       },
       input.fetchImpl,
+      input.requestTimeoutMs,
     );
     if (created.status !== 200 && created.status !== 201) {
       throw vercelError(created.status, created.json, "create deployment");
@@ -562,6 +626,7 @@ async function deployToVercel(
         `/v2/deployments/${deploymentId}/files`,
         { raw: file.bytes },
         input.fetchImpl,
+        input.requestTimeoutMs,
       );
       if (uploaded.status >= 400) {
         throw vercelError(uploaded.status, uploaded.json, `upload ${file.path}`);
@@ -579,6 +644,7 @@ async function deployToVercel(
         `/v13/deployments/${deploymentId}`,
         undefined,
         input.fetchImpl,
+        input.requestTimeoutMs,
       );
       if (poll.status >= 400) {
         throw vercelError(poll.status, poll.json, "poll deployment");
