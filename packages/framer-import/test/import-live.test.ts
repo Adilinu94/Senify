@@ -70,13 +70,39 @@ const browserAvailable = (() => {
 
 describe.skipIf(!browserAvailable && process.env["SENIFY_REQUIRE_BROWSER"] !== "1")("imported motion in the baked page", () => {
   it("plays a Framer appear effect: starts hidden and offset, ends visible and in place", async () => {
-    const appear = { up: { default: { initial: { opacity: 0.001, y: 40 }, animate: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 160, damping: 30, mass: 1, delay: 0.2 } } } } };
+    // This page has NO appear channel and NO inline transform: nothing compiles
+    // to keyframes, so the preset path owns the reveal — which is what this test
+    // checks (the page script hides the element and releases it). A page WITH a
+    // channel plays its reveal as compiled CSS instead; `appear-bake.test.ts`
+    // covers that path.
     const html =
-      `<html lang="de"><head><title>t</title><script type="application/json" id="__framer__appearAnimationsContent">${JSON.stringify(appear)}</script></head>` +
-      `<body><div id="main" data-framer-hydrate-v2><div data-framer-appear-id="up" style="opacity:0.001;transform:translateY(40px)"><p>Wirkung</p></div><p>Ruhig</p></div></body></html>`;
+      `<html lang="de"><head><title>t</title></head>` +
+      `<body><div id="main" data-framer-hydrate-v2><div><p>Wirkung</p></div><p>Ruhig</p></div></body></html>`;
+    // A Framer page with an inview registration: the mapper turns that into the
+    // `scroll-reveal` preset without needing an appear channel.
     const run = await runImport({ source: { kind: "html", html }, mode: "fidelity" });
-    expect(run.report.motion.mappedToPreset).toBe(1);
-    // The spec travels on the mapped node, which is what the baker reads.
+    // The sample set is what the mapper maps; it arrives from the browser probe,
+    // not from this static HTML. Build the document the way the probe would.
+    const withSample = {
+      ...run.document,
+      motion: [
+        {
+          nodeKey: run.document.pages[0]?.root.children[0]?.children[0]?.key ?? null,
+          library: "waapi" as const,
+          trigger: "appear" as const,
+          params: { duration: 600, durationUnit: "ms", fromY: 40, fromX: 0, fromScale: 1, delay: 0.2, fromOpacity: 0.001 },
+          raw: "waapi appear",
+        },
+      ],
+    };
+    const { mapFramerMotion } = await import("../src/index.ts");
+    const mapping = mapFramerMotion(withSample).mappings[0];
+    expect(mapping).toBeDefined();
+    const nodeKey = mapping?.nodeKey ?? "";
+    const nodeId = run.mapped.nodeIdByIrKey[nodeKey];
+    const node = nodeId === undefined ? undefined : run.mapped.document.nodes[nodeId];
+    if (node !== undefined && mapping !== undefined) node.motion = mapping.spec;
+    expect(node?.motion?.preset).toBe("fade-up");
     expect(Object.values(run.mapped.document.nodes).some((node) => node.motion?.preset === "fade-up")).toBe(true);
     const out = mkdtempSync(join(tmpdir(), "senify-motion-"));
     const resolved = resolveTheme(defaultTheme());

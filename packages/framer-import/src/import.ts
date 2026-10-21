@@ -196,7 +196,14 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
     const editorNodeId = mapping.nodeKey === null ? undefined : mapped.nodeIdByIrKey[mapping.nodeKey];
     if (editorNodeId === undefined) continue;
     const editorNode = mapped.document.nodes[editorNodeId];
-    if (editorNode !== undefined) editorNode.motion = mapping.spec;
+    if (editorNode === undefined) continue;
+    // One motion, one owner. A node that already carries a compiled appear rule
+    // plays its reveal as CSS keyframes with the SOURCE's start state and the
+    // SOURCE's timing. Adding a preset on top would start a second animation on
+    // the same element (`gsap.from` with the preset's own offset), so the two
+    // fight over opacity and transform — the one that starts last wins.
+    if ((editorNode.classes ?? []).some((name) => name.includes("-appear-"))) continue;
+    editorNode.motion = mapping.spec;
   }
   const motionFindings: IrFinding[] = [];
   for (const unresolved of motion.findings) {
