@@ -295,6 +295,18 @@ Ein sauberer Arbeitsbaum ist damit lokal **nicht herstellbar**, ohne die Ordner 
   Release-Bake bekommen. **Belegt:** ohne `buildInto` fallen 16 von 18 Bake-Tests mit genau
   diesem `EXDEV` um (Gegenprobe: Anhang D, Probe 7).
 - **B6 (`.tmp/`, `.bake-tmp/`):** beide stehen jetzt in `.gitignore`.
+- **B4 (die Deploy-Frist war keine harte Frist)** — zweite Prüfung, 20.10.2026: die Pollschleife
+  hat eine Frist, aber sie wird nur *zwischen* zwei Anfragen geprüft; eine hängende Verbindung hätte
+  den Deploy endlos festgehalten. Jede Anfrage an Netlify und Vercel trägt jetzt ihr Signal
+  (`AbortSignal.timeout`, 30 s). `requestTimeoutMs` ist die Testnaht daneben (`fetchImpl` ist die
+  andere). Beleg: `packages/engine/test/deploy.test.ts` — der Test lässt die Anfrage hängen und
+  zählt die Frist mit; ohne das Signal antwortet der Doppel nach zwei Sekunden und der Deploy
+  läuft **durch** statt zu enden (Gegenprobe, Anhang D, Probe 16).
+- **B5 (Restore: zwei Schreibvorgänge, eine Einheit)** — zweite Prüfung, 20.10.2026: die Grenze ist
+  jetzt benannt, in `docs/current/stand.md` mit eigener Zeile „Restore (Wiederherstellung)“. Die
+  Tabellen werden in **einer** Transaktion ersetzt, die Dateien danach; bricht der zweite Schritt
+  ab, sind die Tabellen der Sicherung und die Dateien auseinander. Das ist die **zweite** solche
+  Grenze nach dem Import (R10) — beide sind dokumentiert, keine davon ist weggebaut.
 - **Der geplante Umweg entfällt:** Das Skript „Temp auf dem Repo-Laufwerk“ (Maßnahme 4 des
   Berichts) wäre eine Scheinlösung gewesen — es hätte den Fehler in dieser einen Umgebung
   verdeckt, nicht die Ursache beseitigt. Es wurde nicht angelegt.

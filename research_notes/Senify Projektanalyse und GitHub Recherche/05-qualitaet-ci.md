@@ -262,3 +262,10 @@ stillschweigend).
   `startup_failure` — Gegenprobe: ohne den Job startet der Lauf, mit dem Fremd-Workflow nicht.
 - **Paketregeln in der CI:** `pnpm deps:check` (dependency-cruiser) hängt an `pnpm verify` und
   hat einen eigenen CI-Schritt.
+- **Browser-Suiten überspringen sich nicht mehr still** (zweite Prüfung, 20.10.2026): die
+  Browser-Suiten tragen `describe.skipIf(!browserAvailable)`. Fehlt Chromium oder passt es nicht
+  zur Playwright-Version, verschwanden sie **ohne** Fehlermeldung — ein grüner Lauf, in dem die
+  Browser-Tore nie gelaufen sind. Der CI-Job `verify` setzt jetzt `SENIFY_REQUIRE_BROWSER=1`;
+  die Suite läuft dann und wird rot, statt grün zu sein ohne Test. Nachgemessen: ohne die
+  Variable `1 skipped`, mit ihr ein Fehler (`Executable doesn't exist`). Der Windows-Job setzt sie
+  bewusst nicht — dort ist kein Chromium installiert, die Browser-Tore laufen im Linux-Job.
