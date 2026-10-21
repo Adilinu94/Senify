@@ -155,19 +155,83 @@ Zeitsteuerung und **kein** Ersatz für die Original-Runtime. Es braucht außerde
   ist keine Implementierungslücke, sondern eine Grenze der Quelle (in `docs/adr/0010` bereits
   festgehalten).
 
-### 4.5 Der Vergleich in einer Tabelle
+### 4.5 GitHub-Recherche: kostenlose Alternativen (21.10.2026, mit Zahlen)
+
+Recherchiert über die GitHub-API (Sterne, Lizenz, letzter Push, archiviert) und **am Code
+gelesen**, nicht nur an der Beschreibung.
+
+| Repo | ★ | Lizenz | letzter Push | Was es kann | Urteil |
+|---|---|---|---|---|---|
+| **Niranjan266/unframer** | 1 | **MIT** | 2026-08-22 | Framer-Seite → portables HTML/CSS. **Kompiliert die Appear-Spec zu CSS-Keyframes** (`src/appear.ts`), rekonstruiert **Scroll-Reveals** (`src/reveal.ts`), **Ticker** (`src/ticker.ts`), entfernt Runtime + Tracker, `--offline`, eigene **Verifikation** gegen das Original | **der beste Code-Fund** — aber Einzelprojekt, 1 Stern |
+| **danbenba/FramerExport** | 67 | **MIT** | 2026-09-15 | Headless-Mirror für 25 Plattformen, wartet auf Hydration, lädt alle Assets, rewritet CDN-Pfade | **reifer**, aber ohne Animations-Kompilierung |
+| **remorses/unframer** | 258 | *kein Lizenzfeld* | 2026-10-21 | React-Komponenten mit Framer-Motion | aktiv, aber React-Export **kostenpflichtig** (getestet) |
+| **gildas-lormeau/SingleFile** | 22 652 | **AGPL-3.0** | 2026-10-20 | speichert eine Seite als **eine** HTML-Datei, sehr ausgereift | **AGPL** — für eigene Nutzung unkritisch, für Weitergabe nicht |
+| **Y2Z/monolith** | 15 524 | **CC0-1.0** | 2026-10-16 | Seite als eine HTML-Datei, CLI + Library | **CC0** = keine Bedingungen; gut als Notfall-Mirror |
+| **rakshith48/framer-to-cloudflare** | 3 | MIT | 2026-03-15 | Claude-Code-Skill, der eine Framer-Seite spiegelt und auf Cloudflare legt | Idee gut, Umsetzung ein Skill |
+
+**Selbst getestet, nicht nur gelesen** — `Niranjan266/unframer`, geklont und ausgeführt:
+
+```
+npx tsx src/cli.ts https://donutshop.framer.website/ --out out --offline
+  ✓ 4 Seiten exportiert (/, /about, /contact, /menu), 54,7 MB mit Assets
+  totalAnimationRules: 0      ← weil der appear-Kanal dort fehlt (U5 b)
+  verify: Pixel 0,01–6,28 %, aber sichtbarer Text nur 84–94 %
+
+npx tsx src/cli.ts https://wedge.framer.website/ --out out-wedge --offline
+  totalAnimationRules: 85     ← hier ist der Kanal da
+  verify: Pixel 17–44 %, Text 30–96 %
+```
+
+**Die zwei Lehren daraus:**
+
+1. **Die Animations-Kompilierung funktioniert** — 85 Regeln aus einer echten Seite, ohne
+   JavaScript. Genau die Lücke, die unser Import hat.
+2. **Als Ganzseiten-Export ist es schwächer als unser Import.** Bei `wedge` liegen wir bei
+   **0,46 %**, das Werkzeug bei **17–44 %**. Es fehlt Text (30 % bei einer Seite), es gibt
+   HTML-Strukturfehler, und die Verifikation schlägt auf allen vier Routen fehl.
+
+**Das heißt: nicht ersetzen, sondern den einen Baustein übernehmen.** Das MIT-lizenzierte
+`src/appear.ts` (10,9 KB) löst ein Problem, das wir messbar haben. Es ist klein, dokumentiert
+und ohne Abhängigkeit außer `cheerio` (das wir nicht brauchen — wir haben schon einen Scanner).
+
+**Was in `src/appear.ts` steht und was wir daraus lernen** (die Kommentare sind wertvoll, weil
+sie dieselben Fallen benennen, in die unser Import läuft):
+
+- „The inline state is the trap: strip Framer's runtime without compiling the JSON and every
+  animated element stays permanently invisible." — **genau unser Fall** (U5 b).
+- Breakpoint-Varianten müssen als `:not(.hidden-<hash>) [data-framer-appear-id="<id>"]` gescoped
+  werden, sonst bleibt ein Element auf dem Breakpoint unsichtbar, den man vergessen hat.
+- Die Transform-Reihenfolge muss Motion's eigener `buildTransform` folgen (perspective,
+  translate, scale, rotate, skew) — sonst entstehen „subtly different matrices".
+- `src/reveal.ts` beschreibt die zweite Lücke: „framer.university has 325 such elements and zero
+  appear-ids" — Elemente mit `opacity:0`, die **keine** deklarativen Daten haben.
+- `src/verify.ts` nennt drei Fallen beim Messen: ein nicht komponierender Tab lässt Animationen
+  nie laufen (`finish()` statt warten), versteckte Geräte-Varianten haben keine laufenden
+  Animationen (nur gerenderte Elemente prüfen), und „kein Element bei opacity 0" ist notwendig,
+  aber nicht hinreichend für „die Seite ist lesbar".
+
+**Empfehlung nach dieser Recherche:** `Niranjan266/unframer` **nicht als Werkzeug** einsetzen
+(der Ganzseiten-Export ist schwächer als unserer), sondern **die zwei Module als Vorlage lesen**
+und die Logik in unseren Capture einbauen — MIT erlaubt das ausdrücklich, auch ohne
+Quellenangabe. Das ist keine Abhängigkeit von einem 1-Stern-Projekt, sondern eine übernommene
+Idee mit belegter Wirkung.
+
+### 4.6 Der Vergleich in einer Tabelle
 
 | Werkzeug | Lizenz | Liefert | Löst für uns | Grenze |
 |---|---|---|---|---|
-| **Framer MCP** (getestet) | Zugang nötig, React-Export **kostenpflichtig** | Projekt-XML: Seiten, Komponenten, `layout="stack"`, Tokens, Text-Stile | **Struktur ohne Raten**; der Faltungs-Fehler entsteht gar nicht | keine Zeitsteuerung (0 Treffer), braucht Projekt-Zugang |
-| **FramerExport** (`framer-export`) | **MIT** | hydratisierte Seite als lokaler Mirror + alle Assets | **die Lücke zum SSR-Weg**: Sterne, Scroll-Effekte, Laufzeit-Zustand | Black Box, kein Struktur-Import |
-| **Full Site Export** | kommerziell (10 USD/Monat) | Perfect Copy / Exact Next.js / Readable React; CMS aus Laufzeitverkehr; Scroll-Reveals + Marquee als CSS | **sofort 1:1 inklusive CMS** | Readable ist „nah dran, nicht pixelgleich"; laufende Kosten |
-| **Unframer CLI** (ohne Abo) | Manifest ohne `license`-Feld | `.jsx` + Chunks + `styles.css` | React-Code mit Animationen | ohne Abo nicht nutzbar (getestet); Lizenz unklar |
-| **eigener Weg** (SSR + Payload) | hausgemacht | was wir bauen | volle Kontrolle, keine Fremdabhängigkeit | der meiste Aufwand |
+| **Niranjan266/unframer** | **MIT** | HTML/CSS-Export + **Appear→CSS-Keyframes**, Reveals, Ticker, Verifikation | **die Animationslücke** (Schritt 4b) | Ganzseiten-Export schwächer als unserer (17–44 % gegen 0,46 %) |
+| **danbenba/FramerExport** | **MIT** | hydratisierter Mirror, 25 Plattformen, alle Assets | **die Lücke zum SSR-Weg** | keine Animations-Kompilierung |
+| **Framer MCP** (getestet) | Zugang nötig, React-Export **kostenpflichtig** | Projekt-XML: Seiten, Komponenten, `layout="stack"`, Tokens, Text-Stile | **Struktur ohne Raten** | keine Zeitsteuerung (0 Treffer), braucht Projekt-Zugang |
+| **SingleFile** | AGPL-3.0 | Seite als eine HTML-Datei | Notfall-Mirror | AGPL, 22 652 ★, sehr ausgereift |
+| **monolith** | CC0-1.0 | Seite als eine HTML-Datei | Notfall-Mirror ohne Bedingungen | kein Struktur-Import |
+| **Full Site Export** | kommerziell | Perfect Copy / Exact / Readable; CMS | sofort 1:1 inkl. CMS | **nicht gewählt** (E2) |
+| **eigener Weg** (SSR + Payload + CSS-Keyframes) | hausgemacht | was wir bauen | volle Kontrolle, keine Kosten | der meiste Aufwand |
 
-**Die Empfehlung in einem Satz:** FramerExport (MIT) als Mirror in den Analyse-Worker einbauen,
-die Original-Runtime als Payload mitnehmen (ADR-0010), das Framer-MCP als zweite Strukturquelle
-dazunehmen — und Full Site Export nur kaufen, wenn CMS-Inhalte gebraucht werden.
+**Die Empfehlung in einem Satz (nach deinen Entscheidungen):** Die Appear→CSS-Kompilierung aus
+`Niranjan266/unframer` (MIT) als Vorlage in den eigenen Capture einbauen, den Mirror über den
+vorhandenen Analyse-Worker bauen, die Original-Runtime als Payload mitnehmen (ADR-0010, E1 ja) —
+und das Framer-MCP als zweite Strukturquelle dazunehmen, wo Projekt-Zugang besteht (E5).
 
 ## 5. Der empfohlene Weg: drei Quellen, ein Dokument
 
@@ -222,13 +286,23 @@ Messseiten** ausgeführt ist (§8).
 **Ziel:** Ein URL-Import erzeugt zuerst einen lokalen Mirror (hydratisierte Seite + alle Assets),
 und dieser Mirror ist die Quelle für **beides**: Struktur und Payload.
 
-- Den Browser-Mirror in den Import ziehen. Zwei Möglichkeiten, beide zu prüfen:
-  **(a)** `framer-export` (MIT) als Abhängigkeit einbinden, **(b)** den vorhandenen
-  Analyse-Worker (der schon einen Browser startet, ADR-0022) um einen Mirror-Modus erweitern.
-- **Empfehlung: (b).** Der Browser ist schon da, die Adressprüfung ist schon da (`allowOrigins`),
-  und ein zweites Werkzeug mit eigenem Chrome wäre eine zweite Sicherheitsgrenze.
-- Danach ist `input.source.kind === "mirror"` der Normalfall — und der vorhandene
-  Payload-Extraktor greift ohne Änderung.
+**Entschieden (E2, E4: kostenlos):** Der Mirror läuft im **vorhandenen Analyse-Worker**, nicht über
+ein zweites Werkzeug. Der Browser ist schon da, die Adressprüfung ist schon da
+(`allowOrigins`, ADR-0022) — ein zweites Werkzeug mit eigenem Chrome wäre eine zweite
+Sicherheitsgrenze.
+
+**Was aus der GitHub-Recherche (§4.5) übernommen wird** — als Vorlage gelesen, nicht als
+Abhängigkeit:
+
+- `Niranjan266/unframer` `src/appear.ts`: liest die Appear-Spec **bevor** sie entfernt wird und
+  kompiliert sie zu CSS-Keyframes. MIT, 10,9 KB, ohne Abhängigkeit außer `cheerio` (das wir nicht
+  brauchen). **Das ist der Kern.**
+- `src/reveal.ts`: die zweite Lücke (Elemente mit `opacity:0` **ohne** deklarative Daten).
+- `src/verify.ts`: die drei Messfallen (nicht komponierender Tab, versteckte Geräte-Varianten,
+  „kein Element bei opacity 0" ist nicht genug).
+
+**Nicht übernommen:** der Ganzseiten-Export des Werkzeugs. Gemessen ist er **schwächer** als
+unser Import (wedge: 17–44 % gegen unsere 0,46 %).
 
 **Gate:** Ein URL-Import erzeugt einen Mirror, und `extractPayloads` findet darin mindestens ein
 Payload auf einer Seite, die heute 0 hat (`donutshop`). Ein Testfall, der ohne den Schritt rot ist.
@@ -283,6 +357,24 @@ Original; der Editor zeigt das Poster. Ein Test, der ohne den Schritt rot ist.
 
 **Gate:** Im gebackenen CSS steht die Dauer der Quelle (1,4 s → 1400 ms).
 
+### Schritt 4b · Die Appear-Spec zu CSS kompilieren (der Kern aus §4.5)
+
+**Ziel:** Animationen überleben **ohne** die Framer-Runtime — als CSS-Keyframes.
+
+Das ist der Weg für alles, was **kein** Payload braucht. Er ist billiger als ein Payload (kein
+Fremd-Code, kein Poster, keine Lizenzfrage) und deckt den größten Teil der Bewegung ab.
+
+- Die Appear-Spec lesen, **bevor** der Startzustand entfernt wird (heute entfernt der Capture ihn
+  zuerst — deshalb bleibt bei fehlendem Kanal nichts übrig, U5 b).
+- Keyframes erzeugen, Breakpoint-Varianten scopen
+  (`:not(.hidden-<hash>) [data-framer-appear-id="<id>"]`).
+- Transform-Reihenfolge nach Motion's `buildTransform`: perspective, translate, scale, rotate, skew.
+- Für Elemente mit `opacity:0` **ohne** Appear-Daten: die Reveal-Logik (IntersectionObserver als
+  CSS-Klasse, kein Dauer-JS).
+
+**Gate:** Auf einer Seite mit Kanal (wedge) stehen die Keyframes im CSS und die Dauer stimmt; auf
+einer Seite ohne Kanal (donutshop) erscheint ein **Befund** statt stiller Untätigkeit.
+
 ### Schritt 5 · Die verbliebenen Animationen abdecken
 
 **Ziel:** Was der Payload nicht trägt, wird wenigstens benannt oder nachgebaut.
@@ -319,10 +411,42 @@ ankommt, ohne dass der Bericht es sagt.
 
 ## 7. Die Entscheidungen, die du treffen musst
 
-Diese drei sind **Produktentscheidungen**, keine Implementierungsfragen. Ich baue sie nicht ohne
-dein Wort.
+**Deine Antworten vom 21.10.2026:**
 
-### E1 · Darf fremder Framer-Code in deinen Seiten laufen?
+| | Frage | Deine Entscheidung |
+|---|---|---|
+| **E1** | Darf fremder Framer-Code in deinen Seiten laufen? | **Ja.** Damit ist Weg B offen und 1:1 erreichbar. |
+| **E2** | Werkzeug kaufen oder selbst bauen? | **Kostenlose Alternativen.** FramerExport (MIT), kein Abo. |
+| **E3** | Unframer trotz fehlender Lizenz? | **Ja**, Nutzung nur privat. |
+| **E4** | React-Export-Abo zahlen? | **Nein**, kostenlose Alternativen. |
+| **E5** | Geben Kunden uns Projekt-Zugang? | offen (Erklärung unten) |
+
+### Was E5 genau bedeutet
+
+Das **Framer MCP** (das Werkzeug, mit dem ich `getProjectXml` und `getNodeXml` getestet habe)
+funktioniert **nicht** über die veröffentlichte Adresse. Es ist ein **Plugin, das im
+Framer-Editor** des jeweiligen Projekts läuft, und der MCP-Server spricht mit diesem Editor.
+
+Praktisch heißt das:
+
+- **Deine eigenen Framer-Projekte:** Du öffnest das Projekt in Framer, aktivierst das Plugin
+  einmal, und ich kann die Struktur lesen. Kein Problem.
+- **Ein fremdes Kundenprojekt:** Der Kunde müsste das Plugin in **seinem** Framer-Projekt
+  aktivieren und mir den Zugang geben. Sonst sehe ich nur die veröffentlichte Seite (SSR) —
+  also genau das, was heute schon geht.
+
+**Warum die Frage zählt:** Mit Projekt-Zugang bekomme ich `layout="stack"`, benannte Komponenten,
+Tokens und Text-Stile **geschenkt**. Ohne ihn muss der Import das aus dem gerenderten HTML
+**erraten** — und genau dieses Raten erzeugt den Fehler, der `last-studio` auf 65 % treibt (zwei
+Geräte-Kopien, die niemand als „dieselbe Karte" erkennt).
+
+**Für dich als Einzelnutzer heißt das wahrscheinlich:** Bei Seiten, die du selbst in Framer
+gebaut hast → Zugang da, bester Weg. Bei fremden Seiten → nur die veröffentlichte Adresse, also
+SSR + Mirror. Der Plan muss **beides** können.
+
+### E1 · Darf fremder Framer-Code in deinen Seiten laufen? — **entschieden: Ja**
+
+*(Die folgenden Absätze bleiben als Begründung stehen.)*
 
 Das ist die Grundfrage. ADR-0010 sagt **ja**, aber nur als Payload, nur in Preview/Release, nie im
 Editor. Die Konsequenz: Auf einer solchen Seite läuft Code, den weder du noch ich geschrieben
@@ -332,20 +456,20 @@ nicht von einer Fremd-URL — aber er ist ausführbar).
 - **Ja** → Weg B ist offen, 1:1 ist erreichbar.
 - **Nein** → 1:1 ist **nicht** erreichbar. Dann bleibt es bei Presets und dem heutigen Stand.
 
-### E2 · Kaufen wir „Full Site Export" (10 USD/Monat) oder bauen wir selbst?
+### E2 · Kaufen wir „Full Site Export" (10 USD/Monat)? — **entschieden: Nein, kostenlose Alternativen**
 
 - **Kaufen** → CMS, Scroll-Reveals, WebGL sind sofort abgedeckt; wir sparen Wochen. Dafür ein
   externes Werkzeug und laufende Kosten.
 - **Selbst bauen** (auf `framer-export`, MIT) → keine Kosten, volle Kontrolle, aber eigener Aufwand
   und eigene Wartung.
 
-### E3 · Ist Unframer nutzbar, obwohl die Lizenz im Manifest fehlt?
+### E3 · Ist Unframer nutzbar, obwohl die Lizenz im Manifest fehlt? — **entschieden: Ja (nur private Nutzung)**
 
 - **Klären** (empfohlen): beim Autor anfragen. Ohne klare Lizenz würde ich es für Kundenarbeit
   **nicht** einsetzen.
 - **Nicht nutzen** → Weg B stützt sich allein auf den Mirror (der reicht, wenn E1 ja ist).
 
-### E4 · Zahlen wir den React-Export (Abo) oder nicht?
+### E4 · Zahlen wir den React-Export (Abo)? — **entschieden: Nein, kostenlose Alternativen**
 
 Am 21.10. getestet: `exportReactComponents` antwortet mit *„No active React Export subscription
 found"*. Der Export ist **kostenpflichtig** und mit deinem Zugang **nicht** enthalten.
@@ -355,7 +479,7 @@ found"*. Der Export ist **kostenpflichtig** und mit deinem Zugang **nicht** enth
 - **Ohne Abo** → Weg B stützt sich auf den Mirror + Original-Runtime. Mehr Eigenbau, aber keine
   laufenden Kosten.
 
-### E5 · Geben Kunden uns Projekt-Zugang?
+### E5 · Geben Kunden uns Projekt-Zugang? — **offen**
 
 Die Projekt-Schnittstelle (MCP) braucht Zugang zum **Framer-Projekt** über ein Plugin, nicht nur
 zur veröffentlichten Seite. Für eigene Projekte trivial; für Kundenprojekte eine Vertragsfrage.
@@ -390,9 +514,29 @@ Für die Bewegung braucht es einen **neuen Messweg**: einen Bildvergleich **übe
 - **Keine Bearbeitbarkeit des Payload-Inneren.** Das ist die Preisangabe zur 1:1-Zusage und steht in
   ADR-0010. Wer die Animation im Editor ändern will, muss sie neu bauen.
 - **Kein Framer-CMS als Datenquelle.** Der Inhalt kommt als gerendertes HTML mit, nicht als Sammlung.
-- **Keine Lizenz für fremde Templates.** Technisch kopierbar ist nicht rechtlich erlaubt.
+- **Keine Lizenz für fremde Templates.** Technisch kopierbar ist nicht rechtlich erlaubt. Für
+  eigene Nutzung (deine Entscheidung E3) ist das unkritisch; sobald eine Seite an Dritte geht,
+  wird es wieder eine Frage.
 - **Keine Zahl ohne Lauf.** Jede Quote in diesem Plan stammt aus einer Messung; geschätzte Werte
   stehen als offen.
+
+### 9.1 Die gemessenen Grenzen der freien Werkzeuge
+
+Damit niemand später denkt, es sei nur eine Frage der Mühe — das ist **gemessen**, nicht geschätzt:
+
+| Was | Ergebnis | Quelle |
+|---|---|---|
+| `unframer`-CLI, Ganzseiten-Export | wedge **17–44 %** Pixel-Differenz (unser Import: **0,46 %**) | eigener Lauf, §4.5 |
+| `unframer`-CLI, Textvollständigkeit | 30–96 % des sichtbaren Textes | eigener Lauf |
+| `unframer`-CLI, Animationen | **85 Regeln** bei wedge (Kanal da), **0** bei donutshop (Kanal fehlt) | eigener Lauf |
+| Animationen in der Projekt-XML | `appear`/`transition`/`animation` **0 Treffer** | MCP, §4.1 |
+| React-Export über MCP | **kostenpflichtig**, nicht im Zugang | MCP-Antwort |
+| Unframer-Lizenz | **kein `license`-Feld** im npm-Manifest | npm registry |
+| nicht komponierender Browser-Tab | CSS-Animationen melden `running` bei `currentTime: 0` | `src/verify.ts` |
+
+**Was das bedeutet:** Die freien Werkzeuge decken die **Animationen** gut ab (CSS-Keyframes) und
+die **Struktur** schlechter als unser eigener Import. Deshalb der gemischte Weg — nicht ein
+Werkzeug, das alles kann. Ein solches Werkzeug gibt es nach dieser Recherche **nicht**.
 
 ## 10. Reihenfolge
 
@@ -420,3 +564,7 @@ existiert und ist rot, betroffene Dateien benannt.
 **Done** je Schritt: Gate auf allen elf Seiten ausgeführt, jede Aussage „umgesetzt" mit Code- oder
 Testbeleg, Zahlen nur in `docs/current/qualitaet.md`, keine Verschlechterung einer vorher
 brauchbaren Seite.
+
+
+
+
