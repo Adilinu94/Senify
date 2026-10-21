@@ -14,9 +14,25 @@
 #
 # 21.10.2026: Die drei Ausnahmen fuer `vitest`/`@vitest/mocker` und `tinypool`
 # sind ueberfluessig - der Test-Runner steht auf 4.1.11, der Scanner meldet
-# diese Funde nicht mehr. Es bleibt eine Ausnahme (http-cache-semantics).
-
-[[IgnoredVulns]]
-id = "GHSA-ch52-4w7c-c8xp"
-ignoreUntil = 2026-11-30T00:00:00Z
-reason = "http-cache-semantics 4.2.0: transitiv ueber express (statischer Dateihandler). Es gibt keine gepatchte Version; der Empfehlung nachzugehen hiesse, express zu ersetzen. Die betroffene Cache-Poisoning-Route ist im Dashboard-Proxy nicht erreichbar (nur GET auf eigene Routen). Wiedervorlage: 30.11.2026."
+# diese Funde nicht mehr.
+#
+# 21.10.2026 (zweiter Schritt): Die Ausnahme fuer `http-cache-semantics`
+# (GHSA-ch52-4w7c-c8xp) ist ebenfalls entfallen. Der Fund lag an 4.2.0; es gibt
+# inzwischen 4.3.0 (veroeffentlicht 04.10.2026), und die Advisory gilt laut OSV
+# nur bis einschliesslich 4.2.0. Der Parent-Pin (`astro` 7.3.2 verlangt
+# `^4.2.0`) laesst 4.3.0 zu, aber die Aufloesung blieb auf 4.2.0 stehen - ein
+# Override in der `package.json` hebt sie auf 4.3.0 (die bestehende Regel fuer
+# gepatchte Versionen: die jeweils naechste, kein Sprung ueber eine
+# Hauptversion hinaus).
+#
+# Die Begruendung der alten Ausnahme war zudem sachlich falsch: sie nannte
+# express und dessen statischen Dateihandler als Quelle. Im Lockfile kommt
+# `http-cache-semantics` ueber `astro` (der Build des Docs-Portals) - express
+# 5.2.1 und `serve-static` 2.2.1 ziehen es nicht mehr. Der Befund betraf also
+# den Doku-Build und nicht den Dashboard-Proxy; die gemeldete Cache-Poisoning-
+# Route war dort ohnehin nicht erreichbar. Beides ist jetzt gegenstandslos,
+# weil die betroffene Version nicht mehr im Baum ist.
+#
+# Diese Datei bleibt bestehen, auch ohne Eintraege: der Scanner liest sie, und
+# ein leeres Blatt mit Kommentar ist ehrlicher als eine geloeschte Datei, bei
+# der der naechste Auditfragt, ob sie weg soll.
