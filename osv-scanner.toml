@@ -17,6 +17,15 @@ id = "GHSA-82fw-gwwq-j7x9"
 ignoreUntil = 2026-11-30T00:00:00Z
 reason = "vitest 3.2.7 / @vitest/mocker: die Advisory betrifft den Test-Runner, nicht den Produktivcode. Der Sprung auf vitest 4.1.11 ist ein Major-Update des Test-Runners und braucht einen eigenen Schritt mit dem vollen Gate (Suite, Coverage, Browser). Wiedervorlage: 30.11.2026."
 
+# Nachgetragen am 21.10.2026: derselbe Test-Runner, dieselbe Entscheidung. Der
+# Advisory wurde nach dem letzten gruenen Lauf veroeffentlicht (gepatcht erst in
+# 4.1.12) und machte den Scan rot, ohne dass sich am Code etwas geaendert hatte.
+# Die Ausnahme laeuft mit den drei anderen ab.
+[[IgnoredVulns]]
+id = "GHSA-qxg6-89mg-rqv8"
+ignoreUntil = 2026-11-30T00:00:00Z
+reason = "@vitest/mocker 3.2.7: dieselbe Advisory-Linie wie GHSA-82fw-gwwq-j7x9, betrifft den Test-Runner, nicht den Produktivcode. Gepatcht erst in 4.1.12, also im selben Major-Update. Wiedervorlage: 30.11.2026."
+
 [[IgnoredVulns]]
 id = "GHSA-5gmw-xhrv-c9v3"
 ignoreUntil = 2026-11-30T00:00:00Z
