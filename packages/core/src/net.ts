@@ -156,9 +156,16 @@ export async function assertPublicHttpUrl(raw: string): Promise<URL> {
 // The check is the same one the Node path uses, with one difference: the
 // browser's own schemes (`data:`, `blob:`, `about:`) never leave the
 // process, and the offline mirror of the import deliberately reads `file:`.
+//
+// `allowOrigins` names the servers the product itself started - the preview
+// server, the offline mirror. They run on the loopback interface and the
+// browser has to reach them; without them there is no preview. Every other
+// address has to pass the public check, so a user-supplied URL cannot point
+// the browser at a private service - no matter in which order the calls
+// happen.
 export async function isAllowedBrowserUrl(
   raw: string,
-  options: { allowFile?: boolean } = {},
+  options: { allowFile?: boolean; allowOrigins?: readonly string[] } = {},
 ): Promise<boolean> {
   let url: URL;
   try {
@@ -171,6 +178,7 @@ export async function isAllowedBrowserUrl(
   }
   if (options.allowFile === true && url.protocol === "file:") return true;
   if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+  if (options.allowOrigins?.some((origin) => origin === url.origin)) return true;
   try {
     await publicTarget(raw);
     return true;

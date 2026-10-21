@@ -239,6 +239,13 @@ export function createReviewVisualDriver(options: { recordMotion?: boolean } = {
     const baseServer =
       input.baseDir === null ? null : await serveCaptureDir(input.baseDir);
     const workRoot = mkdtempSync(join(tmpdir(), "senify-review-visuals-"));
+    // The two servers this capture started itself. They run on the loopback
+    // interface and the browser has to reach them; they are the only private
+    // addresses it may open (ADR-0022).
+    const allowOrigins = [
+      afterServer.origin,
+      ...(baseServer === null ? [] : [baseServer.origin]),
+    ];
     try {
       const screenshots: ReviewVisualCapture["screenshots"] = [];
       const diffs: ReviewVisualCapture["diffs"] = [];
@@ -253,6 +260,7 @@ export function createReviewVisualDriver(options: { recordMotion?: boolean } = {
           url,
           outDir: join(workDir, pageSlug(page.path)),
           breakpoints: input.breakpoints as ("desktop" | "tablet" | "mobile")[],
+          browser: { allowOrigins },
         });
         const byBreakpoint = new Map<string, { path: string; width: number; height: number }>();
         for (const shot of captures) {
@@ -315,6 +323,7 @@ export function createReviewVisualDriver(options: { recordMotion?: boolean } = {
           url: `${afterServer.origin}/${bakedRouteFile(first.path)}`,
           outDir: join(workRoot, "motion"),
           name: "motion",
+          browser: { allowOrigins },
         });
         capture.video = {
           bytes: readFileSync(motion.path),
