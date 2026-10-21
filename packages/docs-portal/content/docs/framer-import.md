@@ -37,8 +37,15 @@ Mit „Weitere Seiten dieser Site“ bietet der Bericht die Seiten an, auf die d
 - **Medien aus der Quelle.** Beim Schreiben lädt der Import Bilder und Schriften herunter, dedupliziert sie über den
   Hash und legt sie in der Mediathek ab. Schriften werden lokal umgeschrieben, damit nach dem Import keine Anfrage
   an Framers CDN mehr geht. Der Import ersetzt nie von selbst ein Bild durch ein generiertes (ADR-0021).
-- **Bewegung.** Scroll- und Erscheinungs-Effekte, die sich messen lassen, werden auf Motion-Presets abgebildet.
-  Smooth-Scroll steht im Bericht als Hinweis auf das Site-Profil.
+- **Bewegung.** Erscheinungs-Effekte werden **als CSS kompiliert** — nicht nur auf Presets abgebildet: der Import liest
+  Framer's Appear-Kanal (`__framer__appearAnimationsContent`) mit jeder Breakpoint-Variante, Start- und Endzustand und
+  kompiliert ihn zu `@keyframes`. Damit laufen auch Effekte, für die es kein Senify-Preset gibt: ein Seitwärts-Slide,
+  ein Hineinskalieren, eine 3D-Kippung. Die Dauer und die Verzögerung sind die der Quelle (1,4 s bleiben 1,4 s), die
+  Transform-Reihenfolge folgt Framer's eigener (`perspective → translate → scale → rotate → skew`), und die Varianten
+  sind auf ihre Breakpoints gescoped. Bei `prefers-reduced-motion` steht das Element still und sichtbar.
+  Was der Kanal **nicht** trägt — Scroll-Trigger und Hover-Bewegung — steht im Bericht. Smooth-Scroll steht dort als
+  Hinweis auf das Site-Profil. Eine Feder wird angenähert (`ease-out` bzw. eine Overshoot-Kurve): ihre exakte
+  Überschwingung ist kein CSS-Zeitverlauf.
 - **Alles, was nicht abbildbar ist, steht im Bericht.** Der Import verwirft nichts stillschweigend: Jede nicht
   übernommene Regel, jedes fehlende Asset und jedes Framer-Code-Stück erscheint als Befund.
 
@@ -59,8 +66,7 @@ Mit „Weitere Seiten dieser Site“ bietet der Bericht die Seiten an, auf die d
 - **Ein Rahmen, den Framer nur an einer Seite zeichnet, wird ein Inset-Schatten.** Framer zeichnet ihn als Overlay
   (`::after`); ein echter Rahmen würde die Box um seine Breite vergrößern und die Seite verschieben. Gestrichelte und
   gepunktete Rahmen behalten den echten Rahmen, weil ein Schatten keine Strichart hat.
-- **`<select>`-Felder** zeigen ihre Optionen als Liste.
-- **Selektoren.** Nicht ausgewertet werden `:not()` an Vorfahren, Geschwister-Kombinatoren (`+`, `~`), `:first-child`
+- **`<select>`-Felder** zeigen ihre Optionen als Liste.- **Selektoren.** Nicht ausgewertet werden `:not()` an Vorfahren, Geschwister-Kombinatoren (`+`, `~`), `:first-child`
   und `:nth-*`, `@container` und Attribut-Operatoren außer `=`.
 - **Lokale Quellen und Medien.** Der Import liest Medien nie aus dem Mirror-Ordner, er lädt sie über eine Basis-URL
   von der Live-Adresse. Für „Lokaler Mirror“ bietet der Dialog dazu das Feld „Adresse der Originalseite“ an

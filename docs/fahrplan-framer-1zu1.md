@@ -442,34 +442,103 @@ Original; der Editor zeigt das Poster; die Payload-Größe steht im Bericht.
 
 **Gate:** Auf allen elf Seiten ist die Seitenhöhe mit und ohne Payload gleich (kein Doppelstand).
 
-### Schritt 4 · Den Zeitmaßstab der Presets reparieren
+### Schritt 4 · Den Zeitmaßstab der Presets reparieren — **umgesetzt 21.10.2026**
 
 **Ziel:** Was als Preset abgebildet wird, läuft auch so lange wie in der Quelle.
 
-- `motion-mapping.ts:77`: `duration / 300` ist falsch, wenn `duration` in **Sekunden** kommt
-  (gemessen: `duration: 1.4`). Der Faktor muss die Einheit treffen.
-- Der bestehende Test (`motion-mapping.test.ts:31`) erwartet `durationScale = 3` bei `duration: 900`
-  — das ist **Millisekunden**-Annahme. Der Widerspruch ist zu klären, nicht zu überschreiben.
+**Was der Fehler war (belegt):** Zwei Capture-Pfade schreiben `duration` in
+verschiedenen Einheiten. Der WAAPI-Probe liest `AnimationEffect.getTiming()`
+(**Millisekunden**, die Plattform-Einheit); der Appear-Kanal liest Framers eigene
+Spec (**Sekunden**, wie `delay` daneben). `motion-mapping.ts:77` teilte **jeden**
+Wert durch 300 — für Millisekunden richtig, für Sekunden um Faktor ~47 falsch:
+aus `duration: 1.4` wurde eine Skala von 0,0047, geklemmt auf 0,1, und der
+Renderer machte daraus **30 ms statt 1400 ms**.
 
-**Gate:** Im gebackenen CSS steht die Dauer der Quelle (1,4 s → 1400 ms).
+**Was geändert wurde:**
 
-### Schritt 4b · Die Appear-Spec zu CSS kompilieren (der Kern aus §4.5)
+- Jedes Sample **benennt seine Einheit** (`params.durationUnit: "s" | "ms"`).
+  Der Capture setzt sie an beiden Stellen; der Mapper rät nicht mehr.
+- `durationSeconds()` rechnet in Sekunden um; ein Sample **ohne** das Feld gilt
+  als Millisekunden (der ältere Stand bleibt lesbar).
+- `durationScale` wird gegen die **echte Basis-Dauer des Ziel-Themes** gerechnet,
+  nicht gegen die Annahme 300. Der Import-Job liest sie aus dem Theme
+  (`runFramerImportJob` in `packages/engine/src/imports.ts`), die Vorschau reicht
+  dieselbe Zahl durch (`import-preview.ts`) — sonst zeigte die Vorschau eine
+  andere Zeit als die geschriebene Seite.
+- Der bestehende Test mit `duration: 900` war die **WAAPI-Annahme**, kein
+  Widerspruch: er steht jetzt mit `durationUnit: "ms"` da, und der Appear-Fall
+  hat seinen eigenen Test mit `0.9` + `"s"`.
+
+**Gate — gemessen am gebackenen CSS, nicht am Mapper:**
+
+| Fall | Erwartet | Gebacken |
+|---|---|---|
+| Appear 1,4 s, Theme-Basis 300 ms | 1400 ms | **1400 ms** |
+| Appear 0,6 s | 600 ms | **600 ms** |
+| Appear 1,4 s, Theme-Basis 600 ms (relativer Skalenwert) | 1400 ms | **1400 ms** |
+| Spring (stiffness 160, damping 30) | Settle-Zeit ~270 ms | **240–300 ms** |
+
+Belege: `packages/framer-import/test/motion-bake-timing.test.ts` (4 Fälle,
+gegen die alte Annahme **alle vier rot**), `motion-mapping.test.ts` (Gegenprobe:
+7 von 10 rot mit `durationUnit: "ms"` fest verdrahtet).
+
+### Schritt 4b · Die Appear-Spec zu CSS kompilieren — **umgesetzt 21.10.2026**
 
 **Ziel:** Animationen überleben **ohne** die Framer-Runtime — als CSS-Keyframes.
 
-Das ist der Weg für alles, was **kein** Payload braucht. Er ist billiger als ein Payload (kein
-Fremd-Code, kein Poster, keine Lizenzfrage) und deckt den größten Teil der Bewegung ab.
+**Was gebaut wurde** (`packages/framer-import/src/appear-css.ts`):
 
-- Die Appear-Spec lesen, **bevor** der Startzustand entfernt wird (heute entfernt der Capture ihn
-  zuerst — deshalb bleibt bei fehlendem Kanal nichts übrig, U5 b).
-- Keyframes erzeugen, Breakpoint-Varianten scopen
-  (`:not(.hidden-<hash>) [data-framer-appear-id="<id>"]`).
-- Transform-Reihenfolge nach Motion's `buildTransform`: perspective, translate, scale, rotate, skew.
-- Für Elemente mit `opacity:0` **ohne** Appear-Daten: die Reveal-Logik (IntersectionObserver als
-  CSS-Klasse, kein Dauer-JS).
+1. **Der Capture behält die volle Spec.** Bisher wurde der Kanal zu wenigen
+   Samples reduziert und verworfen; jetzt trägt `FramerIrDocument.appear` jede
+   Variante je Breakpoint-Hash (`default` + Hash, `null` = „kein Effekt dort")
+   mit Start-, Endzustand und Spring. Sie überlebt den JSON-Rundlauf.
+2. **Kompilierung zu Keyframes.** `compileAppearRules` erzeugt je (appear-id,
+   Variante) ein `@keyframes` und die Animationsdeklaration — mit **`both`**,
+   damit das Element den Startzustand durch die Verzögerung hält und danach den
+   Endzustand.
+3. **Transform-Reihenfolge nach Motion's `buildTransform`:**
+   perspective → translate → scale → rotate → skew. Eine andere Reihenfolge
+   ergibt eine andere Matrix.
+4. **Breakpoint-Scoping.** Eine explizite Variante bekommt ihren `@media`-Block;
+   `default` deckt, was keine Variante beansprucht. Die Media-Bedingung kommt aus
+   den Breakpoints der Seite (`__framer__breakpoints`), nicht aus einer Annahme.
+5. **Der Startzustand bleibt draußen.** Der Capture nimmt `opacity`/`transform`
+   aus dem Aussehen; der Mapper schreibt sie nicht zurück. Die Animation besitzt
+   sie jetzt (`both`-Fill).
+6. **Befund statt Stille.** Eine appear-id ohne Knoten oder ohne Endzustand
+   erzeugt einen Fund — vorher verschwand der Effekt wortlos (U5 b).
+7. **Reduced Motion.** Die importierten Regeln laufen unter `static`; ein
+   Effekt, der stoppt, darf das Element nicht unsichtbar lassen.
 
-**Gate:** Auf einer Seite mit Kanal (wedge) stehen die Keyframes im CSS und die Dauer stimmt; auf
-einer Seite ohne Kanal (donutshop) erscheint ein **Befund** statt stiller Untätigkeit.
+**Der Weg ins CSS:** `@keyframes` reist als `rawCss` der Regel (ADR-0005 lässt
+genau dieses At-Rule zu), die Animationsdeklaration als Property, die
+Breakpoint-Varianten über `contextStyles`. Ein `rawCss`-Block ist genau **ein**
+`@keyframes` — eine Regel mit mehreren Varianten wird deshalb zu mehreren
+Regeln, alle an denselben Knoten gehängt.
+
+**Eine zweite Lücke, die dabei sichtbar wurde:** `style-css.ts` warf importierte
+Regeln ohne `:hover`/`:focus` weg („die Basis steht schon in den Knoten-Props").
+Für eine Keyframe-Regel stimmt das nicht — dort steht die `animation`-Deklaration
+**nur** in der Regel. Regeln mit `rawCss` oder `contextStyles` überleben jetzt
+auch ohne States.
+
+**Gate:**
+
+| Prüfung | Ergebnis |
+|---|---|
+| `@keyframes` für einen Seitwärts-Slide und eine 3D-Kippung im gebackenen CSS | **vorhanden** |
+| Dauer der Quelle (1,4 s) in der Deklaration | **1.4s** |
+| `both`-Fill | **vorhanden** |
+| Startzustand als Inline-Stil am Element | **nicht vorhanden** |
+| Klasse am Knoten | **vorhanden** |
+
+Belege: `packages/framer-import/test/appear-css.test.ts` (15 Fälle),
+`appear-bake.test.ts` (3 Fälle, gebackenes CSS), `appear-bake.test.ts` Fall 2
+(mutationsfest: mit zurückgeschriebenem Startzustand rot).
+
+**Was dieser Schritt nicht löst** (steht in §9): der Spring-Überschwung ist
+angenähert (`ease-out` bzw. eine Overshoot-Kurve), nicht exakt; Scroll-Trigger
+und Hover-*Bewegung* brauchen weiter den Payload (Schritt 2).
 
 ### Schritt 5 · Die verbliebenen Animationen abdecken
 
