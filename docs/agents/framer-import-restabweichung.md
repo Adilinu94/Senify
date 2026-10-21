@@ -42,8 +42,14 @@ Der Fußzeilentext ist ein echter `body`-Knoten, kein Bild:
 | `fontFamily` | `"Manrope", "Manrope Placeholder", sans-serif` |
 
 Ein geänderter Text (`"Neuer Name"`) schlägt durch, die Größenregel bleibt
-erhalten, und `validateDocument` meldet **0 Befunde**. Der Text lässt sich im
-Editor also ändern wie jeder andere Text — die Skalierung folgt der Box.
+erhalten, und `validateDocument` meldet **0 Befunde**.
+
+**Im laufenden Editor durchgeklickt** (`packages/app/test/framer-fit-text-editor-browser.test.ts`):
+Seite anlegen, importieren, den Knoten im Canvas-iframe anklicken, im Inspektor
+steht ein `textarea` mit `"Alex Rivera"`, ändern, Feld verlassen — der
+gespeicherte Entwurf trägt `"Neuer Name"`, und `fontSize` ist weiter
+`19.9391cqw`. Der Knoten ist also nicht nur gültig, sondern im Editor
+bearbeitbar.
 
 ## Icons
 
