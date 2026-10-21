@@ -150,7 +150,6 @@ export async function libraryView(componentId = null) {
   render(body, current);
 }
 
-
 export async function projectsView() {
   const current = routeScope();
   const { sites } = await api("/api/sites");
@@ -218,7 +217,6 @@ export async function projectsView() {
   ], current);
 }
 
-
 export async function createSite() {
   const name = await askText({
     title: "Neues Projekt",
@@ -236,7 +234,6 @@ export async function createSite() {
     failed(error);
   }
 }
-
 
 async function renameSite(site) {
   const name = await askText({
@@ -260,9 +257,7 @@ async function renameSite(site) {
   }
 }
 
-
 let duplicateTarget = null;
-
 function openDuplicate(site) {
   duplicateTarget = site;
   duplicateName.textContent = site.name;
@@ -286,7 +281,6 @@ duplicateForm.addEventListener("submit", async (event) => {
   }
 });
 
-
 async function trashSite(site) {
   const move = await askConfirm({
     title: "In den Papierkorb verschieben?",
@@ -306,7 +300,6 @@ async function trashSite(site) {
     failed(error);
   }
 }
-
 
 export async function trashView() {
   const current = routeScope();
@@ -395,11 +388,8 @@ export async function trashView() {
   ], current);
 }
 
-
 const snapshotDialog = document.getElementById("snapshot-dialog");
-
 const snapshotForm = document.getElementById("snapshot-form");
-
 
 export function openSnapshotDialog() {
   document.getElementById("snapshot-url").value = "";
@@ -430,7 +420,6 @@ snapshotForm.addEventListener("submit", async (event) => {
   }
 });
 
-
 export function linesToList(value) {
   return String(value ?? "")
     .split("\n")
@@ -442,9 +431,6 @@ export function linesToList(value) {
 // (destructive) and needs an explicit second click; the engine writes a
 // safety backup of the replaced state before it touches anything.
 
-// One backup row: the restore runs through POST /api/backups/:id/restore
-// (destructive) and needs an explicit second click; the engine writes a
-// safety backup of the replaced state before it touches anything.
 function backupRow(backup) {
   const cancel = el("button", { class: "ghost", text: "Abbrechen", hidden: true });
   const button = el("button", { class: "ghost", text: "Wiederherstellen" });
@@ -489,7 +475,6 @@ function backupRow(backup) {
     el("td", {}, el("span", { class: "inline" }, button, cancel)),
   );
 }
-
 
 export async function settingsView() {
   const current = routeScope();
@@ -1023,7 +1008,6 @@ export async function settingsView() {
   ], current);
 }
 
-
 const WORKSPACE_TABS = [
   ["pages", "Seiten"],
   ["articles", "Artikel"],
@@ -1036,17 +1020,10 @@ const WORKSPACE_TABS = [
 
 // Selected form in the submissions tab (per program run, not per project).
 
-// Selected form in the submissions tab (per program run, not per project).
 let selectedFormId = null;
-
-// The open SSE channel of the active canvas view (ticket 05): a route change
-// closes it before the next view subscribes, so streams do not stack up.
-
-
 
 // The entry preview stays open across re-renders of the article editor.
 let entryPreviewOpen = false;
-
 
 function workspaceFrame(siteId, site, tab, live) {
   const head = el(
@@ -1077,10 +1054,6 @@ function workspaceFrame(siteId, site, tab, live) {
 // the server does not know. A page without a typed path gets one derived from
 // the title by the server.
 
-// "Neue Seite": title, optional path and a start template. The templates come
-// from the engine (`GET /api/page-starters`), so the dashboard never lists one
-// the server does not know. A page without a typed path gets one derived from
-// the title by the server.
 async function openNewPageDialog(siteId) {
   let starters;
   try {
@@ -1201,18 +1174,12 @@ async function openNewPageDialog(siteId) {
 // Widget-Engine; ein Test hält beide gleich). Sie stehen nur als Hinweis im
 // Feld: gespeichert wird, was eingetragen ist, und die Engine prüft die Grenzen.
 
-// Die Standardwerte der Plattform (Spiegel von `DEFAULT_BREAKPOINTS` im
-// Widget-Engine; ein Test hält beide gleich). Sie stehen nur als Hinweis im
-// Feld: gespeichert wird, was eingetragen ist, und die Engine prüft die Grenzen.
 const BREAKPOINT_DEFAULTS = { tablet: 1024, mobile: 640 };
 
 // Umbruchpunkte der Website (ADR-0020): ab welcher Breite das Tablet- und das
 // Handy-Layout gelten. Sie wirken auf die ganze Website: Editor-Blätter,
 // Vorschau und Veröffentlichung rechnen mit denselben zwei Zahlen.
 
-// Umbruchpunkte der Website (ADR-0020): ab welcher Breite das Tablet- und das
-// Handy-Layout gelten. Sie wirken auf die ganze Website: Editor-Blätter,
-// Vorschau und Veröffentlichung rechnen mit denselben zwei Zahlen.
 function breakpointsPanel(siteId, site) {
   const own = site.breakpoints ?? null;
   const field = (id, label, value, placeholder) =>
@@ -1277,7 +1244,6 @@ function breakpointsPanel(siteId, site) {
     }),
   );
 }
-
 
 export async function projectView(siteId, tab) {
   const current = routeScope();
@@ -1973,9 +1939,7 @@ export async function projectView(siteId, tab) {
 
 /* Artikel-Workspace */
 
-
 let articlesCollectionId = null;
-
 
 function fieldControl(field, value) {
   const inputId = `cell-${field.id}`;
@@ -2019,7 +1983,6 @@ function fieldControl(field, value) {
   return input;
 }
 
-
 function readCells(fields) {
   const cells = {};
   for (const field of fields) {
@@ -2051,7 +2014,6 @@ function readCells(fields) {
   }
   return cells;
 }
-
 
 export async function articlesView(siteId) {
   const current = routeScope();
@@ -2178,7 +2140,6 @@ export async function articlesView(siteId) {
         ),
   ], current);
 }
-
 
 export async function articleEditorView(siteId, entryId) {
   const current = routeScope();

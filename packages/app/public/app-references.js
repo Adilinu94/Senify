@@ -39,9 +39,7 @@ async function deleteReference(reference) {
    in der Adresse (`?q=&collection=&sort=&view=`), die Texte sind Deutsch mit
    englischen Fachbegriffen. */
 
-
 const REFS_ACCENT_FALLBACK = "#8b91a0";
-
 const REFS_MAX_COMPARE = 3;
 const REFS_SEARCH_ICON =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>';
@@ -50,60 +48,37 @@ const REFS_SEARCH_ICON =
 // Alle 24x24 mit `currentColor`, feste Groesse je Einbauort: 15px in der Leiste
 // und an den Karten, 17px in den Icon-Knoepfen, 25px in der Vergleichsauswahl.
 
-// Symbole als eingebettete SVG statt typografischer Zeichen (▦ ◈ ＋ ↗ ✕ ← →).
-// Alle 24x24 mit `currentColor`, feste Groesse je Einbauort: 15px in der Leiste
-// und an den Karten, 17px in den Icon-Knoepfen, 25px in der Vergleichsauswahl.
 function refsIcon(path, size) {
   return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
 }
-
 
 const REFS_ICON_LIBRARY = refsIcon(
   '<rect x="3.6" y="3.6" width="7" height="7" rx="1.6"/><rect x="13.4" y="3.6" width="7" height="7" rx="1.6"/><rect x="3.6" y="13.4" width="7" height="7" rx="1.6"/><rect x="13.4" y="13.4" width="7" height="7" rx="1.6"/>',
   15,
 );
-
 const REFS_ICON_STYLES = refsIcon(
   '<path d="M12 3.6 20.4 12 12 20.4 3.6 12Z"/><path d="M12 8.6 15.4 12 12 15.4 8.6 12Z"/>',
   15,
 );
-
 const REFS_ICON_LINK = refsIcon('<path d="M8.2 15.8 15.8 8.2M9.6 8.2h6.2v6.2"/>', 15);
-
 const REFS_ICON_LINK_BUTTON = refsIcon('<path d="M8.2 15.8 15.8 8.2M9.6 8.2h6.2v6.2"/>', 13);
-
 const REFS_ICON_LINK_LABEL = refsIcon('<path d="M8.2 15.8 15.8 8.2M9.6 8.2h6.2v6.2"/>', 12);
-
 const REFS_ICON_PLUS = refsIcon('<path d="M12 5.4v13.2M5.4 12h13.2"/>', 15);
-
 const REFS_ICON_PLUS_BUTTON = refsIcon('<path d="M12 5.4v13.2M5.4 12h13.2"/>', 13);
-
 const REFS_ICON_PLUS_UPLOAD = refsIcon('<path d="M12 5.4v13.2M5.4 12h13.2"/>', 25);
-
 const REFS_ICON_CLOSE = refsIcon('<path d="M6.8 6.8 17.2 17.2M17.2 6.8 6.8 17.2"/>', 17);
-
 const REFS_ICON_PREV = refsIcon('<path d="M14.4 5.6 8 12l6.4 6.4"/>', 17);
-
 const REFS_ICON_NEXT = refsIcon('<path d="M9.6 5.6 16 12l-6.4 6.4"/>', 17);
-
 const REFS_ICON_SEARCH_LARGE = refsIcon(
   '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
   35,
 );
-
 const REFS_ICON_PLUS_BOX = refsIcon('<path d="M12 6.2v11.6M6.2 12h11.6"/>', 25);
-
 const REFS_ICON_CHECK_BOX = refsIcon('<path d="M5.6 12.4 10 16.8 18.4 7.6"/>', 25);
 
-
 let refsCollections = [];
-
 let refsStyleCatalog = null;
-
 let refsRouteActive = false;
-
-// Der Router setzt das Flag, wenn die Referenzroute laeuft: das Tray blendet
-// sich aus, sobald die Route die Bibliothek verlaesst.
 
 // Der Router setzt das Flag, wenn die Referenzroute laeuft: das Tray blendet
 // sich aus, sobald die Route die Bibliothek verlaesst.
@@ -111,21 +86,15 @@ export function setRefsRouteActive(value) {
   refsRouteActive = value;
 }
 
-
 export function isRefsRouteActive() {
   return refsRouteActive;
 }
 
 let refsDom = null;
-
 export let refsTray = null;
-
 let refsQueryTimer = null;
-
 let refsEmptyMode = "reset";
-
 let refsTrayIds = [];
-
 let refsPending = 0;
 
 // Eine Snapshot-Vorschau laedt das Programm genau einmal und teilt sie sich:
@@ -133,12 +102,7 @@ let refsPending = 0;
 // Sonst fragt jeder Neuaufbau dieselben Bilder erneut an und laeuft ins
 // Kontingent der API.
 
-// Eine Snapshot-Vorschau laedt das Programm genau einmal und teilt sie sich:
-// Karte, Miniatur, Vergleich und Detailseite zeigen dieselbe Blob-Adresse.
-// Sonst fragt jeder Neuaufbau dieselben Bilder erneut an und laeuft ins
-// Kontingent der API.
 const refsImageSources = new Map();
-
 
 function refsImageSource(url) {
   let pending = refsImageSources.get(url);
@@ -161,11 +125,7 @@ function refsImageSource(url) {
 // mehrere hundert Referenzen halten, und jede Aufnahme ist ein paar hundert
 // Kilobyte gross.
 
-// Kartenbilder laden erst, wenn die Karte in Sicht kommt: die Bibliothek kann
-// mehrere hundert Referenzen halten, und jede Aufnahme ist ein paar hundert
-// Kilobyte gross.
 let refsImageObserver = null;
-
 
 function refsLoadOnSight(image, load) {
   if (typeof IntersectionObserver !== "function") {
@@ -188,7 +148,6 @@ function refsLoadOnSight(image, load) {
   refsImageObserver.observe(image);
 }
 
-
 function refsPreviewImage(url, alt, fallback) {
   const image = el("img", { alt });
   refsLoadOnSight(image, () => {
@@ -204,7 +163,6 @@ function refsPreviewImage(url, alt, fallback) {
   return image;
 }
 
-
 const refsState = {
   query: "",
   collection: "",
@@ -213,11 +171,9 @@ const refsState = {
   selected: [],
 };
 
-
 function refsHex(value) {
   return /^#[0-9a-f]{6}$/i.test(value ?? "") ? value : REFS_ACCENT_FALLBACK;
 }
-
 
 function refsSplit(value) {
   return String(value ?? "")
@@ -228,7 +184,6 @@ function refsSplit(value) {
 
 // Zustand aus dem Hash lesen und zurueckschreiben (replaceState, kein Reload).
 
-// Zustand aus dem Hash lesen und zurueckschreiben (replaceState, kein Reload).
 function refsApplyAddress(hash) {
   const current = hash ?? location.hash ?? "#/references";
   const question = current.indexOf("?");
@@ -240,7 +195,6 @@ function refsApplyAddress(hash) {
   refsState.sort = search.get("sort") === "name" ? "name" : "newest";
   refsState.view = search.get("view") === "styles" ? "styles" : "";
 }
-
 
 function refsSyncAddress() {
   if (!/^#\/references(\/|\?|$)/.test(location.hash)) return;
@@ -257,7 +211,6 @@ function refsSyncAddress() {
   );
 }
 
-
 function refsActiveCollection() {
   if (refsState.view === "styles") return null;
   if (refsState.collection === "" || refsState.collection === "none") return null;
@@ -270,11 +223,6 @@ function refsActiveCollection() {
 // (`top layer`) deckt sonst alles ab, was am `<body>` haengt — genau wie im
 // Vorbild haengt `notify()` den Toast in den zuletzt geoeffneten Dialog.
 
-// Toast der Referenzen-Seite: unten mittig, 2600 ms sichtbar, Uebergang wie im
-// Vorbild (`#toast`). Anders als die Shell-Toasts (rechts oben in der Ecke).
-// Liegt ein modales Fenster offen, wandert der Toast hinein: die oberste Ebene
-// (`top layer`) deckt sonst alles ab, was am `<body>` haengt — genau wie im
-// Vorbild haengt `notify()` den Toast in den zuletzt geoeffneten Dialog.
 export function refsToast(message) {
   for (const old of document.querySelectorAll(".refs-toast")) old.remove();
   const node = el("div", {
@@ -294,7 +242,6 @@ export function refsToast(message) {
 
 // Brief kopieren: Clipboard wenn verfuegbar, sonst Dialog zum Markieren.
 
-// Brief kopieren: Clipboard wenn verfuegbar, sonst Dialog zum Markieren.
 function refsCopy(text, message) {
   const clipboard = window.navigator ? window.navigator.clipboard : undefined;
   if (clipboard && typeof clipboard.writeText === "function") {
@@ -306,7 +253,6 @@ function refsCopy(text, message) {
   }
   refsCopyFallback(text);
 }
-
 
 function refsCopyFallback(text) {
   const area = el("textarea", { class: "refs-input", rows: "15" });
@@ -350,7 +296,6 @@ function refsCopyFallback(text) {
 
 // Hintergrund-Klick schliesst jeden `refs-`-Dialog (wie im Vorbild).
 
-// Hintergrund-Klick schliesst jeden `refs-`-Dialog (wie im Vorbild).
 export function refsBindBackdropClose(dialog) {
   dialog.addEventListener("click", (event) => {
     if (event.target !== dialog) return;
@@ -366,11 +311,9 @@ export function refsBindBackdropClose(dialog) {
   });
 }
 
-
 function refsIsSelected(id) {
   return refsState.selected.some((entry) => entry.id === id);
 }
-
 
 function refsToggleSelection(entry) {
   const index = refsState.selected.findIndex((item) => item.id === entry.id);
@@ -388,7 +331,6 @@ function refsToggleSelection(entry) {
   refsUpdateSelectionUI();
 }
 
-
 function refsClearSelection() {
   refsState.selected = [];
   refsRenderTray();
@@ -398,8 +340,6 @@ function refsClearSelection() {
 // Nur die Auswahl-Knoepfe der vorhandenen Karten umschalten, damit die
 // Vorschaubilder nicht erneut geladen werden.
 
-// Nur die Auswahl-Knoepfe der vorhandenen Karten umschalten, damit die
-// Vorschaubilder nicht erneut geladen werden.
 function refsUpdateSelectionUI() {
   if (!refsDom || !refsDom.root.isConnected) return;
   for (const card of refsDom.gallery.querySelectorAll(".refs-card")) {
@@ -412,7 +352,6 @@ function refsUpdateSelectionUI() {
     button.setAttribute("aria-pressed", on ? "true" : "false");
   }
 }
-
 
 function refsEntryFor(reference) {
   // Die Motion-Aufnahme ist ein Video und taugt nicht als Standbild.
@@ -429,7 +368,6 @@ function refsEntryFor(reference) {
     note: reference.note ?? null,
   };
 }
-
 
 function refsNavItem(input) {
   const button = el(
@@ -450,7 +388,6 @@ function refsNavItem(input) {
 }
 
 /* ------------------------------------------------------------- comparison */
-
 
 function refsTrayEnsure() {
   if (refsTray) return refsTray;
@@ -475,14 +412,12 @@ function refsTrayEnsure() {
   return refsTray;
 }
 
-
 function refsThumbNode(entry) {
   if (entry.previewPath) {
     return refsPreviewImage(entry.previewPath, `Vorschau ${entry.name}`);
   }
   return el("div", { class: "refs-tray-more", text: initials(entry.name) });
 }
-
 
 export function refsRenderTray() {
   const tray = refsTrayEnsure();
@@ -502,7 +437,6 @@ export function refsRenderTray() {
   const compareButton = tray.querySelector(".refs-button.primary");
   compareButton.disabled = selected.length < 2;
 }
-
 
 async function refsOpenComparison() {
   if (refsState.selected.length < 2) return;
@@ -585,7 +519,6 @@ async function refsOpenComparison() {
   dialog.showModal();
 }
 
-
 async function refsCopyCombined(ids) {
   try {
     const result = await api("/api/references/brief", {
@@ -599,7 +532,6 @@ async function refsCopyCombined(ids) {
 }
 
 /* ------------------------------------------------------------ collections */
-
 
 function refsOpenCollectionPicker(collections) {
   const dialog = el(
@@ -643,7 +575,6 @@ function refsOpenCollectionPicker(collections) {
   refsBindBackdropClose(dialog);
   dialog.showModal();
 }
-
 
 function refsOpenCollectionDialog(collection) {
   if (!collection) return;
@@ -727,7 +658,6 @@ function refsOpenCollectionDialog(collection) {
   dialog.showModal();
 }
 
-
 async function refsCopyCollectionBrief(collectionId) {
   try {
     const result = await api(`/api/reference-collections/${collectionId}/brief`);
@@ -736,7 +666,6 @@ async function refsCopyCollectionBrief(collectionId) {
     failed(error);
   }
 }
-
 
 function refsOpenCollectionForm(collection) {
   const editing = collection ?? null;
@@ -855,7 +784,6 @@ function refsOpenCollectionForm(collection) {
   dialog.showModal();
 }
 
-
 async function refsDeleteCollection(collection) {
   const count = collection.referenceCount ?? 0;
   const message =
@@ -888,7 +816,6 @@ async function refsDeleteCollection(collection) {
 
 /* ------------------------------------------------------------ add dialog */
 
-
 function refsReadBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new window.FileReader();
@@ -897,7 +824,6 @@ function refsReadBase64(file) {
     reader.readAsDataURL(file);
   });
 }
-
 
 function refsOpenAddDialog() {
   const fileInput = el("input", {
@@ -1170,7 +1096,6 @@ function refsOpenAddDialog() {
 
 /* ------------------------------------------------------------ style guide */
 
-
 function refsStyleCard(collection) {
   const accent = refsHex(collection.accent);
   const preview = el(
@@ -1239,7 +1164,6 @@ function refsStyleCard(collection) {
 }
 
 /* ---------------------------------------------------------------- shell */
-
 
 function refsBuildShell() {
   const libraryNav = el("nav", { "aria-label": "Bibliothek" });
@@ -1472,7 +1396,6 @@ function refsBuildShell() {
   return refsDom;
 }
 
-
 function refsResetFilters() {
   refsState.query = "";
   refsState.collection = "";
@@ -1486,7 +1409,6 @@ function refsResetFilters() {
   void refsRefresh();
 }
 
-
 export async function referencesView() {
   const current = routeScope();
   activeTab("references");
@@ -1496,7 +1418,6 @@ export async function referencesView() {
   await refsRefresh();
   refsRenderTray();
 }
-
 
 async function refsRefresh() {
   if (!refsDom) return;
@@ -1673,13 +1594,8 @@ async function refsRefresh() {
 // Karten samt Bildern auf einmal zu viel. Der Waechter am Ende der Liste zieht
 // den naechsten Block nach, sobald er in Sicht kommt.
 
-// Karten in Bloecken zeichnen: bei mehreren hundert Referenzen waeren alle
-// Karten samt Bildern auf einmal zu viel. Der Waechter am Ende der Liste zieht
-// den naechsten Block nach, sobald er in Sicht kommt.
 const REFS_CARD_BATCH = 48;
-
 let refsCardObserver = null;
-
 
 function refsRenderCards(references, gallery) {
   gallery.replaceChildren();
@@ -1727,12 +1643,10 @@ function refsRenderCards(references, gallery) {
   refsCardObserver.observe(sentinel);
 }
 
-
 function refsEmptyAction() {
   if (refsEmptyMode === "seed") void refsSeedStyles();
   else refsResetFilters();
 }
-
 
 function refsStyleMatches(collection, query) {
   if (query === "") return true;
@@ -1742,11 +1656,9 @@ function refsStyleMatches(collection, query) {
     .includes(query.toLowerCase());
 }
 
-
 function refsFooterText(count, noun, query) {
   return `${count} ${noun}${query === "" ? " in Sicht" : ` passend zu “${query}”`}`;
 }
-
 
 function refsSetView(view) {
   refsState.view = view;
@@ -1755,14 +1667,12 @@ function refsSetView(view) {
   void refsRefresh();
 }
 
-
 function refsSetCollection(collectionId) {
   refsState.collection = collectionId;
   refsState.view = "";
   refsSyncAddress();
   void refsRefresh();
 }
-
 
 async function refsSeedStyles() {
   try {
@@ -1774,7 +1684,6 @@ async function refsSeedStyles() {
   }
 }
 
-
 function refsSearchParams() {
   const params = new window.URLSearchParams();
   if (refsState.query !== "") params.set("q", refsState.query);
@@ -1783,11 +1692,9 @@ function refsSearchParams() {
   return params;
 }
 
-
 function refsTrayResync() {
   refsRenderTray();
 }
-
 
 function refsCard(reference) {
   const selected = refsIsSelected(reference.id);
@@ -1848,7 +1755,6 @@ function refsCard(reference) {
   return el("article", { class: "refs-card", "data-reference": reference.id }, select, art, meta);
 }
 
-
 function refsCardImage(reference) {
   // The engine marks the card snapshot (hero slot first); older payloads
   // without it fall back to the first viewable shot, never motion.
@@ -1874,7 +1780,6 @@ function refsCardImage(reference) {
 
 // Aufklappbare Bausteine der Detailspalte (Rezept, Profil und Aktionen).
 
-// Aufklappbare Bausteine der Detailspalte (Rezept, Profil und Aktionen).
 export function refsFold(title, body, open) {
   const details = el("details", { class: "refs-fold" });
   if (open) details.open = true;
@@ -1888,29 +1793,19 @@ export function refsFold(title, body, open) {
    (Bildbuehne + Detailspalte) und ein aufklappbares Bildrezept. Die Texte sind
    deutsch. */
 
-
 const REFS_ZOOM_IN = "Zoom";
-
 const REFS_ZOOM_OUT = "Einpassen";
 
-
 export let refsInspector = null;
-
 let refsInspectorIds = [];
-
 let refsInspectorId = null;
-
 let refsInspectorReturn = null;
-
 let refsInspectorToken = 0;
 
 // Ids der aktuellen Ansicht: die volle Auswahl der Liste (Suche, Sammlung und
 // Sortierung zaehlen mit). So zaehlt „Referenz x von n" auch dann richtig, wenn
 // die Karten erst in Bloecken gezeichnet werden.
 
-// Ids der aktuellen Ansicht: die volle Auswahl der Liste (Suche, Sammlung und
-// Sortierung zaehlen mit). So zaehlt „Referenz x von n" auch dann richtig, wenn
-// die Karten erst in Bloecken gezeichnet werden.
 function refsInspectorList() {
   return refsInspectorIds;
 }
@@ -1918,12 +1813,9 @@ function refsInspectorList() {
 // Klick auf eine Karte (oder Enter): oeffnet das Fenster — ohne neuen
 // Verlaufseintrag und ohne Hash-Wechsel, wie im Vorbild.
 
-// Klick auf eine Karte (oder Enter): oeffnet das Fenster — ohne neuen
-// Verlaufseintrag und ohne Hash-Wechsel, wie im Vorbild.
 function refsOpenDetail(referenceId) {
   void refsOpenInspector(referenceId);
 }
-
 
 function refsInspectorBuild() {
   const label = el("span", { class: "refs-dialog-label", text: "Referenz" });
@@ -2017,7 +1909,6 @@ function refsInspectorBuild() {
 
 // Zoom vergroessert das Bild auf Originalmasse; die Buehne scrollt dann intern.
 
-// Zoom vergroessert das Bild auf Originalmasse; die Buehne scrollt dann intern.
 function refsInspectorSetZoom(on) {
   const dom = refsInspector;
   if (!dom) return;
@@ -2029,7 +1920,6 @@ function refsInspectorSetZoom(on) {
 
 // Blaettern innerhalb der aktuellen Ansicht (Knoepfe und Pfeiltasten).
 
-// Blaettern innerhalb der aktuellen Ansicht (Knoepfe und Pfeiltasten).
 function refsInspectorStep(delta) {
   const ids = refsInspectorList();
   const position = ids.indexOf(refsInspectorId);
@@ -2041,8 +1931,6 @@ function refsInspectorStep(delta) {
 // Aktionen des Fensters. Die Analyse-Daten (Profil, Aufnahmen, Evidenzen) bleiben
 // bewusst draussen: sie gehoeren dem Agenten und der API, nicht der Oberflaeche.
 
-// Aktionen des Fensters. Die Analyse-Daten (Profil, Aufnahmen, Evidenzen) bleiben
-// bewusst draussen: sie gehoeren dem Agenten und der API, nicht der Oberflaeche.
 function refsInspectorActions(reference) {
   return el(
     "div",
@@ -2064,7 +1952,6 @@ function refsInspectorActions(reference) {
    Der Renderer deckt genau ab, was diese Dateien nutzen: Ueberschriften,
    Tabellen, Listen, Blockzitate, Code, Hervorhebungen und Links. Rohes HTML
    wird immer maskiert, es gibt keinen Durchgriff auf das Dokument. */
-
 function refsEscapeHtml(value) {
   return String(value)
     .replace(/&/g, "&amp;")
@@ -2072,7 +1959,6 @@ function refsEscapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 }
-
 
 function refsInlineMarkdown(value) {
   return String(value)
@@ -2091,7 +1977,6 @@ function refsInlineMarkdown(value) {
     })
     .join("");
 }
-
 
 function refsMarkdownTable(rows) {
   const cells = (row) =>
@@ -2114,7 +1999,6 @@ function refsMarkdownTable(rows) {
     .join("");
   return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
 }
-
 
 function refsRenderMarkdown(source) {
   const lines = String(source ?? "").replace(/\r\n/g, "\n").split("\n");
@@ -2215,7 +2099,6 @@ function refsRenderMarkdown(source) {
 
 // Der Umschalter der Vorschaubilder (Desktop/Mobil) am Rand der Bildbuehne.
 
-// Der Umschalter der Vorschaubilder (Desktop/Mobil) am Rand der Bildbuehne.
 function refsShotLabel(shot) {
   if (shot.breakpoint === "mobile") return "Mobil";
   if (shot.breakpoint === "tablet") return "Tablet";
@@ -2224,7 +2107,6 @@ function refsShotLabel(shot) {
 
 /* Inhalte des Fensters aus den echten Daten: Sammlung, Titel, Familie, Notiz,
    Vokabular, Komposition, Bildrezept und die zwei Brief-Kopierer. */
-
 async function refsInspectorShow(referenceId) {
   const dom = refsInspector;
   if (!dom) return;
@@ -2477,8 +2359,6 @@ async function refsInspectorShow(referenceId) {
 // Fenster oeffnen bzw. fuellen. `options.replace` schreibt die Adresse zurueck
 // auf die Bibliothek, wenn der Aufruf von einem Deep-Link kommt.
 
-// Fenster oeffnen bzw. fuellen. `options.replace` schreibt die Adresse zurueck
-// auf die Bibliothek, wenn der Aufruf von einem Deep-Link kommt.
 export async function refsOpenInspector(referenceId, options = {}) {
   if (!refsInspector) refsInspector = refsInspectorBuild();
   const dom = refsInspector;
@@ -2502,7 +2382,6 @@ export async function refsOpenInspector(referenceId, options = {}) {
 }
 
 /* Vorlieben und Haus-DNA im Einstellungen-Tab (T12/T14). */
-
 export function refsSettingsSection(settings) {
   const dna = settings.referenceDna ?? { name: "", description: "", constants: [], never: [] };
   const preferences = settings.referencePreferences ?? { includeDna: false, overrides: "" };

@@ -100,10 +100,6 @@ export function importReportBlock(report) {
   );
 }
 
-// Review-Details (T07): Struktur-Diff in Klartext, dann die Aufnahmen aus
-// review.visuals - Vorher/Nachher je Breakpoint, das Diff-Bild mit Quote und
-// die Motion-Aufnahme, wenn die Aenderung Bewegung beruehrt hat.
-
 export function openFramerImportDialog({ siteId, pageId, session, onImported }) {
   const dialog = el("dialog", { class: "refs-dialog framer-import-dialog", "data-role": "framer-import-dialog" });
   const sourceSelect = el("select", { class: "refs-input", "data-role": "framer-source-mode" });
@@ -483,8 +479,6 @@ export function openFramerImportDialog({ siteId, pageId, session, onImported }) 
 // How a media need is presented. The wording stays short so a card with six
 // needs stays readable.
 
-// How a media need is presented. The wording stays short so a card with six
-// needs stays readable.
 function mediaLabel(treatment) {
   if (treatment === "reuse") return "wiederverwenden";
   if (treatment === "select") return "auswählen";
@@ -498,9 +492,6 @@ function mediaLabel(treatment) {
 // cards; this is where a person actually chooses one. Nothing is preselected:
 // a click on a card only selects, the confirm button creates the draft.
 
-// The human direction step of a redesign (ADR-0012). The agent proposed the
-// cards; this is where a person actually chooses one. Nothing is preselected:
-// a click on a card only selects, the confirm button creates the draft.
 export function openRedesignDirectionDialog(proposal) {
   const cards = Array.isArray(proposal.cards) ? proposal.cards : [];
   const errorEl = el("p", { class: "redesign-dialog__error", "data-role": "redesign-error", role: "alert" });
@@ -771,22 +762,6 @@ export function openRedesignDirectionDialog(proposal) {
 // derer, die wirklich noch offen sind - nicht die Zahl vor dem Schliessen, sonst
 // wuerde der Dialog eine Erledigung melden, die nicht stattgefunden hat.
 
-// P2-2: die Bedienung der offenen Medienbedarfe. Das Apply hat die Seite gebaut,
-// aber ein Bild fehlt noch - und genau hier wird das entschieden, nicht in einem
-// Toast, den niemand liest.
-//
-// Je Bedarf stehen vier Wege offen, und jeder beantwortet dieselbe Frage anders:
-//   - `select`   ein vorhandenes Asset der Zielsite waehlen (die Bibliothek des
-//                Releases, nicht die der Quelle)
-//   - `upload`   eine Datei aus dem Rechner hochladen
-//   - `generate` den mitgelieferten Prompt an die Provider-Kette geben
-//   - `manual`   bewusst offen lassen: der Slot bleibt leer, der Bedarf gilt als
-//                entschieden, und das wird auch so protokolliert
-//
-// Die Schluesselung laeuft in EINEM Aufruf: eine Bedarf-Id, die der Server nicht
-// kennt, ist ein Fehler und kein stiller Fortschritt. `onDone` bekommt die Zahl
-// derer, die wirklich noch offen sind - nicht die Zahl vor dem Schliessen, sonst
-// wuerde der Dialog eine Erledigung melden, die nicht stattgefunden hat.
 async function openMediaNeedPanel({ proposalId, siteId, pageId, needs, onDone }) {
   const list = el("div", { class: "media-needs", "data-role": "media-needs" });
   const errorEl = el("p", { class: "media-needs__error", "data-role": "media-needs-error" });
@@ -980,20 +955,3 @@ async function openMediaNeedPanel({ proposalId, siteId, pageId, needs, onDone })
   refsBindBackdropClose(dialog);
   dialog.showModal();
 }
-
-// Wartet auf einen Bild-Job und liefert die Asset-Id (P2-2).
-//
-// Ein Job ist asynchron: die Route antwortet 202, der Lauf arbeitet weiter. Der
-// Dialog darf also nicht auf eine fertige Bilddatei warten, sondern auf einen
-// ENTSCHIEDENEN Zustand. Beendet wird gewartet bei `succeeded` (mit Asset), bei
-// `failed`/`canceled` (mit der Fehlermeldung des Laufs) und nach einer Frist.
-//
-// Die Statusnamen kommen aus dem Engine-Typ (`IMAGE_JOB_STATUSES`): `succeeded`
-// und `canceled`, nicht `done` und `cancelled`. Hier standen zuerst die
-// falschen - der Dialog wartete dann endlos auf einen Zustand, den es nicht
-// gibt, während der Job längst fertig war.
-//
-// Die Frist ist kein Optimismus: ein hängender Job darf einen Menschen nicht
-// ewig am Dialog festhalten. Nach Ablauf wird ein Fehler gemeldet und der Slot
-// bleibt offen - der Bedarf ist dann noch da und wird beim nächsten Versuch
-// neu erzeugt, statt still als geschlossen zu gelten.
