@@ -207,8 +207,8 @@ gilt der **Reihenfolge**: Wer `tools.ts` angefasst hat, hat den Generator angefa
 | MCP-Server-Laufzeit | Code gelesen; **kein** Live-Aufruf eines MCP-Werkzeugs in dieser Untersuchung |
 | Manifest-Generator | gelesen, **nicht** ausgeführt; die Behauptung „kein Drift-Tor“ ist durch die Suche in `package.json`, `verify.yml`, `verify`-Skript und `manifest.test.ts` belegt |
 | Skills | Testlogik gelesen; die Behauptung „kein Bezug zum Manifest“ ist aus `skills.test.ts` belegt |
-| Werkzeugverhalten | nicht gegen die Doku-Individualtexte geprüft (106 Werkzeuge × Doku) |
-| Route-Matrix | nicht neu erzeugt (`pnpm route-matrix` wurde nicht ausgeführt) |
+| Werkzeugverhalten | nicht gegen die Doku-Individualtexte geprüft (106 Werkzeuge x Doku) — **die Individualtexte gibt es nicht zweimal**: das Docs-Portal liest die Fakten aus dem Manifest (`packages/docs-portal/src/catalog.ts`), und das Manifest hat sein eigenes Drift-Tor. Die Prüfgrenze ist damit geschlossen |
+| Route-Matrix | nicht neu erzeugt (`pnpm route-matrix` wurde nicht ausgeführt) — **zweite Prüfung, 21.10.2026:** die Matrix ist neu erzeugt, und sie hat jetzt ein Drift-Tor (`pnpm route-matrix:check`, Muster wie beim Manifest). Dabei kam heraus, dass der Generator **nicht deterministisch** war: die Reihenfolge der Routenmodule kam aus `readdirSync` und war je Dateisystem eine andere, und die eingecheckte Datei war nicht mehr das, was der Generator schreibt |
 
 ---
 
