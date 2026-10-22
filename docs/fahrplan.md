@@ -272,6 +272,14 @@ Versionierte Records werden bei Review und Publish gespeichert; Manifest und Re-
 
    **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf allen drei beruehrten Dateien.
 
+37. `app-refs-icons.js` (22.10.2026): die 14 Symbole der Referenzen-Seite und ihr Erzeuger `refsIcon` wandern aus `app-references.js`. `app-references.js`: 2 148 → 2 117 Zeilen; `app-refs-icons.js`: 46 Zeilen.
+
+   **Der Schnitt raeumt ein Duplikat ab, das der vorige Schritt hinterlassen hatte.** Als die Rueckmeldungen auszogen, brauchte das neue Modul das Schliessen-Symbol und baute es nach — mit einer eigenen, fest eingebauten SVG-Zeichenkette. Das war noetig, weil ein Rueckimport einen Zyklus ergeben haette, aber es war eine zweite Wahrheit: zwei Stellen, die dasselbe Symbol beschrieben. Jetzt gibt es den Erzeuger genau einmal, und beide Module holen das Symbol von dort.
+
+   **Beleg, dass das Markup gleich bleibt:** Das fest eingebaute SVG des vorigen Schritts ist zeichengleich mit dem, was `refsIcon` liefert — geprueft, nicht angenommen. Der Multiset-Vergleich ueber alle drei Dateien zeigt genau eine fehlende und eine neue Zeile, und das sind die beiden Fassungen desselben Symbols.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf allen drei Dateien.
+
 **Reihenfolge:** `store.ts`, `http.ts`, `mcp/tools.ts`, `app.js`; `mount.ts` entfällt mit P3-1. Nicht mehrere große Module gleichzeitig aufteilen.
 **Gate dieses Schritts:** `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:coverage`, `pnpm quality:render`, `pnpm quality:check` und `git diff --check` am 29.09.2026 grün; vorhandene Assertions unverändert. Vor einem weiteren Schritt: Änderungen fachlich committen und `git status --short` leer prüfen. Bei Browser-/Build-Pfaden zusätzlich die passenden App-Gates. Der vierte Schritt (09.10.2026) lief mit typecheck, lint, Coverage-Volllauf (1068/15/0), `quality:render`/`quality:check` und `check:patch` grün. **Gate des zweiten Schritts (07.10.2026):** dieselben Kommandos; `pnpm test` hatte zwei rote Browser-Tests ohne Bezug zur Auslagerung (Einordnung in `docs/current/qualitaet.md`), alles andere grün.
 
@@ -383,6 +391,7 @@ Der Import wurde am 20.10.2026 an einer veröffentlichten Seite gemessen (`https
 
 | Datum | Änderung |
 |---|---|
+| 22.10.2026 | P3-2 Schritt 37: die 14 Symbole und `refsIcon` wandern aus `app-references.js` in `app-refs-icons.js`. Der Schnitt raeumt ein Duplikat des vorigen Schritts ab (das Schliessen-Symbol war fest eingebaut worden); das Markup ist zeichengleich, geprueft. `app-references.js`: 2 148 → 2 117 Zeilen. App-Suite 38 Dateien/69 Tests, eslint, Build, `node --check`. |
 | 22.10.2026 | P3-2 Schritt 36: `refsSettingsSection` wandert aus `app-references.js` in `app-refs-settings.js` - der Referenz-Block der Einstellungen, gerufen von `app-projects.js`, ohne Zugriff auf den Bibliotheks-Zustand. `app-references.js`: 2 225 → 2 148 Zeilen. Belegt ueber das Multiset (2 015 vorher, 2 015 nachher, 0 fehlt, 0 zu viel); zwei tote Importe, die der Schnitt hinterliess, hat ESLint gefunden. |
 | 22.10.2026 | P3-2 Schritt 35: Toast, Kopieren und Backdrop-Schliessen wandern aus `app-references.js` in `app-refs-dialog.js`. Der erste Block, der ohne den geteilten `refsState` zu schneiden war; ein Zyklus um das Schliessen-Symbol wurde dabei sichtbar und durch Umzug des Symbols geloest. `app-references.js`: 2 314 → 2 222 Zeilen. Belegt ueber das Multiset (2 094 vorher, 2 094 nachher, 0 fehlt, 0 zu viel) und SVG-Attributvergleich. |
 | 21.10.2026 | P3-2 Schritt 34: Theme und Ereignisprotokoll wandern aus `store.ts` in `store-themes.ts` (`ThemesRepository`, vier Operationen). `updateTheme` schreibt Theme-Zeile und Audit in einer Transaktion; eine Naht (Site-Existenz). `store.ts`: 3 143 → 2 652 Zeilen. Beleg: `store-themes.test.ts` (10 Faelle, inklusive Race und verschwindender Zeile), Gegenprobe (ohne validateTheme rot), Coverage 96,02 % Statements / 75 % Branches. |
