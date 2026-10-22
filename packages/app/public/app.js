@@ -6,7 +6,8 @@
 
 import { activeTab, api, cmdk, cmdkInput, cmdkResults, currentRouteGeneration, el, failed, friendlyError, nextRouteGeneration, render, view } from "./app-core.js";
 import { pageView } from "./app-editor.js";
-import { createSite, libraryView, projectView, projectsView, settingsView, trashView } from "./app-projects.js";
+import { createSite, projectView, projectsView, settingsView } from "./app-projects.js";
+import { libraryView, trashView } from "./app-library.js";
 import { articleEditorView, articlesView } from "./app-articles.js";
 import { isRefsRouteActive, referencesView, refsInspector, refsOpenInspector, refsRenderTray, refsTray, setRefsRouteActive } from "./app-references.js";
 

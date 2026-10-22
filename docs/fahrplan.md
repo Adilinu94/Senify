@@ -324,6 +324,16 @@ Versionierte Records werden bei Review und Publish gespeichert; Manifest und Re-
 
    **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf beiden Dateien.
 
+42. `app-library.js` (22.10.2026): die Bausteinbibliothek und der Papierkorb wandern aus `app-projects.js` — `libraryView` und `trashView`. `app-projects.js`: 1 936 → 1 707 Zeilen; `app-library.js`: 240 Zeilen.
+
+   **Die zwei Views teilen sich nichts mit den Projekten.** Keine Modulvariable, kein geteilter Zustand, nur die Kern-Helfer. Sie liegen zusammen, weil sie dasselbe Fachgebiet bedienen: was nicht mehr in einem Projekt steht (die Bibliothek) und was nicht mehr in der Liste steht (der Papierkorb).
+
+   **`app-projects.js` ist damit unter 1 800 Zeilen** — von 2 309 am Anfang der Runde. Die groessten Reste sind `projectView` (691) und `settingsView` (531); beide haengen an Modulvariablen der Datei und brauchen einen eigenen Schnitt.
+
+   **Der Modulform-Test fand zwei Doppelleerzeilen** an den Schnittkanten — dieselbe Stelle wie bei den vorigen Schritten, jedes Mal behoben.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf allen drei Dateien.
+
 **Reihenfolge:** `store.ts`, `http.ts`, `mcp/tools.ts`, `app.js`; `mount.ts` entfällt mit P3-1. Nicht mehrere große Module gleichzeitig aufteilen.
 **Gate dieses Schritts:** `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:coverage`, `pnpm quality:render`, `pnpm quality:check` und `git diff --check` am 29.09.2026 grün; vorhandene Assertions unverändert. Vor einem weiteren Schritt: Änderungen fachlich committen und `git status --short` leer prüfen. Bei Browser-/Build-Pfaden zusätzlich die passenden App-Gates. Der vierte Schritt (09.10.2026) lief mit typecheck, lint, Coverage-Volllauf (1068/15/0), `quality:render`/`quality:check` und `check:patch` grün. **Gate des zweiten Schritts (07.10.2026):** dieselben Kommandos; `pnpm test` hatte zwei rote Browser-Tests ohne Bezug zur Auslagerung (Einordnung in `docs/current/qualitaet.md`), alles andere grün.
 
@@ -435,6 +445,7 @@ Der Import wurde am 20.10.2026 an einer veröffentlichten Seite gemessen (`https
 
 | Datum | Änderung |
 |---|---|
+| 22.10.2026 | P3-2 Schritt 42: Bausteinbibliothek und Papierkorb wandern aus `app-projects.js` in `app-library.js` (`libraryView`, `trashView`). Beide teilen sich nichts mit den Projekten - keine Modulvariable, kein Zustand. `app-projects.js`: 1 936 → 1 707 Zeilen. App-Suite 38/69, eslint, Build, `node --check`. |
 | 22.10.2026 | P3-2 Schritt 41: der Inspector der Referenzen wandert aus `app-references.js` in `app-refs-inspector.js` (neun Funktionen, Fenster-Zustand, drei Helfer). Der einzige grosse Block ohne Zustandsbezug - deshalb liess er sich als Ganzes schneiden. `app-references.js`: 1 485 → 992 Zeilen. App-Suite 38/69, eslint, Build, `node --check`. |
 | 22.10.2026 | P3-2 Schritt 40: der Add-Dialog der Referenzen wandert aus `app-references.js` in `app-refs-add.js` (`refsOpenAddDialog`, `refsReadBase64`). Eine Naht (`refsRefresh` als Rueckruf). `app-references.js`: 1 763 → 1 482 Zeilen. Beim Umzug blieben fuenf tote Importe stehen - ESLint fand alle. App-Suite 38/69, eslint, Build, `node --check`. |
 | 22.10.2026 | P3-2 Schritt 39: die Sammlungen der Referenzen wandern aus `app-references.js` in `app-refs-collections.js`. Der Block war bis zum Zustands-Schnitt blockiert (er ruft `refsRefresh` und `refsSetCollection`); jetzt kommen beide als Rueckrufe herein. `app-references.js`: 2 040 → 1 756 Zeilen. App-Suite 38/69, eslint, Build, `node --check`. |
