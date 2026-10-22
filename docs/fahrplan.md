@@ -344,6 +344,16 @@ Versionierte Records werden bei Review und Publish gespeichert; Manifest und Re-
 
    **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf allen drei Dateien.
 
+44. `app-workspace.js` (22.10.2026): der Projekt-Workspace wandert aus `app-projects.js` — `projectView` (691 Zeilen), `workspaceFrame`, `openNewPageDialog`, `breakpointsPanel` und die zwei Konstanten `WORKSPACE_TABS` und `BREAKPOINT_DEFAULTS`. `app-projects.js`: 1 129 → 200 Zeilen; `app-workspace.js`: 932 Zeilen.
+
+   **`app-projects.js` ist damit fast leer:** 200 Zeilen, von 2 309 am Anfang der Runde. Es enthaelt noch `projectsView`, `createSite`, `linesToList`, den Snapshot-Dialog und die zwei Duplikat-Helfer — die Projektliste und das Anlegen.
+
+   **Was mitwandern musste:** `selectedFormId` (die ausgewaehlte Formular-Einreichung im Tab) und vier Kern-Helfer, die nur die View braucht. Dazu `workspaceFrame`, das `app-articles.js` bisher ueber `app-projects.js` holte — es zeigt jetzt auf das neue Modul, und der Umweg entfaellt.
+
+   **Was der Modulform-Test fand:** sieben Doppelleerzeilen und zwei Waisen-Kommentare am Dateiende. Die Kommentare beschrieben die zwei Konstanten, die mitgewandert waren; sie standen danach ohne Code da. Beides behoben.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf allen drei Dateien.
+
 **Reihenfolge:** `store.ts`, `http.ts`, `mcp/tools.ts`, `app.js`; `mount.ts` entfällt mit P3-1. Nicht mehrere große Module gleichzeitig aufteilen.
 **Gate dieses Schritts:** `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:coverage`, `pnpm quality:render`, `pnpm quality:check` und `git diff --check` am 29.09.2026 grün; vorhandene Assertions unverändert. Vor einem weiteren Schritt: Änderungen fachlich committen und `git status --short` leer prüfen. Bei Browser-/Build-Pfaden zusätzlich die passenden App-Gates. Der vierte Schritt (09.10.2026) lief mit typecheck, lint, Coverage-Volllauf (1068/15/0), `quality:render`/`quality:check` und `check:patch` grün. **Gate des zweiten Schritts (07.10.2026):** dieselben Kommandos; `pnpm test` hatte zwei rote Browser-Tests ohne Bezug zur Auslagerung (Einordnung in `docs/current/qualitaet.md`), alles andere grün.
 
@@ -455,6 +465,7 @@ Der Import wurde am 20.10.2026 an einer veröffentlichten Seite gemessen (`https
 
 | Datum | Änderung |
 |---|---|
+| 22.10.2026 | P3-2 Schritt 44: der Projekt-Workspace wandert aus `app-projects.js` in `app-workspace.js` (`projectView`, 691 Zeilen, plus drei Helfer und zwei Konstanten). `app-projects.js`: 1 129 → 197 Zeilen - von 2 309 am Anfang der Runde. Der Modulform-Test fand sieben Doppelleerzeilen und zwei Waisen-Kommentare; beides behoben. |
 | 22.10.2026 | P3-2 Schritt 43: die Einstellungen wandern aus `app-projects.js` in `app-settings.js` (`settingsView`, 531 Zeilen, und `backupRow`). Eine Naht, die mitwanderte. `app-projects.js`: 1 707 → 1 129 Zeilen - von 2 309 am Anfang der Runde mehr als halbiert. App-Suite 38/69, eslint, Build, `node --check`. |
 | 22.10.2026 | P3-2 Schritt 42: Bausteinbibliothek und Papierkorb wandern aus `app-projects.js` in `app-library.js` (`libraryView`, `trashView`). Beide teilen sich nichts mit den Projekten - keine Modulvariable, kein Zustand. `app-projects.js`: 1 936 → 1 707 Zeilen. App-Suite 38/69, eslint, Build, `node --check`. |
 | 22.10.2026 | P3-2 Schritt 41: der Inspector der Referenzen wandert aus `app-references.js` in `app-refs-inspector.js` (neun Funktionen, Fenster-Zustand, drei Helfer). Der einzige grosse Block ohne Zustandsbezug - deshalb liess er sich als Ganzes schneiden. `app-references.js`: 1 485 → 992 Zeilen. App-Suite 38/69, eslint, Build, `node --check`. |
