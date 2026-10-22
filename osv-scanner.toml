@@ -34,3 +34,13 @@
 # Diese Datei bleibt bestehen, auch ohne Eintraege: der Scanner liest sie, und
 # ein leeres Blatt mit Kommentar ist ehrlicher als eine geloeschte Datei, bei
 # der der naechste Auditfragt, ob sie weg soll.
+#
+# Nachtrag 22.10.2026 (abends): zwei an diesem Tag veroeffentlichte
+# Advisories sind ebenfalls ohne Ausnahme geschlossen. `astro`
+# (GHSA-mpr7-6m5w-76rw, CSS-Injection in View Transitions, behoben in 7.3.3)
+# steht jetzt auf ^7.3.3 in `packages/renderer` und `packages/docs-portal`;
+# `ip-address` (GHSA-rxp7-6hxx-x8q5, quadratische Laufzeit vor der
+# Laengenpruefung, behoben in 10.7.4) kommt ueber `express-rate-limit` und
+# steht als Override auf 10.7.4. Beide hatten ein Fix-Release, also war eine
+# Ausnahme nicht noetig - der Scan blieb gruen, ohne dass etwas eingetragen
+# wurde.

@@ -65,6 +65,7 @@
       "devalue": "5.9.3",
       "hono": "4.13.11",
       "http-cache-semantics": "4.3.0",
+      "ip-address": "10.7.4",
       "playwright-core": "1.63.0",
       "sharp": "0.35.5",
       "smol-toml": "1.9.0",
