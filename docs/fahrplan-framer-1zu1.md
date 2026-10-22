@@ -424,27 +424,58 @@ heights against the taller canvas").
 kein Wegwerf-Skript in einem Temp-Ordner: acht fremde Framer-Seiten, Import →
 Backen → Pixel-Differenz bei 1440 / 900 / 390 px, mit Höhenvergleich.
 
-**Die korrigierte Messung (21.10.2026, Desktop / Tablet / Mobil):**
+**Die korrigierte Messung (22.10.2026, Desktop / Tablet / Mobil):**
 
 | Seite | Pixel-Differenz | Höhe Import − Quelle | Urteil |
 |---|---|---|---|
-| wedge | 0,46 / 0,69 / 0,86 % | **0 / 0 / 0 px** | brauchbar |
+| wedge | 0,92 / 1,35 / 0,86 % | **0 / 0 / 0 px** | brauchbar |
 | meeko | 0,40 / 0,64 / 1,09 % | **0 / 0 / 0 px** | brauchbar |
-| refined | 1,69 / 2,42 / 5,77 % | −18 / −18 / −36 px | brauchbar |
-| unifiersofjapan | 21,01 / 24,04 / 26,73 % | +780 / −615 / +182 px | nicht brauchbar |
-| notes | 27,96 / 34,25 / 36,65 % | −242 / −241 / −503 px | nicht brauchbar |
-| donutshop | 45,28 / 44,36 / 44,52 % | **+1857 / −1641 / −1864 px** | nicht brauchbar |
-| last-studio | 80,21 / 78,66 / 83,74 % | **+8024 / −3701 / −5123 px** | nicht brauchbar |
+| refined | 1,66 / 2,40 / 5,64 % | −18 / −18 / −36 px | brauchbar |
+| donutshop | **11,81 / 10,12 / 20,51 %** | **+3 / +3 / −35 px** | grenzwertig |
+| last-studio | **24,85 / 23,30 / 15,34 %** | +177 / +107 / +43 px | nicht brauchbar |
+| unifiersofjapan | 21,61 / 24,09 / 26,68 % | +780 / −615 / +182 px | nicht brauchbar |
+| notes | 27,95 / 34,23 / 36,64 % | −242 / −241 / −503 px | nicht brauchbar |
 
-**Die Zahl, die vorher falsch dokumentiert war:** `notes` stand mit **0,59 %** in
-diesem Plan. Mit der korrekten Höhenregel sind es **27,96 %** — die Seite ist
-242 px zu kurz, und die alte Messung schnitt genau diesen Streifen ab. `wedge`
-und `meeko` bleiben bei ihrem Wert, weil ihre Höhe exakt stimmt; das ist der
-Gegenbeweis, dass die neue Regel nicht einfach alles schlechter macht.
+**Was die Zahl am 22.10.2026 bewegte** (U1, `docs/fahrplan-framer-import.md`):
+`last-studio` lag bei 80,21 / 78,66 / 83,74 % und ist auf **24,85 / 23,30 /
+15,34 %** gefallen; `donutshop` von 45,28 / 44,36 / 44,52 % auf **11,81 / 10,12 /
+20,51 %**. Drei Fehler zusammen: die Seiten liefern ihre Breakpoints nicht im
+Kanal (nur im `data-framer-breakpoint-css`-Block), der `hidden-`-Marker wurde
+zu weit vererbt, und das Geräte-Universe war zu klein. `refined` und `wedge`
+bleiben unverändert — der Gegenbeweis, dass die Änderung nicht breit streut.
 
 **Ergebnis: 3 von 7 Seiten sind brauchbar** (statt der vorher dokumentierten
 „4 von 11"). Die Abweichung ist nicht die neue Regel, sondern die alte, die
 Fehler verdeckt hat. `receivio` ist inzwischen 404 und fällt aus der Gruppe.
+
+**Was noch offen ist:** `notes` und `unifiersofjapan` verlieren weiter Fläche —
+dort ist es **nicht** die Geräte-Faltung. Das braucht eine eigene Messung.
+
+### Schritt 2b · Die Geräte-Faltung (U1) — **umgesetzt 22.10.2026**
+
+**Ziel:** Die per Gerät duplizierten Elemente werden **ein** Knoten, nicht zwei
+übereinander.
+
+Drei Fehler zusammen — jeder allein hätte nicht gereicht:
+
+1. **Die Seite kennt ihre Breakpoints nicht.** `last-studio` liefert keinen
+   `__framer__breakpoints`-Kanal; die Hashes stehen nur im
+   `<style data-framer-breakpoint-css>`-Block. Der Capture liest sie jetzt auch
+   dort (`breakpointsFromStyles`), in beiden Formen: nackt (`.hidden-72rtr7`) und
+   unter einem Komponenten-Vorfahren (`.framer-BsqgT .hidden-72rtr7`,
+   donutshop). Der Kanal gewinnt, wenn es ihn gibt.
+2. **Der `hidden-`-Marker gehört einem Element, nicht seinem Teilbaum.** Die
+   Vererbung an die Kinder machte aus `refined` 2,4 → 16,9 % auf Tablet.
+3. **Das Geräte-Universe ist die Seite, nicht die Geschwisterliste.** Bei
+   verschachtelten Kopien blieb die Menge leer und **397 von 824 Knoten** waren
+   „auf keinem Gerät sichtbar".
+
+**Messung:** last-studio 80,21 / 78,66 / 83,74 % → **24,85 / 23,30 / 15,34 %**;
+donutshop 45,28 / 44,36 / 44,52 % → **11,81 / 10,12 / 20,51 %**; refined und
+wedge unverändert.
+
+**Beleg:** `packages/framer-import/test/device-fold.test.ts` (7 Fälle, **5 rot**
+ohne den Fix).
 
 **Gate:** Ein Test belegt, dass eine zu kurze Seite nicht als „gleich" durchgeht
 (`visual.test.ts`, Höhenfall); der Blindtest läuft als Skript und nennt Höhe und

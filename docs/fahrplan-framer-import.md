@@ -36,70 +36,51 @@ Seiten einfach" ist das der Ausgangspunkt, nicht das Ergebnis.
 
 ## 3. Die Ursachen, nach Belegkraft sortiert
 
-### U1 · Die Geräte-Faltung greift nicht — zwei Kopien stehen im Fluss (der größte Hebel)
+### U1 · Die Geräte-Faltung greift nicht — **geschlossen 22.10.2026**
 
-**Belegt bis auf die Breite.** Die Kette ist vollständig gemessen, und sie ist
-anders als zuerst vermutet — nicht die Breite, sondern **ein Kind zu viel**:
+**Der Befund war richtig, die Ursache war eine andere.** Der Plan vermutete, der
+Mapper falte die beiden `ssr-variant`-Kopien nicht. Gemessen ist die Kette
+länger: **drei** Fehler zusammen, und jeder allein hätte nicht gereicht.
 
-1. Das äußere Grid `fi271` hat **2 Spalten à 640 px**; die Zelle `fi295` liegt
-   auf `span 1` und ist im Import **640 px breit — richtig**.
-2. Die Zelle hat im Import aber **zwei** Kinder: `fi296` (375 px hoch) und
-   `fi308` (559 px hoch). Beide sind `display:grid` und stehen **untereinander**:
-   375 + 559 = **935 px** statt **375 px**.
-3. Grund: Die Zelle selbst ist `display:block`, nicht `grid`. In der Quelle
-   liegen die beiden Grids **übereinander im selben Feld** (ein Kartenstapel,
-   der per Scroll-Effekt durchgeblättert wird), im Import sind es zwei
-   Geschwister im Fluss.
-4. Nach oben setzt sich das fort: Das äußere Grid wird **4565 statt 2407 px**
-   hoch, die Seite **17378 statt 9354 px**.
+**1. Die Seite kennt ihre Breakpoints nicht.** `last-studio` liefert **keinen**
+`__framer__breakpoints`-Kanal — die Hashes `wexuja`, `v38e2x`, `1bs076l` stehen
+nur in einem `<style data-framer-breakpoint-css>`-Block. Der Capture las aber
+ausschließlich den Kanal, also war die Breakpoint-Karte **leer**, und
+`visibleDevicesOf` konnte keinen Hash einem Gerät zuordnen. Die Kopien galten
+alle als "überall sichtbar" und stapelten sich: **9354 → 17378 px (+8024)**.
 
-**Was ausgeschlossen ist** (jeweils gemessen, damit niemand es erneut prüft):
+**2. Der `hidden-`-Marker wurde zu weit vererbt.** Ein `ssr-variant`-Wrapper
+versteckt **ein** Element, nicht seinen Teilbaum. Nachdem ich die Liste an die
+Kinder weiterreichte, erbte bei `refined` jedes Kind das Gerät seines Elternteils
+—— Tablet **2,4 → 16,9 %**.
 
-- **Grid-Übersetzung:** Ein minimaler Nachbau (Grid, `span 4/2/6`,
-  verschachtelt, `height:min-content`, `aspect-ratio`) erzeugt korrektes CSS.
-- **`grid-column`:** Die Deklaration kommt an — **32 Vorkommen** im CSS des
-  Bakes, und die 25 Container-Knoten tragen den **richtigen** Wert
-  (`span 1`, `span 4`, `span 6`). Framer schreibt die Platzierung als
-  `grid-column: var(--1q1styz)` und setzt die Variable inline
-  (`style="--1q1styz:span 1;--1xlim7f:span 1"`); der Import löst sie korrekt auf.
-- **`display:contents`:** bleibt erhalten (eigener Nachbau geprüft).
-- **Die Zellbreite:** ist mit 640 px korrekt.
-- **`aspect-ratio`:** ist mit `1.33111` vorhanden und rechnet richtig — nur mit
-  der falschen Höhe darüber.
+**3. Das Universe war zu klein.** `visibleDevicesOf` fragte "welche Geräte gibt
+es?" nur bei den **Geschwistern**. Bei verschachtelten Kopien (Elternteil nennt
+die Hashes, das Kind nennt keine) blieb die Menge leer und **397 von 824 Knoten**
+standen auf "auf keinem Gerät sichtbar". Jetzt zählt, was die **Seite** an
+Breakpoints deklariert.
 
-**Damit ist der Fehler eingekreist und belegt:** Nicht die Platzierung ist
-kaputt, sondern die **Geräte-Faltung**. Framer schreibt den Kartenstapel als
-zwei `ssr-variant`-Kopien unter einem Container:
+**Die Messung (Blindtest, Desktop / Tablet / Mobil):**
 
-```
-<div class="framer-1mtoid5-container" style="--1q1styz:span 1;--1xlim7f:span 1">
-  <div class="ssr-variant hidden-1ebocfq">    ← Kopie A (Desktop/Tablet)
-    <a class="… framer-lgegzf …" data-framer-name="Large">…</a>
-  </div>
-  <div class="ssr-variant hidden-tq1gxe hidden-72rtr7">  ← Kopie B (Handy)
-    <a class="… framer-lgegzf …" data-framer-name="Large Mobile">…</a>
-  </div>
-</div>
-```
+| Seite | vorher | nachher |
+|---|---|---|
+| last-studio | 80,21 / 78,66 / 83,74 % | **24,85 / 23,30 / 15,34 %** || donutshop | 45,28 / 44,36 / 44,52 % | **11,81 / 10,12 / 20,51 %** |
+| refined | 1,69 / 2,42 / 5,77 % | 1,66 / 2,40 / 5,64 % (unverändert) |
+| wedge | 0,46 / 0,69 / 0,86 % | 0,92 / 1,35 / 0,86 % (Höhe exakt) |
 
-Beide Kopien sind **nie gleichzeitig sichtbar** (`hiddenAt` schließt sich aus).
-Der Capture löst den `ssr-variant`-Wrapper auf und hängt die `hidden`-Hashes an
-das Kind (das ist richtig so), aber der **Mapper faltet die beiden Kinder nicht
-zu einem Knoten**: Sie tragen dieselben Basisklassen, werden aber als zwei
-Geschwister im Fluss geführt. Ergebnis: 375 + 559 = 935 px statt 375.
+**Nebenbefund, der eine zweite Seite erklärt:** `donutshop` schreibt seine
+`hidden`-Regeln unter einen Komponenten-Vorfahren (`.framer-BsqgT .hidden-72rtr7`)
+und benutzt ein **600/1200**-Paar statt 810/1200. Beides wird jetzt gelesen.
 
-**Der `ssr-variant`-Wrapper wird aufgelöst, aber die Faltung greift nicht** —
-das ist der Fehler. 5 solcher Container gibt es in der Work-Sektion, ebenso
-viele Stellen in den übrigen Abschnitten.
+**Was weiter offen ist:** `notes` (27,95 / 34,23 / 36,64 %) und
+`unifiersofjapan` (21,61 / 24,09 / 26,68 %) verlieren weiter Fläche — dort ist
+es **nicht** die Faltung. Das braucht eine eigene Messung, keine weitere
+Vermutung.
 
-**Warum das die Fixtures nicht zeigen:** Dort sind die Kopien oft strukturell
-verschieden genug, dass sie ohnehin als getrennte Knoten mit `visibleDevices`
-landen. Erst wenn beide Kopien denselben Aufbau haben und sich nur in
-`hidden`-Hashes unterscheiden, entsteht der Doppelknoten.
-
-**Warum die Fixtures grün sind:** Sie nutzen kaum Platzierungen (`grid-column`
-0- bis 8-mal), die fremden Seiten 4- bis 26-mal. Unser Gate hat den Fall nie
-gesehen.
+**Belege:** `packages/framer-import/test/device-fold.test.ts` (7 Fälle; **5 davon
+rot** ohne den Fix: Breakpoint-Lesung, Vorfahren-Selektor, Kanal-Vorrang,
+Faltung, keine leere Sichtbarkeit, keine Vererbung) und der Blindtest
+(`packages/framer-import/scripts/blindtest.ts`).
 
 ### U2 · Inhalte, die erst im Browser entstehen
 

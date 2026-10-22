@@ -763,6 +763,47 @@ function fitTextOf(svg: string, attrs: RawAttr): RawFitText | undefined {
 const SPACED_TEXT = new WeakMap<IrNode, string>();
 const KEEPS_SPACES = /^(?:pre|pre-wrap|break-spaces)$/;
 
+// The breakpoints of a page that ships no breakpoint channel: its own
+// `<style data-framer-breakpoint-css>` block names each hash with its media
+// query. Measured on last-studio — which has no `__framer__breakpoints` at all,
+// six hashes and 326 hidden nodes:
+//
+//   @media(min-width: 1200px){.hidden-72rtr7{display:none!important}}
+//   @media(min-width: 810px) and (max-width: 1199.98px){.hidden-tq1gxe{...}}
+//   @media(max-width: 809.98px){.hidden-1ebocfq{...}}
+//
+// Without these ranges the mapper cannot place a `hidden-<hash>` on a device;
+// every copy then looks visible everywhere and the device duplicates stack.
+function breakpointsFromStyles(html: string, linkedCss: string | undefined): IrBreakpoint[] {
+  const blocks = [html, linkedCss ?? ""];
+  const out: IrBreakpoint[] = [];
+  const seen = new Set<string>();
+  for (const text of blocks) {
+    if (text === "") continue;
+    // The rule shape varies: `.hidden-<hash>` stands alone (last-studio) or
+    // under a component ancestor (`.framer-BsqgT .hidden-72rtr7`, donutshop).
+    // Both name the hash inside a media query — that is the part that matters.
+    const pattern =
+      /@media\s*\(([^{}]*?)\)\s*\{[^{}]*?\.hidden-([A-Za-z0-9_-]+)\s*\{[^}]*display\s*:\s*none[^}]*\}/g;
+    for (const match of text.matchAll(pattern)) {
+      const condition = match[1] ?? "";
+      const hash = match[2] ?? "";
+      if (hash === "" || seen.has(hash)) continue;
+      const min = /min-width\s*:\s*([\d.]+)px/.exec(condition);
+      const max = /max-width\s*:\s*([\d.]+)px/.exec(condition);
+      if (min === null && max === null) continue;
+      seen.add(hash);
+      out.push({
+        id: hash,
+        minWidth: min === null ? 0 : Number.parseFloat(min[1] ?? "0"),
+        maxWidth: max === null ? null : Number.parseFloat(max[1] ?? ""),
+        name: null,
+      });
+    }
+  }
+  return out;
+}
+
 function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []): IrNode {
   counter.ordinal += 1;
   const attrs = raw.attrs;
@@ -774,7 +815,11 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
     const hiddenAt = raw.classes
       .filter((entry) => entry.startsWith("hidden-"))
       .map((entry) => entry.slice("hidden-".length));
-    return toIrNode(raw.children[0] ?? raw, counter, hiddenAt);
+    // An outer wrapper and an inner one both hide the same subtree: the lists
+    // add up. Replacing the inherited one would lose the outer scope, and the
+    // inner copy would look visible where the outer already hid it.
+    const both = [...new Set([...inheritedHidden, ...hiddenAt])];
+    return toIrNode(raw.children[0] ?? raw, counter, both);
   }
   const classes = raw.classes.filter((entry) => !entry.startsWith("framer-v-"));
   const variantHashes = raw.classes
@@ -915,6 +960,11 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
       ? { assetUrl: attrs["data-framer-module-poster"] }
       : {}),
     states,
+    // The `hidden-<hash>` of an `ssr-variant` wrapper belongs to the ONE element
+    // the wrapper dissolves into, not to its subtree. Framer's duplicates are
+    // siblings, each wrapped on its own; passing the list down made every child
+    // inherit its parent's device (refined: tablet 2.4 → 16.9 %). The device
+    // that a nested copy belongs to is decided by the copy's own hash.
     children: raw.children
       .filter((child) => !NON_VISUAL_TAGS.has(child.tag))
       .map((child) => toIrNode(child, counter)),
@@ -1010,6 +1060,20 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
     seenBreakpoints.add(entry.id);
     return true;
   });
+  // A page can hide its copies per breakpoint WITHOUT shipping the breakpoint
+  // channel (measured on last-studio: no `__framer__breakpoints`, but 326 nodes
+  // carry `hidden-wexuja`, and its sheet holds `min-width:1200px` /
+  // `min-width:810px`). Without the ranges the mapper cannot place a hash, so
+  // `visibleDevicesOf` calls every copy visible everywhere and nothing folds —
+  // the device copies stack (9354 → 17378 px). The hashes and their ranges are
+  // in the page; read them where the channel is missing.
+  if (uniqueBreakpoints.length === 0) {
+    for (const entry of breakpointsFromStyles(html, input.css)) {
+      if (seenBreakpoints.has(entry.id)) continue;
+      seenBreakpoints.add(entry.id);
+      uniqueBreakpoints.push(entry);
+    }
+  }
 
   if (handoverJson !== null) {
     findings.push({

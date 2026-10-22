@@ -225,31 +225,29 @@ function visibleDevicesOf(
   universe: ReadonlySet<string>,
   breakpoints: IrBreakpointMap,
 ): IrDevice[] {
-  // The breakpoints in play are the ones the copy names together with the
-  // ones its siblings name: between them they cover every device.
-  const relevant = new Set<string>([...hiddenAt, ...universe]);
-  // A device the copy hides stays hidden. Which device is left is decided by
-  // the copy's own list: the breakpoint it does not hide is the one it shows
-  // on. The sibling universe only names the devices that exist at all.
+  // The copy hides on the devices it names. Every device it does not name is
+  // one it shows on — but only devices the page actually HAS count, and which
+  // those are comes from the whole page, not from this sibling list.
+  //
+  // Measured both ways: a sibling-only universe made last-studio's nested
+  // copies visible on no device at all (397 of 824 nodes, page 3995 px too
+  // short on mobile). A "not named = not hidden" rule instead made refined's
+  // four copies all claim desktop (1473 px too short on tablet). This version
+  // keeps both correct: `verfuegbar` is every device the page's breakpoints
+  // cover, `versteckt` is what the copy's own hashes name.
   const eigene = [...hiddenAt].filter((hash) => breakpoints.has(hash));
-  if (eigene.length === 0) {
-    // No known breakpoint in the copy's own list: fall back to the universe.
-    const visible = new Set<IrDevice>();
-    for (const hash of relevant) {
-      if (hiddenAt.includes(hash)) continue;
-      const range = breakpoints.get(hash);
-      if (range === undefined) continue;
-      for (const device of devicesContaining(range)) visible.add(device);
-    }
-    return ALL_DEVICES.filter((device) => visible.has(device));
-  }
-  // The copy names the devices it hides. Every device it does not hide is
-  // one it shows on — the siblings' hashes tell which devices exist.
   const verfuegbar = new Set<IrDevice>();
-  for (const hash of relevant) {
-    const range = breakpoints.get(hash);
-    if (range === undefined) continue;
+  for (const range of breakpoints.values()) {
     for (const device of devicesContaining(range)) verfuegbar.add(device);
+  }
+  // A page whose breakpoints cover only some devices (a source without a
+  // phone layout) must still count the others: a copy naming no breakpoint is
+  // visible there. Framer always writes a full set, so this is a guard, not a
+  // rule.
+  for (const device of ALL_DEVICES) {
+    if (![...breakpoints.values()].some((range) => devicesContaining(range).includes(device))) {
+      verfuegbar.add(device);
+    }
   }
   const versteckt = new Set<IrDevice>();
   for (const hash of eigene) {
