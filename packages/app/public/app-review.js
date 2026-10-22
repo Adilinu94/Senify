@@ -3,7 +3,7 @@
 // ESLint.
 
 import { api, askText, el, failed, formatDate, toast } from "./app-core.js";
-import { importReportBlock } from "./app-import.js";
+import { importReportBlock } from "./app-framer-import.js";
 import { renderRoute } from "./app.js";
 
 export function reviewPanel(siteId, review) {
