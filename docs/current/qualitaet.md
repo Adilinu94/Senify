@@ -116,22 +116,22 @@ Der aktuelle Lauf vom 09.10.2026 (lokal auf Windows, TEMP/TMP/TMPDIR auf dem Lau
      Nicht von Hand editieren: dieser Block ist ein Messwert, und `pnpm quality:check`
      lässt den Lauf rot werden, sobald Dokument und Lauf auseinanderlaufen. -->
 
-**Gemessen:** 2026-10-21 · vitest coverage (v8)
+**Gemessen:** 2026-10-22 · vitest coverage (v8)
 
 | Pfad | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
 | `packages/engine/src/http.ts` | 96.11 | 87.01 | 100.00 | 96.11 |
 | `packages/engine/src/http-route-support.ts` | 85.44 | 76.50 | 100.00 | 85.44 |
 | `packages/engine/src/http-routes-sites.ts` | 96.38 | 76.27 | 94.73 | 96.38 |
-| `packages/engine/src/store.ts` | 86.21 | 87.28 | 94.80 | 86.21 |
+| `packages/engine/src/store.ts` | 86.38 | 88.77 | 94.80 | 86.38 |
 | `packages/engine/src/lifecycle.ts` | 87.01 | 74.46 | 100.00 | 87.01 |
 | `packages/engine/src/forms.ts` | 84.34 | 73.62 | 100.00 | 84.34 |
 | `packages/mcp/src/tools.ts` | 91.77 | 62.01 | 85.50 | 91.77 |
-| `packages/engine/src/store-*.ts` (35 Dateien) | 79.36 bis 100.00 | 39.13 bis 100.00 | 71.42 bis 100.00 | 79.36 bis 100.00 |
+| `packages/engine/src/store-*.ts` (36 Dateien) | 79.36 bis 100.00 | 39.13 bis 100.00 | 71.42 bis 100.00 | 79.36 bis 100.00 |
 | `packages/engine/src/http-*.ts` (9 Dateien) | 59.22 bis 97.34 | 54.34 bis 80.64 | 75.00 bis 100.00 | 59.22 bis 97.34 |
 | `packages/editor/src/state/*` (15 Dateien) | 66.98 bis 100.00 | 60.00 bis 100.00 | 66.66 bis 100.00 | 66.98 bis 100.00 |
 
-**Über alle gemessenen Dateien:** Statements 90.82 · Branches 78.87 · Functions 93.21 · Lines 90.82
+**Über alle gemessenen Dateien:** Statements 90.90 · Branches 78.92 · Functions 93.25 · Lines 90.90
 
 <!-- messwerte:ende -->
 
