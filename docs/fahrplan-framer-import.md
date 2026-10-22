@@ -90,7 +90,6 @@ kommt im Server-HTML 0-mal vor, im gerenderten DOM 5-mal. Das ist mit dem
 SSR-Weg **grundsätzlich** nicht erreichbar.
 
 ### U2b · Die Texte der Quelle sind im Import unsichtbar — **geschlossen 22.10.2026**
-
 **Belegt und gemessen.** Framer misst die Wörter: der Kasten einer
 Textkomponente trägt `font-size: 0` (und `line-height: 0`), die Wörter selbst
 bekommen ihre Größe von der Klasse. Der Import nahm den **Messwert** als
@@ -112,6 +111,43 @@ steht ja) — das allein waren 96 px und rund 5 Prozentpunkte.
 
 **Beleg:** `packages/framer-import/test/fit-text.test.ts` (2 Fälle, 1 rot
 ohne den Fix).
+
+### U6 · Grid und Breite: die zwei Seiten über 20 % — **gemessen, nicht gelöst (22.10.2026)**
+
+**Der Befund.** `unifiersofjapan` (20,45 / 24,19 / 26,69 %) und `last-studio`
+(25,02 / 23,25 / 15,34 %) sind die zwei Seiten, die der Blindtest noch über
+20 % misst. Die Abschnittsmessung (`scripts/sections.ts`) zeigt bei
+`unifiersofjapan` **+260 px pro Karte**, dreimal hintereinander — es ist ein
+wiederkehrendes Element, kein Einzelfall.
+
+**Zwei Ursachen, beide gemessen:**
+
+1. **Der Import kennt kein Grid.** Framer schreibt das Layout einer Karte in die
+   Klassenregel (`display:grid; grid-template-columns:repeat(2,minmax(50px,1fr))`),
+   der Capture liest nur das **Inline-Style** und sieht deshalb `flex`. Der
+   Mapper hat einen Grid-Zweig, der nie greift (`layout.columns` wird nie
+   gesetzt). Die Karten stapeln sich, das Grid wird zur Liste.
+2. **`width: 8%` ist ein Platzhalter, kein Maß.** 16 Knoten tragen im Import
+   `width: 8%`; in der Quelle ist der 8-%-Träger ein Spacer, der den Inhalt
+   eines absolut positionierten Nachbarn rahmt. Der Import macht ihn zum
+   Inhaltscontainer — der Inhalt erbt 8 % und bricht um.
+
+**Was ich gebaut und wieder verworfen habe.** Ein Grid-Zweig im Capture
+(`layoutOfVisual`, Klassenregeln lesen `display`, `grid-template-columns`,
+`flex-direction`, `align-items`, `justify-content`) plus die Geräte-Spalten im
+Mapper. Ergebnis: **`unifiersofjapan` unverändert** (der Desktop-Zustand ist
+dort wirklich `flex`), aber die **Fixture-Gates wurden rot** —
+`framer-easier-train` **29,0 %** statt 8 %, Höhe 13283 → 16816 px;
+`framer-fluffy-rectangle` **46,2 %** statt 5 %. Die Änderung ist
+**zurückgenommen**; die Gates sind wieder grün (3/3).
+
+**Die Lehre:** Der Grid-Zweig allein ist nicht die Lösung — er verschiebt die
+Fehler, weil (2) ungelöst bleibt: solange ein 8-%-Spacer den Inhalt trägt,
+hilft dem Layout kein `display:grid`. Der nächste Schritt ist die
+**Spacer-Erkennung** (ein Träger ohne eigenen Inhalt, dessen Nachbar
+`position:absolute` ist, gehört nicht in den Textfluss), nicht der Grid-Zweig.
+Die Fixture-Gates sind das Maß, an dem der nächste Versuch gemessen wird —
+der Blindtest allein reicht nicht.
 
 ### U3 · `-webkit-`-Präfixe fallen weg
 
