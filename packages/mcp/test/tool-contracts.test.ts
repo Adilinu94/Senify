@@ -89,7 +89,9 @@ describe("MCP-Tool-Verträge", () => {
     await call("update_library_instances", { siteId, installId: installed.id });
     const installs = await env.engine.store.listLibraryInstalls(siteId);
     const latest = await call("get_library_component", { componentId: promoted.id }) as { version: number };
-    expect(latest).toMatchObject({ version: 2, notes: "Version 2", definition: component });
+    // Eine Notiz ist keine neue Definition: die Version bleibt bei 1, und der
+    // Pin der Installation wandert deshalb auch nicht.
+    expect(latest).toMatchObject({ version: 1, notes: "Version 2", definition: component });
     expect(installs.find((entry) => entry.id === installed.id)?.installedVersion).toBe(latest.version);
     const beforeUninstall = await env.engine.store.getPage(pageId);
     const definition = Object.values(beforeUninstall.draft.nodes).find((node) => node.type === "__component" && node.props.libraryComponentId === promoted.id);
@@ -98,15 +100,17 @@ describe("MCP-Tool-Verträge", () => {
     expect(instance.props.componentId).toBe(definition.id);
     expect(definition.children).toHaveLength(1);
     expect(beforeUninstall.draft.nodes[definition.children![0]!]!.props.headline).toBe("Bibliothek");
+    // Der Detach loest nur die Bindung: die Instanz bleibt eine Instanz und die
+    // Definition bleibt die Definition. (Wuerde die Instanz zur Definition
+    // umgewandelt, waere sie eine Definition OHNE Instanz - der Inliner laesst
+    // sie fallen, und der Baustein verschwaende aus der gerenderten Seite.)
     const expected = structuredClone(beforeUninstall.draft);
     const detachedDefinition = expected.nodes[definition.id]!;
     detachedDefinition.props.libraryOrigin = "detached";
     detachedDefinition.props.libraryDetachedFrom = promoted.id;
     delete detachedDefinition.props.libraryComponentId;
     const detachedInstance = expected.nodes[instance.id]!;
-    detachedInstance.type = "__component";
-    Object.assign(detachedInstance.props, { name: "Karte", version: 2, libraryOrigin: "detached", libraryDetachedFrom: promoted.id });
-    delete detachedInstance.props.componentId;
+    Object.assign(detachedInstance.props, { name: "Karte", version: 1, libraryOrigin: "detached", libraryDetachedFrom: promoted.id });
     delete detachedInstance.props.libraryComponentId;
     await call("uninstall_library_component", { siteId, installId: installed.id });
     const after = await env.engine.store.getPage(pageId);
@@ -116,6 +120,13 @@ describe("MCP-Tool-Verträge", () => {
     expect(after.path).toBe(beforeUninstall.path);
     expect(await env.engine.store.listLibraryInstalls(siteId)).toEqual([]);
     expect(await call("library_audit")).toMatchObject({ entries: expect.arrayContaining([expect.objectContaining({ action: "installed" }), expect.objectContaining({ action: "detached" })]) });
+    // Und der Baustein ist wieder anhaengbar - mit erhaltenem Inhalt.
+    const reattached = await call("reattach_library_component", { siteId, componentId: promoted.id }) as { installedVersion: number };
+    expect(reattached.installedVersion).toBe(1);
+    const nachReattach = await env.engine.store.getPage(pageId);
+    expect(Object.values(nachReattach.draft.nodes).some((node) => node.type === "__component_instance" && node.props.libraryComponentId === promoted.id)).toBe(true);
+    expect(JSON.stringify(nachReattach.draft.nodes)).toContain("Bibliothek");
+    expect(await env.engine.store.listLibraryInstalls(siteId)).toHaveLength(1);
     const fallback = await call("promote_to_library", { component, name: "Zweite Karte", fingerprint: "tool-card-2" });
     expect(fallback).toMatchObject({ tags: [], notes: "", license: { id: "unknown", status: "unknown" } });
   });

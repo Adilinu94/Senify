@@ -3322,6 +3322,25 @@ export const TOOLS: ToolDefinition[] = [
     handler: async (context, args) => context.client.request("DELETE", `/api/sites/${requireString(args, "siteId")}/library-installs/${requireString(args, "installId")}`, { author: { kind: "human", id: "mcp", label: "MCP" } }),
   },
   {
+    name: "update_library_component",
+    title: "Update library component",
+    description:
+      "Aendert einen Bibliothekseintrag: Name, Tags, Notiz, Lizenz, Deprecation - und optional die Definition. NUR die Definition erhoeht die Version (die Version zaehlt Definitionen, nicht Metadaten): eine Aenderung an der Definition erzeugt damit erst den Drift, den die installierten Seiten mit update_library_instances nachziehen. Der Fingerabdruck folgt der Definition und ist der Dubletten-Schluessel.",
+    scope: "write",
+    inputSchema: objectSchema({ componentId: { type: "string" }, name: { type: "string" }, tags: { type: "array", items: { type: "string" } }, notes: { type: "string" }, license: { type: "object" }, deprecated: { type: "boolean" }, definition: { type: "object" } }, ["componentId"]),
+    entity: (args) => `library:${String(args.componentId ?? "")}`,
+    handler: async (context, args) => {
+      const body: Record<string, unknown> = { author: { kind: "human", id: "mcp", label: "MCP" } };
+      if (args.name !== undefined) body["name"] = requireString(args, "name");
+      if (args.tags !== undefined) body["tags"] = Array.isArray(args.tags) ? args.tags : [];
+      if (args.notes !== undefined) body["notes"] = requireString(args, "notes");
+      if (args.license !== undefined) body["license"] = requireRecord(args, "license");
+      if (args.deprecated !== undefined) body["deprecated"] = args.deprecated === true;
+      if (args.definition !== undefined) body["definition"] = requireRecord(args, "definition");
+      return context.client.request("PATCH", `/api/library-components/${requireString(args, "componentId")}`, body);
+    },
+  },
+  {
     name: "update_library_instances",
     title: "Update library instances",
     description: "Moves a site installation to the current global component version. Existing instance override bags remain addressed by stable part ids.",
@@ -3338,6 +3357,26 @@ export const TOOLS: ToolDefinition[] = [
     inputSchema: objectSchema({}),
     entity: () => "library:audit",
     handler: async (context) => context.client.request("GET", "/api/library-components/audit"),
+  },
+  {
+    name: "reattach_library_component",
+    title: "Re-attach library component",
+    description:
+      "Haengt eine geloeste Installation wieder an die Bibliothek: die lokalen Knoten bleiben stehen (Ueberschreibungen bleiben erhalten), die Bindung an den Bibliothekseintrag kommt zurueck und die Installationszeile wird wieder angelegt. Das Gegenstueck zu uninstall_library_component.",
+    scope: "write",
+    inputSchema: objectSchema({ siteId: { type: "string" }, componentId: { type: "string" } }, ["siteId", "componentId"]),
+    entity: (args) => `site:${String(args.siteId ?? "")}:library:${String(args.componentId ?? "")}`,
+    handler: async (context, args) => context.client.request("POST", `/api/sites/${requireString(args, "siteId")}/library-installs/reattach`, { componentId: requireString(args, "componentId"), author: { kind: "human", id: "mcp", label: "MCP" } }),
+  },
+  {
+    name: "find_similar_library_components",
+    title: "Find similar library components",
+    description:
+      "Findet Bausteine, deren Definitionen strukturell ahnlich sind (ab 85 Prozent Aehnlichkeit der Knotenform). Rein lesend - ein Hinweis, kein Urteil: das Zusammenlegen entscheidet der Mensch.",
+    scope: "read",
+    inputSchema: objectSchema({}),
+    entity: () => "library:similar",
+    handler: async (context) => context.client.request("GET", "/api/library-components/similar"),
   },
   {
     name: "import_framer_page",

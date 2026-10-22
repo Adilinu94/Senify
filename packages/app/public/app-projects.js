@@ -77,8 +77,22 @@ export async function libraryView(componentId = null) {
     select);
   const body = [head, el("div", { class: "library-search" }, search)];
   if (componentId === null) {
+    // Aehnliche Bausteine: ein Hinweis, kein Urteil. Die Liste steht ueber der
+    // Uebersicht, damit sie beim Oeffnen der Bibliothek sichtbar ist - ein
+    // Baustein, der einem anderen aehnelt, faellt sonst erst beim Promotion
+    // auf.
+    const similar = await api("/api/library-components/similar").catch(() => ({ count: 0, similar: [] }));
+    if (similar.count > 0) {
+      body.push(el("h2", { text: "Aehnliche Bausteine" }));
+      body.push(el("div", { class: "stack" }, similar.similar.map((paar) =>
+        el("div", { class: "library-install" },
+          el("strong", { text: `${paar.component.name} / ${paar.similarTo.name}` }),
+          el("span", { class: "muted", text: `${paar.similarity} % aehnlich` }),
+          el("span", { class: "muted", text: paar.reason === "fingerprint" ? "gleicher Fingerabdruck" : "aehnliche Struktur" })))));
+    }
     body.push(list);
-  } else {
+  }
+  if (componentId !== null) {
     const component = components.find((entry) => entry.id === componentId);
     if (component === undefined) {
       body.push(el("div", { class: "empty", text: "Baustein nicht gefunden." }));
@@ -106,6 +120,33 @@ export async function libraryView(componentId = null) {
             } catch (error) { failed(error); }
           } })));
       }
+      // Re-Attach: ein Projekt, in dem der Baustein geloest wurde, kann ihn
+      // wieder bekommen. Welche Projekte betroffen sind, weiss die Seite
+      // nicht - die Route sucht selbst. Der Weg steht deshalb bei JEDEM
+      // Projekt, nicht bei einem ausgewaehlten: ein Detach betrifft genau ein
+      // Projekt, und welches, weiss nur der Draft.
+      const reattachZiel = el("select", { "aria-label": "Projekt für den Re-Attach" },
+        el("option", { value: "", text: "Projekt wählen …" }),
+        ...sites.map((site) => el("option", { value: site.id, text: site.name })));
+      const reattachRow = el("div", { class: "library-reattach" },
+        el("strong", { text: "Wieder anhaengen" }),
+        el("span", { class: "muted", text: "In einem Projekt geloest? Hier wieder anhaengen." }),
+        reattachZiel,
+        el("button", { text: "Re-Attach", onclick: async () => {
+          const siteId = reattachZiel.value;
+          if (siteId === "") {
+            toast("Zuerst ein Projekt wählen");
+            return;
+          }
+          try {
+            await api(`/api/sites/${siteId}/library-installs/reattach`, {
+              method: "POST",
+              body: { componentId: component.id, author: AUTHOR },
+            });
+            toast(`„${component.name}“ wieder angehaengt`);
+            await libraryView(component.id);
+          } catch (error) { failed(error); }
+        } }));
       const definition = component.definition;
       const nodeRows = Object.values(definition?.nodes ?? {}).map((node) => el("tr", {},
         el("td", {}, el("code", { text: node.id })),
@@ -144,7 +185,8 @@ export async function libraryView(componentId = null) {
         el("h3", { text: "Struktur" }),
         el("table", {}, el("thead", {}, el("tr", {}, el("th", { text: "ID" }), el("th", { text: "Typ" }), el("th", { text: "Props" }))), el("tbody", {}, nodeRows)),
         el("h3", { text: "Installationen" }),
-        installs.length === 0 ? el("div", { class: "empty", text: "Noch in keinem Projekt installiert." }) : el("div", { class: "stack" }, installs)));
+        installs.length === 0 ? el("div", { class: "empty", text: "Noch in keinem Projekt installiert." }) : el("div", { class: "stack" }, installs),
+        reattachRow));
     }
   }
   render(body, current);

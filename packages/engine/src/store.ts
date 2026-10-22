@@ -135,6 +135,8 @@ import {
   type LibraryCreateInput,
   type LibraryInstallInput,
   type LibraryPatchInput,
+  type LibraryReattachInput,
+  type LibrarySimilarity,
 } from "./store-library.ts";
 import {
   BakeJobsRepository,
@@ -1778,6 +1780,14 @@ export class Store {
 
   async deleteLibraryInstall(id: string, author: Author): Promise<LibraryInstall> {
     return this.#library.deleteLibraryInstall(id, author);
+  }
+
+  async reattachLibraryComponent(input: LibraryReattachInput): Promise<LibraryInstall> {
+    return this.#library.reattachLibraryComponent(input);
+  }
+
+  async findSimilarLibraryComponents(threshold?: number): Promise<LibrarySimilarity[]> {
+    return this.#library.findSimilarLibraryComponents(threshold);
   }
 
   async listLibraryAudit(): Promise<LibraryAuditEntry[]> {
