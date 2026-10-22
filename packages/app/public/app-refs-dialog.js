@@ -8,11 +8,7 @@
 // 52 Zugriffe auf den geteilten Zustand mitzunehmen.
 
 import { el } from "./app-core.js";
-
-// Das Schliessen-Symbol der Dialoge. Es steht hier und nicht in
-// `app-references.js`, weil nur dieses Modul es braucht - und weil ein
-// Rueckimport einen Zyklus zwischen beiden Modulen ergaebe.
-export const REFS_ICON_CLOSE = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.8 6.8 17.2 17.2M17.2 6.8 6.8 17.2"/></svg>';
+import { REFS_ICON_CLOSE } from "./app-refs-icons.js";
 
 // Toast der Referenzen-Seite: unten mittig, 2600 ms sichtbar, Uebergang wie im
 // Vorbild (`#toast`). Anders als die Shell-Toasts (rechts oben in der Ecke).
