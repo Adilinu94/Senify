@@ -29,6 +29,8 @@ const MODULE: string[] = [
   'app-library.js',
   'app-settings.js',
   'app-workspace.js',
+  'app-workspace-submissions.js',
+  'app-workspace-templates.js',
   'app-framer-import.js',
   "app.js",
 ];
