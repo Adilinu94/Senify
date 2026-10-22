@@ -12,6 +12,7 @@ import { fetchPublic } from "@senify/core/net";
 import type { EditorDocument } from "@senify/editor/state";
 import type { StyleRule } from "@senify/widget-engine";
 import type { Breakpoints } from "@senify/widget-engine/breakpoints";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { captureFixture, captureHtml, pageFileOf, type CaptureHtmlInput } from "./capture-html.ts";
 import type { FramerIrDocument, IrFinding, IrNode } from "./ir.ts";
@@ -254,6 +255,63 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
         severity: "warn",
         suggestion:
           "Die Seite läuft ohne die Original-Runtime; Animationen, die nur sie trägt, fehlen dann.",
+      });
+    }
+  } else if (input.source.kind === "mirror") {
+    // Der Offline-Import: der Mirror trägt die Runtime-Dateien selbst. Sie
+    // kommen **nur** aus dem Mirror (ADR-0016: ein Ordner liefert nur seine
+    // eigenen Dateien) — ein Pfad, der ihn verlässt, wird nicht gelesen.
+    const file = pageFileOf(input.source.rootDir, input.source.pagePath ?? "/");
+    const html = readFileSync(file, "utf8");
+    const rootReal = resolve(input.source.rootDir);
+    const pageDir = dirname(resolve(file));
+    const loadFile: RuntimeFileLoader = async (target) => {
+      let path: string;
+      try {
+        path = decodeURIComponent(new URL(target).pathname);
+      } catch {
+        return null;
+      }
+      const relative = path.replace(/^\/+/, "");
+      if (relative === "") return null;
+      for (const candidate of [resolve(pageDir, relative), resolve(rootReal, relative)]) {
+        if (!candidate.startsWith(rootReal)) continue;
+        if (!existsSync(candidate) || !statSync(candidate).isFile()) continue;
+        return readFileSync(candidate, "utf8");
+      }
+      return null;
+    };
+    const result = await buildPageRuntimePayload({
+      html,
+      // The mirror's own layout: a relative path of the page is resolved
+      // against the page's folder.
+      pageUrl: `https://mirror.invalid/${input.source.pagePath ?? "/"}`,
+      loadFile,
+      rewriteUrl: (url) => urlRewrites[url] ?? null,
+      maxBytes: RUNTIME_PAYLOAD_MAX_BYTES,
+    });
+    if (result.ok) {
+      runtimePayloads.push({
+        nodeKey: "",
+        name: "Framer-Runtime",
+        kind: "module",
+        scope: "page",
+        bundle: result.payload.bundle,
+        bytes: result.payload.bytes,
+        integrity: result.payload.integrity,
+        sourcePath: result.detection.entry,
+        license: { id: "unknown", note: "Framer-Runtime der importierten Seite" },
+        adapter: "mount-export",
+      });
+    } else if (result.hasRuntime) {
+      runtimeFindings.push({
+        kind: "code-component",
+        nodeKey: null,
+        message: `Die Framer-Runtime des Mirrors ließ sich nicht als Payload bündeln: ${result.reason}`,
+        evidence: input.source.rootDir,
+        severity: "warn",
+        suggestion:
+          "Der Mirror muss die Runtime-Dateien enthalten und relative Pfade darauf verwenden.",
       });
     }
   }

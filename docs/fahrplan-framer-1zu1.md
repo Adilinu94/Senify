@@ -546,6 +546,10 @@ alles lokal): **0,03 % / 0,06 % / 0,15 %** Pixel-Differenz (Desktop/Tablet/Mobil
 4. **Die Asset-Umschreibung**: die Font- und Bildadressen im CSS des Payloads zeigen auf den
    eigenen Speicher (`urlRewrites` aus dem Asset-Lauf), sonst ginge zur Laufzeit ein Request
    an das CDN (DSGVO, ADR-0010 §8).
+5. **Auch der Offline-Import (Mirror)**: der Mirror trägt die Runtime-Dateien selbst; sie werden
+   **nur** aus dem Mirror gelesen (ADR-0016: ein Ordner liefert nur seine eigenen Dateien). Ein
+   Mirror, der die Runtime mit **absoluter** CDN-Adresse nennt, liefert offline nichts — der
+   Bericht sagt das (`warn`), statt still zu schweigen.
 
 **Die Messung der ganzen Kette** (Import → Payload → Bake → Release, `notes.framer.website`):
 
