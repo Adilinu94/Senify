@@ -117,8 +117,8 @@ Noch nicht vorhanden: **automatische Medienbeschaffung**. Medienbedarfe sind adr
 | S3b Island-Payloads | teilweise | `code-payloads.ts`, Renderer-Tests | Mirror-Quellen und wenige Adapter, nicht generisch |
 | S4 Fremdcode | teilweise | Importdialog, Report, Review | generische Extraktion, Poster, Lizenz-Promotion offen |
 | S5 Visual Gate | teilweise | `import-visual-gate-browser.test.ts`, `import-fixture-gate-browser.test.ts` | Gate läuft auf den drei echten Export-Fixtures mit Ratchet-Grenzen (Pixeldifferenz, Texthöhe, Links); Tablet wird bei 900 px gemessen, weil Senifys Tablet bei 1023,98 px endet und Framers bei 1199 px; Messwerte und Grenzen stehen in `docs/current/qualitaet.md` |
-| S6 Bibliotheksmodell | belegt | `library.ts`, Bibliotheksrouten, MCP-Tools | mehrstelliger Installations-/Update-Nachweis offen |
-| S7 Bibliotheks-UI | teilweise | Bausteine-Workspace, Explorer-Tab | vollständiger menschlicher E2E-Weg offen |
+| S6 Bibliotheksmodell | belegt | `store-library.ts`, `store-library-definition.ts`, `store-library-similarity.ts`, Bibliotheksrouten, MCP-Tools | Der mehrstellige Installations-/Update-Nachweis ist erbracht: `store-library.test.ts` („zieht die neue Definition in beide Seiten, und die Ueberschreibung bleibt") und `library-lifecycle.test.ts` (echte Engine, drei Fälle). Version zählt Definitionen, nicht Metadaten; eine Kopie bleibt unangetastet |
+| S7 Bibliotheks-UI | belegt | Bausteine-Workspace, Explorer-Tab, `library-browser.test.ts` | Der menschliche Weg ist im Browser belegt: Liste → Suche → Detail (Lizenz, Herkunft) → Installation → Explorer-Tab im Editor → Detach → Re-Attach → Inhalt der Seite erhalten |
 | S8 Motion-Mapping | implementiert | `mapFramerMotion`, Motion-Report, ADR-0006 | eigene Framer-Motion-ADR und vollständiger Coverage-Nachweis offen |
 | S9 Erweiterung | geplant | `.scratch/framer-import/plan.md` | Mehrseitenbaum, CMS-Mapping, Localization, Code-Sections |
 

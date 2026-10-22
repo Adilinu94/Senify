@@ -400,7 +400,7 @@ Neu erzeugte Uploads werden nach fehlgeschlagenem DB-Commit kompensiert; negativ
 
 ---
 
-### P3-7 · Framer-Import: die Lücken der Live-Messung (20.10.2026) — offen
+### P3-7 · Framer-Import: die Lücken der Live-Messung (20.10.2026) — geschlossen
 
 Der Import wurde am 20.10.2026 an einer veröffentlichten Seite gemessen (`https://distinct-assistant-875072.framer.app`). **Die Messmethode war falsch und hat die Diagnose verfälscht:** Sie verglich die Quelle im *Startzustand* ihrer Einblendungen mit dem Import im Endzustand. Framer schreibt den Zustand vor der Animation in den Server-HTML (`will-change:transform` plus Start-Transform, `opacity` unter 1) und nimmt ihn zur Laufzeit weg — ohne das Scrollen durch die Seite und das Auslaufenlassen misst man 25 % zu schmale Texte der Quelle. **Richtig gemessen** (durch die Seite scrollen, die Einblendungen auslaufen lassen) und **nach der Korrektur** der drei Ursachen unten liegt der Import bei **2,7 % / 3,3 % / 4,4 %** (Desktop / Tablet / Mobil; vorher 13,6 % / 4,1 % / 16,3 %), und alle Textblätter beider Seiten liegen auf dem Pixel (gemessene Breitenunterschiede: 0 px; der Höhenversatz beträgt 1 px).
 
