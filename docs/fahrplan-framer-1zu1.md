@@ -481,7 +481,7 @@ ohne den Fix).
 (`visual.test.ts`, Höhenfall); der Blindtest läuft als Skript und nennt Höhe und
 Pixel nebeneinander.
 
-### Schritt 2 · Die Framer-Runtime als Payload mitnehmen
+### Schritt 2 · Die Framer-Runtime als Payload mitnehmen — **umgesetzt 22.10.2026**
 
 **Ziel:** Die Original-Runtime läuft im Bake mit, nicht nur die Module.
 
@@ -509,7 +509,71 @@ und die 1:1-Zusage gilt für diese Seite **nicht**. Der Bericht muss das vorher 
 **Gate:** Eine Seite mit Lenis/three.js (Earn) zeigt im Release denselben Scroll-Effekt wie das
 Original; der Editor zeigt das Poster; die Payload-Größe steht im Bericht.
 
-### Schritt 3 · Die Naht zwischen Struktur und Payload
+#### Was die Messung erzwungen hat: die Runtime ist seiten-, nicht abschnittsweise
+
+Die Runtime liest `document.getElementById("main")` und hydriert **diesen** Baum. Sie liest die
+Route aus dem Zustand (`data-framer-hydrate-v2` → `routeId`), **nicht** aus `location.pathname` —
+die Release-Seite darf also an einem anderen Pfad liegen. Ein **Abschnitts**-Payload wäre mit
+derselben Runtime nicht möglich: sie rendert die Seite, nicht einen Ausschnitt.
+
+**Deshalb ist der Payload seitenweit** — und deshalb ersetzt er im Release die Struktur
+(Schritt 3). Das ist eine Korrektur des Plans, keine Auslegung: der Plan nannte
+`script_main.*.mjs`, die Framer-Seiten liefern `_script0.<hash>.mjs` plus Chunks plus **ein
+Modul je Seite** (dynamisch importiert). Das Modul findet man nur, wenn man die Datei liest —
+der Import ist ein Textmuster, kein Kanal.
+
+#### Der Beleg, dass die Runtime reisen kann
+
+`notes.framer.website` lokal nachgespielt (Original-HTML + Original-CSS + Original-Runtime,
+alles lokal): **0,03 % / 0,06 % / 0,15 %** Pixel-Differenz (Desktop/Tablet/Mobil), Seitenhöhe
+**exakt gleich** (1743 / 1677 / 1906 px). Die Runtime hydriert also auch in fremder Umgebung.
+
+#### Was gebaut wurde
+
+`packages/framer-import/src/runtime-payload.ts`:
+
+1. **Die Erkennung** (`detectFramerRuntime`) liest das Bundle-Skript (`data-framer-bundle`), das
+   Wurzelelement **mit** dem Zustandsattribut und das CSS der Seite. Ohne
+   `data-framer-hydrate-v2` gibt es **keinen** Payload: die Runtime fiele auf
+   `location.pathname` zurück, und das wäre eine Vermutung, keine Kopie.
+2. **Die Dateien** (`collectRuntimeFiles`) sammeln das Bundle, seine Chunks und die
+   Seitmodule — transitiv, denn das Seitmodul kommt per **dynamischem** Import.
+3. **Das Bündel** (`buildRuntimePayload`) legt Markup, CSS und Runtime in **ein** ESM-Modul
+   (`export function mount(stage, options)` — der Vertrag des Island-Skripts). Die Runtime
+   startet **nicht** beim Laden des Moduls, sondern in `mount()`: sie sucht beim Start `#main`,
+   und der steht erst dann. (Erster Versuch: statischer Import → `getElementById` lieferte
+   `null`, React Error #200. Der Test hält die Reihenfolge fest.)
+4. **Die Asset-Umschreibung**: die Font- und Bildadressen im CSS des Payloads zeigen auf den
+   eigenen Speicher (`urlRewrites` aus dem Asset-Lauf), sonst ginge zur Laufzeit ein Request
+   an das CDN (DSGVO, ADR-0010 §8).
+
+**Die Messung der ganzen Kette** (Import → Payload → Bake → Release, `notes.framer.website`):
+
+| Prüfung | Ergebnis |
+|---|---|
+| Pixel-Differenz zur Originalseite | **0,54 % / 0,90 % / 1,16 %** (Desktop/Tablet/Mobil) |
+| Seitenhöhe | **1743 / 1677 / 1906 px — exakt gleich** |
+| Zustand des Trägers im Release | `mounted` |
+| Größe des Payloads | **903 KB** (Budget 3 MB) |
+| Struktur-Variante zum Vergleich | 27,95 / 34,23 / 36,64 % |
+
+**Belege:** `packages/framer-import/test/runtime-payload.test.ts` (12 Fälle; die Reihenfolge
+„Runtime startet nach dem Markup" wird **rot**, sobald der Import statisch wird),
+`packages/renderer/test/payload-page.test.ts` (3 Fälle; **rot**, sobald die Naht fehlt).
+
+#### Was offen bleibt
+
+- **Das Poster für den Editor** (ADR-0010 §7, Pflicht beim Import) fehlt: ein Screenshot der
+  Quelle braucht den Browser-Capture, der URL-Import hat keinen. Bis dahin steht im Canvas die
+  **Platte** („Original · Framer-Runtime") — der dokumentierte Rückfall, aber nicht der
+  Sollzustand.
+- **Die CSS-Assets der Originalseite** (Hintergrundbilder) zeigen im Payload-CSS weiter auf das
+  CDN. Der Import lädt sie, die Umschreibung des *CSS* steht aber noch aus (derselbe Weg wie
+  bei den Fonts, nur sind es Bilder).
+- **Die Seite im Editor** ist die Struktur, im Release das Original. Das ist die ehrliche
+  Teilung; der Import-Bericht sagt es.
+
+### Schritt 3 · Die Naht zwischen Struktur und Payload — **umgesetzt 22.10.2026**
 
 **Ziel:** Kein Element steht doppelt.
 
@@ -517,6 +581,24 @@ Original; der Editor zeigt das Poster; die Payload-Größe steht im Bericht.
 - Der Bake blendet den Struktur-Knoten aus, wo der Payload steht (`visibility`/`display`, nicht
   löschen — der Baum bleibt die Wahrheit).
 - Der Import-Bericht nennt je Seite, **wie viel** Fläche der Payload trägt (in %).
+
+**Was gebaut wurde:** `renderTreeOf` (`packages/renderer/src/bake.ts`) — ein Träger mit
+`coversPage` **ersetzt** im Release die Struktur: der Original-Aufbau steht, wo die Struktur
+stand, also steht **nichts doppelt**, und die Seitenhöhe ist mit und ohne Payload **gleich**
+(1743 / 1677 / 1906 px — gemessen, nicht behauptet).
+
+**Die Abweichung vom Plan, mit Grund:** Der Plan sah eine Naht **je Bereich**. Die Runtime
+erlaubt sie nicht (sie hydriert `#main`, also die Seite). Der Träger ist deshalb
+**seitenweit**, und die Fläche, die er trägt, ist **100 %** — das steht so im Import-Bericht
+(„der Release zeigt die Originalseite").
+
+**Der Baum bleibt die Wahrheit:** Der Träger steht im Baum, die Struktur bleibt darin, und der
+Editor arbeitet auf der Struktur. Nur der Release zeigt das Original. Der Canvas führt **nie**
+Fremd-Code aus (ADR-0010 §8).
+
+**Belege:** `packages/renderer/test/payload-page.test.ts` (3 Fälle: der Träger ersetzt die
+Struktur; ohne `coversPage` bleibt die Struktur stehen — der Gegenbeweis; der Payload wird
+geschrieben und dem Island-Skript übergeben).
 
 **Gate:** Auf allen elf Seiten ist die Seitenhöhe mit und ohne Payload gleich (kein Doppelstand).
 

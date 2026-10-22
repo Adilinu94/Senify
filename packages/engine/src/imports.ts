@@ -29,7 +29,7 @@ import {
   purgeAsset,
   type MediaContext,
 } from "./media.ts";
-import { prepareCodePayload } from "./code-payloads.ts";
+import { applyPayloadIds, prepareCodePayload } from "./code-payloads.ts";
 import { planImportBreakpoints, type ImportBreakpointsPlan } from "./site-breakpoints.ts";
 import { DEFAULT_BREAKPOINTS } from "@senify/widget-engine/breakpoints";
 import type { CodePayloadLicense, CodePayloadProvenance, PageMeta } from "./types.ts";
@@ -453,16 +453,15 @@ export async function runFramerImportJob(
         license,
       }));
     }
-    const byKey = new Map(run.payloads.map((payload, index) => [payload.integrity, preparedPayloads[index]?.id]));
-    for (const node of Object.values(run.mapped.document.nodes)) {
-      if (node.primitive !== "payload") continue;
-      const key = node.props["framerPayloadKey"];
-      const id = typeof key === "string" ? byKey.get(key) : undefined;
-      if (id !== undefined) node.props["payloadId"] = id;
-      delete node.props["framerPayloadKey"];
-    }
+    // The carriers point at the ids the store gave the payloads.
+    applyPayloadIds(
+      run.mapped.document,
+      run.payloads.map((payload, index) => ({
+        integrity: payload.integrity,
+        id: preparedPayloads[index]?.id ?? "",
+      })),
+    );
   }
-
   // The pages the site holds, once: the plan for the breakpoints and the target
   // of this write both read them.
   const sitePages = await store.listPageDrafts(input.siteId);

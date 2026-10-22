@@ -20,6 +20,11 @@ import { mapDocument, type MapperResult, type ThemePatch } from "./mapper.ts";
 import { buildFidelityReport, type FidelityReport } from "./fidelity.ts";
 import { importAssets, type AssetReport, type AssetUploader } from "./assets.ts";
 import { extractPayloads, type ExtractedPayload } from "./payloads.ts";
+import {
+  buildPageRuntimePayload,
+  RUNTIME_PAYLOAD_MAX_BYTES,
+  type RuntimeFileLoader,
+} from "./runtime-payload.ts";
 import { mapFramerMotion } from "./motion-mapping.ts";
 import { discoverPagePaths } from "./link-paths.ts";
 import { siteBreakpointsOf } from "./site-breakpoints.ts";
@@ -73,6 +78,11 @@ export type ImportRun = {
 
 const PAGE_TIMEOUT_MS = 30_000;
 const MAX_PAGE_BYTES = 20 * 1024 * 1024;
+// The runtime files of a Framer site (the bundle, the chunks, the page
+// modules). One file may not be bigger than this; the whole payload has the
+// budget of ADR-0010 §6 (3 MB).
+const MAX_RUNTIME_FILE_BYTES = 4 * 1024 * 1024;
+const RUNTIME_FILE_TIMEOUT_MS = 20_000;
 
 /* --------------------------------------------------- linked stylesheets */
 
@@ -137,6 +147,9 @@ function mirrorFolders(rootDir: string, pagePath: string): { root: string; pageD
 export async function runImport(input: RunImportInput): Promise<ImportRun> {
   let document: FramerIrDocument;
   let baseUrl = input.baseUrl;
+  // The raw HTML of the source: the runtime detection reads it (the runtime
+  // lives in the markup, not in a channel).
+  let sourceHtml: string | null = null;
   if (input.source.kind === "url") {
     // Public addresses only, with a time and size limit (ADR-0016).
     const response = await fetchPublic(input.source.url, {
@@ -147,6 +160,7 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
       throw new Error(`Quelle nicht ladbar: ${response.status} ${input.source.url}`);
     }
     const html = await response.text();
+    sourceHtml = html;
     const css = await fetchLinkedCss(html, input.source.url);
     document = captureHtml({ html, url: input.source.url, pagePath: input.pagePath ?? "/", css });
     if (baseUrl === undefined) baseUrl = new URL(input.source.url).origin;
@@ -167,6 +181,7 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
 
   // Assets (S2.3/S2.3b) — the DSGVO font rewrite happens here.
   let assetReport: AssetReport | null = null;
+  let urlRewrites: Record<string, string> = {};
   if (input.uploader !== undefined || input.outDir !== undefined) {
     // A mirror knows its own files: a relative asset URL is read from the
     // mirror folder (the page's own folder first), so the import works
@@ -183,9 +198,70 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
     });
     document = assets.document;
     assetReport = assets.report;
+    urlRewrites = assets.urlRewrites;
   }
 
-  const payloads = input.source.kind === "mirror" ? extractPayloads({ document, rootDir: input.source.rootDir }) : [];
+  // The runtime payload (step 2 of `docs/fahrplan-framer-1zu1.md`): the
+  // page's own runtime, bundled with its markup and its CSS. It is what
+  // carries Lenis, three.js and the ticker — the things the structure tree
+  // cannot express.
+  const runtimeFindings: IrFinding[] = [];
+  const runtimePayloads: ExtractedPayload[] = [];
+  if (sourceHtml !== null && input.source.kind === "url") {
+    const pageUrl = input.source.url;
+    const loadFile: RuntimeFileLoader = async (target) => {
+      // Only the hosts a Framer site serves its runtime from (ADR-0016: no
+      // address outside the public ones, no local network).
+      const host = new URL(target).hostname;
+      if (!isFramerHost(host)) return null;
+      try {
+        const response = await fetchPublic(target, {
+          signal: AbortSignal.timeout(RUNTIME_FILE_TIMEOUT_MS),
+          maxBytes: MAX_RUNTIME_FILE_BYTES,
+        });
+        if (!response.ok) return null;
+        return await response.text();
+      } catch {
+        return null;
+      }
+    };
+    const result = await buildPageRuntimePayload({
+      html: sourceHtml,
+      pageUrl,
+      loadFile,
+      rewriteUrl: (url) => urlRewrites[url] ?? null,
+      maxBytes: RUNTIME_PAYLOAD_MAX_BYTES,
+    });
+    if (result.ok) {
+      runtimePayloads.push({
+        nodeKey: "",
+        name: "Framer-Runtime",
+        kind: "module",
+        scope: "page",
+        bundle: result.payload.bundle,
+        bytes: result.payload.bytes,
+        integrity: result.payload.integrity,
+        sourcePath: result.detection.entry,
+        license: { id: "unknown", note: "Framer-Runtime der importierten Seite" },
+        adapter: "mount-export",
+      });
+    } else if (result.hasRuntime) {
+      runtimeFindings.push({
+        kind: "code-component",
+        nodeKey: null,
+        message: `Die Framer-Runtime ließ sich nicht als Payload bündeln: ${result.reason}`,
+        evidence: pageUrl,
+        severity: "warn",
+        suggestion:
+          "Die Seite läuft ohne die Original-Runtime; Animationen, die nur sie trägt, fehlen dann.",
+      });
+    }
+  }
+
+  const payloads = [
+    ...(input.source.kind === "mirror" ? extractPayloads({ document, rootDir: input.source.rootDir }) : []),
+    ...runtimePayloads,
+  ];
   const normalized = normalize(document, { mode: input.mode ?? "dna" });
   const mapped = mapDocument(document, normalized.rules, { mode: input.mode ?? "dna" });
   const motion = mapFramerMotion(
@@ -218,7 +294,7 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
   }
   const report = buildFidelityReport(document, normalized, {
     ...mapped,
-    findings: [...mapped.findings, ...motionFindings],
+    findings: [...mapped.findings, ...motionFindings, ...runtimeFindings],
   }, motion);
   const byNodeKey = new Map(payloads.map((payload) => [payload.nodeKey, payload]));
   for (const node of Object.values(mapped.document.nodes)) {
@@ -243,6 +319,46 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
       });
     }
     delete node.props["framerNodeKey"];
+  }
+  // The runtime payload carries the whole page: a carrier of the `payload`
+  // primitive stands at the root of the tree, and the release shows the
+  // original page in its place (the renderer hides the structure where the
+  // carrier stands — step 3 of the plan). The tree keeps the structure: it
+  // stays the truth the editor works on.
+  const pagePayload = payloads.find((payload) => payload.scope === "page");
+  if (pagePayload !== undefined) {
+    const root = mapped.document.nodes[mapped.document.rootNodeId];
+    if (root !== undefined) {
+      const carrierId = "framer-runtime-payload";
+      mapped.document.nodes[carrierId] = {
+        id: carrierId,
+        primitive: "payload",
+        props: {
+          framerPayloadKey: pagePayload.integrity,
+          // The carrier stands for the whole page: the release renders it
+          // instead of the structure.
+          coversPage: true,
+          label: "Original · Framer-Runtime",
+        },
+        children: [],
+      };
+      // The carrier stands at the end of the tree: the canvas shows the
+      // structure and, below it, the plate that names the payload. The
+      // release renders the carrier INSTEAD of the structure (the renderer
+      // decides that — see `renderTreeOf`).
+      root.children = [...(root.children ?? []), carrierId];
+    }
+    report.resolutions.push({
+      nodeKey: "",
+      nodeId: "framer-runtime-payload",
+      kind: "island",
+      reason:
+        "Die Framer-Runtime ist als Payload gebündelt: der Release zeigt die Originalseite, die Struktur bleibt im Baum.",
+      evidence: pagePayload.sourcePath,
+    });
+    report.steps.push(
+      `Framer-Runtime als Payload gebündelt (${Math.round(pagePayload.bytes / 1024)} KB) — der Release zeigt die Originalseite.`,
+    );
   }
   if (payloads.length > 0) report.steps.push(`${payloads.length} Framer-Islands gebündelt und als Payload vorgemerkt`);
   return {

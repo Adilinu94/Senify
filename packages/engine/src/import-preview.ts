@@ -6,6 +6,7 @@ import { pageFileOf, runImport as runFramerImport, sourceAssetDeliveries, type I
 import { bakeSite } from "@senify/renderer";
 import type { Breakpoints } from "@senify/widget-engine/breakpoints";
 import { editorDocumentToNodeTree } from "./imports.ts";
+import { applyPayloadIds } from "./code-payloads.ts";
 import { serveCaptureDir } from "./review-visuals.ts";
 import { planImportBreakpoints } from "./site-breakpoints.ts";
 
@@ -146,8 +147,20 @@ export async function previewFramerImport(input: PreviewInput): Promise<ImportPr
     // the product never builds: the written import uploads its assets and the
     // bake delivers them, the preview has no asset store and keeps the
     // addresses of the source.
+    // The assets the source's addresses point at: the preview has no asset
+    // store, so the pictures keep the address of the source.
     const assets = sourceAssetDeliveries(run.document, beforeUrl);
-    return await bakeAndShoot(input, run.mapped.document, run.mapped.rules, plan?.effective ?? input.site?.breakpoints, beforeUrl, work, closers, assets, allowOrigins);
+    // The payloads of the run: the preview must show what the release shows.
+    // A carrier without its payload would show the plate — and the preview
+    // would judge a page the product never builds.
+    const payloads: Record<string, { code: string; integrity: string; bytes: number }> = {};
+    const prepared = run.payloads.map((payload, index) => {
+      const id = `preview-payload-${index + 1}`;
+      payloads[id] = { code: payload.bundle, integrity: payload.integrity, bytes: payload.bytes };
+      return { integrity: payload.integrity, id };
+    });
+    applyPayloadIds(run.mapped.document, prepared);
+    return await bakeAndShoot(input, run.mapped.document, run.mapped.rules, plan?.effective ?? input.site?.breakpoints, beforeUrl, work, closers, assets, allowOrigins, payloads);
   } finally {
     for (const close of closers.reverse()) await close().catch(() => undefined);
     rmSync(work, { recursive: true, force: true });
@@ -164,6 +177,7 @@ async function bakeAndShoot(
   closers: (() => Promise<void>)[],
   assets: Record<string, string>,
   allowOrigins: string[],
+  payloads: Record<string, { code: string; integrity: string; bytes: number }> = {},
 ): Promise<ImportPreview> {
   const out = join(work, "baked");
   await bakeSite(
@@ -175,6 +189,7 @@ async function bakeAndShoot(
       themeCss: input.themeCss,
       ...(rules === undefined ? {} : { styleRules: rules }),
       assets,
+      ...(Object.keys(payloads).length > 0 ? { payloads } : {}),
       motionTokens: input.motionTokens,
       aeo: false,
     },
