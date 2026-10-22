@@ -1159,7 +1159,16 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
   const fonts: IrFontFace[] = [];
   const fontCss = styleBlock(html, "data-framer-font-css") ?? "";
   const linkedCss = readLinkedCss(html, input.rootDir);
-  const fontSource = `${fontCss}\n${linkedCss}`;
+  // A URL import has no export folder: the sheets the page links are fetched by
+  // the caller and arrive in `input.css`. Without them a page whose faces live
+  // in a linked sheet (donutshop, meeko) carries no font at all and every text
+  // falls back to the system font.
+  //
+  // Framer spreads its faces over several `<style>` blocks: the marked one
+  // carries the families of the page, a second one a Google-Fonts link. A scan
+  // of the marked block alone loses the rest, so every block with a
+  // `@font-face` counts.
+  const fontSource = `${fontCss}\n${fontFaceStyles(html)}\n${linkedCss}\n${input.css ?? ""}`;
   for (const match of fontSource.matchAll(/@font-face\s*\{([^}]*)\}/g)) {
     const body = match[1] ?? "";
     const family = /font-family:\s*"?([^";]+)"?/.exec(body)?.[1];
@@ -2308,6 +2317,16 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
   // Above the page element sit `html` and `body`; the page element is `#main`.
   visit(root, new Set(["tag:html", "tag:body"]), tokensByDevice);
   return { skippedPseudo };
+}
+
+// A page's faces can stand in several `<style>` blocks (Framer writes the
+// fonts into one marker block, Google Fonts into another). Reading only the
+// marked block leaves the rest without a `@font-face`.
+function fontFaceStyles(html: string): string {
+  const blocks = [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)]
+    .map((match) => match[1] ?? "")
+    .filter((body) => /@font-face/.test(body));
+  return blocks.join("\n");
 }
 
 function readLinkedCss(html: string, rootDir: string | undefined): string {

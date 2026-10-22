@@ -286,11 +286,19 @@ export function fontFilesOf(patch: ThemePatch, fonts: AssetReport["fonts"]): The
   };
   const display = patch.fonts.display;
   const body = patch.fonts.body;
+  const extra = patch.fonts.extra;
   return {
     ...patch,
     fonts: {
       ...(display === undefined ? {} : { display: withFiles(display) }),
       ...(body === undefined ? {} : { body: withFiles(body) }),
+      ...(extra === undefined
+        ? {}
+        : {
+            extra: Object.fromEntries(
+              Object.entries(extra).map(([key, font]) => [key, withFiles(font)]),
+            ),
+          }),
     },
   };
 }

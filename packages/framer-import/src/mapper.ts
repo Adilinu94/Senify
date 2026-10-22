@@ -61,6 +61,10 @@ export type ThemePatch = {
     // "Manrope" and get Sora's shapes.
     display?: { family: string; fallback: string[]; weights: number[]; files?: Record<string, string> };
     body?: { family: string; fallback: string[]; weights: number[]; files?: Record<string, string> };
+    // Every further family the page names (a Framer site can use seven, the
+    // theme has three slots). Key = the CSS-safe family name; the theme emits
+    // one `@font-face` set per entry, so no text falls back to a system font.
+    extra?: Record<string, { family: string; fallback: string[]; weights: number[]; files?: Record<string, string> }>;
   };
 };
 
@@ -1159,6 +1163,21 @@ const FONT_SLOTS = {
   mono: "var(--font-mono)",
 } as const;
 
+// A family name as a CSS variable key: `PP Nikkei Pacific Ultrabold` becomes
+// `pp-nikkei-pacific-ultrabold`, so `--font-pp-nikkei-pacific-ultrabold` is a
+// valid custom property. Two families that differ only in punctuation would
+// collide; the theme is written per page, so the second one keeps its slot.
+export function fontSlotKey(family: string): string {
+  return fontFamilyName(family)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function extraSlotOf(family: string): string {
+  return `var(--font-${fontSlotKey(family)})`;
+}
+
 function isMonoFamily(family: string): boolean {
   return /mono|courier|consolas/i.test(family);
 }
@@ -1226,9 +1245,9 @@ function sourceFontsOf(document: FramerIrDocument): SourceFonts {
       slots.set(name, FONT_SLOTS.mono);
       continue;
     }
-    // A third family (the source has one): the theme knows three slots, and
-    // the body font is the one a text of that family can live with.
-    slots.set(name, FONT_SLOTS.body);
+    // A further family: the theme has a slot for it (`fonts.extra`), so the
+    // page points at that variable instead of falling back to a system font.
+    slots.set(name, extraSlotOf(family));
   }
   return { bodyFamily, bodyWeights, displayFamily, displayWeights, slots };
 }
@@ -1243,7 +1262,88 @@ function themeFontOf(value: string, slots: ReadonlyMap<string, string>): string 
   return slots.get(name) ?? value;
 }
 
-export function themePatchOf(document: FramerIrDocument): ThemePatch {
+// The families the page uses that neither the body nor the display slot
+// names — each of them becomes a `@font-face` of its own. Placeholder families
+// (`"Anton Placeholder"`) carry no weight and are skipped: they stand in for
+// the real family while it loads.
+function extraFontsOf(
+  document: FramerIrDocument,
+  bodyFamily: string | null,
+  displayFamily: string | null,
+  source?: ReadonlyMap<string, number[]>,
+): Record<string, { family: string; fallback: string[]; weights: number[] }> | null {
+  const families = source ?? usedFamiliesOf(document);
+  const out: Record<string, { family: string; fallback: string[]; weights: number[] }> = {};
+  for (const [family, weights] of families) {
+    const name = fontFamilyName(family);
+    if (name === "") continue;
+    if (name === bodyFamily || name === displayFamily) continue;
+    if (isMonoFamily(name)) continue;
+    if (/placeholder$/i.test(name)) continue;
+    const sorted = [...new Set(weights)].sort((a, b) => a - b);
+    if (sorted.length === 0) continue;
+    const key = fontSlotKey(name);
+    if (key === "" || out[key] !== undefined) continue;
+    out[key] = { family: name, fallback: ["system-ui", "sans-serif"], weights: sorted };
+  }
+  return Object.keys(out).length === 0 ? null : out;
+}
+
+// Every family the page's rules and nodes name, with the weights they use.
+// The families of the `@font-face` list alone are not enough: a page can name
+// a family the list does not declare (a Google Fonts link), and that text is
+// exactly the one that falls back.
+function usedFamiliesOf(document: FramerIrDocument): Map<string, number[]> {
+  const out = new Map<string, number[]>();
+  const note = (family: unknown, weight: unknown): void => {
+    if (typeof family !== "string") return;
+    const first = family.split(",")[0]?.trim() ?? "";
+    if (first === "") return;
+    const name = fontFamilyName(first);
+    if (name === "" || /^(inherit|initial|unset|revert)$/i.test(name)) return;
+    if (name.startsWith("var(")) return;
+    const number = typeof weight === "string" ? Number.parseInt(weight, 10) : typeof weight === "number" ? weight : NaN;
+    const weights = out.get(name) ?? [];
+    if (Number.isFinite(number) && !weights.includes(number)) weights.push(number);
+    out.set(name, weights);
+  };
+  const visit = (node: IrNode): void => {
+    for (const state of node.states) {
+      note(state.visual["font-family"], state.visual["font-weight"]);
+    }
+    for (const child of node.children) visit(child);
+  };
+  for (const page of document.pages) visit(page.root);
+  for (const face of document.styles.fonts) {
+    const name = fontFamilyName(face.family);
+    if (name === "" || face.weight === null) continue;
+    const weights = out.get(name) ?? [];
+    if (!weights.includes(face.weight)) weights.push(face.weight);
+    out.set(name, weights);
+  }
+  return out;
+}
+
+// Merge two family maps: the union of families, with the union of weights.
+function mergedFamilies(
+  first: ReadonlyMap<string, number[]>,
+  second: ReadonlyMap<string, number[]> | undefined,
+): Map<string, number[]> {
+  if (second === undefined) return new Map(first);
+  const out = new Map(first);
+  for (const [family, weights] of second) {
+    const current = out.get(family) ?? [];
+    const merged = [...current];
+    for (const weight of weights) if (!merged.includes(weight)) merged.push(weight);
+    out.set(family, merged);
+  }
+  return out;
+}
+
+export function themePatchOf(
+  document: FramerIrDocument,
+  ruleFamilies?: ReadonlyMap<string, number[]>,
+): ThemePatch {
   // The dominant font family of the `@font-face` list becomes the body font;
   // the heaviest weight family becomes the display font. This is a *patch* —
   // update_theme merges it over the current theme.
@@ -1276,6 +1376,15 @@ export function themePatchOf(document: FramerIrDocument): ThemePatch {
           }
         : {}),
     };
+  }
+  // Every further family of the page. The three slots name the roles a theme
+  // styles (display, body, mono); a Framer page can name seven families, and
+  // each of them needs a `@font-face` — otherwise the text falls back to the
+  // system font and wraps elsewhere (measured on `unifiersofjapan`: the word
+  // "strategy" in Anton took two lines instead of one, +260 px per card).
+  const extra = extraFontsOf(document, bodyFamily, displayFamily, mergedFamilies(usedFamiliesOf(document), ruleFamilies));
+  if (extra !== null) {
+    patch.fonts = { ...(patch.fonts ?? {}), extra };
   }
   return patch;
 }
@@ -1474,11 +1583,37 @@ export function mapDocument(
       styleRules: [...rules, ...appearStyleRules],
     },
     rules: [...rules, ...appearStyleRules],
-    themePatch: themePatchOf(document),
+    themePatch: themePatchOf(document, ruleFamilyWeights(normalized)),
     findings: context.findings,
     stats: context.stats,
     nodeIdByIrKey: { ...context.nodeIdByIrKey },
   };
+}
+
+// The families the compiled class rules name, with their weights. The rules
+// carry most of a page's typography (Framer writes the font on the class), so
+// a family only the rules name would otherwise get no `@font-face` and fall
+// back to the system font.
+function ruleFamilyWeights(rules: readonly NormalizedStyleRule[]): Map<string, number[]> {
+  const out = new Map<string, number[]>();
+  const note = (declarations: Record<string, string> | undefined): void => {
+    if (declarations === undefined) return;
+    const family = declarations["font-family"];
+    if (typeof family !== "string") return;
+    const first = family.split(",")[0]?.trim() ?? "";
+    if (first === "") return;
+    const name = fontFamilyName(first);
+    if (name === "" || name.startsWith("var(")) return;
+    const weight = Number.parseInt(declarations["font-weight"] ?? "", 10);
+    const weights = out.get(name) ?? [];
+    if (Number.isFinite(weight) && !weights.includes(weight)) weights.push(weight);
+    out.set(name, weights);
+  };
+  for (const rule of rules) {
+    note(rule.declarations);
+    for (const state of Object.values(rule.states ?? {})) note(state);
+  }
+  return out;
 }
 
 // The appear id → mapped node id, read from the IR key the node was built from.
