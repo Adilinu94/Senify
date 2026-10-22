@@ -8,6 +8,7 @@ import { renderRoute } from "./app.js";
 import { refsRenderMarkdown } from "./app-markdown.js";
 import { refsBindBackdropClose, refsCopy, refsToast } from "./app-refs-dialog.js";
 import { REFS_ICON_LIBRARY, REFS_ICON_STYLES, REFS_ICON_LINK, REFS_ICON_LINK_BUTTON, REFS_ICON_LINK_LABEL, REFS_ICON_PLUS, REFS_ICON_PLUS_BUTTON, REFS_ICON_PLUS_UPLOAD, REFS_ICON_CLOSE, REFS_ICON_PREV, REFS_ICON_NEXT, REFS_ICON_SEARCH_LARGE, REFS_ICON_PLUS_BOX, REFS_ICON_CHECK_BOX } from "./app-refs-icons.js";
+import { refsGetCollections, refsState, refsBindCollections, refsBindHandlers, refsHex, refsSplit, refsApplyAddress, refsSyncAddress, refsActiveCollection, refsIsSelected, refsToggleSelection, refsClearSelection } from "./app-refs-state.js";
 
 // Zwei Helfer, die andere Module ueber diese Datei beziehen (app-import.js holt
 // refsBindBackdropClose, app-projects.js holt refsToast). Der Re-Export haelt
@@ -52,7 +53,6 @@ const REFS_MAX_COMPARE = 3;
 const REFS_SEARCH_ICON =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>';
 
-let refsCollections = [];
 let refsStyleCatalog = null;
 let refsRouteActive = false;
 
@@ -139,102 +139,6 @@ function refsPreviewImage(url, alt, fallback) {
   return image;
 }
 
-const refsState = {
-  query: "",
-  collection: "",
-  sort: "newest",
-  view: "",
-  selected: [],
-};
-
-function refsHex(value) {
-  return /^#[0-9a-f]{6}$/i.test(value ?? "") ? value : REFS_ACCENT_FALLBACK;
-}
-
-function refsSplit(value) {
-  return String(value ?? "")
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-}
-
-// Zustand aus dem Hash lesen und zurueckschreiben (replaceState, kein Reload).
-
-function refsApplyAddress(hash) {
-  const current = hash ?? location.hash ?? "#/references";
-  const question = current.indexOf("?");
-  const search = new window.URLSearchParams(
-    question === -1 ? "" : current.slice(question + 1),
-  );
-  refsState.query = search.get("q") ?? "";
-  refsState.collection = search.get("collection") ?? "";
-  refsState.sort = search.get("sort") === "name" ? "name" : "newest";
-  refsState.view = search.get("view") === "styles" ? "styles" : "";
-}
-
-function refsSyncAddress() {
-  if (!/^#\/references(\/|\?|$)/.test(location.hash)) return;
-  const params = new window.URLSearchParams();
-  if (refsState.query !== "") params.set("q", refsState.query);
-  if (refsState.collection !== "") params.set("collection", refsState.collection);
-  if (refsState.sort === "name") params.set("sort", "name");
-  if (refsState.view === "styles") params.set("view", "styles");
-  const query = params.toString();
-  history.replaceState(
-    null,
-    "",
-    query === "" ? "#/references" : `#/references?${query}`,
-  );
-}
-
-function refsActiveCollection() {
-  if (refsState.view === "styles") return null;
-  if (refsState.collection === "" || refsState.collection === "none") return null;
-  return refsCollections.find((entry) => entry.id === refsState.collection) ?? null;
-}
-
-function refsIsSelected(id) {
-  return refsState.selected.some((entry) => entry.id === id);
-}
-
-function refsToggleSelection(entry) {
-  const index = refsState.selected.findIndex((item) => item.id === entry.id);
-  if (index >= 0) {
-    refsState.selected.splice(index, 1);
-  } else if (refsState.selected.length < REFS_MAX_COMPARE) {
-    refsState.selected.push(entry);
-  } else {
-    refsToast("Drei ausgewählt. Entferne eine, um eine andere hinzuzufügen.");
-    return;
-  }
-  // Die Auswahl ist reine Ansichtssache: nur die Knöpfe und die Leiste
-  // nachziehen, kein neuer Listenabruf (sonst laeuft der Rate-Limiter voll).
-  refsRenderTray();
-  refsUpdateSelectionUI();
-}
-
-function refsClearSelection() {
-  refsState.selected = [];
-  refsRenderTray();
-  refsUpdateSelectionUI();
-}
-
-// Nur die Auswahl-Knoepfe der vorhandenen Karten umschalten, damit die
-// Vorschaubilder nicht erneut geladen werden.
-
-function refsUpdateSelectionUI() {
-  if (!refsDom || !refsDom.root.isConnected) return;
-  for (const card of refsDom.gallery.querySelectorAll(".refs-card")) {
-    const id = card.dataset.reference;
-    const on = refsIsSelected(id);
-    const button = card.querySelector(".refs-select");
-    if (!button) continue;
-    button.classList.toggle("selected", on);
-    button.innerHTML = on ? REFS_ICON_CHECK_BOX : REFS_ICON_PLUS_BOX;
-    button.setAttribute("aria-pressed", on ? "true" : "false");
-  }
-}
-
 function refsEntryFor(reference) {
   // Die Motion-Aufnahme ist ein Video und taugt nicht als Standbild.
   const snapshot = (reference.snapshots ?? []).find(
@@ -299,6 +203,19 @@ function refsThumbNode(entry) {
     return refsPreviewImage(entry.previewPath, `Vorschau ${entry.name}`);
   }
   return el("div", { class: "refs-tray-more", text: initials(entry.name) });
+}
+
+function refsUpdateSelectionUI() {
+  if (!refsDom || !refsDom.root.isConnected) return;
+  for (const card of refsDom.gallery.querySelectorAll(".refs-card")) {
+    const id = card.dataset.reference;
+    const on = refsIsSelected(id);
+    const button = card.querySelector(".refs-select");
+    if (!button) continue;
+    button.classList.toggle("selected", on);
+    button.innerHTML = on ? REFS_ICON_CHECK_BOX : REFS_ICON_PLUS_BOX;
+    button.setAttribute("aria-pressed", on ? "true" : "false");
+  }
 }
 
 export function refsRenderTray() {
@@ -724,7 +641,7 @@ function refsOpenAddDialog() {
   });
   const collectionSelect = el("select", {});
   collectionSelect.append(el("option", { value: "", text: "Ohne Sammlung" }));
-  for (const item of refsCollections.filter((entry) => entry.kind === "collection")) {
+  for (const item of refsGetCollections().filter((entry) => entry.kind === "collection")) {
     collectionSelect.append(el("option", { value: item.id, text: item.name }));
   }
   if (refsActiveCollection()) collectionSelect.value = refsState.collection;
@@ -1328,13 +1245,13 @@ async function refsRefresh() {
     if (refsPending === 0) root.classList.remove("refs-loading");
   }
   refsDom.error.hidden = true;
-  refsCollections = data.collections ?? [];
+  refsBindCollections(data.collections ?? []);
   refsStyleCatalog = data.styleCatalog ?? null;
   const counts = data.counts ?? {};
   const styleMode = refsState.view === "styles";
   const activeCollection = refsActiveCollection();
-  const styleFamilies = refsCollections.filter((entry) => entry.kind === "style");
-  const personalCollections = refsCollections.filter((entry) => entry.kind !== "style");
+  const styleFamilies = refsGetCollections().filter((entry) => entry.kind === "style");
+  const personalCollections = refsGetCollections().filter((entry) => entry.kind !== "style");
 
   // Mobil: dasselbe Ziel wie die linke Leiste, nur als Auswahlfeld.
   refsDom.mobileSelect.replaceChildren(
@@ -2115,3 +2032,8 @@ export async function refsOpenInspector(referenceId, options = {}) {
 }
 
 /* Vorlieben und Haus-DNA im Einstellungen-Tab (T12/T14). */
+
+// Die Rueckrufe des Zustands-Moduls an die echten Funktionen binden.
+// Sie stehen am Ende, weil beide Funktionen Funktionsdeklarationen sind und
+// damit gehoisted werden - der Aufruf ist zur Ladezeit sicher.
+refsBindHandlers({ toast: refsToast, renderTray: refsRenderTray, updateSelectionUI: refsUpdateSelectionUI });
