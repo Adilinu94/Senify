@@ -334,6 +334,16 @@ Versionierte Records werden bei Review und Publish gespeichert; Manifest und Re-
 
    **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf allen drei Dateien.
 
+43. `app-settings.js` (22.10.2026): die Einstellungen eines Projekts wandern aus `app-projects.js` — `settingsView` (531 Zeilen, die groesste einzelne Funktion der Oberflaeche) und `backupRow`. `app-projects.js`: 1 707 → 1 129 Zeilen; `app-settings.js`: 603 Zeilen.
+
+   **`app-projects.js` ist damit auf 1 129 Zeilen gefallen** — von 2 309 am Anfang der Runde, also mehr als halbiert. Die Datei enthaelt jetzt noch die Projektliste, das einzelne Projekt und die Seiten-Dialoge.
+
+   **Eine Naht, und sie wanderte mit.** `settingsView` rief `backupRow` (eine Tabellenzeile des Backup-Papierkorbs) — sie gehoert zu den Einstellungen und ist mitgegangen. Keine Modulvariable der Datei wurde gebraucht; deshalb liess sich die groesste Funktion der Oberflaeche als Ganzes schneiden.
+
+   **Vier tote Importe blieben zurueck** (`IMAGE_PROVIDER_LABELS`, `formatBytes`, `settingField` aus den Kern-Helfern, `refsSettingsSection` aus dem Referenz-Modul). Alle vier gehoerten zur ausgewanderten View. ESLint fand sie; die Bereinigung lief ueber die ganze Datei, nicht ueber eine Liste.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf allen drei Dateien.
+
 **Reihenfolge:** `store.ts`, `http.ts`, `mcp/tools.ts`, `app.js`; `mount.ts` entfällt mit P3-1. Nicht mehrere große Module gleichzeitig aufteilen.
 **Gate dieses Schritts:** `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:coverage`, `pnpm quality:render`, `pnpm quality:check` und `git diff --check` am 29.09.2026 grün; vorhandene Assertions unverändert. Vor einem weiteren Schritt: Änderungen fachlich committen und `git status --short` leer prüfen. Bei Browser-/Build-Pfaden zusätzlich die passenden App-Gates. Der vierte Schritt (09.10.2026) lief mit typecheck, lint, Coverage-Volllauf (1068/15/0), `quality:render`/`quality:check` und `check:patch` grün. **Gate des zweiten Schritts (07.10.2026):** dieselben Kommandos; `pnpm test` hatte zwei rote Browser-Tests ohne Bezug zur Auslagerung (Einordnung in `docs/current/qualitaet.md`), alles andere grün.
 
@@ -445,6 +455,7 @@ Der Import wurde am 20.10.2026 an einer veröffentlichten Seite gemessen (`https
 
 | Datum | Änderung |
 |---|---|
+| 22.10.2026 | P3-2 Schritt 43: die Einstellungen wandern aus `app-projects.js` in `app-settings.js` (`settingsView`, 531 Zeilen, und `backupRow`). Eine Naht, die mitwanderte. `app-projects.js`: 1 707 → 1 129 Zeilen - von 2 309 am Anfang der Runde mehr als halbiert. App-Suite 38/69, eslint, Build, `node --check`. |
 | 22.10.2026 | P3-2 Schritt 42: Bausteinbibliothek und Papierkorb wandern aus `app-projects.js` in `app-library.js` (`libraryView`, `trashView`). Beide teilen sich nichts mit den Projekten - keine Modulvariable, kein Zustand. `app-projects.js`: 1 936 → 1 707 Zeilen. App-Suite 38/69, eslint, Build, `node --check`. |
 | 22.10.2026 | P3-2 Schritt 41: der Inspector der Referenzen wandert aus `app-references.js` in `app-refs-inspector.js` (neun Funktionen, Fenster-Zustand, drei Helfer). Der einzige grosse Block ohne Zustandsbezug - deshalb liess er sich als Ganzes schneiden. `app-references.js`: 1 485 → 992 Zeilen. App-Suite 38/69, eslint, Build, `node --check`. |
 | 22.10.2026 | P3-2 Schritt 40: der Add-Dialog der Referenzen wandert aus `app-references.js` in `app-refs-add.js` (`refsOpenAddDialog`, `refsReadBase64`). Eine Naht (`refsRefresh` als Rueckruf). `app-references.js`: 1 763 → 1 482 Zeilen. Beim Umzug blieben fuenf tote Importe stehen - ESLint fand alle. App-Suite 38/69, eslint, Build, `node --check`. |
