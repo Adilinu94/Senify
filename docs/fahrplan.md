@@ -314,6 +314,16 @@ Versionierte Records werden bei Review und Publish gespeichert; Manifest und Re-
 
    **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf beiden Dateien.
 
+41. `app-refs-inspector.js` (22.10.2026): der Inspector der Referenzen wandert aus `app-references.js` — neun Funktionen (`refsInspectorList`, `refsOpenDetail`, `refsInspectorBuild`, `refsInspectorSetZoom`, `refsInspectorStep`, `refsInspectorActions`, `refsShotLabel`, `refsInspectorShow`, `refsOpenInspector`) samt seinem Fenster-Zustand und drei Helfern (`deleteReference`, `refsImageSource`, `refsEntryFor`). `app-references.js`: 1 485 → 992 Zeilen; `app-refs-inspector.js`: 534 Zeilen.
+
+   **Der groesste verbliebene Block — und der einzige ohne Zustandsbezug.** Der Inspector bekommt die Referenz als Argument; er liest `refsState` nicht. Deshalb liess er sich als Ganzes schneiden, waehrend Liste und Shell am Zustand hingen. Mit ihm wandern die drei Helfer, die nur er braucht.
+
+   **Was der Schnitt an den Tag brachte:** Der Fenster-Zustand (`refsInspector`, die Ids der Ansicht, die gezeigte Referenz, der Zaehler gegen veraltete Antworten) steckte noch in `app-references.js` — vier `let`-Zeilen, die nur der Inspector liest. Sie sind mitgewandert; die Liste setzt die Ids jetzt ueber `refsSetInspectorIds`. Ausserdem drei Kleinigkeiten, die nur der Inspector brauchte: die Bild-Quellen-Map und die zwei Zoom-Beschriftungen.
+
+   **Zwei Re-Exporte halten die Import-Quelle des Routers.** `app.js` holt `refsInspector` und `refsOpenInspector` ueber `app-references.js` — der Router kennt nur die Views. Der Re-Export steht dort, die Definition im Inspector-Modul.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf beiden Dateien.
+
 **Reihenfolge:** `store.ts`, `http.ts`, `mcp/tools.ts`, `app.js`; `mount.ts` entfällt mit P3-1. Nicht mehrere große Module gleichzeitig aufteilen.
 **Gate dieses Schritts:** `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:coverage`, `pnpm quality:render`, `pnpm quality:check` und `git diff --check` am 29.09.2026 grün; vorhandene Assertions unverändert. Vor einem weiteren Schritt: Änderungen fachlich committen und `git status --short` leer prüfen. Bei Browser-/Build-Pfaden zusätzlich die passenden App-Gates. Der vierte Schritt (09.10.2026) lief mit typecheck, lint, Coverage-Volllauf (1068/15/0), `quality:render`/`quality:check` und `check:patch` grün. **Gate des zweiten Schritts (07.10.2026):** dieselben Kommandos; `pnpm test` hatte zwei rote Browser-Tests ohne Bezug zur Auslagerung (Einordnung in `docs/current/qualitaet.md`), alles andere grün.
 
@@ -425,6 +435,7 @@ Der Import wurde am 20.10.2026 an einer veröffentlichten Seite gemessen (`https
 
 | Datum | Änderung |
 |---|---|
+| 22.10.2026 | P3-2 Schritt 41: der Inspector der Referenzen wandert aus `app-references.js` in `app-refs-inspector.js` (neun Funktionen, Fenster-Zustand, drei Helfer). Der einzige grosse Block ohne Zustandsbezug - deshalb liess er sich als Ganzes schneiden. `app-references.js`: 1 485 → 992 Zeilen. App-Suite 38/69, eslint, Build, `node --check`. |
 | 22.10.2026 | P3-2 Schritt 40: der Add-Dialog der Referenzen wandert aus `app-references.js` in `app-refs-add.js` (`refsOpenAddDialog`, `refsReadBase64`). Eine Naht (`refsRefresh` als Rueckruf). `app-references.js`: 1 763 → 1 482 Zeilen. Beim Umzug blieben fuenf tote Importe stehen - ESLint fand alle. App-Suite 38/69, eslint, Build, `node --check`. |
 | 22.10.2026 | P3-2 Schritt 39: die Sammlungen der Referenzen wandern aus `app-references.js` in `app-refs-collections.js`. Der Block war bis zum Zustands-Schnitt blockiert (er ruft `refsRefresh` und `refsSetCollection`); jetzt kommen beide als Rueckrufe herein. `app-references.js`: 2 040 → 1 756 Zeilen. App-Suite 38/69, eslint, Build, `node --check`. |
 | 22.10.2026 | P3-2 Schritt 38: Zustand, Adresse und Auswahl der Referenzen wandern aus `app-references.js` in `app-refs-state.js` - der Schritt, der die Trennung der grossen Bloecke erst moeglich macht (`refsState` wurde an 59 Stellen in 17 Funktionen gelesen). Drei Naehte ueber Setter statt Importe; `refsUpdateSelectionUI` bleibt wegen `refsDom` draussen. `app-references.js`: 2 117 → 2 040 Zeilen. App-Suite 38/69, eslint, Build. |

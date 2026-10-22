@@ -25,6 +25,7 @@ const MODULE: string[] = [
   'app-refs-state.js',
   'app-refs-collections.js',
   'app-refs-add.js',
+  'app-refs-inspector.js',
   "app.js",
 ];
 
