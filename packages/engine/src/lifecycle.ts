@@ -505,7 +505,7 @@ export async function publishRelease(
   });
   return {
     release: { ...release, buildRef: target },
-    checks: { hard: [], soft: [...report.soft, ...preCheck.soft] },
+    checks: { hard: [], soft: [...report.soft, ...preCheck.soft, ...snapshots.soft] },
   };
 }
 
@@ -970,6 +970,9 @@ async function buildReleaseSnapshots(
   payloads: ReleasePayloadSnapshot[];
   entries: ReleaseEntrySnapshot[];
   warnings: string[];
+  // The release's own soft checks (ADR-0010 §4: an unchecked licence is
+  // reported, never silently accepted).
+  soft: CheckIssue[];
 }> {
   const warnings: string[] = [];
 
@@ -1049,6 +1052,33 @@ async function buildReleaseSnapshots(
     provenance: payload.provenance,
     license: payload.license,
   }));
+  // ADR-0010 §4: the manifest leads an unchecked licence as "Lizenz
+  // ungeprüft". A payload may run on its site without a cleared licence — the
+  // release says so instead of pretending, the same honesty the asset warning
+  // above follows. Only the payloads a page actually carries are named: a
+  // payload that waits in the library for its next use is not part of this
+  // release.
+  const usedPayloadIds = new Set(
+    [...usedPayloadCarriers].map((entry) => entry.slice(entry.indexOf(":") + 1)),
+  );
+  const soft: CheckIssue[] = [];
+  for (const payload of payloads) {
+    if (!usedPayloadIds.has(payload.id)) continue;
+    // The code payload carries no `status` field (`CodePayloadLicense` is
+    // id/note/assertedBy — the `status` of a library licence is a decision
+    // about spreading, not about the code). "Checked" therefore means: an id
+    // that is not empty and not `unknown`.
+    const license = payload.license as { id?: unknown } | null;
+    const id = typeof license?.id === "string" ? license.id.trim() : "";
+    if (id !== "" && id.toLowerCase() !== "unknown") continue;
+    soft.push({
+      code: "payload-license-unchecked",
+      severity: "soft",
+      message: `Payload "${payload.name}" läuft mit ungeprüfter Lizenz (${id === "" ? "ohne Angabe" : id}).`,
+      suggestion:
+        "Lizenz des Fremdcodes prüfen und im Payload nachtragen; ohne Nachweis bleibt er aus der Bibliothek.",
+    });
+  }
 
   // Entries: the CMS content the release published, each with the version
   // that was live. The store filters on `status`, so this asks for exactly the
@@ -1082,7 +1112,7 @@ async function buildReleaseSnapshots(
     });
   }
 
-  return { assets, components, payloads, entries, warnings };
+  return { assets, components, payloads, entries, warnings, soft };
 }
 
 // Puts the release's assets back the way the release found them (Fahrplan P3-4,
