@@ -6,13 +6,13 @@
 // Frage, die der Fingerabdruck nicht beantworten kann: "sind das zwei
 // Auspraegungen desselben Bausteins?"
 import { describe, expect, it } from "vitest";
-import type { NodeTree } from "@senify/section-sdk";
+import type { NodeTree, PropValue } from "@senify/section-sdk";
 import {
   definitionFingerprint,
   definitionSimilarity,
 } from "../src/store-library-similarity.ts";
 
-function baum(nodes: Record<string, { type: string; props?: Record<string, unknown>; children?: string[]; slots?: Record<string, string[]> }>): NodeTree {
+function baum(nodes: Record<string, { type: string; props?: Record<string, PropValue>; children?: string[]; slots?: Record<string, string[]> }>): NodeTree {
   return {
     rootNodeId: "wurzel",
     nodes: Object.fromEntries(
