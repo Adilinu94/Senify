@@ -248,6 +248,20 @@ Versionierte Records werden bei Review und Publish gespeichert; Manifest und Re-
 
    **Beleg:** `packages/engine/test/store-themes.test.ts` (10 Fälle) treibt das Modul direkt gegen einen Host, der die Site-Prüfung aufzeichnet: Anlegen beim ersten Lesen, Heilung nach fehlender Zeile, leeres Patch abgelehnt, Version und Audit in einer Transaktion, ungültige Markenfarbe abgelehnt *vor* dem Schreiben, `not_found` für eine unbekannte Site, Race beim Anlegen, Zeile verschwindet beim Schreiben, zwei Ereignisse als zwei Einträge. **Gegenprobe:** ohne `validateTheme` wird der Regel-Test rot (gelaufen, zurückgenommen). Coverage-Lauf 150 Dateien/1529 Tests; `store-themes.ts` bei 96,02 % Statements, 75 % Branches und 100 % Functions — die Gruppenschwelle ist ohne Ausnahme erfüllt.
 
+35. `app-refs-dialog.js` (22.10.2026): Toast, Kopieren mit Rueckfall und das Schliessen per Hintergrund-Klick wandern aus `app-references.js` — vier Funktionen (`refsToast`, `refsCopy`, `refsCopyFallback`, `refsBindBackdropClose`) samt dem Schliessen-Symbol. `app-references.js`: 2 314 → 2 222 Zeilen.
+
+   **Der erste Block, der sich ohne den Zustand schneiden liess.** `app-references.js` greift an 52 Stellen auf `refsState` zu — das war der Grund, warum die Sammlungen und der Add-Dialog trotz ihrer Groesse zusammenbleiben mussten: sie ruhen alle auf demselben Zustand. Die Rueckmeldungen tun das nicht. Sie brauchen `el` und das Schliessen-Symbol, sonst nichts.
+
+   **Ein Zyklus, den der Schnitt erst sichtbar machte.** Das Schliessen-Symbol lag in `app-references.js`, und das neue Modul haette es von dort importieren muessen — waehrend `app-references.js` die vier Funktionen aus dem neuen Modul holt. Zwei Importe in entgegengesetzte Richtungen. Geloest, indem das Symbol zu den Dialogen zieht, wo es hingehoert: das neue Modul definiert es, `app-references.js` importiert es. Eine Richtung.
+
+   **Was beim Aufraeumen fast schiefging:** Beim Nachbauen des Symbols fehlte zuerst `stroke-linejoin="round"`. Der Unterschied waere im Bild kaum zu sehen gewesen — deshalb steht er jetzt in einem Vergleich: das erzeugte SVG ist zeichengleich mit dem, was `refsIcon` vorher lieferte (Attribut fuer Attribut geprueft).
+
+   **Zwei Re-Exporte halten die Import-Quellen.** `app-import.js` holt `refsBindBackdropClose` und `app-projects.js` holt `refsToast` ueber `app-references.js`; beide bleiben dort beziehbar, waehrend die Definition im Dialog-Modul liegt.
+
+   **Belegt ueber das Multiset aller Codezeilen:** vorher 2 094, nachher 2 094, 0 fehlt, 0 zu viel (ohne die Symbolzeile, die einzeln als zeichengleich geprueft ist).
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf allen drei beruehrten Dateien.
+
 **Reihenfolge:** `store.ts`, `http.ts`, `mcp/tools.ts`, `app.js`; `mount.ts` entfällt mit P3-1. Nicht mehrere große Module gleichzeitig aufteilen.
 **Gate dieses Schritts:** `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:coverage`, `pnpm quality:render`, `pnpm quality:check` und `git diff --check` am 29.09.2026 grün; vorhandene Assertions unverändert. Vor einem weiteren Schritt: Änderungen fachlich committen und `git status --short` leer prüfen. Bei Browser-/Build-Pfaden zusätzlich die passenden App-Gates. Der vierte Schritt (09.10.2026) lief mit typecheck, lint, Coverage-Volllauf (1068/15/0), `quality:render`/`quality:check` und `check:patch` grün. **Gate des zweiten Schritts (07.10.2026):** dieselben Kommandos; `pnpm test` hatte zwei rote Browser-Tests ohne Bezug zur Auslagerung (Einordnung in `docs/current/qualitaet.md`), alles andere grün.
 
@@ -359,6 +373,7 @@ Der Import wurde am 20.10.2026 an einer veröffentlichten Seite gemessen (`https
 
 | Datum | Änderung |
 |---|---|
+| 22.10.2026 | P3-2 Schritt 35: Toast, Kopieren und Backdrop-Schliessen wandern aus `app-references.js` in `app-refs-dialog.js`. Der erste Block, der ohne den geteilten `refsState` zu schneiden war; ein Zyklus um das Schliessen-Symbol wurde dabei sichtbar und durch Umzug des Symbols geloest. `app-references.js`: 2 314 → 2 222 Zeilen. Belegt ueber das Multiset (2 094 vorher, 2 094 nachher, 0 fehlt, 0 zu viel) und SVG-Attributvergleich. |
 | 21.10.2026 | P3-2 Schritt 34: Theme und Ereignisprotokoll wandern aus `store.ts` in `store-themes.ts` (`ThemesRepository`, vier Operationen). `updateTheme` schreibt Theme-Zeile und Audit in einer Transaktion; eine Naht (Site-Existenz). `store.ts`: 3 143 → 2 652 Zeilen. Beleg: `store-themes.test.ts` (10 Faelle, inklusive Race und verschwindender Zeile), Gegenprobe (ohne validateTheme rot), Coverage 96,02 % Statements / 75 % Branches. |
 | 21.10.2026 | P3-2 Schritt 33: die Sites wandern aus `store.ts` in `store-sites.ts` (`SitesRepository`, achtzehn Operationen) samt Design-Contract. Zwei Naht-Funktionen: Engine-Einstellungen und Theme-Anlage. `deleteSite` bleibt eine Einzeltransaktion. `store.ts`: 3 143 → 2 787 Zeilen. Beleg: `store-sites.test.ts` (18 Faelle), Gegenprobe (ohne manuellen Vorrang rot), Coverage-Lauf 149 Dateien/1519 Tests, 91,57 % Statements. |
 | 21.10.2026 | P3-2 Schritt 32: die API-Tokens wandern aus `store.ts` in `store-tokens.ts` (`TokensRepository`, acht Operationen) samt `store-token-mappers.ts`. Dieses Modul hat keine Naht: die Tabelle gehoert ihm allein, es bekommt nur die Datenbank. `store.ts`: 3 263 → 3 143 Zeilen. Beleg: `store-tokens.test.ts` (10 Faelle), Gegenprobe (ohne Scope-Pruefung rot), Coverage-Lauf 148 Dateien/1501 Tests, `store-tokens.ts` bei 100 %. |

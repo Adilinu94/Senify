@@ -19,6 +19,7 @@ const MODULE: string[] = [
   "app-import.js",
   "app-markdown.js",
   "app-articles.js",
+  "app-refs-dialog.js",
   "app.js",
 ];
 
