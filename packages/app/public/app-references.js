@@ -6,6 +6,12 @@ import { AUTHOR, activeTab, api, askConfirm, el, failed, friendlyError, initials
 import { linesToList, openSnapshotDialog } from "./app-projects.js";
 import { renderRoute } from "./app.js";
 import { refsRenderMarkdown } from "./app-markdown.js";
+import { REFS_ICON_CLOSE, refsBindBackdropClose, refsCopy, refsToast } from "./app-refs-dialog.js";
+
+// Zwei Helfer, die andere Module ueber diese Datei beziehen (app-import.js holt
+// refsBindBackdropClose, app-projects.js holt refsToast). Der Re-Export haelt
+// ihre Import-Quelle, waehrend die Definition im Dialog-Modul liegt.
+export { refsBindBackdropClose, refsToast } from "./app-refs-dialog.js";
 
 async function deleteReference(reference) {
   const used = reference.usedInProjects.length;
@@ -67,7 +73,6 @@ const REFS_ICON_LINK_LABEL = refsIcon('<path d="M8.2 15.8 15.8 8.2M9.6 8.2h6.2v6
 const REFS_ICON_PLUS = refsIcon('<path d="M12 5.4v13.2M5.4 12h13.2"/>', 15);
 const REFS_ICON_PLUS_BUTTON = refsIcon('<path d="M12 5.4v13.2M5.4 12h13.2"/>', 13);
 const REFS_ICON_PLUS_UPLOAD = refsIcon('<path d="M12 5.4v13.2M5.4 12h13.2"/>', 25);
-const REFS_ICON_CLOSE = refsIcon('<path d="M6.8 6.8 17.2 17.2M17.2 6.8 6.8 17.2"/>', 17);
 const REFS_ICON_PREV = refsIcon('<path d="M14.4 5.6 8 12l6.4 6.4"/>', 17);
 const REFS_ICON_NEXT = refsIcon('<path d="M9.6 5.6 16 12l-6.4 6.4"/>', 17);
 const REFS_ICON_SEARCH_LARGE = refsIcon(
@@ -216,100 +221,6 @@ function refsActiveCollection() {
   if (refsState.view === "styles") return null;
   if (refsState.collection === "" || refsState.collection === "none") return null;
   return refsCollections.find((entry) => entry.id === refsState.collection) ?? null;
-}
-
-// Toast der Referenzen-Seite: unten mittig, 2600 ms sichtbar, Uebergang wie im
-// Vorbild (`#toast`). Anders als die Shell-Toasts (rechts oben in der Ecke).
-// Liegt ein modales Fenster offen, wandert der Toast hinein: die oberste Ebene
-// (`top layer`) deckt sonst alles ab, was am `<body>` haengt — genau wie im
-// Vorbild haengt `notify()` den Toast in den zuletzt geoeffneten Dialog.
-
-export function refsToast(message) {
-  for (const old of document.querySelectorAll(".refs-toast")) old.remove();
-  const node = el("div", {
-    class: "refs-toast",
-    role: "status",
-    "aria-live": "polite",
-    text: message,
-  });
-  const open = document.querySelector("dialog[open]");
-  (open ?? document.body).append(node);
-  window.requestAnimationFrame(() => node.classList.add("show"));
-  setTimeout(() => {
-    node.classList.remove("show");
-    setTimeout(() => node.remove(), 200);
-  }, 2600);
-}
-
-// Brief kopieren: Clipboard wenn verfuegbar, sonst Dialog zum Markieren.
-
-function refsCopy(text, message) {
-  const clipboard = window.navigator ? window.navigator.clipboard : undefined;
-  if (clipboard && typeof clipboard.writeText === "function") {
-    clipboard.writeText(text).then(
-      () => refsToast(message ?? "Brief kopiert"),
-      () => refsCopyFallback(text),
-    );
-    return;
-  }
-  refsCopyFallback(text);
-}
-
-function refsCopyFallback(text) {
-  const area = el("textarea", { class: "refs-input", rows: "15" });
-  area.readOnly = true;
-  area.value = text;
-  const dialog = el(
-    "dialog",
-    { class: "refs-dialog refs-copy-dialog" },
-    el(
-      "div",
-      { class: "refs-dialog-head" },
-      el("h2", { text: "Dein Brief" }),
-      el(
-        "div",
-        { class: "refs-dialog-tools" },
-        el("button", {
-          type: "button",
-          class: "refs-icon-button",
-          "aria-label": "Schliessen",
-          html: REFS_ICON_CLOSE,
-          onclick: () => dialog.close(),
-        }),
-      ),
-    ),
-    el(
-      "div",
-      { class: "refs-dialog-body" },
-      el("p", {
-        text: "Automatisches Kopieren ist nicht verfügbar. Wähle den Text unten aus und kopiere ihn.",
-      }),
-      area,
-    ),
-  );
-  document.body.append(dialog);
-  dialog.addEventListener("close", () => dialog.remove());
-  refsBindBackdropClose(dialog);
-  dialog.showModal();
-  area.focus();
-  area.select();
-}
-
-// Hintergrund-Klick schliesst jeden `refs-`-Dialog (wie im Vorbild).
-
-export function refsBindBackdropClose(dialog) {
-  dialog.addEventListener("click", (event) => {
-    if (event.target !== dialog) return;
-    const rect = dialog.getBoundingClientRect();
-    if (
-      event.clientX < rect.left ||
-      event.clientX > rect.right ||
-      event.clientY < rect.top ||
-      event.clientY > rect.bottom
-    ) {
-      dialog.close();
-    }
-  });
 }
 
 function refsIsSelected(id) {
