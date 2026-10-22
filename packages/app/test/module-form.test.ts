@@ -31,6 +31,7 @@ const MODULE: string[] = [
   'app-workspace.js',
   'app-workspace-submissions.js',
   'app-workspace-templates.js',
+  'app-workspace-settings.js',
   'app-framer-import.js',
   "app.js",
 ];

@@ -388,6 +388,18 @@ Versionierte Records werden bei Review und Publish gespeichert; Manifest und Re-
 
    **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf allen drei Dateien, Modulform-Test.
 
+48. `app-workspace-settings.js` (22.10.2026): der Tab „Einstellungen" wandert aus `projectView` - Projekteinstellungen mit der oeffentlichen Adresse, die Breakpoint-Steuerung, die hinterlegten Referenzen und der Deploy (210 Zeilen Rumpf). `app-workspace.js`: 580 -> 374 Zeilen; `projectView` selbst: 344 -> 144 Zeilen.
+
+   **Der letzte grosse Tab-Block, und der einzige mit einer echten Naht nach innen.** `breakpointsPanel` bleibt in `app-workspace.js` (die anderen Tabs brauchen es nicht), also kommt es als Rueckruf herein - ein Rueckimport waere ein Zyklus. Das Neuladen und das Markup folgen dem Muster aus Schritt 47.
+
+   **Derselbe Fehler wie in Schritt 47, diesmal vorher gefunden.** Die Grenze des Blocks endet an der Zeile `} else if (tab === "submissions")`; deren `}` schliesst den settings-Zweig. Beim ersten Versuch brachte der Ersatz eine eigene schliessende Klammer mit - `node --check` meldete `Unexpected token 'else'`. Die Loesung: der Ersatz bringt keine mit, die Grenzzeile bleibt stehen und schliesst ihn. Beim vorigen Schritt kostete derselbe Denkfehler einen zweiten Durchlauf; jetzt steht er im Kommentar des Schnittskripts.
+
+   **Ein toter Import blieb zurueck:** `PROFILE_LABELS` gehoert zur ausgewanderten View. ESLint fand ihn.
+
+   **Belegt ueber das Multiset der Code-Zeilen:** 553 vorher, 569 nachher; die 8 fehlenden sind genau die umbenannten (drei `renderRoute()`, drei `body.push(`, ein `breakpointsPanel(`) und die eine Import-Zeile. Kein Verlust.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf beiden Dateien, Modulform-Test.
+
 **Reihenfolge:** `store.ts`, `http.ts`, `mcp/tools.ts`, `app.js`; `mount.ts` entfällt mit P3-1. Nicht mehrere große Module gleichzeitig aufteilen.
 **Gate dieses Schritts:** `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:coverage`, `pnpm quality:render`, `pnpm quality:check` und `git diff --check` am 29.09.2026 grün; vorhandene Assertions unverändert. Vor einem weiteren Schritt: Änderungen fachlich committen und `git status --short` leer prüfen. Bei Browser-/Build-Pfaden zusätzlich die passenden App-Gates. Der vierte Schritt (09.10.2026) lief mit typecheck, lint, Coverage-Volllauf (1068/15/0), `quality:render`/`quality:check` und `check:patch` grün. **Gate des zweiten Schritts (07.10.2026):** dieselben Kommandos; `pnpm test` hatte zwei rote Browser-Tests ohne Bezug zur Auslagerung (Einordnung in `docs/current/qualitaet.md`), alles andere grün.
 
@@ -499,6 +511,7 @@ Der Import wurde am 20.10.2026 an einer veröffentlichten Seite gemessen (`https
 
 | Datum | Änderung |
 |---|---|
+| 22.10.2026 | P3-2 Schritt 48: der Tab „Einstellungen" wandert aus `projectView` in `app-workspace-settings.js` (Projekteinstellungen, Breakpoints, Referenzen, Deploy). `breakpointsPanel` bleibt in `app-workspace.js` und kommt als Rueckruf herein. `app-workspace.js`: 580 -> 374 Zeilen, `projectView` 344 -> 144. Belegt ueber das Multiset (553 vorher, 569 nachher, 8 umbenannt, 0 verloren). App-Suite 38/69, eslint, Build, Modulform. |
 | 22.10.2026 | P3-2 Schritt 47: die zwei groessten Tab-Bloecke wandern aus `projectView` in `app-workspace-submissions.js` (Einsendungen und Benachrichtigungs-Jobs) und `app-workspace-templates.js` (Vorlagen und Layout-Zuordnung). Der Schnitt trennt Tab fuer Tab statt Funktion fuer Funktion - die `if`/`else if`-Kette war die bessere Naht. Drei Naehte: Formular-Auswahl als Getter/Setter, Neuladen als Rueckruf, Markup als Rueckgabewert. `app-workspace.js`: 925 -> 580 Zeilen. Belegt ueber das Multiset (892 vorher, 922 nachher, 25 umbenannt, 0 verloren). App-Suite 38/69, eslint, Build, Modulform. |
 | 22.10.2026 | Coverage-Tor: `store-settings.ts` und `store-reviews.ts` waren gemessen, aber von keiner Schwelle gedeckt - sie haetten unbemerkt verfallen koennen. Beide stehen jetzt in der Gruppe der Fachmodule; neu `coverage-gate.test.ts` haelt fest, dass jede gemessene Datei eine Schwelle hat und jede Schwelle eine Datei (Gegenprobe: ohne die Schwelle rot). Dazu zwei Doku-Defekte: die Zahl der Fachmodule (26 statt 21) und die Beschreibung von `app-projects.js` (197 Zeilen, nicht mehr Artikel und Einstellungen). |
 | 22.10.2026 | P3-2 Schritt 45: der Framer-Import wandert aus `app-import.js` in `app-framer-import.js` (`importReportBlock`, `openFramerImportDialog`). `app-import.js` hatte keine Modulvariable - der Grund, warum die Trennung ging. `app-import.js`: 966 → 482 Zeilen. Zwei Aufrufer (Editor, Review) ziehen mit. App-Suite 38/69, eslint, Build. |
