@@ -470,7 +470,7 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
       // capture kept the inner markup, because the element scan alone drops
       // the plain text between the children.
       primitive = "body";
-      props["html"] = sanitizeInlineHtml(node.innerHtml);
+      props["html"] = withTextTypography(node, sanitizeInlineHtml(node.innerHtml));
     } else if (hasElementChildren) {
       // A text element with element children (the RichText shape: <p><a>…</a></p>)
       // becomes a body with inline HTML — `text` accepts no children.
@@ -581,6 +581,19 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
   };
   const baseVisual = styleOf(merged.base);
   for (const [property, value] of Object.entries(baseVisual)) props[property] = value;
+  // The fit text of Framer: the box measures the words (`font-size: 0`,
+  // `line-height: 0`), the words take their size and their line height from
+  // the class. The import gives the box the values of the words — otherwise
+  // the words stay invisible (measured: the heading "Writing" on
+  // `notes.framer.website` had a height of 0 in the import while the source
+  // showed 22 px).
+  if (isFitTextMarker(merged.base.visual) && node.children.length > 0) {
+    const typography = textTypographyOf(node);
+    if (typography !== null) {
+      props["fontSize"] = typography.size;
+      if (typography.lineHeight !== null) props["lineHeight"] = typography.lineHeight;
+    }
+  }
   normalizeSpacingProps(props);
   const tabletDiff = merged.tablet === null ? {} : diffValues(baseVisual, styleOf(merged.tablet));
   for (const [property, value] of Object.entries(tabletDiff)) props[`${property}_tablet`] = value;
@@ -611,30 +624,14 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
   ) {
     const path = firstTextPath(node);
     if (path !== null) {
-      const merged = path
-        .filter((member, index) => index === 0 || !INLINE_TAGS.has(member.tag) || path[index - 1]?.children.length === 1)
-        .map((member) => mergeStates(member.states));
-      // The lifted typography points at the theme's slots too (the family the
-      // source wrote belongs to the source, the site knows the slots).
-      const withSlot = (values: Record<string, string>): Record<string, string> => {
-        if (values["fontFamily"] === undefined) return values;
-        return { ...values, fontFamily: themeFontOf(values["fontFamily"], context.fontSlots) };
-      };
-      const sourceBase = withSlot(
-        cssToStyle(Object.assign({}, ...merged.map((entry) => typographyOf(entry.base.visual)))),
-      );
-      Object.assign(props, sourceBase);
-      const effectiveOn = (device: "tablet" | "mobile"): Record<string, string> =>
-        withSlot(
-          cssToStyle(Object.assign({}, ...merged.map((entry) => typographyOf((entry[device] ?? entry.base).visual)))),
-        );
-      const tabletType = diffValues(sourceBase, effectiveOn("tablet"));
-      for (const [property, value] of Object.entries(tabletType)) props[`${property}_tablet`] = value;
-      for (const [property, value] of Object.entries(mobileOverrides(sourceBase, tabletType, effectiveOn("mobile")))) {
-        props[`${property}_mobile`] = value;
-      }
+      liftTypographyOf(path, props, context);
     }
   }
+  // The fit text (Framer): the box measures the words (`font-size: 0`), the
+  // words take their size from the class. The import takes the typography of
+  // the words into the props of the box — otherwise the words stay invisible
+  // (measured: the heading "Writing" on `notes.framer.website` had a height of
+  // 0 in the import while the source showed 22 px).
   normalizeSpacingProps(props);
   // --- layout from the stack/grid hints
   const layout = merged.base.layout;
@@ -784,10 +781,133 @@ function escapedDataUrlMarkup(value: string): string {
   return value.includes("data:image/svg+xml") ? value.replace(/</g, "%3C").replace(/>/g, "%3E") : value;
 }
 
+// Framer writes the typography of a text component into variables: the class
+// carries them (`--framer-font-size: 18px`), the inner text reads them
+// (`font-size: var(--framer-font-size)`). The import drops the variables (they
+// are not style properties) — so the typography has to be read from them
+// before they are gone, or every text of the page falls back to the default.
+//
+// The same map names the Senify style property of each variable.
+const FRAMER_TEXT_PROPS: Readonly<Record<string, string>> = {
+  "--framer-font-family": "fontFamily",
+  "--framer-font-size": "fontSize",
+  "--framer-font-weight": "fontWeight",
+  "--framer-letter-spacing": "letterSpacing",
+  "--framer-line-height": "lineHeight",
+  "--framer-text-alignment": "textAlign",
+  "--framer-text-color": "color",
+  "--framer-text-decoration": "textDecoration",
+  "--framer-text-transform": "textTransform",
+  "--framer-font-style": "fontStyle",
+};
+
+// The "fit text" of Framer: the box measures the words (`font-size: 0`), the
+// words take their size from the class's variable. A literal `font-size: 0`
+// next to a `--framer-font-size` is that marker, never the size of the text —
+// taking it as the size would make the text invisible (measured: the heading
+// "Writing" on `notes.framer.website` had a height of 0 in the import).
+function isFitTextMarker(visual: { [key: string]: string | undefined }): boolean {
+  const own = (visual["font-size"] ?? "").trim();
+  return own === "0" || own === "0px";
+}
+
+// The typography of the words of a text component: the size and the line
+// height the source gives them.
+//
+// Framer's "fit text": the box measures the words (`font-size: 0`,
+// `line-height: 0`), the words themselves take their size from the class — a
+// rule of the source (`[data-framer-component-type=Text] span span { font-size:
+// var(--framer-font-size) }`) that the capture resolves on the WORD, not on
+// the box. The box keeps its 0.
+//
+// The import has to take the values from the word: without them the words
+// stay invisible (measured: the heading "Writing" on `notes.framer.website`
+// had a height of 0 in the import while the source showed 22 px).
+function textTypographyOf(node: IrNode): { size: string; lineHeight: string | null } | null {
+  for (const child of node.children) {
+    const visual = child.states[0]?.visual ?? {};
+    const size = visual["font-size"];
+    if (typeof size === "string" && size !== "" && size !== "0" && size !== "0px") {
+      const lineHeight = visual["line-height"];
+      return {
+        size,
+        lineHeight:
+          typeof lineHeight === "string" && lineHeight !== "" && lineHeight !== "0" && lineHeight !== "0px"
+            ? lineHeight
+            : null,
+      };
+    }
+    // The span around the words carries the measuring zero — the words are
+    // deeper (the source writes them in a span in a span).
+    const deeper = textTypographyOf(child);
+    if (deeper !== null) return deeper;
+  }
+  return null;
+}
+
+// The inner markup of a text component carries the fit text marker
+// (`font-size: 0`, `line-height: 0`) on the spans around the words: the box
+// measures them, the words take their size from the class. With the real
+// values in place the marker has to go — it would keep the words invisible.
+function withTextTypography(node: IrNode, html: string): string {
+  if (!isFitTextMarker(node.states[0]?.visual ?? {})) return html;
+  const typography = textTypographyOf(node);
+  if (typography === null) return html;
+  let out = html.replace(/font-size:\s*0(px)?/g, `font-size:${typography.size}`);
+  if (typography.lineHeight !== null) {
+    out = out.replace(/line-height:\s*0(px)?/g, `line-height:${typography.lineHeight}`);
+  }
+  return out;
+}
+
+// The typography of a text that lives in a descendant, written into the props
+// of the node that carries it — with the device variants of the source.
+//
+// Two cases use it: a node whose own text is empty (the text lives deeper in
+// the tree) and the fit text of Framer (the box measures the words, the words
+// carry the typography).
+function liftTypographyOf(
+  path: IrNode[],
+  props: Record<string, unknown>,
+  context: MapContext,
+): void {
+  const merged = path
+    .filter((member, index) => index === 0 || !INLINE_TAGS.has(member.tag) || path[index - 1]?.children.length === 1)
+    .map((member) => mergeStates(member.states));
+  // The lifted typography points at the theme's slots too (the family the
+  // source wrote belongs to the source, the site knows the slots).
+  const withSlot = (values: Record<string, string>): Record<string, string> => {
+    if (values["fontFamily"] === undefined) return values;
+    return { ...values, fontFamily: themeFontOf(values["fontFamily"], context.fontSlots) };
+  };
+  const sourceBase = withSlot(
+    cssToStyle(Object.assign({}, ...merged.map((entry) => typographyOf(entry.base.visual)))),
+  );
+  Object.assign(props, sourceBase);
+  const effectiveOn = (device: "tablet" | "mobile"): Record<string, string> =>
+    withSlot(
+      cssToStyle(Object.assign({}, ...merged.map((entry) => typographyOf((entry[device] ?? entry.base).visual)))),
+    );
+  const tabletType = diffValues(sourceBase, effectiveOn("tablet"));
+  for (const [property, value] of Object.entries(tabletType)) props[`${property}_tablet`] = value;
+  for (const [property, value] of Object.entries(mobileOverrides(sourceBase, tabletType, effectiveOn("mobile")))) {
+    props[`${property}_mobile`] = value;
+  }
+}
+
 function cssToStyle(visual: { [key: string]: string | undefined }): Record<string, string> {
   const out: Record<string, string> = {};
+  // The typography of the variables first: an inline declaration wins over
+  // them (the cascade of the source says so), except the fit text marker.
+  for (const [name, entry] of Object.entries(visual)) {
+    if (entry === undefined || entry === "") continue;
+    const mapped = FRAMER_TEXT_PROPS[name];
+    if (mapped !== undefined) out[mapped] = entry;
+  }
   for (const [name, entry] of Object.entries(visual)) {
     if (entry === undefined || isBackgroundReset(name, entry)) continue;
+    if (name.startsWith("--")) continue;
+    if (name === "font-size" && isFitTextMarker(visual) && out["fontSize"] !== undefined) continue;
     const mapped = name === "background" && BACKGROUND_IMAGE.test(entry) ? "backgroundImage" : cssName(name);
     if (mapped !== undefined && entry !== "") out[mapped] = mapped === "backgroundImage" ? escapedDataUrlMarkup(entry) : entry;
   }
@@ -811,7 +931,7 @@ function inlineHtmlOf(node: IrNode, fallback: string, context: MapContext): stri
 // whitespace of its own (regression: navigation and mail links vanished).
 function inlineOf(child: IrNode, context: MapContext, mitTypografie: boolean): string {
   if (child.innerHtml !== undefined && child.innerHtml !== null) {
-    const inner = sanitizeInlineHtml(child.innerHtml);
+    const inner = withTextTypography(child, sanitizeInlineHtml(child.innerHtml));
     return HEADING_TAGS.has(child.tag) || child.tag === "p" ? `<${child.tag}>${inner}</${child.tag}>` : inner;
   }
   // A line break is the whole content of the blank line between two paragraphs.

@@ -81,6 +81,31 @@ describe("the page-level payload", () => {
     expect(html).not.toContain('data-payload-covers-page="1"');
   });
 
+  it("keeps the structure when this build does not deliver the payload", async () => {
+    // A missing payload must not empty the page: the structure stands, the
+    // plate says what is missing. (Measured: with the carrier replacing the
+    // structure anyway, the page was 900 px high instead of 1743 px.)
+    const result = await bakeSite(
+      {
+        siteName: "Musterstudio",
+        baseUrl: "https://beispiel.de",
+        pages: [{ id: "p1", path: "/", title: "Start", tree: tree({ coversPage: true }) }],
+        themeCss: emitCss(resolved),
+        motionTokens: { ease: resolved.motion.ease, baseDurationMs: 300, baseStaggerMs: 80 },
+        // No payloads: the build delivers none.
+        aeo: false,
+      },
+      { outDir: mkdtempSync(join(tmpdir(), "senify-payload-page-")) },
+    );
+    baked.push(result);
+    const html = await loadBakedSite(result.outDir).read("index.html");
+    // The structure stands ...
+    expect(html).toContain("Strukturtext");
+    // ... and the carrier says that its payload is missing.
+    expect(html).toContain('data-payload-id="pay1"');
+    expect(html).toContain('data-payload-state="plate"');
+  });
+
   it("writes the payload and hands its URL to the island script", async () => {
     const { result } = await bake({ coversPage: true });
     const payload = result.payloads.find((entry) => entry.id === "pay1");

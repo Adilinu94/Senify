@@ -600,9 +600,16 @@ erlaubt sie nicht (sie hydriert `#main`, also die Seite). Der Träger ist deshal
 Editor arbeitet auf der Struktur. Nur der Release zeigt das Original. Der Canvas führt **nie**
 Fremd-Code aus (ADR-0010 §8).
 
-**Belege:** `packages/renderer/test/payload-page.test.ts` (3 Fälle: der Träger ersetzt die
+**Belege:** `packages/renderer/test/payload-page.test.ts` (4 Fälle: der Träger ersetzt die
 Struktur; ohne `coversPage` bleibt die Struktur stehen — der Gegenbeweis; der Payload wird
-geschrieben und dem Island-Skript übergeben).
+geschrieben und dem Island-Skript übergeben; **ohne gelieferten Payload bleibt die Struktur
+stehen**).
+
+**Der Fund während der Messung (und die Korrektur):** Der Träger ersetzte die Struktur auch
+dann, wenn der Build den Payload **nicht** liefert. Dann stand die Platte auf der Seite und die
+Seite war **900 px** hoch statt 1743 px — ein stiller Abriss, genau den ADR-0010 §7 verbietet.
+Der Bake blendet die Struktur jetzt **nur** aus, wo der Payload auch steht; sonst bleibt die
+Struktur und die Platte sagt, was fehlt.
 
 **Gate:** Auf allen elf Seiten ist die Seitenhöhe mit und ohne Payload gleich (kein Doppelstand).
 

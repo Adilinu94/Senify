@@ -89,6 +89,29 @@ Container hält fünf leere `display:contents`-Platzhalter. `viewBox="0 0 256 25
 kommt im Server-HTML 0-mal vor, im gerenderten DOM 5-mal. Das ist mit dem
 SSR-Weg **grundsätzlich** nicht erreichbar.
 
+### U2b · Die Texte der Quelle sind im Import unsichtbar — **teilweise geschlossen 22.10.2026**
+
+**Belegt und gemessen.** Framer misst die Wörter: der Kasten einer
+Textkomponente trägt `font-size: 0` (und `line-height: 0`), die Wörter selbst
+bekommen ihre Größe von der Klasse. Der Import nahm den **Messwert** als
+Größe — die Wörser waren unsichtbar (Höhe 0). An `notes.framer.website` war die
+Überschrift „Writing" im Import 0 px hoch (in der Quelle 22 px), und die Seite
+verlor 242 px Höhe.
+
+**Was geschlossen ist:** Der Import gibt dem Kasten die Größe der Wörter und
+nimmt den Marker aus dem inneren Markup. **Gemessen (Blindtest, Desktop /
+Tablet / Mobil): 27,95 / 34,23 / 36,64 % → 16,90 / 22,56 / 26,39 %.**
+
+**Was offen ist (die Wurzel):** Die Größe der Wörter steht bei Framer in einer
+Regel mit **Attribut-Selektor**
+(`[data-framer-component-type=Text] span span { font-size: var(--framer-font-size) }`).
+Der Capture wertet nur **Klassen**regeln an — die Wörser erben deshalb weiter
+zu kleine Größen (sichtbar, aber zu klein). Der nächste Schritt ist ein
+Selektor-Matcher im Capture, der auch Attribut-Selektoren auflöst.
+
+**Beleg:** `packages/framer-import/test/fit-text.test.ts` (2 Fälle, 1 rot
+ohne den Fix).
+
 ### U3 · `-webkit-`-Präfixe fallen weg
 
 **Belegt, Auswirkung unklar.** Der Normalizer wirft jede Deklaration mit

@@ -184,16 +184,24 @@ export function jsonForHtml(value: unknown): string {
 // stands where the structure stood, so nothing stands twice (the height of
 // the page with and without the payload is the same). The tree keeps the
 // structure — it is the truth the editor works on, and the canvas shows it.
-export function renderTreeOf(tree: NodeTree): NodeTree {
+//
+// **But only when the payload is really there.** A carrier whose payload this
+// build does not deliver keeps the structure: otherwise a missing payload
+// would leave the page empty (measured: the structure was replaced by a
+// plate, and the page was 900 px high instead of 1743 px). The plate says
+// what is missing; the structure keeps the page alive.
+export function renderTreeOf(
+  tree: NodeTree,
+  delivers: (payloadId: string) => boolean = () => true,
+): NodeTree {
   const root = tree.nodes[tree.rootNodeId];
   if (root === undefined) return tree;
   const carrier = (root.children ?? []).find((id) => {
     const node = tree.nodes[id];
-    return (
-      node !== undefined &&
-      node.type === "payload" &&
-      node.props["coversPage"] === true
-    );
+    if (node === undefined || node.type !== "payload") return false;
+    if (node.props["coversPage"] !== true) return false;
+    const payloadId = node.props["payloadId"];
+    return typeof payloadId === "string" && payloadId !== "" && delivers(payloadId);
   });
   if (carrier === undefined) return tree;
   const carrierNode = tree.nodes[carrier];
@@ -486,8 +494,9 @@ export async function bakeSite(
   });
   for (const page of expandedPages) {
     // The page that is actually rendered: a page-level payload carrier
-    // stands in for the structure (see `renderTreeOf`).
-    const tree = renderTreeOf(page.tree);
+    // stands in for the structure (see `renderTreeOf`) — but only when this
+    // build delivers the payload.
+    const tree = renderTreeOf(page.tree, (payloadId) => input.payloads?.[payloadId] !== undefined);
     // Reveals above the fold play as CSS (no wait for the page script): the
     // registry decides which nodes, the markup is stamped from the same call.
     const cssEntry = cssEntryNodeIds(
