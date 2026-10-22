@@ -6,11 +6,12 @@
 // `breakpointsPanel` brauchen je eine eigene Konstante, die mitgewandert ist;
 // `projectView` braucht die drei und sonst nichts aus der Datei.
 
-import { MUTATION_LABELS, PROFILE_LABELS, activeTab, api, el, failed, formatDate, render, routeScope, toast, AUTHOR, errorHint, friendlyError, nextDialogId } from "./app-core.js";
+import { MUTATION_LABELS, activeTab, api, el, failed, formatDate, render, routeScope, toast, AUTHOR, errorHint, friendlyError, nextDialogId } from "./app-core.js";
 import { reviewPanel } from "./app-review.js";
 import { renderRoute } from "./app.js";
 import { submissionsTab } from "./app-workspace-submissions.js";
 import { templatesTab } from "./app-workspace-templates.js";
+import { settingsTab } from "./app-workspace-settings.js";
 
 // Die ausgewaehlte Formular-Einreichung im Tab. Sie stand bis R12 in
 // `app-projects.js`; nur der Projekt-Workspace liest und schreibt sie.
@@ -356,216 +357,10 @@ export async function projectView(siteId, tab) {
           ),
     );
   } else if (tab === "settings") {
-    body.push(
-      el("h2", { text: "Projekt-Einstellungen" }),
-      el(
-        "div",
-        { class: "panel" },
-        el("p", {}, el("strong", { text: "Kurzname (steht in Adressen und Dateinamen): " }), el("code", { text: site.slug })),
-        el("p", {}, el("strong", { text: "Niveau (Bewegung und Effekte): " }), PROFILE_LABELS[site.profile] ?? site.profile),
-        el("p", {
-          class: "muted",
-          text: "Den Namen änderst du in der Projektliste unter „Umbenennen“. Auslieferung und Deploy findest du weiter unten.",
-        }),
-        el(
-          "div",
-          { class: "inline" },
-          el("label", { class: "muted", for: "site-base-url" }, "Öffentliche Adresse"),
-          el("input", {
-            id: "site-base-url",
-            type: "text",
-            value: site.baseUrl ?? "",
-            placeholder: "https://www.kunde.de",
-          }),
-          el("button", {
-            class: "primary",
-            text: "Adresse speichern",
-            onclick: async () => {
-              try {
-                await api(`/api/sites/${siteId}`, {
-                  method: "PATCH",
-                  body: {
-                    baseUrl: document.getElementById("site-base-url").value,
-                    author: AUTHOR,
-                  },
-                });
-                toast("Öffentliche Adresse gespeichert");
-                await renderRoute();
-              } catch (error) {
-                failed(error);
-              }
-            },
-          }),
-        ),
-        el("p", {
-          class: "muted",
-          text: `Unter dieser Adresse öffnen Besucher die Seite. Sie steckt in canonical, Sitemap, og:url und der Formularprüfung. Leer lassen: Platzhalter ${site.slug}.senify.xyz.`,
-        }),
-      ),
-      breakpointsPanel(siteId, site),
-    );
-    const [referenceData, { references: allReferences }] = await Promise.all([
-      api(`/api/sites/${siteId}/references`),
-      api("/api/references"),
-    ]);
-    const nameById = new Map(allReferences.map((entry) => [entry.id, entry.name]));
-    body.push(
-      el(
-        "div",
-        { class: "panel" },
-        el("h2", { text: "Referenzen" }),
-        referenceData.assignments.length === 0
-          ? el("p", {
-              class: "muted",
-              text: "Noch keine Referenz für dieses Projekt hinterlegt.",
-            })
-          : el(
-              "table",
-              {},
-              el(
-                "thead",
-                {},
-                el(
-                  "tr",
-                  {},
-                  el("th", { text: "Referenz" }),
-                  el("th", { text: "Skalen" }),
-                  el("th", {}),
-                ),
-              ),
-              el(
-                "tbody",
-                {},
-                referenceData.assignments.map((assignment) =>
-                  el(
-                    "tr",
-                    {},
-                    el("td", {
-                      text: nameById.get(assignment.referenceId) ?? assignment.referenceId,
-                    }),
-                    el("td", { text: assignment.scales.join(", ") }),
-                    el(
-                      "td",
-                      {},
-                      el(
-                        "div",
-                        { class: "row-actions" },
-                        el("button", {
-                          class: "danger",
-                          text: "Entfernen",
-                          onclick: async () => {
-                            try {
-                              await api(
-                                `/api/sites/${siteId}/references/${assignment.referenceId}`,
-                                { method: "DELETE" },
-                              );
-                              toast("Zuordnung entfernt");
-                              await renderRoute();
-                            } catch (error) {
-                              failed(error);
-                            }
-                          },
-                        }),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        el("p", {
-          class: "muted",
-          text:
-            referenceData.unchanged?.unchanged === true
-              ? "Round-Trip verifiziert: Anwenden ändert den Bake nicht ✓"
-              : "Hinweis: Die Theme-Ableitung weicht vom Bake ab — Details im Referenzen-Tab.",
-        }),
-      ),
-    );
-
-    // Deploy (E14): der aktive Release wandert als statische Dateien in ein
-    // Zielverzeichnis. Der erste Adapter ist lokal; die Historie zeigt Status
-    // und Ziel jedes Deploys.
-    const { deployments } = await api(`/api/sites/${siteId}/deployments`);
-    const targetInput = el("input", {
-      type: "text",
-      placeholder: "C:\\sites\\meine-seite",
-      style: "min-width: 22rem",
-    });
-    const deployButton = el("button", {
-      type: "button",
-      class: "primary",
-      text: "Jetzt deployen",
-    });
-    deployButton.addEventListener("click", async () => {
-      const targetDir = targetInput.value.trim();
-      if (targetDir === "") {
-        toast("Bitte ein Zielverzeichnis angeben", "error");
-        return;
-      }
-      deployButton.disabled = true;
-      try {
-        const result = await api(`/api/sites/${siteId}/deployments`, {
-          method: "POST",
-          body: { provider: "static", targetDir },
-        });
-        const deployment = result.deployment;
-        toast(
-          `Deployt: ${deployment.fileCount} Dateien (${Math.round(deployment.byteSize / 1024)} KB) → ${deployment.target}`,
-          "info",
-        );
-        await renderRoute();
-      } catch (error) {
-        failed(error);
-      } finally {
-        deployButton.disabled = false;
-      }
-    });
-    body.push(
-      el(
-        "div",
-        { class: "panel" },
-        el("h2", { text: "Deploy" }),
-        el("p", {
-          class: "muted",
-          text: "Liefert den aktiven Release als statische Dateien in ein Zielverzeichnis (lokal oder gemountet). Der Deploy läuft über eine Staging-Kopie; ein Fehler lässt den vorherigen Stand unangetastet.",
-        }),
-        el("div", { class: "row-actions" }, targetInput, deployButton),
-        deployments.length === 0
-          ? el("p", { class: "muted", text: "Noch kein Deploy." })
-          : el(
-              "table",
-              {},
-              el(
-                "thead",
-                {},
-                el(
-                  "tr",
-                  {},
-                  el("th", { text: "Zeit" }),
-                  el("th", { text: "Status" }),
-                  el("th", { text: "Ziel" }),
-                  el("th", { text: "Dateien" }),
-                  el("th", { text: "Fehler" }),
-                ),
-              ),
-              el(
-                "tbody",
-                {},
-                deployments.map((deployment) =>
-                  el(
-                    "tr",
-                    {},
-                    el("td", { text: formatDate(deployment.createdAt) }),
-                    el("td", { text: deployment.status }),
-                    el("td", {}, el("code", { text: deployment.target })),
-                    el("td", { text: String(deployment.fileCount) }),
-                    el("td", { text: deployment.error ?? "—" }),
-                  ),
-                ),
-              ),
-            ),
-      ),
-    );
+    body.push(...(await settingsTab(siteId, site, {
+      reload: renderRoute,
+      breakpointsPanel,
+    })));
   } else if (tab === "submissions") {
     body.push(...(await submissionsTab(siteId, {
       getFormId: () => selectedFormId,
