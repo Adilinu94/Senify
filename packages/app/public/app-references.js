@@ -2,10 +2,18 @@
 // sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt
 // ESLint.
 
-import { AUTHOR, activeTab, api, askConfirm, el, failed, friendlyError, initials, render, routeScope, snapshotImageURL, toast } from "./app-core.js";
-import { linesToList, openSnapshotDialog } from "./app-projects.js";
+import { AUTHOR, activeTab, api, askConfirm, el, failed, friendlyError, initials, render, routeScope, snapshotImageURL } from "./app-core.js";
+import { openSnapshotDialog } from "./app-projects.js";
 import { renderRoute } from "./app.js";
 import { refsRenderMarkdown } from "./app-markdown.js";
+import { refsBindBackdropClose, refsCopy, refsToast } from "./app-refs-dialog.js";
+import { REFS_ICON_LIBRARY, REFS_ICON_STYLES, REFS_ICON_LINK, REFS_ICON_LINK_BUTTON, REFS_ICON_LINK_LABEL, REFS_ICON_PLUS, REFS_ICON_PLUS_BUTTON, REFS_ICON_PLUS_UPLOAD, REFS_ICON_CLOSE, REFS_ICON_PREV, REFS_ICON_NEXT, REFS_ICON_SEARCH_LARGE, REFS_ICON_PLUS_BOX, REFS_ICON_CHECK_BOX } from "./app-refs-icons.js";
+import { refsGetCollections, refsState, refsBindCollections, refsBindHandlers, refsHex, refsSplit, refsApplyAddress, refsSyncAddress, refsActiveCollection, refsIsSelected, refsToggleSelection, refsClearSelection } from "./app-refs-state.js";
+
+// Zwei Helfer, die andere Module ueber diese Datei beziehen (app-import.js holt
+// refsBindBackdropClose, app-projects.js holt refsToast). Der Re-Export haelt
+// ihre Import-Quelle, waehrend die Definition im Dialog-Modul liegt.
+export { refsBindBackdropClose, refsToast } from "./app-refs-dialog.js";
 
 async function deleteReference(reference) {
   const used = reference.usedInProjects.length;
@@ -45,39 +53,6 @@ const REFS_MAX_COMPARE = 3;
 const REFS_SEARCH_ICON =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>';
 
-// Symbole als eingebettete SVG statt typografischer Zeichen (▦ ◈ ＋ ↗ ✕ ← →).
-// Alle 24x24 mit `currentColor`, feste Groesse je Einbauort: 15px in der Leiste
-// und an den Karten, 17px in den Icon-Knoepfen, 25px in der Vergleichsauswahl.
-
-function refsIcon(path, size) {
-  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
-}
-
-const REFS_ICON_LIBRARY = refsIcon(
-  '<rect x="3.6" y="3.6" width="7" height="7" rx="1.6"/><rect x="13.4" y="3.6" width="7" height="7" rx="1.6"/><rect x="3.6" y="13.4" width="7" height="7" rx="1.6"/><rect x="13.4" y="13.4" width="7" height="7" rx="1.6"/>',
-  15,
-);
-const REFS_ICON_STYLES = refsIcon(
-  '<path d="M12 3.6 20.4 12 12 20.4 3.6 12Z"/><path d="M12 8.6 15.4 12 12 15.4 8.6 12Z"/>',
-  15,
-);
-const REFS_ICON_LINK = refsIcon('<path d="M8.2 15.8 15.8 8.2M9.6 8.2h6.2v6.2"/>', 15);
-const REFS_ICON_LINK_BUTTON = refsIcon('<path d="M8.2 15.8 15.8 8.2M9.6 8.2h6.2v6.2"/>', 13);
-const REFS_ICON_LINK_LABEL = refsIcon('<path d="M8.2 15.8 15.8 8.2M9.6 8.2h6.2v6.2"/>', 12);
-const REFS_ICON_PLUS = refsIcon('<path d="M12 5.4v13.2M5.4 12h13.2"/>', 15);
-const REFS_ICON_PLUS_BUTTON = refsIcon('<path d="M12 5.4v13.2M5.4 12h13.2"/>', 13);
-const REFS_ICON_PLUS_UPLOAD = refsIcon('<path d="M12 5.4v13.2M5.4 12h13.2"/>', 25);
-const REFS_ICON_CLOSE = refsIcon('<path d="M6.8 6.8 17.2 17.2M17.2 6.8 6.8 17.2"/>', 17);
-const REFS_ICON_PREV = refsIcon('<path d="M14.4 5.6 8 12l6.4 6.4"/>', 17);
-const REFS_ICON_NEXT = refsIcon('<path d="M9.6 5.6 16 12l-6.4 6.4"/>', 17);
-const REFS_ICON_SEARCH_LARGE = refsIcon(
-  '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
-  35,
-);
-const REFS_ICON_PLUS_BOX = refsIcon('<path d="M12 6.2v11.6M6.2 12h11.6"/>', 25);
-const REFS_ICON_CHECK_BOX = refsIcon('<path d="M5.6 12.4 10 16.8 18.4 7.6"/>', 25);
-
-let refsCollections = [];
 let refsStyleCatalog = null;
 let refsRouteActive = false;
 
@@ -164,196 +139,6 @@ function refsPreviewImage(url, alt, fallback) {
   return image;
 }
 
-const refsState = {
-  query: "",
-  collection: "",
-  sort: "newest",
-  view: "",
-  selected: [],
-};
-
-function refsHex(value) {
-  return /^#[0-9a-f]{6}$/i.test(value ?? "") ? value : REFS_ACCENT_FALLBACK;
-}
-
-function refsSplit(value) {
-  return String(value ?? "")
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-}
-
-// Zustand aus dem Hash lesen und zurueckschreiben (replaceState, kein Reload).
-
-function refsApplyAddress(hash) {
-  const current = hash ?? location.hash ?? "#/references";
-  const question = current.indexOf("?");
-  const search = new window.URLSearchParams(
-    question === -1 ? "" : current.slice(question + 1),
-  );
-  refsState.query = search.get("q") ?? "";
-  refsState.collection = search.get("collection") ?? "";
-  refsState.sort = search.get("sort") === "name" ? "name" : "newest";
-  refsState.view = search.get("view") === "styles" ? "styles" : "";
-}
-
-function refsSyncAddress() {
-  if (!/^#\/references(\/|\?|$)/.test(location.hash)) return;
-  const params = new window.URLSearchParams();
-  if (refsState.query !== "") params.set("q", refsState.query);
-  if (refsState.collection !== "") params.set("collection", refsState.collection);
-  if (refsState.sort === "name") params.set("sort", "name");
-  if (refsState.view === "styles") params.set("view", "styles");
-  const query = params.toString();
-  history.replaceState(
-    null,
-    "",
-    query === "" ? "#/references" : `#/references?${query}`,
-  );
-}
-
-function refsActiveCollection() {
-  if (refsState.view === "styles") return null;
-  if (refsState.collection === "" || refsState.collection === "none") return null;
-  return refsCollections.find((entry) => entry.id === refsState.collection) ?? null;
-}
-
-// Toast der Referenzen-Seite: unten mittig, 2600 ms sichtbar, Uebergang wie im
-// Vorbild (`#toast`). Anders als die Shell-Toasts (rechts oben in der Ecke).
-// Liegt ein modales Fenster offen, wandert der Toast hinein: die oberste Ebene
-// (`top layer`) deckt sonst alles ab, was am `<body>` haengt — genau wie im
-// Vorbild haengt `notify()` den Toast in den zuletzt geoeffneten Dialog.
-
-export function refsToast(message) {
-  for (const old of document.querySelectorAll(".refs-toast")) old.remove();
-  const node = el("div", {
-    class: "refs-toast",
-    role: "status",
-    "aria-live": "polite",
-    text: message,
-  });
-  const open = document.querySelector("dialog[open]");
-  (open ?? document.body).append(node);
-  window.requestAnimationFrame(() => node.classList.add("show"));
-  setTimeout(() => {
-    node.classList.remove("show");
-    setTimeout(() => node.remove(), 200);
-  }, 2600);
-}
-
-// Brief kopieren: Clipboard wenn verfuegbar, sonst Dialog zum Markieren.
-
-function refsCopy(text, message) {
-  const clipboard = window.navigator ? window.navigator.clipboard : undefined;
-  if (clipboard && typeof clipboard.writeText === "function") {
-    clipboard.writeText(text).then(
-      () => refsToast(message ?? "Brief kopiert"),
-      () => refsCopyFallback(text),
-    );
-    return;
-  }
-  refsCopyFallback(text);
-}
-
-function refsCopyFallback(text) {
-  const area = el("textarea", { class: "refs-input", rows: "15" });
-  area.readOnly = true;
-  area.value = text;
-  const dialog = el(
-    "dialog",
-    { class: "refs-dialog refs-copy-dialog" },
-    el(
-      "div",
-      { class: "refs-dialog-head" },
-      el("h2", { text: "Dein Brief" }),
-      el(
-        "div",
-        { class: "refs-dialog-tools" },
-        el("button", {
-          type: "button",
-          class: "refs-icon-button",
-          "aria-label": "Schliessen",
-          html: REFS_ICON_CLOSE,
-          onclick: () => dialog.close(),
-        }),
-      ),
-    ),
-    el(
-      "div",
-      { class: "refs-dialog-body" },
-      el("p", {
-        text: "Automatisches Kopieren ist nicht verfügbar. Wähle den Text unten aus und kopiere ihn.",
-      }),
-      area,
-    ),
-  );
-  document.body.append(dialog);
-  dialog.addEventListener("close", () => dialog.remove());
-  refsBindBackdropClose(dialog);
-  dialog.showModal();
-  area.focus();
-  area.select();
-}
-
-// Hintergrund-Klick schliesst jeden `refs-`-Dialog (wie im Vorbild).
-
-export function refsBindBackdropClose(dialog) {
-  dialog.addEventListener("click", (event) => {
-    if (event.target !== dialog) return;
-    const rect = dialog.getBoundingClientRect();
-    if (
-      event.clientX < rect.left ||
-      event.clientX > rect.right ||
-      event.clientY < rect.top ||
-      event.clientY > rect.bottom
-    ) {
-      dialog.close();
-    }
-  });
-}
-
-function refsIsSelected(id) {
-  return refsState.selected.some((entry) => entry.id === id);
-}
-
-function refsToggleSelection(entry) {
-  const index = refsState.selected.findIndex((item) => item.id === entry.id);
-  if (index >= 0) {
-    refsState.selected.splice(index, 1);
-  } else if (refsState.selected.length < REFS_MAX_COMPARE) {
-    refsState.selected.push(entry);
-  } else {
-    refsToast("Drei ausgewählt. Entferne eine, um eine andere hinzuzufügen.");
-    return;
-  }
-  // Die Auswahl ist reine Ansichtssache: nur die Knöpfe und die Leiste
-  // nachziehen, kein neuer Listenabruf (sonst laeuft der Rate-Limiter voll).
-  refsRenderTray();
-  refsUpdateSelectionUI();
-}
-
-function refsClearSelection() {
-  refsState.selected = [];
-  refsRenderTray();
-  refsUpdateSelectionUI();
-}
-
-// Nur die Auswahl-Knoepfe der vorhandenen Karten umschalten, damit die
-// Vorschaubilder nicht erneut geladen werden.
-
-function refsUpdateSelectionUI() {
-  if (!refsDom || !refsDom.root.isConnected) return;
-  for (const card of refsDom.gallery.querySelectorAll(".refs-card")) {
-    const id = card.dataset.reference;
-    const on = refsIsSelected(id);
-    const button = card.querySelector(".refs-select");
-    if (!button) continue;
-    button.classList.toggle("selected", on);
-    button.innerHTML = on ? REFS_ICON_CHECK_BOX : REFS_ICON_PLUS_BOX;
-    button.setAttribute("aria-pressed", on ? "true" : "false");
-  }
-}
-
 function refsEntryFor(reference) {
   // Die Motion-Aufnahme ist ein Video und taugt nicht als Standbild.
   const snapshot = (reference.snapshots ?? []).find(
@@ -418,6 +203,19 @@ function refsThumbNode(entry) {
     return refsPreviewImage(entry.previewPath, `Vorschau ${entry.name}`);
   }
   return el("div", { class: "refs-tray-more", text: initials(entry.name) });
+}
+
+function refsUpdateSelectionUI() {
+  if (!refsDom || !refsDom.root.isConnected) return;
+  for (const card of refsDom.gallery.querySelectorAll(".refs-card")) {
+    const id = card.dataset.reference;
+    const on = refsIsSelected(id);
+    const button = card.querySelector(".refs-select");
+    if (!button) continue;
+    button.classList.toggle("selected", on);
+    button.innerHTML = on ? REFS_ICON_CHECK_BOX : REFS_ICON_PLUS_BOX;
+    button.setAttribute("aria-pressed", on ? "true" : "false");
+  }
 }
 
 export function refsRenderTray() {
@@ -843,7 +641,7 @@ function refsOpenAddDialog() {
   });
   const collectionSelect = el("select", {});
   collectionSelect.append(el("option", { value: "", text: "Ohne Sammlung" }));
-  for (const item of refsCollections.filter((entry) => entry.kind === "collection")) {
+  for (const item of refsGetCollections().filter((entry) => entry.kind === "collection")) {
     collectionSelect.append(el("option", { value: item.id, text: item.name }));
   }
   if (refsActiveCollection()) collectionSelect.value = refsState.collection;
@@ -1447,13 +1245,13 @@ async function refsRefresh() {
     if (refsPending === 0) root.classList.remove("refs-loading");
   }
   refsDom.error.hidden = true;
-  refsCollections = data.collections ?? [];
+  refsBindCollections(data.collections ?? []);
   refsStyleCatalog = data.styleCatalog ?? null;
   const counts = data.counts ?? {};
   const styleMode = refsState.view === "styles";
   const activeCollection = refsActiveCollection();
-  const styleFamilies = refsCollections.filter((entry) => entry.kind === "style");
-  const personalCollections = refsCollections.filter((entry) => entry.kind !== "style");
+  const styleFamilies = refsGetCollections().filter((entry) => entry.kind === "style");
+  const personalCollections = refsGetCollections().filter((entry) => entry.kind !== "style");
 
   // Mobil: dasselbe Ziel wie die linke Leiste, nur als Auswahlfeld.
   refsDom.mobileSelect.replaceChildren(
@@ -2234,80 +2032,8 @@ export async function refsOpenInspector(referenceId, options = {}) {
 }
 
 /* Vorlieben und Haus-DNA im Einstellungen-Tab (T12/T14). */
-export function refsSettingsSection(settings) {
-  const dna = settings.referenceDna ?? { name: "", description: "", constants: [], never: [] };
-  const preferences = settings.referencePreferences ?? { includeDna: false, overrides: "" };
-  const toggle = el("input", { type: "checkbox" });
-  toggle.checked = preferences.includeDna;
-  const constants = el("textarea", { class: "refs-input", rows: "5", "aria-label": "Grundsätze" });
-  constants.value = dna.constants.join("\n");
-  const never = el("textarea", { class: "refs-input", rows: "5", "aria-label": "No-Gos" });
-  never.value = dna.never.join("\n");
-  const overrides = el("textarea", { class: "refs-input", rows: "4", "aria-label": "Für dieses Projekt" });
-  overrides.value = preferences.overrides;
-  return el(
-    "section",
-    { class: "panel refs-settings" },
-    el("h2", { text: "Referenzen" }),
-    el("p", {
-      class: "muted",
-      text: "Haus-DNA und Projekt-Notizen gelten für alle kopierten Briefe — auch für Agenten über MCP.",
-    }),
-    el(
-      "label",
-      { class: "refs-toggle-row" },
-      el(
-        "span",
-        {},
-        "Haus-DNA in kopierte Briefe aufnehmen",
-        el("small", { text: "Aus hält den Brief auf die gewählten Referenzen fokussiert." }),
-      ),
-      toggle,
-    ),
-    el(
-      "details",
-      { class: "refs-preference-list" },
-      el("summary", { text: "Woran ich mich üblicherweise halte" }),
-      constants,
-      el("p", { class: "refs-field-help", text: "Eine Zeile pro Grundsatz." }),
-    ),
-    el(
-      "details",
-      { class: "refs-preference-list" },
-      el("summary", { text: "Was ich üblicherweise vermeide" }),
-      never,
-      el("p", { class: "refs-field-help", text: "Eine Zeile pro No-Go." }),
-    ),
-    el("label", { class: "refs-field-label", text: "Für dieses Projekt" }),
-    overrides,
-    el("p", {
-      class: "refs-field-help",
-      text: "Diese Notizen haben Vorrang vor den allgemeinen Grundsätzen.",
-    }),
-    el("button", {
-      type: "button",
-      class: "refs-button primary",
-      text: "Referenz-Einstellungen speichern",
-      onclick: async () => {
-        try {
-          await api("/api/settings", {
-            method: "PUT",
-            body: {
-              referenceDna: {
-                name: dna.name,
-                description: dna.description,
-                constants: linesToList(constants.value),
-                never: linesToList(never.value),
-              },
-              referencePreferences: { includeDna: toggle.checked, overrides: overrides.value },
-            },
-          });
-          toast("Referenz-Einstellungen gespeichert");
-          await renderRoute();
-        } catch (error) {
-          failed(error);
-        }
-      },
-    }),
-  );
-}
+
+// Die Rueckrufe des Zustands-Moduls an die echten Funktionen binden.
+// Sie stehen am Ende, weil beide Funktionen Funktionsdeklarationen sind und
+// damit gehoisted werden - der Aufruf ist zur Ladezeit sicher.
+refsBindHandlers({ toast: refsToast, renderTray: refsRenderTray, updateSelectionUI: refsUpdateSelectionUI });

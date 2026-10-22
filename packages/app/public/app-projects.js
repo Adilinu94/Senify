@@ -3,7 +3,8 @@
 // ESLint.
 
 import { AUTHOR, IMAGE_PROVIDER_LABELS, MUTATION_LABELS, PROFILE_LABELS, activeTab, api, askConfirm, askText, duplicateDialog, duplicateForm, duplicateName, el, errorHint, failed, formatBytes, formatDate, friendlyError, initials, nextDialogId, notificationStatus, render, routeScope, settingField, toast } from "./app-core.js";
-import { refsSettingsSection, refsToast } from "./app-references.js";
+import { refsToast } from "./app-references.js";
+import { refsSettingsSection } from "./app-refs-settings.js";
 import { reviewPanel } from "./app-review.js";
 import { renderRoute } from "./app.js";
 

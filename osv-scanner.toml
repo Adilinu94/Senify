@@ -12,26 +12,24 @@
 # Die Datei heisst `osv-scanner.toml` (ohne Punkt) und liegt im Ordner, der
 # gescannt wird - der Scanner sucht sie neben dem Lockfile.
 #
-# 21.10.2026: Die drei Ausnahmen fuer `vitest`/`@vitest/mocker` und `tinypool`
-# sind ueberfluessig - der Test-Runner steht auf 4.1.11, der Scanner meldet
-# diese Funde nicht mehr.
+# 22.10.2026: **Die Ausnahmeliste ist leer.** Alle fuenf Ausnahmen sind
+# entfallen, und jede aus einem eigenen Grund:
 #
-# 21.10.2026 (zweiter Schritt): Die Ausnahme fuer `http-cache-semantics`
-# (GHSA-ch52-4w7c-c8xp) ist ebenfalls entfallen. Der Fund lag an 4.2.0; es gibt
-# inzwischen 4.3.0 (veroeffentlicht 04.10.2026), und die Advisory gilt laut OSV
-# nur bis einschliesslich 4.2.0. Der Parent-Pin (`astro` 7.3.2 verlangt
-# `^4.2.0`) laesst 4.3.0 zu, aber die Aufloesung blieb auf 4.2.0 stehen - ein
-# Override in der `package.json` hebt sie auf 4.3.0 (die bestehende Regel fuer
-# gepatchte Versionen: die jeweils naechste, kein Sprung ueber eine
-# Hauptversion hinaus).
-#
-# Die Begruendung der alten Ausnahme war zudem sachlich falsch: sie nannte
-# express und dessen statischen Dateihandler als Quelle. Im Lockfile kommt
-# `http-cache-semantics` ueber `astro` (der Build des Docs-Portals) - express
-# 5.2.1 und `serve-static` 2.2.1 ziehen es nicht mehr. Der Befund betraf also
-# den Doku-Build und nicht den Dashboard-Proxy; die gemeldete Cache-Poisoning-
-# Route war dort ohnehin nicht erreichbar. Beides ist jetzt gegenstandslos,
-# weil die betroffene Version nicht mehr im Baum ist.
+# - Die drei Vitest-Ausnahmen (GHSA-82fw-gwwq-j7x9 fuer vitest,
+#   GHSA-qxg6-89mg-rqv8 fuer @vitest/mocker, GHSA-5gmw-xhrv-c9v3 und
+#   GHSA-85c8-ppgw-ccpr fuer tinypool) begruendeten sich mit "der Sprung auf
+#   vitest 4.x ist ein Major-Update und braucht einen eigenen Schritt". Dieser
+#   Schritt ist getan: der Test-Runner steht auf 4.1.12. Der Scan meldet
+#   "No issues found", ohne eine einzige Ausnahme.
+# - `http-cache-semantics` (GHSA-ch52-4w7c-c8xp) war an 4.2.0 gebunden. Es
+#   gibt 4.3.0, und die Advisory gilt laut OSV nur bis einschliesslich 4.2.0.
+#   Die Begruendung der alten Ausnahme war zudem sachlich falsch: sie nannte
+#   express und dessen statischen Dateihandler als Quelle. Im Lockfile kommt
+#   die Abhaengigkeit ueber `astro` (der Build des Docs-Portals) - express
+#   5.2.1 und `serve-static` 2.2.1 ziehen sie nicht mehr. Der Befund betraf
+#   also den Doku-Build und nicht den Dashboard-Proxy; die gemeldete
+#   Cache-Poisoning-Route war dort ohnehin nicht erreichbar. Beides ist
+#   gegenstandslos, weil die betroffene Version nicht mehr im Baum ist.
 #
 # Diese Datei bleibt bestehen, auch ohne Eintraege: der Scanner liest sie, und
 # ein leeres Blatt mit Kommentar ist ehrlicher als eine geloeschte Datei, bei
