@@ -558,11 +558,13 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
           "aria-label": label !== "" ? label : alt !== "" ? alt : "Fremd-Code",
         },
         children: [
-          // A carrier that stands for the whole page is a release-only node:
-          // it never renders a poster or a plate. When its payload is missing
-          // the structure stands (the bake keeps it) — a plate on top of a
-          // complete page would only add height and a label nobody needs.
-          ...(!coversPage && hasPoster
+          // The poster is the first fallback of ADR-0010 §7 — for EVERY
+          // carrier, the page-level one included. It stands until the module
+          // mounted and stays when the module fails, so a failed payload never
+          // leaves a blank page. (A page-level carrier whose payload this build
+          // does not deliver is removed from the release tree by the bake; the
+          // structure stands alone then, with no poster and no plate.)
+          ...(hasPoster
             ? [
                 {
                   tag: "img",
@@ -576,19 +578,15 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
             classes: [modifier("payload", "stage")],
             attrs: { "data-payload-stage": "" },
           },
-          ...(!coversPage
-            ? [
-                {
-                  tag: "div",
-                  classes: [modifier("payload", "plate")],
-                  text: hasPayload
-                    ? label !== ""
-                      ? label
-                      : "Fremd-Code"
-                    : "Kein Payload hinterlegt — die Stelle bleibt leer",
-                },
-              ]
-            : []),
+          {
+            tag: "div",
+            classes: [modifier("payload", "plate")],
+            text: hasPayload
+              ? label !== ""
+                ? `${label} — der Fremd-Code ließ sich nicht laden`
+                : "Fremd-Code ließ sich nicht laden"
+              : "Kein Payload hinterlegt — die Stelle bleibt leer",
+          },
         ],
         root: true,
       };
@@ -734,6 +732,7 @@ const PART_RESET: Readonly<Record<string, readonly string[]>> = {
   // mount target and carries the content the module puts there.
   ".w-payload--poster": ["display: block;", "width: 100%;", "height: auto;"],
   '.w-payload[data-payload-state="mounted"] .w-payload--poster': ["display: none;"],
+  '.w-payload[data-payload-state="plate"] .w-payload--poster': ["display: none;"],
   ".w-payload--stage": ["display: block;"],
   ".w-payload--plate": ["display: none;"],
   '.w-payload[data-payload-state="plate"] .w-payload--plate': ["display: block;"],

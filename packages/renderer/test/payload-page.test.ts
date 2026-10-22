@@ -115,4 +115,54 @@ describe("the page-level payload", () => {
     const islands = await loadBakedSite(result.outDir).read("assets/islands.js");
     expect(islands).toContain("/assets/payloads/pay1.");
   });
+
+  it("shows the poster when the payload fails — also on a page-level carrier", async () => {
+    // ADR-0010 §7: payload → poster → plate, in that order. A page-level
+    // carrier used to render NEITHER, so a payload that failed to load left an
+    // empty page. The poster is the fallback; the plate is the last resort.
+    const nodes: Record<string, Node> = {
+      root: { id: "root", type: "page", props: {}, children: ["carrier"] },
+      carrier: {
+        id: "carrier",
+        type: "payload",
+        props: {
+          payloadId: "pay1",
+          label: "Original",
+          alt: "Startseite der Quelle",
+          poster: { assetId: "asset-poster" },
+          coversPage: true,
+        },
+      },
+    };
+    const result = await bakeSite(
+      {
+        siteName: "Musterstudio",
+        baseUrl: "https://beispiel.de",
+        pages: [{ id: "p1", path: "/", title: "Start", tree: { rootNodeId: "root", nodes } }],
+        themeCss: emitCss(resolved),
+        motionTokens: { ease: resolved.motion.ease, baseDurationMs: 300, baseStaggerMs: 80 },
+        assets: { "asset-poster": { src: "/assets/asset-poster/poster.png", width: 1200, height: 630 } },
+        payloads: { pay1: { code: PAYLOAD_CODE, integrity: INTEGRITY, bytes: PAYLOAD_CODE.length } },
+        aeo: false,
+      },
+      { outDir: mkdtempSync(join(tmpdir(), "senify-payload-poster-")) },
+    );
+    baked.push(result);
+    const html = await loadBakedSite(result.outDir).read("index.html");
+    // The poster is rendered, with the asset the carrier names.
+    expect(html).toContain("w-payload--poster");
+    expect(html).toContain("asset-poster");
+    // The stage and the plate exist as well: the script flips the state.
+    expect(html).toContain("w-payload--plate");
+    expect(html).toContain('data-payload-state="pending"');
+  });
+
+  it("keeps a carrier without a poster on its plate", async () => {
+    const { html } = await bake({ coversPage: true });
+    // The test tree names no poster: the plate is what stands, and it says why.
+    // (The class name `w-payload--poster` appears in the stylesheet, so the
+    // check is for the <img>, not for the rule.)
+    expect(html).not.toMatch(/<img[^>]*data-asset=/);
+    expect(html).toContain('class="w-payload--plate"');
+  });
 });

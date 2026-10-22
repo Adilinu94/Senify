@@ -387,6 +387,13 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
   if (pagePayload !== undefined) {
     const root = mapped.document.nodes[mapped.document.rootNodeId];
     if (root !== undefined) {
+      // The poster of a page-level carrier (ADR-0010 §7, mandatory on import):
+      // the social image of the source. Without a poster the editor canvas has
+      // nothing to show but the plate — and the plate is the LAST fallback, not
+      // the default. The image is the source's own (og:image), so it shows what
+      // the page shows and is not a guess.
+      const posterUrl = document.pages[0]?.meta?.ogImage;
+      const poster = posterUrl === undefined ? undefined : payloadPosterOf(document, posterUrl);
       const carrierId = "framer-runtime-payload";
       mapped.document.nodes[carrierId] = {
         id: carrierId,
@@ -397,6 +404,8 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
           // instead of the structure.
           coversPage: true,
           label: "Original · Framer-Runtime",
+          alt: document.pages[0]?.title ?? "Importierte Seite",
+          ...(poster === undefined ? {} : { poster: { assetId: poster } }),
         },
         children: [],
       };
@@ -435,8 +444,20 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
   };
 }
 
-/* ----------------------------------------------------------- idempotency */
+// The asset id the imported poster image got. The asset pipeline rewrites the
+// IR's asset list (`localUrl`/`assetId`); a poster that is not in that list was
+// not downloaded (a skipped asset run) — then the carrier stays without one and
+// the plate says so.
+function payloadPosterOf(
+  document: { assets: { url: string; assetId?: string | null }[] },
+  url: string,
+): string | undefined {
+  const asset = document.assets.find((entry) => entry.url === url);
+  const assetId = asset?.assetId;
+  return typeof assetId === "string" && assetId !== "" ? assetId : undefined;
+}
 
+/* ----------------------------------------------------------- idempotency */
 // The stable fingerprint of an import result: source hash + mapped stats +
 // finding kinds. `capturedAt` and asset storage ids are excluded on purpose —
 // a second run over an unchanged source must land on the same fingerprint

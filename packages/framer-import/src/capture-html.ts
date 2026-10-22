@@ -1333,6 +1333,28 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
     });
   }
 
+  // The social image of the page is the poster of a page-level payload
+  // (ADR-0010 §7, mandatory on import). It is an asset like every other one:
+  // without it in the list the pipeline never downloads it, and the editor's
+  // carrier has nothing to show but the plate. The image is the SOURCE's own,
+  // so the poster shows what the page shows. Added once, at the end, so a page
+  // that also shows the image in its markup does not list it twice.
+  const pageOgImage = metaContent(html, "og:image");
+  if (
+    pageOgImage !== null &&
+    /^https?:\/\//i.test(pageOgImage) &&
+    !assets.some((asset) => asset.url === pageOgImage)
+  ) {
+    assets.push({
+      url: pageOgImage,
+      kind: "image",
+      hash: null,
+      alt: "Vorschaubild der Originalseite",
+      width: null,
+      height: null,
+    });
+  }
+
   return {
     ir: IR_VERSION,
     source: {
