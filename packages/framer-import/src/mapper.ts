@@ -581,19 +581,6 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
   };
   const baseVisual = styleOf(merged.base);
   for (const [property, value] of Object.entries(baseVisual)) props[property] = value;
-  // The fit text of Framer: the box measures the words (`font-size: 0`,
-  // `line-height: 0`), the words take their size and their line height from
-  // the class. The import gives the box the values of the words — otherwise
-  // the words stay invisible (measured: the heading "Writing" on
-  // `notes.framer.website` had a height of 0 in the import while the source
-  // showed 22 px).
-  if (isFitTextMarker(merged.base.visual) && node.children.length > 0) {
-    const typography = textTypographyOf(node);
-    if (typography !== null) {
-      props["fontSize"] = typography.size;
-      if (typography.lineHeight !== null) props["lineHeight"] = typography.lineHeight;
-    }
-  }
   normalizeSpacingProps(props);
   const tabletDiff = merged.tablet === null ? {} : diffValues(baseVisual, styleOf(merged.tablet));
   for (const [property, value] of Object.entries(tabletDiff)) props[`${property}_tablet`] = value;
@@ -627,11 +614,25 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
       liftTypographyOf(path, props, context);
     }
   }
-  // The fit text (Framer): the box measures the words (`font-size: 0`), the
-  // words take their size from the class. The import takes the typography of
-  // the words into the props of the box — otherwise the words stay invisible
-  // (measured: the heading "Writing" on `notes.framer.website` had a height of
-  // 0 in the import while the source showed 22 px).
+  // The fit text of Framer — after the lift on purpose: the box measures the
+  // words (`font-size: 0`, `line-height: 0`) while the lift hands the words
+  // their own typography, which is the measuring zero. The values of the
+  // WORDS own the box; otherwise the text stays invisible (measured: the
+  // heading "Writing" on `notes.framer.website` had a height of 0 in the
+  // import while the source showed 22 px).
+  if (isFitTextMarker(merged.base.visual) && node.children.length > 0) {
+    const typography = textTypographyOf(node);
+    if (typography !== null) {
+      props["fontSize"] = typography.size;
+      props["fontSize_tablet"] = typography.size;
+      props["fontSize_mobile"] = typography.size;
+      if (typography.lineHeight !== null) {
+        props["lineHeight"] = typography.lineHeight;
+        props["lineHeight_tablet"] = typography.lineHeight;
+        props["lineHeight_mobile"] = typography.lineHeight;
+      }
+    }
+  }
   normalizeSpacingProps(props);
   // --- layout from the stack/grid hints
   const layout = merged.base.layout;

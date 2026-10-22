@@ -89,25 +89,26 @@ Container hält fünf leere `display:contents`-Platzhalter. `viewBox="0 0 256 25
 kommt im Server-HTML 0-mal vor, im gerenderten DOM 5-mal. Das ist mit dem
 SSR-Weg **grundsätzlich** nicht erreichbar.
 
-### U2b · Die Texte der Quelle sind im Import unsichtbar — **teilweise geschlossen 22.10.2026**
+### U2b · Die Texte der Quelle sind im Import unsichtbar — **geschlossen 22.10.2026**
 
 **Belegt und gemessen.** Framer misst die Wörter: der Kasten einer
 Textkomponente trägt `font-size: 0` (und `line-height: 0`), die Wörter selbst
 bekommen ihre Größe von der Klasse. Der Import nahm den **Messwert** als
-Größe — die Wörser waren unsichtbar (Höhe 0). An `notes.framer.website` war die
+Größe — die Wörter waren unsichtbar (Höhe 0). An `notes.framer.website` war die
 Überschrift „Writing" im Import 0 px hoch (in der Quelle 22 px), und die Seite
 verlor 242 px Höhe.
 
-**Was geschlossen ist:** Der Import gibt dem Kasten die Größe der Wörter und
-nimmt den Marker aus dem inneren Markup. **Gemessen (Blindtest, Desktop /
-Tablet / Mobil): 27,95 / 34,23 / 36,64 % → 16,90 / 22,56 / 26,39 %.**
+**Zwei Ursachen, beide behoben:** (1) Der Import gibt dem Kasten die Größe der
+Wörter statt des Messwerts. (2) Der geliftete Typografie-Block lief **nach**
+dem Fit-Text-Block und überschrieb ihn wieder mit der Null des Kastens — die
+Reihenfolge ist jetzt: Lift zuerst, Fit-Text danach.
 
-**Was offen ist (die Wurzel):** Die Größe der Wörter steht bei Framer in einer
-Regel mit **Attribut-Selektor**
-(`[data-framer-component-type=Text] span span { font-size: var(--framer-font-size) }`).
-Der Capture wertet nur **Klassen**regeln an — die Wörser erben deshalb weiter
-zu kleine Größen (sichtbar, aber zu klein). Der nächste Schritt ist ein
-Selektor-Matcher im Capture, der auch Attribut-Selektoren auflöst.
+Dazu ein dritter Fund derselben Messung: der seitenweite Payload-Träger rendert
+ohne gelieferten Payload **kein Poster und keine Platte** mehr (die Struktur
+steht ja) — das allein waren 96 px und rund 5 Prozentpunkte.
+
+**Gemessen (Blindtest, Desktop / Tablet / Mobil): 27,95 / 34,23 / 36,64 % →
+1,46 / 2,23 / 6,19 %**, Höhe +6 / +6 / −45 px (vorher −242 / −241 / −503).
 
 **Beleg:** `packages/framer-import/test/fit-text.test.ts` (2 Fälle, 1 rot
 ohne den Fix).

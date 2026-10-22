@@ -558,7 +558,11 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
           "aria-label": label !== "" ? label : alt !== "" ? alt : "Fremd-Code",
         },
         children: [
-          ...(hasPoster
+          // A carrier that stands for the whole page is a release-only node:
+          // it never renders a poster or a plate. When its payload is missing
+          // the structure stands (the bake keeps it) — a plate on top of a
+          // complete page would only add height and a label nobody needs.
+          ...(!coversPage && hasPoster
             ? [
                 {
                   tag: "img",
@@ -572,15 +576,19 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
             classes: [modifier("payload", "stage")],
             attrs: { "data-payload-stage": "" },
           },
-          {
-            tag: "div",
-            classes: [modifier("payload", "plate")],
-            text: hasPayload
-              ? label !== ""
-                ? label
-                : "Fremd-Code"
-              : "Kein Payload hinterlegt — die Stelle bleibt leer",
-          },
+          ...(!coversPage
+            ? [
+                {
+                  tag: "div",
+                  classes: [modifier("payload", "plate")],
+                  text: hasPayload
+                    ? label !== ""
+                      ? label
+                      : "Fremd-Code"
+                    : "Kein Payload hinterlegt — die Stelle bleibt leer",
+                },
+              ]
+            : []),
         ],
         root: true,
       };
