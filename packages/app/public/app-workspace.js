@@ -6,16 +6,21 @@
 // `breakpointsPanel` brauchen je eine eigene Konstante, die mitgewandert ist;
 // `projectView` braucht die drei und sonst nichts aus der Datei.
 
-import { MUTATION_LABELS, activeTab, api, el, failed, formatDate, render, routeScope, toast, AUTHOR, errorHint, friendlyError, nextDialogId } from "./app-core.js";
-import { reviewPanel } from "./app-review.js";
+import { activeTab, api, el, failed, render, routeScope, toast, AUTHOR, errorHint, friendlyError, nextDialogId } from "./app-core.js";
 import { renderRoute } from "./app.js";
 import { submissionsTab } from "./app-workspace-submissions.js";
 import { templatesTab } from "./app-workspace-templates.js";
 import { settingsTab } from "./app-workspace-settings.js";
+import { workspaceListTab } from "./app-workspace-lists.js";
 
 // Die ausgewaehlte Formular-Einreichung im Tab. Sie stand bis R12 in
 // `app-projects.js`; nur der Projekt-Workspace liest und schreibt sie.
 let selectedFormId = null;
+
+// Die Tabs, deren Inhalt `app-workspace-lists.js` baut. Die anderen haben
+// eigene Module; diese drei teilen sich eines, weil sie dieselbe Form haben
+// und zusammen kleiner sind als ein Modul je Tab.
+const listTabs = new Set(["pages", "review", "activity"]);
 
 export const WORKSPACE_TABS = [
   ["pages", "Seiten"],
@@ -245,117 +250,8 @@ export async function projectView(siteId, tab) {
   activeTab("projects");
   const frame = workspaceFrame(siteId, site, tab, releases.length > 0);
   const body = [];
-  if (tab === "pages") {
-    body.push(
-      el(
-        "div",
-        { class: "toolbar" },
-        el("h2", { text: "Seiten", style: "margin: 0" }),
-        el("div", { class: "spacer" }),
-        el("button", {
-          class: "primary",
-          text: "Neue Seite",
-          "data-action": "new-page",
-          onclick: () => void openNewPageDialog(siteId),
-        }),
-      ),
-      pages.length === 0
-        ? el("div", { class: "empty", text: "Noch keine Seiten — lege die erste an, am schnellsten mit einer Vorlage." })
-        : el(
-            "table",
-            {},
-            el(
-              "thead",
-              {},
-              el(
-                "tr",
-                {},
-                el("th", { text: "Pfad" }),
-                el("th", { text: "Titel" }),
-                el("th", { text: "Draft" }),
-                el("th", { text: "Geändert" }),
-                el("th", {}),
-              ),
-            ),
-            el(
-              "tbody",
-              {},
-              pages.map((page) =>
-                el(
-                  "tr",
-                  {},
-                  el("td", {}, el("code", { text: page.path })),
-                  el("td", { text: page.title || "—" }),
-                  el("td", { text: `v${page.draftVersion}` }),
-                  el("td", { text: formatDate(page.updatedAt) }),
-                  el(
-                    "td",
-                    {},
-                    el(
-                      "div",
-                      { class: "row-actions" },
-                      el("a", {
-                        href: `#/projects/${siteId}/pages/${page.id}`,
-                        text: "Öffnen",
-                      }),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-    );
-  } else if (tab === "review") {
-    const { reviews } = await api(`/api/sites/${siteId}/reviews`);
-    body.push(
-      el("h2", { text: "Prüfen" }),
-      reviews.length === 0
-        ? el("div", { class: "empty", text: "Keine Review-Items." })
-        : el(
-            "div",
-            { class: "stack" },
-            reviews.map((review) => reviewPanel(siteId, review)),
-          ),
-    );
-  } else if (tab === "activity") {
-    const { entries } = await api(`/api/sites/${siteId}/audit?limit=50`);
-    body.push(
-      el("h2", { text: "Aktivität" }),
-      entries.length === 0
-        ? el("div", { class: "empty", text: "Noch keine Aktivität." })
-        : el(
-            "table",
-            {},
-            el(
-              "thead",
-              {},
-              el(
-                "tr",
-                {},
-                el("th", { text: "Zeit" }),
-                el("th", { text: "Quelle" }),
-                el("th", { text: "Änderung" }),
-                el("th", { text: "Seite" }),
-              ),
-            ),
-            el(
-              "tbody",
-              {},
-              entries.map((entry) =>
-                el(
-                  "tr",
-                  {},
-                  el("td", { text: formatDate(entry.createdAt) }),
-                  el("td", {
-                    text: `${entry.author.kind === "agent" ? "Agent" : "Mensch"} · ${entry.author.label}`,
-                  }),
-                  el("td", { text: MUTATION_LABELS[entry.mutation] ?? entry.mutation }),
-                  el("td", {}, el("code", { text: entry.pageId ?? "—" })),
-                ),
-              ),
-            ),
-          ),
-    );
+  if (listTabs.has(tab)) {
+    body.push(...(await workspaceListTab(siteId, tab, pages, { openNewPageDialog })));
   } else if (tab === "settings") {
     body.push(...(await settingsTab(siteId, site, {
       reload: renderRoute,
