@@ -262,6 +262,16 @@ Versionierte Records werden bei Review und Publish gespeichert; Manifest und Re-
 
    **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf allen drei beruehrten Dateien.
 
+36. `app-refs-settings.js` (22.10.2026): `refsSettingsSection` wandert aus `app-references.js` — der Referenz-Block der Einstellungen (Auswahl der Bibliothek, Bildqualitaet, Ziel der Analyse, Schalter fuer die automatische Uebernahme). `app-references.js`: 2 225 → 2 148 Zeilen.
+
+   **Die Funktion gehoert fachlich zu den Einstellungen, nicht zu den Referenzen.** Sie lag in `app-references.js`, weil sie die Referenz-Einstellungen beschreibt — gerufen wird sie aber von `app-projects.js`, dem Einstellungs-View. Sie hat keinen Zugriff auf den Zustand der Bibliothek und keine Abhaengigkeit in ihrer Datei.
+
+   **Beim Schnitt wurde ein toter Import sichtbar.** Nach dem Umzug blieben `toast` und `linesToList` in `app-references.js` importiert, ohne noch benutzt zu werden — ESLint fand beide. Das ist kein Zufall: die zwei gehoerten zur ausgewanderten Funktion. Sie sind jetzt dort importiert, wo sie gebraucht werden.
+
+   **Belegt ueber das Multiset aller Codezeilen:** vorher 2 015, nachher 2 015, 0 fehlt, 0 zu viel.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf allen drei beruehrten Dateien.
+
 **Reihenfolge:** `store.ts`, `http.ts`, `mcp/tools.ts`, `app.js`; `mount.ts` entfällt mit P3-1. Nicht mehrere große Module gleichzeitig aufteilen.
 **Gate dieses Schritts:** `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:coverage`, `pnpm quality:render`, `pnpm quality:check` und `git diff --check` am 29.09.2026 grün; vorhandene Assertions unverändert. Vor einem weiteren Schritt: Änderungen fachlich committen und `git status --short` leer prüfen. Bei Browser-/Build-Pfaden zusätzlich die passenden App-Gates. Der vierte Schritt (09.10.2026) lief mit typecheck, lint, Coverage-Volllauf (1068/15/0), `quality:render`/`quality:check` und `check:patch` grün. **Gate des zweiten Schritts (07.10.2026):** dieselben Kommandos; `pnpm test` hatte zwei rote Browser-Tests ohne Bezug zur Auslagerung (Einordnung in `docs/current/qualitaet.md`), alles andere grün.
 
@@ -373,6 +383,7 @@ Der Import wurde am 20.10.2026 an einer veröffentlichten Seite gemessen (`https
 
 | Datum | Änderung |
 |---|---|
+| 22.10.2026 | P3-2 Schritt 36: `refsSettingsSection` wandert aus `app-references.js` in `app-refs-settings.js` - der Referenz-Block der Einstellungen, gerufen von `app-projects.js`, ohne Zugriff auf den Bibliotheks-Zustand. `app-references.js`: 2 225 → 2 148 Zeilen. Belegt ueber das Multiset (2 015 vorher, 2 015 nachher, 0 fehlt, 0 zu viel); zwei tote Importe, die der Schnitt hinterliess, hat ESLint gefunden. |
 | 22.10.2026 | P3-2 Schritt 35: Toast, Kopieren und Backdrop-Schliessen wandern aus `app-references.js` in `app-refs-dialog.js`. Der erste Block, der ohne den geteilten `refsState` zu schneiden war; ein Zyklus um das Schliessen-Symbol wurde dabei sichtbar und durch Umzug des Symbols geloest. `app-references.js`: 2 314 → 2 222 Zeilen. Belegt ueber das Multiset (2 094 vorher, 2 094 nachher, 0 fehlt, 0 zu viel) und SVG-Attributvergleich. |
 | 21.10.2026 | P3-2 Schritt 34: Theme und Ereignisprotokoll wandern aus `store.ts` in `store-themes.ts` (`ThemesRepository`, vier Operationen). `updateTheme` schreibt Theme-Zeile und Audit in einer Transaktion; eine Naht (Site-Existenz). `store.ts`: 3 143 → 2 652 Zeilen. Beleg: `store-themes.test.ts` (10 Faelle, inklusive Race und verschwindender Zeile), Gegenprobe (ohne validateTheme rot), Coverage 96,02 % Statements / 75 % Branches. |
 | 21.10.2026 | P3-2 Schritt 33: die Sites wandern aus `store.ts` in `store-sites.ts` (`SitesRepository`, achtzehn Operationen) samt Design-Contract. Zwei Naht-Funktionen: Engine-Einstellungen und Theme-Anlage. `deleteSite` bleibt eine Einzeltransaktion. `store.ts`: 3 143 → 2 787 Zeilen. Beleg: `store-sites.test.ts` (18 Faelle), Gegenprobe (ohne manuellen Vorrang rot), Coverage-Lauf 149 Dateien/1519 Tests, 91,57 % Statements. |

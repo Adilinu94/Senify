@@ -20,6 +20,7 @@ const MODULE: string[] = [
   "app-markdown.js",
   "app-articles.js",
   "app-refs-dialog.js",
+  "app-refs-settings.js",
   "app.js",
 ];
 
