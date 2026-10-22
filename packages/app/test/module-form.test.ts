@@ -23,6 +23,11 @@ const MODULE: string[] = [
   "app-refs-settings.js",
   'app-refs-icons.js',
   'app-refs-state.js',
+  'app-refs-collections.js',
+  'app-refs-add.js',
+  'app-refs-inspector.js',
+  'app-library.js',
+  'app-settings.js',
   "app.js",
 ];
 
