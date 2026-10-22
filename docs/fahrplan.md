@@ -354,6 +354,16 @@ Versionierte Records werden bei Review und Publish gespeichert; Manifest und Re-
 
    **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf allen drei Dateien.
 
+45. `app-framer-import.js` (22.10.2026): der Framer-Import wandert aus `app-import.js` — `importReportBlock` (der Bericht nach der Analyse) und `openFramerImportDialog` (Adresse, Analyse, Write). `app-import.js`: 966 → 482 Zeilen; `app-framer-import.js`: 491 Zeilen.
+
+   **`app-import.js` hatte keine Modulvariable** — der einzige Grund, warum sich die vier Bloecke darin ueberhaupt trennen liessen. Der Framer-Block haengt an nichts aus seiner Datei: der Bericht baut nur Markup aus dem Bericht, der Dialog ruft die API und den Write. Die zwei Redesign-Dialoge bleiben vorerst zusammen, weil `openRedesignDirectionDialog` den `openMediaNeedPanel` ruft.
+
+   **Zwei Aufrufer mussten umziehen:** `app-editor.js` holt `openFramerImportDialog` jetzt direkt aus dem neuen Modul, `app-review.js` den `importReportBlock`. Der Umweg ueber `app-import.js` entfaellt — dieselbe Bewegung wie bei `workspaceFrame` im vorigen Schritt.
+
+   **Der Modulform-Test fand einen Waisen-Kommentar** am Ende des neuen Moduls: er beschrieb `mediaLabel`, das in `app-import.js` blieb. Entfernt.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf allen vier beruehrten Dateien.
+
 **Reihenfolge:** `store.ts`, `http.ts`, `mcp/tools.ts`, `app.js`; `mount.ts` entfällt mit P3-1. Nicht mehrere große Module gleichzeitig aufteilen.
 **Gate dieses Schritts:** `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:coverage`, `pnpm quality:render`, `pnpm quality:check` und `git diff --check` am 29.09.2026 grün; vorhandene Assertions unverändert. Vor einem weiteren Schritt: Änderungen fachlich committen und `git status --short` leer prüfen. Bei Browser-/Build-Pfaden zusätzlich die passenden App-Gates. Der vierte Schritt (09.10.2026) lief mit typecheck, lint, Coverage-Volllauf (1068/15/0), `quality:render`/`quality:check` und `check:patch` grün. **Gate des zweiten Schritts (07.10.2026):** dieselben Kommandos; `pnpm test` hatte zwei rote Browser-Tests ohne Bezug zur Auslagerung (Einordnung in `docs/current/qualitaet.md`), alles andere grün.
 
@@ -465,6 +475,7 @@ Der Import wurde am 20.10.2026 an einer veröffentlichten Seite gemessen (`https
 
 | Datum | Änderung |
 |---|---|
+| 22.10.2026 | P3-2 Schritt 45: der Framer-Import wandert aus `app-import.js` in `app-framer-import.js` (`importReportBlock`, `openFramerImportDialog`). `app-import.js` hatte keine Modulvariable - der Grund, warum die Trennung ging. `app-import.js`: 966 → 482 Zeilen. Zwei Aufrufer (Editor, Review) ziehen mit. App-Suite 38/69, eslint, Build. |
 | 22.10.2026 | P3-2 Schritt 44: der Projekt-Workspace wandert aus `app-projects.js` in `app-workspace.js` (`projectView`, 691 Zeilen, plus drei Helfer und zwei Konstanten). `app-projects.js`: 1 129 → 197 Zeilen - von 2 309 am Anfang der Runde. Der Modulform-Test fand sieben Doppelleerzeilen und zwei Waisen-Kommentare; beides behoben. |
 | 22.10.2026 | P3-2 Schritt 43: die Einstellungen wandern aus `app-projects.js` in `app-settings.js` (`settingsView`, 531 Zeilen, und `backupRow`). Eine Naht, die mitwanderte. `app-projects.js`: 1 707 → 1 129 Zeilen - von 2 309 am Anfang der Runde mehr als halbiert. App-Suite 38/69, eslint, Build, `node --check`. |
 | 22.10.2026 | P3-2 Schritt 42: Bausteinbibliothek und Papierkorb wandern aus `app-projects.js` in `app-library.js` (`libraryView`, `trashView`). Beide teilen sich nichts mit den Projekten - keine Modulvariable, kein Zustand. `app-projects.js`: 1 936 → 1 707 Zeilen. App-Suite 38/69, eslint, Build, `node --check`. |
