@@ -304,6 +304,16 @@ Versionierte Records werden bei Review und Publish gespeichert; Manifest und Re-
 
    **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf beiden Dateien.
 
+40. `app-refs-add.js` (22.10.2026): der Dialog zum Hinzufuegen einer Referenz wandert aus `app-references.js` — `refsOpenAddDialog` und `refsReadBase64`. `app-references.js`: 1 763 → 1 482 Zeilen; `app-refs-add.js`: 304 Zeilen.
+
+   **280 Zeilen mit genau einer Naht.** Der Dialog ruft `refsRefresh` (die Liste neu laden) — und das liegt in `app-references.js`. Wie bei den Sammlungen kommt es als Rueckruf herein. Alles andere ist eigene Funktion oder Import aus einem Modul, das keine Abhaengigkeit zurueck hat.
+
+   **Was der Umzug an toten Importen hinterliess:** Vier Namen blieben in `app-references.js` stehen, ohne noch benutzt zu werden (`AUTHOR`, `openSnapshotDialog`, `REFS_ICON_PLUS_UPLOAD`, `refsSplit`), und im neuen Modul `failed`. ESLint fand alle fuenf. Das ist das Muster dieses Umbaus: der Compiler sieht den toten Import nicht, der Linter schon.
+
+   **Belegt ueber das Multiset aller Codezeilen:** ein Aufruf ist umbenannt (`refresh()` statt `refsRefresh()`), dazu die sechs Zeilen der Naht. Alles andere ist unveraendert.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf beiden Dateien.
+
 **Reihenfolge:** `store.ts`, `http.ts`, `mcp/tools.ts`, `app.js`; `mount.ts` entfällt mit P3-1. Nicht mehrere große Module gleichzeitig aufteilen.
 **Gate dieses Schritts:** `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:coverage`, `pnpm quality:render`, `pnpm quality:check` und `git diff --check` am 29.09.2026 grün; vorhandene Assertions unverändert. Vor einem weiteren Schritt: Änderungen fachlich committen und `git status --short` leer prüfen. Bei Browser-/Build-Pfaden zusätzlich die passenden App-Gates. Der vierte Schritt (09.10.2026) lief mit typecheck, lint, Coverage-Volllauf (1068/15/0), `quality:render`/`quality:check` und `check:patch` grün. **Gate des zweiten Schritts (07.10.2026):** dieselben Kommandos; `pnpm test` hatte zwei rote Browser-Tests ohne Bezug zur Auslagerung (Einordnung in `docs/current/qualitaet.md`), alles andere grün.
 
@@ -415,6 +425,7 @@ Der Import wurde am 20.10.2026 an einer veröffentlichten Seite gemessen (`https
 
 | Datum | Änderung |
 |---|---|
+| 22.10.2026 | P3-2 Schritt 40: der Add-Dialog der Referenzen wandert aus `app-references.js` in `app-refs-add.js` (`refsOpenAddDialog`, `refsReadBase64`). Eine Naht (`refsRefresh` als Rueckruf). `app-references.js`: 1 763 → 1 482 Zeilen. Beim Umzug blieben fuenf tote Importe stehen - ESLint fand alle. App-Suite 38/69, eslint, Build, `node --check`. |
 | 22.10.2026 | P3-2 Schritt 39: die Sammlungen der Referenzen wandern aus `app-references.js` in `app-refs-collections.js`. Der Block war bis zum Zustands-Schnitt blockiert (er ruft `refsRefresh` und `refsSetCollection`); jetzt kommen beide als Rueckrufe herein. `app-references.js`: 2 040 → 1 756 Zeilen. App-Suite 38/69, eslint, Build, `node --check`. |
 | 22.10.2026 | P3-2 Schritt 38: Zustand, Adresse und Auswahl der Referenzen wandern aus `app-references.js` in `app-refs-state.js` - der Schritt, der die Trennung der grossen Bloecke erst moeglich macht (`refsState` wurde an 59 Stellen in 17 Funktionen gelesen). Drei Naehte ueber Setter statt Importe; `refsUpdateSelectionUI` bleibt wegen `refsDom` draussen. `app-references.js`: 2 117 → 2 040 Zeilen. App-Suite 38/69, eslint, Build. |
 | 22.10.2026 | P3-2 Schritt 37: die 14 Symbole und `refsIcon` wandern aus `app-references.js` in `app-refs-icons.js`. Der Schnitt raeumt ein Duplikat des vorigen Schritts ab (das Schliessen-Symbol war fest eingebaut worden); das Markup ist zeichengleich, geprueft. `app-references.js`: 2 148 → 2 117 Zeilen. App-Suite 38 Dateien/69 Tests, eslint, Build, `node --check`. |
