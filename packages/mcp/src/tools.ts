@@ -3398,6 +3398,7 @@ export const TOOLS: ToolDefinition[] = [
         applyTheme: { type: "boolean" },
         assets: { type: "string", enum: ["upload", "skip"] },
         fonts: { type: "string", enum: ["rewrite", "skip"] },
+        capture: { type: "string", enum: ["static", "browser"] },
         idempotencyKey: { type: "string" },
       },
       ["siteId"],
@@ -3422,6 +3423,7 @@ export const TOOLS: ToolDefinition[] = [
       const applyTheme = optionalBoolean(args, "applyTheme");
       const assets = optionalString(args, "assets");
       const fonts = optionalString(args, "fonts");
+      const capture = optionalString(args, "capture");
       const idempotencyKey = optionalString(args, "idempotencyKey");
       return context.client.request(
         "POST",
@@ -3440,6 +3442,7 @@ export const TOOLS: ToolDefinition[] = [
           ...(applyTheme === undefined ? {} : { applyTheme }),
           ...(assets === undefined ? {} : { assets }),
           ...(fonts === undefined ? {} : { fonts }),
+          ...(capture === undefined ? {} : { capture }),
           ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
         },
       );

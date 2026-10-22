@@ -14,6 +14,7 @@ import type { StyleRule } from "@senify/widget-engine";
 import type { Breakpoints } from "@senify/widget-engine/breakpoints";
 import { dirname, resolve } from "node:path";
 import { captureFixture, captureHtml, pageFileOf, type CaptureHtmlInput } from "./capture-html.ts";
+import { captureBrowser } from "./capture-browser.ts";
 import type { FramerIrDocument, IrFinding, IrNode } from "./ir.ts";
 import { normalize, type NormalizeMode, type NormalizeResult } from "./normalize.ts";
 import { mapDocument, type MapperResult, type ThemePatch } from "./mapper.ts";
@@ -33,6 +34,16 @@ export type ImportSource =
 
 export type RunImportInput = {
   source: ImportSource;
+  // How a URL source is read. `static` (default) fetches the SSR-HTML. `browser`
+  // loads the page in Chromium first, so content a script builds at runtime is
+  // part of the import: measured 22.10.2026 on a page whose rating stars only
+  // exist after hydration (6 nodes / 0 SVG static against 9 nodes / 3 SVG in the
+  // browser), and named as the open gap on the published Earn page. The three
+  // export fixtures gain nothing structural (715/2958/2147 nodes on both paths)
+  // and the browser path costs a Chromium launch per import, so the default
+  // stays static. Switchable per import because the result is not the same
+  // document - idempotency (S2.5) compares like with like.
+  capture?: "static" | "browser";
   // Asset pipeline: upload into the engine (production) or mirror files to
   // a folder (offline mode). Absent = no asset download, the report says so.
   uploader?: AssetUploader;
@@ -69,6 +80,11 @@ export type ImportRun = {
 
 const PAGE_TIMEOUT_MS = 30_000;
 const MAX_PAGE_BYTES = 20 * 1024 * 1024;
+// How long the browser path waits after the settle pass before it measures.
+// A Framer page reveals its sections within a few hundred ms of the scroll
+// pass; 800 ms leaves room for the last transition without making an import
+// feel stuck.
+const INPUT_SETTLE_MS = 800;
 
 /* --------------------------------------------------- linked stylesheets */
 
@@ -143,8 +159,21 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
       throw new Error(`Quelle nicht ladbar: ${response.status} ${input.source.url}`);
     }
     const html = await response.text();
-    const css = await fetchLinkedCss(html, input.source.url);
-    document = captureHtml({ html, url: input.source.url, pagePath: input.pagePath ?? "/", css });
+    if (input.capture === "browser") {
+      // A Chromium load of the same address: the page's own runtime runs, so
+      // content built by a script is in the DOM `captureBrowser` reads. The
+      // request to the page itself went through `fetchPublic` above (public
+      // addresses only, ADR-0016); the browser repeats that check for every
+      // sub-resource through its own route guard (ADR-0022).
+      document = (await captureBrowser({
+        url: input.source.url,
+        pagePath: input.pagePath ?? "/",
+        settleMs: INPUT_SETTLE_MS,
+      })).document;
+    } else {
+      const css = await fetchLinkedCss(html, input.source.url);
+      document = captureHtml({ html, url: input.source.url, pagePath: input.pagePath ?? "/", css });
+    }
     if (baseUrl === undefined) baseUrl = new URL(input.source.url).origin;
   } else if (input.source.kind === "mirror") {
     // Offline mode (S2.4): the local mirror is the input, no network beyond

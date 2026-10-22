@@ -86,7 +86,7 @@ URL oder Mirror
 
 ### Aktuelle Grenzen
 
-- `runImport()` verwendet für URLs `fetch()` und `captureHtml()`; `captureBrowser()` existiert und ist getestet, ist aber nicht der normale URL-Orchestrator.
+- `runImport()` liest eine URL-Quelle standardmäßig mit `fetch()` und `captureHtml()`; `capture: "browser"` schaltet denselben Lauf auf `captureBrowser()` (Chromium), wenn Inhalt aus Skripten mitmuss.
 - Payloads werden im Hauptpfad nur für Mirror-Quellen extrahiert.
 - Der Import-Commit liefert bei gleichem Inhalt einen Receipt und verhindert doppelte DB-Schreibvorgänge auch mit neuem Idempotency-Key.
 - Datei und DB bilden keine gemeinsame Transaktion. Neu erzeugte Uploads werden bei fehlgeschlagenem Commit kompensiert; der Fehlerpfad ist in `packages/engine/test/imports.test.ts` belegt. Bereits vorhandene Assets werden nicht entfernt. R10 ist mit diesem Kompensationsvertrag geschlossen.

@@ -1775,6 +1775,7 @@ export const TOOL_MANIFEST: ToolFact[] = [
       { name: "applyTheme", type: "boolean", required: false },
       { name: "assets", type: "string", required: false },
       { name: "fonts", type: "string", required: false },
+      { name: "capture", type: "string", required: false },
       { name: "idempotencyKey", type: "string", required: false },
     ],
   },
