@@ -9,7 +9,7 @@
 // eigene oder Kern-Importe.
 
 import { AUTHOR, activeTab, api, askText, el, failed, formatDate, render, routeScope, toast } from "./app-core.js";
-import { workspaceFrame } from "./app-projects.js";
+import { workspaceFrame } from "./app-workspace.js";
 import { renderRoute } from "./app.js";
 
 // Die Artikel-Vorschau bleibt ueber Re-Renderings des Editors offen. Der Zustand
