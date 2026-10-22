@@ -117,7 +117,7 @@ Versionierte Records werden bei Review und Publish gespeichert; Manifest und Re-
 
 `packages/editor/src/mount.ts`, `legacy-editor.html` und Legacy-Browser-Tests sind entfernt. Der Canvas-Redirect und Bundle-Ausschluss sind getestet; `FrameRenderer` liegt in `frame-renderer.ts`. Historische Umsetzungsschritte unten sind abgeschlossen, keine offene Löschaufgabe.
 
-### P3-2 · God-Files aufteilen (R12) — in Arbeit, Mapper/Registry/HTTP/MCP plus einundzwanzig Fach-Module (ADR-0019)
+### P3-2 · God-Files aufteilen (R12) — in Arbeit, Mapper/Registry/HTTP/MCP plus sechsundzwanzig Fach-Module (ADR-0019)
 
 **Ready:** vorheriger Folge-Diff ist gesichert; Scope dieses Schritts ist auf die privaten Row-Typen, Mapper und Parser-Helfer des `Store` begrenzt. Keine öffentliche Store-API wird verändert.
 
@@ -364,6 +364,30 @@ Versionierte Records werden bei Review und Publish gespeichert; Manifest und Re-
 
    **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf allen vier beruehrten Dateien.
 
+46. Coverage-Tor: zwei gemessene Module ohne Schwelle (22.10.2026). `store-settings.ts` und `store-reviews.ts` standen in `include`, aber in keiner Schwelle - sie wurden gemessen und ihr Verfall haette niemand gemeldet. Beide sind jetzt in der Gruppe der Fachmodule, und ein neuer Test haelt die Luecke zu: `packages/engine/test/coverage-gate.test.ts` liest die Dateien auf der Platte und die Schwellen in `vitest.config.ts` und verlangt, dass jede gemessene Datei eine Schwelle hat - und jede Schwelle eine Datei.
+
+   **Wie die Luecke entstand.** Das Tor misst die Fachmodule ueber zwei Globs (`store-*.ts`, `http-*.ts`), die Schwelle haengt aber an einer Aufzaehlung von Namen. Die Glob-Seite waechst von selbst, die Namensliste nicht: zwei Module, die nach dem Aufsetzen der Gruppe dazukamen, fielen durch. Kein Fehler, keine rote Zahl - die Quote stand im Bericht, nur ohne Grenze.
+
+   **Sie waren nicht schlecht gemessen**, im Gegenteil: `store-settings.ts` bei 97,25 Prozent Statements, `store-reviews.ts` bei 98,04. Genau das macht die Luecke gefaehrlich: sie faellt erst auf, wenn die Zahl schon gefallen ist, und dann ohne Tor.
+
+   **Der neue Test prueft beide Richtungen.** Eine gemessene Datei ohne Schwelle ist ein Fehler; eine Schwelle fuer eine Datei, die es nicht gibt, auch - sie sichert nichts und sieht wie Deckung aus. `http-contract.ts` ist die eine begruendete Ausnahme: es haelt nur Typen und steht in `exclude`, eine Zahl darauf waere eine Zahl ohne Aussage. Die Ausnahme steht im Test mit Grund, nicht als stiller Filter.
+
+   **Gegenprobe gelaufen:** Schwelle fuer `store-reviews.ts` wieder entfernt -> der Test wird rot und nennt genau die Datei; wieder eingesetzt -> gruen. Ein Waechter, der die Regression nicht faengt, waere keiner.
+
+   **Beleg:** `packages/engine/test/coverage-gate.test.ts` (3 Faelle), `pnpm typecheck`, `pnpm lint`, `pnpm quality:check` gegen das CI-Artefakt des Master-Laufs 39827633412.
+
+47. `app-workspace-submissions.js` + `app-workspace-templates.js` (22.10.2026): die zwei groessten Tab-Bloecke wandern aus `projectView`. Einsendungen samt Benachrichtigungs-Jobs (169 Zeilen Rumpf) und Vorlagen samt Layout-Zuordnung (183 Zeilen). `app-workspace.js`: 925 -> 580 Zeilen.
+
+   **Der Schnitt trennt Tab fuer Tab, nicht Funktion fuer Funktion.** `projectView` ist mit 691 Zeilen die letzte grosse Funktion der Oberflaeche, hat aber eine Besonderheit: sie ist eine `if`/`else if`-Kette ueber den Tab. Jeder Zweig baut seinen eigenen Inhalt und kennt die anderen nicht. Das ist eine bessere Naht als eine Funktionsgrenze - die Zweige sind schon getrennt, sie standen nur in einer Datei.
+
+   **Drei Naehte, alle klein.** Die ausgewaehlte Formular-Id bleibt beim Workspace (sie ueberlebt den Tab-Wechsel, also gehoert sie nicht dem Tab) und kommt als `getFormId`/`setFormId` herein. Das Neuladen der Route kommt als `reload`. Die Liste, an die das Markup gehaengt wird, gibt die Funktion zurueck statt sie zu fuellen - `body.push(...)` wird `teile.push(...)` und `return teile`.
+
+   **Was beim ersten Versuch schiefging, und wie es auffiel.** Zwei Ersetzungen waren zu eng gefasst: `selectedFormId` an einer Stelle, die mein Muster nicht traf (`if (entry.formId === selectedFormId) option.selected = true;`), und ein `void renderRoute();` ohne `await` davor. `node --check` sah beides nicht - die Datei war syntaktisch gueltig. ESLint fand es als zwei `no-undef` in einer Zeile. Danach die Ersetzungen in der richtigen Reihenfolge (erst die Zuweisung, dann das Lesen) und ueber die ganze Datei statt ueber eine Liste.
+
+   **Belegt ueber das Multiset der Code-Zeilen:** 892 vorher, 922 nachher; die 25 fehlenden Zeilen sind genau die umbenannten (`body.push` -> `teile.push`, `selectedFormId` -> `ctx.getFormId()`, `renderRoute()` -> `ctx.reload()`) und die eine Import-Zeile, die `notificationStatus` an das neue Modul abgibt. Kein Verlust.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf allen drei Dateien, Modulform-Test.
+
 **Reihenfolge:** `store.ts`, `http.ts`, `mcp/tools.ts`, `app.js`; `mount.ts` entfällt mit P3-1. Nicht mehrere große Module gleichzeitig aufteilen.
 **Gate dieses Schritts:** `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:coverage`, `pnpm quality:render`, `pnpm quality:check` und `git diff --check` am 29.09.2026 grün; vorhandene Assertions unverändert. Vor einem weiteren Schritt: Änderungen fachlich committen und `git status --short` leer prüfen. Bei Browser-/Build-Pfaden zusätzlich die passenden App-Gates. Der vierte Schritt (09.10.2026) lief mit typecheck, lint, Coverage-Volllauf (1068/15/0), `quality:render`/`quality:check` und `check:patch` grün. **Gate des zweiten Schritts (07.10.2026):** dieselben Kommandos; `pnpm test` hatte zwei rote Browser-Tests ohne Bezug zur Auslagerung (Einordnung in `docs/current/qualitaet.md`), alles andere grün.
 
@@ -475,6 +499,8 @@ Der Import wurde am 20.10.2026 an einer veröffentlichten Seite gemessen (`https
 
 | Datum | Änderung |
 |---|---|
+| 22.10.2026 | P3-2 Schritt 47: die zwei groessten Tab-Bloecke wandern aus `projectView` in `app-workspace-submissions.js` (Einsendungen und Benachrichtigungs-Jobs) und `app-workspace-templates.js` (Vorlagen und Layout-Zuordnung). Der Schnitt trennt Tab fuer Tab statt Funktion fuer Funktion - die `if`/`else if`-Kette war die bessere Naht. Drei Naehte: Formular-Auswahl als Getter/Setter, Neuladen als Rueckruf, Markup als Rueckgabewert. `app-workspace.js`: 925 -> 580 Zeilen. Belegt ueber das Multiset (892 vorher, 922 nachher, 25 umbenannt, 0 verloren). App-Suite 38/69, eslint, Build, Modulform. |
+| 22.10.2026 | Coverage-Tor: `store-settings.ts` und `store-reviews.ts` waren gemessen, aber von keiner Schwelle gedeckt - sie haetten unbemerkt verfallen koennen. Beide stehen jetzt in der Gruppe der Fachmodule; neu `coverage-gate.test.ts` haelt fest, dass jede gemessene Datei eine Schwelle hat und jede Schwelle eine Datei (Gegenprobe: ohne die Schwelle rot). Dazu zwei Doku-Defekte: die Zahl der Fachmodule (26 statt 21) und die Beschreibung von `app-projects.js` (197 Zeilen, nicht mehr Artikel und Einstellungen). |
 | 22.10.2026 | P3-2 Schritt 45: der Framer-Import wandert aus `app-import.js` in `app-framer-import.js` (`importReportBlock`, `openFramerImportDialog`). `app-import.js` hatte keine Modulvariable - der Grund, warum die Trennung ging. `app-import.js`: 966 → 482 Zeilen. Zwei Aufrufer (Editor, Review) ziehen mit. App-Suite 38/69, eslint, Build. |
 | 22.10.2026 | P3-2 Schritt 44: der Projekt-Workspace wandert aus `app-projects.js` in `app-workspace.js` (`projectView`, 691 Zeilen, plus drei Helfer und zwei Konstanten). `app-projects.js`: 1 129 → 197 Zeilen - von 2 309 am Anfang der Runde. Der Modulform-Test fand sieben Doppelleerzeilen und zwei Waisen-Kommentare; beides behoben. |
 | 22.10.2026 | P3-2 Schritt 43: die Einstellungen wandern aus `app-projects.js` in `app-settings.js` (`settingsView`, 531 Zeilen, und `backupRow`). Eine Naht, die mitwanderte. `app-projects.js`: 1 707 → 1 129 Zeilen - von 2 309 am Anfang der Runde mehr als halbiert. App-Suite 38/69, eslint, Build, `node --check`. |
