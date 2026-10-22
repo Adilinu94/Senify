@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import {
+  appendFileSync,
   copyFileSync,
   cpSync,
   existsSync,
@@ -27,6 +28,7 @@ import {
   type Breakpoints,
   type StyleRule,
 } from "@senify/widget-engine";
+import { sectionBreakpointTheme } from "@senify/widget-engine/section-breakpoints";
 import type { NodeTree, SectionDefinition } from "@senify/section-sdk";
 import { webglSceneSurface } from "@senify/section-sdk";
 import {
@@ -650,6 +652,7 @@ export async function bakeSite(
       },
     },
     input.themeCss,
+    input.breakpoints,
   );
   try {
     // The output folder is absolute from here on. A relative path would make
@@ -744,7 +747,11 @@ export async function bakeSite(
   }
 }
 
-async function stageTemplate(manifest: unknown, themeCss: string): Promise<string> {
+async function stageTemplate(
+  manifest: unknown,
+  themeCss: string,
+  breakpoints?: Breakpoints | null,
+): Promise<string> {
   // Staged inside the workspace (not tmpdir) so Astro resolves workspace
   // packages and root node_modules by walking up the directory tree.
   const stageDir = join(
@@ -761,6 +768,17 @@ async function stageTemplate(manifest: unknown, themeCss: string): Promise<strin
     JSON.stringify(manifest),
   );
   writeFileSync(join(stageDir, "src", "generated", "theme.css"), themeCss);
+  // Die Raster-Schwellen der Sektionen folgen dem Paar der Site (ADR-0020).
+  // Tailwind uebersetzt die Utilities (`md:grid-cols-3`) ueber seine
+  // Breakpoint-Variablen - der `@theme`-Block hier setzt sie auf die Schwellen
+  // der Site, damit die Sektionen dort brechen, wo der Editor sie zeigt.
+  //
+  // Der Block steht am ENDE der Datei: Tailwind wertet `@theme`-Bloecke erst
+  // nach dem Import aus, und ein Block davor wird uebersehen.
+  appendFileSync(
+    join(stageDir, "src", "styles", "global.css"),
+    `\n${sectionBreakpointTheme(breakpoints)}`,
+  );
   return stageDir;
 }
 

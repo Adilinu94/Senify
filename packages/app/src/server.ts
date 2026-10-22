@@ -11,6 +11,10 @@ import { extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { defaultTheme, emitCss, resolveTheme } from "@senify/tokens";
+import {
+  sectionBreakpoints,
+  type SectionBreakpoints,
+} from "@senify/widget-engine/section-breakpoints";
 import { loadFrameCss } from "./frame-css.ts";
 
 const PUBLIC_DIR = fileURLToPath(new URL("../public", import.meta.url));
@@ -109,6 +113,22 @@ function sendError(
 // Signed previews and published releases: whole baked sites, which can carry
 // imported foreign code (ADR-0010).
 const SITE_CONTENT_PATH = /^\/api\/(?:previews|releases)\/[^/?#]+\/files(?:[/?]|$)/;
+
+// Die Raster-Schwellen aus dem Query-Parameter des Frame-Stylesheets:
+// `bp=1200-810` nennt Tablet und Mobil der Site. Ein unbrauchbarer Wert
+// (keine zwei Zahlen, negative, nicht ganzzahlig) bedeutet: die Site hat kein
+// eigenes Paar, und es gilt der Standard. Ein Tippfehler darf nicht dazu
+// fuehren, dass der Canvas ein anderes Raster zeigt als das Release - der
+// Standard ist in beiden Faellen derselbe.
+function parseSectionBreakpoints(raw: string): SectionBreakpoints | null {
+  const teile = raw.split("-");
+  if (teile.length !== 2) return null;
+  const tablet = Number(teile[0]);
+  const mobile = Number(teile[1]);
+  if (!Number.isInteger(tablet) || !Number.isInteger(mobile)) return null;
+  if (tablet <= 0 || mobile <= 0) return null;
+  return sectionBreakpoints({ tablet, mobile });
+}
 
 // The dashboard answers only under its own loopback names. A DNS-rebinding
 // page reaches this port with its own hostname in `Host` (and, for a plain
@@ -282,8 +302,12 @@ export async function createAppServer(options: AppServerOptions): Promise<AppSer
       res.end(themeCss);
       return;
     }
-    if (url === "/editor-frame.css") {
-      void loadFrameCss()
+    if (url.startsWith("/editor-frame.css")) {
+      // Die Raster-Schwellen der Sektionen folgen dem Paar der Site
+      // (ADR-0020). Der Browser fragt sie als Query-Parameter ab, damit der
+      // Canvas dasselbe zeigt wie das Release.
+      const schwelle = new URL(url, "http://dashboard.local").searchParams.get("bp");
+      void loadFrameCss(schwelle === null ? null : parseSectionBreakpoints(schwelle))
         .then((css) => {
           res.writeHead(200, {
             "content-type": "text/css; charset=utf-8",

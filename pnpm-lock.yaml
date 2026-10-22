@@ -109,6 +109,9 @@ importers:
       '@senify/tokens':
         specifier: workspace:*
         version: link:../tokens
+      '@senify/widget-engine':
+        specifier: workspace:*
+        version: link:../widget-engine
       '@tailwindcss/node':
         specifier: ^4.3.3
         version: 4.3.3
