@@ -67,14 +67,21 @@ for (const key of thresholdKeys) {
   for (const pattern of gruppe.globs) globs.push(pattern);
 }
 
-// Die gemessenen Engine-Module: `store.ts` und `http.ts` stehen einzeln im
-// Include, die Fachmodule ueber die zwei Globs.
+// Die gemessenen Module: `store.ts` und `http.ts` stehen einzeln im Include,
+// die Fachmodule ueber die zwei Globs. Die MCP-Werkzeugmodule (Schritt 56)
+// werden genauso geprueft - sie waren bis zum 23.10.2026 ungemessen, weil der
+// Include nur `tools.ts` nannte.
+const mcpDir = join(root, "packages", "mcp", "src");
 const gemessen = [
   "packages/engine/src/store.ts",
   "packages/engine/src/http.ts",
   ...readdirSync(srcDir)
     .filter((name) => /^(store|http)-.*\.ts$/.test(name))
     .map((name) => `packages/engine/src/${name}`),
+  "packages/mcp/src/tools.ts",
+  ...readdirSync(mcpDir)
+    .filter((name) => /^tools-.*\.ts$/.test(name))
+    .map((name) => `packages/mcp/src/${name}`),
 ];
 
 // `http-contract.ts` haelt nur Typen und ist in `exclude` - eine Schwelle
@@ -85,8 +92,9 @@ const NUR_TYPEN = new Set(["packages/engine/src/http-contract.ts"]);
 function istGedeckt(file: string): boolean {
   if (exact.has(file)) return true;
   return globs.some((pattern) => {
-    if (pattern.endsWith("http-*.ts")) return /\/http-.*\.ts$/.test(file);
-    if (pattern.endsWith("store-*.ts")) return /\/store-.*\.ts$/.test(file);
+    if (pattern.endsWith("/http-*.ts")) return /\/http-.*\.ts$/.test(file);
+    if (pattern.endsWith("/store-*.ts")) return /\/store-.*\.ts$/.test(file);
+    if (pattern.endsWith("/tools-*.ts")) return /\/tools-.*\.ts$/.test(file);
     return false;
   });
 }
