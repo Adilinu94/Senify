@@ -426,6 +426,20 @@ Versionierte Records werden bei Review und Publish gespeichert; Manifest und Re-
 
    **Beleg:** `packages/engine/test/media.test.ts` (20 Tests gruen), `pnpm typecheck`, `pnpm lint`; der Beweis ist der Windows-Job der CI, der diesen Lauf nicht mehr an der Stelle verliert.
 
+51. `module-cycles.test.ts` (22.10.2026): die Oberflaeche hat **neun Import-Zyklen**, und keiner davon ist zur Laufzeit ein Fehler - weil jede Funktion, die ueber eine Zykluskante laeuft, eine `function`-Deklaration ist und gehoisted wird. Das ist eine Eigenschaft, die man nicht sieht: wer eine davon in ein `const` umbaut, bekommt `undefined` beim Laden und einen `is not a function` irgendwo anders.
+
+   **Der Befund, der den Test ausgeloest hat.** Beim Blick auf `app-editor.js` (1 170 Zeilen, zwei Funktionen) habe ich die Importe gezaehlt: `app.js` holt acht Views, fuenf davon holen `renderRoute` aus `app.js` zurueck. `deps:check` meldet dazu **nichts** - die Regel `no-new-package-cycle` gilt auf der Ordnerebene und mit Absicht nur zwischen Paketen (so steht es in ihrem Kommentar). Ein Zyklus innerhalb eines Pakets ist fuer das Tor keine Verletzung.
+
+   **Die Bedingung, unter der die Zyklen hier stehen duerfen, ist jetzt geprueft:** ueber eine Zykluskante darf nur ein gehoisteter Export laufen. Der Test liest die Export-Arten (`function`, `const`, `let`, `class`, `re-export`) und die Import-Namen, findet die Zyklen selbst und vergleicht. Re-Exporte werden auf ihr Original aufgeloest - `app-references.js` gibt `refsToast` aus `app-refs-dialog.js` weiter, und diese Kette ist heute auch eine Funktion.
+
+   **32 Exporte der Oberflaeche sind nicht gehoistet** (`const`/`let`): die Kern-Helfer in `app-core.js`, die Symbol-Konstanten, `refsState`, `WORKSPACE_TABS`. Keiner davon laeuft heute ueber eine Zykluskante - der Test wuerde es melden, sobald einer es tut.
+
+   **Gegenprobe gelaufen:** `waitForImageJob` von `export async function` auf `export const ... = async` umgebaut -> der Test wird rot und nennt genau die Kante `app-import.js -> app-editor.js: waitForImageJob ist ein const, nicht gehoisted`. Zurueckgebaut -> gruen.
+
+   **Warum kein Umbau der Zyklen.** Sie zu entwirren hiesse, `renderRoute` aus `app.js` herauszunehmen und in ein eigenes Modul zu legen - ein Schritt, der acht Dateien anfasst und die Reihenfolge des Starts veraendert. Der Test sichert die Bedingung mit einer Zeile; der Umbau waere eine eigene Entscheidung mit eigenem Risiko. Was jetzt gilt: die Zyklen duerfen bleiben, solange sie gehoisted sind.
+
+   **Beleg:** `packages/app/test/module-cycles.test.ts` (1 Fall, Gegenprobe rot), `pnpm exec vitest run packages/app`.
+
 **Reihenfolge:** `store.ts`, `http.ts`, `mcp/tools.ts`, `app.js`; `mount.ts` entfällt mit P3-1. Nicht mehrere große Module gleichzeitig aufteilen.
 **Gate dieses Schritts:** `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:coverage`, `pnpm quality:render`, `pnpm quality:check` und `git diff --check` am 29.09.2026 grün; vorhandene Assertions unverändert. Vor einem weiteren Schritt: Änderungen fachlich committen und `git status --short` leer prüfen. Bei Browser-/Build-Pfaden zusätzlich die passenden App-Gates. Der vierte Schritt (09.10.2026) lief mit typecheck, lint, Coverage-Volllauf (1068/15/0), `quality:render`/`quality:check` und `check:patch` grün. **Gate des zweiten Schritts (07.10.2026):** dieselben Kommandos; `pnpm test` hatte zwei rote Browser-Tests ohne Bezug zur Auslagerung (Einordnung in `docs/current/qualitaet.md`), alles andere grün.
 
@@ -537,6 +551,7 @@ Der Import wurde am 20.10.2026 an einer veröffentlichten Seite gemessen (`https
 
 | Datum | Änderung |
 |---|---|
+| 22.10.2026 | Neu `module-cycles.test.ts`: die Oberflaeche hat neun Import-Zyklen (`app.js` holt die Views, fuenf holen `renderRoute` zurueck); `deps:check` sieht sie nicht, weil seine Zyklus-Regel nur zwischen Paketen gilt. Harmlos sind sie nur, solange ueber eine Zykluskante ausschliesslich gehoistete `function`-Deklarationen laufen - genau das prueft der Test jetzt (Re-Exporte aufgeloest). Gegenprobe: `waitForImageJob` als `const` -> rot und nennt die Kante. Kein Umbau der Zyklen: der waere eine eigene Entscheidung. |
 | 22.10.2026 | `hookTimeout: 30_000`: Der Windows-Job wurde rot, ohne dass ein Test fehlschlug - `media.test.ts` lief im `afterAll` in die 10-Sekunden-Frist von vitest (Engine herunterfahren, Datenbank schliessen, Datenverzeichnis raeumen). `testTimeout` stand aus demselben Grund seit dem 11.10.2026 auf 30 s, `hookTimeout` fehlte. 38 Testdateien teardownen je eine Engine. Dieselbe Frist wie fuer die Tests, nicht groesser - ein haengender Hook faellt weiter auf. Beleg: `media.test.ts` 20/20, typecheck, lint. |
 | 22.10.2026 | P3-2 Schritt 49: die drei Listen-Tabs (Seiten, Pruefen, Aktivitaet) wandern aus `projectView` in `app-workspace-lists.js`. `app-workspace.js`: 375 -> 271 Zeilen, `projectView` 138 -> 29. **Ein Regressionsfund, den nur die Browser-Tests sahen:** die neue Funktion ist `async`, der Aufruf hatte kein `await` - `body.push(...promise)` wirft nicht, es haengt nichts an, drei Tabs bleiben leer. `node --check`, ESLint, Build und Modulform waren alle gruen; drei Browser-Tests wurden rot. Mit `await` gruen. App-Suite 38/69. |
 | 22.10.2026 | P3-2 Schritt 48: der Tab „Einstellungen" wandert aus `projectView` in `app-workspace-settings.js` (Projekteinstellungen, Breakpoints, Referenzen, Deploy). `breakpointsPanel` bleibt in `app-workspace.js` und kommt als Rueckruf herein. `app-workspace.js`: 580 -> 374 Zeilen, `projectView` 344 -> 144. Belegt ueber das Multiset (553 vorher, 569 nachher, 8 umbenannt, 0 verloren). App-Suite 38/69, eslint, Build, Modulform. |
