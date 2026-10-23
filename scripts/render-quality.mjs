@@ -64,6 +64,10 @@ const PROTECTED = [
   "packages/engine/src/lifecycle.ts",
   "packages/engine/src/forms.ts",
   "packages/mcp/src/tools.ts",
+  // Die ausgelagerten Werkzeug-Module der MCP-Fassade (P3-2, Schritt 56) und
+  // die Schemas. Sie sind seit dem 23.10.2026 im Coverage-Tor; ohne eine Zeile
+  // hier waeren sie gemessen, aber niemand saehe die Zahl.
+  "packages/mcp/src/tools-*.ts",
   // Die ausgelagerten Fachmodule der Engine (ADR-0019, P3-2) und die
   // HTTP-Helfer: sie sind seit 20.10.2026 im Coverage-Tor, und eine Zahl, die
   // niemand sieht, ist keine Zahl. Die Zeile nennt den BEREICH der Gruppe,

@@ -1017,6 +1017,87 @@ describe("collection from form, submissions view and CSV", () => {
     expect(json.body.columns).toHaveLength(6);
   });
 
+  it(
+    "lists submissions of one collection, and refuses one of another site",
+    async () => {
+      // Die Site-Route liest nur `collectionId` (der Formular-Weg ist
+      // `/api/forms/:formId/submissions`, den der Test oben abdeckt).
+      // Damit sind hier zwei Zweige zu holen, die sonst niemand trifft:
+      //   `collectionId ?? undefined` und der Spread, der den Filter nur
+      //   setzt, wenn eine Id da ist.
+      const plan = await env.api.request<{
+        collection: { id: string };
+      }>({
+        method: "POST",
+        path: `/api/sites/${siteId}/forms/collection-plan`,
+        body: { formId: contactFormId },
+      });
+      expect(plan.status).toBe(200);
+      // Der Plan legt nichts an - die Sammlung entsteht erst mit dem zweiten Aufruf.
+      const created = await env.api.request<{ collection: { id: string } }>({
+        method: "POST",
+        path: `/api/sites/${siteId}/forms/collection`,
+        body: { formId: contactFormId },
+      });
+      expect(created.status).toBe(201);
+      const collectionId = created.body.collection.id;
+
+      const leer = await env.api.request<{ rows: unknown[]; source: string }>({
+        method: "GET",
+        path: `/api/sites/${siteId}/submissions?collectionId=${collectionId}&limit=1`,
+      });
+      expect(leer.status).toBe(200);
+      expect(leer.body.source).toBe("collection");
+      expect(leer.body.rows.length).toBeLessThanOrEqual(1);
+
+      // Eine Sammlung einer anderen Site ist ein 400 mit Feld `collectionId`
+      // - die Ansicht darf nicht ueber Site-Grenzen lesen.
+      const fremd = await env.api.request<{ error: { field: string } }>({
+        method: "GET",
+        path: `/api/sites/${siteId}/submissions?collectionId=aus-einer-anderen-site`,
+      });
+      expect(fremd.status).toBe(404);
+    },
+  );
+
+  it(
+    "answers a form collection call without a body instead of crashing",
+    async () => {
+      // `(await readJsonBody(req)) ?? {}`: ohne Koerper faellt die Route auf
+      // ein leeres Objekt zurueck und der Vertrag meldet das fehlende Feld.
+      // Ohne diesen Fall waere der Zweig ungedeckt - und ein Aufruf ohne
+      // Koerper ist der erste, den ein Client falsch macht.
+      const plan = await env.api.request<{ error: { category: string } }>({
+        method: "POST",
+        path: `/api/sites/${siteId}/forms/collection-plan`,
+      });
+      expect(plan.status).toBe(400);
+      expect(plan.body.error.category).toBe("validation");
+
+      const create = await env.api.request<{ error: { category: string } }>({
+        method: "POST",
+        path: `/api/sites/${siteId}/forms/collection`,
+      });
+      expect(create.status).toBe(400);
+      expect(create.body.error.category).toBe("validation");
+    },
+  );
+
+  it(
+    "lists every submission of the site when no collection is named",
+    async () => {
+      // `collectionId ?? undefined` und der Spread, der den Filter nur setzt,
+      // wenn eine Id da ist: ohne Id traegt `listSubmissions` keinen Filter
+      // und meldet `validation` - eine von beiden Ids ist Pflicht.
+      const ohne = await env.api.request<{ error: { category: string; field: string } }>({
+        method: "GET",
+        path: `/api/sites/${siteId}/submissions`,
+      });
+      expect(ohne.status).toBe(400);
+      expect(ohne.body.error.category).toBe("validation");
+      expect(ohne.body.error.field).toBe("formId");
+    },
+  );
   it("quotes semicolons, quotes and newlines per RFC 4180, plain umlauts stay bare", () => {
     const columns = [
       { key: "name", label: "Name" },

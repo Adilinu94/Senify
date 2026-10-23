@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,7 +30,12 @@ import { fileURLToPath } from "node:url";
 // `scripts/` -> repo root. Two levels up from the file, not three: the file is
 // `<root>/scripts/render-manifest.mjs`, so `<root>` is `dirname(dirname(file))`.
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-const TOOLS_SRC = join(ROOT, "packages", "mcp", "src", "tools.ts");
+// Die Werkzeug-Definitionen liegen in `tools.ts` und den Modulen
+// `tools-*.ts` (P3-2). Die Reihenfolge ist Teil des Vertrags: `server.ts`
+// gibt `TOOLS.map(...)` an den Client, und ein Schnitt darf sie nicht
+// aendern. Deshalb liest der Generator nicht "alle Dateien alphabetisch",
+// sondern folgt den Spreizungen in `tools.ts` (siehe `quellenInReihenfolge`).
+const MCP_SRC = join(ROOT, "packages", "mcp", "src");
 const MANIFEST = join(ROOT, "packages", "manifest", "src", "tools.ts");
 
 // The group per tool. This is the one editorial decision in the manifest, and it
@@ -145,7 +150,96 @@ const GRUPPEN = {
   get_import_report: "seiten",
 };
 
-const quelle = readFileSync(TOOLS_SRC, "utf8");
+/**
+ * Die Dateien in der Reihenfolge, in der `TOOLS` sie einsammelt.
+ *
+ * `tools.ts` traegt die Tabelle und kann Module einspeisen (`...MEDIEN_TOOLS,`).
+ * Die Reihenfolge der Werkzeuge geht an MCP-Clients (`server.ts`:
+ * `TOOLS.map`), ist also Teil des Vertrags - sie darf sich durch einen Schnitt
+ * nicht aendern.
+ *
+ * Deshalb liest der Generator nicht "alle Dateien alphabetisch", sondern folgt
+ * der Reihenfolge: `tools.ts` zuerst, und wo eine Spreizung steht, wird das
+ * genannte Modul eingefuegt. Eine Spreizung ohne Import und ein Modul ohne
+ * Spreizung sind beide ein Fehler - im ersten Fall fehlten Werkzeuge im
+ * Manifest, im zweiten waeren sie toter Code.
+ */
+function quellenInReihenfolge() {
+  const basis = join(MCP_SRC, "tools.ts");
+  const text = readFileSync(basis, "utf8");
+
+  const eingespeist = new Map();
+  for (const m of text.matchAll(/import \{ ([\w]+) \} from "\.\/(tools-[\w-]+\.ts)";/g)) {
+    eingespeist.set(m[1], m[2]);
+  }
+
+  const reihenfolge = [basis];
+  const teile = text.split(/^ {2}\.\.\.([A-Z_]+),\s*$/m);
+  // `split` liefert [text, name1, text, name2, ...] - die Namen stehen an
+  // den ungeraden Stellen.
+  for (let i = 1; i < teile.length; i += 2) {
+    const name = teile[i];
+    const datei = eingespeist.get(name);
+    if (datei === undefined) {
+      throw new Error(
+        `Spreizung ...${name} in tools.ts ohne Import aus einem tools-*.ts-Modul - ` +
+          "der Generator kann die Reihenfolge nicht rekonstruieren.",
+      );
+    }
+    reihenfolge.push(join(MCP_SRC, datei));
+  }
+
+  // Jedes Modul, das WERKZEUGE enthaelt (`name: "..."`), muss eingespeist
+  // sein. `tools-support.ts` und `tools-components.ts` sind Helfer ohne
+  // Werkzeuge - sie stehen nicht in der Tabelle und sollen es nicht.
+  const alle = readdirSync(MCP_SRC)
+    .filter((n) => n.startsWith("tools-") && n.endsWith(".ts"))
+    .sort();
+  const benutzt = new Set(reihenfolge.slice(1).map((p) => p.split(/[\\/]/).pop()));
+  const unbenutzt = alle.filter((n) => {
+    if (benutzt.has(n)) return false;
+    return /^\s{4}name: "[a-z_]+",/m.test(readFileSync(join(MCP_SRC, n), "utf8"));
+  });
+  if (unbenutzt.length > 0) {
+    throw new Error(
+      `Diese Module tragen Werkzeuge, werden aber von tools.ts nicht eingespeist: ${unbenutzt.join(", ")} - ` +
+        "ihre Werkzeuge fehlten im Manifest.",
+    );
+  }
+  return reihenfolge;
+}
+
+const QUELLEN = quellenInReihenfolge();
+
+/**
+ * Der Quelltext in der Reihenfolge, in der `TOOLS` die Werkzeuge sammelt.
+ *
+ * Die vorige Fassung verkettete die Dateien (`tools.ts` + `tools-medien.ts`)
+ * und stellte die Medienwerkzeuge damit ans ENDE - das Manifest hatte 106
+ * Werkzeuge in falscher Reihenfolge (Position 44 wurde zu 85). Richtig ist,
+ * die Spreizung durch den Inhalt des Moduls zu ERSETZEN: dann steht jedes
+ * Werkzeug dort, wo es im laufenden Programm steht.
+ */
+function quelltextInReihenfolge(dateien) {
+  const [basis, ...module] = dateien;
+  let text = readFileSync(basis, "utf8");
+  // Die Module in der Reihenfolge ihres Auftretens einsetzen.
+  for (const datei of module) {
+    const inhalt = readFileSync(datei, "utf8");
+    // Die Spreizung, die dieses Modul nennt.
+    const name = [...text.matchAll(/^ {2}\.\.\.([A-Z_]+),\s*$/gm)].find((m) => {
+      const treffer = text.match(new RegExp(`import \\{ ${m[1]} \\} from "\\./${datei.split(/[\\\\/]/).pop()}"`));
+      return treffer !== null;
+    })?.[1];
+    if (name === undefined) {
+      throw new Error(`Keine Spreizung fuer ${datei} in ${basis}.`);
+    }
+    text = text.replace(new RegExp(`^  \\.\\.\\.${name},\\s*$`, "m"), inhalt);
+  }
+  return text;
+}
+
+const quelle = quelltextInReihenfolge(QUELLEN);
 
 /** The block that describes one tool: from its `name` to the closing brace of
  *  the object, so a regex never has to guess where a description ends. */
