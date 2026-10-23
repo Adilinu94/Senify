@@ -438,6 +438,18 @@ Versionierte Records werden bei Review und Publish gespeichert; Manifest und Re-
 
    **Beleg:** `packages/app/test/module-cycles.test.ts` (1 Fall, Gegenprobe rot), `pnpm exec vitest run packages/app`.
 
+52. `app-refs-shell.js` (23.10.2026): die Huelle der Referenzen-Seite wandert aus `app-references.js` - Kopfzeile, Seitenleiste, Suche, Sortierung, Galerie, leerer Zustand und Fusszeile (230 Zeilen). `app-references.js`: 992 -> 772 Zeilen; `app-refs-shell.js`: 259 Zeilen.
+
+   **Der letzte grosse Rest der Referenzen-Seite.** `refsBuildShell` baute fast nur Markup, hing aber an vier Stellen am Zustand: Suche und Sortierung (gelesen und geschrieben), die DOM-Sammlung `refsDom` (die 51 Stellen der Seite lesen) und der Suchtimer (gelesen, geloescht, neu gesetzt).
+
+   **Vier Naehte, alle klein.** Die vier Funktionen der Seite (`refsRefresh`, `refsEmptyAction`, `refsSetView`, `refsSetCollection`) kommen als Rueckrufe herein; der Timer ueber `getQueryTimer`/`setQueryTimer` (er wird gelesen UND geschrieben, ein reiner Import ginge nicht); `refsDom` wird lokal gebaut und zurueckgegeben - der Wrapper in `app-references.js` setzt das Modul-`refsDom` daraus.
+
+   **Zwei echte Funde beim Aufraeumen.** (a) `REFS_SEARCH_ICON` stand als lokale Konstante in `app-references.js` und war **nicht** im Symbol-Modul exportiert - der Import waere beim Buendeln gescheitert; die Konstante zieht jetzt mit, wo sie gebraucht wird. (b) Ein Alias `refsBuildShell as buildShell` brach den neuen Zyklus-Waechter, der Export-Namen woertlich vergleicht - der Alias war unnoetig und ist aufgeloest. Der Waechter aus Schritt 51 hat hier zum ersten Mal gegriffen, bevor der Build lief.
+
+   **Belegt ueber das Multiset der Code-Zeilen:** 867 vorher, 896 nachher; die 16 fehlenden sind genau die umbenannten (`refsRefresh()` -> `ctx.refresh()` usw.), die verschobene Konstante und die Import-Zeilen, die an das neue Modul abgegeben wurden. Kein Verlust.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (39 Dateien, 70 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf beiden Dateien, Modulform- und Zyklus-Test.
+
 **Reihenfolge:** `store.ts`, `http.ts`, `mcp/tools.ts`, `app.js`; `mount.ts` entfällt mit P3-1. Nicht mehrere große Module gleichzeitig aufteilen.
 **Gate dieses Schritts:** `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:coverage`, `pnpm quality:render`, `pnpm quality:check` und `git diff --check` am 29.09.2026 grün; vorhandene Assertions unverändert. Vor einem weiteren Schritt: Änderungen fachlich committen und `git status --short` leer prüfen. Bei Browser-/Build-Pfaden zusätzlich die passenden App-Gates. Der vierte Schritt (09.10.2026) lief mit typecheck, lint, Coverage-Volllauf (1068/15/0), `quality:render`/`quality:check` und `check:patch` grün. **Gate des zweiten Schritts (07.10.2026):** dieselben Kommandos; `pnpm test` hatte zwei rote Browser-Tests ohne Bezug zur Auslagerung (Einordnung in `docs/current/qualitaet.md`), alles andere grün.
 
@@ -549,6 +561,7 @@ Der Import wurde am 20.10.2026 an einer veröffentlichten Seite gemessen (`https
 
 | Datum | Änderung |
 |---|---|
+| 23.10.2026 | P3-2 Schritt 52: die Huelle der Referenzen-Seite wandert aus `app-references.js` in `app-refs-shell.js` (Kopfzeile, Seitenleiste, Suche, Sortierung, Galerie, Fusszeile; 230 Zeilen). Vier Naehte: vier Rueckrufe, der Suchtimer ueber Getter/Setter, `refsDom` als Rueckgabewert. Zwei Funde beim Aufraeumen: `REFS_SEARCH_ICON` war nicht exportiert (der Import waere beim Buendeln gescheitert), ein Alias brach den Zyklus-Waechter aus Schritt 51. `app-references.js`: 992 -> 772 Zeilen. App-Suite 39/70. |
 | 22.10.2026 | Neu `module-cycles.test.ts`: die Oberflaeche hat neun Import-Zyklen (`app.js` holt die Views, fuenf holen `renderRoute` zurueck); `deps:check` sieht sie nicht, weil seine Zyklus-Regel nur zwischen Paketen gilt. Harmlos sind sie nur, solange ueber eine Zykluskante ausschliesslich gehoistete `function`-Deklarationen laufen - genau das prueft der Test jetzt (Re-Exporte aufgeloest). Gegenprobe: `waitForImageJob` als `const` -> rot und nennt die Kante. Kein Umbau der Zyklen: der waere eine eigene Entscheidung. |
 | 22.10.2026 | `hookTimeout: 30_000`: Der Windows-Job wurde rot, ohne dass ein Test fehlschlug - `media.test.ts` lief im `afterAll` in die 10-Sekunden-Frist von vitest (Engine herunterfahren, Datenbank schliessen, Datenverzeichnis raeumen). `testTimeout` stand aus demselben Grund seit dem 11.10.2026 auf 30 s, `hookTimeout` fehlte. 38 Testdateien teardownen je eine Engine. Dieselbe Frist wie fuer die Tests, nicht groesser - ein haengender Hook faellt weiter auf. Beleg: `media.test.ts` 20/20, typecheck, lint. |
 | 22.10.2026 | P3-2 Schritt 49: die drei Listen-Tabs (Seiten, Pruefen, Aktivitaet) wandern aus `projectView` in `app-workspace-lists.js`. `app-workspace.js`: 375 -> 271 Zeilen, `projectView` 138 -> 29. **Ein Regressionsfund, den nur die Browser-Tests sahen:** die neue Funktion ist `async`, der Aufruf hatte kein `await` - `body.push(...promise)` wirft nicht, es haengt nichts an, drei Tabs bleiben leer. `node --check`, ESLint, Build und Modulform waren alle gruen; drei Browser-Tests wurden rot. Mit `await` gruen. App-Suite 38/69. |
