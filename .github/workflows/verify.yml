@@ -88,6 +88,11 @@ jobs:
       # Moduls, das es nicht mehr gibt.
       - name: Routen-Matrix entspricht dem Generator
         run: pnpm route-matrix:check
+      # Und fuer die Moduluebersicht: sie nennt je Modul die Zeilen, die Routen
+      # und den Test. Bis zum 23.10.2026 stand das von Hand in `stand.md` - mit
+      # zwei falschen Routenzahlen und vier fehlenden Modulen.
+      - name: Moduluebersicht entspricht dem Generator
+        run: pnpm module:check
       # Der Artefakt-Nachweis (Fahrplan P0-4 Punkt 3, R1) laeuft als eigener
       # Schritt, damit im Log sichtbar bleibt, dass `pnpm build` wirklich eine
       # auslieferbare Shell erzeugt hat - nicht nur, dass der Arbeitsbaum
