@@ -29,7 +29,7 @@
 | `store-image-jobs.ts` | `ImageJobsRepository` | 263 | Image generation queue of the Store (ADR 0019, S2): per-site lease claim, provider handle for crash resume, final states and provider cooldowns. `Store` delegates here. | - |
 | `store-import-jobs.ts` | `ImportJobsRepository` | 163 | Import-job queue of the Store (ADR 0019, plan S3.2): jobs of a site import, their retry state, request payload and the report of a finished run. `Store` delegates here; `commitFramerImportPlan` is a cross-domain transaction and stays on the Store. | - |
 | `store-job-mappers.ts` | - | 177 | Row types and mappers for the background jobs: import, bake and image jobs (P3-2, moved out of store.ts). | - |
-| `store-library.ts` | `LibraryRepository` | 411 | Library of the Store (ADR 0019): the shared component library and the installations that link a component into a site. `Store` delegates here. | - |
+| `store-library.ts` | `LibraryRepository` | 444 | Library of the Store (ADR 0019): the shared component library and the installations that link a component into a site. `Store` delegates here. | - |
 | `store-mcp-audit.ts` | `McpAuditRepository` | 81 | MCP audit log of the Store (ADR 0019): one row per tool call an MCP client made. `Store` delegates here. | - |
 | `store-notifications.ts` | `NotificationsRepository` | 199 | Notification outbox and newsletter tokens of the Store (ADR 0019): queued mails with their delivery result and the single-use confirm/unsubscribe tokens. `Store` delegates here. | - |
 | `store-page-mappers.ts` | - | 96 | Zeilentypen und Mapper der Seite (P3-2): gemeinsam genutzt von `Store` und `PagesRepository`. | - |
@@ -57,7 +57,7 @@
 
 | Modul | Routen | Zeilen | Zweck |
 |---|---|---|---|
-| `http-build-files.ts` | - | 290 | Serving files out of a bake (P3-2 extraction from `http.ts`). |
+| `http-build-files.ts` | - | 334 | Serving files out of a bake (P3-2 extraction from `http.ts`). |
 | `http-contract.ts` | - | 118 | Der Vertrag der HTTP-Schicht: der Kontext, den eine Route bekommt, die Form einer Route und die Form ihrer Antwort. Die Routen liegen in `http-routes-*.ts`, der Dispatcher in `http.ts`; dieses Modul ist, was beide sprechen (ADR-0019). |
 | `http-response.ts` | - | 231 | The response primitives of the HTTP surface (P3-2 extraction from `http.ts`). Everything that writes bytes to the socket lives here, so the two rules that must hold for EVERY answer are written once: |
 | `http-route-support.ts` | - | 712 | Die Helfer der HTTP-Schicht: was die Routen und der Dispatcher gemeinsam brauchen - Body lesen, Idempotenz, die Kontexte der Fach-Module, die Mutation auf einer Seite (ADR-0019). |
@@ -80,7 +80,7 @@
 | `app-articles.js` | 389 | Der Artikel-Workspace: die Liste der Artikel, ihr Editor, die Feldsteuerung und das Lesen der Zellen. Die Bloecke standen in `app.js`, dann in `app-projects.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
 | `app-core.js` | 445 | Die Grundlagen der Oberflaeche. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
 | `app-editor.js` | 1202 | Der Seiten-Editor und die Buehne. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
-| `app-framer-import.js` | 489 | Der Import aus Framer (P3-2, Schritt 45): der Bericht nach der Analyse und der Dialog, der die Adresse abfragt, analysiert und den Write ausloest. `app-import.js` importiert die zwei Einstiegspunkte. |
+| `app-framer-import.js` | 509 | Der Import aus Framer (P3-2, Schritt 45): der Bericht nach der Analyse und der Dialog, der die Adresse abfragt, analysiert und den Write ausloest. `app-import.js` importiert die zwei Einstiegspunkte. |
 | `app-import.js` | 484 | Der Import aus Framer und die Redesign-Dialoge. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
 | `app-library.js` | 240 | Die Bausteinbibliothek und der Papierkorb (P3-2, Schritt 42). Beide Views standen in `app-projects.js`; sie teilen sich nichts mit den Projekten - keine Modulvariable, keinen Zustand, nur die Kern-Helfer. |
 | `app-markdown.js` | 158 | Das Markdown der importierten Referenzen (design.md, Guidelines, Komponenten). |
@@ -126,13 +126,13 @@ Zeilenzahl wird beim Erzeugen gemessen, der Grund ist eine Entscheidung.
 |---|---|---|
 | `packages/mcp/src/tools.ts` | 2672 | die Werkzeug-Definitionen; der Manifest-Generator liest diese Datei als Text |
 | `packages/engine/src/store.ts` | 2652 | vier fachübergreifende Transaktionen (`applyRedesignPlan`, `duplicateSiteWithPlan`, `duplicateAssetRecords`, `commitFramerImportPlan`), `replaceTables` und die Fassade; der Rest sind Delegaten |
-| `packages/framer-import/src/capture-html.ts` | 2225 | der HTML-Capture des Imports |
+| `packages/framer-import/src/capture-html.ts` | 2496 | der HTML-Capture des Imports |
 | `packages/editor/src/inspector/inspector.ts` | 1750 | eine Closure (`createInspector`), die DOM und Zustand gemeinsam hält |
+| `packages/framer-import/src/mapper.ts` | 1705 | die Abbildung Framer nach NodeTree |
 | `packages/engine/src/content.ts` | 1703 | Sammlungen, Einträge und ihre Suche in einem Fachgebiet |
 | `packages/editor/src/inspector/model.ts` | 1490 | das Modell des Inspektors |
 | `packages/engine/src/types.ts` | 1479 | die öffentlichen Typen der Engine; keine Logik |
 | `packages/editor/src/canvas/canvas.ts` | 1336 | die Bühne des Editors |
-| `packages/framer-import/src/mapper.ts` | 1326 | die Abbildung Framer nach NodeTree |
 | `packages/engine/src/forms.ts` | 1313 | Formulare, Einsendungen und der CSV-Export |
 | `packages/app/public/app-editor.js` | 1202 | `mountCanvasView` haelt Canvas, Zustand und Ereignisse in einer Closure |
 | `packages/engine/src/media.ts` | 1107 | Assets, Ableitungen und Ordner |
