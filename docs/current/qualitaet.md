@@ -120,18 +120,18 @@ Der aktuelle Lauf vom 09.10.2026 (lokal auf Windows, TEMP/TMP/TMPDIR auf dem Lau
 
 | Pfad | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
-| `packages/engine/src/http.ts` | 96.15 | 87.01 | 100.00 | 96.15 |
-| `packages/engine/src/http-route-support.ts` | 85.44 | 76.50 | 100.00 | 85.44 |
-| `packages/engine/src/http-routes-sites.ts` | 95.95 | 75.45 | 93.84 | 95.95 |
+| `packages/engine/src/http.ts` | 96.19 | 87.01 | 100.00 | 96.19 |
+| `packages/engine/src/http-route-support.ts` | 85.95 | 78.60 | 100.00 | 85.95 |
+| `packages/engine/src/http-routes-sites.ts` | 95.78 | 76.60 | 93.54 | 95.78 |
 | `packages/engine/src/store.ts` | 86.38 | 88.77 | 94.80 | 86.38 |
 | `packages/engine/src/lifecycle.ts` | 87.01 | 74.46 | 100.00 | 87.01 |
-| `packages/engine/src/forms.ts` | 84.34 | 73.62 | 100.00 | 84.34 |
+| `packages/engine/src/forms.ts` | 84.72 | 75.09 | 100.00 | 84.72 |
 | `packages/mcp/src/tools.ts` | 91.77 | 62.01 | 85.50 | 91.77 |
 | `packages/engine/src/store-*.ts` (36 Dateien) | 79.36 bis 100.00 | 39.13 bis 100.00 | 71.42 bis 100.00 | 79.36 bis 100.00 |
-| `packages/engine/src/http-*.ts` (10 Dateien) | 59.22 bis 100.00 | 54.34 bis 86.36 | 75.00 bis 100.00 | 59.22 bis 100.00 |
+| `packages/engine/src/http-*.ts` (11 Dateien) | 59.22 bis 100.00 | 54.34 bis 100.00 | 75.00 bis 100.00 | 59.22 bis 100.00 |
 | `packages/editor/src/state/*` (15 Dateien) | 66.98 bis 100.00 | 60.00 bis 100.00 | 66.66 bis 100.00 | 66.98 bis 100.00 |
 
-**Über alle gemessenen Dateien:** Statements 90.90 · Branches 78.92 · Functions 93.25 · Lines 90.90
+**Über alle gemessenen Dateien:** Statements 90.93 · Branches 79.18 · Functions 93.25 · Lines 90.93
 
 <!-- messwerte:ende -->
 
