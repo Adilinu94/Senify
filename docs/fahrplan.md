@@ -117,7 +117,7 @@ Versionierte Records werden bei Review und Publish gespeichert; Manifest und Re-
 
 `packages/editor/src/mount.ts`, `legacy-editor.html` und Legacy-Browser-Tests sind entfernt. Der Canvas-Redirect und Bundle-Ausschluss sind getestet; `FrameRenderer` liegt in `frame-renderer.ts`. Historische Umsetzungsschritte unten sind abgeschlossen, keine offene Löschaufgabe.
 
-### P3-2 · God-Files aufteilen (R12) — in Arbeit, Mapper/Registry/HTTP/MCP plus einundzwanzig Fach-Module (ADR-0019)
+### P3-2 · God-Files aufteilen (R12) — in Arbeit, Mapper/Registry/HTTP/MCP plus sechsundzwanzig Fach-Module (ADR-0019)
 
 **Ready:** vorheriger Folge-Diff ist gesichert; Scope dieses Schritts ist auf die privaten Row-Typen, Mapper und Parser-Helfer des `Store` begrenzt. Keine öffentliche Store-API wird verändert.
 
@@ -185,8 +185,272 @@ Versionierte Records werden bei Review und Publish gespeichert; Manifest und Re-
 
 **Neunter Schritt (10.10.2026), Entries:** `packages/engine/src/store-entries.ts` (`EntriesRepository`) enthält den Abschnitt „entries (T09)“: die acht Eintrags-Operationen (`listEntries`, `getEntry`, `findLiveEntryBySlug`, `findPublishedEntryBySlug`, `createEntry`, `updateEntryRow`, `setEntryDeleted`, `deleteEntryRecord`), die fünf Versions-Operationen (`createEntryVersion`, `getEntryVersion`, `listEntryVersions`, `maxEntryVersionNumber`, `deleteEntryVersions`) und die vier Slug-Weiterleitungen (`createEntryRedirect`, `findEntryRedirect`, `deleteEntryRedirect`, `listEntryRedirects`); `Store` delegiert je Methode in einer Zeile. Keine Transaktion, keine Abhängigkeit nach außen (nur `Db`); die Schreibpfade der Inhalte (`updateEntryRow` mit erwarteter Version, `entryConflictError` bei Konflikt) bleiben unverändert im Modul. Die fünf Inline-Parametertypen heißen jetzt `ListEntriesFilter`, `CreateEntryInput`, `UpdateEntryRowInput`, `CreateEntryVersionInput` und `CreateEntryRedirectInput` (Feldlisten unverändert, öffentliche Signaturen gleich geblieben). Der `Store`-Delegat von `listEntryVersions` deklariert `limit?: number` und reicht `undefined` durch, sodass der Standardwert 50 weiter im Modul gilt. `store.ts` schrumpft von 7134 auf 6856 Zeilen. Beleg: `packages/engine/test/store-entries.test.ts` (14 Fälle, vor dem Modul rot mit „Failed to load url ../src/store-entries.ts“, danach grün) prüft das Anlegen als Version 1, `not_found` mit Feld `entryId` und `versionId`, die Sortierung (neueste zuerst) mit Filtern nach Collection, Status, Papierkorb und Suchbegriffen sowie Limit, die Suche nach dem Slug (lebende Einträge, Papierkorb gibt den Slug frei, `exceptId`), die veröffentlichte Auflösung über den Eintrags-Slug oder den Slug der aktiven Version (Entwurf und Papierkorb nicht), die optimistische Version (neue Version, veralteter Stand ergibt `conflict` mit Feld `baseVersion`, unbekannter Eintrag `not_found`), Papierkorb und Wiederherstellung ohne Versionssprung, das Löschen samt Versionen (zweites Löschen `not_found`), die unveränderlichen Schnappschüsse mit begrenztem Limit und höchster Nummer, das gezielte Löschen von Versionen (leere Liste ändert nichts), die Weiterleitungen (jüngste je Pfad gewinnt, Liste älteste zuerst, Löschen je Pfad) und die Gleichheit mit der Fassade; `content.test.ts`, `bake.test.ts` und `templates.test.ts` laufen unverändert grün, ebenso die Browser-Tests `entry-preview-browser` und `submissions-browser` im Einzellauf (Stand in `docs/current/qualitaet.md`). Jede aus `store.ts` entfernte Zeile steht unverändert im neuen Code, abgesehen von den fünf Inline-Signaturen (Anfang und Ende; die Feldzeilen stehen um zwei Leerzeichen eingerückt weniger) und den zehn nun ungenutzten Import-Zeilen.
 
-**Reihenfolge:** `store.ts`, `http.ts`, `mcp/tools.ts`, `app.js`; `mount.ts` entfällt mit P3-1. Nicht mehrere große Module gleichzeitig aufteilen.
+29. `app-markdown.js` (21.10.2026): der Markdown-Renderer der Referenz-Dokumente (`design.md`, Guidelines, Komponenten) wandert aus `app-references.js` in ein eigenes Modul — vier Funktionen (`refsEscapeHtml`, `refsInlineMarkdown`, `refsMarkdownTable`, `refsRenderMarkdown`), die genau abdecken, was diese Dateien nutzen: Überschriften, Tabellen, Listen, Blockzitate, Code, Hervorhebungen und Links. Rohes HTML wird immer maskiert; es gibt keinen Durchgriff auf das Dokument. `app-references.js`: 2 461 → 2 311 Zeilen.
 
+   **Warum dieser Block zuerst:** Er hängt an nichts. Kein DOM, kein Zustand, keine API, kein Import — er ruft nur sich selbst, und von außen wird allein `refsRenderMarkdown` gebraucht (eine Stelle, `refsInspectorShow`). Der Rest von `app-references.js` baut Fenster und Listen und greift auf den geteilten Zustand der Bibliothek zu; er bleibt vorerst zusammen.
+
+   **Belegt über das Multiset aller Codezeilen:** vorher 2 232, nachher 2 232, 0 fehlt, 0 zu viel. Der Modulform-Test (`module-form.test.ts`) hat beim ersten Versuch einen Fehler des Schnitts gefunden: `app-markdown.js` endete mit dem Kommentar des Nachbarblocks ohne Code darunter, und in `app-references.js` fehlte er dafür bei `refsShotLabel`. Beides korrigiert — der Test hat also nicht nur nachträglich bestätigt, sondern den Fehler beim Schneiden erwischt.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests grün, davon 27 Browser-Tests), `pnpm typecheck`, `pnpm lint`, `pnpm --filter @senify/app build`.
+
+30. `store-pages.ts` + `store-page-mappers.ts` (21.10.2026): die Seiten wandern aus `store.ts`. Vierzehn Operationen (`listPages`, `listPageDrafts`, `getPage`, `createPage`, `setPageTemplate`, `deletePage`, `updatePage`, `assertPathFree`, `persistBatch`, `appendAudit`, `listAudit`, `listSiteAudit` sowie die zwei privaten Helfer `#pageCount` und `#insertPage`) samt `CreatePageInput`, der zwei Zeilentypen, der drei Spaltenlisten und der vier Mapper. `store.ts`: 3 631 → 3 263 Zeilen.
+
+   **Der Zuschnitt trennt Seite und Site.** Das Modul besitzt die Tabelle `pages`, die Vorlagen, die Entwürfe mit ihrer Versionsprüfung, die Pfadprüfung und das Audit-Log der Seite. Es besitzt *nicht* die Site: `createPage`, `listPages` und `listPageDrafts` prüfen deren Existenz über eine Konstruktor-Funktion (`getSite`), wie `DeployRepository` es seit Schritt 6 hält. Das ist die einzige Naht — alles andere rechnet mit der Seite.
+
+   **Warum der Entwurf nicht in zwei Teile zerfällt.** `persistBatch` ist der zentrale Schreibpfad der Anwendung: Editor, Import, Redesign, Undo und die Bausteinbibliothek schreiben alle durch ihn. Er bleibt deshalb genau eine Transaktion (ADR-0019, Punkt 4) — Entwurf schreiben, Version prüfen, Audit-Einträge mit der neuen Version stempeln. Ein Test prüft das nicht über das Ergebnis, sondern über den Weg: ein beobachtetes `Db` zählt die Transaktionen und die Anweisungen *innerhalb* von ihr; die Reihenfolge muss „Entwurf, dann Audit" sein, und es darf genau eine Transaktion sein.
+
+   **Die Mapper mussten mit.** `duplicateSiteWithPlan` und `commitFramerImportPlan` legen Seiten innerhalb einer fremden Transaktion an und brauchen `PageRow`, `mapPage`, `PAGE_WRITE_COLUMNS`. Eine zweite Kopie von `mapPage` wäre beim ersten neuen Feld gedriftet — und `assertDraftShape` hätte nur eine der beiden Kopien geschützt. Sie liegen deshalb in `store-page-mappers.ts`, wie die Zeilentypen der anderen Fachgebiete in ihren Mapper-Dateien.
+
+   **Was der Schnitt ans Licht brachte:** Zwei Dinge, beide in den Tests sichtbar geworden. (a) Das Label einer Layout-Vorlage ist der *Seitentitel*, nicht das übergebene Label — `mapPageTemplate` liest `row.title`. Das ist altes Verhalten und bleibt, aber es steht jetzt in einem Test, damit es niemand für einen Fehler hält. (b) `assertPathFree` schließt die eigene Seite aus (`id <> $3`): ohne das ließe sich eine Seite nie speichern, ohne ihren Pfad zu ändern. Auch das war vorher nur im Code zu sehen.
+
+   **Beleg:** `packages/engine/test/store-pages.test.ts` (14 Fälle) treibt das Modul direkt gegen einen Host, der jeden Ruf über die Naht aufzeichnet; ein Modul, das selbst zum `Store` greift, würde dagegen nicht kompilieren. Zwei Gegenproben liefen: ohne gemeinsame Transaktion wird der Transaktionstest rot, und ein Delegat, der die alte Version zurückgibt, wird von `transactions.test.ts` (echtes Postgres) rot. Engine-Suite 92 Dateien/861 Tests, Coverage-Lauf 147 Dateien/1491 Tests, `store-pages.ts` bei 94,85 % Statements und 100 % Functions (vor den zwei nachgezogenen Fällen lag es mit 85,2 % genau an der Gruppenschwelle — deshalb die zwei Fälle). `pnpm typecheck`, `pnpm lint` grün.
+31. `app-articles.js` (21.10.2026): der Artikel-Workspace wandert aus `app-projects.js` — die Artikelliste, der Artikel-Editor, die Feldsteuerung (`fieldControl`), das Lesen der Zellen (`readCells`) und der Zustand der Vorschau. `app-projects.js`: 2 309 → 1 938 Zeilen; `app-articles.js`: 385 Zeilen.
+
+   **Der Block hing an genau einer Stelle draußen:** `workspaceFrame` (Rahmen und Tableiste des Projekt-Workspace) — deshalb wird sie jetzt exportiert und hereingeholt. Alles andere war eigene Funktion oder Kern-Import. Die zwei Views holt der Router (`app.js`) direkt aus dem neuen Modul.
+
+   **Ein Re-Export wäre ein Zyklus gewesen.** `app-projects.js` → `app-articles.js` → `app-projects.js`: der Zyklus entsteht, weil das neue Modul `workspaceFrame` braucht und das alte die Views weiterreichen sollte. Die eine Zeile im Router ist die bessere Lösung — ein Zyklus, der nur einem Import-Pfad dient, ist keine Abkürzung, sondern eine Falle für den nächsten, der die Module lädt.
+
+   **Was der Schnitt ans Licht brachte:** `entryPreviewOpen` (die Vorschau bleibt über Re-Renderings offen) stand bei den Projekt-Funktionen, wurde aber nur vom Artikel-Editor gelesen und geschrieben. Der Zustand ist mitgewandert. Der Modulform-Test fand außerdem eine doppelte Leerzeile am Dateiende und ESLint sechs `no-undef`-Fehler auf `entryPreviewOpen` — beide Fehler meines Schnitts, beide vor dem Commit behoben.
+
+   **Belegt über das Multiset aller Codezeilen:** vorher 2 235, nachher 2 235, 0 fehlt, 0 zu viel.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests grün, davon die Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf allen drei berührten Dateien.
+
+32. `store-tokens.ts` + `store-token-mappers.ts` (21.10.2026): die API-Tokens wandern aus `store.ts`. Acht Operationen (`createToken`, `getToken`, `listTokens`, `findTokenByHash`, `revokeToken`, `touchToken`, `updateTokenKind`) samt `TokenRow`, `TokenRecordRow` und `mapToken`. `store.ts`: 3 263 → 3 143 Zeilen.
+
+   **Dieser Schritt hat keine Naht.** Die Tabelle `api_tokens` gehoert dem Modul allein — kein anderer Fachbereich schreibt hinein, und keine Operation braucht eine fremde Prüfung. Deshalb bekommt `TokensRepository` als einziges Modul nur die Datenbank und keine Konstruktor-Funktionen; das ist kein Versehen, sondern der Befund: hier gibt es nichts zu trennen.
+
+   **Zwei Regeln bleiben im Modul, nicht beim Aufrufer.** Ein Token braucht einen Namen und mindestens einen Scope — eine zweite Kopie dieser Prüfung beim nächsten Aufrufer wäre die schlechtere Lösung. Und Widerrufen ist idempotent, aber nicht stumm: eine unbekannte Id meldet `not_found`, ein zweiter Widerruf derselben Id nicht. Ohne diese Unterscheidung wäre ein Tippfehler in der Id nicht von einem bereits widerrufenen Token zu trennen — der Fehler, den man am wenigsten bemerkt.
+
+   **Was der Schnitt ans Licht brachte:** `TokenScope`, `TokenKind` und `TokenRecord` standen längst in `types.ts` und werden von `index.ts` exportiert. Das Mapper-Modul definiert deshalb keine eigene Kopie — die drei Namen bleiben, wo sie sind, und `store-tokens.ts` importiert sie.
+
+   **Beleg:** `packages/engine/test/store-tokens.test.ts` (10 Fälle) treibt das Modul direkt: Anlegen mit einmaligem Geheimnis und Prefix, Entdoppeln der Scopes, Ablehnung ohne Scope und ohne Namen, `not_found` mit Feld `tokenId`, Reihenfolge der Liste, unbekanntes Geheimnis als `undefined` (der Auth-Pfad antwortet 401, ein Wurf wäre die falsche Form), idempotenter Widerruf gegen Tippfehler, letzte Benutzung, Heilung der Art, und ein Token mit ungültigen Scopes beim Lesen laut scheiternd. Gegen abgeschaltete Scope-Prüfung ist der Test rot (Probe gelaufen). Coverage-Lauf 148 Dateien/1501 Tests, `store-tokens.ts` bei 100 % Statements, Branches und Functions.
+
+33. `store-sites.ts` (21.10.2026): die Sites wandern aus `store.ts`. Achtzehn Operationen — `createSite`, `#insertSite`, `listSites`, `getSite`, `updateSiteBreakpoints`, `updateSiteBaseUrl`, `getDesignContract`, `updateDesignContract`, `refreshDesignContractFromReferences`, `deleteSite`, `renameSite`, `updateSiteProfile`, `trashSite`, `restoreSite`, `listTrashedSites`, `listSiteSlugs`, `listPagePaths` — samt `SiteRow`, `mapSite`, `CreateSiteInput` und dem Design-Contract. `store.ts`: 3 143 → 2 787 Zeilen; `store-sites.ts`: 500 Zeilen.
+
+   **Der Design-Contract gehört zu den Sites, nicht zu den Referenzen.** Er steht in einer Spalte von `sites`, wird von `getSite` mitgelesen und von `refreshDesignContractFromReferences` fortgeschrieben. Die Methode heißt nach den Referenzen, besitzt aber keine: sie bekommt die Profile als Argument. Deshalb liegt sie hier und nicht im Referenz-Modul.
+
+   **Zwei Naht-Funktionen, beide begründet.** `getEngineSettings` (das Standard-Profil eines neuen Projekts steht in den Engine-Einstellungen, einem eigenen Fachgebiet) und `ensureSiteTheme` (jede neue Site bekommt ihre Theme-Zeile; das Theme ist ein eigener Schritt). `listPagePaths` dagegen ist keine Naht zum Store, sondern zum Seiten-Modul — die Abfrage liegt dort, weil sie `pages` liest.
+
+   **`deleteSite` bleibt eine Einzeltransaktion** (ADR-0019, Punkt 4): sie beginnt und endet in dieser Methode und räumt nur Tabellen, die der Site folgen (`SITE_SCOPED_TABLES` plus die abhängigen Asset-Tabellen). Kein anderes Modul wird darin aufgerufen. Der Rückgabewert nennt Dateiverweise mit Zeilen-Id, nicht mit gespeichertem Pfad — ein beschädigter Pfad kann damit keine fremden Dateien erreichen.
+
+   **Was der Schnitt ans Licht brachte:** `trashSite` meldet ein zweites Löschen als `conflict` mit „already in the trash", nicht als `not_found`. Das ist richtig — die Site existiert noch —, aber es stand nirgends. Jetzt steht es in einem Test.
+
+   **Beleg:** `packages/engine/test/store-sites.test.ts` (18 Fälle) treibt das Modul direkt gegen einen Host, der jeden Ruf über die Naht aufzeichnet. Die Fälle decken Slug-Vergabe und -Kollision, Profilprüfung, Papierkorb mit Zeitpunkt, Umbenennen, Basis-URL, Breakpoints, Slugs, Pfade, den Design-Contract (manuell, geleert, aus Referenzen abgeleitet, manueller Vorrang) und das Löschen samt Dateiverweisen. **Gegenprobe:** ohne den manuellen Vorrang wird der Contract überschrieben und der Test rot (gelaufen, zurückgenommen). Coverage-Lauf 149 Dateien/1519 Tests; `store-sites.ts` bei 91,57 % Statements, 91,73 % Branches und 100 % Functions.
+
+34. `store-themes.ts` (21.10.2026): das Theme und das Ereignisprotokoll der Sites wandern aus `store.ts`. Vier Operationen (`recordSiteEvent`, `ensureSiteTheme`, `getTheme`, `updateTheme`) samt `ThemeRow` und `mapThemeRow`. `store.ts`: 3 143 → 2 652 Zeilen; `store-themes.ts`: 216 Zeilen.
+
+   **Zwei Dinge liegen zusammen, weil sie denselben Schreibvorgang teilen.** `updateTheme` schreibt die Theme-Zeile UND den Audit-Eintrag in **einer** Transaktion (ADR-0019, Punkt 4) — eine Theme-Änderung ohne Spur wäre sonst möglich. `recordSiteEvent` schreibt in dasselbe Protokoll, nur ohne Theme-Zeile. Sie zu trennen hieße, den Audit-Insert zweimal zu schreiben.
+
+   **Eine Naht, und sie ist schmal:** `getSite` — `getTheme` und `updateTheme` prüfen die Existenz der Site, mehr nicht. `ensureSiteTheme` ist bewusst selbstheilend: eine Site ohne Theme-Zeile bekommt beim ersten Lesen eine. Das deckt wiederhergestellte Backups ab, die vor der Tabelle entstanden sind.
+
+   **Was der Schnitt ans Licht brachte:** Der Zweig „Theme-Zeile verschwindet zwischen Lesen und Schreiben" ist erreichbar, wenn das DELETE genau zwischen `ensureSiteTheme` und dem UPDATE fällt. Er war ungetestet und ist jetzt gedeckt — nicht durch eine Ausnahme in der Schwelle, sondern durch einen Test, der das DELETE einschleust. Der Race-Zweig bei gleichzeitiger Anlage ist ebenfalls gedeckt: der eindeutige Index entscheidet, der Verlierer liest die fremde Zeile.
+
+   **Beleg:** `packages/engine/test/store-themes.test.ts` (10 Fälle) treibt das Modul direkt gegen einen Host, der die Site-Prüfung aufzeichnet: Anlegen beim ersten Lesen, Heilung nach fehlender Zeile, leeres Patch abgelehnt, Version und Audit in einer Transaktion, ungültige Markenfarbe abgelehnt *vor* dem Schreiben, `not_found` für eine unbekannte Site, Race beim Anlegen, Zeile verschwindet beim Schreiben, zwei Ereignisse als zwei Einträge. **Gegenprobe:** ohne `validateTheme` wird der Regel-Test rot (gelaufen, zurückgenommen). Coverage-Lauf 150 Dateien/1529 Tests; `store-themes.ts` bei 96,02 % Statements, 75 % Branches und 100 % Functions — die Gruppenschwelle ist ohne Ausnahme erfüllt.
+
+35. `app-refs-dialog.js` (22.10.2026): Toast, Kopieren mit Rueckfall und das Schliessen per Hintergrund-Klick wandern aus `app-references.js` — vier Funktionen (`refsToast`, `refsCopy`, `refsCopyFallback`, `refsBindBackdropClose`) samt dem Schliessen-Symbol. `app-references.js`: 2 314 → 2 222 Zeilen.
+
+   **Der erste Block, der sich ohne den Zustand schneiden liess.** `app-references.js` greift an 52 Stellen auf `refsState` zu — das war der Grund, warum die Sammlungen und der Add-Dialog trotz ihrer Groesse zusammenbleiben mussten: sie ruhen alle auf demselben Zustand. Die Rueckmeldungen tun das nicht. Sie brauchen `el` und das Schliessen-Symbol, sonst nichts.
+
+   **Ein Zyklus, den der Schnitt erst sichtbar machte.** Das Schliessen-Symbol lag in `app-references.js`, und das neue Modul haette es von dort importieren muessen — waehrend `app-references.js` die vier Funktionen aus dem neuen Modul holt. Zwei Importe in entgegengesetzte Richtungen. Geloest, indem das Symbol zu den Dialogen zieht, wo es hingehoert: das neue Modul definiert es, `app-references.js` importiert es. Eine Richtung.
+
+   **Was beim Aufraeumen fast schiefging:** Beim Nachbauen des Symbols fehlte zuerst `stroke-linejoin="round"`. Der Unterschied waere im Bild kaum zu sehen gewesen — deshalb steht er jetzt in einem Vergleich: das erzeugte SVG ist zeichengleich mit dem, was `refsIcon` vorher lieferte (Attribut fuer Attribut geprueft).
+
+   **Zwei Re-Exporte halten die Import-Quellen.** `app-import.js` holt `refsBindBackdropClose` und `app-projects.js` holt `refsToast` ueber `app-references.js`; beide bleiben dort beziehbar, waehrend die Definition im Dialog-Modul liegt.
+
+   **Belegt ueber das Multiset aller Codezeilen:** vorher 2 094, nachher 2 094, 0 fehlt, 0 zu viel (ohne die Symbolzeile, die einzeln als zeichengleich geprueft ist).
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf allen drei beruehrten Dateien.
+
+36. `app-refs-settings.js` (22.10.2026): `refsSettingsSection` wandert aus `app-references.js` — der Referenz-Block der Einstellungen (Auswahl der Bibliothek, Bildqualitaet, Ziel der Analyse, Schalter fuer die automatische Uebernahme). `app-references.js`: 2 225 → 2 148 Zeilen.
+
+   **Die Funktion gehoert fachlich zu den Einstellungen, nicht zu den Referenzen.** Sie lag in `app-references.js`, weil sie die Referenz-Einstellungen beschreibt — gerufen wird sie aber von `app-projects.js`, dem Einstellungs-View. Sie hat keinen Zugriff auf den Zustand der Bibliothek und keine Abhaengigkeit in ihrer Datei.
+
+   **Beim Schnitt wurde ein toter Import sichtbar.** Nach dem Umzug blieben `toast` und `linesToList` in `app-references.js` importiert, ohne noch benutzt zu werden — ESLint fand beide. Das ist kein Zufall: die zwei gehoerten zur ausgewanderten Funktion. Sie sind jetzt dort importiert, wo sie gebraucht werden.
+
+   **Belegt ueber das Multiset aller Codezeilen:** vorher 2 015, nachher 2 015, 0 fehlt, 0 zu viel.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf allen drei beruehrten Dateien.
+
+37. `app-refs-icons.js` (22.10.2026): die 14 Symbole der Referenzen-Seite und ihr Erzeuger `refsIcon` wandern aus `app-references.js`. `app-references.js`: 2 148 → 2 117 Zeilen; `app-refs-icons.js`: 46 Zeilen.
+
+   **Der Schnitt raeumt ein Duplikat ab, das der vorige Schritt hinterlassen hatte.** Als die Rueckmeldungen auszogen, brauchte das neue Modul das Schliessen-Symbol und baute es nach — mit einer eigenen, fest eingebauten SVG-Zeichenkette. Das war noetig, weil ein Rueckimport einen Zyklus ergeben haette, aber es war eine zweite Wahrheit: zwei Stellen, die dasselbe Symbol beschrieben. Jetzt gibt es den Erzeuger genau einmal, und beide Module holen das Symbol von dort.
+
+   **Beleg, dass das Markup gleich bleibt:** Das fest eingebaute SVG des vorigen Schritts ist zeichengleich mit dem, was `refsIcon` liefert — geprueft, nicht angenommen. Der Multiset-Vergleich ueber alle drei Dateien zeigt genau eine fehlende und eine neue Zeile, und das sind die beiden Fassungen desselben Symbols.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf allen drei Dateien.
+
+38. `app-refs-state.js` (22.10.2026): Zustand, Adresse und Auswahl der Referenzen-Seite wandern aus `app-references.js`. Sieben Funktionen (`refsHex`, `refsSplit`, `refsApplyAddress`, `refsSyncAddress`, `refsActiveCollection`, `refsIsSelected`, `refsToggleSelection`, `refsClearSelection`) samt `refsState`. `app-references.js`: 2 117 → 2 040 Zeilen; `app-refs-state.js`: 117 Zeilen.
+
+   **Das ist der Schritt, der die anderen erst moeglich macht.** `refsState` wurde an 59 Stellen in 17 Funktionen gelesen und geschrieben — der Grund, warum Sammlungen, Add-Dialog und Liste trotz ihrer Groesse zusammenbleiben mussten. Der Zustand steht jetzt an einer Stelle, und die anderen holen ihn sich dort. Die naechsten Bloecke koennen einzeln wandern.
+
+   **Drei Naehte, alle ueber Setter statt ueber Importe.** `refsActiveCollection` liest die Sammlungsliste — sie kommt ueber `refsBindCollections`, weil ein Import ein Zyklus waere. Zwei Rueckrufe (`toast`, `renderTray`) und die UI-Aktualisierung der Auswahl kommen ueber `refsBindHandlers`: sie bauen DOM und gehoeren der Seite.
+
+   **`refsUpdateSelectionUI` blieb bewusst draussen.** Sie greift auf `refsDom` zu — das DOM der Seite, nicht den Zustand. Sie steht weiterhin in `app-references.js`; das Zustands-Modul ruft sie ueber einen Rueckruf. Die Regel ist dieselbe wie bei den Modulen der Engine: was DOM baut, gehoert nicht in den Zustand.
+
+   **Was der Modulform-Test fand:** einen Waisen-Kommentar am Ende des neuen Moduls (er gehoerte zu der Funktion, die zurueckwanderte) und zwei Doppelleerzeilen an den Schnittkanten. Beide vor dem Commit behoben — derselbe Test, der schon beim App-Split und beim Markdown-Schnitt gegriffen hat.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf allen drei Dateien.
+
+39. `app-refs-collections.js` (22.10.2026): die Sammlungen der Referenzen wandern aus `app-references.js` — fuenf Funktionen (`refsOpenCollectionPicker`, `refsOpenCollectionDialog`, `refsCopyCollectionBrief`, `refsOpenCollectionForm`, `refsDeleteCollection`). `app-references.js`: 2 040 → 1 756 Zeilen; `app-refs-collections.js`: 310 Zeilen.
+
+   **Der Block war bis zum vorigen Schritt blockiert.** Er ruft `refsRefresh` (die Liste neu laden) und `refsSetCollection` (den Filter setzen) — beide lagen in `app-references.js`, ein Import waere ein Zyklus gewesen. Jetzt kommen sie als Rueckrufe herein, ueber `refsBindCollectionHandlers`. Dasselbe Muster wie beim Zustands-Modul.
+
+   **Den Zustand liest das Modul direkt.** `refsState`, `refsHex`, `refsSplit` und `refsSyncAddress` liegen in `app-refs-state.js`, das keine Abhaengigkeit zurueck hat — die Richtung ist damit eindeutig.
+
+   **Was beim Schnitt schiefging und wie es auffiel:** Meine Ersetzung von `refsRefresh()` durch `refresh()` liess die schliessende Klammer stehen — aus `refsRefresh()` wurde `refresh())`. Das ist ein Syntaxfehler, und `node --check` hat ihn sofort gemeldet. Nach der Korrektur blieb die Zeichenpruefung sauber.
+
+   **Belegt ueber das Multiset aller Codezeilen:** drei Aufrufe sind umbenannt (`refresh()` statt `refsRefresh()`, `setCollection()` statt `refsSetCollection()`), dazu kommen die sieben Zeilen der Naht. Alles andere ist unveraendert.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf beiden Dateien.
+
+40. `app-refs-add.js` (22.10.2026): der Dialog zum Hinzufuegen einer Referenz wandert aus `app-references.js` — `refsOpenAddDialog` und `refsReadBase64`. `app-references.js`: 1 763 → 1 482 Zeilen; `app-refs-add.js`: 304 Zeilen.
+
+   **280 Zeilen mit genau einer Naht.** Der Dialog ruft `refsRefresh` (die Liste neu laden) — und das liegt in `app-references.js`. Wie bei den Sammlungen kommt es als Rueckruf herein. Alles andere ist eigene Funktion oder Import aus einem Modul, das keine Abhaengigkeit zurueck hat.
+
+   **Was der Umzug an toten Importen hinterliess:** Vier Namen blieben in `app-references.js` stehen, ohne noch benutzt zu werden (`AUTHOR`, `openSnapshotDialog`, `REFS_ICON_PLUS_UPLOAD`, `refsSplit`), und im neuen Modul `failed`. ESLint fand alle fuenf. Das ist das Muster dieses Umbaus: der Compiler sieht den toten Import nicht, der Linter schon.
+
+   **Belegt ueber das Multiset aller Codezeilen:** ein Aufruf ist umbenannt (`refresh()` statt `refsRefresh()`), dazu die sechs Zeilen der Naht. Alles andere ist unveraendert.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf beiden Dateien.
+
+41. `app-refs-inspector.js` (22.10.2026): der Inspector der Referenzen wandert aus `app-references.js` — neun Funktionen (`refsInspectorList`, `refsOpenDetail`, `refsInspectorBuild`, `refsInspectorSetZoom`, `refsInspectorStep`, `refsInspectorActions`, `refsShotLabel`, `refsInspectorShow`, `refsOpenInspector`) samt seinem Fenster-Zustand und drei Helfern (`deleteReference`, `refsImageSource`, `refsEntryFor`). `app-references.js`: 1 485 → 992 Zeilen; `app-refs-inspector.js`: 534 Zeilen.
+
+   **Der groesste verbliebene Block — und der einzige ohne Zustandsbezug.** Der Inspector bekommt die Referenz als Argument; er liest `refsState` nicht. Deshalb liess er sich als Ganzes schneiden, waehrend Liste und Shell am Zustand hingen. Mit ihm wandern die drei Helfer, die nur er braucht.
+
+   **Was der Schnitt an den Tag brachte:** Der Fenster-Zustand (`refsInspector`, die Ids der Ansicht, die gezeigte Referenz, der Zaehler gegen veraltete Antworten) steckte noch in `app-references.js` — vier `let`-Zeilen, die nur der Inspector liest. Sie sind mitgewandert; die Liste setzt die Ids jetzt ueber `refsSetInspectorIds`. Ausserdem drei Kleinigkeiten, die nur der Inspector brauchte: die Bild-Quellen-Map und die zwei Zoom-Beschriftungen.
+
+   **Zwei Re-Exporte halten die Import-Quelle des Routers.** `app.js` holt `refsInspector` und `refsOpenInspector` ueber `app-references.js` — der Router kennt nur die Views. Der Re-Export steht dort, die Definition im Inspector-Modul.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf beiden Dateien.
+
+42. `app-library.js` (22.10.2026): die Bausteinbibliothek und der Papierkorb wandern aus `app-projects.js` — `libraryView` und `trashView`. `app-projects.js`: 1 936 → 1 707 Zeilen; `app-library.js`: 240 Zeilen.
+
+   **Die zwei Views teilen sich nichts mit den Projekten.** Keine Modulvariable, kein geteilter Zustand, nur die Kern-Helfer. Sie liegen zusammen, weil sie dasselbe Fachgebiet bedienen: was nicht mehr in einem Projekt steht (die Bibliothek) und was nicht mehr in der Liste steht (der Papierkorb).
+
+   **`app-projects.js` ist damit unter 1 800 Zeilen** — von 2 309 am Anfang der Runde. Die groessten Reste sind `projectView` (691) und `settingsView` (531); beide haengen an Modulvariablen der Datei und brauchen einen eigenen Schnitt.
+
+   **Der Modulform-Test fand zwei Doppelleerzeilen** an den Schnittkanten — dieselbe Stelle wie bei den vorigen Schritten, jedes Mal behoben.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf allen drei Dateien.
+
+43. `app-settings.js` (22.10.2026): die Einstellungen eines Projekts wandern aus `app-projects.js` — `settingsView` (531 Zeilen, die groesste einzelne Funktion der Oberflaeche) und `backupRow`. `app-projects.js`: 1 707 → 1 129 Zeilen; `app-settings.js`: 603 Zeilen.
+
+   **`app-projects.js` ist damit auf 1 129 Zeilen gefallen** — von 2 309 am Anfang der Runde, also mehr als halbiert. Die Datei enthaelt jetzt noch die Projektliste, das einzelne Projekt und die Seiten-Dialoge.
+
+   **Eine Naht, und sie wanderte mit.** `settingsView` rief `backupRow` (eine Tabellenzeile des Backup-Papierkorbs) — sie gehoert zu den Einstellungen und ist mitgegangen. Keine Modulvariable der Datei wurde gebraucht; deshalb liess sich die groesste Funktion der Oberflaeche als Ganzes schneiden.
+
+   **Vier tote Importe blieben zurueck** (`IMAGE_PROVIDER_LABELS`, `formatBytes`, `settingField` aus den Kern-Helfern, `refsSettingsSection` aus dem Referenz-Modul). Alle vier gehoerten zur ausgewanderten View. ESLint fand sie; die Bereinigung lief ueber die ganze Datei, nicht ueber eine Liste.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf allen drei Dateien.
+
+44. `app-workspace.js` (22.10.2026): der Projekt-Workspace wandert aus `app-projects.js` — `projectView` (691 Zeilen), `workspaceFrame`, `openNewPageDialog`, `breakpointsPanel` und die zwei Konstanten `WORKSPACE_TABS` und `BREAKPOINT_DEFAULTS`. `app-projects.js`: 1 129 → 200 Zeilen; `app-workspace.js`: 932 Zeilen.
+
+   **`app-projects.js` ist damit fast leer:** 200 Zeilen, von 2 309 am Anfang der Runde. Es enthaelt noch `projectsView`, `createSite`, `linesToList`, den Snapshot-Dialog und die zwei Duplikat-Helfer — die Projektliste und das Anlegen.
+
+   **Was mitwandern musste:** `selectedFormId` (die ausgewaehlte Formular-Einreichung im Tab) und vier Kern-Helfer, die nur die View braucht. Dazu `workspaceFrame`, das `app-articles.js` bisher ueber `app-projects.js` holte — es zeigt jetzt auf das neue Modul, und der Umweg entfaellt.
+
+   **Was der Modulform-Test fand:** sieben Doppelleerzeilen und zwei Waisen-Kommentare am Dateiende. Die Kommentare beschrieben die zwei Konstanten, die mitgewandert waren; sie standen danach ohne Code da. Beides behoben.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf allen drei Dateien.
+
+45. `app-framer-import.js` (22.10.2026): der Framer-Import wandert aus `app-import.js` — `importReportBlock` (der Bericht nach der Analyse) und `openFramerImportDialog` (Adresse, Analyse, Write). `app-import.js`: 966 → 482 Zeilen; `app-framer-import.js`: 491 Zeilen.
+
+   **`app-import.js` hatte keine Modulvariable** — der einzige Grund, warum sich die vier Bloecke darin ueberhaupt trennen liessen. Der Framer-Block haengt an nichts aus seiner Datei: der Bericht baut nur Markup aus dem Bericht, der Dialog ruft die API und den Write. Die zwei Redesign-Dialoge bleiben vorerst zusammen, weil `openRedesignDirectionDialog` den `openMediaNeedPanel` ruft.
+
+   **Zwei Aufrufer mussten umziehen:** `app-editor.js` holt `openFramerImportDialog` jetzt direkt aus dem neuen Modul, `app-review.js` den `importReportBlock`. Der Umweg ueber `app-import.js` entfaellt — dieselbe Bewegung wie bei `workspaceFrame` im vorigen Schritt.
+
+   **Der Modulform-Test fand einen Waisen-Kommentar** am Ende des neuen Moduls: er beschrieb `mediaLabel`, das in `app-import.js` blieb. Entfernt.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf allen vier beruehrten Dateien.
+
+46. Coverage-Tor: zwei gemessene Module ohne Schwelle (22.10.2026). `store-settings.ts` und `store-reviews.ts` standen in `include`, aber in keiner Schwelle - sie wurden gemessen und ihr Verfall haette niemand gemeldet. Beide sind jetzt in der Gruppe der Fachmodule, und ein neuer Test haelt die Luecke zu: `packages/engine/test/coverage-gate.test.ts` liest die Dateien auf der Platte und die Schwellen in `vitest.config.ts` und verlangt, dass jede gemessene Datei eine Schwelle hat - und jede Schwelle eine Datei.
+
+   **Wie die Luecke entstand.** Das Tor misst die Fachmodule ueber zwei Globs (`store-*.ts`, `http-*.ts`), die Schwelle haengt aber an einer Aufzaehlung von Namen. Die Glob-Seite waechst von selbst, die Namensliste nicht: zwei Module, die nach dem Aufsetzen der Gruppe dazukamen, fielen durch. Kein Fehler, keine rote Zahl - die Quote stand im Bericht, nur ohne Grenze.
+
+   **Sie waren nicht schlecht gemessen**, im Gegenteil: `store-settings.ts` bei 97,25 Prozent Statements, `store-reviews.ts` bei 98,04. Genau das macht die Luecke gefaehrlich: sie faellt erst auf, wenn die Zahl schon gefallen ist, und dann ohne Tor.
+
+   **Der neue Test prueft beide Richtungen.** Eine gemessene Datei ohne Schwelle ist ein Fehler; eine Schwelle fuer eine Datei, die es nicht gibt, auch - sie sichert nichts und sieht wie Deckung aus. `http-contract.ts` ist die eine begruendete Ausnahme: es haelt nur Typen und steht in `exclude`, eine Zahl darauf waere eine Zahl ohne Aussage. Die Ausnahme steht im Test mit Grund, nicht als stiller Filter.
+
+   **Gegenprobe gelaufen:** Schwelle fuer `store-reviews.ts` wieder entfernt -> der Test wird rot und nennt genau die Datei; wieder eingesetzt -> gruen. Ein Waechter, der die Regression nicht faengt, waere keiner.
+
+   **Beleg:** `packages/engine/test/coverage-gate.test.ts` (3 Faelle), `pnpm typecheck`, `pnpm lint`, `pnpm quality:check` gegen das CI-Artefakt des Master-Laufs 39827633412.
+
+47. `app-workspace-submissions.js` + `app-workspace-templates.js` (22.10.2026): die zwei groessten Tab-Bloecke wandern aus `projectView`. Einsendungen samt Benachrichtigungs-Jobs (169 Zeilen Rumpf) und Vorlagen samt Layout-Zuordnung (183 Zeilen). `app-workspace.js`: 925 -> 580 Zeilen.
+
+   **Der Schnitt trennt Tab fuer Tab, nicht Funktion fuer Funktion.** `projectView` ist mit 691 Zeilen die letzte grosse Funktion der Oberflaeche, hat aber eine Besonderheit: sie ist eine `if`/`else if`-Kette ueber den Tab. Jeder Zweig baut seinen eigenen Inhalt und kennt die anderen nicht. Das ist eine bessere Naht als eine Funktionsgrenze - die Zweige sind schon getrennt, sie standen nur in einer Datei.
+
+   **Drei Naehte, alle klein.** Die ausgewaehlte Formular-Id bleibt beim Workspace (sie ueberlebt den Tab-Wechsel, also gehoert sie nicht dem Tab) und kommt als `getFormId`/`setFormId` herein. Das Neuladen der Route kommt als `reload`. Die Liste, an die das Markup gehaengt wird, gibt die Funktion zurueck statt sie zu fuellen - `body.push(...)` wird `teile.push(...)` und `return teile`.
+
+   **Was beim ersten Versuch schiefging, und wie es auffiel.** Zwei Ersetzungen waren zu eng gefasst: `selectedFormId` an einer Stelle, die mein Muster nicht traf (`if (entry.formId === selectedFormId) option.selected = true;`), und ein `void renderRoute();` ohne `await` davor. `node --check` sah beides nicht - die Datei war syntaktisch gueltig. ESLint fand es als zwei `no-undef` in einer Zeile. Danach die Ersetzungen in der richtigen Reihenfolge (erst die Zuweisung, dann das Lesen) und ueber die ganze Datei statt ueber eine Liste.
+
+   **Belegt ueber das Multiset der Code-Zeilen:** 892 vorher, 922 nachher; die 25 fehlenden Zeilen sind genau die umbenannten (`body.push` -> `teile.push`, `selectedFormId` -> `ctx.getFormId()`, `renderRoute()` -> `ctx.reload()`) und die eine Import-Zeile, die `notificationStatus` an das neue Modul abgibt. Kein Verlust.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf allen drei Dateien, Modulform-Test.
+
+48. `app-workspace-settings.js` (22.10.2026): der Tab „Einstellungen" wandert aus `projectView` - Projekteinstellungen mit der oeffentlichen Adresse, die Breakpoint-Steuerung, die hinterlegten Referenzen und der Deploy (210 Zeilen Rumpf). `app-workspace.js`: 580 -> 374 Zeilen; `projectView` selbst: 344 -> 144 Zeilen.
+
+   **Der letzte grosse Tab-Block, und der einzige mit einer echten Naht nach innen.** `breakpointsPanel` bleibt in `app-workspace.js` (die anderen Tabs brauchen es nicht), also kommt es als Rueckruf herein - ein Rueckimport waere ein Zyklus. Das Neuladen und das Markup folgen dem Muster aus Schritt 47.
+
+   **Derselbe Fehler wie in Schritt 47, diesmal vorher gefunden.** Die Grenze des Blocks endet an der Zeile `} else if (tab === "submissions")`; deren `}` schliesst den settings-Zweig. Beim ersten Versuch brachte der Ersatz eine eigene schliessende Klammer mit - `node --check` meldete `Unexpected token 'else'`. Die Loesung: der Ersatz bringt keine mit, die Grenzzeile bleibt stehen und schliesst ihn. Beim vorigen Schritt kostete derselbe Denkfehler einen zweiten Durchlauf; jetzt steht er im Kommentar des Schnittskripts.
+
+   **Ein toter Import blieb zurueck:** `PROFILE_LABELS` gehoert zur ausgewanderten View. ESLint fand ihn.
+
+   **Belegt ueber das Multiset der Code-Zeilen:** 553 vorher, 569 nachher; die 8 fehlenden sind genau die umbenannten (drei `renderRoute()`, drei `body.push(`, ein `breakpointsPanel(`) und die eine Import-Zeile. Kein Verlust.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf beiden Dateien, Modulform-Test.
+
+49. `app-workspace-lists.js` (22.10.2026): die drei Listen-Tabs Seiten, Pruefen und Aktivitaet wandern aus `projectView`. `app-workspace.js`: 375 -> 271 Zeilen; **`projectView` selbst: 138 -> 29 Zeilen.**
+
+   **Die drei teilen sich ein Modul, weil sie dieselbe Form haben:** eine Ueberschrift, dann eine Tabelle oder ein leerer Zustand. Zusammen sind sie kleiner als ein Modul je Tab (112 Zeilen Rumpf), und ein Modul je Tab haette dreimal denselben Kopf. `workspaceListTab` waehlt den Zweig ueber `tab`.
+
+   **Eine Naht:** `openNewPageDialog` bleibt in `app-workspace.js` (der Dialog gehoert dem Workspace, nicht dem Tab) und kommt als Rueckruf herein.
+
+   **Ein echter Regressionsfund, den nur die Browser-Tests sahen.** Die neue Funktion ist `async` - `review` und `activity` holen ihre Daten - aber der Aufruf schrieb `body.push(...workspaceListTab(...))` ohne `await`. Das sprengt nicht: `body.push(...promise)` wirft keinen Fehler, es haengt nichts an, und die drei Tabs bleiben leer. `node --check` war gruen, ESLint war gruen, der Build war gruen, der Modulform-Test war gruen. Drei Browser-Tests wurden rot: `new-page-browser`, `review-dialog-browser`, `review-visuals-browser` - der Knopf „Neue Seite" existierte nicht mehr, weil seine Tab-Ansicht nie gerendert wurde. Mit `await` gruen.
+
+   **Das ist der Grund, warum die App-Suite mit `SENIFY_REQUIRE_BROWSER=1` laeuft.** Ein Typfehler dieser Art ist in einer `.js`-Datei unsichtbar; nur der gerenderte DOM zeigt ihn.
+
+   **Belegt ueber das Multiset der Code-Zeilen:** siehe die Zeilen oben im Lauf - die fehlenden sind genau die umbenannten (`body.push` -> `teile.push`, `openNewPageDialog` -> `ctx.openNewPageDialog`) und die zwei Import-Zeilen, die an das neue Modul abgegeben wurden.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf beiden Dateien, Modulform-Test.
+
+50. `hookTimeout: 30_000` (22.10.2026): der Windows-Job wurde rot, ohne dass ein Test fehlschlug. `media.test.ts` lief im `afterAll`-Hook in sein Timeout - die Engine herunterzufahren, die Datenbank zu schliessen und das Datenverzeichnis zu raeumen, braucht unter Last manchmal laenger als die 10 Sekunden, die vitest fuer Hooks vorsieht. `testTimeout` stand seit dem 11.10.2026 auf 30 Sekunden (aus demselben Grund), `hookTimeout` fehlte.
+
+   **Das Muster ist bekannt und war trotzdem da.** Am 11.10.2026 wurde `testTimeout` aus genau dieser Beobachtung angehoben: Tests, die solo 1 bis 4 Sekunden brauchen, fielen unter Last zufaellig in ihre Frist. Die Hooks haben denselben Standard wie die Tests vorher (10 s), und die Aufraeum-Arbeit ist seitdem nicht kleiner geworden - 38 Testdateien fahren je eine Engine samt Datenbank und Datenverzeichnis herunter.
+
+   **Warum ein Aufraeum-Timeout schlimmer ist als ein Test-Timeout.** Die Meldung nennt eine Testdatei, und wer sie liest, sucht den Fehler dort. Die Tests waren aber alle gruen (2642 bestanden, 67 uebersprungen); nur der Hook lief in seine Frist. Ein solcher Lauf sieht wie ein Befund aus und ist ein Fehlalarm - der Neustart desselben Commits war gruen (Lauf 39850687405).
+
+   **Die Frist ist dieselbe wie fuer die Tests, nicht groesser.** Ein haengender Hook faellt weiter auf, nur nicht mehr an der Laenge der Warteschlange. Eine Frist von 60 s haette den Fehlalarm auch beseitigt, aber dann waere ein echter Haenger 60 Sekunden lang unsichtbar.
+
+   **Beleg:** `packages/engine/test/media.test.ts` (20 Tests gruen), `pnpm typecheck`, `pnpm lint`; der Beweis ist der Windows-Job der CI, der diesen Lauf nicht mehr an der Stelle verliert.
+
+51. `module-cycles.test.ts` (22.10.2026): die Oberflaeche hat **neun Import-Zyklen**, und keiner davon ist zur Laufzeit ein Fehler - weil jede Funktion, die ueber eine Zykluskante laeuft, eine `function`-Deklaration ist und gehoisted wird. Das ist eine Eigenschaft, die man nicht sieht: wer eine davon in ein `const` umbaut, bekommt `undefined` beim Laden und einen `is not a function` irgendwo anders.
+
+   **Der Befund, der den Test ausgeloest hat.** Beim Blick auf `app-editor.js` (1 170 Zeilen, zwei Funktionen) habe ich die Importe gezaehlt: `app.js` holt acht Views, fuenf davon holen `renderRoute` aus `app.js` zurueck. `deps:check` meldet dazu **nichts** - die Regel `no-new-package-cycle` gilt auf der Ordnerebene und mit Absicht nur zwischen Paketen (so steht es in ihrem Kommentar). Ein Zyklus innerhalb eines Pakets ist fuer das Tor keine Verletzung.
+
+   **Die Bedingung, unter der die Zyklen hier stehen duerfen, ist jetzt geprueft:** ueber eine Zykluskante darf nur ein gehoisteter Export laufen. Der Test liest die Export-Arten (`function`, `const`, `let`, `class`, `re-export`) und die Import-Namen, findet die Zyklen selbst und vergleicht. Re-Exporte werden auf ihr Original aufgeloest - `app-references.js` gibt `refsToast` aus `app-refs-dialog.js` weiter, und diese Kette ist heute auch eine Funktion.
+
+   **32 Exporte der Oberflaeche sind nicht gehoistet** (`const`/`let`): die Kern-Helfer in `app-core.js`, die Symbol-Konstanten, `refsState`, `WORKSPACE_TABS`. Keiner davon laeuft heute ueber eine Zykluskante - der Test wuerde es melden, sobald einer es tut.
+
+   **Gegenprobe gelaufen:** `waitForImageJob` von `export async function` auf `export const ... = async` umgebaut -> der Test wird rot und nennt genau die Kante `app-import.js -> app-editor.js: waitForImageJob ist ein const, nicht gehoisted`. Zurueckgebaut -> gruen.
+
+   **Warum kein Umbau der Zyklen.** Sie zu entwirren hiesse, `renderRoute` aus `app.js` herauszunehmen und in ein eigenes Modul zu legen - ein Schritt, der acht Dateien anfasst und die Reihenfolge des Starts veraendert. Der Test sichert die Bedingung mit einer Zeile; der Umbau waere eine eigene Entscheidung mit eigenem Risiko. Was jetzt gilt: die Zyklen duerfen bleiben, solange sie gehoisted sind.
+
+   **Beleg:** `packages/app/test/module-cycles.test.ts` (1 Fall, Gegenprobe rot), `pnpm exec vitest run packages/app`.
+
+52. `app-refs-shell.js` (23.10.2026): die Huelle der Referenzen-Seite wandert aus `app-references.js` - Kopfzeile, Seitenleiste, Suche, Sortierung, Galerie, leerer Zustand und Fusszeile (230 Zeilen). `app-references.js`: 992 -> 772 Zeilen; `app-refs-shell.js`: 259 Zeilen.
+
+   **Der letzte grosse Rest der Referenzen-Seite.** `refsBuildShell` baute fast nur Markup, hing aber an vier Stellen am Zustand: Suche und Sortierung (gelesen und geschrieben), die DOM-Sammlung `refsDom` (die 51 Stellen der Seite lesen) und der Suchtimer (gelesen, geloescht, neu gesetzt).
+
+   **Vier Naehte, alle klein.** Die vier Funktionen der Seite (`refsRefresh`, `refsEmptyAction`, `refsSetView`, `refsSetCollection`) kommen als Rueckrufe herein; der Timer ueber `getQueryTimer`/`setQueryTimer` (er wird gelesen UND geschrieben, ein reiner Import ginge nicht); `refsDom` wird lokal gebaut und zurueckgegeben - der Wrapper in `app-references.js` setzt das Modul-`refsDom` daraus.
+
+   **Zwei echte Funde beim Aufraeumen.** (a) `REFS_SEARCH_ICON` stand als lokale Konstante in `app-references.js` und war **nicht** im Symbol-Modul exportiert - der Import waere beim Buendeln gescheitert; die Konstante zieht jetzt mit, wo sie gebraucht wird. (b) Ein Alias `refsBuildShell as buildShell` brach den neuen Zyklus-Waechter, der Export-Namen woertlich vergleicht - der Alias war unnoetig und ist aufgeloest. Der Waechter aus Schritt 51 hat hier zum ersten Mal gegriffen, bevor der Build lief.
+
+   **Belegt ueber das Multiset der Code-Zeilen:** 867 vorher, 896 nachher; die 16 fehlenden sind genau die umbenannten (`refsRefresh()` -> `ctx.refresh()` usw.), die verschobene Konstante und die Import-Zeilen, die an das neue Modul abgegeben wurden. Kein Verlust.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (39 Dateien, 70 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf beiden Dateien, Modulform- und Zyklus-Test.
+
+**Reihenfolge:** `store.ts`, `http.ts`, `mcp/tools.ts`, `app.js`; `mount.ts` entfällt mit P3-1. Nicht mehrere große Module gleichzeitig aufteilen.
 **Gate dieses Schritts:** `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:coverage`, `pnpm quality:render`, `pnpm quality:check` und `git diff --check` am 29.09.2026 grün; vorhandene Assertions unverändert. Vor einem weiteren Schritt: Änderungen fachlich committen und `git status --short` leer prüfen. Bei Browser-/Build-Pfaden zusätzlich die passenden App-Gates. Der vierte Schritt (09.10.2026) lief mit typecheck, lint, Coverage-Volllauf (1068/15/0), `quality:render`/`quality:check` und `check:patch` grün. **Gate des zweiten Schritts (07.10.2026):** dieselben Kommandos; `pnpm test` hatte zwei rote Browser-Tests ohne Bezug zur Auslagerung (Einordnung in `docs/current/qualitaet.md`), alles andere grün.
 
 ### P3-3 · MCP-Schema-first (R8) — geschlossen 07.10.2026
@@ -312,6 +576,30 @@ Der Import wurde am 20.10.2026 an einer veröffentlichten Seite gemessen (`https
 
 | Datum | Änderung |
 |---|---|
+| 23.10.2026 | P3-2 Schritt 52: die Huelle der Referenzen-Seite wandert aus `app-references.js` in `app-refs-shell.js` (Kopfzeile, Seitenleiste, Suche, Sortierung, Galerie, Fusszeile; 230 Zeilen). Vier Naehte: vier Rueckrufe, der Suchtimer ueber Getter/Setter, `refsDom` als Rueckgabewert. Zwei Funde beim Aufraeumen: `REFS_SEARCH_ICON` war nicht exportiert (der Import waere beim Buendeln gescheitert), ein Alias brach den Zyklus-Waechter aus Schritt 51. `app-references.js`: 992 -> 772 Zeilen. App-Suite 39/70. |
+| 22.10.2026 | Neu `module-cycles.test.ts`: die Oberflaeche hat neun Import-Zyklen (`app.js` holt die Views, fuenf holen `renderRoute` zurueck); `deps:check` sieht sie nicht, weil seine Zyklus-Regel nur zwischen Paketen gilt. Harmlos sind sie nur, solange ueber eine Zykluskante ausschliesslich gehoistete `function`-Deklarationen laufen - genau das prueft der Test jetzt (Re-Exporte aufgeloest). Gegenprobe: `waitForImageJob` als `const` -> rot und nennt die Kante. Kein Umbau der Zyklen: der waere eine eigene Entscheidung. |
+| 22.10.2026 | `hookTimeout: 30_000`: Der Windows-Job wurde rot, ohne dass ein Test fehlschlug - `media.test.ts` lief im `afterAll` in die 10-Sekunden-Frist von vitest (Engine herunterfahren, Datenbank schliessen, Datenverzeichnis raeumen). `testTimeout` stand aus demselben Grund seit dem 11.10.2026 auf 30 s, `hookTimeout` fehlte. 38 Testdateien teardownen je eine Engine. Dieselbe Frist wie fuer die Tests, nicht groesser - ein haengender Hook faellt weiter auf. Beleg: `media.test.ts` 20/20, typecheck, lint. |
+| 22.10.2026 | P3-2 Schritt 49: die drei Listen-Tabs (Seiten, Pruefen, Aktivitaet) wandern aus `projectView` in `app-workspace-lists.js`. `app-workspace.js`: 375 -> 271 Zeilen, `projectView` 138 -> 29. **Ein Regressionsfund, den nur die Browser-Tests sahen:** die neue Funktion ist `async`, der Aufruf hatte kein `await` - `body.push(...promise)` wirft nicht, es haengt nichts an, drei Tabs bleiben leer. `node --check`, ESLint, Build und Modulform waren alle gruen; drei Browser-Tests wurden rot. Mit `await` gruen. App-Suite 38/69. |
+| 22.10.2026 | P3-2 Schritt 48: der Tab „Einstellungen" wandert aus `projectView` in `app-workspace-settings.js` (Projekteinstellungen, Breakpoints, Referenzen, Deploy). `breakpointsPanel` bleibt in `app-workspace.js` und kommt als Rueckruf herein. `app-workspace.js`: 580 -> 374 Zeilen, `projectView` 344 -> 144. Belegt ueber das Multiset (553 vorher, 569 nachher, 8 umbenannt, 0 verloren). App-Suite 38/69, eslint, Build, Modulform. |
+| 22.10.2026 | P3-2 Schritt 47: die zwei groessten Tab-Bloecke wandern aus `projectView` in `app-workspace-submissions.js` (Einsendungen und Benachrichtigungs-Jobs) und `app-workspace-templates.js` (Vorlagen und Layout-Zuordnung). Der Schnitt trennt Tab fuer Tab statt Funktion fuer Funktion - die `if`/`else if`-Kette war die bessere Naht. Drei Naehte: Formular-Auswahl als Getter/Setter, Neuladen als Rueckruf, Markup als Rueckgabewert. `app-workspace.js`: 925 -> 580 Zeilen. Belegt ueber das Multiset (892 vorher, 922 nachher, 25 umbenannt, 0 verloren). App-Suite 38/69, eslint, Build, Modulform. |
+| 22.10.2026 | Coverage-Tor: `store-settings.ts` und `store-reviews.ts` waren gemessen, aber von keiner Schwelle gedeckt - sie haetten unbemerkt verfallen koennen. Beide stehen jetzt in der Gruppe der Fachmodule; neu `coverage-gate.test.ts` haelt fest, dass jede gemessene Datei eine Schwelle hat und jede Schwelle eine Datei (Gegenprobe: ohne die Schwelle rot). Dazu zwei Doku-Defekte: die Zahl der Fachmodule (26 statt 21) und die Beschreibung von `app-projects.js` (197 Zeilen, nicht mehr Artikel und Einstellungen). |
+| 22.10.2026 | P3-2 Schritt 45: der Framer-Import wandert aus `app-import.js` in `app-framer-import.js` (`importReportBlock`, `openFramerImportDialog`). `app-import.js` hatte keine Modulvariable - der Grund, warum die Trennung ging. `app-import.js`: 966 → 482 Zeilen. Zwei Aufrufer (Editor, Review) ziehen mit. App-Suite 38/69, eslint, Build. |
+| 22.10.2026 | P3-2 Schritt 44: der Projekt-Workspace wandert aus `app-projects.js` in `app-workspace.js` (`projectView`, 691 Zeilen, plus drei Helfer und zwei Konstanten). `app-projects.js`: 1 129 → 197 Zeilen - von 2 309 am Anfang der Runde. Der Modulform-Test fand sieben Doppelleerzeilen und zwei Waisen-Kommentare; beides behoben. |
+| 22.10.2026 | P3-2 Schritt 43: die Einstellungen wandern aus `app-projects.js` in `app-settings.js` (`settingsView`, 531 Zeilen, und `backupRow`). Eine Naht, die mitwanderte. `app-projects.js`: 1 707 → 1 129 Zeilen - von 2 309 am Anfang der Runde mehr als halbiert. App-Suite 38/69, eslint, Build, `node --check`. |
+| 22.10.2026 | P3-2 Schritt 42: Bausteinbibliothek und Papierkorb wandern aus `app-projects.js` in `app-library.js` (`libraryView`, `trashView`). Beide teilen sich nichts mit den Projekten - keine Modulvariable, kein Zustand. `app-projects.js`: 1 936 → 1 707 Zeilen. App-Suite 38/69, eslint, Build, `node --check`. |
+| 22.10.2026 | P3-2 Schritt 41: der Inspector der Referenzen wandert aus `app-references.js` in `app-refs-inspector.js` (neun Funktionen, Fenster-Zustand, drei Helfer). Der einzige grosse Block ohne Zustandsbezug - deshalb liess er sich als Ganzes schneiden. `app-references.js`: 1 485 → 992 Zeilen. App-Suite 38/69, eslint, Build, `node --check`. |
+| 22.10.2026 | P3-2 Schritt 40: der Add-Dialog der Referenzen wandert aus `app-references.js` in `app-refs-add.js` (`refsOpenAddDialog`, `refsReadBase64`). Eine Naht (`refsRefresh` als Rueckruf). `app-references.js`: 1 763 → 1 482 Zeilen. Beim Umzug blieben fuenf tote Importe stehen - ESLint fand alle. App-Suite 38/69, eslint, Build, `node --check`. |
+| 22.10.2026 | P3-2 Schritt 39: die Sammlungen der Referenzen wandern aus `app-references.js` in `app-refs-collections.js`. Der Block war bis zum Zustands-Schnitt blockiert (er ruft `refsRefresh` und `refsSetCollection`); jetzt kommen beide als Rueckrufe herein. `app-references.js`: 2 040 → 1 756 Zeilen. App-Suite 38/69, eslint, Build, `node --check`. |
+| 22.10.2026 | P3-2 Schritt 38: Zustand, Adresse und Auswahl der Referenzen wandern aus `app-references.js` in `app-refs-state.js` - der Schritt, der die Trennung der grossen Bloecke erst moeglich macht (`refsState` wurde an 59 Stellen in 17 Funktionen gelesen). Drei Naehte ueber Setter statt Importe; `refsUpdateSelectionUI` bleibt wegen `refsDom` draussen. `app-references.js`: 2 117 → 2 040 Zeilen. App-Suite 38/69, eslint, Build. |
+| 22.10.2026 | P3-2 Schritt 37: die 14 Symbole und `refsIcon` wandern aus `app-references.js` in `app-refs-icons.js`. Der Schnitt raeumt ein Duplikat des vorigen Schritts ab (das Schliessen-Symbol war fest eingebaut worden); das Markup ist zeichengleich, geprueft. `app-references.js`: 2 148 → 2 117 Zeilen. App-Suite 38 Dateien/69 Tests, eslint, Build, `node --check`. |
+| 22.10.2026 | P3-2 Schritt 36: `refsSettingsSection` wandert aus `app-references.js` in `app-refs-settings.js` - der Referenz-Block der Einstellungen, gerufen von `app-projects.js`, ohne Zugriff auf den Bibliotheks-Zustand. `app-references.js`: 2 225 → 2 148 Zeilen. Belegt ueber das Multiset (2 015 vorher, 2 015 nachher, 0 fehlt, 0 zu viel); zwei tote Importe, die der Schnitt hinterliess, hat ESLint gefunden. |
+| 22.10.2026 | P3-2 Schritt 35: Toast, Kopieren und Backdrop-Schliessen wandern aus `app-references.js` in `app-refs-dialog.js`. Der erste Block, der ohne den geteilten `refsState` zu schneiden war; ein Zyklus um das Schliessen-Symbol wurde dabei sichtbar und durch Umzug des Symbols geloest. `app-references.js`: 2 314 → 2 222 Zeilen. Belegt ueber das Multiset (2 094 vorher, 2 094 nachher, 0 fehlt, 0 zu viel) und SVG-Attributvergleich. |
+| 21.10.2026 | P3-2 Schritt 34: Theme und Ereignisprotokoll wandern aus `store.ts` in `store-themes.ts` (`ThemesRepository`, vier Operationen). `updateTheme` schreibt Theme-Zeile und Audit in einer Transaktion; eine Naht (Site-Existenz). `store.ts`: 3 143 → 2 652 Zeilen. Beleg: `store-themes.test.ts` (10 Faelle, inklusive Race und verschwindender Zeile), Gegenprobe (ohne validateTheme rot), Coverage 96,02 % Statements / 75 % Branches. |
+| 21.10.2026 | P3-2 Schritt 33: die Sites wandern aus `store.ts` in `store-sites.ts` (`SitesRepository`, achtzehn Operationen) samt Design-Contract. Zwei Naht-Funktionen: Engine-Einstellungen und Theme-Anlage. `deleteSite` bleibt eine Einzeltransaktion. `store.ts`: 3 143 → 2 787 Zeilen. Beleg: `store-sites.test.ts` (18 Faelle), Gegenprobe (ohne manuellen Vorrang rot), Coverage-Lauf 149 Dateien/1519 Tests, 91,57 % Statements. |
+| 21.10.2026 | P3-2 Schritt 32: die API-Tokens wandern aus `store.ts` in `store-tokens.ts` (`TokensRepository`, acht Operationen) samt `store-token-mappers.ts`. Dieses Modul hat keine Naht: die Tabelle gehoert ihm allein, es bekommt nur die Datenbank. `store.ts`: 3 263 → 3 143 Zeilen. Beleg: `store-tokens.test.ts` (10 Faelle), Gegenprobe (ohne Scope-Pruefung rot), Coverage-Lauf 148 Dateien/1501 Tests, `store-tokens.ts` bei 100 %. |
+| 21.10.2026 | P3-2 Schritt 30: die Seiten wandern aus store.ts in store-pages.ts (PagesRepository, vierzehn Operationen) samt store-page-mappers.ts. Der Zuschnitt trennt Seite und Site: das Modul besitzt die Tabelle, die Entwuerfe, die Pfadpruefung und das Audit-Log der Seite, die Site bekommt es als Konstruktor-Funktion. persistBatch bleibt eine Transaktion (Entwurf, Version, Audit) - geprueft ueber ein beobachtetes Db, das die Anweisungen in der Transaktion zaehlt. store.ts: 3 631 \u2192 3 263 Zeilen. Beleg: store-pages.test.ts (14 Faelle), zwei Gegenproben (ohne Transaktion rot, kaputter Delegat von 	ransactions.test.ts rot), Engine-Suite 92 Dateien/861 Tests. |
+| 21.10.2026 | P3-2 Schritt 31: der Artikel-Workspace wandert aus `app-projects.js` in `app-articles.js` (Artikelliste, Editor, Feldsteuerung, Zellen lesen, Vorschau-Zustand). Der Block hing nur an `workspaceFrame`, die jetzt exportiert wird; die zwei Views holt der Router direkt, ein Re-Export waere ein Zyklus gewesen. `app-projects.js`: 2 309 → 1 938 Zeilen. Belegt ueber das Multiset der Codezeilen (2 235 vorher, 2 235 nachher, 0 fehlt, 0 zu viel). Der Modulform-Test fand eine doppelte Leerzeile, ESLint sechs `no-undef` auf `entryPreviewOpen` - beides behoben. Beleg: App-Suite 38 Dateien/69 Tests, eslint, Build, `node --check`. |
+| 21.10.2026 | P3-2 Schritt 29: der Markdown-Renderer der Referenz-Dokumente wandert aus pp-references.js in pp-markdown.js (vier Funktionen, kein DOM, kein Zustand, keine API). pp-references.js: 2 461 → 2 311 Zeilen. Belegt über das Multiset der Codezeilen (2 232 vorher, 2 232 nachher, 0 fehlt, 0 zu viel). Der Modulform-Test fand beim Schneiden einen mitgewanderten Kommentar. Beleg: App-Suite 38 Dateien/69 Tests, typecheck, lint, Build. |
 | 21.10.2026 | P3-2 Schritt 28: die geteilte Bausteinbibliothek wandert aus `store.ts` in `store-library.ts` (`LibraryRepository`, zehn Operationen). Der Zuschnitt folgt der Naht: das Modul besitzt die Bibliothekstabellen, aber nicht die Seite — die Entwürfe beim Installieren und Abhängen laufen über `persistBatch` des Stores, das Modul bekommt `getSite`, `getPage`, `listPages`, `persistBatch` und `appendAudit` als Konstruktor-Funktionen. `slugify` zieht nach `store-row-utils.ts` (sechs Aufrufer, ein Import aus `store.ts` wäre ein Zyklus); `store.ts` re-exportiert es. `store.ts`: 3 935 → 3 690 Zeilen. Beleg: `store-library.test.ts` (8 Fälle, gegen abgeschaltete Deduplizierung rot), Engine-Suite 92 Dateien/861 Tests, typecheck, lint. |
 | 20.10.2026 | P3-2 Schritt 27: die Oberfläche liegt jetzt in sechs ES-Modulen (`app-core.js` mit den Grundlagen, `app-projects.js` mit Projekten, Seiten, Artikeln und Einstellungen, `app-references.js` mit der Referenzbibliothek, `app-editor.js` mit dem Seiten-Editor, `app-review.js` mit den Reviews und `app-import.js` mit dem Import und den Redesign-Dialogen); `app.js` bleibt Router, Kommandoleiste und Start (7 474 → 215 Zeilen). Der geteilte Zustand (Dialog-Nummern, Routen-Generation, Flag der Referenzroute) liegt bei dem Modul, das ihn setzt; drei Quell-Prüfungen lesen jetzt alle Module. Beleg: 64 App-Tests grün (27 Browser-Tests). |
 | 20.10.2026 | P3-2 Schritt 26: die letzten drei Routengruppen wandern aus `http.ts` in `http-routes-media.ts` (Medien und ausgelieferte Dateien), `http-routes-ops.ts` (Betrieb: Einstellungen, Backups, Tokens, MCP, Ereignisse, Benachrichtigungen, Newsletter, Health) und `http-routes-content.ts` (Reviews, Formulare, Redesign-Vorschläge, Sammlungen, Code-Payloads, Importe). `http.ts` bleibt Dispatcher und Routentabelle: 1 503 → 289 Zeilen (von 5 262 zu Beginn der Zerlegung). Das Matrix-Dokument ist neu erzeugt (174 Routen). |

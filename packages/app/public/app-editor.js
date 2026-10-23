@@ -3,7 +3,8 @@
 // ESLint.
 
 import { AUTHOR, MUTATION_LABELS, api, askText, el, failed, render, routeScope, toast } from "./app-core.js";
-import { openFramerImportDialog, openRedesignDirectionDialog } from "./app-import.js";
+import { openRedesignDirectionDialog } from "./app-import.js";
+import { openFramerImportDialog } from "./app-framer-import.js";
 
 // The open SSE channel of the active canvas view (ticket 05): a route change
 // closes it before the next view subscribes, so streams do not stack up.

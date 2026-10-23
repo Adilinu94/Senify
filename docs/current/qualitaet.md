@@ -121,22 +121,22 @@ Der aktuelle Lauf vom 09.10.2026 (lokal auf Windows, TEMP/TMP/TMPDIR auf dem Lau
      Nicht von Hand editieren: dieser Block ist ein Messwert, und `pnpm quality:check`
      lässt den Lauf rot werden, sobald Dokument und Lauf auseinanderlaufen. -->
 
-**Gemessen:** 2026-10-21 · vitest coverage (v8)
+**Gemessen:** 2026-10-22 · vitest coverage (v8)
 
 | Pfad | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
 | `packages/engine/src/http.ts` | 96.11 | 87.01 | 100.00 | 96.11 |
 | `packages/engine/src/http-route-support.ts` | 85.44 | 76.50 | 100.00 | 85.44 |
 | `packages/engine/src/http-routes-sites.ts` | 96.38 | 76.27 | 94.73 | 96.38 |
-| `packages/engine/src/store.ts` | 83.81 | 84.99 | 94.92 | 83.81 |
+| `packages/engine/src/store.ts` | 86.38 | 88.77 | 94.80 | 86.38 |
 | `packages/engine/src/lifecycle.ts` | 87.01 | 74.46 | 100.00 | 87.01 |
 | `packages/engine/src/forms.ts` | 84.34 | 73.62 | 100.00 | 84.34 |
 | `packages/mcp/src/tools.ts` | 91.77 | 62.01 | 85.50 | 91.77 |
-| `packages/engine/src/store-*.ts` (30 Dateien) | 79.36 bis 100.00 | 39.13 bis 100.00 | 71.42 bis 100.00 | 79.36 bis 100.00 |
+| `packages/engine/src/store-*.ts` (36 Dateien) | 79.36 bis 100.00 | 39.13 bis 100.00 | 71.42 bis 100.00 | 79.36 bis 100.00 |
 | `packages/engine/src/http-*.ts` (9 Dateien) | 59.22 bis 97.34 | 54.34 bis 80.64 | 75.00 bis 100.00 | 59.22 bis 97.34 |
 | `packages/editor/src/state/*` (15 Dateien) | 66.98 bis 100.00 | 60.00 bis 100.00 | 66.66 bis 100.00 | 66.98 bis 100.00 |
 
-**Über alle gemessenen Dateien:** Statements 90.24 · Branches 78.24 · Functions 92.97 · Lines 90.24
+**Über alle gemessenen Dateien:** Statements 90.90 · Branches 78.92 · Functions 93.25 · Lines 90.90
 
 <!-- messwerte:ende -->
 
@@ -146,6 +146,12 @@ Coverage misst nur, was die Suite ausführt, und ist kein Vollständigkeitsbewei
 
 ## Bekannte Grenzen
 
+- **Aufraeum-Hooks haben dieselbe Frist wie die Tests (30 s, seit 22.10.2026).**
+  vitest gibt Hooks standardmaessig 10 s; der fterAll-Teardown faehrt die Engine,
+  die Datenbank und das Datenverzeichnis herunter und braucht unter Last manchmal
+  laenger. Am 22.10.2026 wurde dadurch der Windows-Job rot, obwohl **kein Test**
+  fehlschlug (Lauf 39850687405, media.test.ts: 2642 Tests bestanden, nur der Hook
+  lief in seine Frist; der Neustart desselben Commits war gruen).
 - Der aktuelle Postgres-Lauf belegt sechs Transaktionsfälle auf PostgreSQL 18.6; die CI-Lane verwendet PostgreSQL 18 (`postgres:18` in `.github/workflows/verify.yml`). Seit dem 20.10.2026 belegt der **normale** Volltest dieselben Beweise ohne Postgres-Dienst: PGlite ist echtes PostgreSQL nach WebAssembly, im Prozess (`createTransactionDatabase()` in `packages/engine/test/helpers.ts`). Die 16 zuvor übersprungenen Fälle laufen dadurch in jedem Lauf mit.
 - `pnpm test:visual`, `pnpm verify:parity` und `pnpm verify:import` sind für den zuvor gesicherten Folge-Diff am 28.09.2026 grün; sie wurden durch die reine Mapper-Auslagerung nicht berührt.
 - Die Visual-Baselines liegen unter `packages/app/test/visual-baselines/`; Aktualisierung ist ein expliziter Vorgang über `UPDATE_VISUAL_SNAPSHOTS=1`.
