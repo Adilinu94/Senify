@@ -400,6 +400,20 @@ Versionierte Records werden bei Review und Publish gespeichert; Manifest und Re-
 
    **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf beiden Dateien, Modulform-Test.
 
+49. `app-workspace-lists.js` (22.10.2026): die drei Listen-Tabs Seiten, Pruefen und Aktivitaet wandern aus `projectView`. `app-workspace.js`: 375 -> 271 Zeilen; **`projectView` selbst: 138 -> 29 Zeilen.**
+
+   **Die drei teilen sich ein Modul, weil sie dieselbe Form haben:** eine Ueberschrift, dann eine Tabelle oder ein leerer Zustand. Zusammen sind sie kleiner als ein Modul je Tab (112 Zeilen Rumpf), und ein Modul je Tab haette dreimal denselben Kopf. `workspaceListTab` waehlt den Zweig ueber `tab`.
+
+   **Eine Naht:** `openNewPageDialog` bleibt in `app-workspace.js` (der Dialog gehoert dem Workspace, nicht dem Tab) und kommt als Rueckruf herein.
+
+   **Ein echter Regressionsfund, den nur die Browser-Tests sahen.** Die neue Funktion ist `async` - `review` und `activity` holen ihre Daten - aber der Aufruf schrieb `body.push(...workspaceListTab(...))` ohne `await`. Das sprengt nicht: `body.push(...promise)` wirft keinen Fehler, es haengt nichts an, und die drei Tabs bleiben leer. `node --check` war gruen, ESLint war gruen, der Build war gruen, der Modulform-Test war gruen. Drei Browser-Tests wurden rot: `new-page-browser`, `review-dialog-browser`, `review-visuals-browser` - der Knopf „Neue Seite" existierte nicht mehr, weil seine Tab-Ansicht nie gerendert wurde. Mit `await` gruen.
+
+   **Das ist der Grund, warum die App-Suite mit `SENIFY_REQUIRE_BROWSER=1` laeuft.** Ein Typfehler dieser Art ist in einer `.js`-Datei unsichtbar; nur der gerenderte DOM zeigt ihn.
+
+   **Belegt ueber das Multiset der Code-Zeilen:** siehe die Zeilen oben im Lauf - die fehlenden sind genau die umbenannten (`body.push` -> `teile.push`, `openNewPageDialog` -> `ctx.openNewPageDialog`) und die zwei Import-Zeilen, die an das neue Modul abgegeben wurden.
+
+   **Beleg:** `pnpm exec vitest run packages/app` (38 Dateien, 69 Tests gruen, mit Browser-Tests), `pnpm exec eslint packages/app/public`, `pnpm --filter @senify/app build`, `node --check` auf beiden Dateien, Modulform-Test.
+
 **Reihenfolge:** `store.ts`, `http.ts`, `mcp/tools.ts`, `app.js`; `mount.ts` entfällt mit P3-1. Nicht mehrere große Module gleichzeitig aufteilen.
 **Gate dieses Schritts:** `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:coverage`, `pnpm quality:render`, `pnpm quality:check` und `git diff --check` am 29.09.2026 grün; vorhandene Assertions unverändert. Vor einem weiteren Schritt: Änderungen fachlich committen und `git status --short` leer prüfen. Bei Browser-/Build-Pfaden zusätzlich die passenden App-Gates. Der vierte Schritt (09.10.2026) lief mit typecheck, lint, Coverage-Volllauf (1068/15/0), `quality:render`/`quality:check` und `check:patch` grün. **Gate des zweiten Schritts (07.10.2026):** dieselben Kommandos; `pnpm test` hatte zwei rote Browser-Tests ohne Bezug zur Auslagerung (Einordnung in `docs/current/qualitaet.md`), alles andere grün.
 
@@ -511,6 +525,7 @@ Der Import wurde am 20.10.2026 an einer veröffentlichten Seite gemessen (`https
 
 | Datum | Änderung |
 |---|---|
+| 22.10.2026 | P3-2 Schritt 49: die drei Listen-Tabs (Seiten, Pruefen, Aktivitaet) wandern aus `projectView` in `app-workspace-lists.js`. `app-workspace.js`: 375 -> 271 Zeilen, `projectView` 138 -> 29. **Ein Regressionsfund, den nur die Browser-Tests sahen:** die neue Funktion ist `async`, der Aufruf hatte kein `await` - `body.push(...promise)` wirft nicht, es haengt nichts an, drei Tabs bleiben leer. `node --check`, ESLint, Build und Modulform waren alle gruen; drei Browser-Tests wurden rot. Mit `await` gruen. App-Suite 38/69. |
 | 22.10.2026 | P3-2 Schritt 48: der Tab „Einstellungen" wandert aus `projectView` in `app-workspace-settings.js` (Projekteinstellungen, Breakpoints, Referenzen, Deploy). `breakpointsPanel` bleibt in `app-workspace.js` und kommt als Rueckruf herein. `app-workspace.js`: 580 -> 374 Zeilen, `projectView` 344 -> 144. Belegt ueber das Multiset (553 vorher, 569 nachher, 8 umbenannt, 0 verloren). App-Suite 38/69, eslint, Build, Modulform. |
 | 22.10.2026 | P3-2 Schritt 47: die zwei groessten Tab-Bloecke wandern aus `projectView` in `app-workspace-submissions.js` (Einsendungen und Benachrichtigungs-Jobs) und `app-workspace-templates.js` (Vorlagen und Layout-Zuordnung). Der Schnitt trennt Tab fuer Tab statt Funktion fuer Funktion - die `if`/`else if`-Kette war die bessere Naht. Drei Naehte: Formular-Auswahl als Getter/Setter, Neuladen als Rueckruf, Markup als Rueckgabewert. `app-workspace.js`: 925 -> 580 Zeilen. Belegt ueber das Multiset (892 vorher, 922 nachher, 25 umbenannt, 0 verloren). App-Suite 38/69, eslint, Build, Modulform. |
 | 22.10.2026 | Coverage-Tor: `store-settings.ts` und `store-reviews.ts` waren gemessen, aber von keiner Schwelle gedeckt - sie haetten unbemerkt verfallen koennen. Beide stehen jetzt in der Gruppe der Fachmodule; neu `coverage-gate.test.ts` haelt fest, dass jede gemessene Datei eine Schwelle hat und jede Schwelle eine Datei (Gegenprobe: ohne die Schwelle rot). Dazu zwei Doku-Defekte: die Zahl der Fachmodule (26 statt 21) und die Beschreibung von `app-projects.js` (197 Zeilen, nicht mehr Artikel und Einstellungen). |
