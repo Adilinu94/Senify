@@ -198,7 +198,10 @@ export function detectFramerRuntime(html: string, pageUrl: string): FramerRuntim
   for (const block of html.matchAll(STYLE_BLOCK)) css.push(block[1] ?? "");
   const sheets: string[] = [];
   for (const tag of html.matchAll(STYLESHEET)) {
-    const href = LINK_HREF.exec(tag[0])?.[1];
+    // An attribute holds `&amp;` where the URL has `&`. Left in, the request
+    // carries a parameter named `amp;display` — Google tolerates it, another
+    // server need not.
+    const href = LINK_HREF.exec(tag[0])?.[1]?.replace(/&amp;/g, "&");
     if (href !== undefined && href !== "") sheets.push(absolute(pageUrl, href));
   }
 
