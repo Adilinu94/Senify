@@ -558,12 +558,12 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
           "aria-label": label !== "" ? label : alt !== "" ? alt : "Fremd-Code",
         },
         children: [
-          // The poster is the first fallback of ADR-0010 §7 — for EVERY
-          // carrier, the page-level one included. It stands until the module
-          // mounted and stays when the module fails, so a failed payload never
-          // leaves a blank page. (A page-level carrier whose payload this build
-          // does not deliver is removed from the release tree by the bake; the
-          // structure stands alone then, with no poster and no plate.)
+          // A carrier that stands for the whole page does not draw a plate: when
+          // its payload is missing, the bake drops the carrier entirely and the
+          // structure stands (see `renderTreeOf`). A plate under a complete page
+          // would only add height (measured +96 px) and a label nobody needs.
+          // The poster and the stage stay: the poster is the first fallback of
+          // ADR-0010 §7, the stage is where the module mounts.
           ...(hasPoster
             ? [
                 {
@@ -578,15 +578,19 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
             classes: [modifier("payload", "stage")],
             attrs: { "data-payload-stage": "" },
           },
-          {
-            tag: "div",
-            classes: [modifier("payload", "plate")],
-            text: hasPayload
-              ? label !== ""
-                ? `${label} — der Fremd-Code ließ sich nicht laden`
-                : "Fremd-Code ließ sich nicht laden"
-              : "Kein Payload hinterlegt — die Stelle bleibt leer",
-          },
+          ...(!coversPage
+            ? [
+                {
+                  tag: "div",
+                  classes: [modifier("payload", "plate")],
+                  text: hasPayload
+                    ? label !== ""
+                      ? `${label} — der Fremd-Code ließ sich nicht laden`
+                      : "Fremd-Code ließ sich nicht laden"
+                    : "Kein Payload hinterlegt — die Stelle bleibt leer",
+                },
+              ]
+            : []),
         ],
         root: true,
       };

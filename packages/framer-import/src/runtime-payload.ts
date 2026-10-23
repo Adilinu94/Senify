@@ -55,7 +55,7 @@ const BUNDLE_SCRIPT = /<script\b([^>]*\bdata-framer-bundle\b[^>]*)>/i;
 const STYLESHEET = /<link\b[^>]*\brel\s*=\s*["']?stylesheet["']?[^>]*>/gi;
 const LINK_HREF = /\bhref\s*=\s*["']([^"']+)["']/i;
 const STYLE_BLOCK = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
-const MAIN_ELEMENT = /<(\w+)\b([^>]*\bid\s*=\s*["']main["'][^>]*)>([\s\S]*?)<\/\1>/i;
+const MAIN_ELEMENT = /<(\w+)\b([^>]*\bid\s*=\s*["']main["'][^>]*)>/i;
 
 // Die Route steht im Zustand, nicht im Pfad: `data-framer-hydrate-v2` trägt
 // `routeId` und `pathVariables`. Ohne dieses Attribut fällt die Runtime auf
@@ -68,6 +68,33 @@ function absolute(base: string, href: string): string {
   } catch {
     return href;
   }
+}
+
+// The body of the element with `id="main"`: from the end of its open tag to the
+// close tag that matches it. A regex for `<div …>…</div>` cannot do this — the
+// first `</div>` belongs to a child. Measured: the old expression read 620 of
+// 46.520 bytes on `notes` (1,3 %), 1.647 of 204.742 on `donutshop` (0,8 %) and
+// 2.085 of 424.893 on `unifiersofjapan` (0,5 %) — the payload carried a fragment
+// and not the page.
+const BLOCK_TAG = /<(\/?)(div|section|header|footer|nav|article|aside|main|form)\b[^>]*?(\/?)>/gi;
+
+function elementBody(html: string, openTagEnd: number): string {
+  // Depth 1 is the element itself: it was already opened before the scan.
+  let depth = 1;
+  BLOCK_TAG.lastIndex = openTagEnd;
+  let match: RegExpExecArray | null;
+  while ((match = BLOCK_TAG.exec(html)) !== null) {
+    if (match[3] === "/") continue;
+    if (match[1] === "/") {
+      depth -= 1;
+      if (depth === 0) return html.slice(openTagEnd, match.index);
+    } else {
+      depth += 1;
+    }
+  }
+  // No matching close tag: the rest of the document is the best answer there is
+  // (a truncated source is reported by the caller as a failed runtime).
+  return html.slice(openTagEnd);
 }
 
 function attr(attrs: string, name: string): string | null {
@@ -93,7 +120,7 @@ export function detectFramerRuntime(html: string, pageUrl: string): FramerRuntim
   if (main === null) return null;
   const mainTag = main[1];
   const mainAttrs = main[2] ?? "";
-  const mainBody = main[3] ?? "";
+  const mainBody = elementBody(html, main.index + main[0].length);
   if (!HYDRATE_STATE.test(mainAttrs)) return null;
 
   const css: string[] = [];
@@ -125,6 +152,16 @@ export type RuntimePayloadInput = {
   // Rewrites an address inside the CSS (fonts, images) to the site's own
   // asset path. A URL the callback does not know stays as it is.
   rewriteUrl?: (url: string) => string | null;
+  // The same rewrite as a table, for the runtime's data (JSON strings with
+  // escaped slashes). A callback cannot be enumerated, so the caller passes
+  // its map for the pass over the finished bundle.
+  addressRewrites?: Readonly<Record<string, string>>;
+  // The origin the rewritten addresses are made absolute against. The source's
+  // addresses were absolute CDN URLs, and the runtime calls `new URL(…)` on
+  // them — a root-relative path throws there (`TypeError: Failed to construct
+  // 'URL': Invalid URL`, measured on notes). Absent: the addresses stay as the
+  // map wrote them (a caller that knows they are only used as `src`).
+  assetOrigin?: string;
   // The linked stylesheets of the page, read with the same loader.
   sheetsText?: string;
   // Ceiling for the whole bundle (ADR-0010: 3 MB per payload).
@@ -205,13 +242,18 @@ export async function buildRuntimePayload(input: RuntimePayloadInput & { files: 
 
   const css = rewriteCss(input.detection.css, input.rewriteUrl);
   const sheets = input.sheetsText ?? "";
+  // The markup names its media by CDN address; the runtime carries the page as
+  // JSON and builds the images from THAT (`donutshop`: 87 of 88 addresses).
+  // Both have to be rewritten, or the release loads the source's CDN and no
+  // useful security policy can be written.
+  const page = rewriteMarkup(input.detection.mainHtml, input.rewriteUrl);
 
   // The wrapper: the runtime starts in `mount()`, after the markup stands.
   // The runtime module is imported ONLY dynamically — a static import would
   // make esbuild initialize it when the payload file loads, and the runtime
   // looks for `#main` at that moment (it would find nothing and die).
   const wrapper = [
-    `const PAGE = ${escapeForJs(input.detection.mainHtml)};`,
+    `const PAGE = ${escapeForJs(page)};`,
     `const CSS = ${escapeForJs(css)};`,
     `const SHEETS = ${escapeForJs(sheets)};`,
     "export function mount(stage, options) {",
@@ -279,7 +321,21 @@ export async function buildRuntimePayload(input: RuntimePayloadInput & { files: 
       },
     ],
   });
-  const bundle = result.outputFiles[0]?.text ?? "";
+  const bundled = result.outputFiles[0]?.text ?? "";
+  // One last pass over the finished bundle: the runtime's own data holds the
+  // page as JSON (with `/` escaped), and a string replacement cannot be written
+  // as a `url()` rule. Longest address first, so a prefix cannot cut a longer
+  // one.
+  //
+  // The replacement is ABSOLUTE: the source's addresses were absolute CDN URLs
+  // and the runtime calls `new URL(...)` on them — a root-relative path throws
+  // `TypeError: Failed to construct 'URL': Invalid URL` and the page stays
+  // empty (measured on `notes`: 900 px instead of 1743 px).
+  const rewrites = new Map<string, string>();
+  for (const [from, to] of Object.entries(input.addressRewrites ?? {})) {
+    rewrites.set(from, input.assetOrigin === undefined || /^https?:\/\//i.test(to) ? to : `${input.assetOrigin}${to}`);
+  }
+  const bundle = rewriteAddressesInData(bundled, rewrites);
   const bytes = Buffer.byteLength(bundle, "utf8");
   if (input.maxBytes !== undefined && bytes > input.maxBytes) {
     throw new Error(
@@ -307,6 +363,74 @@ export function rewriteCss(css: string, rewriteUrl?: (url: string) => string | n
   });
 }
 
+/**
+ * The payload's ORIGINAL markup with every known asset address rewritten.
+ *
+ * The markup is the source's own page — and it names its pictures, videos and
+ * posters by CDN address. Leaving them there means the release loads the
+ * original CDN: the page works, but the visitor's browser talks to the source,
+ * and a content-security policy tight enough to be worth anything cannot be
+ * written. Measured on `donutshop`: 764 CDN addresses inside the bundle.
+ *
+ * Rewritten are the attributes that load a resource (`src`, `poster`, `href`
+ * of a `<link>`), `srcset` (each candidate), and `url()` inside an inline
+ * `style` attribute. The picture behind each address is the one the asset
+ * pipeline already downloaded — the rewrite map is the same one the CSS uses,
+ * so markup and styles can never point at two different files.
+ */
+export function rewriteMarkup(html: string, rewriteUrl?: (url: string) => string | null): string {
+  if (rewriteUrl === undefined) return html;
+  const one = (value: string): string => {
+    if (value === "" || value.startsWith("data:") || value.startsWith("#")) return value;
+    return rewriteUrl(value) ?? value;
+  };
+  return html
+    .replace(/\b(src|poster|href)="([^"]*)"/g, (whole, attribute: string, value: string) => {
+      const next = one(value);
+      return next === value ? whole : `${attribute}="${next}"`;
+    })
+    .replace(/\bsrcset="([^"]*)"/g, (whole, value: string) => {
+      const next = value
+        .split(",")
+        .map((entry) => {
+          const [url, ...rest] = entry.trim().split(/\s+/);
+          return [one(url ?? ""), ...rest].join(" ");
+        })
+        .join(", ");
+      return next === value ? whole : `srcset="${next}"`;
+    })
+    .replace(/\bstyle="([^"]*)"/g, (whole, value: string) => {
+      const next = rewriteCss(value, rewriteUrl);
+      return next === value ? whole : `style="${next}"`;
+    });
+}
+
+/**
+ * The addresses inside the runtime's own data, rewritten.
+ *
+ * The runtime does not read the markup's `<img src>`: it carries the page as
+ * JSON (`data-framer-hydrate-v2`, the route module) and builds the images from
+ * that. A rewrite of the markup alone therefore misses every picture — measured
+ * on `donutshop`: 87 of 88 image addresses stayed at `framerusercontent.com`.
+ *
+ * A JSON string holds the URL with its `/` escaped (`https:\/\/…`), and the
+ * address may also appear plain. Both forms are replaced, longest address
+ * first so a prefix cannot cut a longer one.
+ */
+export function rewriteAddressesInData(source: string, rewrites: ReadonlyMap<string, string>): string {
+  if (rewrites.size === 0) return source;
+  const keys = [...rewrites.keys()].sort((a, b) => b.length - a.length);
+  let out = source;
+  for (const from of keys) {
+    const to = rewrites.get(from);
+    if (to === undefined) continue;
+    if (out.includes(from)) out = out.split(from).join(to);
+    const escaped = from.replace(/\//g, "\\/");
+    if (out.includes(escaped)) out = out.split(escaped).join(to.replace(/\//g, "\\/"));
+  }
+  return out;
+}
+
 /* ------------------------------------------------------------ page payload */
 
 export type RuntimePayloadResult =
@@ -318,6 +442,7 @@ export type PageRuntimePayloadInput = {
   pageUrl: string;
   loadFile: RuntimeFileLoader;
   rewriteUrl?: (url: string) => string | null;
+  addressRewrites?: Readonly<Record<string, string>>;
   maxBytes?: number;
 };
 
@@ -356,6 +481,7 @@ export async function buildPageRuntimePayload(
       loadFile: input.loadFile,
       sheetsText,
       ...(input.rewriteUrl !== undefined ? { rewriteUrl: input.rewriteUrl } : {}),
+      ...(input.addressRewrites !== undefined ? { addressRewrites: input.addressRewrites } : {}),
       ...(input.maxBytes !== undefined ? { maxBytes: input.maxBytes } : {}),
     });
     return { ok: true, payload, detection };

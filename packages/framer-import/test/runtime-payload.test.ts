@@ -8,7 +8,9 @@ import {
   buildRuntimePayload,
   collectRuntimeFiles,
   detectFramerRuntime,
+  rewriteAddressesInData,
   rewriteCss,
+  rewriteMarkup,
 } from "../src/runtime-payload.ts";
 
 // The Framer runtime as a payload (step 2 of `docs/fahrplan-framer-1zu1.md`).
@@ -220,5 +222,53 @@ describe("the page payload", () => {
     if (!result.ok) return;
     expect(result.payload.bytes).toBeGreaterThan(0);
     expect(result.detection.entry).toBe(RUNTIME);
+  });
+
+  it("reads the WHOLE #main element, not the fragment up to the first </div>", () => {
+    // Measured before the fix: the payload carried 620 of 46.520 bytes on
+    // notes (1,3 %), 1.647 of 204.742 on donutshop (0,8 %) and 2.085 of
+    // 424.893 on unifiersofjapan (0,5 %). A regex `<div …>…</div>` stops at the
+    // first child's close tag; the element's own depth has to be walked.
+    const nested = `<html><head><script type="module" data-framer-bundle src="${RUNTIME}"></script></head><body>
+    <div id="main" data-framer-hydrate-v2='{"routeId":"abc"}'>
+      <div class="outer"><div class="inner">tief</div><p>Text</p></div>
+      <div class="second">zwei</div>
+    </div></body></html>`;
+    const detection = detectFramerRuntime(nested, PAGE_URL);
+    expect(detection).not.toBeNull();
+    const body = detection?.mainHtml ?? "";
+    expect(body).toContain("tief");
+    expect(body).toContain("zwei");
+    // The outer element's close tag is the LAST one: nothing follows it.
+    expect(body.trimEnd().endsWith("</div>")).toBe(true);
+    expect((body.match(/<\/div>/g) ?? []).length).toBe(4);
+  });
+
+  it("rewrites the addresses inside the runtime's data", () => {
+    // The runtime builds its images from JSON (`image: new URL("https://…")`),
+    // not from the markup's `<img src>`. Measured on donutshop: 87 of 88 image
+    // addresses stayed at `framerusercontent.com` after the markup pass alone.
+    const source = 'const a = { image: new URL("https://cdn.test/a.png").href }; const b = "https:\\/\\/cdn.test\\/a.png";';
+    const out = rewriteAddressesInData(source, new Map([["https://cdn.test/a.png", "https://site.test/assets/1/a.png"]]));
+    expect(out).toContain("https://site.test/assets/1/a.png");
+    expect(out).not.toContain("cdn.test");
+  });
+
+  it("rewrites the poster and srcset of the markup, not only src", () => {
+    const html = `<div id="main" data-framer-hydrate-v2><video poster="https://cdn.test/p.jpg" src="https://cdn.test/v.mp4"></video>
+      <img src="https://cdn.test/a.png" srcset="https://cdn.test/a-1x.png 1x, https://cdn.test/a-2x.png 2x" style="background:url(https://cdn.test/bg.png)" /></div>`;
+    const rewrites = new Map([
+      ["https://cdn.test/p.jpg", "/assets/1/p.jpg"],
+      ["https://cdn.test/v.mp4", "/assets/1/v.mp4"],
+      ["https://cdn.test/a.png", "/assets/1/a.png"],
+      ["https://cdn.test/a-1x.png", "/assets/1/a-1x.png"],
+      ["https://cdn.test/a-2x.png", "/assets/1/a-2x.png"],
+      ["https://cdn.test/bg.png", "/assets/1/bg.png"],
+    ]);
+    const out = rewriteMarkup(html, (url) => rewrites.get(url) ?? null);
+    expect(out).not.toContain("cdn.test");
+    expect(out).toContain("/assets/1/p.jpg");
+    expect(out).toContain("/assets/1/a-2x.png 2x");
+    expect(out).toContain("url(/assets/1/bg.png)");
   });
 });

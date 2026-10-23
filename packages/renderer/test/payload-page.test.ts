@@ -82,9 +82,9 @@ describe("the page-level payload", () => {
   });
 
   it("keeps the structure when this build does not deliver the payload", async () => {
-    // A missing payload must not empty the page: the structure stands, the
-    // plate says what is missing. (Measured: with the carrier replacing the
-    // structure anyway, the page was 900 px high instead of 1743 px.)
+    // A missing page-level payload must not empty the page AND must not leave a
+    // carrier behind: the structure IS the page then. (Measured: a carrier that
+    // stayed with its plate added 96 px — 6 rem — below every page.)
     const result = await bakeSite(
       {
         siteName: "Musterstudio",
@@ -101,9 +101,11 @@ describe("the page-level payload", () => {
     const html = await loadBakedSite(result.outDir).read("index.html");
     // The structure stands ...
     expect(html).toContain("Strukturtext");
-    // ... and the carrier says that its payload is missing.
-    expect(html).toContain('data-payload-id="pay1"');
-    expect(html).toContain('data-payload-state="plate"');
+    // ... and the carrier is gone: no island, no plate, no empty stage.
+    expect(html).not.toContain('data-island="payload"');
+    expect(html).not.toContain('class="w-payload--plate"');
+    // The bake still says that a payload is missing.
+    expect(result.warnings.some((warning) => warning.code === "payload-missing")).toBe(true);
   });
 
   it("writes the payload and hands its URL to the island script", async () => {
@@ -158,11 +160,29 @@ describe("the page-level payload", () => {
   });
 
   it("keeps a carrier without a poster on its plate", async () => {
-    const { html } = await bake({ coversPage: true });
-    // The test tree names no poster: the plate is what stands, and it says why.
-    // (The class name `w-payload--poster` appears in the stylesheet, so the
-    // check is for the <img>, not for the rule.)
+    // A SECTION-level carrier (no `coversPage`): its plate is the last fallback
+    // and says why it stands — that is where a plate belongs.
+    const nodes: Record<string, Node> = {
+      root: { id: "root", type: "page", props: {}, children: ["structure", "carrier"] },
+      structure: { id: "structure", type: "text", props: { text: "Strukturtext" } },
+      carrier: { id: "carrier", type: "payload", props: { payloadId: "pay1", label: "Hero" } },
+    };
+    const result = await bakeSite(
+      {
+        siteName: "Musterstudio",
+        baseUrl: "https://beispiel.de",
+        pages: [{ id: "p1", path: "/", title: "Start", tree: { rootNodeId: "root", nodes } }],
+        themeCss: emitCss(resolved),
+        motionTokens: { ease: resolved.motion.ease, baseDurationMs: 300, baseStaggerMs: 80 },
+        payloads: { pay1: { code: PAYLOAD_CODE, integrity: INTEGRITY, bytes: PAYLOAD_CODE.length } },
+        aeo: false,
+      },
+      { outDir: mkdtempSync(join(tmpdir(), "senify-payload-plate-")) },
+    );
+    baked.push(result);
+    const html = await loadBakedSite(result.outDir).read("index.html");
     expect(html).not.toMatch(/<img[^>]*data-asset=/);
     expect(html).toContain('class="w-payload--plate"');
+    expect(html).toContain("Hero — der Fremd-Code ließ sich nicht laden");
   });
 });

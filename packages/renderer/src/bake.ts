@@ -185,32 +185,47 @@ export function jsonForHtml(value: unknown): string {
 // the page with and without the payload is the same). The tree keeps the
 // structure — it is the truth the editor works on, and the canvas shows it.
 //
-// **But only when the payload is really there.** A carrier whose payload this
-// build does not deliver keeps the structure: otherwise a missing payload
-// would leave the page empty (measured: the structure was replaced by a
-// plate, and the page was 900 px high instead of 1743 px). The plate says
-// what is missing; the structure keeps the page alive.
+// **But only when the payload is really there.** A page-level carrier whose
+// payload this build does not deliver must not stand at all: the structure IS
+// the page then. Leaving the carrier in gave the page a plate below the
+// structure — measured +96 px (6 rem) on every page of the blind test. The
+// bake reports the missing payload in its warnings; the carrier is dropped.
 export function renderTreeOf(
   tree: NodeTree,
   delivers: (payloadId: string) => boolean = () => true,
 ): NodeTree {
   const root = tree.nodes[tree.rootNodeId];
   if (root === undefined) return tree;
-  const carrier = (root.children ?? []).find((id) => {
+  const pageCarriers = (root.children ?? []).filter((id) => {
     const node = tree.nodes[id];
     if (node === undefined || node.type !== "payload") return false;
-    if (node.props["coversPage"] !== true) return false;
-    const payloadId = node.props["payloadId"];
+    return node.props["coversPage"] === true;
+  });
+  if (pageCarriers.length === 0) return tree;
+  const delivered = pageCarriers.find((id) => {
+    const payloadId = tree.nodes[id]?.props["payloadId"];
     return typeof payloadId === "string" && payloadId !== "" && delivers(payloadId);
   });
-  if (carrier === undefined) return tree;
-  const carrierNode = tree.nodes[carrier];
+  if (delivered === undefined) {
+    // No delivered page payload: the structure stands alone.
+    return {
+      rootNodeId: tree.rootNodeId,
+      nodes: {
+        ...tree.nodes,
+        [tree.rootNodeId]: {
+          ...root,
+          children: (root.children ?? []).filter((id) => !pageCarriers.includes(id)),
+        },
+      },
+    };
+  }
+  const carrierNode = tree.nodes[delivered];
   if (carrierNode === undefined) return tree;
   return {
     rootNodeId: tree.rootNodeId,
     nodes: {
-      [tree.rootNodeId]: { ...root, children: [carrier] },
-      [carrier]: carrierNode,
+      [tree.rootNodeId]: { ...root, children: [delivered] },
+      [delivered]: carrierNode,
     },
   };
 }
