@@ -102,6 +102,20 @@
 | `app-workspace-templates.js` | 202 | Der Workspace-Tab „Vorlagen": Layout- und Entry-Vorlagen einer Site samt der Zuordnung, welche Seite welche Vorlage traegt (P3-2, Schritt 47). |
 | `app-workspace.js` | 270 | Der Projekt-Workspace (P3-2, Schritt 44): die Ansicht eines Projekts mit seinen Tabs, der Tab-Leiste, dem Dialog fuer eine neue Seite und der Breakpoint-Steuerung. `app-projects.js` importiert die View. |
 
+## MCP: Werkzeug-Module
+
+**5 Dateien.** Die Werkzeuge lagen bis zum 23.10.2026 alle in `tools.ts`;
+die Uebersicht nennt sie einzeln, weil die Datei sonst wie ein God-File aussieht, das sie nicht mehr ist.
+
+| Modul | Werkzeuge | Zeilen | Zweck |
+|---|---|---|---|
+| `tools-components.ts` | - | 112 | The component view of a page draft (P3-2 extraction from `tools.ts`). |
+| `tools-medien.ts` | 21 | 622 | Die Medien-Werkzeuge der MCP-Fassade (P3-2, Schritt 57): Assets lesen, hochladen, aendern, ersetzen, loeschen und wiederherstellen, Bilder erzeugen und abfragen, Sammlungen und Eintraege samt Einsendungen. |
+| `tools-schemas.ts` | - | 182 | Die Ausgabeschemas der lesenden Werkzeuge (P3-3, R8). |
+| `tools-support.ts` | - | 291 | The machinery every tool goes through (P3-2 extraction from `tools.ts`): the argument readers, the schema helpers, paging and the shared HTTP calls. |
+| `tools.ts` | 85 | 2672 | Elicitation (E4 slice 2): ask the client for a missing or ambiguous parameter. The server wires this only when the client declared the elicitation capability; declined or unsupported resolves to undefined and the tool's own validation error stands. |
+| **Summe** | **106** | | |
+
 ## Was noch nicht geteilt ist
 
 Die Aufteilung folgt ADR-0019: `Store` und der HTTP-Dispatcher bleiben die Fassade, die
@@ -110,7 +124,7 @@ Zeilenzahl wird beim Erzeugen gemessen, der Grund ist eine Entscheidung.
 
 | Datei | Zeilen | Warum sie bleibt |
 |---|---|---|
-| `packages/mcp/src/tools.ts` | 3431 | die Werkzeug-Definitionen; der Manifest-Generator liest diese Datei als Text |
+| `packages/mcp/src/tools.ts` | 2672 | die Werkzeug-Definitionen; der Manifest-Generator liest diese Datei als Text |
 | `packages/engine/src/store.ts` | 2652 | vier fachübergreifende Transaktionen (`applyRedesignPlan`, `duplicateSiteWithPlan`, `duplicateAssetRecords`, `commitFramerImportPlan`), `replaceTables` und die Fassade; der Rest sind Delegaten |
 | `packages/framer-import/src/capture-html.ts` | 2225 | der HTML-Capture des Imports |
 | `packages/editor/src/inspector/inspector.ts` | 1750 | eine Closure (`createInspector`), die DOM und Zustand gemeinsam hält |

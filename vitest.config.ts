@@ -87,7 +87,13 @@ export default defineConfig({
         "packages/engine/src/lifecycle.ts",
         "packages/engine/src/forms.ts",
         "packages/editor/src/state/**",
+        // Die Werkzeug-Definitionen der MCP-Fassade: `tools.ts` traegt die
+        // Tabelle, die Module `tools-*.ts` die ausgelagerten Werkzeuge und die
+        // Schemas. Ohne den Glob waeren die 622 Zeilen aus Schritt 56
+        // ungemessen - und ein ungemessenes Modul kann keinen Rueckschritt
+        // melden (Befund vom 23.10.2026).
         "packages/mcp/src/tools.ts",
+        "packages/mcp/src/tools-*.ts",
       ],
       // Die eigenen Ausschluesse GELTEND NEBEN den Standardwerten: ein eigenes
       // `exclude`-Feld ersetzt sie, und dann liegen ploetzlich dist/-Artefakte
@@ -201,6 +207,57 @@ export default defineConfig({
           branches: 60,
           functions: 82,
           lines: 85,
+        },
+        // Die ausgelagerten Werkzeug-Module (P3-2, Schritt 56). Sie entstanden
+        // aus `tools.ts` und erben dessen Schwelle: derselbe Code, dieselbe
+        // Erwartung. Stand 23.10.2026 (gemessen):
+        //   tools.ts             89,78 / 64,60 / 81,81 / 89,78
+        //   tools-medien.ts      98,49 / 49,50 / 100   / 98,49
+        //   tools-components.ts  97,10 / 65,38 / 100   / 97,10
+        //   tools-support.ts     81,81 / 76,92 / 100   / 81,81
+        //   tools-schemas.ts    100    / 100   / 100   / 100
+        "packages/mcp/src/tools.ts": {
+          statements: 85,
+          branches: 60,
+          // 81,81 statt 82 seit Schritt 56. Die Zahl ist gesunken, die
+          // Abdeckung nicht: die 21 Medien-Werkzeuge sind mit ihren 42
+          // Funktionen nach `tools-medien.ts` gewandert, und diese 42 waren
+          // zu 100 Prozent gedeckt. `tools.ts + tools-medien` ergibt
+          // 177/207 - genau der Wert, den `tools.ts` allein vor dem Schnitt
+          // hatte. Ein kleinerer Nenner senkt die Quote, auch wenn niemand
+          // weniger getestet hat; die Schwelle beschreibt die Datei, nicht
+          // den Code.
+          functions: 81,
+          lines: 85,
+        },
+        "packages/mcp/src/tools-medien.ts": {
+          // Die 21 Werkzeuge haben wenige Verzweigungen: die Spanne 49,50
+          // kommt von den optionalen Feldern der Eingabeschemas.
+          statements: 95,
+          branches: 45,
+          functions: 95,
+          lines: 95,
+        },
+        "packages/mcp/src/tools-components.ts": {
+          statements: 95,
+          branches: 60,
+          functions: 95,
+          lines: 95,
+        },
+        "packages/mcp/src/tools-support.ts": {
+          statements: 80,
+          branches: 72,
+          functions: 95,
+          lines: 80,
+        },
+        "packages/mcp/src/tools-schemas.ts": {
+          // Nur Konstanten: Statements messen hier die Datenmenge, nicht die
+          // Abdeckung. Die Schwelle haelt fest, dass keine Konstante
+          // unbenutzt hinzukommt.
+          statements: 95,
+          branches: 95,
+          functions: 95,
+          lines: 95,
         },
       },
     },

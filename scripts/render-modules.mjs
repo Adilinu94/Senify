@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const SRC = join(ROOT, "packages", "engine", "src");
 const PUB = join(ROOT, "packages", "app", "public");
+const MCP_SRC = join(ROOT, "packages", "mcp", "src");
 const ZIEL = join(ROOT, "docs", "current", "module.md");
 
 /**
@@ -129,6 +130,12 @@ const httpDateien = readdirSync(SRC)
 const appDateien = readdirSync(PUB)
   .filter((n) => /^app-.*\.js$/.test(n))
   .sort();
+// Die Werkzeug-Module der MCP-Fassade (P3-2, Schritt 57). Sie standen bis
+// dahin alle in `tools.ts`; die Uebersicht muss sie einzeln nennen, sonst
+// sieht die Datei aus wie ein God-File, das sie nicht mehr ist.
+const mcpDateien = readdirSync(MCP_SRC)
+  .filter((n) => /^tools(-[\w-]+)?\.ts$/.test(n))
+  .sort();
 
 const repositories = storeDateien.filter((n) => klasse(join(SRC, n)) !== null);
 const routenSumme = httpDateien.reduce((n, name) => n + routen(join(SRC, name)), 0);
@@ -184,6 +191,23 @@ for (const name of appDateien) {
   const pfad = join(PUB, name);
   zeilen.push(`| \`${name}\` | ${zeilenZahl(pfad)} | ${zelle(zweck(pfad))} |`);
 }
+zeilen.push("");
+zeilen.push("## MCP: Werkzeug-Module");
+zeilen.push("");
+zeilen.push(`**${mcpDateien.length} Dateien.** Die Werkzeuge lagen bis zum 23.10.2026 alle in \`tools.ts\`;`);
+zeilen.push("die Uebersicht nennt sie einzeln, weil die Datei sonst wie ein God-File aussieht, das sie nicht mehr ist.");
+zeilen.push("");
+zeilen.push("| Modul | Werkzeuge | Zeilen | Zweck |");
+zeilen.push("|---|---|---|---|");
+let werkzeugeSumme = 0;
+for (const name of mcpDateien) {
+  const pfad = join(MCP_SRC, name);
+  const text = readFileSync(pfad, "utf8");
+  const n = (text.match(/^\s{4}name: "[a-z_]+",/gm) ?? []).length;
+  werkzeugeSumme += n;
+  zeilen.push(`| \`${name}\` | ${n === 0 ? "-" : n} | ${zeilenZahl(pfad)} | ${zelle(zweck(pfad))} |`);
+}
+zeilen.push(`| **Summe** | **${werkzeugeSumme}** | | |`);
 zeilen.push("");
 zeilen.push("## Was noch nicht geteilt ist");
 zeilen.push("");
