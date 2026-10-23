@@ -39,6 +39,20 @@ export default defineConfig({
     // 1-4 s alone (fixture pipelines, engine round trips) failed at random per run
     // (qualitaet.md, 11.10.2026). Heavy tests keep their own explicit limits.
     testTimeout: 30_000,
+    // Dieselbe Begruendung, andere Frist: der Standard fuer Hooks ist 10 s.
+    // Der Aufraeum-Hook (`afterAll` -> `env.close()`) faehrt die Engine herunter,
+    // schliesst Datenbank und Server und raeumt das Datenverzeichnis. Unter Last
+    // (2642 Tests, vier Worker, Windows-Laeufer) braucht das manchmal laenger als
+    // 10 s - am 22.10.2026 in `media.test.ts` geschehen: **kein Test rot**, nur
+    // der Hook lief in sein Timeout, und der ganze Windows-Job wurde rot
+    // (Lauf 39850687405; der Neustart desselben Commits war gruen).
+    //
+    // Ein Aufraeum-Timeout als roter Job ist ein Fehlalarm, der wie ein Befund
+    // aussieht: die Meldung nennt eine Testdatei, aber die Tests darin waren
+    // alle gruen. Dieselbe Frist wie fuer die Tests ist die ehrliche Antwort -
+    // ein haengender Hook faellt weiter auf, nur nicht mehr an der Laenge der
+    // Warteschlange.
+    hookTimeout: 30_000,
     // Coverage-Gate (Fahrplan P1-2, R11). Die gemessenen Zahlen stehen in
     // docs/current/qualitaet.md, nicht hier - dieser Block ist das Tor, nicht
     // die Messung. Bewusst NUR die Pfade, in denen Fehler am teuersten sind:
