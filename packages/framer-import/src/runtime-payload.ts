@@ -246,7 +246,11 @@ export async function buildRuntimePayload(input: RuntimePayloadInput & { files: 
   // JSON and builds the images from THAT (`donutshop`: 87 of 88 addresses).
   // Both have to be rewritten, or the release loads the source's CDN and no
   // useful security policy can be written.
-  const page = rewriteMarkup(input.detection.mainHtml, input.rewriteUrl);
+  const page = rewriteMarkup(
+    input.detection.mainHtml,
+    input.rewriteUrl,
+    new Map(Object.entries(input.addressRewrites ?? {})),
+  );
 
   // The wrapper: the runtime starts in `mount()`, after the markup stands.
   // The runtime module is imported ONLY dynamically — a static import would
@@ -258,6 +262,26 @@ export async function buildRuntimePayload(input: RuntimePayloadInput & { files: 
     `const SHEETS = ${escapeForJs(sheets)};`,
     "export function mount(stage, options) {",
     "  if (!stage) throw new Error('Der Payload braucht eine Bühne.');",
+    // The runtime builds its images from its own data with `new URL(address)` —
+    // one argument, no base. The source's addresses were absolute CDN URLs, so
+    // that worked. Ours are the site's own paths (`/assets/…`), and
+    // `new URL('/assets/x.png')` throws `TypeError: Failed to construct 'URL':
+    // Invalid URL` — measured on notes: the page stayed empty (900 px instead of
+    // 1743 px). The shim gives the constructor the document as its base, which
+    // is exactly what a relative address means. Everything else stays native.
+    "  var NativeURL = window.URL;",
+    "  if (typeof NativeURL === 'function' && NativeURL.__senifyBaseShim !== true) {",
+    "    var PatchedURL = function (value, base) {",
+    "      return base === undefined ? new NativeURL(value, document.baseURI) : new NativeURL(value, base);",
+    "    };",
+    "    PatchedURL.prototype = NativeURL.prototype;",
+    "    PatchedURL.createObjectURL = NativeURL.createObjectURL;",
+    "    PatchedURL.revokeObjectURL = NativeURL.revokeObjectURL;",
+    "    PatchedURL.canParse = NativeURL.canParse;",
+    "    PatchedURL.parse = NativeURL.parse;",
+    "    PatchedURL.__senifyBaseShim = true;",
+    "    window.URL = PatchedURL;",
+    "  }",
     "  stage.innerHTML = PAGE;",
     "  // The runtime looks for `#main` — and the Senify page has a `<main id=\"main\">`",
     "  // of its own. Two elements with one id: the runtime would take the wrong one.",
@@ -356,11 +380,16 @@ export async function buildRuntimePayload(input: RuntimePayloadInput & { files: 
 /** The CSS of the payload with every known asset address rewritten. */
 export function rewriteCss(css: string, rewriteUrl?: (url: string) => string | null): string {
   if (rewriteUrl === undefined) return css;
-  return css.replace(/url\((["']?)([^"')]+)\1\)/g, (whole, quote: string, url: string) => {
+  // A declaration may name the address without `url()`:
+  // `background: url('…')` is the common form, but the source also writes
+  // `background: -100% 0% / 200% 100% text rgb(…)` and plain `src="…"` inside
+  // an inline style. Both passes below cover the two forms.
+  const viaUrl = css.replace(/url\((["']?)([^"')]+)\1\)/g, (whole, quote: string, url: string) => {
     if (url.startsWith("data:") || url.startsWith("#")) return whole;
     const rewritten = rewriteUrl(url);
     return rewritten === null ? whole : `url(${quote}${rewritten}${quote})`;
   });
+  return viaUrl;
 }
 
 /**
@@ -378,11 +407,33 @@ export function rewriteCss(css: string, rewriteUrl?: (url: string) => string | n
  * pipeline already downloaded — the rewrite map is the same one the CSS uses,
  * so markup and styles can never point at two different files.
  */
-export function rewriteMarkup(html: string, rewriteUrl?: (url: string) => string | null): string {
+export function rewriteMarkup(
+  html: string,
+  rewriteUrl?: (url: string) => string | null,
+  table?: ReadonlyMap<string, string>,
+): string {
   if (rewriteUrl === undefined) return html;
+  // A source's `srcset` names the same file with size parameters
+  // (`…/bild.jpg?width=840&height=841`). The asset pipeline downloaded the file
+  // WITHOUT them, so the lookup drops the query before it asks. The rewritten
+  // address then names the one file the site holds — the ladder is the site's
+  // own (the bake delivers it), not the CDN's.
+  const lookup = (value: string): string | null => {
+    // An attribute holds `&amp;` where the URL has `&`; the asset map knows the
+    // plain address.
+    const decoded = value.replace(/&amp;/g, "&");
+    const direct = rewriteUrl(decoded);
+    if (direct !== null) return direct;
+    // A source names variants of ONE file (`?width=840&height=841`,
+    // `?scale-down-to=512`). The pipeline downloaded the file itself, so the
+    // lookup drops the parameters before it asks.
+    const withoutQuery = decoded.split(/[?#]/, 1)[0] ?? "";
+    if (withoutQuery === "" || withoutQuery === decoded) return null;
+    return rewriteUrl(withoutQuery);
+  };
   const one = (value: string): string => {
     if (value === "" || value.startsWith("data:") || value.startsWith("#")) return value;
-    return rewriteUrl(value) ?? value;
+    return lookup(value) ?? value;
   };
   return html
     .replace(/\b(src|poster|href)="([^"]*)"/g, (whole, attribute: string, value: string) => {
@@ -390,8 +441,11 @@ export function rewriteMarkup(html: string, rewriteUrl?: (url: string) => string
       return next === value ? whole : `${attribute}="${next}"`;
     })
     .replace(/\bsrcset="([^"]*)"/g, (whole, value: string) => {
+      // The separators are split BEFORE the entities are decoded: a `&amp;`
+      // holds a `;`, and a naive split on `,` cut the address at the wrong
+      // place (`…?scale-down-to=512&amp;width=840` became two candidates).
       const next = value
-        .split(",")
+        .split(/,(?![^&]*;)/)
         .map((entry) => {
           const [url, ...rest] = entry.trim().split(/\s+/);
           return [one(url ?? ""), ...rest].join(" ");
@@ -400,7 +454,13 @@ export function rewriteMarkup(html: string, rewriteUrl?: (url: string) => string
       return next === value ? whole : `srcset="${next}"`;
     })
     .replace(/\bstyle="([^"]*)"/g, (whole, value: string) => {
-      const next = rewriteCss(value, rewriteUrl);
+      let next = rewriteCss(value, (url) => lookup(url));
+      // A plain address without `url()` inside a style attribute
+      // (`background:url(...)` is the common form; `src="…"` also appears).
+      for (const [from, to] of table ?? new Map<string, string>()) {
+        if (!next.includes(from)) continue;
+        next = next.split(from).join(to);
+      }
       return next === value ? whole : `style="${next}"`;
     });
 }
@@ -416,17 +476,34 @@ export function rewriteMarkup(html: string, rewriteUrl?: (url: string) => string
  * A JSON string holds the URL with its `/` escaped (`https:\/\/…`), and the
  * address may also appear plain. Both forms are replaced, longest address
  * first so a prefix cannot cut a longer one.
+ *
+ * Variants of one file are replaced with it: the source asks for
+ * `…/bild.jpg?width=840&height=841` or `?scale-down-to=512`, the site holds ONE
+ * file, and that is the one every variant means. The query is cut before the
+ * lookup, the way the markup pass does it.
  */
 export function rewriteAddressesInData(source: string, rewrites: ReadonlyMap<string, string>): string {
   if (rewrites.size === 0) return source;
-  const keys = [...rewrites.keys()].sort((a, b) => b.length - a.length);
   let out = source;
+  // 1. Whole addresses (the plain form).
+  const keys = [...rewrites.keys()].sort((a, b) => b.length - a.length);
   for (const from of keys) {
     const to = rewrites.get(from);
     if (to === undefined) continue;
     if (out.includes(from)) out = out.split(from).join(to);
     const escaped = from.replace(/\//g, "\\/");
     if (out.includes(escaped)) out = out.split(escaped).join(to.replace(/\//g, "\\/"));
+  }
+  // 2. Addresses with a query (`?width=840…`, `?scale-down-to=512`): a variant
+  // of a file the site already holds. Longest base first, so a longer name is
+  // never cut by a shorter one.
+  for (const from of keys) {
+    const to = rewrites.get(from);
+    if (to === undefined) continue;
+    const base = from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`${base}\\?[^"'\\\\\\s)]*`, "g");
+    const escapedPattern = new RegExp(`${base.replace(/\//g, "\\\\/")}\\?[^"'\\\\\\s)]*`, "g");
+    out = out.replace(pattern, to).replace(escapedPattern, to.replace(/\//g, "\\/"));
   }
   return out;
 }

@@ -342,6 +342,10 @@ describe("review loop", () => {
     );
     expect(ok.status).toBe(200);
     expect(ok.headers.get("content-type")).toContain("text/html");
+    // The preview carries the page policy: a preview IS the page, and a
+    // preview that runs foreign code must not be looser than the release.
+    expect(ok.headers.get("content-security-policy")).toContain("default-src 'self'");
+    expect(ok.headers.get("content-security-policy")).toContain("object-src 'none'");
     const html = await ok.text();
     expect(html).toContain("Review mich");
 
@@ -397,6 +401,14 @@ describe("review loop", () => {
     expect(approved.body.review.status).toBe("approved");
     expect(approved.body.review.releaseId).toBe(approved.body.release.id);
     expect(approved.body.release.buildRef).toContain("releases");
+
+    // The release page carries the policy too (ADR-0010 §8): a published page
+    // loads its own build and nothing else.
+    const releaseFile = await fetch(
+      `${env.server.origin}/api/releases/${approved.body.release.id}/files/index.html`,
+    );
+    expect(releaseFile.status).toBe(200);
+    expect(releaseFile.headers.get("content-security-policy")).toContain("default-src 'self'");
   }, 90000);
 
   it("rolls back to an older release as a new release", async () => {

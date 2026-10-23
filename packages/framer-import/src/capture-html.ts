@@ -982,6 +982,14 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
 }
 
 function collectAssets(raw: RawNode, assets: IrAsset[]): void {
+  // A picture can stand in a style attribute instead of an `<img>`: Framer
+  // writes a tiled background as `background:url('…')` on a div (measured on
+  // unifiersofjapan: the texture band at the footer had no asset at all, so the
+  // rewrite had nothing to put there and the release asked the CDN).
+  const addUrl = (url: string, alt: string | null): void => {
+    if (url === "" || url.startsWith("data:") || assets.some((asset) => asset.url === url)) return;
+    assets.push({ url, kind: "image", hash: null, alt, width: null, height: null });
+  };
   if (raw.tag === "img") {
     const src = raw.attrs["src"];
     if (src !== undefined && src !== "") {
@@ -996,6 +1004,12 @@ function collectAssets(raw: RawNode, assets: IrAsset[]): void {
         height: Number.isFinite(height) ? height : null,
       });
     }
+  }
+  // `background-image` / `background` / `mask-image` in the element's own style.
+  const style = raw.attrs["style"] ?? "";
+  for (const match of style.matchAll(/url\((["']?)((?:https?:)?\/\/[^"')]+)\1\)/g)) {
+    const url = match[2];
+    if (url !== undefined) addUrl(url, raw.attrs["data-framer-name"] ?? null);
   }
   if (raw.tag === "video") {
     const src = raw.attrs["src"];

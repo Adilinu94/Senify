@@ -95,12 +95,46 @@ export async function servePreviewFile(
       200,
       rewriteToBuildPrefix(html, `/api/previews/${preview.id}/files/`, preview.token),
       CONTENT_TYPE_HTML,
-      { "cache-control": "no-store" },
+      { "cache-control": "no-store", "content-security-policy": PREVIEW_CSP },
     );
     return;
   }
   sendFile(res, { path: file });
 }
+
+// A baked page loads only its own build: styles, scripts, fonts and pictures
+// come from the same origin (the import rewrites the source's CDN addresses to
+// the site's own files). The policy states that, so an injected or injected-by-
+// accident foreign resource fails loudly instead of silently loading.
+//
+// What it does NOT restrict: inline code. The bake writes inline `<style>`
+// blocks and a few inline `<script>` blocks (the preloader, the motion
+// failsafe); a hash-based policy would have to hash every page's blocks and
+// break on the next change. `'unsafe-inline'` stays — the boundary that matters
+// here is the ORIGIN, not the inline form (imported foreign code runs in the
+// payload anyway, ADR-0010 §8).
+//
+// `frame-src` allows the video providers a page may embed; `img-src` allows
+// `data:` (the inline SVG masks of the value grammar) and `https:` for a
+// provider's poster image. `object-src 'none'` closes the oldest hole.
+export const PAGE_CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "media-src 'self'",
+  "connect-src 'self'",
+  "frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com https://player.vimeo.com",
+  "form-action 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'self'",
+].join("; ");
+
+// The same policy for a preview document: it is opened directly, its build's
+// files are inlined (`selfContained`) and its forms post back to the engine.
+export const PREVIEW_CSP = PAGE_CSP;
 
 const CONTENT_TYPE_HTML = "text/html; charset=utf-8";
 
@@ -176,6 +210,16 @@ export async function serveReleaseFile(
         field: "path",
       }),
     );
+    return;
+  }
+  // A released page carries the policy (see PAGE_CSP): its own build is all it
+  // loads. Only the very same files the page links are served here, so a
+  // foreign address never appears in the document; the header makes that a
+  // statement instead of a coincidence.
+  if (extname(file).toLowerCase() === ".html") {
+    sendText(res, 200, readFileSync(file, "utf8"), CONTENT_TYPE_HTML, {
+      "content-security-policy": PAGE_CSP,
+    });
     return;
   }
   sendFile(res, { path: file });
