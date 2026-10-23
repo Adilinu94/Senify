@@ -115,7 +115,7 @@ Zeilenzahl wird beim Erzeugen gemessen, der Grund ist eine Entscheidung.
 | `packages/mcp/src/tools.ts` | 3473 | die Werkzeug-Definitionen; der Manifest-Generator liest diese Datei als Text |
 | `packages/engine/src/store.ts` | 2662 | vier fachübergreifende Transaktionen (`applyRedesignPlan`, `duplicateSiteWithPlan`, `duplicateAssetRecords`, `commitFramerImportPlan`), `replaceTables` und die Fassade; der Rest sind Delegaten |
 | `packages/framer-import/src/capture-html.ts` | 2225 | der HTML-Capture des Imports |
-| `packages/editor/src/inspector/inspector.ts` | 1750 | eine Closure (`createInspector`), die DOM und Zustand gemeinsam hält |
+| `packages/editor/src/inspector/inspector.ts` | 1836 | eine Closure (`createInspector`), die DOM und Zustand gemeinsam hält |
 | `packages/engine/src/content.ts` | 1703 | Sammlungen, Einträge und ihre Suche in einem Fachgebiet |
 | `packages/editor/src/inspector/model.ts` | 1490 | das Modell des Inspektors |
 | `packages/engine/src/types.ts` | 1479 | die öffentlichen Typen der Engine; keine Logik |

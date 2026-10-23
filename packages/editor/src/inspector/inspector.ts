@@ -29,7 +29,12 @@ import {
 } from "@senify/widget-engine";
 import type { MotionProfile, MotionSpec } from "@senify/section-sdk";
 import type { Theme } from "@senify/tokens";
-import { requireDocument, type DomDocument, type DomElement } from "../dom.ts";
+import {
+  requireDocument,
+  type DomDocument,
+  type DomElement,
+  type DomEvent,
+} from "../dom.ts";
 import {
   deleteVariant,
   renameVariant,
@@ -40,6 +45,7 @@ import {
 import { newNodeId } from "../state/ids.ts";
 import { DEFAULT_SECTION_THUMBNAIL_BASE } from "../state/sections.ts";
 import { EditorStore, typingCoalesceKey } from "../state/store.ts";
+import { scrubValue } from "./scrub-number.ts";
 import { EDITOR_ROOT_ATTRIBUTE } from "../ui/tokens.ts";
 import {
   buildInspector,
@@ -503,6 +509,20 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     stepper.appendChild(down);
     wrap.appendChild(input);
     wrap.appendChild(stepper);
+    // Ziehen am Feld: die haeufigste Art, eine Zahl zu setzen (und die einzige,
+    // die ohne Tippen stufenlos geht). Der Store faltet den ganzen Zug ueber
+    // `scrubCoalesceKey` in EINEN Undo-Eintrag; `commitNumber` schreibt bei
+    // jeder Bewegung, damit die Zahl im Feld mitlaeuft.
+    bindScrub(
+      input,
+      () => numberPart(input.value) ?? numberPart(field.value) ?? 0,
+      () => field.step ?? 1,
+      () => ({ min: field.min, max: field.max }),
+      (value) => {
+        input.value = String(value);
+        commitNumber();
+      },
+    );
     // Die Einheit steht im selben Feld rechts (wie im Referenz-Editor): ein Rahmen
     // statt zwei. `data-control="unit"` bleibt, damit der Zugriff gleich bleibt.
     if (field.units !== undefined && field.units.length > 1) {
@@ -511,6 +531,72 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       wrap.appendChild(unitBox);
     }
     control.appendChild(wrap);
+  }
+
+  // Ziehen am Zahlenfeld. Die Empfindlichkeit und die Klammerung kommen aus
+  // `scrub-number.ts` (dort ohne DOM geprueft); hier steht nur die Geste.
+  //
+  // Zwei Entscheidungen, die den Unterschied zwischen "fuehlt sich gut an" und
+  // "springt" machen: der Zug beginnt erst nach 3 px (sonst veraendert ein
+  // Klick, der ein Pixel verrutscht, den Wert statt das Feld zu fokussieren),
+  // und die Zuhoerer fuer Bewegung haengen am Dokument, nicht am Feld - sonst
+  // verliert die Geste den Faden, sobald der Zeiger das Feld verlaesst.
+  function bindScrub(
+    input: DomElement,
+    current: () => number,
+    step: () => number,
+    limits: () => { min: number | undefined; max: number | undefined },
+    write: (value: number) => void,
+  ): void {
+    const owner = input.ownerDocument;
+    if (owner === undefined) return;
+    let zug: { startX: number; startValue: number; moved: boolean } | null = null;
+
+    const onMove = (event: DomEvent): void => {
+      if (zug === null) return;
+      const dx = (event.clientX ?? 0) - zug.startX;
+      if (!zug.moved && Math.abs(dx) < 3) return;
+      if (!zug.moved) {
+        zug.moved = true;
+        // Ab hier gehoert die Bewegung dem Zug: Textauswahl im Feld wuerde
+        // sonst mitlaufen.
+        input.setAttribute("data-scrubbing", "true");
+      }
+      event.preventDefault?.();
+      const grenzen = limits();
+      write(
+        scrubValue({
+          start: zug.startValue,
+          deltaPx: dx,
+          step: step(),
+          min: grenzen.min,
+          max: grenzen.max,
+          fine: event.shiftKey === true,
+          coarse: event.altKey === true,
+        }),
+      );
+    };
+
+    const onUp = (): void => {
+      if (zug === null) return;
+      const warZug = zug.moved;
+      zug = null;
+      input.removeAttribute("data-scrubbing");
+      owner.removeEventListener?.("pointermove", onMove);
+      owner.removeEventListener?.("pointerup", onUp);
+      // Nach einem echten Zug behaelt das Feld den Fokus, aber der Klick soll
+      // nicht als Positionsklick in den Text wirken.
+      if (warZug) input.setAttribute("data-scrubbed", "true");
+    };
+
+    input.addEventListener("pointerdown", (down) => {
+      if ((down.button ?? 0) !== 0) return;
+      if (zug !== null) return;
+      zug = { startX: down.clientX ?? 0, startValue: current(), moved: false };
+      down.preventDefault?.();
+      owner.addEventListener?.("pointermove", onMove);
+      owner.addEventListener?.("pointerup", onUp);
+    });
   }
 
   function renderUnitSelect(nodeId: string, field: InspectorField): DomElement {
