@@ -145,9 +145,9 @@ Geführt über `pnpm test:coverage`, v8-Provider und `perFile: true`. Der Lauf u
 | `packages/mcp/src/tools.ts` | 88.33 | 61.73 | 89.16 | 92.47 |
 | `packages/engine/src/store-*.ts` (38 Dateien) | 81.43 bis 100.00 | 61.76 bis 100.00 | 71.42 bis 100.00 | 82.35 bis 100.00 |
 | `packages/engine/src/http-*.ts` (11 Dateien) | 87.91 bis 100.00 | 69.76 bis 100.00 | 89.47 bis 100.00 | 87.94 bis 100.00 |
-| `packages/editor/src/state/*` (15 Dateien) | 75.00 bis 100.00 | 65.67 bis 100.00 | 73.33 bis 100.00 | 80.00 bis 100.00 |
+| `packages/editor/src/state/*` (16 Dateien) | 75.00 bis 100.00 | 65.67 bis 100.00 | 73.33 bis 100.00 | 80.00 bis 100.00 |
 
-**Über alle gemessenen Dateien:** Statements 90.55 · Branches 78.23 · Functions 93.75 · Lines 93.13
+**Über alle gemessenen Dateien:** Statements 90.58 · Branches 78.24 · Functions 93.77 · Lines 93.15
 
 <!-- messwerte:ende -->
 

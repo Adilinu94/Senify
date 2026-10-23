@@ -245,7 +245,43 @@ function editorChildCount(node: EditorNode): number {
   return (node.children?.length ?? 0) + slots;
 }
 
+// The layer list is a pure function of the document, and the explorer calls it
+// on every store event - including plain selection changes, where the document
+// object is unchanged. Measured at 1 694 nodes (a real import): 10,9 ms per
+// build, so one click paid a full frame of work that could not have changed.
+//
+// Memoised by document identity plus the one option that shapes the output.
+// The cache is one entry deep: the panel holds one document, a second one is
+// only ever the immediately preceding value, and holding more would leak
+// documents as long as the editor lives.
+let layerListCache: {
+  document: EditorDocument;
+  rootLabel: string | undefined;
+  items: EditorLayerItem[];
+} | null = null;
+
 export function buildEditorLayerList(
+  document: EditorDocument,
+  options?: { rootLabel?: string },
+): EditorLayerItem[] {
+  const rootLabel = options?.rootLabel;
+  if (
+    layerListCache !== null &&
+    layerListCache.document === document &&
+    layerListCache.rootLabel === rootLabel
+  ) {
+    return layerListCache.items;
+  }
+  const items = buildEditorLayerListUncached(document, options);
+  layerListCache = { document, rootLabel, items };
+  return items;
+}
+
+export function clearEditorLayerListCache(): void {
+  layerListCache = null;
+}
+
+function buildEditorLayerListUncached(
   document: EditorDocument,
   options?: { rootLabel?: string },
 ): EditorLayerItem[] {
@@ -288,7 +324,9 @@ export function buildEditorLayerList(
     }
   };
   visit(document.rootNodeId, 0, null, null);
-  return items;
+  // Frozen because the list is now cached: a caller that sorted or spliced it
+  // would corrupt the next reader's copy.
+  return Object.freeze(items) as EditorLayerItem[];
 }
 
 function childCount(tree: NodeTree, nodeId: string): number {
