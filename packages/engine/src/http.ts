@@ -25,6 +25,7 @@ import type {
 import type { AuthInfo, EngineContext, Route, RouteParams } from "./http-contract.ts";
 import { siteRoutes } from "./http-routes-sites.ts";
 import { assetRoutes } from "./http-routes-assets.ts";
+import { formularRoutes } from "./http-routes-formular.ts";
 import { referenceRoutes } from "./http-routes-references.ts";
 import { pageRoutes } from "./http-routes-pages.ts";
 import { mediaRoutes } from "./http-routes-media.ts";
@@ -110,6 +111,7 @@ function matchRoute(route: Route, method: string, segments: string[]): RoutePara
 
 const ROUTES: Route[] = [
   ...assetRoutes,
+  ...formularRoutes,
   ...mediaRoutes,
   ...opsRoutes,
   ...contentRoutes,
