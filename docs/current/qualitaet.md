@@ -132,22 +132,22 @@ Geführt über `pnpm test:coverage`, v8-Provider und `perFile: true`. Der Lauf u
      Nicht von Hand editieren: dieser Block ist ein Messwert, und `pnpm quality:check`
      lässt den Lauf rot werden, sobald Dokument und Lauf auseinanderlaufen. -->
 
-**Gemessen:** 2026-10-22 · vitest coverage (v8)
+**Gemessen:** 2026-10-23 · vitest coverage (v8)
 
 | Pfad | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
 | `packages/engine/src/http.ts` | 96.47 | 87.83 | 100.00 | 97.46 |
-| `packages/engine/src/http-route-support.ts` | 86.25 | 71.78 | 93.02 | 86.60 |
-| `packages/engine/src/http-routes-sites.ts` | 93.96 | 74.50 | 94.25 | 96.15 |
+| `packages/engine/src/http-route-support.ts` | 86.66 | 72.27 | 93.02 | 86.60 |
+| `packages/engine/src/http-routes-sites.ts` | 93.40 | 74.82 | 93.42 | 95.77 |
 | `packages/engine/src/store.ts` | 88.74 | 70.27 | 95.32 | 89.19 |
 | `packages/engine/src/lifecycle.ts` | 89.16 | 73.91 | 89.13 | 90.66 |
 | `packages/engine/src/forms.ts` | 91.37 | 82.97 | 96.87 | 93.18 |
 | `packages/mcp/src/tools.ts` | 88.33 | 61.73 | 89.16 | 92.47 |
 | `packages/engine/src/store-*.ts` (38 Dateien) | 81.43 bis 100.00 | 61.76 bis 100.00 | 71.42 bis 100.00 | 82.35 bis 100.00 |
-| `packages/engine/src/http-*.ts` (9 Dateien) | 86.25 bis 100.00 | 69.76 bis 94.93 | 89.47 bis 100.00 | 86.60 bis 100.00 |
+| `packages/engine/src/http-*.ts` (10 Dateien) | 86.66 bis 100.00 | 69.76 bis 100.00 | 89.47 bis 100.00 | 86.60 bis 100.00 |
 | `packages/editor/src/state/*` (15 Dateien) | 75.00 bis 100.00 | 65.67 bis 100.00 | 73.33 bis 100.00 | 80.00 bis 100.00 |
 
-**Über alle gemessenen Dateien:** Statements 90.48 · Branches 77.95 · Functions 93.75 · Lines 93.09
+**Über alle gemessenen Dateien:** Statements 90.50 · Branches 78.02 · Functions 93.75 · Lines 93.09
 
 <!-- messwerte:ende -->
 
