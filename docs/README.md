@@ -7,6 +7,7 @@
 | `CONTEXT.md` | Fachsprache und Domäneninvarianten |
 | `docs/fahrplan.md` | **priorisierte Reihenfolge der offenen Arbeit, Gates, Definition of Ready/Done, Risiko-Register** |
 | `docs/current/stand.md` | aktueller Umsetzungsstand (Code- und Testbelege) |
+| `docs/current/module.md` | **erzeugt**: der Bestand der Fachmodule mit Zeilen, Routen und Testpfaden (`pnpm module:render`); keine Handarbeit |
 | `docs/current/architektur.md` | aktuelle Seams, Datenflüsse, Transaktionsverhalten, Risiko-Katalog |
 | `docs/current/qualitaet.md` | letzter verifizierter Test- und Gate-Stand (einzige Stelle für Testzahlen) |
 | `docs/adr/` | angenommene Architekturentscheidungen |
@@ -27,6 +28,9 @@ Bei Widersprüchen gilt:
 ## Regeln
 
 - Test- und Routenzahlen werden nicht in mehrere Current-Dokumente kopiert; sie stehen ausschließlich in `docs/current/qualitaet.md`.
+- **Der Bestand der Module steht in `docs/current/module.md`** und wird dort erzeugt. Eine Handkopie der Liste (Zeilenzahlen, Routenzahlen, Dateinamen) driftet beim nächsten Schritt — genau das war am 23.10.2026 der Fall.
+- `pnpm module:check` vergleicht die Datei mit dem Generator; `route-matrix:check`, `manifest:check` und `quality:check` arbeiten nach demselben Muster.
+- `packages/engine/test/doku-konsistenz.test.ts` hält beides: die erzeugte Datei am Code und die Risiko-Nummern über `fahrplan.md`, `stand.md` und `architektur.md` synchron.
 - Jede Aussage `umgesetzt` oder `belegt` nennt einen Code- oder Testpfad.
 - Status wird als `belegt`, `implementiert`, `teilweise`, `geplant`, `bewusst vertagt` oder `ungeprüft` angegeben.
 - ADR-Nummern werden nie nachträglich für ein anderes Thema wiederverwendet. `ADR-0011` ist reserviert (EditorDocument als kanonisches Modell) und darf nicht anderweitig vergeben werden.

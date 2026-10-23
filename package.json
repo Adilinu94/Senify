@@ -12,6 +12,8 @@
     "senify": "tsx packages/mcp/src/cli.ts",
     "route-matrix": "tsx packages/engine/scripts/route-matrix.ts",
     "route-matrix:check": "tsx packages/engine/scripts/route-matrix.ts --check",
+    "module:render": "node scripts/render-modules.mjs",
+    "module:check": "node scripts/render-modules.mjs --check",
     "browser:check": "node scripts/check-browser.mjs",
     "thumbnails:generate": "tsx packages/editor/scripts/generate-section-thumbnails.ts",
     "build": "pnpm typecheck && pnpm -r build",
