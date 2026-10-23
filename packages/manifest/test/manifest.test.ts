@@ -28,7 +28,32 @@ const TOOLS_BY_NAME = toolsByName(TOOL_MANIFEST);
 // which the test transform does not guarantee. `fileURLToPath` yields the FILE;
 // two `dirname` calls land on `packages/manifest/`, a third on the repo root.
 const root = dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url)))));
-const quelle = readFileSync(join(root, "packages", "mcp", "src", "tools.ts"), "utf8");
+const MCP_SRC = join(root, "packages", "mcp", "src");
+
+/**
+ * Die Werkzeuge, wie `TOOLS` sie sammelt.
+ *
+ * Die Definitionen liegen in `tools.ts` und den Modulen `tools-*.ts` (P3-2).
+ * Wer nur `tools.ts` liest, sieht die eingespeisten Werkzeuge nicht - und
+ * meldet dann "Im Manifest zu viel: list_assets, ...", obwohl das Manifest
+ * richtig ist. Dieselbe Aufloesung wie im Generator
+ * (`scripts/render-manifest.mjs`): Spreizungen durch den Modulinhalt ersetzen.
+ */
+function quelltext(): string {
+  const basis = join(MCP_SRC, "tools.ts");
+  let text = readFileSync(basis, "utf8");
+  const eingespeist = new Map();
+  for (const m of text.matchAll(/import \{ ([\w]+) \} from "\.\/(tools-[\w-]+\.ts)";/g)) {
+    eingespeist.set(m[1]!, m[2]!);
+  }
+  for (const [name, datei] of eingespeist) {
+    const inhalt = readFileSync(join(MCP_SRC, datei), "utf8");
+    text = text.replace(new RegExp(`^  \\.\\.\\.${name},\\s*$`, "m"), inhalt);
+  }
+  return text;
+}
+
+const quelle = quelltext();
 
 function werkzeugNamen(): Set<string> {
   return new Set([...quelle.matchAll(/^\s{4}name: "([a-z_]+)",$/gm)].map((m) => m[1]!));
