@@ -61,6 +61,12 @@ describe.skipIf(!browserAvailable)("Framer import dialog", () => {
       expect(await tab.locator('[data-role="framer-import-report"]').textContent()).toContain(
         "Import-Bericht",
       );
+      // The honest split (step 7 of the 1:1 plan): the dialog says how much of
+      // the page the editor edits and how much runs as original code.
+      const share = await tab
+        .locator('[data-role="framer-editable-share"]')
+        .textContent();
+      expect(share).toMatch(/\d+ % bearbeitbar, \d+ % Original-Code/);
       expect(await tab.locator('[data-action="framer-import-apply"]').isEnabled()).toBe(true);
 
       // The preview: the source and the import side by side at three widths.

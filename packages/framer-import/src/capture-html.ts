@@ -1171,18 +1171,10 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
   }
 
   const fonts: IrFontFace[] = [];
-  const fontCss = styleBlock(html, "data-framer-font-css") ?? "";
-  const linkedCss = readLinkedCss(html, input.rootDir);
-  // A URL import has no export folder: the sheets the page links are fetched by
-  // the caller and arrive in `input.css`. Without them a page whose faces live
-  // in a linked sheet (donutshop, meeko) carries no font at all and every text
-  // falls back to the system font.
-  //
-  // Framer spreads its faces over several `<style>` blocks: the marked one
-  // carries the families of the page, a second one a Google-Fonts link. A scan
-  // of the marked block alone loses the rest, so every block with a
-  // `@font-face` counts.
-  const fontSource = `${fontCss}\n${fontFaceStyles(html)}\n${linkedCss}\n${input.css ?? ""}`;
+  // Every block with a `@font-face`, once: the marked block is one of them, and
+  // reading it twice listed every face twice (the second copy had no file, so
+  // the asset report counted a failure per face).
+  const fontSource = `${fontFaceStyles(html)}\n${readLinkedCss(html, input.rootDir)}\n${input.css ?? ""}`;
   for (const match of fontSource.matchAll(/@font-face\s*\{([^}]*)\}/g)) {
     const body = match[1] ?? "";
     const family = /font-family:\s*"?([^";]+)"?/.exec(body)?.[1];
@@ -1389,7 +1381,7 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
     ],
     styles: {
       colors,
-      textPresets: readTextPresets(html, linkedCss),
+      textPresets: readTextPresets(html, readLinkedCss(html, input.rootDir)),
       fonts,
     },
     assets,
@@ -1662,11 +1654,6 @@ function scriptJson(html: string, id: string): string | null {
   if (match === null) return null;
   const content = (match[1] ?? "").trim();
   return content === "" ? null : content;
-}
-
-function styleBlock(html: string, marker: string): string | null {
-  const re = new RegExp(`<style[^>]*${marker}[^>]*>([\\s\\S]*?)</style>`);
-  return re.exec(html)?.[1] ?? null;
 }
 
 function readAllCss(html: string, rootDir: string | undefined): string {

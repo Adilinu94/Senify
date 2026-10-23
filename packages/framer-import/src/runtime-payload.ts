@@ -269,10 +269,12 @@ export async function buildRuntimePayload(input: RuntimePayloadInput & { files: 
     // Invalid URL` — measured on notes: the page stayed empty (900 px instead of
     // 1743 px). The shim gives the constructor the document as its base, which
     // is exactly what a relative address means. Everything else stays native.
-    "  var NativeURL = window.URL;",
+    "  var scope = typeof window === 'object' && window !== null ? window : globalThis;",
+    "  var NativeURL = scope.URL;",
     "  if (typeof NativeURL === 'function' && NativeURL.__senifyBaseShim !== true) {",
     "    var PatchedURL = function (value, base) {",
-    "      return base === undefined ? new NativeURL(value, document.baseURI) : new NativeURL(value, base);",
+    "      var fallback = typeof document === 'object' && document !== null && typeof document.baseURI === 'string' ? document.baseURI : undefined;",
+    "      return base === undefined ? new NativeURL(value, fallback) : new NativeURL(value, base);",
     "    };",
     "    PatchedURL.prototype = NativeURL.prototype;",
     "    PatchedURL.createObjectURL = NativeURL.createObjectURL;",
@@ -280,7 +282,7 @@ export async function buildRuntimePayload(input: RuntimePayloadInput & { files: 
     "    PatchedURL.canParse = NativeURL.canParse;",
     "    PatchedURL.parse = NativeURL.parse;",
     "    PatchedURL.__senifyBaseShim = true;",
-    "    window.URL = PatchedURL;",
+    "    scope.URL = PatchedURL;",
     "  }",
     "  stage.innerHTML = PAGE;",
     "  // The runtime looks for `#main` — and the Senify page has a `<main id=\"main\">`",

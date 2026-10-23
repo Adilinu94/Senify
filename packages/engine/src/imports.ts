@@ -552,6 +552,7 @@ export async function runFramerImportJob(
         ? {}
         : { payloadId: preparedPayloads[index]?.id as string }),
     })),
+    ...(run.report.editableShare === undefined ? {} : { editableShare: run.report.editableShare }),
     steps: run.report.steps,
   };
 

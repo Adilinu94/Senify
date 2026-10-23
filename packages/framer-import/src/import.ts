@@ -384,6 +384,15 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
   // carrier stands — step 3 of the plan). The tree keeps the structure: it
   // stays the truth the editor works on.
   const pagePayload = payloads.find((payload) => payload.scope === "page");
+  // The editable share of the page (step 7 of the 1:1 plan): what the editor
+  // really edits. A page-level payload carries the whole page in the release,
+  // so the honest number is 0 % editable there — the structure is a preview,
+  // not what goes live. A page without a payload is edited in full.
+  const pageNodes = Object.keys(mapped.document.nodes).length;
+  const carrierNodes = pagePayload === undefined ? 0 : 1;
+  report.editableShare = pagePayload === undefined
+    ? { editable: 100, original: 0, nodes: pageNodes }
+    : { editable: 0, original: 100, nodes: pageNodes - carrierNodes };
   if (pagePayload !== undefined) {
     const root = mapped.document.nodes[mapped.document.rootNodeId];
     if (root !== undefined) {

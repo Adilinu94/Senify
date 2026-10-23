@@ -565,17 +565,32 @@ alles lokal): **0,03 % / 0,06 % / 0,15 %** Pixel-Differenz (Desktop/Tablet/Mobil
 „Runtime startet nach dem Markup" wird **rot**, sobald der Import statisch wird),
 `packages/renderer/test/payload-page.test.ts` (3 Fälle; **rot**, sobald die Naht fehlt).
 
-#### Was offen bleibt
+#### Was offen bleibt — **geschlossen 23.10.2026**
 
-- **Das Poster für den Editor** (ADR-0010 §7, Pflicht beim Import) fehlt: ein Screenshot der
-  Quelle braucht den Browser-Capture, der URL-Import hat keinen. Bis dahin steht im Canvas die
-  **Platte** („Original · Framer-Runtime") — der dokumentierte Rückfall, aber nicht der
-  Sollzustand.
-- **Die CSS-Assets der Originalseite** (Hintergrundbilder) zeigen im Payload-CSS weiter auf das
-  CDN. Der Import lädt sie, die Umschreibung des *CSS* steht aber noch aus (derselbe Weg wie
-  bei den Fonts, nur sind es Bilder).
+- ~~**Das Poster für den Editor** (ADR-0010 §7, Pflicht beim Import) fehlt~~ — **umgesetzt.** Der
+  Capture nimmt das Social Image der Quelle (`og:image`) in die Asset-Liste auf und der Träger
+  nennt es als `poster`. Es ist das Bild **der Quelle**, also zeigt das Poster, was die Seite
+  zeigt — kein Screenshot nötig, keine Vermutung. Beleg: `payload-poster.test.ts` (4 Fälle).
+  Der Rückfall lautet jetzt wirklich Payload → Poster → Platte; `failed` zeigt das Poster statt
+  der Platte (die Reihenfolge in `components.css` war umgedreht).
+- ~~**Die CSS-Assets der Originalseite** zeigen im Payload-CSS weiter auf das CDN~~ —
+  **umgesetzt und größer als gedacht.** Nicht nur das CSS: das **Markup** und die
+  **Runtime-Daten** trugen die CDN-Adressen (die Runtime baut ihre Bilder aus ihrem JSON, nicht
+  aus `<img src>`). Alle drei Wege werden jetzt umgeschrieben, längste Adresse zuerst, beide
+  Schreibweisen (`/` und `\/`), `srcset` mit `&amp;` korrekt geteilt und die Query
+  (`?width=840`, `?scale-down-to=512`) vor der Suche abgeschnitten. Gemessen an
+  `unifiersofjapan`: **76 → 4** CDN-Adressen (die vier sind der „Made in Framer"-Badge und
+  `www.w3.org`-Namensräume).
+- **Nebenbefund, der die 1:1-Zusage erst einlöst:** `MAIN_ELEMENT` las `#main` mit einem Regex,
+  der am ersten `</div>` endet. Der Payload trug **0,5–1,3 %** des Markups (notes 620 von
+  46.520 Bytes). `elementBody` zählt jetzt die Verschachtelung.
 - **Die Seite im Editor** ist die Struktur, im Release das Original. Das ist die ehrliche
-  Teilung; der Import-Bericht sagt es.
+  Teilung; der Import-Bericht sagt sie jetzt mit einer Zahl (`editableShare`: „0 % bearbeitbar,
+  100 % Original-Code").
+- **Die CSP** (ADR-0010 §8, dort als offen geführt) ist gesetzt: Preview und Release antworten
+  mit `PAGE_CSP`. Sie beschränkt die Herkunft, nicht die Inline-Form — der Bake schreibt
+  Inline-Blöcke, eine Hash-Policy bräche bei jeder Änderung. Nach der Adress-Umschreibung lädt
+  die Seite nichts Fremdes mehr; der Badge fällt weg.
 
 ### Schritt 3 · Die Naht zwischen Struktur und Payload — **umgesetzt 22.10.2026**
 
@@ -778,8 +793,9 @@ Diese Information ist im SSR nicht enthalten; sie kommt nur mit der Framer-Runti
 (Payload). Der Bericht nennt heute, was nicht ankam.
 
 **Gate:** Keine Seite hat mehr eine Animation, die **weder** als Preset **noch** als Payload
-ankommt, ohne dass der Bericht es sagt. — **für Punkt 1 und 2 erfüllt**; für Punkt 3
-bleibt es offen, bis Schritt 2 steht.
+ankommt, ohne dass der Bericht es sagt. — **erfüllt (23.10.2026)**: Hover-Bewegung und
+Scroll-Trigger reisen seit Schritt 2 mit der Runtime; der Bericht nennt jede Seite, die als
+Original-Code läuft.
 
 ### Schritt 6 · Die Grenze der Werkzeuge festhalten
 
@@ -791,16 +807,25 @@ bleibt es offen, bis Schritt 2 steht.
 - **Lizenz:** Framer-Templates haben eigene Bedingungen. ADR-0010 verlangt ein sichtbares
   Lizenzfeld; „unknown" darf nicht in die globale Bibliothek.
 
-**Dazu zwei Punkte, die ADR-0010 ausdrücklich als offen führt und die dieser Plan nicht löst:**
+**Die zwei Punkte aus ADR-0010 — Stand 23.10.2026:**
 
-- **CSP-Header im Deploy.** Ein Payload ist ausführbarer Code. Ohne Content-Security-Policy kann
-  eine fremde Seite Code einschleusen, der im selben Kontext läuft. ADR-0010 nennt CSP als offen;
-  solange sie fehlt, ist jeder Payload ein **bewusstes** Risiko. Das ist bei E1 („ja") mitgedacht,
-  aber nicht erledigt.
-- **Lizenzfrage für kommerzielle Kundenarbeiten.** Bei dir privat unkritisch (E3). Sobald eine
-  Seite an Dritte geht, gilt wieder die Nachweispflicht aus ADR-0010.
+- ~~**CSP-Header im Deploy.**~~ **Umgesetzt.** Preview und Release antworten mit
+  `Content-Security-Policy` (`PAGE_CSP` in `packages/engine/src/http-build-files.ts`):
+  `default-src 'self'`, `object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'self'`.
+  Inline-Stile und -Skripte bleiben erlaubt — der Bake schreibt sie, eine Hash-Policy bräche bei
+  jeder Seitenänderung; die Grenze ist die **Herkunft**. Damit sie hält, schreibt der Import die
+  Adressen der Quelle in Markup, CSS und Runtime-Daten um (gemessen an `unifiersofjapan`:
+  76 → 4 CDN-Adressen; die vier sind der „Made in Framer"-Badge und `w3.org`-Namensräume).
+  Beleg: `lifecycle.test.ts` (Preview- und Release-Antwort tragen die Policy), `_messung/csp-test.ts`
+  (Seite rendert exakt, Zustand `mounted`, Verstöße nur der Badge).
+- ~~**Lizenzfrage für kommerzielle Kundenarbeiten.**~~ **Im Code durchgesetzt.**
+  `assertLicensedForLibrary` weist einen importierten Baustein mit ungeprüfter Lizenz aus der
+  globalen Bibliothek ab (400, `field: "license"`); der Release führt ihn als Soft-Befund
+  `payload-license-unchecked`. Beleg: `library.test.ts` (2 neue Fälle), `lifecycle.test.ts` (1).
+  **Was bleibt, ist keine Code-Frage:** bei einer Weitergabe an Dritte musst du die Lizenz
+  tatsächlich prüfen — der Code kann nur verlangen, dass sie dasteht.
 
-**Gate:** Ein Satz je Punkt, mit Beleg. Kein Bau.
+**Gate:** Ein Satz je Punkt, mit Beleg. Kein Bau. — **erfüllt.**
 
 ### Schritt 7 · Editor und Doku
 
@@ -810,7 +835,17 @@ bleibt es offen, bis Schritt 2 steht.
 - Die Anleitung (`packages/docs-portal/content/docs/framer-import.md`) nennt die Werkzeuge und ihre
   Grenzen.
 
-**Gate:** Doku-Tests grün; der Dialog zeigt die Quote.
+**Umgesetzt 23.10.2026.** Der Import-Bericht trägt `editableShare` (`{ editable, original, nodes }`),
+der Dialog zeigt es als eigene Zeile (`data-role="framer-editable-share"`). Die Zahl ist ehrlich
+gerechnet, nicht geschätzt: eine Seite mit Framer-Runtime läuft im Release als Original (0/100),
+eine Seite ohne Runtime ist vollständig bearbeitbar (100/0). Die Anleitung hat einen neuen
+Abschnitt „Zwei Ausgaben: bearbeitbarer Baum und Original-Code" mit der Tabelle, was jeweils
+editierbar ist, und einen Abschnitt „Was die Seite nach dem Import lädt" (Adress-Umschreibung und
+CSP).
+
+**Gate:** Doku-Tests grün; der Dialog zeigt die Quote. — **erfüllt.**
+`packages/docs-portal/test` 38 Tests grün, `packages/app/test/framer-import-browser.test.ts`
+prüft die Zeile im echten Dialog.
 
 ## 7. Die Entscheidungen, die du treffen musst
 
