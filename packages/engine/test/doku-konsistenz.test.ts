@@ -1,0 +1,139 @@
+import { readFileSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
+import { describe, expect, it } from "vitest";
+
+// Prueft die Current-Dokumente gegen den Code.
+//
+// Der Anlass: am 23.10.2026 stand die Moduluebersicht als eine 7 046 Zeichen
+// lange Tabellenzelle in `docs/current/stand.md` - 73 Dateinamen, 8
+// Routenzahlen, 8 Zeilenzahlen, alles von Hand. Zwei Routenzahlen waren falsch
+// (`http-routes-sites.ts` 64 statt 61, `http-routes-media.ts` 16 statt 15),
+// vier Mapper-Module fehlten ganz. Ein Mensch findet das nicht beim Lesen.
+//
+// Die Uebersicht liegt jetzt in `docs/current/module.md` und wird von
+// `scripts/render-modules.mjs` aus dem Code erzeugt. Diese Datei prueft beide
+// Seiten: dass der Generator die Datei reproduziert, und dass die Prosa in
+// `stand.md` nicht wieder Zahlen von Hand behauptet.
+const here = dirname(fileURLToPath(import.meta.url));
+const root = dirname(dirname(dirname(here)));
+const SRC = join(root, "packages", "engine", "src");
+const PUB = join(root, "packages", "app", "public");
+
+const stand = readFileSync(join(root, "docs/current/stand.md"), "utf8").split(/\r?\n/);
+const fahrplan = readFileSync(join(root, "docs/fahrplan.md"), "utf8").split(/\r?\n/);
+const architektur = readFileSync(join(root, "docs/current/architektur.md"), "utf8").split(/\r?\n/);
+const module = readFileSync(join(root, "docs/current/module.md"), "utf8");
+
+function r12Zeile() {
+  const zeile = stand.find((l) => l.startsWith("| R12 |"));
+  if (zeile === undefined) throw new Error("R12-Zeile fehlt in docs/current/stand.md");
+  return zeile;
+}
+
+describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
+  it("module.md ist, was der Generator schreibt", () => {
+    // Dasselbe Muster wie bei der Route-Matrix: eine generierte Datei, die
+    // niemand prueft, driftet still.
+    expect(() =>
+      execFileSync(process.execPath, [join(root, "scripts", "render-modules.mjs"), "--check"], {
+        cwd: root,
+        stdio: "pipe",
+      }),
+    ).not.toThrow();
+  });
+
+  it("nennt jedes Fachmodul im Bericht", () => {
+    const genannt = new Set([...module.matchAll(/^\| `([a-z0-9-]+\.(?:ts|js))`/gm)].map((m) => m[1]));
+    const vorhanden = [
+      ...readdirSync(SRC).filter((n) => /^(store|http)-.*\.ts$/.test(n)),
+      ...readdirSync(PUB).filter((n) => /^app-.*\.js$/.test(n)),
+    ];
+    const fehlend = vorhanden.filter((n) => !genannt.has(n)).sort();
+    expect(fehlend).toEqual([]);
+  });
+
+  it("nennt je Route-Modul die richtige Routenzahl", () => {
+    // Der Befund vom 23.10.2026: die Zahl stand von Hand in `stand.md` und war
+    // fuer zwei Module falsch. Jetzt steht sie im Bericht, und der Bericht
+    // kommt aus der Datei, die er beschreibt.
+    const falsch = [];
+    for (const m of module.matchAll(/^\| `(http-routes-[a-z-]+\.ts)` \| (\d+|-) \|/gm)) {
+      const datei = m[1];
+      if (datei === undefined) continue;
+      const behauptet = m[2] === "-" ? 0 : Number(m[2]);
+      const echt = (readFileSync(join(SRC, datei), "utf8").match(/^\s*method: "/gm) ?? []).length;
+      if (echt !== behauptet) falsch.push(`${datei}: Bericht ${behauptet}, Code ${echt}`);
+    }
+    expect(falsch).toEqual([]);
+  });
+
+  it("nennt in der Summe so viele Routen, wie die Module tragen", () => {
+    const module_ = readdirSync(SRC).filter((n) => n.startsWith("http-routes-") && n.endsWith(".ts"));
+    const summe = module_.reduce(
+      (n, name) => n + (readFileSync(join(SRC, name), "utf8").match(/^\s*method: "/gm) ?? []).length,
+      0,
+    );
+    const genannt = Number(/^\| \*\*Summe\*\* \| \*\*(\d+)\*\*/m.exec(module)?.[1] ?? -1);
+    expect(summe).toBe(genannt);
+
+    // Gegenprobe zur Route-Matrix: dieselbe Zahl steht dort auch - die Matrix
+    // liest Text, dieser Test liest die Tabelle.
+    const matrix = readFileSync(join(root, "docs/mcp-route-matrix.md"), "utf8");
+    expect(summe).toBe(Number(/\*\*Zahlen:\*\* (\d+) Routen/.exec(matrix)?.[1] ?? -1));
+  });
+
+  it("haelt die R12-Zeile frei von handgepflegten Zahlen", () => {
+    // Die Zeile darf den Fortschritt in Worten nennen (sie nennt die vier
+    // Transaktionen und die 211 von 235 Delegaten - das ist eine Aussage ueber
+    // eine Datei, die man pruefen kann). Sie darf NICHT wieder 73 Dateinamen
+    // und 8 Routenzahlen tragen: genau das ist am 23.10.2026 driftet.
+    const zeile = r12Zeile();
+    expect(zeile).toContain("docs/current/module.md");
+    const dateinamen = [...zeile.matchAll(/`([a-z0-9-]+\.(?:ts|js))`/g)].map((m) => m[1]);
+    expect(dateinamen.length).toBeLessThanOrEqual(4);
+    expect(zeile).not.toMatch(/\d+ Routen/);
+  });
+});
+
+describe("Doku-Waechter: die Risiko-Nummern sind synchron", () => {
+  // `docs/README.md` sagt: die Risiko-Nummern sind ueber `fahrplan.md`,
+  // `stand.md` und `architektur.md` identisch. Am 23.10.2026 war das nicht mehr
+  // wahr: der Fahrplan fuehrte R1-R20, die Current-Dokumente R1-R13. Wer R14
+  // nachschlagen wollte (die vitest-Frist), fand in `stand.md` nichts.
+  const ids = (L: string[]): string[] =>
+    [
+      ...new Set(
+        L.filter((l) => /^\| R\d+ \|/.test(l)).map((l) => /^\| (R\d+) \|/.exec(l)?.[1] ?? ""),
+      ),
+    ]
+      .filter((id) => id !== "")
+      .sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
+
+  it("fuehrt in stand.md dieselben Risiken wie fahrplan.md", () => {
+    expect(ids(stand)).toEqual(ids(fahrplan));
+  });
+
+  it("fuehrt in architektur.md dieselben Risiken wie fahrplan.md", () => {
+    expect(ids(architektur)).toEqual(ids(fahrplan));
+  });
+
+  it("hat fuer jede Risiko-Nummer eine Zeile mit vier Zellen", () => {
+    // Eine Zeile mit drei Pipes ist in Markdown keine Tabellenzeile: sie
+    // verschwindet aus der Darstellung, und die Nummer steht da, ohne dass
+    // jemand sie sieht.
+    const dokumente: Array<[string, string[]]> = [
+      ["stand.md", stand],
+      ["architektur.md", architektur],
+      ["fahrplan.md", fahrplan],
+    ];
+    for (const [name, L] of dokumente) {
+      for (const id of ids(L)) {
+        const zeile = L.find((l) => l.startsWith(`| ${id} |`));
+        expect(zeile, `${name}: ${id} fehlt`).toBeDefined();
+        expect((zeile?.match(/\|/g) ?? []).length, `${name}: ${id} hat nicht vier Zellen`).toBe(5);
+      }
+    }
+  });
+});
