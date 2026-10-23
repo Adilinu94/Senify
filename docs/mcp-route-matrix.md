@@ -8,6 +8,17 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 
 | Methode | Route | Scope | Status | MCP-Tool(s) / Anmerkung |
 |---|---|---|---|---|
+| GET | `/api/sites/:siteId/assets/:assetId` | read | Operator | UI/CLI |
+| PATCH | `/api/sites/:siteId/assets/:assetId` | write | Tool | `replace_asset`, `update_asset` |
+| DELETE | `/api/sites/:siteId/assets/:assetId` | write | Tool | `delete_asset` |
+| POST | `/api/sites/:siteId/assets/:assetId/restore` | write | Tool | `restore_asset` |
+| POST | `/api/sites/:siteId/assets/:assetId/purge` | publish | Operator | UI/CLI |
+| GET | `/api/sites/:siteId/assets/:assetId/history` | read | Operator | UI/CLI |
+| POST | `/api/sites/:siteId/assets/:assetId/restore-history/:historyId` | write | Operator | UI/CLI |
+| POST | `/api/sites/:siteId/assets/bulk` | write | Operator | UI/CLI |
+| POST | `/api/sites/:siteId/asset-folders` | write | Operator | UI/CLI |
+| GET | `/api/sites/:siteId/asset-folders` | read | Operator | UI/CLI |
+| DELETE | `/api/sites/:siteId/asset-folders/:folderId` | write | Operator | UI/CLI |
 | GET | `/api/reviews/:reviewId` | read | Tool | `get_review_feedback` |
 | GET | `/api/reviews/:reviewId/visuals/:filename` | read | Operator | Auslieferung der Review-Screenshots (signiert) |
 | POST | `/api/reviews/:reviewId/approve` | publish | Operator | UI/CLI |
@@ -150,17 +161,6 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 | DELETE | `/api/sites/:siteId/library-installs/:installId` | write | Tool | `uninstall_library_component` |
 | POST | `/api/sites/:siteId/code-payloads` | write | Operator | Import/CLI (MCP-Tools folgen mit der Bibliothek, S6) |
 | GET | `/api/sites/:siteId/code-payloads` | read | Operator | Import-Bericht/Editor |
-| GET | `/api/sites/:siteId/assets/:assetId` | read | Operator | UI/CLI |
-| PATCH | `/api/sites/:siteId/assets/:assetId` | write | Tool | `replace_asset`, `update_asset` |
-| DELETE | `/api/sites/:siteId/assets/:assetId` | write | Tool | `delete_asset` |
-| POST | `/api/sites/:siteId/assets/:assetId/restore` | write | Tool | `restore_asset` |
-| POST | `/api/sites/:siteId/assets/:assetId/purge` | publish | Operator | UI/CLI |
-| GET | `/api/sites/:siteId/assets/:assetId/history` | read | Operator | UI/CLI |
-| POST | `/api/sites/:siteId/assets/:assetId/restore-history/:historyId` | write | Operator | UI/CLI |
-| POST | `/api/sites/:siteId/assets/bulk` | write | Operator | UI/CLI |
-| POST | `/api/sites/:siteId/asset-folders` | write | Operator | UI/CLI |
-| GET | `/api/sites/:siteId/asset-folders` | read | Operator | UI/CLI |
-| DELETE | `/api/sites/:siteId/asset-folders/:folderId` | write | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/collections` | write | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/collections/from-fields` | write | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/collections` | read | Tool | `list_collections` |
