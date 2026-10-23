@@ -411,11 +411,17 @@ function fitTextStyles(fit: RawFitText): Record<string, string> {
   // Four decimals keep the pixel at every width of the page: 0.0001 % of a
   // 1280 px box is 0.0013 px.
   out["font-size"] = `${Math.round(share * 10000) / 10000}cqw`;
-  // The source sets the height of a line as a share of the size (`80%`); the
-  // style table reads `line-height` as a factor, which is the same number.
+  // The source sets the height of a line as a share of the size (`80%`, or
+  // `1.05em` — the same statement in the other unit); the style table reads
+  // `line-height` as a factor, which is the same number. A `em`/`%` value
+  // without the unit is what the table wants; an unrecognised form is left out
+  // rather than guessed (measured on last-studio: `1.05em` was dropped, the
+  // heading took the browser's 1.5 and the header grew by 89 px).
   const lineHeight = (fit.inline["lineHeight"] ?? "").trim();
   const factor = /^([\d.]+)%$/.exec(lineHeight);
+  const em = /^([\d.]+)em$/.exec(lineHeight);
   if (factor !== null) out["line-height"] = String(Number.parseFloat(factor[1] ?? "") / 100);
+  else if (em !== null) out["line-height"] = em[1] ?? "";
   else if (/^[\d.]+$/.test(lineHeight)) out["line-height"] = lineHeight;
   const KEBAB: Readonly<Record<string, string>> = {
     fontWeight: "font-weight",
