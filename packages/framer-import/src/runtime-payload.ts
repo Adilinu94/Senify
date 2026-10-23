@@ -42,6 +42,15 @@ export type FramerRuntimeDetection = {
   mainId: string;
   // Das **äußere** Markup dieses Elements, inklusive des Zustandsattributs.
   mainHtml: string;
+  // Die Geschwister, die zum Seitenrumpf gehören, aber NICHT in `#main` liegen.
+  // Framer legt zwei davon an, und die Laufzeit sucht sie per id:
+  //   `<div id="svg-templates">`  — die SVG-Vorlagen, die `use`-Elemente
+  //                                 referenzieren; ohne sie bleibt jedes Icon leer
+  //   `<div id="__framer-badge-container">` — die Montagestelle des Badges; die
+  //                                 Laufzeit ruft dort `hydrateRoot` und wirft
+  //                                 sonst React #405 (`Target container is not a
+  //                                 DOM element`), gemessen auf jeder Seite.
+  bodyTail: string;
   // Das Original-CSS der Seite (inline + verlinkte Blätter).
   css: string;
   // Die verlinkten Stylesheets der Seite (inline ist oben schon drin).
@@ -130,6 +139,40 @@ function attr(attrs: string, name: string): string | null {
   return found?.[1] ?? null;
 }
 
+// The elements Framer puts NEXT TO `#main`. The runtime finds them by id and
+// `hydrateRoot` throws React #405 when one is missing — measured: every release
+// page reported it, the source reported none.
+const BODY_SIBLINGS = ["svg-templates", "__framer-badge-container"] as const;
+
+// The markup of one element by id, `<div …>…</div>` with its own depth walked.
+function elementById(html: string, id: string): string {
+  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const open = new RegExp(`<([a-z][\\w-]*)\\b[^>]*\\bid\\s*=\\s*["']${escaped}["'][^>]*>`, "i").exec(html);
+  if (open === null) return "";
+  const body = elementBody(html, (open.index ?? 0) + open[0].length);
+  return `${open[0]}${body}</${open[1] ?? "div"}>`;
+}
+
+/**
+ * The two siblings of `#main` the runtime expects, as one markup string.
+ *
+ * Measured on 7 of 7 blind-test pages: every one carries
+ * `<div id="__framer-badge-container">` and most carry `<div id="svg-templates">`
+ * outside `#main`. A payload that carries only `#main` leaves both missing; the
+ * runtime then calls `hydrateRoot(null)` and throws
+ * `Minified React error #405: Target container is not a DOM element` on every
+ * page — and every `<use href="#svg-…">` resolves to nothing, so the icons of
+ * the page stay blank.
+ */
+function bodySiblings(html: string): string {
+  const parts: string[] = [];
+  for (const id of BODY_SIBLINGS) {
+    const element = elementById(html, id);
+    if (element !== "") parts.push(element);
+  }
+  return parts.join("");
+}
+
 /**
  * The Framer runtime of a page — or null when the page carries none.
  *
@@ -163,6 +206,7 @@ export function detectFramerRuntime(html: string, pageUrl: string): FramerRuntim
     entry: absolute(pageUrl, entry),
     mainId: attr(mainAttrs, "id") ?? "main",
     mainHtml: `<${mainTag}${mainAttrs}>${mainBody}</${mainTag}>`,
+    bodyTail: bodySiblings(html),
     css: css.join("\n"),
     sheets,
     routeId: typeof state.routeId === "string" ? state.routeId : null,
@@ -299,6 +343,18 @@ export function currentPageModule(entrySource: string, entry: string, routeId: s
  */
 export const DYNAMIC_MODULE_MAX_BYTES = 512 * 1024;
 
+// Framer's font-metadata registries: `google-<hash>.mjs`, `fontshare-<hash>.mjs`,
+// `framer-font-<hash>.mjs`. They describe which families exist, not which the
+// page uses — the page's CSS names its `@font-face` files directly. Measured on
+// three sites: the runtime requests NONE of them while the page loads or while
+// it is scrolled through. They are dead weight in a payload (2.7 MB together on
+// `unifiersofjapan`), so they stay out.
+const FONT_REGISTRY = /\/(?:google|fontshare|framer-font)-[^/]+\.mjs$/i;
+
+function isFontRegistry(url: string): boolean {
+  return FONT_REGISTRY.test(new URL(url).pathname);
+}
+
 export async function collectRuntimeFiles(
   entry: string,
   loadFile: RuntimeFileLoader,
@@ -352,6 +408,7 @@ export async function collectRuntimeFiles(
     }
     const source = await loadFile(url);
     if (source === null) continue;
+    if (isFontRegistry(url)) continue;
     if (Buffer.byteLength(source, "utf8") > max) continue;
     files.set(url, source);
     for (const match of source.matchAll(STATIC_IMPORT)) {
@@ -400,6 +457,7 @@ export async function buildRuntimePayload(input: RuntimePayloadInput & { files: 
   // looks for `#main` at that moment (it would find nothing and die).
   const wrapper = [
     `const PAGE = ${escapeForJs(page)};`,
+    `const TAIL = ${escapeForJs(input.detection.bodyTail)};`,
     `const CSS = ${escapeForJs(css)};`,
     `const SHEETS = ${escapeForJs(sheets)};`,
     "export function mount(stage, options) {",
@@ -427,6 +485,19 @@ export async function buildRuntimePayload(input: RuntimePayloadInput & { files: 
     "    scope.URL = PatchedURL;",
     "  }",
     "  stage.innerHTML = PAGE;",
+    "  // The two siblings of `#main` the runtime finds by id: the SVG templates",
+    "  // (the `use` elements of the page point at them) and the badge container",
+    "  // (`hydrateRoot` on it — without it React #405, measured on every page).",
+    "  // They belong NEXT TO #main, never inside it: the runtime hydrates #main",
+    "  // and would treat them as part of the page tree.",
+    "  if (TAIL !== '') {",
+    "    var tail = document.createElement('div');",
+    "    tail.setAttribute('data-framer-siblings', '1');",
+    "    tail.style.display = 'contents';",
+    "    tail.innerHTML = TAIL;",
+    "    if (stage.parentNode) stage.parentNode.insertBefore(tail, stage.nextSibling);",
+    "    else stage.appendChild(tail);",
+    "  }",
     "  // The runtime looks for `#main` — and the Senify page has a `<main id=\"main\">`",
     "  // of its own. Two elements with one id: the runtime would take the wrong one.",
     "  // The id therefore belongs to the payload; the other element keeps its",
