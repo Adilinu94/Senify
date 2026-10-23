@@ -141,6 +141,12 @@ Coverage misst nur, was die Suite ausführt, und ist kein Vollständigkeitsbewei
 
 ## Bekannte Grenzen
 
+- **Aufraeum-Hooks haben dieselbe Frist wie die Tests (30 s, seit 22.10.2026).**
+  vitest gibt Hooks standardmaessig 10 s; der fterAll-Teardown faehrt die Engine,
+  die Datenbank und das Datenverzeichnis herunter und braucht unter Last manchmal
+  laenger. Am 22.10.2026 wurde dadurch der Windows-Job rot, obwohl **kein Test**
+  fehlschlug (Lauf 39850687405, media.test.ts: 2642 Tests bestanden, nur der Hook
+  lief in seine Frist; der Neustart desselben Commits war gruen).
 - Der aktuelle Postgres-Lauf belegt sechs Transaktionsfälle auf PostgreSQL 18.6; die CI-Lane verwendet PostgreSQL 18 (`postgres:18` in `.github/workflows/verify.yml`). Seit dem 20.10.2026 belegt der **normale** Volltest dieselben Beweise ohne Postgres-Dienst: PGlite ist echtes PostgreSQL nach WebAssembly, im Prozess (`createTransactionDatabase()` in `packages/engine/test/helpers.ts`). Die 16 zuvor übersprungenen Fälle laufen dadurch in jedem Lauf mit.
 - `pnpm test:visual`, `pnpm verify:parity` und `pnpm verify:import` sind für den zuvor gesicherten Folge-Diff am 28.09.2026 grün; sie wurden durch die reine Mapper-Auslagerung nicht berührt.
 - Die Visual-Baselines liegen unter `packages/app/test/visual-baselines/`; Aktualisierung ist ein expliziter Vorgang über `UPDATE_VISUAL_SNAPSHOTS=1`.
