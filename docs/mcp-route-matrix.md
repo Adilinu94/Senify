@@ -36,6 +36,9 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 | POST | `/api/redesign-proposals/:proposalId/confirm` | write | Operator | UI/CLI |
 | POST | `/api/redesign-proposals/:proposalId/media-needs` | write | Operator | UI/CLI |
 | GET | `/api/imports/:jobId` | read | Tool | `get_import_report` |
+| GET | `/api/sites/:siteId/submissions` | read | Tool | `list_submissions` |
+| POST | `/api/sites/:siteId/forms/collection-plan` | write | Operator | UI/CLI |
+| POST | `/api/sites/:siteId/forms/collection` | write | Operator | UI/CLI |
 | GET | `/api/motion-vendor/:name` | read | Operator | Auslieferung der Motion-Runtime (Editor/Preview) |
 | PUT | `/api/assets/upload/:uploadId` | read | Workflow-gebündelt | Byte-Sink des Upload-Flows (via upload_asset, signierte URL) |
 | GET | `/api/library-components` | read | Tool | `list_library_components` |
@@ -171,9 +174,6 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 | POST | `/api/sites/:siteId/entries/search` | read | Tool | `search_entries` |
 | GET | `/api/sites/:siteId/entries/resolve` | read | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/forms` | read | Operator | UI/CLI |
-| GET | `/api/sites/:siteId/submissions` | read | Tool | `list_submissions` |
-| POST | `/api/sites/:siteId/forms/collection-plan` | write | Operator | UI/CLI |
-| POST | `/api/sites/:siteId/forms/collection` | write | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/notifications` | read | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/references` | read | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/references` | write | Tool | `apply_reference` |

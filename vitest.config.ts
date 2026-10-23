@@ -117,7 +117,7 @@ export default defineConfig({
         //   http-routes-sites.ts      96,38 / 76,27 / 94,73 / 96,38
         //   http-routes-references.ts 95,74 / 80,64 / 100   / 95,74
         //   http-routes-content.ts    94,52 / 73,46 / 94,11 / 94,52
-        "packages/engine/src/{http,http-route-support,http-routes-sites,http-routes-assets,http-routes-references,http-routes-content,store,lifecycle,forms}.ts": {
+        "packages/engine/src/{http,http-route-support,http-routes-sites,http-routes-assets,http-routes-formular,http-routes-references,http-routes-content,store,lifecycle,forms}.ts": {
           statements: 80,
           branches: 68,
           functions: 88,
