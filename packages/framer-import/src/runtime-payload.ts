@@ -46,6 +46,12 @@ export type FramerRuntimeDetection = {
   css: string;
   // Die verlinkten Stylesheets der Seite (inline ist oben schon drin).
   sheets: string[];
+  // Die Route aus `data-framer-hydrate-v2`. Sie entscheidet, welches
+  // Seitenmodul die Seite braucht — die anderen Routen der Site gehen den
+  // Release nichts an (gemessen an `unifiersofjapan`: 4 Seitenmodule, das
+  // Startseiten-Modul allein wiegt 147 KB; alle vier zusammen sprengen mit den
+  // Schrift-Metadaten das Budget von ADR-0010).
+  routeId: string | null;
 };
 
 // Das Bundle-Skript: Framer markiert es mit `data-framer-bundle`. Der
@@ -60,7 +66,28 @@ const MAIN_ELEMENT = /<(\w+)\b([^>]*\bid\s*=\s*["']main["'][^>]*)>/i;
 // Die Route steht im Zustand, nicht im Pfad: `data-framer-hydrate-v2` trägt
 // `routeId` und `pathVariables`. Ohne dieses Attribut fällt die Runtime auf
 // `location.pathname` zurück — und die Release-Seite liegt woanders.
-const HYDRATE_STATE = /data-framer-hydrate-v2\s*=\s*["'][^"']*["']/i;
+// The attribute may be quoted with either character, and its JSON uses the other
+// one inside (`data-framer-hydrate-v2='{"routeId":"abc"}'` is what Framer writes).
+// A capture class that excludes both quotes stops at the first inner quote.
+const HYDRATE_STATE = /data-framer-hydrate-v2\s*=\s*(["'])([\s\S]*?)\1/i;
+
+// The state attribute is JSON with HTML entities (`&quot;`), because it sits in
+// an attribute of a server-rendered page.
+function hydrateState(attrs: string): { routeId?: string } | null {
+  const raw = HYDRATE_STATE.exec(attrs)?.[2];
+  if (raw === undefined) return null;
+  const decoded = raw
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;|&#39;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+  try {
+    return JSON.parse(decoded) as { routeId?: string };
+  } catch {
+    return null;
+  }
+}
 
 function absolute(base: string, href: string): string {
   try {
@@ -121,7 +148,8 @@ export function detectFramerRuntime(html: string, pageUrl: string): FramerRuntim
   const mainTag = main[1];
   const mainAttrs = main[2] ?? "";
   const mainBody = elementBody(html, main.index + main[0].length);
-  if (!HYDRATE_STATE.test(mainAttrs)) return null;
+  const state = hydrateState(mainAttrs);
+  if (state === null) return null;
 
   const css: string[] = [];
   for (const block of html.matchAll(STYLE_BLOCK)) css.push(block[1] ?? "");
@@ -137,6 +165,7 @@ export function detectFramerRuntime(html: string, pageUrl: string): FramerRuntim
     mainHtml: `<${mainTag}${mainAttrs}>${mainBody}</${mainTag}>`,
     css: css.join("\n"),
     sheets,
+    routeId: typeof state.routeId === "string" ? state.routeId : null,
   };
 }
 
@@ -182,9 +211,26 @@ export type RuntimePayload = {
 
 export const RUNTIME_PAYLOAD_MAX_BYTES = 3 * 1024 * 1024;
 
-// A relative import inside a runtime file: `from "./x.mjs"`, `import("./x.mjs")`,
-// `import "./x.mjs"`. Framer's runtime files reference each other that way.
-const RELATIVE_IMPORT = /(?:from|import)\s*\(?\s*["'](\.[^"']+)["']/g;
+// A relative STATIC import: `from "./x.mjs"`, `import "./x.mjs"`. These are
+// always part of the closure — the module is evaluated with its importer.
+const STATIC_IMPORT = /(?:from|import)\s*["'](\.[^"']+)["']/g;
+
+// A relative DYNAMIC import: `import("./x.mjs")`, and Framer writes the route
+// map as `` page:E(()=>import(`./44cP2oi….mjs`)),path:`/` `` — a template string
+// without substitution. A collector that only knew `"` and `'` missed every page
+// module (measured on `unifiersofjapan`: 5 files instead of 28). The release then
+// asked for a chunk that was never delivered, React threw #405, and the runtime
+// switched the page to non-interactive — the hero stayed at its `translateY(320px)`
+// start state and 15 % of the pixels differed.
+const DYNAMIC_IMPORT = /import\s*\(\s*["'`](\.[^"'`]+)["'`]/g;
+
+// The route map of a Framer site's runtime:
+//   W={VY7qktIfI:{elements:{…},page:E(()=>import(`./44cP….mjs`)),path:`/`},…}
+// Only the route named by `routeId` belongs to this page. Every other entry is a
+// page of the same site, and shipping them all is not "the runtime of this page"
+// — it is the whole site, and it does not fit ADR-0010's budget.
+const ROUTE_ENTRY =
+  /page:\s*[A-Za-z_$][\w$]*\(\s*\(\s*\)\s*=>\s*import\(\s*[`"']([^`"']+)[`"']\s*\)\s*\)\s*,\s*path:\s*[`"']([^`"']*)[`"']/g;
 
 function baseNameOf(url: string): string {
   const path = new URL(url).pathname;
@@ -193,32 +239,128 @@ function baseNameOf(url: string): string {
 }
 
 /**
- * The runtime files of a page: the entry and everything it imports, directly
- * or indirectly. Framer splits the runtime into a bundle, chunks and one
- * module per page; the page module is loaded with a *dynamic* import, so a
- * scan of the file text is the only way to find it.
+ * The route map of a Framer site, read from its runtime entry:
+ * `{path, module}` per route.
+ *
+ * The map is what tells "this page" apart from "the other pages of the same
+ * site". A site's runtime carries all of them; a release needs one.
  */
+export type FramerRoute = { path: string; module: string };
+
+export function readFramerRoutes(entrySource: string, entry: string): FramerRoute[] {
+  const routes: FramerRoute[] = [];
+  for (const match of entrySource.matchAll(ROUTE_ENTRY)) {
+    routes.push({ path: match[2] ?? "", module: absolute(entry, match[1] ?? "") });
+  }
+  return routes;
+}
+
+/**
+ * The page module of ONE route, found by the `routeId` the document's state
+ * carries: `…{VY7qktIfI:{elements:{…},page:E(()=>import(`./44cP….mjs`)),path:`/`}…`
+ *
+ * The id is the key of the route object, and that object cannot be found with a
+ * brace-free pattern — `elements:{…}` is nested inside it. Searching forward
+ * from the id's own position is exact and needs no parser: the next
+ * `page:E(()=>import(…))` after the id is that route's module.
+ */
+export function currentPageModule(entrySource: string, entry: string, routeId: string): string | null {
+  if (routeId === "") return null;
+  const escaped = routeId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const start = new RegExp(`(?:^|[{,\\s])${escaped}\\s*:\\s*\\{`).exec(entrySource);
+  if (start === null) return null;
+  const after = entrySource.slice(start.index, start.index + 4000);
+  const module = /\bpage:\s*[A-Za-z_$][\w$]*\(\s*\(\s*\)\s*=>\s*import\(\s*[`"']([^`"']+)[`"']/.exec(after);
+  return module === null ? null : absolute(entry, module[1] ?? "");
+}
+
+/**
+ * The runtime files of a page: the entry and everything it imports STATICALLY,
+ * plus the page module of `options.routeId`.
+ *
+ * **Why not follow every dynamic import.** A Framer site's runtime carries the
+ * page modules of ALL its routes and the font metadata of every family it might
+ * ever use. Measured on `unifiersofjapan`: 28 files, 4.9 MB raw — the 2.5 MB
+ * `google-H6SFY4F5` registry alone, which the SOURCE never fetches (it loads
+ * 2.0 MB in total). Shipping that is not "the runtime of this page", and it
+ * breaks ADR-0010's budget three times over.
+ *
+ * **What the page needs.** The static closure (react, framer, motion, the shared
+ * lib) plus ONE page module (147 KB of the bundle). A page module of another
+ * route is replaced with a stub, so the router's `import()` resolves instead of
+ * asking for a file that was never delivered — that 404 was what killed the
+ * runtime with React #405 and left the hero at its start state (15 % of pixels
+ * different; with the fix 1,72 %).
+ *
+ * A dynamic import that is NOT a route (badge, snippet loader, editor bar) is
+ * kept when it is small: the page fetches those while it loads, and a missing
+ * one is an error at runtime. A big registry is left out — the source does not
+ * fetch it either.
+ */
+export const DYNAMIC_MODULE_MAX_BYTES = 512 * 1024;
+
 export async function collectRuntimeFiles(
   entry: string,
   loadFile: RuntimeFileLoader,
+  options: { routeId?: string | null; dynamicMaxBytes?: number } = {},
 ): Promise<Map<string, string>> {
   const files = new Map<string, string>();
-  const queue: string[] = [entry];
   const seen = new Set<string>();
-  while (queue.length > 0) {
-    const url = queue.shift() as string;
-    if (seen.has(url)) continue;
+  const queue: string[] = [entry];
+  const dynamic = new Set<string>();
+  const collect = async (url: string): Promise<string | null> => {
+    if (seen.has(url)) return files.get(url) ?? null;
     seen.add(url);
     const source = await loadFile(url);
-    if (source === null) continue;
+    if (source === null) return null;
     files.set(url, source);
-    for (const match of source.matchAll(RELATIVE_IMPORT)) {
+    for (const match of source.matchAll(STATIC_IMPORT)) {
+      const specifier = match[1];
+      if (specifier !== undefined) queue.push(absolute(url, specifier));
+    }
+    for (const match of source.matchAll(DYNAMIC_IMPORT)) {
+      const specifier = match[1];
+      if (specifier !== undefined) dynamic.add(absolute(url, specifier));
+    }
+    return source;
+  };
+  while (queue.length > 0) await collect(queue.shift() as string);
+
+  // The route map lives in the entry; only this page's own module belongs here.
+  const entrySource = files.get(entry);
+  const own = entrySource !== undefined && options.routeId != null
+    ? currentPageModule(entrySource, entry, options.routeId)
+    : null;
+  const routes = entrySource === undefined ? [] : readFramerRoutes(entrySource, entry);
+  if (own !== null) {
+    await collect(own);
+    while (queue.length > 0) await collect(queue.shift() as string);
+  }
+
+  const max = options.dynamicMaxBytes ?? DYNAMIC_MODULE_MAX_BYTES;
+  for (const url of dynamic) {
+    if (own !== null && url === own) continue;
+    if (files.has(url)) continue;
+    // Only a KNOWN current route justifies a stub: without it, "other route"
+    // cannot be told apart from "this page", and stubbing would throw away a
+    // page module the caller expects.
+    const isOtherRoute = own !== null && routes.some((route) => route.module === url && route.module !== own);
+    if (isOtherRoute) {
+      // Resolvable, but not this page: the router never shows another route.
+      files.set(url, "export default function Page(){ return null; }");
+      continue;
+    }
+    const source = await loadFile(url);
+    if (source === null) continue;
+    if (Buffer.byteLength(source, "utf8") > max) continue;
+    files.set(url, source);
+    for (const match of source.matchAll(STATIC_IMPORT)) {
       const specifier = match[1];
       if (specifier === undefined) continue;
-      const resolved = absolute(url, specifier);
-      if (!seen.has(resolved)) queue.push(resolved);
+      queue.push(absolute(url, specifier));
     }
   }
+  while (queue.length > 0) await collect(queue.shift() as string);
   return files;
 }
 
@@ -329,6 +471,12 @@ export async function buildRuntimePayload(input: RuntimePayloadInput & { files: 
     write: false,
     format: "esm",
     target: "es2020",
+    // Framer ships already-minified modules; esbuild's own output around them is
+    // NOT minified and inflates a 2047 KB closure to 3369 KB. Measured on
+    // `unifiersofjapan`: with `minify` the same closure is 2633 KB — inside
+    // ADR-0010's 3 MB. Nothing changes semantically: the runtime is the source's
+    // own code, minified once more.
+    minify: true,
     legalComments: "none",
     plugins: [
       {
@@ -541,7 +689,9 @@ export async function buildPageRuntimePayload(
     return { ok: false, reason: "Die Seite trägt keine Framer-Runtime.", hasRuntime: false };
   }
   try {
-    const files = await collectRuntimeFiles(detection.entry, input.loadFile);
+    const files = await collectRuntimeFiles(detection.entry, input.loadFile, {
+      routeId: detection.routeId,
+    });
     if (!files.has(detection.entry)) {
       return {
         ok: false,
