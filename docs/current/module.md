@@ -53,7 +53,7 @@
 
 ## Engine: HTTP-Routen-Module
 
-**13 Dateien** mit zusammen **174 Routen**.
+**14 Dateien** mit zusammen **174 Routen**.
 
 | Modul | Routen | Zeilen | Zweck |
 |---|---|---|---|
@@ -68,7 +68,8 @@
 | `http-routes-ops.ts` | 17 | 495 | Die Routen des Bereichs api/settings, api/backups, api/tokens, api/mcp, api/events, api/whoami, api/notifications, api/newsletter, api/health. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-pages.ts` | 27 | 601 | Die Routen des Bereichs api/pages, api/entries, api/page-starters, api/releases, api/revisions. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-references.ts` | 23 | 710 | Die Routen des Bereichs api/references, api/reference-collections. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
-| `http-routes-sites.ts` | 50 | 1440 | Die Routen der Sites: Seiten, Bausteine, Themes, Breakpoints, Assets und Ereignisse einer Site. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
+| `http-routes-site-lifecycle.ts` | 8 | 260 | Die Routen des Site-Lebenszyklus (P3-2, Schritt 60): anlegen, listen, aendern, Papierkorb, wiederherstellen, duplizieren, lesen, loeschen. |
+| `http-routes-sites.ts` | 42 | 1204 | Die Routen einer Site jenseits des Lebenszyklus: Seiten, Bausteine, Bibliothek, Inhalte, Referenzen, Bilder und Importe. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-theme.ts` | 11 | 230 | Theme und Style-Regeln einer Site (P3-2, Schritt 57): das Theme lesen, als CSS ausliefern, schreiben, den Theme-Bericht, den Design-Bericht und die sechs Style-Regel-Routen (lesen, anlegen, aendern, sortieren, loeschen). |
 | **Summe** | **174** | | |
 
@@ -118,13 +119,14 @@ die Uebersicht nennt sie einzeln, weil die Datei sonst wie ein God-File aussieht
 | `tools.ts` | 85 | 2672 | Elicitation (E4 slice 2): ask the client for a missing or ambiguous parameter. The server wires this only when the client declared the elicitation capability; declined or unsupported resolves to undefined and the tool's own validation error stands. |
 | **Summe** | **106** | | |
 
-## Was noch nicht geteilt ist
+## Die grossen Dateien und warum sie so gross sind
 
 Die Aufteilung folgt ADR-0019: `Store` und der HTTP-Dispatcher bleiben die Fassade, die
-Fachmodule tragen die Tabellen. Diese Dateien stehen bewusst noch als Ganzes; die
-Zeilenzahl wird beim Erzeugen gemessen, der Grund ist eine Entscheidung.
+Fachmodule tragen die Tabellen. Diese Dateien reissen eine Zeilenschwelle; jede Zeile
+hier nennt den Grund - eine Entscheidung, keine Messung. Die Zeilenzahl selbst wird
+beim Erzeugen gemessen.
 
-| Datei | Zeilen | Warum sie bleibt |
+| Datei | Zeilen | Warum sie so gross ist |
 |---|---|---|
 | `packages/mcp/src/tools.ts` | 2672 | die Werkzeug-Tabelle; ihre Reihenfolge ist der Vertrag (`server.ts` liest `TOOLS.map`), der Manifest-Generator folgt den `...X_TOOLS`-Spreizungen - ein weiterer Schnitt ist möglich und braucht den Manifest-Diff als Beweis |
 | `packages/engine/src/store.ts` | 2652 | vier fachübergreifende Transaktionen (`applyRedesignPlan`, `duplicateSiteWithPlan`, `duplicateAssetRecords`, `commitFramerImportPlan`), `replaceTables` und die Fassade; der Rest sind Delegaten |
@@ -136,8 +138,11 @@ Zeilenzahl wird beim Erzeugen gemessen, der Grund ist eine Entscheidung.
 | `packages/engine/src/types.ts` | 1479 | die öffentlichen Typen der Engine; keine Logik |
 | `packages/editor/src/canvas/canvas.ts` | 1336 | die Bühne des Editors |
 | `packages/engine/src/forms.ts` | 1313 | Formulare, Einsendungen und der CSV-Export |
+| `packages/engine/src/http-routes-sites.ts` | 1204 | die verbleibenden 42 Site-Routen (Seiten, Bibliothek, Inhalte, Referenzen, Bilder, Importe); der Zuschnitt läuft weiter, jede Gruppe braucht 6 bis 16 Import-Quellen |
 | `packages/app/public/app-editor.js` | 1202 | `mountCanvasView` haelt Canvas, Zustand und Ereignisse in einer Closure |
+| `packages/engine/src/lifecycle.ts` | 1190 | der Release-Lebenszyklus in einem Fachgebiet: Revision, Re-Bake, Veroeffentlichung, Preview und Review gehoeren zusammen, weil ein Release ohne die anderen drei nicht entsteht; ein Schnitt muesste die gemeinsame Transaktion teilen |
 | `packages/engine/src/media.ts` | 1107 | Assets, Ableitungen und Ordner |
+| `packages/engine/src/references-lifecycle.ts` | 1046 | die Referenz-Pipeline: Analyse, Job-Lauf, Snapshot, Playwright-Aufnahme und Anwendung; der Capture-Treiber allein sind 250 Zeilen, und er teilt den Zustand mit dem Job-Lauf |
 | `packages/app/public/app-references.js` | 597 | die Referenzen-Seite ohne die Karten; der Rest nach Schritt 59 |
-| `packages/engine/src/http.ts` | 243 | Dispatcher und Routentabelle; fertig |
+| `packages/engine/src/http.ts` | 245 | Dispatcher und Routentabelle; fertig |
 | `packages/app/public/app.js` | 219 | Router und Kommandoleiste; fertig |
