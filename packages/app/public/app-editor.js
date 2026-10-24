@@ -4,6 +4,7 @@
 
 import { AUTHOR, MUTATION_LABELS, api, askText, el, failed, render, routeScope, toast } from "./app-core.js";
 import { createProtocolLog } from "./app-editor-protocol.js";
+import { createRedesignInbox } from "./app-editor-redesign-inbox.js";
 import { openRedesignDirectionDialog } from "./app-import.js";
 import { openFramerImportDialog } from "./app-framer-import.js";
 
@@ -411,55 +412,21 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     text: "Seite importieren",
     "data-action": "framer-import-open",
   });
-  // Redesign-Inbox (ADR-0012): a non-modal hint that only appears while a
-  // proposal waits for a human. It never opens by itself — an agent run must
-  // not steal the editor's focus.
-  const redesignInbox = el("button", {
-    type: "button",
-    class: "ghost",
-    "data-action": "redesign-inbox-open",
-    "data-role": "redesign-inbox",
-    hidden: true,
-    text: "Richtungen",
-  });
-  let redesignProposals = [];
-  let redesignPoll = null;
-  // `window.` keeps the timers on the browser globals eslint already knows.
-  const stopRedesignPolling = () => {
-    if (redesignPoll !== null) window.clearInterval(redesignPoll);
-    redesignPoll = null;
-  };
-  const renderRedesignInbox = () => {
-    const open = redesignProposals.filter((entry) => entry.status === "proposed");
-    redesignInbox.hidden = open.length === 0;
-    if (open.length === 0) {
-      delete redesignInbox.dataset.count;
-      return;
-    }
-    redesignInbox.dataset.count = String(open.length);
-    redesignInbox.textContent = `${open.length} ${open.length === 1 ? "Richtung" : "Richtungen"}`;
-  };
-  const loadRedesignProposals = async () => {
-    try {
+  // Redesign-Inbox (ADR-0012) liegt in `app-editor-redesign-inbox.js` (R12):
+  // Abruf, Zaehlung und Takt ohne Bezug auf Canvas oder Auswahl. Der Knopf ist
+  // ein HINWEIS - er oeffnet nichts von selbst und stiehlt keinen Fokus.
+  const redesignInbox = createRedesignInbox({
+    el,
+    fetchProposals: async () => {
       const listed = await api(`/api/pages/${pageId}/redesign-proposals`);
-      redesignProposals = Array.isArray(listed.proposals) ? listed.proposals : [];
-      renderRedesignInbox();
-    } catch {
-      // A missing inbox is never a blocker for editing.
-      redesignProposals = [];
-      renderRedesignInbox();
-    }
-  };
-  redesignInbox.addEventListener("click", () => {
-    const open = redesignProposals.filter((entry) => entry.status === "proposed");
-    const proposal = open[0];
-    if (proposal === undefined) return;
-    openRedesignDirectionDialog(proposal);
+      return Array.isArray(listed.proposals) ? listed.proposals : [];
+    },
+    onOpen: (proposal) => openRedesignDirectionDialog(proposal),
+    setInterval: (handler, ms) => window.setInterval(handler, ms),
+    clearInterval: (handle) => window.clearInterval(handle),
   });
-  void loadRedesignProposals();
-  redesignPoll = window.setInterval(() => {
-    void loadRedesignProposals();
-  }, 12000);
+  const stopRedesignPolling = () => redesignInbox.stop();
+  redesignInbox.start();
   framerImportButton.addEventListener("click", () => {
     openFramerImportDialog({
       siteId,
@@ -974,7 +941,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     void retrySave();
   });
 
-  toolbar.append(statusGroup, redesignInbox, saveButton, publishButton, overflowHost);
+  toolbar.append(statusGroup, redesignInbox.element, saveButton, publishButton, overflowHost);
   return { session, canvas, inspector, explorer, spotlight };
 }
 
