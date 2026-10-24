@@ -611,4 +611,72 @@ describe("style rule registry (site-wide)", () => {
       await env.close();
     }
   });
+
+  it("answers a write without a body the way the contract says", async () => {
+    // Fuenf Schreibrouten des Moduls beginnen mit
+    // `(await readJsonBody(req)) ?? {}`. Der Zweig "kein Koerper" war nach dem
+    // Schnitt ungedeckt (Befund 24.10.2026: http-routes-theme.ts 65,38 %
+    // Branches) - und ein Aufruf ohne Koerper ist der erste, den ein Client
+    // falsch macht.
+    //
+    // Der Vertrag entscheidet, was richtig ist. Drei Formen, und nur eine davon
+    // ist ein Fehler:
+    //   - `PUT /theme` und `POST /style-rules` verlangen ein Pflichtfeld
+    //     (`theme` bzw. `name`) - ein leerer Koerper ist 400.
+    //   - `POST .../reorder` verlangt `index` - ebenfalls 400.
+    //   - `PATCH` auf eine Regel und `DELETE` einer Regel tragen nur optionale
+    //     Felder (`SiteEventBodySchema` = `baseVersion`/`author`). Ein leerer
+    //     Koerper ist dort ein gueltiger No-op und antwortet 200 bzw. 204.
+    // Das ist kein Versehen, sondern die Form des Vertrags; der Test haelt
+    // beide Seiten fest, damit ein spaeterer Umbau die Unterscheidung nicht
+    // still verliert.
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Ohne Koerper");
+      const pflicht: Array<{ method: "PUT" | "POST"; pfad: string }> = [
+        { method: "PUT", pfad: `/api/sites/${site.id}/theme` },
+        { method: "POST", pfad: `/api/sites/${site.id}/style-rules` },
+      ];
+      for (const fall of pflicht) {
+        const antwort = await env.api.request<{ error: { category: string } }>({
+          method: fall.method,
+          path: fall.pfad,
+        });
+        expect(antwort.status, `${fall.method} ${fall.pfad}`).toBe(400);
+        expect(antwort.body.error.category, `${fall.method} ${fall.pfad}`).toBe("validation");
+      }
+
+      const regel = await env.api.request<StyleRuleResponse>({
+        method: "POST",
+        path: `/api/sites/${site.id}/style-rules`,
+        body: { name: "ohne-koerper", kind: "class", author: TEST_AUTHOR },
+      });
+      expect(regel.status).toBe(201);
+
+      // PATCH: alle Felder optional, ein leerer Koerper ist ein No-op.
+      const leer = await env.api.request<StyleRuleResponse>({
+        method: "PATCH",
+        path: `/api/sites/${site.id}/style-rules/${regel.body.id}`,
+      });
+      expect(leer.status).toBe(200);
+      expect(leer.body.name).toBe("ohne-koerper");
+
+      // reorder verlangt `index`.
+      const ohneIndex = await env.api.request<{ error: { category: string } }>({
+        method: "POST",
+        path: `/api/sites/${site.id}/style-rules/${regel.body.id}/reorder`,
+      });
+      expect(ohneIndex.status).toBe(400);
+      expect(ohneIndex.body.error.category).toBe("validation");
+
+      // DELETE: nur optionale Felder, ein leerer Koerper loescht.
+      const weg = await env.api.request<unknown>({
+        method: "DELETE",
+        path: `/api/sites/${site.id}/style-rules/${regel.body.id}`,
+      });
+      expect(weg.status).toBe(204);
+    } finally {
+      await env.close();
+    }
+  });
 });
