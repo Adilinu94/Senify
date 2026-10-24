@@ -456,7 +456,10 @@ export const INSPECTOR_STYLES = `
 .ed-picker__marker {
   position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px;
   border-radius: 50%; pointer-events: none;
-  box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgb(0 0 0 / 0.45);
+  /* Der Ring ist die Farbe des Papiers, nicht eine eigene: der Griff soll auf
+     jeder Farbe sichtbar sein, und das Weiss ist die dokumentierte Ausnahme
+     (E16 P0, fremdfarben.test.ts). */
+  box-shadow: 0 0 0 2px #ffffff, 0 0 0 3px rgb(0 0 0 / 0.45);
 }
 .ed-picker__strip {
   position: relative; width: 100%; height: 12px; cursor: ew-resize;
@@ -466,7 +469,7 @@ export const INSPECTOR_STYLES = `
 }
 .ed-picker__strip-marker {
   position: absolute; top: 50%; width: 10px; height: 16px; margin: -8px 0 0 -5px;
-  border-radius: var(--ed-radius-sm); background: #fff; pointer-events: none;
+  border-radius: var(--ed-radius-sm); background: #ffffff; pointer-events: none;
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.45), inset 0 0 0 1px rgb(0 0 0 / 0.14);
 }
 .ed-color { display: flex; flex-direction: column; gap: var(--ed-space-2); width: 100%; }
