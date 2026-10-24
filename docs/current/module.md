@@ -53,7 +53,7 @@
 
 ## Engine: HTTP-Routen-Module
 
-**12 Dateien** mit zusammen **174 Routen**.
+**13 Dateien** mit zusammen **174 Routen**.
 
 | Modul | Routen | Zeilen | Zweck |
 |---|---|---|---|
@@ -68,12 +68,13 @@
 | `http-routes-ops.ts` | 17 | 495 | Die Routen des Bereichs api/settings, api/backups, api/tokens, api/mcp, api/events, api/whoami, api/notifications, api/newsletter, api/health. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-pages.ts` | 27 | 601 | Die Routen des Bereichs api/pages, api/entries, api/page-starters, api/releases, api/revisions. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-references.ts` | 23 | 710 | Die Routen des Bereichs api/references, api/reference-collections. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
-| `http-routes-sites.ts` | 61 | 1665 | Die Routen der Sites: Seiten, Bausteine, Themes, Breakpoints, Assets und Ereignisse einer Site. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
+| `http-routes-sites.ts` | 50 | 1440 | Die Routen der Sites: Seiten, Bausteine, Themes, Breakpoints, Assets und Ereignisse einer Site. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
+| `http-routes-theme.ts` | 11 | 230 | Theme und Style-Regeln einer Site (P3-2, Schritt 57): das Theme lesen, als CSS ausliefern, schreiben, den Theme-Bericht, den Design-Bericht und die sechs Style-Regel-Routen (lesen, anlegen, aendern, sortieren, loeschen). |
 | **Summe** | **174** | | |
 
 ## Oberfläche: ES-Module
 
-**24 Dateien.**
+**25 Dateien.**
 
 | Modul | Zeilen | Zweck |
 |---|---|---|
@@ -85,8 +86,9 @@
 | `app-library.js` | 240 | Die Bausteinbibliothek und der Papierkorb (P3-2, Schritt 42). Beide Views standen in `app-projects.js`; sie teilen sich nichts mit den Projekten - keine Modulvariable, keinen Zustand, nur die Kern-Helfer. |
 | `app-markdown.js` | 158 | Das Markdown der importierten Referenzen (design.md, Guidelines, Komponenten). |
 | `app-projects.js` | 197 | Die Projekte, die Seiten und die Einstellungen. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
-| `app-references.js` | 771 | Die Referenzbibliothek. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
+| `app-references.js` | 597 | Die Referenzbibliothek. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
 | `app-refs-add.js` | 304 | Der Dialog zum Hinzufuegen einer Referenz (P3-2, Schritt 40): Datei oder Adresse waehlen, Vorschau, Metadaten, Sammlung. `app-references.js` importiert den Einstiegspunkt. |
+| `app-refs-cards.js` | 201 | Die Karten der Referenzen-Seite (P3-2, Schritt 59): das Blockrendering mit dem Waechter, die einzelne Karte und ihr Vorschaubild. |
 | `app-refs-collections.js` | 310 | Die Sammlungen der Referenzen (P3-2, Schritt 39): anlegen, bearbeiten, loeschen, den Brief kopieren und die Auswahl beim Zuordnen. `app-references.js` importiert die Einstiegspunkte. |
 | `app-refs-dialog.js` | 105 | Die Rueckmeldungen der Referenzen-Seite: der Toast, das Kopieren mit Rueckfall und das Schliessen per Hintergrund-Klick. `app-references.js` importiert sie. |
 | `app-refs-icons.js` | 46 | Die Symbole der Referenzen-Seite (P3-2, Schritt 37): `refsIcon` erzeugt aus einem Pfad ein eingebettetes SVG mit `currentColor` und fester Groesse. |
@@ -124,7 +126,7 @@ Zeilenzahl wird beim Erzeugen gemessen, der Grund ist eine Entscheidung.
 
 | Datei | Zeilen | Warum sie bleibt |
 |---|---|---|
-| `packages/mcp/src/tools.ts` | 2672 | die Werkzeug-Definitionen; der Manifest-Generator liest diese Datei als Text |
+| `packages/mcp/src/tools.ts` | 2672 | die Werkzeug-Tabelle; ihre Reihenfolge ist der Vertrag (`server.ts` liest `TOOLS.map`), der Manifest-Generator folgt den `...X_TOOLS`-Spreizungen - ein weiterer Schnitt ist möglich und braucht den Manifest-Diff als Beweis |
 | `packages/engine/src/store.ts` | 2652 | vier fachübergreifende Transaktionen (`applyRedesignPlan`, `duplicateSiteWithPlan`, `duplicateAssetRecords`, `commitFramerImportPlan`), `replaceTables` und die Fassade; der Rest sind Delegaten |
 | `packages/framer-import/src/capture-html.ts` | 2536 | der HTML-Capture des Imports |
 | `packages/framer-import/src/mapper.ts` | 1790 | die Abbildung Framer nach NodeTree |
@@ -136,6 +138,6 @@ Zeilenzahl wird beim Erzeugen gemessen, der Grund ist eine Entscheidung.
 | `packages/engine/src/forms.ts` | 1313 | Formulare, Einsendungen und der CSV-Export |
 | `packages/app/public/app-editor.js` | 1202 | `mountCanvasView` haelt Canvas, Zustand und Ereignisse in einer Closure |
 | `packages/engine/src/media.ts` | 1107 | Assets, Ableitungen und Ordner |
-| `packages/app/public/app-references.js` | 771 | die Referenzen-Seite; Rest nach Schritt 52 |
-| `packages/engine/src/http.ts` | 241 | Dispatcher und Routentabelle; fertig |
+| `packages/app/public/app-references.js` | 597 | die Referenzen-Seite ohne die Karten; der Rest nach Schritt 59 |
+| `packages/engine/src/http.ts` | 243 | Dispatcher und Routentabelle; fertig |
 | `packages/app/public/app.js` | 219 | Router und Kommandoleiste; fertig |

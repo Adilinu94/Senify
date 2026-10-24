@@ -119,6 +119,76 @@ describe("Doku-Waechter: die Risiko-Nummern sind synchron", () => {
     expect(ids(architektur)).toEqual(ids(fahrplan));
   });
 
+  it("nennt in der Prosa dieselbe Obergrenze wie das Register", () => {
+    // Der Befund vom 24.10.2026: die Mengen stimmten, die Prosa nicht.
+    // `docs/README.md` und der Kopf von `fahrplan.md` sagten weiterhin
+    // "R1-R13", waehrend alle drei Register R1-R20 fuehrten. Der Mengen-Waechter
+    // oben sieht das nicht, weil er nur Tabellenzeilen liest.
+    const register = ids(fahrplan);
+    const hoechste = register[register.length - 1];
+    expect(hoechste, "das Register ist leer").toBeDefined();
+
+    // Eine Bereichsangabe tragen nur die drei Dokumente, die sie behaupten.
+    // `stand.md` sagt stattdessen, dass es die Nummern von `fahrplan.md`
+    // uebernimmt - dort waere eine zweite Bereichsangabe eine Doppelung.
+    //
+    // Gezaehlt wird nur die verbindliche Aussage: die Zeile muss zugleich
+    // "synchron" oder "identisch" sagen. Historische Nennungen ("die Zeile
+    // sagte bis zum 24.10. R1-R13") sind Bericht und bleiben erlaubt - der
+    // erste Anlauf verwarf genau sie und war damit ein Fehlalarm.
+    const anspruch = /synchron|identisch/i;
+    const dokumente: Array<[string, string[], boolean]> = [
+      ["docs/README.md", readFileSync(join(root, "docs/README.md"), "utf8").split(/\r?\n/), true],
+      ["docs/fahrplan.md", fahrplan, true],
+      ["docs/current/architektur.md", architektur, true],
+      ["docs/current/stand.md", stand, false],
+    ];
+    const falsch: string[] = [];
+    for (const [name, L, pflicht] of dokumente) {
+      const bereiche: string[] = [];
+      for (let i = 0; i < L.length; i++) {
+        if (!anspruch.test(L[i]!)) continue;
+        for (const m of L[i]!.matchAll(/`R1`\s*[-–]\s*`(R\d+)`/g)) bereiche.push(`${i + 1}|${m[1]}`);
+      }
+      if (pflicht && bereiche.length === 0) {
+        falsch.push(`${name}: keine verbindliche Bereichsangabe R1-R? gefunden`);
+        continue;
+      }
+      for (const treffer of bereiche) {
+        const [zeile, ende] = treffer.split("|");
+        if (ende !== hoechste) falsch.push(`${name}:${zeile} endet auf ${ende} statt ${hoechste}`);
+      }
+    }
+    expect(falsch).toEqual([]);
+  });
+
+  it("laesst die Ueberschrift nicht offen, wenn jeder Punkt geschlossen ist", () => {
+    // Der Befund vom 24.10.2026: P3-7 stand als "offen" im Fahrplan, obwohl
+    // alle sechs Tabellenzeilen darunter mit Datum, Messwert und Testbeleg
+    // geschlossen waren. Wer die Ueberschrift liest, plant Arbeit ein, die es
+    // nicht gibt. Geprueft wird die Richtung in beide Faelle: eine offene
+    // Zeile unter "geschlossen" ist genauso falsch.
+    const falsch: string[] = [];
+    for (let i = 0; i < fahrplan.length; i++) {
+      const kopf = /^### (P\d-\d+) .*?[-–—] (offen|geschlossen)\b/.exec(fahrplan[i] ?? "");
+      if (kopf === null) continue;
+      const [, id, status] = kopf;
+      const rumpf: string[] = [];
+      for (let j = i + 1; j < fahrplan.length && !/^### /.test(fahrplan[j] ?? ""); j++) rumpf.push(fahrplan[j] ?? "");
+      const punkte = rumpf.filter((l) => /^\| \d+b? \|/.test(l));
+      // Ohne nummerierte Punkttabelle ist die Ueberschrift die einzige Quelle.
+      if (punkte.length === 0) continue;
+      const offen = punkte.filter((l) => !l.includes("geschlossen"));
+      if (status === "offen" && offen.length === 0) {
+        falsch.push(`${id}: Ueberschrift "offen", aber alle ${punkte.length} Punkte sind geschlossen`);
+      }
+      if (status === "geschlossen" && offen.length > 0) {
+        falsch.push(`${id}: Ueberschrift "geschlossen", aber ${offen.length} Punkt(e) ohne Geschlossen-Vermerk`);
+      }
+    }
+    expect(falsch).toEqual([]);
+  });
+
   it("hat fuer jede Risiko-Nummer eine Zeile mit vier Zellen", () => {
     // Eine Zeile mit drei Pipes ist in Markdown keine Tabellenzeile: sie
     // verschwindet aus der Darstellung, und die Nummer steht da, ohne dass
