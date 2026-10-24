@@ -74,7 +74,7 @@
 
 ## Oberfläche: ES-Module
 
-**24 Dateien.**
+**25 Dateien.**
 
 | Modul | Zeilen | Zweck |
 |---|---|---|
@@ -86,8 +86,9 @@
 | `app-library.js` | 240 | Die Bausteinbibliothek und der Papierkorb (P3-2, Schritt 42). Beide Views standen in `app-projects.js`; sie teilen sich nichts mit den Projekten - keine Modulvariable, keinen Zustand, nur die Kern-Helfer. |
 | `app-markdown.js` | 158 | Das Markdown der importierten Referenzen (design.md, Guidelines, Komponenten). |
 | `app-projects.js` | 197 | Die Projekte, die Seiten und die Einstellungen. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
-| `app-references.js` | 771 | Die Referenzbibliothek. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
+| `app-references.js` | 597 | Die Referenzbibliothek. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
 | `app-refs-add.js` | 304 | Der Dialog zum Hinzufuegen einer Referenz (P3-2, Schritt 40): Datei oder Adresse waehlen, Vorschau, Metadaten, Sammlung. `app-references.js` importiert den Einstiegspunkt. |
+| `app-refs-cards.js` | 201 | Die Karten der Referenzen-Seite (P3-2, Schritt 59): das Blockrendering mit dem Waechter, die einzelne Karte und ihr Vorschaubild. |
 | `app-refs-collections.js` | 310 | Die Sammlungen der Referenzen (P3-2, Schritt 39): anlegen, bearbeiten, loeschen, den Brief kopieren und die Auswahl beim Zuordnen. `app-references.js` importiert die Einstiegspunkte. |
 | `app-refs-dialog.js` | 105 | Die Rueckmeldungen der Referenzen-Seite: der Toast, das Kopieren mit Rueckfall und das Schliessen per Hintergrund-Klick. `app-references.js` importiert sie. |
 | `app-refs-icons.js` | 46 | Die Symbole der Referenzen-Seite (P3-2, Schritt 37): `refsIcon` erzeugt aus einem Pfad ein eingebettetes SVG mit `currentColor` und fester Groesse. |
@@ -137,6 +138,6 @@ Zeilenzahl wird beim Erzeugen gemessen, der Grund ist eine Entscheidung.
 | `packages/engine/src/forms.ts` | 1313 | Formulare, Einsendungen und der CSV-Export |
 | `packages/app/public/app-editor.js` | 1202 | `mountCanvasView` haelt Canvas, Zustand und Ereignisse in einer Closure |
 | `packages/engine/src/media.ts` | 1107 | Assets, Ableitungen und Ordner |
-| `packages/app/public/app-references.js` | 771 | die Referenzen-Seite; Rest nach Schritt 52 |
+| `packages/app/public/app-references.js` | 597 | die Referenzen-Seite ohne die Karten; der Rest nach Schritt 59 |
 | `packages/engine/src/http.ts` | 243 | Dispatcher und Routentabelle; fertig |
 | `packages/app/public/app.js` | 219 | Router und Kommandoleiste; fertig |

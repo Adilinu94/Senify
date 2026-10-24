@@ -2,16 +2,17 @@
 // sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt
 // ESLint.
 
-import { activeTab, api, el, failed, friendlyError, initials, render, routeScope, snapshotImageURL } from "./app-core.js";
+import { activeTab, api, el, failed, friendlyError, initials, render, routeScope } from "./app-core.js";
 import "./app.js";
 import "./app-markdown.js";
 import { refsBindBackdropClose, refsCopy, refsToast } from "./app-refs-dialog.js";
 import { refsBuildShell } from "./app-refs-shell.js";
-import { REFS_ICON_LIBRARY, REFS_ICON_STYLES, REFS_ICON_LINK, REFS_ICON_LINK_BUTTON, REFS_ICON_LINK_LABEL, REFS_ICON_CLOSE, REFS_ICON_PLUS_BOX, REFS_ICON_CHECK_BOX } from "./app-refs-icons.js";
-import { refsGetCollections, refsState, refsBindCollections, refsBindHandlers, refsHex, refsApplyAddress, refsSyncAddress, refsActiveCollection, refsIsSelected, refsToggleSelection, refsClearSelection } from "./app-refs-state.js";
+import { REFS_ICON_LIBRARY, REFS_ICON_STYLES, REFS_ICON_LINK_BUTTON, REFS_ICON_LINK_LABEL, REFS_ICON_CLOSE, REFS_ICON_PLUS_BOX, REFS_ICON_CHECK_BOX } from "./app-refs-icons.js";
+import { refsGetCollections, refsState, refsBindCollections, refsBindHandlers, refsHex, refsApplyAddress, refsSyncAddress, refsActiveCollection, refsIsSelected, refsClearSelection } from "./app-refs-state.js";
 import { refsBindCollectionHandlers, refsOpenCollectionPicker, refsCopyCollectionBrief } from "./app-refs-collections.js";
 import { refsBindAddHandlers } from "./app-refs-add.js";
-import { refsImageSource, refsEntryFor, refsOpenDetail, refsSetInspectorIds } from "./app-refs-inspector.js";
+import { refsSetInspectorIds } from "./app-refs-inspector.js";
+import { refsPreviewImage, refsRenderCards } from "./app-refs-cards.js";
 
 // `app.js` holt diese zwei ueber diese Datei (der Router kennt nur die Views).
 // Der Re-Export haelt seine Import-Quelle, waehrend die Definition im
@@ -28,7 +29,6 @@ export { refsBindBackdropClose, refsToast } from "./app-refs-dialog.js";
    in der Adresse (`?q=&collection=&sort=&view=`), die Texte sind Deutsch mit
    englischen Fachbegriffen. */
 
-const REFS_ACCENT_FALLBACK = "#8b91a0";
 const REFS_MAX_COMPARE = 3;
 
 let refsStyleCatalog = null;
@@ -55,48 +55,9 @@ let refsPending = 0;
 // Karte, Miniatur, Vergleich und Detailseite zeigen dieselbe Blob-Adresse.
 // Sonst fragt jeder Neuaufbau dieselben Bilder erneut an und laeuft ins
 // Kontingent der API.
-
-// Kartenbilder laden erst, wenn die Karte in Sicht kommt: die Bibliothek kann
-// mehrere hundert Referenzen halten, und jede Aufnahme ist ein paar hundert
-// Kilobyte gross.
-
-let refsImageObserver = null;
-
-function refsLoadOnSight(image, load) {
-  if (typeof IntersectionObserver !== "function") {
-    load();
-    return;
-  }
-  if (refsImageObserver === null) {
-    refsImageObserver = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          refsImageObserver.unobserve(entry.target);
-          entry.target.refsLoad?.();
-        }
-      },
-      { rootMargin: "320px" },
-    );
-  }
-  image.refsLoad = load;
-  refsImageObserver.observe(image);
-}
-
-function refsPreviewImage(url, alt, fallback) {
-  const image = el("img", { alt });
-  refsLoadOnSight(image, () => {
-    refsImageSource(url).then(
-      (src) => {
-        image.src = src;
-      },
-      () => {
-        if (fallback) image.replaceWith(fallback());
-      },
-    );
-  });
-  return image;
-}
+//
+// Der Bildlader steht seit Schritt 59 in `app-refs-cards.js` - er gehoert zu
+// den Karten und wird von der Miniatur und dem Vergleich nur mitbenutzt.
 
 function refsNavItem(input) {
   const button = el(
@@ -550,59 +511,6 @@ async function refsRefresh() {
   refsTrayResync();
 }
 
-// Karten in Bloecken zeichnen: bei mehreren hundert Referenzen waeren alle
-// Karten samt Bildern auf einmal zu viel. Der Waechter am Ende der Liste zieht
-// den naechsten Block nach, sobald er in Sicht kommt.
-
-const REFS_CARD_BATCH = 48;
-let refsCardObserver = null;
-
-function refsRenderCards(references, gallery) {
-  gallery.replaceChildren();
-  if (references.length === 0) return;
-  // Der Waechter steht von Anfang an in der Liste: die Karten werden jeweils
-  // davor eingefuegt, und er zieht den naechsten Block nach, sobald er in Sicht
-  // kommt.
-  const sentinel = el("div", { class: "refs-sentinel", "aria-hidden": "true" });
-  gallery.append(sentinel);
-  let rendered = 0;
-  const renderNext = () => {
-    const next = references.slice(rendered, rendered + REFS_CARD_BATCH);
-    rendered += next.length;
-    for (const reference of next) gallery.insertBefore(refsCard(reference), sentinel);
-  };
-  const finish = () => {
-    refsCardObserver?.unobserve(sentinel);
-    sentinel.remove();
-  };
-  renderNext();
-  if (rendered >= references.length) {
-    finish();
-    return;
-  }
-  if (typeof IntersectionObserver !== "function") {
-    // Ohne Beobachter bleibt nur der volle Aufbau.
-    while (rendered < references.length) renderNext();
-    finish();
-    return;
-  }
-  if (refsCardObserver === null) {
-    refsCardObserver = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) entry.target.refsMore?.();
-        }
-      },
-      { rootMargin: "600px" },
-    );
-  }
-  sentinel.refsMore = () => {
-    renderNext();
-    if (rendered >= references.length) finish();
-  };
-  refsCardObserver.observe(sentinel);
-}
-
 function refsEmptyAction() {
   if (refsEmptyMode === "seed") void refsSeedStyles();
   else refsResetFilters();
@@ -654,88 +562,6 @@ function refsSearchParams() {
 
 function refsTrayResync() {
   refsRenderTray();
-}
-
-function refsCard(reference) {
-  const selected = refsIsSelected(reference.id);
-  const entry = refsEntryFor(reference);
-  const art = el(
-    "div",
-    {
-      class: "refs-card-art",
-      role: "button",
-      tabindex: "0",
-      "aria-label": `Referenz öffnen: ${reference.name}`,
-      onclick: () => refsOpenDetail(reference.id),
-      onkeydown: (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          refsOpenDetail(reference.id);
-        }
-      },
-    },
-    refsCardImage(reference),
-    el(
-      "span",
-      { class: "refs-open-label" },
-      "Referenz öffnen",
-      el("span", { "aria-hidden": "true", html: REFS_ICON_LINK_LABEL }),
-    ),
-  );
-  const select = el("button", {
-    type: "button",
-    class: `refs-select${selected ? " selected" : ""}`,
-    "aria-pressed": selected ? "true" : "false",
-    "aria-label": `${selected ? "Aus Vergleich entfernen" : "Zum Vergleich wählen"}: ${reference.name}`,
-    html: selected ? REFS_ICON_CHECK_BOX : REFS_ICON_PLUS_BOX,
-    onclick: (event) => {
-      event.stopPropagation();
-      refsToggleSelection(entry);
-    },
-  });
-  const meta = el(
-    "div",
-    { class: "refs-card-meta" },
-    el(
-      "div",
-      {},
-      el("p", { class: "refs-card-title", text: reference.name }),
-      el(
-        "div",
-        { class: "refs-card-collection" },
-        el("span", {
-          class: "refs-dot",
-          style: `--refs-dot:${reference.collection ? refsHex(reference.collection.accent) : REFS_ACCENT_FALLBACK}`,
-        }),
-        reference.collection ? reference.collection.name : "Ohne Sammlung",
-      ),
-    ),
-    el("span", { class: "refs-card-arrow", "aria-hidden": "true", html: REFS_ICON_LINK }),
-  );
-  return el("article", { class: "refs-card", "data-reference": reference.id }, select, art, meta);
-}
-
-function refsCardImage(reference) {
-  // The engine marks the card snapshot (hero slot first); older payloads
-  // without it fall back to the first viewable shot, never motion.
-  const card =
-    reference.cardSnapshot && reference.cardSnapshot.previewPath
-      ? reference.cardSnapshot
-      : (reference.snapshots ?? []).find(
-          (shot) => shot.previewPath && shot.kind !== "motion",
-        );
-  const snapshot = card ?? null;
-  const placeholder = () =>
-    el("div", {
-      class: "refs-card-placeholder",
-      text: initials(reference.name || "R"),
-    });
-  if (!snapshot) return placeholder();
-  return refsPreviewImage(
-    snapshotImageURL(reference.id, snapshot),
-    `Vorschau ${reference.name}`,
-    placeholder,
-  );
 }
 
 // Aufklappbare Bausteine der Detailspalte (Rezept, Profil und Aktionen).
