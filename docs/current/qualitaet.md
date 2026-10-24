@@ -114,25 +114,25 @@ Der aktuelle Lauf vom 09.10.2026 (lokal auf Windows, TEMP/TMP/TMPDIR auf dem Lau
 
 <!-- Erzeugt von `scripts/render-quality.mjs` aus `coverage/coverage-summary.json`.
      Nicht von Hand editieren: dieser Block ist ein Messwert, und `pnpm quality:check`
-     l├ñsst den Lauf rot werden, sobald Dokument und Lauf auseinanderlaufen. -->
+     lässt den Lauf rot werden, sobald Dokument und Lauf auseinanderlaufen. -->
 
-**Gemessen:** 2026-10-24 ┬╖ vitest coverage (v8)
+**Gemessen:** 2026-10-24 · vitest coverage (v8)
 
 | Pfad | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
-| `packages/engine/src/http.ts` | 96.22 | 87.01 | 100.00 | 96.22 |
-| `packages/engine/src/http-route-support.ts` | 85.95 | 78.60 | 100.00 | 85.95 |
-| `packages/engine/src/http-routes-sites.ts` | 95.15 | 77.82 | 92.00 | 95.15 |
-| `packages/engine/src/store.ts` | 86.38 | 88.77 | 94.80 | 86.38 |
-| `packages/engine/src/lifecycle.ts` | 87.01 | 74.46 | 100.00 | 87.01 |
-| `packages/engine/src/forms.ts` | 84.72 | 75.09 | 100.00 | 84.72 |
-| `packages/mcp/src/tools.ts` | 89.78 | 64.60 | 81.81 | 89.78 |
-| `packages/mcp/src/tools-*.ts` (4 Dateien) | 81.81 bis 100.00 | 49.50 bis 100.00 | 100.00 | 81.81 bis 100.00 |
-| `packages/engine/src/store-*.ts` (36 Dateien) | 79.36 bis 100.00 | 39.13 bis 100.00 | 71.42 bis 100.00 | 79.36 bis 100.00 |
-| `packages/engine/src/http-*.ts` (12 Dateien) | 59.22 bis 100.00 | 54.34 bis 100.00 | 75.00 bis 100.00 | 59.22 bis 100.00 |
-| `packages/editor/src/state/*` (15 Dateien) | 66.98 bis 100.00 | 60.00 bis 100.00 | 66.66 bis 100.00 | 66.98 bis 100.00 |
+| `packages/engine/src/http.ts` | 96.47 | 87.83 | 100.00 | 97.46 |
+| `packages/engine/src/http-route-support.ts` | 87.91 | 74.75 | 93.02 | 87.94 |
+| `packages/engine/src/http-routes-sites.ts` | 93.23 | 77.44 | 91.80 | 94.90 |
+| `packages/engine/src/store.ts` | 88.74 | 70.27 | 95.32 | 89.19 |
+| `packages/engine/src/lifecycle.ts` | 89.16 | 73.91 | 89.13 | 90.66 |
+| `packages/engine/src/forms.ts` | 91.62 | 83.59 | 96.87 | 93.18 |
+| `packages/mcp/src/tools.ts` | 87.50 | 63.15 | 86.86 | 90.86 |
+| `packages/mcp/src/tools-*.ts` (4 Dateien) | 88.60 bis 100.00 | 57.25 bis 100.00 | 100.00 | 87.14 bis 100.00 |
+| `packages/engine/src/store-*.ts` (38 Dateien) | 81.43 bis 100.00 | 61.76 bis 100.00 | 71.42 bis 100.00 | 82.35 bis 100.00 |
+| `packages/engine/src/http-*.ts` (12 Dateien) | 87.91 bis 100.00 | 69.76 bis 100.00 | 89.47 bis 100.00 | 87.94 bis 100.00 |
+| `packages/editor/src/state/*` (16 Dateien) | 75.00 bis 100.00 | 65.67 bis 100.00 | 73.33 bis 100.00 | 80.00 bis 100.00 |
 
-**├£ber alle gemessenen Dateien:** Statements 90.86 ┬╖ Branches 79.18 ┬╖ Functions 93.37 ┬╖ Lines 90.86
+**Über alle gemessenen Dateien:** Statements 90.74 · Branches 78.49 · Functions 93.88 · Lines 93.15
 
 <!-- messwerte:ende -->
 
