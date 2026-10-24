@@ -120,13 +120,14 @@ die Uebersicht nennt sie einzeln, weil die Datei sonst wie ein God-File aussieht
 | `tools.ts` | 88 | 2714 | Elicitation (E4 slice 2): ask the client for a missing or ambiguous parameter. The server wires this only when the client declared the elicitation capability; declined or unsupported resolves to undefined and the tool's own validation error stands. |
 | **Summe** | **109** | | |
 
-## Was noch nicht geteilt ist
+## Die grossen Dateien und warum sie so gross sind
 
 Die Aufteilung folgt ADR-0019: `Store` und der HTTP-Dispatcher bleiben die Fassade, die
-Fachmodule tragen die Tabellen. Diese Dateien stehen bewusst noch als Ganzes; die
-Zeilenzahl wird beim Erzeugen gemessen, der Grund ist eine Entscheidung.
+Fachmodule tragen die Tabellen. Diese Dateien reissen eine Zeilenschwelle; jede Zeile
+hier nennt den Grund - eine Entscheidung, keine Messung. Die Zeilenzahl selbst wird
+beim Erzeugen gemessen.
 
-| Datei | Zeilen | Warum sie bleibt |
+| Datei | Zeilen | Warum sie so gross ist |
 |---|---|---|
 | `packages/mcp/src/tools.ts` | 2714 | die Werkzeug-Tabelle; ihre Reihenfolge ist der Vertrag (`server.ts` liest `TOOLS.map`), der Manifest-Generator folgt den `...X_TOOLS`-Spreizungen - ein weiterer Schnitt ist möglich und braucht den Manifest-Diff als Beweis |
 | `packages/engine/src/store.ts` | 2662 | vier fachübergreifende Transaktionen (`applyRedesignPlan`, `duplicateSiteWithPlan`, `duplicateAssetRecords`, `commitFramerImportPlan`), `replaceTables` und die Fassade; der Rest sind Delegaten |
@@ -135,11 +136,14 @@ Zeilenzahl wird beim Erzeugen gemessen, der Grund ist eine Entscheidung.
 | `packages/engine/src/content.ts` | 1703 | Sammlungen, Einträge und ihre Suche in einem Fachgebiet |
 | `packages/editor/src/inspector/model.ts` | 1490 | das Modell des Inspektors |
 | `packages/engine/src/types.ts` | 1479 | die öffentlichen Typen der Engine; keine Logik |
+| `packages/engine/src/http-routes-sites.ts` | 1464 | die verbleibenden 50 Site-Routen (Sites, Seiten, Bibliothek, Inhalte, Referenzen, Bilder, Importe); der Zuschnitt läuft weiter, jede Gruppe braucht 6 bis 16 Import-Quellen |
 | `packages/editor/src/canvas/canvas.ts` | 1336 | die Bühne des Editors |
 | `packages/framer-import/src/mapper.ts` | 1326 | die Abbildung Framer nach NodeTree |
 | `packages/engine/src/forms.ts` | 1313 | Formulare, Einsendungen und der CSV-Export |
 | `packages/app/public/app-editor.js` | 1208 | `mountCanvasView` haelt Canvas, Zustand und Ereignisse in einer Closure |
+| `packages/engine/src/lifecycle.ts` | 1160 | der Release-Lebenszyklus in einem Fachgebiet: Revision, Re-Bake, Veroeffentlichung, Preview und Review gehoeren zusammen, weil ein Release ohne die anderen drei nicht entsteht; ein Schnitt muesste die gemeinsame Transaktion teilen |
 | `packages/engine/src/media.ts` | 1107 | Assets, Ableitungen und Ordner |
+| `packages/engine/src/references-lifecycle.ts` | 1046 | die Referenz-Pipeline: Analyse, Job-Lauf, Snapshot, Playwright-Aufnahme und Anwendung; der Capture-Treiber allein sind 250 Zeilen, und er teilt den Zustand mit dem Job-Lauf |
 | `packages/app/public/app-references.js` | 597 | die Referenzen-Seite ohne die Karten; der Rest nach Schritt 59 |
 | `packages/engine/src/http.ts` | 243 | Dispatcher und Routentabelle; fertig |
 | `packages/app/public/app.js` | 219 | Router und Kommandoleiste; fertig |

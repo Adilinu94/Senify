@@ -54,6 +54,45 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     expect(fehlend).toEqual([]);
   });
 
+  it("begruendet jede grosse Datei, die noch als Ganzes steht", () => {
+    // Der Befund vom 24.10.2026: `http-routes-sites.ts` war mit 1 440 Zeilen die
+    // zweitgroesste Datei im Baum und stand trotzdem NICHT in der Liste "Was
+    // noch nicht geteilt ist". Die Liste ist eine Entscheidung, keine Messung -
+    // aber eine Datei, die die Schwelle reisst und in keiner der beiden Listen
+    // steht, ist eine vergessene Entscheidung. Genau das soll hier auffallen.
+    //
+    // Die Schwelle ist bewusst die Zeilenzahl der groessten Datei, die noch
+    // geteilt wird (`app-references.js` nach Schritt 59): alles darueber muss
+    // entweder ein Fachmodul sein oder einen Grund haben.
+    const SCHWELLE = 1000;
+    const begruendet = new Set(
+      [...module.matchAll(/^\| `([^`]+\.(?:ts|js))` \| \d+ \|/gm)].map((m) => m[1]),
+    );
+
+    const kandidaten: Array<[string, string]> = [
+      ...[...readdirSync(SRC).filter((n) => n.endsWith(".ts"))].map((n) => [n, join(SRC, n)] as [string, string]),
+      ...[...readdirSync(PUB).filter((n) => n.endsWith(".js"))].map((n) => [n, join(PUB, n)] as [string, string]),
+      ...["packages/mcp/src/tools.ts", "packages/editor/src/inspector/inspector.ts",
+          "packages/editor/src/inspector/model.ts", "packages/editor/src/canvas/canvas.ts",
+          "packages/framer-import/src/capture-html.ts", "packages/framer-import/src/mapper.ts",
+      ].map((p) => [p.split("/").pop()!, join(root, p)] as [string, string]),
+    ];
+
+    const vergessen: string[] = [];
+    for (const [name, pfad] of kandidaten) {
+      const text = readFileSync(pfad, "utf8");
+      const n = text.split(/\r?\n/).length;
+      if (n <= SCHWELLE) continue;
+      // Der Bericht nennt entweder den Dateinamen (Fachmodul-Tabellen) oder den
+      // vollen Pfad (BLEIBT-Tabelle).
+      const relat = pfad.slice(root.length + 1).replace(/\\/g, "/");
+      if (!begruendet.has(relat) && !begruendet.has(name)) {
+        vergessen.push(`${relat}: ${n} Zeilen, weder Fachmodul noch begruendet`);
+      }
+    }
+    expect(vergessen.sort()).toEqual([]);
+  });
+
   it("nennt je Route-Modul die richtige Routenzahl", () => {
     // Der Befund vom 23.10.2026: die Zahl stand von Hand in `stand.md` und war
     // fuer zwei Module falsch. Jetzt steht sie im Bericht, und der Bericht
