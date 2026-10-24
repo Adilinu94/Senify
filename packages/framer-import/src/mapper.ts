@@ -432,7 +432,7 @@ type MapContext = {
   findings: IrFinding[];
 };
 
-function mapNode(node: IrNode, context: MapContext): EditorNode | null {
+function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null): EditorNode | null {
   // The sibling device merge (S1.5): the capture keeps Framer's per-breakpoint
   // duplicates as separate nodes with `hiddenAt`; identical base signatures
   // fold into one node whose states carry the devices.
@@ -474,12 +474,12 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
       // capture kept the inner markup, because the element scan alone drops
       // the plain text between the children.
       primitive = "body";
-      props["html"] = withTextTypography(node, sanitizeInlineHtml(node.innerHtml));
+      props["html"] = framerVarsAsCss(withTextTypography(node, sanitizeInlineHtml(node.innerHtml)), lineHeightFactorOf(node) ?? (parent === null ? null : lineHeightFactorOf(parent)));
     } else if (hasElementChildren) {
       // A text element with element children (the RichText shape: <p><a>…</a></p>)
       // becomes a body with inline HTML — `text` accepts no children.
       primitive = "body";
-      props["html"] = inlineHtmlOf(node, merged.base.text?.content ?? "", context);
+      props["html"] = framerVarsAsCss(inlineHtmlOf(node, merged.base.text?.content ?? "", context));
     } else {
       props["text"] = baseText?.content ?? "";
       if (HEADING_TAGS.has(node.tag)) props["level"] = node.tag;
@@ -511,7 +511,7 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
         if (props[property] === undefined) props[property] = value;
       }
     } else if (hasElementChildren) {
-      props["html"] = inlineHtmlOf(node, baseText?.content ?? "", context);
+      props["html"] = framerVarsAsCss(inlineHtmlOf(node, baseText?.content ?? "", context), lineHeightFactorOf(node));
     } else {
       props["html"] = baseText?.content ?? "";
     }
@@ -689,7 +689,7 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
   const children: string[] = [];
   if (primitive !== "body" && !(primitive === "heading" && hasElementChildren)) {
     for (const child of siblings) {
-      const mapped = mapNode(child, context);
+      const mapped = mapNode(child, context, node);
       if (mapped !== null) {
         children.push(mapped.id);
         context.nodes[mapped.id] = mapped;
@@ -865,6 +865,91 @@ function withTextTypography(node: IrNode, html: string): string {
   return out;
 }
 
+// Framer writes the typography of a marked word into `--framer-*` VARIABLES
+// (`<span style="--framer-font-size:32px">$5000</span>`), and its own stylesheet
+// turns them into `font-size: var(--framer-font-size)`. The import drops the
+// variables — they are not style properties — so the word keeps the size of its
+// paragraph: measured on `refined`, "$5000" stands 48 px tall in the source and
+// 30 px in the structure, the price card 69 → 51 px, the page 18 px short.
+//
+// The inline markup is the only place the variable still exists, so it is
+// rewritten here into the declaration it stands for. Only the style attribute of
+// a tag is touched, and only `--framer-*` names that have a Senify counterpart.
+const INLINE_FRAMER_VARS: Readonly<Record<string, string>> = {
+  "--framer-font-size": "font-size",
+  "--framer-font-family": "font-family",
+  "--framer-font-weight": "font-weight",
+  "--framer-font-style": "font-style",
+  "--framer-letter-spacing": "letter-spacing",
+  "--framer-line-height": "line-height",
+  "--framer-text-alignment": "text-align",
+  "--framer-text-color": "color",
+  "--framer-text-decoration": "text-decoration",
+  "--framer-text-transform": "text-transform",
+};
+
+// The line height of an element as a FACTOR, when the source wrote one. Only a
+// factor (`1.5em`, `150%`, `1.5`) can be repeated on a child that changes its own
+// font size — a computed `px` value belongs to the parent's size and would freeze
+// the child's line.
+function lineHeightFactorOf(node: IrNode): string | null {
+  for (const state of node.states) {
+    const raw = (state.visual["line-height"] ?? "").trim();
+    if (raw === "") continue;
+    const em = /^([\d.]+)em$/.exec(raw);
+    if (em !== null) return em[1] ?? null;
+    const percent = /^([\d.]+)%$/.exec(raw);
+    if (percent !== null) return String(Number.parseFloat(percent[1] ?? "") / 100);
+    if (/^[\d.]+$/.test(raw)) return raw;
+  }
+  return null;
+}
+
+function framerVarsAsCss(html: string, parentLineHeight: string | null = null): string {
+  if (!html.includes("--framer-")) return html;
+  return html.replace(
+    /(<[a-zA-Z][\w:-]*\b[^>]*?\bstyle\s*=\s*)(["'])([\s\S]*?)\2/g,
+    (whole, head: string, quote: string, value: string) => {
+      const pairs = value.split(";").map((part) => part.trim()).filter((part) => part !== "");
+      const declared = new Set<string>();
+      const added: string[] = [];
+      for (const pair of pairs) {
+        const colon = pair.indexOf(":");
+        if (colon <= 0) continue;
+        const name = pair.slice(0, colon).trim();
+        const css = INLINE_FRAMER_VARS[name];
+        if (css === undefined) continue;
+        declared.add(css);
+        added.push(`${css}:${pair.slice(colon + 1).trim()}`);
+      }
+      // A bigger `font-size` on the word needs the line height that follows it.
+      // The source writes `line-height: 1.5em` on the PARAGRAPH: the browser
+      // inherits the FACTOR, so the 32 px word is laid out in 48 px, not in the
+      // paragraph's computed 30 px. Measured on `refined`: without it the
+      // `$5000` line is 34 px instead of 48, the price card 55 instead of 69.
+      //
+      // Only an `em`/factor value of the parent is repeatable on the child — a
+      // parent's computed `px` line height belongs to the parent's size.
+      if (declared.has("font-size") && !declared.has("line-height") && parentLineHeight !== null) {
+        added.push(`line-height:${parentLineHeight}`);
+      }
+      if (added.length === 0) return whole;
+      // A declaration the author wrote themselves wins over the variable — the
+      // cascade of the source says the same (an inline `font-size` beats the
+      // class rule that reads `var(--framer-font-size)`).
+      const kept = pairs.filter((pair) => {
+        const colon = pair.indexOf(":");
+        return colon <= 0 || !declared.has(pair.slice(0, colon).trim());
+      });
+      const own = added.filter((entry) => {
+        const name = entry.slice(0, entry.indexOf(":"));
+        return !kept.some((pair) => pair.slice(0, pair.indexOf(":" )).trim() === name);
+      });
+      return `${head}${quote}${[...kept, ...own].join(";")}${quote}`;
+    },
+  );
+}
+
 // The typography of a text that lives in a descendant, written into the props
 // of the node that carries it — with the device variants of the source.
 //
@@ -923,8 +1008,8 @@ function cssToStyle(visual: { [key: string]: string | undefined }): Record<strin
 // back as inline markup (the RichText shape `<p><a>Home</a></p>` →
 // `<a href="./">Home</a>`). Only the inline tags the body primitive accepts
 // are generated; deeper structures flatten to their text.
-function inlineHtmlOf(node: IrNode, fallback: string, context: MapContext): string {
-  const html = node.children.map((child) => inlineOf(child, context, true)).join("");
+function inlineHtmlOf(node: IrNode, fallback: string, context: MapContext, parentLineHeight: string | null = null): string {
+  const html = node.children.map((child) => inlineOf(child, context, true, parentLineHeight ?? lineHeightFactorOf(node))).join("");
   return html !== "" ? html : escapeHtml(fallback);
 }
 
@@ -934,9 +1019,9 @@ function inlineHtmlOf(node: IrNode, fallback: string, context: MapContext): stri
 // always render into the element, in document order, and the own text goes
 // first — an either/or would drop the children whenever the element carries
 // whitespace of its own (regression: navigation and mail links vanished).
-function inlineOf(child: IrNode, context: MapContext, mitTypografie: boolean): string {
+function inlineOf(child: IrNode, context: MapContext, mitTypografie: boolean, parentLineHeight: string | null = null): string {
   if (child.innerHtml !== undefined && child.innerHtml !== null) {
-    const inner = withTextTypography(child, sanitizeInlineHtml(child.innerHtml));
+    const inner = framerVarsAsCss(withTextTypography(child, sanitizeInlineHtml(child.innerHtml)), parentLineHeight ?? lineHeightFactorOf(child));
     return HEADING_TAGS.has(child.tag) || child.tag === "p" ? `<${child.tag}>${inner}</${child.tag}>` : inner;
   }
   // A line break is the whole content of the blank line between two paragraphs.
@@ -1516,7 +1601,7 @@ export function mapDocument(
     const topLevel = mergeSiblingVariants(page.root.children, context.breakpoints, topFold);
     context.stats.mergedVariants += topFold.merged;
     for (const child of topLevel) {
-      const mapped = mapNode(child, context);
+      const mapped = mapNode(child, context, page.root);
       if (mapped === null) continue;
       context.nodes[mapped.id] = mapped;
       children.push(mapped.id);
