@@ -3,6 +3,7 @@
 // ESLint.
 
 import { AUTHOR, MUTATION_LABELS, api, askText, el, failed, render, routeScope, toast } from "./app-core.js";
+import { createBakeStatus } from "./app-editor-bake-status.js";
 import { createProtocolLog } from "./app-editor-protocol.js";
 import { createRedesignInbox } from "./app-editor-redesign-inbox.js";
 import { openRedesignDirectionDialog } from "./app-import.js";
@@ -109,37 +110,14 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     { class: "toolbar__status", "aria-live": "polite", "aria-atomic": "true" },
     statusEl,
   );
-  // Re-Bake-Status (E12): Inhaltsaenderungen laufen als durabler Job; der
-  // Badge zeigt den letzten Stand, ohne dass jemand die Job-Route oeffnen muss.
-  const bakeBadge = el("span", {
-    class: "muted",
-    "data-role": "bake-status",
+  // Re-Bake-Status (E12) liegt in `app-editor-bake-status.js` (R12): eine
+  // Abfrage, eine Zeile. Ein Hinweis, kein Blocker.
+  const bakeStatus = createBakeStatus({
+    el,
+    fetchJobs: () => api(`/api/sites/${siteId}/bake-jobs`),
   });
-  bakeBadge.hidden = true;
-  statusGroup.append(bakeBadge);
-  const showBake = (text, isError) => {
-    bakeBadge.textContent = text;
-    bakeBadge.hidden = false;
-    if (isError === true) bakeBadge.dataset.state = "error";
-    else delete bakeBadge.dataset.state;
-  };
-  const refreshBakeJobs = async () => {
-    try {
-      const result = await api(`/api/sites/${siteId}/bake-jobs`);
-      const job = (result.jobs ?? [])[0];
-      if (!job) return;
-      if (job.status === "queued" || job.status === "running") {
-        showBake("Inhalt wird neu gebaut …");
-      } else if (job.status === "failed") {
-        showBake(`Re-Bake fehlgeschlagen: ${job.lastError ?? "unbekannt"}`, true);
-      } else if (job.status === "done") {
-        showBake("Inhalt neu gebaut");
-      }
-    } catch {
-      // Der Status ist ein Hinweis, nie ein Blocker.
-    }
-  };
-  void refreshBakeJobs();
+  statusGroup.append(bakeStatus.element);
+  void bakeStatus.refresh();
   const publishButton = el("button", {
     type: "button",
     class: "primary",
@@ -892,12 +870,12 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   live?.addEventListener("bake.done", (event) => {
     const payload = parseEngineEvent(event);
     logProtocol(payload);
-    showBake("Inhalt neu gebaut");
+    bakeStatus.show("Inhalt neu gebaut");
   });
   live?.addEventListener("bake.failed", (event) => {
     const payload = parseEngineEvent(event);
     logProtocol(payload);
-    showBake("Re-Bake fehlgeschlagen", true);
+    bakeStatus.show("Re-Bake fehlgeschlagen", true);
     toast("Re-Bake fehlgeschlagen — Details in der Job-Liste", "error");
   });
   // Beim Verlassen der Ansicht den Kanal schliessen (kein abgebrochener
