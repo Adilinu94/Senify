@@ -7,6 +7,10 @@ import { createAgentPreview } from "./app-editor-agent-preview.js";
 import { createBakeStatus } from "./app-editor-bake-status.js";
 import { createConflictDialog } from "./app-editor-conflict-dialog.js";
 import { createPanelToggle } from "./app-editor-panel-toggle.js";
+import {
+  isOwnEvent as isOwnEventFromPayload,
+  parseEngineEvent,
+} from "./app-editor-live-events.js";
 import { createProtocolLog } from "./app-editor-protocol.js";
 import { createRedesignInbox } from "./app-editor-redesign-inbox.js";
 import { createToolbarOverflow } from "./app-editor-toolbar-overflow.js";
@@ -624,16 +628,12 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   // Dieselbe Beschriftung wie im Protokoll - exportiert, damit die Live-Zeile
   // nicht eine zweite Uebersetzungstabelle braucht.
   const protocolAction = (action) => MUTATION_LABELS[action] ?? action ?? "Änderung";
-  const parseEngineEvent = (event) => {
-    try {
-      return JSON.parse(event.data ?? "{}");
-    } catch {
-      return {};
-    }
-  };
-  // Eigene Schreibvorgaenge tragen den Programm-Token; sie sind kein
-  // "Agent baut" und werden weder protokolliert noch nachgeladen.
-  const isOwnEvent = (payload) => payload.actor?.label === AUTHOR.label;
+  // Der Parser und der Eigener-Schreiber-Test liegen in
+  // `app-editor-live-events.js` (R12): reine Rechnung, kein DOM. Ein kaputter
+  // Frame wirft nicht, und ein Fremder ohne Etikett gilt nicht als "meins".
+  // `parseEngineEvent` kommt direkt aus dem Modul (gleiche Form); `isOwnEvent`
+  // braucht das Etikett des Programms und bleibt deshalb einzeilig hier.
+  const isOwnEvent = (payload) => isOwnEventFromPayload(payload, AUTHOR.label);
   // Agent-Vorschau (Ticket 05, Punkt 5) liegt in
   // `app-editor-agent-preview.js` (R12): der Schalter, seine Speicherung und
   // die Entscheidung "darf die Ansicht wechseln?". Offene eigene Aenderungen

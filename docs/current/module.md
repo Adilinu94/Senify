@@ -77,7 +77,7 @@
 
 ## Oberfläche: ES-Module
 
-**32 Dateien.**
+**33 Dateien.**
 
 | Modul | Zeilen | Zweck |
 |---|---|---|
@@ -86,6 +86,7 @@
 | `app-editor-agent-preview.js` | 65 | Die Agent-Vorschau (Ticket 05, Punkt 5) - aus `app-editor.js` (R12). |
 | `app-editor-bake-status.js` | 66 | Der Re-Bake-Status am Canvas (E12) - aus `app-editor.js` (R12). |
 | `app-editor-conflict-dialog.js` | 70 | Der Konflikt-Dialog des Editors (L17) - aus `app-editor.js` (R12). |
+| `app-editor-live-events.js` | 40 | Die zwei Regeln am Live-Kanal (Ticket 05) - aus `app-editor.js` (R12). |
 | `app-editor-panel-toggle.js` | 58 | Die Panel-Umschalter des Editors (E8) - aus `app-editor.js` (R12). |
 | `app-editor-protocol.js` | 69 | „Was gerade passiert" - das Protokoll unter dem Canvas (aus `app-editor.js`). |
 | `app-editor-redesign-inbox.js` | 94 | Die Redesign-Inbox am Canvas (ADR-0012) - aus `app-editor.js` (R12). |
