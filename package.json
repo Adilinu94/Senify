@@ -2,6 +2,7 @@
   "name": "senify",
   "version": "0.1.0",
   "private": true,
+  "license": "UNLICENSED",
   "type": "module",
   "description": "Senify — agent-native website platform (local program)",
   "engines": {

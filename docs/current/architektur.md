@@ -160,4 +160,4 @@ R1 ist durch Build und angeschlossenes Artefakt-Gate implementierungsseitig gesc
 | R18 | Browser-Suiten -> stilles Ueberspringen | geschlossen: `SENIFY_REQUIRE_BROWSER=1`, nachgemessen ohne/mit Variable | `docs/fahrplan.md` (—) |
 | R19 | Route-Matrix -> Drift-Tor | geschlossen: `pnpm route-matrix:check`, Generator sortiert die Module | `docs/fahrplan.md` (—) |
 | R20 | Bake-Lease -> Build-Timeout | geschlossen: Lease = Build-Frist plus fuenf Minuten, `job-leases.test.ts` | `docs/fahrplan.md` (—) |
-| R21 | Keine Lizenz | offen: keine `LICENSE`-Datei, kein `license`-Feld; damit "alle Rechte vorbehalten" und keine Fremdcode-Uebernahme moeglich | `docs/fahrplan.md` (R21) |
+| R21 | Keine Lizenz | **geschlossen (24.10.2026)**: alle Rechte vorbehalten, Rechteinhaber Adrian Nick; `LICENSE` im Wurzelverzeichnis, `license: UNLICENSED` in `package.json`. Nutzung durch Dritte nur per gesonderter Vereinbarung. | `docs/fahrplan.md` (R21), `LICENSE` |
