@@ -109,7 +109,7 @@ const BLEIBT = {
     "eine Closure (`createInspector`), die DOM und Zustand gemeinsam hält",
   "packages/app/public/app-editor.js":
     "`mountCanvasView` haelt Canvas, Zustand und Ereignisse in einer Closure",
-  "packages/app/public/app-references.js": "die Referenzen-Seite; Rest nach Schritt 52",
+  "packages/app/public/app-references.js": "die Referenzen-Seite ohne die Karten; der Rest nach Schritt 59",
   "packages/engine/src/content.ts": "Sammlungen, Einträge und ihre Suche in einem Fachgebiet",
   "packages/engine/src/forms.ts": "Formulare, Einsendungen und der CSV-Export",
   "packages/engine/src/media.ts": "Assets, Ableitungen und Ordner",
