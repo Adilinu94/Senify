@@ -11,6 +11,7 @@ import {
   isOwnEvent as isOwnEventFromPayload,
   parseEngineEvent,
 } from "./app-editor-live-events.js";
+import { saveControls, saveStatusText } from "./app-editor-save-status.js";
 import { createProtocolLog } from "./app-editor-protocol.js";
 import { createRedesignInbox } from "./app-editor-redesign-inbox.js";
 import { createToolbarOverflow } from "./app-editor-toolbar-overflow.js";
@@ -208,20 +209,15 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   });
   const savedUi = session.ui();
 
+  // Was die Zeile sagt und welche Knoepfe gelten, rechnet
+  // `app-editor-save-status.js` (R12). Hier bleibt nur das Schreiben ins DOM.
   const applyState = (state) => {
-    saveButton.disabled = state.pending === 0;
-    saveButton.textContent = state.pending > 0 ? `Speichern (${state.pending})` : "Speichern";
-    const conflict = state.status === "conflict";
-    reloadButton.hidden = !conflict;
-    retryButton.hidden = !conflict;
-    if (state.status === "saving") statusEl.textContent = "Speichert …";
-    else if (state.status === "saved") statusEl.textContent = "Gespeichert";
-    else if (conflict) statusEl.textContent = state.message ?? "Entwurf wurde geändert";
-    else if (state.status === "error") statusEl.textContent = state.message ?? "Speichern fehlgeschlagen";
-    else statusEl.textContent = state.pending > 0 ? `${state.pending} offen` : "";
-    if (state.unsupported.length > 0) {
-      statusEl.textContent = `${statusEl.textContent} · nicht speicherbar: ${state.unsupported.join(", ")}`.trim();
-    }
+    const controls = saveControls(state);
+    saveButton.disabled = controls.saveDisabled;
+    saveButton.textContent = controls.saveLabel;
+    reloadButton.hidden = !controls.conflict;
+    retryButton.hidden = !controls.conflict;
+    statusEl.textContent = saveStatusText(state);
     syncConflictDialog(editor.conflictDialogModel(state));
   };
 

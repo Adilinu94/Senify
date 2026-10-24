@@ -77,7 +77,7 @@
 
 ## Oberfläche: ES-Module
 
-**33 Dateien.**
+**34 Dateien.**
 
 | Modul | Zeilen | Zweck |
 |---|---|---|
@@ -90,8 +90,9 @@
 | `app-editor-panel-toggle.js` | 58 | Die Panel-Umschalter des Editors (E8) - aus `app-editor.js` (R12). |
 | `app-editor-protocol.js` | 69 | „Was gerade passiert" - das Protokoll unter dem Canvas (aus `app-editor.js`). |
 | `app-editor-redesign-inbox.js` | 94 | Die Redesign-Inbox am Canvas (ADR-0012) - aus `app-editor.js` (R12). |
+| `app-editor-save-status.js` | 51 | Was die Statuszeile des Editors sagt - aus `app-editor.js` (R12). |
 | `app-editor-toolbar-overflow.js` | 109 | Das Overflow-Menue der Editor-Toolbar - aus `app-editor.js` (R12). |
-| `app-editor.js` | 1029 | Der Seiten-Editor und die Buehne. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
+| `app-editor.js` | 1025 | Der Seiten-Editor und die Buehne. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
 | `app-framer-import.js` | 489 | Der Import aus Framer (P3-2, Schritt 45): der Bericht nach der Analyse und der Dialog, der die Adresse abfragt, analysiert und den Write ausloest. `app-import.js` importiert die zwei Einstiegspunkte. |
 | `app-import.js` | 484 | Der Import aus Framer und die Redesign-Dialoge. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
 | `app-library.js` | 280 | Die Bausteinbibliothek und der Papierkorb (P3-2, Schritt 42). Beide Views standen in `app-projects.js`; sie teilen sich nichts mit den Projekten - keine Modulvariable, keinen Zustand, nur die Kern-Helfer. |
@@ -152,7 +153,7 @@ beim Erzeugen gemessen.
 | `packages/engine/src/lifecycle.ts` | 1160 | der Release-Lebenszyklus in einem Fachgebiet: Revision, Re-Bake, Veroeffentlichung, Preview und Review gehoeren zusammen, weil ein Release ohne die anderen drei nicht entsteht; ein Schnitt muesste die gemeinsame Transaktion teilen |
 | `packages/engine/src/media.ts` | 1107 | Assets, Ableitungen und Ordner |
 | `packages/engine/src/references-lifecycle.ts` | 1046 | die Referenz-Pipeline: Analyse, Job-Lauf, Snapshot, Playwright-Aufnahme und Anwendung; der Capture-Treiber allein sind 250 Zeilen, und er teilt den Zustand mit dem Job-Lauf |
-| `packages/app/public/app-editor.js` | 1029 | `mountCanvasView` haelt Canvas, Zustand und Ereignisse in einer Closure |
+| `packages/app/public/app-editor.js` | 1025 | `mountCanvasView` haelt Canvas, Zustand und Ereignisse in einer Closure |
 | `packages/app/public/app-references.js` | 597 | die Referenzen-Seite ohne die Karten; der Rest nach Schritt 59 |
 | `packages/engine/src/http.ts` | 245 | Dispatcher und Routentabelle; fertig |
 | `packages/app/public/app.js` | 219 | Router und Kommandoleiste; fertig |
