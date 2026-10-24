@@ -41,4 +41,4 @@ Bei Widersprüchen gilt:
 ## Fortlaufende Begleitung
 
 `docs/fahrplan.md` ist das begleitende Dokument: Priorität → Schritt → Ready → Umsetzung → Gate → Done.
-Es wird pro abgeschlossenem Schritt fortgeschrieben; der Abschnitt „Arbeitsstand dieses Dokuments" protokolliert jede Änderung. Risiko-Nummern `R1`–`R13` sind über `fahrplan.md`, `stand.md` und `architektur.md` identisch.
+Es wird pro abgeschlossenem Schritt fortgeschrieben; der Abschnitt „Arbeitsstand dieses Dokuments" protokolliert jede Änderung. Risiko-Nummern `R1`–`R20` sind über `fahrplan.md`, `stand.md` und `architektur.md` identisch; `packages/engine/test/doku-konsistenz.test.ts` prüft die Mengen **und** diese Obergrenze — sie stand hier bis zum 24.10.2026 auf `R13`, während das Register längst `R20` führte.

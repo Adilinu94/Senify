@@ -124,7 +124,7 @@ Zeilenzahl wird beim Erzeugen gemessen, der Grund ist eine Entscheidung.
 
 | Datei | Zeilen | Warum sie bleibt |
 |---|---|---|
-| `packages/mcp/src/tools.ts` | 2672 | die Werkzeug-Definitionen; der Manifest-Generator liest diese Datei als Text |
+| `packages/mcp/src/tools.ts` | 2672 | die Werkzeug-Tabelle; ihre Reihenfolge ist der Vertrag (`server.ts` liest `TOOLS.map`), der Manifest-Generator folgt den `...X_TOOLS`-Spreizungen - ein weiterer Schnitt ist möglich und braucht den Manifest-Diff als Beweis |
 | `packages/engine/src/store.ts` | 2652 | vier fachübergreifende Transaktionen (`applyRedesignPlan`, `duplicateSiteWithPlan`, `duplicateAssetRecords`, `commitFramerImportPlan`), `replaceTables` und die Fassade; der Rest sind Delegaten |
 | `packages/framer-import/src/capture-html.ts` | 2225 | der HTML-Capture des Imports |
 | `packages/editor/src/inspector/inspector.ts` | 1750 | eine Closure (`createInspector`), die DOM und Zustand gemeinsam hält |

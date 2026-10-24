@@ -104,7 +104,7 @@ const BLEIBT = {
   "packages/engine/src/http.ts": "Dispatcher und Routentabelle; fertig",
   "packages/app/public/app.js": "Router und Kommandoleiste; fertig",
   "packages/mcp/src/tools.ts":
-    "die Werkzeug-Definitionen; der Manifest-Generator liest diese Datei als Text",
+    "die Werkzeug-Tabelle; ihre Reihenfolge ist der Vertrag (`server.ts` liest `TOOLS.map`), der Manifest-Generator folgt den `...X_TOOLS`-Spreizungen - ein weiterer Schnitt ist möglich und braucht den Manifest-Diff als Beweis",
   "packages/editor/src/inspector/inspector.ts":
     "eine Closure (`createInspector`), die DOM und Zustand gemeinsam hält",
   "packages/app/public/app-editor.js":
