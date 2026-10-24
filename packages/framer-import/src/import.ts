@@ -15,6 +15,7 @@ import type { Breakpoints } from "@senify/widget-engine/breakpoints";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { captureFixture, captureHtml, pageFileOf, type CaptureHtmlInput } from "./capture-html.ts";
+import { captureBrowser } from "./capture-browser.ts";
 import type { FramerIrDocument, IrFinding, IrNode } from "./ir.ts";
 import { normalize, type NormalizeMode, type NormalizeResult } from "./normalize.ts";
 import { mapDocument, type MapperResult, type ThemePatch } from "./mapper.ts";
@@ -53,6 +54,23 @@ export type RunImportInput = {
   // `dna` (default) rewrites what the design DNA forbids; `fidelity` keeps the
   // source's look and only consolidates.
   mode?: NormalizeMode;
+  // Read the STRUCTURE from the hydrated page instead of the server HTML.
+  //
+  // The SSR is what Framer sends before its runtime runs: a code component
+  // arrives as an empty placeholder (measured 24.10.2026 on `unifiersofjapan`:
+  // `viewBox="0 0 524 676"` appears 0x in the server HTML and 49x in the
+  // rendered DOM). The hydrated page also has the device variants already
+  // folded (56 -> 28 `ssr-variant`), so the tree is closer to the page.
+  //
+  // Measured on `unifiersofjapan` (1440 px, structure bake, exact height):
+  // server HTML 15,74 % - hydrated page 11,25 %. The price is real and is why
+  // this is opt-in: hydration REMOVES the appear markers (52 -> 18 on
+  // donutshop) and the breakpoint CSS channel, so a page that relies on the
+  // derived reveals loses them. Default stays the server HTML.
+  //
+  // Needs Playwright; without it the import fails with a clear message instead
+  // of silently falling back.
+  structureSource?: "ssr" | "browser";
   // The base duration of the theme the page lands in, in milliseconds.
   // `durationScale` is relative to it, so without it the source's absolute
   // seconds cannot become the right scale. Absent = the default theme's 300.
@@ -162,8 +180,31 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
     }
     const html = await response.text();
     sourceHtml = html;
-    const css = await fetchLinkedCss(html, input.source.url);
-    document = captureHtml({ html, url: input.source.url, pagePath: input.pagePath ?? "/", css });
+    if (input.structureSource === "browser") {
+      // The hydrated page as the structure source (see `structureSource`): the
+      // runtime fills the placeholders the SSR leaves, and the device variants
+      // are folded by the time the page has loaded. The raw SSR stays the
+      // source for the runtime payload - it is what carries the runtime entry.
+      const captured = await captureBrowser({
+        url: input.source.url,
+        pagePath: input.pagePath ?? "/",
+      });
+      document = captured.document;
+      // The measured motion (IO registrations, loops, scroll transforms) rides
+      // along; `captureHtml` never produces it.
+      document.findings.push({
+        kind: "code-component",
+        nodeKey: null,
+        message: `Der Struktur-Baum wurde aus der hydratisierten Seite gelesen (${captured.probe.io} IntersectionObserver, ${captured.probe.waapi.total} WAAPI-Läufe). Die Platzhalter der Runtime sind dadurch gefüllt.`,
+        evidence: `structureSource=browser, ${input.source.url}`,
+        severity: "info",
+        suggestion:
+          "Der Weg braucht Chromium und kostet Zeit; ohne ihn liest der Import das Server-HTML.",
+      });
+    } else {
+      const css = await fetchLinkedCss(html, input.source.url);
+      document = captureHtml({ html, url: input.source.url, pagePath: input.pagePath ?? "/", css });
+    }
     if (baseUrl === undefined) baseUrl = new URL(input.source.url).origin;
   } else if (input.source.kind === "mirror") {
     // Offline mode (S2.4): the local mirror is the input, no network beyond

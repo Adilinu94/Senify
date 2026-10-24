@@ -363,7 +363,31 @@ Bearbeitbarkeit, und der Editor zeigt statt des Payloads sein Poster.
 Jeder Schritt hat ein Gate. Kein Schritt gilt als fertig, ohne dass sein Gate auf **allen elf
 Messseiten** ausgeführt ist (§8).
 
-### Schritt 1 · Den Mirror-Weg zur Produktquelle machen
+### Schritt 1 · Den Mirror-Weg zur Produktquelle machen - **umgesetzt 24.10.2026 (als opt-in)**
+
+**Stand 24.10.2026 - was wirklich fehlte.**
+Der Gate unten war erfüllt (`donutshop` hat ein Seiten-Payload), aber der **Struktur**-Weg war es nicht:
+`captureBrowser` war seit dem Browser-Slice exportiert und wurde von `runImport` **nie aufgerufen** -
+der Import las bei einer URL immer das Server-HTML. Genau daher kamen die zwei Lücken, die wie
+Import-Fehler aussahen (die Sterne der Bewertung, die Karten von `unifiersofjapan`).
+
+**Gemessen mit beiden Quellen, derselbe Import, 1440 px, Struktur-Bake, Höhe beidseitig exakt:**
+
+| Quelle | Pixel-Differenz | `viewBox="0 0 524 676"` | `ssr-variant` | Appear-Marker (`donutshop`) |
+|---|---|---|---|---|
+| Server-HTML | 15,74 % | 0 | 56 | 52 |
+| hydratisierte Seite | **11,25 %** | **49** | **28** | 18 |
+
+Die hydratisierte Seite füllt die Platzhalter und hat die Geräte-Varianten schon gefaltet - sie
+**verliert** aber die Appear-Marker und den Breakpoint-CSS-Kanal. Deshalb ist der Weg ein
+**Schalter** (`structureSource: "browser"`), kein neuer Standard: eine Seite, deren Einblendungen
+aus dem abgeleiteten Startzustand kommen, verlöre sie. Beleg: `structure-source-browser.test.ts`
+(2 Fälle; der SSR-Weg findet das per Skript gefüllte Element nicht, der Browser-Weg schon).
+
+**Was zusätzlich gebaut wurde, weil der Bericht schwieg:** die leeren Platzhalter werden jetzt
+benannt (`code-component`, `info`, mit Anzahl und Signatur) - vorher standen 15 leere Kästen auf
+`unifiersofjapan` ohne einen Satz dazu. Beleg: `runtime-placeholder.test.ts` (5 Fälle; ohne den
+Fix 3 rot).
 
 **Ziel:** Ein URL-Import erzeugt zuerst einen lokalen Mirror (hydratisierte Seite + alle Assets),
 und dieser Mirror ist die Quelle für **beides**: Struktur und Payload.
@@ -448,8 +472,21 @@ bleiben unverändert — der Gegenbeweis, dass die Änderung nicht breit streut.
 „4 von 11"). Die Abweichung ist nicht die neue Regel, sondern die alte, die
 Fehler verdeckt hat. `receivio` ist inzwischen 404 und fällt aus der Gruppe.
 
-**Was noch offen ist:** `notes` und `unifiersofjapan` verlieren weiter Fläche —
-dort ist es **nicht** die Geräte-Faltung. Das braucht eine eigene Messung.
+**Was noch offen ist:** `unifiersofjapan` verliert weiter Fläche - dort ist es
+**nicht** die Geräte-Faltung. Das braucht eine eigene Messung.
+
+**`notes` ist nachgezogen (24.10.2026):** die Zeile oben nannte `notes` noch als
+offen; gemessen ist die Seite inzwischen bei **0,04 / 0,07 / 0,17 %** mit exakter
+Höhe (290 Knoten). Die frühere Fläche ging an die unsichtbaren Überschriften
+(`font-size: 0` als Messgröße) und ist mit dem Fit-Text-Fix geschlossen.
+
+**`unifiersofjapan` ist gemessen und erklärt (24.10.2026):** die 14,96 / 16,50 /
+21,21 % sind **keine** Import-Lücke. Die Karten-Grafiken stehen nicht im SSR; ich
+habe nachgezählt: `viewBox="0 0 524 676"` kommt im Server-HTML **0-mal** vor, im
+gerenderten DOM **49-mal**. Gegengeprüft mit demselben Import über die
+**hydratisierte** Seite: **15,74 % → 11,25 %** bei exakter Höhe - die Lücke ist
+also die Quelle, nicht der Leser. Der Bericht nennt sie seit demselben Tag als
+`code-component` (15 leere Platzhalter, Beleg `runtime-placeholder.test.ts`).
 
 ### Schritt 2b · Die Geräte-Faltung (U1) — **umgesetzt 22.10.2026**
 
@@ -803,7 +840,13 @@ Original-Code läuft.
 
 - **CMS-Daten:** Unframer exportiert sie nicht; Full Site Export liest sie aus dem Laufzeitverkehr.
   Für uns: der Mirror enthält sie (weil er die hydratisierte Seite liest) — zu prüfen.
-- **Seitenübergänge:** bleiben laut Unframer nicht erhalten. Für uns: eigene Entscheidung nötig.
+- **Seitenübergänge:** ~~bleiben laut Unframer nicht erhalten. Für uns: eigene Entscheidung nötig.~~
+  **Entschieden 24.10.2026 (ADR-0023).** Nicht importiert und nicht erfunden: auf allen sieben
+  Blindtest-Seiten trägt das Server-HTML **keine** Spur eines Seitenübergangs (`pageEffect`,
+  `pageTransition`, `data-framer-page-transition`, `animatePresence` je 0). Ein Übergang beim Wechsel
+  zwischen zwei Seiten kann nicht gelesen werden, weil die Quelle ihn nicht ausliefert; wo die Quelle
+  einen hatte, führt ihn die Original-Runtime im Release selbst aus. Damit steht der Punkt nicht mehr
+  als offen im Bericht.
 - **Lizenz:** Framer-Templates haben eigene Bedingungen. ADR-0010 verlangt ein sichtbares
   Lizenzfeld; „unknown" darf nicht in die globale Bibliothek.
 
@@ -1047,7 +1090,3 @@ existiert und ist rot, betroffene Dateien benannt.
 **Done** je Schritt: Gate auf allen elf Seiten ausgeführt, jede Aussage „umgesetzt" mit Code- oder
 Testbeleg, Zahlen nur in `docs/current/qualitaet.md`, keine Verschlechterung einer vorher
 brauchbaren Seite.
-
-
-
-

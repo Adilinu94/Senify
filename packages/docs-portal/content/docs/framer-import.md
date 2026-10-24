@@ -80,12 +80,17 @@ gleicher Seitenhöhe, Payload 947 KB. Der Baum allein läge bei 1,46 / 2,23 / 6,
 
 - **Framer-Code und Shader** laufen als Island-Payload (siehe oben). Echte Übernahme in bearbeitbare Bausteine gibt
   es nicht — die Innereien des Payloads bleiben fremder Code.
-- **Inhalte, die erst im Browser entstehen, fehlen im Baum.** Der Import liest das Server-HTML. Was eine
-  Framer-Code-Komponente erst beim Laden erzeugt, ist darin nicht enthalten — gemessen an der Earn-Vorlage: die fünf
-  Bewertungssterne. Ihr Container hält im Server-HTML nur fünf leere `display:contents`-Platzhalter, die Sterne selbst
-  entstehen im Browser. An ihrer Stelle bleibt im Baum der leere Rahmen stehen, und der Bericht nennt die Stelle.
-  **Im Release sind sie da**, weil dort die Original-Runtime läuft. Wer sie im Editor sehen will, braucht die zweite
-  Quelle (Unframer-MCP, Projektstruktur statt gerendertem HTML).
+- **Inhalte, die erst im Browser entstehen, fehlen im Baum.** Der Import liest standardmäßig das Server-HTML. Was
+  eine Framer-Code-Komponente erst beim Laden erzeugt, ist darin nicht enthalten — gemessen an der Earn-Vorlage: die
+  fünf Bewertungssterne, und an einer anderen Seite 15 Karten-Grafiken (`viewBox="0 0 524 676"`: **0x** im
+  Server-HTML, **49x** im fertig geladenen Browser). An ihrer Stelle bleibt im Baum ein leerer Rahmen stehen; der
+  Bericht nennt ihn jetzt mit Anzahl und Signatur (`code-component`, Schwere `info`).
+  **Im Release sind sie da**, weil dort die Original-Runtime läuft.
+- **Die Struktur lässt sich auch aus der fertig geladenen Seite lesen** (`structureSource: "browser"`, braucht
+  Chromium). Gemessen an derselben Seite: **15,74 % → 11,25 %** Pixel-Differenz, 109 SVG-Knoten statt 0, und die
+  Geräte-Varianten sind schon gefaltet. **Das ist ein Schalter, kein neuer Standard**, weil der Weg auch etwas
+  kostet: die geladene Seite hat ihre Einblende-Marker verloren (`data-framer-appear-id` 52 → 18 auf einer Seite)
+  und den Breakpoint-Kanal. Eine Seite, deren Einblendungen aus dem Startzustand abgeleitet werden, verlöre sie.
 - **Seiten ohne Appear-Kanal.** Manche Framer-Seiten markieren ihre Elemente (`data-framer-appear-id`), liefern aber
   das JSON nicht, das die Animation beschreibt. Der Import leitet die Einblendung dann aus dem **Startzustand** ab, der
   noch im Stil steht — Bewegung, Skalierung und Drehung stimmen. **Die Dauer ist eine Annahme (0,6 s)**, weil die Quelle
@@ -113,7 +118,7 @@ gleicher Seitenhöhe, Payload 947 KB. Der Baum allein läge bei 1,46 / 2,23 / 6,
   „Relative Asset-URL ohne baseUrl nicht auflösbar“), und ein gescrapter Mirror, dessen Links absolut geschrieben
   sind, zeigt keine weiteren Seiten der Site an. Mit „Assets: Überspringen“ läuft der Import durch, die Bilder haben
   dann keine Quelle.
-- **Qualität ist an drei gespeicherten Exporten gemessen**, nicht an jeder beliebigen Seite. Dazu kommen sieben
+- **Qualität ist an drei gespeicherten Exporten gemessen**, nicht an jeder beliebigen Seite. Dazu kommen acht
   fremde Framer-Seiten als Blindtest. Die Zahlen stehen in `docs/current/qualitaet.md`.
 
 ## Was die Seite nach dem Import lädt

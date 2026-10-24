@@ -1074,6 +1074,50 @@ function countNodes(node: IrNode): number {
   return 1 + node.children.reduce((sum, child) => sum + countNodes(child), 0);
 }
 
+// The two signatures Framer writes where its SSR leaves a hole for the runtime
+// fills (measured on the live pages, 24.10.2026):
+//
+//   `height:100%;width:100%`  a code component's frame - the component draws
+//                             itself in the browser (`unifiersofjapan`: cards)
+//   `display:contents`        a wrapper without a box - the runtime swaps its
+//                             children in (`donutshop`: the rating stars)
+//
+// Both are LEAF elements: an empty element that carries one of these and no
+// children is a placeholder, not a layout box. A spacer (`height:24px`) or a
+// sized frame does not match - the string is the whole measurement.
+const PLACEHOLDER_SIGNATURES = ["height:100%;width:100%", "display:contents"] as const;
+
+export function countRuntimePlaceholders(root: IrNode): {
+  total: number;
+  nodeKey: string | null;
+  signatures: string[];
+} {
+  const found: { nodeKey: string; signature: string }[] = [];
+  const visit = (node: IrNode): void => {
+    if (node.children.length === 0 && node.inlineStyle !== null && node.inlineStyle !== undefined) {
+      // The style attribute may carry more than the signature; the signature
+      // only has to be one of its declarations (`height:100%;width:100%` is
+      // written verbatim, `display:contents` may arrive with spaces).
+      const normalised = node.inlineStyle.replace(/\s+/g, "");
+      for (const signature of PLACEHOLDER_SIGNATURES) {
+        if (normalised.includes(signature.replace(/\s+/g, ""))) {
+          found.push({ nodeKey: node.key, signature });
+          break;
+        }
+      }
+    }
+    node.children.forEach(visit);
+  };
+  visit(root);
+  const signatures = [...new Set(found.map((entry) => entry.signature))];
+  return {
+    total: found.length,
+    nodeKey: found[0]?.nodeKey ?? null,
+    signatures,
+  };
+}
+
+
 export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
   const html = input.html;
   const findings: IrFinding[] = [];
@@ -1140,10 +1184,11 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
       kind: "cms",
       nodeKey: null,
       message:
-        "Die Seite nutzt Framer-CMS (handoverData vorhanden) — Sammlungsinhalte werden nicht importiert.",
+        "Die Seite nutzt Framer-CMS (handoverData vorhanden). Die Sammlungsinhalte, die das Server-HTML ausliefert, stehen im Baum; was die Runtime erst im Browser nachlädt, fehlt - wie überall sonst auf der Seite.",
       evidence: "__framer__handoverData",
       severity: "info",
-      suggestion: "CMS-Texte als statischen Inhalt übernehmen oder die Sammlung manuell anlegen.",
+      suggestion:
+        "Die importierten Einträge im Editor prüfen. Fehlt ein Eintrag, ist er nicht im SSR: den Inhalt von Hand anlegen oder die Seite über einen Mirror importieren, der ihn enthält.",
     });
   }
 
@@ -1369,6 +1414,34 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
         derived.length > 0
           ? "Die Dauer im Editor prüfen und an die Quelle angleichen; die Bewegung (Versatz, Skalierung, Drehung) stammt aus dem Startzustand."
           : "Den Effekt im Editor von Hand setzen oder die Seite über einen Mirror importieren, der den Kanal enthält. Die Elemente selbst bleiben sichtbar.",
+    });
+  }
+
+  // A container the SSR leaves EMPTY and the runtime fills in the browser.
+  //
+  // Framer's SSR does not render code components; it writes a placeholder and
+  // lets the hydrated page fill it (measured on the live pages, 24.10.2026):
+  //
+  //   unifiersofjapan  `<div style="height:100%;width:100%"></div>`  15x
+  //                    `viewBox="0 0 524 676"`  SSR 0, rendered DOM 49
+  //   donutshop        `<div style="display:contents"></div>`         9x
+  //                    `viewBox="0 0 256 256"`  SSR 0, rendered DOM 3
+  //
+  // The import cannot read what the SSR does not contain - that is a boundary
+  // of the source. What it CAN do is say so: before this finding the page came
+  // out with 15 empty boxes and the report mentioned none of them, so the
+  // reader saw a gap without a reason. Severity stays `info`: the release runs
+  // the original runtime, which fills the boxes.
+  const placeholders = countRuntimePlaceholders(root);
+  if (placeholders.total > 0) {
+    findings.push({
+      kind: "code-component",
+      nodeKey: placeholders.nodeKey,
+      message: `${placeholders.total} leere Platzhalter, die erst die Framer-Runtime im Browser f�llt - im Server-HTML steht an ihrer Stelle nur ein leeres Element. Der Baum kann sie nicht zeigen; der Release schon (er f�hrt die Original-Runtime).`,
+      evidence: placeholders.signatures.join(", "),
+      severity: "info",
+      suggestion:
+        "Wenn die Seite im Editor vollst�ndig aussehen soll, den Inhalt als eigenes Element nachbauen; sonst zeigt ihn der Release.",
     });
   }
 

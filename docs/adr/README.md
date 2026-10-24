@@ -25,10 +25,11 @@
 | [ADR-0020](0020-breakpoints-je-site.md) | Breakpoints je Site einstellbar | angenommen |
 | [ADR-0021](0021-framer-import-medien-aus-der-quelle.md) | Framer-Import: Medien aus der Quelle, Bildgenerierung nur auf Zuruf | angenommen |
 | [ADR-0022](0022-der-browser-holt-nur-oeffentliche-adressen.md) | Der Browser holt nur öffentliche Adressen | angenommen |
+| [ADR-0023](0023-seitenuebergaenge-bleiben-draussen.md) | Seitenübergänge bleiben draußen: sie sind im SSR nicht vorhanden | angenommen |
 
 ## Nächste Nummer
 
-Die nächste freie Nummer ist `ADR-0023`. `ADR-0011` ist für die Entscheidung reserviert, ob und wann `EditorDocument` das interne kanonische Modell wird.
+Die nächste freie Nummer ist `ADR-0024`. `ADR-0011` ist für die Entscheidung reserviert, ob und wann `EditorDocument` das interne kanonische Modell wird.
 
 ## Regeln
 

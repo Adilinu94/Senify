@@ -1,4 +1,4 @@
-// The blind test (step 3 of `docs/fahrplan-framer-1zu1.md`): ten foreign Framer
+// The blind test (step 3 of `docs/fahrplan-framer-1zu1.md`): foreign Framer
 // sites that are NOT the fixtures and NOT the Earn template. The fixtures are
 // the pages the import was tuned against; a change that only helps them proves
 // nothing about the next site. This run answers two questions:
@@ -34,7 +34,16 @@ import { runImport } from "../src/index.ts";
 // not stop the run.
 //
 // `receivio.framer.website` was removed on 24.10.2026: the site is gone (404),
-// and a target that can never load is noise in every run.
+// and a target that can never load is noise in every run. `atlas.framer.website`
+// took its place: an independent design system (Getir's), not a template shop
+// page, and stable across runs (6,2 / 7,9 / 1,5 %, heights exact).
+//
+// `nord.framer.website` was measured and NOT taken: its structure is exact
+// (4605 = 4605 px) but the page moves a product carousel, so the pixel number
+// swings with the moment of the screenshot (32,7 % on one run, and the band
+// comparison shows identical content at a different phase). Same noise as
+// `refined` on tablet - a moving page needs the settle wait, and a carousel
+// never settles.
 const DEFAULT_TARGETS = [
   "https://wedge.framer.website/",
   "https://donutshop.framer.website/",
@@ -43,6 +52,7 @@ const DEFAULT_TARGETS = [
   "https://notes.framer.website/",
   "https://meeko.framer.website/",
   "https://unifiersofjapan.framer.website/",
+  "https://atlas.framer.website/",
 ];
 
 const WIDTHS = [
