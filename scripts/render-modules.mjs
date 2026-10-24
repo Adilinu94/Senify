@@ -111,6 +111,12 @@ const BLEIBT = {
     "`mountCanvasView` haelt Canvas, Zustand und Ereignisse in einer Closure",
   "packages/app/public/app-references.js": "die Referenzen-Seite ohne die Karten; der Rest nach Schritt 59",
   "packages/engine/src/content.ts": "Sammlungen, Einträge und ihre Suche in einem Fachgebiet",
+  "packages/engine/src/http-routes-sites.ts":
+    "die verbleibenden 50 Site-Routen (Sites, Seiten, Bibliothek, Inhalte, Referenzen, Bilder, Importe); der Zuschnitt l\u00e4uft weiter, jede Gruppe braucht 6 bis 16 Import-Quellen",
+  "packages/engine/src/references-lifecycle.ts":
+    "die Referenz-Pipeline: Analyse, Job-Lauf, Snapshot, Playwright-Aufnahme und Anwendung; der Capture-Treiber allein sind 250 Zeilen, und er teilt den Zustand mit dem Job-Lauf",
+  "packages/engine/src/lifecycle.ts":
+    "der Release-Lebenszyklus in einem Fachgebiet: Revision, Re-Bake, Veroeffentlichung, Preview und Review gehoeren zusammen, weil ein Release ohne die anderen drei nicht entsteht; ein Schnitt muesste die gemeinsame Transaktion teilen",
   "packages/engine/src/forms.ts": "Formulare, Einsendungen und der CSV-Export",
   "packages/engine/src/media.ts": "Assets, Ableitungen und Ordner",
   "packages/engine/src/types.ts": "die öffentlichen Typen der Engine; keine Logik",
@@ -209,13 +215,14 @@ for (const name of mcpDateien) {
 }
 zeilen.push(`| **Summe** | **${werkzeugeSumme}** | | |`);
 zeilen.push("");
-zeilen.push("## Was noch nicht geteilt ist");
+zeilen.push("## Die grossen Dateien und warum sie so gross sind");
 zeilen.push("");
 zeilen.push("Die Aufteilung folgt ADR-0019: `Store` und der HTTP-Dispatcher bleiben die Fassade, die");
-zeilen.push("Fachmodule tragen die Tabellen. Diese Dateien stehen bewusst noch als Ganzes; die");
-zeilen.push("Zeilenzahl wird beim Erzeugen gemessen, der Grund ist eine Entscheidung.");
+zeilen.push("Fachmodule tragen die Tabellen. Diese Dateien reissen eine Zeilenschwelle; jede Zeile");
+zeilen.push("hier nennt den Grund - eine Entscheidung, keine Messung. Die Zeilenzahl selbst wird");
+zeilen.push("beim Erzeugen gemessen.");
 zeilen.push("");
-zeilen.push("| Datei | Zeilen | Warum sie bleibt |");
+zeilen.push("| Datei | Zeilen | Warum sie so gross ist |");
 zeilen.push("|---|---|---|");
 const bleibtZeilen = Object.entries(BLEIBT)
   .map(([pfad, grund]) => ({ pfad, grund, n: existsSync(join(ROOT, pfad)) ? zeilenZahl(join(ROOT, pfad)) : -1 }))
