@@ -7,6 +7,10 @@
 
 | Gate | Kommando | Ergebnis |
 |---|---|---|
+| **Linux-CI auf `31b51e6` (24.10.2026)** | Sechs Jobs der PR-CI ([40118387463](https://github.com/Adilinu94/Senify/actions/runs/40118387463)), einschließlich `pnpm quality:check` im Coverage-Job; Messblock aus `coverage-summary.json` dieses Laufs | **Alle sechs Jobs grün.** Belegt den Stand nach dem Merge des Grosse-Dateien-Wächters aus Upstream: jede Datei über der Schwelle nennt ihren Grund, und `inspector/color-control.ts` (170 Zeilen) bleibt darunter. Der Messblock ist gegenüber `32fc4b0` bytegenau gleich. **Kein Merge nach `master` freigegeben.** |
+
+| Gate | Kommando | Ergebnis |
+|---|---|---|
 | **Linux-CI auf `32fc4b0` (24.10.2026)** | Sechs Jobs der PR-CI ([40117107529](https://github.com/Adilinu94/Senify/actions/runs/40117107529)), einschließlich `pnpm quality:check` im Coverage-Job; Messblock aus `coverage-summary.json` dieses Laufs | **Alle sechs Jobs grün.** Belegt den Stand nach dem Merge von R12 Schritt 59 (die Karten der Referenzen als eigenes App-Modul, 25 app-Module, 176 Routen unverändert). Der Messblock ist gegenüber `8dee0b7` **bytegenau gleich**: die App-Oberfläche liegt außerhalb der geschützten Pfade, ein Schnitt dort verschiebt keine gemessene Zahl. Genau das ist der Zweck der Trennung — ein Umbau der Oberfläche soll das Coverage-Tor nicht bewegen. **Kein Merge nach `master` freigegeben.** |
 
 | Gate | Kommando | Ergebnis |
