@@ -12,6 +12,7 @@ import { fetchPublic } from "@senify/core/net";
 import type { EditorDocument } from "@senify/editor/state";
 import type { StyleRule } from "@senify/widget-engine";
 import type { Breakpoints } from "@senify/widget-engine/breakpoints";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { captureFixture, captureHtml, pageFileOf, type CaptureHtmlInput } from "./capture-html.ts";
 import type { FramerIrDocument, IrFinding, IrNode } from "./ir.ts";
@@ -20,6 +21,11 @@ import { mapDocument, type MapperResult, type ThemePatch } from "./mapper.ts";
 import { buildFidelityReport, type FidelityReport } from "./fidelity.ts";
 import { importAssets, type AssetReport, type AssetUploader } from "./assets.ts";
 import { extractPayloads, type ExtractedPayload } from "./payloads.ts";
+import {
+  buildPageRuntimePayload,
+  RUNTIME_PAYLOAD_MAX_BYTES,
+  type RuntimeFileLoader,
+} from "./runtime-payload.ts";
 import { mapFramerMotion } from "./motion-mapping.ts";
 import { discoverPagePaths } from "./link-paths.ts";
 import { siteBreakpointsOf } from "./site-breakpoints.ts";
@@ -47,6 +53,10 @@ export type RunImportInput = {
   // `dna` (default) rewrites what the design DNA forbids; `fidelity` keeps the
   // source's look and only consolidates.
   mode?: NormalizeMode;
+  // The base duration of the theme the page lands in, in milliseconds.
+  // `durationScale` is relative to it, so without it the source's absolute
+  // seconds cannot become the right scale. Absent = the default theme's 300.
+  baseDurationMs?: number;
 };
 
 export type ImportRun = {
@@ -69,6 +79,11 @@ export type ImportRun = {
 
 const PAGE_TIMEOUT_MS = 30_000;
 const MAX_PAGE_BYTES = 20 * 1024 * 1024;
+// The runtime files of a Framer site (the bundle, the chunks, the page
+// modules). One file may not be bigger than this; the whole payload has the
+// budget of ADR-0010 §6 (3 MB).
+const MAX_RUNTIME_FILE_BYTES = 4 * 1024 * 1024;
+const RUNTIME_FILE_TIMEOUT_MS = 20_000;
 
 /* --------------------------------------------------- linked stylesheets */
 
@@ -133,6 +148,9 @@ function mirrorFolders(rootDir: string, pagePath: string): { root: string; pageD
 export async function runImport(input: RunImportInput): Promise<ImportRun> {
   let document: FramerIrDocument;
   let baseUrl = input.baseUrl;
+  // The raw HTML of the source: the runtime detection reads it (the runtime
+  // lives in the markup, not in a channel).
+  let sourceHtml: string | null = null;
   if (input.source.kind === "url") {
     // Public addresses only, with a time and size limit (ADR-0016).
     const response = await fetchPublic(input.source.url, {
@@ -143,6 +161,7 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
       throw new Error(`Quelle nicht ladbar: ${response.status} ${input.source.url}`);
     }
     const html = await response.text();
+    sourceHtml = html;
     const css = await fetchLinkedCss(html, input.source.url);
     document = captureHtml({ html, url: input.source.url, pagePath: input.pagePath ?? "/", css });
     if (baseUrl === undefined) baseUrl = new URL(input.source.url).origin;
@@ -163,6 +182,7 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
 
   // Assets (S2.3/S2.3b) — the DSGVO font rewrite happens here.
   let assetReport: AssetReport | null = null;
+  let urlRewrites: Record<string, string> = {};
   if (input.uploader !== undefined || input.outDir !== undefined) {
     // A mirror knows its own files: a relative asset URL is read from the
     // mirror folder (the page's own folder first), so the import works
@@ -179,17 +199,145 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
     });
     document = assets.document;
     assetReport = assets.report;
+    urlRewrites = assets.urlRewrites;
   }
 
-  const payloads = input.source.kind === "mirror" ? extractPayloads({ document, rootDir: input.source.rootDir }) : [];
+  // The runtime payload (step 2 of `docs/fahrplan-framer-1zu1.md`): the
+  // page's own runtime, bundled with its markup and its CSS. It is what
+  // carries Lenis, three.js and the ticker — the things the structure tree
+  // cannot express.
+  const runtimeFindings: IrFinding[] = [];
+  const runtimePayloads: ExtractedPayload[] = [];
+  if (sourceHtml !== null && input.source.kind === "url") {
+    const pageUrl = input.source.url;
+    const loadFile: RuntimeFileLoader = async (target) => {
+      // Only the hosts a Framer site serves its runtime from (ADR-0016: no
+      // address outside the public ones, no local network).
+      const host = new URL(target).hostname;
+      if (!isFramerHost(host)) return null;
+      try {
+        const response = await fetchPublic(target, {
+          signal: AbortSignal.timeout(RUNTIME_FILE_TIMEOUT_MS),
+          maxBytes: MAX_RUNTIME_FILE_BYTES,
+        });
+        if (!response.ok) return null;
+        return await response.text();
+      } catch {
+        return null;
+      }
+    };
+    const result = await buildPageRuntimePayload({
+      html: sourceHtml,
+      pageUrl,
+      loadFile,
+      rewriteUrl: (url) => urlRewrites[url] ?? null,
+      maxBytes: RUNTIME_PAYLOAD_MAX_BYTES,
+    });
+    if (result.ok) {
+      runtimePayloads.push({
+        nodeKey: "",
+        name: "Framer-Runtime",
+        kind: "module",
+        scope: "page",
+        bundle: result.payload.bundle,
+        bytes: result.payload.bytes,
+        integrity: result.payload.integrity,
+        sourcePath: result.detection.entry,
+        license: { id: "unknown", note: "Framer-Runtime der importierten Seite" },
+        adapter: "mount-export",
+      });
+    } else if (result.hasRuntime) {
+      runtimeFindings.push({
+        kind: "code-component",
+        nodeKey: null,
+        message: `Die Framer-Runtime ließ sich nicht als Payload bündeln: ${result.reason}`,
+        evidence: pageUrl,
+        severity: "warn",
+        suggestion:
+          "Die Seite läuft ohne die Original-Runtime; Animationen, die nur sie trägt, fehlen dann.",
+      });
+    }
+  } else if (input.source.kind === "mirror") {
+    // Der Offline-Import: der Mirror trägt die Runtime-Dateien selbst. Sie
+    // kommen **nur** aus dem Mirror (ADR-0016: ein Ordner liefert nur seine
+    // eigenen Dateien) — ein Pfad, der ihn verlässt, wird nicht gelesen.
+    const file = pageFileOf(input.source.rootDir, input.source.pagePath ?? "/");
+    const html = readFileSync(file, "utf8");
+    const rootReal = resolve(input.source.rootDir);
+    const pageDir = dirname(resolve(file));
+    const loadFile: RuntimeFileLoader = async (target) => {
+      let path: string;
+      try {
+        path = decodeURIComponent(new URL(target).pathname);
+      } catch {
+        return null;
+      }
+      const relative = path.replace(/^\/+/, "");
+      if (relative === "") return null;
+      for (const candidate of [resolve(pageDir, relative), resolve(rootReal, relative)]) {
+        if (!candidate.startsWith(rootReal)) continue;
+        if (!existsSync(candidate) || !statSync(candidate).isFile()) continue;
+        return readFileSync(candidate, "utf8");
+      }
+      return null;
+    };
+    const result = await buildPageRuntimePayload({
+      html,
+      // The mirror's own layout: a relative path of the page is resolved
+      // against the page's folder.
+      pageUrl: `https://mirror.invalid/${input.source.pagePath ?? "/"}`,
+      loadFile,
+      rewriteUrl: (url) => urlRewrites[url] ?? null,
+      maxBytes: RUNTIME_PAYLOAD_MAX_BYTES,
+    });
+    if (result.ok) {
+      runtimePayloads.push({
+        nodeKey: "",
+        name: "Framer-Runtime",
+        kind: "module",
+        scope: "page",
+        bundle: result.payload.bundle,
+        bytes: result.payload.bytes,
+        integrity: result.payload.integrity,
+        sourcePath: result.detection.entry,
+        license: { id: "unknown", note: "Framer-Runtime der importierten Seite" },
+        adapter: "mount-export",
+      });
+    } else if (result.hasRuntime) {
+      runtimeFindings.push({
+        kind: "code-component",
+        nodeKey: null,
+        message: `Die Framer-Runtime des Mirrors ließ sich nicht als Payload bündeln: ${result.reason}`,
+        evidence: input.source.rootDir,
+        severity: "warn",
+        suggestion:
+          "Der Mirror muss die Runtime-Dateien enthalten und relative Pfade darauf verwenden.",
+      });
+    }
+  }
+
+  const payloads = [
+    ...(input.source.kind === "mirror" ? extractPayloads({ document, rootDir: input.source.rootDir }) : []),
+    ...runtimePayloads,
+  ];
   const normalized = normalize(document, { mode: input.mode ?? "dna" });
   const mapped = mapDocument(document, normalized.rules, { mode: input.mode ?? "dna" });
-  const motion = mapFramerMotion(document);
+  const motion = mapFramerMotion(
+    document,
+    input.baseDurationMs === undefined ? {} : { baseDurationMs: input.baseDurationMs },
+  );
   for (const mapping of motion.mappings) {
     const editorNodeId = mapping.nodeKey === null ? undefined : mapped.nodeIdByIrKey[mapping.nodeKey];
     if (editorNodeId === undefined) continue;
     const editorNode = mapped.document.nodes[editorNodeId];
-    if (editorNode !== undefined) editorNode.motion = mapping.spec;
+    if (editorNode === undefined) continue;
+    // One motion, one owner. A node that already carries a compiled appear rule
+    // plays its reveal as CSS keyframes with the SOURCE's start state and the
+    // SOURCE's timing. Adding a preset on top would start a second animation on
+    // the same element (`gsap.from` with the preset's own offset), so the two
+    // fight over opacity and transform — the one that starts last wins.
+    if ((editorNode.classes ?? []).some((name) => name.includes("-appear-"))) continue;
+    editorNode.motion = mapping.spec;
   }
   const motionFindings: IrFinding[] = [];
   for (const unresolved of motion.findings) {
@@ -204,7 +352,7 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
   }
   const report = buildFidelityReport(document, normalized, {
     ...mapped,
-    findings: [...mapped.findings, ...motionFindings],
+    findings: [...mapped.findings, ...motionFindings, ...runtimeFindings],
   }, motion);
   const byNodeKey = new Map(payloads.map((payload) => [payload.nodeKey, payload]));
   for (const node of Object.values(mapped.document.nodes)) {
@@ -230,6 +378,64 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
     }
     delete node.props["framerNodeKey"];
   }
+  // The runtime payload carries the whole page: a carrier of the `payload`
+  // primitive stands at the root of the tree, and the release shows the
+  // original page in its place (the renderer hides the structure where the
+  // carrier stands — step 3 of the plan). The tree keeps the structure: it
+  // stays the truth the editor works on.
+  const pagePayload = payloads.find((payload) => payload.scope === "page");
+  // The editable share of the page (step 7 of the 1:1 plan): what the editor
+  // really edits. A page-level payload carries the whole page in the release,
+  // so the honest number is 0 % editable there — the structure is a preview,
+  // not what goes live. A page without a payload is edited in full.
+  const pageNodes = Object.keys(mapped.document.nodes).length;
+  const carrierNodes = pagePayload === undefined ? 0 : 1;
+  report.editableShare = pagePayload === undefined
+    ? { editable: 100, original: 0, nodes: pageNodes }
+    : { editable: 0, original: 100, nodes: pageNodes - carrierNodes };
+  if (pagePayload !== undefined) {
+    const root = mapped.document.nodes[mapped.document.rootNodeId];
+    if (root !== undefined) {
+      // The poster of a page-level carrier (ADR-0010 §7, mandatory on import):
+      // the social image of the source. Without a poster the editor canvas has
+      // nothing to show but the plate — and the plate is the LAST fallback, not
+      // the default. The image is the source's own (og:image), so it shows what
+      // the page shows and is not a guess.
+      const posterUrl = document.pages[0]?.meta?.ogImage;
+      const poster = posterUrl === undefined ? undefined : payloadPosterOf(document, posterUrl);
+      const carrierId = "framer-runtime-payload";
+      mapped.document.nodes[carrierId] = {
+        id: carrierId,
+        primitive: "payload",
+        props: {
+          framerPayloadKey: pagePayload.integrity,
+          // The carrier stands for the whole page: the release renders it
+          // instead of the structure.
+          coversPage: true,
+          label: "Original · Framer-Runtime",
+          alt: document.pages[0]?.title ?? "Importierte Seite",
+          ...(poster === undefined ? {} : { poster: { assetId: poster } }),
+        },
+        children: [],
+      };
+      // The carrier stands at the end of the tree: the canvas shows the
+      // structure and, below it, the plate that names the payload. The
+      // release renders the carrier INSTEAD of the structure (the renderer
+      // decides that — see `renderTreeOf`).
+      root.children = [...(root.children ?? []), carrierId];
+    }
+    report.resolutions.push({
+      nodeKey: "",
+      nodeId: "framer-runtime-payload",
+      kind: "island",
+      reason:
+        "Die Framer-Runtime ist als Payload gebündelt: der Release zeigt die Originalseite, die Struktur bleibt im Baum.",
+      evidence: pagePayload.sourcePath,
+    });
+    report.steps.push(
+      `Framer-Runtime als Payload gebündelt (${Math.round(pagePayload.bytes / 1024)} KB) — der Release zeigt die Originalseite.`,
+    );
+  }
   if (payloads.length > 0) report.steps.push(`${payloads.length} Framer-Islands gebündelt und als Payload vorgemerkt`);
   return {
     document,
@@ -247,8 +453,20 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
   };
 }
 
-/* ----------------------------------------------------------- idempotency */
+// The asset id the imported poster image got. The asset pipeline rewrites the
+// IR's asset list (`localUrl`/`assetId`); a poster that is not in that list was
+// not downloaded (a skipped asset run) — then the carrier stays without one and
+// the plate says so.
+function payloadPosterOf(
+  document: { assets: { url: string; assetId?: string | null }[] },
+  url: string,
+): string | undefined {
+  const asset = document.assets.find((entry) => entry.url === url);
+  const assetId = asset?.assetId;
+  return typeof assetId === "string" && assetId !== "" ? assetId : undefined;
+}
 
+/* ----------------------------------------------------------- idempotency */
 // The stable fingerprint of an import result: source hash + mapped stats +
 // finding kinds. `capturedAt` and asset storage ids are excluded on purpose —
 // a second run over an unchanged source must land on the same fingerprint

@@ -176,6 +176,60 @@ export function jsonForHtml(value: unknown): string {
   return JSON.stringify(value).replace(/</g, "\\u003c");
 }
 
+// The page-level payload (ADR-0010, step 3 of `docs/fahrplan-framer-1zu1.md`):
+// a carrier that stands for the whole page — the Framer runtime hydrates
+// `#main` and therefore belongs to the page, not to a section.
+//
+// The release renders the carrier INSTEAD of the structure: the original page
+// stands where the structure stood, so nothing stands twice (the height of
+// the page with and without the payload is the same). The tree keeps the
+// structure — it is the truth the editor works on, and the canvas shows it.
+//
+// **But only when the payload is really there.** A page-level carrier whose
+// payload this build does not deliver must not stand at all: the structure IS
+// the page then. Leaving the carrier in gave the page a plate below the
+// structure — measured +96 px (6 rem) on every page of the blind test. The
+// bake reports the missing payload in its warnings; the carrier is dropped.
+export function renderTreeOf(
+  tree: NodeTree,
+  delivers: (payloadId: string) => boolean = () => true,
+): NodeTree {
+  const root = tree.nodes[tree.rootNodeId];
+  if (root === undefined) return tree;
+  const pageCarriers = (root.children ?? []).filter((id) => {
+    const node = tree.nodes[id];
+    if (node === undefined || node.type !== "payload") return false;
+    return node.props["coversPage"] === true;
+  });
+  if (pageCarriers.length === 0) return tree;
+  const delivered = pageCarriers.find((id) => {
+    const payloadId = tree.nodes[id]?.props["payloadId"];
+    return typeof payloadId === "string" && payloadId !== "" && delivers(payloadId);
+  });
+  if (delivered === undefined) {
+    // No delivered page payload: the structure stands alone.
+    return {
+      rootNodeId: tree.rootNodeId,
+      nodes: {
+        ...tree.nodes,
+        [tree.rootNodeId]: {
+          ...root,
+          children: (root.children ?? []).filter((id) => !pageCarriers.includes(id)),
+        },
+      },
+    };
+  }
+  const carrierNode = tree.nodes[delivered];
+  if (carrierNode === undefined) return tree;
+  return {
+    rootNodeId: tree.rootNodeId,
+    nodes: {
+      [tree.rootNodeId]: { ...root, children: [delivered] },
+      [delivered]: carrierNode,
+    },
+  };
+}
+
 // A payload id rides in a file name, so anything outside the id alphabet is
 // dropped: the name can never leave the payloads directory.
 function payloadFileName(id: string, integrity: string): string {
@@ -454,17 +508,21 @@ export async function bakeSite(
     };
   });
   for (const page of expandedPages) {
+    // The page that is actually rendered: a page-level payload carrier
+    // stands in for the structure (see `renderTreeOf`) — but only when this
+    // build delivers the payload.
+    const tree = renderTreeOf(page.tree, (payloadId) => input.payloads?.[payloadId] !== undefined);
     // Reveals above the fold play as CSS (no wait for the page script): the
     // registry decides which nodes, the markup is stamped from the same call.
     const cssEntry = cssEntryNodeIds(
-      page.tree.nodes[page.tree.rootNodeId]?.children ?? [],
-      page.tree.nodes,
+      tree.nodes[tree.rootNodeId]?.children ?? [],
+      tree.nodes,
     );
     const {
       configs,
       warnings: motionWarnings,
       entries: motionEntries,
-    } = motionConfigsForTree(page.tree, input.motionTokens, { cssEntry });
+    } = motionConfigsForTree(tree, input.motionTokens, { cssEntry });
     for (const warning of motionWarnings) {
       warnings.push({
         code: warning.code,
@@ -479,7 +537,7 @@ export async function bakeSite(
       css: effectsCss,
       preloader,
       warnings: effectWarnings,
-    } = pageEffectsForTree(page.tree);
+    } = pageEffectsForTree(tree);
     const effectCss = [effectsCss, motionEntryCss(motionEntries)]
       .filter((block) => block !== "")
       .join("\n");
@@ -492,12 +550,12 @@ export async function bakeSite(
         suggestion: warning.suggestion,
       });
     }
-    const islands = islandsForTree(page.tree);
+    const islands = islandsForTree(tree);
     for (const kind of islands) islandKinds.add(kind);
     // A `webgl-scene` spec without a surface is a silent no-op: the island
     // hangs on the surface (media `3d-scene`, hero `showcase-3d`), the spec
     // only tunes intensity and the switch. Say so instead of dropping it.
-    for (const node of Object.values(page.tree.nodes)) {
+    for (const node of Object.values(tree.nodes)) {
       if (node.motion?.preset !== "webgl-scene" || node.motion.enabled === false) continue;
       if (!webglSceneSurface(node)) {
         warnings.push({
@@ -512,7 +570,7 @@ export async function bakeSite(
     }
     // A carrier whose payload this build does not deliver keeps its poster (or
     // its plate) — say so instead of loading nothing quietly (ADR-0010 §7).
-    for (const node of Object.values(page.tree.nodes)) {
+    for (const node of Object.values(tree.nodes)) {
       if (node.type !== "payload") continue;
       const payloadId = node.props.payloadId;
       if (typeof payloadId !== "string" || payloadId === "") continue;
@@ -537,9 +595,9 @@ export async function bakeSite(
     const lenisOnly =
       configs.length === 0 && motionEntries.length > 0 && input.profile !== "clean";
     if (lenisOnly) anyLenisOnly = true;
-    const hasForm = treeHasForms(page.tree);
+    const hasForm = treeHasForms(tree);
     if (hasForm) anyForm = true;
-    const { entities, warnings: jsonLdWarnings } = collectJsonLd(page.tree);
+    const { entities, warnings: jsonLdWarnings } = collectJsonLd(tree);
     for (const message of jsonLdWarnings) {
       warnings.push({ code: "invalid-jsonld", page: page.path, message });
     }
@@ -550,8 +608,8 @@ export async function bakeSite(
       title: page.title,
       description: page.description ?? "",
       ogImage: page.ogImage ?? "",
-      lang: pageLang(page.tree),
-      tree: page.tree,
+      lang: pageLang(tree),
+      tree,
       motion: jsonForHtml(motionDataFor(configs, input.breakpoints)),
       // The page-level View Transition block (M6): null unless a node carries
       // a `document` preset; the template inlines it into the head.

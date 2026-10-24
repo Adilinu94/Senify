@@ -8,6 +8,11 @@ export type ExtractedPayload = {
   nodeKey: string;
   name: string;
   kind: "module" | "webgl-scene";
+  // What the payload carries: one code component of the source tree
+  // (`node`) or the whole runtime of the page (`page`). The Framer runtime
+  // hydrates `#main` and therefore belongs to the page, not to a section
+  // (see `runtime-payload.ts`).
+  scope: "node" | "page";
   bundle: string;
   bytes: number;
   integrity: string;
@@ -142,6 +147,7 @@ export function extractPayloads(input: ExtractPayloadsInput): ExtractedPayload[]
         nodeKey: node.key,
         name: node.name ?? module.path.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "Framer-Island",
         kind: module.kind,
+        scope: "node",
         bundle: output,
         bytes: Buffer.byteLength(output, "utf8"),
         integrity: createHash("sha256").update(output).digest("hex"),

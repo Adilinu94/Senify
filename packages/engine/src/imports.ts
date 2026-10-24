@@ -21,13 +21,15 @@ import {
   type ThemePatch,
 } from "@senify/framer-import";
 import { newEntityId } from "./ids.ts";
+import { resolveTheme } from "@senify/tokens";
+import { parseDurationMs } from "@senify/renderer";
 import {
   createUploadTicket,
   commitUpload,
   purgeAsset,
   type MediaContext,
 } from "./media.ts";
-import { prepareCodePayload } from "./code-payloads.ts";
+import { applyPayloadIds, prepareCodePayload } from "./code-payloads.ts";
 import { planImportBreakpoints, type ImportBreakpointsPlan } from "./site-breakpoints.ts";
 import { DEFAULT_BREAKPOINTS } from "@senify/widget-engine/breakpoints";
 import type { CodePayloadLicense, CodePayloadProvenance, PageMeta } from "./types.ts";
@@ -284,11 +286,19 @@ export function fontFilesOf(patch: ThemePatch, fonts: AssetReport["fonts"]): The
   };
   const display = patch.fonts.display;
   const body = patch.fonts.body;
+  const extra = patch.fonts.extra;
   return {
     ...patch,
     fonts: {
       ...(display === undefined ? {} : { display: withFiles(display) }),
       ...(body === undefined ? {} : { body: withFiles(body) }),
+      ...(extra === undefined
+        ? {}
+        : {
+            extra: Object.fromEntries(
+              Object.entries(extra).map(([key, font]) => [key, withFiles(font)]),
+            ),
+          }),
     },
   };
 }
@@ -400,6 +410,13 @@ export async function runFramerImportJob(
       };
 
   let run: ImportRun;
+  // The theme the page lands in: `durationScale` of every imported motion spec
+  // is relative to its base duration. Reading it here keeps the written page and
+  // the preview on the same number — the preview route resolves the same theme.
+  const siteTheme = await store.getTheme(input.siteId);
+  const resolvedTheme = resolveTheme(siteTheme.theme);
+  const baseDuration = resolvedTheme.motion.duration.base;
+  const baseDurationMs = baseDuration === undefined ? 300 : parseDurationMs(baseDuration);
   try {
     run = await runFramerImport({
       source,
@@ -409,6 +426,7 @@ export async function runFramerImportJob(
       includeFonts,
       pagePath,
       mode: input.body.mode ?? "dna",
+      baseDurationMs,
     });
   } catch (error) {
     if (media !== undefined) {
@@ -443,16 +461,15 @@ export async function runFramerImportJob(
         license,
       }));
     }
-    const byKey = new Map(run.payloads.map((payload, index) => [payload.integrity, preparedPayloads[index]?.id]));
-    for (const node of Object.values(run.mapped.document.nodes)) {
-      if (node.primitive !== "payload") continue;
-      const key = node.props["framerPayloadKey"];
-      const id = typeof key === "string" ? byKey.get(key) : undefined;
-      if (id !== undefined) node.props["payloadId"] = id;
-      delete node.props["framerPayloadKey"];
-    }
+    // The carriers point at the ids the store gave the payloads.
+    applyPayloadIds(
+      run.mapped.document,
+      run.payloads.map((payload, index) => ({
+        integrity: payload.integrity,
+        id: preparedPayloads[index]?.id ?? "",
+      })),
+    );
   }
-
   // The pages the site holds, once: the plan for the breakpoints and the target
   // of this write both read them.
   const sitePages = await store.listPageDrafts(input.siteId);
@@ -535,6 +552,7 @@ export async function runFramerImportJob(
         ? {}
         : { payloadId: preparedPayloads[index]?.id as string }),
     })),
+    ...(run.report.editableShare === undefined ? {} : { editableShare: run.report.editableShare }),
     steps: run.report.steps,
   };
 
