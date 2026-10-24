@@ -64,24 +64,31 @@ Zeile — nicht als Zusammenfassung, sondern nachprüfbar.
 | `packages/renderer/src/motion.ts:157` | `(durationScale ?? 1) * baseDurationMs / 1000` | macht aus `0.1` → 30 ms |
 | `packages/framer-import/src/normalize.ts:352` | `if (property.startsWith("-webkit-") …)` → `delete` | 4121 von 7602 Deklarationen bei last-studio |
 
-**Nicht gebaut — und der Beleg, dass es fehlt:**
+**Nicht gebaut - Stand 21.10.2026.** Diese Tabelle ist der Ausgangsbefund; drei der vier Zeilen
+sind inzwischen gebaut. Die Spalte „Heute" nennt, was daraus wurde - der Befund bleibt stehen,
+weil er die Reihenfolge der Schritte begründet hat.
 
-| Was | Beleg |
-|---|---|
-| Der Weg vom URL zum Mirror | `import.ts:31` kennt `{ kind: "mirror" }` als **Eingabe**. Niemand erzeugt sie aus einer URL; der Mirror muss heute von Hand bereitliegen. |
-| Appear-Spec → CSS-Keyframes | Keine Datei im Repo erzeugt aus `appearAnimationsContent` ein `@keyframes`. |
-| Framer-Runtime als Payload | `payloads.ts` bündelt nur die in `data-framer-module` genannten Module. `script_main.*.mjs` wird nie gelesen (im Code geprüft). |
-| Hover als *Bewegung*, Scroll-Trigger | kommen nicht aus dem SSR; kein Pfad im Import liest sie. |
+| Was (21.10.2026) | Beleg damals | Heute |
+|---|---|---|
+| Der Weg vom URL zum Mirror | `import.ts:31` kennt `{ kind: "mirror" }` als **Eingabe**. Niemand erzeugt sie aus einer URL; der Mirror muss heute von Hand bereitliegen. | **gebaut** (Schritt 1): der URL-Import erzeugt den Mirror selbst; mit `structureSource: "browser"` liest er sogar die hydratisierte Seite (gemessen 15,74 → 11,25 %) |
+| Appear-Spec → CSS-Keyframes | Keine Datei im Repo erzeugt aus `appearAnimationsContent` ein `@keyframes`. | **gebaut** (Schritt 4b): `appear-css.ts`, Beleg `appear-bake.test.ts` |
+| Framer-Runtime als Payload | `payloads.ts` bündelt nur die in `data-framer-module` genannten Module. `script_main.*.mjs` wird nie gelesen (im Code geprüft). | **gebaut** (Schritt 2): `buildPageRuntimePayload` bündelt die Runtime als Seiten-Payload |
+| Hover als *Bewegung*, Scroll-Trigger | kommen nicht aus dem SSR; kein Pfad im Import liest sie. | **gebaut** (Schritt 2): sie reisen mit der Runtime; der Bericht nennt jede Seite, die als Original-Code läuft |
 
-### 3.2 Die Lücken in Kurzform
+### 3.2 Die Lücken in Kurzform - **Stand 21.10.2026, inzwischen alle geschlossen**
 
-| Lücke | Folge |
-|---|---|
-| URL-Import bringt keine Payloads mit | Kein Original-Code bei einem normalen Import |
-| Framer-Runtime wird nie mitgenommen | Lenis/three.js/GSAP der Quelle fehlen |
-| Zeitmaßstab um Faktor ~47 falsch | Einblendung dauert 30 ms statt 1400 ms |
-| Nur Einblendungen von unten abbildbar | 3D, Seitwärts, Skalierung bleiben Befund |
-| Vier von zehn Seiten: Animation ganz verloren | `appearId` da, `appearAnimationsContent` fehlt |
+> **Diese Tabelle ist der Ausgangsbefund, nicht der heutige Stand.** Sie steht hier, weil die
+> Schritte 2 bis 4b sie einzeln adressiert haben; alle fünf Zeilen sind geschlossen (Belege in
+> den jeweiligen Schritt-Abschnitten und in `docs/current/qualitaet.md`). Wer den heutigen Stand
+> sucht, liest `docs/current/stand.md`.
+
+| Lücke (21.10.2026) | Folge damals | Heute |
+|---|---|---|
+| URL-Import bringt keine Payloads mit | Kein Original-Code bei einem normalen Import | **geschlossen** (Schritt 1/2): URL-Import bündelt die Runtime als Seiten-Payload, gemessen 1,24 MB bei `donutshop`, 2,83 MB bei `unifiersofjapan` |
+| Framer-Runtime wird nie mitgenommen | Lenis/three.js/GSAP der Quelle fehlen | **geschlossen** (Schritt 2): `buildPageRuntimePayload`; Lenis, three.js und die 3D-Kippung reisen mit |
+| Zeitmaßstab um Faktor ~47 falsch | Einblendung dauert 30 ms statt 1400 ms | **geschlossen** (Schritt 4): `durationUnit` je Sample, `durationScale` gegen die echte Basis-Dauer |
+| Nur Einblendungen von unten abbildbar | 3D, Seitwärts, Skalierung bleiben Befund | **geschlossen** (Schritt 4b): `appear-css.ts` schreibt `@keyframes` mit der Transform-Reihenfolge der Quelle, `rotateX(-25deg)` geprüft |
+| Vier von zehn Seiten: Animation ganz verloren | `appearId` da, `appearAnimationsContent` fehlt | **geschlossen** (Schritt 5, Punkt 1): 39 Einblendungen aus dem Startzustand abgeleitet, Dauer als Annahme benannt |
 
 ### 3.3 Der wichtigste gemessene Befund
 An der Earn-Seite: **Lenis 10×, three.js 6×, `data-framer-appear-id` 11×, GSAP 0×, ScrollTrigger 0×.**
@@ -189,7 +196,11 @@ npm `framer-export@5.0.2`, MIT, Repo `danbenba/FramerExport` (67 ★, letzter Pu
   müsste aus dem Mirror **nachträglich** kompiliert werden (§4.5, Schritt 4b).
 - **Lizenz:** MIT (`package.json` und Registry bestätigen es).
 - **Aufwand:** klein. Ein CLI-Aufruf.
-- **Offen (Grad B → A):** Ein echter Lauf gegen eine Framer-Seite fehlt. Vor dem Bau nachholen.
+- **Erledigt (24.10.2026):** Der echte Lauf gegen Framer-Seiten ist der Blindtest
+  (`scripts/blindtest.ts`, acht fremde Seiten, Import → Backen → Pixel-Differenz in drei
+  Breiten). Das Werkzeug selbst wurde **nicht** als Abhängigkeit genommen: der Mirror läuft im
+  vorhandenen Analyse-Worker (Schritt 1), und dessen Browser-Capture ist seit 24.10.2026 über
+  `structureSource: "browser"` erreichbar.
 
 ### 4.3 Full Site Export (Framer-Marketplace-Plugin, kostenpflichtig)
 
@@ -839,7 +850,13 @@ Original-Code läuft.
 **Ziel:** Wissen, was auch mit Code-Übernahme nicht geht.
 
 - **CMS-Daten:** Unframer exportiert sie nicht; Full Site Export liest sie aus dem Laufzeitverkehr.
-  Für uns: der Mirror enthält sie (weil er die hydratisierte Seite liest) — zu prüfen.
+  **Geprüft 24.10.2026.** Von sieben Blindtest-Seiten tragen **zwei** den Kanal (`__framer__handoverData`:
+  `last-studio`, `refined`). Am Baum gemessen: bei `last-studio` fehlen von **62** sichtbaren Texten **2**,
+  bei `refined` von **98** sechs - und die Sammlungseinträge („Grey Space", „Reflections") stehen im Baum.
+  Was fehlt, fehlt aus demselben Grund wie überall sonst: es steht nicht im SSR („Bold thinking" kommt im
+  Server-HTML **0x** vor). Die frühere Meldung „Sammlungsinhalte werden nicht importiert" war damit
+  **falsch** und ist berichtigt. Beleg: Meldungstext in `capture-html.ts`, Zählung im Gate-Eintrag vom
+  24.10.2026 in `docs/current/qualitaet.md`.
 - **Seitenübergänge:** ~~bleiben laut Unframer nicht erhalten. Für uns: eigene Entscheidung nötig.~~
   **Entschieden 24.10.2026 (ADR-0023).** Nicht importiert und nicht erfunden: auf allen sieben
   Blindtest-Seiten trägt das Server-HTML **keine** Spur eines Seitenübergangs (`pageEffect`,
