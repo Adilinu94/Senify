@@ -6,6 +6,7 @@ import { AUTHOR, MUTATION_LABELS, api, askText, el, failed, render, routeScope, 
 import { createBakeStatus } from "./app-editor-bake-status.js";
 import { createProtocolLog } from "./app-editor-protocol.js";
 import { createRedesignInbox } from "./app-editor-redesign-inbox.js";
+import { createToolbarOverflow } from "./app-editor-toolbar-overflow.js";
 import { openRedesignDirectionDialog } from "./app-import.js";
 import { openFramerImportDialog } from "./app-framer-import.js";
 
@@ -710,77 +711,28 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   // bestehenden data-action-Selektoren bleiben erhalten, damit Import, Follow
   // und die Konfliktwege direkt addressierbar und testbar bleiben.
   activeToolbarMenuCleanup?.();
-  const overflowMenuId = "canvas-toolbar-overflow";
-  const overflowButton = el("button", {
-    type: "button",
-    class: "toolbar-overflow__trigger",
-    "data-action": "canvas-overflow",
-    "aria-haspopup": "menu",
-    "aria-expanded": "false",
-    "aria-controls": overflowMenuId,
-    text: "Mehr",
+  // Das Overflow-Menue liegt in `app-editor-toolbar-overflow.js` (R12):
+  // Tastatur, Fokus und Aussenklick ohne Bezug auf Canvas oder Auswahl. Die
+  // data-action-Selektoren der vier Eintraege bleiben unveraendert, damit
+  // Import, Follow und die Konfliktwege direkt adressierbar und testbar sind.
+  const overflow = createToolbarOverflow({
+    doc: document,
+    el,
+    entries: [
+      { element: framerImportButton },
+      { element: followButton, role: "menuitemcheckbox" },
+      { element: reloadButton },
+      { element: retryButton },
+    ],
   });
-  const overflowMenu = el("div", {
-    class: "toolbar-overflow__menu",
-    id: overflowMenuId,
-    role: "menu",
-    "aria-label": "Weitere Editor-Aktionen",
-  });
-  const overflowHost = el("div", { class: "toolbar-overflow" }, overflowButton, overflowMenu);
-  overflowMenu.hidden = true;
-  for (const item of [framerImportButton, followButton, reloadButton, retryButton]) {
-    item.setAttribute("role", item === followButton ? "menuitemcheckbox" : "menuitem");
-    item.classList.add("toolbar-overflow__item");
-    overflowMenu.append(item);
-  }
-  const overflowItems = () =>
-    [...overflowMenu.querySelectorAll("button:not([hidden])")];
-  const setOverflowOpen = (open, restoreFocus = false) => {
-    overflowMenu.hidden = !open;
-    overflowButton.setAttribute("aria-expanded", String(open));
-    if (open) overflowItems()[0]?.focus();
-    else if (restoreFocus) overflowButton.focus();
-  };
-  overflowButton.addEventListener("click", (event) => {
-    event.stopPropagation();
-    setOverflowOpen(overflowMenu.hidden);
-  });
-  overflowButton.addEventListener("keydown", (event) => {
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    event.preventDefault();
-    setOverflowOpen(true);
-    const items = overflowItems();
-    (event.key === "ArrowUp" ? items[items.length - 1] : items[0])?.focus();
-  });
-  overflowMenu.addEventListener("click", () => setOverflowOpen(false));
-  overflowMenu.addEventListener("keydown", (event) => {
-    const items = overflowItems();
-    const current = items.indexOf(document.activeElement);
-    let next = -1;
-    if (event.key === "ArrowDown") next = (current + 1) % items.length;
-    else if (event.key === "ArrowUp") next = (current - 1 + items.length) % items.length;
-    else if (event.key === "Home") next = 0;
-    else if (event.key === "End") next = items.length - 1;
-    else if (event.key === "Escape") {
-      event.preventDefault();
-      setOverflowOpen(false, true);
-      return;
-    } else return;
-    event.preventDefault();
-    items[next]?.focus();
-  });
-  const closeOverflowOnOutsidePointer = (event) => {
-    if (!overflowHost.contains(event.target)) setOverflowOpen(false);
-  };
+  const overflowHost = overflow.element;
   const cleanup = () => {
-    document.removeEventListener("pointerdown", closeOverflowOnOutsidePointer);
-    if (overflowButton.isConnected) setOverflowOpen(false);
+    overflow.dispose();
     if (activeToolbarMenuCleanup === cleanup) activeToolbarMenuCleanup = null;
     // The redesign inbox only makes sense on the page it belongs to.
     stopRedesignPolling();
   };
   activeToolbarMenuCleanup = cleanup;
-  document.addEventListener("pointerdown", closeOverflowOnOutsidePointer);
   // Wechselt auf die Seite, an der der Agent gerade arbeitet - nur ohne
   // offene lokale Aenderungen (sonst gingen sie beim Routenwechsel verloren).
   const followPage = (targetPageId) => {
