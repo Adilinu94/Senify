@@ -32,13 +32,15 @@ import { runImport } from "../src/index.ts";
 // The ten sites measured on 21.10.2026, plus a few that were added later. A
 // public site can disappear or change; a failure here reports the URL, it does
 // not stop the run.
+//
+// `receivio.framer.website` was removed on 24.10.2026: the site is gone (404),
+// and a target that can never load is noise in every run.
 const DEFAULT_TARGETS = [
   "https://wedge.framer.website/",
   "https://donutshop.framer.website/",
   "https://last-studio.framer.website/",
   "https://refined.framer.website/",
   "https://notes.framer.website/",
-  "https://receivio.framer.website/",
   "https://meeko.framer.website/",
   "https://unifiersofjapan.framer.website/",
 ];

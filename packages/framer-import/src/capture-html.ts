@@ -78,6 +78,10 @@ type RawFitText = {
   text: string;
   // The width of the viewBox the text was laid out against.
   viewBoxWidth: number;
+  // The height of the viewBox. It is the line box of the text: `height =
+  // fontSize × line-height` (one line — a fit text never wraps). Used only when
+  // the `font-size` is not written inline; see `fitTextOf`.
+  viewBoxHeight: number;
   // The `--framer-*` declarations of the inner text, in Senify style names.
   inline: IrVisual;
 };
@@ -405,7 +409,14 @@ function extractText(raw: string): string {
 // text sits in a column.
 function fitTextStyles(fit: RawFitText): Record<string, string> {
   const out: Record<string, string> = {};
-  const size = Number.parseFloat(fit.inline["fontSize"] ?? "");
+  // The size the words were laid out at. Normally written inline. When it is
+  // not, the viewBox is the line box of the text, so `height` IS the size (one
+  // line, `line-height` 1): measured on `unifiersofjapan`, viewBox
+  // `0 0 977.22 247` against `font-size:248px` at 900 px, which gives the same
+  // 25.4 % share of the width. Without this fallback the words had no size at
+  // all and the element collapsed to 0 px.
+  const inlineSize = Number.parseFloat(fit.inline["fontSize"] ?? "");
+  const size = Number.isFinite(inlineSize) && inlineSize > 0 ? inlineSize : fit.viewBoxHeight;
   if (!Number.isFinite(size) || size <= 0) return out;
   const share = (size / fit.viewBoxWidth) * 100;
   // Four decimals keep the pixel at every width of the page: 0.0001 % of a
@@ -423,6 +434,19 @@ function fitTextStyles(fit: RawFitText): Record<string, string> {
   if (factor !== null) out["line-height"] = String(Number.parseFloat(factor[1] ?? "") / 100);
   else if (em !== null) out["line-height"] = em[1] ?? "";
   else if (/^[\d.]+$/.test(lineHeight)) out["line-height"] = lineHeight;
+  else if (lineHeight === "") {
+    // NOT DECLARED at all: the viewBox is the line box of the ONE line a fit
+    // text holds, so its height IS the line height of the size. Measured on
+    // `unifiersofjapan`: viewBox height 247 against a 248 px font → 0.996, and
+    // the source's own computed line height is 248 px. Without this the browser
+    // took its own 1.5 and the word stood 341 px tall instead of 205.
+    //
+    // A DECLARED but unreadable value (`calc(1em + 2px)`) is a different case:
+    // there the page names a number we cannot read, and substituting another
+    // would be the silent failure `fit-text-line-height.test.ts` guards.
+    const ratio = fit.viewBoxHeight / size;
+    if (Number.isFinite(ratio) && ratio > 0) out["line-height"] = String(Math.round(ratio * 1000) / 1000);
+  }
   const KEBAB: Readonly<Record<string, string>> = {
     fontWeight: "font-weight",
     fontStyle: "font-style",
@@ -665,13 +689,21 @@ function kindFor(raw: RawNode): IrNodeKind {
   const tag = raw.tag;
   const attrs = raw.attrs;
   const classes = raw.classes;
+  // An `<svg>` is a graphic, whatever label it carries. Framer writes its
+  // fit-text as `<svg data-framer-component-type="RichTextContainer">` — read as
+  // a rich text it became a `body` with an EMPTY `html`, i.e. an invisible
+  // element. Measured on `unifiersofjapan` at 900 px: the word "moments" stands
+  // 205 px tall in the source and 0 px in the structure, and the section around
+  // it collapsed from 1138 to 292 px (the page lost 659 px). A fit text whose
+  // ratio CAN be read never reaches this point — it is classified as
+  // `fit-text` before this function runs.
+  if (tag === "svg") return "svg";
   const componentType = attrs["data-framer-component-type"];
   if (componentType !== undefined) {
     const mapped = COMPONENT_TYPE_KINDS[componentType];
     if (mapped !== undefined) return mapped;
     if (/code|shader/i.test(componentType)) return "placeholder";
   }
-  if (tag === "svg") return "svg";
   if (tag === "img") return "image";
   if (tag === "video") return "video";
   if (tag === "a") return "link";
@@ -745,7 +777,9 @@ function fitTextOf(svg: string, attrs: RawAttr): RawFitText | undefined {
   if (content === "") return undefined;
   const box = (attrs["viewbox"] ?? "").trim().split(/[\s,]+/).map(Number);
   const boxWidth = box[2];
+  const boxHeight = box[3];
   if (box.length !== 4 || boxWidth === undefined || !Number.isFinite(boxWidth) || boxWidth <= 0) return undefined;
+  if (boxHeight === undefined || !Number.isFinite(boxHeight) || boxHeight <= 0) return undefined;
   // The innermost element that carries the text style is the `<p>`; the
   // `foreignObject` itself only carries the overflow.
   let inline: IrVisual = {};
@@ -756,8 +790,14 @@ function fitTextOf(svg: string, attrs: RawAttr): RawFitText | undefined {
       break;
     }
   }
-  if (inline["fontSize"] === undefined) return undefined;
-  return { text: content, viewBoxWidth: boxWidth, inline };
+  // When the size is NOT written inline it comes from a preset class rule
+  // (measured on `unifiersofjapan`: `<h1 class="framer-text
+  // framer-styles-preset-1d2t81a">`, `--framer-font-size:248px` in the sheet).
+  // The `<svg>` is drawn at that size and the viewBox is its line box, so the
+  // ratio IS the geometry: `fontSize / viewBoxWidth`. Read as a graphic it would
+  // be a picture; read as text with NO size it became an empty element — 0 px
+  // instead of 205, and the section around it lost 846 px (659 px of the page).
+  return { text: content, viewBoxWidth: boxWidth, viewBoxHeight: boxHeight, inline };
 }
 
 
