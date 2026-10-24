@@ -3,6 +3,7 @@
 // ESLint.
 
 import { AUTHOR, MUTATION_LABELS, api, askText, el, failed, render, routeScope, toast } from "./app-core.js";
+import { createProtocolLog } from "./app-editor-protocol.js";
 import { openRedesignDirectionDialog } from "./app-import.js";
 import { openFramerImportDialog } from "./app-framer-import.js";
 
@@ -711,41 +712,20 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
    * hebt die geaenderten Knoten kurz hervor (Lime-Ring, 1200 ms) und fuehrt
    * ein Bau-Protokoll. Eigene offene Aenderungen blockieren das Nachladen,
    * sonst gingen sie verloren; ohne Kanal bleibt alles beim manuellen Neuladen. */
-  const protocol = el("div", {
-    class: "canvas-view__protocol",
-    "data-role": "protocol",
+  // Das Protokoll liegt in `app-editor-protocol.js` (R12): eigene Daten,
+  // eigene Darstellung, kein Bezug auf Session oder Auswahl. Die Naht ist
+  // `logProtocol(payload)`, alle Aufrufstellen bleiben gleich.
+  const protocolLog = createProtocolLog({
+    doc: document,
+    el,
+    host: canvasHost,
+    labels: MUTATION_LABELS,
+    clock: () => new Date(),
   });
-  protocol.hidden = true;
-  canvasHost.append(protocol);
-  const protocolRows = [];
+  const logProtocol = (payload) => protocolLog.log(payload);
+  // Dieselbe Beschriftung wie im Protokoll - exportiert, damit die Live-Zeile
+  // nicht eine zweite Uebersetzungstabelle braucht.
   const protocolAction = (action) => MUTATION_LABELS[action] ?? action ?? "Änderung";
-  const protocolTime = () =>
-    new Date().toLocaleTimeString("de-DE", {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-  function logProtocol(payload) {
-    protocolRows.unshift({
-      actor: payload.actor?.label ?? "Unbekannt",
-      action: protocolAction(payload.action),
-      time: protocolTime(),
-    });
-    protocolRows.length = Math.min(protocolRows.length, 6);
-    protocol.replaceChildren(
-      el("div", { class: "canvas-view__protocol-title", text: "Was gerade passiert" }),
-      ...protocolRows.map((row) =>
-        el(
-          "div",
-          { class: "canvas-view__protocol-row" },
-          el("span", { class: "canvas-view__protocol-actor", text: row.actor }),
-          el("span", { class: "canvas-view__protocol-action", text: row.action }),
-          el("span", { class: "canvas-view__protocol-time", text: row.time }),
-        ),
-      ),
-    );
-    protocol.hidden = false;
-  }
   const parseEngineEvent = (event) => {
     try {
       return JSON.parse(event.data ?? "{}");
