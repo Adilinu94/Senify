@@ -9,7 +9,6 @@ export type SpotlightCommand =
   | { type: "open-page"; pageId: string }
   | { type: "insert-section"; sectionType: string; variant?: string }
   | { type: "insert-primitive"; primitive: string }
-  | { type: "set-mode"; mode: "design" | "live" }
   | { type: "open-media" }
   | { type: "publish" };
 
@@ -33,26 +32,6 @@ export type SpotlightIndexInput = {
 };
 
 export const SPOTLIGHT_ACTIONS: readonly SpotlightItem[] = [
-  {
-    id: "action:mode-live",
-    kind: "action",
-    label: "Live-Modus",
-    description: "Ein Frame in echter Größe",
-    group: "Aktionen",
-    thumbnail: undefined,
-    keywords: ["live", "preview", "frame"],
-    command: { type: "set-mode", mode: "live" },
-  },
-  {
-    id: "action:mode-design",
-    kind: "action",
-    label: "Design-Modus",
-    description: "Ein Frame im Blattmaß des Geräts",
-    group: "Aktionen",
-    thumbnail: undefined,
-    keywords: ["design", "breakpoints", "frames"],
-    command: { type: "set-mode", mode: "design" },
-  },
   {
     id: "action:media",
     kind: "action",

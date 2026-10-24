@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { startProgram } from "@senify/app";
-import { browserAvailable, memoryDb, openInspectorCategory, runSpotlightCommand } from "./support.ts";
+import { browserAvailable, memoryDb, openInspectorCategory } from "./support.ts";
 
 // The canvas wired into the editor page (rebuild Phase 0, fifth slice). Since
 // E5 slice 1 it is the one visible editor, and since P3-1 Punkt 4 (R5) it is
@@ -164,6 +164,31 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       await expect.poll(async () => tab.locator(".canvas-view__side").isVisible()).toBe(true);
       await expect.poll(async () => tab.locator(".canvas-view__explorer").isVisible()).toBe(true);
       await expect.poll(stageWidth).toBe(withPanels);
+      // E8: Die Vorschau ist der Live-Modus bei zugeklappten Panels; Esc kehrt
+      // zurueck, und die Panels stehen wieder so wie vorher (Struktur war zu).
+      const previewToggle = tab.locator('button[data-action="canvas-preview"]');
+      await explorerToggle.click();
+      await expect.poll(async () => tab.locator(".canvas-view__explorer").isVisible()).toBe(false);
+      expect(await previewToggle.getAttribute("aria-pressed")).toBe("false");
+      await previewToggle.click();
+      await expect.poll(async () => tab.locator('.senify-canvas[data-mode="live"]').count()).toBe(1);
+      expect(await previewToggle.getAttribute("aria-pressed")).toBe("true");
+      expect(await tab.locator(".canvas-view__side").isVisible()).toBe(false);
+      expect(await tab.locator(".canvas-view__explorer").isVisible()).toBe(false);
+      expect(await sideToggle.isDisabled()).toBe(true);
+      expect(await explorerToggle.isDisabled()).toBe(true);
+      // The preview shows the page, not the editing aids: no plus point on hover.
+      await tab.locator(".senify-canvas__frame .senify-canvas__iframe").hover({ position: { x: 40, y: 40 } });
+      expect(await tab.locator(".senify-canvas__plus:visible").count()).toBe(0);
+      await tab.keyboard.press("Escape");
+      await expect.poll(async () => tab.locator('.senify-canvas[data-mode="design"]').count()).toBe(1);
+      expect(await previewToggle.getAttribute("aria-pressed")).toBe("false");
+      expect(await tab.locator(".canvas-view__side").isVisible()).toBe(true);
+      expect(await tab.locator(".canvas-view__explorer").isVisible()).toBe(false);
+      expect(await sideToggle.isDisabled()).toBe(false);
+      expect(await explorerToggle.getAttribute("aria-pressed")).toBe("false");
+      await explorerToggle.click();
+      await expect.poll(async () => tab.locator(".canvas-view__explorer").isVisible()).toBe(true);
       await tab.screenshot({ path: join(shotDir, "02-canvas-frames.png") });
 
       // Der Editor startet eingepasst (Start-Zoom), nicht bei 100 %.
@@ -517,7 +542,7 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       // Design/Live (Ticket 03 Punkt 6 + M4 Stufe 1): live shows the real page
       // — one frame at 100 %, native scroll, the release runtime injected (the
       // same contract the bake writes; Lenis follows the site profile).
-      await runSpotlightCommand(tab, "Live-Modus");
+      await tab.locator('button[data-action="canvas-preview"]').click();
       await expect.poll(async () => tab.locator(".senify-canvas__frame").count()).toBe(1);
       await expect
         .poll(async () =>
@@ -541,7 +566,7 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
 
       // Back in design: the sheet returns, the chrome is back. The rest of the
       // flow works on the desktop sheet, so the device switch goes back to it.
-      await runSpotlightCommand(tab, "Design-Modus");
+      await tab.locator('button[data-action="canvas-preview"]').click();
       await expect.poll(async () => tab.locator(".senify-canvas__frame").count()).toBe(1);
       await tab.locator('.senify-canvas__button[data-action="device"][data-device="desktop"]').click();
       await expect
@@ -851,7 +876,7 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       // Die Bühne füllt im Workspace-Modus die Fensterhöhe. Ein niedriger
       // Viewport hält die Live-Seite scrollbar, sonst hat der Scrub keinen Weg.
       await tab.setViewportSize({ width: 1600, height: 700 });
-      await runSpotlightCommand(tab, "Live-Modus");
+      await tab.locator('button[data-action="canvas-preview"]').click();
       await expect.poll(async () => tab.locator(".senify-canvas__frame").count()).toBe(1);       // Scrub (Ticket 19, M6): der Regler faehrt die Scroll-Position der echten
        // Seite an (Pin-/Scrub-Presets ohne Mausrad pruefbar), manuelles Scrollen
        // fuehrt ihn zurueck; im Design-Modus ist er aus.
@@ -975,7 +1000,7 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
         .toBeGreaterThan(0);
       await expect.poll(liveProbe, { timeout: 10000 }).toBe("frisch");
       await tab.screenshot({ path: join(shotDir, "12-live-vorschau-follow.png") });
-      await runSpotlightCommand(tab, "Design-Modus");
+      await tab.locator('button[data-action="canvas-preview"]').click();
       await expect.poll(async () => tab.locator(".senify-canvas__frame").count()).toBe(1);
       // Der Scrub gehoert zum Live-Modus (M6): im Design ist er aus.
       await expect.poll(async () => scrub.isDisabled()).toBe(true);

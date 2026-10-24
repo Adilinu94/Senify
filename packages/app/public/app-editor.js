@@ -357,6 +357,11 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   toolbar.insertBefore(canvas.toolbar, toolbar.querySelector(".spacer"));
   // Die beiden Seitenpanels lassen sich zuklappen (E8): Elemente und
   // Einstellungen links, Struktur rechts. Der Zustand gilt für diese Sitzung.
+  const panelToggles = {};
+  const setPanelOpen = (attribute, open) => {
+    host.setAttribute(`data-${attribute}`, open ? "open" : "closed");
+    panelToggles[attribute].setAttribute("aria-pressed", String(open));
+  };
   const panelToggle = (attribute, label) => {
     const button = el("button", {
       type: "button",
@@ -365,15 +370,57 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       "aria-pressed": "true",
       text: label,
     });
+    panelToggles[attribute] = button;
     button.addEventListener("click", () => {
-      const open = host.getAttribute(`data-${attribute}`) === "closed";
-      host.setAttribute(`data-${attribute}`, open ? "open" : "closed");
-      button.setAttribute("aria-pressed", String(open));
+      setPanelOpen(attribute, host.getAttribute(`data-${attribute}`) === "closed");
     });
     return button;
   };
   toolbar.insertBefore(panelToggle("side", "Elemente"), canvas.toolbar);
   toolbar.insertBefore(panelToggle("explorer", "Struktur"), toolbar.querySelector("#page-version"));
+
+  // Vorschau (E8): der Live-Modus des Canvas bei zugeklappten Panels. Beim
+  // Zurückkehren (Knopf oder Esc) stehen die Panels wieder so wie vorher.
+  let panelsBeforePreview = null;
+  const previewButton = el("button", {
+    type: "button",
+    class: "ghost",
+    "data-action": "canvas-preview",
+    "aria-pressed": "false",
+    text: "Vorschau",
+  });
+  const setPreview = (on) => {
+    if (on === (panelsBeforePreview !== null)) return;
+    if (on) {
+      panelsBeforePreview = {
+        side: host.getAttribute("data-side") !== "closed",
+        explorer: host.getAttribute("data-explorer") !== "closed",
+      };
+      for (const attribute of ["side", "explorer"]) {
+        setPanelOpen(attribute, false);
+        panelToggles[attribute].disabled = true;
+      }
+      canvas.setMode("live");
+    } else {
+      canvas.setMode("design");
+      for (const attribute of ["side", "explorer"]) {
+        panelToggles[attribute].disabled = false;
+        setPanelOpen(attribute, panelsBeforePreview[attribute]);
+      }
+      panelsBeforePreview = null;
+    }
+    previewButton.setAttribute("aria-pressed", String(on));
+  };
+  previewButton.addEventListener("click", () => setPreview(panelsBeforePreview === null));
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || panelsBeforePreview === null || !host.isConnected) return;
+    const tag = event.target?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || event.target?.isContentEditable) return;
+    event.preventDefault?.();
+    setPreview(false);
+  });
+  toolbar.insertBefore(previewButton, toolbar.querySelector("#page-version"));
+  if (savedUi.mode === "live") setPreview(true);
   // Start im Einpassen-Zoom: der Frame ist sofort ganz sichtbar (Framer/Webflow).
   // Ein bewusst gesetzter Zoom bleibt nach dem Neuladen erhalten; nur der
   // Standardzoom (100 %) wird eingepasst. Der Fit läuft erst, wenn jeder Frame
@@ -628,8 +675,6 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
         if (variant !== undefined) canvas.insertSection(command.sectionType, variant);
       } else if (command.type === "publish") {
         location.hash = `#/projects/${siteId}/review`;
-      } else if (command.type === "set-mode") {
-        canvas.setMode(command.mode);
       }
     },
   });
