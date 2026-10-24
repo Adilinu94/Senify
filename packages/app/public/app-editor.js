@@ -3,6 +3,7 @@
 // ESLint.
 
 import { AUTHOR, MUTATION_LABELS, api, askText, el, failed, render, routeScope, toast } from "./app-core.js";
+import { createAgentPreview } from "./app-editor-agent-preview.js";
 import { createBakeStatus } from "./app-editor-bake-status.js";
 import { createConflictDialog } from "./app-editor-conflict-dialog.js";
 import { createProtocolLog } from "./app-editor-protocol.js";
@@ -639,30 +640,23 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   // Eigene Schreibvorgaenge tragen den Programm-Token; sie sind kein
   // "Agent baut" und werden weder protokolliert noch nachgeladen.
   const isOwnEvent = (payload) => payload.actor?.label === AUTHOR.label;
-  // Agent-Vorschau (Ticket 05, Punkt 5): der Schalter laesst die Ansicht dem
-  // Agenten ueber Seitengrenzen folgen - "Agent baut, Nutzer sieht es im
-  // Canvas wachsen". Er liegt global (nicht je Seite), ist standardmaessig an
-  // und schaltet sich aus, sobald der Nutzer selbst eine Seite waehlt; offene
-  // Aenderungen blockieren jeden Wechsel.
-  let followAgent = storage.get("senify-agent-preview") !== "0";
-  const followButton = el("button", {
-    type: "button",
-    "data-action": "canvas-follow",
-    "aria-pressed": String(followAgent),
-    text: "Agent-Vorschau",
-    title: "Fremden Änderungen folgen — auch auf andere Seiten",
+  // Agent-Vorschau (Ticket 05, Punkt 5) liegt in
+  // `app-editor-agent-preview.js` (R12): der Schalter, seine Speicherung und
+  // die Entscheidung "darf die Ansicht wechseln?". Offene eigene Aenderungen
+  // blockieren jeden Wechsel - ein Routenwechsel verwirft sie.
+  const agentPreview = createAgentPreview({
+    el,
+    storage,
+    isBusy: () => {
+      const state = session.saveState();
+      return state.pending > 0 || state.status === "saving";
+    },
+    onMessage: (message) => {
+      statusEl.textContent = message;
+    },
   });
-  followButton.classList.toggle("active", followAgent);
-  const setFollowAgent = (value) => {
-    followAgent = value;
-    storage.set("senify-agent-preview", value ? "1" : "0");
-    followButton.setAttribute("aria-pressed", String(value));
-    followButton.classList.toggle("active", value);
-  };
-  followButton.addEventListener("click", () => {
-    setFollowAgent(!followAgent);
-    statusEl.textContent = followAgent ? "Agent-Vorschau an" : "Agent-Vorschau aus";
-  });
+  const followButton = agentPreview.element;
+  const setFollowAgent = (value) => agentPreview.set(value, { announce: false });
 
   // Sekundäre Editor-Aktionen liegen in einem echten Overflow-Menü. Die
   // bestehenden data-action-Selektoren bleiben erhalten, damit Import, Follow
@@ -693,10 +687,9 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   // Wechselt auf die Seite, an der der Agent gerade arbeitet - nur ohne
   // offene lokale Aenderungen (sonst gingen sie beim Routenwechsel verloren).
   const followPage = (targetPageId) => {
-    if (!followAgent || targetPageId === pageId) return false;
-    const state = session.saveState();
-    if (state.pending > 0 || state.status === "saving") {
-      statusEl.textContent = "Fremde Änderung auf einer anderen Seite - bitte speichern";
+    const decision = agentPreview.mayFollow(targetPageId, pageId);
+    if (!decision.allowed) {
+      if (decision.reason !== null) statusEl.textContent = decision.reason;
       return false;
     }
     location.hash = `#/projects/${siteId}/pages/${targetPageId}`;
