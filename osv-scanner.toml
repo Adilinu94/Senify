@@ -44,3 +44,28 @@
 # steht als Override auf 10.7.4. Beide hatten ein Fix-Release, also war eine
 # Ausnahme nicht noetig - der Scan blieb gruen, ohne dass etwas eingetragen
 # wurde.
+#
+# Nachtrag 24.10.2026: vier Advisories an einem Tag, alle vier ohne Ausnahme
+# ueber einen Override geschlossen. Sie kamen nicht durch eine Aenderung an
+# diesem Branch, sondern durch neue Meldungen in der OSV-Datenbank:
+#
+# - `body-parser` (GHSA-27r3-jxmh-p828, 7,5, ungueltige Anfrage legt den
+#   Prozess lahm; behoben in 2.4.0) kommt ueber `express` 5.2.1, das
+#   `@modelcontextprotocol/sdk` als Abhaengigkeit zieht. 2.3.0 -> 2.4.0 ist
+#   ein Patch-Sprung.
+# - `fast-uri` (vier Advisories, 3,7 bis 6,1, Host-Verwechslung und
+#   Pfad-Ausbruch; behoben in 3.1.9) kommt ueber `ajv` 8.20.0 -> auch von
+#   `@modelcontextprotocol/sdk`. 3.1.8 -> 3.1.9 ist ein Patch.
+# - `happy-dom` (GHSA-834v-8h66-3h79, 8,8, Code-Ausfuehrung; behoben in
+#   21.0.4) ist ein OPTIONALER Peer von `vitest` mit dem Bereich `*`. Das
+#   Projekt setzt `environment: "node"` und benutzt happy-dom nirgends; die
+#   Hauptversion 21 ist deshalb gefahrlos, und der Override laesst das Paket
+#   ganz aus dem Baum fallen (es wird nicht mehr installiert).
+# - `undici` (drei Advisories, 5,9 bis 7,5, Request-Smuggling und
+#   Header-Injection; behoben in 8.12.2) kommt ueber `unifont` aus dem
+#   Astro-Doku-Build. 8.10.2 -> 8.12.2 ist ein Patch.
+#
+# Alle vier waren vorher schon im Baum, nur nicht gemeldet: der Scan fragt die
+# OSV-Datenbank bei jedem Lauf neu, und die Meldungen entstanden zwischen dem
+# letzten gruenen Lauf (23.10.) und diesem. Keine Ausnahme, kein Ablaufdatum -
+# die Fixes sind da.

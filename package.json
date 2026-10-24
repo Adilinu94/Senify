@@ -64,7 +64,10 @@
   "pnpm": {
     "//": "Die Elternpakete pinnen diese Abhaengigkeiten auf genau die Version, die die Advisory betrifft. Die Overrides heben die Pin auf die gepatchte Version - die jeweils naechste, kein Sprung ueber eine Hauptversion hinaus (OSV-Scan, 20.10.2026). `playwright-core` ist eine Ausnahme: @axe-core/playwright loest seinen Peer gegen die NEUESTE passende Version auf, und zwei Playwright-Versionen im Baum ergeben zwei verschiedene `Page`-Typen (TypeScript-Fehler TS2739 in den Browser-Tests).",
     "overrides": {
+      "body-parser": "2.4.0",
       "devalue": "5.9.3",
+      "fast-uri": "3.1.9",
+      "happy-dom": "21.0.4",
       "hono": "4.13.11",
       "http-cache-semantics": "4.3.0",
       "ip-address": "10.7.4",
@@ -73,7 +76,8 @@
       "smol-toml": "1.9.0",
       "vite": "8.3.3",
       "source-map-js": "1.2.2",
-      "astro": "^7.3.3"
+      "astro": "^7.3.3",
+      "undici": "8.12.2"
     }
   },
   "packageManager": "pnpm@10.33.2"
