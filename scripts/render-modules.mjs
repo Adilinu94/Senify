@@ -112,7 +112,7 @@ const BLEIBT = {
   "packages/app/public/app-references.js": "die Referenzen-Seite ohne die Karten; der Rest nach Schritt 59",
   "packages/engine/src/content.ts": "Sammlungen, Einträge und ihre Suche in einem Fachgebiet",
   "packages/engine/src/http-routes-sites.ts":
-    "die verbleibenden 42 Site-Routen (Seiten, Bibliothek, Inhalte, Referenzen, Bilder, Importe); der Zuschnitt l\u00e4uft weiter, jede Gruppe braucht 6 bis 16 Import-Quellen",
+    "die verbleibenden 39 Site-Routen (Seiten, Bibliothek, Inhalte, Referenzen, Bilder, Vorschauen, Reviews, Redesign, Betrieb); der Zuschnitt läuft weiter, die nächsten Gruppen sind Bilder und Betrieb",
   "packages/engine/src/references-lifecycle.ts":
     "die Referenz-Pipeline: Analyse, Job-Lauf, Snapshot, Playwright-Aufnahme und Anwendung; der Capture-Treiber allein sind 250 Zeilen, und er teilt den Zustand mit dem Job-Lauf",
   "packages/engine/src/lifecycle.ts":
