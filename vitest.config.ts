@@ -219,12 +219,21 @@ export default defineConfig({
         },
         // Die ausgelagerten Werkzeug-Module (P3-2, Schritt 56). Sie entstanden
         // aus `tools.ts` und erben dessen Schwelle: derselbe Code, dieselbe
-        // Erwartung. Stand 23.10.2026 (gemessen):
-        //   tools.ts             89,78 / 64,60 / 81,81 / 89,78
-        //   tools-medien.ts      98,49 / 49,50 / 100   / 98,49
-        //   tools-components.ts  97,10 / 65,38 / 100   / 97,10
-        //   tools-support.ts     81,81 / 76,92 / 100   / 81,81
+        // Erwartung. Stand 24.10.2026 (gemessen, Linux-CI-Artefakt aus Lauf
+        // 40107167662):
+        //   tools.ts             87,50 / 63,15 / 86,86 / 90,86
+        //   tools-medien.ts      96,57 / 57,25 / 100   / 100
+        //   tools-components.ts 100    / 96,66 / 100   / 100
+        //   tools-support.ts     88,60 / 77,92 / 100   / 87,14
         //   tools-schemas.ts    100    / 100   / 100   / 100
+        //
+        // `tools-medien.ts` und `tools-components.ts` standen am 23.10. unter
+        // der Schwelle (92 bzw. 84,61 Statements). Beide Luecken sind mit
+        // Tests geschlossen, nicht mit einer gesenkten Schwelle: die 14
+        // offenen Zweige in `tools-medien.ts` waren die optionalen Felder
+        // (kein Test schickte eins), die fuenf in `tools-components.ts` die
+        // Randfaelle der Leser (fehlendes Kind, verschachtelte Definition,
+        // Unsinn im Override-Sack).
         "packages/mcp/src/tools.ts": {
           statements: 85,
           branches: 60,
