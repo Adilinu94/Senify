@@ -46,6 +46,7 @@ import { newNodeId } from "../state/ids.ts";
 import { DEFAULT_SECTION_THUMBNAIL_BASE } from "../state/sections.ts";
 import { EditorStore, typingCoalesceKey } from "../state/store.ts";
 import { scrubValue } from "./scrub-number.ts";
+import { renderColorPicker as renderPicker } from "./color-control.ts";
 import { EDITOR_ROOT_ATTRIBUTE } from "../ui/tokens.ts";
 import {
   buildInspector,
@@ -208,6 +209,11 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
   // would open the panel under every token/colour field at once).
   let paletteKey: string | null = null;
   let tokenPanelKey: string | null = null;
+  // Der Farbwaehler (Verlauf + Farbton-Streifen) ist ein eigener Zustand neben
+  // der Palette: die Palette kennt die Tokens, der Waehler jeden Wert. Beide
+  // schliessen sich aus - zwei Panels unter demselben Feld waeren zwei
+  // Antworten auf dieselbe Frage.
+  let pickerKey: string | null = null;
   let unsubscribe: (() => void) | null = null;
 
   const report = (message: string | null): void => {
@@ -917,10 +923,29 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     const literal = typeof field.value === "string" ? field.value : "";
     const row = h(doc, "div", { className: "ed-color" });
     const line = h(doc, "div", { className: "ed-color__row" });
-    const swatch = h(doc, "span", {
+    // Der Swatch WAR eine reine Anzeige: man sah die Farbe, konnte sie aber
+    // nicht anfassen. Wer eine Farbe setzen wollte, musste den Hex-Wert
+    // kennen - "#4f8cff" tippt niemand aus dem Kopf. Jetzt ist er ein Knopf,
+    // der den Verlauf oeffnet; das Textfeld daneben bleibt fuer den genauen
+    // Wert und fuer Tokens.
+    const pickerShown = pickerKey === field.key;
+    const swatch = h(doc, "button", {
       className: "ed-swatch",
-      data: { control: "swatch" },
-      attributes: { style: `background:${colorCss(field)}` },
+      data: { control: "swatch", picker: String(pickerShown) },
+      attributes: {
+        type: "button",
+        "aria-label": "Farbwähler öffnen",
+        "aria-expanded": String(pickerShown),
+        title: `Farbe wählen · ${colorCss(field)}`,
+        style: `background:${colorCss(field)}`,
+      },
+    });
+    swatch.addEventListener("click", () => {
+      pickerKey = pickerShown ? null : field.key;
+      // Palette und Waehler beantworten dieselbe Frage; zwei Panels
+      // untereinander waeren zwei Antworten.
+      if (pickerKey !== null) paletteKey = null;
+      render();
     });
     line.appendChild(swatch);
     const fieldWrap = h(doc, "div", { className: "ed-field" });
@@ -944,6 +969,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     toggle.appendChild(icon(doc, "palette", 12));
     toggle.addEventListener("click", () => {
       paletteKey = paletteShown ? null : field.key;
+      if (paletteKey !== null) pickerKey = null;
       render();
     });
     fieldWrap.appendChild(toggle);
@@ -952,9 +978,31 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     if (paletteShown) {
       row.appendChild(renderPalette(nodeId, field));
     }
+    if (pickerShown) {
+      row.appendChild(renderColorPicker(nodeId, field));
+    }
     control.appendChild(row);
   }
 
+  // Der Farbwaehler (Verlauf + Farbton-Streifen) liegt in `color-control.ts`.
+  // Hier bleibt nur die Naht: der Startwert, der Aufloesungsweg fuer Tokens
+  // und der Schreibpfad. Die Rechnung steht in `color-picker.ts`, die Geste im
+  // Control-Modul - beide ohne Store und ohne Inspektor-Wissen geprueft.
+  function renderColorPicker(nodeId: string, field: InspectorField): DomElement {
+    const ref = tokenRefOf(field.value);
+    const aufgeloest = ref === null ? undefined : resolvedTokenColor(field);
+    const start = aufgeloest ?? (typeof field.value === "string" ? field.value : "");
+    return renderPicker({
+      doc,
+      create: h,
+      value: start,
+      onPick: (value) => {
+        // Ein Zug ist EIN Undo-Schritt: `commitProp` faltet den Burst ueber
+        // denselben Schluessel wie das Tippen und der Slider.
+        commitProp(nodeId, field, value, true);
+      },
+    });
+  }
   function renderPalette(nodeId: string, field: InspectorField): DomElement {
     const panel = h(doc, "div", { className: "ed-color__panel", data: { role: "palette" } });
     const options = field.tokenOptions ?? [];
