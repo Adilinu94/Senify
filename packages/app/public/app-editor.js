@@ -6,6 +6,7 @@ import { AUTHOR, MUTATION_LABELS, api, askText, el, failed, render, routeScope, 
 import { createAgentPreview } from "./app-editor-agent-preview.js";
 import { createBakeStatus } from "./app-editor-bake-status.js";
 import { createConflictDialog } from "./app-editor-conflict-dialog.js";
+import { createPanelToggle } from "./app-editor-panel-toggle.js";
 import { createProtocolLog } from "./app-editor-protocol.js";
 import { createRedesignInbox } from "./app-editor-redesign-inbox.js";
 import { createToolbarOverflow } from "./app-editor-toolbar-overflow.js";
@@ -300,25 +301,18 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   });
   // Geräte und Verlauf stehen in der Workspace-Leiste, direkt hinter dem Pfad.
   toolbar.insertBefore(canvas.toolbar, toolbar.querySelector(".spacer"));
-  // Die beiden Seitenpanels lassen sich zuklappen (E8): Elemente und
-  // Einstellungen links, Struktur rechts. Der Zustand gilt für diese Sitzung.
-  const panelToggle = (attribute, label) => {
-    const button = el("button", {
-      type: "button",
-      class: "ghost",
-      "data-panel-toggle": attribute,
-      "aria-pressed": "true",
-      text: label,
-    });
-    button.addEventListener("click", () => {
-      const open = host.getAttribute(`data-${attribute}`) === "closed";
-      host.setAttribute(`data-${attribute}`, open ? "open" : "closed");
-      button.setAttribute("aria-pressed", String(open));
-    });
-    return button;
-  };
-  toolbar.insertBefore(panelToggle("side", "Elemente"), canvas.toolbar);
-  toolbar.insertBefore(panelToggle("explorer", "Struktur"), toolbar.querySelector("#page-version"));
+  // Die beiden Seitenpanels lassen sich zuklappen (E8). Der Umschalter liegt
+  // in `app-editor-panel-toggle.js` (R12): ein Attribut am Host, ein Knopf,
+  // kein Bezug auf Auswahl oder Dokument.
+  const sideToggle = createPanelToggle({ el, host, attribute: "side", label: "Elemente" });
+  const explorerToggle = createPanelToggle({
+    el,
+    host,
+    attribute: "explorer",
+    label: "Struktur",
+  });
+  toolbar.insertBefore(sideToggle.element, canvas.toolbar);
+  toolbar.insertBefore(explorerToggle.element, toolbar.querySelector("#page-version"));
   // Start im Einpassen-Zoom: der Frame ist sofort ganz sichtbar (Framer/Webflow).
   // Ein bewusst gesetzter Zoom bleibt nach dem Neuladen erhalten; nur der
   // Standardzoom (100 %) wird eingepasst. Der Fit läuft erst, wenn jeder Frame
