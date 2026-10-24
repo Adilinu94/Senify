@@ -62,7 +62,7 @@
     "vitest": "^4.1.12"
   },
   "pnpm": {
-    "//": "Die Elternpakete pinnen diese Abhaengigkeiten auf genau die Version, die die Advisory betrifft. Die Overrides heben die Pin auf die gepatchte Version - die jeweils naechste, kein Sprung ueber eine Hauptversion hinaus (OSV-Scan, 20.10.2026). `playwright-core` ist eine Ausnahme: @axe-core/playwright loest seinen Peer gegen die NEUESTE passende Version auf, und zwei Playwright-Versionen im Baum ergeben zwei verschiedene `Page`-Typen (TypeScript-Fehler TS2739 in den Browser-Tests).",
+    "//": "Die Elternpakete pinnen diese Abhaengigkeiten auf genau die Version, die die Advisory betrifft. Die Overrides heben die Pin auf die gepatchte Version - die jeweils naechste, kein Sprung ueber eine Hauptversion hinaus (OSV-Scan, 20.10.2026). `playwright-core` ist eine Ausnahme: @axe-core/playwright loest seinen Peer gegen die NEUESTE passende Version auf, und zwei Playwright-Versionen im Baum ergeben zwei verschiedene `Page`-Typen (TypeScript-Fehler TS2739 in den Browser-Tests). `happy-dom` ist die zweite Ausnahme und im Baum gar nicht installiert: es ist ein optionaler Peer von vitest, den der Lockfile nur als Peer-Variante fuehrt (24.10.2026).",
     "overrides": {
       "body-parser": "2.4.0",
       "devalue": "5.9.3",

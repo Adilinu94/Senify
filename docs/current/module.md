@@ -55,7 +55,7 @@
 
 ## Engine: HTTP-Routen-Module
 
-**12 Dateien** mit zusammen **176 Routen**.
+**13 Dateien** mit zusammen **176 Routen**.
 
 | Modul | Routen | Zeilen | Zweck |
 |---|---|---|---|
@@ -70,7 +70,8 @@
 | `http-routes-ops.ts` | 17 | 495 | Die Routen des Bereichs api/settings, api/backups, api/tokens, api/mcp, api/events, api/whoami, api/notifications, api/newsletter, api/health. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-pages.ts` | 27 | 601 | Die Routen des Bereichs api/pages, api/entries, api/page-starters, api/releases, api/revisions. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-references.ts` | 23 | 710 | Die Routen des Bereichs api/references, api/reference-collections. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
-| `http-routes-sites.ts` | 62 | 1689 | Die Routen der Sites: Seiten, Bausteine, Themes, Breakpoints, Assets und Ereignisse einer Site. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
+| `http-routes-sites.ts` | 51 | 1464 | Die Routen der Sites: Seiten, Bausteine, Themes, Breakpoints, Assets und Ereignisse einer Site. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
+| `http-routes-theme.ts` | 11 | 230 | Theme und Style-Regeln einer Site (P3-2, Schritt 57): das Theme lesen, als CSS ausliefern, schreiben, den Theme-Bericht, den Design-Bericht und die sechs Style-Regel-Routen (lesen, anlegen, aendern, sortieren, loeschen). |
 | **Summe** | **176** | | |
 
 ## Oberfläche: ES-Module
@@ -126,7 +127,7 @@ Zeilenzahl wird beim Erzeugen gemessen, der Grund ist eine Entscheidung.
 
 | Datei | Zeilen | Warum sie bleibt |
 |---|---|---|
-| `packages/mcp/src/tools.ts` | 2714 | die Werkzeug-Definitionen; der Manifest-Generator liest diese Datei als Text |
+| `packages/mcp/src/tools.ts` | 2714 | die Werkzeug-Tabelle; ihre Reihenfolge ist der Vertrag (`server.ts` liest `TOOLS.map`), der Manifest-Generator folgt den `...X_TOOLS`-Spreizungen - ein weiterer Schnitt ist möglich und braucht den Manifest-Diff als Beweis |
 | `packages/engine/src/store.ts` | 2662 | vier fachübergreifende Transaktionen (`applyRedesignPlan`, `duplicateSiteWithPlan`, `duplicateAssetRecords`, `commitFramerImportPlan`), `replaceTables` und die Fassade; der Rest sind Delegaten |
 | `packages/framer-import/src/capture-html.ts` | 2225 | der HTML-Capture des Imports |
 | `packages/editor/src/inspector/inspector.ts` | 1884 | eine Closure (`createInspector`), die DOM und Zustand gemeinsam hält |
@@ -139,5 +140,5 @@ Zeilenzahl wird beim Erzeugen gemessen, der Grund ist eine Entscheidung.
 | `packages/app/public/app-editor.js` | 1208 | `mountCanvasView` haelt Canvas, Zustand und Ereignisse in einer Closure |
 | `packages/engine/src/media.ts` | 1107 | Assets, Ableitungen und Ordner |
 | `packages/app/public/app-references.js` | 771 | die Referenzen-Seite; Rest nach Schritt 52 |
-| `packages/engine/src/http.ts` | 241 | Dispatcher und Routentabelle; fertig |
+| `packages/engine/src/http.ts` | 243 | Dispatcher und Routentabelle; fertig |
 | `packages/app/public/app.js` | 219 | Router und Kommandoleiste; fertig |

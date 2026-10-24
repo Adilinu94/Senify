@@ -23,32 +23,10 @@ import {
   CreateImportBodySchema,
   type CreateImportBody,
 } from "./imports-contract.ts";
-import {
-  AuthorSchema,
-  CreatePageBodySchema,
-  CreateSiteBodySchema,
-  parseBody,
-  UpdateThemeBodySchema,
-  type CreatePageBody,
-  type CreateSiteBody,
-  type UpdateThemeBody,
-} from "./mutations/contract.ts";
+import { AuthorSchema, CreatePageBodySchema, CreateSiteBodySchema, parseBody, type CreatePageBody, type CreateSiteBody } from "./mutations/contract.ts";
 import { parseDurationMs } from "@senify/renderer";
 import { resolveTheme } from "@senify/tokens";
-import {
-  CreateStyleRuleBodySchema,
-  DuplicateSiteBodySchema,
-  ReorderStyleRuleBodySchema,
-  SiteEventBodySchema,
-  UpdateSiteBodySchema,
-  UpdateStyleRuleBodySchema,
-  type CreateStyleRuleBody,
-  type DuplicateSiteBody,
-  type UpdateSiteBody,
-  type ReorderStyleRuleBody,
-  type SiteEventBody,
-  type UpdateStyleRuleBody,
-} from "./site-contract.ts";
+import { DuplicateSiteBodySchema, SiteEventBodySchema, UpdateSiteBodySchema, type DuplicateSiteBody, type UpdateSiteBody, type SiteEventBody } from "./site-contract.ts";
 import {
   createPreview,
   expirePreviews,
@@ -124,7 +102,6 @@ import {
   type InstallLibraryComponentBody,
   type LibraryReattachComponentBody,
 } from "./library-contract.ts";
-import { buildDesignReport } from "./design-report.ts";
 import { buildImagePrompt } from "./references-brief.ts";
 import {
   collectAssetIds,
@@ -137,7 +114,6 @@ import {
   type UploadUrlBody,
 } from "./media.ts";
 import { removeSiteFiles } from "./storage.ts";
-import { buildThemeReport } from "./theme-report.ts";
 import type {
   ImageJobRequest,
   ImageJobStatus,
@@ -146,15 +122,7 @@ import type {
 import { IMAGE_JOB_STATUSES, REVIEW_STATUSES } from "./types.ts";
 import { pageStarterById } from "./page-starters.ts";
 
-function styleVersionHeaders(version: number): Record<string, string> {
-  return {
-    etag: `"style-v${version}"`,
-    "x-senify-style-version": String(version),
-  };
-}
-
 export const siteRoutes: Route[] = [
-
   {
     method: "POST",
     segments: ["api", "sites"],
@@ -453,199 +421,6 @@ export const siteRoutes: Route[] = [
       const all = await context.store.listPages(siteId);
       const page = paginate(all, parsePaging(url.searchParams), all.length);
       return { status: 200, body: { pages: page.items, ...page, items: undefined } };
-    },
-  },
-
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "theme"],
-    scope: "read",
-    handler: async (context, params) => {
-      const siteId = params.siteId;
-      if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
-      return { status: 200, body: await context.store.getTheme(siteId) };
-    },
-  },
-
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "theme.css"],
-    scope: "read",
-    handler: async (context, params) => {
-      const siteId = params.siteId;
-      if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
-      const stored = await context.store.getTheme(siteId);
-      return {
-        status: 200,
-        text: { contentType: "text/css; charset=utf-8", body: stored.css },
-        headers: {
-          "cache-control": "no-store",
-          "x-senify-theme-version": String(stored.version),
-        },
-      };
-    },
-  },
-
-  {
-    method: "PUT",
-    segments: ["api", "sites", ":siteId", "theme"],
-    scope: "write",
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = params.siteId;
-      if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
-      const body = (await readJsonBody(req)) ?? {};
-      const themeBody = parseBody<UpdateThemeBody>(UpdateThemeBodySchema, body, "theme update");
-      const updated = await context.store.updateTheme(
-        siteId,
-        themeBody.theme,
-        resolveAuthor(auth),
-      );
-      return { status: 200, body: updated };
-    },
-  },
-
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "theme", "report"],
-    scope: "read",
-    handler: async (context, params) => {
-      const siteId = params.siteId;
-      if (!siteId) throw new SenifyError("validation", "Missing site id", { field: "siteId" });
-      return {
-        status: 200,
-        body: await buildThemeReport({
-          store: context.store,
-          registry: context.registry,
-          siteId,
-        }),
-      };
-    },
-  },
-
-  {
-    // Design report (E26): the reproducible 0-100 score with its eight
-    // dimensions and the named slop findings (S1-S12). A read; the gate
-    // stages stay in the release checks.
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "design-report"],
-    scope: "read",
-    handler: async (context, params) => ({
-      status: 200,
-      body: await buildDesignReport({
-        store: context.store,
-        siteId: requireParam(params, "siteId"),
-      }),
-    }),
-  },
-
-  // Style rules (Phase 2): site-wide, so they hang off the site like the theme
-// does. Reads are open to any token, writes need `write`, deletion needs
-// `publish` (same ladder the other destructive site resources use).
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "style-rules"],
-    scope: "read",
-    handler: async (context, params) => {
-      const siteId = requireParam(params, "siteId");
-      const registry = await context.store.getStyleRegistry(siteId);
-      return { status: 200, body: registry, headers: styleVersionHeaders(registry.version) };
-    },
-  },
-
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "style-rules"],
-    scope: "write",
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const parsed = parseBody<CreateStyleRuleBody>(
-        CreateStyleRuleBodySchema,
-        body,
-        "style rule",
-      );
-      const { author: _suggestion, ...input } = parsed;
-      const rule = await context.store.createStyleRule(siteId, input, resolveAuthor(auth));
-      const version = (await context.store.getStyleRegistry(siteId)).version;
-      return { status: 201, body: rule, headers: styleVersionHeaders(version) };
-    },
-  },
-
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "style-rules", ":ruleId"],
-    scope: "read",
-    handler: async (context, params) => {
-      const siteId = requireParam(params, "siteId");
-      const ruleId = requireParam(params, "ruleId");
-      return { status: 200, body: await context.store.getStyleRule(siteId, ruleId) };
-    },
-  },
-
-  {
-    method: "PATCH",
-    segments: ["api", "sites", ":siteId", "style-rules", ":ruleId"],
-    scope: "write",
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const ruleId = requireParam(params, "ruleId");
-      const body = (await readJsonBody(req)) ?? {};
-      const parsed = parseBody<UpdateStyleRuleBody>(
-        UpdateStyleRuleBodySchema,
-        body,
-        "style rule update",
-      );
-      const { author: _suggestion, ...patch } = parsed;
-      const rule = await context.store.updateStyleRule(siteId, ruleId, patch, resolveAuthor(auth));
-      const version = (await context.store.getStyleRegistry(siteId)).version;
-      return { status: 200, body: rule, headers: styleVersionHeaders(version) };
-    },
-  },
-
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "style-rules", ":ruleId", "reorder"],
-    scope: "write",
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const ruleId = requireParam(params, "ruleId");
-      const body = (await readJsonBody(req)) ?? {};
-      const parsed = parseBody<ReorderStyleRuleBody>(
-        ReorderStyleRuleBodySchema,
-        body,
-        "style rule reorder",
-      );
-      const rules = await context.store.reorderStyleRule(
-        siteId,
-        ruleId,
-        parsed.index,
-        resolveAuthor(auth),
-        parsed.baseVersion,
-      );
-      const version = (await context.store.getStyleRegistry(siteId)).version;
-      return { status: 200, body: { rules }, headers: styleVersionHeaders(version) };
-    },
-  },
-
-  {
-    method: "DELETE",
-    segments: ["api", "sites", ":siteId", "style-rules", ":ruleId"],
-    scope: "publish",
-    destructive: true,
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const ruleId = requireParam(params, "ruleId");
-      const body = (await readJsonBody(req)) ?? {};
-      // The body stays validated (closed shape); the token is the identity.
-      const parsed = parseBody<SiteEventBody>(SiteEventBodySchema, body, "style rule delete");
-      await context.store.deleteStyleRule(
-        siteId,
-        ruleId,
-        resolveAuthor(auth),
-        parsed.baseVersion,
-      );
-      const version = (await context.store.getStyleRegistry(siteId)).version;
-      return { status: 204, headers: styleVersionHeaders(version) };
     },
   },
 

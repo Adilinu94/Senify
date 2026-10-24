@@ -12,8 +12,17 @@
 # Die Datei heisst `osv-scanner.toml` (ohne Punkt) und liegt im Ordner, der
 # gescannt wird - der Scanner sucht sie neben dem Lockfile.
 #
-# 22.10.2026: **Die Ausnahmeliste ist leer.** Alle fuenf Ausnahmen sind
-# entfallen, und jede aus einem eigenen Grund:
+# **Stand 24.10.2026: die Ausnahmeliste ist leer.** Kein Eintrag, kein
+# Ablaufdatum, nichts zu verlängern. Der Grund steht unten bei den einzelnen
+# Nachträgen; die vier Vitest-Ausnahmen sind entfallen, weil der Runner auf
+# 4.1.12 steht und die Advisories damit gegenstandslos sind.
+#
+# Ein leeres Blatt mit Begruendung ist ehrlicher als eine geloeschte Datei: der
+# Scanner liest sie, und der naechste Audit findet die Historie statt einer
+# Luecke.
+#
+# 22.10.2026: Alle fuenf damaligen Ausnahmen sind entfallen, jede aus einem
+# eigenen Grund:
 #
 # - Die drei Vitest-Ausnahmen (GHSA-82fw-gwwq-j7x9 fuer vitest,
 #   GHSA-qxg6-89mg-rqv8 fuer @vitest/mocker, GHSA-5gmw-xhrv-c9v3 und
@@ -31,10 +40,6 @@
 #   Cache-Poisoning-Route war dort ohnehin nicht erreichbar. Beides ist
 #   gegenstandslos, weil die betroffene Version nicht mehr im Baum ist.
 #
-# Diese Datei bleibt bestehen, auch ohne Eintraege: der Scanner liest sie, und
-# ein leeres Blatt mit Kommentar ist ehrlicher als eine geloeschte Datei, bei
-# der der naechste Auditfragt, ob sie weg soll.
-#
 # Nachtrag 22.10.2026 (abends): zwei an diesem Tag veroeffentlichte
 # Advisories sind ebenfalls ohne Ausnahme geschlossen. `astro`
 # (GHSA-mpr7-6m5w-76rw, CSS-Injection in View Transitions, behoben in 7.3.3)
@@ -45,9 +50,10 @@
 # Ausnahme nicht noetig - der Scan blieb gruen, ohne dass etwas eingetragen
 # wurde.
 #
-# Nachtrag 24.10.2026: vier Advisories an einem Tag, alle vier ohne Ausnahme
-# ueber einen Override geschlossen. Sie kamen nicht durch eine Aenderung an
-# diesem Branch, sondern durch neue Meldungen in der OSV-Datenbank:
+# Nachtrag 24.10.2026 (mittags, unabhaengig auf zwei Staenden entstanden):
+# vier Advisories an einem Tag, alle vier ohne Ausnahme ueber einen Override
+# geschlossen. Sie kamen nicht durch eine Aenderung am Code, sondern durch neue
+# Meldungen in der OSV-Datenbank:
 #
 # - `body-parser` (GHSA-27r3-jxmh-p828, 7,5, ungueltige Anfrage legt den
 #   Prozess lahm; behoben in 2.4.0) kommt ueber `express` 5.2.1, das
@@ -69,3 +75,17 @@
 # OSV-Datenbank bei jedem Lauf neu, und die Meldungen entstanden zwischen dem
 # letzten gruenen Lauf (23.10.) und diesem. Keine Ausnahme, kein Ablaufdatum -
 # die Fixes sind da.
+#
+# Nachtrag 24.10.2026 (nachmittags, Richtigstellung aus dem parallelen Strang):
+# Die vier Vitest-Ausnahmen standen hier bis eben noch als Eintraege, obwohl
+# ihre Begruendung sie selbst aufhob ("der Sprung auf vitest 4.x braucht einen
+# eigenen Schritt" - dieser Schritt ist getan, der Runner steht auf 4.1.12).
+# Eine Ausnahme, die nichts mehr ausnimmt, ist eine Behauptung ohne Deckung:
+# der Scanner meldet sie als unbenutzt, und beim naechsten Audit fragt jemand,
+# warum sie noch da ist. Sie sind entfernt, nicht verlaengert.
+#
+# Die vier Eintraege trugen `ignoreUntil = 2026-11-30`, also ein Datum in der
+# Zukunft. Das ist der unangenehme Fall: sie waeren nicht von selbst
+# abgelaufen, sondern haetten den Scan bis Ende November stillgehalten - auch
+# fuer eine NEUE Advisory auf demselben Paket. Genau davor warnt der Kopf
+# dieser Datei.

@@ -132,17 +132,6 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 | DELETE | `/api/sites/:siteId` | publish | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/pages` | write | Tool | `create_page` |
 | GET | `/api/sites/:siteId/pages` | read | Tool | `list_pages` |
-| GET | `/api/sites/:siteId/theme` | read | Tool | `get_theme`, `server (automatisch)` |
-| GET | `/api/sites/:siteId/theme.css` | read | Operator | UI/CLI |
-| PUT | `/api/sites/:siteId/theme` | write | Tool | `update_theme` |
-| GET | `/api/sites/:siteId/theme/report` | read | Operator | UI/CLI |
-| GET | `/api/sites/:siteId/design-report` | read | Tool | `get_design_report` |
-| GET | `/api/sites/:siteId/style-rules` | read | Tool | `set_styles` |
-| POST | `/api/sites/:siteId/style-rules` | write | Tool | `create_style_rule`, `set_styles` |
-| GET | `/api/sites/:siteId/style-rules/:ruleId` | read | Operator | UI/CLI |
-| PATCH | `/api/sites/:siteId/style-rules/:ruleId` | write | Tool | `set_styles` |
-| POST | `/api/sites/:siteId/style-rules/:ruleId/reorder` | write | Operator | UI/CLI |
-| DELETE | `/api/sites/:siteId/style-rules/:ruleId` | publish | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/audit` | read | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/releases` | publish | Tool | `publish_release`, `rollback_release` |
 | GET | `/api/sites/:siteId/releases` | read | Tool | `list_releases` |
@@ -184,3 +173,14 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 | POST | `/api/sites/:siteId/imports/framer` | write | Tool | `import_framer_page` |
 | POST | `/api/sites/:siteId/imports/framer/preview` | write | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/imports` | read | Operator | UI/CLI |
+| GET | `/api/sites/:siteId/theme` | read | Tool | `get_theme`, `server (automatisch)` |
+| GET | `/api/sites/:siteId/theme.css` | read | Operator | UI/CLI |
+| PUT | `/api/sites/:siteId/theme` | write | Tool | `update_theme` |
+| GET | `/api/sites/:siteId/theme/report` | read | Operator | UI/CLI |
+| GET | `/api/sites/:siteId/design-report` | read | Tool | `get_design_report` |
+| GET | `/api/sites/:siteId/style-rules` | read | Tool | `set_styles` |
+| POST | `/api/sites/:siteId/style-rules` | write | Tool | `create_style_rule`, `set_styles` |
+| GET | `/api/sites/:siteId/style-rules/:ruleId` | read | Operator | UI/CLI |
+| PATCH | `/api/sites/:siteId/style-rules/:ruleId` | write | Tool | `set_styles` |
+| POST | `/api/sites/:siteId/style-rules/:ruleId/reorder` | write | Operator | UI/CLI |
+| DELETE | `/api/sites/:siteId/style-rules/:ruleId` | publish | Operator | UI/CLI |
