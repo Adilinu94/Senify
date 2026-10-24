@@ -36,7 +36,8 @@ id = "GHSA-85c8-ppgw-ccpr"
 ignoreUntil = 2026-11-30T00:00:00Z
 reason = "tinypool 1.1.1: der Worker-Pool von vitest, transitiv. Haengt an derselben vitest-4-Entscheidung (siehe GHSA-82fw-gwwq-j7x9). Wiedervorlage: 30.11.2026."
 
-[[IgnoredVulns]]
-id = "GHSA-ch52-4w7c-c8xp"
-ignoreUntil = 2026-11-30T00:00:00Z
-reason = "http-cache-semantics 4.2.0: transitiv ueber express (statischer Dateihandler). Es gibt keine gepatchte Version; der Empfehlung nachzugehen hiesse, express zu ersetzen. Die betroffene Cache-Poisoning-Route ist im Dashboard-Proxy nicht erreichbar (nur GET auf eigene Routen). Wiedervorlage: 30.11.2026."
+# Entfernt am 24.10.2026: GHSA-ch52-4w7c-c8xp (http-cache-semantics 4.2.0).
+# Die Begruendung "es gibt keine gepatchte Version" war schon beim Schreiben
+# falsch - 4.3.0 ist gepatcht, und der Baum loest inzwischen darauf auf. Der
+# Scanner meldete die Ausnahme als unbenutzt; eine Ausnahme, die nichts
+# ausnimmt, ist eine Behauptung ohne Deckung.
