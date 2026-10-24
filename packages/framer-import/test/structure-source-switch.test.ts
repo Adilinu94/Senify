@@ -1,10 +1,7 @@
 import { listenReachable } from "@senify/core/net";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { createServer } from "node:http";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { describe, expect, it } from "vitest";
 import { existsSync } from "node:fs";
+import { createServer } from "node:http";
+import { describe, expect, it } from "vitest";
 import { runImport } from "../src/index.ts";
 
 // The `structureSource` switch (24.10.2026).
