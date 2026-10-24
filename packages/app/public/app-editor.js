@@ -4,6 +4,7 @@
 
 import { AUTHOR, MUTATION_LABELS, api, askText, el, failed, render, routeScope, toast } from "./app-core.js";
 import { createBakeStatus } from "./app-editor-bake-status.js";
+import { createConflictDialog } from "./app-editor-conflict-dialog.js";
 import { createProtocolLog } from "./app-editor-protocol.js";
 import { createRedesignInbox } from "./app-editor-redesign-inbox.js";
 import { createToolbarOverflow } from "./app-editor-toolbar-overflow.js";
@@ -218,19 +219,9 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     syncConflictDialog(editor.conflictDialogModel(state));
   };
 
-  // Konflikt-Dialog (L17): Server-Stand vs. eigene Aenderungen mit beiden Wegen
-  // und ihren Folgen. Er oeffnet einmal je Konfliktlage; "Spaeter" schliesst
-  // ihn, die Toolbar-Knoepfe bleiben der direkte Weg.
-  const conflictDialog = el("dialog", {
-    class: "conflict-dialog",
-    "data-role": "conflict-dialog",
-  });
-  host.append(conflictDialog);
-  let conflictKey = null;
-  const closeConflictDialog = () => {
-    conflictKey = null;
-    if (conflictDialog.open) conflictDialog.close();
-  };
+  // Konflikt-Dialog (L17) liegt in `app-editor-conflict-dialog.js` (R12):
+  // ein Dialog je Konfliktlage, Texte aus `conflictDialogModel`. Die zwei
+  // Wege bleiben hier, weil sie Session und Dokument anfassen.
   const reloadDraft = async () => {
     try {
       const fresh = await api(`/api/pages/${pageId}`);
@@ -252,47 +243,13 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       failed(error);
     }
   };
-  const syncConflictDialog = (model) => {
-    if (model === null) {
-      closeConflictDialog();
-      return;
-    }
-    const key = `${model.expectedVersion}:${model.serverVersion ?? "?"}:${model.pending}`;
-    if (conflictDialog.open || key === conflictKey) return;
-    conflictKey = key;
-    const reload = el("button", {
-      type: "button",
-      class: "danger",
-      "data-action": "conflict-reload",
-      text: model.reloadLabel,
-    });
-    reload.addEventListener("click", () => {
-      closeConflictDialog();
-      void reloadDraft();
-    });
-    const retry = el("button", {
-      type: "button",
-      class: "primary",
-      "data-action": "conflict-retry",
-      text: model.retryLabel,
-    });
-    retry.addEventListener("click", () => {
-      closeConflictDialog();
-      void retrySave();
-    });
-    const later = el("button", {
-      type: "button",
-      "data-action": "conflict-later",
-      text: model.dismissLabel,
-    });
-    later.addEventListener("click", () => closeConflictDialog());
-    conflictDialog.replaceChildren(
-      el("h2", { text: model.title }),
-      el("p", { text: model.hint }),
-      el("div", { class: "conflict-dialog__actions" }, reload, retry, later),
-    );
-    conflictDialog.showModal();
-  };
+  const conflictDialog = createConflictDialog({
+    el,
+    host,
+    onReload: () => void reloadDraft(),
+    onRetry: () => void retrySave(),
+  });
+  const syncConflictDialog = (model) => conflictDialog.sync(model);
   session.subscribe(() => {
     const state = session.saveState();
     setVersion(state.version);
