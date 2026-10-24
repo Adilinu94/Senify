@@ -45,11 +45,14 @@ Mit „Weitere Seiten dieser Site“ bietet der Bericht die Seiten an, auf die d
 ## Grenzen
 
 - **Framer-Code und Shader** werden zu einem sichtbaren Platzhalter mit Befund. Echte Übernahme gibt es nicht.
-- **Inhalte, die erst im Browser entstehen, fehlen.** Der Import liest das Server-HTML. Was eine Framer-Code-Komponente
-  erst beim Laden erzeugt, ist darin nicht enthalten — gemessen an der Earn-Vorlage: die fünf Bewertungssterne. Ihr
-  Container hält im Server-HTML nur fünf leere `display:contents`-Platzhalter, die Sterne selbst entstehen im Browser.
-  An ihrer Stelle bleibt der leere Rahmen stehen, und der Bericht nennt die Stelle. Wer sie braucht, legt ein Bild
-  dorthin oder braucht eine zweite Quelle (Unframer-MCP, Projektstruktur statt gerendertem HTML).
+- **Inhalte, die erst im Browser entstehen, fehlen im Standardweg.** Der Import liest das Server-HTML. Was eine
+  Framer-Code-Komponente erst beim Laden erzeugt, ist darin nicht enthalten - gemessen an der Earn-Vorlage: die fünf
+  Bewertungssterne. Ihr Container hält im Server-HTML nur fünf leere `display:contents`-Platzhalter, die Sterne selbst
+  entstehen im Browser. **Dafür gibt es die Option `capture: "browser"`** (Dialog: „Quelle im Browser laden", CLI:
+  `--capture browser`, MCP: `capture`): sie lädt dieselbe Adresse in Chromium, lässt die Skripte der Seite laufen und
+  nimmt das fertige DOM. An der Earn-Vorlage liefert sie **5 Sterne statt 0** und 13 statt 8 Grafiken; die drei
+  gespeicherten Exporte gewinnen dabei nichts Strukturelles, weshalb `static` der Standard bleibt. Der Browser-Weg
+  braucht Playwright samt Chromium und kostet je Import einen Browserstart.
 - **Icons über `<use href>`** ohne Sprite erscheinen als Ring, weil Framer das Sprite per Skript einfügt. Liegt das
   Sprite im Server-HTML (der Regelfall), löst der Import es auf: gemessen an der Earn-Vorlage tragen alle 16 SVGs ihre
   Zeichnung. Ein Sprite, das die Quelle selbst nicht mitliefert, bleibt ein Ring.
@@ -62,12 +65,12 @@ Mit „Weitere Seiten dieser Site“ bietet der Bericht die Seiten an, auf die d
 - **`<select>`-Felder** zeigen ihre Optionen als Liste.
 - **Selektoren.** Nicht ausgewertet werden `:not()` an Vorfahren, Geschwister-Kombinatoren (`+`, `~`), `:first-child`
   und `:nth-*`, `@container` und Attribut-Operatoren außer `=`.
-- **Lokale Quellen und Medien.** Der Import liest Medien nie aus dem Mirror-Ordner, er lädt sie über eine Basis-URL
-  von der Live-Adresse. Für „Lokaler Mirror“ bietet der Dialog dazu das Feld „Adresse der Originalseite“ an
-  (z. B. `https://beispiel.de`). Ohne sie bricht „Assets: Hochladen“ bei relativen Medien-URLs ab (Meldung
-  „Relative Asset-URL ohne baseUrl nicht auflösbar“), und ein gescrapter Mirror, dessen Links absolut geschrieben
-  sind, zeigt keine weiteren Seiten der Site an. Mit „Assets: Überspringen“ läuft der Import durch, die Bilder haben
-  dann keine Quelle.
+- **Lokale Quellen und Medien.** Ein Mirror ist die Wahrheit: der Import liest seine Medien aus dem Mirror-Ordner
+  (erst der Ordner der Seite, dann der Wurzelordner), und das Netz wird nur gefragt, wenn die Datei dort nicht liegt.
+  Der Dialog bietet für „Lokaler Mirror“ das Feld „Adresse der Originalseite“ an (z. B. `https://beispiel.de`); es
+  dient den absoluten Links der Seite und den Medien, die im Mirror fehlen. Ohne diese Adresse bleibt eine relative
+  Medien-URL, die auch im Mirror nicht liegt, ein Fehler (Meldung „Relative Asset-URL ohne baseUrl nicht auflösbar“);
+  mit „Assets: Überspringen“ läuft der Import durch, die Bilder haben dann keine Quelle.
 - **Qualität ist an drei gespeicherten Exporten gemessen**, nicht an jeder beliebigen Seite. Die Zahlen stehen in
   `docs/current/qualitaet.md`.
 

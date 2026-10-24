@@ -122,17 +122,21 @@ describe("LibraryRepository: die Bausteine selbst", () => {
     expect(rufe.find((r) => r.art === "appendAudit")?.argumente).toEqual(["library.component.created"]);
   });
 
-  it("erhoeht die Version beim Aendern und setzt die Deprecation", async () => {
+  it("setzt die Deprecation, ohne die Version zu erhoehen", async () => {
     const { repo } = await fixture();
     const erst = await componentFactory(repo);
 
+    // Die Version zaehlt die Definitionen, nicht die Metadaten (Plan §5.1,
+    // Schritt 4). Eine Notiz oder eine Deprecation ist keine neue Definition -
+    // sonst wuerde jede Beschriftung an allen installierten Seiten einen
+    // Drift erzeugen, den es inhaltlich nicht gibt.
     const geaendert = await repo.updateLibraryComponent({
       id: erst.id,
       notes: "Neue Notiz",
       deprecated: true,
       author: TEST_AUTHOR,
     });
-    expect(geaendert.version).toBe(2);
+    expect(geaendert.version).toBe(1);
     expect(geaendert.notes).toBe("Neue Notiz");
     expect(geaendert.deprecatedAt).not.toBeNull();
 
@@ -141,7 +145,7 @@ describe("LibraryRepository: die Bausteine selbst", () => {
       deprecated: false,
       author: TEST_AUTHOR,
     });
-    expect(zurueck.version).toBe(3);
+    expect(zurueck.version).toBe(1);
     expect(zurueck.deprecatedAt).toBeNull();
     // Der Name bleibt, wenn das Patch ihn nicht nennt.
     expect(zurueck.name).toBe("Testkarte");
@@ -274,6 +278,255 @@ describe("LibraryRepository: die Naht zum Store", () => {
     // ... aber die Definition selbst ist noch da (nicht geloescht).
     expect(knoten.some((node) => node.props["libraryDetachedFrom"] === baustein.id)).toBe(true);
     expect(await repo.listLibraryComponents()).toHaveLength(1);
+  });
+
+  it("haengt einen abgehaengten Baustein wieder an die Bibliothek", async () => {
+    const { repo, store } = await fixture();
+    const baustein = await componentFactory(repo, "struct-reattach");
+
+    const site = await store.createSite({ name: "Wiederhaengeprobe" });
+    const page = await store.createPage(site.id, { title: "Start", path: "/" });
+    await repo.installLibraryComponent({
+      id: "install-reattach",
+      siteId: site.id,
+      componentId: baustein.id,
+      mode: "linked",
+      pageId: page.id,
+      author: TEST_AUTHOR,
+    });
+
+    const installs = await repo.listLibraryInstalls(site.id);
+    await repo.deleteLibraryInstall(installs[0]!.id, TEST_AUTHOR);
+    // Nach dem Abhaengen gibt es keine Installationszeile mehr.
+    expect(await repo.listLibraryInstalls(site.id)).toHaveLength(0);
+
+    const wieder = await repo.reattachLibraryComponent({
+      id: "install-wieder",
+      siteId: site.id,
+      componentId: baustein.id,
+      author: TEST_AUTHOR,
+    });
+    expect(wieder.componentId).toBe(baustein.id);
+    expect(wieder.installedVersion).toBe(baustein.version);
+
+    // Die Knoten tragen die Bindung wieder - und sie sind NICHT kopiert worden:
+    // die Ueberschreibungen der lokalen Instanz bleiben erhalten.
+    const nachher = await store.getPage(page.id);
+    const instanzen = Object.values(nachher.draft.nodes).filter(
+      (node) => node.type === "__component_instance" && node.props["libraryComponentId"] === baustein.id,
+    );
+    expect(instanzen).toHaveLength(1);
+    expect(instanzen[0]!.props["libraryDetachedFrom"]).toBeUndefined();
+    expect(instanzen[0]!.props["libraryOrigin"]).toBe("linked");
+
+    // Die Installationszeile ist wieder da.
+    expect(await repo.listLibraryInstalls(site.id)).toHaveLength(1);
+    // Und das Protokoll erzaehlt den Schritt.
+    const eintraege = await repo.listLibraryAudit();
+    expect(eintraege.map((entry) => entry.action)).toContain("reattached");
+  });
+
+  it("meldet aehnliche Bausteine, ohne sie zusammenzulegen", async () => {
+    const { repo } = await fixture();
+    // Zwei Bausteine mit derselben Struktur, aber unterschiedlichem Fingerabdruck
+    // (der Fingerabdruck kommt vom Import und kann abweichen).
+    await componentFactory(repo, "struct-aehnlich-a");
+    await repo.createLibraryComponent({
+      id: "lib-struct-aehnlich-b",
+      name: "Aehnliche Karte",
+      kind: "component",
+      definition: definition as never,
+      fingerprint: "struct-aehnlich-b",
+      tags: [],
+      provenance: { kind: "manual", sourceUrl: null, pagePath: null, irHash: null } as never,
+      license: { id: "MIT", status: "verified" } as never,
+      notes: "",
+      author: TEST_AUTHOR,
+    });
+
+    const aehnliche = await repo.findSimilarLibraryComponents();
+    expect(aehnliche).toHaveLength(1);
+    expect(aehnliche[0]!.similarity).toBe(100);
+    // Der Hinweis nennt beide Bausteine - er entscheidet nicht, welcher bleibt.
+    expect(aehnliche[0]!.component.id).not.toBe(aehnliche[0]!.similarTo.id);
+    // Und es ist nichts zusammengelegt worden.
+    expect(await repo.listLibraryComponents()).toHaveLength(2);
+  });
+
+  it("meldet strukturell verschiedene Bausteine nicht als aehnlich", async () => {
+    const { repo } = await fixture();
+    await componentFactory(repo, "struct-verschieden");
+    await repo.createLibraryComponent({
+      id: "lib-struct-anders",
+      name: "Ganz anderer Baustein",
+      kind: "component",
+      definition: {
+        rootNodeId: "wurzel",
+        nodes: {
+          wurzel: { id: "wurzel", type: "section", props: {}, children: ["text"] },
+          text: { id: "text", type: "heading", props: { text: "Anderes" } },
+        },
+      } as never,
+      fingerprint: "struct-anders",
+      tags: [],
+      provenance: { kind: "manual", sourceUrl: null, pagePath: null, irHash: null } as never,
+      license: { id: "MIT", status: "verified" } as never,
+      notes: "",
+      author: TEST_AUTHOR,
+    });
+
+    expect(await repo.findSimilarLibraryComponents()).toHaveLength(0);
+  });
+});
+
+describe("LibraryRepository: der Weg ueber mehrere Sites", () => {
+  it("zieht die neue Definition in beide Seiten, und die Ueberschreibung bleibt", async () => {
+    const { repo, store } = await fixture();
+    const baustein = await componentFactory(repo, "struct-mehrsite");
+
+    const siteA = await store.createSite({ name: "Site A" });
+    const siteB = await store.createSite({ name: "Site B" });
+    const seiteA = await store.createPage(siteA.id, { title: "A", path: "/a" });
+    const seiteB = await store.createPage(siteB.id, { title: "B", path: "/b" });
+
+    for (const [site, seite] of [[siteA, seiteA], [siteB, seiteB]] as const) {
+      await repo.installLibraryComponent({
+        id: `install-${site.id}`,
+        siteId: site.id,
+        componentId: baustein.id,
+        mode: "linked",
+        pageId: seite.id,
+        author: TEST_AUTHOR,
+      });
+    }
+
+    // Die Instanz der Seite A traegt eine Ueberschreibung. Sie ist ueber die
+    // Teil-ID adressiert - die Ueberschreibung muss ein Bibliotheks-Update
+    // ueberleben (Plan §6, Abnahme E6).
+    const vorUpdate = await store.getPage(seiteA.id);
+    const instanzA = Object.values(vorUpdate.draft.nodes).find(
+      (node) => node.type === "__component_instance" && node.props["libraryComponentId"] === baustein.id,
+    );
+    expect(instanzA).toBeDefined();
+    const teilId = Object.keys(vorUpdate.draft.nodes).find(
+      (id) => id !== instanzA!.id && vorUpdate.draft.nodes[id]!.type !== "page",
+    );
+    expect(teilId).toBeDefined();
+    vorUpdate.draft.nodes[instanzA!.id]!.props["overrides"] = { [teilId as string]: { headline: "Meine Ueberschreibung" } };
+    await store.persistBatch({
+      pageId: seiteA.id,
+      expectedVersion: vorUpdate.draftVersion,
+      draft: vorUpdate.draft,
+      title: vorUpdate.title,
+      path: vorUpdate.path,
+      entries: [{
+        siteId: siteA.id, pageId: seiteA.id, batchId: "batch-override", opIndex: 0,
+        mutation: "test.override", params: {}, author: TEST_AUTHOR, undoPatch: [], draftVersionAfter: vorUpdate.draftVersion + 1,
+      }],
+    });
+
+    // Die Bibliothek bekommt eine neue Definition: der Text aendert sich.
+    const neueDefinition = {
+      rootNodeId: "root00001",
+      nodes: {
+        root00001: { id: "root00001", type: "section", props: {}, children: ["card00001"] },
+        card00001: { id: "card00001", type: "card", props: { headline: "Neue Version aus der Bibliothek" } },
+      },
+    };
+    const geaendert = await repo.updateLibraryComponent({
+      id: baustein.id,
+      definition: neueDefinition as never,
+      author: TEST_AUTHOR,
+    });
+    expect(geaendert.version).toBe(2);
+
+    // Das Update zieht beide Seiten nach.
+    for (const site of [siteA, siteB]) {
+      const installs = await repo.listLibraryInstalls(site.id);
+      await repo.updateLibraryInstall(installs[0]!.id, TEST_AUTHOR);
+    }
+
+    for (const seite of [seiteA, seiteB]) {
+      const nachher = await store.getPage(seite.id);
+      const instanz = Object.values(nachher.draft.nodes).find(
+        (node) => node.type === "__component_instance" && node.props["libraryComponentId"] === baustein.id,
+      );
+      expect(instanz).toBeDefined();
+      // Der Pin ist auf der neuen Version.
+      expect(instanz!.props["componentVersion"]).toBe(2);
+      // Und der Inhalt der Seite ist der neue.
+      expect(JSON.stringify(nachher.draft.nodes)).toContain("Neue Version aus der Bibliothek");
+    }
+
+    // Die Ueberschreibung der Seite A ist noch da - mit demselben Schluessel.
+    const seiteANachher = await store.getPage(seiteA.id);
+    const instanzANachher = Object.values(seiteANachher.draft.nodes).find(
+      (node) => node.type === "__component_instance" && node.props["libraryComponentId"] === baustein.id,
+    );
+    const bag = instanzANachher!.props["overrides"] as Record<string, Record<string, unknown>>;
+    expect(bag[teilId as string]?.["headline"]).toBe("Meine Ueberschreibung");
+  });
+
+  it("aendert eine Kopie nicht, wenn die Bibliothek wächst", async () => {
+    const { repo, store } = await fixture();
+    const baustein = await componentFactory(repo, "struct-kopie");
+
+    const site = await store.createSite({ name: "Kopisten" });
+    const seite = await store.createPage(site.id, { title: "Start", path: "/" });
+    await repo.installLibraryComponent({
+      id: "install-kopie",
+      siteId: site.id,
+      componentId: baustein.id,
+      // `copied`: die Seite hat eine eigene Kopie. Ein Bibliotheks-Update darf
+      // sie nicht ueberschreiben.
+      mode: "copied",
+      pageId: seite.id,
+      author: TEST_AUTHOR,
+    });
+
+    await repo.updateLibraryComponent({
+      id: baustein.id,
+      definition: {
+        rootNodeId: "root00001",
+        nodes: {
+          root00001: { id: "root00001", type: "section", props: {}, children: ["card00001"] },
+          card00001: { id: "card00001", type: "card", props: { headline: "Neue Version aus der Bibliothek" } },
+        },
+      } as never,
+      author: TEST_AUTHOR,
+    });
+
+    const installs = await repo.listLibraryInstalls(site.id);
+    await repo.updateLibraryInstall(installs[0]!.id, TEST_AUTHOR);
+
+    const nachher = await store.getPage(seite.id);
+    // Der Inhalt ist unveraendert - die Kopie gehoert der Seite.
+    expect(JSON.stringify(nachher.draft.nodes)).not.toContain("Neue Version aus der Bibliothek");
+    expect(JSON.stringify(nachher.draft.nodes)).toContain("Aus der Bibliothek");
+  });
+
+  it("erhoeht die Version nur fuer die Definition, nicht fuer Metadaten", async () => {
+    const { repo } = await fixture();
+    const baustein = await componentFactory(repo, "struct-version");
+
+    // Eine Umbenennung ist keine neue Definition: sie erzeugt keinen Drift
+    // auf den installierten Seiten.
+    const umbenannt = await repo.updateLibraryComponent({ id: baustein.id, name: "Umbenannt", author: TEST_AUTHOR });
+    expect(umbenannt.version).toBe(1);
+
+    // Eine neue Definition dagegen schon.
+    const geaendert = await repo.updateLibraryComponent({
+      id: baustein.id,
+      definition: {
+        rootNodeId: "root00001",
+        nodes: {
+          root00001: { id: "root00001", type: "section", props: {}, children: ["card00001"] },
+          card00001: { id: "card00001", type: "card", props: { headline: "Anderer Text" } },
+        },
+      } as never,
+      author: TEST_AUTHOR,
+    });
+    expect(geaendert.version).toBe(2);
   });
 });
 

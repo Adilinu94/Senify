@@ -50,7 +50,9 @@ RM-Pflicht, LCP-Schutz (kein Above-fold-`opacity:0` ohne Fallback).
   3D `webgl-scene` sind umgesetzt. Die freie Timeline wurde bewusst gestrichen. Der Framer-Import
   bildet gemessene Appear-, Viewport-, Scroll- und horizontale Endlos-Loop-Samples deterministisch
   auf bestehende Presets ab; nicht abbildbare Samples bleiben als Findings mit Rohbeleg sichtbar.
-  Die Framer-spezifische Import-Abdeckung und ihre eigene Entscheidung bleiben offen.
+  **Die Framer-spezifische Import-Abdeckung ist mit ADR-0023 entschieden (22.10.2026):** die
+  Registry bleibt geschlossen, ein Effekt wird nur bei passender Form abgebildet, die Abdeckung
+  wird pro Quelle gemessen statt als globale Quote zugesagt.
 
 **Referenz:** `.scratch/motion-v2/research.md`, `plugin-analyse.md`, `preset-matrix.md`,
 `payload-spec.md`, `freeze-spec.md`, `plan.md`; `docs/adr/0003-gsap-als-choreografie-kern.md`.

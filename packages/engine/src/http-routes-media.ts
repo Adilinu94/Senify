@@ -128,6 +128,19 @@ export const mediaRoutes: Route[] = [
   },
 
   {
+    // Aehnliche Bausteine (Plan §5.3): ein Hinweis, kein Urteil. Rein
+    // lesend - das Zusammenlegen bleibt eine Entscheidung des Menschen (wie
+    // bei den Referenz-Dubletten unter /api/references/duplicates).
+    method: "GET",
+    segments: ["api", "library-components", "similar"],
+    scope: "read",
+    handler: async (context) => {
+      const similar = await context.store.findSimilarLibraryComponents();
+      return { status: 200, body: { count: similar.length, similar } };
+    },
+  },
+
+  {
     method: "GET",
     segments: ["api", "library-components", "audit"],
     scope: "read",
@@ -147,7 +160,7 @@ export const mediaRoutes: Route[] = [
     scope: "write",
     handler: async (context, params, req) => {
       const body = parseBody<UpdateLibraryComponentBody>(UpdateLibraryComponentBodySchema, (await readJsonBody(req)) ?? {}, "library component update");
-      return { status: 200, body: await context.store.updateLibraryComponent({ id: requireParam(params, "componentId"), ...body, license: body.license === undefined ? undefined : { id: body.license.id, note: body.license.note ?? null, status: body.license.status ?? "unknown" } }) };
+      return { status: 200, body: await context.store.updateLibraryComponent({ id: requireParam(params, "componentId"), ...body, definition: body.definition as never, license: body.license === undefined ? undefined : { id: body.license.id, note: body.license.note ?? null, status: body.license.status ?? "unknown" } }) };
     },
   },
 

@@ -151,8 +151,3 @@ describe.skipIf(!browserAvailable)("Framer-Import im Editor: der Fußzeilentext 
     }
   }, 180_000);
 });
-
-
-
-
-

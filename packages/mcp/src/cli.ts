@@ -338,6 +338,10 @@ export function createProgram(): Command {
     .option("--page-id <pageId>", "In diese bestehende Seite schreiben statt neue anzulegen")
     .option("--base-draft-version <version>", "Aktuelle Draft-Version der Zielseite")
     .option("--apply-theme", "Theme-Font-Patch mit übernehmen")
+    .option(
+      "--capture <art>",
+      "Wie eine URL-Quelle gelesen wird: static (Server-HTML, Default) oder browser (Seite in Chromium laden, Inhalt aus Skripten mitnehmen)",
+    )
     .option("--report", "Vollen Bericht als JSON ausgeben")
     .option("--api <url>")
     .action(async (quelle, options) => {
@@ -367,6 +371,7 @@ export function createProgram(): Command {
           ? {}
           : { baseDraftVersion: Number.parseInt(String(options.baseDraftVersion), 10) }),
         ...(options.applyTheme === true ? { applyTheme: true } : {}),
+        ...(options.capture === undefined ? {} : { capture: String(options.capture) }),
       };
       const answer = await client.request<{
         job: { id: string; status: string; dryRun: boolean };

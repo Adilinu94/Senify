@@ -240,8 +240,11 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "promote_to_library",
       "install_library_component",
       "uninstall_library_component",
+      "update_library_component",
       "update_library_instances",
       "library_audit",
+      "reattach_library_component",
+      "find_similar_library_components",
       "import_framer_page",
       "get_import_report",
     ]);
@@ -1145,6 +1148,12 @@ describe("mcp workflow (Prüfstelle 3)", () => {
         siteId,
         filePath,
         altText: "Werkstatt am Morgen",
+        // Die optionalen Felder des Uploads: ohne sie blieben ihre Zweige
+        // (Zeilen 97-103) ungetestet. `decorative: false` ist absichtlich
+        // gesetzt - der Zweig prueft auf !== undefined, nicht auf Wahrheit.
+        decorative: false,
+        tags: ["hero"],
+        idempotencyKey: "media-upload-1",
       });
       expect(uploaded.ok).toBe(true);
       const upload = uploaded.data as {
@@ -1193,6 +1202,39 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       const restored = await call(session, "restore_asset", { siteId, assetId });
       expect(restored.ok).toBe(true);
       expect(restored.data.status).toBe("ready");
+
+      // Fehlerpfad 1 (Zeile 137): ein Update ohne ein einziges Metadatenfeld
+      // waere ein stiller Leerlauf. Der Werkzeug-Vertrag verlangt stattdessen
+      // einen benannten Fehler mit Hinweis, welches Feld fehlt.
+      const leer = await call(session, "update_asset", { siteId, assetId });
+      expect(leer.ok).toBe(false);
+      // `call` legt den Fehlerkoerper nach `data`, nicht nach `error`.
+      expect(JSON.stringify(leer.data)).toContain("No asset metadata to update");
+
+      // Fehlerpfad 2 (Zeile 173): nach einem Austausch ohne altText endet der
+      // Aufruf nach dem Upload. Genau dieser fruehe Ausstieg war ungetestet -
+      // ohne ihn liefe ein zweiter PATCH mit leerem Rumpf.
+      const ohneAlt = await call(session, "replace_asset", {
+        siteId,
+        assetId,
+        filePath: replacementPath,
+      });
+      expect(ohneAlt.ok).toBe(true);
+      // Der Austausch antwortet mit `asset` (wie `upload_asset`); der Typ ist
+      // im Test absichtlich offen, deshalb der Zugriff ueber `unknown`.
+      const ohneAltAsset = ohneAlt.data.asset as { id?: string } | undefined;
+      expect(ohneAltAsset?.id ?? (ohneAlt.data.id as string | undefined)).toBe(assetId);
+
+      // Die andere Haelfte derselben Verzweigung: MIT altText folgt dem Upload
+      // ein zweiter PATCH, und der Text steht danach am Asset.
+      const mitAlt = await call(session, "replace_asset", {
+        siteId,
+        assetId,
+        filePath: replacementPath,
+        altText: "Werkstatt aussen",
+      });
+      expect(mitAlt.ok).toBe(true);
+      expect(mitAlt.data.altText).toBe("Werkstatt aussen");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1208,6 +1250,12 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       steps: 5,
       altText: "Rote Teekanne",
       tags: ["hero"],
+      // Die optionalen Felder des Bildauftrags (Zeilen 245-263). Sie werden
+      // nur geschrieben, wenn sie da sind - also muessen sie hier stehen.
+      provider: "image-use",
+      filename: "teekanne.png",
+      decorative: false,
+      idempotencyKey: "image-job-1",
     });
     expect(generated.ok).toBe(true);
     expect(generated.data.status).toBe("queued");
@@ -1447,6 +1495,8 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     const submissions = await call(session, "list_submissions", {
       siteId,
       collectionId,
+      // Deckt den Limit-Zweig ab (Zeile 615).
+      limit: 10,
     });
     expect(submissions.ok).toBe(true);
     const columns = submissions.data.columns as { key: string; label: string }[];

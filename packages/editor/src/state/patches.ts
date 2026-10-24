@@ -8,11 +8,13 @@
 // uses for the section tree, only over the editor document.
 
 import { SenifyError } from "@senify/core";
+import { invalidateCanvasTreeCache } from "./canvas-tree-cache.ts";
 import type { MotionSpec, PropValue } from "@senify/section-sdk";
 import { classKindSelector, type StyleRule } from "@senify/widget-engine";
 import {
   cloneDocument,
   collectSubtree,
+  invalidateParentIndex,
   locateParent,
   type EditorDocument,
   type EditorNode,
@@ -231,7 +233,12 @@ export function applyDocumentPatches(
   const working = cloneDocument(document);
   for (const patch of patches) {
     applyDocumentPatch(working, patch);
+    // The working copy is mutated in place between patches, so both caches
+    // built for it would go stale. Drop them after each patch.
+    invalidateParentIndex();
+    invalidateCanvasTreeCache();
   }
   prune(working);
+  invalidateParentIndex();
   return working;
 }

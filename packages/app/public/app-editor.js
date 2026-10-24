@@ -331,7 +331,13 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     theme: siteTheme ?? editor.defaultTheme(),
     frameStyles: [
       `/api/sites/${encodeURIComponent(siteId)}/theme.css?v=${encodeURIComponent(siteThemeVersion ?? 0)}`,
-      "/editor-frame.css",
+      // Die Raster-Schwellen der Sektionen folgen dem Paar der Site
+      // (ADR-0020). Ohne den Parameter zeigte der Canvas das Raster des
+      // Standardpaars, das Release das der Site - und das
+      // Paritaets-Tor faellt genau darueber.
+      siteBreakpoints
+        ? `/editor-frame.css?bp=${encodeURIComponent(`${siteBreakpoints.tablet}-${siteBreakpoints.mobile}`)}`
+        : "/editor-frame.css",
     ],
     zoom: savedUi.zoom,
     // Design/Live (Ticket 03 Punkt 6): live zeigt die echte Seite (M4 Stufe 1).

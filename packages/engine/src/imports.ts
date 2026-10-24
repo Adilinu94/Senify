@@ -405,6 +405,7 @@ export async function runFramerImportJob(
       source,
       ...(uploader !== undefined ? { uploader } : {}),
       ...(input.body.source.baseUrl !== undefined ? { baseUrl: input.body.source.baseUrl } : {}),
+      ...(input.body.capture !== undefined ? { capture: input.body.capture } : {}),
       includeAssets,
       includeFonts,
       pagePath,

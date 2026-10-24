@@ -78,12 +78,22 @@ bekommt eine zweite bei 1024 px mit eigener Ratsche (`DIFF_CEILING_PLATFORM_TABL
 
 **Folgen und Grenzen.**
 
-- **Registry-Sektionen folgen dem Paar nicht.** Ihre Raster brechen bei festen Breiten (zum Beispiel
-  `GRID_IMAGE_SECTIONS` bei 640 und 768 px in `packages/registry/src/components/shared.tsx`), und
-  `PRIMITIVE_BASE_CSS` ist geräteunabhängig. Auf einer Site mit eigenem Paar bleibt das Verhalten dieser
-  Sektionen also bei den festen Breiten; nur Overrides und Sichtbarkeit am Knoten folgen dem Paar. Wer das
-  ändern will, braucht eine eigene Entscheidung (Sektion liest das Paar aus dem Theme oder wechselt auf
-  Container-Queries).
+- ~~**Registry-Sektionen folgen dem Paar nicht.**~~ **geschlossen (22.10.2026):** Die Sektionen benutzen
+  Tailwind-Utilities (`md:grid-cols-3`), und Tailwind v4 übersetzt sie über die Theme-Variablen
+  `--breakpoint-sm` (40rem = 640 px), `--breakpoint-md` (48rem = 768 px) und `--breakpoint-lg`
+  (64rem = 1024 px). Der `@theme`-Block setzt diese Variablen jetzt auf die Schwellen der Site — ohne
+  eine Änderung an den Sektions-Komponenten. Die Zuordnung ist eine Rechnung, keine Übersetzung: `sm` ist
+  die Mobil-Schwelle, `lg` die Tablet-Grenze, und `md` die Zwischenstufe im heutigen Verhältnis
+  (`mobile + (tablet − mobile) / 3`). Beim Standardpaar (1024 / 640) ergeben sich genau die
+  Tailwind-Standards, damit bauen bestehende Projekte byte-gleich wie vorher.
+  Der Bake schreibt den Block an das Ende der `global.css` im Staging (Tailwind wertet `@theme`-Blöcke
+  erst nach dem Import aus), der Editor-Frame kompiliert sein Stylesheet je Paar, weil der Canvas sonst
+  ein anderes Raster zeigte als das Release.
+  `PRIMITIVE_BASE_CSS` bleibt geräteunabhängig: das ist Basisstil, keine Raster-Entscheidung.
+  Belege: `packages/widget-engine/test/section-breakpoints.test.ts`,
+  `packages/renderer/test/site-breakpoints.test.ts`, `packages/app/test/frame-breakpoints.test.ts`,
+  `packages/app/test/release-cutover-browser.test.ts` (der Gegenbeweis war rot: ohne die Bindung trug das
+  Frame-Stylesheet die Tailwind-Standards).
 - Die Gates prüfen das Produkt, nicht eine Site: `VISUAL_VIEWPORTS` (Tablet 1024) im `analysis-worker`,
   `REVIEW_VISUAL_BREAKPOINTS` und die Visual-Baselines bleiben bei den Standardmaßen. Dass ihr Tablet bei 1024
   auf der Schwelle liegt (derselbe Randfall wie beim alten Editor-Blatt), ist ein Befund für später, kein Teil
@@ -102,6 +112,4 @@ bekommt eine zweite bei 1024 px mit eigener Ratsche (`DIFF_CEILING_PLATFORM_TABL
 - Pixelwerte in den Overrides statt Gerätenamen. Das bricht jede bestehende Seite.
 - Das Paar beim Import immer überschreiben. Eine bestehende Site mit anderen Seiten würde sich still verändern.
 
-**Offen.** Registry-Sektionen auf das Paar umstellen (siehe Folgen). Die Schwelle der Gates bei 1024 px
-(Randfall) prüfen. Ob die Site-Duplikation das Paar kopieren soll, ist entschieden (ja); ob ein Redesign-Apply es
-verändern darf, ist nicht vorgesehen.
+**Offen.** Die Schwelle der Gates bei 1024 px (Randfall) prüfen. Ob die Site-Duplikation das Paar kopieren soll, ist entschieden (ja); ob ein Redesign-Apply es verändern darf, ist nicht vorgesehen.

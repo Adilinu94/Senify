@@ -15,6 +15,7 @@
     "@senify/engine": "workspace:*",
     "@senify/registry": "workspace:*",
     "@senify/tokens": "workspace:*",
+    "@senify/widget-engine": "workspace:*",
     "@tailwindcss/node": "^4.3.3",
     "@tailwindcss/oxide": "^4.3.3",
     "esbuild": "^0.28.2",

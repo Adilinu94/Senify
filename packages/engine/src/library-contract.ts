@@ -24,9 +24,14 @@ export const UpdateLibraryComponentBodySchema = Type.Object({
   notes: Type.Optional(Type.String({ maxLength: 2000 })),
   license: Type.Optional(Type.Object({ id: Type.String({ minLength: 1, maxLength: 64 }), note: Type.Optional(Type.Union([Type.String(), Type.Null()])), status: Type.Optional(Type.Union([Type.Literal("verified"), Type.Literal("unknown")])) }, CLOSED)),
   deprecated: Type.Optional(Type.Boolean()),
+  // Die neue Definition. Ihre Aenderung erhoeht die Version des Eintrags -
+  // die Version zaehlt Definitionen, nicht Metadaten. Die installierten Seiten
+  // bleiben auf ihrem Pin und ziehen die Aenderung erst mit einem Update
+  // nach (Plan §5.1, Schritt 4).
+  definition: Type.Optional(NodeTreeSchema),
   author: Author,
 }, CLOSED);
-export type UpdateLibraryComponentBody = Static<typeof UpdateLibraryComponentBodySchema>;
+export type UpdateLibraryComponentBody = Static<typeof UpdateLibraryComponentBodySchema> & { definition?: NodeTree };
 
 export const InstallLibraryComponentBodySchema = Type.Object({
   componentId: Type.String({ minLength: 1 }),
@@ -36,3 +41,11 @@ export const InstallLibraryComponentBodySchema = Type.Object({
   author: Author,
 }, CLOSED);
 export type InstallLibraryComponentBody = Static<typeof InstallLibraryComponentBodySchema>;
+
+// Re-Attach: der Baustein, an den die geloeste Installation zurueckgehaengt
+// wird. Der Autor steht getrennt, weil er an der Route gelesen wird (das
+// `author`-Feld traegt der Audit-Eintrag).
+export const LibraryReattachComponentSchema = Type.Object({
+  componentId: Type.String({ minLength: 1 }),
+}, CLOSED);
+export type LibraryReattachComponentBody = Static<typeof LibraryReattachComponentSchema>;

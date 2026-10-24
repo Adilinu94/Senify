@@ -112,6 +112,21 @@ async function getPage(pageId: string): Promise<PageResponse> {
 }
 
 describe("POST /api/sites/:siteId/imports/framer", () => {
+  it("reicht die Capture-Wahl durch und lehnt einen unbekannten Wert ab", async () => {
+    // `capture` ist eine Wahl der Quelle (S2), kein freier Text: der Contract
+    // kennt genau zwei Werte. Ein Tippfehler darf nicht still im statischen
+    // Pfad landen, sonst importiert er etwas anderes als angefordert.
+    const abgelehnt = await runImport({ source: { html: framerHtml() }, capture: "chromium" });
+    expect(abgelehnt.status).toBe(400);
+    // Der erlaubte Wert läuft durch den Contract bis in den Lauf; ohne
+    // Playwright meldet der Browser-Pfad das klar, statt still statisch zu
+    // lesen. (Der Erfolgsfall mit Browser steht in
+    // `packages/framer-import/test/import-browser-capture.test.ts`.)
+    const angenommen = await runImport({ source: { html: framerHtml() }, capture: "static" });
+    expect(angenommen.status).toBe(201);
+    expect(angenommen.body.report.dryRun).toBe(true);
+  });
+
   it("dry run: the report scores the page and writes NOTHING", async () => {
     const response = await runImport({ source: { html: framerHtml() } });
     expect(response.status).toBe(201);
