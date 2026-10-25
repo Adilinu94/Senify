@@ -162,4 +162,113 @@ describe("Sektions-Vorschau als Route", () => {
       field: "variant",
     });
   });
+
+  it("antwortet auch im GET-Weg mit 404 statt mit 'entsteht gerade'", async () => {
+    // Der Fund vom 25.10.2026: der GET-Weg pruefte die Variante NICHT. Er
+    // antwortete `202 warming` und startete einen Bake, der zwangslaeufig
+    // scheiterte - der Aufrufer bekam "gleich fertig" auf etwas, das nie
+    // kommt, und die Kachel blieb fuer immer auf dem Standardbild.
+    const siteId = await neueSite();
+    setSectionPreviewShooter(async () => ({ png: PNG }));
+    await expect(call(get, { siteId, type: "hero", file: "gibtsnicht.png" })).rejects.toMatchObject({
+      category: "not_found",
+      field: "variant",
+    });
+  });
+
+  it("weist eine gesperrte Sektion auch im GET-Weg zurueck", async () => {
+    // `outlet`, `collection-list` und `card` brauchen einen Zusammenhang und
+    // sind nicht einfuegbar - fuer sie gibt es kein Bild, auf keinem Weg.
+    const siteId = await neueSite();
+    setSectionPreviewShooter(async () => ({ png: PNG }));
+    await expect(call(get, { siteId, type: "outlet", file: "default.png" })).rejects.toMatchObject({
+      category: "not_found",
+      field: "variant",
+    });
+  });
+
+  it("meldet den Grund, wenn die Fehlersuche eingeschaltet ist", async () => {
+    // Der Hintergrundlauf schluckt Fehler absichtlich. Fuer die Fehlersuche
+    // gibt es einen Schalter - ohne Test waere unklar, ob er ueberhaupt noch
+    // wirkt, und beim naechsten Umbau fiele er still weg.
+    const siteId = await neueSite();
+    setSectionPreviewShooter(async () => {
+      throw new Error("Browser weg");
+    });
+    const gemeldet: unknown[] = [];
+    const original = console.warn;
+    console.warn = (...args: unknown[]) => gemeldet.push(args[0]);
+    const vorher = process.env["SENIFY_SECTION_PREVIEW_DEBUG"];
+    process.env["SENIFY_SECTION_PREVIEW_DEBUG"] = "1";
+    try {
+      await call(get, { siteId, type: "hero", file: "split.png" });
+      await sectionPreviewsIdle();
+    } finally {
+      console.warn = original;
+      if (vorher === undefined) delete process.env["SENIFY_SECTION_PREVIEW_DEBUG"];
+      else process.env["SENIFY_SECTION_PREVIEW_DEBUG"] = vorher;
+    }
+    expect(gemeldet).toContain("[section-preview]");
+  });
+
+  it("baut auch ohne eingesetztes Doppel, wenn der Worker da ist", async () => {
+    // Ohne diesen Fall waere der Zweig `shooter ?? createSectionPreviewShooter()`
+    // nie beruehrt: jeder andere Test setzt ein Doppel. Hier laeuft der
+    // PRODUKTIVE Fotograf (echter Playwright), damit auch der Weg im Betrieb
+    // belegt ist. Grenze 120 s, weil ein Browserstart dazugehoert.
+    const siteId = await neueSite();
+    setSectionPreviewShooter(undefined);
+
+    const result = await call(post, { siteId, type: "hero", file: "split.png" });
+    expect(result.status).toBe(201);
+    const body = result.body as { bytes: number; fresh: boolean };
+    expect(body.bytes).toBeGreaterThan(100);
+    expect(body.fresh).toBe(true);
+  }, 120000);
+
+  it("baut auch im Hintergrundlauf ohne eingesetztes Doppel", async () => {
+    // Der zweite Zweig von `shooter ?? createSectionPreviewShooter()`: der
+    // GET-Weg startet den Bake im Hintergrund. Auch hier laeuft der echte
+    // Fotograf, damit der Weg im Betrieb belegt ist und nicht nur der POST.
+    const siteId = await neueSite();
+    setSectionPreviewShooter(undefined);
+
+    const erst = await call(get, { siteId, type: "hero", file: "split.png" });
+    expect(erst.status).toBe(202);
+    await sectionPreviewsIdle();
+
+    const zweit = await call(get, { siteId, type: "hero", file: "split.png" });
+    expect(zweit.status).toBe(200);
+    expect(zweit.file?.contentType).toBe("image/png");
+  }, 120000);
+
+  it("schweigt im Hintergrundlauf, wenn das Bauen scheitert", async () => {
+    // Der Vertrag: ein Fehlschlag im Hintergrund darf den Aufrufer nicht
+    // treffen - er hat schon 202. Die naechste Anfrage versucht es erneut.
+    //
+    // UND: die Warteschlange darf durch einen Fehlschlag nicht anhalten. Die
+    // beiden `() => undefined`-Zweige in `oneAtATime` sind genau dafuer da;
+    // ohne diesen Fall waeren sie nur "da".
+    const siteId = await neueSite();
+    setSectionPreviewShooter(async () => {
+      throw new Error("Browser weg");
+    });
+    const result = await call(get, { siteId, type: "hero", file: "split.png" });
+    expect(result.status).toBe(202);
+    await sectionPreviewsIdle();
+
+    // Ein ZWEITES Bild nach dem Fehlschlag muss wieder gebaut werden koennen.
+    // Haengte die Kette, waere sie hier still stehengeblieben.
+    let gebaut = 0;
+    setSectionPreviewShooter(async () => {
+      gebaut += 1;
+      return { png: PNG };
+    });
+    await call(get, { siteId, type: "hero", file: "split.png" });
+    await sectionPreviewsIdle();
+
+    const zweit = await call(get, { siteId, type: "hero", file: "split.png" });
+    expect(zweit.status).toBe(200);
+    expect(gebaut).toBe(1);
+  });
 });

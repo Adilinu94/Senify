@@ -25,6 +25,7 @@ import { requireParam } from "./http-route-support.ts";
 import { SenifyError } from "@senify/core";
 import {
   createSectionPreviewShooter,
+  isPreviewable,
   previewFileName,
   previewPathOf,
   sectionPreview,
@@ -40,13 +41,25 @@ let shooter: SectionPreviewShooter | undefined;
  * Instanzen gleichzeitig.
  */
 let queue: Promise<unknown> = Promise.resolve();
+/**
+ * Haengt Arbeit an die Warteschlange. Ein Fehlschlag haelt sie nicht an: das
+ * Ergebnis wird fuer den Aufrufer weitergereicht, die Kette selbst laeuft mit
+ * `undefined` weiter - sonst blockierte ein einzelner Fehlschlag jedes
+ * spaetere Bild.
+ *
+ * Beide Zweige (`then(onFulfilled, onRejected)`) sind derselbe Ausdruck: die
+ * Kette braucht nur "weiter", nicht "weiter mit Wert". Ein `then(
+ * () => undefined, () => undefined)` waere zweimal dasselbe und ein Zweig,
+ * den kein Test je erreicht.
+ */
 function oneAtATime<T>(work: () => Promise<T>): Promise<T> {
   const next = queue.then(work, work);
-  queue = next.then(
-    () => undefined,
-    () => undefined,
-  );
+  queue = next.then(weiter, weiter);
   return next;
+}
+
+function weiter(): undefined {
+  return undefined;
 }
 
 // Hinweis zur Sperre: "kein zweiter Bake fuer dasselbe Bild" leistet der
@@ -71,10 +84,7 @@ export function resetSectionPreviewState(): void {
  * gilt als "fertig": der Vertrag der Route ist, dass sie ihn schluckt.
  */
 export function sectionPreviewsIdle(): Promise<void> {
-  return queue.then(
-    () => undefined,
-    () => undefined,
-  );
+  return queue.then(weiter, weiter);
 }
 
 function cacheDirOf(dataDir: string, siteId: string): string {
@@ -124,6 +134,24 @@ function variantOf(file: string): string {
   return file.slice(0, -".png".length);
 }
 
+/**
+ * Dieselbe Regel fuer beide Wege: eine Variante, die es nicht gibt, ist ein
+ * 404 - kein "entsteht gerade".
+ *
+ * Vorher prueften nur der POST-Weg und `sectionPreview` selbst. Der GET-Weg
+ * antwortete fuer `hero/gibtsnicht` mit 202 und startete einen Bake, der
+ * zwangslaeufig scheiterte: die Kachel blieb fuer immer auf dem Standardbild,
+ * und der Aufrufer bekam "gleich fertig" auf etwas, das nie kommt. Ein 404
+ * sagt dasselbe in ehrlich.
+ */
+function requirePreviewable(type: string, variant: string): void {
+  if (!isPreviewable(type, variant)) {
+    throw new SenifyError("not_found", `Unbekannte Variante ${type}/${variant}`, {
+      field: "variant",
+    });
+  }
+}
+
 export const sectionPreviewRoutes: Route[] = [
   {
     // `method` und `segments` muessen benachbart bleiben: der Route-Matrix-
@@ -139,6 +167,7 @@ export const sectionPreviewRoutes: Route[] = [
       const siteId = requireParam(params, "siteId");
       const type = requireParam(params, "type");
       const variant = variantOf(requireParam(params, "file"));
+      requirePreviewable(type, variant);
       const stored = await context.store.getTheme(siteId);
       const cacheDir = cacheDirOf(context.dataDir, siteId);
       const path = previewPathOf(cacheDir, type, variant, stored.version);
@@ -189,6 +218,7 @@ export const sectionPreviewRoutes: Route[] = [
       const siteId = requireParam(params, "siteId");
       const type = requireParam(params, "type");
       const variant = variantOf(requireParam(params, "file"));
+      requirePreviewable(type, variant);
       const stored = await context.store.getTheme(siteId);
       const shot = await oneAtATime(() =>
         sectionPreview(

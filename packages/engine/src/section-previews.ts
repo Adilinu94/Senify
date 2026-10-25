@@ -59,6 +59,13 @@ export type SectionPreviewOptions = {
    * ihn pruefbar.
    */
   render?: (request: SectionPreviewRequest) => Promise<Buffer>;
+  /**
+   * Der kleine Dateiserver fuer die gebackene Seite. Injizierbar aus einem
+   * Grund, der im Betrieb zaehlt: wenn sein `close` scheitert, muss der
+   * Temp-Ordner trotzdem weg. Ohne diese Naht waere genau dieser Fall nicht
+   * pruefbar (er tritt nur auf, wenn ein Socket haengt).
+   */
+  openServer?: (dir: string) => Promise<{ origin: string; close: () => Promise<void> }>;
 };
 
 export type SectionPreviewShot = {
@@ -69,7 +76,13 @@ export type SectionPreviewShot = {
 
 // Der Knoten, den das Einfuegen setzt: Typ, Variante und das Preset der
 // Variante auf den Props des Golden-Trees.
-function treeFor(type: string, variant: string): NodeTree {
+//
+// Exportiert, weil es eine reine Funktion ohne Zustand ist: der Generator
+// (`pnpm thumbnails:generate`) baut denselben Baum, und ein Test kann die
+// beiden Fehlerfaelle direkt pruefen, statt sie ueber einen Browserlauf zu
+// erreichen. Intern bleibt die Pruefung trotzdem noetig - `shootOne` ist auch
+// ohne `sectionPreview` aufrufbar.
+export function sectionPreviewTree(type: string, variant: string): NodeTree {
   const definition = DEFINITIONS.get(type);
   if (definition === undefined) {
     throw new SenifyError("not_found", `Unbekannte Sektion ${type}`, { field: "type" });
@@ -169,7 +182,7 @@ async function shootOne(
             id: "preview",
             path: "/",
             title: `${request.type} ${request.variant}`,
-            tree: treeFor(request.type, request.variant),
+            tree: sectionPreviewTree(request.type, request.variant),
           },
         ],
         themeCss: options.themeCss,
@@ -178,7 +191,7 @@ async function shootOne(
       },
       { outDir: out, selfContained: true },
     );
-    const server = await serveCaptureDir(out);
+    const server = await (options.openServer ?? serveCaptureDir)(out);
     closers.push(server.close);
     const shot = await options.shoot({
       url: `${server.origin}/index.html`,
@@ -190,6 +203,21 @@ async function shootOne(
     for (const close of closers.reverse()) await close().catch(() => undefined);
     rmSync(work, { recursive: true, force: true });
   }
+}
+
+/**
+ * Welches Bild einer Aufnahme gilt: das Desktop-Bild, sonst das erste. Eine
+ * eigene Funktion, weil die Regel eine Entscheidung ist und kein Detail - und
+ * weil sie ohne Browser pruefbar sein soll.
+ */
+export function pickPreviewShot<T extends { breakpoint: string; png: Buffer }>(
+  shots: readonly T[],
+): T {
+  const desktop = shots.find((shot) => shot.breakpoint === "desktop") ?? shots[0];
+  if (desktop === undefined) {
+    throw new SenifyError("not_found", "Die Vorschau lieferte kein Bild", { field: "preview" });
+  }
+  return desktop;
 }
 
 // Der produktive Fotograf: die Thumbnail-Aufnahme des Analyse-Workers, lazy
@@ -214,11 +242,7 @@ export function createSectionPreviewShooter(): SectionPreviewShooter {
       motion: "off",
       browser: { allowOrigins },
     });
-    const desktop = shots.find((shot) => shot.breakpoint === "desktop") ?? shots[0];
-    if (desktop === undefined) {
-      throw new SenifyError("not_found", "Die Vorschau lieferte kein Bild", { field: "preview" });
-    }
-    return { png: desktop.png };
+    return { png: pickPreviewShot(shots).png };
   };
 }
 

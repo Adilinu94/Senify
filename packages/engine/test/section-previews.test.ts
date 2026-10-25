@@ -5,9 +5,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createSectionPreviewShooter,
   isPreviewable,
+  pickPreviewShot,
   previewFileName,
   previewTargets,
   sectionPreview,
+  sectionPreviewTree,
 } from "../src/section-previews.ts";
 import { serveCaptureDir } from "../src/review-visuals.ts";
 
@@ -80,6 +82,54 @@ describe("previewFileName", () => {
     // Bild alt ist.
     expect(previewFileName("hero", "split", 3)).toBe("hero-split-v3.png");
     expect(previewFileName("hero", "split", 4)).toBe("hero-split-v4.png");
+  });
+});
+
+describe("sectionPreviewTree", () => {
+  it("baut den Knoten, den das Einfuegen setzt: Typ, Variante und Preset", () => {
+    const ziel = previewTargets()[0];
+    if (ziel === undefined) throw new Error("keine Variante");
+    const tree = sectionPreviewTree(ziel.type, ziel.variant);
+
+    const section = tree.nodes["section"];
+    expect(section?.type).toBe(ziel.type);
+    expect(section?.variant).toBe(ziel.variant);
+    // Die Props sind der Golden-Tree der Sektion - ohne sie waere die
+    // Vorschau eine leere Flaeche.
+    expect(Object.keys(section?.props ?? {}).length).toBeGreaterThan(0);
+    expect(tree.nodes[tree.rootNodeId]?.children).toEqual(["section"]);
+  });
+
+  it("nennt eine unbekannte Sektion beim Namen", () => {
+    // Der Aufrufer soll wissen, WELCHE Angabe falsch war - "unbekannt" allein
+    // schickt ihn auf die Suche.
+    expect(() => sectionPreviewTree("gibtsnicht", "standard")).toThrow(/Unbekannte Sektion gibtsnicht/);
+  });
+
+  it("nennt eine unbekannte Variante mit Typ und Variante", () => {
+    expect(() => sectionPreviewTree("hero", "gibtsnicht")).toThrow(/Unbekannte Variante hero\/gibtsnicht/);
+  });
+});
+
+describe("pickPreviewShot", () => {
+  it("nimmt das Desktop-Bild, wenn es eins gibt", () => {
+    // Das Panel zeigt die Desktop-Breite; ein Mobilbild dort waere eine
+    // Verzerrung.
+    const desktop = { breakpoint: "desktop", png: Buffer.from("aa", "hex") };
+    const mobil = { breakpoint: "mobile", png: Buffer.from("bb", "hex") };
+    expect(pickPreviewShot([mobil, desktop])).toBe(desktop);
+  });
+
+  it("nimmt das erste Bild, wenn kein Desktop dabei ist", () => {
+    const mobil = { breakpoint: "mobile", png: Buffer.from("bb", "hex") };
+    const tablet = { breakpoint: "tablet", png: Buffer.from("cc", "hex") };
+    expect(pickPreviewShot([mobil, tablet])).toBe(mobil);
+  });
+
+  it("wirft bei einer leeren Aufnahme, statt 'undefined' durchzureichen", () => {
+    // Ein leerer Rueckgabewert wuerde im PNG-Schreiber als `undefined` landen
+    // und dort als kryptischer Fehler auftauchen.
+    expect(() => pickPreviewShot([])).toThrow(/kein Bild/);
   });
 });
 
@@ -263,4 +313,38 @@ describe("sectionPreview", () => {
     expect(gesehen[0]).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/index\.html$/);
     expect(shoot).toHaveBeenCalledTimes(1);
   }, 120000);
+
+  it("raeumt den Temp-Ordner auch, wenn der Server sein close verweigert", async () => {
+    // Der Fall, der im Betrieb zaehlt: ein haengender Socket laesst `close`
+    // scheitern. Ohne diesen Test waere die Zeile, die den Fehler schluckt,
+    // nur "da" - und niemand wuesste, ob der Ordner wirklich weggeht.
+    const cacheDir = join(neuerOrdner(), "cache");
+    const ziel = previewTargets()[0];
+    if (ziel === undefined) throw new Error("keine Variante");
+
+    let geschlossen = 0;
+    const shot = await sectionPreview(
+      {
+        themeCss: "",
+        themeVersion: 1,
+        cacheDir,
+        shoot: async () => ({ png: PNG }),
+        openServer: async () => ({
+          origin: "http://127.0.0.1:1",
+          close: async () => {
+            geschlossen += 1;
+            throw new Error("Socket haengt");
+          },
+        }),
+      },
+      ziel,
+    );
+
+    // Das Bild ist trotzdem entstanden und liegt im Zwischenspeicher.
+    expect(shot.fresh).toBe(true);
+    expect(geschlossen).toBe(1);
+    expect(
+      readFileSync(join(cacheDir, previewFileName(ziel.type, ziel.variant, 1))).equals(PNG),
+    ).toBe(true);
+  }, 60000);
 });
