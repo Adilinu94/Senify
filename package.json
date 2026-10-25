@@ -37,7 +37,8 @@
     "manifest:check": "node scripts/render-manifest.mjs --check",
     "verify": "pnpm build && pnpm verify:dist && pnpm lint && pnpm deps:check && pnpm check:patch && pnpm test",
     "verify:parity": "node scripts/verify-parity.mjs",
-    "verify:import": "pnpm exec vitest run packages/framer-import/test/import-visual-gate-browser.test.ts"
+    "verify:import": "pnpm exec vitest run packages/framer-import/test/import-visual-gate-browser.test.ts",
+    "preview": "tsx packages/framer-import/scripts/preview.ts"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",
