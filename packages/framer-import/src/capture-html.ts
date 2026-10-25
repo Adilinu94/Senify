@@ -200,7 +200,13 @@ function ohneStartzustaende(markup: string): string {
       const paar = parseDeclaration(deklaration);
       if (paar === null) return deklaration.trim() !== "";
       const name = paar[0].toLowerCase();
-      if (startzustand && (name === "opacity" || name === "transform" || name === "will-change")) return false;
+      // `filter` belongs to the start state: the word-by-word headline carries
+      // `opacity:0.001;filter:blur(12px);transform:translateY(28px)` on every
+      // word, and the runtime takes the blur to `blur(0)`. Kept here, the words
+      // stay a grey smear for good — measured on `rare-works`: the hero title was
+      // unreadable in the structure tree (92 hidden elements, 13 broken images
+      // in the same measurement, see ADR-0026).
+      if (startzustand && (name === "opacity" || name === "transform" || name === "will-change" || name === "filter")) return false;
       if (name === "transition" || uebergangen.includes(name)) return false;
       return true;
     });
@@ -730,7 +736,14 @@ function attributeNamesIn(css: string): Set<string> {
 }
 
 // What Framer's appear script animates from: not the element's look.
-const START_STATE_PROPERTIES = ["opacity", "transform", "will-change"] as const;
+//
+// `filter` belongs here too. Framer's word-by-word headline writes
+// `opacity:0.001;filter:blur(12px);transform:translateY(28px)` into every word:
+// the blur is the state BEFORE the reveal, and the runtime brings it to
+// `blur(0)`. Left as a permanent style, the headline stays unreadable — measured
+// on `rare-works`: 92 `blur(` rules in the release, and the hero title was a
+// grey smear (see `docs/adr/0026-struktur-baum-als-vollwertige-seite.md`).
+const START_STATE_PROPERTIES = ["opacity", "transform", "will-change", "filter"] as const;
 
 type Counter = {
   ordinal: number;
