@@ -3,7 +3,23 @@
 // ESLint.
 
 import { AUTHOR, MUTATION_LABELS, api, askText, el, failed, render, routeScope, toast } from "./app-core.js";
+import { createAgentPreview } from "./app-editor-agent-preview.js";
+import { createBakeStatus } from "./app-editor-bake-status.js";
+import { createConflictDialog } from "./app-editor-conflict-dialog.js";
+import { createPanelToggle } from "./app-editor-panel-toggle.js";
+import {
+  isOwnEvent as isOwnEventFromPayload,
+  parseEngineEvent,
+} from "./app-editor-live-events.js";
+import { saveControls, saveStatusText } from "./app-editor-save-status.js";
+import {
+  draftChangedDecision,
+  nodesToFlash,
+  pageCreatedDecision,
+} from "./app-editor-live-sync.js";
 import { createProtocolLog } from "./app-editor-protocol.js";
+import { createRedesignInbox } from "./app-editor-redesign-inbox.js";
+import { createToolbarOverflow } from "./app-editor-toolbar-overflow.js";
 import { openRedesignDirectionDialog } from "./app-import.js";
 import { openFramerImportDialog } from "./app-framer-import.js";
 
@@ -108,37 +124,14 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     { class: "toolbar__status", "aria-live": "polite", "aria-atomic": "true" },
     statusEl,
   );
-  // Re-Bake-Status (E12): Inhaltsaenderungen laufen als durabler Job; der
-  // Badge zeigt den letzten Stand, ohne dass jemand die Job-Route oeffnen muss.
-  const bakeBadge = el("span", {
-    class: "muted",
-    "data-role": "bake-status",
+  // Re-Bake-Status (E12) liegt in `app-editor-bake-status.js` (R12): eine
+  // Abfrage, eine Zeile. Ein Hinweis, kein Blocker.
+  const bakeStatus = createBakeStatus({
+    el,
+    fetchJobs: () => api(`/api/sites/${siteId}/bake-jobs`),
   });
-  bakeBadge.hidden = true;
-  statusGroup.append(bakeBadge);
-  const showBake = (text, isError) => {
-    bakeBadge.textContent = text;
-    bakeBadge.hidden = false;
-    if (isError === true) bakeBadge.dataset.state = "error";
-    else delete bakeBadge.dataset.state;
-  };
-  const refreshBakeJobs = async () => {
-    try {
-      const result = await api(`/api/sites/${siteId}/bake-jobs`);
-      const job = (result.jobs ?? [])[0];
-      if (!job) return;
-      if (job.status === "queued" || job.status === "running") {
-        showBake("Inhalt wird neu gebaut …");
-      } else if (job.status === "failed") {
-        showBake(`Re-Bake fehlgeschlagen: ${job.lastError ?? "unbekannt"}`, true);
-      } else if (job.status === "done") {
-        showBake("Inhalt neu gebaut");
-      }
-    } catch {
-      // Der Status ist ein Hinweis, nie ein Blocker.
-    }
-  };
-  void refreshBakeJobs();
+  statusGroup.append(bakeStatus.element);
+  void bakeStatus.refresh();
   const publishButton = el("button", {
     type: "button",
     class: "primary",
@@ -221,36 +214,21 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   });
   const savedUi = session.ui();
 
+  // Was die Zeile sagt und welche Knoepfe gelten, rechnet
+  // `app-editor-save-status.js` (R12). Hier bleibt nur das Schreiben ins DOM.
   const applyState = (state) => {
-    saveButton.disabled = state.pending === 0;
-    saveButton.textContent = state.pending > 0 ? `Speichern (${state.pending})` : "Speichern";
-    const conflict = state.status === "conflict";
-    reloadButton.hidden = !conflict;
-    retryButton.hidden = !conflict;
-    if (state.status === "saving") statusEl.textContent = "Speichert …";
-    else if (state.status === "saved") statusEl.textContent = "Gespeichert";
-    else if (conflict) statusEl.textContent = state.message ?? "Entwurf wurde geändert";
-    else if (state.status === "error") statusEl.textContent = state.message ?? "Speichern fehlgeschlagen";
-    else statusEl.textContent = state.pending > 0 ? `${state.pending} offen` : "";
-    if (state.unsupported.length > 0) {
-      statusEl.textContent = `${statusEl.textContent} · nicht speicherbar: ${state.unsupported.join(", ")}`.trim();
-    }
+    const controls = saveControls(state);
+    saveButton.disabled = controls.saveDisabled;
+    saveButton.textContent = controls.saveLabel;
+    reloadButton.hidden = !controls.conflict;
+    retryButton.hidden = !controls.conflict;
+    statusEl.textContent = saveStatusText(state);
     syncConflictDialog(editor.conflictDialogModel(state));
   };
 
-  // Konflikt-Dialog (L17): Server-Stand vs. eigene Aenderungen mit beiden Wegen
-  // und ihren Folgen. Er oeffnet einmal je Konfliktlage; "Spaeter" schliesst
-  // ihn, die Toolbar-Knoepfe bleiben der direkte Weg.
-  const conflictDialog = el("dialog", {
-    class: "conflict-dialog",
-    "data-role": "conflict-dialog",
-  });
-  host.append(conflictDialog);
-  let conflictKey = null;
-  const closeConflictDialog = () => {
-    conflictKey = null;
-    if (conflictDialog.open) conflictDialog.close();
-  };
+  // Konflikt-Dialog (L17) liegt in `app-editor-conflict-dialog.js` (R12):
+  // ein Dialog je Konfliktlage, Texte aus `conflictDialogModel`. Die zwei
+  // Wege bleiben hier, weil sie Session und Dokument anfassen.
   const reloadDraft = async () => {
     try {
       const fresh = await api(`/api/pages/${pageId}`);
@@ -272,47 +250,13 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       failed(error);
     }
   };
-  const syncConflictDialog = (model) => {
-    if (model === null) {
-      closeConflictDialog();
-      return;
-    }
-    const key = `${model.expectedVersion}:${model.serverVersion ?? "?"}:${model.pending}`;
-    if (conflictDialog.open || key === conflictKey) return;
-    conflictKey = key;
-    const reload = el("button", {
-      type: "button",
-      class: "danger",
-      "data-action": "conflict-reload",
-      text: model.reloadLabel,
-    });
-    reload.addEventListener("click", () => {
-      closeConflictDialog();
-      void reloadDraft();
-    });
-    const retry = el("button", {
-      type: "button",
-      class: "primary",
-      "data-action": "conflict-retry",
-      text: model.retryLabel,
-    });
-    retry.addEventListener("click", () => {
-      closeConflictDialog();
-      void retrySave();
-    });
-    const later = el("button", {
-      type: "button",
-      "data-action": "conflict-later",
-      text: model.dismissLabel,
-    });
-    later.addEventListener("click", () => closeConflictDialog());
-    conflictDialog.replaceChildren(
-      el("h2", { text: model.title }),
-      el("p", { text: model.hint }),
-      el("div", { class: "conflict-dialog__actions" }, reload, retry, later),
-    );
-    conflictDialog.showModal();
-  };
+  const conflictDialog = createConflictDialog({
+    el,
+    host,
+    onReload: () => void reloadDraft(),
+    onRetry: () => void retrySave(),
+  });
+  const syncConflictDialog = (model) => conflictDialog.sync(model);
   session.subscribe(() => {
     const state = session.saveState();
     setVersion(state.version);
@@ -362,25 +306,18 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   });
   // Geräte und Verlauf stehen in der Workspace-Leiste, direkt hinter dem Pfad.
   toolbar.insertBefore(canvas.toolbar, toolbar.querySelector(".spacer"));
-  // Die beiden Seitenpanels lassen sich zuklappen (E8): Elemente und
-  // Einstellungen links, Struktur rechts. Der Zustand gilt für diese Sitzung.
-  const panelToggle = (attribute, label) => {
-    const button = el("button", {
-      type: "button",
-      class: "ghost",
-      "data-panel-toggle": attribute,
-      "aria-pressed": "true",
-      text: label,
-    });
-    button.addEventListener("click", () => {
-      const open = host.getAttribute(`data-${attribute}`) === "closed";
-      host.setAttribute(`data-${attribute}`, open ? "open" : "closed");
-      button.setAttribute("aria-pressed", String(open));
-    });
-    return button;
-  };
-  toolbar.insertBefore(panelToggle("side", "Elemente"), canvas.toolbar);
-  toolbar.insertBefore(panelToggle("explorer", "Struktur"), toolbar.querySelector("#page-version"));
+  // Die beiden Seitenpanels lassen sich zuklappen (E8). Der Umschalter liegt
+  // in `app-editor-panel-toggle.js` (R12): ein Attribut am Host, ein Knopf,
+  // kein Bezug auf Auswahl oder Dokument.
+  const sideToggle = createPanelToggle({ el, host, attribute: "side", label: "Elemente" });
+  const explorerToggle = createPanelToggle({
+    el,
+    host,
+    attribute: "explorer",
+    label: "Struktur",
+  });
+  toolbar.insertBefore(sideToggle.element, canvas.toolbar);
+  toolbar.insertBefore(explorerToggle.element, toolbar.querySelector("#page-version"));
   // Start im Einpassen-Zoom: der Frame ist sofort ganz sichtbar (Framer/Webflow).
   // Ein bewusst gesetzter Zoom bleibt nach dem Neuladen erhalten; nur der
   // Standardzoom (100 %) wird eingepasst. Der Fit läuft erst, wenn jeder Frame
@@ -411,55 +348,21 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     text: "Seite importieren",
     "data-action": "framer-import-open",
   });
-  // Redesign-Inbox (ADR-0012): a non-modal hint that only appears while a
-  // proposal waits for a human. It never opens by itself — an agent run must
-  // not steal the editor's focus.
-  const redesignInbox = el("button", {
-    type: "button",
-    class: "ghost",
-    "data-action": "redesign-inbox-open",
-    "data-role": "redesign-inbox",
-    hidden: true,
-    text: "Richtungen",
-  });
-  let redesignProposals = [];
-  let redesignPoll = null;
-  // `window.` keeps the timers on the browser globals eslint already knows.
-  const stopRedesignPolling = () => {
-    if (redesignPoll !== null) window.clearInterval(redesignPoll);
-    redesignPoll = null;
-  };
-  const renderRedesignInbox = () => {
-    const open = redesignProposals.filter((entry) => entry.status === "proposed");
-    redesignInbox.hidden = open.length === 0;
-    if (open.length === 0) {
-      delete redesignInbox.dataset.count;
-      return;
-    }
-    redesignInbox.dataset.count = String(open.length);
-    redesignInbox.textContent = `${open.length} ${open.length === 1 ? "Richtung" : "Richtungen"}`;
-  };
-  const loadRedesignProposals = async () => {
-    try {
+  // Redesign-Inbox (ADR-0012) liegt in `app-editor-redesign-inbox.js` (R12):
+  // Abruf, Zaehlung und Takt ohne Bezug auf Canvas oder Auswahl. Der Knopf ist
+  // ein HINWEIS - er oeffnet nichts von selbst und stiehlt keinen Fokus.
+  const redesignInbox = createRedesignInbox({
+    el,
+    fetchProposals: async () => {
       const listed = await api(`/api/pages/${pageId}/redesign-proposals`);
-      redesignProposals = Array.isArray(listed.proposals) ? listed.proposals : [];
-      renderRedesignInbox();
-    } catch {
-      // A missing inbox is never a blocker for editing.
-      redesignProposals = [];
-      renderRedesignInbox();
-    }
-  };
-  redesignInbox.addEventListener("click", () => {
-    const open = redesignProposals.filter((entry) => entry.status === "proposed");
-    const proposal = open[0];
-    if (proposal === undefined) return;
-    openRedesignDirectionDialog(proposal);
+      return Array.isArray(listed.proposals) ? listed.proposals : [];
+    },
+    onOpen: (proposal) => openRedesignDirectionDialog(proposal),
+    setInterval: (handler, ms) => window.setInterval(handler, ms),
+    clearInterval: (handle) => window.clearInterval(handle),
   });
-  void loadRedesignProposals();
-  redesignPoll = window.setInterval(() => {
-    void loadRedesignProposals();
-  }, 12000);
+  const stopRedesignPolling = () => redesignInbox.stop();
+  redesignInbox.start();
   framerImportButton.addEventListener("click", () => {
     openFramerImportDialog({
       siteId,
@@ -682,6 +585,11 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     insertSection: (type, variant) => canvas.insertSection(type, variant),
     bindSectionDragSource: (element, type, variant) =>
       canvas.bindSectionDragSource(element, type, variant),
+    // Die Vorschaubilder kommen gebacken mit dem Theme DIESER Site - sonst
+    // zeigte die Auswahl die Standardfarben statt der eigenen. Der Stand des
+    // Themes steht im Pfad, damit ein neues Theme neue Bilder ergibt.
+    thumbnailBase: (type, variant) =>
+      `/api/sites/${encodeURIComponent(siteId)}/section-preview/${encodeURIComponent(type)}/${encodeURIComponent(variant)}.png?v=${encodeURIComponent(siteThemeVersion ?? 0)}`,
   });
   elementsHost.replaceChildren(elementsPanel.element);
   // Ein Klick auf einen Plus-Punkt im Canvas merkt ein Ziel; das Panel zeigt es.
@@ -726,123 +634,62 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   // Dieselbe Beschriftung wie im Protokoll - exportiert, damit die Live-Zeile
   // nicht eine zweite Uebersetzungstabelle braucht.
   const protocolAction = (action) => MUTATION_LABELS[action] ?? action ?? "Änderung";
-  const parseEngineEvent = (event) => {
-    try {
-      return JSON.parse(event.data ?? "{}");
-    } catch {
-      return {};
-    }
-  };
-  // Eigene Schreibvorgaenge tragen den Programm-Token; sie sind kein
-  // "Agent baut" und werden weder protokolliert noch nachgeladen.
-  const isOwnEvent = (payload) => payload.actor?.label === AUTHOR.label;
-  // Agent-Vorschau (Ticket 05, Punkt 5): der Schalter laesst die Ansicht dem
-  // Agenten ueber Seitengrenzen folgen - "Agent baut, Nutzer sieht es im
-  // Canvas wachsen". Er liegt global (nicht je Seite), ist standardmaessig an
-  // und schaltet sich aus, sobald der Nutzer selbst eine Seite waehlt; offene
-  // Aenderungen blockieren jeden Wechsel.
-  let followAgent = storage.get("senify-agent-preview") !== "0";
-  const followButton = el("button", {
-    type: "button",
-    "data-action": "canvas-follow",
-    "aria-pressed": String(followAgent),
-    text: "Agent-Vorschau",
-    title: "Fremden Änderungen folgen — auch auf andere Seiten",
+  // Der Parser und der Eigener-Schreiber-Test liegen in
+  // `app-editor-live-events.js` (R12): reine Rechnung, kein DOM. Ein kaputter
+  // Frame wirft nicht, und ein Fremder ohne Etikett gilt nicht als "meins".
+  // `parseEngineEvent` kommt direkt aus dem Modul (gleiche Form); `isOwnEvent`
+  // braucht das Etikett des Programms und bleibt deshalb einzeilig hier.
+  const isOwnEvent = (payload) => isOwnEventFromPayload(payload, AUTHOR.label);
+  // Agent-Vorschau (Ticket 05, Punkt 5) liegt in
+  // `app-editor-agent-preview.js` (R12): der Schalter, seine Speicherung und
+  // die Entscheidung "darf die Ansicht wechseln?". Offene eigene Aenderungen
+  // blockieren jeden Wechsel - ein Routenwechsel verwirft sie.
+  const agentPreview = createAgentPreview({
+    el,
+    storage,
+    isBusy: () => {
+      const state = session.saveState();
+      return state.pending > 0 || state.status === "saving";
+    },
+    onMessage: (message) => {
+      statusEl.textContent = message;
+    },
   });
-  followButton.classList.toggle("active", followAgent);
-  const setFollowAgent = (value) => {
-    followAgent = value;
-    storage.set("senify-agent-preview", value ? "1" : "0");
-    followButton.setAttribute("aria-pressed", String(value));
-    followButton.classList.toggle("active", value);
-  };
-  followButton.addEventListener("click", () => {
-    setFollowAgent(!followAgent);
-    statusEl.textContent = followAgent ? "Agent-Vorschau an" : "Agent-Vorschau aus";
-  });
+  const followButton = agentPreview.element;
+  const setFollowAgent = (value) => agentPreview.set(value, { announce: false });
 
   // Sekundäre Editor-Aktionen liegen in einem echten Overflow-Menü. Die
   // bestehenden data-action-Selektoren bleiben erhalten, damit Import, Follow
   // und die Konfliktwege direkt addressierbar und testbar bleiben.
   activeToolbarMenuCleanup?.();
-  const overflowMenuId = "canvas-toolbar-overflow";
-  const overflowButton = el("button", {
-    type: "button",
-    class: "toolbar-overflow__trigger",
-    "data-action": "canvas-overflow",
-    "aria-haspopup": "menu",
-    "aria-expanded": "false",
-    "aria-controls": overflowMenuId,
-    text: "Mehr",
+  // Das Overflow-Menue liegt in `app-editor-toolbar-overflow.js` (R12):
+  // Tastatur, Fokus und Aussenklick ohne Bezug auf Canvas oder Auswahl. Die
+  // data-action-Selektoren der vier Eintraege bleiben unveraendert, damit
+  // Import, Follow und die Konfliktwege direkt adressierbar und testbar sind.
+  const overflow = createToolbarOverflow({
+    doc: document,
+    el,
+    entries: [
+      { element: framerImportButton },
+      { element: followButton, role: "menuitemcheckbox" },
+      { element: reloadButton },
+      { element: retryButton },
+    ],
   });
-  const overflowMenu = el("div", {
-    class: "toolbar-overflow__menu",
-    id: overflowMenuId,
-    role: "menu",
-    "aria-label": "Weitere Editor-Aktionen",
-  });
-  const overflowHost = el("div", { class: "toolbar-overflow" }, overflowButton, overflowMenu);
-  overflowMenu.hidden = true;
-  for (const item of [framerImportButton, followButton, reloadButton, retryButton]) {
-    item.setAttribute("role", item === followButton ? "menuitemcheckbox" : "menuitem");
-    item.classList.add("toolbar-overflow__item");
-    overflowMenu.append(item);
-  }
-  const overflowItems = () =>
-    [...overflowMenu.querySelectorAll("button:not([hidden])")];
-  const setOverflowOpen = (open, restoreFocus = false) => {
-    overflowMenu.hidden = !open;
-    overflowButton.setAttribute("aria-expanded", String(open));
-    if (open) overflowItems()[0]?.focus();
-    else if (restoreFocus) overflowButton.focus();
-  };
-  overflowButton.addEventListener("click", (event) => {
-    event.stopPropagation();
-    setOverflowOpen(overflowMenu.hidden);
-  });
-  overflowButton.addEventListener("keydown", (event) => {
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    event.preventDefault();
-    setOverflowOpen(true);
-    const items = overflowItems();
-    (event.key === "ArrowUp" ? items[items.length - 1] : items[0])?.focus();
-  });
-  overflowMenu.addEventListener("click", () => setOverflowOpen(false));
-  overflowMenu.addEventListener("keydown", (event) => {
-    const items = overflowItems();
-    const current = items.indexOf(document.activeElement);
-    let next = -1;
-    if (event.key === "ArrowDown") next = (current + 1) % items.length;
-    else if (event.key === "ArrowUp") next = (current - 1 + items.length) % items.length;
-    else if (event.key === "Home") next = 0;
-    else if (event.key === "End") next = items.length - 1;
-    else if (event.key === "Escape") {
-      event.preventDefault();
-      setOverflowOpen(false, true);
-      return;
-    } else return;
-    event.preventDefault();
-    items[next]?.focus();
-  });
-  const closeOverflowOnOutsidePointer = (event) => {
-    if (!overflowHost.contains(event.target)) setOverflowOpen(false);
-  };
+  const overflowHost = overflow.element;
   const cleanup = () => {
-    document.removeEventListener("pointerdown", closeOverflowOnOutsidePointer);
-    if (overflowButton.isConnected) setOverflowOpen(false);
+    overflow.dispose();
     if (activeToolbarMenuCleanup === cleanup) activeToolbarMenuCleanup = null;
     // The redesign inbox only makes sense on the page it belongs to.
     stopRedesignPolling();
   };
   activeToolbarMenuCleanup = cleanup;
-  document.addEventListener("pointerdown", closeOverflowOnOutsidePointer);
   // Wechselt auf die Seite, an der der Agent gerade arbeitet - nur ohne
   // offene lokale Aenderungen (sonst gingen sie beim Routenwechsel verloren).
   const followPage = (targetPageId) => {
-    if (!followAgent || targetPageId === pageId) return false;
-    const state = session.saveState();
-    if (state.pending > 0 || state.status === "saving") {
-      statusEl.textContent = "Fremde Änderung auf einer anderen Seite - bitte speichern";
+    const decision = agentPreview.mayFollow(targetPageId, pageId);
+    if (!decision.allowed) {
+      if (decision.reason !== null) statusEl.textContent = decision.reason;
       return false;
     }
     location.hash = `#/projects/${siteId}/pages/${targetPageId}`;
@@ -860,13 +707,24 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     const payload = parseEngineEvent(event);
     if (isOwnEvent(payload)) return;
     logProtocol(payload);
-    if (payload.pageId !== pageId) {
+    // Die Entscheidung liegt in `app-editor-live-sync.js` (R12); hier steht
+    // nur, was sie ausloest. "blocked" ist der teure Fall: nachladen wuerde
+    // die offenen Aenderungen verwerfen.
+    const decision = draftChangedDecision({
+      payload,
+      pageId,
+      isBusy: () => {
+        const state = session.saveState();
+        return state.pending > 0 || state.status === "saving";
+      },
+    });
+    if (decision.action === "ignore") return;
+    if (decision.action === "follow") {
       followPage(payload.pageId);
       return;
     }
-    const state = session.saveState();
-    if (state.pending > 0 || state.status === "saving") {
-      statusEl.textContent = "Fremde Änderung erkannt - bitte speichern oder neu laden";
+    if (decision.action === "blocked") {
+      statusEl.textContent = decision.message ?? "";
       return;
     }
     void (async () => {
@@ -876,7 +734,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
           editor.loadDocument(fresh.draft).document,
           fresh.draftVersion,
         );
-        canvas.flashNodes(Array.isArray(payload.nodeIds) ? payload.nodeIds : []);
+        canvas.flashNodes(nodesToFlash(payload));
         setVersion(fresh.draftVersion);
         statusEl.textContent = `Live: ${protocolAction(payload.action)}`;
       } catch (error) {
@@ -902,9 +760,11 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
           })),
         );
         explorer.refresh();
-        if (!followPage(payload.pageId)) {
-          statusEl.textContent = "Neue Seite angelegt - im Explorer wählbar";
-        }
+        const created = pageCreatedDecision({
+          payload,
+          followed: followPage(payload.pageId),
+        });
+        if (created.action === "hint") statusEl.textContent = created.message ?? "";
       } catch (error) {
         failed(error);
       }
@@ -925,12 +785,12 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   live?.addEventListener("bake.done", (event) => {
     const payload = parseEngineEvent(event);
     logProtocol(payload);
-    showBake("Inhalt neu gebaut");
+    bakeStatus.show("Inhalt neu gebaut");
   });
   live?.addEventListener("bake.failed", (event) => {
     const payload = parseEngineEvent(event);
     logProtocol(payload);
-    showBake("Re-Bake fehlgeschlagen", true);
+    bakeStatus.show("Re-Bake fehlgeschlagen", true);
     toast("Re-Bake fehlgeschlagen — Details in der Job-Liste", "error");
   });
   // Beim Verlassen der Ansicht den Kanal schliessen (kein abgebrochener
@@ -974,7 +834,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     void retrySave();
   });
 
-  toolbar.append(statusGroup, redesignInbox, saveButton, publishButton, overflowHost);
+  toolbar.append(statusGroup, redesignInbox.element, saveButton, publishButton, overflowHost);
   return { session, canvas, inspector, explorer, spotlight };
 }
 
