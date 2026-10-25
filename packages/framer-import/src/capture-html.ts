@@ -20,6 +20,10 @@ import { dirname, join, resolve } from "node:path";
 import {
   IR_VERSION,
   type FramerIrDocument,
+  type IrAppearSpec,
+  type IrAppearState,
+  type IrAppearTransition,
+  type IrAppearVariant,
   type IrAsset,
   type IrBox,
   type IrBreakpoint,
@@ -74,6 +78,10 @@ type RawFitText = {
   text: string;
   // The width of the viewBox the text was laid out against.
   viewBoxWidth: number;
+  // The height of the viewBox. It is the line box of the text: `height =
+  // fontSize × line-height` (one line — a fit text never wraps). Used only when
+  // the `font-size` is not written inline; see `fitTextOf`.
+  viewBoxHeight: number;
   // The `--framer-*` declarations of the inner text, in Senify style names.
   inline: IrVisual;
 };
@@ -401,18 +409,44 @@ function extractText(raw: string): string {
 // text sits in a column.
 function fitTextStyles(fit: RawFitText): Record<string, string> {
   const out: Record<string, string> = {};
-  const size = Number.parseFloat(fit.inline["fontSize"] ?? "");
+  // The size the words were laid out at. Normally written inline. When it is
+  // not, the viewBox is the line box of the text, so `height` IS the size (one
+  // line, `line-height` 1): measured on `unifiersofjapan`, viewBox
+  // `0 0 977.22 247` against `font-size:248px` at 900 px, which gives the same
+  // 25.4 % share of the width. Without this fallback the words had no size at
+  // all and the element collapsed to 0 px.
+  const inlineSize = Number.parseFloat(fit.inline["fontSize"] ?? "");
+  const size = Number.isFinite(inlineSize) && inlineSize > 0 ? inlineSize : fit.viewBoxHeight;
   if (!Number.isFinite(size) || size <= 0) return out;
   const share = (size / fit.viewBoxWidth) * 100;
   // Four decimals keep the pixel at every width of the page: 0.0001 % of a
   // 1280 px box is 0.0013 px.
   out["font-size"] = `${Math.round(share * 10000) / 10000}cqw`;
-  // The source sets the height of a line as a share of the size (`80%`); the
-  // style table reads `line-height` as a factor, which is the same number.
+  // The source sets the height of a line as a share of the size (`80%`, or
+  // `1.05em` — the same statement in the other unit); the style table reads
+  // `line-height` as a factor, which is the same number. A `em`/`%` value
+  // without the unit is what the table wants; an unrecognised form is left out
+  // rather than guessed (measured on last-studio: `1.05em` was dropped, the
+  // heading took the browser's 1.5 and the header grew by 89 px).
   const lineHeight = (fit.inline["lineHeight"] ?? "").trim();
   const factor = /^([\d.]+)%$/.exec(lineHeight);
+  const em = /^([\d.]+)em$/.exec(lineHeight);
   if (factor !== null) out["line-height"] = String(Number.parseFloat(factor[1] ?? "") / 100);
+  else if (em !== null) out["line-height"] = em[1] ?? "";
   else if (/^[\d.]+$/.test(lineHeight)) out["line-height"] = lineHeight;
+  else if (lineHeight === "") {
+    // NOT DECLARED at all: the viewBox is the line box of the ONE line a fit
+    // text holds, so its height IS the line height of the size. Measured on
+    // `unifiersofjapan`: viewBox height 247 against a 248 px font → 0.996, and
+    // the source's own computed line height is 248 px. Without this the browser
+    // took its own 1.5 and the word stood 341 px tall instead of 205.
+    //
+    // A DECLARED but unreadable value (`calc(1em + 2px)`) is a different case:
+    // there the page names a number we cannot read, and substituting another
+    // would be the silent failure `fit-text-line-height.test.ts` guards.
+    const ratio = fit.viewBoxHeight / size;
+    if (Number.isFinite(ratio) && ratio > 0) out["line-height"] = String(Math.round(ratio * 1000) / 1000);
+  }
   const KEBAB: Readonly<Record<string, string>> = {
     fontWeight: "font-weight",
     fontStyle: "font-style",
@@ -655,13 +689,21 @@ function kindFor(raw: RawNode): IrNodeKind {
   const tag = raw.tag;
   const attrs = raw.attrs;
   const classes = raw.classes;
+  // An `<svg>` is a graphic, whatever label it carries. Framer writes its
+  // fit-text as `<svg data-framer-component-type="RichTextContainer">` — read as
+  // a rich text it became a `body` with an EMPTY `html`, i.e. an invisible
+  // element. Measured on `unifiersofjapan` at 900 px: the word "moments" stands
+  // 205 px tall in the source and 0 px in the structure, and the section around
+  // it collapsed from 1138 to 292 px (the page lost 659 px). A fit text whose
+  // ratio CAN be read never reaches this point — it is classified as
+  // `fit-text` before this function runs.
+  if (tag === "svg") return "svg";
   const componentType = attrs["data-framer-component-type"];
   if (componentType !== undefined) {
     const mapped = COMPONENT_TYPE_KINDS[componentType];
     if (mapped !== undefined) return mapped;
     if (/code|shader/i.test(componentType)) return "placeholder";
   }
-  if (tag === "svg") return "svg";
   if (tag === "img") return "image";
   if (tag === "video") return "video";
   if (tag === "a") return "link";
@@ -735,7 +777,9 @@ function fitTextOf(svg: string, attrs: RawAttr): RawFitText | undefined {
   if (content === "") return undefined;
   const box = (attrs["viewbox"] ?? "").trim().split(/[\s,]+/).map(Number);
   const boxWidth = box[2];
+  const boxHeight = box[3];
   if (box.length !== 4 || boxWidth === undefined || !Number.isFinite(boxWidth) || boxWidth <= 0) return undefined;
+  if (boxHeight === undefined || !Number.isFinite(boxHeight) || boxHeight <= 0) return undefined;
   // The innermost element that carries the text style is the `<p>`; the
   // `foreignObject` itself only carries the overflow.
   let inline: IrVisual = {};
@@ -746,8 +790,14 @@ function fitTextOf(svg: string, attrs: RawAttr): RawFitText | undefined {
       break;
     }
   }
-  if (inline["fontSize"] === undefined) return undefined;
-  return { text: content, viewBoxWidth: boxWidth, inline };
+  // When the size is NOT written inline it comes from a preset class rule
+  // (measured on `unifiersofjapan`: `<h1 class="framer-text
+  // framer-styles-preset-1d2t81a">`, `--framer-font-size:248px` in the sheet).
+  // The `<svg>` is drawn at that size and the viewBox is its line box, so the
+  // ratio IS the geometry: `fontSize / viewBoxWidth`. Read as a graphic it would
+  // be a picture; read as text with NO size it became an empty element — 0 px
+  // instead of 205, and the section around it lost 846 px (659 px of the page).
+  return { text: content, viewBoxWidth: boxWidth, viewBoxHeight: boxHeight, inline };
 }
 
 
@@ -758,6 +808,47 @@ function fitTextOf(svg: string, attrs: RawAttr): RawFitText | undefined {
 // element (its own rule or the one it inherits), decides which of the two counts.
 const SPACED_TEXT = new WeakMap<IrNode, string>();
 const KEEPS_SPACES = /^(?:pre|pre-wrap|break-spaces)$/;
+
+// The breakpoints of a page that ships no breakpoint channel: its own
+// `<style data-framer-breakpoint-css>` block names each hash with its media
+// query. Measured on last-studio — which has no `__framer__breakpoints` at all,
+// six hashes and 326 hidden nodes:
+//
+//   @media(min-width: 1200px){.hidden-72rtr7{display:none!important}}
+//   @media(min-width: 810px) and (max-width: 1199.98px){.hidden-tq1gxe{...}}
+//   @media(max-width: 809.98px){.hidden-1ebocfq{...}}
+//
+// Without these ranges the mapper cannot place a `hidden-<hash>` on a device;
+// every copy then looks visible everywhere and the device duplicates stack.
+function breakpointsFromStyles(html: string, linkedCss: string | undefined): IrBreakpoint[] {
+  const blocks = [html, linkedCss ?? ""];
+  const out: IrBreakpoint[] = [];
+  const seen = new Set<string>();
+  for (const text of blocks) {
+    if (text === "") continue;
+    // The rule shape varies: `.hidden-<hash>` stands alone (last-studio) or
+    // under a component ancestor (`.framer-BsqgT .hidden-72rtr7`, donutshop).
+    // Both name the hash inside a media query — that is the part that matters.
+    const pattern =
+      /@media\s*\(([^{}]*?)\)\s*\{[^{}]*?\.hidden-([A-Za-z0-9_-]+)\s*\{[^}]*display\s*:\s*none[^}]*\}/g;
+    for (const match of text.matchAll(pattern)) {
+      const condition = match[1] ?? "";
+      const hash = match[2] ?? "";
+      if (hash === "" || seen.has(hash)) continue;
+      const min = /min-width\s*:\s*([\d.]+)px/.exec(condition);
+      const max = /max-width\s*:\s*([\d.]+)px/.exec(condition);
+      if (min === null && max === null) continue;
+      seen.add(hash);
+      out.push({
+        id: hash,
+        minWidth: min === null ? 0 : Number.parseFloat(min[1] ?? "0"),
+        maxWidth: max === null ? null : Number.parseFloat(max[1] ?? ""),
+        name: null,
+      });
+    }
+  }
+  return out;
+}
 
 function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []): IrNode {
   counter.ordinal += 1;
@@ -770,7 +861,11 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
     const hiddenAt = raw.classes
       .filter((entry) => entry.startsWith("hidden-"))
       .map((entry) => entry.slice("hidden-".length));
-    return toIrNode(raw.children[0] ?? raw, counter, hiddenAt);
+    // An outer wrapper and an inner one both hide the same subtree: the lists
+    // add up. Replacing the inherited one would lose the outer scope, and the
+    // inner copy would look visible where the outer already hid it.
+    const both = [...new Set([...inheritedHidden, ...hiddenAt])];
+    return toIrNode(raw.children[0] ?? raw, counter, both);
   }
   const classes = raw.classes.filter((entry) => !entry.startsWith("framer-v-"));
   const variantHashes = raw.classes
@@ -911,6 +1006,11 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
       ? { assetUrl: attrs["data-framer-module-poster"] }
       : {}),
     states,
+    // The `hidden-<hash>` of an `ssr-variant` wrapper belongs to the ONE element
+    // the wrapper dissolves into, not to its subtree. Framer's duplicates are
+    // siblings, each wrapped on its own; passing the list down made every child
+    // inherit its parent's device (refined: tablet 2.4 → 16.9 %). The device
+    // that a nested copy belongs to is decided by the copy's own hash.
     children: raw.children
       .filter((child) => !NON_VISUAL_TAGS.has(child.tag))
       .map((child) => toIrNode(child, counter)),
@@ -928,6 +1028,14 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
 }
 
 function collectAssets(raw: RawNode, assets: IrAsset[]): void {
+  // A picture can stand in a style attribute instead of an `<img>`: Framer
+  // writes a tiled background as `background:url('…')` on a div (measured on
+  // unifiersofjapan: the texture band at the footer had no asset at all, so the
+  // rewrite had nothing to put there and the release asked the CDN).
+  const addUrl = (url: string, alt: string | null): void => {
+    if (url === "" || url.startsWith("data:") || assets.some((asset) => asset.url === url)) return;
+    assets.push({ url, kind: "image", hash: null, alt, width: null, height: null });
+  };
   if (raw.tag === "img") {
     const src = raw.attrs["src"];
     if (src !== undefined && src !== "") {
@@ -942,6 +1050,12 @@ function collectAssets(raw: RawNode, assets: IrAsset[]): void {
         height: Number.isFinite(height) ? height : null,
       });
     }
+  }
+  // `background-image` / `background` / `mask-image` in the element's own style.
+  const style = raw.attrs["style"] ?? "";
+  for (const match of style.matchAll(/url\((["']?)((?:https?:)?\/\/[^"')]+)\1\)/g)) {
+    const url = match[2];
+    if (url !== undefined) addUrl(url, raw.attrs["data-framer-name"] ?? null);
   }
   if (raw.tag === "video") {
     const src = raw.attrs["src"];
@@ -959,6 +1073,50 @@ function collectAssets(raw: RawNode, assets: IrAsset[]): void {
 function countNodes(node: IrNode): number {
   return 1 + node.children.reduce((sum, child) => sum + countNodes(child), 0);
 }
+
+// The two signatures Framer writes where its SSR leaves a hole for the runtime
+// fills (measured on the live pages, 24.10.2026):
+//
+//   `height:100%;width:100%`  a code component's frame - the component draws
+//                             itself in the browser (`unifiersofjapan`: cards)
+//   `display:contents`        a wrapper without a box - the runtime swaps its
+//                             children in (`donutshop`: the rating stars)
+//
+// Both are LEAF elements: an empty element that carries one of these and no
+// children is a placeholder, not a layout box. A spacer (`height:24px`) or a
+// sized frame does not match - the string is the whole measurement.
+const PLACEHOLDER_SIGNATURES = ["height:100%;width:100%", "display:contents"] as const;
+
+export function countRuntimePlaceholders(root: IrNode): {
+  total: number;
+  nodeKey: string | null;
+  signatures: string[];
+} {
+  const found: { nodeKey: string; signature: string }[] = [];
+  const visit = (node: IrNode): void => {
+    if (node.children.length === 0 && node.inlineStyle !== null && node.inlineStyle !== undefined) {
+      // The style attribute may carry more than the signature; the signature
+      // only has to be one of its declarations (`height:100%;width:100%` is
+      // written verbatim, `display:contents` may arrive with spaces).
+      const normalised = node.inlineStyle.replace(/\s+/g, "");
+      for (const signature of PLACEHOLDER_SIGNATURES) {
+        if (normalised.includes(signature.replace(/\s+/g, ""))) {
+          found.push({ nodeKey: node.key, signature });
+          break;
+        }
+      }
+    }
+    node.children.forEach(visit);
+  };
+  visit(root);
+  const signatures = [...new Set(found.map((entry) => entry.signature))];
+  return {
+    total: found.length,
+    nodeKey: found[0]?.nodeKey ?? null,
+    signatures,
+  };
+}
+
 
 export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
   const html = input.html;
@@ -1006,16 +1164,31 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
     seenBreakpoints.add(entry.id);
     return true;
   });
+  // A page can hide its copies per breakpoint WITHOUT shipping the breakpoint
+  // channel (measured on last-studio: no `__framer__breakpoints`, but 326 nodes
+  // carry `hidden-wexuja`, and its sheet holds `min-width:1200px` /
+  // `min-width:810px`). Without the ranges the mapper cannot place a hash, so
+  // `visibleDevicesOf` calls every copy visible everywhere and nothing folds —
+  // the device copies stack (9354 → 17378 px). The hashes and their ranges are
+  // in the page; read them where the channel is missing.
+  if (uniqueBreakpoints.length === 0) {
+    for (const entry of breakpointsFromStyles(html, input.css)) {
+      if (seenBreakpoints.has(entry.id)) continue;
+      seenBreakpoints.add(entry.id);
+      uniqueBreakpoints.push(entry);
+    }
+  }
 
   if (handoverJson !== null) {
     findings.push({
       kind: "cms",
       nodeKey: null,
       message:
-        "Die Seite nutzt Framer-CMS (handoverData vorhanden) — Sammlungsinhalte werden nicht importiert.",
+        "Die Seite nutzt Framer-CMS (handoverData vorhanden). Die Sammlungsinhalte, die das Server-HTML ausliefert, stehen im Baum; was die Runtime erst im Browser nachlädt, fehlt - wie überall sonst auf der Seite.",
       evidence: "__framer__handoverData",
       severity: "info",
-      suggestion: "CMS-Texte als statischen Inhalt übernehmen oder die Sammlung manuell anlegen.",
+      suggestion:
+        "Die importierten Einträge im Editor prüfen. Fehlt ein Eintrag, ist er nicht im SSR: den Inhalt von Hand anlegen oder die Seite über einen Mirror importieren, der ihn enthält.",
     });
   }
 
@@ -1089,9 +1262,10 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
   }
 
   const fonts: IrFontFace[] = [];
-  const fontCss = styleBlock(html, "data-framer-font-css") ?? "";
-  const linkedCss = readLinkedCss(html, input.rootDir);
-  const fontSource = `${fontCss}\n${linkedCss}`;
+  // Every block with a `@font-face`, once: the marked block is one of them, and
+  // reading it twice listed every face twice (the second copy had no file, so
+  // the asset report counted a failure per face).
+  const fontSource = `${fontFaceStyles(html)}\n${readLinkedCss(html, input.rootDir)}\n${input.css ?? ""}`;
   for (const match of fontSource.matchAll(/@font-face\s*\{([^}]*)\}/g)) {
     const body = match[1] ?? "";
     const family = /font-family:\s*"?([^";]+)"?/.exec(body)?.[1];
@@ -1209,6 +1383,68 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
     });
   }
 
+  // A page can carry `data-framer-appear-id` without the appear channel: the
+  // server HTML marks the elements Framer animates, but the JSON that says HOW
+  // is missing. Measured on donutshop (unframer's own export): 51 marked
+  // elements, no channel, no inline start state — the source has an animation
+  // the SSR never describes. Before this finding those 51 elements moved from
+  // "not captured" to "not mentioned", which is the silent failure U5 b names.
+  const appearSpecs = readAppearSpecs(html);
+  // No channel: the inline start state is still half the effect. Derived
+  // reveals carry an ASSUMED duration, which the finding below states.
+  const derived = deriveAppearFromStartState(html, root);
+  const allSpecs = appearSpecs.length > 0 ? appearSpecs : derived;
+  const markedIds: string[] = [];
+  const collectMarked = (node: IrNode): void => {
+    if (node.appearId !== null) markedIds.push(node.appearId);
+    node.children.forEach(collectMarked);
+  };
+  collectMarked(root);
+  if (markedIds.length > 0 && appearSpecs.length === 0) {
+    findings.push({
+      kind: "unsupported-declaration",
+      nodeKey: null,
+      message:
+        derived.length > 0
+          ? `${markedIds.length} Element(e) tragen eine Framer-Appear-id ohne Appear-Kanal. Aus dem Startzustand im Inline-Stil sind ${derived.length} Einblendung(en) abgeleitet — die Bewegung stimmt, die Dauer ist eine Annahme (${DERIVED_DURATION} s), weil die Quelle sie nicht nennt.`
+          : `${markedIds.length} Element(e) tragen eine Framer-Appear-id, aber die Seite liefert weder einen Appear-Kanal noch einen lesbaren Startzustand — die Einblendung wird nicht nachgebaut.`,
+      evidence: markedIds.slice(0, 3).join(", "),
+      severity: derived.length > 0 ? "info" : "warn",
+      suggestion:
+        derived.length > 0
+          ? "Die Dauer im Editor prüfen und an die Quelle angleichen; die Bewegung (Versatz, Skalierung, Drehung) stammt aus dem Startzustand."
+          : "Den Effekt im Editor von Hand setzen oder die Seite über einen Mirror importieren, der den Kanal enthält. Die Elemente selbst bleiben sichtbar.",
+    });
+  }
+
+  // A container the SSR leaves EMPTY and the runtime fills in the browser.
+  //
+  // Framer's SSR does not render code components; it writes a placeholder and
+  // lets the hydrated page fill it (measured on the live pages, 24.10.2026):
+  //
+  //   unifiersofjapan  `<div style="height:100%;width:100%"></div>`  15x
+  //                    `viewBox="0 0 524 676"`  SSR 0, rendered DOM 49
+  //   donutshop        `<div style="display:contents"></div>`         9x
+  //                    `viewBox="0 0 256 256"`  SSR 0, rendered DOM 3
+  //
+  // The import cannot read what the SSR does not contain - that is a boundary
+  // of the source. What it CAN do is say so: before this finding the page came
+  // out with 15 empty boxes and the report mentioned none of them, so the
+  // reader saw a gap without a reason. Severity stays `info`: the release runs
+  // the original runtime, which fills the boxes.
+  const placeholders = countRuntimePlaceholders(root);
+  if (placeholders.total > 0) {
+    findings.push({
+      kind: "code-component",
+      nodeKey: placeholders.nodeKey,
+      message: `${placeholders.total} leere Platzhalter, die erst die Framer-Runtime im Browser f�llt - im Server-HTML steht an ihrer Stelle nur ein leeres Element. Der Baum kann sie nicht zeigen; der Release schon (er f�hrt die Original-Runtime).`,
+      evidence: placeholders.signatures.join(", "),
+      severity: "info",
+      suggestion:
+        "Wenn die Seite im Editor vollst�ndig aussehen soll, den Inhalt als eigenes Element nachbauen; sonst zeigt ihn der Release.",
+    });
+  }
+
   const pagePath = input.pagePath ?? "/";
   const pageCount = countNodes(root);  if (pageCount > 1) {
     // The devices arrive as SSR variant duplicates; the mapper merges them.
@@ -1219,6 +1455,28 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
       evidence: "ssr-variant / framer-v-*",
       severity: "info",
       suggestion: "Geräte-Merge (S1.5) prüft die Basis-Klassen-Schnitt.",
+    });
+  }
+
+  // The social image of the page is the poster of a page-level payload
+  // (ADR-0010 §7, mandatory on import). It is an asset like every other one:
+  // without it in the list the pipeline never downloads it, and the editor's
+  // carrier has nothing to show but the plate. The image is the SOURCE's own,
+  // so the poster shows what the page shows. Added once, at the end, so a page
+  // that also shows the image in its markup does not list it twice.
+  const pageOgImage = metaContent(html, "og:image");
+  if (
+    pageOgImage !== null &&
+    /^https?:\/\//i.test(pageOgImage) &&
+    !assets.some((asset) => asset.url === pageOgImage)
+  ) {
+    assets.push({
+      url: pageOgImage,
+      kind: "image",
+      hash: null,
+      alt: "Vorschaubild der Originalseite",
+      width: null,
+      height: null,
     });
   }
 
@@ -1242,11 +1500,12 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
     ],
     styles: {
       colors,
-      textPresets: readTextPresets(html, linkedCss),
+      textPresets: readTextPresets(html, readLinkedCss(html, input.rootDir)),
       fonts,
     },
     assets,
     motion: readAppearMotion(html, root),
+    appear: allSpecs,
     findings,
   };
 }
@@ -1259,6 +1518,122 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
 // from the visual (`appearInitial`), so the effect is read from here.
 type AppearState = { opacity?: number; x?: number; y?: number; scale?: number };
 type AppearTransition = { type?: string; stiffness?: number; damping?: number; mass?: number; delay?: number; duration?: number };
+
+// The full appear spec, keyed by appear id: what the CSS compiler needs beyond
+// the reduced samples (every breakpoint variant, rotate/skew, the raw spring).
+function readAppearSpecs(html: string): IrAppearSpec[] {
+  const block = /<script[^>]*id="__framer__appearAnimationsContent"[^>]*>([\s\S]*?)<\/script>/.exec(html)?.[1];
+  if (block === undefined) return [];
+  let entries: unknown;
+  try {
+    entries = JSON.parse(block);
+  } catch {
+    return [];
+  }
+  if (typeof entries !== "object" || entries === null) return [];
+  const specs: IrAppearSpec[] = [];
+  for (const [appearId, byDevice] of Object.entries(entries as Record<string, unknown>)) {
+    if (typeof byDevice !== "object" || byDevice === null) continue;
+    const variants: Record<string, IrAppearVariant | null> = {};
+    for (const [hash, variant] of Object.entries(byDevice as Record<string, unknown>)) {
+      if (typeof variant !== "object" || variant === null) {
+        variants[hash] = null;
+        continue;
+      }
+      const entry = variant as {
+        initial?: IrAppearState;
+        animate?: (IrAppearState & { transition?: IrAppearTransition }) | null;
+      };
+      variants[hash] = {
+        ...(entry.initial === undefined ? {} : { initial: entry.initial }),
+        ...(entry.animate === undefined ? {} : { animate: entry.animate }),
+      };
+    }
+    if (Object.keys(variants).length === 0) continue;
+    specs.push({ appearId, variants });
+  }
+  return specs;
+}
+
+// A page without the appear channel still writes the state BEFORE the effect
+// into the inline style (`opacity:0.001; transform:scale(1.2) rotate(10deg)`).
+// That start state is half of the effect: the other half is always the element
+// at rest. Derived this way the motion is real (the same transform the browser
+// would animate from), but the TIMING is not in the page — the channel that
+// carries it is missing. `DERIVED_DURATION` is stated as an assumption in the
+// finding rather than passed off as measured.
+const DERIVED_DURATION = 0.6;
+
+function deriveAppearFromStartState(html: string, root: IrNode): IrAppearSpec[] {
+  // Only when the channel is absent: with a channel, its values are the truth.
+  if (/<script[^>]*id="__framer__appearAnimationsContent"/.test(html)) return [];
+  const parseState = (declarations: Record<string, string>): IrAppearState | undefined => {
+    const opacity = Number.parseFloat(declarations["opacity"] ?? "");
+    const transform = declarations["transform"] ?? "";
+    const state: IrAppearState = {};
+    if (Number.isFinite(opacity)) state.opacity = opacity;
+    const numbers = (name: string): number[] =>
+      [...transform.matchAll(new RegExp(`${name}\\(([^)]*)\\)`, "g"))]
+        .map((match) => Number.parseFloat(match[1] ?? ""))
+        .filter((value) => Number.isFinite(value));
+    const translateX = numbers("translateX")[0];
+    const translateY = numbers("translateY")[0];
+    const scale = numbers("scale")[0];
+    const rotate = numbers("rotate")[0];
+    const rotateX = numbers("rotateX")[0];
+    const rotateY = numbers("rotateY")[0];
+    const perspective = numbers("perspective")[0];
+    if (translateX !== undefined && translateX !== 0) state.x = translateX;
+    if (translateY !== undefined && translateY !== 0) state.y = translateY;
+    if (scale !== undefined && scale !== 1) state.scale = scale;
+    if (rotate !== undefined && rotate !== 0) state.rotate = rotate;
+    if (rotateX !== undefined && rotateX !== 0) state.rotateX = rotateX;
+    if (rotateY !== undefined && rotateY !== 0) state.rotateY = rotateY;
+    if (perspective !== undefined && perspective !== 0) state.transformPerspective = perspective;
+    return Object.keys(state).length === 0 ? undefined : state;
+  };
+  const specs: IrAppearSpec[] = [];
+  const walk = (node: IrNode): void => {
+    if (node.appearId !== null && node.appearInitial !== undefined) {
+      const initial = parseState(node.appearInitial);
+      // A reveal is "invisible AND moved in": the element starts at an offset,
+      // a scale or a tilt and settles into its place. A plain `opacity:0` with
+      // no transform is a DESIGNED hidden state — the closed phone menu, a
+      // collapsed FAQ answer, an overlay waiting for hover. The capture already
+      // keeps those as the look; deriving an animation from them would fade a
+      // closed menu open on every page load.
+      const moves = initial !== undefined && Object.keys(initial).some((key) => key !== "opacity");
+      if (initial !== undefined && (initial.opacity ?? 1) <= 0.01 && moves) {
+        specs.push({
+          appearId: node.appearId,
+          variants: {
+            default: {
+              initial,
+              animate: {
+                opacity: 1,
+                x: 0,
+                y: 0,
+                scale: 1,
+                rotate: 0,
+                rotateX: 0,
+                rotateY: 0,
+                skewX: 0,
+                skewY: 0,
+                ...(initial.transformPerspective === undefined
+                  ? {}
+                  : { transformPerspective: initial.transformPerspective }),
+                transition: { type: "duration", duration: DERIVED_DURATION },
+              },
+            },
+          },
+        });
+      }
+    }
+    node.children.forEach(walk);
+  };
+  walk(root);
+  return specs;
+}
 
 function readAppearMotion(html: string, root: IrNode): IrMotionSample[] {
   const block = /<script[^>]*id="__framer__appearAnimationsContent"[^>]*>([\s\S]*?)<\/script>/.exec(html)?.[1];
@@ -1299,6 +1674,10 @@ function readAppearMotion(html: string, root: IrNode): IrMotionSample[] {
       // runtime wait 300 SECONDS and keep the element hidden meanwhile.
       delay: Math.round((transition.delay ?? 0) * 100) / 100,
       duration: Math.round(springSettleSeconds(transition) * 1000) / 1000,
+      // The unit is part of the sample, not a guess in the mapper: this channel
+      // speaks Framer's seconds, the WAAPI probe speaks milliseconds. A mapper
+      // that assumes one of them bakes the other wrong by a factor of 1000.
+      durationUnit: "s",
       ...(transition.type === undefined ? {} : { transition: transition.type }),
     };
     samples.push({
@@ -1394,11 +1773,6 @@ function scriptJson(html: string, id: string): string | null {
   if (match === null) return null;
   const content = (match[1] ?? "").trim();
   return content === "" ? null : content;
-}
-
-function styleBlock(html: string, marker: string): string | null {
-  const re = new RegExp(`<style[^>]*${marker}[^>]*>([\\s\\S]*?)</style>`);
-  return re.exec(html)?.[1] ?? null;
 }
 
 function readAllCss(html: string, rootDir: string | undefined): string {
@@ -2085,6 +2459,16 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
   // Above the page element sit `html` and `body`; the page element is `#main`.
   visit(root, new Set(["tag:html", "tag:body"]), tokensByDevice);
   return { skippedPseudo };
+}
+
+// A page's faces can stand in several `<style>` blocks (Framer writes the
+// fonts into one marker block, Google Fonts into another). Reading only the
+// marked block leaves the rest without a `@font-face`.
+function fontFaceStyles(html: string): string {
+  const blocks = [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)]
+    .map((match) => match[1] ?? "")
+    .filter((body) => /@font-face/.test(body));
+  return blocks.join("\n");
 }
 
 function readLinkedCss(html: string, rootDir: string | undefined): string {

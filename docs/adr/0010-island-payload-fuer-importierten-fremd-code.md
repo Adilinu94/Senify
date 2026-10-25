@@ -94,9 +94,22 @@ versioniertes Code-Paket **neben** dem NodeTree — niemals im Baum.
   wie beim GPU-Masking im Referenz-Verfahren.
 - Neue Tests: Poster-Rückfall, Platten-Rückfall, Budget-Gate, Integritätsprüfung, „kein Payload
   im Canvas".
-- **Offen:** CSP-Header im Deploy, reale Größe gebundelter Framer-Module (S0 hat die Dateien
+- **Offen:** reale Größe gebundelter Framer-Module (S0 hat die Dateien
   gesehen, nicht gewogen), und die Lizenzfrage für kommerzielle Kundenarbeiten — dieselbe
   Nachweispflicht wie im Nachtrag zu ADR-0008.
+- **CSP ist gesetzt (23.10.2026).** Preview- und Release-HTML antworten mit
+  `Content-Security-Policy` (`packages/engine/src/http-build-files.ts`, `PAGE_CSP`).
+  Die Policy beschränkt die **Herkunft** — `default-src 'self'`, `object-src 'none'`,
+  `base-uri 'self'`, `frame-ancestors 'self'` — und lässt Inline-Code zu
+  (`'unsafe-inline'`): der Bake schreibt Inline-`<style>`- und `<script>`-Blöcke, eine
+  Hash-Policy müsste jede Seite einzeln hashen und bräche bei der nächsten Änderung.
+  Die Grenze, um die es hier geht, ist die Origin, nicht die Inline-Form.
+  Damit sie trägt, schreibt der Import die Adressen der Quelle um: Markup (`src`,
+  `poster`, `href`, `srcset`, `url()` im `style`), CSS **und** die Runtime-Daten (die
+  Bilder entstehen dort per `new URL(...)`). Gemessen an `unifiersofjapan`: 76
+  CDN-Adressen im Bundle, nach der Umschreibung 4 — zwei davon sind der „Made in
+  Framer"-Editor-Badge, den die Policy blockt (gewollt). Der Payload setzt dafür einen
+  `URL`-Shim ein: `new URL` ohne Basis wirft bei einem wurzelrelativen Pfad.
 
 **Referenz:** `packages/renderer/src/islands.ts`, `packages/renderer/src/motion.ts`
 (`renderIslandsScript`), `packages/renderer/src/bake.ts` (Island-Dateien, `selfContained`-Hinweis),

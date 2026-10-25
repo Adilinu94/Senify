@@ -16,11 +16,13 @@ import type {
   EditorDocument,
   EditorNode,
 } from "@senify/editor/state";
-import { sanitizeInlineHtml, sanitizeSvgMarkup, type StyleRule } from "@senify/widget-engine";
+import { sanitizeInlineHtml, sanitizeSvgMarkup, type DeviceValueMap, type StyleRule } from "@senify/widget-engine";
 import { brandColorOf } from "./brand-color.ts";
 import { neutralBaseOf, typeBaseOf } from "./theme-scales.ts";
 import { devicesContaining } from "./devices.ts";
 import { parseDeclaration, splitDeclarations } from "./css-util.ts";
+import { compileAppearRules, type CompileAppearResult, type CompiledAppearRule } from "./appear-css.ts";
+import { ruleScopeOf, type NormalizedStyleRule, type NormalizeMode } from "./normalize.ts";
 import type {
   FramerIrDocument,
   IrDevice,
@@ -28,7 +30,6 @@ import type {
   IrNode,
   IrState,
 } from "./ir.ts";
-import type { NormalizedStyleRule, NormalizeMode } from "./normalize.ts";
 
 /* ------------------------------------------------------------------ types */
 
@@ -60,6 +61,10 @@ export type ThemePatch = {
     // "Manrope" and get Sora's shapes.
     display?: { family: string; fallback: string[]; weights: number[]; files?: Record<string, string> };
     body?: { family: string; fallback: string[]; weights: number[]; files?: Record<string, string> };
+    // Every further family the page names (a Framer site can use seven, the
+    // theme has three slots). Key = the CSS-safe family name; the theme emits
+    // one `@font-face` set per entry, so no text falls back to a system font.
+    extra?: Record<string, { family: string; fallback: string[]; weights: number[]; files?: Record<string, string> }>;
   };
 };
 
@@ -224,31 +229,29 @@ function visibleDevicesOf(
   universe: ReadonlySet<string>,
   breakpoints: IrBreakpointMap,
 ): IrDevice[] {
-  // The breakpoints in play are the ones the copy names together with the
-  // ones its siblings name: between them they cover every device.
-  const relevant = new Set<string>([...hiddenAt, ...universe]);
-  // A device the copy hides stays hidden. Which device is left is decided by
-  // the copy's own list: the breakpoint it does not hide is the one it shows
-  // on. The sibling universe only names the devices that exist at all.
+  // The copy hides on the devices it names. Every device it does not name is
+  // one it shows on — but only devices the page actually HAS count, and which
+  // those are comes from the whole page, not from this sibling list.
+  //
+  // Measured both ways: a sibling-only universe made last-studio's nested
+  // copies visible on no device at all (397 of 824 nodes, page 3995 px too
+  // short on mobile). A "not named = not hidden" rule instead made refined's
+  // four copies all claim desktop (1473 px too short on tablet). This version
+  // keeps both correct: `verfuegbar` is every device the page's breakpoints
+  // cover, `versteckt` is what the copy's own hashes name.
   const eigene = [...hiddenAt].filter((hash) => breakpoints.has(hash));
-  if (eigene.length === 0) {
-    // No known breakpoint in the copy's own list: fall back to the universe.
-    const visible = new Set<IrDevice>();
-    for (const hash of relevant) {
-      if (hiddenAt.includes(hash)) continue;
-      const range = breakpoints.get(hash);
-      if (range === undefined) continue;
-      for (const device of devicesContaining(range)) visible.add(device);
-    }
-    return ALL_DEVICES.filter((device) => visible.has(device));
-  }
-  // The copy names the devices it hides. Every device it does not hide is
-  // one it shows on — the siblings' hashes tell which devices exist.
   const verfuegbar = new Set<IrDevice>();
-  for (const hash of relevant) {
-    const range = breakpoints.get(hash);
-    if (range === undefined) continue;
+  for (const range of breakpoints.values()) {
     for (const device of devicesContaining(range)) verfuegbar.add(device);
+  }
+  // A page whose breakpoints cover only some devices (a source without a
+  // phone layout) must still count the others: a copy naming no breakpoint is
+  // visible there. Framer always writes a full set, so this is a guard, not a
+  // rule.
+  for (const device of ALL_DEVICES) {
+    if (![...breakpoints.values()].some((range) => devicesContaining(range).includes(device))) {
+      verfuegbar.add(device);
+    }
   }
   const versteckt = new Set<IrDevice>();
   for (const hash of eigene) {
@@ -429,7 +432,7 @@ type MapContext = {
   findings: IrFinding[];
 };
 
-function mapNode(node: IrNode, context: MapContext): EditorNode | null {
+function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null): EditorNode | null {
   // The sibling device merge (S1.5): the capture keeps Framer's per-breakpoint
   // duplicates as separate nodes with `hiddenAt`; identical base signatures
   // fold into one node whose states carry the devices.
@@ -471,12 +474,12 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
       // capture kept the inner markup, because the element scan alone drops
       // the plain text between the children.
       primitive = "body";
-      props["html"] = sanitizeInlineHtml(node.innerHtml);
+      props["html"] = framerVarsAsCss(withTextTypography(node, sanitizeInlineHtml(node.innerHtml)), lineHeightFactorOf(node) ?? (parent === null ? null : lineHeightFactorOf(parent)));
     } else if (hasElementChildren) {
       // A text element with element children (the RichText shape: <p><a>…</a></p>)
       // becomes a body with inline HTML — `text` accepts no children.
       primitive = "body";
-      props["html"] = inlineHtmlOf(node, merged.base.text?.content ?? "", context);
+      props["html"] = framerVarsAsCss(inlineHtmlOf(node, merged.base.text?.content ?? "", context));
     } else {
       props["text"] = baseText?.content ?? "";
       if (HEADING_TAGS.has(node.tag)) props["level"] = node.tag;
@@ -508,7 +511,7 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
         if (props[property] === undefined) props[property] = value;
       }
     } else if (hasElementChildren) {
-      props["html"] = inlineHtmlOf(node, baseText?.content ?? "", context);
+      props["html"] = framerVarsAsCss(inlineHtmlOf(node, baseText?.content ?? "", context), lineHeightFactorOf(node));
     } else {
       props["html"] = baseText?.content ?? "";
     }
@@ -612,27 +615,25 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
   ) {
     const path = firstTextPath(node);
     if (path !== null) {
-      const merged = path
-        .filter((member, index) => index === 0 || !INLINE_TAGS.has(member.tag) || path[index - 1]?.children.length === 1)
-        .map((member) => mergeStates(member.states));
-      // The lifted typography points at the theme's slots too (the family the
-      // source wrote belongs to the source, the site knows the slots).
-      const withSlot = (values: Record<string, string>): Record<string, string> => {
-        if (values["fontFamily"] === undefined) return values;
-        return { ...values, fontFamily: themeFontOf(values["fontFamily"], context.fontSlots) };
-      };
-      const sourceBase = withSlot(
-        cssToStyle(Object.assign({}, ...merged.map((entry) => typographyOf(entry.base.visual)))),
-      );
-      Object.assign(props, sourceBase);
-      const effectiveOn = (device: "tablet" | "mobile"): Record<string, string> =>
-        withSlot(
-          cssToStyle(Object.assign({}, ...merged.map((entry) => typographyOf((entry[device] ?? entry.base).visual)))),
-        );
-      const tabletType = diffValues(sourceBase, effectiveOn("tablet"));
-      for (const [property, value] of Object.entries(tabletType)) props[`${property}_tablet`] = value;
-      for (const [property, value] of Object.entries(mobileOverrides(sourceBase, tabletType, effectiveOn("mobile")))) {
-        props[`${property}_mobile`] = value;
+      liftTypographyOf(path, props, context);
+    }
+  }
+  // The fit text of Framer — after the lift on purpose: the box measures the
+  // words (`font-size: 0`, `line-height: 0`) while the lift hands the words
+  // their own typography, which is the measuring zero. The values of the
+  // WORDS own the box; otherwise the text stays invisible (measured: the
+  // heading "Writing" on `notes.framer.website` had a height of 0 in the
+  // import while the source showed 22 px).
+  if (isFitTextMarker(merged.base.visual) && node.children.length > 0) {
+    const typography = textTypographyOf(node);
+    if (typography !== null) {
+      props["fontSize"] = typography.size;
+      props["fontSize_tablet"] = typography.size;
+      props["fontSize_mobile"] = typography.size;
+      if (typography.lineHeight !== null) {
+        props["lineHeight"] = typography.lineHeight;
+        props["lineHeight_tablet"] = typography.lineHeight;
+        props["lineHeight_mobile"] = typography.lineHeight;
       }
     }
   }
@@ -688,7 +689,7 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
   const children: string[] = [];
   if (primitive !== "body" && !(primitive === "heading" && hasElementChildren)) {
     for (const child of siblings) {
-      const mapped = mapNode(child, context);
+      const mapped = mapNode(child, context, node);
       if (mapped !== null) {
         children.push(mapped.id);
         context.nodes[mapped.id] = mapped;
@@ -785,10 +786,218 @@ function escapedDataUrlMarkup(value: string): string {
   return value.includes("data:image/svg+xml") ? value.replace(/</g, "%3C").replace(/>/g, "%3E") : value;
 }
 
+// Framer writes the typography of a text component into variables: the class
+// carries them (`--framer-font-size: 18px`), the inner text reads them
+// (`font-size: var(--framer-font-size)`). The import drops the variables (they
+// are not style properties) — so the typography has to be read from them
+// before they are gone, or every text of the page falls back to the default.
+//
+// The same map names the Senify style property of each variable.
+const FRAMER_TEXT_PROPS: Readonly<Record<string, string>> = {
+  "--framer-font-family": "fontFamily",
+  "--framer-font-size": "fontSize",
+  "--framer-font-weight": "fontWeight",
+  "--framer-letter-spacing": "letterSpacing",
+  "--framer-line-height": "lineHeight",
+  "--framer-text-alignment": "textAlign",
+  "--framer-text-color": "color",
+  "--framer-text-decoration": "textDecoration",
+  "--framer-text-transform": "textTransform",
+  "--framer-font-style": "fontStyle",
+};
+
+// The "fit text" of Framer: the box measures the words (`font-size: 0`), the
+// words take their size from the class's variable. A literal `font-size: 0`
+// next to a `--framer-font-size` is that marker, never the size of the text —
+// taking it as the size would make the text invisible (measured: the heading
+// "Writing" on `notes.framer.website` had a height of 0 in the import).
+function isFitTextMarker(visual: { [key: string]: string | undefined }): boolean {
+  const own = (visual["font-size"] ?? "").trim();
+  return own === "0" || own === "0px";
+}
+
+// The typography of the words of a text component: the size and the line
+// height the source gives them.
+//
+// Framer's "fit text": the box measures the words (`font-size: 0`,
+// `line-height: 0`), the words themselves take their size from the class — a
+// rule of the source (`[data-framer-component-type=Text] span span { font-size:
+// var(--framer-font-size) }`) that the capture resolves on the WORD, not on
+// the box. The box keeps its 0.
+//
+// The import has to take the values from the word: without them the words
+// stay invisible (measured: the heading "Writing" on `notes.framer.website`
+// had a height of 0 in the import while the source showed 22 px).
+function textTypographyOf(node: IrNode): { size: string; lineHeight: string | null } | null {
+  for (const child of node.children) {
+    const visual = child.states[0]?.visual ?? {};
+    const size = visual["font-size"];
+    if (typeof size === "string" && size !== "" && size !== "0" && size !== "0px") {
+      const lineHeight = visual["line-height"];
+      return {
+        size,
+        lineHeight:
+          typeof lineHeight === "string" && lineHeight !== "" && lineHeight !== "0" && lineHeight !== "0px"
+            ? lineHeight
+            : null,
+      };
+    }
+    // The span around the words carries the measuring zero — the words are
+    // deeper (the source writes them in a span in a span).
+    const deeper = textTypographyOf(child);
+    if (deeper !== null) return deeper;
+  }
+  return null;
+}
+
+// The inner markup of a text component carries the fit text marker
+// (`font-size: 0`, `line-height: 0`) on the spans around the words: the box
+// measures them, the words take their size from the class. With the real
+// values in place the marker has to go — it would keep the words invisible.
+function withTextTypography(node: IrNode, html: string): string {
+  if (!isFitTextMarker(node.states[0]?.visual ?? {})) return html;
+  const typography = textTypographyOf(node);
+  if (typography === null) return html;
+  let out = html.replace(/font-size:\s*0(px)?/g, `font-size:${typography.size}`);
+  if (typography.lineHeight !== null) {
+    out = out.replace(/line-height:\s*0(px)?/g, `line-height:${typography.lineHeight}`);
+  }
+  return out;
+}
+
+// Framer writes the typography of a marked word into `--framer-*` VARIABLES
+// (`<span style="--framer-font-size:32px">$5000</span>`), and its own stylesheet
+// turns them into `font-size: var(--framer-font-size)`. The import drops the
+// variables — they are not style properties — so the word keeps the size of its
+// paragraph: measured on `refined`, "$5000" stands 48 px tall in the source and
+// 30 px in the structure, the price card 69 → 51 px, the page 18 px short.
+//
+// The inline markup is the only place the variable still exists, so it is
+// rewritten here into the declaration it stands for. Only the style attribute of
+// a tag is touched, and only `--framer-*` names that have a Senify counterpart.
+const INLINE_FRAMER_VARS: Readonly<Record<string, string>> = {
+  "--framer-font-size": "font-size",
+  "--framer-font-family": "font-family",
+  "--framer-font-weight": "font-weight",
+  "--framer-font-style": "font-style",
+  "--framer-letter-spacing": "letter-spacing",
+  "--framer-line-height": "line-height",
+  "--framer-text-alignment": "text-align",
+  "--framer-text-color": "color",
+  "--framer-text-decoration": "text-decoration",
+  "--framer-text-transform": "text-transform",
+};
+
+// The line height of an element as a FACTOR, when the source wrote one. Only a
+// factor (`1.5em`, `150%`, `1.5`) can be repeated on a child that changes its own
+// font size — a computed `px` value belongs to the parent's size and would freeze
+// the child's line.
+function lineHeightFactorOf(node: IrNode): string | null {
+  for (const state of node.states) {
+    const raw = (state.visual["line-height"] ?? "").trim();
+    if (raw === "") continue;
+    const em = /^([\d.]+)em$/.exec(raw);
+    if (em !== null) return em[1] ?? null;
+    const percent = /^([\d.]+)%$/.exec(raw);
+    if (percent !== null) return String(Number.parseFloat(percent[1] ?? "") / 100);
+    if (/^[\d.]+$/.test(raw)) return raw;
+  }
+  return null;
+}
+
+function framerVarsAsCss(html: string, parentLineHeight: string | null = null): string {
+  if (!html.includes("--framer-")) return html;
+  return html.replace(
+    /(<[a-zA-Z][\w:-]*\b[^>]*?\bstyle\s*=\s*)(["'])([\s\S]*?)\2/g,
+    (whole, head: string, quote: string, value: string) => {
+      const pairs = value.split(";").map((part) => part.trim()).filter((part) => part !== "");
+      const declared = new Set<string>();
+      const added: string[] = [];
+      for (const pair of pairs) {
+        const colon = pair.indexOf(":");
+        if (colon <= 0) continue;
+        const name = pair.slice(0, colon).trim();
+        const css = INLINE_FRAMER_VARS[name];
+        if (css === undefined) continue;
+        declared.add(css);
+        added.push(`${css}:${pair.slice(colon + 1).trim()}`);
+      }
+      // A bigger `font-size` on the word needs the line height that follows it.
+      // The source writes `line-height: 1.5em` on the PARAGRAPH: the browser
+      // inherits the FACTOR, so the 32 px word is laid out in 48 px, not in the
+      // paragraph's computed 30 px. Measured on `refined`: without it the
+      // `$5000` line is 34 px instead of 48, the price card 55 instead of 69.
+      //
+      // Only an `em`/factor value of the parent is repeatable on the child — a
+      // parent's computed `px` line height belongs to the parent's size.
+      if (declared.has("font-size") && !declared.has("line-height") && parentLineHeight !== null) {
+        added.push(`line-height:${parentLineHeight}`);
+      }
+      if (added.length === 0) return whole;
+      // A declaration the author wrote themselves wins over the variable — the
+      // cascade of the source says the same (an inline `font-size` beats the
+      // class rule that reads `var(--framer-font-size)`).
+      const kept = pairs.filter((pair) => {
+        const colon = pair.indexOf(":");
+        return colon <= 0 || !declared.has(pair.slice(0, colon).trim());
+      });
+      const own = added.filter((entry) => {
+        const name = entry.slice(0, entry.indexOf(":"));
+        return !kept.some((pair) => pair.slice(0, pair.indexOf(":" )).trim() === name);
+      });
+      return `${head}${quote}${[...kept, ...own].join(";")}${quote}`;
+    },
+  );
+}
+
+// The typography of a text that lives in a descendant, written into the props
+// of the node that carries it — with the device variants of the source.
+//
+// Two cases use it: a node whose own text is empty (the text lives deeper in
+// the tree) and the fit text of Framer (the box measures the words, the words
+// carry the typography).
+function liftTypographyOf(
+  path: IrNode[],
+  props: Record<string, unknown>,
+  context: MapContext,
+): void {
+  const merged = path
+    .filter((member, index) => index === 0 || !INLINE_TAGS.has(member.tag) || path[index - 1]?.children.length === 1)
+    .map((member) => mergeStates(member.states));
+  // The lifted typography points at the theme's slots too (the family the
+  // source wrote belongs to the source, the site knows the slots).
+  const withSlot = (values: Record<string, string>): Record<string, string> => {
+    if (values["fontFamily"] === undefined) return values;
+    return { ...values, fontFamily: themeFontOf(values["fontFamily"], context.fontSlots) };
+  };
+  const sourceBase = withSlot(
+    cssToStyle(Object.assign({}, ...merged.map((entry) => typographyOf(entry.base.visual)))),
+  );
+  Object.assign(props, sourceBase);
+  const effectiveOn = (device: "tablet" | "mobile"): Record<string, string> =>
+    withSlot(
+      cssToStyle(Object.assign({}, ...merged.map((entry) => typographyOf((entry[device] ?? entry.base).visual)))),
+    );
+  const tabletType = diffValues(sourceBase, effectiveOn("tablet"));
+  for (const [property, value] of Object.entries(tabletType)) props[`${property}_tablet`] = value;
+  for (const [property, value] of Object.entries(mobileOverrides(sourceBase, tabletType, effectiveOn("mobile")))) {
+    props[`${property}_mobile`] = value;
+  }
+}
+
 function cssToStyle(visual: { [key: string]: string | undefined }): Record<string, string> {
   const out: Record<string, string> = {};
+  // The typography of the variables first: an inline declaration wins over
+  // them (the cascade of the source says so), except the fit text marker.
+  for (const [name, entry] of Object.entries(visual)) {
+    if (entry === undefined || entry === "") continue;
+    const mapped = FRAMER_TEXT_PROPS[name];
+    if (mapped !== undefined) out[mapped] = entry;
+  }
   for (const [name, entry] of Object.entries(visual)) {
     if (entry === undefined || isBackgroundReset(name, entry)) continue;
+    if (name.startsWith("--")) continue;
+    if (name === "font-size" && isFitTextMarker(visual) && out["fontSize"] !== undefined) continue;
     const mapped = name === "background" && BACKGROUND_IMAGE.test(entry) ? "backgroundImage" : cssName(name);
     if (mapped !== undefined && entry !== "") out[mapped] = mapped === "backgroundImage" ? escapedDataUrlMarkup(entry) : entry;
   }
@@ -799,8 +1008,8 @@ function cssToStyle(visual: { [key: string]: string | undefined }): Record<strin
 // back as inline markup (the RichText shape `<p><a>Home</a></p>` →
 // `<a href="./">Home</a>`). Only the inline tags the body primitive accepts
 // are generated; deeper structures flatten to their text.
-function inlineHtmlOf(node: IrNode, fallback: string, context: MapContext): string {
-  const html = node.children.map((child) => inlineOf(child, context, true)).join("");
+function inlineHtmlOf(node: IrNode, fallback: string, context: MapContext, parentLineHeight: string | null = null): string {
+  const html = node.children.map((child) => inlineOf(child, context, true, parentLineHeight ?? lineHeightFactorOf(node))).join("");
   return html !== "" ? html : escapeHtml(fallback);
 }
 
@@ -810,9 +1019,9 @@ function inlineHtmlOf(node: IrNode, fallback: string, context: MapContext): stri
 // always render into the element, in document order, and the own text goes
 // first — an either/or would drop the children whenever the element carries
 // whitespace of its own (regression: navigation and mail links vanished).
-function inlineOf(child: IrNode, context: MapContext, mitTypografie: boolean): string {
+function inlineOf(child: IrNode, context: MapContext, mitTypografie: boolean, parentLineHeight: string | null = null): string {
   if (child.innerHtml !== undefined && child.innerHtml !== null) {
-    const inner = sanitizeInlineHtml(child.innerHtml);
+    const inner = framerVarsAsCss(withTextTypography(child, sanitizeInlineHtml(child.innerHtml)), parentLineHeight ?? lineHeightFactorOf(child));
     return HEADING_TAGS.has(child.tag) || child.tag === "p" ? `<${child.tag}>${inner}</${child.tag}>` : inner;
   }
   // A line break is the whole content of the blank line between two paragraphs.
@@ -1039,6 +1248,21 @@ const FONT_SLOTS = {
   mono: "var(--font-mono)",
 } as const;
 
+// A family name as a CSS variable key: `PP Nikkei Pacific Ultrabold` becomes
+// `pp-nikkei-pacific-ultrabold`, so `--font-pp-nikkei-pacific-ultrabold` is a
+// valid custom property. Two families that differ only in punctuation would
+// collide; the theme is written per page, so the second one keeps its slot.
+export function fontSlotKey(family: string): string {
+  return fontFamilyName(family)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function extraSlotOf(family: string): string {
+  return `var(--font-${fontSlotKey(family)})`;
+}
+
 function isMonoFamily(family: string): boolean {
   return /mono|courier|consolas/i.test(family);
 }
@@ -1106,9 +1330,9 @@ function sourceFontsOf(document: FramerIrDocument): SourceFonts {
       slots.set(name, FONT_SLOTS.mono);
       continue;
     }
-    // A third family (the source has one): the theme knows three slots, and
-    // the body font is the one a text of that family can live with.
-    slots.set(name, FONT_SLOTS.body);
+    // A further family: the theme has a slot for it (`fonts.extra`), so the
+    // page points at that variable instead of falling back to a system font.
+    slots.set(name, extraSlotOf(family));
   }
   return { bodyFamily, bodyWeights, displayFamily, displayWeights, slots };
 }
@@ -1123,7 +1347,88 @@ function themeFontOf(value: string, slots: ReadonlyMap<string, string>): string 
   return slots.get(name) ?? value;
 }
 
-export function themePatchOf(document: FramerIrDocument): ThemePatch {
+// The families the page uses that neither the body nor the display slot
+// names — each of them becomes a `@font-face` of its own. Placeholder families
+// (`"Anton Placeholder"`) carry no weight and are skipped: they stand in for
+// the real family while it loads.
+function extraFontsOf(
+  document: FramerIrDocument,
+  bodyFamily: string | null,
+  displayFamily: string | null,
+  source?: ReadonlyMap<string, number[]>,
+): Record<string, { family: string; fallback: string[]; weights: number[] }> | null {
+  const families = source ?? usedFamiliesOf(document);
+  const out: Record<string, { family: string; fallback: string[]; weights: number[] }> = {};
+  for (const [family, weights] of families) {
+    const name = fontFamilyName(family);
+    if (name === "") continue;
+    if (name === bodyFamily || name === displayFamily) continue;
+    if (isMonoFamily(name)) continue;
+    if (/placeholder$/i.test(name)) continue;
+    const sorted = [...new Set(weights)].sort((a, b) => a - b);
+    if (sorted.length === 0) continue;
+    const key = fontSlotKey(name);
+    if (key === "" || out[key] !== undefined) continue;
+    out[key] = { family: name, fallback: ["system-ui", "sans-serif"], weights: sorted };
+  }
+  return Object.keys(out).length === 0 ? null : out;
+}
+
+// Every family the page's rules and nodes name, with the weights they use.
+// The families of the `@font-face` list alone are not enough: a page can name
+// a family the list does not declare (a Google Fonts link), and that text is
+// exactly the one that falls back.
+function usedFamiliesOf(document: FramerIrDocument): Map<string, number[]> {
+  const out = new Map<string, number[]>();
+  const note = (family: unknown, weight: unknown): void => {
+    if (typeof family !== "string") return;
+    const first = family.split(",")[0]?.trim() ?? "";
+    if (first === "") return;
+    const name = fontFamilyName(first);
+    if (name === "" || /^(inherit|initial|unset|revert)$/i.test(name)) return;
+    if (name.startsWith("var(")) return;
+    const number = typeof weight === "string" ? Number.parseInt(weight, 10) : typeof weight === "number" ? weight : NaN;
+    const weights = out.get(name) ?? [];
+    if (Number.isFinite(number) && !weights.includes(number)) weights.push(number);
+    out.set(name, weights);
+  };
+  const visit = (node: IrNode): void => {
+    for (const state of node.states) {
+      note(state.visual["font-family"], state.visual["font-weight"]);
+    }
+    for (const child of node.children) visit(child);
+  };
+  for (const page of document.pages) visit(page.root);
+  for (const face of document.styles.fonts) {
+    const name = fontFamilyName(face.family);
+    if (name === "" || face.weight === null) continue;
+    const weights = out.get(name) ?? [];
+    if (!weights.includes(face.weight)) weights.push(face.weight);
+    out.set(name, weights);
+  }
+  return out;
+}
+
+// Merge two family maps: the union of families, with the union of weights.
+function mergedFamilies(
+  first: ReadonlyMap<string, number[]>,
+  second: ReadonlyMap<string, number[]> | undefined,
+): Map<string, number[]> {
+  if (second === undefined) return new Map(first);
+  const out = new Map(first);
+  for (const [family, weights] of second) {
+    const current = out.get(family) ?? [];
+    const merged = [...current];
+    for (const weight of weights) if (!merged.includes(weight)) merged.push(weight);
+    out.set(family, merged);
+  }
+  return out;
+}
+
+export function themePatchOf(
+  document: FramerIrDocument,
+  ruleFamilies?: ReadonlyMap<string, number[]>,
+): ThemePatch {
   // The dominant font family of the `@font-face` list becomes the body font;
   // the heaviest weight family becomes the display font. This is a *patch* —
   // update_theme merges it over the current theme.
@@ -1156,6 +1461,15 @@ export function themePatchOf(document: FramerIrDocument): ThemePatch {
           }
         : {}),
     };
+  }
+  // Every further family of the page. The three slots name the roles a theme
+  // styles (display, body, mono); a Framer page can name seven families, and
+  // each of them needs a `@font-face` — otherwise the text falls back to the
+  // system font and wraps elsewhere (measured on `unifiersofjapan`: the word
+  // "strategy" in Anton took two lines instead of one, +260 px per card).
+  const extra = extraFontsOf(document, bodyFamily, displayFamily, mergedFamilies(usedFamiliesOf(document), ruleFamilies));
+  if (extra !== null) {
+    patch.fonts = { ...(patch.fonts ?? {}), extra };
   }
   return patch;
 }
@@ -1287,7 +1601,7 @@ export function mapDocument(
     const topLevel = mergeSiblingVariants(page.root.children, context.breakpoints, topFold);
     context.stats.mergedVariants += topFold.merged;
     for (const child of topLevel) {
-      const mapped = mapNode(child, context);
+      const mapped = mapNode(child, context, page.root);
       if (mapped === null) continue;
       context.nodes[mapped.id] = mapped;
       children.push(mapped.id);
@@ -1310,17 +1624,167 @@ export function mapDocument(
   }
 
   const rules = styleRulesOf(normalized, context.fontSlots);
+  // The appear channel compiled to keyframes (step 4b). It runs after the nodes
+  // exist because a rule needs the mapped node id, and it appends to the page's
+  // rules so the bake compiles it through the ordinary style path.
+  const appearRun = appearRulesOf(document, context);
+  const appearStyleRules: StyleRule[] = [];
+  for (const rule of appearRun.rules) {
+    const appearId = rule.appearIds[0];
+    if (appearId === undefined) continue;
+    const nodeId = appearNodeIdOf(document, context, appearId);
+    if (nodeId === undefined) continue;
+    const node = context.nodes[nodeId];
+    if (node === undefined) continue;
+    const built = appearStyleRulesOf(rule, rules.length + appearStyleRules.length, context.fontSlots);
+    appearStyleRules.push(...built);
+    node.classes = [...(node.classes ?? []), ...built.map((entry) => entry.name)];
+  }
+  if (appearStyleRules.length > 0) {
+    context.findings.push({
+      kind: "unsupported-declaration",
+      nodeKey: null,
+      message: `Der Appear-Kanal ist als CSS-Animation abgebildet (${appearRun.compiled} Effekte, ${appearStyleRules.length} Regeln).`,
+      evidence: appearRun.rules.map((rule) => rule.name).join(", "),
+      severity: "info",
+      suggestion: "Diese Effekte laufen ohne Framer-Runtime; Bewegung und Dauer stammen aus dem Kanal.",
+    });
+  }
+  for (const finding of appearRun.findings) {
+    context.findings.push({
+      kind: "unsupported-declaration",
+      nodeKey: null,
+      message: finding.reason,
+      evidence: finding.appearId,
+      severity: "warn",
+      suggestion: "Ohne Endzustand im Kanal bleibt nur der Startzustand — der Effekt wird nicht nachgebaut.",
+    });
+  }
   return {
     document: {
       version: 2,
       rootNodeId: "root",
       nodes: context.nodes,
-      styleRules: rules,
+      styleRules: [...rules, ...appearStyleRules],
     },
-    rules,
-    themePatch: themePatchOf(document),
+    rules: [...rules, ...appearStyleRules],
+    themePatch: themePatchOf(document, ruleFamilyWeights(normalized)),
     findings: context.findings,
     stats: context.stats,
     nodeIdByIrKey: { ...context.nodeIdByIrKey },
   };
+}
+
+// The families the compiled class rules name, with their weights. The rules
+// carry most of a page's typography (Framer writes the font on the class), so
+// a family only the rules name would otherwise get no `@font-face` and fall
+// back to the system font.
+function ruleFamilyWeights(rules: readonly NormalizedStyleRule[]): Map<string, number[]> {
+  const out = new Map<string, number[]>();
+  const note = (declarations: Record<string, string> | undefined): void => {
+    if (declarations === undefined) return;
+    const family = declarations["font-family"];
+    if (typeof family !== "string") return;
+    const first = family.split(",")[0]?.trim() ?? "";
+    if (first === "") return;
+    const name = fontFamilyName(first);
+    if (name === "" || name.startsWith("var(")) return;
+    const weight = Number.parseInt(declarations["font-weight"] ?? "", 10);
+    const weights = out.get(name) ?? [];
+    if (Number.isFinite(weight) && !weights.includes(weight)) weights.push(weight);
+    out.set(name, weights);
+  };
+  for (const rule of rules) {
+    note(rule.declarations);
+    for (const state of Object.values(rule.states ?? {})) note(state);
+  }
+  return out;
+}
+
+// The appear id → mapped node id, read from the IR key the node was built from.
+function appearNodeIdOf(
+  document: FramerIrDocument,
+  context: MapContext,
+  appearId: string,
+): string | undefined {
+  const node = findNodeByAppearId(document.pages[0]?.root, appearId);
+  if (node === undefined) return undefined;
+  return context.nodeIdByIrKey[node.key];
+}
+
+function findNodeByAppearId(node: IrNode | undefined, appearId: string): IrNode | undefined {
+  if (node === undefined) return undefined;
+  if (node.appearId === appearId) return node;
+  for (const child of node.children) {
+    const found = findNodeByAppearId(child, appearId);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+// Compile the appear channel for the page it belongs to.
+function appearRulesOf(document: FramerIrDocument, context: MapContext): CompileAppearResult {
+  const specs = document.appear ?? [];
+  if (specs.length === 0) return { rules: [], findings: [], compiled: 0 };
+  const nodeIdByAppearId = new Map<string, string>();
+  const index = (node: IrNode | undefined): void => {
+    if (node === undefined) return;
+    if (node.appearId !== null) {
+      const mapped = context.nodeIdByIrKey[node.key];
+      if (mapped !== undefined) nodeIdByAppearId.set(node.appearId, mapped);
+    }
+    for (const child of node.children) index(child);
+  };
+  index(document.pages[0]?.root);
+  return compileAppearRules({
+    specs,
+    breakpoints: document.breakpoints,
+    nodeIdByAppearId,
+    scope: ruleScopeOf(document.pages[0]?.path ?? "/"),
+  });
+}
+
+// One compiled appear rule as style rules the bake understands. `rawCss` may
+// carry exactly ONE `@keyframes` block (`isSafeRawCss`), so a rule with several
+// breakpoint variants becomes several style rules: the first carries the base
+// declaration (and its keyframes), each further one carries one context and its
+// own keyframes. All of them are assigned to the same node.
+function appearStyleRulesOf(
+  rule: CompiledAppearRule,
+  startOrder: number,
+  slots: ReadonlyMap<string, string>,
+): StyleRule[] {
+  const out: StyleRule[] = [];
+  const contexts = Object.entries(rule.contexts);
+  const total = 1 + contexts.length;
+  for (let index = 0; index < total; index += 1) {
+    const isBase = index === 0;
+    const contextEntry = contexts[index - 1];
+    const name = isBase ? rule.name : `${rule.name}-${index}`;
+    const keyframes = rule.keyframes[index] ?? rule.keyframes[0];
+    // The base rule carries the default declaration; every further rule carries
+    // exactly one breakpoint's declaration as its context.
+    const declarations: Record<string, string> = isBase
+      ? rule.animation
+      : (contextEntry?.[1] ?? {});
+    const styles = slotStyles(isBase ? declarations : {}, slots);
+    const contextStyles: Record<string, DeviceValueMap> = {};
+    if (!isBase && contextEntry !== undefined) {
+      contextStyles[contextEntry[0]] = slotStyles(contextEntry[1], slots);
+    }
+    const built: StyleRule = {
+      id: isBase ? rule.id : `${rule.id}-${index}`,
+      name,
+      kind: "class",
+      selector: `.${name}`,
+      order: startOrder + index,
+      styles,
+      contextStyles,
+      origin: { source: "framer-import", ordinal: startOrder + index },
+      authoredBy: "preset",
+    };
+    if (keyframes !== undefined) built.rawCss = keyframes;
+    out.push(built);
+  }
+  return out;
 }

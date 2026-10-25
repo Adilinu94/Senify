@@ -15,6 +15,11 @@ import type { MotionMappingResult } from "./motion-mapping.ts";
 export type FidelityReport = {
   ir: 1;
   source: FramerIrDocument["source"];
+  // What the editor can actually edit, in percent (step 7 of the 1:1 plan).
+  // A page-level payload carries the whole page in the RELEASE, so the honest
+  // number there is 0 % — the tree is a preview. Filled in by the run, because
+  // only the run knows whether a payload came.
+  editableShare?: { editable: number; original: number; nodes: number };
   counts: {
     nodes: number;
     mapped: number;

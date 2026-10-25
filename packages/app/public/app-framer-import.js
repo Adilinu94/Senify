@@ -19,6 +19,25 @@ export function importReportBlock(report) {
   const resolutions = report?.resolutions ?? [];
   const candidates = report?.candidates ?? [];
   const marquee = report?.marqueeCandidates ?? [];
+  // The honest split (step 7 of the 1:1 plan): how much of the page the editor
+  // edits, and how much runs as original code in the release. A page-level
+  // payload carries the whole page, so the number is 0/100 there — saying
+  // "100 % editable" would be a lie about the release.
+  const share = report?.editableShare;
+  const shareBlock = share === undefined
+    ? ""
+    : el(
+        "p",
+        { class: "framer-report-share", "data-role": "framer-editable-share" },
+        `${share.editable} % bearbeitbar, ${share.original} % Original-Code`,
+        el("span", {
+          class: "muted",
+          text:
+            share.original > 0
+              ? ` · ${share.nodes} Knoten im Baum; der Release zeigt die Originalseite mit ihrer Laufzeit.`
+              : ` · ${share.nodes} Knoten, alle im Editor änderbar.`,
+        }),
+      );
   const findingItems = findings.length > 0
     ? el(
         "ul",
@@ -96,6 +115,7 @@ export function importReportBlock(report) {
       { class: "muted" },
       `Deklarationen: ${declarations.carried ?? 0}/${declarations.total ?? 0} übernommen, ${declarations.dropped ?? 0} verworfen. Assets: ${assets.downloaded ?? 0} geladen, ${assets.deduped ?? 0} dedupliziert, ${assets.failed ?? 0} fehlgeschlagen. Fonts: ${assets.fonts ?? 0}. Motion: ${motion.mappedToPreset}/${motion.measured} Presets, ${motion.documented} dokumentiert.`,
     ),
+    shareBlock,
     refsFold(`Funde (${findings.length})`, findingItems, findings.length > 0),
     refsFold("Klasse-C", resolutionItems, resolutions.length > 0),
     refsFold(`Baustein-Kandidaten (${candidates.length})`, candidateItems, candidates.length > 0),

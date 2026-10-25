@@ -47,6 +47,11 @@ export function themeVariables(resolved: ResolvedTheme): Record<string, string> 
   if (resolved.fonts.mono) {
     vars["--font-mono"] = fontStack(resolved.fonts.mono);
   }
+  // Every further family of an imported page gets its own variable, so the
+  // page can name it the way the source did (`--font-antron`, `--font-geist`).
+  for (const [key, font] of Object.entries(resolved.fonts.extra ?? {})) {
+    vars[`--font-${dash(key)}`] = fontStack(font);
+  }
   for (const [name, value] of Object.entries(resolved.motion.ease)) {
     vars[`--ease-${dash(name)}`] = value;
   }
@@ -81,6 +86,7 @@ function allFonts(resolved: ResolvedTheme): FontRef[] {
     resolved.fonts.display,
     resolved.fonts.body,
     ...(resolved.fonts.mono ? [resolved.fonts.mono] : []),
+    ...Object.values(resolved.fonts.extra ?? {}),
   ];
 }
 

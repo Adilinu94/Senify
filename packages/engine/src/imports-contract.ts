@@ -175,6 +175,17 @@ export const ImportReportSchema = Type.Object(
         }),
       ),
     ),
+    // What the editor can actually edit, in percent (step 7 of the 1:1 plan):
+    // `editable` is the share the tree carries, `original` the share the
+    // imported runtime renders in the release. Both are 0/100 or 100/0 — a
+    // page-level payload covers the whole page.
+    editableShare: Type.Optional(
+      Type.Object({
+        editable: Type.Number(),
+        original: Type.Number(),
+        nodes: Type.Number(),
+      }),
+    ),
     steps: Type.Array(Type.String()),
   },
   CLOSED,
