@@ -16,17 +16,7 @@
 // vier lesende Routen ohne Schreibpfad).
 
 import type { Route } from "./http-contract.ts";
-import {
-  referenceContext,
-  lifecycleContext,
-  mediaContext,
-  resolveAuthor,
-  withIdempotency,
-  readJsonBody,
-  applyMutationsToPage,
-  requireParam,
-  limitParam,
-} from "./http-route-support.ts";
+import { lifecycleContext, mediaContext, resolveAuthor, withIdempotency, readJsonBody, applyMutationsToPage, requireParam, limitParam } from "./http-route-support.ts";
 import { SenifyError } from "@senify/core";
 import { paginate, parsePaging } from "./paging.ts";
 import { CreatePageBodySchema, parseBody, type CreatePageBody } from "./mutations/contract.ts";
@@ -45,18 +35,7 @@ import {
   type SubmitReviewBody,
 } from "./lifecycle-contract.ts";
 import { listSiteForms } from "./forms.ts";
-import {
-  applyReference,
-  referenceThemeDraft,
-  removeReferenceAssignment,
-  verifyReferenceApply,
-} from "./references-lifecycle.ts";
-import {
-  ApplyReferenceBodySchema,
-  ApplyRedesignBodySchema,
-  type ApplyReferenceBody,
-  type ApplyRedesignBody,
-} from "./references-contract.ts";
+import { ApplyRedesignBodySchema, type ApplyRedesignBody } from "./references-contract.ts";
 import { applyRedesign } from "./apply-redesign.ts";
 import {
   CreateCodePayloadBodySchema,
@@ -438,69 +417,6 @@ export const siteRoutes: Route[] = [
           limitParam(url, 50),
         ),
       },
-    }),
-  },
-
-  {
-    // Project assignment of references + the derived theme draft (T14 reuse).
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "references"],
-    scope: "read",
-    handler: async (context, params, _req, url) => {
-      const siteId = requireParam(params, "siteId");
-      const references = referenceContext(context);
-      const { draft, verification } = await referenceThemeDraft(references, siteId);
-      // The assignments are a list like any other, so they page. The draft and
-      // the verification are NOT paged: they are the derived state of the whole
-      // set, and a page of them would describe nothing.
-      const assignments = await context.store.listReferenceAssignments(siteId);
-      const page = paginate(assignments, parsePaging(url.searchParams), assignments.length);
-      return {
-        status: 200,
-        body: {
-          assignments: page.items,
-          ...page,
-          items: undefined,
-          draft,
-          verification,
-          unchanged: await verifyReferenceApply(references, siteId),
-        },
-      };
-    },
-  },
-
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "references"],
-    scope: "write",
-    handler: async (context, params, req, _url, auth) => {
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<ApplyReferenceBody>(
-        ApplyReferenceBodySchema,
-        body,
-        "reference assignment",
-      );
-      const result = await applyReference(referenceContext(context), {
-        siteId: requireParam(params, "siteId"),
-        referenceId: input.referenceId,
-        author: resolveAuthor(auth),
-        ...(input.scales === undefined ? {} : { scales: input.scales }),
-      });
-      return { status: 201, body: result };
-    },
-  },
-
-  {
-    method: "DELETE",
-    segments: ["api", "sites", ":siteId", "references", ":referenceId"],
-    scope: "write",
-    destructive: true,
-    handler: async (context, params) => ({
-      status: 200,
-      body: await removeReferenceAssignment(referenceContext(context), {
-        siteId: requireParam(params, "siteId"),
-        referenceId: requireParam(params, "referenceId"),
-      }),
     }),
   },
 
