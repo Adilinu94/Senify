@@ -79,7 +79,7 @@
 | `http-routes-site-content.ts` | 7 | 196 | Sammlungen und Eintraege EINER SITE (P3-2, Schritt 65): anlegen, auflisten, aus Feldern ableiten, Eintraege schreiben, lesen, suchen und einen Pfad aufloesen. |
 | `http-routes-site-lifecycle.ts` | 8 | 260 | Die Routen des Site-Lebenszyklus (P3-2, Schritt 60): anlegen, listen, aendern, Papierkorb, wiederherstellen, duplizieren, lesen, loeschen. |
 | `http-routes-site-references.ts` | 3 | 101 | Referenzen einer Site (P3-2, Schritt 67): die Zuordnung der Referenzprojekte samt abgeleitetem Theme-Entwurf, das Anwenden einer Referenz und das Loesen einer Zuordnung. |
-| `http-routes-sites.ts` | 17 | 461 | Die Routen einer Site jenseits des Lebenszyklus: Seiten, Bibliothek, Inhalte (Sammlungen, Eintraege), Referenzen, Bilder, Code-Payloads, Vorschauen, Reviews, Redesign und Betrieb (Audit, Formulare, Benachrichtigungen, Deployments). Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
+| `http-routes-sites.ts` | 17 | 468 | Die verbleibenden Routen einer Site: Seiten, Audit, Releases, Bake-Jobs, Vorschauen, Reviews, Assets, Code-Payloads, Formulare, Benachrichtigungen und Redesign. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-theme.ts` | 11 | 230 | Theme und Style-Regeln einer Site (P3-2, Schritt 57): das Theme lesen, als CSS ausliefern, schreiben, den Theme-Bericht, den Design-Bericht und die sechs Style-Regel-Routen (lesen, anlegen, aendern, sortieren, loeschen). |
 | **Summe** | **178** | | |
 
@@ -143,27 +143,41 @@ die Uebersicht nennt sie einzeln, weil die Datei sonst wie ein God-File aussieht
 ## Die grossen Dateien und warum sie so gross sind
 
 Die Aufteilung folgt ADR-0019: `Store` und der HTTP-Dispatcher bleiben die Fassade, die
-Fachmodule tragen die Tabellen. Diese Dateien reissen eine Zeilenschwelle; jede Zeile
-hier nennt den Grund - eine Entscheidung, keine Messung. Die Zeilenzahl selbst wird
+Fachmodule tragen die Tabellen. Diese Dateien reissen die Schwelle von 1 000 Zeilen; jede
+Zeile hier nennt den Grund - eine Entscheidung, keine Messung. Die Zeilenzahl selbst wird
 beim Erzeugen gemessen.
+
+`packages/engine/test/doku-konsistenz.test.ts` prueft die Vollstaendigkeit dieser Tabelle:
+er laeuft selbst durch `packages` und meldet jede Datei ueber der Schwelle, die hier fehlt.
 
 | Datei | Zeilen | Warum sie so gross ist |
 |---|---|---|
-| `packages/engine/src/store.ts` | 2662 | vier fachübergreifende Transaktionen (`applyRedesignPlan`, `duplicateSiteWithPlan`, `duplicateAssetRecords`, `commitFramerImportPlan`), `replaceTables` und die Fassade; der Rest sind Delegaten |
+| `packages/engine/src/store.ts` | 2662 | vier fachübergreifende Transaktionen (`applyRedesignPlan`, `duplicateSiteWithPlan`, `duplicateAssetRecords`, `commitFramerImportPlan`), `replaceTables` und die Fassade; 202 von 244 Methoden sind reine Delegaten (gemessen), der Rest steht in 38 `store-*`-Modulen |
 | `packages/framer-import/src/capture-html.ts` | 2639 | der HTML-Capture des Imports |
 | `packages/mcp/src/tools.ts` | 2614 | die Werkzeug-Tabelle; ihre Reihenfolge ist der Vertrag (`server.ts` liest `TOOLS.map`), der Manifest-Generator folgt den `...X_TOOLS`-Spreizungen - ein weiterer Schnitt ist möglich und braucht den Manifest-Diff als Beweis |
 | `packages/editor/src/inspector/inspector.ts` | 1884 | eine Closure (`createInspector`), die DOM und Zustand gemeinsam hält |
+| `packages/manifest/src/tools.ts` | 1796 | ERZEUGT von `scripts/render-manifest.mjs` aus `packages/mcp/src/tools.ts` (`pnpm manifest:check` haelt es). Die Zeilenzahl ist keine Entscheidung, sondern die Folge von 109 Werkzeugen mit je vier Angaben |
 | `packages/framer-import/src/mapper.ts` | 1790 | die Abbildung Framer nach NodeTree |
 | `packages/engine/src/content.ts` | 1703 | Sammlungen, Einträge und ihre Suche in einem Fachgebiet |
 | `packages/editor/src/inspector/model.ts` | 1490 | das Modell des Inspektors |
 | `packages/engine/src/types.ts` | 1479 | die öffentlichen Typen der Engine; keine Logik |
 | `packages/editor/src/canvas/canvas.ts` | 1336 | die Bühne des Editors |
 | `packages/engine/src/forms.ts` | 1313 | Formulare, Einsendungen und der CSV-Export |
+| `packages/editor/src/state/operations.ts` | 1240 | die Editor-Operationen: ein Dispatcher (`applyEditorMutation`) und je eine Funktion pro Operation, dazu die gemeinsamen Pruefer fuer Katalog, Props, Styles und Motion. Die Pruefer teilen den Katalog und die Fehlerform - sie zu trennen hiesse, den Katalog zweimal zu lesen. Geteilt wird ueber `applyEditorMutation`, geprueft ueber `EditorStore` (`mutations.test.ts`, `history.test.ts`, `save-pipeline.test.ts`) |
 | `packages/engine/src/lifecycle.ts` | 1190 | der Release-Lebenszyklus in einem Fachgebiet: Revision, Re-Bake, Veroeffentlichung, Preview und Review gehoeren zusammen, weil ein Release ohne die anderen drei nicht entsteht; ein Schnitt muesste die gemeinsame Transaktion teilen |
+| `packages/renderer/src/motion.ts` | 1149 | die Motion-Auslieferung: `renderPageScript` und `renderIslandsScript` sind die beiden Laufzeit-Skripte, die als TEXT ausgeliefert werden - der groesste Teil der Datei steht in Template-Literalen, also in ausgeliefertem Code, nicht in Quellcode. Ein Schnitt wuerde zwei Skripte mit gemeinsamem Zustand (Lenis, GSAP, ScrollTrigger) auf zwei Dateien verteilen |
+| `packages/engine/src/mutations/apply.ts` | 1144 | die Mutationen der Engine: ein Dispatcher (`applyOne`) und je eine Funktion pro Operation, dazu die Platzierungspruefer (`assertChildPlacement`, `assertSlotPlacement`, `assertSlotAllowedTypes`). Allen gemeinsam ist der `ApplierState`: der Dispatcher setzt `currentOpIndex`, die Faelle lesen ihn. Ein Schnitt muesste diesen Zustand teilen. Geprueft in `mutations.test.ts`, `transactions.test.ts`, `undo-batch.test.ts` |
 | `packages/engine/src/media.ts` | 1107 | Assets, Ableitungen und Ordner |
 | `packages/app/public/app-editor.js` | 1048 | `mountCanvasView` haelt Canvas, Zustand und Ereignisse in einer Closure |
 | `packages/engine/src/references-lifecycle.ts` | 1046 | die Referenz-Pipeline: Analyse, Job-Lauf, Snapshot, Playwright-Aufnahme und Anwendung; der Capture-Treiber allein sind 250 Zeilen, und er teilt den Zustand mit dem Job-Lauf |
-| `packages/app/public/app-references.js` | 597 | die Referenzen-Seite ohne die Karten; der Rest nach Schritt 59 |
-| `packages/engine/src/http-routes-sites.ts` | 461 | die verbleibenden 17 Site-Routen (Seiten, Vorschauen, Reviews, Redesign, Betrieb, Assets, Code-Payloads); der Zuschnitt läuft weiter, die nächste Gruppe ist Betrieb (Audit, Formulare, Benachrichtigungen) |
-| `packages/engine/src/http.ts` | 261 | Dispatcher und Routentabelle; fertig |
-| `packages/app/public/app.js` | 219 | Router und Kommandoleiste; fertig |
+| `packages/renderer/src/bake.ts` | 1021 | der Bake: `bakeSite` haelt Warnungen, Manifest-Seiten, Motion-/Lenis-/Formular-Flags, Island-Arten und benutzte Payload-Ids ueber alle Seiten - genau dieser geteilte Zustand ist der Grund, warum der Bake in einem Durchgang laeuft. Die Helfer (`stageTemplate`, `runAstroBuild`, `writeAeoFiles`, `assertBakeable`) sind bereits eigenstaendig |
+
+## Der laufende Zuschnitt
+
+Dateien unter der Schwelle, die trotzdem weiter geteilt werden - hier steht, was als
+Naechstes passiert, nicht warum etwas bleibt.
+
+| Datei | Zeilen | Stand |
+|---|---|---|
+| `packages/engine/src/http-routes-sites.ts` | 468 | 17 Site-Routen; 1 205 → 461 Zeilen über sieben Schnitte. Die naechsten Kandidaten sind gemessen eigenstaendig (Messblock: Vorschauen 4 mitwandernde Importe, Reviews 5, Assets 6, Code-Payloads 3, Redesign 3) - der Zuschnitt geht weiter, dieser Eintrag haelt ihn sichtbar |
+| `packages/app/public/app-references.js` | 597 | die Referenzen-Seite selbst; Karten, Huelle, Zustand und Inspektor sind bereits eigene Module (`app-refs-cards.js`, `app-refs-shell.js`, `app-refs-state.js`, `app-refs-inspector.js`). Was bleibt, ist die Seitenfunktion `referencesView` mit ihren fuenf Naehten |
