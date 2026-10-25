@@ -8,7 +8,8 @@ import {
   startImageWorker,
   type Db,
 } from "@senify/engine";
-import type { RateLimitConfig, ReferenceDeps, ReviewVisualDriver } from "@senify/engine";
+import { setSectionPreviewRenderer, setSectionPreviewShooter } from "@senify/engine";
+import type { RateLimitConfig, ReferenceDeps, ReviewVisualDriver, SectionPreviewBake, SectionPreviewShooter } from "@senify/engine";
 import { createRegistry } from "@senify/registry";
 import { openBrowser } from "./browser.ts";
 import { createAppServer } from "./server.ts";
@@ -35,6 +36,26 @@ export type StartProgramOptions = {
   // Reference analysis (T14): capture/analyzer seam for tests; without it the
   // live Playwright capture and the heuristic analyzer run.
   referenceDeps?: ReferenceDeps;
+  /**
+   * Section previews (Produktpunkt): the photographer that bakes a variant with
+   * the site's theme. Default: the real Playwright shooter.
+   *
+   * Why this seam exists: opening the "Sektionen" tab asks for 73 images, and
+   * every miss starts a real browser bake INSIDE the dashboard process. A
+   * browser test that opens the tab queued 73 bakes and slowed the whole suite
+   * (measured 25.10.2026: `elements-panel-browser` took 33 s in CI, 15 s
+   * locally, and the save click timed out because the button stayed disabled).
+   * Tests pass a double; production keeps the real shooter.
+   */
+  sectionPreviewShooter?: SectionPreviewShooter;
+  /**
+   * The page build behind a preview. A bake costs measured 6-19 s PER IMAGE
+   * (a whole page build with a browser), so a test that opens the
+   * "Sektionen" tab queues 73 of them. The double writes nothing; the
+   * photographer seam above still runs, so tests keep counting how often an
+   * image is made.
+   */
+  sectionPreviewBake?: SectionPreviewBake;
 };
 
 export type RunningProgram = {
@@ -98,6 +119,17 @@ export async function startProgram(
   const engineServer = await engine.listen({
     port: options.enginePort ?? DEFAULT_ENGINE_PORT,
   });
+  // Section previews: the photographer for the "Sektionen" images. Set AFTER
+  // listen, because the module-level switch belongs to the route module and a
+  // second `startProgram` in the same process would otherwise inherit the
+  // previous test's double. Production passes nothing and gets the real
+  // Playwright shooter.
+  if (options.sectionPreviewShooter !== undefined) {
+    setSectionPreviewShooter(options.sectionPreviewShooter);
+  }
+  if (options.sectionPreviewBake !== undefined) {
+    setSectionPreviewRenderer(options.sectionPreviewBake);
+  }
   // The re-bake worker (E12 slice 1): content changes enqueue durable jobs,
   // this loop claims and runs them against the active release's build.
   const bakeWorker = startBakeWorker({

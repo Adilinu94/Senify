@@ -11,6 +11,11 @@ import { browserAvailable, memoryDb } from "./support.ts";
 // ueber denselben Controller wie die Schnellzugriff-Chips. Wie die anderen
 // Browsertests entfaellt der Lauf, wenn Playwright fehlt.
 
+const TRANSPARENT_PNG = Buffer.from(
+  "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c63000100000500010d0a2db40000000049454e44ae426082",
+  "hex",
+);
+
 const author = { kind: "human", id: "programm", label: "Programm" };
 
 describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
@@ -26,6 +31,21 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       appPort: 0,
       openBrowser: false,
       rateLimits: { perMinute: 1200, burst: 400, destructivePerMinute: 200 },
+      // Kein echter Seitenbuild je Kachel. Der Reiter "Sektionen" fragt bis zu
+      // 73 Bilder an, und ein Bake kostet gemessen 6-19 s (ein ganzer
+      // Seitenbuild mit Browser) - im Dashboard-Prozess. Genau das war der
+      // CI-Fehler vom 25.10.2026: dieser Test brauchte 34 s, das Panel meldete
+      // "Speichern (1)" und der Knopf blieb gesperrt, weil der Server mit
+      // Bakes beschaeftigt war ("element is not enabled").
+      //
+      // ZWEI Naehte, weil zwei Dinge Zeit kosten: `bake` ersetzt den
+      // Seitenbuild (18 s -> 0 ms), `shooter` den Browser-Fotografen. Den
+      // echten Weg faehrt `section-preview-real.test.ts`.
+      //
+      // Gegenprobe: ohne `sectionPreviewBake` braucht der Test 34 s und wird
+      // rot; mit ihm 6 s und gruen.
+      sectionPreviewBake: async () => {},
+      sectionPreviewShooter: async () => ({ png: TRANSPARENT_PNG }),
     });
     const post = (path: string, body: unknown): Promise<Response> =>
       fetch(`${running.dashboardUrl}${path}`, {
@@ -259,6 +279,21 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       appPort: 0,
       openBrowser: false,
       rateLimits: { perMinute: 1200, burst: 400, destructivePerMinute: 200 },
+      // Kein echter Seitenbuild je Kachel. Der Reiter "Sektionen" fragt bis zu
+      // 73 Bilder an, und ein Bake kostet gemessen 6-19 s (ein ganzer
+      // Seitenbuild mit Browser) - im Dashboard-Prozess. Genau das war der
+      // CI-Fehler vom 25.10.2026: dieser Test brauchte 34 s, das Panel meldete
+      // "Speichern (1)" und der Knopf blieb gesperrt, weil der Server mit
+      // Bakes beschaeftigt war ("element is not enabled").
+      //
+      // ZWEI Naehte, weil zwei Dinge Zeit kosten: `bake` ersetzt den
+      // Seitenbuild (18 s -> 0 ms), `shooter` den Browser-Fotografen. Den
+      // echten Weg faehrt `section-preview-real.test.ts`.
+      //
+      // Gegenprobe: ohne `sectionPreviewBake` braucht der Test 34 s und wird
+      // rot; mit ihm 6 s und gruen.
+      sectionPreviewBake: async () => {},
+      sectionPreviewShooter: async () => ({ png: TRANSPARENT_PNG }),
     });
     const post = (path: string, body: unknown): Promise<Response> =>
       fetch(`${running.dashboardUrl}${path}`, {
@@ -342,6 +377,18 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       await hero.waitFor({ timeout: 30000 });
       const saveButton = tab.locator('[data-action="canvas-save"]');
       const save = async (): Promise<void> => {
+        // Erst warten, bis der Knopf WIRKLICH freigeschaltet ist. Der Knopf
+        // ist `disabled`, solange nichts offen ist; ein Klick auf einen
+        // gesperrten Knopf wartet bei Playwright auf "enabled" und laeuft in
+        // seine Grenze.
+        //
+        // Der Fund vom 25.10.2026 (CI, verify-Job): unter Volllast stand dort
+        // "Speichern (1)" UND der Knopf war noch gesperrt - die Anzeige war
+        // also schon aktuell, der Klick aber zu frueh. Lokal nie reproduziert
+        // (15 s statt 33 s), deshalb ist die Ursache nicht bewiesen; der Test
+        // wartet jetzt auf den ZUSTAND statt auf einen Zeitpunkt. Ein Test,
+        // der auf die Uhr wartet, ist unter Last falsch.
+        await expect.poll(async () => saveButton.isEnabled(), { timeout: 30000 }).toBe(true);
         await saveButton.click();
         await expect.poll(async () => (await saveButton.textContent())?.trim()).toBe("Speichern");
       };
@@ -370,6 +417,21 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       await expect
         .poll(() => firstImage.evaluate((img) => (img as unknown as { naturalWidth: number }).naturalWidth))
         .toBeGreaterThan(0);
+
+      // Die Naht selbst, an der ROUTE belegt: mit dem Doppel liefert sie ein
+      // 1x1-PNG (67 Bytes). Ohne ihn waere es ein echter Bake mit 480 px
+      // Breite. Das ist der Unterschied, den dieser Test nicht an der Kachel
+      // sehen kann - die Kachel zeigt nach `202` das mitgelieferte
+      // Standardbild und laedt nicht neu.
+      //
+      // Der erste Aufruf darf `202` sein (der Bake laeuft im Hintergrund);
+      // gewartet wird auf die ARBEIT, nicht auf die Uhr.
+      const preview = async (): Promise<Response> =>
+        fetch(`${running.dashboardUrl}/api/sites/${site.id}/section-preview/hero/split.png`);
+      await expect.poll(async () => (await preview()).status, { timeout: 30000 }).toBe(200);
+      const previewResponse = await preview();
+      expect((await previewResponse.arrayBuffer()).byteLength).toBe(TRANSPARENT_PNG.byteLength);
+
 
       // Search finds the section by its German name; the German labels name the variants.
       const search = tab.locator(".senify-elements__search");
