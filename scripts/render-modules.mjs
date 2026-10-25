@@ -295,9 +295,25 @@ if (process.argv.includes("--check")) {
     );
     process.exit(0);
   }
-  console.error(
-    "module: docs/current/module.md weicht vom Generator ab.\n" + "Neu erzeugen: pnpm module:render",
-  );
+  // Ein Tor, das nur "weicht ab" sagt, ist im CI-Log nutzlos: dort steht die
+  // Datei nicht zur Hand, und der naechste Schritt ist Raten. Am 25.10.2026
+  // war genau das der Fall - `module:check` war lokal gruen und in der CI rot,
+  // und die Meldung nannte keine Zeile. Deshalb nennt sie jetzt die erste
+  // abweichende Zeile und die Zahl der Abweichungen.
+  const soll = normalisieren(markdown).split("\n");
+  const ist = normalisieren(vorhanden).split("\n");
+  const abweichend = [];
+  for (let i = 0; i < Math.max(soll.length, ist.length) && abweichend.length < 5; i++) {
+    if (soll[i] !== ist[i]) abweichend.push({ zeile: i + 1, soll: soll[i], ist: ist[i] });
+  }
+  console.error("module: docs/current/module.md weicht vom Generator ab.");
+  console.error(`  Zeilen: Datei ${ist.length}, Generator ${soll.length}`);
+  for (const a of abweichend) {
+    console.error(`  Z${a.zeile}`);
+    console.error(`    Datei    : ${JSON.stringify((a.ist ?? "<fehlt>").slice(0, 160))}`);
+    console.error(`    Generator: ${JSON.stringify((a.soll ?? "<fehlt>").slice(0, 160))}`);
+  }
+  console.error("Neu erzeugen: pnpm module:render");
   process.exit(1);
 }
 
