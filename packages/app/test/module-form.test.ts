@@ -24,6 +24,7 @@ const MODULE: string[] = [
   "app-editor-panel-toggle.js",
   "app-editor-live-events.js",
   "app-editor-save-status.js",
+  "app-editor-live-sync.js",
   "app-review.js",
   "app-import.js",
   "app-markdown.js",

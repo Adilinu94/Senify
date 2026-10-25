@@ -12,6 +12,11 @@ import {
   parseEngineEvent,
 } from "./app-editor-live-events.js";
 import { saveControls, saveStatusText } from "./app-editor-save-status.js";
+import {
+  draftChangedDecision,
+  nodesToFlash,
+  pageCreatedDecision,
+} from "./app-editor-live-sync.js";
 import { createProtocolLog } from "./app-editor-protocol.js";
 import { createRedesignInbox } from "./app-editor-redesign-inbox.js";
 import { createToolbarOverflow } from "./app-editor-toolbar-overflow.js";
@@ -697,13 +702,24 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     const payload = parseEngineEvent(event);
     if (isOwnEvent(payload)) return;
     logProtocol(payload);
-    if (payload.pageId !== pageId) {
+    // Die Entscheidung liegt in `app-editor-live-sync.js` (R12); hier steht
+    // nur, was sie ausloest. "blocked" ist der teure Fall: nachladen wuerde
+    // die offenen Aenderungen verwerfen.
+    const decision = draftChangedDecision({
+      payload,
+      pageId,
+      isBusy: () => {
+        const state = session.saveState();
+        return state.pending > 0 || state.status === "saving";
+      },
+    });
+    if (decision.action === "ignore") return;
+    if (decision.action === "follow") {
       followPage(payload.pageId);
       return;
     }
-    const state = session.saveState();
-    if (state.pending > 0 || state.status === "saving") {
-      statusEl.textContent = "Fremde Änderung erkannt - bitte speichern oder neu laden";
+    if (decision.action === "blocked") {
+      statusEl.textContent = decision.message ?? "";
       return;
     }
     void (async () => {
@@ -713,7 +729,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
           editor.loadDocument(fresh.draft).document,
           fresh.draftVersion,
         );
-        canvas.flashNodes(Array.isArray(payload.nodeIds) ? payload.nodeIds : []);
+        canvas.flashNodes(nodesToFlash(payload));
         setVersion(fresh.draftVersion);
         statusEl.textContent = `Live: ${protocolAction(payload.action)}`;
       } catch (error) {
@@ -739,9 +755,11 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
           })),
         );
         explorer.refresh();
-        if (!followPage(payload.pageId)) {
-          statusEl.textContent = "Neue Seite angelegt - im Explorer wählbar";
-        }
+        const created = pageCreatedDecision({
+          payload,
+          followed: followPage(payload.pageId),
+        });
+        if (created.action === "hint") statusEl.textContent = created.message ?? "";
       } catch (error) {
         failed(error);
       }
