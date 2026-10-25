@@ -153,6 +153,9 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 | POST | `/api/sites/:siteId/duplicate` | write | Tool | `duplicate_site` |
 | GET | `/api/sites/:siteId` | read | Tool | `get_site` |
 | DELETE | `/api/sites/:siteId` | publish | Operator | UI/CLI |
+| GET | `/api/sites/:siteId/references` | read | Operator | UI/CLI |
+| POST | `/api/sites/:siteId/references` | write | Tool | `apply_reference` |
+| DELETE | `/api/sites/:siteId/references/:referenceId` | write | Tool | `unassign_reference` |
 | POST | `/api/sites/:siteId/pages` | write | Tool | `create_page` |
 | GET | `/api/sites/:siteId/pages` | read | Tool | `list_pages` |
 | GET | `/api/sites/:siteId/audit` | read | Operator | UI/CLI |
@@ -169,9 +172,6 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 | GET | `/api/sites/:siteId/code-payloads` | read | Operator | Import-Bericht/Editor |
 | GET | `/api/sites/:siteId/forms` | read | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/notifications` | read | Operator | UI/CLI |
-| GET | `/api/sites/:siteId/references` | read | Operator | UI/CLI |
-| POST | `/api/sites/:siteId/references` | write | Tool | `apply_reference` |
-| DELETE | `/api/sites/:siteId/references/:referenceId` | write | Tool | `unassign_reference` |
 | POST | `/api/sites/:siteId/redesign` | write | Tool | `apply_redesign` |
 | GET | `/api/sites/:siteId/theme` | read | Tool | `get_theme`, `server (automatisch)` |
 | GET | `/api/sites/:siteId/theme.css` | read | Operator | UI/CLI |
