@@ -30,7 +30,7 @@ import {
 import { SenifyError } from "@senify/core";
 import { paginate, parsePaging } from "./paging.ts";
 import { newEntityId } from "./ids.ts";
-import { AuthorSchema, CreatePageBodySchema, parseBody, type CreatePageBody } from "./mutations/contract.ts";
+import { CreatePageBodySchema, parseBody, type CreatePageBody } from "./mutations/contract.ts";
 import {
   createPreview,
   expirePreviews,
@@ -91,12 +91,6 @@ import {
   type CreateCodePayloadBody,
 } from "./code-payloads-contract.ts";
 import { createCodePayload } from "./code-payloads.ts";
-import {
-  InstallLibraryComponentBodySchema,
-  LibraryReattachComponentSchema,
-  type InstallLibraryComponentBody,
-  type LibraryReattachComponentBody,
-} from "./library-contract.ts";
 import { buildImagePrompt } from "./references-brief.ts";
 import { createUploadTicket, parseAssetListFilters, queryAssets, UploadUrlBodySchema, type UploadUrlBody } from "./media.ts";
 import type {
@@ -465,68 +459,6 @@ export const siteRoutes: Route[] = [
         status: 200,
         body: { assets: page.items, ...page, items: undefined },
       };
-    },
-  },
-
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "library-installs"],
-    scope: "read",
-    handler: async (context, params) => ({ status: 200, body: { installs: await context.store.listLibraryInstalls(requireParam(params, "siteId")) } }),
-  },
-
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "library-installs"],
-    scope: "write",
-    handler: async (context, params, req) => {
-      const body = parseBody<InstallLibraryComponentBody>(InstallLibraryComponentBodySchema, (await readJsonBody(req)) ?? {}, "library install");
-      return { status: 201, body: await context.store.installLibraryComponent({ id: newEntityId(), siteId: requireParam(params, "siteId"), ...body, mode: body.mode ?? "linked" }) };
-    },
-  },
-
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "library-installs", ":installId", "update"],
-    scope: "write",
-    handler: async (context, params, req) => {
-      const body = ((await readJsonBody(req)) ?? {}) as Record<string, unknown>;
-      const author = parseBody<{ kind: "human" | "agent"; id: string; label: string }>(AuthorSchema, body.author, "library install update");
-      return { status: 200, body: await context.store.updateLibraryInstall(requireParam(params, "installId"), author) };
-    },
-  },
-
-  {
-    // Re-Attach: eine geloeste Installation wieder an die Bibliothek haengen.
-    // Das Gegenstueck zum Detach - der Plan nennt es ausdruecklich ("ein
-    // Detach merkt sich seine Herkunft, Re-Attach ist moeglich").
-    //
-    // Die Route steht VOR der Route mit `:installId`, weil die Engine die
-    // Routen in Reihenfolge matcht und die erste passende gewinnt: sonst
-    // wuerde "reattach" als Installations-ID gelesen.
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "library-installs", "reattach"],
-    scope: "write",
-    handler: async (context, params, req) => {
-      const body = ((await readJsonBody(req)) ?? {}) as Record<string, unknown>;
-      const author = parseBody<{ kind: "human" | "agent"; id: string; label: string }>(AuthorSchema, body.author, "library reattach");
-      // Das Schema ist geschlossen: der Autor steht deshalb ausserhalb, sonst
-      // wuerde die Pruefung das Feld `author` als unbekannt ablehnen.
-      const { author: _author, ...rest } = body;
-      const componentId = parseBody<LibraryReattachComponentBody>(LibraryReattachComponentSchema, rest, "library reattach").componentId;
-      return { status: 200, body: await context.store.reattachLibraryComponent({ id: newEntityId(), siteId: requireParam(params, "siteId"), componentId, author }) };
-    },
-  },
-
-  {
-    method: "DELETE",
-    segments: ["api", "sites", ":siteId", "library-installs", ":installId"],
-    scope: "write",
-    destructive: true,
-    handler: async (context, params, req) => {
-      const body = ((await readJsonBody(req)) ?? {}) as Record<string, unknown>;
-      const author = parseBody<{ kind: "human" | "agent"; id: string; label: string }>(AuthorSchema, body.author, "library detach");
-      return { status: 200, body: await context.store.deleteLibraryInstall(requireParam(params, "installId"), author) };
     },
   },
 

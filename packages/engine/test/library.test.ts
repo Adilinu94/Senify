@@ -207,12 +207,93 @@ describe("global library components", () => {
     const seiteNachher = await env.engine.store.getPage(firstPageId);
     expect(Object.values(seiteNachher.draft.nodes).some((node) => node.type === "__component_instance" && node.props["libraryComponentId"] === component.id)).toBe(true);
 
+    // Die Liste der Installationen ist die Ansicht, die ein Editor zuerst
+    // aufruft. Sie war der einzige ungedeckte Funktionszweig der Datei
+    // (Befund 25.10.2026 nach dem Schnitt in `http-routes-library.ts`:
+    // 80 % Functions, 60 % Branches) - kein Test rief sie auf.
+    const installs = await env.api.request<{ installs: { id: string; componentId: string; installedVersion: number }[] }>({
+      method: "GET",
+      path: `/api/sites/${firstSiteId}/library-installs`,
+    });
+    expect(installs.status).toBe(200);
+    expect(installs.body.installs.map((entry) => entry.componentId)).toContain(component.id);
+    // Nach dem Reattach ist die Installation wieder aktiv, nicht geloest.
+    expect(installs.body.installs.find((entry) => entry.componentId === component.id)?.installedVersion).toBe(2);
+
+    // Und die zweite Site hat ihre eigene Liste: Installationen sind
+    // site-scoped, die Bibliothek selbst ist global. Eine geteilte Liste
+    // waere hier ein Leck.
+    const fremde = await env.api.request<{ installs: { id: string }[] }>({
+      method: "GET",
+      path: `/api/sites/${secondSiteId}/library-installs`,
+    });
+    expect(fremde.status).toBe(200);
+    expect(fremde.body.installs.map((entry) => entry.id)).not.toContain(installed.body.id);
+
     const audit = await env.api.request<{ entries: { action: string }[] }>({
       method: "GET",
       path: "/api/library-components/audit",
     });
     expect(audit.status).toBe(200);
     expect(audit.body.entries.map((entry) => entry.action)).toEqual(expect.arrayContaining(["created", "updated", "installed", "detached", "reattached"]));
+  }, 60_000);
+
+  it("nimmt einen leeren Koerper als leeres Objekt, nicht als Absturz", async () => {
+    // Befund vom 25.10.2026 nach dem Schnitt in `http-routes-library.ts`:
+    // 60 % Branches. Alle vier leeren Zweige waren derselbe Fall -
+    // `(await readJsonBody(req)) ?? {}` auf den drei Schreibrouten. Ein Aufruf
+    // ohne Koerper ist der erste, den ein Client falsch macht; ohne diesen
+    // Fall waere der Zweig ungedeckt und ein Absturz faellt erst beim Kunden
+    // auf.
+    //
+    // Die Antworten unterscheiden sich, weil die Vertraege es tun: die
+    // Installation verlangt Felder (400), Update und Detach verlangen den
+    // Autor (400 auf `body`), Reattach eine componentId (400). **Keine dieser
+    // Routen antwortet ohne Koerper mit 200** - genau das war die falsche
+    // Erwartung beim ersten Anlauf: `body.author` ist undefined, und
+    // `parseBody` weist das als fehlenden Koerper ab statt als fehlenden
+    // Autor. Der Test haelt den IST-Vertrag fest, nicht den erwarteten.
+    const created = await createComponent();
+    const component = created.body;
+    const installiert = await env.api.request<InstallView>({
+      method: "POST",
+      path: `/api/sites/${firstSiteId}/library-installs`,
+      body: {
+        componentId: component.id,
+        pageId: firstPageId,
+        parentNodeId: (await env.engine.store.getPage(firstPageId)).draft.rootNodeId,
+        author: TEST_AUTHOR,
+      },
+    });
+    expect(installiert.status).toBe(201);
+
+    const ohneKoerper = await env.api.request<{ error: { field?: string } }>({
+      method: "POST",
+      path: `/api/sites/${firstSiteId}/library-installs`,
+    });
+    expect(ohneKoerper.status).toBe(400);
+    expect(ohneKoerper.body.error.field).toBe("componentId");
+
+    const updateOhneKoerper = await env.api.request<{ error: { field?: string } }>({
+      method: "POST",
+      path: `/api/sites/${firstSiteId}/library-installs/${installiert.body.id}/update`,
+    });
+    expect(updateOhneKoerper.status).toBe(400);
+    expect(updateOhneKoerper.body.error.field).toBe("body");
+
+    const reattachOhneKoerper = await env.api.request<{ error: { field?: string } }>({
+      method: "POST",
+      path: `/api/sites/${firstSiteId}/library-installs/reattach`,
+    });
+    expect(reattachOhneKoerper.status).toBe(400);
+    expect(reattachOhneKoerper.body.error.field).toBe("body");
+
+    const detachOhneKoerper = await env.api.request<{ error: { field?: string } }>({
+      method: "DELETE",
+      path: `/api/sites/${firstSiteId}/library-installs/${installiert.body.id}`,
+    });
+    expect(detachOhneKoerper.status).toBe(400);
+    expect(detachOhneKoerper.body.error.field).toBe("body");
   }, 60_000);
 
   // ADR-0010 §4: the licence is mandatory and may be `unknown` — but an

@@ -46,6 +46,11 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 | POST | `/api/sites/:siteId/imports/framer` | write | Tool | `import_framer_page` |
 | POST | `/api/sites/:siteId/imports/framer/preview` | write | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/imports` | read | Operator | UI/CLI |
+| GET | `/api/sites/:siteId/library-installs` | read | Operator | UI/CLI |
+| POST | `/api/sites/:siteId/library-installs` | write | Tool | `install_library_component` |
+| POST | `/api/sites/:siteId/library-installs/:installId/update` | write | Tool | `update_library_instances` |
+| POST | `/api/sites/:siteId/library-installs/reattach` | write | Tool | `reattach_library_component` |
+| DELETE | `/api/sites/:siteId/library-installs/:installId` | write | Tool | `uninstall_library_component` |
 | GET | `/api/motion-vendor/:name` | read | Operator | Auslieferung der Motion-Runtime (Editor/Preview) |
 | PUT | `/api/assets/upload/:uploadId` | read | Workflow-gebündelt | Byte-Sink des Upload-Flows (via upload_asset, signierte URL) |
 | GET | `/api/library-components` | read | Tool | `list_library_components` |
@@ -151,11 +156,6 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 | GET | `/api/sites/:siteId/reviews` | read | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/assets/upload-url` | write | Tool | via upload_asset (uploadLocalFile-Helper) |
 | GET | `/api/sites/:siteId/assets` | read | Tool | `list_assets` |
-| GET | `/api/sites/:siteId/library-installs` | read | Operator | UI/CLI |
-| POST | `/api/sites/:siteId/library-installs` | write | Tool | `install_library_component` |
-| POST | `/api/sites/:siteId/library-installs/:installId/update` | write | Tool | `update_library_instances` |
-| POST | `/api/sites/:siteId/library-installs/reattach` | write | Tool | `reattach_library_component` |
-| DELETE | `/api/sites/:siteId/library-installs/:installId` | write | Tool | `uninstall_library_component` |
 | POST | `/api/sites/:siteId/code-payloads` | write | Operator | Import/CLI (MCP-Tools folgen mit der Bibliothek, S6) |
 | GET | `/api/sites/:siteId/code-payloads` | read | Operator | Import-Bericht/Editor |
 | POST | `/api/sites/:siteId/collections` | write | Operator | UI/CLI |
