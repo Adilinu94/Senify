@@ -84,4 +84,34 @@ describe("der Startzustand eines Effekts", () => {
     expect(inner).not.toContain("opacity");
     expect(inner).not.toContain("transform");
   });
+
+  it("nimmt den Weichzeichner des Startzustands mit weg (die Ueberschrift bleibt lesbar)", () => {
+    // Framer schreibt die wortweise Einblendung mit `filter:blur(12px)` an jedes
+    // Wort; die Laufzeit nimmt den Weichzeichner auf `blur(0)`. Gemessen an
+    // `rare-works`: 92 `blur(`-Regeln im Release, und die Hero-Ueberschrift war
+    // ein grauer Fleck, sobald der Traeger fehlte (ADR-0026). Die Deklaration
+    // gehoert deshalb zum Startzustand — wie `opacity` und `transform`.
+    //
+    // Das Leerzeichen zwischen den Woertern ist Teil des Falls: nur dann weicht
+    // der innere Markup-Text vom zusammengesetzten Kindertext ab und der Capture
+    // behaelt das Markup (`innerHtml`).
+    const html = `<html><body><div id="main"><h1><span style="display:inline-block;opacity:0.001;filter:blur(12px);transform:translateY(28px)">Run</span> <span style="display:inline-block">Money</span></h1></div></body></html>`;
+    const document = captureHtml({ html });
+    const inner = document.pages[0]?.root.children[0]?.innerHtml ?? "";
+    expect(inner).toContain("Run");
+    expect(inner).not.toContain("blur");
+    expect(inner).not.toContain("opacity");
+    expect(inner).not.toContain("transform");
+  });
+
+  it("laesst einen Weichzeichner stehen, der kein Startzustand ist", () => {
+    // Ein unscharfer Hintergrund ist Aussehen, nicht Anfangszustand: ohne
+    // `opacity`/`transform` gibt es keine Einblendung, die ihn aufloest. Ein
+    // pauschales Entfernen wuerde das Design der Seite zerstoeren.
+    const html = `<html><body><div id="main"><h1><span style="display:inline-block;filter:blur(4px)">Weich</span> <span>Text</span></h1></div></body></html>`;
+    const document = captureHtml({ html });
+    const inner = document.pages[0]?.root.children[0]?.innerHtml ?? "";
+    expect(inner).toContain("Weich");
+    expect(inner).toContain("blur(4px)");
+  });
 });

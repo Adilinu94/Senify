@@ -137,7 +137,7 @@ beim Erzeugen gemessen.
 |---|---|---|
 | `packages/mcp/src/tools.ts` | 2714 | die Werkzeug-Tabelle; ihre Reihenfolge ist der Vertrag (`server.ts` liest `TOOLS.map`), der Manifest-Generator folgt den `...X_TOOLS`-Spreizungen - ein weiterer Schnitt ist möglich und braucht den Manifest-Diff als Beweis |
 | `packages/engine/src/store.ts` | 2662 | vier fachübergreifende Transaktionen (`applyRedesignPlan`, `duplicateSiteWithPlan`, `duplicateAssetRecords`, `commitFramerImportPlan`), `replaceTables` und die Fassade; der Rest sind Delegaten |
-| `packages/framer-import/src/capture-html.ts` | 2626 | der HTML-Capture des Imports |
+| `packages/framer-import/src/capture-html.ts` | 2639 | der HTML-Capture des Imports |
 | `packages/editor/src/inspector/inspector.ts` | 1884 | eine Closure (`createInspector`), die DOM und Zustand gemeinsam hält |
 | `packages/framer-import/src/mapper.ts` | 1790 | die Abbildung Framer nach NodeTree |
 | `packages/engine/src/content.ts` | 1703 | Sammlungen, Einträge und ihre Suche in einem Fachgebiet |
