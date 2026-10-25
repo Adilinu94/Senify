@@ -143,6 +143,32 @@ function mapLibraryInstall(row: LibraryInstallRow): LibraryInstall {
   };
 }
 
+// ADR-0010 §4, enforced: a component that came out of a Framer import may only
+// enter the global library when its licence is stated. The default of a create
+// is `{ id: "unknown", status: "unknown" }` — without this rule every promoted
+// import travelled into every project unchecked.
+//
+// The rule names the *imported* case on purpose: a hand-built component has no
+// third-party licence to check, and a site-local payload may stay `unknown`
+// (the page belongs to that site). The library is what spreads code.
+export function assertLicensedForLibrary(
+  license: LibraryLicense,
+  provenance: LibraryProvenance,
+): void {
+  if (provenance.kind !== "framer-import") return;
+  const unknown = license.status !== "verified" || license.id.trim().toLowerCase() === "unknown";
+  if (!unknown) return;
+  throw new SenifyError(
+    "validation",
+    `Baustein aus einem Framer-Import ohne geprüfte Lizenz ("${license.id}") darf nicht in die Bibliothek`,
+    {
+      field: "license",
+      suggestion:
+        "Lizenz des Bausteins prüfen und mit status: \"verified\" und einer id (z. B. \"MIT\") angeben; ohne Nachweis bleibt der Baustein auf seiner Seite.",
+    },
+  );
+}
+
 // What the module needs from the Store. Passed in, not imported: the page draft
 // and the site belong to the Store, the library does not.
 export type LibraryHost = {
@@ -209,6 +235,13 @@ export class LibraryRepository {
 
   async createLibraryComponent(input: LibraryCreateInput): Promise<LibraryComponent> {
     assertDraftShape(input.definition);
+    // ADR-0010 §4: a payload with an unchecked licence must not be lifted into
+    // the global library — that is how foreign code with no rights would travel
+    // into every project. The library is the only place that spreads a
+    // component across sites, so the rule sits here and not in the payload
+    // store (a site may run a payload whose licence is still unknown: the page
+    // is the site's own responsibility, the library is not).
+    assertLicensedForLibrary(input.license, input.provenance);
     const existing = await this.#db.query<LibraryComponentRow>(
       `SELECT ${LIBRARY_COLUMNS} FROM library_components WHERE fingerprint = $1`,
       [input.fingerprint],

@@ -685,6 +685,10 @@ export const PRIMITIVES: readonly PrimitiveDefinition[] = [
       media("poster", "Poster"),
       text("alt", "Alternativtext", ""),
       text("label", "Bezeichnung", ""),
+      // A carrier that stands for the whole page (the Framer runtime): the
+      // release renders it instead of the structure. The canvas shows the
+      // structure — the foreign code never runs there.
+      ctrl("coversPage", "Deckt die Seite ab", "switcher", "boolean", false, { responsive: false }),
     ],
     styleGroups: ["spacing", "size", "border", "effects"],
   },

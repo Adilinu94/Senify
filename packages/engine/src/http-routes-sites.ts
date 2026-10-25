@@ -1,11 +1,19 @@
-// Die Routen einer Site jenseits des Lebenszyklus: Seiten, Bausteine,
-// Bibliothek, Inhalte, Referenzen, Bilder und Importe. Die Tabelle des
-// Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019).
+// Die Routen einer Site jenseits des Lebenszyklus: Seiten, Bibliothek,
+// Inhalte (Sammlungen, Eintraege), Referenzen, Bilder, Code-Payloads,
+// Vorschauen, Reviews, Redesign und Betrieb (Audit, Formulare,
+// Benachrichtigungen, Deployments). Die Tabelle des Dispatchers in `http.ts`
+// nimmt sie unveraendert auf (ADR-0019).
 //
 // Nicht mehr hier: der Lebenszyklus (`http-routes-site-lifecycle.ts`, Schritt
-// 60), Theme und Style-Regeln (`http-routes-theme.ts`, Schritt 57), Assets
-// (`http-routes-assets.ts`, Schritt 53), Formulare (`http-routes-formular.ts`,
-// Schritt 54).
+// 60), der Framer-Import (`http-routes-imports.ts`, Schritt 61), Theme und
+// Style-Regeln (`http-routes-theme.ts`, Schritt 57), Assets
+// (`http-routes-assets.ts`, Schritt 53), Formulare
+// (`http-routes-formular.ts`, Schritt 54).
+//
+// Die Datei ist der groesste verbleibende Schnitt-Kandidat: die naechsten
+// Gruppen mit sauberer Fachgrenze sind Bilder + Import-Vorschau (kein
+// gemeinsamer Zustand) und Betrieb (Audit, Formulare, Benachrichtigungen -
+// vier lesende Routen ohne Schreibpfad).
 
 import type { Route } from "./http-contract.ts";
 import {
@@ -22,15 +30,7 @@ import {
 import { SenifyError } from "@senify/core";
 import { paginate, parsePaging } from "./paging.ts";
 import { newEntityId } from "./ids.ts";
-import { assertImportRootAllowed, IMPORT_MAX_ATTEMPTS, runFramerImportJob, sourceOf } from "./imports.ts";
-import { createImportPreviewDriver, previewFramerImport } from "./import-preview.ts";
-import {
-  CreateImportBodySchema,
-  type CreateImportBody,
-} from "./imports-contract.ts";
 import { AuthorSchema, CreatePageBodySchema, parseBody, type CreatePageBody } from "./mutations/contract.ts";
-import { parseDurationMs } from "@senify/renderer";
-import { resolveTheme } from "@senify/tokens";
 import {
   createPreview,
   expirePreviews,
@@ -45,13 +45,11 @@ import {
   type PublishReleaseBody,
   type SubmitReviewBody,
 } from "./lifecycle-contract.ts";
-import { Store } from "./store.ts";
 import { validateImageRequest } from "./image-provider.ts";
 import {
   CreateImageJobBodySchema,
   type CreateImageJobBody,
 } from "./images-contract.ts";
-import { encryptImageApiKey } from "./settings.ts";
 import { listSiteForms } from "./forms.ts";
 import {
   createCollection,
@@ -72,16 +70,9 @@ import {
   type SearchEntriesBody,
 } from "./content-contract.ts";
 import {
-  CreateDeploymentBodySchema,
-  UpdateDeploySettingsBodySchema,
-  type CreateDeploymentBody,
-  type UpdateDeploySettingsBody,
-} from "./deploy-contract.ts";
-import {
   UpdateDesignContractBodySchema,
   type UpdateDesignContractBody,
 } from "./design-contract-schema.ts";
-import { deployActiveRelease } from "./deploy.ts";
 import {
   applyReference,
   referenceThemeDraft,
@@ -281,100 +272,6 @@ export const siteRoutes: Route[] = [
   },
 
   {
-    // Deploy (E14): delivers the active release's build to the target. The
-    // first adapter is a static directory; the outcome is recorded.
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "deployments"],
-    scope: "publish",
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<CreateDeploymentBody>(
-        CreateDeploymentBodySchema,
-        body,
-        "deployment",
-      );
-      const provider = input.provider ?? "static";
-      if (provider === "static" && input.targetDir === undefined) {
-        throw new SenifyError("validation", 'Static deploys need a "targetDir"', {
-          field: "targetDir",
-          suggestion: 'Send { "provider": "static", "targetDir": "C:\\\\sites\\\\seite" }.',
-        });
-      }
-      const deployment = await deployActiveRelease(context.store, {
-        siteId,
-        provider,
-        targetDir: input.targetDir ?? "",
-        author: resolveAuthor(auth),
-      });
-      context.events.publish({
-        kind: "deploy.finished",
-        siteId,
-        action: deployment.status,
-        actor: resolveAuthor(auth),
-      });
-      return { status: 201, body: { deployment } };
-    },
-  },
-
-  {
-    // Deploy settings (E14): where a hosted provider delivers. The token is
-    // encrypted at rest; the view only says whether one exists.
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "deploy-settings"],
-    scope: "read",
-    handler: async (context, params) => ({
-      status: 200,
-      body: await context.store.getDeploySettings(requireParam(params, "siteId")),
-    }),
-  },
-
-  {
-    method: "PUT",
-    segments: ["api", "sites", ":siteId", "deploy-settings"],
-    scope: "write",
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<UpdateDeploySettingsBody>(
-        UpdateDeploySettingsBodySchema,
-        body,
-        "deploy settings",
-      );
-      const patch: Parameters<Store["updateDeploySettings"]>[1] = {};
-      if (input.provider !== undefined) patch.provider = input.provider;
-      if (input.netlifySiteId !== undefined) patch.netlifySiteId = input.netlifySiteId;
-      if (input.netlifyToken !== undefined) {
-        patch.netlifyTokenEncrypted =
-          input.netlifyToken === null
-            ? null
-            : await encryptImageApiKey(context.store, input.netlifyToken);
-      }
-      if (input.vercelProjectId !== undefined) patch.vercelProjectId = input.vercelProjectId;
-      if (input.vercelToken !== undefined) {
-        patch.vercelTokenEncrypted =
-          input.vercelToken === null
-            ? null
-            : await encryptImageApiKey(context.store, input.vercelToken);
-      }
-      const settings = await context.store.updateDeploySettings(siteId, patch);
-      await context.store.recordSiteEvent({
-        siteId,
-        mutation: "update_deploy_settings",
-        params: {
-          provider: settings.provider,
-          netlifySiteId: settings.netlifySiteId,
-          vercelProjectId: settings.vercelProjectId,
-          tokenChanged:
-            input.netlifyToken !== undefined || input.vercelToken !== undefined,
-        },
-        author: resolveAuthor(auth),
-      });
-      return { status: 200, body: settings };
-    },
-  },
-
-  {
     // Design contract (E26, R9): the project's design DNA. GET returns the
     // contract or null; PUT sets a manual one (null clears it).
     method: "GET",
@@ -415,20 +312,6 @@ export const siteRoutes: Route[] = [
         author: resolveAuthor(auth),
       });
       return { status: 200, body: contract };
-    },
-  },
-
-  {
-    // The deploy history of a site (newest first).
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "deployments"],
-    scope: "read",
-    handler: async (context, params) => {
-      const siteId = requireParam(params, "siteId");
-      return {
-        status: 200,
-        body: { deployments: await context.store.listDeployments(siteId) },
-      };
     },
   },
 
@@ -1067,160 +950,6 @@ export const siteRoutes: Route[] = [
       return {
         status: 200,
         body: { jobs: page.items, ...page, items: undefined },
-      };
-    },
-  },
-
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "imports", "framer"],
-    scope: "write",
-    handler: async (context, params, req, url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const parsed = parseBody<CreateImportBody>(CreateImportBodySchema, body, "import");
-      const { idempotencyKey, ...importInput } = parsed;
-      if (importInput.source.rootDir !== undefined && importInput.source.rootDir !== "") {
-        assertImportRootAllowed(importInput.source.rootDir);
-      }
-      return withIdempotency(context, auth, req, url, idempotencyKey, parsed, async () => {
-        const author = resolveAuthor(auth);
-        const dryRun = importInput.write !== true;
-        const pagePath = importInput.pagePath ?? "/";
-        const job = await context.store.createImportJob({
-          siteId,
-          source: {
-            kind: importInput.source.url !== undefined
-              ? "url"
-              : importInput.source.rootDir !== undefined
-                ? "mirror"
-                : "html",
-            url: importInput.source.url ?? null,
-            rootDir: importInput.source.rootDir ?? null,
-            html: importInput.source.html ?? null,
-            baseUrl: importInput.source.baseUrl ?? null,
-          },
-          pagePath,
-          dryRun,
-          maxAttempts: IMPORT_MAX_ATTEMPTS,
-          payload: importInput as Record<string, unknown>,
-        });
-        try {
-          await context.store.updateImportJob({
-            id: job.id,
-            status: "running",
-            stage: "capture",
-            progress: 10,
-            attempts: job.attempts + 1,
-            nextAttemptAt: job.nextAttemptAt,
-            lastError: null,
-            finishedAt: null,
-          });
-          const result = await runFramerImportJob(context.store, {
-            siteId,
-            jobId: job.id,
-            body: importInput,
-            author,
-            media: mediaContext(context),
-          });
-          if (importInput.write !== true) {
-            await context.store.updateImportJob({
-              id: job.id,
-              status: "succeeded",
-              stage: "done",
-              progress: 100,
-              attempts: job.attempts + 1,
-              nextAttemptAt: job.nextAttemptAt,
-              lastError: null,
-              finishedAt: new Date().toISOString(),
-            });
-            await context.store.setImportJobResult(
-              job.id,
-              result.report as unknown as Record<string, unknown>,
-            );
-          }
-          // Re-read: the answer carries the final job state, not the
-          // queued snapshot from the insert.
-          const finished = await context.store.getImportJob(job.id);
-          if (importInput.write === true && !result.report.replayed) {
-            context.events.publish({
-              kind: "page.created",
-              siteId,
-              pageId: result.report.pageId ?? undefined,
-              action: "importFramer",
-              actor: author,
-            });
-          }
-          return { status: 201, body: { job: finished, report: result.report } };
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500);
-          await context.store
-            .updateImportJob({
-              id: job.id,
-              status: "failed",
-              stage: "failed",
-              progress: job.progress,
-              attempts: job.attempts + 1,
-              nextAttemptAt: job.nextAttemptAt,
-              lastError: message,
-              finishedAt: new Date().toISOString(),
-            })
-            .catch(() => undefined);
-          throw error;
-        }
-      });
-    },
-  },
-
-  {
-    // The preview of an import (nothing is written): the page next to the page
-    // the import makes of it, at the platform's three widths. It opens a
-    // browser and loads the source, so it is a write-scope call.
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "imports", "framer", "preview"],
-    scope: "write",
-    handler: async (context, params, req) => {
-      const siteId = requireParam(params, "siteId");
-      const parsed = parseBody<CreateImportBody>(CreateImportBodySchema, (await readJsonBody(req)) ?? {}, "import");
-      const site = await context.store.getSite(siteId);
-      const siteTheme = await context.store.getTheme(siteId);
-      const resolved = resolveTheme(siteTheme.theme);
-      const baseDuration = resolved.motion.duration.base;
-      // The write would set the source's breakpoints only on a site without a
-      // pair and without other pages; the preview bakes with what it would leave.
-      const targetPath = parsed.pagePath ?? "/";
-      const otherPages = (await context.store.listPageDrafts(siteId)).some((page) =>
-        parsed.pageId === undefined ? page.path !== targetPath : page.id !== parsed.pageId,
-      );
-      const preview = await previewFramerImport({
-        source: sourceOf(parsed),
-        pagePath: parsed.pagePath ?? "/",
-        mode: parsed.mode ?? "dna",
-        themeCss: siteTheme.css,
-        motionTokens: {
-          ease: resolved.motion.ease,
-          baseDurationMs: baseDuration === undefined ? 300 : parseDurationMs(baseDuration),
-          baseStaggerMs: 80,
-        },
-        siteName: site.name,
-        site: { ...(site.breakpoints === undefined ? {} : { breakpoints: site.breakpoints }), otherPages },
-        driver: context.importPreview ?? createImportPreviewDriver(),
-      });
-      return { status: 200, body: preview };
-    },
-  },
-
-  {
-    // The site-scoped import history shown by the editor.
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "imports"],
-    scope: "read",
-    handler: async (context, params) => {
-      const siteId = requireParam(params, "siteId");
-      return {
-        status: 200,
-        body: { jobs: await context.store.listImportJobsForSite(siteId, 100) },
       };
     },
   },

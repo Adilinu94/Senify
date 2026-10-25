@@ -81,3 +81,9 @@ packages/app/dist/
 # Sie entstehen bei jedem Lauf und gehoeren nicht ins Repo.
 /.tmp/
 /.bake-tmp/
+# Messlaeufe der Import-Diagnose: Bakes und Screenshots fremder Seiten.
+# `packages/framer-import/scripts/blindtest.ts` schreibt sie beim Lauf.
+/_blindtest/
+/_messung/
+/_messung-*/
+_preview/

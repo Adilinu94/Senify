@@ -260,6 +260,14 @@ export function validateTheme(theme: Theme): ThemeIssue[] {
       });
     }
   }
+  for (const [slot, font] of Object.entries(theme.fonts.extra ?? {})) {
+    if (font.weights.length === 0) {
+      issues.push({
+        path: `fonts.extra.${slot}.weights`,
+        message: `Font "${font.family}" declares no weights`,
+      });
+    }
+  }
   return issues;
 }
 

@@ -539,6 +539,9 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
       const alt = text(props, "alt");
       const hasPayload = payloadId !== "";
       const hasPoster = poster !== "";
+      // A carrier that stands for the whole page (the Framer runtime): the
+      // release renders it instead of the structure.
+      const coversPage = props["coversPage"] === true;
       return {
         tag: "div",
         classes: [primitiveClass("payload")],
@@ -546,13 +549,21 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
           "data-island": hasPayload ? "payload" : undefined,
           "data-payload-id": hasPayload ? payloadId : undefined,
           "data-payload-poster": hasPoster ? "1" : "0",
-          // Without a poster the plate *is* the rendering (nothing to fall
-          // back from); with one the poster stands until the module mounts.
-          "data-payload-state": !hasPayload || !hasPoster ? "plate" : "pending",
+          "data-payload-covers-page": coversPage ? "1" : undefined,
+          // Without a payload the plate *is* the rendering (nothing to fall
+          // back from). With one the stage waits for the module: the poster
+          // stands until it mounted, the plate only if the load failed.
+          "data-payload-state": hasPayload ? "pending" : "plate",
           role: "group",
           "aria-label": label !== "" ? label : alt !== "" ? alt : "Fremd-Code",
         },
         children: [
+          // A carrier that stands for the whole page does not draw a plate: when
+          // its payload is missing, the bake drops the carrier entirely and the
+          // structure stands (see `renderTreeOf`). A plate under a complete page
+          // would only add height (measured +96 px) and a label nobody needs.
+          // The poster and the stage stay: the poster is the first fallback of
+          // ADR-0010 §7, the stage is where the module mounts.
           ...(hasPoster
             ? [
                 {
@@ -567,15 +578,19 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
             classes: [modifier("payload", "stage")],
             attrs: { "data-payload-stage": "" },
           },
-          {
-            tag: "div",
-            classes: [modifier("payload", "plate")],
-            text: hasPayload
-              ? label !== ""
-                ? label
-                : "Fremd-Code"
-              : "Kein Payload hinterlegt — die Stelle bleibt leer",
-          },
+          ...(!coversPage
+            ? [
+                {
+                  tag: "div",
+                  classes: [modifier("payload", "plate")],
+                  text: hasPayload
+                    ? label !== ""
+                      ? `${label} — der Fremd-Code ließ sich nicht laden`
+                      : "Fremd-Code ließ sich nicht laden"
+                    : "Kein Payload hinterlegt — die Stelle bleibt leer",
+                },
+              ]
+            : []),
         ],
         root: true,
       };
@@ -716,6 +731,15 @@ export const PRIMITIVE_RESET: Readonly<Record<string, readonly string[]>> = {
 // The elements a primitive builds itself, spelled as the markup writes them.
 // The key is the full selector, so a part can reach into a modifier.
 const PART_RESET: Readonly<Record<string, readonly string[]>> = {
+  // The payload carrier (ADR-0010): the poster stands until the module
+  // mounted, the plate only when there is nothing to mount. The stage is the
+  // mount target and carries the content the module puts there.
+  ".w-payload--poster": ["display: block;", "width: 100%;", "height: auto;"],
+  '.w-payload[data-payload-state="mounted"] .w-payload--poster': ["display: none;"],
+  '.w-payload[data-payload-state="plate"] .w-payload--poster': ["display: none;"],
+  ".w-payload--stage": ["display: block;"],
+  ".w-payload--plate": ["display: none;"],
+  '.w-payload[data-payload-state="plate"] .w-payload--plate': ["display: block;"],
   ".w-field__label": ["font-weight: 600;"],
   ".w-input--control, .w-select--control": [
     "border: 1px solid currentColor;",

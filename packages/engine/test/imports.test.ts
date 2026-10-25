@@ -728,6 +728,46 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
       });
       expect(result.status).toBe(400);
     }, 60_000);
+
+    it("bakes against the pair the site keeps when it already holds pages", async () => {
+      // Befund vom 25.10.2026: `http-routes-imports.ts` stand bei 66,66 %
+      // Functions, und der leere Zweig war `parsed.pageId === undefined ?
+      // page.path !== targetPath : page.id !== parsed.pageId`. Die Vorschau
+      // fragt den Store, ob die Site schon eine ANDERE Seite hat - auf einer
+      // leeren Site laeuft `.some()` nie durch den Rueckruf, deshalb deckte
+      // der glueckliche Pfad nur die Haelfte ab.
+      //
+      // Der Unterschied ist nicht kosmetisch: hat die Site schon Seiten und
+      // kein eigenes Paar, bleibt `DEFAULT_BREAKPOINTS` in Kraft
+      // (`planImportBreakpoints`, Grund "other-pages") - die Vorschau muss
+      // also mit dem Paar backen, das der Schreibvorgang hinterlaesst, nicht
+      // mit dem der Quelle. Beide Wege des Ternaers werden hier gefahren:
+      // ueber den Pfad (Seite existiert, andere Seite) und ueber die pageId.
+      const own = await createTestSite(previewEnv.api, "Import Vorschau Bestand");
+      const erste = await createTestPage(previewEnv.api, own.id, {
+        path: "/bestehend",
+        title: "Bestehend",
+      });
+
+      const ueberPfad = await previewEnv.api.request<{ shots: unknown[] }>({
+        method: "POST",
+        path: `/api/sites/${own.id}/imports/framer/preview`,
+        body: { source: { html: framerHtml() }, pagePath: "/neu" },
+      });
+      expect(ueberPfad.status, JSON.stringify(ueberPfad.body)).toBe(200);
+      expect(ueberPfad.body.shots.length).toBeGreaterThan(0);
+
+      // Dieselbe Seite ueber ihre id: der Ternaer nimmt dann den anderen Arm,
+      // und weil die Vorschau genau diese Seite ersetzen wuerde, ist sie
+      // keine "andere" Seite - der andere Arm muss also ebenfalls laufen.
+      const ueberId = await previewEnv.api.request<{ shots: unknown[] }>({
+        method: "POST",
+        path: `/api/sites/${own.id}/imports/framer/preview`,
+        body: { source: { html: framerHtml() }, pageId: erste.id },
+      });
+      expect(ueberId.status, JSON.stringify(ueberId.body)).toBe(200);
+      expect(ueberId.body.shots.length).toBeGreaterThan(0);
+    }, 180_000);
   });
 
   describe("write guards", () => {
@@ -779,6 +819,94 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
     expect(polled.body.job.id).toBe(jobId);
     expect(polled.body.report?.irHash).toBe(created.body.report.irHash);
   }, 60_000);
+
+  it("ein gescheiterter Import hinterlaesst einen Job mit Grund, keinen halben Erfolg", async () => {
+    // Befund vom 25.10.2026 nach dem Schnitt in `http-routes-imports.ts`:
+    // 66,66 % Functions, der leere Zweig war `.catch(() => undefined)` am
+    // Fehlerpfad. Die Zeile ist kein Zierrat: sie haelt fest, dass ein Fehler
+    // beim FORTSCHREIBEN des Jobs den eigentlichen Fehler nicht verdecken
+    // darf - der Aufrufer soll die Ursache sehen, nicht ein "Job nicht
+    // gefunden" aus der Buchhaltung.
+    //
+    // Geprueft wird beides: die Route antwortet mit der Ursache, und der Job
+    // steht danach als `failed` mit `lastError` da. Ein Job, der "queued"
+    // bliebe, waere ein haengender Eintrag im Verlauf.
+    //
+    // Der Fehler muss INNERHALB des Laufs entstehen - ein Vertragsfehler
+    // (etwa ein unbekannter `capture`-Wert) wird abgewiesen, bevor der Job
+    // existiert, und deckt diesen Zweig nicht ab. Die Adresspruefung liegt
+    // hinter der Einfuegung: eine private URL ohne Server, damit nichts
+    // Verbundenes im Test haengt.
+    const own = await createTestSite(env.api, "Import Fehlerpfad");
+    vi.stubEnv("SENIFY_ALLOW_PRIVATE_URLS", "");
+    try {
+      const response = await runImport(
+        { source: { url: "http://127.0.0.1:9/seite" }, write: true },
+        own.id,
+      );
+      expect(response.status).toBe(400);
+      expect(response.body.error.message).toContain("public");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    const jobs = await env.engine.store.listImportJobsForSite(own.id, 100);
+    expect(jobs.length).toBe(1);
+    const job = jobs[0];
+    expect(job?.status, JSON.stringify(job)).toBe("failed");
+    expect(job?.stage).toBe("failed");
+    expect(job?.lastError).toBeTruthy();
+    expect(job?.finishedAt).not.toBeNull();
+    expect(job?.attempts).toBe(1);
+
+    // Der Verlauf zeigt denselben Zustand - nicht den der Einfuegung.
+    const verlauf = await env.api.request<{ jobs: { id: string; status: string }[] }>({
+      method: "GET",
+      path: `/api/sites/${own.id}/imports`,
+    });
+    expect(verlauf.status).toBe(200);
+    expect(verlauf.body.jobs[0]?.status).toBe("failed");
+  }, 120_000);
+
+  it("verbirgt die Ursache nicht, wenn schon das Fortschreiben des Jobs scheitert", async () => {
+    // Der letzte leere Zweig der Datei war `.catch(() => undefined)` am
+    // Fehlerpfad (Befund 25.10.2026: 83,33 % Functions). Er greift, wenn das
+    // Fortschreiben des Jobs selbst scheitert - dann darf die Buchhaltung den
+    // eigentlichen Fehler nicht verdecken. Der Aufrufer soll sehen, warum der
+    // Import scheiterte, nicht "Job nicht gefunden" aus dem Aufraeumversuch.
+    //
+    // Die Störung wird ehrlich injiziert (kein gefaelschter Kontext): der
+    // Store des laufenden Motors weist jedes Fortschreiben ab. Der Fehler
+    // entsteht dadurch VOR dem Import - und genau das ist der Fall, den die
+    // Zeile abfaengt.
+    const own = await createTestSite(env.api, "Import Buchhaltung kaputt");
+    const buchhaltung = vi
+      .spyOn(env.engine.store, "updateImportJob")
+      .mockRejectedValue(new Error("Buchhaltung nicht erreichbar"));
+    try {
+      const response = await runImport(
+        { source: { html: framerHtml() }, pagePath: "/buchhaltung" },
+        own.id,
+      );
+      expect(response.status).toBeGreaterThanOrEqual(500);
+      // Der Motor maskiert einen unerwarteten Fehler zu "Internal engine
+      // error" - das ist die Vertragsseite fuer den Client. Entscheidend ist,
+      // dass die Antwort ueberhaupt eine Fehlerantwort ist und kein
+      // Folgefehler aus dem Aufraeumversuch ("Import job ... does not exist")
+      // durchschlaegt.
+      expect(response.body.error?.message).toBe("Internal engine error");
+      expect(response.body.error?.category).toBe("internal");
+    } finally {
+      buchhaltung.mockRestore();
+    }
+
+    // Und der Job bleibt als Zeile stehen: er wurde angelegt, bevor die
+    // Buchhaltung ausfiel. Ein stillschweigend verschwundener Job waere
+    // schlimmer als ein haengender.
+    const jobs = await env.engine.store.listImportJobsForSite(own.id, 100);
+    expect(jobs.length).toBe(1);
+    expect(jobs[0]?.status).toBe("queued");
+  }, 120_000);
 
   it("is idempotent: the same source twice yields the same irHash", async () => {
     const first = await runImport({ source: { html: framerHtml() } });

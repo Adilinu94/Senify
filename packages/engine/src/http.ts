@@ -24,6 +24,8 @@ import type {
 } from "./types.ts";
 import type { AuthInfo, EngineContext, Route, RouteParams } from "./http-contract.ts";
 import { siteRoutes } from "./http-routes-sites.ts";
+import { importRoutes } from "./http-routes-imports.ts";
+import { deployRoutes } from "./http-routes-deploy.ts";
 import { siteLifecycleRoutes } from "./http-routes-site-lifecycle.ts";
 import { themeRoutes } from "./http-routes-theme.ts";
 import { sectionPreviewRoutes } from "./http-routes-section-preview.ts";
@@ -119,6 +121,8 @@ const ROUTES: Route[] = [
   ...opsRoutes,
   ...contentRoutes,
   ...siteRoutes,
+  ...importRoutes,
+  ...deployRoutes,
   ...siteLifecycleRoutes,
   ...themeRoutes,
   ...sectionPreviewRoutes,

@@ -261,6 +261,9 @@ function samplesOfProbe(probe: Record<string, unknown>, keyOf: (target: unknown)
       trigger: isLoop ? "time" : "scroll",
       params: {
         duration: typeof entry.duration === "number" ? entry.duration : 0,
+        // `getTiming().duration` is milliseconds (the platform unit). The field
+        // exists so the mapper never has to infer the unit from the library.
+        durationUnit: "ms",
         iterations: isLoop ? "endless" : String(iterations ?? "1"),
         ...(typeof entry.name === "string" ? { name: entry.name } : {}),
       },

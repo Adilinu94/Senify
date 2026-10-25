@@ -31,7 +31,7 @@
 | `store-job-mappers.ts` | - | 177 | Row types and mappers for the background jobs: import, bake and image jobs (P3-2, moved out of store.ts). | - |
 | `store-library-definition.ts` | - | 226 | Die Definition einer Bibliotheks-Installation in den Draft einer Site uebernehmen. | - |
 | `store-library-similarity.ts` | - | 108 | Aehnlichkeit zweier Baustein-Definitionen. | - |
-| `store-library.ts` | `LibraryRepository` | 671 | Library of the Store (ADR 0019): the shared component library and the installations that link a component into a site. `Store` delegates here. | - |
+| `store-library.ts` | `LibraryRepository` | 704 | Library of the Store (ADR 0019): the shared component library and the installations that link a component into a site. `Store` delegates here. | - |
 | `store-mcp-audit.ts` | `McpAuditRepository` | 81 | MCP audit log of the Store (ADR 0019): one row per tool call an MCP client made. `Store` delegates here. | - |
 | `store-notifications.ts` | `NotificationsRepository` | 199 | Notification outbox and newsletter tokens of the Store (ADR 0019): queued mails with their delivery result and the single-use confirm/unsubscribe tokens. `Store` delegates here. | - |
 | `store-page-mappers.ts` | - | 96 | Zeilentypen und Mapper der Seite (P3-2): gemeinsam genutzt von `Store` und `PagesRepository`. | - |
@@ -55,24 +55,26 @@
 
 ## Engine: HTTP-Routen-Module
 
-**15 Dateien** mit zusammen **178 Routen**.
+**17 Dateien** mit zusammen **178 Routen**.
 
 | Modul | Routen | Zeilen | Zweck |
 |---|---|---|---|
-| `http-build-files.ts` | - | 290 | Serving files out of a bake (P3-2 extraction from `http.ts`). |
+| `http-build-files.ts` | - | 334 | Serving files out of a bake (P3-2 extraction from `http.ts`). |
 | `http-contract.ts` | - | 118 | Der Vertrag der HTTP-Schicht: der Kontext, den eine Route bekommt, die Form einer Route und die Form ihrer Antwort. Die Routen liegen in `http-routes-*.ts`, der Dispatcher in `http.ts`; dieses Modul ist, was beide sprechen (ADR-0019). |
 | `http-response.ts` | - | 231 | The response primitives of the HTTP surface (P3-2 extraction from `http.ts`). Everything that writes bytes to the socket lives here, so the two rules that must hold for EVERY answer are written once: |
 | `http-route-support.ts` | - | 712 | Die Helfer der HTTP-Schicht: was die Routen und der Dispatcher gemeinsam brauchen - Body lesen, Idempotenz, die Kontexte der Fach-Module, die Mutation auf einer Seite (ADR-0019). |
 | `http-routes-assets.ts` | 11 | 219 | Die Asset-Routen einer Site (P3-2, Schritt 53): Upload-Adresse, Liste, Lesen, Aendern, Papierkorb, Wiederherstellen, Verlauf, Massenoperation und die Asset-Ordner. |
 | `http-routes-content.ts` | 17 | 498 | Die Routen des Bereichs api/reviews, api/forms, api/redesign-proposals, api/collections, api/code-payloads, api/imports. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
+| `http-routes-deploy.ts` | 4 | 139 | Deploy und Deploy-Einstellungen einer Site (P3-2, Schritt 62): eine Veroeffentlichung ausliefern, die Auslieferungshistorie und die Ziele (statisch, Netlify, Vercel) samt verschluesseltem Token. |
 | `http-routes-formular.ts` | 3 | 88 | Die Formular-Routen einer Site (P3-2, Schritt 54): die Einsendungen eines Formulars, der Plan fuer eine Sammlung aus einem Formular und ihre Anlage. |
+| `http-routes-imports.ts` | 3 | 188 | Die Framer-Import-Routen einer Site (P3-2, Schritt 61): Import anlegen (mit Idempotenz und Job-Zustand), Vorschau ohne Schreiben und der Verlauf. |
 | `http-routes-media.ts` | 16 | 357 | Die Routen des Bereichs assets/:assetId, assets/:filename, _astro/:filename, api/assets, api/images, api/library-components, api/motion-vendor. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-ops.ts` | 17 | 495 | Die Routen des Bereichs api/settings, api/backups, api/tokens, api/mcp, api/events, api/whoami, api/notifications, api/newsletter, api/health. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-pages.ts` | 27 | 601 | Die Routen des Bereichs api/pages, api/entries, api/page-starters, api/releases, api/revisions. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-references.ts` | 23 | 710 | Die Routen des Bereichs api/references, api/reference-collections. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-section-preview.ts` | 2 | 264 | Die Vorschaubilder der Sektions-Varianten im Theme einer Site. |
 | `http-routes-site-lifecycle.ts` | 8 | 260 | Die Routen des Site-Lebenszyklus (P3-2, Schritt 60): anlegen, listen, aendern, Papierkorb, wiederherstellen, duplizieren, lesen, loeschen. |
-| `http-routes-sites.ts` | 43 | 1228 | Die Routen einer Site jenseits des Lebenszyklus: Seiten, Bausteine, Bibliothek, Inhalte, Referenzen, Bilder und Importe. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
+| `http-routes-sites.ts` | 36 | 957 | Die Routen einer Site jenseits des Lebenszyklus: Seiten, Bibliothek, Inhalte (Sammlungen, Eintraege), Referenzen, Bilder, Code-Payloads, Vorschauen, Reviews, Redesign und Betrieb (Audit, Formulare, Benachrichtigungen, Deployments). Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-theme.ts` | 11 | 230 | Theme und Style-Regeln einer Site (P3-2, Schritt 57): das Theme lesen, als CSS ausliefern, schreiben, den Theme-Bericht, den Design-Bericht und die sechs Style-Regel-Routen (lesen, anlegen, aendern, sortieren, loeschen). |
 | **Summe** | **178** | | |
 
@@ -95,7 +97,7 @@
 | `app-editor-save-status.js` | 51 | Was die Statuszeile des Editors sagt - aus `app-editor.js` (R12). |
 | `app-editor-toolbar-overflow.js` | 109 | Das Overflow-Menue der Editor-Toolbar - aus `app-editor.js` (R12). |
 | `app-editor.js` | 1048 | Der Seiten-Editor und die Buehne. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
-| `app-framer-import.js` | 489 | Der Import aus Framer (P3-2, Schritt 45): der Bericht nach der Analyse und der Dialog, der die Adresse abfragt, analysiert und den Write ausloest. `app-import.js` importiert die zwei Einstiegspunkte. |
+| `app-framer-import.js` | 509 | Der Import aus Framer (P3-2, Schritt 45): der Bericht nach der Analyse und der Dialog, der die Adresse abfragt, analysiert und den Write ausloest. `app-import.js` importiert die zwei Einstiegspunkte. |
 | `app-import.js` | 484 | Der Import aus Framer und die Redesign-Dialoge. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
 | `app-library.js` | 280 | Die Bausteinbibliothek und der Papierkorb (P3-2, Schritt 42). Beide Views standen in `app-projects.js`; sie teilen sich nichts mit den Projekten - keine Modulvariable, keinen Zustand, nur die Kern-Helfer. |
 | `app-markdown.js` | 158 | Das Markdown der importierten Referenzen (design.md, Guidelines, Komponenten). |
@@ -144,19 +146,19 @@ beim Erzeugen gemessen.
 |---|---|---|
 | `packages/engine/src/store.ts` | 2662 | vier fachübergreifende Transaktionen (`applyRedesignPlan`, `duplicateSiteWithPlan`, `duplicateAssetRecords`, `commitFramerImportPlan`), `replaceTables` und die Fassade; der Rest sind Delegaten |
 | `packages/mcp/src/tools.ts` | 2614 | die Werkzeug-Tabelle; ihre Reihenfolge ist der Vertrag (`server.ts` liest `TOOLS.map`), der Manifest-Generator folgt den `...X_TOOLS`-Spreizungen - ein weiterer Schnitt ist möglich und braucht den Manifest-Diff als Beweis |
-| `packages/framer-import/src/capture-html.ts` | 2225 | der HTML-Capture des Imports |
+| `packages/framer-import/src/capture-html.ts` | 2609 | der HTML-Capture des Imports |
 | `packages/editor/src/inspector/inspector.ts` | 1884 | eine Closure (`createInspector`), die DOM und Zustand gemeinsam hält |
+| `packages/framer-import/src/mapper.ts` | 1790 | die Abbildung Framer nach NodeTree |
 | `packages/engine/src/content.ts` | 1703 | Sammlungen, Einträge und ihre Suche in einem Fachgebiet |
 | `packages/editor/src/inspector/model.ts` | 1490 | das Modell des Inspektors |
 | `packages/engine/src/types.ts` | 1479 | die öffentlichen Typen der Engine; keine Logik |
 | `packages/editor/src/canvas/canvas.ts` | 1336 | die Bühne des Editors |
-| `packages/framer-import/src/mapper.ts` | 1326 | die Abbildung Framer nach NodeTree |
 | `packages/engine/src/forms.ts` | 1313 | Formulare, Einsendungen und der CSV-Export |
-| `packages/engine/src/http-routes-sites.ts` | 1228 | die verbleibenden 42 Site-Routen (Seiten, Bibliothek, Inhalte, Referenzen, Bilder, Importe); der Zuschnitt läuft weiter, jede Gruppe braucht 6 bis 16 Import-Quellen |
-| `packages/engine/src/lifecycle.ts` | 1160 | der Release-Lebenszyklus in einem Fachgebiet: Revision, Re-Bake, Veroeffentlichung, Preview und Review gehoeren zusammen, weil ein Release ohne die anderen drei nicht entsteht; ein Schnitt muesste die gemeinsame Transaktion teilen |
+| `packages/engine/src/lifecycle.ts` | 1190 | der Release-Lebenszyklus in einem Fachgebiet: Revision, Re-Bake, Veroeffentlichung, Preview und Review gehoeren zusammen, weil ein Release ohne die anderen drei nicht entsteht; ein Schnitt muesste die gemeinsame Transaktion teilen |
 | `packages/engine/src/media.ts` | 1107 | Assets, Ableitungen und Ordner |
 | `packages/app/public/app-editor.js` | 1048 | `mountCanvasView` haelt Canvas, Zustand und Ereignisse in einer Closure |
 | `packages/engine/src/references-lifecycle.ts` | 1046 | die Referenz-Pipeline: Analyse, Job-Lauf, Snapshot, Playwright-Aufnahme und Anwendung; der Capture-Treiber allein sind 250 Zeilen, und er teilt den Zustand mit dem Job-Lauf |
+| `packages/engine/src/http-routes-sites.ts` | 957 | die verbleibenden 36 Site-Routen (Seiten, Bibliothek, Inhalte, Referenzen, Bilder, Vorschauen, Reviews, Redesign, Betrieb); der Zuschnitt läuft weiter, die nächsten Gruppen sind Bilder und Betrieb |
 | `packages/app/public/app-references.js` | 597 | die Referenzen-Seite ohne die Karten; der Rest nach Schritt 59 |
-| `packages/engine/src/http.ts` | 247 | Dispatcher und Routentabelle; fertig |
+| `packages/engine/src/http.ts` | 251 | Dispatcher und Routentabelle; fertig |
 | `packages/app/public/app.js` | 219 | Router und Kommandoleiste; fertig |

@@ -26,6 +26,24 @@ const numberParam = (sample: IrMotionSample, key: string): number | undefined =>
   return undefined;
 };
 
+// A duration is only a number relative to its unit, and the two capture paths
+// write different ones: the WAAPI probe reads `AnimationEffect.getTiming()`
+// (milliseconds, the platform's unit) while the appear channel reads Framer's
+// own spec (seconds, the unit of `delay` right beside it). The old code divided
+// every duration by 300 — correct for a WAAPI millisecond value, off by a
+// factor of ~47 for an appear second value: a 1.4 s reveal was baked as 30 ms.
+// The sample therefore names its unit (`durationUnit`) and the mapping converts
+// to seconds; a sample without the field is milliseconds, the older convention.
+type DurationUnit = "ms" | "s";
+
+function durationSeconds(sample: IrMotionSample): number | undefined {
+  const duration = numberParam(sample, "duration");
+  if (duration === undefined) return undefined;
+  const unit: DurationUnit = sample.params["durationUnit"] === "s" ? "s" : "ms";
+  // Milliseconds arrive as floats from `getTiming()` (`40000`, `139733`).
+  return unit === "s" ? duration : duration / 1000;
+}
+
 // A Framer appear effect (start state, end state, spring) against the closed
 // registry. `fade-up` is the one entry preset that reveals with opacity plus a
 // vertical offset, so an effect maps onto it only when its movement IS vertical
@@ -69,12 +87,19 @@ function presetFor(sample: IrMotionSample): MotionSpec["preset"] | null {
   return null;
 }
 
-function specFor(sample: IrMotionSample, preset: MotionSpec["preset"]): MotionSpec {
-  const duration = numberParam(sample, "duration");
+function specFor(sample: IrMotionSample, preset: MotionSpec["preset"], baseDurationMs: number): MotionSpec {
+  const duration = durationSeconds(sample);
   const delay = numberParam(sample, "delay");
   const stagger = numberParam(sample, "stagger");
   const tokens = {
-    ...(duration === undefined ? {} : { durationScale: Math.max(0.1, duration / 300) }),
+    // `durationScale` is relative to the site's base duration (`baseDurationMs`,
+    // 300 in the default theme), so the absolute seconds of the source only
+    // become a scale through that base. The import therefore needs the base of
+    // the theme the page lands in — passing the default here would bake a 1.4 s
+    // reveal as 1.4 s only in a theme whose base happens to be 300 ms.
+    ...(duration === undefined || baseDurationMs <= 0
+      ? {}
+      : { durationScale: Math.max(0.1, Math.round((duration / (baseDurationMs / 1000)) * 1000) / 1000) }),
     ...(stagger === undefined ? {} : { stagger: Math.max(0.1, stagger) }),
   };
   return {
@@ -91,7 +116,19 @@ function specFor(sample: IrMotionSample, preset: MotionSpec["preset"]): MotionSp
   };
 }
 
-export function mapFramerMotion(document: FramerIrDocument): MotionMappingResult {
+export type MotionMappingOptions = {
+  // The base duration of the theme the page lands in. `durationScale` is
+  // relative to it, so the source's absolute seconds can only become a scale
+  // through this number. Default 300: the default theme's `motion.duration.base`
+  // (`packages/tokens/src/default-theme.ts`), used when the caller has no theme.
+  baseDurationMs?: number;
+};
+
+export function mapFramerMotion(
+  document: FramerIrDocument,
+  options: MotionMappingOptions = {},
+): MotionMappingResult {
+  const baseDurationMs = options.baseDurationMs ?? 300;
   const mappings: MotionMapping[] = [];
   const findings: MotionMappingResult["findings"] = [];
   document.motion.forEach((sample, sampleIndex) => {
@@ -110,7 +147,7 @@ export function mapFramerMotion(document: FramerIrDocument): MotionMappingResult
       sampleIndex,
       nodeKey: sample.nodeKey,
       preset,
-      spec: specFor(sample, preset),
+      spec: specFor(sample, preset, baseDurationMs),
       reason: `Framer-Sample ${sample.library}/${sample.trigger} auf "${preset}" abgebildet.`,
     });
   });

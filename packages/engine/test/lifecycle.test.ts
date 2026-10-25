@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PropValue } from "@senify/section-sdk";
+import { createCodePayload } from "../src/code-payloads.ts";
 import {
   applyMutationsRequest,
   bootEngine,
@@ -89,6 +90,59 @@ afterAll(async () => {
 });
 
 describe("releases and revisions", () => {
+  it("leads an unchecked payload licence in the release checks", async () => {
+    // ADR-0010 §4: a payload may run on its own site with an unchecked licence,
+    // but the release says so — it is never silently accepted. The soft check
+    // list is where that statement lands.
+    //
+    // A site of its own: a payload carrier is a heavy surface (profile `clean`
+    // allows one), and the shared site must stay clear for the other tests.
+    const ownSite = (await createTestSite(env.api, "Lizenz Studio")).id;
+    const ownPage = await createTestPage(env.api, ownSite, { title: "Start" });
+    const payload = await createCodePayload(env.engine.store, {
+      siteId: ownSite,
+      body: {
+        name: "Ungeprüft",
+        kind: "module",
+        bundle: "export function mount(stage) { stage.textContent = 'x'; }",
+        provenance: { kind: "framer-import", sourceUrl: "https://example.test/" },
+        license: { id: "unknown" },
+      },
+    });
+    const rootId = (await loadPage(ownPage.id)).draft.rootNodeId;
+    const carried = await applyMutationsRequest(env.api, await loadPage(ownPage.id), [
+      {
+        op: "insertNode",
+        parent: { nodeId: rootId },
+        node: { id: "carrier-1", type: "payload", props: { payloadId: payload.id, label: "Original" } },
+      },
+    ]);
+    expect(carried.status).toBe(200);
+    const published = await publishRelease(ownSite, { note: "mit Payload" });
+    expect(published.status).toBe(201);
+    const messages = published.body.checks.soft.map((issue) => (issue as { message: string }).message);
+    expect(messages.some((message) => message.includes('"Ungeprüft"') && message.includes("ungeprüfter Lizenz"))).toBe(true);
+    // The counter-proof: the licence is the only thing standing in the way, so
+    // a checked payload must not produce the check.
+    const cleared = await createCodePayload(env.engine.store, {
+      siteId: ownSite,
+      body: {
+        name: "Geprüft",
+        kind: "module",
+        bundle: "export function mount(stage) { stage.textContent = 'y'; }",
+        provenance: { kind: "framer-import", sourceUrl: "https://example.test/" },
+        license: { id: "MIT", assertedBy: "hand" },
+      },
+    });
+    await applyMutationsRequest(env.api, await loadPage(ownPage.id), [
+      { op: "updateNodeProps", id: "carrier-1", patch: { payloadId: cleared.id } },
+    ]);
+    const second = await publishRelease(ownSite, { note: "geprüft" });
+    expect(second.status).toBe(201);
+    const secondMessages = second.body.checks.soft.map((issue) => (issue as { message: string }).message);
+    expect(secondMessages.some((message) => message.includes('"Geprüft"') && message.includes("ungeprüfter Lizenz"))).toBe(false);
+  }, 120_000);
+
   it("publishes a release with revisions for every page", async () => {
     const inserted = await insertNode(mainPage.id, "hero-1", "hero", {
       headline: "Publish mich",
@@ -288,6 +342,10 @@ describe("review loop", () => {
     );
     expect(ok.status).toBe(200);
     expect(ok.headers.get("content-type")).toContain("text/html");
+    // The preview carries the page policy: a preview IS the page, and a
+    // preview that runs foreign code must not be looser than the release.
+    expect(ok.headers.get("content-security-policy")).toContain("default-src 'self'");
+    expect(ok.headers.get("content-security-policy")).toContain("object-src 'none'");
     const html = await ok.text();
     expect(html).toContain("Review mich");
 
@@ -343,6 +401,14 @@ describe("review loop", () => {
     expect(approved.body.review.status).toBe("approved");
     expect(approved.body.review.releaseId).toBe(approved.body.release.id);
     expect(approved.body.release.buildRef).toContain("releases");
+
+    // The release page carries the policy too (ADR-0010 §8): a published page
+    // loads its own build and nothing else.
+    const releaseFile = await fetch(
+      `${env.server.origin}/api/releases/${approved.body.release.id}/files/index.html`,
+    );
+    expect(releaseFile.status).toBe(200);
+    expect(releaseFile.headers.get("content-security-policy")).toContain("default-src 'self'");
   }, 90000);
 
   it("rolls back to an older release as a new release", async () => {
