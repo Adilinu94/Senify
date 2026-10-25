@@ -322,7 +322,8 @@ scheiden sie damit aus, egal wie gut sie wären — man weiß nicht, was man dar
 **Die Empfehlung in einem Satz (nach deinen Entscheidungen):** Die Appear→CSS-Kompilierung aus
 `Niranjan266/unframer` (MIT) als Vorlage in den eigenen Capture einbauen, den Mirror über den
 vorhandenen Analyse-Worker bauen, die Original-Runtime als Payload mitnehmen (ADR-0010, E1 ja) —
-und das Framer-MCP als zweite Strukturquelle dazunehmen, wo Projekt-Zugang besteht (E5).
+und das Framer-MCP als zweite Strukturquelle dazunehmen - seit 25.10.2026 möglich, weil die
+Projekte eigene sind (E5).
 
 ## 5. Der empfohlene Weg: drei Quellen, ein Dokument
 
@@ -424,7 +425,7 @@ unser Import (wedge: 17–44 % gegen unsere 0,46 %).
 **Gate:** Ein URL-Import erzeugt einen Mirror, und `extractPayloads` findet darin mindestens ein
 Payload auf einer Seite, die heute 0 hat (`donutshop`). Ein Testfall, der ohne den Schritt rot ist.
 
-### Schritt 1b · Die Projekt-Schnittstelle als zweite Strukturquelle (nur wenn E5 ja)
+### Schritt 1b · Die Projekt-Schnittstelle als zweite Strukturquelle - **baubar seit 25.10.2026 (E5 ja)**, noch nicht gebaut
 
 **Ziel:** Wo Projekt-Zugang besteht, die Struktur **lesen** statt raten.
 
@@ -919,7 +920,7 @@ prüft die Zeile im echten Dialog.
 | **E2** | Werkzeug kaufen oder selbst bauen? | **Kostenlose Alternativen.** FramerExport (MIT), kein Abo. |
 | **E3** | Unframer trotz fehlender Lizenz? | **Ja**, Nutzung nur privat. |
 | **E4** | React-Export-Abo zahlen? | **Nein**, kostenlose Alternativen. |
-| **E5** | Geben Kunden uns Projekt-Zugang? | offen (Erklärung unten) |
+| **E5** | Geben Kunden uns Projekt-Zugang? | **Ja** - nicht als Kundenfeld, sondern weil die Projekte **eigene** sind (25.10.2026) |
 
 ### Was E5 genau bedeutet
 
@@ -979,13 +980,24 @@ found"*. Der Export ist **kostenpflichtig** und mit deinem Zugang **nicht** enth
 - **Ohne Abo** → Weg B stützt sich auf den Mirror + Original-Runtime. Mehr Eigenbau, aber keine
   laufenden Kosten.
 
-### E5 · Geben Kunden uns Projekt-Zugang? — **offen**
+### E5 · Geben Kunden uns Projekt-Zugang? — **entschieden: Ja (25.10.2026)**, weil die Projekte eigene sind
 
 Die Projekt-Schnittstelle (MCP) braucht Zugang zum **Framer-Projekt** über ein Plugin, nicht nur
-zur veröffentlichten Seite. Für eigene Projekte trivial; für Kundenprojekte eine Vertragsfrage.
+zur veröffentlichten Seite.
+
+**Die Antwort am 25.10.2026 war keine Vertragsfrage:** die Framer-Projekte sind **eigene**. Damit ist
+die Bedingung erfüllt, ohne dass jemand etwas genehmigen muss. Die Frage im Plan („Geben Kunden uns
+Projekt-Zugang?") war falsch gestellt - sie liest sich wie ein Aushandeln mit Dritten, wo nur eine
+Zugangsfrage zu klären war.
 
 - **Ja** → die stärkere Strukturquelle ist nutzbar (benannte Komponenten, Tokens, Stapel).
-- **Nein** → es bleibt beim SSR-Weg plus Mirror; mehr Raten, mehr Fehler wie U1.
+- **Was trotzdem bleibt:** das MCP ist ein **Editor-Plugin**. Es antwortet nur, während Framer offen
+  ist (gemessen 25.10.2026: ohne offenes Projekt kommt „Framer plugin not connected"). Es ist also
+  keine Automatik, sondern ein Werkzeug für den Moment des Imports.
+
+**Was daraus folgt - und was nicht.** Schritt 1b ist damit **baubar**. Dass er gebaut wird, folgt
+daraus nicht: sein Nutzen wird gegen den SSR-Weg gemessen, nicht behauptet. Solange keine Messung
+einen Vorsprung zeigt, bleibt der SSR-Weg der Standard.
 
 ## 8. Woran wir Erfolg messen
 
@@ -1088,7 +1100,7 @@ Werkzeug, das alles kann. Ein solches Werkzeug gibt es nach dieser Recherche **n
 ```
 E1 (Entscheidung) ──► Schritt 1 (Mirror) ──► Schritt 2 (Runtime) ──► Schritt 3 (Naht)
 E2/E3/E4/E5       ──► parallel zu Schritt 1
-Schritt 1b (MCP)  ── nach Schritt 1, nur wenn E5 ja
+Schritt 1b (MCP)  ── nach Schritt 1; E5 ist seit 25.10.2026 ja (offen: der Nutzen)
 Schritt 4 (Zeitmaßstab) ── unabhängig, klein
 Schritt 5 (Rest) ── nach 2 und 3
 Schritt 6/7 (Grenzen, Doku) ── am Ende
