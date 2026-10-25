@@ -50,7 +50,7 @@ function zeilenZahl(pfad: string): number {
 function quellDateien(): string[] {
   const treffer: string[] = [];
   const lauf = (dir: string): void => {
-    let eintraege: ReturnType<typeof readdirSync>;
+    let eintraege: Array<{ name: string; isDirectory(): boolean }>;
     try {
       eintraege = readdirSync(dir, { withFileTypes: true });
     } catch {
