@@ -39,6 +39,9 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 | GET | `/api/sites/:siteId/submissions` | read | Tool | `list_submissions` |
 | POST | `/api/sites/:siteId/forms/collection-plan` | write | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/forms/collection` | write | Operator | UI/CLI |
+| POST | `/api/sites/:siteId/imports/framer` | write | Tool | `import_framer_page` |
+| POST | `/api/sites/:siteId/imports/framer/preview` | write | Operator | UI/CLI |
+| GET | `/api/sites/:siteId/imports` | read | Operator | UI/CLI |
 | GET | `/api/motion-vendor/:name` | read | Operator | Auslieferung der Motion-Runtime (Editor/Preview) |
 | PUT | `/api/assets/upload/:uploadId` | read | Workflow-gebündelt | Byte-Sink des Upload-Flows (via upload_asset, signierte URL) |
 | GET | `/api/library-components` | read | Tool | `list_library_components` |
@@ -170,9 +173,6 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 | POST | `/api/sites/:siteId/redesign` | write | Tool | `apply_redesign` |
 | POST | `/api/sites/:siteId/images/jobs` | write | Tool | `generate_image` |
 | GET | `/api/sites/:siteId/images/jobs` | read | Tool | `list_image_jobs` |
-| POST | `/api/sites/:siteId/imports/framer` | write | Tool | `import_framer_page` |
-| POST | `/api/sites/:siteId/imports/framer/preview` | write | Operator | UI/CLI |
-| GET | `/api/sites/:siteId/imports` | read | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/theme` | read | Tool | `get_theme`, `server (automatisch)` |
 | GET | `/api/sites/:siteId/theme.css` | read | Operator | UI/CLI |
 | PUT | `/api/sites/:siteId/theme` | write | Tool | `update_theme` |
