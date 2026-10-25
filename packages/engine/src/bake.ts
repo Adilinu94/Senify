@@ -80,7 +80,12 @@ type DeliveredAsset = {
 // The font files of the theme: the `@font-face` rules of the bake point at
 // them, so they belong to the release.
 function themeFontFiles(resolved: ResolvedTheme): string[] {
-  const fonts = [resolved.fonts.display, resolved.fonts.body, resolved.fonts.mono];
+  const fonts = [
+    resolved.fonts.display,
+    resolved.fonts.body,
+    resolved.fonts.mono,
+    ...Object.values(resolved.fonts.extra ?? {}),
+  ];
   const files: string[] = [];
   for (const font of fonts) {
     for (const file of Object.values(font?.files ?? {})) {

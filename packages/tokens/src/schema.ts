@@ -49,6 +49,11 @@ export const ThemeSchema = Type.Object({
     display: FontRefSchema,
     body: FontRefSchema,
     mono: Type.Optional(FontRefSchema),
+    // Further families of an imported page (a Framer site can use seven). The
+    // three slots above name the roles; this map carries every other family the
+    // page asks for, so `@font-face` exists for it and no text falls back to a
+    // system font. Key = the CSS-safe name, emitted as `--font-<key>`.
+    extra: Type.Optional(Type.Record(Type.String(), FontRefSchema)),
   }),
   motion: Type.Object({
     ease: Type.Record(

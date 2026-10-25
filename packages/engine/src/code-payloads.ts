@@ -86,6 +86,29 @@ export async function createCodePayload(
   });
 }
 
+/**
+ * The carriers of a run point at the payload ids they got.
+ *
+ * The import names a payload by its integrity (the id of the store is not
+ * known while the import runs); the write path and the preview replace that
+ * name with the id they use. Without this the carrier would keep a name no
+ * payload answers to and the release would show the plate instead of the
+ * code.
+ */
+export function applyPayloadIds(
+  document: { nodes: Record<string, { primitive: string; props: Record<string, unknown> }> },
+  payloads: readonly { integrity: string; id: string }[],
+): void {
+  const byIntegrity = new Map(payloads.map((payload) => [payload.integrity, payload.id]));
+  for (const node of Object.values(document.nodes)) {
+    if (node.primitive !== "payload") continue;
+    const key = node.props["framerPayloadKey"];
+    const id = typeof key === "string" ? byIntegrity.get(key) : undefined;
+    if (id !== undefined) node.props["payloadId"] = id;
+    delete node.props["framerPayloadKey"];
+  }
+}
+
 // A Framer import must name its source page: it is what the import report, the
 // audit trail and "open in original" read. Every other kind may stay unnamed.
 export function normalizeProvenance(

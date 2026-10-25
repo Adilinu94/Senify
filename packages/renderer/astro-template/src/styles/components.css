@@ -47,8 +47,12 @@
   font: inherit;
 }
 
-.w-payload[data-payload-state="plate"] .w-payload--plate,
-.w-payload[data-payload-state="failed"] .w-payload--plate {
+/* ADR-0010 §7, the three fallbacks in order: payload → poster → plate.
+   `pending` and `failed` show the poster (the script only sets `failed` when a
+   poster exists); `plate` is the carrier with no poster at all. A mounted
+   module owns the stage. Until now `failed` hid the poster and showed the
+   plate — the order was reversed. */
+.w-payload[data-payload-state="plate"] .w-payload--plate {
   display: flex;
 }
 
@@ -58,7 +62,7 @@
 }
 
 .w-payload[data-payload-state="mounted"] .w-payload--poster,
-.w-payload[data-payload-state="failed"] .w-payload--poster,
+.w-payload[data-payload-state="plate"] .w-payload--poster,
 .w-payload[data-payload-state="mounted"] .w-payload--plate {
   display: none;
 }

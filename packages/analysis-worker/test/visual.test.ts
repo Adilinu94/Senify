@@ -112,6 +112,47 @@ describe.skipIf(!browserAvailable)("visual harness", () => {
     }
   }, 180000);
 
+  it("compares images of different heights against the taller canvas", async () => {
+    // A baked page is never exactly as tall as its source. The diff used to be
+    // read as if that were a broken input; here the taller canvas is the frame
+    // and the pixels the shorter image does not reach count as different — an
+    // import 200 px too short must not pass as "identical below the fold".
+    const short = fixture(PAGE);
+    const tall = fixture(PAGE.replace("</body>", `<section style="height:400px"></section></body>`));
+    const outDir = join(short, "..", "height-diff");
+    try {
+      const shortShots = join(outDir, "short");
+      const tallShots = join(outDir, "tall");
+      await captureScreenshots({
+        url: `file:///${short.replace(/\\/g, "/")}`,
+        browser: { allowFile: true },
+        outDir: shortShots,
+        breakpoints: ["desktop"],
+      });
+      await captureScreenshots({
+        url: `file:///${tall.replace(/\\/g, "/")}`,
+        browser: { allowFile: true },
+        outDir: tallShots,
+        breakpoints: ["desktop"],
+      });
+      const report = await diffScreenshots({
+        before: join(tallShots, "desktop.png"),
+        after: join(shortShots, "desktop.png"),
+        outDir,
+        name: "height",
+      });
+      // The frame is the taller image …
+      expect(report.height).toBeGreaterThanOrEqual(400);
+      // … and the missing strip is counted, not silently cut off.
+      expect(report.changedPixels).toBeGreaterThan(0);
+      expect(report.bounds?.bottom).toBeGreaterThan(report.height - 450);
+      expect(report.ratio).toBeGreaterThan(0);
+    } finally {
+      rmSync(short, { recursive: true, force: true });
+      rmSync(tall, { recursive: true, force: true });
+    }
+  }, 180000);
+
   it("records a motion video while scrolling", async () => {
     const file = fixture(PAGE);
     const outDir = join(file, "..", "video");

@@ -69,6 +69,11 @@ export type AssetReport = {
 export type AssetResult = {
   document: FramerIrDocument;
   report: AssetReport;
+  // Every address the run replaced with a local one: the source's URL as the
+  // key, the site's own path as the value. The runtime payload needs it: its
+  // CSS is a copy of the source's and must not point at the CDN any more
+  // (DSGVO, ADR-0010 §8).
+  urlRewrites: Record<string, string>;
 };
 
 /* ------------------------------------------------------------------ mime */
@@ -187,6 +192,11 @@ export async function importAssets(input: ImportAssetsInput): Promise<AssetResul
   }
   if (input.outDir !== undefined) mkdirSync(input.outDir, { recursive: true });
 
+  // Every address the run replaces with a local one. The runtime payload
+  // writes its own copy of the source's CSS and must not point at the CDN
+  // any more (DSGVO, ADR-0010 §8) — this map is how it finds the local path.
+  const urlRewrites: Record<string, string> = {};
+
   // --- page assets (images, videos): download once, dedupe by hash.
   const byHash = new Map<string, AssetDownload>();
   const urlToAsset = new Map<string, AssetDownload>();
@@ -209,6 +219,8 @@ export async function importAssets(input: ImportAssetsInput): Promise<AssetResul
       continue;
     }
     urlToAsset.set(asset.url, await downloadAsset(asset, input, timeoutMs, byHash, report));
+    const download = urlToAsset.get(asset.url);
+    if (download?.localUrl) urlRewrites[asset.url] = download.localUrl;
   }
 
   // --- fonts (DSGVO 2.3b): download, dedupe by hash + unicode-range,
@@ -268,6 +280,9 @@ export async function importAssets(input: ImportAssetsInput): Promise<AssetResul
         rewritten.src.push(...entry.files.filter((file) => !rewritten.src.includes(file)));
         for (const file of entry.files) {
           if (!faceFiles.includes(file)) faceFiles.push(file);
+          // The source's address -> the local path. The payload's CSS copy
+          // needs the same rewrite.
+          if (!urlRewrites[src]) urlRewrites[src] = file;
         }
         faceHash = entry.hash;
         faceBytes = entry.bytes;
@@ -307,7 +322,7 @@ export async function importAssets(input: ImportAssetsInput): Promise<AssetResul
     styles: { ...document.styles, fonts: rewrittenFonts },
     assets,
   };
-  return { document: result, report };
+  return { document: result, report, urlRewrites };
 }
 
 // The delivery map of a run that did NOT upload its assets: every asset keeps

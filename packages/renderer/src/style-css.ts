@@ -188,6 +188,14 @@ export function styleRulesReport(
       // props, so emitting them twice would only repeat them. Its `:hover` /
       // `:focus` / `:active` / `:disabled` states exist nowhere else, so
       // those alone are emitted (and win over the node's base by specificity).
+      //
+      // Two kinds are the exception and must survive whole:
+      //  - a rule with `rawCss` (the compiled appear channel, step 4b): the
+      //    `@keyframes` block lives only there, and the `animation` declaration
+      //    is what binds it to the node. Dropping the rule drops the effect.
+      //  - a rule with `contextStyles` (a breakpoint variant of the same):
+      //    the base rule is empty by design and the context carries it.
+      if (rule.rawCss !== undefined || Object.keys(rule.contextStyles).length > 0) return [rule];
       const hasStates = Object.values(rule.states ?? {}).some((bag) => Object.keys(bag ?? {}).length > 0);
       return hasStates ? [{ ...rule, styles: {}, contextStyles: {} }] : [];
     })

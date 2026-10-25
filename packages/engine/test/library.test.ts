@@ -214,4 +214,59 @@ describe("global library components", () => {
     expect(audit.status).toBe(200);
     expect(audit.body.entries.map((entry) => entry.action)).toEqual(expect.arrayContaining(["created", "updated", "installed", "detached", "reattached"]));
   }, 60_000);
+
+  // ADR-0010 §4: the licence is mandatory and may be `unknown` — but an
+  // imported payload with an unknown licence must not enter the global
+  // library, because that is how foreign code travels into every project.
+  it("refuses an imported component whose licence is unknown", async () => {
+    const rejected = await env.api.request<{ error: { field?: string; message: string } }>({
+      method: "POST",
+      path: "/api/library-components",
+      body: {
+        name: "Ungeprüfter Import",
+        kind: "component",
+        definition,
+        fingerprint: "struct-unlicensed-import",
+        provenance: { kind: "framer-import", sourceUrl: "https://example.test/framer" },
+        license: { id: "unknown", status: "unknown" },
+        author: TEST_AUTHOR,
+      },
+    });
+    expect(rejected.status).toBe(400);
+    expect(rejected.body.error.field).toBe("license");
+
+    // The counter-proof: the same component with a stated licence is accepted.
+    const accepted = await env.api.request<LibraryView>({
+      method: "POST",
+      path: "/api/library-components",
+      body: {
+        name: "Geprüfter Import",
+        kind: "component",
+        definition,
+        fingerprint: "struct-licensed-import",
+        provenance: { kind: "framer-import", sourceUrl: "https://example.test/framer" },
+        license: { id: "MIT", status: "verified" },
+        author: TEST_AUTHOR,
+      },
+    });
+    expect(accepted.status).toBe(201);
+  }, 60_000);
+
+  it("still accepts a hand-built component without a licence", async () => {
+    // The rule names the imported case: a hand-built component carries no
+    // third-party code, so the default `unknown` stays allowed.
+    const created = await env.api.request<LibraryView>({
+      method: "POST",
+      path: "/api/library-components",
+      body: {
+        name: "Handarbeit",
+        kind: "component",
+        definition,
+        fingerprint: "struct-hand-built",
+        provenance: { kind: "hand" },
+        author: TEST_AUTHOR,
+      },
+    });
+    expect(created.status).toBe(201);
+  }, 60_000);
 });
