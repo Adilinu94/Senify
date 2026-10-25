@@ -55,7 +55,7 @@
 
 ## Engine: HTTP-Routen-Module
 
-**21 Dateien** mit zusammen **178 Routen**.
+**22 Dateien** mit zusammen **178 Routen**.
 
 | Modul | Routen | Zeilen | Zweck |
 |---|---|---|---|
@@ -78,7 +78,8 @@
 | `http-routes-section-preview.ts` | 2 | 264 | Die Vorschaubilder der Sektions-Varianten im Theme einer Site. |
 | `http-routes-site-content.ts` | 7 | 196 | Sammlungen und Eintraege EINER SITE (P3-2, Schritt 65): anlegen, auflisten, aus Feldern ableiten, Eintraege schreiben, lesen, suchen und einen Pfad aufloesen. |
 | `http-routes-site-lifecycle.ts` | 8 | 260 | Die Routen des Site-Lebenszyklus (P3-2, Schritt 60): anlegen, listen, aendern, Papierkorb, wiederherstellen, duplizieren, lesen, loeschen. |
-| `http-routes-sites.ts` | 20 | 545 | Die Routen einer Site jenseits des Lebenszyklus: Seiten, Bibliothek, Inhalte (Sammlungen, Eintraege), Referenzen, Bilder, Code-Payloads, Vorschauen, Reviews, Redesign und Betrieb (Audit, Formulare, Benachrichtigungen, Deployments). Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
+| `http-routes-site-references.ts` | 3 | 101 | Referenzen einer Site (P3-2, Schritt 67): die Zuordnung der Referenzprojekte samt abgeleitetem Theme-Entwurf, das Anwenden einer Referenz und das Loesen einer Zuordnung. |
+| `http-routes-sites.ts` | 17 | 461 | Die Routen einer Site jenseits des Lebenszyklus: Seiten, Bibliothek, Inhalte (Sammlungen, Eintraege), Referenzen, Bilder, Code-Payloads, Vorschauen, Reviews, Redesign und Betrieb (Audit, Formulare, Benachrichtigungen, Deployments). Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-theme.ts` | 11 | 230 | Theme und Style-Regeln einer Site (P3-2, Schritt 57): das Theme lesen, als CSS ausliefern, schreiben, den Theme-Bericht, den Design-Bericht und die sechs Style-Regel-Routen (lesen, anlegen, aendern, sortieren, loeschen). |
 | **Summe** | **178** | | |
 
@@ -163,6 +164,6 @@ beim Erzeugen gemessen.
 | `packages/app/public/app-editor.js` | 1048 | `mountCanvasView` haelt Canvas, Zustand und Ereignisse in einer Closure |
 | `packages/engine/src/references-lifecycle.ts` | 1046 | die Referenz-Pipeline: Analyse, Job-Lauf, Snapshot, Playwright-Aufnahme und Anwendung; der Capture-Treiber allein sind 250 Zeilen, und er teilt den Zustand mit dem Job-Lauf |
 | `packages/app/public/app-references.js` | 597 | die Referenzen-Seite ohne die Karten; der Rest nach Schritt 59 |
-| `packages/engine/src/http-routes-sites.ts` | 545 | die verbleibenden 20 Site-Routen (Seiten, Referenzen, Vorschauen, Reviews, Redesign, Betrieb); der Zuschnitt läuft weiter, die nächste Gruppe ist Betrieb (Audit, Formulare, Benachrichtigungen) |
-| `packages/engine/src/http.ts` | 259 | Dispatcher und Routentabelle; fertig |
+| `packages/engine/src/http-routes-sites.ts` | 461 | die verbleibenden 17 Site-Routen (Seiten, Vorschauen, Reviews, Redesign, Betrieb, Assets, Code-Payloads); der Zuschnitt läuft weiter, die nächste Gruppe ist Betrieb (Audit, Formulare, Benachrichtigungen) |
+| `packages/engine/src/http.ts` | 261 | Dispatcher und Routentabelle; fertig |
 | `packages/app/public/app.js` | 219 | Router und Kommandoleiste; fertig |

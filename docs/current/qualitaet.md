@@ -119,23 +119,23 @@ Der aktuelle Lauf vom 09.10.2026 (lokal auf Windows, TEMP/TMP/TMPDIR auf dem Lau
      Nicht von Hand editieren: dieser Block ist ein Messwert, und `pnpm quality:check`
      lässt den Lauf rot werden, sobald Dokument und Lauf auseinanderlaufen. -->
 
-**Gemessen:** unbekannt · vitest coverage (v8)
+**Gemessen:** 2026-10-25 · vitest coverage (v8)
 
 | Pfad | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
 | `packages/engine/src/http.ts` | 96.47 | 87.83 | 100.00 | 97.46 |
-| `packages/engine/src/http-route-support.ts` | 88.33 | 75.24 | 93.02 | 88.39 |
-| `packages/engine/src/http-routes-sites.ts` | 93.45 | 87.50 | 95.83 | 96.15 |
+| `packages/engine/src/http-route-support.ts` | 87.91 | 74.75 | 93.02 | 87.94 |
+| `packages/engine/src/http-routes-sites.ts` | 92.70 | 88.33 | 95.23 | 95.69 |
 | `packages/engine/src/store.ts` | 88.90 | 70.27 | 95.68 | 89.36 |
 | `packages/engine/src/lifecycle.ts` | 90.11 | 74.74 | 91.48 | 91.58 |
 | `packages/engine/src/forms.ts` | 91.62 | 83.59 | 96.87 | 93.18 |
-| `packages/mcp/src/tools.ts` | 90.85 | 66.56 | 92.13 | 93.68 |
-| `packages/mcp/src/tools-*.ts` (5 Dateien) | 88.23 bis 100.00 | 57.25 bis 100.00 | 100.00 | 87.14 bis 100.00 |
+| `packages/mcp/src/tools.ts` | 87.50 | 63.15 | 86.86 | 90.86 |
+| `packages/mcp/src/tools-*.ts` (4 Dateien) | 88.60 bis 100.00 | 57.25 bis 100.00 | 100.00 | 87.14 bis 100.00 |
 | `packages/engine/src/store-*.ts` (38 Dateien) | 81.43 bis 100.00 | 61.76 bis 100.00 | 71.42 bis 100.00 | 82.35 bis 100.00 |
-| `packages/engine/src/http-*.ts` (20 Dateien) | 88.33 bis 100.00 | 69.76 bis 100.00 | 89.47 bis 100.00 | 88.39 bis 100.00 |
+| `packages/engine/src/http-*.ts` (20 Dateien) | 87.91 bis 100.00 | 69.76 bis 100.00 | 89.47 bis 100.00 | 87.94 bis 100.00 |
 | `packages/editor/src/state/*` (16 Dateien) | 75.00 bis 100.00 | 65.67 bis 100.00 | 73.33 bis 100.00 | 80.00 bis 100.00 |
 
-**Über alle gemessenen Dateien:** Statements 91.36 · Branches 79.55 · Functions 95.00 · Lines 93.75
+**Über alle gemessenen Dateien:** Statements 90.97 · Branches 79.13 · Functions 94.25 · Lines 93.39
 
 <!-- messwerte:ende -->
 

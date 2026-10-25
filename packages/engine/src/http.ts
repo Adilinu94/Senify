@@ -30,6 +30,7 @@ import { libraryRoutes } from "./http-routes-library.ts";
 import { designRoutes } from "./http-routes-design.ts";
 import { siteContentRoutes } from "./http-routes-site-content.ts";
 import { imageRoutes } from "./http-routes-images.ts";
+import { siteReferenceRoutes } from "./http-routes-site-references.ts";
 import { siteLifecycleRoutes } from "./http-routes-site-lifecycle.ts";
 import { themeRoutes } from "./http-routes-theme.ts";
 import { sectionPreviewRoutes } from "./http-routes-section-preview.ts";
@@ -131,6 +132,7 @@ const ROUTES: Route[] = [
   ...designRoutes,
   ...siteContentRoutes,
   ...imageRoutes,
+  ...siteReferenceRoutes,
   ...siteLifecycleRoutes,
   ...themeRoutes,
   ...sectionPreviewRoutes,
