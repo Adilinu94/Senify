@@ -17,18 +17,31 @@
 import { inlineComponents, type Node, type NodeTree } from "@senify/section-sdk";
 import { resolveAllForDevice } from "@senify/widget-engine";
 import type { EditorDocument } from "../state/document.ts";
+import {
+  cachedCanvasTree,
+  rememberCanvasTree,
+} from "../state/canvas-tree-cache.ts";
 
 export function canvasNodeTree(document: EditorDocument): NodeTree {
   return canvasNodeTreeWithCopies(document).tree;
 }
 
-// The inliner run for the canvas: the render tree plus the copy map. The frame
-// rules use the map to emit the definition's own node rules for every copy
-// (an instance must look styled exactly like the definition), so canvas and
-// bake derive from the same expansion. `origins` maps a copy back to the
-// instance that rendered it — the click resolution uses it (a copy id is not
-// part of the document).
+// Der erweiterte Baum wird nach Dokument-Identitaet gemerkt; der Cache liegt in
+// state/canvas-tree-cache.ts, weil der Schreibpfad ihn verwerfen muss und
+// state -> canvas -> state ein Paket-Zyklus waere. Begruendung und Messung
+// stehen dort.
 export function canvasNodeTreeWithCopies(document: EditorDocument): {
+  tree: NodeTree;
+  copies: Map<string, string[]>;
+  origins: Map<string, { instanceId: string; partId: string }>;
+} {
+  const cached = cachedCanvasTree(document);
+  if (cached !== undefined) return cached;
+  const expanded = expandCanvasNodeTree(document);
+  rememberCanvasTree(document, expanded);
+  return expanded;
+}
+function expandCanvasNodeTree(document: EditorDocument): {
   tree: NodeTree;
   copies: Map<string, string[]>;
   origins: Map<string, { instanceId: string; partId: string }>;

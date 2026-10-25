@@ -29,7 +29,12 @@ import {
 } from "@senify/widget-engine";
 import type { MotionProfile, MotionSpec } from "@senify/section-sdk";
 import type { Theme } from "@senify/tokens";
-import { requireDocument, type DomDocument, type DomElement } from "../dom.ts";
+import {
+  requireDocument,
+  type DomDocument,
+  type DomElement,
+  type DomEvent,
+} from "../dom.ts";
 import {
   deleteVariant,
   renameVariant,
@@ -40,6 +45,8 @@ import {
 import { newNodeId } from "../state/ids.ts";
 import { DEFAULT_SECTION_THUMBNAIL_BASE } from "../state/sections.ts";
 import { EditorStore, typingCoalesceKey } from "../state/store.ts";
+import { scrubValue } from "./scrub-number.ts";
+import { renderColorPicker as renderPicker } from "./color-control.ts";
 import { EDITOR_ROOT_ATTRIBUTE } from "../ui/tokens.ts";
 import {
   buildInspector,
@@ -202,6 +209,11 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
   // would open the panel under every token/colour field at once).
   let paletteKey: string | null = null;
   let tokenPanelKey: string | null = null;
+  // Der Farbwaehler (Verlauf + Farbton-Streifen) ist ein eigener Zustand neben
+  // der Palette: die Palette kennt die Tokens, der Waehler jeden Wert. Beide
+  // schliessen sich aus - zwei Panels unter demselben Feld waeren zwei
+  // Antworten auf dieselbe Frage.
+  let pickerKey: string | null = null;
   let unsubscribe: (() => void) | null = null;
 
   const report = (message: string | null): void => {
@@ -503,6 +515,20 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     stepper.appendChild(down);
     wrap.appendChild(input);
     wrap.appendChild(stepper);
+    // Ziehen am Feld: die haeufigste Art, eine Zahl zu setzen (und die einzige,
+    // die ohne Tippen stufenlos geht). Der Store faltet den ganzen Zug ueber
+    // `scrubCoalesceKey` in EINEN Undo-Eintrag; `commitNumber` schreibt bei
+    // jeder Bewegung, damit die Zahl im Feld mitlaeuft.
+    bindScrub(
+      input,
+      () => numberPart(input.value) ?? numberPart(field.value) ?? 0,
+      () => field.step ?? 1,
+      () => ({ min: field.min, max: field.max }),
+      (value) => {
+        input.value = String(value);
+        commitNumber();
+      },
+    );
     // Die Einheit steht im selben Feld rechts (wie im Referenz-Editor): ein Rahmen
     // statt zwei. `data-control="unit"` bleibt, damit der Zugriff gleich bleibt.
     if (field.units !== undefined && field.units.length > 1) {
@@ -511,6 +537,72 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       wrap.appendChild(unitBox);
     }
     control.appendChild(wrap);
+  }
+
+  // Ziehen am Zahlenfeld. Die Empfindlichkeit und die Klammerung kommen aus
+  // `scrub-number.ts` (dort ohne DOM geprueft); hier steht nur die Geste.
+  //
+  // Zwei Entscheidungen, die den Unterschied zwischen "fuehlt sich gut an" und
+  // "springt" machen: der Zug beginnt erst nach 3 px (sonst veraendert ein
+  // Klick, der ein Pixel verrutscht, den Wert statt das Feld zu fokussieren),
+  // und die Zuhoerer fuer Bewegung haengen am Dokument, nicht am Feld - sonst
+  // verliert die Geste den Faden, sobald der Zeiger das Feld verlaesst.
+  function bindScrub(
+    input: DomElement,
+    current: () => number,
+    step: () => number,
+    limits: () => { min: number | undefined; max: number | undefined },
+    write: (value: number) => void,
+  ): void {
+    const owner = input.ownerDocument;
+    if (owner === undefined) return;
+    let zug: { startX: number; startValue: number; moved: boolean } | null = null;
+
+    const onMove = (event: DomEvent): void => {
+      if (zug === null) return;
+      const dx = (event.clientX ?? 0) - zug.startX;
+      if (!zug.moved && Math.abs(dx) < 3) return;
+      if (!zug.moved) {
+        zug.moved = true;
+        // Ab hier gehoert die Bewegung dem Zug: Textauswahl im Feld wuerde
+        // sonst mitlaufen.
+        input.setAttribute("data-scrubbing", "true");
+      }
+      event.preventDefault?.();
+      const grenzen = limits();
+      write(
+        scrubValue({
+          start: zug.startValue,
+          deltaPx: dx,
+          step: step(),
+          min: grenzen.min,
+          max: grenzen.max,
+          fine: event.shiftKey === true,
+          coarse: event.altKey === true,
+        }),
+      );
+    };
+
+    const onUp = (): void => {
+      if (zug === null) return;
+      const warZug = zug.moved;
+      zug = null;
+      input.removeAttribute("data-scrubbing");
+      owner.removeEventListener?.("pointermove", onMove);
+      owner.removeEventListener?.("pointerup", onUp);
+      // Nach einem echten Zug behaelt das Feld den Fokus, aber der Klick soll
+      // nicht als Positionsklick in den Text wirken.
+      if (warZug) input.setAttribute("data-scrubbed", "true");
+    };
+
+    input.addEventListener("pointerdown", (down) => {
+      if ((down.button ?? 0) !== 0) return;
+      if (zug !== null) return;
+      zug = { startX: down.clientX ?? 0, startValue: current(), moved: false };
+      down.preventDefault?.();
+      owner.addEventListener?.("pointermove", onMove);
+      owner.addEventListener?.("pointerup", onUp);
+    });
   }
 
   function renderUnitSelect(nodeId: string, field: InspectorField): DomElement {
@@ -831,10 +923,29 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     const literal = typeof field.value === "string" ? field.value : "";
     const row = h(doc, "div", { className: "ed-color" });
     const line = h(doc, "div", { className: "ed-color__row" });
-    const swatch = h(doc, "span", {
+    // Der Swatch WAR eine reine Anzeige: man sah die Farbe, konnte sie aber
+    // nicht anfassen. Wer eine Farbe setzen wollte, musste den Hex-Wert
+    // kennen - "#4f8cff" tippt niemand aus dem Kopf. Jetzt ist er ein Knopf,
+    // der den Verlauf oeffnet; das Textfeld daneben bleibt fuer den genauen
+    // Wert und fuer Tokens.
+    const pickerShown = pickerKey === field.key;
+    const swatch = h(doc, "button", {
       className: "ed-swatch",
-      data: { control: "swatch" },
-      attributes: { style: `background:${colorCss(field)}` },
+      data: { control: "swatch", picker: String(pickerShown) },
+      attributes: {
+        type: "button",
+        "aria-label": "Farbwähler öffnen",
+        "aria-expanded": String(pickerShown),
+        title: `Farbe wählen · ${colorCss(field)}`,
+        style: `background:${colorCss(field)}`,
+      },
+    });
+    swatch.addEventListener("click", () => {
+      pickerKey = pickerShown ? null : field.key;
+      // Palette und Waehler beantworten dieselbe Frage; zwei Panels
+      // untereinander waeren zwei Antworten.
+      if (pickerKey !== null) paletteKey = null;
+      render();
     });
     line.appendChild(swatch);
     const fieldWrap = h(doc, "div", { className: "ed-field" });
@@ -858,6 +969,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     toggle.appendChild(icon(doc, "palette", 12));
     toggle.addEventListener("click", () => {
       paletteKey = paletteShown ? null : field.key;
+      if (paletteKey !== null) pickerKey = null;
       render();
     });
     fieldWrap.appendChild(toggle);
@@ -866,9 +978,31 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     if (paletteShown) {
       row.appendChild(renderPalette(nodeId, field));
     }
+    if (pickerShown) {
+      row.appendChild(renderColorPicker(nodeId, field));
+    }
     control.appendChild(row);
   }
 
+  // Der Farbwaehler (Verlauf + Farbton-Streifen) liegt in `color-control.ts`.
+  // Hier bleibt nur die Naht: der Startwert, der Aufloesungsweg fuer Tokens
+  // und der Schreibpfad. Die Rechnung steht in `color-picker.ts`, die Geste im
+  // Control-Modul - beide ohne Store und ohne Inspektor-Wissen geprueft.
+  function renderColorPicker(nodeId: string, field: InspectorField): DomElement {
+    const ref = tokenRefOf(field.value);
+    const aufgeloest = ref === null ? undefined : resolvedTokenColor(field);
+    const start = aufgeloest ?? (typeof field.value === "string" ? field.value : "");
+    return renderPicker({
+      doc,
+      create: h,
+      value: start,
+      onPick: (value) => {
+        // Ein Zug ist EIN Undo-Schritt: `commitProp` faltet den Burst ueber
+        // denselben Schluessel wie das Tippen und der Slider.
+        commitProp(nodeId, field, value, true);
+      },
+    });
+  }
   function renderPalette(nodeId: string, field: InspectorField): DomElement {
     const panel = h(doc, "div", { className: "ed-color__panel", data: { role: "palette" } });
     const options = field.tokenOptions ?? [];

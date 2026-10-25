@@ -133,6 +133,27 @@ describe("ThemesRepository: das Theme", () => {
     expect(nachher.name).toBe(vorher.name);
   });
 
+  it("nennt bei mehreren Theme-Problemen, wie viele es sind", async () => {
+    const { repo, store } = await fixture();
+    const site = await store.createSite({ name: "Mehrfachprobe" });
+    await repo.getTheme(site.id);
+
+    // Zwei Regeln gleichzeitig gebrochen: die Markenfarbe UND die neutrale
+    // Basis. Der Fehler soll nicht nur den ersten nennen, sondern sagen,
+    // dass noch weitere folgen - sonst sucht der Mensch vergeblich nach
+    // dem einen Fehler, den die Meldung nennt.
+    const fehler = await rejected(
+      repo.updateTheme(
+        site.id,
+        { scales: { brand: "nicht-eine-farbe", neutralBase: "auch-nicht" } },
+        TEST_AUTHOR,
+      ),
+    );
+    expect(fehler).toBeInstanceOf(SenifyError);
+    expect((fehler as SenifyError).category).toBe("validation");
+    expect((fehler as SenifyError).suggestion).toContain("more theme problems");
+  });
+
   it("meldet ein Theme einer unbekannten Site als not_found", async () => {
     const { repo } = await fixture();
     const fehler = await rejected(repo.getTheme("gibt-es-nicht"));

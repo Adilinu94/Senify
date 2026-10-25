@@ -11,7 +11,7 @@
 // `@senify/mcp` - moving those here would move ownership of the wire format
 // into a package with no business owning it.
 //
-// 106 Werkzeuge.
+// 109 Werkzeuge.
 import type { ToolFact } from "./types.ts";
 export const TOOL_MANIFEST: ToolFact[] = [
   {
@@ -1675,6 +1675,26 @@ export const TOOL_MANIFEST: ToolFact[] = [
     ],
   },
   {
+    name: "update_library_component",
+    title: "Update library component",
+    scope: "write",
+    group: "referenzen",
+    description: "Aendert einen Bibliothekseintrag: Name, Tags, Notiz, Lizenz, Deprecation - und optional die Definition. NUR die Definition erhoeht die Version (die Version zaehlt Definitionen, nicht Metadaten): eine Aenderung an der Definition erzeugt damit erst den Drift, den die installierten Seiten mit update_library_instances nachziehen. Der Fingerabdruck folgt der Definition und ist der Dubletten-Schluessel.",
+    route: "PATCH /api/library-components/:param",
+    routeExample: "PATCH /api/library-components/{param}",
+    routes: ["PATCH /api/library-components/:param"],
+    writes: true,
+    parameters: [
+      { name: "componentId", type: "string", required: true },
+      { name: "name", type: "string", required: false },
+      { name: "tags", type: "array<string>", required: false },
+      { name: "notes", type: "string", required: false },
+      { name: "license", type: "object", required: false },
+      { name: "deprecated", type: "boolean", required: false },
+      { name: "definition", type: "object", required: false },
+    ],
+  },
+  {
     name: "update_library_instances",
     title: "Update library instances",
     scope: "write",
@@ -1704,6 +1724,35 @@ export const TOOL_MANIFEST: ToolFact[] = [
     ],
   },
   {
+    name: "reattach_library_component",
+    title: "Re-attach library component",
+    scope: "write",
+    group: "referenzen",
+    description: "Haengt eine geloeste Installation wieder an die Bibliothek: die lokalen Knoten bleiben stehen (Ueberschreibungen bleiben erhalten), die Bindung an den Bibliothekseintrag kommt zurueck und die Installationszeile wird wieder angelegt. Das Gegenstueck zu uninstall_library_component.",
+    route: "POST /api/sites/:param/library-installs/reattach",
+    routeExample: "POST /api/sites/{param}/library-installs/reattach",
+    routes: ["POST /api/sites/:param/library-installs/reattach"],
+    writes: true,
+    parameters: [
+      { name: "siteId", type: "string", required: true },
+      { name: "componentId", type: "string", required: true },
+    ],
+  },
+  {
+    name: "find_similar_library_components",
+    title: "Find similar library components",
+    scope: "read",
+    group: "referenzen",
+    description: "Findet Bausteine, deren Definitionen strukturell ahnlich sind (ab 85 Prozent Aehnlichkeit der Knotenform). Rein lesend - ein Hinweis, kein Urteil: das Zusammenlegen entscheidet der Mensch.",
+    route: "GET /api/library-components/similar",
+    routeExample: "GET /api/library-components/similar",
+    routes: ["GET /api/library-components/similar"],
+    writes: false,
+    parameters: [
+
+    ],
+  },
+  {
     name: "import_framer_page",
     title: "Import Framer page",
     scope: "write",
@@ -1726,6 +1775,7 @@ export const TOOL_MANIFEST: ToolFact[] = [
       { name: "applyTheme", type: "boolean", required: false },
       { name: "assets", type: "string", required: false },
       { name: "fonts", type: "string", required: false },
+      { name: "capture", type: "string", required: false },
       { name: "idempotencyKey", type: "string", required: false },
     ],
   },

@@ -170,6 +170,42 @@ describe("bake with a site pair", () => {
     expect(html).toContain("(max-width: 639.98px)");
   }, 240000);
 
+  // Die Raster der Sektionen (ADR-0020). Sie brachen vorher an den
+  // Tailwind-Standardwerten (640 / 768 / 1024 px), unabhaengig vom Paar der
+  // Site. Der Weg: der Bake schreibt die Schwellen in den `@theme`-Block, und
+  // Tailwind uebersetzt die Utilities der Sektionen (`md:grid-cols-3`) damit.
+  it("bakes the section grids at the site's numbers, not at Tailwind's", async () => {
+    const site = await bake(OWN);
+    // Das gebackene CSS (das Tailwind-Bundle) traegt die Schwellen des Paares.
+    const html = await site.read("index.html");
+    const cssHref = /href="(\/_astro\/[^"]+\.css)"/.exec(html)?.[1];
+    expect(cssHref).toBeDefined();
+    const css = await site.read(cssHref as string);
+    // Das Paar (1200 / 810) ergibt die Stufen 810 / 940 / 1200 px.
+    // Tailwind schreibt die Media-Queries in rem (1 rem = 16 px) und in der
+    // Form `(width>=Xrem)` (Tailwind schreibt sie ohne Leerzeichen im Bake)`.
+    expect(css).toContain("(width>=50.625rem)");
+    expect(css).toContain("(width>=58.75rem)");
+    expect(css).toContain("(width>=75rem)");
+    // Und die Tailwind-Standards sind raus: 48rem (768 px) und 64rem
+    // (1024 px) duerfen nicht mehr vorkommen.
+    expect(css).not.toContain("(width>=48rem)");
+    expect(css).not.toContain("(width>=64rem)");
+  }, 240000);
+
+  it("bakes the Tailwind defaults for a site without a pair", async () => {
+    const site = await bake();
+    const html = await site.read("index.html");
+    const cssHref = /href="(\/_astro\/[^"]+\.css)"/.exec(html)?.[1];
+    expect(cssHref).toBeDefined();
+    const css = await site.read(cssHref as string);
+    // Ohne Paar bleiben die Tailwind-Standards: bestehende Projekte bauen
+    // byte-gleich wie vorher (ADR-0020, Entscheidung 1).
+    expect(css).toContain("(width>=40rem)");
+    expect(css).toContain("(width>=48rem)");
+    expect(css).toContain("(width>=64rem)");
+  }, 240000);
+
   it("bakes the site's numbers into the sheet and into the motion payload", async () => {
     const site = await bake(OWN);
     const css = await site.read("assets/sections.css");

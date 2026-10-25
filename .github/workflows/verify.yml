@@ -37,6 +37,14 @@ concurrency:
 # Die Actions sind auf Commits gepinnt (der Kommentar nennt das Tag): ein
 # verschobenes Tag kann keinen fremden Code in den Lauf bringen. Aktualisieren
 # per Dependabot (`package-ecosystem: github-actions`) oder von Hand.
+#
+# 22.10.2026: `actions/checkout` und `actions/setup-node` von v4 auf v5
+# gehoben. v4 laeuft auf Node 20, und GitHub hat Node 20 auf den Runnern
+# abgekuendigt - der Lauf warnte in jedem Job ("The following actions target
+# Node.js 20 but are being forced to run on Node.js 24"). v5 laeuft auf
+# Node 24 (`using: node24` in der action.yml), damit passt die Warnung weg.
+# `pnpm/action-setup` (v4) und `actions/upload-artifact` (v4) waren schon die
+# aktuellen Staende und bleiben unveraendert.
 jobs:
   verify:
     runs-on: ubuntu-24.04
@@ -51,13 +59,13 @@ jobs:
     env:
       SENIFY_REQUIRE_BROWSER: "1"
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       # Kein `version:` hier: pnpm/action-setup liest die Version aus
       # `packageManager` in der package.json. Gibt man beides an, bricht die
       # Aktion mit "Multiple versions of pnpm specified" ab, bevor ein Job
       # richtig startet (so am 01.10.2026 gesehen).
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 24
           cache: pnpm
@@ -123,9 +131,9 @@ jobs:
     name: Testsuite unter Windows
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 24
           cache: pnpm
@@ -153,7 +161,7 @@ jobs:
     name: Geheimnis-Scan
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
       - name: gitleaks holen und Pruefsumme vergleichen
@@ -188,7 +196,7 @@ jobs:
     name: Bekannte Schwachstellen in den Abhaengigkeiten
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: osv-scanner holen und Pruefsumme vergleichen
         run: |
           set -euo pipefail
@@ -227,9 +235,9 @@ jobs:
     env:
       TEST_DATABASE_URL: postgres://senify:senify@localhost:5432/senify
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 24
           cache: pnpm
@@ -245,20 +253,15 @@ jobs:
   coverage:
     name: Coverage-Tor der geschuetzten Pfade
     runs-on: ubuntu-24.04
-    # Die Messung laeuft mit derselben Worker-Zahl wie die lokale Messung
-    # (`VITEST_MAX_FORKS=2`, `VITEST_MIN_FORKS=1`). Ohne diese Festlegung
-    # haengt die Zahl von der Zahl der Kerne des Runners ab: die Tests
-    # laufen in anderer Verteilung, die Nebenlaeufe im Code (zwei Schreiber
-    # auf dieselbe Zeile) fallen je nach Verteilung aus oder nicht. Der
-    # Messwert im Doku-Stand waere dann vom Zufall des Runners abhaengig und
-    # nicht mehr mit dem Lauf vergleichbar.
+    # Vitest 4 ersetzt die alten VITEST_MAX_FORKS/MAX_THREADS-Variablen durch
+    # VITEST_MAX_WORKERS. Zwei Worker begrenzen die Last des Coverage-Laufs;
+    # die alte Variable wuerde unter v4 still ignoriert.
     env:
-      VITEST_MAX_FORKS: 2
-      VITEST_MIN_FORKS: 1
+      VITEST_MAX_WORKERS: 2
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 24
           cache: pnpm

@@ -19,7 +19,7 @@
     "marked": "^18.0.13"
   },
   "devDependencies": {
-    "astro": "^7.3.2",
+    "astro": "^7.3.3",
     "pagefind": "^1.5.2"
   }
 }

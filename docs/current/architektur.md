@@ -2,7 +2,7 @@
 
 > Dieses Dokument beschreibt den Ist-Zustand des Arbeitsbaums, nicht den Zielzustand.
 > Zielarchitektur und Reihenfolge: `docs/fahrplan.md`. Umsetzungsstand: `docs/current/stand.md`.
-> Die Risiko-Nummern `R1`-`R20` sind mit `docs/current/stand.md` und `docs/fahrplan.md` identisch. Der geprüfte Folge-Diff ist gesichert; der P3-2-Mapper-Schritt ist gegatet und als `0193fde` committet. Details und aktuelle Ergebnisse stehen in `docs/current/qualitaet.md`.
+> Die Risiko-Nummern `R1`-`R21` sind mit `docs/current/stand.md` und `docs/fahrplan.md` identisch. Der geprüfte Folge-Diff ist gesichert; der P3-2-Mapper-Schritt ist gegatet und als `0193fde` committet. Details und aktuelle Ergebnisse stehen in `docs/current/qualitaet.md`.
 
 ## Seams
 
@@ -86,7 +86,7 @@ URL oder Mirror
 
 ### Aktuelle Grenzen
 
-- `runImport()` verwendet für URLs `fetch()` und `captureHtml()`; `captureBrowser()` existiert und ist getestet, ist aber nicht der normale URL-Orchestrator.
+- `runImport()` liest eine URL-Quelle standardmäßig mit `fetch()` und `captureHtml()`; `capture: "browser"` schaltet denselben Lauf auf `captureBrowser()` (Chromium), wenn Inhalt aus Skripten mitmuss.
 - Payloads werden im Hauptpfad nur für Mirror-Quellen extrahiert.
 - Der Import-Commit liefert bei gleichem Inhalt einen Receipt und verhindert doppelte DB-Schreibvorgänge auch mit neuem Idempotency-Key.
 - Datei und DB bilden keine gemeinsame Transaktion. Neu erzeugte Uploads werden bei fehlgeschlagenem Commit kompensiert; der Fehlerpfad ist in `packages/engine/test/imports.test.ts` belegt. Bereits vorhandene Assets werden nicht entfernt. R10 ist mit diesem Kompensationsvertrag geschlossen.
@@ -160,3 +160,4 @@ R1 ist durch Build und angeschlossenes Artefakt-Gate implementierungsseitig gesc
 | R18 | Browser-Suiten -> stilles Ueberspringen | geschlossen: `SENIFY_REQUIRE_BROWSER=1`, nachgemessen ohne/mit Variable | `docs/fahrplan.md` (—) |
 | R19 | Route-Matrix -> Drift-Tor | geschlossen: `pnpm route-matrix:check`, Generator sortiert die Module | `docs/fahrplan.md` (—) |
 | R20 | Bake-Lease -> Build-Timeout | geschlossen: Lease = Build-Frist plus fuenf Minuten, `job-leases.test.ts` | `docs/fahrplan.md` (—) |
+| R21 | Keine Lizenz | **geschlossen (24.10.2026)**: alle Rechte vorbehalten, Rechteinhaber Adrian Nick; `LICENSE` im Wurzelverzeichnis, `license: UNLICENSED` in `package.json`. Nutzung durch Dritte nur per gesonderter Vereinbarung. | `docs/fahrplan.md` (R21), `LICENSE` |

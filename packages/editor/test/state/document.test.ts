@@ -6,7 +6,10 @@ import {
   locateParent,
   toCssDocument,
   classRules,
+  editorSlotSpecs,
+  slotIds,
   type EditorDocument,
+  type EditorNode,
 } from "@senify/editor/state";
 import { baseStore, counterIds, emptyV2Document } from "./fixtures.ts";
 
@@ -83,5 +86,76 @@ describe("document", () => {
   it("serialises an empty document the same way it was built", () => {
     const document = emptyV2Document();
     expect(structuredClone(document)).toEqual(document);
+  });
+
+  it("überspringt fehlende und mehrfach referenzierte Nodes in der Dokumentreihenfolge", () => {
+    const document: EditorDocument = {
+      ...emptyV2Document(),
+      rootNodeId: "root",
+      nodes: {
+        root: { id: "root", primitive: "root", props: {}, children: ["missing", "text", "text"], slots: { side: ["text"] } },
+        text: { id: "text", primitive: "text", props: {} },
+      },
+    };
+    expect(documentOrder(document)).toEqual(["root", "text"]);
+    expect(documentOrder({ ...document, rootNodeId: "missing" })).toEqual([]);
+    expect(collectSubtree(document, "missing")).toEqual([]);
+    expect(slotIds(document.nodes.root!, "missing")).toEqual([]);
+  });
+
+  it("filtert fehlende CSS-Kinder und erhält Slots samt leeren Listen", () => {
+    const document: EditorDocument = {
+      ...emptyV2Document(), rootNodeId: "root",
+      nodes: {
+        root: { id: "root", primitive: "root", props: {}, children: ["missing"], slots: { side: ["missing", "text"], empty: [] }, classes: [] },
+        text: { id: "text", primitive: "text", props: { text: "Inhalt" } },
+      },
+    };
+    expect(toCssDocument(document).nodes).toEqual([{
+      id: "root", primitive: "root", props: {},
+      slots: { side: [{ id: "text", primitive: "text", props: { text: "Inhalt" } }], empty: [] },
+    }]);
+    expect(toCssDocument({ ...document, rootNodeId: "missing" }).nodes).toEqual([]);
+  });
+
+  it.each([undefined, 1, "missing", "ordinary"])("leitet keine Slots aus ungültigen Komponentenverweisen ab: %j", (componentId) => {
+    const document = emptyV2Document();
+    document.nodes.ordinary = { id: "ordinary", primitive: "frame", props: {} };
+    const owner: EditorNode = { id: "instance", primitive: "__component_instance", props: componentId === undefined ? {} : { componentId } };
+    expect(editorSlotSpecs(document, owner)).toEqual({});
+    expect(editorSlotSpecs(document, { ...owner, primitive: "unknown" })).toEqual({});
+  });
+
+  it("liest verschachtelte Komponenten-Slots, filtert Typen und behält die erste Deklaration", () => {
+    const document: EditorDocument = {
+      ...emptyV2Document(),
+      nodes: {
+        definition: { id: "definition", primitive: "__component", props: {}, children: ["frame", "duplicate"] },
+        frame: { id: "frame", primitive: "frame", props: {}, children: ["missing", "content"], slots: { side: ["unnamed"] } },
+        content: { id: "content", primitive: "__component_slot", props: { name: "content", allowedTypes: ["text", "", 1, "heading"], max: 2.9 }, children: ["ignored"] },
+        duplicate: { id: "duplicate", primitive: "__component_slot", props: { name: "content", allowedTypes: ["image"], max: 9 } },
+        unnamed: { id: "unnamed", primitive: "__component_slot", props: {} },
+        ignored: { id: "ignored", primitive: "__component_slot", props: { name: "ignored" } },
+      },
+    };
+    const owner: EditorNode = { id: "instance", primitive: "__component_instance", props: { componentId: "definition" } };
+    expect(editorSlotSpecs(document, owner)).toEqual({
+      content: { allowedTypes: ["text", "heading"], max: 2 },
+      unnamed: { allowedTypes: [], max: null },
+    });
+    expect(editorSlotSpecs({ ...document, nodes: { definition: { id: "definition", primitive: "__component", props: {} } } }, owner)).toEqual({});
+  });
+
+  it.each([undefined, "2", -1, Infinity, NaN, 0])("normalisiert die maximale Slot-Belegung: %j", (max) => {
+    const document: EditorDocument = {
+      ...emptyV2Document(),
+      nodes: {
+        definition: { id: "definition", primitive: "__component", props: {}, children: ["slot"] },
+        slot: { id: "slot", primitive: "__component_slot", props: { name: "content", ...(max === undefined ? {} : { max }) } },
+      },
+    };
+    expect(editorSlotSpecs(document, { id: "instance", primitive: "__component_instance", props: { componentId: "definition" } })).toEqual({
+      content: { allowedTypes: [], max: max === 0 ? 0 : null },
+    });
   });
 });

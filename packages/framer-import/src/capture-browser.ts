@@ -104,67 +104,161 @@ const FREEZE_CSS =
 
 /* --------------------------------------------------------- scroll sensor */
 
+// The IR keys every node `n<ordinal>`; the running page has no such attribute,
+// so a probe that reports `data-framer-name` or a class name can never address
+// an IR node (measured 22.10.2026: 0 of 24 / 29 / 66 scroll samples landed).
+//
+// This stamp mirrors `toIrNode` exactly and runs in the page: pre-order over
+// `#main`'s element tree, an ordinal per VISITED element (the dissolved
+// `ssr-variant` wrapper consumes one, its child the next), `style`/`script`/
+// `noscript`/`template` never visited. The attributes are removed again before
+// `page.content()`, so the static capture reads the page unchanged.
+const KEY_STAMP = `
+function senifyStampKeys() {
+  const SKIP = new Set(["style", "script", "noscript", "template"]);
+  let ordinal = 0;
+  const visit = (el) => {
+    ordinal += 1;
+    el.setAttribute("data-senify-ir-key", "n" + ordinal);
+    const classes = typeof el.className === "string" ? el.className.split(/\\s+/) : [];
+    if (classes.includes("ssr-variant") && el.children.length === 1) {
+      visit(el.children[0]);
+      return;
+    }
+    for (const child of el.children) {
+      if (SKIP.has(child.tagName.toLowerCase())) continue;
+      visit(child);
+    }
+  };
+  const main = document.querySelector("#main");
+  if (!main) return 0;
+  for (const child of main.children) {
+    if (SKIP.has(child.tagName.toLowerCase())) continue;
+    visit(child);
+  }
+  return ordinal;
+}
+function senifyUnstampKeys() {
+  for (const el of document.querySelectorAll("[data-senify-ir-key]")) {
+    el.removeAttribute("data-senify-ir-key");
+  }
+}
+// The probe names a target as a CSS selector ("#top", "div.framer-1vcihha").
+// This index turns that name back into the IR key, and answers null where the
+// name is ambiguous: a sample on the wrong node is worse than one that stays
+// unattributed.
+function senifyKeyIndex() {
+  const index = {};
+  for (const el of document.querySelectorAll("#main, #main *")) {
+    const key = el.getAttribute("data-senify-ir-key");
+    if (key === null) continue;
+    const classes = typeof el.className === "string" ? el.className.trim() : "";
+    const name = el.id
+      ? "#" + el.id
+      : el.tagName.toLowerCase() + (classes === "" ? "" : "." + classes.split(/\\s+/).slice(0, 3).join("."));
+    if (index[name] === undefined) index[name] = key;
+    else if (index[name] !== key) index[name] = null;
+  }
+  return index;
+}
+;window.senifyStampKeys = senifyStampKeys;window.senifyUnstampKeys = senifyUnstampKeys;window.senifyKeyIndex = senifyKeyIndex;`;
+
 // The scroll sensor (S2.2c): sample every element's bounding box at two
 // scroll positions; an element whose viewport-relative position moved
-// OPPOSITE to the scroll direction more than a small threshold has a
-// scroll-driven transform (parallax/sticky tricks beyond sticky). Measured on
-// the Framer pages: the Appear/IO forms dominate, scroll transforms are the
-// exception — the sensor exists so they are counted, not assumed.
+// DIFFERENTLY than the page itself has a scroll-driven transform
+// (parallax/pins beyond `position: sticky`). Measured on the Framer pages: the
+// Appear/IO forms dominate, scroll transforms are the exception — the sensor
+// exists so they are counted, not assumed.
 const SCROLL_SENSOR = `
 function senifyScrollSample() {
   const results = [];
-  const elements = document.querySelectorAll("main *, #main *");
+  const elements = document.querySelectorAll("#main *");
   for (const el of elements) {
     if (!(el instanceof HTMLElement)) continue;
-    if (el.children.length > 0 && el.offsetWidth === 0 && el.offsetHeight === 0) continue;
+    const key = el.getAttribute("data-senify-ir-key");
+    if (key === null) continue;
     const rect = el.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) continue;
-    if (rect.bottom < -rect.height || rect.top > window.innerHeight * 2) continue;
+    const style = getComputedStyle(el);
     results.push({
-      key: el.getAttribute("data-framer-name") ?? (el.className && typeof el.className === "string" ? el.className.split(" ")[0] : el.tagName.toLowerCase()),
-      x: Math.round(rect.left),
-      y: Math.round(rect.top),
+      key: key,
+      y: Math.round(rect.top + window.scrollY),
+      transform: style.transform === "none" ? null : style.transform,
+      offset: style.top === "auto" && style.left === "auto" ? null : style.top + "|" + style.left,
     });
     if (results.length >= 400) break;
   }
-  return results;
+  return { scrollY: Math.round(window.scrollY), samples: results };
 }
 ;window.senifyScrollSample = senifyScrollSample;`;
 
+// An element held back by a scroll transform shows it DIRECTLY: its computed
+// `transform` (or `top`/`left` offset) differs between two scroll positions.
+// That is the measurement, not a deduction from box travel.
+//
+// Measured on the real exports (22.10.2026), the box-travel form reports the
+// whole page: Framer's reveal turns `opacity:0.001` on, lazy content arrives,
+// the document grows DURING the pass, and `position: fixed`/`absolute` children
+// move differently for purely static reasons. A difference in the element's OWN
+// transform has none of those failure modes: static CSS produces the same value
+// at every scroll offset, and only a script (or a CSS scroll timeline) changes
+// it while scrolling.
+// `1` would count sub-pixel rounding of a settling layout as motion; `2` is the
+// smallest change a scroll transform visibly produces. Measured residue on the
+// real exports at 1 px: four nodes with a 1-2 px difference and no animation.
+const SCROLL_TOLERANCE_PX = 2;
+
 function scrollDelta(
-  before: { key: string; x: number; y: number }[],
-  after: { key: string; x: number; y: number }[],
+  before: { scrollY: number; samples: { key: string; y: number; transform: string | null; offset: string | null }[] },
+  after: { scrollY: number; samples: { key: string; y: number; transform: string | null; offset: string | null }[] },
 ): { key: string; delta: number }[] {
-  const afterByKey = new Map(after.map((entry) => [entry.key, entry]));
+  const afterByKey = new Map(after.samples.map((entry) => [entry.key, entry]));
   const moved: { key: string; delta: number }[] = [];
-  for (const entry of before) {
+  for (const entry of before.samples) {
     const next = afterByKey.get(entry.key);
     if (next === undefined) continue;
-    // An element without a scroll transform moves WITH the page: its
-    // viewport-relative y decreases by exactly the scroll amount. A bigger
-    // difference (opposite sign or not matching the scroll distance) is a
-    // scroll-driven motion.
-    const delta = entry.y - next.y;
-    if (Math.abs(delta) > 4) moved.push({ key: entry.key, delta: Math.round(delta) });
+    // The scroll offset itself did not move: nothing could have reacted.
+    if (entry.y === next.y) continue;
+    const transformChanged = entry.transform !== next.transform;
+    const offsetChanged = entry.offset !== next.offset;
+    if (!transformChanged && !offsetChanged) continue;
+    // A pure rounding wobble is not a scroll effect: the element's own values
+    // must differ by more than the tolerance to count.
+    const magnitude = Math.abs(entry.y - next.y);
+    if (magnitude < SCROLL_TOLERANCE_PX && !transformChanged) continue;
+    moved.push({ key: entry.key, delta: Math.round(entry.y - next.y) });
   }
   return moved;
 }
 
 /* ------------------------------------------------------- motion samples */
 
-// The WAAPI loop form measured in S0 (befund §4): translateX ±4192 px over
-// 140 s with `iterations: null` — the ticker marquee. Everything else on the
-// Framer pages is Appear/IO.
-function samplesOfProbe(probe: Record<string, unknown>): IrMotionSample[] {
+// The WAAPI inventory of a settled page, read as SUPPLEMENT to the appear JSON
+// (`captureHtml` already turns `__framer__appearAnimationsContent` into
+// `trigger: "appear"` samples with their start values). Measuring the live page
+// showed that both channels describe the SAME effects: 2/5/23 appear entries in
+// the JSON, 2/5/23 distinct `data-framer-appear-id` targets in the browser, and
+// no target the JSON does not name (22.10.2026, all three export fixtures).
+//
+// A WAAPI entry therefore only becomes a sample when it is a LOOP (the ticker
+// form: `iterations: null`, measured in S0/befund §4) or a scroll-driven
+// timeline - the two forms the static channels cannot see. Everything else is
+// the appearance the JSON already carries in comparable form; reporting it a
+// second time, as a bare opacity/transform pair without start values, made the
+// mapper drop effects it had just mapped.
+function samplesOfProbe(probe: Record<string, unknown>, keyOf: (target: unknown) => string | null): IrMotionSample[] {
   const samples: IrMotionSample[] = [];
   const waapi = Array.isArray(probe.waapi) ? (probe.waapi as Record<string, unknown>[]) : [];
   for (const entry of waapi) {
     const iterations = entry.iterations;
     const isLoop = iterations === Infinity || iterations === "Infinity" || iterations === null;
+    const scrollDriven =
+      typeof entry.timeline === "string" && /ScrollTimeline|ViewTimeline/.test(entry.timeline);
+    if (!isLoop && !scrollDriven) continue;
     samples.push({
-      nodeKey: typeof entry.target === "string" ? entry.target : null,
+      nodeKey: keyOf(entry.target),
       library: "waapi",
-      trigger: isLoop ? "time" : "appear",
+      trigger: isLoop ? "time" : "scroll",
       params: {
         duration: typeof entry.duration === "number" ? entry.duration : 0,
         iterations: isLoop ? "endless" : String(iterations ?? "1"),
@@ -228,7 +322,7 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
     });
     await context.addInitScript({
       content:
-        `${motionSource}\n${tokensSource}\n${SCROLL_SENSOR}\n;` +
+        `${motionSource}\n${tokensSource}\n${KEY_STAMP}\n${SCROLL_SENSOR}\n;` +
         "window.instrumentMotion = instrumentMotion;" +
         "window.motionProbe = motionProbe;" +
         "window.motionSummary = motionSummary;" +
@@ -256,13 +350,16 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
       await page.addStyleTag({ content: FREEZE_CSS }).catch(() => undefined);
     }
 
-    // Settle once through the scroll height (lazy media, IO triggers), then
-    // back to the top — the same pass the motion-lauf measured with.
-    const scrollBefore = await page.evaluate("window.senifyScrollSample()") as {
-      key: string;
-      x: number;
-      y: number;
-    }[];
+    // The IR keys are stamped onto the LIVE tree first: the ordinals only match
+    // when the tree is the one `captureHtml` will read moments later, so the
+    // stamp happens after the page settled (JS-built content included) and is
+    // taken off again before `page.content()`. A page without `#main` stamps
+    // nothing; the sensor then simply finds no key and reports nothing.
+    await page.evaluate("window.senifyStampKeys()");
+
+    // Settle once through the scroll height (lazy media, IO triggers). This
+    // pass makes the page GROW - it must be finished before the scroll sensor
+    // measures, or every element reports the height change as a movement.
     await page.evaluate(async () => {
       const slice = globalThis as unknown as BrowserSlice;
       const step = slice.window.innerHeight;
@@ -270,20 +367,37 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
         slice.window.scrollTo(0, y);
         await new Promise((resolve) => setTimeout(resolve, 120));
       }
-      slice.window.scrollTo(0, 0);
-      await new Promise((resolve) => setTimeout(resolve, 500));
     });
     await page.waitForTimeout(input.settleMs ?? 1500);
-    const scrollAfter = await page.evaluate("window.senifyScrollSample()") as {
-      key: string;
-      x: number;
-      y: number;
-    }[];
+
+    // The sensor compares two REAL scroll positions on the settled page: one
+    // viewport down. Sampling at the same offset twice measures nothing.
+    const scrollBefore = (await page.evaluate("window.senifyScrollSample()")) as {
+      scrollY: number;
+      samples: { key: string; y: number; transform: string | null; offset: string | null }[];
+    };
+    await page.evaluate(async () => {
+      const slice = globalThis as unknown as BrowserSlice;
+      slice.window.scrollTo(0, slice.window.innerHeight);
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    });
+    const scrollAfter = (await page.evaluate("window.senifyScrollSample()")) as {
+      scrollY: number;
+      samples: { key: string; y: number; transform: string | null; offset: string | null }[];
+    };
 
     const probe = (await page.evaluate(
       "JSON.parse(JSON.stringify(motionProbe()))",
     )) as Record<string, unknown>;
+    // The selector index belongs to the very tree the probe just read, so it is
+    // taken BEFORE the stamp comes off and the HTML is serialised.
+    const keyIndex = (await page.evaluate(
+      "JSON.parse(JSON.stringify(window.senifyKeyIndex()))",
+    )) as Record<string, string | null>;
+    await page.evaluate("window.senifyUnstampKeys()");
     const ssrHtml = await page.content();
+    const keyOf = (target: unknown): string | null =>
+      typeof target === "string" ? (keyIndex[target] ?? null) : null;
 
     const io = Array.isArray(probe.intersectionObservers)
       ? (probe.intersectionObservers as unknown[]).length
@@ -296,7 +410,7 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
     const libraries = (probe.libraries ?? {}) as Record<string, unknown>;
 
     const moved = scrollDelta(scrollBefore, scrollAfter);
-    const samples = samplesOfProbe(probe);
+    const samples = samplesOfProbe(probe, keyOf);
     for (const entry of moved.slice(0, 20)) {
       samples.push({
         nodeKey: entry.key,
@@ -335,7 +449,23 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
     };
     const document = captureHtml(capture);
     document.source.kind = "browser";
-    document.motion = samples;
+    // MERGE, never replace: `captureHtml` has already turned the page's appear
+    // JSON into samples with their start values, and those are the ones the
+    // motion mapper can translate. The browser adds what the static channels
+    // cannot see (loops, scroll-driven timelines, the scroll sensor). Two
+    // samples for the same node and trigger would map the effect twice on one
+    // element, so the static sample wins and only unseen pairs are added. The
+    // animation's own name stays part of the identity: one element can carry a
+    // CSS ticker AND a script-driven loop, and those are two animations.
+    const sampleId = (sample: IrMotionSample): string =>
+      `${sample.nodeKey ?? ""}|${sample.trigger}|${sample.library}|${String(sample.params["name"] ?? "")}`;
+    const seen = new Set(document.motion.map(sampleId));
+    for (const sample of samples) {
+      const id = sampleId(sample);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      document.motion.push(sample);
+    }
     if (endless.length > 0) {
       document.findings.push({
         kind: "loop-animation",
