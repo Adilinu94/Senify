@@ -18,17 +18,55 @@ import { bootEngine, createTestSite, type BootEnv } from "./helpers.ts";
 // Die Sektions-Vorschau mit dem ECHTEN Fotografen.
 //
 // Warum eine eigene Datei: der produktive Weg startet Playwright und braucht
-// gemessen 6-13 Sekunden je Bild. In `section-preview-route.test.ts` stehen
+// gemessen 6-19 Sekunden je Bild. In `section-preview-route.test.ts` stehen
 // die Vertragstests, die mit einem Doppel in Millisekunden laufen. Beides in
 // einer Datei hiess: die langen Bakes blockieren die modulweite Warteschlange,
 // und ein spaeterer Test wartete auf fremde Arbeit - im Volllauf wurde daraus
 // ein Timeout, einzeln war alles gruen.
 //
-// Getrennt ist beides ehrlich: hier steht "der Weg im Betrieb funktioniert",
-// dort steht "die Route antwortet richtig". Die Trennung ist auch der Grund,
-// warum diese Datei 120-Sekunden-Grenzen hat und die andere keine braucht.
+// WARUM HIER EIN SKIP STEHT (25.10.2026, CI-Fund):
+// Der Coverage-Job der CI installiert bewusst KEINEN Browser - er soll von der
+// Sache reden und nicht von der Playwright-Last des Laufers (siehe
+// `.github/workflows/verify.yml`, Job `coverage`). Ohne Skip waren beide Faelle
+// dort rot: `browserType.launch: Executable doesn't exist`. Der `verify`-Job
+// installiert Chromium und faehrt sie wirklich.
+//
+// Der Skip ist das Muster, das alle Browser-Suiten hier benutzen
+// (`describe.skipIf(!browserAvailable)`); er ist NICHT still: mit
+// `SENIFY_REQUIRE_BROWSER=1` und fehlendem Browser wird der Lauf rot, statt
+// gruen ohne Test zu sein.
 
-describe("Sektions-Vorschau: der echte Bake", () => {
+/**
+ * Ist ein Chromium vorhanden, das zu dieser Playwright-Version passt?
+ *
+ * Absichtlich dieselbe Pruefung wie in `packages/app/test/support.ts`: die
+ * Frage ist "liegt die ausfuehrbare Datei", nicht "ist das Paket da". Ein
+ * installiertes Paket ohne Browser ist genau der CI-Fall.
+ */
+const browserAvailable = await (async (): Promise<boolean> => {
+  try {
+    const playwright = await import("playwright");
+    const { existsSync } = await import("node:fs");
+    return existsSync(playwright.chromium.executablePath());
+  } catch {
+    return false;
+  }
+})();
+
+/**
+ * Der Skip ist NICHT still: mit `SENIFY_REQUIRE_BROWSER=1` faellt der Lauf
+ * durch, statt gruen ohne Test zu sein. Dieselbe Regel wie
+ * `packages/app/test/support.ts` (`browserSkip`): ein gruener Lauf, in dem
+ * die Browser-Tore nie gelaufen sind, ist kein Nachweis.
+ *
+ * Im Coverage-Job der CI ist die Variable nicht gesetzt (er installiert keinen
+ * Browser) - dort ueberspringt die Datei. Im `verify`-Job ist sie gesetzt und
+ * Chromium installiert - dort laufen beide Faelle wirklich.
+ */
+const browserRequired = process.env["SENIFY_REQUIRE_BROWSER"] === "1";
+const browserSkip = !browserAvailable && !browserRequired;
+
+describe.skipIf(browserSkip)("Sektions-Vorschau: der echte Bake", () => {
   let env: BootEnv;
   let context: EngineContext;
   const ordner: string[] = [];

@@ -240,21 +240,50 @@ export function pickPreviewShot<T extends { breakpoint: string; png: Buffer }>(
   return desktop;
 }
 
-// Der produktive Fotograf: die Thumbnail-Aufnahme des Analyse-Workers, lazy
-// geladen, damit eine Engine ohne Browser weiter startet.
-export function createSectionPreviewShooter(): SectionPreviewShooter {
+/**
+ * Die Aufnahme-Funktion des Analyse-Workers, wie sie hier gebraucht wird.
+ * Eine eigene Form, damit der Test einen Doppel einsetzen kann: die Logik
+ * dieser Datei (welches Bild gilt, was bei einem leeren Ergebnis passiert)
+ * haengt nicht am Browser.
+ */
+export type PreviewCapture = (input: {
+  url: string;
+  thumbWidth: number;
+  maxPageHeight: number;
+  settleMs: number;
+  motion: "off";
+  browser: { allowOrigins: string[] };
+}) => Promise<readonly { breakpoint: string; png: Buffer }[]>;
+
+/**
+ * Der produktive Fotograf: die Thumbnail-Aufnahme des Analyse-Workers, lazy
+ * geladen, damit eine Engine ohne Browser weiter startet.
+ *
+ * `capture` ist injizierbar, weil der Coverage-Job der CI bewusst KEINEN
+ * Browser installiert (`verify.yml`, Job `coverage`). Ohne diese Naht waeren
+ * die drei Funktionen hier ohne Browser ungemessen - gemessen am 25.10.2026:
+ * Functions fielen von 94,11 auf 82,35 Prozent, und die Schwelle (88) haette
+ * den Lauf rot gemacht, obwohl der Code in Ordnung ist.
+ */
+export function createSectionPreviewShooter(capture?: PreviewCapture): SectionPreviewShooter {
   return async ({ url, width, allowOrigins }) => {
-    const harness = await import("@senify/analysis-worker").catch(() => {
-      throw new SenifyError(
-        "not_found",
-        "Die Sektions-Vorschau braucht @senify/analysis-worker (Playwright)",
-        {
-          field: "preview",
-          suggestion: "Workspace-Abhängigkeiten installieren (pnpm install).",
-        },
-      );
-    });
-    const shots = await harness.captureThumbnails({
+    const hole: PreviewCapture =
+      capture ??
+      (async (input) => {
+        const harness = await import("@senify/analysis-worker").catch(() => {
+          throw new SenifyError(
+            "not_found",
+            "Die Sektions-Vorschau braucht @senify/analysis-worker (Playwright)",
+            {
+              field: "preview",
+              suggestion: "Workspace-Abhängigkeiten installieren (pnpm install).",
+            },
+          );
+        });
+        return harness.captureThumbnails(input);
+      });
+
+    const shots = await hole({
       url,
       thumbWidth: width,
       maxPageHeight: VIEWPORT.height,

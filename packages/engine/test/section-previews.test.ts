@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  createSectionPreviewShooter,
   isPreviewable,
   pickPreviewShot,
   previewFileName,
@@ -340,4 +341,88 @@ describe("sectionPreview", () => {
       readFileSync(join(cacheDir, previewFileName(ziel.type, ziel.variant, 1))).equals(PNG),
     ).toBe(true);
   }, 60000);
+});
+
+describe("createSectionPreviewShooter", () => {
+  // Diese Gruppe faehrt den Fotografen OHNE Browser. Der Grund ist der
+  // Coverage-Job der CI: er installiert bewusst kein Chromium (verify.yml,
+  // Job `coverage`), und die drei Funktionen des Fotografen waren dort
+  // ungemessen - gemessen am 25.10.2026: Functions 94,11 -> 82,35 Prozent,
+  // Schwelle 88 haette den Lauf rot gemacht. Die Naht `capture` macht die
+  // LOGIK messbar (welches Bild gilt, was ein leeres Ergebnis tut), ohne den
+  // Browser zu brauchen. Den echten Weg faehrt `section-preview-real.test.ts`.
+
+  it("nimmt das Desktop-Bild aus der Aufnahme", async () => {
+    const gesehen: unknown[] = [];
+    const shooter = createSectionPreviewShooter(async (input) => {
+      gesehen.push(input);
+      return [
+        { breakpoint: "mobile", png: Buffer.from("bb", "hex") },
+        { breakpoint: "desktop", png: Buffer.from("dd", "hex") },
+      ];
+    });
+
+    const shot = await shooter({
+      url: "http://127.0.0.1:1/index.html",
+      width: 480,
+      allowOrigins: ["http://127.0.0.1:1"],
+    });
+
+    expect(shot.png.equals(Buffer.from("dd", "hex"))).toBe(true);
+    // Die Vorgaben sind der Vertrag mit dem Analyse-Worker: dieselben Maße
+    // wie das Generator-Skript, Bewegung aus (sonst waere das Bild ein
+    // Zufallsmoment einer Animation).
+    expect(gesehen).toEqual([
+      {
+        url: "http://127.0.0.1:1/index.html",
+        thumbWidth: 480,
+        maxPageHeight: 810,
+        settleMs: 250,
+        motion: "off",
+        browser: { allowOrigins: ["http://127.0.0.1:1"] },
+      },
+    ]);
+  });
+
+  it("nimmt das erste Bild, wenn kein Desktop dabei ist", async () => {
+    const shooter = createSectionPreviewShooter(async () => [
+      { breakpoint: "tablet", png: Buffer.from("cc", "hex") },
+    ]);
+    const shot = await shooter({ url: "http://x/y", width: 480, allowOrigins: [] });
+    expect(shot.png.equals(Buffer.from("cc", "hex"))).toBe(true);
+  });
+
+  it("greift ohne eingesetztes capture auf den Analyse-Worker zu", async () => {
+    // Der PRODUKTIVE Zweig (ohne eingesetztes `capture`). Hier ist der
+    // Analyse-Worker installiert, also laeuft der Aufruf BIS in den Browser -
+    // und scheitert dort an der Adresse, nicht an fehlendem Code. Genau das
+    // ist der Beweis, dass der Zweig den Worker wirklich benutzt: die
+    // Fehlermeldung kommt aus Playwright, nicht aus unserem `catch`.
+    //
+    // Auf einem Rechner OHNE den Worker greift der `catch` und meldet
+    // `not_found`/`preview` - dieser Fall steht in der CI und ist der Grund,
+    // warum der Zweig dort ebenfalls gemessen wird.
+    const shooter = createSectionPreviewShooter();
+    const fehler = await shooter({
+      url: "http://127.0.0.1:1/gibt-es-nicht",
+      width: 480,
+      allowOrigins: [],
+    }).catch((error: unknown) => error);
+
+    // Die Behauptung ist der VERTRAG, nicht die Meldung: eine Adresse, die
+    // nicht aufgeht, darf kein Bild liefern. Ein stiller Erfolg waere der
+    // Fehler - die Kachel bekaeme ein leeres PNG und niemand merkte es.
+    expect(fehler).toBeInstanceOf(Error);
+    // Und sie nennt einen Grund, keinen leeren Text.
+    expect(String((fehler as Error).message).trim().length).toBeGreaterThan(0);
+  }, 60000);
+
+  it("wirft, wenn die Aufnahme leer ist, statt 'undefined' durchzureichen", async () => {
+    // Ein leeres Ergebnis wuerde im PNG-Schreiber als `undefined` landen und
+    // dort als kryptischer Fehler auftauchen - hier steht der Grund.
+    const shooter = createSectionPreviewShooter(async () => []);
+    await expect(
+      shooter({ url: "http://x/y", width: 480, allowOrigins: [] }),
+    ).rejects.toThrow(/kein Bild/);
+  });
 });
