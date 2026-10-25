@@ -28,6 +28,8 @@ import { importRoutes } from "./http-routes-imports.ts";
 import { deployRoutes } from "./http-routes-deploy.ts";
 import { libraryRoutes } from "./http-routes-library.ts";
 import { designRoutes } from "./http-routes-design.ts";
+import { siteContentRoutes } from "./http-routes-site-content.ts";
+import { imageRoutes } from "./http-routes-images.ts";
 import { siteLifecycleRoutes } from "./http-routes-site-lifecycle.ts";
 import { themeRoutes } from "./http-routes-theme.ts";
 import { assetRoutes } from "./http-routes-assets.ts";
@@ -126,6 +128,8 @@ const ROUTES: Route[] = [
   ...deployRoutes,
   ...libraryRoutes,
   ...designRoutes,
+  ...siteContentRoutes,
+  ...imageRoutes,
   ...siteLifecycleRoutes,
   ...themeRoutes,
   ...referenceRoutes,

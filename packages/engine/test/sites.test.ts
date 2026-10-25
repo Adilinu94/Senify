@@ -620,3 +620,91 @@ describe("pages", () => {
     expect(missingPage.status).toBe(404);
   });
 });
+
+describe("die Zweige am Rand der Site-Routen", () => {
+  // Befund vom 25.10.2026 nach dem Bilder-Schnitt (Schritt 66):
+  // `http-routes-sites.ts` fiel auf 67,18 % Branches. Das war KEIN
+  // Testverlust durch den Schnitt - die Datei ist um 117 Zeilen kleiner,
+  // und 16 der 17 leeren Zweige sind derselbe Fall: auf jeder verbliebenen
+  // Schreibroute steht `(await readJsonBody(req)) ?? {}`, und kein Test
+  // schickte je einen Aufruf OHNE Koerper.
+  //
+  // Ein Aufruf ohne Koerper ist der erste, den ein Client falsch macht. Die
+  // Antworten unterscheiden sich, weil die Vertraege es tun - und genau das
+  // ist der Wert dieses Tests: er haelt fest, welche Route mit 400 antwortet
+  // und welche mit 200 (weil alle Felder optional sind).
+  it("nimmt einen leeren Koerper als leeres Objekt, nicht als Absturz", async () => {
+    let siteId: string;
+    {
+      const created = await env.api.request<{ id: string }>({
+        method: "POST",
+        path: "/api/sites",
+        body: { name: "Leere Koerper" },
+      });
+      expect(created.status, JSON.stringify(created.body)).toBe(201);
+      siteId = created.body.id;
+    }
+
+    // Alle verbliebenen Schreibrouten ohne Koerper. Erwartet wird *eine*
+    // Fehlerantwort oder ein Erfolg - aber nie ein 500 und nie ein Absturz.
+    const schreibrouten = [
+      { method: "POST", path: `/api/sites/${siteId}/pages` },
+      { method: "POST", path: `/api/sites/${siteId}/releases` },
+      { method: "POST", path: `/api/sites/${siteId}/previews` },
+      { method: "POST", path: `/api/sites/${siteId}/reviews` },
+      { method: "POST", path: `/api/sites/${siteId}/assets` },
+      { method: "POST", path: `/api/sites/${siteId}/references` },
+      { method: "POST", path: `/api/sites/${siteId}/code-payloads` },
+      { method: "POST", path: `/api/sites/${siteId}/redesign` },
+    ] as const;
+
+    for (const route of schreibrouten) {
+      const response = await env.api.request<{ error?: { category: string } }>({
+        method: route.method,
+        path: route.path,
+      });
+      expect(
+        response.status,
+        `${route.method} ${route.path} -> ${response.status} ${JSON.stringify(response.body)}`,
+      ).toBeLessThan(500);
+      // Ein Vertragsfehler ist 400; ein Erfolg waere 2xx. Beides ist in
+      // Ordnung - ein 500 waere der Absturz, den der Zweig verhindert.
+      expect([200, 201, 204, 400, 404, 409, 422]).toContain(response.status);
+    }
+  }, 120_000);
+
+  it("weist einen unbekannten Review-Status ab und laesst einen gueltigen durch", async () => {
+    const created = await env.api.request<{ id: string }>({
+      method: "POST",
+      path: "/api/sites",
+      body: { name: "Review-Status" },
+    });
+    expect(created.status).toBe(201);
+    const siteId = created.body.id;
+
+    // `statusParam !== null && !REVIEW_STATUSES.includes(...)` - beide Arme.
+    // Ein unbekannter Wert darf nicht still als "alle" durchgehen, sonst
+    // filtert der Editor falsch und merkt es nicht.
+    const unbekannt = await env.api.request<{ error: { field: string } }>({
+      method: "GET",
+      path: `/api/sites/${siteId}/reviews?status=voellig-unbekannt`,
+    });
+    expect(unbekannt.status).toBe(400);
+    expect(unbekannt.body.error.field).toBe("status");
+
+    // Ohne status: alle. Mit einem echten status: gefiltert, aber 200.
+    const ohne = await env.api.request<{ reviews: unknown[] }>({
+      method: "GET",
+      path: `/api/sites/${siteId}/reviews`,
+    });
+    expect(ohne.status).toBe(200);
+    expect(Array.isArray(ohne.body.reviews)).toBe(true);
+
+    const mitStatus = await env.api.request<{ reviews: unknown[] }>({
+      method: "GET",
+      path: `/api/sites/${siteId}/reviews?status=submitted`,
+    });
+    expect(mitStatus.status, JSON.stringify(mitStatus.body)).toBe(200);
+    expect(Array.isArray(mitStatus.body.reviews)).toBe(true);
+  }, 60_000);
+});

@@ -45,6 +45,8 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 | GET | `/api/sites/:siteId/submissions` | read | Tool | `list_submissions` |
 | POST | `/api/sites/:siteId/forms/collection-plan` | write | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/forms/collection` | write | Operator | UI/CLI |
+| POST | `/api/sites/:siteId/images/jobs` | write | Tool | `generate_image` |
+| GET | `/api/sites/:siteId/images/jobs` | read | Tool | `list_image_jobs` |
 | POST | `/api/sites/:siteId/imports/framer` | write | Tool | `import_framer_page` |
 | POST | `/api/sites/:siteId/imports/framer/preview` | write | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/imports` | read | Operator | UI/CLI |
@@ -136,6 +138,13 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 | PATCH | `/api/reference-collections/:collectionId` | write | Tool | `update_reference_collection` |
 | DELETE | `/api/reference-collections/:collectionId` | write | Tool | `delete_reference_collection` |
 | GET | `/api/reference-collections/:collectionId/brief` | read | Tool | `get_reference_brief` |
+| POST | `/api/sites/:siteId/collections` | write | Operator | UI/CLI |
+| POST | `/api/sites/:siteId/collections/from-fields` | write | Operator | UI/CLI |
+| GET | `/api/sites/:siteId/collections` | read | Tool | `list_collections` |
+| POST | `/api/sites/:siteId/entries` | write | Tool | `create_entry` |
+| GET | `/api/sites/:siteId/entries` | read | Tool | `list_entries` |
+| POST | `/api/sites/:siteId/entries/search` | read | Tool | `search_entries` |
+| GET | `/api/sites/:siteId/entries/resolve` | read | Operator | UI/CLI |
 | POST | `/api/sites` | write | Tool | `create_site` |
 | GET | `/api/sites` | read | Tool | `list_sites` |
 | PATCH | `/api/sites/:siteId` | write | Tool | `duplicate_site` |
@@ -158,21 +167,12 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 | GET | `/api/sites/:siteId/assets` | read | Tool | `list_assets` |
 | POST | `/api/sites/:siteId/code-payloads` | write | Operator | Import/CLI (MCP-Tools folgen mit der Bibliothek, S6) |
 | GET | `/api/sites/:siteId/code-payloads` | read | Operator | Import-Bericht/Editor |
-| POST | `/api/sites/:siteId/collections` | write | Operator | UI/CLI |
-| POST | `/api/sites/:siteId/collections/from-fields` | write | Operator | UI/CLI |
-| GET | `/api/sites/:siteId/collections` | read | Tool | `list_collections` |
-| POST | `/api/sites/:siteId/entries` | write | Tool | `create_entry` |
-| GET | `/api/sites/:siteId/entries` | read | Tool | `list_entries` |
-| POST | `/api/sites/:siteId/entries/search` | read | Tool | `search_entries` |
-| GET | `/api/sites/:siteId/entries/resolve` | read | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/forms` | read | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/notifications` | read | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/references` | read | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/references` | write | Tool | `apply_reference` |
 | DELETE | `/api/sites/:siteId/references/:referenceId` | write | Tool | `unassign_reference` |
 | POST | `/api/sites/:siteId/redesign` | write | Tool | `apply_redesign` |
-| POST | `/api/sites/:siteId/images/jobs` | write | Tool | `generate_image` |
-| GET | `/api/sites/:siteId/images/jobs` | read | Tool | `list_image_jobs` |
 | GET | `/api/sites/:siteId/theme` | read | Tool | `get_theme`, `server (automatisch)` |
 | GET | `/api/sites/:siteId/theme.css` | read | Operator | UI/CLI |
 | PUT | `/api/sites/:siteId/theme` | write | Tool | `update_theme` |
