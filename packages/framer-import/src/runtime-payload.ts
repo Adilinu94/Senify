@@ -421,6 +421,84 @@ export async function collectRuntimeFiles(
     }
   }
   while (queue.length > 0) await collect(queue.shift() as string);
+
+  // Reachability, not size. An unclaimed dynamic import is collected above only
+  // because it MIGHT be fetched at runtime; on the measured site two of them
+  // were not (the CMS collection behind `/solutions/:slug` never; the badge is
+  // advertising that the CSP blocks anyway). Keeping them pushed the payload
+  // from 3057 to 3092 KB - over ADR-0010's 3072 KB budget by 20 KB, which threw
+  // the WHOLE payload away and left the page on the structure tree.
+  //
+  // The roots are the entry, this page's own module and the route table's
+  // modules. The route stubs are roots too: the router resolves them instead of
+  // 404ing (that 404 was React #405 on every page).
+  //
+  // What the entry loads as a CMS COLLECTION loader is not part of this page:
+  //
+  //   sa={c1gl7lJ_F:async()=>(await import(`./x.mjs`))?.utils, tNWRmYcXL:async()=>...}
+  //
+  // The runtime calls one of those only when a page of that collection is
+  // opened (`/solutions/:slug` here), never on the home page - measured in
+  // Chromium: zero requests for it across a full scroll. The shape is exact
+  // (`async()=>(await import(...))?.utils`), so this does not touch a lazy
+  // widget the page itself asks for, and it does not touch the badge.
+  const collectionLoaders = new Set<string>();
+  const COLLECTION_LOADER = /[A-Za-z0-9_$]+:async\(\)=>\(await import\(`?\.\/([^`"']+)`?\)\)\?\.utils/g;
+  for (const match of (files.get(entry) ?? "").matchAll(COLLECTION_LOADER)) {
+    if (match[1] !== undefined) collectionLoaders.add(absolute(entry, match[1]));
+  }
+  const roots = [entry];
+  if (own !== null) roots.push(own);
+  for (const route of routes) roots.push(route.module);
+  const importSpecifiers = (source: string): string[] => [
+    ...[...source.matchAll(STATIC_IMPORT)].map((match) => match[1]),
+    ...[...source.matchAll(DYNAMIC_IMPORT)].map((match) => match[1]),
+  ].filter((value): value is string => value !== undefined);
+  const byName = new Map<string, string>();
+  for (const url of files.keys()) {
+    const name = url.slice(url.lastIndexOf("/") + 1);
+    if (!byName.has(name)) byName.set(name, url);
+  }
+  const reachable = new Set<string>();
+  const pending = roots.filter((root) => files.has(root));
+  while (pending.length > 0) {
+    const current = pending.shift() as string;
+    if (reachable.has(current)) continue;
+    reachable.add(current);
+    const source = files.get(current) ?? "";
+    for (const specifier of importSpecifiers(source)) {
+      const target = absolute(current, specifier);
+      if (files.has(target)) pending.push(target);
+      // A specifier that names a collected file by basename (the router writes
+      // `./<hash>.mjs` with a query-free path) is the same file.
+      const name = specifier.slice(specifier.lastIndexOf("/") + 1);
+      const viaName = byName.get(name);
+      if (viaName !== undefined && files.has(viaName)) pending.push(viaName);
+    }
+  }
+  for (const url of [...files.keys()]) {
+    if (collectionLoaders.has(url)) { files.delete(url); continue; }
+    if (!reachable.has(url)) files.delete(url);
+  }
+  // A collection loader was the only thing that imported the collection's own
+  // module. With the loader gone, that module is unreachable too - recompute
+  // once so the whole chain goes, not just its first link.
+  const stillReachable = new Set<string>();
+  const again = roots.filter((root) => files.has(root));
+  while (again.length > 0) {
+    const current = again.shift() as string;
+    if (stillReachable.has(current)) continue;
+    stillReachable.add(current);
+    for (const specifier of importSpecifiers(files.get(current) ?? "")) {
+      const target = absolute(current, specifier);
+      if (files.has(target) && !collectionLoaders.has(target)) again.push(target);
+      const viaName = byName.get(specifier.slice(specifier.lastIndexOf("/") + 1));
+      if (viaName !== undefined && files.has(viaName) && !collectionLoaders.has(viaName)) again.push(viaName);
+    }
+  }
+  for (const url of [...files.keys()]) {
+    if (!stillReachable.has(url)) files.delete(url);
+  }
   return files;
 }
 
