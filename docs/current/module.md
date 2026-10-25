@@ -55,7 +55,7 @@
 
 ## Engine: HTTP-Routen-Module
 
-**16 Dateien** mit zusammen **176 Routen**.
+**18 Dateien** mit zusammen **176 Routen**.
 
 | Modul | Routen | Zeilen | Zweck |
 |---|---|---|---|
@@ -66,14 +66,16 @@
 | `http-routes-assets.ts` | 11 | 219 | Die Asset-Routen einer Site (P3-2, Schritt 53): Upload-Adresse, Liste, Lesen, Aendern, Papierkorb, Wiederherstellen, Verlauf, Massenoperation und die Asset-Ordner. |
 | `http-routes-content.ts` | 17 | 498 | Die Routen des Bereichs api/reviews, api/forms, api/redesign-proposals, api/collections, api/code-payloads, api/imports. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-deploy.ts` | 4 | 139 | Deploy und Deploy-Einstellungen einer Site (P3-2, Schritt 62): eine Veroeffentlichung ausliefern, die Auslieferungshistorie und die Ziele (statisch, Netlify, Vercel) samt verschluesseltem Token. |
+| `http-routes-design.ts` | 2 | 68 | Der Design-Vertrag einer Site (P3-2, Schritt 64): die Konstanten, die Verbote und das Vokabular, an denen sich jeder Entwurf messen lassen muss. |
 | `http-routes-formular.ts` | 3 | 88 | Die Formular-Routen einer Site (P3-2, Schritt 54): die Einsendungen eines Formulars, der Plan fuer eine Sammlung aus einem Formular und ihre Anlage. |
 | `http-routes-imports.ts` | 3 | 188 | Die Framer-Import-Routen einer Site (P3-2, Schritt 61): Import anlegen (mit Idempotenz und Job-Zustand), Vorschau ohne Schreiben und der Verlauf. |
+| `http-routes-library.ts` | 5 | 92 | Die Bibliotheks-Installationen einer Site (P3-2, Schritt 63): was aus der geteilten Bibliothek uebernommen wurde, ein neues Installieren, das Nachziehen einer Installation, das Wieder-Anhaengen nach einem Detach und das Loesen. |
 | `http-routes-media.ts` | 16 | 357 | Die Routen des Bereichs assets/:assetId, assets/:filename, _astro/:filename, api/assets, api/images, api/library-components, api/motion-vendor. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-ops.ts` | 17 | 495 | Die Routen des Bereichs api/settings, api/backups, api/tokens, api/mcp, api/events, api/whoami, api/notifications, api/newsletter, api/health. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-pages.ts` | 27 | 601 | Die Routen des Bereichs api/pages, api/entries, api/page-starters, api/releases, api/revisions. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-references.ts` | 23 | 710 | Die Routen des Bereichs api/references, api/reference-collections. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-site-lifecycle.ts` | 8 | 260 | Die Routen des Site-Lebenszyklus (P3-2, Schritt 60): anlegen, listen, aendern, Papierkorb, wiederherstellen, duplizieren, lesen, loeschen. |
-| `http-routes-sites.ts` | 36 | 957 | Die Routen einer Site jenseits des Lebenszyklus: Seiten, Bibliothek, Inhalte (Sammlungen, Eintraege), Referenzen, Bilder, Code-Payloads, Vorschauen, Reviews, Redesign und Betrieb (Audit, Formulare, Benachrichtigungen, Deployments). Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
+| `http-routes-sites.ts` | 29 | 841 | Die Routen einer Site jenseits des Lebenszyklus: Seiten, Bibliothek, Inhalte (Sammlungen, Eintraege), Referenzen, Bilder, Code-Payloads, Vorschauen, Reviews, Redesign und Betrieb (Audit, Formulare, Benachrichtigungen, Deployments). Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-theme.ts` | 11 | 230 | Theme und Style-Regeln einer Site (P3-2, Schritt 57): das Theme lesen, als CSS ausliefern, schreiben, den Theme-Bericht, den Design-Bericht und die sechs Style-Regel-Routen (lesen, anlegen, aendern, sortieren, loeschen). |
 | **Summe** | **176** | | |
 
@@ -147,7 +149,7 @@ beim Erzeugen gemessen.
 | `packages/app/public/app-editor.js` | 1188 | `mountCanvasView` haelt Canvas, Zustand und Ereignisse in einer Closure |
 | `packages/engine/src/media.ts` | 1107 | Assets, Ableitungen und Ordner |
 | `packages/engine/src/references-lifecycle.ts` | 1046 | die Referenz-Pipeline: Analyse, Job-Lauf, Snapshot, Playwright-Aufnahme und Anwendung; der Capture-Treiber allein sind 250 Zeilen, und er teilt den Zustand mit dem Job-Lauf |
-| `packages/engine/src/http-routes-sites.ts` | 957 | die verbleibenden 36 Site-Routen (Seiten, Bibliothek, Inhalte, Referenzen, Bilder, Vorschauen, Reviews, Redesign, Betrieb); der Zuschnitt läuft weiter, die nächsten Gruppen sind Bilder und Betrieb |
+| `packages/engine/src/http-routes-sites.ts` | 841 | die verbleibenden 29 Site-Routen (Seiten, Inhalte, Referenzen, Bilder, Vorschauen, Reviews, Redesign, Betrieb); der Zuschnitt läuft weiter, die nächsten Gruppen sind Bilder und Betrieb |
 | `packages/app/public/app-references.js` | 597 | die Referenzen-Seite ohne die Karten; der Rest nach Schritt 59 |
-| `packages/engine/src/http.ts` | 249 | Dispatcher und Routentabelle; fertig |
+| `packages/engine/src/http.ts` | 253 | Dispatcher und Routentabelle; fertig |
 | `packages/app/public/app.js` | 219 | Router und Kommandoleiste; fertig |
