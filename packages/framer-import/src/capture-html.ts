@@ -1050,6 +1050,23 @@ function collectAssets(raw: RawNode, assets: IrAsset[]): void {
         height: Number.isFinite(height) ? height : null,
       });
     }
+    // A picture may name its file ONLY in `srcset`: Framer writes the ladder
+    // there and leaves `src` at a one-pixel placeholder or out entirely.
+    // Measured on `rare-works`: three collection images had no asset at all, so
+    // the rewrite table had no entry for them, 4 CDN addresses stayed in the
+    // bundle, the CSP blocked them and the pictures were broken.
+    //
+    // Only candidates with an address count. A `data:` URL holds a comma of its
+    // own (`data:image/png;base64,AAAA`), so a naive split on every comma turned
+    // its payload into an "image address" — measured while writing this test.
+    // The asset is the file WITHOUT its query: that is the file the pipeline
+    // downloads, and the ladder's entries only differ in that query.
+    const srcset = raw.attrs["srcset"] ?? "";
+    for (const match of srcset.matchAll(/(?:^|,)\s*((?:https?:\/\/|\/)[^\s,]+)/g)) {
+      const url = match[1];
+      if (url === undefined) continue;
+      addUrl(url.split(/[?#]/)[0] ?? url, raw.attrs["alt"] !== undefined && raw.attrs["alt"] !== "" ? raw.attrs["alt"] : null);
+    }
   }
   // `background-image` / `background` / `mask-image` in the element's own style.
   const style = raw.attrs["style"] ?? "";

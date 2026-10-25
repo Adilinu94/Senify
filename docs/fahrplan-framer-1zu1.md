@@ -860,6 +860,12 @@ Original-Code läuft.
   Server-HTML **0x** vor). Die frühere Meldung „Sammlungsinhalte werden nicht importiert" war damit
   **falsch** und ist berichtigt. Beleg: Meldungstext in `capture-html.ts`, Zählung im Gate-Eintrag vom
   24.10.2026 in `docs/current/qualitaet.md`.
+  **Geschlossen 25.10.2026 (ADR-0025).** Für die **Runtime** war es doch ein Fehler: der Payload nahm
+  das Handover-Skript nicht mit, die Runtime fiel auf einen `.framercms`-Abruf zurück, die CSP blockte
+  ihn, und Framer leerte `#main` (`rare-works`: nach 4,4 s weiß, 2.600 von 3.135 Knoten weg). Der Payload
+  setzt das Skript jetzt vor dem Start der Runtime ins Dokument; die Quelle lädt nie eine `.framercms`
+  (0 Anfragen) — die Daten stehen im HTML. Release-Pfad danach **0,00 / 0,00 / 0,01 %** bei exakten
+  Höhen. Belege: `runtime-handover.test.ts` (6), `capture.test.ts` (srcset), ADR-0025.
 - **Seitenübergänge:** ~~bleiben laut Unframer nicht erhalten. Für uns: eigene Entscheidung nötig.~~
   **Entschieden 24.10.2026 (ADR-0024).** Nicht importiert und nicht erfunden: auf allen sieben
   Blindtest-Seiten trägt das Server-HTML **keine** Spur eines Seitenübergangs (`pageEffect`,

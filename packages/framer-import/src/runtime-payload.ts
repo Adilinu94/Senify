@@ -61,6 +61,20 @@ export type FramerRuntimeDetection = {
   // Startseiten-Modul allein wiegt 147 KB; alle vier zusammen sprengen mit den
   // Schrift-Metadaten das Budget von ADR-0010).
   routeId: string | null;
+  // Die vorgeladenen Sammlungsdaten (`<script type="framer/handover">`) — das
+  // CMS-Ergebnis der Seite, wie Framer es beim SSR mitschickt.
+  //
+  // **Warum der Payload ohne sie stirbt.** Die Runtime liest
+  // `document.getElementById("__framer__handoverData")` und parst dessen Text
+  // (`sn(e.text)`); fehlt das Element, fällt sie auf das Netz zurück und ruft
+  // `loadModel()` auf einer `.framercms`-Datei. Der Payload liefert diese Datei
+  // nicht, die CSP verbietet den fremden Abruf, `getModel` wirft
+  // `TypeError: Failed to fetch`, und Framer leert `#main`:
+  // `Made UI non-interactive due to an error.` — gemessen auf `rare-works`:
+  // nach 4,4 s stand die Seite weiß (1 Kind statt 3, 2.600 von 3.135 Knoten weg).
+  // Die QUELLE lädt nie eine `.framercms` (0 Anfragen, 8 s + Scrollen): sie hat
+  // die Daten in genau diesem Skript. Es ist Teil der Seite, nicht des Netzes.
+  handover: string | null;
 };
 
 // Das Bundle-Skript: Framer markiert es mit `data-framer-bundle`. Der
@@ -71,6 +85,28 @@ const STYLESHEET = /<link\b[^>]*\brel\s*=\s*["']?stylesheet["']?[^>]*>/gi;
 const LINK_HREF = /\bhref\s*=\s*["']([^"']+)["']/i;
 const STYLE_BLOCK = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
 const MAIN_ELEMENT = /<(\w+)\b([^>]*\bid\s*=\s*["']main["'][^>]*)>/i;
+
+// Die vorgeladenen Sammlungsdaten der Seite. Framer schreibt sie als
+// `<script type="framer/handover" id="__framer__handoverData">[…]</script>`
+// in den Rumpf — die Runtime parst den Text und entfernt das Element danach
+// (`U_(() => { e?.remove() })`). Der Inhalt ist Frames eigenes
+// Serialisierungsformat (ein flaches Array mit Verweisen), kein JSON, das wir
+// lesen müssten: er geht unverändert in den Payload.
+//
+// Die Attribute werden einzeln geprüft, nicht in einer festen Reihenfolge:
+// Framer schreibt `type` vor `id`, aber eine neu serialisierte Seite darf das
+// andersherum tun — und dann wäre die Sammlung wieder weg.
+const SCRIPT_TAG = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
+
+function handoverData(html: string): string | null {
+  for (const match of html.matchAll(SCRIPT_TAG)) {
+    const attributes = match[1] ?? "";
+    if (!/\btype\s*=\s*["']framer\/handover["']/i.test(attributes)) continue;
+    if (!/\bid\s*=\s*["']__framer__handoverData["']/i.test(attributes)) continue;
+    return match[2] ?? "";
+  }
+  return null;
+}
 
 // Die Route steht im Zustand, nicht im Pfad: `data-framer-hydrate-v2` trägt
 // `routeId` und `pathVariables`. Ohne dieses Attribut fällt die Runtime auf
@@ -213,6 +249,7 @@ export function detectFramerRuntime(html: string, pageUrl: string): FramerRuntim
     css: css.join("\n"),
     sheets,
     routeId: typeof state.routeId === "string" ? state.routeId : null,
+    handover: handoverData(html),
   };
 }
 
@@ -541,6 +578,7 @@ export async function buildRuntimePayload(input: RuntimePayloadInput & { files: 
     `const TAIL = ${escapeForJs(input.detection.bodyTail)};`,
     `const CSS = ${escapeForJs(css)};`,
     `const SHEETS = ${escapeForJs(sheets)};`,
+    `const HANDOVER = ${escapeForJs(input.detection.handover ?? "")};`,
     "export function mount(stage, options) {",
     "  if (!stage) throw new Error('Der Payload braucht eine Bühne.');",
     // The runtime builds its images from its own data with `new URL(address)` —
@@ -601,6 +639,19 @@ export async function buildRuntimePayload(input: RuntimePayloadInput & { files: 
     "    sheet.setAttribute('data-framer-payload', '1');",
     "    sheet.textContent = SHEETS;",
     "    document.head.appendChild(sheet);",
+    "  }",
+    "  // The page's preloaded collection data, BEFORE the runtime starts: it reads",
+    "  // `#__framer__handoverData` when it first needs a collection and falls back",
+    "  // to a network fetch when the element is missing. That fetch (a .framercms",
+    "  // range request to framerusercontent.com) is blocked by the CSP, throws, and",
+    "  // Framer empties `#main` — 'Made UI non-interactive due to an error.'",
+    "  // The element is a `framer/handover` script, so its text is data, not code.",
+    "  if (HANDOVER !== '') {",
+    "    var handover = document.createElement('script');",
+    "    handover.setAttribute('type', 'framer/handover');",
+    "    handover.setAttribute('id', '__framer__handoverData');",
+    "    handover.textContent = HANDOVER;",
+    "    document.body.appendChild(handover);",
     "  }",
     "  return import('./" + entryName + "').then(function (module) {",
     "    if (options && options.host) options.host.setAttribute('data-payload-state', 'mounted');",
