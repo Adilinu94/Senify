@@ -280,6 +280,23 @@ export default defineConfig({
           functions: 95,
           lines: 95,
         },
+        // Die Bibliotheks-Werkzeuge (R12, Schritt 71). Der Schnitt hat sie aus
+        // `tools.ts` herausgeloest; dort waren sie von den Workflow-Tests
+        // gedeckt, hier waren sie es nicht (gemessen: 26,47 Statements). Der
+        // Waechter `coverage-gate.test.ts` hat genau das gemeldet, und die
+        // Luecke ist mit `tools-bibliothek.test.ts` geschlossen worden - nicht
+        // mit einer neuen Zahl.
+        //
+        // Gemessen am 25.10.2026: 88,23 / 60,41 / 100 / 100. Die Schwelle liegt
+        // knapp darunter und ist ein Rueckfallschutz, keine Zielmarke: die
+        // Zweige sind die optionalen Felder, die ein Aufruf auch mal
+        // weglaesst.
+        "packages/mcp/src/tools-bibliothek.ts": {
+          statements: 85,
+          branches: 55,
+          functions: 95,
+          lines: 95,
+        },
       },
     },
   },
