@@ -10,6 +10,7 @@ import type { EngineContext } from "../src/http-contract.ts";
 import {
   resetSectionPreviewState,
   sectionPreviewRoutes,
+  sectionPreviewsIdle,
   setSectionPreviewShooter,
 } from "../src/http-routes-section-preview.ts";
 import { previewFileName } from "../src/section-previews.ts";
@@ -18,10 +19,16 @@ import { bootEngine, createTestSite, type BootEnv } from "./helpers.ts";
 // Die Route der Site-Vorschaubilder. Die zwei Wege sind der Kern:
 //
 //   GET  antwortet SOFORT - mit dem Bild (200) oder mit "entsteht gerade"
-//        (202, Bau laeuft im Hintergrund). Ein Bake braucht Sekunden; ein
-//        Panel, das so lange wartet, ist schlechter als das alte Bild.
+//        (202, Bau laeuft im Hintergrund). Ein Bake braucht gemessen
+//        Sekunden; ein Panel, das so lange wartet, ist schlechter als das
+//        alte Bild.
 //   POST wartet und liefert das fertige Bild (201). Diesen Weg nehmen das
 //        Generator-Skript und dieser Test.
+//
+// Der Test wartet NICHT auf die Uhr, sondern auf `sectionPreviewsIdle()`:
+// unter Volllast (alle Suiten gleichzeitig) braucht derselbe Bake ein
+// Vielfaches, und ein Zeitfenster waere dann entweder falsch knapp oder
+// falsch grosszuegig. Die Warteschlange ist der echte Aufhaengepunkt.
 //
 // Jeder Fall bekommt eine EIGENE Site: die Bilder liegen je Site, und ein
 // Fall soll nicht davon abhaengen, was ein anderer schon gebacken hat.
@@ -30,18 +37,6 @@ const PNG = Buffer.from(
   "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489",
   "hex",
 );
-
-// Der Hintergrundlauf braucht einen echten Bake (Sekunden). Die Grenze ist
-// grosszuegig, weil sie den Vertrag prueft und nicht die Geschwindigkeit.
-const warten = async <T>(fn: () => Promise<T>, bis: (wert: T) => boolean): Promise<T> => {
-  let letzter: T | undefined;
-  for (let i = 0; i < 120; i += 1) {
-    letzter = await fn();
-    if (bis(letzter)) return letzter;
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-  return letzter as T;
-};
 
 describe("Sektions-Vorschau als Route", () => {
   let env: BootEnv;
@@ -63,6 +58,7 @@ describe("Sektions-Vorschau als Route", () => {
   });
 
   afterAll(async () => {
+    await sectionPreviewsIdle();
     setSectionPreviewShooter(undefined);
     resetSectionPreviewState();
     await env.close();
@@ -79,7 +75,8 @@ describe("Sektions-Vorschau als Route", () => {
   const neueSite = async (): Promise<string> => (await createTestSite(env.api)).id;
 
   it("antwortet beim ersten Aufruf sofort mit 'entsteht gerade'", async () => {
-    // Der Punkt: keine Wartezeit im Panel.
+    // Der Punkt: keine Wartezeit im Panel. Die Grenze ist gross, sie trennt
+    // nur "sofort" von "ein Bake lang" - nicht Millisekunden.
     const siteId = await neueSite();
     setSectionPreviewShooter(async () => ({ png: PNG }));
     const start = Date.now();
@@ -88,27 +85,23 @@ describe("Sektions-Vorschau als Route", () => {
     expect(result.status).toBe(202);
     expect((result.body as { status: string }).status).toBe("warming");
     expect(Date.now() - start).toBeLessThan(2000);
+    await sectionPreviewsIdle();
   });
 
   it("liefert das Bild, sobald der Hintergrundlauf fertig ist", async () => {
     const siteId = await neueSite();
     setSectionPreviewShooter(async () => ({ png: PNG }));
     await call(get, { siteId, type: "hero", file: "split.png" });
+    // Kein Zeitfenster: auf die Arbeit warten, nicht auf die Uhr.
+    await sectionPreviewsIdle();
 
     const theme = await context.store.getTheme(siteId);
-    const path = join(
-      context.dataDir,
-      "section-previews",
-      siteId,
-      previewFileName("hero", "split", theme.version),
-    );
-    const zweit = await warten(
-      () => call(get, { siteId, type: "hero", file: "split.png" }),
-      (result) => result.status === 200,
-    );
+    const zweit = await call(get, { siteId, type: "hero", file: "split.png" });
 
     expect(zweit.status).toBe(200);
-    expect(zweit.file?.path).toBe(path);
+    expect(zweit.file?.path).toBe(
+      join(context.dataDir, "section-previews", siteId, previewFileName("hero", "split", theme.version)),
+    );
     expect(zweit.file?.contentType).toBe("image/png");
     expect(zweit.file?.headers?.["x-senify-preview"]).toBe("cached");
   });
@@ -125,10 +118,7 @@ describe("Sektions-Vorschau als Route", () => {
     await Promise.all(
       Array.from({ length: 10 }, () => call(get, { siteId, type: "hero", file: "split.png" })),
     );
-    await warten(
-      () => call(get, { siteId, type: "hero", file: "split.png" }),
-      (result) => result.status === 200,
-    );
+    await sectionPreviewsIdle();
 
     // Genau ein Bake, nicht zehn.
     expect(bakes).toBe(1);

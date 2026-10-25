@@ -49,19 +49,32 @@ function oneAtATime<T>(work: () => Promise<T>): Promise<T> {
   return next;
 }
 
-// Welche Bilder gerade gebaut werden: ein zweiter Aufruf fuer dasselbe Bild
-// startet keinen zweiten Bake.
-const building = new Set<string>();
+// Hinweis zur Sperre: "kein zweiter Bake fuer dasselbe Bild" leistet der
+// Zwischenspeicher in `sectionPreview` (es prueft die Datei, bevor es backt).
+// Die Warteschlange darunter leistet etwas anderes - sie verhindert, dass
+// mehrere VERSCHIEDENE Bilder gleichzeitig je eine Chromium-Instanz starten.
 
 /** Nur fuer Tests: den Fotografen ersetzen. */
 export function setSectionPreviewShooter(next: SectionPreviewShooter | undefined): void {
   shooter = next;
 }
 
-/** Nur fuer Tests: Warteschlange und Merkliste leeren. */
+/** Nur fuer Tests: die Warteschlange leeren. */
 export function resetSectionPreviewState(): void {
   queue = Promise.resolve();
-  building.clear();
+}
+
+/**
+ * Wartet, bis kein Bake mehr laeuft. Ein Test, der auf die Uhr wartet, ist
+ * unter Last falsch (er wartet zu kurz, obwohl nichts kaputt ist) - dieser
+ * Aufhaengepunkt haengt an der Arbeit selbst. Ein Fehlschlag im Hintergrund
+ * gilt als "fertig": der Vertrag der Route ist, dass sie ihn schluckt.
+ */
+export function sectionPreviewsIdle(): Promise<void> {
+  return queue.then(
+    () => undefined,
+    () => undefined,
+  );
 }
 
 function cacheDirOf(dataDir: string, siteId: string): string {
@@ -82,9 +95,6 @@ function warmInBackground(input: {
   type: string;
   variant: string;
 }): void {
-  const key = `${input.siteId}/${previewFileName(input.type, input.variant, input.themeVersion)}`;
-  if (building.has(key)) return;
-  building.add(key);
   void oneAtATime(async () => {
     try {
       await sectionPreview(
@@ -102,8 +112,6 @@ function warmInBackground(input: {
       if (process.env["SENIFY_SECTION_PREVIEW_DEBUG"] === "1") {
         console.warn("[section-preview]", error);
       }
-    } finally {
-      building.delete(key);
     }
   });
 }
