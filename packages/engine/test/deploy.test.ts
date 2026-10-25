@@ -172,7 +172,7 @@ describe("deploy (netlify, E14)", () => {
     }
   }, 60000);
 
-  it("walks the digest → upload → poll flow and records the live URL", async () => {
+  it("walks the digest ΓåÆ upload ΓåÆ poll flow and records the live URL", async () => {
     const env = await bootEngine();
     try {
       const site = await createTestSite(env.api, "Netlify-Site");
@@ -207,7 +207,7 @@ describe("deploy (netlify, E14)", () => {
       const readBack = JSON.stringify(settings.body);
       expect(readBack).not.toContain("nfp_test_token");
 
-      // The fetch double plays the Netlify API: digest → required → uploads → poll.
+      // The fetch double plays the Netlify API: digest ΓåÆ required ΓåÆ uploads ΓåÆ poll.
       // The required hash must match the real SHA1 of a build file, so the
       // upload step actually triggers.
       const releaseId = await env.engine.store.getActiveReleaseId(site.id);
@@ -380,7 +380,7 @@ describe("deploy (netlify, E14)", () => {
     }
   }, 120000);
 
-  it("deploys to vercel: file list → missing upload → poll ready (E14 slice 2)", async () => {
+  it("deploys to vercel: file list ΓåÆ missing upload ΓåÆ poll ready (E14 slice 2)", async () => {
     const env = await bootEngine();
     try {
       const site = await createTestSite(env.api, "Vercel-Site");
@@ -413,8 +413,8 @@ describe("deploy (netlify, E14)", () => {
       expect(settings.body.hasVercelToken).toBe(true);
       expect(JSON.stringify(settings.body)).not.toContain("vercel_test_token");
 
-      // The fetch double plays the Vercel API: create (file list) → one
-      // missing upload → two polls (BUILDING, then READY).
+      // The fetch double plays the Vercel API: create (file list) ΓåÆ one
+      // missing upload ΓåÆ two polls (BUILDING, then READY).
       const releaseId = await env.engine.store.getActiveReleaseId(site.id);
       const release = await env.engine.store.getRelease(releaseId ?? "");
       const indexPath = join(release.buildRef ?? "", "index.html");
@@ -486,6 +486,150 @@ describe("deploy (netlify, E14)", () => {
       });
       expect(response.status).toBe(400);
       expect(response.body.error.message).toContain("nicht konfiguriert");
+    } finally {
+      await env.close();
+    }
+  }, 60000);
+});
+
+describe("deploy: die Zweige, die kein gluecklicher Pfad erreicht", () => {
+  // Der Befund vom 24.10.2026 nach dem Schnitt in `http-routes-deploy.ts`:
+  // 75 % Functions, 70,58 % Branches - unter der Gruppenschwelle. Fuenf Zweige
+  // waren ungedeckt, und alle fuenf sind ueber die Route erreichbar. Keiner
+  // davon ist Verteidigungscode, den nur der Router verhindert.
+  it("weist einen statischen Deploy ohne targetDir ab", async () => {
+    // `provider` ist optional und faellt auf "static" zurueck. Wer nur
+    // `{ provider: "static" }` schickt, hat kein Ziel - das ist ein
+    // Vertragsfehler mit einem Feldnamen, kein 500.
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Deploy-Ohne-Ziel");
+      const response = await env.api.request<ErrorResponse>({
+        method: "POST",
+        path: `/api/sites/${site.id}/deployments`,
+        body: { provider: "static" },
+      });
+      expect(response.status).toBe(400);
+      expect(response.body.error.field).toBe("targetDir");
+    } finally {
+      await env.close();
+    }
+  }, 60000);
+
+  it("nimmt einen leeren Koerper als leeres Objekt, nicht als Absturz", async () => {
+    // Beide Schreibrouten beginnen mit `(await readJsonBody(req)) ?? {}`. Ohne
+    // diesen Fall waere der Zweig ungedeckt - und ein Aufruf ohne Koerper ist
+    // der erste, den ein Client falsch macht.
+    //
+    // Die Antworten unterscheiden sich, weil die Vertraege es tun: ein Deploy
+    // ohne provider faellt auf "static" und braucht ein Ziel (400), die
+    // Einstellungen tragen nur optionale Felder (200, No-op).
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Deploy-Leer");
+
+      const deploy = await env.api.request<ErrorResponse>({
+        method: "POST",
+        path: `/api/sites/${site.id}/deployments`,
+      });
+      expect(deploy.status).toBe(400);
+      expect(deploy.body.error.field).toBe("targetDir");
+
+      const settings = await env.api.request<{ provider: string }>({
+        method: "PUT",
+        path: `/api/sites/${site.id}/deploy-settings`,
+      });
+      expect(settings.status).toBe(200);
+      expect(settings.body.provider).toBe("static");
+    } finally {
+      await env.close();
+    }
+  }, 60000);
+
+  it("entfernt ein Token mit null und behaelt es ohne Angabe", async () => {
+    // Der Vertrag sagt: ein neues Token wird verschluesselt, `null` loescht es,
+    // Weglassen behaelt es. Beide Wege sind ueber die Route erreichbar und
+    // beide waren ungedeckt - `input.netlifyToken === null` und
+    // `input.vercelToken === null`. Wer sie nicht prueft, merkt nicht, wenn ein
+    // geleertes Token stillschweigend weiterlebt.
+    //
+    // **Eine Regel des Stores kam dabei zum Vorschein:** solange `provider`
+    // auf `netlify` (oder `vercel`) steht, darf das zugehoerige Token nicht
+    // `null` sein - sonst koennte ein Deploy beschlossen werden, der kein Ziel
+    // hat. Ein Token laesst sich deshalb nur leeren, waehrend der Provider
+    // nicht darauf zeigt. Der Test haelt beide Seiten fest: die Ablehnung und
+    // das erlaubte Leeren.
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Deploy-Token");
+      type Settings = {
+        provider: string;
+        hasNetlifyToken: boolean;
+        hasVercelToken: boolean;
+        netlifySiteId: string | null;
+      };
+
+      const gesetzt = await env.api.request<Settings>({
+        method: "PUT",
+        path: `/api/sites/${site.id}/deploy-settings`,
+        body: {
+          netlifySiteId: "ntl-1",
+          netlifyToken: "nfp_geheim",
+          vercelProjectId: "prj-1",
+          vercelToken: "vc_geheim",
+        },
+      });
+      expect(gesetzt.status, JSON.stringify(gesetzt.body)).toBe(200);
+      expect(gesetzt.body.hasNetlifyToken).toBe(true);
+      expect(gesetzt.body.hasVercelToken).toBe(true);
+
+      // Ohne Token-Feld: das gespeicherte bleibt.
+      const ohneToken = await env.api.request<Settings>({
+        method: "PUT",
+        path: `/api/sites/${site.id}/deploy-settings`,
+        body: { netlifySiteId: "ntl-2" },
+      });
+      expect(ohneToken.status, JSON.stringify(ohneToken.body)).toBe(200);
+      expect(ohneToken.body.hasNetlifyToken).toBe(true);
+      expect(ohneToken.body.netlifySiteId).toBe("ntl-2");
+
+      // Die GET-Route ist die Ansicht derselben Einstellungen. Sie war der
+      // einzige ungedeckte Funktionszweig der Datei (Befund 24.10.2026: 75 %
+      // Functions) - und sie ist die Route, die ein Client zuerst aufruft,
+      // wenn er wissen will, ob ein Ziel konfiguriert ist.
+      const gelesen = await env.api.request<Settings>({
+        method: "GET",
+        path: `/api/sites/${site.id}/deploy-settings`,
+      });
+      expect(gelesen.status, JSON.stringify(gelesen.body)).toBe(200);
+      expect(gelesen.body.netlifySiteId).toBe("ntl-2");
+      expect(gelesen.body.hasNetlifyToken).toBe(true);
+
+      // Ein leeres Token bei aktivem Provider wird abgelehnt, nicht gespeichert.
+      await env.api.request<Settings>({
+        method: "PUT",
+        path: `/api/sites/${site.id}/deploy-settings`,
+        body: { provider: "netlify" },
+      });
+      const abgelehnt = await env.api.request<ErrorResponse>({
+        method: "PUT",
+        path: `/api/sites/${site.id}/deploy-settings`,
+        body: { netlifyToken: null },
+      });
+      expect(abgelehnt.status).toBe(400);
+      expect(abgelehnt.body.error.field).toBe("netlifySiteId");
+
+      // Mit provider "static" ist das Leeren erlaubt - die Projekt-IDs bleiben.
+      const geleert = await env.api.request<Settings>({
+        method: "PUT",
+        path: `/api/sites/${site.id}/deploy-settings`,
+        body: { provider: "static", netlifyToken: null, vercelToken: null },
+      });
+      expect(geleert.status, JSON.stringify(geleert.body)).toBe(200);
+      expect(geleert.body.hasNetlifyToken).toBe(false);
+      expect(geleert.body.hasVercelToken).toBe(false);
+      expect(geleert.body.netlifySiteId).toBe("ntl-2");
+      expect(geleert.body.provider).toBe("static");
     } finally {
       await env.close();
     }

@@ -36,6 +36,10 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 | POST | `/api/redesign-proposals/:proposalId/confirm` | write | Operator | UI/CLI |
 | POST | `/api/redesign-proposals/:proposalId/media-needs` | write | Operator | UI/CLI |
 | GET | `/api/imports/:jobId` | read | Tool | `get_import_report` |
+| POST | `/api/sites/:siteId/deployments` | publish | Tool | `deploy_site` |
+| GET | `/api/sites/:siteId/deploy-settings` | read | Tool | `get_deploy_settings` |
+| PUT | `/api/sites/:siteId/deploy-settings` | write | Tool | `set_deploy_settings` |
+| GET | `/api/sites/:siteId/deployments` | read | Tool | `list_deployments` |
 | GET | `/api/sites/:siteId/submissions` | read | Tool | `list_submissions` |
 | POST | `/api/sites/:siteId/forms/collection-plan` | write | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/forms/collection` | write | Operator | UI/CLI |
@@ -139,12 +143,8 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 | POST | `/api/sites/:siteId/releases` | publish | Tool | `publish_release`, `rollback_release` |
 | GET | `/api/sites/:siteId/releases` | read | Tool | `list_releases` |
 | GET | `/api/sites/:siteId/bake-jobs` | read | Tool | `list_bake_jobs` |
-| POST | `/api/sites/:siteId/deployments` | publish | Tool | `deploy_site` |
-| GET | `/api/sites/:siteId/deploy-settings` | read | Tool | `get_deploy_settings` |
-| PUT | `/api/sites/:siteId/deploy-settings` | write | Tool | `set_deploy_settings` |
 | GET | `/api/sites/:siteId/design-contract` | read | Tool | `get_design_contract` |
 | PUT | `/api/sites/:siteId/design-contract` | write | Tool | `set_design_contract` |
-| GET | `/api/sites/:siteId/deployments` | read | Tool | `list_deployments` |
 | POST | `/api/sites/:siteId/previews` | write | Tool | `create_preview` |
 | GET | `/api/sites/:siteId/previews` | read | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/reviews` | write | Tool | `submit_for_review` |
