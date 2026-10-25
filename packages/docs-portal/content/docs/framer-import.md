@@ -78,24 +78,18 @@ gleicher Seitenhöhe, Payload 947 KB. Der Baum allein läge bei 1,46 / 2,23 / 6,
 
 ## Grenzen
 
-- **Framer-Code und Shader** laufen als Island-Payload (siehe oben). Echte Übernahme in bearbeitbare Bausteine gibt
-  es nicht — die Innereien des Payloads bleiben fremder Code.
-- **Inhalte, die erst im Browser entstehen, fehlen im Baum.** Der Import liest standardmäßig das Server-HTML. Was
-  eine Framer-Code-Komponente erst beim Laden erzeugt, ist darin nicht enthalten — gemessen an der Earn-Vorlage: die
-  fünf Bewertungssterne, und an einer anderen Seite 15 Karten-Grafiken (`viewBox="0 0 524 676"`: **0x** im
-  Server-HTML, **49x** im fertig geladenen Browser). An ihrer Stelle bleibt im Baum ein leerer Rahmen stehen; der
-  Bericht nennt ihn jetzt mit Anzahl und Signatur (`code-component`, Schwere `info`).
-  **Im Release sind sie da**, weil dort die Original-Runtime läuft.
-- **Die Struktur lässt sich auch aus der fertig geladenen Seite lesen** (`structureSource: "browser"`, braucht
-  Chromium). Gemessen an derselben Seite: **15,74 % → 11,25 %** Pixel-Differenz, 109 SVG-Knoten statt 0, und die
-  Geräte-Varianten sind schon gefaltet. **Das ist ein Schalter, kein neuer Standard**, weil der Weg auch etwas
-  kostet: die geladene Seite hat ihre Einblende-Marker verloren (`data-framer-appear-id` 52 → 18 auf einer Seite)
-  und den Breakpoint-Kanal. Eine Seite, deren Einblendungen aus dem Startzustand abgeleitet werden, verlöre sie.
-- **Seiten ohne Appear-Kanal.** Manche Framer-Seiten markieren ihre Elemente (`data-framer-appear-id`), liefern aber
-  das JSON nicht, das die Animation beschreibt. Der Import leitet die Einblendung dann aus dem **Startzustand** ab, der
-  noch im Stil steht — Bewegung, Skalierung und Drehung stimmen. **Die Dauer ist eine Annahme (0,6 s)**, weil die Quelle
-  sie nicht nennt; der Bericht sagt das. Ein `opacity:0` **ohne** Bewegung wird nicht als Einblendung gedeutet (das wäre
-  ein geschlossenes Menü, das bei jedem Aufruf aufblendet).
+- **Framer-Code und Shader** werden zu einem sichtbaren Platzhalter mit Befund. Echte Übernahme gibt es nicht.
+- **Inhalte, die erst im Browser entstehen, fehlen im Standardweg.** Der Import liest das Server-HTML. Was eine
+  Framer-Code-Komponente erst beim Laden erzeugt, ist darin nicht enthalten - gemessen an der Earn-Vorlage: die fünf
+  Bewertungssterne. Ihr Container hält im Server-HTML nur fünf leere `display:contents`-Platzhalter, die Sterne selbst
+  entstehen im Browser. **Dafür gibt es die Option `capture: "browser"`** (Dialog: „Quelle im Browser laden", CLI:
+  `--capture browser`, MCP: `capture`): sie lädt dieselbe Adresse in Chromium, lässt die Skripte der Seite laufen und
+  nimmt das fertige DOM. An der Earn-Vorlage liefert sie **5 Sterne statt 0** und 13 statt 8 Grafiken; an
+  `unifiersofjapan` **49 Karten-Grafiken statt 0** (`viewBox="0 0 524 676"`) und im Struktur-Bake
+  **15,74 % → 11,25 %** Pixel-Differenz bei exakter Höhe, mit 109 SVG-Knoten statt 0. Leere Platzhalter, die
+  im Standardweg stehen bleiben, nennt der Bericht mit Anzahl und Signatur (`code-component`, `info`); die drei
+  gespeicherten Exporte gewinnen dabei nichts Strukturelles, weshalb `static` der Standard bleibt. Der Browser-Weg
+  braucht Playwright samt Chromium und kostet je Import einen Browserstart.
 - **Icons über `<use href>`** ohne Sprite erscheinen als Ring, weil Framer das Sprite per Skript einfügt. Liegt das
   Sprite im Server-HTML (der Regelfall), löst der Import es auf: gemessen an der Earn-Vorlage tragen alle 16 SVGs ihre
   Zeichnung. Ein Sprite, das die Quelle selbst nicht mitliefert, bleibt ein Ring.
@@ -112,26 +106,14 @@ gleicher Seitenhöhe, Payload 947 KB. Der Baum allein läge bei 1,46 / 2,23 / 6,
   gepunktete Rahmen behalten den echten Rahmen, weil ein Schatten keine Strichart hat.
 - **`<select>`-Felder** zeigen ihre Optionen als Liste.- **Selektoren.** Nicht ausgewertet werden `:not()` an Vorfahren, Geschwister-Kombinatoren (`+`, `~`), `:first-child`
   und `:nth-*`, `@container` und Attribut-Operatoren außer `=`.
-- **Lokale Quellen und Medien.** Der Import liest Medien nie aus dem Mirror-Ordner, er lädt sie über eine Basis-URL
-  von der Live-Adresse. Für „Lokaler Mirror“ bietet der Dialog dazu das Feld „Adresse der Originalseite“ an
-  (z. B. `https://beispiel.de`). Ohne sie bricht „Assets: Hochladen“ bei relativen Medien-URLs ab (Meldung
-  „Relative Asset-URL ohne baseUrl nicht auflösbar“), und ein gescrapter Mirror, dessen Links absolut geschrieben
-  sind, zeigt keine weiteren Seiten der Site an. Mit „Assets: Überspringen“ läuft der Import durch, die Bilder haben
-  dann keine Quelle.
-- **Qualität ist an drei gespeicherten Exporten gemessen**, nicht an jeder beliebigen Seite. Dazu kommen acht
-  fremde Framer-Seiten als Blindtest. Die Zahlen stehen in `docs/current/qualitaet.md`.
-
-## Was die Seite nach dem Import lädt
-
-Preview und veröffentlichte Seite holen Bilder, Schriften, Videos und Skripte **aus dem eigenen Build**. Der Import
-lädt die Medien der Quelle herunter, legt sie in der Mediathek ab und schreibt jede Adresse um — im Baum, im CSS und in
-den Daten der Original-Runtime. Zusätzlich antworten beide Seiten mit einer `Content-Security-Policy`
-(`default-src 'self'`, `object-src 'none'`, `frame-ancestors 'self'`). Nach dem Import geht keine Anfrage mehr an
-Framers CDN.
-
-Ausnahmen, die der Bericht nennt: ein Video, das die Quelle von YouTube oder Vimeo einbettet (die Policy erlaubt die
-drei Anbieter), und ein Bild, das die Quelle erst im Browser nachlädt und dessen Adresse deshalb nicht in der Seite
-steht.
+- **Lokale Quellen und Medien.** Ein Mirror ist die Wahrheit: der Import liest seine Medien aus dem Mirror-Ordner
+  (erst der Ordner der Seite, dann der Wurzelordner), und das Netz wird nur gefragt, wenn die Datei dort nicht liegt.
+  Der Dialog bietet für „Lokaler Mirror“ das Feld „Adresse der Originalseite“ an (z. B. `https://beispiel.de`); es
+  dient den absoluten Links der Seite und den Medien, die im Mirror fehlen. Ohne diese Adresse bleibt eine relative
+  Medien-URL, die auch im Mirror nicht liegt, ein Fehler (Meldung „Relative Asset-URL ohne baseUrl nicht auflösbar“);
+  mit „Assets: Überspringen“ läuft der Import durch, die Bilder haben dann keine Quelle.
+- **Qualität ist an drei gespeicherten Exporten gemessen**, nicht an jeder beliebigen Seite. Die Zahlen stehen in
+  `docs/current/qualitaet.md`.
 
 ## Beim ersten Import
 

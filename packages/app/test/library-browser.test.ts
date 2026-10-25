@@ -100,6 +100,28 @@ describe.skipIf(!browserAvailable)("global library in the program", () => {
       expect(Object.values(fresh.draft.nodes).some((node) =>
         node.type === "__component_instance" && node.props.libraryComponentId === component.id,
       )).toBe(true);
+
+      // Der Weg zurueck: Detach loest die Bindung, der Inhalt bleibt, und
+      // Re-Attach haengt den Baustein wieder an. Beides im Browser, weil die
+      // Oberflaeche den Weg anbieten muss.
+      await tab.goto(`${running.dashboardUrl}/#/library/${component.id}`, { waitUntil: "domcontentloaded" });
+      await tab.waitForSelector(".library-detail");
+      const installRow = tab.locator(".library-install").first();
+      await installRow.locator("button.danger").click();
+      await expect.poll(async () => tab.locator(".library-install").count()).toBe(0);
+      // Die Herkunft bleibt gemerkt - ohne sie gaebe es kein Re-Attach.
+      await tab.locator(".library-reattach select").selectOption(site.id);
+      await tab.locator(".library-reattach button").click();
+      await expect.poll(async () => tab.locator(".library-install").count()).toBe(1);
+      expect(await tab.locator(".library-install").first().textContent()).toContain("Pin v1");
+
+      // Und der Inhalt der Seite ist nach dem Detach und Re-Attach noch da.
+      const nachDetach = (await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json()) as {
+        draft: { nodes: Record<string, { type: string; props: Record<string, unknown> }> };
+      };
+      expect(Object.values(nachDetach.draft.nodes).some((node) =>
+        node.type === "__component_instance" && node.props.libraryComponentId === component.id,
+      )).toBe(true);
       await tab.close();
     } finally {
       await browser.close();

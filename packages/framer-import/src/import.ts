@@ -40,6 +40,16 @@ export type ImportSource =
 
 export type RunImportInput = {
   source: ImportSource;
+  // How a URL source is read. `static` (default) fetches the SSR-HTML. `browser`
+  // loads the page in Chromium first, so content a script builds at runtime is
+  // part of the import: measured 22.10.2026 on a page whose rating stars only
+  // exist after hydration (6 nodes / 0 SVG static against 9 nodes / 3 SVG in the
+  // browser), and named as the open gap on the published Earn page. The three
+  // export fixtures gain nothing structural (715/2958/2147 nodes on both paths)
+  // and the browser path costs a Chromium launch per import, so the default
+  // stays static. Switchable per import because the result is not the same
+  // document - idempotency (S2.5) compares like with like.
+  capture?: "static" | "browser";
   // Asset pipeline: upload into the engine (production) or mirror files to
   // a folder (offline mode). Absent = no asset download, the report says so.
   uploader?: AssetUploader;
@@ -102,6 +112,11 @@ const MAX_PAGE_BYTES = 20 * 1024 * 1024;
 // budget of ADR-0010 §6 (3 MB).
 const MAX_RUNTIME_FILE_BYTES = 4 * 1024 * 1024;
 const RUNTIME_FILE_TIMEOUT_MS = 20_000;
+// How long the browser path waits after the settle pass before it measures.
+// A Framer page reveals its sections within a few hundred ms of the scroll
+// pass; 800 ms leaves room for the last transition without making an import
+// feel stuck.
+const INPUT_SETTLE_MS = 800;
 
 /* --------------------------------------------------- linked stylesheets */
 
@@ -180,27 +195,20 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
     }
     const html = await response.text();
     sourceHtml = html;
-    if (input.structureSource === "browser") {
-      // The hydrated page as the structure source (see `structureSource`): the
-      // runtime fills the placeholders the SSR leaves, and the device variants
-      // are folded by the time the page has loaded. The raw SSR stays the
-      // source for the runtime payload - it is what carries the runtime entry.
-      const captured = await captureBrowser({
+    if (input.capture === "browser") {
+      // A Chromium load of the same address: the page's own runtime runs, so
+      // content built by a script is in the DOM `captureBrowser` reads. The
+      // request to the page itself went through `fetchPublic` above (public
+      // addresses only, ADR-0016); the browser repeats that check for every
+      // sub-resource through its own route guard (ADR-0022).
+      //
+      // The raw SSR stays the source for the runtime payload below - it is
+      // what carries the runtime entry and the static channels.
+      document = (await captureBrowser({
         url: input.source.url,
         pagePath: input.pagePath ?? "/",
-      });
-      document = captured.document;
-      // The measured motion (IO registrations, loops, scroll transforms) rides
-      // along; `captureHtml` never produces it.
-      document.findings.push({
-        kind: "code-component",
-        nodeKey: null,
-        message: `Der Struktur-Baum wurde aus der hydratisierten Seite gelesen (${captured.probe.io} IntersectionObserver, ${captured.probe.waapi.total} WAAPI-Läufe). Die Platzhalter der Runtime sind dadurch gefüllt.`,
-        evidence: `structureSource=browser, ${input.source.url}`,
-        severity: "info",
-        suggestion:
-          "Der Weg braucht Chromium und kostet Zeit; ohne ihn liest der Import das Server-HTML.",
-      });
+        settleMs: INPUT_SETTLE_MS,
+      })).document;
     } else {
       const css = await fetchLinkedCss(html, input.source.url);
       document = captureHtml({ html, url: input.source.url, pagePath: input.pagePath ?? "/", css });

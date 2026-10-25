@@ -214,9 +214,12 @@ Releases-Schritt-Änderung **identisch** auftritt).
 ✓ review loop > rolls back to an older release as a new release  23797ms
 ```
 
-Unter Last derselben Suite überschreiten sie die 90 s. Die Marge ist dünn, und der Grund ist der
-**synchrone Bake** (Fachanalyse 3, B1). Der Bake ist damit nicht nur ein Betriebsproblem, sondern
-auch die Ursache der testseitigen Flakes — ein Argument, das über „der Bake ist langsam“ hinausgeht.
+Unter Last derselben Suite überschritten die beiden roten Fälle die 90 s. Der
+**synchrone Bake** (Fachanalyse 3, B1) ist eine plausible Lastursache; belegt ist seine
+Event-Loop-Blockade. Die Ursache jedes einzelnen Timeouts wurde damals aber nicht
+isoliert. Ein grüner Nachbar oder Wiederholungslauf beweist weder Flakiness noch
+das Fehlen eines Funktionsfehlers. Der Upgrade-Abschluss nutzt deshalb vollständige
+grüne Gates und konkrete Gegenproben statt dieser früheren Ursachenannahme.
 
 **Ausfgeführt wurde** `pnpm test` **ohne** `TEST_DATABASE_URL` (also gegen `pg-mem`) und **ohne**
 `SENIFY_REQUIRE_BROWSER` (Browser-Suiten, die keinen passenden Browser finden, überspringen sich
@@ -285,3 +288,20 @@ stillschweigend).
   öffentliche Adresse und die Behauptung „wird abgewiesen" stimmt nicht mehr. Der Preis bleibt
   also: ein *bewusst* falsch behaupteter Test bleibt grün. Das ist dokumentiert, nicht behoben —
   die geschlossene Lücke ist die, die man beim Bauen des Tests sieht.
+
+## Nachtrag 21.10.2026 — Vitest 4
+
+Runner und V8-Provider stehen im Arbeitsbranch von PR #96 auf 4.1.11.
+Die alten Pool-Optionen sind durch `maxWorkers`/`VITEST_MAX_WORKERS` ersetzt,
+`forks` bleibt der vorherige Standard-Pool; `vitest.config.ts` ist im Root-Typecheck.
+AST-basiertes V8-Remapping brachte vorhandene Coverage-Lücken ans Licht.
+Gezielte Verhaltens- und Vertragstests schließen sie, ohne die Schwellen,
+Includes oder Ausschlüsse zu ändern. Einzelgegenproben und iterative Review-Belege:
+`07-vitest4-abschluss.md`. Der aktuelle Linux-CI-/Messstand steht ausschließlich
+in `docs/current/qualitaet.md`; historische Zahlen oben sind nicht der heutige Stand.
+Die drei Runner-/Pool-Ausnahmen sind entfernt, nur die befristete Ausnahme für
+`http-cache-semantics` bleibt. Kein Merge von PR #96.
+
+CI `39643730891` auf `cd1108f` bestätigt den Upgrade-Abschluss vollständig,
+einschließlich Doku-Drift-Gate. Die Library-Auslagerung aus Upstream ist erhalten;
+die zusätzliche Datei liegt ohne gesenkte Schwellen in der bestehenden Gruppe.

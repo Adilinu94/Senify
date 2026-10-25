@@ -858,7 +858,7 @@ Original-Code läuft.
   **falsch** und ist berichtigt. Beleg: Meldungstext in `capture-html.ts`, Zählung im Gate-Eintrag vom
   24.10.2026 in `docs/current/qualitaet.md`.
 - **Seitenübergänge:** ~~bleiben laut Unframer nicht erhalten. Für uns: eigene Entscheidung nötig.~~
-  **Entschieden 24.10.2026 (ADR-0023).** Nicht importiert und nicht erfunden: auf allen sieben
+  **Entschieden 24.10.2026 (ADR-0024).** Nicht importiert und nicht erfunden: auf allen sieben
   Blindtest-Seiten trägt das Server-HTML **keine** Spur eines Seitenübergangs (`pageEffect`,
   `pageTransition`, `data-framer-page-transition`, `animatePresence` je 0). Ein Übergang beim Wechsel
   zwischen zwei Seiten kann nicht gelesen werden, weil die Quelle ihn nicht ausliefert; wo die Quelle

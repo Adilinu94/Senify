@@ -39,6 +39,11 @@ export const CreateImportBodySchema = Type.Object(
     // "dna" (default) rewrites what the design DNA forbids (gradients, shadows,
     // radii, centered headings); "fidelity" keeps the source's look.
     mode: Type.Optional(Type.Union([Type.Literal("dna"), Type.Literal("fidelity")])),
+    // How a URL source is read (S2): "static" (default) reads the SSR-HTML,
+    // "browser" loads the page in Chromium first so content a script builds at
+    // runtime is imported too. The browser path needs Playwright and produces a
+    // different document (and therefore a different `irHash`).
+    capture: Type.Optional(Type.Union([Type.Literal("static"), Type.Literal("browser")])),
     // The `irHash` the analysis (dry run) reported. A write whose source no
     // longer produces this hash (the live site changed between "Analysieren"
     // and "Übernehmen") is rejected instead of writing something the person

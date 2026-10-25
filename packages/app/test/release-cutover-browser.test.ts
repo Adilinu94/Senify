@@ -507,4 +507,194 @@ describe.skipIf(browserSkip)("release cutover (ticket 17)", () => {
       rmSync(dataDir, { recursive: true, force: true });
     }
   }, 240000);
+
+  // Die Raster der Sektionen folgen dem Paar der Site (ADR-0020). Vorher
+  // zeigte der Canvas das Raster der Tailwind-Standards, das Release das
+  // Raster der Site - die beiden Seiten wichen also genau dann voneinander ab,
+  // wenn die Site ein eigenes Paar hatte. Dieser Test stellt die Site auf ein
+  // eigenes Paar und misst die Paritaet: bei gleichem Raster sind die
+  // Bildpunkte gleich.
+  it("haelt Canvas und Release bei einem eigenen Breakpoint-Paar deckungsgleich", async () => {
+    if (!browserAvailable) {
+      throw new Error(
+        "Paritaets-Tor: Browser fehlt, aber SENIFY_REQUIRE_BROWSER=1 ist gesetzt. " +
+          "Erst `pnpm exec playwright install chromium` ausfuehren.",
+      );
+    }
+    const { chromium } = await import("playwright");
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-release-pair-"));
+    const running = await startProgram({
+      db: database.db,
+      dataDir,
+      programTokenFile: join(dataDir, "program-token.json"),
+      enginePort: 0,
+      appPort: 0,
+      openBrowser: false,
+      rateLimits: { perMinute: 1200, burst: 400, destructivePerMinute: 200 },
+    });
+    const post = (path: string, body: unknown): Promise<Response> =>
+      fetch(`${running.dashboardUrl}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const browser = await chromium.launch({ headless: true });
+    const shotDir = resolve(process.cwd(), ".scratch/refs/nick/release");
+    mkdirSync(shotDir, { recursive: true });
+    try {
+      const site = (await (await post("/api/sites", { name: "Paar-Prüfung" })).json()) as {
+        id: string;
+      };
+      // Das eigene Paar der Site: Tablet 1200, Mobil 810.
+      const paired = await fetch(`${running.dashboardUrl}/api/sites/${site.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ breakpoints: { tablet: 1200, mobile: 810 } }),
+      });
+      expect(paired.status, await paired.clone().text()).toBe(200);
+      // Und die Site fuehrt das Paar auch: der Canvas richtet seine Blaetter
+      // danach, das Release bakt danach.
+      const siteNachher = (await (
+        await fetch(`${running.dashboardUrl}/api/sites/${site.id}`)
+      ).json()) as { breakpoints?: { tablet: number; mobile: number } };
+      expect(siteNachher.breakpoints).toEqual({ tablet: 1200, mobile: 810 });
+      const page = (await (
+        await post(`/api/sites/${site.id}/pages`, { title: "Start", path: "/" })
+      ).json()) as { id: string; draftVersion: number; draft: { rootNodeId: string } };
+      const applied = await post(`/api/pages/${page.id}/mutations`, {
+        baseDraftVersion: page.draftVersion,
+        author,
+        mutations: [
+          {
+            op: "insertNode",
+            parent: { nodeId: page.draft.rootNodeId },
+            node: {
+              type: "features",
+              variant: "grid",
+              props: {
+                title: "Raster",
+                items: [
+                  { icon: "zap", title: "Schnell", text: "Sofort fertig." },
+                  { icon: "zap", title: "Einfach", text: "Ohne Umwege." },
+                  { icon: "zap", title: "Klar", text: "Verstandlich." },
+                ],
+              },
+            },
+          },
+        ],
+      });
+      expect(applied.status).toBe(200);
+
+      const context = await browser.newContext({ viewport: { width: 2600, height: 1200 } });
+      const tab = await context.newPage();
+      tab.setDefaultTimeout(30000);
+      const pageUrl = `${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`;
+      await tab.goto(pageUrl, { waitUntil: "domcontentloaded" });
+      await tab.waitForSelector(".senify-canvas", { timeout: 30000 });
+      await tab
+        .locator('[data-start-fit="done"], [data-start-fit="skipped"]')
+        .waitFor({ state: "attached" });
+      await tab.locator('[data-action="zoom-reset"]').click();
+      await tab.waitForFunction('document.querySelector(".senify-canvas")?.getAttribute("data-zoom") === "1"');
+      // **Das Tablet-Blatt im Live-Modus**, nicht das Design-Blatt: im
+      // Design-Modus laeuft das Blatt im Zoom (skaliert), im Live-Modus in
+      // Originalbreite. Nur so vergleicht der Test gleiche Pixelzahlen - ein
+      // skaliertes Blatt gegen ein Original waere ein Vergleich zweier
+      // Breiten (der bestehende Paritaetstest hat genau diesen Randfall
+      // dokumentiert).
+      //
+      // **Der Desktop-Frame** liegt (1440 px) ueber jeder Schwelle, dort
+      // aendert sich nichts. Genau am Tablet-Blatt unterscheiden sich die
+      // beiden Seiten: der Canvas wuerde an den Tailwind-Standards brechen
+      // (768 px), das Release am Paar der Site (1200 px).
+      await tab.locator('[data-action="device"][data-device="tablet"]').click();
+      await tab.waitForFunction(
+        'document.querySelector(\'.senify-canvas__frame[data-device="tablet"]\') !== null',
+      );
+      const tabletFrame = () =>
+        tab
+          .locator('.senify-canvas__frame[data-device="tablet"] .senify-canvas__iframe')
+          .contentFrame();
+      const canvasSection = tabletFrame().locator('[data-section="features"]').first();
+      await canvasSection.waitFor({ timeout: 30000 });
+      // Und die Stile des Frames: sie muessen die Schwellen des Paares tragen
+      // (die Zwischenstufe bei 940 px = 58.75rem), nicht die
+      // Tailwind-Standards (768 px = 48rem). Ohne die Bindung an das Paar
+      // bricht der Canvas an den Standards - das Release am Paar der Site.
+      const frameCssHref = await tab
+        .locator('.senify-canvas__frame[data-device="tablet"] iframe')
+        .first()
+        .evaluate((element) => {
+          const doc = (element as { contentDocument?: { querySelector(s: string): unknown } | null })
+            .contentDocument;
+          const link = doc?.querySelector('link[href*="editor-frame.css"]') as
+            | { getAttribute(name: string): string | null }
+            | null;
+          return link?.getAttribute("href") ?? "";
+        });
+      const frameCss = await (
+        await fetch(`${running.dashboardUrl}${frameCssHref.startsWith("/") ? frameCssHref : `/${frameCssHref}`}`)
+      ).text();
+      await tab.addStyleTag({
+        content: ".senify-canvas__plus, .senify-canvas__overlay { visibility: hidden !important; }",
+      });
+
+      // Publish: das Release bakt mit dem Paar der Site.
+      await tab.locator('[data-action="canvas-publish"]').click();
+      await expect
+        .poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 60000 })
+        .toContain("aktiv");
+      const releases = (await (
+        await fetch(`${running.dashboardUrl}/api/sites/${site.id}/releases`)
+      ).json()) as { releases: { id: string }[]; activeReleaseId: string | null };
+      const release = releases.releases[0];
+      expect(release).toBeDefined();
+
+      // Das Raster, das beide Seiten zeigen: die Zahl der Spalten des
+      // Features-Rasters. Sie ist der Unterschied, den ein falsches Paar
+      // erzeugen wuerde.
+      const spalten = async (scope: typeof canvasSection): Promise<number> =>
+        scope.evaluate((element) => {
+          const grid = (element as unknown as { querySelector(s: string): unknown }).querySelector(
+            "[data-grid], .grid",
+          ) as unknown as { ownerDocument: { defaultView: { getComputedStyle(n: never): Record<string, string> } } } | null;
+          if (grid === null) return 0;
+          const style = grid.ownerDocument.defaultView.getComputedStyle(grid as never);
+          return style["gridTemplateColumns"]?.split(" ").filter((part) => part !== "").length ?? 0;
+        });
+      const canvasSpalten = await spalten(canvasSection);
+
+      const releaseTab = await context.newPage();
+      releaseTab.setDefaultTimeout(30000);
+      // Die Breite des Tablet-Frames: bei diesem Paar (1200 / 810) ist das
+      // Blatt 1199 px breit (die Tablet-Schwelle minus dem Rand, den das
+      // Blatt nimmt) - dort ist die Schwelle der Site gerade noch NICHT
+      // ueberschritten, das Raster also noch das schmale.
+      await releaseTab.setViewportSize({ width: 1199, height: 1000 });
+      await releaseTab.goto(
+        `${running.dashboardUrl}/api/releases/${release?.id}/files/`,
+        { waitUntil: "load" },
+      );
+      const releaseSection = releaseTab.locator('[data-section="features"]').first();
+      await releaseSection.waitFor({ timeout: 30000 });
+      const releaseSpalten = await spalten(releaseSection as typeof canvasSection);
+
+      // Beide Seiten zeigen dasselbe Raster. Ohne die Bindung an das Paar
+      // waeren es verschiedene (der Canvas haette an den Tailwind-Standard
+      // gebrochen, das Release am Paar der Site). Das ist der eigentliche
+      // Nachweis: die Zahl der Spalten ist der Unterschied, den ein
+      // ungebundenes Paar erzeugt.
+      expect(canvasSpalten).toBeGreaterThan(0);
+      expect(releaseSpalten).toBe(canvasSpalten);
+      // Und die Styles des Canvas tragen die Schwellen des Paares.
+      expect(frameCss).toContain("50.625rem");
+      expect(frameCss).not.toContain("(width >= 48rem)");
+    } finally {
+      await browser.close();
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 240000);
 });

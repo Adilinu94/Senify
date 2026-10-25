@@ -212,21 +212,70 @@ export function editorSlotSpecs(
   return specs;
 }
 
+// Parent lookup, indexed once per document.
+//
+// The old `locateParent` scanned every node's child and slot lists on each
+// call. That is O(n) per call, and `ensureVisible` calls it once per ancestor,
+// so selecting a node at depth d cost O(d x n) - measured at 1 694 nodes of an
+// imported Framer page: 9,2 ms for a single click on the deepest node, before
+// the layer list next to it. Deep imports are exactly the case the editor is
+// built for, so the shape was wrong, not the constant.
+//
+// The cache is keyed by document IDENTITY, which is sound for readers: the
+// store swaps in a fresh document on every write, so a new object always means
+// new structure.
+//
+// It is NOT sound inside `applyDocumentPatches`: that function clones once and
+// then applies patch after patch *in place* on the working copy, so the
+// structure can change while the object identity stays the same. The write path
+// therefore invalidates after each patch it applies - the same O(n) per patch
+// the old linear scan cost, so nothing gets slower, and the read paths (the
+// explorer and the selection on every click) get the win.
+type ParentEntry = { parent: ParentRef; index: number };
+
+type ParentIndex = {
+  document: EditorDocument;
+  byChild: Map<NodeId, ParentEntry>;
+};
+
+let parentIndex: ParentIndex | null = null;
+
+export function invalidateParentIndex(): void {
+  parentIndex = null;
+}
+
+function buildParentIndex(document: EditorDocument): Map<NodeId, ParentEntry> {
+  const byChild = new Map<NodeId, ParentEntry>();
+  for (const node of Object.values(document.nodes)) {
+    const children = node.children ?? [];
+    for (let index = 0; index < children.length; index += 1) {
+      const child = children[index];
+      // First claim wins, matching the old scan order (a duplicate child is a
+      // document inconsistency that `validateDocument` reports separately).
+      if (child !== undefined && !byChild.has(child)) {
+        byChild.set(child, { parent: { nodeId: node.id }, index });
+      }
+    }
+    for (const [slot, list] of Object.entries(node.slots ?? {})) {
+      for (let index = 0; index < list.length; index += 1) {
+        const child = list[index];
+        if (child !== undefined && !byChild.has(child)) {
+          byChild.set(child, { parent: { nodeId: node.id, slot }, index });
+        }
+      }
+    }
+  }
+  return byChild;
+}
+
 export function locateParent(
   document: EditorDocument,
   id: NodeId,
 ): { parent: ParentRef; index: number } | undefined {
-  for (const node of Object.values(document.nodes)) {
-    const childIndex = (node.children ?? []).indexOf(id);
-    if (childIndex >= 0) {
-      return { parent: { nodeId: node.id }, index: childIndex };
-    }
-    for (const [slot, list] of Object.entries(node.slots ?? {})) {
-      const index = list.indexOf(id);
-      if (index >= 0) return { parent: { nodeId: node.id, slot }, index };
-    }
+  if (parentIndex === null || parentIndex.document !== document) {
+    parentIndex = { document, byChild: buildParentIndex(document) };
   }
-  return undefined;
+  return parentIndex.byChild.get(id);
 }
 
 // The node itself plus every descendant, parents before children.

@@ -439,6 +439,38 @@ export const INSPECTOR_STYLES = `
 .ed-swatch {
   width: 16px; height: 16px; flex: none; border-radius: var(--ed-radius-sm);
   box-shadow: inset 0 0 0 1px var(--ed-line-control);
+  /* Ein Knopf, keine Anzeige: der Swatch oeffnet den Farbwaehler. Die
+     Knopf-Standards (Rahmen, Hintergrund, Schrift) sind zurueckgenommen,
+     weil die Flaeche die Farbe zeigen soll. */
+  padding: 0; border: 0; cursor: pointer; font: inherit;
+}
+.ed-swatch:hover { box-shadow: inset 0 0 0 1px var(--ed-line-control), 0 0 0 2px var(--ed-signal-select, var(--ed-focus)); }
+.ed-swatch:focus-visible { outline: 2px solid var(--ed-focus); outline-offset: 1px; }
+.ed-picker { gap: var(--ed-space-3); }
+.ed-picker__pad {
+  position: relative; width: 100%; height: 132px; cursor: crosshair;
+  border-radius: var(--ed-radius-sm);
+  box-shadow: inset 0 0 0 1px var(--ed-line-control);
+  touch-action: none;
+}
+.ed-picker__marker {
+  position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px;
+  border-radius: 50%; pointer-events: none;
+  /* Der Ring ist die Farbe des Papiers, nicht eine eigene: der Griff soll auf
+     jeder Farbe sichtbar sein, und das Weiss ist die dokumentierte Ausnahme
+     (E16 P0, fremdfarben.test.ts). */
+  box-shadow: 0 0 0 2px #ffffff, 0 0 0 3px rgb(0 0 0 / 0.45);
+}
+.ed-picker__strip {
+  position: relative; width: 100%; height: 12px; cursor: ew-resize;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--ed-line-control);
+  touch-action: none;
+}
+.ed-picker__strip-marker {
+  position: absolute; top: 50%; width: 10px; height: 16px; margin: -8px 0 0 -5px;
+  border-radius: var(--ed-radius-sm); background: #ffffff; pointer-events: none;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.45), inset 0 0 0 1px rgb(0 0 0 / 0.14);
 }
 .ed-color { display: flex; flex-direction: column; gap: var(--ed-space-2); width: 100%; }
 .ed-color__row { display: flex; align-items: center; gap: 6px; }

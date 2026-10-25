@@ -4,7 +4,7 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 
 **Regel (E4):** Jede Route hat einen bewussten Status. **Tool** — ein MCP-Tool ruft sie direkt auf. **Workflow-gebündelt** — nur als Teil eines Mehr-Routen-Workflows erreichbar (Via-Spalte nennt das bündelnde Tool). **Operator** — UI/CLI/öffentlich, bewusst ohne Tool.
 
-**Zahlen:** 174 Routen — 90 Tool, 1 Workflow-gebündelt, 83 Operator.
+**Zahlen:** 176 Routen — 93 Tool, 1 Workflow-gebündelt, 82 Operator.
 
 | Methode | Route | Scope | Status | MCP-Tool(s) / Anmerkung |
 |---|---|---|---|---|
@@ -43,9 +43,10 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 | PUT | `/api/assets/upload/:uploadId` | read | Workflow-gebündelt | Byte-Sink des Upload-Flows (via upload_asset, signierte URL) |
 | GET | `/api/library-components` | read | Tool | `list_library_components` |
 | POST | `/api/library-components` | write | Tool | `promote_to_library` |
+| GET | `/api/library-components/similar` | read | Tool | `find_similar_library_components` |
 | GET | `/api/library-components/audit` | read | Tool | `library_audit` |
-| GET | `/api/library-components/:componentId` | read | Tool | `get_library_component`, `library_audit` |
-| PATCH | `/api/library-components/:componentId` | write | Operator | UI/CLI |
+| GET | `/api/library-components/:componentId` | read | Tool | `find_similar_library_components`, `get_library_component`, `library_audit` |
+| PATCH | `/api/library-components/:componentId` | write | Tool | `update_library_component` |
 | DELETE | `/api/library-components/:componentId` | write | Operator | UI/CLI |
 | GET | `/assets/:filename` | read | Operator | öffentlich |
 | GET | `/_astro/:filename` | read | Operator | öffentlich |
@@ -150,6 +151,7 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 | GET | `/api/sites/:siteId/library-installs` | read | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/library-installs` | write | Tool | `install_library_component` |
 | POST | `/api/sites/:siteId/library-installs/:installId/update` | write | Tool | `update_library_instances` |
+| POST | `/api/sites/:siteId/library-installs/reattach` | write | Tool | `reattach_library_component` |
 | DELETE | `/api/sites/:siteId/library-installs/:installId` | write | Tool | `uninstall_library_component` |
 | POST | `/api/sites/:siteId/code-payloads` | write | Operator | Import/CLI (MCP-Tools folgen mit der Bibliothek, S6) |
 | GET | `/api/sites/:siteId/code-payloads` | read | Operator | Import-Bericht/Editor |

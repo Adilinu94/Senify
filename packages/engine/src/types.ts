@@ -595,7 +595,7 @@ export type LibraryInstall = {
 export type LibraryAuditEntry = {
   componentId: string;
   siteId: string | null;
-  action: "created" | "updated" | "installed" | "updated-install" | "detached" | "deprecated";
+  action: "created" | "updated" | "installed" | "updated-install" | "detached" | "reattached" | "deprecated";
   author: Author;
   createdAt: string;
 };

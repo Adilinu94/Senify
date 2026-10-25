@@ -2,6 +2,7 @@
   "name": "senify",
   "version": "0.1.0",
   "private": true,
+  "license": "UNLICENSED",
   "type": "module",
   "description": "Senify — agent-native website platform (local program)",
   "engines": {
@@ -49,7 +50,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/sanitize-html": "^2.16.2",
-    "@vitest/coverage-v8": "3.2.7",
+    "@vitest/coverage-v8": "4.1.12",
     "commander": "^14.0.3",
     "dependency-cruiser": "^18.7.0",
     "eslint": "^9.39.5",
@@ -59,23 +60,24 @@
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.72.0",
-    "vitest": "^3.2.7"
+    "vitest": "^4.1.12"
   },
   "pnpm": {
     "//": "Die Elternpakete pinnen diese Abhaengigkeiten auf genau die Version, die die Advisory betrifft. Die Overrides heben die Pin auf die gepatchte Version - die jeweils naechste, kein Sprung ueber eine Hauptversion hinaus (OSV-Scan, 20.10.2026). `playwright-core` ist eine Ausnahme: @axe-core/playwright loest seinen Peer gegen die NEUESTE passende Version auf, und zwei Playwright-Versionen im Baum ergeben zwei verschiedene `Page`-Typen (TypeScript-Fehler TS2739 in den Browser-Tests). `happy-dom` ist die zweite Ausnahme und im Baum gar nicht installiert: es ist ein optionaler Peer von vitest, den der Lockfile nur als Peer-Variante fuehrt (24.10.2026).",
     "overrides": {
+      "body-parser": "2.4.0",
       "devalue": "5.9.3",
+      "fast-uri": "3.1.9",
+      "happy-dom": "21.0.4",
       "hono": "4.13.11",
-      "playwright-core": "1.63.0",
+      "http-cache-semantics": "4.3.0",
       "ip-address": "10.7.4",
+      "playwright-core": "1.63.0",
       "sharp": "0.35.5",
       "smol-toml": "1.9.0",
       "vite": "8.3.3",
       "source-map-js": "1.2.2",
       "astro": "7.4.2",
-      "body-parser": "2.4.0",
-      "fast-uri": "3.1.9",
-      "happy-dom": "21.0.4",
       "undici": "8.12.2"
     }
   },

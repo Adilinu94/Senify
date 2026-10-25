@@ -6,7 +6,8 @@
   "description": "Widget catalog for the editor rebuild: primitive foundation stones with per-device values.",
   "exports": {
     ".": "./src/index.ts",
-    "./breakpoints": "./src/breakpoints.ts"
+    "./breakpoints": "./src/breakpoints.ts",
+    "./section-breakpoints": "./src/section-breakpoints.ts"
   },
   "dependencies": {
     "@senify/section-sdk": "workspace:*",

@@ -17,6 +17,8 @@ import { SenifyError } from "@senify/core";
 import type { Author, NodeTree } from "@senify/section-sdk";
 import type { Db } from "./db.ts";
 import { newEntityId } from "./ids.ts";
+import { mergeLibraryDefinition } from "./store-library-definition.ts";
+import { definitionFingerprint, definitionSimilarity } from "./store-library-similarity.ts";
 import type { NewAuditEntry } from "./store-audit.ts";
 import { slugify } from "./store-row-utils.ts";
 import { assertDraftShape, toFiniteNumber, toIso, toJson, toJsonParam } from "./store-row-utils.ts";
@@ -51,6 +53,10 @@ export type LibraryPatchInput = {
   notes?: string;
   license?: LibraryLicense;
   deprecated?: boolean;
+  // Die Definition des Eintrags. Eine Aenderung hier erhoeht die Version -
+  // die Version zaehlt Definitionen, nicht Metadaten (Plan §5.1, Schritt 4:
+  // "Definition aendern = Version erhoehen. Instanzen bleiben auf ihrem Pin").
+  definition?: NodeTree;
   author: Author;
 };
 
@@ -61,6 +67,18 @@ export type LibraryInstallInput = {
   mode: LibraryInstall["mode"];
   pageId?: string;
   parentNodeId?: string;
+  author: Author;
+};
+
+// Re-Attach: eine geloeste Installation wieder an die Bibliothek haengen.
+// Das Detach merkt sich die Herkunft (`libraryDetachedFrom`), damit die
+// Rueckrichtung moeglich ist - der Plan nennt das ausdruecklich ("ein Detach
+// merkt sich seine Herkunft, Re-Attach ist moeglich"). Ohne diesen Schritt
+// waere eine Detach-Installation eine Einbahnstrasse.
+export type LibraryReattachInput = {
+  id: string;
+  siteId: string;
+  componentId: string;
   author: Author;
 };
 
@@ -168,6 +186,23 @@ export type LibraryHost = {
   appendAudit(entries: NewAuditEntry[]): Promise<void>;
 };
 
+// Aehnliche Bausteine: zwei Eintraege, deren Definitionen sich strukturell
+// naheliegen. Der Hinweis ersetzt kein Urteil - wer zusammenlegt, entscheidet
+// das (Plan §5.3: "Aehnlichkeit statt Gleichheit").
+export type LibrarySimilarity = {
+  component: LibraryComponent;
+  similarTo: LibraryComponent;
+  similarity: number;
+  // Der Grund, warum die beiden nicht gleich sind: gleiche Struktur mit
+  // anderem Fingerabdruck (der Fingerabdruck ist ueber den Import berechnet
+  // und kann abweichen) - oder ein echter Strukturunterschied.
+  reason: "structure" | "fingerprint";
+};
+
+// Die Schwelle, ab der zwei Bausteine als aehnlich gelten. Sie ist aus dem
+// Plan uebernommen (85 %): unterhalb davon ist es ein anderer Baustein.
+export const LIBRARY_SIMILARITY_THRESHOLD = 85;
+
 export class LibraryRepository {
   readonly #db: Db;
   readonly #host: LibraryHost;
@@ -212,6 +247,12 @@ export class LibraryRepository {
       [input.fingerprint],
     );
     if (existing.rows[0]) return mapLibraryComponent(existing.rows[0]);
+    // Der Slug ist eindeutig. Zwei gleichnamige Bausteine sind aber ein
+    // moeglicher Fall - zwei Karten aus verschiedenen Quellen heissen oft
+    // gleich. Der Slug bekommt deshalb ein Suffix, statt dass die Anlage an
+    // der Datenbank scheitert (ohne diese Aufloesung war das ein 500er ohne
+    // erklaerbare Ursache).
+    const slug = await this.#freeSlug(input.name);
     const now = new Date().toISOString();
     const result = await this.#db.query<LibraryComponentRow>(
       `INSERT INTO library_components
@@ -221,7 +262,7 @@ export class LibraryRepository {
       [
         input.id,
         input.name,
-        slugify(input.name),
+        slug,
         input.kind,
         toJsonParam(input.definition),
         input.fingerprint,
@@ -248,13 +289,52 @@ export class LibraryRepository {
     return mapLibraryComponent(row);
   }
 
+  // Ein freier Slug fuer einen Bausteinnamen. Der Slug ist eindeutig
+  // (`library_components.slug`); ein zweiter Baustein mit demselben Namen
+  // bekommt deshalb "-2", "-3" und so weiter. Ohne diese Aufloesung scheiterte
+  // die Anlage mit einem 500er, ohne dass die Ursache erkennbar war.
+  async #freeSlug(name: string): Promise<string> {
+    const basis = slugify(name);
+    for (let nummer = 1; ; nummer += 1) {
+      const kandidat = nummer === 1 ? basis : `${basis}-${nummer}`;
+      const belegt = await this.#db.query<{ id: string }>(
+        `SELECT id FROM library_components WHERE slug = $1`,
+        [kandidat],
+      );
+      if (belegt.rows.length === 0) return kandidat;
+    }
+  }
+
   async updateLibraryComponent(input: LibraryPatchInput): Promise<LibraryComponent> {
     const current = await this.getLibraryComponent(input.id);
     const now = new Date().toISOString();
+    // Die Version zaehlt die Definitionen. Ein umbenannter Baustein ist nicht
+    // eine neue Definition - sonst wuerde jede Metadaten-Aenderung an allen
+    // installierten Seiten einen Drift erzeugen, den es inhaltlich nicht gibt
+    // (Plan §5.1, Schritt 4: "Definition aendern = Version erhoehen. Instanzen
+    // bleiben auf ihrem Pin").
+    const definitionChanged = input.definition !== undefined;
+    if (input.definition !== undefined) {
+      assertDraftShape(input.definition);
+      // Der Fingerabdruck gehoert zum Inhalt: mit der Definition aendert er
+      // sich. Sonst wuerde der Dubletten-Schluessel zwei verschiedene
+      // Definitionen als dieselbe ausgeben.
+      const fingerprint = definitionFingerprint(input.definition);
+      const doppelt = await this.#db.query<{ id: string }>(
+        `SELECT id FROM library_components WHERE fingerprint = $1 AND id <> $2`,
+        [fingerprint, input.id],
+      );
+      if (doppelt.rows.length > 0) {
+        throw new SenifyError("conflict", "A library component with this definition already exists", { field: "definition" });
+      }
+    }
+    const neueDefinition = input.definition;
+    const neueFingerprint = neueDefinition === undefined ? current.fingerprint : definitionFingerprint(neueDefinition);
     const result = await this.#db.query<LibraryComponentRow>(
       `UPDATE library_components SET
         name = $2, tags = $3, notes = $4, license = $5,
-        version = version + 1, deprecated_at = $6, updated_at = $7
+        definition = $8, fingerprint = $9,
+        version = version + $6, deprecated_at = $7, updated_at = $10
        WHERE id = $1 RETURNING ${LIBRARY_COLUMNS}`,
       [
         input.id,
@@ -262,7 +342,10 @@ export class LibraryRepository {
         toJsonParam(input.tags ?? current.tags),
         input.notes ?? current.notes,
         toJsonParam(input.license ?? current.license),
+        definitionChanged ? 1 : 0,
         input.deprecated === true ? now : input.deprecated === false ? null : current.deprecatedAt,
+        definitionChanged ? toJsonParam(neueDefinition) : toJsonParam(current.definition),
+        neueFingerprint,
         now,
       ],
     );
@@ -270,7 +353,7 @@ export class LibraryRepository {
     if (!row) throw new SenifyError("not_found", `Library component "${input.id}" does not exist`, { field: "componentId" });
     await this.#host.appendAudit([{
       siteId: "__library__", pageId: null, batchId: input.id, opIndex: 0,
-      mutation: input.deprecated === true ? "library.component.deprecated" : "library.component.updated",
+      mutation: input.deprecated === true ? "library.component.deprecated" : definitionChanged ? "library.component.definition.updated" : "library.component.updated",
       params: { componentId: input.id, version: row.version },
       author: input.author, undoPatch: [], draftVersionAfter: 0,
     }]);
@@ -352,6 +435,13 @@ export class LibraryRepository {
     return mapLibraryInstall(row);
   }
 
+  // Das Update einer Installation: der Pin wandert auf die aktuelle Version der
+  // Bibliothek, UND die Seite zieht den neuen Inhalt nach.
+  //
+  // Vorher stand hier nur der Pin: die Seite behielt ihre alte Definition, und
+  // das Update war ein Schreibvorgang ohne Wirkung auf das, was die Seite zeigt.
+  // Der Plan sagt (Schritt 4): "update_instances zieht sie in EINEM Schritt
+  // nach (ein Undo)" - der Schritt ist ein Batch je Seite, mit einem Audit.
   async updateLibraryInstall(id: string, author: Author): Promise<LibraryInstall> {
     const current = (await this.#db.query<LibraryInstallRow>(
       `SELECT ${LIBRARY_INSTALL_COLUMNS} FROM site_library_installs WHERE id = $1`,
@@ -359,6 +449,57 @@ export class LibraryRepository {
     )).rows[0];
     if (!current) throw new SenifyError("not_found", `Library install "${id}" does not exist`, { field: "installId" });
     const component = await this.getLibraryComponent(current.library_component_id);
+    const pages = await this.#host.listPages(current.site_id);
+    for (const summary of pages) {
+      const page = await this.#host.getPage(summary.id);
+      const tree = structuredClone(page.draft) as NodeTree;
+      let changed = false;
+      let dropped = 0;
+      // Jede Definition im Draft, die zu dieser Bibliothek gehoert, wird auf
+      // den neuen Inhalt gebracht. Eine Seite kann denselben Baustein in
+      // mehreren Definitionen fuehren (z. B. zwei Instanzen in zwei
+      // Teilbaeumen) - darum ueber alle Definitionen der Seite.
+      for (const node of Object.values(tree.nodes)) {
+        if (node.type !== "__component") continue;
+        if (node.props["libraryComponentId"] !== component.id) continue;
+        const merged = mergeLibraryDefinition(tree, node.id, component.definition, {
+          version: component.version,
+          name: component.name,
+          libraryComponentId: component.id,
+          origin: current.mode === "copied" ? "copied" : "linked",
+          newId: newEntityId,
+        });
+        changed = changed || merged.changed;
+        dropped += merged.droppedPartIds.length;
+        // Die Instanzen dieser Definition ziehen ihren Pin nach.
+        for (const instanz of Object.values(tree.nodes)) {
+          if (instanz.type !== "__component_instance") continue;
+          if (instanz.props["componentId"] !== node.id) continue;
+          instanz.props = { ...instanz.props, componentVersion: component.version };
+          changed = true;
+        }
+      }
+      if (!changed) continue;
+      await this.#host.persistBatch({
+        pageId: page.id,
+        expectedVersion: page.draftVersion,
+        draft: tree,
+        title: page.title,
+        path: page.path,
+        entries: [{
+          siteId: page.siteId,
+          pageId: page.id,
+          batchId: id,
+          opIndex: 0,
+          mutation: "library.install.updated",
+          params: { componentId: component.id, version: component.version },
+          author,
+          undoPatch: [],
+          draftVersionAfter: page.draftVersion + 1,
+        }],
+      });
+      void dropped;
+    }
     const result = await this.#db.query<LibraryInstallRow>(
       `UPDATE site_library_installs SET installed_version = $2, updated_at = $3 WHERE id = $1 RETURNING ${LIBRARY_INSTALL_COLUMNS}`,
       [id, component.version, new Date().toISOString()],
@@ -382,8 +523,13 @@ export class LibraryRepository {
       const tree = structuredClone(page.draft) as NodeTree;
       let changed = false;
       for (const node of Object.values(tree.nodes)) {
+        // Die Instanz bleibt eine Instanz und die Definition bleibt die
+        // Definition - nur die Bindung an die Bibliothek loest sich. Wuerde die
+        // Instanz hier zur Definition umgewandelt, waere sie eine Definition
+        // OHNE Instanz: der Inliner laesst sie fallen (er expandiert nur
+        // Instanzen), und der Baustein verschwaende aus der gerenderten Seite.
+        // Ein Detach ist ein Losloesen, kein Wegwerf.
         if (node.type === "__component_instance" && node.props["libraryComponentId"] === component.id) {
-          node.type = "__component";
           node.props = {
             ...node.props,
             name: component.name,
@@ -391,7 +537,6 @@ export class LibraryRepository {
             libraryOrigin: "detached",
             libraryDetachedFrom: component.id,
           };
-          delete node.props["componentId"];
           delete node.props["libraryComponentId"];
           changed = true;
         }
@@ -435,10 +580,125 @@ export class LibraryRepository {
     return mapLibraryInstall(row);
   }
 
+  // Aehnliche Bausteine finden (Plan §5.3). Rein lesend: die Liste ist ein
+  // Hinweis, das Zusammenlegen bleibt eine Entscheidung des Menschen.
+  //
+  // Der Vergleich laeuft ueber die Paare aller Eintraege - quadratisch, aber
+  // die Bibliothek ist eine Handvoll Eintraege, und ein Index ueber die
+  // Aehnlichkeit waere eine zweite Wahrheit, die der Fingerabdruck bereits
+  // abdeckt.
+  async findSimilarLibraryComponents(threshold = LIBRARY_SIMILARITY_THRESHOLD): Promise<LibrarySimilarity[]> {
+    const all = await this.listLibraryComponents();
+    const found: LibrarySimilarity[] = [];
+    for (let i = 0; i < all.length; i += 1) {
+      for (let j = i + 1; j < all.length; j += 1) {
+        const left = all[i] as LibraryComponent;
+        const right = all[j] as LibraryComponent;
+        const similarity = definitionSimilarity(left.definition, right.definition);
+        if (similarity < threshold) continue;
+        found.push({
+          component: left,
+          similarTo: right,
+          similarity,
+          // Gleicher Fingerabdruck bei aehnlicher Struktur heisst: der Import
+          // hat ihn aus einer anderen Quelle berechnet. Sonst ist es ein
+          // echter Strukturunterschied.
+          reason: left.fingerprint === right.fingerprint ? "fingerprint" : "structure",
+        });
+      }
+    }
+    found.sort((a, b) => b.similarity - a.similarity || a.component.name.localeCompare(b.component.name));
+    return found;
+  }
+
+  // Re-Attach: eine geloeste Installation wieder an die Bibliothek haengen.
+  //
+  // Das Gegenstueck zum Detach. Die geloesten Knoten tragen ihre Herkunft in
+  // `libraryDetachedFrom` - ohne sie waere die Rueckrichtung nicht moeglich.
+  // Der Baustein wird dabei nicht neu kopiert: die lokalen Knoten bleiben
+  // stehen (ihre Ueberschreibungen bleiben erhalten), nur die Bindung an die
+  // Bibliothek kommt zurueck. Die Definition im Draft bekommt die aktuelle
+  // Version der Bibliothek - der Pin wandert mit.
+  async reattachLibraryComponent(input: LibraryReattachInput): Promise<LibraryInstall> {
+    const site = await this.#host.getSite(input.siteId);
+    const component = await this.getLibraryComponent(input.componentId);
+    const now = new Date().toISOString();
+    const pages = await this.#host.listPages(input.siteId);
+    let gebundeneInstanzen = 0;
+    for (const summary of pages) {
+      const page = await this.#host.getPage(summary.id);
+      const tree = structuredClone(page.draft) as NodeTree;
+      let changed = false;
+      for (const node of Object.values(tree.nodes)) {
+        if (node.props["libraryDetachedFrom"] !== component.id) continue;
+        if (node.type !== "__component_instance" && node.type !== "__component") continue;
+        node.props = {
+          ...node.props,
+          libraryComponentId: component.id,
+          libraryOrigin: "linked",
+          version: component.version,
+          componentVersion: component.version,
+        };
+        delete node.props["libraryDetachedFrom"];
+        changed = true;
+        if (node.type === "__component_instance") gebundeneInstanzen += 1;
+      }
+      if (!changed) continue;
+      await this.#host.persistBatch({
+        pageId: page.id,
+        expectedVersion: page.draftVersion,
+        draft: tree,
+        title: page.title,
+        path: page.path,
+        entries: [{
+          siteId: page.siteId,
+          pageId: page.id,
+          batchId: input.id,
+          opIndex: 0,
+          mutation: "library.install.reattached",
+          params: { componentId: component.id, version: component.version },
+          author: input.author,
+          undoPatch: [],
+          draftVersionAfter: page.draftVersion + 1,
+        }],
+      });
+    }
+    // Die Installationszeile kommt zurueck: ohne sie waere der Baustein an der
+    // Bibliothek vorbei (und dernaechste Update-Lauf wuerde sie nicht finden).
+    await this.#db.query(
+      `INSERT INTO site_library_installs (id, site_id, library_component_id, installed_version, mode, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, 'linked', $5, $5)
+       ON CONFLICT (site_id, library_component_id) DO UPDATE SET
+         installed_version = EXCLUDED.installed_version, updated_at = EXCLUDED.updated_at`,
+      [input.id, input.siteId, component.id, component.version, now],
+    );
+    await this.#host.appendAudit([{
+      siteId: input.siteId,
+      pageId: null,
+      batchId: input.id,
+      opIndex: 0,
+      mutation: "library.install.reattached",
+      params: { componentId: component.id, version: component.version, instances: gebundeneInstanzen },
+      author: input.author,
+      undoPatch: [],
+      draftVersionAfter: 0,
+    }]);
+    const row = (await this.#db.query<LibraryInstallRow>(
+      `SELECT ${LIBRARY_INSTALL_COLUMNS} FROM site_library_installs WHERE site_id = $1 AND library_component_id = $2`,
+      [input.siteId, component.id],
+    )).rows[0];
+    if (!row) throw new Error("Library reattach insert returned no row");
+    void site;
+    return mapLibraryInstall(row);
+  }
+
   async listLibraryAudit(): Promise<LibraryAuditEntry[]> {
     const result = await this.#db.query<{ mutation: string; params: unknown; author: unknown; site_id: string; created_at: unknown }>(
       `SELECT mutation, params, author, site_id, created_at FROM audit_entries WHERE mutation LIKE 'library.%' ORDER BY created_at DESC`,
     );
-    return result.rows.map((row) => ({ componentId: String((toJson<Record<string, unknown>>(row.params) ?? {}).componentId ?? ""), siteId: row.site_id === "__library__" ? null : row.site_id, action: row.mutation.endsWith("created") ? "created" : row.mutation.endsWith("installed") ? "installed" : row.mutation.endsWith("detached") ? "detached" : row.mutation.endsWith("deprecated") ? "deprecated" : "updated", author: toJson<Author>(row.author), createdAt: toIso(row.created_at) }));
+    // Die Reihenfolge der Pruefungen ist bedeutsam: "reattached" endet auf
+    // "attached", nicht auf "detached" - aber ein zukuenftiger Schritt mit
+    // aehnlichem Ende braucht eine eigene Pruefung VOR den allgemeinen.
+    return result.rows.map((row) => ({ componentId: String((toJson<Record<string, unknown>>(row.params) ?? {}).componentId ?? ""), siteId: row.site_id === "__library__" ? null : row.site_id, action: row.mutation.endsWith("created") ? "created" : row.mutation.endsWith("installed") ? "installed" : row.mutation.endsWith("reattached") ? "reattached" : row.mutation.endsWith("detached") ? "detached" : row.mutation.endsWith("deprecated") ? "deprecated" : "updated", author: toJson<Author>(row.author), createdAt: toIso(row.created_at) }));
   }
 }
