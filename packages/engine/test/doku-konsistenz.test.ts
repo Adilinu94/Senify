@@ -32,6 +32,44 @@ function r12Zeile() {
   return zeile;
 }
 
+/** Zeilen wie im Editor gezaehlt - ein Schluss-Newline macht keine Zeile. */
+function zeilenZahl(pfad: string): number {
+  const roh = readFileSync(pfad, "utf8");
+  const n = roh.split(/\r?\n/).length;
+  return roh.endsWith("\n") ? n - 1 : n;
+}
+
+/**
+ * Jede Quelldatei unter `packages` im Ordner `src` oder `public`, rekursiv.
+ *
+ * Bewusst OHNE Dateiliste: die vorige Fassung des grossen-Dateien-Waechters
+ * zaehlte sechs Pfade von Hand auf und uebersah dabei fuenf Dateien ueber
+ * 1 000 Zeilen. `node_modules`, `dist` und `.tmp` fliegen raus - das sind
+ * Build-Reste, keine Quellen.
+ */
+function quellDateien(): string[] {
+  const treffer: string[] = [];
+  const lauf = (dir: string): void => {
+    let eintraege: ReturnType<typeof readdirSync>;
+    try {
+      eintraege = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return; // Paket ohne `src`/`public`
+    }
+    for (const e of eintraege) {
+      if (e.name === "node_modules" || e.name === "dist" || e.name === ".tmp") continue;
+      const p = join(dir, e.name);
+      if (e.isDirectory()) lauf(p);
+      else if (/\.(ts|js)$/.test(e.name) && !/\.d\.ts$/.test(e.name)) treffer.push(p);
+    }
+  };
+  for (const paket of readdirSync(join(root, "packages"), { withFileTypes: true })) {
+    if (!paket.isDirectory()) continue;
+    for (const teil of ["src", "public"]) lauf(join(root, "packages", paket.name, teil));
+  }
+  return treffer;
+}
+
 describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
   it("module.md ist, was der Generator schreibt", () => {
     // Dasselbe Muster wie bei der Route-Matrix: eine generierte Datei, die
@@ -61,36 +99,96 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     // aber eine Datei, die die Schwelle reisst und in keiner der beiden Listen
     // steht, ist eine vergessene Entscheidung. Genau das soll hier auffallen.
     //
-    // Die Schwelle ist bewusst die Zeilenzahl der groessten Datei, die noch
-    // geteilt wird (`app-references.js` nach Schritt 59): alles darueber muss
-    // entweder ein Fachmodul sein oder einen Grund haben.
+    // Befund vom 25.10.2026: der Waechter sah trotzdem nur einen Teil des
+    // Baums. Er las `packages/engine/src` NICHT rekursiv (also nicht
+    // `mutations/apply.ts`) und sonst eine von Hand gepflegte Liste von sechs
+    // Pfaden. Fuenf Dateien ueber der Schwelle waren damit unsichtbar:
+    // `manifest/src/tools.ts` (1 796), `editor/src/state/operations.ts`
+    // (1 240), `engine/src/mutations/apply.ts` (1 144),
+    // `renderer/src/motion.ts` (1 137) und `renderer/src/bake.ts` (1 004) -
+    // zusammen 6 321 Zeilen ohne Entscheidung. Eine Liste von Dateien, die man
+    // messen soll, ist genau die Liste, die man zu spaet nachzieht.
+    //
+    // Deshalb jetzt ohne Liste: der Waechter laeuft selbst durch `packages/`,
+    // und der Test darunter beweist, dass er dabei nichts auslaesst.
+    //
+    // Die Schwelle ist eine Konvention, keine Ableitung. Sie war einmal die
+    // Zeilenzahl der groessten Datei, die noch geteilt wird - dieser Bezug ist
+    // entfallen (`app-references.js` liegt nach Schritt 59 bei 597). 1000
+    // Zeilen heisst: die Datei passt nicht mehr in einen Pruefdurchgang, und
+    // die Frage "wohin gehoert eine Aenderung" wird unklar. Wer sie reisst,
+    // entscheidet bewusst - teilen oder begruenden.
     const SCHWELLE = 1000;
+    // Zwei Tabellen, zwei Aussagen: `BLEIBT` begruendet eine Datei UEBER der
+    // Schwelle, `ZUSCHNITT` nennt eine darunter, die weiter geteilt wird.
     const begruendet = new Set(
       [...module.matchAll(/^\| `([^`]+\.(?:ts|js))` \| \d+ \|/gm)].map((m) => m[1]),
     );
 
-    const kandidaten: Array<[string, string]> = [
-      ...[...readdirSync(SRC).filter((n) => n.endsWith(".ts"))].map((n) => [n, join(SRC, n)] as [string, string]),
-      ...[...readdirSync(PUB).filter((n) => n.endsWith(".js"))].map((n) => [n, join(PUB, n)] as [string, string]),
-      ...["packages/mcp/src/tools.ts", "packages/editor/src/inspector/inspector.ts",
-          "packages/editor/src/inspector/model.ts", "packages/editor/src/canvas/canvas.ts",
-          "packages/framer-import/src/capture-html.ts", "packages/framer-import/src/mapper.ts",
-      ].map((p) => [p.split("/").pop()!, join(root, p)] as [string, string]),
-    ];
+    // Der Bericht nennt entweder den Dateinamen (Fachmodul-Tabellen) oder den
+    // vollen Pfad (BLEIBT-Tabelle). Ein Dateiname zaehlt nur, wenn er im Baum
+    // eindeutig ist - `tools.ts` gibt es in `mcp/` UND in `manifest/`; ein
+    // Namensvergleich allein wuerde die eine Datei durch die andere decken.
+    const alle = quellDateien();
+    const gleichnamig = new Map<string, number>();
+    for (const p of alle) {
+      const n = p.slice(p.lastIndexOf("/") + 1);
+      gleichnamig.set(n, (gleichnamig.get(n) ?? 0) + 1);
+    }
 
     const vergessen: string[] = [];
-    for (const [name, pfad] of kandidaten) {
-      const text = readFileSync(pfad, "utf8");
-      const n = text.split(/\r?\n/).length;
+    for (const pfad of alle) {
+      const n = zeilenZahl(pfad);
       if (n <= SCHWELLE) continue;
-      // Der Bericht nennt entweder den Dateinamen (Fachmodul-Tabellen) oder den
-      // vollen Pfad (BLEIBT-Tabelle).
       const relat = pfad.slice(root.length + 1).replace(/\\/g, "/");
-      if (!begruendet.has(relat) && !begruendet.has(name)) {
+      const name = relat.slice(relat.lastIndexOf("/") + 1);
+      const perName = gleichnamig.get(name) === 1 && begruendet.has(name);
+      if (!begruendet.has(relat) && !perName) {
         vergessen.push(`${relat}: ${n} Zeilen, weder Fachmodul noch begruendet`);
       }
     }
     expect(vergessen.sort()).toEqual([]);
+  });
+
+  it("begruendet nur, was die Schwelle wirklich reisst", () => {
+    // Die Gegenrichtung. Eine Tabelle mit der Ueberschrift "warum so gross"
+    // darf keine 259-Zeilen-Datei fuehren: dann stimmt die Frage nicht mehr,
+    // und der naechste Leser sucht den Grund an der falschen Stelle. Bis zum
+    // 25.10.2026 standen hier `http.ts` (259) und `app.js` (219).
+    const SCHWELLE = 1000;
+    const zuKlein: string[] = [];
+    for (const m of module.matchAll(/^\| `(packages\/[^`]+\.(?:ts|js))` \| (\d+) \|/gm)) {
+      const pfad = m[1]!;
+      const n = Number(m[2]);
+      if (n > SCHWELLE) continue;
+      // Nur die Tabelle "Die grossen Dateien" ist gemeint - der Abschnitt
+      // "Der laufende Zuschnitt" fuehrt bewusst kleinere Dateien.
+      const abschnitt = module.slice(0, module.indexOf("## Der laufende Zuschnitt"));
+      if (abschnitt.includes(`| \`${pfad}\` |`)) zuKlein.push(`${pfad}: ${n} Zeilen`);
+    }
+    expect(zuKlein.sort()).toEqual([]);
+  });
+
+  it("laesst beim Suchen keine Quelldatei aus", () => {
+    // Die Gegenprobe zum Waechter oben. Er kann nur finden, was er durchsucht -
+    // und genau daran war er bis zum 25.10.2026 kaputt: `engine/src` wurde
+    // nicht rekursiv gelesen, `mutations/apply.ts` war unsichtbar.
+    //
+    // Verglichen wird gegen `git ls-files`, also gegen die Wahrheit des
+    // Repositorys, nicht gegen eine zweite selbstgebaute Liste. Jede
+    // versionierte Quelldatei unter `packages/` muss im Suchraum liegen.
+    const versioniert = execFileSync("git", ["ls-files", "packages"], { cwd: root, encoding: "utf8" })
+      .split(/\r?\n/)
+      .filter((p) => /\.(ts|js)$/.test(p) && !/\.d\.ts$/.test(p))
+      .filter((p) => /\/(src|public)\//.test(p));
+    const gesucht = new Set(quellDateien().map((p) => p.slice(root.length + 1).replace(/\\/g, "/")));
+    const fehlend = versioniert.filter((p) => !gesucht.has(p)).sort();
+    expect(fehlend).toEqual([]);
+
+    // Und die Gegenrichtung: der Suchraum enthaelt nichts, was nicht im
+    // Repository steht (sonst zaehlte der Waechter Build-Reste mit).
+    const ueberzaehlig = [...gesucht].filter((p) => !versioniert.includes(p)).sort();
+    expect(ueberzaehlig).toEqual([]);
   });
 
   it("nennt je Route-Modul die richtige Routenzahl", () => {
