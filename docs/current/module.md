@@ -120,16 +120,17 @@
 
 ## MCP: Werkzeug-Module
 
-**5 Dateien.** Die Werkzeuge lagen bis zum 23.10.2026 alle in `tools.ts`;
+**6 Dateien.** Die Werkzeuge lagen bis zum 23.10.2026 alle in `tools.ts`;
 die Uebersicht nennt sie einzeln, weil die Datei sonst wie ein God-File aussieht, das sie nicht mehr ist.
 
 | Modul | Werkzeuge | Zeilen | Zweck |
 |---|---|---|---|
+| `tools-bibliothek.ts` | 10 | 120 | Die Bibliotheks-Werkzeuge der MCP-Fassade (R12, Schritt 71). |
 | `tools-components.ts` | - | 112 | The component view of a page draft (P3-2 extraction from `tools.ts`). |
 | `tools-medien.ts` | 21 | 622 | Die Medien-Werkzeuge der MCP-Fassade (P3-2, Schritt 57): Assets lesen, hochladen, aendern, ersetzen, loeschen und wiederherstellen, Bilder erzeugen und abfragen, Sammlungen und Eintraege samt Einsendungen. |
 | `tools-schemas.ts` | - | 182 | Die Ausgabeschemas der lesenden Werkzeuge (P3-3, R8). |
 | `tools-support.ts` | - | 291 | The machinery every tool goes through (P3-2 extraction from `tools.ts`): the argument readers, the schema helpers, paging and the shared HTTP calls. |
-| `tools.ts` | 88 | 2714 | Elicitation (E4 slice 2): ask the client for a missing or ambiguous parameter. The server wires this only when the client declared the elicitation capability; declined or unsupported resolves to undefined and the tool's own validation error stands. |
+| `tools.ts` | 78 | 2614 | Elicitation (E4 slice 2): ask the client for a missing or ambiguous parameter. The server wires this only when the client declared the elicitation capability; declined or unsupported resolves to undefined and the tool's own validation error stands. |
 | **Summe** | **109** | | |
 
 ## Die grossen Dateien und warum sie so gross sind
@@ -141,8 +142,8 @@ beim Erzeugen gemessen.
 
 | Datei | Zeilen | Warum sie so gross ist |
 |---|---|---|
-| `packages/mcp/src/tools.ts` | 2714 | die Werkzeug-Tabelle; ihre Reihenfolge ist der Vertrag (`server.ts` liest `TOOLS.map`), der Manifest-Generator folgt den `...X_TOOLS`-Spreizungen - ein weiterer Schnitt ist möglich und braucht den Manifest-Diff als Beweis |
 | `packages/engine/src/store.ts` | 2662 | vier fachübergreifende Transaktionen (`applyRedesignPlan`, `duplicateSiteWithPlan`, `duplicateAssetRecords`, `commitFramerImportPlan`), `replaceTables` und die Fassade; der Rest sind Delegaten |
+| `packages/mcp/src/tools.ts` | 2614 | die Werkzeug-Tabelle; ihre Reihenfolge ist der Vertrag (`server.ts` liest `TOOLS.map`), der Manifest-Generator folgt den `...X_TOOLS`-Spreizungen - ein weiterer Schnitt ist möglich und braucht den Manifest-Diff als Beweis |
 | `packages/framer-import/src/capture-html.ts` | 2225 | der HTML-Capture des Imports |
 | `packages/editor/src/inspector/inspector.ts` | 1884 | eine Closure (`createInspector`), die DOM und Zustand gemeinsam hält |
 | `packages/engine/src/content.ts` | 1703 | Sammlungen, Einträge und ihre Suche in einem Fachgebiet |
