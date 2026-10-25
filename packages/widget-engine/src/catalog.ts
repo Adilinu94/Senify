@@ -685,6 +685,11 @@ export const PRIMITIVES: readonly PrimitiveDefinition[] = [
       media("poster", "Poster"),
       text("alt", "Alternativtext", ""),
       text("label", "Bezeichnung", ""),
+      // The way back to the editable structure (ADR-0026). A page-level carrier
+      // that is switched off must not mount and must not contribute a pixel:
+      // measured on `rare-works`, the page stood twice (17.508 → 35.016 px) and
+      // its lazy poster grew it by another 1.080 px.
+      ctrl("active", "Aktiv", "switcher", "boolean", true, { responsive: false }),
       // A carrier that stands for the whole page (the Framer runtime): the
       // release renders it instead of the structure. The canvas shows the
       // structure — the foreign code never runs there.

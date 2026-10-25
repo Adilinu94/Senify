@@ -176,6 +176,14 @@ export {
   type ReviewVisualRequest,
 } from "./review-visuals.ts";
 export {
+  // Der Fotograf der Sektions-Vorschau: Tests setzen ein Doppel, damit das
+  // Oeffnen des Reiters nicht 73 echte Bakes im Server-Prozess startet.
+  createSectionPreviewShooter,
+  type SectionPreviewBake,
+  type SectionPreviewShooter,
+} from "./section-previews.ts";
+export { setSectionPreviewRenderer, setSectionPreviewShooter } from "./http-routes-section-preview.ts";
+export {
   createImportPreviewDriver,
   previewFramerImport,
   type ImportPreview,

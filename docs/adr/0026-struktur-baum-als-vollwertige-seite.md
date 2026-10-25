@@ -63,6 +63,26 @@ für das, was nur er kann (Lenis, three.js, Scroll-Choreografie, Canvas). Konkre
    Schalter `coversPage` ist der Weg, den Baum zu sehen — und der Baum ist jetzt eine Seite,
    die man zeigen kann, keine Baustelle.
 
+**Zweiter Fehler, der beim Messen auffiel: die Seite wuchs beim Scrollen.** Der Träger wuchs
+von 0 auf 17.508 px, sobald er in den Sichtbereich kam — die Seite stand **zweimal** (17.508 →
+35.016 px). Zwei Ursachen:
+
+1. `renderTreeOf` ersetzte den Baum durch den Träger, **egal ob er aktiv war** — der Baum war
+   weg, auch wenn man ihn sehen wollte. Der Aus-Zustand ist deshalb ein eigenes Feld `active`
+   (Steuerelement „Aktiv", Vorgabe an), nicht `coversPage`: das beschreibt weiterhin „Seite statt
+   Abschnitt". Ein inaktiver Träger fällt beim Backen aus dem Baum, und der Island-Code lädt ihn
+   nicht (`packages/renderer/src/bake.ts`, `motion.ts`).
+2. Danach blieb ein Zuwachs von 1.080 px: das **Poster** ist ein `loading="lazy"`-Bild ohne Höhe.
+   Beim Scrollen lud es nach und schob die Seite. Ein abgeschalteter Träger wird jetzt schon beim
+   Backen auf `off` gesetzt und ist `display: none` — er trägt nichts bei, auch kein Poster.
+
+Messung danach: beide Varianten **stabil bei 17.508 px** (vorher wuchs der Baum auf 35.016).
+
+**Der ehrliche Abstand.** Ohne Payload sieht der Baum so nah aus wie der Import ihn bringt:
+**14,62 %** bei 1440 px und **7,55 %** bei 390 px Pixel-Differenz, Höhen exakt (17.508 / 20.648 px).
+Das ist die Zahl, die vorher niemand sehen konnte, weil die Seite unlesbar war. Sie ist der Preis
+dafür, dass der Baum eine eigene Seite ist und nicht der Original-Code.
+
 **Was das nicht löst.** Der Baum trägt weiterhin **keine** Bewegung: keine Scroll-Choreografie,
 kein Lenis, kein three.js. Wer den Payload abschaltet, bekommt eine **stehende** Seite, die
 richtig aussieht. Das ist der bewusste Preis und der Grund, warum der Payload Standard bleibt.
