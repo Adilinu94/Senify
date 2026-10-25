@@ -125,14 +125,49 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
 
   it("haelt die R12-Zeile frei von handgepflegten Zahlen", () => {
     // Die Zeile darf den Fortschritt in Worten nennen (sie nennt die vier
-    // Transaktionen und die 211 von 235 Delegaten - das ist eine Aussage ueber
-    // eine Datei, die man pruefen kann). Sie darf NICHT wieder 73 Dateinamen
-    // und 8 Routenzahlen tragen: genau das ist am 23.10.2026 driftet.
+    // Transaktionen - das ist eine Aussage ueber eine Datei, die man pruefen
+    // kann). Sie darf NICHT wieder 73 Dateinamen und 8 Routenzahlen tragen:
+    // genau das ist am 23.10.2026 driftet.
     const zeile = r12Zeile();
     expect(zeile).toContain("docs/current/module.md");
     const dateinamen = [...zeile.matchAll(/`([a-z0-9-]+\.(?:ts|js))`/g)].map((m) => m[1]);
     expect(dateinamen.length).toBeLessThanOrEqual(4);
     expect(zeile).not.toMatch(/\d+ Routen/);
+  });
+
+  it("nennt in store.ts so viele Delegaten, wie wirklich delegieren", () => {
+    // Befund vom 25.10.2026: der Kommentar an dieser Stelle sagte "211 von
+    // 235 Delegaten". Beide Zahlen waren falsch - gemessen sind es 202 von
+    // 244. Die Aussage ist pruefbar, also wird sie geprueft: eine Zahl in
+    // einem Kommentar ist eine Behauptung wie jede andere, und eine
+    // gedriftete Zahl macht den Kommentar wertlos (er soll erklaeren, warum
+    // die Datei so gross sein darf).
+    //
+    // Die Zahl steht deshalb HIER und wird unten gegen eine Messung geprueft:
+    // 202 von 244 Delegaten.
+    const zeilen = readFileSync(join(root, "packages/engine/src/store.ts"), "utf8").split(/\r?\n/);
+    const start: number[] = [];
+    for (let i = 0; i < zeilen.length; i++) {
+      if (/^ {2}(async )?[a-zA-Z#][a-zA-Z0-9_]*\s*\(/.test(zeilen[i]!)) start.push(i);
+    }
+    const methoden = start.map((s, k) => {
+      const grenze = k + 1 < start.length ? start[k + 1]! : zeilen.length;
+      let ende = s;
+      for (let i = s; i < grenze; i++) {
+        if (/^ {2}\}/.test(zeilen[i]!)) { ende = i; break; }
+        ende = i;
+      }
+      const koerper = zeilen.slice(s + 1, ende).filter((z) => z.trim() !== "" && !z.trim().startsWith("//"));
+      return koerper.join(" ").trim();
+    });
+    const delegaten = methoden.filter((text) =>
+      /^return (await )?this\.#[a-zA-Z0-9]+\.[a-zA-Z0-9_]+\(.*\);?$/.test(text),
+    ).length;
+    expect(delegaten, "store.ts hat keine Delegaten mehr - der Waechter misst nichts").toBeGreaterThan(150);
+    expect(delegaten).toBeLessThan(methoden.length);
+    // Die Zahl im Kommentar dieser Datei muss dazu passen.
+    const kommentar = readFileSync(new URL(import.meta.url), "utf8");
+    expect(kommentar).toContain(`${delegaten} von ${methoden.length} Delegaten`);
   });
 });
 
@@ -244,5 +279,70 @@ describe("Doku-Waechter: die Risiko-Nummern sind synchron", () => {
         expect((zeile?.match(/\|/g) ?? []).length, `${name}: ${id} hat nicht vier Zellen`).toBe(5);
       }
     }
+  });
+
+  // Der Befund vom 25.10.2026: R14 stand in `stand.md` als "offen, terminiert
+  // bis 30.11.2026" und in `fahrplan.md` als "geschlossen 22.10.2026" - seit
+  // Tagen. Die Mengen-Waechter oben sahen das nicht: dieselbe NUMMER in beiden
+  // Dateien genuegt ihnen, ueber den INHALT sagen sie nichts.
+  //
+  // Das ist die gefaehrlichste Sorte Doku-Drift: beide Dokumente fuehren das
+  // Risiko, beide sehen gepflegt aus, und wer nachschlaegt, bekommt je nach
+  // Datei eine andere Antwort. Ein offenes Risiko, das als geschlossen gilt,
+  // wird nicht mehr bearbeitet; ein geschlossenes, das als offen gilt, kostet
+  // Arbeit ohne Grund.
+  //
+  // Verglichen wird die STATUS-SPALTE, auf drei Werte reduziert. Die Prosa
+  // daneben darf sich unterscheiden - `stand.md` nennt Belege, `fahrplan.md`
+  // den Schritt. Nur die Aussage "offen oder geschlossen" muss dieselbe sein.
+  const status = (zeile: string): "offen" | "zu" | "grenze" => {
+    const spalte = zeile.split("|")[3] ?? "";
+    // Ein bewusst vertagtes Risiko ist keine offene Luecke. Beide Dokumente
+    // formulieren das unterschiedlich - `fahrplan.md` sagt "bewusst nicht
+    // vereinheitlicht", `architektur.md` "bewusst vertagt", `stand.md` "keine
+    // offene Luecke". Es zaehlt als eigene Klasse, damit die Wortwahl frei
+    // bleibt, ohne dass die Aussage kippt.
+    //
+    // Die Reihenfolge ist wichtig: "keine offene Luecke" enthaelt das Wort
+    // "offene" und wuerde sonst als offen gelesen. Und "bewusst" allein
+    // genuegt NICHT: `stand.md` schreibt bei R12 "diese Zeile nennt bewusst
+    // keine Zahl" - eine Aussage ueber die DOKU, nicht ueber das Risiko. Der
+    // erste Anlauf las das als vertagt und machte aus einem offenen Risiko
+    // eine Grenze.
+    if (/bewusst (nicht )?(vereinheitlicht|vertagt)|bewusst vertagt|keine offene luecke|keine offene Luecke/i.test(spalte)) {
+      return "grenze";
+    }
+    // "teilweise" ist offen: ein halb erledigtes Risiko ist nicht erledigt.
+    // `architektur.md` schreibt R12 so, ohne Fettschrift - der erste Anlauf
+    // verlangte `**offen` und las die Zeile deshalb als geschlossen. Genau
+    // die Sorte Fehlalarm, die einen Waechter unbrauchbar macht.
+    if (/offen|in Arbeit|teilweise/i.test(spalte)) return "offen";
+    return "zu";
+  };
+
+  it("nennt in stand.md denselben Risiko-Status wie fahrplan.md", () => {
+    const abweichend: string[] = [];
+    for (const id of ids(fahrplan)) {
+      const sZeile = stand.find((l) => l.startsWith(`| ${id} |`));
+      const fZeile = fahrplan.find((l) => l.startsWith(`| ${id} |`));
+      if (sZeile === undefined || fZeile === undefined) continue; // der Mengen-Waechter oben meldet das
+      const a = status(sZeile);
+      const b = status(fZeile);
+      if (a !== b) abweichend.push(`${id}: stand.md=${a}, fahrplan.md=${b}`);
+    }
+    expect(abweichend).toEqual([]);
+  });
+
+  it("nennt in architektur.md denselben Risiko-Status wie fahrplan.md", () => {
+    const abweichend: string[] = [];
+    for (const id of ids(fahrplan)) {
+      const aZeile = architektur.find((l) => l.startsWith(`| ${id} |`));
+      const fZeile = fahrplan.find((l) => l.startsWith(`| ${id} |`));
+      if (aZeile === undefined || fZeile === undefined) continue;
+      const a = status(aZeile);
+      const b = status(fZeile);
+      if (a !== b) abweichend.push(`${id}: architektur.md=${a}, fahrplan.md=${b}`);
+    }
+    expect(abweichend).toEqual([]);
   });
 });
