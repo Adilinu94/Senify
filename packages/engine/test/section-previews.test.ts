@@ -1,13 +1,15 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  createSectionPreviewShooter,
   isPreviewable,
   previewFileName,
   previewTargets,
   sectionPreview,
 } from "../src/section-previews.ts";
+import { serveCaptureDir } from "../src/review-visuals.ts";
 
 // Die Vorschaubilder im Theme einer Site (Produktpunkt aus `stand.md`).
 //
@@ -174,6 +176,68 @@ describe("sectionPreview", () => {
     // Kein halbes Bild im Zwischenspeicher: sonst bliebe der Fehler fuer immer.
     const datei = join(cacheDir, previewFileName(ziel.type, ziel.variant, 1));
     expect(() => readFileSync(datei)).toThrow();
+  });
+
+  it("der produktive Fotograf gibt es und liefert ein Bild fuer eine erreichbare Seite", async () => {
+    // Der Weg OHNE Doppel: der echte Analyse-Worker wird geladen und
+    // fotografiert eine winzige Seite. Der Test haengt an der echten Kette
+    // (Playwright + captureThumbnails), deshalb bekommt er Zeit und eine
+    // eigene Grenze. Faellt er aus, ist die Vorschau im Betrieb auch kaputt.
+    const dir = neuerOrdner();
+    writeFileSync(join(dir, "index.html"), "<!doctype html><h1 style=\"color:#123\">Vorschau</h1>");
+    const server = await serveCaptureDir(dir);
+    try {
+      const shooter = createSectionPreviewShooter();
+      const shot = await shooter({ url: `${server.origin}/index.html`, width: 480, allowOrigins: [server.origin] });
+      // Ein echtes PNG, kein leeres Versprechen.
+      expect(shot.png.subarray(0, 8)).toEqual(PNG.subarray(0, 8));
+      expect(shot.png.byteLength).toBeGreaterThan(100);
+    } finally {
+      await server.close();
+    }
+  }, 120000);
+
+  it("nennt eine unbekannte Sektion beim Namen", async () => {
+    const cacheDir = join(neuerOrdner(), "cache");
+    await expect(
+      sectionPreview(
+        { themeCss: "", themeVersion: 1, cacheDir, shoot: vi.fn(), render: ersatz() },
+        { type: "gibtsnicht", variant: "standard" },
+      ),
+    ).rejects.toThrow(/Unbekannte Variante/);
+  });
+
+  it("lehnt eine Sektion ohne Varianten ab, statt einen leeren Baum zu backen", async () => {
+    // `treeFor` wirft fuer eine unbekannte Sektion; `isPreviewable` faengt das
+    // vorher ab. Beide Wege muessen sauber enden.
+    expect(isPreviewable("outlet", "default")).toBe(false);
+    const cacheDir = join(neuerOrdner(), "cache");
+    await expect(
+      sectionPreview(
+        { themeCss: "", themeVersion: 1, cacheDir, shoot: vi.fn(), render: ersatz() },
+        { type: "outlet", variant: "default" },
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("gibt die Ziele als flache Liste mit Typ und Variante aus", () => {
+    // Der Generator und die Route brauchen dieselbe Liste; ein Objekt statt
+    // eines Eintrags waere dort ein stiller Fehler.
+    for (const ziel of previewTargets()) {
+      expect(typeof ziel.type).toBe("string");
+      expect(typeof ziel.variant).toBe("string");
+      expect(ziel.type.length).toBeGreaterThan(0);
+      expect(ziel.variant.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("meldet beim Dateinamen den Typ, die Variante und den Stand", () => {
+    // Drei Teile, damit ein Bild eindeutig zuzuordnen ist.
+    const name = previewFileName("hero", "split", 12);
+    expect(name).toContain("hero");
+    expect(name).toContain("split");
+    expect(name).toContain("12");
+    expect(name.endsWith(".png")).toBe(true);
   });
 
   it("backt ohne injiziertes render selbst und fotografiert die gebackene Seite", async () => {

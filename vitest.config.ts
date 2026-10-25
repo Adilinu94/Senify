@@ -82,8 +82,10 @@ export default defineConfig({
         "packages/engine/src/http.ts",
         // Alle HTTP-Fachmodule (ADR-0019): `http-route-support.ts` und
         // `http-routes-sites.ts` sind aus der geteilten HTTP-Schicht, der
-        // Glob nimmt sie mit - und kuenftige dazu.
+        // Glob nimmt sie mit - und kuenftige dazu. Die Sektions-Vorschau
+        // (25.10.2026) liegt ebenfalls hier.
         "packages/engine/src/http-*.ts",
+        "packages/engine/src/section-previews.ts",
         "packages/engine/src/store.ts",
         "packages/engine/src/store-*.ts",
         "packages/engine/src/lifecycle.ts",
@@ -124,7 +126,7 @@ export default defineConfig({
         //   http-routes-theme.ts      (neu, folgt)
         //   http-routes-references.ts 95,74 / 80,64 / 100   / 95,74
         //   http-routes-content.ts    94,52 / 73,46 / 94,11 / 94,52
-        "packages/engine/src/{http,http-route-support,http-routes-sites,http-routes-site-lifecycle,http-routes-theme,http-routes-assets,http-routes-formular,http-routes-references,http-routes-content,store,lifecycle,forms}.ts": {
+        "packages/engine/src/{http,http-route-support,http-routes-sites,http-routes-site-lifecycle,http-routes-theme,http-routes-assets,http-routes-formular,http-routes-references,http-routes-content,http-routes-section-preview,section-previews,store,lifecycle,forms}.ts": {
           statements: 80,
           branches: 68,
           functions: 88,
