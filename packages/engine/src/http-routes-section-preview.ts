@@ -29,6 +29,7 @@ import {
   previewFileName,
   previewPathOf,
   sectionPreview,
+  type SectionPreviewBake,
   type SectionPreviewShooter,
 } from "./section-previews.ts";
 
@@ -36,11 +37,33 @@ import {
 let shooter: SectionPreviewShooter | undefined;
 
 /**
+ * Das Backen selbst - ebenfalls ersetzbar. Der Grund ist die LAUFZEIT: ein
+ * echter `bakeSite` braucht gemessen 6-18 Sekunden, auch wenn der Fotograf ein
+ * Doppel ist (der Bake laeuft ja wirklich). Ein Vertragstest, der nur die
+ * Antwort der Route prueft, soll nicht 18 Sekunden je Fall warten - und unter
+ * Volllast wurde daraus am 25.10.2026 ein Timeout.
+ *
+ * Im Betrieb ist das `undefined`; dann laeuft `shootOne` mit echtem Bake.
+ * Der echte Weg wird in `section-preview-real.test.ts` gefahren.
+ */
+let renderer: SectionPreviewBake | undefined;
+
+/** Nur fuer Tests: den Fotografen ersetzen. */
+export function setSectionPreviewShooter(next: SectionPreviewShooter | undefined): void {
+  shooter = next;
+}
+
+/** Nur fuer Tests: das Backen ersetzen (spart den echten Seitenbuild). */
+export function setSectionPreviewRenderer(next: SectionPreviewBake | undefined): void {
+  renderer = next;
+}
+/**
  * Ein Bake auf einmal. Die Sektionen-Auswahl fragt viele Bilder kurz
  * hintereinander an; ohne diese Sperre startete die Engine mehrere Chromium-
  * Instanzen gleichzeitig.
  */
 let queue: Promise<unknown> = Promise.resolve();
+
 /**
  * Haengt Arbeit an die Warteschlange. Ein Fehlschlag haelt sie nicht an: das
  * Ergebnis wird fuer den Aufrufer weitergereicht, die Kette selbst laeuft mit
@@ -66,11 +89,6 @@ function weiter(): undefined {
 // Zwischenspeicher in `sectionPreview` (es prueft die Datei, bevor es backt).
 // Die Warteschlange darunter leistet etwas anderes - sie verhindert, dass
 // mehrere VERSCHIEDENE Bilder gleichzeitig je eine Chromium-Instanz starten.
-
-/** Nur fuer Tests: den Fotografen ersetzen. */
-export function setSectionPreviewShooter(next: SectionPreviewShooter | undefined): void {
-  shooter = next;
-}
 
 /** Nur fuer Tests: die Warteschlange leeren. */
 export function resetSectionPreviewState(): void {
@@ -113,6 +131,7 @@ function warmInBackground(input: {
           themeVersion: input.themeVersion,
           cacheDir: cacheDirOf(input.dataDir, input.siteId),
           shoot: shooter ?? createSectionPreviewShooter(),
+          ...(renderer === undefined ? {} : { bake: renderer }),
         },
         { type: input.type, variant: input.variant },
       );
@@ -227,6 +246,7 @@ export const sectionPreviewRoutes: Route[] = [
             themeVersion: stored.version,
             cacheDir: cacheDirOf(context.dataDir, siteId),
             shoot: shooter ?? createSectionPreviewShooter(),
+            ...(renderer === undefined ? {} : { bake: renderer }),
           },
           { type, variant },
         ),

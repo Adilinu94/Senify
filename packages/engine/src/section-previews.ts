@@ -44,6 +44,13 @@ export type SectionPreviewShooter = (input: {
   allowOrigins: string[];
 }) => Promise<{ png: Buffer }>;
 
+export type SectionPreviewBake = (input: {
+  type: string;
+  variant: string;
+  themeCss: string;
+  outDir: string;
+}) => Promise<void>;
+
 export type SectionPreviewOptions = {
   /** Das CSS des Site-Themes. */
   themeCss: string;
@@ -54,11 +61,16 @@ export type SectionPreviewOptions = {
   /** Der Fotograf. */
   shoot: SectionPreviewShooter;
   /**
-   * Backen + fotografieren. Injizierbar, weil ein echter Bake einen Browser
-   * startet: die Entscheidung (Zwischenspeicher, Dateiname, Fehler) ist ohne
-   * ihn pruefbar.
+   * Das Backen der Seite in `outDir`. Injizierbar, weil `bakeSite` gemessen
+   * 6-18 Sekunden braucht - auch dann, wenn der Fotograf ein Doppel ist, denn
+   * der Seitenbuild laeuft wirklich. Ein Vertragstest ueber die Route soll
+   * nicht 18 Sekunden je Fall warten.
+   *
+   * Die Naht liegt bewusst VOR dem Fotografen: der Shooter wird weiterhin
+   * gerufen, also zaehlen Tests, wie oft gebaut und fotografiert wird. Nur der
+   * teure Seitenbuild faellt weg.
    */
-  render?: (request: SectionPreviewRequest) => Promise<Buffer>;
+  bake?: SectionPreviewBake;
   /**
    * Der kleine Dateiserver fuer die gebackene Seite. Injizierbar aus einem
    * Grund, der im Betrieb zaehlt: wenn sein `close` scheitert, muss der
@@ -157,8 +169,7 @@ export async function sectionPreview(
   );
   if (existsSync(file)) return { png: readFileSync(file), fresh: false };
 
-  const png =
-    options.render === undefined ? await shootOne(options, request) : await options.render(request);
+  const png = await shootOne(options, request);
   mkdirSync(options.cacheDir, { recursive: true });
   writeFileSync(file, png);
   return { png, fresh: true };
@@ -173,24 +184,33 @@ async function shootOne(
   const closers: (() => Promise<void>)[] = [];
   try {
     const out = join(work, "baked");
-    await bakeSite(
-      {
-        siteName: "Vorschau",
-        baseUrl: "https://preview.local",
-        pages: [
-          {
-            id: "preview",
-            path: "/",
-            title: `${request.type} ${request.variant}`,
-            tree: sectionPreviewTree(request.type, request.variant),
-          },
-        ],
+    if (options.bake === undefined) {
+      await bakeSite(
+        {
+          siteName: "Vorschau",
+          baseUrl: "https://preview.local",
+          pages: [
+            {
+              id: "preview",
+              path: "/",
+              title: `${request.type} ${request.variant}`,
+              tree: sectionPreviewTree(request.type, request.variant),
+            },
+          ],
+          themeCss: options.themeCss,
+          motionTokens: { ease: {}, baseDurationMs: 0, baseStaggerMs: 0 },
+          aeo: false,
+        },
+        { outDir: out, selfContained: true },
+      );
+    } else {
+      await options.bake({
+        type: request.type,
+        variant: request.variant,
         themeCss: options.themeCss,
-        motionTokens: { ease: {}, baseDurationMs: 0, baseStaggerMs: 0 },
-        aeo: false,
-      },
-      { outDir: out, selfContained: true },
-    );
+        outDir: out,
+      });
+    }
     const server = await (options.openServer ?? serveCaptureDir)(out);
     closers.push(server.close);
     const shot = await options.shoot({

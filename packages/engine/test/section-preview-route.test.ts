@@ -11,24 +11,29 @@ import {
   resetSectionPreviewState,
   sectionPreviewRoutes,
   sectionPreviewsIdle,
+  setSectionPreviewRenderer,
   setSectionPreviewShooter,
 } from "../src/http-routes-section-preview.ts";
 import { previewFileName } from "../src/section-previews.ts";
 import { bootEngine, createTestSite, type BootEnv } from "./helpers.ts";
 
-// Die Route der Site-Vorschaubilder. Die zwei Wege sind der Kern:
+// Die Route der Site-Vorschaubilder - der VERTRAG, ohne Browser.
 //
 //   GET  antwortet SOFORT - mit dem Bild (200) oder mit "entsteht gerade"
 //        (202, Bau laeuft im Hintergrund). Ein Bake braucht gemessen
 //        Sekunden; ein Panel, das so lange wartet, ist schlechter als das
 //        alte Bild.
 //   POST wartet und liefert das fertige Bild (201). Diesen Weg nehmen das
-//        Generator-Skript und dieser Test.
+//        Generator-Skript und die Tests.
 //
-// Der Test wartet NICHT auf die Uhr, sondern auf `sectionPreviewsIdle()`:
-// unter Volllast (alle Suiten gleichzeitig) braucht derselbe Bake ein
-// Vielfaches, und ein Zeitfenster waere dann entweder falsch knapp oder
-// falsch grosszuegig. Die Warteschlange ist der echte Aufhaengepunkt.
+// Hier laeuft KEIN echter Bake: der Fotograf ist ein Doppel, jeder Fall
+// antwortet in Millisekunden. Der echte Weg steht in
+// `section-preview-real.test.ts` - getrennt, weil ein Browserstart die
+// modulweite Warteschlange blockiert und die Vertragstests dann im Volllauf
+// auf fremde Arbeit warten (genau das war am 25.10.2026 ein Timeout).
+//
+// Der Test wartet NICHT auf die Uhr, sondern auf `sectionPreviewsIdle()`: die
+// Warteschlange ist der echte Aufhaengepunkt, eine Zeitgrenze waere geraten.
 //
 // Jeder Fall bekommt eine EIGENE Site: die Bilder liegen je Site, und ein
 // Fall soll nicht davon abhaengen, was ein anderer schon gebacken hat.
@@ -55,11 +60,21 @@ describe("Sektions-Vorschau als Route", () => {
       formRateLimiter: rateLimiter,
       uploadSigner: createUploadSigner("test-secret"),
     };
+    // Kein echter Seitenbuild je Fall: der Bake kostet gemessen 6-18 s, auch
+    // wenn der Fotograf ein Doppel ist - er laeuft ja wirklich. Hier steht der
+    // Vertrag der Route, nicht das Backen. Den echten Weg faehrt
+    // `section-preview-real.test.ts`.
+    //
+    // Die Naht liegt VOR dem Fotografen: `shoot` wird weiterhin gerufen, also
+    // zaehlen die Tests unten, wie oft gebaut wird. Nur der Seitenbuild faellt
+    // weg.
+    setSectionPreviewRenderer(async () => {});
   });
 
   afterAll(async () => {
     await sectionPreviewsIdle();
     setSectionPreviewShooter(undefined);
+    setSectionPreviewRenderer(undefined);
     resetSectionPreviewState();
     await env.close();
     for (const dir of ordner.splice(0)) rmSync(dir, { recursive: true, force: true });
@@ -210,37 +225,6 @@ describe("Sektions-Vorschau als Route", () => {
     }
     expect(gemeldet).toContain("[section-preview]");
   });
-
-  it("baut auch ohne eingesetztes Doppel, wenn der Worker da ist", async () => {
-    // Ohne diesen Fall waere der Zweig `shooter ?? createSectionPreviewShooter()`
-    // nie beruehrt: jeder andere Test setzt ein Doppel. Hier laeuft der
-    // PRODUKTIVE Fotograf (echter Playwright), damit auch der Weg im Betrieb
-    // belegt ist. Grenze 120 s, weil ein Browserstart dazugehoert.
-    const siteId = await neueSite();
-    setSectionPreviewShooter(undefined);
-
-    const result = await call(post, { siteId, type: "hero", file: "split.png" });
-    expect(result.status).toBe(201);
-    const body = result.body as { bytes: number; fresh: boolean };
-    expect(body.bytes).toBeGreaterThan(100);
-    expect(body.fresh).toBe(true);
-  }, 120000);
-
-  it("baut auch im Hintergrundlauf ohne eingesetztes Doppel", async () => {
-    // Der zweite Zweig von `shooter ?? createSectionPreviewShooter()`: der
-    // GET-Weg startet den Bake im Hintergrund. Auch hier laeuft der echte
-    // Fotograf, damit der Weg im Betrieb belegt ist und nicht nur der POST.
-    const siteId = await neueSite();
-    setSectionPreviewShooter(undefined);
-
-    const erst = await call(get, { siteId, type: "hero", file: "split.png" });
-    expect(erst.status).toBe(202);
-    await sectionPreviewsIdle();
-
-    const zweit = await call(get, { siteId, type: "hero", file: "split.png" });
-    expect(zweit.status).toBe(200);
-    expect(zweit.file?.contentType).toBe("image/png");
-  }, 120000);
 
   it("schweigt im Hintergrundlauf, wenn das Bauen scheitert", async () => {
     // Der Vertrag: ein Fehlschlag im Hintergrund darf den Aufrufer nicht

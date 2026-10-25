@@ -1,9 +1,8 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  createSectionPreviewShooter,
   isPreviewable,
   pickPreviewShot,
   previewFileName,
@@ -11,15 +10,21 @@ import {
   sectionPreview,
   sectionPreviewTree,
 } from "../src/section-previews.ts";
-import { serveCaptureDir } from "../src/review-visuals.ts";
 
 // Die Vorschaubilder im Theme einer Site (Produktpunkt aus `stand.md`).
 //
 // Geprueft wird die ENTSCHEIDUNG ohne Browser: welche Varianten ein Bild
 // bekommen, wie die Datei heisst (der Theme-Stand steckt darin), dass ein
 // zweiter Aufruf nicht wieder backt, und dass eine unbekannte Variante nicht
-// still ein leeres Bild liefert. Das Backen selbst ist injiziert; es hat einen
-// eigenen Test (unten), weil ein echter Bake einen Browser startet.
+// still ein leeres Bild liefert.
+//
+// Das Backen ist an ZWEI Stellen ersetzbar, und das ist Absicht:
+//   `bake`   - der Seitenbuild (6-18 s). Ohne ihn laufen die Tests in
+//              Millisekunden.
+//   `shoot`  - der Fotograf. Er zaehlt, wie oft ein Bild entsteht: der Bake
+//              kann zwischengespeichert sein, das Bild auch.
+// Ein Test, der "wie oft gebacken" prueft, zaehlt `bake`; einer, der "wie oft
+// fotografiert" prueft, zaehlt `shoot`.
 
 const PNG = Buffer.from(
   "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489",
@@ -37,7 +42,14 @@ afterEach(() => {
   for (const dir of ordner.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-const ersatz = () => vi.fn(async () => PNG);
+/** Ein Bake, der nichts schreibt - der Seitenbuild ist hier nicht das Thema. */
+const keinBake = async (): Promise<void> => {};
+
+/** Ein Fotograf, der das Test-PNG liefert und mitzaehlt. */
+const zaehlenderFotograf = () => {
+  const shoot = vi.fn(async () => ({ png: PNG }));
+  return shoot;
+};
 
 describe("previewTargets", () => {
   it("bietet nur einfuegbare Sektionen an", () => {
@@ -103,11 +115,15 @@ describe("sectionPreviewTree", () => {
   it("nennt eine unbekannte Sektion beim Namen", () => {
     // Der Aufrufer soll wissen, WELCHE Angabe falsch war - "unbekannt" allein
     // schickt ihn auf die Suche.
-    expect(() => sectionPreviewTree("gibtsnicht", "standard")).toThrow(/Unbekannte Sektion gibtsnicht/);
+    expect(() => sectionPreviewTree("gibtsnicht", "standard")).toThrow(
+      /Unbekannte Sektion gibtsnicht/,
+    );
   });
 
   it("nennt eine unbekannte Variante mit Typ und Variante", () => {
-    expect(() => sectionPreviewTree("hero", "gibtsnicht")).toThrow(/Unbekannte Variante hero\/gibtsnicht/);
+    expect(() => sectionPreviewTree("hero", "gibtsnicht")).toThrow(
+      /Unbekannte Variante hero\/gibtsnicht/,
+    );
   });
 });
 
@@ -136,24 +152,24 @@ describe("pickPreviewShot", () => {
 describe("sectionPreview", () => {
   it("backt einmal und liest beim zweiten Aufruf aus dem Zwischenspeicher", async () => {
     const cacheDir = join(neuerOrdner(), "cache");
-    const render = ersatz();
+    const shoot = zaehlenderFotograf();
     const ziel = previewTargets()[0];
     if (ziel === undefined) throw new Error("keine Variante");
 
     const erst = await sectionPreview(
-      { themeCss: ":root{--brand:#123456}", themeVersion: 1, cacheDir, shoot: vi.fn(), render },
+      { themeCss: ":root{--brand:#123456}", themeVersion: 1, cacheDir, shoot, bake: keinBake },
       ziel,
     );
     expect(erst.fresh).toBe(true);
-    expect(render).toHaveBeenCalledTimes(1);
+    expect(shoot).toHaveBeenCalledTimes(1);
 
     const zweit = await sectionPreview(
-      { themeCss: ":root{--brand:#123456}", themeVersion: 1, cacheDir, shoot: vi.fn(), render },
+      { themeCss: ":root{--brand:#123456}", themeVersion: 1, cacheDir, shoot, bake: keinBake },
       ziel,
     );
-    // Der zweite Aufruf kostet keinen Browser.
+    // Der zweite Aufruf kostet weder Bake noch Browser.
     expect(zweit.fresh).toBe(false);
-    expect(render).toHaveBeenCalledTimes(1);
+    expect(shoot).toHaveBeenCalledTimes(1);
     expect(zweit.png.equals(PNG)).toBe(true);
   });
 
@@ -163,7 +179,7 @@ describe("sectionPreview", () => {
     if (ziel === undefined) throw new Error("keine Variante");
 
     await sectionPreview(
-      { themeCss: "", themeVersion: 7, cacheDir, shoot: vi.fn(), render: ersatz() },
+      { themeCss: "", themeVersion: 7, cacheDir, shoot: zaehlenderFotograf(), bake: keinBake },
       ziel,
     );
     const datei = join(cacheDir, previewFileName(ziel.type, ziel.variant, 7));
@@ -172,35 +188,35 @@ describe("sectionPreview", () => {
 
   it("backt nach einem Theme-Wechsel neu", async () => {
     const cacheDir = join(neuerOrdner(), "cache");
-    const render = ersatz();
+    const shoot = zaehlenderFotograf();
     const ziel = previewTargets()[0];
     if (ziel === undefined) throw new Error("keine Variante");
 
     await sectionPreview(
-      { themeCss: "", themeVersion: 1, cacheDir, shoot: vi.fn(), render },
+      { themeCss: "", themeVersion: 1, cacheDir, shoot, bake: keinBake },
       ziel,
     );
     const zweit = await sectionPreview(
-      { themeCss: "", themeVersion: 2, cacheDir, shoot: vi.fn(), render },
+      { themeCss: "", themeVersion: 2, cacheDir, shoot, bake: keinBake },
       ziel,
     );
 
     // Anderer Stand, anderes Bild - sonst zeigte die Auswahl die alten Farben.
     expect(zweit.fresh).toBe(true);
-    expect(render).toHaveBeenCalledTimes(2);
+    expect(shoot).toHaveBeenCalledTimes(2);
   });
 
   it("wirft bei einer unbekannten Variante, statt ein leeres Bild zu liefern", async () => {
     const cacheDir = join(neuerOrdner(), "cache");
-    const render = ersatz();
+    const shoot = zaehlenderFotograf();
 
     await expect(
       sectionPreview(
-        { themeCss: "", themeVersion: 1, cacheDir, shoot: vi.fn(), render },
+        { themeCss: "", themeVersion: 1, cacheDir, shoot, bake: keinBake },
         { type: "hero", variant: "gibtsnicht" },
       ),
     ).rejects.toThrow(/Unbekannte Variante/);
-    expect(render).not.toHaveBeenCalled();
+    expect(shoot).not.toHaveBeenCalled();
   });
 
   it("laesst kein Bild liegen, wenn das Backen scheitert", async () => {
@@ -214,8 +230,8 @@ describe("sectionPreview", () => {
           themeCss: "",
           themeVersion: 1,
           cacheDir,
-          shoot: vi.fn(),
-          render: async () => {
+          shoot: zaehlenderFotograf(),
+          bake: async () => {
             throw new Error("Browser weg");
           },
         },
@@ -228,51 +244,28 @@ describe("sectionPreview", () => {
     expect(() => readFileSync(datei)).toThrow();
   });
 
-  it("der produktive Fotograf gibt es und liefert ein Bild fuer eine erreichbare Seite", async () => {
-    // Der Weg OHNE Doppel: der echte Analyse-Worker wird geladen und
-    // fotografiert eine winzige Seite. Der Test haengt an der echten Kette
-    // (Playwright + captureThumbnails), deshalb bekommt er Zeit und eine
-    // eigene Grenze. Faellt er aus, ist die Vorschau im Betrieb auch kaputt.
-    const dir = neuerOrdner();
-    writeFileSync(join(dir, "index.html"), "<!doctype html><h1 style=\"color:#123\">Vorschau</h1>");
-    const server = await serveCaptureDir(dir);
-    try {
-      const shooter = createSectionPreviewShooter();
-      const shot = await shooter({ url: `${server.origin}/index.html`, width: 480, allowOrigins: [server.origin] });
-      // Ein echtes PNG, kein leeres Versprechen.
-      expect(shot.png.subarray(0, 8)).toEqual(PNG.subarray(0, 8));
-      expect(shot.png.byteLength).toBeGreaterThan(100);
-    } finally {
-      await server.close();
-    }
-  }, 120000);
-
   it("nennt eine unbekannte Sektion beim Namen", async () => {
     const cacheDir = join(neuerOrdner(), "cache");
     await expect(
       sectionPreview(
-        { themeCss: "", themeVersion: 1, cacheDir, shoot: vi.fn(), render: ersatz() },
+        { themeCss: "", themeVersion: 1, cacheDir, shoot: zaehlenderFotograf(), bake: keinBake },
         { type: "gibtsnicht", variant: "standard" },
       ),
     ).rejects.toThrow(/Unbekannte Variante/);
   });
 
   it("lehnt eine Sektion ohne Varianten ab, statt einen leeren Baum zu backen", async () => {
-    // `treeFor` wirft fuer eine unbekannte Sektion; `isPreviewable` faengt das
-    // vorher ab. Beide Wege muessen sauber enden.
     expect(isPreviewable("outlet", "default")).toBe(false);
     const cacheDir = join(neuerOrdner(), "cache");
     await expect(
       sectionPreview(
-        { themeCss: "", themeVersion: 1, cacheDir, shoot: vi.fn(), render: ersatz() },
+        { themeCss: "", themeVersion: 1, cacheDir, shoot: zaehlenderFotograf(), bake: keinBake },
         { type: "outlet", variant: "default" },
       ),
     ).rejects.toThrow();
   });
 
   it("gibt die Ziele als flache Liste mit Typ und Variante aus", () => {
-    // Der Generator und die Route brauchen dieselbe Liste; ein Objekt statt
-    // eines Eintrags waere dort ein stiller Fehler.
     for (const ziel of previewTargets()) {
       expect(typeof ziel.type).toBe("string");
       expect(typeof ziel.variant).toBe("string");
@@ -282,7 +275,6 @@ describe("sectionPreview", () => {
   });
 
   it("meldet beim Dateinamen den Typ, die Variante und den Stand", () => {
-    // Drei Teile, damit ein Bild eindeutig zuzuordnen ist.
     const name = previewFileName("hero", "split", 12);
     expect(name).toContain("hero");
     expect(name).toContain("split");
@@ -290,9 +282,10 @@ describe("sectionPreview", () => {
     expect(name.endsWith(".png")).toBe(true);
   });
 
-  it("backt ohne injiziertes render selbst und fotografiert die gebackene Seite", async () => {
-    // Der echte Weg: bakeSite laeuft, nur der Browser ist ein Doppel. Ohne
-    // diesen Fall waere der Bake-Zweig nirgends beruehrt.
+  it("backt ohne injiziertes bake selbst und fotografiert die gebackene Seite", async () => {
+    // Der echte Bake-Zweig mit echtem Playwright. Ohne diesen Fall waere der
+    // Seitenbuild nirgends beruehrt; er ist der teuerste Teil der ganzen
+    // Vorschau und soll nicht nur "da" sein.
     const cacheDir = join(neuerOrdner(), "cache");
     const gesehen: string[] = [];
     const shoot = vi.fn(async (input: { url: string; width: number }) => {
