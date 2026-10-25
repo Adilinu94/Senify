@@ -70,7 +70,7 @@ weil er die Reihenfolge der Schritte begründet hat.
 
 | Was (21.10.2026) | Beleg damals | Heute |
 |---|---|---|
-| Der Weg vom URL zum Mirror | `import.ts:31` kennt `{ kind: "mirror" }` als **Eingabe**. Niemand erzeugt sie aus einer URL; der Mirror muss heute von Hand bereitliegen. | **gebaut** (Schritt 1): der URL-Import erzeugt den Mirror selbst; mit `structureSource: "browser"` liest er sogar die hydratisierte Seite (gemessen 15,74 → 11,25 %) |
+| Der Weg vom URL zum Mirror | `import.ts:31` kennt `{ kind: "mirror" }` als **Eingabe**. Niemand erzeugt sie aus einer URL; der Mirror muss heute von Hand bereitliegen. | **gebaut** (Schritt 1): der URL-Import erzeugt den Mirror selbst; mit `capture: "browser"` liest er sogar die hydratisierte Seite (gemessen 15,74 → 11,25 %) |
 | Appear-Spec → CSS-Keyframes | Keine Datei im Repo erzeugt aus `appearAnimationsContent` ein `@keyframes`. | **gebaut** (Schritt 4b): `appear-css.ts`, Beleg `appear-bake.test.ts` |
 | Framer-Runtime als Payload | `payloads.ts` bündelt nur die in `data-framer-module` genannten Module. `script_main.*.mjs` wird nie gelesen (im Code geprüft). | **gebaut** (Schritt 2): `buildPageRuntimePayload` bündelt die Runtime als Seiten-Payload |
 | Hover als *Bewegung*, Scroll-Trigger | kommen nicht aus dem SSR; kein Pfad im Import liest sie. | **gebaut** (Schritt 2): sie reisen mit der Runtime; der Bericht nennt jede Seite, die als Original-Code läuft |
@@ -200,7 +200,7 @@ npm `framer-export@5.0.2`, MIT, Repo `danbenba/FramerExport` (67 ★, letzter Pu
   (`scripts/blindtest.ts`, acht fremde Seiten, Import → Backen → Pixel-Differenz in drei
   Breiten). Das Werkzeug selbst wurde **nicht** als Abhängigkeit genommen: der Mirror läuft im
   vorhandenen Analyse-Worker (Schritt 1), und dessen Browser-Capture ist seit 24.10.2026 über
-  `structureSource: "browser"` erreichbar.
+  `capture: "browser"` erreichbar.
 
 ### 4.3 Full Site Export (Framer-Marketplace-Plugin, kostenpflichtig)
 
@@ -391,7 +391,7 @@ Import-Fehler aussahen (die Sterne der Bewertung, die Karten von `unifiersofjapa
 
 Die hydratisierte Seite füllt die Platzhalter und hat die Geräte-Varianten schon gefaltet - sie
 **verliert** aber die Appear-Marker und den Breakpoint-CSS-Kanal. Deshalb ist der Weg ein
-**Schalter** (`structureSource: "browser"`), kein neuer Standard: eine Seite, deren Einblendungen
+**Schalter** (`capture: "browser"`), kein neuer Standard: eine Seite, deren Einblendungen
 aus dem abgeleiteten Startzustand kommen, verlöre sie. Beleg: `structure-source-browser.test.ts`
 (2 Fälle; der SSR-Weg findet das per Skript gefüllte Element nicht, der Browser-Weg schon).
 
