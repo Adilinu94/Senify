@@ -1198,3 +1198,128 @@ describe("trash, purge and search", () => {
     expect(listed.body.entries[2]?.id).toBe(bodyHit.body.id);
   }, 30000);
 });
+
+describe("die Zweige am Rand der Site-Ebene", () => {
+  // Befund vom 25.10.2026 nach dem Schnitt in `http-routes-site-content.ts`:
+  // 61,11 % Branches (Schwelle 68). Acht Zweige waren leer, und keiner davon
+  // ist Verteidigungscode, den nur der Router verhindert:
+  //
+  //   Z53/72/111/155  `(await readJsonBody(req)) ?? {}` - ein Aufruf ohne
+  //                   Koerper ist der erste, den ein Client falsch macht
+  //   Z166-170        die drei optionalen Filter der Suche (collectionId,
+  //                   status, limit) - jeder einzeln weglassbar
+  //   Z183            `path` fehlt oder ist leer
+  //
+  // Der letzte Fall ist der interessanteste: `path.trim() === ""` faengt
+  // einen Parameter ab, den `?path=` MASSGIBT - `get` liefert dann einen
+  // leeren String, nicht null. Ohne den zweiten Teil der Bedingung wuerde
+  // eine leere Zeichenkette als Pfad weitergereicht.
+
+  it("nimmt einen leeren Koerper als leeres Objekt, nicht als Absturz", async () => {
+    const collection = await createCollection({
+      name: "Leer",
+      slug: "leer",
+      fields: [{ id: "l-body", key: "body", label: "Body", type: "richtext", description: "Rumpf" }],
+    });
+    expect(collection.status, JSON.stringify(collection.body)).toBe(201);
+
+    // Die Sammlung braucht einen Namen - der Vertrag weist ab, der Zweig ist
+    // trotzdem durchlaufen (readJsonBody liefert undefined, ?? greift).
+    const ohneKoerper = await env.api.request<ErrorResponse>({
+      method: "POST",
+      path: `/api/sites/${siteId}/collections`,
+    });
+    expect(ohneKoerper.status).toBe(400);
+
+    const eintragOhneKoerper = await env.api.request<ErrorResponse>({
+      method: "POST",
+      path: `/api/sites/${siteId}/entries`,
+    });
+    expect(eintragOhneKoerper.status).toBe(400);
+
+    // Die Suche ohne Koerper: `q` fehlt, also 400 - aber ohne Absturz.
+    const sucheOhneKoerper = await env.api.request<ErrorResponse>({
+      method: "POST",
+      path: `/api/sites/${siteId}/entries/search`,
+    });
+    expect(sucheOhneKoerper.status).toBe(400);
+    expect(sucheOhneKoerper.body.error.category).toBe("validation");
+
+    // Und `from-fields` ohne Koerper: dasselbe Muster.
+    const felderOhneKoerper = await env.api.request<ErrorResponse>({
+      method: "POST",
+      path: `/api/sites/${siteId}/collections/from-fields`,
+    });
+    expect(felderOhneKoerper.status).toBe(400);
+  }, 60_000);
+
+  it("laesst jeden optionalen Suchfilter einzeln weg", async () => {
+    // Die drei Filter sind unabhaengig: eine Suche ohne collectionId sucht in
+    // allen Sammlungen der Site, ohne status in allen Zustaenden, ohne limit
+    // mit der Vorgabe. Wer nur den Fall "alle gesetzt" prueft, deckt keinen
+    // der drei Zweige ab.
+    const collection = await createCollection({
+      name: "Filter",
+      slug: "filter",
+      fields: [{ id: "f-body", key: "body", label: "Body", type: "richtext", description: "Rumpf" }],
+    });
+    expect(collection.status, JSON.stringify(collection.body)).toBe(201);
+    const eintrag = await createEntry(
+      collection.body.id,
+      { title: "Filterbeitrag", "f-body": "Inhalt" },
+      "filterbeitrag",
+    );
+    expect(eintrag.status).toBe(201);
+
+    // Nur q: kein collectionId, kein status, kein limit.
+    const nurQ = await search({ q: "Filterbeitrag" });
+    expect(nurQ.status, JSON.stringify(nurQ.body)).toBe(200);
+    expect(nurQ.body.results.length).toBeGreaterThan(0);
+
+    // q + status, ohne collectionId und ohne limit.
+    const mitStatus = await search({ q: "Filterbeitrag", status: "draft" });
+    expect(mitStatus.status, JSON.stringify(mitStatus.body)).toBe(200);
+
+    // q + limit, ohne collectionId und ohne status.
+    const mitLimit = await search({ q: "Filterbeitrag", limit: 1 });
+    expect(mitLimit.status, JSON.stringify(mitLimit.body)).toBe(200);
+    expect(mitLimit.body.results.length).toBeLessThanOrEqual(1);
+
+    // Und alle drei, damit der gemeinsame Fall auch belegt ist.
+    const alle = await search({
+      q: "Filterbeitrag",
+      collectionId: collection.body.id,
+      status: "draft",
+      limit: 5,
+    });
+    expect(alle.status, JSON.stringify(alle.body)).toBe(200);
+  }, 60_000);
+
+  it("weist einen fehlenden und einen leeren Pfad beim Aufloesen ab", async () => {
+    // `url.searchParams.get("path")` liefert bei `?path=` einen LEEREN STRING,
+    // nicht null. Beide Faelle muessen 400 geben und denselben Feldnamen
+    // nennen - sonst wuerde eine leere Zeichenkette als Pfad weitergereicht
+    // und der Store suchte nach "".
+    for (const query of ["", "?path=", "?path=%20%20"]) {
+      const response = await env.api.request<ErrorResponse>({
+        method: "GET",
+        path: `/api/sites/${siteId}/entries/resolve${query}`,
+      });
+      expect(response.status, `Query "${query}"`).toBe(400);
+      expect(response.body.error.field).toBe("path");
+    }
+
+    // Und ein echter Pfad geht durch - mit 200 und einem Status im Koerper,
+    // nicht mit 404. Das ist der Vertrag von `resolveEntryPath`: "nicht
+    // gefunden" ist eine gueltige Antwort auf eine gueltige Frage, kein
+    // HTTP-Fehler. Ein 404 hier waere die Verwechslung von "falsch gefragt"
+    // und "nichts dort" - und der Editor muesste beide Faelle unterscheiden.
+    const echt = await env.api.request<{ status: string; path: string }>({
+      method: "GET",
+      path: `/api/sites/${siteId}/entries/resolve?path=/gibt-es-nicht`,
+    });
+    expect(echt.status).toBe(200);
+    expect(echt.body.status).toBe("not_found");
+    expect(echt.body.path).toBe("/gibt-es-nicht");
+  }, 60_000);
+});
