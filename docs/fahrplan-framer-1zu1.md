@@ -836,9 +836,11 @@ als Preset. Die Keyframes tragen `rotateX`/`rotateY` in Motion's Transform-Reihe
 ein Preset hätte nur einen Winkel erlaubt. Beleg: `appear-css.test.ts`,
 `appear-bake.test.ts` (Fall 1 prüft `rotateX(-25deg)` im gebackenen CSS).
 
-**Punkt 3 — Hover als Bewegung, Scroll-Trigger: offen, gehört zu Schritt 2.**
-Diese Information ist im SSR nicht enthalten; sie kommt nur mit der Framer-Runtime
-(Payload). Der Bericht nennt heute, was nicht ankam.
+**Punkt 3 — Hover als Bewegung, Scroll-Trigger: geschlossen mit Schritt 2 (25.10.2026 nachgezogen).**
+Diese Information ist im SSR nicht enthalten; sie kommt nur mit der Framer-Runtime (Payload) —
+und die reist seit Schritt 2 mit. Die Zeile stand hier weiter als offen, während das Gate zwei
+Absätze darunter schon erfüllt sagte; das war ein Widerspruch im selben Abschnitt, kein offener
+Punkt. Wo eine Seite als Original-Code läuft, nennt der Bericht es.
 
 **Gate:** Keine Seite hat mehr eine Animation, die **weder** als Preset **noch** als Payload
 ankommt, ohne dass der Bericht es sagt. — **erfüllt (23.10.2026)**: Hover-Bewegung und
