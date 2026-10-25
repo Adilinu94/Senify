@@ -1081,7 +1081,19 @@ export function renderIslandsScript(
   // host keeps its poster, or its plate when there is no poster at all.
   (function () {
     var urls = ${jsonForScript(urls)};
-    var hosts = document.querySelectorAll('[data-island="payload"]');
+    // A carrier whose switch "covers the page" is OFF is the way BACK to the
+    // structure tree (ADR-0026): the author wants the editable page, and the
+    // payload would paint over it. Measured on rare-works: the carrier started
+    // at 0 px, the page was 17.508 px, and at scrollY 16.800 the module mounted
+    // and the carrier grew to 17.508 px, so the whole page stood twice
+    // (35.016 px). The switch has to stop the module, not only its plate.
+    var carriers = document.querySelectorAll('[data-island="payload"]');
+    for (var off = 0; off < carriers.length; off += 1) {
+      if (carriers[off].getAttribute("data-payload-covers-page") === null) {
+        carriers[off].setAttribute("data-payload-state", "off");
+      }
+    }
+    var hosts = document.querySelectorAll('[data-island="payload"][data-payload-covers-page]');
     if (hosts.length === 0) return;
     var mount = function (host) {
       if (host.getAttribute("data-payload-state") === "mounted") return;
