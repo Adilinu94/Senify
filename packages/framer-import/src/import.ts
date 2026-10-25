@@ -280,6 +280,14 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
       pageUrl,
       loadFile,
       rewriteUrl: (url) => urlRewrites[url] ?? null,
+      // The table, not just the callback: the runtime carries the page as JSON
+      // and builds its images from that data, so a rewrite of the markup alone
+      // misses them. Measured on `rare-works`: 43 CDN addresses stayed in the
+      // bundle, the CSP blocked every one, and 13 pictures were broken.
+      addressRewrites: urlRewrites,
+      // The runtime calls `new URL(address)` and needs an absolute base; the
+      // release's own origin is what a root-relative asset path means.
+      ...(baseUrl !== undefined ? { assetOrigin: baseUrl } : {}),
       maxBytes: RUNTIME_PAYLOAD_MAX_BYTES,
     });
     if (result.ok) {
@@ -337,6 +345,8 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
       pageUrl: `https://mirror.invalid/${input.source.pagePath ?? "/"}`,
       loadFile,
       rewriteUrl: (url) => urlRewrites[url] ?? null,
+      addressRewrites: urlRewrites,
+      ...(baseUrl !== undefined ? { assetOrigin: baseUrl } : {}),
       maxBytes: RUNTIME_PAYLOAD_MAX_BYTES,
     });
     if (result.ok) {

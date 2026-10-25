@@ -56,6 +56,35 @@ describe("captureHtml", () => {
     expect(images[0]?.url).toContain("assets/images/");
   });
 
+  it("collects an image whose file is named only in srcset", () => {
+    // Framer writes a responsive ladder into `srcset` and may leave `src` at a
+    // one-pixel placeholder. Measured on `rare-works`: three collection images
+    // had NO asset entry, so the rewrite table knew no local path, 4 CDN
+    // addresses stayed in the payload, the CSP blocked them and the pictures
+    // were broken. The ladder's candidates name the same file at several sizes;
+    // the asset is the file itself, without the query.
+    const html = [
+      '<div id="main">',
+      '<img srcset="https://framerusercontent.com/images/a.jpg?scale-down-to=512&amp;width=1200 512w, https://framerusercontent.com/images/a.jpg?width=1200 1200w" src="https://framerusercontent.com/images/placeholder.png">',
+      "</div>",
+    ].join("");
+    const document = captureHtml({ html });
+    const urls = document.assets.map((asset) => asset.url);
+    expect(urls).toContain("https://framerusercontent.com/images/a.jpg");
+    // The `src` keeps its own entry — it is a different file.
+    expect(urls).toContain("https://framerusercontent.com/images/placeholder.png");
+  });
+
+  it("does not invent an asset for a data-URL in srcset", () => {
+    const html = [
+      '<div id="main">',
+      '<img srcset="data:image/png;base64,AAAA 1x">',
+      "</div>",
+    ].join("");
+    const document = captureHtml({ html });
+    expect(document.assets).toHaveLength(0);
+  });
+
   it("keeps the page title", () => {
     const document = captureFixture(join(FIXTURES, "framer-stupendous-football-158496"));
     expect(document.pages[0]?.title).toContain("Datains");

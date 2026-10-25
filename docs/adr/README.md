@@ -27,10 +27,11 @@
 | [ADR-0022](0022-der-browser-holt-nur-oeffentliche-adressen.md) | Der Browser holt nur öffentliche Adressen | angenommen |
 | [ADR-0023](0023-framer-motion-nur-ueber-die-registry.md) | Framer-Import: Motion nur über die geschlossene Preset-Registry | angenommen |
 | [ADR-0024](0024-seitenuebergaenge-bleiben-draussen.md) | Seitenübergänge bleiben draußen: sie sind im SSR nicht vorhanden | angenommen |
+| [ADR-0025](0025-cms-daten-als-handover-skript.md) | CMS-Daten kommen als Handover-Skript mit, nicht als Nachladen | angenommen |
 
 ## Nächste Nummer
 
-Die nächste freie Nummer ist `ADR-0025`. `ADR-0011` ist für die Entscheidung reserviert, ob und wann `EditorDocument` das interne kanonische Modell wird.
+Die nächste freie Nummer ist `ADR-0026`. `ADR-0011` ist für die Entscheidung reserviert, ob und wann `EditorDocument` das interne kanonische Modell wird.
 
 ## Regeln
 
