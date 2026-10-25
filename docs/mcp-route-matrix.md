@@ -4,7 +4,7 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 
 **Regel (E4):** Jede Route hat einen bewussten Status. **Tool** — ein MCP-Tool ruft sie direkt auf. **Workflow-gebündelt** — nur als Teil eines Mehr-Routen-Workflows erreichbar (Via-Spalte nennt das bündelnde Tool). **Operator** — UI/CLI/öffentlich, bewusst ohne Tool.
 
-**Zahlen:** 176 Routen — 93 Tool, 1 Workflow-gebündelt, 82 Operator.
+**Zahlen:** 178 Routen — 93 Tool, 1 Workflow-gebündelt, 84 Operator.
 
 | Methode | Route | Scope | Status | MCP-Tool(s) / Anmerkung |
 |---|---|---|---|---|
@@ -122,6 +122,8 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 | PATCH | `/api/reference-collections/:collectionId` | write | Tool | `update_reference_collection` |
 | DELETE | `/api/reference-collections/:collectionId` | write | Tool | `delete_reference_collection` |
 | GET | `/api/reference-collections/:collectionId/brief` | read | Tool | `get_reference_brief` |
+| GET | `/api/sites/:siteId/section-preview/:type/:file` | read | Operator | UI/CLI |
+| POST | `/api/sites/:siteId/section-preview/:type/:file` | write | Operator | UI/CLI |
 | POST | `/api/sites` | write | Tool | `create_site` |
 | GET | `/api/sites` | read | Tool | `list_sites` |
 | PATCH | `/api/sites/:siteId` | write | Tool | `duplicate_site` |

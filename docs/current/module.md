@@ -55,7 +55,7 @@
 
 ## Engine: HTTP-Routen-Module
 
-**14 Dateien** mit zusammen **176 Routen**.
+**15 Dateien** mit zusammen **178 Routen**.
 
 | Modul | Routen | Zeilen | Zweck |
 |---|---|---|---|
@@ -70,10 +70,11 @@
 | `http-routes-ops.ts` | 17 | 495 | Die Routen des Bereichs api/settings, api/backups, api/tokens, api/mcp, api/events, api/whoami, api/notifications, api/newsletter, api/health. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-pages.ts` | 27 | 601 | Die Routen des Bereichs api/pages, api/entries, api/page-starters, api/releases, api/revisions. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-references.ts` | 23 | 710 | Die Routen des Bereichs api/references, api/reference-collections. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
+| `http-routes-section-preview.ts` | 2 | 206 | Die Vorschaubilder der Sektions-Varianten im Theme einer Site. |
 | `http-routes-site-lifecycle.ts` | 8 | 260 | Die Routen des Site-Lebenszyklus (P3-2, Schritt 60): anlegen, listen, aendern, Papierkorb, wiederherstellen, duplizieren, lesen, loeschen. |
 | `http-routes-sites.ts` | 43 | 1228 | Die Routen einer Site jenseits des Lebenszyklus: Seiten, Bausteine, Bibliothek, Inhalte, Referenzen, Bilder und Importe. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-theme.ts` | 11 | 230 | Theme und Style-Regeln einer Site (P3-2, Schritt 57): das Theme lesen, als CSS ausliefern, schreiben, den Theme-Bericht, den Design-Bericht und die sechs Style-Regel-Routen (lesen, anlegen, aendern, sortieren, loeschen). |
-| **Summe** | **176** | | |
+| **Summe** | **178** | | |
 
 ## Oberfläche: ES-Module
 
@@ -93,7 +94,7 @@
 | `app-editor-redesign-inbox.js` | 94 | Die Redesign-Inbox am Canvas (ADR-0012) - aus `app-editor.js` (R12). |
 | `app-editor-save-status.js` | 51 | Was die Statuszeile des Editors sagt - aus `app-editor.js` (R12). |
 | `app-editor-toolbar-overflow.js` | 109 | Das Overflow-Menue der Editor-Toolbar - aus `app-editor.js` (R12). |
-| `app-editor.js` | 1043 | Der Seiten-Editor und die Buehne. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
+| `app-editor.js` | 1048 | Der Seiten-Editor und die Buehne. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
 | `app-framer-import.js` | 489 | Der Import aus Framer (P3-2, Schritt 45): der Bericht nach der Analyse und der Dialog, der die Adresse abfragt, analysiert und den Write ausloest. `app-import.js` importiert die zwei Einstiegspunkte. |
 | `app-import.js` | 484 | Der Import aus Framer und die Redesign-Dialoge. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
 | `app-library.js` | 280 | Die Bausteinbibliothek und der Papierkorb (P3-2, Schritt 42). Beide Views standen in `app-projects.js`; sie teilen sich nichts mit den Projekten - keine Modulvariable, keinen Zustand, nur die Kern-Helfer. |
@@ -153,8 +154,8 @@ beim Erzeugen gemessen.
 | `packages/engine/src/http-routes-sites.ts` | 1228 | die verbleibenden 42 Site-Routen (Seiten, Bibliothek, Inhalte, Referenzen, Bilder, Importe); der Zuschnitt läuft weiter, jede Gruppe braucht 6 bis 16 Import-Quellen |
 | `packages/engine/src/lifecycle.ts` | 1160 | der Release-Lebenszyklus in einem Fachgebiet: Revision, Re-Bake, Veroeffentlichung, Preview und Review gehoeren zusammen, weil ein Release ohne die anderen drei nicht entsteht; ein Schnitt muesste die gemeinsame Transaktion teilen |
 | `packages/engine/src/media.ts` | 1107 | Assets, Ableitungen und Ordner |
+| `packages/app/public/app-editor.js` | 1048 | `mountCanvasView` haelt Canvas, Zustand und Ereignisse in einer Closure |
 | `packages/engine/src/references-lifecycle.ts` | 1046 | die Referenz-Pipeline: Analyse, Job-Lauf, Snapshot, Playwright-Aufnahme und Anwendung; der Capture-Treiber allein sind 250 Zeilen, und er teilt den Zustand mit dem Job-Lauf |
-| `packages/app/public/app-editor.js` | 1043 | `mountCanvasView` haelt Canvas, Zustand und Ereignisse in einer Closure |
 | `packages/app/public/app-references.js` | 597 | die Referenzen-Seite ohne die Karten; der Rest nach Schritt 59 |
-| `packages/engine/src/http.ts` | 245 | Dispatcher und Routentabelle; fertig |
+| `packages/engine/src/http.ts` | 247 | Dispatcher und Routentabelle; fertig |
 | `packages/app/public/app.js` | 219 | Router und Kommandoleiste; fertig |

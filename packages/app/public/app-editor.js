@@ -585,6 +585,11 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     insertSection: (type, variant) => canvas.insertSection(type, variant),
     bindSectionDragSource: (element, type, variant) =>
       canvas.bindSectionDragSource(element, type, variant),
+    // Die Vorschaubilder kommen gebacken mit dem Theme DIESER Site - sonst
+    // zeigte die Auswahl die Standardfarben statt der eigenen. Der Stand des
+    // Themes steht im Pfad, damit ein neues Theme neue Bilder ergibt.
+    thumbnailBase: (type, variant) =>
+      `/api/sites/${encodeURIComponent(siteId)}/section-preview/${encodeURIComponent(type)}/${encodeURIComponent(variant)}.png?v=${encodeURIComponent(siteThemeVersion ?? 0)}`,
   });
   elementsHost.replaceChildren(elementsPanel.element);
   // Ein Klick auf einen Plus-Punkt im Canvas merkt ein Ziel; das Panel zeigt es.

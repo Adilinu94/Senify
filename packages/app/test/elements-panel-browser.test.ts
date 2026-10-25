@@ -312,8 +312,16 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       const errors: string[] = [];
       tab.on("pageerror", (error) => errors.push(error.message));
       const failedRequests: string[] = [];
+      const sectionPreviewCalls: string[] = [];
+      tab.on("request", (request) => {
+        if (request.url().includes("/section-preview/")) sectionPreviewCalls.push(request.url());
+      });
       tab.on("response", (response) => {
-        if (response.url().includes("/editor-section-thumbnails/") && response.status() !== 200) {
+        // Die Sektionen-Bilder kommen jetzt aus der Route der Site (gebacken
+        // mit ihrem Theme), nicht mehr aus dem statischen Ordner.
+        // 202 heisst "entsteht gerade" und ist kein Fehler; alles andere
+        // ausser 200 schon.
+        if (response.url().includes("/section-preview/") && response.status() !== 200 && response.status() !== 202) {
           failedRequests.push(`${response.status()} ${response.url()}`);
         }
       });
@@ -350,6 +358,15 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       const tiles = tab.locator(".senify-elements__variant");
       await expect.poll(() => tiles.count()).toBe(73);
       const firstImage = tab.locator(".senify-elements__variant img").first();
+      // Das Bild kommt aus der Route der Site und ist mit IHREM Theme
+      // gebacken - nicht mehr die Datei mit dem Standard-Theme. Beim ersten
+      // Aufruf antwortet die Route mit 202 (der Bake laeuft), die Kachel
+      // faellt dann auf das Standardbild zurueck; in beiden Faellen steht ein
+      // Bild, keine leere Kachel.
+      // Die Route wurde WIRKLICH gefragt (202 oder 200) - das src-Attribut
+      // traegt nach dem Rueckfall auf das Standardbild dessen Pfad.
+      expect(sectionPreviewCalls.length).toBeGreaterThan(0);
+      expect(sectionPreviewCalls.every((url) => url.includes(`/api/sites/${site.id}/section-preview/`))).toBe(true);
       await expect
         .poll(() => firstImage.evaluate((img) => (img as unknown as { naturalWidth: number }).naturalWidth))
         .toBeGreaterThan(0);

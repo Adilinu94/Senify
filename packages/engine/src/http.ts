@@ -26,6 +26,7 @@ import type { AuthInfo, EngineContext, Route, RouteParams } from "./http-contrac
 import { siteRoutes } from "./http-routes-sites.ts";
 import { siteLifecycleRoutes } from "./http-routes-site-lifecycle.ts";
 import { themeRoutes } from "./http-routes-theme.ts";
+import { sectionPreviewRoutes } from "./http-routes-section-preview.ts";
 import { assetRoutes } from "./http-routes-assets.ts";
 import { formularRoutes } from "./http-routes-formular.ts";
 import { referenceRoutes } from "./http-routes-references.ts";
@@ -120,6 +121,7 @@ const ROUTES: Route[] = [
   ...siteRoutes,
   ...siteLifecycleRoutes,
   ...themeRoutes,
+  ...sectionPreviewRoutes,
   ...referenceRoutes,
   ...pageRoutes,
 ];
