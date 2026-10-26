@@ -16,7 +16,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { captureFixture, captureHtml, pageFileOf, type CaptureHtmlInput } from "./capture-html.ts";
 import { captureBrowser } from "./capture-browser.ts";
-import type { FramerIrDocument, IrFinding, IrNode } from "./ir.ts";
+import type { FramerIrDocument, IrDevice, IrFinding, IrNode } from "./ir.ts";
 import { normalize, type NormalizeMode, type NormalizeResult } from "./normalize.ts";
 import { mapDocument, type MapperResult, type ThemePatch } from "./mapper.ts";
 import { buildFidelityReport, type FidelityReport } from "./fidelity.ts";
@@ -174,8 +174,171 @@ export async function fetchLinkedCss(html: string, pageUrl: string): Promise<str
 // The folder of the mirror and the folder of the imported page inside it: a
 // relative asset URL points into the page's own folder first, then into the
 // mirror root.
-function mirrorFolders(rootDir: string, pagePath: string): { root: string; pageDir: string } {
-  return { root: rootDir, pageDir: dirname(resolve(pageFileOf(rootDir, pagePath))) };
+// The browser sees ONE width, the SSR sees all three.
+//
+// At 1440 px Framer's runtime has already removed the phone and tablet copies of
+// every element, so the settled DOM holds a single copy and the capture marks it
+// "desktop only" — six nodes on `rare-works`, among them the phone build of the
+// products section and the footer. The baked page then hid them on a phone and
+// came out 2680 px too short (measured: 20648 px in the source, 17968 px in the
+// tree).
+//
+// The static capture reads the markup, where all three copies still stand, and
+// folds them through the device merge. Its `visibleOn` / `hiddenAt` are therefore
+// the truth for the DEVICES; the browser stays the truth for the measured motion.
+// Nodes are matched by their IR key, which both captures assign in the same
+// pre-order over the same tree.
+export function mergeDeviceVariants(browser: FramerIrDocument, statik: FramerIrDocument): FramerIrDocument {
+  type DeviceNode = {
+    key: string;
+    tag: string;
+    htmlId?: string | null;
+    visibleOn?: IrDevice[];
+    states: { device: IrDevice; hiddenAt: string[] }[];
+    children: DeviceNode[];
+  };
+  const byKey = new Map<string, DeviceNode>();
+  const walk = (node: DeviceNode): void => {
+    byKey.set(node.key, node);
+    for (const child of node.children) walk(child);
+  };
+  walk(statik.pages[0]?.root as DeviceNode);
+  if (byKey.size === 0) return browser;
+
+  let taken = 0;
+  let clearedVisibility = 0;
+  // The two loads number their nodes differently (`products` is `n154` at 1440 px
+  // and `n202` at 390 px) — Framer builds a different tree per width. The key is
+  // therefore the wrong identity across the two. The HTML id is the one both
+  // read from the same source (`#products`, `#hero`, `#faq`), so a pair is the
+  // same section.
+  const byId = new Map<string, DeviceNode>();
+  const collectIds = (node: DeviceNode): void => {
+    const id = node.htmlId ?? "";
+    // The LATER node wins: the phone build appends the phone variant after the
+    // desktop one, and it is the one that carries both states. Collecting the
+    // first match took the desktop copy and its single state.
+    if (id !== "") byId.set(id, node);
+    for (const child of node.children) collectIds(child);
+  };
+  collectIds(statik.pages[0]?.root as DeviceNode);
+
+  const apply = (node: DeviceNode): void => {
+    const id = node.htmlId ?? "";
+    // The HTML id first: the two loads number their nodes differently, and the
+    // phone build's node for a section is the one with both states. A key match
+    // across the two documents would name a different element.
+    const source = id !== "" ? (byId.get(id) ?? byKey.get(node.key)) : byKey.get(node.key);
+    if (source !== undefined) {
+      // A section the phone build shows is not "desktop only". Its own variant
+      // says which devices see it — and the desktop capture said "mobile is
+      // hidden" only because that build never contained the phone copy.
+      const phoneVisible = source.states.some(
+        (state) => state.device === "mobile" && state.hiddenAt.length === 0,
+      );
+      if (phoneVisible) {
+        if (node.visibleOn !== undefined) clearedVisibility += 1;
+        delete node.visibleOn;
+        // AND the states: the mapper re-derives `visibleOn` from `hiddenAt` on
+        // every sibling merge, so deleting the field alone is undone a moment
+        // later. The desktop capture wrote the phone's breakpoint hash into its
+        // ONE state; that hash says "hidden on a phone", which the phone build
+        // contradicts. With the phone's own states standing in (below), the hash
+        // belongs to a variant that no longer exists.
+        node.states = node.states.map((state) => ({ ...state, hiddenAt: [] }));
+      } else if (source.visibleOn !== undefined) {
+        node.visibleOn = source.visibleOn;
+      }
+      // A phone build that has no `mobile` state for this section does not show
+      // it there: the desktop capture's `visibleOn` stays as it is.
+      // The device states carry the per-breakpoint layout (the phone's padding,
+      // its font size). The browser capture has one state; the variant capture
+      // has the one it built. Its `hiddenAt` hashes name the OTHER widths that
+      // build does not serve — for the section that is visible here they mean
+      // nothing, and the mapper would read them as "hidden on the phone" again.
+      if (source.states.length > node.states.length) {
+        node.states = source.states.map((state) => ({ ...state, hiddenAt: phoneVisible ? [] : state.hiddenAt }));
+        taken += 1;
+      }
+    }
+    for (const child of node.children) apply(child);
+  };
+  apply(browser.pages[0]?.root as DeviceNode);
+
+  // A section that exists ONLY in the phone build is in no key of the desktop
+  // tree: Framer does not render it at 1440 px at all. Measured on `rare-works`:
+  // the products section and the footer are sections of their own on a phone and
+  // absent from the desktop document, so the key-based merge above cannot see
+  // them.
+  //
+  // They are inserted where the phone build puts them: after the same PREDECESSOR
+  // section, in the same parent. Appending them at the root put the products
+  // section INSIDE the hero (measured: hero 1171 → 1448 px on a phone).
+  const known = new Set<string>();
+  const collect = (node: DeviceNode): void => {
+    const id = node.htmlId ?? "";
+    if (id !== "") known.add(id);
+    for (const child of node.children) collect(child);
+  };
+  collect(browser.pages[0]?.root as DeviceNode);
+
+  // The desktop tree by id, to find the parent a phone-only section belongs to.
+  const desktopById = new Map<string, DeviceNode>();
+  const collectDesktop = (node: DeviceNode): void => {
+    const id = node.htmlId ?? "";
+    if (id !== "") desktopById.set(id, node);
+    for (const child of node.children) collectDesktop(child);
+  };
+  collectDesktop(browser.pages[0]?.root as DeviceNode);
+
+  const insertExtras = (phoneNode: DeviceNode, desktopParent: DeviceNode): void => {
+    // The children the phone build has and this parent does not, in order.
+    let previous: DeviceNode | undefined;
+    for (const child of phoneNode.children) {
+      const id = child.htmlId ?? "";
+      const isExtra =
+        id !== "" &&
+        !known.has(id) &&
+        child.states.some((state) => state.device === "mobile" || state.device === "desktop");
+      if (isExtra) {
+        child.visibleOn = ["mobile"];
+        const at = previous === undefined ? 0 : desktopParent.children.indexOf(previous) + 1;
+        desktopParent.children.splice(at, 0, child);
+        previous = child;
+        taken += 1;
+        continue;
+      }
+      const matchDesktop = id === "" ? undefined : desktopById.get(id);
+      const matchPhone = child;
+      if (matchDesktop !== undefined) {
+        insertExtras(matchPhone, matchDesktop);
+        previous = matchDesktop;
+      }
+    }
+  };
+  // The desktop root is the parent of the top-level sections.
+  const desktopRoot = browser.pages[0]?.root as DeviceNode | undefined;
+  const phoneRoot = statik.pages[0]?.root as DeviceNode | undefined;
+  if (desktopRoot !== undefined && phoneRoot !== undefined) {
+    insertExtras(phoneRoot, desktopRoot);
+  }
+  if (taken > 0) {
+    browser.findings.push({
+      kind: "breakpoint-collapse",
+      nodeKey: null,
+      message: `${taken} Knoten haben ihre Gerätevarianten aus dem Telefon-Aufbau zurückbekommen (ein Ladevorgang baut nur eine Breite); ${clearedVisibility} davon waren fälschlich als „nur Desktop" markiert.`,
+      evidence: `breakpoints: ${statik.breakpoints.map((entry) => entry.id).join(", ")}`,
+      severity: "info",
+      suggestion: "Ohne diesen Schritt fehlen der Telefon-Fassung ganze Abschnitte.",
+    });
+  }
+  if (browser.breakpoints.length === 0 && statik.breakpoints.length > 0) {
+    browser.breakpoints = statik.breakpoints;
+  }
+  return browser;
+}
+
+function mirrorFolders(rootDir: string, pagePath: string): { root: string; pageDir: string } {  return { root: rootDir, pageDir: dirname(resolve(pageFileOf(rootDir, pagePath))) };
 }
 
 export async function runImport(input: RunImportInput): Promise<ImportRun> {
@@ -202,13 +365,33 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
       // addresses only, ADR-0016); the browser repeats that check for every
       // sub-resource through its own route guard (ADR-0022).
       //
-      // The raw SSR stays the source for the runtime payload below - it is
-      // what carries the runtime entry and the static channels.
-      document = (await captureBrowser({
+      // The device variants come from the EARLY browser markup, not from the
+      // settled one: at 1440 px the runtime has already thrown the phone and
+      // tablet copies away, so the settled DOM holds one copy of each element and
+      // every other becomes "desktop only". Measured on `rare-works`: the phone
+      // build of five sections (products, footer, …) was marked `hidden: mobile`,
+      // and the baked page was 2680 px too short on a phone (20648 → 17968).
+      //
+      // `captureBrowser` returns that early markup beside the document; it is
+      // read once the page is built and before the runtime has rewritten it, so
+      // all three copies still stand there.
+      const fromBrowser = await captureBrowser({
         url: input.source.url,
         pagePath: input.pagePath ?? "/",
         settleMs: INPUT_SETTLE_MS,
-      })).document;
+      });
+      document = fromBrowser.document;
+      // The phone build tells which elements exist at all on a phone; the
+      // desktop one carries the measured motion. Both are needed.
+      const variantsMarkup = fromBrowser.narrowMarkup ?? fromBrowser.earlyMarkup;
+      if (variantsMarkup !== undefined && variantsMarkup !== "") {
+        const variantsDocument = captureHtml({
+          html: variantsMarkup,
+          url: input.source.url,
+          pagePath: input.pagePath ?? "/",
+        });
+        document = mergeDeviceVariants(document, variantsDocument);
+      }
     } else {
       const css = await fetchLinkedCss(html, input.source.url);
       document = captureHtml({ html, url: input.source.url, pagePath: input.pagePath ?? "/", css });
@@ -612,3 +795,6 @@ export function marqueeCandidates(document: FramerIrDocument): {
 /* ------------------------------------------------------------- re-exports */
 
 export type { EditorDocument, StyleRule, ThemePatch, IrFinding, IrNode };
+
+
+

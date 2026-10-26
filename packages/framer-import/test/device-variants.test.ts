@@ -1,0 +1,91 @@
+import { describe, expect, it } from "vitest";
+import { mergeDeviceVariants } from "../src/import.ts";
+
+// Framer builds ONE breakpoint variant per load. A 1440 px visit never contains
+// the phone copy of a section, so the browser capture marks the phone's own
+// sections "desktop only" — measured on `rare-works`: five of them, among them
+// the products section and the footer, and the baked page came out 2680 px too
+// short on a phone (20648 → 17968).
+//
+// The fix needs a second load at the phone width. Its node for a section is the
+// one with BOTH states; the desktop build has one state with the phone's hash in
+// `hiddenAt`, which reads as "hidden on a phone".
+const node = (over: Record<string, unknown>) => ({
+  key: "n1",
+  tag: "section",
+  htmlId: null,
+  states: [{ device: "desktop", hiddenAt: [] }],
+  children: [],
+  ...over,
+});
+
+const document = (root: ReturnType<typeof node>) =>
+  ({
+    pages: [{ root }],
+    breakpoints: [],
+    findings: [],
+  }) as never;
+
+describe("mergeDeviceVariants", () => {
+  it("nimmt einer Sektion das fälschliche „nur Desktop“", () => {
+    // Desktop load: one state, the phone's hash in hiddenAt.
+    const desktop = document(node({ htmlId: "products", states: [{ device: "desktop", hiddenAt: ["1xrkzay"] }] }));
+    // Phone load: the same section with both states, the phone one visible.
+    const phone = document(
+      node({
+        key: "n202",
+        htmlId: "products",
+        states: [
+          { device: "desktop", hiddenAt: ["1cxb88c"] },
+          { device: "mobile", hiddenAt: [] },
+        ],
+      }),
+    );
+    const merged = mergeDeviceVariants(desktop, phone) as unknown as {
+      pages: { root: { visibleOn?: string[]; states: { device: string; hiddenAt: string[] }[] } }[];
+    };
+    const section = merged.pages[0]?.root;
+    expect(section?.visibleOn).toBeUndefined();
+    // And the phone's own state stands in, so the mapper cannot re-derive the
+    // "hidden on mobile" from the desktop hash.
+    expect(section?.states.map((state) => state.device)).toEqual(["desktop", "mobile"]);
+    expect(section?.states.every((state) => state.hiddenAt.length === 0)).toBe(true);
+  });
+
+  it("lässt eine Sektion stehen, die auf dem Telefon wirklich fehlt", () => {
+    const desktop = document(
+      node({ htmlId: "desktop-only", visibleOn: ["desktop"], states: [{ device: "desktop", hiddenAt: [] }] }),
+    );
+    const phone = document(
+      node({
+        key: "n9",
+        htmlId: "desktop-only",
+        states: [{ device: "desktop", hiddenAt: [] }],
+      }),
+    );
+    const merged = mergeDeviceVariants(desktop, phone) as unknown as {
+      pages: { root: { visibleOn?: string[] } }[];
+    };
+    // No mobile state in the phone build: the section is not shown there.
+    expect(merged.pages[0]?.root.visibleOn).toEqual(["desktop"]);
+  });
+
+  it("hängt einen Abschnitt an, den nur der Telefon-Aufbau hat", () => {
+    const desktop = document(node({ htmlId: "hero", children: [] }));
+    const phone = document(
+      node({
+        key: "n1",
+        htmlId: "hero",
+        children: [
+          node({ key: "n2", htmlId: "phone-only", states: [{ device: "mobile", hiddenAt: [] }] }),
+        ],
+      }),
+    );
+    const merged = mergeDeviceVariants(desktop, phone) as unknown as {
+      pages: { root: { children: { htmlId?: string; visibleOn?: string[] }[] } }[];
+    };
+    const extra = merged.pages[0]?.root.children.find((child) => child.htmlId === "phone-only");
+    expect(extra).toBeDefined();
+    expect(extra?.visibleOn).toEqual(["mobile"]);
+  });
+});

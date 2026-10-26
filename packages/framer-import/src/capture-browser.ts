@@ -1,3 +1,35 @@
+// The page as the PHONE builds it, read for the device variants only.
+//
+// Framer renders one breakpoint variant per load: a 1440 px visit never contains
+// the phone build of a section, and a 390 px visit never the desktop one. The
+// import needs both — the desktop page is what it captures, the phone copy tells
+// which elements exist at all on a phone. Without it the mapper sees "desktop
+// only" on the phone's own sections (measured: five of them on `rare-works`, the
+// page 2680 px too short).
+//
+// 390 px is the width of the site's own phone breakpoint (`mobile: 810`).
+async function readNarrowMarkup(
+  context: import("playwright").BrowserContext,
+  url: string,
+): Promise<string | undefined> {
+  const width = 390;
+  const page = await context.newPage();
+  try {
+    // The capture viewport is fixed at 1440; a page of its own carries the phone
+    // width without touching the one that is being measured.
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto(url, { waitUntil: "load", timeout: 90_000 });
+    await page.waitForTimeout(SETTLE_READ_MS + 400);
+    return await page.content();
+  } catch {
+    // A page that will not load at the phone width leaves the desktop variants
+    // standing: the import is then as complete as the desktop load allows.
+    return undefined;
+  } finally {
+    await page.close().catch(() => undefined);
+  }
+}
+
 // The browser capture (plan.md S2.1/S2.2): load the live page in Chromium,
 // let the SSR markup arrive, settle the page once through its scroll height,
 // then ask the running page what it animates — with the probes from
@@ -48,6 +80,14 @@ export type CaptureBrowserInput = {
 
 export type BrowserCaptureResult = {
   document: FramerIrDocument;
+  // The markup as it stood 350 ms after `load`: the page is built, and the
+  // runtime has not yet animated the start states away or thrown the phone and
+  // tablet copies out. Only the device variants are read from it.
+  earlyMarkup?: string;
+  // The same page as the PHONE builds it. Framer renders one breakpoint variant
+  // per load, so the phone build of a section exists only here. The device
+  // variants are read from it; nothing else.
+  narrowMarkup?: string;
   // Raw probe evidence for the report: IO registrations, listeners, WAAPI
   // shapes with `iterations: null` (the measured loop form).
   probe: {
@@ -531,6 +571,21 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
     // 350 ms and `n62` after the scroll pass — measured. The path is stable
     // through that, because no element moves.
     await page.waitForTimeout(SETTLE_READ_MS);
+    // The markup of the built page, before the runtime touches it. It carries
+    // the reveal start states of THIS viewport; the phone copy of a section is
+    // not in it — Framer builds only the variant that matches the width.
+    const earlyMarkup = await page.content();
+    // The phone and tablet copies: Framer renders ONE variant per width, so a
+    // 1440 px load never contains the phone build of a section. Measured on
+    // `rare-works`: four `ssr-variant` wrappers point at `hidden-1xrkzay` (the
+    // phone) at 1440 px, and the phone copy of the products section and the
+    // footer does not exist there at all — the baked page hid them on a phone and
+    // came out 2680 px too short (20648 → 17968).
+    //
+    // A second load at the phone width is the only way to see them. It is a
+    // second page in the same context (the runtime has to build the phone tree),
+    // and only its device variants are read.
+    const narrowMarkup = await readNarrowMarkup(context, input.url);
     // Collected on the SETTLED tree, but by walking back in time is impossible —
     // so the collection happens NOW and is written back onto the SAME element
     // objects later. Framer's hydration replaces nodes (measured: the "Run" span
@@ -769,6 +824,8 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
     }
     return {
       document,
+      earlyMarkup,
+      ...(narrowMarkup === undefined ? {} : { narrowMarkup }),
       probe: {
         url: input.url,
         instrumented: probe.instrumented === true,
