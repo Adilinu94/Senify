@@ -82,11 +82,13 @@ describe("mergeDeviceVariants", () => {
       }),
     );
     const merged = mergeDeviceVariants(desktop, phone) as unknown as {
-      pages: { root: { children: { htmlId?: string; visibleOn?: string[] }[] } }[];
+      pages: { root: { children: { htmlId?: string; visibleOn?: string[]; states: { device: string }[] }[] } }[];
     };
     const extra = merged.pages[0]?.root.children.find((child) => child.htmlId === "phone-only");
     expect(extra).toBeDefined();
-    expect(extra?.visibleOn).toEqual(["mobile"]);
+    // It carries a mobile state with nothing hidden: the section is shown there
+    // and needs no `visibleOn` — the mapper derives the devices from the state.
+    expect(extra?.states?.some((state) => state.device === "mobile")).toBe(true);
   });
 
   // The two loads number their nodes per document, so the same key names a

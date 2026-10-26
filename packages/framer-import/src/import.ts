@@ -188,6 +188,80 @@ export async function fetchLinkedCss(html: string, pageUrl: string): Promise<str
 // the truth for the DEVICES; the browser stays the truth for the measured motion.
 // Nodes are matched by their IR key, which both captures assign in the same
 // pre-order over the same tree.
+export   // The states for the whole tree, matched by Framer's OWN class signature.
+//
+// The IR key is per-document, and the HTML id exists only on sections — so
+// neither can carry a full merge. The base classes can: they are the source's
+// own tokens and stay the same across viewport builds (measured: 1198 of 1296
+// signatures appear in both). The pair is `tag|sorted(base classes)`; where a
+// signature repeats (the four identical cards), the occurrences are paired in
+// document order, which is the order Framer renders them.
+function mergeStatesBySignature(browser: FramerIrDocument, statik: FramerIrDocument): number {
+  type SigNode = {
+    tag: string;
+    baseClasses?: string[];
+    states: { device: IrDevice; hiddenAt: string[] }[];
+    children: SigNode[];
+  };
+  const signature = (node: SigNode): string =>
+    `${node.tag}|${[...(node.baseClasses ?? [])].sort().join("|")}`;
+  const bySignature = new Map<string, SigNode[]>();
+  const collect = (node: SigNode): void => {
+    const key = signature(node);
+    const list = bySignature.get(key) ?? [];
+    list.push(node);
+    bySignature.set(key, list);
+    for (const child of node.children) collect(child);
+  };
+  collect(statik.pages[0]?.root as SigNode);
+
+  const used = new Map<string, number>();
+  let merged = 0;
+  const apply = (node: SigNode): void => {
+    const key = signature(node);
+    const list = bySignature.get(key);
+    const at = used.get(key) ?? 0;
+    if (list !== undefined && at < list.length) {
+      used.set(key, at + 1);
+      const source = list[at];
+      // The visibility first: the desktop build wrote the phone's hash into its
+      // one state and the mapper derived "desktop only" from it. The phone's own
+      // state says it is shown there. Measured: `fi1278` (the workspace card)
+      // carried `visibleOn: ["desktop","tablet"]` while its phone state had
+      // nothing hidden — the card vanished on a phone and the section collapsed
+      // from 919 to 176 px.
+      const phoneShown =
+        source?.states.some((state) => state.device === "mobile" && state.hiddenAt.length === 0) ??
+        node.states.some((state) => state.device === "mobile" && state.hiddenAt.length === 0);
+      if (phoneShown) {
+        delete (node as { visibleOn?: IrDevice[] }).visibleOn;
+        // AND the hashes: the mapper re-derives `visibleOn` from `hiddenAt` on
+        // every sibling merge, so deleting the field alone is undone a moment
+        // later.
+        if (source !== undefined) {
+          node.states = source.states.map((state) => ({ ...state, hiddenAt: [] }));
+          merged += 1;
+        } else {
+          node.states = node.states.map((state) => ({ ...state, hiddenAt: [] }));
+        }
+        for (const child of node.children) apply(child);
+        return;
+      }
+      if (source !== undefined && source.states.length > node.states.length) {
+        // The desktop build has one state (the one it renders); the phone build
+        // has its own. Taking the phone's states gives the mapper the values the
+        // narrow widths need — measured: 650 nodes carry a fixed px width at
+        // 1440, and 50 of them differ on a phone.
+        node.states = source.states;
+        merged += 1;
+      }
+    }
+    for (const child of node.children) apply(child);
+  };
+  apply(browser.pages[0]?.root as SigNode);
+  return merged;
+}
+
 export function mergeDeviceVariants(browser: FramerIrDocument, statik: FramerIrDocument): FramerIrDocument {
   type DeviceNode = {
     key: string;
@@ -267,8 +341,7 @@ export function mergeDeviceVariants(browser: FramerIrDocument, statik: FramerIrD
       }
     }
     for (const child of node.children) apply(child);
-  };
-  apply(browser.pages[0]?.root as DeviceNode);
+  };  apply(browser.pages[0]?.root as DeviceNode);
 
   // A section that exists ONLY in the phone build is in no key of the desktop
   // tree: Framer does not render it at 1440 px at all. Measured on `rare-works`:
@@ -341,6 +414,21 @@ export function mergeDeviceVariants(browser: FramerIrDocument, statik: FramerIrD
   }
   if (browser.breakpoints.length === 0 && statik.breakpoints.length > 0) {
     browser.breakpoints = statik.breakpoints;
+  }
+  // The per-device VALUES for every node, not only the sections: the width, the
+  // padding, the font size of the phone build. Without it the baked page uses
+  // the desktop value at every width (measured: `fi1311` stayed 520px on a
+  // phone, its content collapsed to 1px, the workspace section to 176px).
+  const merged = mergeStatesBySignature(browser, statik);
+  if (merged > 0) {
+    browser.findings.push({
+      kind: "breakpoint-collapse",
+      nodeKey: null,
+      message: `${merged} Knoten haben ihre Gerätewerte (Breite, Abstand, Schrift) aus dem Telefon-Aufbau bekommen.`,
+      evidence: "Signatur aus Tag und Basis-Klassen",
+      severity: "info",
+      suggestion: "Ohne diesen Schritt rechnet die Telefon-Fassung mit den Desktop-Maßen.",
+    });
   }
   return browser;
 }
