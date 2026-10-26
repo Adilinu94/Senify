@@ -102,7 +102,8 @@ export const IR_FINDING_KINDS = [
   // dna-adjustment — the normalizer changed the original to satisfy the DNA.
   // smooth-scroll — Lenis/SmoothScroll detected; profile concern, not dropped.
   // loop-animation — an endless CSS/WAAPI loop the presets cannot express 1:1.
-  // font-subset — a `@font-face` subset the DSGVO task (S2.3b) will rewrite.
+  // font-subset - a `@font-face` subset the asset import rewrites to a local
+  // file (`includeFonts`, default true).
   // font-mapping — the source's families point at the theme's font slots.
   "dna-adjustment",
   "smooth-scroll",
@@ -145,6 +146,11 @@ export type IrLayout = {
   reverse?: boolean;
   gap?: string;
   padding?: Partial<Record<"top" | "right" | "bottom" | "left", string>>;
+  // The same side table for `margin`. Kept apart from `padding` so the mapper
+  // can write each into its own style prop; the reason it lives in `layout` at
+  // all is the shorthand/longhand ORDER: `margin:0; margin-top:20px` must keep
+  // the 20 px, and two independent readings lose that order.
+  margin?: Partial<Record<"top" | "right" | "bottom" | "left", string>>;
   align?: string;
   justify?: string;
   wrap?: boolean;

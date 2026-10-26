@@ -22,6 +22,7 @@ import { neutralBaseOf, typeBaseOf } from "./theme-scales.ts";
 import { devicesContaining } from "./devices.ts";
 import { parseDeclaration, splitDeclarations } from "./css-util.ts";
 import { compileAppearRules, type CompileAppearResult, type CompiledAppearRule } from "./appear-css.ts";
+import { compileWaapiRules, motionClassName } from "./waapi-css.ts";
 import { ruleScopeOf, type NormalizedStyleRule, type NormalizeMode } from "./normalize.ts";
 import type {
   FramerIrDocument,
@@ -430,6 +431,12 @@ type MapContext = {
   mode: NormalizeMode;
   stats: { nodes: number; mergedVariants: number; placeholders: number };
   findings: IrFinding[];
+  // IR key → the class name of a measured animation this element carries. A
+  // word span is rendered as inline markup (it has no node of its own), so the
+  // class is the only way to give its effect a target. Filled before the walk
+  // (`compileWaapiRules` needs the node ids the walk produces, so the class is
+  // applied in a second pass — see `applyMotionClasses`).
+  motionClassByIrKey: Record<string, string>;
 };
 
 function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null): EditorNode | null {
@@ -474,7 +481,14 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
       // capture kept the inner markup, because the element scan alone drops
       // the plain text between the children.
       primitive = "body";
-      props["html"] = framerVarsAsCss(withTextTypography(node, sanitizeInlineHtml(node.innerHtml)), lineHeightFactorOf(node) ?? (parent === null ? null : lineHeightFactorOf(parent)));
+      // A measured word effect lives on a SPAN of this markup (the hero `<h1>`
+      // carries 4 span children AND the same 4 spans in its `innerHtml`). The
+      // markup is rendered, the children are not — so the class has to go into
+      // the markup, at the span with the same position.
+      props["html"] = framerVarsAsCss(
+        withTextTypography(node, attachMotionClasses(node.innerHtml, node, context)),
+        lineHeightFactorOf(node) ?? (parent === null ? null : lineHeightFactorOf(parent)),
+      );
     } else if (hasElementChildren) {
       // A text element with element children (the RichText shape: <p><a>…</a></p>)
       // becomes a body with inline HTML — `text` accepts no children.
@@ -654,6 +668,17 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
         right: layout.padding.right ?? "0px",
         bottom: layout.padding.bottom ?? "0px",
         left: layout.padding.left ?? "0px",
+      };
+    }
+    // `margin` sits in the same side table as `padding` so the shorthand and
+    // its longhands keep the source's ORDER (`margin:0; margin-top:20px`).
+    // Written as the same four-side object the style table reads.
+    if (layout.margin !== undefined) {
+      props["margin"] = {
+        top: layout.margin.top ?? "0px",
+        right: layout.margin.right ?? "0px",
+        bottom: layout.margin.bottom ?? "0px",
+        left: layout.margin.left ?? "0px",
       };
     }
   }
@@ -1008,6 +1033,38 @@ function cssToStyle(visual: { [key: string]: string | undefined }): Record<strin
 // back as inline markup (the RichText shape `<p><a>Home</a></p>` →
 // `<a href="./">Home</a>`). Only the inline tags the body primitive accepts
 // are generated; deeper structures flatten to their text.
+// Puts the class of a measured word effect into the captured markup, at the
+// inline element with the same position. Framer writes a headline twice: the
+// spans as children of the node AND the same spans in its `innerHtml`. Only the
+// markup is rendered, so the class has to go there.
+//
+// Order matters: `sanitizeInlineHtml` rebuilds every attribute from scratch
+// (that is its promise), so a class written before it would be dropped. The
+// markup is sanitised FIRST, then the class is set on the already-safe tags —
+// and the value is our own generated name (letters, digits, dashes).
+//
+// The pairing is by POSITION and only when the tag sequence matches exactly. A
+// markup whose spans differ in number or order from the children is left alone:
+// a wrong target animates the wrong word, which is worse than a missing effect.
+function attachMotionClasses(html: string, node: IrNode, context: MapContext): string {
+  const safe = sanitizeInlineHtml(html);
+  const inlineTags = (tag: string): boolean => tag === "span" || tag === "strong" || tag === "em";
+  const children = node.children.filter((child) => inlineTags(child.tag));
+  if (children.length === 0) return safe;
+  const inMarkup = [...safe.matchAll(/<(span|strong|em)\b/gi)].map((match) => (match[1] ?? "").toLowerCase());
+  if (inMarkup.length !== children.length) return safe;
+  if (inMarkup.some((tag, index) => tag !== children[index]?.tag.toLowerCase())) return safe;
+  let index = 0;
+  return safe.replace(/<(span|strong|em)\b([^>]*)>/gi, (whole: string, tag: string, rest: string) => {
+    const child = children[index];
+    index += 1;
+    const name = child === undefined ? undefined : context.motionClassByIrKey[child.key];
+    if (name === undefined || !/^fi-[a-zA-Z0-9-]+$/.test(name)) return whole;
+    if (/\sclass\s*=/i.test(rest)) return whole;
+    return `<${tag} class="${name}"${rest}>`;
+  });
+}
+
 function inlineHtmlOf(node: IrNode, fallback: string, context: MapContext, parentLineHeight: string | null = null): string {
   const html = node.children.map((child) => inlineOf(child, context, true, parentLineHeight ?? lineHeightFactorOf(node))).join("");
   return html !== "" ? html : escapeHtml(fallback);
@@ -1020,9 +1077,28 @@ function inlineHtmlOf(node: IrNode, fallback: string, context: MapContext, paren
 // first — an either/or would drop the children whenever the element carries
 // whitespace of its own (regression: navigation and mail links vanished).
 function inlineOf(child: IrNode, context: MapContext, mitTypografie: boolean, parentLineHeight: string | null = null): string {
+  // The measured animation of this element, as a class in the markup. It has to
+  // be attached on BOTH return paths: the `innerHtml` branch below renders a
+  // span that already carries Framer's own markup, and the tag branch renders
+  // the plain one. Measured 26.10.2026: the four word spans of the headline take
+  // the `innerHtml` path, so a class added only to the tag branch left every
+  // word effect without a target.
+  const effectClass = context.motionClassByIrKey[child.key];
+  const klassen = effectClass === undefined ? "" : ` class="${effectClass}"`;
   if (child.innerHtml !== undefined && child.innerHtml !== null) {
-    const inner = framerVarsAsCss(withTextTypography(child, sanitizeInlineHtml(child.innerHtml)), parentLineHeight ?? lineHeightFactorOf(child));
-    return HEADING_TAGS.has(child.tag) || child.tag === "p" ? `<${child.tag}>${inner}</${child.tag}>` : inner;
+    // The element's captured markup carries the same spans as its children
+    // (measured 26.10.2026: the hero `<h1>` has 4 `<span>`s in its `innerHtml`
+    // AND 4 span children, in the same order). The class of a measured word
+    // effect therefore goes INTO that markup, at the span with the same
+    // position — nothing about the text or the spacing changes, the span simply
+    // gets the animation it was measured with.
+    const inner = framerVarsAsCss(
+      withTextTypography(child, attachMotionClasses(child.innerHtml, child, context)),
+      parentLineHeight ?? lineHeightFactorOf(child),
+    );
+    return HEADING_TAGS.has(child.tag) || child.tag === "p"
+      ? `<${child.tag}${klassen}>${inner}</${child.tag}>`
+      : `<span${klassen}>${inner}</span>`;
   }
   // A line break is the whole content of the blank line between two paragraphs.
   if (child.tag === "br") return "<br>";
@@ -1032,7 +1108,7 @@ function inlineOf(child: IrNode, context: MapContext, mitTypografie: boolean, pa
   const stil = styleAttributeOf(child, context, mitTypografie);
   if (child.tag === "a" && child.href !== null) {
     const newTab = child.target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : "";
-    return `<a href="${escapeHtmlAttr(child.href.trim())}"${newTab}${stil}>${inner}</a>`;
+    return `<a href="${escapeHtmlAttr(child.href.trim())}"${newTab}${klassen}${stil}>${inner}</a>`;
   }
   if (
     HEADING_TAGS.has(child.tag) ||
@@ -1041,7 +1117,7 @@ function inlineOf(child: IrNode, context: MapContext, mitTypografie: boolean, pa
     child.tag === "strong" ||
     child.tag === "em"
   ) {
-    return `<${child.tag}${stil}>${inner}</${child.tag}>`;
+    return `<${child.tag}${klassen}${stil}>${inner}</${child.tag}>`;
   }
   return inner;
 }
@@ -1541,6 +1617,30 @@ export function mapDocument(
   //    family the site does not have can no longer fall back to a system
   //    font (which would draw every text differently from the source).
   const slots = (options.mode ?? "dna") === "dna" ? sourceFontsOf(document).slots : new Map<string, string>();
+  // The measured effects whose target is rendered as inline markup (a word
+  // span). Their class has to exist BEFORE the walk: `inlineOf` writes the span
+  // while the nodes are being created, so a class assigned afterwards would be
+  // missing from the markup. `motionClassName` is a pure function of the
+  // sample's index and the page scope, so both sides agree without a shared map.
+  const motionScope = ruleScopeOf(document.pages[0]?.path ?? "/");
+  const motionClassByIrKey: Record<string, string> = {};
+  {
+    const inlineKeys = new Set<string>();
+    const collectInline = (node: IrNode): void => {
+      // Only the tags `inlineOf` renders as markup. The class is useless on a
+      // node of its own (that one gets a style rule instead), and putting it on
+      // every span would add a class to thousands of untouched words.
+      if (node.tag === "span" || node.tag === "strong" || node.tag === "em") inlineKeys.add(node.key);
+      for (const child of node.children) collectInline(child);
+    };
+    const firstPage = document.pages[0];
+    if (firstPage !== undefined) collectInline(firstPage.root);
+    for (const [index, sample] of document.motion.entries()) {
+      if (sample.trigger !== "appear" || sample.nodeKey === null) continue;
+      if (!inlineKeys.has(sample.nodeKey)) continue;
+      motionClassByIrKey[sample.nodeKey] = motionClassName(motionScope, index);
+    }
+  }
   const context: MapContext = {
     ids: { next: 0 },
     nodes: {},
@@ -1552,6 +1652,7 @@ export function mapDocument(
     mode: options.mode ?? "dna",
     stats: { nodes: 0, mergedVariants: 0, placeholders: 0 },
     nodeIdByIrKey: {},
+    motionClassByIrKey,
     findings: [...document.findings],
   };
 
@@ -1576,6 +1677,7 @@ export function mapDocument(
         "Ohne übernommene Theme-Schriften rendert die Seite in der Systemschrift; der Import weist sie deshalb den Slots zu.",
     });
   }
+
 
   const page = document.pages[0];
   const rootProps = page === undefined ? {} : cssToStyle(page.root.states[0]?.visual ?? {});
@@ -1653,6 +1755,71 @@ export function mapDocument(
       suggestion: "Diese Effekte laufen ohne Framer-Runtime; Bewegung und Dauer stammen aus dem Kanal.",
     });
   }
+  // The browser-measured effects, baked as real `@keyframes` (U5e). This runs
+  // AFTER the appear channel and skips any node the channel already animated:
+  // Framer's static JSON and the live WAAPI list describe the same effect on the
+  // pages that have both, and two `animation` declarations on one element do not
+  // add up — the second replaces the first.
+  const waapiRun = compileWaapiRules({
+    samples: document.motion,
+    nodeIdByIrKey: context.nodeIdByIrKey,
+    classByIrKey: motionClassByIrKey,
+    scope: motionScope,
+    startOrder: rules.length + appearStyleRules.length,
+  });
+  const waapiStyleRules: StyleRule[] = [];
+  const appearCovered = new Set(
+    [...appearRun.nodeIdByAppearId.values()].filter((nodeId): nodeId is string => typeof nodeId === "string"),
+  );
+  for (const rule of waapiRun.rules) {
+    const nodeId = context.nodeIdByIrKey[rule.nodeKey];
+    // A word span has no node of its own: its class already sits in the markup
+    // (`motionClassByIrKey`), so the rule only has to exist. A node that the
+    // appear channel already animates is skipped — two `animation` declarations
+    // on one element do not add up.
+    const inline = nodeId === undefined;
+    if (!inline && appearCovered.has(nodeId)) continue;
+    const node = inline ? undefined : context.nodes[nodeId];
+    if (inline && motionClassByIrKey[rule.nodeKey] === undefined) continue;
+    if (!inline && node === undefined) continue;
+    const built: StyleRule = {
+      id: rule.id,
+      name: rule.name,
+      kind: "class",
+      selector: `.${rule.name}`,
+      order: rules.length + appearStyleRules.length + waapiStyleRules.length,
+      styles: { animation: rule.animation },
+      contextStyles: {},
+      origin: { source: "framer-import", ordinal: rules.length + appearStyleRules.length + waapiStyleRules.length },
+      authoredBy: "preset",
+      rawCss: rule.keyframes,
+    };
+    waapiStyleRules.push(built);
+    if (node !== undefined) node.classes = [...(node.classes ?? []), rule.name];
+  }
+  if (waapiStyleRules.length > 0) {
+    context.findings.push({
+      kind: "unsupported-declaration",
+      nodeKey: null,
+      message: `${waapiStyleRules.length} im Browser gemessene Animation(en) sind als @keyframes gebacken (Dauer, Easing und Staffelung aus der Messung).`,
+      evidence: waapiStyleRules.map((rule) => rule.name).join(", "),
+      severity: "info",
+      suggestion: "Diese Effekte laufen ohne Framer-Runtime; ihre Werte stammen aus dem Browser, nicht aus einem Preset.",
+    });
+  }
+  for (const skip of waapiRun.skipped) {
+    // A loop or a scroll sample is not a failure: it has its own path (preset,
+    // sensor). Only an effect that HAD a target and lost it is worth a warning.
+    if (skip.reason.includes("keine Einblendung")) continue;
+    context.findings.push({
+      kind: "unsupported-declaration",
+      nodeKey: skip.nodeKey,
+      message: `Eine gemessene Animation konnte nicht gebacken werden: ${skip.reason}`,
+      evidence: skip.nodeKey ?? "ohne Knoten",
+      severity: "warn",
+      suggestion: "Ohne Zielelement bleibt die Bewegung an dieser Stelle aus; der Bericht nennt sie.",
+    });
+  }
   for (const finding of appearRun.findings) {
     context.findings.push({
       kind: "unsupported-declaration",
@@ -1668,9 +1835,9 @@ export function mapDocument(
       version: 2,
       rootNodeId: "root",
       nodes: context.nodes,
-      styleRules: [...rules, ...appearStyleRules],
+      styleRules: [...rules, ...appearStyleRules, ...waapiStyleRules],
     },
-    rules: [...rules, ...appearStyleRules],
+    rules: [...rules, ...appearStyleRules, ...waapiStyleRules],
     themePatch: themePatchOf(document, ruleFamilyWeights(normalized)),
     findings: context.findings,
     stats: context.stats,

@@ -82,6 +82,56 @@ rot** ohne den Fix: Breakpoint-Lesung, Vorfahren-Selektor, Kanal-Vorrang,
 Faltung, keine leere Sichtbarkeit, keine Vererbung) und der Blindtest
 (`packages/framer-import/scripts/blindtest.ts`).
 
+### U1b · `hidden-<hash>` am Element wurde zur Darstellung — **geschlossen 26.10.2026**
+
+**Der Befund:** Auf Mobil fehlten **13 eindeutige Textzeilen** — die gesamte
+Produktkarte (`BERRY BLISS`, `ORDER NOW`, `$7.50 USD`, `CHOCO RING` …). Der
+Inhalt war im Baum vorhanden (im HTML nachweisbar), wurde aber nicht gerendert.
+Desktop war vollständig (87 von 87 eindeutigen Zeilen, Höhe exakt 17 656).
+
+**Die Ursache war eine Verwechslung von Sichtbarkeit und Darstellung, an zwei
+Stellen:**
+
+1. **Der Hash stand am Element, nicht am Wrapper.** Framer schreibt seine
+   Geräte-Hashes auch direkt auf das Element — gemessen an
+   `concerned-circumstances-187935`: der mobil-only Slider-Container trägt
+   `hidden-72rtr7 hidden-bq06c3` an seinem eigenen `<div>`. Der Capture las die
+   Hashes nur am `ssr-variant`-Wrapper. Sie blieben in `baseClasses`, die
+   `.hidden-x{display:none!important}`-Regel traf die Desktop-Kaskade, und weil
+   Desktop 1440 in der Tablet-Range liegt, stand `display:none` im
+   **Basis-Zustand**. Die Mobil-Kaskade kennt die Eigenschaft nicht — sie erbte
+   sie. Die Karte verschwand auf genau dem Gerät, auf dem sie ihr Zuhause hatte.
+
+2. **Die Regel wurde als Gestaltung gelesen.** `.hidden-<hash>{display:none}` ist
+   Framers Schalter, nicht sein Aussehen. Als Stil gelesen wurde sie zur
+   dauerhaften `display`-Eigenschaft.
+
+**Der Fix** trennt beide Ebenen: `hidden-*` fliegt aus `baseClasses`, wandert in
+`hiddenAt` und wird über `visibleDevices` zu exakten Breitenbereichen
+(`capture-html.ts`, `toIrNode`). Der `ssr-variant`-Weg bleibt unverändert.
+
+**Die Messung (Payload-Probe, echte Seite, alle Breiten):**
+
+| Pfad | vorher | nachher |
+|---|---|---|
+| Mobil 390 | 63,96 % | **10,12 %** |
+| Mobil Höhe | 13 336 (Original 14 637) | **14 664** |
+| Desktop 1440 | 4,07 % | 4,07 % (unverändert) |
+| Release mit Payload | 1,30 / 0,46 / 0,47 % | 1,31 / 0,45 / 0,53 % (unverändert) |
+
+**Der Inhalt ist zurück:** Mobil 13 fehlende Zeilen → **0 inhaltliche Verluste**.
+Übrig sind nur die zwei Framer-Werbezeilen („Create a free website with Framer",
+„Powered by Webflow"), die zu Recht fehlen. Der Baum zeigt auf Mobil jetzt **84**
+eindeutige Zeilen gegen **81** im Original.
+
+**Belege:** `packages/framer-import/test/device-visibility.test.ts` (4 Fälle;
+**1 davon rot** ohne den Fix: `expected 'none' not to be 'none'`) und die
+Payload-Probe (`import-payload-probe.test.ts`) gegen die echte Seite.
+
+**Was der Fix NICHT löst:** Die verbleibenden 10,12 % auf Mobil sind keine
+fehlenden Inhalte mehr, sondern Darstellung (fehlende Hover/Fokus-Regeln,
+CMS-Runtime-Inhalte). Sie brauchen eine eigene Messung.
+
 ### U2 · Inhalte, die erst im Browser entstehen
 
 **Belegt.** Die fünf Bewertungssterne der Earn-Seite stehen nicht im SSR; ihr
@@ -217,6 +267,60 @@ sie entstehen wie die Sterne erst im Browser.
 **Nicht geprüft:** Ob die abgebildeten Einblendungen (nach Fix (a)) im Bake
 tatsächlich so aussehen wie in der Quelle. Dafür braucht es einen
 Bild-Vergleich über die Zeit, nicht nur einen Stand.
+
+### U5d · Die gemessene Bewegung wird jetzt als CSS gebacken - geschlossen 26.10.2026
+
+Die Recherche `docs/research/framer-animationen-abgreifen.md` hat den Weg
+gezeigt: Framer rechnet seine Federn selbst aus und uebergibt dem Browser
+**fertige Keyframes als CSS-Strings** (`translateY(28px)`, `blur(12px)`) plus
+eine abgetastete `linear(...)`-Kurve. Ein Preset kann das nicht nachbilden - es
+ist ein Naeherungsbegriff.
+
+**Gemessen an `concerned-circumstances-187935`:** 7 WAAPI-Effekte, davon 4
+Wort-Einblendungen mit Delay 0/50/100/150 ms, 400 ms und
+`cubic-bezier(0.44, 0, 0.56, 1)`. Der Import machte daraus 4x `fade-up` und warf
+die Staffelung weg.
+
+**Vier Fehler, jeder mit roter Gegenprobe:**
+
+1. **Die Shorthand-Form der Keyframes wurde nicht gelesen.** Die Web Animations
+   API kennt zwei Formen: die Frame-Liste `[{opacity:0}]` und den
+   Eigenschafts-Index `{opacity:[0,1]}`. Framer schreibt ausschliesslich die
+   zweite; `startValuesOf` pruefte `Array.isArray(keyframes)` und gab `{}`
+   zurueck. Kein Effekt hatte einen Startwert.
+2. **Die Sonde verpackte die Keyframes in ein Array** - aus dem Index wurde eine
+   Frame-Liste mit einem Frame, dessen Werte Arrays sind. Der Aufzeichnungspfad
+   las danach `Array.isArray(...) ? ... : []` und machte aus dem Objekt `[]`.
+3. **`translateY(28px)` wurde als 0 gelesen.** Der Regex kannte nur `translate(`
+   mit zwei Argumenten, nicht die Achsenform.
+4. **`linear()` fehlte in der Wert-Grammatik.** Die abgetastete Feder-Kurve
+   (2 von 7 Effekten) fiel damit weg.
+
+**Der Fix** ist ein eigener Compiler (`waapi-css.ts`): gemessene Werte werden zu
+`@keyframes` + `animation`. Zwei weitere Stellen mussten mitziehen: Der
+Sanitizer verwarf `class` (ein Wort-Span hat keinen Knoten, seine Klasse muss ins
+Markup), und der CSS-Compiler verwarf Regeln ohne Knoten als "tote Regel".
+
+**Ergebnis, am gebackenen Dokument gemessen:** 6 von 7 Effekten im CSS, die vier
+Wort-Spans mit ihren echten Delays. Im Browser blenden die Woerter versetzt ein:
+
+| Zeit | Opazitaeten der 4 Woerter | verschieden |
+|---|---|---|
+| ~30 ms | 0,030 / 0,001 / 0,001 / 0,001 | 2 |
+| ~120 ms | 0,355 / 0,171 / 0,053 / 0,004 | **4** |
+| ~250 ms | 0,916 / 0,776 / 0,575 / 0,355 | **4** |
+| ~500 ms | 1,000 / 1,000 / 1,000 / 1,000 | 1 |
+
+Vorher standen alle vier gleichzeitig auf 1.
+
+**Belege:** `motion-keyframe-forms.test.ts` (2 Faelle), `waapi-css.test.ts` (9),
+`value-grammar.test.ts` (2 rot ohne Fix), `inline-html-class.test.ts`
+(4 von 7 rot ohne Fix).
+
+**Was offen bleibt:** Der siebte Effekt hat kein Zielelement (die Sonde fand
+keinen IR-Schluessel). Und die Recherche nennt den naechsten Hebel: die
+Wort-Spans als eigene KNOTEN erhalten, damit jedes Wort im Editor anwaehlbar wird
+- heute haengt der Effekt an der Klasse im Markup.
 
 ## 4. Der Plan
 

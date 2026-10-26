@@ -30,7 +30,45 @@
 /* ---- Mode 1 helper: inject BEFORE page scripts run ---- */
 function instrumentMotion() {
   const W = window;
-  W.__motion = { io: [], raf: 0, listeners: [], mutationObs: 0 };
+  W.__motion = { io: [], raf: 0, listeners: [], mutationObs: 0, animations: [] };
+
+  // `Element.animate()`: Framer starts its effects this way and REMOVES them
+  // when they finish (`document.getAnimations()` is empty afterwards). Measured
+  // on `concerned-circumstances-187935`: 11 running at 0 ms, 2 at 450 ms, 0 at
+  // 1500 ms — any probe after the settle pass sees nothing. Recording the CALL
+  // keeps the effect, its keyframes and its timing, whatever happens later.
+  try {
+    const OAnimate = Element.prototype.animate;
+    if (typeof OAnimate === "function") {
+      Element.prototype.animate = function (keyframes, options) {
+        try {
+          W.__motion.animations.push({
+            el: this,
+            // The keyframes VERBATIM. Framer writes the property-index form
+            // (`{ opacity: [0.001, 1] }`), and wrapping a non-array into
+            // `[keyframes]` turned that into a one-frame list whose values were
+            // arrays — every start value was lost. The reader normalises both
+            // forms (`asFrameList`), so the recording keeps what it saw.
+            keyframes,
+            options:
+              typeof options === "number"
+                ? { duration: options }
+                : options && typeof options === "object"
+                  ? {
+                      duration: options.duration,
+                      delay: options.delay,
+                      iterations: options.iterations,
+                      easing: options.easing,
+                      fill: options.fill,
+                    }
+                  : {},
+            at: Math.round(Date.now()),
+          });
+        } catch (_) {}
+        return OAnimate.call(this, keyframes, options);
+      };
+    }
+  } catch (_) {}
 
   // IntersectionObserver: record options + observed targets (reveal-on-scroll,
   // sticky-sidebar active states, lazy sections all live here).
@@ -265,6 +303,15 @@ function motionProbe() {
           type: a.constructor.name, // CSSAnimation | CSSTransition | Animation
           name: a.animationName || a.transitionProperty || a.id || undefined,
           target: eff && eff.target ? sel(eff.target) : undefined,
+          // Framer marks its appear targets with `data-framer-appear-id`. The
+          // id is what decides whether this animation is already described by
+          // the page's appear JSON (the browser would then count it twice) or
+          // whether the browser is its only source (measured 26.10.2026: a page
+          // with an EMPTY appear channel and 10 running WAAPI animations).
+          appearId:
+            eff && eff.target && eff.target.getAttribute
+              ? eff.target.getAttribute('data-framer-appear-id') || undefined
+              : undefined,
           pseudo: eff && eff.pseudoElement || undefined,
           playState: a.playState,
           timeline: a.timeline ? a.timeline.constructor.name : undefined, // ScrollTimeline/ViewTimeline = scroll-driven
@@ -279,6 +326,43 @@ function motionProbe() {
       } catch (_) {}
     }
     if (anims.length > 300) out.notes.push(`waapi: ${anims.length} animations, truncated to 300`);
+    // The recorded `Element.animate()` calls: the effects that are already gone
+    // from `getAnimations()`. A call the live list still names is skipped (the
+    // live entry carries the resolved values); only the vanished ones are added.
+    //
+    // The target is named by its IR key, not by a selector: Framer animates bare
+    // `<span>`s, whose selector is `span` — ambiguous, and the selector index
+    // answers `null` for it. The key is stamped onto the live element AFTER the
+    // page settled, and the recorded element is still the same object.
+    const called = (W.__motion && W.__motion.animations) || [];
+    const known = new Set(out.waapi.map((entry) => entry.target + '|' + entry.duration));
+    for (const call of called.slice(0, 300)) {
+      try {
+        const target = call.el ? sel(call.el) : undefined;
+        const irKey = call.el && call.el.getAttribute ? call.el.getAttribute('data-senify-ir-key') || undefined : undefined;
+        const duration = call.options && call.options.duration;
+        const ms = typeof duration === 'number' ? duration : undefined;
+        if (known.has(target + '|' + ms)) continue;
+        out.waapi.push({
+          type: 'animate',
+          target,
+          irKey,
+          appearId: call.el && call.el.getAttribute ? call.el.getAttribute('data-framer-appear-id') || undefined : undefined,
+          playState: 'recorded',
+          duration: ms,
+          delay: call.options && call.options.delay,
+          iterations: call.options && call.options.iterations,
+          easing: call.options && call.options.easing,
+          fill: call.options && call.options.fill,
+          // The keyframes VERBATIM, in whichever of the two platform forms the
+          // runtime used. A frame list stays a list; a property index
+          // (`{ opacity: [0.001, 1] }`, the form Framer writes) stays an object.
+          // The reader normalises both (`asFrameList`); converting here lost
+          // every start value of the recorded path.
+          keyframes: call.keyframes,
+        });
+      } catch (_) {}
+    }
   } catch (e) { out.notes.push('waapi probe error: ' + e.message); }
 
   /* ---- CSSOM: @keyframes, scroll-timelines, transitions on real elements ---- */

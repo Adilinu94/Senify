@@ -161,6 +161,12 @@ describe("css value grammar lets ordinary CSS through", () => {
     "radial-gradient(circle at 50% 0%, #fff, #000)",
     "conic-gradient(from 90deg, red, blue)",
     "cubic-bezier(0.4, 0, 0.2, 1)",
+    // The sampled form of a solved spring (CSS `linear()` easing). Framer hands
+    // its effects to the browser with exactly this curve — measured 26.10.2026:
+    // `linear(0, 0.0089, 0.0315, …)`. Without the function in the allow-list the
+    // easing of every imported spring was dropped by the value grammar.
+    "linear(0, 0.0089, 0.0315, 0.0628, 1)",
+    "linear(0, 1)",
     "steps(4, end)",
     "blur(4px)",
     "drop-shadow(0 2px 4px rgba(0, 0, 0, .3))",

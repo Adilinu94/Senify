@@ -250,7 +250,7 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     // NodeTree". Das ist eine Ueberschrift, kein Grund.
     //
     // Fuer `capture-html.ts` wurde der Schnitt VERSUCHT und verworfen: der
-    // CSS-Block (726 Zeilen, 21 Funktionen) ist keine Senke, weil
+    // CSS-Block (838 Zeilen, 24 Funktionen) ist keine Senke, weil
     // `applyClassRules` den Baum liest und neun interne Helfer braucht.
     //
     // Die Zahlen in der Begruendung sind pruefbar, also werden sie geprueft.
@@ -259,17 +259,19 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
 
     const funktionen = (text: string): number => (text.match(/^(?:export )?(?:async )?function /gm) ?? []).length;
     expect(funktionen(capture), "capture-html.ts hat eine andere Zahl Funktionen").toBe(68);
-    expect(funktionen(mapper), "mapper.ts hat eine andere Zahl Funktionen").toBe(54);
+    // 55 since 26.10.2026: `attachMotionClasses` puts the class of a measured
+  // word effect into the inline markup (a word span has no node of its own).
+  expect(funktionen(mapper), "mapper.ts hat eine andere Zahl Funktionen").toBe(55);
 
     // Der CSS-Block: Z1902-2627 im Kommentar. Geprueft wird, dass er noch dort
     // liegt - verschiebt jemand die Datei, ist die Begruendung falsch.
     const zeilen = capture.split(/\r?\n/);
-    expect(zeilen[1901], "der CSS-Block beginnt nicht mehr in Z1902").toContain("order` is the rule's position");
-    expect(zeilen[2626], "der CSS-Block endet nicht mehr in Z2627").toBe("}");
+    expect(zeilen[1939], "der CSS-Block beginnt nicht mehr in Z1940").toContain("order` is the rule's position");
+    expect(zeilen[2776], "der CSS-Block endet nicht mehr in Z2777").toBe("}");
 
     // Und die Begruendung muss die Zahlen tragen, die sie behauptet.
-    expect(module).toContain("726 Zeilen, 21 Funktionen");
-    expect(module).toContain("54 Funktionen");
+    expect(module).toContain("838 Zeilen, 24 Funktionen");
+    expect(module).toContain("55 Funktionen");
     expect(module).toContain("289 Zeilen");
   });
 

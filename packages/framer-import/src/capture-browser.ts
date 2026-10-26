@@ -233,20 +233,125 @@ function scrollDelta(
 
 /* ------------------------------------------------------- motion samples */
 
+// The start values of a WAAPI animation, read from its own keyframes: a
+// `from { opacity: 0; transform: translateY(30px) }` becomes
+// `fromOpacity: 0, fromY: 30`. Without them the mapper cannot place the effect
+// on a preset — the same reason the appear channel carries `fromY` and friends.
+// The END values come from the last keyframe, so a `fill: both` animation that
+// is measured mid-flight still describes the whole effect.
+//
+// The platform accepts TWO shapes and Framer uses the second one exclusively
+// (measured 26.10.2026 on `concerned-circumstances-187935`):
+//
+//   a) a frame LIST:      [{ opacity: 0.001 }, { opacity: 1 }]
+//   b) a property INDEX:  { opacity: [0.001, 1] }
+//
+// Reading only (a) made `Array.isArray(keyframes)` false for every Framer
+// effect, so all 14 recorded animations arrived without a start value and no
+// preset could be chosen. Both forms are normalised to a frame list first.
+const asFrameList = (keyframes: unknown): (Record<string, unknown> | null)[] => {
+  if (Array.isArray(keyframes)) {
+    return keyframes.length === 0 ? [] : (keyframes as (Record<string, unknown> | null)[]);
+  }
+  // Form (b): each property carries its own value list, all of the same length.
+  if (typeof keyframes !== "object" || keyframes === null) return [];
+  const byProperty = keyframes as Record<string, unknown>;
+  let frames = 0;
+  for (const value of Object.values(byProperty)) {
+    if (Array.isArray(value)) frames = Math.max(frames, value.length);
+  }
+  if (frames === 0) {
+    // A single object (`{ opacity: 0 }`, no list) is ONE frame: the shorthand
+    // for "this is the only keyframe" (measured on Framer's container reset).
+    return [byProperty];
+  }
+  const list: Record<string, unknown>[] = [];
+  for (let index = 0; index < frames; index += 1) {
+    const frame: Record<string, unknown> = {};
+    for (const [property, value] of Object.entries(byProperty)) {
+      frame[property] = Array.isArray(value) ? value[index] : value;
+    }
+    list.push(frame);
+  }
+  return list;
+};
+
+function startValuesOf(keyframes: unknown): Record<string, number> {
+  const frames = asFrameList(keyframes);
+  if (frames.length === 0) return {};
+  const first = frames[0] ?? null;
+  const last = frames[frames.length - 1] ?? null;
+  if (first === null) return {};
+  const out: Record<string, number> = {};
+  const opacity = first["opacity"];
+  if (typeof opacity === "string" || typeof opacity === "number") {
+    const parsed = Number.parseFloat(String(opacity));
+    if (Number.isFinite(parsed)) out["fromOpacity"] = parsed;
+  }
+  // `translate`, `translate3d` AND the axis forms `translateX` / `translateY`:
+  // Framer writes `translateY(28px)`, and a pattern that only knew the
+  // two-argument forms read every vertical offset as 0 — the start value was
+  // there, the reader missed it.
+  const readTransform = (source: string): { x: number; y: number; scale: number } => {
+    const px = "(-?[\\d.]+)px";
+    const both = new RegExp(`translate\\(\\s*${px}(?:[,\\s]+${px})?`).exec(source);
+    const xOnly = new RegExp(`translateX\\(\\s*${px}`).exec(source);
+    const yOnly = new RegExp(`translateY\\(\\s*${px}`).exec(source);
+    const scale = /scale\(\s*(-?[\d.]+)/.exec(source);
+    const num = (match: RegExpExecArray | null, group = 1): number =>
+      match === null ? 0 : Number.parseFloat(match[group] ?? "0");
+    return {
+      x: both !== null ? num(both) : num(xOnly),
+      y: both !== null ? num(both, 2) : num(yOnly),
+      scale: scale === null ? 1 : Number.parseFloat(scale[1] ?? "1"),
+    };
+  };
+  const transform = typeof first["transform"] === "string" ? first["transform"] : "";
+  const from = readTransform(transform);
+  if (transform !== "") {
+    out["fromX"] = from.x;
+    out["fromY"] = from.y;
+    out["fromScale"] = from.scale;
+  }
+  const lastTransform = typeof last?.["transform"] === "string" ? last["transform"] : "";
+  const to = readTransform(lastTransform);
+  if (lastTransform !== "") {
+    out["toX"] = to.x;
+    out["toY"] = to.y;
+    out["toScale"] = to.scale;
+  }
+  const lastOpacity = last?.["opacity"];
+  if (typeof lastOpacity === "string" || typeof lastOpacity === "number") {
+    const parsed = Number.parseFloat(String(lastOpacity));
+    if (Number.isFinite(parsed)) out["toOpacity"] = parsed;
+  }
+  return out;
+}
+
 // The WAAPI inventory of a settled page, read as SUPPLEMENT to the appear JSON
 // (`captureHtml` already turns `__framer__appearAnimationsContent` into
-// `trigger: "appear"` samples with their start values). Measuring the live page
-// showed that both channels describe the SAME effects: 2/5/23 appear entries in
-// the JSON, 2/5/23 distinct `data-framer-appear-id` targets in the browser, and
-// no target the JSON does not name (22.10.2026, all three export fixtures).
+// `trigger: "appear"` samples with their start values).
 //
-// A WAAPI entry therefore only becomes a sample when it is a LOOP (the ticker
-// form: `iterations: null`, measured in S0/befund §4) or a scroll-driven
-// timeline - the two forms the static channels cannot see. Everything else is
-// the appearance the JSON already carries in comparable form; reporting it a
-// second time, as a bare opacity/transform pair without start values, made the
-// mapper drop effects it had just mapped.
-function samplesOfProbe(probe: Record<string, unknown>, keyOf: (target: unknown) => string | null): IrMotionSample[] {
+// A WAAPI entry is a DUPLICATE of what the JSON carries — but only when its
+// target really is one the JSON describes. Measured 22.10.2026 on the three
+// export fixtures: 2/5/23 appear entries, 2/5/23 distinct
+// `data-framer-appear-id` targets, no target the JSON did not name. Read as a
+// blanket rule ("everything but loops and scroll timelines is already in the
+// JSON"), it threw away real motion on a page whose appear channel is EMPTY:
+// `concerned-circumstances-187935` has 10 running WAAPI animations (400 ms, one
+// 447.8 ms), no `__framer__appearAnimationsContent` content at all, and the
+// import reported `motion: 0`. The motion existed; the import could not see it.
+//
+// The rule is therefore made checkable instead of assumed: an entry is a
+// duplicate only when its target carries a `data-framer-appear-id` that the
+// appear JSON lists (`appearTargets`). Everything else — a loop, a
+// scroll-driven timeline, or an animation whose target the JSON does not name —
+// is a sample of its own, and the browser is its only source.
+function samplesOfProbe(
+  probe: Record<string, unknown>,
+  keyOf: (target: unknown) => string | null,
+  appearTargets: ReadonlySet<string>,
+): IrMotionSample[] {
   const samples: IrMotionSample[] = [];
   const waapi = Array.isArray(probe.waapi) ? (probe.waapi as Record<string, unknown>[]) : [];
   for (const entry of waapi) {
@@ -254,11 +359,21 @@ function samplesOfProbe(probe: Record<string, unknown>, keyOf: (target: unknown)
     const isLoop = iterations === Infinity || iterations === "Infinity" || iterations === null;
     const scrollDriven =
       typeof entry.timeline === "string" && /ScrollTimeline|ViewTimeline/.test(entry.timeline);
-    if (!isLoop && !scrollDriven) continue;
+    // The target's appear id, when the probe could read it. `target` is the
+    // stamped selector string (`senifyStampKeys`), not the element, so the id
+    // travels in its own field (`appearIdOf` in the probe).
+    const appearId = typeof entry.appearId === "string" ? entry.appearId : null;
+    const alreadyInJson = appearId !== null && appearTargets.has(appearId);
+    // A loop or a scroll-driven timeline is never in the JSON (it describes
+    // appearance only) — it stays, as before.
+    if (!isLoop && !scrollDriven && alreadyInJson) continue;
+    // The recorded `Element.animate()` calls carry the IR key directly (their
+    // selector is often just `span` and thus ambiguous). Prefer it.
+    const irKey = typeof entry.irKey === "string" ? entry.irKey : null;
     samples.push({
-      nodeKey: keyOf(entry.target),
+      nodeKey: irKey ?? keyOf(entry.target),
       library: "waapi",
-      trigger: isLoop ? "time" : "scroll",
+      trigger: isLoop ? "time" : scrollDriven ? "scroll" : "appear",
       params: {
         duration: typeof entry.duration === "number" ? entry.duration : 0,
         // `getTiming().duration` is milliseconds (the platform unit). The field
@@ -266,8 +381,20 @@ function samplesOfProbe(probe: Record<string, unknown>, keyOf: (target: unknown)
         durationUnit: "ms",
         iterations: isLoop ? "endless" : String(iterations ?? "1"),
         ...(typeof entry.name === "string" ? { name: entry.name } : {}),
+        // The stagger of a word cascade sits in the DELAY (measured: 50, 100,
+        // 150 … 700 ms in 50-ms steps). Dropping it made every word of a
+        // headline start at once — the effect was there, the offset was not.
+        ...(typeof entry.delay === "number" && entry.delay > 0 ? { delay: entry.delay } : {}),
+        // The easing Framer hands the browser is already a finished CSS curve
+        // (`cubic-bezier(… )` or the sampled `linear(0, …)` of a solved spring).
+        // Carried verbatim: re-deriving it would guess at what was measured.
+        ...(typeof entry.easing === "string" && entry.easing !== "" ? { easing: entry.easing } : {}),
+        // The start values of the animation, read from its keyframes: without
+        // them the mapper cannot put the effect on a preset (the same reason the
+        // appear channel carries `fromY` and friends).
+        ...startValuesOf(entry.keyframes),
       },
-      raw: JSON.stringify({ name: entry.name, duration: entry.duration, iterations: entry.iterations }),
+      raw: JSON.stringify({ name: entry.name, duration: entry.duration, iterations: entry.iterations, appearId }),
     });
   }
   const io = Array.isArray(probe.intersectionObservers)
@@ -353,6 +480,25 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
       await page.addStyleTag({ content: FREEZE_CSS }).catch(() => undefined);
     }
 
+    // The WAAPI inventory is taken HERE, right after `load` and before the
+    // settle pass. Framer removes its animations when they finish (`getAnimations`
+    // is empty afterwards): measured on `concerned-circumstances-187935`,
+    // 11 running at 0 ms, 2 at 450 ms, 0 at 1500 ms — the settle pass alone
+    // made the page look motionless. The probe is read again after the settle
+    // pass (loops, scroll timelines), and the early inventory is merged in.
+    let earlyWaapi: Record<string, unknown>[] = [];
+    if (input.motion === "live") {
+      try {
+        const early = (await page.evaluate(
+          "JSON.parse(JSON.stringify((window.motionProbe && window.motionProbe()) || {}))",
+        )) as Record<string, unknown>;
+        earlyWaapi = Array.isArray(early.waapi) ? (early.waapi as Record<string, unknown>[]) : [];
+      } catch {
+        // A page whose runtime broke the probe still gets the settled reading.
+        earlyWaapi = [];
+      }
+    }
+
     // The IR keys are stamped onto the LIVE tree first: the ordinals only match
     // when the tree is the one `captureHtml` will read moments later, so the
     // stamp happens after the page settled (JS-built content included) and is
@@ -413,7 +559,39 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
     const libraries = (probe.libraries ?? {}) as Record<string, unknown>;
 
     const moved = scrollDelta(scrollBefore, scrollAfter);
-    const samples = samplesOfProbe(probe, keyOf);
+    // The appear ids the page's JSON really describes. The browser probe is only
+    // then a duplicate source for them; a target the JSON does not name has no
+    // other channel, and the browser is its only one.
+    const appearTargets = new Set<string>();
+    {
+      const block = /<script[^>]*id="__framer__appearAnimationsContent"[^>]*>([\s\S]*?)<\/script>/.exec(ssrHtml)?.[1];
+      if (block !== undefined && block.trim() !== "") {
+        try {
+          const parsed: unknown = JSON.parse(block);
+          if (typeof parsed === "object" && parsed !== null) {
+            for (const id of Object.keys(parsed as Record<string, unknown>)) appearTargets.add(id);
+          }
+        } catch {
+          // A malformed channel describes nothing: the browser becomes the only
+          // source, which is the safe direction.
+        }
+      }
+    }
+    const samples = samplesOfProbe(probe, keyOf, appearTargets);
+    // The inventory of the moment right after `load`: animations the runtime
+    // removes once they finish. Read before the settle pass, joined here — the
+    // appears the probe saw later are filtered by `appearTargets` exactly like
+    // their late twins.
+    if (earlyWaapi.length > 0) {
+      const early = samplesOfProbe({ waapi: earlyWaapi }, keyOf, appearTargets);
+      const have = new Set(samples.map((sample) => `${sample.nodeKey ?? ""}|${sample.trigger}|${sample.library}|${String(sample.params["name"] ?? "")}`));
+      for (const sample of early) {
+        const id = `${sample.nodeKey ?? ""}|${sample.trigger}|${sample.library}|${String(sample.params["name"] ?? "")}`;
+        if (have.has(id)) continue;
+        have.add(id);
+        samples.push(sample);
+      }
+    }
     for (const entry of moved.slice(0, 20)) {
       samples.push({
         nodeKey: entry.key,
