@@ -87,3 +87,6 @@ packages/app/dist/
 /_messung/
 /_messung-*/
 _preview/
+
+# Commit-Nachrichten (temporaer)
+.scratch/commit-*.txt
