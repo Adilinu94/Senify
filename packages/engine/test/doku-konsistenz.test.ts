@@ -243,6 +243,36 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     expect(verletzungen.slice(0, 5)).toEqual([]);
   });
 
+  it("begruendet die zwei Framer-Dateien mit der gemessenen Zahl", () => {
+    // Der Befund vom 26.10.2026: `capture-html.ts` (2 726) und `mapper.ts`
+    // (1 819) sind die zwei groessten Dateien im Baum, und ihre Begruendung
+    // sagte nur "der HTML-Capture des Imports" bzw. "die Abbildung Framer nach
+    // NodeTree". Das ist eine Ueberschrift, kein Grund.
+    //
+    // Fuer `capture-html.ts` wurde der Schnitt VERSUCHT und verworfen: der
+    // CSS-Block (726 Zeilen, 21 Funktionen) ist keine Senke, weil
+    // `applyClassRules` den Baum liest und neun interne Helfer braucht.
+    //
+    // Die Zahlen in der Begruendung sind pruefbar, also werden sie geprueft.
+    const capture = readFileSync(join(root, "packages/framer-import/src/capture-html.ts"), "utf8");
+    const mapper = readFileSync(join(root, "packages/framer-import/src/mapper.ts"), "utf8");
+
+    const funktionen = (text: string): number => (text.match(/^(?:export )?(?:async )?function /gm) ?? []).length;
+    expect(funktionen(capture), "capture-html.ts hat eine andere Zahl Funktionen").toBe(68);
+    expect(funktionen(mapper), "mapper.ts hat eine andere Zahl Funktionen").toBe(54);
+
+    // Der CSS-Block: Z1902-2627 im Kommentar. Geprueft wird, dass er noch dort
+    // liegt - verschiebt jemand die Datei, ist die Begruendung falsch.
+    const zeilen = capture.split(/\r?\n/);
+    expect(zeilen[1901], "der CSS-Block beginnt nicht mehr in Z1902").toContain("order` is the rule's position");
+    expect(zeilen[2626], "der CSS-Block endet nicht mehr in Z2627").toBe("}");
+
+    // Und die Begruendung muss die Zahlen tragen, die sie behauptet.
+    expect(module).toContain("726 Zeilen, 21 Funktionen");
+    expect(module).toContain("54 Funktionen");
+    expect(module).toContain("289 Zeilen");
+  });
+
   it("begruendet den Inspektor mit der gemessenen Zahl", () => {    // Der Befund vom 26.10.2026: `inspector.ts` war mit 1 884 Zeilen die
     // drittgroesste Datei, und die Begruendung sagte nur "eine Closure". Das
     // ist wahr, aber es sagt nicht, ob die Closure teilbar waere. Die
