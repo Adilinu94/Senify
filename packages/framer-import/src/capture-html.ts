@@ -1633,6 +1633,31 @@ function isDerivedReveal(initial: Record<string, string>): boolean {
   return moves || (Number.isFinite(blur) && blur > 0.5);
 }
 
+// A "Page Loader" is the opposite of a reveal: Framer shows it while the page
+// builds and fades it OUT afterwards. Read as a reveal it plays backwards — the
+// overlay that should disappear is animated to `opacity:1` and covers the whole
+// page for good. Measured on `rare-works`: the loader is `position: fixed`, 1440
+// × 900, `z-index: 10`, and the source leaves it at `opacity: 0`; our baked page
+// showed a white splash over the hero.
+//
+// The tell is its own name: Framer labels the element `Page Loader`. A start
+// state that carries the word is not a reveal.
+const LOADER_NAME = /page[\s_-]*loader|loader|splash/i;
+
+function isLoader(node: IrNode): boolean {
+  const name = node.name ?? "";
+  if (LOADER_NAME.test(name)) return true;
+  // A start state on a FIXED element that sits above the page is the same shape,
+  // even when the name is missing. The position travels in the node's `box`
+  // (the capture reads it there), the `z-index` in the visual.
+  const initial = node.appearInitial;
+  if (initial === undefined) return false;
+  // The position and the stacking travel in the node's `box` (the capture reads
+  // `position`/`inset`/`z-index` there).
+  const box = node.states[0]?.box;
+  return (box?.position ?? "") === "fixed" && box?.zIndex !== undefined;
+}
+
 // The inline start state of an element, read as the state an animation begins
 // from. Only the properties a reveal can express are taken; the rest of the
 // inline style is the look and stays where it is.
@@ -1722,7 +1747,14 @@ function deriveAppearFromStartState(html: string, root: IrNode): IrAppearSpec[] 
   let counter = 0;
   const walk = (node: IrNode, parent: IrNode | undefined): void => {
     const initial = node.appearInitial;
-    if (initial !== undefined && isDerivedReveal(initial) && (node.appearId === null || !covered.has(node.appearId))) {
+    // A loader is not a reveal: it fades OUT. Read as one it plays backwards and
+    // covers the page (measured: 1440 × 900, `position: fixed`, `z-index: 10`).
+    if (node.appearInitial !== undefined && isLoader(node)) {
+      // Its start state was the VISIBLE one; the resting state is hidden. The
+      // element keeps the hidden state it already carries in its own CSS and
+      // gets no animation at all.
+      delete node.appearInitial;
+    } else if (initial !== undefined && isDerivedReveal(initial) && (node.appearId === null || !covered.has(node.appearId))) {
       const state = parseStartState(initial);
       if (state !== undefined) {
         // An element the source marked keeps its own id (the report counts the
