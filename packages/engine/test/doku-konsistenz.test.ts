@@ -258,20 +258,32 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     const mapper = readFileSync(join(root, "packages/framer-import/src/mapper.ts"), "utf8");
 
     const funktionen = (text: string): number => (text.match(/^(?:export )?(?:async )?function /gm) ?? []).length;
-    expect(funktionen(capture), "capture-html.ts hat eine andere Zahl Funktionen").toBe(68);
+    // 69 seit dem 26.10.2026: der Commit 539b533 ("Der Page Loader ist keine
+    // Einblendung") hat eine Funktion ergaenzt.
+    expect(funktionen(capture), "capture-html.ts hat eine andere Zahl Funktionen").toBe(69);
     // 57 seit dem 26.10.2026: der fremde Commit 7a5b838 (Browser-Abgriff der
     // Animationen) hat drei Funktionen ergaenzt. Der Waechter hat es sofort
     // gemeldet - genau dafuer steht er hier. Der Bericht nennt dieselbe Zahl.
     expect(funktionen(mapper), "mapper.ts hat eine andere Zahl Funktionen").toBe(57);
 
-    // Der CSS-Block: Z1902-2627 im Kommentar. Geprueft wird, dass er noch dort
-    // liegt - verschiebt jemand die Datei, ist die Begruendung falsch.
-    const zeilen = capture.split(/\r?\n/);
-    expect(zeilen[1901], "der CSS-Block beginnt nicht mehr in Z1902").toContain("order` is the rule's position");
-    expect(zeilen[2626], "der CSS-Block endet nicht mehr in Z2627").toBe("}");
+    // Der CSS-Block wird ueber ANKER geprueft, nicht ueber Zeilennummern.
+    //
+    // Der erste Anlauf pruefte `zeilen[1901]` und `zeilen[2626]`. Zwei fremde
+    // Commits (7a5b838, 539b533) haben die Datei um 32 Zeilen verschoben - der
+    // Test wurde rot, obwohl die Aussage ("der Block ist da und hat 21
+    // Funktionen") stimmte. Ein Waechter, der bei jeder fremden Aenderung rot
+    // wird, wird abgeschaltet statt gelesen.
+    const captureZeilen = capture.split(/\r?\n/);
+    const start = captureZeilen.findIndex((z) => z.includes("order` is the rule"));
+    expect(start, "der CSS-Block beginnt nicht mehr mit seinem Kommentar").toBeGreaterThan(0);
+    const ende = captureZeilen.findIndex((z, i) => i > start && z.startsWith("function isLoopEntry("));
+    expect(ende, "hinter dem CSS-Block fehlt `isLoopEntry`").toBeGreaterThan(start);
+    const block = captureZeilen.slice(start, ende);
+    const imBlock = block.filter((z) => /^(?:export )?(?:async )?function /.test(z)).length;
+    expect(imBlock, "der CSS-Block hat eine andere Zahl Funktionen als die Begruendung nennt").toBe(21);
 
     // Und die Begruendung muss die Zahlen tragen, die sie behauptet.
-    expect(module).toContain("726 Zeilen, 21 Funktionen");
+    expect(module).toContain("(21 Funktionen)");
     expect(module).toContain("57 Funktionen");
     // `mapNode` ist mit der Datei gewachsen (289 -> 336).
     expect(module).toContain("336 Zeilen");
