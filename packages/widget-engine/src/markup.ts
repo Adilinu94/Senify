@@ -542,18 +542,24 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
       // A carrier that stands for the whole page (the Framer runtime): the
       // release renders it instead of the structure.
       const coversPage = props["coversPage"] === true;
+      // ADR-0026: the way back to the structure tree. A switched-off carrier
+      // must not mount and must not contribute a pixel. It is `off` from the
+      // bake on, and it draws neither poster nor stage — the lazy poster alone
+      // grew the page by 1.080 px while scrolling.
+      const active = props["active"] !== false;
       return {
         tag: "div",
         classes: [primitiveClass("payload")],
         attrs: {
-          "data-island": hasPayload ? "payload" : undefined,
+          "data-island": hasPayload && active ? "payload" : undefined,
           "data-payload-id": hasPayload ? payloadId : undefined,
           "data-payload-poster": hasPoster ? "1" : "0",
-          "data-payload-covers-page": coversPage ? "1" : undefined,
+          "data-payload-covers-page": coversPage && active ? "1" : undefined,
           // Without a payload the plate *is* the rendering (nothing to fall
           // back from). With one the stage waits for the module: the poster
-          // stands until it mounted, the plate only if the load failed.
-          "data-payload-state": hasPayload ? "pending" : "plate",
+          // stands until it mounted, the plate only if the load failed. An
+          // inactive carrier says `off` and stays out of the layout.
+          "data-payload-state": !active ? "off" : hasPayload ? "pending" : "plate",
           role: "group",
           "aria-label": label !== "" ? label : alt !== "" ? alt : "Fremd-Code",
         },
@@ -563,8 +569,9 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
           // structure stands (see `renderTreeOf`). A plate under a complete page
           // would only add height (measured +96 px) and a label nobody needs.
           // The poster and the stage stay: the poster is the first fallback of
-          // ADR-0010 §7, the stage is where the module mounts.
-          ...(hasPoster
+          // ADR-0010 §7, the stage is where the module mounts. An inactive
+          // carrier draws neither (ADR-0026).
+          ...(hasPoster && active
             ? [
                 {
                   tag: "img",
@@ -573,11 +580,15 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
                 },
               ]
             : []),
-          {
-            tag: "div",
-            classes: [modifier("payload", "stage")],
-            attrs: { "data-payload-stage": "" },
-          },
+          ...(active
+            ? [
+                {
+                  tag: "div",
+                  classes: [modifier("payload", "stage")],
+                  attrs: { "data-payload-stage": "" },
+                },
+              ]
+            : []),
           ...(!coversPage
             ? [
                 {
@@ -737,6 +748,13 @@ const PART_RESET: Readonly<Record<string, readonly string[]>> = {
   ".w-payload--poster": ["display: block;", "width: 100%;", "height: auto;"],
   '.w-payload[data-payload-state="mounted"] .w-payload--poster': ["display: none;"],
   '.w-payload[data-payload-state="plate"] .w-payload--poster': ["display: none;"],
+  // A carrier that is switched OFF (ADR-0026: the author wants the editable
+  // structure tree) must contribute nothing at all. Measured on `rare-works`:
+  // the poster is a lazy <img> without a height, the page was 17.508 px, and at
+  // scrollY 17.000 the poster loaded and grew to 1.080 px. The carrier started
+  // at 0 px and ended at 1.080 px — the page grew by exactly that. The switch
+  // now takes the whole carrier out of the flow, poster included.
+  '.w-payload[data-payload-state="off"]': ["display: none;"],
   ".w-payload--stage": ["display: block;"],
   ".w-payload--plate": ["display: none;"],
   '.w-payload[data-payload-state="plate"] .w-payload--plate': ["display: block;"],

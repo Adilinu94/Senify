@@ -63,9 +63,59 @@ für das, was nur er kann (Lenis, three.js, Scroll-Choreografie, Canvas). Konkre
    Schalter `coversPage` ist der Weg, den Baum zu sehen — und der Baum ist jetzt eine Seite,
    die man zeigen kann, keine Baustelle.
 
-**Was das nicht löst.** Der Baum trägt weiterhin **keine** Bewegung: keine Scroll-Choreografie,
-kein Lenis, kein three.js. Wer den Payload abschaltet, bekommt eine **stehende** Seite, die
-richtig aussieht. Das ist der bewusste Preis und der Grund, warum der Payload Standard bleibt.
+**Zweiter Fehler, der beim Messen auffiel: die Seite wuchs beim Scrollen.** Der Träger wuchs
+von 0 auf 17.508 px, sobald er in den Sichtbereich kam — die Seite stand **zweimal** (17.508 →
+35.016 px). Zwei Ursachen:
+
+1. `renderTreeOf` ersetzte den Baum durch den Träger, **egal ob er aktiv war** — der Baum war
+   weg, auch wenn man ihn sehen wollte. Der Aus-Zustand ist deshalb ein eigenes Feld `active`
+   (Steuerelement „Aktiv", Vorgabe an), nicht `coversPage`: das beschreibt weiterhin „Seite statt
+   Abschnitt". Ein inaktiver Träger fällt beim Backen aus dem Baum, und der Island-Code lädt ihn
+   nicht (`packages/renderer/src/bake.ts`, `motion.ts`).
+2. Danach blieb ein Zuwachs von 1.080 px: das **Poster** ist ein `loading="lazy"`-Bild ohne Höhe.
+   Beim Scrollen lud es nach und schob die Seite. Ein abgeschalteter Träger wird jetzt schon beim
+   Backen auf `off` gesetzt und ist `display: none` — er trägt nichts bei, auch kein Poster.
+
+Messung danach: beide Varianten **stabil bei 17.508 px** (vorher wuchs der Baum auf 35.016).
+
+**Der ehrliche Abstand — und ein Messfehler, der ihn verzerrte.** Ohne Payload sieht der Baum so
+nah aus wie der Import ihn bringt: **7,76 %** bei 1440 px, **7,96 %** bei 900 px und **7,55 %** bei
+390 px Pixel-Differenz, Höhen exakt (17.508 / 20.162 / 20.648 px), Streuung über zwei Läufe
+**0,00–0,03 pp**. Die früher hier genannten 14,62 % waren **falsch gemessen**, aus drei Gründen:
+
+1. Der Screenshot des Baums kam mit **Alpha 0** heraus, weil `global.css` keinen `body`-Hintergrund
+   setzte (`theme.css` deklariert nur Variablen, keine Regeln). Jeder Vergleich las damit eine
+   weiße Fläche gegen eine durchsichtige — `pixelmatch` zählt verschiedene Alpha-Werte als
+   Unterschied. Behoben in `packages/renderer/astro-template/src/styles/global.css`; Beleg
+   `packages/renderer/test/bake-ground.test.ts` (ohne den Fix rot).
+2. Die Quelle trägt ein **Framer-Editor-Badge** (`<iframe>`, `z-index` 2147483646) und einen
+   schwebenden Badge. Beides ist Werkzeug der Plattform, nicht die Seite, und wird jetzt auf beiden
+   Seiten entfernt, bevor gemessen wird.
+
+3. Die **erste** Messung direkt nach dem Start des Vorschau-Servers liest zu hoch: der Bake liefert
+   seine Dateien erst beim ersten Abruf aus, der erste Screenshot sieht eine halb geladene Seite
+   (gemessen: 10,34 % statt 7,76 %). Der Messbefehl verwirft deshalb eine Aufwärmrunde.
+
+Nach der Korrektur ist die Zahl über zwei Läufe stabil. Wer sie nachmisst, braucht alle drei
+Schritte — sonst misst er den Fehler statt der Seite. Der fertige Befehl steht in
+`_messung/messung.ts`.
+
+**Was das nicht löst — und was inzwischen doch geht.** Der Baum trug **keine** Bewegung: keine
+Scroll-Choreografie, kein Lenis, kein three.js. Der mittlere Teil davon ist inzwischen gebaut:
+**die Einblendungen des Baums selbst**. Gemessen an `rare-works`: 336 Elemente tragen einen
+Startzustand, nur **8** davon eine `data-framer-appear-id`. Die Ableitung lief bisher nur, wenn die
+Seite **gar keinen** Appear-Kanal hatte — diese Seite hat einen (für 8 Elemente), also wurde nichts
+abgeleitet und 328 Elemente blieben auf `opacity:0.001` stehen. Jetzt leitet der Import für jedes
+Element ohne Kanal-Eintrag ab, inklusive **Weichzeichner** (`blur(12px)→blur(0px)`, das ist die
+halbe Wort-Einblendung) und **Versatz** (50 ms zwischen gleichartigen Geschwistern, gemessen an der
+laufenden Seite). Ergebnis: **212 Keyframe-Regeln statt 10**, **209 Elemente mit laufender
+Animation statt 10**.
+
+Was der Baum weiterhin **nicht** trägt: Lenis, three.js, die scroll-gesteuerten Variantenwechsel der
+Quelle („Desktop Compact" ab Scroll, die Panels des Product Tour). Wer den Payload abschaltet,
+bekommt eine Seite, die richtig aussieht und ihre eigenen Einblendungen spielt — aber nicht die
+Scroll-Choreografie des Originals. Das ist der bewusste Preis und der Grund, warum der Payload
+Standard bleibt.
 
 **Grenze, die bleibt.** Zwei Quellen für eine Seite heissen zwei Wahrheiten. Wer im Baum ändert
 und den Payload stehen lässt, sieht seine Änderung nicht. Das ist keine Lücke, die man

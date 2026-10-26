@@ -185,4 +185,54 @@ describe("the page-level payload", () => {
     expect(html).toContain('class="w-payload--plate"');
     expect(html).toContain("Hero — der Fremd-Code ließ sich nicht laden");
   });
+
+  it("switches a carrier off — it must not load, not even its poster", async () => {
+    // ADR-0026: the way back to the structure tree. A switched-off carrier used
+    // to keep its poster and its stage, and the island mounted it anyway.
+    // Measured on `rare-works`: the page stood TWICE (17.508 → 35.016 px), and
+    // after the mount fix a lazy poster without a height still grew it by
+    // 1.080 px. So `active: false` means: no island, no poster, no stage.
+    const nodes: Record<string, Node> = {
+      root: { id: "root", type: "page", props: {}, children: ["structure", "carrier"] },
+      structure: { id: "structure", type: "text", props: { text: "Strukturtext" } },
+      carrier: {
+        id: "carrier",
+        type: "payload",
+        props: {
+          payloadId: "pay1",
+          label: "Original",
+          poster: { assetId: "asset-poster" },
+          coversPage: true,
+          active: false,
+        },
+      },
+    };
+    const result = await bakeSite(
+      {
+        siteName: "Musterstudio",
+        baseUrl: "https://beispiel.de",
+        pages: [{ id: "p1", path: "/", title: "Start", tree: { rootNodeId: "root", nodes } }],
+        themeCss: emitCss(resolved),
+        motionTokens: { ease: resolved.motion.ease, baseDurationMs: 300, baseStaggerMs: 80 },
+        assets: { "asset-poster": { src: "/assets/asset-poster/poster.png", width: 1200, height: 630 } },
+        payloads: { pay1: { code: PAYLOAD_CODE, integrity: INTEGRITY, bytes: PAYLOAD_CODE.length } },
+        aeo: false,
+      },
+      { outDir: mkdtempSync(join(tmpdir(), "senify-payload-off-")) },
+    );
+    baked.push(result);
+    const html = await loadBakedSite(result.outDir).read("index.html");
+    // The carrier says "off" from the start — the island never mounts it.
+    expect(html).toContain('data-payload-state="off"');
+    expect(html).not.toContain('data-payload-state="pending"');
+    // No island: nothing to mount.
+    expect(html).not.toContain('data-island="payload"');
+    // And it carries nothing that could grow the page: no poster element, no
+    // stage element. (The reset CSS still names both classes — that is style,
+    // not markup, and costs no height.)
+    expect(html).not.toMatch(/<img[^>]*w-payload--poster/);
+    expect(html).not.toMatch(/<div[^>]*w-payload--stage/);
+    // The structure stands.
+    expect(html).toContain("Strukturtext");
+  });
 });

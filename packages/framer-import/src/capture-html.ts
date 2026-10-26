@@ -1458,30 +1458,41 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
   // the SSR never describes. Before this finding those 51 elements moved from
   // "not captured" to "not mentioned", which is the silent failure U5 b names.
   const appearSpecs = readAppearSpecs(html);
-  // No channel: the inline start state is still half the effect. Derived
-  // reveals carry an ASSUMED duration, which the finding below states.
+  // The inline start state is the other half of the effect and is present far
+  // more often than the channel: on `rare-works` the channel names 8 ids while
+  // 328 further elements carry a start state. The channel wins for the ids it
+  // names (its timing is measured), the derivation fills the rest (its timing
+  // is an assumption the finding names).
   const derived = deriveAppearFromStartState(html, root);
-  const allSpecs = appearSpecs.length > 0 ? appearSpecs : derived;
+  const allSpecs = [...appearSpecs, ...derived];
   const markedIds: string[] = [];
   const collectMarked = (node: IrNode): void => {
     if (node.appearId !== null) markedIds.push(node.appearId);
     node.children.forEach(collectMarked);
   };
   collectMarked(root);
-  if (markedIds.length > 0 && appearSpecs.length === 0) {
+  if (derived.length > 0) {
     findings.push({
       kind: "unsupported-declaration",
       nodeKey: null,
       message:
-        derived.length > 0
-          ? `${markedIds.length} Element(e) tragen eine Framer-Appear-id ohne Appear-Kanal. Aus dem Startzustand im Inline-Stil sind ${derived.length} Einblendung(en) abgeleitet — die Bewegung stimmt, die Dauer ist eine Annahme (${DERIVED_DURATION} s), weil die Quelle sie nicht nennt.`
-          : `${markedIds.length} Element(e) tragen eine Framer-Appear-id, aber die Seite liefert weder einen Appear-Kanal noch einen lesbaren Startzustand — die Einblendung wird nicht nachgebaut.`,
-      evidence: markedIds.slice(0, 3).join(", "),
-      severity: derived.length > 0 ? "info" : "warn",
+        appearSpecs.length > 0
+          ? `${derived.length} weitere Einblendung(en) sind aus dem Startzustand im Inline-Stil abgeleitet, weil der Appear-Kanal sie nicht nennt — die Bewegung stimmt, die Dauer ist eine Annahme (${DERIVED_DURATION} s, Versatz ${DERIVED_STAGGER * 1000} ms zwischen gleichartigen Geschwistern), weil die Quelle sie nur im Browser nennt.`
+          : `${markedIds.length} Element(e) tragen eine Framer-Appear-id ohne Appear-Kanal. Aus dem Startzustand im Inline-Stil sind ${derived.length} Einblendung(en) abgeleitet — die Bewegung stimmt, die Dauer ist eine Annahme (${DERIVED_DURATION} s), weil die Quelle sie nicht nennt.`,
+      evidence: derived.slice(0, 3).map((spec) => spec.appearId).join(", "),
+      severity: "info",
       suggestion:
-        derived.length > 0
-          ? "Die Dauer im Editor prüfen und an die Quelle angleichen; die Bewegung (Versatz, Skalierung, Drehung) stammt aus dem Startzustand."
-          : "Den Effekt im Editor von Hand setzen oder die Seite über einen Mirror importieren, der den Kanal enthält. Die Elemente selbst bleiben sichtbar.",
+        "Die Dauer im Editor prüfen und an die Quelle angleichen; die Bewegung (Versatz, Skalierung, Drehung, Weichzeichner) stammt aus dem Startzustand.",
+    });
+  } else if (markedIds.length > 0 && appearSpecs.length === 0) {
+    findings.push({
+      kind: "unsupported-declaration",
+      nodeKey: null,
+      message: `${markedIds.length} Element(e) tragen eine Framer-Appear-id, aber die Seite liefert weder einen Appear-Kanal noch einen lesbaren Startzustand — die Einblendung wird nicht nachgebaut.`,
+      evidence: markedIds.slice(0, 3).join(", "),
+      severity: "warn",
+      suggestion:
+        "Den Effekt im Editor von Hand setzen oder die Seite über einen Mirror importieren, der den Kanal enthält. Die Elemente selbst bleiben sichtbar.",
     });
   }
 
@@ -1632,74 +1643,150 @@ function readAppearSpecs(html: string): IrAppearSpec[] {
 // finding rather than passed off as measured.
 const DERIVED_DURATION = 0.6;
 
-function deriveAppearFromStartState(html: string, root: IrNode): IrAppearSpec[] {
-  // Only when the channel is absent: with a channel, its values are the truth.
-  if (/<script[^>]*id="__framer__appearAnimationsContent"/.test(html)) return [];
-  const parseState = (declarations: Record<string, string>): IrAppearState | undefined => {
-    const opacity = Number.parseFloat(declarations["opacity"] ?? "");
-    const transform = declarations["transform"] ?? "";
-    const state: IrAppearState = {};
-    if (Number.isFinite(opacity)) state.opacity = opacity;
-    const numbers = (name: string): number[] =>
-      [...transform.matchAll(new RegExp(`${name}\\(([^)]*)\\)`, "g"))]
-        .map((match) => Number.parseFloat(match[1] ?? ""))
-        .filter((value) => Number.isFinite(value));
-    const translateX = numbers("translateX")[0];
-    const translateY = numbers("translateY")[0];
-    const scale = numbers("scale")[0];
-    const rotate = numbers("rotate")[0];
-    const rotateX = numbers("rotateX")[0];
-    const rotateY = numbers("rotateY")[0];
-    const perspective = numbers("perspective")[0];
-    if (translateX !== undefined && translateX !== 0) state.x = translateX;
-    if (translateY !== undefined && translateY !== 0) state.y = translateY;
-    if (scale !== undefined && scale !== 1) state.scale = scale;
-    if (rotate !== undefined && rotate !== 0) state.rotate = rotate;
-    if (rotateX !== undefined && rotateX !== 0) state.rotateX = rotateX;
-    if (rotateY !== undefined && rotateY !== 0) state.rotateY = rotateY;
-    if (perspective !== undefined && perspective !== 0) state.transformPerspective = perspective;
-    return Object.keys(state).length === 0 ? undefined : state;
+// The same derivation, but for an element the source never marked. Measured on
+// `rare-works` (25.10.2026): 336 nodes carry a start state, 328 of them WITHOUT
+// `data-framer-appear-id` — the words of the headlines (`blur(12px)` +
+// `translateY(28px)`, one per word, 50 ms apart) and the cards that slide in.
+// Only 8 were marked, so the previous rule derived 8 effects and left 328
+// elements frozen in their start state. What the browser runs is measurable
+// (WAAPI: 1000–1100 ms, 50 ms stagger, `blur(12px)→blur(0px)`), but it is not
+// in the server HTML; the derived effect therefore states its assumed timing.
+//
+// The stagger is the one number the page DOES imply: the words of one headline
+// stand as siblings, and Framer's own channel uses 50 ms. A group of siblings
+// with the same start state is read as one cascade, so the words do not all
+// arrive at once.
+const DERIVED_STAGGER = 0.05;
+
+// Which elements are a reveal at all. A plain `opacity:0` without a movement is
+// a DESIGNED hidden state (closed menu, collapsed answer, hover overlay) and is
+// never derived.
+function isDerivedReveal(initial: Record<string, string>): boolean {
+  const opacity = Number.parseFloat(initial["opacity"] ?? "1");
+  if (!Number.isFinite(opacity) || opacity > 0.01) return false;
+  const transform = (initial["transform"] ?? "").trim();
+  const blur = Number.parseFloat(/blur\(([\d.]+)px\)/.exec(initial["filter"] ?? "")?.[1] ?? "0");
+  const moves = transform !== "" && transform !== "none";
+  // A deblur alone is a reveal too: the word arrives out of focus, in place.
+  return moves || (Number.isFinite(blur) && blur > 0.5);
+}
+
+// The inline start state of an element, read as the state an animation begins
+// from. Only the properties a reveal can express are taken; the rest of the
+// inline style is the look and stays where it is.
+function parseStartState(declarations: Record<string, string>): IrAppearState | undefined {
+  const state: IrAppearState = {};
+  const opacity = Number.parseFloat(declarations["opacity"] ?? "");
+  if (Number.isFinite(opacity)) state.opacity = opacity;
+  const transform = declarations["transform"] ?? "";
+  const numbers = (name: string): number | undefined => {
+    // `translateX` must not match `translate3d`, and `scale` must not match
+    // `scaleX`: the regex is anchored on the exact function name.
+    const match = new RegExp(`(?:^|[\\s,(])${name}\\(([^)]*)\\)`).exec(transform);
+    if (match === null) return undefined;
+    const value = Number.parseFloat((match[1] ?? "").split(",")[0] ?? "");
+    return Number.isFinite(value) ? value : undefined;
   };
+  const translateX = numbers("translateX");
+  const translateY = numbers("translateY");
+  const scale = numbers("scale");
+  const rotate = numbers("rotate");
+  const rotateX = numbers("rotateX");
+  const rotateY = numbers("rotateY");
+  const perspective = numbers("perspective");
+  if (translateX !== undefined && translateX !== 0) state.x = translateX;
+  if (translateY !== undefined && translateY !== 0) state.y = translateY;
+  if (scale !== undefined && scale !== 1) state.scale = scale;
+  if (rotate !== undefined && rotate !== 0) state.rotate = rotate;
+  if (rotateX !== undefined && rotateX !== 0) state.rotateX = rotateX;
+  if (rotateY !== undefined && rotateY !== 0) state.rotateY = rotateY;
+  if (perspective !== undefined && perspective !== 0) state.transformPerspective = perspective;
+  const blur = Number.parseFloat(/blur\(([\d.]+)px\)/.exec(declarations["filter"] ?? "")?.[1] ?? "");
+  if (Number.isFinite(blur) && blur > 0.5) state.blur = blur;
+  return Object.keys(state).length === 0 ? undefined : state;
+}
+
+// The state the element comes to rest in: its own layout. A deblur ends at
+// `blur(0px)` — writing `undefined` would make the browser interpolate from
+// `blur(12px)` to `none`, which is a different (and in some engines a
+// non-interpolable) pair of values.
+function restStateOf(initial: IrAppearState, duration: number, delay = 0): IrAppearState & {
+  transition: IrAppearTransition;
+} {
+  return {
+    opacity: 1,
+    x: 0,
+    y: 0,
+    scale: 1,
+    rotate: 0,
+    rotateX: 0,
+    rotateY: 0,
+    skewX: 0,
+    skewY: 0,
+    ...(initial.blur === undefined ? {} : { blur: 0 }),
+    ...(initial.transformPerspective === undefined
+      ? {}
+      : { transformPerspective: initial.transformPerspective }),
+    transition: { type: "duration", duration, ...(delay === 0 ? {} : { delay }) },
+  };
+}
+
+// The same start state in sibling elements is one cascade, not N separate
+// effects: Framer writes the words of a headline as siblings that all carry the
+// same `opacity:0.001` and differ only in their text. The stagger is read from
+// the running page (50 ms on `rare-works`); with no sibling there is no delay.
+function staggerIndexOf(node: IrNode, parent: IrNode | undefined): number {
+  if (parent === undefined) return 0;
+  const signature = JSON.stringify(node.appearInitial ?? {});
+  if (signature === "{}") return 0;
+  let index = 0;
+  for (const sibling of parent.children) {
+    if (sibling === node) return index;
+    if (JSON.stringify(sibling.appearInitial ?? {}) === signature) index += 1;
+  }
+  return index;
+}
+
+function deriveAppearFromStartState(html: string, root: IrNode): IrAppearSpec[] {
+  // A channel, when present, is the truth for the elements it NAMES. It never
+  // names all of them: on `rare-works` the channel covers 8 ids while 328
+  // further elements carry a start state (the words of the headlines, the cards
+  // that slide in). Those used to be skipped together with the whole page, so
+  // the tree showed them frozen at `opacity:0.001`. Derivation now runs in both
+  // cases and only skips the ids the channel already describes.
+  const channel = readAppearSpecs(html);
+  const covered = new Set(channel.map((spec) => spec.appearId));
   const specs: IrAppearSpec[] = [];
-  const walk = (node: IrNode): void => {
-    if (node.appearId !== null && node.appearInitial !== undefined) {
-      const initial = parseState(node.appearInitial);
-      // A reveal is "invisible AND moved in": the element starts at an offset,
-      // a scale or a tilt and settles into its place. A plain `opacity:0` with
-      // no transform is a DESIGNED hidden state — the closed phone menu, a
-      // collapsed FAQ answer, an overlay waiting for hover. The capture already
-      // keeps those as the look; deriving an animation from them would fade a
-      // closed menu open on every page load.
-      const moves = initial !== undefined && Object.keys(initial).some((key) => key !== "opacity");
-      if (initial !== undefined && (initial.opacity ?? 1) <= 0.01 && moves) {
+  let counter = 0;
+  const walk = (node: IrNode, parent: IrNode | undefined): void => {
+    const initial = node.appearInitial;
+    if (initial !== undefined && isDerivedReveal(initial) && (node.appearId === null || !covered.has(node.appearId))) {
+      const state = parseStartState(initial);
+      if (state !== undefined) {
+        // An element the source marked keeps its own id (the report counts the
+        // marks). An unmarked one gets a derived id, so the compiled rule can
+        // find its node and the two kinds stay distinguishable.
+        let id = node.appearId;
+        if (id === null) {
+          counter += 1;
+          id = `derived-${counter}`;
+          node.derivedAppearId = id;
+        }
+        const stagger = DERIVED_STAGGER * staggerIndexOf(node, parent);
         specs.push({
-          appearId: node.appearId,
+          appearId: id,
           variants: {
             default: {
-              initial,
-              animate: {
-                opacity: 1,
-                x: 0,
-                y: 0,
-                scale: 1,
-                rotate: 0,
-                rotateX: 0,
-                rotateY: 0,
-                skewX: 0,
-                skewY: 0,
-                ...(initial.transformPerspective === undefined
-                  ? {}
-                  : { transformPerspective: initial.transformPerspective }),
-                transition: { type: "duration", duration: DERIVED_DURATION },
-              },
+              initial: state,
+              animate: restStateOf(state, DERIVED_DURATION, stagger),
             },
           },
         });
       }
     }
-    node.children.forEach(walk);
+    for (const child of node.children) walk(child, node);
   };
-  walk(root);
+  walk(root, undefined);
   return specs;
 }
 

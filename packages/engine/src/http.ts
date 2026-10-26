@@ -24,6 +24,9 @@ import type {
 } from "./types.ts";
 import type { AuthInfo, EngineContext, Route, RouteParams } from "./http-contract.ts";
 import { siteRoutes } from "./http-routes-sites.ts";
+import { siteAssetRoutes } from "./http-routes-site-assets.ts";
+import { siteReviewRoutes } from "./http-routes-site-reviews.ts";
+import { siteCodePayloadRoutes } from "./http-routes-site-code-payloads.ts";
 import { importRoutes } from "./http-routes-imports.ts";
 import { deployRoutes } from "./http-routes-deploy.ts";
 import { libraryRoutes } from "./http-routes-library.ts";
@@ -126,6 +129,16 @@ const ROUTES: Route[] = [
   ...opsRoutes,
   ...contentRoutes,
   ...siteRoutes,
+  // Direkt nach `siteRoutes`: die Asset-Routen standen bisher IN dieser
+  // Tabelle an genau dieser Stelle. Ein Modul weiter unten einzubinden
+  // wuerde die Reihenfolge aendern - und die entscheidet, welche Route bei
+  // zwei passenden Mustern gewinnt.
+  ...siteAssetRoutes,
+  // Ebenfalls direkt nach `siteRoutes`: Vorschauen und Reviews standen dort
+  // zwischen Bake-Jobs und Code-Payloads.
+  ...siteReviewRoutes,
+  // Code-Payloads standen in siteRoutes zwischen Bake-Jobs und Formularen.
+  ...siteCodePayloadRoutes,
   ...importRoutes,
   ...deployRoutes,
   ...libraryRoutes,

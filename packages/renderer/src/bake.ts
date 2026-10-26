@@ -203,6 +203,23 @@ export function renderTreeOf(
     if (node === undefined || node.type !== "payload") return false;
     return node.props["coversPage"] === true;
   });
+  // A switched-off carrier is the way back to the structure tree (ADR-0026).
+  // It must not replace the page even when its payload was delivered: measured
+  // on `rare-works`, the release carried ONLY the carrier, the structure was
+  // gone, and the page showed nothing but the carrier's 0 px. Dropping it here
+  // is what makes the switch work at all.
+  const inactive = pageCarriers.filter((id) => tree.nodes[id]?.props["active"] === false);
+  const structure = (children: readonly string[]): string[] =>
+    children.filter((id) => !inactive.includes(id));
+  if (inactive.length > 0) {
+    return {
+      rootNodeId: tree.rootNodeId,
+      nodes: {
+        ...tree.nodes,
+        [tree.rootNodeId]: { ...root, children: structure(root.children ?? []) },
+      },
+    };
+  }
   if (pageCarriers.length === 0) return tree;
   const delivered = pageCarriers.find((id) => {
     const payloadId = tree.nodes[id]?.props["payloadId"];

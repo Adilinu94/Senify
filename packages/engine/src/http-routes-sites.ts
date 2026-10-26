@@ -1,49 +1,41 @@
-// Die Routen einer Site jenseits des Lebenszyklus: Seiten, Bibliothek,
-// Inhalte (Sammlungen, Eintraege), Referenzen, Bilder, Code-Payloads,
-// Vorschauen, Reviews, Redesign und Betrieb (Audit, Formulare,
-// Benachrichtigungen, Deployments). Die Tabelle des Dispatchers in `http.ts`
-// nimmt sie unveraendert auf (ADR-0019).
+// Die verbleibenden Routen einer Site: Seiten, Audit, Releases, Bake-Jobs,
+// Formulare, Benachrichtigungen und Redesign. Die Tabelle des Dispatchers in
+// `http.ts` nimmt sie unveraendert auf (ADR-0019).
 //
-// Nicht mehr hier: der Lebenszyklus (`http-routes-site-lifecycle.ts`, Schritt
-// 60), der Framer-Import (`http-routes-imports.ts`, Schritt 61), Theme und
-// Style-Regeln (`http-routes-theme.ts`, Schritt 57), Assets
-// (`http-routes-assets.ts`, Schritt 53), Formulare
-// (`http-routes-formular.ts`, Schritt 54).
+// Nicht mehr hier - die zehn Schnitte, die diese Datei von 1 205 auf 270
+// Zeilen gebracht haben: Theme und Style-Regeln (`http-routes-theme.ts`,
+// Schritt 57), Formulare (`http-routes-formular.ts`, 54), Assets
+// (`http-routes-assets.ts`, 53), der Lebenszyklus
+// (`http-routes-site-lifecycle.ts`, 60), der Framer-Import
+// (`http-routes-imports.ts`, 61), Deployments (`http-routes-deploy.ts`, 62),
+// die Bibliothek (`http-routes-library.ts`, 63), Design-Records
+// (`http-routes-design.ts`, 64), Inhalte und Eintraege
+// (`http-routes-site-content.ts`, 65), Bilder (`http-routes-images.ts`, 66),
+// die Referenzen (`http-routes-site-references.ts`, 67), die Assets dieser
+// Site (`http-routes-site-assets.ts`, 68), Vorschauen und Reviews
+// (`http-routes-site-reviews.ts`, 69) sowie die Code-Payloads
+// (`http-routes-site-code-payloads.ts`, 70).
 //
-// Die Datei ist der groesste verbleibende Schnitt-Kandidat: die naechsten
-// Gruppen mit sauberer Fachgrenze sind Bilder + Import-Vorschau (kein
-// gemeinsamer Zustand) und Betrieb (Audit, Formulare, Benachrichtigungen -
-// vier lesende Routen ohne Schreibpfad).
+// Was bleibt, ist der Betrieb einer Site: Seiten, Audit, Releases, Bake-Jobs,
+// Formulare, Benachrichtigungen, Redesign. Der Betriebs-Block wurde als
+// Schnittkandidat GEPRUEFT und VERWORFEN: 2 von 6 Importen wandern mit, das
+// ist eine Sammelgruppe und kein Fachbereich. Die verbleibenden Routen haengen
+// an `lifecycle.ts`, `forms.ts` und den Store-Fassaden - also an dem, was sie
+// gerade lesen.
 
 import type { Route } from "./http-contract.ts";
-import { lifecycleContext, mediaContext, resolveAuthor, withIdempotency, readJsonBody, applyMutationsToPage, requireParam, limitParam } from "./http-route-support.ts";
+import { lifecycleContext, resolveAuthor, withIdempotency, readJsonBody, applyMutationsToPage, requireParam, limitParam } from "./http-route-support.ts";
 import { SenifyError } from "@senify/core";
 import { paginate, parsePaging } from "./paging.ts";
 import { CreatePageBodySchema, parseBody, type CreatePageBody } from "./mutations/contract.ts";
+import { publishRelease } from "./lifecycle.ts";
 import {
-  createPreview,
-  expirePreviews,
-  publishRelease,
-  submitReview,
-} from "./lifecycle.ts";
-import {
-  CreatePreviewBodySchema,
   PublishReleaseBodySchema,
-  SubmitReviewBodySchema,
-  type CreatePreviewBody,
   type PublishReleaseBody,
-  type SubmitReviewBody,
 } from "./lifecycle-contract.ts";
 import { listSiteForms } from "./forms.ts";
 import { ApplyRedesignBodySchema, type ApplyRedesignBody } from "./references-contract.ts";
 import { applyRedesign } from "./apply-redesign.ts";
-import {
-  CreateCodePayloadBodySchema,
-  type CreateCodePayloadBody,
-} from "./code-payloads-contract.ts";
-import { createCodePayload } from "./code-payloads.ts";
-import { createUploadTicket, parseAssetListFilters, queryAssets, UploadUrlBodySchema, type UploadUrlBody } from "./media.ts";
-import { REVIEW_STATUSES, type ReviewStatus } from "./types.ts";
 import { pageStarterById } from "./page-starters.ts";
 
 export const siteRoutes: Route[] = [
@@ -206,189 +198,6 @@ export const siteRoutes: Route[] = [
       return {
         status: 200,
         body: { jobs: page.items, ...page, items: undefined },
-      };
-    },
-  },
-
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "previews"],
-    scope: "write",
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<CreatePreviewBody>(
-        CreatePreviewBodySchema,
-        body,
-        "preview",
-      );
-      const preview = await createPreview(lifecycleContext(context), {
-        siteId,
-        author: resolveAuthor(auth),
-        ttlDays: input.ttlDays,
-      });
-      return {
-        status: 201,
-        body: {
-          preview,
-          url: `/api/previews/${preview.id}/files/index.html?token=${preview.token}`,
-        },
-      };
-    },
-  },
-
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "previews"],
-    scope: "read",
-    handler: async (context, params) => {
-      const siteId = requireParam(params, "siteId");
-      const expired = await expirePreviews(lifecycleContext(context), siteId);
-      return {
-        status: 200,
-        body: {
-          previews: await context.store.listPreviews(siteId),
-          expired,
-        },
-      };
-    },
-  },
-
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "reviews"],
-    scope: "write",
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<SubmitReviewBody>(
-        SubmitReviewBodySchema,
-        body,
-        "review",
-      );
-      const result = await submitReview(lifecycleContext(context), {
-        siteId,
-        author: resolveAuthor(auth),
-        note: input.note ?? null,
-        pageIds: input.pageIds,
-      });
-      return {
-        status: 201,
-        body: {
-          review: result.review,
-          preview: result.preview,
-          checks: result.checks,
-        },
-      };
-    },
-  },
-
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "reviews"],
-    scope: "read",
-    handler: async (context, params, _req, url) => {
-      const siteId = requireParam(params, "siteId");
-      const statusParam = url.searchParams.get("status");
-      if (statusParam !== null && !REVIEW_STATUSES.includes(statusParam as ReviewStatus)) {
-        throw new SenifyError("validation", `Unknown review status "${statusParam}"`, {
-          field: "status",
-          suggestion: `Use one of: ${REVIEW_STATUSES.join(", ")}.`,
-        });
-      }
-      return {
-        status: 200,
-        body: {
-          reviews: await context.store.listReviewItems(siteId, {
-            ...(statusParam === null
-              ? {}
-              : { status: statusParam as ReviewStatus }),
-          }),
-        },
-      };
-    },
-  },
-
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "assets", "upload-url"],
-    scope: "write",
-    handler: async (context, params, req, url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<UploadUrlBody>(
-        UploadUrlBodySchema,
-        body,
-        "upload request",
-      );
-      const { idempotencyKey, ...uploadInput } = input;
-      return withIdempotency(context, auth, req, url, idempotencyKey, input, async () => {
-        const { uploadId, ticket } = await createUploadTicket(mediaContext(context), {
-          siteId,
-          body: uploadInput,
-        });
-        const token = context.uploadSigner.sign(ticket);
-        return {
-          status: 201,
-          body: {
-            uploadId,
-            url: `/api/assets/upload/${uploadId}?token=${encodeURIComponent(token)}`,
-            expiresAt: ticket.expiresAt,
-          },
-        };
-      });
-    },
-  },
-
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "assets"],
-    scope: "read",
-    handler: async (context, params, _req, url) => {
-      const siteId = requireParam(params, "siteId");
-      const all = await queryAssets(
-        context.store,
-        siteId,
-        parseAssetListFilters(url.searchParams),
-      );
-      // `queryAssets` already understands `limit`; the paging block is built
-      // from the FILTERED list so `total` and `hasMore` describe what the filter
-      // matched, not the whole library. A caller that filtered to one folder and
-      // got `total: 4000` would stop paging and think it had seen everything.
-      const page = paginate(all, parsePaging(url.searchParams), all.length);
-      return {
-        status: 200,
-        body: { assets: page.items, ...page, items: undefined },
-      };
-    },
-  },
-
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "code-payloads"],
-    scope: "write",
-    handler: async (context, params, req) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const parsed = parseBody<CreateCodePayloadBody>(
-        CreateCodePayloadBodySchema,
-        body,
-        "code payload",
-      );
-      const payload = await createCodePayload(context.store, { siteId, body: parsed });
-      return { status: 201, body: payload };
-    },
-  },
-
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "code-payloads"],
-    scope: "read",
-    handler: async (context, params) => {
-      const siteId = requireParam(params, "siteId");
-      return {
-        status: 200,
-        body: { payloads: await context.store.listCodePayloads(siteId) },
       };
     },
   },

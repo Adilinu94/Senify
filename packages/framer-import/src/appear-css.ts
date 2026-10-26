@@ -130,10 +130,18 @@ export function mediaConditionOf(hash: string, breakpoints: readonly IrBreakpoin
 
 // One keyframe state: opacity plus transform. A missing opacity means the
 // element's own (1 at rest, 0 as the start of a reveal).
-function frameOf(state: IrAppearState | undefined, isStart: boolean): string {
+// One keyframe state: opacity, transform and the deblur of a word reveal. A
+// missing opacity means the element's own (1 at rest, 0 as the start of a
+// reveal). `withFilter` makes the frame spell the filter even when it is zero:
+// an animation from `blur(12px)` to `none` interpolates in the browser, but a
+// written `blur(0px)` says the same thing in a way every engine agrees on.
+function frameOf(state: IrAppearState | undefined, isStart: boolean, withFilter = false): string {
   const opacity = state?.opacity;
   const resolved = opacity === undefined ? (isStart ? 0 : 1) : Math.min(1, Math.max(0, opacity));
-  return `opacity:${round(resolved, 4)};transform:${appearTransform(state)}`;
+  const blur = state?.blur;
+  const filter =
+    blur !== undefined || withFilter ? `;filter:blur(${round(Math.max(0, blur ?? 0))}px)` : "";
+  return `opacity:${round(resolved, 4)};transform:${appearTransform(state)}${filter}`;
 }
 
 export type CompileAppearInput = {
@@ -177,8 +185,12 @@ export function compileAppearRules(input: CompileAppearInput): CompileAppearResu
       const transition = (animate as { transition?: IrAppearTransition }).transition;
       const duration = round(appearSettleSeconds(transition), 3);
       const delay = round(Math.max(0, transition?.delay ?? 0), 3);
+      // A deblur on either side makes the whole effect use `filter`, so both
+      // frames spell it (`blur(0px)` at rest): browsers interpolate a missing
+      // filter as `none`, which is not the same as a zero blur to every engine.
+      const withFilter = variant.initial?.blur !== undefined || (animate as { blur?: number }).blur !== undefined;
       keyframes.push(
-        `@keyframes ${name}{from{${frameOf(variant.initial, true)}}to{${frameOf(animate, false)}}}`,
+        `@keyframes ${name}{from{${frameOf(variant.initial, true, withFilter)}}to{${frameOf(animate, false, withFilter)}}}`,
       );
       const declaration = `${name} ${duration}s ${easingOf(transition)} ${delay}s both`;
       if (condition === undefined) base["animation"] = declaration;

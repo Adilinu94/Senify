@@ -66,17 +66,20 @@ describe("one motion, one owner", () => {
       },
       mode: "fidelity",
     });
-    // The channel only describes `other`; an element the channel does not name
-    // gets no keyframes, so a preset may own it if one maps.
+    // The channel describes `other`, and `plain` has a start state the channel
+    // never names — since the derivation runs on every page (measured on
+    // `rare-works`: 328 such elements), that element owns its reveal too. Two
+    // effects, and each of them is a compiled rule: no preset may double them.
     const withAppear = Object.values(run.mapped.document.nodes).filter((node) =>
       (node.classes ?? []).some((name) => name.includes("-appear-")),
     );
-    const withoutAppear = Object.values(run.mapped.document.nodes).filter(
+    expect(withAppear).toHaveLength(2);
+    // Every moving node is owned by exactly one compiled rule: nothing runs a
+    // preset next to an appear rule.
+    const ohneRegel = Object.values(run.mapped.document.nodes).filter(
       (node) => node.motion !== undefined && !(node.classes ?? []).some((name) => name.includes("-appear-")),
     );
-    // Every node with a compiled rule is exactly the set the rule owns.
-    expect(withAppear.length).toBe(1);
-    expect(withoutAppear.length).toBe(0);
+    expect(ohneRegel).toHaveLength(0);
   }, 60_000);
 
   it("plays exactly one reveal in the baked page", async () => {
