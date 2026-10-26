@@ -90,6 +90,42 @@ describe("styleRulesCss", () => {
     expect(css).toContain("@keyframes pulse");
   });
 
+  // The import reads every colour of the source twice: as a `--token-<uuid>`
+  // definition (the block in the page's head) and as `var(--token-…)` at each
+  // use. Only the uses reach the nodes, so the definitions travel as one
+  // ambient `:root` rule — and that rule must survive the importer filter
+  // below, which drops imported rules whose base declarations already live in
+  // the node props. A `:root` rule has no node, so nothing else carries it:
+  // dropped, every colour on the page falls back to the stale value inside
+  // `var()`. Measured on `rare-works`: 1379 uses, 0 definitions, icon glyphs
+  // painted `rgb(0,0,0)` instead of `#fff`, "One Panel" lost its `#06f`.
+  it("emits the imported :root token block, which no node prop carries", () => {
+    const tokens: StyleRule = {
+      ...createAmbientRule({
+        id: "framer-import-tokens",
+        selector: ":root",
+        styles: {
+          "--token-ad88ec39-610d-4049-b505-52d900326a21": "#fff",
+          "--token-e74bb192-828a-4c9f-acc8-19214660ae49": "#06f",
+        },
+      }),
+      origin: { source: "framer-import", ordinal: 0 },
+      authoredBy: "preset",
+    };
+    // An imported class rule with no state stays dropped: its declarations are
+    // already in the nodes, and emitting them twice would only repeat them.
+    const imported: StyleRule = {
+      ...createClassRule({ id: "imp", name: "framer-1x", styles: { color: "#123456" } }),
+      origin: { source: "framer-import", ordinal: 1 },
+      authoredBy: "preset",
+    };
+    const css = styleRulesCss(page(), [tokens, imported]);
+    expect(css).toContain(":root");
+    expect(css).toContain("--token-ad88ec39-610d-4049-b505-52d900326a21: #fff");
+    expect(css).toContain("--token-e74bb192-828a-4c9f-acc8-19214660ae49: #06f");
+    expect(css).not.toContain(".framer-1x");
+  });
+
   it("reports a value it had to drop instead of staying silent", () => {
     const report = styleRulesReport(page(), [
       createClassRule({

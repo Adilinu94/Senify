@@ -83,6 +83,55 @@ describe("sanitizeSvgMarkup", () => {
     expect(style("position:fixed")).toBe('<mask><path d="M0 0"></path></mask>');
   });
 
+  // Framer writes an icon's palette as variables on the wrapping `<svg>` and has
+  // every shape read them: `--21h8s6` is the glyph colour, `--pgex8v` the stroke
+  // width. Because the root's style attribute was dropped as a whole, each shape
+  // fell back to the value inside its own `var()` — measured on `rare-works`:
+  // 794 shapes painted `rgb(0,0,0)` instead of the source's `#fff`, and the
+  // stroke width fell from 3.5 to 1.5. A definition paints nothing and loads
+  // nothing, so it has to survive.
+  it("keeps the custom properties of the root, so the shapes inside resolve them", () => {
+    const out = sanitizeSvgMarkup(
+      '<svg viewBox="0 0 24 24" style="--21h8s6: var(--token-ad88ec39, #fff); --pgex8v: 3.5; width:100%;position:fixed">' +
+        '<path d="M0 0" stroke="var(--21h8s6, rgb(0, 0, 0))" stroke-width="var(--pgex8v, 1.5)"/></svg>',
+    );
+    expect(out?.attrs).toEqual({
+      viewBox: "0 0 24 24",
+      style: "--21h8s6:var(--token-ad88ec39, #fff);--pgex8v:3.5",
+    });
+    // The size and position of the host still stay out.
+    expect(out?.attrs["style"]).not.toContain("width");
+    expect(out?.attrs["style"]).not.toContain("position");
+    // The use keeps its variable: without the definition above it would paint black.
+    expect(out?.html).toContain('stroke="var(--21h8s6, rgb(0, 0, 0))"');
+    expect(out?.html).toContain('stroke-width="var(--pgex8v, 1.5)"');
+  });
+
+  it("keeps a measurement and an opacity that are a variable, and drops what a variable may not carry", () => {
+    const html = (attrs: string): string | undefined =>
+      sanitizeSvgMarkup(`<svg viewBox="0 0 8 8"><path d="M0 0" ${attrs}/></svg>`)?.html;
+    expect(html('fill-opacity="var(--a, 0)" stroke-width="var(--b, 1.5)"')).toBe(
+      '<path d="M0 0" fill-opacity="var(--a, 0)" stroke-width="var(--b, 1.5)"></path>',
+    );
+    // A value that loads a resource stays out, in a variable as anywhere else.
+    expect(html('stroke-width="var(--a, url(https://evil.example/x))"')).toBe('<path d="M0 0"></path>');
+    // Something that is not a measurement is not a measurement because of a var().
+    expect(html('stroke-width="var(--a) 2"')).toBe('<path d="M0 0" stroke-width="var(--a) 2"></path>');
+    expect(html('stroke-width="close) var(--a"')).toBe('<path d="M0 0"></path>');
+  });
+
+  it("drops a custom property that tries to leave its declaration or load a resource", () => {
+    const style = (value: string): string | undefined =>
+      sanitizeSvgMarkup(`<svg viewBox="0 0 8 8" style="${value}"><path d="M0 0"/></svg>`)?.attrs["style"];
+    expect(style("--a: #fff")).toBe("--a:#fff");
+    expect(style("--a: url(https://evil.example/x)")).toBeUndefined();
+    expect(style("--a: red;position:fixed")).toBe("--a:red");
+    expect(style('--a: "x"')).toBeUndefined();
+    expect(style("--a: expression(alert(1))")).toBeUndefined();
+    // A property that is not a custom property is not a definition either.
+    expect(style("--a: 1; color: red")).toBe("--a:1");
+  });
+
   it("drops comments, processing instructions and the text between the tags", () => {
     const out = sanitizeSvgMarkup(
       '<?xml version="1.0"?><!-- <script>x</script> --><svg viewBox="0 0 8 8">text<!-- <g onclick="x()"> --><path d="M0 0"/>more</svg>',

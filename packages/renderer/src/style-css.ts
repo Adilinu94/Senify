@@ -184,6 +184,12 @@ export function styleRulesReport(
   const classRules = remapScopedRules(pages, rules)
     .flatMap((rule) => {
       if (rule.origin?.source !== "framer-import") return [rule];
+      // A definition that attaches by selector and belongs to no node — the
+      // source's `:root` colour variables — has no node prop that already
+      // carries it, and dropping it loses every `var(--token-…)` on the page.
+      // Measured on `rare-works`: 1379 uses, and without the block the icon
+      // glyphs fell back to `rgb(0,0,0)` and "One Panel" lost its blue.
+      if (rule.kind === "ambient") return [{ ...rule, contextStyles: rule.contextStyles ?? {} }];
       // An imported rule's base declarations already live in its nodes' own
       // props, so emitting them twice would only repeat them. Its `:hover` /
       // `:focus` / `:active` / `:disabled` states exist nowhere else, so

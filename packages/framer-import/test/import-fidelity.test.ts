@@ -896,6 +896,37 @@ describe("token fallbacks", () => {
     const out = props(`<div style="background-color:var(${TOKEN});width:50px"></div>`, defined);
     expect(out).toContain(`var(${TOKEN},#d7ff6f)`);
   });
+
+  // The fallback inside each `var()` is not the colour the page shows: the
+  // definition is. A baked page has no Framer runtime to put the `--token-*`
+  // variables on `body`, so the import has to carry them itself. Measured on
+  // `rare-works`: 1379 uses against 0 definitions, and every icon glyph fell
+  // back to the `rgb(0,0,0)` written inside its own `var()`.
+  it("carries the page's token definitions as a :root rule, so every var() resolves", () => {
+    const doc = page(
+      '<div style="background-color:var(--token-ad88ec39-610d-4049-b505-52d900326a21, rgb(0, 0, 0));width:50px"></div>',
+      ".tok{background-color:var(--token-ad88ec39-610d-4049-b505-52d900326a21, rgb(0, 0, 0))}",
+      "",
+    );
+    // Framer writes the definitions into a head style block.
+    const withHead = doc.replace(
+      "</head>",
+      `<style>:root{--token-ad88ec39-610d-4049-b505-52d900326a21:#fff;--token-e74bb192-828a-4c9f-acc8-19214660ae49:#06f}</style></head>`,
+    );
+    const result = run(withHead);
+    const root = result.mapped.rules.find((rule) => rule.selector === ":root");
+    expect(root).toBeDefined();
+    expect(root?.kind).toBe("ambient");
+    expect((root?.styles as Record<string, string>)["--token-ad88ec39-610d-4049-b505-52d900326a21"]).toBe("#fff");
+    expect((root?.styles as Record<string, string>)["--token-e74bb192-828a-4c9f-acc8-19214660ae49"]).toBe("#06f");
+    // And it stands before the rules of the page, so nothing overrides it.
+    expect(result.mapped.rules[0]?.selector).toBe(":root");
+  });
+
+  it("writes no :root rule for a page without token definitions", () => {
+    const { mapped } = run(page("<p>x</p>"));
+    expect(mapped.rules.some((rule) => rule.selector === ":root")).toBe(false);
+  });
 });
 
 describe("button background reset", () => {

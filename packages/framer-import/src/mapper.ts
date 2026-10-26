@@ -1526,6 +1526,46 @@ function styleRulesOf(
   }));
 }
 
+// The colour definitions of the source as one `:root` rule.
+//
+// Framer writes every colour twice: as a `--token-<uuid>` variable on `body`
+// (or in a head style block) and as `var(--token-…, <stale fallback>)` at each
+// use. The capture keeps the uses (they are what the cascade shows) but not the
+// definitions, so every `var()` in the baked page fell back on the stale colour
+// the style had when it was saved. Measured on `rare-works`: 1379 uses, 0
+// definitions — the icon glyphs came out `rgb(0,0,0)` (the fallback inside the
+// SVG) instead of `#fff`, and "One Panel" lost its blue (`#06f`).
+//
+// They are emitted as an ambient rule because that is exactly what they are:
+// definitions on the page root, attached by selector, owned by no node.
+const TOKEN_VARIABLE = /^--token-[a-f0-9-]{36}$/;
+
+function tokenRootRule(document: FramerIrDocument, order: number): StyleRule | null {
+  const styles: Record<string, string> = {};
+  for (const token of document.styles.colors) {
+    const name = `--token-${token.id}`;
+    if (!TOKEN_VARIABLE.test(name)) continue;
+    const value = (token.value ?? "").trim();
+    // A definition that is itself a `var()` names another token; it has no
+    // colour of its own to write, and the root rule would only re-name it.
+    if (value === "" || value.includes("var(")) continue;
+    styles[name] = value;
+  }
+  if (Object.keys(styles).length === 0) return null;
+  return {
+    id: "framer-import-tokens",
+    name: ":root",
+    kind: "ambient",
+    selector: ":root",
+    order,
+    description: "Farbdefinitionen der Quelle (--token-*)",
+    styles,
+    contextStyles: {},
+    origin: { source: "framer-import", ordinal: order },
+    authoredBy: "preset" as const,
+  };
+}
+
 /* ------------------------------------------------------------------- main */
 
 export function mapDocument(
@@ -1624,6 +1664,15 @@ export function mapDocument(
   }
 
   const rules = styleRulesOf(normalized, context.fontSlots);
+  // The source's colour definitions come first: every `var(--token-…)` in the
+  // page (and inside an imported SVG) resolves against them.
+  const tokenRule = tokenRootRule(document, 0);
+  if (tokenRule !== null) {
+    rules.unshift(tokenRule);
+    // The later rules keep their ordinal AFTER the token block so the cascade
+    // order of the source (definitions first) survives.
+    for (const [index, rule] of rules.entries()) rule.order = index;
+  }
   // The appear channel compiled to keyframes (step 4b). It runs after the nodes
   // exist because a rule needs the mapped node id, and it appends to the page's
   // rules so the bake compiles it through the ordinary style path.

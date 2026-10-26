@@ -50,6 +50,25 @@ function reactAttrs(
     if (value === undefined || value === false) continue;
     attrs[name] = value;
   }
+  // A `style` that arrives as a string is CSS, not a React style object. React
+  // refuses a string ("The `style` prop expects a mapping…") and the whole page
+  // failed to build. The imported icon brings its palette exactly this way: its
+  // root carries `--21h8s6: var(--token-…); --pgex8v: 3.5`, and every shape
+  // inside reads those variables. Custom properties are React style keys like
+  // any other, so the declarations are split into the mapping React expects.
+  if (typeof attrs["style"] === "string") {
+    const declarations: Record<string, string> = {};
+    for (const part of (attrs["style"] as string).split(";")) {
+      const colon = part.indexOf(":");
+      if (colon <= 0) continue;
+      const property = part.slice(0, colon).trim();
+      const setting = part.slice(colon + 1).trim();
+      if (property === "" || setting === "") continue;
+      declarations[property] = setting;
+    }
+    if (Object.keys(declarations).length === 0) delete attrs["style"];
+    else attrs["style"] = declarations;
+  }
   // An image resolves its asset through the delivery context: the same lookup
   // the section components use (`resolveAsset`), so a replaced file keeps its
   // address and the encoded ladder stays available.
