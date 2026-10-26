@@ -78,27 +78,49 @@ von 0 auf 17.508 px, sobald er in den Sichtbereich kam — die Seite stand **zwe
 
 Messung danach: beide Varianten **stabil bei 17.508 px** (vorher wuchs der Baum auf 35.016).
 
-**Der ehrliche Abstand — und ein Messfehler, der ihn verzerrte.** Ohne Payload sieht der Baum so
-nah aus wie der Import ihn bringt: **7,76 %** bei 1440 px, **7,96 %** bei 900 px und **7,55 %** bei
-390 px Pixel-Differenz, Höhen exakt (17.508 / 20.162 / 20.648 px), Streuung über zwei Läufe
-**0,00–0,03 pp**. Die früher hier genannten 14,62 % waren **falsch gemessen**, aus drei Gründen:
+**Der ehrliche Abstand — und warum eine einzelne Zahl hier nicht geht.** Ohne Payload sieht
+der Baum so nah aus wie der Import ihn bringt. Gemessen, über je drei Aufnahmen:
 
-1. Der Screenshot des Baums kam mit **Alpha 0** heraus, weil `global.css` keinen `body`-Hintergrund
-   setzte (`theme.css` deklariert nur Variablen, keine Regeln). Jeder Vergleich las damit eine
-   weiße Fläche gegen eine durchsichtige — `pixelmatch` zählt verschiedene Alpha-Werte als
-   Unterschied. Behoben in `packages/renderer/astro-template/src/styles/global.css`; Beleg
-   `packages/renderer/test/bake-ground.test.ts` (ohne den Fix rot).
-2. Die Quelle trägt ein **Framer-Editor-Badge** (`<iframe>`, `z-index` 2147483646) und einen
-   schwebenden Badge. Beides ist Werkzeug der Plattform, nicht die Seite, und wird jetzt auf beiden
-   Seiten entfernt, bevor gemessen wird.
+| Breite | Median | Einzelwerte | Höhen |
+|---|---|---|---|
+| 1440 px | **10,29 %** | 7,75 / 10,31 / 10,29 | 17.508 / 17.508 |
+| 900 px | **11,74 %** | 11,74 / 11,74 / 7,95 | 20.162 / 20.162 |
+| 390 px | **7,55 %** | 7,55 / 7,55 / 7,55 | 20.648 / 20.648 |
 
-3. Die **erste** Messung direkt nach dem Start des Vorschau-Servers liest zu hoch: der Bake liefert
-   seine Dateien erst beim ersten Abruf aus, der erste Screenshot sieht eine halb geladene Seite
-   (gemessen: 10,34 % statt 7,76 %). Der Messbefehl verwirft deshalb eine Aufwärmrunde.
+**Die Spanne ist keine Nachlässigkeit, sie gehört zur Quelle.** Drei Eigenschaften der Seite
+machen eine Punktzahl unmöglich, und jede davon ist gemessen:
 
-Nach der Korrektur ist die Zahl über zwei Läufe stabil. Wer sie nachmisst, braucht alle drei
-Schritte — sonst misst er den Fehler statt der Seite. Der fertige Befehl steht in
-`_messung/messung.ts`.
+1. **Ein Endlos-Ticker läuft dauerhaft.** Element `e80` schwingt 9 px mit einer Periode von rund
+   8 s. Zwei Aufnahmen derselben Seite unterscheiden sich dadurch um **4,55 %** — die Quelle
+   weicht also von sich selbst ab, nicht der Baum (der Baum: **0,01 %**). Bei 390 px läuft
+   dieser Ticker nicht, und genau dort ist die Zahl stabil (0,00 pp).
+2. **Die Navigation tauscht einmalig.** Beim ersten Scrollen wechselt die Quelle von
+   „Desktop" (778 px) auf „Desktop Compact" (292 px) und **nie zurück** (`reducedMotion` ändert
+   daran nichts). Wer vor dem Screenshot scrollt — und das muss man, damit die Lazy-Bilder
+   laden — misst danach eine andere Seite als beim ersten Aufruf.
+3. **Die Quelle animiert per `requestAnimationFrame`.** `document.getAnimations()` findet dort
+   **0** pausierbare Animationen (der Baum: 208). Ein Einfrieren von außen ist also nicht
+   möglich; nur der Median über mehrere Aufnahmen beruhigt die Zahl.
+
+**Was das für die früheren Zahlen heißt.** Die 14,62 % waren zusätzlich **falsch gemessen**:
+der Screenshot des Baums kam mit **Alpha 0** heraus, weil `global.css` keinen `body`-Hintergrund
+setzte (`theme.css` deklariert nur Variablen, keine Regeln). Jeder Vergleich las damit eine weiße
+Fläche gegen eine durchsichtige — `pixelmatch` zählt verschiedene Alpha-Werte als Unterschied.
+Behoben in `packages/renderer/astro-template/src/styles/global.css`, Beleg
+`packages/renderer/test/bake-ground.test.ts` (ohne den Fix rot). Zusätzlich trägt die Quelle
+Framers **„Edit this site"-Badge** (`<iframe>`, `z-index` 2147483646) und einen schwebenden
+Badge; beides ist Werkzeug der Plattform, nicht die Seite, und wird beidseitig entfernt.
+
+**Ein Fehler, der beim Messen fast durchgerutscht wäre.** Die erste Fassung des Messskripts
+pausierte die Animationen des Baums bei `currentTime = 0` — also im **Startzustand**. Jede
+Einblendung ist dort `opacity:0`; der Baum wäre unsichtbar gewesen und hätte gegen eine weiße
+Quelle **5,08 %** ergeben, deutlich besser als die Wahrheit. Ein schöneres Ergebnis durch eine
+unsichtbare Seite ist keine Messung. Der Baum wird jetzt mit `finish()` **ans Ende** gesprungen.
+
+**Der Weg zum Nachmessen** steht vollständig in `_messung/messung-final.ts` und
+`_messung/messung-median.ts`: beide Screenshots über Weiß zusammensetzen, die Badges entfernen,
+die Baum-Animationen ans Ende springen lassen, dann den Median über drei Aufnahmen nehmen. Eine
+Zahl ohne ihre Spanne zu nennen wäre hier eine Behauptung, keine Messung.
 
 **Was das nicht löst — und was inzwischen doch geht.** Der Baum trug **keine** Bewegung: keine
 Scroll-Choreografie, kein Lenis, kein three.js. Der mittlere Teil davon ist inzwischen gebaut:
