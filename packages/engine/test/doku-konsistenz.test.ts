@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
@@ -191,8 +191,89 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     expect(ueberzaehlig).toEqual([]);
   });
 
-  it("begruendet den Inspektor mit der gemessenen Zahl", () => {
-    // Der Befund vom 26.10.2026: `inspector.ts` war mit 1 884 Zeilen die
+  it("fuehrt jeden Routen-Schnitt im Arbeitsstand", () => {
+    // Der Befund vom 26.10.2026: die Schritte 68, 69, 70 und 71 (vier
+    // gemergte PRs, 178 Routen, 31 Werkzeuge) fehlten in der Tabelle
+    // "Arbeitsstand dieses Dokuments". `AGENTS.md` sagt: jeder Arbeitsschritt
+    // endet mit einem ausgefuehrten Gate aus `docs/fahrplan.md` - ein Schritt,
+    // der dort nicht steht, ist nicht nachvollziehbar.
+    //
+    // Geprueft wird gegen den CODE, nicht gegen eine zweite Liste: jedes
+    // `http-routes-*.ts`-Modul und jedes `tools-*.ts`-Modul, das im Bericht
+    // steht, muss im Arbeitsstand mindestens einmal genannt sein. Ein Modul
+    // ohne Eintrag ist ein Schritt ohne Protokoll.
+    const arbeitsstand = fahrplan.slice(
+      fahrplan.findIndex((z) => z.startsWith("## Arbeitsstand dieses Dokuments")),
+    );
+    const zeilen = arbeitsstand.filter((z) => /^\| \d\d\.\d\d\.\d{4} \|/.test(z));
+
+    // Module, die im Bericht stehen und einen Eintrag brauchen.
+    const module = [
+      ...[...readdirSync(SRC).filter((n) => /^http-routes-.*\.ts$/.test(n))],
+      ...[...readdirSync(join(root, "packages/mcp/src")).filter((n) => /^tools(-[\w-]+)?\.ts$/.test(n))],
+    ];
+
+    const fehlend = module.filter((n) => !zeilen.some((z) => z.includes(n))).sort();
+    expect(fehlend, "diese Module haben keinen Eintrag im Arbeitsstand").toEqual([]);
+  });
+
+  it("haelt die Arbeitsstand-Tabelle in absteigender Datumsfolge", () => {
+    // Eine Tabelle, die "Arbeitsstand" heisst und deren neueste Zeile in der
+    // Mitte steht, ist beim Nachschlagen wertlos. Geprueft wird die Folge der
+    // Datumsangaben; gleiche Tage duerfen beliebig oft vorkommen.
+    const start = fahrplan.findIndex((z) => z.startsWith("## Arbeitsstand dieses Dokuments"));
+    const daten: string[] = [];
+    for (let i = start; i < fahrplan.length; i++) {
+      const m = /^\| (\d\d)\.(\d\d)\.(\d{4}) \|/.exec(fahrplan[i] ?? "");
+      if (m) daten.push(`${m[3]}-${m[2]}-${m[1]}`);
+      if (i > start && /^## /.test(fahrplan[i] ?? "")) break;
+    }
+    expect(daten.length, "die Arbeitsstand-Tabelle ist leer").toBeGreaterThan(50);
+
+    const verletzungen: string[] = [];
+    for (let i = 1; i < daten.length; i++) {
+      if (daten[i]! > daten[i - 1]!) {
+        // Die Meldung nennt die ZEILE, an der die Folge bricht - also die
+        // spaetere, nicht die fruehere. Der erste Anlauf nannte `i + 1` und
+        // zeigte damit auf den Vorgaenger; das war beim Nachschlagen
+        // irrefuehrend.
+        verletzungen.push(`${daten[i - 1]} steht vor ${daten[i]} (#${i + 1})`);
+      }
+    }
+    expect(verletzungen.slice(0, 5)).toEqual([]);
+  });
+
+  it("begruendet die zwei Framer-Dateien mit der gemessenen Zahl", () => {
+    // Der Befund vom 26.10.2026: `capture-html.ts` (2 726) und `mapper.ts`
+    // (1 819) sind die zwei groessten Dateien im Baum, und ihre Begruendung
+    // sagte nur "der HTML-Capture des Imports" bzw. "die Abbildung Framer nach
+    // NodeTree". Das ist eine Ueberschrift, kein Grund.
+    //
+    // Fuer `capture-html.ts` wurde der Schnitt VERSUCHT und verworfen: der
+    // CSS-Block (726 Zeilen, 21 Funktionen) ist keine Senke, weil
+    // `applyClassRules` den Baum liest und neun interne Helfer braucht.
+    //
+    // Die Zahlen in der Begruendung sind pruefbar, also werden sie geprueft.
+    const capture = readFileSync(join(root, "packages/framer-import/src/capture-html.ts"), "utf8");
+    const mapper = readFileSync(join(root, "packages/framer-import/src/mapper.ts"), "utf8");
+
+    const funktionen = (text: string): number => (text.match(/^(?:export )?(?:async )?function /gm) ?? []).length;
+    expect(funktionen(capture), "capture-html.ts hat eine andere Zahl Funktionen").toBe(68);
+    expect(funktionen(mapper), "mapper.ts hat eine andere Zahl Funktionen").toBe(54);
+
+    // Der CSS-Block: Z1902-2627 im Kommentar. Geprueft wird, dass er noch dort
+    // liegt - verschiebt jemand die Datei, ist die Begruendung falsch.
+    const zeilen = capture.split(/\r?\n/);
+    expect(zeilen[1901], "der CSS-Block beginnt nicht mehr in Z1902").toContain("order` is the rule's position");
+    expect(zeilen[2626], "der CSS-Block endet nicht mehr in Z2627").toBe("}");
+
+    // Und die Begruendung muss die Zahlen tragen, die sie behauptet.
+    expect(module).toContain("726 Zeilen, 21 Funktionen");
+    expect(module).toContain("54 Funktionen");
+    expect(module).toContain("289 Zeilen");
+  });
+
+  it("begruendet den Inspektor mit der gemessenen Zahl", () => {    // Der Befund vom 26.10.2026: `inspector.ts` war mit 1 884 Zeilen die
     // drittgroesste Datei, und die Begruendung sagte nur "eine Closure". Das
     // ist wahr, aber es sagt nicht, ob die Closure teilbar waere. Die
     // Messung sagt: nein - 22 Renderer, keiner haengt nur an `doc`,
@@ -496,6 +577,105 @@ describe("Doku-Waechter: die Risiko-Nummern sind synchron", () => {
       const b = status(fZeile);
       if (a !== b) abweichend.push(`${id}: architektur.md=${a}, fahrplan.md=${b}`);
     }
+    expect(abweichend).toEqual([]);
+  });
+
+  // ---- Die Belege in den Risiko-Zeilen sind Belege, keine Behauptungen ----
+  //
+  // Befund vom 26.10.2026: R12 im Fahrplan sagte "`tools.ts` 2 714 -> 2 614
+  // Zeilen" - die Datei hatte da schon 1 671, weil drei Schnitte dazwischen
+  // lagen. Und R6 in `stand.md` belegte den Idempotency-Fix mit
+  // `http.ts:531-541`; die Datei hat seit dem Routen-Schnitt 275 Zeilen, der
+  // Beleg lag also hinter dem Dateiende. Beides sieht nach Nachweis aus und ist
+  // keiner.
+  //
+  // Die Regel gilt fuer RISIKO-Zeilen, nicht fuer die Historientabelle: dort
+  // stehen Messwerte von damals, und die sollen bleiben, wie sie waren.
+  const SUCHORTE = [
+    "packages/engine/src", "packages/engine/test",
+    "packages/editor/src", "packages/editor/src/inspector",
+    "packages/editor/test",
+    "packages/mcp/src", "packages/mcp/test",
+    "packages/app/public", "packages/app/test",
+    "packages/manifest/src", "packages/framer-import/src",
+    "packages/framer-import/test", "packages/renderer/src",
+    "packages/registry/src", "packages/widget-engine/src",
+    "scripts", "",
+  ];
+
+  /** Findet die Datei zu einem Verweis - mit oder ohne Ordner. */
+  const findeDatei = (name: string): string | null =>
+    (name.includes("/") ? [join(root, name)] : SUCHORTE.map((d) => join(root, d, name))).find((p) =>
+      existsSync(p),
+    ) ?? null;
+
+  const risikoZeilen = (L: string[]): Array<{ nr: number; id: string; text: string }> =>
+    L.map((text, i) => ({ nr: i + 1, id: /^\| (R\d+) \|/.exec(text)?.[1] ?? "", text })).filter(
+      (z) => z.id !== "",
+    );
+
+  it("belegt jede Risiko-Zeile mit einer Zeile, die es noch gibt", () => {
+    // `datei:123` oder `datei:123-456`.
+    const kaputt: string[] = [];
+    let geprueft = 0;
+    for (const [doku, L] of [["fahrplan.md", fahrplan], ["stand.md", stand], ["architektur.md", architektur]] as const) {
+      for (const z of risikoZeilen(L)) {
+        for (const m of z.text.matchAll(/`([\w./-]+\.(?:ts|js|json|mjs)):(\d+)(?:-(\d+))?`/g)) {
+          geprueft++;
+          const pfad = findeDatei(m[1]!);
+          if (pfad === null) {
+            kaputt.push(`${doku}:${z.nr} ${z.id}: ${m[1]} existiert nicht`);
+            continue;
+          }
+          const n = zeilenZahl(pfad);
+          const bis = Number(m[3] ?? m[2]);
+          if (bis > n) {
+            kaputt.push(`${doku}:${z.nr} ${z.id}: ${m[1]}:${m[2]}-${bis}, Datei hat ${n} Zeilen`);
+          }
+        }
+      }
+    }
+    // Die Gegenprobe: der Waechter muss etwas messen. Ohne Verweise waere er gruen
+    // und blind - genau der Fehler, den der Grosse-Dateien-Waechter hatte.
+    expect(geprueft, "keine Zeilenverweise gefunden - der Waechter misst nichts").toBeGreaterThan(2);
+    expect(kaputt).toEqual([]);
+  });
+
+  it("nennt in jeder Risiko-Zeile die Zeilenzahl, die die Datei hat", () => {
+    // "`x.ts` 1 671 Zeilen" und "`x.ts` 2 714 -> 1 671 Zeilen": der LETZTE Wert
+    // ist die Gegenwartsaussage. Zwei Ausnahmen, beide positionsbezogen:
+    // ein Loesch-Beleg ("`mount.ts` (3 270 Zeilen) ist geloescht") und die
+    // ausdrueckliche Nennung einer frueheren Fassung ("nannte noch 2 614").
+    //
+    // Eine zeilenweite Ausnahme waere falsch: R12 traegt BEIDES, den Bericht
+    // und die Gegenwart.
+    const BERICHT =
+      /vorige Fassung|fruehere Fassung|frühere Fassung|sagte bisher|nannte bisher|gel(?:oe|ö)scht|entfiel|entfernt/i;
+    const abweichend: string[] = [];
+    let geprueft = 0;
+    for (const [doku, L] of [["fahrplan.md", fahrplan], ["stand.md", stand], ["architektur.md", architektur]] as const) {
+      for (const z of risikoZeilen(L)) {
+        for (const m of z.text.matchAll(
+          /`([\w./-]+\.(?:ts|js))`[^\d`]{0,40}((?:\d[\d ]*\s*(?:->|→)\s*)*\d[\d ]*)\s*Zeilen/g,
+        )) {
+          const davor = z.text.slice(Math.max(0, m.index - 160), m.index);
+          const danach = z.text.slice(m.index, m.index + 160);
+          if (BERICHT.test(davor) || BERICHT.test(danach)) continue;
+
+          geprueft++;
+          const zahlen = m[2]!.split(/->|→/).map((v) => Number(v.replace(/[^\d]/g, "")));
+          const behauptet = zahlen[zahlen.length - 1]!;
+          const pfad = findeDatei(m[1]!);
+          if (pfad === null) {
+            abweichend.push(`${doku}:${z.nr} ${z.id}: ${m[1]} existiert nicht (Zeilenzahl ${behauptet})`);
+            continue;
+          }
+          const ist = zeilenZahl(pfad);
+          if (ist !== behauptet) abweichend.push(`${doku}:${z.nr} ${z.id}: ${m[1]} behauptet ${behauptet}, ist ${ist}`);
+        }
+      }
+    }
+    expect(geprueft, "keine Zeilenzahlen gefunden - der Waechter misst nichts").toBeGreaterThan(2);
     expect(abweichend).toEqual([]);
   });
 });
