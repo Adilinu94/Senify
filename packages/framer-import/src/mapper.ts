@@ -1632,7 +1632,10 @@ export function mapDocument(
   for (const rule of appearRun.rules) {
     const appearId = rule.appearIds[0];
     if (appearId === undefined) continue;
-    const nodeId = appearNodeIdOf(document, context, appearId);
+    // The same map the compiler used: it knows which ancestor stands in for a
+    // folded element. Asking the IR again would lose exactly the reveals this
+    // fix is about.
+    const nodeId = appearRun.nodeIdByAppearId.get(appearId);
     if (nodeId === undefined) continue;
     const node = context.nodes[nodeId];
     if (node === undefined) continue;
@@ -1701,47 +1704,73 @@ function ruleFamilyWeights(rules: readonly NormalizedStyleRule[]): Map<string, n
   return out;
 }
 
-// The appear id → mapped node id, read from the IR key the node was built from.
-function appearNodeIdOf(
+// The appear id → mapped node id is resolved in `appearRulesOf`, in one walk
+// that carries the nearest mapped ancestor: a reveal whose element was folded
+// into inline markup (`<h1><span>Run</span>…`) plays on that ancestor. A second
+// lookup here would lose exactly those ids, so there is none on purpose.
+
+// Compile the appear channel for the page it belongs to. The returned map is the
+// one the attach loop must use: a reveal whose element was folded away resolves
+// to its nearest mapped ancestor, and only this map knows that.
+function appearRulesOf(
   document: FramerIrDocument,
   context: MapContext,
-  appearId: string,
-): string | undefined {
-  const node = findNodeByAppearId(document.pages[0]?.root, appearId);
-  if (node === undefined) return undefined;
-  return context.nodeIdByIrKey[node.key];
-}
-
-function findNodeByAppearId(node: IrNode | undefined, appearId: string): IrNode | undefined {
-  if (node === undefined) return undefined;
-  if (node.appearId === appearId) return node;
-  for (const child of node.children) {
-    const found = findNodeByAppearId(child, appearId);
-    if (found !== undefined) return found;
-  }
-  return undefined;
-}
-
-// Compile the appear channel for the page it belongs to.
-function appearRulesOf(document: FramerIrDocument, context: MapContext): CompileAppearResult {
+): CompileAppearResult & { nodeIdByAppearId: ReadonlyMap<string, string> } {
   const specs = document.appear ?? [];
-  if (specs.length === 0) return { rules: [], findings: [], compiled: 0 };
   const nodeIdByAppearId = new Map<string, string>();
-  const index = (node: IrNode | undefined): void => {
+  if (specs.length === 0) {
+    return { rules: [], findings: [], compiled: 0, nodeIdByAppearId };
+  }
+  // A reveal whose element was FOLDED AWAY still has a place to play: the text
+  // model of an import turns a heading's word spans into inline markup, so the
+  // `<h1>` carries the words and the spans are no nodes. Measured on
+  // `rare-works`: 102 word reveals, none of their spans mapped, and the whole
+  // headline would have stayed static. The reveal is attached to the nearest
+  // mapped ancestor instead — the motion stays on the page, one level up.
+  //
+  // `nearestMapped` is carried down the walk so the lookup costs nothing.
+  const index = (node: IrNode | undefined, nearestMapped: string | undefined): void => {
     if (node === undefined) return;
-    if (node.appearId !== null) {
-      const mapped = context.nodeIdByIrKey[node.key];
-      if (mapped !== undefined) nodeIdByAppearId.set(node.appearId, mapped);
+    const own = context.nodeIdByIrKey[node.key];
+    const mapped = own ?? nearestMapped;
+    for (const id of [node.appearId, node.derivedAppearId ?? null]) {
+      if (id === null || id === "") continue;
+      if (mapped !== undefined && !nodeIdByAppearId.has(id)) nodeIdByAppearId.set(id, mapped);
     }
-    for (const child of node.children) index(child);
+    for (const child of node.children) index(child, mapped);
   };
-  index(document.pages[0]?.root);
-  return compileAppearRules({
+  index(document.pages[0]?.root, undefined);
+  const compiled = compileAppearRules({
     specs,
     breakpoints: document.breakpoints,
     nodeIdByAppearId,
     scope: ruleScopeOf(document.pages[0]?.path ?? "/"),
   });
+  // Several reveals can now name the SAME node (a headline's words all resolve
+  // to their `<h1>`). Two animations on one element do not add up — the second
+  // `animation` declaration replaces the first. The first reveal of a node wins
+  // (it is the one without stagger delay, i.e. the start of the cascade) and
+  // the others are reported instead of silently dropped.
+  const seen = new Set<string>();
+  const rules: CompiledAppearRule[] = [];
+  const findings = [...compiled.findings];
+  let counted = 0;
+  for (const rule of compiled.rules) {
+    const target = nodeIdByAppearId.get(rule.appearIds[0] ?? "");
+    if (target === undefined) continue;
+    if (seen.has(target)) continue;
+    seen.add(target);
+    rules.push(rule);
+    counted += rule.appearIds.length;
+  }
+  const merged = compiled.rules.length - rules.length;
+  if (merged > 0) {
+    findings.push({
+      appearId: rules.map((rule) => rule.appearIds[0] ?? "").find((id) => id !== "") ?? "appear",
+      reason: `${merged} Einblendung(en) teilen sich mit einer anderen ein Zielelement (die Wörter einer Überschrift liegen im selben Knoten) — die erste gilt, die Bewegung bleibt am Element erhalten.`,
+    });
+  }
+  return { rules, findings, compiled: counted, nodeIdByAppearId };
 }
 
 // One compiled appear rule as style rules the bake understands. `rawCss` may

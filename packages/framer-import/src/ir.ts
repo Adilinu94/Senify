@@ -254,6 +254,12 @@ export type IrNode = {
   states: IrState[];
   children: IrNode[];
   appearId: string | null;
+  // The synthetic id of a reveal that was DERIVED from the inline start state
+  // because the element carries no `data-framer-appear-id` (measured on
+  // `rare-works`: 328 such nodes, 101 of them the words of the headlines).
+  // Framer's own id and ours are kept apart on purpose: the report counts the
+  // marked elements, and a derived id is not a mark of the source.
+  derivedAppearId?: string | null;
   stylesPresetId: string | null;
   svg: string | null;
 };
@@ -305,6 +311,11 @@ export type IrAppearState = {
   rotateY?: number;
   skewX?: number;
   skewY?: number;
+  // The deblur of a word reveal: Framer writes `filter:blur(12px)` into the
+  // start state of every word and animates it to `blur(0px)`. Without the
+  // field the effect would fade in already sharp — the half that makes the
+  // word reveal recognisable was thrown away.
+  blur?: number;
   transformPerspective?: number;
 };
 
@@ -660,6 +671,9 @@ function asIrNode(value: unknown): IrNode | undefined {
     states,
     children,
     appearId: asString(value.appearId) ?? null,
+    ...(asString(value.derivedAppearId) === undefined
+      ? {}
+      : { derivedAppearId: asString(value.derivedAppearId) ?? null }),
     stylesPresetId: asString(value.stylesPresetId) ?? null,
     svg: asString(value.svg) ?? null,
   };
@@ -903,6 +917,7 @@ function asIrAppearState(value: unknown): IrAppearState | undefined {
     "rotateY",
     "skewX",
     "skewY",
+    "blur",
     "transformPerspective",
   ] as const) {
     const number = value[key];

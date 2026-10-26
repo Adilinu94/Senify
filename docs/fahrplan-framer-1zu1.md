@@ -832,6 +832,39 @@ bewegt", genau wie im Capture.
 
 Belege: `packages/framer-import/test/appear-derived.test.ts` (6 Fälle).
 
+**Nachtrag 26.10.2026 — die Ableitung war zu eng.** Die Zeile „Seite mit Kanal: keine
+Ableitung" war als Regel formuliert, und genau daran scheiterte `rare-works`: die Seite **hat**
+einen Kanal, aber nur für **8** Elemente. **328** weitere Elemente tragen einen Startzustand
+ohne `data-framer-appear-id` — jede Wort-Einblendung der Überschriften
+(`opacity:0.001; filter:blur(12px); translateY(28px)`) und die Karten, die hereingleiten. Die
+Regel „Kanal vorhanden ⇒ nichts ableiten" liess sie alle auf `opacity:0.001` stehen.
+
+Jetzt gilt: der Kanal ist die Wahrheit für die ids, die er **nennt**; für alle anderen wird
+abgeleitet. Dazu drei Ergänzungen, die ohne die Messung niemand gefunden hätte:
+
+- **Der Weichzeichner gehört zum Effekt.** `blur(12px)→blur(0px)` ist die halbe Wort-Einblendung;
+  ohne ihn blendet das Wort scharf ein. `IrAppearState` trägt jetzt `blur`, die Keyframes
+  schreiben `filter` in **beiden** Frames (ein fehlendes `filter` interpoliert der Browser gegen
+  `none` — nicht in jeder Engine dasselbe Paar).
+- **Der Versatz zwischen Geschwistern.** Framer schreibt die Wörter einer Überschrift als
+  Geschwister mit demselben Startzustand. Gemessen an der laufenden Seite: **50 ms** Abstand,
+  **1000–1100 ms** Dauer. Ohne den Versatz kommt jedes Wort gleichzeitig, und der Effekt liest
+  sich als ein einziger Fade.
+- **Ein gefalteter Knoten braucht einen Stellvertreter.** Die Wörter einer Überschrift werden beim
+  Import zu **Inline-Markup** verflacht (`<h1><span>Run</span>…` → `html`), sie sind dann keine
+  Knoten mehr. Die Bewegung hängt jetzt am nächsten gemappten Vorfahren — der Überschrift. Teilen
+  sich mehrere Einblendungen ein Ziel, gilt die erste (zwei `animation`-Deklarationen auf einem
+  Element addieren sich nicht, die zweite ersetzt die erste) und der Bericht nennt die Zahl.
+
+**Gemessen an `rare-works`:** 212 Keyframe-Regeln statt 10, **209 Elemente mit laufender
+Animation statt 10**, davon 102 Wort-Einblendungen mit `blur(12px)→blur(0px)`. Der Baum ist
+danach bei **7,76 / 7,96 / 7,55 %** (1440 / 900 / 390 px) gegen das Original, Höhen exakt —
+nach einer korrigierten Messung (siehe ADR-0026: Alpha-0-Screenshot, Editor-Badge der Quelle,
+Aufwärmrunde).
+
+Belege: `appear-derived.test.ts` (12 Fälle, davon 4 ohne den Fix rot),
+`motion-owner.test.ts` (3), `_messung/messung.ts` (wiederholbar, Streuung 0,00–0,03 pp).
+
 **Punkt 2 — 3D-Kippung (`rotateX/rotateY`): umgesetzt** durch Schritt 4b, nicht
 als Preset. Die Keyframes tragen `rotateX`/`rotateY` in Motion's Transform-Reihenfolge;
 ein Preset hätte nur einen Winkel erlaubt. Beleg: `appear-css.test.ts`,
