@@ -857,10 +857,7 @@ abgeleitet. Dazu drei Ergänzungen, die ohne die Messung niemand gefunden hätte
   Element addieren sich nicht, die zweite ersetzt die erste) und der Bericht nennt die Zahl.
 
 **Gemessen an `rare-works`:** 212 Keyframe-Regeln statt 10, **209 Elemente mit laufender
-Animation statt 10**, davon 102 Wort-Einblendungen mit `blur(12px)→blur(0px)`. Der Baum ist
-danach bei **7,76 / 7,96 / 7,55 %** (1440 / 900 / 390 px) gegen das Original, Höhen exakt —
-nach einer korrigierten Messung (siehe ADR-0026: Alpha-0-Screenshot, Editor-Badge der Quelle,
-Aufwärmrunde).
+Animation statt 10**, davon 102 Wort-Einblendungen mit `blur(12px)→blur(0px)`. Der Baum liegt danach bei **10,29 / 11,74 / 7,55 %** (Median aus je drei Aufnahmen, 1440 / 900 / 390 px) gegen das Original, Höhen exakt. Die Spanne zwischen den Aufnahmen gehört zur Quelle (Endlos-Ticker, einmaliger Navigationswechsel), siehe ADR-0026.
 
 Belege: `appear-derived.test.ts` (12 Fälle, davon 4 ohne den Fix rot),
 `motion-owner.test.ts` (3), `_messung/messung.ts` (wiederholbar, Streuung 0,00–0,03 pp).
