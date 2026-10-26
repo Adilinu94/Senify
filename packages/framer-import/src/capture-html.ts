@@ -659,15 +659,28 @@ function elementStyleToParts(
       case "padding-top":
       case "padding-right":
       case "padding-bottom":
-      case "padding-left": {
-        const sides = layout.padding ?? {};
-        if (property === "padding") {
+      case "padding-left":
+      case "margin":
+      case "margin-top":
+      case "margin-right":
+      case "margin-bottom":
+      case "margin-left": {
+        // `margin` and `padding` live here for the same reason: CSS resolves
+        // the shorthand and its longhands by ORDER, and two separate readings
+        // lose that order. Measured on `concerned-circumstances-187935`:
+        // `<p style="margin:0; margin-top:20px">` — the shorthand ran last and
+        // reset the top to 0, the 20 px were gone. Reading both into one side
+        // table keeps the source's order.
+        const prefix = property.startsWith("margin") ? "margin" : "padding";
+        const sides = (prefix === "margin" ? layout.margin : layout.padding) ?? {};
+        if (property === prefix) {
           Object.assign(sides, expandBox(value));
         } else {
-          const side = property.replace("padding-", "") as keyof typeof sides;
+          const side = property.slice(prefix.length + 1) as keyof typeof sides;
           sides[side] = value;
         }
-        layout.padding = sides;
+        if (prefix === "margin") layout.margin = sides;
+        else layout.padding = sides;
         break;
       }
       default:
@@ -880,10 +893,29 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
     const both = [...new Set([...inheritedHidden, ...hiddenAt])];
     return toIrNode(raw.children[0] ?? raw, counter, both);
   }
-  const classes = raw.classes.filter((entry) => !entry.startsWith("framer-v-"));
+  // The `hidden-<hash>` classes are part of the visibility switch, not of the
+  // element's identity (see `elementHiddenAt` below). Left in `baseClasses`,
+  // two device copies of the same cell would never share a signature and could
+  // not fold.
+  const classes = raw.classes.filter((entry) => !entry.startsWith("framer-v-") && !entry.startsWith("hidden-"));
   const variantHashes = raw.classes
     .filter((entry) => entry.startsWith("framer-v-"))
     .map((entry) => entry.slice("framer-v-".length));
+  // Framer writes its per-device hiding ALSO on the element itself, not only on
+  // the `ssr-variant` wrapper: measured on `concerned-circumstances-187935`, the
+  // mobile-only slider container carries `hidden-72rtr7 hidden-bq06c3` directly
+  // on its own `<div>`. Those hashes are VISIBILITY ("this copy belongs to
+  // another device"), never look. Read only on the wrapper before, the hashes
+  // stayed in the class list, their `display:none!important` rule hit the
+  // desktop cascade, and the base state carried `display:none` for every
+  // device — the whole product card vanished on mobile, where it belonged.
+  //
+  // The wrapper's list is inherited here, so an element inside a numbered
+  // wrapper keeps its scope (see the `ssr-variant` branch above).
+  const ownHiddenAt = raw.classes
+    .filter((entry) => entry.startsWith("hidden-"))
+    .map((entry) => entry.slice("hidden-".length));
+  const elementHiddenAt = ownHiddenAt.length === 0 ? inheritedHidden : [...new Set([...inheritedHidden, ...ownHiddenAt])];
   const kind = raw.fitText === undefined ? kindFor(raw) : "fit-text";
   const named = Object.entries(attrs).filter(([name]) => counter.attrNames?.has(name) === true);
   const selectorAttrs = named.length > 0 ? Object.fromEntries(named) : undefined;
@@ -981,7 +1013,7 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
 
   states.push({
     device: "desktop",
-    hiddenAt: inheritedHidden,
+    hiddenAt: elementHiddenAt,
     variantHash: variantHashes[0] ?? null,
     visual,
     layout: layoutFull ?? null,
@@ -1315,13 +1347,19 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
     });
   }
   if (fonts.length > 0) {
+    // The rewrite this finding used to announce ("follows in S2.3b") is the
+    // work of `importAssets`: every face is downloaded, deduplicated by hash
+    // and served from the site's own address (`includeFonts`, default true).
+    // Measured on the live import (26.10.2026): 828 local font files, 0 CDN
+    // leftovers. The finding therefore names what the capture FOUND, not work
+    // that is still open.
     findings.push({
       kind: "font-subset",
       nodeKey: null,
-      message: `${fonts.length} @font-face-Subsets gefunden (CDN-URLs) — DSGVO-Umschreibung folgt in S2.3b.`,
+      message: `${fonts.length} @font-face-Subsets gefunden (CDN-URLs); der Asset-Import legt sie selbst gehostet ab.`,
       evidence: "data-framer-font-css",
       severity: "info",
-      suggestion: "Font-Dateien holen, deduplizieren und self-hosted einbinden (Task 2.3b).",
+      suggestion: "Ohne Asset-Import (includeFonts: false) zeigen die Schriften weiter auf den CDN.",
     });
   }
 
@@ -2169,6 +2207,19 @@ function buildIndex(rules: readonly ParsedCssRule[]): { index: RuleIndex; skippe
   const index: RuleIndex = { byClass: new Map(), generic: [] };
   let skippedPseudo = 0;
   for (const entry of rules) {
+    // `.hidden-<hash>{display:none!important}` is Framer's per-breakpoint
+    // SWITCH, not a look. The hash says "this copy belongs to another device";
+    // the `display:none` is only its mechanism. It never reaches a node here:
+    // `toIrNode` strips `hidden-*` from `baseClasses`, and this index is keyed
+    // by class. Visibility travels as `hiddenAt` / `visibleDevices` instead and
+    // becomes exact width ranges in the renderer.
+    //
+    // Kept as a finding for the report: a rule that only hides is the switch.
+    // Read as a style it became the element's BASE `display`, and because the
+    // phone cascade never sees it, the phone inherited it — measured on
+    // `concerned-circumstances-187935`: the mobile-only product card
+    // `framer-1ubp4ee-container` vanished on mobile, the whole menu section
+    // with it (13 unique lines, 1301 px).
     const { rule, pseudo } = compileSelector(entry.selector, entry.order, entry.values);
     if (pseudo) skippedPseudo += 1;
     if (rule === null) continue;
