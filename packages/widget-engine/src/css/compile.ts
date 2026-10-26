@@ -670,8 +670,13 @@ function build(document: CssDocument, compileOptions: CompileOptions): BuildResu
     for (const rule of document.classRules ?? []) {
       if (rule.kind !== undefined && rule.kind !== "class") continue;
       const carrier = firstCarrier.get(rule.name);
-      if (carrier === undefined) continue;
-      pushRuleSources(rule, globalClassSelector(rule.name), carrier.primitive, undefined, [rule.name]);
+      // A class can be carried by INLINE MARKUP instead of a node: an imported
+      // word span lives in the `html` prop of its parent, so no node ever names
+      // its class. Skipping it dropped the rule — and with it the animation —
+      // although the class sits in the rendered markup. The rule is emitted by
+      // its own selector then; the keyframes are its proof of life.
+      if (carrier === undefined && rule.rawCss === undefined) continue;
+      pushRuleSources(rule, globalClassSelector(rule.name), carrier?.primitive, undefined, [rule.name]);
     }
     for (const node of flat) {
       if (node.states === undefined) continue;

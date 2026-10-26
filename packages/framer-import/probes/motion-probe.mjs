@@ -44,7 +44,12 @@ function instrumentMotion() {
         try {
           W.__motion.animations.push({
             el: this,
-            keyframes: Array.isArray(keyframes) ? keyframes : [keyframes],
+            // The keyframes VERBATIM. Framer writes the property-index form
+            // (`{ opacity: [0.001, 1] }`), and wrapping a non-array into
+            // `[keyframes]` turned that into a one-frame list whose values were
+            // arrays — every start value was lost. The reader normalises both
+            // forms (`asFrameList`), so the recording keeps what it saw.
+            keyframes,
             options:
               typeof options === "number"
                 ? { duration: options }
@@ -338,7 +343,6 @@ function motionProbe() {
         const duration = call.options && call.options.duration;
         const ms = typeof duration === 'number' ? duration : undefined;
         if (known.has(target + '|' + ms)) continue;
-        const frames = Array.isArray(call.keyframes) ? call.keyframes : [];
         out.waapi.push({
           type: 'animate',
           target,
@@ -350,7 +354,12 @@ function motionProbe() {
           iterations: call.options && call.options.iterations,
           easing: call.options && call.options.easing,
           fill: call.options && call.options.fill,
-          keyframes: frames.slice(0, 12),
+          // The keyframes VERBATIM, in whichever of the two platform forms the
+          // runtime used. A frame list stays a list; a property index
+          // (`{ opacity: [0.001, 1] }`, the form Framer writes) stays an object.
+          // The reader normalises both (`asFrameList`); converting here lost
+          // every start value of the recorded path.
+          keyframes: call.keyframes,
         });
       } catch (_) {}
     }

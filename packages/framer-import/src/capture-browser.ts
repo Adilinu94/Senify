@@ -239,27 +239,74 @@ function scrollDelta(
 // on a preset — the same reason the appear channel carries `fromY` and friends.
 // The END values come from the last keyframe, so a `fill: both` animation that
 // is measured mid-flight still describes the whole effect.
+//
+// The platform accepts TWO shapes and Framer uses the second one exclusively
+// (measured 26.10.2026 on `concerned-circumstances-187935`):
+//
+//   a) a frame LIST:      [{ opacity: 0.001 }, { opacity: 1 }]
+//   b) a property INDEX:  { opacity: [0.001, 1] }
+//
+// Reading only (a) made `Array.isArray(keyframes)` false for every Framer
+// effect, so all 14 recorded animations arrived without a start value and no
+// preset could be chosen. Both forms are normalised to a frame list first.
+const asFrameList = (keyframes: unknown): (Record<string, unknown> | null)[] => {
+  if (Array.isArray(keyframes)) {
+    return keyframes.length === 0 ? [] : (keyframes as (Record<string, unknown> | null)[]);
+  }
+  // Form (b): each property carries its own value list, all of the same length.
+  if (typeof keyframes !== "object" || keyframes === null) return [];
+  const byProperty = keyframes as Record<string, unknown>;
+  let frames = 0;
+  for (const value of Object.values(byProperty)) {
+    if (Array.isArray(value)) frames = Math.max(frames, value.length);
+  }
+  if (frames === 0) {
+    // A single object (`{ opacity: 0 }`, no list) is ONE frame: the shorthand
+    // for "this is the only keyframe" (measured on Framer's container reset).
+    return [byProperty];
+  }
+  const list: Record<string, unknown>[] = [];
+  for (let index = 0; index < frames; index += 1) {
+    const frame: Record<string, unknown> = {};
+    for (const [property, value] of Object.entries(byProperty)) {
+      frame[property] = Array.isArray(value) ? value[index] : value;
+    }
+    list.push(frame);
+  }
+  return list;
+};
+
 function startValuesOf(keyframes: unknown): Record<string, number> {
-  if (!Array.isArray(keyframes) || keyframes.length === 0) return {};
-  const first = keyframes[0] as Record<string, unknown> | null;
-  const last = keyframes[keyframes.length - 1] as Record<string, unknown> | null;
-  if (first === null || first === undefined) return {};
+  const frames = asFrameList(keyframes);
+  if (frames.length === 0) return {};
+  const first = frames[0] ?? null;
+  const last = frames[frames.length - 1] ?? null;
+  if (first === null) return {};
   const out: Record<string, number> = {};
   const opacity = first["opacity"];
   if (typeof opacity === "string" || typeof opacity === "number") {
     const parsed = Number.parseFloat(String(opacity));
     if (Number.isFinite(parsed)) out["fromOpacity"] = parsed;
   }
-  const transform = typeof first["transform"] === "string" ? first["transform"] : "";
+  // `translate`, `translate3d` AND the axis forms `translateX` / `translateY`:
+  // Framer writes `translateY(28px)`, and a pattern that only knew the
+  // two-argument forms read every vertical offset as 0 — the start value was
+  // there, the reader missed it.
   const readTransform = (source: string): { x: number; y: number; scale: number } => {
-    const translate = /translate(?:3d)?\(\s*(-?[\d.]+)px(?:[,\s]+(-?[\d.]+)px)?/.exec(source);
+    const px = "(-?[\\d.]+)px";
+    const both = new RegExp(`translate\\(\\s*${px}(?:[,\\s]+${px})?`).exec(source);
+    const xOnly = new RegExp(`translateX\\(\\s*${px}`).exec(source);
+    const yOnly = new RegExp(`translateY\\(\\s*${px}`).exec(source);
     const scale = /scale\(\s*(-?[\d.]+)/.exec(source);
+    const num = (match: RegExpExecArray | null, group = 1): number =>
+      match === null ? 0 : Number.parseFloat(match[group] ?? "0");
     return {
-      x: translate === null ? 0 : Number.parseFloat(translate[1] ?? "0"),
-      y: translate === null ? 0 : Number.parseFloat(translate[2] ?? "0"),
+      x: both !== null ? num(both) : num(xOnly),
+      y: both !== null ? num(both, 2) : num(yOnly),
       scale: scale === null ? 1 : Number.parseFloat(scale[1] ?? "1"),
     };
   };
+  const transform = typeof first["transform"] === "string" ? first["transform"] : "";
   const from = readTransform(transform);
   if (transform !== "") {
     out["fromX"] = from.x;
@@ -334,6 +381,14 @@ function samplesOfProbe(
         durationUnit: "ms",
         iterations: isLoop ? "endless" : String(iterations ?? "1"),
         ...(typeof entry.name === "string" ? { name: entry.name } : {}),
+        // The stagger of a word cascade sits in the DELAY (measured: 50, 100,
+        // 150 … 700 ms in 50-ms steps). Dropping it made every word of a
+        // headline start at once — the effect was there, the offset was not.
+        ...(typeof entry.delay === "number" && entry.delay > 0 ? { delay: entry.delay } : {}),
+        // The easing Framer hands the browser is already a finished CSS curve
+        // (`cubic-bezier(… )` or the sampled `linear(0, …)` of a solved spring).
+        // Carried verbatim: re-deriving it would guess at what was measured.
+        ...(typeof entry.easing === "string" && entry.easing !== "" ? { easing: entry.easing } : {}),
         // The start values of the animation, read from its keyframes: without
         // them the mapper cannot put the effect on a preset (the same reason the
         // appear channel carries `fromY` and friends).

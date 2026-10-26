@@ -93,6 +93,12 @@ const FUNCTIONS = new Set([
   "polygon", "path",
   // timing and environment
   "cubic-bezier", "steps", "env", "attr", "counter", "counters", "symbols",
+  // The sampled form of a solved spring: `linear(0, 0.0089, …, 1)` is a CSS
+  // timing function since 2023 and the form Framer hands its effects to the
+  // browser in (measured 26.10.2026). It carries only numbers between
+  // 0 and 1, so it adds no way to load a resource or break out of the
+  // declaration.
+  "linear",
 ]);
 
 const PROPERTY_PATTERN = /^(--[a-zA-Z0-9_-]+|-?[a-zA-Z][a-zA-Z0-9-]*)$/;

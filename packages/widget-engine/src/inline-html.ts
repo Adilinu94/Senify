@@ -57,6 +57,13 @@ function attributeOf(raw: string, name: string): string | undefined {
   return match === null ? undefined : (match[1] ?? match[2] ?? match[3] ?? "");
 }
 
+// A class name an inline element may carry. The vocabulary is the page's own
+// generated names (a measured animation targets its span by class) and the
+// editor's scoped names. It is a closed shape - letters, digits, dashes,
+// underscores - so the attribute can never carry a second declaration or a
+// selector that escapes the element.
+const SAFE_CLASS_NAME = /^-?[A-Za-z_][A-Za-z0-9_-]*$/;
+
 function openTag(name: string, rawAttrs: string): string {
   const parts: string[] = [name];
   if (name === "a") {
@@ -65,6 +72,19 @@ function openTag(name: string, rawAttrs: string): string {
     if (attributeOf(rawAttrs, "target")?.toLowerCase() === "_blank") {
       parts.push('target="_blank"', 'rel="noopener noreferrer"');
     }
+  }
+  // `class` on an inline element: the only reason an imported word span needs
+  // one is a MEASURED animation, whose keyframes are bound to that class. The
+  // sanitizer used to drop every class, and with it every word reveal — the
+  // markup was right, the sanitizer removed the handle. Only names matching
+  // `SAFE_CLASS_NAME` survive, one per token, so nothing can be smuggled in.
+  const className = attributeOf(rawAttrs, "class");
+  if (className !== undefined) {
+    const safe = className
+      .trim()
+      .split(/\s+/)
+      .filter((token) => token !== "" && SAFE_CLASS_NAME.test(token));
+    if (safe.length > 0) parts.push(`class="${escapeAttr(safe.join(" "))}"`);
   }
   const style = safeStyleAttribute(attributeOf(rawAttrs, "style"));
   if (style !== undefined) parts.push(`style="${escapeAttr(style)}"`);
