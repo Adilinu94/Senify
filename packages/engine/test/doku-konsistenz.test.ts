@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
@@ -577,6 +577,105 @@ describe("Doku-Waechter: die Risiko-Nummern sind synchron", () => {
       const b = status(fZeile);
       if (a !== b) abweichend.push(`${id}: architektur.md=${a}, fahrplan.md=${b}`);
     }
+    expect(abweichend).toEqual([]);
+  });
+
+  // ---- Die Belege in den Risiko-Zeilen sind Belege, keine Behauptungen ----
+  //
+  // Befund vom 26.10.2026: R12 im Fahrplan sagte "`tools.ts` 2 714 -> 2 614
+  // Zeilen" - die Datei hatte da schon 1 671, weil drei Schnitte dazwischen
+  // lagen. Und R6 in `stand.md` belegte den Idempotency-Fix mit
+  // `http.ts:531-541`; die Datei hat seit dem Routen-Schnitt 275 Zeilen, der
+  // Beleg lag also hinter dem Dateiende. Beides sieht nach Nachweis aus und ist
+  // keiner.
+  //
+  // Die Regel gilt fuer RISIKO-Zeilen, nicht fuer die Historientabelle: dort
+  // stehen Messwerte von damals, und die sollen bleiben, wie sie waren.
+  const SUCHORTE = [
+    "packages/engine/src", "packages/engine/test",
+    "packages/editor/src", "packages/editor/src/inspector",
+    "packages/editor/test",
+    "packages/mcp/src", "packages/mcp/test",
+    "packages/app/public", "packages/app/test",
+    "packages/manifest/src", "packages/framer-import/src",
+    "packages/framer-import/test", "packages/renderer/src",
+    "packages/registry/src", "packages/widget-engine/src",
+    "scripts", "",
+  ];
+
+  /** Findet die Datei zu einem Verweis - mit oder ohne Ordner. */
+  const findeDatei = (name: string): string | null =>
+    (name.includes("/") ? [join(root, name)] : SUCHORTE.map((d) => join(root, d, name))).find((p) =>
+      existsSync(p),
+    ) ?? null;
+
+  const risikoZeilen = (L: string[]): Array<{ nr: number; id: string; text: string }> =>
+    L.map((text, i) => ({ nr: i + 1, id: /^\| (R\d+) \|/.exec(text)?.[1] ?? "", text })).filter(
+      (z) => z.id !== "",
+    );
+
+  it("belegt jede Risiko-Zeile mit einer Zeile, die es noch gibt", () => {
+    // `datei:123` oder `datei:123-456`.
+    const kaputt: string[] = [];
+    let geprueft = 0;
+    for (const [doku, L] of [["fahrplan.md", fahrplan], ["stand.md", stand], ["architektur.md", architektur]] as const) {
+      for (const z of risikoZeilen(L)) {
+        for (const m of z.text.matchAll(/`([\w./-]+\.(?:ts|js|json|mjs)):(\d+)(?:-(\d+))?`/g)) {
+          geprueft++;
+          const pfad = findeDatei(m[1]!);
+          if (pfad === null) {
+            kaputt.push(`${doku}:${z.nr} ${z.id}: ${m[1]} existiert nicht`);
+            continue;
+          }
+          const n = zeilenZahl(pfad);
+          const bis = Number(m[3] ?? m[2]);
+          if (bis > n) {
+            kaputt.push(`${doku}:${z.nr} ${z.id}: ${m[1]}:${m[2]}-${bis}, Datei hat ${n} Zeilen`);
+          }
+        }
+      }
+    }
+    // Die Gegenprobe: der Waechter muss etwas messen. Ohne Verweise waere er gruen
+    // und blind - genau der Fehler, den der Grosse-Dateien-Waechter hatte.
+    expect(geprueft, "keine Zeilenverweise gefunden - der Waechter misst nichts").toBeGreaterThan(2);
+    expect(kaputt).toEqual([]);
+  });
+
+  it("nennt in jeder Risiko-Zeile die Zeilenzahl, die die Datei hat", () => {
+    // "`x.ts` 1 671 Zeilen" und "`x.ts` 2 714 -> 1 671 Zeilen": der LETZTE Wert
+    // ist die Gegenwartsaussage. Zwei Ausnahmen, beide positionsbezogen:
+    // ein Loesch-Beleg ("`mount.ts` (3 270 Zeilen) ist geloescht") und die
+    // ausdrueckliche Nennung einer frueheren Fassung ("nannte noch 2 614").
+    //
+    // Eine zeilenweite Ausnahme waere falsch: R12 traegt BEIDES, den Bericht
+    // und die Gegenwart.
+    const BERICHT =
+      /vorige Fassung|fruehere Fassung|frühere Fassung|sagte bisher|nannte bisher|gel(?:oe|ö)scht|entfiel|entfernt/i;
+    const abweichend: string[] = [];
+    let geprueft = 0;
+    for (const [doku, L] of [["fahrplan.md", fahrplan], ["stand.md", stand], ["architektur.md", architektur]] as const) {
+      for (const z of risikoZeilen(L)) {
+        for (const m of z.text.matchAll(
+          /`([\w./-]+\.(?:ts|js))`[^\d`]{0,40}((?:\d[\d ]*\s*(?:->|→)\s*)*\d[\d ]*)\s*Zeilen/g,
+        )) {
+          const davor = z.text.slice(Math.max(0, m.index - 160), m.index);
+          const danach = z.text.slice(m.index, m.index + 160);
+          if (BERICHT.test(davor) || BERICHT.test(danach)) continue;
+
+          geprueft++;
+          const zahlen = m[2]!.split(/->|→/).map((v) => Number(v.replace(/[^\d]/g, "")));
+          const behauptet = zahlen[zahlen.length - 1]!;
+          const pfad = findeDatei(m[1]!);
+          if (pfad === null) {
+            abweichend.push(`${doku}:${z.nr} ${z.id}: ${m[1]} existiert nicht (Zeilenzahl ${behauptet})`);
+            continue;
+          }
+          const ist = zeilenZahl(pfad);
+          if (ist !== behauptet) abweichend.push(`${doku}:${z.nr} ${z.id}: ${m[1]} behauptet ${behauptet}, ist ${ist}`);
+        }
+      }
+    }
+    expect(geprueft, "keine Zeilenzahlen gefunden - der Waechter misst nichts").toBeGreaterThan(2);
     expect(abweichend).toEqual([]);
   });
 });
