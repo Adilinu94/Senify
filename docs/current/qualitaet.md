@@ -119,7 +119,7 @@ Der aktuelle Lauf vom 09.10.2026 (lokal auf Windows, TEMP/TMP/TMPDIR auf dem Lau
      Nicht von Hand editieren: dieser Block ist ein Messwert, und `pnpm quality:check`
      lässt den Lauf rot werden, sobald Dokument und Lauf auseinanderlaufen. -->
 
-**Gemessen:** unbekannt · vitest coverage (v8)
+**Gemessen:** 2026-10-26 · vitest coverage (v8)
 
 | Pfad | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
@@ -135,7 +135,7 @@ Der aktuelle Lauf vom 09.10.2026 (lokal auf Windows, TEMP/TMP/TMPDIR auf dem Lau
 | `packages/engine/src/http-*.ts` (21 Dateien) | 88.33 bis 100.00 | 69.76 bis 100.00 | 89.47 bis 100.00 | 88.39 bis 100.00 |
 | `packages/editor/src/state/*` (16 Dateien) | 75.00 bis 100.00 | 65.67 bis 100.00 | 73.33 bis 100.00 | 80.00 bis 100.00 |
 
-**Über alle gemessenen Dateien:** Statements 91.37 · Branches 79.55 · Functions 95.00 · Lines 93.75
+**Über alle gemessenen Dateien:** Statements 91.37 · Branches 79.62 · Functions 95.00 · Lines 93.75
 
 <!-- messwerte:ende -->
 
