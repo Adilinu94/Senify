@@ -191,6 +191,61 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     expect(ueberzaehlig).toEqual([]);
   });
 
+  it("begruendet den Inspektor mit der gemessenen Zahl", () => {
+    // Der Befund vom 26.10.2026: `inspector.ts` war mit 1 884 Zeilen die
+    // drittgroesste Datei, und die Begruendung sagte nur "eine Closure". Das
+    // ist wahr, aber es sagt nicht, ob die Closure teilbar waere. Die
+    // Messung sagt: nein - 22 Renderer, keiner haengt nur an `doc`,
+    // `renderFieldRow` allein nennt elf Fremdnamen.
+    //
+    // Diese Aussage ist pruefbar, also wird sie geprueft. Sonst ist sie in
+    // einem Monat eine Behauptung wie jede andere.
+    const quelle = readFileSync(join(root, "packages/editor/src/inspector/inspector.ts"), "utf8");
+    const zeilen = quelle.split(/\r?\n/);
+
+    // Renderer auf Ebene 2 zaehlen.
+    const starts: number[] = [];
+    for (let i = 0; i < zeilen.length; i++) {
+      if (/^ {2}function render[a-zA-Z0-9_]*\(/.test(zeilen[i]!)) starts.push(i);
+    }
+    expect(starts.length, "der Inspektor hat keine Renderer mehr - die Messung passt nicht mehr").toBe(22);
+
+    // Closure-Namen auf Ebene 2.
+    const closure = new Set<string>();
+    for (const z of zeilen) {
+      const m = /^ {2}(?:const|let|function) ([a-zA-Z_][a-zA-Z0-9_]*)/.exec(z);
+      if (m) closure.add(m[1]!);
+    }
+
+    // Kein Renderer darf nur an `doc` haengen (ausser den drei kleinen).
+    const eigenstaendig: string[] = [];
+    for (let k = 0; k < starts.length; k++) {
+      const name = /function (render[a-zA-Z0-9_]*)/.exec(zeilen[starts[k]!]!)?.[1] ?? "";
+      const ende = k + 1 < starts.length ? starts[k + 1]! : zeilen.length;
+      const text = zeilen.slice(starts[k], ende).join("\n");
+      const fremd = [...closure].filter((n) => n !== name && new RegExp(`\\b${n}\\b`).test(text)).sort();
+      // `doc` ist die Dokument-Referenz, kein Zustand: sie allein macht keinen
+      // Renderer unabhaengig.
+      const ohneDoc = fremd.filter((n) => n !== "doc" && !n.startsWith("render"));
+      if (ohneDoc.length === 0 && !fremd.some((n) => n.startsWith("render"))) eigenstaendig.push(name);
+    }
+
+    // Genau der eine, der wirklich ohne Fremdnamen auskommt. Kommt ein zweiter
+    // hinzu, ist die Aussage "keiner haengt nur an doc" falsch geworden.
+    //
+    // Der erste Anlauf dieser Pruefung erwartete drei (`renderSelect`,
+    // `renderEntryField`, `renderSwitcher`) und war rot: `renderSelect` ruft
+    // `renderVariantTiles`, `renderEntryField` ruft `renderSwitcher` und
+    // `renderSelect`. Nur `renderSwitcher` ist wirklich eigenstaendig - 24
+    // Zeilen. Genau deshalb steht die Zahl in der Begruendung: sie ist kleiner,
+    // als der erste Blick suggeriert.
+    expect(eigenstaendig.sort()).toEqual(["renderSwitcher"]);
+
+    // Und die Begruendung muss die Zahl tragen, die sie behauptet.
+    expect(module).toContain("22 Renderer");
+    expect(module).toContain("elf Fremdnamen");
+  });
+
   it("nennt je Route-Modul die richtige Routenzahl", () => {
     // Der Befund vom 23.10.2026: die Zahl stand von Hand in `stand.md` und war
     // fuer zwei Module falsch. Jetzt steht sie im Bericht, und der Bericht
