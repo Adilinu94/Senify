@@ -259,7 +259,10 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
 
     const funktionen = (text: string): number => (text.match(/^(?:export )?(?:async )?function /gm) ?? []).length;
     expect(funktionen(capture), "capture-html.ts hat eine andere Zahl Funktionen").toBe(68);
-    expect(funktionen(mapper), "mapper.ts hat eine andere Zahl Funktionen").toBe(54);
+    // 57 seit dem 26.10.2026: der fremde Commit 7a5b838 (Browser-Abgriff der
+    // Animationen) hat drei Funktionen ergaenzt. Der Waechter hat es sofort
+    // gemeldet - genau dafuer steht er hier. Der Bericht nennt dieselbe Zahl.
+    expect(funktionen(mapper), "mapper.ts hat eine andere Zahl Funktionen").toBe(57);
 
     // Der CSS-Block: Z1902-2627 im Kommentar. Geprueft wird, dass er noch dort
     // liegt - verschiebt jemand die Datei, ist die Begruendung falsch.
@@ -269,8 +272,9 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
 
     // Und die Begruendung muss die Zahlen tragen, die sie behauptet.
     expect(module).toContain("726 Zeilen, 21 Funktionen");
-    expect(module).toContain("54 Funktionen");
-    expect(module).toContain("289 Zeilen");
+    expect(module).toContain("57 Funktionen");
+    // `mapNode` ist mit der Datei gewachsen (289 -> 336).
+    expect(module).toContain("336 Zeilen");
   });
 
   it("begruendet den Inspektor mit der gemessenen Zahl", () => {    // Der Befund vom 26.10.2026: `inspector.ts` war mit 1 884 Zeilen die
@@ -474,11 +478,38 @@ describe("Doku-Waechter: die Risiko-Nummern sind synchron", () => {
     // Der Befund vom 24.10.2026: P3-7 stand als "offen" im Fahrplan, obwohl
     // alle sechs Tabellenzeilen darunter mit Datum, Messwert und Testbeleg
     // geschlossen waren. Wer die Ueberschrift liest, plant Arbeit ein, die es
-    // nicht gibt. Geprueft wird die Richtung in beide Faelle: eine offene
-    // Zeile unter "geschlossen" ist genauso falsch.
+    // nicht gibt. Geprueft wird die Richtung in beide Faelle.
+    //
+    // ZWEI BEFUNDE VOM 26.10.2026, die diese Fassung behebt:
+    //
+    // 1. `!l.includes("geschlossen")` liest das Wort IRGENDWO in der Zeile.
+    //    P3-7 Punkt 15 sagt "`unifiersofjapan` bleibt offen bei 14,73 %" und
+    //    enthaelt weiter hinten "geschlossen" - er galt damit als erledigt.
+    //    Punkt 1 nennt "das X-Logo ist **geschlossen**", waehrend die Sterne
+    //    fehlen. Zwei offene Punkte, beide unsichtbar.
+    //
+    // 2. "teilweise geschlossen" ist ein Status, den die Ueberschrift nach
+    //    einer Berichtigung traegt - das Muster kannte ihn nicht und haette
+    //    den Abschnitt danach GAR NICHT mehr geprueft. Ein Waechter, der
+    //    einen Abschnitt still fallenlaesst, ist schlimmer als keiner.
+    //
+    // Gelesen wird der Status deshalb dort, wo er steht: am ANFANG der
+    // Ursachen-Zelle. Drei Klassen wie im Risiko-Register - "zu", "grenze"
+    // (bewusste Grenze der Quelle) und "offen".
+    const KOPF = /^### (P\d-\d+) .*?[-\u2013\u2014] (offen|teilweise geschlossen|geschlossen)\b/;
+    const punktStatus = (zeile: string): "zu" | "grenze" | "offen" => {
+      const ursache = zeile.split("|").map((c) => c.trim())[3] ?? "";
+      if (/^\*\*geschlossen\b/.test(ursache)) return "zu";
+      // Eine bewusste Grenze ist keine offene Arbeit: die Ursache sagt, dass
+      // es keine Luecke IST (P3-7 Punkt 1: die Sterne stehen nicht im SSR).
+      if (/keine Import-L(?:ü|ue)cke|Grenze der .*Quelle|Produktentscheidung/i.test(ursache)) return "grenze";
+      return "offen";
+    };
+
     const falsch: string[] = [];
+    let geprueft = 0;
     for (let i = 0; i < fahrplan.length; i++) {
-      const kopf = /^### (P\d-\d+) .*?[-–—] (offen|geschlossen)\b/.exec(fahrplan[i] ?? "");
+      const kopf = KOPF.exec(fahrplan[i] ?? "");
       if (kopf === null) continue;
       const [, id, status] = kopf;
       const rumpf: string[] = [];
@@ -486,14 +517,31 @@ describe("Doku-Waechter: die Risiko-Nummern sind synchron", () => {
       const punkte = rumpf.filter((l) => /^\| \d+b? \|/.test(l));
       // Ohne nummerierte Punkttabelle ist die Ueberschrift die einzige Quelle.
       if (punkte.length === 0) continue;
-      const offen = punkte.filter((l) => !l.includes("geschlossen"));
-      if (status === "offen" && offen.length === 0) {
-        falsch.push(`${id}: Ueberschrift "offen", aber alle ${punkte.length} Punkte sind geschlossen`);
-      }
+      geprueft++;
+
+      const offen = punkte.filter((l) => punktStatus(l) === "offen");
+      const grenzen = punkte.filter((l) => punktStatus(l) === "grenze");
+
       if (status === "geschlossen" && offen.length > 0) {
-        falsch.push(`${id}: Ueberschrift "geschlossen", aber ${offen.length} Punkt(e) ohne Geschlossen-Vermerk`);
+        falsch.push(
+          `${id}: Ueberschrift "geschlossen", aber ${offen.length} offen: ${offen
+            .map((l) => l.split("|")[1]?.trim())
+            .join(", ")}`,
+        );
+      }
+      if (status === "teilweise geschlossen" && offen.length === 0) {
+        falsch.push(`${id}: Ueberschrift "teilweise", aber kein Punkt ist offen`);
+      }
+      if (status === "offen" && offen.length === 0) {
+        falsch.push(
+          `${id}: Ueberschrift "offen", aber alle ${punkte.length} Punkte sind zu` +
+            (grenzen.length > 0 ? ` (${grenzen.length} bewusste Grenze(n))` : ""),
+        );
       }
     }
+    // Der Waechter muss etwas messen. Ohne Abschnitt mit Punkttabelle waere er
+    // gruen und blind - genau der Fehler, den er beheben soll.
+    expect(geprueft, "kein Abschnitt mit Punkttabelle gefunden").toBeGreaterThan(0);
     expect(falsch).toEqual([]);
   });
 
