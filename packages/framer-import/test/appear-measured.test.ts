@@ -84,7 +84,11 @@ describe("gemessene Einblendung als CSS", () => {
     expect(animation).toContain("100.0000%)");
   });
 
-  it("fällt ohne gemessene Kurve auf die Feder zurück, die der Kanal nennt", () => {
+  it("löst ohne gemessene Kurve die Feder des Kanals exakt", () => {
+    // Der Kanal nennt stiffness/damping/mass, aber keine Kurve. Frueher wurde
+    // daraus ein festes `ease-out` bzw. `cubic-bezier` - eine Naeherung, die
+    // gegen Framers eigenen Rechner bis zu 8x zu schnell war (U5e, 26.10.2026).
+    // Jetzt rechnet `spring.ts` die Kurve, und die Animation traegt sie.
     const result = compile([
       {
         appearId: "spring",
@@ -97,7 +101,8 @@ describe("gemessene Einblendung als CSS", () => {
       },
     ]);
     const animation = result.rules[0]?.animation["animation"] ?? "";
-    expect(animation).not.toContain("linear(");
-    expect(/ease-out|cubic-bezier/.test(animation)).toBe(true);
+    // A solved spring, not a hand-picked bezier: 30 stops from `spring()`.
+    expect(animation).toContain("linear(");
+    expect(animation.slice(animation.indexOf("linear(")).split(",").length).toBeGreaterThan(20);
   });
 });

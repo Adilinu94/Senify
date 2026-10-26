@@ -42,9 +42,10 @@ describe("Framer appear effects", () => {
 
   it("settles a spring from its stiffness, damping and mass", () => {
     const document = captureHtml({ html });
-    // ω0 = √160 ≈ 12.65, ζ = 30 / (2·√160) ≈ 1.19: 4 / (ζ·ω0) ≈ 0.27 s
-    expect(document.motion[0]?.params["duration"]).toBeGreaterThan(0.24);
-    expect(document.motion[0]?.params["duration"]).toBeLessThan(0.3);
+    // Framer's own solver (see spring.test.ts for the comparison against the
+    // page's `animator.spring`): stiffness 160 / damping 30 settles at 1.00 s,
+    // not at the 0.27 s the old `4/(ζ·ω0)` formula claimed.
+    expect(document.motion[0]?.params["duration"]).toBeCloseTo(1.0, 2);
   });
 
   it("maps a rise from below and a plain fade to fade-up, with the offset as intensity", () => {

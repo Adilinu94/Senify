@@ -42,6 +42,7 @@ import {
 import { expandBox, parseDeclaration, splitCommas, splitDeclarations } from "./css-util.ts";
 import { devicesContaining } from "./devices.ts";
 import { rewriteLinks } from "./link-paths.ts";
+import { springDurationMs, type SpringTransition } from "./spring.ts";
 
 /* ------------------------------------------------------------------ types */
 
@@ -1842,15 +1843,24 @@ function readAppearMotion(html: string, root: IrNode): IrMotionSample[] {
 
 // The time a spring needs to come to rest (2 % band): `4 / (ζ·ω0)` with
 // ω0 = √(stiffness/mass) and ζ = damping / (2·√(stiffness·mass)). A plain
-// `duration` transition is taken as it is. Clamped to a range a page can use.
+// The time a spring needs to come to rest, as FRAMER computes it. Framer's own
+// solver (ported in `spring.ts`) samples the spring at 10 ms until it is within
+// a DISTANCE-DEPENDENT rest threshold; the old `4/(ζ·ω0)` formula answered a
+// different question and was up to 8× too short (55 of 58 fixture springs).
+// The distance matters, so the LONGEST of an effect's property distances is
+// used — the same choice Framer's `We` makes (`longestDuration`).
 function springSettleSeconds(transition: AppearTransition): number {
   if (transition.type !== "spring") return Math.min(Math.max(transition.duration ?? 0.4, 0.15), 1.6);
-  const stiffness = transition.stiffness ?? 100;
-  const damping = transition.damping ?? 10;
-  const mass = transition.mass ?? 1;
-  const omega = Math.sqrt(stiffness / mass);
-  const zeta = damping / (2 * Math.sqrt(stiffness * mass));
-  return Math.min(Math.max(4 / (zeta * omega), 0.15), 1.6);
+  const spring: SpringTransition = transition;
+  // A full opacity step, a large translation and a scale step: the furthest an
+  // appear effect travels. The sample is one number and feeds the preset path,
+  // which has no property knowledge; `appear-css.ts` computes the exact max.
+  const candidates = [
+    springDurationMs(spring, 0.001, 1),
+    springDurationMs(spring, 0, 150),
+    springDurationMs(spring, 1, 0.6),
+  ];
+  return Math.max(...candidates) / 1000;
 }
 
 function emptyRoot(): IrNode {
