@@ -117,7 +117,7 @@ const BLEIBT = {
   "packages/mcp/src/tools.ts":
     "die Werkzeug-Tabelle; ihre Reihenfolge ist der Vertrag (`server.ts` liest `TOOLS.map`), der Manifest-Generator folgt den `...X_TOOLS`-Spreizungen - ein weiterer Schnitt ist möglich und braucht den Manifest-Diff als Beweis",
   "packages/editor/src/inspector/inspector.ts":
-    "eine Closure (`createInspector`), die DOM und Zustand gemeinsam hält",
+    "eine Closure (`createInspector`), die DOM und Zustand gemeinsam hält. **Gemessen am 26.10.2026:** 22 Renderer, und nur EINER kommt ohne Fremdnamen aus (`renderSwitcher`, 24 Zeilen); alle anderen brauchen `commitProp`, ein Geschwister oder den Zustand. `renderFieldRow` allein nennt elf Fremdnamen (`breakpoint`, `tokenPanelKey`, `apply`, `commitProp`, `toggleVariant`, `removeVariant`, `clearProp`, `clearField`, `commitMotion`, `motionModel`) und zehn Geschwister-Renderer. Eine Fabrik, die elf Rückrufe durchreicht, ist keine Naht, sondern eine Verschiebung mit mehr Parametern: dieselbe Prüfung, mit der die Betriebsgruppe der Routen verworfen wurde",
   "packages/app/public/app-editor.js":
     "`mountCanvasView` haelt Canvas, Zustand und Ereignisse in einer Closure",
   "packages/engine/src/content.ts": "Sammlungen, Einträge und ihre Suche in einem Fachgebiet",
