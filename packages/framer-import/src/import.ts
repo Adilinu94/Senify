@@ -225,10 +225,15 @@ export function mergeDeviceVariants(browser: FramerIrDocument, statik: FramerIrD
 
   const apply = (node: DeviceNode): void => {
     const id = node.htmlId ?? "";
-    // The HTML id first: the two loads number their nodes differently, and the
-    // phone build's node for a section is the one with both states. A key match
-    // across the two documents would name a different element.
-    const source = id !== "" ? (byId.get(id) ?? byKey.get(node.key)) : byKey.get(node.key);
+    // ONLY the HTML id names the same element in both loads. The IR keys are
+    // numbered per document (`n322` is "Badge Text" at 1440 px and "Word" at
+    // 390 px), so a key match takes the wrong node — measured: the features
+    // badge showed "finance" instead of "1Platform".
+    if (id === "") {
+      for (const child of node.children) apply(child);
+      return;
+    }
+    const source = byId.get(id);
     if (source !== undefined) {
       // A section the phone build shows is not "desktop only". Its own variant
       // says which devices see it — and the desktop capture said "mobile is
@@ -296,10 +301,13 @@ export function mergeDeviceVariants(browser: FramerIrDocument, statik: FramerIrD
     let previous: DeviceNode | undefined;
     for (const child of phoneNode.children) {
       const id = child.htmlId ?? "";
-      const isExtra =
-        id !== "" &&
-        !known.has(id) &&
-        child.states.some((state) => state.device === "mobile" || state.device === "desktop");
+      // A phone-only section: no HTML id in the desktop tree AND its own
+      // section. Anything else (a word span, a card) belongs to a node the
+      // desktop tree already has; taking it would duplicate the content and
+      // overwrite the right text with the phone's copy (measured: the features
+      // badge showed the hero's "finance" instead of "1Platform").
+      const isSection = child.tag === "section" || child.tag === "footer";
+      const isExtra = isSection && id !== "" && !known.has(id);
       if (isExtra) {
         child.visibleOn = ["mobile"];
         const at = previous === undefined ? 0 : desktopParent.children.indexOf(previous) + 1;
@@ -309,9 +317,8 @@ export function mergeDeviceVariants(browser: FramerIrDocument, statik: FramerIrD
         continue;
       }
       const matchDesktop = id === "" ? undefined : desktopById.get(id);
-      const matchPhone = child;
       if (matchDesktop !== undefined) {
-        insertExtras(matchPhone, matchDesktop);
+        insertExtras(child, matchDesktop);
         previous = matchDesktop;
       }
     }
