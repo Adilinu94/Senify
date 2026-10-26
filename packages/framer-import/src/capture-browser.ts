@@ -21,7 +21,14 @@ import { fileURLToPath } from "node:url";
 import { SenifyError } from "@senify/core";
 import { blockedAddressError, isAllowedBrowserUrl } from "@senify/core/net";
 import { captureHtml, type CaptureHtmlInput } from "./capture-html.ts";
-import type { FramerIrDocument, IrMotionSample } from "./ir.ts";
+import type {
+  FramerIrDocument,
+  IrAppearSpec,
+  IrAppearState,
+  IrAppearTransition,
+  IrAppearVariant,
+  IrMotionSample,
+} from "./ir.ts";
 
 /* ------------------------------------------------------------------ types */
 
@@ -102,8 +109,16 @@ type BrowserSlice = {
 const FREEZE_CSS =
   "*, *::before, *::after { animation: none !important; transition: none !important; } html { scroll-behavior: auto !important; }";
 
-/* --------------------------------------------------------- scroll sensor */
+// How long the capture waits after `load` before it reads the markup.
+//
+// Framer's page is a shell at `load` and complete a moment later; the runtime's
+// reveals then wipe the start states out of the HTML. Measured on `rare-works`:
+// 0 ms → 5 KB / 0 spans, 300 ms → 1 MB / 93 spans / 98 start states, 3 s → the
+// same spans at `opacity:1`. 350 ms sits safely inside the window (it was still
+// complete and still carrying 98 start states in every run).
+const SETTLE_READ_MS = 350;
 
+/* --------------------------------------------------------- scroll sensor */
 // The IR keys every node `n<ordinal>`; the running page has no such attribute,
 // so a probe that reports `data-framer-name` or a class name can never address
 // an IR node (measured 22.10.2026: 0 of 24 / 29 / 66 scroll samples landed).
@@ -254,20 +269,62 @@ function samplesOfProbe(probe: Record<string, unknown>, keyOf: (target: unknown)
     const isLoop = iterations === Infinity || iterations === "Infinity" || iterations === null;
     const scrollDriven =
       typeof entry.timeline === "string" && /ScrollTimeline|ViewTimeline/.test(entry.timeline);
-    if (!isLoop && !scrollDriven) continue;
+    // The channel the static appear JSON cannot see: Framer's runtime reveals
+    // its words one by one (`element.animate`), and those calls only exist while
+    // the page runs. They used to be thrown away here — the two filters below
+    // only keep loops and scroll timelines, and a reveal is neither. Measured on
+    // `rare-works`: 91 words and 5 blocks revealed by the runtime, none of them
+    // reaching the mapper, which is why the baked page showed every headline at
+    // once instead of word by word.
+    const runtimeReveal =
+      entry.source === "element.animate" || entry.source === "framer-animator";
+    // A recorded call names its target by the IR key the stamp wrote; that is
+    // the exact node, not a selector that three breakpoint copies share.
+    const nodeKey =
+      typeof entry.key === "string" ? entry.key : keyOf(entry.target);
+    if (!isLoop && !scrollDriven && !runtimeReveal) continue;
+    // A reveal without a target is not mappable: reporting it would put an
+    // effect on no element. It stays in the raw probe instead.
+    if (nodeKey === null && runtimeReveal) continue;
+    const duration = typeof entry.duration === "number" ? entry.duration : 0;
+    const keyframes = entry.keyframes;
+    const first = Array.isArray(keyframes) ? keyframes[0] : undefined;
+    const params: IrMotionSample["params"] = {
+      duration,
+      // `getTiming().duration` is milliseconds (the platform unit). The field
+      // exists so the mapper never has to infer the unit from the library.
+      durationUnit: "ms",
+      iterations: isLoop ? "endless" : String(iterations ?? "1"),
+      ...(typeof entry.name === "string" ? { name: entry.name } : {}),
+      ...(typeof entry.delay === "number" && entry.delay !== 0 ? { delay: entry.delay } : {}),
+      ...(typeof entry.easing === "string" ? { easing: entry.easing } : {}),
+      ...(Array.isArray(entry.properties) ? { properties: entry.properties.join(",") } : {}),
+    };
+    // The start values the reveal moves away from, in the shape the appear
+    // channel uses — that is what lets the mapper build a keyframes block from
+    // a measured call instead of only from the source's JSON.
+    if (first !== undefined && typeof first === "object") {
+      const frame = first as Record<string, unknown>;
+      const opacity = Number(frame["opacity"]);
+      if (Number.isFinite(opacity)) params["fromOpacity"] = opacity;
+      const transform = frame["transform"];
+      if (typeof transform === "string") params["fromTransform"] = transform;
+      const filter = frame["filter"];
+      if (typeof filter === "string") params["fromFilter"] = filter;
+    }
     samples.push({
-      nodeKey: keyOf(entry.target),
+      nodeKey,
       library: "waapi",
-      trigger: isLoop ? "time" : "scroll",
-      params: {
-        duration: typeof entry.duration === "number" ? entry.duration : 0,
-        // `getTiming().duration` is milliseconds (the platform unit). The field
-        // exists so the mapper never has to infer the unit from the library.
-        durationUnit: "ms",
-        iterations: isLoop ? "endless" : String(iterations ?? "1"),
-        ...(typeof entry.name === "string" ? { name: entry.name } : {}),
-      },
-      raw: JSON.stringify({ name: entry.name, duration: entry.duration, iterations: entry.iterations }),
+      trigger: isLoop ? "time" : scrollDriven ? "scroll" : "appear",
+      params,
+      raw: JSON.stringify({
+        source: entry.source ?? "getAnimations",
+        name: entry.name,
+        duration: entry.duration,
+        iterations: entry.iterations,
+        properties: entry.properties,
+        sampledFrames: entry.sampledFrames,
+      }),
     });
   }
   const io = Array.isArray(probe.intersectionObservers)
@@ -294,8 +351,115 @@ function samplesOfProbe(probe: Record<string, unknown>, keyOf: (target: unknown)
   return samples;
 }
 
-/* ------------------------------------------------------------------ main */
+// A CSS transform as the appear channel's numbers: `translateY(28px)` → `y: 28`.
+// A transform with a part this reader does not know (`matrix(…)`) returns null —
+// a wrong start state is worse than none.
+const TRANSFORM_PART = /(translateX|translateY|translateZ|scale|rotate|rotateX|rotateY|skewX|skewY)\(([-\d.]+)(?:px|deg)?\)/g;
 
+function appearStateOf(value: string | undefined): IrAppearState | null {
+  if (value === undefined) return null;
+  const text = value.trim();
+  if (text === "" || text === "none") return {};
+  const state: IrAppearState = {};
+  for (const match of text.matchAll(TRANSFORM_PART)) {
+    const name = match[1] ?? "";
+    const amount = Number.parseFloat(match[2] ?? "");
+    if (!Number.isFinite(amount)) return null;
+    if (name === "translateX") state.x = amount;
+    else if (name === "translateY") state.y = amount;
+    else if (name === "translateZ") state.z = amount;
+    else if (name === "scale") state.scale = amount;
+    else if (name === "rotate") state.rotate = amount;
+    else if (name === "rotateX") state.rotateX = amount;
+    else if (name === "rotateY") state.rotateY = amount;
+    else if (name === "skewX") state.skewX = amount;
+    else if (name === "skewY") state.skewY = amount;
+  }
+  if (Object.keys(state).length === 0 && !/^(?:translate|scale|rotate|skew|matrix|perspective|none)/.test(text)) {
+    return null;
+  }
+  return state;
+}
+
+function blurOf(value: string | undefined): number | undefined {
+  if (typeof value !== "string") return undefined;
+  const match = /blur\(([\d.]+)px\)/.exec(value);
+  return match === null ? undefined : Number.parseFloat(match[1] ?? "");
+}
+
+function appearSpecsOfProbe(probe: Record<string, unknown>): IrAppearSpec[] {
+  // The measured reveals as appear specs: what the browser actually animated,
+  // element by element. Framer's runtime hands `element.animate()` two keyframes
+  // per property (`opacity: [0.001, 1]`, `filter: ["blur(12px)", "blur(0px)"]`)
+  // together with duration, delay and a ready-made CSS `linear(…)` easing — that
+  // is not an approximation of the source's animation, it IS the animation.
+  const waapi = Array.isArray(probe.waapi) ? (probe.waapi as Record<string, unknown>[]) : [];
+  const byKey = new Map<string, IrAppearSpec>();
+  for (const entry of waapi) {
+    const key = entry.key;
+    if (typeof key !== "string" || key === "") continue;
+    // Only a reveal: a loop is the ticker channel, a scroll timeline the sensor.
+    if (entry.source !== "element.animate" && entry.source !== "framer-animator") continue;
+    const frames = entry.keyframes;
+    if (frames === null || typeof frames !== "object") continue;
+    const record = frames as Record<string, unknown[] | undefined>;
+    const at = (name: string, index: number): unknown => {
+      const list = record[name];
+      if (!Array.isArray(list) || list.length === 0) return undefined;
+      // Framer gives two values for a `from`/`to` effect and N sampled ones for
+      // a spring; both ends are what the spec carries.
+      return index === 0 ? list[0] : list[list.length - 1];
+    };
+    const initial: IrAppearState = {};
+    const animate: IrAppearState & { transition?: IrAppearTransition } = {};
+    const opacityFrom = at("opacity", 0);
+    const opacityTo = at("opacity", 1);
+    if (typeof opacityFrom === "number" && Number.isFinite(opacityFrom)) initial.opacity = opacityFrom;
+    if (typeof opacityTo === "number" && Number.isFinite(opacityTo)) animate.opacity = opacityTo;
+    const transformFrom = appearStateOf(at("transform", 0) as string | undefined);
+    const transformTo = appearStateOf(at("transform", 1) as string | undefined);
+    if (transformFrom !== null) Object.assign(initial, transformFrom);
+    if (transformTo !== null) Object.assign(animate, transformTo);
+    const blurFrom = blurOf(at("filter", 0) as string | undefined);
+    const blurTo = blurOf(at("filter", 1) as string | undefined);
+    if (blurFrom !== undefined) initial.blur = blurFrom;
+    if (blurTo !== undefined) animate.blur = blurTo;
+    // Nothing to play: a call that only carries an unknown property.
+    if (Object.keys(initial).length === 0 && Object.keys(animate).length === 0) continue;
+    const duration = typeof entry.duration === "number" ? entry.duration : undefined;
+    const delay = typeof entry.delay === "number" ? entry.delay : undefined;
+    const easing = typeof entry.easing === "string" ? entry.easing : undefined;
+    // The runtime hands a ready-made CSS curve. It travels verbatim: `linear(…)`
+    // and `cubic-bezier(…)` are both valid CSS timing functions, and the sampled
+    // one reproduces Framer's solved spring exactly.
+    animate.transition = {
+      type: easing !== undefined && /^linear\(/.test(easing) ? "sampled" : "tween",
+      ...(duration === undefined ? {} : { duration: duration / 1000 }),
+      ...(delay === undefined ? {} : { delay: delay / 1000 }),
+      ...(easing === undefined ? {} : { easing }),
+    };
+    const existing = byKey.get(key);
+    const spec: IrAppearVariant = { initial, animate };
+    if (existing === undefined) {
+      byKey.set(key, { appearId: key, variants: { default: spec } });
+      continue;
+    }
+    // Two properties of the same element arrive as two calls; they belong in
+    // one spec, not in two blocks that would overwrite each other.
+    const merged = existing.variants["default"];
+    if (merged === null || merged === undefined) {
+      existing.variants["default"] = spec;
+      continue;
+    }
+    existing.variants["default"] = {
+      initial: { ...merged.initial, ...initial },
+      animate: { ...merged.animate, ...animate, transition: animate.transition ?? merged.animate?.transition },
+    };
+  }
+  return [...byKey.values()];
+}
+
+/* ------------------------------------------------------------------ main */
 export async function captureBrowser(input: CaptureBrowserInput): Promise<BrowserCaptureResult> {
   const { chromium } = await loadPlaywright();
   const motionSource = probeSource("motion-probe.mjs");
@@ -353,25 +517,71 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
       await page.addStyleTag({ content: FREEZE_CSS }).catch(() => undefined);
     }
 
-    // The IR keys are stamped onto the LIVE tree first: the ordinals only match
-    // when the tree is the one `captureHtml` will read moments later, so the
-    // stamp happens after the page settled (JS-built content included) and is
-    // taken off again before `page.content()`. A page without `#main` stamps
-    // nothing; the sensor then simply finds no key and reports nothing.
-    await page.evaluate("window.senifyStampKeys()");
-
-    // Settle once through the scroll height (lazy media, IO triggers). This
-    // pass makes the page GROW - it must be finished before the scroll sensor
-    // measures, or every element reports the height change as a movement.
+    // The START STATES, read once the page is built but before the runtime has
+    // animated them away.
+    //
+    // Two measurements shape this wait (rare-works, 26.10.2026):
+    //   - right at `load` the page is 5 KB of shell: 0 spans, nothing to read;
+    //   - 300 ms later it is complete (93 spans) and still carries 98 start
+    //     states (`opacity:0.001`, `blur(12px)`, `translateY(28px)`);
+    //   - after the reveal has run (3 s) the same spans read `opacity:1`.
+    //
+    // The identity is the DOM PATH (the nth-child chain), not the IR key: Framer
+    // replaces nodes while it hydrates, so the same span carried `n100` at
+    // 350 ms and `n62` after the scroll pass — measured. The path is stable
+    // through that, because no element moves.
+    await page.waitForTimeout(SETTLE_READ_MS);
+    // Collected on the SETTLED tree, but by walking back in time is impossible —
+    // so the collection happens NOW and is written back onto the SAME element
+    // objects later. Framer's hydration replaces nodes (measured: the "Run" span
+    // carried `n100` at 350 ms and `n62` after the scroll pass), which is why an
+    // IR key or a path cannot survive; a direct reference can.
+    const startStateCount = (await page.evaluate(`(() => {
+      const collect = () => {
+        const out = [];
+        for (const el of document.querySelectorAll("#main *")) {
+          const style = el.getAttribute("style");
+          if (style === null) continue;
+          if (!/(?:^|;)\\s*(opacity\\s*:\\s*0(?:\\.\\d+)?|filter\\s*:\\s*blur|transform\\s*:\\s*translate)/i.test(style)) continue;
+          out.push({ el, style });
+        }
+        return out;
+      };
+      window.__senifyStartStates = collect();
+      return window.__senifyStartStates.length;
+    })()`)) as number;
+    // The IR keys are stamped onto the LIVE tree TWICE, and both stamps are the
+    // same walk over the same tree in the same order — so the same element gets
+    // the same key both times (measured: 327 of 327 collected keys were found
+    // again in the late markup, at their own positions). The early stamp names
+    // the element whose start state was collected; the late one names the tree
+    // the probe measures after the scroll pass.
+    //
+    // "After it settled", not "after `load`": at `load` Framer has not built the
+    // page yet. Measured on the rare-works payload — stamping right after `load`
+    // found 3 elements, 0.5 s later 3072. The stamped keys then name nothing,
+    // and every measured reveal loses its target (376 recorded animations, 0
+    // mapped). The settle pass below is exactly that wait, so the stamp runs
+    // AFTER it.
+    //
+    // A page without `#main` stamps nothing; the sensor then simply finds no
+    // key and reports nothing.
     await page.evaluate(async () => {
       const slice = globalThis as unknown as BrowserSlice;
-      const step = slice.window.innerHeight;
+      const step = Math.round(slice.window.innerHeight / 3);
       for (let y = 0; y < slice.document.body.scrollHeight; y += step) {
         slice.window.scrollTo(0, y);
         await new Promise((resolve) => setTimeout(resolve, 120));
       }
+      slice.window.scrollTo(0, 0);
+      await new Promise((resolve) => setTimeout(resolve, 400));
     });
     await page.waitForTimeout(input.settleMs ?? 1500);
+
+    // The stamp, before the reveals are read: a stamped key is the only exact
+    // name a recorded animation can carry (Framer's word spans have no id and
+    // no class, so 91 of them read `span`).
+    await page.evaluate("window.senifyStampKeys()");
 
     // The sensor compares two REAL scroll positions on the settled page: one
     // viewport down. Sampling at the same offset twice measures nothing.
@@ -392,15 +602,63 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
     const probe = (await page.evaluate(
       "JSON.parse(JSON.stringify(motionProbe()))",
     )) as Record<string, unknown>;
+    // Temporary diagnostic: what does the probe hand over, entry by entry?
+    if (process.env["SENIFY_DEBUG_PROBE"] === "1") {
+      const waapi = Array.isArray(probe.waapi) ? (probe.waapi as Record<string, unknown>[]) : [];
+      console.log(`[probe] waapi=${waapi.length}`);
+      for (const entry of waapi.slice(0, 3)) {
+        console.log(`[probe] ${JSON.stringify(entry).slice(0, 260)}`);
+      }
+    }
     // The selector index belongs to the very tree the probe just read, so it is
     // taken BEFORE the stamp comes off and the HTML is serialised.
     const keyIndex = (await page.evaluate(
       "JSON.parse(JSON.stringify(window.senifyKeyIndex()))",
     )) as Record<string, string | null>;
+    // The states are written back onto the SAME element objects now, right
+    // before the markup is serialised. The reveal compiler derives a word's
+    // animation from that attribute; without it every word plays on the
+    // container instead of on itself.
+    const restored = (await page.evaluate(`(() => {
+      const states = window.__senifyStartStates || [];
+      let applied = 0;
+      for (const { el, style } of states) {
+        if (!el || !el.tagName || !document.contains(el)) continue;
+        const current = el.getAttribute('style') || '';
+        const keep = new Map();
+        for (const part of current.split(';')) {
+          const colon = part.indexOf(':');
+          if (colon <= 0) continue;
+          keep.set(part.slice(0, colon).trim(), part.slice(colon + 1).trim());
+        }
+        for (const part of style.split(';')) {
+          const colon = part.indexOf(':');
+          if (colon <= 0) continue;
+          const name = part.slice(0, colon).trim();
+          if (!/^(opacity|transform|filter)$/i.test(name)) continue;
+          keep.set(name, part.slice(colon + 1).trim());
+        }
+        el.setAttribute('style', [...keep.entries()].map(([n, v]) => n + ': ' + v).join('; '));
+        applied += 1;
+      }
+      window.__senifyStartStates = null;
+      return applied;
+    })()`)) as number;
+    if (process.env["SENIFY_DEBUG_PROBE"] === "1") {
+      console.log(`[start-states] gesammelt=${startStateCount} zurückgeschrieben=${restored}`);
+    }
+    // The markup now carries the start states again, on the elements that own
+    // them. The stamp comes off first: it is not part of the document.
     await page.evaluate("window.senifyUnstampKeys()");
     const ssrHtml = await page.content();
-    const keyOf = (target: unknown): string | null =>
-      typeof target === "string" ? (keyIndex[target] ?? null) : null;
+    // A probe names its target three ways: by the IR key the stamp wrote (the
+    // exact node), by a CSS selector (`keyIndex`), or — for an element outside
+    // the stamped tree — by its nth-child path, which addresses no node and
+    // stays a finding.
+    const keyOf = (target: unknown): string | null => {
+      if (typeof target !== "string") return null;
+      return keyIndex[target] ?? null;
+    };
 
     const io = Array.isArray(probe.intersectionObservers)
       ? (probe.intersectionObservers as unknown[]).length
@@ -414,6 +672,16 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
 
     const moved = scrollDelta(scrollBefore, scrollAfter);
     const samples = samplesOfProbe(probe, keyOf);
+    // The measured reveals become the SAME channel the static JSON feeds: an
+    // appear spec with start and end state. That is what lets the mapper build
+    // one `@keyframes` block per measured element, with the values the browser
+    // actually animated — not a paraphrased preset.
+    //
+    // Without this the whole runtime channel ended in a finding: the source
+    // fades 91 words one by one and the baked page fades the headline as one
+    // block, because the words' spans are folded into inline markup and the
+    // static JSON never names them.
+    const measured = appearSpecsOfProbe(probe);
     for (const entry of moved.slice(0, 20)) {
       samples.push({
         nodeKey: entry.key,
@@ -468,6 +736,24 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
       if (seen.has(id)) continue;
       seen.add(id);
       document.motion.push(sample);
+    }
+    // The measured start states join the appear channel, so the keyframes
+    // compiler sees them beside the static specs. A measured spec whose target
+    // the static channel already named is left out: one animation, one block.
+    if (measured.length > 0) {
+      const known = new Set((document.appear ?? []).map((spec) => spec.appearId));
+      const added = measured.filter((spec) => !known.has(spec.appearId));
+      document.appear = [...(document.appear ?? []), ...added];
+      if (added.length > 0) {
+        document.findings.push({
+          kind: "unsupported-declaration",
+          nodeKey: null,
+          message: `${added.length} Einblendung(en) aus der laufenden Seite gemessen und als CSS-Keyframes übernommen.`,
+          evidence: added.slice(0, 8).map((spec) => spec.appearId).join(", "),
+          severity: "info",
+          suggestion: "Diese Effekte laufen ohne Framer-Runtime; Bewegung und Dauer stammen aus der Messung.",
+        });
+      }
     }
     if (endless.length > 0) {
       document.findings.push({

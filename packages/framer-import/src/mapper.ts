@@ -430,6 +430,10 @@ type MapContext = {
   mode: NormalizeMode;
   stats: { nodes: number; mergedVariants: number; placeholders: number };
   findings: IrFinding[];
+  // The appear ids of folded elements that became a class INSIDE a container's
+  // inline markup (`senify-inline-<id>`). Their reveal has no node of its own,
+  // so the compiled rule is attached through that class rather than a node id.
+  inlineRevealIds?: Set<string>;
 };
 
 function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null): EditorNode | null {
@@ -473,13 +477,46 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
       // Text mixed with inline elements (`Hallo <strong>x</strong> Welt`): the
       // capture kept the inner markup, because the element scan alone drops
       // the plain text between the children.
-      primitive = "body";
-      props["html"] = framerVarsAsCss(withTextTypography(node, sanitizeInlineHtml(node.innerHtml)), lineHeightFactorOf(node) ?? (parent === null ? null : lineHeightFactorOf(parent)));
+      //
+      // A HEADING of word spans keeps its level here too: the words carry their
+      // own reveals, and as a `body` the heading loses both its level and the
+      // place where the stagger lives.
+      const wordsOnly =
+        HEADING_TAGS.has(node.tag) &&
+        siblings.length > 0 &&
+        siblings.every((child) => child.tag === "span" && child.children.length === 0);
+      if (!wordsOnly) primitive = "body";
+      props["html"] = framerVarsAsCss(
+        attachInlineReveals(
+          withTextTypography(node, sanitizeInlineHtml(node.innerHtml)),
+          node,
+          context,
+        ),
+        lineHeightFactorOf(node) ?? (parent === null ? null : lineHeightFactorOf(parent)),
+      );
+      if (wordsOnly) {
+        props["level"] = node.tag;
+        delete props["text"];
+      }
     } else if (hasElementChildren) {
       // A text element with element children (the RichText shape: <p><a>…</a></p>)
       // becomes a body with inline HTML — `text` accepts no children.
-      primitive = "body";
+      //
+      // A HEADING whose children are word spans keeps its level: the words carry
+      // their own reveals (a Framer headline plays one animation per word), and
+      // as a `body` the heading would lose its level and the stagger would have
+      // no place to live. Only word spans qualify (`children.length === 0` and
+      // no markup of their own); anything richer keeps the body.
+      const wordsOnly =
+        HEADING_TAGS.has(node.tag) &&
+        siblings.length > 0 &&
+        siblings.every((child) => child.tag === "span" && child.children.length === 0 && child.innerHtml === null);
+      if (!wordsOnly) primitive = "body";
       props["html"] = framerVarsAsCss(inlineHtmlOf(node, merged.base.text?.content ?? "", context));
+      if (wordsOnly) {
+        props["level"] = node.tag;
+        delete props["text"];
+      }
     } else {
       props["text"] = baseText?.content ?? "";
       if (HEADING_TAGS.has(node.tag)) props["level"] = node.tag;
@@ -501,11 +538,25 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
     if (
       single !== undefined &&
       HEADING_TAGS.has(single.tag) &&
-      single.children.length === 0
+      // A heading whose children are TEXT (a word span with no children of its
+      // own) is still a heading. A heading that holds word spans with their own
+      // reveals is not flattened into `text`: its words carry the stagger, and
+      // the markup is the only place that can hold them.
+      (single.children.length === 0 ||
+        single.children.every((child) => child.children.length === 0 && child.innerHtml === null))
     ) {
       primitive = "heading";
       props["text"] = single.states[0]?.text?.content ?? baseText?.content ?? "";
       props["level"] = single.tag;
+      // A heading made of word spans: each word carries its own reveal, so the
+      // markup is kept (with a class per word) instead of a plain text string.
+      if (single.children.length > 0) {
+        props["html"] = framerVarsAsCss(
+          inlineHtmlOf(single, single.states[0]?.text?.content ?? "", context),
+          lineHeightFactorOf(single),
+        );
+        delete props["text"];
+      }
       // The heading inherits the container's inline text styles as fallback.
       for (const [property, value] of Object.entries(baseText?.inline ?? {})) {
         if (props[property] === undefined) props[property] = value;
@@ -1019,10 +1070,27 @@ function inlineHtmlOf(node: IrNode, fallback: string, context: MapContext, paren
 // always render into the element, in document order, and the own text goes
 // first — an either/or would drop the children whenever the element carries
 // whitespace of its own (regression: navigation and mail links vanished).
-function inlineOf(child: IrNode, context: MapContext, mitTypografie: boolean, parentLineHeight: string | null = null): string {
+//
+// `reveal` names the class that carries a word's own appear animation. Framer
+// reveals a headline word by word, and the word's `<span>` is folded into this
+// markup — without a class on the span, the animation for eight words collapses
+// onto the one container that holds all of them. The class is the handle a
+// stylesheet needs; the markup keeps the exact structure the source had.
+function inlineOf(
+  child: IrNode,
+  context: MapContext,
+  mitTypografie: boolean,
+  parentLineHeight: string | null = null,
+): string {
   if (child.innerHtml !== undefined && child.innerHtml !== null) {
     const inner = framerVarsAsCss(withTextTypography(child, sanitizeInlineHtml(child.innerHtml)), parentLineHeight ?? lineHeightFactorOf(child));
-    return HEADING_TAGS.has(child.tag) || child.tag === "p" ? `<${child.tag}>${inner}</${child.tag}>` : inner;
+    // The source's own inline markup, with the word reveals put back on it.
+    // This is the branch a Framer headline takes: the capture keeps
+    // `<h1><span>Run</span><span>Your</span>…` as one string, and the spans'
+    // appear states sit on the child nodes. Folded without a class, all eight
+    // words play one animation on the container.
+    const html = HEADING_TAGS.has(child.tag) || child.tag === "p" ? `<${child.tag}>${inner}</${child.tag}>` : inner;
+    return attachInlineReveals(html, child, context);
   }
   // A line break is the whole content of the blank line between two paragraphs.
   if (child.tag === "br") return "<br>";
@@ -1030,9 +1098,15 @@ function inlineOf(child: IrNode, context: MapContext, mitTypografie: boolean, pa
     escapeHtml(child.states[0]?.text?.content ?? "") +
     child.children.map((c) => inlineOf(c, context, false)).join("");
   const stil = styleAttributeOf(child, context, mitTypografie);
+  // The word's own reveal, as a class ON THE SPAN. Framer reveals a headline
+  // word by word; folding the span into the container's markup would put all
+  // eight words on one animation. The class is the handle the stylesheet needs,
+  // and the markup keeps the exact structure of the source.
+  const reveal = inlineRevealClassOf(child, context);
+  const klassen = [`${reveal === null ? "" : ` class="${reveal}"`}${stil}`].join("");
   if (child.tag === "a" && child.href !== null) {
     const newTab = child.target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : "";
-    return `<a href="${escapeHtmlAttr(child.href.trim())}"${newTab}${stil}>${inner}</a>`;
+    return `<a href="${escapeHtmlAttr(child.href.trim())}"${newTab}${klassen}>${inner}</a>`;
   }
   if (
     HEADING_TAGS.has(child.tag) ||
@@ -1041,9 +1115,55 @@ function inlineOf(child: IrNode, context: MapContext, mitTypografie: boolean, pa
     child.tag === "strong" ||
     child.tag === "em"
   ) {
-    return `<${child.tag}${stil}>${inner}</${child.tag}>`;
+    return `<${child.tag}${klassen}>${inner}</${child.tag}>`;
   }
   return inner;
+}
+
+// The class a folded element's own reveal carries, when the element is a word
+// span with an appear state of its own. The name is derived from the appear id
+// so the compiled rule can address it: `senify-inline-<id>`.
+function inlineRevealClassOf(child: IrNode, context: MapContext): string | null {
+  const id = child.derivedAppearId ?? child.appearId;
+  if (id === null || id === "" || id === undefined) return null;
+  // A word span is where the source put the reveal, whether or not the import
+  // could keep it as a node: a Framer headline's spans are sometimes folded into
+  // the container's markup and sometimes not, and both forms must play word by
+  // word. A block stays out — it has its own node.
+  if (child.tag !== "span" && child.tag !== "strong" && child.tag !== "em") return null;
+  if (context.inlineRevealIds === undefined) context.inlineRevealIds = new Set();
+  context.inlineRevealIds.add(id);
+  return `senify-inline-${id.replace(/[^A-Za-z0-9_-]/g, "_")}`;
+}
+
+// The word reveals put back onto the source's own inline markup.
+//
+// A Framer headline arrives as one string — `<span>Run</span> <span>Your</span>`
+// — while each span's appear state sits on the child NODES of the same element.
+// The markup therefore has to be walked in the same order as the children, and
+// every `span` that has a reveal gets its class. A `span` without one (the
+// wrapper around "One Panel", which carries only a colour) is left alone, and a
+// child that is not a span (`br`, a nested link) consumes no position: the
+// mapping is by ELEMENT ORDER among the spans, which is the order the capture
+// read.
+function attachInlineReveals(html: string, node: IrNode, context: MapContext): string {
+  const spans = node.children.filter(
+    (child) => child.tag === "span" || child.tag === "strong" || child.tag === "em",
+  );
+  if (spans.length === 0) return html;
+  const classes = spans.map((child) => inlineRevealClassOf(child, context));
+  if (classes.every((entry) => entry === null)) return html;
+  let index = 0;
+  return html.replace(/<(span|strong|em)(\b[^>]*)>/gi, (whole, tag: string, attrs: string) => {
+    const reveal = classes[index];
+    index += 1;
+    if (reveal === null || reveal === undefined) return whole;
+    // An existing class attribute keeps its tokens; the reveal class joins them.
+    if (/\bclass\s*=\s*"/i.test(attrs)) {
+      return `<${tag}${attrs.replace(/\bclass\s*=\s*"/i, `class="${reveal} `)}>`;
+    }
+    return `<${tag} class="${reveal}"${attrs}>`;
+  });
 }
 
 // The properties that carry the typography of a text. They belong to the props
@@ -1681,6 +1801,14 @@ export function mapDocument(
   for (const rule of appearRun.rules) {
     const appearId = rule.appearIds[0];
     if (appearId === undefined) continue;
+    // A word reveal that plays on its own span inside a container's markup:
+    // the class already stands in the HTML, so the rule is emitted as it is —
+    // no node carries it, and adding it to one would put it in the wrong place.
+    if (rule.name.startsWith("senify-inline-")) {
+      const built = appearStyleRulesOf(rule, rules.length + appearStyleRules.length, context.fontSlots);
+      appearStyleRules.push(...built);
+      continue;
+    }
     // The same map the compiler used: it knows which ancestor stands in for a
     // folded element. Asking the IR again would lose exactly the reveals this
     // fix is about.
@@ -1786,6 +1914,12 @@ function appearRulesOf(
       if (id === null || id === "") continue;
       if (mapped !== undefined && !nodeIdByAppearId.has(id)) nodeIdByAppearId.set(id, mapped);
     }
+    // A reveal MEASURED on the live page names its target by the IR key the
+    // capture stamped on the element (`n4`), not by an appear id — the static
+    // JSON never names a word span. Without this line the measurement reaches
+    // the compiler and is dropped for "no node", which is exactly the effect
+    // that was missing: 67 measured reveals, 0 rules.
+    if (own !== undefined && !nodeIdByAppearId.has(node.key)) nodeIdByAppearId.set(node.key, own);
     for (const child of node.children) index(child, mapped);
   };
   index(document.pages[0]?.root, undefined);
@@ -1797,20 +1931,50 @@ function appearRulesOf(
   });
   // Several reveals can now name the SAME node (a headline's words all resolve
   // to their `<h1>`). Two animations on one element do not add up — the second
-  // `animation` declaration replaces the first. The first reveal of a node wins
-  // (it is the one without stagger delay, i.e. the start of the cascade) and
-  // the others are reported instead of silently dropped.
+  // `animation` declaration replaces the first.
+  //
+  // Which one wins is decided by what the rule can SAY, not by its position: a
+  // MEASURED reveal carries the browser's own start state, duration, delay and
+  // `linear()` timing function, while the static appear JSON only knows a
+  // spring's stiffness and damping. Measured on `rare-works`: the header block
+  // carries both (`13mgjl3` from the JSON, `n4` from the running page), and
+  // keeping the JSON one baked `0.6s ease` where the page plays the sampled
+  // curve. The measured rule therefore comes first.
+  const measuredSpec = (rule: CompiledAppearRule): boolean => {
+    const id = rule.appearIds[0] ?? "";
+    return specs.some((spec) => spec.appearId === id && spec.appearId.startsWith("n"));
+  };
+  const ordered = [...compiled.rules].sort((a, b) => Number(measuredSpec(b)) - Number(measuredSpec(a)));
   const seen = new Set<string>();
   const rules: CompiledAppearRule[] = [];
   const findings = [...compiled.findings];
   let counted = 0;
-  for (const rule of compiled.rules) {
-    const target = nodeIdByAppearId.get(rule.appearIds[0] ?? "");
+  let inline = 0;
+  for (const rule of ordered) {
+    const appearId = rule.appearIds[0] ?? "";
+    // A word span that was folded into its container's markup carries its own
+    // class there (`senify-inline-<id>`). Its rule targets that class directly:
+    // falling back to the container would play one block instead of eight
+    // staggered words, which is exactly what the source does not do.
+    if (context.inlineRevealIds?.has(appearId) === true) {
+      const name = `senify-inline-${appearId.replace(/[^A-Za-z0-9_-]/g, "_")}`;
+      rules.push({ ...rule, name, id: `${rule.id}-inline` });
+      counted += rule.appearIds.length;
+      inline += 1;
+      continue;
+    }
+    const target = nodeIdByAppearId.get(appearId);
     if (target === undefined) continue;
     if (seen.has(target)) continue;
     seen.add(target);
     rules.push(rule);
     counted += rule.appearIds.length;
+  }
+  if (inline > 0) {
+    findings.push({
+      appearId: "inline",
+      reason: `${inline} Wort-Einblendung(en) laufen auf ihrem eigenen <span> im Text (Klasse senify-inline-…), nicht auf dem Container — die Staffelung der Quelle bleibt damit erhalten.`,
+    });
   }
   const merged = compiled.rules.length - rules.length;
   if (merged > 0) {

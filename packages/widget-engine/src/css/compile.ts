@@ -670,7 +670,16 @@ function build(document: CssDocument, compileOptions: CompileOptions): BuildResu
     for (const rule of document.classRules ?? []) {
       if (rule.kind !== undefined && rule.kind !== "class") continue;
       const carrier = firstCarrier.get(rule.name);
-      if (carrier === undefined) continue;
+      // A rule whose class stands in a container's INLINE MARKUP has no node of
+      // its own (the word spans of an imported headline). It is emitted like an
+      // ambient rule: by its own selector, without a carrier. Dropped here, the
+      // per-word animation never reaches the page and the headline fades as one
+      // block.
+      if (carrier === undefined) {
+        if (!rule.name.startsWith("senify-inline-")) continue;
+        pushRuleSources(rule, `.${rule.name}`, undefined, undefined, [rule.name]);
+        continue;
+      }
       pushRuleSources(rule, globalClassSelector(rule.name), carrier.primitive, undefined, [rule.name]);
     }
     for (const node of flat) {

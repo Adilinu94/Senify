@@ -100,6 +100,13 @@ export function appearSettleSeconds(transition: IrAppearTransition | undefined):
 }
 
 function easingOf(transition: IrAppearTransition | undefined): string {
+  // The browser's own timing function, handed over by the runtime: a sampled
+  // `linear(…)` curve or a `cubic-bezier(…)`. Written verbatim, the effect moves
+  // exactly as the source does — no spring has to be re-derived from numbers.
+  const sampled = (transition as { easing?: string } | undefined)?.easing;
+  if (typeof sampled === "string" && /^(linear|cubic-bezier|ease|steps)/.test(sampled)) {
+    return sampled;
+  }
   if (transition?.type !== "spring") return "ease";
   const damping = transition.damping ?? 10;
   const stiffness = transition.stiffness ?? 100;

@@ -326,6 +326,12 @@ export type IrAppearTransition = {
   mass?: number;
   delay?: number;
   duration?: number;
+  // The browser's own timing function, measured from the live page. Framer's
+  // runtime hands a ready-made CSS curve to `element.animate()` — a sampled
+  // `linear(0, 0.0034, 0.0128, …)` with 140 stops or a `cubic-bezier(…)`. Written
+  // verbatim it reproduces the spring exactly; deriving one from stiffness and
+  // damping would only approximate it.
+  easing?: string;
 };
 
 export type IrAppearVariant = {
@@ -926,6 +932,20 @@ function asIrAppearState(value: unknown): IrAppearState | undefined {
   return state;
 }
 
+function asIrAppearTransition(value: Record<string, unknown>): IrAppearTransition {
+  const transition: IrAppearTransition = {};
+  if (typeof value.type === "string") transition.type = value.type;
+  for (const key of ["stiffness", "damping", "mass", "delay", "duration"] as const) {
+    const number = value[key];
+    if (typeof number === "number" && Number.isFinite(number)) transition[key] = number;
+  }
+  // A measured timing function: only the shapes CSS accepts, written verbatim.
+  if (typeof value.easing === "string" && /^(linear|cubic-bezier|ease|steps)/.test(value.easing)) {
+    transition.easing = value.easing;
+  }
+  return transition;
+}
+
 function asIrAppearSpec(value: unknown): IrAppearSpec | undefined {
   if (!isRecord(value)) return undefined;
   const appearId = asString(value.appearId);
@@ -941,7 +961,7 @@ function asIrAppearSpec(value: unknown): IrAppearSpec | undefined {
     const animateRaw = variant.animate;
     const animate = isRecord(animateRaw) ? asIrAppearState(animateRaw) : undefined;
     const transitionRaw = isRecord(animateRaw) ? animateRaw.transition : undefined;
-    const transition = isRecord(transitionRaw) ? (transitionRaw as IrAppearTransition) : undefined;
+    const transition = isRecord(transitionRaw) ? asIrAppearTransition(transitionRaw) : undefined;
     variants[hash] = {
       ...(initial === undefined ? {} : { initial }),
       ...(animate === undefined

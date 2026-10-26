@@ -42,6 +42,7 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Appear und
   <div data-framer-appear-id="up" style="opacity:0.001;transform:translateY(40px)"><p>Wirkung</p></div>
   <div class="spacer"></div>
   <div class="stickyish" id="mover"><p>Bewegt</p></div>
+  <div><span id="word">Wort</span></div>
 </div>
 <script>
   // Ein Element, das sich beim Scrollen GEGEN die Seite bewegt: genau die Form,
@@ -49,6 +50,18 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Appear und
   window.addEventListener("scroll", function () {
     var el = document.getElementById("mover");
     if (el) el.style.transform = "translateY(" + Math.round(window.scrollY * 0.5) + "px)";
+  });
+  // Eine Einblendung, die NUR die laufende Seite kennt: Framer ruft dafür
+  // element.animate() auf, im statischen HTML steht kein Startzustand. Genau
+  // diese Form war unsichtbar, weil die Sonde erst nach dem Abklingen fragte.
+  window.addEventListener("load", function () {
+    var word = document.getElementById("word");
+    if (word) {
+      word.animate(
+        { opacity: [0.001, 1], transform: ["translateY(28px)", "none"] },
+        { duration: 900, delay: 200, easing: "linear(0, 0.5, 1)", fill: "both" },
+      );
+    }
   });
 </script></body></html>`;
 
@@ -98,6 +111,38 @@ describe.skipIf(!browserAvailable)("captureBrowser erhält die Motion des SSR", 
       };
       visit(result.document.pages[0]?.root as unknown as IrShape);
       expect(scroll.every((sample) => sample.nodeKey !== null && keys.has(sample.nodeKey))).toBe(true);
+    } finally {
+      await new Promise<void>((done) => server.close(() => done()));
+    }
+  }, 120_000);
+
+  // The runtime channel. Framer reveals its words one by one through
+  // `element.animate()` — those calls exist only while the page runs, so the
+  // static JSON never names them. Two measurements on a real page (`rare-works`)
+  // shaped this test:
+  //
+  //   1. Asking `document.getAnimations()` AFTER settling returns 0: the reveals
+  //      are over and a finished animation leaves the list. The probe therefore
+  //      records the calls and reads them afterwards — that is 376 of 376.
+  //   2. The IR keys must be on the elements BEFORE the reveals are read. Stamped
+  //      right after `load`, the page holds 3 elements; half a second later it
+  //      holds 3072. With the stamp too early, every recorded call loses its
+  //      target (376 recorded, 0 mapped).
+  it("holt die Wort-Einblendungen, die nur die laufende Seite kennt", async () => {
+    const { server, origin } = await startServer();
+    try {
+      const result = await captureBrowser({ url: `${origin}/`, settleMs: 300, motion: "live" });
+      // The measured reveals arrive as appear specs, not only as findings: that
+      // is what the mapper turns into `@keyframes`.
+      const measured = (result.document.appear ?? []).filter((spec) => /^n\d+$/.test(spec.appearId));
+      expect(measured.length).toBeGreaterThan(0);
+      const first = measured[0];
+      const variant = first?.variants["default"];
+      if (variant === null || variant === undefined) throw new Error("keine Variante");
+      // A real start state with numbers, not a paraphrased preset.
+      expect(typeof variant.initial?.opacity).toBe("number");
+      // And the timing the browser used, as a CSS timing function.
+      expect(typeof variant.animate?.transition?.duration).toBe("number");
     } finally {
       await new Promise<void>((done) => server.close(() => done()));
     }

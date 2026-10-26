@@ -32,6 +32,21 @@ describe("sanitizeInlineHtml", () => {
   });
 });
 
+describe("sanitizeInlineHtml mit einer Import-Klasse", () => {
+  // The import writes one class on a word span so each word of a Framer headline
+  // can play its own reveal (`senify-inline-derived-7`). The sanitizer is an
+  // allow-list: only that shape passes, so a page cannot smuggle its own class
+  // through it.
+  it("keeps the import's word class and nothing else", () => {
+    expect(sanitizeInlineHtml('<span class="senify-inline-derived-7">Run</span>')).toBe(
+      '<span class="senify-inline-derived-7">Run</span>',
+    );
+    expect(sanitizeInlineHtml('<span class="evil">Run</span>')).toBe("<span>Run</span>");
+    expect(sanitizeInlineHtml('<span class="senify-inline-x evil">Run</span>')).toBe("<span>Run</span>");
+    expect(sanitizeInlineHtml('<span class="senify-inline-a b">Run</span>')).toBe("<span>Run</span>");
+  });
+});
+
 describe("sanitizeInlineHtml mit einem style-Attribut", () => {
   it("behaelt eine Deklaration, die die Grammatik besteht", () => {
     expect(

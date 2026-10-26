@@ -190,6 +190,11 @@ export function styleRulesReport(
       // Measured on `rare-works`: 1379 uses, and without the block the icon
       // glyphs fell back to `rgb(0,0,0)` and "One Panel" lost its blue.
       if (rule.kind === "ambient") return [{ ...rule, contextStyles: rule.contextStyles ?? {} }];
+      // A word reveal that plays on its own `<span>` inside a container's inline
+      // markup: the class stands in the HTML, no node carries it, and the
+      // container's own props do not describe it. Dropped, the headline fades as
+      // one block — exactly what the source does not do.
+      if (rule.name.startsWith("senify-inline-")) return [{ ...rule, contextStyles: rule.contextStyles ?? {} }];
       // An imported rule's base declarations already live in its nodes' own
       // props, so emitting them twice would only repeat them. Its `:hover` /
       // `:focus` / `:active` / `:disabled` states exist nowhere else, so

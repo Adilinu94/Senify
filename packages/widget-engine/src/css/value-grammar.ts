@@ -92,7 +92,7 @@ const FUNCTIONS = new Set([
   "invert", "opacity", "saturate", "sepia", "inset", "circle", "ellipse",
   "polygon", "path",
   // timing and environment
-  "cubic-bezier", "steps", "env", "attr", "counter", "counters", "symbols",
+  "cubic-bezier", "steps", "linear", "env", "attr", "counter", "counters", "symbols",
 ]);
 
 const PROPERTY_PATTERN = /^(--[a-zA-Z0-9_-]+|-?[a-zA-Z][a-zA-Z0-9-]*)$/;

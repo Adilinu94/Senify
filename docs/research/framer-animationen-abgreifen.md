@@ -4,6 +4,10 @@
 > **Frage:** Wie kommt man an den Code der Framer-Animationen, und wie baut man sie exakt nach?
 > **Antwort in einem Satz:** Nicht durch Dekompilieren — durch **Abgreifen am laufenden Browser**. Framer muss jede Animation der Browser-API übergeben; dort ist sie vollständig und in CSS-Werten lesbar.
 
+**Nachtrag 26.10.2026, nach dem Bau:** Der Weg ist gebaut und gemessen. Der
+Abschnitt „Was gebaut ist" am Ende nennt die Belege; die Abschnitte 1–7 sind der
+Recherchestand davor und bleiben als Begründung stehen.
+
 ---
 
 ## 1. Was ich zuerst falsch angenommen hatte
@@ -181,13 +185,126 @@ Der eigentliche Hebel. Solange `inlineOf` die Wörter verschluckt, kann keine Wo
 
 ---
 
-## 7. Was ich als Nächstes baue
+## 7. Was gebaut ist — mit Belegen
 
-In dieser Reihenfolge, jeder Schritt mit Messung:
+Alle vier Schritte sind gebaut und gemessen. Die Zahlen stammen aus einem
+Import von `rare-works-510047` gegen die lokale Payload-Vorschau (Port 4174),
+Stand 26.10.2026.
 
-1. `samplesOfProbe` so erweitern, dass vollständige Keyframes mitkommen (nicht nur Loops).
-2. Die Wort-Spans als Knoten erhalten (Weg **a**), damit 91 Einblendungen ein Ziel haben.
-3. Den Abgriff in den Import hängen und die 98 Keyframe-Blöcke backen.
-4. Messen: Hero bei 700 ms und 1200 ms, Wort-Opacities gegen die Quelle.
+### Der Abgriff
 
-**Erwartung, ehrlich:** Der Hero sollte von „alle Wörter sofort auf 1" auf die gestaffelte Kurve der Quelle kommen. Ob die Pixel-Differenz insgesamt sinkt, ist offen — sie wird an anderen Stellen (Icons, Navigation) dominiert. Der **sichtbare** Gewinn ist die Bewegung selbst, und die ist mit diesem Weg erreichbar.
+`instrumentMotion()` in `probes/motion-probe.mjs` schreibt jede Animation mit,
+die die Seite startet, und liest sie **nach** dem Settle aus. Zwei Wege:
+
+| Weg | Was er sieht |
+|---|---|
+| `Element.prototype.animate` (Wrapper) | Motion/`whileInView`, Framer-Komponenten |
+| `window.animator` (Property-Falle) | Framers vorgesampelte Entry-Frames |
+
+Im Wrapper steht **nur** `log.push({el, keyframes, options})` — kein Lesen, kein
+JSON, kein DOM-Walk. Das war die Lehre aus sieben Fehlschlägen.
+
+### Die Zuordnung
+
+Die Sonde nimmt den IR-Schlüssel, den `senifyStampKeys()` auf das Element
+schreibt (`n4`), sonst den `nth-child`-Pfad. Gemessen: **376 von 376**
+aufgezeichneten Animationen tragen einen Schlüssel.
+
+**Der Stempel-Zeitpunkt ist entscheidend.** Beim `load`-Ereignis hat Framer die
+Seite noch nicht gebaut:
+
+| Wartezeit vor dem Stempeln | gestempelte Knoten | mit Schlüssel |
+|---|---|---|
+| **0 ms** (nach `load`) | **3** | **0** |
+| 500 ms | 3072 | 376 |
+| 3000 ms | 3128 | 376 |
+
+Der Capture scrollt deshalb erst durch die Seite, wartet, und stempelt dann.
+Ohne diese Reihenfolge hatte jede gemessene Animation ihr Ziel verloren
+(376 aufgezeichnet, 0 zugeordnet).
+
+### Die gemessenen Einblendungen als CSS
+
+`appearSpecsOfProbe()` übersetzt die gemessenen Frames in den Appear-Kanal —
+dieselbe Form, die das statische JSON liefert. Der Compiler baut daraus
+`@keyframes`. Gemessen: **67 Regeln** mit der echten `linear()`-Kurve.
+
+Eine gebackene Regel, wörtlich:
+
+```css
+.fi-8a5eda-appear-173 {
+  animation: senify-appear-n4-default 0.88s linear(0 0%,0.0497 1.1236%,…,1 100%) 0s both;
+}
+@keyframes senify-appear-n4-default {
+  from { opacity:0.001; transform:translateY(-16.98px) }
+  to   { opacity:1;     transform:none }
+}
+```
+
+**Ein Fehler auf dem Weg dorthin:** Die Sonde schnitt den `easing`-String bei
+120 Zeichen ab. Eine Framer-Kurve hat 140 Stützstellen und ~1400 Zeichen; die
+gekürzte Kurve endete bei 7,95 % statt bei 100 % — ein Wert, den CSS verwirft.
+Alle 67 Deklarationen fielen als `invalid-value` weg. Ohne diese eine Zeile
+bleibt jede gemessene Animation unsichtbar.
+
+### Was noch offen ist: die Granularität
+
+~~Die 68 **Wort**-Einblendungen der Überschriften fallen weiterhin auf ihren
+nächsten Vorfahren (den Container), weil `inlineOf` die Wort-Spans zu
+Inline-Markup faltet.~~ **Gebaut am 26.10.2026.** Die Wörter tragen jetzt ihre
+eigene Klasse im Markup (`senify-inline-<id>`) und je eine eigene Animation mit
+ihrem eigenen Delay. Gemessen an der gebackenen Seite, 300 ms nach dem Laden:
+
+| Wort | Animation | Opacity bei 300 ms |
+|---|---|---|
+| Run | `senify-appear-derived-1-default` | 0.85 |
+| Your | `senify-appear-derived-2-default` | 0.77 |
+| Money | `senify-appear-derived-3-default` | 0.67 |
+| From | `senify-appear-derived-4-default` | 0.52 |
+
+Das ist die Kaskade der Quelle (50 ms Versatz, gemessen: `derived-2` läuft
+`0.05s` später als `derived-1`). Vorher standen alle acht Wörter auf `1`.
+
+**Drei Stellen mussten zusammenkommen:**
+
+1. `inlineOf`/`attachInlineReveals` schreibt die Klasse auf den `<span>` im
+   Markup — und lässt eine Überschrift aus Wort-Spans eine Überschrift bleiben
+   (vorher wurde sie ein `body` und verlor Level und Staffelung).
+2. Der Sanitizer (`inline-html.ts`) erlaubt genau diese eine Klasse. Ohne das
+   fiel sie beim Rendern wieder heraus, und die Regel traf nichts.
+3. Der Compiler (`compile.ts`) gibt eine Regel aus, deren Klasse nur im Markup
+   steht und keinen Trägerknoten hat. Vorher verwarf er sie stillschweigend.
+
+### Der Startzustand: der Zeitpunkt entscheidet
+
+Framer schreibt den Startzustand jeder Einblendung ins HTML
+(`opacity:0.001; filter:blur(12px); transform:translateY(28px)`) und animiert
+ihn weg. Der Import leitet die Wort-Animation aus genau diesem Attribut ab.
+Gemessen an der Seite:
+
+| Zeitpunkt | Seite | Startzustände |
+|---|---|---|
+| direkt nach `load` | 5 KB Gerüst | 0 |
+| 350 ms nach `load` | 1 MB, 93 Spans | **98** |
+| nach dem Settle (3 s) | 1 MB | 0 (die Spans lesen `opacity:1`) |
+
+Der Capture sammelt sie bei 350 ms ein und schreibt sie am Ende auf **dieselben
+Elementobjekte** zurück. Ein IR-Schlüssel taugt dafür nicht: Framer tauscht beim
+Hydratisieren Knoten aus — derselbe Span trug bei 350 ms `n100` und nach dem
+Scrollen `n62` (gemessen). Eine direkte Referenz überlebt das.
+
+### Der Unterschied, den es macht
+
+| | vorher | nachher |
+|---|---|---|
+| Animations-Samples im IR | 1 (nur der IO-Hinweis) | **113** |
+| davon mit Knoten | 0 | **112** |
+| `@keyframes` mit gemessener Kurve | 0 | **67** |
+| Wort-Einblendungen mit eigener Klasse | 0 | **90** |
+| Icon-Glyphe | `rgb(0,0,0)` | `rgb(255,255,255)` |
+| „One Panel" | `rgb(20,20,20)` | `rgb(0,102,255)` |
+| Hero-Unterschied bei 1200 ms | 5,62 % | **0,01 %** |
+
+Der Pixelwert im Ruhezustand bewegt sich kaum (1440 px: 10,25 % vorher,
+10,29 % nachher) — im Ruhezustand sehen alle Einblendungen gleich aus. Der
+Unterschied liegt in der Bewegung, und die ist jetzt da.

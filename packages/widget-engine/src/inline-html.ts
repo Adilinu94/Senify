@@ -57,6 +57,13 @@ function attributeOf(raw: string, name: string): string | undefined {
   return match === null ? undefined : (match[1] ?? match[2] ?? match[3] ?? "");
 }
 
+// A class the inline markup may carry: only the one the IMPORT writes on a word
+// span to give it its own animation (`senify-inline-<id>`). The sanitizer is an
+// allow-list, so a page cannot smuggle its own class through it — and the import
+// needs exactly this one handle, because a Framer headline's words live inside
+// this markup and each plays its own reveal.
+const INLINE_CLASS = /^senify-inline-[A-Za-z0-9_-]+$/;
+
 function openTag(name: string, rawAttrs: string): string {
   const parts: string[] = [name];
   if (name === "a") {
@@ -65,6 +72,10 @@ function openTag(name: string, rawAttrs: string): string {
     if (attributeOf(rawAttrs, "target")?.toLowerCase() === "_blank") {
       parts.push('target="_blank"', 'rel="noopener noreferrer"');
     }
+  }
+  const className = attributeOf(rawAttrs, "class");
+  if (className !== undefined && INLINE_CLASS.test(className.trim())) {
+    parts.push(`class="${escapeAttr(className.trim())}"`);
   }
   const style = safeStyleAttribute(attributeOf(rawAttrs, "style"));
   if (style !== undefined) parts.push(`style="${escapeAttr(style)}"`);

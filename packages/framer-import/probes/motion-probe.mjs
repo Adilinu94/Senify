@@ -30,7 +30,64 @@
 /* ---- Mode 1 helper: inject BEFORE page scripts run ---- */
 function instrumentMotion() {
   const W = window;
-  W.__motion = { io: [], raf: 0, listeners: [], mutationObs: 0 };
+  W.__motion = { io: [], raf: 0, listeners: [], mutationObs: 0, motion: [] };
+
+  // WAAPI, recorded as it happens.
+  //
+  // Reading `document.getAnimations()` after the page settles returns ZERO on a
+  // Framer page: the reveals are over, and a finished animation is gone from
+  // the list. Measured on the rare-works preview: 96 animations at 1.5 s, 9 at
+  // 3 s, 0 at 5 s — the probe ran at 5 s and reported "no motion" for a page
+  // that reveals 91 words and 68 elements. The same measurement one level down
+  // (wrapping `Element.prototype.animate`) catches every call, including the
+  // ones that already ended.
+  //
+  // Nothing may be READ inside the wrapper: the runtime is mid-render there, and
+  // a `getComputedStyle`, a `closest()` or even a `JSON.parse(JSON.stringify())`
+  // silenced the hook completely (seven failed attempts, each 0 records). So the
+  // wrapper only pushes the element and the raw arguments; the values are read
+  // later, off the hot path, by `motionProbe`.
+  try {
+    const proto = W.Element && W.Element.prototype;
+    if (proto && typeof proto.animate === 'function') {
+      const original = proto.animate;
+      proto.animate = function (keyframes, options) {
+        try {
+          W.__motion.motion.push({ el: this, keyframes, options });
+        } catch (_) {}
+        return original.call(this, keyframes, options);
+      };
+    }
+  } catch (_) {}
+
+  // Framer's own entry animations do not go through `element.animate`: the
+  // runtime hands pre-sampled frames to `animator.startOptimizedAppearAnimation`
+  // and the CSS animation is set from there. The animator becomes reachable as
+  // `window.animator` right before the call, so the property is trapped and the
+  // method wrapped the moment it arrives. Again: record only, read later.
+  try {
+    let stored;
+    Object.defineProperty(W, 'animator', {
+      configurable: true,
+      get() { return stored; },
+      set(value) {
+        stored = value;
+        if (value === null || typeof value !== 'object') return;
+        for (const name of ['animateAppearEffects', 'startOptimizedAppearAnimation']) {
+          const method = value[name];
+          if (typeof method !== 'function' || method.__senifyHooked) continue;
+          const wrapped = function (...args) {
+            try {
+              W.__motion.motion.push({ fn: name, args });
+            } catch (_) {}
+            return method.apply(this, args);
+          };
+          wrapped.__senifyHooked = true;
+          try { value[name] = wrapped; } catch (_) {}
+        }
+      },
+    });
+  } catch (_) {}
 
   // IntersectionObserver: record options + observed targets (reveal-on-scroll,
   // sticky-sidebar active states, lazy sections all live here).
@@ -129,6 +186,23 @@ function motionProbe() {
         ? '.' + el.className.trim().split(/\s+/).slice(0, 3).join('.')
         : '';
     return el.tagName.toLowerCase() + cls;
+  };
+  // The nth-child chain from <body>: a target's position, which survives both
+  // problems a name has (an id-less span, three breakpoint copies of the same
+  // element). Read AFTER the page settled, never inside the wrapper.
+  const pathOf = (el) => {
+    const parts = [];
+    let cur = el;
+    while (cur !== null && cur.parentElement !== null) {
+      const parent = cur.parentElement;
+      let index = 0;
+      for (let i = 0; i < parent.children.length; i += 1) {
+        if (parent.children[i] === cur) { index = i; break; }
+      }
+      parts.unshift(index);
+      cur = parent;
+    }
+    return parts.join('/');
   };
   const safe = (v, depth = 0) => {
     // Serialize tween vars / options without choking on DOM nodes or functions.
@@ -254,17 +328,160 @@ function motionProbe() {
   } catch (e) { out.notes.push('gsap probe error: ' + e.message); }
 
   /* ---- WAAPI: CSS animations/transitions + JS element.animate() ---- */
+  // Two sources, and the recorded one comes first: `document.getAnimations()`
+  // only shows what is STILL running (0 after settling), while the instrumented
+  // list holds every call the page made, finished or not.
+  try {
+    const recorded = Array.isArray(W.__motion && W.__motion.motion) ? W.__motion.motion : [];
+    const seen = new Set();
+    // One entry per element and property set: a Framer word reveal arrives as
+    // two calls (opacity, filter) on the SAME element. Merging them is what
+    // makes one animation out of the two.
+    const byTarget = new Map();
+    for (const entry of recorded) {
+      try {
+        // The `animator.startOptimizedAppearAnimation` form: pre-sampled frames.
+        if (entry.fn !== undefined) {
+          const [element, property, frames, options] = entry.args || [];
+          const key = sel(element) + '|' + String(property);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.waapi.push({
+            type: 'Animation',
+            source: 'framer-animator',
+            name: entry.fn,
+            target: sel(element),
+            property: property === undefined ? undefined : String(property),
+            duration: options && options.duration,
+            delay: options && options.delay,
+            iterations: options && options.iterations,
+            easing: options && typeof options.easing === 'string' ? options.easing : undefined,
+            fill: options && options.fill,
+            sampledFrames: Array.isArray(frames) ? frames.length : undefined,
+            keyframes: Array.isArray(frames) ? frames.slice(0, 12) : undefined,
+          });
+          continue;
+        }
+        // The `element.animate(keyframes, options)` form. The element and the
+        // arguments are READ HERE, after the page settled — inside the wrapper
+        // this would have silenced the recording.
+        const el = entry.el;
+        if (!el || !el.tagName) continue;
+        // A detached element belongs to a page state that no longer exists.
+        if (!D.contains(el)) continue;
+        const options = entry.options || {};
+        const frames = entry.keyframes;
+        let props = [];
+        try {
+          if (Array.isArray(frames) && frames.length > 0) props = Object.keys(frames[0] || {});
+          else if (frames && typeof frames === 'object') props = Object.keys(frames);
+        } catch (_) { props = []; }
+        const clean = props.filter((p) => !['offset', 'easing', 'composite'].includes(p));
+        // The identity of the target. `sel()` is NOT one: Framer's word spans
+        // carry neither id nor class, so all 91 of them read `span` and the
+        // dedup collapsed them into a single entry. The IR key the stamp put on
+        // the element is exact — and when the element is outside the stamped
+        // tree, the nth-child path is.
+        const key = el.getAttribute('data-senify-ir-key');
+        const identity = key !== null ? key : pathOf(el);
+        const target = sel(el);
+        // The identity includes WHERE the animation came from: a CSS ticker
+        // (`@keyframes`) and a script loop can run on the same element at the
+        // same time, and they are two animations, not one.
+        const dedupe = identity + '|' + clean.sort().join(',') + '|' + String(entry.source ?? '');
+        if (seen.has(dedupe)) continue;
+        seen.add(dedupe);
+        // How many properties the same element animates: the count of samples
+        // per property, which is what a CSS @keyframes block needs.
+        let samples = 0;
+        try {
+          for (const p of clean) {
+            const v = Array.isArray(frames) ? frames.map((f) => f && f[p]).filter((x) => x !== undefined) : frames[p];
+            if (Array.isArray(v)) samples = Math.max(samples, v.length);
+          }
+        } catch (_) {}
+        byTarget.set(identity, (byTarget.get(identity) || 0) + 1);
+        out.waapi.push({
+          type: 'Animation',
+          source: 'element.animate',
+          target,
+          key: key === null ? undefined : key,
+          path: key === null ? identity : undefined,
+          text: (el.textContent || '').trim().slice(0, 30),
+          tag: el.tagName,
+          duration: options.duration,
+          delay: options.delay,
+          iterations: options.iterations,
+          easing: typeof options.easing === 'string' ? options.easing : undefined,
+          fill: options.fill,
+          properties: clean,
+          sampledFrames: samples,
+          // The frames are already CSS values in Framer's output (`blur(12px)`,
+          // `translateY(28px)`), so they are kept as they are.
+          keyframes: Array.isArray(frames) ? frames.slice(0, 12) : frames,
+        });
+      } catch (_) {}
+    }
+    if (recorded.length > 0) {
+      out.notes.push(
+        `element.animate: ${recorded.length} Aufrufe aufgezeichnet, ${out.waapi.length} Ziele (nach dem Settle gelesen)`,
+      );
+    }
+  } catch (e) { out.notes.push('recorded-waapi probe error: ' + e.message); }
+
   try {
     const anims = D.getAnimations ? D.getAnimations() : [];
+    // Already reported by the recorded channel: one animation, one entry. The
+    // TYPE is part of the identity — a CSS ticker and a script loop on the same
+    // element are two animations, and the ticker only exists here.
+    const known = new Set(out.waapi.map((entry) => `${String(entry.target)}|${String(entry.properties ?? "")}`));
     for (const a of anims.slice(0, 300)) {
       try {
         const eff = a.effect;
         const timing = eff && eff.getTiming ? eff.getTiming() : {};
-        const kf = eff && eff.getKeyframes ? eff.getKeyframes().slice(0, 12) : undefined;
+        const rawFrames = eff && eff.getKeyframes ? eff.getKeyframes() : undefined;
+        const kf = rawFrames === undefined ? undefined : rawFrames.slice(0, 12);
+        const target = eff && eff.target ? sel(eff.target) : undefined;
+        const type = a.constructor.name;
+        const css = type === "CSSAnimation";
+        const propertyOf = (frames) => {
+          if (!Array.isArray(frames) || frames.length === 0) return [];
+          const names = new Set();
+          for (const frame of frames) {
+            if (frame === null || frame === undefined) continue;
+            for (const name of Object.keys(frame)) {
+              if (!["offset", "easing", "composite", "computedOffset"].includes(name)) names.add(name);
+            }
+          }
+          return [...names].sort();
+        };
+        const props = propertyOf(kf);
+        // Which forms are already in the list:
+        //  - `element.animate` recordings name their element and properties;
+        //  - a CSS animation names its `animationName`;
+        //  - the raw `getAnimations` reader adds what none of them saw.
+        if (css) {
+          const name = typeof a.animationName === "string" ? a.animationName : "";
+          const seenCss = out.waapi.some(
+            (entry) => entry.source === "css-animation" && entry.name === name && entry.target === target,
+          );
+          if (seenCss) continue;
+        } else {
+          const properties = props.join(",");
+          const seenScript = out.waapi.some(
+            (entry) =>
+              (entry.source === "element.animate" || entry.source === "getAnimations") &&
+              entry.target === target &&
+              String(entry.properties ?? "") === properties,
+          );
+          if (seenScript) continue;
+        }
         out.waapi.push({
-          type: a.constructor.name, // CSSAnimation | CSSTransition | Animation
+          type,
+          source: css ? "css-animation" : "getAnimations",
           name: a.animationName || a.transitionProperty || a.id || undefined,
-          target: eff && eff.target ? sel(eff.target) : undefined,
+          target,
+          properties: props.length > 0 ? props : undefined,
           pseudo: eff && eff.pseudoElement || undefined,
           playState: a.playState,
           timeline: a.timeline ? a.timeline.constructor.name : undefined, // ScrollTimeline/ViewTimeline = scroll-driven
