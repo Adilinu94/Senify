@@ -283,5 +283,14 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-summary
-          path: coverage/coverage-summary.json
+          # Beide Dateien: die Summary traegt die Zahlen, `measured-at.txt` den
+          # Zeitpunkt. Bis zum 26.10.2026 stand hier nur die Summary - wer den
+          # dokumentierten Weg ging (`gh run download`, `pnpm quality:render`),
+          # bekam ein Dokument mit "Gemessen: unbekannt", weil der Stempel im
+          # Artefakt fehlte. Der Stempel entsteht in `pnpm test:coverage`
+          # (`--stamp`) im selben Lauf wie die Zahlen; ohne ihn ist das Datum
+          # eine zweite, unabhaengige Messung.
+          path: |
+            coverage/coverage-summary.json
+            coverage/measured-at.txt
           if-no-files-found: ignore
