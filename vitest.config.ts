@@ -297,6 +297,22 @@ export default defineConfig({
           functions: 95,
           lines: 95,
         },
+        // Die Referenz- und Design-Werkzeuge (R12, Schritt 71). Der Block sass
+        // in `tools.ts` und war dort von denselben Workflow-Tests gedeckt; hier
+        // misst der Waechter `coverage-gate.test.ts` ihn einzeln.
+        //
+        // Gemessen am 26.10.2026: 88,33 / 61,36 / 100 / 94,97. Die Schwelle
+        // liegt knapp darunter und ist ein Rueckfallschutz, keine Zielmarke:
+        // die Zweige sind die optionalen Felder der Eingabeschemas, die ein
+        // Aufruf auch mal weglaesst. Die Zeilen sind bei 95, weil jede
+        // Handler-Zeile von mindestens einem Test beruehrt wird - ein
+        // Rueckgang darunter hiesse, ein Werkzeug ist nicht mehr erreichbar.
+        "packages/mcp/src/tools-referenzen.ts": {
+          statements: 85,
+          branches: 55,
+          functions: 95,
+          lines: 92,
+        },
       },
     },
   },
