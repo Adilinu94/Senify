@@ -82,31 +82,30 @@ Median aus je drei Aufnahmen, weil die Quelle einen Endlos-Ticker hat:
 | Breite | Diff | Höhen |
 |---|---|---|
 | 1440 px | **7,93 %** (7,93 / 7,92 / 7,95) | 17508 / 17508 |
-| 900 px | 9,71 % | 20162 / 18945 |
-| 390 px | 13,79 % | 20648 / 18721 |
+| 900 px | 9,70 % | 20162 / 18945 |
+| 390 px | 12,14 % | 20648 / 19464 |
 
-Der 1440er Wert war vor dieser Runde 10,29 %.
+Der 1440er Wert war vor dieser Runde 10,29 %. Die 900er Höhe fehlt um 1217 px,
+die 390er um 1184 px (vorher 2680).
 
 ## Was offen ist
 
-1. **Workspace auf dem Telefon** (176 statt 919 px). Die Section kollabiert,
-   weil ihre Kinder `position: absolute; inset: 0` sind und der Höhengeber
-   fehlt. In der Quelle steht dazwischen ein `ssr-variant`-Wrapper, den unser
-   Baum nicht hat. Die Desktop-Fassung stimmt exakt (1900 px).
+1. **Die Framer-Varianten pro Breakpoint.** Framer setzt bei manchen Elementen
+   nicht nur andere Werte, sondern eine andere VARIANTE: die Produktkarte trägt
+   auf dem Desktop `framer-v-kmiuhn` (`padding: 48px`, `gap: 14px`), auf dem
+   Telefon `framer-v-1f9jezn` (`padding: 30px`, `gap: 10px`). Der Import kennt
+   nur eine davon. Seine Werte stimmen deshalb auf dem Desktop exakt und auf
+   dem Telefon gar nicht — gemessen: die Produktkarten sind 347 statt 233 px
+   hoch, die Section 713 statt 522. Das braucht beide Varianten im Baum plus
+   den Auslöser; es ist ein eigener Arbeitsblock, kein Einzeiler.
 
-2. **Die Navigation** tauscht beim ersten Scrollen ihre VARIANTE, nicht ihren
-   Breakpoint: `framer-v-1is6x80` („Desktop", 778 px) → `framer-v-1vbcxfg`
-   („Desktop Compact", 292 px). Der Import kennt nur Breakpoint-Varianten, keine
-   Scroll-Varianten. Gemessen: der Capture sieht danach nur noch die
+2. **Die Navigation** tauscht beim ersten Scrollen ebenfalls ihre VARIANTE:
+   `framer-v-1is6x80` („Desktop", 778 px) → `framer-v-1vbcxfg`
+   („Desktop Compact", 292 px). Gemessen: der Capture sieht danach nur noch die
    Compact-Variante (`n5`, `variantClasses: ["framer-v-1vbcxfg"]`), rendert sie
-   aber mit der Breite der Ausgangsvariante. Ein Fix braucht beide Varianten im
-   Baum plus den Auslöser — das ist ein eigener Arbeitsblock.
+   aber mit der Breite der Ausgangsvariante.
 
-3. **Die 900- und 390-px-Höhen** weichen um 1217 bzw. 1927 px ab. Der
-   Unterschied sitzt in den Bereichen, die auf schmalen Breiten anders
-   umbrechen.
-
-4. **Die Karten-Neigung** im Cards-Abschnitt: die Quelle dreht die Karten
+3. **Die Karten-Neigung** im Cards-Abschnitt: die Quelle dreht die Karten
    unterschiedlich, der Baum weniger.
 
 ## Belege
