@@ -97,22 +97,30 @@ function routen(pfad) {
  * derselbe Fehler, den diese Datei behebt, nur an anderer Stelle. Der Grund,
  * warum eine Datei bleibt, steht als Zuordnung im Skript - er ist eine
  * Entscheidung (ADR-0019), keine Messung.
+ *
+ * Hier steht NUR, was die Schwelle reisst (1 000 Zeilen, dieselbe wie im
+ * Waechter). Kleinere Dateien gehoeren nicht in eine Tabelle, die "warum so
+ * gross" heisst - sie sind nicht gross. Bis zum 25.10.2026 standen hier auch
+ * `http.ts` (259), `app.js` (219) und `app-references.js` (597); die Tabelle
+ * behauptete damit, es gehe um Grosse, und meinte in Wahrheit "Dateien, die
+ * ich erklaeren wollte".
+ *
+ * Die Liste ist vollstaendig: `packages/engine/test/doku-konsistenz.test.ts`
+ * laeuft selbst durch den Baum und meldet jede Datei ueber der Schwelle, die
+ * hier fehlt. Sie war bis zum 25.10.2026 NICHT vollstaendig - der Waechter
+ * las `engine/src` nicht rekursiv und sonst nur eine von Hand gepflegte
+ * Auswahl, sodass fuenf Dateien (6 321 Zeilen) ohne Entscheidung dastanden.
  */
 const BLEIBT = {
   "packages/engine/src/store.ts":
-    "vier fachübergreifende Transaktionen (`applyRedesignPlan`, `duplicateSiteWithPlan`, `duplicateAssetRecords`, `commitFramerImportPlan`), `replaceTables` und die Fassade; der Rest sind Delegaten",
-  "packages/engine/src/http.ts": "Dispatcher und Routentabelle; fertig",
-  "packages/app/public/app.js": "Router und Kommandoleiste; fertig",
+    "vier fachübergreifende Transaktionen (`applyRedesignPlan`, `duplicateSiteWithPlan`, `duplicateAssetRecords`, `commitFramerImportPlan`), `replaceTables` und die Fassade; 202 von 244 Methoden sind reine Delegaten (gemessen), der Rest steht in 38 `store-*`-Modulen",
   "packages/mcp/src/tools.ts":
     "die Werkzeug-Tabelle; ihre Reihenfolge ist der Vertrag (`server.ts` liest `TOOLS.map`), der Manifest-Generator folgt den `...X_TOOLS`-Spreizungen - ein weiterer Schnitt ist möglich und braucht den Manifest-Diff als Beweis",
   "packages/editor/src/inspector/inspector.ts":
     "eine Closure (`createInspector`), die DOM und Zustand gemeinsam hält",
   "packages/app/public/app-editor.js":
     "`mountCanvasView` haelt Canvas, Zustand und Ereignisse in einer Closure",
-  "packages/app/public/app-references.js": "die Referenzen-Seite ohne die Karten; der Rest nach Schritt 59",
   "packages/engine/src/content.ts": "Sammlungen, Einträge und ihre Suche in einem Fachgebiet",
-  "packages/engine/src/http-routes-sites.ts":
-    "die verbleibenden 17 Site-Routen (Seiten, Vorschauen, Reviews, Redesign, Betrieb, Assets, Code-Payloads); der Zuschnitt läuft weiter, die nächste Gruppe ist Betrieb (Audit, Formulare, Benachrichtigungen)",
   "packages/engine/src/references-lifecycle.ts":
     "die Referenz-Pipeline: Analyse, Job-Lauf, Snapshot, Playwright-Aufnahme und Anwendung; der Capture-Treiber allein sind 250 Zeilen, und er teilt den Zustand mit dem Job-Lauf",
   "packages/engine/src/lifecycle.ts":
@@ -124,6 +132,28 @@ const BLEIBT = {
   "packages/framer-import/src/mapper.ts": "die Abbildung Framer nach NodeTree",
   "packages/editor/src/canvas/canvas.ts": "die Bühne des Editors",
   "packages/editor/src/inspector/model.ts": "das Modell des Inspektors",
+  "packages/editor/src/state/operations.ts":
+    "die Editor-Operationen: ein Dispatcher (`applyEditorMutation`) und je eine Funktion pro Operation, dazu die gemeinsamen Pruefer fuer Katalog, Props, Styles und Motion. Die Pruefer teilen den Katalog und die Fehlerform - sie zu trennen hiesse, den Katalog zweimal zu lesen. Geteilt wird ueber `applyEditorMutation`, geprueft ueber `EditorStore` (`mutations.test.ts`, `history.test.ts`, `save-pipeline.test.ts`)",
+  "packages/engine/src/mutations/apply.ts":
+    "die Mutationen der Engine: ein Dispatcher (`applyOne`) und je eine Funktion pro Operation, dazu die Platzierungspruefer (`assertChildPlacement`, `assertSlotPlacement`, `assertSlotAllowedTypes`). Allen gemeinsam ist der `ApplierState`: der Dispatcher setzt `currentOpIndex`, die Faelle lesen ihn. Ein Schnitt muesste diesen Zustand teilen. Geprueft in `mutations.test.ts`, `transactions.test.ts`, `undo-batch.test.ts`",
+  "packages/renderer/src/motion.ts":
+    "die Motion-Auslieferung: `renderPageScript` und `renderIslandsScript` sind die beiden Laufzeit-Skripte, die als TEXT ausgeliefert werden - der groesste Teil der Datei steht in Template-Literalen, also in ausgeliefertem Code, nicht in Quellcode. Ein Schnitt wuerde zwei Skripte mit gemeinsamem Zustand (Lenis, GSAP, ScrollTrigger) auf zwei Dateien verteilen",
+  "packages/renderer/src/bake.ts":
+    "der Bake: `bakeSite` haelt Warnungen, Manifest-Seiten, Motion-/Lenis-/Formular-Flags, Island-Arten und benutzte Payload-Ids ueber alle Seiten - genau dieser geteilte Zustand ist der Grund, warum der Bake in einem Durchgang laeuft. Die Helfer (`stageTemplate`, `runAstroBuild`, `writeAeoFiles`, `assertBakeable`) sind bereits eigenstaendig",
+  "packages/manifest/src/tools.ts":
+    "ERZEUGT von `scripts/render-manifest.mjs` aus `packages/mcp/src/tools.ts` (`pnpm manifest:check` haelt es). Die Zeilenzahl ist keine Entscheidung, sondern die Folge von 109 Werkzeugen mit je vier Angaben",
+};
+
+/**
+ * Der laufende Zuschnitt: Dateien UNTER der Schwelle, die bewusst noch weiter
+ * geteilt werden. Getrennt von `BLEIBT`, weil die Frage eine andere ist -
+ * dort "warum bleibt das so", hier "was passiert als naechstes".
+ */
+const ZUSCHNITT = {
+  "packages/engine/src/http-routes-sites.ts":
+    "15 Site-Routen; 1 205 → 413 Zeilen über acht Schnitte. Die naechsten Kandidaten sind gemessen eigenstaendig (Messblock: Vorschauen 4 mitwandernde Importe, Reviews 5, Code-Payloads 3) - der Zuschnitt geht weiter, dieser Eintrag haelt ihn sichtbar",
+  "packages/app/public/app-references.js":
+    "die Referenzen-Seite selbst; Karten, Huelle, Zustand und Inspektor sind bereits eigene Module (`app-refs-cards.js`, `app-refs-shell.js`, `app-refs-state.js`, `app-refs-inspector.js`). Was bleibt, ist die Seitenfunktion `referencesView` mit ihren fuenf Naehten",
 };
 
 // --- Der Bestand ------------------------------------------------------------
@@ -218,9 +248,12 @@ zeilen.push("");
 zeilen.push("## Die grossen Dateien und warum sie so gross sind");
 zeilen.push("");
 zeilen.push("Die Aufteilung folgt ADR-0019: `Store` und der HTTP-Dispatcher bleiben die Fassade, die");
-zeilen.push("Fachmodule tragen die Tabellen. Diese Dateien reissen eine Zeilenschwelle; jede Zeile");
-zeilen.push("hier nennt den Grund - eine Entscheidung, keine Messung. Die Zeilenzahl selbst wird");
+zeilen.push("Fachmodule tragen die Tabellen. Diese Dateien reissen die Schwelle von 1 000 Zeilen; jede");
+zeilen.push("Zeile hier nennt den Grund - eine Entscheidung, keine Messung. Die Zeilenzahl selbst wird");
 zeilen.push("beim Erzeugen gemessen.");
+zeilen.push("");
+zeilen.push("`packages/engine/test/doku-konsistenz.test.ts` prueft die Vollstaendigkeit dieser Tabelle:");
+zeilen.push("er laeuft selbst durch `packages` und meldet jede Datei ueber der Schwelle, die hier fehlt.");
 zeilen.push("");
 zeilen.push("| Datei | Zeilen | Warum sie so gross ist |");
 zeilen.push("|---|---|---|");
@@ -228,6 +261,18 @@ const bleibtZeilen = Object.entries(BLEIBT)
   .map(([pfad, grund]) => ({ pfad, grund, n: existsSync(join(ROOT, pfad)) ? zeilenZahl(join(ROOT, pfad)) : -1 }))
   .sort((a, b) => b.n - a.n);
 for (const { pfad, grund, n } of bleibtZeilen) {
+  zeilen.push(`| \`${pfad}\` | ${n === -1 ? "?" : n} | ${zelle(grund)} |`);
+}
+zeilen.push("");
+zeilen.push("## Der laufende Zuschnitt");
+zeilen.push("");
+zeilen.push("Dateien unter der Schwelle, die trotzdem weiter geteilt werden - hier steht, was als");
+zeilen.push("Naechstes passiert, nicht warum etwas bleibt.");
+zeilen.push("");
+zeilen.push("| Datei | Zeilen | Stand |");
+zeilen.push("|---|---|---|");
+for (const [pfad, grund] of Object.entries(ZUSCHNITT)) {
+  const n = existsSync(join(ROOT, pfad)) ? zeilenZahl(join(ROOT, pfad)) : -1;
   zeilen.push(`| \`${pfad}\` | ${n === -1 ? "?" : n} | ${zelle(grund)} |`);
 }
 if (ohneKopf.length > 0) {
@@ -250,9 +295,25 @@ if (process.argv.includes("--check")) {
     );
     process.exit(0);
   }
-  console.error(
-    "module: docs/current/module.md weicht vom Generator ab.\n" + "Neu erzeugen: pnpm module:render",
-  );
+  // Ein Tor, das nur "weicht ab" sagt, ist im CI-Log nutzlos: dort steht die
+  // Datei nicht zur Hand, und der naechste Schritt ist Raten. Am 25.10.2026
+  // war genau das der Fall - `module:check` war lokal gruen und in der CI rot,
+  // und die Meldung nannte keine Zeile. Deshalb nennt sie jetzt die erste
+  // abweichende Zeile und die Zahl der Abweichungen.
+  const soll = normalisieren(markdown).split("\n");
+  const ist = normalisieren(vorhanden).split("\n");
+  const abweichend = [];
+  for (let i = 0; i < Math.max(soll.length, ist.length) && abweichend.length < 5; i++) {
+    if (soll[i] !== ist[i]) abweichend.push({ zeile: i + 1, soll: soll[i], ist: ist[i] });
+  }
+  console.error("module: docs/current/module.md weicht vom Generator ab.");
+  console.error(`  Zeilen: Datei ${ist.length}, Generator ${soll.length}`);
+  for (const a of abweichend) {
+    console.error(`  Z${a.zeile}`);
+    console.error(`    Datei    : ${JSON.stringify((a.ist ?? "<fehlt>").slice(0, 160))}`);
+    console.error(`    Generator: ${JSON.stringify((a.soll ?? "<fehlt>").slice(0, 160))}`);
+  }
+  console.error("Neu erzeugen: pnpm module:render");
   process.exit(1);
 }
 

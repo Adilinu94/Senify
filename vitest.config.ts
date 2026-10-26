@@ -82,8 +82,10 @@ export default defineConfig({
         "packages/engine/src/http.ts",
         // Alle HTTP-Fachmodule (ADR-0019): `http-route-support.ts` und
         // `http-routes-sites.ts` sind aus der geteilten HTTP-Schicht, der
-        // Glob nimmt sie mit - und kuenftige dazu.
+        // Glob nimmt sie mit - und kuenftige dazu. Die Sektions-Vorschau
+        // (25.10.2026) liegt ebenfalls hier.
         "packages/engine/src/http-*.ts",
+        "packages/engine/src/section-previews.ts",
         "packages/engine/src/store.ts",
         "packages/engine/src/store-*.ts",
         "packages/engine/src/lifecycle.ts",
@@ -124,7 +126,7 @@ export default defineConfig({
         //   http-routes-theme.ts      (neu, folgt)
         //   http-routes-references.ts 95,74 / 80,64 / 100   / 95,74
         //   http-routes-content.ts    94,52 / 73,46 / 94,11 / 94,52
-        "packages/engine/src/{http,http-route-support,http-routes-sites,http-routes-imports,http-routes-deploy,http-routes-library,http-routes-design,http-routes-site-content,http-routes-images,http-routes-site-references,http-routes-site-lifecycle,http-routes-theme,http-routes-assets,http-routes-formular,http-routes-references,http-routes-content,store,lifecycle,forms}.ts": {
+        "packages/engine/src/{http,http-route-support,http-routes-sites,http-routes-site-assets,http-routes-imports,http-routes-deploy,http-routes-library,http-routes-site-lifecycle,http-routes-theme,http-routes-assets,http-routes-formular,http-routes-references,http-routes-content,http-routes-section-preview,section-previews,store,lifecycle,forms,http-routes-design,http-routes-site-content,http-routes-images,http-routes-site-references}.ts": {
           statements: 80,
           branches: 68,
           functions: 88,
@@ -275,6 +277,23 @@ export default defineConfig({
           // unbenutzt hinzukommt.
           statements: 95,
           branches: 95,
+          functions: 95,
+          lines: 95,
+        },
+        // Die Bibliotheks-Werkzeuge (R12, Schritt 71). Der Schnitt hat sie aus
+        // `tools.ts` herausgeloest; dort waren sie von den Workflow-Tests
+        // gedeckt, hier waren sie es nicht (gemessen: 26,47 Statements). Der
+        // Waechter `coverage-gate.test.ts` hat genau das gemeldet, und die
+        // Luecke ist mit `tools-bibliothek.test.ts` geschlossen worden - nicht
+        // mit einer neuen Zahl.
+        //
+        // Gemessen am 25.10.2026: 88,23 / 60,41 / 100 / 100. Die Schwelle liegt
+        // knapp darunter und ist ein Rueckfallschutz, keine Zielmarke: die
+        // Zweige sind die optionalen Felder, die ein Aufruf auch mal
+        // weglaesst.
+        "packages/mcp/src/tools-bibliothek.ts": {
+          statements: 85,
+          branches: 55,
           functions: 95,
           lines: 95,
         },

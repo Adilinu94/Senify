@@ -14,7 +14,7 @@ import type { DomDocument, DomElement } from "../dom.ts";
 import { DEFAULT_SECTION_THUMBNAIL_BASE } from "../state/sections.ts";
 import { EDITOR_ROOT_ATTRIBUTE } from "../ui/tokens.ts";
 import { buildElementGroups, type ElementGroup } from "./elements-model.ts";
-import { buildSectionGroups, type SectionGroup } from "./sections-model.ts";
+import { buildSectionGroups, type SectionGroup, type SectionVariantTile } from "./sections-model.ts";
 import { ensureExplorerStyles } from "./styles.ts";
 
 export type ElementsPanelOptions = {
@@ -26,8 +26,11 @@ export type ElementsPanelOptions = {
   // per Drag and Drop. Fehlt `insertSection`, zeigt das Panel nur Bausteine.
   insertSection?: (type: string, variant: string) => void;
   bindSectionDragSource?: (element: DomElement, type: string, variant: string) => void;
-  // Wo die Vorschaubilder der Varianten liegen (Ordner mit Schraegstrich am Ende).
-  thumbnailBase?: string;
+  // Wo die Vorschaubilder der Varianten liegen. Ein Praefix (Ordner mit
+  // Schraegstrich am Ende, die Datei haengt das Panel an) oder eine Funktion,
+  // die die Adresse je Variante bildet - die Site-Route braucht Typ und
+  // Variante im Pfad, nicht nur den Dateinamen.
+  thumbnailBase?: string | ((type: string, variant: string) => string);
 };
 
 export type ElementsPanelTab = "elements" | "sections";
@@ -98,7 +101,16 @@ export function createElementsPanel(doc: DomDocument, options: ElementsPanelOpti
   const groupsHost = h(doc, "div", { className: "senify-elements__groups" });
   root.appendChild(h(doc, "div", { className: "senify-elements__header", text: "Elemente" }));
   const canInsertSections = options.insertSection !== undefined;
+  // Zwei Formen, ein Aufruf: ein Praefix bekommt den DATEINAMEN angehaengt
+  // (so liegen die erzeugten Bilder), eine Funktion bildet die ganze Adresse
+  // und bekommt den VARIANTENSCHLUESSEL (die Site-Route traegt Typ und
+  // Variante im Pfad). Die beiden Angaben sind nicht dasselbe: der Dateiname
+  // ist `<typ>-<variante>.png`, der Schluessel nur `<variante>`.
   const thumbnailBase = options.thumbnailBase ?? DEFAULT_SECTION_THUMBNAIL_BASE;
+  const thumbnailUrl = (type: string, variant: SectionVariantTile): string =>
+    typeof thumbnailBase === "function"
+      ? thumbnailBase(type, variant.key)
+      : `${thumbnailBase}${variant.thumbnail}`;
   let tab: ElementsPanelTab = "elements";
   const tabButtons = new Map<ElementsPanelTab, DomElement>();
   if (canInsertSections) {
@@ -243,13 +255,24 @@ export function createElementsPanel(doc: DomDocument, options: ElementsPanelOpti
         const picture = h(doc, "span", { className: "senify-elements__thumb" });
         const image = h(doc, "img", {
           attributes: {
-            src: `${thumbnailBase}${variant.thumbnail}`,
+            src: thumbnailUrl(entry.type, variant),
             alt: "",
             loading: "lazy",
             draggable: "false",
           },
         });
-        image.addEventListener("error", () => picture.setAttribute("data-missing", "true"));
+        // Zwei Stufen: liefert die Site-Route noch kein Bild (202, der Bake
+        // laeuft), faellt die Kachel auf das mitgelieferte Standardbild
+        // zurueck; fehlt auch das, bleibt der Rahmen mit dem Namen stehen.
+        image.addEventListener("error", () => {
+          if (picture.getAttribute("data-missing") === "true") return;
+          if (typeof thumbnailBase !== "function") {
+            picture.setAttribute("data-missing", "true");
+            return;
+          }
+          picture.setAttribute("data-missing", "true");
+          image.setAttribute("src", `${DEFAULT_SECTION_THUMBNAIL_BASE}${variant.thumbnail}`);
+        });
         picture.appendChild(image);
         button.appendChild(picture);
         button.appendChild(

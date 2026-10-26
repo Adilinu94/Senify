@@ -24,6 +24,7 @@ import type {
 } from "./types.ts";
 import type { AuthInfo, EngineContext, Route, RouteParams } from "./http-contract.ts";
 import { siteRoutes } from "./http-routes-sites.ts";
+import { siteAssetRoutes } from "./http-routes-site-assets.ts";
 import { importRoutes } from "./http-routes-imports.ts";
 import { deployRoutes } from "./http-routes-deploy.ts";
 import { libraryRoutes } from "./http-routes-library.ts";
@@ -33,6 +34,7 @@ import { imageRoutes } from "./http-routes-images.ts";
 import { siteReferenceRoutes } from "./http-routes-site-references.ts";
 import { siteLifecycleRoutes } from "./http-routes-site-lifecycle.ts";
 import { themeRoutes } from "./http-routes-theme.ts";
+import { sectionPreviewRoutes } from "./http-routes-section-preview.ts";
 import { assetRoutes } from "./http-routes-assets.ts";
 import { formularRoutes } from "./http-routes-formular.ts";
 import { referenceRoutes } from "./http-routes-references.ts";
@@ -125,6 +127,11 @@ const ROUTES: Route[] = [
   ...opsRoutes,
   ...contentRoutes,
   ...siteRoutes,
+  // Direkt nach `siteRoutes`: die Asset-Routen standen bisher IN dieser
+  // Tabelle an genau dieser Stelle. Ein Modul weiter unten einzubinden
+  // wuerde die Reihenfolge aendern - und die entscheidet, welche Route bei
+  // zwei passenden Mustern gewinnt.
+  ...siteAssetRoutes,
   ...importRoutes,
   ...deployRoutes,
   ...libraryRoutes,
@@ -134,6 +141,7 @@ const ROUTES: Route[] = [
   ...siteReferenceRoutes,
   ...siteLifecycleRoutes,
   ...themeRoutes,
+  ...sectionPreviewRoutes,
   ...referenceRoutes,
   ...pageRoutes,
 ];

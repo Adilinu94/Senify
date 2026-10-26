@@ -1,22 +1,30 @@
-// Die Routen einer Site jenseits des Lebenszyklus: Seiten, Bibliothek,
-// Inhalte (Sammlungen, Eintraege), Referenzen, Bilder, Code-Payloads,
-// Vorschauen, Reviews, Redesign und Betrieb (Audit, Formulare,
-// Benachrichtigungen, Deployments). Die Tabelle des Dispatchers in `http.ts`
-// nimmt sie unveraendert auf (ADR-0019).
+// Die verbleibenden Routen einer Site: Seiten, Audit, Releases, Bake-Jobs,
+// Vorschauen, Reviews, Code-Payloads, Formulare, Benachrichtigungen und
+// Redesign. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert
+// auf (ADR-0019).
 //
-// Nicht mehr hier: der Lebenszyklus (`http-routes-site-lifecycle.ts`, Schritt
-// 60), der Framer-Import (`http-routes-imports.ts`, Schritt 61), Theme und
-// Style-Regeln (`http-routes-theme.ts`, Schritt 57), Assets
-// (`http-routes-assets.ts`, Schritt 53), Formulare
-// (`http-routes-formular.ts`, Schritt 54).
+// Nicht mehr hier - die acht Schnitte, die diese Datei von 1 205 auf 413
+// Zeilen gebracht haben: Theme und Style-Regeln (`http-routes-theme.ts`,
+// Schritt 57), Formulare (`http-routes-formular.ts`, 54), Assets
+// (`http-routes-assets.ts`, 53), der Lebenszyklus
+// (`http-routes-site-lifecycle.ts`, 60), der Framer-Import
+// (`http-routes-imports.ts`, 61), Deployments (`http-routes-deploy.ts`, 62),
+// die Bibliothek (`http-routes-library.ts`, 63), Design-Records
+// (`http-routes-design.ts`, 64), Inhalte und Eintraege
+// (`http-routes-site-content.ts`, 65), Bilder (`http-routes-images.ts`, 66),
+// die Referenzen (`http-routes-site-references.ts`, 67) und die Assets dieser
+// Site (`http-routes-site-assets.ts`, 68).
 //
-// Die Datei ist der groesste verbleibende Schnitt-Kandidat: die naechsten
-// Gruppen mit sauberer Fachgrenze sind Bilder + Import-Vorschau (kein
-// gemeinsamer Zustand) und Betrieb (Audit, Formulare, Benachrichtigungen -
-// vier lesende Routen ohne Schreibpfad).
+// Der Zuschnitt ist NICHT abgeschlossen. Gemessen mit
+// `.scratch/p3-2-schnitte/messung-block.mjs` sind die naechsten Kandidaten
+// eigenstaendig - sie ziehen mehr Importe mit, als sie mit dem Rest teilen:
+// Vorschauen (4 mitwandernde Importe), Reviews (5) und Code-Payloads (3).
+// Die Betriebsgruppe (Audit, Formulare, Benachrichtigungen) wurde geprueft
+// und VERWORFEN: 2 von 6 Importen wandern mit, das ist eine Sammelgruppe und
+// kein Fachbereich.
 
 import type { Route } from "./http-contract.ts";
-import { lifecycleContext, mediaContext, resolveAuthor, withIdempotency, readJsonBody, applyMutationsToPage, requireParam, limitParam } from "./http-route-support.ts";
+import { lifecycleContext, resolveAuthor, withIdempotency, readJsonBody, applyMutationsToPage, requireParam, limitParam } from "./http-route-support.ts";
 import { SenifyError } from "@senify/core";
 import { paginate, parsePaging } from "./paging.ts";
 import { CreatePageBodySchema, parseBody, type CreatePageBody } from "./mutations/contract.ts";
@@ -42,7 +50,6 @@ import {
   type CreateCodePayloadBody,
 } from "./code-payloads-contract.ts";
 import { createCodePayload } from "./code-payloads.ts";
-import { createUploadTicket, parseAssetListFilters, queryAssets, UploadUrlBodySchema, type UploadUrlBody } from "./media.ts";
 import { REVIEW_STATUSES, type ReviewStatus } from "./types.ts";
 import { pageStarterById } from "./page-starters.ts";
 
@@ -305,60 +312,6 @@ export const siteRoutes: Route[] = [
               : { status: statusParam as ReviewStatus }),
           }),
         },
-      };
-    },
-  },
-
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "assets", "upload-url"],
-    scope: "write",
-    handler: async (context, params, req, url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<UploadUrlBody>(
-        UploadUrlBodySchema,
-        body,
-        "upload request",
-      );
-      const { idempotencyKey, ...uploadInput } = input;
-      return withIdempotency(context, auth, req, url, idempotencyKey, input, async () => {
-        const { uploadId, ticket } = await createUploadTicket(mediaContext(context), {
-          siteId,
-          body: uploadInput,
-        });
-        const token = context.uploadSigner.sign(ticket);
-        return {
-          status: 201,
-          body: {
-            uploadId,
-            url: `/api/assets/upload/${uploadId}?token=${encodeURIComponent(token)}`,
-            expiresAt: ticket.expiresAt,
-          },
-        };
-      });
-    },
-  },
-
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "assets"],
-    scope: "read",
-    handler: async (context, params, _req, url) => {
-      const siteId = requireParam(params, "siteId");
-      const all = await queryAssets(
-        context.store,
-        siteId,
-        parseAssetListFilters(url.searchParams),
-      );
-      // `queryAssets` already understands `limit`; the paging block is built
-      // from the FILTERED list so `total` and `hasMore` describe what the filter
-      // matched, not the whole library. A caller that filtered to one folder and
-      // got `total: 4000` would stop paging and think it had seen everything.
-      const page = paginate(all, parsePaging(url.searchParams), all.length);
-      return {
-        status: 200,
-        body: { assets: page.items, ...page, items: undefined },
       };
     },
   },

@@ -196,7 +196,7 @@ describe("elements panel (E4)", () => {
 });
 
 // Reiter „Sektionen“: dieselbe Panel-Huelle, andere Kacheln.
-function mountWithSections() {
+function mountWithSections(base: string | ((type: string, variant: string) => string) = "/vorschau/") {
   const doc = {
     createElement: (tag: string) => new FakeElement(tag),
     querySelector: () => ({}),
@@ -210,7 +210,7 @@ function mountWithSections() {
     cancelTarget: () => {},
     insertSection: (type, variant) => insertedSections.push([type, variant]),
     bindSectionDragSource: (_element: DomElement, type, variant) => boundSections.push([type, variant]),
-    thumbnailBase: "/vorschau/",
+    thumbnailBase: base,
   });
   const root = panel.element as unknown as FakeElement;
   const variants = () => walk(root, (el) => el.className === "senify-elements__variant");
@@ -285,5 +285,24 @@ describe("elements panel, sections tab", () => {
     panel.showTab("elements");
     expect(input.attrs.placeholder).toBe("Elemente suchen");
     expect(buildSectionGroups().length).toBeGreaterThan(0);
+  });
+
+  it("bildet die Adresse je Variante, wenn die Basis eine Funktion ist", () => {
+    // Die Form, die die Site-Route braucht: Typ und Variante stehen im PFAD,
+    // nicht im Dateinamen. Vorher war die Basis immer ein Praefix.
+    const gesehen: string[] = [];
+    const { panel, variants } = mountWithSections((type, variant) => {
+      gesehen.push(`${type}/${variant}`);
+      return `/api/sites/s1/section-preview/${type}/${variant}.png?v=4`;
+    });
+    panel.showTab("sections");
+    const split = variants().find(
+      (tile) => tile.attrs["data-section"] === "hero" && tile.attrs["data-variant"] === "split",
+    ) as FakeElement;
+    const image = walk(split, (el) => el.tagName === "img")[0] as FakeElement;
+    expect(image.attrs.src).toBe("/api/sites/s1/section-preview/hero/split.png?v=4");
+    // Jede Kachel fragt fuer sich: sonst zeigten alle dasselbe Bild.
+    expect(gesehen.length).toBe(variants().length);
+    expect(new Set(gesehen).size).toBe(gesehen.length);
   });
 });

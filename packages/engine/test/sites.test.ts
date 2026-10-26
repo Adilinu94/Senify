@@ -647,12 +647,19 @@ describe("die Zweige am Rand der Site-Routen", () => {
 
     // Alle verbliebenen Schreibrouten ohne Koerper. Erwartet wird *eine*
     // Fehlerantwort oder ein Erfolg - aber nie ein 500 und nie ein Absturz.
+    //
+    // `assets/upload-url` steht seit dem 25.10.2026 dabei: die Route wanderte
+    // in `http-routes-site-assets.ts`, und ihr `?? {}`-Zweig (kein Koerper)
+    // war der einzige ungedeckte Branch des neuen Moduls - 50 % statt 68 %.
+    // Der Grund war nicht der Schnitt, sondern eine Luecke im Test: er traf
+    // `/assets`, die Upload-Adresse aber nur MIT Koerper.
     const schreibrouten = [
       { method: "POST", path: `/api/sites/${siteId}/pages` },
       { method: "POST", path: `/api/sites/${siteId}/releases` },
       { method: "POST", path: `/api/sites/${siteId}/previews` },
       { method: "POST", path: `/api/sites/${siteId}/reviews` },
       { method: "POST", path: `/api/sites/${siteId}/assets` },
+      { method: "POST", path: `/api/sites/${siteId}/assets/upload-url` },
       { method: "POST", path: `/api/sites/${siteId}/references` },
       { method: "POST", path: `/api/sites/${siteId}/code-payloads` },
       { method: "POST", path: `/api/sites/${siteId}/redesign` },
