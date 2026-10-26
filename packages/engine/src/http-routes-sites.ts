@@ -1,8 +1,8 @@
 // Die verbleibenden Routen einer Site: Seiten, Audit, Releases, Bake-Jobs,
-// Code-Payloads, Formulare, Benachrichtigungen und Redesign. Die Tabelle des
-// Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019).
+// Formulare, Benachrichtigungen und Redesign. Die Tabelle des Dispatchers in
+// `http.ts` nimmt sie unveraendert auf (ADR-0019).
 //
-// Nicht mehr hier - die neun Schnitte, die diese Datei von 1 205 auf 307
+// Nicht mehr hier - die zehn Schnitte, die diese Datei von 1 205 auf 270
 // Zeilen gebracht haben: Theme und Style-Regeln (`http-routes-theme.ts`,
 // Schritt 57), Formulare (`http-routes-formular.ts`, 54), Assets
 // (`http-routes-assets.ts`, 53), der Lebenszyklus
@@ -12,14 +12,16 @@
 // (`http-routes-design.ts`, 64), Inhalte und Eintraege
 // (`http-routes-site-content.ts`, 65), Bilder (`http-routes-images.ts`, 66),
 // die Referenzen (`http-routes-site-references.ts`, 67), die Assets dieser
-// Site (`http-routes-site-assets.ts`, 68) sowie Vorschauen und Reviews
-// (`http-routes-site-reviews.ts`, 69).
+// Site (`http-routes-site-assets.ts`, 68), Vorschauen und Reviews
+// (`http-routes-site-reviews.ts`, 69) sowie die Code-Payloads
+// (`http-routes-site-code-payloads.ts`, 70).
 //
-// Der Zuschnitt ist NICHT abgeschlossen. Gemessen mit
-// `.scratch/p3-2-schnitte/messung-block.mjs` ist der naechste Kandidat
-// eigenstaendig: Code-Payloads (3 mitwandernde Importe). Die Betriebsgruppe
-// (Audit, Formulare, Benachrichtigungen) wurde geprueft und VERWORFEN: 2 von
-// 6 Importen wandern mit, das ist eine Sammelgruppe und kein Fachbereich.
+// Was bleibt, ist der Betrieb einer Site: Seiten, Audit, Releases, Bake-Jobs,
+// Formulare, Benachrichtigungen, Redesign. Der Betriebs-Block wurde als
+// Schnittkandidat GEPRUEFT und VERWORFEN: 2 von 6 Importen wandern mit, das
+// ist eine Sammelgruppe und kein Fachbereich. Die verbleibenden Routen haengen
+// an `lifecycle.ts`, `forms.ts` und den Store-Fassaden - also an dem, was sie
+// gerade lesen.
 
 import type { Route } from "./http-contract.ts";
 import { lifecycleContext, resolveAuthor, withIdempotency, readJsonBody, applyMutationsToPage, requireParam, limitParam } from "./http-route-support.ts";
@@ -34,11 +36,6 @@ import {
 import { listSiteForms } from "./forms.ts";
 import { ApplyRedesignBodySchema, type ApplyRedesignBody } from "./references-contract.ts";
 import { applyRedesign } from "./apply-redesign.ts";
-import {
-  CreateCodePayloadBodySchema,
-  type CreateCodePayloadBody,
-} from "./code-payloads-contract.ts";
-import { createCodePayload } from "./code-payloads.ts";
 import { pageStarterById } from "./page-starters.ts";
 
 export const siteRoutes: Route[] = [
@@ -201,36 +198,6 @@ export const siteRoutes: Route[] = [
       return {
         status: 200,
         body: { jobs: page.items, ...page, items: undefined },
-      };
-    },
-  },
-
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "code-payloads"],
-    scope: "write",
-    handler: async (context, params, req) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const parsed = parseBody<CreateCodePayloadBody>(
-        CreateCodePayloadBodySchema,
-        body,
-        "code payload",
-      );
-      const payload = await createCodePayload(context.store, { siteId, body: parsed });
-      return { status: 201, body: payload };
-    },
-  },
-
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "code-payloads"],
-    scope: "read",
-    handler: async (context, params) => {
-      const siteId = requireParam(params, "siteId");
-      return {
-        status: 200,
-        body: { payloads: await context.store.listCodePayloads(siteId) },
       };
     },
   },

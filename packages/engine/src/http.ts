@@ -26,6 +26,7 @@ import type { AuthInfo, EngineContext, Route, RouteParams } from "./http-contrac
 import { siteRoutes } from "./http-routes-sites.ts";
 import { siteAssetRoutes } from "./http-routes-site-assets.ts";
 import { siteReviewRoutes } from "./http-routes-site-reviews.ts";
+import { siteCodePayloadRoutes } from "./http-routes-site-code-payloads.ts";
 import { importRoutes } from "./http-routes-imports.ts";
 import { deployRoutes } from "./http-routes-deploy.ts";
 import { libraryRoutes } from "./http-routes-library.ts";
@@ -136,6 +137,8 @@ const ROUTES: Route[] = [
   // Ebenfalls direkt nach `siteRoutes`: Vorschauen und Reviews standen dort
   // zwischen Bake-Jobs und Code-Payloads.
   ...siteReviewRoutes,
+  // Code-Payloads standen in siteRoutes zwischen Bake-Jobs und Formularen.
+  ...siteCodePayloadRoutes,
   ...importRoutes,
   ...deployRoutes,
   ...libraryRoutes,
