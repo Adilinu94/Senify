@@ -1,0 +1,38 @@
+fix(framer-import): hidden-<hash> am Element ist Sichtbarkeit, nicht Darstellung
+
+Auf Mobil fehlten der ganzen Produktkarte (BERRY BLISS, ORDER NOW, $7.50 USD,
+CHOCO RING ...) 13 eindeutige Textzeilen. Der Inhalt war im Baum vorhanden und
+im HTML nachweisbar, wurde aber nicht gerendert. Desktop war vollstaendig
+(87 von 87 eindeutigen Zeilen, Hoehe exakt 17656).
+
+Die Ursache war eine Verwechslung von Sichtbarkeit und Darstellung, an zwei
+Stellen:
+
+1. Der Hash stand am Element, nicht am Wrapper. Framer schreibt seine
+   Geraete-Hashes auch direkt auf das Element; der Capture las sie nur am
+   ssr-variant-Wrapper. Sie blieben in baseClasses, die
+   .hidden-x{display:none!important}-Regel traf die Desktop-Kaskade, und weil
+   Desktop 1440 in der Tablet-Range liegt, stand display:none im
+   BASIS-Zustand. Die Mobil-Kaskade kennt die Eigenschaft nicht - sie erbte
+   sie. Die Karte verschwand auf genau dem Geraet, auf dem sie ihr Zuhause
+   hatte.
+
+2. Die Regel wurde als Gestaltung gelesen. .hidden-<hash>{display:none} ist
+   Framers Schalter, nicht sein Aussehen.
+
+Der Fix trennt beide Ebenen: hidden-* fliegt aus baseClasses, wandert in
+hiddenAt und wird ueber visibleDevices zu exakten Breitenbereichen. Der
+ssr-variant-Weg bleibt unveraendert.
+
+Messung (Payload-Probe, echte Seite, alle Breiten):
+  Mobil 390     63,96 % -> 10,12 %
+  Mobil Hoehe   13336   -> 14664  (Original 14637)
+  Desktop 1440  4,07 %  -> 4,07 % (unveraendert)
+  Release       1,30 / 0,46 / 0,47 % -> 1,31 / 0,45 / 0,53 %
+
+Inhalt: 13 fehlende Zeilen -> 0 inhaltliche Verluste. Uebrig sind nur die zwei
+Framer-Werbezeilen. Der Baum zeigt auf Mobil 84 eindeutige Zeilen gegen 81 im
+Original.
+
+Beleg: device-visibility.test.ts (4 Faelle, 1 rot ohne den Fix:
+"expected 'none' not to be 'none'").

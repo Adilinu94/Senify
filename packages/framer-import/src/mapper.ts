@@ -656,6 +656,17 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
         left: layout.padding.left ?? "0px",
       };
     }
+    // `margin` sits in the same side table as `padding` so the shorthand and
+    // its longhands keep the source's ORDER (`margin:0; margin-top:20px`).
+    // Written as the same four-side object the style table reads.
+    if (layout.margin !== undefined) {
+      props["margin"] = {
+        top: layout.margin.top ?? "0px",
+        right: layout.margin.right ?? "0px",
+        bottom: layout.margin.bottom ?? "0px",
+        left: layout.margin.left ?? "0px",
+      };
+    }
   }
 
   // --- absolute positioning
