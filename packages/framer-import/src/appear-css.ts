@@ -19,9 +19,12 @@
 //  2. A variant is scoped to its breakpoint. Framer writes one copy per layout
 //     and hides the others with `hidden-<hash>`; emitting the `default` variant
 //     unscoped would play a desktop slide on the phone.
-//  3. A spring is not a CSS timing function. `ease-out` (overdamped) or a small
-//     overshoot curve (underdamped) is the closest honest approximation; the
-//     exact overshoot is lost. This is a stated limit, not a silent one.
+//  3. A spring is not a CSS timing function, so it is SOLVED, not approximated.
+//     `spring.ts` is Framer's own solver; this file turns its frames into
+//     keyframes. The earlier version used `4/(ζ·ω0)` and a fixed `cubic-bezier`
+//     — measured against the page's own solver that was up to 8× too fast on 55
+//     of 58 springs, so the reveal was visible but wrong. See `spring.ts` for
+//     the comparison.
 //
 // The output is style rules, not a CSS string: `@keyframes` travels as the
 // rule's `rawCss` (ADR-0005 allows exactly that at-rule) and the animation
@@ -30,6 +33,7 @@
 // other and the bake compiles it through the same path as everything else.
 
 import type { IrAppearSpec, IrAppearState, IrAppearTransition, IrAppearVariant, IrBreakpoint } from "./ir.ts";
+import { springDurationMs, springTimingCss } from "./spring.ts";
 
 export type CompiledAppearRule = {
   // Rule id and class name. Scoped to the page like every imported rule, so a
@@ -83,30 +87,99 @@ function round(value: number, digits = 2): number {
   return Math.round(value * factor) / factor;
 }
 
-// The time a spring needs to come to rest (2 % band), the same formula the
-// capture uses for the samples: `4 / (ζ·ω0)`. Clamped to a range a page can use.
+// The time a spring needs to come to rest, as FRAMER computes it: sample the
+// real solver (10 ms steps, distance-dependent rest threshold) until it stops.
+// The previous `4/(ζ·ω0)` formula answered a different question and was up to
+// 8× too short — see `spring.ts`.
 export function appearSettleSeconds(transition: IrAppearTransition | undefined): number {
   if (transition === undefined) return 0.4;
   if (transition.type !== "spring") {
     return Math.min(Math.max(transition.duration ?? 0.4, 0.15), 1.6);
   }
-  const stiffness = transition.stiffness ?? 100;
-  const damping = transition.damping ?? 10;
-  const mass = transition.mass ?? 1;
-  const omega = Math.sqrt(stiffness / mass);
-  const zeta = damping / (2 * Math.sqrt(stiffness * mass));
-  const settle = zeta <= 0 ? 1.6 : 4 / (zeta * omega);
-  return Math.min(Math.max(settle, 0.15), 1.6);
+  // The appear channel's `duration` is seconds; the solver returns milliseconds.
+  const seconds = springDurationMs(transition, 0, 1) / 1000;
+  return Math.max(0.01, seconds);
 }
 
-function easingOf(transition: IrAppearTransition | undefined): string {
-  if (transition?.type !== "spring") return "ease";
-  const damping = transition.damping ?? 10;
-  const stiffness = transition.stiffness ?? 100;
-  const mass = transition.mass ?? 1;
-  const zeta = damping / (2 * Math.sqrt(stiffness * mass));
-  // A damped spring glides to its place; an underdamped one snaps over.
-  return zeta >= 1 ? "ease-out" : "cubic-bezier(0.34, 1.56, 0.64, 1)";
+// One effect's timing, as Framer assembles it: every animated property runs on
+// its own spring, all of them over the LONGEST settle time (`We` returns
+// `longestDuration`), with a `linear()` curve. Because a spring is linear in its
+// distance, the normalised curve is the same for every property — the shape is
+// sampled once, at the property that settles last.
+//
+// What stays approximate, stated rather than hidden: CSS applies one duration
+// and one curve to all properties of an animation, so a property that settles
+// EARLIER than the longest is stretched to the longest. Measured on the 165/32
+// spring (opacity 1050 ms, 28 px 750 ms): the residual is 1.05 % of the travel,
+// i.e. 0.3 px — below the sub-pixel grid, so it is not visible. Framer itself
+// animates every property over the longest duration too, so this is not a
+// simplification of the source; it is its behaviour.
+export type EffectTiming = {
+  durationMs: number;
+  easing: string;
+  delay: number;
+};
+
+export function effectTiming(
+  initial: IrAppearState | undefined,
+  animate: IrAppearState,
+  transition: IrAppearTransition | undefined,
+): EffectTiming {
+  const from = initial ?? {};
+  const pairs: [from: number, to: number][] = [];
+  const pair = (a: number | undefined, b: number | undefined, rest: number): void => {
+    const start = a ?? rest;
+    const end = b ?? rest;
+    if (start !== end) pairs.push([start, end]);
+  };
+  pair(from.opacity, animate.opacity, 1);
+  pair(from.x, animate.x, 0);
+  pair(from.y, animate.y, 0);
+  pair(from.scale, animate.scale, 1);
+  pair(from.rotate, animate.rotate, 0);
+  pair(from.rotateX, animate.rotateX, 0);
+  pair(from.rotateY, animate.rotateY, 0);
+  pair(from.skewX, animate.skewX, 0);
+  pair(from.skewY, animate.skewY, 0);
+  pair(from.blur, animate.blur, 0);
+  pair(from.transformPerspective, animate.transformPerspective, 0);
+
+  const delay = Math.max(0, transition?.delay ?? 0);
+  // A plain duration transition (`Ye`): the source's own value, no curve to solve.
+  if (transition === undefined || transition.type !== "spring") {
+    return {
+      durationMs: Math.round(appearSettleSeconds(transition) * 1000),
+      easing: easingOfTween(transition),
+      delay,
+    };
+  }
+
+  let durationMs = 0;
+  for (const [start, end] of pairs) {
+    // The distance decides the rest threshold, so it decides the settle time.
+    durationMs = Math.max(durationMs, springDurationMs(transition, start, end));
+  }
+  if (durationMs === 0) durationMs = springDurationMs(transition, 0, 1);
+  return {
+    durationMs,
+    // 30 stops: Framer's own serialisation (`toString` calls the sampler with
+    // 30), so the baked curve has the fidelity the source itself would write.
+    easing: springTimingCss(transition, durationMs),
+    delay,
+  };
+}
+
+// The easing of a non-spring transition: Framer writes `ease` on the appear
+// entry (default `ease`), and a hand-written page may carry its own curve.
+function easingOfTween(transition: IrAppearTransition | undefined): string {
+  const ease = (transition as { ease?: unknown } | undefined)?.ease;
+  if (typeof ease === "string" && /^(ease|ease-in|ease-out|ease-in-out|linear)$/.test(ease.trim())) {
+    return ease.trim();
+  }
+  if (Array.isArray(ease) && ease.length === 4 && ease.every((value) => typeof value === "number")) {
+    return `cubic-bezier(${ease.join(", ")})`;
+  }
+  return "ease";
 }
 
 // CSS identifiers must be plain. A Framer appear id is a hash, but a
@@ -183,8 +256,11 @@ export function compileAppearRules(input: CompileAppearInput): CompileAppearResu
       if (animate === undefined || animate === null) return false;
       const name = `senify-appear-${safeId(spec.appearId)}-${safeId(hash)}`;
       const transition = (animate as { transition?: IrAppearTransition }).transition;
-      const duration = round(appearSettleSeconds(transition), 3);
-      const delay = round(Math.max(0, transition?.delay ?? 0), 3);
+      // Framer animates every property of one effect on its OWN spring but gives
+      // all of them the LONGEST settle time and a normalised curve. A spring is
+      // linear in its distance, so one `linear()` covers opacity, translate and
+      // scale of the same effect — no curve per property.
+      const timing = effectTiming(variant.initial, animate as IrAppearState, transition);
       // A deblur on either side makes the whole effect use `filter`, so both
       // frames spell it (`blur(0px)` at rest): browsers interpolate a missing
       // filter as `none`, which is not the same as a zero blur to every engine.
@@ -192,7 +268,7 @@ export function compileAppearRules(input: CompileAppearInput): CompileAppearResu
       keyframes.push(
         `@keyframes ${name}{from{${frameOf(variant.initial, true, withFilter)}}to{${frameOf(animate, false, withFilter)}}}`,
       );
-      const declaration = `${name} ${duration}s ${easingOf(transition)} ${delay}s both`;
+      const declaration = `${name} ${timing.durationMs}ms ${timing.easing} ${Math.round(timing.delay * 1000)}ms both`;
       if (condition === undefined) base["animation"] = declaration;
       else contexts[`@media ${condition}`] = { animation: declaration };
       compiled += 1;

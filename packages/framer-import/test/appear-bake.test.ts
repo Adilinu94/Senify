@@ -66,9 +66,9 @@ describe("the compiled appear channel reaches the baked page", () => {
       expect(css).toContain("translateX(150px)");
       expect(css).toContain("rotateX(-25deg)");
       // … the duration is the source's (1.4 s, not 30 ms) …
-      expect(css).toMatch(/senify-appear-hero-default\s+1\.4s/);
+      expect(css).toMatch(/senify-appear-hero-default\s+1400ms/);
       // … and the element holds both ends (`both`).
-      expect(css).toMatch(/senify-appear-hero-default\s+1\.4s[^;"]*both/);
+      expect(css).toMatch(/senify-appear-hero-default\s+1400ms[^;"]*both/);
     } finally {
       rmSync(out, { recursive: true, force: true });
     }

@@ -74,6 +74,18 @@ export { siteBreakpointsOf } from "./site-breakpoints.ts";
 export { mapFramerMotion } from "./motion-mapping.ts";
 export type { MotionMapping, MotionMappingResult } from "./motion-mapping.ts";
 
+// Framer's own spring solver, ported from the page bundle: the exact duration
+// and `linear()` curve of an appear effect instead of a settle approximation.
+export {
+  springFromDuration,
+  springGenerator,
+  springFrames,
+  springDurationMs,
+  springEasing,
+  springTimingCss,
+  type SpringTransition,
+} from "./spring.ts";
+
 export {
   extractPayloads,
   type ExtractedPayload,

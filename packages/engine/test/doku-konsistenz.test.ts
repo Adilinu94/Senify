@@ -263,11 +263,11 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
   // word effect into the inline markup (a word span has no node of its own).
   expect(funktionen(mapper), "mapper.ts hat eine andere Zahl Funktionen").toBe(55);
 
-    // Der CSS-Block: Z1902-2627 im Kommentar. Geprueft wird, dass er noch dort
+    // Der CSS-Block: Z1950-2787 im Kommentar. Geprueft wird, dass er noch dort
     // liegt - verschiebt jemand die Datei, ist die Begruendung falsch.
     const zeilen = capture.split(/\r?\n/);
-    expect(zeilen[1939], "der CSS-Block beginnt nicht mehr in Z1940").toContain("order` is the rule's position");
-    expect(zeilen[2776], "der CSS-Block endet nicht mehr in Z2777").toBe("}");
+    expect(zeilen[1949], "der CSS-Block beginnt nicht mehr in Z1950").toContain("order` is the rule's position");
+    expect(zeilen[2786], "der CSS-Block endet nicht mehr in Z2787").toBe("}");
 
     // Und die Begruendung muss die Zahlen tragen, die sie behauptet.
     expect(module).toContain("838 Zeilen, 24 Funktionen");

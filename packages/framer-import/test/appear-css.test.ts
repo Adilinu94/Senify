@@ -77,11 +77,13 @@ describe("the transform order follows Motion", () => {
 });
 
 describe("a spring settles to a usable duration", () => {
-  it("matches the capture's formula", () => {
-    // ω0 = √160 ≈ 12.65, ζ = 30 / (2·√160) ≈ 1.19: 4 / (ζ·ω0) ≈ 0.266 s
+  it("uses Framer's own settle time, not the 2 % formula", () => {
+    // stiffness 160 / damping 30 is the standard reveal of the fixtures. The
+    // old `4/(ζ·ω0)` formula said 0.27 s; Framer's solver says 1.00 s, because
+    // it stops at a distance-dependent rest threshold, not at 2 % of the
+    // travel. Measured against the page's `animator.spring` (see spring.test.ts).
     const settle = appearSettleSeconds({ type: "spring", stiffness: 160, damping: 30, mass: 1 });
-    expect(settle).toBeGreaterThan(0.24);
-    expect(settle).toBeLessThan(0.3);
+    expect(settle).toBeCloseTo(1.0, 2);
   });
 
   it("takes a plain duration as written", () => {
@@ -115,8 +117,9 @@ describe("compiling the channel to rules", () => {
     expect(result.rules).toHaveLength(1);
     const rule = result.rules[0];
     expect(rule?.keyframes).toHaveLength(1);
-    // The source's 1.4 s, not a fraction of it.
-    expect(rule?.animation["animation"]).toBe("senify-appear-hero-default 1.4s ease 0s both");
+    // The source's 1.4 s, not a fraction of it. Milliseconds, because the
+    // spring path needs the exact settle time (1 400 ms for a plain duration).
+    expect(rule?.animation["animation"]).toBe("senify-appear-hero-default 1400ms ease 0ms both");
     // `both`: the element holds the start state through the delay and the end
     // state afterwards. Without it a reveal at opacity 0.001 flashes.
     expect(rule?.animation["animation"]).toContain("both");
@@ -194,8 +197,10 @@ describe("the rules reach the mapped document", () => {
     const heroRule = appearRules.find((rule) => rule.name.includes("appear-1"));
     expect(heroRule?.rawCss).toContain("@keyframes");
     expect(heroRule?.rawCss).toContain("translateY(40px)");
-    // The 1.4 s of the source, in the declaration the bake writes.
-    expect(heroRule?.styles["animation"]).toContain("1.4s");
+    // The 1.4 s of the source, in the declaration the bake writes. Milliseconds
+    // since the spring path landed: the settle time of a spring is not a whole
+    // number of seconds.
+    expect(heroRule?.styles["animation"]).toContain("1400ms");
     // Every effect that used to be a finding now has a rule — including the
     // sideways slide and the 3D tilt, which no preset can express.
     const all = appearRules.map((rule) => rule.rawCss ?? "").join("\n");

@@ -111,7 +111,7 @@ describe("a page without an appear channel", () => {
     expect(rules[0]?.rawCss).toContain("@keyframes");
     expect(rules[0]?.rawCss).toContain("scale(1.2)");
     expect(rules[0]?.rawCss).toContain("rotate(10deg)");
-    expect(rules[0]?.styles["animation"]).toContain("0.6s");
+    expect(rules[0]?.styles["animation"]).toContain("600ms");
   });
 });
 

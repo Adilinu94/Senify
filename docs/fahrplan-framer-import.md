@@ -317,10 +317,66 @@ Vorher standen alle vier gleichzeitig auf 1.
 `value-grammar.test.ts` (2 rot ohne Fix), `inline-html-class.test.ts`
 (4 von 7 rot ohne Fix).
 
-**Was offen bleibt:** Der siebte Effekt hat kein Zielelement (die Sonde fand
-keinen IR-Schluessel). Und die Recherche nennt den naechsten Hebel: die
-Wort-Spans als eigene KNOTEN erhalten, damit jedes Wort im Editor anwaehlbar wird
-- heute haengt der Effekt an der Klasse im Markup.
+### U5e · Die Feder wird gerechnet, nicht geschaetzt - geschlossen 26.10.2026
+
+U5d hat die Bewegung am **gemessenen** Effekt richtig gemacht. Der statische
+Appear-Kanal (die Einblendungen, die ohne Browser in der Seite stehen) lief
+weiter ueber eine Naeherung: `4/(ζ·ω0)` als Dauer und ein festes
+`cubic-bezier` als Kurve. Der Kommentar nannte das "die ehrlichste Naeherung".
+
+**Gemessen am 26.10.2026 ist sie nicht ehrlich, sondern falsch.** Jede
+Framer-Seite bringt ihren Rechenkern selbst mit: `var animator = {…}`, 11 KB,
+vier Methoden (`animateAppearEffects`, `getActiveVariantHash`, `spring`,
+`startOptimizedAppearAnimation`). `spring()` ist die Funktion, die aus
+`stiffness`/`damping`/`mass` die Kurve baut. In Node geladen und gegen die
+**live im Browser gemessene** Kurve gehalten:
+
+| | Kurve |
+|---|---|
+| gemessen im Browser | `linear(0, 0.0034, 0.0128, 0.0273, 0.0459, …)` |
+| Framers `spring()` nachgerechnet | `linear(0, 0.0034, 0.0128, 0.0273, 0.0459, …)` |
+
+Abweichung **0,0000**. Damit ist die Feder kein Naeherungsproblem mehr.
+
+**Der Fehler, den das aufgedeckt hat:** alle 58 statisch deklarierten Effekte
+aus allen Fixtures durchgerechnet, gegen Framers eigenen Rechner:
+
+| | vorher | nachher |
+|---|---|---|
+| Dauer falsch (>15 %) | **55 von 58** | **0 von 58** |
+| schlimmste Abweichung | 87 % (8x zu schnell) | 0,0 % |
+
+Beispiele: stiffness 140 / damping 40 war 0,20 s statt 1,57 s (8x), stiffness
+165 / damping 32 war 0,25 s statt 1,05 s (4,2x). Die Ursache ist keine Einheit
+und kein Tippfehler: `4/(ζ·ω0)` beantwortet "wann ist die Feder innerhalb 2 %",
+Framer beantwortet "wann ist sie innerhalb einer abstandsabhaengigen Ruheschwelle".
+Zwei verschiedene Fragen.
+
+**Der Fix** ist `spring.ts`: Framers Solver portiert (Newton ueber den
+analytischen Abfall, 11 Schritte, 10-ms-Abtastung, Ruheschwellen, die
+`linear()`-Serialisierung mit 30 Stuetzstellen). `appear-css.ts` nimmt die
+laengste Dauer der Eigenschaften eines Effekts - genau wie Framers `We`
+(`longestDuration`) - und schreibt die Kurve als `linear(...)`.
+
+**Warum eine Kurve fuer alle Eigenschaften reicht:** Eine Feder ist linear in
+ihrem Abstand. `spring[0,2](t)/2` ist an jedem Punkt gleich `spring[0,1](t)`
+(geprueft in `spring.test.ts`). Die normierte Form haengt nicht von der Strecke
+ab, nur die Ruhezeit.
+
+**Was genaehert bleibt, benannt:** CSS gibt einer Animation EINE Dauer. Eine
+Eigenschaft, die frueher ruht als die laengste, wird auf die laengste gestreckt.
+Gemessen an der 165/32-Feder (Opacity 1050 ms, 28 px 750 ms): 1,05 % der Strecke,
+also 0,3 px - unter dem Pixelraster. Framer macht es genauso.
+
+**Belege:** `spring.test.ts` (6 Faelle, Referenz ist Framers eigener Solver aus
+der Fixture, nicht eine zweite Formel; 2 rot ohne den Vorzeichenfix in Newton),
+`spring-live.test.ts` (2 Faelle im echten Browser: die gebackene Seite wird auf
+100/200/400/700 ms eingefroren und die Opacity gelesen - vorher alle gleich,
+jetzt der Kurve folgend; 1 rot, wenn `linear()` durch `ease-out` ersetzt wird).
+
+**Was offen bleibt:** Der Weg gilt fuer den **statischen** Kanal. Effekte, die
+nur im Browser existieren (Scroll-Reveals, Hover), kommen weiter aus U5d.
+Und die Wort-Spans sind weiter Inline-Markup, keine eigenen Knoten.
 
 ## 4. Der Plan
 

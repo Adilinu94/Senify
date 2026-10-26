@@ -143,9 +143,11 @@ describe("the imported reveal keeps the source's timing", () => {
   }, 60_000);
 
   it("still bakes a spring as its settle time", async () => {
-    // The spring's settle time is computed at capture (2 % band): for
-    // stiffness 160, damping 30 it is ~0.27 s, so the reveal is ~270 ms — not
-    // the raw `duration` field (a spring has none).
+    // The spring's settle time is computed at capture. Since 26.10.2026 that is
+    // Framer's own solver, not the 2 % formula: for stiffness 160 / damping 30
+    // Framer says 1.00 s, while `4/(ζ·ω0)` said 0.27 s. Both the sample and the
+    // compiled keyframes carry the solved value — a spring has no `duration`
+    // field of its own.
     const html =
       `<html lang="de"><head><title>t</title>` +
       `<script type="application/json" id="__framer__appearAnimationsContent">${JSON.stringify({
@@ -175,8 +177,7 @@ describe("the imported reveal keeps the source's timing", () => {
     // Sanity: the capture settled the spring, not the 0.4 s default.
     const settle = run.document.motion[0]?.params["duration"];
     expect(typeof settle).toBe("number");
-    expect(settle).toBeGreaterThan(0.24);
-    expect(settle).toBeLessThan(0.3);
+    expect(settle).toBeCloseTo(1.0, 2);
     expect(entryDurationMs(baked)).toBe(300);
   }, 60_000);
 });
