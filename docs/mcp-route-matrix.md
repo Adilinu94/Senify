@@ -160,16 +160,16 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 | GET | `/api/sites/:siteId/references` | read | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/references` | write | Tool | `apply_reference` |
 | DELETE | `/api/sites/:siteId/references/:referenceId` | write | Tool | `unassign_reference` |
+| POST | `/api/sites/:siteId/previews` | write | Tool | `create_preview` |
+| GET | `/api/sites/:siteId/previews` | read | Operator | UI/CLI |
+| POST | `/api/sites/:siteId/reviews` | write | Tool | `submit_for_review` |
+| GET | `/api/sites/:siteId/reviews` | read | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/pages` | write | Tool | `create_page` |
 | GET | `/api/sites/:siteId/pages` | read | Tool | `list_pages` |
 | GET | `/api/sites/:siteId/audit` | read | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/releases` | publish | Tool | `publish_release`, `rollback_release` |
 | GET | `/api/sites/:siteId/releases` | read | Tool | `list_releases` |
 | GET | `/api/sites/:siteId/bake-jobs` | read | Tool | `list_bake_jobs` |
-| POST | `/api/sites/:siteId/previews` | write | Tool | `create_preview` |
-| GET | `/api/sites/:siteId/previews` | read | Operator | UI/CLI |
-| POST | `/api/sites/:siteId/reviews` | write | Tool | `submit_for_review` |
-| GET | `/api/sites/:siteId/reviews` | read | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/code-payloads` | write | Operator | Import/CLI (MCP-Tools folgen mit der Bibliothek, S6) |
 | GET | `/api/sites/:siteId/code-payloads` | read | Operator | Import-Bericht/Editor |
 | GET | `/api/sites/:siteId/forms` | read | Operator | UI/CLI |
