@@ -88,6 +88,26 @@ describe("bake: the page has a ground", () => {
     // The rule must name the variable, so a themed site gets its own colour and
     // a site without one still gets white instead of transparent.
     expect(css).toMatch(/body\s*\{[^}]*background-color:\s*var\(--bg-base/);
-    expect(css).toMatch(/body\s*\{[^}]*color:\s*var\(--fg-base/);
+  });
+
+  it("leaves the text colour to the imported rules", async () => {
+    // `color` on the body was the first attempt and broke the canvas/release
+    // parity test: the canvas does not load this stylesheet, the release does,
+    // so the two disagreed on the heading colour. Only the background is needed
+    // for the page to have a ground.
+    if (!baked) throw new Error("bake missing");
+    const site = loadBakedSite(baked.outDir);
+    const html = await site.read("index.html");
+    const bundled = [...html.matchAll(/href="(\/_astro\/[^"]+\.css)"/g)].map((match) => match[1]);
+    let css = "";
+    for (const href of bundled) {
+      if (href === undefined) continue;
+      try {
+        css += await site.read(href.slice(1));
+      } catch {
+        // see above
+      }
+    }
+    expect(css).not.toMatch(/body\s*\{[^}]*[^-]color:\s*var\(--fg-base/);
   });
 });

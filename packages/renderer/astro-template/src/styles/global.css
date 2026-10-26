@@ -3,17 +3,23 @@
 
 /* Die Seite braucht einen Grund: Text steht auf einer Fläche, nicht im Nichts.
    `theme.css` setzt nur Variablen (`--bg-base`, `--fg-base`), keine Regeln —
-   ohne diese beiden Zeilen ist der Body transparent. Gemessen am
-   Struktur-Baum (25.10.2026): der Vollseiten-Screenshot kam mit Alpha 0
-   heraus, und jeder Vergleich gegen die Quelle las eine weiße Fläche gegen
-   eine durchsichtige. Der Wert kommt aus dem Theme, der Fallback ist Weiß. */
+   ohne diese Zeilen ist der Body transparent. Gemessen am Struktur-Baum
+   (25.10.2026): der Vollseiten-Screenshot kam mit Alpha 0 heraus, und jeder
+   Vergleich gegen die Quelle las eine weiße Fläche gegen eine durchsichtige.
+   Der Wert kommt aus dem Theme, der Fallback ist Weiß.
+
+   NUR der Hintergrund. `color` stand hier zuerst auch — und brach sofort den
+   Paritätstest `release-cutover-browser.test.ts`: die Editor-Canvas lädt dieses
+   Stylesheet nicht, der Release schon, also hatten Canvas und Release danach
+   verschiedene Textfarben (rgb(0,0,0) gegen oklch(0.38 …)). Die Textfarbe ist
+   keine Voraussetzung für den Grund; die importierten Regeln setzen sie ohnehin
+   selbst. Wer sie hier ergänzt, muss die Canvas mitziehen. */
 html {
   background-color: var(--bg-base, #ffffff);
 }
 
 body {
   background-color: var(--bg-base, #ffffff);
-  color: var(--fg-base, #111111);
 }
 
 /* Die Bausteine liegen außerhalb dieses Templates (packages/registry/src).
