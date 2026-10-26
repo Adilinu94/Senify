@@ -25,6 +25,7 @@ import type {
 import type { AuthInfo, EngineContext, Route, RouteParams } from "./http-contract.ts";
 import { siteRoutes } from "./http-routes-sites.ts";
 import { siteAssetRoutes } from "./http-routes-site-assets.ts";
+import { siteReviewRoutes } from "./http-routes-site-reviews.ts";
 import { importRoutes } from "./http-routes-imports.ts";
 import { deployRoutes } from "./http-routes-deploy.ts";
 import { libraryRoutes } from "./http-routes-library.ts";
@@ -132,6 +133,9 @@ const ROUTES: Route[] = [
   // wuerde die Reihenfolge aendern - und die entscheidet, welche Route bei
   // zwei passenden Mustern gewinnt.
   ...siteAssetRoutes,
+  // Ebenfalls direkt nach `siteRoutes`: Vorschauen und Reviews standen dort
+  // zwischen Bake-Jobs und Code-Payloads.
+  ...siteReviewRoutes,
   ...importRoutes,
   ...deployRoutes,
   ...libraryRoutes,

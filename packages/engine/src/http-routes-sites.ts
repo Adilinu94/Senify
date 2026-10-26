@@ -1,9 +1,8 @@
 // Die verbleibenden Routen einer Site: Seiten, Audit, Releases, Bake-Jobs,
-// Vorschauen, Reviews, Code-Payloads, Formulare, Benachrichtigungen und
-// Redesign. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert
-// auf (ADR-0019).
+// Code-Payloads, Formulare, Benachrichtigungen und Redesign. Die Tabelle des
+// Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019).
 //
-// Nicht mehr hier - die acht Schnitte, die diese Datei von 1 205 auf 413
+// Nicht mehr hier - die neun Schnitte, die diese Datei von 1 205 auf 307
 // Zeilen gebracht haben: Theme und Style-Regeln (`http-routes-theme.ts`,
 // Schritt 57), Formulare (`http-routes-formular.ts`, 54), Assets
 // (`http-routes-assets.ts`, 53), der Lebenszyklus
@@ -12,35 +11,25 @@
 // die Bibliothek (`http-routes-library.ts`, 63), Design-Records
 // (`http-routes-design.ts`, 64), Inhalte und Eintraege
 // (`http-routes-site-content.ts`, 65), Bilder (`http-routes-images.ts`, 66),
-// die Referenzen (`http-routes-site-references.ts`, 67) und die Assets dieser
-// Site (`http-routes-site-assets.ts`, 68).
+// die Referenzen (`http-routes-site-references.ts`, 67), die Assets dieser
+// Site (`http-routes-site-assets.ts`, 68) sowie Vorschauen und Reviews
+// (`http-routes-site-reviews.ts`, 69).
 //
 // Der Zuschnitt ist NICHT abgeschlossen. Gemessen mit
-// `.scratch/p3-2-schnitte/messung-block.mjs` sind die naechsten Kandidaten
-// eigenstaendig - sie ziehen mehr Importe mit, als sie mit dem Rest teilen:
-// Vorschauen (4 mitwandernde Importe), Reviews (5) und Code-Payloads (3).
-// Die Betriebsgruppe (Audit, Formulare, Benachrichtigungen) wurde geprueft
-// und VERWORFEN: 2 von 6 Importen wandern mit, das ist eine Sammelgruppe und
-// kein Fachbereich.
+// `.scratch/p3-2-schnitte/messung-block.mjs` ist der naechste Kandidat
+// eigenstaendig: Code-Payloads (3 mitwandernde Importe). Die Betriebsgruppe
+// (Audit, Formulare, Benachrichtigungen) wurde geprueft und VERWORFEN: 2 von
+// 6 Importen wandern mit, das ist eine Sammelgruppe und kein Fachbereich.
 
 import type { Route } from "./http-contract.ts";
 import { lifecycleContext, resolveAuthor, withIdempotency, readJsonBody, applyMutationsToPage, requireParam, limitParam } from "./http-route-support.ts";
 import { SenifyError } from "@senify/core";
 import { paginate, parsePaging } from "./paging.ts";
 import { CreatePageBodySchema, parseBody, type CreatePageBody } from "./mutations/contract.ts";
+import { publishRelease } from "./lifecycle.ts";
 import {
-  createPreview,
-  expirePreviews,
-  publishRelease,
-  submitReview,
-} from "./lifecycle.ts";
-import {
-  CreatePreviewBodySchema,
   PublishReleaseBodySchema,
-  SubmitReviewBodySchema,
-  type CreatePreviewBody,
   type PublishReleaseBody,
-  type SubmitReviewBody,
 } from "./lifecycle-contract.ts";
 import { listSiteForms } from "./forms.ts";
 import { ApplyRedesignBodySchema, type ApplyRedesignBody } from "./references-contract.ts";
@@ -50,7 +39,6 @@ import {
   type CreateCodePayloadBody,
 } from "./code-payloads-contract.ts";
 import { createCodePayload } from "./code-payloads.ts";
-import { REVIEW_STATUSES, type ReviewStatus } from "./types.ts";
 import { pageStarterById } from "./page-starters.ts";
 
 export const siteRoutes: Route[] = [
@@ -213,105 +201,6 @@ export const siteRoutes: Route[] = [
       return {
         status: 200,
         body: { jobs: page.items, ...page, items: undefined },
-      };
-    },
-  },
-
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "previews"],
-    scope: "write",
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<CreatePreviewBody>(
-        CreatePreviewBodySchema,
-        body,
-        "preview",
-      );
-      const preview = await createPreview(lifecycleContext(context), {
-        siteId,
-        author: resolveAuthor(auth),
-        ttlDays: input.ttlDays,
-      });
-      return {
-        status: 201,
-        body: {
-          preview,
-          url: `/api/previews/${preview.id}/files/index.html?token=${preview.token}`,
-        },
-      };
-    },
-  },
-
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "previews"],
-    scope: "read",
-    handler: async (context, params) => {
-      const siteId = requireParam(params, "siteId");
-      const expired = await expirePreviews(lifecycleContext(context), siteId);
-      return {
-        status: 200,
-        body: {
-          previews: await context.store.listPreviews(siteId),
-          expired,
-        },
-      };
-    },
-  },
-
-  {
-    method: "POST",
-    segments: ["api", "sites", ":siteId", "reviews"],
-    scope: "write",
-    handler: async (context, params, req, _url, auth) => {
-      const siteId = requireParam(params, "siteId");
-      const body = (await readJsonBody(req)) ?? {};
-      const input = parseBody<SubmitReviewBody>(
-        SubmitReviewBodySchema,
-        body,
-        "review",
-      );
-      const result = await submitReview(lifecycleContext(context), {
-        siteId,
-        author: resolveAuthor(auth),
-        note: input.note ?? null,
-        pageIds: input.pageIds,
-      });
-      return {
-        status: 201,
-        body: {
-          review: result.review,
-          preview: result.preview,
-          checks: result.checks,
-        },
-      };
-    },
-  },
-
-  {
-    method: "GET",
-    segments: ["api", "sites", ":siteId", "reviews"],
-    scope: "read",
-    handler: async (context, params, _req, url) => {
-      const siteId = requireParam(params, "siteId");
-      const statusParam = url.searchParams.get("status");
-      if (statusParam !== null && !REVIEW_STATUSES.includes(statusParam as ReviewStatus)) {
-        throw new SenifyError("validation", `Unknown review status "${statusParam}"`, {
-          field: "status",
-          suggestion: `Use one of: ${REVIEW_STATUSES.join(", ")}.`,
-        });
-      }
-      return {
-        status: 200,
-        body: {
-          reviews: await context.store.listReviewItems(siteId, {
-            ...(statusParam === null
-              ? {}
-              : { status: statusParam as ReviewStatus }),
-          }),
-        },
       };
     },
   },
