@@ -545,9 +545,9 @@ Neu erzeugte Uploads werden nach fehlgeschlagenem DB-Commit kompensiert; negativ
 
 ---
 
-### P3-7 · Framer-Import: die Lücken der Live-Messung (20.10.2026) — geschlossen 21.10.2026
+### P3-7 · Framer-Import: die Lücken der Live-Messung (20.10.2026) — teilweise geschlossen (26.10.2026 berichtigt)
 
-**Stand 24.10.2026: alle sechs Messpunkte sind geschlossen, keiner ist offen.** Die Überschrift trug bis heute „offen", obwohl der Text darunter jeden Punkt mit Datum, Ursache, Messwert und Testbeleg abschließt — derselbe Doku-Defekt wie die zu niedrige Obergrenze im Risiko-Register. Was bleibt, ist keine Lücke, sondern die Grenze des Ansatzes (Rasterung und ein Fremd-Widget, `docs/agents/framer-import-restabweichung.md`).
+**Stand 26.10.2026: von 16 Punkten sind 14 geschlossen, einer ist eine Grenze der Quelle, einer ist offen.** Die Ueberschrift sagte bis heute „geschlossen“; gemessen ist das nicht mehr wahr. **Offen ist Punkt 15:** `unifiersofjapan` bleibt bei 14,73 / 22,82 / 21,24 % Abweichung — die Höhe stimmt exakt (7699 px), die Schrift lädt (Anton wird gerendert), die Ursache ist unklar. **Eine Grenze ist Punkt 1:** die Bewertungssterne stehen nicht im Server-HTML (0× im SSR, 5× im gerenderten DOM), der Import kann nur lesen, was das SSR preisgibt; wer sie will, braucht eine zweite Quelle (Unframer oder Bild) — das ist eine Produktentscheidung. Die Zählung ist nicht von Hand: `packages/engine/test/doku-konsistenz.test.ts` liest den Status jeder Punktzeile aus der Ursachen-Zelle.
 
 Der Import wurde am 20.10.2026 an einer veröffentlichten Seite gemessen (`https://distinct-assistant-875072.framer.app`). **Die Messmethode war falsch und hat die Diagnose verfälscht:** Sie verglich die Quelle im *Startzustand* ihrer Einblendungen mit dem Import im Endzustand. Framer schreibt den Zustand vor der Animation in den Server-HTML (`will-change:transform` plus Start-Transform, `opacity` unter 1) und nimmt ihn zur Laufzeit weg — ohne das Scrollen durch die Seite und das Auslaufenlassen misst man 25 % zu schmale Texte der Quelle. **Richtig gemessen** (durch die Seite scrollen, die Einblendungen auslaufen lassen) liegt der Import nach den Korrekturen 1–8 bei **0,98 % / 1,54 % / 2,23 %** (Desktop / Tablet / Mobil; Ausgangswert 17,0 / 14,9 / 21,6 %), die Seitenhöhe ist **exakt gleich**.
 
