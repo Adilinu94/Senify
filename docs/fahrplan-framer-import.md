@@ -268,6 +268,60 @@ sie entstehen wie die Sterne erst im Browser.
 tatsächlich so aussehen wie in der Quelle. Dafür braucht es einen
 Bild-Vergleich über die Zeit, nicht nur einen Stand.
 
+### U5d · Die gemessene Bewegung wird jetzt als CSS gebacken - geschlossen 26.10.2026
+
+Die Recherche `docs/research/framer-animationen-abgreifen.md` hat den Weg
+gezeigt: Framer rechnet seine Federn selbst aus und uebergibt dem Browser
+**fertige Keyframes als CSS-Strings** (`translateY(28px)`, `blur(12px)`) plus
+eine abgetastete `linear(...)`-Kurve. Ein Preset kann das nicht nachbilden - es
+ist ein Naeherungsbegriff.
+
+**Gemessen an `concerned-circumstances-187935`:** 7 WAAPI-Effekte, davon 4
+Wort-Einblendungen mit Delay 0/50/100/150 ms, 400 ms und
+`cubic-bezier(0.44, 0, 0.56, 1)`. Der Import machte daraus 4x `fade-up` und warf
+die Staffelung weg.
+
+**Vier Fehler, jeder mit roter Gegenprobe:**
+
+1. **Die Shorthand-Form der Keyframes wurde nicht gelesen.** Die Web Animations
+   API kennt zwei Formen: die Frame-Liste `[{opacity:0}]` und den
+   Eigenschafts-Index `{opacity:[0,1]}`. Framer schreibt ausschliesslich die
+   zweite; `startValuesOf` pruefte `Array.isArray(keyframes)` und gab `{}`
+   zurueck. Kein Effekt hatte einen Startwert.
+2. **Die Sonde verpackte die Keyframes in ein Array** - aus dem Index wurde eine
+   Frame-Liste mit einem Frame, dessen Werte Arrays sind. Der Aufzeichnungspfad
+   las danach `Array.isArray(...) ? ... : []` und machte aus dem Objekt `[]`.
+3. **`translateY(28px)` wurde als 0 gelesen.** Der Regex kannte nur `translate(`
+   mit zwei Argumenten, nicht die Achsenform.
+4. **`linear()` fehlte in der Wert-Grammatik.** Die abgetastete Feder-Kurve
+   (2 von 7 Effekten) fiel damit weg.
+
+**Der Fix** ist ein eigener Compiler (`waapi-css.ts`): gemessene Werte werden zu
+`@keyframes` + `animation`. Zwei weitere Stellen mussten mitziehen: Der
+Sanitizer verwarf `class` (ein Wort-Span hat keinen Knoten, seine Klasse muss ins
+Markup), und der CSS-Compiler verwarf Regeln ohne Knoten als "tote Regel".
+
+**Ergebnis, am gebackenen Dokument gemessen:** 6 von 7 Effekten im CSS, die vier
+Wort-Spans mit ihren echten Delays. Im Browser blenden die Woerter versetzt ein:
+
+| Zeit | Opazitaeten der 4 Woerter | verschieden |
+|---|---|---|
+| ~30 ms | 0,030 / 0,001 / 0,001 / 0,001 | 2 |
+| ~120 ms | 0,355 / 0,171 / 0,053 / 0,004 | **4** |
+| ~250 ms | 0,916 / 0,776 / 0,575 / 0,355 | **4** |
+| ~500 ms | 1,000 / 1,000 / 1,000 / 1,000 | 1 |
+
+Vorher standen alle vier gleichzeitig auf 1.
+
+**Belege:** `motion-keyframe-forms.test.ts` (2 Faelle), `waapi-css.test.ts` (9),
+`value-grammar.test.ts` (2 rot ohne Fix), `inline-html-class.test.ts`
+(4 von 7 rot ohne Fix).
+
+**Was offen bleibt:** Der siebte Effekt hat kein Zielelement (die Sonde fand
+keinen IR-Schluessel). Und die Recherche nennt den naechsten Hebel: die
+Wort-Spans als eigene KNOTEN erhalten, damit jedes Wort im Editor anwaehlbar wird
+- heute haengt der Effekt an der Klasse im Markup.
+
 ## 4. Der Plan
 
 Jeder Schritt hat ein Gate. Ein Schritt gilt erst als fertig, wenn sein Gate
