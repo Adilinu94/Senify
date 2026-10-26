@@ -151,7 +151,7 @@ const BLEIBT = {
  */
 const ZUSCHNITT = {
   "packages/engine/src/http-routes-sites.ts":
-    "11 Site-Routen; 1 205 → 303 Zeilen über neun Schnitte. Der naechste Kandidat ist gemessen eigenstaendig (Messblock: Code-Payloads 3 mitwandernde Importe) - der Zuschnitt geht weiter, dieser Eintrag haelt ihn sichtbar",
+    "9 Site-Routen; 1 205 → 270 Zeilen über zehn Schnitte. Der Zuschnitt ist an seiner fachlichen Grenze: der Betriebs-Block (Seiten, Audit, Releases, Bake-Jobs, Formulare, Benachrichtigungen, Redesign) wurde gemessen und VERWORFEN - 2 von 6 Importen wandern mit, das ist eine Sammelgruppe",
   "packages/app/public/app-references.js":
     "die Referenzen-Seite selbst; Karten, Huelle, Zustand und Inspektor sind bereits eigene Module (`app-refs-cards.js`, `app-refs-shell.js`, `app-refs-state.js`, `app-refs-inspector.js`). Was bleibt, ist die Seitenfunktion `referencesView` mit ihren fuenf Naehten",
 };
