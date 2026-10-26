@@ -191,8 +191,89 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     expect(ueberzaehlig).toEqual([]);
   });
 
-  it("begruendet den Inspektor mit der gemessenen Zahl", () => {
-    // Der Befund vom 26.10.2026: `inspector.ts` war mit 1 884 Zeilen die
+  it("fuehrt jeden Routen-Schnitt im Arbeitsstand", () => {
+    // Der Befund vom 26.10.2026: die Schritte 68, 69, 70 und 71 (vier
+    // gemergte PRs, 178 Routen, 31 Werkzeuge) fehlten in der Tabelle
+    // "Arbeitsstand dieses Dokuments". `AGENTS.md` sagt: jeder Arbeitsschritt
+    // endet mit einem ausgefuehrten Gate aus `docs/fahrplan.md` - ein Schritt,
+    // der dort nicht steht, ist nicht nachvollziehbar.
+    //
+    // Geprueft wird gegen den CODE, nicht gegen eine zweite Liste: jedes
+    // `http-routes-*.ts`-Modul und jedes `tools-*.ts`-Modul, das im Bericht
+    // steht, muss im Arbeitsstand mindestens einmal genannt sein. Ein Modul
+    // ohne Eintrag ist ein Schritt ohne Protokoll.
+    const arbeitsstand = fahrplan.slice(
+      fahrplan.findIndex((z) => z.startsWith("## Arbeitsstand dieses Dokuments")),
+    );
+    const zeilen = arbeitsstand.filter((z) => /^\| \d\d\.\d\d\.\d{4} \|/.test(z));
+
+    // Module, die im Bericht stehen und einen Eintrag brauchen.
+    const module = [
+      ...[...readdirSync(SRC).filter((n) => /^http-routes-.*\.ts$/.test(n))],
+      ...[...readdirSync(join(root, "packages/mcp/src")).filter((n) => /^tools(-[\w-]+)?\.ts$/.test(n))],
+    ];
+
+    const fehlend = module.filter((n) => !zeilen.some((z) => z.includes(n))).sort();
+    expect(fehlend, "diese Module haben keinen Eintrag im Arbeitsstand").toEqual([]);
+  });
+
+  it("haelt die Arbeitsstand-Tabelle in absteigender Datumsfolge", () => {
+    // Eine Tabelle, die "Arbeitsstand" heisst und deren neueste Zeile in der
+    // Mitte steht, ist beim Nachschlagen wertlos. Geprueft wird die Folge der
+    // Datumsangaben; gleiche Tage duerfen beliebig oft vorkommen.
+    const start = fahrplan.findIndex((z) => z.startsWith("## Arbeitsstand dieses Dokuments"));
+    const daten: string[] = [];
+    for (let i = start; i < fahrplan.length; i++) {
+      const m = /^\| (\d\d)\.(\d\d)\.(\d{4}) \|/.exec(fahrplan[i] ?? "");
+      if (m) daten.push(`${m[3]}-${m[2]}-${m[1]}`);
+      if (i > start && /^## /.test(fahrplan[i] ?? "")) break;
+    }
+    expect(daten.length, "die Arbeitsstand-Tabelle ist leer").toBeGreaterThan(50);
+
+    const verletzungen: string[] = [];
+    for (let i = 1; i < daten.length; i++) {
+      if (daten[i]! > daten[i - 1]!) {
+        // Die Meldung nennt die ZEILE, an der die Folge bricht - also die
+        // spaetere, nicht die fruehere. Der erste Anlauf nannte `i + 1` und
+        // zeigte damit auf den Vorgaenger; das war beim Nachschlagen
+        // irrefuehrend.
+        verletzungen.push(`${daten[i - 1]} steht vor ${daten[i]} (#${i + 1})`);
+      }
+    }
+    expect(verletzungen.slice(0, 5)).toEqual([]);
+  });
+
+  it("begruendet die zwei Framer-Dateien mit der gemessenen Zahl", () => {
+    // Der Befund vom 26.10.2026: `capture-html.ts` (2 726) und `mapper.ts`
+    // (1 819) sind die zwei groessten Dateien im Baum, und ihre Begruendung
+    // sagte nur "der HTML-Capture des Imports" bzw. "die Abbildung Framer nach
+    // NodeTree". Das ist eine Ueberschrift, kein Grund.
+    //
+    // Fuer `capture-html.ts` wurde der Schnitt VERSUCHT und verworfen: der
+    // CSS-Block (726 Zeilen, 21 Funktionen) ist keine Senke, weil
+    // `applyClassRules` den Baum liest und neun interne Helfer braucht.
+    //
+    // Die Zahlen in der Begruendung sind pruefbar, also werden sie geprueft.
+    const capture = readFileSync(join(root, "packages/framer-import/src/capture-html.ts"), "utf8");
+    const mapper = readFileSync(join(root, "packages/framer-import/src/mapper.ts"), "utf8");
+
+    const funktionen = (text: string): number => (text.match(/^(?:export )?(?:async )?function /gm) ?? []).length;
+    expect(funktionen(capture), "capture-html.ts hat eine andere Zahl Funktionen").toBe(68);
+    expect(funktionen(mapper), "mapper.ts hat eine andere Zahl Funktionen").toBe(54);
+
+    // Der CSS-Block: Z1902-2627 im Kommentar. Geprueft wird, dass er noch dort
+    // liegt - verschiebt jemand die Datei, ist die Begruendung falsch.
+    const zeilen = capture.split(/\r?\n/);
+    expect(zeilen[1901], "der CSS-Block beginnt nicht mehr in Z1902").toContain("order` is the rule's position");
+    expect(zeilen[2626], "der CSS-Block endet nicht mehr in Z2627").toBe("}");
+
+    // Und die Begruendung muss die Zahlen tragen, die sie behauptet.
+    expect(module).toContain("726 Zeilen, 21 Funktionen");
+    expect(module).toContain("54 Funktionen");
+    expect(module).toContain("289 Zeilen");
+  });
+
+  it("begruendet den Inspektor mit der gemessenen Zahl", () => {    // Der Befund vom 26.10.2026: `inspector.ts` war mit 1 884 Zeilen die
     // drittgroesste Datei, und die Begruendung sagte nur "eine Closure". Das
     // ist wahr, aber es sagt nicht, ob die Closure teilbar waere. Die
     // Messung sagt: nein - 22 Renderer, keiner haengt nur an `doc`,
