@@ -55,7 +55,7 @@
 
 ## Engine: HTTP-Routen-Module
 
-**23 Dateien** mit zusammen **178 Routen**.
+**24 Dateien** mit zusammen **178 Routen**.
 
 | Modul | Routen | Zeilen | Zweck |
 |---|---|---|---|
@@ -80,7 +80,8 @@
 | `http-routes-site-content.ts` | 7 | 196 | Sammlungen und Eintraege EINER SITE (P3-2, Schritt 65): anlegen, auflisten, aus Feldern ableiten, Eintraege schreiben, lesen, suchen und einen Pfad aufloesen. |
 | `http-routes-site-lifecycle.ts` | 8 | 260 | Die Routen des Site-Lebenszyklus (P3-2, Schritt 60): anlegen, listen, aendern, Papierkorb, wiederherstellen, duplizieren, lesen, loeschen. |
 | `http-routes-site-references.ts` | 3 | 101 | Referenzen einer Site (P3-2, Schritt 67): die Zuordnung der Referenzprojekte samt abgeleitetem Theme-Entwurf, das Anwenden einer Referenz und das Loesen einer Zuordnung. |
-| `http-routes-sites.ts` | 15 | 414 | Die verbleibenden Routen einer Site: Seiten, Audit, Releases, Bake-Jobs, Vorschauen, Reviews, Code-Payloads, Formulare, Benachrichtigungen und Redesign. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
+| `http-routes-site-reviews.ts` | 4 | 134 | Die zwei Vorschau- und zwei Review-Routen einer Site: eine Vorschau ausstellen, die Vorschauen lesen (und dabei abgelaufene aufraeumen), einen Review einreichen und Reviews lesen. Der Zuschnitt aus `http-routes-sites.ts` (Schritt 69). |
+| `http-routes-sites.ts` | 11 | 303 | Die verbleibenden Routen einer Site: Seiten, Audit, Releases, Bake-Jobs, Code-Payloads, Formulare, Benachrichtigungen und Redesign. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-theme.ts` | 11 | 230 | Theme und Style-Regeln einer Site (P3-2, Schritt 57): das Theme lesen, als CSS ausliefern, schreiben, den Theme-Bericht, den Design-Bericht und die sechs Style-Regel-Routen (lesen, anlegen, aendern, sortieren, loeschen). |
 | **Summe** | **178** | | |
 
@@ -180,5 +181,5 @@ Naechstes passiert, nicht warum etwas bleibt.
 
 | Datei | Zeilen | Stand |
 |---|---|---|
-| `packages/engine/src/http-routes-sites.ts` | 414 | 15 Site-Routen; 1 205 → 413 Zeilen über acht Schnitte. Die naechsten Kandidaten sind gemessen eigenstaendig (Messblock: Vorschauen 4 mitwandernde Importe, Reviews 5, Code-Payloads 3) - der Zuschnitt geht weiter, dieser Eintrag haelt ihn sichtbar |
+| `packages/engine/src/http-routes-sites.ts` | 303 | 11 Site-Routen; 1 205 → 303 Zeilen über neun Schnitte. Der naechste Kandidat ist gemessen eigenstaendig (Messblock: Code-Payloads 3 mitwandernde Importe) - der Zuschnitt geht weiter, dieser Eintrag haelt ihn sichtbar |
 | `packages/app/public/app-references.js` | 597 | die Referenzen-Seite selbst; Karten, Huelle, Zustand und Inspektor sind bereits eigene Module (`app-refs-cards.js`, `app-refs-shell.js`, `app-refs-state.js`, `app-refs-inspector.js`). Was bleibt, ist die Seitenfunktion `referencesView` mit ihren fuenf Naehten |
