@@ -94,8 +94,13 @@ Der 1440er Wert war vor dieser Runde 10,29 %.
    fehlt. In der Quelle steht dazwischen ein `ssr-variant`-Wrapper, den unser
    Baum nicht hat. Die Desktop-Fassung stimmt exakt (1900 px).
 
-2. **Die Navigation** zeigt die breite Desktop-Variante (778 px) statt der
-   schmalen Pille. Die Quelle tauscht sie beim ersten Scrollen einmalig.
+2. **Die Navigation** tauscht beim ersten Scrollen ihre VARIANTE, nicht ihren
+   Breakpoint: `framer-v-1is6x80` („Desktop", 778 px) → `framer-v-1vbcxfg`
+   („Desktop Compact", 292 px). Der Import kennt nur Breakpoint-Varianten, keine
+   Scroll-Varianten. Gemessen: der Capture sieht danach nur noch die
+   Compact-Variante (`n5`, `variantClasses: ["framer-v-1vbcxfg"]`), rendert sie
+   aber mit der Breite der Ausgangsvariante. Ein Fix braucht beide Varianten im
+   Baum plus den Auslöser — das ist ein eigener Arbeitsblock.
 
 3. **Die 900- und 390-px-Höhen** weichen um 1217 bzw. 1927 px ab. Der
    Unterschied sitzt in den Bereichen, die auf schmalen Breiten anders
