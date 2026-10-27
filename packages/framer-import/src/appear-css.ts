@@ -30,6 +30,7 @@
 // other and the bake compiles it through the same path as everything else.
 
 import type { IrAppearSpec, IrAppearState, IrAppearTransition, IrAppearVariant, IrBreakpoint } from "./ir.ts";
+import { springDurationMs, springTimingCss, type SpringTransition } from "./spring.ts";
 
 export type CompiledAppearRule = {
   // Rule id and class name. Scoped to the page like every imported rule, so a
@@ -83,20 +84,21 @@ function round(value: number, digits = 2): number {
   return Math.round(value * factor) / factor;
 }
 
-// The time a spring needs to come to rest (2 % band), the same formula the
-// capture uses for the samples: `4 / (ζ·ω0)`. Clamped to a range a page can use.
+// The time a spring needs to come to rest, as FRAMER computes it.
+//
+// The previous `4 / (ζ·ω0)` (2 % band) answered a different question: Framer
+// samples the real solver until it is within a DISTANCE-DEPENDENT rest
+// threshold. Measured on 26.10.2026 against the page's own `animator.spring`:
+// 55 of 58 springs in the fixtures were too fast, by up to 8× (stiffness 140 /
+// damping 40: 0.20 s instead of 1.57 s). The port lives in `spring.ts`.
 export function appearSettleSeconds(transition: IrAppearTransition | undefined): number {
   if (transition === undefined) return 0.4;
   if (transition.type !== "spring") {
     return Math.min(Math.max(transition.duration ?? 0.4, 0.15), 1.6);
   }
-  const stiffness = transition.stiffness ?? 100;
-  const damping = transition.damping ?? 10;
-  const mass = transition.mass ?? 1;
-  const omega = Math.sqrt(stiffness / mass);
-  const zeta = damping / (2 * Math.sqrt(stiffness * mass));
-  const settle = zeta <= 0 ? 1.6 : 4 / (zeta * omega);
-  return Math.min(Math.max(settle, 0.15), 1.6);
+  // The channel's `duration` is seconds, the solver returns milliseconds. Three
+  // decimals, the resolution the declaration is written with.
+  return round(Math.max(0.01, springDurationMs(transition as SpringTransition, 0.001, 1) / 1000), 3);
 }
 
 function easingOf(transition: IrAppearTransition | undefined): string {
@@ -108,12 +110,14 @@ function easingOf(transition: IrAppearTransition | undefined): string {
     return sampled;
   }
   if (transition?.type !== "spring") return "ease";
-  const damping = transition.damping ?? 10;
-  const stiffness = transition.stiffness ?? 100;
-  const mass = transition.mass ?? 1;
-  const zeta = damping / (2 * Math.sqrt(stiffness * mass));
-  // A damped spring glides to its place; an underdamped one snaps over.
-  return zeta >= 1 ? "ease-out" : "cubic-bezier(0.34, 1.56, 0.64, 1)";
+  // No measured curve: SOLVE the spring instead of guessing a bezier. Before
+  // this, a damped spring became `ease-out` and an underdamped one a fixed
+  // overshoot curve — neither is the source's motion. The solver is Framers own
+  // (see `spring.ts`), sampled the way Framer samples it.
+  return springTimingCss(
+    transition as SpringTransition,
+    Math.max(1, Math.round(appearSettleSeconds(transition) * 1000)),
+  );
 }
 
 // CSS identifiers must be plain. A Framer appear id is a hash, but a

@@ -51,6 +51,26 @@ Die 12 Transition-Objekte sind **Bibliotheks-Defaults**, keine Seitenkonfigurati
 
 **Fazit: Weg A ist eine Sackgasse.** Man kann nicht „den Animationscode heraussuchen", weil er dort nicht als Code steht.
 
+> **Nachtrag 26.10.2026:** Sackgasse für die *Seiten*konfiguration — aber nicht
+> für die **Feder**. Jede Framer-Seite bringt `var animator = {…}` mit (hier:
+> 11 KB, vier Methoden), und `spring()` darin ist der Rechner, der aus
+> `stiffness`/`damping`/`mass` die Kurve baut. In Node geladen und gegen die live
+> gemessene Kurve gehalten: Abweichung 0,0000. Der Rechenkern ist also lesbar,
+> nur die Absicht pro Element nicht. Eingebaut in `packages/framer-import/src/spring.ts`
+> (siehe `docs/fahrplan-framer-import.md`, U5e).
+
+### Weg A2: Der Code-Export von Framer — **geht nicht ohne Abo (geprüft)**
+
+Das Unframer-MCP bietet `exportReactComponents`: es gibt einen CLI-Befehl aus, der
+die Komponenten als React-Code herunterlädt. Framer selbst bietet keinen
+Code-Export an. **Geprüft am 26.10.2026** gegen das Projekt `437ca015ad378ce5`:
+der Aufruf antwortet
+
+> „No active React Export subscription found. […] please purchase a subscription"
+
+Ein Abo des Plugins ist also Voraussetzung. Damit ist der Weg für dieses Projekt
+zu, ohne dass er technisch falsch wäre. (Der `animator`-Weg oben braucht kein Abo.)
+
 ### Weg B: Das statische JSON (`__framer__appearAnimationsContent`) — **nur die Hälfte**
 
 Das ist der Weg, den unser Import schon geht. Er liefert die **Entry-Animationen** (8 auf dieser Seite), aber:

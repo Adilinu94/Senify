@@ -77,11 +77,13 @@ describe("the transform order follows Motion", () => {
 });
 
 describe("a spring settles to a usable duration", () => {
-  it("matches the capture's formula", () => {
-    // ω0 = √160 ≈ 12.65, ζ = 30 / (2·√160) ≈ 1.19: 4 / (ζ·ω0) ≈ 0.266 s
+  it("uses Framer's own settle time, not the 2 % formula", () => {
+    // stiffness 160 / damping 30 is the standard reveal of the fixtures. The old
+    // `4/(ζ·ω0)` said 0.27 s; Framer's solver says 1.00 s, because it stops at a
+    // distance-dependent rest threshold, not at 2 % of the travel. Measured
+    // against the page's own `animator.spring` (`spring.test.ts`).
     const settle = appearSettleSeconds({ type: "spring", stiffness: 160, damping: 30, mass: 1 });
-    expect(settle).toBeGreaterThan(0.24);
-    expect(settle).toBeLessThan(0.3);
+    expect(settle).toBeCloseTo(1.0, 2);
   });
 
   it("takes a plain duration as written", () => {
