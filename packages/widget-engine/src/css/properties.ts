@@ -416,6 +416,9 @@ function translate(
       // defence, the write path rejects loudly.
       const formatted = formatText(value);
       if (formatted === undefined) return [];
+      // `view()` / `scroll()` are timeline sources and belong to one property
+      // only. Here they would be `filter: view(1px)` — rejected.
+      if (!names.includes(TIMELINE_PROPERTY) && TIMELINE_FUNCTION.test(formatted)) return [];
       const parsed = parseCssValue(formatted);
       return parsed.ok ? names.map((name) => ({ property: name, value: parsed.value })) : [];
     }
@@ -530,6 +533,13 @@ function bareNumberText(property: string, text: string): string {
 // only a number) take `px` where the property is a length, strings run through
 // the value grammar, token references resolve like everywhere else. Records are
 // skipped: a free property has no shape contract.
+//
+// `animation-timeline: view()` / `scroll()` are timeline sources, not general
+// value functions: allowed on that one property, blocked everywhere else so a
+// `filter: view(1px)` cannot ride along on the same permission.
+const TIMELINE_PROPERTY = "animation-timeline";
+const TIMELINE_FUNCTION = /(?:^|[\s(,])(view|scroll)\s*\(/i;
+
 function openValueText(
   property: string,
   value: PropValue,
@@ -540,6 +550,12 @@ function openValueText(
     return text === "" ? { reason: "invalid-value" } : { text: bareNumberText(property, text) };
   }
   if (typeof value === "string") {
+    // `animation-timeline: view()` / `scroll()` are timeline sources, not general
+    // value functions: allowed on that one property, blocked everywhere else so a
+    // `filter: view(1px)` cannot ride along on the same permission.
+    if (property !== TIMELINE_PROPERTY && TIMELINE_FUNCTION.test(value)) {
+      return { reason: "invalid-value" };
+    }
     const parsed = parseCssValue(value);
     if (!parsed.ok) return { reason: "invalid-value" };
     return { text: BARE_NUMBER.test(parsed.value) ? bareNumberText(property, parsed.value) : parsed.value };

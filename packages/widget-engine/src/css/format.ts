@@ -11,6 +11,58 @@ import type { PropValue, Unit } from "../types.ts";
 
 export type PropRecord = { [key: string]: PropValue };
 
+// A colour is a hex value, a named colour, a `rgb()/hsl()/oklch()`-style
+// function, a `var(--token)` reference, `transparent`, `currentColor` or
+// `color-mix(...)` — nothing else. A colour value may not carry a URL or a
+// timeline function: measured 27.10.2026, `background: javascript:alert(1)` and
+// `background: scroll(red, blue)` both reached the stylesheet unchanged.
+const COLOR_LITERAL =
+  /^(?:#[0-9a-f]{3,8}|[a-z]+|(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark|var)\(.*\))$/i;
+
+function isColorLike(value: string): boolean {
+  const text = value.trim();
+  if (text === "") return false;
+  if (/javascript:|expression\(|<\/|@import/i.test(text)) return false;
+  // A quoted or otherwise structured value never is a colour.
+  if (!COLOR_LITERAL.test(text)) return false;
+  // A bare word must be a known colour keyword, not an arbitrary identifier.
+  if (!text.includes("(") && !text.startsWith("#")) {
+    return /^(?:transparent|currentcolor|[a-z]+)$/i.test(text) && COLOR_KEYWORDS.has(text.toLowerCase());
+  }
+  return true;
+}
+
+// The CSS named colours. A short, complete list is better than letting any word
+// through: `javascript` and `scroll` are words too.
+const COLOR_KEYWORDS: ReadonlySet<string> = new Set([
+  "transparent", "currentcolor", "inherit", "initial", "unset", "revert",
+  "aliceblue", "antiquewhite", "aqua", "aquamarine", "azure", "beige", "bisque",
+  "black", "blanchedalmond", "blue", "blueviolet", "brown", "burlywood", "cadetblue",
+  "chartreuse", "chocolate", "coral", "cornflowerblue", "cornsilk", "crimson", "cyan",
+  "darkblue", "darkcyan", "darkgoldenrod", "darkgray", "darkgreen", "darkgrey",
+  "darkkhaki", "darkmagenta", "darkolivegreen", "darkorange", "darkorchid", "darkred",
+  "darksalmon", "darkseagreen", "darkslateblue", "darkslategray", "darkslategrey",
+  "darkturquoise", "darkviolet", "deeppink", "deepskyblue", "dimgray", "dimgrey",
+  "dodgerblue", "firebrick", "floralwhite", "forestgreen", "fuchsia", "gainsboro",
+  "ghostwhite", "gold", "goldenrod", "gray", "green", "greenyellow", "grey",
+  "honeydew", "hotpink", "indianred", "indigo", "ivory", "khaki", "lavender",
+  "lavenderblush", "lawngreen", "lemonchiffon", "lightblue", "lightcoral",
+  "lightcyan", "lightgoldenrodyellow", "lightgray", "lightgreen", "lightgrey",
+  "lightpink", "lightsalmon", "lightseagreen", "lightskyblue", "lightslategray",
+  "lightslategrey", "lightsteelblue", "lightyellow", "lime", "limegreen", "linen",
+  "magenta", "maroon", "mediumaquamarine", "mediumblue", "mediumorchid",
+  "mediumpurple", "mediumseagreen", "mediumslateblue", "mediumspringgreen",
+  "mediumturquoise", "mediumvioletred", "midnightblue", "mintcream", "mistyrose",
+  "moccasin", "navajowhite", "navy", "oldlace", "olive", "olivedrab", "orange",
+  "orangered", "orchid", "palegoldenrod", "palegreen", "paleturquoise",
+  "palevioletred", "papayawhip", "peachpuff", "peru", "pink", "plum", "powderblue",
+  "purple", "rebeccapurple", "red", "rosybrown", "royalblue", "saddlebrown",
+  "salmon", "sandybrown", "seagreen", "seashell", "sienna", "silver", "skyblue",
+  "slateblue", "slategray", "slategrey", "snow", "springgreen", "steelblue", "tan",
+  "teal", "thistle", "tomato", "turquoise", "violet", "wheat", "white", "whitesmoke",
+  "yellow", "yellowgreen",
+]);
+
 // Turns a token reference into its concrete CSS value for a theme. The compiler
 // stays independent of `@senify/tokens`: it only knows this function shape.
 export type TokenResolver = (ref: string) => string | undefined;
@@ -160,6 +212,11 @@ export function formatColor(
   if (typeof value === "string") {
     const trimmed = value.trim();
     if (trimmed === "") return undefined;
+    // A colour is a colour. Everything else — `scroll(red, blue)`,
+    // `javascript:alert(1)`, `url(...)` — used to pass through untouched: the
+    // color path never ran the value grammar (measured 27.10.2026). A colour
+    // value cannot name a timeline function and must not carry a URL.
+    if (!isColorLike(trimmed)) return undefined;
     return HEX.test(trimmed) ? expandHex(trimmed) : trimmed;
   }
   if (!isRecord(value)) return undefined;
