@@ -1,33 +1,47 @@
-// The page as the PHONE builds it, read for the device variants only.
+// One extra load per breakpoint width, read for the device variants only.
 //
-// Framer renders one breakpoint variant per load: a 1440 px visit never contains
-// the phone build of a section, and a 390 px visit never the desktop one. The
-// import needs both — the desktop page is what it captures, the phone copy tells
-// which elements exist at all on a phone. Without it the mapper sees "desktop
-// only" on the phone's own sections (measured: five of them on `rare-works`, the
-// page 2680 px too short).
+// Framer does not only write different VALUES per width — it renders a different
+// VARIANT of the element: the product card carries `framer-v-kmiuhn`
+// (`padding: 48px`, `gap: 14px`) at 1440 px and `framer-v-1f9jezn`
+// (`padding: 30px`, `gap: 10px`) at 390 px. One load can therefore never describe
+// a second width: the variant class is resolved before the values are read, and
+// the ones the other width needs are simply not in the document.
 //
-// 390 px is the width of the site's own phone breakpoint (`mobile: 810`).
-async function readNarrowMarkup(
+// Measured on `rare-works` (27.10.2026): 1198 nodes share a signature across the
+// two builds, and 3 of them carry a DIFFERENT variant class — exactly the ones
+// where the baked page disagreed (the product cards: 347 px instead of 233, the
+// section 713 instead of 522; the navigation: 778 instead of 292).
+//
+// The widths are the site's own breakpoints: 390 (phone), 900 (tablet), 1440
+// (the capture width itself, so no extra load). A width that will not load
+// leaves the other builds standing: the import is then as complete as the loads
+// that did succeed.
+const DEVICE_WIDTHS: readonly { device: "tablet" | "mobile"; width: number; height: number }[] = [
+  { device: "tablet", width: 900, height: 1000 },
+  { device: "mobile", width: 390, height: 844 },
+];
+
+async function readDeviceMarkup(
   context: import("playwright").BrowserContext,
   url: string,
-): Promise<string | undefined> {
-  const width = 390;
-  const page = await context.newPage();
-  try {
-    // The capture viewport is fixed at 1440; a page of its own carries the phone
-    // width without touching the one that is being measured.
-    await page.setViewportSize({ width, height: 844 });
-    await page.goto(url, { waitUntil: "load", timeout: 90_000 });
-    await page.waitForTimeout(SETTLE_READ_MS + 400);
-    return await page.content();
-  } catch {
-    // A page that will not load at the phone width leaves the desktop variants
-    // standing: the import is then as complete as the desktop load allows.
-    return undefined;
-  } finally {
-    await page.close().catch(() => undefined);
+): Promise<Partial<Record<"tablet" | "mobile", string>>> {
+  const out: Partial<Record<"tablet" | "mobile", string>> = {};
+  for (const entry of DEVICE_WIDTHS) {
+    const page = await context.newPage();
+    try {
+      // The capture viewport is fixed at 1440; a page of its own carries the
+      // narrow width without touching the one that is being measured.
+      await page.setViewportSize({ width: entry.width, height: entry.height });
+      await page.goto(url, { waitUntil: "load", timeout: 90_000 });
+      await page.waitForTimeout(SETTLE_READ_MS + 400);
+      out[entry.device] = await page.content();
+    } catch {
+      // Nothing to merge for this width.
+    } finally {
+      await page.close().catch(() => undefined);
+    }
   }
+  return out;
 }
 
 // The browser capture (plan.md S2.1/S2.2): load the live page in Chromium,
@@ -84,10 +98,11 @@ export type BrowserCaptureResult = {
   // runtime has not yet animated the start states away or thrown the phone and
   // tablet copies out. Only the device variants are read from it.
   earlyMarkup?: string;
-  // The same page as the PHONE builds it. Framer renders one breakpoint variant
-  // per load, so the phone build of a section exists only here. The device
-  // variants are read from it; nothing else.
-  narrowMarkup?: string;
+  // The same page as the PHONE and TABLET build it. Framer renders one variant
+  // per load, so a section that exists only on a phone lives only here — and so
+  // does the variant class the narrow width resolves. The device variants are
+  // read from it; nothing else.
+  deviceMarkup?: Partial<Record<"tablet" | "mobile", string>>;
   // Raw probe evidence for the report: IO registrations, listeners, WAAPI
   // shapes with `iterations: null` (the measured loop form).
   probe: {
@@ -582,10 +597,10 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
     // footer does not exist there at all — the baked page hid them on a phone and
     // came out 2680 px too short (20648 → 17968).
     //
-    // A second load at the phone width is the only way to see them. It is a
-    // second page in the same context (the runtime has to build the phone tree),
-    // and only its device variants are read.
-    const narrowMarkup = await readNarrowMarkup(context, input.url);
+    // A load per width is the only way to see the other variant. It is a page of
+    // its own in the same context (the runtime has to build that tree), and only
+    // its device variants are read.
+    const deviceMarkup = await readDeviceMarkup(context, input.url);
     // Collected on the SETTLED tree, but by walking back in time is impossible —
     // so the collection happens NOW and is written back onto the SAME element
     // objects later. Framer's hydration replaces nodes (measured: the "Run" span
@@ -825,7 +840,7 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
     return {
       document,
       earlyMarkup,
-      ...(narrowMarkup === undefined ? {} : { narrowMarkup }),
+      ...(Object.keys(deviceMarkup).length === 0 ? {} : { deviceMarkup }),
       probe: {
         url: input.url,
         instrumented: probe.instrumented === true,

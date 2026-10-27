@@ -196,15 +196,32 @@ export   // The states for the whole tree, matched by Framer's OWN class signatu
 // signatures appear in both). The pair is `tag|sorted(base classes)`; where a
 // signature repeats (the four identical cards), the occurrences are paired in
 // document order, which is the order Framer renders them.
-function mergeStatesBySignature(browser: FramerIrDocument, statik: FramerIrDocument): number {
+//
+// The device state is BUILT from the other build, not copied: each load has
+// exactly one state (the width it was rendered at), so `source.states.length >
+// node.states.length` is never true and nothing would be taken over. What the
+// other build gives is its resolved VALUES — and they are the ones its variant
+// class produced, which is the whole point: the product card link resolves
+// `padding: 30px; gap: 10px` at 390 px and `48px / 14px` at 1440 px, from
+// `framer-v-1f9jezn` and `framer-v-kmiuhn` respectively.
+function mergeStatesBySignature(
+  browser: FramerIrDocument,
+  statik: FramerIrDocument,
+  device: Exclude<IrDevice, "desktop">,
+): number {
   type SigNode = {
     tag: string;
+    htmlId?: string | null;
     baseClasses?: string[];
     states: { device: IrDevice; hiddenAt: string[] }[];
     children: SigNode[];
   };
+  // The signature names the element, so the HTML id is part of it: two sections
+  // with different ids are two elements, however equal their classes are. Without
+  // it, a section that the other build does not contain could be paired with a
+  // neighbour and take over its values.
   const signature = (node: SigNode): string =>
-    `${node.tag}|${[...(node.baseClasses ?? [])].sort().join("|")}`;
+    `${node.tag}|${[...(node.baseClasses ?? [])].sort().join("|")}|${node.htmlId ?? ""}`;
   const bySignature = new Map<string, SigNode[]>();
   const collect = (node: SigNode): void => {
     const key = signature(node);
@@ -224,36 +241,36 @@ function mergeStatesBySignature(browser: FramerIrDocument, statik: FramerIrDocum
     if (list !== undefined && at < list.length) {
       used.set(key, at + 1);
       const source = list[at];
-      // The visibility first: the desktop build wrote the phone's hash into its
-      // one state and the mapper derived "desktop only" from it. The phone's own
-      // state says it is shown there. Measured: `fi1278` (the workspace card)
-      // carried `visibleOn: ["desktop","tablet"]` while its phone state had
-      // nothing hidden — the card vanished on a phone and the section collapsed
-      // from 919 to 176 px.
-      const phoneShown =
-        source?.states.some((state) => state.device === "mobile" && state.hiddenAt.length === 0) ??
-        node.states.some((state) => state.device === "mobile" && state.hiddenAt.length === 0);
-      if (phoneShown) {
-        delete (node as { visibleOn?: IrDevice[] }).visibleOn;
-        // AND the hashes: the mapper re-derives `visibleOn` from `hiddenAt` on
-        // every sibling merge, so deleting the field alone is undone a moment
-        // later.
-        if (source !== undefined) {
-          node.states = source.states.map((state) => ({ ...state, hiddenAt: [] }));
+      if (source !== undefined) {
+        // What this build actually RENDERS at its own width — not its base state.
+        //
+        // The base state is the desktop value of THAT build, and that is the wrong
+        // one whenever the element's value comes from a media query: the hero
+        // `<h1>` reads `88px` in the base of both builds, `42px` in the mobile
+        // state of both. Taking the base made the phone 88 px wide (measured: the
+        // hero grew 1171 → 2158 px, the page 20.648 → 23.996). Where the build has
+        // no state of its own the base IS what it renders — the product card link
+        // carries `padding: 30px` in its only state, which is the phone's value.
+        const values = source.states.find((state) => state.device === device) ?? source.states[0];
+        if (values !== undefined) {
+          const next = { ...values, device, hiddenAt: [] } as SigNode["states"][number];
+          const existing = node.states.findIndex((state) => state.device === device);
+          if (existing === -1) node.states.push(next);
+          else node.states[existing] = next;
           merged += 1;
-        } else {
+          // The hashes the desktop state carries named the very width that now has
+          // a state of its own — they were written by a build that never rendered
+          // it. Measured: the workspace card (`framer-lfb3z8`) had all three
+          // states with nothing hidden in tablet and mobile, yet the desktop state
+          // still said `hidden: 1xrkzay` (the phone), and the mapper read that as
+          // "hidden on a phone": the card vanished and the section collapsed from
+          // 919 to 176 px.
+          //
+          // An element that really is hidden on that width cannot reach this point:
+          // the build does not contain it, so there is no source to take values
+          // from.
           node.states = node.states.map((state) => ({ ...state, hiddenAt: [] }));
         }
-        for (const child of node.children) apply(child);
-        return;
-      }
-      if (source !== undefined && source.states.length > node.states.length) {
-        // The desktop build has one state (the one it renders); the phone build
-        // has its own. Taking the phone's states gives the mapper the values the
-        // narrow widths need — measured: 650 nodes carry a fixed px width at
-        // 1440, and 50 of them differ on a phone.
-        node.states = source.states;
-        merged += 1;
       }
     }
     for (const child of node.children) apply(child);
@@ -262,7 +279,11 @@ function mergeStatesBySignature(browser: FramerIrDocument, statik: FramerIrDocum
   return merged;
 }
 
-export function mergeDeviceVariants(browser: FramerIrDocument, statik: FramerIrDocument): FramerIrDocument {
+export function mergeDeviceVariants(
+  browser: FramerIrDocument,
+  statik: FramerIrDocument,
+  device: Exclude<IrDevice, "desktop">,
+): FramerIrDocument {
   type DeviceNode = {
     key: string;
     tag: string;
@@ -309,39 +330,29 @@ export function mergeDeviceVariants(browser: FramerIrDocument, statik: FramerIrD
     }
     const source = byId.get(id);
     if (source !== undefined) {
-      // A section the phone build shows is not "desktop only". Its own variant
-      // says which devices see it — and the desktop capture said "mobile is
-      // hidden" only because that build never contained the phone copy.
-      const phoneVisible = source.states.some(
-        (state) => state.device === "mobile" && state.hiddenAt.length === 0,
-      );
-      if (phoneVisible) {
+      // A section this build shows is not "desktop only". The desktop capture
+      // wrote the other width's breakpoint hash into its ONE state, and the
+      // mapper derives `visibleOn` from it — the hash says "hidden here", which
+      // this build contradicts by containing the element at all.
+      //
+      // Measured: `fi1278` (the workspace card) carried
+      // `visibleOn: ["desktop","tablet"]` while its phone state had nothing
+      // hidden — the card vanished and the section collapsed 919 → 176 px.
+      const shownHere = source.states.some((state) => state.hiddenAt.length === 0);
+      if (shownHere) {
         if (node.visibleOn !== undefined) clearedVisibility += 1;
         delete node.visibleOn;
-        // AND the states: the mapper re-derives `visibleOn` from `hiddenAt` on
-        // every sibling merge, so deleting the field alone is undone a moment
-        // later. The desktop capture wrote the phone's breakpoint hash into its
-        // ONE state; that hash says "hidden on a phone", which the phone build
-        // contradicts. With the phone's own states standing in (below), the hash
-        // belongs to a variant that no longer exists.
+        // The hashes have to go with it: the mapper re-derives `visibleOn` from
+        // `hiddenAt` on every sibling merge, so deleting the field alone is undone
+        // a moment later.
         node.states = node.states.map((state) => ({ ...state, hiddenAt: [] }));
       } else if (source.visibleOn !== undefined) {
         node.visibleOn = source.visibleOn;
       }
-      // A phone build that has no `mobile` state for this section does not show
-      // it there: the desktop capture's `visibleOn` stays as it is.
-      // The device states carry the per-breakpoint layout (the phone's padding,
-      // its font size). The browser capture has one state; the variant capture
-      // has the one it built. Its `hiddenAt` hashes name the OTHER widths that
-      // build does not serve — for the section that is visible here they mean
-      // nothing, and the mapper would read them as "hidden on the phone" again.
-      if (source.states.length > node.states.length) {
-        node.states = source.states.map((state) => ({ ...state, hiddenAt: phoneVisible ? [] : state.hiddenAt }));
-        taken += 1;
-      }
     }
     for (const child of node.children) apply(child);
-  };  apply(browser.pages[0]?.root as DeviceNode);
+  };
+  apply(browser.pages[0]?.root as DeviceNode);
 
   // A section that exists ONLY in the phone build is in no key of the desktop
   // tree: Framer does not render it at 1440 px at all. Measured on `rare-works`:
@@ -382,7 +393,7 @@ export function mergeDeviceVariants(browser: FramerIrDocument, statik: FramerIrD
       const isSection = child.tag === "section" || child.tag === "footer";
       const isExtra = isSection && id !== "" && !known.has(id);
       if (isExtra) {
-        child.visibleOn = ["mobile"];
+        child.visibleOn = [device];
         const at = previous === undefined ? 0 : desktopParent.children.indexOf(previous) + 1;
         desktopParent.children.splice(at, 0, child);
         previous = child;
@@ -416,18 +427,19 @@ export function mergeDeviceVariants(browser: FramerIrDocument, statik: FramerIrD
     browser.breakpoints = statik.breakpoints;
   }
   // The per-device VALUES for every node, not only the sections: the width, the
-  // padding, the font size of the phone build. Without it the baked page uses
-  // the desktop value at every width (measured: `fi1311` stayed 520px on a
-  // phone, its content collapsed to 1px, the workspace section to 176px).
-  const merged = mergeStatesBySignature(browser, statik);
+  // padding, the font size, and the variant class the width resolved. Without it
+  // the baked page uses the desktop variant at every width (measured: the product
+  // card link stayed `padding: 48px; gap: 14px` on a phone instead of
+  // `30px / 10px`, and the cards came out 347 px tall instead of 233).
+  const merged = mergeStatesBySignature(browser, statik, device);
   if (merged > 0) {
     browser.findings.push({
       kind: "breakpoint-collapse",
       nodeKey: null,
-      message: `${merged} Knoten haben ihre Gerätewerte (Breite, Abstand, Schrift) aus dem Telefon-Aufbau bekommen.`,
+      message: `${merged} Knoten haben ihre Werte für „${device}" aus diesem Aufbau bekommen (Breite, Abstand, Schrift, Variante).`,
       evidence: "Signatur aus Tag und Basis-Klassen",
       severity: "info",
-      suggestion: "Ohne diesen Schritt rechnet die Telefon-Fassung mit den Desktop-Maßen.",
+      suggestion: "Ohne diesen Schritt rechnet diese Breite mit den Desktop-Maßen.",
     });
   }
   return browser;
@@ -460,32 +472,33 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
       // addresses only, ADR-0016); the browser repeats that check for every
       // sub-resource through its own route guard (ADR-0022).
       //
-      // The device variants come from the EARLY browser markup, not from the
-      // settled one: at 1440 px the runtime has already thrown the phone and
-      // tablet copies away, so the settled DOM holds one copy of each element and
-      // every other becomes "desktop only". Measured on `rare-works`: the phone
-      // build of five sections (products, footer, …) was marked `hidden: mobile`,
-      // and the baked page was 2680 px too short on a phone (20648 → 17968).
+      // The device variants come from the OTHER builds, not from the settled one:
+      // at 1440 px the runtime has already thrown the phone and tablet copies
+      // away, so the settled DOM holds one copy of each element and every other
+      // becomes "desktop only". Measured on `rare-works`: the phone build of five
+      // sections (products, footer, …) was marked `hidden: mobile`, and the baked
+      // page was 2680 px too short on a phone (20648 → 17968).
       //
-      // `captureBrowser` returns that early markup beside the document; it is
-      // read once the page is built and before the runtime has rewritten it, so
-      // all three copies still stand there.
+      // `captureBrowser` loads the page once per width and hands the markup of
+      // each beside the desktop document.
       const fromBrowser = await captureBrowser({
         url: input.source.url,
         pagePath: input.pagePath ?? "/",
         settleMs: INPUT_SETTLE_MS,
       });
       document = fromBrowser.document;
-      // The phone build tells which elements exist at all on a phone; the
-      // desktop one carries the measured motion. Both are needed.
-      const variantsMarkup = fromBrowser.narrowMarkup ?? fromBrowser.earlyMarkup;
-      if (variantsMarkup !== undefined && variantsMarkup !== "") {
-        const variantsDocument = captureHtml({
-          html: variantsMarkup,
+      // Each build is read as its OWN document and merged as that device: the
+      // values it resolved are the ones its variant class produced, and only that
+      // width ever sees them.
+      for (const device of ["tablet", "mobile"] as const) {
+        const markup = fromBrowser.deviceMarkup?.[device];
+        if (markup === undefined || markup === "") continue;
+        const deviceDocument = captureHtml({
+          html: markup,
           url: input.source.url,
           pagePath: input.pagePath ?? "/",
         });
-        document = mergeDeviceVariants(document, variantsDocument);
+        document = mergeDeviceVariants(document, deviceDocument, device);
       }
     } else {
       const css = await fetchLinkedCss(html, input.source.url);

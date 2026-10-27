@@ -382,16 +382,31 @@ function mergeSiblingVariants(
 }
 
 // What mobile has to say beyond the base and the tablet overrides it inherits.
+//
+// Senify's tablet values are `max-width` rules that the phone falls under too,
+// while Framer's tablet query stops above the phone. A phone that equals the
+// desktop therefore has to say the desktop value again wherever the tablet
+// changed it.
+//
+// `unset` was the old answer for "the tablet set it, the phone did not": it takes
+// the tablet's value back and lets the element inherit — which is the desktop
+// value only where the desktop sets nothing itself. Measured after the tablet
+// merge (27.10.2026): the hero `<h1>` inherits its size from a preset class
+// (88 px desktop, 64 px tablet, 42 px phone). The phone had no own size, so
+// `unset` let it inherit the BODY default (16 px) instead of 88; the page grew
+// from 19.464 to 23.996 px against a source of 20.648. The desktop value is what
+// the phone shows when its own build does not differ, so that is what is written.
 function mobileOverrides(
   base: Record<string, string>,
   tablet: Record<string, string>,
   mobile: Record<string, string>,
 ): Record<string, string> {
   const out = diffValues({ ...base, ...tablet }, mobile);
-  // A property only the tablet sets, which the phone does not set either, has no
-  // value to say again: `unset` takes the tablet's value back.
   for (const property of Object.keys(tablet)) {
-    if (mobile[property] === undefined) out[property] = "unset";
+    if (mobile[property] !== undefined) continue;
+    // A property neither side names is not in `tablet` and never reaches here.
+    const desktop = base[property];
+    out[property] = desktop === undefined ? "unset" : desktop;
   }
   return out;
 }

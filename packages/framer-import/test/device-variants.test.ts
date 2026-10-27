@@ -41,7 +41,7 @@ describe("mergeDeviceVariants", () => {
         ],
       }),
     );
-    const merged = mergeDeviceVariants(desktop, phone) as unknown as {
+    const merged = mergeDeviceVariants(desktop, phone, "mobile") as unknown as {
       pages: { root: { visibleOn?: string[]; states: { device: string; hiddenAt: string[] }[] } }[];
     };
     const section = merged.pages[0]?.root;
@@ -56,18 +56,17 @@ describe("mergeDeviceVariants", () => {
     const desktop = document(
       node({ htmlId: "desktop-only", visibleOn: ["desktop"], states: [{ device: "desktop", hiddenAt: [] }] }),
     );
-    const phone = document(
-      node({
-        key: "n9",
-        htmlId: "desktop-only",
-        states: [{ device: "desktop", hiddenAt: [] }],
-      }),
-    );
-    const merged = mergeDeviceVariants(desktop, phone) as unknown as {
-      pages: { root: { visibleOn?: string[] } }[];
+    // A section the phone build never renders is not in its document at all —
+    // that is what "missing on a phone" looks like, not a node with an empty
+    // `hiddenAt` (that one is shown).
+    const phone = document(node({ key: "n9", htmlId: "hero", states: [{ device: "desktop", hiddenAt: [] }] }));
+    const merged = mergeDeviceVariants(desktop, phone, "mobile") as unknown as {
+      pages: { root: { visibleOn?: string[]; states: { device: string }[] } }[];
     };
-    // No mobile state in the phone build: the section is not shown there.
+    // No phone counterpart: the section stays desktop-only, and no phone state
+    // was invented for it.
     expect(merged.pages[0]?.root.visibleOn).toEqual(["desktop"]);
+    expect(merged.pages[0]?.root.states.map((state) => state.device)).toEqual(["desktop"]);
   });
 
   it("hängt einen Abschnitt an, den nur der Telefon-Aufbau hat", () => {
@@ -81,7 +80,7 @@ describe("mergeDeviceVariants", () => {
         ],
       }),
     );
-    const merged = mergeDeviceVariants(desktop, phone) as unknown as {
+    const merged = mergeDeviceVariants(desktop, phone, "mobile") as unknown as {
       pages: { root: { children: { htmlId?: string; visibleOn?: string[]; states: { device: string }[] }[] } }[];
     };
     const extra = merged.pages[0]?.root.children.find((child) => child.htmlId === "phone-only");
@@ -105,10 +104,11 @@ describe("mergeDeviceVariants", () => {
         states: [{ device: "desktop", hiddenAt: [] }],
       }),
     );
-    const merged = mergeDeviceVariants(desktop, phone) as unknown as {
+    const merged = mergeDeviceVariants(desktop, phone, "mobile") as unknown as {
       pages: { root: { states: { device: string }[] } }[];
     };
     // The key matches, the id does not: nothing is merged from the phone build.
     expect(merged.pages[0]?.root.states).toHaveLength(1);
   });
 });
+
