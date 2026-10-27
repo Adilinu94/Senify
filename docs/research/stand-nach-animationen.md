@@ -50,9 +50,33 @@ Jetzt: Screenshot 141 KB, die Seite ist sichtbar.
 
 ### Die Geräte-Varianten
 
-Framer baut **eine** Breite pro Ladevorgang. Der Capture bei 1440 px sah die
-Telefon-Abschnitte nie und hielt sie für „nur Desktop". Der Import lädt die
-Seite jetzt ein zweites Mal bei 390 px und übernimmt daraus die Varianten.
+Framer löst eine Variante **pro Breite** auf. Das ist mehr als ein anderer
+Wert: die Produktkarte trägt bei 1440 px `framer-v-kmiuhn` (`padding: 48px`,
+`gap: 14px`) und bei 390 px `framer-v-1f9jezn` (`padding: 30px`, `gap: 10px`).
+Ein Ladevorgang kann deshalb nie eine zweite Breite beschreiben — die Variante
+ist aufgelöst, bevor die Werte gelesen werden.
+
+Der Import lädt die Seite jetzt dreimal (1440 / 900 / 390 px) und gibt jedem
+Aufbau seinen Gerätezustand. Drei Details waren nötig, jedes gemessen:
+
+1. **Der Zustand, den der Aufbau an SEINER Breite rendert** — nicht sein
+   Basis-Zustand. Beide Aufbauten tragen `88px` als Basis (der Desktop-Wert
+   dieses Aufbaus) und `42px` im eigenen Mobile-Zustand. Die Basis zu nehmen
+   ließ das Telefon 88 px rendern: Hero 1171 → 2158 px, Seite 20648 → 23996.
+2. **Die Signatur enthält die HTML-id.** Ohne sie konnte ein Abschnitt, den
+   der andere Aufbau nicht enthält, mit seinem Nachbarn gepaart werden und
+   dessen Werte übernehmen.
+3. **Die stehengebliebenen `hidden`-Hashes werden gelöscht.** Der
+   Desktop-State nannte den Telefon-Hash aus einem Aufbau, der das Element nie
+   gerendert hat; der Mapper las das als „auf dem Telefon versteckt" — die
+   Workspace-Karte verschwand, der Abschnitt fiel von 919 auf 176 px.
+
+Dazu ein zweiter Fehler: wo nur der Tablet-Bereich einen Wert setzt, schrieb
+der Mapper `unset` als Telefon-Wert. Senifys Tablet-Regeln sind `max-width`
+und erfassen das Telefon mit, Framer's Tablet-Query endet darüber. `unset`
+nimmt den Tablet-Wert zurück und lässt erben — bei der Hero-Überschrift
+(88 / 64 / 42 px aus einer Preset-Klasse) fiel sie damit auf den Body-Wert
+(16 px). Jetzt steht dort der Desktop-Wert.
 
 Desktop-Höhen, alle 15 Sections:
 
@@ -75,47 +99,86 @@ Desktop-Höhen, alle 15 Sections:
 | contact | 835 | 835 |
 | **gesamt** | **17508** | **17508** |
 
+Höhen bei den anderen beiden Breiten:
+
+| Breite | Quelle | Baum | Rest |
+|---|---|---|---|
+| 1440 px | 17508 | 17508 | 0 px |
+| 900 px | 20162 | 20224 | 62 px |
+| 390 px | 20648 | 20648 | 0 px |
+
 ## Die Messung
 
 Median aus je drei Aufnahmen, weil die Quelle einen Endlos-Ticker hat:
 
 | Breite | Diff | Höhen |
 |---|---|---|
-| 1440 px | **7,93 %** (7,93 / 7,92 / 7,95) | 17508 / 17508 |
-| 900 px | 9,70 % | 20162 / 18945 |
-| 390 px | 12,14 % | 20648 / 19464 |
+| 1440 px | **7,76 %** (7,76 / 7,76 / 7,76) | 17508 / 17508 |
+| 900 px | **8,22 %** (8,22 / 8,22 / 8,22) | 20162 / 20224 |
+| 390 px | **7,75 %** (7,75 / 7,75 / 7,75) | 20648 / 20648 |
 
-Der 1440er Wert war vor dieser Runde 10,29 %. Die 900er Höhe fehlt um 1217 px,
-die 390er um 1184 px (vorher 2680).
+Der 1440er Wert war vor dieser Runde 7,93 %, der 900er 9,70 %, der 390er
+13,79 %. Die 900er Höhe fehlt um 62 px, die 390er um 0.
+
+Die Streuung ist echt: in späteren Läufen standen für 1440 px auch 7,89 und
+10,69 %. Die 10,69 entstehen, wenn der Endlos-Ticker der Quelle im
+Screenshot-Moment eine andere Phase hat — nicht durch den Baum. Deshalb steht
+hier der Median aus drei Aufnahmen und keine Punktzahl.
 
 ## Was offen ist
 
-1. **Die Framer-Varianten pro Breakpoint.** Framer setzt bei manchen Elementen
-   nicht nur andere Werte, sondern eine andere VARIANTE: die Produktkarte trägt
-   auf dem Desktop `framer-v-kmiuhn` (`padding: 48px`, `gap: 14px`), auf dem
-   Telefon `framer-v-1f9jezn` (`padding: 30px`, `gap: 10px`). Der Import kennt
-   nur eine davon. Seine Werte stimmen deshalb auf dem Desktop exakt und auf
-   dem Telefon gar nicht — gemessen: die Produktkarten sind 347 statt 233 px
-   hoch, die Section 713 statt 522. Das braucht beide Varianten im Baum plus
-   den Auslöser; es ist ein eigener Arbeitsblock, kein Einzeiler.
+1. **Die Scroll-Bewegung ist nicht übernommen.** Die Quelle bewegt Inhalt mit
+   der Scrollposition; das ist gemessen, aber (noch) nicht nachgebaut.
 
-2. **Die Navigation** tauscht beim ersten Scrollen ebenfalls ihre VARIANTE:
+   Beispiel Workspace-Abschnitt: das Panel (`framer-16wav6c`, 1040×640) springt
+   bei Scroll 10.836 von `translateX(640px)` auf 0 und schwingt in rund 2,8 s
+   aus (640 → 73 → 10 → 1,5 → 0,2 → 0). Das ist eine **ausgelöste Feder**, keine
+   scroll-gekoppelte Bewegung: derselbe Scrollstand ergibt nach dem Einschwingen
+   immer denselben Wert.
+
+   Echt scroll-gekoppelt sind die Karten-Drehungen (viele Zwischenwerte über
+   den Scrollweg).
+
+   Ein Versuch, beides automatisch zu übernehmen, ist **zurückgenommen**:
+   der Sensor erkannte das schmale Umschaltfenster (4 px) nicht zuverlässig
+   (in drei von vier Läufen fehlte das Panel), und die Laufzeit stieg auf
+   151–244 s pro Import. Ohne verlässliche Messung ist ein Nachbau Glücksspiel.
+
+2. **Die Navigation** tauscht beim ersten Scrollen ihre Variante:
    `framer-v-1is6x80` („Desktop", 778 px) → `framer-v-1vbcxfg`
-   („Desktop Compact", 292 px). Gemessen: der Capture sieht danach nur noch die
-   Compact-Variante (`n5`, `variantClasses: ["framer-v-1vbcxfg"]`), rendert sie
-   aber mit der Breite der Ausgangsvariante.
+   („Desktop Compact", 292 px). Das ist ein Auslöser (Scroll), kein Breakpoint —
+   der Geräte-Merge hilft hier nicht.
 
 3. **Die Karten-Neigung** im Cards-Abschnitt: die Quelle dreht die Karten
    unterschiedlich, der Baum weniger.
 
+4. **Die 62 px bei 900 px** sitzen im Footer: dort rendert der Baum 16 px
+   Grundschrift, die Quelle 12 px (gemessen an `footer` und der Produktspalte).
+   Alle 15 Sections sind auf jeder Breite exakt.
+
+## Was diese Runde gebracht hat
+
+- **Jede Breite lädt die Seite selbst** (1440 / 900 / 390): Framer löst pro
+  Breite eine andere *Variante* auf, nicht nur andere Werte. Die Produktkarte
+  trägt `framer-v-kmiuhn` (`padding: 48px`) bzw. `framer-v-1f9jezn` (`30px`).
+  Wirkung: 390 px 13,79 % → 7,75 %, 900 px 9,70 % → 8,22 %.
+- **Die Gerätezustände stimmen jetzt**: 2749 Knoten mit Tablet-, 2611 mit
+  Telefonwerten; die Hero-Überschrift 88 / 64 / 42 px statt 88 überall.
+- **`animation-timeline: view()` / `scroll()`** sind im Wert-Grammatik erlaubt
+  (vorher `invalid-value`). Damit ist der Weg für Scroll-Effekte offen — die
+  Messung dafür fehlt noch.
+
 ## Belege
 
-- 442 Tests in `packages/framer-import`, 1010 in framer-import + renderer +
+- 443 Tests in `packages/framer-import`, 1029 in framer-import + renderer +
   widget-engine, `pnpm typecheck`, `pnpm lint`.
 - Neue Testdateien: `appear-measured.test.ts` (4), `appear-inline-words.test.ts`
   (3), `appear-loader.test.ts` (3), `device-variants.test.ts` (4),
+  `device-steps.test.ts` (4), `scroll-timeline.test.ts` (3),
   `capture-browser-motion.test.ts` (+1), `inline-html.test.ts` (+1),
   `style-rules-css.test.ts` (+1), `svg-markup.test.ts` (+4).
-- CI grün für `7a5b838`, `539b533`, `e82f4f9`, `f1cd66e`.
+- CI grün für `7a5b838`, `539b533`, `e82f4f9`, `f1cd66e`, `dcf3de4`, `90ffa4d`.
 - Die Recherche mit allen Messwerten und den sieben Fehlschlägen:
   `docs/research/framer-animationen-abgreifen.md`.
+- Der zurückgenommene Scroll-Versuch mit allen Messwerten steht im Verlauf
+  dieses Dokuments (Abschnitt „Was offen ist", Punkt 1).

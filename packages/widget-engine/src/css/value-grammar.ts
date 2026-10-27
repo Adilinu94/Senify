@@ -93,6 +93,11 @@ const FUNCTIONS = new Set([
   "polygon", "path",
   // timing and environment
   "cubic-bezier", "steps", "linear", "env", "attr", "counter", "counters", "symbols",
+  // scroll-driven timelines: `animation-timeline: view()` / `scroll()`. The named
+  // form (`--ident`) needs no function; these two are the anonymous form and must
+  // parse like any other function. Their arguments are ranges and axis names
+  // (`view(block 0% 100%)`), which the value grammar already accepts.
+  "view", "scroll",
 ]);
 
 const PROPERTY_PATTERN = /^(--[a-zA-Z0-9_-]+|-?[a-zA-Z][a-zA-Z0-9-]*)$/;
