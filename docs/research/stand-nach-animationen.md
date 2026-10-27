@@ -113,17 +113,17 @@ Median aus je drei Aufnahmen, weil die Quelle einen Endlos-Ticker hat:
 
 | Breite | Diff | Höhen |
 |---|---|---|
-| 1440 px | **7,76 %** (7,76 / 7,76 / 7,76) | 17508 / 17508 |
-| 900 px | **8,22 %** (8,22 / 8,22 / 8,22) | 20162 / 20224 |
-| 390 px | **7,75 %** (7,75 / 7,75 / 7,75) | 20648 / 20648 |
+| 1440 px | **7,80 %** (7,80 / 7,80 / 7,80) | 17508 / 17508 |
+| 900 px | **8,24 %** (8,24 / 8,24 / 8,24) | 20162 / 20224 |
+| 390 px | **7,78 %** (7,78 / 7,78 / 7,78) | 20648 / 20648 |
 
 Der 1440er Wert war vor dieser Runde 7,93 %, der 900er 9,70 %, der 390er
 13,79 %. Die 900er Höhe fehlt um 62 px, die 390er um 0.
 
-Die Streuung ist echt: in späteren Läufen standen für 1440 px auch 7,89 und
-10,69 %. Die 10,69 entstehen, wenn der Endlos-Ticker der Quelle im
-Screenshot-Moment eine andere Phase hat — nicht durch den Baum. Deshalb steht
-hier der Median aus drei Aufnahmen und keine Punktzahl.
+Die Streuung ist echt: in einzelnen Läufen standen für 900 px auch 12,11 %
+(Median bleibt 8,24). Die Ausreißer entstehen, wenn der Endlos-Ticker der
+Quelle im Screenshot-Moment eine andere Phase hat — nicht durch den Baum.
+Deshalb steht hier der Median aus drei Aufnahmen und keine Punktzahl.
 
 ## Was offen ist
 
@@ -164,9 +164,13 @@ hier der Median aus drei Aufnahmen und keine Punktzahl.
   Wirkung: 390 px 13,79 % → 7,75 %, 900 px 9,70 % → 8,22 %.
 - **Die Gerätezustände stimmen jetzt**: 2749 Knoten mit Tablet-, 2611 mit
   Telefonwerten; die Hero-Überschrift 88 / 64 / 42 px statt 88 überall.
-- **`animation-timeline: view()` / `scroll()`** sind im Wert-Grammatik erlaubt
-  (vorher `invalid-value`). Damit ist der Weg für Scroll-Effekte offen — die
-  Messung dafür fehlt noch.
+- **`animation-timeline: view()` / `scroll()`** sind im Wert-Grammatik erlaubt,
+  aber **nur** an dieser einen Eigenschaft. An `filter`, `transform` oder
+  `background` bleiben sie ungültig.
+- **Die Farbprüfung ist geschlossen**: `background: javascript:alert(1)` und
+  `background: scroll(red, blue)` kamen vorher ungeprüft ins Stylesheet. Jetzt
+  gilt: Farbe ist Hex, CSS-Farbwort, `rgb()`/`hsl()`/`oklch()`/`var()` oder
+  `transparent`/`currentColor`.
 
 ## Belege
 
@@ -175,9 +179,11 @@ hier der Median aus drei Aufnahmen und keine Punktzahl.
 - Neue Testdateien: `appear-measured.test.ts` (4), `appear-inline-words.test.ts`
   (3), `appear-loader.test.ts` (3), `device-variants.test.ts` (4),
   `device-steps.test.ts` (4), `scroll-timeline.test.ts` (3),
-  `capture-browser-motion.test.ts` (+1), `inline-html.test.ts` (+1),
-  `style-rules-css.test.ts` (+1), `svg-markup.test.ts` (+4).
-- CI grün für `7a5b838`, `539b533`, `e82f4f9`, `f1cd66e`, `dcf3de4`, `90ffa4d`.
+  `wertpruefung-farbe.test.ts` (4), `capture-browser-motion.test.ts` (+1),
+  `inline-html.test.ts` (+1), `style-rules-css.test.ts` (+1),
+  `svg-markup.test.ts` (+4).
+- CI grün für `7a5b838`, `539b533`, `e82f4f9`, `f1cd66e`, `dcf3de4`, `90ffa4d`,
+  `8b83ef2`, `d60c372`.
 - Die Recherche mit allen Messwerten und den sieben Fehlschlägen:
   `docs/research/framer-animationen-abgreifen.md`.
 - Der zurückgenommene Scroll-Versuch mit allen Messwerten steht im Verlauf
