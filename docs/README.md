@@ -10,6 +10,7 @@
 | `docs/current/module.md` | **erzeugt**: der Bestand der Fachmodule mit Zeilen, Routen und Testpfaden (`pnpm module:render`); keine Handarbeit |
 | `docs/current/architektur.md` | aktuelle Seams, Datenflüsse, Transaktionsverhalten, Risiko-Katalog |
 | `docs/current/qualitaet.md` | letzter verifizierter Test- und Gate-Stand (einzige Stelle für Testzahlen) |
+| `docs/current/roadmap.md` | **abgeleitet**: die lesbare Gesamtsicht der offenen Arbeit (Blöcke, Abhängigkeiten, Reihenfolge, Grenzen); bei Widerspruch gelten Code, ADRs und `fahrplan.md` |
 | `docs/adr/` | angenommene Architekturentscheidungen |
 | `docs/history/` | **historisch**: `umbauplan.md` (abgelöst durch `docs/fahrplan.md`, Planungsstand 24.09.2026), `verbesserungsplan.md`, `analyse-2026-09-23.md`, `HANDOFF.md`, `RESEARCH.md` |
 | `.scratch/` | Arbeitsmaterial, Tickets und Messläufe |
