@@ -78,6 +78,7 @@ Zeilenzahl. Jeder Schnitt braucht einen Beleg, dass die Grenze echt ist.
 | Schritt | Ergebnis | Beleg |
 |---|---|---|
 | Vergleichs-Ablage der Referenzen-Seite | `app-refs-compare.js` (170 Zeilen), `app-references.js` 597 → 446 | Commit `7152f93`, `references-browser.test.ts` |
+| Stil-Guide der Referenzen-Seite | `app-refs-styles.js` (83 Zeilen), `app-references.js` 446 → 378 | Commit `444607a`, `references-browser.test.ts`, `module-form.test.ts` |
 | Bühne des Seiten-Editors | `app-editor-canvas.js` (774 Zeilen), `app-editor.js` 1 048 → 290 | committet 30.10.2026; `canvas-view-browser.test.ts`, `canvas-browser.test.ts`, `save-conflict-browser.test.ts` |
 | Typbruch auf `master` | fehlender `tsconfig`-Pfad `@senify/widget-engine/section-breakpoints` | Commit `5ee1c02`; `pnpm typecheck` war vorher rot |
 
@@ -85,7 +86,7 @@ Zeilenzahl. Jeder Schnitt braucht einen Beleg, dass die Grenze echt ist.
 
 | Rang | Datei | Zeilen | Zustand | Nächster Schritt und Bedingung |
 |---|---|---|---|---|
-| 1 | `packages/app/public/app-references.js` | 446 | `module.md`, „laufender Zuschnitt": Seitenfunktion `referencesView` mit fünf Nähten | Der nächste Schnitt ist die Stil-Guide-Karte (`refsStyleCard`) oder der Filter-/Kopfblock; **Bedingung:** `references-browser.test.ts` bleibt grün und `module-form.test.ts` bekommt das neue Modul. Kleiner Gewinn, geringes Risiko. |
+| 1 | `packages/app/public/app-references.js` | 378 | `module.md`, „laufender Zuschnitt": Seitenfunktion `referencesView`; Vergleich, Karten, Hülle, Zustand, Inspektor und Stil-Guide sind eigene Module | Der nächste Schnitt wäre der Filter-/Kopfblock; **Bedingung:** `references-browser.test.ts` bleibt grün und `module-form.test.ts` bekommt das neue Modul. Was danach übrig ist, ist die Seitenfunktion selbst — und die ist die Naht, keine Datei. Kleiner Gewinn, geringes Risiko. |
 | 2 | `packages/mcp/src/tools.ts` | 1 671 | `module.md`: „ein weiterer Schnitt ist möglich und braucht den Manifest-Diff als Beweis" | Nächste Werkzeuggruppe herausziehen; **Bedingung:** `pnpm manifest:render` meldet weiter 109 Werkzeuge und `git diff packages/manifest/src/tools.ts` ist leer. Das ist der Beweis, nicht die Zeilenzahl. |
 | 3 | `packages/engine/src/store.ts` | 2 662 | `module.md`: **inhaltlich fertig** — vier fachübergreifende Transaktionen, `replaceTables`, Fassade; 202 von 244 Methoden sind Delegaten (gemessen) | **Kein Schnitt geplant.** Was bleibt, ist die Entscheidung (ADR-0019 Punkt 4). Wer hier schneidet, teilt eine Transaktion. |
 | 4 | `packages/editor/src/inspector/inspector.ts` | 1 884 | `module.md`: eine Closure mit 22 Renderern; `renderFieldRow` allein nennt elf Fremdnamen und zehn Geschwister-Renderer | **Schnitt am 26.10.2026 gemessen und verworfen.** Eine Fabrik mit elf Rückrufen ist eine Verschiebung, keine Naht. Nur mit einer anderen Idee (z. B. Renderer-Registry mit deklarierten Abhängigkeiten) neu bewerten. |
@@ -108,9 +109,10 @@ Zeilenzahl. Jeder Schnitt braucht einen Beleg, dass die Grenze echt ist.
 
 **Wichtig für die Bewertung:** Von den 18 Dateien über der 1 000-Zeilen-Schwelle sind
 **vier erzeugt oder reine Typen** und **neun mit einer Messung begründet**. Übrig
-bleiben fünf, die man ehrlich prüfen kann: `app-references.js`, `tools.ts`,
-`forms.ts`, `media.ts`, `model.ts`. Der Rest ist keine Arbeit, die noch ansteht,
-sondern eine Entscheidung, die steht.
+bleiben fünf, die man ehrlich prüfen konnte. Einer davon ist am 30.10.2026 geschnitten
+worden (`app-references.js`, 446 → 378 Zeilen), die anderen vier stehen offen:
+`tools.ts`, `forms.ts`, `media.ts`, `model.ts`. Der Rest ist keine Arbeit, die noch
+ansteht, sondern eine Entscheidung, die steht.
 
 ---
 
@@ -217,7 +219,7 @@ belegt) und endet mit einem **ausgeführten Gate** aus `docs/fahrplan.md`.
 | # | Schritt | Warum jetzt | Gate |
 |---|---|---|---|
 | 1 | ~~Den gestagten `mountCanvasView`-Schnitt committen~~ **erledigt 30.10.2026** | Der Diff war geprüft und blockierte als offener Baum jeden Folgeschritt (DoR 2) | `pnpm lint`, `module:check`, `doku-konsistenz.test.ts`, drei Browser-Suiten |
-| 2 | `app-references.js` weiter teilen (Stil-Guide-Karten) | Kleinster echter Schnitt, hohe Browser-Abdeckung | `references-browser.test.ts`, `module-form.test.ts` |
+| 2 | ~~`app-references.js` weiter teilen (Stil-Guide-Karten)~~ **erledigt 30.10.2026** | Kleinster echter Schnitt, hohe Browser-Abdeckung — 446 → 378 Zeilen | `references-browser.test.ts` (2 Fälle), `module-form.test.ts`, `doku-konsistenz.test.ts` |
 | 3 | `tools.ts` um eine Werkzeuggruppe schneiden | Der Manifest-Diff ist ein harter, billiger Beweis | `manifest:render` + leerer Diff in `packages/manifest/src/tools.ts` |
 | 4 | P3-7 Punkt 15 messen (`unifiersofjapan`) | Einziger offener Treuepunkt mit unbekannter Ursache | Messprotokoll in `qualitaet.md`, kein Code ohne Befund |
 | 5 | Entscheidung Punkt 1 (Capture-Standard) herbeiführen | Ohne sie bleibt eine Grenze unentschieden statt bewusst | Frage-Dialog, ADR-Nachtrag |
