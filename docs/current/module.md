@@ -88,7 +88,7 @@
 
 ## Oberfläche: ES-Module
 
-**35 Dateien.**
+**36 Dateien.**
 
 | Modul | Zeilen | Zweck |
 |---|---|---|
@@ -110,16 +110,17 @@
 | `app-library.js` | 280 | Die Bausteinbibliothek und der Papierkorb (P3-2, Schritt 42). Beide Views standen in `app-projects.js`; sie teilen sich nichts mit den Projekten - keine Modulvariable, keinen Zustand, nur die Kern-Helfer. |
 | `app-markdown.js` | 158 | Das Markdown der importierten Referenzen (design.md, Guidelines, Komponenten). |
 | `app-projects.js` | 197 | Die Projekte, die Seiten und die Einstellungen. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
-| `app-references.js` | 597 | Die Referenzbibliothek. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
+| `app-references.js` | 446 | Die Referenzbibliothek. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
 | `app-refs-add.js` | 304 | Der Dialog zum Hinzufuegen einer Referenz (P3-2, Schritt 40): Datei oder Adresse waehlen, Vorschau, Metadaten, Sammlung. `app-references.js` importiert den Einstiegspunkt. |
 | `app-refs-cards.js` | 201 | Die Karten der Referenzen-Seite (P3-2, Schritt 59): das Blockrendering mit dem Waechter, die einzelne Karte und ihr Vorschaubild. |
 | `app-refs-collections.js` | 310 | Die Sammlungen der Referenzen (P3-2, Schritt 39): anlegen, bearbeiten, loeschen, den Brief kopieren und die Auswahl beim Zuordnen. `app-references.js` importiert die Einstiegspunkte. |
+| `app-refs-compare.js` | 170 | Die Vergleichs-Ablage und das Vergleichs-Fenster der Referenzen-Seite (P3-2). Der Block stand unveraendert in `app-references.js`; hierher gehoert er, weil er ein eigener Gegenstand ist: bis zu drei gewaehlte Referenzen unten am Fensterrand und das Fenster, das sie nebeneinander zeigt. Die Seite selbst - Leiste, Karten, Stil-Guide - bleibt in `app-references.js`. |
 | `app-refs-dialog.js` | 105 | Die Rueckmeldungen der Referenzen-Seite: der Toast, das Kopieren mit Rueckfall und das Schliessen per Hintergrund-Klick. `app-references.js` importiert sie. |
 | `app-refs-icons.js` | 46 | Die Symbole der Referenzen-Seite (P3-2, Schritt 37): `refsIcon` erzeugt aus einem Pfad ein eingebettetes SVG mit `currentColor` und fester Groesse. |
 | `app-refs-inspector.js` | 534 | Der Inspector der Referenzen (P3-2, Schritt 41): die Detailansicht mit Bildbuehne, Zoom, Schritten, Aktionen und dem Loeschen. `app-references.js` importiert die zwei Einstiegspunkte. |
 | `app-refs-settings.js` | 90 | Der Referenz-Block der Einstellungen (P3-2, Schritt 36): die Auswahl der Bibliothek, die Bildqualitaet, das Ziel der Analyse und der Schalter fuer die automatische Uebernahme. `app-projects.js` haengt ihn in die Einstellungen. |
 | `app-refs-shell.js` | 263 | Die Huelle der Referenzen-Seite (P3-2, Schritt 52): Kopfzeile, Seitenleiste, Suche, Sortierung, Galerie und Fusszeile. |
-| `app-refs-state.js` | 116 | Zustand, Adresse und Auswahl der Referenzen-Seite (P3-2, Schritt 38). |
+| `app-refs-state.js` | 136 | Zustand, Adresse und Auswahl der Referenzen-Seite (P3-2, Schritt 38). |
 | `app-review.js` | 257 | Die Reviews und ihre Belege. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
 | `app-settings.js` | 602 | Die Einstellungen eines Projekts (P3-2, Schritt 43): Profil, Modus, Engine, Bilder, Referenzen, Formulare und der Papierkorb der Backups. `app-projects.js` importiert die View. |
 | `app-workspace-lists.js` | 133 | Die Listen-Tabs des Projekt-Workspace: Seiten, Pruefen und Aktivitaet (P3-2, Schritt 49). |
@@ -184,4 +185,4 @@ Naechstes passiert, nicht warum etwas bleibt.
 | Datei | Zeilen | Stand |
 |---|---|---|
 | `packages/engine/src/http-routes-sites.ts` | 270 | 9 Site-Routen; 1 205 → 270 Zeilen über zehn Schnitte. Der Zuschnitt ist an seiner fachlichen Grenze: der Betriebs-Block (Seiten, Audit, Releases, Bake-Jobs, Formulare, Benachrichtigungen, Redesign) wurde gemessen und VERWORFEN - 2 von 6 Importen wandern mit, das ist eine Sammelgruppe |
-| `packages/app/public/app-references.js` | 597 | die Referenzen-Seite selbst; Karten, Huelle, Zustand und Inspektor sind bereits eigene Module (`app-refs-cards.js`, `app-refs-shell.js`, `app-refs-state.js`, `app-refs-inspector.js`). Was bleibt, ist die Seitenfunktion `referencesView` mit ihren fuenf Naehten |
+| `packages/app/public/app-references.js` | 446 | die Referenzen-Seite selbst; Karten, Huelle, Zustand und Inspektor sind bereits eigene Module (`app-refs-cards.js`, `app-refs-shell.js`, `app-refs-state.js`, `app-refs-inspector.js`). Was bleibt, ist die Seitenfunktion `referencesView` mit ihren fuenf Naehten |

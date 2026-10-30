@@ -9,9 +9,16 @@
 // Zwei Dinge kommen von aussen herein, beide ueber Setter statt ueber Importe:
 // die Sammlungsliste (`refsActiveCollection` liest sie) und die zwei
 // Rueckrufe fuer Toast und Tray. Ein Import waere jeweils ein Zyklus.
+//
+// Das Routen-Flag liegt seit dem Schnitt der Vergleichs-Ablage hier: die
+// Ablage (`app-refs-compare.js`) blendet sich aus, sobald die Route die
+// Bibliothek verlaesst. Laege es weiter in `app-references.js`, waere der
+// Import der Ablage ein Zyklus.
 
 const REFS_ACCENT_FALLBACK = "#8b91a0";
-const REFS_MAX_COMPARE = 3;
+
+/** Wie viele Referenzen der Vergleich hoechstens nebeneinander zeigt. */
+export const REFS_MAX_COMPARE = 3;
 
 export const refsState = {
   query: "",
@@ -27,6 +34,19 @@ let refsCollections = [];
 let toast = () => {};
 let renderTray = () => {};
 let updateSelectionUI = () => {};
+
+/** Laeuft gerade die Referenzroute? Der Router setzt das Flag. */
+let refsRouteActive = false;
+
+// Der Router setzt das Flag, wenn die Referenzroute laeuft: das Tray blendet
+// sich aus, sobald die Route die Bibliothek verlaesst.
+export function setRefsRouteActive(value) {
+  refsRouteActive = value;
+}
+
+export function isRefsRouteActive() {
+  return refsRouteActive;
+}
 
 export function refsBindCollections(list) {
   refsCollections = list;

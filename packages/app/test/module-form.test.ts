@@ -38,6 +38,7 @@ const MODULE: string[] = [
   'app-refs-inspector.js',
   'app-refs-shell.js',
   'app-refs-cards.js',
+  'app-refs-compare.js',
   'app-library.js',
   'app-settings.js',
   'app-workspace.js',

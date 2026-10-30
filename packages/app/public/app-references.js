@@ -2,17 +2,18 @@
 // sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt
 // ESLint.
 
-import { activeTab, api, el, failed, friendlyError, initials, render, routeScope } from "./app-core.js";
+import { activeTab, api, el, failed, friendlyError, render, routeScope } from "./app-core.js";
 import "./app.js";
 import "./app-markdown.js";
-import { refsBindBackdropClose, refsCopy, refsToast } from "./app-refs-dialog.js";
+import { refsCopy, refsToast } from "./app-refs-dialog.js";
 import { refsBuildShell } from "./app-refs-shell.js";
-import { REFS_ICON_LIBRARY, REFS_ICON_STYLES, REFS_ICON_LINK_BUTTON, REFS_ICON_LINK_LABEL, REFS_ICON_CLOSE, REFS_ICON_PLUS_BOX, REFS_ICON_CHECK_BOX } from "./app-refs-icons.js";
-import { refsGetCollections, refsState, refsBindCollections, refsBindHandlers, refsHex, refsApplyAddress, refsSyncAddress, refsActiveCollection, refsIsSelected, refsClearSelection } from "./app-refs-state.js";
+import { REFS_ICON_LIBRARY, REFS_ICON_STYLES, REFS_ICON_LINK_LABEL, REFS_ICON_CHECK_BOX, REFS_ICON_PLUS_BOX } from "./app-refs-icons.js";
+import { isRefsRouteActive, refsActiveCollection, refsApplyAddress, refsBindCollections, refsBindHandlers, refsGetCollections, refsHex, refsIsSelected, refsState, refsSyncAddress, setRefsRouteActive } from "./app-refs-state.js";
 import { refsBindCollectionHandlers, refsOpenCollectionPicker, refsCopyCollectionBrief } from "./app-refs-collections.js";
 import { refsBindAddHandlers } from "./app-refs-add.js";
 import { refsSetInspectorIds } from "./app-refs-inspector.js";
-import { refsPreviewImage, refsRenderCards } from "./app-refs-cards.js";
+import { refsRenderCards } from "./app-refs-cards.js";
+import { refsRenderTray, refsTray } from "./app-refs-compare.js";
 
 // `app.js` holt diese zwei ueber diese Datei (der Router kennt nur die Views).
 // Der Re-Export haelt seine Import-Quelle, waehrend die Definition im
@@ -24,31 +25,20 @@ export { refsInspector, refsOpenInspector } from "./app-refs-inspector.js";
 // ihre Import-Quelle, waehrend die Definition im Dialog-Modul liegt.
 export { refsBindBackdropClose, refsToast } from "./app-refs-dialog.js";
 
+// Routen-Flag und Vergleichs-Ablage liegen seit dem R12-Schnitt in eigenen
+// Modulen; diese Datei bleibt die eine Import-Quelle des Routers.
+export { isRefsRouteActive, setRefsRouteActive };
+export { refsRenderTray, refsTray };
+
 /* Referenzen-Bibliothek (T14): die Liste mit linker Leiste, Sammlungen,
    Vergleich, Anlegen und Stil-Guide im Zuschnitt des Vorbilds. Der Zustand lebt
    in der Adresse (`?q=&collection=&sort=&view=`), die Texte sind Deutsch mit
    englischen Fachbegriffen. */
 
-const REFS_MAX_COMPARE = 3;
-
 let refsStyleCatalog = null;
-let refsRouteActive = false;
-
-// Der Router setzt das Flag, wenn die Referenzroute laeuft: das Tray blendet
-// sich aus, sobald die Route die Bibliothek verlaesst.
-export function setRefsRouteActive(value) {
-  refsRouteActive = value;
-}
-
-export function isRefsRouteActive() {
-  return refsRouteActive;
-}
-
 let refsDom = null;
-export let refsTray = null;
 let refsQueryTimer = null;
 let refsEmptyMode = "reset";
-let refsTrayIds = [];
 let refsPending = 0;
 
 // Eine Snapshot-Vorschau laedt das Programm genau einmal und teilt sie sich:
@@ -58,6 +48,22 @@ let refsPending = 0;
 //
 // Der Bildlader steht seit Schritt 59 in `app-refs-cards.js` - er gehoert zu
 // den Karten und wird von der Miniatur und dem Vergleich nur mitbenutzt.
+
+// Die Auswahlknoepfe auf den Karten: der Zustand meldet eine geaenderte
+// Auswahl ueber `refsBindHandlers`, gezeichnet wird hier - die Karten und ihr
+// `refsDom` gehoeren zur Seite, nicht zur Vergleichs-Ablage.
+function refsUpdateSelectionUI() {
+  if (!refsDom || !refsDom.root.isConnected) return;
+  for (const card of refsDom.gallery.querySelectorAll(".refs-card")) {
+    const id = card.dataset.reference;
+    const on = refsIsSelected(id);
+    const button = card.querySelector(".refs-select");
+    if (!button) continue;
+    button.classList.toggle("selected", on);
+    button.innerHTML = on ? REFS_ICON_CHECK_BOX : REFS_ICON_PLUS_BOX;
+    button.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+}
 
 function refsNavItem(input) {
   const button = el(
@@ -75,163 +81,6 @@ function refsNavItem(input) {
     el("span", { class: "refs-nav-count", text: String(input.count) }),
   );
   return button;
-}
-
-/* ------------------------------------------------------------- comparison */
-
-function refsTrayEnsure() {
-  if (refsTray) return refsTray;
-  refsTray = el(
-    "div",
-    { class: "refs-compare-tray", hidden: "hidden" },
-    el("div", { class: "refs-tray-thumbs" }),
-    el("span", { class: "refs-tray-count", text: `0 / ${REFS_MAX_COMPARE} ausgewählt` }),
-    el("button", {
-      type: "button",
-      class: "refs-button quiet",
-      text: "Leeren",
-      onclick: () => refsClearSelection(),
-    }),
-    el("button", {
-      type: "button",
-      class: "refs-button primary",
-      onclick: () => refsOpenComparison(),
-    }, "Referenzen vergleichen", el("span", { "aria-hidden": "true", html: REFS_ICON_LINK_BUTTON })),
-  );
-  document.body.append(refsTray);
-  return refsTray;
-}
-
-function refsThumbNode(entry) {
-  if (entry.previewPath) {
-    return refsPreviewImage(entry.previewPath, `Vorschau ${entry.name}`);
-  }
-  return el("div", { class: "refs-tray-more", text: initials(entry.name) });
-}
-
-function refsUpdateSelectionUI() {
-  if (!refsDom || !refsDom.root.isConnected) return;
-  for (const card of refsDom.gallery.querySelectorAll(".refs-card")) {
-    const id = card.dataset.reference;
-    const on = refsIsSelected(id);
-    const button = card.querySelector(".refs-select");
-    if (!button) continue;
-    button.classList.toggle("selected", on);
-    button.innerHTML = on ? REFS_ICON_CHECK_BOX : REFS_ICON_PLUS_BOX;
-    button.setAttribute("aria-pressed", on ? "true" : "false");
-  }
-}
-
-export function refsRenderTray() {
-  const tray = refsTrayEnsure();
-  const selected = refsState.selected;
-  tray.hidden = selected.length === 0 || !isRefsRouteActive();
-  const ids = selected.map((entry) => entry.id);
-  // Die Miniaturen nur neu aufbauen, wenn sich die Auswahl geaendert hat
-  // (jede Neuanlage laedt die Vorschauen erneut und kostet Rate-Limit).
-  if (ids.join(",") !== refsTrayIds.join(",")) {
-    refsTrayIds = ids;
-    tray
-      .querySelector(".refs-tray-thumbs")
-      .replaceChildren(...selected.map((entry) => refsThumbNode(entry)));
-  }
-  tray.querySelector(".refs-tray-count").textContent =
-    `${selected.length} / ${REFS_MAX_COMPARE} ausgewählt`;
-  const compareButton = tray.querySelector(".refs-button.primary");
-  compareButton.disabled = selected.length < 2;
-}
-
-async function refsOpenComparison() {
-  if (refsState.selected.length < 2) return;
-  const entries = [...refsState.selected];
-  const grid = el("div", { class: "refs-compare-grid" });
-  grid.style.setProperty("--refs-cols", String(entries.length));
-  for (const entry of entries) {
-    grid.append(
-      el(
-        "article",
-        { class: "refs-compare-item" },
-        el(
-          "div",
-          { class: "refs-compare-image" },
-          entry.previewPath
-            ? refsPreviewImage(entry.previewPath, `Vorschau ${entry.name}`)
-            : el("div", { class: "refs-card-placeholder", text: initials(entry.name) }),
-        ),
-        el("h3", { text: entry.name }),
-        el("p", { class: "refs-brief-family", text: entry.family ?? "Ohne Familie" }),
-        el(
-          "div",
-          { class: "refs-tags" },
-          (entry.vocabulary ?? []).slice(0, 3).map((word) => el("span", { text: word })),
-        ),
-        el("p", { text: entry.note ?? "Keine Notiz." }),
-        el("button", {
-          type: "button",
-          class: "refs-button",
-          onclick: () => {
-            dialog.close();
-            location.hash = `#/references/${entry.id}`;
-          },
-        }, "Referenz öffnen", el("span", { "aria-hidden": "true", html: REFS_ICON_LINK_BUTTON })),
-      ),
-    );
-  }
-  const dialog = el(
-    "dialog",
-    { class: "refs-dialog wide refs-compare-dialog" },
-    el(
-      "div",
-      { class: "refs-dialog-head" },
-      el(
-        "div",
-        {},
-        el("div", { class: "refs-eyebrow", text: "Zusammen erkunden" }),
-        el("h2", { text: "Referenzen vergleichen" }),
-      ),
-      el(
-        "div",
-        { class: "refs-dialog-tools" },
-        el("button", {
-          type: "button",
-          class: "refs-icon-button",
-          "aria-label": "Schliessen",
-          html: REFS_ICON_CLOSE,
-          onclick: () => dialog.close(),
-        }),
-      ),
-    ),
-    grid,
-    el(
-      "div",
-      { class: "refs-compare-footer" },
-      el("p", {
-        text: "Ein Brief mit allen gewählten Referenzen, ihrem Vokabular und Bildrezept.",
-      }),
-      el("button", {
-        type: "button",
-        class: "refs-button primary",
-        text: "Brief zusammen kopieren",
-        onclick: () => refsCopyCombined(entries.map((entry) => entry.id)),
-      }),
-    ),
-  );
-  document.body.append(dialog);
-  dialog.addEventListener("close", () => dialog.remove());
-  refsBindBackdropClose(dialog);
-  dialog.showModal();
-}
-
-async function refsCopyCombined(ids) {
-  try {
-    const result = await api("/api/references/brief", {
-      method: "POST",
-      body: { referenceIds: ids },
-    });
-    refsCopy(result.brief.text, "Brief kopiert");
-  } catch (error) {
-    failed(error);
-  }
 }
 
 /* ------------------------------------------------------------ style guide */
