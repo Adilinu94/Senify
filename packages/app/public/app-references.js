@@ -5,14 +5,15 @@
 import { activeTab, api, el, failed, friendlyError, render, routeScope } from "./app-core.js";
 import "./app.js";
 import "./app-markdown.js";
-import { refsCopy, refsToast } from "./app-refs-dialog.js";
+import { refsToast } from "./app-refs-dialog.js";
 import { refsBuildShell } from "./app-refs-shell.js";
-import { REFS_ICON_LIBRARY, REFS_ICON_STYLES, REFS_ICON_LINK_LABEL, REFS_ICON_CHECK_BOX, REFS_ICON_PLUS_BOX } from "./app-refs-icons.js";
+import { REFS_ICON_LIBRARY, REFS_ICON_STYLES, REFS_ICON_CHECK_BOX, REFS_ICON_PLUS_BOX } from "./app-refs-icons.js";
 import { isRefsRouteActive, refsActiveCollection, refsApplyAddress, refsBindCollections, refsBindHandlers, refsGetCollections, refsHex, refsIsSelected, refsState, refsSyncAddress, setRefsRouteActive } from "./app-refs-state.js";
-import { refsBindCollectionHandlers, refsOpenCollectionPicker, refsCopyCollectionBrief } from "./app-refs-collections.js";
+import { refsBindCollectionHandlers, refsOpenCollectionPicker } from "./app-refs-collections.js";
 import { refsBindAddHandlers } from "./app-refs-add.js";
 import { refsSetInspectorIds } from "./app-refs-inspector.js";
 import { refsRenderCards } from "./app-refs-cards.js";
+import { refsStyleCard } from "./app-refs-styles.js";
 import { refsRenderTray, refsTray } from "./app-refs-compare.js";
 
 // `app.js` holt diese zwei ueber diese Datei (der Router kennt nur die Views).
@@ -81,75 +82,6 @@ function refsNavItem(input) {
     el("span", { class: "refs-nav-count", text: String(input.count) }),
   );
   return button;
-}
-
-/* ------------------------------------------------------------ style guide */
-
-function refsStyleCard(collection) {
-  const accent = refsHex(collection.accent);
-  const preview = el(
-    "div",
-    { class: "refs-style-preview" },
-    el("strong", { text: collection.name }),
-    el("small", { text: collection.deployFor || "Stilfamilie" }),
-  );
-  if (/^#[0-9a-f]{6}$/i.test(collection.accent ?? "")) {
-    preview.style.setProperty("--refs-preview", `${accent}22`);
-    preview.style.setProperty("--refs-preview-ink", accent);
-  }
-  return el(
-    "article",
-    { class: "refs-style-card" },
-    preview,
-    el(
-      "div",
-      { class: "refs-style-copy" },
-      el("h2", { text: collection.name }),
-      el("p", { text: collection.recognize.join(" · ") || collection.description || "" }),
-      el(
-        "div",
-        { class: "refs-tags" },
-        collection.vocabulary.map((word) => el("span", { text: word })),
-      ),
-      collection.warning
-        ? el("p", { class: "refs-style-warning", text: collection.warning })
-        : undefined,
-      el(
-        "div",
-        { class: "refs-style-links" },
-        collection.examples
-          .filter((example) => /^https?:\/\//.test(example.url))
-          .map((example) =>
-            el(
-              "a",
-              {
-                href: example.url,
-                target: "_blank",
-                rel: "noopener noreferrer",
-              },
-              example.name,
-              el("span", { class: "refs-style-arrow", "aria-hidden": "true", html: REFS_ICON_LINK_LABEL }),
-            ),
-          ),
-      ),
-      el(
-        "div",
-        { class: "refs-style-actions" },
-        el("button", {
-          type: "button",
-          class: "refs-button",
-          text: "Brief kopieren",
-          onclick: () => refsCopyCollectionBrief(collection.id),
-        }),
-        el("button", {
-          type: "button",
-          class: "refs-button quiet",
-          text: "Vokabular kopieren",
-          onclick: () => refsCopy(collection.vocabulary.join(", "), "Vokabular kopiert"),
-        }),
-      ),
-    ),
-  );
 }
 
 /* ---------------------------------------------------------------- shell */
