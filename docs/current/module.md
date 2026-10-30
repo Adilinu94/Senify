@@ -88,7 +88,7 @@
 
 ## Oberfläche: ES-Module
 
-**36 Dateien.**
+**37 Dateien.**
 
 | Modul | Zeilen | Zweck |
 |---|---|---|
@@ -96,6 +96,7 @@
 | `app-core.js` | 445 | Die Grundlagen der Oberflaeche. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
 | `app-editor-agent-preview.js` | 65 | Die Agent-Vorschau (Ticket 05, Punkt 5) - aus `app-editor.js` (R12). |
 | `app-editor-bake-status.js` | 66 | Der Re-Bake-Status am Canvas (E12) - aus `app-editor.js` (R12). |
+| `app-editor-canvas.js` | 774 | Die Buehne des Seiten-Editors (R12). |
 | `app-editor-conflict-dialog.js` | 70 | Der Konflikt-Dialog des Editors (L17) - aus `app-editor.js` (R12). |
 | `app-editor-live-events.js` | 40 | Die zwei Regeln am Live-Kanal (Ticket 05) - aus `app-editor.js` (R12). |
 | `app-editor-live-sync.js` | 62 | Was der Editor mit einer fremden Live-Meldung tut - aus `app-editor.js` (R12). |
@@ -104,7 +105,7 @@
 | `app-editor-redesign-inbox.js` | 94 | Die Redesign-Inbox am Canvas (ADR-0012) - aus `app-editor.js` (R12). |
 | `app-editor-save-status.js` | 51 | Was die Statuszeile des Editors sagt - aus `app-editor.js` (R12). |
 | `app-editor-toolbar-overflow.js` | 109 | Das Overflow-Menue der Editor-Toolbar - aus `app-editor.js` (R12). |
-| `app-editor.js` | 1048 | Der Seiten-Editor und die Buehne. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
+| `app-editor.js` | 290 | Der Seiten-Editor: die Ansicht (`pageView`), der Wartepunkt auf einen Bild-Job und der Hinweis auf den alten Deep-Link. |
 | `app-framer-import.js` | 509 | Der Import aus Framer (P3-2, Schritt 45): der Bericht nach der Analyse und der Dialog, der die Adresse abfragt, analysiert und den Write ausloest. `app-import.js` importiert die zwei Einstiegspunkte. |
 | `app-import.js` | 484 | Der Import aus Framer und die Redesign-Dialoge. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
 | `app-library.js` | 280 | Die Bausteinbibliothek und der Papierkorb (P3-2, Schritt 42). Beide Views standen in `app-projects.js`; sie teilen sich nichts mit den Projekten - keine Modulvariable, keinen Zustand, nur die Kern-Helfer. |
@@ -173,7 +174,6 @@ er laeuft selbst durch `packages` und meldet jede Datei ueber der Schwelle, die 
 | `packages/renderer/src/motion.ts` | 1149 | die Motion-Auslieferung: `renderPageScript` und `renderIslandsScript` sind die beiden Laufzeit-Skripte, die als TEXT ausgeliefert werden - der groesste Teil der Datei steht in Template-Literalen, also in ausgeliefertem Code, nicht in Quellcode. Ein Schnitt wuerde zwei Skripte mit gemeinsamem Zustand (Lenis, GSAP, ScrollTrigger) auf zwei Dateien verteilen |
 | `packages/engine/src/mutations/apply.ts` | 1144 | die Mutationen der Engine: ein Dispatcher (`applyOne`) und je eine Funktion pro Operation, dazu die Platzierungspruefer (`assertChildPlacement`, `assertSlotPlacement`, `assertSlotAllowedTypes`). Allen gemeinsam ist der `ApplierState`: der Dispatcher setzt `currentOpIndex`, die Faelle lesen ihn. Ein Schnitt muesste diesen Zustand teilen. Geprueft in `mutations.test.ts`, `transactions.test.ts`, `undo-batch.test.ts` |
 | `packages/engine/src/media.ts` | 1107 | Assets, Ableitungen und Ordner |
-| `packages/app/public/app-editor.js` | 1048 | `mountCanvasView` haelt Canvas, Zustand und Ereignisse in einer Closure |
 | `packages/engine/src/references-lifecycle.ts` | 1046 | die Referenz-Pipeline: Analyse, Job-Lauf, Snapshot, Playwright-Aufnahme und Anwendung; der Capture-Treiber allein sind 250 Zeilen, und er teilt den Zustand mit dem Job-Lauf |
 | `packages/renderer/src/bake.ts` | 1021 | der Bake: `bakeSite` haelt Warnungen, Manifest-Seiten, Motion-/Lenis-/Formular-Flags, Island-Arten und benutzte Payload-Ids ueber alle Seiten - genau dieser geteilte Zustand ist der Grund, warum der Bake in einem Durchgang laeuft. Die Helfer (`stageTemplate`, `runAstroBuild`, `writeAeoFiles`, `assertBakeable`) sind bereits eigenstaendig |
 
