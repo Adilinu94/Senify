@@ -44,7 +44,8 @@
       "@senify/skills": ["packages/skills/src/index.ts"],
       "@senify/tokens": ["packages/tokens/src/index.ts"],
       "@senify/widget-engine": ["packages/widget-engine/src/index.ts"],
-      "@senify/widget-engine/breakpoints": ["packages/widget-engine/src/breakpoints.ts"]
+      "@senify/widget-engine/breakpoints": ["packages/widget-engine/src/breakpoints.ts"],
+      "@senify/widget-engine/section-breakpoints": ["packages/widget-engine/src/section-breakpoints.ts"]
     }
   },
   "include": ["packages/*/src", "packages/*/test", "packages/*/*.ts", "vitest.config.ts"],
