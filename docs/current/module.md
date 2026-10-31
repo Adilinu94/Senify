@@ -133,7 +133,7 @@
 
 ## MCP: Werkzeug-Module
 
-**7 Dateien.** Die Werkzeuge lagen bis zum 23.10.2026 alle in `tools.ts`;
+**8 Dateien.** Die Werkzeuge lagen bis zum 23.10.2026 alle in `tools.ts`;
 die Uebersicht nennt sie einzeln, weil die Datei sonst wie ein God-File aussieht, das sie nicht mehr ist.
 
 | Modul | Werkzeuge | Zeilen | Zweck |
@@ -142,9 +142,10 @@ die Uebersicht nennt sie einzeln, weil die Datei sonst wie ein God-File aussieht
 | `tools-components.ts` | - | 112 | The component view of a page draft (P3-2 extraction from `tools.ts`). |
 | `tools-medien.ts` | 21 | 622 | Die Medien-Werkzeuge der MCP-Fassade (P3-2, Schritt 57): Assets lesen, hochladen, aendern, ersetzen, loeschen und wiederherstellen, Bilder erzeugen und abfragen, Sammlungen und Eintraege samt Einsendungen. |
 | `tools-referenzen.ts` | 31 | 993 | Die einunddreissig Werkzeuge der Referenz- und Design-Arbeit: Referenzen analysieren, sammeln, zuweisen, in Revisionen fuehren, Dokumente und Briefings; Redesign planen und anwenden; das Design-System importieren und den Design-Vertrag lesen. |
+| `tools-release.ts` | 12 | 307 | Die Werkzeuge der Veroeffentlichung und des Betriebs (R12-Schnitt): Vorschau bauen, zur Pruefung einreichen, Rueckmeldung lesen, Release veroeffentlichen, zurueckrollen und lesen, Bake-Jobs und Auslieferungen samt Ziel-Einstellungen. |
 | `tools-schemas.ts` | - | 182 | Die Ausgabeschemas der lesenden Werkzeuge (P3-3, R8). |
 | `tools-support.ts` | - | 291 | The machinery every tool goes through (P3-2 extraction from `tools.ts`): the argument readers, the schema helpers, paging and the shared HTTP calls. |
-| `tools.ts` | 47 | 1671 | Elicitation (E4 slice 2): ask the client for a missing or ambiguous parameter. The server wires this only when the client declared the elicitation capability; declined or unsupported resolves to undefined and the tool's own validation error stands. |
+| `tools.ts` | 35 | 1403 | Elicitation (E4 slice 2): ask the client for a missing or ambiguous parameter. The server wires this only when the client declared the elicitation capability; declined or unsupported resolves to undefined and the tool's own validation error stands. |
 | **Summe** | **109** | | |
 
 ## Die grossen Dateien und warum sie so gross sind
@@ -165,9 +166,9 @@ er laeuft selbst durch `packages` und meldet jede Datei ueber der Schwelle, die 
 | `packages/editor/src/inspector/inspector.ts` | 1884 | eine Closure (`createInspector`), die DOM und Zustand gemeinsam hält. **Gemessen am 26.10.2026:** 22 Renderer, und nur EINER kommt ohne Fremdnamen aus (`renderSwitcher`, 24 Zeilen); alle anderen brauchen `commitProp`, ein Geschwister oder den Zustand. `renderFieldRow` allein nennt elf Fremdnamen (`breakpoint`, `tokenPanelKey`, `apply`, `commitProp`, `toggleVariant`, `removeVariant`, `clearProp`, `clearField`, `commitMotion`, `motionModel`) und zehn Geschwister-Renderer. Eine Fabrik, die elf Rückrufe durchreicht, ist keine Naht, sondern eine Verschiebung mit mehr Parametern: dieselbe Prüfung, mit der die Betriebsgruppe der Routen verworfen wurde |
 | `packages/manifest/src/tools.ts` | 1796 | ERZEUGT von `scripts/render-manifest.mjs` aus `packages/mcp/src/tools.ts` (`pnpm manifest:check` haelt es). Die Zeilenzahl ist keine Entscheidung, sondern die Folge von 109 Werkzeugen mit je vier Angaben |
 | `packages/engine/src/content.ts` | 1703 | Sammlungen, Einträge und ihre Suche in einem Fachgebiet |
-| `packages/mcp/src/tools.ts` | 1671 | die Werkzeug-Tabelle; ihre Reihenfolge ist der Vertrag (`server.ts` liest `TOOLS.map`), der Manifest-Generator folgt den `...X_TOOLS`-Spreizungen - ein weiterer Schnitt ist möglich und braucht den Manifest-Diff als Beweis |
 | `packages/editor/src/inspector/model.ts` | 1490 | das Modell des Inspektors |
 | `packages/engine/src/types.ts` | 1479 | die öffentlichen Typen der Engine; keine Logik |
+| `packages/mcp/src/tools.ts` | 1403 | die Werkzeug-Tabelle; ihre Reihenfolge ist der Vertrag (`server.ts` liest `TOOLS.map`), der Manifest-Generator folgt den `...X_TOOLS`-Spreizungen - ein weiterer Schnitt ist möglich und braucht den Manifest-Diff als Beweis |
 | `packages/editor/src/canvas/canvas.ts` | 1336 | die Bühne des Editors |
 | `packages/engine/src/forms.ts` | 1313 | Formulare, Einsendungen und der CSV-Export |
 | `packages/editor/src/state/operations.ts` | 1240 | die Editor-Operationen: ein Dispatcher (`applyEditorMutation`) und je eine Funktion pro Operation, dazu die gemeinsamen Pruefer fuer Katalog, Props, Styles und Motion. Die Pruefer teilen den Katalog und die Fehlerform - sie zu trennen hiesse, den Katalog zweimal zu lesen. Geteilt wird ueber `applyEditorMutation`, geprueft ueber `EditorStore` (`mutations.test.ts`, `history.test.ts`, `save-pipeline.test.ts`) |
