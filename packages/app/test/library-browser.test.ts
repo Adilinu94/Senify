@@ -6,6 +6,9 @@ import { startProgram } from "@senify/app";
 import { browserAvailable, memoryDb } from "./support.ts";
 
 const author = { kind: "human", id: "programm", label: "Programm" };
+// Die Knoten tragen Katalog-Primitive (`frame`, `heading`), keine erfundenen
+// Typen: der Editor prueft das Dokument beim Laden gegen `validateDocument`,
+// und ein unbekanntes Primitive laesst die Buehne gar nicht erst aufgehen.
 const definition = {
   rootNodeId: "lib-root",
   nodes: {
@@ -17,8 +20,14 @@ const definition = {
     },
     "lib-body": {
       id: "lib-body",
-      type: "block",
-      props: { headline: "Aus der globalen Bibliothek" },
+      type: "frame",
+      props: { semantic: "section" },
+      children: ["lib-heading"],
+    },
+    "lib-heading": {
+      id: "lib-heading",
+      type: "heading",
+      props: { text: "Aus der globalen Bibliothek", level: "h2" },
     },
   },
 };
@@ -92,7 +101,15 @@ describe.skipIf(!browserAvailable)("global library in the program", () => {
       const item = tab.locator(".senify-explorer__tabitem", { hasText: "Bibliothekskarte" });
       await expect.poll(async () => item.count()).toBe(1);
       await item.click();
-      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent()).toContain("installiert");
+      // Der Status in der Leiste traegt die Installation nicht: der Store-
+      // Abonnent schreibt dort sofort den Speicherstand hinueber. Der Beweis,
+      // den ein Mensch sieht, ist der Baustein auf der Buehne - und die Buehne
+      // rendert im iframe.
+      const buehne = () =>
+        tab
+          .locator('.senify-canvas__frame[data-device="desktop"] .senify-canvas__iframe')
+          .contentFrame();
+      await expect.poll(async () => buehne().locator("body").textContent()).toContain("Aus der globalen Bibliothek");
 
       const fresh = (await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json()) as {
         draft: { nodes: Record<string, { type: string; props: Record<string, unknown> }> };
@@ -115,13 +132,57 @@ describe.skipIf(!browserAvailable)("global library in the program", () => {
       await expect.poll(async () => tab.locator(".library-install").count()).toBe(1);
       expect(await tab.locator(".library-install").first().textContent()).toContain("Pin v1");
 
-      // Und der Inhalt der Seite ist nach dem Detach und Re-Attach noch da.
+      // Die vierte Strecke: die Definition aendert sich (Fassung zwei) und der
+      // Mensch zieht die Instanzen in der Oberflaeche nach. Der Knopf heisst
+      // "Aktualisieren"; ohne ihn bliebe die Seite auf ihrem Pin stehen.
+      const zweiteFassung = {
+        rootNodeId: "lib-root",
+        nodes: {
+          "lib-root": {
+            id: "lib-root",
+            type: "__component",
+            props: { name: "Bibliothekskarte", version: 2 },
+            children: ["lib-body"],
+          },
+          "lib-body": {
+            id: "lib-body",
+            type: "frame",
+            props: { semantic: "section" },
+            children: ["lib-heading"],
+          },
+          "lib-heading": {
+            id: "lib-heading",
+            type: "heading",
+            props: { text: "Aus der zweiten Fassung", level: "h2" },
+          },
+        },
+      };
+      const gepatcht = await request("PATCH", `/api/library-components/${component.id}`, {
+        definition: zweiteFassung,
+        author,
+      });
+      expect(gepatcht.status).toBe(200);
+      await tab.reload({ waitUntil: "domcontentloaded" });
+      await tab.waitForSelector(".library-detail");
+      await tab.locator(".library-install").first().locator("button", { hasText: "Aktualisieren" }).click();
+      await expect.poll(async () => tab.locator(".library-install").first().textContent()).toContain("Pin v2");
+
+      // Und der Inhalt der Seite ist nach dem Detach und Re-Attach noch da -
+      // samt der zweiten Fassung, die das Update hineingezogen hat.
       const nachDetach = (await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json()) as {
         draft: { nodes: Record<string, { type: string; props: Record<string, unknown> }> };
       };
       expect(Object.values(nachDetach.draft.nodes).some((node) =>
         node.type === "__component_instance" && node.props.libraryComponentId === component.id,
       )).toBe(true);
+      expect(JSON.stringify(nachDetach.draft)).toContain("Aus der zweiten Fassung");
+
+      // Im Editor bleibt die Instanz stehen und traegt den neuen Stand. Der
+      // Status nennt beim frischen Laden das Speichern, nicht die Installation
+      // - darum haengt die Probe am gerenderten Text der Buehne.
+      await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`, { waitUntil: "domcontentloaded" });
+      await tab.waitForSelector(".senify-canvas");
+      await expect.poll(async () => buehne().locator("body").textContent()).toContain("Aus der zweiten Fassung");
       await tab.close();
     } finally {
       await browser.close();
