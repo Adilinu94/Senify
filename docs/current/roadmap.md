@@ -7,9 +7,9 @@
 > `docs/adr/` (Entscheidungen) und `CONTEXT.md` (Fachsprache).
 >
 > **Stand: 30.10.2026.** Basis: `master` (`41edc69`) plus der Branch
-> `arbeit/offene-punkte-2026-10-30` mit sechs Commits (`5ee1c02`, `7152f93`, `abd3c70`,
-> `6d158b2`, `444607a`, `bd1d2c5`) und dem fertiggestellten, noch nicht committeten
-> `tools.ts`-Schnitt (siehe Block 1, Abschnitt „Gerade erledigt").
+> `arbeit/offene-punkte-2026-10-30`; der jüngste Code-Commit ist `a7f08b2` (der
+> R12-Schnitt der MCP-Fassade, siehe Block 1, Abschnitt „Gerade erledigt"), die
+> Roadmap selbst wird als Doku-Commit nachgezogen.
 >
 > **Diese Datei enthält keine Testzahlen.** Wo Zahlen stehen, sind es Zeilenlängen von
 > Quelldateien mit der Quelle `module.md`; alles, was Coverage, Testfälle oder
@@ -80,7 +80,7 @@ Zeilenzahl. Jeder Schnitt braucht einen Beleg, dass die Grenze echt ist.
 | Vergleichs-Ablage der Referenzen-Seite | `app-refs-compare.js` (170 Zeilen), `app-references.js` 597 → 446 | Commit `7152f93`, `references-browser.test.ts` |
 | Stil-Guide der Referenzen-Seite | `app-refs-styles.js` (83 Zeilen), `app-references.js` 446 → 378 | Commit `444607a`, `references-browser.test.ts`, `module-form.test.ts` |
 | Bühne des Seiten-Editors | `app-editor-canvas.js` (774 Zeilen), `app-editor.js` 1 048 → 290 | committet 30.10.2026; `canvas-view-browser.test.ts`, `canvas-browser.test.ts`, `save-conflict-browser.test.ts` |
-| Veröffentlichungs- und Betriebs-Werkzeuge der MCP-Fassade | `tools-release.ts` (307 Zeilen, 12 Werkzeuge), `tools.ts` 1 671 → 1 403 | fertig, noch nicht committet; `manifest:render` 109 Werkzeuge und leerer Manifest-Diff, `doku-konsistenz.test.ts`, `packages/mcp/test` |
+| Veröffentlichungs- und Betriebs-Werkzeuge der MCP-Fassade | `tools-release.ts` (307 Zeilen, 12 Werkzeuge), `tools.ts` 1 671 → 1 403 | Commit `a7f08b2`; `manifest:render` 109 Werkzeuge und leerer Manifest-Diff, `doku-konsistenz.test.ts`, `packages/mcp/test` |
 | Typbruch auf `master` | fehlender `tsconfig`-Pfad `@senify/widget-engine/section-breakpoints` | Commit `5ee1c02`; `pnpm typecheck` war vorher rot |
 
 #### Was noch offen ist — nach Aufwand und Risiko geordnet
@@ -190,7 +190,7 @@ aufmacht.**
 | CI-Auslöser | **geschlossen 16.10.2026** | `verify.yml` läuft bei Pushes auf `master`, bei Pull Requests und von Hand |
 | Browser-Gate | geschlossen | `SENIFY_REQUIRE_BROWSER=1` im CI-Job: ohne Chromium wird der Lauf rot statt grün ohne Test |
 | Drift-Tore | geschlossen | `manifest:check`, `route-matrix:check`, `module:check`, `quality:check`, dazu `doku-konsistenz.test.ts` für Risiko-Nummern und Zeilenzahlen |
-| Working-Tree-Hygiene | **in Arbeit** | Der vierte R12-Schnitt liegt fertig und gate-grün im Baum, ist aber noch nicht committet; DoR-Punkt 2 ist erst nach dem Commit erfüllt |
+| Working-Tree-Hygiene | **geschlossen** | Der vierte R12-Schnitt ist unter `a7f08b2` committet, der Arbeitsbaum ist leer; DoR-Punkt 2 ist damit erfüllt |
 | Alte Branches | aufzuräumen | `refactor/routen-*`, `feat/geraete-sichtbarkeit` (6 vor / 6 hinter `master`), `feat/framer-motion-zeitmassstab`, `fix/framer-import-schriften` (Remote-Zweig gelöscht), `wip/projektanalyse-2026-10-19` — jede Linie ist entweder gemergt oder überholt |
 
 ---
