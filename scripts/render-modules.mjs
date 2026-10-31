@@ -123,7 +123,8 @@ const BLEIBT = {
     "die Referenz-Pipeline: Analyse, Job-Lauf, Snapshot, Playwright-Aufnahme und Anwendung; der Capture-Treiber allein sind 250 Zeilen, und er teilt den Zustand mit dem Job-Lauf",
   "packages/engine/src/lifecycle.ts":
     "der Release-Lebenszyklus in einem Fachgebiet: Revision, Re-Bake, Veroeffentlichung, Preview und Review gehoeren zusammen, weil ein Release ohne die anderen drei nicht entsteht; ein Schnitt muesste die gemeinsame Transaktion teilen",
-  "packages/engine/src/forms.ts": "Formulare, Einsendungen und der CSV-Export",
+  "packages/engine/src/forms.ts":
+    "Formulare, Einsendungen und die Einsendungs-Ansicht. Der CSV-Export ist am 31.10.2026 als reine Formatierung nach `forms-csv.ts` gewandert (die Regeln einer Tabellenkalkulation: Trenner, RFC 4180, BOM, Formelanfang); was bleibt, ist das Fachgebiet - Snapshot, Token, Spam-Schutz, Benachrichtigungen, Sammlung aus dem Formular",
   "packages/engine/src/media.ts": "Assets, Ableitungen und Ordner",
   "packages/engine/src/types.ts": "die öffentlichen Typen der Engine; keine Logik",
   "packages/framer-import/src/capture-html.ts":

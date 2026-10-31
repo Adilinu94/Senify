@@ -459,7 +459,6 @@ export {
 } from "./rebake.ts";
 export {
   backoffMs,
-  buildSubmissionsCsv,
   checkForms,
   collectionFieldsForForm,
   confirmNewsletter,
@@ -501,6 +500,9 @@ export {
   type FormCollectionPlanBody,
   type FormTickBody,
 } from "./forms-contract.ts";
+export {
+  buildSubmissionsCsv,
+} from "./forms-csv.ts";
 export {
   capEvidenceLevel,
   evidenceClaim,
