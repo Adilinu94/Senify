@@ -46,7 +46,7 @@ describe("URL import against a live server", () => {
     const server = await serve(root);
     try {
       const fromFolder = await runImport({ source: { kind: "mirror", rootDir: join(FIXTURES, "framer-stupendous-football-158496") }, mode: "fidelity" });
-      const fromUrl = await runImport({ source: { kind: "url", url: `${server.url}/index.html` }, mode: "fidelity" });
+      const fromUrl = await runImport({ source: { kind: "url", url: `${server.url}/index.html` }, mode: "fidelity", capture: "static" });
       const styled = (run: typeof fromUrl): number =>
         Object.values(run.mapped.document.nodes).filter((node) => Object.keys(node.props).some((key) => key === "backgroundColor" || key === "fontSize")).length;
       expect(styled(fromFolder)).toBeGreaterThan(50);

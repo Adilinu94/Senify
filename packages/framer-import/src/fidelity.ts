@@ -15,6 +15,11 @@ import type { MotionMappingResult } from "./motion-mapping.ts";
 export type FidelityReport = {
   ir: 1;
   source: FramerIrDocument["source"];
+  // How the source was read: `browser` means Chromium delivered the document
+  // (runtime content included), `static` the server HTML. `fallbackReason` is
+  // set when the default browser capture failed and the run read the SSR-HTML
+  // instead — the report says so instead of looking like a clean static import.
+  capture?: { path: "static" | "browser"; fallbackReason?: string };
   // What the editor can actually edit, in percent (step 7 of the 1:1 plan).
   // A page-level payload carries the whole page in the RELEASE, so the honest
   // number there is 0 % — the tree is a preview. Filled in by the run, because
@@ -49,9 +54,15 @@ export function buildFidelityReport(
   normalized: NormalizeResult,
   mapped: MapperResult,
   motion: MotionMappingResult,
+  capture?: { path: "static" | "browser"; fallbackReason?: string },
 ): FidelityReport {
+  const firstStep = capture === undefined || capture.path === "static"
+    ? capture?.fallbackReason === undefined
+      ? "Quelle gelesen (SSR-HTML, drei statische Datenkanäle)"
+      : `Quelle gelesen (SSR-HTML) — Browser-Capture nicht möglich: ${capture.fallbackReason}`
+    : "Quelle im Browser geladen (Laufzeitinhalt und Gerätevarianten eingerechnet)";
   const steps: string[] = [
-    "Quelle gelesen (SSR-HTML, drei statische Datenkanäle)",
+    firstStep,
     `Geräte-Varianten zusammengezogen (${mapped.stats.mergedVariants} Overrides)`,
     `Deklarationen konsolidiert (${normalized.stats.declarationSets} Sets → ${normalized.stats.rules} Regeln)`,
     normalized.mode === "dna"
@@ -112,6 +123,7 @@ export function buildFidelityReport(
   return {
     ir: 1,
     source: document.source,
+    ...(capture === undefined ? {} : { capture }),
     counts: {
       nodes,
       mapped: mappedNodes,

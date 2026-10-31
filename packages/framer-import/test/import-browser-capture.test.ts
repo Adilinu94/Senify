@@ -11,8 +11,11 @@ import { runImport } from "@senify/framer-import";
 // Browser füllt, `viewBox="0 0 256 256"` im SSR 0-mal, im DOM 5-mal).
 //
 // Der Test misst den Unterschied an einer Seite, die genau das tut, und prüft
-// beide Wege: statisch fehlen die Grafiken, im Browser sind sie da. Dazu der
-// Wächter, dass der Standard unverändert statisch bleibt (Idempotenz-Hash).
+// beide Wege: statisch fehlen die Grafiken, im Browser sind sie da. Dazu die
+// beiden Wächter der Standard-Entscheidung (ADR-0027): ohne Angabe ist der
+// Browser der Standard, und ein fehlender Browser fällt auf das SSR-HTML
+// zurück - mit Fund und Schritt im Bericht. Ausdrückliches `browser` bleibt
+// strikt und wirft.
 
 const playwright = await import("playwright").catch(() => undefined);
 const browserAvailable = (() => {
@@ -64,7 +67,7 @@ describe.skipIf(!browserAvailable)("runImport mit Browser-Capture", () => {
   it("nimmt Inhalt mit, den erst ein Skript baut", async () => {
     const { server, origin } = await startServer();
     try {
-      const statisch = await runImport({ source: { kind: "url", url: `${origin}/` }, mode: "fidelity" });
+      const statisch = await runImport({ source: { kind: "url", url: `${origin}/` }, mode: "fidelity", capture: "static" });
       const browser = await runImport({ source: { kind: "url", url: `${origin}/` }, mode: "fidelity", capture: "browser" });
 
       // Der statische Weg sieht die Platzhalter, aber nicht die Sterne.
@@ -78,17 +81,69 @@ describe.skipIf(!browserAvailable)("runImport mit Browser-Capture", () => {
     }
   }, 180_000);
 
-  it("bleibt ohne Angabe beim statischen Weg", async () => {
+  it("liest ohne Angabe im Browser, statisch nur auf Wunsch", async () => {
     const { server, origin } = await startServer();
     try {
       const standard = await runImport({ source: { kind: "url", url: `${origin}/` }, mode: "fidelity" });
-      // Der Standard ist der statische Pfad: dieselbe Quelle, derselbe Hash,
-      // keine Chromium-Instanz. Ein stiller Wechsel würde jeden gespeicherten
-      // Idempotenz-Schlüssel entwerten.
-      expect(standard.document.source.kind).toBe("html");
-      expect(iconCount(standard.mapped.document)).toBe(0);
+      const statisch = await runImport({ source: { kind: "url", url: `${origin}/` }, mode: "fidelity", capture: "static" });
+      // Ohne Angabe läuft der Browser-Weg: dieselben Grafiken wie im ersten
+      // Fall, und der Bericht nennt den Lesepfad (ADR-0027).
+      expect(standard.document.source.kind).toBe("browser");
+      expect(standard.report.capture?.path).toBe("browser");
+      expect(iconCount(standard.mapped.document)).toBe(3);
+      // `static` bleibt der ausdrücklich gewählte Weg: SSR-HTML, keine Grafiken.
+      expect(statisch.document.source.kind).toBe("html");
+      expect(statisch.report.capture?.path).toBe("static");
+      expect(iconCount(statisch.mapped.document)).toBe(0);
     } finally {
       await new Promise<void>((done) => server.close(() => done()));
     }
-  }, 120_000);
+  }, 180_000);
+});
+
+// Der Rückfall (ADR-0027): der Standard ist der Browser, aber ein fehlender
+// Browser darf keinen Import verhindern. Der Fotograf ist injizierbar, also
+// misst der Test den Zweig ohne kaputtes Chromium.
+describe("runImport ohne verfügbaren Browser", () => {
+  const failingCapturer = async (): Promise<never> => {
+    throw new Error("Chromium fehlt (Test)");
+  };
+
+  it("fällt auf das SSR-HTML zurück und sagt es im Bericht", async () => {
+    const { server, origin } = await startServer();
+    try {
+      const run = await runImport({
+        source: { kind: "url", url: `${origin}/` },
+        mode: "fidelity",
+        capturer: failingCapturer,
+      });
+      // Der Import steht: gelesen wird das Server-HTML.
+      expect(run.document.source.kind).toBe("html");
+      expect(iconCount(run.mapped.document)).toBe(0);
+      // Und der Bericht verschweigt den Rückfall nicht.
+      const finding = run.report.findings.find((entry) => entry.kind === "capture-fallback");
+      expect(finding?.severity).toBe("warn");
+      expect(finding?.evidence).toContain("Chromium fehlt (Test)");
+      expect(run.report.capture).toEqual({ path: "static", fallbackReason: "Chromium fehlt (Test)" });
+      expect(run.report.steps[0]).toContain("Browser-Capture nicht möglich");
+    } finally {
+      await new Promise<void>((done) => server.close(() => done()));
+    }
+  }, 60_000);
+
+  it("bleibt bei ausdrücklichem browser strikt", async () => {
+    const { server, origin } = await startServer();
+    try {
+      await expect(
+        runImport({
+          source: { kind: "url", url: `${origin}/` },
+          mode: "fidelity",
+          capture: "browser",
+          capturer: failingCapturer,
+        }),
+      ).rejects.toThrow("Chromium fehlt (Test)");
+    } finally {
+      await new Promise<void>((done) => server.close(() => done()));
+    }
+  }, 60_000);
 });

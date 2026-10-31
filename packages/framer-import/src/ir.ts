@@ -109,6 +109,10 @@ export const IR_FINDING_KINDS = [
   "loop-animation",
   "font-subset",
   "font-mapping",
+  // capture-fallback — the browser capture failed, the run read the SSR-HTML
+  // instead. A warn, not a block: the import still delivers, but runtime
+  // content (script-built parts, the other device builds) is missing.
+  "capture-fallback",
 ] as const;
 
 export type IrFindingKind = (typeof IR_FINDING_KINDS)[number];

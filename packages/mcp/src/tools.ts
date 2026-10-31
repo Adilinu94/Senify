@@ -944,7 +944,7 @@ export const TOOLS: ToolDefinition[] = [
     name: "import_framer_page",
     title: "Import Framer page",
     description:
-      "Imports a Framer page (published URL, local mirror folder or raw SSR-HTML) into a site: capture → normalize → map → report. Default is a dry run (report only); write: true creates the page (or writes into pageId) as ONE revision, appends the style rules with their framer-import origin and optionally applies the theme patch (applyTheme): the fonts plus the brand colour, the neutral tint and the body text size the page shows. Fonts are fetched and self-hosted (DSGVO); unreachable files surface as findings, never as silent drops.",
+      "Imports a Framer page (published URL, local mirror folder or raw SSR-HTML) into a site: capture → normalize → map → report. Default is a dry run (report only); write: true creates the page (or writes into pageId) as ONE revision, appends the style rules with their framer-import origin and optionally applies the theme patch (applyTheme): the fonts plus the brand colour, the neutral tint and the body text size the page shows. A URL is read in Chromium first (runtime-built content and the other device builds included); without a working browser the run falls back to the SSR-HTML and reports that as a `capture-fallback` finding. `capture: \"static\"` skips Chromium, `capture: \"browser\"` is strict (an error instead of a fallback). Fonts are fetched and self-hosted (DSGVO); unreachable files surface as findings, never as silent drops.",
     scope: "write",
     inputSchema: objectSchema(
       {

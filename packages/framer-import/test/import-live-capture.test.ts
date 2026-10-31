@@ -44,7 +44,7 @@ const iconCount = (document: { nodes: Record<string, { primitive: string }> }): 
 
 describe.skipIf(!reachable)("Browser-Capture an der veröffentlichten Seite", () => {
   it("holt die Bewertungssterne, die im Server-HTML fehlen", async () => {
-    const statisch = await runImport({ source: { kind: "url", url: LIVE_URL }, mode: "fidelity" });
+    const statisch = await runImport({ source: { kind: "url", url: LIVE_URL }, mode: "fidelity", capture: "static" });
     const browser = await runImport({ source: { kind: "url", url: LIVE_URL }, mode: "fidelity", capture: "browser" });
 
     // Der statische Weg sieht die Platzhalter, aber keine Sterne.

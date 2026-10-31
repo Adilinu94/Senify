@@ -15,7 +15,11 @@ import type { Breakpoints } from "@senify/widget-engine/breakpoints";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { captureFixture, captureHtml, pageFileOf, type CaptureHtmlInput } from "./capture-html.ts";
-import { captureBrowser } from "./capture-browser.ts";
+import {
+  captureBrowser,
+  type BrowserCaptureResult,
+  type CaptureBrowserInput,
+} from "./capture-browser.ts";
 import type { FramerIrDocument, IrDevice, IrFinding, IrNode } from "./ir.ts";
 import { normalize, type NormalizeMode, type NormalizeResult } from "./normalize.ts";
 import { mapDocument, type MapperResult, type ThemePatch } from "./mapper.ts";
@@ -40,16 +44,25 @@ export type ImportSource =
 
 export type RunImportInput = {
   source: ImportSource;
-  // How a URL source is read. `static` (default) fetches the SSR-HTML. `browser`
-  // loads the page in Chromium first, so content a script builds at runtime is
-  // part of the import: measured 22.10.2026 on a page whose rating stars only
-  // exist after hydration (6 nodes / 0 SVG static against 9 nodes / 3 SVG in the
-  // browser), and named as the open gap on the published Earn page. The three
-  // export fixtures gain nothing structural (715/2958/2147 nodes on both paths)
-  // and the browser path costs a Chromium launch per import, so the default
-  // stays static. Switchable per import because the result is not the same
-  // document - idempotency (S2.5) compares like with like.
+  // How a URL source is read. Absent means `browser` with a fallback: the page
+  // is loaded in Chromium first, because only the loaded page carries content a
+  // script builds (the rating stars: 0 SVG static against 5 in the browser,
+  // measured 22.10.2026) and the device variants of the other builds (measured
+  // on `rare-works`: static marked five phone sections `hidden: mobile` and the
+  // baked page was 2680 px too short). If the browser path fails - Playwright
+  // missing, page unreachable for Chromium - the run falls back to the
+  // SSR-HTML and says so in the report (`capture-fallback`), so no import
+  // fails over a browser that is not there.
+  //
+  // `static` reads the SSR-HTML only (cheapest; the three export fixtures gain
+  // nothing structural: 715/2958/2147 nodes on both paths). `browser` is
+  // STRICT: a caller who asked for the runtime content gets it or the error,
+  // never a silent downgrade. Idempotency (S2.5) compares like with like
+  // because the IR hash is computed over the document the run actually built.
   capture?: "static" | "browser";
+  // The browser capture, injectable so the fallback branch is testable without
+  // an actually broken browser. Same stance as `importPreview`'s photographer.
+  capturer?: (input: CaptureBrowserInput) => Promise<BrowserCaptureResult>;
   // Asset pipeline: upload into the engine (production) or mirror files to
   // a folder (offline mode). Absent = no asset download, the report says so.
   uploader?: AssetUploader;
@@ -454,6 +467,10 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
   // The raw HTML of the source: the runtime detection reads it (the runtime
   // lives in the markup, not in a channel).
   let sourceHtml: string | null = null;
+  // Which path actually read the source: `static` unless the browser capture
+  // delivered. The report's first step names it, and a fallback gets a finding.
+  let capturePath: "static" | "browser" = "static";
+  const captureFindings: IrFinding[] = [];
   if (input.source.kind === "url") {
     // Public addresses only, with a time and size limit (ADR-0016).
     const response = await fetchPublic(input.source.url, {
@@ -465,7 +482,11 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
     }
     const html = await response.text();
     sourceHtml = html;
-    if (input.capture === "browser") {
+    // The default reads the loaded page first and falls back to the SSR-HTML;
+    // an explicit `static` skips Chromium, an explicit `browser` fails loudly
+    // instead of falling back (see `RunImportInput.capture`).
+    let fromBrowser: BrowserCaptureResult | undefined;
+    if ((input.capture ?? "browser") === "browser") {
       // A Chromium load of the same address: the page's own runtime runs, so
       // content built by a script is in the DOM `captureBrowser` reads. The
       // request to the page itself went through `fetchPublic` above (public
@@ -481,11 +502,28 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
       //
       // `captureBrowser` loads the page once per width and hands the markup of
       // each beside the desktop document.
-      const fromBrowser = await captureBrowser({
-        url: input.source.url,
-        pagePath: input.pagePath ?? "/",
-        settleMs: INPUT_SETTLE_MS,
-      });
+      try {
+        fromBrowser = await (input.capturer ?? captureBrowser)({
+          url: input.source.url,
+          pagePath: input.pagePath ?? "/",
+          settleMs: INPUT_SETTLE_MS,
+        });
+      } catch (error) {
+        // Explicit `browser` stays strict.
+        if (input.capture === "browser") throw error;
+        const reason = error instanceof Error ? error.message : String(error);
+        captureFindings.push({
+          kind: "capture-fallback",
+          nodeKey: null,
+          message: "Der Browser-Capture schlug fehl; der Import liest das Server-HTML.",
+          evidence: reason,
+          severity: "warn",
+          suggestion:
+            "Laufzeitinhalte (Skript-gebaute Bausteine, Gerätevarianten) fehlen in diesem Import. Mit installiertem Chromium (npx playwright install chromium) oder capture=browser liefert derselbe Lauf sie nach.",
+        });
+      }
+    }
+    if (fromBrowser !== undefined) {
       document = fromBrowser.document;
       // Each build is read as its OWN document and merged as that device: the
       // values it resolved are the ones its variant class produced, and only that
@@ -500,6 +538,7 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
         });
         document = mergeDeviceVariants(document, deviceDocument, device);
       }
+      capturePath = "browser";
     } else {
       const css = await fetchLinkedCss(html, input.source.url);
       document = captureHtml({ html, url: input.source.url, pagePath: input.pagePath ?? "/", css });
@@ -702,8 +741,11 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
   }
   const report = buildFidelityReport(document, normalized, {
     ...mapped,
-    findings: [...mapped.findings, ...motionFindings, ...runtimeFindings],
-  }, motion);
+    findings: [...mapped.findings, ...motionFindings, ...runtimeFindings, ...captureFindings],
+  }, motion, {
+    path: capturePath,
+    ...(captureFindings[0] !== undefined ? { fallbackReason: captureFindings[0].evidence } : {}),
+  });
   const byNodeKey = new Map(payloads.map((payload) => [payload.nodeKey, payload]));
   for (const node of Object.values(mapped.document.nodes)) {
     if (node.primitive !== "payload") continue;

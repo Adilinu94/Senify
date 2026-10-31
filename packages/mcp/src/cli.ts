@@ -340,7 +340,7 @@ export function createProgram(): Command {
     .option("--apply-theme", "Theme-Font-Patch mit übernehmen")
     .option(
       "--capture <art>",
-      "Wie eine URL-Quelle gelesen wird: static (Server-HTML, Default) oder browser (Seite in Chromium laden, Inhalt aus Skripten mitnehmen)",
+      "Wie eine URL-Quelle gelesen wird: ohne Angabe browser mit Rueckfall auf static (ein fehlender Browser meldet sich als Fund), static (nur Server-HTML) oder browser (strikt, Fehler statt Rueckfall)",
     )
     .option("--report", "Vollen Bericht als JSON ausgeben")
     .option("--api <url>")

@@ -186,6 +186,16 @@ export const ImportReportSchema = Type.Object(
         nodes: Type.Number(),
       }),
     ),
+    // How the source was read. `browser` means Chromium delivered the document
+    // (runtime content and the other device builds included); `fallbackReason`
+    // is set when the default browser capture failed and the run read the
+    // SSR-HTML instead.
+    capture: Type.Optional(
+      Type.Object({
+        path: Type.Union([Type.Literal("static"), Type.Literal("browser")]),
+        fallbackReason: Type.Optional(Type.String()),
+      }),
+    ),
     steps: Type.Array(Type.String()),
   },
   CLOSED,
