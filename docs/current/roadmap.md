@@ -126,7 +126,7 @@ zwei Punkte und zwei Grenzen.
 
 | Punkt | Zustand | Was fehlt / was es bräuchte |
 |---|---|---|
-| **15 — `unifiersofjapan` über 20 %** | **offen.** Auf dem Struktur-Baum 14,88 / 16,30 / 21,35 %; auf dem Release-Pfad (mit Original-Runtime) 1,05 / 2,15 / 2,03 %, alle Höhen exakt | Am Baum ist die Höhe auf Desktop exakt (7699 px) und die Schrift lädt — die Abweichung ist über die Seite verteilt. **Es braucht eine eigene Messung**, keine weitere Vermutung. Der Grid-Zweig ist verworfen. |
+| **15 — `unifiersofjapan` über 20 %** | **gemessen 31.10.2026, weiter offen.** Auf dem Struktur-Baum 16,98 / 16,34 / 21,26 %; auf dem Release-Pfad (mit Original-Runtime) 1,05 / 2,15 / 2,03 %, alle Höhen exakt | Vier belegte Ursachen: Fit-Text mit dem Faktor 1,3345 (Höhe 923,4 statt 253,2 px, Verschiebung +670,2 px), fehlende 10°-Drehung (weder im SSR noch im IR), ein beim Backen verlorenes Badge (Icon-Sanitizer), versetzte Papiertextur. Die leeren Karten im Band 3950–4450 sind Lottie-Laufzeitinhalt (SSR 0×). Protokoll in `docs/current/qualitaet.md`; der Grid-Zweig ist verworfen. |
 | **1 — Sterne der Bewertung** | **Grenze der Quelle.** Im SSR steht der Sterne-Container leer (`viewBox="0 0 256 256"` 0× im SSR, 5× im gerenderten DOM) | Mit `capture: "browser"` **gelöst** (5 Sterne statt 0). Offen ist nur die Produktentscheidung, ob der Browser-Capture Standard werden soll — er kostet einen Chromium-Start je Import. |
 | **Punkt 13 — CSS-Bildadressen** | im Punkt als „offen" vermerkt | Die CSS-Bildadressen des Originals zeigen noch aufs CDN. Adress-Umschreibung ist für Markup und Runtime gebaut; die CSS-Seite fehlt. |
 | **Restabweichung** | Rasterung + Framer-Werbe-Badge | `docs/agents/framer-import-restabweichung.md`: die Boxen liegen auf dem Pixel, die Höhen sind gleich. Wer die Zahl drücken will, maskiert den **Vergleich**, nicht den Import. |
@@ -199,7 +199,7 @@ aufmacht.**
 
 ```
 Block 1 (R12)  ──  unabhängig, jeder Schnitt ist ein eigener Commit
-Block 2 (P3-7) ──  Punkt 15 braucht eine Messung, nicht Code
+Block 2 (P3-7) ──  Punkt 15 ist gemessen (31.10.2026); die vier Ursachen stehen in `qualitaet.md`
                    Punkt 1 braucht eine Produktentscheidung (Capture-Standard)
 Block 3 (S3b/S4) ─ braucht eine Produktentscheidung (zweite Quelle)
 Block 4 (S9)   ──  CMS/Lokalisierung brauchen die Entscheidung aus Block 3
@@ -224,7 +224,7 @@ belegt) und endet mit einem **ausgeführten Gate** aus `docs/fahrplan.md`.
 | 1 | ~~Den gestagten `mountCanvasView`-Schnitt committen~~ **erledigt 30.10.2026** | Der Diff war geprüft und blockierte als offener Baum jeden Folgeschritt (DoR 2) | `pnpm lint`, `module:check`, `doku-konsistenz.test.ts`, drei Browser-Suiten |
 | 2 | ~~`app-references.js` weiter teilen (Stil-Guide-Karten)~~ **erledigt 30.10.2026** | Kleinster echter Schnitt, hohe Browser-Abdeckung — 446 → 378 Zeilen | `references-browser.test.ts` (2 Fälle), `module-form.test.ts`, `doku-konsistenz.test.ts` |
 | 3 | ~~`tools.ts` um eine Werkzeuggruppe schneiden~~ **erledigt 30.10.2026** | Der Manifest-Diff war der harte, billige Beweis: 12 Release-Werkzeuge nach `tools-release.ts`, 1 671 → 1 403 Zeilen | `manifest:render` (109 Werkzeuge, leerer Diff), `typecheck`, `lint`, `module:check`, `doku-konsistenz.test.ts` |
-| 4 | P3-7 Punkt 15 messen (`unifiersofjapan`) | Einziger offener Treuepunkt mit unbekannter Ursache | Messprotokoll in `qualitaet.md`, kein Code ohne Befund |
+| 4 | ~~P3-7 Punkt 15 messen (`unifiersofjapan`)~~ **erledigt 31.10.2026** | Der einzige offene Treuepunkt mit unbekannter Ursache ist gemessen | Blindtest 16,98 / 16,34 / 21,26 %, Bandsumme 14,67 %, vier Ursachen benannt; Messprotokoll in `qualitaet.md`, kein Code geändert |
 | 5 | Entscheidung Punkt 1 (Capture-Standard) herbeiführen | Ohne sie bleibt eine Grenze unentschieden statt bewusst | Frage-Dialog, ADR-Nachtrag |
 | 6 | `forms.ts`: CSV-Export als Rechnung herausziehen | Belegbar testbar ohne Browser, echte Naht | Engine-Suite, `forms.test.ts` |
 | 7 | S7: menschlicher E2E-Weg der Bibliothek | Größter Produktnutzen ohne Produktentscheidung | Browser-Test über den ganzen Weg |
