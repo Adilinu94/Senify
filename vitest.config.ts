@@ -90,6 +90,10 @@ export default defineConfig({
         "packages/engine/src/store-*.ts",
         "packages/engine/src/lifecycle.ts",
         "packages/engine/src/forms.ts",
+        // Die CSV-Formatierung der Einsendungen (31.10.2026): eine reine
+        // Rechnung, aber eine, deren vier Regeln eine Tabelle zerlegen - eine
+        // ungemessene Datei koennte ihren Rueckschritt nicht melden.
+        "packages/engine/src/forms-csv.ts",
         "packages/editor/src/state/**",
         // Die Werkzeug-Definitionen der MCP-Fassade: `tools.ts` traegt die
         // Tabelle, die Module `tools-*.ts` die ausgelagerten Werkzeuge und die
@@ -126,7 +130,7 @@ export default defineConfig({
         //   http-routes-theme.ts      (neu, folgt)
         //   http-routes-references.ts 95,74 / 80,64 / 100   / 95,74
         //   http-routes-content.ts    94,52 / 73,46 / 94,11 / 94,52
-        "packages/engine/src/{http,http-route-support,http-routes-sites,http-routes-site-assets,http-routes-site-reviews,http-routes-site-code-payloads,http-routes-imports,http-routes-deploy,http-routes-library,http-routes-site-lifecycle,http-routes-theme,http-routes-assets,http-routes-formular,http-routes-references,http-routes-content,http-routes-section-preview,section-previews,store,lifecycle,forms,http-routes-design,http-routes-site-content,http-routes-images,http-routes-site-references}.ts": {
+        "packages/engine/src/{http,http-route-support,http-routes-sites,http-routes-site-assets,http-routes-site-reviews,http-routes-site-code-payloads,http-routes-imports,http-routes-deploy,http-routes-library,http-routes-site-lifecycle,http-routes-theme,http-routes-assets,http-routes-formular,http-routes-references,http-routes-content,http-routes-section-preview,section-previews,store,lifecycle,forms,forms-csv,http-routes-design,http-routes-site-content,http-routes-images,http-routes-site-references}.ts": {
           statements: 80,
           branches: 68,
           functions: 88,
@@ -312,6 +316,32 @@ export default defineConfig({
           branches: 55,
           functions: 95,
           lines: 92,
+        },
+        // Die Veroeffentlichungs- und Betriebs-Werkzeuge (R12, Commit
+        // `a7f08b2`). Sie sassen in `tools.ts` und waren dort von denselben
+        // Workflow-Tests gedeckt; der Waechter `coverage-gate.test.ts` hat sie
+        // nach dem Schnitt als ungeschuetzt gemeldet.
+        //
+        // Gemessen am 31.10.2026 (`packages/mcp/test`, 99 Faelle):
+        // 97,23 / 78,43 / 91,66 / 97,23. Die Schwelle liegt knapp darunter:
+        // die Zweige sind die optionalen Felder der Schemas und die
+        // Fehlerpfade der Anbieter (die 232-239 sind der Vercel-Abbruch).
+        "packages/mcp/src/tools-release.ts": {
+          statements: 95,
+          branches: 72,
+          functions: 88,
+          lines: 95,
+        },
+        // Die Komponenten-Werkzeuge (R12). Gemessen am 31.10.2026:
+        // 88,39 / 78,26 / 100 / 88,39. Die Statements sind niedriger als bei
+        // `tools-release.ts`, weil die sechs Werkzeuge viele optionale Felder
+        // und zwei Fehlerzweige der Variantenwahl tragen; die Schwelle haelt
+        // den Stand, statt ihn zu feiern.
+        "packages/mcp/src/tools-komponenten.ts": {
+          statements: 85,
+          branches: 72,
+          functions: 95,
+          lines: 85,
         },
       },
     },
