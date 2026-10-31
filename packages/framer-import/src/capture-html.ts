@@ -511,6 +511,35 @@ function dataUrlsInValues(root: IrNode): string[] {
   return found;
 }
 
+// The remote addresses a style value carries after the cascade: a class rule
+// writes `background-image: url(https://…/foto.jpg)` into the node's state,
+// and `collectAssets` only sees the element's OWN style attribute. Without
+// this list the asset pipeline never downloads these pictures — the node
+// style, the theme CSS and the payload's CSS copy then keep pointing at the
+// source's CDN (ADR-0010 §8).
+function remoteUrlsInValues(root: IrNode): string[] {
+  const found: string[] = [];
+  const collect = (visual: IrVisual | undefined): void => {
+    for (const value of Object.values(visual ?? {})) {
+      if (typeof value !== "string") continue;
+      for (const match of value.matchAll(/url\((["']?)((?:https?:)?\/\/[^"')]+)\1\)/gi)) {
+        const url = match[2];
+        if (url !== undefined && url !== "" && !found.includes(url)) found.push(url);
+      }
+    }
+  };
+  const visit = (node: IrNode): void => {
+    for (const state of node.states) {
+      collect(state.visual);
+      // A `:hover` background is a picture too.
+      for (const interaction of Object.values(state.interactions ?? {})) collect(interaction);
+    }
+    for (const child of node.children) visit(child);
+  };
+  visit(root);
+  return found;
+}
+
 // The data URLs one CSS value carries. A quoted URL ends at the closing
 // quote — the inner quotes of the SVG are escaped, so they do not end it —
 // an unquoted one at the parenthesis. The SVG of a mask holds spaces
@@ -1399,6 +1428,16 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
   const dataUrlValues = dataUrlValuesOf(root);
   const wertAssets = dataUrlsInValues(root);
   for (const url of wertAssets) {
+    if (assets.some((asset) => asset.url === url)) continue;
+    assets.push({ url, kind: "image", hash: null, alt: null, width: null, height: null });
+  }
+  // The other half of the same rule: a picture named by a CLASS rule. The
+  // cascade above writes the rule's `background-image: url(…)` into the
+  // node's state, and `collectAssets` only reads the element's own style
+  // attribute. Without this collection the download table stays empty for
+  // these pictures — and the node style, the theme CSS and the payload's CSS
+  // copy all keep pointing at the source's CDN (ADR-0010 §8).
+  for (const url of remoteUrlsInValues(root)) {
     if (assets.some((asset) => asset.url === url)) continue;
     assets.push({ url, kind: "image", hash: null, alt: null, width: null, height: null });
   }

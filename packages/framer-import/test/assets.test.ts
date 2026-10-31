@@ -38,6 +38,7 @@ beforeAll(async () => {
   served.set("/assets/variable.woff2", fakeFont(600));
   served.set("/images/hero.png", fakeImage("hero"));
   served.set("/images/hero-copy.png", fakeImage("hero")); // same bytes
+  served.set("/images/band.png", fakeImage("band"));
   server = createServer((request, response) => {
     requestCount += 1;
     const url = request.url ?? "/";
@@ -203,6 +204,46 @@ describe("importAssets", () => {
     } finally {
       rmSync(outDir, { recursive: true, force: true });
     }
+  });
+
+  it("rewrites a CDN address that a class rule put into a style value", async () => {
+    // Punkt 13: the sheet's `background-image: url(https://…)` reaches the
+    // node's state through the cascade. The value has to name the local file
+    // afterwards — the same table the markup pass uses, so release and editor
+    // cannot point at two different pictures (ADR-0010 §8).
+    const document = irDocument();
+    document.assets.push({
+      url: `${origin}/images/band.png`,
+      kind: "image",
+      hash: null,
+      alt: null,
+      width: null,
+      height: null,
+    });
+    const page = document.pages[0];
+    expect(page).toBeDefined();
+    if (page === undefined) return;
+    page.root.states = [{
+      device: "desktop",
+      hiddenAt: [],
+      variantHash: null,
+      visual: { "background-image": `url("${origin}/images/band.png")` },
+      layout: null,
+      box: null,
+      text: null,
+    }];
+    const result = await importAssets({
+      document,
+      uploader: ({ filename }) => `/assets/up/${filename}`,
+    });
+    expect(result.document.pages[0]?.root.states[0]?.visual["background-image"]).toBe(
+      'url("/assets/up/band.png")',
+    );
+    expect(result.urlRewrites[`${origin}/images/band.png`]).toBe("/assets/up/band.png");
+    // The payload's CSS copy finds the local path through the same table. The
+    // asset ENTRY keeps the source address - that is its provenance - but no
+    // page value may name it any more, or the release would load the CDN.
+    expect(JSON.stringify(result.document.pages)).not.toContain(`${origin}/images/band.png`);
   });
 
   it("routes bytes through the uploader and returns its URLs", async () => {

@@ -107,6 +107,31 @@ describe("the runtime payload", () => {
     expect(payload.integrity).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it("rewrites the addresses of the linked stylesheets with the same table", async () => {
+    // Punkt 13: the inline `<style>` block went through the rewrite table from
+    // the start, the linked sheets were embedded verbatim — so a background
+    // image or a font file named by a sheet kept loading the source's CDN,
+    // even though every asset sits in the site (ADR-0010 §8).
+    const detection = detectFramerRuntime(PAGE_HTML, PAGE_URL);
+    const collected = await collectRuntimeFiles(RUNTIME, loadFile);
+    const payload = await buildRuntimePayload({
+      detection: detection as NonNullable<typeof detection>,
+      files: collected,
+      loadFile,
+      sheetsText:
+        '@font-face{font-family:"X";src:url("https://framerusercontent.com/fonts/x.woff2")} .band{background-image:url(https://framerusercontent.com/images/textur.png)}',
+      rewriteUrl: (url) => {
+        if (url === "https://framerusercontent.com/fonts/x.woff2") return "/assets/fonts/x.woff2";
+        if (url === "https://framerusercontent.com/images/textur.png") return "/assets/media/textur.png";
+        return null;
+      },
+    });
+    expect(payload.bundle).not.toContain("framerusercontent.com/fonts/x.woff2");
+    expect(payload.bundle).not.toContain("framerusercontent.com/images/textur.png");
+    expect(payload.bundle).toContain("/assets/fonts/x.woff2");
+    expect(payload.bundle).toContain("/assets/media/textur.png");
+  });
+
   it("refuses a payload over the budget of ADR-0010", async () => {
     const detection = detectFramerRuntime(PAGE_HTML, PAGE_URL);
     const collected = await collectRuntimeFiles(RUNTIME, loadFile);

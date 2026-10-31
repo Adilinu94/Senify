@@ -558,7 +558,12 @@ export async function buildRuntimePayload(input: RuntimePayloadInput & { files: 
   for (const [url, source] of files) byName.set(baseNameOf(url), source);
 
   const css = rewriteCss(input.detection.css, input.rewriteUrl);
-  const sheets = input.sheetsText ?? "";
+  // The linked stylesheets are the page's other half: their `url()` references
+  // (a background image, a font file) point at the source's CDN just like the
+  // inline block's. They go through the SAME table — an unrewritten sheet
+  // would make the release load the source's CDN even though every asset sits
+  // in the site (ADR-0010 §8).
+  const sheets = rewriteCss(input.sheetsText ?? "", input.rewriteUrl);
   // The markup names its media by CDN address; the runtime carries the page as
   // JSON and builds the images from THAT (`donutshop`: 87 of 88 addresses).
   // Both have to be rewritten, or the release loads the source's CDN and no

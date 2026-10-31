@@ -85,6 +85,32 @@ describe("captureHtml", () => {
     expect(document.assets).toHaveLength(0);
   });
 
+  it("collects a background image that only a class rule names", () => {
+    // The other half of the asset collection: `collectAssets` reads the
+    // element's own `style` attribute, the sheet's rule arrives through the
+    // cascade afterwards. Measured while closing Punkt 13: without this the
+    // download table knew no local file for a `background-image` from the
+    // sheet, and the node style plus the payload's CSS copy kept pointing at
+    // the source's CDN (ADR-0010 §8).
+    const html = '<div id="main"><div class="band">Fläche</div></div>';
+    const css = '.band{background-image:url("https://framerusercontent.com/images/textur.png")}';
+    const document = captureHtml({ html, css });
+    const urls = document.assets.map((asset) => asset.url);
+    expect(urls).toContain("https://framerusercontent.com/images/textur.png");
+    // The address stands once, though the cascade may touch several states.
+    expect(urls.filter((url) => url.endsWith("/textur.png"))).toHaveLength(1);
+    // The rule really lands in the node's style — the rewrite has a value to
+    // replace, not just an entry in a table.
+    const band = document.pages[0]?.root.children[0];
+    expect(JSON.stringify(band?.states[0]?.visual)).toContain("textur.png");
+  });
+
+  it("leaves a relative background image alone: it already names the site's file", () => {
+    const html = '<div id="main"><div class="band">Fläche</div></div>';
+    const document = captureHtml({ html, css: ".band{background-image:url(assets/bild.png)}" });
+    expect(document.assets).toHaveLength(0);
+  });
+
   it("keeps the page title", () => {
     const document = captureFixture(join(FIXTURES, "framer-stupendous-football-158496"));
     expect(document.pages[0]?.title).toContain("Datains");

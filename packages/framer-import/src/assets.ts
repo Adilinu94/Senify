@@ -15,7 +15,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileS
 import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { SenifyError } from "@senify/core";
 import { fetchPublic } from "@senify/core/net";
-import type { FramerIrDocument, IrAsset, IrFontFace, IrNode } from "./ir.ts";
+import type { FramerIrDocument, IrAsset, IrFontFace, IrNode, IrVisual } from "./ir.ts";
 import { dataUrlMime, decodeDataUrl, sanitizeSvg } from "./svg.ts";
 
 /* ------------------------------------------------------------------ types */
@@ -386,16 +386,30 @@ function applyValueAssets(
   node: IrNode,
   urlToAsset: Map<string, AssetDownload>,
 ): IrNode {
+  const rewriteVisual = (visual: IrVisual): IrVisual =>
+    Object.fromEntries(
+      Object.entries(visual).map(([property, value]) => [
+        property,
+        typeof value === "string" ? valueWithAsset(value, urlToAsset) : value,
+      ]),
+    );
   const visit = (current: IrNode): IrNode => ({
     ...current,
     states: current.states.map((state) => ({
       ...state,
-      visual: Object.fromEntries(
-        Object.entries(state.visual).map(([property, value]) => [
-          property,
-          typeof value === "string" ? valueWithAsset(value, urlToAsset) : value,
-        ]),
-      ),
+      visual: rewriteVisual(state.visual),
+      // A `:hover` background is a picture too, and `applyClassRules` writes
+      // it into the interactions of the base state.
+      ...(state.interactions === undefined
+        ? {}
+        : {
+            interactions: Object.fromEntries(
+              Object.entries(state.interactions).map(([name, visual]) => [
+                name,
+                visual === undefined ? visual : rewriteVisual(visual),
+              ]),
+            ),
+          }),
     })),
     children: current.children.map(visit),
   });
@@ -403,7 +417,13 @@ function applyValueAssets(
 }
 
 function valueWithAsset(value: string, urlToAsset: Map<string, AssetDownload>): string {
-  if (!/url\(\s*['"]?data:/i.test(value)) return value;
+  // Two kinds of picture stand in a style value: a data URL (ADR-0005: it
+  // becomes an asset) and a CDN address the class rules put there. Both are
+  // replaced by the local address the download returned — the same table the
+  // markup pass uses, so node style and release can never point at two
+  // different files. A value without `url()` is left alone: a plain colour or
+  // a gradient has nothing to rewrite.
+  if (!/url\(/i.test(value)) return value;
   let result = value;
   for (const [url, download] of urlToAsset) {
     if (download.localUrl === null || download.localUrl === undefined) continue;
