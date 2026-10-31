@@ -15,6 +15,7 @@ import { refsSetInspectorIds } from "./app-refs-inspector.js";
 import { refsRenderCards } from "./app-refs-cards.js";
 import { refsStyleCard } from "./app-refs-styles.js";
 import { refsRenderTray, refsTray } from "./app-refs-compare.js";
+import { REFS_DEFAULT_FILTER, refsFooterText, refsHeaderText, refsSearchParams, refsStyleMatches } from "./app-refs-filter.js";
 
 // `app.js` holt diese zwei ueber diese Datei (der Router kennt nur die Views).
 // Der Re-Export haelt seine Import-Quelle, waehrend die Definition im
@@ -99,13 +100,10 @@ function refsShellDom() {
 }
 
 function refsResetFilters() {
-  refsState.query = "";
-  refsState.collection = "";
-  refsState.view = "";
-  refsState.sort = "newest";
+  Object.assign(refsState, REFS_DEFAULT_FILTER);
   if (refsDom) {
-    refsDom.searchInput.value = "";
-    refsDom.sortSelect.value = "newest";
+    refsDom.searchInput.value = REFS_DEFAULT_FILTER.query;
+    refsDom.sortSelect.value = REFS_DEFAULT_FILTER.sort;
   }
   refsSyncAddress();
   void refsRefresh();
@@ -135,7 +133,7 @@ async function refsRefresh() {
   root.classList.add("refs-loading");
   let data;
   try {
-    data = await api(`/api/references?${refsSearchParams().toString()}`);
+    data = await api(`/api/references?${refsSearchParams(refsState).toString()}`);
   } catch (error) {
     // Ein kurzer Fehler (etwa ein erschoepftes Kontingent) darf die Ansicht
     // nicht leeren: die vorhandenen Karten bleiben stehen, nur eine Meldung.
@@ -229,19 +227,9 @@ async function refsRefresh() {
     `${counts.references ?? 0} Referenzen · ${personalCollections.length} Sammlungen`;
 
   // Kopfbereich
-  if (styleMode) {
-    refsDom.titleText.textContent = "Stil-Guide";
-    refsDom.description.textContent = "Erkunde die visuellen Sprachen hinter der Arbeit.";
-  } else if (activeCollection) {
-    refsDom.titleText.textContent = activeCollection.name;
-    refsDom.description.textContent = "Ein anderer Blickwinkel. Für das richtige Projekt aufgehoben.";
-  } else if (refsState.collection === "none") {
-    refsDom.titleText.textContent = "Ohne Sammlung";
-    refsDom.description.textContent = "Referenzen, die noch keiner Sammlung zugeordnet sind.";
-  } else {
-    refsDom.titleText.textContent = "Alle Referenzen";
-    refsDom.description.textContent = "Sammle, was dein Auge fängt. Mach es zu deinem.";
-  }
+  const header = refsHeaderText({ styleMode, collection: refsState.collection, activeCollection });
+  refsDom.titleText.textContent = header.title;
+  refsDom.description.textContent = header.description;
   refsDom.aboutButton.hidden = !activeCollection;
   refsDom.hint.hidden = styleMode;
 
@@ -297,18 +285,6 @@ function refsEmptyAction() {
   else refsResetFilters();
 }
 
-function refsStyleMatches(collection, query) {
-  if (query === "") return true;
-  return [collection.name, ...(collection.recognize ?? []), ...(collection.vocabulary ?? [])]
-    .join(" ")
-    .toLowerCase()
-    .includes(query.toLowerCase());
-}
-
-function refsFooterText(count, noun, query) {
-  return `${count} ${noun}${query === "" ? " in Sicht" : ` passend zu “${query}”`}`;
-}
-
 function refsSetView(view) {
   refsState.view = view;
   refsState.collection = "";
@@ -331,14 +307,6 @@ async function refsSeedStyles() {
   } catch (error) {
     failed(error);
   }
-}
-
-function refsSearchParams() {
-  const params = new window.URLSearchParams();
-  if (refsState.query !== "") params.set("q", refsState.query);
-  if (refsState.collection !== "") params.set("collection", refsState.collection);
-  if (refsState.sort !== "newest") params.set("sort", refsState.sort);
-  return params;
 }
 
 function refsTrayResync() {
