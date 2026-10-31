@@ -46,7 +46,7 @@ E2E-Weg durch die Baustein-Bibliothek). Die CI ist dabei enger geworden: `verify
 | **P3-4** | Release-Manifest mit Snapshots | erledigt |
 | **P3-5** | Import-Asset-Kompensation | erledigt (mit dokumentierter Grenze) |
 | **P3-6** | Doku-Prozesse und `.scratch/`-Hygiene | erledigt |
-| **P3-7** | Framer-Import: Lücken der Live-Messung | **teilweise** — 14 von 16 Punkten geschlossen |
+| **P3-7** | Framer-Import: Lücken der Live-Messung | **teilweise** — 15 von 16 Punkten geschlossen |
 
 ### 2.2 Risiko-Register (Kurzfassung; maßgeblich ist `docs/fahrplan.md`)
 
@@ -83,6 +83,7 @@ Zeilenzahl. Jeder Schnitt braucht einen Beleg, dass die Grenze echt ist.
 | Bühne des Seiten-Editors | `app-editor-canvas.js` (774 Zeilen), `app-editor.js` 1 048 → 290 | committet 30.10.2026; `canvas-view-browser.test.ts`, `canvas-browser.test.ts`, `save-conflict-browser.test.ts` |
 | Veröffentlichungs- und Betriebs-Werkzeuge der MCP-Fassade | `tools-release.ts` (307 Zeilen, 12 Werkzeuge), `tools.ts` 1 671 → 1 403 | Commit `a7f08b2`; `manifest:render` 109 Werkzeuge und leerer Manifest-Diff, `doku-konsistenz.test.ts`, `packages/mcp/test` |
 | Komponenten-Werkzeuge der MCP-Fassade | `tools-komponenten.ts` (394 Zeilen, 6 Werkzeuge: Liste, Einzelnes, Override, Variante, Versionshub, Instanzen nachziehen), `tools.ts` 1 403 → 1 035 | Commit `700dfa5`; `manifest:render` 109 Werkzeuge und leerer Manifest-Diff, `doku-konsistenz.test.ts`, `packages/mcp/test` |
+| CSV-Export der Formulare | `forms-csv.ts` (35 Zeilen: Trenner, RFC 4180, BOM, Formelanfang), `forms.ts` 1 313 → 1 285 | committet 31.10.2026; `forms-csv.test.ts` (2 Fälle ohne Engine), `forms.test.ts` (22), `coverage-gate.test.ts`, `doku-konsistenz.test.ts` |
 | Typbruch auf `master` | fehlender `tsconfig`-Pfad `@senify/widget-engine/section-breakpoints` | Commit `5ee1c02`; `pnpm typecheck` war vorher rot |
 
 #### Was noch offen ist — nach Aufwand und Risiko geordnet
@@ -98,7 +99,7 @@ Zeilenzahl. Jeder Schnitt braucht einen Beleg, dass die Grenze echt ist.
 | 7 | `packages/editor/src/inspector/model.ts` | 1 490 | `module.md`: „das Modell des Inspektors" | Prüfen, ob es eine reine Rechnung ohne DOM ist (dann testbar ohne Browser) — aber kein Schnitt ohne gemessene Naht. |
 | 8 | `packages/engine/src/types.ts` | 1 479 | `module.md`: öffentliche Typen, keine Logik | Kein Schnitt nötig; eine Aufteilung nach Fachgebiet wäre Kosmetik. |
 | 9 | `packages/editor/src/canvas/canvas.ts` | 1 336 | `module.md`: „die Bühne des Editors" | Kandidat für eine Messung, nicht für einen Schnitt auf Verdacht. |
-| 10 | `packages/engine/src/forms.ts` | 1 313 | Formulare, Einsendungen, CSV-Export | Drei Gegenstände, ein Fachgebiet; CSV-Export wäre als Rechnung testbar und wäre der billigste echte Schnitt. |
+| 10 | `packages/engine/src/forms.ts` | 1 285 | Formulare, Einsendungen und die Einsendungs-Ansicht; der CSV-Export ist am 31.10.2026 als reine Formatierung nach `forms-csv.ts` gewandert | Der billigste Schnitt ist getan. Was bleibt, ist ein Fachgebiet (Snapshot, Token, Spam-Schutz, Benachrichtigungen, Sammlung aus dem Formular) — ein weiterer Schnitt bräuchte erst eine Messung, die eine Naht zeigt. |
 | 11 | `packages/editor/src/state/operations.ts` | 1 240 | Dispatcher plus Prüfer, die Katalog und Fehlerform teilen | `module.md` begründet das Bleiben. |
 | 12 | `packages/engine/src/lifecycle.ts` | 1 190 | Revision, Re-Bake, Publish, Preview, Review | Ein Release entsteht nicht ohne die anderen drei; ein Schnitt müsste die gemeinsame Transaktion teilen. |
 | 13 | `packages/renderer/src/motion.ts` | 1 149 | zwei Laufzeit-Skripte als Text in Template-Literalen | Kein Quellcode-Schnitt möglich, ohne ausgelieferten Code zu zerteilen. |
@@ -116,26 +117,28 @@ worden (`app-references.js` 446 → 378; `tools.ts` 1 671 → 1 403 mit
 `tools-release.ts`). Am 31.10.2026 folgten der Filter- und Kopfblock der
 Referenzen-Seite (378 → 346 mit `app-refs-filter.js`) und die
 Komponenten-Werkzeuge der MCP-Fassade (1 403 → 1 035 mit
-`tools-komponenten.ts`, bewiesen über den leeren Manifest-Diff). Die
+`tools-komponenten.ts`, bewiesen über den leeren Manifest-Diff), dazu der CSV-Export
+der Formulare (1 313 → 1 285 mit `forms-csv.ts`; die vier Regeln einer
+Tabellenkalkulation stehen jetzt in einer eigenen Datei mit eigenem Test). Die
 Referenzen-Seite steht damit nicht mehr im „laufenden Zuschnitt" von `module.md` —
 was bleibt, ist die Seitenfunktion, und die ist die Naht, keine Datei. Offen
-bleiben `forms.ts`, `media.ts` und `model.ts`; `tools.ts` liegt mit 1 035 Zeilen
-weiter über der Schwelle und bleibt für eine weitere Werkzeuggruppe ein
-Kandidat. Der Rest ist keine Arbeit, die noch ansteht, sondern eine
-Entscheidung, die steht.
+bleiben `media.ts` und `model.ts`; `forms.ts` liegt mit 1 285 Zeilen weiter über
+der Schwelle, und `tools.ts` mit 1 035 Zeilen bleibt für eine weitere
+Werkzeuggruppe ein Kandidat. Der Rest ist keine Arbeit, die noch ansteht, sondern
+eine Entscheidung, die steht.
 
 ---
 
-### Block 2 — P3-7: Framer-Import-Treue (14 von 16 Punkten geschlossen)
+### Block 2 — P3-7: Framer-Import-Treue (15 von 16 Punkten geschlossen)
 
 Der Import ist an veröffentlichten Framer-Seiten gemessen, nicht geschätzt. Offen sind
-zwei Punkte und zwei Grenzen.
+zwei Punkte und eine Grenze.
 
 | Punkt | Zustand | Was fehlt / was es bräuchte |
 |---|---|---|
 | **15 — `unifiersofjapan` über 20 %** | **gemessen 31.10.2026, weiter offen.** Auf dem Struktur-Baum 16,98 / 16,34 / 21,26 %; auf dem Release-Pfad (mit Original-Runtime) 1,05 / 2,15 / 2,03 %, alle Höhen exakt | Vier belegte Ursachen: Fit-Text mit dem Faktor 1,3345 (Höhe 923,4 statt 253,2 px, Verschiebung +670,2 px), fehlende 10°-Drehung (weder im SSR noch im IR), ein beim Backen verlorenes Badge (Icon-Sanitizer), versetzte Papiertextur. Die leeren Karten im Band 3950–4450 sind Lottie-Laufzeitinhalt (SSR 0×). Protokoll in `docs/current/qualitaet.md`; der Grid-Zweig ist verworfen. |
-| **1 — Sterne der Bewertung** | **Grenze der Quelle.** Im SSR steht der Sterne-Container leer (`viewBox="0 0 256 256"` 0× im SSR, 5× im gerenderten DOM) | Mit `capture: "browser"` **gelöst** (5 Sterne statt 0). Offen ist nur die Produktentscheidung, ob der Browser-Capture Standard werden soll — er kostet einen Chromium-Start je Import. |
-| **Punkt 13 — CSS-Bildadressen** | im Punkt als „offen" vermerkt | Die CSS-Bildadressen des Originals zeigen noch aufs CDN. Adress-Umschreibung ist für Markup und Runtime gebaut; die CSS-Seite fehlt. |
+| **1 — Sterne der Bewertung** | **geschlossen 31.10.2026 (ADR-0027).** Der Browser-Capture ist der Standard für URL-Importe und fällt ohne funktionierenden Browser auf das SSR-HTML zurück — mit Fund `capture-fallback`, `report.capture` und dem Grund im ersten Berichtsschritt; `capture: "static"` bleibt wählbar, `capture: "browser"` ist strikt | Die Grenze der Quelle ist damit nicht weg, aber bewusst überwunden: derselbe Lauf holt die Sterne (5 statt 0, live gemessen) und die Gerätevarianten der anderen Builds (auf `rare-works` sonst 2 680 px zu kurz auf dem Handy). Beleg: `import-browser-capture.test.ts` (4 Fälle) |
+| **Punkt 13 — CSS-Bildadressen** | **geschlossen 31.10.2026.** Drei Lücken geschlossen: Bilder, die nur eine Klassenregel nennt, kommen in die Asset-Liste; `rewriteVisual` schreibt sie in Knotenstil und Interaktionen um; die eingebetteten Stylesheets laufen durch `rewriteCss`. Beleg: `assets.test.ts` (13), `capture.test.ts` (16), `runtime-payload.test.ts` (16) | Eine Asset-**Eintragung** behält die Quelladresse als Herkunft — nur Seitenwerte und Payload werden umgeschrieben. Das ist Absicht, nicht Rest |
 | **Restabweichung** | Rasterung + Framer-Werbe-Badge | `docs/agents/framer-import-restabweichung.md`: die Boxen liegen auf dem Pixel, die Höhen sind gleich. Wer die Zahl drücken will, maskiert den **Vergleich**, nicht den Import. |
 
 **Nicht offen, aber oft verwechselt:** die „0,98 %"-Zahl gilt für die Earn-Seite mit
@@ -176,7 +179,7 @@ Einzel- und Sammelimport) — die frühere Einordnung „geplant" war falsch. Of
 | Punkt | Zustand | Was fehlt |
 |---|---|---|
 | S5 Visual Gate | teilweise | Das Gate läuft auf den drei echten Export-Fixtures mit Ratchet-Grenzen (Pixeldifferenz, Texthöhe, Links). Die Tablet-Messung läuft bei 900 px, weil Senifys Tablet bei 1023,98 px endet und Framer bei 1199 — eine bewusste Abweichung, die dokumentiert bleiben muss |
-| S7 Bibliotheks-UI | teilweise | **Der vollständige menschliche E2E-Weg fehlt**: Baustein finden, installieren, im Editor ändern, Instanzen nachziehen, Wiederanheften. Die Werkzeuge dafür liegen in `tools-bibliothek.ts` und den `store-library*.ts`-Modulen |
+| S7 Bibliotheks-UI | **geschlossen 31.10.2026.** `library-browser.test.ts` fährt den ganzen Weg in Chromium: Liste → Suche → Detail (Lizenz, Herkunft) → Installieren → Explorer-Reiter → Instanz im Draft → Lösen → Wiederanheften → Definition v2 → „Aktualisieren" → Bühne zeigt „Aus der zweiten Fassung" | Die Probe hängt an dem, was ein Mensch sieht (Bühne im iframe), nicht am Statusfeld: der Store-Abonnent überschreibt es sofort mit dem Speicherstand. Erster Anlauf rot, weil die Fixture das erfundene Primitive `block` trug — der Editor verweigert dann das ganze Dokument; jetzt `frame` + `heading` |
 
 ---
 
@@ -207,7 +210,7 @@ aufmacht.**
 ```
 Block 1 (R12)  ──  unabhängig, jeder Schnitt ist ein eigener Commit
 Block 2 (P3-7) ──  Punkt 15 ist gemessen (31.10.2026); die vier Ursachen stehen in `qualitaet.md`
-                   Punkt 1 braucht eine Produktentscheidung (Capture-Standard)
+                   Punkt 1 ist entschieden und umgesetzt (Browser-Standard, ADR-0027)
 Block 3 (S3b/S4) ─ braucht eine Produktentscheidung (zweite Quelle)
 Block 4 (S9)   ──  CMS/Lokalisierung brauchen die Entscheidung aus Block 3
 Block 5 (S5/S7) ──  S7 braucht keinen Vorbau, ist reine UI-Arbeit
@@ -232,10 +235,10 @@ belegt) und endet mit einem **ausgeführten Gate** aus `docs/fahrplan.md`.
 | 2 | ~~`app-references.js` weiter teilen (Stil-Guide-Karten, Filter-/Kopfblock)~~ **erledigt 30./31.10.2026** | Kleinster echter Schnitt, hohe Browser-Abdeckung — 446 → 378 → 346 Zeilen | `references-browser.test.ts` (2 Fälle), `app-refs-filter.test.ts` (7), `module-form.test.ts`, `doku-konsistenz.test.ts` |
 | 3 | ~~`tools.ts` um eine Werkzeuggruppe schneiden~~ **erledigt 30./31.10.2026** | Der Manifest-Diff war der harte, billige Beweis: 12 Release-Werkzeuge nach `tools-release.ts` (1 671 → 1 403), dann 6 Komponenten-Werkzeuge nach `tools-komponenten.ts` (1 403 → 1 035) | `manifest:render` (109 Werkzeuge, leerer Diff), `typecheck`, `lint`, `module:check`, `doku-konsistenz.test.ts`, `packages/mcp/test` |
 | 4 | ~~P3-7 Punkt 15 messen (`unifiersofjapan`)~~ **erledigt 31.10.2026** | Der einzige offene Treuepunkt mit unbekannter Ursache ist gemessen | Blindtest 16,98 / 16,34 / 21,26 %, Bandsumme 14,67 %, vier Ursachen benannt; Messprotokoll in `qualitaet.md`, kein Code geändert |
-| 5 | Entscheidung Punkt 1 (Capture-Standard) herbeiführen | Ohne sie bleibt eine Grenze unentschieden statt bewusst | Frage-Dialog, ADR-Nachtrag |
-| 6 | `forms.ts`: CSV-Export als Rechnung herausziehen | Belegbar testbar ohne Browser, echte Naht | Engine-Suite, `forms.test.ts` |
-| 7 | S7: menschlicher E2E-Weg der Bibliothek | Größter Produktnutzen ohne Produktentscheidung | Browser-Test über den ganzen Weg |
-| 8 | Punkt 13: CSS-Bildadressen der Quelle umschreiben | Schließt eine benannte Lücke der Runtime-Payload | `runtime-payload.test.ts`, Messung |
+| 5 | ~~Entscheidung Punkt 1 (Capture-Standard) herbeiführen~~ **erledigt 31.10.2026** | Ohne sie blieb eine Grenze unentschieden statt bewusst — entschieden: Browser mit Rückfall (ADR-0027) | Frage-Dialog, ADR-0027, `import-browser-capture.test.ts` (4 Fälle), `typecheck`, `lint`, API-Schema |
+| 6 | ~~`forms.ts`: CSV-Export als Rechnung herausziehen~~ **erledigt 31.10.2026** | Der billigste echte Schnitt: eine reine Formatierung mit vier Regeln, die eine Tabelle brechen können — `forms.ts` 1 313 → 1 285, `forms-csv.ts` (35 Zeilen) | `forms-csv.test.ts` (2 Fälle ohne Engine), `forms.test.ts` (22), `coverage-gate.test.ts`, `doku-konsistenz.test.ts` |
+| 7 | ~~S7: menschlicher E2E-Weg der Bibliothek~~ **erledigt 31.10.2026** | Größter Produktnutzen ohne Produktentscheidung | `library-browser.test.ts` (1 Fall, 11,1 s) über den ganzen Weg in Chromium |
+| 8 | ~~Punkt 13: CSS-Bildadressen der Quelle umschreiben~~ **erledigt 31.10.2026** | Schließt eine benannte Lücke der Runtime-Payload | `assets.test.ts` (13), `capture.test.ts` (16), `runtime-payload.test.ts` (16) |
 | 9 | Entscheidung Block 3 (Unframer als zweite Quelle) | Öffnet oder schließt Block 4 (CMS) | ADR + Frage-Dialog |
 
 **Nicht in dieser Liste:** `store.ts`, `inspector.ts`, `capture-html.ts`, `mapper.ts`,
@@ -270,7 +273,7 @@ Damit es nicht wieder aufgemacht wird:
 | Grenze | Was sie bedeutet | Wo sie steht |
 |---|---|---|
 | Datei und DB sind keine gemeinsame Transaktion (Import, Restore) | Bricht der zweite Schritt ab, sind Tabellen und Dateien auseinander; benannt statt weggeschraubt | R10, `docs/current/stand.md` |
-| Framer-SSR als Grenze | Was eine Code-Komponente erst im Browser baut, fehlt im statischen Weg; der Browser-Capture holt es, kostet aber einen Chromium-Start | P3-7, Punkt 1 |
+| Framer-SSR als Grenze | Was eine Code-Komponente erst im Browser baut, fehlt im Server-HTML; der Browser-Capture holt es als Standard, ein Rückfall auf `static` bleibt als Fund sichtbar | P3-7, Punkt 1, ADR-0027 |
 | Rasterung im Pixelvergleich | Die Boxen liegen auf dem Pixel; die Restdifferenz ist Kantenglättung und ein Fremd-Widget | `docs/agents/framer-import-restabweichung.md` |
 | Tablet-Messung bei 900 px | Senifys Tablet endet bei 1023,98 px, Framer bei 1199 — bewusste Abweichung | S5 |
 | Ein roter `master` wird erst nach dem Lauf sichtbar | Der Lauf ist der Wächter, nicht die Verhinderung: es gibt keinen Branch-Schutz und keine Merge-Queue | Block 7 |
