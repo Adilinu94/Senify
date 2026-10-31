@@ -134,19 +134,20 @@
 
 ## MCP: Werkzeug-Module
 
-**8 Dateien.** Die Werkzeuge lagen bis zum 23.10.2026 alle in `tools.ts`;
+**9 Dateien.** Die Werkzeuge lagen bis zum 23.10.2026 alle in `tools.ts`;
 die Uebersicht nennt sie einzeln, weil die Datei sonst wie ein God-File aussieht, das sie nicht mehr ist.
 
 | Modul | Werkzeuge | Zeilen | Zweck |
 |---|---|---|---|
 | `tools-bibliothek.ts` | 10 | 120 | Die Bibliotheks-Werkzeuge der MCP-Fassade (R12, Schritt 71). |
 | `tools-components.ts` | - | 112 | The component view of a page draft (P3-2 extraction from `tools.ts`). |
+| `tools-komponenten.ts` | 6 | 394 | Die Komponenten-Werkzeuge der MCP-Fassade (R12). |
 | `tools-medien.ts` | 21 | 622 | Die Medien-Werkzeuge der MCP-Fassade (P3-2, Schritt 57): Assets lesen, hochladen, aendern, ersetzen, loeschen und wiederherstellen, Bilder erzeugen und abfragen, Sammlungen und Eintraege samt Einsendungen. |
 | `tools-referenzen.ts` | 31 | 993 | Die einunddreissig Werkzeuge der Referenz- und Design-Arbeit: Referenzen analysieren, sammeln, zuweisen, in Revisionen fuehren, Dokumente und Briefings; Redesign planen und anwenden; das Design-System importieren und den Design-Vertrag lesen. |
 | `tools-release.ts` | 12 | 307 | Die Werkzeuge der Veroeffentlichung und des Betriebs (R12-Schnitt): Vorschau bauen, zur Pruefung einreichen, Rueckmeldung lesen, Release veroeffentlichen, zurueckrollen und lesen, Bake-Jobs und Auslieferungen samt Ziel-Einstellungen. |
 | `tools-schemas.ts` | - | 182 | Die Ausgabeschemas der lesenden Werkzeuge (P3-3, R8). |
 | `tools-support.ts` | - | 291 | The machinery every tool goes through (P3-2 extraction from `tools.ts`): the argument readers, the schema helpers, paging and the shared HTTP calls. |
-| `tools.ts` | 35 | 1403 | Elicitation (E4 slice 2): ask the client for a missing or ambiguous parameter. The server wires this only when the client declared the elicitation capability; declined or unsupported resolves to undefined and the tool's own validation error stands. |
+| `tools.ts` | 29 | 1035 | Elicitation (E4 slice 2): ask the client for a missing or ambiguous parameter. The server wires this only when the client declared the elicitation capability; declined or unsupported resolves to undefined and the tool's own validation error stands. |
 | **Summe** | **109** | | |
 
 ## Die grossen Dateien und warum sie so gross sind
@@ -169,7 +170,6 @@ er laeuft selbst durch `packages` und meldet jede Datei ueber der Schwelle, die 
 | `packages/engine/src/content.ts` | 1703 | Sammlungen, Einträge und ihre Suche in einem Fachgebiet |
 | `packages/editor/src/inspector/model.ts` | 1490 | das Modell des Inspektors |
 | `packages/engine/src/types.ts` | 1479 | die öffentlichen Typen der Engine; keine Logik |
-| `packages/mcp/src/tools.ts` | 1403 | die Werkzeug-Tabelle; ihre Reihenfolge ist der Vertrag (`server.ts` liest `TOOLS.map`), der Manifest-Generator folgt den `...X_TOOLS`-Spreizungen - ein weiterer Schnitt ist möglich und braucht den Manifest-Diff als Beweis |
 | `packages/editor/src/canvas/canvas.ts` | 1336 | die Bühne des Editors |
 | `packages/engine/src/forms.ts` | 1313 | Formulare, Einsendungen und der CSV-Export |
 | `packages/editor/src/state/operations.ts` | 1240 | die Editor-Operationen: ein Dispatcher (`applyEditorMutation`) und je eine Funktion pro Operation, dazu die gemeinsamen Pruefer fuer Katalog, Props, Styles und Motion. Die Pruefer teilen den Katalog und die Fehlerform - sie zu trennen hiesse, den Katalog zweimal zu lesen. Geteilt wird ueber `applyEditorMutation`, geprueft ueber `EditorStore` (`mutations.test.ts`, `history.test.ts`, `save-pipeline.test.ts`) |
@@ -178,6 +178,7 @@ er laeuft selbst durch `packages` und meldet jede Datei ueber der Schwelle, die 
 | `packages/engine/src/mutations/apply.ts` | 1144 | die Mutationen der Engine: ein Dispatcher (`applyOne`) und je eine Funktion pro Operation, dazu die Platzierungspruefer (`assertChildPlacement`, `assertSlotPlacement`, `assertSlotAllowedTypes`). Allen gemeinsam ist der `ApplierState`: der Dispatcher setzt `currentOpIndex`, die Faelle lesen ihn. Ein Schnitt muesste diesen Zustand teilen. Geprueft in `mutations.test.ts`, `transactions.test.ts`, `undo-batch.test.ts` |
 | `packages/engine/src/media.ts` | 1107 | Assets, Ableitungen und Ordner |
 | `packages/engine/src/references-lifecycle.ts` | 1046 | die Referenz-Pipeline: Analyse, Job-Lauf, Snapshot, Playwright-Aufnahme und Anwendung; der Capture-Treiber allein sind 250 Zeilen, und er teilt den Zustand mit dem Job-Lauf |
+| `packages/mcp/src/tools.ts` | 1035 | die Werkzeug-Tabelle; ihre Reihenfolge ist der Vertrag (`server.ts` liest `TOOLS.map`), der Manifest-Generator folgt den `...X_TOOLS`-Spreizungen - ein weiterer Schnitt ist möglich und braucht den Manifest-Diff als Beweis |
 | `packages/renderer/src/bake.ts` | 1021 | der Bake: `bakeSite` haelt Warnungen, Manifest-Seiten, Motion-/Lenis-/Formular-Flags, Island-Arten und benutzte Payload-Ids ueber alle Seiten - genau dieser geteilte Zustand ist der Grund, warum der Bake in einem Durchgang laeuft. Die Helfer (`stageTemplate`, `runAstroBuild`, `writeAeoFiles`, `assertBakeable`) sind bereits eigenstaendig |
 
 ## Der laufende Zuschnitt

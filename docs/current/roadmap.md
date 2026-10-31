@@ -7,8 +7,8 @@
 > `docs/adr/` (Entscheidungen) und `CONTEXT.md` (Fachsprache).
 >
 > **Stand: 31.10.2026.** Basis: `master` (`41edc69`) plus der Branch
-> `arbeit/offene-punkte-2026-10-30`; der jüngste Code-Commit ist `b14d866` (der
-> R12-Schnitt des Filter- und Kopfblocks der Referenzen-Seite, siehe Block 1,
+> `arbeit/offene-punkte-2026-10-30`; der jüngste Code-Commit ist `700dfa5` (die
+> Komponenten-Werkzeuge der MCP-Fassade als eigenes Modul, siehe Block 1,
 > Abschnitt „Gerade erledigt"), die Roadmap selbst wird als Doku-Commit nachgezogen.
 >
 > **Diese Datei enthält keine Testzahlen.** Wo Zahlen stehen, sind es Zeilenlängen von
@@ -82,13 +82,14 @@ Zeilenzahl. Jeder Schnitt braucht einen Beleg, dass die Grenze echt ist.
 | Filter- und Kopfblock der Referenzen-Seite | `app-refs-filter.js` (61 Zeilen: Suchparameter, Stil-Treffer, Fußzeilen- und Kopftexte, Standardfilter), `app-references.js` 378 → 346 | Commit `b14d866`; `app-refs-filter.test.ts` (7 Fälle ohne Browser), `references-browser.test.ts`, `module-form.test.ts`, `doku-konsistenz.test.ts`, `module:check`, `deps:check` |
 | Bühne des Seiten-Editors | `app-editor-canvas.js` (774 Zeilen), `app-editor.js` 1 048 → 290 | committet 30.10.2026; `canvas-view-browser.test.ts`, `canvas-browser.test.ts`, `save-conflict-browser.test.ts` |
 | Veröffentlichungs- und Betriebs-Werkzeuge der MCP-Fassade | `tools-release.ts` (307 Zeilen, 12 Werkzeuge), `tools.ts` 1 671 → 1 403 | Commit `a7f08b2`; `manifest:render` 109 Werkzeuge und leerer Manifest-Diff, `doku-konsistenz.test.ts`, `packages/mcp/test` |
+| Komponenten-Werkzeuge der MCP-Fassade | `tools-komponenten.ts` (394 Zeilen, 6 Werkzeuge: Liste, Einzelnes, Override, Variante, Versionshub, Instanzen nachziehen), `tools.ts` 1 403 → 1 035 | Commit `700dfa5`; `manifest:render` 109 Werkzeuge und leerer Manifest-Diff, `doku-konsistenz.test.ts`, `packages/mcp/test` |
 | Typbruch auf `master` | fehlender `tsconfig`-Pfad `@senify/widget-engine/section-breakpoints` | Commit `5ee1c02`; `pnpm typecheck` war vorher rot |
 
 #### Was noch offen ist — nach Aufwand und Risiko geordnet
 
 | Rang | Datei | Zeilen | Zustand | Nächster Schritt und Bedingung |
 |---|---|---|---|---|
-| 1 | `packages/mcp/src/tools.ts` | 1 403 | `module.md`: „ein weiterer Schnitt ist möglich und braucht den Manifest-Diff als Beweis"; die Release-Gruppe ist am 30.10.2026 herausgezogen | Nächste Werkzeuggruppe herausziehen; **Bedingung:** `pnpm manifest:render` meldet weiter 109 Werkzeuge und `git diff packages/manifest/src/tools.ts` ist leer. Das ist der Beweis, nicht die Zeilenzahl. |
+| 1 | `packages/mcp/src/tools.ts` | 1 035 | `module.md`: „ein weiterer Schnitt ist möglich und braucht den Manifest-Diff als Beweis"; Release- und Komponenten-Gruppe sind herausgezogen (30./31.10.2026), es bleiben die Seiten-, Mutations- und Stil-Werkzeuge | Nächste Werkzeuggruppe herausziehen; **Bedingung:** `pnpm manifest:render` meldet weiter 109 Werkzeuge und `git diff packages/manifest/src/tools.ts` ist leer. Das ist der Beweis, nicht die Zeilenzahl. |
 | 2 | `packages/engine/src/store.ts` | 2 662 | `module.md`: **inhaltlich fertig** — vier fachübergreifende Transaktionen, `replaceTables`, Fassade; 202 von 244 Methoden sind Delegaten (gemessen) | **Kein Schnitt geplant.** Was bleibt, ist die Entscheidung (ADR-0019 Punkt 4). Wer hier schneidet, teilt eine Transaktion. |
 | 3 | `packages/editor/src/inspector/inspector.ts` | 1 884 | `module.md`: eine Closure mit 22 Renderern; `renderFieldRow` allein nennt elf Fremdnamen und zehn Geschwister-Renderer | **Schnitt am 26.10.2026 gemessen und verworfen.** Eine Fabrik mit elf Rückrufen ist eine Verschiebung, keine Naht. Nur mit einer anderen Idee (z. B. Renderer-Registry mit deklarierten Abhängigkeiten) neu bewerten. |
 | 4 | `packages/framer-import/src/capture-html.ts` | 2 768 | `module.md`: CSS-Block am Dateiende wurde als eigener Schnitt **versucht und verworfen** (15 Importe aus der Quelldatei wären keine Senke) | Nur mit einem anderen Zuschnitt (z. B. CSS-Auflösung als eigene Stufe mit klarer Eingabe/Ausgabe) neu bewerten. |
@@ -112,12 +113,15 @@ Zeilenzahl. Jeder Schnitt braucht einen Beleg, dass die Grenze echt ist.
 **vier erzeugt oder reine Typen** und **neun mit einer Messung begründet**. Übrig
 bleiben fünf, die man ehrlich prüfen konnte. Zwei davon sind am 30.10.2026 geschnitten
 worden (`app-references.js` 446 → 378; `tools.ts` 1 671 → 1 403 mit
-`tools-release.ts`). Am 31.10.2026 folgte der Filter- und Kopfblock der
-Referenzen-Seite (378 → 346 mit `app-refs-filter.js`); die Datei steht damit nicht
-mehr im „laufenden Zuschnitt" von `module.md` — was bleibt, ist die Seitenfunktion,
-und die ist die Naht, keine Datei. Offen bleiben `forms.ts`, `media.ts` und `model.ts`; `tools.ts`
-liegt mit 1 403 Zeilen weiter über der Schwelle und bleibt für eine weitere
-Werkzeuggruppe ein Kandidat. Der Rest ist keine Arbeit, die noch ansteht, sondern eine
+`tools-release.ts`). Am 31.10.2026 folgten der Filter- und Kopfblock der
+Referenzen-Seite (378 → 346 mit `app-refs-filter.js`) und die
+Komponenten-Werkzeuge der MCP-Fassade (1 403 → 1 035 mit
+`tools-komponenten.ts`, bewiesen über den leeren Manifest-Diff). Die
+Referenzen-Seite steht damit nicht mehr im „laufenden Zuschnitt" von `module.md` —
+was bleibt, ist die Seitenfunktion, und die ist die Naht, keine Datei. Offen
+bleiben `forms.ts`, `media.ts` und `model.ts`; `tools.ts` liegt mit 1 035 Zeilen
+weiter über der Schwelle und bleibt für eine weitere Werkzeuggruppe ein
+Kandidat. Der Rest ist keine Arbeit, die noch ansteht, sondern eine
 Entscheidung, die steht.
 
 ---
@@ -226,7 +230,7 @@ belegt) und endet mit einem **ausgeführten Gate** aus `docs/fahrplan.md`.
 |---|---|---|---|
 | 1 | ~~Den gestagten `mountCanvasView`-Schnitt committen~~ **erledigt 30.10.2026** | Der Diff war geprüft und blockierte als offener Baum jeden Folgeschritt (DoR 2) | `pnpm lint`, `module:check`, `doku-konsistenz.test.ts`, drei Browser-Suiten |
 | 2 | ~~`app-references.js` weiter teilen (Stil-Guide-Karten, Filter-/Kopfblock)~~ **erledigt 30./31.10.2026** | Kleinster echter Schnitt, hohe Browser-Abdeckung — 446 → 378 → 346 Zeilen | `references-browser.test.ts` (2 Fälle), `app-refs-filter.test.ts` (7), `module-form.test.ts`, `doku-konsistenz.test.ts` |
-| 3 | ~~`tools.ts` um eine Werkzeuggruppe schneiden~~ **erledigt 30.10.2026** | Der Manifest-Diff war der harte, billige Beweis: 12 Release-Werkzeuge nach `tools-release.ts`, 1 671 → 1 403 Zeilen | `manifest:render` (109 Werkzeuge, leerer Diff), `typecheck`, `lint`, `module:check`, `doku-konsistenz.test.ts` |
+| 3 | ~~`tools.ts` um eine Werkzeuggruppe schneiden~~ **erledigt 30./31.10.2026** | Der Manifest-Diff war der harte, billige Beweis: 12 Release-Werkzeuge nach `tools-release.ts` (1 671 → 1 403), dann 6 Komponenten-Werkzeuge nach `tools-komponenten.ts` (1 403 → 1 035) | `manifest:render` (109 Werkzeuge, leerer Diff), `typecheck`, `lint`, `module:check`, `doku-konsistenz.test.ts`, `packages/mcp/test` |
 | 4 | ~~P3-7 Punkt 15 messen (`unifiersofjapan`)~~ **erledigt 31.10.2026** | Der einzige offene Treuepunkt mit unbekannter Ursache ist gemessen | Blindtest 16,98 / 16,34 / 21,26 %, Bandsumme 14,67 %, vier Ursachen benannt; Messprotokoll in `qualitaet.md`, kein Code geändert |
 | 5 | Entscheidung Punkt 1 (Capture-Standard) herbeiführen | Ohne sie bleibt eine Grenze unentschieden statt bewusst | Frage-Dialog, ADR-Nachtrag |
 | 6 | `forms.ts`: CSV-Export als Rechnung herausziehen | Belegbar testbar ohne Browser, echte Naht | Engine-Suite, `forms.test.ts` |
