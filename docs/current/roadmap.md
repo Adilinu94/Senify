@@ -6,7 +6,7 @@
 > (erzeugter Modulbestand), `docs/current/qualitaet.md` (einzige Stelle für Testzahlen),
 > `docs/adr/` (Entscheidungen) und `CONTEXT.md` (Fachsprache).
 >
-> **Stand: 30.10.2026.** Basis: `master` (`41edc69`) plus der Branch
+> **Stand: 31.10.2026.** Basis: `master` (`41edc69`) plus der Branch
 > `arbeit/offene-punkte-2026-10-30`; der jüngste Code-Commit ist `a7f08b2` (der
 > R12-Schnitt der MCP-Fassade, siehe Block 1, Abschnitt „Gerade erledigt"), die
 > Roadmap selbst wird als Doku-Commit nachgezogen.
@@ -191,7 +191,7 @@ aufmacht.**
 | Browser-Gate | geschlossen | `SENIFY_REQUIRE_BROWSER=1` im CI-Job: ohne Chromium wird der Lauf rot statt grün ohne Test |
 | Drift-Tore | geschlossen | `manifest:check`, `route-matrix:check`, `module:check`, `quality:check`, dazu `doku-konsistenz.test.ts` für Risiko-Nummern und Zeilenzahlen |
 | Working-Tree-Hygiene | **geschlossen** | Der vierte R12-Schnitt ist unter `a7f08b2` committet, der Arbeitsbaum ist leer; DoR-Punkt 2 ist damit erfüllt |
-| Alte Branches | aufzuräumen | `refactor/routen-*`, `feat/geraete-sichtbarkeit` (6 vor / 6 hinter `master`), `feat/framer-motion-zeitmassstab`, `fix/framer-import-schriften` (Remote-Zweig gelöscht), `wip/projektanalyse-2026-10-19` — jede Linie ist entweder gemergt oder überholt |
+| Alte Branches | **geschlossen 31.10.2026** | Neun Linien lokal gelöscht: die fünf gemergten (`claude/vitest-4-*`, `docs/framer-import-bauplan-2026-10-21`, `feat/framer-motion-zeitmassstab`, `fix/framer-import-schriften`), die drei überholten Routen-Branches (#133/#135/#136) und `wip/projektanalyse-2026-10-19` (ältere Fassung; `master` hat 682 statt 458 Zeilen). Zwei Linien bleiben bewusst: `refactor/r12-editor-reste` (offener PR #147) und `feat/geraete-sichtbarkeit` (sechs eigene Commits, kein PR, nur lokal) — entgegen der früheren Annahme sind sie weder gemergt noch überholt |
 
 ---
 
