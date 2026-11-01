@@ -39,7 +39,7 @@ describe("sanitizeSvgMarkup", () => {
 
   it("drops what can run or load: scripts, foreign content, images, use and styles — with their content", () => {
     const out = sanitizeSvgMarkup(
-      '<svg viewBox="0 0 8 8"><script>alert(1)</script><style>*{fill:red}</style><foreignObject><div onclick="x()"><path d="M1 1"/></div></foreignObject><image href="https://evil.example/x.png"/><use href="https://evil.example/x.svg#a"/><a href="javascript:alert(1)"><path d="M2 2"/></a><text>Hallo</text><path d="M3 3"/></svg>',
+      '<svg viewBox="0 0 8 8"><script>alert(1)</script><style>*{fill:red}</style><foreignObject><div onclick="x()"><path d="M1 1"/></div></foreignObject><image href="https://evil.example/x.png"/><use href="https://evil.example/x.svg#a"/><a href="javascript:alert(1)"><path d="M2 2"/></a><span>Hallo</span><path d="M3 3"/></svg>',
     );
     expect(out?.html).toBe('<path d="M3 3"></path>');
   });
@@ -132,7 +132,7 @@ describe("sanitizeSvgMarkup", () => {
     expect(style("--a: 1; color: red")).toBe("--a:1");
   });
 
-  it("drops comments, processing instructions and the text between the tags", () => {
+  it("drops comments, processing instructions and text outside a text element", () => {
     const out = sanitizeSvgMarkup(
       '<?xml version="1.0"?><!-- <script>x</script> --><svg viewBox="0 0 8 8">text<!-- <g onclick="x()"> --><path d="M0 0"/>more</svg>',
     );
@@ -142,6 +142,59 @@ describe("sanitizeSvgMarkup", () => {
   it("closes what the input left open and ignores what follows the root", () => {
     const out = sanitizeSvgMarkup('<svg viewBox="0 0 8 8"><g><path d="M0 0"></svg><path d="M9 9"/>');
     expect(out?.html).toBe('<g><path d="M0 0"></path></g>');
+  });
+
+  // The measured badge of `unifiersofjapan`: the words ride on a `<textPath>`
+  // of the graphic's own curve. Until 01.11.2026 the vocabulary had no `<text>`,
+  // so the element was dropped together with its content although the import
+  // had carried it — the badge was empty in the bake (band 600–800, 31,5 %).
+  it("keeps a text on a path of the graphic, with the words and their type", () => {
+    const out = sanitizeSvgMarkup(
+      '<svg viewBox="0 0 100 100" overflow="visible">' +
+        '<path id="curve-wnxkz4" d="M 0 50 L 0 50 A 1 1 0 0 1 100 50 L 0 50" stroke-width="none" fill="transparent"/>' +
+        "<text><textPath href=\"#curve-wnxkz4\" startOffset=\"0\" dominant-baseline=\"Hanging\" " +
+        'style="letter-spacing:0.36em;font-family:&quot;Panchang&quot;, &quot;Panchang Placeholder&quot;, sans-serif; font-size:13px;font-style:normal;font-weight:700;line-height:1em;fill:rgb(255, 255, 255)">' +
+        "SITE OF THE MONTH &#x2726;</textPath></text></svg>",
+    );
+    expect(out?.html).toBe(
+      '<path id="curve-wnxkz4" d="M 0 50 L 0 50 A 1 1 0 0 1 100 50 L 0 50" stroke-width="none" fill="transparent"></path>' +
+        '<text><textPath href="#curve-wnxkz4" startOffset="0" dominant-baseline="Hanging" ' +
+        'style="letter-spacing:0.36em;font-family:&quot;Panchang&quot;, &quot;Panchang Placeholder&quot;, sans-serif;font-size:13px;font-style:normal;font-weight:700;line-height:1em;fill:rgb(255, 255, 255)">' +
+        "SITE OF THE MONTH \u2726</textPath></text>",
+    );
+  });
+
+  it("keeps text as text: no markup, no resource, no script inside a text element", () => {
+    const html = (inner: string): string | undefined =>
+      sanitizeSvgMarkup(`<svg viewBox="0 0 8 8"><text>${inner}</text></svg>`)?.html;
+    // An entity is decoded and escaped again: what is kept stays a character.
+    expect(html("a &lt;b&gt; &amp; c")).toBe("<text>a &lt;b&gt; &amp; c</text>");
+    // Markup inside the text is dropped with its content, the rest of the words stay.
+    expect(html("<script>alert(1)</script>Hallo")).toBe("<text>Hallo</text>");
+    expect(html("<b>fett</b>normal")).toBe("<text>normal</text>");
+    // A textPath only ever points into its own graphic.
+    expect(
+      sanitizeSvgMarkup(
+        '<svg viewBox="0 0 8 8"><textPath href="https://evil.example/x#a">Wort</textPath></svg>',
+      )?.html,
+    ).toBe("<textPath>Wort</textPath>");
+    expect(
+      sanitizeSvgMarkup('<svg viewBox="0 0 8 8"><textPath href="javascript:alert(1)">Wort</textPath></svg>')
+        ?.html,
+    ).toBe("<textPath>Wort</textPath>");
+  });
+
+  it("keeps the type of a text but nothing that loads a resource", () => {
+    const style = (value: string): string | undefined =>
+      sanitizeSvgMarkup(`<svg viewBox="0 0 8 8"><text style="${value}">A</text></svg>`)?.html;
+    expect(style("font-family:&quot;A Alt&quot;, serif;font-size:12px;fill:#fff;position:fixed")).toBe(
+      '<text style="font-family:&quot;A Alt&quot;, serif;font-size:12px;fill:#fff">A</text>',
+    );
+    expect(style("font-family:url(https://evil.example/a.woff)")).toBe("<text>A</text>");
+    expect(style("fill:url(https://evil.example/x.svg#a)")).toBe("<text>A</text>");
+    expect(style("font-style:oblique;font-weight:bold")).toBe(
+      '<text style="font-style:oblique;font-weight:bold">A</text>',
+    );
   });
 
   it("returns nothing for a text that is not an svg", () => {
