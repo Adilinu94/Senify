@@ -55,6 +55,16 @@ Senify ist ein lokales Programm, das Websites baut. Ein Agent (Claude Code, Curs
 pnpm verify
 ```
 
+Das ist das volle Gate (Build, Lint, Paketregeln, Artefakt, alle Tests) — es ist das, was die CI fährt, und dauert entsprechend. Für die Arbeit am Code gibt es zwei schnellere Wege, die **kein Tor ersetzen**:
+
+```bash
+pnpm test:changed   # nur Tests zu uncommitteten Änderungen, ohne Browser-Suiten
+pnpm test:fast      # alle Tests ohne die 39 Browser-Suiten, zwei Worker
+pnpm verify:fast    # Typecheck plus test:fast, vor dem Commit
+```
+
+Die Browser-Suiten (echtes Chromium, Screenshots, Pixelvergleich) laufen bewusst nur im vollen Lauf und in der CI. Wer nur `test:fast` nutzt, hat sie nicht gesehen.
+
 ## Dokumentation
 
 - Fachmodell: [`CONTEXT.md`](CONTEXT.md)

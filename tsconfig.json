@@ -48,6 +48,6 @@
       "@senify/widget-engine/section-breakpoints": ["packages/widget-engine/src/section-breakpoints.ts"]
     }
   },
-  "include": ["packages/*/src", "packages/*/test", "packages/*/*.ts", "vitest.config.ts"],
+  "include": ["packages/*/src", "packages/*/test", "packages/*/*.ts", "vitest.config.ts", "vitest.fast.config.ts"],
   "exclude": ["node_modules", "dist", "Repos"]
 }
