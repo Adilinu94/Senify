@@ -134,7 +134,7 @@
 
 ## MCP: Werkzeug-Module
 
-**9 Dateien.** Die Werkzeuge lagen bis zum 23.10.2026 alle in `tools.ts`;
+**10 Dateien.** Die Werkzeuge lagen bis zum 23.10.2026 alle in `tools.ts`;
 die Uebersicht nennt sie einzeln, weil die Datei sonst wie ein God-File aussieht, das sie nicht mehr ist.
 
 | Modul | Werkzeuge | Zeilen | Zweck |
@@ -146,8 +146,9 @@ die Uebersicht nennt sie einzeln, weil die Datei sonst wie ein God-File aussieht
 | `tools-referenzen.ts` | 31 | 993 | Die einunddreissig Werkzeuge der Referenz- und Design-Arbeit: Referenzen analysieren, sammeln, zuweisen, in Revisionen fuehren, Dokumente und Briefings; Redesign planen und anwenden; das Design-System importieren und den Design-Vertrag lesen. |
 | `tools-release.ts` | 12 | 307 | Die Werkzeuge der Veroeffentlichung und des Betriebs (R12-Schnitt): Vorschau bauen, zur Pruefung einreichen, Rueckmeldung lesen, Release veroeffentlichen, zurueckrollen und lesen, Bake-Jobs und Auslieferungen samt Ziel-Einstellungen. |
 | `tools-schemas.ts` | - | 182 | Die Ausgabeschemas der lesenden Werkzeuge (P3-3, R8). |
+| `tools-stile.ts` | 2 | 252 | Die Stil-Werkzeuge (R12-Schnitt): Stil-Deklarationen auf einen Knoten schreiben und Stil-Regeln anlegen. |
 | `tools-support.ts` | - | 291 | The machinery every tool goes through (P3-2 extraction from `tools.ts`): the argument readers, the schema helpers, paging and the shared HTTP calls. |
-| `tools.ts` | 29 | 1035 | Elicitation (E4 slice 2): ask the client for a missing or ambiguous parameter. The server wires this only when the client declared the elicitation capability; declined or unsupported resolves to undefined and the tool's own validation error stands. |
+| `tools.ts` | 27 | 810 | Elicitation (E4 slice 2): ask the client for a missing or ambiguous parameter. The server wires this only when the client declared the elicitation capability; declined or unsupported resolves to undefined and the tool's own validation error stands. |
 | **Summe** | **109** | | |
 
 ## Die grossen Dateien und warum sie so gross sind
@@ -178,7 +179,6 @@ er laeuft selbst durch `packages` und meldet jede Datei ueber der Schwelle, die 
 | `packages/engine/src/mutations/apply.ts` | 1144 | die Mutationen der Engine: ein Dispatcher (`applyOne`) und je eine Funktion pro Operation, dazu die Platzierungspruefer (`assertChildPlacement`, `assertSlotPlacement`, `assertSlotAllowedTypes`). Allen gemeinsam ist der `ApplierState`: der Dispatcher setzt `currentOpIndex`, die Faelle lesen ihn. Ein Schnitt muesste diesen Zustand teilen. Geprueft in `mutations.test.ts`, `transactions.test.ts`, `undo-batch.test.ts` |
 | `packages/engine/src/media.ts` | 1107 | Assets, Ableitungen und Ordner |
 | `packages/engine/src/references-lifecycle.ts` | 1046 | die Referenz-Pipeline: Analyse, Job-Lauf, Snapshot, Playwright-Aufnahme und Anwendung; der Capture-Treiber allein sind 250 Zeilen, und er teilt den Zustand mit dem Job-Lauf |
-| `packages/mcp/src/tools.ts` | 1035 | die Werkzeug-Tabelle; ihre Reihenfolge ist der Vertrag (`server.ts` liest `TOOLS.map`), der Manifest-Generator folgt den `...X_TOOLS`-Spreizungen - ein weiterer Schnitt ist möglich und braucht den Manifest-Diff als Beweis |
 | `packages/renderer/src/bake.ts` | 1021 | der Bake: `bakeSite` haelt Warnungen, Manifest-Seiten, Motion-/Lenis-/Formular-Flags, Island-Arten und benutzte Payload-Ids ueber alle Seiten - genau dieser geteilte Zustand ist der Grund, warum der Bake in einem Durchgang laeuft. Die Helfer (`stageTemplate`, `runAstroBuild`, `writeAeoFiles`, `assertBakeable`) sind bereits eigenstaendig |
 
 ## Der laufende Zuschnitt
@@ -189,3 +189,4 @@ Naechstes passiert, nicht warum etwas bleibt.
 | Datei | Zeilen | Stand |
 |---|---|---|
 | `packages/engine/src/http-routes-sites.ts` | 270 | 9 Site-Routen; 1 205 → 270 Zeilen über zehn Schnitte. Der Zuschnitt ist an seiner fachlichen Grenze: der Betriebs-Block (Seiten, Audit, Releases, Bake-Jobs, Formulare, Benachrichtigungen, Redesign) wurde gemessen und VERWORFEN - 2 von 6 Importen wandern mit, das ist eine Sammelgruppe |
+| `packages/mcp/src/tools.ts` | 810 | 27 Werkzeuge; 2 714 → 1 671 → 1 403 → 1 035 → 810 Zeilen über sechs Schnitte (Bibliothek, Medien, Referenzen, Veroeffentlichung/Betrieb, Komponenten, Stil). Naechster Schritt: die Seiten- und Mutations-Werkzeuge; der Beweis bleibt der Manifest-Diff (109 Werkzeuge, leerer Diff), nicht die Zeilenzahl |

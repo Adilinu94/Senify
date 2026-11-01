@@ -114,8 +114,6 @@ function routen(pfad) {
 const BLEIBT = {
   "packages/engine/src/store.ts":
     "vier fachübergreifende Transaktionen (`applyRedesignPlan`, `duplicateSiteWithPlan`, `duplicateAssetRecords`, `commitFramerImportPlan`), `replaceTables` und die Fassade; 202 von 244 Methoden sind reine Delegaten (gemessen), der Rest steht in 38 `store-*`-Modulen",
-  "packages/mcp/src/tools.ts":
-    "die Werkzeug-Tabelle; ihre Reihenfolge ist der Vertrag (`server.ts` liest `TOOLS.map`), der Manifest-Generator folgt den `...X_TOOLS`-Spreizungen - ein weiterer Schnitt ist möglich und braucht den Manifest-Diff als Beweis",
   "packages/editor/src/inspector/inspector.ts":
     "eine Closure (`createInspector`), die DOM und Zustand gemeinsam hält. **Gemessen am 26.10.2026:** 22 Renderer, und nur EINER kommt ohne Fremdnamen aus (`renderSwitcher`, 24 Zeilen); alle anderen brauchen `commitProp`, ein Geschwister oder den Zustand. `renderFieldRow` allein nennt elf Fremdnamen (`breakpoint`, `tokenPanelKey`, `apply`, `commitProp`, `toggleVariant`, `removeVariant`, `clearProp`, `clearField`, `commitMotion`, `motionModel`) und zehn Geschwister-Renderer. Eine Fabrik, die elf Rückrufe durchreicht, ist keine Naht, sondern eine Verschiebung mit mehr Parametern: dieselbe Prüfung, mit der die Betriebsgruppe der Routen verworfen wurde",
   "packages/engine/src/content.ts": "Sammlungen, Einträge und ihre Suche in einem Fachgebiet",
@@ -153,6 +151,8 @@ const BLEIBT = {
 const ZUSCHNITT = {
   "packages/engine/src/http-routes-sites.ts":
     "9 Site-Routen; 1 205 → 270 Zeilen über zehn Schnitte. Der Zuschnitt ist an seiner fachlichen Grenze: der Betriebs-Block (Seiten, Audit, Releases, Bake-Jobs, Formulare, Benachrichtigungen, Redesign) wurde gemessen und VERWORFEN - 2 von 6 Importen wandern mit, das ist eine Sammelgruppe",
+  "packages/mcp/src/tools.ts":
+    "27 Werkzeuge; 2 714 → 1 671 → 1 403 → 1 035 → 810 Zeilen über sechs Schnitte (Bibliothek, Medien, Referenzen, Veroeffentlichung/Betrieb, Komponenten, Stil). Naechster Schritt: die Seiten- und Mutations-Werkzeuge; der Beweis bleibt der Manifest-Diff (109 Werkzeuge, leerer Diff), nicht die Zeilenzahl",
 };
 
 // --- Der Bestand ------------------------------------------------------------
