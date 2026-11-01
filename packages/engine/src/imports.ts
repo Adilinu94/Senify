@@ -337,8 +337,11 @@ function fontFileFor(
   weight: number,
 ): string | undefined {
   const wanted = fontFamilyName(family);
+  // A face without a `font-weight` is the regular weight (CSS default 400).
+  // Framer leaves the field empty for F37 Blanka Trial Bold/Medium; reading it
+  // as "no weight" left those families without a file and without a `@font-face`.
   const faces = fonts.filter(
-    (font) => fontFamilyName(font.family) === wanted && font.weight === weight,
+    (font) => fontFamilyName(font.family) === wanted && (font.weight ?? 400) === weight,
   );
   if (faces.length === 0) return undefined;
   const latin = faces.find(

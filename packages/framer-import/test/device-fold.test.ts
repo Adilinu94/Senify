@@ -118,6 +118,43 @@ describe("U1: the copies fold instead of stacking", () => {
     expect(empty).toEqual([]);
   });
 
+  it("reads hidden-<hash> classes on a plain element as its own visibility", () => {
+    // Framer also hides elements WITHOUT an ssr-variant wrapper: the desktop
+    // DOM carries the side rails of unifiersofjapan as
+    // `<div class="framer-…-container hidden-nd6mjh hidden-bc4lxp">`. Read as
+    // ordinary classes they stay visible everywhere and squeeze the section to
+    // 756 px at a 900 px viewport (two 8 % rails), which shrank every card of
+    // the moments gallery from 478 to 334 px.
+    const html = page(
+      `<div class="framer-1rail-container hidden-tab hidden-mob"><div class="framer-1r2">Leiste</div></div>`,
+      BREAKPOINT_CSS,
+    );
+    const document = captureHtml({ html });
+    const findRail = (node: { children: unknown[]; baseClasses: string[] }): unknown => {
+      if (node.baseClasses.includes("framer-1rail-container")) return node;
+      for (const child of node.children) {
+        const found = findRail(child as typeof node);
+        if (found !== undefined) return found;
+      }
+      return undefined;
+    };
+    const rail = findRail(document.pages[0]?.root as never) as { states: { hiddenAt: string[] }[] } | undefined;
+    expect(rail?.states[0]?.hiddenAt.slice().sort()).toEqual(["mob", "tab"]);
+  });
+
+  it("maps a plain hidden element to the one device it stays on", () => {
+    const html = page(
+      `<div class="framer-1rail-container hidden-tab hidden-mob"><div class="framer-1r2">Leiste</div></div>`,
+      BREAKPOINT_CSS,
+    );
+    const document = captureHtml({ html });
+    const normalized = normalize(document, { mode: "fidelity" });
+    const mapped = mapDocument(document, normalized.rules);
+    const railId = mapped.document.nodes["root"]?.children?.[0];
+    const rail = mapped.document.nodes[railId as string] as { hiddenDevices?: string[] };
+    expect(rail?.hiddenDevices?.slice().sort()).toEqual(["mobile", "tablet"]);
+  });
+
   it("does not pass the wrapper's hidden class down to its children", () => {
     // A wrapper hides ONE element per device. Its children belong to that
     // element and inherit nothing: otherwise a tablet-hidden parent makes every

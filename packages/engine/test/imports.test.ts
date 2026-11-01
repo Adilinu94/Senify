@@ -655,6 +655,34 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
       );
       expect(patch.fonts?.body?.files).toBeUndefined();
     });
+
+    // A Framer face without a `font-weight` is the regular weight (CSS default
+    // 400). Reading the empty field as "no weight" dropped F37 Blanka Trial
+    // Bold/Medium from the bake: the page named the family, no `@font-face`
+    // existed, and every card wrapped its heading in the fallback font.
+    it("takes a face without a weight as the regular weight", () => {
+      const patch = fontFilesOf(
+        {
+          fonts: {
+            extra: {
+              anton: { family: "Anton", fallback: ["sans-serif"], weights: [400] },
+            },
+          },
+        },
+        [
+          {
+            family: "Anton",
+            weight: null,
+            style: null,
+            unicodeRange: "U+0000-00FF",
+            files: ["/assets/a/anton-latin.woff2"],
+            hash: "h1",
+            bytes: 10,
+          },
+        ],
+      );
+      expect(patch.fonts?.extra?.anton?.files).toEqual({ "400": "/assets/a/anton-latin.woff2" });
+    });
   });
 
   describe("brand colour in the theme", () => {    const branded = (): string =>

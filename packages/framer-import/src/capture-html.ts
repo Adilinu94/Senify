@@ -461,6 +461,7 @@ function fitTextStyles(fit: RawFitText): Record<string, string> {
     textAlign: "text-align",
     color: "color",
     fontFamily: "font-family",
+    textTransform: "text-transform",
   };
   for (const [name, css] of Object.entries(KEBAB)) {
     const value = fit.inline[name];
@@ -960,6 +961,15 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
     return toIrNode(raw.children[0] ?? raw, counter, both);
   }
   const classes = raw.classes.filter((entry) => !entry.startsWith("framer-v-"));
+  // Framer hides elements without an `ssr-variant` wrapper too: the desktop
+  // DOM of unifiersofjapan carries its side rails as
+  // `<div class="framer-…-container hidden-nd6mjh hidden-bc4lxp">`. Read as
+  // plain classes they stay visible on every device, the two 8 % rails
+  // squeeze the section, and its cards shrink from 478 to 334 px at 900.
+  const ownHidden = raw.classes
+    .filter((entry) => entry.startsWith("hidden-"))
+    .map((entry) => entry.slice("hidden-".length));
+  const hiddenAt = [...new Set([...inheritedHidden, ...ownHidden])];
   const variantHashes = raw.classes
     .filter((entry) => entry.startsWith("framer-v-"))
     .map((entry) => entry.slice("framer-v-".length));
@@ -1052,7 +1062,7 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
 
   states.push({
     device: "desktop",
-    hiddenAt: inheritedHidden,
+    hiddenAt,
     variantHash: variantHashes[0] ?? null,
     visual,
     layout: layoutFull ?? null,
