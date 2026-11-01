@@ -49,6 +49,19 @@ Farbstile), `getNodeXml` für die gewünschte Seite die Seiten-XML. Beide als Da
 | Projekt-XML | die Datei aus `getProjectXml` |
 | Seiten-XML | die Datei aus `getNodeXml` für genau eine Seite |
 | Pfad der Seite im Framer-Projekt | der Pfad, unter dem die Seite im Projekt liegt (Voreinstellung `/`) |
+| Sammlungen (optional) | die Datei aus `getCMSCollections` (JSON oder XML) |
+
+**Sammlungen.** Liefert das Projekt CMS-Sammlungen, liest sie `getCMSCollections`. Die Antwort als Datei gespeichert
+und im Feld „Sammlungen“ gewählt, legt der Import die Sammlungen samt Felddefinitionen **im selben Commit wie die
+Seite** an: Text, langer Text, Rich-Text, Zahl, Ja/Nein, Datum, Auswahl, Adresse, Medium sowie einfache und mehrfache
+Verweise. Jede Sammlung bekommt das eingebaute Titelfeld; ein Verweis zeigt auf die Sammlung, die im selben Abzug
+entsteht. Eine Sammlung, die die Site unter demselben Slug schon hat, bleibt unberührt — der Bericht nennt sie
+„besteht bereits“. Eine Auswahl ohne Optionen, ein Verweis auf eine Sammlung außerhalb des Abzugs und ein Feldtyp,
+den Senify nicht kennt, fallen mit einem Befund weg statt still. **Einträge** werden in diesem Schritt nicht
+übernommen; der Bericht sagt je Sammlung, wie viele es sind. Ehrliche Grenze: Ein Abzug aus einem Projekt **mit**
+Sammlungen wurde nicht gemessen — die beiden Messprojekte hatten keine, das MCP antwortete nur mit seiner
+Format-Doku. Der Parser nimmt die dokumentierte Form an und macht aus allem anderen einen Fehler; der erste echte
+Lauf ist die Abnahme.
 
 Die Checkbox **„Nur für private Nutzung“** muss gesetzt sein. Sie ist keine Formalie: das Unframer-MCP trägt in
 seinem npm-Manifest kein Lizenzfeld, deshalb ist der Weg bis zur schriftlichen Klärung auf private Projekte
@@ -59,11 +72,11 @@ beschränkt. Eine Kundenarbeit wird von der Engine **vor dem Lesen der XML** mit
 ```bash
 senify import framer-project --site <projektId> \
   --project projekt.xml --page startseite.xml --usage private \
-  --project-page / --page-path / --write
+  --project-page / --page-path / --cms sammlungen.json --write
 ```
 
-`--usage` ist Pflicht und akzeptiert nur `private`. Ohne `--write` läuft der Befehl als Probelauf und schreibt
-nichts.
+`--usage` ist Pflicht und akzeptiert nur `private`. `--cms` ist optional; ohne die Datei bleibt der Lauf ein reiner
+Seiten-Import. Ohne `--write` läuft der Befehl als Probelauf und schreibt nichts.
 
 **Was dieser Weg nicht kann.** Die Projekt-XML trägt Struktur und **keine Zeitsteuerung**: Erscheinungs- und
 Übergangs-Effekte stehen dort nicht. Der Bericht nennt das als Befund `motion-absent`; die Laufzeitwirkung bleibt

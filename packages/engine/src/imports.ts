@@ -30,6 +30,7 @@ import {
   type MediaContext,
 } from "./media.ts";
 import { applyPayloadIds, prepareCodePayload } from "./code-payloads.ts";
+import { prepareCmsImport } from "./import-cms.ts";
 import { planImportBreakpoints, type ImportBreakpointsPlan } from "./site-breakpoints.ts";
 import { DEFAULT_BREAKPOINTS } from "@senify/widget-engine/breakpoints";
 import type { CodePayloadLicense, CodePayloadProvenance, PageMeta } from "./types.ts";
@@ -506,6 +507,22 @@ export async function runFramerImportJob(
     ),
   });
 
+  // The CMS answer of a project import (ADR-0028, Block 4). It is site-level,
+  // not page content: the plan is part of the same report, a collection the
+  // site already has under the slug stays untouched, and a schema the parser
+  // cannot read refuses the whole import before anything is written.
+  const cmsText =
+    source.kind === "project" ? input.body.source.project?.cms?.collections : undefined;
+  const cmsPlan =
+    cmsText === undefined
+      ? null
+      : prepareCmsImport({
+          text: cmsText,
+          existing: await store.listCollections(input.siteId, { includeDeprecated: true }),
+        });
+  const cmsCreated = cmsPlan?.collections.length ?? 0;
+  const cmsExisting = (cmsPlan?.report.collections.length ?? 0) - cmsCreated;
+
   const marquee = marqueeCandidates(run.document);
   const reportBase: Omit<
     ImportReport,
@@ -555,6 +572,16 @@ export async function runFramerImportJob(
       ...(breakpointsPlan === null
         ? []
         : [breakpointsFinding(breakpointsPlan, site.breakpoints ?? DEFAULT_BREAKPOINTS)]),
+      ...(cmsPlan === null
+        ? []
+        : cmsPlan.findings.map((finding) => ({
+            kind: finding.kind,
+            nodeKey: null,
+            message: finding.message,
+            evidence: finding.evidence,
+            severity: finding.severity,
+            suggestion: finding.suggestion,
+          }))),
     ],
     marqueeCandidates: marquee.map((candidate) => ({
       nodeKey: candidate.nodeKey,
@@ -578,7 +605,14 @@ export async function runFramerImportJob(
     })),
     ...(run.report.editableShare === undefined ? {} : { editableShare: run.report.editableShare }),
     ...(run.report.capture === undefined ? {} : { capture: run.report.capture }),
-    steps: run.report.steps,
+    ...(cmsPlan === null ? {} : { cms: cmsPlan.report }),
+    steps:
+      cmsPlan === null
+        ? run.report.steps
+        : [
+            ...run.report.steps,
+            `CMS: ${cmsCreated} ${cmsCreated === 1 ? "Sammlung" : "Sammlungen"} im Plan, ${cmsExisting} bereits vorhanden, ${cmsPlan.report.fields.mapped} Felder abgebildet, ${cmsPlan.report.fields.dropped} verworfen`,
+          ],
   };
 
   // The page this path already holds (an import by path replaces its draft).
@@ -631,6 +665,11 @@ export async function runFramerImportJob(
     assets: input.body.assets ?? "upload",
     fonts: input.body.fonts ?? "rewrite",
     applyTheme: input.body.applyTheme === true,
+    // The page and the CMS answer together are the request: an unchanged
+    // answer replays its receipt, a changed one is a new import.
+    ...(cmsText === undefined
+      ? {}
+      : { options: { cms: createHash("sha256").update(cmsText, "utf8").digest("hex") } }),
   });
   const target =
     input.body.pageId !== undefined
@@ -672,6 +711,9 @@ export async function runFramerImportJob(
       // out for the default (`planImportBreakpoints`); the commit writes them in
       // the same transaction as the page, so a failed import sets nothing.
       breakpoints: breakpointsPlan?.outcome === "set" ? breakpointsPlan.derived : null,
+      // The CMS collections are written in the same transaction as the page: an
+      // import that fails leaves neither a page nor a half schema behind.
+      collections: cmsPlan?.collections ?? [],
       report: reportBase,
     });
     return {

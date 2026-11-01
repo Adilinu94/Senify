@@ -129,6 +129,15 @@ export {
 } from "./unframer-ir.ts";
 
 export {
+  readCmsCollections,
+  type CmsCollectionPlan,
+  type CmsFieldPlan,
+  type CmsFieldType,
+  type CmsFinding,
+  type CmsPlan,
+} from "./cms.ts";
+
+export {
   compareRuns,
   irHashOf,
   marqueeCandidates,

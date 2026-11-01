@@ -428,6 +428,10 @@ export function createProgram(): Command {
       "Nutzung des Imports; der Unframer-Pfad ist nur fuer private freigegeben",
     )
     .option("--project-page <pfad>", "Pfad der Seite im Framer-Projekt", "/")
+    .option(
+      "--cms <datei>",
+      "Sammlungen als Datei aus getCMSCollections (JSON oder XML, optional)",
+    )
     .option("--page-path <path>", "Zielpfad der Seite in Senify", "/")
     .option("--write", "Ergebnis als eine Revision schreiben (Default: Dry-Run)")
     .option("--page-id <pageId>", "In diese bestehende Seite schreiben statt neue anzulegen")
@@ -466,6 +470,9 @@ export function createProgram(): Command {
             pageXml: readFileSync(String(options.page), "utf8"),
             page: String(options.projectPage),
             usage: "private",
+            ...(options.cms === undefined
+              ? {}
+              : { cms: { collections: readFileSync(String(options.cms), "utf8") } }),
           },
         },
         pagePath: String(options.pagePath),
@@ -484,6 +491,10 @@ export function createProgram(): Command {
           counts: { nodes: number; mapped: number; placeholders: number };
           declarations: { total: number; carried: number; dropped: number };
           assets: { downloaded: number; deduped: number; failed: number; fonts: number };
+          cms?: {
+            collections: { name: string; slug: string; fields: number; outcome: string }[];
+            fields: { mapped: number; dropped: number };
+          };
           findings: { kind: string; severity: string; message: string }[];
           steps: string[];
           pageId: string | null;
@@ -502,6 +513,13 @@ export function createProgram(): Command {
         `Knoten: ${report.counts.mapped}/${report.counts.nodes} · Deklarationen: ${report.declarations.carried}/${report.declarations.total} (gedroppt ${report.declarations.dropped})`,
       );
       console.log(`IR-Hash: ${report.irHash}`);
+      if (report.cms !== undefined) {
+        for (const collection of report.cms.collections) {
+          console.log(
+            `CMS: ${collection.name} (/${collection.slug}) — ${collection.fields} Felder, ${collection.outcome === "create" ? "wird angelegt" : "besteht bereits"}`,
+          );
+        }
+      }
       if (write) {
         console.log(
           `Seite: ${report.pageId ?? "-"} (Draft-Version ${report.newDraftVersion ?? "-"})`,

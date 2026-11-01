@@ -26,7 +26,7 @@ ist **keine fehlende Funktion mehr, sondern Restarbeit in drei Sorten**: (a) dre
 Dateien und eine Handvoll mittlere, die noch zu groß sind, ohne dass ein Schnitt sie
 nachweislich verbessert; (b) zwei Fälle im Framer-Import, die teils an einer
 Eigenschaft der Quelle hängen und teils eine eigene Messung brauchen; (c) Produktumfang:
-das CMS-Mapping wartet auf die am 01.11.2026 entschiedene Unframer-Quelle, Lokalisierung
+das CMS-Mapping ist seit 01.11.2026 für das Schema umgesetzt (Einträge offen), Lokalisierung
 und Code-Sections sind offen; der menschliche E2E-Weg durch die Baustein-Bibliothek ist
 seit 31.10.2026 belegt. Die CI ist dabei enger geworden: `verify.yml` läuft seit 16.10.2026 auch bei Pushes auf `master`, ein roter Direkt-Push bleibt also nicht mehr unbemerkt.
 
@@ -198,7 +198,23 @@ geklärt ist.
    Projekt-Fall in `framer-import-browser.test.ts`, `cli.test.ts`; die
    Anleitung steht in `packages/docs-portal/content/docs/framer-import.md`.
 4. CMS-Mapping als erster Punkt von Block 4 auf dieser Grundlage.
-   *offen.*
+   **Umgesetzt (01.11.2026):** `getCMSCollections` wird von einem Parser
+   gelesen, der die dokumentierte Form als JSON wie XML nimmt und alles
+   andere als Fehler behandelt. Die Engine bildet Sammlungen und
+   Felddefinitionen auf das Senify-Schema ab (eingebautes Titelfeld,
+   Options-Listen, Medienart, aufgelöste Verweise), legt sie im selben
+   Commit wie die Seite an und lässt eine Sammlung, die die Site unter dem
+   selben Slug schon hat, unberührt; ein Feld, das Senify nicht halten
+   kann, fällt mit einem Fund weg, Einträge werden gemeldet statt
+   übernommen. Der Bericht trägt einen `cms`-Abschnitt und eine
+   Schritt-Zeile, die CMS-Antwort ist Teil des Idempotenz-Schlüssels.
+   Dialog und CLI haben das optionale Feld `--cms`. Belege:
+   `cms.test.ts`, `imports-cms.test.ts`, der Projekt-Fall in
+   `framer-import-browser.test.ts`; die Anleitung steht in
+   `packages/docs-portal/content/docs/framer-import.md`. Ehrliche Grenze:
+   ein Abzug aus einem Projekt **mit** Sammlungen wurde nicht gemessen —
+   die beiden Messprojekte hatten keine; der erste echte Lauf ist die
+   Abnahme.
 
 ---
 
@@ -209,7 +225,7 @@ Einzel- und Sammelimport) — die frühere Einordnung „geplant" war falsch. Of
 
 | Thema | Zustand | Was es braucht |
 |---|---|---|
-| CMS-Mapping | offen, Quelle entschieden | Framer-Collections auf Senify-Collections abbilden; der Unframer-MCP ist seit 01.11.2026 die Quelle (ADR-0028), die Abbildung ist eigene Arbeit |
+| CMS-Mapping | **Schema umgesetzt (01.11.2026), Einträge offen** | Sammlungen samt Felddefinitionen entstehen im selben Commit wie die Seite; als nächster Schritt Einträge über `getCMSItems` samt Bildfeldern und Duplikatregel |
 | Lokalisierung | offen | Mehrsprachige Framer-Projekte auf getrennte Seiten/Sprachen abbilden; berührt Routing und `lang` |
 | Code-Sections | offen | Framer-Code-Komponenten als eigene Senify-Sections; heute gibt es den Befund `code-component` statt einer Section |
 
@@ -252,10 +268,10 @@ aufmacht.**
 Block 1 (R12)  ──  unabhängig, jeder Schnitt ist ein eigener Commit
 Block 2 (P3-7) ──  Punkt 15 ist gemessen (31.10.2026); die vier Ursachen stehen in `qualitaet.md`
                    Punkt 1 ist entschieden und umgesetzt (Browser-Standard, ADR-0027)
-Block 3 (S3b/S4) ─ entschieden (ADR-0028): Unframer wird die zweite Quelle; die Umsetzung
-                   (Client, Mapper, Dialog-Pfad) ist eine eigene Strecke
-Block 4 (S9)   ──  CMS/Lokalisierung bauen auf der entschiedenen Quelle auf; Code-Sections
-                   brauchen den Projekt-Weg ebenfalls
+Block 3 (S3b/S4) ─ entschieden (ADR-0028): Unframer wird die zweite Quelle; Client, Mapper,
+                   Dialog-/CLI-Pfad und CMS-Schema sind umgesetzt
+Block 4 (S9)   ──  CMS-Schema steht; Einträge, Lokalisierung und Code-Sections bauen auf
+                   der entschiedenen Quelle auf
 Block 5 (S5/S7) ──  S7 braucht keinen Vorbau, ist reine UI-Arbeit
 Block 7 (Prozess) ── Voraussetzung für alles: ohne sauberen Baum kein DoR
 ```
@@ -284,6 +300,7 @@ belegt) und endet mit einem **ausgeführten Gate** aus `docs/fahrplan.md`.
 | 7 | ~~S7: menschlicher E2E-Weg der Bibliothek~~ **erledigt 31.10.2026** | Größter Produktnutzen ohne Produktentscheidung | `library-browser.test.ts` (1 Fall, 11,1 s) über den ganzen Weg in Chromium |
 | 8 | ~~Punkt 13: CSS-Bildadressen der Quelle umschreiben~~ **erledigt 31.10.2026** | Schließt eine benannte Lücke der Runtime-Payload | `assets.test.ts` (13), `capture.test.ts` (16), `runtime-payload.test.ts` (16) |
 | 9 | ~~Entscheidung Block 3 (Unframer als zweite Quelle)~~ **erledigt 01.11.2026** | Öffnet Block 4 (CMS); entschieden: Unframer wird die zweite Quelle | Frage-Dialog (Antwort „Unframer jetzt bauen"), ADR-0028, ADR-Index auf 0029 nachgezogen |
+| 10 | ~~Unframer-Schritte 1–3 (Client, XML→IR, Dialog/CLI) und Schritt 4 (CMS-Schema)~~ **erledigt 01.11.2026** | Die entschiedene Quelle bekommt einen begehbaren Pfad und den ersten Block-4-Punkt | `unframer-client.test.ts`, `unframer-ir.test.ts`, `imports-project.test.ts`, `import-project.test.ts`, `cms.test.ts`, `imports-cms.test.ts`, Projekt-Fall in `framer-import-browser.test.ts`, `cli.test.ts`; `typecheck`, `lint`, `module:check` |
 
 **Nicht in dieser Liste:** `store.ts`, `inspector.ts`, `capture-html.ts`, `mapper.ts`,
 `bake.ts`, `motion.ts`, `apply.ts`, `lifecycle.ts`, `operations.ts` — sie stehen mit

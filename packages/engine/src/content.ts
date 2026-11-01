@@ -91,7 +91,7 @@ const CELL_SCHEMAS: Record<FieldType, TSchema> = {
   repeater: Type.Array(REPEATER_ITEM_SCHEMA),
 };
 
-const BUILTIN_TITLE_FIELD: FieldDef = {
+export const BUILTIN_TITLE_FIELD: FieldDef = {
   id: "title",
   key: "title",
   label: "Titel",

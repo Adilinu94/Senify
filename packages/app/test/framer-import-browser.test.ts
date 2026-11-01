@@ -139,6 +139,23 @@ describe.skipIf(!browserAvailable)("Framer import dialog", () => {
     const pageFile = join(dataDir, "page-home.xml");
     writeFileSync(projectFile, projectXml, "utf8");
     writeFileSync(pageFile, pageXml, "utf8");
+    // Die Sammlungen sind ein optionaler dritter Teil: ohne Datei bleibt der
+    // Lauf ein reiner Seiten-Import, mit Datei entstehen sie im selben Commit.
+    const cmsFile = join(dataDir, "collections.json");
+    writeFileSync(
+      cmsFile,
+      JSON.stringify([
+        {
+          id: "col-blog",
+          name: "Blog",
+          fields: [
+            { id: "f-title", name: "Titel", type: "string" },
+            { id: "f-body", name: "Text", type: "string", multiline: true },
+          ],
+        },
+      ]),
+      "utf8",
+    );
     const browser = await chromium.launch({ headless: true });
     const pageErrors: string[] = [];
     try {
@@ -172,6 +189,9 @@ describe.skipIf(!browserAvailable)("Framer import dialog", () => {
       expect(await tab.locator('[data-action="framer-import-preview"]').isHidden()).toBe(true);
       await tab.setInputFiles('[data-role="framer-project-xml"]', projectFile);
       await tab.setInputFiles('[data-role="framer-page-xml"]', pageFile);
+      // Die Sammlungsdatei ist optional und nur im Projekt-Modus sichtbar.
+      expect(await tab.locator('[data-role="framer-cms-row"]').isVisible()).toBe(true);
+      await tab.setInputFiles('[data-role="framer-cms-collections"]', cmsFile);
 
       // Without the confirmation nothing leaves the dialog.
       await tab.locator('[data-role="framer-import-dialog"] button[type="submit"]').click();
@@ -191,6 +211,10 @@ describe.skipIf(!browserAvailable)("Framer import dialog", () => {
       const reportText = await tab.locator('[data-role="framer-import-report"]').textContent();
       expect(reportText).toContain("Framer-Projekt-XML");
       expect(reportText).toContain("motion-absent");
+      // Der Bericht nennt die Sammlung samt Ausgang, bevor geschrieben wird.
+      expect(await tab.locator('[data-role="framer-report-cms"]').textContent()).toContain(
+        "Blog (wird angelegt, 2 Felder)",
+      );
       // The project is one page: no "Weitere Seiten" offer.
       expect(await tab.locator('[data-role="framer-site-pages"]').isHidden()).toBe(true);
 
@@ -210,6 +234,17 @@ describe.skipIf(!browserAvailable)("Framer import dialog", () => {
       expect(
         Object.values(draft.draft.nodes).some((node) => node.props?.text === "Hallo aus dem Projekt"),
       ).toBe(true);
+      // Die Sammlung ist mit demselben Commit entstanden; das Titelfeld steht
+      // vorne, der mehrzeilige String wurde zum langen Text.
+      const collections = (await (
+        await fetch(`${running.dashboardUrl}/api/sites/${site.id}/collections`)
+      ).json()) as { collections: { slug: string; fields: { key: string; type: string }[] }[] };
+      const blog = collections.collections.find((collection) => collection.slug === "blog");
+      expect(blog?.fields.map((field) => [field.key, field.type])).toEqual([
+        ["title", "text"],
+        ["titel", "text"],
+        ["text", "longText"],
+      ]);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();

@@ -121,12 +121,14 @@ import {
   mapPage,
 } from "./store-page-mappers.ts";
 import {
+  isUniqueViolation,
   slugify,
   toFiniteNumber,
   toIso,
   toJson,
   toJsonParam,
 } from "./store-row-utils.ts";
+import type { PreparedCmsCollection } from "./import-cms.ts";
 import {
   LibraryRepository,
   type LibraryCreateInput,
@@ -305,6 +307,10 @@ export type FramerImportCommitPlan = {
   // The breakpoint pair of the source (ADR-0020) when the import is to set it
   // for the site; `null` leaves the site's pair as it is.
   breakpoints?: Breakpoints | null;
+  // The CMS collections the import creates (ADR-0028, Block 4). Collections
+  // the site already had under the slug never appear here: the plan only
+  // carries what it writes, and it writes in this transaction.
+  collections?: readonly PreparedCmsCollection[];
   report: Omit<
     ImportReport,
     "pageId" | "newDraftVersion" | "receiptId" | "replayed"
@@ -2183,6 +2189,48 @@ export class Store {
         );
       }
 
+      // The CMS collections of a project import (ADR-0028, Block 4). The plan
+      // already left out the slugs the site had when the request was read;
+      // one that appeared since is a conflict instead of a second schema.
+      for (const collection of plan.collections ?? []) {
+        try {
+          await tx.query(
+            `INSERT INTO collections
+               (id, site_id, name, slug, fields, title_field, date_field, url_pattern,
+                supports, list_columns, description, deprecated_at, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)`,
+            [
+              collection.id,
+              plan.siteId,
+              collection.name,
+              collection.slug,
+              toJsonParam(collection.fields),
+              collection.titleField,
+              null,
+              null,
+              toJsonParam(collection.supports),
+              toJsonParam(collection.listColumns),
+              null,
+              null,
+              now,
+            ],
+          );
+        } catch (error) {
+          if (isUniqueViolation(error)) {
+            throw new SenifyError(
+              "conflict",
+              `Die Sammlung "${collection.slug}" wurde inzwischen auf dieser Site angelegt`,
+              {
+                field: "source.project.cms.collections",
+                suggestion:
+                  "Import erneut analysieren: der Bericht zeigt die vorhandene Sammlung dann als bestehend.",
+              },
+            );
+          }
+          throw error;
+        }
+      }
+
       const styleSite = await tx.query<StyleRuleRow>(
         `SELECT style_rules_json, style_rules_version FROM sites WHERE id = $1 FOR UPDATE`,
         [plan.siteId],
@@ -2306,6 +2354,26 @@ export class Store {
           author: plan.author,
           undoPatch: [],
           draftVersionAfter: nextStyleVersion,
+        });
+      }
+      if ((plan.collections ?? []).length > 0) {
+        auditEntries.push({
+          siteId: plan.siteId,
+          pageId: null,
+          batchId,
+          opIndex: auditEntries.length,
+          mutation: "importFramerCollections",
+          params: {
+            collections: (plan.collections ?? []).map((collection) => ({
+              name: collection.name,
+              slug: collection.slug,
+              fields: collection.fields.length,
+            })),
+            receiptKey: plan.contentKey,
+          },
+          author: plan.author,
+          undoPatch: [],
+          draftVersionAfter: 0,
         });
       }
       if (plan.themePatch !== null) {

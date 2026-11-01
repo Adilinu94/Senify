@@ -28,6 +28,13 @@ export const ImportSourceSchema = Type.Object(
           pageXml: Type.String(),
           page: Type.Optional(Type.String({ maxLength: 512 })),
           usage: Type.Union([Type.Literal("private"), Type.Literal("customer")]),
+          // The answer of `getCMSCollections` (ADR-0028, Block 4), verbatim:
+          // JSON or XML, both are read. Collections and their field schemas
+          // are mapped; entries are not (the report names them). A collection
+          // whose slug the site already has stays untouched.
+          cms: Type.Optional(
+            Type.Object({ collections: Type.String() }, CLOSED),
+          ),
         },
         CLOSED,
       ),
@@ -213,6 +220,29 @@ export const ImportReportSchema = Type.Object(
         path: Type.Union([Type.Literal("static"), Type.Literal("browser")]),
         fallbackReason: Type.Optional(Type.String()),
       }),
+    ),
+    // The CMS plan of a project import (ADR-0028, Block 4): one entry per
+    // collection of the getCMSCollections answer and what the run does with
+    // it. `create` writes the collection with this import, `existing` leaves
+    // the collection the site already has under that slug untouched. `fields`
+    // counts the fields the mapping can carry per collection; the totals
+    // count that mapping over the whole answer (a dropped field is a schema
+    // gap, not lost data). Entries are not part of this step.
+    cms: Type.Optional(
+      Type.Object(
+        {
+          collections: Type.Array(
+            Type.Object({
+              name: Type.String(),
+              slug: Type.String(),
+              fields: Type.Number(),
+              outcome: Type.Union([Type.Literal("create"), Type.Literal("existing")]),
+            }),
+          ),
+          fields: Type.Object({ mapped: Type.Number(), dropped: Type.Number() }),
+        },
+        CLOSED,
+      ),
     ),
     steps: Type.Array(Type.String()),
   },
