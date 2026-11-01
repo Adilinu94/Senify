@@ -305,17 +305,19 @@ export default defineConfig({
         // in `tools.ts` und war dort von denselben Workflow-Tests gedeckt; hier
         // misst der Waechter `coverage-gate.test.ts` ihn einzeln.
         //
-        // Gemessen am 26.10.2026: 88,33 / 61,36 / 100 / 94,97. Die Schwelle
-        // liegt knapp darunter und ist ein Rueckfallschutz, keine Zielmarke:
-        // die Zweige sind die optionalen Felder der Eingabeschemas, die ein
-        // Aufruf auch mal weglaesst. Die Zeilen sind bei 95, weil jede
-        // Handler-Zeile von mindestens einem Test beruehrt wird - ein
-        // Rueckgang darunter hiesse, ein Werkzeug ist nicht mehr erreichbar.
+        // Gemessen am 31.10.2026 (`tools-referenzen.test.ts`, 31 Faelle):
+        // 100 / 100 / 100 / 100. Der Sprung kommt von genau diesem Test: die
+        // Workflow-Tests fahren den gluecklichen Weg mit echten Daten, die
+        // 96 offenen Zweige waren die optionalen Felder und die
+        // Validierungsfehler, die ein Aufruf auch mal weglaesst. `tools.ts`
+        // war vor dem Schnitt nicht besser gedeckt - die Zweige fielen nur
+        // nicht auf, weil die Datei keine eigene Schwelle hatte. Die Schwelle
+        // steht knapp darunter als Rueckfallschutz, nicht als Zielmarke.
         "packages/mcp/src/tools-referenzen.ts": {
-          statements: 85,
-          branches: 55,
-          functions: 95,
-          lines: 92,
+          statements: 95,
+          branches: 90,
+          functions: 100,
+          lines: 95,
         },
         // Die Veroeffentlichungs- und Betriebs-Werkzeuge (R12, Commit
         // `a7f08b2`). Sie sassen in `tools.ts` und waren dort von denselben
