@@ -1036,19 +1036,52 @@ function liftTypographyOf(
     if (values["fontFamily"] === undefined) return values;
     return { ...values, fontFamily: themeFontOf(values["fontFamily"], context.fontSlots) };
   };
-  const sourceBase = withSlot(
-    cssToStyle(Object.assign({}, ...merged.map((entry) => typographyOf(entry.base.visual)))),
-  );
+  // The typography of the elements on the way down, flattened — with one
+  // exception. Framer fills a word with a clipped background (`background: …
+  // text <farbe>`) and writes `color: transparent` for it. The lift carries
+  // the typography, not the fill: alone, the transparent colour hides the word
+  // (measured on `unifiersofjapan`: “strategy” was invisible in the import,
+  // its source shows it red). The nearest colour the source names on the way
+  // down paints instead; without one the declaration is dropped and the text
+  // inherits.
+  const typographyOn = (device: "base" | "tablet" | "mobile"): Record<string, string | undefined> => {
+    const layers = merged.map((entry) =>
+      typographyOf((device === "base" ? entry.base : (entry[device] ?? entry.base)).visual),
+    );
+    const visual: Record<string, string | undefined> = Object.assign({}, ...layers);
+    for (const property of ["color", "WebkitTextFillColor"]) {
+      if (!isTransparentTextColor(visual[property])) continue;
+      const fallback = [...layers]
+        .reverse()
+        .find((layer) => !isTransparentTextColor(layer[property]))?.[property];
+      if (fallback === undefined) delete visual[property];
+      else visual[property] = fallback;
+    }
+    return visual;
+  };
+  const sourceBase = withSlot(cssToStyle(typographyOn("base")));
   Object.assign(props, sourceBase);
   const effectiveOn = (device: "tablet" | "mobile"): Record<string, string> =>
-    withSlot(
-      cssToStyle(Object.assign({}, ...merged.map((entry) => typographyOf((entry[device] ?? entry.base).visual)))),
-    );
+    withSlot(cssToStyle(typographyOn(device)));
   const tabletType = diffValues(sourceBase, effectiveOn("tablet"));
   for (const [property, value] of Object.entries(tabletType)) props[`${property}_tablet`] = value;
   for (const [property, value] of Object.entries(mobileOverrides(sourceBase, tabletType, effectiveOn("mobile")))) {
     props[`${property}_mobile`] = value;
   }
+}
+
+// A text colour that paints nothing: `transparent`, or an alpha of zero in the
+// rgba/hsla spellings (comma or slash separated).
+function isTransparentTextColor(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "transparent") return true;
+  const argumentsOf = /^(?:rgba|hsla)\(([^)]*)\)$/.exec(normalized)?.[1];
+  if (argumentsOf === undefined) return false;
+  const slash = argumentsOf.includes("/") ? argumentsOf.split("/")[1]?.trim() : undefined;
+  const comma = argumentsOf.split(",", 4);
+  const alpha = slash ?? (comma.length === 4 ? comma[3]?.trim() : undefined);
+  return alpha !== undefined && Number.parseFloat(alpha) === 0;
 }
 
 function cssToStyle(visual: { [key: string]: string | undefined }): Record<string, string> {

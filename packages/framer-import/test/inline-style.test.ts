@@ -115,3 +115,26 @@ describe("der Startzustand eines Effekts", () => {
     expect(inner).toContain("blur(4px)");
   });
 });
+
+describe("eine Textfuellung, die der Import nicht traegt", () => {
+  it("laesst das Wort nicht unsichtbar zurueck (transparente Farbe ohne Fuellung)", () => {
+    // Framer malt ein Wort mit `background: … text <farbe>` — ein auf die
+    // Buchstaben beschnittenes Hintergrundbild — und setzt dafuer
+    // `color: transparent`. Der Import traegt die Typografie, aber keine
+    // background-clip-Fuellung; die transparente Farbe allein macht das Wort
+    // unsichtbar (gemessen an `unifiersofjapan`: „strategy" fehlte im Import
+    // ganz, die Quelle zeigt es rot). Ohne Fuellung gilt die Farbe, die die
+    // Quelle fuer ihren Text nennt.
+    const html = `<html><body><div id="main"><div data-framer-component-type="RichTextContainer">
+      <h1 style="color:rgb(228, 0, 56);--framer-font-size:260px"><div style="display:inline-block;background:-100% 0% / 200% 100% text rgb(228, 0, 56);color:transparent;white-space:pre-wrap">strategy</div></h1>
+      </div></div></body></html>`;
+    const document = captureHtml({ html });
+    const normalized = normalize(document);
+    const mapped = mapDocument(document, normalized.rules);
+    const colors = Object.values(mapped.document.nodes)
+      .filter((node) => node.primitive === "body" || node.primitive === "heading" || node.primitive === "text")
+      .map((node) => String(node.props["color"] ?? ""));
+    expect(colors).not.toContain("transparent");
+    expect(colors.some((color) => color.includes("rgb(228, 0, 56)"))).toBe(true);
+  });
+});

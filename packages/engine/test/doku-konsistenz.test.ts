@@ -267,7 +267,9 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     // 57 seit dem 26.10.2026: der fremde Commit 7a5b838 (Browser-Abgriff der
     // Animationen) hat drei Funktionen ergaenzt. Der Waechter hat es sofort
     // gemeldet - genau dafuer steht er hier. Der Bericht nennt dieselbe Zahl.
-    expect(funktionen(mapper), "mapper.ts hat eine andere Zahl Funktionen").toBe(57);
+    // 58 seit dem 01.11.2026: Punkt 15, Ursache 2 (die transparente
+    // Textfuellung) hat `isTransparentTextColor` ergaenzt.
+    expect(funktionen(mapper), "mapper.ts hat eine andere Zahl Funktionen").toBe(58);
 
     // Der CSS-Block wird ueber ANKER geprueft, nicht ueber Zeilennummern.
     //
@@ -287,7 +289,7 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
 
     // Und die Begruendung muss die Zahlen tragen, die sie behauptet.
     expect(module).toContain("(21 Funktionen)");
-    expect(module).toContain("57 Funktionen");
+    expect(module).toContain("58 Funktionen");
     // `mapNode` ist mit der Datei gewachsen (289 -> 336).
     expect(module).toContain("336 Zeilen");
   });
