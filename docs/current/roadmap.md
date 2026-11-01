@@ -137,7 +137,7 @@ zwei Punkte und eine Grenze.
 
 | Punkt | Zustand | Was fehlt / was es bräuchte |
 |---|---|---|
-| **15 — `unifiersofjapan` über 20 %** | **gemessen 31.10.2026, weiter offen** — das Badge ist seit 01.11.2026 behoben, drei Ursachen bleiben. Auf dem Struktur-Baum 16,98 / 16,34 / 21,26 %; auf dem Release-Pfad (mit Original-Runtime) 1,05 / 2,15 / 2,03 %, alle Höhen exakt | Vier belegte Ursachen: Fit-Text mit dem Faktor 1,3345 (Höhe 923,4 statt 253,2 px, Verschiebung +670,2 px), fehlende 10°-Drehung (weder im SSR noch im IR), ein beim Backen verlorenes Badge (Icon-Sanitizer; **behoben 01.11.2026**, `svg-markup.test.ts` 18/18, am gesicherten SSR belegt), versetzte Papiertextur. Die leeren Karten im Band 3950–4450 sind Lottie-Laufzeitinhalt (SSR 0×). Protokoll in `docs/current/qualitaet.md`; der Grid-Zweig ist verworfen. |
+| **15 — `unifiersofjapan` über 20 %** | **gemessen 31.10.2026, weiter offen** — Badge und Fit-Text sind seit 01.11.2026 behoben, zwei Ursachen bleiben. Auf dem Struktur-Baum 16,98 / 16,34 / 21,26 % (31.10.2026); A/B am 01.11.2026 15,61 / 18,22 / 27,46 % → **11,48 / 16,02 / 27,09 %**; auf dem Release-Pfad (mit Original-Runtime) 1,05 / 2,15 / 2,03 %, alle Höhen exakt | Vier belegte Ursachen: Fit-Text mit dem Faktor 1,3345 (Höhe 923,4 statt 253,2 px, Verschiebung +670,2 px; **behoben 01.11.2026**, `fit-text-box.test.ts` 3/3, `oda` trifft die Quellhöhe), fehlende 10°-Drehung (weder im SSR noch im IR), ein beim Backen verlorenes Badge (Icon-Sanitizer; **behoben 01.11.2026**, `svg-markup.test.ts` 18/18, am gesicherten SSR belegt), versetzte Papiertextur. Die leeren Karten im Band 3950–4450 sind Lottie-Laufzeitinhalt (SSR 0×). Protokoll in `docs/current/qualitaet.md`; der Grid-Zweig ist verworfen. |
 | **1 — Sterne der Bewertung** | **geschlossen 31.10.2026 (ADR-0027).** Der Browser-Capture ist der Standard für URL-Importe und fällt ohne funktionierenden Browser auf das SSR-HTML zurück — mit Fund `capture-fallback`, `report.capture` und dem Grund im ersten Berichtsschritt; `capture: "static"` bleibt wählbar, `capture: "browser"` ist strikt | Die Grenze der Quelle ist damit nicht weg, aber bewusst überwunden: derselbe Lauf holt die Sterne (5 statt 0, live gemessen) und die Gerätevarianten der anderen Builds (auf `rare-works` sonst 2 680 px zu kurz auf dem Handy). Beleg: `import-browser-capture.test.ts` (4 Fälle) |
 | **Punkt 13 — CSS-Bildadressen** | **geschlossen 31.10.2026.** Drei Lücken geschlossen: Bilder, die nur eine Klassenregel nennt, kommen in die Asset-Liste; `rewriteVisual` schreibt sie in Knotenstil und Interaktionen um; die eingebetteten Stylesheets laufen durch `rewriteCss`. Beleg: `assets.test.ts` (13), `capture.test.ts` (16), `runtime-payload.test.ts` (16) | Eine Asset-**Eintragung** behält die Quelladresse als Herkunft — nur Seitenwerte und Payload werden umgeschrieben. Das ist Absicht, nicht Rest |
 | **Restabweichung** | Rasterung + Framer-Werbe-Badge | `docs/agents/framer-import-restabweichung.md`: die Boxen liegen auf dem Pixel, die Höhen sind gleich. Wer die Zahl drücken will, maskiert den **Vergleich**, nicht den Import. |
@@ -266,8 +266,8 @@ aufmacht.**
 
 ```
 Block 1 (R12)  ──  unabhängig, jeder Schnitt ist ein eigener Commit
-Block 2 (P3-7) ──  Punkt 15 ist gemessen (31.10.2026); von den vier Ursachen ist das Badge
-                   behoben (01.11.2026), die übrigen drei stehen in `qualitaet.md`
+Block 2 (P3-7) ──  Punkt 15 ist gemessen (31.10.2026); von den vier Ursachen sind Badge und
+                   Fit-Text behoben (01.11.2026), die übrigen zwei stehen in `qualitaet.md`
                    Punkt 1 ist entschieden und umgesetzt (Browser-Standard, ADR-0027)
 Block 3 (S3b/S4) ─ entschieden (ADR-0028): Unframer wird die zweite Quelle; Client, Mapper,
                    Dialog-/CLI-Pfad und CMS-Schema sind umgesetzt

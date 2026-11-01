@@ -469,6 +469,55 @@ function fitTextStyles(fit: RawFitText): Record<string, string> {
   return out;
 }
 
+// A fit text sizes its words as a share of the box it sits in, and `cqw`
+// resolves against the nearest ANCESTOR container. Two halves have to meet,
+// and both are known only after the class rules (`width:34%` lives in a class):
+//
+// - The parent must carry `container-type: inline-size`. While building the
+//   tree the check ran on the RAW children; a Framer page wraps every
+//   breakpoint copy in an `ssr-variant` wrapper that `toIrNode` dissolves, so
+//   the declaration was written onto a node that no longer existed. Measured on
+//   `unifiersofjapan`: the bake carried no `container-type` at all (0×), so
+//   `71.2521cqw` resolved against the 1440 px window — 1026.03 px where the
+//   source shows 281.3 px (768.857 × 394.8 / 1079.066): the 1.3345-fold size
+//   that made `oda` 923.4 px tall instead of 253.2 and pushed `nobunaga` down
+//   by 670.2 px.
+// - The share must be stated against that container. The box is `width:34%` of
+//   its wrapper on the same page, so the words see 34 % of the container: the
+//   emitted share has to carry that factor. Without it the words would be
+//   2.94× too large once the container exists.
+//
+// A `cqw` value is the size against the FULL container width; the width share
+// of the element turns it into the size against the box. A width the pass
+// cannot read as a percentage (a fixed px box, `auto`) leaves the share as the
+// capture computed it.
+const FIT_TEXT_CQW = /^([\d.]+)cqw$/;
+const FIT_TEXT_PERCENT_WIDTH = /^([\d.]+)%$/;
+
+function applyFitTextBoxes(root: IrNode): void {
+  const visit = (node: IrNode): void => {
+    if (node.children.some((child) => child.kind === "fit-text")) {
+      for (const state of node.states) {
+        if (state.visual["container-type"] === undefined) {
+          state.visual["container-type"] = "inline-size";
+        }
+      }
+    }
+    if (node.kind === "fit-text") {
+      for (const state of node.states) {
+        const share = FIT_TEXT_CQW.exec((state.visual["font-size"] ?? "").trim());
+        const width = FIT_TEXT_PERCENT_WIDTH.exec((state.visual["width"] ?? "").trim());
+        if (share === null || width === null) continue;
+        const percent = Number.parseFloat(share[1] ?? "") * (Number.parseFloat(width[1] ?? "") / 100);
+        if (!Number.isFinite(percent) || percent <= 0) continue;
+        state.visual["font-size"] = `${Math.round(percent * 10000) / 10000}cqw`;
+      }
+    }
+    for (const child of node.children) visit(child);
+  };
+  visit(root);
+}
+
 
 // The style values that carry a graphic as a data URL. The report names the
 // place, not the picture: the address is cut short.
@@ -986,14 +1035,6 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
     // the full width, which `text-align` only does in a block box.
     visual["display"] = "block";
   }
-  // The share above is read against the width of the box the text sits in, and
-  // a container query measures its nearest ANCESTOR container — never the
-  // element that declares the unit. Measured: on the element itself the browser
-  // resolves 19.9391cqw to 287 px (the window), on the parent to 255.22 px,
-  // which is what the source shows. The parent gets the container, not the text.
-  if (raw.children.some((child) => child.fitText !== undefined)) {
-    visual["container-type"] = "inline-size";
-  }
   const text: IrTextContent | null =
     raw.text !== null && raw.text !== ""
       ? {
@@ -1409,6 +1450,7 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
     input.url === undefined || input.url === null ? null : originOf(input.url),
   );
   const applied = applyClassRules(root, cssText);
+  applyFitTextBoxes(root);
   if (applied.skippedPseudo > 0) {
     findings.push({
       kind: "unsupported-declaration",
