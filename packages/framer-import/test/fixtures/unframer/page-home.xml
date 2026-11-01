@@ -5,6 +5,8 @@
   Startseite, 92 KB): die Attributnamen stammen woertlich aus dem Abzug
   (`layout="stack"`, `stackDirection`, `stackDistribution`, `padding`,
   `maxWidth`, `backgroundImage`, `inlineTextStyle`). Die Werte sind gekuerzt.
+  Die Karte traegt die ebenfalls gemessenen Formen `componentId`, `link` und
+  `backgroundColor="/Blue/Dark Blue"` (Token-Pfad).
 
   Was hier absichtlich NICHT steht: `appear`, `transition`, `animation`,
   `transform` - die kamen im gemessenen XML 0-mal vor; die Zeitsteuerung
@@ -49,6 +51,23 @@
           inlineTextStyle="/Body/Body-16Px-Medium"
           text="Agentur fuer digitale Produkte"
         />
+        <ServicesCard
+          nodeId="hero-card"
+          componentId="comp-services"
+          link="/services"
+          width="320px"
+          padding="24px"
+          layout="stack"
+          gap="12px"
+          backgroundColor="/Blue/Dark Blue"
+        >
+          <CardTitle
+            nodeId="hero-card-title"
+            inlineTextStyle="/Body/Body-16Px-Medium"
+            text="Services"
+            color="#ffffff"
+          />
+        </ServicesCard>
       </Content>
     </Container>
   </HeroSection>

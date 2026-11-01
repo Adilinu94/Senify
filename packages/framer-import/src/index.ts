@@ -121,6 +121,14 @@ export {
 } from "./unframer-client.ts";
 
 export {
+  mapUnframerProject,
+  parseUnframerXml,
+  type UnframerElement,
+  type UnframerPageXml,
+  type UnframerProjectInput,
+} from "./unframer-ir.ts";
+
+export {
   compareRuns,
   irHashOf,
   marqueeCandidates,

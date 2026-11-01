@@ -170,11 +170,23 @@ geklärt ist.
 
 1. Client zum Unframer-MCP (nur lesende Werkzeuge), mit injizierbarem
    Transport und Fixtures — ohne laufendes Framer testbar.
+   **Umgesetzt und committet (01.11.2026):** die Werkzeugliste ist
+   geschlossen, die Lizenz sperrt vor dem Transport. Beleg:
+   `unframer-client.test.ts`.
 2. Projekt-XML und Seiten-XML in das IR abbilden (Namen, Stapel, Tokens);
    die Laufzeitwirkung bleibt beim Capture.
+   **Umgesetzt (01.11.2026):** `unframer-ir.ts` liest Projekt- und
+   Seiten-XML (toleranter Parser, harte Fehler statt halbem Dokument),
+   bildet Seiten, Komponenten, Stapel, Boxen, Text-Presets, Farb-Token,
+   Links und Assets auf das IR ab; fehlende Zeitsteuerung wird als Fund
+   `motion-absent` gemeldet statt stillschweigend verworfen. Beleg:
+   `unframer-ir.test.ts` inklusive der Kette `normalize` + `mapDocument`
+   bis zum Editor-Dokument.
 3. Eigener Dialog-/CLI-Pfad „Framer-Projekt" samt Anleitung und
    Lizenzbedingung; kein stiller Rückfall auf den URL-Weg.
+   *offen.*
 4. CMS-Mapping als erster Punkt von Block 4 auf dieser Grundlage.
+   *offen.*
 
 ---
 

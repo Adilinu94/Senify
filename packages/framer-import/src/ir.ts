@@ -113,6 +113,11 @@ export const IR_FINDING_KINDS = [
   // instead. A warn, not a block: the import still delivers, but runtime
   // content (script-built parts, the other device builds) is missing.
   "capture-fallback",
+  // motion-absent — the source carries structure only and no timing (the
+  // Framer project XML, ADR-0028: `appear`/`transition` were 0x in the
+  // measured dump). The runtime effect stays with the browser capture
+  // (ADR-0027); the report says so instead of dropping it silently.
+  "motion-absent",
 ] as const;
 
 export type IrFindingKind = (typeof IR_FINDING_KINDS)[number];
