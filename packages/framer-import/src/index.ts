@@ -110,6 +110,17 @@ export {
 } from "./capture-browser.ts";
 
 export {
+  UNFRAMER_READ_TOOLS,
+  createUnframerClient,
+  type UnframerClient,
+  type UnframerClientInput,
+  type UnframerReadTool,
+  type UnframerRequest,
+  type UnframerTransport,
+  type UnframerUsage,
+} from "./unframer-client.ts";
+
+export {
   compareRuns,
   irHashOf,
   marqueeCandidates,

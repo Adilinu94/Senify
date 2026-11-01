@@ -1,0 +1,55 @@
+<!--
+  Seiten-XML des Unframer-MCP als Fixture fuer den lesenden Client (ADR-0028).
+
+  Nachgebaut aus der Messung vom 21.10.2026 (Projekt "sustained-shares-680007",
+  Startseite, 92 KB): die Attributnamen stammen woertlich aus dem Abzug
+  (`layout="stack"`, `stackDirection`, `stackDistribution`, `padding`,
+  `maxWidth`, `backgroundImage`, `inlineTextStyle`). Die Werte sind gekuerzt.
+
+  Was hier absichtlich NICHT steht: `appear`, `transition`, `animation`,
+  `transform` - die kamen im gemessenen XML 0-mal vor; die Zeitsteuerung
+  bleibt beim Browser-Capture (ADR-0027).
+-->
+<Page nodeId="page-home" path="/">
+  <HeroSection
+    nodeId="RPkptGUwn"
+    width="1fr"
+    height="100vh"
+    overflow="clip"
+    layout="stack"
+    padding="168px 30px 54px 30px"
+    stackDirection="horizontal"
+    stackDistribution="center"
+  >
+    <Image
+      nodeId="hero-bg"
+      position="absolute"
+      width="100%"
+      height="100%"
+      centerX="50%"
+      centerY="50%"
+      backgroundImage="https://framerusercontent.com/images/hero.jpg"
+      zIndex="1"
+    />
+    <Container nodeId="hero-container" width="1fr" maxWidth="1140px" layout="stack">
+      <Content
+        nodeId="hero-content"
+        layout="stack"
+        gap="176px"
+        stackDirection="vertical"
+        stackAlignment="start"
+      >
+        <Heading
+          nodeId="hero-title"
+          inlineTextStyle="/Heading/Heading XL (84px)"
+          text="Senify"
+        />
+        <Body
+          nodeId="hero-body"
+          inlineTextStyle="/Body/Body-16Px-Medium"
+          text="Agentur fuer digitale Produkte"
+        />
+      </Content>
+    </Container>
+  </HeroSection>
+</Page>

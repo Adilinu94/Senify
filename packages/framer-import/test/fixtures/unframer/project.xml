@@ -1,0 +1,47 @@
+<!--
+  Projekt-XML des Unframer-MCP als Fixture fuer den lesenden Client (ADR-0028).
+
+  Nachgebaut aus zwei Messungen, keine Rohdatei aus einem Projekt:
+  - 14.09.2026, Projekt "Facio" (innocent-labeling-877706): Seiten, benannte
+    Komponenten, Text-Stile mit fontSize/lineHeight/tag, Farbstile als Pfade.
+  - 21.10.2026, Projekt "sustained-shares-680007": dieselben Bloecke in 23 KB;
+    `getCMSCollections` lieferte nur die Format-Doku (keine Sammlungen).
+
+  Der Client-Vertrag haengt an den vier lesenden Werkzeugen, nicht an der
+  Vollstaendigkeit des XML. Ein kuenftiger Mapper-Test braucht einen frischen,
+  echten Abzug; dieser hier traegt die gemessenen Attributnamen.
+-->
+<Project name="Facio">
+  <Pages>
+    <Page nodeId="page-home" path="/" />
+    <Page nodeId="page-about" path="/about" />
+    <Page nodeId="page-contact" path="/contact" />
+  </Pages>
+  <Components>
+    <Component nodeId="comp-button" name="Primary Button" />
+    <Component nodeId="comp-services" name="Services Card" />
+    <Component nodeId="comp-avatar" name="Avatar" />
+  </Components>
+  <TextStyles>
+    <TextStyle
+      path="/Heading/Heading XL (84px)"
+      tag="h1"
+      font="CUSTOMV2;Neue Montreal Medium"
+      fontSize="84px"
+      lineHeight="1.05"
+      letterSpacing="-0.03em"
+    />
+    <TextStyle
+      path="/Body/Body-16Px-Medium"
+      tag="p"
+      font="CUSTOMV2;Neue Montreal Medium"
+      fontSize="16px"
+      lineHeight="1.5"
+    />
+  </TextStyles>
+  <ColorStyles>
+    <ColorStyle path="/White/White" value="#ffffff" />
+    <ColorStyle path="/Blue/Dark Blue" value="#0a2540" />
+    <ColorStyle path="/BG/White" value="#ffffff" />
+  </ColorStyles>
+</Project>
