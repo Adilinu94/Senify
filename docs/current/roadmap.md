@@ -6,10 +6,10 @@
 > (erzeugter Modulbestand), `docs/current/qualitaet.md` (einzige Stelle für Testzahlen),
 > `docs/adr/` (Entscheidungen) und `CONTEXT.md` (Fachsprache).
 >
-> **Stand: 31.10.2026.** Basis: `master` (`41edc69`) plus der Branch
-> `arbeit/offene-punkte-2026-10-30`; der jüngste Code-Commit ist `700dfa5` (die
-> Komponenten-Werkzeuge der MCP-Fassade als eigenes Modul, siehe Block 1,
-> Abschnitt „Gerade erledigt"), die Roadmap selbst wird als Doku-Commit nachgezogen.
+> **Stand: 01.11.2026.** Basis: `master` (`41edc69`) plus der Branch
+> `arbeit/offene-punkte-2026-10-30`; der jüngste Code-Commit ist `f301416`
+> (Coverage-Test der Referenz-Werkzeuge), die Roadmap selbst wird als
+> Doku-Commit nachgezogen.
 >
 > **Diese Datei enthält keine Testzahlen.** Wo Zahlen stehen, sind es Zeilenlängen von
 > Quelldateien mit der Quelle `module.md`; alles, was Coverage, Testfälle oder
@@ -25,9 +25,10 @@ Site-Breakpoints und ein Framer-Import, der an echten Seiten gemessen ist. Was f
 ist **keine fehlende Funktion mehr, sondern Restarbeit in drei Sorten**: (a) drei große
 Dateien und eine Handvoll mittlere, die noch zu groß sind, ohne dass ein Schnitt sie
 nachweislich verbessert; (b) zwei Fälle im Framer-Import, die teils an einer
-Eigenschaft der Quelle hängen und teils eine eigene Messung brauchen; (c) Produktumfang,
-der noch nicht begonnen ist (CMS-Mapping, Lokalisierung, Code-Sections, der menschliche
-E2E-Weg durch die Baustein-Bibliothek). Die CI ist dabei enger geworden: `verify.yml` läuft seit 16.10.2026 auch bei Pushes auf `master`, ein roter Direkt-Push bleibt also nicht mehr unbemerkt.
+Eigenschaft der Quelle hängen und teils eine eigene Messung brauchen; (c) Produktumfang:
+das CMS-Mapping wartet auf die am 01.11.2026 entschiedene Unframer-Quelle, Lokalisierung
+und Code-Sections sind offen; der menschliche E2E-Weg durch die Baustein-Bibliothek ist
+seit 31.10.2026 belegt. Die CI ist dabei enger geworden: `verify.yml` läuft seit 16.10.2026 auch bei Pushes auf `master`, ein roter Direkt-Push bleibt also nicht mehr unbemerkt.
 
 ---
 
@@ -147,17 +148,33 @@ Quellschriften. Andere Seiten haben andere Reste; die Tabelle in
 
 ---
 
-### Block 3 — S3b/S4: Fremdcode und Island-Payloads (blockiert)
+### Block 3 — S3b/S4: Fremdcode und Island-Payloads (entschieden, Umsetzung offen)
 
 | Punkt | Zustand | Warum es nicht weitergeht |
 |---|---|---|
-| S3b Island-Payloads | teilweise: Original-Markup, Original-CSS und gebündelte Runtime in **einem** ESM-Modul; Mirror-Quellen und wenige Adapter | „nicht generisch" — die generische Extraktion bräuchte eine Quelle, die es in echten Exporten nicht gibt |
+| S3b Island-Payloads | teilweise: Original-Markup, Original-CSS und gebündelte Runtime in **einem** ESM-Modul; Mirror-Quellen und wenige Adapter | „nicht generisch" — die generische Extraktion brauchte eine Quelle, die es in echten Exporten nicht gibt |
 | S4 Fremdcode | teilweise: Klasse-C-Strecke in der Oberfläche belegt (Nachbau-Hinweis, Platte als letzter Ausweg, Befund mit Belegstelle) | `data-framer-module` kommt in **keinem** echten Export vor. Was fehlt, hängt an derselben fehlenden Quelle |
 | Poster für den Editor | offen (im Punkt 13 vermerkt) | Braucht den Browser-Capture; bis dahin steht die Platte |
 
-**Konsequenz:** Dieser Block ist **keine Implementierungsaufgabe**, sondern eine
-Produktentscheidung: entweder der Unframer-MCP wird als zweite Quelle in den Dialog
-geholt (eigene Anleitung, eigene Kosten), oder der Punkt bleibt eine benannte Grenze.
+**Entschieden am 01.11.2026 (ADR-0028):** Der Unframer-MCP wird die zweite
+Quelle. Er liefert die Projektstruktur (benannte Komponenten, Stapel-Layout,
+Token-Pfade, Code-Dateien, CMS-Sammlungen, wenn vorhanden), aber **nicht** die
+Zeitsteuerung (`appear`/`transition` 0-mal im XML) und **nicht** die
+Original-Runtime. Der URL-Weg bleibt der Standard für veröffentlichte Seiten
+(ADR-0027); der Projekt-Weg ist opt-in, liest nur und scheitert sichtbar ohne
+Zugang. **Lizenz:** kein `license`-Feld im Manifest, belegt ist nur private
+Nutzung — der Pfad bleibt für Kundenarbeit gesperrt, bis die Lizenz schriftlich
+geklärt ist.
+
+**Die Umsetzung ist eine eigene Strecke, kein Nebenprodukt der Entscheidung:**
+
+1. Client zum Unframer-MCP (nur lesende Werkzeuge), mit injizierbarem
+   Transport und Fixtures — ohne laufendes Framer testbar.
+2. Projekt-XML und Seiten-XML in das IR abbilden (Namen, Stapel, Tokens);
+   die Laufzeitwirkung bleibt beim Capture.
+3. Eigener Dialog-/CLI-Pfad „Framer-Projekt" samt Anleitung und
+   Lizenzbedingung; kein stiller Rückfall auf den URL-Weg.
+4. CMS-Mapping als erster Punkt von Block 4 auf dieser Grundlage.
 
 ---
 
@@ -168,7 +185,7 @@ Einzel- und Sammelimport) — die frühere Einordnung „geplant" war falsch. Of
 
 | Thema | Zustand | Was es braucht |
 |---|---|---|
-| CMS-Mapping | offen | Framer-Collections auf Senify-Collections abbilden; braucht die Projekt-Sicht (Unframer) oder einen Export mit CMS-Daten |
+| CMS-Mapping | offen, Quelle entschieden | Framer-Collections auf Senify-Collections abbilden; der Unframer-MCP ist seit 01.11.2026 die Quelle (ADR-0028), die Abbildung ist eigene Arbeit |
 | Lokalisierung | offen | Mehrsprachige Framer-Projekte auf getrennte Seiten/Sprachen abbilden; berührt Routing und `lang` |
 | Code-Sections | offen | Framer-Code-Komponenten als eigene Senify-Sections; heute gibt es den Befund `code-component` statt einer Section |
 
@@ -211,15 +228,18 @@ aufmacht.**
 Block 1 (R12)  ──  unabhängig, jeder Schnitt ist ein eigener Commit
 Block 2 (P3-7) ──  Punkt 15 ist gemessen (31.10.2026); die vier Ursachen stehen in `qualitaet.md`
                    Punkt 1 ist entschieden und umgesetzt (Browser-Standard, ADR-0027)
-Block 3 (S3b/S4) ─ braucht eine Produktentscheidung (zweite Quelle)
-Block 4 (S9)   ──  CMS/Lokalisierung brauchen die Entscheidung aus Block 3
+Block 3 (S3b/S4) ─ entschieden (ADR-0028): Unframer wird die zweite Quelle; die Umsetzung
+                   (Client, Mapper, Dialog-Pfad) ist eine eigene Strecke
+Block 4 (S9)   ──  CMS/Lokalisierung bauen auf der entschiedenen Quelle auf; Code-Sections
+                   brauchen den Projekt-Weg ebenfalls
 Block 5 (S5/S7) ──  S7 braucht keinen Vorbau, ist reine UI-Arbeit
 Block 7 (Prozess) ── Voraussetzung für alles: ohne sauberen Baum kein DoR
 ```
 
-**Die einzige harte Abhängigkeit:** Ohne die Entscheidung „zweite Quelle (Unframer) ja
-oder nein" bleiben Block 3 und der CMS-Teil von Block 4 stehen. Alles andere ist
-unabhängig und kann in beliebiger Reihenfolge laufen.
+**Die einzige harte Abhängigkeit ist aufgelöst:** Die Entscheidung „zweite Quelle
+(Unframer) ja oder nein" ist am 01.11.2026 gefallen. Block 3 und der CMS-Teil von
+Block 4 sind damit offen; sie warten jetzt auf ihre Umsetzung, nicht mehr auf eine
+Entscheidung.
 
 ---
 
@@ -239,7 +259,7 @@ belegt) und endet mit einem **ausgeführten Gate** aus `docs/fahrplan.md`.
 | 6 | ~~`forms.ts`: CSV-Export als Rechnung herausziehen~~ **erledigt 31.10.2026** | Der billigste echte Schnitt: eine reine Formatierung mit vier Regeln, die eine Tabelle brechen können — `forms.ts` 1 313 → 1 285, `forms-csv.ts` (35 Zeilen) | `forms-csv.test.ts` (2 Fälle ohne Engine), `forms.test.ts` (22), `coverage-gate.test.ts`, `doku-konsistenz.test.ts` |
 | 7 | ~~S7: menschlicher E2E-Weg der Bibliothek~~ **erledigt 31.10.2026** | Größter Produktnutzen ohne Produktentscheidung | `library-browser.test.ts` (1 Fall, 11,1 s) über den ganzen Weg in Chromium |
 | 8 | ~~Punkt 13: CSS-Bildadressen der Quelle umschreiben~~ **erledigt 31.10.2026** | Schließt eine benannte Lücke der Runtime-Payload | `assets.test.ts` (13), `capture.test.ts` (16), `runtime-payload.test.ts` (16) |
-| 9 | Entscheidung Block 3 (Unframer als zweite Quelle) | Öffnet oder schließt Block 4 (CMS) | ADR + Frage-Dialog |
+| 9 | ~~Entscheidung Block 3 (Unframer als zweite Quelle)~~ **erledigt 01.11.2026** | Öffnet Block 4 (CMS); entschieden: Unframer wird die zweite Quelle | Frage-Dialog (Antwort „Unframer jetzt bauen"), ADR-0028, ADR-Index auf 0029 nachgezogen |
 
 **Nicht in dieser Liste:** `store.ts`, `inspector.ts`, `capture-html.ts`, `mapper.ts`,
 `bake.ts`, `motion.ts`, `apply.ts`, `lifecycle.ts`, `operations.ts` — sie stehen mit

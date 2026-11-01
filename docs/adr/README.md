@@ -30,10 +30,11 @@
 | [ADR-0025](0025-cms-daten-als-handover-skript.md) | CMS-Daten kommen als Handover-Skript mit, nicht als Nachladen | angenommen |
 | [ADR-0026](0026-struktur-baum-als-vollwertige-seite.md) | Der Struktur-Baum ist die vollwertige Seite, der Payload nur eine Zugabe | angenommen |
 | [ADR-0027](0027-browser-capture-als-standard.md) | Der Browser-Capture ist der Standard für URL-Importe, mit Rückfall auf das SSR-HTML | angenommen |
+| [ADR-0028](0028-unframer-als-zweite-quelle.md) | Der Unframer-MCP wird die zweite Import-Quelle für Projektstruktur | angenommen |
 
 ## Nächste Nummer
 
-Die nächste freie Nummer ist `ADR-0028`. `ADR-0011` ist für die Entscheidung reserviert, ob und wann `EditorDocument` das interne kanonische Modell wird.
+Die nächste freie Nummer ist `ADR-0029`. `ADR-0011` ist für die Entscheidung reserviert, ob und wann `EditorDocument` das interne kanonische Modell wird.
 
 ## Regeln
 
