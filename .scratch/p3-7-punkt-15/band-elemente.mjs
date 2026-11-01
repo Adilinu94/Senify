@@ -1,5 +1,6 @@
-// Was steht im Band 3900..4500? Liste aller Elemente, die das Band schneiden,
+// Was steht im Band? Liste aller Elemente, die das Band schneiden,
 // mit Tag, Box, Transform, Hintergrund und SVG-Inhalt - Quelle gegen Import.
+// Band über BAND_FROM / BAND_TO setzen (Standard 3900..4500).
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { extname, join, resolve, sep } from "node:path";
@@ -112,8 +113,12 @@ try {
     const page = await context.newPage();
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60_000 });
     await settle(page);
-    const detail = await page.evaluate(`(${LIST})(${JSON.stringify({ from: 3900, to: 4500 })})`);
-    console.log(`\n===== ${side} · Band 3900..4500 · ${detail.rows.length} Elemente =====`);
+    const band = {
+      from: Number(process.env.BAND_FROM ?? 3900),
+      to: Number(process.env.BAND_TO ?? 4500),
+    };
+    const detail = await page.evaluate(`(${LIST})(${JSON.stringify(band)})`);
+    console.log(`\n===== ${side} · Band ${band.from}..${band.to} · ${detail.rows.length} Elemente =====`);
     const sorted = detail.rows.sort((a, b) => a.top - b.top || a.x - b.x);
     for (const row of sorted.slice(0, 80)) {
       console.log(
