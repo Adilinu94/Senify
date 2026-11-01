@@ -15,14 +15,15 @@ Bilder und Schriften in der Mediathek ab. Danach bearbeitest du die Seite im Edi
 
    | Feld | Voreinstellung | Alternative |
    |---|---|---|
-   | Quelle | Framer-URL | HTML-Datei, Lokaler Mirror (Ordner auf dem Server; dazu optional die Adresse der Originalseite) |
+   | Quelle | Framer-URL | HTML-Datei, Lokaler Mirror (Ordner auf dem Server; dazu optional die Adresse der Originalseite), Framer-Projekt (Unframer, nur privat) |
    | Ziel | Neue Seite | Aktuelle Seite ersetzen (verlangt eine Bestätigung) |
    | Assets | Hochladen | Überspringen |
    | Fonts | Lokal umschreiben | CDN beibehalten |
    | Modus | Originalgetreu | Design-DNA |
 
 2. **Vorschau** zeigt Original und Import nebeneinander je Breakpoint. Sie schreibt nichts. Bilder und Schriften
-   können dort fehlen, wenn sie nur online erreichbar sind.
+   können dort fehlen, wenn sie nur online erreichbar sind. Beim Framer-Projekt gibt es keine Vorschau: die
+   Projekt-XML trägt keine Originalseite, die sich gegenüberstellen ließe.
 3. **Analysieren** ist ein Probelauf mit Bericht. Er lädt keine Medien und schreibt nichts. Der Bericht nennt die
    Aufteilung **„X % bearbeitbar, Y % Original-Code"**: die Seite mit Framer-Runtime läuft im Release als Original
    (0/100), eine Seite ohne Runtime ist vollständig bearbeitbar (100/0).
@@ -30,6 +31,45 @@ Bilder und Schriften in der Mediathek ab. Danach bearbeitest du die Seite im Edi
    Entwurf, über die du sie zurückholen kannst.
 
 Mit „Weitere Seiten dieser Site“ bietet der Bericht die Seiten an, auf die die Quelle verlinkt.
+
+## Framer-Projekt (Unframer)
+
+Der zweite Weg (ADR-0028) liest nicht die veröffentlichte Seite, sondern **das Projekt im Framer-Editor** — über
+das Unframer-MCP. Er ist eine eigene Quelle im Dialog und ein eigener Befehl in der CLI; er fällt nie still auf den
+URL-Weg zurück.
+
+**So entstehen die zwei Dateien.** Framer mit geöffnetem Projekt starten, das Unframer-Plugin aufrufen und die
+lesenden Werkzeuge ausführen: `getProjectXml` liefert die Projekt-XML (Seiten, Komponenten, Stapel, Text- und
+Farbstile), `getNodeXml` für die gewünschte Seite die Seiten-XML. Beide als Dateien speichern.
+
+**Im Dialog:** Quelle „Framer-Projekt (Unframer)“, dann
+
+| Feld | Bedeutung |
+|---|---|
+| Projekt-XML | die Datei aus `getProjectXml` |
+| Seiten-XML | die Datei aus `getNodeXml` für genau eine Seite |
+| Pfad der Seite im Framer-Projekt | der Pfad, unter dem die Seite im Projekt liegt (Voreinstellung `/`) |
+
+Die Checkbox **„Nur für private Nutzung“** muss gesetzt sein. Sie ist keine Formalie: das Unframer-MCP trägt in
+seinem npm-Manifest kein Lizenzfeld, deshalb ist der Weg bis zur schriftlichen Klärung auf private Projekte
+beschränkt. Eine Kundenarbeit wird von der Engine **vor dem Lesen der XML** mit einem Guardrail-Fehler abgelehnt.
+
+**In der CLI:**
+
+```bash
+senify import framer-project --site <projektId> \
+  --project projekt.xml --page startseite.xml --usage private \
+  --project-page / --page-path / --write
+```
+
+`--usage` ist Pflicht und akzeptiert nur `private`. Ohne `--write` läuft der Befehl als Probelauf und schreibt
+nichts.
+
+**Was dieser Weg nicht kann.** Die Projekt-XML trägt Struktur und **keine Zeitsteuerung**: Erscheinungs- und
+Übergangs-Effekte stehen dort nicht. Der Bericht nennt das als Befund `motion-absent`; die Laufzeitwirkung bleibt
+beim Browser-Capture des URL-Wegs (ADR-0027). Es gibt keine Vorschau und keine „weiteren Seiten“ — die XML wird für
+eine Seite gelesen. Eine unlesbare oder nicht zur Seite passende XML ist ein Fehler; es wird nichts stillschweigend
+auf eine andere Quelle ausgewichen.
 
 ## Was der Import mitnimmt
 

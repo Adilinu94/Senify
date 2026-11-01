@@ -30,6 +30,7 @@ import {
 import { createImportPreviewDriver, previewFramerImport } from "./import-preview.ts";
 import { parseDurationMs } from "@senify/renderer";
 import { resolveTheme } from "@senify/tokens";
+import { SenifyError } from "@senify/core";
 
 export const importRoutes: Route[] = [
   {
@@ -51,11 +52,13 @@ export const importRoutes: Route[] = [
         const job = await context.store.createImportJob({
           siteId,
           source: {
-            kind: importInput.source.url !== undefined
-              ? "url"
-              : importInput.source.rootDir !== undefined
-                ? "mirror"
-                : "html",
+            kind: importInput.source.project !== undefined
+              ? "project"
+              : importInput.source.url !== undefined
+                ? "url"
+                : importInput.source.rootDir !== undefined
+                  ? "mirror"
+                  : "html",
             url: importInput.source.url ?? null,
             rootDir: importInput.source.rootDir ?? null,
             html: importInput.source.html ?? null,
@@ -144,6 +147,18 @@ export const importRoutes: Route[] = [
     handler: async (context, params, req) => {
       const siteId = requireParam(params, "siteId");
       const parsed = parseBody<CreateImportBody>(CreateImportBodySchema, (await readJsonBody(req)) ?? {}, "import");
+      const source = sourceOf(parsed);
+      // The preview puts the original source page next to the imported page.
+      // The project XML has no original page to load - it is structure read
+      // from the editor, not a website (ADR-0028). Refuse instead of showing a
+      // comparison that does not exist.
+      if (source.kind === "project") {
+        throw new SenifyError("validation", "Für das Framer-Projekt gibt es keine Vorschau", {
+          field: "source.project",
+          suggestion:
+            "Die Projekt-XML traegt keine Originalseite zum Gegenueberstellen. Ohne Vorschau analysieren (write: false) und dann uebernehmen.",
+        });
+      }
       const site = await context.store.getSite(siteId);
       const siteTheme = await context.store.getTheme(siteId);
       const resolved = resolveTheme(siteTheme.theme);
@@ -155,7 +170,7 @@ export const importRoutes: Route[] = [
         parsed.pageId === undefined ? page.path !== targetPath : page.id !== parsed.pageId,
       );
       const preview = await previewFramerImport({
-        source: sourceOf(parsed),
+        source,
         pagePath: parsed.pagePath ?? "/",
         mode: parsed.mode ?? "dna",
         themeCss: siteTheme.css,

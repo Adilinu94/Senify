@@ -324,9 +324,11 @@ export function createProgram(): Command {
       }
     });
 
-  program
+  const importCommand = program
     .command("import")
-    .description("Import-Werkzeuge (Framer)")
+    .description("Import-Werkzeuge (Framer)");
+
+  importCommand
     .command("framer")
     .description(
       "Eine Framer-Seite importieren: URL, lokaler Mirror-Ordner oder HTML-Datei. Ohne --write nur Dry-Run (Bericht).",
@@ -410,6 +412,103 @@ export function createProgram(): Command {
       }
       for (const candidate of report.marqueeCandidates) {
         console.log(`  [marquee] ${candidate.nodeKey ?? "-"}: ${candidate.reason}`);
+      }
+    });
+
+  importCommand
+    .command("framer-project")
+    .description(
+      "Ein Framer-Projekt aus dem Unframer-MCP importieren: Projekt-XML und Seiten-XML als Dateien (ADR-0028). Nur private Nutzung. Ohne --write nur Dry-Run (Bericht).",
+    )
+    .requiredOption("--site <siteId>", "Projekt-Id")
+    .requiredOption("--project <datei>", "Projekt-XML (getProjectXml des Unframer-MCP)")
+    .requiredOption("--page <datei>", "Seiten-XML (getNodeXml des Unframer-MCP)")
+    .requiredOption(
+      "--usage <art>",
+      "Nutzung des Imports; der Unframer-Pfad ist nur fuer private freigegeben",
+    )
+    .option("--project-page <pfad>", "Pfad der Seite im Framer-Projekt", "/")
+    .option("--page-path <path>", "Zielpfad der Seite in Senify", "/")
+    .option("--write", "Ergebnis als eine Revision schreiben (Default: Dry-Run)")
+    .option("--page-id <pageId>", "In diese bestehende Seite schreiben statt neue anzulegen")
+    .option("--base-draft-version <version>", "Aktuelle Draft-Version der Zielseite")
+    .option("--apply-theme", "Theme-Font-Patch mit übernehmen")
+    .option("--report", "Vollen Bericht als JSON ausgeben")
+    .option("--api <url>")
+    .action(async (options) => {
+      if (String(options.usage) !== "private") {
+        throw new SenifyError(
+          "guardrail",
+          "Der Unframer-Pfad ist für Kundenarbeit gesperrt (ADR-0028)",
+          {
+            field: "--usage",
+            suggestion:
+              "Nur private Nutzung, bis die Lizenz des Unframer-MCP schriftlich geklaert ist; das npm-Manifest traegt kein license-Feld.",
+          },
+        );
+      }
+      const secret = programTokenSecret();
+      if (secret === undefined) {
+        throw new SenifyError("validation", "Kein Programm-Token gefunden", {
+          suggestion:
+            "Starte das Programm einmal (senify start), damit ~/.senify/program-token.json entsteht.",
+        });
+      }
+      const client = new EngineClient({
+        apiUrl: resolveApiUrl(options),
+        token: secret,
+      });
+      const write = options.write === true;
+      const body: Record<string, unknown> = {
+        source: {
+          project: {
+            xml: readFileSync(String(options.project), "utf8"),
+            pageXml: readFileSync(String(options.page), "utf8"),
+            page: String(options.projectPage),
+            usage: "private",
+          },
+        },
+        pagePath: String(options.pagePath),
+        write,
+        ...(options.pageId === undefined ? {} : { pageId: String(options.pageId) }),
+        ...(options.baseDraftVersion === undefined
+          ? {}
+          : { baseDraftVersion: Number.parseInt(String(options.baseDraftVersion), 10) }),
+        ...(options.applyTheme === true ? { applyTheme: true } : {}),
+      };
+      const answer = await client.request<{
+        job: { id: string; status: string; dryRun: boolean };
+        report: {
+          irHash: string;
+          score: number;
+          counts: { nodes: number; mapped: number; placeholders: number };
+          declarations: { total: number; carried: number; dropped: number };
+          assets: { downloaded: number; deduped: number; failed: number; fonts: number };
+          findings: { kind: string; severity: string; message: string }[];
+          steps: string[];
+          pageId: string | null;
+          newDraftVersion: number | null;
+        };
+      }>("POST", `/api/sites/${String(options.site)}/imports/framer`, body);
+      const report = answer.report;
+      if (options.report === true) {
+        console.log(JSON.stringify({ job: answer.job, report }, null, 2));
+        return;
+      }
+      console.log(
+        `Import ${answer.job.id} (${write ? "geschrieben" : "Dry-Run"}) — Score ${report.score}`,
+      );
+      console.log(
+        `Knoten: ${report.counts.mapped}/${report.counts.nodes} · Deklarationen: ${report.declarations.carried}/${report.declarations.total} (gedroppt ${report.declarations.dropped})`,
+      );
+      console.log(`IR-Hash: ${report.irHash}`);
+      if (write) {
+        console.log(
+          `Seite: ${report.pageId ?? "-"} (Draft-Version ${report.newDraftVersion ?? "-"})`,
+        );
+      }
+      for (const finding of report.findings) {
+        console.log(`  [${finding.severity}] ${finding.kind}: ${finding.message}`);
       }
     });
 

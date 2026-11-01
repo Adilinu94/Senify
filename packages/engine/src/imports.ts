@@ -183,17 +183,19 @@ export function sourceOf(body: CreateImportBody): FramerImportSource {
   const hasUrl = typeof source.url === "string" && source.url !== "";
   const hasRootDir = typeof source.rootDir === "string" && source.rootDir !== "";
   const hasHtml = typeof source.html === "string" && source.html !== "";
-  const count = [hasUrl, hasRootDir, hasHtml].filter((entry) => entry).length;
+  const hasProject = source.project !== undefined;
+  const count = [hasUrl, hasRootDir, hasHtml, hasProject].filter((entry) => entry).length;
   if (count === 0) {
     throw new SenifyError("validation", "Die Import-Quelle ist leer", {
       field: "source",
-      suggestion: "url (live), rootDir (Mirror-Ordner) oder html (Markup) angeben.",
+      suggestion:
+        "url (live), rootDir (Mirror-Ordner), html (Markup) oder project (Framer-Projekt-XML) angeben.",
     });
   }
   if (count > 1) {
     throw new SenifyError(
       "validation",
-      "Nur eine Import-Quelle angeben (url, rootDir oder html)",
+      "Nur eine Import-Quelle angeben (url, rootDir, html oder project)",
       { field: "source" },
     );
   }
@@ -203,6 +205,27 @@ export function sourceOf(body: CreateImportBody): FramerImportSource {
   if (hasRootDir) {
     assertImportRootAllowed(source.rootDir ?? "");
     return { kind: "mirror", rootDir: source.rootDir ?? "", pagePath: source.page ?? "/" };
+  }
+  if (source.project !== undefined) {
+    // ADR-0028: the Unframer license allows private use only until it is
+    // clarified in writing. A customer import is refused before XML is read.
+    if (source.project.usage !== "private") {
+      throw new SenifyError(
+        "guardrail",
+        "Der Unframer-Pfad ist für Kundenarbeit gesperrt (ADR-0028)",
+        {
+          field: "source.project.usage",
+          suggestion:
+            "Nur private Nutzung, bis die Lizenz des Unframer-MCP schriftlich geklärt ist; das npm-Manifest trägt kein license-Feld.",
+        },
+      );
+    }
+    return {
+      kind: "project",
+      projectXml: source.project.xml,
+      pageXml: source.project.pageXml,
+      pagePath: source.project.page ?? "/",
+    };
   }
   return {
     kind: "html",

@@ -15,6 +15,7 @@ import type { Breakpoints } from "@senify/widget-engine/breakpoints";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { captureFixture, captureHtml, pageFileOf, type CaptureHtmlInput } from "./capture-html.ts";
+import { mapUnframerProject } from "./unframer-ir.ts";
 import {
   captureBrowser,
   type BrowserCaptureResult,
@@ -40,7 +41,15 @@ import { siteBreakpointsOf } from "./site-breakpoints.ts";
 export type ImportSource =
   | { kind: "url"; url: string }
   | { kind: "mirror"; rootDir: string; pagePath?: string }
-  | { kind: "html"; html: string; url?: string; title?: string };
+  | { kind: "html"; html: string; url?: string; title?: string }
+  // The Framer project as XML (ADR-0028): what the Unframer MCP reads while
+  // the editor is open. Structure only - the project XML carries no timing
+  // (`appear`/`transition` 0x in the measured dump), so the runtime effect
+  // stays with the browser capture (ADR-0027) and the report says
+  // `motion-absent`. `pagePath` is the page's path INSIDE the project (it must
+  // match `<Page path>`, else the mapping refuses); the page's target path in
+  // Senify is the run's own `pagePath`.
+  | { kind: "project"; projectXml: string; pageXml: string; pagePath: string };
 
 export type RunImportInput = {
   source: ImportSource;
@@ -552,6 +561,14 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
     // Target path and source page are two things: the page read from the export
     // is `source.pagePath` (home by default), the path it lands on is `pagePath`.
     document = captureFixture(input.source.rootDir, input.pagePath ?? "/", input.source.pagePath ?? "/", baseUrl);
+  } else if (input.source.kind === "project") {
+    // The XML path (ADR-0028): the same IR, normalize, map and report as every
+    // other source. A malformed or mismatched XML throws out of the mapping -
+    // no fallback to fetching a URL.
+    document = mapUnframerProject({
+      projectXml: input.source.projectXml,
+      pages: [{ path: input.source.pagePath, xml: input.source.pageXml }],
+    });
   } else {
     const capture: CaptureHtmlInput = { html: input.source.html, pagePath: input.pagePath ?? "/" };
     if (input.source.url !== undefined) capture.url = input.source.url;
@@ -742,10 +759,18 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
   const report = buildFidelityReport(document, normalized, {
     ...mapped,
     findings: [...mapped.findings, ...motionFindings, ...runtimeFindings, ...captureFindings],
-  }, motion, {
-    path: capturePath,
-    ...(captureFindings[0] !== undefined ? { fallbackReason: captureFindings[0].evidence } : {}),
-  });
+  }, motion, input.source.kind === "project"
+    ? undefined
+    : {
+        path: capturePath,
+        ...(captureFindings[0] !== undefined ? { fallbackReason: captureFindings[0].evidence } : {}),
+      });
+  if (input.source.kind === "project") {
+    // The report must not claim an SSR read: this source is the project XML,
+    // which carries structure and no timing (ADR-0028).
+    report.steps[0] =
+      "Quelle gelesen (Framer-Projekt-XML; Struktur ohne Zeitsteuerung, die Laufzeitwirkung bleibt beim Browser-Capture)";
+  }
   const byNodeKey = new Map(payloads.map((payload) => [payload.nodeKey, payload]));
   for (const node of Object.values(mapped.document.nodes)) {
     if (node.primitive !== "payload") continue;

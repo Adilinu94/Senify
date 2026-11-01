@@ -606,7 +606,9 @@ export type LibraryAuditEntry = {
 export type ImportJobStatus = "queued" | "running" | "succeeded" | "failed";
 
 export type ImportJobSource = {
-  kind: "url" | "mirror" | "html";
+  // `project` is the Framer project as XML (ADR-0028); its content travels in
+  // the job's `payload`, not in these summary columns.
+  kind: "url" | "mirror" | "html" | "project";
   // `url`: the page to fetch; `mirror`: a local folder on the operator's
   // machine (the engine is a local program); `html`: the raw SSR markup.
   url: string | null;

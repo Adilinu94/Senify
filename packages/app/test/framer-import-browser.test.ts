@@ -112,4 +112,110 @@ describe.skipIf(!browserAvailable)("Framer import dialog", () => {
       rmSync(dataDir, { recursive: true, force: true });
     }
   }, 120_000);
+
+  it("importiert ein Framer-Projekt nur mit Lizenzbestaetigung und ohne Vorschau", async () => {
+    const { chromium } = await import("playwright");
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-framer-project-"));
+    const running = await startProgram({
+      db: database.db,
+      dataDir,
+      programTokenFile: join(dataDir, "program-token.json"),
+      enginePort: 0,
+      appPort: 0,
+      openBrowser: false,
+      rateLimits: { perMinute: 1200, burst: 400, destructivePerMinute: 200 },
+    });
+    const projectXml = `<Project name="Mini">
+  <Pages><Page nodeId="page-home" path="/" /></Pages>
+  <TextStyles><TextStyle path="/Heading/H1" tag="h1" fontSize="64px" lineHeight="1.1" /></TextStyles>
+</Project>`;
+    const pageXml = `<Page nodeId="page-home" path="/">
+  <Container nodeId="hero" layout="stack" stackDirection="vertical" gap="16px">
+    <Heading nodeId="title" inlineTextStyle="/Heading/H1" text="Hallo aus dem Projekt" />
+  </Container>
+</Page>`;
+    const projectFile = join(dataDir, "project.xml");
+    const pageFile = join(dataDir, "page-home.xml");
+    writeFileSync(projectFile, projectXml, "utf8");
+    writeFileSync(pageFile, pageXml, "utf8");
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const post = (path: string, body: unknown): Promise<Response> =>
+        fetch(`${running.dashboardUrl}${path}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      const site = (await (await post("/api/sites", { name: "Projekt Dialog" })).json()) as { id: string };
+      const page = (await (
+        await post(`/api/sites/${site.id}/pages`, { title: "Start", path: "/" })
+      ).json()) as { id: string };
+      const context = await browser.newContext({ viewport: { width: 1600, height: 1000 } });
+      const tab = await context.newPage();
+      tab.on("pageerror", (error) => pageErrors.push(error.message));
+      await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await tab.waitForSelector('[data-action="canvas-overflow"]', { timeout: 30000 });
+      await tab.locator('[data-action="canvas-overflow"]').click();
+      await tab.waitForSelector('[data-action="framer-import-open"]', { state: "visible" });
+      await tab.locator('[data-action="framer-import-open"]').click();
+      await tab.waitForSelector('[data-role="framer-import-dialog"]', { timeout: 10000 });
+
+      await tab.selectOption('[data-role="framer-source-mode"]', "project");
+      // The project path has its own fields, its license confirmation and no
+      // preview: the XML carries no original page to compare.
+      expect(await tab.locator('[data-role="framer-project-xml"]').isVisible()).toBe(true);
+      expect(await tab.locator('[data-role="framer-project-license"]').isVisible()).toBe(true);
+      expect(await tab.locator('[data-action="framer-import-preview"]').isHidden()).toBe(true);
+      await tab.setInputFiles('[data-role="framer-project-xml"]', projectFile);
+      await tab.setInputFiles('[data-role="framer-page-xml"]', pageFile);
+
+      // Without the confirmation nothing leaves the dialog.
+      await tab.locator('[data-role="framer-import-dialog"] button[type="submit"]').click();
+      await tab.waitForSelector('[data-role="framer-import-dialog"] .refs-form-error:not(:empty)', {
+        timeout: 10000,
+      });
+      expect(await tab.locator('[data-role="framer-import-dialog"] .refs-form-error').textContent()).toContain(
+        "nur für private Nutzung",
+      );
+
+      await tab.locator('[data-role="framer-project-license"]').check();
+      await tab.fill('.framer-import-dialog input[placeholder="/landingpage"]', "/aus-projekt");
+      await tab.locator('[data-role="framer-import-dialog"] button[type="submit"]').click();
+      await tab.waitForSelector('[data-role="framer-import-report"] .framer-report', {
+        timeout: 30000,
+      });
+      const reportText = await tab.locator('[data-role="framer-import-report"]').textContent();
+      expect(reportText).toContain("Framer-Projekt-XML");
+      expect(reportText).toContain("motion-absent");
+      // The project is one page: no "Weitere Seiten" offer.
+      expect(await tab.locator('[data-role="framer-site-pages"]').isHidden()).toBe(true);
+
+      await tab.locator('[data-action="framer-import-apply"]').click();
+      await expect.poll(
+        async () => tab.locator('[data-role="framer-import-dialog"]').count(),
+        { timeout: 30000 },
+      ).toBe(0);
+      const pages = (await (await fetch(`${running.dashboardUrl}/api/sites/${site.id}/pages`)).json()) as {
+        pages: { id: string; path: string }[];
+      };
+      const written = pages.pages.find((entry) => entry.path === "/aus-projekt");
+      expect(written).toBeDefined();
+      const draft = (await (
+        await fetch(`${running.dashboardUrl}/api/pages/${written?.id ?? ""}`)
+      ).json()) as { draft: { nodes: Record<string, { props?: Record<string, unknown> }> } };
+      expect(
+        Object.values(draft.draft.nodes).some((node) => node.props?.text === "Hallo aus dem Projekt"),
+      ).toBe(true);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 120_000);
 });

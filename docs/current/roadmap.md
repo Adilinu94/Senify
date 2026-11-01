@@ -184,7 +184,19 @@ geklärt ist.
    bis zum Editor-Dokument.
 3. Eigener Dialog-/CLI-Pfad „Framer-Projekt" samt Anleitung und
    Lizenzbedingung; kein stiller Rückfall auf den URL-Weg.
-   *offen.*
+   **Umgesetzt (01.11.2026):** Die Engine nimmt `source.project`
+   (Projekt-XML, Seiten-XML, Projektpfad, `usage`) als eigenen Quell-Kind
+   an; `usage` ungleich `private` ist ein Guardrail-Fehler **vor** dem
+   Lesen der XML, und die Quelle ist mit den anderen exklusiv. Der Dialog
+   hat den vierten Modus „Framer-Projekt (Unframer)" mit zwei
+   Dateifeldern, Projektpfad und Lizenz-Häkchen; Vorschau und „weitere
+   Seiten" entfallen dort, die Vorschau-Route lehnt das Projekt ab. Die
+   CLI hat `import framer-project` mit Pflicht-`--usage` (nur `private`).
+   Der Bericht nennt die Quelle „Framer-Projekt-XML" statt SSR und trägt
+   `motion-absent`; eine kaputte oder nicht passende XML wirft. Belege:
+   `imports-project.test.ts` (6), `import-project.test.ts` (4), der
+   Projekt-Fall in `framer-import-browser.test.ts`, `cli.test.ts`; die
+   Anleitung steht in `packages/docs-portal/content/docs/framer-import.md`.
 4. CMS-Mapping als erster Punkt von Block 4 auf dieser Grundlage.
    *offen.*
 

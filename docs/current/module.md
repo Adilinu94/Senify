@@ -69,7 +69,7 @@
 | `http-routes-design.ts` | 2 | 68 | Der Design-Vertrag einer Site (P3-2, Schritt 64): die Konstanten, die Verbote und das Vokabular, an denen sich jeder Entwurf messen lassen muss. |
 | `http-routes-formular.ts` | 3 | 88 | Die Formular-Routen einer Site (P3-2, Schritt 54): die Einsendungen eines Formulars, der Plan fuer eine Sammlung aus einem Formular und ihre Anlage. |
 | `http-routes-images.ts` | 2 | 158 | Bild-Jobs einer Site (P3-2, Schritt 66): einen Auftrag starten (der Worker geht die Anbieter-Kette durch und legt das Ergebnis ueber die Medien-Pipeline ab) und die Job-Liste lesen, die ein Agent am haeufigsten abfragt. |
-| `http-routes-imports.ts` | 3 | 188 | Die Framer-Import-Routen einer Site (P3-2, Schritt 61): Import anlegen (mit Idempotenz und Job-Zustand), Vorschau ohne Schreiben und der Verlauf. |
+| `http-routes-imports.ts` | 3 | 203 | Die Framer-Import-Routen einer Site (P3-2, Schritt 61): Import anlegen (mit Idempotenz und Job-Zustand), Vorschau ohne Schreiben und der Verlauf. |
 | `http-routes-library.ts` | 5 | 92 | Die Bibliotheks-Installationen einer Site (P3-2, Schritt 63): was aus der geteilten Bibliothek uebernommen wurde, ein neues Installieren, das Nachziehen einer Installation, das Wieder-Anhaengen nach einem Detach und das Loesen. |
 | `http-routes-media.ts` | 16 | 357 | Die Routen des Bereichs assets/:assetId, assets/:filename, _astro/:filename, api/assets, api/images, api/library-components, api/motion-vendor. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-ops.ts` | 17 | 495 | Die Routen des Bereichs api/settings, api/backups, api/tokens, api/mcp, api/events, api/whoami, api/notifications, api/newsletter, api/health. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
@@ -106,7 +106,7 @@
 | `app-editor-save-status.js` | 51 | Was die Statuszeile des Editors sagt - aus `app-editor.js` (R12). |
 | `app-editor-toolbar-overflow.js` | 109 | Das Overflow-Menue der Editor-Toolbar - aus `app-editor.js` (R12). |
 | `app-editor.js` | 290 | Der Seiten-Editor: die Ansicht (`pageView`), der Wartepunkt auf einen Bild-Job und der Hinweis auf den alten Deep-Link. |
-| `app-framer-import.js` | 509 | Der Import aus Framer (P3-2, Schritt 45): der Bericht nach der Analyse und der Dialog, der die Adresse abfragt, analysiert und den Write ausloest. `app-import.js` importiert die zwei Einstiegspunkte. |
+| `app-framer-import.js` | 595 | Der Import aus Framer (P3-2, Schritt 45): der Bericht nach der Analyse und der Dialog, der die Adresse abfragt, analysiert und den Write ausloest. `app-import.js` importiert die zwei Einstiegspunkte. |
 | `app-import.js` | 484 | Der Import aus Framer und die Redesign-Dialoge. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
 | `app-library.js` | 280 | Die Bausteinbibliothek und der Papierkorb (P3-2, Schritt 42). Beide Views standen in `app-projects.js`; sie teilen sich nichts mit den Projekten - keine Modulvariable, keinen Zustand, nur die Kern-Helfer. |
 | `app-markdown.js` | 158 | Das Markdown der importierten Referenzen (design.md, Guidelines, Komponenten). |
@@ -169,7 +169,7 @@ er laeuft selbst durch `packages` und meldet jede Datei ueber der Schwelle, die 
 | `packages/manifest/src/tools.ts` | 1796 | ERZEUGT von `scripts/render-manifest.mjs` aus `packages/mcp/src/tools.ts` (`pnpm manifest:check` haelt es). Die Zeilenzahl ist keine Entscheidung, sondern die Folge von 109 Werkzeugen mit je vier Angaben |
 | `packages/engine/src/content.ts` | 1703 | Sammlungen, Einträge und ihre Suche in einem Fachgebiet |
 | `packages/editor/src/inspector/model.ts` | 1490 | das Modell des Inspektors |
-| `packages/engine/src/types.ts` | 1479 | die öffentlichen Typen der Engine; keine Logik |
+| `packages/engine/src/types.ts` | 1481 | die öffentlichen Typen der Engine; keine Logik |
 | `packages/editor/src/canvas/canvas.ts` | 1336 | die Bühne des Editors |
 | `packages/engine/src/forms.ts` | 1285 | Formulare, Einsendungen und die Einsendungs-Ansicht. Der CSV-Export ist am 31.10.2026 als reine Formatierung nach `forms-csv.ts` gewandert (die Regeln einer Tabellenkalkulation: Trenner, RFC 4180, BOM, Formelanfang); was bleibt, ist das Fachgebiet - Snapshot, Token, Spam-Schutz, Benachrichtigungen, Sammlung aus dem Formular |
 | `packages/editor/src/state/operations.ts` | 1240 | die Editor-Operationen: ein Dispatcher (`applyEditorMutation`) und je eine Funktion pro Operation, dazu die gemeinsamen Pruefer fuer Katalog, Props, Styles und Motion. Die Pruefer teilen den Katalog und die Fehlerform - sie zu trennen hiesse, den Katalog zweimal zu lesen. Geteilt wird ueber `applyEditorMutation`, geprueft ueber `EditorStore` (`mutations.test.ts`, `history.test.ts`, `save-pipeline.test.ts`) |

@@ -131,9 +131,58 @@ export function openFramerImportDialog({ siteId, pageId, session, onImported }) 
     el("option", { value: "url", text: "Framer-URL" }),
     el("option", { value: "html", text: "HTML-Datei" }),
     el("option", { value: "mirror", text: "Lokaler Mirror" }),
+    // The second path (ADR-0028): the project as XML from the Unframer MCP.
+    // Its own source kind - never a fallback of the URL path.
+    el("option", { value: "project", text: "Framer-Projekt (Unframer)" }),
   );
   const sourceInput = el("input", { class: "refs-input", type: "url", "data-role": "framer-source-input", placeholder: "https://…" });
   const fileInput = el("input", { class: "refs-input", type: "file", accept: ".html,text/html" });
+  const projectFileInput = el("input", {
+    class: "refs-input",
+    type: "file",
+    accept: ".xml,application/xml,text/xml",
+    "data-role": "framer-project-xml",
+  });
+  const pageFileInput = el("input", {
+    class: "refs-input",
+    type: "file",
+    accept: ".xml,application/xml,text/xml",
+    "data-role": "framer-page-xml",
+  });
+  const projectPageInput = el("input", {
+    class: "refs-input",
+    type: "text",
+    value: "/",
+    placeholder: "/",
+    "data-role": "framer-project-page",
+  });
+  // The license is the operating condition of this path: the Unframer MCP
+  // declares no license, so only private projects may go through it.
+  const licenseCheck = el("input", { type: "checkbox", "data-role": "framer-project-license" });
+  const licenseRow = el(
+    "label",
+    { class: "inline framer-project-license" },
+    licenseCheck,
+    " Nur für private Nutzung — die Lizenz des Unframer-MCP ist nicht geklärt (ADR-0028)",
+  );
+  const projectXmlRow = el(
+    "label",
+    { "data-role": "framer-project-xml-row" },
+    "Projekt-XML (getProjectXml)",
+    projectFileInput,
+  );
+  const pageXmlRow = el(
+    "label",
+    { "data-role": "framer-page-xml-row" },
+    "Seiten-XML (getNodeXml)",
+    pageFileInput,
+  );
+  const projectPageRow = el(
+    "label",
+    { "data-role": "framer-project-page-row" },
+    "Pfad der Seite im Framer-Projekt",
+    projectPageInput,
+  );
   // A scraped mirror writes its own links and media as absolute URLs: only with
   // the address of the original site can the import tell them from other sites.
   const baseUrlInput = el("input", {
@@ -189,7 +238,13 @@ export function openFramerImportDialog({ siteId, pageId, session, onImported }) 
   const renderSitePages = () => {
     sitePageChecks = [];
     const pages = report?.discoveredPages ?? [];
-    const canImportMore = pages.length > 0 && sourceSelect.value !== "html" && targetSelect.value !== "current";
+    // The project XML carries exactly the one page it was read for: there is
+    // no site to discover behind it (ADR-0028).
+    const canImportMore =
+      pages.length > 0 &&
+      sourceSelect.value !== "html" &&
+      sourceSelect.value !== "project" &&
+      targetSelect.value !== "current";
     sitePagesHost.hidden = !canImportMore;
     if (!canImportMore) {
       sitePagesHost.replaceChildren();
@@ -319,16 +374,43 @@ export function openFramerImportDialog({ siteId, pageId, session, onImported }) 
 
   const syncSource = () => {
     const value = sourceSelect.value;
+    const isProject = value === "project";
     sourceInput.hidden = value !== "url" && value !== "mirror";
     sourceInput.type = value === "mirror" ? "text" : "url";
     sourceInput.placeholder = value === "mirror" ? "C:\\Pfad\\zum\\Mirror" : "https://…";
     fileInput.hidden = value !== "html";
     baseUrlInput.hidden = value !== "mirror";
+    projectXmlRow.hidden = !isProject;
+    pageXmlRow.hidden = !isProject;
+    projectPageRow.hidden = !isProject;
+    licenseRow.hidden = !isProject;
+    // The project XML has no original page to put next to the import: there is
+    // nothing to photograph, so the preview stays away (the route refuses too).
+    previewButton.hidden = isProject;
+    if (report !== null) renderSitePages();
   };
   sourceSelect.addEventListener("change", syncSource);
   syncSource();
 
   const sourceValue = async () => {
+    if (sourceSelect.value === "project") {
+      const project = projectFileInput.files?.[0];
+      const page = pageFileInput.files?.[0];
+      if (!project || !page) throw new Error("Bitte Projekt-XML und Seiten-XML wählen.");
+      if (!licenseCheck.checked) {
+        throw new Error(
+          "Der Weg über das Framer-Projekt ist nur für private Nutzung freigegeben (ADR-0028).",
+        );
+      }
+      return {
+        project: {
+          xml: await project.text(),
+          pageXml: await page.text(),
+          page: projectPageInput.value.trim() === "" ? "/" : projectPageInput.value.trim(),
+          usage: "private",
+        },
+      };
+    }
     if (sourceSelect.value === "html") {
       const file = fileInput.files?.[0];
       if (!file) throw new Error("Bitte eine HTML-Datei wählen.");
@@ -490,6 +572,10 @@ export function openFramerImportDialog({ siteId, pageId, session, onImported }) 
     sourceInput,
     baseUrlInput,
     fileInput,
+    projectXmlRow,
+    pageXmlRow,
+    projectPageRow,
+    licenseRow,
     el("label", {}, "Ziel", targetSelect),
     el("label", {}, "Seitenpfad", pagePathInput),
     el("div", { class: "inline" }, el("label", {}, "Assets", assetsSelect), el("label", {}, "Fonts", fontsSelect)),

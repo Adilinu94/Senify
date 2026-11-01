@@ -86,7 +86,9 @@ export function createImportPreviewDriver(): ImportPreviewDriver {
 }
 
 export type PreviewInput = {
-  source: FramerImportSource;
+  // The project XML has no original page to load: the preview cannot represent
+  // it, and the route refuses that source before it gets here (ADR-0028).
+  source: Exclude<FramerImportSource, { kind: "project" }>;
   pagePath: string;
   mode: "dna" | "fidelity";
   // The site's own theme CSS and motion tokens: the unstyled parts of the page

@@ -1755,6 +1755,12 @@ dialog.modal select,
   line-height: var(--ui-lh-snug);
 }
 
+/* `hidden` muss auch am Knopf greifen: `.refs-button` setzt `display` selbst
+   und schlaegt sonst das [hidden]-Standardverhalten des Browsers. */
+.refs-dialog .refs-button[hidden] {
+  display: none;
+}
+
 .refs-shell .refs-button.primary,
 .refs-dialog .refs-button.primary {
   padding: 8px 15px;

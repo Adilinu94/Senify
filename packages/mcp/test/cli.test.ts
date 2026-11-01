@@ -49,6 +49,32 @@ describe("senify CLI skeleton", () => {
       "revoke",
     ]);
   });
+
+  it("gives the Framer project its own import command and only private use", async () => {
+    const program = createProgram();
+    const importer = program.commands.find((command) => command.name() === "import");
+    expect(importer?.commands.map((command) => command.name())).toEqual([
+      "framer",
+      "framer-project",
+    ]);
+    // ADR-0028: the license check runs before any file is read.
+    await expect(
+      createProgram().parseAsync([
+        "node",
+        "senify",
+        "import",
+        "framer-project",
+        "--site",
+        "site-1",
+        "--project",
+        "project.xml",
+        "--page",
+        "page.xml",
+        "--usage",
+        "customer",
+      ]),
+    ).rejects.toMatchObject({ category: "guardrail" });
+  });
 });
 
 // `startup --status` und `shortcut --status` gehen ueber startupPlan, das

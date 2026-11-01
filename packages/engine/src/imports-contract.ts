@@ -14,6 +14,24 @@ export const ImportSourceSchema = Type.Object(
     // page lands on in Senify is the request's `pagePath`.
     page: Type.Optional(Type.String({ maxLength: 512 })),
     html: Type.Optional(Type.String()),
+    // The Framer project as XML (ADR-0028): what the Unframer MCP reads while
+    // the Framer editor is open. `xml` is the project document
+    // (`getProjectXml`), `pageXml` one page's node document (`getNodeXml`).
+    // `page` is the page's path INSIDE the project and must match a `<Page
+    // path>` entry; the path it lands on in Senify is the request's `pagePath`.
+    // `usage` is required: the Unframer license is an operating condition, so
+    // "private" is the caller's decision and never a silent default.
+    project: Type.Optional(
+      Type.Object(
+        {
+          xml: Type.String(),
+          pageXml: Type.String(),
+          page: Type.Optional(Type.String({ maxLength: 512 })),
+          usage: Type.Union([Type.Literal("private"), Type.Literal("customer")]),
+        },
+        CLOSED,
+      ),
+    ),
     // The base for relative asset URLs; defaults to the URL origin.
     baseUrl: Type.Optional(Type.String({ maxLength: 2048 })),
   },
