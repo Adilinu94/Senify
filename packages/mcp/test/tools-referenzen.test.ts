@@ -51,7 +51,7 @@ function lauf(
 const koerper = (aufruf: Aufruf | undefined) => aufruf?.body as Record<string, unknown>;
 
 describe("Referenz- und Design-Werkzeuge: die Uebersetzung", () => {
-  it("fuehrt genau die einunddreissig Werkzeuge des Moduls", () => {
+  it("fuehrt genau die zweiunddreissig Werkzeuge des Moduls", () => {
     // Eine stille Loeschung beim Schnitt waere sonst nur im Manifest
     // aufgefallen; diese Liste haelt die Gruppe zusaetzlich fest.
     expect(REFERENZ_TOOLS.map((tool) => tool.name)).toEqual([
@@ -86,6 +86,7 @@ describe("Referenz- und Design-Werkzeuge: die Uebersetzung", () => {
       "get_reference_settings",
       "set_reference_settings",
       "get_design_contract",
+      "set_design_contract",
     ]);
   });
 

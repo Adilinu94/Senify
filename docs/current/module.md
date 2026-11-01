@@ -134,21 +134,29 @@
 
 ## MCP: Werkzeug-Module
 
-**10 Dateien.** Die Werkzeuge lagen bis zum 23.10.2026 alle in `tools.ts`;
-die Uebersicht nennt sie einzeln, weil die Datei sonst wie ein God-File aussieht, das sie nicht mehr ist.
+**17 Dateien.** Bis zum 23.10.2026 lagen alle Werkzeuge in `tools.ts`;
+seit dem 01.11.2026 ist der Zuschnitt abgeschlossen: `tools.ts` traegt nur noch die Typen des
+Vertrags und die Reihenfolge der Spreizungen, jedes Werkzeug steht in seinem Fachmodul.
 
 | Modul | Werkzeuge | Zeilen | Zweck |
 |---|---|---|---|
 | `tools-bibliothek.ts` | 10 | 120 | Die Bibliotheks-Werkzeuge der MCP-Fassade (R12, Schritt 71). |
 | `tools-components.ts` | - | 112 | The component view of a page draft (P3-2 extraction from `tools.ts`). |
+| `tools-doku.ts` | 2 | 65 | Die Doku-Werkzeuge (R12-Schnitt): die Senify-Dokumentation durchsuchen und eine Seite als Markdown lesen. |
+| `tools-import.ts` | 2 | 104 | Die Import-Werkzeuge (R12-Schnitt): eine Framer-Seite importieren und den Bericht eines Import-Jobs lesen. |
+| `tools-katalog.ts` | 4 | 148 | Der Katalog (R12-Schnitt): Abschnitte und Bausteine lesen - Typen, Props, Steuerelemente, Stil-Gruppen, Stil-Eigenschaften. |
 | `tools-komponenten.ts` | 6 | 394 | Die Komponenten-Werkzeuge der MCP-Fassade (R12). |
 | `tools-medien.ts` | 21 | 622 | Die Medien-Werkzeuge der MCP-Fassade (P3-2, Schritt 57): Assets lesen, hochladen, aendern, ersetzen, loeschen und wiederherstellen, Bilder erzeugen und abfragen, Sammlungen und Eintraege samt Einsendungen. |
-| `tools-referenzen.ts` | 31 | 993 | Die einunddreissig Werkzeuge der Referenz- und Design-Arbeit: Referenzen analysieren, sammeln, zuweisen, in Revisionen fuehren, Dokumente und Briefings; Redesign planen und anwenden; das Design-System importieren und den Design-Vertrag lesen. |
+| `tools-mutationen.ts` | 4 | 147 | Die Mutations-Werkzeuge (R12-Schnitt): eine Mutationsliste anwenden, die letzten Stapel zuruecknehmen, Bewegung setzen und loeschen. |
+| `tools-referenzen.ts` | 32 | 1026 | Die zweiunddreissig Werkzeuge der Referenz- und Design-Arbeit: Referenzen analysieren, sammeln, zuweisen, in Revisionen fuehren, Dokumente und Briefings; Redesign planen und anwenden; das Design-System importieren und den Design-Vertrag lesen und schreiben. |
 | `tools-release.ts` | 12 | 307 | Die Werkzeuge der Veroeffentlichung und des Betriebs (R12-Schnitt): Vorschau bauen, zur Pruefung einreichen, Rueckmeldung lesen, Release veroeffentlichen, zurueckrollen und lesen, Bake-Jobs und Auslieferungen samt Ziel-Einstellungen. |
 | `tools-schemas.ts` | - | 182 | Die Ausgabeschemas der lesenden Werkzeuge (P3-3, R8). |
+| `tools-seiten.ts` | 7 | 216 | Die Seiten-Werkzeuge (R12-Schnitt): Seiten lesen, anlegen und ihr Lebenszyklus (Vorlage, Revision, Loeschen). |
+| `tools-sites.ts` | 5 | 110 | Identitaet und Projekte (R12-Schnitt): wer bin ich, welche Sites gibt es, eine laden, anlegen, kopieren. |
 | `tools-stile.ts` | 2 | 252 | Die Stil-Werkzeuge (R12-Schnitt): Stil-Deklarationen auf einen Knoten schreiben und Stil-Regeln anlegen. |
 | `tools-support.ts` | - | 291 | The machinery every tool goes through (P3-2 extraction from `tools.ts`): the argument readers, the schema helpers, paging and the shared HTTP calls. |
-| `tools.ts` | 27 | 810 | Elicitation (E4 slice 2): ask the client for a missing or ambiguous parameter. The server wires this only when the client declared the elicitation capability; declined or unsupported resolves to undefined and the tool's own validation error stands. |
+| `tools-theme.ts` | 2 | 54 | Das Theme (R12-Schnitt): die Design-Token einer Site lesen und schreiben. |
+| `tools.ts` | - | 94 | Die Werkzeug-Tabelle der MCP-Fassade: der Komponist der Fachmodule. |
 | **Summe** | **109** | | |
 
 ## Die grossen Dateien und warum sie so gross sind
@@ -179,6 +187,7 @@ er laeuft selbst durch `packages` und meldet jede Datei ueber der Schwelle, die 
 | `packages/engine/src/mutations/apply.ts` | 1144 | die Mutationen der Engine: ein Dispatcher (`applyOne`) und je eine Funktion pro Operation, dazu die Platzierungspruefer (`assertChildPlacement`, `assertSlotPlacement`, `assertSlotAllowedTypes`). Allen gemeinsam ist der `ApplierState`: der Dispatcher setzt `currentOpIndex`, die Faelle lesen ihn. Ein Schnitt muesste diesen Zustand teilen. Geprueft in `mutations.test.ts`, `transactions.test.ts`, `undo-batch.test.ts` |
 | `packages/engine/src/media.ts` | 1107 | Assets, Ableitungen und Ordner |
 | `packages/engine/src/references-lifecycle.ts` | 1046 | die Referenz-Pipeline: Analyse, Job-Lauf, Snapshot, Playwright-Aufnahme und Anwendung; der Capture-Treiber allein sind 250 Zeilen, und er teilt den Zustand mit dem Job-Lauf |
+| `packages/mcp/src/tools-referenzen.ts` | 1026 | die 32 Werkzeuge der Referenz- und Design-Arbeit: 24 Referenz, 4 Redesign, 4 Design. Am 26.10.2026 bei 993 Zeilen angelegt, am 01.11.2026 mit `set_design_contract` zu seinem Lese-Paar gewachsen (1 026). Der Block definiert keine lokalen Helfer (gemessen: 0 auf oberster Ebene) - die Groesse ist die Zahl der Werkzeug-Literale; ein Schnitt muesste die drei verwandten Fachgebiete trennen, die dieselben Schemas und Dokument-Arten lesen |
 | `packages/renderer/src/bake.ts` | 1021 | der Bake: `bakeSite` haelt Warnungen, Manifest-Seiten, Motion-/Lenis-/Formular-Flags, Island-Arten und benutzte Payload-Ids ueber alle Seiten - genau dieser geteilte Zustand ist der Grund, warum der Bake in einem Durchgang laeuft. Die Helfer (`stageTemplate`, `runAstroBuild`, `writeAeoFiles`, `assertBakeable`) sind bereits eigenstaendig |
 
 ## Der laufende Zuschnitt
@@ -189,4 +198,3 @@ Naechstes passiert, nicht warum etwas bleibt.
 | Datei | Zeilen | Stand |
 |---|---|---|
 | `packages/engine/src/http-routes-sites.ts` | 270 | 9 Site-Routen; 1 205 → 270 Zeilen über zehn Schnitte. Der Zuschnitt ist an seiner fachlichen Grenze: der Betriebs-Block (Seiten, Audit, Releases, Bake-Jobs, Formulare, Benachrichtigungen, Redesign) wurde gemessen und VERWORFEN - 2 von 6 Importen wandern mit, das ist eine Sammelgruppe |
-| `packages/mcp/src/tools.ts` | 810 | 27 Werkzeuge; 2 714 → 1 671 → 1 403 → 1 035 → 810 Zeilen über sechs Schnitte (Bibliothek, Medien, Referenzen, Veroeffentlichung/Betrieb, Komponenten, Stil). Naechster Schritt: die Seiten- und Mutations-Werkzeuge; der Beweis bleibt der Manifest-Diff (109 Werkzeuge, leerer Diff), nicht die Zeilenzahl |

@@ -172,11 +172,13 @@ function quellenInReihenfolge() {
   const text = readFileSync(basis, "utf8");
 
   const eingespeist = new Map();
-  for (const m of text.matchAll(/import \{ ([\w]+) \} from "\.\/(tools-[\w-]+\.ts)";/g)) {
-    eingespeist.set(m[1], m[2]);
+  for (const m of text.matchAll(/import \{ ([^}]+) \} from "\.\/(tools-[\w-]+\.ts)";/g)) {
+    for (const name of m[1].split(",").map((n) => n.trim()).filter(Boolean)) {
+      eingespeist.set(name, m[2]);
+    }
   }
 
-  const reihenfolge = [basis];
+  const reihenfolge = [{ datei: basis }];
   const teile = text.split(/^ {2}\.\.\.([A-Z_]+),\s*$/m);
   // `split` liefert [text, name1, text, name2, ...] - die Namen stehen an
   // den ungeraden Stellen.
@@ -189,7 +191,7 @@ function quellenInReihenfolge() {
           "der Generator kann die Reihenfolge nicht rekonstruieren.",
       );
     }
-    reihenfolge.push(join(MCP_SRC, datei));
+    reihenfolge.push({ datei: join(MCP_SRC, datei), name });
   }
 
   // Jedes Modul, das WERKZEUGE enthaelt (`name: "..."`), muss eingespeist
@@ -198,7 +200,7 @@ function quellenInReihenfolge() {
   const alle = readdirSync(MCP_SRC)
     .filter((n) => n.startsWith("tools-") && n.endsWith(".ts"))
     .sort();
-  const benutzt = new Set(reihenfolge.slice(1).map((p) => p.split(/[\\/]/).pop()));
+  const benutzt = new Set(reihenfolge.slice(1).map((e) => e.datei.split(/[\\/]/).pop()));
   const unbenutzt = alle.filter((n) => {
     if (benutzt.has(n)) return false;
     return /^\s{4}name: "[a-z_]+",/m.test(readFileSync(join(MCP_SRC, n), "utf8"));
@@ -222,24 +224,40 @@ const QUELLEN = quellenInReihenfolge();
  * Werkzeuge in falscher Reihenfolge (Position 44 wurde zu 85). Richtig ist,
  * die Spreizung durch den Inhalt des Moduls zu ERSETZEN: dann steht jedes
  * Werkzeug dort, wo es im laufenden Programm steht.
+ *
+ * Ein Modul darf mehrere Listen tragen (die Seiten-, Katalog- und
+ * Theme-Werkzeuge stehen im Manifest nicht zusammenhaengend). Dann wird pro
+ * Spreizung NUR die genannte Liste eingesetzt, nicht das ganze Modul - sonst
+ * erschiene jedes Werkzeug so oft, wie das Modul eingespeist wird.
  */
 function quelltextInReihenfolge(dateien) {
   const [basis, ...module] = dateien;
-  let text = readFileSync(basis, "utf8");
+  let text = readFileSync(basis.datei, "utf8");
   // Die Module in der Reihenfolge ihres Auftretens einsetzen.
-  for (const datei of module) {
+  for (const { datei, name } of module) {
     const inhalt = readFileSync(datei, "utf8");
-    // Die Spreizung, die dieses Modul nennt.
-    const name = [...text.matchAll(/^ {2}\.\.\.([A-Z_]+),\s*$/gm)].find((m) => {
-      const treffer = text.match(new RegExp(`import \\{ ${m[1]} \\} from "\\./${datei.split(/[\\\\/]/).pop()}"`));
-      return treffer !== null;
-    })?.[1];
-    if (name === undefined) {
-      throw new Error(`Keine Spreizung fuer ${datei} in ${basis}.`);
-    }
-    text = text.replace(new RegExp(`^  \\.\\.\\.${name},\\s*$`, "m"), inhalt);
+    const liste = listeAusModul(inhalt, name, datei);
+    // Nur die erste Spreizung dieses Namens: bei mehreren Listen aus einem
+    // Modul steht jeder Name genau einmal in `TOOLS`.
+    text = text.replace(new RegExp(`^  \\.\\.\\.${name},\\s*$`, "m"), liste);
   }
   return text;
+}
+
+/** Die Liste `export const NAME: ToolDefinition[] = [...]` aus einem Modul. */
+function listeAusModul(inhalt, name, datei) {
+  const kopf = inhalt.match(new RegExp(`export const ${name}: ToolDefinition\\[\\] = \\[`));
+  if (kopf === null) {
+    throw new Error(`${datei} exportiert keine Liste ${name}.`);
+  }
+  const beginn = kopf.index + kopf[0].length;
+  // Die Liste schliesst mit `];` in Spalte 0 (Prettier-Form); die inneren
+  // Listen der Werkzeuge sind eingerueckt und stoeren die Suche nicht.
+  const ende = inhalt.indexOf("\n];", beginn);
+  if (ende === -1) {
+    throw new Error(`Die Liste ${name} in ${datei} hat kein Ende.`);
+  }
+  return inhalt.slice(kopf.index, ende + 3);
 }
 
 const quelle = quelltextInReihenfolge(QUELLEN);

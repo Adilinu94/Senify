@@ -141,6 +141,8 @@ const BLEIBT = {
     "der Bake: `bakeSite` haelt Warnungen, Manifest-Seiten, Motion-/Lenis-/Formular-Flags, Island-Arten und benutzte Payload-Ids ueber alle Seiten - genau dieser geteilte Zustand ist der Grund, warum der Bake in einem Durchgang laeuft. Die Helfer (`stageTemplate`, `runAstroBuild`, `writeAeoFiles`, `assertBakeable`) sind bereits eigenstaendig",
   "packages/manifest/src/tools.ts":
     "ERZEUGT von `scripts/render-manifest.mjs` aus `packages/mcp/src/tools.ts` (`pnpm manifest:check` haelt es). Die Zeilenzahl ist keine Entscheidung, sondern die Folge von 109 Werkzeugen mit je vier Angaben",
+  "packages/mcp/src/tools-referenzen.ts":
+    "die 32 Werkzeuge der Referenz- und Design-Arbeit: 24 Referenz, 4 Redesign, 4 Design. Am 26.10.2026 bei 993 Zeilen angelegt, am 01.11.2026 mit `set_design_contract` zu seinem Lese-Paar gewachsen (1 026). Der Block definiert keine lokalen Helfer (gemessen: 0 auf oberster Ebene) - die Groesse ist die Zahl der Werkzeug-Literale; ein Schnitt muesste die drei verwandten Fachgebiete trennen, die dieselben Schemas und Dokument-Arten lesen",
 };
 
 /**
@@ -151,8 +153,6 @@ const BLEIBT = {
 const ZUSCHNITT = {
   "packages/engine/src/http-routes-sites.ts":
     "9 Site-Routen; 1 205 → 270 Zeilen über zehn Schnitte. Der Zuschnitt ist an seiner fachlichen Grenze: der Betriebs-Block (Seiten, Audit, Releases, Bake-Jobs, Formulare, Benachrichtigungen, Redesign) wurde gemessen und VERWORFEN - 2 von 6 Importen wandern mit, das ist eine Sammelgruppe",
-  "packages/mcp/src/tools.ts":
-    "27 Werkzeuge; 2 714 → 1 671 → 1 403 → 1 035 → 810 Zeilen über sechs Schnitte (Bibliothek, Medien, Referenzen, Veroeffentlichung/Betrieb, Komponenten, Stil). Naechster Schritt: die Seiten- und Mutations-Werkzeuge; der Beweis bleibt der Manifest-Diff (109 Werkzeuge, leerer Diff), nicht die Zeilenzahl",
 };
 
 // --- Der Bestand ------------------------------------------------------------
@@ -229,8 +229,9 @@ for (const name of appDateien) {
 zeilen.push("");
 zeilen.push("## MCP: Werkzeug-Module");
 zeilen.push("");
-zeilen.push(`**${mcpDateien.length} Dateien.** Die Werkzeuge lagen bis zum 23.10.2026 alle in \`tools.ts\`;`);
-zeilen.push("die Uebersicht nennt sie einzeln, weil die Datei sonst wie ein God-File aussieht, das sie nicht mehr ist.");
+zeilen.push(`**${mcpDateien.length} Dateien.** Bis zum 23.10.2026 lagen alle Werkzeuge in \`tools.ts\`;`);
+zeilen.push("seit dem 01.11.2026 ist der Zuschnitt abgeschlossen: `tools.ts` traegt nur noch die Typen des");
+zeilen.push("Vertrags und die Reihenfolge der Spreizungen, jedes Werkzeug steht in seinem Fachmodul.");
 zeilen.push("");
 zeilen.push("| Modul | Werkzeuge | Zeilen | Zweck |");
 zeilen.push("|---|---|---|---|");

@@ -1,16 +1,16 @@
-// Die einunddreissig Werkzeuge der Referenz- und Design-Arbeit: Referenzen
+// Die zweiunddreissig Werkzeuge der Referenz- und Design-Arbeit: Referenzen
 // analysieren, sammeln, zuweisen, in Revisionen fuehren, Dokumente und
 // Briefings; Redesign planen und anwenden; das Design-System importieren und
-// den Design-Vertrag lesen.
+// den Design-Vertrag lesen und schreiben.
 //
 // Der Zuschnitt aus `tools.ts` (Schritt 71). Der Block war zusammenhaengend:
 // `analyze_reference` bis `get_design_contract`, 945 Zeilen, 31 Werkzeuge.
-// `set_design_contract` blieb in `tools.ts` - es ist der SCHREIBENDE Weg zum
-// Design-Vertrag, waehrend hier nur der lesende liegt; die beiden zu trennen
-// waere eine Naht mitten durch ein Paar.
+// `set_design_contract` kam am 01.11.2026 dazu - der schreibende Weg gehoert
+// zu seinem lesenden Paar, und im Manifest steht er weiterhin direkt hinter
+// `get_design_contract`.
 //
 // **Ehrlich zur Gruppierung:** der Block ist nicht EIN Fachgebiet, sondern
-// drei verwandte: 24 Referenz-Werkzeuge, 4 Redesign-Werkzeuge, 3
+// drei verwandte: 24 Referenz-Werkzeuge, 4 Redesign-Werkzeuge, 4
 // Design-Werkzeuge. Sie standen in `tools.ts` hintereinander, weil sie
 // aufeinander aufbauen - ein Redesign braucht Referenzen, ein Design-System
 // beschreibt sie. Getrennt waeren es drei Module mit je einem Bruchteil der
@@ -26,8 +26,8 @@
 // **Die Reihenfolge bleibt Vertrag.** `server.ts` gibt `TOOLS.map(...)` an
 // den Client, und der Manifest-Generator folgt den Spreizungen. Deshalb
 // ersetzt `...REFERENZ_TOOLS,` in `tools.ts` den Block an GENAU derselben
-// Stelle - nach den Medien-Werkzeugen und vor `set_design_contract`. Beweis:
-// `pnpm manifest:check` meldet 109 Werkzeuge unveraendert.
+// Stelle - nach den Medien-Werkzeugen. Beweis: `pnpm manifest:check` meldet
+// 109 Werkzeuge unveraendert.
 
 import { SenifyError } from "@senify/core";
 import type { ToolDefinition } from "./tools.ts";
@@ -989,5 +989,38 @@ export const REFERENZ_TOOLS: ToolDefinition[] = [
         "GET",
         `/api/sites/${requireString(args, "siteId")}/design-contract`,
       ),
+  },
+  {
+    name: "set_design_contract",
+    title: "Set design contract",
+    description:
+      "Setzt eine manuelle Design-DNA für das Projekt (constants/never/vocabulary); ein leerer Body löscht die DNA. Die never-Regeln gelten im Schreibpfad: Agenten-Schreibvorgänge, die sie verletzen, werden blockiert. Eine aus Referenzen abgeleitete DNA wird erst überschrieben, wenn du sie manuell setzt.",
+    scope: "write",
+    inputSchema: objectSchema({
+      siteId: { type: "string" },
+      constants: { type: "array", items: { type: "string" } },
+      never: { type: "array", items: { type: "string" } },
+      vocabulary: { type: "array", items: { type: "string" } },
+    }, ["siteId"]),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
+      const constants = optionalStringArray(args, "constants");
+      const never = optionalStringArray(args, "never");
+      const vocabulary = optionalStringArray(args, "vocabulary");
+      const body =
+        constants === undefined && never === undefined && vocabulary === undefined
+          ? {}
+          : {
+              ...(constants === undefined ? {} : { constants }),
+              ...(never === undefined ? {} : { never }),
+              ...(vocabulary === undefined ? {} : { vocabulary }),
+            };
+      return context.client.request(
+        "PUT",
+        `/api/sites/${siteId}/design-contract`,
+        body,
+      );
+    },
   },
 ];
