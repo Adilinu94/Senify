@@ -33,6 +33,8 @@ Nächste Arbeitspakete in Reihenfolge:
 
 **Motion-Korrektur:** Der Import überträgt Delay in Sekunden und erhält Tween-Dauern; der vertikale Startabstand wird auf die bestehende Preset-Skala angenähert (`packages/framer-import/src/motion-mapping.ts`, `capture-html.ts`, `motion-mapping.test.ts`, `motion-appear.test.ts`). Exakte Kurven, nicht unterstützte Effekte und ein Bewegungsvergleich bleiben offen.
 
+**Bearbeitbarkeit:** Property-Änderungen an importierten Primitives nutzen dieselbe Validierung wie der Editor (`packages/widget-engine/src/validation.ts`, `packages/engine/src/mutations/apply.ts`, `packages/engine/test/imports.test.ts`). Für die Beispielseite ist eine gespeicherte Textänderung mit PostgreSQL im Profil `showcase` geprüft. Offen: Profilkonflikte zwischen importierter Motion und `standard`, Struktur- und Breakpoint-Änderungen sowie der vollständige Editor-Ablauf.
+
 ## Teststrategie für schnelle Entwicklung
 
 - Bei einer Änderung zuerst die direkt betroffenen Tests ausführen, zum Beispiel `pnpm exec vitest run <testdatei>`. Die Tests gezielt nach Vertrag auswählen; automatische Abhängigkeitsauswahl kann bei stark vernetzten Modulen große Teile der Suite starten.

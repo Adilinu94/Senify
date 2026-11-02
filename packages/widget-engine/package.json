@@ -9,6 +9,7 @@
     "./breakpoints": "./src/breakpoints.ts"
   },
   "dependencies": {
+    "@senify/core": "workspace:*",
     "@senify/section-sdk": "workspace:*",
     "@senify/tokens": "workspace:*",
     "@sinclair/typebox": "^0.34.0"

@@ -368,6 +368,9 @@ importers:
 
   packages/widget-engine:
     dependencies:
+      '@senify/core':
+        specifier: workspace:*
+        version: link:../core
       '@senify/section-sdk':
         specifier: workspace:*
         version: link:../section-sdk

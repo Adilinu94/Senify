@@ -1,4 +1,5 @@
 import { SenifyError } from "@senify/core";
+import { assertKnownProp, assertPropValue, getPrimitive, requirePrimitive } from "@senify/widget-engine";
 import {
   COMPONENT_DEFINITION_TYPE,
   COMPONENT_INSTANCE_TYPE,
@@ -609,6 +610,20 @@ function applyUpdateProps(
   mutation: Extract<Mutation, { op: "updateNodeProps" }>,
 ): PatchOp[] {
   const node = requireNode(state.tree, mutation.id, "id");
+  if (!state.registry.has(node.type) && getPrimitive(node.type) !== undefined) {
+    const primitive = requirePrimitive(node.type, "id");
+    const next = { ...node.props };
+    const undo: Record<string, PropValue | null> = {};
+    for (const [key, value] of Object.entries(mutation.patch)) {
+      assertKnownProp(primitive, key, `props.${key}`);
+      if (value !== null) assertPropValue(primitive, key, value, `props.${key}`);
+      undo[key] = node.props[key] ?? null;
+      if (value === null) delete next[key];
+      else next[key] = value;
+    }
+    node.props = next;
+    return [{ patch: "setProps", id: mutation.id, props: undo }];
+  }
   const definition = definitionForNode(state.registry, node);
   if (!definition) {
     throw new SenifyError("validation", "The page root has no props", {

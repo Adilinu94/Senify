@@ -7,6 +7,7 @@ import { PAGE_ROOT_TYPE, type NodeTree } from "@senify/section-sdk";
 import { bakePages, validateTreeIntegrity } from "@senify/engine";
 import {
   bootEngine,
+  applyMutationsRequest,
   createTestPage,
   createTestSite,
   TEST_AUTHOR,
@@ -160,6 +161,19 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
     const tree = page.draft as unknown as NodeTree;
     expect(tree.nodes[tree.rootNodeId]?.type).toBe(PAGE_ROOT_TYPE);
     expect(validateTreeIntegrity(tree)).toHaveLength(0);
+
+    const body = Object.values(tree.nodes).find((node) => node.type === "body");
+    expect(body).toBeDefined();
+    const edited = await applyMutationsRequest(env.api, page, [
+      { op: "updateNodeProps", id: body!.id, patch: { html: "<p>Bearbeitet</p>" } },
+    ]);
+    expect(edited.status).toBe(200);
+    const saved = await getPage(pageId);
+    expect((saved.draft as unknown as NodeTree).nodes[body!.id]?.props.html).toBe("<p>Bearbeitet</p>");
+    const unsafe = await applyMutationsRequest(env.api, saved, [
+      { op: "updateNodeProps", id: body!.id, patch: { color: "red; display:none" } },
+    ]);
+    expect(unsafe.status).toBe(400);
 
     // ONE revision: the audit carries the import entry, the draft version
     // went from 1 (empty page) to 2.
