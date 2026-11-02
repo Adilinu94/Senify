@@ -136,6 +136,11 @@ describe("widget markup", () => {
       "data-asset": "img1",
     });
     expect(spec("image", {}).attrs?.src).toBe("");
+    expect(spec("image", { asset: { assetId: "img2" }, alt: "Motiv" }).attrs).toMatchObject({
+      src: "/assets/img2",
+      "data-asset": "img2",
+    });
+    expect(spec("payload", { poster: { assetId: "poster1" } }).children?.[0]?.attrs?.["data-asset"]).toBe("poster1");
     expect(spec("video", { url: "https://x/y.mp4", muted: true }).tag).toBe("video");
     expect(spec("video", { provider: "youtube", url: "https://y/x" }).tag).toBe("iframe");
     expect(spec("embed", { url: "https://e/x", title: "Karte" }).tag).toBe("iframe");

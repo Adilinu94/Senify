@@ -340,6 +340,10 @@ function translate(
       return formatted === undefined ? [] : names.map((name) => ({ property: name, value: formatted }));
     }
     case "spacing": {
+      if (typeof value === "string") {
+        const parsed = parseCssValue(value);
+        return parsed.ok ? names.map((name) => ({ property: name, value: parsed.value })) : [];
+      }
       const formatted = formatSpacing(value, resolveToken);
       return formatted === undefined ? [] : names.map((name) => ({ property: name, value: formatted }));
     }

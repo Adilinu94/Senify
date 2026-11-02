@@ -121,6 +121,8 @@ Lokale Bilder und Fonts aus einem Exportordner können beim Mirror-Import in die
 
 Der Export lässt sich aus der CLI und über MCP in einen neuen lokalen Ordner starten; das Ergebnis kann anschließend als Mirror importiert werden. `mode: fidelity` ist für CLI und MCP auswählbar. Belege: `packages/mcp/src/framer-export.ts`, `packages/mcp/src/cli.ts`, `packages/mcp/src/tools.ts` und `packages/mcp/test/framer-export.test.ts`. Es ist eine zweistufige Bedienung; der Mirror kann Framer Runtime enthalten, die vollständige Konvertierung bleibt offen.
 
+Bild- und Poster-Primitives lösen strukturierte Asset-Verweise auf; sichere CSS-Shorthands wie `inset: 0px` werden beim Rendern ausgegeben. Belege: `packages/widget-engine/src/markup.ts`, `packages/widget-engine/src/css/properties.ts`, `packages/registry/test/components.test.ts` und die Widget-Engine-Tests. Auf der Beispielseite wird das Hintergrundbild damit sichtbar; Layout, Farben, Typografie und Motion weichen weiter ab.
+
 Gemessen auf den drei echten Exporten gegen das Original (Desktop, Tablet, Mobil):
 
 | Bereich | Stand |

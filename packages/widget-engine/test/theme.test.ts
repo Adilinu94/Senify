@@ -68,6 +68,13 @@ describe("compiler with a theme", () => {
     expect(css).toBe(`[data-node-id="n"] {\n  padding: 1rem;\n}`);
   });
 
+  it("emits a safe inset shorthand from imported CSS", () => {
+    const css = compileCss(doc("frame", { position: "absolute", inset: "0px" }), { layer: null });
+    expect(css).toContain("inset: 0px;");
+    const unsafe = compileCss(doc("frame", { inset: "0; color: red" }), { layer: null });
+    expect(unsafe).not.toContain("color: red");
+  });
+
   it("changes a size with the spacing scale of the theme", () => {
     const wide = mergeThemePatch(defaultTheme(), { scales: { spacingBase: 8 } });
     const css = compileCss(doc("frame", { padding: { $token: "space.4" } }), {

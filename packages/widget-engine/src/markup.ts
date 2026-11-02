@@ -76,6 +76,15 @@ function text(props: Record<string, PropValue>, key: string): string {
   return typeof found === "string" ? found : typeof found === "number" ? String(found) : "";
 }
 
+function assetId(props: Record<string, PropValue>, key: string): string {
+  const found = value(props, key);
+  if (typeof found === "string") return found;
+  if (typeof found === "object" && found !== null && !Array.isArray(found)) {
+    return typeof found["assetId"] === "string" ? found["assetId"] : "";
+  }
+  return "";
+}
+
 // A link control holds a plain URL string (catalog controls) or the shared
 // `{ url, newTab }` link value (what imports and sections write). Both mean the
 // same; a `{ pageId }` link is resolved elsewhere and has no URL here.
@@ -258,7 +267,7 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
 
     // Media -----------------------------------------------------------------
     case "image": {
-      const asset = text(props, "asset");
+      const asset = assetId(props, "asset");
       const alt = text(props, "alt");
       return root("img", [primitiveClass("image")], {
         src: asset === "" ? "" : `/assets/${asset}`,
@@ -494,7 +503,7 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
     // loads (never any foreign code in the canvas), so poster or plate stands.
     case "payload": {
       const payloadId = text(props, "payloadId");
-      const poster = text(props, "poster");
+      const poster = assetId(props, "poster");
       const label = text(props, "label");
       const alt = text(props, "alt");
       const hasPayload = payloadId !== "";
