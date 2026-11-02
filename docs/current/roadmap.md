@@ -26,9 +26,9 @@ ist **keine fehlende Funktion mehr, sondern Restarbeit in drei Sorten**: (a) dre
 Dateien und eine Handvoll mittlere, die noch zu groß sind, ohne dass ein Schnitt sie
 nachweislich verbessert; (b) zwei Fälle im Framer-Import, die teils an einer
 Eigenschaft der Quelle hängen und teils eine eigene Messung brauchen; (c) Produktumfang:
-das CMS-Mapping ist seit 01.11.2026 für das Schema umgesetzt (Einträge offen), Lokalisierung
-und Code-Sections sind offen; der menschliche E2E-Weg durch die Baustein-Bibliothek ist
-seit 31.10.2026 belegt. Die CI ist dabei enger geworden: `verify.yml` läuft seit 16.10.2026 auch bei Pushes auf `master`, ein roter Direkt-Push bleibt also nicht mehr unbemerkt.
+das CMS-Mapping ist seit 01.11.2026 für das Schema und seit 02.11.2026 für die Einträge
+umgesetzt, Lokalisierung und Code-Sections sind offen; der menschliche E2E-Weg durch die
+Baustein-Bibliothek ist seit 31.10.2026 belegt. Die CI ist dabei enger geworden: `verify.yml` läuft seit 16.10.2026 auch bei Pushes auf `master`, ein roter Direkt-Push bleibt also nicht mehr unbemerkt.
 
 ---
 
@@ -208,16 +208,29 @@ geklärt ist.
    Options-Listen, Medienart, aufgelöste Verweise), legt sie im selben
    Commit wie die Seite an und lässt eine Sammlung, die die Site unter dem
    selben Slug schon hat, unberührt; ein Feld, das Senify nicht halten
-   kann, fällt mit einem Fund weg, Einträge werden gemeldet statt
-   übernommen. Der Bericht trägt einen `cms`-Abschnitt und eine
-   Schritt-Zeile, die CMS-Antwort ist Teil des Idempotenz-Schlüssels.
-   Dialog und CLI haben das optionale Feld `--cms`. Belege:
-   `cms.test.ts`, `imports-cms.test.ts`, der Projekt-Fall in
+   kann, fällt mit einem Fund weg. Der Bericht trägt einen
+   `cms`-Abschnitt und eine Schritt-Zeile, die CMS-Antwort ist Teil des
+   Idempotenz-Schlüssels. Dialog und CLI haben das optionale Feld `--cms`.
+   **Umgesetzt (02.11.2026):** `getCMSItems` wird von einem Parser gelesen,
+   der die Einträge über Feld-Ids, Sammlungsangabe oder den Namen in der
+   Antwort seiner Sammlung zuordnet und unbekannte Felder, unpassende
+   Werte und fremde Sammlungen mit einem Fund verwirft. Die Engine
+   schreibt die Einträge als Entwürfe der Version 1 im selben Commit wie
+   Seite und Schema, löst Verweise über Sammlungen hinweg auf, lädt
+   Bildwerte durch dieselbe Medienablage wie die Seiten-Assets, lässt
+   vorhandene Slugs stehen und vergibt für doppelte Slugs einer Antwort
+   `-2`/`-3`. Der Bericht trägt `cms.items` und `cms.media` samt
+   Schritt-Zeilen; Dialog (Mehrfachauswahl) und CLI (wiederholbares
+   `--cms-items`) tragen das Feld. Belege: `cms-items.test.ts`,
+   `imports-cms.test.ts` (17, davon 10 zu Einträgen), der Projekt-Fall in
    `framer-import-browser.test.ts`; die Anleitung steht in
-   `packages/docs-portal/content/docs/framer-import.md`. Ehrliche Grenze:
-   ein Abzug aus einem Projekt **mit** Sammlungen wurde nicht gemessen —
-   die beiden Messprojekte hatten keine; der erste echte Lauf ist die
-   Abnahme.
+   `packages/docs-portal/content/docs/framer-import.md`. **Gemessen
+   (02.11.2026, MCP 1.8.0):** die echten Antworten von
+   `getCMSCollections` (Markdown-Einleitung plus JSON) und `getCMSItems`
+   (reines JSON, `fieldData` mit `{ type, value }`, ohne
+   Sammlungsangabe am Eintrag). **Ehrliche Grenze:** der vollständige
+   Import eines solchen Projekts in eine Senify-Site bleibt der erste
+   echte Lauf.
 
 ---
 
@@ -228,7 +241,7 @@ Einzel- und Sammelimport) — die frühere Einordnung „geplant" war falsch. Of
 
 | Thema | Zustand | Was es braucht |
 |---|---|---|
-| CMS-Mapping | **Schema umgesetzt (01.11.2026), Einträge offen** | Sammlungen samt Felddefinitionen entstehen im selben Commit wie die Seite; als nächster Schritt Einträge über `getCMSItems` samt Bildfeldern und Duplikatregel |
+| CMS-Mapping | **Umgesetzt (Schema 01.11.2026, Einträge 02.11.2026)** | Sammlungen samt Felddefinitionen und Einträge entstehen im selben Commit wie die Seite; Einträge kommen über `getCMSItems` (Bildfelder, Duplikatregel, Verweise über Sammlungen hinweg). Grenze: der erste vollständige Lauf gegen eine echte Senify-Site |
 | Lokalisierung | offen | Mehrsprachige Framer-Projekte auf getrennte Seiten/Sprachen abbilden; berührt Routing und `lang` |
 | Code-Sections | offen | Framer-Code-Komponenten als eigene Senify-Sections; heute gibt es den Befund `code-component` statt einer Section |
 

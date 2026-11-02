@@ -60,10 +60,10 @@ der Unframer-MCP die zweite Import-Quelle:
    URL-Weg und kein halbes Dokument. Ein fehlgeschlagener Lesevorgang wird als
    solcher berichtet.
 3. **Nur lesen.** Der Import nutzt ausschließlich die lesenden Werkzeuge
-   (`getProjectXml`, `getNodeXml`, `getCMSCollections`, `readCodeFile`). Die
-   schreibenden Werkzeuge des MCP (`updateXmlForNode`, `createPage`,
-   `deleteNode`) werden nicht aufgerufen; ein Import verändert das fremde
-   Projekt nie.
+   (`getProjectXml`, `getNodeXml`, `getCMSCollections`, `getCMSItems`,
+   `readCodeFile`). Die schreibenden Werkzeuge des MCP (`updateXmlForNode`,
+   `createPage`, `deleteNode`) werden nicht aufgerufen; ein Import verändert
+   das fremde Projekt nie.
 4. **Die Lizenz ist eine Betriebsbedingung, keine Fußnote.** Der Anschluss
    bleibt auf private Nutzung beschränkt, bis eine schriftliche Klärung
    vorliegt. Für Kundenarbeit ist der Pfad gesperrt, solange das Manifest kein
@@ -102,3 +102,15 @@ und die Messung vom 21.10.2026 in `docs/fahrplan-framer-1zu1.md` §4.1
 (Projekt-XML, Seiten-XML, Grenzen) sowie E3/E4/E5 daselbst. Kein Code in
 diesem Schritt — der Fahrplan verlangt die Entscheidung **vor** dem Bau
 (`docs/fahrplan-framer-import.md`, Schritt 6).
+
+**Nachtrag 02.11.2026 — die CMS-Antworten sind gemessen.** Gegen das laufende
+MCP (1.8.0) wurden `getCMSCollections` und `getCMSItems` an einem Projekt mit
+Sammlungen und Einträgen gelesen. `getCMSCollections` antwortet mit einer
+Markdown-Einleitung plus JSON `{ message, collections }`; `getCMSItems` mit
+reinem JSON `{ message, pagination, items }`, jeder Eintrag
+`{ id, slug, draft, fieldData: { <feldId>: { type, value } } }` und **ohne
+Sammlungsangabe** — eine Antwort gilt einer Sammlung. Der Import liest deshalb
+mehrere Antworten je Lauf und ordnet die Einträge über die Feld-Ids, die
+Sammlungsangabe oder den Namen in `message` zu. Die Aussage oben („die
+Collection-Daten selbst sind damit nicht belegt") gilt für die Messung vom
+21.10.2026 und ist damit überholt.

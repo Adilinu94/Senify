@@ -49,7 +49,8 @@ Farbstile), `getNodeXml` für die gewünschte Seite die Seiten-XML. Beide als Da
 | Projekt-XML | die Datei aus `getProjectXml` |
 | Seiten-XML | die Datei aus `getNodeXml` für genau eine Seite |
 | Pfad der Seite im Framer-Projekt | der Pfad, unter dem die Seite im Projekt liegt (Voreinstellung `/`) |
-| Sammlungen (optional) | die Datei aus `getCMSCollections` (JSON oder XML) |
+| Sammlungen (optional) | die Datei aus `getCMSCollections` |
+| Einträge (optional) | eine Datei aus `getCMSItems` je Sammlung (Mehrfachauswahl) |
 
 **Sammlungen.** Liefert das Projekt CMS-Sammlungen, liest sie `getCMSCollections`. Die Antwort als Datei gespeichert
 und im Feld „Sammlungen“ gewählt, legt der Import die Sammlungen samt Felddefinitionen **im selben Commit wie die
@@ -57,11 +58,23 @@ Seite** an: Text, langer Text, Rich-Text, Zahl, Ja/Nein, Datum, Auswahl, Adresse
 Verweise. Jede Sammlung bekommt das eingebaute Titelfeld; ein Verweis zeigt auf die Sammlung, die im selben Abzug
 entsteht. Eine Sammlung, die die Site unter demselben Slug schon hat, bleibt unberührt — der Bericht nennt sie
 „besteht bereits“. Eine Auswahl ohne Optionen, ein Verweis auf eine Sammlung außerhalb des Abzugs und ein Feldtyp,
-den Senify nicht kennt, fallen mit einem Befund weg statt still. **Einträge** werden in diesem Schritt nicht
-übernommen; der Bericht sagt je Sammlung, wie viele es sind. Ehrliche Grenze: Ein Abzug aus einem Projekt **mit**
-Sammlungen wurde nicht gemessen — die beiden Messprojekte hatten keine, das MCP antwortete nur mit seiner
-Format-Doku. Der Parser nimmt die dokumentierte Form an und macht aus allem anderen einen Fehler; der erste echte
-Lauf ist die Abnahme.
+den Senify nicht kennt, fallen mit einem Befund weg statt still.
+
+**Einträge.** Je Sammlung liefert `getCMSItems` eine eigene Antwort; als Datei gespeichert nimmst du sie im Feld
+„Einträge“ auf (eine Datei je Sammlung, Mehrfachauswahl). Der Import schreibt sie **im selben Commit wie Seite und
+Schema** als Entwürfe der Version 1. Den Titel nimmt er aus dem Titelfeld, sonst aus dem ersten Textfeld; den Slug
+aus dem Slug der Quelle, sonst aus dem Titel. Einen Slug, den die Site schon hat, lässt er stehen („besteht bereits“);
+zwei gleiche Slugs **in einer Antwort** bekommen `-2`, `-3`, statt dass einer verloren geht. Bildfelder laufen durch
+dieselbe Medienablage wie die Seiten-Assets (Hash-dedupliziert); bei „Assets: Überspringen“ bleibt das Feld leer mit
+Befund. Ein fehlendes Verweisziel ist ein Befund, der Eintrag entsteht ohne den Verweis. Ein Datum mit Zeitstempel
+wird für eine `date`-Zelle auf den Tag gekürzt.
+
+**Gemessene Antworten** (MCP 1.8.0, 02.11.2026): `getCMSCollections` liefert eine Markdown-Einleitung plus JSON
+`{ message, collections }`, `getCMSItems` reines JSON `{ message, pagination, items }`. Ein Eintrag trägt
+`{ id, slug, draft, fieldData: { <feldId>: { type, value } } }` und **nennt seine Sammlung nicht** — die Antwort
+gilt einer Sammlung. Der Import ordnet ihn über seine Feld-Ids zu, sonst über den Sammlungsnamen in `message`. Weil
+jede Antwort nur eine Sammlung kennt, gehören Verweise **über Sammlungen hinweg** in denselben Lauf: alle Antworten
+zusammen, dann löst der Import die Ziele auf. Eine unlesbare Antwort ist ein Fehler; es wird nichts halb gelesen.
 
 Die Checkbox **„Nur für private Nutzung“** muss gesetzt sein. Sie ist keine Formalie: das Unframer-MCP trägt in
 seinem npm-Manifest kein Lizenzfeld, deshalb ist der Weg bis zur schriftlichen Klärung auf private Projekte
@@ -72,11 +85,15 @@ beschränkt. Eine Kundenarbeit wird von der Engine **vor dem Lesen der XML** mit
 ```bash
 senify import framer-project --site <projektId> \
   --project projekt.xml --page startseite.xml --usage private \
-  --project-page / --page-path / --cms sammlungen.json --write
+  --project-page / --page-path / --cms sammlungen.json \
+  --cms-items blog.json --cms-items team.json --write
 ```
 
 `--usage` ist Pflicht und akzeptiert nur `private`. `--cms` ist optional; ohne die Datei bleibt der Lauf ein reiner
-Seiten-Import. Ohne `--write` läuft der Befehl als Probelauf und schreibt nichts.
+Seiten-Import. `--cms-items` ist optional, **wiederholbar** und braucht `--cms`: eine Datei je Sammlung, alle im
+selben Lauf, damit Verweise über Sammlungen hinweg aufgelöst werden. Ohne `--write` läuft der Befehl als Probelauf
+und schreibt nichts — der Bericht nennt dann je Sammlung, wie viele Einträge geplant sind, wie viele Bilder geladen
+würden und wie viele Werte wegfallen.
 
 **Was dieser Weg nicht kann.** Die Projekt-XML trägt Struktur und **keine Zeitsteuerung**: Erscheinungs- und
 Übergangs-Effekte stehen dort nicht. Der Bericht nennt das als Befund `motion-absent`; die Laufzeitwirkung bleibt
