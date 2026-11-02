@@ -11,8 +11,8 @@
 // storage (FontRef.files + bake delivery) is the S3 integration.
 
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { extname, join, resolve } from "node:path";
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { SenifyError } from "@senify/core";
 import type { FramerIrDocument, IrAsset, IrFontFace, IrNode } from "./ir.ts";
 
@@ -125,6 +125,8 @@ export type ImportAssetsInput = {
   // The base of the source page: relative URLs resolve against it. Absent =
   // every asset URL is already absolute (the Framer CDN case).
   baseUrl?: string;
+  // Read relative asset URLs from this export before falling back to baseUrl.
+  mirrorRoot?: string;
   // Upload into the engine media pipeline when given; otherwise files are
   // written to `outDir` (offline mirror mode).
   uploader?: AssetUploader;
@@ -178,7 +180,7 @@ export async function importAssets(input: ImportAssetsInput): Promise<AssetResul
       let entry = fontByHash.get(key);
       if (entry === undefined) {
         try {
-          const data = await fetchBytes(absoluteUrl(src, input.baseUrl), timeoutMs);
+          const data = await sourceBytes(src, input, timeoutMs);
           const hash = sha256(data);
           const cached = fontByHashByContent(fontByHash, hash);
           if (cached !== undefined) {
@@ -280,9 +282,10 @@ async function downloadAsset(
   byHash: Map<string, AssetDownload>,
   report: AssetReport,
 ): Promise<AssetDownload> {
-  const absolute = absoluteUrl(asset.url, input.baseUrl);
+  // Preserve the existing validation contract for non-mirror sources.
+  if (input.mirrorRoot === undefined) absoluteUrl(asset.url, input.baseUrl);
   try {
-    const data = await fetchBytes(absolute, timeoutMs);
+    const data = await sourceBytes(asset.url, input, timeoutMs);
     const hash = sha256(data);
     const existing = byHash.get(hash);
     if (existing !== undefined) {
@@ -311,6 +314,28 @@ async function downloadAsset(
     report.failed += 1;
     return { url: asset.url, hash: "", bytes: 0, localUrl: null, mime: mimeForUrl(asset.url), assetId: null };
   }
+}
+
+async function sourceBytes(url: string, input: ImportAssetsInput, timeoutMs: number): Promise<Buffer> {
+  if (input.mirrorRoot !== undefined && !/^https?:\/\//i.test(url)) {
+    const pathPart = decodeURIComponent(url.split(/[?#]/)[0] ?? "").replace(/\\/g, "/");
+    if (/^[a-z][a-z\d+.-]*:/i.test(pathPart) || pathPart.startsWith("//") || pathPart.split("/").includes("..")) {
+      throw new SenifyError("validation", "Ungültiger Asset-Pfad im Export", { field: "url" });
+    }
+    const root = realpathSync(input.mirrorRoot);
+    const target = resolve(root, pathPart.replace(/^\/+/, ""));
+    try {
+      const resolved = realpathSync(target);
+      const rel = relative(root, resolved);
+      if (rel === "" || rel === ".." || rel.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute(rel)) {
+        throw new SenifyError("validation", "Asset liegt außerhalb des Exportordners", { field: "url" });
+      }
+      return readFileSync(resolved);
+    } catch (error) {
+      if (input.baseUrl === undefined || (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  return fetchBytes(absoluteUrl(url, input.baseUrl), timeoutMs);
 }
 
 function absoluteUrl(url: string, baseUrl: string | undefined): string {

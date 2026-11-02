@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer, type Server } from "node:http";
@@ -254,6 +254,47 @@ describe("importAssets", () => {
     const result = await importAssets({ document, baseUrl: origin, outDir });
     expect(result.report.downloads).toHaveLength(1);
     expect(result.report.failed).toBe(0);
+  });
+
+  it("imports local export images and fonts without fetching them", async () => {
+    const mirrorRoot = mkdtempSync(join(tmpdir(), "senify-source-"));
+    try {
+      mkdirSync(join(mirrorRoot, "assets"));
+      writeFileSync(join(mirrorRoot, "assets", "hero.png"), fakeImage("local"));
+      writeFileSync(join(mirrorRoot, "assets", "font.woff2"), fakeFont(400));
+      const document = irDocument();
+      document.assets = [{ url: "/assets/hero.png", kind: "image", hash: null, alt: null, width: null, height: null }];
+      document.styles.fonts = [{ family: "Local", weight: 400, style: "normal", src: ["./assets/font.woff2"], unicodeRange: null }];
+      const uploads: Buffer[] = [];
+      const result = await importAssets({ document, mirrorRoot, uploader: ({ data }) => {
+        uploads.push(data);
+        return `/assets/local-${uploads.length}`;
+      } });
+      expect(uploads).toEqual([fakeImage("local"), fakeFont(400)]);
+      expect(result.report.failed).toBe(0);
+      expect(result.document.assets[0]?.localUrl).toBe("/assets/local-1");
+      expect(result.document.styles.fonts[0]?.src).toEqual(["/assets/local-2"]);
+    } finally {
+      rmSync(mirrorRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("does not read paths outside the export folder", async () => {
+    const mirrorRoot = mkdtempSync(join(tmpdir(), "senify-source-"));
+    try {
+      const document = irDocument();
+      document.assets = [{ url: "%2e%2e%5csecret.png", kind: "image", hash: null, alt: null, width: null, height: null }];
+      document.styles.fonts = [];
+      let uploaded = false;
+      const result = await importAssets({ document, mirrorRoot, uploader: () => {
+        uploaded = true;
+        return "/assets/unexpected";
+      } });
+      expect(uploaded).toBe(false);
+      expect(result.report.failed).toBe(1);
+    } finally {
+      rmSync(mirrorRoot, { recursive: true, force: true });
+    }
   });
 
   it("rejects a relative URL without baseUrl", async () => {

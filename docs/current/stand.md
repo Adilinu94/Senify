@@ -117,6 +117,8 @@ Danach verbleiben: die MCP-Verträge und Manifest-Konsumenten (R8), die Modulauf
 
 ## Framer-Import: Stand der Treue (Oktober 2026)
 
+Lokale Bilder und Fonts aus einem Exportordner können beim Mirror-Import in die Asset-Pipeline übernommen werden; Pfade außerhalb des Exportordners werden abgewiesen. Belege: `packages/framer-import/src/assets.ts`, `packages/framer-import/src/import.ts`, `packages/framer-import/test/assets.test.ts` und `packages/framer-import/test/import.test.ts`. Der automatische Exportaufruf und ein runtimefreier 1:1-Nachweis bleiben offen.
+
 Gemessen auf den drei echten Exporten gegen das Original (Desktop, Tablet, Mobil):
 
 | Bereich | Stand |

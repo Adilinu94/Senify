@@ -133,6 +133,7 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
     const assets = await importAssets({
       document,
       ...(baseUrl !== undefined ? { baseUrl } : {}),
+      ...(input.source.kind === "mirror" ? { mirrorRoot: input.source.rootDir } : {}),
       ...(input.uploader !== undefined ? { uploader: input.uploader } : {}),
       ...(input.outDir !== undefined ? { outDir: input.outDir } : {}),
       ...(input.includeAssets !== undefined ? { includeAssets: input.includeAssets } : {}),

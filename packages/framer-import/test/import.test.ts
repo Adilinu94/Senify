@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer, type Server } from "node:http";
@@ -127,6 +127,29 @@ describe("runImport", () => {
       rmSync(outDir, { recursive: true, force: true });
     }
   }, 90_000);
+
+  it("imports the image bytes from a local export folder", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "senify-export-"));
+    try {
+      mkdirSync(join(rootDir, "assets"));
+      writeFileSync(join(rootDir, "assets", "hero.png"), "local-image");
+      writeFileSync(join(rootDir, "index.html"), '<html><body><div id="main" data-framer-hydrate-v2><img src="assets/hero.png" alt="Hero"></div></body></html>');
+      const uploads: Buffer[] = [];
+      const run = await runImport({
+        source: { kind: "mirror", rootDir },
+        includeFonts: false,
+        uploader: ({ data }) => {
+          uploads.push(data);
+          return "/assets/uploaded/hero.png";
+        },
+      });
+      expect(uploads.map((data) => data.toString())).toContain("local-image");
+      expect(run.assets?.failed).toBe(0);
+      expect(run.document.assets.some((asset) => asset.localUrl === "/assets/uploaded/hero.png")).toBe(true);
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
 
   it("maps the measured ticker loop onto marquee candidates", () => {
     const run = runDocumentWithTickerLoop();

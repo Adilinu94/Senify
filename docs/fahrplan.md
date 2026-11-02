@@ -25,6 +25,8 @@ Nächste Arbeitspakete in Reihenfolge:
 4. Animationen und Interaktionen einschließlich Scroll, Hover, Zuständen und Timing erfassen und ohne Framer Runtime nachbilden. Nicht unterstützte Effekte müssen im Bericht sichtbar bleiben (`packages/framer-import/src/motion-mapping.ts`).
 5. Mehrseiten-Navigation, CMS und Sonderkomponenten anhand der tatsächlich benötigten Site ergänzen und den gesamten Weg über Editor und MCP prüfen.
 
+**Erster Import-Schritt:** Lokale Bild- und Font-Dateien aus einem vorhandenen Mirror werden in die Asset-Pipeline übernommen; Tests für Dateiübernahme und Pfadbegrenzung stehen in `packages/framer-import/test/assets.test.ts` und `import.test.ts`. Der automatische Export und die weiteren Produktziele bleiben offen.
+
 ## Teststrategie für schnelle Entwicklung
 
 - Bei einer Änderung zuerst die direkt betroffenen Tests ausführen, zum Beispiel `pnpm exec vitest run <testdatei>`. Die Tests gezielt nach Vertrag auswählen; automatische Abhängigkeitsauswahl kann bei stark vernetzten Modulen große Teile der Suite starten.
