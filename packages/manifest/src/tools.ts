@@ -11,7 +11,7 @@
 // `@senify/mcp` - moving those here would move ownership of the wire format
 // into a package with no business owning it.
 //
-// 107 Werkzeuge.
+// 108 Werkzeuge.
 import type { ToolFact } from "./types.ts";
 export const TOOL_MANIFEST: ToolFact[] = [
   {
@@ -1585,6 +1585,21 @@ export const TOOL_MANIFEST: ToolFact[] = [
     writes: false,
     parameters: [
 
+    ],
+  },
+  {
+    name: "snapshot_unframer_project",
+    title: "Save Unframer project locally",
+    scope: "write",
+    group: "seiten",
+    description: "Reads Framer page and component structure and all CMS items through the Unframer MCP connection, verifies the published source URL, and saves a local snapshot without the secret URL. The snapshot is an input for a future editable conversion, not a runtime-free website.",
+    route: null,
+    routeExample: null,
+    writes: true,
+    parameters: [
+      { name: "secretUrl", type: "string", required: true },
+      { name: "sourceUrl", type: "string", required: true },
+      { name: "outputDir", type: "string", required: true },
     ],
   },
   {

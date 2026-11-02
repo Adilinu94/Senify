@@ -62,6 +62,8 @@ pnpm senify import framer data/framer-exports/beispiel --site <siteId> --mode fi
 
 Der Export legt einen neuen Ordner an und erfasst standardmäßig Unterseiten; `--no-subpages` beschränkt ihn auf die angegebene Seite. Über MCP steht `export_framer_site` bereit. Der anschließende Import ist ohne `--write` ein Dry-Run. Der Export ist ein Mirror und kann Framer Runtime enthalten; der Import in den bearbeitbaren Senify-Baum und die Nachbildung von Animationen sind weiterhin nicht vollständig originalgetreu.
 
+Das MCP-Werkzeug `snapshot_unframer_project` liest mit Framer-URL und Unframer-Zugangslink die Seiten- und Komponentenstruktur sowie CMS-Inhalte in `unframer-snapshot.json`. Der Zugangslink wird nicht im Snapshot gespeichert und im Audit-Protokoll geschwärzt. Der Snapshot ist eine zusätzliche Datenquelle; seine Übernahme in den Senify-Baum steht noch aus.
+
 ## Dokumentation
 
 - Fachmodell: [`CONTEXT.md`](CONTEXT.md)

@@ -141,6 +141,7 @@ const GRUPPEN = {
   uninstall_library_component: "referenzen",
   update_library_instances: "referenzen",
   library_audit: "referenzen",
+  snapshot_unframer_project: "seiten",
   export_framer_site: "seiten",
   import_framer_page: "seiten",
   get_import_report: "seiten",

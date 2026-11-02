@@ -28,6 +28,7 @@ import {
 import type { EngineClient } from "./client.ts";
 import { pageOutline, selectNodes, type PageSummaryInput } from "./outline.ts";
 import { exportFramerSite } from "./framer-export.ts";
+import { snapshotUnframer } from "./unframer.ts";
 
 export type ToolScope = "read" | "write" | "publish";
 
@@ -3552,6 +3553,23 @@ export const TOOLS: ToolDefinition[] = [
     inputSchema: objectSchema({}),
     entity: () => "library:audit",
     handler: async (context) => context.client.request("GET", "/api/library-components/audit"),
+  },
+  {
+    name: "snapshot_unframer_project",
+    title: "Save Unframer project locally",
+    description: "Reads Framer page and component structure and all CMS items through the Unframer MCP connection, verifies the published source URL, and saves a local snapshot without the secret URL. The snapshot is an input for a future editable conversion, not a runtime-free website.",
+    scope: "write",
+    inputSchema: objectSchema({
+      secretUrl: { type: "string" },
+      sourceUrl: { type: "string" },
+      outputDir: { type: "string" },
+    }, ["secretUrl", "sourceUrl", "outputDir"]),
+    entity: () => "unframer-snapshot",
+    handler: async (_context, args) => snapshotUnframer({
+      secretUrl: requireString(args, "secretUrl"),
+      sourceUrl: requireString(args, "sourceUrl"),
+      outputDir: requireString(args, "outputDir"),
+    }),
   },
   {
     name: "export_framer_site",
