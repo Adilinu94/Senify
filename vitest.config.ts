@@ -345,6 +345,52 @@ export default defineConfig({
           functions: 95,
           lines: 85,
         },
+        // Die acht Module des Komponisten-Schnitts (R12, Commit `b090d29`):
+        // Doku, Katalog, Seiten, Sites, Stile, Theme, Mutationen und Import.
+        // Der Schnitt hat sie aus `tools.ts` herausgeloest, die Schwellen sind
+        // dabei ausgeblieben - der Waechter `coverage-gate.test.ts` hat genau
+        // das am 02.11.2026 gemeldet. Die sechs gleich starken Module stehen in
+        // einer Gruppe, die zwei schwaecheren einzeln darunter.
+        //
+        // Gemessen am 02.11.2026 (`packages/mcp/test` mit Coverage):
+        //   tools-doku.ts    100    / 100   / 100   / 100
+        //   tools-katalog.ts  93,33 / 68,96 / 85,71 / 93,33
+        //   tools-seiten.ts   92,63 / 75,55 / 85,71 / 92,63
+        //   tools-sites.ts   100    / 66,66 / 100   / 100
+        //   tools-stile.ts    92,11 / 75    / 100   / 92,11
+        //   tools-theme.ts   100    / 83,33 / 100   / 100
+        //
+        // Die Schwelle liegt knapp unter der niedrigsten Datei (92,11 Statements,
+        // 66,66 Branches, 85,71 Functions). Die offenen Zweige sind die
+        // optionalen Felder der Schemas und die Validierungsfehler, die ein
+        // Aufruf auch mal weglaesst.
+        "packages/mcp/src/tools-{doku,katalog,seiten,sites,stile,theme}.ts": {
+          statements: 90,
+          branches: 65,
+          functions: 80,
+          lines: 90,
+        },
+        // Die Mutations-Werkzeuge (R12): gemessen 100 / 83,33 / 75 / 100. Die
+        // zwei ungedeckten Funktionen sind die `entity`-Pfeile von
+        // `set_motion` und `clear_motion` - der Server ruft sie nicht in jedem
+        // Ablauf auf, die Handler selbst laufen. Die Schwelle haelt den Stand.
+        "packages/mcp/src/tools-mutationen.ts": {
+          statements: 95,
+          branches: 78,
+          functions: 70,
+          lines: 95,
+        },
+        // Die Import-Werkzeuge (R12): gemessen 100 / 53,57 / 50 / 100. Die zwei
+        // ungedeckten Funktionen sind die beiden `entity`-Pfeile; die Handler
+        // von `import_framer_page` und `get_import_report` sind durch
+        // `tool-contracts.test.ts` gedeckt. Die Zweige sind die vielen
+        // optionalen Felder der Import-Optionen.
+        "packages/mcp/src/tools-import.ts": {
+          statements: 95,
+          branches: 50,
+          functions: 45,
+          lines: 95,
+        },
       },
     },
   },

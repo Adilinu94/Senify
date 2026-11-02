@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TOOL_MANIFEST, toolsByName } from "@senify/manifest";
-import { TOOLS } from "../src/tools.ts";
+import { TOOLS, toolNames } from "../src/tools.ts";
 
 // Server-side mirror of the manifest contract (P3-3 Punkt 8): the manifest
 // holds the FACTS about the tools (name, scope, title, description), the
@@ -34,5 +34,13 @@ describe("Tool-Manifest-Spiegel (Fahrplan P3-3 Punkt 8, R8)", () => {
       (name) => !registered.has(name),
     );
     expect(extra, `Manifest ohne Server-Tool: ${extra.join(", ")}`).toEqual([]);
+  });
+
+  it("nennt über toolNames dieselben Namen in derselben Reihenfolge", () => {
+    // `toolNames()` steht im Vorschlag eines unbekannten Werkzeugs
+    // (`server.ts`). Der Helfer ist nach dem Komponisten-Schnitt eine eigene
+    // Funktion und waere sonst ungemessen; die Reihenfolge ist Teil der
+    // Zusage, weil der Vorschlag die Manifest-Ordnung zeigt.
+    expect(toolNames()).toEqual(TOOL_MANIFEST.map((fact) => fact.name));
   });
 });
