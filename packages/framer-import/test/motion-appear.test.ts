@@ -47,13 +47,19 @@ describe("Framer appear effects", () => {
     expect(document.motion[0]?.params["duration"]).toBeLessThan(300);
   });
 
+  it("keeps the source duration of a tween longer than 1.6 seconds", () => {
+    const document = captureHtml({ html: page({ long: entry({ y: 28 }, { type: "tween", duration: 1.8 }) }, '<div data-framer-appear-id="long">Text</div>') });
+    expect(document.motion[0]?.params["duration"]).toBe(1800);
+  });
+
   it("maps a rise from below and a plain fade to fade-up, with the offset as intensity", () => {
     const result = mapFramerMotion(captureHtml({ html }));
     const specs = result.mappings.map((mapping) => mapping.spec);
     expect(specs).toHaveLength(2);
     expect(specs.every((spec) => spec.preset === "fade-up" && spec.trigger === "load")).toBe(true);
-    expect(specs[0]?.intensity).toBe(4);
-    expect(specs[0]?.delay).toBe(300);
+    expect(specs[0]?.intensity).toBe(10);
+    expect(8 + (specs[0]?.intensity ?? 0) * 3.2).toBe(40);
+    expect(specs[0]?.delay).toBe(0.3);
     expect(specs[1]?.intensity).toBe(1);
   });
 

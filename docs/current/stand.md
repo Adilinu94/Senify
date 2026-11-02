@@ -123,6 +123,10 @@ Der Export lässt sich aus der CLI und über MCP in einen neuen lokalen Ordner s
 
 Bild- und Poster-Primitives lösen strukturierte Asset-Verweise auf; sichere CSS-Shorthands wie `inset: 0px` werden beim Rendern ausgegeben. Belege: `packages/widget-engine/src/markup.ts`, `packages/widget-engine/src/css/properties.ts`, `packages/registry/test/components.test.ts` und die Widget-Engine-Tests. Auf der Beispielseite wird das Hintergrundbild damit sichtbar; Layout, Farben, Typografie und Motion weichen weiter ab.
 
+Der HTML-Capture erhält Framer-Farbvariablen mit ihrem Quellwert als Fallback, überträgt Selektoren mit nicht prüfbaren Attribut-Vorfahren nicht pauschal und prüft Varianten-Vorfahren elementweise. Mobile Media-Queries mit `min-width: 0` werden berücksichtigt. Verschachtelte Überschriften und Absätze übernehmen die Typografie des Textblocks. Ein alleinstehender Hintergrundverlauf wird als `backgroundImage` statt als ungültige Hintergrundfarbe übernommen. Belege: `packages/framer-import/src/capture-html.ts`, `packages/framer-import/src/mapper.ts`, `packages/framer-import/test/import-fidelity.test.ts`. Nicht unterstützte Selektoren, Layouts und Animationen bleiben offen.
+
+Framer-Delay wird von Millisekunden in die vom Page-Script verwendeten Sekunden umgerechnet; Tween-Dauern bleiben bei der Aufnahme erhalten und vertikale Startabstände werden auf die vorhandene Preset-Skala angenähert. Belege: `packages/framer-import/src/motion-mapping.ts`, `capture-html.ts`, `packages/framer-import/test/motion-mapping.test.ts` und `motion-appear.test.ts`. Die Presets und die Begrenzung der Intensität bilden nicht jede Originalbewegung exakt ab.
+
 Gemessen auf den drei echten Exporten gegen das Original (Desktop, Tablet, Mobil):
 
 | Bereich | Stand |

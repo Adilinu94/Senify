@@ -85,7 +85,13 @@ function serve(root: string): Promise<{ url: string; close(): Promise<void> }> {
   return new Promise((done) =>
     server.listen(0, "127.0.0.1", () => {
       const port = (server.address() as { port: number }).port;
-      done({ url: `http://127.0.0.1:${port}`, close: () => new Promise<void>((end) => server.close(() => end())) });
+      done({
+        url: `http://127.0.0.1:${port}`,
+        close: () => new Promise<void>((end) => {
+          server.close(() => end());
+          server.closeAllConnections();
+        }),
+      });
     }),
   );
 }

@@ -661,7 +661,7 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
 
   // --- styles: tokens, font faces, hidden rules
   const colors: { id: string; name: string | null; value: string }[] = [];
-  for (const match of html.matchAll(/--token-([a-f0-9-]{36}):\s*([^;}]+)/g)) {
+  for (const match of html.matchAll(/--token-([a-z0-9_-]+):\s*([^;}]+)/gi)) {
     const id = match[1] ?? "";
     const value = (match[2] ?? "").trim();
     if (id === "" || value === "") continue;
@@ -865,9 +865,12 @@ function readAppearMotion(html: string, root: IrNode): IrMotionSample[] {
 
 // The time a spring needs to come to rest (2 % band): `4 / (ζ·ω0)` with
 // ω0 = √(stiffness/mass) and ζ = damping / (2·√(stiffness·mass)). A plain
-// `duration` transition is taken as it is. Clamped to a range a page can use.
+// `duration` transition is taken as it is; only the estimated spring is capped.
 function springSettleSeconds(transition: AppearTransition): number {
-  if (transition.type !== "spring") return Math.min(Math.max(transition.duration ?? 0.4, 0.15), 1.6);
+  if (transition.type !== "spring") {
+    const duration = transition.duration;
+    return typeof duration === "number" && Number.isFinite(duration) && duration >= 0 ? duration : 0.4;
+  }
   const stiffness = transition.stiffness ?? 100;
   const damping = transition.damping ?? 10;
   const mass = transition.mass ?? 1;
@@ -981,12 +984,16 @@ const VAR_CALL = /var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,((?:[^()]|\([^()]*\))*))?\)/g
 // writes ALL typography through them (`--framer-font-size`, `--framer-text-color`
 // … set by a preset class or inline), so keeping `var(--framer-font-size, 16px)`
 // in a baked page that no longer defines them renders every text at the
-// fallback. The token variables (`--token-*`) stay as `var()`: the theme
-// mapping owns them.
+// fallback. Token variables remain editable as `var()`; when the source
+// defines one, carry its value as a fallback until a theme provides it.
 function resolveVars(value: string, vars: Vars, depth = 0): string {
   if (depth > 6 || !value.includes("var(")) return value;
   return value.replace(VAR_CALL, (whole: string, name: string, fallback: string | undefined) => {
-    if (name.startsWith("--token-")) return whole;
+    if (name.startsWith("--token-")) {
+      const sourceValue = vars[name];
+      if (sourceValue === undefined || fallback !== undefined) return whole;
+      return `var(${name}, ${resolveVars(sourceValue.trim(), vars, depth + 1)})`;
+    }
     const found = vars[name];
     if (found !== undefined) return resolveVars(found.trim(), vars, depth + 1);
     if (fallback !== undefined) return resolveVars(fallback.trim(), vars, depth + 1);
@@ -1000,12 +1007,12 @@ function resolveVars(value: string, vars: Vars, depth = 0): string {
 function mediaRange(prelude: string): { min: number | null; max: number | null } | null {
   const query = prelude.replace(/^@media/i, "");
   const rest = query
-    .replace(/\(\s*(?:min|max)-width\s*:\s*[0-9.]+px\s*\)/gi, "")
+    .replace(/\(\s*(?:min|max)-width\s*:\s*(?:[0-9.]+px|0(?:\.0+)?)\s*\)/gi, "")
     .replace(/\b(?:screen|all|and|only)\b/gi, "")
     .trim();
   if (rest !== "") return null;
-  const max = /max-width:\s*([0-9.]+)px/i.exec(query)?.[1];
-  const min = /min-width:\s*([0-9.]+)px/i.exec(query)?.[1];
+  const max = /max-width:\s*([0-9.]+)(?:px)?\s*\)/i.exec(query)?.[1];
+  const min = /min-width:\s*([0-9.]+)(?:px)?\s*\)/i.exec(query)?.[1];
   return {
     min: min === undefined ? null : Number.parseFloat(min),
     max: max === undefined ? null : Number.parseFloat(max),
@@ -1078,6 +1085,9 @@ function compileSelector(
     .filter(Boolean);
   const target = compounds.pop();
   if (target === undefined) return { rule: null, pseudo: false };
+  // Ancestor matching tracks class names only. Attribute and ID ancestors
+  // cannot be checked and must not turn into an unrestricted ancestor match.
+  if (compounds.some((part) => /[[#]/.test(part))) return { rule: null, pseudo: false };
   const tag = target.replace(/\.[A-Za-z0-9_-]+/g, "");
   if (/[[#]/.test(tag)) return { rule: null, pseudo: false };
   return {
@@ -1112,7 +1122,7 @@ function buildIndex(rules: readonly ParsedCssRule[]): { index: RuleIndex; skippe
   return { index, skippedPseudo };
 }
 
-function ruleMatches(node: IrNode, rule: CompiledRule, ancestorClasses: ReadonlySet<string>): boolean {
+function ruleMatches(node: IrNode, rule: CompiledRule, ancestors: readonly ReadonlySet<string>[]): boolean {
   if (node.tag === "root") {
     if (rule.root) return true;
     // A class rule can target the page element itself (`.framer-QDc12{…}`).
@@ -1121,19 +1131,24 @@ function ruleMatches(node: IrNode, rule: CompiledRule, ancestorClasses: Readonly
   if (rule.root) return false;
   if (rule.tag !== "" && rule.tag !== "*" && rule.tag !== node.tag) return false;
   if (!rule.classes.every((name) => node.baseClasses.includes(name))) return false;
-  return rule.ancestors.every(
-    (classes) => classes.length === 0 || classes.some((name) => ancestorClasses.has(name)),
-  );
+  let cursor = ancestors.length - 1;
+  for (let index = rule.ancestors.length - 1; index >= 0; index -= 1) {
+    const required = rule.ancestors[index] ?? [];
+    while (cursor >= 0 && !required.every((name) => ancestors[cursor]?.has(name) === true)) cursor -= 1;
+    if (cursor < 0) return false;
+    cursor -= 1;
+  }
+  return true;
 }
 
 // Matching rules in source order, which is the cascade order.
-function matchingRules(index: RuleIndex, node: IrNode, ancestorClasses: ReadonlySet<string>): CompiledRule[] {
+function matchingRules(index: RuleIndex, node: IrNode, ancestors: readonly ReadonlySet<string>[]): CompiledRule[] {
   const candidates = new Set<CompiledRule>(index.generic);
   for (const name of node.baseClasses) {
     for (const rule of index.byClass.get(name) ?? []) candidates.add(rule);
   }
   return [...candidates]
-    .filter((rule) => ruleMatches(node, rule, ancestorClasses))
+    .filter((rule) => ruleMatches(node, rule, ancestors))
     .sort((a, b) => a.order - b.order);
 }
 
@@ -1155,16 +1170,16 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
   const DEVICES: readonly IrDevice[] = ["desktop", "tablet", "mobile"];
   type VarsByDevice = Record<IrDevice, Vars>;
 
-  const visit = (current: IrNode, ancestorClasses: ReadonlySet<string>, inherited: VarsByDevice): void => {
+  const visit = (current: IrNode, ancestors: readonly ReadonlySet<string>[], inherited: VarsByDevice): void => {
     const baseState = current.states[0];
     if (baseState === undefined) return;
     // The cascade: stylesheet rules first, the element's own inline style wins.
     const inline = { ...baseState.visual };
     const baseline: Record<string, string> = {};
-    for (const rule of matchingRules(base.index, current, ancestorClasses)) Object.assign(baseline, rule.values);
+    for (const rule of matchingRules(base.index, current, ancestors)) Object.assign(baseline, rule.values);
     const byDevice = new Map<IrDevice, Record<string, string>>();
     for (const entry of mediaIndexes) {
-      const rules = matchingRules(entry.index, current, ancestorClasses);
+      const rules = matchingRules(entry.index, current, ancestors);
       if (rules.length === 0) continue;
       for (const device of entry.devices) {
         const values = byDevice.get(device) ?? {};
@@ -1208,10 +1223,10 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
         visual: values,
       });
     }
-    const classes = new Set([...ancestorClasses, ...current.baseClasses]);
-    for (const child of current.children) visit(child, classes, varsByDevice);
+    const nextAncestors = [...ancestors, new Set(current.baseClasses)];
+    for (const child of current.children) visit(child, nextAncestors, varsByDevice);
   };
-  visit(root, new Set(), { desktop: {}, tablet: {}, mobile: {} });
+  visit(root, [], { desktop: {}, tablet: {}, mobile: {} });
   return { skippedPseudo };
 }
 

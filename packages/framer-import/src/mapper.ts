@@ -619,6 +619,10 @@ function cssToStyle(visual: { [key: string]: string | undefined }): Record<strin
   const out: Record<string, string> = {};
   for (const [name, entry] of Object.entries(visual)) {
     if (entry === undefined) continue;
+    if (name === "background" && /^(?:repeating-)?(?:linear|radial|conic)-gradient\(/i.test(entry.trim())) {
+      out["backgroundImage"] = entry;
+      continue;
+    }
     const mapped = cssName(name);
     if (mapped !== undefined && entry !== "") out[mapped] = entry;
   }
@@ -674,9 +678,10 @@ function escapeHtmlAttr(value: string): string {
 
 // The deepest text content of a node, through rich-text wrappers: an <a> whose
 // children are containers around text is still a text link.
-// The first descendant that carries its own text.
+// Prefer the text block that owns inline text over an inheriting inner span.
 function firstTextNode(node: IrNode): IrNode | null {
   for (const child of node.children) {
+    if ((HEADING_TAGS.has(child.tag) || child.tag === "p") && deepTextOf(child) !== null) return child;
     if ((child.states[0]?.text?.content ?? "") !== "") return child;
     const inner = firstTextNode(child);
     if (inner !== null) return inner;

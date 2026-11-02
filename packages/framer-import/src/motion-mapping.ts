@@ -47,11 +47,11 @@ const numberAny = (sample: IrMotionSample, key: string): number | undefined => {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 };
 
-// The vertical start offset of an appear effect as the 1–10 intensity of the
-// preset (about 10 px per step; Framer's 50 px reveal is a 5).
+// The fade-up renderer uses y = 8 + intensity * 3.2 pixels. Invert that
+// mapping so the imported start offset is as close as the 1–10 dial permits.
 function appearIntensity(sample: IrMotionSample): number {
   const y = Math.abs(numberAny(sample, "fromY") ?? 0);
-  return Math.min(10, Math.max(1, Math.round(y / 10)));
+  return Math.min(10, Math.max(1, Math.round((y - 8) / 3.2)));
 }
 
 function presetFor(sample: IrMotionSample): MotionSpec["preset"] | null {
@@ -80,7 +80,8 @@ function specFor(sample: IrMotionSample, preset: MotionSpec["preset"]): MotionSp
   return {
     preset,
     ...(sample.library === "framer" && sample.trigger === "appear" ? { intensity: appearIntensity(sample) } : {}),
-    ...(delay === undefined ? {} : { delay: Math.round(delay) }),
+    // Captures use milliseconds; MotionSpec and the GSAP page script use seconds.
+    ...(delay === undefined ? {} : { delay: delay / 1000 }),
     ...(Object.keys(tokens).length === 0 ? {} : { tokens }),
     trigger: sample.trigger === "inview" || sample.trigger === "scroll" ? "viewport" : sample.trigger === "hover" ? "hover" : "load",
     reducedMotion: "static",

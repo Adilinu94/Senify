@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mapFramerMotion, type FramerIrDocument } from "@senify/framer-import";
+import { motionConfigsForTree } from "@senify/renderer";
 
 function documentWith(samples: FramerIrDocument["motion"]): FramerIrDocument {
   return {
@@ -27,8 +28,14 @@ describe("Framer motion mapping", () => {
     expect(result.documented).toBe(0);
     expect(result.mappings.map((entry) => entry.preset)).toEqual(["fade-up", "scroll-reveal", "parallax-subtle", "marquee"]);
     expect(result.mappings.every((entry) => entry.spec.reducedMotion === "static")).toBe(true);
-    expect(result.mappings[0]?.spec.delay).toBe(120);
+    expect(result.mappings[0]?.spec.delay).toBe(0.12);
     expect(result.mappings[0]?.spec.tokens?.durationScale).toBe(3);
+    const motion = result.mappings[0]?.spec;
+    expect(motion).toBeDefined();
+    const rendered = motionConfigsForTree({ rootNodeId: "headline", nodes: {
+      headline: { id: "headline", type: "heading", props: {}, motion },
+    } }, { ease: {}, baseDurationMs: 300, baseStaggerMs: 80 });
+    expect(rendered.configs[0]?.delay).toBe(0.12);
   });
 
   it("documents a sample outside the closed registry", () => {

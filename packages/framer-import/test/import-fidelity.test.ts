@@ -171,6 +171,45 @@ describe("typography through custom properties", () => {
     expect(String(nodes.find((node) => node.props["text"] === "Marke")?.props["color"])).toContain("--token-");
   });
 
+  it("carries Framer token colors as fallbacks without losing their names", () => {
+    const { document, nodes } = run(page('<p class="fx">Marke</p>', 'body{--token-L6DGm0xys:#fff}.fx{color:var(--token-L6DGm0xys)}'));
+    expect(document.styles.colors).toContainEqual({ id: "L6DGm0xys", name: null, value: "#fff" });
+    expect(nodes.find((node) => node.props["text"] === "Marke")?.props["color"]).toBe("var(--token-L6DGm0xys, #fff)");
+  });
+
+  it("applies a Framer mobile media query with unitless zero", () => {
+    const { nodes } = run(page('<p class="fx">Mobil</p>', '.fx{font-size:68px}@media (max-width:809px) and (min-width:0){.fx{font-size:38px}}'));
+    const text = nodes.find((node) => node.props["text"] === "Mobil");
+    expect(text?.props["fontSize"]).toBe("68px");
+    expect(text?.props["fontSize_mobile"]).toBe("38px");
+  });
+
+  it("does not apply an unchecked attribute ancestor to unrelated text", () => {
+    const { nodes } = run(page('<p class="fx">Unrelated</p>', '[data-framer-component-text-autosized] *{white-space:pre}.fx{color:#fff}'));
+    const text = nodes.find((node) => node.props["text"] === "Unrelated");
+    expect(text?.props["color"]).toBe("#fff");
+    expect(text?.props["whiteSpace"]).not.toBe("pre");
+  });
+
+  it("requires every class in a Framer variant ancestor", () => {
+    const html = page('<div class="parent desktop"><div class="nav">Menu</div></div>', '.parent .nav{width:120px}.parent.mobile .nav{width:100%}');
+    const { nodes } = run(html);
+    const nav = nodes.find((node) => node.props["text"] === "Menu");
+    expect(nav?.props["width"]).toBe("120px");
+  });
+
+  it("does not combine classes from separate ancestors into one variant", () => {
+    const html = page('<div class="parent"><div class="mobile"><div class="nav">Menu</div></div></div>', '.parent .nav{width:120px}.parent.mobile .nav{width:100%}');
+    const { nodes } = run(html);
+    expect(nodes.find((node) => node.props["text"] === "Menu")?.props["width"]).toBe("120px");
+  });
+
+  it("keeps a background gradient as an image instead of an invalid color", () => {
+    const gradient = "linear-gradient(rgba(10,10,10,.45),rgba(10,10,10,.82))";
+    const { nodes } = run(page('<div class="shade"></div>', `.shade{background:${gradient}}`));
+    expect(nodes.some((node) => node.props["backgroundImage"] === gradient)).toBe(true);
+  });
+
   it("gives a lifted heading the typography of the heading, not the container's defaults", () => {
     const { nodes } = run(
       preset(
@@ -182,6 +221,19 @@ describe("typography through custom properties", () => {
     expect(heading?.props["text"]).toBe("Titel");
     expect(heading?.props["fontSize"]).toBe("64px");
     expect(heading?.props["color"]).toBe("#fff");
+  });
+
+  it("keeps heading colour when an inline span inherits it", () => {
+    const { nodes } = run(preset('.hd{color:#fff;font-size:64px}.inner{color:inherit}', '<div data-framer-component-type="RichTextContainer"><h2 class="hd"><span class="inner">Titel</span></h2></div>'));
+    const body = nodes.find((node) => String(node.props["html"] ?? "").includes("Titel"));
+    expect(body?.props["color"]).toBe("#fff");
+    expect(body?.props["fontSize"]).toBe("64px");
+  });
+
+  it("keeps paragraph colour when an inline span inherits it", () => {
+    const { nodes } = run(preset('.copy{color:#fff}.inner{color:inherit}', '<div data-framer-component-type="RichTextContainer"><p class="copy"><span class="inner">Text</span></p></div>'));
+    const body = nodes.find((node) => String(node.props["html"] ?? "").includes("Text"));
+    expect(body?.props["color"]).toBe("#fff");
   });
 });
 

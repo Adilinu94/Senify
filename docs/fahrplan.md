@@ -29,6 +29,10 @@ Nächste Arbeitspakete in Reihenfolge:
 
 **Bilddarstellung:** Strukturierte Bild- und Poster-Referenzen sowie sichere `inset`-Shorthands werden im gemeinsamen Renderpfad verarbeitet (`packages/widget-engine/src/markup.ts`, `packages/widget-engine/src/css/properties.ts`). Die Beispielseite zeigt das Hintergrundbild; originalgetreue Farben, Layout und Animationen sind weiterhin offen.
 
+**Farb- und Textimport:** Farbvariablen erhalten vorhandene Quellwerte als CSS-Fallback; Selektoren mit nicht auswertbarem Attribut-Vorfahren werden nicht global angewendet und Varianten-Vorfahren müssen alle geforderten Klassen tragen. Verschachtelte Textblöcke behalten ihre Typografie; alleinstehende Verläufe werden als Hintergrundbilder ausgegeben (`packages/framer-import/src/capture-html.ts`, `mapper.ts`, `import-fidelity.test.ts`). Vollständige Selektorunterstützung und Bildtreue bleiben offen.
+
+**Motion-Korrektur:** Der Import überträgt Delay in Sekunden und erhält Tween-Dauern; der vertikale Startabstand wird auf die bestehende Preset-Skala angenähert (`packages/framer-import/src/motion-mapping.ts`, `capture-html.ts`, `motion-mapping.test.ts`, `motion-appear.test.ts`). Exakte Kurven, nicht unterstützte Effekte und ein Bewegungsvergleich bleiben offen.
+
 ## Teststrategie für schnelle Entwicklung
 
 - Bei einer Änderung zuerst die direkt betroffenen Tests ausführen, zum Beispiel `pnpm exec vitest run <testdatei>`. Die Tests gezielt nach Vertrag auswählen; automatische Abhängigkeitsauswahl kann bei stark vernetzten Modulen große Teile der Suite starten.
