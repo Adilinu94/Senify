@@ -423,6 +423,10 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     // Die Zahl im Kommentar dieser Datei muss dazu passen.
     const kommentar = readFileSync(new URL(import.meta.url), "utf8");
     expect(kommentar).toContain(`${delegaten} von ${methoden.length} Delegaten`);
+    // Und die erzeugte Uebersicht: die Zahl stand dort bis zum 02.11.2026 fest
+    // im Generator und blieb stehen, als der CMS-Import eine Methode ergaenzte.
+    const module = readFileSync(join(root, "docs/current/module.md"), "utf8");
+    expect(module).toContain(`${delegaten} von ${methoden.length} Methoden`);
   });
 });
 

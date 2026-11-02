@@ -47,7 +47,7 @@ Baustein-Bibliothek ist seit 31.10.2026 belegt. Die CI ist dabei enger geworden:
 | **P3-4** | Release-Manifest mit Snapshots | erledigt |
 | **P3-5** | Import-Asset-Kompensation | erledigt (mit dokumentierter Grenze) |
 | **P3-6** | Doku-Prozesse und `.scratch/`-Hygiene | erledigt |
-| **P3-7** | Framer-Import: Lücken der Live-Messung | **teilweise** — 15 von 16 Punkten geschlossen |
+| **P3-7** | Framer-Import: Lücken der Live-Messung | **geschlossen (01.11.2026)** — 16 von 16 Punkten; Punkt 15 ist als Grenze des Browser-Captures belegt |
 
 ### 2.2 Risiko-Register (Kurzfassung; maßgeblich ist `docs/fahrplan.md`)
 
@@ -93,7 +93,7 @@ Zeilenzahl. Jeder Schnitt braucht einen Beleg, dass die Grenze echt ist.
 
 | Rang | Datei | Zeilen | Zustand | Nächster Schritt und Bedingung |
 |---|---|---|---|---|
-| 1 | `packages/engine/src/store.ts` | 2 662 | `module.md`: **inhaltlich fertig** — vier fachübergreifende Transaktionen, `replaceTables`, Fassade; 202 von 244 Methoden sind Delegaten (gemessen) | **Kein Schnitt geplant.** Was bleibt, ist die Entscheidung (ADR-0019 Punkt 4). Wer hier schneidet, teilt eine Transaktion. |
+| 1 | `packages/engine/src/store.ts` | 2 794 | `module.md`: **inhaltlich fertig** — vier fachübergreifende Transaktionen, `replaceTables`, Fassade; 203 von 245 Methoden sind Delegaten (gemessen) | **Kein Schnitt geplant.** Was bleibt, ist die Entscheidung (ADR-0019 Punkt 4). Wer hier schneidet, teilt eine Transaktion. |
 | 2 | `packages/editor/src/inspector/inspector.ts` | 1 884 | `module.md`: eine Closure mit 22 Renderern; `renderFieldRow` allein nennt elf Fremdnamen und zehn Geschwister-Renderer | **Schnitt am 26.10.2026 gemessen und verworfen.** Eine Fabrik mit elf Rückrufen ist eine Verschiebung, keine Naht. Nur mit einer anderen Idee (z. B. Renderer-Registry mit deklarierten Abhängigkeiten) neu bewerten. |
 | 3 | `packages/framer-import/src/capture-html.ts` | 2 768 | `module.md`: CSS-Block am Dateiende wurde als eigener Schnitt **versucht und verworfen** (15 Importe aus der Quelldatei wären keine Senke) | Nur mit einem anderen Zuschnitt (z. B. CSS-Auflösung als eigene Stufe mit klarer Eingabe/Ausgabe) neu bewerten. |
 | 4 | `packages/framer-import/src/mapper.ts` | 2 047 | `module.md`: 57 Funktionen, `mapNode` allein 336 Zeilen, teilt Tabellen mit `mapDocument` | Ein Schnitt müsste die Tabellen als Parameter durchreichen — derzeit keine Naht. Wächst seit dem Browser-Abgriff der Animationen. |
@@ -157,7 +157,7 @@ Quellschriften. Andere Seiten haben andere Reste; die Tabelle in
 |---|---|---|
 | S3b Island-Payloads | teilweise: Original-Markup, Original-CSS und gebündelte Runtime in **einem** ESM-Modul; Mirror-Quellen und wenige Adapter | „nicht generisch" — die generische Extraktion brauchte eine Quelle, die es in echten Exporten nicht gibt |
 | S4 Fremdcode | teilweise: Klasse-C-Strecke in der Oberfläche belegt (Nachbau-Hinweis, Platte als letzter Ausweg, Befund mit Belegstelle) | `data-framer-module` kommt in **keinem** echten Export vor. Was fehlt, hängt an derselben fehlenden Quelle |
-| Poster für den Editor | offen (im Punkt 13 vermerkt) | Braucht den Browser-Capture; bis dahin steht die Platte |
+| Poster für den Editor | **geschlossen 23.10.2026** — der Capture nimmt das Social Image der Quelle (`og:image`) als Asset auf, der Träger nennt es als `poster`; der Rückfall lautet Payload → Poster → Platte | Das Bild **der Quelle** zeigt, was die Seite zeigt — kein Screenshot nötig, keine Vermutung. Beleg: `payload-poster.test.ts` (4), `payload-page.test.ts` (7) |
 
 **Entschieden am 01.11.2026 (ADR-0028):** Der Unframer-MCP wird die zweite
 Quelle. Er liefert die Projektstruktur (benannte Komponenten, Stapel-Layout,
@@ -335,7 +335,7 @@ Damit es nicht wieder aufgemacht wird:
    ist **keine Lücke**. `.dependency-cruiser.js` erlaubt Zyklen innerhalb eines Pakets
    ausdrücklich als Frage der Dateiorganisation; die Regel `no-new-package-cycle` gilt auf
    Ordnerebene. `pnpm deps:check` ist grün.
-2. **`store.ts` ist inhaltlich fertig.** 202 von 244 Methoden sind Delegaten; was bleibt,
+2. **`store.ts` ist inhaltlich fertig.** 203 von 245 Methoden sind Delegaten; was bleibt,
    sind vier fachübergreifende Transaktionen und die Fassade.
 3. **`inspector.ts`, `capture-html.ts`, `mapper.ts`** sind am 26.10.2026 **gemessen**
    geprüft und mit Begründung verworfen.

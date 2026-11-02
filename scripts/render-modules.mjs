@@ -63,6 +63,40 @@ function zeilenZahl(pfad) {
   return roh.endsWith("\n") ? n - 1 : n;
 }
 
+/**
+ * Die Delegaten der Fassade - gemessen, nicht behauptet.
+ *
+ * Der Eintrag fuer `store.ts` nannte die Zahl bis zum 02.11.2026 fest im
+ * Quelltext ("202 von 244"). Als der CMS-Import eine Methode ergaenzte, blieb
+ * sie stehen, weil `module:check` nur den erzeugten Text mit dem Skript
+ * vergleicht - eine Zahl, die im Generator steht, ist so gut wie ihr letzter
+ * Handgriff. Die Messung ist dieselbe wie im Doku-Waechter.
+ */
+function delegatenZahl(pfad) {
+  const zeilen = readFileSync(pfad, "utf8").split(/\r?\n/);
+  const start = [];
+  for (let i = 0; i < zeilen.length; i++) {
+    if (/^ {2}(async )?[a-zA-Z#][a-zA-Z0-9_]*\s*\(/.test(zeilen[i])) start.push(i);
+  }
+  let delegaten = 0;
+  for (let k = 0; k < start.length; k++) {
+    const s = start[k];
+    const grenze = k + 1 < start.length ? start[k + 1] : zeilen.length;
+    let ende = s;
+    for (let i = s; i < grenze; i++) {
+      if (/^ {2}\}/.test(zeilen[i])) { ende = i; break; }
+      ende = i;
+    }
+    const koerper = zeilen
+      .slice(s + 1, ende)
+      .filter((z) => z.trim() !== "" && !z.trim().startsWith("//"))
+      .join(" ")
+      .trim();
+    if (/^return (await )?this\.#[a-zA-Z0-9]+\.[a-zA-Z0-9_]+\(.*\);?$/.test(koerper)) delegaten++;
+  }
+  return { delegaten, methoden: start.length };
+}
+
 /** Eine Markdown-Zelle: Pipes und Zeilenumbrueche wuerden die Tabelle brechen. */
 function zelle(text) {
   return text.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
@@ -112,8 +146,10 @@ function routen(pfad) {
  * Auswahl, sodass fuenf Dateien (6 321 Zeilen) ohne Entscheidung dastanden.
  */
 const BLEIBT = {
-  "packages/engine/src/store.ts":
-    "vier fachübergreifende Transaktionen (`applyRedesignPlan`, `duplicateSiteWithPlan`, `duplicateAssetRecords`, `commitFramerImportPlan`), `replaceTables` und die Fassade; 202 von 244 Methoden sind reine Delegaten (gemessen), der Rest steht in 38 `store-*`-Modulen",
+  "packages/engine/src/store.ts": (() => {
+    const { delegaten, methoden } = delegatenZahl(join(SRC, "store.ts"));
+    return `vier fachübergreifende Transaktionen (\`applyRedesignPlan\`, \`duplicateSiteWithPlan\`, \`duplicateAssetRecords\`, \`commitFramerImportPlan\`), \`replaceTables\` und die Fassade; ${delegaten} von ${methoden} Methoden sind reine Delegaten (gemessen), der Rest steht in 38 \`store-*\`-Modulen`;
+  })(),
   "packages/editor/src/inspector/inspector.ts":
     "eine Closure (`createInspector`), die DOM und Zustand gemeinsam hält. **Gemessen am 26.10.2026:** 22 Renderer, und nur EINER kommt ohne Fremdnamen aus (`renderSwitcher`, 24 Zeilen); alle anderen brauchen `commitProp`, ein Geschwister oder den Zustand. `renderFieldRow` allein nennt elf Fremdnamen (`breakpoint`, `tokenPanelKey`, `apply`, `commitProp`, `toggleVariant`, `removeVariant`, `clearProp`, `clearField`, `commitMotion`, `motionModel`) und zehn Geschwister-Renderer. Eine Fabrik, die elf Rückrufe durchreicht, ist keine Naht, sondern eine Verschiebung mit mehr Parametern: dieselbe Prüfung, mit der die Betriebsgruppe der Routen verworfen wurde",
   "packages/engine/src/content.ts": "Sammlungen, Einträge und ihre Suche in einem Fachgebiet",
