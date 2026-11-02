@@ -17,6 +17,8 @@
 
 Das vorrangige Produktziel ist der lokale Import einer Framer-Site über Framer- und Unframer-Zugang: Das Ergebnis soll ohne Framer Runtime laufen, visuell und in der Bewegung möglichst exakt entsprechen und für den Agenten vollständig bearbeitbar sein. Dieses Ziel ist noch nicht erreicht. Die technischen P0–P3-Gates bleiben für betroffene Änderungen gültig; weitere reine Aufräumarbeiten stehen hinter dem Importziel zurück.
 
+Die detaillierte Planung für dieses Produktziel steht in der [Framer-Roadmap](framer-roadmap.md). Ihre Phasen F0–F8 konkretisieren die nachfolgenden Arbeitspakete. Erste vertikale Scheibe: F0 → F1 → F2 in kleinem Umfang → F3 für die Beispielseite → F4 für deren Appear-Effekte → F7; danach breitere Abdeckung von Seiten, CMS und Interaktionen. Architekturänderungen setzen die jeweils genannten ADR-Entscheidungen voraus.
+
 Nächste Arbeitspakete in Reihenfolge:
 
 1. Exportzugang prüfen und einen echten Export als reproduzierbare Eingabe sichern. CLI und MCP können FramerExport starten und vorhandene Ordner anschließend als Mirror einlesen; MCP kann auch Projektdaten über Unframer lokal sichern (`packages/mcp/src/framer-export.ts`, `packages/mcp/src/unframer.ts`, `packages/framer-import/src/import.ts`). Der direkte kombinierte Ablauf und die Übernahme des Unframer-Snapshots in den NodeTree bleiben offen.
