@@ -1,5 +1,5 @@
 // Der lesende Client zum Unframer-MCP (ADR-0028): die zweite Import-Quelle
-// fuer Projektstruktur. Er kennt genau vier Werkzeuge - die vier lesenden.
+// fuer Projektstruktur. Er kennt genau fuenf Werkzeuge - die fuenf lesenden.
 // Die schreibenden Werkzeuge des MCP (`updateXmlForNode`, `createPage`,
 // `deleteNode`) erreicht kein Aufrufer ueber diesen Client; ein Import
 // veraendert das fremde Projekt nie.
@@ -16,6 +16,7 @@ export const UNFRAMER_READ_TOOLS = [
   "getProjectXml",
   "getNodeXml",
   "getCMSCollections",
+  "getCMSItems",
   "readCodeFile",
 ] as const;
 
@@ -48,6 +49,10 @@ export type UnframerClient = {
   // Format-Doku, weil es keine Sammlungen gab. Was darin steht, entscheidet
   // erst das CMS-Mapping (Block 4).
   cmsCollections(): Promise<string>;
+  // Die Eintraege einer Sammlung (`collectionId` aus getCMSCollections); ohne
+  // Angabe alle, soweit das MCP das hergibt. Wie die Sammlungen unveraendert
+  // als Text - gelesen wird die Antwort vom CMS-Mapping.
+  cmsItems(collectionId?: string): Promise<string>;
   codeFile(path: string): Promise<string>;
 };
 
@@ -152,6 +157,13 @@ export function createUnframerClient(input: UnframerClientInput): UnframerClient
         "getNodeXml",
       ),
     cmsCollections: async () => read("getCMSCollections", {}),
+    cmsItems: async (collectionId) =>
+      read(
+        "getCMSItems",
+        collectionId === undefined || collectionId.trim() === ""
+          ? {}
+          : { collectionId: collectionId.trim() },
+      ),
     codeFile: async (path) =>
       read("readCodeFile", { path: requireArgument(path, "path") }),
   };

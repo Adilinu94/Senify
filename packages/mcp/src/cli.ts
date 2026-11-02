@@ -432,6 +432,12 @@ export function createProgram(): Command {
       "--cms <datei>",
       "Sammlungen als Datei aus getCMSCollections (JSON oder XML, optional)",
     )
+    .option(
+      "--cms-items <datei>",
+      "Eintraege als Datei aus getCMSItems (mehrfach fuer mehrere Sammlungen; JSON oder XML, optional; braucht --cms)",
+      (value: string, previous: string[]) => [...previous, value],
+      [] as string[],
+    )
     .option("--page-path <path>", "Zielpfad der Seite in Senify", "/")
     .option("--write", "Ergebnis als eine Revision schreiben (Default: Dry-Run)")
     .option("--page-id <pageId>", "In diese bestehende Seite schreiben statt neue anzulegen")
@@ -463,6 +469,21 @@ export function createProgram(): Command {
         token: secret,
       });
       const write = options.write === true;
+      // getCMSItems antwortet je Sammlung; jede Antwort ist eine eigene Datei.
+      const cmsItemsFiles: string[] = options.cmsItems ?? [];
+      // Eintraege brauchen das Schema: ohne die Sammlungen fehlt die Zuordnung
+      // der Feldwerte, und die Engine wuerde die Antwort zu Recht abweisen.
+      if (cmsItemsFiles.length > 0 && options.cms === undefined) {
+        throw new SenifyError(
+          "validation",
+          "--cms-items braucht --cms (die Eintraege werden gegen die Felddefinitionen gelesen)",
+          {
+            field: "--cms-items",
+            suggestion:
+              "Zuerst getCMSCollections als --cms uebergeben, dann getCMSItems als --cms-items.",
+          },
+        );
+      }
       const body: Record<string, unknown> = {
         source: {
           project: {
@@ -472,7 +493,19 @@ export function createProgram(): Command {
             usage: "private",
             ...(options.cms === undefined
               ? {}
-              : { cms: { collections: readFileSync(String(options.cms), "utf8") } }),
+              : {
+                  cms: {
+                    collections: readFileSync(String(options.cms), "utf8"),
+                    ...(cmsItemsFiles.length === 0
+                      ? {}
+                      : {
+                          items:
+                            cmsItemsFiles.length === 1
+                              ? readFileSync(String(cmsItemsFiles[0]), "utf8")
+                              : cmsItemsFiles.map((file) => readFileSync(file, "utf8")),
+                        }),
+                  },
+                }),
           },
         },
         pagePath: String(options.pagePath),
@@ -494,6 +527,8 @@ export function createProgram(): Command {
           cms?: {
             collections: { name: string; slug: string; fields: number; outcome: string }[];
             fields: { mapped: number; dropped: number };
+            items?: { planned: number; imported: number; existing: number; dropped: number };
+            media?: { planned: number; downloaded: number; failed: number; skipped: number };
           };
           findings: { kind: string; severity: string; message: string }[];
           steps: string[];
@@ -517,6 +552,16 @@ export function createProgram(): Command {
         for (const collection of report.cms.collections) {
           console.log(
             `CMS: ${collection.name} (/${collection.slug}) — ${collection.fields} Felder, ${collection.outcome === "create" ? "wird angelegt" : "besteht bereits"}`,
+          );
+        }
+        if (report.cms.items !== undefined) {
+          console.log(
+            `CMS-Eintraege: ${report.cms.items.planned} im Plan, ${report.cms.items.imported} angelegt, ${report.cms.items.existing} bereits vorhanden, ${report.cms.items.dropped} verworfen`,
+          );
+        }
+        if (report.cms.media !== undefined && report.cms.media.planned > 0) {
+          console.log(
+            `CMS-Bilder: ${report.cms.media.downloaded} geladen, ${report.cms.media.failed} fehlgeschlagen, ${report.cms.media.skipped} uebersprungen`,
           );
         }
       }

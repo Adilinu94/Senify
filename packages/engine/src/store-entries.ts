@@ -109,6 +109,21 @@ export class EntriesRepository {
     return result.rows.map(mapEntry);
   }
 
+  async listEntrySlugs(
+    siteId: string,
+  ): Promise<{ id: string; collectionId: string; slug: string }[]> {
+    const result = await this.#db.query<{ id: string; collection_id: string; slug: string }>(
+      `SELECT id, collection_id, slug FROM entries
+        WHERE site_id = $1 AND deleted_at IS NULL`,
+      [siteId],
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      collectionId: row.collection_id,
+      slug: row.slug,
+    }));
+  }
+
   async getEntry(id: string): Promise<Entry> {
     const result = await this.#db.query<EntryRow>(
       `SELECT ${ENTRY_COLUMNS} FROM entries WHERE id = $1`,

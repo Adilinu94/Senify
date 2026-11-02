@@ -392,14 +392,14 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
 
   it("nennt in store.ts so viele Delegaten, wie wirklich delegieren", () => {
     // Befund vom 25.10.2026: der Kommentar an dieser Stelle sagte "211 von
-    // 235 Delegaten". Beide Zahlen waren falsch - gemessen sind es 202 von
-    // 244. Die Aussage ist pruefbar, also wird sie geprueft: eine Zahl in
+    // 235 Delegaten". Beide Zahlen waren falsch - gemessen sind es 203 von
+    // 245. Die Aussage ist pruefbar, also wird sie geprueft: eine Zahl in
     // einem Kommentar ist eine Behauptung wie jede andere, und eine
     // gedriftete Zahl macht den Kommentar wertlos (er soll erklaeren, warum
     // die Datei so gross sein darf).
     //
     // Die Zahl steht deshalb HIER und wird unten gegen eine Messung geprueft:
-    // 202 von 244 Delegaten.
+    // 203 von 245 Delegaten.
     const zeilen = readFileSync(join(root, "packages/engine/src/store.ts"), "utf8").split(/\r?\n/);
     const start: number[] = [];
     for (let i = 0; i < zeilen.length; i++) {

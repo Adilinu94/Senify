@@ -3,12 +3,12 @@ import { readCmsCollections } from "@senify/framer-import";
 import { SenifyError } from "@senify/core";
 
 // Die Abbildung der CMS-Sammlungen (ADR-0028, Block 4). Gelesen wird die
-// Antwort von getCMSCollections. Ihre Serialisierung ist an keinem Projekt mit
-// Sammlungen gemessen - die beiden Messprojekte hatten keine. Der Test haelt
-// deshalb die dokumentierte Form fest (Feld-Eigenschaften laut Format-Doku)
-// und prueft beide Wege, die das MCP nehmen kann: JSON wie die
-// Werkzeug-Beispiele, XML wie die Node-Werkzeuge. Alles Unbekannte wird ein
-// Fehler oder ein Fund, nie eine stille Leere.
+// Antwort von getCMSCollections. Gemessen am 02.11.2026 (MCP 1.8.0): Die
+// Antwort stellt ihrem JSON einen Markdown-Vorspann voran, und der Vorspann
+// enthaelt selbst ein JSON-Beispiel. Der Test haelt diese gemessene Form fest
+// und prueft daneben die dokumentierte (Felder laut Format-Doku) sowie XML wie
+// die Node-Werkzeuge. Alles Unbekannte wird ein Fehler oder ein Fund, nie eine
+// stille Leere.
 
 const DOCUMENTED_JSON = JSON.stringify([
   {
@@ -100,6 +100,53 @@ describe("CMS-Sammlungen: die dokumentierte Form", () => {
     expect(plan.collections[0]?.fields).toEqual([]);
   });
 
+  it("liest die gemessene Antwort: Vorspann mit JSON-Beispiel, dahinter das echte JSON", () => {
+    // So antwortet getCMSItems am 02.11.2026: eine kurze Anleitung, ein
+    // Beispielobjekt und erst danach die Sammlungen. Der Scanner muss das
+    // letzte vollstaendige JSON nehmen, nicht das Beispiel.
+    const answer = [
+      "## Working with CMS Items",
+      "",
+      "Each field is an object:",
+      "",
+      JSON.stringify({ fieldId: { type: "string", value: "My Title" } }, null, 2),
+      "",
+      JSON.stringify(
+        {
+          message: "Found 1 CMS collection(s)",
+          collections: [
+            {
+              id: "col-blog",
+              name: "Blog",
+              readonly: false,
+              fields: [
+                {
+                  id: "f-headline",
+                  name: "Headline",
+                  type: "string",
+                  comment: 'JSON string - Plain text value (e.g., "Hello World")',
+                },
+                { id: "f-body", name: "Body", type: "formattedText" },
+                { id: "f-date", name: "Publication Date", type: "date" },
+              ],
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+    ].join("\n");
+    const plan = readCmsCollections(answer);
+    expect(plan.collections.map((collection) => collection.slug)).toEqual(["blog"]);
+    expect(plan.collections[0]?.framerId).toBe("col-blog");
+    expect(plan.collections[0]?.fields.map((field) => [field.key, field.type])).toEqual([
+      ["headline", "text"],
+      ["body", "richtext"],
+      ["publication-date", "date"],
+    ]);
+    expect(plan.findings).toEqual([]);
+  });
+
   it("liest dieselbe Sammlung aus XML, Felder direkt oder in <Fields>", () => {
     const plan = readCmsCollections(DOCUMENTED_XML);
     expect(plan.collections.map((collection) => collection.name)).toEqual(["Blog", "Team"]);
@@ -133,16 +180,17 @@ describe("CMS-Sammlungen: die dokumentierte Form", () => {
     expect(plan.findings[0]?.evidence).toContain("richNumber");
   });
 
-  it("meldet mitgelieferte Eintraege, statt sie still zu verlieren", () => {
+  it("haelt die Zahl der mitgelieferten Eintraege fest, ohne sie zu lesen", () => {
+    // Der Parser liest hier nur das Schema. Ob die Eintraege mitkommen,
+    // entscheidet die Engine an der getCMSItems-Antwort; die Zahl bleibt am
+    // Plan, damit der Bericht ohne diese Antwort sagen kann, was offen ist.
     const plan = readCmsCollections(
       JSON.stringify([
         { name: "Blog", fields: [{ name: "Titel", type: "string" }], items: [{ id: "1" }, { id: "2" }] },
       ]),
     );
-    expect(plan.findings).toEqual([
-      expect.objectContaining({ kind: "cms-items-not-imported", severity: "info" }),
-    ]);
-    expect(plan.findings[0]?.message).toContain("2 Eintraege");
+    expect(plan.collections[0]?.sourceItems).toBe(2);
+    expect(plan.findings).toEqual([]);
   });
 
   it("reserviert den Schluessel und die Id des eingebauten Titelfelds", () => {

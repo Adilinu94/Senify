@@ -150,8 +150,9 @@ async function fetchBytes(url: string, timeoutMs: number): Promise<Buffer> {
 
 /* -------------------------------------------------------------- main entry */
 
-export type ImportAssetsInput = {
-  document: FramerIrDocument;
+// What one download needs. The page import fills it from the request; the CMS
+// entry import (ADR-0028, Block 4) fills the uploader and base URL only.
+export type AssetDownloadInput = {
   // The base of the source page: relative URLs resolve against it. Absent =
   // every asset URL is already absolute (the Framer CDN case).
   baseUrl?: string;
@@ -167,6 +168,10 @@ export type ImportAssetsInput = {
   uploader?: AssetUploader;
   // The output folder for mirror mode (required without an uploader).
   outDir?: string;
+};
+
+export type ImportAssetsInput = AssetDownloadInput & {
+  document: FramerIrDocument;
   includeAssets?: boolean;
   includeFonts?: boolean;
   timeoutMs?: number;
@@ -445,7 +450,7 @@ function fontByHashByContent(
 
 async function downloadAsset(
   asset: IrAsset,
-  input: ImportAssetsInput,
+  input: AssetDownloadInput,
   timeoutMs: number,
   byHash: Map<string, AssetDownload>,
   report: AssetReport,
@@ -501,6 +506,38 @@ async function downloadAsset(
   }
 }
 
+export type CmsMediaImporter = (media: {
+  url: string;
+  alt: string | null;
+  kind?: IrAsset["kind"];
+}) => Promise<{ assetId: string } | null>;
+
+// The media a CMS entry names (ADR-0028, Block 4): the same download path as
+// the page assets, without an IR document to mount into. One importer per run
+// keeps the hash dedupe across all entries.
+export function createCmsMediaImporter(input: {
+  uploader: AssetUploader;
+  baseUrl?: string;
+  timeoutMs?: number;
+}): CmsMediaImporter {
+  const byHash = new Map<string, AssetDownload>();
+  const report: AssetReport = { downloads: [], fonts: [], deduped: 0, failed: 0 };
+  const timeoutMs = input.timeoutMs ?? 30_000;
+  return async ({ url, alt, kind = "image" }) => {
+    const download = await downloadAsset(
+      { url, kind, hash: null, alt, width: null, height: null },
+      {
+        uploader: input.uploader,
+        ...(input.baseUrl === undefined ? {} : { baseUrl: input.baseUrl }),
+      },
+      timeoutMs,
+      byHash,
+      report,
+    );
+    return download.assetId === null ? null : { assetId: download.assetId };
+  };
+}
+
 // The CSS escapes of a value: a quote inside a `url("…")` stands as `\"` in
 // the style. The file the URL points to carries the plain character.
 function unescapeCss(value: string): string {
@@ -528,7 +565,7 @@ function absoluteUrl(url: string, baseUrl: string | undefined): string {  if (/^
 //
 // The mirror may only deliver its own files (ADR-0016): a path that leaves the
 // mirror folder is refused, and so is a link that points out of it.
-function readLocalAsset(url: string, input: ImportAssetsInput): Buffer | null {
+function readLocalAsset(url: string, input: AssetDownloadInput): Buffer | null {
   const root = input.localRoot;
   if (root === undefined) return null;
   // Absolute URLs (http, https, data) name no file of the mirror.

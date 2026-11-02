@@ -93,13 +93,16 @@ export {
 } from "./payloads.ts";
 
 export {
+  createCmsMediaImporter,
   importAssets,
   readMirrorFile,
   sourceAssetDeliveries,
   type AssetDownload,
+  type AssetDownloadInput,
   type AssetReport,
   type AssetResult,
   type AssetUploader,
+  type CmsMediaImporter,
   type ImportAssetsInput,
 } from "./assets.ts";
 
@@ -130,10 +133,14 @@ export {
 
 export {
   readCmsCollections,
+  readCmsItems,
   type CmsCollectionPlan,
   type CmsFieldPlan,
   type CmsFieldType,
   type CmsFinding,
+  type CmsItemCell,
+  type CmsItemPlan,
+  type CmsItemsPlan,
   type CmsPlan,
 } from "./cms.ts";
 

@@ -128,7 +128,7 @@ import {
   toJson,
   toJsonParam,
 } from "./store-row-utils.ts";
-import type { PreparedCmsCollection } from "./import-cms.ts";
+import type { PreparedCmsCollection, PreparedCmsEntry } from "./import-cms.ts";
 import {
   LibraryRepository,
   type LibraryCreateInput,
@@ -311,6 +311,9 @@ export type FramerImportCommitPlan = {
   // the site already had under the slug never appear here: the plan only
   // carries what it writes, and it writes in this transaction.
   collections?: readonly PreparedCmsCollection[];
+  // The CMS entries the import writes (ADR-0028, Block 4). Same rule as the
+  // collections: a slug the collection already holds never appears here.
+  entries?: readonly PreparedCmsEntry[];
   report: Omit<
     ImportReport,
     "pageId" | "newDraftVersion" | "receiptId" | "replayed"
@@ -1774,6 +1777,10 @@ export class Store {
     return this.#entries.listEntries(filter);
   }
 
+  listEntrySlugs(siteId: string): Promise<{ id: string; collectionId: string; slug: string }[]> {
+    return this.#entries.listEntrySlugs(siteId);
+  }
+
   getEntry(id: string): Promise<Entry> {
     return this.#entries.getEntry(id);
   }
@@ -2231,6 +2238,43 @@ export class Store {
         }
       }
 
+      // The CMS entries of a project import (ADR-0028, Block 4): same
+      // transaction as page and schema, status draft, version 1.
+      for (const entry of plan.entries ?? []) {
+        try {
+          await tx.query(
+            `INSERT INTO entries
+               (id, site_id, collection_id, slug, status, cells, active_version_id,
+                version, author, search_text, published_at, scheduled_at, deleted_at,
+                created_at, updated_at)
+             VALUES ($1, $2, $3, $4, 'draft', $5, NULL, 1, $6, $7, NULL, NULL, NULL, $8, $8)`,
+            [
+              entry.id,
+              plan.siteId,
+              entry.collectionId,
+              entry.slug,
+              toJsonParam(entry.cells),
+              toJsonParam(plan.author),
+              entry.searchText,
+              now,
+            ],
+          );
+        } catch (error) {
+          if (isUniqueViolation(error)) {
+            throw new SenifyError(
+              "conflict",
+              `Der Eintrag "${entry.slug}" wurde inzwischen auf dieser Site angelegt`,
+              {
+                field: "source.project.cms.items",
+                suggestion:
+                  "Import erneut analysieren: der Bericht zeigt den vorhandenen Eintrag dann als bestehend.",
+              },
+            );
+          }
+          throw error;
+        }
+      }
+
       const styleSite = await tx.query<StyleRuleRow>(
         `SELECT style_rules_json, style_rules_version FROM sites WHERE id = $1 FOR UPDATE`,
         [plan.siteId],
@@ -2368,6 +2412,26 @@ export class Store {
               name: collection.name,
               slug: collection.slug,
               fields: collection.fields.length,
+            })),
+            receiptKey: plan.contentKey,
+          },
+          author: plan.author,
+          undoPatch: [],
+          draftVersionAfter: 0,
+        });
+      }
+      if ((plan.entries ?? []).length > 0) {
+        auditEntries.push({
+          siteId: plan.siteId,
+          pageId: null,
+          batchId,
+          opIndex: auditEntries.length,
+          mutation: "importFramerEntries",
+          params: {
+            entries: (plan.entries ?? []).map((entry) => ({
+              id: entry.id,
+              collectionId: entry.collectionId,
+              slug: entry.slug,
             })),
             receiptKey: plan.contentKey,
           },

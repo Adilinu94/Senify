@@ -15,7 +15,7 @@ import { SenifyError } from "@senify/core";
 // Ohne laufendes Framer: der Transport ist ein Doppel, das den Aufruf merkt
 // und eine Fixture oder einen Fehler liefert. Die Fixtures unter
 // `fixtures/unframer/` tragen die gemessenen Attributnamen (14.09./21.10.2026),
-// keine Rohdatei - der Client-Vertrag haengt an den vier Werkzeugen, nicht am
+// keine Rohdatei - der Client-Vertrag haengt an den fuenf Werkzeugen, nicht am
 // vollstaendigen XML.
 //
 // Was hier bewiesen wird und warum es zaehlt:
@@ -62,13 +62,14 @@ function ablehnung(promise: Promise<unknown>): Promise<SenifyError> {
 }
 
 describe("Unframer-Client: nur lesen, nie schreiben", () => {
-  it("fuehrt genau die vier lesenden Werkzeuge", () => {
+  it("fuehrt genau die fuenf lesenden Werkzeuge", () => {
     // Ein gewachsenes MCP bietet 23 Werkzeuge, darunter schreibende. Diese
     // Liste ist der Zaun: was nicht hier steht, ruft der Client nicht.
     expect([...UNFRAMER_READ_TOOLS]).toEqual([
       "getProjectXml",
       "getNodeXml",
       "getCMSCollections",
+      "getCMSItems",
       "readCodeFile",
     ]);
   });
@@ -94,6 +95,19 @@ describe("Unframer-Client: die Uebersetzung", () => {
     const { aufrufe, client: unframer } = client("CMS format documentation");
     await expect(unframer.cmsCollections()).resolves.toBe("CMS format documentation");
     expect(aufrufe).toEqual([{ tool: "getCMSCollections", args: {} }]);
+  });
+
+  it("liest die Eintraege einer Sammlung und reicht ihre Id weiter", async () => {
+    // Die Antwort bleibt Text; ob sie Eintraege oder die Format-Doku traegt,
+    // entscheidet erst das CMS-Mapping. Ohne Id fragt der Client das ganze
+    // Projekt ab, ohne ein Feld zu erfinden.
+    const { aufrufe, client: unframer } = client('[{"slug":"start"}]');
+    await expect(unframer.cmsItems("coll-1")).resolves.toBe('[{"slug":"start"}]');
+    await expect(unframer.cmsItems()).resolves.toBe('[{"slug":"start"}]');
+    expect(aufrufe).toEqual([
+      { tool: "getCMSItems", args: { collectionId: "coll-1" } },
+      { tool: "getCMSItems", args: {} },
+    ]);
   });
 
   it("reicht den Pfad an readCodeFile weiter", async () => {

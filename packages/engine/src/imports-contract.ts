@@ -28,12 +28,24 @@ export const ImportSourceSchema = Type.Object(
           pageXml: Type.String(),
           page: Type.Optional(Type.String({ maxLength: 512 })),
           usage: Type.Union([Type.Literal("private"), Type.Literal("customer")]),
-          // The answer of `getCMSCollections` (ADR-0028, Block 4), verbatim:
-          // JSON or XML, both are read. Collections and their field schemas
-          // are mapped; entries are not (the report names them). A collection
-          // whose slug the site already has stays untouched.
+          // The answers of `getCMSCollections` and `getCMSItems` (ADR-0028,
+          // Block 4), verbatim: JSON or XML, both are read. Collections and
+          // their field schemas are mapped; so are entries, as drafts. A
+          // collection or entry whose slug the site already has stays
+          // untouched. Items need the collections answer: the values are
+          // matched against its fields. getCMSItems answers one collection per
+          // call, so `items` takes one answer or a list of them; relations
+          // between collections need all their answers in the same run.
           cms: Type.Optional(
-            Type.Object({ collections: Type.String() }, CLOSED),
+            Type.Object(
+              {
+                collections: Type.String(),
+                items: Type.Optional(
+                  Type.Union([Type.String(), Type.Array(Type.String())]),
+                ),
+              },
+              CLOSED,
+            ),
           ),
         },
         CLOSED,
@@ -240,6 +252,35 @@ export const ImportReportSchema = Type.Object(
             }),
           ),
           fields: Type.Object({ mapped: Type.Number(), dropped: Type.Number() }),
+          // The entry plan of the same answer (getCMSItems): `planned` counts
+          // the entries of the answer, `imported` the ones written in this
+          // run, `existing` the slugs the collection already held, `dropped`
+          // the source entries no collection could take.
+          items: Type.Optional(
+            Type.Object(
+              {
+                planned: Type.Number(),
+                imported: Type.Number(),
+                existing: Type.Number(),
+                dropped: Type.Number(),
+              },
+              CLOSED,
+            ),
+          ),
+          // What happened to the media the entries name: `planned` counts the
+          // values, `downloaded`/`failed` the transfer, `skipped` the values
+          // left out because the request skipped assets.
+          media: Type.Optional(
+            Type.Object(
+              {
+                planned: Type.Number(),
+                downloaded: Type.Number(),
+                failed: Type.Number(),
+                skipped: Type.Number(),
+              },
+              CLOSED,
+            ),
+          ),
         },
         CLOSED,
       ),

@@ -109,7 +109,7 @@ export { rebakeCount, triggerRebake, type RebakeTrigger } from "./rebake.ts";
 
 // ------------------------------------------------------------------- helpers
 
-function entrySlugValue(value: string): string {
+export function entrySlugValue(value: string): string {
   const slug = slugify(value);
   // slugify falls back to "page" (it was written for pages).
   return slug === "page" ? "entry" : slug;
@@ -193,8 +193,8 @@ function searchTokens(query: string): string[] {
   return tokens;
 }
 
-function buildSearchText(
-  collection: Collection,
+export function buildSearchText(
+  collection: Pick<Collection, "titleField" | "fields">,
   input: { cells: Record<string, CellValue>; slug: string },
 ): string {
   const parts: string[] = [];

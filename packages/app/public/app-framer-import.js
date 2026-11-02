@@ -34,6 +34,18 @@ export function importReportBlock(report) {
               )
               .join(" · ")} · ${cms.fields.mapped} Felder abgebildet, ${cms.fields.dropped} verworfen`,
       );
+  // Entries and their media are their own line: a schema import without items
+  // answer leaves the block out instead of printing zeros.
+  const cmsItemsBlock = cms?.items === undefined
+    ? ""
+    : el(
+        "p",
+        { class: "muted", "data-role": "framer-report-cms-items" },
+        `CMS-Einträge: ${cms.items.planned} im Plan, ${cms.items.imported} angelegt, ${cms.items.existing} bereits vorhanden, ${cms.items.dropped} verworfen`,
+        cms.media === undefined || cms.media.planned === 0
+          ? ""
+          : ` · Bilder: ${cms.media.downloaded} geladen, ${cms.media.failed} fehlgeschlagen, ${cms.media.skipped} übersprungen`,
+      );
   // The honest split (step 7 of the 1:1 plan): how much of the page the editor
   // edits, and how much runs as original code in the release. A page-level
   // payload carries the whole page, so the number is 0/100 there — saying
@@ -131,6 +143,7 @@ export function importReportBlock(report) {
       `Deklarationen: ${declarations.carried ?? 0}/${declarations.total ?? 0} übernommen, ${declarations.dropped ?? 0} verworfen. Assets: ${assets.downloaded ?? 0} geladen, ${assets.deduped ?? 0} dedupliziert, ${assets.failed ?? 0} fehlgeschlagen. Fonts: ${assets.fonts ?? 0}. Motion: ${motion.mappedToPreset}/${motion.measured} Presets, ${motion.documented} dokumentiert.`,
     ),
     cmsBlock,
+    cmsItemsBlock,
     shareBlock,
     refsFold(`Funde (${findings.length})`, findingItems, findings.length > 0),
     refsFold("Klasse-C", resolutionItems, resolutions.length > 0),
@@ -180,6 +193,16 @@ export function openFramerImportDialog({ siteId, pageId, session, onImported }) 
     accept: ".json,.xml,application/json,application/xml,text/xml",
     "data-role": "framer-cms-collections",
   });
+  // The entries ride on the schema: without the collections answer there are no
+  // field definitions to read the values against. getCMSItems answers one
+  // collection per call, so the dialog takes one file per answer.
+  const cmsItemsFileInput = el("input", {
+    class: "refs-input",
+    type: "file",
+    multiple: "",
+    accept: ".json,.xml,application/json,application/xml,text/xml",
+    "data-role": "framer-cms-items",
+  });
   // The license is the operating condition of this path: the Unframer MCP
   // declares no license, so only private projects may go through it.
   const licenseCheck = el("input", { type: "checkbox", "data-role": "framer-project-license" });
@@ -212,6 +235,12 @@ export function openFramerImportDialog({ siteId, pageId, session, onImported }) 
     { "data-role": "framer-cms-row" },
     "Sammlungen (getCMSCollections, optional)",
     cmsFileInput,
+  );
+  const cmsItemsRow = el(
+    "label",
+    { "data-role": "framer-cms-items-row" },
+    "Einträge (getCMSItems, optional; je Sammlung eine Datei)",
+    cmsItemsFileInput,
   );
   // A scraped mirror writes its own links and media as absolute URLs: only with
   // the address of the original site can the import tell them from other sites.
@@ -414,6 +443,7 @@ export function openFramerImportDialog({ siteId, pageId, session, onImported }) 
     pageXmlRow.hidden = !isProject;
     projectPageRow.hidden = !isProject;
     cmsRow.hidden = !isProject;
+    cmsItemsRow.hidden = !isProject;
     licenseRow.hidden = !isProject;
     // The project XML has no original page to put next to the import: there is
     // nothing to photograph, so the preview stays away (the route refuses too).
@@ -434,13 +464,33 @@ export function openFramerImportDialog({ siteId, pageId, session, onImported }) 
         );
       }
       const cms = cmsFileInput.files?.[0];
+      const cmsItems = [...(cmsItemsFileInput.files ?? [])];
+      if (cmsItems.length > 0 && !cms) {
+        throw new Error(
+          "Bitte zuerst die Sammlungen (getCMSCollections) wählen — die Einträge werden gegen ihre Felddefinitionen gelesen.",
+        );
+      }
       return {
         project: {
           xml: await project.text(),
           pageXml: await page.text(),
           page: projectPageInput.value.trim() === "" ? "/" : projectPageInput.value.trim(),
           usage: "private",
-          ...(cms ? { cms: { collections: await cms.text() } } : {}),
+          ...(cms
+            ? {
+                cms: {
+                  collections: await cms.text(),
+                  ...(cmsItems.length === 0
+                    ? {}
+                    : {
+                        items:
+                          cmsItems.length === 1
+                            ? await cmsItems[0].text()
+                            : await Promise.all(cmsItems.map((file) => file.text())),
+                      }),
+                },
+              }
+            : {}),
         },
       };
     }
@@ -609,6 +659,7 @@ export function openFramerImportDialog({ siteId, pageId, session, onImported }) 
     pageXmlRow,
     projectPageRow,
     cmsRow,
+    cmsItemsRow,
     licenseRow,
     el("label", {}, "Ziel", targetSelect),
     el("label", {}, "Seitenpfad", pagePathInput),

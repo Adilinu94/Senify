@@ -11,6 +11,7 @@ import {
 } from "@senify/section-sdk";
 import type { EditorNode } from "@senify/editor/state";
 import {
+  createCmsMediaImporter,
   marqueeCandidates,
   runImport as runFramerImport,
   type AssetReport,
@@ -30,7 +31,13 @@ import {
   type MediaContext,
 } from "./media.ts";
 import { applyPayloadIds, prepareCodePayload } from "./code-payloads.ts";
-import { prepareCmsImport } from "./import-cms.ts";
+import {
+  prepareCmsEntries,
+  prepareCmsImport,
+  type CmsEntryMedia,
+  type CmsEntryTarget,
+  type CmsImportFinding,
+} from "./import-cms.ts";
 import { planImportBreakpoints, type ImportBreakpointsPlan } from "./site-breakpoints.ts";
 import { DEFAULT_BREAKPOINTS } from "@senify/widget-engine/breakpoints";
 import type { CodePayloadLicense, CodePayloadProvenance, PageMeta } from "./types.ts";
@@ -516,15 +523,98 @@ export async function runFramerImportJob(
   // cannot read refuses the whole import before anything is written.
   const cmsText =
     source.kind === "project" ? input.body.source.project?.cms?.collections : undefined;
+  const cmsItemsText =
+    source.kind === "project" ? input.body.source.project?.cms?.items : undefined;
+  // One getCMSItems answer per collection; the body takes one or a list.
+  const cmsItemsTexts: string[] | undefined =
+    cmsItemsText === undefined
+      ? undefined
+      : Array.isArray(cmsItemsText)
+        ? cmsItemsText
+        : [cmsItemsText];
+  const cmsItemsSupplied = cmsItemsTexts !== undefined && cmsItemsTexts.length > 0;
+  // The site's collections once: the schema plan reads them for the duplicate
+  // rule, the entry plan for the fields of a collection that already exists.
+  const siteCollections = await store.listCollections(input.siteId, { includeDeprecated: true });
   const cmsPlan =
     cmsText === undefined
       ? null
-      : prepareCmsImport({
-          text: cmsText,
-          existing: await store.listCollections(input.siteId, { includeDeprecated: true }),
-        });
+      : prepareCmsImport({ text: cmsText, existing: siteCollections });
   const cmsCreated = cmsPlan?.collections.length ?? 0;
   const cmsExisting = (cmsPlan?.report.collections.length ?? 0) - cmsCreated;
+
+  // Entries are content, not schema: they land as drafts in the collections of
+  // this run (or the site's own under the same slug) and never refuse the page.
+  // A dry run counts them and their media; a write without assets writes the
+  // entry and names the images it left behind.
+  const cmsEntryMedia: CmsEntryMedia = !includeAssets || uploader === undefined
+    ? { mode: "skip" }
+    : {
+        mode: "upload",
+        import: createCmsMediaImporter({
+          uploader,
+          ...(input.body.source.baseUrl === undefined
+            ? {}
+            : { baseUrl: input.body.source.baseUrl }),
+        }),
+      };
+  // Only the collections of the answer are targets: an entry of a collection
+  // the site holds under the same slug goes into that collection, one whose
+  // collection this run does not write stays out with a finding.
+  const cmsTargets: CmsEntryTarget[] =
+    cmsPlan === null
+      ? []
+      : cmsPlan.source.flatMap((collection) => {
+          const created = cmsPlan.collections.find(
+            (candidate) => candidate.slug === collection.slug,
+          );
+          if (created !== undefined) {
+            return [{
+              id: created.id,
+              slug: created.slug,
+              fields: created.fields,
+              titleField: created.titleField,
+            }];
+          }
+          const existing = siteCollections.find(
+            (candidate) => candidate.slug === collection.slug && candidate.deprecatedAt === null,
+          );
+          return existing === undefined
+            ? []
+            : [{
+                id: existing.id,
+                slug: existing.slug,
+                fields: existing.fields,
+                titleField: existing.titleField,
+              }];
+        });
+  const cmsEntriesPlan =
+    !cmsItemsSupplied || cmsPlan === null || cmsItemsTexts === undefined
+      ? null
+      : await prepareCmsEntries({
+          texts: cmsItemsTexts,
+          source: cmsPlan.source,
+          targets: cmsTargets,
+          existingEntries: await store.listEntrySlugs(input.siteId),
+          media: dryRun ? { mode: "plan" } : cmsEntryMedia,
+        });
+  // The collections answer says how many entries a collection holds. Without
+  // the getCMSItems answer those entries stay behind - a silent gap would read
+  // like an empty collection, so the report names it. A real answer carries no
+  // count, so the finding only fires for an answer that has one.
+  const cmsSkippedItems: CmsImportFinding[] =
+    cmsPlan === null || cmsItemsSupplied
+      ? []
+      : cmsPlan.source
+          .filter((collection) => collection.sourceItems > 0)
+          .map((collection) => ({
+            kind: "cms-items-not-imported" as const,
+            message: `"${collection.name}" traegt ${collection.sourceItems} Eintraege; die Antwort von getCMSItems fehlt, die Eintraege bleiben zurueck`,
+            evidence: `${collection.name}: items=${collection.sourceItems}`,
+            severity: "info" as const,
+            suggestion:
+              "getCMSItems im Unframer-MCP aufrufen und die Antwort als source.project.cms.items liefern.",
+          }));
 
   const marquee = marqueeCandidates(run.document);
   const reportBase: Omit<
@@ -585,6 +675,24 @@ export async function runFramerImportJob(
             severity: finding.severity,
             suggestion: finding.suggestion,
           }))),
+      ...cmsSkippedItems.map((finding) => ({
+        kind: finding.kind,
+        nodeKey: null,
+        message: finding.message,
+        evidence: finding.evidence,
+        severity: finding.severity,
+        suggestion: finding.suggestion,
+      })),
+      ...(cmsEntriesPlan === null
+        ? []
+        : cmsEntriesPlan.findings.map((finding) => ({
+            kind: finding.kind,
+            nodeKey: null,
+            message: finding.message,
+            evidence: finding.evidence,
+            severity: finding.severity,
+            suggestion: finding.suggestion,
+          }))),
     ],
     marqueeCandidates: marquee.map((candidate) => ({
       nodeKey: candidate.nodeKey,
@@ -608,14 +716,34 @@ export async function runFramerImportJob(
     })),
     ...(run.report.editableShare === undefined ? {} : { editableShare: run.report.editableShare }),
     ...(run.report.capture === undefined ? {} : { capture: run.report.capture }),
-    ...(cmsPlan === null ? {} : { cms: cmsPlan.report }),
-    steps:
-      cmsPlan === null
-        ? run.report.steps
+    ...(cmsPlan === null
+      ? {}
+      : {
+          cms: {
+            ...cmsPlan.report,
+            ...(cmsEntriesPlan === null
+              ? {}
+              : { items: cmsEntriesPlan.report, media: cmsEntriesPlan.media }),
+          },
+        }),
+    steps: [
+      ...run.report.steps,
+      ...(cmsPlan === null
+        ? []
         : [
-            ...run.report.steps,
             `CMS: ${cmsCreated} ${cmsCreated === 1 ? "Sammlung" : "Sammlungen"} im Plan, ${cmsExisting} bereits vorhanden, ${cmsPlan.report.fields.mapped} Felder abgebildet, ${cmsPlan.report.fields.dropped} verworfen`,
-          ],
+          ]),
+      ...(cmsEntriesPlan === null
+        ? []
+        : [
+            `CMS-Eintraege: ${cmsEntriesPlan.report.planned} im Plan, ${cmsEntriesPlan.report.imported} angelegt, ${cmsEntriesPlan.report.existing} bereits vorhanden, ${cmsEntriesPlan.report.dropped} verworfen`,
+            ...(cmsEntriesPlan.media.planned === 0
+              ? []
+              : [
+                  `CMS-Bilder: ${cmsEntriesPlan.media.downloaded} geladen, ${cmsEntriesPlan.media.failed} fehlgeschlagen, ${cmsEntriesPlan.media.skipped} uebersprungen`,
+                ]),
+          ]),
+    ],
   };
 
   // The page this path already holds (an import by path replaces its draft).
@@ -668,11 +796,20 @@ export async function runFramerImportJob(
     assets: input.body.assets ?? "upload",
     fonts: input.body.fonts ?? "rewrite",
     applyTheme: input.body.applyTheme === true,
-    // The page and the CMS answer together are the request: an unchanged
+    // The page and the CMS answers together are the request: an unchanged
     // answer replays its receipt, a changed one is a new import.
-    ...(cmsText === undefined
-      ? {}
-      : { options: { cms: createHash("sha256").update(cmsText, "utf8").digest("hex") } }),
+    ...(() => {
+      const options: Record<string, string> = {};
+      if (cmsText !== undefined) {
+        options.cms = createHash("sha256").update(cmsText, "utf8").digest("hex");
+      }
+      if (cmsItemsSupplied) {
+        options.cmsItems = createHash("sha256")
+          .update(JSON.stringify(cmsItemsTexts), "utf8")
+          .digest("hex");
+      }
+      return Object.keys(options).length === 0 ? {} : { options };
+    })(),
   });
   const target =
     input.body.pageId !== undefined
@@ -714,9 +851,11 @@ export async function runFramerImportJob(
       // out for the default (`planImportBreakpoints`); the commit writes them in
       // the same transaction as the page, so a failed import sets nothing.
       breakpoints: breakpointsPlan?.outcome === "set" ? breakpointsPlan.derived : null,
-      // The CMS collections are written in the same transaction as the page: an
-      // import that fails leaves neither a page nor a half schema behind.
+      // The CMS collections and entries are written in the same transaction as
+      // the page: an import that fails leaves neither a page nor a half schema
+      // nor half content behind.
       collections: cmsPlan?.collections ?? [],
+      entries: cmsEntriesPlan?.entries ?? [],
       report: reportBase,
     });
     return {
