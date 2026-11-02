@@ -13,6 +13,25 @@
 - Fertig heißt: Gate ausgeführt, Code/Testbeleg notiert, Risiko aktualisiert und – falls Zahlen betroffen sind – `qualitaet.md` ausschließlich mit Messdaten aktualisiert.
 - Der historische P0-1-Commit hat einen damals sauberen Baum gesichert. Er ersetzt nicht die DoR-Bedingung, wenn danach erneut ein Folge-Diff entstanden ist.
 
+## Produktpriorität: Framer-Import
+
+Das vorrangige Produktziel ist der lokale Import einer Framer-Site über Framer- und Unframer-Zugang: Das Ergebnis soll ohne Framer Runtime laufen, visuell und in der Bewegung möglichst exakt entsprechen und für den Agenten vollständig bearbeitbar sein. Dieses Ziel ist noch nicht erreicht. Die technischen P0–P3-Gates bleiben für betroffene Änderungen gültig; weitere reine Aufräumarbeiten stehen hinter dem Importziel zurück.
+
+Nächste Arbeitspakete in Reihenfolge:
+
+1. Exportzugang prüfen und einen echten Export als reproduzierbare Eingabe sichern. Vorhandene FramerExport-Ordner lassen sich als Mirror einlesen; der automatische Aufruf von FramerExport und die Unframer-Verbindung sind noch nicht an Senifys Importvertrag angebunden (`packages/engine/src/imports-contract.ts`, `packages/framer-import/src/import.ts`).
+2. Einen vollständigen Durchlauf für eine echte Site schaffen: Seiten, Struktur, Schriften und Medien lokal übernehmen; Framer-Abhängigkeiten im Ergebnis sichtbar erfassen und ersetzen.
+3. Layout und Breakpoints mit Original und lokalem Ergebnis im Browser vergleichen; Abweichungen schrittweise beseitigen und Bearbeitbarkeit durch konkrete Änderungen und erneuten Build prüfen.
+4. Animationen und Interaktionen einschließlich Scroll, Hover, Zuständen und Timing erfassen und ohne Framer Runtime nachbilden. Nicht unterstützte Effekte müssen im Bericht sichtbar bleiben (`packages/framer-import/src/motion-mapping.ts`).
+5. Mehrseiten-Navigation, CMS und Sonderkomponenten anhand der tatsächlich benötigten Site ergänzen und den gesamten Weg über Editor und MCP prüfen.
+
+## Teststrategie für schnelle Entwicklung
+
+- Bei einer Änderung zuerst die direkt betroffenen Tests ausführen, zum Beispiel `pnpm exec vitest run <testdatei>`. Die Tests gezielt nach Vertrag auswählen; automatische Abhängigkeitsauswahl kann bei stark vernetzten Modulen große Teile der Suite starten.
+- Pro Arbeitsschritt ein zum Risiko passendes Gate festlegen und ausführen. Reine Dokumentationsänderungen: `git diff --check` und bei Änderungen am Dokumentationsvertrag zusätzlich `pnpm quality:check`. Ein ausdrücklich für einen Schritt festgelegtes Gate bleibt verbindlich.
+- Vollsuite, Coverage, Browser-, Import-, Paritäts- und PostgreSQL-Gates passend zu den betroffenen Schnittstellen vor Abschluss des größeren Änderungspakets oder in CI ausführen. Einen bereits bestandenen unveränderten Lauf nicht bei jedem Zwischenschritt wiederholen.
+- CI-Gates und ihre Fehlerschwellen bleiben unverändert; gezielte Tests ersetzen keinen erforderlichen Integrationsnachweis.
+
 ---
 
 ## Aktueller DoR-Blocker
