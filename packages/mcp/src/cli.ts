@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -25,6 +25,7 @@ import {
 import { DEFAULT_API_URL, resolveDatabaseUrl } from "./config.ts";
 import { doctorExitCode, formatDoctor, runDoctor } from "./doctor.ts";
 import { serveStdio } from "./server.ts";
+import { exportFramerSite } from "./framer-export.ts";
 
 const SCOPES = ["read", "write", "publish"] as const;
 
@@ -99,6 +100,22 @@ function formatToken(token: TokenEntry): string {
 // publish scope, so the token-less operator surface is not enough.
 function programTokenSecret(): string | undefined {
   return readProgramToken(programTokenPath())?.secret;
+}
+
+export function framerImportSource(source: string): { url: string } | { rootDir: string } | { html: string } {
+  if (/^https?:\/\//i.test(source)) return { url: source };
+  let isDirectory: boolean;
+  try {
+    isDirectory = statSync(source).isDirectory();
+  } catch {
+    throw new SenifyError("validation", "Importquelle nicht gefunden", { field: "quelle" });
+  }
+  if (isDirectory) return { rootDir: source };
+  const html = readFileSync(source, "utf8");
+  if (!html.trimStart().startsWith("<")) {
+    throw new SenifyError("validation", "Importdatei enthält kein HTML", { field: "quelle" });
+  }
+  return { html };
 }
 
 function formatBytes(bytes: number): string {
@@ -317,6 +334,20 @@ export function createProgram(): Command {
     });
 
   program
+    .command("export")
+    .description("Websites lokal exportieren")
+    .command("framer")
+    .description("FramerExport ausführen und den Mirror lokal speichern")
+    .argument("<url>", "Veröffentlichte Framer-URL")
+    .argument("<ordner>", "Neuer Zielordner")
+    .option("--no-subpages", "Nur die angegebene Seite exportieren")
+    .action(async (url: string, ordner: string, options: { subpages: boolean }) => {
+      const outputDir = await exportFramerSite({ url, outputDir: ordner, subpages: options.subpages }, undefined, (chunk) => process.stderr.write(chunk));
+      console.log(`Export gespeichert: ${outputDir}`);
+      console.log("Der Mirror kann Framer-Laufzeit enthalten; für den Senify-Import den Ordner als Quelle angeben.");
+    });
+
+  program
     .command("import")
     .description("Import-Werkzeuge (Framer)")
     .command("framer")
@@ -330,6 +361,7 @@ export function createProgram(): Command {
     .option("--page-id <pageId>", "In diese bestehende Seite schreiben statt neue anzulegen")
     .option("--base-draft-version <version>", "Aktuelle Draft-Version der Zielseite")
     .option("--apply-theme", "Theme-Font-Patch mit übernehmen")
+    .option("--mode <modus>", "fidelity für Originaltreue oder dna für Design-DNA")
     .option("--report", "Vollen Bericht als JSON ausgeben")
     .option("--api <url>")
     .action(async (quelle, options) => {
@@ -344,11 +376,7 @@ export function createProgram(): Command {
         apiUrl: resolveApiUrl(options),
         token: secret,
       });
-      const source = /^https?:\/\//i.test(quelle)
-        ? { url: quelle }
-        : readFileSync(quelle, "utf8").startsWith("<")
-          ? { html: readFileSync(quelle, "utf8") }
-          : { rootDir: quelle };
+      const source = framerImportSource(quelle);
       const write = options.write === true;
       const body: Record<string, unknown> = {
         source,
@@ -359,6 +387,7 @@ export function createProgram(): Command {
           ? {}
           : { baseDraftVersion: Number.parseInt(String(options.baseDraftVersion), 10) }),
         ...(options.applyTheme === true ? { applyTheme: true } : {}),
+        ...(options.mode === undefined ? {} : { mode: String(options.mode) }),
       };
       const answer = await client.request<{
         job: { id: string; status: string; dryRun: boolean };

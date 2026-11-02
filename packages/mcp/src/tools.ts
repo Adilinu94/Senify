@@ -27,6 +27,7 @@ import {
 } from "@senify/section-sdk";
 import type { EngineClient } from "./client.ts";
 import { pageOutline, selectNodes, type PageSummaryInput } from "./outline.ts";
+import { exportFramerSite } from "./framer-export.ts";
 
 export type ToolScope = "read" | "write" | "publish";
 
@@ -3553,6 +3554,26 @@ export const TOOLS: ToolDefinition[] = [
     handler: async (context) => context.client.request("GET", "/api/library-components/audit"),
   },
   {
+    name: "export_framer_site",
+    title: "Export Framer site locally",
+    description: "Runs FramerExport on a published URL and saves a local mirror in a new output folder. The mirror can contain Framer runtime code; use import_framer_page with rootDir to begin conversion into editable Senify content.",
+    scope: "write",
+    inputSchema: objectSchema({
+      url: { type: "string" },
+      outputDir: { type: "string" },
+      subpages: { type: "boolean" },
+    }, ["url", "outputDir"]),
+    entity: () => "framer-export",
+    handler: async (_context, args) => {
+      const outputDir = await exportFramerSite({
+        url: requireString(args, "url"),
+        outputDir: requireString(args, "outputDir"),
+        subpages: optionalBoolean(args, "subpages") ?? true,
+      });
+      return { outputDir, runtimeFreeVerified: false };
+    },
+  },
+  {
     name: "import_framer_page",
     title: "Import Framer page",
     description:
@@ -3572,6 +3593,7 @@ export const TOOLS: ToolDefinition[] = [
         applyTheme: { type: "boolean" },
         assets: { type: "string", enum: ["upload", "skip"] },
         fonts: { type: "string", enum: ["rewrite", "skip"] },
+        mode: { type: "string", enum: ["dna", "fidelity"] },
         idempotencyKey: { type: "string" },
       },
       ["siteId"],
@@ -3596,6 +3618,7 @@ export const TOOLS: ToolDefinition[] = [
       const applyTheme = optionalBoolean(args, "applyTheme");
       const assets = optionalString(args, "assets");
       const fonts = optionalString(args, "fonts");
+      const mode = optionalString(args, "mode");
       const idempotencyKey = optionalString(args, "idempotencyKey");
       return context.client.request(
         "POST",
@@ -3614,6 +3637,7 @@ export const TOOLS: ToolDefinition[] = [
           ...(applyTheme === undefined ? {} : { applyTheme }),
           ...(assets === undefined ? {} : { assets }),
           ...(fonts === undefined ? {} : { fonts }),
+          ...(mode === undefined ? {} : { mode }),
           ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
         },
       );

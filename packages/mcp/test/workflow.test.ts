@@ -230,6 +230,7 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "uninstall_library_component",
       "update_library_instances",
       "library_audit",
+      "export_framer_site",
       "import_framer_page",
       "get_import_report",
     ]);

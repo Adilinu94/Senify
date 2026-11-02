@@ -11,7 +11,7 @@
 // `@senify/mcp` - moving those here would move ownership of the wire format
 // into a package with no business owning it.
 //
-// 106 Werkzeuge.
+// 107 Werkzeuge.
 import type { ToolFact } from "./types.ts";
 export const TOOL_MANIFEST: ToolFact[] = [
   {
@@ -1588,6 +1588,21 @@ export const TOOL_MANIFEST: ToolFact[] = [
     ],
   },
   {
+    name: "export_framer_site",
+    title: "Export Framer site locally",
+    scope: "write",
+    group: "seiten",
+    description: "Runs FramerExport on a published URL and saves a local mirror in a new output folder. The mirror can contain Framer runtime code; use import_framer_page with rootDir to begin conversion into editable Senify content.",
+    route: null,
+    routeExample: null,
+    writes: true,
+    parameters: [
+      { name: "url", type: "string", required: true },
+      { name: "outputDir", type: "string", required: true },
+      { name: "subpages", type: "boolean", required: false },
+    ],
+  },
+  {
     name: "import_framer_page",
     title: "Import Framer page",
     scope: "write",
@@ -1609,6 +1624,7 @@ export const TOOL_MANIFEST: ToolFact[] = [
       { name: "applyTheme", type: "boolean", required: false },
       { name: "assets", type: "string", required: false },
       { name: "fonts", type: "string", required: false },
+      { name: "mode", type: "string", required: false },
       { name: "idempotencyKey", type: "string", required: false },
     ],
   },

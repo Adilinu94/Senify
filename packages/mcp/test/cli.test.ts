@@ -31,6 +31,7 @@ describe("senify CLI skeleton", () => {
       "shortcut",
       "setup",
       "deploy",
+      "export",
       "import",
       "doctor",
       "mcp",

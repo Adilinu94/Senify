@@ -18,7 +18,8 @@
     "@senify/registry": "workspace:*",
     "@senify/section-sdk": "workspace:*",
     "@senify/skills": "workspace:*",
-    "commander": "^14.0.0"
+    "commander": "^14.0.0",
+    "framer-export": "5.0.2"
   },
   "devDependencies": {
     "@senify/engine": "workspace:*"

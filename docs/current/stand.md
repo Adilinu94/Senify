@@ -117,7 +117,9 @@ Danach verbleiben: die MCP-Verträge und Manifest-Konsumenten (R8), die Modulauf
 
 ## Framer-Import: Stand der Treue (Oktober 2026)
 
-Lokale Bilder und Fonts aus einem Exportordner können beim Mirror-Import in die Asset-Pipeline übernommen werden; Pfade außerhalb des Exportordners werden abgewiesen. Belege: `packages/framer-import/src/assets.ts`, `packages/framer-import/src/import.ts`, `packages/framer-import/test/assets.test.ts` und `packages/framer-import/test/import.test.ts`. Der automatische Exportaufruf und ein runtimefreier 1:1-Nachweis bleiben offen.
+Lokale Bilder und Fonts aus einem Exportordner können beim Mirror-Import in die Asset-Pipeline übernommen werden; Pfade außerhalb des Exportordners werden abgewiesen. Belege: `packages/framer-import/src/assets.ts`, `packages/framer-import/src/import.ts`, `packages/framer-import/test/assets.test.ts` und `packages/framer-import/test/import.test.ts`. Ein runtimefreier 1:1-Nachweis bleibt offen.
+
+Der Export lässt sich aus der CLI und über MCP in einen neuen lokalen Ordner starten; das Ergebnis kann anschließend als Mirror importiert werden. `mode: fidelity` ist für CLI und MCP auswählbar. Belege: `packages/mcp/src/framer-export.ts`, `packages/mcp/src/cli.ts`, `packages/mcp/src/tools.ts` und `packages/mcp/test/framer-export.test.ts`. Es ist eine zweistufige Bedienung; der Mirror kann Framer Runtime enthalten, die vollständige Konvertierung bleibt offen.
 
 Gemessen auf den drei echten Exporten gegen das Original (Desktop, Tablet, Mobil):
 

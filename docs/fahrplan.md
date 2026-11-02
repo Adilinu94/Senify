@@ -19,7 +19,7 @@ Das vorrangige Produktziel ist der lokale Import einer Framer-Site über Framer-
 
 Nächste Arbeitspakete in Reihenfolge:
 
-1. Exportzugang prüfen und einen echten Export als reproduzierbare Eingabe sichern. Vorhandene FramerExport-Ordner lassen sich als Mirror einlesen; der automatische Aufruf von FramerExport und die Unframer-Verbindung sind noch nicht an Senifys Importvertrag angebunden (`packages/engine/src/imports-contract.ts`, `packages/framer-import/src/import.ts`).
+1. Exportzugang prüfen und einen echten Export als reproduzierbare Eingabe sichern. CLI und MCP können FramerExport starten und vorhandene Ordner anschließend als Mirror einlesen (`packages/mcp/src/framer-export.ts`, `packages/mcp/src/tools.ts`, `packages/framer-import/src/import.ts`). Der direkte kombinierte Ablauf und die Unframer-Verbindung bleiben offen.
 2. Einen vollständigen Durchlauf für eine echte Site schaffen: Seiten, Struktur, Schriften und Medien lokal übernehmen; Framer-Abhängigkeiten im Ergebnis sichtbar erfassen und ersetzen.
 3. Layout und Breakpoints mit Original und lokalem Ergebnis im Browser vergleichen; Abweichungen schrittweise beseitigen und Bearbeitbarkeit durch konkrete Änderungen und erneuten Build prüfen.
 4. Animationen und Interaktionen einschließlich Scroll, Hover, Zuständen und Timing erfassen und ohne Framer Runtime nachbilden. Nicht unterstützte Effekte müssen im Bericht sichtbar bleiben (`packages/framer-import/src/motion-mapping.ts`).
