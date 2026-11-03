@@ -963,7 +963,8 @@ function pageMeta(html: string): {
 }
 
 function htmlTitle(html: string): string | null {
-  return /<title>([^<]*)<\/title>/.exec(html)?.[1]?.trim() ?? null;
+  const title = /<title(?:\s[^>]*)?>([^<]*)<\/title\s*>/i.exec(html)?.[1]?.trim();
+  return title === undefined ? null : decodeEntities(title);
 }
 
 function scriptJson(html: string, id: string): string | null {

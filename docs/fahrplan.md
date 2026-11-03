@@ -53,6 +53,8 @@ Nächste Arbeitspakete in Reihenfolge:
 
 **Textlinks:** Einfache Textlinks übernehmen den Text in das Link-Primitiv, ohne nicht darstellbare Kindknoten zu erzeugen. Links mit mehreren separaten Textelementen bleiben verlinkte Container (`packages/framer-import/src/mapper.ts`, `packages/framer-import/test/import-fidelity.test.ts`).
 
+**Seitentitel:** HTML-Entities im `<title>` werden beim Import dekodiert, damit beispielsweise `&amp;` nicht als sichtbarer Text im Editor und Build landet (`packages/framer-import/src/capture-html.ts`, `packages/framer-import/test/capture.test.ts`). Bereits importierte Seiten ändern sich dadurch nicht automatisch.
+
 **Unframer-Daten bündeln:** Optional legt die Mehrseiten-Vorbereitung einen bestehenden Unframer-Snapshot neben dem Seiten-IR ab und gleicht anhand der Canonical-Origin die Quelle sowie statische Seitenpfade ab (`packages/framer-import/src/prepare-site.ts`, `packages/framer-import/test/prepare-site.test.ts`). Die XML-Struktur, Komponenten und CMS-Daten sind damit gemeinsam gesichert, aber noch nicht in Senify-Strukturen übersetzt.
 
 ## Teststrategie für schnelle Entwicklung

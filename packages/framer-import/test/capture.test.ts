@@ -61,6 +61,11 @@ describe("captureHtml", () => {
     expect(document.pages[0]?.title).toContain("Datains");
   });
 
+  it("decodes HTML entities in page titles before rendering", () => {
+    const document = captureHtml({ html: '<TITLE>Dental &amp; Health</TITLE><div id="main"><p>Text</p></div>' });
+    expect(document.pages[0]?.title).toBe("Dental & Health");
+  });
+
   it("is deterministic: the same input hashes the same", () => {
     const first = captureFixture(join(FIXTURES, "framer-stupendous-football-158496"));
     const second = captureFixture(join(FIXTURES, "framer-stupendous-football-158496"));
