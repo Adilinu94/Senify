@@ -19,6 +19,8 @@ Das vorrangige Produktziel ist der lokale Import einer Framer-Site über Framer-
 
 Die detaillierte Planung für dieses Produktziel steht in der [Framer-Roadmap](framer-roadmap.md). Ihre Phasen F0–F8 konkretisieren die nachfolgenden Arbeitspakete. Erste vertikale Scheibe: F0 → F1 → F2 in kleinem Umfang → F3 für die Beispielseite → F4 für deren Appear-Effekte → F7; danach breitere Abdeckung von Seiten, CMS und Interaktionen. Architekturänderungen setzen die jeweils genannten ADR-Entscheidungen voraus.
 
+**Neue Produktanforderung Editor:** Oberfläche und Bedienung sollen sich eng an Elementor V4 orientieren, einschließlich Klassen und Variablen. Die Recherche und vorgeschlagenen Schritte stehen in [Elementor-V4-Editor](research/elementor-v4-editor.md). Zuerst Referenzzustände und offene Funktionslücken aufnehmen; Umstellung und Migration dürfen bestehende Framer-Projekte nicht verlieren. Die Entscheidung, vorhandenen Elementor-Code direkt zu übernehmen, ist nicht getroffen.
+
 Nächste Arbeitspakete in Reihenfolge:
 
 1. Exportzugang prüfen und einen echten Export als reproduzierbare Eingabe sichern. CLI und MCP können FramerExport starten und vorhandene Ordner anschließend als Mirror einlesen; MCP kann auch Projektdaten über Unframer lokal sichern (`packages/mcp/src/framer-export.ts`, `packages/mcp/src/unframer.ts`, `packages/framer-import/src/import.ts`). Der direkte kombinierte Ablauf und die Übernahme des Unframer-Snapshots in den NodeTree bleiben offen.

@@ -1,0 +1,57 @@
+# Elementor V4 als Referenz für den Senify-Editor
+
+Stand: 03.11.2026. Recherche und technischer Abgleich, kein Implementierungs- oder Paritätsnachweis.
+
+## Ergebnis und Empfehlung
+
+Senify soll eine eigenständige Editor-Oberfläche erhalten, deren Bedienung und Erscheinungsbild anhand einer festgelegten Elementor-V4-Version verglichen werden. Den Senify-NodeTree, die bestehende Style-Registry, den gemeinsamen Renderer und die Agenten-Schnittstellen weiterverwenden; eine WordPress-Installation dient als Referenz und soll nicht zur Laufzeitabhängigkeit der exportierten Websites werden. Die Übernahme einzelner Elementor-Dateien ist eine gesonderte technische und lizenzrechtliche Entscheidung, nicht Voraussetzung der Untersuchung.
+
+Elementor 4.0 hat den Atomic Editor für neue Installationen eingeführt; die offizielle Roadmap führt Core 4.3.6 vom 02.11.2026. Versionen und Funktionsumfang müssen bei der Abnahme festgehalten werden. Elementor entwickelt V4 laufend weiter; eine unbegrenzte Gleichheit zu jeder zukünftigen Version lässt sich nicht im Voraus zusichern. [Elementor 4.0](https://elementor.com/blog/editor-40-atomic-forms-pro-interactions/), [Roadmap und Changelog](https://elementor.com/roadmap/).
+
+## Referenzumgebung
+
+- Lokale, getrennte WordPress-Installation unter `data/elementor-v4-reference/`, HTTP `http://127.0.0.1:43318/`, separate MariaDB auf `127.0.0.1:43317`.
+- Installiert und über WP-CLI geprüft: WordPress 7.1.4, Elementor Core 4.3.6 aktiv; Testseite `Editor Referenz`, ID 5. Atomare Elemente und V4-Opt-in sind laut Elementor-Experiments-Manager aktiv. Globale Klassen und Variablen hängen in dieser installierten Version am Atomic-Element-Schalter; ihre konkreten UI-Arbeitsabläufe sind noch nicht interaktiv geprüft.
+- Nur Core, kein Elementor Pro. Komponenten und Interactions sowie Size-Variablen sind laut Elementor Pro-Funktionen; ihre vollständige Benutzeroberfläche und ihr Verhalten lassen sich mit dieser Installation allein nicht abschließend untersuchen. [4.0-Funktionen](https://elementor.com/blog/editor-40-atomic-forms-pro-interactions/), [Size-Variablen](https://elementor.com/blog/elementor-332-v4-transform-transitions/).
+- PHP und Datenbankprozesse sind lokal und laufen nur, solange sie gestartet sind. Nach einem Neustart startet `data/elementor-v4-reference/start.ps1` die getrennten Dienste erneut; der Neustart und die Erreichbarkeit von WordPress wurden geprüft. Zugangsdaten liegen ausschließlich in der ignorierten lokalen Datei `data/elementor-v4-reference/credentials.json`; keine Kundenseite wurde verändert. Die Editoransicht selbst wurde in dieser Recherche noch nicht visuell geprüft.
+
+## Was Elementor V4 tatsächlich macht
+
+Der Editor verwendet typisierte Atomic Elements. Inhalt, lokale Styles, responsive Varianten, Zustände und Interaktionen gehören zu strukturierten Elementdaten. Globale Klassen besitzen eine eigene Identität und mehrere Varianten für Breakpoint und Zustand; Variablen werden im Designsystem verwaltet. Änderungen an einer Klasse oder Variable wirken auf ihre Verwendungen. Eine Klasse kann Variablen enthalten. Quellen: [Atomic Elements](https://developers.elementor.com/docs/data-structure/atomic-elements/), [Atomic Styles](https://developers.elementor.com/docs/data-structure/atomic-styles/), [Variablen](https://elementor.com/help/variables/), [Klassen](https://elementor.com/help/classes-in-elementor/).
+
+Das Open-Source-Repository beschreibt die Trennung in PHP-Module, React-Editorpakete und die ältere Editor-Shell; Atomic Styles werden aus typisierten Werten gerendert. Die Elementor-Oberfläche ist damit nicht einfach ein eigenständiges React-Paket, das in Senify eingesetzt werden könnte: Ihr Host, Datenmodell, WP-Services, Berechtigungen und Build-Pipeline müssten ebenfalls ersetzt oder adaptiert werden. [Architektur im Repository](https://github.com/elementor/elementor/blob/main/docs/atomic-builder/getting-started/what-is-v4.md).
+
+## Senify: vorhandene Grundlagen und offene Lücken
+
+| Bereich | Im Code vorhandene Grundlage | Für Elementor-nahe Bedienung offen |
+| --- | --- | --- |
+| Dokument | `packages/editor/src/state/document.ts`: Knotenbaum, Props, Geräte-Overrides, Zustände und Klassenreferenzen | Semantik und Bedienung Feld für Feld gegen Referenz prüfen; Importdaten verlustfrei erhalten |
+| Klassen | `packages/widget-engine/src/css/style-rule.ts`: globale, knotenbezogene und Selektor-Regeln, stabile ID, Reihenfolge, Zustände und Gerätekontexte; Registry und Rename im Store | Klassenauswahl und -verwaltung im Editor, lokale versus globale Bearbeitung, Nutzerführung, Verwendung und Wirkung über Seiten hinweg prüfen und vervollständigen |
+| Variablen | `packages/section-sdk/src/schema.ts`: Tokenreferenzen; Inspector bietet Theme-Token-Auswahl (`packages/editor/src/inspector/model.ts`) | eigenständiger Manager für Anlegen, Umbenennen, Löschen, Verwendung, Typen und sichere Persistenz; tatsächliche Elementor-Parität offen |
+| Komponenten | Dokumentmodell und Explorer-Aktionen in `packages/editor/src/state/components.ts` und `packages/editor/src/explorer/panel.ts` | Bedienung, globale Wiederverwendung, Instanz-Overrides und veröffentlichter Build gegen Referenz prüfen |
+| Canvas | `packages/editor/src/canvas/` mit Auswahl, Drag-and-drop und Vorschau; `packages/editor/src/frames.ts` mit drei parallelen Design-Frames | Elementor-Arbeitsfläche, Single-Viewport, Overlays, Navigationsbaum, kontextuelle Aktionen, Tastatur, Breakpoint-Bedienung und visuelles Verhalten |
+| Inspector | `packages/editor/src/inspector/`: Felder, Tokens und Zustandssteuerung | Reihenfolge, Controls, Einheiten, Zustands-/Breakpoint-Umschaltung, Reset und Herkunft der Werte anhand der Referenz angleichen |
+| Ausgabe | `packages/engine/src/bake.ts` nutzt Renderer und Style-Registry | Nach jeder Änderung gleiche Darstellung und korrekte Klassen/Variablen im Editor und im statischen Build belegen |
+
+Die Tabelle belegt Architekturbausteine, nicht die vollständige Funktionsfähigkeit oder Gleichheit der entsprechenden Benutzeroberflächen. Framer-Import und Animationserhalt bleiben eigene, weiterhin offene Arbeitspakete.
+
+## Quellcode und Lizenz
+
+Der [Elementor-Core-Quellcode](https://github.com/elementor/elementor) hilft bei Controls, Datenstrukturen, konkreten Zuständen und beim Verstehen von CSS-Kaskade und Renderpfad. Besonders relevant: `modules/atomic-widgets`, `modules/global-classes`, `modules/variables` und die React-Pakete in `packages/packages`. Für den tatsächlichen 4.3.6-Vergleich ist die installierte Version maßgeblich; `main` kann davon abweichen. Der Core weist GPLv3 aus ([Plugin-Readme](https://github.com/elementor/elementor/blob/main/readme.txt)).
+
+Quellcode direkt zu übernehmen ist etwas anderes als dokumentiertes Verhalten eigenständig nachzubilden: Abhängigkeiten, Lizenztexte und bei Weitergabe anwendbare GPL-Pflichten müssen vor einer Übernahme geprüft werden. Aus dem Core folgt keine Verfügbarkeit aller Pro-Funktionen. Elementor-Namen und -Logos sind gesondert geschützt; für eine spätere Veröffentlichung die [Markenrichtlinien](https://elementor.com/terms/trademark-guidelines/) prüfen. Für eine belastbare Entscheidung zur Produktdistribution ist rechtliche Prüfung sinnvoll.
+
+## Umsetzung in überprüfbaren Schritten
+
+1. **Referenz inventarisieren:** Elementor-Version festhalten; typische Zustände und Screens in Desktop, Tablet und Mobil dokumentieren: leere Seite, eingefügtes Element, Navigator, Auswahl, Stil-Tab, Klasse, Variable, Hover, Tastatur, Speichern und Fehler. Pro-Funktionen gesondert markieren. Semantik durch tatsächliche Änderungen und nach Neuladen prüfen, nicht anhand von Screenshots raten.
+2. **Gleiches Bediengerüst:** Topbar, linkes Element-/Einstellungs-Panel, Canvas, Navigator und responsive Umschaltung nach Referenz. Fokus, Hover, Kontextmenüs, Drag-Ziele, Lade- und Fehlerzustände angleichen. Bestehende Dokumente und Framer-Projekte unverändert öffnen können.
+3. **Styles und Klassen:** eindeutige Auswahl des Bearbeitungsziels lokal/global; globale Klassen anlegen, suchen, zuweisen, lösen, duplizieren, umbenennen, löschen und Verwendung anzeigen. Regeln für Kaskade, Reihenfolge, aktive Zustände und Breakpoints explizit festlegen. Änderungen müssen in allen betroffenen Elementen und Seiten sichtbar sein und nach Speichern/Neuladen bestehen bleiben.
+4. **Variablen:** typisierte Farben, Schriftfamilien und Größen; anlegen, editieren, suchen, referenzieren, umbenennen und mit Nutzungswarnung löschen. Gleiche Werte müssen aus Inspector, Klassen, Agenten-API, Canvas und Build stammen. Übernahme bestehender Senify-Tokens und Framer-Variablen mit Migration und Fallback prüfen.
+5. **Interaktionen und Komponenten:** wiederverwendbare Komponenten, Overrides, Navigator und History; Zustände und Animationen mit Quellen, Triggern, Dauer und Breakpoints. Framer-Effekte verlustfrei erhalten; ein Elementor-ähnlicher Editor allein ergänzt keine fehlenden Importdaten.
+6. **Abnahme und Einführung:** Vergleich der realen Arbeitsabläufe mit fixierter Version und Fenstergröße, visuelle Screenshots für zentrale Zustände, Funktionstests für Persistenz/Undo/Redo/Responsive/CSS-Kaskade und ein echter Framer-Import mit Editieren und Bake. Editor und ausgegebene Website getrennt prüfen. Alte Projekte sichern und Migration rückwärtsverträglich gestalten.
+
+Jeder Schritt erhält ein enges, risikogerechtes Gate gemäß `docs/fahrplan.md`; die Vollsuite nicht nach jeder kosmetischen Änderung ausführen. Bevor ein genauer Zeitplan genannt wird, müssen Funktionsinventar, Pro-Referenz und tatsächliche Senify-Lücken erhoben sein.
+
+## Quellen und Grenzen
+
+Priorität hatten offizielle Elementor-Dokumentation, Elementor-Quellcode, Plugin-Metadaten und die lokale Codebasis. Die Referenzinstallation belegt Version und Aktivierung, keine visuelle oder funktionale Parität. Eine interaktive Referenzaufnahme und ein unabhängiger Elementor-Pro-Abgleich stehen aus.
