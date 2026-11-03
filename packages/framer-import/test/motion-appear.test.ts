@@ -52,6 +52,28 @@ describe("Framer appear effects", () => {
     expect(document.motion[0]?.params["duration"]).toBe(1800);
   });
 
+  it("preserves breakpoint variants and does not replace rotation with a fade-up", () => {
+    const desktop = entry({ y: 20, rotate: 15 }, spring).default;
+    const mobile = { initial: { opacity: 0, y: 8 }, animate: { opacity: 1, y: 0, transition: { duration: 0.6 } } };
+    const document = captureHtml({ html: page({ card: { default: desktop, mobile } }, '<div data-framer-appear-id="card">Text</div>') });
+    const sample = document.motion[0];
+    expect(sample?.params["fromRotate"]).toBe(15);
+    expect(JSON.parse(sample?.raw ?? "{}").variants.mobile).toEqual(mobile);
+    const result = mapFramerMotion(document);
+    expect(result.mapped).toBe(0);
+    expect(result.findings[0]?.reason).toContain("Rotation");
+  });
+
+  it("keeps a breakpoint-only effect as evidence without playing it on every device", () => {
+    const mobile = { initial: { opacity: 0, y: 8 }, animate: { opacity: 1, y: 0, transition: { duration: 0.6 } } };
+    const document = captureHtml({ html: page({ card: { default: null, mobile } }, '<div data-framer-appear-id="card">Text</div>') });
+    expect(document.motion[0]?.params["variantOnly"]).toBe(true);
+    expect(JSON.parse(document.motion[0]?.raw ?? "{}").variants.mobile).toEqual(mobile);
+    const result = mapFramerMotion(document);
+    expect(result.mapped).toBe(0);
+    expect(result.findings[0]?.reason).toContain("Breakpoints");
+  });
+
   it("maps a rise from below and a plain fade to fade-up, with the offset as intensity", () => {
     const result = mapFramerMotion(captureHtml({ html }));
     const specs = result.mappings.map((mapping) => mapping.spec);

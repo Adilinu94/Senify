@@ -33,12 +33,15 @@ const numberParam = (sample: IrMotionSample, key: string): number | undefined =>
 // no preset; mapping it to `fade-up` would play a different animation than the
 // source, so it stays a documented finding instead.
 function appearPreset(sample: IrMotionSample): MotionSpec["preset"] | null {
+  if (sample.params["variantOnly"] === true) return null;
   const x = Math.abs(numberAny(sample, "fromX") ?? 0);
   const y = numberAny(sample, "fromY") ?? 0;
   const scale = numberAny(sample, "fromScale") ?? 1;
+  const rotationOrSkew = ["Rotate", "RotateX", "RotateY", "SkewX", "SkewY"]
+    .some((name) => (numberAny(sample, `from${name}`) ?? 0) !== 0 || (numberAny(sample, `to${name}`) ?? 0) !== 0);
   // `fade-up` rises from below. An element that starts ABOVE its place (the nav
   // dropping in, a negative offset) would play the wrong way round.
-  if (x > 0 || scale !== 1 || y < 0) return null;
+  if (x > 0 || scale !== 1 || y < 0 || rotationOrSkew || (numberAny(sample, "toX") ?? 0) !== 0 || (numberAny(sample, "toY") ?? 0) !== 0 || (numberAny(sample, "toScale") ?? 1) !== 1) return null;
   return "fade-up";
 }
 
@@ -98,7 +101,9 @@ export function mapFramerMotion(document: FramerIrDocument): MotionMappingResult
         sample,
         reason:
           sample.library === "framer" && sample.trigger === "appear"
-            ? `Framer-Effekt (Start x ${numberAny(sample, "fromX") ?? 0}, y ${numberAny(sample, "fromY") ?? 0}, Skalierung ${numberAny(sample, "fromScale") ?? 1}) hat kein passendes Senify-Preset: nur Einblendungen von unten (ohne Seitwärtsbewegung oder Skalierung) sind abbildbar.`
+            ? sample.params["variantOnly"] === true
+              ? "Der Framer-Effekt existiert nur für einzelne Breakpoints; die gerätespezifische Wiedergabe ist noch nicht unterstützt."
+              : `Framer-Effekt (Start x ${numberAny(sample, "fromX") ?? 0}, y ${numberAny(sample, "fromY") ?? 0}, Skalierung ${numberAny(sample, "fromScale") ?? 1}) hat kein passendes Senify-Preset: nur Einblendungen von unten ohne Seitwärtsbewegung, Skalierung, Rotation oder Schrägstellung sind abbildbar.`
             : `Sample ${sample.library}/${sample.trigger} wird durch die geschlossene Senify-Motion-Registry nicht abgebildet.`,
       });
       return;

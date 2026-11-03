@@ -822,7 +822,7 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
 // once as `default` and once per breakpoint hash (null = no effect there). The
 // start state is also written inline on the element, which the capture strips
 // from the visual (`appearInitial`), so the effect is read from here.
-type AppearState = { opacity?: number; x?: number; y?: number; scale?: number };
+type AppearState = { opacity?: number; x?: number; y?: number; scale?: number; rotate?: number; rotateX?: number; rotateY?: number; skewX?: number; skewY?: number };
 type AppearTransition = { type?: string; stiffness?: number; damping?: number; mass?: number; delay?: number; duration?: number };
 
 function readAppearMotion(html: string, root: IrNode): IrMotionSample[] {
@@ -850,7 +850,14 @@ function readAppearMotion(html: string, root: IrNode): IrMotionSample[] {
       | { initial?: AppearState; animate?: AppearState & { transition?: AppearTransition } }
       | null
       | undefined;
-    if (node === undefined || entry === null || entry === undefined) continue;
+    if (node === undefined) continue;
+    if (entry === null || entry === undefined) {
+      const variants = byDevice !== null && typeof byDevice === "object" ? Object.entries(byDevice) : [];
+      if (variants.some(([key, value]) => key !== "default" && value !== null && typeof value === "object")) {
+        samples.push({ nodeKey: node.key, library: "framer", trigger: "appear", params: { variantOnly: true }, raw: JSON.stringify({ appearId, variants: byDevice }) });
+      }
+      continue;
+    }
     const from = entry.initial ?? {};
     const to = entry.animate ?? {};
     const transition = to.transition ?? {};
@@ -864,12 +871,17 @@ function readAppearMotion(html: string, root: IrNode): IrMotionSample[] {
       duration: Math.round(springSettleSeconds(transition) * 1000),
       ...(transition.type === undefined ? {} : { transition: transition.type }),
     };
+    for (const property of ["x", "y", "scale", "rotate", "rotateX", "rotateY", "skewX", "skewY"] as const) {
+      const label = `${property[0]?.toUpperCase()}${property.slice(1)}`;
+      if (typeof from[property] === "number") params[`from${label}`] = from[property];
+      if (typeof to[property] === "number") params[`to${label}`] = to[property];
+    }
     samples.push({
       nodeKey: node.key,
       library: "framer",
       trigger: "appear",
       params,
-      raw: JSON.stringify({ appearId, from, to }),
+      raw: JSON.stringify({ appearId, from, to, variants: byDevice }),
     });
   }
   return samples;
