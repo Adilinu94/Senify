@@ -73,6 +73,16 @@ describe("captureHtml", () => {
     expect(document.pages[0]?.root.children).toHaveLength(0);
   });
 
+  it("finds the real main element when export tools reorder attributes", () => {
+    const document = captureHtml({ html: [
+      '<!-- <div id="main">fake</div> -->',
+      '<script>const sample = \'<div id="main">fake</div>\'</script>',
+      "<div data-framer-generated-page='' data-framer-hydrate-v2='{}' id='main'><h1>Richtiger Inhalt</h1></div>",
+    ].join("") });
+    expect(document.findings.some((finding) => finding.severity === "block")).toBe(false);
+    expect(document.pages[0]?.root.children[0]?.states[0]?.text?.content).toBe("Richtiger Inhalt");
+  });
+
   it("decodes the font-selector base64 into family and weight", () => {
     // Measured in S0: `--font-selector:SW50ZXItTWVkaXVt` = "Inter-Medium".
     const html = `<div id="main"><p style="--font-selector:SW50ZXItTWVkaXVt;--framer-font-size:15px">Text</p></div>`;

@@ -145,6 +145,17 @@ function parseAttrs(raw: string): RawAttr {
   return attrs;
 }
 
+// Exporters may reorder attributes on #main. Skip comments and raw-text
+// elements so markup-like strings there cannot become the document root.
+function findMainStart(html: string): number {
+  const tags = /<!--[\s\S]*?-->|<(script|style)\b(?:[^"'<>]|"[^"]*"|'[^']*')*>[\s\S]*?<\/\1\s*>|<div\b(?:[^"'<>]|"[^"]*"|'[^']*')*>/gi;
+  for (const match of html.matchAll(tags)) {
+    if (!/^<div\b/i.test(match[0])) continue;
+    if (parseAttrs(match[0].slice(4, -1))["id"] === "main") return match.index;
+  }
+  return -1;
+}
+
 function decodeEntities(value: string): string {
   return value
     .replace(/&quot;/g, '"')
@@ -604,7 +615,7 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
   }
 
   // --- the element tree under #main
-  const mainStart = html.indexOf('<div id="main"');
+  const mainStart = findMainStart(html);
   let root: IrNode;
   if (mainStart === -1) {
     root = emptyRoot();

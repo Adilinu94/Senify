@@ -37,6 +37,8 @@ Nächste Arbeitspakete in Reihenfolge:
 
 **Bearbeitbarkeit:** Property-Änderungen an importierten Primitives nutzen dieselbe Validierung wie der Editor (`packages/widget-engine/src/validation.ts`, `packages/engine/src/mutations/apply.ts`, `packages/engine/test/imports.test.ts`). Für die Beispielseite ist eine gespeicherte Textänderung mit PostgreSQL im Profil `showcase` geprüft. Offen: Profilkonflikte zwischen importierter Motion und `standard`, Struktur- und Breakpoint-Änderungen sowie der vollständige Editor-Ablauf.
 
+**PullPage-HTML:** Der Import erkennt den Seitenbaum auch bei anderer Reihenfolge der Attribute am `main`-Element; Kommentare und Script-Inhalte werden bei der Suche übersprungen (`packages/framer-import/src/capture-html.ts`, `packages/framer-import/test/capture.test.ts`). Die Startseite des bereitgestellten Exports wurde zusätzlich lokal eingelesen. Unterseiten, lokale Assets und unveränderte Animationen sind dadurch noch nicht vollständig importiert.
+
 ## Teststrategie für schnelle Entwicklung
 
 - Bei einer Änderung zuerst die direkt betroffenen Tests ausführen, zum Beispiel `pnpm exec vitest run <testdatei>`. Die Tests gezielt nach Vertrag auswählen; automatische Abhängigkeitsauswahl kann bei stark vernetzten Modulen große Teile der Suite starten.
