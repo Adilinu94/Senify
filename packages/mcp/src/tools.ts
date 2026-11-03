@@ -3602,6 +3602,7 @@ export const TOOLS: ToolDefinition[] = [
         siteId: { type: "string" },
         url: { type: "string" },
         rootDir: { type: "string" },
+        sourcePagePath: { type: "string" },
         html: { type: "string" },
         baseUrl: { type: "string" },
         pagePath: { type: "string" },
@@ -3621,6 +3622,7 @@ export const TOOLS: ToolDefinition[] = [
       const siteId = requireString(args, "siteId");
       const url = optionalString(args, "url");
       const rootDir = optionalString(args, "rootDir");
+      const sourcePagePath = optionalString(args, "sourcePagePath");
       const html = optionalString(args, "html");
       const baseUrl = optionalString(args, "baseUrl");
       if (url === undefined && rootDir === undefined && html === undefined) {
@@ -3645,6 +3647,7 @@ export const TOOLS: ToolDefinition[] = [
           source: {
             ...(url === undefined ? {} : { url }),
             ...(rootDir === undefined ? {} : { rootDir }),
+            ...(sourcePagePath === undefined ? {} : { sourcePagePath }),
             ...(html === undefined ? {} : { html }),
             ...(baseUrl === undefined ? {} : { baseUrl }),
           },

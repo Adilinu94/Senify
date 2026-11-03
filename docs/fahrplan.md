@@ -39,6 +39,8 @@ Nächste Arbeitspakete in Reihenfolge:
 
 **PullPage-HTML:** Der Import erkennt den Seitenbaum auch bei anderer Reihenfolge der Attribute am `main`-Element; Kommentare und Script-Inhalte werden bei der Suche übersprungen (`packages/framer-import/src/capture-html.ts`, `packages/framer-import/test/capture.test.ts`). Die Startseite des bereitgestellten Exports wurde zusätzlich lokal eingelesen. Unterseiten, lokale Assets und unveränderte Animationen sind dadurch noch nicht vollständig importiert.
 
+**Unterseiten als Quelle:** Einzelne Routen können über `sourcePagePath` aus strukturierten Exportordnern oder FramerExports `subpages` gelesen und unabhängig unter einem Zielpfad importiert werden (`packages/framer-import/src/capture-html.ts`, `packages/framer-import/src/import.ts`, `packages/engine/src/imports-contract.ts`, `packages/mcp/src/tools.ts`). Die Auswahl ist in CLI und MCP verfügbar; Pfadbegrenzung sowie Engine- und Parser-Durchlauf sind gezielt geprüft (`packages/framer-import/test/import.test.ts`, `packages/engine/test/imports.test.ts`). Automatische Routeninventur und gemeinsamer Mehrseitenlauf bleiben offen.
+
 ## Teststrategie für schnelle Entwicklung
 
 - Bei einer Änderung zuerst die direkt betroffenen Tests ausführen, zum Beispiel `pnpm exec vitest run <testdatei>`. Die Tests gezielt nach Vertrag auswählen; automatische Abhängigkeitsauswahl kann bei stark vernetzten Modulen große Teile der Suite starten.

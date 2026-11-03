@@ -151,6 +151,26 @@ describe("runImport", () => {
     }
   });
 
+  it("imports explicit nested and flattened mirror routes without changing the target path", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "senify-pages-"));
+    try {
+      mkdirSync(join(rootDir, "blog"));
+      mkdirSync(join(rootDir, "subpages"));
+      writeFileSync(join(rootDir, "index.html"), '<div id="main"><h1>Startseite</h1></div>');
+      writeFileSync(join(rootDir, "blog", "artikel.html"), '<div class="site" id="main"><h1>Artikel</h1></div>');
+      writeFileSync(join(rootDir, "subpages", "blog_anderer.html"), '<div id="main"><h1>Anderer Artikel</h1></div>');
+      const nested = await runImport({ source: { kind: "mirror", rootDir, sourcePagePath: "/blog/artikel" }, pagePath: "/ziel" });
+      expect(nested.document.pages[0]?.path).toBe("/ziel");
+      expect(nested.document.pages[0]?.root.children[0]?.states[0]?.text?.content).toBe("Artikel");
+      const flattened = await runImport({ source: { kind: "mirror", rootDir, sourcePagePath: "/blog/anderer" } });
+      expect(flattened.document.pages[0]?.root.children[0]?.states[0]?.text?.content).toBe("Anderer Artikel");
+      await expect(runImport({ source: { kind: "mirror", rootDir, sourcePagePath: "/blog/fehlt" } })).rejects.toThrow(/nicht gefunden/);
+      await expect(runImport({ source: { kind: "mirror", rootDir, sourcePagePath: "/%2e%2e/secret" } })).rejects.toThrow(/Ungültiger/);
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
   it("maps the measured ticker loop onto marquee candidates", () => {
     const run = runDocumentWithTickerLoop();
     const candidates = marqueeCandidates(run.document);

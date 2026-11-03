@@ -14,8 +14,9 @@
 // The capture never invents values: what it cannot read becomes a finding.
 
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { SenifyError } from "@senify/core";
 import {
   IR_VERSION,
   type FramerIrDocument,
@@ -1298,8 +1299,9 @@ function isLoopEntry(entry: unknown): boolean {
 }
 
 // The capture entry for a fixture folder (index.html + styles/).
-export function captureFixture(fixtureDir: string, pagePath = "/"): FramerIrDocument {
-  const html = readFileSync(join(fixtureDir, "index.html"), "utf8");
+export function captureFixture(fixtureDir: string, pagePath = "/", sourcePagePath = "/"): FramerIrDocument {
+  const file = mirrorPageFile(fixtureDir, sourcePagePath);
+  const html = readFileSync(file, "utf8");
   const document = captureHtml({
     html,
     rootDir: dirname(resolve(join(fixtureDir, "index.html"))),
@@ -1331,6 +1333,40 @@ export function captureFixture(fixtureDir: string, pagePath = "/"): FramerIrDocu
     return document;
   }
   return document;
+}
+
+function mirrorPageFile(fixtureDir: string, sourcePagePath: string): string {
+  let path: string;
+  try {
+    path = decodeURIComponent(sourcePagePath);
+  } catch {
+    throw new SenifyError("validation", "Ungültiger Quellseitenpfad im Export", { field: "sourcePagePath" });
+  }
+  if (!path.startsWith("/") || /[\\?#\0]/.test(path) || path.startsWith("//")) {
+    throw new SenifyError("validation", "Ungültiger Quellseitenpfad im Export", { field: "sourcePagePath" });
+  }
+  const segments = path.split("/").filter(Boolean);
+  if (segments.some((part) => part === "." || part === ".." || part.includes(":"))) {
+    throw new SenifyError("validation", "Ungültiger Quellseitenpfad im Export", { field: "sourcePagePath" });
+  }
+  const root = realpathSync(fixtureDir);
+  const name = segments.join("/");
+  const candidates = name === "" ? ["index.html"] : [
+    `${name}.html`,
+    `${name}/index.html`,
+    `subpages/${segments.join("_")}.html`,
+  ];
+  for (const candidate of candidates) {
+    const file = resolve(root, candidate);
+    if (!existsSync(file)) continue;
+    const actual = realpathSync(file);
+    const rel = relative(root, actual);
+    if (rel === "" || rel === ".." || rel.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute(rel)) {
+      throw new SenifyError("validation", "Quellseite liegt außerhalb des Exportordners", { field: "sourcePagePath" });
+    }
+    return actual;
+  }
+  throw new SenifyError("not_found", `Quellseite im Export nicht gefunden: ${sourcePagePath}`, { field: "sourcePagePath" });
 }
 
 function* flattenNodes(node: IrNode | undefined): Generator<IrNode> {

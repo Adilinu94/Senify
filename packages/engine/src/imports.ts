@@ -128,6 +128,9 @@ function sourceOf(body: CreateImportBody, pagePath: string): FramerImportSource 
   const hasRootDir = typeof source.rootDir === "string" && source.rootDir !== "";
   const hasHtml = typeof source.html === "string" && source.html !== "";
   const count = [hasUrl, hasRootDir, hasHtml].filter((entry) => entry).length;
+  if (source.sourcePagePath !== undefined && !hasRootDir) {
+    throw new SenifyError("validation", "Ein Quellseitenpfad benötigt einen Mirror-Ordner", { field: "source.sourcePagePath" });
+  }
   if (count === 0) {
     throw new SenifyError("validation", "Die Import-Quelle ist leer", {
       field: "source",
@@ -145,7 +148,7 @@ function sourceOf(body: CreateImportBody, pagePath: string): FramerImportSource 
     return { kind: "url", url: source.url ?? "" };
   }
   if (hasRootDir) {
-    return { kind: "mirror", rootDir: source.rootDir ?? "", pagePath };
+    return { kind: "mirror", rootDir: source.rootDir ?? "", pagePath, ...(source.sourcePagePath === undefined ? {} : { sourcePagePath: source.sourcePagePath }) };
   }
   return {
     kind: "html",

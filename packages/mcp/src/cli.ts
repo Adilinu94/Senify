@@ -357,6 +357,7 @@ export function createProgram(): Command {
     .argument("<quelle>", "URL, Mirror-Ordner oder HTML-Datei")
     .requiredOption("--site <siteId>", "Projekt-Id")
     .option("--page-path <path>", "Zielpfad der Seite", "/")
+    .option("--source-page-path <path>", "Quellseite im Mirror, z. B. /blog/artikel")
     .option("--write", "Ergebnis als eine Revision schreiben (Default: Dry-Run)")
     .option("--page-id <pageId>", "In diese bestehende Seite schreiben statt neue anzulegen")
     .option("--base-draft-version <version>", "Aktuelle Draft-Version der Zielseite")
@@ -376,7 +377,11 @@ export function createProgram(): Command {
         apiUrl: resolveApiUrl(options),
         token: secret,
       });
-      const source = framerImportSource(quelle);
+      const sourceInput = framerImportSource(quelle);
+      if (options.sourcePagePath !== undefined && !("rootDir" in sourceInput)) {
+        throw new SenifyError("validation", "Ein Quellseitenpfad benötigt einen Mirror-Ordner", { field: "sourcePagePath" });
+      }
+      const source = { ...sourceInput, ...(options.sourcePagePath === undefined ? {} : { sourcePagePath: String(options.sourcePagePath) }) };
       const write = options.write === true;
       const body: Record<string, unknown> = {
         source,

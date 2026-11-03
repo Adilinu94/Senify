@@ -47,10 +47,10 @@ describe("FramerExport CLI adapter", () => {
     const tool = toolByName("import_framer_page");
     expect(tool).toBeDefined();
     await tool?.handler({ client: { request } as unknown as EngineClient }, {
-      siteId: "site-1", rootDir: "export", mode: "fidelity",
+      siteId: "site-1", rootDir: "export", sourcePagePath: "/blog/artikel", mode: "fidelity",
     });
     expect(request).toHaveBeenCalledWith("POST", "/api/sites/site-1/imports/framer", {
-      source: { rootDir: "export" }, mode: "fidelity",
+      source: { rootDir: "export", sourcePagePath: "/blog/artikel" }, mode: "fidelity",
     });
   });
 });

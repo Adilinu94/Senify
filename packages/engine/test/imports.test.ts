@@ -553,6 +553,23 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
     expect(response.body.job.sourceKind).toBe("mirror");
   }, 60_000);
 
+  it("reads a selected mirror source page independently from the target path", async () => {
+    const root = mkdtempSync(join(tmpdir(), "senify-mirror-pages-"));
+    try {
+      mkdirSync(join(root, "blog"));
+      writeFileSync(join(root, "index.html"), framerHtml(), "utf8");
+      writeFileSync(join(root, "blog", "artikel.html"), framerHtml().replaceAll("Willkommen", "Quellartikel"), "utf8");
+      const answer = await runImport({ source: { rootDir: root, sourcePagePath: "/blog/artikel" }, pagePath: "/ziel", assets: "skip", fonts: "skip" });
+      expect(answer.status).toBe(201);
+      const main = await runImport({ source: { rootDir: root }, pagePath: "/ziel", assets: "skip", fonts: "skip" });
+      expect(answer.body.report.irHash).not.toBe(main.body.report.irHash);
+      const bad = await runImport({ source: { rootDir: root, sourcePagePath: "/%2e%2e/secret" } });
+      expect(bad.status).toBe(400);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
   it("uploads assets and rewrites fonts through the engine media pipeline", async () => {
     const image = Buffer.from("engine-import-image", "utf8");
     const font = Buffer.from("engine-import-font", "utf8");
