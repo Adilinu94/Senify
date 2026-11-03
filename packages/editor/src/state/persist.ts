@@ -510,69 +510,67 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
     pending = [];
     setStatus("saving");
 
-    let failed: Pending[] = [];
-    const pageMutations = batch
-      .filter((entry): entry is Extract<Pending, { kind: "page" }> => entry.kind === "page")
-      .map((entry) => entry.mutation);
-    const siteOps = batch.filter(
-      (entry): entry is Extract<Pending, { kind: "site" }> => entry.kind === "site",
-    );
+    // Keep page and site operations in their original order. A new class must
+    // exist before its assignment is saved; on failure only unsent operations
+    // remain queued, since the two HTTP resources are not one transaction.
+    let index = 0;
+    while (index < batch.length) {
+      const entry = batch[index];
+      if (entry === undefined) break;
+      let nextIndex = index + 1;
+      let saveRequest: SaveRequest;
+      if (entry.kind === "page") {
+        const mutations = [entry.mutation];
+        while (nextIndex < batch.length) {
+          const next = batch[nextIndex];
+          if (next?.kind !== "page") break;
+          mutations.push(next.mutation);
+          nextIndex += 1;
+        }
+        saveRequest = {
+          method: "POST",
+          path: `/api/pages/${pageId}/editor-mutations`,
+          body: { baseDraftVersion: version, author, mutations },
+        };
+      } else saveRequest = siteRequestFor(entry.op);
 
-    if (pageMutations.length > 0) {
-      const response = await request({
-        method: "POST",
-        path: `/api/pages/${pageId}/editor-mutations`,
-        body: { baseDraftVersion: version, author, mutations: pageMutations },
-      });
-      if (response.status === 409) {
-        conflictVersion = readConflictVersion(response.body);
-        paused = true;
-        pending = batch;
+      let response: SaveResponse;
+      try {
+        response = await request(saveRequest);
+      } catch (error) {
+        pending = [...batch.slice(index), ...pending];
         running = false;
-        setStatus(
-          "conflict",
-          `Draft has changed (expected v${version}, current v${conflictVersion ?? "?"})`,
-        );
+        setStatus("error", error instanceof Error ? error.message : "Speichern fehlgeschlagen");
         return;
       }
       if (response.status >= 400) {
-        pending = batch;
+        pending = [...batch.slice(index), ...pending];
         running = false;
-        setStatus("error", messageOf(response.body, `Save failed (${response.status})`));
+        if (response.status === 409) {
+          paused = true;
+          conflictVersion = entry.kind === "page" ? readConflictVersion(response.body) : undefined;
+          setStatus("conflict", entry.kind === "page"
+            ? `Draft has changed (expected v${version}, current v${conflictVersion ?? "?"})`
+            : "Die Style-Registry wurde zwischenzeitlich geändert");
+        } else setStatus("error", messageOf(response.body, `Save failed (${response.status})`));
         return;
       }
-      const next = readVersion(response.body);
-      if (next !== undefined) version = next;
-    }
-
-    for (let index = 0; index < siteOps.length; index += 1) {
-      const entry = siteOps[index];
-      if (entry === undefined) continue;
-      const response = await request(siteRequestFor(entry.op));
-      if (response.status === 409) {
-        pending = [...siteOps.slice(index), ...pending];
-        running = false;
-        setStatus("conflict", "Die Style-Registry wurde zwischenzeitlich geändert");
-        return;
+      if (entry.kind === "page") {
+        const nextVersion = readVersion(response.body);
+        if (nextVersion !== undefined) version = nextVersion;
+      } else {
+        const responseBody = response.body as { version?: unknown } | undefined;
+        styleRegistryVersion =
+          typeof responseBody?.version === "number" ? responseBody.version : styleRegistryVersion + 1;
+        if (entry.op.kind === "upsert") knownRuleIds.add(entry.op.rule.id);
+        if (entry.op.kind === "delete") knownRuleIds.delete(entry.op.id);
       }
-      if (response.status >= 400) {
-        failed = siteOps.slice(index).map((unsent) => ({ ...unsent }));
-        break;
-      }
-      const responseBody = response.body as { version?: unknown } | undefined;
-      styleRegistryVersion =
-        typeof responseBody?.version === "number" ? responseBody.version : styleRegistryVersion + 1;
-      if (entry.op.kind === "upsert") knownRuleIds.add(entry.op.rule.id);
-      if (entry.op.kind === "delete") knownRuleIds.delete(entry.op.id);
+      index = nextIndex;
     }
-
-    pending = [...failed, ...pending];
     running = false;
-    if (failed.length > 0) {
-      setStatus("error", "A style rule could not be saved");
-      return;
-    }
     setStatus(pending.length > 0 ? "idle" : "saved");
+    // An autosave timer can expire while another request is still in flight.
+    if (pending.length > 0) schedule();
   }
 
   const retry = async (nextVersion?: number): Promise<void> => {

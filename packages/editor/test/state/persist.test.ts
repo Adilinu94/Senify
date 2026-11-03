@@ -45,6 +45,53 @@ const rule = (id: string, name: string, styles: Record<string, unknown> = {}) =>
 });
 
 describe("save pipeline", () => {
+  it("creates a class before saving its assignment and keeps unsent changes on failure", async () => {
+    let failCreate = true;
+    const { store, pipeline, requests } = harness((request) => {
+      if (request.path.endsWith("/style-rules") && failCreate) return { status: 500, body: {} };
+      return { status: 200, body: { newDraftVersion: 2, version: 1 } };
+    });
+    store.applyBatch([
+      { op: "upsertStyleRule", rule: rule("new-class", "cta") },
+      { op: "assignClass", id: "btn0000001", classId: "cta" },
+    ]);
+    await pipeline.flush();
+    expect(requests.map((request) => request.path)).toEqual(["/api/sites/site1/style-rules"]);
+    expect(pipeline.state().pending).toBe(2);
+    failCreate = false;
+    await pipeline.flush();
+    expect(requests.map((request) => request.path)).toEqual([
+      "/api/sites/site1/style-rules", "/api/sites/site1/style-rules", "/api/pages/page1/editor-mutations",
+    ]);
+    expect(pipeline.state().status).toBe("saved");
+    pipeline.dispose();
+  });
+
+  it("saves changes made while an earlier request is still in flight", async () => {
+    const store = baseStore();
+    const requests: SaveRequest[] = [];
+    let release: (() => void) | undefined;
+    const first = new Promise<void>((resolve) => { release = resolve; });
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR, debounceMs: 5,
+      request: async (request) => {
+        requests.push(request);
+        if (requests.length === 1) await first;
+        return { status: 200, body: { newDraftVersion: requests.length + 1 } };
+      },
+    });
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 });
+    const initialSave = pipeline.flush();
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 32 });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    release?.();
+    await initialSave;
+    await vi.waitFor(() => expect(pipeline.state().status).toBe("saved"));
+    expect(requests).toHaveLength(2);
+    expect(pipeline.state().pending).toBe(0);
+    pipeline.dispose();
+  });
+
   it("bundles a burst into one page request and tracks the version", async () => {
     const { store, pipeline, requests } = harness((request) =>
       request.path.includes("/editor-mutations")

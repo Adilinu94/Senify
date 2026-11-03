@@ -27,6 +27,8 @@ Die detaillierte Planung für dieses Produktziel steht in der [Framer-Roadmap](f
 
 **Klassenspeicher:** Die Editor-Pipeline erkennt geladene Regeln als bestehend und entfernt gelöschte Regeln aus ihrer internen ID-Liste, sodass erneutes Anlegen nach Undo möglich ist (`packages/editor/src/state/persist.ts`, `packages/editor/test/state/persist.test.ts`). Offen bleiben der vollständige UI-Ablauf und das Zusammenspiel von Site-Regeln und Seitenzuweisungen bei Fehlern.
 
+**Speicherreihenfolge:** Site- und Seitenänderungen werden in Eingabereihenfolge übertragen; fehlgeschlagene und noch nicht gesendete Schritte bleiben vorgemerkt, Eingaben während laufender Anfragen werden erneut eingeplant (`packages/editor/src/state/persist.ts`, `packages/editor/test/state/persist.test.ts`). Site und Seite sind weiterhin getrennte Ressourcen ohne gemeinsame Transaktion; Konflikt- und Wiederherstellungsverhalten im späteren Klassen-UI muss gesondert geprüft werden.
+
 Nächste Arbeitspakete in Reihenfolge:
 
 1. Exportzugang prüfen und einen echten Export als reproduzierbare Eingabe sichern. CLI und MCP können FramerExport starten und vorhandene Ordner anschließend als Mirror einlesen; MCP kann auch Projektdaten über Unframer lokal sichern (`packages/mcp/src/framer-export.ts`, `packages/mcp/src/unframer.ts`, `packages/framer-import/src/import.ts`). Der direkte kombinierte Ablauf und die Übernahme des Unframer-Snapshots in den NodeTree bleiben offen.
