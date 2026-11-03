@@ -3577,11 +3577,12 @@ export const TOOLS: ToolDefinition[] = [
     title: "Prepare a multi-page Framer export",
     description: "Captures structured HTML export pages and downloads supported assets to a new local folder, including a site-ir.json and failure report. This is an import input, not a complete editable site or a verified runtime-free build. Flattened FramerExport subpages are flagged as unprocessed.",
     scope: "write",
-    inputSchema: objectSchema({ rootDir: { type: "string" }, outputDir: { type: "string" } }, ["rootDir", "outputDir"]),
+    inputSchema: objectSchema({ rootDir: { type: "string" }, outputDir: { type: "string" }, unframerSnapshot: { type: "string" } }, ["rootDir", "outputDir"]),
     entity: () => "framer-site-preparation",
     handler: async (_context, args) => {
-      const result = await prepareMirrorSite({ rootDir: requireString(args, "rootDir"), outputDir: requireString(args, "outputDir") });
-      return { outputDir: result.outputDir, pages: result.pages, blockedPages: result.blockedPages, ignoredFlattenedPages: result.ignoredFlattenedPages, downloadedAssets: result.assets.downloads.length, fonts: result.assets.fonts.length, failedAssets: result.assets.failed, runtimeFreeVerified: false };
+      const unframerSnapshot = optionalString(args, "unframerSnapshot");
+      const result = await prepareMirrorSite({ rootDir: requireString(args, "rootDir"), outputDir: requireString(args, "outputDir"), ...(unframerSnapshot === undefined ? {} : { unframerSnapshot }) });
+      return { outputDir: result.outputDir, pages: result.pages, blockedPages: result.blockedPages, ignoredFlattenedPages: result.ignoredFlattenedPages, snapshot: result.snapshot, downloadedAssets: result.assets.downloads.length, fonts: result.assets.fonts.length, failedAssets: result.assets.failed, runtimeFreeVerified: false };
     },
   },
   {

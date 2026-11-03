@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { SenifyError } from "@senify/core";
 import { captureFixture } from "./capture-html.ts";
@@ -43,13 +43,16 @@ export type PreparedMirrorSite = {
   pages: number;
   blockedPages: string[];
   ignoredFlattenedPages: boolean;
+  snapshot: { pages: number; components: number; collections: number; missingStaticPages: string[] } | null;
   assets: AssetReport;
   runtimeFreeVerified: false;
 };
 
-export async function prepareMirrorSite(input: { rootDir: string; outputDir: string }): Promise<PreparedMirrorSite> {
+export async function prepareMirrorSite(input: { rootDir: string; outputDir: string; unframerSnapshot?: string }): Promise<PreparedMirrorSite> {
   const root = realpathSync(input.rootDir);
   const inventory = listMirrorPages(root);
+  const inspected = input.unframerSnapshot === undefined ? null : inspectSnapshot(input.unframerSnapshot, root, inventory.pages);
+  const snapshot = inspected?.summary ?? null;
   const parent = realpathSync(dirname(resolve(input.outputDir)));
   const target = resolve(parent, relative(dirname(resolve(input.outputDir)), resolve(input.outputDir)));
   const relation = relative(root, target);
@@ -60,6 +63,7 @@ export async function prepareMirrorSite(input: { rootDir: string; outputDir: str
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     throw new SenifyError("validation", "Das Ausgabeziel existiert bereits", { field: "outputDir" });
   }
+  if (inspected !== null) writeFileSync(join(target, "unframer-snapshot.json"), inspected.contents, { flag: "wx" });
   const docs = inventory.pages.map((path) => captureFixture(root, path, path));
   const blockedPages = docs.flatMap((doc, index) => doc.findings.some((finding) => finding.severity === "block") ? [inventory.pages[index] ?? ""] : []);
   const first = docs[0];
@@ -76,6 +80,30 @@ export async function prepareMirrorSite(input: { rootDir: string; outputDir: str
     const page = processed.document.pages[index];
     return { ...doc, pages: page === undefined ? [] : [page], assets: doc.assets.map((asset) => assetsByUrl.get(asset.url) ?? asset), styles: { ...doc.styles, fonts: processed.document.styles.fonts.slice(start, offset) } };
   });
-  writeFileSync(join(target, "site-ir.json"), JSON.stringify({ version: 1, status: "capture-only", inventory, blockedPages, pages, assetReport: processed.report, assetFindings: processed.document.findings }, null, 2), { flag: "wx" });
-  return { outputDir: target, pages: pages.length, blockedPages, ignoredFlattenedPages: inventory.ignoredFlattenedPages, assets: processed.report, runtimeFreeVerified: false };
+  writeFileSync(join(target, "site-ir.json"), JSON.stringify({ version: 1, status: "capture-only", inventory, snapshot, blockedPages, pages, assetReport: processed.report, assetFindings: processed.document.findings }, null, 2), { flag: "wx" });
+  return { outputDir: target, pages: pages.length, blockedPages, ignoredFlattenedPages: inventory.ignoredFlattenedPages, snapshot, assets: processed.report, runtimeFreeVerified: false };
+}
+
+function inspectSnapshot(file: string, root: string, routes: string[]): { contents: string; summary: NonNullable<PreparedMirrorSite["snapshot"]> } {
+  let snapshot: { version?: unknown; source?: unknown; pages?: unknown; components?: unknown; cms?: unknown };
+  let contents: string;
+  try { contents = readFileSync(file, "utf8"); snapshot = JSON.parse(contents) as typeof snapshot; } catch {
+    throw new SenifyError("validation", "Unframer-Snapshot ist nicht lesbar", { field: "unframerSnapshot" });
+  }
+  if (snapshot === null || snapshot.version !== 1 || typeof snapshot.source !== "string" || !Array.isArray(snapshot.pages) || !Array.isArray(snapshot.components) || !Array.isArray(snapshot.cms)) {
+    throw new SenifyError("validation", "Unframer-Snapshot hat ein unbekanntes Format", { field: "unframerSnapshot" });
+  }
+  const html = readFileSync(join(root, "index.html"), "utf8");
+  const canonical = [...html.matchAll(/<link\b[^>]*>/gi)].map((match) => match[0]).find((tag) => /\brel\s*=\s*["']canonical["']/i.test(tag));
+  const href = canonical === undefined ? undefined : /\bhref\s*=\s*["']([^"']+)["']/i.exec(canonical)?.[1];
+  try {
+    if (href === undefined || new URL(href).origin !== new URL(snapshot.source).origin) throw new Error("origin mismatch");
+  } catch {
+    throw new SenifyError("validation", "Export und Unframer-Snapshot lassen sich nicht demselben Projekt zuordnen", { field: "unframerSnapshot" });
+  }
+  const staticPages = snapshot.pages.flatMap((page: unknown) => {
+    if (typeof page !== "object" || page === null || !("name" in page) || typeof page.name !== "string") return [];
+    return page.name.startsWith("/") && !page.name.includes(":") ? [page.name] : [];
+  });
+  return { contents, summary: { pages: snapshot.pages.length, components: snapshot.components.length, collections: snapshot.cms.length, missingStaticPages: staticPages.filter((path: string) => !routes.includes(path)) } };
 }

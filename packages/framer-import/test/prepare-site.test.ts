@@ -35,6 +35,25 @@ describe("prepareMirrorSite", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("combines only a snapshot matching the export origin", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "senify-snapshot-site-"));
+    try {
+      const root = join(dir, "source");
+      mkdirSync(root);
+      writeFileSync(join(root, "index.html"), '<link href="https://example.test/" rel="canonical"><div id="main"><p>Home</p></div>');
+      const snapshotPath = join(dir, "snapshot.json");
+      const snapshot = { version: 1, source: "https://example.test", pages: [{ name: "/" }, { name: "/about" }, { name: "/blog/:slug" }], components: [{}], cms: [{}] };
+      writeFileSync(snapshotPath, JSON.stringify(snapshot));
+      const result = await prepareMirrorSite({ rootDir: root, outputDir: join(dir, "output"), unframerSnapshot: snapshotPath });
+      expect(result.snapshot).toEqual({ pages: 3, components: 1, collections: 1, missingStaticPages: ["/about"] });
+      expect(JSON.parse(readFileSync(join(dir, "output", "unframer-snapshot.json"), "utf8"))).toEqual(snapshot);
+      writeFileSync(snapshotPath, JSON.stringify({ ...snapshot, source: "https://other.test" }));
+      await expect(prepareMirrorSite({ rootDir: root, outputDir: join(dir, "mismatch"), unframerSnapshot: snapshotPath })).rejects.toThrow(/nicht demselben Projekt/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 type FramerDoc = { pages: { path: string }[] };

@@ -355,9 +355,10 @@ export function createProgram(): Command {
     .description("Mehrseitigen Framer-Export mit Medien als Importgrundlage sichern")
     .argument("<quelle>", "Ordner des strukturierten HTML-Exports")
     .argument("<ziel>", "Neuer Ausgabeordner")
-    .action(async (quelle: string, ziel: string) => {
-      const result = await prepareMirrorSite({ rootDir: quelle, outputDir: ziel });
-      console.log(JSON.stringify({ outputDir: result.outputDir, pages: result.pages, blockedPages: result.blockedPages, ignoredFlattenedPages: result.ignoredFlattenedPages, downloadedAssets: result.assets.downloads.length, fonts: result.assets.fonts.length, failedAssets: result.assets.failed, runtimeFreeVerified: false }, null, 2));
+    .option("--unframer-snapshot <datei>", "Passenden Unframer-Snapshot hinzufügen")
+    .action(async (quelle: string, ziel: string, options: { unframerSnapshot?: string }) => {
+      const result = await prepareMirrorSite({ rootDir: quelle, outputDir: ziel, ...(options.unframerSnapshot === undefined ? {} : { unframerSnapshot: options.unframerSnapshot }) });
+      console.log(JSON.stringify({ outputDir: result.outputDir, pages: result.pages, blockedPages: result.blockedPages, ignoredFlattenedPages: result.ignoredFlattenedPages, snapshot: result.snapshot, downloadedAssets: result.assets.downloads.length, fonts: result.assets.fonts.length, failedAssets: result.assets.failed, runtimeFreeVerified: false }, null, 2));
     });
 
   program
