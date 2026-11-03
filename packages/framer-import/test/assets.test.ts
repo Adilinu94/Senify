@@ -232,6 +232,28 @@ describe("importAssets", () => {
     rmSync(outDir, { recursive: true, force: true });
   });
 
+  it("keeps different files with the same basename and reports missing assets", async () => {
+    const outDir = mkdtempSync(join(tmpdir(), "senify-asset-variants-"));
+    try {
+      served.set("/images/variant.png?width=400", fakeImage("small"));
+      served.set("/images/variant.png?width=800", fakeImage("large"));
+      const document = irDocument();
+      document.styles.fonts = [];
+      document.assets = ["?width=400", "?width=800", "?missing"].map((query) => ({
+        url: `${origin}/images/variant.png${query}`, kind: "image", hash: null, alt: null, width: null, height: null,
+      }));
+      const result = await importAssets({ document, outDir });
+      expect(result.report.failed).toBe(1);
+      const [small, large] = result.report.downloads;
+      expect(small?.localUrl).not.toBe(large?.localUrl);
+      expect(readFileSync(small?.localUrl ?? "")).toEqual(fakeImage("small"));
+      expect(readFileSync(large?.localUrl ?? "")).toEqual(fakeImage("large"));
+      expect(result.document.findings.some((finding) => finding.kind === "asset-blocked" && finding.evidence.endsWith("?missing"))).toBe(true);
+    } finally {
+      rmSync(outDir, { recursive: true, force: true });
+    }
+  });
+
   it("hashes content identically for the same bytes (dedupe anchor)", () => {
     const a = createHash("sha256").update(fakeFont(400)).digest("hex");
     const b = createHash("sha256").update(fakeFont(400)).digest("hex");

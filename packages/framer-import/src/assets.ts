@@ -190,7 +190,7 @@ export async function importAssets(input: ImportAssetsInput): Promise<AssetResul
             const filename = filenameFor(src, "font");
             const uploaded = input.uploader !== undefined
               ? await input.uploader({ filename, mime: mimeForUrl(src), data, alt: null })
-              : { url: writeMirrorFile(input.outDir, filename, data), assetId: null };
+              : { url: writeMirrorFile(input.outDir, filename, data, hash), assetId: null };
             const localUrl = typeof uploaded === "string" ? uploaded : uploaded.url;
             entry = { hash, bytes: data.length, files: [localUrl] };
             report.fonts.push({
@@ -296,7 +296,7 @@ async function downloadAsset(
     const mime = mimeForUrl(asset.url);
     const uploaded = input.uploader !== undefined
       ? await input.uploader({ filename, mime, data, alt: asset.alt })
-      : { url: writeMirrorFile(input.outDir, filename, data), assetId: null };
+      : { url: writeMirrorFile(input.outDir, filename, data, hash), assetId: null };
     const localUrl = typeof uploaded === "string" ? uploaded : uploaded.url;
     const assetId = typeof uploaded === "string" ? null : uploaded.assetId;
     const download: AssetDownload = {
@@ -312,6 +312,14 @@ async function downloadAsset(
     return download;
   } catch {
     report.failed += 1;
+    input.document.findings.push({
+      kind: "asset-blocked",
+      nodeKey: null,
+      message: "Asset-Datei konnte nicht geladen oder gespeichert werden.",
+      evidence: asset.url,
+      severity: "warn",
+      suggestion: "Quelle und lokales Ausgabeverzeichnis prüfen.",
+    });
     return { url: asset.url, hash: "", bytes: 0, localUrl: null, mime: mimeForUrl(asset.url), assetId: null };
   }
 }
@@ -354,12 +362,16 @@ function sha256(data: Buffer): string {
   return createHash("sha256").update(data).digest("hex");
 }
 
-function writeMirrorFile(outDir: string | undefined, filename: string, data: Buffer): string {
+function writeMirrorFile(outDir: string | undefined, filename: string, data: Buffer, hash: string): string {
   if (outDir === undefined) {
     throw new SenifyError("validation", "Mirror-Modus braucht outDir", { field: "outDir" });
   }
-  const path = resolve(join(outDir, filename));
-  writeFileSync(path, data);
+  const path = resolve(join(outDir, `${hash}-${filename}`));
+  try {
+    writeFileSync(path, data, { flag: "wx" });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST" || !readFileSync(path).equals(data)) throw error;
+  }
   return path;
 }
 
