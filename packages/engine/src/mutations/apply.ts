@@ -117,7 +117,7 @@ function assertRegistered(
       },
     );
   }
-  if (!registry.has(type)) {
+  if (!registry.has(type) && (type === "root" || getPrimitive(type) === undefined)) {
     throw new SenifyError("not_found", `Unknown section type "${type}"`, {
       field,
       suggestion:
@@ -131,7 +131,7 @@ function definitionForNode(
   node: Node,
 ): SectionDefinition | undefined {
   if (node.type === PAGE_ROOT_TYPE) return undefined;
-  return registry.get(node.type);
+  return registry.has(node.type) ? registry.get(node.type) : undefined;
 }
 
 function assertVariant(
@@ -195,7 +195,8 @@ function assertChildPlacement(
   // not content: the section child rules cannot judge them, so they fit
   // wherever a node may sit. A slot placeholder stays a leaf.
   if (isComponentType(childType) && parent.type !== COMPONENT_SLOT_TYPE) return;
-  const definition = state.registry.get(parent.type);
+  const definition = state.registry.has(parent.type) ? state.registry.get(parent.type) : getPrimitive(parent.type);
+  if (definition === undefined) throw new SenifyError("not_found", `Unknown parent type "${parent.type}"`, { field });
   const allowed = definition.allowedChildren;
   if (allowed === undefined || allowed === "none") {
     throw new SenifyError(
@@ -269,7 +270,7 @@ function slotRulesFor(
       ...(spec.max === null ? {} : { max: spec.max }),
     };
   }
-  const definition = definitionForNode(state.registry, parent);
+  const definition = definitionForNode(state.registry, parent) ?? getPrimitive(parent.type);
   // Open containers (`"any"`) declare no slots: any slot name is accepted.
   if (definition?.allowedChildren === "any") return null;
   return definition?.slots?.[slot];
@@ -367,18 +368,32 @@ function buildNode(
   fieldPrefix: string,
 ): Node {
   assertRegistered(state.registry, spec.type, `${fieldPrefix}.type`);
-  const definition = state.registry.get(spec.type);
-  assertVariant(definition, spec.variant, `${fieldPrefix}.variant`);
+  const definition = state.registry.has(spec.type) ? state.registry.get(spec.type) : undefined;
+  const primitive = definition === undefined ? requirePrimitive(spec.type, `${fieldPrefix}.type`) : undefined;
+  if (definition !== undefined) assertVariant(definition, spec.variant, `${fieldPrefix}.variant`);
+  else if (spec.variant !== undefined) throw new SenifyError("validation", "Primitives have no section variants", { field: `${fieldPrefix}.variant` });
   // Variant presets supply curated defaults; explicit props always win.
   const preset =
     (spec.variant !== undefined
-      ? definition.variants?.[spec.variant]?.preset
+      ? definition?.variants?.[spec.variant]?.preset
       : undefined) ?? {};
   const props: Record<string, PropValue> = {
     ...(preset as Record<string, PropValue>),
     ...(spec.props ?? {}),
   };
-  throwOnIssues(validatePropValues(definition, props, `${fieldPrefix}.props`));
+  if (definition !== undefined) throwOnIssues(validatePropValues(definition, props, `${fieldPrefix}.props`));
+  else if (primitive !== undefined) {
+    for (const [key, value] of Object.entries(props)) {
+      assertKnownProp(primitive, key, `${fieldPrefix}.props.${key}`);
+      assertPropValue(primitive, key, value, `${fieldPrefix}.props.${key}`);
+    }
+    for (const [device, override] of Object.entries(spec.overrides ?? {})) {
+      for (const [key, value] of Object.entries(override.props ?? {})) {
+        assertKnownProp(primitive, key, `${fieldPrefix}.overrides.${device}.props.${key}`);
+        assertPropValue(primitive, key, value, `${fieldPrefix}.overrides.${device}.props.${key}`);
+      }
+    }
+  }
   const id = spec.id ?? newNodeId();
   if (state.tree.nodes.has(id)) {
     throw new SenifyError(
@@ -418,13 +433,7 @@ function applyInsert(
 ): PatchOp[] {
   const parentNode = requireNode(state.tree, mutation.parent.nodeId, "parent.nodeId");
   const node = buildNode(state, mutation.node, "node");
-  warnLiteralValues(
-    state.registry.get(node.type),
-    node.props,
-    "node.props",
-    state,
-    state.currentOpIndex,
-  );
+  if (state.registry.has(node.type)) warnLiteralValues(state.registry.get(node.type), node.props, "node.props", state, state.currentOpIndex);
   const list = targetList(state, parentNode, node.type, mutation.parent, "node.type");
   insertAt(list, resolveIndex(mutation.index, list.length), node.id);
   return [{ patch: "deleteRaw", id: node.id }];
@@ -577,7 +586,9 @@ function applyWrap(
   }
   const located = requireAttached(state.tree, mutation.id);
   const wrapper = buildNode(state, mutation.wrapper, "wrapper");
-  const wrapperDefinition = state.registry.get(wrapper.type);
+  const wrapperDefinition = state.registry.has(wrapper.type)
+    ? state.registry.get(wrapper.type)
+    : requirePrimitive(wrapper.type, "wrapper.type");
   const allowed = wrapperDefinition.allowedChildren;
   // An open container (`"any"`) wraps every registered type.
   const listed = Array.isArray(allowed) ? allowed : undefined;
@@ -718,7 +729,8 @@ function applySetOverride(
 ): PatchOp[] {
   const node = requireNode(state.tree, mutation.id, "id");
   const definition = definitionForNode(state.registry, node);
-  if (!definition) {
+  const primitive = definition === undefined && node.type !== PAGE_ROOT_TYPE ? getPrimitive(node.type) : undefined;
+  if (!definition && !primitive) {
     throw new SenifyError("validation", "The page root has no breakpoint overrides", {
       field: "id",
     });
@@ -733,8 +745,15 @@ function applySetOverride(
     ...(current?.props ?? {}),
     ...(override.props ?? {}),
   };
-  throwOnIssues(validatePropValues(definition, mergedProps, "override.props"));
-  warnLiteralValues(definition, override.props ?? {}, "override.props", state, state.currentOpIndex);
+  if (definition !== undefined) {
+    throwOnIssues(validatePropValues(definition, mergedProps, "override.props"));
+    warnLiteralValues(definition, override.props ?? {}, "override.props", state, state.currentOpIndex);
+  } else if (primitive !== undefined) {
+    for (const [key, value] of Object.entries(mergedProps)) {
+      assertKnownProp(primitive, key, `override.props.${key}`);
+      assertPropValue(primitive, key, value, `override.props.${key}`);
+    }
+  }
   const next: NodeOverride = {};
   if (Object.keys(mergedProps).length > 0) next.props = mergedProps;
   if (override.hidden !== undefined) next.hidden = override.hidden;
@@ -928,13 +947,7 @@ function applySetSlotContent(
   const rules = requireSlotRules(state, parent, mutation.slot);
   const newNodes = mutation.nodes.map((spec, index) => {
     const node = buildNode(state, spec, `nodes[${index}]`);
-    warnLiteralValues(
-      state.registry.get(node.type),
-      node.props,
-      `nodes[${index}].props`,
-      state,
-      state.currentOpIndex,
-    );
+    if (state.registry.has(node.type)) warnLiteralValues(state.registry.get(node.type), node.props, `nodes[${index}].props`, state, state.currentOpIndex);
     return node;
   });
   if (rules !== null) {
@@ -983,13 +996,7 @@ function applyCreateCollectionEntry(
   const parent = requireNode(state.tree, mutation.id, "id");
   const slotSpec = requireSlotRules(state, parent, "item");
   const node = buildNode(state, mutation.node, "node");
-  warnLiteralValues(
-    state.registry.get(node.type),
-    node.props,
-    "node.props",
-    state,
-    state.currentOpIndex,
-  );
+  if (state.registry.has(node.type)) warnLiteralValues(state.registry.get(node.type), node.props, "node.props", state, state.currentOpIndex);
   if (slotSpec !== null) {
     assertSlotAllowedTypes(parent, "item", slotSpec, node.type, "node");
   }

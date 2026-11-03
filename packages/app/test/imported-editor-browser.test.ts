@@ -6,6 +6,43 @@ import { startProgram } from "@senify/app";
 import { browserAvailable, memoryDb } from "./support.ts";
 
 describe.skipIf(!browserAvailable)("imported page in the editor", () => {
+  it("finds catalog elements and inserts one on an empty page without a selection", async () => {
+    const { chromium } = await import("playwright");
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-catalog-"));
+    const running = await startProgram({ db: database.db, dataDir, programTokenFile: join(dataDir, "token.json"), enginePort: 0, appPort: 0, openBrowser: false, reviewVisuals: false });
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const post = (path: string, body: unknown): Promise<Response> => fetch(`${running.dashboardUrl}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const site = await (await post("/api/sites", { name: "Katalog" })).json() as { id: string };
+      const page = await (await post(`/api/sites/${site.id}/pages`, { title: "Start", path: "/" })).json() as { id: string };
+      const tab = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+      await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`);
+      const search = tab.getByRole("searchbox", { name: "Element suchen" });
+      await search.fill("Rahmen");
+      const frameButton = tab.locator('.senify-canvas__chip[data-primitive="frame"]');
+      expect(await frameButton.isVisible()).toBe(true);
+      expect(await tab.locator('.senify-canvas__chip[data-primitive="heading"]').isVisible()).toBe(false);
+      await search.fill("Kein solches Element 123");
+      expect(await tab.getByText("Keine Elemente gefunden.").isVisible()).toBe(true);
+      await search.fill("Rahmen");
+      await frameButton.click();
+      const liveFrame = tab.locator('.senify-canvas__frame[data-device="desktop"] iframe').contentFrame();
+      await expect.poll(() => liveFrame.locator('[data-widget="frame"]').count(), { timeout: 10000 }).toBeGreaterThan(0);
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      const value = await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json() as { draft: { nodes: Record<string, { type: string }> } };
+      expect(Object.values(value.draft.nodes).some((node) => node.type === "frame")).toBe(true);
+      await tab.reload();
+      const frame = tab.locator('.senify-canvas__frame[data-device="desktop"] iframe').contentFrame();
+      await expect.poll(() => frame.locator('[data-widget="frame"]').count(), { timeout: 15000 }).toBeGreaterThan(0);
+    } finally {
+      await browser.close();
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
   it("loads assets beyond the first media page and shows only the correct responsive variant", async () => {
     const { chromium } = await import("playwright");
     const database = memoryDb();

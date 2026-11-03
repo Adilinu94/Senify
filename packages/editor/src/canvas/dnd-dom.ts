@@ -104,24 +104,15 @@ export function createDropController(options: DropControllerOptions): DropContro
   const catalog = h(doc, "div", {
     className: "senify-canvas__catalog",
     data: { role: "catalog-strip" },
-    attributes: { "aria-label": "Schnellzugriff: Bausteine zum Ziehen" },
+    attributes: { "aria-label": "Elemente zum Einfügen" },
   });
-  catalog.appendChild(
-    h(doc, "span", {
-      className: "senify-canvas__catalog-heading",
-      text: "Schnellzugriff",
-      attributes: { "aria-hidden": "true" },
-    }),
-  );
-  const quickPrimitives = new Set([
-    "section",
-    "heading",
-    "text",
-    "button",
-    "image",
-    "grid",
-    "divider",
-  ]);
+  const search = h(doc, "input", {
+    className: "senify-canvas__catalog-search",
+    attributes: { type: "search", placeholder: "Element suchen", "aria-label": "Element suchen" },
+  });
+  catalog.appendChild(search);
+  const categories = new Map<string, { element: DomElement; entries: { chip: DomElement; text: string }[] }>();
+  const categoryLabels: Record<string, string> = { layout: "Layout", basic: "Basis", media: "Medien", form: "Formular", advanced: "Erweitert" };
 
   // Insert at a target (the same resolution the drag uses); the chips, the plus
   // points and the top bar buttons all funnel through here.
@@ -156,16 +147,26 @@ export function createDropController(options: DropControllerOptions): DropContro
   }
 
   for (const type of primitiveTypes()) {
-    if (type === "root" || !quickPrimitives.has(type)) continue;
+    if (type === "root") continue;
+    const definition = getPrimitive(type);
+    const category = definition?.category ?? "advanced";
+    let group = categories.get(category);
+    if (group === undefined) {
+      const element = h(doc, "section", { className: "senify-canvas__catalog-group" });
+      element.appendChild(h(doc, "h3", { className: "senify-canvas__catalog-heading", text: categoryLabels[category] ?? category }));
+      group = { element, entries: [] };
+      categories.set(category, group);
+      catalog.appendChild(element);
+    }
     const chip = h(doc, "button", {
       className: "senify-canvas__chip",
-      text: getPrimitive(type)?.name ?? type,
+      text: definition?.name ?? type,
       data: { primitive: type },
       attributes: { type: "button", draggable: "true", title: `${type} — ziehen oder klicken` },
     });
     chip.addEventListener("click", () => {
-      const selected = store.selection.focus ?? store.selection.selected[0] ?? null;
-      if (selected !== null) insertAt(selected, type, "after");
+      const selected = store.selection.focus ?? store.selection.selected[0] ?? store.document.rootNodeId;
+      insertAt(selected, type, selected === store.document.rootNodeId ? "into" : "after");
     });
     chip.addEventListener("dragstart", (event) => {
       dragSource = { kind: "primitive", primitive: type };
@@ -177,8 +178,27 @@ export function createDropController(options: DropControllerOptions): DropContro
       hidePluses();
     });
     chip.addEventListener("dragend", () => endDrag());
-    catalog.appendChild(chip);
+    group.entries.push({ chip, text: `${definition?.name ?? type} ${type} ${definition?.description ?? ""}`.toLocaleLowerCase("de") });
+    group.element.appendChild(chip);
   }
+  const empty = h(doc, "p", { className: "senify-canvas__catalog-empty", text: "Keine Elemente gefunden." });
+  empty.hidden = true;
+  catalog.appendChild(empty);
+  search.addEventListener("input", () => {
+    const term = (search.value ?? "").trim().toLocaleLowerCase("de");
+    let hasResults = false;
+    for (const group of categories.values()) {
+      let visible = false;
+      for (const entry of group.entries) {
+        const match = term === "" || entry.text.includes(term);
+        entry.chip.hidden = !match;
+        visible ||= match;
+      }
+      group.element.hidden = !visible;
+      hasResults ||= visible;
+    }
+    empty.hidden = hasResults;
+  });
 
   const root = overlay;
   const line = h(doc, "div", {

@@ -3817,8 +3817,14 @@ body.is-editor .view.editor-view > .editor-host.canvas-view {
 .canvas-view__sidebar [hidden] { display: none; }
 .canvas-view__elements { padding: 16px; }
 .canvas-view__elements .senify-canvas__cataloghost { padding: 0; }
-.canvas-view__elements .senify-canvas__catalog { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.canvas-view__elements .senify-canvas__catalog-heading { grid-column: 1 / -1; margin-bottom: 8px; }
+.canvas-view__elements .senify-canvas__catalog { display: flex; flex-direction: column; align-items: stretch; gap: 16px; }
+.canvas-view__elements .senify-canvas__catalog-search { width: 100%; min-height: 36px; padding: 0 10px; border: 1px solid #d5d8dc; border-radius: 4px; background: #fff; color: #272a2f; font: inherit; }
+.canvas-view__elements .senify-canvas__catalog-group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.canvas-view__elements .senify-canvas__catalog-group[hidden],
+.canvas-view__elements .senify-canvas__chip[hidden],
+.canvas-view__elements .senify-canvas__catalog-empty[hidden] { display: none; }
+.canvas-view__elements .senify-canvas__catalog-empty { margin: 0; color: #606972; font-size: 12px; }
+.canvas-view__elements .senify-canvas__catalog-heading { grid-column: 1 / -1; margin: 0 0 4px; color: #515962; font-size: 12px; font-weight: 600; }
 .canvas-view__elements .senify-canvas__chip { min-height: 54px; cursor: grab; }
 .canvas-view .senify-canvas,
 .canvas-view .senify-explorer,

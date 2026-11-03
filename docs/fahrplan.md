@@ -23,6 +23,8 @@ Die detaillierte Planung für dieses Produktziel steht in der [Framer-Roadmap](f
 
 **Erste Editor-Scheibe:** Linke Werkzeugleiste und eine umschaltbare Geräteansicht sind im Seiteneditor angebunden (`packages/app/public/app.js`, `app.css`, `packages/editor/src/canvas/canvas.ts`); der Browserablauf und der Importtest liegen unter `packages/app/test/`. Offen: tatsächlicher visueller Vergleich gegen Elementor, umfassender Elementkatalog, Klassen- und Variablenmanager, Interaktionen und feingranulare Bedienparität. Die alte Drei-Frame-Darstellung bleibt als Option des Canvas-Moduls erhalten; die App verwendet den einzelnen Frame.
 
+**Elementkatalog:** Katalogeinträge sind gruppiert und durchsuchbar, auch ohne Vorauswahl einfügbar und für Grundelemente über den validierten Engine-Pfad speicherbar (`packages/editor/src/canvas/dnd-dom.ts`, `packages/engine/src/mutations/apply.ts`, `packages/app/test/imported-editor-browser.test.ts`, `packages/engine/test/mutations.test.ts`). Offen: alle Einträge und Kombinationen durchgängig prüfen, sämtliche Controls und Interaktionen ergänzen sowie Elementor-Zustände visuell vermessen. Der Katalog allein belegt keine vollständige Elementor-Gleichheit.
+
 Nächste Arbeitspakete in Reihenfolge:
 
 1. Exportzugang prüfen und einen echten Export als reproduzierbare Eingabe sichern. CLI und MCP können FramerExport starten und vorhandene Ordner anschließend als Mirror einlesen; MCP kann auch Projektdaten über Unframer lokal sichern (`packages/mcp/src/framer-export.ts`, `packages/mcp/src/unframer.ts`, `packages/framer-import/src/import.ts`). Der direkte kombinierte Ablauf und die Übernahme des Unframer-Snapshots in den NodeTree bleiben offen.
