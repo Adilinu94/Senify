@@ -61,10 +61,12 @@ export type CanvasOptions = {
   // The breakpoint the live frame renders at; in design it is the frame the
   // editor marks as active (dimming, activation).
   breakpoint?: FrameBreakpoint;
+  frameLayout?: "all" | "single";
   // The site profile decides the Lenis switch of the live runtime (F6/F7).
   profile?: MotionProfile;
   motionVendorBase?: string;
   onMessage?: (message: string | null) => void;
+  onSelect?: (id: string) => void;
   // Reports view changes (zoom, selection, mode, breakpoint, forced state) so
   // the session can persist them; the canvas itself stays storage-free.
   onState?: (state: CanvasState) => void;
@@ -572,6 +574,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       message(null);
     } else {
       store.select(resolution.id);
+      options.onSelect?.(resolution.id);
       message(resolution.kind === "drill" ? "Ebene tiefer gewählt" : null);
     }
     options.onState?.(stateOf());
@@ -966,7 +969,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     cancelDeferred();
     for (const entry of mounted) entry.wrap.remove();
     mounted.length = 0;
-    for (const spec of canvasFrames(zoom, { mode, breakpoint })) mountFrame(spec);
+    for (const spec of canvasFrames(zoom, { mode, breakpoint, layout: options.frameLayout })) mountFrame(spec);
     applyFrameLayout();
     updateChrome();
   }
@@ -1176,14 +1179,17 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     if (breakpoint === device) return;
     breakpoint = device;
     // Design only re-marks the sheets; live re-renders at the new width.
-    if (mode === "live") rebuildFrames();
+    if (mode === "live" || options.frameLayout === "single") rebuildFrames();
     else updateChrome();
     options.onState?.(stateOf());
   }
 
   function fit(): void {
     const width = rectOf(stage).width || rectOf(root).width;
-    if (width > 0) setZoom(fitZoom(width, { margin: 24 }));
+    if (width > 0) {
+      const fitted = fitZoom(width, { margin: 24, ...(options.frameLayout === "single" ? { breakpoint } : {}) });
+      setZoom(options.frameLayout === "single" ? Math.min(1, fitted) : fitted);
+    }
     else applyFrameLayout();
   }
 
@@ -1252,11 +1258,11 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
 
   const onResize = (): void => {
     const width = rectOf(stage).width;
-    const needed = canvasFrames(zoom).reduce(
+    const needed = canvasFrames(zoom, { breakpoint, layout: options.frameLayout }).reduce(
       (sum, spec) => sum + (spec.width ?? 0) * spec.scale,
       0,
     );
-    if (width > 0 && needed > width) setZoom(fitZoom(width, { margin: 24 }));
+    if (width > 0 && needed > width) fit();
   };
   const global = globalThis as {
     addEventListener?: (type: string, handler: () => void) => void;
@@ -1264,7 +1270,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   };
   global.addEventListener?.("resize", onResize);
 
-  for (const spec of canvasFrames(zoom, { mode, breakpoint })) mountFrame(spec);
+  for (const spec of canvasFrames(zoom, { mode, breakpoint, layout: options.frameLayout })) mountFrame(spec);
   applyFrameLayout();
   updateChrome();
 

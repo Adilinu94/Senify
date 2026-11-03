@@ -3771,3 +3771,80 @@ body.is-editor .view.editor-view > .toolbar code {
     gap: 0;
   }
 }
+
+/* Editor-Arbeitsbereich: ein Werkzeugpanel und ein aktiver Geräte-Frame. */
+body.is-editor .view.editor-view > .editor-host.canvas-view {
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 0;
+  background: #e6e8eb;
+}
+.canvas-view__sidebar {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-right: 1px solid #d5d8dc;
+  background: #fff;
+  color: #515962;
+}
+.canvas-view__sidebar-tabs {
+  display: flex;
+  flex: none;
+  min-height: 48px;
+  padding: 0 12px;
+  border-bottom: 1px solid #d5d8dc;
+}
+.canvas-view__sidebar-tabs button {
+  flex: 1;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #515962;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.canvas-view__sidebar-tabs button[aria-selected="true"] {
+  border-bottom-color: #d004d4;
+  color: #272a2f;
+}
+.canvas-view__sidebar-tabs button:focus-visible { outline: 2px solid #930c96; outline-offset: -2px; }
+.canvas-view__elements,
+.canvas-view__sidebar .canvas-view__explorer,
+.canvas-view__sidebar .canvas-view__inspector { flex: 1; min-height: 0; height: auto; overflow: auto; }
+.canvas-view__sidebar [hidden] { display: none; }
+.canvas-view__elements { padding: 16px; }
+.canvas-view__elements .senify-canvas__cataloghost { padding: 0; }
+.canvas-view__elements .senify-canvas__catalog { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.canvas-view__elements .senify-canvas__catalog-heading { grid-column: 1 / -1; margin-bottom: 8px; }
+.canvas-view__elements .senify-canvas__chip { min-height: 54px; cursor: grab; }
+.canvas-view .senify-canvas,
+.canvas-view .senify-explorer,
+.canvas-view .senify-inspector,
+.canvas-view__sidebar {
+  --ed-surface-canvas: #fff;
+  --ed-surface-panel: #fff;
+  --ed-surface-raised: #f8f9fa;
+  --ed-surface-inset: #f4f5f6;
+  --ed-ink-strong: #272a2f;
+  --ed-ink-base: #515962;
+  --ed-ink-muted: #606972;
+  --ed-ink-faint: #707982;
+  --ed-ink-on-lime: #fff;
+  --ed-line-hairline: #d5d8dc;
+  --ed-line-control: #a9b0b7;
+  --ed-signal-accent: #a808ab;
+  --ed-signal-select: #a808ab;
+  --ed-fill-hover: #f0f1f3;
+  --ed-fill-select: #f7e8f7;
+  --ed-focus: #930c96;
+  color-scheme: light;
+}
+.canvas-view .senify-canvas__stage { background: #e6e8eb !important; }
+body.is-editor .view.editor-view > .toolbar { background: #fff; color: #515962; border-color: #d5d8dc; }
+body.is-editor .view.editor-view > .toolbar h1 { color: #272a2f; }
+@media (max-width: 700px) {
+  body.is-editor .view.editor-view > .editor-host.canvas-view { grid-template-columns: minmax(220px, 38%) minmax(0, 1fr); }
+}

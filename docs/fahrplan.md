@@ -21,6 +21,8 @@ Die detaillierte Planung für dieses Produktziel steht in der [Framer-Roadmap](f
 
 **Neue Produktanforderung Editor:** Oberfläche und Bedienung sollen sich eng an Elementor V4 orientieren, einschließlich Klassen und Variablen. Die Recherche und vorgeschlagenen Schritte stehen in [Elementor-V4-Editor](research/elementor-v4-editor.md). Zuerst Referenzzustände und offene Funktionslücken aufnehmen; Umstellung und Migration dürfen bestehende Framer-Projekte nicht verlieren. Die Entscheidung, vorhandenen Elementor-Code direkt zu übernehmen, ist nicht getroffen.
 
+**Erste Editor-Scheibe:** Linke Werkzeugleiste und eine umschaltbare Geräteansicht sind im Seiteneditor angebunden (`packages/app/public/app.js`, `app.css`, `packages/editor/src/canvas/canvas.ts`); der Browserablauf und der Importtest liegen unter `packages/app/test/`. Offen: tatsächlicher visueller Vergleich gegen Elementor, umfassender Elementkatalog, Klassen- und Variablenmanager, Interaktionen und feingranulare Bedienparität. Die alte Drei-Frame-Darstellung bleibt als Option des Canvas-Moduls erhalten; die App verwendet den einzelnen Frame.
+
 Nächste Arbeitspakete in Reihenfolge:
 
 1. Exportzugang prüfen und einen echten Export als reproduzierbare Eingabe sichern. CLI und MCP können FramerExport starten und vorhandene Ordner anschließend als Mirror einlesen; MCP kann auch Projektdaten über Unframer lokal sichern (`packages/mcp/src/framer-export.ts`, `packages/mcp/src/unframer.ts`, `packages/framer-import/src/import.ts`). Der direkte kombinierte Ablauf und die Übernahme des Unframer-Snapshots in den NodeTree bleiben offen.

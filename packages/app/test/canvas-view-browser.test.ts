@@ -115,7 +115,7 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       // E5 slice 1: the canvas is the one visible editor — no switch, no
       // `view` parameter needed. The inspector is part of the mount.
       expect(await tab.locator(".editor-switch").count()).toBe(0);
-      expect(await tab.locator(".senify-canvas__frame").count()).toBe(3);       expect(await tab.locator(".senify-canvas__iframe").count()).toBe(3);
+      expect(await tab.locator(".senify-canvas__frame").count()).toBe(1);       expect(await tab.locator(".senify-canvas__iframe").count()).toBe(1);
        expect(await tab.locator(".senify-inspector").count()).toBe(1);
        // Product chrome does not expose the old global pseudo-state/debug rail;
        // the Inspector remains the product home for those controls.
@@ -299,6 +299,7 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       // The explorer (ticket 03, slice 1): the tree lists the layers, a click
       // selects into the same store, the arrows move the selection and the
       // context menu opens with Shift+F10 and returns the focus on Escape.
+      await tab.getByRole("tab", { name: "Struktur" }).click();
       await tab.waitForSelector(".senify-explorer__item", { timeout: 30000 });
       const heroItem = tab.locator(`.senify-explorer__item[data-node="${heroId}"]`);
       await heroItem.click();
@@ -350,9 +351,11 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
 
       // Reorder (ticket 12): dragging an existing node moves it with `moveNode`
       // — one undo step, the frame follows the document order.
-      await heroSection.hover();
+      await heroSection.hover({ position: { x: 20, y: 20 } });
       await tab.mouse.down();
-      await tab.mouse.move(10, 10);
+      const heroBox = await heroSection.boundingBox();
+      if (heroBox === null) throw new Error("Hero ist nicht sichtbar");
+      await tab.mouse.move(heroBox.x + 25, heroBox.y + 25);
       const lastDivider = desktopFrame().locator('section[data-section="divider"]').last();
       await lastDivider.hover();
       await tab.mouse.up();
@@ -390,10 +393,8 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
         .poll(async () => tab.locator(".senify-canvas").getAttribute("data-selected"))
         .toBe(selectedBeforeReload);
 
-      // Chrome (Ticket 03 Punkt 6): frame labels and the active-breakpoint
-      // dimming. The desktop sheet starts active; a click in the tablet sheet
-      // activates it — the session mirrors it for the inspector.
-      expect(await tab.locator(".senify-canvas__frame-label").count()).toBe(3);
+      // One sheet is shown; the device control selects the tablet viewport.
+      expect(await tab.locator(".senify-canvas__frame-label").count()).toBe(1);
       await expect
         .poll(async () =>
           tab
@@ -401,18 +402,7 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
             .getAttribute("data-active"),
         )
         .toBe("true");
-      const tabletFrame = tab
-        .locator('.senify-canvas__frame[data-device="tablet"] .senify-canvas__iframe')
-        .contentFrame();
-      // A programmatic click: the tablet sheet sits far right of the stage, and
-      // the coordinate click across the iframe boundary is the known Playwright
-      // flake (handoff §8). The handler under test is the same either way.
-      await tabletFrame
-        .locator(`[data-node-id="${heroId}"]`)
-        .first()
-        .evaluate((element) => {
-          (element as unknown as { click(): void }).click();
-        });
+      await tab.locator('.senify-canvas__button[data-action="device"][data-device="tablet"]').click();
       await expect
         .poll(async () =>
           tab
@@ -461,10 +451,12 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
         .toBe(true);
       await tab.screenshot({ path: join(shotDir, "07-canvas-live.png") });
 
-      // Back in design: the three sheets return, the chrome is back.
+      // Back in design: the active sheet returns, the chrome is back.
       await tab.locator('.senify-canvas__button[data-mode="design"]').click();
-      await expect.poll(async () => tab.locator(".senify-canvas__frame").count()).toBe(3);
+      await expect.poll(async () => tab.locator(".senify-canvas__frame").count()).toBe(1);
+      await tab.locator('.senify-canvas__button[data-action="device"][data-device="desktop"]').click();
       await expect.poll(dividerCount).toBe(3);
+      await tab.getByRole("tab", { name: "Struktur" }).click();
 
       // Components (ticket 04, slice 2): the context menu turns the hero into
       // a definition, the components tab inserts a second instance, and the
@@ -588,11 +580,13 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       expect(variantWrite.status).toBe(200);
       await tab.reload({ waitUntil: "domcontentloaded" });
       await tab.waitForSelector(".senify-canvas", { timeout: 30000 });
+      await tab.getByRole("tab", { name: "Struktur" }).click();
       const variantInstance = tab.locator(".senify-explorer__item", {
         hasText: "Instanz · karte",
       });
       await expect.poll(async () => variantInstance.count()).toBe(1);
       await variantInstance.click();
+      await tab.getByRole("tab", { name: "Bearbeiten" }).click();
       await tab.locator('.senify-inspector__tab[data-tab="content"]').click();
       const variantSwitch = tab.locator(
         '.senify-inspector__field[data-key="groß"] .ed-switch',
@@ -643,6 +637,7 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       await expect
         .poll(async () => (await desktopFrame().locator("body").textContent()) ?? "")
         .toContain("Eigener Hero");
+      await tab.getByRole("tab", { name: "Struktur" }).click();
       tab.once("dialog", (dialog) => dialog.accept("riesig"));
       const variantInstanceAgain = tab.locator(".senify-explorer__item", {
         hasText: "Instanz · karte",
@@ -661,6 +656,7 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       // Die Definition zeigt das Register; die Variante laesst sich dort
       // umbenennen (Textfeld) und loeschen (×).
       await renamedDefinition.click();
+      await tab.getByRole("tab", { name: "Bearbeiten" }).click();
       await tab.locator('.senify-inspector__tab[data-tab="content"]').click();
       const registerRow = tab.locator(
         '.senify-inspector__field[data-group="content/variant-register"][data-key="riesig"]',
@@ -849,7 +845,7 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       await expect.poll(liveProbe, { timeout: 10000 }).toBe("frisch");
       await tab.screenshot({ path: join(shotDir, "12-live-vorschau-follow.png") });
       await tab.locator('.senify-canvas__button[data-mode="design"]').click();
-      await expect.poll(async () => tab.locator(".senify-canvas__frame").count()).toBe(3);
+      await expect.poll(async () => tab.locator(".senify-canvas__frame").count()).toBe(1);
       // Der Scrub gehoert zum Live-Modus (M6): im Design ist er aus.
       await expect.poll(async () => scrub.isDisabled()).toBe(true);
 
@@ -877,6 +873,7 @@ describe.skipIf(!browserAvailable)("canvas view in a real browser", () => {
       await expect
         .poll(
           async () => {
+            await tab.getByRole("tab", { name: "Struktur" }).click();
             await tab.locator('.senify-explorer__tab[data-tab="pages"]').click();
             return tab
               .locator('.senify-explorer__tabitem', { hasText: "Agent-Seite" })

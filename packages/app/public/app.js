@@ -5656,14 +5656,44 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   const loaded = editor.loadDocument(page.draft);
   loaded.document.styleRules = styleRules ?? [];
 
-  // Drei Spalten: Ebenen-Explorer, Arbeitsflaeche (Canvas) und Inspektor
-  // (Tickets 02/03). Alle drei lesen denselben Store — die Auswahl im Canvas
-  // ist die Auswahl in beiden Panels, eine Aenderung erscheint ueberall.
+  // Eine Seitenleiste teilt Explorer, Elementkatalog und Inspector; alle
+  // lesen denselben Store wie die Arbeitsflaeche.
+  const sidebar = el("aside", { class: "canvas-view__sidebar", "data-senify-editor": "true" });
+  const sidebarTabs = el("div", { class: "canvas-view__sidebar-tabs", role: "tablist", "aria-label": "Editor-Werkzeuge" });
   const explorerHost = el("aside", { class: "canvas-view__explorer" });
   const canvasHost = el("div", { class: "canvas-view__stage" });
   const inspectorHost = el("aside", { class: "canvas-view__inspector" });
+  const elementsHost = el("div", { class: "canvas-view__elements" });
+  sidebar.append(sidebarTabs, elementsHost, explorerHost, inspectorHost);
   host.classList.add("canvas-view");
-  host.replaceChildren(explorerHost, canvasHost, inspectorHost);
+  host.replaceChildren(sidebar, canvasHost);
+  const panels = { elements: elementsHost, layers: explorerHost, inspector: inspectorHost };
+  const panelButtons = {};
+  const panelNames = ["elements", "layers", "inspector"];
+  const showPanel = (name) => {
+    for (const [key, panel] of Object.entries(panels)) {
+      panel.hidden = key !== name;
+      panelButtons[key].setAttribute("aria-selected", String(key === name));
+    }
+  };
+  for (const [key, label] of [["elements", "Elemente"], ["layers", "Struktur"], ["inspector", "Bearbeiten"]]) {
+    const button = el("button", { type: "button", role: "tab", id: `editor-tab-${key}`, "aria-controls": `editor-panel-${key}`, text: label, "data-panel": key });
+    panels[key].id = `editor-panel-${key}`;
+    panels[key].setAttribute("role", "tabpanel");
+    panels[key].setAttribute("aria-labelledby", `editor-tab-${key}`);
+    button.addEventListener("click", () => showPanel(key));
+    button.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+      event.preventDefault();
+      const step = event.key === "ArrowRight" ? 1 : -1;
+      const next = panelNames[(panelNames.indexOf(key) + step + panelNames.length) % panelNames.length];
+      showPanel(next);
+      panelButtons[next].focus();
+    });
+    panelButtons[key] = button;
+    sidebarTabs.append(button);
+  }
+  showPanel("elements");
 
   const statusEl = el("span", { class: "muted", "data-role": "canvas-status" });
   const statusGroup = el(
@@ -5901,6 +5931,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     // Design/Live (Ticket 03 Punkt 6): live zeigt die echte Seite (M4 Stufe 1).
     mode: savedUi.mode,
     breakpoint: savedUi.device,
+    frameLayout: "single",
     profile: siteProfile ?? "standard",
     onState: (state) => {
       session.patchUi({
@@ -5913,13 +5944,14 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     onMessage: (message) => {
       statusEl.textContent = message ?? "";
     },
+    onSelect: () => showPanel("inspector"),
   });
-  // Start im Einpassen-Zoom: alle drei Frames sind sofort sichtbar (Framer/Webflow).
-  // Ein bewusst gesetzter Zoom bleibt nach dem Neuladen erhalten; nur der
-  // Standardzoom (100 %) wird eingepasst. Der Fit läuft erst, wenn jeder Frame
-  // gerendert ist: ein Fit vor dem Laden der Iframes verlor in den
-  // Browser-Tests die Klick-Selektion (Ursache offen).
-  if (canvas.mode() === "design" && savedUi.zoom === 1) {
+  const catalogHost = canvasHost.querySelector(".senify-canvas__cataloghost");
+  if (catalogHost) elementsHost.append(catalogHost);
+  // Den aktiven Frame erst nach dem Laden einpassen; das verhindert, dass
+  // Auswahl und Frame-Geometrie vor dem Laden auseinanderlaufen.
+  const singleFrameFitKey = `senify-editor-single-frame:${pageId}`;
+  if (canvas.mode() === "design" && storage.get(singleFrameFitKey) !== "1") {
     const fitWhenRendered = (attempt) => {
       const frames = [...canvasHost.querySelectorAll(".senify-canvas__iframe")];
       const rendered =
@@ -5927,6 +5959,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
         frames.every((frame) => frame.contentDocument?.querySelector("[data-node-id]") != null);
       if (rendered) {
         canvas.fit();
+        storage.set(singleFrameFitKey, "1");
         canvasHost.dataset.startFit = "done";
       } else if (attempt < 100) {
         setTimeout(() => fitWhenRendered(attempt + 1), 50);
@@ -6188,6 +6221,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   // noch existiert; `store.select` umgeht den Persistenz-Schreibpfad nicht.
   if (savedUi.selectedId && session.document.nodes[savedUi.selectedId]) {
     session.store.select(savedUi.selectedId);
+    showPanel("inspector");
   }
 
   /* ------------------------------------------------------- Live-Mitverfolgung

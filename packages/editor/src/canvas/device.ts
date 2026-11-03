@@ -39,6 +39,7 @@ export type CanvasFrameSpec = {
 
 export type CanvasFramesOptions = {
   mode?: EditorMode;
+  layout?: "all" | "single";
   // The breakpoint the live frame renders at (M4 Stufe 1: the real page at the
   // chosen device width).
   breakpoint?: FrameBreakpoint;
@@ -66,7 +67,8 @@ export function canvasFrames(
     ];
   }
   const scale = clampZoom(zoom);
-  return CANVAS_DEVICES.map((device) => {
+  const devices = options.layout === "single" ? [options.breakpoint ?? "desktop"] : CANVAS_DEVICES;
+  return devices.map((device) => {
     const size = DESIGN_FRAMES[device];
     return {
       device,
@@ -88,7 +90,7 @@ export function canvasStageWidth(zoom: number, gap = FRAME_GAP): number {
   );
 }
 
-export type FitOptions = { gap?: number; margin?: number };
+export type FitOptions = { gap?: number; margin?: number; breakpoint?: FrameBreakpoint };
 
 // The largest allowed zoom at which all frames fit into `availableWidth`.
 // Used when the window is narrower than the sheets, so nothing overflows and
@@ -97,8 +99,9 @@ export type FitOptions = { gap?: number; margin?: number };
 export function fitZoom(availableWidth: number, options: FitOptions = {}): number {
   const gap = options.gap ?? FRAME_GAP;
   const margin = options.margin ?? 0;
-  const gaps = gap * (CANVAS_DEVICES.length - 1);
-  const natural = CANVAS_DEVICES.reduce(
+  const devices = options.breakpoint === undefined ? CANVAS_DEVICES : [options.breakpoint];
+  const gaps = gap * (devices.length - 1);
+  const natural = devices.reduce(
     (sum, device) => sum + DESIGN_FRAMES[device].width,
     0,
   );

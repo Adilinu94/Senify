@@ -41,9 +41,21 @@ describe.skipIf(!browserAvailable)("imported page in the editor", () => {
       });
       await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`);
       await tab.waitForSelector(".senify-canvas__iframe", { timeout: 30000 });
+      expect(await tab.locator(".senify-canvas__iframe").count()).toBe(1);
+      expect(await tab.getByRole("tab", { name: "Elemente" }).getAttribute("aria-selected")).toBe("true");
+      await tab.getByRole("tab", { name: "Struktur" }).click();
+      expect(await tab.locator(".canvas-view__explorer").isVisible()).toBe(true);
+      await tab.getByRole("tab", { name: "Bearbeiten" }).click();
+      expect(await tab.locator(".canvas-view__inspector").isVisible()).toBe(true);
+      await tab.getByRole("tab", { name: "Elemente" }).click();
       const frame = (device: string) => tab.locator(`.senify-canvas__frame[data-device="${device}"] iframe`).contentFrame();
+      await expect.poll(() => frame("desktop").locator('[data-node-id="desktop01"]').isVisible(), { timeout: 15000 }).toBe(true);
+      await frame("desktop").locator('[data-node-id="desktop01"]').click();
+      expect(await tab.getByRole("tab", { name: "Bearbeiten" }).getAttribute("aria-selected")).toBe("true");
       for (const [device, visible] of [["desktop", "desktop01"], ["tablet", "tablet001"], ["mobile", "mobile001"]] as const) {
+        await tab.locator(`.senify-canvas__button[data-action="device"][data-device="${device}"]`).click();
         await expect.poll(() => frame(device).locator(`[data-node-id="${visible}"]`).isVisible(), { timeout: 15000 }).toBe(true);
+        expect(await tab.locator(".senify-canvas__iframe").count()).toBe(1);
         for (const other of ["desktop01", "tablet001", "mobile001"].filter((id) => id !== visible)) {
           expect(await frame(device).locator(`[data-node-id="${other}"]`).isVisible()).toBe(false);
         }
