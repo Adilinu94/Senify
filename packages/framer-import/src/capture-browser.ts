@@ -89,8 +89,8 @@ function probeSource(name: string): string {
 // The structural slice the evaluate callbacks touch (same stance as
 // visual.ts: no DOM lib on purpose).
 type BrowserSlice = {
-  document: { body: { scrollHeight: number } };
-  window: { innerHeight: number; scrollTo(x: number, y: number): void };
+  document: { body: { scrollHeight: number }; documentElement: { scrollHeight: number } };
+  window: { innerHeight: number; scrollY: number; scrollTo(x: number, y: number): void };
 };
 
 // The frozen baseline (freeze-spec.md, same CSS the visual harness uses):
@@ -103,23 +103,34 @@ const FREEZE_CSS =
 
 /* --------------------------------------------------------- scroll sensor */
 
-// The scroll sensor (S2.2c): sample every element's bounding box at two
-// scroll positions; an element whose viewport-relative position moved
-// OPPOSITE to the scroll direction more than a small threshold has a
-// scroll-driven transform (parallax/sticky tricks beyond sticky). Measured on
-// the Framer pages: the Appear/IO forms dominate, scroll transforms are the
-// exception — the sensor exists so they are counted, not assumed.
+// Match the same DOM elements across two nearby scroll positions. A deviation
+// is evidence to inspect, not proof of an animation: sticky positioning,
+// layout shifts and time-driven effects can produce the same observation.
 const SCROLL_SENSOR = `
+const senifyElementIds = new WeakMap();
+let senifyNextElementId = 1;
 function senifyScrollSample() {
   const results = [];
+  const positioned = new WeakMap();
+  function isPositioned(el) {
+    if (!(el instanceof HTMLElement)) return false;
+    if (positioned.has(el)) return positioned.get(el);
+    const position = getComputedStyle(el).position;
+    const result = position === "fixed" || position === "sticky" || isPositioned(el.parentElement);
+    positioned.set(el, result);
+    return result;
+  }
   const elements = document.querySelectorAll("main *, #main *");
   for (const el of elements) {
     if (!(el instanceof HTMLElement)) continue;
+    if (isPositioned(el)) continue;
     if (el.children.length > 0 && el.offsetWidth === 0 && el.offsetHeight === 0) continue;
     const rect = el.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) continue;
     if (rect.bottom < -rect.height || rect.top > window.innerHeight * 2) continue;
+    if (!senifyElementIds.has(el)) senifyElementIds.set(el, senifyNextElementId++);
     results.push({
+      id: senifyElementIds.get(el),
       key: el.getAttribute("data-framer-name") ?? (el.className && typeof el.className === "string" ? el.className.split(" ")[0] : el.tagName.toLowerCase()),
       x: Math.round(rect.left),
       y: Math.round(rect.top),
@@ -131,19 +142,20 @@ function senifyScrollSample() {
 ;window.senifyScrollSample = senifyScrollSample;`;
 
 function scrollDelta(
-  before: { key: string; x: number; y: number }[],
-  after: { key: string; x: number; y: number }[],
+  before: { id: number; key: string; x: number; y: number }[],
+  after: { id: number; key: string; x: number; y: number }[],
+  scrollDistance: number,
 ): { key: string; delta: number }[] {
-  const afterByKey = new Map(after.map((entry) => [entry.key, entry]));
+  const afterByKey = new Map(after.map((entry) => [entry.id, entry]));
   const moved: { key: string; delta: number }[] = [];
   for (const entry of before) {
-    const next = afterByKey.get(entry.key);
+    const next = afterByKey.get(entry.id);
     if (next === undefined) continue;
     // An element without a scroll transform moves WITH the page: its
     // viewport-relative y decreases by exactly the scroll amount. A bigger
     // difference (opposite sign or not matching the scroll distance) is a
     // scroll-driven motion.
-    const delta = entry.y - next.y;
+    const delta = next.y - entry.y + scrollDistance;
     if (Math.abs(delta) > 4) moved.push({ key: entry.key, delta: Math.round(delta) });
   }
   return moved;
@@ -233,11 +245,6 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
 
     // Settle once through the scroll height (lazy media, IO triggers), then
     // back to the top — the same pass the motion-lauf measured with.
-    const scrollBefore = await page.evaluate("window.senifyScrollSample()") as {
-      key: string;
-      x: number;
-      y: number;
-    }[];
     await page.evaluate(async () => {
       const slice = globalThis as unknown as BrowserSlice;
       const step = slice.window.innerHeight;
@@ -249,11 +256,26 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
       await new Promise((resolve) => setTimeout(resolve, 500));
     });
     await page.waitForTimeout(input.settleMs ?? 1500);
-    const scrollAfter = await page.evaluate("window.senifyScrollSample()") as {
+    const scrollBefore = await page.evaluate("window.senifyScrollSample()") as {
+      id: number;
       key: string;
       x: number;
       y: number;
     }[];
+    const scrollDistance = await page.evaluate(async () => {
+      const slice = globalThis as unknown as BrowserSlice;
+      const start = slice.window.scrollY;
+      slice.window.scrollTo(0, Math.min(250, slice.document.documentElement.scrollHeight - slice.window.innerHeight));
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      return slice.window.scrollY - start;
+    });
+    const scrollAfter = await page.evaluate("window.senifyScrollSample()") as {
+      id: number;
+      key: string;
+      x: number;
+      y: number;
+    }[];
+    await page.evaluate(() => (globalThis as unknown as BrowserSlice).window.scrollTo(0, 0));
 
     const probe = (await page.evaluate(
       "JSON.parse(JSON.stringify(motionProbe()))",
@@ -270,15 +292,15 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
     const lenis = probe.lenis !== null && probe.lenis !== undefined;
     const libraries = (probe.libraries ?? {}) as Record<string, unknown>;
 
-    const moved = scrollDelta(scrollBefore, scrollAfter);
+    const moved = Math.abs(scrollDistance) > 4 ? scrollDelta(scrollBefore, scrollAfter, scrollDistance) : [];
     const samples = samplesOfProbe(probe);
     for (const entry of moved.slice(0, 20)) {
       samples.push({
         nodeKey: entry.key,
         library: "framer",
         trigger: "scroll",
-        params: { delta: entry.delta },
-        raw: `Bounding-Box-Delta bei Scroll: ${entry.delta}px (Sensor)`,
+        params: { delta: entry.delta, observationOnly: true },
+        raw: `Abweichung von normaler Scrollbewegung: ${entry.delta}px bei ${scrollDistance}px Scrollweg; Ursache ungeprüft`,
       });
     }
     // The measured loop form (S0/befund §4) must surface as its finding kind

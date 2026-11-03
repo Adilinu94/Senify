@@ -1,6 +1,8 @@
 # Aktueller Stand
 
 > Basis: Commit `aad9550` (29.09.2026); der geprüfte Folge-Diff ist gesichert. Eine reine Store-Mapper-Auslagerung ist der aktuelle uncommittete P3-2-Schritt; Typecheck, Lint, Volltest und Coverage sind dafür grün. Frühere App-/PostgreSQL-Gates stehen mit Datum in `docs/current/qualitaet.md`.
+
+**Scroll-Messung, 03.11.2026:** Der optionale Browser-Capture vergleicht dieselben DOM-Elemente an zwei verschiedenen Scrollpositionen und berücksichtigt den Scrollweg. Fixierte und sticky Elemente samt ihren Nachfahren werden ausgeschlossen; Positionsabweichungen bleiben ungeklärte Befunde und erzeugen kein erfundenes Motion-Preset (`packages/framer-import/src/capture-browser.ts`, `motion-mapping.ts`, `packages/framer-import/test/capture-browser.test.ts`). Auf der CUREVANTA-Startseite wurde bei einem Lauf eine Abweichung am Bild im oberen Seitenbereich beobachtet. Der Sensor misst nur einen kleinen Bereich und beweist weder Ursache noch Parameter oder vollständige Animationstreue. Der normale URL-/Export-Import nutzt diesen Browser-Capture noch nicht automatisch.
 > Stand: 29.09.2026. Messzahlen stehen ausschließlich in `docs/current/qualitaet.md` und werden von `pnpm quality:render` erzeugt, nicht von Hand gepflegt.
 > Geplante Arbeit und Reihenfolge: `docs/fahrplan.md`. Historisches: `docs/history/`.
 

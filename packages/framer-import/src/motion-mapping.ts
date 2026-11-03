@@ -59,6 +59,7 @@ function appearIntensity(sample: IrMotionSample): number {
 }
 
 function presetFor(sample: IrMotionSample): MotionSpec["preset"] | null {
+  if (sample.params["observationOnly"] === true) return null;
   if (sample.trigger === "inview") return "scroll-reveal";
   if (sample.trigger === "appear") return sample.library === "framer" ? appearPreset(sample) : "fade-up";
   if (sample.trigger === "hover") return "hover-lift";

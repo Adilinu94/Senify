@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import http from "node:http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { captureBrowser } from "@senify/framer-import";
+import { captureBrowser, mapFramerMotion } from "@senify/framer-import";
 
 // The browser capture (plan S2.1/S2.2) against local servers, so the whole
 // path runs offline and deterministic:
@@ -56,6 +56,20 @@ const MOTION_PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>
 </script>
 </body></html>`;
 
+const SCROLL_PAGE = `<!doctype html><html><head><style>
+body { margin: 0; height: 3000px; }
+.item { height: 80px; }
+.fixed { position: fixed; top: 0; }
+</style></head><body><main id="main">
+<div class="item" data-framer-name="Normal">Normal</div>
+<div class="item" data-framer-name="Bewegt">Bewegt</div>
+<div class="fixed" data-framer-name="Fixed"><span data-framer-name="Fixed child">Fixed</span></div>
+</main><script>
+addEventListener('scroll', () => {
+  document.querySelector('[data-framer-name="Bewegt"]').style.transform = 'translateY(' + (scrollY / 2) + 'px)';
+});
+</script></body></html>`;
+
 let fixtureServer: import("node:http").Server;
 let fixtureOrigin: string;
 let motionServer: import("node:http").Server;
@@ -85,9 +99,9 @@ beforeAll(async () => {
   });
   fixtureServer = fixture.server;
   fixtureOrigin = fixture.origin;
-  const motion = await startServer((_request, response) => {
+  const motion = await startServer((request, response) => {
     response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    response.end(MOTION_PAGE);
+    response.end(request.url === "/scroll" ? SCROLL_PAGE : MOTION_PAGE);
   });
   motionServer = motion.server;
   motionOrigin = motion.origin;
@@ -101,6 +115,16 @@ afterAll(async () => {
 });
 
 describe.skipIf(!browserAvailable)("captureBrowser", () => {
+  it("reports deviations at different scroll positions without inventing an animation", async () => {
+    const result = await captureBrowser({ url: `${motionOrigin}/scroll`, settleMs: 200, motion: "live" });
+    const samples = result.document.motion.filter((sample) => sample.params.observationOnly === true);
+    expect(samples.some((sample) => sample.nodeKey === "Normal")).toBe(false);
+    expect(samples.some((sample) => sample.nodeKey === "Fixed" || sample.nodeKey === "Fixed child")).toBe(false);
+    expect(samples.find((sample) => sample.nodeKey === "Bewegt")?.params.delta).toBe(125);
+    const mapping = mapFramerMotion(result.document);
+    expect(mapping.mappings.some((entry) => entry.nodeKey === "Bewegt")).toBe(false);
+    expect(mapping.findings.some((entry) => entry.sample.nodeKey === "Bewegt")).toBe(true);
+  }, 60_000);
   it("captures the SSR-HTML through the static capture and marks the source as browser", async () => {
     const result = await captureBrowser({ url: `${fixtureOrigin}/`, settleMs: 200 });
     expect(result.document.source.kind).toBe("browser");
