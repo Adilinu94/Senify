@@ -82,6 +82,20 @@ describe("v1 -> v2 migration", () => {
     expect(reloaded.status).toBe("loaded");
     expect(reloaded.document.nodes["frame000001"]?.hiddenDevices).toEqual(["mobile"]);
   });
+
+  it("retains explicit visible overrides for a desktop-hidden responsive variant", () => {
+    const tree = v1Tree();
+    const frame = tree.nodes["frame000001"];
+    if (frame === undefined) throw new Error("missing frame");
+    frame.hidden = true;
+    frame.overrides = { tablet: { hidden: false }, mobile: { hidden: true } };
+    const document = migrateV1ToV2(tree);
+    const migrated = document.nodes["frame000001"];
+    expect(migrated?.hidden).toBe(true);
+    expect(migrated?.shownDevices).toEqual(["tablet"]);
+    expect(migrated?.hiddenDevices).toEqual(["mobile"]);
+    expect(loadDocument(parseDocument(serializeDocument(document))).document.nodes["frame000001"]?.shownDevices).toEqual(["tablet"]);
+  });
 });
 
 // The real pages of the running engine name their nodes by section type and use

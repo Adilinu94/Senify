@@ -62,9 +62,11 @@ export function migrateV1ToV2(tree: NodeTree): EditorDocument {
   for (const [id, node] of Object.entries(tree.nodes)) {
     const props: DeviceValueMap = { ...(node.props ?? {}) };
     const hiddenDevices: HiddenDevice[] = [];
+    const shownDevices: HiddenDevice[] = [];
     for (const device of ["tablet", "mobile"] as const) {
       const override = node.overrides?.[device];
       if (override?.hidden === true) hiddenDevices.push(device);
+      if (override?.hidden === false) shownDevices.push(device);
       if (override?.props === undefined) continue;
       for (const [key, value] of Object.entries(override.props)) {
         props[deviceKey(key, device)] = value;
@@ -86,6 +88,7 @@ export function migrateV1ToV2(tree: NodeTree): EditorDocument {
     if (node.hidden !== undefined) migrated.hidden = node.hidden;
     if (node.variant !== undefined) migrated.variant = node.variant;
     if (hiddenDevices.length > 0) migrated.hiddenDevices = hiddenDevices;
+    if (shownDevices.length > 0) migrated.shownDevices = shownDevices;
     if (node.motion !== undefined) migrated.motion = structuredClone(node.motion);
     nodes[id] = migrated;
   }

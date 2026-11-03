@@ -1068,7 +1068,8 @@ function advancedGroups(node: EditorNode): InspectorGroup[] {
     label: `Auf ${device === "tablet" ? "Tablet" : "Mobil"} ausblenden`,
     kind: "switcher",
     commit: { kind: "hidden", device },
-    value: node.hiddenDevices?.includes(device) ?? false,
+    value: node.hiddenDevices?.includes(device) === true ||
+      (node.hidden === true && node.shownDevices?.includes(device) !== true),
     base: undefined,
     overridden: false,
     overrideDevices: [],

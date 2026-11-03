@@ -68,6 +68,9 @@ export const EditorNodeSpecSchema = Type.Object(
     hiddenDevices: Type.Optional(
       Type.Array(Type.Union([Type.Literal("tablet"), Type.Literal("mobile")])),
     ),
+    shownDevices: Type.Optional(
+      Type.Array(Type.Union([Type.Literal("tablet"), Type.Literal("mobile")])),
+    ),
     locked: Type.Optional(Type.Boolean()),
     // A fresh node may already carry its motion spec (ticket 19): undo of a
     // delete restores whole subtrees, motion included.
@@ -144,6 +147,7 @@ const SetNodeHiddenDevicesSchema = Type.Object(
     op: Type.Literal("setNodeHiddenDevices"),
     id: NodeIdSchema,
     devices: Type.Array(Type.Union([Type.Literal("tablet"), Type.Literal("mobile")])),
+    shownDevices: Type.Optional(Type.Array(Type.Union([Type.Literal("tablet"), Type.Literal("mobile")]))),
   },
   CLOSED,
 );

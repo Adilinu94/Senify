@@ -73,6 +73,20 @@ describe("editor mutation bridge", () => {
     ]);
   });
 
+  it("preserves an explicitly visible responsive variant when editing visibility", () => {
+    expect(editorMutationsToSection([
+      { op: "setNodeHiddenDevices", id: "n1", devices: ["mobile"], shownDevices: ["tablet"] },
+    ])).toEqual([
+      { op: "setBreakpointOverride", id: "n1", breakpoint: "tablet", override: { hidden: false } },
+      { op: "setBreakpointOverride", id: "n1", breakpoint: "mobile", override: { hidden: true } },
+    ]);
+    expect(editorMutationsToSection([
+      { op: "insertNode", parent: { nodeId: "root" }, node: { primitive: "frame", hidden: true, hiddenDevices: ["mobile"], shownDevices: ["tablet"] } },
+    ])).toEqual([
+      { op: "insertNode", parent: { nodeId: "root" }, node: { type: "frame", hidden: true, overrides: { tablet: { hidden: false }, mobile: { hidden: true } } } },
+    ]);
+  });
+
   it("carries per-breakpoint hidden overrides with a fresh node (ticket 11)", () => {
     expect(
       editorMutationsToSection([

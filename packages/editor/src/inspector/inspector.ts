@@ -871,10 +871,16 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
           if (field.commit.kind === "hidden") {
             const node = options.store.document.nodes[nodeId];
             const devices = new Set(node?.hiddenDevices ?? []);
-            if (devices.has(field.commit.device)) devices.delete(field.commit.device);
-            else devices.add(field.commit.device);
+            const shownDevices = new Set(node?.shownDevices ?? []);
+            if (field.value === true) {
+              devices.delete(field.commit.device);
+              if (node?.hidden === true) shownDevices.add(field.commit.device);
+            } else {
+              devices.add(field.commit.device);
+              shownDevices.delete(field.commit.device);
+            }
             apply(
-              { op: "setNodeHiddenDevices", id: nodeId, devices: [...devices] },
+              { op: "setNodeHiddenDevices", id: nodeId, devices: [...devices], shownDevices: [...shownDevices] },
               "Sichtbarkeit ändern",
             );
             return;

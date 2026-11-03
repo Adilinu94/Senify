@@ -67,6 +67,8 @@ Nächste Arbeitspakete in Reihenfolge:
 
 ## Teststrategie für schnelle Entwicklung
 
+**Editor-Gate für Framer-Importe:** Medien-Pagination und gerätespezifische Sichtbarkeit sind im echten Canvas zu prüfen; eine fehlerfreie statische Build-Vorschau reicht hierfür nicht aus (`packages/app/test/imported-editor-browser.test.ts`). Die vollständige visuelle und funktionale Prüfung weiterer importierter Seiten bleibt offen.
+
 - Bei einer Änderung zuerst die direkt betroffenen Tests ausführen, zum Beispiel `pnpm exec vitest run <testdatei>`. Die Tests gezielt nach Vertrag auswählen; automatische Abhängigkeitsauswahl kann bei stark vernetzten Modulen große Teile der Suite starten.
 - Pro Arbeitsschritt ein zum Risiko passendes Gate festlegen und ausführen. Reine Dokumentationsänderungen: `git diff --check` und bei Änderungen am Dokumentationsvertrag zusätzlich `pnpm quality:check`. Ein ausdrücklich für einen Schritt festgelegtes Gate bleibt verbindlich.
 - Vollsuite, Coverage, Browser-, Import-, Paritäts- und PostgreSQL-Gates passend zu den betroffenen Schnittstellen vor Abschluss des größeren Änderungspakets oder in CI ausführen. Einen bereits bestandenen unveränderten Lauf nicht bei jedem Zwischenschritt wiederholen.

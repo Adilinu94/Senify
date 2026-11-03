@@ -6539,8 +6539,17 @@ async function pageView(siteId, pageId, initialSearch) {
   let assetContext = {};
   async function refreshMedia() {
     try {
-      const listed = await api(`/api/sites/${siteId}/assets`);
-      const assets = listed.assets ?? [];
+      const assets = [];
+      let offset = 0;
+      let hasMore = true;
+      while (hasMore) {
+        const listed = await api(`/api/sites/${siteId}/assets?limit=200&offset=${offset}`);
+        const batch = listed.assets ?? [];
+        assets.push(...batch);
+        if (listed.hasMore && batch.length === 0) throw new Error("Leere Medienseite trotz weiterer Ergebnisse");
+        offset += batch.length;
+        hasMore = listed.hasMore === true;
+      }
       mediaCache = assets.map((asset) => ({
         id: asset.id,
         name: asset.filename,

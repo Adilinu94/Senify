@@ -134,6 +134,7 @@ const PREVIEW_STATES: readonly (StateName | "none")[] = [
 const FRAME_BASE_CSS = `
 html, body { margin: 0; padding: 0; }
 body { background: #ffffff; }
+[data-node-id][data-hidden="true"] { display: none !important; }
 `;
 
 // Bundled @font-face rules (Inter/Inter Display for the tool, Sora for content)

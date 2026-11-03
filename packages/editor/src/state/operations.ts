@@ -143,6 +143,8 @@ function buildNode(
     node.classes = [...new Set(spec.classes)];
   }
   if (spec.hidden !== undefined) node.hidden = spec.hidden;
+  if (spec.hiddenDevices !== undefined) node.hiddenDevices = [...spec.hiddenDevices];
+  if (spec.shownDevices !== undefined) node.shownDevices = [...spec.shownDevices];
   if (spec.locked !== undefined) node.locked = spec.locked;
   if (spec.motion !== undefined) {
     assertMotionSpec(spec.motion, `${fieldPrefix}.motion`);
@@ -453,19 +455,25 @@ function applySetNodeHiddenDevices(
 ): OperationResult {
   const node = requireNode(document, mutation.id, "id");
   const before = node.hiddenDevices === undefined ? null : [...node.hiddenDevices];
+  const beforeVisible = node.shownDevices === undefined ? null : [...node.shownDevices];
+  const visible = new Set(mutation.shownDevices ?? node.shownDevices ?? []);
+  for (const device of ["tablet", "mobile"] as const) {
+    if (mutation.devices.includes(device)) visible.delete(device);
+    else if (mutation.shownDevices === undefined && node.hidden === true && node.hiddenDevices?.includes(device)) visible.add(device);
+  }
   return {
     forward: [
       {
         patch: "setNodeFields",
         id: node.id,
-        fields: { hiddenDevices: [...mutation.devices] },
+        fields: { hiddenDevices: [...mutation.devices], shownDevices: [...visible] },
       },
     ],
     inverse: [
       {
         patch: "setNodeFields",
         id: node.id,
-        fields: { hiddenDevices: before },
+        fields: { hiddenDevices: before, shownDevices: beforeVisible },
       },
     ],
     warnings: [],

@@ -177,6 +177,7 @@ function nodeSpec(node: EditorNode): EditorMutation["op"] extends never ? never 
     ...(node.classes === undefined ? {} : { classes: [...node.classes] }),
     ...(node.hidden === undefined ? {} : { hidden: node.hidden }),
     ...(node.hiddenDevices === undefined ? {} : { hiddenDevices: [...node.hiddenDevices] }),
+    ...(node.shownDevices === undefined ? {} : { shownDevices: [...node.shownDevices] }),
     ...(node.locked === undefined ? {} : { locked: node.locked }),
     ...(node.motion === undefined ? {} : { motion: structuredClone(node.motion) }),
   };
@@ -301,6 +302,7 @@ export function patchesToPending(patches: readonly DocumentPatch[]): {
               op: "setNodeHiddenDevices",
               id: patch.id,
               devices: [...(patch.fields.hiddenDevices ?? [])],
+              ...(patch.fields.shownDevices === undefined ? {} : { shownDevices: [...(patch.fields.shownDevices ?? [])] }),
             },
           });
         }

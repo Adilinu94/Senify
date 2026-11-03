@@ -34,6 +34,7 @@ export type DocumentPatch =
         classes?: string[] | null;
         hidden?: boolean | null;
         hiddenDevices?: HiddenDevice[] | null;
+        shownDevices?: HiddenDevice[] | null;
         locked?: boolean | null;
       };
     }
@@ -93,6 +94,7 @@ function prune(document: EditorDocument): void {
     if (node.hiddenDevices !== undefined && node.hiddenDevices.length === 0) {
       delete node.hiddenDevices;
     }
+    if (node.shownDevices !== undefined && node.shownDevices.length === 0) delete node.shownDevices;
     if (node.children !== undefined && node.children.length === 0) delete node.children;
     if (node.slots !== undefined) {
       for (const slot of Object.keys(node.slots)) {
@@ -133,6 +135,10 @@ export function applyDocumentPatch(
         } else {
           node.hiddenDevices = [...fields.hiddenDevices];
         }
+      }
+      if (fields.shownDevices !== undefined) {
+        if (fields.shownDevices === null || fields.shownDevices.length === 0) delete node.shownDevices;
+        else node.shownDevices = [...fields.shownDevices];
       }
       if (fields.locked !== undefined) {
         if (fields.locked === null) delete node.locked;

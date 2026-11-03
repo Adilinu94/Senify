@@ -79,6 +79,7 @@ function sectionNodeSpec(spec: EditorNodeSpec): NodeSpec {
   }
   // Ticket 11: the per-breakpoint hidden flags travel as v1 overrides.
   const overrides: NonNullable<NodeSpec["overrides"]> = {};
+  for (const device of spec.shownDevices ?? []) overrides[device] = { hidden: false };
   for (const device of spec.hiddenDevices ?? []) overrides[device] = { hidden: true };
   return {
     type: spec.primitive,
@@ -200,6 +201,7 @@ export function editorMutationToSection(mutation: EditorMutation): Mutation[] {
       // selectively cleared (the hidden flag only) when not. The selective
       // clear keeps other overrides of that breakpoint intact.
       const wanted = new Set(mutation.devices);
+      const visible = new Set(mutation.shownDevices ?? []);
       return (["tablet", "mobile"] as const).map((device) =>
         wanted.has(device)
           ? {
@@ -208,6 +210,8 @@ export function editorMutationToSection(mutation: EditorMutation): Mutation[] {
               breakpoint: device,
               override: { hidden: true },
             }
+          : visible.has(device)
+            ? { op: "setBreakpointOverride" as const, id: mutation.id, breakpoint: device, override: { hidden: false } }
           : {
               op: "clearBreakpointOverride" as const,
               id: mutation.id,

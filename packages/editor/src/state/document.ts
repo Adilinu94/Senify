@@ -61,6 +61,9 @@ export type EditorNode = {
   // `overrides[device].hidden` lifts into this list, so the migration no
   // longer drops it. The renderer marks such nodes per frame (`isHiddenAt`).
   hiddenDevices?: readonly HiddenDevice[];
+  // Explicit visible overrides are needed when desktop is hidden but a
+  // responsive Framer variant is shown on a narrower device.
+  shownDevices?: readonly HiddenDevice[];
   locked?: boolean;
 };
 
