@@ -39,6 +39,8 @@ Nächste Arbeitspakete in Reihenfolge:
 
 **Tween-Quelldaten:** `readAppearTween` liest begrenzte, deklarative Framer-Tweens mit Originalzuständen, Zeit und Bézier-Kurve; abweichende Breakpoint-Varianten, unbekannte Eigenschaften und Springs werden abgelehnt (`packages/framer-import/src/appear-tween.ts`, `packages/framer-import/test/appear-tween.test.ts`). Die Quelldaten des Beispielprojekts wurden damit geprüft. Dies ist zunächst nur eine Extraktion; die neue Wiedergabe und Bearbeitung sind noch nicht umgesetzt.
 
+**Entscheidung zur Tween-Wiedergabe:** ADR-0015 ergänzt ADR-0006 für einen begrenzten deklarativen Framer-Importtyp und browserseitige WAAPI; Implementierung und zeitlicher Paritätsnachweis stehen noch aus.
+
 **Bearbeitbarkeit:** Property-Änderungen an importierten Primitives nutzen dieselbe Validierung wie der Editor (`packages/widget-engine/src/validation.ts`, `packages/engine/src/mutations/apply.ts`, `packages/engine/test/imports.test.ts`). Für die Beispielseite ist eine gespeicherte Textänderung mit PostgreSQL im Profil `showcase` geprüft. Offen: Profilkonflikte zwischen importierter Motion und `standard`, Struktur- und Breakpoint-Änderungen sowie der vollständige Editor-Ablauf.
 
 **PullPage-HTML:** Der Import erkennt den Seitenbaum auch bei anderer Reihenfolge der Attribute am `main`-Element; Kommentare und Script-Inhalte werden bei der Suche übersprungen (`packages/framer-import/src/capture-html.ts`, `packages/framer-import/test/capture.test.ts`). Die Startseite des bereitgestellten Exports wurde zusätzlich lokal eingelesen. Unterseiten, lokale Assets und unveränderte Animationen sind dadurch noch nicht vollständig importiert.

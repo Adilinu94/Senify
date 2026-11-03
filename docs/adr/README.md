@@ -17,6 +17,7 @@
 | [ADR-0012](0012-persistente-redesign-proposals.md) | Persistente Redesign Proposals mit menschlicher Direction Decision | angenommen |
 | [ADR-0013](0013-direction-card-sektionsplan-als-handoff.md) | Direction Card mit Sektions-Plan und Medienbedarf als Handoff | angenommen |
 | [ADR-0014](0014-atomarer-redesign-apply.md) | Atomarer Redesign-Apply ohne Zwischenzustand | angenommen |
+| [ADR-0015](0015-deklarative-import-animationen.md) | Deklarative Framer-Importanimationen | angenommen |
 
 ## Nächste Nummer
 
