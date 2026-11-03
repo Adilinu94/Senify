@@ -222,6 +222,12 @@ export async function runFramerImportJob(
 ): Promise<ImportRunResult> {
   const dryRun = input.body.write !== true;
   const pagePath = input.body.pagePath ?? "/";
+  if (input.body.createOnly === true && input.body.pageId !== undefined) {
+    throw new SenifyError("validation", "createOnly kann keine bestehende Seite auswählen", { field: "createOnly" });
+  }
+  if (!dryRun && input.body.createOnly === true && (await store.listPageDrafts(input.siteId)).some((page) => page.path === pagePath)) {
+    throw new SenifyError("conflict", "Die Zielseite existiert bereits", { field: "pagePath" });
+  }
   const source = sourceOf(input.body, pagePath);
   const includeAssets = !dryRun && input.body.assets !== "skip";
   const includeFonts = !dryRun && input.body.fonts !== "skip";
@@ -431,7 +437,7 @@ export async function runFramerImportJob(
             baseDraftVersion: input.body.baseDraftVersion,
           } as const;
         })()
-      : existingTarget !== undefined
+      : existingTarget !== undefined && input.body.createOnly !== true
         ? ({ kind: "page", pageId: existingTarget.id, baseDraftVersion: existingTarget.draftVersion } as const)
         : ({ kind: "new", path: pagePath, title: run.document.pages[0]?.title ?? "Importierte Seite" } as const);
 

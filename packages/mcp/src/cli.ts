@@ -27,6 +27,7 @@ import { DEFAULT_API_URL, resolveDatabaseUrl } from "./config.ts";
 import { doctorExitCode, formatDoctor, runDoctor } from "./doctor.ts";
 import { serveStdio } from "./server.ts";
 import { exportFramerSite } from "./framer-export.ts";
+import { importFramerSite } from "./framer-site-import.ts";
 
 const SCOPES = ["read", "write", "publish"] as const;
 
@@ -361,9 +362,8 @@ export function createProgram(): Command {
       console.log(JSON.stringify({ outputDir: result.outputDir, pages: result.pages, blockedPages: result.blockedPages, ignoredFlattenedPages: result.ignoredFlattenedPages, snapshot: result.snapshot, downloadedAssets: result.assets.downloads.length, fonts: result.assets.fonts.length, failedAssets: result.assets.failed, runtimeFreeVerified: false }, null, 2));
     });
 
-  program
-    .command("import")
-    .description("Import-Werkzeuge (Framer)")
+  const importCommand = program.command("import").description("Import-Werkzeuge (Framer)");
+  importCommand
     .command("framer")
     .description(
       "Eine Framer-Seite importieren: URL, lokaler Mirror-Ordner oder HTML-Datei. Ohne --write nur Dry-Run (Bericht).",
@@ -446,6 +446,22 @@ export function createProgram(): Command {
       for (const candidate of report.marqueeCandidates) {
         console.log(`  [marquee] ${candidate.nodeKey ?? "-"}: ${candidate.reason}`);
       }
+    });
+
+  importCommand
+    .command("framer-site")
+    .description("Alle Seiten eines strukturierten Exports analysieren oder neu anlegen")
+    .argument("<quelle>", "Ordner des HTML-Exports")
+    .requiredOption("--site <siteId>", "Projekt-Id")
+    .option("--write", "Seiten neu anlegen; vorhandene Seiten werden nicht überschrieben")
+    .option("--api <url>")
+    .action(async (quelle: string, options: { site: string; write?: boolean; api?: string }) => {
+      const secret = programTokenSecret();
+      if (secret === undefined) throw new SenifyError("validation", "Kein Programm-Token gefunden");
+      const client = new EngineClient({ apiUrl: resolveApiUrl(options), token: secret });
+      const result = await importFramerSite(client, { siteId: options.site, rootDir: quelle, write: options.write === true });
+      console.log(JSON.stringify(result, null, 2));
+      if (result.status === "blocked" || result.status === "partial") process.exitCode = 1;
     });
 
   program

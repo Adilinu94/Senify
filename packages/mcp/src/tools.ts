@@ -30,6 +30,7 @@ import type { EngineClient } from "./client.ts";
 import { pageOutline, selectNodes, type PageSummaryInput } from "./outline.ts";
 import { exportFramerSite } from "./framer-export.ts";
 import { snapshotUnframer } from "./unframer.ts";
+import { importFramerSite } from "./framer-site-import.ts";
 
 export type ToolScope = "read" | "write" | "publish";
 
@@ -3604,6 +3605,15 @@ export const TOOLS: ToolDefinition[] = [
       });
       return { outputDir, runtimeFreeVerified: false };
     },
+  },
+  {
+    name: "import_framer_site",
+    title: "Import a multi-page Framer export",
+    description: "Analyze all pages in a structured local export, or create them one at a time when write is true. Existing pages are never overwritten. A partial run is reported explicitly; CMS bindings, animation fidelity and runtime freedom remain unverified.",
+    scope: "write",
+    inputSchema: objectSchema({ siteId: { type: "string" }, rootDir: { type: "string" }, write: { type: "boolean" } }, ["siteId", "rootDir"]),
+    entity: (args) => `site:${String(args.siteId ?? "")}:framer-import`,
+    handler: async (context, args) => importFramerSite(context.client, { siteId: requireString(args, "siteId"), rootDir: requireString(args, "rootDir"), write: optionalBoolean(args, "write") ?? false }),
   },
   {
     name: "import_framer_page",

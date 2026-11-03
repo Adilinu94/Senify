@@ -42,6 +42,8 @@ export const CreateImportBodySchema = Type.Object(
     expectedIrHash: Type.Optional(Type.String()),
     // Write the imported document as one revision (S3.1). Absent = dry run.
     write: Type.Optional(Type.Boolean()),
+    // A batch import can only create pages, never replace existing drafts.
+    createOnly: Type.Optional(Type.Boolean()),
     // Target page for `write: true`. Absent = a new page is created under
     // `pagePath`.
     pageId: Type.Optional(Type.String({ minLength: 1 })),

@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PAGE_ROOT_TYPE, type NodeTree } from "@senify/section-sdk";
 import { bakePages, validateTreeIntegrity } from "@senify/engine";
+import { importFramerSite } from "../../mcp/src/framer-site-import.ts";
+import type { EngineClient } from "../../mcp/src/client.ts";
 import {
   bootEngine,
   applyMutationsRequest,
@@ -477,6 +479,15 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
   });
 
   describe("write guards", () => {
+    it("createOnly refuses to overwrite an existing page", async () => {
+      const own = await createTestSite(env.api, "Import nur neue Seiten");
+      const page = await createTestPage(env.api, own.id, { path: "/belegt", title: "Behalten" });
+      const before = await getPage(page.id);
+      const response = await runImport({ source: { html: framerHtml() }, pagePath: "/belegt", write: true, createOnly: true, assets: "skip", fonts: "skip" }, own.id);
+      expect(response.status).toBe(409);
+      expect((await getPage(page.id)).draftVersion).toBe(before.draftVersion);
+    }, 60_000);
+
     it("rejects a write whose source changed since the analysis (expectedIrHash)", async () => {
       const own = await createTestSite(env.api, "Import Hashwache");
       const analysis = await runImport({ source: { html: framerHtml() }, pagePath: "/wache", assets: "skip", fonts: "skip" }, own.id);
@@ -568,6 +579,27 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  }, 60_000);
+
+  it("imports a multi-page export through the engine and blocks a second write", async () => {
+    const root = mkdtempSync(join(tmpdir(), "senify-multi-import-"));
+    try {
+      mkdirSync(join(root, "blog"));
+      writeFileSync(join(root, "index.html"), '<div id="main"><p>Startseite</p></div>');
+      writeFileSync(join(root, "blog", "artikel.html"), '<div id="main"><p>Artikel</p></div>');
+      const own = await createTestSite(env.api, "Mehrseitenimport");
+      const client = { request: async (method: "POST", path: string, body: unknown) => {
+        const response = await env.api.request({ method, path, body });
+        if (response.status >= 400) throw new Error(JSON.stringify(response.body));
+        return response.body;
+      } } as unknown as EngineClient;
+      const result = await importFramerSite(client, { siteId: own.id, rootDir: root, write: true });
+      expect(result.status).toBe("imported");
+      expect(result.pages.map((page) => page.path)).toEqual(["/", "/blog/artikel"]);
+      expect(result.pages.every((page) => page.pageId !== null && page.pageId !== undefined)).toBe(true);
+      const again = await importFramerSite(client, { siteId: own.id, rootDir: root, write: true });
+      expect(again.status).toBe("blocked");
+    } finally { rmSync(root, { recursive: true, force: true }); }
   }, 60_000);
 
   it("uploads assets and rewrites fonts through the engine media pipeline", async () => {

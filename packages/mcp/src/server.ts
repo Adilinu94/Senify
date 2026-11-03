@@ -244,7 +244,7 @@ const IDEMPOTENT_TOOLS = new Set([
   "diff_reference",
 ]);
 
-const OPEN_WORLD_TOOLS = new Set(["analyze_reference", "import_framer_page", "prepare_framer_export"]);
+const OPEN_WORLD_TOOLS = new Set(["analyze_reference", "import_framer_page", "import_framer_site", "prepare_framer_export"]);
 
 const REFERENCE_REDESIGN_WORKFLOW = [
   "Vault first: search_references/list_references → get_reference and read the profile, documents, rules and brief.",
