@@ -36,6 +36,7 @@ export type RunImportInput = {
   baseUrl?: string;
   includeAssets?: boolean;
   includeFonts?: boolean;
+  assetCacheDir?: string;
   // The page path the import lands on. It scopes the style rule ids and class
   // names, so two pages of one site never share a rule.
   pagePath?: string;
@@ -134,6 +135,7 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
       document,
       ...(baseUrl !== undefined ? { baseUrl } : {}),
       ...(input.source.kind === "mirror" ? { mirrorRoot: input.source.rootDir } : {}),
+      ...(input.assetCacheDir === undefined ? {} : { assetCacheDir: input.assetCacheDir }),
       ...(input.uploader !== undefined ? { uploader: input.uploader } : {}),
       ...(input.outDir !== undefined ? { outDir: input.outDir } : {}),
       ...(input.includeAssets !== undefined ? { includeAssets: input.includeAssets } : {}),

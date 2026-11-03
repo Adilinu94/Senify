@@ -17,7 +17,7 @@ type PageAnswer = {
 // partial completion as an atomic site import and never replaces a draft.
 export async function importFramerSite(
   client: EngineClient,
-  input: { siteId: string; rootDir: string; write: boolean },
+  input: { siteId: string; rootDir: string; write: boolean; assetCacheDir?: string },
 ): Promise<{
   status: "analyzed" | "blocked" | "partial" | "imported";
   pages: { path: string; state: string; pageId?: string | null; reason?: string; warnings?: string[] }[];
@@ -50,7 +50,7 @@ export async function importFramerSite(
   for (const page of pages) {
     try {
       const answer = await client.request<PageAnswer>("POST", `/api/sites/${input.siteId}/imports/framer`, {
-        source: { rootDir: input.rootDir, sourcePagePath: page.path }, pagePath: page.path, mode: "fidelity", write: true, createOnly: true, expectedIrHash: hashes.get(page.path),
+        source: { rootDir: input.rootDir, sourcePagePath: page.path, ...(input.assetCacheDir === undefined ? {} : { assetCacheDir: input.assetCacheDir }) }, pagePath: page.path, mode: "fidelity", write: true, createOnly: true, expectedIrHash: hashes.get(page.path),
       });
       page.pageId = answer.report.pageId;
       if (answer.job.status !== "succeeded" || answer.report.assets.failed > 0) {

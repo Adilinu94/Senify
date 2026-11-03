@@ -454,12 +454,13 @@ export function createProgram(): Command {
     .argument("<quelle>", "Ordner des HTML-Exports")
     .requiredOption("--site <siteId>", "Projekt-Id")
     .option("--write", "Seiten neu anlegen; vorhandene Seiten werden nicht überschrieben")
+    .option("--asset-cache-dir <ordner>", "Vorbereitete Medien aus diesem Ordner verwenden")
     .option("--api <url>")
-    .action(async (quelle: string, options: { site: string; write?: boolean; api?: string }) => {
+    .action(async (quelle: string, options: { site: string; write?: boolean; api?: string; assetCacheDir?: string }) => {
       const secret = programTokenSecret();
       if (secret === undefined) throw new SenifyError("validation", "Kein Programm-Token gefunden");
       const client = new EngineClient({ apiUrl: resolveApiUrl(options), token: secret });
-      const result = await importFramerSite(client, { siteId: options.site, rootDir: quelle, write: options.write === true });
+      const result = await importFramerSite(client, { siteId: options.site, rootDir: quelle, write: options.write === true, ...(options.assetCacheDir === undefined ? {} : { assetCacheDir: options.assetCacheDir }) });
       console.log(JSON.stringify(result, null, 2));
       if (result.status === "blocked" || result.status === "partial") process.exitCode = 1;
     });

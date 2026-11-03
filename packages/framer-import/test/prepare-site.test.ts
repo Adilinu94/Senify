@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { listMirrorPages, prepareMirrorSite } from "@senify/framer-import";
+import { listMirrorPages, prepareMirrorSite, runImport } from "@senify/framer-import";
 
 describe("prepareMirrorSite", () => {
   it("captures a structured multi-page export and localizes shared assets", async () => {
@@ -29,6 +29,14 @@ describe("prepareMirrorSite", () => {
       const saved = JSON.parse(readFileSync(join(dir, "output", "site-ir.json"), "utf8"));
       expect(saved.pages.map((doc: FramerDoc) => doc.pages[0]?.path)).toEqual(["/", "/blog/story"]);
       expect(readFileSync(saved.assetReport.downloads[0].localUrl, "utf8")).toBe("local-image");
+      const uploads: string[] = [];
+      const imported = await runImport({ source: { kind: "mirror", rootDir: root, sourcePagePath: "/blog/story" }, assetCacheDir: join(dir, "output"), includeFonts: false, uploader: ({ data }) => { uploads.push(data.toString()); return "/assets/local"; } });
+      expect(imported.assets?.failed).toBe(0);
+      expect(uploads).toEqual(["local-image"]);
+      writeFileSync(saved.assetReport.downloads[0].localUrl, "tampered");
+      const corrupted = await runImport({ source: { kind: "mirror", rootDir: root }, assetCacheDir: join(dir, "output"), includeFonts: false, uploader: () => "/assets/local" });
+      expect(corrupted.assets?.failed).toBe(1);
+      expect(corrupted.document.findings.some((finding) => finding.kind === "asset-blocked")).toBe(true);
       await expect(prepareMirrorSite({ rootDir: root, outputDir: join(dir, "output") })).rejects.toThrow(/existiert bereits/);
       await expect(prepareMirrorSite({ rootDir: root, outputDir: join(root, "output") })).rejects.toThrow(/nicht im Quellordner/);
     } finally {

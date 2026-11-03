@@ -72,6 +72,8 @@ export async function prepareMirrorSite(input: { rootDir: string; outputDir: str
   const fonts = docs.flatMap((doc) => doc.styles.fonts);
   const combined: FramerIrDocument = { ...first, pages: docs.flatMap((doc) => doc.pages), assets, styles: { ...first.styles, fonts }, findings: [] };
   const processed = await importAssets({ document: combined, outDir: join(target, "assets"), mirrorRoot: root, timeoutMs: 8000, allowedRemoteHosts: ["framerusercontent.com", "framerstatic.com"] });
+  const sources = Object.fromEntries(Object.entries(processed.report.sources).map(([url, entry]) => [url, { path: relative(target, entry.path), hash: entry.hash }]));
+  writeFileSync(join(target, "asset-manifest.json"), JSON.stringify({ version: 1, sources }, null, 2), { flag: "wx" });
   const assetsByUrl = new Map(processed.document.assets.map((asset) => [asset.url, asset]));
   let offset = 0;
   const pages = docs.map((doc, index) => {

@@ -62,6 +62,7 @@ export type AssetReport = {
   }[];
   deduped: number;
   failed: number;
+  sources: Record<string, { path: string; hash: string }>;
 };
 
 export type AssetResult = {
@@ -142,6 +143,7 @@ export type ImportAssetsInput = {
   includeFonts?: boolean;
   timeoutMs?: number;
   allowedRemoteHosts?: readonly string[];
+  assetCacheDir?: string;
 };
 
 export async function importAssets(input: ImportAssetsInput): Promise<AssetResult> {
@@ -149,7 +151,7 @@ export async function importAssets(input: ImportAssetsInput): Promise<AssetResul
   const timeoutMs = input.timeoutMs ?? 30_000;
   const includeAssets = input.includeAssets ?? true;
   const includeFonts = input.includeFonts ?? true;
-  const report: AssetReport = { downloads: [], fonts: [], deduped: 0, failed: 0 };
+  const report: AssetReport = { downloads: [], fonts: [], deduped: 0, failed: 0, sources: {} };
   const hasTargets = input.uploader !== undefined || input.outDir !== undefined;
   const hasContent =
     (includeAssets && document.assets.length > 0) || (includeFonts && document.styles.fonts.length > 0);
@@ -169,7 +171,9 @@ export async function importAssets(input: ImportAssetsInput): Promise<AssetResul
   const urlToAsset = new Map<string, AssetDownload>();
   for (const asset of includeAssets ? document.assets : []) {
     if (urlToAsset.has(asset.url)) continue;
-    urlToAsset.set(asset.url, await downloadAsset(asset, input, timeoutMs, byHash, report));
+    const downloaded = await downloadAsset(asset, input, timeoutMs, byHash, report);
+    urlToAsset.set(asset.url, downloaded);
+    if (downloaded.localUrl !== null) report.sources[asset.url] = { path: downloaded.localUrl, hash: downloaded.hash };
   }
 
   // --- fonts (DSGVO 2.3b): download, dedupe by hash + unicode-range,
@@ -228,6 +232,8 @@ export async function importAssets(input: ImportAssetsInput): Promise<AssetResul
         }
       }
       if (entry !== undefined) {
+        const file = entry.files[0];
+        if (file !== undefined) report.sources[src] = { path: file, hash: entry.hash };
         rewritten.src.push(...entry.files.filter((file) => !rewritten.src.includes(file)));
       }
     }
@@ -332,6 +338,22 @@ async function downloadAsset(
 }
 
 async function sourceBytes(url: string, input: ImportAssetsInput, timeoutMs: number): Promise<Buffer> {
+  if (input.assetCacheDir !== undefined) {
+    const root = realpathSync(input.assetCacheDir);
+    const manifest = JSON.parse(readFileSync(join(root, "asset-manifest.json"), "utf8")) as { sources?: Record<string, { path?: string; hash?: string }> };
+    const entry = manifest.sources?.[url];
+    if (entry === undefined || typeof entry.path !== "string" || typeof entry.hash !== "string" || !/^[a-f0-9]{64}$/.test(entry.hash)) {
+      throw new SenifyError("not_found", "Asset fehlt im vorbereiteten Export", { field: "assetCacheDir" });
+    }
+    const target = realpathSync(resolve(root, entry.path));
+    const rel = relative(root, target);
+    if (rel === "" || rel === ".." || rel.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute(rel)) {
+      throw new SenifyError("validation", "Asset liegt außerhalb des vorbereiteten Exports", { field: "assetCacheDir" });
+    }
+    const data = readFileSync(target);
+    if (sha256(data) !== entry.hash) throw new SenifyError("validation", "Asset-Prüfsumme stimmt nicht", { field: "assetCacheDir" });
+    return data;
+  }
   if (input.mirrorRoot !== undefined && !/^https?:\/\//i.test(url)) {
     const pathPart = decodeURIComponent(url.split(/[?#]/)[0] ?? "").replace(/\\/g, "/");
     if (/^[a-z][a-z\d+.-]*:/i.test(pathPart) || pathPart.startsWith("//") || pathPart.split("/").includes("..")) {

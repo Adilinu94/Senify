@@ -10,6 +10,7 @@ export const ImportSourceSchema = Type.Object(
     url: Type.Optional(Type.String({ maxLength: 2048 })),
     rootDir: Type.Optional(Type.String({ maxLength: 1024 })),
     sourcePagePath: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })),
+    assetCacheDir: Type.Optional(Type.String({ minLength: 1, maxLength: 1024 })),
     html: Type.Optional(Type.String()),
     // The base for relative asset URLs; defaults to the URL origin.
     baseUrl: Type.Optional(Type.String({ maxLength: 2048 })),
