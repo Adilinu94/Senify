@@ -44,6 +44,7 @@ export type MotionPreset = {
 };
 export const MOTION_PRESETS: readonly MotionPreset[] = [
   { id: "fade-up", group: "entry", flags: ["hides"], gsapPlugins: [], runtime: "page" },
+  { id: "imported-appear", group: "entry", flags: ["hides"], gsapPlugins: [], runtime: "page" },
   { id: "fade-up-deblur", group: "entry", flags: ["hides"], gsapPlugins: [], runtime: "page" },
   {
     id: "masked-headline",
@@ -133,6 +134,16 @@ const PRESET_BY_ID = new Map(MOTION_PRESETS.map((preset) => [preset.id, preset])
 
 export function motionPreset(id: string): MotionPreset | undefined {
   return PRESET_BY_ID.get(id);
+}
+
+export function importedAppearError(spec: MotionSpec): string | null {
+  if (spec.preset === "imported-appear") {
+    if (spec.importedAppear === undefined) return "Imported appear requires tween data";
+    if (spec.trigger !== undefined && spec.trigger !== "load") return "Imported appear supports only the load trigger";
+  } else if (spec.importedAppear !== undefined) {
+    return "Imported appear data requires the imported-appear preset";
+  }
+  return null;
 }
 
 export function hasMotionFlag(id: string, flag: MotionPresetFlag): boolean {

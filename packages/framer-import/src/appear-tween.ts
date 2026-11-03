@@ -56,7 +56,7 @@ function variantOf(value: unknown): AppearTween | null {
   if (initial === null || to === null || transition === null || transition.type !== "tween") return null;
   if (Object.keys(transition).some((key) => !["type", "duration", "delay", "ease"].includes(key))) return null;
   const { duration, delay, ease } = transition;
-  if (typeof duration !== "number" || !Number.isFinite(duration) || duration <= 0 || duration > 30) return null;
+  if (typeof duration !== "number" || !Number.isFinite(duration) || duration < 0.001 || duration > 30) return null;
   if (typeof delay !== "number" || !Number.isFinite(delay) || delay < 0 || delay > 30) return null;
   if (!Array.isArray(ease) || ease.length !== 4 || !ease.every((n) => typeof n === "number" && Number.isFinite(n))) return null;
   const [x1, y1, x2, y2] = ease as [number, number, number, number];

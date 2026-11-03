@@ -643,4 +643,13 @@ describe("inspector value helpers", () => {
     expect(spec.tokens?.durationScale).toBe(1.2);
     expect(spec.reducedMotion).toBe("fade");
   });
+
+  it("edits imported tween values without dropping the original curve", () => {
+    const current = { preset: "imported-appear", trigger: "load" as const, importedAppear: { from: { opacity: 0, x: 0, y: 28, scale: 1 }, to: { opacity: 1, x: 0, y: 0, scale: 1 }, durationMs: 1000, delayMs: 200, easing: [0.22, 1, 0.36, 1] as [number, number, number, number] } };
+    const updated = motionSpecFrom("imported-appear", { appearFromY: 40, appearDelay: 400 }, current);
+    expect(updated.importedAppear?.from.y).toBe(40);
+    expect(updated.importedAppear?.delayMs).toBe(400);
+    expect(updated.importedAppear?.easing).toEqual([0.22, 1, 0.36, 1]);
+    expect(updated.trigger).toBe("load");
+  });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { captureHtml, readAppearTween } from "@senify/framer-import";
+import { captureHtml, readAppearTween, mapFramerMotion } from "@senify/framer-import";
 
 function sample(variants: Record<string, unknown>) {
   const html = `<script id="__framer__appearAnimationsContent">${JSON.stringify({ a: variants })}</script><div id="main"><div data-framer-appear-id="a">Text</div></div>`;
@@ -20,6 +20,14 @@ describe("readAppearTween", () => {
     expect(result.tween.durationMs).toBe(1000);
     expect(result.tween.delayMs).toBe(200);
     expect(result.tween.easing).toEqual([0.22, 1, 0.36, 1]);
+  });
+
+  it("maps supported source tween into editable motion data", () => {
+    const item = sample({ default: tween });
+    const document = captureHtml({ html: '<div id="main"><p>Text</p></div>' });
+    document.motion = [item];
+    const result = mapFramerMotion(document);
+    expect(result.mappings[0]?.spec).toMatchObject({ preset: "imported-appear", trigger: "load", importedAppear: { from: { y: 28, opacity: 0.001 }, durationMs: 1000, delayMs: 200, easing: [0.22, 1, 0.36, 1] } });
   });
 
   it("rejects unequal variants, unknown properties and spring physics", () => {

@@ -11,7 +11,7 @@
 
 import { SenifyError } from "@senify/core";
 import type { EditorMutation, EditorNodeSpec } from "@senify/engine/browser";
-import { motionPreset, type MotionSpec, type PropValue } from "@senify/section-sdk";
+import { importedAppearError, motionPreset, type MotionSpec, type PropValue } from "@senify/section-sdk";
 import {
   STATE_ORDER,
   requirePrimitive,
@@ -78,6 +78,8 @@ function requireNode(
 // in the registry, the dial stays 1-10 and the delay non-negative. The schema
 // already bounds the numbers; this is the semantic half (catalog membership).
 function assertMotionSpec(spec: MotionSpec, field: string): void {
+  const importedError = importedAppearError(spec);
+  if (importedError !== null) throw new SenifyError("validation", importedError, { field });
   if (motionPreset(spec.preset) === undefined) {
     throw new SenifyError("validation", `Unknown motion preset "${spec.preset}"`, {
       field: `${field}.preset`,

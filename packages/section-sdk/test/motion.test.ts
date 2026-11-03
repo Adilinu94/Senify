@@ -23,7 +23,7 @@ describe("motion preset registry", () => {
   it("lists every preset exactly once with known group, flags and runtime", () => {
     const ids = MOTION_PRESETS.map((preset) => preset.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toHaveLength(24);
+    expect(ids).toHaveLength(25);
     for (const preset of MOTION_PRESETS) {
       expect(MOTION_PRESET_GROUPS).toContain(preset.group);
       expect(["page", "css", "document", "island", "planned"]).toContain(preset.runtime);

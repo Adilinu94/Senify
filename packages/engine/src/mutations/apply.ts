@@ -5,6 +5,8 @@ import {
   COMPONENT_INSTANCE_TYPE,
   COMPONENT_SLOT_TYPE,
   isComponentType,
+  motionPreset,
+  importedAppearError,
   PAGE_ROOT_TYPE,
   readSlotSpec,
   validatePropValues,
@@ -788,7 +790,18 @@ function applySetMotion(
   state: ApplierState,
   mutation: Extract<Mutation, { op: "setMotion" }>,
 ): PatchOp[] {
+  const importedError = importedAppearError(mutation.spec);
+  if (importedError !== null) throw new SenifyError("validation", importedError, { field: "spec" });
   const node = requireNode(state.tree, mutation.id, "id");
+  const primitive = getPrimitive(node.type);
+  if (primitive !== undefined) {
+    if (motionPreset(mutation.spec.preset) === undefined) {
+      throw new SenifyError("validation", `Unknown motion preset "${mutation.spec.preset}"`, { field: "spec.preset" });
+    }
+    const previous: MotionSpec | null = node.motion ? structuredClone(node.motion) : null;
+    node.motion = structuredClone(mutation.spec);
+    return [{ patch: "setMotion", id: mutation.id, spec: previous }];
+  }
   const definition = definitionForNode(state.registry, node);
   if (!definition) {
     throw new SenifyError("validation", "The page root has no motion", {

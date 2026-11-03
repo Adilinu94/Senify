@@ -768,8 +768,8 @@ function motionFields(
   profile: MotionProfile,
 ): InspectorMotion {
   const rules = MOTION_PROFILE_RULES[profile];
-  const presets = MOTION_PRESETS.map((preset) => preset.id);
   const spec = node.motion;
+  const presets = MOTION_PRESETS.map((preset) => preset.id).filter((id) => id !== "imported-appear" || spec?.preset === id);
   const cap = rules.intensityCap;
   const fields: InspectorField[] = [];
   const push = (field: InspectorField): void => {
@@ -1030,6 +1030,27 @@ function motionFields(
     source: "control",
     styleGroup: undefined,
   });
+  if (spec?.preset === "imported-appear" && spec.importedAppear !== undefined) {
+    const template = fields.find((field) => field.key === "durationScale");
+    if (template !== undefined) {
+      const tween = spec.importedAppear;
+      const entries: [string, string, number, number, number][] = [
+        ["appearFromOpacity", "Start Deckkraft", tween.from.opacity, 0, 1],
+        ["appearFromX", "Start X (px)", tween.from.x, -10000, 10000],
+        ["appearFromY", "Start Y (px)", tween.from.y, -10000, 10000],
+        ["appearFromScale", "Start Skalierung", tween.from.scale, 0, 10],
+        ["appearToOpacity", "Ende Deckkraft", tween.to.opacity, 0, 1],
+        ["appearToX", "Ende X (px)", tween.to.x, -10000, 10000],
+        ["appearToY", "Ende Y (px)", tween.to.y, -10000, 10000],
+        ["appearToScale", "Ende Skalierung", tween.to.scale, 0, 10],
+        ["appearDuration", "Dauer (ms)", tween.durationMs, 1, 30000],
+        ["appearDelay", "Verzögerung (ms)", tween.delayMs, 0, 30000],
+        ...tween.easing.map((value, index): [string, string, number, number, number] => [`appearEase${index}`, `Bézier ${index + 1}`, value, index % 2 === 0 ? 0 : -10, index % 2 === 0 ? 1 : 10]),
+      ];
+      fields.splice(1, 6);
+      for (const [key, label, value, min, max] of entries) push({ ...template, key, label, value, min, max, step: 0.01 });
+    }
+  }
   return {
     preset: spec?.preset ?? null,
     fields,
@@ -1216,6 +1237,19 @@ export function motionSpecFrom(
       ? (values["reducedMotion"] as MotionSpec["reducedMotion"])
       : (current?.reducedMotion ?? "static");
   const enabled = values["enabled"] !== false;
+  if (preset === "imported-appear" && current?.preset === preset && current.importedAppear !== undefined) {
+    const old = current.importedAppear;
+    const number = (key: string, fallback: number): number => numberPart(values[key]) ?? fallback;
+    return {
+      preset, trigger: "load", reducedMotion, enabled,
+      importedAppear: {
+        from: { opacity: number("appearFromOpacity", old.from.opacity), x: number("appearFromX", old.from.x), y: number("appearFromY", old.from.y), scale: number("appearFromScale", old.from.scale) },
+        to: { opacity: number("appearToOpacity", old.to.opacity), x: number("appearToX", old.to.x), y: number("appearToY", old.to.y), scale: number("appearToScale", old.to.scale) },
+        durationMs: number("appearDuration", old.durationMs), delayMs: number("appearDelay", old.delayMs),
+        easing: [0, 1, 2, 3].map((index) => number(`appearEase${index}`, old.easing[index] ?? 0)) as [number, number, number, number],
+      },
+    };
+  }
   return {
     preset,
     intensity,

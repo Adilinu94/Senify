@@ -602,6 +602,28 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   }, 60_000);
 
+  it("persists and edits the imported appear tween through the engine", async () => {
+    const entry = { intro: { default: { initial: { opacity: 0, y: 28 }, animate: { opacity: 1, y: 0, transition: { type: "tween", duration: 1, delay: 0.2, ease: [0.22, 1, 0.36, 1] } } } } };
+    const html = framerHtml().replace("</head>", `<script id="__framer__appearAnimationsContent">${JSON.stringify(entry)}</script></head>`).replace('<h1 data-framer-name="desktop"', '<h1 data-framer-appear-id="intro" data-framer-name="desktop"');
+    const own = await createTestSite(env.api, "Tween Import");
+    const imported = await runImport({ source: { html }, write: true, pagePath: "/tween", mode: "fidelity", assets: "skip", fonts: "skip" }, own.id);
+    expect(imported.status).toBe(201);
+    const page = await getPage(imported.body.report.pageId ?? "");
+    const tree = page.draft as unknown as NodeTree;
+    const animated = Object.values(tree.nodes).find((node) => node.motion?.preset === "imported-appear");
+    expect(animated?.motion?.importedAppear?.from.y).toBe(28);
+    const spec = structuredClone(animated!.motion!);
+    spec.importedAppear!.from.y = 40;
+    const changed = await applyMutationsRequest(env.api, page, [{ op: "setMotion", id: animated!.id, spec }]);
+    expect(changed.status, JSON.stringify(changed.body)).toBe(200);
+    const saved = await getPage(page.id);
+    expect((saved.draft as unknown as NodeTree).nodes[animated!.id]?.motion?.importedAppear?.from.y).toBe(40);
+    const invalid = await applyMutationsRequest(env.api, saved, [{ op: "setMotion", id: animated!.id, spec: { preset: "imported-appear", trigger: "scroll", importedAppear: spec.importedAppear } }]);
+    expect(invalid.status).toBe(400);
+    const unknown = await applyMutationsRequest(env.api, saved, [{ op: "setMotion", id: animated!.id, spec: { preset: "unbekannt" } }]);
+    expect(unknown.status).toBe(400);
+  }, 60000);
+
   it("uploads assets and rewrites fonts through the engine media pipeline", async () => {
     const image = Buffer.from("engine-import-image", "utf8");
     const font = Buffer.from("engine-import-font", "utf8");

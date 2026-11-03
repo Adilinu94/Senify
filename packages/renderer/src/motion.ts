@@ -1,8 +1,9 @@
-import { motionCssEffect, motionPreset, type NodeTree } from "@senify/section-sdk";
+import { motionCssEffect, motionPreset, type NodeTree, type MotionSpec } from "@senify/section-sdk";
 import { mediaMaxWidth } from "@senify/widget-engine";
 
 export const PAGE_SCRIPT_PRESETS = [
   "fade-up",
+  "imported-appear",
   "fade-up-deblur",
   "masked-headline",
   "stagger-cascade",
@@ -50,6 +51,7 @@ export type MotionConfig = {
   hides?: boolean;
   needs?: string[];
   reducedMotion?: "static" | "fade" | "off";
+  importedAppear?: MotionSpec["importedAppear"];
 };
 
 // `motion-data` v2 (`payload-spec.md`): one versioned envelope with the
@@ -116,6 +118,10 @@ export function motionConfigsForTree(
       });
       continue;
     }
+    if (motion.preset === "imported-appear" && (motion.importedAppear === undefined || (motion.trigger !== undefined && motion.trigger !== "load"))) {
+      warnings.push({ code: "unimplemented-preset", nodeId: node.id, preset: motion.preset, message: "Imported appear needs bounded tween data and a load trigger", suggestion: "Reimport the effect or use a different preset." });
+      continue;
+    }
     if (preset.flags.includes("pins")) pins += 1;
     if (motion.preset === "char-split") charSplits += 1;
     const intensity = Math.min(10, Math.max(1, Math.round(motion.intensity ?? 5)));
@@ -127,8 +133,9 @@ export function motionConfigsForTree(
         suggestion: "Use an intensity between 1 and 10.",
       });
     }
-    const durationSeconds =
-      ((motion.tokens?.durationScale ?? 1) * tokens.baseDurationMs) / 1000;
+    const durationSeconds = motion.preset === "imported-appear" && motion.importedAppear !== undefined
+      ? motion.importedAppear.durationMs / 1000
+      : ((motion.tokens?.durationScale ?? 1) * tokens.baseDurationMs) / 1000;
     // Soft review budget (artifacts/03): a reveal that runs longer than ~800 ms
     // feels sluggish — it warns, it never blocks.
     if (preset.flags.includes("hides") && durationSeconds > 0.8) {
@@ -154,6 +161,7 @@ export function motionConfigsForTree(
       hides: preset.flags.includes("hides") ? true : undefined,
       needs: preset.gsapPlugins.length > 0 ? [...preset.gsapPlugins] : undefined,
       reducedMotion: motion.reducedMotion ?? "static",
+      ...(motion.preset === "imported-appear" && motion.importedAppear !== undefined ? { importedAppear: motion.importedAppear } : {}),
     });
   }
   if (pins > 1) {
@@ -394,6 +402,17 @@ export function renderPageScript(options: { lenis: boolean }): string {
     return { scrollTrigger: { trigger: "[data-node-id='" + config.nodeId + "']", start: "top 85%", once: true } };
   }
   function runPreset(el, config) {
+    if (config.preset === "imported-appear") {
+      var tween = config.importedAppear;
+      if (!tween || typeof el.animate !== "function") return;
+      var transform = function (state) { return "translate(" + state.x + "px," + state.y + "px) scale(" + state.scale + ")"; };
+      try {
+        el.animate([{ opacity: tween.from.opacity, transform: transform(tween.from) }, { opacity: tween.to.opacity, transform: transform(tween.to) }], {
+          duration: tween.durationMs, delay: tween.delayMs, easing: "cubic-bezier(" + tween.easing.join(",") + ")", fill: "both"
+        });
+      } catch (error) { /* the static end state remains visible */ }
+      return;
+    }
     if (typeof window.gsap === "undefined") return;
     // A missing plugin degrades to the block state instead of half-running
     // (payload-spec.md §4): the needs come from the preset registry.
