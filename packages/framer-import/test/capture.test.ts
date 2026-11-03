@@ -78,6 +78,13 @@ describe("captureHtml", () => {
     expect(document.pages[0]?.root.children).toHaveLength(0);
   });
 
+  it("reports initially hidden elements whose scroll or interaction behavior is unknown", () => {
+    const document = captureHtml({ html: '<div id="main"><div data-framer-name="Title" style="opacity:0;transform:translateY(36px)">Hallo</div></div>' });
+    const finding = document.findings.find((entry) => entry.message.includes("anfangs verborgene Elemente"));
+    expect(finding?.severity).toBe("warn");
+    expect(finding?.evidence).toContain("Title");
+  });
+
   it("finds the real main element when export tools reorder attributes", () => {
     const document = captureHtml({ html: [
       '<!-- <div id="main">fake</div> -->',

@@ -671,6 +671,21 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
     }
   }
 
+  const hiddenWithoutAppear = [...flattenNodes(root)].filter((node) =>
+    node.appearId == null && node.appearInitial !== undefined && Number.parseFloat(node.appearInitial["opacity"] ?? "1") <= 0.01,
+  );
+  if (hiddenWithoutAppear.length > 0) {
+    const examples = hiddenWithoutAppear.slice(0, 3).map((node) => node.name ?? node.key).join(", ");
+    findings.push({
+      kind: "unsupported-declaration",
+      nodeKey: null,
+      message: `${hiddenWithoutAppear.length} anfangs verborgene Elemente ohne Appear-Daten: Scroll-Effekte oder andere Zustände können fehlen.`,
+      evidence: `opacity:0 ohne data-framer-appear-id; Beispiele: ${examples}`,
+      severity: "warn",
+      suggestion: "Original beim Scrollen und bei Interaktionen beobachten; Auslöser und Kurven vor der Übernahme messen.",
+    });
+  }
+
   // --- styles: tokens, font faces, hidden rules
   const colors: { id: string; name: string | null; value: string }[] = [];
   for (const match of html.matchAll(/--token-([a-z0-9_-]+):\s*([^;}]+)/gi)) {
