@@ -33,6 +33,7 @@ export {
 } from "./ir.ts";
 
 export { captureHtml, captureFixture, type CaptureHtmlInput } from "./capture-html.ts";
+export { readAppearTween, type AppearTween, type AppearTweenResult, type AppearTweenState } from "./appear-tween.ts";
 export { listMirrorPages, prepareMirrorSite, type PreparedMirrorSite } from "./prepare-site.ts";
 
 export {
