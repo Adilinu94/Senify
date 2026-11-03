@@ -33,6 +33,7 @@ export {
 } from "./ir.ts";
 
 export { captureHtml, captureFixture, type CaptureHtmlInput } from "./capture-html.ts";
+export { listMirrorPages, prepareMirrorSite, type PreparedMirrorSite } from "./prepare-site.ts";
 
 export {
   normalize,

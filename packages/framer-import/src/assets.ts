@@ -101,11 +101,17 @@ function filenameFor(url: string, fallbackKind: string): string {
 
 /* ------------------------------------------------------------- downloading */
 
-async function fetchBytes(url: string, timeoutMs: number): Promise<Buffer> {
+async function fetchBytes(url: string, timeoutMs: number, allowedRemoteHosts?: readonly string[]): Promise<Buffer> {
+  if (allowedRemoteHosts !== undefined) {
+    const target = new URL(url);
+    if (target.protocol !== "https:" || target.username !== "" || target.password !== "" || !allowedRemoteHosts.some((host) => target.hostname === host || target.hostname.endsWith(`.${host}`))) {
+      throw new SenifyError("validation", "Asset-Host ist für diesen Import nicht freigegeben", { field: "url" });
+    }
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { signal: controller.signal });
+    const response = await fetch(url, { signal: controller.signal, ...(allowedRemoteHosts === undefined ? {} : { redirect: "error" as const }) });
     if (!response.ok) {
       throw new SenifyError("not_found", `Download fehlgeschlagen: ${response.status} ${url}`, {
         field: "url",
@@ -135,6 +141,7 @@ export type ImportAssetsInput = {
   includeAssets?: boolean;
   includeFonts?: boolean;
   timeoutMs?: number;
+  allowedRemoteHosts?: readonly string[];
 };
 
 export async function importAssets(input: ImportAssetsInput): Promise<AssetResult> {
@@ -343,7 +350,7 @@ async function sourceBytes(url: string, input: ImportAssetsInput, timeoutMs: num
       if (input.baseUrl === undefined || (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   }
-  return fetchBytes(absoluteUrl(url, input.baseUrl), timeoutMs);
+  return fetchBytes(absoluteUrl(url, input.baseUrl), timeoutMs, input.allowedRemoteHosts);
 }
 
 function absoluteUrl(url: string, baseUrl: string | undefined): string {

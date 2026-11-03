@@ -13,6 +13,7 @@ import {
   startupStatus,
 } from "@senify/app";
 import { SenifyError } from "@senify/core";
+import { prepareMirrorSite } from "@senify/framer-import";
 import { skillReferenceFiles } from "@senify/docs-portal";
 import { skillFiles } from "@senify/skills";
 import { EngineClient } from "./client.ts";
@@ -345,6 +346,18 @@ export function createProgram(): Command {
       const outputDir = await exportFramerSite({ url, outputDir: ordner, subpages: options.subpages }, undefined, (chunk) => process.stderr.write(chunk));
       console.log(`Export gespeichert: ${outputDir}`);
       console.log("Der Mirror kann Framer-Laufzeit enthalten; für den Senify-Import den Ordner als Quelle angeben.");
+    });
+
+  program
+    .command("prepare")
+    .description("Lokale Quelldaten vorbereiten")
+    .command("framer")
+    .description("Mehrseitigen Framer-Export mit Medien als Importgrundlage sichern")
+    .argument("<quelle>", "Ordner des strukturierten HTML-Exports")
+    .argument("<ziel>", "Neuer Ausgabeordner")
+    .action(async (quelle: string, ziel: string) => {
+      const result = await prepareMirrorSite({ rootDir: quelle, outputDir: ziel });
+      console.log(JSON.stringify({ outputDir: result.outputDir, pages: result.pages, blockedPages: result.blockedPages, ignoredFlattenedPages: result.ignoredFlattenedPages, downloadedAssets: result.assets.downloads.length, fonts: result.assets.fonts.length, failedAssets: result.assets.failed, runtimeFreeVerified: false }, null, 2));
     });
 
   program

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { basename, extname } from "node:path";
 import { SenifyError } from "@senify/core";
+import { prepareMirrorSite } from "@senify/framer-import";
 import {
   createRegistry,
   getPrimitive,
@@ -3570,6 +3571,18 @@ export const TOOLS: ToolDefinition[] = [
       sourceUrl: requireString(args, "sourceUrl"),
       outputDir: requireString(args, "outputDir"),
     }),
+  },
+  {
+    name: "prepare_framer_export",
+    title: "Prepare a multi-page Framer export",
+    description: "Captures structured HTML export pages and downloads supported assets to a new local folder, including a site-ir.json and failure report. This is an import input, not a complete editable site or a verified runtime-free build. Flattened FramerExport subpages are flagged as unprocessed.",
+    scope: "write",
+    inputSchema: objectSchema({ rootDir: { type: "string" }, outputDir: { type: "string" } }, ["rootDir", "outputDir"]),
+    entity: () => "framer-site-preparation",
+    handler: async (_context, args) => {
+      const result = await prepareMirrorSite({ rootDir: requireString(args, "rootDir"), outputDir: requireString(args, "outputDir") });
+      return { outputDir: result.outputDir, pages: result.pages, blockedPages: result.blockedPages, ignoredFlattenedPages: result.ignoredFlattenedPages, downloadedAssets: result.assets.downloads.length, fonts: result.assets.fonts.length, failedAssets: result.assets.failed, runtimeFreeVerified: false };
+    },
   },
   {
     name: "export_framer_site",

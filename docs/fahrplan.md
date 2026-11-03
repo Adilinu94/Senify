@@ -43,6 +43,8 @@ Nächste Arbeitspakete in Reihenfolge:
 
 **Lokale Medien:** Dateien im lokalen Asset-Ausgabeordner erhalten einen Inhaltshash im Namen; unterschiedliche Dateien mit gleichem Namen überschreiben sich nicht. Fehlgeschlagene Bild- und Mediendownloads erscheinen als Befund (`packages/framer-import/src/assets.ts`, `packages/framer-import/test/assets.test.ts`). Die Medien und Fonts der Startseite des bereitgestellten Exports wurden zusätzlich lokal heruntergeladen. Ein vollständig offline ausführbares Gesamtprojekt ist damit noch nicht nachgewiesen.
 
+**Mehrseiten-Vorbereitung:** `senify prepare framer <quelle> <neues-ziel>` und MCP `prepare_framer_export` erfassen strukturierte Exportordner samt Seiten und Medien in `site-ir.json` und einem Asset-Ordner (`packages/framer-import/src/prepare-site.ts`, `packages/mcp/src/cli.ts`, `packages/mcp/src/tools.ts`). Nicht erkannte Seiten, fehlende Dateien und flache `subpages` werden ausgewiesen; externe Downloads sind auf Framer-Asset-Hosts beschränkt. Das Ergebnis ist eine Importgrundlage, kein Senify-Projekt und kein Nachweis für Runtime-Freiheit. Der bereitgestellte PullPage-Export wurde damit lokal vorbereitet; automatisches Schreiben aller Seiten, CMS-Bindung und Motion-Abnahme bleiben offen (`packages/framer-import/test/prepare-site.test.ts`, `packages/mcp/test/framer-export.test.ts`).
+
 ## Teststrategie für schnelle Entwicklung
 
 - Bei einer Änderung zuerst die direkt betroffenen Tests ausführen, zum Beispiel `pnpm exec vitest run <testdatei>`. Die Tests gezielt nach Vertrag auswählen; automatische Abhängigkeitsauswahl kann bei stark vernetzten Modulen große Teile der Suite starten.

@@ -53,4 +53,20 @@ describe("FramerExport CLI adapter", () => {
       source: { rootDir: "export", sourcePagePath: "/blog/artikel" }, mode: "fidelity",
     });
   });
+
+  it("prepares a local export through MCP without claiming runtime freedom", async () => {
+    const root = mkdtempSync(join(tmpdir(), "senify-prepare-mcp-"));
+    try {
+      const input = join(root, "input");
+      const output = join(root, "output");
+      const { mkdirSync } = await import("node:fs");
+      mkdirSync(input);
+      writeFileSync(join(input, "index.html"), '<div id="main"><p>Hallo</p></div>');
+      const result = await toolByName("prepare_framer_export")?.handler({ client: {} as EngineClient }, { rootDir: input, outputDir: output });
+      expect(result).toMatchObject({ pages: 1, runtimeFreeVerified: false, failedAssets: 0 });
+      expect(JSON.parse(readFileSync(join(output, "site-ir.json"), "utf8")).status).toBe("capture-only");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

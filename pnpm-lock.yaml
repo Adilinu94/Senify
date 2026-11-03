@@ -253,6 +253,9 @@ importers:
       '@senify/docs-portal':
         specifier: workspace:*
         version: link:../docs-portal
+      '@senify/framer-import':
+        specifier: workspace:*
+        version: link:../framer-import
       '@senify/registry':
         specifier: workspace:*
         version: link:../registry

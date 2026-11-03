@@ -254,6 +254,22 @@ describe("importAssets", () => {
     }
   });
 
+  it("blocks hosts outside the explicit preparation allowlist without a request", async () => {
+    const document = irDocument();
+    document.styles.fonts = [];
+    document.assets = [document.assets[0]!];
+    const before = requestCount;
+    const outDir = mkdtempSync(join(tmpdir(), "senify-allowlist-"));
+    try {
+      const result = await importAssets({ document, outDir, allowedRemoteHosts: ["framerusercontent.com"] });
+      expect(result.report.failed).toBe(1);
+      expect(requestCount).toBe(before);
+      expect(result.document.findings.some((finding) => finding.kind === "asset-blocked")).toBe(true);
+    } finally {
+      rmSync(outDir, { recursive: true, force: true });
+    }
+  });
+
   it("hashes content identically for the same bytes (dedupe anchor)", () => {
     const a = createHash("sha256").update(fakeFont(400)).digest("hex");
     const b = createHash("sha256").update(fakeFont(400)).digest("hex");

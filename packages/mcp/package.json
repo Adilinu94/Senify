@@ -15,6 +15,7 @@
     "@senify/app": "workspace:*",
     "@senify/core": "workspace:*",
     "@senify/docs-portal": "workspace:*",
+    "@senify/framer-import": "workspace:*",
     "@senify/registry": "workspace:*",
     "@senify/section-sdk": "workspace:*",
     "@senify/skills": "workspace:*",
