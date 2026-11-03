@@ -51,6 +51,20 @@ describe("capture fidelity", () => {
     expect(frame?.children?.length).toBeGreaterThan(0);
   });
 
+  it("flattens a text-only link without creating unrenderable child nodes", () => {
+    const { nodes } = run(page('<a href="/about"><span>Mehr erfahren</span></a>'));
+    const link = nodes.find((node) => node.primitive === "link");
+    expect(link?.props["label"]).toBe("Mehr erfahren");
+    expect(link?.children ?? []).toHaveLength(0);
+    expect(nodes.filter((node) => node.primitive === "text")).toHaveLength(0);
+  });
+
+  it("keeps multiple text fragments inside a linked frame", () => {
+    const { nodes } = run(page('<a href="/about"><span>Mehr</span><span> erfahren</span></a>'));
+    const link = nodes.find((node) => node.primitive === "frame" && node.props["link"] === "/about");
+    expect(link?.children).toHaveLength(2);
+  });
+
   it("keeps image alt text", () => {
     const { nodes } = run(page('<img src="a.png" alt="Logo Acme" width="100" height="50">'));
     expect(nodes.find((node) => node.primitive === "image")?.props["alt"]).toBe("Logo Acme");

@@ -51,6 +51,8 @@ Nächste Arbeitspakete in Reihenfolge:
 
 **Vorbereitete Assets wiederverwenden:** Ein Asset-Manifest verknüpft die exakten Quell-URLs mit lokal gesicherten Dateien und deren SHA-256; `--asset-cache-dir` beziehungsweise `assetCacheDir` führt diese Dateien beim Mehrseiten-Import durch die bestehende Upload-Pipeline. Der Cache-Modus greift nicht auf das Netzwerk zurück und meldet fehlende oder veränderte Dateien (`packages/framer-import/src/assets.ts`, `packages/framer-import/src/prepare-site.ts`, `packages/framer-import/test/prepare-site.test.ts`). Startseite und ein Blogartikel des Beispiel-Exports wurden zusätzlich lokal mit diesem Cache verarbeitet.
 
+**Textlinks:** Einfache Textlinks übernehmen den Text in das Link-Primitiv, ohne nicht darstellbare Kindknoten zu erzeugen. Links mit mehreren separaten Textelementen bleiben verlinkte Container (`packages/framer-import/src/mapper.ts`, `packages/framer-import/test/import-fidelity.test.ts`).
+
 **Unframer-Daten bündeln:** Optional legt die Mehrseiten-Vorbereitung einen bestehenden Unframer-Snapshot neben dem Seiten-IR ab und gleicht anhand der Canonical-Origin die Quelle sowie statische Seitenpfade ab (`packages/framer-import/src/prepare-site.ts`, `packages/framer-import/test/prepare-site.test.ts`). Die XML-Struktur, Komponenten und CMS-Daten sind damit gemeinsam gesichert, aber noch nicht in Senify-Strukturen übersetzt.
 
 ## Teststrategie für schnelle Entwicklung

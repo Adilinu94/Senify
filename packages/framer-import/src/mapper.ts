@@ -558,11 +558,10 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
     if (box.zIndex !== undefined) props["zIndex"] = box.zIndex;
   }
 
-  // `body` accepts no children: a rich-text with element children bakes them
-  // into the `html` prop instead of mapping child nodes. A heading lifted
-  // from its rich-text container owns the container's children the same way.
+  // Text-only links, like body and lifted headings, already contain the
+  // descendant content in their own properties and cannot render children.
   const children: string[] = [];
-  if (primitive !== "body" && !(primitive === "heading" && hasElementChildren)) {
+  if (primitive !== "body" && primitive !== "link" && !(primitive === "heading" && hasElementChildren)) {
     for (const child of siblings) {
       const mapped = mapNode(child, context);
       if (mapped !== null) {
@@ -710,8 +709,10 @@ function deepTextOf(node: IrNode): string | null {
 // A link whose children are only text/rich-text wrappers (no blocks) keeps
 // the `link` primitive with the flattened label.
 function isTextOnlyLink(node: IrNode): boolean {
+  if (node.innerHtml !== undefined && node.innerHtml !== null) return false;
+  if (node.children.length > 1) return false;
   return node.children.every((child) => {
-    if (child.kind === "text" || child.kind === "rich-text") return true;
+    if (child.kind === "text" || child.kind === "rich-text") return child.children.length === 0 || isTextOnlyLink(child);
     if (child.kind === "link") return isTextOnlyLink(child);
     return false;
   });
