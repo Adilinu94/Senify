@@ -125,6 +125,9 @@ describe("widget markup", () => {
     const icon = spec("icon", { name: "circle", size: 32, strokeWidth: 2 });
     expect(icon.attrs?.width).toBe(32);
     expect(icon.attrs?.strokeWidth).toBe(2);
+    expect(spec("icon", { name: "plus", strokeWidth: 2 }).children).toEqual([
+      { tag: "path", attrs: { d: "M 3.75 12 H 20.25 M 12 3.75 V 20.25" } },
+    ]);
     expect(icon.attrs?.["data-name"]).toBe("circle");
     expect(icon.attrs?.["aria-hidden"]).toBe("true");
   });

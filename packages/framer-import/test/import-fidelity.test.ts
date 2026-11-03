@@ -71,6 +71,16 @@ describe("capture fidelity", () => {
     expect(nodes.find((node) => node.primitive === "image")?.props["alt"]).toBe("Logo Acme");
   });
 
+  it("recognizes a local Framer plus template without executing or retaining SVG markup", () => {
+    const symbol = '<svg id="plus1" viewBox="0 0 24 24"><path d="M 1 1" fill-opacity="var(--opacity, 0)"></path><path d="M 0 0 L 16.5 0" transform="translate(3.75 12)" stroke="var(--ink, black)" stroke-width="var(--weight, 1.5)" stroke-linecap="round"></path><path d="M 0 0 L 0 16.5" transform="translate(12 3.75)" stroke="var(--ink, black)" stroke-width="var(--weight, 1.5)" stroke-linecap="round"></path></svg>';
+    const source = page('<svg viewBox="0 0 24 24" style="--opacity:0;--ink:rgb(255, 255, 255);--weight:2"><use href="#plus1"></use></svg>') + symbol;
+    const { nodes } = run(source);
+    expect(nodes.find(node => node.primitive === "icon")?.props).toMatchObject({ name: "plus", color: "rgb(255, 255, 255)", strokeWidth: 2 });
+    const altered = run(source.replace('L 16.5 0', 'L 12 0'));
+    expect(altered.nodes.find(node => node.primitive === "icon")?.props["name"]).not.toBe("plus");
+    expect(altered.mapped.findings.some(finding => finding.message.includes("SVG-Form nicht übernommen"))).toBe(true);
+  });
+
   it("keeps the text between inline elements", () => {
     const { nodes } = run(page('<div data-framer-component-type="RichTextContainer"><p>Hallo <strong>fett</strong> Welt</p></div>'));
     const html = nodes.map((node) => String(node.props["html"] ?? "")).join("|");
@@ -138,6 +148,13 @@ describe("capture fidelity", () => {
 });
 
 describe("links inside paragraphs", () => {
+  it("keeps the Framer navigation link color and current state through rich text wrappers", () => {
+    const css = '.nav .preset:not(.rich-text-wrapper){--framer-link-text-color:#ffffffb8;--framer-link-current-text-color:#fff}.link{color:var(--framer-link-text-color,var(--other,var(--fallback,#111)))}';
+    const html = page('<div class="nav"><div data-framer-component-type="RichTextContainer"><p><a class="preset link" href="/" data-framer-page-link-current="true">Home</a></p></div><div data-framer-component-type="RichTextContainer"><p><a class="preset link" href="/about">About</a></p></div></div>', css);
+    const { nodes } = run(html);
+    expect(nodes.find(node => node.props["label"] === "Home")?.props["color"]).toBe("#fff");
+    expect(nodes.find(node => node.props["label"] === "About")?.props["color"]).toBe("#ffffffb8");
+  });
   it("keeps a link that is the only content of a paragraph", () => {
     const { nodes } = run(
       page(

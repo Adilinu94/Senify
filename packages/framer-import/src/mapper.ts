@@ -105,6 +105,48 @@ function cssName(name: string): string | undefined {
   return undefined;
 }
 
+// Recognize the common Framer 24x24 plus template only when its geometry and
+// invisible background match. No untrusted SVG markup is rendered or executed.
+function recognizedPlus(svg: string | null): { color: string; strokeWidth: number } | null {
+  if (svg === null || svg.length > 16000) return null;
+  const tags = [...svg.matchAll(/<\/?\s*([A-Za-z][A-Za-z0-9:-]*)\b[^>]*>/g)];
+  if (tags.some((tag) => !["svg", "path"].includes((tag[1] ?? "").toLowerCase()))) return null;
+  const root = /^\s*<svg\b([^>]*)>/i.exec(svg)?.[1];
+  if (root === undefined) return null;
+  const attr = (text: string, name: string): string | undefined => {
+    const match = new RegExp(`(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i").exec(text);
+    return match?.[1] ?? match?.[2];
+  };
+  if ((attr(root, "viewbox") ?? "").trim().replace(/\s+/g, " ") !== "0 0 24 24") return null;
+  const paths = [...svg.matchAll(/<path\b([^>]*)>/gi)].map((match) => match[1] ?? "");
+  if (paths.length !== 3) return null;
+  const [background, horizontal, vertical] = paths;
+  if (background === undefined || horizontal === undefined || vertical === undefined) return null;
+  const compact = (value: string | undefined): string => (value ?? "").replace(/\s+/g, "").toLowerCase();
+  if (compact(attr(horizontal, "d")) !== "m00l16.50" || compact(attr(vertical, "d")) !== "m00l016.5" ||
+      compact(attr(horizontal, "transform")) !== "translate(3.7512)" || compact(attr(vertical, "transform")) !== "translate(123.75)") return null;
+  const styles: Record<string, string> = {};
+  for (const declaration of (attr(root, "style") ?? "").split(";")) {
+    const colon = declaration.indexOf(":");
+    if (colon > 0) styles[declaration.slice(0, colon).trim()] = declaration.slice(colon + 1).trim();
+  }
+  const resolve = (value: string | undefined): string => {
+    if (value === undefined) return "";
+    const variable = /^var\(\s*(--[\w-]+)\s*,\s*(.*?)\s*\)$/.exec(value);
+    return variable === null ? value.trim() : (styles[variable[1] ?? ""] ?? variable[2] ?? "").trim();
+  };
+  if (Number(resolve(attr(background, "fill-opacity"))) !== 0) return null;
+  if (![undefined, "none"].includes(attr(background, "stroke"))) return null;
+  if (!["none", "transparent"].includes(attr(horizontal, "fill") ?? "none") || !["none", "transparent"].includes(attr(vertical, "fill") ?? "none")) return null;
+  if ((attr(horizontal, "stroke-dasharray") ?? "") !== "" || (attr(vertical, "stroke-dasharray") ?? "") !== "") return null;
+  const color = resolve(attr(horizontal, "stroke"));
+  if (resolve(attr(vertical, "stroke")) !== color || !/^(?:#[\da-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]+)$/i.test(color)) return null;
+  const strokeWidth = Number(resolve(attr(horizontal, "stroke-width")));
+  if (!Number.isFinite(strokeWidth) || strokeWidth <= 0 || strokeWidth > 20 || Number(resolve(attr(vertical, "stroke-width"))) !== strokeWidth) return null;
+  if (attr(horizontal, "stroke-linecap") !== "round" || attr(vertical, "stroke-linecap") !== "round") return null;
+  return { color, strokeWidth };
+}
+
 /* --------------------------------------------------------------- mapping */
 
 const HEADING_TAGS = new Set(["h1", "h2", "h3", "h4", "h5", "h6"]);
@@ -355,6 +397,8 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
   // The primitive decision runs AFTER the sibling merge: the merged children
   // decide whether a `list` stays a list or degrades to a frame.
   let primitive = primitiveFor(node, siblings);
+  const singleLink = node.kind === "rich-text" ? onlyLinkOf(node) : null;
+  if (singleLink !== null) primitive = "link";
   if (node.kind === "placeholder" && (node.codeModule === undefined || node.codeModule === null)) {
     context.stats.placeholders += 1;
     context.findings.push({
@@ -367,6 +411,16 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
     });
   }
   const props: Record<string, unknown> = {};
+  if (node.kind === "svg" && primitive === "icon") {
+    const plus = recognizedPlus(node.svg);
+    if (plus !== null) {
+      props["name"] = "plus";
+      props["strokeWidth"] = plus.strokeWidth;
+      props["color"] = plus.color;
+    } else {
+      context.findings.push({ kind: "unknown-node", nodeKey: node.key, message: "SVG-Form nicht übernommen; generisches Symbol wird angezeigt.", evidence: node.name ?? "svg", severity: "warn", suggestion: "SVG als unterstütztes bearbeitbares Symbol ergänzen." });
+    }
+  }
   if (node.kind === "placeholder") {
     props["label"] = "Platte · Framer-Fremdcode";
     props["alt"] = "Importierte Framer-Komponente ohne verfügbares Modul";
@@ -423,6 +477,10 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
     // frame — the `link` primitive accepts no children. The frame renderer
     // emits an anchor when it carries a safe URL.
     const label = deepTextOf(node) ?? baseText?.content ?? "";
+    if (singleLink !== null && singleLink.href !== null) {
+      props["label"] = label;
+      props["link"] = { url: singleLink.href, newTab: singleLink.target === "_blank" };
+    } else
     if (hasElementChildren && isTextOnlyLink(node)) {
       props["label"] = label;
       if (node.href !== null) props["link"] = { url: node.href, newTab: node.target === "_blank" };
@@ -490,7 +548,7 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
     ownText === "" &&
     node.children.length > 0
   ) {
-    const source = firstTextNode(node);
+    const source = singleLink ?? firstTextNode(node);
     if (source !== null) {
       const typography = mergeStates(source.states);
       const sourceBase = cssToStyle(typographyOf(typography.base.visual));
@@ -678,6 +736,19 @@ function firstTextNode(node: IrNode): IrNode | null {
     if (inner !== null) return inner;
   }
   return null;
+}
+
+// A rich-text wrapper that contains exactly one link can retain the link's
+// resolved typography without losing mixed text or multiple links.
+function onlyLinkOf(node: IrNode): IrNode | null {
+  let current = node;
+  while (current.kind !== "link") {
+    if (current.innerHtml != null || (current.states[0]?.text?.content ?? "") !== "" || current.children.length !== 1) return null;
+    const child = current.children[0];
+    if (child === undefined || !["rich-text", "text", "link"].includes(child.kind)) return null;
+    current = child;
+  }
+  return isTextOnlyLink(current) && current.states.some((state) => state.visual["color"] !== undefined) ? current : null;
 }
 
 // Only the type properties of a visual: the layout of a flattened descendant

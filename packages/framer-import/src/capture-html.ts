@@ -432,6 +432,9 @@ function toIrNode(raw: RawNode, counter: { ordinal: number }, inheritedHidden: s
 
   const states: IrState[] = [];
   const { visual, layout, box } = elementStyleToParts(attrs["style"]);
+  if (raw.tag === "a" && attrs["data-framer-page-link-current"] === "true") {
+    visual["--senify-current-link"] = "true";
+  }
   // The SSR start state of an appear animation (`opacity:0.001;transform:…`)
   // is not the element's look: Framer's script animates it away on load. Kept
   // as a permanent style it hides the element for good, so it moves out of the
@@ -669,6 +672,23 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
       };
       collectAssets(main, assets);
     }
+  }
+
+  // Framer often stores SVG geometry in a local template outside #main and
+  // references it with <use>. Carry the local definition as inert source data;
+  // the mapper accepts only explicitly recognized geometry.
+  const svgDefinitions = new Map<string, string>();
+  for (const match of html.matchAll(/<svg\b([^>]*)>([\s\S]*?)<\/svg\s*>/gi)) {
+    const id = parseAttrs(match[1] ?? "")["id"];
+    if (id !== undefined && /^[A-Za-z0-9_-]+$/.test(id)) svgDefinitions.set(id, match[2] ?? "");
+  }
+  for (const node of flattenNodes(root)) {
+    if (node.svg === null) continue;
+    node.svg = node.svg.replace(/<use\b([^>]*)>\s*<\/use\s*>/gi, (whole, attrs: string) => {
+      const href = parseAttrs(attrs)["href"] ?? parseAttrs(attrs)["xlink:href"];
+      if (href === undefined || !/^#[A-Za-z0-9_-]+$/.test(href)) return whole;
+      return svgDefinitions.get(href.slice(1)) ?? whole;
+    });
   }
 
   const hiddenWithoutAppear = [...flattenNodes(root)].filter((node) =>
@@ -1018,8 +1038,6 @@ type Vars = Record<string, string>;
 
 // A `var(--name, fallback)` call; the fallback may hold one level of nested
 // parentheses (`var(--a, var(--b, 8px))`, `rgb(0 0 0)`).
-const VAR_CALL = /var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,((?:[^()]|\([^()]*\))*))?\)/g;
-
 // Resolve `var()` against the custom properties in force on an element. Framer
 // writes ALL typography through them (`--framer-font-size`, `--framer-text-color`
 // … set by a preset class or inline), so keeping `var(--framer-font-size, 16px)`
@@ -1028,17 +1046,34 @@ const VAR_CALL = /var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,((?:[^()]|\([^()]*\))*))?\)/g
 // defines one, carry its value as a fallback until a theme provides it.
 function resolveVars(value: string, vars: Vars, depth = 0): string {
   if (depth > 6 || !value.includes("var(")) return value;
-  return value.replace(VAR_CALL, (whole: string, name: string, fallback: string | undefined) => {
-    if (name.startsWith("--token-")) {
-      const sourceValue = vars[name];
-      if (sourceValue === undefined || fallback !== undefined) return whole;
-      return `var(${name}, ${resolveVars(sourceValue.trim(), vars, depth + 1)})`;
+  let result = "";
+  let cursor = 0;
+  while (cursor < value.length) {
+    const start = value.indexOf("var(", cursor);
+    if (start < 0) return result + value.slice(cursor);
+    result += value.slice(cursor, start);
+    let level = 1;
+    let end = start + 4;
+    let comma = -1;
+    for (; end < value.length && level > 0; end += 1) {
+      const char = value[end];
+      if (char === "(") level += 1;
+      else if (char === ")") level -= 1;
+      else if (char === "," && level === 1 && comma < 0) comma = end;
     }
+    if (level !== 0) return result + value.slice(start);
+    const name = value.slice(start + 4, comma < 0 ? end - 1 : comma).trim();
+    const fallback = comma < 0 ? undefined : value.slice(comma + 1, end - 1).trim();
+    const whole = value.slice(start, end);
     const found = vars[name];
-    if (found !== undefined) return resolveVars(found.trim(), vars, depth + 1);
-    if (fallback !== undefined) return resolveVars(fallback.trim(), vars, depth + 1);
-    return whole;
-  });
+    if (name.startsWith("--token-")) {
+      result += found !== undefined && fallback === undefined ? `var(${name}, ${resolveVars(found.trim(), vars, depth + 1)})` : whole;
+    } else {
+      result += found !== undefined ? resolveVars(found.trim(), vars, depth + 1) : fallback !== undefined ? resolveVars(fallback, vars, depth + 1) : whole;
+    }
+    cursor = end;
+  }
+  return result;
 }
 
 // A media prelude that only asks for widths: `(min-width: 810px) and
@@ -1244,6 +1279,9 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
       valuesByDevice[device] = Object.fromEntries(
         Object.entries(plain).flatMap(([key, value]) => (value === undefined ? [] : [[key, resolveVars(value, vars)]])),
       );
+      if (current.kind === "link" && vars["--senify-current-link"] === "true" && vars["--framer-link-current-text-color"] !== undefined) {
+        valuesByDevice[device]["color"] = resolveVars(vars["--framer-link-current-text-color"], vars);
+      }
     }
     baseState.visual = valuesByDevice.desktop;
     // A device keeps its own state only where it differs from desktop. A device

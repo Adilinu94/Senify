@@ -319,7 +319,9 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
           "data-name": text(props, "name") || "symbol",
           "aria-hidden": "true",
         },
-        children: [{ tag: "circle", attrs: { cx: 12, cy: 12, r: 9 } }],
+        children: text(props, "name") === "plus"
+          ? [{ tag: "path", attrs: { d: "M 3.75 12 H 20.25 M 12 3.75 V 20.25" } }]
+          : [{ tag: "circle", attrs: { cx: 12, cy: 12, r: 9 } }],
         root: true,
       };
     }
