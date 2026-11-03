@@ -12,6 +12,8 @@ Statuswerte: `belegt` (Test + Code), `implementiert` (Code, Test deckt es nicht 
 
 ## Systemstatus
 
+**Framer-Beispielimport, 03.11.2026:** Der bereitgestellte PullPage-Export wurde mit lokal vorbereiteten Medien über den Mehrseiten-Import in einer getrennten PostgreSQL-Datenbank als Senify-Seiten gespeichert und als diagnostischer Build ausgegeben (`packages/mcp/src/framer-site-import.ts`, `packages/engine/src/imports.ts`, `packages/engine/src/bake.ts`). Der Datenbank-Dump und die Asset-Dateien liegen lokal unter `data/framer-exports/wise-senify-database-assets-v2/`; der Build liegt unter `data/framer-exports/wise-senify-build-diagnostic-v2/`. Die Dateien unter `data/` sind nicht in Git enthalten. Ein Browserlauf öffnete alle angelegten Routen mit blockierten externen Requests; dies belegt weder sämtliche Interaktionen noch Animationstreue. Die geprüfte Home-Ansicht weicht visuell weiterhin vom Original ab; die Runtime-Freiheit des Gesamtprojekts ist nicht vollständig auditiert. Dynamische CMS-Bindung, echte Motion-Parität und Anbindung an die reguläre Senify-Datenbank bleiben offen. Die Datenbank und die gestartete lokale Vorschau sind getrennt von der regulären Projektkonfiguration.
+
 | Bereich | Status | Beleg | Bekannte Grenze |
 |---|---|---|---|
 | JSON-first NodeTree und Renderer | belegt | `packages/editor`, `packages/widget-engine`, `packages/renderer` | Der Legacy-Editor ist **weg**: `mount.ts` (3 270 Zeilen) ist gelöscht, `?view=editor` leitet sichtbar auf den Canvas um (R5 geschlossen) |
