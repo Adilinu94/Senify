@@ -44,11 +44,12 @@ describe("capture fidelity", () => {
   });
 
   it("maps a linked wrapper to a linked frame that keeps its children", () => {
-    const { nodes } = run(page('<a href="/projekt" target="_blank"><div><span>Karte</span></div></a>'));
+    const { nodes, mapped } = run(page('<a href="/projekt" target="_blank"><div><span>Karte</span></div></a>'));
     const frame = nodes.find((node) => node.primitive === "frame" && node.props["link"] === "/projekt");
     expect(frame).toBeDefined();
     expect(frame?.props["newTab"]).toBe(true);
     expect(frame?.children?.length).toBeGreaterThan(0);
+    expect(mapped.findings.some((finding) => finding.message.includes("Link-Wrapper"))).toBe(false);
   });
 
   it("flattens a text-only link without creating unrenderable child nodes", () => {

@@ -36,7 +36,7 @@ export async function importFramerSite(
       const finding = answer.report.findings.find((entry) => entry.severity === "block");
       const reason = finding?.message ?? (input.write && answer.report.existingPage !== undefined ? "Zielseite existiert bereits" : undefined);
       const warnings = answer.report.findings.filter((entry) => entry.severity === "warn").map((entry) => entry.message);
-      if ((answer.report.motion?.measured ?? 0) > 0) warnings.push("Animationen sind auf Presets angenähert; eine exakte Wiedergabe ist nicht belegt.");
+      if ((answer.report.motion?.measured ?? 0) > 0) warnings.push("Animationen wurden erfasst; ihre vollständige Wiedergabe und Auslöser sind nicht für alle Zustände geprüft.");
       pages.push({ path, state: reason === undefined ? "analyzed" : "blocked", ...(reason === undefined ? {} : { reason }), ...(warnings.length === 0 ? {} : { warnings }) });
       if (reason !== undefined) blocked = true;
       hashes.set(path, answer.report.irHash);

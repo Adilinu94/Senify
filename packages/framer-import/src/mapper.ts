@@ -420,8 +420,8 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
   } else if (primitive === "link") {
     // An <a> whose only content is text (possibly wrapped in rich-text
     // containers) stays a link; an <a> wrapping blocks (cards, logos) is a
-    // frame — the `link` primitive accepts no children. The URL loss is a
-    // finding, never a silent drop.
+    // frame — the `link` primitive accepts no children. The frame renderer
+    // emits an anchor when it carries a safe URL.
     const label = deepTextOf(node) ?? baseText?.content ?? "";
     if (hasElementChildren && isTextOnlyLink(node)) {
       props["label"] = label;
@@ -435,14 +435,6 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
         props["link"] = node.href;
         if (node.target === "_blank") props["newTab"] = true;
       }
-      context.findings.push({
-        kind: "unsupported-declaration",
-        nodeKey: node.key,
-        message: `Link-Wrapper (${node.href ?? "ohne Ziel"}) als Frame abgebildet — das link-Primitiv nimmt keine Kinder.`,
-        evidence: `<a href="${node.href ?? ""}"> mit ${siblings.length} Kind-Elementen`,
-        severity: "warn",
-        suggestion: "Link-URL als Fund im Bericht behalten; bei Bedarf als eigenes link-Kind ergänzen.",
-      });
     } else {
       props["label"] = label;
       if (node.href !== null) props["link"] = { url: node.href, newTab: node.target === "_blank" };
