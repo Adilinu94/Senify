@@ -173,6 +173,36 @@ describe("save pipeline", () => {
     expect(requests[0]?.path).toBe("/api/sites/site1/style-rules/r-cta");
   });
 
+  it("updates rules loaded in the document without requiring a separate ID list", async () => {
+    const store = baseStore();
+    store.apply({ op: "upsertStyleRule", rule: rule("existing", "cta") });
+    const requests: SaveRequest[] = [];
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR,
+      request: async (request) => { requests.push(request); return { status: 200, body: {} }; },
+    });
+    store.apply({ op: "upsertStyleRule", rule: rule("existing", "cta", { color: "#123456" }) });
+    await pipeline.flush();
+    expect(requests.map((request) => [request.method, request.path])).toEqual([["PATCH", "/api/sites/site1/style-rules/existing"]]);
+    pipeline.dispose();
+  });
+
+  it("creates a rule again when deletion is undone", async () => {
+    const store = baseStore();
+    store.apply({ op: "upsertStyleRule", rule: rule("existing", "cta") });
+    const requests: SaveRequest[] = [];
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR,
+      request: async (request) => { requests.push(request); return { status: 200, body: {} }; },
+    });
+    store.apply({ op: "deleteStyleRule", id: "existing" });
+    await pipeline.flush();
+    store.undo();
+    await pipeline.flush();
+    expect(requests.map((request) => request.method)).toEqual(["DELETE", "POST"]);
+    pipeline.dispose();
+  });
+
   it("persists a class assignment as a setNodeMeta mutation", async () => {
     const { store, pipeline, requests } = harness();
     store.apply({ op: "upsertStyleRule", rule: rule("r-cta", "cta") });

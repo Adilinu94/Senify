@@ -25,6 +25,8 @@ Die detaillierte Planung für dieses Produktziel steht in der [Framer-Roadmap](f
 
 **Elementkatalog:** Katalogeinträge sind gruppiert und durchsuchbar, auch ohne Vorauswahl einfügbar und für Grundelemente über den validierten Engine-Pfad speicherbar (`packages/editor/src/canvas/dnd-dom.ts`, `packages/engine/src/mutations/apply.ts`, `packages/app/test/imported-editor-browser.test.ts`, `packages/engine/test/mutations.test.ts`). Offen: alle Einträge und Kombinationen durchgängig prüfen, sämtliche Controls und Interaktionen ergänzen sowie Elementor-Zustände visuell vermessen. Der Katalog allein belegt keine vollständige Elementor-Gleichheit.
 
+**Klassenspeicher:** Die Editor-Pipeline erkennt geladene Regeln als bestehend und entfernt gelöschte Regeln aus ihrer internen ID-Liste, sodass erneutes Anlegen nach Undo möglich ist (`packages/editor/src/state/persist.ts`, `packages/editor/test/state/persist.test.ts`). Offen bleiben der vollständige UI-Ablauf und das Zusammenspiel von Site-Regeln und Seitenzuweisungen bei Fehlern.
+
 Nächste Arbeitspakete in Reihenfolge:
 
 1. Exportzugang prüfen und einen echten Export als reproduzierbare Eingabe sichern. CLI und MCP können FramerExport starten und vorhandene Ordner anschließend als Mirror einlesen; MCP kann auch Projektdaten über Unframer lokal sichern (`packages/mcp/src/framer-export.ts`, `packages/mcp/src/unframer.ts`, `packages/framer-import/src/import.ts`). Der direkte kombinierte Ablauf und die Übernahme des Unframer-Snapshots in den NodeTree bleiben offen.

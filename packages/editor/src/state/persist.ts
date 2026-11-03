@@ -397,7 +397,9 @@ function rulePatch(rule: StyleRule): Record<string, unknown> {
 export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
   const { store, pageId, siteId, author, request } = options;
   const debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
-  const knownRuleIds = new Set<string>(options.knownRuleIds ?? []);
+  // Rules loaded with the document already exist on the server. Treating
+  // their first edit as a create makes the class manager hit a duplicate ID.
+  const knownRuleIds = new Set<string>(options.knownRuleIds ?? store.document.styleRules.map((rule) => rule.id));
 
   let pending: Pending[] = [];
   let version = 1;
@@ -561,6 +563,7 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
       styleRegistryVersion =
         typeof responseBody?.version === "number" ? responseBody.version : styleRegistryVersion + 1;
       if (entry.op.kind === "upsert") knownRuleIds.add(entry.op.rule.id);
+      if (entry.op.kind === "delete") knownRuleIds.delete(entry.op.id);
     }
 
     pending = [...failed, ...pending];
