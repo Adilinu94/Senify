@@ -1,5 +1,7 @@
 # Aktueller Stand
 
+**Variablenkonflikte auflösen, 04.11.2026:** Nach einem Versionskonflikt lassen sich aktuelle Theme-Werte im Editor nachladen, ohne eingegebene Änderungen und vorbereitete neue Variablen zu verlieren. Die eigene Änderung kann anschließend erneut gespeichert werden; laufende Variablenschreibvorgänge werden innerhalb des Panels serialisiert (`packages/app/public/app.js`). Der Browser-Test prüft Konflikt, Nachladen, erhaltene Eingaben und erneutes Speichern (`packages/app/test/variables-editor-browser.test.ts`).
+
 **Einheiten für Schieberegler, 04.11.2026:** Schieberegler mit mehreren zugelassenen Einheiten zeigen die Einheitenwahl; der Speicher akzeptiert nur Zahlen mit einer der jeweiligen Control-Einheiten (`packages/editor/src/inspector/inspector.ts`, `packages/widget-engine/src/validation.ts`). Der Browser-Test ändert die Größe eines Symbols auf `2rem` und prüft sie nach Neuladen; der Engine-Test weist ungültige Einheiten ab (`packages/app/test/variables-editor-browser.test.ts`, `packages/engine/test/mutations.test.ts`).
 
 **Einheiten für Abstandsregler, 04.11.2026:** Vierfach- und Gap-Controls bieten ihre im Katalog definierten Einheiten direkt zur Auswahl. Beim Wechsel bleibt die numerische Eingabe erhalten und erhält die neu gewählte Einheit; eine Umrechnung zwischen Einheiten findet nicht statt (`packages/editor/src/inspector/inspector.ts`). Der Browser-Test prüft den Wechsel eines Padding-Werts zwischen `px` und `rem` (`packages/app/test/variables-editor-browser.test.ts`).

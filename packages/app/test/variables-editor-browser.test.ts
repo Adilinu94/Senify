@@ -99,10 +99,18 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       const concurrent = await request(`/api/sites/${site.id}/theme`, { theme: { tokens: { primitive: { color: { accent: "#334455" } } } } }, "PUT");
       expect(concurrent.status).toBe(200);
       await tab.getByRole("textbox", { name: "Farbe accent", exact: true }).fill("#ffffff");
+      await tab.getByRole("textbox", { name: "Name der neuen Farbe" }).fill("entwurf");
+      await tab.getByRole("textbox", { name: "Wert der neuen Farbe" }).fill("#112233");
       await tab.getByRole("button", { name: "Farbe accent speichern" }).click();
       await tab.getByRole("status").getByText("Die Variablen wurden zwischenzeitlich geändert.", { exact: false }).waitFor();
       const persisted = await (await fetch(`${running.dashboardUrl}/api/sites/${site.id}/theme`)).json() as { theme: { tokens: { primitive: { color: { accent: string } } } } };
       expect(persisted.theme.tokens.primitive.color.accent).toBe("#334455");
+      await tab.getByRole("button", { name: "Variablen neu laden" }).click();
+      expect(await tab.getByRole("textbox", { name: "Farbe accent", exact: true }).inputValue()).toBe("#ffffff");
+      expect(await tab.getByRole("textbox", { name: "Name der neuen Farbe" }).inputValue()).toBe("entwurf");
+      expect(await tab.getByRole("textbox", { name: "Wert der neuen Farbe" }).inputValue()).toBe("#112233");
+      await tab.getByRole("button", { name: "Farbe accent speichern" }).click();
+      await expect.poll(color).toBe("rgb(255, 255, 255)");
     } finally {
       await browser.close();
       await running.close();

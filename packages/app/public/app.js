@@ -6219,6 +6219,8 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   // Global tokens share the same versioned theme across every page.
   // The editor sends only the changed token, so other families stay intact.
   const variableDrafts = new Map();
+  const variableCreateDrafts = { color: { name: "", value: "" }, spacing: { name: "", value: "" } };
+  let variableSaving = false;
   function renderVariables() {
     variablesHost.replaceChildren();
     variablesHost.append(el("h2", { text: "Globale Variablen" }), el("p", { class: "canvas-view__variables-help", text: "Variablen gelten für das gesamte Projekt." }));
@@ -6228,31 +6230,61 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     }
     const colors = siteTheme.tokens?.primitive?.color ?? {};
     const spacings = siteTheme.tokens?.primitive?.spacing ?? {};
-    const status = el("p", { class: "canvas-view__variables-status", role: "status", "aria-live": "polite" });
-    variablesHost.append(status);
+    const status = el("span", { role: "status", "aria-live": "polite" });
+    const reload = el("button", { type: "button", text: "Variablen neu laden" });
+    reload.hidden = true;
+    const statusBar = el("div", { class: "canvas-view__variables-status" }, status, reload);
+    variablesHost.append(statusBar);
+    reload.addEventListener("click", async () => {
+      reload.disabled = true;
+      try {
+        const latest = await api(`/api/sites/${siteId}/theme`);
+        siteTheme = latest.theme;
+        siteThemeVersion = latest.version;
+        canvas.setTheme(latest.theme, latest.css);
+        inspector.setTheme(latest.theme);
+        renderVariables();
+        variablesHost.querySelector('[role="status"]').textContent = "Aktualisiert. Bitte prüfe deine Eingaben.";
+      } catch (error) {
+        status.textContent = error?.message ?? "Aktualisieren fehlgeschlagen";
+        reload.disabled = false;
+      }
+    });
     const saveVariable = async (group, name, value, button) => {
+      if (variableSaving) return;
       if (group === "spacing" && !window.CSS.supports("padding", value)) {
         status.textContent = "Bitte einen gültigen Abstand eingeben, zum Beispiel 16px oder 1rem.";
         return;
       }
-      button.disabled = true;
+      variableSaving = true;
+      for (const item of variablesHost.querySelectorAll("button")) item.disabled = true;
       status.textContent = "Wird gespeichert …";
       try {
+        const isNew = !Object.hasOwn(group === "color" ? colors : spacings, name);
         const updated = await api(`/api/sites/${siteId}/theme`, {
           method: "PUT",
           body: { baseVersion: siteThemeVersion, theme: { tokens: { primitive: { [group]: { [name]: value } } } }, author: AUTHOR },
         });
         siteTheme = updated.theme;
         siteThemeVersion = updated.version;
-        variableDrafts.delete(`${group}.${name}`);
+        if (variableDrafts.get(`${group}.${name}`) === value) variableDrafts.delete(`${group}.${name}`);
+        const createDraft = variableCreateDrafts[group];
+        if (isNew && createDraft.name.trim() === name && createDraft.value.trim() === value) {
+          createDraft.name = "";
+          createDraft.value = "";
+        }
         canvas.setTheme(updated.theme, updated.css);
         inspector.setTheme(updated.theme);
+        variableSaving = false;
         renderVariables();
         variablesHost.querySelector('[role="status"]').textContent = "Gespeichert";
       } catch (error) {
         status.textContent = error?.status === 409
-          ? "Die Variablen wurden zwischenzeitlich geändert. Bitte lade den Editor neu."
+          ? "Die Variablen wurden zwischenzeitlich geändert. Lade den aktuellen Stand und prüfe deine Eingaben."
           : (error?.message ?? "Speichern fehlgeschlagen");
+        variableSaving = false;
+        for (const item of variablesHost.querySelectorAll("button")) item.disabled = false;
+        reload.hidden = error?.status !== 409;
         button.disabled = false;
       }
     };
@@ -6269,8 +6301,10 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       input.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); button.click(); } });
       list.append(el("div", { class: "canvas-view__variable-row" }, el("label", { text: name }), swatch, input, button));
     }
-    const name = el("input", { type: "text", placeholder: "Name", "aria-label": "Name der neuen Farbe" });
-    const value = el("input", { type: "text", placeholder: "#000000", "aria-label": "Wert der neuen Farbe" });
+    const name = el("input", { type: "text", value: variableCreateDrafts.color.name, placeholder: "Name", "aria-label": "Name der neuen Farbe" });
+    const value = el("input", { type: "text", value: variableCreateDrafts.color.value, placeholder: "#000000", "aria-label": "Wert der neuen Farbe" });
+    name.addEventListener("input", () => { variableCreateDrafts.color.name = name.value; });
+    value.addEventListener("input", () => { variableCreateDrafts.color.value = value.value; });
     const add = el("button", { type: "button", text: "Farbe hinzufügen" });
     add.addEventListener("click", () => {
       const key = name.value.trim();
@@ -6288,8 +6322,10 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       input.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); save.click(); } });
       spacingList.append(el("div", { class: "canvas-view__variable-row canvas-view__variable-row--spacing" }, el("label", { text: key }), input, save));
     }
-    const spacingName = el("input", { type: "text", placeholder: "Name", "aria-label": "Name des neuen Abstands" });
-    const spacingValue = el("input", { type: "text", placeholder: "16px", "aria-label": "Wert des neuen Abstands" });
+    const spacingName = el("input", { type: "text", value: variableCreateDrafts.spacing.name, placeholder: "Name", "aria-label": "Name des neuen Abstands" });
+    const spacingValue = el("input", { type: "text", value: variableCreateDrafts.spacing.value, placeholder: "16px", "aria-label": "Wert des neuen Abstands" });
+    spacingName.addEventListener("input", () => { variableCreateDrafts.spacing.name = spacingName.value; });
+    spacingValue.addEventListener("input", () => { variableCreateDrafts.spacing.value = spacingValue.value; });
     const addSpacing = el("button", { type: "button", text: "Abstand hinzufügen" });
     addSpacing.addEventListener("click", () => {
       const key = spacingName.value.trim();

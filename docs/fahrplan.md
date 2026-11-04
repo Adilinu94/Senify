@@ -27,7 +27,7 @@ Die detaillierte Planung für dieses Produktziel steht in der [Framer-Roadmap](f
 
 **Vorbereitung Variablenverwaltung:** Der Theme-Schreibpfad unterstützt `baseVersion` und schützt konkurrierende Aktualisierungen über einen bedingten Datenbank-Write; veraltete Änderungen erzeugen einen Konflikt. Der Engine-Gate umfasst parallele PostgreSQL-Schreibversuche (`packages/engine/src/store.ts`, `packages/engine/test/theme.test.ts`).
 
-**Variablenverwaltung – erste Scheibe:** Primitive globale Farben können im Editor angelegt und bearbeitet werden; Canvas und Inspector erhalten nach dem Speichern das neue Theme. Der Browser-Gate prüft Live-Ausgabe, Reload und Konfliktbehandlung (`packages/app/test/variables-editor-browser.test.ts`). Offen: weitere Variablentypen, sichere Umbenennung und Löschung, Elementor-Gleichheit und Wiederherstellung bei Konflikten ohne Neuladen.
+**Variablenverwaltung – erste Scheibe:** Primitive globale Farben können im Editor angelegt und bearbeitet werden; Canvas und Inspector erhalten nach dem Speichern das neue Theme. Bei Konflikten kann der aktuelle Stand ohne Seitenneuladen geladen werden, während Eingaben erhalten bleiben. Der Browser-Gate prüft Live-Ausgabe, Reload und Konfliktbehandlung (`packages/app/test/variables-editor-browser.test.ts`). Offen: weitere Variablentypen, sichere Umbenennung und Löschung sowie Elementor-Gleichheit.
 
 **Typografie-Tokens:** Die Auswahl für Schriftfamilien und Schriftgrößen führt zu ausgebbarem CSS; ältere Größenreferenzen bleiben lesbar. Gezielte Inspector-, Compiler- und CSS-Injection-Tests sichern den Pfad (`packages/editor/test/inspector.test.ts`, `packages/widget-engine/test/theme.test.ts`, `packages/widget-engine/test/css-injection.test.ts`).
 
