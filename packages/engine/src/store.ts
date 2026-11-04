@@ -2422,7 +2422,7 @@ export class Store {
   async #writeStyleRules(
     siteId: string,
     rules: StyleRule[],
-    event: { mutation: string; params: Record<string, unknown>; author: Author; baseVersion?: number; rename?: { from: string; to: string; pageContext?: { pageId: string; baseDraftVersion: number }; pageDraftVersion?: number } },
+    event: { mutation: string; params: Record<string, unknown>; author: Author; baseVersion?: number; rename?: { from: string; to: string; pageContext?: { pageId: string; baseDraftVersion: number }; pageDraftVersion?: number }; unusedClass?: { name: string; pageContext?: { pageId: string; baseDraftVersion: number }; pageDraftVersion?: number } },
   ): Promise<StyleRule[]> {
     const normalized = normalizeRuleOrder(rules);
     return this.#db.withTransaction(async (tx) => {
@@ -2443,6 +2443,31 @@ export class Store {
       }
       const nextVersion = version + 1;
       const now = new Date().toISOString();
+      if (event.unusedClass !== undefined) {
+        const guarded = event.unusedClass;
+        const pages = await tx.query<{ id: string; draft: unknown; draft_version: unknown }>(
+          `SELECT id, draft, draft_version FROM pages WHERE site_id = $1 ORDER BY id FOR UPDATE`,
+          [siteId],
+        );
+        if (guarded.pageContext !== undefined) {
+          const origin = pages.rows.find((page) => page.id === guarded.pageContext?.pageId);
+          if (origin === undefined) throw new SenifyError("not_found", "Die Editor-Seite gehört nicht zum Projekt", { field: "pageContext.pageId" });
+          const currentVersion = toFiniteNumber(origin.draft_version, "draft_version");
+          if (currentVersion !== guarded.pageContext.baseDraftVersion) throw draftConflictError(guarded.pageContext.baseDraftVersion, currentVersion);
+          guarded.pageDraftVersion = currentVersion + 1;
+        }
+        for (const page of pages.rows) {
+          const draft = toJson<unknown>(page.draft);
+          assertDraftShape(draft);
+          if (Object.values(draft.nodes).some((node) => node.classes?.includes(guarded.name))) {
+            throw new SenifyError("conflict", `Die Klasse "${guarded.name}" wird noch in einem Seitenentwurf verwendet.`, { field: "ruleId", suggestion: "Entferne zuerst alle Zuweisungen." });
+          }
+        }
+        // Reject stale page writes which could otherwise reintroduce the name.
+        for (const page of pages.rows) {
+          await tx.query(`UPDATE pages SET draft_version = draft_version + 1, updated_at = $2 WHERE id = $1`, [page.id, now]);
+        }
+      }
       if (event.rename !== undefined) {
         const rename = event.rename;
         const pages = await tx.query<{ id: string; draft: unknown; draft_version: unknown }>(
@@ -2857,7 +2882,8 @@ export class Store {
     ruleId: string,
     author: Author,
     baseVersion?: number,
-  ): Promise<void> {
+    pageContext?: { pageId: string; baseDraftVersion: number },
+  ): Promise<{ version: number; pageDraftVersion?: number }> {
     const registry = await this.getStyleRegistry(siteId);
     assertStyleRegistryVersion(baseVersion, registry.version);
     const rules = registry.rules;
@@ -2867,13 +2893,19 @@ export class Store {
         field: "ruleId",
       });
     }
+    const target = rules[index]!;
+    const unusedClass: { name: string; pageContext?: { pageId: string; baseDraftVersion: number }; pageDraftVersion?: number } | undefined =
+      target.kind === "class" && target.scope === undefined ? { name: target.name, ...(pageContext === undefined ? {} : { pageContext }) } : undefined;
     const next = rules.filter((rule) => rule.id !== ruleId);
     await this.#writeStyleRules(siteId, next, {
       mutation: "delete_style_rule",
       params: { ruleId, name: rules[index]!.name, kind: rules[index]!.kind },
       author,
       baseVersion: registry.version,
+      ...(unusedClass === undefined ? {} : { unusedClass }),
     });
+    const pageDraftVersion = unusedClass?.pageDraftVersion ?? pageContext?.baseDraftVersion;
+    return { version: registry.version + 1, ...(pageDraftVersion === undefined ? {} : { pageDraftVersion }) };
   }
 
   // Reorder is a permutation of the array; `order` is normalized to the array

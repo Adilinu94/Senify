@@ -32,6 +32,16 @@ export const SiteEventBodySchema = Type.Object(
 );
 export type SiteEventBody = Static<typeof SiteEventBodySchema>;
 
+export const DeleteStyleRuleBodySchema = Type.Object(
+  {
+    baseVersion: Type.Optional(Type.Number({ minimum: 0 })),
+    pageContext: Type.Optional(Type.Object({ pageId: Type.String({ minLength: 1 }), baseDraftVersion: Type.Integer({ minimum: 1 }) }, CLOSED)),
+    author: Type.Optional(AuthorSchema),
+  },
+  CLOSED,
+);
+export type DeleteStyleRuleBody = Static<typeof DeleteStyleRuleBodySchema>;
+
 export const DuplicateSiteBodySchema = Type.Object(
   {
     withContent: Type.Optional(Type.Boolean()),

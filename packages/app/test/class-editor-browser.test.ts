@@ -34,6 +34,18 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       await tab.getByRole("textbox", { name: "Name der neuen Klasse" }).fill("cta");
       await tab.getByRole("button", { name: "Anlegen", exact: true }).click();
       await tab.getByRole("button", { name: "cta", exact: true }).waitFor();
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      await tab.locator('.senify-canvas__button[data-action="undo"]').click();
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      const classNames = async () => {
+        const response = await (await fetch(`${running.dashboardUrl}/api/sites/${site.id}/style-rules`)).json() as { rules: Array<{ name: string }> };
+        return response.rules.map((rule) => rule.name);
+      };
+      expect(await classNames()).not.toContain("cta");
+      await tab.locator('.senify-canvas__button[data-action="redo"]').click();
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      expect(await classNames()).toContain("cta");
+      await tab.getByRole("button", { name: "cta", exact: true }).click();
       const targetColor = (name: string) => tab.getByRole("button", { name, exact: true }).evaluate((element) => {
         const target = element as unknown as { ownerDocument: { defaultView: { getComputedStyle(node: unknown): { backgroundColor: string } } } };
         return target.ownerDocument.defaultView.getComputedStyle(element).backgroundColor;

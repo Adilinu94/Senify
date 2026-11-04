@@ -53,12 +53,14 @@ import { RateLimiter, RateLimitError } from "./rate-limit.ts";
 import { hardGuardrailsForTree } from "./guardrails.ts";
 import {
   CreateStyleRuleBodySchema,
+  DeleteStyleRuleBodySchema,
   DuplicateSiteBodySchema,
   ReorderStyleRuleBodySchema,
   SiteEventBodySchema,
   UpdateSiteBodySchema,
   UpdateStyleRuleBodySchema,
   type CreateStyleRuleBody,
+  type DeleteStyleRuleBody,
   type DuplicateSiteBody,
   type UpdateSiteBody,
   type ReorderStyleRuleBody,
@@ -1790,15 +1792,17 @@ const ROUTES: Route[] = [
       const ruleId = requireParam(params, "ruleId");
       const body = (await readJsonBody(req)) ?? {};
       // The body stays validated (closed shape); the token is the identity.
-      const parsed = parseBody<SiteEventBody>(SiteEventBodySchema, body, "style rule delete");
-      await context.store.deleteStyleRule(
+      const parsed = parseBody<DeleteStyleRuleBody>(DeleteStyleRuleBodySchema, body, "style rule delete");
+      const result = await context.store.deleteStyleRule(
         siteId,
         ruleId,
         resolveAuthor(auth),
         parsed.baseVersion,
+        parsed.pageContext,
       );
-      const version = (await context.store.getStyleRegistry(siteId)).version;
-      return { status: 204, headers: styleVersionHeaders(version) };
+      return parsed.pageContext === undefined
+        ? { status: 204, headers: styleVersionHeaders(result.version) }
+        : { status: 200, body: result, headers: styleVersionHeaders(result.version) };
     },
   },
   {

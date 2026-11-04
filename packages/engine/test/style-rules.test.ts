@@ -16,6 +16,67 @@ type StyleRuleResponse = {
 };
 
 describe("style rule registry (site-wide)", () => {
+  it.skipIf(!process.env.TEST_DATABASE_URL)("detects a class assignment that commits while deletion waits", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Gleichzeitige Zuweisung");
+      const page = await createTestPage(env.api, site.id, { path: "/" });
+      const created = await env.api.request<StyleRuleResponse>({ method: "POST", path: `/api/sites/${site.id}/style-rules`, body: { name: "cta" } });
+      const draft = (await env.engine.store.getPage(page.id)).draft;
+      draft.nodes[draft.rootNodeId]!.classes = ["cta"];
+      let pending: Promise<{ status: number }> | undefined;
+      await env.db.withTransaction(async (tx) => {
+        await tx.query(`SELECT id FROM pages WHERE id = $1 FOR UPDATE`, [page.id]);
+        pending = env.api.request({ method: "DELETE", path: `/api/sites/${site.id}/style-rules/${created.body.id}`, body: { author: TEST_AUTHOR } });
+        const deadline = Date.now() + 10000;
+        let blocked = false;
+        while (Date.now() < deadline) {
+          await tx.query(`SELECT pg_stat_clear_snapshot()`);
+          const activity = await tx.query<{ count: string }>(`SELECT count(*)::text AS count FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE 'SELECT id, draft, draft_version FROM pages WHERE site_id = % FOR UPDATE%'`);
+          if (Number(activity.rows[0]?.count) > 0) { blocked = true; break; }
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        expect(blocked).toBe(true);
+        await tx.query(`UPDATE pages SET draft = $2, draft_version = draft_version + 1 WHERE id = $1`, [page.id, JSON.stringify(draft)]);
+      });
+      expect((await pending)?.status).toBe(409);
+      expect((await env.engine.store.getStyleRule(site.id, created.body.id)).name).toBe("cta");
+      expect((await env.engine.store.getPage(page.id)).draft.nodes[draft.rootNodeId]?.classes).toEqual(["cta"]);
+    } finally {
+      await env.close();
+    }
+  }, 30000);
+
+  it("refuses to delete a global class while any page draft still uses it", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Verwendete Klasse");
+      const page = await createTestPage(env.api, site.id, { path: "/" });
+      const created = await env.api.request<StyleRuleResponse>({ method: "POST", path: `/api/sites/${site.id}/style-rules`, body: { name: "cta", styles: { color: "#123456" } } });
+      const draft = (await env.engine.store.getPage(page.id)).draft;
+      draft.nodes[draft.rootNodeId]!.classes = ["cta"];
+      await env.engine.store.updatePage(page.id, page.draftVersion, { draft, title: page.title, path: page.path });
+      const path = `/api/sites/${site.id}/style-rules/${created.body.id}`;
+      const refused = await env.api.request<ErrorResponse>({ method: "DELETE", path, body: { author: TEST_AUTHOR } });
+      expect(refused.status).toBe(409);
+      expect(refused.body.error.field).toBe("ruleId");
+      expect((await env.engine.store.getStyleRule(site.id, created.body.id)).name).toBe("cta");
+      expect((await env.engine.store.getPage(page.id)).draft.nodes[draft.rootNodeId]?.classes).toEqual(["cta"]);
+      const current = await env.engine.store.getPage(page.id);
+      delete current.draft.nodes[draft.rootNodeId]!.classes;
+      const cleanVersion = await env.engine.store.updatePage(page.id, current.draftVersion, { draft: current.draft, title: current.title, path: current.path });
+      const stale = await env.api.request({ method: "DELETE", path, body: { pageContext: { pageId: page.id, baseDraftVersion: cleanVersion - 1 } } });
+      expect(stale.status).toBe(409);
+      expect((await env.engine.store.getPage(page.id)).draftVersion).toBe(cleanVersion);
+      const deleted = await env.api.request<{ version: number; pageDraftVersion: number }>({ method: "DELETE", path, body: { pageContext: { pageId: page.id, baseDraftVersion: cleanVersion }, author: TEST_AUTHOR } });
+      expect(deleted.status).toBe(200);
+      expect(deleted.body).toEqual({ version: 2, pageDraftVersion: cleanVersion + 1 });
+      expect((await env.engine.store.getPage(page.id)).draftVersion).toBe(cleanVersion + 1);
+    } finally {
+      await env.close();
+    }
+  });
+
   it("does not rename a Framer class that a later reimport would replace", async () => {
     const env = await bootEngine();
     try {

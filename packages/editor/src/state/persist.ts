@@ -516,7 +516,7 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
           ? { method: "PATCH", path: `${base}/${op.rule.id}`, body: { ...rulePatch(op.rule), ...versionBody } }
           : { method: "POST", path: base, body: { ...transportRule(op.rule), ...versionBody } };
       case "delete":
-        return { method: "DELETE", path: `${base}/${op.id}`, body: versionBody };
+        return { method: "DELETE", path: `${base}/${op.id}`, body: { ...versionBody, pageContext: { pageId, baseDraftVersion: version } } };
       case "reorder":
         return { method: "POST", path: `${base}/${op.id}/reorder`, body: { ...(op.classIndex === undefined ? { index: op.index } : { classIndex: op.classIndex }), ...versionBody } };
       case "rename":
@@ -578,7 +578,7 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
           conflictVersion = conflictScope === "page" ? readConflictVersion(response.body) : undefined;
           setStatus("conflict", conflictScope === "page"
             ? `Draft has changed (expected v${version}, current v${conflictVersion ?? "?"})`
-            : field === "name" ? messageOf(response.body, "Der Klassenname ist nicht verfügbar.") : "Die Style-Registry wurde zwischenzeitlich geändert");
+            : field === "name" || field === "ruleId" ? messageOf(response.body, "Die Klasse kann nicht geändert werden.") : "Die Style-Registry wurde zwischenzeitlich geändert");
         } else setStatus("error", messageOf(response.body, `Save failed (${response.status})`));
         return;
       }
@@ -589,7 +589,7 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
         const responseBody = response.body as { version?: unknown; pageDraftVersion?: unknown } | undefined;
         styleRegistryVersion =
           typeof responseBody?.version === "number" ? responseBody.version : styleRegistryVersion + 1;
-        if (entry.op.kind === "rename" && typeof responseBody?.pageDraftVersion === "number") version = responseBody.pageDraftVersion;
+        if ((entry.op.kind === "rename" || entry.op.kind === "delete") && typeof responseBody?.pageDraftVersion === "number") version = responseBody.pageDraftVersion;
         if (entry.op.kind === "upsert") knownRuleIds.add(entry.op.rule.id);
         if (entry.op.kind === "delete") knownRuleIds.delete(entry.op.id);
       }
