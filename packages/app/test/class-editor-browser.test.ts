@@ -120,6 +120,27 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       expect(css).toContain("#334455");
       expect(readFileSync(join(outDir, "index.html"), "utf8")).toMatch(/class="[^"]*\bcta\b/);
       expect(readFileSync(join(outDir, "zweite", "index.html"), "utf8")).toMatch(/class="[^"]*\bcta\b/);
+
+      // Clearing a breakpoint and a pseudo-state must survive another load.
+      await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${other.id}`);
+      await waitForFrame();
+      await node("frame00003").click();
+      await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
+      await tab.getByRole("button", { name: "cta", exact: true }).click();
+      await tab.locator('.senify-inspector__state[data-state="hover"]').click();
+      await tab.locator('.senify-inspector__field[data-key="background"] [data-action="reset"]').click();
+      await tab.locator('.senify-inspector__state[data-state="basis"]').click();
+      await tab.locator('.senify-canvas__button[data-action="device"][data-device="mobile"]').click();
+      await tab.locator('.senify-inspector__field[data-key="background"] [data-action="reset"]').click();
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      await tab.reload();
+      await waitForFrame();
+      await tab.locator('.senify-canvas__button[data-action="device"][data-device="mobile"]').click();
+      await expect.poll(mobileColor, { timeout: 15000 }).toBe("rgb(68, 85, 102)");
+      const rules = await (await fetch(`${running.dashboardUrl}/api/sites/${site.id}/style-rules`)).json() as { rules: Array<{ name: string; styles: Record<string, unknown>; states?: Record<string, unknown> }> };
+      const cta = rules.rules.find((entry) => entry.name === "cta");
+      expect(cta?.styles.background_mobile).toBeUndefined();
+      expect(cta?.states?.hover).toBeUndefined();
     } finally {
       await browser.close();
       await running.close();

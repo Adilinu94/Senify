@@ -378,17 +378,16 @@ function transportRule(rule: StyleRule): Record<string, unknown> {
 // PATCH carries only the mutable fields; id, kind and order are the route's.
 function rulePatch(rule: StyleRule): Record<string, unknown> {
   return {
+    replaceStyleValues: true,
     ...(rule.kind === "class" && rule.scope === undefined ? { name: rule.name } : {}),
     ...(rule.kind === "ambient" ? { selector: rule.selector } : {}),
     ...(rule.description === undefined ? {} : { description: rule.description }),
     styles: { ...rule.styles },
-    ...(rule.stylePriorities === undefined ? {} : { stylePriorities: { ...rule.stylePriorities } }),
-    ...(rule.states === undefined ? {} : { states: { ...rule.states } }),
-    ...(rule.statePriorities === undefined ? {} : { statePriorities: { ...rule.statePriorities } }),
+    stylePriorities: { ...rule.stylePriorities },
+    states: { ...rule.states },
+    statePriorities: { ...rule.statePriorities },
     contextStyles: { ...rule.contextStyles },
-    ...(rule.contextStylePriorities === undefined
-      ? {}
-      : { contextStylePriorities: { ...rule.contextStylePriorities } }),
+    contextStylePriorities: { ...rule.contextStylePriorities },
     ...(rule.rawCss === undefined ? {} : { rawCss: rule.rawCss }),
     ...(rule.authoredBy === undefined ? {} : { authoredBy: rule.authoredBy }),
   };

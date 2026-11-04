@@ -116,6 +116,7 @@ export type CreateStyleRuleBody = Static<typeof CreateStyleRuleBodySchema>;
 
 export const UpdateStyleRuleBodySchema = Type.Object(
   {
+    replaceStyleValues: Type.Optional(Type.Boolean()),
     name: Type.Optional(Type.String({ minLength: 1 })),
     selector: Type.Optional(Type.String({ minLength: 1 })),
     description: Type.Optional(Type.Union([Type.String(), Type.Null()])),

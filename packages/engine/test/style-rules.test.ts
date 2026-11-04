@@ -15,6 +15,42 @@ type StyleRuleResponse = {
 };
 
 describe("style rule registry (site-wide)", () => {
+  it("replaces supplied style bags when the editor clears values", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Zurücksetzen");
+      const created = await env.api.request<StyleRuleResponse>({
+        method: "POST",
+        path: `/api/sites/${site.id}/style-rules`,
+        body: {
+          name: "cta",
+          styles: { color: "#123456", color_mobile: "#abcdef" },
+          states: { hover: { color: "#654321" } },
+          contextStyles: { "(orientation: landscape)": { padding: 4 } },
+          author: TEST_AUTHOR,
+        },
+      });
+      expect(created.status).toBe(201);
+      const agentUpdate = await env.api.request({
+        method: "PATCH",
+        path: `/api/sites/${site.id}/style-rules/${created.body.id}`,
+        body: { replaceStyleValues: true, styles: {}, author: TEST_AUTHOR },
+      });
+      expect(agentUpdate.status).toBe(400);
+      const updated = await env.humanApi.request({
+        method: "PATCH",
+        path: `/api/sites/${site.id}/style-rules/${created.body.id}`,
+        body: { replaceStyleValues: true, styles: { color: "#123456" }, states: {}, contextStyles: {}, author: TEST_AUTHOR },
+      });
+      expect(updated.status).toBe(200);
+      const listed = await env.api.request<{ rules: StyleRuleResponse[] }>({ method: "GET", path: `/api/sites/${site.id}/style-rules` });
+      expect(listed.body.rules[0]).toMatchObject({ styles: { color: "#123456" }, contextStyles: {} });
+      expect(listed.body.rules[0]?.states?.hover).toBeUndefined();
+    } finally {
+      await env.close();
+    }
+  });
+
   it("creates, reads, updates, reorders and deletes a class rule", async () => {
     const env = await bootEngine();
     try {

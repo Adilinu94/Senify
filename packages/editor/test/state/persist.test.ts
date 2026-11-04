@@ -197,6 +197,12 @@ describe("save pipeline", () => {
     expect(patchBody["nodeId"]).toBeUndefined();
     expect(patchBody["scope"]).toBeUndefined();
     expect(patchBody["states"]).toEqual({ hover: { color: "#ff0000" } });
+    expect(patchBody).toMatchObject({
+      replaceStyleValues: true,
+      stylePriorities: {},
+      statePriorities: {},
+      contextStylePriorities: {},
+    });
   });
 
   it("updates a rule the server already knows instead of creating it twice", async () => {

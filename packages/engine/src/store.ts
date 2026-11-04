@@ -2568,6 +2568,7 @@ export class Store {
       statePriorities?: Record<string, Record<string, "important">>;
       contextStyles?: Record<string, Record<string, unknown>>;
       contextStylePriorities?: Record<string, Record<string, "important">>;
+      replaceStyleValues?: boolean;
       rawCss?: string | null;
       baseVersion?: number;
     },
@@ -2581,6 +2582,11 @@ export class Store {
       });
     }
     const current = rules[index]!;
+    if (patch.replaceStyleValues && author.kind === "agent") {
+      throw new SenifyError("validation", "Replacing all style values is restricted to human editors", {
+        field: "replaceStyleValues",
+      });
+    }
     const next: StyleRule = { ...current, styles: { ...current.styles }, contextStyles: { ...current.contextStyles } };
 
     if (patch.name !== undefined) {
@@ -2639,16 +2645,16 @@ export class Store {
       else next.description = patch.description;
     }
     if (patch.styles !== undefined) {
-      next.styles = { ...next.styles, ...(patch.styles as StyleRule["styles"]) };
+      next.styles = { ...(patch.replaceStyleValues ? {} : next.styles), ...(patch.styles as StyleRule["styles"]) };
     }
     if (patch.contextStyles !== undefined) {
       next.contextStyles = {
-        ...next.contextStyles,
+        ...(patch.replaceStyleValues ? {} : next.contextStyles),
         ...(patch.contextStyles as StyleRule["contextStyles"]),
       };
     }
     if (patch.states !== undefined) {
-      const states: NonNullable<StyleRule["states"]> = { ...next.states };
+      const states: NonNullable<StyleRule["states"]> = patch.replaceStyleValues ? {} : { ...next.states };
       for (const state of STATE_ORDER) {
         const bag = patch.states[state];
         if (bag !== undefined) states[state] = { ...(bag as StyleRule["styles"]) };
@@ -2656,11 +2662,11 @@ export class Store {
       next.states = states;
     }
     if (patch.stylePriorities !== undefined) {
-      next.stylePriorities = { ...next.stylePriorities, ...patch.stylePriorities };
+      next.stylePriorities = { ...(patch.replaceStyleValues ? {} : next.stylePriorities), ...patch.stylePriorities };
     }
     if (patch.statePriorities !== undefined) {
       const statePriorities: NonNullable<StyleRule["statePriorities"]> = {
-        ...next.statePriorities,
+        ...(patch.replaceStyleValues ? {} : next.statePriorities),
       };
       for (const state of STATE_ORDER) {
         const priority = patch.statePriorities[state];
@@ -2670,7 +2676,7 @@ export class Store {
     }
     if (patch.contextStylePriorities !== undefined) {
       next.contextStylePriorities = {
-        ...next.contextStylePriorities,
+        ...(patch.replaceStyleValues ? {} : next.contextStylePriorities),
         ...patch.contextStylePriorities,
       };
     }

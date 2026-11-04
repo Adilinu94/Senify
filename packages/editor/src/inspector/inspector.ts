@@ -1035,7 +1035,9 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       }
       side.appendChild(dots);
     }
-    if (field.overridden && (field.responsive || field.commit.kind === "override")) {
+    const resetBaseRuleValue = breakpoint === "desktop" && field.base !== undefined &&
+      (field.commit.kind === "class" || field.commit.kind === "state");
+    if (resetBaseRuleValue || (field.overridden && (field.responsive || field.commit.kind === "override"))) {
       const reset = h(doc, "button", {
         className: "senify-inspector__reset",
         text: "Reset",
