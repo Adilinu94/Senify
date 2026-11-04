@@ -1236,11 +1236,11 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     const assigned = node?.classes ?? [];
     const rules = options.store.document.styleRules.filter((rule) => rule.kind === "class" && rule.scope === undefined);
     const section = h(doc, "section", { className: "senify-inspector__classes", data: { role: "classes" } });
-    section.appendChild(h(doc, "div", { className: "senify-inspector__classes-title", text: "Klassen" }));
+    section.appendChild(h(doc, "div", { className: "senify-inspector__classes-title", text: "CSS-Klassen" }));
     const targets = h(doc, "div", { className: "senify-inspector__class-targets", attributes: { "aria-label": "Stilziel" } });
     const local = h(doc, "button", {
       className: "senify-inspector__class-target", text: "Lokal",
-      data: { active: String(selectedClassId === null) },
+      data: { active: String(selectedClassId === null), kind: "local" },
       attributes: { type: "button", "aria-pressed": String(selectedClassId === null) },
     });
     local.addEventListener("click", () => { selectedClassId = null; render(); });
@@ -1248,10 +1248,10 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     for (const name of assigned) {
       const rule = rules.find((entry) => entry.name === name);
       if (rule === undefined) continue;
-      const group = h(doc, "span", { className: "senify-inspector__class-chip" });
+      const group = h(doc, "span", { className: "senify-inspector__class-chip", data: { active: String(selectedClassId === rule.id) } });
       const select = h(doc, "button", {
         className: "senify-inspector__class-target", text: name,
-        data: { active: String(selectedClassId === rule.id) },
+        data: { active: String(selectedClassId === rule.id), kind: "global" },
         attributes: { type: "button", "aria-pressed": String(selectedClassId === rule.id), title: `Klasse ${name} bearbeiten` },
       });
       select.addEventListener("click", () => { selectedClassId = rule.id; render(); });
@@ -1350,7 +1350,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
         selectedClassId = rule.id;
         if (!apply({ op: "assignClass", id: nodeId, classId: rule.name }, `Klasse ${rule.name} zuweisen`)) selectedClassId = previous;
       });
-      section.appendChild(search);
+      targets.appendChild(search);
       section.appendChild(picker);
     }
     const create = h(doc, "div", { className: "senify-inspector__class-create" });

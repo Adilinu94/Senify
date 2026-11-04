@@ -34,6 +34,14 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       await tab.getByRole("textbox", { name: "Name der neuen Klasse" }).fill("cta");
       await tab.getByRole("button", { name: "Anlegen", exact: true }).click();
       await tab.getByRole("button", { name: "cta", exact: true }).waitFor();
+      const targetColor = (name: string) => tab.getByRole("button", { name, exact: true }).evaluate((element) => {
+        const target = element as unknown as { ownerDocument: { defaultView: { getComputedStyle(node: unknown): { backgroundColor: string } } } };
+        return target.ownerDocument.defaultView.getComputedStyle(element).backgroundColor;
+      });
+      expect(await targetColor("cta")).toBe("rgb(94, 234, 212)");
+      await tab.getByRole("button", { name: "Lokal", exact: true }).click();
+      expect(await targetColor("Lokal")).toBe("rgb(240, 171, 252)");
+      await tab.getByRole("button", { name: "cta", exact: true }).click();
       const background = tab.locator('.senify-inspector__field[data-key="background"] input[data-control="color-text"]');
       await background.fill("#123456");
       await background.dispatchEvent("change");
