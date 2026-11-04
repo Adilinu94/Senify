@@ -3622,6 +3622,7 @@ export class Store {
     expectedVersion: number;
     siteId?: string;
     expectedStyleRegistryVersion?: number;
+    expectedThemeVersion?: number;
     draft: NodeTree;
     title: string;
     path: string;
@@ -3642,6 +3643,16 @@ export class Store {
             throw new SenifyError("conflict", "Die Style-Registry wurde zwischenzeitlich geändert", {
               field: "baseStyleRegistryVersion",
               suggestion: "Lade die Seite und ihre Klassen neu.",
+            });
+          }
+        }
+        if (input.expectedThemeVersion !== undefined) {
+          if (input.siteId === undefined) throw new Error("A site is required for a theme precondition");
+          const themes = await tx.query<{ version: unknown }>(`SELECT version FROM themes WHERE site_id = $1 FOR UPDATE`, [input.siteId]);
+          const theme = themes.rows[0];
+          if (theme === undefined || toFiniteNumber(theme.version, "version") !== input.expectedThemeVersion) {
+            throw new SenifyError("conflict", "Die Variablen wurden zwischenzeitlich geändert", {
+              field: "baseThemeVersion", suggestion: "Lade die Seite und ihre Variablen neu.",
             });
           }
         }

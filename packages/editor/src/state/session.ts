@@ -40,6 +40,7 @@ export type EditorSessionOptions = {
   request: SaveTransport;
   initialVersion: number;
   styleRegistryVersion?: number;
+  themeVersion?: number;
   knownRuleIds?: Iterable<string>;
   debounceMs?: number;
   storage?: SessionStorage;
@@ -83,6 +84,7 @@ export class EditorSession {
       ...(options.styleRegistryVersion === undefined
         ? {}
         : { styleRegistryVersion: options.styleRegistryVersion }),
+      ...(options.themeVersion === undefined ? {} : { themeVersion: options.themeVersion }),
       ...(options.debounceMs === undefined ? {} : { debounceMs: options.debounceMs }),
     });
     this.pipeline.acceptVersion(options.initialVersion);
@@ -169,6 +171,10 @@ export class EditorSession {
 
   acceptVersion(version: number): void {
     this.pipeline.acceptVersion(version);
+  }
+
+  acceptThemeVersion(version: number): void {
+    this.pipeline.acceptThemeVersion(version);
   }
 
   // The conflict choice "load the server": the fresh document replaces the

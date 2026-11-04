@@ -56,7 +56,7 @@ export type SaveState = {
   // Set while `status === "conflict"` (L17): the version the failed batch was
   // based on and the version the server reported. `null` when the `409` carried
   // no parseable version.
-  conflict?: { expectedVersion: number; serverVersion: number | null; scope: "page" | "style" };
+  conflict?: { expectedVersion: number; serverVersion: number | null; scope: "page" | "style" | "theme" };
 };
 
 // The conflict dialog's data (L17): one pure model the shell renders — what
@@ -78,6 +78,14 @@ export function conflictDialogModel(
   state: SaveState,
 ): ConflictDialogModel | null {
   if (state.status !== "conflict" || state.conflict === undefined) return null;
+  if (state.conflict.scope === "theme") {
+    return {
+      title: "Variablen wurden inzwischen geändert",
+      hint: "Der aktuelle Stand der Variablen muss neu geladen werden. Dabei werden deine offenen Änderungen verworfen.",
+      expectedVersion: state.conflict.expectedVersion, serverVersion: null, pending: state.pending,
+      reloadLabel: "Server laden (eigene Änderungen verwerfen)", retryLabel: "Erneut senden", retryAllowed: false, dismissLabel: "Später",
+    };
+  }
   if (state.conflict.scope === "style") {
     return {
       title: "Klassen wurden inzwischen geändert",
@@ -120,6 +128,7 @@ export type SavePipelineOptions = {
   // (create with the same id would duplicate the registry entry).
   knownRuleIds?: Iterable<string>;
   styleRegistryVersion?: number;
+  themeVersion?: number;
   debounceMs?: number;
 };
 
@@ -133,6 +142,7 @@ export type SavePipeline = {
   // After a reload the shell hands in the fresh draft version.
   acceptVersion(version: number): void;
   acceptStyleRegistry(version: number, ruleIds: Iterable<string>): void;
+  acceptThemeVersion(version: number): void;
   // The conflict choice "load the server": the local batch is dropped instead
   // of being resent later (the reload replaces the document anyway).
   discardPending(): void;
@@ -423,11 +433,12 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
   let version = 1;
   let styleRegistryVersion = options.styleRegistryVersion ?? 0;
   let hasStyleRegistryVersion = options.styleRegistryVersion !== undefined;
+  let themeVersion = options.themeVersion;
   const classDeletionReceipts = new Map<string, string>();
   let status: SaveStatus = "idle";
   let message: string | undefined;
   let conflictVersion: number | undefined;
-  let conflictScope: "page" | "style" | undefined;
+  let conflictScope: "page" | "style" | "theme" | undefined;
   let paused = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let running = false;
@@ -443,7 +454,7 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
     ...(status === "conflict"
       ? {
           conflict: {
-            expectedVersion: conflictScope === "style" ? styleRegistryVersion : version,
+            expectedVersion: conflictScope === "style" ? styleRegistryVersion : conflictScope === "theme" ? (themeVersion ?? 0) : version,
             serverVersion: conflictVersion ?? null,
             scope: conflictScope ?? "page",
           },
@@ -568,7 +579,7 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
         saveRequest = {
           method: "POST",
           path: `/api/pages/${pageId}/editor-mutations`,
-          body: { baseDraftVersion: version, ...(hasStyleRegistryVersion ? { baseStyleRegistryVersion: styleRegistryVersion } : {}), author, mutations },
+          body: { baseDraftVersion: version, ...(hasStyleRegistryVersion ? { baseStyleRegistryVersion: styleRegistryVersion } : {}), ...(themeVersion === undefined ? {} : { baseThemeVersion: themeVersion }), author, mutations },
         };
       } else {
         if (entry.op.kind === "globalRestore" && !classDeletionReceipts.has(entry.op.historyId)) {
@@ -595,9 +606,9 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
         if (response.status === 409) {
           paused = true;
           const field = (response.body as { error?: { field?: unknown } } | undefined)?.error?.field;
-          conflictScope = entry.kind === "page" && field !== "baseStyleRegistryVersion" ? "page" : "style";
+          conflictScope = entry.kind === "page" && field === "baseThemeVersion" ? "theme" : entry.kind === "page" && field !== "baseStyleRegistryVersion" ? "page" : "style";
           conflictVersion = conflictScope === "page" ? readConflictVersion(response.body) : undefined;
-          setStatus("conflict", conflictScope === "page"
+          setStatus("conflict", conflictScope === "theme" ? "Die Variablen wurden zwischenzeitlich geändert" : conflictScope === "page"
             ? `Draft has changed (expected v${version}, current v${conflictVersion ?? "?"})`
             : field === "name" || field === "ruleId" || field === "receiptId" || field === "baseDraftVersion" ? messageOf(response.body, "Die Klasse kann nicht geändert werden.") : "Die Style-Registry wurde zwischenzeitlich geändert");
         } else setStatus("error", messageOf(response.body, `Save failed (${response.status})`));
@@ -634,8 +645,8 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
   }
 
   const retry = async (nextVersion?: number): Promise<void> => {
-    if (conflictScope === "style") {
-      setStatus("conflict", "Lade die Style-Registry neu, bevor du weiterarbeitest.");
+    if (conflictScope === "style" || conflictScope === "theme") {
+      setStatus("conflict", conflictScope === "theme" ? "Lade die Variablen neu, bevor du weiterarbeitest." : "Lade die Style-Registry neu, bevor du weiterarbeitest.");
       return;
     }
     const target = nextVersion ?? conflictVersion;
@@ -691,6 +702,10 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
       hasStyleRegistryVersion = true;
       knownRuleIds.clear();
       for (const id of ids) knownRuleIds.add(id);
+    },
+    // A newer theme must not silently bless edits queued under the old one.
+    acceptThemeVersion(next) {
+      if (!running && pending.length === 0 && status !== "conflict") themeVersion = next;
     },
     discardPending,
     markRuleKnown(id) {

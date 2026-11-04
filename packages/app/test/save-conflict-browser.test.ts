@@ -147,6 +147,23 @@ describe.skipIf(!browserAvailable)("save conflict dialog", () => {
       await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent()).toBe("Neu geladen");
       await expect.poll(async () => desktopFrame.locator('section[data-section="divider"]').count()).toBe(1);
 
+      // A newer theme must also stop stale page changes and reload the theme.
+      const themeWrite = await fetch(`${running.dashboardUrl}/api/sites/${site.id}/theme`, {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ theme: { tokens: { primitive: { color: { accent: "#123456" } } } } }),
+      });
+      expect(themeWrite.status).toBe(200);
+      await heroSection.hover();
+      await expect.poll(async () => tab.locator('.senify-canvas__plus[data-position="after"]').count()).toBe(1);
+      await tab.locator('.senify-canvas__plus[data-position="after"]').click();
+      await expect.poll(async () => dialog.getAttribute("open")).toBe("");
+      await expect.poll(async () => dialog.locator("h2").textContent()).toBe("Variablen wurden inzwischen geändert");
+      expect(await dialog.locator('[data-action="conflict-retry"]').isVisible()).toBe(false);
+      await dialog.locator('[data-action="conflict-reload"]').click();
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent()).toBe("Neu geladen");
+      await tab.getByRole("tab", { name: "Variablen" }).click();
+      expect(await tab.getByRole("textbox", { name: "Farbe accent", exact: true }).inputValue()).toBe("#123456");
+
       expect(consoleErrors).toEqual([]);
     } finally {
       await browser.close();

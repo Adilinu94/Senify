@@ -177,6 +177,73 @@ describe("save pipeline", () => {
     pipeline.dispose();
   });
 
+  it("pauses a page write when the theme changed and accepts a refreshed version", async () => {
+    const store = baseStore();
+    const requests: SaveRequest[] = [];
+    let stale = true;
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR, themeVersion: 4,
+      request: async (request) => {
+        requests.push(request);
+        return stale ? { status: 409, body: { error: { field: "baseThemeVersion" } } } : { status: 200, body: { newDraftVersion: 2 } };
+      },
+    });
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 });
+    await pipeline.flush();
+    expect(requests[0]?.body).toMatchObject({ baseThemeVersion: 4 });
+    expect(pipeline.state().conflict?.scope).toBe("theme");
+    expect(conflictDialogModel(pipeline.state())?.retryAllowed).toBe(false);
+    await pipeline.retry(2);
+    expect(requests).toHaveLength(1);
+    pipeline.discardPending();
+    pipeline.acceptThemeVersion(5);
+    stale = false;
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 32 });
+    await pipeline.flush();
+    expect(requests[1]?.body).toMatchObject({ baseThemeVersion: 5 });
+    expect(pipeline.state().status).toBe("saved");
+    pipeline.dispose();
+  });
+
+  it("does not rebase pending page edits when a newer theme is loaded", async () => {
+    const store = baseStore();
+    const requests: SaveRequest[] = [];
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR, themeVersion: 4,
+      request: async (request) => { requests.push(request); return { status: 409, body: { error: { field: "baseThemeVersion" } } }; },
+    });
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 });
+    pipeline.acceptThemeVersion(5);
+    await pipeline.flush();
+    expect(requests[0]?.body).toMatchObject({ baseThemeVersion: 4 });
+    expect(pipeline.state().conflict?.scope).toBe("theme");
+    pipeline.dispose();
+  });
+
+  it("does not rebase later edits while an older page request is in flight", async () => {
+    const store = baseStore();
+    const requests: SaveRequest[] = [];
+    let release: (() => void) | undefined;
+    const first = new Promise<void>((resolve) => { release = resolve; });
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR, themeVersion: 4, debounceMs: 5,
+      request: async (request) => {
+        requests.push(request);
+        if (requests.length === 1) { await first; return { status: 200, body: { newDraftVersion: 2 } }; }
+        return { status: 409, body: { error: { field: "baseThemeVersion" } } };
+      },
+    });
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 });
+    const saving = pipeline.flush();
+    pipeline.acceptThemeVersion(5);
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 32 });
+    release?.();
+    await saving;
+    await vi.waitFor(() => expect(pipeline.state().status).toBe("conflict"));
+    expect(requests[1]?.body).toMatchObject({ baseThemeVersion: 4 });
+    pipeline.dispose();
+  });
+
   it("keeps class conflicts paused until the current registry is loaded", async () => {
     let conflict = true;
     const { store, pipeline, requests } = harness(() => conflict ? { status: 409, body: {} } : { status: 200, body: {} });

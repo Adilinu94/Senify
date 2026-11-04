@@ -5811,6 +5811,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     request: transport,
     initialVersion: page.draftVersion,
     styleRegistryVersion,
+    ...(siteThemeVersion > 0 ? { themeVersion: siteThemeVersion } : {}),
     storage,
   });
   const savedUi = session.ui();
@@ -5820,7 +5821,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     saveButton.textContent = state.pending > 0 ? `Speichern (${state.pending})` : "Speichern";
     const conflict = state.status === "conflict";
     reloadButton.hidden = !conflict;
-    retryButton.hidden = !conflict || state.conflict?.scope === "style";
+    retryButton.hidden = !conflict || state.conflict?.scope !== "page";
     if (state.status === "saving") statusEl.textContent = "Speichert …";
     else if (state.status === "saved") statusEl.textContent = "Gespeichert";
     else if (conflict) statusEl.textContent = state.message ?? "Entwurf wurde geändert";
@@ -5847,13 +5848,20 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   };
   const reloadDraft = async () => {
     try {
-      const [fresh, registry] = await Promise.all([api(`/api/pages/${pageId}`), api(`/api/sites/${siteId}/style-rules`)]);
+      const [fresh, registry, theme] = await Promise.all([api(`/api/pages/${pageId}`), api(`/api/sites/${siteId}/style-rules`), api(`/api/sites/${siteId}/theme`)]);
       if (!Array.isArray(registry.rules) || !Number.isInteger(registry.version)) throw new Error("Die Klassen konnten nicht geladen werden.");
+      if (!theme.theme || !Number.isInteger(theme.version)) throw new Error("Die Variablen konnten nicht geladen werden.");
       const loaded = editor.loadDocument(fresh.draft, { styleRules: registry.rules }).document;
       // Der Server-Stand ersetzt das Dokument; die offenen eigenen Aenderungen
       // sind damit verworfen (so steht es im Dialog).
       session.discardPending();
       session.replaceDocument(loaded, fresh.draftVersion, registry.version);
+      siteTheme = theme.theme;
+      siteThemeVersion = theme.version;
+      session.acceptThemeVersion(theme.version);
+      canvas.setTheme(theme.theme, theme.css);
+      inspector.setTheme(theme.theme);
+      renderVariables();
       setVersion(fresh.draftVersion);
       statusEl.textContent = "Neu geladen";
     } catch (error) {
@@ -6265,6 +6273,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
         const latest = await api(`/api/sites/${siteId}/theme`);
         siteTheme = latest.theme;
         siteThemeVersion = latest.version;
+        session.acceptThemeVersion(latest.version);
         canvas.setTheme(latest.theme, latest.css);
         inspector.setTheme(latest.theme);
         renderVariables();
@@ -6291,6 +6300,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
         });
         siteTheme = updated.theme;
         siteThemeVersion = updated.version;
+        session.acceptThemeVersion(updated.version);
         if (variableDrafts.get(`${group}.${name}`) === value) variableDrafts.delete(`${group}.${name}`);
         const createDraft = variableCreateDrafts[group];
         if (isNew && createDraft.name.trim() === name && createDraft.value.trim() === value) {
@@ -6720,6 +6730,9 @@ async function pageView(siteId, pageId, initialSearch) {
   } catch {
     siteTheme = null;
     siteThemeVersion = 0;
+  }
+  if (!siteTheme || typeof siteTheme !== "object" || Array.isArray(siteTheme) || siteThemeVersion < 1) {
+    throw new Error("Die Variablen konnten nicht geladen werden. Bitte erneut versuchen, bevor die Seite bearbeitet wird.");
   }
   const [rulesResult, libraryResult] = await Promise.allSettled([
     api(`/api/sites/${siteId}/style-rules`),

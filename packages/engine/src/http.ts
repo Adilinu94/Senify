@@ -1005,6 +1005,7 @@ async function applyMutationsToPage(
   input: ApplyMutationsBody,
   auth: AuthInfo | undefined,
   baseStyleRegistryVersion?: number,
+  baseThemeVersion?: number,
 ): Promise<RouteResult["body"]> {
   return context.locks.run(pageId, async () => {
     const page = await context.store.getPage(pageId);
@@ -1016,6 +1017,11 @@ async function applyMutationsToPage(
           suggestion: "Lade die Seite und ihre Klassen neu.",
         });
       }
+    }
+    if (baseThemeVersion !== undefined && (await context.store.getTheme(page.siteId)).version !== baseThemeVersion) {
+      throw new SenifyError("conflict", "Die Variablen wurden zwischenzeitlich geändert", {
+        field: "baseThemeVersion", suggestion: "Lade die Seite und ihre Variablen neu.",
+      });
     }
     if (input.baseDraftVersion !== page.draftVersion) {
       throw draftConflictError(input.baseDraftVersion, page.draftVersion);
@@ -1088,6 +1094,7 @@ async function applyMutationsToPage(
       newVersion = await context.store.persistBatch({
         pageId: page.id,
         ...(baseStyleRegistryVersion === undefined ? {} : { expectedStyleRegistryVersion: baseStyleRegistryVersion, siteId: page.siteId }),
+        ...(baseThemeVersion === undefined ? {} : { expectedThemeVersion: baseThemeVersion, siteId: page.siteId }),
         expectedVersion: page.draftVersion,
         draft: outcome.tree,
         title: outcome.page.title,
@@ -1152,7 +1159,7 @@ async function applyEditorMutationsToPage(
     ...(input.dry_run === undefined ? {} : { dry_run: input.dry_run }),
     mutations: editorMutationsToSection(input.mutations),
   };
-  return applyMutationsToPage(context, pageId, sectionBody, auth, input.baseStyleRegistryVersion);
+  return applyMutationsToPage(context, pageId, sectionBody, auth, input.baseStyleRegistryVersion, input.baseThemeVersion);
 }
 
 function pathOpIndex(input: ApplyMutationsBody): number | undefined {

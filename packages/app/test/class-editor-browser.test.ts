@@ -328,6 +328,11 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       await tab.reload();
       await tab.getByRole("alert").getByText("Die Klassen konnten nicht geladen werden.", { exact: false }).waitFor();
       expect(await tab.locator(".senify-canvas__frame").count()).toBe(0);
+      await tab.unroute(`**/api/sites/${site.id}/style-rules`);
+      await tab.route(`**/api/sites/${site.id}/theme`, (route) => route.fulfill({ status: 503, json: { error: { message: "Offline" } } }));
+      await tab.reload();
+      await tab.getByRole("alert").getByText("Die Variablen konnten nicht geladen werden.", { exact: false }).waitFor();
+      expect(await tab.locator(".senify-canvas__frame").count()).toBe(0);
     } finally {
       await browser.close();
       await running.close();
