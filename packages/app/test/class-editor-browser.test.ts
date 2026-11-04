@@ -141,6 +141,19 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       const cta = rules.rules.find((entry) => entry.name === "cta");
       expect(cta?.styles.background_mobile).toBeUndefined();
       expect(cta?.states?.hover).toBeUndefined();
+
+      await tab.route("**/api/library-components", (route) => route.fulfill({ status: 503, json: { error: { message: "Offline" } } }));
+      await tab.reload();
+      await waitForFrame();
+      await tab.locator('.senify-canvas__button[data-action="device"][data-device="desktop"]').click();
+      await node("frame00003").click();
+      await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
+      await tab.getByRole("button", { name: "cta", exact: true }).waitFor();
+      await tab.unroute("**/api/library-components");
+      await tab.route(`**/api/sites/${site.id}/style-rules`, (route) => route.fulfill({ status: 503, json: { error: { message: "Offline" } } }));
+      await tab.reload();
+      await tab.getByRole("alert").getByText("Die Klassen konnten nicht geladen werden.", { exact: false }).waitFor();
+      expect(await tab.locator(".senify-canvas__frame").count()).toBe(0);
     } finally {
       await browser.close();
       await running.close();

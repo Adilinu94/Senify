@@ -1,5 +1,7 @@
 # Aktueller Stand
 
+**Klassen beim Editorstart, 04.11.2026:** Die Klassenliste wird unabhängig von der Komponentenbibliothek geladen. Fällt die Bibliothek aus, bleiben vorhandene Klassen im Editor nutzbar; bei fehlender oder ungültiger Klassenliste erscheint eine Fehlermeldung statt eines Editors mit scheinbar leerer Registry (`packages/app/public/app.js`, `packages/app/test/class-editor-browser.test.ts`).
+
 **Klassenwerte zurücksetzen, 04.11.2026:** Der Inspector bietet Reset für eigene Klassen- und Zustandswerte auch am Desktop. Beim Speichern ersetzt der Editor die übermittelten Stilwert-Sammlungen vollständig; entfernte Breakpoint- und Hover-Werte bleiben nach dem Neuladen entfernt. Das bisherige API-Patch-Verhalten bleibt ohne explizite Option erhalten; Agent-Tokens dürfen den vollständigen Ersatz nicht auslösen (`packages/editor/src/inspector/inspector.ts`, `packages/editor/src/state/persist.ts`, `packages/engine/src/store.ts`). Browser- und Engine-Tests prüfen den Ablauf, Letzterer auch auf separatem PostgreSQL (`packages/app/test/class-editor-browser.test.ts`, `packages/engine/test/style-rules.test.ts`).
 
 > Basis: Commit `aad9550` (29.09.2026); der geprüfte Folge-Diff ist gesichert. Eine reine Store-Mapper-Auslagerung ist der aktuelle uncommittete P3-2-Schritt; Typecheck, Lint, Volltest und Coverage sind dafür grün. Frühere App-/PostgreSQL-Gates stehen mit Datum in `docs/current/qualitaet.md`.

@@ -6541,22 +6541,17 @@ async function pageView(siteId, pageId, initialSearch) {
     siteTheme = null;
     siteThemeVersion = 0;
   }
-  let siteStyleRules = [];
-  let styleRegistryVersion = 0;
-  let libraryComponents = [];
-  try {
-    const [rules, library] = await Promise.all([
-      api(`/api/sites/${siteId}/style-rules`),
-      api("/api/library-components"),
-    ]);
-    siteStyleRules = rules.rules ?? [];
-    styleRegistryVersion = Number.isInteger(rules.version) ? rules.version : 0;
-    libraryComponents = library.components ?? [];
-  } catch {
-    siteStyleRules = [];
-    styleRegistryVersion = 0;
-    libraryComponents = [];
+  const [rulesResult, libraryResult] = await Promise.allSettled([
+    api(`/api/sites/${siteId}/style-rules`),
+    api("/api/library-components"),
+  ]);
+  if (rulesResult.status !== "fulfilled" || !Array.isArray(rulesResult.value.rules) || !Number.isInteger(rulesResult.value.version)) {
+    throw new Error("Die Klassen konnten nicht geladen werden. Bitte erneut versuchen, bevor die Seite bearbeitet wird.");
   }
+  const siteStyleRules = rulesResult.value.rules;
+  const styleRegistryVersion = rulesResult.value.version;
+  const libraryComponents = libraryResult.status === "fulfilled" ? (libraryResult.value.components ?? []) : [];
+  if (libraryResult.status === "rejected") toast("Die Komponentenbibliothek konnte nicht geladen werden.", "error");
   let currentTree = page.draft;
   let pagesCache = [];
   try {
