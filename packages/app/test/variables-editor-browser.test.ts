@@ -51,10 +51,27 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       await tab.getByRole("textbox", { name: "Abstand luft", exact: true }).fill("24px");
       await tab.getByRole("button", { name: "Abstand luft speichern" }).click();
       await expect.poll(spacing).toBe("24px");
+      await node.click();
+      await tab.locator('.senify-inspector__tab[data-tab="content"]').click();
+      const paddingField = tab.locator('.senify-inspector__field[data-key="padding"]');
+      await paddingField.locator('[data-control="tokens"]').click();
+      await paddingField.locator('[data-ref="spacing.luft"]').click();
+      await paddingField.getByText("Token: spacing.luft").waitFor();
+      await paddingField.locator('[data-control="tokens"]').click();
+      await paddingField.locator('[data-action="token-literal"]').click();
+      expect(await paddingField.locator('[data-edge="top"] input').inputValue()).toBe("24px");
+      await paddingField.locator('[data-control="tokens"]').click();
+      await paddingField.locator('[data-ref="spacing.luft"]').click();
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
       await tab.reload();
       await tab.getByRole("tab", { name: "Variablen" }).click();
       await expect.poll(color, { timeout: 15000 }).toBe("rgb(18, 52, 86)");
       await expect.poll(spacing).toBe("24px");
+      const padding = await node.evaluate((element) => {
+        const target = element as unknown as { ownerDocument: { defaultView: { getComputedStyle(node: unknown): { paddingTop: string } } } };
+        return target.ownerDocument.defaultView.getComputedStyle(element).paddingTop;
+      });
+      expect(padding).toBe("24px");
       expect(await tab.getByRole("textbox", { name: "Farbe marke", exact: true }).inputValue()).toBe("#abcdef");
       const concurrent = await request(`/api/sites/${site.id}/theme`, { theme: { tokens: { primitive: { color: { accent: "#334455" } } } } }, "PUT");
       expect(concurrent.status).toBe(200);

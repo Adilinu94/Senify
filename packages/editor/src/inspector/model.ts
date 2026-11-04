@@ -593,7 +593,10 @@ function controlToField(
     source: "control",
     styleGroup: undefined,
   };
-  attachTokenOptions(field, theme, field.kind === "color" ? "color" : undefined);
+  const tokenGroup = field.kind === "color" ? "color"
+    : field.kind === "dimensions" || field.kind === "gaps" ? tokenGroupForStyleProp(control.key)
+      : undefined;
+  attachTokenOptions(field, theme, tokenGroup);
   return field;
 }
 

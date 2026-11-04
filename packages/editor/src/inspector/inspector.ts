@@ -606,7 +606,12 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
         attributes: { type: "button" },
       });
       back.addEventListener("click", () => {
-        commitProp(nodeId, field, literal ?? "");
+        const value = literal ?? "0";
+        if (field.kind === "dimensions") {
+          commitProp(nodeId, field, { top: value, right: value, bottom: value, left: value, isLinked: true, unit: "px" });
+        } else if (field.kind === "gaps") {
+          commitProp(nodeId, field, { row: value, column: value, isLinked: true, unit: "px" });
+        } else commitProp(nodeId, field, value);
         tokenPanelKey = null;
         render();
       });
@@ -744,6 +749,10 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
   }
 
   function renderDimensions(nodeId: string, field: InspectorField, control: DomElement): void {
+    if (field.tokenRef !== null) {
+      control.appendChild(h(doc, "span", { text: `Token: ${field.tokenRef}` }));
+      return;
+    }
     const { parts, linked, unit } = spacingParts(field.value);
     const edges = ["top", "right", "bottom", "left"] as const;
     const icons = ["edge-t", "edge-r", "edge-b", "edge-l"] as const;
@@ -802,6 +811,10 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
   }
 
   function renderGaps(nodeId: string, field: InspectorField, control: DomElement): void {
+    if (field.tokenRef !== null) {
+      control.appendChild(h(doc, "span", { text: `Token: ${field.tokenRef}` }));
+      return;
+    }
     const value = field.value !== undefined && isGapsValue(field.value) ? field.value : undefined;
     const parts = [value?.row ?? "", value?.column ?? ""];
     const unit = value?.unit ?? "rem";

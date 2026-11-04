@@ -147,6 +147,7 @@ export function assertPropValue(
         { field, suggestion: `Expected the value type "${control.valueType}".` },
       );
     }
+    if (isRecord(value) && tokenRef(value) !== undefined) assertSafeValue(value, field);
     return;
   }
   // Not a catalog control: a style value. It runs through the same value

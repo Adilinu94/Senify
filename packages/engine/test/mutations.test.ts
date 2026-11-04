@@ -84,13 +84,16 @@ async function apply(
 describe("canonical mutations", () => {
   it("persists nested catalog primitives and validates responsive changes and nesting", async () => {
     const inserted = await apply([
-      { op: "insertNode", parent: { nodeId: page.draft.rootNodeId }, node: { id: "frame00001", type: "frame" } },
+      { op: "insertNode", parent: { nodeId: page.draft.rootNodeId }, node: { id: "frame00001", type: "frame", props: { padding: { $token: "spacing.4" } } } },
       { op: "insertNode", parent: { nodeId: "frame00001" }, node: { id: "heading001", type: "heading", props: { text: "Hallo" } } },
       { op: "setBreakpointOverride", id: "heading001", breakpoint: "mobile", override: { props: { color: "#123456" } } },
     ]);
     expect(inserted.status).toBe(200);
+    expect(propsOf(page, "frame00001").padding).toEqual({ $token: "spacing.4" });
     expect(childIds(page, "frame00001")).toEqual(["heading001"]);
     expect(nodeOf(page, "heading001").overrides).toEqual({ mobile: { props: { color: "#123456" } } });
+    const unsafeToken = await apply([{ op: "updateNodeProps", id: "frame00001", patch: { padding: { $token: "bad);color:red" } } }]);
+    expect(unsafeToken.status).toBe(400);
     const rejected = await apply([
       { op: "insertNode", parent: { nodeId: "heading001" }, node: { type: "frame" } },
     ]);
