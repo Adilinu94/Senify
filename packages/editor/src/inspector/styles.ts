@@ -103,8 +103,8 @@ export const INSPECTOR_STYLES = `
 .senify-inspector__class-target, .senify-inspector__class-remove, .senify-inspector__class-create button { min-height: 28px; border: 0; padding: 0 8px; background: var(--ed-surface-inset); color: var(--ed-ink-base); font: inherit; cursor: pointer; }
 .senify-inspector__class-target[data-active="true"] { background: var(--ed-signal-accent); color: var(--ed-ink-on-lime); }
 .senify-inspector__class-remove { border-left: 1px solid var(--ed-line-hairline); }
-.senify-inspector__class-picker, .senify-inspector__class-create input { min-width: 0; min-height: 30px; padding: 0 8px; border: 1px solid var(--ed-line-control); border-radius: 4px; background: var(--ed-surface-inset); color: var(--ed-ink-strong); font: inherit; }
-.senify-inspector__class-picker { width: 100%; margin-top: 8px; }
+.senify-inspector__class-picker, .senify-inspector__class-search, .senify-inspector__class-create input { min-width: 0; min-height: 30px; padding: 0 8px; border: 1px solid var(--ed-line-control); border-radius: 4px; background: var(--ed-surface-inset); color: var(--ed-ink-strong); font: inherit; }
+.senify-inspector__class-picker, .senify-inspector__class-search { width: 100%; box-sizing: border-box; margin-top: 8px; }
 .senify-inspector__class-create { display: flex; gap: 6px; margin-top: 8px; }
 .senify-inspector__class-create input { flex: 1; }
 .senify-inspector__class-create button { border: 1px solid var(--ed-line-control); border-radius: 4px; }

@@ -1299,9 +1299,17 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     }
     const available = rules.filter((rule) => !assigned.includes(rule.name));
     if (available.length > 0) {
+      const search = h(doc, "input", { className: "senify-inspector__class-search", attributes: { type: "search", placeholder: "Klasse suchen", "aria-label": "Klassen suchen" } });
       const picker = h(doc, "select", { className: "senify-inspector__class-picker", attributes: { "aria-label": "Vorhandene Klasse hinzufügen" } });
-      picker.appendChild(h(doc, "option", { text: "Klasse hinzufügen …", attributes: { value: "" } }));
-      for (const rule of available) picker.appendChild(h(doc, "option", { text: rule.name, attributes: { value: rule.id } }));
+      const filter = (): void => {
+        const query = (search.value ?? "").trim().toLocaleLowerCase("de");
+        const matches = available.filter((rule) => rule.name.toLocaleLowerCase("de").includes(query));
+        for (const option of picker.querySelectorAll("option")) option.remove();
+        picker.appendChild(h(doc, "option", { text: matches.length === 0 ? "Keine Klasse gefunden" : "Klasse hinzufügen …", attributes: { value: "" } }));
+        for (const rule of matches) picker.appendChild(h(doc, "option", { text: rule.name, attributes: { value: rule.id } }));
+      };
+      search.addEventListener("input", filter);
+      filter();
       picker.addEventListener("change", () => {
         const rule = available.find((entry) => entry.id === picker.value);
         if (rule === undefined) return;
@@ -1309,6 +1317,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
         selectedClassId = rule.id;
         if (!apply({ op: "assignClass", id: nodeId, classId: rule.name }, `Klasse ${rule.name} zuweisen`)) selectedClassId = previous;
       });
+      section.appendChild(search);
       section.appendChild(picker);
     }
     const create = h(doc, "div", { className: "senify-inspector__class-create" });

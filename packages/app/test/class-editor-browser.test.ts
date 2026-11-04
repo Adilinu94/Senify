@@ -38,6 +38,9 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       await background.fill("#123456");
       await background.dispatchEvent("change");
       await node("frame00002").click();
+      await tab.getByRole("searchbox", { name: "Klassen suchen" }).fill("unbekannt");
+      expect(await tab.getByRole("combobox", { name: "Vorhandene Klasse hinzufügen" }).locator("option").allTextContents()).toEqual(["Keine Klasse gefunden"]);
+      await tab.getByRole("searchbox", { name: "Klassen suchen" }).fill("CTA");
       await tab.getByRole("combobox", { name: "Vorhandene Klasse hinzufügen" }).selectOption({ label: "cta" });
       const color = (id: string) => node(id).evaluate((element) => {
         const target = element as unknown as { ownerDocument: { defaultView: { getComputedStyle(node: unknown): { backgroundColor: string } } } };
