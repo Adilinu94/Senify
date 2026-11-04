@@ -530,21 +530,22 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
   const siteRequestFor = (op: PendingSite): SaveRequest => {
     const base = `/api/sites/${siteId}/style-rules`;
     const versionBody = { baseVersion: styleRegistryVersion, author };
+    const guardedVersion = { ...versionBody, ...(themeVersion === undefined ? {} : { baseThemeVersion: themeVersion }) };
     switch (op.kind) {
       case "upsert":
         return knownRuleIds.has(op.rule.id)
-          ? { method: "PATCH", path: `${base}/${op.rule.id}`, body: { ...rulePatch(op.rule), ...versionBody } }
-          : { method: "POST", path: base, body: { ...transportRule(op.rule), ...versionBody } };
+          ? { method: "PATCH", path: `${base}/${op.rule.id}`, body: { ...rulePatch(op.rule), ...guardedVersion } }
+          : { method: "POST", path: base, body: { ...transportRule(op.rule), ...guardedVersion } };
       case "delete":
         return { method: "DELETE", path: `${base}/${op.id}`, body: { ...versionBody, pageContext: { pageId, baseDraftVersion: version } } };
       case "globalDelete":
         return { method: "POST", path: `${base}/${op.id}/delete-globally`, body: { ...versionBody, receiptId: op.receiptId, pageContext: { pageId, baseDraftVersion: version } } };
       case "globalRestore":
-        return { method: "POST", path: `${base}/${op.id}/restore-globally`, body: { ...versionBody, receiptId: classDeletionReceipts.get(op.historyId), pageContext: { pageId, baseDraftVersion: version } } };
+        return { method: "POST", path: `${base}/${op.id}/restore-globally`, body: { ...guardedVersion, receiptId: classDeletionReceipts.get(op.historyId), pageContext: { pageId, baseDraftVersion: version } } };
       case "reorder":
         return { method: "POST", path: `${base}/${op.id}/reorder`, body: { ...(op.classIndex === undefined ? { index: op.index } : { classIndex: op.classIndex }), ...versionBody } };
       case "rename":
-        return { method: "PATCH", path: `${base}/${op.id}`, body: { name: op.name, pageContext: { pageId, baseDraftVersion: version }, ...versionBody } };
+        return { method: "PATCH", path: `${base}/${op.id}`, body: { name: op.name, pageContext: { pageId, baseDraftVersion: version }, ...guardedVersion } };
     }
   };
 
@@ -606,7 +607,7 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
         if (response.status === 409) {
           paused = true;
           const field = (response.body as { error?: { field?: unknown } } | undefined)?.error?.field;
-          conflictScope = entry.kind === "page" && field === "baseThemeVersion" ? "theme" : entry.kind === "page" && field !== "baseStyleRegistryVersion" ? "page" : "style";
+          conflictScope = field === "baseThemeVersion" ? "theme" : entry.kind === "page" && field !== "baseStyleRegistryVersion" ? "page" : "style";
           conflictVersion = conflictScope === "page" ? readConflictVersion(response.body) : undefined;
           setStatus("conflict", conflictScope === "theme" ? "Die Variablen wurden zwischenzeitlich geändert" : conflictScope === "page"
             ? `Draft has changed (expected v${version}, current v${conflictVersion ?? "?"})`

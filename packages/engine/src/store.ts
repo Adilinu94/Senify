@@ -369,6 +369,17 @@ function assertStyleRegistryVersion(expected: number | undefined, current: numbe
   }
 }
 
+async function assertThemeVersionUnderLock(client: DbClient, siteId: string, expected: number | undefined): Promise<void> {
+  if (expected === undefined) return;
+  const themes = await client.query<{ version: unknown }>(`SELECT version FROM themes WHERE site_id = $1 FOR UPDATE`, [siteId]);
+  const theme = themes.rows[0];
+  if (theme === undefined || toFiniteNumber(theme.version, "version") !== expected) {
+    throw new SenifyError("conflict", "Die Variablen wurden zwischenzeitlich geändert", {
+      field: "baseThemeVersion", suggestion: "Lade die Seite und ihre Variablen neu.",
+    });
+  }
+}
+
 function assertValidClassName(name: string): string {
   return assertValidCssClassName(name);
 }
@@ -2437,7 +2448,7 @@ export class Store {
   async #writeStyleRules(
     siteId: string,
     rules: StyleRule[],
-    event: { mutation: string; params: Record<string, unknown>; author: Author; baseVersion?: number; rename?: { from: string; to: string; pageContext?: { pageId: string; baseDraftVersion: number }; pageDraftVersion?: number }; unusedClass?: { name: string; pageContext?: { pageId: string; baseDraftVersion: number }; pageDraftVersion?: number } },
+    event: { mutation: string; params: Record<string, unknown>; author: Author; baseVersion?: number; baseThemeVersion?: number; rename?: { from: string; to: string; pageContext?: { pageId: string; baseDraftVersion: number }; pageDraftVersion?: number }; unusedClass?: { name: string; pageContext?: { pageId: string; baseDraftVersion: number }; pageDraftVersion?: number } },
   ): Promise<StyleRule[]> {
     const normalized = normalizeRuleOrder(rules);
     return this.#db.withTransaction(async (tx) => {
@@ -2456,6 +2467,7 @@ export class Store {
           suggestion: "Lade die Style-Registry neu und sende den Write erneut.",
         });
       }
+      await assertThemeVersionUnderLock(tx, siteId, event.baseThemeVersion);
       const nextVersion = version + 1;
       const now = new Date().toISOString();
       if (event.unusedClass !== undefined) {
@@ -2639,6 +2651,7 @@ export class Store {
       styles?: Record<string, unknown>;
       contextStyles?: Record<string, Record<string, unknown>>;
       baseVersion?: number;
+      baseThemeVersion?: number;
     },
     author: Author,
   ): Promise<StyleRule> {
@@ -2684,6 +2697,7 @@ export class Store {
       params: { ruleId: rule.id, name: rule.name, kind: rule.kind },
       author,
       baseVersion: registry.version,
+      ...(input.baseThemeVersion === undefined ? {} : { baseThemeVersion: input.baseThemeVersion }),
     });
     return written.find((entry) => entry.id === rule.id) ?? rule;
   }
@@ -2704,6 +2718,7 @@ export class Store {
       replaceStyleValues?: boolean;
       rawCss?: string | null;
       baseVersion?: number;
+      baseThemeVersion?: number;
     },
     author: Author,
     pageContext?: { pageId: string; baseDraftVersion: number },
@@ -2887,6 +2902,7 @@ export class Store {
       params: { ruleId, patch: Object.keys(patch) },
       author,
       baseVersion,
+      ...(patch.baseThemeVersion === undefined ? {} : { baseThemeVersion: patch.baseThemeVersion }),
       ...(rename === undefined ? {} : { rename }),
     });
     return { rule: written[index] ?? next, version: baseVersion + 1, ...(rename?.pageDraftVersion === undefined ? {} : { pageDraftVersion: rename.pageDraftVersion }) };
@@ -2992,7 +3008,7 @@ export class Store {
   async restoreGlobalClass(
     siteId: string,
     ruleId: string,
-    input: { receiptId: string; baseVersion: number; pageContext: { pageId: string; baseDraftVersion: number } },
+    input: { receiptId: string; baseVersion: number; baseThemeVersion?: number; pageContext: { pageId: string; baseDraftVersion: number } },
     author: Author,
   ): Promise<{ version: number; pageDraftVersion: number }> {
     return this.#db.withTransaction(async (tx) => {
@@ -3011,6 +3027,7 @@ export class Store {
         }
         throw new SenifyError("conflict", "Die Löschung kann nicht erneut wiederhergestellt werden", { field: "receiptId" });
       }
+      await assertThemeVersionUnderLock(tx, siteId, input.baseThemeVersion);
       assertStyleRegistryVersion(input.baseVersion, version);
       if (toFiniteNumber(receipt.registry_version, "registry_version") !== version) throw new SenifyError("conflict", "Die Klassen wurden seit dem Löschen geändert", { field: "baseVersion" });
       const rule = parseStyleRuleRegistry([toJson<unknown>(receipt.rule)])[0];
@@ -3648,13 +3665,7 @@ export class Store {
         }
         if (input.expectedThemeVersion !== undefined) {
           if (input.siteId === undefined) throw new Error("A site is required for a theme precondition");
-          const themes = await tx.query<{ version: unknown }>(`SELECT version FROM themes WHERE site_id = $1 FOR UPDATE`, [input.siteId]);
-          const theme = themes.rows[0];
-          if (theme === undefined || toFiniteNumber(theme.version, "version") !== input.expectedThemeVersion) {
-            throw new SenifyError("conflict", "Die Variablen wurden zwischenzeitlich geändert", {
-              field: "baseThemeVersion", suggestion: "Lade die Seite und ihre Variablen neu.",
-            });
-          }
+          await assertThemeVersionUnderLock(tx, input.siteId, input.expectedThemeVersion);
         }
         const updated = await tx.query<{ draft_version: unknown }>(
           `UPDATE pages

@@ -164,6 +164,20 @@ describe.skipIf(!browserAvailable)("save conflict dialog", () => {
       await tab.getByRole("tab", { name: "Variablen" }).click();
       expect(await tab.getByRole("textbox", { name: "Farbe accent", exact: true }).inputValue()).toBe("#123456");
 
+      await heroSection.click();
+      await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
+      const secondThemeWrite = await fetch(`${running.dashboardUrl}/api/sites/${site.id}/theme`, {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ theme: { tokens: { primitive: { color: { accent: "#654321" } } } } }),
+      });
+      expect(secondThemeWrite.status).toBe(200);
+      await tab.getByRole("textbox", { name: "Name der neuen Klasse" }).fill("veraltete-klasse");
+      await tab.getByRole("button", { name: "Anlegen", exact: true }).click();
+      await expect.poll(async () => dialog.locator("h2").textContent()).toBe("Variablen wurden inzwischen geändert");
+      expect(await dialog.locator('[data-action="conflict-retry"]').isVisible()).toBe(false);
+      const rules = await (await fetch(`${running.dashboardUrl}/api/sites/${site.id}/style-rules`)).json() as { rules: Array<{ name: string }> };
+      expect(rules.rules.some((rule) => rule.name === "veraltete-klasse")).toBe(false);
+
       expect(consoleErrors).toEqual([]);
     } finally {
       await browser.close();

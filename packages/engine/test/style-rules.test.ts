@@ -16,6 +16,52 @@ type StyleRuleResponse = {
 };
 
 describe("style rule registry (site-wide)", () => {
+  it.skipIf(!process.env.TEST_DATABASE_URL)("serializes class writes with concurrent theme changes", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Klasse und Theme gleichzeitig");
+      const theme = await env.engine.store.getTheme(site.id);
+      let pending: Promise<{ status: number }> | undefined;
+      await env.db.withTransaction(async (tx) => {
+        await tx.query(`SELECT id FROM themes WHERE site_id = $1 FOR UPDATE`, [site.id]);
+        pending = env.api.request({ method: "POST", path: `/api/sites/${site.id}/style-rules`, body: { name: "cta", baseThemeVersion: theme.version } });
+        const deadline = Date.now() + 10000;
+        let blocked = false;
+        while (Date.now() < deadline) {
+          await tx.query(`SELECT pg_stat_clear_snapshot()`);
+          const activity = await tx.query<{ count: string }>(`SELECT count(*)::text AS count FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE 'SELECT version FROM themes WHERE site_id = % FOR UPDATE%'`);
+          if (Number(activity.rows[0]?.count) > 0) { blocked = true; break; }
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        expect(blocked).toBe(true);
+        await tx.query(`UPDATE themes SET version = version + 1 WHERE site_id = $1`, [site.id]);
+      });
+      expect((await pending)?.status).toBe(409);
+      expect((await env.engine.store.getStyleRegistry(site.id)).rules).toEqual([]);
+    } finally { await env.close(); }
+  }, 30000);
+
+  it("rejects stale theme versions for class creation and updates", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Klassen und Theme");
+      const theme = await env.engine.store.getTheme(site.id);
+      const created = await env.api.request<StyleRuleResponse>({ method: "POST", path: `/api/sites/${site.id}/style-rules`, body: { name: "cta", baseThemeVersion: theme.version } });
+      expect(created.status).toBe(201);
+      await env.engine.store.updateTheme(site.id, { scales: { brand: "#123456" } }, TEST_AUTHOR, theme.version);
+      const staleCreate = await env.api.request<{ error: { field: string } }>({ method: "POST", path: `/api/sites/${site.id}/style-rules`, body: { name: "neu", baseThemeVersion: theme.version } });
+      expect(staleCreate.status).toBe(409);
+      expect(staleCreate.body.error.field).toBe("baseThemeVersion");
+      const staleUpdate = await env.api.request<{ error: { field: string } }>({ method: "PATCH", path: `/api/sites/${site.id}/style-rules/${created.body.id}`, body: { styles: { color: "#abcdef" }, baseThemeVersion: theme.version } });
+      expect(staleUpdate.status).toBe(409);
+      expect(staleUpdate.body.error.field).toBe("baseThemeVersion");
+      const registry = await env.engine.store.getStyleRegistry(site.id);
+      expect(registry.rules).toHaveLength(1);
+      expect(registry.rules[0]?.styles.color).toBeUndefined();
+      expect((await env.api.request({ method: "PATCH", path: `/api/sites/${site.id}/style-rules/${created.body.id}`, body: { styles: { color: "#abcdef" }, baseThemeVersion: theme.version + 1 } })).status).toBe(200);
+    } finally { await env.close(); }
+  });
+
   it.skipIf(!process.env.TEST_DATABASE_URL)("rolls back a global deletion if any page write fails", async () => {
     const env = await bootEngine();
     try {
@@ -108,6 +154,23 @@ describe("style rule registry (site-wide)", () => {
     } finally {
       await env.close();
     }
+  });
+
+  it("does not restore a deleted class against a stale theme", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Wiederherstellung und Theme");
+      const page = await createTestPage(env.api, site.id, { path: "/" });
+      const theme = await env.engine.store.getTheme(site.id);
+      const rule = await env.api.request<StyleRuleResponse>({ method: "POST", path: `/api/sites/${site.id}/style-rules`, body: { name: "cta" } });
+      const deleted = await env.engine.store.deleteGlobalClass(site.id, rule.body.id, { baseVersion: 1, pageContext: { pageId: page.id, baseDraftVersion: page.draftVersion } }, TEST_AUTHOR);
+      await env.engine.store.updateTheme(site.id, { scales: { brand: "#123456" } }, TEST_AUTHOR, theme.version);
+      const restore = { receiptId: deleted.receiptId, baseVersion: 2, baseThemeVersion: theme.version, pageContext: { pageId: page.id, baseDraftVersion: deleted.pageDraftVersion } };
+      await expect(env.engine.store.restoreGlobalClass(site.id, rule.body.id, restore, TEST_AUTHOR)).rejects.toMatchObject({ field: "baseThemeVersion" });
+      expect((await env.engine.store.getStyleRegistry(site.id)).rules).toHaveLength(0);
+      const restored = await env.engine.store.restoreGlobalClass(site.id, rule.body.id, { ...restore, baseThemeVersion: theme.version + 1 }, TEST_AUTHOR);
+      expect(restored.version).toBe(3);
+    } finally { await env.close(); }
   });
 
   it.skipIf(!process.env.TEST_DATABASE_URL)("detects a class assignment that commits while deletion waits", async () => {

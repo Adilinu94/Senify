@@ -60,7 +60,7 @@ describe("save pipeline", () => {
     store.apply({ op: "upsertStyleRule", rule: rule("r-cta", "cta") });
     const requests: SaveRequest[] = [];
     const pipeline = createSavePipeline({
-      store, pageId: "page1", siteId: "site1", author: AUTHOR, styleRegistryVersion: 1,
+      store, pageId: "page1", siteId: "site1", author: AUTHOR, styleRegistryVersion: 1, themeVersion: 4,
       request: async (request) => {
         requests.push(request);
         if (request.path.endsWith("/delete-globally")) return { status: 200, body: { version: 2, pageDraftVersion: 2, receiptId: (request.body as { receiptId: string }).receiptId } };
@@ -72,6 +72,7 @@ describe("save pipeline", () => {
     await pipeline.flush();
     expect(requests.map((request) => request.path)).toEqual(["/api/sites/site1/style-rules/r-cta/delete-globally", "/api/sites/site1/style-rules/r-cta/restore-globally"]);
     expect((requests[1]?.body as { receiptId: string }).receiptId).toBe((requests[0]?.body as { receiptId: string }).receiptId);
+    expect(requests[1]?.body).toMatchObject({ baseThemeVersion: 4 });
     expect(pipeline.state().status).toBe("saved");
     pipeline.dispose();
   });
@@ -217,6 +218,21 @@ describe("save pipeline", () => {
     await pipeline.flush();
     expect(requests[0]?.body).toMatchObject({ baseThemeVersion: 4 });
     expect(pipeline.state().conflict?.scope).toBe("theme");
+    pipeline.dispose();
+  });
+
+  it("treats a class write with a stale theme as a theme conflict", async () => {
+    const store = baseStore();
+    const requests: SaveRequest[] = [];
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR, themeVersion: 4,
+      request: async (request) => { requests.push(request); return { status: 409, body: { error: { field: "baseThemeVersion" } } }; },
+    });
+    store.apply({ op: "upsertStyleRule", rule: rule("r-cta", "cta", { color: { $token: "color.accent" } }) });
+    await pipeline.flush();
+    expect(requests[0]?.body).toMatchObject({ baseThemeVersion: 4 });
+    expect(pipeline.state().conflict?.scope).toBe("theme");
+    expect(conflictDialogModel(pipeline.state())?.retryAllowed).toBe(false);
     pipeline.dispose();
   });
 
