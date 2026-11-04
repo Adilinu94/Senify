@@ -129,6 +129,7 @@ export const UpdateStyleRuleBodySchema = Type.Object(
     rawCss: Type.Optional(Type.Union([Type.String(), Type.Null()])),
     authoredBy: Type.Optional(StyleRuleAuthorSchema),
     baseVersion: Type.Optional(Type.Number({ minimum: 0 })),
+    pageContext: Type.Optional(Type.Object({ pageId: Type.String({ minLength: 1 }), baseDraftVersion: Type.Integer({ minimum: 1 }) }, CLOSED)),
     author: Type.Optional(AuthorSchema),
   },
   CLOSED,

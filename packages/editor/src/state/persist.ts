@@ -80,7 +80,7 @@ export function conflictDialogModel(
   if (state.conflict.scope === "style") {
     return {
       title: "Klassen wurden inzwischen geändert",
-      hint: "Der aktuelle Stand der Klassen muss neu geladen werden. Dabei werden deine offenen Änderungen verworfen.",
+      hint: `${state.message ?? "Die Klassen konnten nicht gespeichert werden."} Der aktuelle Stand der Klassen muss neu geladen werden. Dabei werden deine offenen Änderungen verworfen.`,
       expectedVersion: state.conflict.expectedVersion,
       serverVersion: null,
       pending: state.pending,
@@ -520,7 +520,7 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
       case "reorder":
         return { method: "POST", path: `${base}/${op.id}/reorder`, body: { ...(op.classIndex === undefined ? { index: op.index } : { classIndex: op.classIndex }), ...versionBody } };
       case "rename":
-        return { method: "PATCH", path: `${base}/${op.id}`, body: { name: op.name, ...versionBody } };
+        return { method: "PATCH", path: `${base}/${op.id}`, body: { name: op.name, pageContext: { pageId, baseDraftVersion: version }, ...versionBody } };
     }
   };
 
@@ -578,7 +578,7 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
           conflictVersion = conflictScope === "page" ? readConflictVersion(response.body) : undefined;
           setStatus("conflict", conflictScope === "page"
             ? `Draft has changed (expected v${version}, current v${conflictVersion ?? "?"})`
-            : "Die Style-Registry wurde zwischenzeitlich geändert");
+            : field === "name" ? messageOf(response.body, "Der Klassenname ist nicht verfügbar.") : "Die Style-Registry wurde zwischenzeitlich geändert");
         } else setStatus("error", messageOf(response.body, `Save failed (${response.status})`));
         return;
       }
@@ -586,9 +586,10 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
         const nextVersion = readVersion(response.body);
         if (nextVersion !== undefined) version = nextVersion;
       } else {
-        const responseBody = response.body as { version?: unknown } | undefined;
+        const responseBody = response.body as { version?: unknown; pageDraftVersion?: unknown } | undefined;
         styleRegistryVersion =
           typeof responseBody?.version === "number" ? responseBody.version : styleRegistryVersion + 1;
+        if (entry.op.kind === "rename" && typeof responseBody?.pageDraftVersion === "number") version = responseBody.pageDraftVersion;
         if (entry.op.kind === "upsert") knownRuleIds.add(entry.op.rule.id);
         if (entry.op.kind === "delete") knownRuleIds.delete(entry.op.id);
       }

@@ -1302,6 +1302,19 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     }
     const selectedRule = rules.find((rule) => rule.id === selectedClassId && assigned.includes(rule.name));
     if (selectedRule !== undefined) {
+      const rename = h(doc, "div", { className: "senify-inspector__class-create" });
+      const name = h(doc, "input", { value: selectedRule.name, attributes: { type: "text", "aria-label": "Klassenname ändern" } });
+      const renameButton = h(doc, "button", { text: "Umbenennen", attributes: { type: "button" } });
+      const renameClass = (): void => {
+        const value = (name.value ?? "").trim();
+        if (value === "" || value === selectedRule.name) return;
+        apply({ op: "renameStyleRule", id: selectedRule.id, name: value }, `Klasse ${selectedRule.name} umbenennen`);
+      };
+      renameButton.addEventListener("click", renameClass);
+      name.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault?.(); renameClass(); } });
+      rename.appendChild(name);
+      rename.appendChild(renameButton);
+      section.appendChild(rename);
       const duplicate = h(doc, "div", { className: "senify-inspector__class-usage" });
       const button = h(doc, "button", { text: "Klasse duplizieren", attributes: { type: "button" } });
       button.addEventListener("click", () => {

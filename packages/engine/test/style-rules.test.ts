@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { bootEngine, createTestSite, TEST_AUTHOR, type ErrorResponse } from "./helpers.ts";
+import { Store, type Db, type DbClient } from "@senify/engine";
+import { bootEngine, createTestPage, createTestSite, TEST_AUTHOR, type ErrorResponse, type PageResponse } from "./helpers.ts";
 
 type StyleRuleResponse = {
   id: string;
@@ -15,6 +16,134 @@ type StyleRuleResponse = {
 };
 
 describe("style rule registry (site-wide)", () => {
+  it("does not rename a Framer class that a later reimport would replace", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Framer-Klasse");
+      await env.engine.store.appendImportedStyleRules(site.id, [{
+        id: "fi-abcdef-1", name: "framer-abcdef-1", kind: "class", selector: ".framer-abcdef-1", order: 0,
+        styles: { color: "#123456" }, contextStyles: {}, origin: { source: "framer-import", ordinal: 0 }, authoredBy: "preset",
+      }], TEST_AUTHOR);
+      const response = await env.humanApi.request({ method: "PATCH", path: `/api/sites/${site.id}/style-rules/fi-abcdef-1`, body: { name: "umbenannt" } });
+      expect(response.status).toBe(409);
+      expect((await env.engine.store.getStyleRule(site.id, "fi-abcdef-1")).name).toBe("framer-abcdef-1");
+    } finally {
+      await env.close();
+    }
+  });
+
+  it.skipIf(!process.env.TEST_DATABASE_URL)("does not overwrite concurrent unversioned registry writes", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Parallele Klassen");
+      const requests: Array<Promise<{ status: number }>> = [];
+      await env.db.withTransaction(async (tx) => {
+        await tx.query(`SELECT id FROM sites WHERE id = $1 FOR UPDATE`, [site.id]);
+        for (const name of ["eins", "zwei"]) requests.push(env.api.request({ method: "POST", path: `/api/sites/${site.id}/style-rules`, body: { name } }));
+        const deadline = Date.now() + 10000;
+        let blocked = 0;
+        while (Date.now() < deadline) {
+          await tx.query(`SELECT pg_stat_clear_snapshot()`);
+          const activity = await tx.query<{ count: string }>(`SELECT count(*)::text AS count FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE 'SELECT style_rules_json, style_rules_version FROM sites WHERE id = % FOR UPDATE%'`);
+          blocked = Number(activity.rows[0]?.count);
+          if (blocked >= 2) break;
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        expect(blocked).toBeGreaterThanOrEqual(2);
+      });
+      expect((await Promise.all(requests)).map((response) => response.status).sort()).toEqual([201, 409]);
+      expect((await env.engine.store.getStyleRegistry(site.id)).rules).toHaveLength(1);
+    } finally {
+      await env.close();
+    }
+  }, 30000);
+
+  it("refuses a rename that would break a free selector, including CSS escapes", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Freie Selektoren");
+      const created = await env.humanApi.request<StyleRuleResponse>({ method: "POST", path: `/api/sites/${site.id}/style-rules`, body: { name: "cta" } });
+      const ambient = await env.humanApi.request({ method: "POST", path: `/api/sites/${site.id}/style-rules`, body: { name: ".unused", kind: "ambient", selector: ".\\63 ta:hover" } });
+      expect(ambient.status).toBe(201);
+      const response = await env.humanApi.request({ method: "PATCH", path: `/api/sites/${site.id}/style-rules/${created.body.id}`, body: { name: "neu" } });
+      expect(response.status).toBe(409);
+      expect((await env.engine.store.getStyleRule(site.id, created.body.id)).name).toBe("cta");
+    } finally {
+      await env.close();
+    }
+  });
+
+  it.skipIf(!process.env.TEST_DATABASE_URL)("rolls back every page and the registry if a rename write fails", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Rename Rollback");
+      const pages = [await createTestPage(env.api, site.id, { path: "/" }), await createTestPage(env.api, site.id, { path: "/zwei" })];
+      const created = await env.api.request<StyleRuleResponse>({ method: "POST", path: `/api/sites/${site.id}/style-rules`, body: { name: "alt" } });
+      for (const page of pages) {
+        const draft = (await env.engine.store.getPage(page.id)).draft;
+        draft.nodes[draft.rootNodeId]!.classes = ["alt"];
+        page.draftVersion = await env.engine.store.updatePage(page.id, page.draftVersion, { draft, title: page.title, path: page.path });
+      }
+      let writes = 0;
+      const sabotaged: Db = {
+        query: (text, params) => env.db.query(text, params),
+        withTransaction: (task) => env.db.withTransaction((tx) => {
+          const guarded: DbClient = { query: (text, params) => {
+            if (text.startsWith("UPDATE pages SET draft") && ++writes === 2) throw new Error("Simulated rename failure");
+            return tx.query(text, params);
+          } };
+          return task(guarded);
+        }),
+      };
+      await expect(new Store(sabotaged).updateStyleRule(site.id, created.body.id, { name: "neu" }, TEST_AUTHOR)).rejects.toThrow("Simulated rename failure");
+      expect((await env.engine.store.getStyleRegistry(site.id)).rules[0]?.name).toBe("alt");
+      for (const page of pages) {
+        const fresh = await env.engine.store.getPage(page.id);
+        expect(fresh.draft.nodes[fresh.draft.rootNodeId]?.classes).toEqual(["alt"]);
+        expect(fresh.draftVersion).toBe(page.draftVersion);
+      }
+    } finally {
+      await env.close();
+    }
+  });
+
+  it("renames a class across page drafts and rejects stale editor versions", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Klassen auf mehreren Seiten");
+      const first = await createTestPage(env.api, site.id, { path: "/" });
+      const second = await createTestPage(env.api, site.id, { path: "/zwei" });
+      const untouched = await createTestPage(env.api, site.id, { path: "/drei" });
+      const created = await env.api.request<StyleRuleResponse>({ method: "POST", path: `/api/sites/${site.id}/style-rules`, body: { name: "alt" } });
+      for (const page of [first, second]) {
+        const draft = (await env.engine.store.getPage(page.id)).draft;
+        draft.nodes[draft.rootNodeId]!.classes = ["alt", "andere"];
+        page.draftVersion = await env.engine.store.updatePage(page.id, page.draftVersion, { draft, title: page.title, path: page.path });
+      }
+      const path = `/api/sites/${site.id}/style-rules/${created.body.id}`;
+      const stale = await env.api.request({ method: "PATCH", path, body: { name: "neu", baseVersion: 1, pageContext: { pageId: first.id, baseDraftVersion: first.draftVersion - 1 } } });
+      expect(stale.status).toBe(409);
+      const afterConflict = await env.api.request<StyleRuleResponse>({ method: "GET", path });
+      expect(afterConflict.body.name).toBe("alt");
+      const occupied = await env.api.request({ method: "PATCH", path, body: { name: "andere", baseVersion: 1 } });
+      expect(occupied.status).toBe(409);
+      expect((await env.engine.store.getPage(first.id)).draftVersion).toBe(first.draftVersion);
+      const renamed = await env.api.request<StyleRuleResponse & { pageDraftVersion: number; version: number }>({ method: "PATCH", path, body: { name: "neu", baseVersion: 1, pageContext: { pageId: first.id, baseDraftVersion: first.draftVersion } } });
+      expect(renamed.status, JSON.stringify(renamed.body)).toBe(200);
+      expect(renamed.body).toMatchObject({ name: "neu", selector: ".neu", pageDraftVersion: first.draftVersion + 1, version: 2 });
+      for (const page of [first, second]) {
+        const fresh = await env.api.request<PageResponse>({ method: "GET", path: `/api/pages/${page.id}` });
+        expect(fresh.body.draft.nodes[page.draft.rootNodeId]?.classes).toEqual(["neu", "andere"]);
+        expect(fresh.body.draftVersion).toBe(page.draftVersion + 1);
+      }
+      const untouchedAfter = await env.api.request<PageResponse>({ method: "GET", path: `/api/pages/${untouched.id}` });
+      expect(untouchedAfter.body.draft).toEqual(untouched.draft);
+      expect(untouchedAfter.body.draftVersion).toBe(untouched.draftVersion + 1);
+    } finally {
+      await env.close();
+    }
+  });
+
   it("replaces supplied style bags when the editor clears values", async () => {
     const env = await bootEngine();
     try {

@@ -126,6 +126,27 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       await tab.getByText("Start (/) · 2 Elemente").waitFor();
       await tab.getByText("Zweite Seite (/zweite) · 1 Elemente").waitFor();
 
+      // A rename follows the class across drafts and is itself undoable.
+      await tab.getByRole("textbox", { name: "Klassenname ändern" }).fill("cta-neu");
+      await tab.getByRole("button", { name: "Umbenennen", exact: true }).click();
+      await tab.getByRole("button", { name: "cta-neu", exact: true }).waitFor();
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      const otherClasses = async () => {
+        const otherPage = await (await fetch(`${running.dashboardUrl}/api/pages/${other.id}`)).json() as { draft: { nodes: Record<string, { classes?: string[] }> } };
+        return otherPage.draft.nodes.frame00003?.classes;
+      };
+      expect(await otherClasses()).toContain("cta-neu");
+      await expect.poll(() => color("frame00002")).toBe("rgb(68, 85, 102)");
+      await tab.locator('.senify-canvas__button[data-action="undo"]').click();
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      expect(await otherClasses()).toContain("cta");
+      await tab.locator('.senify-canvas__button[data-action="redo"]').click();
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      expect(await otherClasses()).toContain("cta-neu");
+      await tab.locator('.senify-canvas__button[data-action="undo"]').click();
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      expect(await otherClasses()).toContain("cta");
+
       // A duplicate is independent, retains responsive and state styles, and
       // is assigned only to the selected element.
       await node("frame00002").click();

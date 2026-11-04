@@ -1748,10 +1748,9 @@ const ROUTES: Route[] = [
         body,
         "style rule update",
       );
-      const { author: _suggestion, ...patch } = parsed;
-      const rule = await context.store.updateStyleRule(siteId, ruleId, patch, resolveAuthor(auth));
-      const version = (await context.store.getStyleRegistry(siteId)).version;
-      return { status: 200, body: rule, headers: styleVersionHeaders(version) };
+      const { author: _suggestion, pageContext, ...patch } = parsed;
+      const result = await context.store.updateStyleRule(siteId, ruleId, patch, resolveAuthor(auth), pageContext);
+      return { status: 200, body: { ...result.rule, version: result.version, ...(result.pageDraftVersion === undefined ? {} : { pageDraftVersion: result.pageDraftVersion }) }, headers: styleVersionHeaders(result.version) };
     },
   },
   {

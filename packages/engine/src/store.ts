@@ -345,6 +345,15 @@ function StyleRuleSchemaErrors(rule: unknown): string[] {
   return styleRuleErrors(rule);
 }
 
+function assertStyleRegistryVersion(expected: number | undefined, current: number): void {
+  if (expected !== undefined && expected !== current) {
+    throw new SenifyError("conflict", "Die Style-Registry wurde zwischenzeitlich geändert", {
+      field: "baseVersion",
+      suggestion: "Lade die Style-Registry neu und sende den Write erneut.",
+    });
+  }
+}
+
 function assertValidClassName(name: string): string {
   return assertValidCssClassName(name);
 }
@@ -513,6 +522,20 @@ function assertDraftShape(draft: unknown): asserts draft is NodeTree {
   ) {
     throw new Error("Stored page draft has an invalid shape");
   }
+}
+
+// Conservative: selectors may use class names as class or attribute tokens.
+// Decode CSS escapes first so escaped references are not silently broken.
+function selectorMentionsClass(selector: string, name: string): boolean {
+  const normalized = selector.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\\([0-9a-fA-F]{1,6})\s?|\\([^\r\n\f])/g, (_match, hex: string | undefined, char: string | undefined) => {
+    if (hex !== undefined) {
+      const code = Number.parseInt(hex, 16);
+      return code === 0 || code > 0x10ffff ? "\ufffd" : String.fromCodePoint(code);
+    }
+    return char ?? "";
+  });
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^A-Za-z0-9_-])${escaped}(?![A-Za-z0-9_-])`, "i").test(normalized);
 }
 
 function mapPageTemplate(row: {
@@ -2379,7 +2402,9 @@ export class Store {
     author: Author,
     baseVersion?: number,
   ): Promise<StyleRule[]> {
-    const existing = await this.#readStyleRules(siteId);
+    const registry = await this.getStyleRegistry(siteId);
+    assertStyleRegistryVersion(baseVersion, registry.version);
+    const existing = registry.rules;
     const appended = rules.map((rule, index) => {
       const ordered: StyleRule = { ...rule, order: existing.length + index };
       this.#assertWritableRule(ordered, `rules[${index}]`);
@@ -2389,17 +2414,15 @@ export class Store {
       mutation: "importFramerStyleRules",
       params: { count: appended.length },
       author,
-      ...(baseVersion === undefined ? {} : { baseVersion }),
+      baseVersion: registry.version,
     });
   }
 
-  // The whole registry is rewritten in one transaction-free UPDATE: the array
-  // is the document, so a partial write cannot leave two sources of truth. The
-  // audit entry records what changed, not the whole array.
+  // The registry and any page assignments changed by a rename share one transaction.
   async #writeStyleRules(
     siteId: string,
     rules: StyleRule[],
-    event: { mutation: string; params: Record<string, unknown>; author: Author; baseVersion?: number },
+    event: { mutation: string; params: Record<string, unknown>; author: Author; baseVersion?: number; rename?: { from: string; to: string; pageContext?: { pageId: string; baseDraftVersion: number }; pageDraftVersion?: number } },
   ): Promise<StyleRule[]> {
     const normalized = normalizeRuleOrder(rules);
     return this.#db.withTransaction(async (tx) => {
@@ -2420,6 +2443,43 @@ export class Store {
       }
       const nextVersion = version + 1;
       const now = new Date().toISOString();
+      if (event.rename !== undefined) {
+        const rename = event.rename;
+        const pages = await tx.query<{ id: string; draft: unknown; draft_version: unknown }>(
+          `SELECT id, draft, draft_version FROM pages WHERE site_id = $1 ORDER BY id FOR UPDATE`,
+          [siteId],
+        );
+        const origin = rename.pageContext === undefined ? undefined : pages.rows.find((page) => page.id === rename.pageContext?.pageId);
+        if (rename.pageContext !== undefined) {
+          if (origin === undefined) throw new SenifyError("not_found", "Die Editor-Seite gehört nicht zum Projekt", { field: "pageContext.pageId" });
+          const currentVersion = toFiniteNumber(origin.draft_version, "draft_version");
+          if (currentVersion !== rename.pageContext.baseDraftVersion) throw draftConflictError(rename.pageContext.baseDraftVersion, currentVersion);
+          rename.pageDraftVersion = currentVersion;
+        }
+        const pagesToWrite: Array<{ id: string; draft: NodeTree; version: number; changed: boolean }> = [];
+        for (const page of pages.rows) {
+          const draft = structuredClone(toJson<unknown>(page.draft));
+          assertDraftShape(draft);
+          let changed = false;
+          for (const node of Object.values(draft.nodes)) {
+            if (node.classes?.includes(rename.to)) {
+              throw new SenifyError("conflict", `Der Klassenname "${rename.to}" wird bereits in einem Seitenentwurf verwendet`, { field: "name" });
+            }
+            if (node.classes === undefined || !node.classes.includes(rename.from)) continue;
+            node.classes = [...new Set(node.classes.map((name) => name === rename.from ? rename.to : name))];
+            changed = true;
+          }
+          // Even an untouched draft may be open in an older client that has
+          // queued an assignment of the old name. Bumping every page version
+          // makes those writes conflict instead of restoring that name.
+          pagesToWrite.push({ id: page.id, draft, changed, version: toFiniteNumber(page.draft_version, "draft_version") + 1 });
+        }
+        for (const page of pagesToWrite) {
+          await tx.query(`UPDATE pages SET draft = $2, draft_version = draft_version + 1, updated_at = $3 WHERE id = $1`, [page.id, toJsonParam(page.draft), now]);
+          if (page.id === rename.pageContext?.pageId) rename.pageDraftVersion = page.version;
+        }
+        event.params.renamedPages = pagesToWrite.filter((page) => page.changed).map((page) => page.id);
+      }
       const result = await tx.query<{ style_rules_version: unknown }>(
         `UPDATE sites
          SET style_rules_json = $2, style_rules_version = $3, updated_at = $4
@@ -2542,7 +2602,9 @@ export class Store {
     },
     author: Author,
   ): Promise<StyleRule> {
-    const rules = await this.#readStyleRules(siteId);
+    const registry = await this.getStyleRegistry(siteId);
+    assertStyleRegistryVersion(input.baseVersion, registry.version);
+    const rules = registry.rules;
     const kind = input.kind ?? "class";
 
     let rule: StyleRule;
@@ -2581,7 +2643,7 @@ export class Store {
       mutation: "create_style_rule",
       params: { ruleId: rule.id, name: rule.name, kind: rule.kind },
       author,
-      ...(input.baseVersion === undefined ? {} : { baseVersion: input.baseVersion }),
+      baseVersion: registry.version,
     });
     return written.find((entry) => entry.id === rule.id) ?? rule;
   }
@@ -2604,8 +2666,11 @@ export class Store {
       baseVersion?: number;
     },
     author: Author,
-  ): Promise<StyleRule> {
-    const rules = await this.#readStyleRules(siteId);
+    pageContext?: { pageId: string; baseDraftVersion: number },
+  ): Promise<{ rule: StyleRule; version: number; pageDraftVersion?: number }> {
+    const registry = await this.getStyleRegistry(siteId);
+    assertStyleRegistryVersion(patch.baseVersion, registry.version);
+    const rules = registry.rules;
     const index = rules.findIndex((rule) => rule.id === ruleId);
     if (index < 0) {
       throw new SenifyError("not_found", `Style rule "${ruleId}" does not exist`, {
@@ -2763,13 +2828,28 @@ export class Store {
 
     const result = [...rules];
     result[index] = next;
+    const rename: { from: string; to: string; pageContext?: { pageId: string; baseDraftVersion: number }; pageDraftVersion?: number } | undefined =
+      current.kind === "class" && current.scope === undefined && current.name !== next.name
+        ? { from: current.name, to: next.name, ...(pageContext === undefined ? {} : { pageContext }) }
+        : undefined;
+    if (rename !== undefined && (current.origin?.source === "framer-import" || RULE_ID_PATTERN.test(current.id))) {
+      throw new SenifyError("conflict", "Importierte Framer-Klassen können noch nicht sicher umbenannt werden. Dupliziere die Klasse für eigene Änderungen.", { field: "name" });
+    }
+    if (rename !== undefined && rules.some((rule) => rule.kind === "ambient" && (selectorMentionsClass(rule.selector, rename.from) || selectorMentionsClass(rule.selector, rename.to)))) {
+      throw new SenifyError("conflict", "Ein freier CSS-Selektor verweist auf diesen Klassennamen. Passe den Selektor vor dem Umbenennen an.", { field: "name" });
+    }
+    if (pageContext !== undefined && rename === undefined) {
+      throw new SenifyError("validation", "Der Seitenkontext gilt nur beim Umbenennen einer globalen Klasse", { field: "pageContext" });
+    }
+    const baseVersion = registry.version;
     const written = await this.#writeStyleRules(siteId, result, {
       mutation: "update_style_rule",
       params: { ruleId, patch: Object.keys(patch) },
       author,
-      ...(patch.baseVersion === undefined ? {} : { baseVersion: patch.baseVersion }),
+      baseVersion,
+      ...(rename === undefined ? {} : { rename }),
     });
-    return written[index] ?? next;
+    return { rule: written[index] ?? next, version: baseVersion + 1, ...(rename?.pageDraftVersion === undefined ? {} : { pageDraftVersion: rename.pageDraftVersion }) };
   }
 
   async deleteStyleRule(
@@ -2778,7 +2858,9 @@ export class Store {
     author: Author,
     baseVersion?: number,
   ): Promise<void> {
-    const rules = await this.#readStyleRules(siteId);
+    const registry = await this.getStyleRegistry(siteId);
+    assertStyleRegistryVersion(baseVersion, registry.version);
+    const rules = registry.rules;
     const index = rules.findIndex((rule) => rule.id === ruleId);
     if (index < 0) {
       throw new SenifyError("not_found", `Style rule "${ruleId}" does not exist`, {
@@ -2790,7 +2872,7 @@ export class Store {
       mutation: "delete_style_rule",
       params: { ruleId, name: rules[index]!.name, kind: rules[index]!.kind },
       author,
-      ...(baseVersion === undefined ? {} : { baseVersion }),
+      baseVersion: registry.version,
     });
   }
 
@@ -2803,7 +2885,9 @@ export class Store {
     author: Author,
     baseVersion?: number,
   ): Promise<StyleRule[]> {
-    const rules = await this.#readStyleRules(siteId);
+    const registry = await this.getStyleRegistry(siteId);
+    assertStyleRegistryVersion(baseVersion, registry.version);
+    const rules = registry.rules;
     const from = rules.findIndex((rule) => rule.id === ruleId);
     if (from < 0) {
       throw new SenifyError("not_found", `Style rule "${ruleId}" does not exist`, {
@@ -2848,7 +2932,7 @@ export class Store {
         ...(authoredBy === expected ? {} : { foreignAuthoredBy: authoredBy }),
       },
       author,
-      ...(baseVersion === undefined ? {} : { baseVersion }),
+      baseVersion: registry.version,
     });
   }
 

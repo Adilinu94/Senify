@@ -45,6 +45,30 @@ const rule = (id: string, name: string, styles: Record<string, unknown> = {}) =>
 });
 
 describe("save pipeline", () => {
+  it("explains a rejected class name in the conflict dialog", async () => {
+    const { store, pipeline } = harness(() => ({ status: 409, body: { error: { field: "name", message: "Der Name wird bereits verwendet." } } }));
+    store.apply({ op: "upsertStyleRule", rule: rule("r-cta", "cta") });
+    await pipeline.flush();
+    expect(conflictDialogModel(pipeline.state())?.hint).toContain("Der Name wird bereits verwendet.");
+    pipeline.dispose();
+  });
+
+  it("tracks the page version returned by a global class rename", async () => {
+    const { store, pipeline, requests } = harness((request) => {
+      if (request.method === "PATCH") return { status: 200, body: { version: 2, pageDraftVersion: 3 } };
+      return { status: 200, body: { version: 1, newDraftVersion: 2 } };
+    });
+    store.apply({ op: "upsertStyleRule", rule: rule("r-cta", "cta") });
+    store.apply({ op: "assignClass", id: "btn0000001", classId: "cta" });
+    store.apply({ op: "renameStyleRule", id: "r-cta", name: "neu" });
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 });
+    await pipeline.flush();
+    expect(requests[2]?.body).toMatchObject({ name: "neu", baseVersion: 1, pageContext: { pageId: "page1", baseDraftVersion: 2 } });
+    expect(requests[3]?.body).toMatchObject({ baseDraftVersion: 3 });
+    expect(pipeline.state().status).toBe("saved");
+    pipeline.dispose();
+  });
+
   it("pauses a page write when the class registry changed", async () => {
     const store = baseStore();
     const requests: SaveRequest[] = [];
