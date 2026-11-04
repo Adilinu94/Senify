@@ -2195,6 +2195,7 @@ export class Store {
     siteId: string,
     patch: Record<string, unknown>,
     author: Author,
+    baseVersion?: number,
   ): Promise<SiteTheme> {
     if (Object.keys(patch).length === 0) {
       throw new SenifyError("validation", "Theme patch is empty", {
@@ -2204,6 +2205,13 @@ export class Store {
     }
     await this.getSite(siteId);
     const current = await this.ensureSiteTheme(siteId);
+    const currentVersion = toFiniteNumber(current.version, "version");
+    if (baseVersion !== undefined && baseVersion !== currentVersion) {
+      throw new SenifyError("conflict", "Die Variablen wurden zwischenzeitlich geändert", {
+        field: "baseVersion",
+        suggestion: "Lade die Variablen neu und übernimm die Änderung erneut.",
+      });
+    }
     const currentDefinition = toJson<Theme>(current.definition);
     const merged = mergeThemePatch(currentDefinition, patch);
     merged.id = current.id;
@@ -2226,13 +2234,14 @@ export class Store {
     await this.#db.withTransaction(async (tx) => {
       const updated = await tx.query<{ version: unknown }>(
         `UPDATE themes SET definition = $2, name = $3, version = version + 1, updated_at = $4
-         WHERE id = $1 RETURNING version`,
-        [current.id, toJsonParam(merged), merged.name, now],
+         WHERE id = $1 AND version = $5 RETURNING version`,
+        [current.id, toJsonParam(merged), merged.name, now, currentVersion],
       );
       const versionRow = updated.rows[0];
       if (!versionRow) {
-        throw new SenifyError("not_found", `Theme for site "${siteId}" does not exist`, {
-          field: "siteId",
+        throw new SenifyError("conflict", "Die Variablen wurden zwischenzeitlich geändert", {
+          field: "baseVersion",
+          suggestion: "Lade die Variablen neu und übernimm die Änderung erneut.",
         });
       }
       const newVersion = toFiniteNumber(versionRow.version, "version");

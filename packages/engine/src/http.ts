@@ -1600,6 +1600,7 @@ const ROUTES: Route[] = [
         siteId,
         themeBody.theme,
         resolveAuthor(auth),
+        themeBody.baseVersion,
       );
       return { status: 200, body: updated };
     },

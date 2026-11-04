@@ -431,6 +431,7 @@ export type CreatePageBody = Static<typeof CreatePageBodySchema>;
 export const UpdateThemeBodySchema = Type.Object(
   {
     theme: Type.Unsafe<Record<string, unknown>>(Type.Any()),
+    baseVersion: Type.Optional(Type.Integer({ minimum: 1 })),
     author: Type.Optional(AuthorSchema),
   },
   CLOSED,

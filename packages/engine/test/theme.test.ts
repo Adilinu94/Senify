@@ -54,6 +54,31 @@ async function putTheme(body: unknown): Promise<{ status: number; body: ThemeRes
 }
 
 describe("site themes", () => {
+  it.skipIf(!process.env.TEST_DATABASE_URL)("rejects one of two concurrent changes to the same theme version", async () => {
+    const fresh = await createTestSite(env.api, "Konkurrierende Variablen");
+    const path = `/api/sites/${fresh.id}/theme`;
+    const initial = await env.api.request<ThemeResponse>({ method: "GET", path });
+    const results = await Promise.all(["#112233", "#445566"].map((brand) => env.humanApi.request({
+      method: "PUT", path, body: { baseVersion: initial.body.version, theme: { scales: { brand } } },
+    })));
+    expect(results.map((result) => result.status).sort()).toEqual([200, 409]);
+    const after = await env.api.request<ThemeResponse>({ method: "GET", path });
+    expect(after.body.version).toBe(initial.body.version + 1);
+  });
+
+  it("rejects stale theme changes without overwriting newer variables", async () => {
+    const fresh = await createTestSite(env.api, "Gleichzeitige Variablen");
+    const path = `/api/sites/${fresh.id}/theme`;
+    const initial = await env.api.request<ThemeResponse>({ method: "GET", path });
+    const first = await env.humanApi.request<ThemeResponse>({ method: "PUT", path, body: { baseVersion: initial.body.version, theme: { scales: { brand: "#123456" } } } });
+    expect(first.status).toBe(200);
+    const stale = await env.humanApi.request({ method: "PUT", path, body: { baseVersion: initial.body.version, theme: { scales: { brand: "#abcdef" } } } });
+    expect(stale.status).toBe(409);
+    const reloaded = await env.api.request<ThemeResponse>({ method: "GET", path });
+    expect(reloaded.body.version).toBe(first.body.version);
+    expect(reloaded.body.theme).toMatchObject({ scales: { brand: "#123456" } });
+  });
+
   it("auto-creates a default theme with css on site creation", async () => {
     const fresh = await createTestSite(env.api, "Themed Site");
     expect(typeof fresh.themeId).toBe("string");
