@@ -45,6 +45,27 @@ const rule = (id: string, name: string, styles: Record<string, unknown> = {}) =>
 });
 
 describe("save pipeline", () => {
+  it("pauses a page write when the class registry changed", async () => {
+    const store = baseStore();
+    const requests: SaveRequest[] = [];
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR, styleRegistryVersion: 3,
+      request: async (request) => {
+        requests.push(request);
+        return { status: 409, body: { error: { field: "baseStyleRegistryVersion" } } };
+      },
+    });
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 });
+    await pipeline.flush();
+    expect(requests[0]?.body).toMatchObject({ baseDraftVersion: 1, baseStyleRegistryVersion: 3 });
+    expect(pipeline.state().conflict?.scope).toBe("style");
+    expect(pipeline.state().pending).toBe(1);
+    expect(conflictDialogModel(pipeline.state())?.retryAllowed).toBe(false);
+    await pipeline.retry(2);
+    expect(requests).toHaveLength(1);
+    pipeline.dispose();
+  });
+
   it("keeps class conflicts paused until the current registry is loaded", async () => {
     let conflict = true;
     const { store, pipeline, requests } = harness(() => conflict ? { status: 409, body: {} } : { status: 200, body: {} });

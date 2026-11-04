@@ -419,6 +419,7 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
   let pending: Pending[] = [];
   let version = 1;
   let styleRegistryVersion = options.styleRegistryVersion ?? 0;
+  let hasStyleRegistryVersion = options.styleRegistryVersion !== undefined;
   let status: SaveStatus = "idle";
   let message: string | undefined;
   let conflictVersion: number | undefined;
@@ -554,7 +555,7 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
         saveRequest = {
           method: "POST",
           path: `/api/pages/${pageId}/editor-mutations`,
-          body: { baseDraftVersion: version, author, mutations },
+          body: { baseDraftVersion: version, ...(hasStyleRegistryVersion ? { baseStyleRegistryVersion: styleRegistryVersion } : {}), author, mutations },
         };
       } else saveRequest = siteRequestFor(entry.op);
 
@@ -572,9 +573,10 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
         running = false;
         if (response.status === 409) {
           paused = true;
-          conflictVersion = entry.kind === "page" ? readConflictVersion(response.body) : undefined;
-          conflictScope = entry.kind === "page" ? "page" : "style";
-          setStatus("conflict", entry.kind === "page"
+          const field = (response.body as { error?: { field?: unknown } } | undefined)?.error?.field;
+          conflictScope = entry.kind === "page" && field !== "baseStyleRegistryVersion" ? "page" : "style";
+          conflictVersion = conflictScope === "page" ? readConflictVersion(response.body) : undefined;
+          setStatus("conflict", conflictScope === "page"
             ? `Draft has changed (expected v${version}, current v${conflictVersion ?? "?"})`
             : "Die Style-Registry wurde zwischenzeitlich geändert");
         } else setStatus("error", messageOf(response.body, `Save failed (${response.status})`));
@@ -653,6 +655,7 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
     acceptVersion,
     acceptStyleRegistry(next, ids) {
       styleRegistryVersion = next;
+      hasStyleRegistryVersion = true;
       knownRuleIds.clear();
       for (const id of ids) knownRuleIds.add(id);
     },

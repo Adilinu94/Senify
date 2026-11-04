@@ -3361,6 +3361,8 @@ export class Store {
   async persistBatch(input: {
     pageId: string;
     expectedVersion: number;
+    siteId?: string;
+    expectedStyleRegistryVersion?: number;
     draft: NodeTree;
     title: string;
     path: string;
@@ -3369,6 +3371,21 @@ export class Store {
     assertPagePathFormat(input.path);
     try {
       return await this.#db.withTransaction(async (tx) => {
+        if (input.expectedStyleRegistryVersion !== undefined) {
+          if (input.siteId === undefined) throw new Error("A site is required for a style registry precondition");
+          const site = await tx.query<StyleRuleRow>(
+            `SELECT style_rules_json, style_rules_version FROM sites WHERE id = $1 FOR UPDATE`,
+            [input.siteId],
+          );
+          const row = site.rows[0];
+          if (row === undefined) throw new SenifyError("not_found", `Site "${input.siteId}" does not exist`, { field: "siteId" });
+          if (toFiniteNumber(row.style_rules_version ?? 0, "style_rules_version") !== input.expectedStyleRegistryVersion) {
+            throw new SenifyError("conflict", "Die Style-Registry wurde zwischenzeitlich geändert", {
+              field: "baseStyleRegistryVersion",
+              suggestion: "Lade die Seite und ihre Klassen neu.",
+            });
+          }
+        }
         const updated = await tx.query<{ draft_version: unknown }>(
           `UPDATE pages
            SET draft = $2, title = $3, path = $4, draft_version = draft_version + 1, updated_at = $5

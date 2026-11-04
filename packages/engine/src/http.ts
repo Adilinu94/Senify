@@ -997,9 +997,19 @@ async function applyMutationsToPage(
   pageId: string,
   input: ApplyMutationsBody,
   auth: AuthInfo | undefined,
+  baseStyleRegistryVersion?: number,
 ): Promise<RouteResult["body"]> {
   return context.locks.run(pageId, async () => {
     const page = await context.store.getPage(pageId);
+    if (baseStyleRegistryVersion !== undefined) {
+      const registry = await context.store.getStyleRegistry(page.siteId);
+      if (registry.version !== baseStyleRegistryVersion) {
+        throw new SenifyError("conflict", "Die Style-Registry wurde zwischenzeitlich geändert", {
+          field: "baseStyleRegistryVersion",
+          suggestion: "Lade die Seite und ihre Klassen neu.",
+        });
+      }
+    }
     if (input.baseDraftVersion !== page.draftVersion) {
       throw draftConflictError(input.baseDraftVersion, page.draftVersion);
     }
@@ -1070,6 +1080,7 @@ async function applyMutationsToPage(
     try {
       newVersion = await context.store.persistBatch({
         pageId: page.id,
+        ...(baseStyleRegistryVersion === undefined ? {} : { expectedStyleRegistryVersion: baseStyleRegistryVersion, siteId: page.siteId }),
         expectedVersion: page.draftVersion,
         draft: outcome.tree,
         title: outcome.page.title,
@@ -1134,7 +1145,7 @@ async function applyEditorMutationsToPage(
     ...(input.dry_run === undefined ? {} : { dry_run: input.dry_run }),
     mutations: editorMutationsToSection(input.mutations),
   };
-  return applyMutationsToPage(context, pageId, sectionBody, auth);
+  return applyMutationsToPage(context, pageId, sectionBody, auth, input.baseStyleRegistryVersion);
 }
 
 function pathOpIndex(input: ApplyMutationsBody): number | undefined {
@@ -1767,7 +1778,7 @@ const ROUTES: Route[] = [
         parsed.baseVersion,
       );
       const version = (await context.store.getStyleRegistry(siteId)).version;
-      return { status: 200, body: { rules }, headers: styleVersionHeaders(version) };
+      return { status: 200, body: { rules, version }, headers: styleVersionHeaders(version) };
     },
   },
   {

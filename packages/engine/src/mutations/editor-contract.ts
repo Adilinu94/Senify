@@ -383,6 +383,7 @@ export function parseEditorMutationBatch(input: readonly unknown[]): EditorMutat
 const ApplyEditorMutationsShapeSchema = Type.Object(
   {
     baseDraftVersion: Type.Integer({ minimum: 1 }),
+    baseStyleRegistryVersion: Type.Optional(Type.Integer({ minimum: 0 })),
     author: Type.Optional(AuthorSchema),
     dry_run: Type.Optional(Type.Boolean()),
     mutations: Type.Array(EditorMutationSchema, { minItems: 1, maxItems: 500 }),

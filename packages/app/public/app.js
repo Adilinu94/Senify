@@ -69,6 +69,7 @@ async function api(path, options = {}) {
     const error = data.error ?? {};
     const failure = new Error(error.message ?? `HTTP ${response.status}`);
     failure.suggestion = error.suggestion;
+    failure.field = error.field;
     failure.status = response.status;
     throw failure;
   }
@@ -5777,7 +5778,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     } catch (error) {
       return {
         status: typeof error?.status === "number" ? error.status : 500,
-        body: { error: { message: error?.message ?? String(error) } },
+        body: { error: { message: error?.message ?? String(error), field: error?.field } },
       };
     }
   };

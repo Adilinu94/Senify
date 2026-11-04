@@ -134,6 +134,19 @@ describe.skipIf(!browserAvailable)("save conflict dialog", () => {
         .poll(async () => desktopFrame.locator('section[data-section="divider"]').count())
         .toBe(1);
 
+      // A class-registry change without a page change must also stop an old
+      // editor from sending its page changes against stale class names.
+      expect((await post(`/api/sites/${site.id}/style-rules`, { name: "fremde-klasse" })).status).toBe(201);
+      await heroSection.hover();
+      await expect.poll(async () => tab.locator('.senify-canvas__plus[data-position="after"]').count()).toBe(1);
+      await tab.locator('.senify-canvas__plus[data-position="after"]').click();
+      await expect.poll(async () => dialog.getAttribute("open")).toBe("");
+      await expect.poll(async () => dialog.locator("h2").textContent()).toBe("Klassen wurden inzwischen geändert");
+      expect(await dialog.locator('[data-action="conflict-retry"]').isVisible()).toBe(false);
+      await dialog.locator('[data-action="conflict-reload"]').click();
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent()).toBe("Neu geladen");
+      await expect.poll(async () => desktopFrame.locator('section[data-section="divider"]').count()).toBe(1);
+
       expect(consoleErrors).toEqual([]);
     } finally {
       await browser.close();
