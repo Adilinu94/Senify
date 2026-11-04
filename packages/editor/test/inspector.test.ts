@@ -321,6 +321,9 @@ describe("buildInspector", () => {
     expect(shadow?.tokenOptions?.length ?? 0).toBeGreaterThan(0);
     const fontSize = fields?.find((entry) => entry.key === "fontSize");
     expect(fontSize?.tokenOptions?.length ?? 0).toBeGreaterThan(0);
+    expect(fontSize?.tokenOptions?.map((option) => option.ref)).toContain("type.h1.size");
+    const fontFamily = fields?.find((entry) => entry.key === "fontFamily");
+    expect(fontFamily?.tokenOptions?.map((option) => option.ref)).toContain("font.display");
     // The heading owns no border group: no radius tokens offered.
     expect(fields?.some((entry) => entry.key === "borderRadius")).toBe(false);
   });

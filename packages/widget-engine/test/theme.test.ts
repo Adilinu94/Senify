@@ -34,6 +34,15 @@ describe("token resolver", () => {
     expect(tokenRef("#ffffff")).toBeUndefined();
     expect(tokenFallbackCss("brand.primary")).toBe("var(--brand-primary)");
   });
+
+  it("resolves typography roles from current and older editor documents", () => {
+    const resolve = themeTokenResolver(themeA);
+    const size = themeVariables(resolveTheme(themeA))["--type-h1-size"];
+    expect(size).toBeDefined();
+    expect(resolve("type.h1.size")).toBe(size);
+    expect(resolve("type.h1")).toBe(size);
+    expect(resolve("font.display")).toContain("Sora");
+  });
 });
 
 describe("compiler with a theme", () => {
@@ -66,6 +75,14 @@ describe("compiler with a theme", () => {
       resolveToken: themeTokenResolver(themeA),
     });
     expect(css).toBe(`[data-node-id="n"] {\n  padding: 1rem;\n}`);
+  });
+
+  it("renders selected font-family and typography size tokens", () => {
+    const css = compileCss(doc("text", { fontFamily: { $token: "font.display" }, fontSize: { $token: "type.h1.size" } }), {
+      layer: null, resolveToken: themeTokenResolver(themeA),
+    });
+    expect(css).toContain("font-family: Sora, system-ui, sans-serif;");
+    expect(css).toContain(`font-size: ${themeVariables(resolveTheme(themeA))["--type-h1-size"]};`);
   });
 
   it("emits a safe inset shorthand from imported CSS", () => {

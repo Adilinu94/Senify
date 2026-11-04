@@ -357,7 +357,8 @@ function translate(
       // grammar. It is validated here and emitted in its normalized form
       // (ADR-0005, ticket 07 stage 0) — the compiler is the last line of
       // defence, the write path rejects loudly.
-      const formatted = formatText(value);
+      const ref = tokenRef(value);
+      const formatted = ref === undefined ? formatText(value) : resolveTokenRef(ref, resolveToken);
       if (formatted === undefined) return [];
       const parsed = parseCssValue(formatted);
       return parsed.ok ? names.map((name) => ({ property: name, value: parsed.value })) : [];

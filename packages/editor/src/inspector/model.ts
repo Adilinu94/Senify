@@ -513,7 +513,7 @@ const TOKEN_GROUP_BY_PROP: Record<string, TokenGroup> = {
   maxHeight: "space",
   borderRadius: "radius",
   boxShadow: "shadow",
-  fontFamily: "type",
+  fontFamily: "font",
   fontSize: "type",
 };
 
