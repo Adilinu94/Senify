@@ -11,7 +11,7 @@
 // `@senify/mcp` - moving those here would move ownership of the wire format
 // into a package with no business owning it.
 //
-// 110 Werkzeuge.
+// 111 Werkzeuge.
 import type { ToolFact } from "./types.ts";
 export const TOOL_MANIFEST: ToolFact[] = [
   {
@@ -160,6 +160,21 @@ export const TOOL_MANIFEST: ToolFact[] = [
     writes: false,
     parameters: [
       { name: "siteId", type: "string", required: true },
+    ],
+  },
+  {
+    name: "get_variable_usage",
+    title: "Get variable usage",
+    scope: "read",
+    group: "seiten",
+    description: "Lists recognizable direct references to a saved color or spacing variable in page drafts, style rules and theme aliases. This is a snapshot; unsaved changes, external libraries and indirect or dynamic references may be missing.",
+    route: "GET /api/sites/:param/theme/variables/:param/param/usage",
+    routeExample: "GET /api/sites/{param}/theme/variables/{param}/param/usage",
+    writes: false,
+    parameters: [
+      { name: "siteId", type: "string", required: true },
+      { name: "family", type: "string", required: true },
+      { name: "name", type: "string", required: true },
     ],
   },
   {

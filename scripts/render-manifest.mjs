@@ -48,6 +48,7 @@ const GRUPPEN = {
   list_sections: "seiten",
   get_section: "seiten",
   get_theme: "seiten",
+  get_variable_usage: "seiten",
   list_widgets: "seiten",
   get_widget: "seiten",
   search_docs: "katalog",
