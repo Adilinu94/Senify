@@ -45,6 +45,25 @@ const rule = (id: string, name: string, styles: Record<string, unknown> = {}) =>
 });
 
 describe("save pipeline", () => {
+  it("keeps class conflicts paused until the current registry is loaded", async () => {
+    let conflict = true;
+    const { store, pipeline, requests } = harness(() => conflict ? { status: 409, body: {} } : { status: 200, body: {} });
+    store.apply({ op: "upsertStyleRule", rule: rule("r-cta", "cta", { color: "#123456" }) });
+    await pipeline.flush();
+    expect(pipeline.state().conflict?.scope).toBe("style");
+    expect(conflictDialogModel(pipeline.state())?.retryAllowed).toBe(false);
+    await pipeline.retry(10);
+    expect(requests).toHaveLength(1);
+    pipeline.discardPending();
+    pipeline.acceptStyleRegistry(7, ["r-cta"]);
+    conflict = false;
+    store.apply({ op: "upsertStyleRule", rule: rule("r-cta", "cta", { color: "#abcdef" }) });
+    await pipeline.flush();
+    expect(requests[1]?.method).toBe("PATCH");
+    expect(requests[1]?.body).toMatchObject({ baseVersion: 7 });
+    pipeline.dispose();
+  });
+
   it("creates a class before saving its assignment and keeps unsent changes on failure", async () => {
     let failCreate = true;
     const { store, pipeline, requests } = harness((request) => {
@@ -409,6 +428,7 @@ describe("save pipeline", () => {
     expect(conflictState.conflict).toEqual({
       expectedVersion: 1,
       serverVersion: 4,
+      scope: "page",
     });
     const dialog = conflictDialogModel(conflictState);
     expect(dialog?.serverVersion).toBe(4);

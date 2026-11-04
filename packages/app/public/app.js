@@ -5819,7 +5819,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     saveButton.textContent = state.pending > 0 ? `Speichern (${state.pending})` : "Speichern";
     const conflict = state.status === "conflict";
     reloadButton.hidden = !conflict;
-    retryButton.hidden = !conflict;
+    retryButton.hidden = !conflict || state.conflict?.scope === "style";
     if (state.status === "saving") statusEl.textContent = "Speichert …";
     else if (state.status === "saved") statusEl.textContent = "Gespeichert";
     else if (conflict) statusEl.textContent = state.message ?? "Entwurf wurde geändert";
@@ -5846,11 +5846,13 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   };
   const reloadDraft = async () => {
     try {
-      const fresh = await api(`/api/pages/${pageId}`);
-      session.replaceDocument(editor.loadDocument(fresh.draft, { styleRules: session.document.styleRules }).document, fresh.draftVersion);
+      const [fresh, registry] = await Promise.all([api(`/api/pages/${pageId}`), api(`/api/sites/${siteId}/style-rules`)]);
+      if (!Array.isArray(registry.rules) || !Number.isInteger(registry.version)) throw new Error("Die Klassen konnten nicht geladen werden.");
+      const loaded = editor.loadDocument(fresh.draft, { styleRules: registry.rules }).document;
       // Der Server-Stand ersetzt das Dokument; die offenen eigenen Aenderungen
       // sind damit verworfen (so steht es im Dialog).
       session.discardPending();
+      session.replaceDocument(loaded, fresh.draftVersion, registry.version);
       setVersion(fresh.draftVersion);
       statusEl.textContent = "Neu geladen";
     } catch (error) {
@@ -5889,6 +5891,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       "data-action": "conflict-retry",
       text: model.retryLabel,
     });
+    retry.hidden = !model.retryAllowed;
     retry.addEventListener("click", () => {
       closeConflictDialog();
       void retrySave();

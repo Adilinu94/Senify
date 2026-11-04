@@ -142,6 +142,38 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       expect(cta?.styles.background_mobile).toBeUndefined();
       expect(cta?.states?.hover).toBeUndefined();
 
+      // A class conflict must reload the site registry, not just the page.
+      const stale = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+      await stale.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${other.id}`);
+      await stale.waitForFunction('document.querySelector(".canvas-view__stage")?.dataset.startFit != null', undefined, { timeout: 30000 });
+      const staleNode = stale.locator('.senify-canvas__frame[data-device="desktop"] iframe').contentFrame().locator('[data-node-id="frame00003"]');
+      await staleNode.click();
+      await stale.locator('.senify-inspector__tab[data-tab="style"]').click();
+      await stale.getByRole("button", { name: "cta", exact: true }).click();
+      const staleBackground = stale.locator('.senify-inspector__field[data-key="background"] input[data-control="color-text"]');
+      await tab.locator('.senify-canvas__button[data-action="device"][data-device="desktop"]').click();
+      await node("frame00003").click();
+      await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
+      await tab.getByRole("button", { name: "cta", exact: true }).click();
+      await background.fill("#112233");
+      await background.dispatchEvent("change");
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      await staleBackground.fill("#223344");
+      await staleBackground.dispatchEvent("change");
+      const dialog = stale.getByRole("dialog");
+      await dialog.getByRole("heading", { name: "Klassen wurden inzwischen geändert" }).waitFor();
+      expect(await dialog.locator('[data-action="conflict-retry"]').isVisible()).toBe(false);
+      await dialog.locator('[data-action="conflict-reload"]').click();
+      await expect.poll(async () => stale.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Neu geladen");
+      await staleNode.click();
+      await stale.locator('.senify-inspector__tab[data-tab="style"]').click();
+      await stale.getByRole("button", { name: "cta", exact: true }).click();
+      expect(await staleBackground.inputValue()).toBe("#112233");
+      await staleBackground.fill("#334455");
+      await staleBackground.dispatchEvent("change");
+      await expect.poll(async () => stale.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      await stale.close();
+
       await tab.route("**/api/library-components", (route) => route.fulfill({ status: 503, json: { error: { message: "Offline" } } }));
       await tab.reload();
       await waitForFrame();

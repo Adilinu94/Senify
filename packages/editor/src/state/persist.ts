@@ -55,7 +55,7 @@ export type SaveState = {
   // Set while `status === "conflict"` (L17): the version the failed batch was
   // based on and the version the server reported. `null` when the `409` carried
   // no parseable version.
-  conflict?: { expectedVersion: number; serverVersion: number | null };
+  conflict?: { expectedVersion: number; serverVersion: number | null; scope: "page" | "style" };
 };
 
 // The conflict dialog's data (L17): one pure model the shell renders — what
@@ -69,6 +69,7 @@ export type ConflictDialogModel = {
   pending: number;
   reloadLabel: string;
   retryLabel: string;
+  retryAllowed: boolean;
   dismissLabel: string;
 };
 
@@ -76,6 +77,19 @@ export function conflictDialogModel(
   state: SaveState,
 ): ConflictDialogModel | null {
   if (state.status !== "conflict" || state.conflict === undefined) return null;
+  if (state.conflict.scope === "style") {
+    return {
+      title: "Klassen wurden inzwischen geändert",
+      hint: "Der aktuelle Stand der Klassen muss neu geladen werden. Dabei werden deine offenen Änderungen verworfen.",
+      expectedVersion: state.conflict.expectedVersion,
+      serverVersion: null,
+      pending: state.pending,
+      reloadLabel: "Server laden (eigene Änderungen verwerfen)",
+      retryLabel: "Erneut senden",
+      retryAllowed: false,
+      dismissLabel: "Später",
+    };
+  }
   const server =
     state.conflict.serverVersion === null
       ? "unbekannter Version"
@@ -88,6 +102,7 @@ export function conflictDialogModel(
     pending: state.pending,
     reloadLabel: "Server laden (eigene Änderungen verwerfen)",
     retryLabel: `Eigene Änderungen senden (${state.pending})`,
+    retryAllowed: true,
     dismissLabel: "Später",
   };
 }
@@ -116,6 +131,7 @@ export type SavePipeline = {
   flush(): Promise<void>;
   // After a reload the shell hands in the fresh draft version.
   acceptVersion(version: number): void;
+  acceptStyleRegistry(version: number, ruleIds: Iterable<string>): void;
   // The conflict choice "load the server": the local batch is dropped instead
   // of being resent later (the reload replaces the document anyway).
   discardPending(): void;
@@ -406,6 +422,7 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
   let status: SaveStatus = "idle";
   let message: string | undefined;
   let conflictVersion: number | undefined;
+  let conflictScope: "page" | "style" | undefined;
   let paused = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let running = false;
@@ -421,8 +438,9 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
     ...(status === "conflict"
       ? {
           conflict: {
-            expectedVersion: version,
+            expectedVersion: conflictScope === "style" ? styleRegistryVersion : version,
             serverVersion: conflictVersion ?? null,
+            scope: conflictScope ?? "page",
           },
         }
       : {}),
@@ -548,6 +566,7 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
         if (response.status === 409) {
           paused = true;
           conflictVersion = entry.kind === "page" ? readConflictVersion(response.body) : undefined;
+          conflictScope = entry.kind === "page" ? "page" : "style";
           setStatus("conflict", entry.kind === "page"
             ? `Draft has changed (expected v${version}, current v${conflictVersion ?? "?"})`
             : "Die Style-Registry wurde zwischenzeitlich geändert");
@@ -573,6 +592,10 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
   }
 
   const retry = async (nextVersion?: number): Promise<void> => {
+    if (conflictScope === "style") {
+      setStatus("conflict", "Lade die Style-Registry neu, bevor du weiterarbeitest.");
+      return;
+    }
     const target = nextVersion ?? conflictVersion;
     if (target !== undefined) version = target;
     if (conflictVersion === undefined && nextVersion === undefined && status === "conflict") {
@@ -581,12 +604,14 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
     }
     paused = false;
     conflictVersion = undefined;
+    conflictScope = undefined;
     await flush();
   };
 
   const acceptVersion = (next: number): void => {
     version = next;
     conflictVersion = undefined;
+    conflictScope = undefined;
     paused = false;
     emit();
   };
@@ -594,6 +619,7 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
   const discardPending = (): void => {
     pending = [];
     conflictVersion = undefined;
+    conflictScope = undefined;
     paused = false;
     if (status === "conflict") status = "idle";
     message = undefined;
@@ -618,6 +644,11 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
     retry,
     flush,
     acceptVersion,
+    acceptStyleRegistry(next, ids) {
+      styleRegistryVersion = next;
+      knownRuleIds.clear();
+      for (const id of ids) knownRuleIds.add(id);
+    },
     discardPending,
     markRuleKnown(id) {
       knownRuleIds.add(id);

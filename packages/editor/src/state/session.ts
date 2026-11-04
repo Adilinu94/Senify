@@ -139,10 +139,11 @@ export class EditorSession {
   // After a reload: replace the document and hand the fresh server version in.
   // The view state survives; a selection that still exists is kept, a stale one
   // is dropped (the store subscription persists the outcome).
-  replaceDocument(document: EditorDocument, version: number): void {
+  replaceDocument(document: EditorDocument, version: number, registryVersion?: number): void {
     const selected = this.#ui.selectedId;
     this.store.replaceDocument(document);
     this.pipeline.acceptVersion(version);
+    if (registryVersion !== undefined) this.pipeline.acceptStyleRegistry(registryVersion, document.styleRules.map((rule) => rule.id));
     if (selected !== null && document.nodes[selected] !== undefined) {
       this.store.select(selected);
     }
