@@ -140,7 +140,11 @@ export function assertPropValue(
   if (isComponentPrimitive(definition.type) && STRUCTURAL_PROPS.has(base)) return;
   const control = definition.controls.find((entry) => entry.key === base);
   if (control !== undefined) {
-    if (!matchesValueType(control.valueType, value)) {
+    const unitMatch = typeof value === "string" ? /^([+-]?(?:\d+(?:\.\d+)?|\.\d+))([a-z%]+)$/i.exec(value.trim()) : null;
+    const hasAllowedUnit = control.valueType === "number" && (control.units?.length ?? 0) > 1 &&
+      unitMatch !== null && Number.isFinite(Number(unitMatch[1])) &&
+      control.units?.some((unit) => unit === unitMatch[2]) === true;
+    if (!matchesValueType(control.valueType, value) && !hasAllowedUnit) {
       throw new SenifyError(
         "validation",
         `Value for "${base}" must be a ${control.valueType}`,

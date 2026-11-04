@@ -494,6 +494,9 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     }
     wrap.appendChild(range);
     wrap.appendChild(number);
+    if (field.units !== undefined && field.units.length > 1) {
+      wrap.appendChild(renderUnitSelect(nodeId, field));
+    }
     control.appendChild(wrap);
   }
 

@@ -18,7 +18,10 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       const page = await (await request(`/api/sites/${site.id}/pages`, { title: "Start", path: "/" })).json() as { id: string; draftVersion: number; draft: { rootNodeId: string } };
       const seeded = await request(`/api/pages/${page.id}/mutations`, {
         baseDraftVersion: page.draftVersion,
-        mutations: [{ op: "insertNode", parent: { nodeId: page.draft.rootNodeId }, node: { id: "frame00001", type: "frame", props: { width: "200px", height: "80px", background: { $token: "color.accent" }, margin: { $token: "spacing.luft" } } } }],
+        mutations: [
+          { op: "insertNode", parent: { nodeId: page.draft.rootNodeId }, node: { id: "frame00001", type: "frame", props: { width: "200px", height: "80px", background: { $token: "color.accent" }, margin: { $token: "spacing.luft" } } } },
+          { op: "insertNode", parent: { nodeId: "frame00001" }, node: { id: "icon000001", type: "icon" } },
+        ],
       });
       expect(seeded.status, await seeded.text()).toBe(200);
       const tab = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
@@ -78,6 +81,21 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       });
       expect(padding).toBe("24px");
       expect(await tab.getByRole("textbox", { name: "Farbe marke", exact: true }).inputValue()).toBe("#abcdef");
+      const icon = tab.locator('.senify-canvas__frame[data-device="desktop"] iframe').contentFrame().locator('[data-node-id="icon000001"]');
+      await icon.click();
+      await tab.locator('.senify-inspector__tab[data-tab="content"]').click();
+      const size = tab.locator('.senify-inspector__field[data-key="size"]');
+      await size.getByRole("combobox", { name: "Einheit" }).selectOption("rem");
+      const sizeInput = size.locator('[data-control="number"] input');
+      await sizeInput.fill("2");
+      await sizeInput.dispatchEvent("change");
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      await tab.reload();
+      await expect.poll(() => icon.evaluate((element) => {
+        const target = element as unknown as { ownerDocument: { defaultView: { getComputedStyle(node: unknown): { width: string } } } };
+        return target.ownerDocument.defaultView.getComputedStyle(element).width;
+      }), { timeout: 15000 }).toBe("32px");
+      await tab.getByRole("tab", { name: "Variablen" }).click();
       const concurrent = await request(`/api/sites/${site.id}/theme`, { theme: { tokens: { primitive: { color: { accent: "#334455" } } } } }, "PUT");
       expect(concurrent.status).toBe(200);
       await tab.getByRole("textbox", { name: "Farbe accent", exact: true }).fill("#ffffff");
