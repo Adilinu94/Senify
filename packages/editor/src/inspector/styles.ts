@@ -111,6 +111,12 @@ export const INSPECTOR_STYLES = `
 .senify-inspector__class-usage { margin-top: 8px; color: var(--ed-ink-muted); font-size: var(--ed-text-11); }
 .senify-inspector__class-usage button { padding: 4px 8px; border: 1px solid var(--ed-line-control); border-radius: 4px; background: var(--ed-surface-inset); color: var(--ed-ink-base); font: inherit; cursor: pointer; }
 .senify-inspector__class-usage p { margin: 5px 0; }
+.senify-inspector__class-order { margin-top: 8px; color: var(--ed-ink-muted); font-size: var(--ed-text-11); }
+.senify-inspector__class-order button { padding: 4px 8px; border: 1px solid var(--ed-line-control); border-radius: 4px; background: var(--ed-surface-inset); color: var(--ed-ink-base); font: inherit; cursor: pointer; }
+.senify-inspector__class-order button:disabled { opacity: 0.4; cursor: default; }
+.senify-inspector__class-order p { margin: 5px 0; }
+.senify-inspector__class-order-row { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
+.senify-inspector__class-order-row span { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .senify-inspector__classes button:focus-visible, .senify-inspector__classes input:focus-visible, .senify-inspector__classes select:focus-visible { outline: 2px solid var(--ed-focus); outline-offset: 1px; }
 .senify-inspector__empty {
   padding: var(--ed-space-4) 0;

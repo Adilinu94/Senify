@@ -187,6 +187,24 @@ describe("style rule registry (site-wide)", () => {
         path: `/api/sites/${site.id}/style-rules`,
       });
       expect(reread.body.rules.map((rule) => rule.name)).toEqual(["c", "a", "b"]);
+      const scoped = await env.api.request<StyleRuleResponse>({
+        method: "POST", path: `/api/sites/${site.id}/style-rules`,
+        body: { name: "ignored", kind: "scoped", nodeId: "node-other", author: TEST_AUTHOR },
+      });
+      expect(scoped.status).toBe(201);
+      const reposition = await env.api.request({ method: "POST", path: `/api/sites/${site.id}/style-rules/${scoped.body.id}/reorder`, body: { index: 1, author: TEST_AUTHOR } });
+      expect(reposition.status).toBe(200);
+      const byClassIndex = await env.api.request<{ rules: StyleRuleResponse[] }>({ method: "POST", path: `/api/sites/${site.id}/style-rules/${ids[2]}/reorder`, body: { classIndex: 2, author: TEST_AUTHOR } });
+      expect(byClassIndex.status).toBe(200);
+      expect(byClassIndex.body.rules.filter((entry) => entry.kind === "class").map((entry) => entry.name)).toEqual(["a", "b", "c"]);
+      expect(byClassIndex.body.rules.some((entry) => entry.id === scoped.body.id)).toBe(true);
+      const invalid = await env.api.request({ method: "POST", path: `/api/sites/${site.id}/style-rules/${ids[2]}/reorder`, body: { index: 0, classIndex: 0, author: TEST_AUTHOR } });
+      expect(invalid.status).toBe(400);
+      const beforeNoOp = await env.api.request<{ version: number }>({ method: "GET", path: `/api/sites/${site.id}/style-rules` });
+      const noOp = await env.api.request({ method: "POST", path: `/api/sites/${site.id}/style-rules/${ids[2]}/reorder`, body: { classIndex: 2, baseVersion: beforeNoOp.body.version, author: TEST_AUTHOR } });
+      expect(noOp.status).toBe(200);
+      const afterNoOp = await env.api.request<{ version: number }>({ method: "GET", path: `/api/sites/${site.id}/style-rules` });
+      expect(afterNoOp.body.version).toBe(beforeNoOp.body.version + 1);
     } finally {
       await env.close();
     }

@@ -168,7 +168,7 @@ const SITE_OPS = new Set<string>([
 type PendingSite =
   | { kind: "upsert"; rule: StyleRule }
   | { kind: "delete"; id: string }
-  | { kind: "reorder"; id: string; index: number }
+  | { kind: "reorder"; id: string; index: number; classIndex?: number }
   | { kind: "rename"; id: string; name: string };
 
 type Pending =
@@ -491,6 +491,13 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
     const patches =
       event.type === "undo" ? event.entry.undoPatch : event.entry.mutations;
     const translated = patchesToPending(patches as unknown as DocumentPatch[]);
+    for (const item of translated.pending) {
+      if (item.kind !== "site" || item.op.kind !== "reorder") continue;
+      const classes = store.document.styleRules.filter((rule) => rule.kind === "class" && rule.scope === undefined);
+      const id = item.op.id;
+      const classIndex = classes.findIndex((rule) => rule.id === id);
+      if (classIndex >= 0) item.op.classIndex = classIndex;
+    }
     pending.push(...translated.pending);
     recordUnsupported(translated.unsupported);
     if (translated.pending.length === 0 && translated.unsupported.length === 0) return;
@@ -510,7 +517,7 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
       case "delete":
         return { method: "DELETE", path: `${base}/${op.id}`, body: versionBody };
       case "reorder":
-        return { method: "POST", path: `${base}/${op.id}/reorder`, body: { index: op.index, ...versionBody } };
+        return { method: "POST", path: `${base}/${op.id}/reorder`, body: { ...(op.classIndex === undefined ? { index: op.index } : { classIndex: op.classIndex }), ...versionBody } };
       case "rename":
         return { method: "PATCH", path: `${base}/${op.id}`, body: { name: op.name, ...versionBody } };
     }

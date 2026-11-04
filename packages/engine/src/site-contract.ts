@@ -137,7 +137,8 @@ export type UpdateStyleRuleBody = Static<typeof UpdateStyleRuleBodySchema>;
 
 export const ReorderStyleRuleBodySchema = Type.Object(
   {
-    index: Type.Integer({ minimum: 0 }),
+    index: Type.Optional(Type.Integer({ minimum: 0 })),
+    classIndex: Type.Optional(Type.Integer({ minimum: 0 })),
     baseVersion: Type.Optional(Type.Number({ minimum: 0 })),
     author: Type.Optional(AuthorSchema),
   },

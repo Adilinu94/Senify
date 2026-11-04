@@ -142,6 +142,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
   let profile: MotionProfile = options.profile ?? "standard";
   let state: StateName | null = null;
   let selectedClassId: string | null = null;
+  let classOrderOpen = false;
   const collapsed = new Set<string>();
   // One panel at a time, addressed by the field that owns it (a shared boolean
   // would open the panel under every token/colour field at once).
@@ -1267,6 +1268,38 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       targets.appendChild(group);
     }
     section.appendChild(targets);
+    if (rules.length > 1) {
+      const order = h(doc, "div", { className: "senify-inspector__class-order" });
+      const toggle = h(doc, "button", {
+        text: "Klassenreihenfolge",
+        attributes: { type: "button", "aria-expanded": String(classOrderOpen) },
+      });
+      toggle.addEventListener("click", () => { classOrderOpen = !classOrderOpen; render(); });
+      order.appendChild(toggle);
+      if (classOrderOpen) {
+        order.appendChild(h(doc, "p", { text: "Oben stehende Klassen haben Vorrang." }));
+        const priority = [...rules].reverse();
+        priority.forEach((rule, index) => {
+          const row = h(doc, "div", { className: "senify-inspector__class-order-row", data: { className: rule.name } });
+          row.appendChild(h(doc, "span", { text: rule.name }));
+          for (const [direction, label, target] of [["up", "höher", index - 1], ["down", "niedriger", index + 1]] as const) {
+            const other = priority[target];
+            const move = h(doc, "button", {
+              text: direction === "up" ? "↑" : "↓",
+              attributes: { type: "button", "aria-label": `Klasse ${rule.name} ${label} priorisieren`, ...(other === undefined ? { disabled: "" } : {}) },
+            });
+            move.addEventListener("click", () => {
+              if (other === undefined) return;
+              const to = options.store.document.styleRules.findIndex((entry) => entry.id === other.id);
+              if (to >= 0) apply({ op: "reorderStyleRule", id: rule.id, index: to }, `Klasse ${rule.name} verschieben`);
+            });
+            row.appendChild(move);
+          }
+          order.appendChild(row);
+        });
+      }
+      section.appendChild(order);
+    }
     const selectedRule = rules.find((rule) => rule.id === selectedClassId && assigned.includes(rule.name));
     if (selectedRule !== undefined && options.onClassUsage !== undefined) {
       const usage = h(doc, "div", { className: "senify-inspector__class-usage" });

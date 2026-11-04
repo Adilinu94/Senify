@@ -1756,10 +1756,13 @@ const ROUTES: Route[] = [
         body,
         "style rule reorder",
       );
+      if ((parsed.index === undefined) === (parsed.classIndex === undefined)) {
+        throw new SenifyError("validation", "Genau ein Index muss angegeben werden", { field: "index" });
+      }
       const rules = await context.store.reorderStyleRule(
         siteId,
         ruleId,
-        parsed.index,
+        parsed.classIndex === undefined ? parsed.index! : { classIndex: parsed.classIndex },
         resolveAuthor(auth),
         parsed.baseVersion,
       );

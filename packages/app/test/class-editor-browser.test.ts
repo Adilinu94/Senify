@@ -183,6 +183,29 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       await expect.poll(async () => stale.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
       await stale.close();
 
+      const secondRule = await post(`/api/sites/${site.id}/style-rules`, { name: "second", styles: { background: "#ff0000" } });
+      expect(secondRule.status).toBe(201);
+      await tab.reload();
+      await waitForFrame();
+      await tab.locator('.senify-canvas__button[data-action="device"][data-device="desktop"]').click();
+      await node("frame00003").click();
+      await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
+      await tab.getByRole("combobox", { name: "Vorhandene Klasse hinzufügen" }).selectOption({ label: "second" });
+      await expect.poll(() => color("frame00003")).toBe("rgb(255, 0, 0)");
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      await tab.getByRole("button", { name: "Klassenreihenfolge" }).click();
+      await tab.getByRole("button", { name: "Klasse cta höher priorisieren" }).click();
+      await expect.poll(() => color("frame00003")).toBe("rgb(51, 68, 85)");
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      await tab.locator('.senify-canvas__button[data-action="undo"]').click();
+      await expect.poll(() => color("frame00003")).toBe("rgb(255, 0, 0)");
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      await tab.locator('.senify-canvas__button[data-action="redo"]').click();
+      await expect.poll(() => color("frame00003")).toBe("rgb(51, 68, 85)");
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      await tab.reload();
+      await expect.poll(() => color("frame00003"), { timeout: 15000 }).toBe("rgb(51, 68, 85)");
+
       await tab.route("**/api/library-components", (route) => route.fulfill({ status: 503, json: { error: { message: "Offline" } } }));
       await tab.reload();
       await waitForFrame();

@@ -2799,7 +2799,7 @@ export class Store {
   async reorderStyleRule(
     siteId: string,
     ruleId: string,
-    toIndex: number,
+    target: number | { classIndex: number },
     author: Author,
     baseVersion?: number,
   ): Promise<StyleRule[]> {
@@ -2809,6 +2809,16 @@ export class Store {
       throw new SenifyError("not_found", `Style rule "${ruleId}" does not exist`, {
         field: "ruleId",
       });
+    }
+    let toIndex: number;
+    if (typeof target === "number") toIndex = target;
+    else {
+      const classes = rules.filter((rule) => rule.kind === "class" && rule.scope === undefined);
+      if (rules[from]!.kind !== "class" || rules[from]!.scope !== undefined ||
+          !Number.isInteger(target.classIndex) || target.classIndex < 0 || target.classIndex >= classes.length) {
+        throw new SenifyError("validation", "Ungültige Position für die globale Klasse", { field: "classIndex" });
+      }
+      toIndex = rules.findIndex((rule) => rule.id === classes[target.classIndex]!.id);
     }
     if (!Number.isInteger(toIndex) || toIndex < 0 || toIndex >= rules.length) {
       throw new SenifyError(
@@ -2820,8 +2830,6 @@ export class Store {
         },
       );
     }
-    if (from === toIndex) return rules;
-
     const moved = rules[from]!;
     // Reordering a rule another author wrote is allowed, but the audit marks
     // it (ticket 18, point 2): the rule keeps its provenance, the entry names
