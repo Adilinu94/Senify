@@ -108,6 +108,9 @@ export const INSPECTOR_STYLES = `
 .senify-inspector__class-create { display: flex; gap: 6px; margin-top: 8px; }
 .senify-inspector__class-create input { flex: 1; }
 .senify-inspector__class-create button { border: 1px solid var(--ed-line-control); border-radius: 4px; }
+.senify-inspector__class-usage { margin-top: 8px; color: var(--ed-ink-muted); font-size: var(--ed-text-11); }
+.senify-inspector__class-usage button { padding: 4px 8px; border: 1px solid var(--ed-line-control); border-radius: 4px; background: var(--ed-surface-inset); color: var(--ed-ink-base); font: inherit; cursor: pointer; }
+.senify-inspector__class-usage p { margin: 5px 0; }
 .senify-inspector__classes button:focus-visible, .senify-inspector__classes input:focus-visible, .senify-inspector__classes select:focus-visible { outline: 2px solid var(--ed-focus); outline-offset: 1px; }
 .senify-inspector__empty {
   padding: var(--ed-space-4) 0;

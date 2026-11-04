@@ -108,6 +108,12 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`);
       await expect.poll(() => color("frame00001"), { timeout: 15000 }).toBe("rgb(68, 85, 102)");
       await expect.poll(() => color("frame00002")).toBe("rgb(68, 85, 102)");
+      await node("frame00001").click();
+      await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
+      await tab.getByRole("button", { name: "cta", exact: true }).click();
+      await tab.getByRole("button", { name: "Verwendung anzeigen" }).click();
+      await tab.getByText("Start (/) · 2 Elemente").waitFor();
+      await tab.getByText("Zweite Seite (/zweite) · 1 Elemente").waitFor();
 
       const store = new Store(database.db);
       const persistedSite = await store.getSite(site.id);

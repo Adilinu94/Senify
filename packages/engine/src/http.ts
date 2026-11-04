@@ -1693,6 +1693,29 @@ const ROUTES: Route[] = [
   },
   {
     method: "GET",
+    segments: ["api", "sites", ":siteId", "style-rules", ":ruleId", "usage"],
+    scope: "read",
+    handler: async (context, params) => {
+      const siteId = requireParam(params, "siteId");
+      const ruleId = requireParam(params, "ruleId");
+      const [rule, pages] = await Promise.all([
+        context.store.getStyleRule(siteId, ruleId),
+        context.store.listPageDrafts(siteId),
+      ]);
+      if (rule.kind !== "class" || rule.scope !== undefined) {
+        throw new SenifyError("validation", "Die Verwendungsübersicht gilt für globale Klassen", { field: "ruleId" });
+      }
+      const usage = pages.flatMap((page) => {
+        const nodeIds = Object.values(page.draft.nodes)
+          .filter((node) => node.classes?.includes(rule.name))
+          .map((node) => node.id);
+        return nodeIds.length === 0 ? [] : [{ pageId: page.id, title: page.title, path: page.path, nodeIds }];
+      });
+      return { status: 200, body: { ruleId, name: rule.name, usage } };
+    },
+  },
+  {
+    method: "GET",
     segments: ["api", "sites", ":siteId", "style-rules", ":ruleId"],
     scope: "read",
     handler: async (context, params) => {

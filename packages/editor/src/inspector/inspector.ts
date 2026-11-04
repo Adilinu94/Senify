@@ -68,6 +68,7 @@ export type InspectorOptions = {
   // The pseudo state the Style tab edits — the canvas forces it for the
   // preview (ticket 02 point 5).
   onStateChange?: (state: StateName | null) => void;
+  onClassUsage?: (ruleId: string) => Promise<Array<{ pageId: string; title: string; path: string; nodeIds: string[] }>>;
 };
 
 export type InspectorInstance = {
@@ -130,6 +131,10 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
   const doc = requireDocument();
   ensureInspectorStyles(doc);
   const root = h(doc, "section", { className: "senify-inspector" });
+  let usageResult: { ruleId: string; pages: Array<{ pageId: string; title: string; path: string; nodeIds: string[] }> } | null = null;
+  let usageMessage: string | null = null;
+  let usageMessageRuleId: string | null = null;
+  let usageRequest = 0;
   root.setAttribute(EDITOR_ROOT_ATTRIBUTE, "true");
   root.setAttribute("aria-label", "Inspektor");
   let activeTab: InspectorTabId = "content";
@@ -1262,6 +1267,36 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       targets.appendChild(group);
     }
     section.appendChild(targets);
+    const selectedRule = rules.find((rule) => rule.id === selectedClassId && assigned.includes(rule.name));
+    if (selectedRule !== undefined && options.onClassUsage !== undefined) {
+      const usage = h(doc, "div", { className: "senify-inspector__class-usage" });
+      const showUsage = h(doc, "button", { text: "Verwendung anzeigen", attributes: { type: "button" } });
+      showUsage.addEventListener("click", () => {
+        const request = ++usageRequest;
+        usageMessage = "Verwendung wird geladen …";
+        usageMessageRuleId = selectedRule.id;
+        usageResult = null;
+        render();
+        void options.onClassUsage?.(selectedRule.id).then((pages) => {
+          if (request !== usageRequest) return;
+          usageResult = { ruleId: selectedRule.id, pages };
+          usageMessage = null;
+          if (selectedClassId === selectedRule.id) render();
+        }).catch(() => {
+          if (request !== usageRequest) return;
+          usageMessage = "Verwendung konnte nicht geladen werden.";
+          if (selectedClassId === selectedRule.id) render();
+        });
+      });
+      usage.appendChild(showUsage);
+      if (usageMessage !== null && usageMessageRuleId === selectedRule.id) usage.appendChild(h(doc, "p", { text: usageMessage, attributes: { role: "status" } }));
+      if (usageResult?.ruleId === selectedRule.id) {
+        usage.appendChild(h(doc, "p", { text: "Seitenentwürfe, Stand der letzten Abfrage" }));
+        if (usageResult.pages.length === 0) usage.appendChild(h(doc, "p", { text: "Auf keiner Seite verwendet." }));
+        for (const page of usageResult.pages) usage.appendChild(h(doc, "p", { text: `${page.title} (${page.path}) · ${page.nodeIds.length} Elemente` }));
+      }
+      section.appendChild(usage);
+    }
     const available = rules.filter((rule) => !assigned.includes(rule.name));
     if (available.length > 0) {
       const picker = h(doc, "select", { className: "senify-inspector__class-picker", attributes: { "aria-label": "Vorhandene Klasse hinzufügen" } });

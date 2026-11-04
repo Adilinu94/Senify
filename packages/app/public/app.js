@@ -6208,6 +6208,10 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     theme: siteTheme ?? editor.defaultTheme(),
     profile: siteProfile ?? "standard",
     breakpoint: savedUi.device,
+    onClassUsage: async (ruleId) => {
+      const result = await api(`/api/sites/${siteId}/style-rules/${encodeURIComponent(ruleId)}/usage`);
+      return result.usage ?? [];
+    },
     onTabChange: (tab) => session.setTab(tab),
     onBreakpointChange: (device) => session.setDevice(device),
     // Der Zustand des Style-Tabs ist die Vorschau (Ticket 02 Punkt 5): der
