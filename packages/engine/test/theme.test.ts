@@ -131,6 +131,9 @@ describe("site themes", () => {
     const empty = await putTheme({ theme: {}, author: TEST_AUTHOR });
     expect(empty.status).toBe(400);
 
+    const unsafeSpacing = await putTheme({ theme: { tokens: { primitive: { spacing: { narrow: "1px; color: red" } } } } });
+    expect(unsafeSpacing.status).toBe(400);
+
     const broken = await putTheme({
       theme: { tokens: { semantic: { accent: { $ref: "color.nope" } } } },
       author: TEST_AUTHOR,

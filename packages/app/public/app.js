@@ -6216,29 +6216,35 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       if (message !== null) statusEl.textContent = message;
     },
   });
-  // Global color tokens share the same versioned theme across every page.
+  // Global tokens share the same versioned theme across every page.
   // The editor sends only the changed token, so other families stay intact.
   const variableDrafts = new Map();
   function renderVariables() {
     variablesHost.replaceChildren();
-    variablesHost.append(el("h2", { text: "Globale Variablen" }), el("p", { class: "canvas-view__variables-help", text: "Farben gelten für das gesamte Projekt." }));
+    variablesHost.append(el("h2", { text: "Globale Variablen" }), el("p", { class: "canvas-view__variables-help", text: "Variablen gelten für das gesamte Projekt." }));
     if (!siteTheme) {
       variablesHost.append(el("p", { role: "alert", text: "Die Variablen konnten nicht geladen werden. Bitte lade den Editor erneut." }));
       return;
     }
     const colors = siteTheme.tokens?.primitive?.color ?? {};
+    const spacings = siteTheme.tokens?.primitive?.spacing ?? {};
     const status = el("p", { class: "canvas-view__variables-status", role: "status", "aria-live": "polite" });
-    const saveColor = async (name, value, button) => {
+    variablesHost.append(status);
+    const saveVariable = async (group, name, value, button) => {
+      if (group === "spacing" && !window.CSS.supports("padding", value)) {
+        status.textContent = "Bitte einen gültigen Abstand eingeben, zum Beispiel 16px oder 1rem.";
+        return;
+      }
       button.disabled = true;
       status.textContent = "Wird gespeichert …";
       try {
         const updated = await api(`/api/sites/${siteId}/theme`, {
           method: "PUT",
-          body: { baseVersion: siteThemeVersion, theme: { tokens: { primitive: { color: { [name]: value } } } }, author: AUTHOR },
+          body: { baseVersion: siteThemeVersion, theme: { tokens: { primitive: { [group]: { [name]: value } } } }, author: AUTHOR },
         });
         siteTheme = updated.theme;
         siteThemeVersion = updated.version;
-        variableDrafts.delete(name);
+        variableDrafts.delete(`${group}.${name}`);
         canvas.setTheme(updated.theme, updated.css);
         inspector.setTheme(updated.theme);
         renderVariables();
@@ -6253,13 +6259,13 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     const list = el("div", { class: "canvas-view__variable-list" });
     for (const [name, value] of Object.entries(colors)) {
       if (typeof value !== "string") continue;
-      const draft = variableDrafts.get(name) ?? value;
+      const draft = variableDrafts.get(`color.${name}`) ?? value;
       const input = el("input", { type: "text", value: draft, "aria-label": `Farbe ${name}`, spellcheck: "false" });
       const swatch = el("input", { type: "color", class: "canvas-view__variable-swatch", "aria-label": `Farbe ${name} auswählen`, value: /^#[0-9a-f]{6}$/i.test(draft) ? draft : "#000000" });
-      swatch.addEventListener("input", () => { input.value = swatch.value; variableDrafts.set(name, input.value); });
-      input.addEventListener("input", () => { variableDrafts.set(name, input.value); if (/^#[0-9a-f]{6}$/i.test(input.value)) swatch.value = input.value; });
+      swatch.addEventListener("input", () => { input.value = swatch.value; variableDrafts.set(`color.${name}`, input.value); });
+      input.addEventListener("input", () => { variableDrafts.set(`color.${name}`, input.value); if (/^#[0-9a-f]{6}$/i.test(input.value)) swatch.value = input.value; });
       const button = el("button", { type: "button", text: "Speichern", "aria-label": `Farbe ${name} speichern` });
-      button.addEventListener("click", () => void saveColor(name, input.value.trim(), button));
+      button.addEventListener("click", () => void saveVariable("color", name, input.value.trim(), button));
       input.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); button.click(); } });
       list.append(el("div", { class: "canvas-view__variable-row" }, el("label", { text: name }), swatch, input, button));
     }
@@ -6270,9 +6276,28 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       const key = name.value.trim();
       if (!/^[a-z][a-z0-9-]*$/.test(key)) { status.textContent = "Bitte einen Namen mit Kleinbuchstaben, Zahlen und Bindestrichen eingeben."; return; }
       if (Object.hasOwn(colors, key)) { status.textContent = "Diese Farbe existiert bereits."; return; }
-      void saveColor(key, value.value.trim(), add);
+      void saveVariable("color", key, value.value.trim(), add);
     });
-    variablesHost.append(el("h3", { text: "Farben" }), list, el("div", { class: "canvas-view__variable-create" }, name, value, add), status);
+    const spacingList = el("div", { class: "canvas-view__variable-list" });
+    for (const [key, stored] of Object.entries(spacings)) {
+      if (typeof stored !== "string") continue;
+      const input = el("input", { type: "text", value: variableDrafts.get(`spacing.${key}`) ?? stored, "aria-label": `Abstand ${key}` });
+      input.addEventListener("input", () => variableDrafts.set(`spacing.${key}`, input.value));
+      const save = el("button", { type: "button", text: "Speichern", "aria-label": `Abstand ${key} speichern` });
+      save.addEventListener("click", () => void saveVariable("spacing", key, input.value.trim(), save));
+      input.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); save.click(); } });
+      spacingList.append(el("div", { class: "canvas-view__variable-row canvas-view__variable-row--spacing" }, el("label", { text: key }), input, save));
+    }
+    const spacingName = el("input", { type: "text", placeholder: "Name", "aria-label": "Name des neuen Abstands" });
+    const spacingValue = el("input", { type: "text", placeholder: "16px", "aria-label": "Wert des neuen Abstands" });
+    const addSpacing = el("button", { type: "button", text: "Abstand hinzufügen" });
+    addSpacing.addEventListener("click", () => {
+      const key = spacingName.value.trim();
+      if (!/^[a-z][a-z0-9-]*$/.test(key)) { status.textContent = "Bitte einen Namen mit Kleinbuchstaben, Zahlen und Bindestrichen eingeben."; return; }
+      if (Object.hasOwn(spacings, key)) { status.textContent = "Dieser Abstand existiert bereits."; return; }
+      void saveVariable("spacing", key, spacingValue.value.trim(), addSpacing);
+    });
+    variablesHost.append(el("h3", { text: "Farben" }), list, el("div", { class: "canvas-view__variable-create" }, name, value, add), el("h3", { text: "Abstände" }), spacingList, el("div", { class: "canvas-view__variable-create" }, spacingName, spacingValue, addSpacing));
   }
   renderVariables();
   inspector.setTab(savedUi.tab);

@@ -3821,12 +3821,15 @@ body.is-editor .view.editor-view > .editor-host.canvas-view {
 .canvas-view__variables h2 { margin: 0 0 6px; font-size: 15px; }
 .canvas-view__variables h3 { margin: 22px 0 10px; font-size: 12px; }
 .canvas-view__variables-help, .canvas-view__variables-status { color: #69727c; font-size: 12px; line-height: 1.5; }
+.canvas-view__variables-status:not(:empty) { position: sticky; top: 0; z-index: 1; padding: 8px; background: #f4f5f7; border-radius: 4px; }
 .canvas-view__variable-list { display: grid; gap: 8px; }
 .canvas-view__variable-row { display: grid; grid-template-columns: minmax(0, 1fr) 20px minmax(0, 1fr); align-items: center; gap: 6px; padding: 8px; border: 1px solid #e5e7eb; border-radius: 4px; }
 .canvas-view__variable-row label { overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
 .canvas-view__variable-row input[type="text"], .canvas-view__variable-create input { min-width: 0; width: 100%; box-sizing: border-box; padding: 6px; border: 1px solid #d5d8dc; border-radius: 3px; font: inherit; font-size: 12px; }
 .canvas-view__variable-swatch { width: 20px; height: 20px; padding: 0; border: 1px solid #d5d8dc; border-radius: 3px; cursor: pointer; }
 .canvas-view__variable-row button { grid-column: 2 / 4; }
+.canvas-view__variable-row--spacing { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.canvas-view__variable-row--spacing button { grid-column: 2; }
 .canvas-view__variable-row button, .canvas-view__variable-create button { padding: 5px 8px; border: 1px solid #d5d8dc; border-radius: 3px; background: #fff; color: #515962; font-size: 11px; cursor: pointer; }
 .canvas-view__variable-create { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 14px; }
 .canvas-view__variable-create button { grid-column: 1 / -1; }

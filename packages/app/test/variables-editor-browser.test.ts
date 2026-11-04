@@ -18,9 +18,9 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       const page = await (await request(`/api/sites/${site.id}/pages`, { title: "Start", path: "/" })).json() as { id: string; draftVersion: number; draft: { rootNodeId: string } };
       const seeded = await request(`/api/pages/${page.id}/mutations`, {
         baseDraftVersion: page.draftVersion,
-        mutations: [{ op: "insertNode", parent: { nodeId: page.draft.rootNodeId }, node: { id: "frame00001", type: "frame", props: { width: "200px", height: "80px", background: { $token: "color.accent" } } } }],
+        mutations: [{ op: "insertNode", parent: { nodeId: page.draft.rootNodeId }, node: { id: "frame00001", type: "frame", props: { width: "200px", height: "80px", background: { $token: "color.accent" }, margin: { $token: "spacing.luft" } } } }],
       });
-      expect(seeded.status).toBe(200);
+      expect(seeded.status, await seeded.text()).toBe(200);
       const tab = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
       await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`);
       await tab.waitForFunction('document.querySelector(".canvas-view__stage")?.dataset.startFit != null', undefined, { timeout: 30000 });
@@ -39,9 +39,22 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       await tab.getByRole("textbox", { name: "Wert der neuen Farbe" }).fill("#abcdef");
       await tab.getByRole("button", { name: "Farbe hinzufügen" }).click();
       await tab.getByRole("textbox", { name: "Farbe marke", exact: true }).waitFor();
+      await tab.getByRole("textbox", { name: "Name des neuen Abstands" }).fill("luft");
+      await tab.getByRole("textbox", { name: "Wert des neuen Abstands" }).fill("12px");
+      await tab.getByRole("button", { name: "Abstand hinzufügen" }).click();
+      await tab.getByRole("textbox", { name: "Abstand luft", exact: true }).waitFor();
+      const spacing = () => node.evaluate((element) => {
+        const target = element as unknown as { ownerDocument: { defaultView: { getComputedStyle(node: unknown): { marginTop: string } } } };
+        return target.ownerDocument.defaultView.getComputedStyle(element).marginTop;
+      });
+      await expect.poll(spacing).toBe("12px");
+      await tab.getByRole("textbox", { name: "Abstand luft", exact: true }).fill("24px");
+      await tab.getByRole("button", { name: "Abstand luft speichern" }).click();
+      await expect.poll(spacing).toBe("24px");
       await tab.reload();
       await tab.getByRole("tab", { name: "Variablen" }).click();
       await expect.poll(color, { timeout: 15000 }).toBe("rgb(18, 52, 86)");
+      await expect.poll(spacing).toBe("24px");
       expect(await tab.getByRole("textbox", { name: "Farbe marke", exact: true }).inputValue()).toBe("#abcdef");
       const concurrent = await request(`/api/sites/${site.id}/theme`, { theme: { tokens: { primitive: { color: { accent: "#334455" } } } } }, "PUT");
       expect(concurrent.status).toBe(200);

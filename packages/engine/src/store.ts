@@ -31,9 +31,11 @@ import {
   createAmbientRule,
   createClassRule,
   createScopedRule,
+  isSafeCssProperty,
   isSafeRawCss,
   isValidCssSelector,
   normalizeRuleOrder,
+  parseCssValue,
   parseStyleRuleRegistry,
   reservedContextIds,
   styleRuleErrors,
@@ -2203,6 +2205,26 @@ export class Store {
         suggestion: "Provide at least one change.",
       });
     }
+    let safePatch = patch;
+    const tokenPatch = patch.tokens;
+    const primitivePatch = tokenPatch && typeof tokenPatch === "object" && !Array.isArray(tokenPatch)
+      ? (tokenPatch as Record<string, unknown>).primitive : undefined;
+    const spacingPatch = primitivePatch && typeof primitivePatch === "object" && !Array.isArray(primitivePatch)
+      ? (primitivePatch as Record<string, unknown>).spacing : undefined;
+    if (spacingPatch !== undefined) {
+      if (!spacingPatch || typeof spacingPatch !== "object" || Array.isArray(spacingPatch)) {
+        throw new SenifyError("validation", "Abstände müssen benannte CSS-Werte sein", { field: "tokens.primitive.spacing" });
+      }
+      const spacing: Record<string, string> = {};
+      for (const [name, value] of Object.entries(spacingPatch)) {
+        const parsed = typeof value === "string" ? parseCssValue(value) : undefined;
+        if (["__proto__", "prototype", "constructor"].includes(name) || !isSafeCssProperty(`--space-${name.replace(/\./g, "-")}`) || !parsed?.ok) {
+          throw new SenifyError("validation", "Ungültiger Name oder CSS-Wert für den Abstand", { field: `tokens.primitive.spacing.${name}` });
+        }
+        spacing[name] = parsed.value;
+      }
+      safePatch = { ...patch, tokens: { ...(tokenPatch as Record<string, unknown>), primitive: { ...(primitivePatch as Record<string, unknown>), spacing } } };
+    }
     await this.getSite(siteId);
     const current = await this.ensureSiteTheme(siteId);
     const currentVersion = toFiniteNumber(current.version, "version");
@@ -2213,7 +2235,7 @@ export class Store {
       });
     }
     const currentDefinition = toJson<Theme>(current.definition);
-    const merged = mergeThemePatch(currentDefinition, patch);
+    const merged = mergeThemePatch(currentDefinition, safePatch);
     merged.id = current.id;
     validateShape(ThemeSchema, merged, "theme");
     const issues = validateTheme(merged);
