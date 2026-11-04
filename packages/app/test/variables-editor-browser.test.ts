@@ -34,9 +34,18 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       });
       await tab.getByRole("tab", { name: "Variablen" }).click();
       await tab.getByRole("textbox", { name: "Farbe success", exact: true }).fill("#789abc");
+      const search = tab.getByRole("searchbox", { name: "Variablen suchen" });
+      await search.fill("ACC");
+      expect(await tab.locator('input[aria-label="Farbe success"]').isVisible()).toBe(false);
+      expect(await tab.getByRole("textbox", { name: "Farbe accent", exact: true }).isVisible()).toBe(true);
+      await search.fill("nicht-vorhanden");
+      await tab.getByText("Keine Variablen gefunden.").waitFor();
+      await search.fill("accent");
       await tab.getByLabel("Farbe accent auswählen").fill("#123456");
       await tab.getByRole("button", { name: "Farbe accent speichern" }).click();
       await expect.poll(color).toBe("rgb(18, 52, 86)");
+      expect(await search.inputValue()).toBe("accent");
+      await search.fill("");
       expect(await tab.getByRole("textbox", { name: "Farbe success", exact: true }).inputValue()).toBe("#789abc");
       await tab.getByRole("textbox", { name: "Name der neuen Farbe" }).fill("marke");
       await tab.getByRole("textbox", { name: "Wert der neuen Farbe" }).fill("#abcdef");
@@ -46,6 +55,10 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       await tab.getByRole("textbox", { name: "Wert des neuen Abstands" }).fill("12px");
       await tab.getByRole("button", { name: "Abstand hinzufügen" }).click();
       await tab.getByRole("textbox", { name: "Abstand luft", exact: true }).waitFor();
+      await search.fill("LUFT");
+      expect(await tab.locator('input[aria-label="Farbe accent"]').isVisible()).toBe(false);
+      expect(await tab.getByRole("textbox", { name: "Abstand luft", exact: true }).isVisible()).toBe(true);
+      await search.fill("");
       const spacing = () => node.evaluate((element) => {
         const target = element as unknown as { ownerDocument: { defaultView: { getComputedStyle(node: unknown): { marginTop: string } } } };
         return target.ownerDocument.defaultView.getComputedStyle(element).marginTop;

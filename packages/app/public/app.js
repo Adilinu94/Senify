@@ -6228,6 +6228,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   // The editor sends only the changed token, so other families stay intact.
   const variableDrafts = new Map();
   const variableCreateDrafts = { color: { name: "", value: "" }, spacing: { name: "", value: "" } };
+  let variableQuery = "";
   let variableSaving = false;
   function renderVariables() {
     variablesHost.replaceChildren();
@@ -6238,6 +6239,21 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     }
     const colors = siteTheme.tokens?.primitive?.color ?? {};
     const spacings = siteTheme.tokens?.primitive?.spacing ?? {};
+    const variableRows = [];
+    const search = el("input", { type: "search", class: "canvas-view__variables-search", value: variableQuery, placeholder: "Variablen suchen", "aria-label": "Variablen suchen" });
+    const noMatches = el("p", { class: "canvas-view__variables-help", "aria-live": "polite" });
+    const filterVariables = () => {
+      const query = variableQuery.trim().toLocaleLowerCase("de");
+      let matches = 0;
+      for (const row of variableRows) {
+        const visible = row.name.toLocaleLowerCase("de").includes(query);
+        row.element.hidden = !visible;
+        if (visible) matches += 1;
+      }
+      noMatches.textContent = query && matches === 0 ? "Keine Variablen gefunden." : "";
+    };
+    search.addEventListener("input", () => { variableQuery = search.value; filterVariables(); });
+    variablesHost.append(search, noMatches);
     const status = el("span", { role: "status", "aria-live": "polite" });
     const reload = el("button", { type: "button", text: "Variablen neu laden" });
     reload.hidden = true;
@@ -6307,7 +6323,9 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       const button = el("button", { type: "button", text: "Speichern", "aria-label": `Farbe ${name} speichern` });
       button.addEventListener("click", () => void saveVariable("color", name, input.value.trim(), button));
       input.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); button.click(); } });
-      list.append(el("div", { class: "canvas-view__variable-row" }, el("label", { text: name }), swatch, input, button));
+      const row = el("div", { class: "canvas-view__variable-row" }, el("label", { text: name }), swatch, input, button);
+      variableRows.push({ name, element: row });
+      list.append(row);
     }
     const name = el("input", { type: "text", value: variableCreateDrafts.color.name, placeholder: "Name", "aria-label": "Name der neuen Farbe" });
     const value = el("input", { type: "text", value: variableCreateDrafts.color.value, placeholder: "#000000", "aria-label": "Wert der neuen Farbe" });
@@ -6328,7 +6346,9 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       const save = el("button", { type: "button", text: "Speichern", "aria-label": `Abstand ${key} speichern` });
       save.addEventListener("click", () => void saveVariable("spacing", key, input.value.trim(), save));
       input.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); save.click(); } });
-      spacingList.append(el("div", { class: "canvas-view__variable-row canvas-view__variable-row--spacing" }, el("label", { text: key }), input, save));
+      const row = el("div", { class: "canvas-view__variable-row canvas-view__variable-row--spacing" }, el("label", { text: key }), input, save);
+      variableRows.push({ name: key, element: row });
+      spacingList.append(row);
     }
     const spacingName = el("input", { type: "text", value: variableCreateDrafts.spacing.name, placeholder: "Name", "aria-label": "Name des neuen Abstands" });
     const spacingValue = el("input", { type: "text", value: variableCreateDrafts.spacing.value, placeholder: "16px", "aria-label": "Wert des neuen Abstands" });
@@ -6342,6 +6362,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       void saveVariable("spacing", key, spacingValue.value.trim(), addSpacing);
     });
     variablesHost.append(el("h3", { text: "Farben" }), list, el("div", { class: "canvas-view__variable-create" }, name, value, add), el("h3", { text: "Abstände" }), spacingList, el("div", { class: "canvas-view__variable-create" }, spacingName, spacingValue, addSpacing));
+    filterVariables();
   }
   renderVariables();
   inspector.setTab(savedUi.tab);

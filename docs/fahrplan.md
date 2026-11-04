@@ -21,6 +21,8 @@ Die detaillierte Planung für dieses Produktziel steht in der [Framer-Roadmap](f
 
 **Neue Produktanforderung Editor:** Oberfläche und Bedienung sollen sich eng an Elementor V4 orientieren, einschließlich Klassen und Variablen. Die Recherche und vorgeschlagenen Schritte stehen in [Elementor-V4-Editor](research/elementor-v4-editor.md). Zuerst Referenzzustände und offene Funktionslücken aufnehmen; Umstellung und Migration dürfen bestehende Framer-Projekte nicht verlieren. Die Entscheidung, vorhandenen Elementor-Code direkt zu übernehmen, ist nicht getroffen.
 
+**Variablensuche:** Farben und Abstände lassen sich in der Variablenansicht nach Namen filtern; ungespeicherte Eingaben und die Suchanfrage bleiben beim Speichern erhalten. Der Browser-Gate prüft Treffer, leere Ergebnisse und Entwurfserhalt (`packages/app/test/variables-editor-browser.test.ts`).
+
 **Varianten-CSS im Framer-Import:** Variantenklassen werden beim CSS-Abgleich für Elemente und Nachfahren berücksichtigt, ohne die Zusammenführung der SSR-Varianten zu verändern. Der gezielte Capture-Test und der Browser-Vergleich der drei Export-Fixtures sind ausgeführt (`packages/framer-import/test/capture.test.ts`, `packages/framer-import/test/import-fixture-gate-browser.test.ts`). Die Grenzwerte sind unverändert; mobile Text- und Darstellungsabweichungen bleiben offen.
 
 **Klassenwerte zurücksetzen:** Reset von Desktop-Klassenwerten und Zuständen ist bedienbar; entfernte responsive und Hover-Werte bleiben nach erneutem Laden entfernt. Der gezielte Browser- und Engine-Gate einschließlich separatem PostgreSQL ist ausgeführt (`packages/app/test/class-editor-browser.test.ts`, `packages/engine/test/style-rules.test.ts`).
