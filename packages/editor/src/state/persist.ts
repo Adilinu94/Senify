@@ -31,6 +31,7 @@ import type { EditorMutation } from "@senify/engine/browser";
 import type { DocumentPatch } from "./patches.ts";
 import type { EditorNode, ParentRef } from "./document.ts";
 import type { EditorStore, EditorStoreAction } from "./store.ts";
+import { randomId } from "./ids.ts";
 
 export type SaveRequest = {
   method: "POST" | "PATCH" | "DELETE";
@@ -168,6 +169,8 @@ const SITE_OPS = new Set<string>([
 type PendingSite =
   | { kind: "upsert"; rule: StyleRule }
   | { kind: "delete"; id: string }
+  | { kind: "globalDelete"; id: string; historyId: string; receiptId: string }
+  | { kind: "globalRestore"; id: string; historyId: string }
   | { kind: "reorder"; id: string; index: number; classIndex?: number }
   | { kind: "rename"; id: string; name: string };
 
@@ -420,6 +423,7 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
   let version = 1;
   let styleRegistryVersion = options.styleRegistryVersion ?? 0;
   let hasStyleRegistryVersion = options.styleRegistryVersion !== undefined;
+  const classDeletionReceipts = new Map<string, string>();
   let status: SaveStatus = "idle";
   let message: string | undefined;
   let conflictVersion: number | undefined;
@@ -491,7 +495,12 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
     }
     const patches =
       event.type === "undo" ? event.entry.undoPatch : event.entry.mutations;
-    const translated = patchesToPending(patches as unknown as DocumentPatch[]);
+    const inverse = event.entry.undoPatch as unknown as DocumentPatch[];
+    const deletedRule = event.entry.op === "deleteStyleRule" ? inverse.find((patch) => patch.patch === "upsertStyleRule") : undefined;
+    const globalRule = deletedRule?.patch === "upsertStyleRule" && deletedRule.rule.kind === "class" && deletedRule.rule.scope === undefined ? deletedRule.rule : undefined;
+    const translated = globalRule === undefined
+      ? patchesToPending(patches as unknown as DocumentPatch[])
+      : { pending: [{ kind: "site", op: event.type === "undo" ? { kind: "globalRestore", id: globalRule.id, historyId: event.entry.id } : { kind: "globalDelete", id: globalRule.id, historyId: event.entry.id, receiptId: randomId(22) } } as Pending], unsupported: [] };
     for (const item of translated.pending) {
       if (item.kind !== "site" || item.op.kind !== "reorder") continue;
       const classes = store.document.styleRules.filter((rule) => rule.kind === "class" && rule.scope === undefined);
@@ -517,6 +526,10 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
           : { method: "POST", path: base, body: { ...transportRule(op.rule), ...versionBody } };
       case "delete":
         return { method: "DELETE", path: `${base}/${op.id}`, body: { ...versionBody, pageContext: { pageId, baseDraftVersion: version } } };
+      case "globalDelete":
+        return { method: "POST", path: `${base}/${op.id}/delete-globally`, body: { ...versionBody, receiptId: op.receiptId, pageContext: { pageId, baseDraftVersion: version } } };
+      case "globalRestore":
+        return { method: "POST", path: `${base}/${op.id}/restore-globally`, body: { ...versionBody, receiptId: classDeletionReceipts.get(op.historyId), pageContext: { pageId, baseDraftVersion: version } } };
       case "reorder":
         return { method: "POST", path: `${base}/${op.id}/reorder`, body: { ...(op.classIndex === undefined ? { index: op.index } : { classIndex: op.classIndex }), ...versionBody } };
       case "rename":
@@ -557,7 +570,15 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
           path: `/api/pages/${pageId}/editor-mutations`,
           body: { baseDraftVersion: version, ...(hasStyleRegistryVersion ? { baseStyleRegistryVersion: styleRegistryVersion } : {}), author, mutations },
         };
-      } else saveRequest = siteRequestFor(entry.op);
+      } else {
+        if (entry.op.kind === "globalRestore" && !classDeletionReceipts.has(entry.op.historyId)) {
+          pending = [...batch.slice(index), ...pending];
+          running = false;
+          setStatus("error", "Die Löschung kann ohne Wiederherstellungsbeleg nicht rückgängig gemacht werden.");
+          return;
+        }
+        saveRequest = siteRequestFor(entry.op);
+      }
 
       let response: SaveResponse;
       try {
@@ -578,7 +599,7 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
           conflictVersion = conflictScope === "page" ? readConflictVersion(response.body) : undefined;
           setStatus("conflict", conflictScope === "page"
             ? `Draft has changed (expected v${version}, current v${conflictVersion ?? "?"})`
-            : field === "name" || field === "ruleId" ? messageOf(response.body, "Die Klasse kann nicht geändert werden.") : "Die Style-Registry wurde zwischenzeitlich geändert");
+            : field === "name" || field === "ruleId" || field === "receiptId" || field === "baseDraftVersion" ? messageOf(response.body, "Die Klasse kann nicht geändert werden.") : "Die Style-Registry wurde zwischenzeitlich geändert");
         } else setStatus("error", messageOf(response.body, `Save failed (${response.status})`));
         return;
       }
@@ -586,10 +607,21 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
         const nextVersion = readVersion(response.body);
         if (nextVersion !== undefined) version = nextVersion;
       } else {
-        const responseBody = response.body as { version?: unknown; pageDraftVersion?: unknown } | undefined;
+        const responseBody = response.body as { version?: unknown; pageDraftVersion?: unknown; receiptId?: unknown } | undefined;
+        if ((entry.op.kind === "globalDelete" || entry.op.kind === "globalRestore") &&
+            (typeof responseBody?.version !== "number" || typeof responseBody?.pageDraftVersion !== "number" ||
+              (entry.op.kind === "globalDelete" && responseBody.receiptId !== entry.op.receiptId))) {
+          pending = [...batch.slice(index), ...pending];
+          running = false;
+          setStatus("error", "Der Server hat den Klassenstand nicht vollständig bestätigt. Bitte erneut speichern.");
+          return;
+        }
         styleRegistryVersion =
           typeof responseBody?.version === "number" ? responseBody.version : styleRegistryVersion + 1;
-        if ((entry.op.kind === "rename" || entry.op.kind === "delete") && typeof responseBody?.pageDraftVersion === "number") version = responseBody.pageDraftVersion;
+        if ((entry.op.kind === "rename" || entry.op.kind === "delete" || entry.op.kind === "globalDelete" || entry.op.kind === "globalRestore") && typeof responseBody?.pageDraftVersion === "number") version = responseBody.pageDraftVersion;
+        if (entry.op.kind === "globalDelete" && typeof responseBody?.receiptId === "string") classDeletionReceipts.set(entry.op.historyId, responseBody.receiptId);
+        if (entry.op.kind === "globalDelete") knownRuleIds.delete(entry.op.id);
+        if (entry.op.kind === "globalRestore") knownRuleIds.add(entry.op.id);
         if (entry.op.kind === "upsert") knownRuleIds.add(entry.op.rule.id);
         if (entry.op.kind === "delete") knownRuleIds.delete(entry.op.id);
       }

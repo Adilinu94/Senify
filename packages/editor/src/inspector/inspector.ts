@@ -143,6 +143,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
   let state: StateName | null = null;
   let selectedClassId: string | null = null;
   let classOrderOpen = false;
+  let classDeleteConfirmId: string | null = null;
   const collapsed = new Set<string>();
   // One panel at a time, addressed by the field that owns it (a shared boolean
   // would open the panel under every token/colour field at once).
@@ -1243,7 +1244,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       data: { active: String(selectedClassId === null), kind: "local" },
       attributes: { type: "button", "aria-pressed": String(selectedClassId === null) },
     });
-    local.addEventListener("click", () => { selectedClassId = null; render(); });
+    local.addEventListener("click", () => { selectedClassId = null; classDeleteConfirmId = null; render(); });
     targets.appendChild(local);
     for (const name of assigned) {
       const rule = rules.find((entry) => entry.name === name);
@@ -1254,7 +1255,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
         data: { active: String(selectedClassId === rule.id), kind: "global" },
         attributes: { type: "button", "aria-pressed": String(selectedClassId === rule.id), title: `Klasse ${name} bearbeiten` },
       });
-      select.addEventListener("click", () => { selectedClassId = rule.id; render(); });
+      select.addEventListener("click", () => { selectedClassId = rule.id; classDeleteConfirmId = null; render(); });
       const remove = h(doc, "button", {
         className: "senify-inspector__class-remove", text: "×",
         attributes: { type: "button", "aria-label": `Klasse ${name} entfernen` },
@@ -1342,6 +1343,45 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       });
       duplicate.appendChild(button);
       section.appendChild(duplicate);
+      const deletion = h(doc, "div", { className: "senify-inspector__class-usage" });
+      if (classDeleteConfirmId !== selectedRule.id) {
+        const open = h(doc, "button", { text: "Global löschen …", attributes: { type: "button" } });
+        open.addEventListener("click", () => {
+          classDeleteConfirmId = selectedRule.id;
+          const request = ++usageRequest;
+          usageResult = null;
+          usageMessage = options.onClassUsage === undefined ? null : "Verwendung wird geladen …";
+          usageMessageRuleId = selectedRule.id;
+          render();
+          void options.onClassUsage?.(selectedRule.id).then((pages) => {
+            if (request !== usageRequest) return;
+            usageResult = { ruleId: selectedRule.id, pages };
+            usageMessage = null;
+            if (classDeleteConfirmId === selectedRule.id) render();
+          }).catch(() => {
+            if (request !== usageRequest) return;
+            usageMessage = "Verwendung konnte nicht geladen werden.";
+            if (classDeleteConfirmId === selectedRule.id) render();
+          });
+        });
+        deletion.appendChild(open);
+      } else {
+        deletion.appendChild(h(doc, "p", { text: "Die Klasse und ihre Zuweisungen werden aus allen Seitenentwürfen entfernt. Rückgängig ist möglich, solange diese Entwürfe und Klassen unverändert bleiben.", attributes: { role: "alert" } }));
+        if (usageResult?.ruleId === selectedRule.id) {
+          const count = usageResult.pages.reduce((sum, page) => sum + page.nodeIds.length, 0);
+          deletion.appendChild(h(doc, "p", { text: `Gespeicherter Stand: ${count} Elemente auf ${usageResult.pages.length} Seiten. Zwischenzeitliche Änderungen sind möglich.` }));
+        }
+        const confirm = h(doc, "button", { text: "Auf allen Seiten löschen", attributes: { type: "button" } });
+        confirm.addEventListener("click", () => {
+          classDeleteConfirmId = null;
+          apply({ op: "deleteStyleRule", id: selectedRule.id }, `Klasse ${selectedRule.name} global löschen`);
+        });
+        const cancel = h(doc, "button", { text: "Abbrechen", attributes: { type: "button" } });
+        cancel.addEventListener("click", () => { classDeleteConfirmId = null; render(); });
+        deletion.appendChild(confirm);
+        deletion.appendChild(cancel);
+      }
+      section.appendChild(deletion);
     }
     if (selectedRule !== undefined && options.onClassUsage !== undefined) {
       const usage = h(doc, "div", { className: "senify-inspector__class-usage" });
@@ -1487,6 +1527,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     if (nodeId !== lastNodeId) {
       lastNodeId = nodeId;
       selectedClassId = null;
+      classDeleteConfirmId = null;
       paletteKey = null;
       tokenPanelKey = null;
     }

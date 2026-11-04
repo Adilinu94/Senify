@@ -71,6 +71,18 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS audit_entries_page_idx
     ON audit_entries (page_id, created_at DESC, op_index DESC)`,
+  // A global class deletion records the exact draft assignments and versions
+  // required to restore it without overwriting subsequent edits.
+  `CREATE TABLE IF NOT EXISTS style_class_deletions (
+    id text PRIMARY KEY,
+    site_id text NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+    rule_id text NOT NULL,
+    rule jsonb NOT NULL,
+    pages jsonb NOT NULL,
+    registry_version integer NOT NULL,
+    created_at timestamptz NOT NULL,
+    restored_at timestamptz
+  )`,
   // API tokens: the secret is shown once and stored as a SHA-256 hash only.
   `CREATE TABLE IF NOT EXISTS api_tokens (
     id text PRIMARY KEY,

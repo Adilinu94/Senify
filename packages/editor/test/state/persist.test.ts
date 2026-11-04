@@ -45,13 +45,85 @@ const rule = (id: string, name: string, styles: Record<string, unknown> = {}) =>
 });
 
 describe("save pipeline", () => {
+  it("rejects a mixed batch containing global deletion before changing the document", () => {
+    const store = baseStore();
+    store.apply({ op: "upsertStyleRule", rule: rule("r-cta", "cta") });
+    expect(() => store.applyBatch([
+      { op: "deleteStyleRule", id: "r-cta" },
+      { op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 },
+    ])).toThrow(/eigenen Schritt/);
+    expect(store.document.styleRules.some((entry) => entry.id === "r-cta")).toBe(true);
+  });
+
+  it("orders a quick undo after the deletion has its receipt", async () => {
+    const store = baseStore();
+    store.apply({ op: "upsertStyleRule", rule: rule("r-cta", "cta") });
+    const requests: SaveRequest[] = [];
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR, styleRegistryVersion: 1,
+      request: async (request) => {
+        requests.push(request);
+        if (request.path.endsWith("/delete-globally")) return { status: 200, body: { version: 2, pageDraftVersion: 2, receiptId: (request.body as { receiptId: string }).receiptId } };
+        return { status: 200, body: { version: 3, pageDraftVersion: 3 } };
+      },
+    });
+    store.apply({ op: "deleteStyleRule", id: "r-cta" });
+    store.undo();
+    await pipeline.flush();
+    expect(requests.map((request) => request.path)).toEqual(["/api/sites/site1/style-rules/r-cta/delete-globally", "/api/sites/site1/style-rules/r-cta/restore-globally"]);
+    expect((requests[1]?.body as { receiptId: string }).receiptId).toBe((requests[0]?.body as { receiptId: string }).receiptId);
+    expect(pipeline.state().status).toBe("saved");
+    pipeline.dispose();
+  });
+
+  it("retries a global deletion with the same receipt after a lost response", async () => {
+    let attempts = 0;
+    const { store, pipeline, requests } = harness((request) => {
+      if (!request.path.endsWith("/delete-globally")) return { status: 200, body: { version: 1 } };
+      attempts += 1;
+      return attempts === 1 ? { status: 500, body: {} } : { status: 200, body: { version: 2, pageDraftVersion: 2, receiptId: (request.body as { receiptId: string }).receiptId } };
+    });
+    store.apply({ op: "upsertStyleRule", rule: rule("r-cta", "cta") });
+    await pipeline.flush();
+    store.apply({ op: "deleteStyleRule", id: "r-cta" });
+    await pipeline.flush();
+    expect(pipeline.state().status).toBe("error");
+    await pipeline.flush();
+    expect((requests[1]?.body as { receiptId: string }).receiptId).toBe((requests[2]?.body as { receiptId: string }).receiptId);
+    expect(pipeline.state().status).toBe("saved");
+    pipeline.dispose();
+  });
+
+  it("persists a global deletion and its undo as single site operations", async () => {
+    const { store, pipeline, requests } = harness((request) => {
+      if (request.path.endsWith("/delete-globally")) return { status: 200, body: { version: 2, pageDraftVersion: 3, receiptId: (request.body as { receiptId: string }).receiptId } };
+      if (request.path.endsWith("/restore-globally")) return { status: 200, body: { version: 3, pageDraftVersion: 4 } };
+      return { status: 200, body: { version: 1, newDraftVersion: 2 } };
+    });
+    store.apply({ op: "upsertStyleRule", rule: rule("r-cta", "cta") });
+    store.apply({ op: "assignClass", id: "btn0000001", classId: "cta" });
+    await pipeline.flush();
+    store.apply({ op: "deleteStyleRule", id: "r-cta" });
+    await pipeline.flush();
+    expect(requests[2]?.path).toBe("/api/sites/site1/style-rules/r-cta/delete-globally");
+    expect(requests[2]?.body).toMatchObject({ baseVersion: 1, pageContext: { pageId: "page1", baseDraftVersion: 2 } });
+    expect(requests).toHaveLength(3);
+    store.undo();
+    await pipeline.flush();
+    expect(requests[3]?.path).toBe("/api/sites/site1/style-rules/r-cta/restore-globally");
+    expect(requests[3]?.body).toMatchObject({ receiptId: (requests[2]?.body as { receiptId: string }).receiptId, baseVersion: 2, pageContext: { pageId: "page1", baseDraftVersion: 3 } });
+    expect(pipeline.state().version).toBe(4);
+    expect(requests).toHaveLength(4);
+    pipeline.dispose();
+  });
+
   it("uses the returned page version after removing an unused global class", async () => {
     const { store, pipeline, requests } = harness((request) => {
       if (request.method === "DELETE") return { status: 200, body: { version: 2, pageDraftVersion: 3 } };
       return { status: 200, body: { version: 1, newDraftVersion: 2 } };
     });
     store.apply({ op: "upsertStyleRule", rule: rule("r-cta", "cta") });
-    store.apply({ op: "deleteStyleRule", id: "r-cta" });
+    store.undo();
     store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 });
     await pipeline.flush();
     expect(requests[1]?.body).toMatchObject({ pageContext: { pageId: "page1", baseDraftVersion: 1 } });
@@ -220,7 +292,7 @@ describe("save pipeline", () => {
       "POST /api/sites/site1/style-rules",
       "PATCH /api/sites/site1/style-rules/r-cta",
       "POST /api/sites/site1/style-rules/r-cta/reorder",
-      "DELETE /api/sites/site1/style-rules/r-cta",
+      "POST /api/sites/site1/style-rules/r-cta/delete-globally",
     ]);
     // The create body drops the document's own ordering; the route owns it.
     const createBody = requests[0]?.body as Record<string, unknown>;
@@ -319,9 +391,9 @@ describe("save pipeline", () => {
     pipeline.dispose();
   });
 
-  it("creates a rule again when deletion is undone", async () => {
+  it("creates a scoped rule again when deletion is undone", async () => {
     const store = baseStore();
-    store.apply({ op: "upsertStyleRule", rule: rule("existing", "cta") });
+    store.apply({ op: "upsertStyleRule", rule: createScopedRule({ id: "existing", nodeId: "head000001" }) });
     const requests: SaveRequest[] = [];
     const pipeline = createSavePipeline({
       store, pageId: "page1", siteId: "site1", author: AUTHOR,

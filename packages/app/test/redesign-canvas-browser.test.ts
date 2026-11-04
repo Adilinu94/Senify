@@ -137,9 +137,11 @@ describe.skipIf(!browserAvailable)("reference redesign handoff in a real browser
 
       const heroNodeId = target?.sections.find((section) => section.type === "hero")?.nodeId;
       expect(heroNodeId).toBeTruthy();
+      await tab.locator('.canvas-view__sidebar-tabs [data-panel="layers"]').click();
       const heroItem = tab.locator(`.senify-explorer__item[data-node="${heroNodeId}"]`);
       await heroItem.waitFor();
       await heroItem.click();
+      await tab.locator('.canvas-view__sidebar-tabs [data-panel="inspector"]').click();
       await expect.poll(async () => tab.locator(".senify-inspector").count()).toBe(1);
       await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       const background = tab.locator('.senify-inspector__field[data-key="background"] input');

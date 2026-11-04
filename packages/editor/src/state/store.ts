@@ -230,6 +230,15 @@ export class EditorStore {
     const mutations = inputs.map((input) => parseEditorMutation(input));
     const first = mutations[0];
     if (first === undefined) return { changed: false, patches: [], warnings: [] };
+    if (mutations.length > 1) {
+      const globalClasses = new Set(this.#document.styleRules.filter((rule) => rule.kind === "class" && rule.scope === undefined).map((rule) => rule.id));
+      for (const mutation of mutations) {
+        if (mutation.op === "upsertStyleRule" && mutation.rule.kind === "class" && mutation.rule.scope === undefined) globalClasses.add(mutation.rule.id);
+        if (mutation.op === "deleteStyleRule" && globalClasses.has(mutation.id)) {
+          throw new SenifyError("validation", "Eine globale Klasse muss in einem eigenen Schritt gelöscht werden", { field: "mutations" });
+        }
+      }
+    }
     let document = this.#document;
     const forward: DocumentPatch[] = [];
     const inverse: DocumentPatch[] = [];

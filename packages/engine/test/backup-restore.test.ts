@@ -127,6 +127,24 @@ function fingerprint(dir: string): string[] {
 }
 
 describe("restore a backup", () => {
+  it("preserves class-deletion receipts so assignments remain restorable", async () => {
+    const author = { kind: "human" as const, id: "tester", label: "Tester" };
+    const site = await createTestSite(env.api, "Klassenbeleg im Backup");
+    const page = await createTestPage(env.api, site.id, { path: "/" });
+    const created = await env.humanApi.request<{ id: string }>({ method: "POST", path: `/api/sites/${site.id}/style-rules`, body: { name: "cta" } });
+    const draft = (await env.engine.store.getPage(page.id)).draft;
+    draft.nodes[draft.rootNodeId]!.classes = ["cta"];
+    const pageVersion = await env.engine.store.updatePage(page.id, page.draftVersion, { draft, title: page.title, path: page.path });
+    const removed = await env.engine.store.deleteGlobalClass(site.id, created.body.id, { baseVersion: 1, pageContext: { pageId: page.id, baseDraftVersion: pageVersion } }, author);
+    const backup = await createBackup();
+    await env.engine.store.restoreGlobalClass(site.id, created.body.id, { receiptId: removed.receiptId, baseVersion: 2, pageContext: { pageId: page.id, baseDraftVersion: removed.pageDraftVersion } }, author);
+    expect((await restore(backup.id, { confirm: true })).status).toBe(200);
+    await env.engine.store.restoreGlobalClass(site.id, created.body.id, { receiptId: removed.receiptId, baseVersion: 2, pageContext: { pageId: page.id, baseDraftVersion: removed.pageDraftVersion } }, author);
+    const restored = await env.engine.store.getPage(page.id);
+    expect(restored.draft.nodes[restored.draft.rootNodeId]?.classes).toEqual(["cta"]);
+    await env.engine.store.deleteSite(site.id);
+  });
+
   it("writes tables and files back and leaves the backup untouched", async () => {
     const site = await createTestSite(env.api, "Vor der Sicherung");
     await createTestPage(env.api, site.id, { title: "Startseite" });

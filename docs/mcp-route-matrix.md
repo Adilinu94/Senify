@@ -1,10 +1,10 @@
 # MCP-Routen-Matrix
 
-Stand: 2026-09-28 — generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und `packages/mcp/src/tools.ts` (+ Server-Audit). Bei neuer Route die Matrix neu erzeugen; `packages/engine/test/route-matrix.test.ts` prüft Vollständigkeit.
+Stand: 2026-11-04 — generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und `packages/mcp/src/tools.ts` (+ Server-Audit). Bei neuer Route die Matrix neu erzeugen; `packages/engine/test/route-matrix.test.ts` prüft Vollständigkeit.
 
 **Regel (E4):** Jede Route hat einen bewussten Status. **Tool** — ein MCP-Tool ruft sie direkt auf. **Workflow-gebündelt** — nur als Teil eines Mehr-Routen-Workflows erreichbar (Via-Spalte nennt das bündelnde Tool). **Operator** — UI/CLI/öffentlich, bewusst ohne Tool.
 
-**Zahlen:** 172 Routen — 92 Tool, 1 Workflow-gebündelt, 79 Operator.
+**Zahlen:** 175 Routen — 92 Tool, 1 Workflow-gebündelt, 82 Operator.
 
 | Methode | Route | Scope | Status | MCP-Tool(s) / Anmerkung |
 |---|---|---|---|---|
@@ -28,11 +28,14 @@ Stand: 2026-09-28 — generiert mit `pnpm route-matrix` aus `packages/engine/src
 | GET | `/api/motion-vendor/:name` | read | Operator | Auslieferung der Motion-Runtime (Editor/Preview) |
 | GET | `/api/sites/:siteId/style-rules` | read | Tool | `set_styles` |
 | POST | `/api/sites/:siteId/style-rules` | write | Tool | `create_style_rule`, `set_styles` |
+| POST | `/api/sites/:siteId/style-rules/:ruleId/delete-globally` | publish | Operator | UI/CLI |
+| POST | `/api/sites/:siteId/style-rules/:ruleId/restore-globally` | write | Operator | UI/CLI |
+| GET | `/api/sites/:siteId/style-rules/:ruleId/usage` | read | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/style-rules/:ruleId` | read | Operator | UI/CLI |
 | PATCH | `/api/sites/:siteId/style-rules/:ruleId` | write | Tool | `set_styles` |
 | POST | `/api/sites/:siteId/style-rules/:ruleId/reorder` | write | Operator | UI/CLI |
 | DELETE | `/api/sites/:siteId/style-rules/:ruleId` | publish | Operator | UI/CLI |
-| GET | `/api/pages/:pageId` | read | Tool | `import { readFileSync } from ` — via get_page/get_nodes (pageFor-Helper) |
+| GET | `/api/pages/:pageId` | read | Tool | via get_page/get_nodes (pageFor-Helper) |
 | DELETE | `/api/pages/:pageId` | publish | Tool | `delete_page` |
 | PUT | `/api/pages/:pageId/template` | write | Tool | `set_page_template` |
 | POST | `/api/pages/:pageId/mutations` | write | Tool | `apply_mutations`, `bump_component_version`, `clear_motion`, `set_component_override`, `set_component_variant`, `set_motion`, `update_component_instances` |
@@ -68,7 +71,7 @@ Stand: 2026-09-28 — generiert mit `pnpm route-matrix` aus `packages/engine/src
 | POST | `/api/reviews/:reviewId/approve` | publish | Operator | UI/CLI |
 | POST | `/api/reviews/:reviewId/request-changes` | write | Operator | UI/CLI |
 | POST | `/api/reviews/:reviewId/discard` | write | Operator | UI/CLI |
-| POST | `/api/sites/:siteId/assets/upload-url` | write | Tool | `import { readFileSync } from ` — via upload_asset (uploadLocalFile-Helper) |
+| POST | `/api/sites/:siteId/assets/upload-url` | write | Tool | via upload_asset (uploadLocalFile-Helper) |
 | PUT | `/api/assets/upload/:uploadId` | read | Workflow-gebündelt | Byte-Sink des Upload-Flows (via upload_asset, signierte URL) |
 | GET | `/api/sites/:siteId/assets` | read | Tool | `list_assets` |
 | GET | `/api/library-components` | read | Tool | `get_library_component`, `list_library_components` |

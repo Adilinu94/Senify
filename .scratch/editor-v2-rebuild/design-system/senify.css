@@ -444,3 +444,56 @@
   --ui-z-dialog: 60;
   --ui-z-toast: 70;
 }
+
+/* Editor-Oberfläche: Elementor-nahe Rollen, mit eigener Dunkelmodus-Bindung. */
+:root {
+  --ui-editor-canvas: #e6e8eb;
+  --ui-editor-panel: #ffffff;
+  --ui-editor-raised: #f8f9fa;
+  --ui-editor-inset: #f4f5f6;
+  --ui-editor-status: #f4f5f7;
+  --ui-editor-ink: #515962;
+  --ui-editor-strong: #272a2f;
+  --ui-editor-muted: #606972;
+  --ui-editor-help: #69727c;
+  --ui-editor-faint: #707982;
+  --ui-editor-line: #d5d8dc;
+  --ui-editor-line-subtle: #e5e7eb;
+  --ui-editor-line-control: #a9b0b7;
+  --ui-editor-accent: #a808ab;
+  --ui-editor-tab-accent: #d004d4;
+  --ui-editor-focus: #930c96;
+  --ui-editor-on-accent: #ffffff;
+  --ui-editor-hover: #f0f1f3;
+  --ui-editor-selected: #f7e8f7;
+  --ui-editor-class-chip: #ebebeb;
+  --ui-editor-class-ink: #0c0d0e;
+  --ui-editor-class-local: #f0abfc;
+  --ui-editor-class-global: #5eead4;
+  --ui-editor-class-active-ink: #0c0d0e;
+  --ui-editor-color-scheme: light;
+}
+[data-mode="dark"] {
+  --ui-editor-canvas: #111116;
+  --ui-editor-panel: #1a1a1f;
+  --ui-editor-raised: #1f1f25;
+  --ui-editor-inset: #15151a;
+  --ui-editor-status: #2a2a31;
+  --ui-editor-ink: #dcdce1;
+  --ui-editor-strong: #f5f5f7;
+  --ui-editor-muted: #a9a8b3;
+  --ui-editor-help: #a9a8b3;
+  --ui-editor-faint: #94939d;
+  --ui-editor-line: #45454e;
+  --ui-editor-line-subtle: #35353d;
+  --ui-editor-line-control: #82818c;
+  --ui-editor-accent: #f0abfc;
+  --ui-editor-tab-accent: #f0abfc;
+  --ui-editor-focus: #f0abfc;
+  --ui-editor-on-accent: #111116;
+  --ui-editor-hover: #2a2a31;
+  --ui-editor-selected: #3a243d;
+  --ui-editor-class-chip: #35353d;
+  --ui-editor-class-ink: #f5f5f7;
+  --ui-editor-color-scheme: dark;
+}

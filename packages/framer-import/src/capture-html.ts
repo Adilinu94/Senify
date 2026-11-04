@@ -1197,15 +1197,23 @@ function buildIndex(rules: readonly ParsedCssRule[]): { index: RuleIndex; skippe
   return { index, skippedPseudo };
 }
 
+// Variant classes are excluded from the merge signature, but remain relevant
+// when resolving CSS on the original SSR tree and its descendants.
+function cssClassesOf(node: IrNode): string[] {
+  const variant = node.states[0]?.variantHash;
+  return variant == null ? node.baseClasses : [...node.baseClasses, `framer-v-${variant}`];
+}
+
 function ruleMatches(node: IrNode, rule: CompiledRule, ancestors: readonly ReadonlySet<string>[]): boolean {
+  const classes = cssClassesOf(node);
   if (node.tag === "root") {
     if (rule.root) return true;
     // A class rule can target the page element itself (`.framer-QDc12{…}`).
-    return rule.classes.length > 0 && rule.ancestors.length === 0 && rule.classes.every((name) => node.baseClasses.includes(name));
+    return rule.classes.length > 0 && rule.ancestors.length === 0 && rule.classes.every((name) => classes.includes(name));
   }
   if (rule.root) return false;
   if (rule.tag !== "" && rule.tag !== "*" && rule.tag !== node.tag) return false;
-  if (!rule.classes.every((name) => node.baseClasses.includes(name))) return false;
+  if (!rule.classes.every((name) => classes.includes(name))) return false;
   let cursor = ancestors.length - 1;
   for (let index = rule.ancestors.length - 1; index >= 0; index -= 1) {
     const required = rule.ancestors[index] ?? [];
@@ -1219,7 +1227,7 @@ function ruleMatches(node: IrNode, rule: CompiledRule, ancestors: readonly Reado
 // Matching rules in source order, which is the cascade order.
 function matchingRules(index: RuleIndex, node: IrNode, ancestors: readonly ReadonlySet<string>[]): CompiledRule[] {
   const candidates = new Set<CompiledRule>(index.generic);
-  for (const name of node.baseClasses) {
+  for (const name of cssClassesOf(node)) {
     for (const rule of index.byClass.get(name) ?? []) candidates.add(rule);
   }
   return [...candidates]
@@ -1301,7 +1309,7 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
         visual: values,
       });
     }
-    const nextAncestors = [...ancestors, new Set(current.baseClasses)];
+    const nextAncestors = [...ancestors, new Set(cssClassesOf(current))];
     for (const child of current.children) visit(child, nextAncestors, varsByDevice);
   };
   visit(root, [], { desktop: {}, tablet: {}, mobile: {} });

@@ -54,6 +54,12 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       await tab.getByRole("button", { name: "Lokal", exact: true }).click();
       expect(await targetColor("Lokal")).toBe("rgb(240, 171, 252)");
       await tab.getByRole("button", { name: "cta", exact: true }).click();
+      await tab.evaluate('document.documentElement.dataset.mode = "dark"');
+      expect(await targetColor("cta")).toBe("rgb(94, 234, 212)");
+      await tab.getByRole("button", { name: "Lokal", exact: true }).click();
+      expect(await targetColor("Lokal")).toBe("rgb(240, 171, 252)");
+      await tab.evaluate('document.documentElement.dataset.mode = "light"');
+      await tab.getByRole("button", { name: "cta", exact: true }).click();
       const background = tab.locator('.senify-inspector__field[data-key="background"] input[data-control="color-text"]');
       await background.fill("#123456");
       await background.dispatchEvent("change");
@@ -283,6 +289,32 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
       await tab.reload();
       await expect.poll(() => color("frame00003"), { timeout: 15000 }).toBe("rgb(51, 68, 85)");
+
+      // Global deletion removes every saved assignment; undo and redo restore
+      // the full cross-page state, not only the current page.
+      await node("frame00003").click();
+      await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
+      await tab.getByRole("button", { name: "cta", exact: true }).click();
+      await tab.getByRole("button", { name: "Global löschen …" }).click();
+      await tab.getByText("Gespeicherter Stand: 3 Elemente auf 2 Seiten.", { exact: false }).waitFor();
+      await tab.getByRole("button", { name: "Auf allen Seiten löschen" }).click();
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      const firstPageClasses = async () => {
+        const firstPage = await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json() as { draft: { nodes: Record<string, { classes?: string[] }> } };
+        return firstPage.draft.nodes.frame00002?.classes ?? [];
+      };
+      expect(await firstPageClasses()).not.toContain("cta");
+      await expect.poll(() => color("frame00003")).toBe("rgb(255, 0, 0)");
+      await tab.locator('.senify-canvas__button[data-action="undo"]').click();
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      expect(await firstPageClasses()).toContain("cta");
+      await expect.poll(() => color("frame00003")).toBe("rgb(51, 68, 85)");
+      await tab.locator('.senify-canvas__button[data-action="redo"]').click();
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      expect(await firstPageClasses()).not.toContain("cta");
+      await tab.locator('.senify-canvas__button[data-action="undo"]').click();
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      expect(await firstPageClasses()).toContain("cta");
 
       await tab.route("**/api/library-components", (route) => route.fulfill({ status: 503, json: { error: { message: "Offline" } } }));
       await tab.reload();

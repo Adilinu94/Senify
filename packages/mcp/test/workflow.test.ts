@@ -231,7 +231,9 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "update_library_instances",
       "library_audit",
       "snapshot_unframer_project",
+      "prepare_framer_export",
       "export_framer_site",
+      "import_framer_site",
       "import_framer_page",
       "get_import_report",
     ]);

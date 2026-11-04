@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   buildRouteMatrix,
+  parseToolCalls,
   type MatrixStatus,
 } from "../src/route-matrix.ts";
 
@@ -24,6 +25,10 @@ function documentedRows(markdown: string): { key: string; status: string }[] {
 }
 
 describe("mcp route matrix (E4 slice 2)", () => {
+  it("extracts tool names from Windows line endings", () => {
+    const source = 'import { x } from "example";\r\n  {\r\n    name: "create_site",\r\n    handler: () => client.request("POST", "/api/sites")\r\n  }';
+    expect([...parseToolCalls(source).entries()]).toEqual([["create_site", [{ method: "POST", path: "/api/sites" }]]]);
+  });
   it("covers every engine route with a conscious status", () => {
     const http = readFileSync(join(engineDir, "src", "http.ts"), "utf8");
     const tools = readFileSync(

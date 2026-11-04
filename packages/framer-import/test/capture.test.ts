@@ -119,6 +119,24 @@ describe("captureHtml", () => {
 });
 
 describe("captureHtml device states", () => {
+  it("applies a variant's own and descendant selectors only inside that variant", () => {
+    const document = captureHtml({ html: `<style>
+      .card { flex-direction: row }
+      .card.framer-v-phone { flex-direction: column }
+      .card .content { width: 1px }
+      .card.framer-v-phone .content { width: 100% }
+    </style><div id="main">
+      <div class="card framer-v-desktop"><div class="content">Desktop</div></div>
+      <div class="card framer-v-phone"><div class="content">Phone</div></div>
+    </div>` });
+    const [desktop, phone] = document.pages[0]?.root.children ?? [];
+    expect(desktop?.states[0]?.visual["flex-direction"]).toBe("row");
+    expect(desktop?.children[0]?.states[0]?.visual.width).toBe("1px");
+    expect(phone?.states[0]?.visual["flex-direction"]).toBe("column");
+    expect(phone?.children[0]?.states[0]?.visual.width).toBe("100%");
+    expect(phone?.baseClasses).not.toContain("framer-v-phone");
+  });
+
   it("reads the ssr-variant wrappers as separate states of one element", () => {
     // The measured merge anchor (befund §4/5): three <header> with the same
     // base classes, one framer-v-<hash> each, names desktop/tablet/phone.

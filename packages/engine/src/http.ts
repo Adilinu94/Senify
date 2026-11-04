@@ -53,17 +53,21 @@ import { RateLimiter, RateLimitError } from "./rate-limit.ts";
 import { hardGuardrailsForTree } from "./guardrails.ts";
 import {
   CreateStyleRuleBodySchema,
+  DeleteGlobalClassBodySchema,
   DeleteStyleRuleBodySchema,
   DuplicateSiteBodySchema,
   ReorderStyleRuleBodySchema,
+  RestoreGlobalClassBodySchema,
   SiteEventBodySchema,
   UpdateSiteBodySchema,
   UpdateStyleRuleBodySchema,
   type CreateStyleRuleBody,
+  type DeleteGlobalClassBody,
   type DeleteStyleRuleBody,
   type DuplicateSiteBody,
   type UpdateSiteBody,
   type ReorderStyleRuleBody,
+  type RestoreGlobalClassBody,
   type SiteEventBody,
   type UpdateStyleRuleBody,
 } from "./site-contract.ts";
@@ -1702,6 +1706,27 @@ const ROUTES: Route[] = [
       const rule = await context.store.createStyleRule(siteId, input, resolveAuthor(auth));
       const version = (await context.store.getStyleRegistry(siteId)).version;
       return { status: 201, body: rule, headers: styleVersionHeaders(version) };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "style-rules", ":ruleId", "delete-globally"],
+    scope: "publish",
+    destructive: true,
+    handler: async (context, params, req, _url, auth) => {
+      const body = parseBody<DeleteGlobalClassBody>(DeleteGlobalClassBodySchema, (await readJsonBody(req)) ?? {}, "global class deletion");
+      const result = await context.store.deleteGlobalClass(requireParam(params, "siteId"), requireParam(params, "ruleId"), body, resolveAuthor(auth));
+      return { status: 200, body: result, headers: styleVersionHeaders(result.version) };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "style-rules", ":ruleId", "restore-globally"],
+    scope: "write",
+    handler: async (context, params, req, _url, auth) => {
+      const body = parseBody<RestoreGlobalClassBody>(RestoreGlobalClassBodySchema, (await readJsonBody(req)) ?? {}, "global class restore");
+      const result = await context.store.restoreGlobalClass(requireParam(params, "siteId"), requireParam(params, "ruleId"), body, resolveAuthor(auth));
+      return { status: 200, body: result, headers: styleVersionHeaders(result.version) };
     },
   },
   {

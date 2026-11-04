@@ -143,6 +143,8 @@ const GRUPPEN = {
   library_audit: "referenzen",
   snapshot_unframer_project: "seiten",
   export_framer_site: "seiten",
+  prepare_framer_export: "seiten",
+  import_framer_site: "seiten",
   import_framer_page: "seiten",
   get_import_report: "seiten",
 };

@@ -258,6 +258,21 @@ type StyleRuleRow = {
   style_rules_version: unknown;
 };
 
+type ClassDeletionPage = {
+  pageId: string;
+  version: number;
+  classes: Record<string, string[]>;
+};
+
+type ClassDeletionRow = {
+  site_id: string;
+  rule_id: string;
+  rule: unknown;
+  pages: unknown;
+  registry_version: unknown;
+  restored_at: unknown;
+};
+
 type PageRow = {
   id: string;
   site_id: string;
@@ -2906,6 +2921,134 @@ export class Store {
     });
     const pageDraftVersion = unusedClass?.pageDraftVersion ?? pageContext?.baseDraftVersion;
     return { version: registry.version + 1, ...(pageDraftVersion === undefined ? {} : { pageDraftVersion }) };
+  }
+
+  async deleteGlobalClass(
+    siteId: string,
+    ruleId: string,
+    input: { receiptId?: string; baseVersion: number; pageContext: { pageId: string; baseDraftVersion: number } },
+    author: Author,
+  ): Promise<{ receiptId: string; version: number; pageDraftVersion: number }> {
+    return this.#db.withTransaction(async (tx) => {
+      const site = await tx.query<StyleRuleRow>(`SELECT style_rules_json, style_rules_version FROM sites WHERE id = $1 FOR UPDATE`, [siteId]);
+      const row = site.rows[0];
+      if (row === undefined) throw new SenifyError("not_found", "Das Projekt existiert nicht", { field: "siteId" });
+      const version = toFiniteNumber(row.style_rules_version ?? 0, "style_rules_version");
+      const receiptId = input.receiptId ?? newEntityId();
+      const existing = await tx.query<ClassDeletionRow>(`SELECT site_id, rule_id, rule, pages, registry_version, restored_at FROM style_class_deletions WHERE id = $1 FOR UPDATE`, [receiptId]);
+      const previous = existing.rows[0];
+      if (previous !== undefined) {
+        const snapshots = toJson<ClassDeletionPage[]>(previous.pages);
+        const origin = Array.isArray(snapshots) ? snapshots.find((page) => page.pageId === input.pageContext.pageId) : undefined;
+        if (previous.site_id !== siteId || previous.rule_id !== ruleId || previous.restored_at != null ||
+            toFiniteNumber(previous.registry_version, "registry_version") !== input.baseVersion + 1 ||
+            origin?.version !== input.pageContext.baseDraftVersion + 1) {
+          throw new SenifyError("conflict", "Der Wiederherstellungsbeleg gehört zu einer anderen Änderung", { field: "receiptId" });
+        }
+        return { receiptId, version: input.baseVersion + 1, pageDraftVersion: origin.version };
+      }
+      assertStyleRegistryVersion(input.baseVersion, version);
+      const rules = row.style_rules_json == null ? [] : parseStyleRuleRegistry(toJson<unknown>(row.style_rules_json));
+      const rule = rules.find((entry) => entry.id === ruleId);
+      if (rule === undefined) throw new SenifyError("not_found", "Die Klasse existiert nicht", { field: "ruleId" });
+      if (rule.kind !== "class" || rule.scope !== undefined) throw new SenifyError("validation", "Nur globale Klassen können global gelöscht werden", { field: "ruleId" });
+      if (rule.origin?.source === "framer-import" || RULE_ID_PATTERN.test(rule.id)) throw new SenifyError("conflict", "Importierte Framer-Klassen können noch nicht sicher gelöscht werden.", { field: "ruleId" });
+      if (rules.some((entry) => entry.kind === "ambient" && selectorMentionsClass(entry.selector, rule.name))) {
+        throw new SenifyError("conflict", "Ein freier CSS-Selektor verweist auf diese Klasse.", { field: "ruleId" });
+      }
+      const pages = await tx.query<{ id: string; draft: unknown; draft_version: unknown }>(
+        `SELECT id, draft, draft_version FROM pages WHERE site_id = $1 ORDER BY id FOR UPDATE`, [siteId],
+      );
+      const origin = pages.rows.find((page) => page.id === input.pageContext.pageId);
+      if (origin === undefined) throw new SenifyError("not_found", "Die Editor-Seite gehört nicht zum Projekt", { field: "pageContext.pageId" });
+      const currentVersion = toFiniteNumber(origin.draft_version, "draft_version");
+      if (currentVersion !== input.pageContext.baseDraftVersion) throw draftConflictError(input.pageContext.baseDraftVersion, currentVersion);
+      const now = new Date().toISOString();
+      const snapshots: ClassDeletionPage[] = [];
+      for (const page of pages.rows) {
+        const draft = structuredClone(toJson<unknown>(page.draft));
+        assertDraftShape(draft);
+        const classes: Record<string, string[]> = Object.create(null) as Record<string, string[]>;
+        for (const node of Object.values(draft.nodes)) {
+          if (!node.classes?.includes(rule.name)) continue;
+          classes[node.id] = [...node.classes];
+          const remaining = node.classes.filter((name) => name !== rule.name);
+          if (remaining.length === 0) delete node.classes;
+          else node.classes = remaining;
+        }
+        const pageVersion = toFiniteNumber(page.draft_version, "draft_version") + 1;
+        snapshots.push({ pageId: page.id, version: pageVersion, classes });
+        await tx.query(`UPDATE pages SET draft = $2, draft_version = $3, updated_at = $4 WHERE id = $1`, [page.id, toJsonParam(draft), pageVersion, now]);
+      }
+      const nextVersion = version + 1;
+      await tx.query(`UPDATE sites SET style_rules_json = $2, style_rules_version = $3, updated_at = $4 WHERE id = $1`, [siteId, toJsonParam(normalizeRuleOrder(rules.filter((entry) => entry.id !== ruleId))), nextVersion, now]);
+      await tx.query(`INSERT INTO style_class_deletions (id, site_id, rule_id, rule, pages, registry_version, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`, [receiptId, siteId, ruleId, toJsonParam(rule), toJsonParam(snapshots), nextVersion, now]);
+      const audit = buildAuditInsert([{ siteId, pageId: null, batchId: receiptId, opIndex: 0, mutation: "delete_global_class", params: { ruleId, name: rule.name, pages: snapshots.filter((page) => Object.keys(page.classes).length > 0).map((page) => page.pageId) }, author, undoPatch: [], draftVersionAfter: nextVersion }]);
+      await tx.query(audit.text, audit.params);
+      return { receiptId, version: nextVersion, pageDraftVersion: currentVersion + 1 };
+    });
+  }
+
+  async restoreGlobalClass(
+    siteId: string,
+    ruleId: string,
+    input: { receiptId: string; baseVersion: number; pageContext: { pageId: string; baseDraftVersion: number } },
+    author: Author,
+  ): Promise<{ version: number; pageDraftVersion: number }> {
+    return this.#db.withTransaction(async (tx) => {
+      const site = await tx.query<StyleRuleRow>(`SELECT style_rules_json, style_rules_version FROM sites WHERE id = $1 FOR UPDATE`, [siteId]);
+      const row = site.rows[0];
+      if (row === undefined) throw new SenifyError("not_found", "Das Projekt existiert nicht", { field: "siteId" });
+      const version = toFiniteNumber(row.style_rules_version ?? 0, "style_rules_version");
+      const receipts = await tx.query<ClassDeletionRow>(`SELECT site_id, rule_id, rule, pages, registry_version, restored_at FROM style_class_deletions WHERE id = $1 AND site_id = $2 AND rule_id = $3 FOR UPDATE`, [input.receiptId, siteId, ruleId]);
+      const receipt = receipts.rows[0];
+      if (receipt === undefined) throw new SenifyError("conflict", "Die Löschung kann nicht wiederhergestellt werden", { field: "receiptId" });
+      const snapshots = toJson<ClassDeletionPage[]>(receipt.pages);
+      if (receipt.restored_at != null) {
+        const previousOrigin = Array.isArray(snapshots) ? snapshots.find((page) => page.pageId === input.pageContext.pageId) : undefined;
+        if (input.baseVersion === toFiniteNumber(receipt.registry_version, "registry_version") && previousOrigin?.version === input.pageContext.baseDraftVersion) {
+          return { version: input.baseVersion + 1, pageDraftVersion: input.pageContext.baseDraftVersion + 1 };
+        }
+        throw new SenifyError("conflict", "Die Löschung kann nicht erneut wiederhergestellt werden", { field: "receiptId" });
+      }
+      assertStyleRegistryVersion(input.baseVersion, version);
+      if (toFiniteNumber(receipt.registry_version, "registry_version") !== version) throw new SenifyError("conflict", "Die Klassen wurden seit dem Löschen geändert", { field: "baseVersion" });
+      const rule = parseStyleRuleRegistry([toJson<unknown>(receipt.rule)])[0];
+      if (rule === undefined || rule.id !== ruleId || !Array.isArray(snapshots)) throw new SenifyError("validation", "Der Wiederherstellungsstand ist ungültig", { field: "receiptId" });
+      const rules = row.style_rules_json == null ? [] : parseStyleRuleRegistry(toJson<unknown>(row.style_rules_json));
+      if (rules.some((entry) => entry.id === rule.id)) throw new SenifyError("conflict", "Die Klasse existiert bereits", { field: "ruleId" });
+      assertClassNameFree(rules, rule.name, rule.id, "name");
+      const pages = await tx.query<{ id: string; draft: unknown; draft_version: unknown }>(`SELECT id, draft, draft_version FROM pages WHERE site_id = $1 ORDER BY id FOR UPDATE`, [siteId]);
+      if (pages.rows.length !== snapshots.length) throw new SenifyError("conflict", "Die Seitenliste wurde seit dem Löschen geändert", { field: "receiptId" });
+      const origin = pages.rows.find((page) => page.id === input.pageContext.pageId);
+      if (origin === undefined) throw new SenifyError("not_found", "Die Editor-Seite gehört nicht zum Projekt", { field: "pageContext.pageId" });
+      const currentVersion = toFiniteNumber(origin.draft_version, "draft_version");
+      if (currentVersion !== input.pageContext.baseDraftVersion) throw draftConflictError(input.pageContext.baseDraftVersion, currentVersion);
+      const now = new Date().toISOString();
+      const restored: Array<{ id: string; draft: NodeTree; version: number }> = [];
+      for (const page of pages.rows) {
+        const snapshot = snapshots.find((entry) => entry.pageId === page.id);
+        const pageVersion = toFiniteNumber(page.draft_version, "draft_version");
+        if (snapshot === undefined || snapshot.version !== pageVersion || snapshot.classes === null || typeof snapshot.classes !== "object") throw new SenifyError("conflict", "Ein Seitenentwurf wurde seit dem Löschen geändert", { field: "receiptId" });
+        const draft = structuredClone(toJson<unknown>(page.draft));
+        assertDraftShape(draft);
+        for (const [nodeId, classes] of Object.entries(snapshot.classes)) {
+          const node = draft.nodes[nodeId];
+          if (node === undefined || !Array.isArray(classes) || !classes.every((name) => typeof name === "string")) throw new SenifyError("conflict", "Eine Klassenverwendung kann nicht wiederhergestellt werden", { field: "receiptId" });
+          node.classes = [...classes];
+        }
+        restored.push({ id: page.id, draft, version: pageVersion + 1 });
+      }
+      for (const page of restored) await tx.query(`UPDATE pages SET draft = $2, draft_version = $3, updated_at = $4 WHERE id = $1`, [page.id, toJsonParam(page.draft), page.version, now]);
+      const nextRules = [...rules];
+      nextRules.splice(Math.min(rule.order, nextRules.length), 0, rule);
+      const nextVersion = version + 1;
+      await tx.query(`UPDATE sites SET style_rules_json = $2, style_rules_version = $3, updated_at = $4 WHERE id = $1`, [siteId, toJsonParam(normalizeRuleOrder(nextRules)), nextVersion, now]);
+      await tx.query(`UPDATE style_class_deletions SET restored_at = $2 WHERE id = $1`, [input.receiptId, now]);
+      const audit = buildAuditInsert([{ siteId, pageId: null, batchId: newEntityId(), opIndex: 0, mutation: "restore_global_class", params: { ruleId, receiptId: input.receiptId }, author, undoPatch: [], draftVersionAfter: nextVersion }]);
+      await tx.query(audit.text, audit.params);
+      return { version: nextVersion, pageDraftVersion: currentVersion + 1 };
+    });
   }
 
   // Reorder is a permutation of the array; `order` is normalized to the array

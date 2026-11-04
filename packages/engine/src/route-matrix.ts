@@ -159,9 +159,9 @@ export function parseRequestCalls(source: string): { method: string; path: strin
 
 // Split `tools.ts` into per-tool blocks at the array-element level.
 export function parseToolCalls(toolsSource: string): Map<string, { method: string; path: string }[]> {
-  const blocks = toolsSource.split(/\n {2}\{\n {4}name: "/);
+  const blocks = toolsSource.replace(/\r\n/g, "\n").split(/\n {2}\{\n {4}name: "/);
   const byTool = new Map<string, { method: string; path: string }[]>();
-  for (const block of blocks) {
+  for (const block of blocks.slice(1)) {
     const name = /^([^"]+)"/.exec(block)?.[1];
     if (name === undefined) continue;
     byTool.set(name, parseRequestCalls(block));

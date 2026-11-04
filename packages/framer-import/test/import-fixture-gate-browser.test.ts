@@ -194,7 +194,8 @@ describe.skipIf(!browserAvailable && !BROWSER_REQUIRED)("S5 import gate on the r
       } finally {
         await browser.close();
         await Promise.all(servers.map((server) => server.close()));
-        rmSync(work, { recursive: true, force: true });
+        if (process.env["SENIFY_KEEP_FIXTURE"] === "1") console.log(`Import-Vergleich erhalten: ${work}`);
+        else rmSync(work, { recursive: true, force: true });
       }
     }, 240_000);
   }
