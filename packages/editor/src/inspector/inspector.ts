@@ -607,10 +607,13 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       });
       back.addEventListener("click", () => {
         const value = literal ?? "0";
+        const match = /^([+-]?(?:\d+(?:\.\d+)?|\.\d+))([a-z%]+)$/i.exec(value.trim());
+        const unit = field.units?.find((candidate) => candidate === match?.[2]) ?? field.units?.[0] ?? "px";
+        const amount = match?.[2] === unit ? (match[1] ?? value) : value;
         if (field.kind === "dimensions") {
-          commitProp(nodeId, field, { top: value, right: value, bottom: value, left: value, isLinked: true, unit: "px" });
+          commitProp(nodeId, field, { top: amount, right: amount, bottom: amount, left: amount, isLinked: true, unit });
         } else if (field.kind === "gaps") {
-          commitProp(nodeId, field, { row: value, column: value, isLinked: true, unit: "px" });
+          commitProp(nodeId, field, { row: amount, column: amount, isLinked: true, unit });
         } else commitProp(nodeId, field, value);
         tokenPanelKey = null;
         render();
@@ -748,6 +751,28 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     return { parts: ["", "", "", ""], linked: true, unit: "rem" };
   }
 
+  function unitlessPart(value: string, unit: Unit): string {
+    const match = /^([+-]?(?:\d+(?:\.\d+)?|\.\d+))([a-z%]+)$/i.exec(value.trim());
+    return match?.[2] === unit ? (match[1] ?? value) : value;
+  }
+
+  function renderSpacingUnit(field: InspectorField, current: Unit, change: (unit: Unit) => void): DomElement | null {
+    if (field.units === undefined || field.units.length < 2) return null;
+    const wrap = h(doc, "div", { className: "ed-field ed-field--value" });
+    const select = h(doc, "select", { data: { control: "spacing-unit" }, attributes: { "aria-label": `Einheit für ${field.label}` } });
+    for (const unit of field.units) {
+      const option = h(doc, "option", { text: unit, value: unit });
+      if (unit === current) option.setAttribute("selected", "selected");
+      select.appendChild(option);
+    }
+    select.addEventListener("change", () => {
+      const next = field.units?.find((unit) => unit === select.value);
+      if (next !== undefined) change(next);
+    });
+    wrap.appendChild(select);
+    return wrap;
+  }
+
   function renderDimensions(nodeId: string, field: InspectorField, control: DomElement): void {
     if (field.tokenRef !== null) {
       control.appendChild(h(doc, "span", { text: `Token: ${field.tokenRef}` }));
@@ -808,6 +833,11 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     });
     control.appendChild(wrap);
     control.appendChild(link);
+    const unitSelect = renderSpacingUnit(field, unit, (next) => {
+      const values = inputs.map((input) => unitlessPart(input.value ?? "", unit));
+      commitProp(nodeId, field, { top: values[0] ?? "0", right: values[1] ?? "0", bottom: values[2] ?? "0", left: values[3] ?? "0", isLinked: linked, unit: next });
+    });
+    if (unitSelect !== null) control.appendChild(unitSelect);
   }
 
   function renderGaps(nodeId: string, field: InspectorField, control: DomElement): void {
@@ -861,6 +891,11 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     });
     control.appendChild(wrap);
     control.appendChild(link);
+    const unitSelect = renderSpacingUnit(field, unit, (next) => {
+      const values = inputs.map((input) => unitlessPart(input.value ?? "", unit));
+      commitProp(nodeId, field, { row: values[0] ?? "0", column: values[1] ?? "0", isLinked: linked, unit: next });
+    });
+    if (unitSelect !== null) control.appendChild(unitSelect);
   }
 
   /* --------------------------------------------------------------- motion */

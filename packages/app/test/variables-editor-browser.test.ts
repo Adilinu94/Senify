@@ -59,7 +59,12 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       await paddingField.getByText("Token: spacing.luft").waitFor();
       await paddingField.locator('[data-control="tokens"]').click();
       await paddingField.locator('[data-action="token-literal"]').click();
-      expect(await paddingField.locator('[data-edge="top"] input').inputValue()).toBe("24px");
+      expect(await paddingField.locator('[data-edge="top"] input').inputValue()).toBe("24");
+      expect(await paddingField.locator('[data-control="spacing-unit"]').inputValue()).toBe("px");
+      await paddingField.locator('[data-control="spacing-unit"]').selectOption("rem");
+      expect(await paddingField.locator('[data-edge="top"] input').inputValue()).toBe("24");
+      expect(await paddingField.locator('[data-control="spacing-unit"]').inputValue()).toBe("rem");
+      await paddingField.locator('[data-control="spacing-unit"]').selectOption("px");
       await paddingField.locator('[data-control="tokens"]').click();
       await paddingField.locator('[data-ref="spacing.luft"]').click();
       await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
