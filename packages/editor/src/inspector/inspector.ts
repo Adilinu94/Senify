@@ -1301,6 +1301,35 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       section.appendChild(order);
     }
     const selectedRule = rules.find((rule) => rule.id === selectedClassId && assigned.includes(rule.name));
+    if (selectedRule !== undefined) {
+      const duplicate = h(doc, "div", { className: "senify-inspector__class-usage" });
+      const button = h(doc, "button", { text: "Klasse duplizieren", attributes: { type: "button" } });
+      button.addEventListener("click", () => {
+        let name = `${selectedRule.name}-kopie`;
+        let suffix = 2;
+        while (rules.some((rule) => rule.name === name)) name = `${selectedRule.name}-kopie-${suffix++}`;
+        const previous = selectedClassId;
+        try {
+          const fresh = createClassRule({ id: newNodeId(), name, order: options.store.document.styleRules.length });
+          const copy = structuredClone(selectedRule);
+          Object.assign(copy, { id: fresh.id, name: fresh.name, selector: fresh.selector, order: fresh.order, authoredBy: "user" });
+          delete copy.origin;
+          delete copy.createdAt;
+          delete copy.updatedAt;
+          selectedClassId = copy.id;
+          options.store.applyBatch([
+            { op: "upsertStyleRule", rule: copy },
+            { op: "assignClass", id: nodeId, classId: copy.name },
+          ], { label: `Klasse ${selectedRule.name} duplizieren` });
+          report(null);
+        } catch (error) {
+          selectedClassId = previous;
+          reportCommitError(error);
+        }
+      });
+      duplicate.appendChild(button);
+      section.appendChild(duplicate);
+    }
     if (selectedRule !== undefined && options.onClassUsage !== undefined) {
       const usage = h(doc, "div", { className: "senify-inspector__class-usage" });
       const showUsage = h(doc, "button", { text: "Verwendung anzeigen", attributes: { type: "button" } });

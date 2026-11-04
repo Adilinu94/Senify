@@ -43,6 +43,8 @@ Die detaillierte Planung für dieses Produktziel steht in der [Framer-Roadmap](f
 
 **Klassensuche:** Die Auswahl verfügbarer Klassen lässt sich im Inspector filtern; leere Treffer und Zuweisung sind im Browser-Gate geprüft (`packages/editor/src/inspector/inspector.ts`, `packages/app/test/class-editor-browser.test.ts`).
 
+**Klassen duplizieren:** Der Inspector erstellt eine unabhängig bearbeitbare Kopie und weist sie dem ausgewählten Element zu. Browser-Gate: Übernahme der Stil-, Breakpoint- und Zustandswerte, getrennte Bearbeitung und erneutes Laden (`packages/editor/src/inspector/inspector.ts`, `packages/app/test/class-editor-browser.test.ts`). Das sichere seitenübergreifende Umbenennen und Löschen bleibt offen.
+
 **Klassenpriorität:** Globale Klassen lassen sich mit der stärksten Klasse oben verschieben; die Engine berechnet die Position anhand aller globalen Klassen, auch wenn Scoped-Regeln anderer Seiten im Editor ausgeblendet sind. Browser-Gate mit Undo/Redo und PostgreSQL-Gate sind ausgeführt (`packages/editor/src/state/persist.ts`, `packages/engine/test/style-rules.test.ts`, `packages/app/test/class-editor-browser.test.ts`). Offen: Elementor-konformer Vorrang lokaler Werte; dazu müssen Migration, Zustände, Breakpoints und Import-/Build-Parität vor einer Umstellung geklärt werden.
 
 **Klassenziel im Inspector:** Das Klassenfeld und die Farbmarkierung für lokale beziehungsweise globale Ziele orientieren sich an Elementors veröffentlichter Oberfläche und den Farben des installierten Core. Der gezielte Browser-Gate prüft die Zustandsfarben (`packages/editor/src/inspector/styles.ts`, `packages/app/test/class-editor-browser.test.ts`). Ein gesamter visueller Vergleich der installierten Elementor-Version bleibt offen.

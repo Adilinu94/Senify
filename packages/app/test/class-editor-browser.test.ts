@@ -126,6 +126,43 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       await tab.getByText("Start (/) · 2 Elemente").waitFor();
       await tab.getByText("Zweite Seite (/zweite) · 1 Elemente").waitFor();
 
+      // A duplicate is independent, retains responsive and state styles, and
+      // is assigned only to the selected element.
+      await node("frame00002").click();
+      await tab.getByRole("button", { name: "cta", exact: true }).click();
+      await tab.getByRole("button", { name: "Klasse duplizieren" }).click();
+      await tab.getByRole("button", { name: "cta-kopie", exact: true }).waitFor();
+      expect(await tab.getByRole("button", { name: "cta-kopie", exact: true }).getAttribute("aria-pressed")).toBe("true");
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      const copies = await (await fetch(`${running.dashboardUrl}/api/sites/${site.id}/style-rules`)).json() as {
+        rules: Array<{ id: string; name: string; styles: Record<string, unknown>; states?: Record<string, unknown>; contextStyles: Record<string, unknown> }>;
+      };
+      const original = copies.rules.find((rule) => rule.name === "cta");
+      const copy = copies.rules.find((rule) => rule.name === "cta-kopie");
+      expect(copy?.styles).toEqual(original?.styles);
+      expect(copy?.states).toEqual(original?.states);
+      expect(copy?.contextStyles).toEqual(original?.contextStyles);
+      await background.fill("#987654");
+      await background.dispatchEvent("change");
+      await expect.poll(async () => {
+        const latest = await (await fetch(`${running.dashboardUrl}/api/sites/${site.id}/style-rules`)).json() as { rules: Array<{ name: string; styles: Record<string, unknown> }> };
+        return latest.rules.find((rule) => rule.name === "cta-kopie")?.styles.background;
+      }, { timeout: 20000 }).toBe("#987654");
+      await expect.poll(() => color("frame00002")).toBe("rgb(152, 118, 84)");
+      await expect.poll(() => color("frame00001")).toBe("rgb(68, 85, 102)");
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      await tab.reload();
+      await waitForFrame();
+      await expect.poll(() => color("frame00002")).toBe("rgb(152, 118, 84)");
+      await node("frame00002").click();
+      await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
+      await tab.getByRole("button", { name: "cta-kopie", exact: true }).waitFor();
+      await tab.getByRole("button", { name: "Klasse cta-kopie entfernen" }).click();
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      expect(copy).toBeDefined();
+      const cleanup = await fetch(`${running.dashboardUrl}/api/sites/${site.id}/style-rules/${copy!.id}`, { method: "DELETE", headers: { "content-type": "application/json" }, body: "{}" });
+      expect(cleanup.status).toBe(204);
+
       const store = new Store(database.db);
       const persistedSite = await store.getSite(site.id);
       const outDir = join(dataDir, "class-bake");
