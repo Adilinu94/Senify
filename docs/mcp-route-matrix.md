@@ -4,7 +4,7 @@ Stand: 2026-11-04 — generiert mit `pnpm route-matrix` aus `packages/engine/src
 
 **Regel (E4):** Jede Route hat einen bewussten Status. **Tool** — ein MCP-Tool ruft sie direkt auf. **Workflow-gebündelt** — nur als Teil eines Mehr-Routen-Workflows erreichbar (Via-Spalte nennt das bündelnde Tool). **Operator** — UI/CLI/öffentlich, bewusst ohne Tool.
 
-**Zahlen:** 175 Routen — 92 Tool, 1 Workflow-gebündelt, 82 Operator.
+**Zahlen:** 176 Routen — 92 Tool, 1 Workflow-gebündelt, 83 Operator.
 
 | Methode | Route | Scope | Status | MCP-Tool(s) / Anmerkung |
 |---|---|---|---|---|
@@ -23,6 +23,7 @@ Stand: 2026-11-04 — generiert mit `pnpm route-matrix` aus `packages/engine/src
 | GET | `/api/sites/:siteId/theme` | read | Tool | `get_theme`, `server (automatisch)` |
 | GET | `/api/sites/:siteId/theme.css` | read | Operator | UI/CLI |
 | PUT | `/api/sites/:siteId/theme` | write | Tool | `update_theme` |
+| GET | `/api/sites/:siteId/theme/variables/:family/:name/usage` | read | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/theme/report` | read | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/design-report` | read | Tool | `get_design_report` |
 | GET | `/api/motion-vendor/:name` | read | Operator | Auslieferung der Motion-Runtime (Editor/Preview) |

@@ -6312,6 +6312,34 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
         button.disabled = false;
       }
     };
+    const appendUsage = (row, group, name) => {
+      const label = group === "color" ? "Farbe" : "Abstand";
+      const button = el("button", { type: "button", text: "Verwendung", "aria-label": `Verwendung von ${label} ${name} anzeigen` });
+      const result = el("div", { class: "canvas-view__variable-usage", "aria-live": "polite" });
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        result.textContent = "Verwendung wird geladen …";
+        try {
+          const usage = await api(`/api/sites/${siteId}/theme/variables/${group}/${encodeURIComponent(name)}/usage`);
+          const nodes = usage.pages.reduce((sum, page) => sum + page.nodes.length, 0);
+          const pages = usage.pages.length;
+          const rules = usage.rules.length;
+          const aliases = usage.themePaths.length;
+          const summary = `Gespeicherte direkte Verweise: ${nodes} ${nodes === 1 ? "Element" : "Elemente"} auf ${pages} ${pages === 1 ? "Seite" : "Seiten"}, ${rules} ${rules === 1 ? "Stilregel" : "Stilregeln"} und ${aliases} Theme-${aliases === 1 ? "Verweis" : "Verweise"}.`;
+          const details = [
+            ...usage.pages.map((page) => `Seite ${page.pagePath}: ${page.nodes.length} ${page.nodes.length === 1 ? "Element" : "Elemente"} (${page.nodes.map((node) => node.nodeId).join(", ")})`),
+            ...usage.rules.map((rule) => `Stilregel: ${rule.name}`),
+            ...usage.themePaths.map((path) => `Theme: ${path}`),
+          ];
+          result.replaceChildren(el("p", { text: summary }), ...(details.length ? [el("ul", {}, ...details.map((text) => el("li", { text })))] : []), el("p", { text: "Nicht gespeicherte und indirekte Verweise können fehlen." }));
+        } catch (error) {
+          result.textContent = error?.message ?? "Verwendung konnte nicht geladen werden.";
+        } finally {
+          button.disabled = false;
+        }
+      });
+      row.append(button, result);
+    };
     const list = el("div", { class: "canvas-view__variable-list" });
     for (const [name, value] of Object.entries(colors)) {
       if (typeof value !== "string") continue;
@@ -6324,6 +6352,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       button.addEventListener("click", () => void saveVariable("color", name, input.value.trim(), button));
       input.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); button.click(); } });
       const row = el("div", { class: "canvas-view__variable-row" }, el("label", { text: name }), swatch, input, button);
+      appendUsage(row, "color", name);
       variableRows.push({ name, element: row });
       list.append(row);
     }
@@ -6347,6 +6376,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       save.addEventListener("click", () => void saveVariable("spacing", key, input.value.trim(), save));
       input.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); save.click(); } });
       const row = el("div", { class: "canvas-view__variable-row canvas-view__variable-row--spacing" }, el("label", { text: key }), input, save);
+      appendUsage(row, "spacing", key);
       variableRows.push({ name: key, element: row });
       spacingList.append(row);
     }

@@ -321,6 +321,7 @@ import {
 } from "./media.ts";
 import { resolveStoredFile, storedFileName } from "./storage.ts";
 import { buildThemeReport } from "./theme-report.ts";
+import { getVariableUsage } from "./variable-usage.ts";
 import type {
   ImageJobRequest,
   ImageJobStatus,
@@ -1621,6 +1622,15 @@ const ROUTES: Route[] = [
       );
       return { status: 200, body: updated };
     },
+  },
+  {
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "theme", "variables", ":family", ":name", "usage"],
+    scope: "read",
+    handler: async (context, params) => ({
+      status: 200,
+      body: await getVariableUsage(context.store, requireParam(params, "siteId"), requireParam(params, "family"), requireParam(params, "name")),
+    }),
   },
   {
     method: "GET",

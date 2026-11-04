@@ -168,6 +168,47 @@ describe("site themes", () => {
 });
 
 describe("theme report", () => {
+  it("finds direct variable references across saved pages, style rules and theme aliases", async () => {
+    const site = await createTestSite(env.api, "Variablenverwendung");
+    const current = await env.api.request<ThemeResponse>({ method: "GET", path: `/api/sites/${site.id}/theme` });
+    const updated = await env.humanApi.request({ method: "PUT", path: `/api/sites/${site.id}/theme`, body: {
+      baseVersion: current.body.version,
+      theme: { tokens: { primitive: { color: { marker: "#123456" } }, semantic: { custom: { $ref: "color.marker" } } } },
+    } });
+    expect(updated.status).toBe(200);
+    const draft = await createTestPage(env.api, site.id);
+    const inserted = await applyMutationsRequest(env.api, draft, [{
+      op: "insertNode", parent: { nodeId: draft.draft.rootNodeId },
+      node: { id: "variable-use", type: "block", props: { headline: "Verwendung", accent: { $token: "color.marker" } } },
+    }]);
+    expect(inserted.status).toBe(200);
+    const second = await createTestPage(env.api, site.id, { path: "/zwei" });
+    const secondInsert = await applyMutationsRequest(env.api, second, [{
+      op: "insertNode", parent: { nodeId: second.draft.rootNodeId },
+      node: { id: "variable-use-2", type: "block", props: { headline: "Zweite Seite", accent: { $token: "color.marker" } } },
+    }]);
+    expect(secondInsert.status).toBe(200);
+    const rule = await env.humanApi.request({ method: "POST", path: `/api/sites/${site.id}/style-rules`, body: {
+      name: "marker-regel", styles: { color: { $token: "color.marker" }, background: "var(--color-marker, #fff)", borderColor: "var(--color-marker-long)" },
+    } });
+    expect(rule.status).toBe(201);
+    const usage = await env.api.request<{
+      ref: string; pages: Array<{ pageId: string; nodes: Array<{ nodeId: string; paths: string[] }> }>;
+      rules: Array<{ name: string; paths: string[] }>; themePaths: string[];
+    }>({ method: "GET", path: `/api/sites/${site.id}/theme/variables/color/marker/usage` });
+    expect(usage.status).toBe(200);
+    expect(usage.body.ref).toBe("color.marker");
+    expect(usage.body.pages).toHaveLength(2);
+    expect(usage.body.pages).toEqual(expect.arrayContaining([
+      { pageId: draft.id, pagePath: draft.path, nodes: [{ nodeId: "variable-use", paths: ["props.accent.$token"] }] },
+      { pageId: second.id, pagePath: second.path, nodes: [{ nodeId: "variable-use-2", paths: ["props.accent.$token"] }] },
+    ]));
+    expect(usage.body.rules).toEqual([{ ruleId: expect.any(String), name: "marker-regel", paths: ["styles.color.$token", "styles.background"] }]);
+    expect(usage.body.themePaths).toContain("tokens.semantic.custom.$ref");
+    expect((await env.api.request({ method: "GET", path: `/api/sites/${site.id}/theme/variables/color/fehlend/usage` })).status).toBe(404);
+    expect((await env.api.request({ method: "GET", path: `/api/sites/${site.id}/theme/variables/font/marker/usage` })).status).toBe(400);
+  });
+
   it("lists literal colors, broken refs and contrast pairs", async () => {
     const setup = await applyMutationsRequest(env.api, page, [
       {

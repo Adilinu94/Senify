@@ -3833,6 +3833,10 @@ body.is-editor .view.editor-view > .editor-host.canvas-view {
 .canvas-view__variable-row--spacing { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .canvas-view__variable-row--spacing button { grid-column: 2; }
 .canvas-view__variable-row button, .canvas-view__variable-create button { padding: 5px 8px; border: 1px solid var(--ui-editor-line); border-radius: 3px; background: var(--ui-editor-panel); color: var(--ui-editor-ink); font-size: 11px; cursor: pointer; }
+.canvas-view__variable-usage { grid-column: 1 / -1; margin: 0; color: var(--ui-editor-help); font-size: 11px; line-height: 1.5; }
+.canvas-view__variable-usage p { margin: 0 0 4px; }
+.canvas-view__variable-usage ul { margin: 0 0 4px; padding-left: 18px; }
+.canvas-view__variable-usage:empty { display: none; }
 .canvas-view__variable-create { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 14px; }
 .canvas-view__variable-create button { grid-column: 1 / -1; }
 .canvas-view__elements .senify-canvas__cataloghost { padding: 0; }

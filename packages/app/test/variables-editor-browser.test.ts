@@ -24,6 +24,8 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
         ],
       });
       expect(seeded.status, await seeded.text()).toBe(200);
+      const rule = await request(`/api/sites/${site.id}/style-rules`, { name: "accent-test", styles: { color: { $token: "color.accent" } } });
+      expect(rule.status).toBe(201);
       const tab = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
       await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`);
       await tab.waitForFunction('document.querySelector(".canvas-view__stage")?.dataset.startFit != null', undefined, { timeout: 30000 });
@@ -44,6 +46,10 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       await tab.getByLabel("Farbe accent auswählen").fill("#123456");
       await tab.getByRole("button", { name: "Farbe accent speichern" }).click();
       await expect.poll(color).toBe("rgb(18, 52, 86)");
+      await tab.getByRole("button", { name: "Verwendung von Farbe accent anzeigen" }).click();
+      await tab.getByText("Gespeicherte direkte Verweise: 1 Element auf 1 Seite", { exact: false }).waitFor();
+      await tab.getByText("Seite /: 1 Element (frame00001)", { exact: true }).waitFor();
+      await tab.getByText("Stilregel: accent-test", { exact: true }).waitFor();
       expect(await search.inputValue()).toBe("accent");
       await search.fill("");
       expect(await tab.getByRole("textbox", { name: "Farbe success", exact: true }).inputValue()).toBe("#789abc");
@@ -55,6 +61,8 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       await tab.getByRole("textbox", { name: "Wert des neuen Abstands" }).fill("12px");
       await tab.getByRole("button", { name: "Abstand hinzufügen" }).click();
       await tab.getByRole("textbox", { name: "Abstand luft", exact: true }).waitFor();
+      await tab.getByRole("button", { name: "Verwendung von Abstand luft anzeigen" }).click();
+      await tab.getByText("Gespeicherte direkte Verweise: 1 Element auf 1 Seite", { exact: false }).last().waitFor();
       await search.fill("LUFT");
       expect(await tab.locator('input[aria-label="Farbe accent"]').isVisible()).toBe(false);
       expect(await tab.getByRole("textbox", { name: "Abstand luft", exact: true }).isVisible()).toBe(true);
