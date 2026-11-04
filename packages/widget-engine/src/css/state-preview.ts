@@ -62,16 +62,16 @@ export function forcedStateCss(
   for (const node of flattenNodes(document.nodes)) {
     if (wanted !== undefined && !wanted.has(node.id)) continue;
     const values = node.states?.[state];
-    if (values === undefined) continue;
-
-    parts.push(
-      ...deviceExpandedBlocks(
-        node.primitive,
-        values,
-        forcedStateSelector(node.id, state, attribute),
-        options,
-      ),
-    );
+    if (values !== undefined) {
+      parts.push(
+        ...deviceExpandedBlocks(
+          node.primitive,
+          values,
+          forcedStateSelector(node.id, state, attribute),
+          options,
+        ),
+      );
+    }
 
     // A node that carries a class gets the same combined rule the release has
     // (`[data-node-id].cls:hover`), so the preview matches the real hover where
@@ -79,10 +79,14 @@ export function forcedStateCss(
     for (const name of node.classIds ?? []) {
       const rule = classRules.get(name);
       if (rule === undefined) continue;
+      const ruleState = rule.states?.[state];
+      if (values === undefined && ruleState === undefined) continue;
+      const base = overlayDeviceValues(rule.props, values ?? {});
+      const effective = ruleState === undefined ? base : overlayDeviceValues(ruleState, base);
       parts.push(
         ...deviceExpandedBlocks(
           node.primitive,
-          overlayDeviceValues(rule.props, values),
+          effective,
           `${forcedStateRootSelector(state, attribute)} ${classSelector(node.id, name)}`,
           options,
         ),

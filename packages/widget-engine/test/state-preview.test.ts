@@ -63,6 +63,17 @@ describe("forced state preview", () => {
     expect(preview).toContain("background-color: #222222;");
   });
 
+  it("previews a class hover even when the node has no local hover state", () => {
+    const classOnly: CssDocument = {
+      nodes: [{ id: "button", primitive: "button", props: {}, classIds: ["cta"] }],
+      classRules: [{ name: "cta", props: { background: "#111111" }, states: { hover: { background: "#ff0000", background_mobile: "#00ff00" } } }],
+    };
+    const preview = forcedStateCss(classOnly, "hover");
+    expect(preview).toContain('[data-force-state="hover"] [data-node-id="button"].cta');
+    expect(preview).toContain("background-color: #ff0000;");
+    expect(preview).toContain("background-color: #00ff00;");
+  });
+
   it("forces another state and yields its own attribute value", () => {
     const focus = forcedStateCss(doc, "focus");
     expect(focus).toContain(`[${FORCED_STATE_ATTRIBUTE}="focus"] [data-node-id="card"] {`);

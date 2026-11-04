@@ -87,6 +87,7 @@ export type InspectorCommit =
   | { kind: "hidden"; device: "tablet" | "mobile" }
   | { kind: "locked" }
   | { kind: "state"; state: StateName }
+  | { kind: "class"; ruleId: string; state: StateName | null }
   | { kind: "override"; partId: string }
   | { kind: "variant" }
   | { kind: "variant-rename"; name: string };
@@ -165,6 +166,7 @@ export type BuildInspectorInput = {
   theme?: Theme;
   profile?: MotionProfile;
   state?: StateName | null;
+  styleRuleId?: string;
 };
 
 export const INSPECTOR_TABS: readonly { id: InspectorTabId; label: string }[] = [
@@ -282,6 +284,7 @@ function styleFieldsFor(
   theme: Theme | undefined,
   controlKeys: Set<string>,
   state: StateName | null,
+  styleRuleId?: string,
 ): InspectorGroup[] {
   // A real catalog primitive narrows the style groups it offers; an unknown or
   // legacy type keeps the whole table (ADR-0005: the groups are an order, not a
@@ -293,15 +296,21 @@ function styleFieldsFor(
   // The base state reads the node props; a pseudo state reads the state bag of
   // the node's scoped rule (ticket 02 point 5) — same device grammar, same
   // control family.
-  const scoped = state === null ? undefined : scopedRuleFor(document, node.id);
-  const values: DeviceValueMap =
-    state === null ? node.props : (scoped?.states?.[state] ?? {});
-  const commit: InspectorCommit = state === null ? { kind: "prop" } : { kind: "state", state };
+  const selectedRule = styleRuleId === undefined ? undefined : document.styleRules.find(
+    (rule) => rule.id === styleRuleId && rule.kind === "class" && node.classes?.includes(rule.name),
+  );
+  const scoped = state === null || selectedRule !== undefined ? undefined : scopedRuleFor(document, node.id);
+  const values: DeviceValueMap = selectedRule !== undefined
+    ? state === null ? selectedRule.styles : (selectedRule.states?.[state] ?? {})
+    : state === null ? node.props : (scoped?.states?.[state] ?? {});
+  const commit: InspectorCommit = selectedRule !== undefined
+    ? { kind: "class", ruleId: selectedRule.id, state }
+    : state === null ? { kind: "prop" } : { kind: "state", state };
   const collected = new Map<StyleGroup, InspectorField[]>();
   for (const spec of STYLE_PROPERTIES) {
     if (groups !== undefined && !groups.has(spec.group)) continue;
     // A property the primitive's own control owns stays in the Content tab.
-    if (controlKeys.has(canonical(spec.prop))) continue;
+    if (selectedRule === undefined && controlKeys.has(canonical(spec.prop))) continue;
     const value = resolveDeviceValue(values, spec.prop, breakpoint);
     const base = resolveDeviceValue(values, spec.prop, "desktop");
     const keywordOptions = KEYWORD_OPTIONS[spec.prop];
@@ -355,7 +364,7 @@ function styleFieldsFor(
   const known = new Set(STYLE_PROPERTIES.map((spec) => canonical(spec.prop)));
   for (const key of Object.keys(values)) {
     const base = canonical(baseKeyOf(key));
-    if (known.has(base) || controlKeys.has(base)) continue;
+    if (known.has(base) || (selectedRule === undefined && controlKeys.has(base))) continue;
     custom.push({
       key: base,
       label: base,
@@ -1177,6 +1186,7 @@ export function buildInspector(input: BuildInspectorInput): InspectorModel | nul
     input.theme,
     controlKeys,
     state,
+    input.styleRuleId,
   );
   const profile = input.profile ?? "standard";
   const motion = motionFields(node, input.theme, profile);

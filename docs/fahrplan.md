@@ -29,6 +29,8 @@ Die detaillierte Planung für dieses Produktziel steht in der [Framer-Roadmap](f
 
 **Speicherreihenfolge:** Site- und Seitenänderungen werden in Eingabereihenfolge übertragen; fehlgeschlagene und noch nicht gesendete Schritte bleiben vorgemerkt, Eingaben während laufender Anfragen werden erneut eingeplant (`packages/editor/src/state/persist.ts`, `packages/editor/test/state/persist.test.ts`). Site und Seite sind weiterhin getrennte Ressourcen ohne gemeinsame Transaktion; Konflikt- und Wiederherstellungsverhalten im späteren Klassen-UI muss gesondert geprüft werden.
 
+**Klassenbearbeitung:** Der Style-Inspector bietet lokale oder zugewiesene Klassen als Stilziel, legt Klassen an und verwaltet die Zuweisung zum Knoten. Breakpoint- und Zustandswerte nutzen denselben Regelbestand wie Canvas und Build (`packages/editor/src/inspector/`, `packages/editor/src/canvas/adapter.ts`, `packages/widget-engine/src/css/state-preview.ts`). Der Browserablauf prüft zwei Seiten mit gemeinsamem Stil sowie die Build-Ausgabe (`packages/app/test/class-editor-browser.test.ts`). Offen: globale Klassenverwaltung mit Umbenennen/Löschen und Verwendungsliste, Konfliktbehandlung über Ressourcen hinweg und der genaue visuelle/semantische Elementor-Abgleich.
+
 Nächste Arbeitspakete in Reihenfolge:
 
 1. Exportzugang prüfen und einen echten Export als reproduzierbare Eingabe sichern. CLI und MCP können FramerExport starten und vorhandene Ordner anschließend als Mirror einlesen; MCP kann auch Projektdaten über Unframer lokal sichern (`packages/mcp/src/framer-export.ts`, `packages/mcp/src/unframer.ts`, `packages/framer-import/src/import.ts`). Der direkte kombinierte Ablauf und die Übernahme des Unframer-Snapshots in den NodeTree bleiben offen.

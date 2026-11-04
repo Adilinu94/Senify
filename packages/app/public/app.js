@@ -5653,8 +5653,7 @@ async function waitForImageJob(siteId, jobId, onStatus) {
 }
 
 async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCache, mediaCache, libraryComponents, assetContext, siteProfile, siteTheme, siteThemeVersion, styleRules, styleRegistryVersion }) {
-  const loaded = editor.loadDocument(page.draft);
-  loaded.document.styleRules = styleRules ?? [];
+  const loaded = editor.loadDocument(page.draft, { styleRules: styleRules ?? [] });
 
   // Eine Seitenleiste teilt Explorer, Elementkatalog und Inspector; alle
   // lesen denselben Store wie die Arbeitsflaeche.
@@ -5847,7 +5846,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   const reloadDraft = async () => {
     try {
       const fresh = await api(`/api/pages/${pageId}`);
-      session.replaceDocument(editor.loadDocument(fresh.draft).document, fresh.draftVersion);
+      session.replaceDocument(editor.loadDocument(fresh.draft, { styleRules: session.document.styleRules }).document, fresh.draftVersion);
       // Der Server-Stand ersetzt das Dokument; die offenen eigenen Aenderungen
       // sind damit verworfen (so steht es im Dialog).
       session.discardPending();
@@ -6034,7 +6033,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       onImported: async (report) => {
         if (report.pageId === pageId) {
           const fresh = await api(`/api/pages/${pageId}`);
-          session.replaceDocument(editor.loadDocument(fresh.draft).document, fresh.draftVersion);
+          session.replaceDocument(editor.loadDocument(fresh.draft, { styleRules: session.document.styleRules }).document, fresh.draftVersion);
           session.discardPending();
           setVersion(fresh.draftVersion);
           statusEl.textContent = "Framer-Import übernommen";
@@ -6129,7 +6128,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
               });
               statusEl.textContent = `„${component.name}“ installiert`;
               const fresh = await api(`/api/pages/${pageId}`);
-              session.replaceDocument(editor.loadDocument(fresh.draft).document, fresh.draftVersion);
+              session.replaceDocument(editor.loadDocument(fresh.draft, { styleRules: session.document.styleRules }).document, fresh.draftVersion);
               session.discardPending();
               setVersion(fresh.draftVersion);
             } catch (error) {
@@ -6217,6 +6216,10 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     },
   });
   inspector.setTab(savedUi.tab);
+  session.subscribe(() => {
+    const device = session.ui().device;
+    if (inspector.breakpoint() !== device) inspector.setBreakpoint(device);
+  });
   // Die Auswahl aus der letzten Sitzung wiederherstellen, sofern der Knoten
   // noch existiert; `store.select` umgeht den Persistenz-Schreibpfad nicht.
   if (savedUi.selectedId && session.document.nodes[savedUi.selectedId]) {
@@ -6412,7 +6415,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       try {
         const fresh = await api(`/api/pages/${pageId}`);
         session.replaceDocument(
-          editor.loadDocument(fresh.draft).document,
+          editor.loadDocument(fresh.draft, { styleRules: session.document.styleRules }).document,
           fresh.draftVersion,
         );
         canvas.flashNodes(Array.isArray(payload.nodeIds) ? payload.nodeIds : []);

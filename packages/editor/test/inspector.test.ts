@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { defaultTheme } from "@senify/tokens";
-import { createScopedRule } from "@senify/widget-engine";
+import { createClassRule, createScopedRule } from "@senify/widget-engine";
 import { buildInspector, motionSpecFrom, numberPart, tokenRefOf, unitOfValue } from "@senify/editor";
 import {
   createComponent,
@@ -16,6 +16,32 @@ import { baseStore } from "./state/fixtures.ts";
 // overrides and the token/literal rule — no DOM needed.
 
 describe("buildInspector", () => {
+  it("reads class styles and responsive states from the selected class", () => {
+    const store = baseStore();
+    const rule = createClassRule({ id: "class001", name: "titel", styles: { color: "#123456", color_mobile: "#abcdef" } });
+    rule.states = { hover: { color: "#ff0000" } };
+    store.applyBatch([
+      { op: "upsertStyleRule", rule },
+      { op: "assignClass", id: "head000001", classId: "titel" },
+    ]);
+    const field = (state: "hover" | null, breakpoint: "desktop" | "mobile") =>
+      buildInspector({ document: store.document, nodeId: "head000001", styleRuleId: "class001", state, breakpoint })
+        ?.tabs.find((tab) => tab.id === "style")?.groups.flatMap((group) => group.fields).find((entry) => entry.key === "color");
+    expect(field(null, "mobile")?.value).toBe("#abcdef");
+    expect(field(null, "mobile")?.commit).toEqual({ kind: "class", ruleId: "class001", state: null });
+    expect(field("hover", "desktop")?.value).toBe("#ff0000");
+  });
+  it("shows class properties even when the element owns a control with the same key", () => {
+    const store = baseStore();
+    store.apply({ op: "insertNode", parent: { nodeId: store.document.rootNodeId }, node: { primitive: "frame", id: "frame00001" } });
+    store.applyBatch([
+      { op: "upsertStyleRule", rule: createClassRule({ id: "class001", name: "layout", styles: { display: "flex" } }) },
+      { op: "assignClass", id: "frame00001", classId: "layout" },
+    ]);
+    const model = buildInspector({ document: store.document, nodeId: "frame00001", styleRuleId: "class001", breakpoint: "desktop" });
+    const fields = model?.tabs.find((tab) => tab.id === "style")?.groups.flatMap((group) => group.fields) ?? [];
+    expect(fields.find((field) => field.key === "display")?.value).toBe("flex");
+  });
   it("builds the four tabs with the generated field family", () => {
     const store = baseStore();
     const model = buildInspector({

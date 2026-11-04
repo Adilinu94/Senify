@@ -58,6 +58,7 @@ export function canvasNodeTreeWithCopies(document: EditorDocument): {
       sectionNode.overrides = overrides;
     }
     if (node.locked !== undefined) sectionNode.locked = node.locked;
+    if (node.classes !== undefined && node.classes.length > 0) sectionNode.classes = [...node.classes];
     if (node.variant !== undefined) sectionNode.variant = node.variant;
     if (node.motion !== undefined) sectionNode.motion = structuredClone(node.motion);
     nodes[id] = sectionNode;
