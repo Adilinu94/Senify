@@ -73,6 +73,7 @@ export type InspectorOptions = {
 export type InspectorInstance = {
   element: DomElement;
   refresh(): void;
+  setTheme(theme: Theme): void;
   breakpoint(): Device;
   setBreakpoint(device: Device): void;
   tab(): InspectorTabId;
@@ -1368,6 +1369,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
   return {
     element: root,
     refresh: render,
+    setTheme: (theme: Theme) => { options.theme = theme; render(); },
     breakpoint: () => breakpoint,
     setBreakpoint: (device: Device) => {
       breakpoint = device;

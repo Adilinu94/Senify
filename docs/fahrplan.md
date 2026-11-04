@@ -25,7 +25,9 @@ Die detaillierte Planung für dieses Produktziel steht in der [Framer-Roadmap](f
 
 **Robuster Editorstart:** Ein Ausfall der Komponentenbibliothek blendet geladene Klassen nicht mehr aus. Kann die Klassenliste selbst nicht geladen werden, wird die Bearbeitung mit Hinweis und Wiederholungsmöglichkeit angehalten (`packages/app/public/app.js`, `packages/app/test/class-editor-browser.test.ts`).
 
-**Vorbereitung Variablenverwaltung:** Der Theme-Schreibpfad unterstützt `baseVersion` und schützt konkurrierende Aktualisierungen über einen bedingten Datenbank-Write; veraltete Änderungen erzeugen einen Konflikt. Der Engine-Gate umfasst parallele PostgreSQL-Schreibversuche (`packages/engine/src/store.ts`, `packages/engine/test/theme.test.ts`). Offen: Oberfläche und unmittelbare Aktualisierung von Canvas und Inspector.
+**Vorbereitung Variablenverwaltung:** Der Theme-Schreibpfad unterstützt `baseVersion` und schützt konkurrierende Aktualisierungen über einen bedingten Datenbank-Write; veraltete Änderungen erzeugen einen Konflikt. Der Engine-Gate umfasst parallele PostgreSQL-Schreibversuche (`packages/engine/src/store.ts`, `packages/engine/test/theme.test.ts`).
+
+**Variablenverwaltung – erste Scheibe:** Primitive globale Farben können im Editor angelegt und bearbeitet werden; Canvas und Inspector erhalten nach dem Speichern das neue Theme. Der Browser-Gate prüft Live-Ausgabe, Reload und Konfliktbehandlung (`packages/app/test/variables-editor-browser.test.ts`). Offen: weitere Variablentypen, sichere Umbenennung und Löschung, Elementor-Gleichheit und Wiederherstellung bei Konflikten ohne Neuladen.
 
 **Erste Editor-Scheibe:** Linke Werkzeugleiste und eine umschaltbare Geräteansicht sind im Seiteneditor angebunden (`packages/app/public/app.js`, `app.css`, `packages/editor/src/canvas/canvas.ts`); der Browserablauf und der Importtest liegen unter `packages/app/test/`. Offen: tatsächlicher visueller Vergleich gegen Elementor, umfassender Elementkatalog, Klassen- und Variablenmanager, Interaktionen und feingranulare Bedienparität. Die alte Drei-Frame-Darstellung bleibt als Option des Canvas-Moduls erhalten; die App verwendet den einzelnen Frame.
 

@@ -86,6 +86,7 @@ export type CanvasState = {
 export type CanvasInstance = {
   element: DomElement;
   refresh(): void;
+  setTheme(theme: Theme, css: string): void;
   setZoom(zoom: number): void;
   fit(): void;
   setPreviewState(state: StateName | null): void;
@@ -183,7 +184,9 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   const doc: DomDocument = hostDoc;
   const store = options.store;
   const renderer = options.renderer ?? createReactRenderer();
-  const resolveToken =
+  let theme = options.theme;
+  let themeCss: string | undefined;
+  let resolveToken =
     options.resolveToken ??
     (options.theme === undefined ? undefined : themeTokenResolver(options.theme));
   ensureCanvasStyles(doc);
@@ -1065,7 +1068,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       doc: entry.doc,
       body: entry.body,
       tree: canvasNodeTree(store.document),
-      ...(options.theme === undefined ? {} : { theme: options.theme }),
+      ...(theme === undefined ? {} : { theme }),
       profile,
       lenis: profileLenis(profile),
       vendorBase,
@@ -1077,6 +1080,14 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   // DOM), the shared rules, the forced state and — in live — the runtime.
   function renderEntry(entry: MountedFrame, tree: NodeTree, rules: FrameRules): void {
     if (entry.body === null) return;
+    if (themeCss !== undefined) {
+      let style = entry.doc.querySelector("[data-senify-theme-update]");
+      if (style === null) {
+        style = create(entry.doc, "style", undefined, { "data-senify-theme-update": "" });
+        (entry.doc.head ?? entry.body).appendChild(style);
+      }
+      if (style.textContent !== themeCss) style.textContent = themeCss;
+    }
     // While an inline edit runs the frame DOM belongs to the user: React
     // would rewrite the leaf and drop the caret. The document still updates
     // through the store gate; commit and revert refresh the frames.
@@ -1277,6 +1288,12 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   return {
     element: root,
     refresh,
+    setTheme(nextTheme: Theme, css: string): void {
+      theme = nextTheme;
+      themeCss = css;
+      resolveToken = options.resolveToken ?? themeTokenResolver(theme);
+      refresh();
+    },
     setZoom,
     fit,
     setPreviewState,
