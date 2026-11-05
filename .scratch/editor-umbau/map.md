@@ -12,7 +12,7 @@ Alle offenen Punkte aus `HANDOFF-2026-11-05.md` in überprüfbaren Scheiben bear
 - Kern: lokale Eingaben erhalten; History-Cursor und bestätigter Serverstand dürfen nicht auseinanderlaufen.
 - Geprüft 01: HEAD `125f6c9`; acht vorhandene uncommittete Dateien betreffen die externe History. Der ursprüngliche Diff ist zusätzlich unter `C:/Users/adini/AppData/Local/Temp/opencode/senify-editor-history-original-20261105.patch` gesichert.
 - Abgeschlossen 01: gezielte Ausgangs-Gates, rot/grüne Regressionen und Gegenreview der History-Vorbereitung; Unit-/Browser-Gate, Typecheck und Lint grün. Doku-Abgleich berücksichtigt die noch offenen Async-Grenzen und korrigiert veraltete aktive Mapper-Hinweise (Mapper-Commit `0193fde`).
-- Offen: vollständiger Async-Vertrag; Core-/Pro-Referenz; Migrationsentscheidung zur Kaskade; vollständige Import-Abnahme.
+- Offen: Core-/Pro-Referenz, Migrationsentscheidung zur Kaskade, vollständige Import-Abnahme, historische Tokenmigration und atomare History-Sprünge. Die gemeinsame App-History inklusive Delete/Restore, Reload, Recovery und Rename-Registry-Belegen ist abgeschlossen (Issues 01–08).
 - Vorbereitung in `b0f55cc` gesichert; Arbeitsbaum danach leer geprüft. Doku-/Patch-Gate grün.
 - Abgeschlossen 02: Unknown-/Retry-/Reload-Sperrerhalt einschließlich Dokumentwechsel und Storage-Fehler; gezielter History-/State-/Variablen-/Canvas-Gate, Typecheck, Lint und Doku-/Patch-Gate grün. Siehe Issue 02.
 - Abgeschlossen 03: additive Async-Session-Navigation für registrierte externe Einträge; Cursor, Dokument und Versionen gemeinsam erst nach Bestätigung. Gezielter History-/State-/Variablen-/Canvas-Gate, Typecheck und Lint grün; Gegenreview ohne verbleibende Befunde im Library-Scope. Siehe Issue 03.

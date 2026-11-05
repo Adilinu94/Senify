@@ -17,13 +17,14 @@
 | Serverbestätigte History, Library | `pnpm exec vitest run packages/editor/test/state/external-history.test.ts packages/editor/test/history.test.ts packages/editor/test/state/store.test.ts packages/editor/test/state/persist.test.ts packages/editor/test/state/session.test.ts packages/app/test/variables-editor-browser.test.ts packages/app/test/canvas-browser.test.ts --no-file-parallelism` | **Grün am 05.11.2026**, 117 bestanden in 7 Dateien nach rot/grünen Regressionen für atomare Beobachterbestätigung, ungültige Antworten, Ownership/Recovery und Registry-Belege. `pnpm typecheck`, `pnpm lint`, `pnpm quality:check` und `git diff --check` grün. App-/Canvas-Runner noch nicht angebunden; kein neuer Voll-, Coverage-, PostgreSQL-, Visual-, Parity- oder Importlauf für diese Scheibe. |
 | History-Sperrerhalt | `pnpm exec vitest run packages/app/test/variables-editor-browser.test.ts packages/app/test/canvas-browser.test.ts packages/editor/test/history.test.ts packages/editor/test/state/store.test.ts packages/editor/test/state/persist.test.ts packages/editor/test/state/session.test.ts --no-file-parallelism` | **Grün am 05.11.2026**, 91 bestanden in 6 Dateien nach den Unknown-/Reload-/Dokumentwechsel- und Storage-Retry-Korrekturen. Storage-Retry-Regression vorher gezielt rot. `pnpm typecheck` und `pnpm lint` danach grün. Kein Backend-Vertrag geändert; kein neuer Voll-, Coverage-, PostgreSQL- oder Paritätslauf. |
 | Externe History, Vorbereitung | `pnpm exec vitest run packages/editor/test/history.test.ts packages/editor/test/state/store.test.ts packages/editor/test/state/persist.test.ts packages/editor/test/state/session.test.ts packages/app/test/variables-editor-browser.test.ts packages/app/test/canvas-browser.test.ts --no-file-parallelism` | **Grün am 05.11.2026**, 89 bestanden in 6 Dateien. Danach Browser-Storage-Typisierung und eine Session-/Pipeline-Regression ergänzt: vier vollständige History-/State-Dateien erneut grün (79 bestanden), Retry-/Dialog-Browserfall erneut grün (gefilterter Lauf: 12 bestanden, 77 gezielt nicht ausgewählt). `pnpm typecheck` und `pnpm lint` danach grün. Kein neuer Voll-, Coverage-, PostgreSQL- oder Paritätslauf für diesen Diff. |
-| Build, Typprüfung, Lint und Volltest | `pnpm verify` | **Grün am 05.11.2026** für die Undo-Umsetzung; danach folgten der gezielte Schutz reservierter Namen und die UI-Konfliktauflösung. |
+| Build, Typprüfung, Lint und Volltest | `pnpm verify` | **Grün am 05.11.2026 nach dem letzten Slice-08-Diff**: Build, Typecheck, `verify:dist`, Lint, Patch-Gate und vollständige Tests. 2085 bestanden, 36 übersprungen, 0 fehlgeschlagen in 219 Testdateien (216 bestanden, 3 mit erwarteten Skips). Ein vorheriger identischer Lauf war einmal durch einen ephemeren Port in der Fetch-Sperrliste rot (`redesign-cards-browser`); derselbe Test war isoliert grün, der wiederholte vollständige Lauf ist ohne Fehler. |
 | Editor-Konfliktauflösung | `pnpm exec vitest run packages/app/test/variables-editor-browser.test.ts --no-file-parallelism` | **Grün am 05.11.2026** für die nachfolgenden UI-Änderungen, einschließlich Antwortverlust, konkurrierender Eingaben und Undo/Redo nach Neuladen. Anschließende Fixes der Pipeline und des Konflikt-Neuladens wurden mit Pipeline- und Browser-Tests geprüft. |
-| Visueller Editor-Gate | `pnpm test:visual` | **Grün am 05.11.2026** nach den UI-Änderungen; die Desktop-Baselines decken nicht alle Variablenzustände ab. |
-| Coverage | `pnpm test:coverage` | **Grün am 05.11.2026** nach dem Schutz reservierter Namen; Messwerte siehe Coverage-Block. Die spätere UI-Änderung und der anschließende Pipeline-Fix sind in diesem Lauf nicht enthalten. |
+| Visueller Editor-Gate | `pnpm test:visual` | **Grün am 05.11.2026 nach dem letzten Slice-08-Diff**: 1 Browsertest, Desktop-Baselines bei 1440/1024 px stabil. Die Baselines decken nicht alle Variablenzustände ab. |
+| Coverage | `pnpm test:coverage` | **Grün am 05.11.2026 nach dem letzten Slice-08-Diff**: 1218 bestanden, 36 übersprungen, 0 fehlgeschlagen in 112 Dateien, keine Schwellenfehler. Messwerte siehe Coverage-Block. |
+| PostgreSQL-Lane | `TEST_DATABASE_URL=… pnpm test:postgres` | **Grün am 05.11.2026** gegen den isolierten PostgreSQL-18.6-Cluster: 6 Fälle in 2 Dateien, 0 übersprungen. Deckt Transaktions- und Redesign-Apply-Atomarität ab. |
 | PostgreSQL, gezielt | `TEST_DATABASE_URL=… pnpm exec vitest run packages/engine/test/theme-variable-rename.test.ts packages/engine/test/backup-restore.test.ts --no-file-parallelism` | **Grün am 05.11.2026** gegen einen isolierten PostgreSQL-18.6-Cluster für Umbenennung, Undo, Migration, Konkurrenz und Rollback. Der Schutz reservierter Namen wurde danach gezielt in der In-Memory-Suite geprüft. |
 | Doku-Messwerte | `pnpm quality:render` und `pnpm quality:check` | **Grün am 05.11.2026**; der erzeugte Coverage-Block stimmt mit dem Messlauf überein. |
-| Parity und Import, separat | `pnpm verify:parity`, `pnpm verify:import` | Der hier zuvor dokumentierte separate Lauf vom 28.09.2026 ist historisch; für den aktuellen Editorstand wird daraus kein neuer Gate-Status abgeleitet. |
+| Parity und Import, separat | `pnpm verify:parity`, `pnpm verify:import` | **Grün am 05.11.2026 nach dem letzten Slice-08-Diff**: `verify:parity` 1 Cutover-Browsertest (Kopf 0, Sektion ≈0,000006); `verify:import` 1 Import-Browsertest (Desktop/Tablet/Mobil Ratio 0, absichtliche Degradation wird rot erkannt). |
 
 ## Volltest
 
@@ -33,23 +34,23 @@ Der Canvas-Abschlussgate vom 05.11.2026 umfasst außerdem `pnpm quality:check` u
 
 Der Abschluss-Gate der Backend-Delete/Restore-Scheibe vom 05.11.2026 umfasst außerdem grüne Läufe von `pnpm quality:check` und `git diff --check` nach dem Dokumentationsabgleich. Das Graphify-Update ist AST-only und kein Produkt- oder Paritätsnachweis.
 
-Der letzte vollständige Lauf `pnpm verify` vom 05.11.2026 wurde vor dem nachträglichen Schutz reservierter Namen, der UI-Konfliktauflösung und dem Pipeline-Fix ausgeführt. Diese Änderungen wurden anschließend gezielt getestet; die Tabelle ist der Messstand dieses Volltests und keine Behauptung über einen späteren vollständigen Lauf.
+Der letzte vollständige Lauf `pnpm verify` vom 05.11.2026 lief nach dem Slice-08-Diff und umfasst Build, Typecheck, `verify:dist`, Lint, Patch-Gate und die vollständige Testsuite. Die Tabelle ist der Messstand dieses Volltests. Ein vorheriger identischer Lauf war einmal an einem ephemeren Port in der Fetch-Sperrliste rot; derselbe Browsertest war isoliert grün, der wiederholte vollständige Lauf ist ohne Fehler.
 
 | Kategorie | Anzahl | Bedeutung |
 |---|---:|---|
-| Tests gesamt | 1902 | inklusive Skip-Fälle |
-| bestanden | 1874 | Volltest vom 05.11.2026 |
-| übersprungen | 28 | unter anderem PostgreSQL-Fälle ohne Testdatenbank und UI-Vorschau-Paritätsfälle |
+| Tests gesamt | 2121 | inklusive Skip-Fälle |
+| bestanden | 2085 | Volltest vom 05.11.2026 nach Slice 08 |
+| übersprungen | 36 | unter anderem PostgreSQL-Fälle ohne Testdatenbank und UI-Vorschau-Paritätsfälle |
 | fehlgeschlagen | 0 | gemessener Volltest |
-| Testdateien | 214 | 211 bestanden, 3 mit erwarteten Skips |
+| Testdateien | 219 | 216 bestanden, 3 mit erwarteten Skips |
 
-Die PostgreSQL-Gates für die betroffenen Transaktionspfade liefen separat gegen eigens initialisierte lokale Cluster; der bereits laufende Systemdienst wurde nicht verändert. Der frühere Rename-Cluster wurde gestoppt. Der isolierte Delete/Restore-Cluster bleibt nur bis zur nächsten erforderlichen Datenbank-Abnahme aktiv und wird danach gezielt gestoppt.
+Die PostgreSQL-Gates für die betroffenen Transaktionspfade liefen separat gegen eigens initialisierte lokale Cluster; der bereits laufende Systemdienst wurde nicht verändert. Der frühere Rename-Cluster wurde gestoppt. Der isolierte Delete/Restore-Cluster wurde für die gezielten Engine-Abnahmen und die PostgreSQL-Lane verwendet und danach gezielt gestoppt.
 
 ## Coverage-Gate (letzter Messlauf)
 
 Geführt über `pnpm test:coverage`, v8-Provider und `perFile: true`. Der Lauf umfasst `engine`, `editor` und `mcp`, nicht die schweren Browser-Suiten. Die Schwellen liegen in `vitest.config.ts`.
 
-Der Lauf vom 05.11.2026 meldete **1083 bestanden / 28 übersprungen / 0 fehlgeschlagen** in 110 Dateien und keine Schwellenfehler. Die Übersicht unten wurde aus derselben Messung gerendert und mit `pnpm quality:check` geprüft.
+Der Lauf vom 05.11.2026 meldete **1218 bestanden / 36 übersprungen / 0 fehlgeschlagen** in 112 Dateien und keine Schwellenfehler. Die Übersicht unten wurde aus derselben Messung gerendert und mit `pnpm quality:check` geprüft.
 
 ### Gemessene Coverage der geschützten Pfade
 
@@ -64,13 +65,13 @@ Der Lauf vom 05.11.2026 meldete **1083 bestanden / 28 übersprungen / 0 fehlgesc
 | Pfad | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
 | `packages/engine/src/http.ts` | 90.85 | 72.62 | 92.47 | 90.85 |
-| `packages/engine/src/store.ts` | 85.40 | 77.25 | 93.51 | 85.40 |
+| `packages/engine/src/store.ts` | 85.92 | 79.04 | 93.61 | 85.92 |
 | `packages/engine/src/lifecycle.ts` | 87.01 | 74.19 | 100.00 | 87.01 |
 | `packages/engine/src/forms.ts` | 84.09 | 73.60 | 100.00 | 84.09 |
 | `packages/mcp/src/tools.ts` | 91.84 | 61.10 | 85.06 | 91.84 |
-| `packages/editor/src/state/*` (14 Dateien) | 66.98 bis 100.00 | 56.75 bis 100.00 | 66.66 bis 100.00 | 66.98 bis 100.00 |
+| `packages/editor/src/state/*` (16 Dateien) | 66.98 bis 100.00 | 56.75 bis 100.00 | 66.66 bis 100.00 | 66.98 bis 100.00 |
 
-**Über alle gemessenen Dateien:** Statements 87.95 · Branches 73.89 · Functions 90.21 · Lines 87.95
+**Über alle gemessenen Dateien:** Statements 88.47 · Branches 75.93 · Functions 90.94 · Lines 88.47
 
 <!-- messwerte:ende -->
 
@@ -80,8 +81,8 @@ Coverage misst nur, was die Suite ausführt, und ist kein Vollständigkeitsbewei
 
 ## Bekannte Grenzen
 
-- Die gezielten PostgreSQL-Tests vom 05.11.2026 decken die oben genannten Delete-/Restore-, Umbenennungs- und Backup-Pfade ab; sie ersetzen keinen erneuten vollständigen PostgreSQL-Gate. Die CI-Lane verwendet PostgreSQL 16.
-- Der separate Parity- und Import-Gate wurde für die nachfolgenden Editoränderungen nicht erneut nachgewiesen.
+- Die PostgreSQL-Lane (6 Fälle) und die gezielten Engine-Abnahmen liefen am 05.11.2026 gegen isoliertes PostgreSQL 18.6 grün. Die CI-Lane verwendet PostgreSQL 16; ein Lauf gegen diese Version ist lokal nicht belegt.
+- Der separate Parity- und Import-Gate lief am 05.11.2026 nach dem Slice-08-Diff erneut grün. Beide Tore bleiben kontrollierte Browser-/Fixture-Abnahmen und kein Beweis vollständiger Elementor-/Framer-Parität.
 - Die Visual-Baselines liegen unter `packages/app/test/visual-baselines/`; Aktualisierung ist ein expliziter Vorgang über `UPDATE_VISUAL_SNAPSHOTS=1`.
 - Das Import-Tor nutzt eine kontrollierte Fixture; nicht alle echten Export-Fixtures durchlaufen es vollständig.
 - Paging ist in `packages/engine/src/paging.ts` für Sites, Seiten, Assets, Einträge, Referenzzuweisungen, Releases, Bake-Jobs und Image-Jobs eingebaut (`limit` Standard 50, Kappe 200, `offset` validiert). `outputSchema` tragen weiterhin nur die lesenden Werkzeuge; die Schreibwerkzeuge sind bewusst zurückgestellt. Beleg: `paging.test.ts` (9 Fälle).
