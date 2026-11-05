@@ -6239,7 +6239,18 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   let variableQuery = "";
   let variableSaving = false;
   let lastVariableDeletion = null;
+  const pendingVariableKey = `senify:pending-variable:${siteId}:${pageId}`;
   let pendingVariableOperation = null;
+  try {
+    const saved = JSON.parse(window.sessionStorage.getItem(pendingVariableKey) ?? "null");
+    if (saved && ["delete", "restore"].includes(saved.action) && ["color", "spacing"].includes(saved.group) &&
+        typeof saved.name === "string" && typeof saved.body?.receiptId === "string" &&
+        Number.isInteger(saved.body?.baseThemeVersion) && saved.body?.pageContext?.pageId === pageId &&
+        Number.isInteger(saved.body?.pageContext?.baseDraftVersion)) {
+      saved.uncertain = true;
+      pendingVariableOperation = saved;
+    }
+  } catch { /* Storage can be unavailable or contain invalid data. */ }
   function renderVariables() {
     variablesHost.replaceChildren();
     variablesHost.append(el("h2", { text: "Globale Variablen" }), el("p", { class: "canvas-view__variables-help", text: "Variablen gelten für das gesamte Projekt." }));
@@ -6339,6 +6350,12 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     };
     const runVariableOperation = async (operation) => {
       if (!canChangeVariable(operation)) return;
+      try {
+        window.sessionStorage.setItem(pendingVariableKey, JSON.stringify(operation));
+      } catch {
+        status.textContent = "Der Vorgang kann nicht sicher vorgemerkt werden. Bitte Browser-Speicher freigeben.";
+        return;
+      }
       variableSaving = true;
       for (const item of variablesHost.querySelectorAll("button")) item.disabled = true;
       status.textContent = operation.action === "delete" ? "Variable wird gelöscht …" : "Variable wird wiederhergestellt …";
@@ -6352,7 +6369,10 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
         operation.uncertain = true;
         const latest = await api(`/api/sites/${siteId}/theme`);
         if (!latest.theme || !Number.isInteger(latest.version) || latest.version < result.version) throw new Error("Der aktuelle Variablenstand konnte nicht geladen werden. Bitte erneut versuchen.");
-        const accepted = latest.version === result.version && session.acceptExternalVersions(operation.body.pageContext.baseDraftVersion, operation.body.baseThemeVersion, result.pageDraftVersion, result.version);
+        const save = session.saveState();
+        const alreadyLoaded = session.version === result.pageDraftVersion && siteThemeVersion === result.version &&
+          save.pending === 0 && !["saving", "conflict", "error"].includes(save.status);
+        const accepted = latest.version === result.version && (alreadyLoaded || session.acceptExternalVersions(operation.body.pageContext.baseDraftVersion, operation.body.baseThemeVersion, result.pageDraftVersion, result.version));
         siteTheme = latest.theme;
         siteThemeVersion = latest.version;
         canvas.setTheme(latest.theme, latest.css);
@@ -6362,6 +6382,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
           lastVariableDeletion = { group: operation.group, name: operation.name, receiptId: operation.body.receiptId, restored: false };
         } else lastVariableDeletion = { group: operation.group, name: operation.name, receiptId: operation.body.receiptId, restored: true };
         pendingVariableOperation = null;
+        try { window.sessionStorage.removeItem(pendingVariableKey); } catch { /* A replay remains idempotent. */ }
         variableSaving = false;
         renderVariables();
         variablesHost.querySelector('[role="status"]').textContent = accepted
@@ -6379,6 +6400,8 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
           operation.uncertain = true;
           pendingVariableOperation = operation;
           showPendingVariableRetry();
+        } else {
+          try { window.sessionStorage.removeItem(pendingVariableKey); } catch { /* A replay remains idempotent. */ }
         }
         status.textContent = error?.message ?? "Änderung fehlgeschlagen. Bitte erneut versuchen.";
         reload.hidden = error?.status !== 409;
@@ -6391,6 +6414,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       statusBar.append(retry);
     };
     showPendingVariableRetry();
+    if (pendingVariableOperation) status.textContent = "Ein Variablenvorgang wurde noch nicht bestätigt. Bitte prüfe ihn.";
     const newVariableOperation = (action, group, name, receiptId) => ({
       action, group, name,
       body: { receiptId, baseThemeVersion: siteThemeVersion, pageContext: { pageId, baseDraftVersion: session.version } },

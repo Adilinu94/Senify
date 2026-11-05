@@ -54,6 +54,73 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
     }
   }, 120_000);
 
+  it("recovers an uncertain variable deletion after reloading the tab", async () => {
+    const { chromium } = await import("playwright");
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-variable-reload-"));
+    const running = await startProgram({ db: database.db, dataDir, programTokenFile: join(dataDir, "token.json"), enginePort: 0, appPort: 0, openBrowser: false, reviewVisuals: false, rateLimits: { perMinute: 1200, burst: 400, destructivePerMinute: 200 } });
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const request = (path: string, body: unknown, method = "POST") => fetch(`${running.dashboardUrl}${path}`, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const site = await (await request("/api/sites", { name: "Variablen-Neuladen" })).json() as { id: string };
+      const page = await (await request(`/api/sites/${site.id}/pages`, { title: "Start", path: "/" })).json() as { id: string };
+      expect((await request(`/api/sites/${site.id}/theme`, { theme: { tokens: { primitive: { color: { marker: "#123456" } } } } }, "PUT")).status).toBe(200);
+      const tab = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+      await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`);
+      await tab.waitForFunction('document.querySelector(".canvas-view__stage")?.dataset.startFit != null', undefined, { timeout: 30000 });
+      let attempts = 0;
+      await tab.route(`**/api/sites/${site.id}/theme/variables/color/marker/delete`, async (route) => {
+        attempts += 1;
+        if (attempts === 1) {
+          const upstream = await route.fetch();
+          expect(upstream.status()).toBe(200);
+          await route.fulfill({ status: 503, json: { error: { message: "Antwort verloren" } } });
+        } else await route.continue();
+      });
+      await tab.getByRole("tab", { name: "Variablen" }).click();
+      await tab.getByRole("button", { name: "Farbe marker löschen", exact: true }).click();
+      await tab.getByRole("button", { name: "Farbe marker löschen bestätigen" }).click();
+      await tab.getByRole("status").getByText("Antwort verloren").waitFor();
+      await tab.reload();
+      await tab.getByRole("tab", { name: "Variablen" }).click();
+      await tab.getByText("Ein Variablenvorgang wurde noch nicht bestätigt.", { exact: false }).waitFor();
+      await tab.getByRole("button", { name: "Ausstehenden Variablenvorgang prüfen" }).click();
+      await tab.getByRole("button", { name: "Löschen von marker rückgängig" }).waitFor();
+      expect(attempts).toBe(2);
+      expect(await tab.getByRole("button", { name: "Editorstand laden (offene Änderungen verwerfen)" }).count()).toBe(0);
+      let restoreAttempts = 0;
+      await tab.route(`**/api/sites/${site.id}/theme/variables/color/marker/restore`, async (route) => {
+        restoreAttempts += 1;
+        if (restoreAttempts === 1) {
+          const upstream = await route.fetch();
+          expect(upstream.status()).toBe(200);
+          await route.fulfill({ status: 503, json: { error: { message: "Antwort verloren" } } });
+        } else await route.continue();
+      });
+      await tab.getByRole("button", { name: "Löschen von marker rückgängig" }).click();
+      await tab.getByRole("status").getByText("Antwort verloren").waitFor();
+      await tab.reload();
+      await tab.getByRole("tab", { name: "Variablen" }).click();
+      await tab.getByRole("button", { name: "Ausstehenden Variablenvorgang prüfen" }).click();
+      await tab.getByRole("button", { name: "Löschen von marker wiederholen" }).waitFor();
+      expect(restoreAttempts).toBe(2);
+      expect(await tab.getByRole("textbox", { name: "Farbe marker", exact: true }).inputValue()).toBe("#123456");
+      await tab.reload();
+      await tab.getByRole("tab", { name: "Variablen" }).click();
+      expect(await tab.getByRole("button", { name: "Ausstehenden Variablenvorgang prüfen" }).count()).toBe(0);
+      await tab.evaluate(() => { Object.defineProperty(Storage.prototype, "setItem", { configurable: true, value: () => { throw new Error("blocked"); } }); });
+      await tab.getByRole("button", { name: "Farbe marker löschen", exact: true }).click();
+      await tab.getByRole("button", { name: "Farbe marker löschen bestätigen" }).click();
+      await tab.getByRole("status").getByText("Der Vorgang kann nicht sicher vorgemerkt werden.", { exact: false }).waitFor();
+      expect(attempts).toBe(2);
+    } finally {
+      await browser.close();
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
   it("edits and creates colors with immediate canvas updates and conflict protection", async () => {
     const { chromium } = await import("playwright");
     const database = memoryDb();
@@ -125,6 +192,7 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       await tab.getByRole("button", { name: "Ausstehenden Variablenvorgang prüfen" }).click();
       await tab.getByRole("button", { name: "Löschen von marke rückgängig" }).waitFor();
       expect(attempts).toBe(2);
+      expect(await tab.getByRole("button", { name: "Editorstand laden (offene Änderungen verwerfen)" }).count()).toBe(0);
       expect(await tab.getByRole("textbox", { name: "Farbe marke", exact: true }).count()).toBe(0);
       await tab.getByRole("button", { name: "Löschen von marke rückgängig" }).click();
       expect(await tab.getByRole("textbox", { name: "Farbe marke", exact: true }).inputValue()).toBe("#abcdef");
