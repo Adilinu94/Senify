@@ -143,6 +143,7 @@ export type SavePipeline = {
   acceptVersion(version: number): void;
   acceptStyleRegistry(version: number, ruleIds: Iterable<string>): void;
   acceptThemeVersion(version: number): void;
+  acceptExternalVersions(basePageVersion: number, baseThemeVersion: number, pageVersion: number, themeVersion: number): boolean;
   // The conflict choice "load the server": the local batch is dropped instead
   // of being resent later (the reload replaces the document anyway).
   discardPending(): void;
@@ -707,6 +708,13 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
     // A newer theme must not silently bless edits queued under the old one.
     acceptThemeVersion(next) {
       if (!running && pending.length === 0 && status !== "conflict") themeVersion = next;
+    },
+    acceptExternalVersions(basePageVersion, baseThemeVersion, pageVersion, nextThemeVersion) {
+      if (running || pending.length > 0 || status === "conflict" || status === "error" || version !== basePageVersion || themeVersion !== baseThemeVersion) return false;
+      version = pageVersion;
+      themeVersion = nextThemeVersion;
+      emit();
+      return true;
     },
     discardPending,
     markRuleKnown(id) {

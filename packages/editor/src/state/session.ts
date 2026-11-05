@@ -177,6 +177,10 @@ export class EditorSession {
     this.pipeline.acceptThemeVersion(version);
   }
 
+  acceptExternalVersions(basePageVersion: number, baseThemeVersion: number, pageVersion: number, themeVersion: number): boolean {
+    return this.pipeline.acceptExternalVersions(basePageVersion, baseThemeVersion, pageVersion, themeVersion);
+  }
+
   // The conflict choice "load the server": the fresh document replaces the
   // local one, so the pending batch is dropped instead of being resent.
   discardPending(): void {

@@ -61,6 +61,7 @@ import {
   SiteEventBodySchema,
   UpdateSiteBodySchema,
   UpdateStyleRuleBodySchema,
+  VariableDeletionBodySchema,
   type CreateStyleRuleBody,
   type DeleteGlobalClassBody,
   type DeleteStyleRuleBody,
@@ -70,6 +71,7 @@ import {
   type RestoreGlobalClassBody,
   type SiteEventBody,
   type UpdateStyleRuleBody,
+  type VariableDeletionBody,
 } from "./site-contract.ts";
 import {
   approveReview,
@@ -1638,6 +1640,25 @@ const ROUTES: Route[] = [
       status: 200,
       body: await getVariableUsage(context.store, requireParam(params, "siteId"), requireParam(params, "family"), requireParam(params, "name")),
     }),
+  },
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "theme", "variables", ":family", ":name", "delete"],
+    scope: "publish",
+    destructive: true,
+    handler: async (context, params, req, _url, auth) => {
+      const body = parseBody<VariableDeletionBody>(VariableDeletionBodySchema, (await readJsonBody(req)) ?? {}, "variable deletion");
+      return { status: 200, body: await context.store.deleteUnusedVariable(requireParam(params, "siteId"), requireParam(params, "family"), requireParam(params, "name"), body, resolveAuthor(auth)) };
+    },
+  },
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "theme", "variables", ":family", ":name", "restore"],
+    scope: "write",
+    handler: async (context, params, req, _url, auth) => {
+      const body = parseBody<VariableDeletionBody>(VariableDeletionBodySchema, (await readJsonBody(req)) ?? {}, "variable restoration");
+      return { status: 200, body: await context.store.restoreVariable(requireParam(params, "siteId"), requireParam(params, "family"), requireParam(params, "name"), body, resolveAuthor(auth)) };
+    },
   },
   {
     method: "GET",

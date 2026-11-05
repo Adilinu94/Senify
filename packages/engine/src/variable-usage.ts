@@ -3,9 +3,17 @@ import type { Store } from "./store.ts";
 
 type VariableFamily = "color" | "spacing";
 
+export function variableReference(family: string, name: string): { group: VariableFamily; ref: string; cssVariable: string } {
+  if ((family !== "color" && family !== "spacing") || !/^[a-z][a-z0-9-]*$/.test(name)) {
+    throw new SenifyError("validation", "Ungültige Variable", { field: "variable" });
+  }
+  const group = family as VariableFamily;
+  return { group, ref: `${group}.${name}`, cssVariable: `--${group === "color" ? "color" : "space"}-${name}` };
+}
+
 // These are direct, recognizable references in saved data, not a dependency
 // graph for arbitrary code, external components or dynamically built CSS.
-function referencePaths(value: unknown, ref: string, cssVariable: string): string[] {
+export function referencePaths(value: unknown, ref: string, cssVariable: string): string[] {
   const paths: string[] = [];
   const cssReference = new RegExp(`var\\(\\s*${cssVariable}(?=\\s|,|\\))`);
   const visit = (item: unknown, path: string): void => {
@@ -29,10 +37,7 @@ function referencePaths(value: unknown, ref: string, cssVariable: string): strin
 }
 
 export async function getVariableUsage(store: Store, siteId: string, family: string, name: string) {
-  if ((family !== "color" && family !== "spacing") || !/^[a-z][a-z0-9-]*$/.test(name)) {
-    throw new SenifyError("validation", "Ungültige Variable", { field: "variable" });
-  }
-  const group = family as VariableFamily;
+  const { group, ref, cssVariable } = variableReference(family, name);
   const [theme, registry, drafts] = await Promise.all([
     store.getTheme(siteId), store.getStyleRegistry(siteId), store.listPageDrafts(siteId),
   ]);
@@ -40,8 +45,6 @@ export async function getVariableUsage(store: Store, siteId: string, family: str
   if (!variables || typeof variables !== "object" || Array.isArray(variables) || !Object.hasOwn(variables, name)) {
     throw new SenifyError("not_found", "Die Variable existiert nicht", { field: "name" });
   }
-  const ref = `${group}.${name}`;
-  const cssVariable = `--${group === "color" ? "color" : "space"}-${name}`;
   const pages = drafts.flatMap((page) => {
     const nodes = Object.values(page.draft.nodes).flatMap((node) => {
       const paths = referencePaths(node, ref, cssVariable);

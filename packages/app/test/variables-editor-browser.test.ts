@@ -6,6 +6,54 @@ import { startProgram } from "@senify/app";
 import { browserAvailable, memoryDb } from "./support.ts";
 
 describe.skipIf(!browserAvailable)("global variables in the editor", () => {
+  it("does not rebase an editor change made while a variable deletion is in flight", async () => {
+    const { chromium } = await import("playwright");
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-variable-race-"));
+    const running = await startProgram({ db: database.db, dataDir, programTokenFile: join(dataDir, "token.json"), enginePort: 0, appPort: 0, openBrowser: false, reviewVisuals: false, rateLimits: { perMinute: 1200, burst: 400, destructivePerMinute: 200 } });
+    const browser = await chromium.launch({ headless: true });
+    let release: (() => void) | undefined;
+    try {
+      const request = (path: string, body: unknown, method = "POST") => fetch(`${running.dashboardUrl}${path}`, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const site = await (await request("/api/sites", { name: "Variablen parallel" })).json() as { id: string };
+      const page = await (await request(`/api/sites/${site.id}/pages`, { title: "Start", path: "/" })).json() as { id: string };
+      expect((await request(`/api/sites/${site.id}/theme`, { theme: { tokens: { primitive: { color: { marker: "#123456" } } } } }, "PUT")).status).toBe(200);
+      const tab = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+      await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`);
+      await tab.waitForFunction('document.querySelector(".canvas-view__stage")?.dataset.startFit != null', undefined, { timeout: 30000 });
+      let captured: (() => void) | undefined;
+      const committed = new Promise<void>((resolve) => { captured = resolve; });
+      const delayed = new Promise<void>((resolve) => { release = resolve; });
+      await tab.route(`**/api/sites/${site.id}/theme/variables/color/marker/delete`, async (route) => {
+        const upstream = await route.fetch();
+        expect(upstream.status()).toBe(200);
+        captured?.();
+        await delayed;
+        await route.fulfill({ response: upstream });
+      });
+      await tab.getByRole("tab", { name: "Variablen" }).click();
+      await tab.getByRole("button", { name: "Farbe marker löschen", exact: true }).click();
+      await tab.getByRole("button", { name: "Farbe marker löschen bestätigen" }).click();
+      await committed;
+      await tab.getByRole("tab", { name: "Elemente" }).click();
+      await tab.getByRole("button", { name: "Überschrift", exact: true }).click();
+      const dialog = tab.locator('dialog[data-role="conflict-dialog"]');
+      await expect.poll(async () => dialog.getAttribute("open")).toBe("");
+      release?.();
+      await expect.poll(async () => dialog.locator("h2").textContent()).toBe("Variablen wurden inzwischen geändert");
+      const saved = await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json() as { draft: { nodes: Record<string, { type: string }> } };
+      expect(Object.values(saved.draft.nodes).some((node) => node.type === "heading")).toBe(false);
+      await dialog.locator('[data-action="conflict-reload"]').click();
+      await expect.poll(async () => dialog.getAttribute("open")).toBeNull();
+    } finally {
+      release?.();
+      await browser.close();
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
   it("edits and creates colors with immediate canvas updates and conflict protection", async () => {
     const { chromium } = await import("playwright");
     const database = memoryDb();
@@ -57,6 +105,34 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       await tab.getByRole("textbox", { name: "Wert der neuen Farbe" }).fill("#abcdef");
       await tab.getByRole("button", { name: "Farbe hinzufügen" }).click();
       await tab.getByRole("textbox", { name: "Farbe marke", exact: true }).waitFor();
+      await tab.getByRole("button", { name: "Farbe accent löschen", exact: true }).click();
+      await tab.getByRole("button", { name: "Farbe accent löschen bestätigen" }).click();
+      await tab.getByRole("status").getByText("Die Variable wird noch verwendet", { exact: false }).waitFor();
+      await tab.getByRole("button", { name: "Löschen von Farbe accent abbrechen" }).click();
+      let attempts = 0;
+      await tab.route(`**/api/sites/${site.id}/theme/variables/color/marke/delete`, async (route) => {
+        attempts += 1;
+        if (attempts === 1) {
+          const upstream = await route.fetch();
+          expect(upstream.status()).toBe(200);
+          await route.fulfill({ status: 503, json: { error: { message: "Antwort verloren" } } });
+        } else await route.continue();
+      });
+      await tab.getByRole("button", { name: "Farbe marke löschen", exact: true }).click();
+      await tab.getByRole("button", { name: "Farbe marke löschen bestätigen" }).click();
+      await tab.getByRole("status").getByText("Antwort verloren").waitFor();
+      await tab.getByRole("button", { name: "Löschen von Farbe marke abbrechen" }).click();
+      await tab.getByRole("button", { name: "Ausstehenden Variablenvorgang prüfen" }).click();
+      await tab.getByRole("button", { name: "Löschen von marke rückgängig" }).waitFor();
+      expect(attempts).toBe(2);
+      expect(await tab.getByRole("textbox", { name: "Farbe marke", exact: true }).count()).toBe(0);
+      await tab.getByRole("button", { name: "Löschen von marke rückgängig" }).click();
+      expect(await tab.getByRole("textbox", { name: "Farbe marke", exact: true }).inputValue()).toBe("#abcdef");
+      await tab.unroute(`**/api/sites/${site.id}/theme/variables/color/marke/delete`);
+      await tab.getByRole("button", { name: "Löschen von marke wiederholen" }).click();
+      await tab.getByRole("button", { name: "Löschen von marke rückgängig" }).waitFor();
+      await tab.getByRole("button", { name: "Löschen von marke rückgängig" }).click();
+      expect(await tab.getByRole("textbox", { name: "Farbe marke", exact: true }).inputValue()).toBe("#abcdef");
       await tab.getByRole("textbox", { name: "Name des neuen Abstands" }).fill("luft");
       await tab.getByRole("textbox", { name: "Wert des neuen Abstands" }).fill("12px");
       await tab.getByRole("button", { name: "Abstand hinzufügen" }).click();

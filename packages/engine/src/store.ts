@@ -16,6 +16,7 @@ import type {
 } from "./design-report.ts";
 import type { ReleaseAssetSnapshot } from "./types.ts";
 import {
+  buildGeneratedPrimitives,
   defaultTheme,
   emitCss,
   mergeThemePatch,
@@ -24,6 +25,7 @@ import {
   validateTheme,
   type Theme,
 } from "@senify/tokens";
+import { referencePaths, variableReference } from "./variable-usage.ts";
 import {
   STATE_ORDER,
   assertValidCssClassName,
@@ -271,6 +273,12 @@ type ClassDeletionRow = {
   pages: unknown;
   registry_version: unknown;
   restored_at: unknown;
+};
+
+type VariableDeletionPage = { pageId: string; version: number };
+type VariableDeletionRow = {
+  site_id: string; family: string; name: string; value: string; pages: unknown;
+  registry_version: unknown; theme_version: unknown; restored_at: unknown;
 };
 
 type PageRow = {
@@ -2333,6 +2341,122 @@ export class Store {
       return newVersion;
     });
     return this.getTheme(siteId);
+  }
+
+  async deleteUnusedVariable(
+    siteId: string,
+    family: string,
+    name: string,
+    input: { receiptId: string; baseThemeVersion: number; pageContext: { pageId: string; baseDraftVersion: number } },
+    author: Author,
+  ): Promise<{ receiptId: string; version: number; pageDraftVersion: number }> {
+    const { group, ref, cssVariable } = variableReference(family, name);
+    return this.#db.withTransaction(async (tx) => {
+      const sites = await tx.query<StyleRuleRow>(`SELECT style_rules_json, style_rules_version FROM sites WHERE id = $1 FOR UPDATE`, [siteId]);
+      const site = sites.rows[0];
+      if (!site) throw new SenifyError("not_found", "Das Projekt existiert nicht", { field: "siteId" });
+      const themes = await tx.query<ThemeRow>(`SELECT id, site_id, name, definition, version, created_at, updated_at FROM themes WHERE site_id = $1 FOR UPDATE`, [siteId]);
+      const themeRow = themes.rows[0];
+      if (!themeRow) throw new SenifyError("not_found", "Das Theme existiert nicht", { field: "siteId" });
+      const existing = await tx.query<VariableDeletionRow>(`SELECT site_id, family, name, value, pages, registry_version, theme_version, restored_at FROM theme_variable_deletions WHERE id = $1 FOR UPDATE`, [input.receiptId]);
+      const previous = existing.rows[0];
+      if (previous) {
+        const snapshots = toJson<VariableDeletionPage[]>(previous.pages);
+        const origin = Array.isArray(snapshots) ? snapshots.find((entry) => entry.pageId === input.pageContext.pageId) : undefined;
+        if (previous.site_id !== siteId || previous.family !== group || previous.name !== name || previous.restored_at != null ||
+          toFiniteNumber(previous.theme_version, "theme_version") !== input.baseThemeVersion + 1 || origin?.version !== input.pageContext.baseDraftVersion + 1) {
+          throw new SenifyError("conflict", "Der Wiederherstellungsbeleg gehört zu einer anderen Änderung", { field: "receiptId" });
+        }
+        return { receiptId: input.receiptId, version: input.baseThemeVersion + 1, pageDraftVersion: origin.version };
+      }
+      const version = toFiniteNumber(themeRow.version, "version");
+      if (version !== input.baseThemeVersion) throw new SenifyError("conflict", "Die Variablen wurden zwischenzeitlich geändert", { field: "baseThemeVersion" });
+      const theme = structuredClone(toJson<Theme>(themeRow.definition));
+      const bag = theme.tokens.primitive?.[group];
+      if (!bag || typeof bag !== "object" || Array.isArray(bag) || !Object.hasOwn(bag, name) || typeof (bag as Record<string, unknown>)[name] !== "string") {
+        throw new SenifyError("not_found", "Die Variable existiert nicht", { field: "name" });
+      }
+      if (Object.hasOwn(buildGeneratedPrimitives(theme)[group], name)) {
+        throw new SenifyError("conflict", "Ein generierter Basiswert kann nicht gelöscht werden", { field: "name" });
+      }
+      const installations = await tx.query(`SELECT id FROM site_library_installs WHERE site_id = $1 LIMIT 1`, [siteId]);
+      if (installations.rows.length > 0) throw new SenifyError("conflict", "Installierte Bibliothekskomponenten müssen vor dem Löschen geprüft werden", { field: "name" });
+      const rules = site.style_rules_json == null ? [] : parseStyleRuleRegistry(toJson<unknown>(site.style_rules_json));
+      const classReceipts = await tx.query<{ rule: unknown }>(`SELECT rule FROM style_class_deletions WHERE site_id = $1 AND restored_at IS NULL`, [siteId]);
+      const variableReceipts = await tx.query<{ value: string }>(`SELECT value FROM theme_variable_deletions WHERE site_id = $1 AND restored_at IS NULL`, [siteId]);
+      const pages = await tx.query<{ id: string; draft: unknown; draft_version: unknown }>(`SELECT id, draft, draft_version FROM pages WHERE site_id = $1 ORDER BY id FOR UPDATE`, [siteId]);
+      const origin = pages.rows.find((page) => page.id === input.pageContext.pageId);
+      if (!origin) throw new SenifyError("not_found", "Die Editor-Seite gehört nicht zum Projekt", { field: "pageContext.pageId" });
+      const pageVersion = toFiniteNumber(origin.draft_version, "draft_version");
+      if (pageVersion !== input.pageContext.baseDraftVersion) throw draftConflictError(input.pageContext.baseDraftVersion, pageVersion);
+      if (referencePaths(theme, ref, cssVariable).length || referencePaths(rules, ref, cssVariable).length ||
+          classReceipts.rows.some((entry) => referencePaths(toJson<unknown>(entry.rule), ref, cssVariable).length > 0) ||
+          variableReceipts.rows.some((entry) => referencePaths(entry.value, ref, cssVariable).length > 0) ||
+          pages.rows.some((page) => referencePaths(toJson<unknown>(page.draft), ref, cssVariable).length > 0)) {
+        throw new SenifyError("conflict", "Die Variable wird noch verwendet oder für eine Klassenwiederherstellung beziehungsweise Variablenwiederherstellung benötigt", { field: "name" });
+      }
+      const value = (bag as Record<string, string>)[name]!;
+      delete (bag as Record<string, unknown>)[name];
+      validateShape(ThemeSchema, theme, "theme");
+      if (validateTheme(theme).length > 0) throw new SenifyError("validation", "Das Theme wäre nach dem Löschen ungültig", { field: "name" });
+      const now = new Date().toISOString();
+      const snapshots = pages.rows.map((page) => ({ pageId: page.id, version: toFiniteNumber(page.draft_version, "draft_version") + 1 }));
+      for (const page of pages.rows) await tx.query(`UPDATE pages SET draft_version = draft_version + 1, updated_at = $2 WHERE id = $1`, [page.id, now]);
+      await tx.query(`UPDATE themes SET definition = $2, version = version + 1, updated_at = $3 WHERE id = $1`, [themeRow.id, toJsonParam(theme), now]);
+      const registryVersion = toFiniteNumber(site.style_rules_version ?? 0, "style_rules_version");
+      await tx.query(`INSERT INTO theme_variable_deletions (id, site_id, family, name, value, pages, registry_version, theme_version, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [input.receiptId, siteId, group, name, value, toJsonParam(snapshots), registryVersion, version + 1, now]);
+      const audit = buildAuditInsert([{ siteId, pageId: null, batchId: input.receiptId, opIndex: 0, mutation: "delete_unused_variable", params: { family: group, name }, author, undoPatch: [], draftVersionAfter: version + 1 }]);
+      await tx.query(audit.text, audit.params);
+      return { receiptId: input.receiptId, version: version + 1, pageDraftVersion: pageVersion + 1 };
+    });
+  }
+
+  async restoreVariable(
+    siteId: string,
+    family: string,
+    name: string,
+    input: { receiptId: string; baseThemeVersion: number; pageContext: { pageId: string; baseDraftVersion: number } },
+    author: Author,
+  ): Promise<{ version: number; pageDraftVersion: number }> {
+    const { group } = variableReference(family, name);
+    return this.#db.withTransaction(async (tx) => {
+      const sites = await tx.query<StyleRuleRow>(`SELECT style_rules_json, style_rules_version FROM sites WHERE id = $1 FOR UPDATE`, [siteId]);
+      const site = sites.rows[0];
+      if (!site) throw new SenifyError("not_found", "Das Projekt existiert nicht", { field: "siteId" });
+      const themes = await tx.query<ThemeRow>(`SELECT id, site_id, name, definition, version, created_at, updated_at FROM themes WHERE site_id = $1 FOR UPDATE`, [siteId]);
+      const themeRow = themes.rows[0];
+      if (!themeRow) throw new SenifyError("not_found", "Das Theme existiert nicht", { field: "siteId" });
+      const receipts = await tx.query<VariableDeletionRow>(`SELECT site_id, family, name, value, pages, registry_version, theme_version, restored_at FROM theme_variable_deletions WHERE id = $1 AND site_id = $2 AND family = $3 AND name = $4 FOR UPDATE`, [input.receiptId, siteId, group, name]);
+      const receipt = receipts.rows[0];
+      if (!receipt) throw new SenifyError("conflict", "Die Variable kann nicht wiederhergestellt werden", { field: "receiptId" });
+      const snapshots = toJson<VariableDeletionPage[]>(receipt.pages);
+      const originSnapshot = Array.isArray(snapshots) ? snapshots.find((entry) => entry.pageId === input.pageContext.pageId) : undefined;
+      const deletedVersion = toFiniteNumber(receipt.theme_version, "theme_version");
+      if (receipt.restored_at != null) {
+        if (input.baseThemeVersion === deletedVersion && originSnapshot?.version === input.pageContext.baseDraftVersion) return { version: deletedVersion + 1, pageDraftVersion: input.pageContext.baseDraftVersion + 1 };
+        throw new SenifyError("conflict", "Die Variable wurde bereits wiederhergestellt", { field: "receiptId" });
+      }
+      if (toFiniteNumber(themeRow.version, "version") !== input.baseThemeVersion || input.baseThemeVersion !== deletedVersion) throw new SenifyError("conflict", "Die Variablen wurden seit dem Löschen geändert", { field: "baseThemeVersion" });
+      if (toFiniteNumber(site.style_rules_version ?? 0, "style_rules_version") !== toFiniteNumber(receipt.registry_version, "registry_version")) throw new SenifyError("conflict", "Die Klassen wurden seit dem Löschen geändert", { field: "receiptId" });
+      const pages = await tx.query<{ id: string; draft_version: unknown }>(`SELECT id, draft_version FROM pages WHERE site_id = $1 ORDER BY id FOR UPDATE`, [siteId]);
+      if (!Array.isArray(snapshots) || pages.rows.length !== snapshots.length || pages.rows.some((page) => snapshots.find((entry) => entry.pageId === page.id)?.version !== toFiniteNumber(page.draft_version, "draft_version"))) {
+        throw new SenifyError("conflict", "Ein Seitenentwurf wurde seit dem Löschen geändert", { field: "receiptId" });
+      }
+      if (!originSnapshot || originSnapshot.version !== input.pageContext.baseDraftVersion) throw new SenifyError("conflict", "Der Seitenstand wurde seit dem Löschen geändert", { field: "pageContext.baseDraftVersion" });
+      const theme = structuredClone(toJson<Theme>(themeRow.definition));
+      const bag = theme.tokens.primitive?.[group];
+      if (!bag || typeof bag !== "object" || Array.isArray(bag) || Object.hasOwn(bag, name)) throw new SenifyError("conflict", "Die Variable existiert bereits oder kann nicht wiederhergestellt werden", { field: "name" });
+      (bag as Record<string, unknown>)[name] = receipt.value;
+      validateShape(ThemeSchema, theme, "theme");
+      if (validateTheme(theme).length > 0) throw new SenifyError("validation", "Das Theme wäre nach der Wiederherstellung ungültig", { field: "name" });
+      const now = new Date().toISOString();
+      for (const page of pages.rows) await tx.query(`UPDATE pages SET draft_version = draft_version + 1, updated_at = $2 WHERE id = $1`, [page.id, now]);
+      await tx.query(`UPDATE themes SET definition = $2, version = version + 1, updated_at = $3 WHERE id = $1`, [themeRow.id, toJsonParam(theme), now]);
+      await tx.query(`UPDATE theme_variable_deletions SET restored_at = $2 WHERE id = $1`, [input.receiptId, now]);
+      const audit = buildAuditInsert([{ siteId, pageId: null, batchId: newEntityId(), opIndex: 0, mutation: "restore_variable", params: { family: group, name, receiptId: input.receiptId }, author, undoPatch: [], draftVersionAfter: deletedVersion + 1 }]);
+      await tx.query(audit.text, audit.params);
+      return { version: deletedVersion + 1, pageDraftVersion: input.pageContext.baseDraftVersion + 1 };
+    });
   }
 
   // ------------------------------------------------- style rules (Phase 2)

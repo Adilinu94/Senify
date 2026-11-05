@@ -127,6 +127,22 @@ function fingerprint(dir: string): string[] {
 }
 
 describe("restore a backup", () => {
+  it("preserves variable-deletion receipts for later restoration", async () => {
+    const author = { kind: "human" as const, id: "tester", label: "Tester" };
+    const site = await createTestSite(env.api, "Variablenbeleg im Backup");
+    const page = await createTestPage(env.api, site.id, { path: "/" });
+    const initial = await env.engine.store.getTheme(site.id);
+    const theme = await env.engine.store.updateTheme(site.id, { tokens: { primitive: { color: { marker: "#123456" } } } }, author, initial.version);
+    const deleted = await env.engine.store.deleteUnusedVariable(site.id, "color", "marker", { receiptId: "backup-variable-receipt-1", baseThemeVersion: theme.version, pageContext: { pageId: page.id, baseDraftVersion: page.draftVersion } }, author);
+    const backup = await createBackup();
+    const input = { receiptId: deleted.receiptId, baseThemeVersion: deleted.version, pageContext: { pageId: page.id, baseDraftVersion: deleted.pageDraftVersion } };
+    await env.engine.store.restoreVariable(site.id, "color", "marker", input, author);
+    expect((await restore(backup.id, { confirm: true })).status).toBe(200);
+    await env.engine.store.restoreVariable(site.id, "color", "marker", input, author);
+    expect((await env.engine.store.getTheme(site.id)).theme.tokens.primitive?.color).toMatchObject({ marker: "#123456" });
+    await env.engine.store.deleteSite(site.id);
+  });
+
   it("preserves class-deletion receipts so assignments remain restorable", async () => {
     const author = { kind: "human" as const, id: "tester", label: "Tester" };
     const site = await createTestSite(env.api, "Klassenbeleg im Backup");

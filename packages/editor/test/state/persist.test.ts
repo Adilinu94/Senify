@@ -221,6 +221,22 @@ describe("save pipeline", () => {
     pipeline.dispose();
   });
 
+  it("adopts external versions only while the original editor state is clean", async () => {
+    const store = baseStore();
+    const requests: SaveRequest[] = [];
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR, themeVersion: 4,
+      request: async (request) => { requests.push(request); return { status: 200, body: { newDraftVersion: 3 } }; },
+    });
+    expect(pipeline.acceptExternalVersions(1, 4, 2, 5)).toBe(true);
+    expect(pipeline.acceptExternalVersions(1, 4, 3, 6)).toBe(false);
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 });
+    expect(pipeline.acceptExternalVersions(2, 5, 3, 6)).toBe(false);
+    await pipeline.flush();
+    expect(requests[0]?.body).toMatchObject({ baseDraftVersion: 2, baseThemeVersion: 5 });
+    pipeline.dispose();
+  });
+
   it("treats a class write with a stale theme as a theme conflict", async () => {
     const store = baseStore();
     const requests: SaveRequest[] = [];

@@ -43,6 +43,8 @@ export const DeleteStyleRuleBodySchema = Type.Object(
 export type DeleteStyleRuleBody = Static<typeof DeleteStyleRuleBodySchema>;
 
 const ClassPageContextSchema = Type.Object({ pageId: Type.String({ minLength: 1 }), baseDraftVersion: Type.Integer({ minimum: 1 }) }, CLOSED);
+export const VariableDeletionBodySchema = Type.Object({ receiptId: Type.String({ minLength: 14, maxLength: 64 }), baseThemeVersion: Type.Integer({ minimum: 1 }), pageContext: ClassPageContextSchema, author: Type.Optional(AuthorSchema) }, CLOSED);
+export type VariableDeletionBody = Static<typeof VariableDeletionBodySchema>;
 export const DeleteGlobalClassBodySchema = Type.Object({ receiptId: Type.String({ minLength: 14, maxLength: 64 }), baseVersion: Type.Integer({ minimum: 0 }), pageContext: ClassPageContextSchema, author: Type.Optional(AuthorSchema) }, CLOSED);
 export type DeleteGlobalClassBody = Static<typeof DeleteGlobalClassBodySchema>;
 export const RestoreGlobalClassBodySchema = Type.Object({ receiptId: Type.String({ minLength: 1 }), baseVersion: Type.Integer({ minimum: 0 }), baseThemeVersion: Type.Optional(Type.Integer({ minimum: 1 })), pageContext: ClassPageContextSchema, author: Type.Optional(AuthorSchema) }, CLOSED);

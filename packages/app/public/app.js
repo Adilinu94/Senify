@@ -6238,6 +6238,8 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   const variableCreateDrafts = { color: { name: "", value: "" }, spacing: { name: "", value: "" } };
   let variableQuery = "";
   let variableSaving = false;
+  let lastVariableDeletion = null;
+  let pendingVariableOperation = null;
   function renderVariables() {
     variablesHost.replaceChildren();
     variablesHost.append(el("h2", { text: "Globale Variablen" }), el("p", { class: "canvas-view__variables-help", text: "Variablen gelten für das gesamte Projekt." }));
@@ -6285,6 +6287,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     });
     const saveVariable = async (group, name, value, button) => {
       if (variableSaving) return;
+      if (pendingVariableOperation) { status.textContent = "Bitte zuerst den ausstehenden Variablenvorgang prüfen."; return; }
       if (group === "spacing" && !window.CSS.supports("padding", value)) {
         status.textContent = "Bitte einen gültigen Abstand eingeben, zum Beispiel 16px oder 1rem.";
         return;
@@ -6322,6 +6325,89 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
         button.disabled = false;
       }
     };
+    const canChangeVariable = (operation = null) => {
+      if (pendingVariableOperation && pendingVariableOperation !== operation) {
+        status.textContent = "Bitte zuerst den ausstehenden Variablenvorgang prüfen.";
+        return false;
+      }
+      const save = session.saveState();
+      if (save.pending > 0 || save.status === "saving" || save.status === "conflict" || save.status === "error") {
+        status.textContent = "Bitte zuerst offene Editoränderungen speichern oder ihren Konflikt klären.";
+        return false;
+      }
+      return !variableSaving;
+    };
+    const runVariableOperation = async (operation) => {
+      if (!canChangeVariable(operation)) return;
+      variableSaving = true;
+      for (const item of variablesHost.querySelectorAll("button")) item.disabled = true;
+      status.textContent = operation.action === "delete" ? "Variable wird gelöscht …" : "Variable wird wiederhergestellt …";
+      try {
+        const result = await api(`/api/sites/${siteId}/theme/variables/${operation.group}/${encodeURIComponent(operation.name)}/${operation.action}`, { method: "POST", body: operation.body });
+        if (!Number.isInteger(result.version) || !Number.isInteger(result.pageDraftVersion) ||
+            result.version !== operation.body.baseThemeVersion + 1 || result.pageDraftVersion !== operation.body.pageContext.baseDraftVersion + 1 ||
+            (operation.action === "delete" && result.receiptId !== operation.body.receiptId)) {
+          throw new Error("Der Server hat die Änderung nicht vollständig bestätigt. Bitte erneut versuchen.");
+        }
+        operation.uncertain = true;
+        const latest = await api(`/api/sites/${siteId}/theme`);
+        if (!latest.theme || !Number.isInteger(latest.version) || latest.version < result.version) throw new Error("Der aktuelle Variablenstand konnte nicht geladen werden. Bitte erneut versuchen.");
+        const accepted = latest.version === result.version && session.acceptExternalVersions(operation.body.pageContext.baseDraftVersion, operation.body.baseThemeVersion, result.pageDraftVersion, result.version);
+        siteTheme = latest.theme;
+        siteThemeVersion = latest.version;
+        canvas.setTheme(latest.theme, latest.css);
+        inspector.setTheme(latest.theme);
+        if (operation.action === "delete") {
+          variableDrafts.delete(`${operation.group}.${operation.name}`);
+          lastVariableDeletion = { group: operation.group, name: operation.name, receiptId: operation.body.receiptId, restored: false };
+        } else lastVariableDeletion = { group: operation.group, name: operation.name, receiptId: operation.body.receiptId, restored: true };
+        pendingVariableOperation = null;
+        variableSaving = false;
+        renderVariables();
+        variablesHost.querySelector('[role="status"]').textContent = accepted
+          ? (operation.action === "delete" ? "Variable gelöscht." : "Variable wiederhergestellt.")
+          : "Änderung ausgeführt. Der Editorstand hat sich inzwischen geändert; bitte offene Änderungen prüfen.";
+        if (!accepted) {
+          const reloadEditor = el("button", { type: "button", text: "Editorstand laden (offene Änderungen verwerfen)" });
+          reloadEditor.addEventListener("click", () => void reloadDraft());
+          variablesHost.append(reloadEditor);
+        }
+      } catch (error) {
+        variableSaving = false;
+        for (const item of variablesHost.querySelectorAll("button")) item.disabled = false;
+        if (operation.uncertain || !Number.isInteger(error?.status) || error.status >= 500) {
+          operation.uncertain = true;
+          pendingVariableOperation = operation;
+          showPendingVariableRetry();
+        }
+        status.textContent = error?.message ?? "Änderung fehlgeschlagen. Bitte erneut versuchen.";
+        reload.hidden = error?.status !== 409;
+      }
+    };
+    const showPendingVariableRetry = () => {
+      if (!pendingVariableOperation || statusBar.querySelector("[data-variable-retry]")) return;
+      const retry = el("button", { type: "button", text: "Ausstehenden Variablenvorgang prüfen", "data-variable-retry": "true" });
+      retry.addEventListener("click", () => void runVariableOperation(pendingVariableOperation));
+      statusBar.append(retry);
+    };
+    showPendingVariableRetry();
+    const newVariableOperation = (action, group, name, receiptId) => ({
+      action, group, name,
+      body: { receiptId, baseThemeVersion: siteThemeVersion, pageContext: { pageId, baseDraftVersion: session.version } },
+    });
+    if (lastVariableDeletion) {
+      const entry = lastVariableDeletion;
+      const label = entry.restored ? `Löschen von ${entry.name} wiederholen` : `Löschen von ${entry.name} rückgängig`;
+      const undo = el("button", { type: "button", text: label, "aria-label": label });
+      let operation = null;
+      undo.addEventListener("click", () => {
+        if (!canChangeVariable()) return;
+        if (entry.restored && variableDrafts.has(`${entry.group}.${entry.name}`)) { status.textContent = "Bitte den geänderten Wert vor dem Löschen speichern."; return; }
+        operation ??= newVariableOperation(entry.restored ? "delete" : "restore", entry.group, entry.name, entry.restored ? window.crypto.randomUUID() : entry.receiptId);
+        void runVariableOperation(operation);
+      });
+      variablesHost.append(undo);
+    }
     const appendUsage = (row, group, name) => {
       const label = group === "color" ? "Farbe" : "Abstand";
       const button = el("button", { type: "button", text: "Verwendung", "aria-label": `Verwendung von ${label} ${name} anzeigen` });
@@ -6350,6 +6436,24 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       });
       row.append(button, result);
     };
+    const appendDelete = (row, group, name) => {
+      const label = group === "color" ? "Farbe" : "Abstand";
+      const button = el("button", { type: "button", text: "Löschen …", "aria-label": `${label} ${name} löschen` });
+      const confirm = el("button", { type: "button", text: "Variable löschen", "aria-label": `${label} ${name} löschen bestätigen` });
+      const cancel = el("button", { type: "button", text: "Abbrechen", "aria-label": `Löschen von ${label} ${name} abbrechen` });
+      const panel = el("div", { class: "canvas-view__variable-delete", hidden: true },
+        el("p", { text: "Nur ohne erkannte direkte Verweise. Externe oder dynamische Verweise können fehlen. Rückgängig ist möglich, solange Theme, Klassen und Seiten unverändert bleiben." }), confirm, cancel);
+      let operation = null;
+      button.addEventListener("click", () => { panel.hidden = false; button.hidden = true; });
+      cancel.addEventListener("click", () => { operation = null; panel.hidden = true; button.hidden = false; });
+      confirm.addEventListener("click", () => {
+        if (variableDrafts.has(`${group}.${name}`)) { status.textContent = "Bitte den geänderten Wert vor dem Löschen speichern."; return; }
+        if (!canChangeVariable()) return;
+        operation ??= newVariableOperation("delete", group, name, window.crypto.randomUUID());
+        void runVariableOperation(operation);
+      });
+      row.append(button, panel);
+    };
     const list = el("div", { class: "canvas-view__variable-list" });
     for (const [name, value] of Object.entries(colors)) {
       if (typeof value !== "string") continue;
@@ -6363,6 +6467,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       input.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); button.click(); } });
       const row = el("div", { class: "canvas-view__variable-row" }, el("label", { text: name }), swatch, input, button);
       appendUsage(row, "color", name);
+      appendDelete(row, "color", name);
       variableRows.push({ name, element: row });
       list.append(row);
     }
@@ -6387,6 +6492,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       input.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); save.click(); } });
       const row = el("div", { class: "canvas-view__variable-row canvas-view__variable-row--spacing" }, el("label", { text: key }), input, save);
       appendUsage(row, "spacing", key);
+      appendDelete(row, "spacing", key);
       variableRows.push({ name: key, element: row });
       spacingList.append(row);
     }

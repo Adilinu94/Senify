@@ -83,6 +83,20 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     created_at timestamptz NOT NULL,
     restored_at timestamptz
   )`,
+  // A variable deletion retains its original value and the versions needed
+  // for a conflict-safe restoration, including after a backup/restore.
+  `CREATE TABLE IF NOT EXISTS theme_variable_deletions (
+    id text PRIMARY KEY,
+    site_id text NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+    family text NOT NULL,
+    name text NOT NULL,
+    value text NOT NULL,
+    pages jsonb NOT NULL,
+    registry_version integer NOT NULL,
+    theme_version integer NOT NULL,
+    created_at timestamptz NOT NULL,
+    restored_at timestamptz
+  )`,
   // API tokens: the secret is shown once and stored as a SHA-256 hash only.
   `CREATE TABLE IF NOT EXISTS api_tokens (
     id text PRIMARY KEY,

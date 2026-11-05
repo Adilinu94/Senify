@@ -3837,6 +3837,9 @@ body.is-editor .view.editor-view > .editor-host.canvas-view {
 .canvas-view__variable-usage p { margin: 0 0 4px; }
 .canvas-view__variable-usage ul { margin: 0 0 4px; padding-left: 18px; }
 .canvas-view__variable-usage:empty { display: none; }
+.canvas-view__variable-delete { grid-column: 1 / -1; color: var(--ui-editor-help); font-size: 11px; line-height: 1.5; }
+.canvas-view__variable-delete p { margin: 0 0 4px; }
+.canvas-view__variable-delete button + button { margin-left: 4px; }
 .canvas-view__variable-create { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 14px; }
 .canvas-view__variable-create button { grid-column: 1 / -1; }
 .canvas-view__elements .senify-canvas__cataloghost { padding: 0; }
