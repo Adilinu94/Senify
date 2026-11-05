@@ -392,10 +392,10 @@ export class HistoryStack {
     return patches;
   }
 
-  clear(): void {
+  clear(options: { preservePendingExternal?: boolean } = {}): void {
     this.#entries.splice(0, this.#entries.length);
     this.#cursor = 0;
     this.#canCoalesce = false;
-    this.#pendingExternal = null;
+    if (!options.preservePendingExternal) this.#pendingExternal = null;
   }
 }

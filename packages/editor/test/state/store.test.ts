@@ -152,6 +152,20 @@ describe("coalescing", () => {
 });
 
 describe("external async history", () => {
+  it("erhält eine ungelöste externe Sperre beim Ersetzen des Dokuments", () => {
+    const store = baseStore();
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "Vorher" });
+    const pending = store.beginExternalAction({ label: "Token löschen", versionBefore: store.version, versionAfter: store.version + 1 });
+    store.replaceDocument(baseStore().document);
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "Nach dem Laden" });
+    expect(store.pendingExternalId).toBe(pending.id);
+    expect(store.undo()).toBe(false);
+    expect(store.document.nodes["head000001"]?.props["text"]).toBe("Nach dem Laden");
+    store.failExternalAction(pending.id);
+    expect(store.undo()).toBe(true);
+    expect(store.document.nodes["head000001"]?.props["text"]).toBe("Hallo");
+  });
+
   it("trennt neue Eingaben nach Auflösung eines externen Vorgangs", () => {
     const store = baseStore();
     const pending = store.beginExternalAction({ label: "Token löschen", versionBefore: store.version, versionAfter: store.version + 1 });

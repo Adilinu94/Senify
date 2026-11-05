@@ -13,7 +13,9 @@ Alle offenen Punkte aus `HANDOFF-2026-11-05.md` in überprüfbaren Scheiben bear
 - Geprüft 01: HEAD `125f6c9`; acht vorhandene uncommittete Dateien betreffen die externe History. Der ursprüngliche Diff ist zusätzlich unter `C:/Users/adini/AppData/Local/Temp/opencode/senify-editor-history-original-20261105.patch` gesichert.
 - Abgeschlossen 01: gezielte Ausgangs-Gates, rot/grüne Regressionen und Gegenreview der History-Vorbereitung; Unit-/Browser-Gate, Typecheck und Lint grün. Doku-Abgleich berücksichtigt die noch offenen Async-Grenzen und korrigiert veraltete aktive Mapper-Hinweise (Mapper-Commit `0193fde`).
 - Offen: vollständiger Async-Vertrag; Core-/Pro-Referenz; Migrationsentscheidung zur Kaskade; vollständige Import-Abnahme.
-- Nächster Schritt: nach Doku-/Patch-Gate und Schritt-Commit die serverbestätigte Async-Navigation als begrenzten Kernvertrag implementieren; danach App-Integration und die übrigen Pakete.
+- Vorbereitung in `b0f55cc` gesichert; Arbeitsbaum danach leer geprüft. Doku-/Patch-Gate grün.
+- Abgeschlossen 02: Unknown-/Retry-/Reload-Sperrerhalt einschließlich Dokumentwechsel und Storage-Fehler; gezielter History-/State-/Variablen-/Canvas-Gate, Typecheck, Lint und Doku-/Patch-Gate grün. Siehe Issue 02.
+- Nächster Schritt: serverbestätigte Async-Navigation, danach App-Integration und die übrigen Pakete.
 
 ## Abdeckung der Übergabe
 
@@ -23,7 +25,7 @@ Alle offenen Punkte aus `HANDOFF-2026-11-05.md` in überprüfbaren Scheiben bear
 | Async Undo/Redo und History-Sprünge | §67–68, §73 | offen | gemischte Page-/Klassen-/Token-Schritte; Cursor erst nach Bestätigung; Fehler ohne Teilnavigation |
 | Speicherreihenfolge und konkurrierende Eingaben | §69, §73 | offen | laufende Pipeline, Eingabe während Anfrage, Fremdänderung und unvollständige Antwort |
 | Historische Token-Verweise und Rename | §70, §73 | offen | Forward- und Undo-Patches für Page, Klasse, Struktur, Breakpoint und Zustand in beiden Richtungen |
-| Belege, Antwortverlust, Reload und bewusster Ausweg | §71 | offen | Session Storage, Idempotenz, Retry, ältere Belege, Migration und Backup/Restore |
+| Belege, Antwortverlust, Reload und bewusster Ausweg | §71 | Sperrerhalt geprüft (Issue 02); gemeinsame History-Belege noch offen | Session Storage, Idempotenz, Retry, ältere Belege, Migration und Backup/Restore |
 | Delete/Restore getrennt abnehmen | §72 | offen | eigene Versions-/Inhaltsbedingungen, mehrere Pages, PostgreSQL-Sperren und Rollback |
 | Referenzinventar festhalten | §79 | offen | installierte Core-Version, echte Abläufe und Screens; Pro ausdrücklich getrennt |
 | Katalog, Inspector, Navigator und Bedienung | §80 | offen | Controls, Einheiten, Zustände, Responsive, Komponenten, Interaktionen, Tastatur und Accessibility gegen Inventar |

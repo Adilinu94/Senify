@@ -343,11 +343,12 @@ export class EditorStore {
     return changed;
   }
 
-  // Replaces the document (after a load/migration) and clears the history.
+  // Replaces the document and clears its local history. A server operation
+  // remains unresolved across loads until its owner explicitly resolves it.
   replaceDocument(document: EditorDocument): void {
     this.#document = document;
     this.#selection = EMPTY_SELECTION;
-    this.#history.clear();
+    this.#history.clear({ preservePendingExternal: true });
     this.#emit();
   }
 

@@ -6,7 +6,7 @@ import { startProgram } from "@senify/app";
 import { browserAvailable, memoryDb } from "./support.ts";
 
 describe.skipIf(!browserAvailable)("global variables in the editor", () => {
-  it("sperrt History beim Retry mit einer veralteten Pending-ID nach Reload", async () => {
+  it("sperrt History bei Antwortverlust, Reload und erneutem Konflikt bis zur ausdrücklichen Auflösung", async () => {
     const { chromium } = await import("playwright");
     const database = memoryDb();
     const dataDir = mkdtempSync(join(tmpdir(), "senify-variable-history-retry-"));
@@ -36,6 +36,8 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
         sessionStorage.setItem(key, JSON.stringify(operation));
       }, { siteId: site.id, pageId: page.id });
       await tab.reload();
+      await tab.getByRole("button", { name: "Verlauf", exact: true }).click();
+      await tab.getByRole("button", { name: "Verlauf schließen" }).click();
       await tab.getByRole("tab", { name: "Elemente" }).click();
       await tab.getByRole("button", { name: "Überschrift", exact: true }).click();
       await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
@@ -43,6 +45,27 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       const heading = Object.values(saved.draft.nodes).find((node) => node.type === "heading")!;
       const canvasNode = tab.locator('.senify-canvas__frame[data-device="desktop"] iframe').contentFrame().locator(`[data-node-id="${heading.id}"]`);
       await canvasNode.waitFor({ state: "attached" });
+      await tab.getByRole("button", { name: "Rückgängig", exact: true }).click();
+      expect(await canvasNode.count()).toBe(1);
+      await tab.getByRole("button", { name: "Verlauf", exact: true }).click();
+      expect(await tab.locator(".senify-history__row").isDisabled()).toBe(true);
+      await tab.getByRole("button", { name: "Verlauf schließen" }).click();
+      await tab.evaluate(({ siteId, pageId }) => {
+        const context = globalThis as unknown as { sessionStorage: object; restoreVariableStorage?: () => void };
+        const prototype = Object.getPrototypeOf(context.sessionStorage) as { setItem(key: string, value: string): void };
+        const original = prototype.setItem;
+        prototype.setItem = function (key, value) {
+          if (key === `senify:pending-variable:${siteId}:${pageId}`) throw new Error("Storage gesperrt");
+          original.call(this, key, value);
+        };
+        context.restoreVariableStorage = () => { prototype.setItem = original; };
+      }, { siteId: site.id, pageId: page.id });
+      await tab.getByRole("tab", { name: "Variablen" }).click();
+      await tab.getByRole("button", { name: "Ausstehenden Variablenvorgang prüfen" }).click();
+      await tab.getByRole("status").getByText("Der Vorgang kann nicht sicher vorgemerkt werden.", { exact: false }).waitFor();
+      await tab.getByRole("button", { name: "Rückgängig", exact: true }).click();
+      expect(await canvasNode.count()).toBe(1);
+      await tab.evaluate(() => (globalThis as unknown as { restoreVariableStorage(): void }).restoreVariableStorage());
       await tab.unroute(endpoint);
       let captured: (() => void) | undefined;
       const requested = new Promise<void>((resolve) => { captured = resolve; });
@@ -63,7 +86,25 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       release?.();
       await tab.getByRole("status").getByText("Stand inzwischen geändert").waitFor();
       await tab.getByRole("button", { name: "Rückgängig", exact: true }).click();
-      await expect.poll(() => canvasNode.count()).toBe(0);
+      expect(await canvasNode.count()).toBe(1);
+      await tab.getByRole("button", { name: "Prüfung beenden …", exact: true }).click();
+      await tab.getByRole("button", { name: "Prüfung beenden und Editorstand laden", exact: true }).click();
+      await tab.getByRole("status").getByText("Prüfung beendet. Der aktuelle Editorstand wurde geladen.", { exact: true }).waitFor();
+      expect(await canvasNode.count()).toBe(1);
+      await tab.getByRole("button", { name: "Verlauf", exact: true }).click();
+      expect(await tab.locator(".senify-history__row").count()).toBe(0);
+      await tab.getByRole("button", { name: "Verlauf schließen" }).click();
+      await tab.getByRole("tab", { name: "Elemente" }).click();
+      await tab.getByRole("button", { name: "Überschrift", exact: true }).click();
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      // A first, definitive 409 must release its own marker (unlike a retry
+      // after an unknown write), so ordinary history is usable again.
+      await tab.getByRole("tab", { name: "Variablen" }).click();
+      await tab.getByRole("button", { name: "Farbe marker löschen", exact: true }).click();
+      await tab.getByRole("button", { name: "Farbe marker löschen bestätigen" }).click();
+      await tab.getByRole("status").getByText("Stand inzwischen geändert").waitFor();
+      await tab.getByRole("button", { name: "Rückgängig", exact: true }).click();
+      await expect.poll(async () => Object.values((await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json() as typeof saved).draft.nodes).filter((node) => node.type === "heading").length).toBe(1);
     } finally {
       release?.();
       await browser.close();
@@ -112,6 +153,14 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       expect(Object.values(saved.draft.nodes).some((node) => node.type === "heading")).toBe(false);
       await dialog.locator('[data-action="conflict-reload"]').click();
       await expect.poll(async () => dialog.getAttribute("open")).toBeNull();
+      await tab.getByRole("tab", { name: "Variablen" }).click();
+      await tab.getByRole("button", { name: "Ausstehenden Variablenvorgang prüfen" }).waitFor();
+      await tab.getByRole("tab", { name: "Elemente" }).click();
+      await tab.getByRole("button", { name: "Überschrift", exact: true }).click();
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      await tab.getByRole("button", { name: "Verlauf", exact: true }).click();
+      expect(await tab.locator(".senify-history__row").isDisabled()).toBe(true);
+      await tab.getByRole("button", { name: "Verlauf schließen" }).click();
     } finally {
       release?.();
       await browser.close();

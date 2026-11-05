@@ -1,6 +1,6 @@
 # Aktueller Stand
 
-**Externe History – Vorbereitung, 05.11.2026:** Während einer laufenden Variablen-Lösch-, Wiederherstellungs- oder Umbenennungsanfrage sind Undo, Redo und History-Sprünge gesperrt. Auch ein Retry nach Reload legt eine zur neuen Session gehörende Sperre an. Gesperrte Sprünge werden vor der ersten Dokumentänderung geprüft; Restore-Buttons verwenden dieselbe Prüfung. Eingabegruppen werden nach Auflösung getrennt (`packages/editor/src/history.ts`, `packages/editor/src/state/store.ts`, `packages/editor/src/history/dialog.ts`, `packages/app/public/app.js`; History-, Store-, Session- und Variablen-Browser-Tests). **Noch kein vollständiger Async-Vertrag:** Unklare Antworten geben die lokale Sperre weiterhin frei, Rename leert die Dokument-History und bestätigte externe Einträge sind lokale Navigationsgrenzen ohne serverseitiges Undo/Redo.
+**Externe History – Sperrerhalt, 05.11.2026:** Laufende und unklare Variablen-Lösch-, Wiederherstellungs- oder Umbenennungsvorgänge sperren Undo, Redo und History-Sprünge. Nach Reload wird der gespeicherte Vorgang vor einer Navigation an die neue Session gebunden. Retry-Konflikte und bestätigte Writes ohne übernehmbaren Editorstand behalten die Sperre; Dokumentwechsel leeren nur lokale Einträge. Ein Storage-Fehler beim Retry löst einen zuvor unklaren Vorgang ebenfalls nicht auf. Nur eine eindeutige Erst-Ablehnung, eine konsistente Bestätigung oder ausdrücklich bestätigte Recovery geben Navigation wieder frei. Gesperrte Sprünge werden vor dem ersten Write geprüft; Dialog und Store verwenden dieselbe Prüfung (`packages/editor/src/history.ts`, `packages/editor/src/state/store.ts`, `packages/editor/src/history/dialog.ts`, `packages/app/public/app.js`; History-, Store-, Session- und Variablen-Browser-Tests). **Noch kein vollständiger Async-Vertrag:** Rename leert die Dokument-History und bestätigte externe Einträge sind lokale Navigationsgrenzen ohne serverseitiges Undo/Redo.
 
 **Editor-History nach Undo/Redo:** Neue zusammengefasste Eingaben beginnen nach Undo, Redo oder dem Entfernen eines History-Eintrags eine eigene Gruppe. So stellt ein erneutes Undo den unmittelbar davor sichtbaren Stand wieder her (`packages/editor/src/history.ts`, `packages/editor/test/state/store.test.ts`).
 
@@ -199,7 +199,7 @@ Noch nicht vorhanden: **automatische Medienbeschaffung**. Medienbedarfe sind adr
 
 ## Priorisierte offene Arbeit
 
-Verbindlich und priorisiert steht die Liste in **`docs/fahrplan.md`**. Der vorherige Folge-Diff ist gesichert. P3-2 läuft mit der ersten reinen Modul-Auslagerung in `store.ts`; der nächste Schritt beginnt erst nach deren Commit.
+Verbindlich und priorisiert steht die Liste in **`docs/fahrplan.md`**. Historische Folge-Diffs einschließlich der ersten Store-Mapper-Auslagerung sind gesichert. Aktiv ist der Editor-Umbau aus `.scratch/editor-umbau/HANDOFF-2026-11-05.md`; die Paketabdeckung steht in `.scratch/editor-umbau/map.md`. Jede Scheibe endet mit Gate und Schritt-Commit.
 
 Danach verbleiben: die MCP-Verträge und Manifest-Konsumenten (R8), die Modulaufteilung der vier God-Files (R12) sowie die zwei CI-Verbesserungen aus P3-6.
 

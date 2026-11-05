@@ -6423,7 +6423,8 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
         beginVariableExternalHistory(operation);
         window.sessionStorage.setItem(pendingVariableKey, JSON.stringify(operation));
       } catch (error) {
-        failVariableExternalHistory(operation);
+        // A failed retry preflight does not resolve an earlier unknown write.
+        if (!operation.uncertain) failVariableExternalHistory(operation);
         status.textContent = error?.message?.includes("externer Vorgang")
           ? "Bitte zuerst den laufenden Verlaufsvorgang abschließen."
           : "Der Vorgang kann nicht sicher vorgemerkt werden. Bitte Browser-Speicher freigeben.";
@@ -6496,11 +6497,18 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
             : { group: operation.group, original: operation.name, renamed: operation.body.newName, undone: false, receiptId: operation.body.receiptId };
         }
         rememberVariableHistory();
-        pendingVariableOperation = null;
-        // Server action is confirmed; remove the pending shared-history marker.
-        // Full async undo/redo for server-side variable actions is a follow-up.
-        failVariableExternalHistory(operation);
-        try { window.sessionStorage.removeItem(pendingVariableKey); } catch { /* A replay remains idempotent. */ }
+        if (accepted) {
+          pendingVariableOperation = null;
+          // The server result and local base agree; navigation is safe again.
+          // Shared async undo/redo is a separate contract.
+          failVariableExternalHistory(operation);
+          try { window.sessionStorage.removeItem(pendingVariableKey); } catch { /* A replay remains idempotent. */ }
+        } else {
+          // A confirmed write without an adoptable base still leaves this
+          // editor unresolved. Do not allow old history patches to cross it.
+          pendingVariableOperation = operation;
+          try { window.sessionStorage.setItem(pendingVariableKey, JSON.stringify(operation)); } catch { /* Recovery remains available in-memory. */ }
+        }
         variableSaving = false;
         renderVariables();
         variablesHost.querySelector('[role="status"]').textContent = accepted
@@ -6515,9 +6523,8 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
         variableSaving = false;
         for (const item of variablesHost.querySelectorAll("button")) item.disabled = false;
         if (operation.uncertain || !Number.isInteger(error?.status) || error.status >= 500) {
-          // Server state may have changed: keep the recoverable sessionStorage flow,
-          // but remove the blocking local history marker until retry/resolve commits.
-          failVariableExternalHistory(operation);
+          // An unknown answer is not proof of rollback. Retain the navigation
+          // lock, including when a later retry returns a version conflict.
           operation.uncertain = true;
           pendingVariableOperation = operation;
           try { window.sessionStorage.setItem(pendingVariableKey, JSON.stringify(operation)); } catch { /* Recovery UI remains available in-memory. */ }
@@ -6566,6 +6573,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
           const loaded = editor.loadDocument(fresh.draft, { styleRules: registry.rules }).document;
           window.sessionStorage.removeItem(variableHistoryKey);
           window.sessionStorage.removeItem(pendingVariableKey);
+          failVariableExternalHistory(originalOperation);
           pendingVariableOperation = null;
           lastVariableDeletion = null;
           lastVariableRename = null;
@@ -6587,6 +6595,9 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       });
       statusBar.append(retry, stop, warning);
     };
+    // Reload creates a fresh session, so persisted history ids cannot own its
+    // lock. Reattach before the user can navigate, not only when Retry starts.
+    if (pendingVariableOperation) beginVariableExternalHistory(pendingVariableOperation);
     showPendingVariableRetry();
     if (pendingVariableOperation) status.textContent = "Ein Variablenvorgang wurde noch nicht bestätigt. Bitte prüfe ihn.";
     const newVariableOperation = (action, group, name, receiptId) => ({
