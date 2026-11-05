@@ -81,11 +81,13 @@ export function patchesToMutations(patches: readonly PatchOp[]): Mutation[] {
   return mutations;
 }
 
+export type HistoryEntryStatus = "committed" | "pending" | "failed";
+
 export type HistoryEntry = {
   id: string;
   label: string;
   at: number;
-  op: MutationOp | "inline-text";
+  op: MutationOp | "inline-text" | "external";
   mutations: Mutation[];
   // Patches that restore the state *before* this entry.
   undoPatch: PatchOp[];
@@ -93,6 +95,11 @@ export type HistoryEntry = {
   versionBefore: number;
   versionAfter: number;
   coalesceKey: string | undefined;
+  // External entries represent server-confirmed actions (e.g. variable rename)
+  // that cannot be applied as local document patches alone. Pending entries are
+  // in-flight and block history navigation until committed or failed.
+  status: HistoryEntryStatus;
+  external?: boolean;
 };
 
 export type RecordInput = {
@@ -104,6 +111,16 @@ export type RecordInput = {
   versionBefore: number;
   versionAfter: number;
   coalesceKey?: string;
+};
+
+export type ExternalRecordInput = {
+  label: string;
+  op?: "external";
+  mutations?: Mutation[];
+  undoPatch?: PatchOp[];
+  batchId?: string | null;
+  versionBefore: number;
+  versionAfter: number;
 };
 
 export type HistoryStackOptions = {
@@ -126,6 +143,7 @@ export class HistoryStack {
   #cursor = 0;
   // History navigation or removal ends the previous typing/drag burst.
   #canCoalesce = false;
+  #pendingExternal: HistoryEntry | null = null;
   readonly #limit: number;
   readonly #now: () => number;
   readonly #idFactory: () => string;
@@ -140,12 +158,20 @@ export class HistoryStack {
     return this.#entries.length;
   }
 
+  get pendingExternalId(): string | null {
+    return this.#pendingExternal?.id ?? null;
+  }
+
   get canUndo(): boolean {
-    return this.#cursor > 0;
+    if (this.#pendingExternal !== null) return false;
+    const entry = this.#entries[this.#cursor - 1];
+    return entry?.status === "committed" && !entry.external;
   }
 
   get canRedo(): boolean {
-    return this.#cursor < this.#entries.length;
+    if (this.#pendingExternal !== null) return false;
+    const entry = this.#entries[this.#cursor];
+    return entry?.status === "committed" && !entry.external;
   }
 
   // Oldest first, including the redoable future.
@@ -164,6 +190,8 @@ export class HistoryStack {
     const previous = this.#entries[this.#cursor - 1];
     if (
       previous &&
+      previous.status === "committed" &&
+      !previous.external &&
       this.#canCoalesce &&
       input.coalesceKey !== undefined &&
       previous.coalesceKey === input.coalesceKey
@@ -187,6 +215,7 @@ export class HistoryStack {
       versionBefore: input.versionBefore,
       versionAfter: input.versionAfter,
       coalesceKey: input.coalesceKey,
+      status: "committed",
     };
     this.#entries.push(entry);
     if (this.#entries.length > this.#limit) {
@@ -197,17 +226,102 @@ export class HistoryStack {
     return entry;
   }
 
+  beginExternal(input: ExternalRecordInput): HistoryEntry {
+    if (this.#pendingExternal !== null) {
+      throw new SenifyError("conflict", "Ein externer Vorgang wird noch ausgeführt", {
+        field: "history",
+      });
+    }
+    // Tracked outside the committed stack so concurrent local document edits are
+    // not blocked or spliced. Navigation (undo/redo/restore) is blocked until
+    // resolved; commit inserts a non-local server-confirmed marker at the end.
+    this.#canCoalesce = false;
+    const entry: HistoryEntry = {
+      id: this.#idFactory(),
+      label: input.label,
+      at: this.#now(),
+      op: input.op ?? "external",
+      mutations: [],
+      undoPatch: [],
+      batchId: input.batchId ?? null,
+      versionBefore: input.versionBefore,
+      versionAfter: input.versionAfter,
+      coalesceKey: undefined,
+      status: "pending",
+      external: true,
+    };
+    this.#pendingExternal = entry;
+    return entry;
+  }
+
+  commitExternal(id: string, input: Partial<ExternalRecordInput> = {}): HistoryEntry {
+    const entry = this.#pendingExternal?.id === id ? this.#pendingExternal : this.#entries.find((item) => item.id === id && item.status === "pending" && item.external);
+    if (!entry || entry.status !== "pending" || !entry.external) {
+      throw new SenifyError("not_found", `Pending external entry "${id}" does not exist`, {
+        field: "entryId",
+      });
+    }
+    if (input.label !== undefined) entry.label = input.label;
+    if (input.mutations !== undefined) entry.mutations = [...input.mutations];
+    if (input.undoPatch !== undefined) entry.undoPatch = [...input.undoPatch];
+    if (input.batchId !== undefined) entry.batchId = input.batchId;
+    if (input.versionAfter !== undefined) entry.versionAfter = input.versionAfter;
+    entry.status = "committed";
+    entry.at = this.#now();
+    this.#canCoalesce = false;
+    if (this.#pendingExternal?.id === id) {
+      this.#pendingExternal = null;
+      // Drop redo branch and append the server-confirmed marker after current
+      // local edits; local undo/redo across it remains blocked until async
+      // server undo/redo is wired.
+      if (this.#cursor < this.#entries.length) this.#entries.splice(this.#cursor);
+      this.#entries.push(entry);
+      if (this.#entries.length > this.#limit) this.#entries.shift();
+      this.#cursor = this.#entries.length;
+    }
+    return entry;
+  }
+
+  failExternal(id: string): HistoryEntry | null {
+    if (this.#pendingExternal?.id === id) {
+      const entry = this.#pendingExternal;
+      this.#pendingExternal = null;
+      this.#canCoalesce = false;
+      return entry;
+    }
+    const index = this.#entries.findIndex((item) => item.id === id);
+    if (index < 0) return null;
+    const [entry] = this.#entries.splice(index, 1);
+    if (!entry || entry.status !== "pending" || !entry.external) {
+      if (entry) this.#entries.splice(index, 0, entry);
+      return null;
+    }
+    if (index < this.#cursor) this.#cursor -= 1;
+    this.#cursor = Math.min(this.#cursor, this.#entries.length);
+    this.#canCoalesce = false;
+    return entry;
+  }
+
   undo(): HistoryEntry | null {
-    if (!this.canUndo) return null;
+    if (this.#pendingExternal !== null) return null;
+    const entry = this.#entries[this.#cursor - 1];
+    if (entry?.external) {
+      throw new SenifyError("conflict", "Dieser Schritt wurde serverseitig ausgeführt und kann hier nicht lokal rückgängig gemacht werden", { field: "history" });
+    }
+    if (!entry || entry.status !== "committed") return null;
     this.#canCoalesce = false;
     this.#cursor -= 1;
-    return this.#entries[this.#cursor] ?? null;
+    return entry;
   }
 
   redo(): HistoryEntry | null {
-    if (!this.canRedo) return null;
+    if (this.#pendingExternal !== null) return null;
+    const entry = this.#entries[this.#cursor];
+    if (entry?.external) {
+      throw new SenifyError("conflict", "Dieser Schritt wurde serverseitig ausgeführt und kann hier nicht lokal wiederholt werden", { field: "history" });
+    }
+    if (!entry || entry.status !== "committed") return null;
     this.#canCoalesce = false;
-    const entry = this.#entries[this.#cursor] ?? null;
     this.#cursor += 1;
     return entry;
   }
@@ -231,9 +345,21 @@ export class HistoryStack {
     return this.#entries.slice(this.#cursor);
   }
 
+  canRestoreTo(entryId: string): boolean {
+    if (this.#pendingExternal !== null) return false;
+    const index = this.#entries.findIndex((entry) => entry.id === entryId);
+    if (index < 0) return false;
+    const target = index + 1;
+    return this.#entries.slice(Math.min(target, this.#cursor), Math.max(target, this.#cursor))
+      .every((entry) => entry.status === "committed" && !entry.external);
+  }
+
   // „Restore as Draft": the patches that roll the applied stack back to the
   // state right after `entryId` (apply them with `applyTreePatches`).
   restoreAsDraft(entryId: string): PatchOp[] {
+    if (this.#pendingExternal !== null) {
+      throw new SenifyError("conflict", "Ein externer Vorgang wird noch ausgeführt", { field: "history" });
+    }
     const index = this.#entries.findIndex((entry) => entry.id === entryId);
     if (index < 0) {
       throw new SenifyError("not_found", `History entry "${entryId}" does not exist`, {
@@ -250,7 +376,14 @@ export class HistoryStack {
         },
       );
     }
+    const target = this.#entries[index];
+    if (target?.external) {
+      throw new SenifyError("conflict", "Zu einem serverseitig ausgeführten Schritt kann nicht lokal als Entwurf zurückgesprungen werden", { field: "entryId" });
+    }
     const later = this.#entries.slice(index + 1, this.#cursor);
+    if (later.some((entry) => entry.external)) {
+      throw new SenifyError("conflict", "Der Verlauf enthält serverseitig ausgeführte Schritte und kann nicht lokal als Entwurf wiederhergestellt werden", { field: "history" });
+    }
     const patches: PatchOp[] = [];
     for (let position = later.length - 1; position >= 0; position -= 1) {
       const entry = later[position];
@@ -263,5 +396,6 @@ export class HistoryStack {
     this.#entries.splice(0, this.#entries.length);
     this.#cursor = 0;
     this.#canCoalesce = false;
+    this.#pendingExternal = null;
   }
 }

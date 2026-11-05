@@ -20,7 +20,7 @@ import {
   type MutationOp,
   type PatchOp,
 } from "@senify/engine/browser";
-import { HistoryStack, type HistoryEntry } from "../history.ts";
+import { HistoryStack, type ExternalRecordInput, type HistoryEntry } from "../history.ts";
 import { newNodeId } from "./ids.ts";
 import {
   createDocument,
@@ -65,7 +65,10 @@ export type EditorStoreOptions = {
 export type EditorStoreAction =
   | { type: "apply"; mutation: EditorMutation; entry: HistoryEntry }
   | { type: "undo"; entry: HistoryEntry }
-  | { type: "redo"; entry: HistoryEntry };
+  | { type: "redo"; entry: HistoryEntry }
+  | { type: "external-begin"; entry: HistoryEntry }
+  | { type: "external-commit"; entry: HistoryEntry }
+  | { type: "external-fail"; entry: HistoryEntry };
 
 export type ApplyOptions = {
   coalesceKey?: string;
@@ -158,6 +161,10 @@ export class EditorStore {
 
   get version(): number {
     return this.#history.applied().length + 1;
+  }
+
+  get pendingExternalId(): string | null {
+    return this.#history.pendingExternalId;
   }
 
   get canUndo(): boolean {
@@ -319,7 +326,11 @@ export class EditorStore {
   // and save pipeline stay in step — no second restore path.
   restoreTo(entryId: string): boolean {
     const index = this.#history.entries().findIndex((entry) => entry.id === entryId);
-    if (index < 0) return false;
+    if (index < 0 || this.pendingExternalId !== null) return false;
+    // Check the whole route before the first write or persistence event.
+    if (!this.#history.canRestoreTo(entryId)) {
+      throw new SenifyError("conflict", "Der Verlauf enthält serverseitig ausgeführte Schritte und kann nicht lokal wiederhergestellt werden", { field: "history" });
+    }
     let changed = false;
     while (this.#history.applied().length > index + 1) {
       if (!this.undo()) break;
@@ -388,5 +399,27 @@ export class EditorStore {
   clearSelection(): void {
     this.#selection = clearSelectionState(this.#selection);
     this.#emit();
+  }
+
+  beginExternalAction(input: ExternalRecordInput): HistoryEntry {
+    const entry = this.#history.beginExternal(input);
+    this.#emit();
+    this.#onAction?.({ type: "external-begin", entry });
+    return entry;
+  }
+
+  commitExternalAction(id: string, input: Partial<ExternalRecordInput> = {}): HistoryEntry {
+    const entry = this.#history.commitExternal(id, input);
+    this.#emit();
+    this.#onAction?.({ type: "external-commit", entry });
+    return entry;
+  }
+
+  failExternalAction(id: string): HistoryEntry | null {
+    const entry = this.#history.failExternal(id);
+    if (entry === null) return null;
+    this.#emit();
+    this.#onAction?.({ type: "external-fail", entry });
+    return entry;
   }
 }

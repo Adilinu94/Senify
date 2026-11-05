@@ -21,7 +21,7 @@ Die detaillierte Planung für dieses Produktziel steht in der [Framer-Roadmap](f
 
 **Neue Produktanforderung Editor:** Oberfläche und Bedienung sollen sich eng an Elementor V4 orientieren, einschließlich Klassen und Variablen. Die Recherche und vorgeschlagenen Schritte stehen in [Elementor-V4-Editor](research/elementor-v4-editor.md). Zuerst Referenzzustände und offene Funktionslücken aufnehmen; Umstellung und Migration dürfen bestehende Framer-Projekte nicht verlieren. Die Entscheidung, vorhandenen Elementor-Code direkt zu übernehmen, ist nicht getroffen.
 
-**History-Schutz:** Eingabegruppen werden nach History-Navigation getrennt; Inline-Texte verwenden für jede Bearbeitung eine eigene Gruppe und Abbrechen erhält frühere Schritte. Store-, History- und Browser-Tests prüfen die Fälle (`packages/editor/src/history.ts`, `packages/editor/src/canvas/canvas.ts`, `packages/editor/test/state/store.test.ts`, `packages/editor/test/history.test.ts`, `packages/app/test/canvas-browser.test.ts`). Die Einbindung asynchroner Variablenaktionen in die gemeinsame History bleibt offen.
+**History-Schutz:** Eingabegruppen werden nach History-Navigation getrennt; Inline-Texte verwenden für jede Bearbeitung eine eigene Gruppe und Abbrechen erhält frühere Schritte. Laufende Variablenanfragen einschließlich Retry nach Reload sperren Navigation; History-Sprünge werden vor dem ersten Write vollständig geprüft und auch im Dialog gesperrt. Store-, History-, Session- und Browser-Tests prüfen die Fälle (`packages/editor/src/history.ts`, `packages/editor/src/state/store.ts`, `packages/editor/src/history/dialog.ts`, `packages/editor/src/canvas/canvas.ts`, `packages/editor/test/state/store.test.ts`, `packages/editor/test/history.test.ts`, `packages/editor/test/state/session.test.ts`, `packages/app/test/variables-editor-browser.test.ts`, `packages/app/test/canvas-browser.test.ts`). Die vollständige Async-Integration bleibt offen: serverbestätigte Navigation, Sperre bei unklarem Stand, gemischte History samt alten Tokenreferenzen und Reload-Vertrag.
 
 **Undo bei Variablenumbenennung:** Neue Belege erlauben Undo nach vollständig zurückgenommenen Zwischenänderungen, wenn Theme, Klassen und alle Seiten einschließlich Metadaten inhaltlich wieder übereinstimmen. Ältere Belege bleiben versionsgebunden; abweichende Inhalte und Seitenlisten blockieren. PostgreSQL-, Migrations- und Backup-Tests prüfen den Schutz (`packages/engine/src/store.ts`, `packages/engine/test/theme-variable-rename.test.ts`, `packages/engine/test/backup-restore.test.ts`).
 
@@ -154,7 +154,7 @@ Nächste Arbeitspakete in Reihenfolge:
 
 ## Aktueller DoR-Blocker
 
-Der zuvor geprüfte Folge-Diff ist in `2a0afde` und `aad9550` gesichert. Der aktuelle, eng begrenzte P3-2-Schritt extrahiert Store-Row-Mapping nach `store-record-mappers.ts` und `store-row-utils.ts`; Typecheck, Lint, Volltest und Coverage sind am 29.09.2026 grün. Der Arbeitsbaum bleibt bis zu diesem Schritt-Commit absichtlich geändert; der nächste Schritt startet erst danach. Frühere App-/DB-Gates und aktuelle Zahlen stehen ausschließlich in `docs/current/qualitaet.md`.
+Historische Folge-Diffs einschließlich der Store-Mapper-Auslagerung sind gesichert. Die aktuelle Arbeit betrifft den Editor-Umbau aus `.scratch/editor-umbau/HANDOFF-2026-11-05.md`; die Arbeitsübersicht steht in `.scratch/editor-umbau/map.md`. Jede aktive Scheibe endet mit ihrem ausgeführten Gate und Schritt-Commit, bevor eine neue Umsetzung beginnt. Frühere App-/DB-Gates und aktuelle Zahlen stehen ausschließlich in `docs/current/qualitaet.md`.
 
 ---
 
@@ -303,7 +303,7 @@ Neu erzeugte Uploads werden nach fehlgeschlagenem DB-Commit kompensiert; negativ
 | R10 | Import-Asset-Kompensation unbelegt | **Kompensationsvertrag geschlossen**; eine gemeinsame Datei-/DB-Tx besteht nicht | P3-5 |
 | R11 | Kein PG-Service/Coverage/Fehlerpfade in CI | **Implementierung und aktuelle lokale Gates geschlossen**; CI-Jobs vorhanden | P1-1, P1-2 |
 | R12 | God-Files | **offen** | P3-2 |
-| R13 | Ursprünglicher Arbeitsbaum ungesichert | **Vorheriger Folge-Diff gesichert**; der aktuelle P3-2-Schritt bleibt bis Gate und Commit offen | P0-1 / P3-2 |
+| R13 | Ursprünglicher Arbeitsbaum ungesichert | **Historische Folge-Diffs gesichert**; jede aktive Editor-Scheibe bleibt bis Gate und Schritt-Commit offen | P0-1 / Editor-Umbau |
 
 ## Definition of Ready für neue Schritte
 

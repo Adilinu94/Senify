@@ -6,6 +6,73 @@ import { startProgram } from "@senify/app";
 import { browserAvailable, memoryDb } from "./support.ts";
 
 describe.skipIf(!browserAvailable)("global variables in the editor", () => {
+  it("sperrt History beim Retry mit einer veralteten Pending-ID nach Reload", async () => {
+    const { chromium } = await import("playwright");
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-variable-history-retry-"));
+    const running = await startProgram({ db: database.db, dataDir, programTokenFile: join(dataDir, "token.json"), enginePort: 0, appPort: 0, openBrowser: false, reviewVisuals: false, rateLimits: { perMinute: 1200, burst: 400, destructivePerMinute: 200 } });
+    const browser = await chromium.launch({ headless: true });
+    let release: (() => void) | undefined;
+    try {
+      const request = (path: string, body: unknown, method = "POST") => fetch(`${running.dashboardUrl}${path}`, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const site = await (await request("/api/sites", { name: "History-Retry" })).json() as { id: string };
+      const page = await (await request(`/api/sites/${site.id}/pages`, { title: "Start", path: "/" })).json() as { id: string };
+      expect((await request(`/api/sites/${site.id}/theme`, { theme: { tokens: { primitive: { color: { marker: "#123456" } } } } }, "PUT")).status).toBe(200);
+      const tab = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+      await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`);
+      await tab.waitForFunction('document.querySelector(".canvas-view__stage")?.dataset.startFit != null', undefined, { timeout: 30000 });
+      const endpoint = `**/api/sites/${site.id}/theme/variables/color/marker/delete`;
+      await tab.route(endpoint, (route) => route.fulfill({ status: 503, json: { error: { message: "Antwort unklar" } } }));
+      await tab.getByRole("tab", { name: "Variablen" }).click();
+      await tab.getByRole("button", { name: "Farbe marker löschen", exact: true }).click();
+      await tab.getByRole("button", { name: "Farbe marker löschen bestätigen" }).click();
+      await tab.getByRole("status").getByText("Antwort unklar").waitFor();
+      // An older tab may have persisted a marker that the new session does not own.
+      await tab.evaluate(({ siteId, pageId }) => {
+        const key = `senify:pending-variable:${siteId}:${pageId}`;
+        const { sessionStorage } = globalThis as unknown as { sessionStorage: { getItem(key: string): string | null; setItem(key: string, value: string): void } };
+        const operation = JSON.parse(sessionStorage.getItem(key)!);
+        operation.externalHistoryId = "obsolete-history-id";
+        sessionStorage.setItem(key, JSON.stringify(operation));
+      }, { siteId: site.id, pageId: page.id });
+      await tab.reload();
+      await tab.getByRole("tab", { name: "Elemente" }).click();
+      await tab.getByRole("button", { name: "Überschrift", exact: true }).click();
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      const saved = await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json() as { draft: { nodes: Record<string, { id: string; type: string }> } };
+      const heading = Object.values(saved.draft.nodes).find((node) => node.type === "heading")!;
+      const canvasNode = tab.locator('.senify-canvas__frame[data-device="desktop"] iframe').contentFrame().locator(`[data-node-id="${heading.id}"]`);
+      await canvasNode.waitFor({ state: "attached" });
+      await tab.unroute(endpoint);
+      let captured: (() => void) | undefined;
+      const requested = new Promise<void>((resolve) => { captured = resolve; });
+      const delayed = new Promise<void>((resolve) => { release = resolve; });
+      await tab.route(endpoint, async (route) => {
+        captured?.();
+        await delayed;
+        await route.fulfill({ status: 409, json: { error: { message: "Stand inzwischen geändert" } } });
+      });
+      await tab.getByRole("tab", { name: "Variablen" }).click();
+      await tab.getByRole("button", { name: "Ausstehenden Variablenvorgang prüfen" }).click();
+      await requested;
+      await tab.getByRole("button", { name: "Verlauf", exact: true }).click();
+      expect(await tab.locator(".senify-history__row").isDisabled()).toBe(true);
+      await tab.getByRole("button", { name: "Verlauf schließen" }).click();
+      await tab.getByRole("button", { name: "Rückgängig", exact: true }).click();
+      expect(await canvasNode.count()).toBe(1);
+      release?.();
+      await tab.getByRole("status").getByText("Stand inzwischen geändert").waitFor();
+      await tab.getByRole("button", { name: "Rückgängig", exact: true }).click();
+      await expect.poll(() => canvasNode.count()).toBe(0);
+    } finally {
+      release?.();
+      await browser.close();
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
   it("does not rebase an editor change made while a variable deletion is in flight", async () => {
     const { chromium } = await import("playwright");
     const database = memoryDb();

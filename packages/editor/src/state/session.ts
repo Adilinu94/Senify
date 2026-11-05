@@ -13,6 +13,7 @@
 // restores the view through the injected storage.
 
 import type { Author } from "@senify/section-sdk";
+import type { ExternalRecordInput, HistoryEntry } from "../history.ts";
 import type { Device } from "@senify/widget-engine";
 import { EditorStore, type ApplyOptions, type ApplyOutcome } from "./store.ts";
 import type { SelectionState } from "./selection.ts";
@@ -53,6 +54,7 @@ export type SessionSnapshot = {
   ui: EditorUiState;
   canUndo: boolean;
   canRedo: boolean;
+  pendingExternalId: string | null;
 };
 
 export class EditorSession {
@@ -113,6 +115,10 @@ export class EditorSession {
     return this.store.selection;
   }
 
+  get pendingExternalId(): string | null {
+    return this.store.pendingExternalId;
+  }
+
   get canUndo(): boolean {
     return this.store.canUndo;
   }
@@ -131,6 +137,18 @@ export class EditorSession {
 
   redo(): boolean {
     return this.store.redo();
+  }
+
+  beginExternalAction(input: ExternalRecordInput): HistoryEntry {
+    return this.store.beginExternalAction(input);
+  }
+
+  commitExternalAction(id: string, input: Partial<ExternalRecordInput> = {}): HistoryEntry {
+    return this.store.commitExternalAction(id, input);
+  }
+
+  failExternalAction(id: string): HistoryEntry | null {
+    return this.store.failExternalAction(id);
   }
 
   select(id: string | null): void {
@@ -175,6 +193,10 @@ export class EditorSession {
 
   acceptThemeVersion(version: number): void {
     this.pipeline.acceptThemeVersion(version);
+  }
+
+  acceptStyleRegistry(version: number, ruleIds: Iterable<string>): void {
+    this.pipeline.acceptStyleRegistry(version, ruleIds);
   }
 
   acceptExternalVersions(basePageVersion: number, baseThemeVersion: number, pageVersion: number, themeVersion: number): boolean {
@@ -224,6 +246,7 @@ export class EditorSession {
       ui: this.#ui,
       canUndo: this.canUndo,
       canRedo: this.canRedo,
+      pendingExternalId: this.pendingExternalId,
     };
   }
 

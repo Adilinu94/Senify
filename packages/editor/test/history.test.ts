@@ -182,6 +182,72 @@ describe("undo / redo stack", () => {
   });
 });
 
+describe("external async history", () => {
+  it("sperrt Restore-Patches während eines ausstehenden externen Vorgangs", () => {
+    const history = new HistoryStack();
+    const steps = recordRealSteps(history, [
+      [{ op: "updateNodeProps", id: "hero000001", patch: { headline: "Erster Stand" } }],
+      [{ op: "updateNodeProps", id: "hero000001", patch: { headline: "Zweiter Stand" } }],
+    ]);
+    const pending = history.beginExternal({ label: "Token löschen", versionBefore: 3, versionAfter: 4 });
+    expect(() => history.restoreAsDraft(steps[0]!.entryId)).toThrow(/externer Vorgang/i);
+    expect(history.pendingExternalId).toBe(pending.id);
+    expect(history.applied()).toHaveLength(2);
+    history.failExternal(pending.id);
+    expect(applyTreePatches(steps[1]!.tree, history.restoreAsDraft(steps[0]!.entryId))).toEqual(steps[0]!.tree);
+  });
+
+  it("tracks a pending external entry and blocks navigation until resolved", () => {
+    const history = new HistoryStack();
+    history.record({ label: "A", op: "updateNodeProps", mutations: [], undoPatch: [], batchId: null, versionBefore: 1, versionAfter: 2 });
+    const pending = history.beginExternal({ label: "Variable umbenennen", versionBefore: 2, versionAfter: 3 });
+    expect(pending.status).toBe("pending");
+    expect(pending.external).toBe(true);
+    expect(history.pendingExternalId).toBe(pending.id);
+    expect(history.canUndo).toBe(false);
+    expect(history.canRedo).toBe(false);
+    expect(history.undo()).toBeNull();
+    // Local document edits may continue while the server operation is in flight;
+    // navigation stays blocked until the result is resolved.
+    expect(() => history.record({ label: "B", op: "updateNodeProps", mutations: [], undoPatch: [], batchId: null, versionBefore: 2, versionAfter: 3 })).not.toThrow();
+    history.commitExternal(pending.id, { versionAfter: 3 });
+    expect(history.pendingExternalId).toBeNull();
+    expect(history.entries().some((entry) => entry.id === pending.id && entry.status === "committed")).toBe(true);
+  });
+
+  it("removes a failed external entry without corrupting the cursor", () => {
+    const history = new HistoryStack();
+    const before = history.record({ label: "A", op: "updateNodeProps", mutations: [], undoPatch: [], batchId: null, versionBefore: 1, versionAfter: 2 });
+    const pending = history.beginExternal({ label: "Variable löschen", versionBefore: 2, versionAfter: 3 });
+    expect(history.failExternal(pending.id)?.id).toBe(pending.id);
+    expect(history.pendingExternalId).toBeNull();
+    expect(history.entries().map((entry) => entry.id)).toEqual([before.id]);
+    expect(history.top()?.id).toBe(before.id);
+    expect(history.canUndo).toBe(true);
+  });
+
+  it("treats committed external entries as a non-local undo/redo boundary", () => {
+    const history = new HistoryStack();
+    history.record({ label: "A", op: "updateNodeProps", mutations: [], undoPatch: [], batchId: null, versionBefore: 1, versionAfter: 2 });
+    const pending = history.beginExternal({ label: "Variable umbenennen", versionBefore: 2, versionAfter: 3 });
+    history.commitExternal(pending.id);
+    expect(history.canUndo).toBe(false);
+    expect(() => history.undo()).toThrow(/serverseitig|extern/i);
+    expect(() => history.restoreAsDraft(history.entries()[0]!.id)).toThrow(/serverseitig|extern/i);
+  });
+
+  it("refuses restore when the jumped range crosses an external entry", () => {
+    const history = new HistoryStack();
+    const a = history.record({ label: "A", op: "updateNodeProps", mutations: [], undoPatch: [], batchId: null, versionBefore: 1, versionAfter: 2 });
+    const ext = history.beginExternal({ label: "Variable löschen", versionBefore: 2, versionAfter: 3 });
+    history.commitExternal(ext.id);
+    history.record({ label: "B", op: "updateNodeProps", mutations: [], undoPatch: [], batchId: null, versionBefore: 3, versionAfter: 4 });
+    // Cursor is after B; jumping back to A would rewind across committed external B's predecessor? range includes external.
+    // Applied: [A, ext, B], cursor=3. restoreAsDraft(A) rewinds ext,B => crosses ext.
+    expect(() => history.restoreAsDraft(a.id)).toThrow(/serverseitig|extern/i);
+  });
+});
+
 describe("restore as draft", () => {
   it("rewinds the applied stack to the picked entry", () => {
     const history = new HistoryStack();

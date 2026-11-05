@@ -6396,12 +6396,37 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       }
       return !variableSaving;
     };
+    const variableActionLabel = (operation) => operation.action === "delete"
+      ? `Variable ${operation.group}.${operation.name} gelöscht`
+      : operation.action === "rename"
+        ? `Variable ${operation.group}.${operation.name} umbenannt`
+        : `Variable ${operation.group}.${operation.name} wiederhergestellt`;
+    const beginVariableExternalHistory = (operation) => {
+      if (typeof operation.externalHistoryId === "string" && session.pendingExternalId === operation.externalHistoryId) return operation.externalHistoryId;
+      const entry = session.beginExternalAction({
+        label: variableActionLabel(operation),
+        versionBefore: session.version,
+        versionAfter: session.version,
+      });
+      operation.externalHistoryId = entry.id;
+      return entry.id;
+    };
+    const failVariableExternalHistory = (operation) => {
+      if (typeof operation.externalHistoryId !== "string") return;
+      try { session.failExternalAction(operation.externalHistoryId); } catch { /* History may have been cleared by a reload. */ }
+      delete operation.externalHistoryId;
+    };
+
     const runVariableOperation = async (operation) => {
       if (!canChangeVariable(operation)) return;
       try {
+        beginVariableExternalHistory(operation);
         window.sessionStorage.setItem(pendingVariableKey, JSON.stringify(operation));
-      } catch {
-        status.textContent = "Der Vorgang kann nicht sicher vorgemerkt werden. Bitte Browser-Speicher freigeben.";
+      } catch (error) {
+        failVariableExternalHistory(operation);
+        status.textContent = error?.message?.includes("externer Vorgang")
+          ? "Bitte zuerst den laufenden Verlaufsvorgang abschließen."
+          : "Der Vorgang kann nicht sicher vorgemerkt werden. Bitte Browser-Speicher freigeben.";
         return;
       }
       variableSaving = true;
@@ -6433,6 +6458,11 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
           const unchanged = clean && session.version === operation.body.pageContext.baseDraftVersion && siteThemeVersion === operation.body.baseThemeVersion;
           accepted = (unchanged || alreadyLoaded) && latest.version === result.version && fresh.draftVersion === result.pageDraftVersion && registry.version === result.registryVersion;
           if (accepted) {
+            // Rename rewrites references on the server; replacing the document
+            // keeps the local page consistent. replaceDocument() clears local
+            // history (known limitation from the handoff); the external history
+            // marker in this slice only tracks the in-flight/confirmed action
+            // until a full async reload/undo design lands.
             const loaded = editor.loadDocument(fresh.draft, { styleRules: registry.rules }).document;
             session.replaceDocument(loaded, fresh.draftVersion, registry.version);
             session.acceptThemeVersion(latest.version);
@@ -6467,6 +6497,9 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
         }
         rememberVariableHistory();
         pendingVariableOperation = null;
+        // Server action is confirmed; remove the pending shared-history marker.
+        // Full async undo/redo for server-side variable actions is a follow-up.
+        failVariableExternalHistory(operation);
         try { window.sessionStorage.removeItem(pendingVariableKey); } catch { /* A replay remains idempotent. */ }
         variableSaving = false;
         renderVariables();
@@ -6482,10 +6515,15 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
         variableSaving = false;
         for (const item of variablesHost.querySelectorAll("button")) item.disabled = false;
         if (operation.uncertain || !Number.isInteger(error?.status) || error.status >= 500) {
+          // Server state may have changed: keep the recoverable sessionStorage flow,
+          // but remove the blocking local history marker until retry/resolve commits.
+          failVariableExternalHistory(operation);
           operation.uncertain = true;
           pendingVariableOperation = operation;
+          try { window.sessionStorage.setItem(pendingVariableKey, JSON.stringify(operation)); } catch { /* Recovery UI remains available in-memory. */ }
           showPendingVariableRetry();
         } else {
+          failVariableExternalHistory(operation);
           try { window.sessionStorage.removeItem(pendingVariableKey); } catch { /* A replay remains idempotent. */ }
         }
         status.textContent = error?.message ?? "Änderung fehlgeschlagen. Bitte erneut versuchen.";

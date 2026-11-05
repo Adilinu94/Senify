@@ -495,6 +495,12 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
   };
 
   const record = (event: EditorStoreAction): void => {
+    // External async history entries represent server-confirmed work (variable
+    // rename/delete/restore). They do not translate into page/style-rule HTTP
+    // mutations in this pipeline.
+    if (event.type === "external-begin" || event.type === "external-commit" || event.type === "external-fail") {
+      return;
+    }
     // Always translate the *patches*, never the raw mutation: an operation may
     // generate ids (an insert does), and only the forward patch carries them.
     // Sending the raw mutation would leave the engine with different ids than

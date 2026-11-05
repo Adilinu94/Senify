@@ -53,6 +53,36 @@ function harness(options: { storage?: SessionStorage; script?: (request: SaveReq
 }
 
 describe("editor session", () => {
+  it("projiziert externe Lifecycle-Marker ohne zusätzliche Persistenzwrites", async () => {
+    const { session, requests } = harness();
+    try {
+      session.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 });
+      await session.flush();
+      const document = session.document;
+      const save = session.saveState();
+      const seen: (string | null)[] = [];
+      session.subscribe(() => seen.push(session.snapshot().pendingExternalId));
+      const failed = session.beginExternalAction({ label: "Token löschen", versionBefore: 2, versionAfter: 3 });
+      expect(session.snapshot()).toMatchObject({ pendingExternalId: failed.id, canUndo: false, canRedo: false });
+      expect(session.undo()).toBe(false);
+      expect(session.failExternalAction(failed.id)?.id).toBe(failed.id);
+      expect(session.snapshot()).toMatchObject({ pendingExternalId: null, canUndo: true });
+      const committed = session.beginExternalAction({ label: "Token umbenennen", versionBefore: 2, versionAfter: 3 });
+      session.commitExternalAction(committed.id, {
+        versionAfter: 3,
+        mutations: [{ patch: "setNodeProps", id: "head000001", props: { fontSize: 40 } }] as unknown as typeof committed.mutations,
+      });
+      await session.flush();
+      expect(seen).toEqual([failed.id, null, committed.id, null]);
+      expect(session.document).toBe(document);
+      expect(session.saveState()).toEqual(save);
+      expect(requests).toHaveLength(1);
+      expect(session.store.history.top()).toMatchObject({ id: committed.id, status: "committed", external: true });
+    } finally {
+      session.dispose();
+    }
+  });
+
   it("bundles document, selection, history and save state in one object", async () => {
     const { session, requests } = harness();
     expect(session.version).toBe(1);

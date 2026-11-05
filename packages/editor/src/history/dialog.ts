@@ -101,6 +101,7 @@ export function createHistoryDialog(options: HistoryDialogOptions): HistoryDialo
       const entry = entries[index];
       if (entry === undefined) continue;
       const future = index >= applied.length;
+      const blocked = !store.history.canRestoreTo(entry.id);
       const row = h(doc, "button", {
         className: "senify-history__row",
         data: {
@@ -111,6 +112,7 @@ export function createHistoryDialog(options: HistoryDialogOptions): HistoryDialo
         attributes: {
           type: "button",
           title: `${clock(entry.at)} · ${entry.label}`,
+          ...(blocked ? { disabled: "", "aria-disabled": "true", title: store.pendingExternalId !== null ? "Ein externer Vorgang wird noch ausgeführt." : "Dieser Sprung enthält serverseitige Schritte." } : {}),
         },
       });
       row.appendChild(h(doc, "span", { className: "senify-history__time", text: clock(entry.at) }));
@@ -118,7 +120,9 @@ export function createHistoryDialog(options: HistoryDialogOptions): HistoryDialo
       if (entry.id === currentId) {
         row.appendChild(h(doc, "span", { className: "senify-history__mark", text: "jetzt" }));
       }
-      row.addEventListener("click", () => store.restoreTo(entry.id));
+      row.addEventListener("click", () => {
+        if (store.history.canRestoreTo(entry.id)) store.restoreTo(entry.id);
+      });
       list.appendChild(row);
     }
   }

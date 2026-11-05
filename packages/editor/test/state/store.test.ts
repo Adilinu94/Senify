@@ -151,6 +151,78 @@ describe("coalescing", () => {
   });
 });
 
+describe("external async history", () => {
+  it("trennt neue Eingaben nach Auflösung eines externen Vorgangs", () => {
+    const store = baseStore();
+    const pending = store.beginExternalAction({ label: "Token löschen", versionBefore: store.version, versionAfter: store.version + 1 });
+    const coalesceKey = typingCoalesceKey("head000001", "text");
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "Während der Anfrage" }, { coalesceKey });
+    store.failExternalAction(pending.id);
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "Nach der Anfrage" }, { coalesceKey });
+    expect(store.undo()).toBe(true);
+    expect(store.document.nodes["head000001"]?.props["text"]).toBe("Während der Anfrage");
+    expect(store.undo()).toBe(true);
+    expect(store.document.nodes["head000001"]?.props["text"]).toBe("Hallo");
+  });
+
+  it("verweigert einen Sprung über externe Schritte ohne Teilnavigation", () => {
+    const store = baseStore();
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "Vorher" });
+    const target = store.history.top()!;
+    const pending = store.beginExternalAction({ label: "Token umbenennen", versionBefore: store.version, versionAfter: store.version + 1 });
+    store.commitExternalAction(pending.id);
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "Nachher" });
+    const document = store.document;
+    const applied = store.history.applied();
+    const actions: string[] = [];
+    store.setActionListener((event) => actions.push(event.type));
+
+    expect(() => store.restoreTo(target.id)).toThrow(/serverseitig|extern/i);
+    expect(store.document).toBe(document);
+    expect(store.history.applied()).toEqual(applied);
+    expect(store.history.future()).toEqual([]);
+    expect(actions).toEqual([]);
+  });
+
+  it("emits lifecycle actions and blocks navigation while pending", () => {
+    const store = baseStore();
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "Alt" });
+    const actions: string[] = [];
+    store.setActionListener((event) => actions.push(event.type));
+    const pending = store.beginExternalAction({ label: "Variable umbenennen", versionBefore: store.version, versionAfter: store.version });
+    expect(store.pendingExternalId).toBe(pending.id);
+    expect(store.canUndo).toBe(false);
+    expect(store.undo()).toBe(false);
+    // Local edits may continue while a variable operation is in flight.
+    expect(() => store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "Neu" })).not.toThrow();
+    store.commitExternalAction(pending.id, { versionAfter: store.version });
+    expect(store.pendingExternalId).toBeNull();
+    expect(actions).toContain("external-begin");
+    expect(actions).toContain("apply");
+    expect(actions).toContain("external-commit");
+  });
+
+  it("drops a failed pending action", () => {
+    const store = baseStore();
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "Neu" });
+    const pending = store.beginExternalAction({ label: "Variable löschen", versionBefore: store.version, versionAfter: store.version + 1 });
+    expect(store.failExternalAction(pending.id)?.id).toBe(pending.id);
+    expect(store.canUndo).toBe(true);
+    expect(store.undo()).toBe(true);
+    expect(store.document.nodes["head000001"]?.props["text"]).toBe("Hallo");
+  });
+
+  it("does not silently undo across a committed external boundary", () => {
+    const store = baseStore();
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "Neu" });
+    const pending = store.beginExternalAction({ label: "Variable umbenennen", versionBefore: store.version, versionAfter: store.version + 1 });
+    store.commitExternalAction(pending.id);
+    expect(store.canUndo).toBe(false);
+    expect(() => store.undo()).toThrow(/serverseitig|extern/i);
+    expect(store.document.nodes["head000001"]?.props["text"]).toBe("Neu");
+  });
+});
+
 describe("store selection", () => {
   it("selects a node and reveals it", () => {
     const store = baseStore();
