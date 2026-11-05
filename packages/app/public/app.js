@@ -5848,9 +5848,17 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   };
   const reloadDraft = async () => {
     try {
+      if (session.saveState().status === "saving") throw new Error("Der Editor speichert noch. Bitte versuche das Neuladen danach erneut.");
+      const originalDocument = session.document;
+      const originalVersion = session.version;
+      const originalThemeVersion = siteThemeVersion;
       const [fresh, registry, theme] = await Promise.all([api(`/api/pages/${pageId}`), api(`/api/sites/${siteId}/style-rules`), api(`/api/sites/${siteId}/theme`)]);
+      if (!fresh.draft || !Number.isInteger(fresh.draftVersion)) throw new Error("Die Seite konnte nicht geladen werden.");
       if (!Array.isArray(registry.rules) || !Number.isInteger(registry.version)) throw new Error("Die Klassen konnten nicht geladen werden.");
       if (!theme.theme || !Number.isInteger(theme.version)) throw new Error("Die Variablen konnten nicht geladen werden.");
+      if (session.document !== originalDocument || session.version !== originalVersion || siteThemeVersion !== originalThemeVersion || session.saveState().status === "saving") {
+        throw new Error("Der Editorstand hat sich während des Ladens geändert. Bitte prüfe deine Änderungen und versuche es erneut.");
+      }
       const loaded = editor.loadDocument(fresh.draft, { styleRules: registry.rules }).document;
       // Der Server-Stand ersetzt das Dokument; die offenen eigenen Aenderungen
       // sind damit verworfen (so steht es im Dialog).

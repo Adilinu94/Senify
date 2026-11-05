@@ -54,6 +54,66 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
     }
   }, 120_000);
 
+  it("does not reload over a page save that is still in flight", async () => {
+    const { chromium } = await import("playwright");
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-reload-saving-"));
+    const running = await startProgram({ db: database.db, dataDir, programTokenFile: join(dataDir, "token.json"), enginePort: 0, appPort: 0, openBrowser: false, reviewVisuals: false, rateLimits: { perMinute: 1200, burst: 400, destructivePerMinute: 200 } });
+    const browser = await chromium.launch({ headless: true });
+    let releaseDelete: (() => void) | undefined;
+    let releaseSave: (() => void) | undefined;
+    try {
+      const request = (path: string, body: unknown, method = "POST") => fetch(`${running.dashboardUrl}${path}`, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const site = await (await request("/api/sites", { name: "Neuladen beim Speichern" })).json() as { id: string };
+      const page = await (await request(`/api/sites/${site.id}/pages`, { title: "Start", path: "/" })).json() as { id: string };
+      expect((await request(`/api/sites/${site.id}/theme`, { theme: { tokens: { primitive: { color: { marker: "#123456" } } } } }, "PUT")).status).toBe(200);
+      const tab = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+      await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`);
+      await tab.waitForFunction('document.querySelector(".canvas-view__stage")?.dataset.startFit != null', undefined, { timeout: 30000 });
+      let capturedDelete: (() => void) | undefined;
+      const deleted = new Promise<void>((resolve) => { capturedDelete = resolve; });
+      const delayedDelete = new Promise<void>((resolve) => { releaseDelete = resolve; });
+      await tab.route(`**/api/sites/${site.id}/theme/variables/color/marker/delete`, async (route) => {
+        const upstream = await route.fetch();
+        expect(upstream.status()).toBe(200);
+        capturedDelete?.();
+        await delayedDelete;
+        await route.fulfill({ response: upstream });
+      });
+      let capturedSave: (() => void) | undefined;
+      const saving = new Promise<void>((resolve) => { capturedSave = resolve; });
+      const delayedSave = new Promise<void>((resolve) => { releaseSave = resolve; });
+      await tab.route(`**/api/pages/${page.id}/editor-mutations`, async (route) => {
+        const upstream = await route.fetch();
+        expect(upstream.status()).toBe(409);
+        capturedSave?.();
+        await delayedSave;
+        await route.fulfill({ response: upstream });
+      });
+      await tab.getByRole("tab", { name: "Variablen" }).click();
+      await tab.getByRole("button", { name: "Farbe marker löschen", exact: true }).click();
+      await tab.getByRole("button", { name: "Farbe marker löschen bestätigen" }).click();
+      await deleted;
+      await tab.getByRole("tab", { name: "Elemente" }).click();
+      await tab.getByRole("button", { name: "Überschrift", exact: true }).click();
+      await saving;
+      releaseDelete?.();
+      await tab.getByRole("tab", { name: "Variablen" }).click();
+      await tab.getByRole("button", { name: "Editorstand laden (offene Änderungen verwerfen)" }).click();
+      await tab.getByText("Der Editor speichert noch.", { exact: false }).waitFor();
+      releaseSave?.();
+      const dialog = tab.locator('dialog[data-role="conflict-dialog"]');
+      await expect.poll(async () => dialog.getAttribute("open")).toBe("");
+    } finally {
+      releaseDelete?.();
+      releaseSave?.();
+      await browser.close();
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
   it("preserves an editor change made while a variable rename is in flight", async () => {
     const { chromium } = await import("playwright");
     const database = memoryDb();

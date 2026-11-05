@@ -14,6 +14,55 @@ import { browserAvailable, memoryDb } from "./support.ts";
 const author = { kind: "human", id: "programm", label: "Programm" };
 
 describe.skipIf(!browserAvailable)("save conflict dialog", () => {
+  it("does not discard an edit made while a conflict reload is in flight", async () => {
+    const { chromium } = await import("playwright");
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-conflict-reload-race-"));
+    const running = await startProgram({ db: database.db, dataDir, programTokenFile: join(dataDir, "token.json"), enginePort: 0, appPort: 0, openBrowser: false, reviewVisuals: false, rateLimits: { perMinute: 1200, burst: 400, destructivePerMinute: 200 } });
+    const browser = await chromium.launch({ headless: true });
+    let release: (() => void) | undefined;
+    try {
+      const post = (path: string, body: unknown) => fetch(`${running.dashboardUrl}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const site = await (await post("/api/sites", { name: "Konflikt parallel" })).json() as { id: string };
+      const page = await (await post(`/api/sites/${site.id}/pages`, { title: "Start", path: "/" })).json() as { id: string; draftVersion: number; draft: { rootNodeId: string } };
+      const tab = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+      await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`);
+      await tab.waitForFunction('document.querySelector(".canvas-view__stage")?.dataset.startFit != null', undefined, { timeout: 30000 });
+      expect((await post(`/api/pages/${page.id}/mutations`, { baseDraftVersion: page.draftVersion, mutations: [{ op: "insertNode", parent: { nodeId: page.draft.rootNodeId }, node: { type: "divider" } }] })).status).toBe(200);
+      await tab.getByRole("tab", { name: "Elemente" }).click();
+      await tab.getByRole("button", { name: "Überschrift", exact: true }).click();
+      const dialog = tab.locator('dialog[data-role="conflict-dialog"]');
+      await expect.poll(async () => dialog.getAttribute("open")).toBe("");
+      let captured: (() => void) | undefined;
+      const requested = new Promise<void>((resolve) => { captured = resolve; });
+      const delayed = new Promise<void>((resolve) => { release = resolve; });
+      await tab.route(`**/api/pages/${page.id}`, async (route) => {
+        const upstream = await route.fetch();
+        captured?.();
+        await delayed;
+        await route.fulfill({ response: upstream });
+      });
+      await dialog.locator('[data-action="conflict-reload"]').click();
+      await requested;
+      const nodes = tab.locator('.senify-canvas__frame[data-device="desktop"] iframe').contentFrame().locator('[data-node-id]');
+      const before = await nodes.count();
+      await tab.getByRole("button", { name: "Überschrift", exact: true }).click();
+      await expect.poll(() => nodes.count()).toBeGreaterThan(before);
+      const after = await nodes.count();
+      release?.();
+      await tab.getByText("Der Editorstand hat sich während des Ladens geändert.", { exact: false }).waitFor();
+      expect(await nodes.count()).toBe(after);
+      const saved = await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json() as { draft: { nodes: Record<string, { type: string }> } };
+      expect(Object.values(saved.draft.nodes).some((node) => node.type === "heading")).toBe(false);
+    } finally {
+      release?.();
+      await browser.close();
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
   it("shows the dialog on a 409 and loads the server state on demand", async () => {
     const { chromium } = await import("playwright");
     const database = memoryDb();
