@@ -421,6 +421,21 @@ export class EditorStore {
     this.#emit();
   }
 
+  // After a server-confirmed rename the document is authoritative, but retained
+  // local patches must stay usable: callers migrate their token references
+  // first and only then replace the document without discarding the history.
+  replaceDocumentPreservingHistory(document: EditorDocument): void {
+    this.#document = document;
+    this.#selection = EMPTY_SELECTION;
+    this.#emit();
+  }
+
+  // Returns false when a retained patch carries a CSS-text reference that
+  // cannot be proven safe; callers then discard the history instead of guessing.
+  migrateHistoryReferences(family: string, oldName: string, newName: string): boolean {
+    return this.#history.renameReferences(family, oldName, newName);
+  }
+
   // Explicit recovery resolves only its own lease. No observer can write
   // between clearing the old history and installing the replacement.
   resetExternalHistory(id: string, document: EditorDocument): void {

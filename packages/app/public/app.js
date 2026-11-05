@@ -6494,12 +6494,13 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
           accepted = (unchanged || alreadyLoaded) && latest.version === result.version && fresh.draftVersion === result.pageDraftVersion && registry.version === result.registryVersion;
           if (accepted) {
             // Rename rewrites references on the server; replacing the document
-            // keeps the local page consistent. replaceDocument() clears local
-            // history (known limitation from the handoff); the external history
-            // marker in this slice only tracks the in-flight/confirmed action
-            // until a full async reload/undo design lands.
+            // keeps the local page consistent. Structured token references in
+            // retained history patches are migrated so undo/redo cannot bring
+            // the old name back. CSS-text references are not guessed: then the
+            // history is discarded instead.
             const loaded = editor.loadDocument(fresh.draft, { styleRules: registry.rules }).document;
-            session.replaceDocument(loaded, fresh.draftVersion, registry.version);
+            const migrated = session.migrateHistoryReferences(operation.group, operation.name, operation.body.newName);
+            session.replaceDocument(loaded, fresh.draftVersion, registry.version, { preserveHistory: migrated });
             session.acceptThemeVersion(latest.version);
             setVersion(fresh.draftVersion);
           }

@@ -350,3 +350,76 @@ describe("restore as draft", () => {
     expect(() => history.restoreAsDraft("nope")).toThrow(/does not exist/);
   });
 });
+
+describe("rename token references in retained history", () => {
+  it("rewrites structured references in forward and undo patches", () => {
+    const history = new HistoryStack();
+    const entry = history.record({
+      label: "Farbe gesetzt",
+      op: "updateNodeProps",
+      mutations: [{ op: "updateNodeProps", id: "hero000001", patch: { background: { $token: "color.marker" } } }],
+      undoPatch: [{ patch: "setProps", id: "hero000001", props: { background: { $token: "color.marker" } } }],
+      batchId: "batch-token",
+      versionBefore: 1,
+      versionAfter: 2,
+    });
+    const cursorBefore = history.snapshot().cursor;
+
+    expect(history.renameReferences("color", "marker", "marke")).toBe(true);
+
+    const migrated = history.entries().find((item) => item.id === entry.id);
+    expect(migrated?.mutations).toEqual([{ op: "updateNodeProps", id: "hero000001", patch: { background: { $token: "color.marke" } } }]);
+    expect(migrated?.undoPatch).toEqual([{ patch: "setProps", id: "hero000001", props: { background: { $token: "color.marke" } } }]);
+    expect(history.snapshot().cursor).toBe(cursorBefore);
+  });
+
+  it("rewrites $ref and keeps unrelated token names", () => {
+    const history = new HistoryStack();
+    history.record({
+      label: "Abstand gesetzt",
+      op: "updateNodeProps",
+      mutations: [{ op: "updateNodeProps", id: "hero000001", patch: { gap: { $ref: "spacing.luft" }, background: { $token: "color.andere" } } }],
+      undoPatch: [],
+      batchId: null,
+      versionBefore: 1,
+      versionAfter: 2,
+    });
+
+    expect(history.renameReferences("spacing", "luft", "raum")).toBe(true);
+
+    expect(history.entries()[0]?.mutations[0]).toEqual({
+      op: "updateNodeProps",
+      id: "hero000001",
+      patch: { gap: { $ref: "spacing.raum" }, background: { $token: "color.andere" } },
+    });
+  });
+
+  it("refuses CSS-text references and leaves the history unchanged", () => {
+    const history = new HistoryStack();
+    const mutation = { op: "updateNodeProps" as const, id: "hero000001", patch: { background: "var(--color-marker)" } };
+    history.record({
+      label: "CSS gesetzt",
+      op: "updateNodeProps",
+      mutations: [mutation],
+      undoPatch: [],
+      batchId: null,
+      versionBefore: 1,
+      versionAfter: 2,
+    });
+    const before = history.snapshot();
+
+    expect(history.renameReferences("color", "marker", "marke")).toBe(false);
+
+    expect(history.snapshot()).toEqual(before);
+  });
+
+  it("keeps external markers and their ids intact", () => {
+    const history = new HistoryStack();
+    const external = history.beginExternal({ label: "Variable gelöscht", versionBefore: 1, versionAfter: 1 });
+    history.commitExternal(external.id);
+    const snapshot = history.snapshot();
+
+    expect(history.renameReferences("color", "marker", "marke")).toBe(true);
+    expect(history.snapshot()).toEqual(snapshot);
+  });
+});

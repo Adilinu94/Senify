@@ -543,4 +543,34 @@ describe.skipIf(!browserAvailable)("gemeinsame Variablen-History in der App", ()
       expect(Object.values((await f.getPage()).draft.nodes).filter((node) => node.type === "heading")).toHaveLength(0);
     } finally { await f.close(); }
   }, 120_000);
+
+  it("behält lokale History über eine bestätigte Umbenennung und migriert Tokenverweise", async () => {
+    const f = await fixture(true);
+    try {
+      await f.tab.evaluate(`window.__historyTestSession.apply({ op: "setNodeProp", id: "frame00001", key: "background", value: { $token: "color.marker" } })`);
+      await f.saved();
+      await f.tab.evaluate(`window.__historyTestSession.apply({ op: "setNodeProp", id: "frame00001", key: "background", value: { $token: "color.andere" } })`);
+      await f.saved();
+
+      await f.tab.getByRole("tab", { name: "Variablen" }).click();
+      await f.tab.getByRole("button", { name: "Farbe marker umbenennen", exact: true }).click();
+      await f.tab.getByRole("textbox", { name: "Neuer Name für Farbe marker" }).fill("marke");
+      await f.tab.getByRole("button", { name: "Farbe marker umbenennen bestätigen" }).click();
+      await f.tab.getByRole("status").getByText("Variable umbenannt.").waitFor();
+      await f.saved();
+
+      const retained = await f.tab.evaluate(`(() => { const session = window.__historyTestSession; return { json: JSON.stringify(session.store.history.entries()), canUndo: session.canUndo }; })()`) as { json: string; canUndo: boolean };
+      expect(retained.canUndo).toBe(true);
+      expect(retained.json).toContain("color.marke");
+      expect(retained.json).not.toContain("color.marker");
+
+      await f.navigate("undo");
+      await f.saved();
+      expect(await f.tab.evaluate(`window.__historyTestSession.document.nodes.frame00001?.props.background`)).toEqual({ $token: "color.marke" });
+
+      await f.navigate("redo");
+      await f.saved();
+      expect((await f.getPage()).draft.nodes.frame00001!.props.background).toEqual({ $token: "color.andere" });
+    } finally { await f.close(); }
+  }, 120_000);
 });

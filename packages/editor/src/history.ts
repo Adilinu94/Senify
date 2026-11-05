@@ -168,6 +168,36 @@ function checkedSnapshot(input: unknown, limit: number): HistorySnapshot {
 
 let fallbackCounter = 0;
 
+// Retained history entries may still point at the old variable name. Structured
+// `$token`/`$ref` values are unambiguous and can be rewritten in both
+// directions. A CSS-text reference in an old patch cannot be proven safe (the
+// value may no longer exist in the current document), so the caller discards
+// the retained history instead of guessing.
+export function renameHistoryReferences(entries: readonly HistoryEntry[], family: string, oldName: string, newName: string): HistoryEntry[] | null {
+  const oldRef = `${family}.${oldName}`;
+  const newRef = `${family}.${newName}`;
+  const cssVariable = `--${family === "color" ? "color" : "space"}-${oldName}`;
+  const cssReference = new RegExp(`[vV][aA][rR]\\(\\s*${cssVariable}(?=\\s|,|\\))`);
+  let unsafe = false;
+  const visit = (item: unknown): unknown => {
+    if (typeof item === "string") {
+      if (cssReference.test(item)) unsafe = true;
+      return item;
+    }
+    if (item === null || typeof item !== "object") return item;
+    if (Array.isArray(item)) return item.map(visit);
+    return Object.fromEntries(Object.entries(item).map(([key, child]) => [key,
+      (key === "$token" || key === "$ref") && child === oldRef ? newRef : visit(child),
+    ]));
+  };
+  const migrated = entries.map((entry) => ({
+    ...entry,
+    mutations: visit(entry.mutations) as Mutation[],
+    undoPatch: visit(entry.undoPatch) as PatchOp[],
+  }));
+  return unsafe ? null : migrated;
+}
+
 function defaultId(): string {
   fallbackCounter += 1;
   return `hist_${fallbackCounter.toString(36)}`;
@@ -226,6 +256,16 @@ export class HistoryStack {
     this.#entries.splice(0, this.#entries.length, ...snapshot.entries);
     this.#cursor = snapshot.cursor;
     this.#canCoalesce = false;
+  }
+
+  // Migrates retained patches after a confirmed rename. A running external
+  // navigation keeps its reserved route; migration then waits for it.
+  renameReferences(family: string, oldName: string, newName: string): boolean {
+    if (this.#externalNavigation !== null) return false;
+    const migrated = renameHistoryReferences(this.#entries, family, oldName, newName);
+    if (migrated === null) return false;
+    this.#entries.splice(0, this.#entries.length, ...migrated);
+    return true;
   }
 
   #newId(): string {

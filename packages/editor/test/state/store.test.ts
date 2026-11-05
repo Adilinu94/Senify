@@ -265,3 +265,27 @@ describe("store selection", () => {
     expect(store.selection.selected).toEqual([]);
   });
 });
+
+describe("store history token migration", () => {
+  it("keeps retained entries usable across a server-confirmed rename", () => {
+    const store = baseStore();
+    store.apply({ op: "setNodeProp", id: "head000001", key: "color", value: { $token: "color.marker" } });
+    const applied = store.history.applied().length;
+    const node = store.document.nodes["head000001"];
+    if (node === undefined) throw new Error("fixture node missing");
+
+    expect(store.migrateHistoryReferences("color", "marker", "marke")).toBe(true);
+    const entry = store.history.entries().at(-1);
+    expect(JSON.stringify(entry)).toContain("color.marke");
+    expect(JSON.stringify(entry)).not.toContain("color.marker");
+
+    store.replaceDocumentPreservingHistory({
+      ...store.document,
+      nodes: { ...store.document.nodes, ["head000001"]: { ...node, props: { ...node.props, color: { $token: "color.marke" } } } },
+    });
+
+    expect(store.history.applied()).toHaveLength(applied);
+    expect(store.canUndo).toBe(true);
+    expect(store.document.nodes["head000001"]?.props["color"]).toEqual({ $token: "color.marke" });
+  });
+});
